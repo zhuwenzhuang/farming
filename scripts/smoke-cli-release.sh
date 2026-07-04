@@ -12,6 +12,11 @@ BASE_PATH="${FARMING_SMOKE_BASE_PATH:-/farming}"
 TOKEN_MARKER="farming-cli-smoke-ok-$$"
 SMOKE_AGENT="${FARMING_SMOKE_AGENT:-1}"
 
+if [ -n "${REQUESTED_PORT}" ]; then
+  export FARMING_PORT="${REQUESTED_PORT}"
+  export PORT="${REQUESTED_PORT}"
+fi
+
 if [ ! -x "${BIN}" ]; then
   echo "Binary is not executable: ${BIN}" >&2
   exit 2
