@@ -1,5 +1,4 @@
 const TerminalScreenWorker = require('./terminal-screen-worker');
-const InlineTerminalScreenWorker = require('./inline-terminal-screen-worker');
 
 const DEFAULT_POOL_SIZE = 3;
 
@@ -17,7 +16,7 @@ class TerminalScreenWorkerPool {
         : process.env.FARMING_TERMINAL_SCREEN_WORKER_POOL_SIZE
     );
     this.workerOptions = { ...(options.workerOptions || {}) };
-    this.WorkerClass = options.WorkerClass || defaultWorkerClass();
+    this.WorkerClass = options.WorkerClass || TerminalScreenWorker;
     this.idle = [];
     this.waiters = [];
     this.readyWaiters = [];
@@ -163,15 +162,4 @@ class TerminalScreenWorkerPool {
 }
 
 module.exports = TerminalScreenWorkerPool;
-module.exports.defaultWorkerClass = defaultWorkerClass;
-
-function defaultWorkerClass() {
-  const mode = String(process.env.FARMING_TERMINAL_SCREEN_WORKER_MODE || '').toLowerCase();
-  if (mode === 'inline') return InlineTerminalScreenWorker;
-  if (mode === 'thread') return TerminalScreenWorker;
-  if (process.platform === 'linux' && (process.pkg || process.env.FARMING_PACKAGED_RUNTIME === '1')) {
-    return InlineTerminalScreenWorker;
-  }
-  return TerminalScreenWorker;
-}
 module.exports.DEFAULT_POOL_SIZE = DEFAULT_POOL_SIZE;

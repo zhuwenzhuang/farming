@@ -181,7 +181,7 @@ releases/2/manifest.json
 FARMING_CLI_TARGETS=node22-linux-x64 npm run release:cli
 ```
 
-macOS 和 Linux 单文件 CLI 产物都使用 `@yao-pkg/pkg` 的现代 Node runtime。打包态 Darwin 会把 `node-pty` 的 `spawn-helper` 释放到 `~/.farming/runtime/node-pty/<platform-arch>/`。Linux 单文件 CLI 无法通过私有 glibc loader 包裹整个 pkg binary；因此老 glibc 机器如果需要 `node-pty`，应使用下面的 app bundle 发布形态。
+macOS 和 Linux 单文件 CLI 产物都使用 `@yao-pkg/pkg` 的现代 Node runtime。Linux 单文件 CLI 在 CI 中验证 server 启动；Linux native PTY / agent 启动通过 app bundle 做完整 smoke。打包态 Darwin 会把 `node-pty` 的 `spawn-helper` 释放到 `~/.farming/runtime/node-pty/<platform-arch>/`。Linux 单文件 CLI 无法通过私有 glibc loader 包裹整个 pkg binary；因此老 glibc 机器如果需要 `node-pty`，应使用下面的 app bundle 发布形态。
 
 `npm run release:cli` 使用 Vite 构建前端，再通过 `scripts/bundle-cli-runtime.js` 用 esbuild 将后端 runtime bundle/minify 为临时入口，最后按目标平台选择 `@yao-pkg/pkg` 或 legacy `pkg` 生成可执行文件。发布产物里不包含仓库的 `backend/`、`src/`、测试或脚本源码；服务端代码进入二进制，浏览器前端只包含构建后的 `dist/` 资源。`node-pty` native addon 和 `spawn-helper` 作为显式 assets 进入包，pkg 不执行 native build。
 

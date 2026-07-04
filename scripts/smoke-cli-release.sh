@@ -10,6 +10,7 @@ BIN="$1"
 REQUESTED_PORT="${2:-${FARMING_SMOKE_PORT:-}}"
 BASE_PATH="${FARMING_SMOKE_BASE_PATH:-/farming}"
 TOKEN_MARKER="farming-cli-smoke-ok-$$"
+SMOKE_AGENT="${FARMING_SMOKE_AGENT:-1}"
 
 if [ ! -x "${BIN}" ]; then
   echo "Binary is not executable: ${BIN}" >&2
@@ -85,10 +86,17 @@ case "${AUTH_JSON}" in
 esac
 
 if [ -n "${REQUESTED_PORT}" ]; then
-  SPAWN_OUT="$(HOME="${HOME_DIR}" "${BIN}" spawn --port "${REQUESTED_PORT}" --workspace "${WORKSPACE_DIR}" -- /bin/bash)"
+  SPAWN_ARGS=(--port "${REQUESTED_PORT}" --workspace "${WORKSPACE_DIR}" -- /bin/bash)
 else
-  SPAWN_OUT="$(HOME="${HOME_DIR}" "${BIN}" spawn --workspace "${WORKSPACE_DIR}" -- /bin/bash)"
+  SPAWN_ARGS=(--workspace "${WORKSPACE_DIR}" -- /bin/bash)
 fi
+if [ "${SMOKE_AGENT}" = "0" ]; then
+  HOME="${HOME_DIR}" "${BIN}" stop >/dev/null
+  trap - EXIT
+  echo "OK binary=${BIN} port=${PORT} home=${HOME_DIR} agent=skipped"
+  exit 0
+fi
+SPAWN_OUT="$(HOME="${HOME_DIR}" "${BIN}" spawn "${SPAWN_ARGS[@]}")"
 AGENT_ID="$(printf '%s\n' "${SPAWN_OUT}" | sed -n 's/^Started //p' | head -1)"
 if [ -z "${AGENT_ID}" ]; then
   echo "Failed to parse spawned agent id from: ${SPAWN_OUT}" >&2

@@ -45,9 +45,10 @@ jobs:
           FARMING_CLI_TARGETS: node22-linux-x64,node22-linux-arm64
         run: npm run release:cli
 
-      - name: Smoke-test Linux CLI
+      - name: Smoke-test Linux CLI server
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          FARMING_SMOKE_AGENT: "0"
         run: npm run release:cli:smoke -- "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_linux_amd64"
 
       - name: Build Linux app bundle
@@ -59,6 +60,15 @@ jobs:
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
         run: node scripts/verify-release-bundle.js "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}.tar.gz"
+
+      - name: Smoke-test Linux app bundle
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          tmp="$(mktemp -d)"
+          tar -xzf "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}.tar.gz" -C "${tmp}"
+          npm run release:cli:smoke -- "${tmp}/farming-${FARMING_RELEASE_VERSION}/farming"
 
       - name: Collect Linux release assets
         env:

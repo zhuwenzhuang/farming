@@ -182,7 +182,7 @@ Build an explicit target:
 FARMING_CLI_TARGETS=node22-linux-x64 npm run release:cli
 ```
 
-macOS and Linux single-file CLI artifacts use `@yao-pkg/pkg` with a modern Node runtime. A single-file Linux binary cannot wrap the whole pkg executable with a private glibc loader, so old-glibc machines that need `node-pty` should use the app bundle instead.
+macOS and Linux single-file CLI artifacts use `@yao-pkg/pkg` with a modern Node runtime. The Linux single-file CLI is smoke-tested for server startup; Linux native PTY / agent startup is smoke-tested through the app bundle. A single-file Linux binary cannot wrap the whole pkg executable with a private glibc loader, so old-glibc machines that need `node-pty` should use the app bundle instead.
 
 The release script builds the frontend with Vite, bundles the backend runtime through esbuild, packages the executable, writes checksums and a manifest, and runs a basic `strings` scan to catch accidental source or debug markers.
 
