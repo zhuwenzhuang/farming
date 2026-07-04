@@ -1,0 +1,247 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build Linux artifacts
+    runs-on: ubuntu-latest
+    env:
+      FARMING_BASE_PATH: /farming
+      FARMING_RELEASE_VERSION: ${{ github.ref_name }}
+    steps:
+      - name: Normalize release version
+        id: version
+        shell: bash
+        run: |
+          version="${FARMING_RELEASE_VERSION#v}"
+          echo "value=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci --registry=https://registry.npmjs.org/
+
+      - name: Run checks
+        run: npm run check
+
+      - name: Build Linux CLI
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          FARMING_CLI_TARGETS: node22-linux-x64,node22-linux-arm64
+        run: npm run release:cli
+
+      - name: Smoke-test Linux CLI
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: npm run release:cli:smoke -- "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_linux_amd64"
+
+      - name: Build Linux app bundle
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: npm run release:app
+
+      - name: Verify Linux app bundle
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: node scripts/verify-release-bundle.js "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}.tar.gz"
+
+      - name: Collect Linux release assets
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          mkdir -p release-upload
+          cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_linux_amd64" release-upload/
+          cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_linux_arm64" release-upload/
+          cp "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}.tar.gz" release-upload/
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: farming-linux-${{ steps.version.outputs.value }}
+          path: release-upload/*
+          if-no-files-found: error
+
+  build-macos:
+    name: Build macOS artifacts
+    runs-on: macos-latest
+    env:
+      FARMING_BASE_PATH: /farming
+      FARMING_RELEASE_VERSION: ${{ github.ref_name }}
+    steps:
+      - name: Normalize release version
+        id: version
+        shell: bash
+        run: |
+          version="${FARMING_RELEASE_VERSION#v}"
+          echo "value=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci --registry=https://registry.npmjs.org/
+
+      - name: Build macOS CLIs
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          FARMING_CLI_TARGETS: node22-macos-x64,node22-macos-arm64
+        run: npm run release:cli
+
+      - name: Smoke-test native macOS CLI
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          case "$(uname -m)" in
+            arm64|aarch64) asset="darwin_arm64" ;;
+            x86_64|amd64) asset="darwin_amd64" ;;
+            *) echo "Skipping smoke test on unsupported architecture: $(uname -m)"; exit 0 ;;
+          esac
+          npm run release:cli:smoke -- "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_${asset}"
+
+      - name: Collect macOS release assets
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          mkdir -p release-upload
+          cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_darwin_amd64" release-upload/
+          cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_darwin_arm64" release-upload/
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: farming-macos-${{ steps.version.outputs.value }}
+          path: release-upload/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      - build-linux
+      - build-macos
+    env:
+      FARMING_RELEASE_VERSION: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Normalize release version
+        id: version
+        shell: bash
+        run: |
+          version="${FARMING_RELEASE_VERSION#v}"
+          echo "value=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=v${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate checksums and manifest
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          cd release-assets
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum farming* > "farming_${FARMING_RELEASE_VERSION}_checksums.txt"
+          else
+            shasum -a 256 farming* > "farming_${FARMING_RELEASE_VERSION}_checksums.txt"
+          fi
+          node <<'NODE'
+          const fs = require('fs');
+          const { readBundleRelease } = require('../scripts/verify-release-bundle.js');
+          const version = process.env.FARMING_RELEASE_VERSION;
+          const files = fs.readdirSync('.')
+            .filter((file) => file.startsWith('farming'))
+            .filter((file) => !file.endsWith('_checksums.txt'))
+            .sort();
+          const assets = files.map((file) => {
+            const cliMatch = file.match(/^farming_(.+)_(darwin|linux)_(amd64|arm64)$/);
+            if (cliMatch) {
+              return {
+                type: 'cli',
+                file,
+                releaseVersion: cliMatch[1],
+                platform: cliMatch[2],
+                arch: cliMatch[3],
+              };
+            }
+            const bundleMatch = file.match(/^farming-(.+)\.tar\.gz$/);
+            if (bundleMatch) {
+              const bundle = readBundleRelease(file);
+              return {
+                type: 'app-bundle',
+                file,
+                releaseVersion: bundleMatch[1],
+                packageVersion: bundle.release.packageVersion || '',
+                gitSha: bundle.release.gitSha || '',
+                platform: 'linux',
+                arch: 'portable',
+                bundledNodeModules: bundle.release.bundledNodeModules === true,
+                bundledGlibc: bundle.release.bundledGlibc === true,
+              };
+            }
+            return { type: 'unknown', file };
+          });
+          const manifest = {
+            name: 'farming',
+            releaseVersion: version,
+            tag: `v${version}`,
+            gitSha: process.env.GITHUB_SHA,
+            basePath: '/farming',
+            sourceIncluded: false,
+            builtAt: new Date().toISOString(),
+            assets,
+          };
+          fs.writeFileSync('manifest.json', `${JSON.stringify(manifest, null, 2)}\n`);
+          NODE
+
+      - name: Publish release
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          release_args=(--repo "${GITHUB_REPOSITORY}")
+          create_args=(
+            "${RELEASE_TAG}"
+            release-assets/*
+            --verify-tag
+            --title "Farming ${RELEASE_VERSION}"
+            --notes "Stable Farming ${RELEASE_VERSION} release. Download the platform artifact that matches your machine, or use the app bundle tarball on older Linux hosts."
+          )
+          if [[ "${RELEASE_VERSION}" == *-* ]]; then
+            create_args+=(--prerelease)
+          fi
+          if gh release view "${RELEASE_TAG}" "${release_args[@]}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" "${release_args[@]}" release-assets/* --clobber
+          else
+            gh release create "${create_args[@]}" "${release_args[@]}"
+          fi

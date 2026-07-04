@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+printf 'Fake Claude Code ready\n'
+
+while IFS= read -r line; do
+  printf 'received: %s\n' "$line"
+  if [[ "$line" == /* ]]; then
+    printf 'Claude slash command handled\n'
+  else
+    printf 'Claude message handled\n'
+  fi
+done

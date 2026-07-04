@@ -1,0 +1,409 @@
+import type { WorkspaceFile, WorkspaceFileChange, WorkspaceFileDeleteResult, WorkspaceFileMove } from './workspace-files'
+import {
+  applyWorkspaceFileMovesToOpenFile,
+  applyWorkspaceFileMovesToOpenFileCache,
+  applyWorkspaceFileMovesToOpenFiles,
+  removeWorkspaceFileDeletionsFromOpenFileCache,
+  removeWorkspaceFileDeletionsFromOpenFiles,
+  workspaceFileDeletionMatchesOpenFile,
+} from './workspace-file-operations'
+import { isWorkspaceWorkingCopyClean, workspaceFileCacheKey } from './workspace-working-copy'
+
+export interface WorkspaceFileOpenTarget {
+  lineNumber?: number
+  column?: number
+  endColumn?: number
+  view?: 'editor' | 'diff'
+  diffOnly?: boolean
+  gitStatus?: WorkspaceFile['gitStatus']
+  gitStatusLabel?: string
+}
+
+export interface WorkspaceFileCursor {
+  lineNumber: number
+  column?: number
+  endColumn?: number
+  requestId: number
+}
+
+export interface WorkspaceOpenFileRequest {
+  cursor?: WorkspaceFileCursor
+  diffRequestId?: number
+  diffOnly?: boolean
+}
+
+type WorkspaceOpenFileRequestInput = WorkspaceOpenFileRequest | WorkspaceFileCursor
+
+function normalizeWorkspaceOpenFileRequest(options: WorkspaceOpenFileRequestInput): WorkspaceOpenFileRequest {
+  if ('lineNumber' in options && 'requestId' in options) {
+    return { cursor: options }
+  }
+  return options
+}
+
+export interface OpenWorkspaceFile {
+  agentId: string
+  file: WorkspaceFile
+  draft: string
+  dirty: boolean
+  externalChanged: boolean
+  saving: boolean
+  error: string | null
+  cursor?: WorkspaceFileCursor
+  diffRequestId?: number
+  diffOnly?: boolean
+}
+
+export interface WorkspaceOpenFileTarget {
+  agentId: string
+  filePath: string
+}
+
+export interface WorkspaceOpenFilesState {
+  activeFile: OpenWorkspaceFile | null
+  files: OpenWorkspaceFile[]
+  closedFileCache: Map<string, OpenWorkspaceFile>
+}
+
+export interface WorkspaceOpenFilesCloseResult extends WorkspaceOpenFilesState {
+  closedFiles: OpenWorkspaceFile[]
+  activeFileClosed: boolean
+}
+
+export interface WorkspaceOpenFilesDeleteResult extends WorkspaceOpenFilesState {
+  activeFileDeleted: boolean
+}
+
+export interface WorkspaceOpenFileDirtySnapshot {
+  agentId: string
+  path: string
+  dirty?: boolean
+  externalChanged?: boolean
+}
+
+export function workspaceFileCursorForTarget(target: WorkspaceFileOpenTarget | undefined, requestId: number): WorkspaceFileCursor | undefined {
+  if (!target?.lineNumber) return undefined
+  return {
+    lineNumber: target.lineNumber,
+    column: target.column,
+    endColumn: target.endColumn,
+    requestId,
+  }
+}
+
+export function workspaceFileDiffRequestForTarget(target: WorkspaceFileOpenTarget | undefined, requestId: number): number | undefined {
+  return target?.view === 'diff' ? requestId : undefined
+}
+
+export function workspaceFileDiffOnlyForTarget(target: WorkspaceFileOpenTarget | undefined): boolean | undefined {
+  return target?.diffOnly === true ? true : undefined
+}
+
+export function workspaceOpenFileRequestForTarget(
+  target: WorkspaceFileOpenTarget | undefined,
+  requestIds: { cursorRequestId: number; diffRequestId: number }
+): WorkspaceOpenFileRequest {
+  return {
+    cursor: workspaceFileCursorForTarget(target, requestIds.cursorRequestId),
+    diffRequestId: workspaceFileDiffRequestForTarget(target, requestIds.diffRequestId),
+    diffOnly: workspaceFileDiffOnlyForTarget(target),
+  }
+}
+
+export function deletedWorkspaceDiffPlaceholderFile(filePath: string, target: WorkspaceFileOpenTarget): WorkspaceFile {
+  return {
+    path: filePath,
+    content: '',
+    size: 0,
+    mtimeMs: 0,
+    sha1: `deleted:${filePath}`,
+    gitStatus: 'deleted',
+    gitStatusLabel: target.gitStatusLabel || 'D',
+  }
+}
+
+export function shouldOpenMissingWorkspaceFileAsDiff(target?: WorkspaceFileOpenTarget) {
+  return target?.view === 'diff' && target.diffOnly === true && target.gitStatus === 'deleted'
+}
+
+export function shouldRevealSelectedWorkspaceOpenFile(target?: WorkspaceFileOpenTarget) {
+  return target?.gitStatus !== 'deleted'
+}
+
+export function workspaceFileOpenTargetForChange(change: WorkspaceFileChange): WorkspaceFileOpenTarget {
+  return {
+    view: 'diff',
+    diffOnly: change.gitStatus === 'deleted',
+    gitStatus: change.gitStatus,
+    gitStatusLabel: change.gitStatusLabel,
+  }
+}
+
+export function workspaceFileChangePathLabel(change: WorkspaceFileChange) {
+  return change.previousPath ? `${change.previousPath} -> ${change.path}` : change.path
+}
+
+export function workspaceFileChangeRowKey(change: WorkspaceFileChange) {
+  return `${change.gitStatus}:${change.previousPath || ''}:${change.path}`
+}
+
+export function workspaceFileChangeTitle(change: WorkspaceFileChange, gitStatusLabel: string) {
+  return `${workspaceFileChangePathLabel(change)} · ${gitStatusLabel}`
+}
+
+export function workspaceOpenFileDirtyStateForAgent(
+  openFiles: readonly WorkspaceOpenFileDirtySnapshot[],
+  agentId: string | null
+) {
+  const state = new Map<string, boolean>()
+  if (!agentId) return state
+  openFiles.forEach(file => {
+    if (file.agentId !== agentId) return
+    state.set(file.path, Boolean(file.dirty || file.externalChanged))
+  })
+  return state
+}
+
+export function shouldRefreshWorkspaceChangesAfterDirtyStateChange(
+  previous: ReadonlyMap<string, boolean>,
+  next: ReadonlyMap<string, boolean>
+) {
+  for (const [path, wasDirty] of previous) {
+    if (wasDirty === true && next.get(path) === false) return true
+  }
+  return false
+}
+
+export function isSameOpenWorkspaceFile(file: OpenWorkspaceFile, agentId: string, filePath: string) {
+  return file.agentId === agentId && file.file.path === filePath
+}
+
+export function findOpenWorkspaceFile(files: readonly OpenWorkspaceFile[], agentId: string, filePath: string) {
+  return files.find(file => isSameOpenWorkspaceFile(file, agentId, filePath)) ?? null
+}
+
+export function replaceOpenWorkspaceFile(files: readonly OpenWorkspaceFile[], nextFile: OpenWorkspaceFile) {
+  const index = files.findIndex(file => isSameOpenWorkspaceFile(file, nextFile.agentId, nextFile.file.path))
+  if (index === -1) return [...files, nextFile]
+  const nextFiles = [...files]
+  nextFiles[index] = nextFile
+  return nextFiles
+}
+
+export function refreshOpenWorkspaceFileFromRead(openFile: OpenWorkspaceFile, file: OpenWorkspaceFile['file']) {
+  if (!openFile.dirty) {
+    return {
+      ...openFile,
+      file,
+      draft: file.content,
+      dirty: false,
+      externalChanged: false,
+      saving: false,
+      error: null,
+    }
+  }
+
+  const nextDirty = openFile.draft !== file.content
+  return {
+    ...openFile,
+    file,
+    draft: openFile.draft,
+    dirty: nextDirty,
+    externalChanged: nextDirty && (openFile.externalChanged || openFile.file.sha1 !== file.sha1),
+    saving: false,
+    error: null,
+  }
+}
+
+export function createWorkspaceOpenFile(
+  agentId: string,
+  file: WorkspaceFile,
+  options: WorkspaceOpenFileRequestInput = {}
+): OpenWorkspaceFile {
+  const request = normalizeWorkspaceOpenFileRequest(options)
+  return {
+    agentId,
+    file,
+    draft: file.content,
+    dirty: false,
+    externalChanged: false,
+    saving: false,
+    error: null,
+    cursor: request.cursor,
+    diffRequestId: request.diffRequestId,
+    diffOnly: request.diffOnly,
+  }
+}
+
+export function openWorkspaceFileFromRead(
+  state: WorkspaceOpenFilesState,
+  agentId: string,
+  file: WorkspaceFile,
+  options: WorkspaceOpenFileRequestInput = {}
+): WorkspaceOpenFilesState {
+  const request = normalizeWorkspaceOpenFileRequest(options)
+  const closedFileCache = new Map(state.closedFileCache)
+  const cacheKey = workspaceFileCacheKey(agentId, file.path)
+  const cachedFile = closedFileCache.get(cacheKey)
+  const existingFile = findOpenWorkspaceFile(state.files, agentId, file.path)
+  const restoredFile = !existingFile && cachedFile && cachedFile.draft !== file.content
+    ? refreshOpenWorkspaceFileFromRead(cachedFile, file)
+    : null
+  if (cachedFile && !restoredFile) {
+    closedFileCache.delete(cacheKey)
+  }
+
+  const baseFile = existingFile
+    ? refreshOpenWorkspaceFileFromRead(existingFile, file)
+    : restoredFile ?? createWorkspaceOpenFile(agentId, file)
+  const nextFile = {
+    ...baseFile,
+    cursor: request.cursor,
+    diffRequestId: request.diffRequestId,
+    diffOnly: request.diffOnly === true,
+  }
+
+  return {
+    activeFile: nextFile,
+    files: replaceOpenWorkspaceFile(state.files, nextFile),
+    closedFileCache,
+  }
+}
+
+export function selectWorkspaceOpenFile(
+  state: WorkspaceOpenFilesState,
+  agentId: string,
+  filePath: string,
+  options: WorkspaceOpenFileRequestInput = {}
+): WorkspaceOpenFilesState | null {
+  const request = normalizeWorkspaceOpenFileRequest(options)
+  const nextFile = findOpenWorkspaceFile(state.files, agentId, filePath)
+  if (!nextFile) return null
+  const hasViewRequest = Boolean(request.cursor || request.diffRequestId || request.diffOnly !== undefined || nextFile.diffRequestId)
+  const selectedFile = hasViewRequest
+    ? {
+        ...nextFile,
+        cursor: request.cursor ?? nextFile.cursor,
+        diffRequestId: request.diffRequestId,
+        diffOnly: request.diffOnly ?? nextFile.diffOnly,
+      }
+    : nextFile
+  return {
+    activeFile: selectedFile,
+    files: hasViewRequest ? replaceOpenWorkspaceFile(state.files, selectedFile) : state.files,
+    closedFileCache: state.closedFileCache,
+  }
+}
+
+export function closeWorkspaceOpenFiles(
+  state: WorkspaceOpenFilesState,
+  targets: readonly WorkspaceOpenFileTarget[]
+): WorkspaceOpenFilesCloseResult {
+  const targetKeys = new Set(targets.map(target => workspaceFileCacheKey(target.agentId, target.filePath)))
+  if (targetKeys.size === 0) {
+    return { ...state, closedFiles: [], activeFileClosed: false }
+  }
+
+  const closedFiles = state.files.filter(file => targetKeys.has(workspaceFileCacheKey(file.agentId, file.file.path)))
+  if (closedFiles.length === 0) {
+    return { ...state, closedFiles: [], activeFileClosed: false }
+  }
+
+  const closedFileCache = new Map(state.closedFileCache)
+  closedFiles.forEach(file => {
+    const fileHandle = workspaceFileCacheKey(file.agentId, file.file.path)
+    if (file.dirty) {
+      closedFileCache.set(fileHandle, { ...file, saving: false })
+    } else {
+      closedFileCache.delete(fileHandle)
+    }
+  })
+
+  const files = state.files.filter(file => !targetKeys.has(workspaceFileCacheKey(file.agentId, file.file.path)))
+  const activeFileClosed = Boolean(
+    state.activeFile &&
+    targetKeys.has(workspaceFileCacheKey(state.activeFile.agentId, state.activeFile.file.path))
+  )
+  if (!activeFileClosed || !state.activeFile) {
+    return {
+      activeFile: state.activeFile,
+      files,
+      closedFileCache,
+      closedFiles,
+      activeFileClosed: false,
+    }
+  }
+
+  const closedIndex = state.files.findIndex(file => isSameOpenWorkspaceFile(file, state.activeFile!.agentId, state.activeFile!.file.path))
+  const replacement = [...state.files.slice(0, closedIndex)]
+    .reverse()
+    .find(file => !targetKeys.has(workspaceFileCacheKey(file.agentId, file.file.path)))
+    ?? state.files.slice(closedIndex + 1).find(file => !targetKeys.has(workspaceFileCacheKey(file.agentId, file.file.path)))
+    ?? null
+
+  return {
+    activeFile: replacement,
+    files,
+    closedFileCache,
+    closedFiles,
+    activeFileClosed: true,
+  }
+}
+
+export function updateWorkspaceOpenFile(
+  state: WorkspaceOpenFilesState,
+  nextFile: OpenWorkspaceFile
+): WorkspaceOpenFilesState {
+  const closedFileCache = new Map(state.closedFileCache)
+  if (isWorkspaceWorkingCopyClean(nextFile)) {
+    closedFileCache.delete(workspaceFileCacheKey(nextFile.agentId, nextFile.file.path))
+  }
+
+  return {
+    activeFile: nextFile,
+    files: replaceOpenWorkspaceFile(state.files, nextFile),
+    closedFileCache,
+  }
+}
+
+export function updateWorkspaceOpenFileDraft(file: OpenWorkspaceFile, nextDraft: string): OpenWorkspaceFile {
+  return {
+    ...file,
+    draft: nextDraft,
+    dirty: nextDraft !== file.file.content,
+    error: null,
+  }
+}
+
+export function moveWorkspaceOpenFiles(
+  state: WorkspaceOpenFilesState,
+  agentId: string,
+  moves: readonly WorkspaceFileMove[]
+): WorkspaceOpenFilesState {
+  if (moves.length === 0) return state
+  return {
+    activeFile: state.activeFile ? applyWorkspaceFileMovesToOpenFile(state.activeFile, agentId, moves) : state.activeFile,
+    files: applyWorkspaceFileMovesToOpenFiles(state.files, agentId, moves),
+    closedFileCache: applyWorkspaceFileMovesToOpenFileCache(state.closedFileCache.values(), agentId, moves),
+  }
+}
+
+export function deleteWorkspaceOpenFiles(
+  state: WorkspaceOpenFilesState,
+  agentId: string,
+  deletions: readonly WorkspaceFileDeleteResult[]
+): WorkspaceOpenFilesDeleteResult {
+  if (deletions.length === 0) return { ...state, activeFileDeleted: false }
+
+  const files = removeWorkspaceFileDeletionsFromOpenFiles(state.files, agentId, deletions)
+  const activeFileDeleted = Boolean(
+    state.activeFile && workspaceFileDeletionMatchesOpenFile(state.activeFile, agentId, deletions)
+  )
+
+  return {
+    activeFile: activeFileDeleted ? files[0] ?? null : state.activeFile,
+    files,
+    closedFileCache: removeWorkspaceFileDeletionsFromOpenFileCache(state.closedFileCache.values(), agentId, deletions),
+    activeFileDeleted,
+  }
+}

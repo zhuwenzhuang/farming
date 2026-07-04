@@ -1,0 +1,41 @@
+body[data-theme='terminal'] {
+  --font-terminal: 'Courier New', monospace;
+
+  --theme-bg: #0f0f0f;
+  --theme-panel-bg: #1a1a1a;
+  --theme-panel-strong-bg: #2a2a2a;
+  --theme-panel-screen-bg: #0a0a0a;
+
+  /* Primary readable green: aligned with dialog chrome/body (formerly --theme-fg-soft) */
+  --theme-fg: #87ff87;
+  --theme-fg-soft: #87ff87;
+  --theme-fg-muted: #888888;
+  --theme-info: #00ffff;
+  --theme-warning: #ff8800;
+  --theme-error: #ff0000;
+  --theme-error-dark: #cc0000;
+  --theme-accent: #00cc00;
+  --theme-disabled: #555555;
+  --theme-disabled-fg: #888888;
+
+  --theme-border: #00ff00;
+  --theme-border-soft: #184d18;
+  --theme-border-screen: #143514;
+  --theme-border-info: #00ffff;
+  --theme-border-error: #ff0000;
+
+  --theme-selection-bg: #00ff00;
+  --theme-selection-fg: #1a1a1a;
+
+  --fx-text-glow: 0 0 5px currentColor;
+  --fx-panel-glow: 0 0 0 1px rgba(0, 255, 0, 0.04), inset 0 0 18px rgba(0, 255, 102, 0.025);
+  --fx-panel-compact-glow: inset 0 0 10px rgba(0, 255, 102, 0.03);
+  --fx-screen-glow: inset 0 0 30px rgba(0, 255, 102, 0.08);
+  --fx-screen-bg:
+    radial-gradient(circle at 50% 18%, rgba(88, 255, 119, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(12, 18, 12, 0.98), rgba(7, 10, 7, 0.98));
+  --fx-screen-canvas-filter: drop-shadow(0 0 6px rgba(124, 255, 118, 0.16)) saturate(1.06);
+  --fx-scanline-opacity: rgba(0, 0, 0, 0.35);
+  --fx-vignette-inner: rgba(0, 0, 0, 0.15);
+  --fx-vignette-outer: rgba(0, 0, 0, 0.4);
+}

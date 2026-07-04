@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+printf 'Fake Codex 0.142.3 ready\n'
+printf 'Working (fake) · esc to interrupt · /stop to close\n'
+
+while IFS= read -r line; do
+  printf 'received: %s\n' "$line"
+  if [[ "$line" == *"add greeting"* ]]; then
+    printf 'Edited app.js (+1 line)\n'
+    printf 'Done · 1 file changed +1 -0\n'
+  elif [[ "$line" == *"follow up"* ]]; then
+    printf 'Steered: %s\n' "$line"
+    printf 'Done · follow-up applied\n'
+  else
+    printf 'Done · message handled\n'
+  fi
+  printf 'Working (fake) · esc to interrupt · /stop to close\n'
+done

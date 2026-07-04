@@ -1,0 +1,571 @@
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { ensureMainAgentSkillFiles } = require('./main-agent-skills');
+const { normalizeClaudeModelValue } = require('./claude-settings');
+const { isTemporaryProviderSessionId } = require('./provider-session-id');
+
+function splitCodexModelPreset(preset) {
+  if (preset === 'config') {
+    return { model: 'config', effort: 'config' };
+  }
+  if (typeof preset !== 'string') {
+    return { model: 'gpt-5.5', effort: 'xhigh' };
+  }
+
+  const [model, effort] = preset.split(':');
+  return {
+    model: model || 'gpt-5.5',
+    effort: effort || 'xhigh',
+  };
+}
+
+function joinCodexModelPreset(model, effort) {
+  if (model === 'config') return 'config';
+  return effort ? `${model}:${effort}` : model;
+}
+
+const DEFAULT_CODEX_LAUNCH_PROFILE = {
+  approvalMode: 'approve',
+  model: 'gpt-5.5',
+  reasoningEffort: 'xhigh',
+  serviceTier: 'default',
+  modelPreset: 'gpt-5.5:xhigh',
+};
+
+const DEFAULT_CLAUDE_LAUNCH_PROFILE = {
+  permissionMode: 'default',
+  model: 'config',
+  effort: 'config',
+};
+
+const DEFAULT_AGENT_LAUNCH_PROFILES = {
+  codex: DEFAULT_CODEX_LAUNCH_PROFILE,
+  claude: DEFAULT_CLAUDE_LAUNCH_PROFILE,
+};
+
+const MAX_MAIN_PAGE_SESSION_KEYS = 50;
+
+const PERSISTED_SETTING_KEYS = new Set([
+  'workspace',
+  'lastMainWorkspace',
+  'workspaceHistory',
+  'mainPageSessionKeys',
+  'taskHistory',
+  'theme',
+  'appearance',
+  'language',
+  'heartbeatInterval',
+  'dangerouslySkipAgentPermissionsByDefault',
+  'defaultLaunchAgent',
+  'agentLaunchProfiles',
+  'codexApprovalMode',
+  'codexModel',
+  'codexReasoningEffort',
+  'codexServiceTier',
+  'codexModelPreset',
+  'version',
+]);
+
+function cloneLaunchProfile(profile) {
+  return { ...profile };
+}
+
+class ConfigManager {
+  constructor() {
+    this.farmingDir = process.env.FARMING_CONFIG_DIR || path.join(os.homedir(), '.farming');
+    this.settingsFile = path.join(this.farmingDir, 'settings.json');
+    this.settings = null;
+  }
+
+  expandWorkspacePath(workspace) {
+    if (typeof workspace !== 'string') return '';
+    const value = workspace.trim();
+    if (!value) return '';
+    if (value === '~') return os.homedir();
+    if (value.startsWith('~/')) return path.join(os.homedir(), value.slice(2));
+    return value;
+  }
+
+  isTemporaryWorkspace(workspace) {
+    const resolved = path.resolve(this.expandWorkspacePath(workspace));
+    return resolved === '/tmp'
+      || resolved.startsWith('/tmp/')
+      || resolved === '/private/tmp'
+      || resolved.startsWith('/private/tmp/')
+      || resolved === '/var/tmp'
+      || resolved.startsWith('/var/tmp/')
+      || resolved === '/private/var/tmp'
+      || resolved.startsWith('/private/var/tmp/')
+      || resolved === '/var/folders'
+      || resolved.startsWith('/var/folders/')
+      || resolved === '/private/var/folders'
+      || resolved.startsWith('/private/var/folders/');
+  }
+
+  isUsableWorkspace(workspace) {
+    const expanded = this.expandWorkspacePath(workspace);
+    if (!expanded || this.isTemporaryWorkspace(expanded)) return false;
+
+    try {
+      return fs.statSync(expanded).isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  isInternalWorkspace(workspace) {
+    const expanded = this.expandWorkspacePath(workspace);
+    if (!expanded) return false;
+
+    const resolvedWorkspace = path.resolve(expanded);
+    const resolvedFarmingDir = path.resolve(this.farmingDir);
+    return resolvedWorkspace === resolvedFarmingDir || path.basename(resolvedWorkspace) === '.farming';
+  }
+
+  normalizeMainWorkspace(workspace, fallback = this.farmingDir) {
+    const expanded = this.expandWorkspacePath(workspace);
+    if (this.isUsableWorkspace(expanded)) {
+      return expanded;
+    }
+
+    const expandedFallback = this.expandWorkspacePath(fallback);
+    if (this.isUsableWorkspace(expandedFallback)) {
+      return expandedFallback;
+    }
+
+    return this.farmingDir;
+  }
+
+  normalizeWorkspaceHistory(history) {
+    const entries = Array.isArray(history) ? history : [];
+    const result = [];
+    const seen = new Set();
+
+    for (const entry of entries) {
+      const expanded = this.expandWorkspacePath(entry);
+      if (!this.isUsableWorkspace(expanded) || this.isInternalWorkspace(expanded) || seen.has(expanded)) continue;
+      seen.add(expanded);
+      result.push(expanded);
+    }
+
+    return result.slice(0, 5);
+  }
+
+  normalizeMainPageSessionKeys(keys) {
+    const entries = Array.isArray(keys) ? keys : [];
+    const result = [];
+    const seen = new Set();
+
+    for (const entry of entries) {
+      if (typeof entry !== 'string') continue;
+      const value = entry.trim();
+      if (!/^agent-session:[a-z][a-z0-9_-]*:.+$/i.test(value)) continue;
+      const sessionId = value.replace(/^agent-session:[^:]+:/i, '');
+      if (sessionId.startsWith('-')) continue;
+      if (isTemporaryProviderSessionId(sessionId)) continue;
+      if (seen.has(value)) continue;
+      seen.add(value);
+      result.push(value);
+    }
+
+    return result.slice(0, MAX_MAIN_PAGE_SESSION_KEYS);
+  }
+
+  normalizeTaskHistory(history) {
+    const entries = Array.isArray(history) ? history : [];
+    const normalized = [];
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue;
+      if (typeof entry.id !== 'string' || !entry.id) continue;
+      if (typeof entry.agentId !== 'string' || !entry.agentId) continue;
+      if (typeof entry.reason !== 'string' || !entry.reason) continue;
+      if (typeof entry.archivedAt !== 'number' || !Number.isFinite(entry.archivedAt)) continue;
+      normalized.push({
+        id: entry.id,
+        agentId: entry.agentId,
+        command: typeof entry.command === 'string' ? entry.command : '',
+        cwd: typeof entry.cwd === 'string' ? entry.cwd : '',
+        projectWorkspace: typeof entry.projectWorkspace === 'string' ? entry.projectWorkspace : '',
+        title: typeof entry.title === 'string' ? entry.title : '',
+        task: typeof entry.task === 'string' ? entry.task : '',
+        workflowTemplate: typeof entry.workflowTemplate === 'string' ? entry.workflowTemplate : '',
+        source: typeof entry.source === 'string' ? entry.source : 'ui',
+        reason: entry.reason,
+        status: typeof entry.status === 'string' ? entry.status : 'stopped',
+        startedAt: typeof entry.startedAt === 'number' ? entry.startedAt : null,
+        lastActivity: typeof entry.lastActivity === 'number' ? entry.lastActivity : null,
+        archivedAt: entry.archivedAt,
+      });
+    }
+    return normalized
+      .sort((a, b) => b.archivedAt - a.archivedAt)
+      .slice(0, 200);
+  }
+  
+  init() {
+    if (!fs.existsSync(this.farmingDir)) {
+      fs.mkdirSync(this.farmingDir, { recursive: true });
+      console.log('Created farming directory:', this.farmingDir);
+    }
+    
+    if (!fs.existsSync(this.settingsFile)) {
+      const defaultSettings = {
+        workspace: this.farmingDir,
+        lastMainWorkspace: this.farmingDir,
+        workspaceHistory: [],
+        mainPageSessionKeys: [],
+        taskHistory: [],
+        theme: 'terminal',
+        appearance: 'light',
+        language: 'en',
+        heartbeatInterval: 1000,
+        dangerouslySkipAgentPermissionsByDefault: false,
+        defaultLaunchAgent: 'codex',
+        agentLaunchProfiles: {
+          codex: cloneLaunchProfile(DEFAULT_CODEX_LAUNCH_PROFILE),
+          claude: cloneLaunchProfile(DEFAULT_CLAUDE_LAUNCH_PROFILE),
+        },
+        codexApprovalMode: 'approve',
+        codexModel: 'gpt-5.5',
+        codexReasoningEffort: 'xhigh',
+        codexServiceTier: 'default',
+        codexModelPreset: 'gpt-5.5:xhigh',
+        version: '2'
+      };
+      fs.writeFileSync(this.settingsFile, JSON.stringify(defaultSettings, null, 2));
+      console.log('Created default settings:', this.settingsFile);
+    }
+    
+    const rawSettings = JSON.parse(fs.readFileSync(this.settingsFile, 'utf8'));
+    this.settings = {
+      workspace: this.farmingDir,
+      lastMainWorkspace: this.farmingDir,
+      workspaceHistory: [],
+      mainPageSessionKeys: [],
+      taskHistory: [],
+      theme: 'terminal',
+      appearance: 'light',
+      language: 'en',
+      heartbeatInterval: 1000,
+      dangerouslySkipAgentPermissionsByDefault: false,
+      defaultLaunchAgent: 'codex',
+      agentLaunchProfiles: {
+        codex: cloneLaunchProfile(DEFAULT_CODEX_LAUNCH_PROFILE),
+        claude: cloneLaunchProfile(DEFAULT_CLAUDE_LAUNCH_PROFILE),
+      },
+      codexApprovalMode: 'approve',
+      codexModel: 'gpt-5.5',
+      codexReasoningEffort: 'xhigh',
+      codexServiceTier: 'default',
+      codexModelPreset: 'gpt-5.5:xhigh',
+      version: '2',
+      ...rawSettings
+    };
+    if (
+      this.settings.dangerouslySkipAgentPermissionsByDefault === undefined
+      && this.settings.skipPermissionCheckByDefault !== undefined
+    ) {
+      this.settings.dangerouslySkipAgentPermissionsByDefault = this.settings.skipPermissionCheckByDefault === true;
+    }
+    delete this.settings.skipPermissionCheckByDefault;
+    const launchRawSettings = { ...rawSettings };
+    if (rawSettings.codexApprovalMode === undefined && this.settings.dangerouslySkipAgentPermissionsByDefault === true) {
+      this.settings.codexApprovalMode = 'full';
+      launchRawSettings.codexApprovalMode = 'full';
+    }
+    this.settings.workspace = this.farmingDir;
+    this.settings.lastMainWorkspace = this.normalizeMainWorkspace(this.settings.lastMainWorkspace, this.farmingDir);
+    this.settings.workspaceHistory = this.normalizeWorkspaceHistory(this.settings.workspaceHistory);
+    this.settings.mainPageSessionKeys = this.normalizeMainPageSessionKeys(this.settings.mainPageSessionKeys);
+    this.settings.appearance = this.normalizeAppearance(this.settings.appearance);
+    this.settings.language = this.normalizeLanguage(this.settings.language);
+    this.settings.taskHistory = this.normalizeTaskHistory(this.settings.taskHistory);
+    this.normalizeAgentLaunchSettings(launchRawSettings);
+    this.pruneUnknownSettings();
+    ensureMainAgentSkillFiles(this.farmingDir);
+    console.log('Loaded settings:', this.settings);
+  }
+
+  pruneUnknownSettings() {
+    for (const key of Object.keys(this.settings || {})) {
+      if (!PERSISTED_SETTING_KEYS.has(key)) {
+        delete this.settings[key];
+      }
+    }
+  }
+
+  normalizeDefaultLaunchAgent(agentName) {
+    return Object.prototype.hasOwnProperty.call(DEFAULT_AGENT_LAUNCH_PROFILES, agentName) ? agentName : 'codex';
+  }
+
+  normalizeAppearance(appearance) {
+    return ['light', 'dark'].includes(appearance) ? appearance : 'light';
+  }
+
+  normalizeLanguage(language) {
+    return ['en', 'zh'].includes(language) ? language : 'en';
+  }
+
+  normalizeClaudePermissionMode(mode) {
+    return ['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'].includes(mode)
+      ? mode
+      : 'default';
+  }
+
+  normalizeClaudeModel(model) {
+    if (model === 'config') return model;
+    return normalizeClaudeModelValue(model) || 'config';
+  }
+
+  normalizeClaudeEffort(effort) {
+    if (effort === 'config') return effort;
+    if (['low', 'medium', 'high', 'xhigh', 'max'].includes(effort)) return effort;
+    return 'config';
+  }
+
+  normalizeCodexApprovalMode(mode) {
+    return ['ask', 'approve', 'full', 'custom'].includes(mode) ? mode : 'approve';
+  }
+
+  normalizeCodexModelPreset(preset) {
+    if (preset === 'config') return preset;
+    if (typeof preset !== 'string') return 'gpt-5.5:xhigh';
+    if (/^[A-Za-z0-9._-]+(?::[A-Za-z0-9._-]+)?$/.test(preset)) return preset;
+    return 'gpt-5.5:xhigh';
+  }
+
+  normalizeCodexModelId(model) {
+    if (model === 'config') return model;
+    if (typeof model !== 'string') return 'gpt-5.5';
+    if (/^[A-Za-z0-9._-]+$/.test(model)) return model;
+    return 'gpt-5.5';
+  }
+
+  normalizeCodexReasoningEffort(effort) {
+    if (effort === 'config') return effort;
+    if (typeof effort !== 'string') return 'xhigh';
+    if (/^[A-Za-z0-9._-]+$/.test(effort)) return effort;
+    return 'xhigh';
+  }
+
+  normalizeCodexServiceTier(tier) {
+    if (typeof tier !== 'string') return 'default';
+    if (/^[A-Za-z0-9._-]+$/.test(tier)) return tier;
+    return 'default';
+  }
+
+  normalizeCodexModelSettings(rawSettings = {}) {
+    const codexProfile = this.normalizeCodexLaunchProfile({
+      approvalMode: this.settings.codexApprovalMode,
+      model: this.settings.codexModel,
+      reasoningEffort: this.settings.codexReasoningEffort,
+      serviceTier: this.settings.codexServiceTier,
+      modelPreset: this.settings.codexModelPreset,
+    }, {
+      approvalMode: rawSettings.codexApprovalMode,
+      model: rawSettings.codexModel,
+      reasoningEffort: rawSettings.codexReasoningEffort,
+      serviceTier: rawSettings.codexServiceTier,
+      modelPreset: rawSettings.codexModelPreset,
+    });
+    this.applyCodexProfileToLegacySettings(codexProfile);
+  }
+
+  normalizeCodexLaunchProfile(profile = {}, changed = {}) {
+    const next = {
+      ...DEFAULT_CODEX_LAUNCH_PROFILE,
+      ...(profile && typeof profile === 'object' ? profile : {}),
+    };
+    next.approvalMode = this.normalizeCodexApprovalMode(next.approvalMode);
+
+    const hasDirectModelChange = changed.model !== undefined || changed.reasoningEffort !== undefined;
+    const hasPresetChange = changed.modelPreset !== undefined;
+    const normalizedPreset = this.normalizeCodexModelPreset(next.modelPreset);
+    if (hasPresetChange && !hasDirectModelChange) {
+      const fromPreset = splitCodexModelPreset(normalizedPreset);
+      next.model = fromPreset.model;
+      next.reasoningEffort = fromPreset.effort;
+    } else {
+      next.model = this.normalizeCodexModelId(next.model);
+      next.reasoningEffort = this.normalizeCodexReasoningEffort(next.reasoningEffort);
+    }
+    next.serviceTier = this.normalizeCodexServiceTier(next.serviceTier);
+    next.modelPreset = joinCodexModelPreset(
+      next.model,
+      next.reasoningEffort === 'config' ? '' : next.reasoningEffort
+    );
+    return next;
+  }
+
+  normalizeClaudeLaunchProfile(profile = {}) {
+    const next = {
+      ...DEFAULT_CLAUDE_LAUNCH_PROFILE,
+      ...(profile && typeof profile === 'object' ? profile : {}),
+    };
+    return {
+      permissionMode: this.normalizeClaudePermissionMode(next.permissionMode),
+      model: this.normalizeClaudeModel(next.model),
+      effort: this.normalizeClaudeEffort(next.effort),
+    };
+  }
+
+  getChangedAgentLaunchProfiles(rawSettings = {}) {
+    const changedProfiles = {};
+    if (rawSettings.agentLaunchProfiles && typeof rawSettings.agentLaunchProfiles === 'object') {
+      for (const [agentName, profile] of Object.entries(rawSettings.agentLaunchProfiles)) {
+        if (!Object.prototype.hasOwnProperty.call(DEFAULT_AGENT_LAUNCH_PROFILES, agentName)) continue;
+        if (profile && typeof profile === 'object') changedProfiles[agentName] = profile;
+      }
+    }
+
+    const codexChanged = {};
+    if (rawSettings.codexApprovalMode !== undefined) codexChanged.approvalMode = rawSettings.codexApprovalMode;
+    if (rawSettings.codexModel !== undefined) codexChanged.model = rawSettings.codexModel;
+    if (rawSettings.codexReasoningEffort !== undefined) codexChanged.reasoningEffort = rawSettings.codexReasoningEffort;
+    if (rawSettings.codexServiceTier !== undefined) codexChanged.serviceTier = rawSettings.codexServiceTier;
+    if (rawSettings.codexModelPreset !== undefined) codexChanged.modelPreset = rawSettings.codexModelPreset;
+    if (Object.keys(codexChanged).length > 0) {
+      changedProfiles.codex = {
+        ...(changedProfiles.codex || {}),
+        ...codexChanged,
+      };
+    }
+
+    return changedProfiles;
+  }
+
+  mergeAgentLaunchProfiles(existingProfiles = {}, incomingProfiles = {}) {
+    const merged = {};
+    for (const [agentName, defaultProfile] of Object.entries(DEFAULT_AGENT_LAUNCH_PROFILES)) {
+      merged[agentName] = {
+        ...defaultProfile,
+        ...(existingProfiles && typeof existingProfiles === 'object' ? existingProfiles[agentName] : {}),
+        ...(incomingProfiles && typeof incomingProfiles === 'object' ? incomingProfiles[agentName] : {}),
+      };
+    }
+    return merged;
+  }
+
+  applyCodexProfileToLegacySettings(codexProfile) {
+    this.settings.codexApprovalMode = codexProfile.approvalMode;
+    this.settings.codexModel = codexProfile.model;
+    this.settings.codexReasoningEffort = codexProfile.reasoningEffort;
+    this.settings.codexServiceTier = codexProfile.serviceTier;
+    this.settings.codexModelPreset = codexProfile.modelPreset;
+  }
+
+  normalizeAgentLaunchSettings(rawSettings = {}) {
+    const changedProfiles = this.getChangedAgentLaunchProfiles(rawSettings);
+    const mergedProfiles = this.mergeAgentLaunchProfiles(this.settings.agentLaunchProfiles, changedProfiles);
+    this.settings.agentLaunchProfiles = {
+      codex: this.normalizeCodexLaunchProfile(mergedProfiles.codex, changedProfiles.codex || {}),
+      claude: this.normalizeClaudeLaunchProfile(mergedProfiles.claude),
+    };
+    this.settings.defaultLaunchAgent = this.normalizeDefaultLaunchAgent(this.settings.defaultLaunchAgent);
+    this.applyCodexProfileToLegacySettings(this.settings.agentLaunchProfiles.codex);
+  }
+  
+  getWorkspace() {
+    return this.settings ? this.settings.workspace : this.farmingDir;
+  }
+  
+  getHeartbeatInterval() {
+    return this.settings ? (this.settings.heartbeatInterval || 1000) : 1000;
+  }
+
+  getDangerouslySkipAgentPermissionsByDefault() {
+    return this.settings ? this.settings.dangerouslySkipAgentPermissionsByDefault === true : false;
+  }
+
+  getCodexApprovalMode() {
+    if (!this.settings) return 'approve';
+    return this.getAgentLaunchProfile('codex').approvalMode;
+  }
+
+  getCodexModelPreset() {
+    if (!this.settings) return 'gpt-5.5:xhigh';
+    return this.getAgentLaunchProfile('codex').modelPreset;
+  }
+
+  getCodexModel() {
+    if (!this.settings) return 'gpt-5.5';
+    return this.getAgentLaunchProfile('codex').model;
+  }
+
+  getCodexReasoningEffort() {
+    if (!this.settings) return 'xhigh';
+    return this.getAgentLaunchProfile('codex').reasoningEffort;
+  }
+
+  getCodexServiceTier() {
+    if (!this.settings) return 'default';
+    return this.getAgentLaunchProfile('codex').serviceTier;
+  }
+
+  getDefaultLaunchAgent() {
+    return this.settings ? this.normalizeDefaultLaunchAgent(this.settings.defaultLaunchAgent) : 'codex';
+  }
+
+  getAgentLaunchProfiles() {
+    const profiles = this.settings && this.settings.agentLaunchProfiles
+      ? this.settings.agentLaunchProfiles
+      : DEFAULT_AGENT_LAUNCH_PROFILES;
+    return {
+      codex: { ...profiles.codex },
+      claude: { ...profiles.claude },
+    };
+  }
+
+  getAgentLaunchProfile(agentName) {
+    const profiles = this.getAgentLaunchProfiles();
+    const profile = profiles[agentName] || DEFAULT_AGENT_LAUNCH_PROFILES[agentName];
+    return profile ? { ...profile } : {};
+  }
+
+  getSettings() {
+    return {
+      ...this.settings,
+      workspace: this.farmingDir
+    };
+  }
+
+  getTaskHistory() {
+    return this.settings ? this.settings.taskHistory || [] : [];
+  }
+
+  writeSettingsFile() {
+    fs.mkdirSync(this.farmingDir, { recursive: true });
+    fs.writeFileSync(this.settingsFile, JSON.stringify(this.settings, null, 2));
+  }
+
+  appendTaskHistory(entry) {
+    if (!this.settings) return;
+    this.settings.taskHistory = this.normalizeTaskHistory([entry, ...(this.settings.taskHistory || [])]);
+    this.pruneUnknownSettings();
+    this.writeSettingsFile();
+  }
+  
+  updateSettings(newSettings) {
+    const previousMainWorkspace = this.settings.lastMainWorkspace || this.farmingDir;
+    const previousProfiles = this.settings.agentLaunchProfiles || {};
+    const incomingProfiles = newSettings.agentLaunchProfiles || {};
+    this.settings = {
+      ...this.settings,
+      ...newSettings,
+      agentLaunchProfiles: this.mergeAgentLaunchProfiles(previousProfiles, incomingProfiles),
+      workspace: this.farmingDir
+    };
+    this.settings.lastMainWorkspace = this.normalizeMainWorkspace(this.settings.lastMainWorkspace, previousMainWorkspace);
+    this.settings.workspaceHistory = this.normalizeWorkspaceHistory(this.settings.workspaceHistory);
+    this.settings.mainPageSessionKeys = this.normalizeMainPageSessionKeys(this.settings.mainPageSessionKeys);
+    this.settings.appearance = this.normalizeAppearance(this.settings.appearance);
+    this.settings.language = this.normalizeLanguage(this.settings.language);
+    this.settings.taskHistory = this.normalizeTaskHistory(this.settings.taskHistory);
+    this.normalizeAgentLaunchSettings(newSettings);
+    this.pruneUnknownSettings();
+    this.writeSettingsFile();
+  }
+}
+
+module.exports = ConfigManager;

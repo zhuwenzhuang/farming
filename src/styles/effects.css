@@ -1,0 +1,134 @@
+/* Above modals (.session-modal 10001, .dialog-overlay 10002, .terminal-context-menu 10020); still pointer-events: none */
+body[data-theme='terminal'][data-crt-effects='on']::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 10101;
+  pointer-events: none;
+  background: linear-gradient(transparent 50%, var(--fx-scanline-opacity) 50%);
+  background-size: 100% 3px;
+  animation: scanlines 0.08s linear infinite;
+}
+
+body[data-theme='terminal'][data-crt-effects='on']::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 10100;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 0%,
+    var(--fx-vignette-inner) 90%,
+    var(--fx-vignette-outer) 100%
+  );
+}
+
+body.no-crt::before,
+body.no-crt::after,
+body[data-crt-effects='off']::before,
+body[data-crt-effects='off']::after {
+  display: none !important;
+}
+
+@keyframes scanlines {
+  from { transform: translateY(0); }
+  to { transform: translateY(4px); }
+}
+
+.fx-crt-shell {
+  text-shadow: var(--fx-text-glow);
+}
+
+.fx-crt-panel {
+  box-shadow: var(--fx-panel-glow);
+}
+
+.fx-crt-panel-compact {
+  box-shadow: var(--fx-panel-compact-glow);
+}
+
+.fx-crt-screen {
+  background: var(--fx-screen-bg);
+  box-shadow: var(--fx-screen-glow);
+  text-shadow: none !important;
+}
+
+.fx-crt-screen canvas {
+  filter: var(--fx-screen-canvas-filter);
+}
+
+/* === Activity-level CRT effects on agent cards === */
+
+/* Hot: strong phosphor glow */
+.agent-block.hot {
+  box-shadow: 0 0 15px rgba(255, 0, 0, 0.4),
+              0 0 30px rgba(255, 0, 0, 0.2),
+              inset 0 0 20px rgba(255, 50, 0, 0.1);
+  text-shadow: 0 0 8px rgba(255, 0, 0, 0.6);
+}
+
+/* Warm: moderate glow */
+.agent-block.warm {
+  box-shadow: 0 0 10px rgba(255, 136, 0, 0.3),
+              inset 0 0 15px rgba(255, 136, 0, 0.05);
+  text-shadow: 0 0 5px rgba(255, 136, 0, 0.4);
+}
+
+/* Cool: dim glow */
+.agent-block.cool {
+  box-shadow: 0 0 5px rgba(0, 136, 255, 0.2),
+              inset 0 0 10px rgba(0, 136, 255, 0.03);
+  text-shadow: 0 0 3px rgba(0, 136, 255, 0.3);
+}
+
+/* Cold: faded, no glow */
+.agent-block.cold {
+  box-shadow: none;
+  text-shadow: none;
+  opacity: 0.6;
+}
+
+.agent-block.cold .agent-output {
+  color: #336633;
+}
+
+/* Dead: static noise effect */
+.agent-block.dead .agent-output {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 255, 255, 0.03) 2px,
+    rgba(255, 255, 255, 0.03) 4px
+  );
+  color: #444;
+}
+
+/* Zombie: opacity flicker + glitch */
+@keyframes zombie-flicker {
+  0%, 100% { opacity: 0.85; }
+  15% { opacity: 0.5; }
+  30% { opacity: 0.9; }
+  50% { opacity: 0.6; }
+  70% { opacity: 0.45; }
+  90% { opacity: 0.95; }
+}
+
+@keyframes glitch-text {
+  0% { transform: translate(0); }
+  20% { transform: translate(-2px, 1px); }
+  40% { transform: translate(1px, -1px); }
+  60% { transform: translate(-1px, 2px); }
+  80% { transform: translate(2px, -2px); }
+  100% { transform: translate(0); }
+}
+
+.agent-block.zombie {
+  animation: zombie-flicker 2s infinite;
+  --agent-color: #ff4400;
+}
+
+.agent-block.zombie .zombie-badge {
+  animation: glitch-text 0.5s infinite;
+}

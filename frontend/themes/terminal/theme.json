@@ -1,0 +1,24 @@
+{
+  "name": "terminal",
+  "displayName": "Terminal",
+  "description": "Classic terminal CRT style with scanlines and green phosphor",
+  "version": "1.0.0",
+  "author": "Farming Team",
+  "features": {
+    "scanlines": true,
+    "screenCurve": true,
+    "textGlow": true
+  },
+  "colors": {
+    "background": "#0f0f0f",
+    "foreground": "#00ff00",
+    "primary": "#00ff00",
+    "secondary": "#00ffff",
+    "warning": "#ff8800",
+    "error": "#ff0000",
+    "info": "#0088ff"
+  },
+  "defaultSettings": {
+    "crtEffects": true
+  }
+}

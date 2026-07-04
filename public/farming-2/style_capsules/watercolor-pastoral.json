@@ -1,0 +1,94 @@
+{
+  "name": "farming_2_watercolor_pastoral",
+  "version": 1,
+  "principle": "Style is frozen; scene is free. Reuse this capsule to keep Farming 2 watercolor assets visually consistent while changing subject, layout, or scene.",
+  "style_capsule": {
+    "medium": [
+      "loose black ink sketch lines",
+      "soft transparent watercolor washes",
+      "warm cream paper texture",
+      "naturally imperfect hand-drawn edges"
+    ],
+    "mood": [
+      "gentle pastoral",
+      "friendly",
+      "storybook",
+      "quietly cheerful",
+      "handmade rather than polished"
+    ],
+    "palette": {
+      "hat": "warm honey yellow",
+      "clothing": "muted sage green",
+      "hair": "soft brown",
+      "skin": "soft peach with warm rosy cheeks",
+      "line": "warm gray-black ink",
+      "paper": "pale cream watercolor paper",
+      "accent": "small honey yellow or muted garden tones"
+    },
+    "line_quality": [
+      "loose and slightly uneven",
+      "confident but not clean vector outlines",
+      "no mechanical symmetry",
+      "thin imperfect circle when a portrait frame is needed"
+    ],
+    "texture": [
+      "visible watercolor grain",
+      "uneven wash edges",
+      "subtle paper fibers",
+      "soft color pooling"
+    ],
+    "avoid": [
+      "vector art",
+      "anime",
+      "glossy digital icon",
+      "corporate mascot polish",
+      "over-sharpened detail",
+      "thick badge border",
+      "perfect circular frame",
+      "heavy shadows",
+      "realistic skin texture",
+      "busy background for small icons",
+      "tiny decorative details near the face"
+    ]
+  },
+  "modes": {
+    "favicon_small": {
+      "reference_asset": "../images/avatar-watercolor-v3.png",
+      "current_production_asset": "../logo-512.png",
+      "goal": "Readable at 16px and 32px before it is beautiful at full size.",
+      "composition_rules": [
+        "face, eyes, smile, cheeks, and straw hat must be readable as simple shapes",
+        "use minimal background and minimal outer whitespace",
+        "keep the expression simple and cute",
+        "favor broad color blocks over watercolor detail",
+        "do not use bee garden scenery or dense paper texture around the face"
+      ],
+      "prompt_addendum": "Make the face and straw hat dominant. Use a very thin, uneven, partially broken warm gray pencil circle if a frame is needed. Keep only four readable color blocks: honey-yellow hat, peach face, soft brown hair, muted sage clothing. Almost no background details."
+    },
+    "illustration_large": {
+      "reference_asset": "../images/avatar-watercolor-v1-bee-garden.png",
+      "goal": "Carry Farming 2's pastoral watercolor brand feeling in docs, product pages, and larger visual scenes.",
+      "composition_rules": [
+        "allow small bees, wildflowers, vines, paths, wooden hives, and gentle garden scenery",
+        "keep the scene airy with white paper breathing room",
+        "use decorative detail only where it will remain visible at the intended size",
+        "preserve the loose ink and transparent watercolor feeling"
+      ],
+      "prompt_addendum": "Use a cozy hand-drawn bee garden atmosphere with loose black ink line art, soft transparent watercolor washes, honey yellow accents, muted sage greens, wildflowers, wooden hives, and warm paper texture."
+    }
+  },
+  "saved_references": [
+    {
+      "path": "../images/avatar-watercolor-v1-bee-garden.png",
+      "role": "large illustration and brand mood reference"
+    },
+    {
+      "path": "../images/avatar-watercolor-v2.png",
+      "role": "intermediate simplified avatar reference"
+    },
+    {
+      "path": "../images/avatar-watercolor-v3.png",
+      "role": "small icon simplification reference"
+    }
+  ]
+}

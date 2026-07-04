@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Farming - AI Agent Manager</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Courier New', monospace;
+            background: #0f0f0f;
+            color: #00ff00;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            text-shadow: 0 0 5px currentColor;
+            border: 1px solid #00ff00;
+        }
+        
+        body.no-crt::before,
+        body.no-crt::after {
+            display: none !important;
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                transparent 50%,
+                rgba(0, 0, 0, 0.35) 50%
+            );
+            background-size: 100% 3px;
+            pointer-events: none;
+            z-index: 10101;
+            animation: scanlines 0.08s linear infinite;
+        }
+        
+        @keyframes scanlines {
+            0% { transform: translateY(0); }
+            100% { transform: translateY(4px); }
+        }
+        
+        body::after {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(
+                ellipse at center,
+                transparent 0%,
+                rgba(0, 0, 0, 0.15) 90%,
+                rgba(0, 0, 0, 0.4) 100%
+            );
+            pointer-events: none;
+            z-index: 10100;
+        }
+        
+        .top-bar {
+            background: #2a2a2a;
+            padding: 4px 15px;
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid #00ff00;
+            font-size: 12px;
+        }
+        
+        .top-bar-item {
+            padding: 2px 8px;
+            background: transparent;
+            margin-right: 10px;
+            font-size: 12px;
+        }
+        
+        .top-bar-item:last-child {
+            margin-left: auto;
+            margin-right: 0;
+        }
+        
+        .main-container {
+            flex: 1;
+            display: flex;
+            position: relative;
+        }
+        
+        .map-area {
+            flex: 1;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            overflow-y: auto;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .map-area.hidden {
+            display: none;
+        }
+        
+        .agent-block {
+            border: 1px solid #00ff00;
+            background: #0a0a0a;
+            padding: 10px;
+            min-height: 100px;
+            cursor: pointer;
+            position: relative;
+        }
+        
+        .agent-block:hover {
+            border-color: #00ffff;
+            text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+        }
+        
+        .agent-block.hot {
+            border-color: #ff0000;
+        }
+        
+        .agent-block.warm {
+            border-color: #ff8800;
+        }
+        
+        .agent-block.cool {
+            border-color: #0088ff;
+        }
+        
+        .agent-block.cold {
+            border-color: #004488;
+        }
+        
+        .agent-block.stopped {
+            border-color: #444;
+            opacity: 0.5;
+        }
+        
+        .agent-header {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .agent-status {
+            font-size: 12px;
+            margin-bottom: 5px;
+            color: #00ff00;
+        }
+        
+        .agent-output {
+            font-size: 11px;
+            height: 60px;
+            overflow: hidden;
+            white-space: pre-wrap;
+            word-break: break-all;
+            color: #00ff00;
+        }
+        
+        .agent-block.hot .agent-output {
+            animation: blink 0.5s infinite;
+        }
+        
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+        
+        .sidebar {
+            width: 200px;
+            background: #2a2a2a;
+            padding: 15px;
+            border-left: 1px solid #00ff00;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .sidebar-main-agent {
+            border: 1px solid #ff0000;
+            background: #1a1a1a;
+            margin-bottom: 15px;
+            flex-shrink: 0;
+        }
+        
+        .sidebar-main-agent-header {
+            background: #2a2a2a;
+            padding: 8px;
+            border-bottom: 1px solid #ff0000;
+            font-weight: bold;
+            color: #ff0000;
+            font-size: 12px;
+        }
+        
+        .sidebar-main-agent-content {
+            padding: 10px;
+            cursor: pointer;
+            max-height: 120px;
+            overflow: hidden;
+        }
+        
+        .sidebar-main-agent-content:hover {
+            background: #2a2a2a;
+        }
+        
+        .sidebar-actions {
+            flex: 1;
+        }
+        
+        .sidebar-item {
+            padding: 10px;
+            margin: 5px 0;
+            border: 1px solid #00ff00;
+            cursor: pointer;
+            background: #1a1a1a;
+        }
+        
+        .sidebar-item:hover {
+            background: #3a3a3a;
+        }
+        
+        .sidebar-item .key {
+            color: #00ffff;
+            font-weight: bold;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            padding: 16px;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 10001;
+        }
+        
+        .modal.active {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal-content {
+            width: min(92vw, 1600px);
+            max-width: 1600px;
+            height: min(88vh, 960px);
+            max-height: calc(100vh - 32px);
+            background: #1a1a1a;
+            border: 1px solid #00ff00;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            min-height: 0;
+            overflow: hidden;
+        }
+        
+        .modal-header {
+            padding: 10px;
+            background: #2a2a2a;
+            border-bottom: 1px solid #00ff00;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            flex-shrink: 0;
+            min-width: 0;
+        }
+
+        .modal-header span {
+            flex: 1 1 auto;
+            min-width: 0;
+            overflow-wrap: anywhere;
+        }
+
+        .modal-header > div {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .terminal {
+            flex: 1;
+            min-width: 0;
+            min-height: 0;
+            padding: 12px;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at 50% 18%, rgba(88, 255, 119, 0.08), transparent 34%),
+                linear-gradient(180deg, rgba(12, 18, 12, 0.98), rgba(7, 10, 7, 0.98));
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            box-shadow: inset 0 0 30px rgba(0, 255, 102, 0.08);
+        }
+
+        .terminal::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: linear-gradient(
+                transparent 0%,
+                rgba(255, 255, 255, 0.02) 48%,
+                rgba(0, 255, 128, 0.03) 50%,
+                transparent 100%
+            );
+            opacity: 0.5;
+            z-index: 0;
+        }
+
+        .terminal > canvas,
+        .terminal > textarea {
+            position: relative;
+            z-index: 1;
+        }
+
+        .terminal > canvas {
+            max-width: 100%;
+            max-height: 100%;
+        }
+        
+        .empty-state {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex: 1;
+            flex-direction: column;
+        }
+        
+        .empty-state h2 {
+            margin-bottom: 20px;
+        }
+        
+        .modal.active {
+            z-index: 10001;
+        }
+        
+        .input-dialog {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 10002;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .terminal,
+        .terminal * {
+            text-shadow: none !important;
+        }
+
+        .terminal canvas {
+            filter: drop-shadow(0 0 6px rgba(124, 255, 118, 0.16)) saturate(1.06);
+        }
+
+        .input-dialog.active {
+            display: flex;
+        }
+        
+        .input-dialog-content {
+            background: #1a1a1a;
+            border: 1px solid #00ff00;
+            padding: 20px;
+            width: min(92vw, 600px);
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .input-dialog-content h3 {
+            margin-bottom: 15px;
+            color: #00ff00;
+        }
+        
+        .input-dialog-content button {
+            background: #00ff00;
+            color: #1a1a1a;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            margin-right: 10px;
+        }
+        
+        .input-dialog-content button:hover {
+            background: #00cc00;
+        }
+        
+        .input-dialog-content button:disabled {
+            background: #555;
+            color: #888;
+            cursor: not-allowed;
+        }
+        
+        .input-dialog-content .close-btn {
+            background: #00ff00 !important;
+            color: #1a1a1a !important;
+            border: none !important;
+            padding: 10px 20px;
+        }
+        
+        .input-dialog-content .close-btn:hover {
+            background: #00cc00 !important;
+        }
+        
+        .agent-list {
+            margin-top: 15px;
+        }
+
+        .agent-list-group-title {
+            color: #00ff00;
+            font-size: 14px;
+            margin: 12px 0 8px;
+            text-transform: lowercase;
+        }
+        
+        .agent-item {
+            border: 1px solid #00ff00;
+            background: #0a0a0a;
+            padding: 10px;
+            margin: 8px 0;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+        
+        .agent-item:hover {
+            background: #1a2a1a;
+            border-color: #00ffff;
+        }
+        
+        .agent-item .name {
+            font-weight: bold;
+            color: #00ff00;
+            margin-bottom: 5px;
+        }
+        
+        .agent-item .description {
+            font-size: 12px;
+            color: #888;
+        }
+        
+        .agent-item .key-hint {
+            display: inline-block;
+            background: #00ff00;
+            color: #1a1a1a;
+            padding: 2px 8px;
+            font-size: 10px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        
+.close-btn {
+        background: #00ff00 !important;
+        color: #1a1a1a !important;
+        border: none !important;
+        padding: 5px 10px;
+        cursor: pointer;
+        margin-left: 10px;
+        font-family: 'Courier New', monospace;
+    }
+    
+    .close-btn:hover {
+        background: #00cc00 !important;
+    }
+    
+    .kill-btn {
+        background: #ff0000 !important;
+        color: #1a1a1a !important;
+        border: none !important;
+        padding: 5px 10px;
+        cursor: pointer;
+        font-family: 'Courier New', monospace;
+    }
+    
+    .kill-btn:hover {
+        background: #cc0000 !important;
+    }
+    
+    .dialog-header {
+        padding: 10px;
+        background: #2a2a2a;
+        border-bottom: 1px solid #00ff00;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: -20px -20px 15px -20px;
+    }
+    
+    .dialog-header h3 {
+        color: #00ff00;
+        margin: 0;
+    }
+        
+        .key-hint {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: #00ff00;
+            color: #1a1a1a;
+            padding: 2px 5px;
+            font-size: 10px;
+            font-weight: bold;
+        }
+
+        .workspace-field-copy {
+            color: #00ff00;
+            margin-bottom: 10px;
+        }
+
+        .workspace-input {
+            width: 100%;
+            padding: 8px 10px;
+            background: #0a0a0a;
+            border: 1px solid #00ff00;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+        }
+
+        .workspace-history {
+            margin-top: 12px;
+            border: 1px solid #184d18;
+            background: rgba(8, 16, 8, 0.94);
+        }
+
+        .workspace-history-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 8px 10px;
+            border-bottom: 1px solid #143514;
+            color: #87ff87;
+            font-size: 12px;
+            text-transform: lowercase;
+        }
+
+        .workspace-history-header .hint {
+            color: #00ffff;
+        }
+
+        .workspace-history-list {
+            max-height: 220px;
+            overflow-y: auto;
+        }
+
+        .input-dialog-content .workspace-history-item {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            border: 1px solid transparent;
+            border-top: 1px solid #102910;
+            background: transparent;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            text-align: left;
+            cursor: pointer;
+            margin-right: 0;
+        }
+
+        .input-dialog-content .workspace-history-item:first-child {
+            border-top: none;
+        }
+
+        .input-dialog-content .workspace-history-item:hover,
+        .input-dialog-content .workspace-history-item.active {
+            background: transparent;
+            color: #9dff97;
+        }
+
+        .input-dialog-content .workspace-history-item.active {
+            border-color: #2fdc2f;
+            box-shadow: inset 0 0 0 1px #2fdc2f;
+        }
+
+        .workspace-history-index {
+            color: #00ffff;
+            flex: 0 0 auto;
+        }
+
+        .workspace-history-path {
+            flex: 1;
+            min-width: 0;
+            word-break: break-all;
+        }
+
+        .workspace-history-badge {
+            color: #0f0f0f;
+            background: #00ff00;
+            padding: 2px 6px;
+            font-size: 10px;
+            text-transform: uppercase;
+            flex: 0 0 auto;
+        }
+
+        @media (max-width: 980px) {
+            .modal {
+                padding: 10px;
+            }
+
+            .modal-content {
+                width: calc(100vw - 20px);
+                height: calc(100vh - 20px);
+                max-height: calc(100vh - 20px);
+            }
+
+            .modal-header {
+                padding: 8px 10px;
+            }
+
+            .terminal {
+                padding: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="top-bar">
+        <div class="top-bar-item">Agents: <span id="active-agents">0</span>/<span id="total-agents">0</span></div>
+        <div class="top-bar-item">CPU: <span id="cpu-usage">--</span>%</div>
+        <div class="top-bar-item">MEM: <span id="mem-percentage">--</span>%</div>
+        <div class="top-bar-item" id="focus-region" style="display: none;">Focus: <span id="focus-region-name">--</span></div>
+        <div class="top-bar-item">Uptime: <span id="uptime">0s</span></div>
+    </div>
+    
+    <div class="main-container">
+        <div class="map-area" id="map-area">
+            <div class="empty-state" id="empty-state">
+                <h2>No Agents Running</h2>
+                <p>Press <strong>N</strong> to start a new agent</p>
+            </div>
+        </div>
+        
+        <div class="sidebar">
+            <div class="sidebar-actions">
+                <div class="sidebar-item" onclick="showInputDialog()">
+                    <span class="key">[N]</span> New Agent
+                </div>
+                <div class="sidebar-item" style="opacity: 0.5; cursor: not-allowed;">
+                    <span class="key">[L]</span> Task List
+                </div>
+                <div class="sidebar-item" style="opacity: 0.5; cursor: not-allowed;">
+                    <span class="key">[H]</span> History
+                </div>
+                <div class="sidebar-item" style="opacity: 0.5; cursor: not-allowed;">
+                    <span class="key">[K]</span> Skills
+                </div>
+                <div class="sidebar-item" style="opacity: 0.5; cursor: not-allowed;">
+                    <span class="key">[$]</span> Billing
+                </div>
+                <div class="sidebar-item" onclick="showSettings()">
+                    <span class="key">[S]</span> Settings
+                </div>
+            </div>
+            
+            <div class="sidebar-main-agent" id="main-agent-panel" style="display: none;">
+                <div class="sidebar-main-agent-header">
+                    MAIN AGENT <span style="background: #ff0000; color: #1a1a1a; padding: 2px 5px; font-size: 10px; font-weight: bold;">[0]</span>
+                </div>
+                <div class="sidebar-main-agent-content" id="main-agent-block"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="input-dialog" id="input-dialog">
+        <div class="input-dialog-content">
+            <div class="dialog-header">
+                <h3 id="dialog-title">Start Main Agent</h3>
+                <div id="cancel-button-container">
+                    <button class="close-btn" onclick="hideInputDialog()">Esc</button>
+                </div>
+            </div>
+            <div class="agent-list" id="agent-list">
+                <p style="color: #888; font-size: 12px;">Loading available CLI agents...</p>
+            </div>
+            <div id="workspace-input-container" style="display: none; margin-top: 15px;">
+                <p class="workspace-field-copy">Workspace:</p>
+                <input
+                    type="text"
+                    id="workspace-input"
+                    class="workspace-input"
+                    placeholder="/path/to/workspace"
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    aria-autocomplete="none"
+                    data-form-type="other"
+                >
+                <div class="workspace-history" id="workspace-history" style="display: none;">
+                    <div class="workspace-history-header">
+                        <span>recent workspaces</span>
+                        <span class="hint">[↓][↑]</span>
+                    </div>
+                    <div class="workspace-history-list" id="workspace-history-list"></div>
+                </div>
+                <div style="margin-top: 10px;">
+                    <button onclick="confirmStartAgent()">Start [Enter]</button>
+                    <button onclick="backToAgentList()">Back [Esc]</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal" id="session-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span id="session-title">Agent Session</span>
+                <div>
+                    <button class="kill-btn" onclick="killCurrentAgent()">Kill [Ctrl+K]</button>
+                    <button class="close-btn" onclick="closeSession()">Close [Ctrl+Esc]</button>
+                </div>
+            </div>
+            <div class="terminal" id="terminal-output"></div>
+        </div>
+    </div>
+    
+    <div class="modal" id="settings-modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <span>Settings</span>
+                <button class="close-btn" onclick="hideSettings()">Esc</button>
+            </div>
+            <div style="padding: 20px;">
+                <h3 style="margin-bottom: 15px; color: #00ff00;">UI Theme</h3>
+                <div id="theme-list"></div>
+                
+                <h3 style="margin: 30px 0 15px; color: #00ff00;">Display</h3>
+<div id="display-settings">
+                    <div id="crt-effects-container" style="margin-bottom: 15px; padding: 10px; border: 1px solid #444; background: #1a1a1a;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="crt-effects" style="margin-right: 10px;">
+                            <span style="color: #00ff00;">CRT Effects</span>
+                            <span style="color: #888; font-size: 12px; margin-left: 10px;">(Scanlines & screen curve)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <h3 style="margin: 30px 0 15px; color: #00ff00;">Session Engine</h3>
+                <div id="session-engine-settings">
+                    <div style="margin-bottom: 15px; padding: 10px; border: 1px solid #444; background: #1a1a1a;">
+                        <label style="display: block; color: #00ff00; margin-bottom: 10px;">Coding Agent Engine</label>
+                        <select id="coding-agent-engine" style="width: 100%; padding: 8px; background: #0a0a0a; border: 1px solid #00ff00; color: #00ff00; font-family: 'Courier New', monospace;">
+                            <option value="local">built-in</option>
+                            <option value="vt">remote</option>
+                        </select>
+                        <div style="color: #888; font-size: 12px; margin-top: 8px;">`built-in` keeps the current local session engine. `remote` routes coding agents through the external session backend.</div>
+                    </div>
+                    <div style="margin-bottom: 15px; padding: 10px; border: 1px solid #444; background: #1a1a1a;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="skip-permission-check-by-default" style="margin-right: 10px;">
+                            <span style="color: #ff4d4d;">Dangerously skip agent permissions</span>
+                        </label>
+                        <div style="color: #aa6666; font-size: 12px; margin-top: 8px;">Uses each coding agent's most aggressive built-in approval bypass mode. Shell agents are not changed.</div>
+                    </div>
+                    <div id="vt-settings-container" style="display: none; margin-bottom: 15px; padding: 10px; border: 1px solid #444; background: #1a1a1a;">
+                        <label style="display: block; color: #00ff00; margin-bottom: 10px;">Remote Engine URL</label>
+                        <input type="text" id="vt-base-url" placeholder="http://localhost:4020" style="width: 100%; padding: 8px; background: #0a0a0a; border: 1px solid #00ff00; color: #00ff00; font-family: 'Courier New', monospace;">
+                        <div style="color: #888; font-size: 12px; margin-top: 8px;">Used only when the remote session engine is enabled.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="terminal-bridge.js"></script>
+    <script src="skin-bridge.js"></script>
+    <script src="session-bridge.js"></script>
+    <script src="session-modal-bridge.js"></script>
+    <script type="module" src="ghostty-loader.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

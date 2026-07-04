@@ -1,0 +1,81 @@
+# Third Party Notices
+
+Farming is licensed under the MIT License. This file summarizes third-party
+software and external tools that Farming bundles, depends on, or interoperates
+with.
+
+## Bundled Production Dependencies
+
+Farming's app bundle installs production npm dependencies from `package.json`
+and `package-lock.json`. As of this snapshot, the production dependency tree
+contains 114 npm packages with these license families:
+
+| License | Package count |
+| --- | ---: |
+| MIT | 106 |
+| BSD-3-Clause | 3 |
+| ISC | 2 |
+| BSD-2-Clause | 1 |
+| BSD-3-Clause AND Apache-2.0 | 1 |
+| MPL-2.0 OR Apache-2.0 | 1 |
+
+The package-level license files are preserved in bundled `node_modules` when
+the app bundle is built with bundled dependencies enabled.
+
+## Direct Runtime Dependencies
+
+| Package | Version | License | Purpose |
+| --- | --- | --- | --- |
+| `@xterm/addon-clipboard` | 0.2.0 | MIT | Browser terminal clipboard integration |
+| `@xterm/addon-fit` | 0.11.0 | MIT | Browser terminal sizing |
+| `@xterm/addon-search` | 0.16.0 | MIT | Browser terminal search |
+| `@xterm/addon-serialize` | 0.14.0 | MIT | Terminal screen serialization |
+| `@xterm/headless` | 6.0.0 | MIT | Backend terminal screen state |
+| `@xterm/xterm` | 6.0.0 | MIT | Browser terminal renderer |
+| `ansi-to-html` | 0.7.2 | MIT | ANSI text rendering support |
+| `chokidar` | 5.0.0 | MIT | Filesystem watching |
+| `express` | 4.22.1 | MIT | HTTP API server |
+| `ghostty-web` | 0.4.0 | MIT | Optional/debug terminal renderer assets |
+| `material-icon-theme` | 5.36.1 | MIT | File and folder icons |
+| `monaco-editor` | 0.55.1 | MIT | Lightweight code editor |
+| `node-pty` | 1.2.0-beta.12 | MIT | Native pseudo-terminal integration |
+| `react` | 19.2.4 | MIT | Frontend UI framework |
+| `react-arborist` | 3.10.5 | MIT | Tree view UI |
+| `react-dom` | 19.2.4 | MIT | React DOM renderer |
+| `ripgrep` | 0.3.1 | MIT | Node wrapper for file search support |
+| `systeminformation` | 5.31.5 | MIT | Machine status collection |
+| `ws` | 8.20.0 | MIT | WebSocket server/client support |
+
+## Vendored Assets
+
+Farming vendors `ghostty-web` distribution files under
+`frontend/vendor/ghostty-web` for the optional Ghostty debug renderer. The
+source package is `ghostty-web` 0.4.0, licensed under MIT. Its license is kept
+beside the vendored files at `frontend/vendor/ghostty-web/LICENSE`.
+
+If vendored assets are updated, keep this notice in sync with the package name,
+version, and license.
+
+## Development And Build Dependencies
+
+Farming also uses development-time tools such as TypeScript, Vite, ESLint,
+Playwright, Puppeteer, esbuild, and package builders. These tools are not part
+of the app runtime dependency set unless a release artifact explicitly embeds
+their code.
+
+## External Interoperability
+
+Farming can launch or observe external coding-agent CLIs installed by the user,
+including OpenAI Codex CLI and Anthropic Claude Code. These tools are not
+bundled with Farming by default and remain separate projects governed by their
+own terms and licenses.
+
+Farming is not affiliated with, sponsored by, or endorsed by OpenAI, Anthropic,
+Microsoft, or the maintainers of the third-party projects listed above.
+
+## Design References
+
+Farming's interface is influenced by modern coding workbenches and agent tools,
+including Codex, Visual Studio Code, and browser IDEs. This notice covers
+software and assets used by Farming; design inspiration alone does not imply
+that those projects are bundled with Farming.

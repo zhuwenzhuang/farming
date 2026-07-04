@@ -1,0 +1,607 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import {
+  expect,
+  getAgentIdFromRow,
+  openFarming,
+  openNewAgentDialog,
+  startAgentFromOpenDialog,
+  terminalRows,
+  test,
+} from './fixtures'
+
+type ScenarioRunner = (name: string, fn: () => Promise<void>) => Promise<void>
+
+async function createControlAgent(page: import('@playwright/test').Page, command: string, workspace: string) {
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command, workspace },
+  })
+  expect(response.ok()).toBeTruthy()
+  const data = await response.json() as { agentId?: string }
+  expect(data.agentId).toBeTruthy()
+  return data.agentId as string
+}
+
+async function selectAgentById(page: import('@playwright/test').Page, agentId: string) {
+  const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  await expect(row).toBeVisible({ timeout: 30_000 })
+  await row.click()
+  await expect(row).toHaveClass(/active/)
+}
+
+async function expectNoDocumentOverflow(page: import('@playwright/test').Page) {
+  await expect.poll(async () => page.evaluate(() => ({
+    scrollX: window.scrollX,
+    scrollY: window.scrollY,
+    overflowsX: document.documentElement.scrollWidth > window.innerWidth + 2,
+    overflowsY: document.documentElement.scrollHeight > window.innerHeight + 2,
+  }))).toEqual({
+    scrollX: 0,
+    scrollY: 0,
+    overflowsX: false,
+    overflowsY: false,
+  })
+}
+
+async function expectNoInlineOverflow(locator: import('@playwright/test').Locator) {
+  const metrics = await locator.evaluate(element => {
+    const target = element as HTMLElement
+    return {
+      horizontal: target.scrollWidth <= target.clientWidth + 2,
+      vertical: target.scrollHeight <= target.clientHeight + 2,
+    }
+  })
+  expect(metrics.horizontal).toBe(true)
+  expect(metrics.vertical).toBe(true)
+}
+
+async function expectMenuFitsViewport(page: import('@playwright/test').Page, testId: string) {
+  const metrics = await page.getByTestId(testId).evaluate(element => {
+    const rect = (element as HTMLElement).getBoundingClientRect()
+    return {
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    }
+  })
+  expect(metrics.left).toBeGreaterThanOrEqual(0)
+  expect(metrics.top).toBeGreaterThanOrEqual(0)
+  expect(metrics.right).toBeLessThanOrEqual(metrics.width + 1)
+  expect(metrics.bottom).toBeLessThanOrEqual(metrics.height + 1)
+}
+
+async function revealMobileSidebar(page: import('@playwright/test').Page) {
+  const workspace = page.getByTestId('code-workspace')
+  if ((await workspace.getAttribute('class'))?.includes('sidebar-collapsed')) {
+    await page.getByTestId('code-mobile-menu').click()
+  }
+  await expect(page.getByTestId('code-sidebar')).toBeVisible()
+}
+
+async function terminalText(page: import('@playwright/test').Page, agentId: string) {
+  return (await terminalRows(page, agentId, 40)).join('\n')
+}
+
+test.describe('additional Farming Code user scenarios', () => {
+  test('covers 31 additional desktop user-facing UI scenarios', async ({ page, workspaceRoot }) => {
+    const checked: string[] = []
+    const scenario: ScenarioRunner = async (name, fn) => {
+      await test.step(`${String(checked.length + 1).padStart(2, '0')} ${name}`, async () => {
+        await fn()
+        checked.push(name)
+      })
+    }
+
+    const projectDir = path.join(workspaceRoot, 'desktop-project')
+    const historyWorkspace = path.resolve('.tmp', `additional-history-${process.pid}`)
+    const suggestionParent = path.join(workspaceRoot, 'workspace-picks')
+    const suggestedWorkspace = path.join(suggestionParent, 'picked-project')
+    fs.mkdirSync(projectDir, { recursive: true })
+    fs.mkdirSync(historyWorkspace, { recursive: true })
+    fs.mkdirSync(suggestedWorkspace, { recursive: true })
+    fs.writeFileSync(path.join(projectDir, 'README.md'), '# Desktop scenario\n')
+    const attachmentPath = path.join(workspaceRoot, 'context-note.txt')
+    fs.writeFileSync(attachmentPath, 'attached context line\n')
+    const longAttachmentPath = path.join(workspaceRoot, 'a-very-long-context-filename-that-should-stay-readable-in-the-composer.txt')
+    fs.writeFileSync(longAttachmentPath, 'long attachment context\n')
+    const imageAttachmentPath = path.join(workspaceRoot, 'tiny-context.png')
+    fs.writeFileSync(imageAttachmentPath, Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lYt98QAAAABJRU5ErkJggg==',
+      'base64',
+    ))
+
+    let installRequests = 0
+    await page.route('**/farming/api/update/install', async route => {
+      installRequests += 1
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          update: {
+            current: { releaseVersion: '2.0.6', packageVersion: '2.0.6' },
+            latest: { version: '2.0.7', assetName: 'farming-2.0.7.tar.gz' },
+            available: true,
+            installable: true,
+            blockingAgents: [],
+            state: { phase: 'installing' },
+          },
+        }),
+      })
+    })
+    await page.route('**/farming/api/update', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          update: {
+            current: { releaseVersion: '2.0.6', packageVersion: '2.0.6' },
+            latest: { version: '2.0.7', assetName: 'farming-2.0.7.tar.gz' },
+            available: true,
+            installable: true,
+            blockingAgents: [],
+            state: { phase: 'idle' },
+          },
+        }),
+      })
+    })
+
+    await openFarming(page)
+    let bashAgentId = ''
+    let codexAgentId = ''
+
+    await scenario('empty workspace is stable and does not scroll the page', async () => {
+      await expect(page.getByTestId('code-empty-workspace')).toBeVisible()
+      await expect(page.getByTestId('code-composer').locator('textarea')).toBeDisabled()
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('start dialog opens from the empty state and closes with Escape', async () => {
+      await page.getByTestId('code-empty-workspace').getByRole('button', { name: 'New Agent' }).click()
+      await expect(page.getByTestId('input-dialog')).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('input-dialog')).toBeHidden()
+    })
+
+    await scenario('agent picker keeps keyboard focus and wraps between options', async () => {
+      await openNewAgentDialog(page)
+      await expect(page.getByTestId('agent-list-status')).toBeHidden({ timeout: 30_000 })
+      await expect(page.getByTestId('agent-option-codex')).toBeFocused()
+      await page.keyboard.press('End')
+      await expect(page.getByTestId('agent-option-zsh')).toBeFocused()
+      await page.keyboard.press('ArrowDown')
+      await expect(page.getByTestId('agent-option-codex')).toBeFocused()
+    })
+
+    await scenario('workspace path suggestions can be accepted without changing page layout', async () => {
+      await page.getByTestId('agent-option-bash').click()
+      await expect(page.getByTestId('workspace-step')).toBeVisible()
+      await page.getByTestId('workspace-input').fill(`${suggestionParent}${path.sep}pi`)
+      await expect(page.getByTestId('workspace-path-suggestions')).toBeVisible()
+      await page.getByTestId('workspace-input').press('Tab')
+      await expect(page.getByTestId('workspace-input')).toHaveValue(`${suggestedWorkspace}${path.sep}`)
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('Back returns to agent picker without losing dialog state', async () => {
+      await page.getByTestId('workspace-back').click()
+      await expect(page.getByTestId('agent-option-bash')).toBeVisible()
+      await expect(page.getByTestId('workspace-step')).toHaveCount(0)
+    })
+
+    await scenario('starting bash from a fast typed workspace uses the typed value', async () => {
+      await page.getByTestId('agent-option-bash').click()
+      await page.getByTestId('workspace-input').fill(projectDir)
+      await page.getByTestId('workspace-start').click()
+      await expect(page.getByTestId('input-dialog')).toBeHidden({ timeout: 30_000 })
+      const { agentId } = await getAgentIdFromRow(page)
+      bashAgentId = agentId
+      await expect.poll(async () => terminalText(page, agentId)).toContain(path.basename(projectDir))
+    })
+
+    await scenario('New Agent can pick an existing recent workspace history entry', async () => {
+      await page.request.post('/farming/api/settings', {
+        data: { workspaceHistory: [historyWorkspace] },
+      })
+      await openNewAgentDialog(page)
+      await page.getByTestId('agent-option-bash').click()
+      await expect(page.getByTestId('workspace-history')).toBeVisible()
+      await expect(page.getByTestId('workspace-history')).toContainText(path.basename(historyWorkspace))
+      await page.getByTestId('workspace-history-item').first().click()
+      await expect(page.getByTestId('workspace-input')).toHaveValue(historyWorkspace)
+      await page.getByTestId('input-dialog-close').click()
+    })
+
+    await scenario('creating a Codex agent in the same workspace keeps one readable project group', async () => {
+      codexAgentId = await createControlAgent(page, 'codex', projectDir)
+      await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${codexAgentId}"]`)).toBeVisible({ timeout: 30_000 })
+      const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(projectDir) })
+      await expect(project).toHaveCount(1)
+      await expect(project.getByTestId('code-agent-row')).toHaveCount(2)
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('project sidebar keeps agent rows, Open Editors, and Files as stable sections', async () => {
+      const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(projectDir) })
+      const agentsSection = project.getByTestId('code-agents-section')
+      const filesSection = project.getByTestId('code-files-section')
+      await expect(agentsSection).toBeVisible()
+      await expect(agentsSection.locator('.code-agents-header, .code-agents-title')).toHaveCount(0)
+      await expect(agentsSection.locator(':scope > .code-agent-list')).toBeVisible()
+      await expect(filesSection).toBeVisible()
+      await expect(project.getByTestId('code-open-editors')).toHaveCount(0)
+
+      const agentOrder = await project.getByTestId('code-agent-row').evaluateAll(rows =>
+        rows.map(row => (row as HTMLElement).dataset.agentId || '')
+      )
+      await selectAgentById(page, codexAgentId)
+      await selectAgentById(page, bashAgentId)
+      await expect.poll(async () => project.getByTestId('code-agent-row').evaluateAll(rows =>
+        rows.map(row => (row as HTMLElement).dataset.agentId || '')
+      )).toEqual(agentOrder)
+
+      const agentsBox = await agentsSection.boundingBox()
+      const filesBox = await filesSection.boundingBox()
+      if (!agentsBox || !filesBox) throw new Error('Project section boxes are missing')
+      expect(filesBox.y).toBeGreaterThan(agentsBox.y)
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('sidebar collapse and expand do not create body overflow', async () => {
+      await page.getByTestId('code-sidebar-toggle').click()
+      await expect(page.getByTestId('code-sidebar')).toHaveClass(/collapsed/)
+      await expectNoDocumentOverflow(page)
+      await page.getByTestId('code-sidebar-toggle').click()
+      await expect(page.getByTestId('code-sidebar')).not.toHaveClass(/collapsed/)
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('sidebar search filters the active project and clears cleanly', async () => {
+      await page.getByTestId('code-nav-search').click()
+      await expect(page.getByTestId('code-search-box')).toBeVisible()
+      await expect(page.getByTestId('code-search-empty')).toBeVisible()
+      await expect(page.getByTestId('code-search-panel').locator('.code-search-result')).toHaveCount(0)
+      const searchInput = page.getByTestId('code-search-box').locator('input')
+      await searchInput.fill(path.basename(projectDir))
+      await expect(page.getByTestId('code-search-panel')).toBeVisible()
+      await expect(page.getByTestId('code-search-result')).toHaveCount(2)
+      await searchInput.fill('not-a-real-agent-name')
+      await expect(page.getByTestId('code-empty-search')).toBeVisible()
+      await page.getByTestId('code-search-box').getByRole('button', { name: 'Clear search' }).click()
+      await expect(page.getByTestId('code-search-box')).toHaveCount(0)
+    })
+
+    await scenario('History view opens and keeps the composer disabled state coherent', async () => {
+      await page.getByTestId('code-nav-history').click()
+      await expect(page.getByTestId('code-history-panel')).toBeVisible()
+      await expect(page.getByTestId('code-main')).toBeVisible()
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('agent context menu focuses first action and Escape closes it', async () => {
+      const row = page.getByTestId('code-agent-row').first()
+      await row.click({ button: 'right' })
+      const menu = page.getByTestId('code-agent-context-menu')
+      await expect(menu).toBeVisible()
+      await expect(menu.locator('button:not(:disabled)').first()).toBeFocused()
+      await page.keyboard.press('Escape')
+      await expect(menu).toHaveCount(0)
+    })
+
+    await scenario('rename dialog cancels without changing the row title', async () => {
+      const row = page.getByTestId('code-agent-row').first()
+      const before = ((await row.textContent()) ?? '').trim()
+      await row.click({ button: 'right' })
+      await page.getByRole('menuitem', { name: 'Rename Agent' }).click()
+      await expect(page.getByTestId('code-rename-input')).toBeFocused()
+      await page.getByTestId('code-rename-input').fill('temporary rename')
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('code-rename-dialog')).toHaveCount(0)
+      await expect(row).toContainText(before.split(/\s+/)[0] || 'bash')
+    })
+
+    await scenario('bash composer hides Codex-only controls and keeps send available', async () => {
+      await selectAgentById(page, bashAgentId)
+      await expect(page.getByTestId('code-composer-add')).toHaveCount(0)
+      await expect(page.getByTestId('code-composer-approval')).toHaveCount(0)
+      await expect(page.getByTestId('code-composer-model-picker')).toHaveCount(0)
+      await expect(page.getByTestId('code-composer-send')).toBeVisible()
+    })
+
+    await scenario('text attachment appends readable context to the composer and can be sent', async () => {
+      await selectAgentById(page, bashAgentId)
+      const textarea = page.getByTestId('code-composer').locator('textarea')
+      await page.getByTestId('code-composer-file-input').setInputFiles(attachmentPath)
+      await expect(textarea).toContainText('attached context line')
+      await textarea.fill('echo additional-desktop-context')
+      await page.getByTestId('code-composer-send').click()
+      await expect.poll(async () => terminalText(page, bashAgentId)).toContain('additional-desktop-context')
+    })
+
+    await scenario('upgrade badge is compact, blue, versioned, and keyboard-readable', async () => {
+      const productMark = page.getByTestId('code-product-mark')
+      await expect(productMark).toContainText('Farming Code')
+      await expect(productMark).toContainText('DOGFOOD BETA · v2.0.6')
+      await expect(productMark).toContainText('UPGRADE')
+      await expect(productMark).toHaveClass(/upgrade/)
+      await expect(productMark).toHaveAttribute('title', 'Upgrade to 2.0.7')
+      await expectNoInlineOverflow(productMark)
+    })
+
+    await scenario('collapsed sidebar keeps product status as an icon-sized affordance', async () => {
+      await page.getByTestId('code-sidebar-toggle').click()
+      await expect(page.getByTestId('code-sidebar')).toHaveClass(/collapsed/)
+      const metrics = await page.getByTestId('code-product-mark').evaluate(element => {
+        const rect = (element as HTMLElement).getBoundingClientRect()
+        const main = element.querySelector('.code-product-mark-main')
+        return {
+          width: rect.width,
+          mainVisible: main ? getComputedStyle(main).display !== 'none' : false,
+        }
+      })
+      expect(metrics.width).toBeLessThanOrEqual(56)
+      expect(metrics.mainVisible).toBe(false)
+      await page.getByTestId('code-sidebar-toggle').click()
+    })
+
+    await scenario('options menu uses concise visible language labels with full ARIA labels', async () => {
+      await page.getByTestId('code-sidebar-options').click()
+      const menu = page.getByTestId('code-options-menu')
+      await expect(menu).toBeVisible()
+      const english = menu.getByRole('menuitemradio', { name: 'Language: English' })
+      const chinese = menu.getByRole('menuitemradio', { name: 'Language: Chinese' })
+      await expect(english).toContainText('English')
+      await expect(english).not.toContainText('Language:')
+      await expect(chinese).toContainText('Chinese')
+      await expect(chinese).not.toContainText('Language:')
+      await expectMenuFitsViewport(page, 'code-options-menu')
+    })
+
+    await scenario('switching language updates labels without leaving duplicate menus', async () => {
+      await page.getByRole('menuitemradio', { name: 'Language: Chinese' }).click()
+      await expect(page.getByTestId('code-nav-search')).toContainText('搜索')
+      await expect(page.getByTestId('code-options-menu')).toHaveCount(0)
+      await page.getByTestId('code-sidebar-options').click()
+      await page.getByRole('menuitemradio', { name: '语言：英文' }).click()
+      await expect(page.getByTestId('code-nav-search')).toContainText('Search')
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('project collapse hides nested rows and expands back without layout drift', async () => {
+      const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(projectDir) })
+      const title = project.getByTestId('code-project-title')
+      await title.click()
+      await expect(title).toHaveAttribute('aria-expanded', 'false')
+      await expect(project.getByTestId('code-agent-row')).toHaveCount(0)
+      await title.click()
+      await expect(title).toHaveAttribute('aria-expanded', 'true')
+      await expect(project.getByTestId('code-agent-row')).toHaveCount(2)
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('agent context menu can copy the working directory and show one toast', async () => {
+      await page.evaluate(() => {
+        const target = window as unknown as { __additionalCopiedText?: string }
+        target.__additionalCopiedText = ''
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: {
+            writeText: async (text: string) => {
+              target.__additionalCopiedText = text
+            },
+            readText: async () => target.__additionalCopiedText ?? '',
+          },
+        })
+      })
+      const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${bashAgentId}"]`)
+      await row.click({ button: 'right' })
+      await page.getByRole('menuitem', { name: /Copy working directory|复制工作目录/i }).click()
+      await expect(page.getByTestId('code-copy-toast')).toHaveCount(1)
+      await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toBe(projectDir)
+    })
+
+    await scenario('Codex composer controls fit in one concise toolbar row', async () => {
+      await selectAgentById(page, codexAgentId)
+      await expect(page.getByTestId('code-composer-add')).toBeVisible()
+      await expect(page.getByTestId('code-composer-approval')).toBeVisible()
+      await expect(page.getByTestId('code-composer-model-picker')).toBeVisible()
+      await expectNoInlineOverflow(page.getByTestId('code-composer-toolbar'))
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('approval menu has exactly one selected mode and closes with Escape', async () => {
+      await page.getByTestId('code-composer-approval').click()
+      const menu = page.getByTestId('code-approval-menu')
+      await expect(menu).toBeVisible()
+      await expect(menu.locator('[role="menuitemradio"][aria-checked="true"]')).toHaveCount(1)
+      await expectMenuFitsViewport(page, 'code-approval-menu')
+      await page.keyboard.press('Escape')
+      await expect(menu).toHaveCount(0)
+    })
+
+    await scenario('model picker opens nested model choices inside the viewport', async () => {
+      await page.getByTestId('code-composer-model-picker').click()
+      await expect(page.getByTestId('code-model-menu')).toBeVisible()
+      await expect(page.getByTestId('code-model-menu').locator('[role="menuitemradio"][aria-checked="true"]')).toHaveCount(1)
+      await page.getByTestId('code-model-submenu-trigger').click()
+      await expect(page.getByTestId('code-model-submenu')).toBeVisible()
+      await expectMenuFitsViewport(page, 'code-model-submenu')
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('code-model-menu')).toHaveCount(0)
+    })
+
+    await scenario('slash command filter inserts the selected Codex command once', async () => {
+      const textarea = page.getByTestId('code-composer').locator('textarea')
+      await textarea.fill('/st')
+      await expect(page.getByTestId('code-slash-menu')).toBeVisible()
+      await expect(page.getByTestId('code-slash-command-status')).toBeVisible()
+      await page.getByTestId('code-slash-command-status').click()
+      await expect(textarea).toHaveValue('/status ')
+    })
+
+    await scenario('Escape dismisses slash suggestions without clearing the draft', async () => {
+      const textarea = page.getByTestId('code-composer').locator('textarea')
+      await textarea.fill('/')
+      await expect(page.getByTestId('code-slash-menu')).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('code-slash-menu')).toHaveCount(0)
+      await expect(textarea).toHaveValue('/')
+    })
+
+    await scenario('long text attachment remains readable and does not overflow the composer', async () => {
+      const textarea = page.getByTestId('code-composer').locator('textarea')
+      await textarea.fill('')
+      await page.getByTestId('code-composer-file-input').setInputFiles(longAttachmentPath)
+      await expect(textarea).toContainText('long attachment context')
+      await expectNoInlineOverflow(page.getByTestId('code-composer'))
+    })
+
+    await scenario('image attachment uses a compact chip and can be removed cleanly', async () => {
+      await page.getByTestId('code-composer-file-input').setInputFiles(imageAttachmentPath)
+      const attachment = page.getByTestId('code-composer-attachment')
+      await expect(attachment).toBeVisible()
+      await expectNoInlineOverflow(attachment)
+      await attachment.getByRole('button', { name: /Remove / }).click()
+      await expect(page.getByTestId('code-composer-attachment')).toHaveCount(0)
+    })
+
+    await scenario('multiline composer draft grows without covering the toolbar or shifting the page', async () => {
+      const textarea = page.getByTestId('code-composer').locator('textarea')
+      await textarea.fill(Array.from({ length: 8 }, (_, index) => `readability line ${index + 1}`).join('\n'))
+      await expect(page.getByTestId('code-composer-toolbar')).toBeVisible()
+      const height = await textarea.evaluate(element => (element as HTMLElement).getBoundingClientRect().height)
+      expect(height).toBeLessThanOrEqual(220)
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('clicking the upgrade badge calls the install endpoint once and stays in place', async () => {
+      await page.getByTestId('code-product-mark').click()
+      await expect.poll(() => installRequests).toBe(1)
+      await expect(page.getByTestId('code-product-mark')).toContainText(/UPDATING|Updating/i)
+      await expectNoDocumentOverflow(page)
+    })
+
+    expect(checked).toHaveLength(31)
+    console.log(`additional desktop user scenarios executed ${checked.length} scenarios`)
+  })
+
+  test('covers 10 additional mobile user-facing UI scenarios', async ({ page, workspaceRoot }) => {
+    const checked: string[] = []
+    const scenario: ScenarioRunner = async (name, fn) => {
+      await test.step(`${String(checked.length + 1).padStart(2, '0')} ${name}`, async () => {
+        await fn()
+        checked.push(name)
+      })
+    }
+
+    const mobileWorkspace = path.join(workspaceRoot, 'mobile-ui-project')
+    fs.mkdirSync(mobileWorkspace, { recursive: true })
+    fs.writeFileSync(path.join(mobileWorkspace, 'README.md'), '# Mobile UI\n')
+    let mobileAgentId = ''
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await openFarming(page)
+
+    await scenario('mobile shell starts without document overflow', async () => {
+      await expect(page.getByTestId('code-mobile-topbar')).toBeVisible()
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('mobile options menu opens and closes without shifting the page', async () => {
+      await page.getByTestId('code-mobile-more').click()
+      await expect(page.getByTestId('code-options-menu')).toBeVisible()
+      await expectNoDocumentOverflow(page)
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('code-options-menu')).toHaveCount(0)
+    })
+
+    await scenario('mobile sidebar can be revealed and hidden predictably', async () => {
+      await revealMobileSidebar(page)
+      await expect(page.getByTestId('code-sidebar')).toBeVisible()
+      await page.getByTestId('code-mobile-sidebar-backdrop').click()
+      await expect(page.getByTestId('code-workspace')).toHaveClass(/sidebar-collapsed/)
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('mobile can start a bash agent and focus the terminal at the top', async () => {
+      await revealMobileSidebar(page)
+      await openNewAgentDialog(page)
+      await startAgentFromOpenDialog(page, 'bash', mobileWorkspace)
+      mobileAgentId = await page.getByTestId('code-agent-row').first().getAttribute('data-agent-id') ?? ''
+      expect(mobileAgentId).toBeTruthy()
+      await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${mobileAgentId}"]`)).toBeVisible()
+      await expect.poll(async () => {
+        const rows = await terminalRows(page, mobileAgentId, 8)
+        return rows.findIndex(row => row.trim().length > 0)
+      }).toBe(0)
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('mobile terminal accepts composer input after sidebar interaction', async () => {
+      await page.getByTestId('code-composer').locator('textarea').fill('echo mobile-extra-scenario')
+      await page.getByTestId('code-composer-send').click()
+      await expect.poll(async () => terminalText(page, mobileAgentId)).toContain('mobile-extra-scenario')
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('mobile Search and History views collapse the sidebar and preserve layout', async () => {
+      await revealMobileSidebar(page)
+      await page.getByTestId('code-nav-search').click()
+      await expect(page.getByTestId('code-mobile-topbar')).toContainText('Search')
+      await expect(page.getByTestId('code-workspace')).toHaveClass(/sidebar-collapsed/)
+      await expectNoDocumentOverflow(page)
+      await revealMobileSidebar(page)
+      await page.getByTestId('code-nav-history').click()
+      await expect(page.getByTestId('code-mobile-topbar')).toContainText('History')
+      await expect(page.getByTestId('code-workspace')).toHaveClass(/sidebar-collapsed/)
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('mobile New Agent dialog fits the viewport without nested page drift', async () => {
+      await revealMobileSidebar(page)
+      await openNewAgentDialog(page)
+      await expect(page.getByTestId('input-dialog')).toBeVisible()
+      await expectMenuFitsViewport(page, 'input-dialog')
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('input-dialog')).toBeHidden()
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('mobile search box accepts and clears a query without widening the shell', async () => {
+      await revealMobileSidebar(page)
+      await page.getByTestId('code-nav-search').click()
+      await revealMobileSidebar(page)
+      const searchInput = page.getByTestId('code-search-box').locator('input')
+      await searchInput.fill('mobile-ui-project')
+      await expect(page.getByTestId('code-search-box')).toBeVisible()
+      await expectNoInlineOverflow(page.getByTestId('code-search-box'))
+      await page.getByTestId('code-search-box').getByRole('button').click()
+      await expect(page.getByTestId('code-search-box')).toHaveCount(0)
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('mobile product mark remains readable in the revealed sidebar', async () => {
+      await revealMobileSidebar(page)
+      await expect(page.getByTestId('code-product-mark')).toContainText('Farming Code')
+      await expectNoInlineOverflow(page.getByTestId('code-product-mark'))
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('mobile options menu keeps language choices compact and inside the viewport', async () => {
+      if (!((await page.getByTestId('code-workspace').getAttribute('class')) ?? '').includes('sidebar-collapsed')) {
+        await page.mouse.click(382, 96)
+        await expect(page.getByTestId('code-workspace')).toHaveClass(/sidebar-collapsed/)
+      }
+      await page.getByTestId('code-mobile-more').click()
+      const menu = page.getByTestId('code-options-menu')
+      await expect(menu).toBeVisible()
+      await expect(menu.getByRole('menuitemradio', { name: 'Language: English' })).toContainText('English')
+      await expectMenuFitsViewport(page, 'code-options-menu')
+      await page.keyboard.press('Escape')
+      await expect(menu).toHaveCount(0)
+    })
+
+    expect(checked).toHaveLength(10)
+    console.log(`additional mobile user scenarios executed ${checked.length} scenarios`)
+  })
+})
