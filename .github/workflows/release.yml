@@ -64,6 +64,7 @@ jobs:
       - name: Smoke-test Linux app bundle
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          FARMING_SMOKE_PORT: "6695"
         shell: bash
         run: |
           tmp="$(mktemp -d)"
