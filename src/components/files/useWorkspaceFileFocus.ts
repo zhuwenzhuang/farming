@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
 import type { TreeApi } from 'react-arborist'
 import {
   ancestorDirectories,
+  findWorkspaceFileTreeNode,
   findVisibleWorkspaceTreePath,
   visibleWorkspaceDirectoryPathsForTarget,
   type WorkspaceFileTreeNode,
@@ -23,6 +24,7 @@ interface UseWorkspaceFileFocusOptions {
   fileOperationActiveRef: MutableRefObject<boolean>
   lastFocusedFilePathRef: MutableRefObject<string | null>
   treeData: WorkspaceFileTreeNode[]
+  isDirectoryLoaded: (directoryPath: string) => boolean
   loadMissingDirectories: (directoryPaths: string[]) => Promise<unknown>
   openDirectoriesInLayout: (directoryPaths: string[]) => void
   refreshTreeLayout: () => void
@@ -53,6 +55,7 @@ export function useWorkspaceFileFocus({
   fileOperationActiveRef,
   lastFocusedFilePathRef,
   treeData,
+  isDirectoryLoaded,
   loadMissingDirectories,
   openDirectoriesInLayout,
   refreshTreeLayout,
@@ -61,6 +64,18 @@ export function useWorkspaceFileFocus({
   const fileSearchFocusTimeoutsRef = useRef<number[]>([])
   const fileTreeFocusFrameRef = useRef<number | null>(null)
   const fileTreeFocusTimeoutsRef = useRef<number[]>([])
+  const fileTreeRevealFrameRefs = useRef<number[]>([])
+  const fileTreeRevealTimeoutsRef = useRef<number[]>([])
+  const treeDataRef = useRef(treeData)
+  const isDirectoryLoadedRef = useRef(isDirectoryLoaded)
+
+  useEffect(() => {
+    treeDataRef.current = treeData
+  }, [treeData])
+
+  useEffect(() => {
+    isDirectoryLoadedRef.current = isDirectoryLoaded
+  }, [isDirectoryLoaded])
 
   const cancelPendingFileSearchFocus = useCallback(() => {
     if (fileSearchFocusFrameRef.current !== null) {
@@ -71,7 +86,7 @@ export function useWorkspaceFileFocus({
     fileSearchFocusTimeoutsRef.current = []
   }, [])
 
-  const cancelPendingFileTreeFocus = useCallback(() => {
+  const cancelPendingFileTreeScrollFocus = useCallback(() => {
     if (fileTreeFocusFrameRef.current !== null) {
       window.cancelAnimationFrame(fileTreeFocusFrameRef.current)
       fileTreeFocusFrameRef.current = null
@@ -80,15 +95,23 @@ export function useWorkspaceFileFocus({
     fileTreeFocusTimeoutsRef.current = []
   }, [])
 
+  const cancelPendingFileTreeFocus = useCallback(() => {
+    cancelPendingFileTreeScrollFocus()
+    fileTreeRevealFrameRefs.current.forEach(frameId => window.cancelAnimationFrame(frameId))
+    fileTreeRevealFrameRefs.current = []
+    fileTreeRevealTimeoutsRef.current.forEach(timeoutId => window.clearTimeout(timeoutId))
+    fileTreeRevealTimeoutsRef.current = []
+  }, [cancelPendingFileTreeScrollFocus])
+
   const cancelPendingFileFocus = useCallback(() => {
     cancelPendingFileSearchFocus()
     cancelPendingFileTreeFocus()
   }, [cancelPendingFileSearchFocus, cancelPendingFileTreeFocus])
 
   const scrollFileTreeToPath = useCallback((filePath: string, focusRow = false) => {
-    cancelPendingFileTreeFocus()
+    cancelPendingFileTreeScrollFocus()
 
-    const scroll = () => {
+    const scrollRenderedRow = () => {
       const searchInput = fileSearchInputRef.current
       const shouldFocusTree = shouldFocusWorkspaceFileTree({
         focusRow,
@@ -96,13 +119,26 @@ export function useWorkspaceFileFocus({
         activeElementIsSearchInput: document.activeElement === searchInput,
         searchInputValue: searchInput?.value,
       })
-      if (focusRow) treeRef.current?.get(filePath)?.select()
       const row = Array.from(treeViewportRef.current?.querySelectorAll<HTMLElement>('[data-file-path]') ?? [])
         .find(element => element.dataset.filePath === filePath)
       if (!row) return
       row.scrollIntoView({ block: 'nearest' })
       revealRowInProjectScroller(row)
       if (shouldFocusTree) focusWithoutScrolling(row.closest<HTMLElement>('[role="tree"]'))
+    }
+
+    const scroll = () => {
+      const tree = treeRef.current
+      if (focusRow) {
+        tree?.get(filePath)?.select()
+        const scrollPromise = tree?.scrollTo(filePath, 'smart')
+        if (scrollPromise) {
+          void scrollPromise.then(() => {
+            window.requestAnimationFrame(scrollRenderedRow)
+          })
+        }
+      }
+      scrollRenderedRow()
     }
 
     scroll()
@@ -114,14 +150,26 @@ export function useWorkspaceFileFocus({
       const timeoutId = window.setTimeout(scroll, delay)
       fileTreeFocusTimeoutsRef.current.push(timeoutId)
     })
-  }, [cancelPendingFileTreeFocus, fileOperationActiveRef, fileSearchInputRef, treeRef, treeViewportRef])
+  }, [cancelPendingFileTreeScrollFocus, fileOperationActiveRef, fileSearchInputRef, treeRef, treeViewportRef])
 
   const revealFilePathInTree = useCallback((filePath: string, attempt = 0, openTargetDirectory = false) => {
     const tree = treeRef.current
-    const visibleAncestors = visibleWorkspaceDirectoryPathsForTarget(treeData, filePath)
-    const visibleTargetPath = findVisibleWorkspaceTreePath(treeData, filePath) ?? filePath
+    const currentTreeData = treeDataRef.current
+    const visibleAncestors = visibleWorkspaceDirectoryPathsForTarget(currentTreeData, filePath)
+    const visibleTargetPath = findVisibleWorkspaceTreePath(currentTreeData, filePath) ?? filePath
+    const visibleTargetNode = findWorkspaceFileTreeNode(currentTreeData, visibleTargetPath)
     let ready = Boolean(tree)
     openDirectoriesInLayout(openTargetDirectory ? [...visibleAncestors, visibleTargetPath] : visibleAncestors)
+
+    if (
+      openTargetDirectory
+      && (
+        visibleTargetNode?.type !== 'directory'
+        || !isDirectoryLoadedRef.current(filePath)
+      )
+    ) {
+      ready = false
+    }
 
     if (tree) {
       visibleAncestors.forEach(directoryPath => {
@@ -138,7 +186,11 @@ export function useWorkspaceFileFocus({
     }
 
     if (!ready && attempt < 10) {
-      window.setTimeout(() => revealFilePathInTree(filePath, attempt + 1, openTargetDirectory), 50)
+      const retryTimeoutId = window.setTimeout(() => {
+        fileTreeRevealTimeoutsRef.current = fileTreeRevealTimeoutsRef.current.filter(id => id !== retryTimeoutId)
+        revealFilePathInTree(filePath, attempt + 1, openTargetDirectory)
+      }, 50)
+      fileTreeRevealTimeoutsRef.current.push(retryTimeoutId)
       return
     }
 
@@ -148,12 +200,23 @@ export function useWorkspaceFileFocus({
       refreshTreeLayout()
       scrollFileTreeToPath(visibleTargetPath, true)
     }
-    window.requestAnimationFrame(() => {
+    const queueRevealFrame = (callback: () => void) => {
+      const frameId = window.requestAnimationFrame(() => {
+        fileTreeRevealFrameRefs.current = fileTreeRevealFrameRefs.current.filter(id => id !== frameId)
+        callback()
+      })
+      fileTreeRevealFrameRefs.current.push(frameId)
+    }
+    queueRevealFrame(() => {
       reveal()
-      window.requestAnimationFrame(reveal)
+      queueRevealFrame(reveal)
     })
-    window.setTimeout(reveal, 80)
-  }, [openDirectoriesInLayout, refreshTreeLayout, scrollFileTreeToPath, treeData, treeRef])
+    const timeoutId = window.setTimeout(() => {
+      fileTreeRevealTimeoutsRef.current = fileTreeRevealTimeoutsRef.current.filter(id => id !== timeoutId)
+      reveal()
+    }, 80)
+    fileTreeRevealTimeoutsRef.current.push(timeoutId)
+  }, [openDirectoriesInLayout, refreshTreeLayout, scrollFileTreeToPath, treeRef])
 
   const revealFilePath = useCallback(async (filePath: string) => {
     const ancestors = ancestorDirectories(filePath)

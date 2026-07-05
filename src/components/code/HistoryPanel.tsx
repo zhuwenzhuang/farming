@@ -11,7 +11,7 @@ import {
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem } from './types'
 
-type HistoryAgentItem =
+export type HistoryAgentItem =
   | { kind: 'run'; historyKey: string; updatedAt: number; entry: TaskHistoryEntry }
   | { kind: 'agent'; historyKey: string; updatedAt: number; agent: Agent }
   | { kind: 'session'; historyKey: string; updatedAt: number; session: AgentSessionHistoryItem }
@@ -45,11 +45,23 @@ function historySessionIdentity(session: AgentSessionHistoryItem) {
   }
 }
 
-function resumedIdentityFromAgentSource(source?: string) {
-  const match = /^([a-z]+)-history(?:-fork)?:(.+)$/.exec(source || '')
+function normalizeHistoryProvider(provider?: string) {
+  const value = String(provider || '').trim().toLowerCase()
+  return value === 'codex' || value === 'claude' ? value : ''
+}
+
+function resumedSessionFromHistorySource(source?: string) {
+  const match = /^(codex|claude)-history(?:-fork)?:(.+)$/.exec(source || '')
   if (!match) return null
-  const provider = match[1]
-  const sessionId = match[2]
+  const provider = normalizeHistoryProvider(match[1])
+  const sessionId = String(match[2] || '').trim()
+  return provider && sessionId ? { provider, sessionId } : null
+}
+
+function resumedIdentityFromAgentSource(source?: string) {
+  const resumed = resumedSessionFromHistorySource(source)
+  if (!resumed) return null
+  const { provider, sessionId } = resumed
   if (!provider || !sessionId) return null
   return {
     label: `resume ${provider}:${compactHistoryId(sessionId)}`,
@@ -89,12 +101,73 @@ function historyAgentUpdatedAt(agent: Agent) {
   return Math.max(agent.archivedAt || 0, agent.lastActivity || 0, agent.startedAt || 0)
 }
 
-function buildHistoryAgentItems(
+function historyItemResumeSession(item: HistoryAgentItem) {
+  if (item.kind === 'session') {
+    const provider = normalizeHistoryProvider(item.session.provider)
+    const sessionId = String(item.session.id || '').trim()
+    return provider && sessionId ? { provider, sessionId } : null
+  }
+
+  if (item.kind === 'agent') {
+    const provider = normalizeHistoryProvider(item.agent.providerSessionProvider)
+    const sessionId = String(item.agent.providerSessionId || '').trim()
+    if (provider && sessionId && item.agent.providerSessionTemporary !== true) {
+      return { provider, sessionId }
+    }
+
+    return resumedSessionFromHistorySource(item.agent.source)
+  }
+
+  return resumedSessionFromHistorySource(item.entry.source)
+}
+
+function historyItemResumeKey(item: HistoryAgentItem) {
+  const resumed = historyItemResumeSession(item)
+  return resumed ? `resume:${resumed.provider}:${resumed.sessionId}` : ''
+}
+
+function historyItemDisplayPriority(item: HistoryAgentItem) {
+  if (item.kind === 'session') return 30
+  if (item.kind === 'agent') return 20
+  return 10
+}
+
+function shouldReplaceHistoryItem(current: HistoryAgentItem, candidate: HistoryAgentItem) {
+  if (candidate.updatedAt !== current.updatedAt) {
+    return candidate.updatedAt > current.updatedAt
+  }
+  return historyItemDisplayPriority(candidate) > historyItemDisplayPriority(current)
+}
+
+export function dedupeHistoryAgentItems(items: HistoryAgentItem[]) {
+  const retainedItems: HistoryAgentItem[] = []
+  const resumableItems = new Map<string, HistoryAgentItem>()
+
+  items.forEach(item => {
+    const resumeKey = historyItemResumeKey(item)
+    if (!resumeKey) {
+      retainedItems.push(item)
+      return
+    }
+
+    const current = resumableItems.get(resumeKey)
+    if (!current || shouldReplaceHistoryItem(current, item)) {
+      resumableItems.set(resumeKey, item)
+    }
+  })
+
+  return [
+    ...retainedItems,
+    ...resumableItems.values(),
+  ].sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
+export function buildHistoryAgentItems(
   archivedRuns: TaskHistoryEntry[],
   archivedAgents: Agent[],
   agentSessions: AgentSessionHistoryItem[]
 ): HistoryAgentItem[] {
-  return [
+  return dedupeHistoryAgentItems([
     ...archivedRuns.map(entry => ({
       kind: 'run' as const,
       historyKey: `run:${entry.id}`,
@@ -113,7 +186,7 @@ function buildHistoryAgentItems(
       updatedAt: agentSessionUpdatedAt(session),
       session,
     })),
-  ].sort((a, b) => b.updatedAt - a.updatedAt)
+  ])
 }
 
 export function HistoryPanel({

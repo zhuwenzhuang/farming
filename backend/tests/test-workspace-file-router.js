@@ -143,6 +143,7 @@ async function run() {
         const pathSearch = await fetchJson(baseUrl, '/api/files/search?agentId=agent-main&q=README');
         assert.strictEqual(pathSearch.response.status, 200);
         assert.strictEqual(pathSearch.body.results.matches[0].kind, 'path');
+        assert.strictEqual(pathSearch.body.results.matches[0].entryType, 'file');
         assert.strictEqual(pathSearch.body.results.matches[0].path, 'README.md');
       }
 

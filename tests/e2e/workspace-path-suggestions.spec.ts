@@ -23,13 +23,18 @@ test.describe('workspace path suggestions', () => {
     for (const name of suggestionNames) {
       fs.mkdirSync(path.join(suggestionParent, name), { recursive: true })
     }
+    const historyEntries = Array.from({ length: 12 }, (_, index) => path.join(workspaceRoot, `recent-workspace-${String(index + 1).padStart(2, '0')}`))
 
     await openFarming(page)
+    await page.request.post('/farming/api/settings', {
+      data: { workspaceHistory: historyEntries },
+    })
     await page.getByTestId('code-empty-workspace').getByRole('button', { name: 'New Agent' }).click()
     await expect(page.getByTestId('input-dialog')).toBeVisible()
     await expect(page.getByTestId('agent-list-status')).toBeHidden({ timeout: 30_000 })
     await page.getByTestId('agent-option-bash').click()
     await expect(page.getByTestId('workspace-step')).toBeVisible()
+    await expect(page.getByTestId('workspace-history')).toBeVisible()
 
     await page.getByTestId('workspace-input').fill(`${suggestionParent}${path.sep}workspace-`)
     await expect(page.getByTestId('workspace-path-suggestions')).toBeVisible()
@@ -41,6 +46,17 @@ test.describe('workspace path suggestions', () => {
       scrollHeight: element.scrollHeight,
     }))
     expect(listMetrics.scrollHeight).toBeGreaterThan(listMetrics.clientHeight)
+    const firstSuggestionHeight = await page.getByTestId('workspace-path-suggestion').first().evaluate(element => element.getBoundingClientRect().height)
+    expect(listMetrics.clientHeight).toBeLessThanOrEqual(firstSuggestionHeight * 5 + 12)
+
+    const historyMetrics = await page.locator('.workspace-history-list').evaluate(element => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }))
+    await expect(page.getByTestId('workspace-history-item')).toHaveCount(5)
+    const firstHistoryHeight = await page.getByTestId('workspace-history-item').first().evaluate(element => element.getBoundingClientRect().height)
+    expect(historyMetrics.clientHeight).toBeLessThanOrEqual(firstHistoryHeight * 5 + 12)
+    await expect(page.getByTestId('workspace-start')).toBeInViewport()
 
     const initialScrollTop = await page.getByTestId('workspace-path-suggestions').evaluate(element => element.scrollTop)
     await page.getByTestId('workspace-input').press('ArrowUp')

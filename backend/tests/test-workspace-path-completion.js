@@ -36,7 +36,8 @@ function run() {
 
   assert(
     stylesSource.includes('.workspace-path-suggestions') &&
-      stylesSource.includes('max-height: min(42vh, 320px)') &&
+      stylesSource.includes('max-height: min(152px, 28vh)') &&
+      stylesSource.includes('max-height: min(168px, 28vh)') &&
       stylesSource.includes('overflow-y: auto') &&
       stylesSource.includes('.workspace-path-suggestion.active') &&
       stylesSource.includes('.workspace-path-suggestion-path') &&

@@ -17,6 +17,7 @@ interface UseWorkspaceFileSearchControllerOptions {
   focusFileTreeFromSearch: () => void
   listboxId: string
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
+  onRevealDirectoryPath: (directoryPath: string) => Promise<unknown>
 }
 
 export function useWorkspaceFileSearchController({
@@ -28,6 +29,7 @@ export function useWorkspaceFileSearchController({
   focusFileTreeFromSearch,
   listboxId,
   onOpenFilePath,
+  onRevealDirectoryPath,
 }: UseWorkspaceFileSearchControllerOptions) {
   const activeOptionId = workspaceFileSearchActiveOptionId({
     active: fileSearch.active,
@@ -37,10 +39,15 @@ export function useWorkspaceFileSearchController({
   })
 
   const openFileSearchMatch = useCallback((match: WorkspaceFileSearchMatch) => {
+    if (match.kind === 'path' && match.entryType === 'directory') {
+      void onRevealDirectoryPath(match.path)
+      fileSearch.clear()
+      return
+    }
     const request = openRequestForWorkspaceFileSearchMatch(match)
     void onOpenFilePath(request.path, request.target)
     fileSearch.clear()
-  }, [fileSearch, onOpenFilePath])
+  }, [fileSearch, onOpenFilePath, onRevealDirectoryPath])
 
   const openFileJumpQuery = useCallback((query: string) => {
     const request = openRequestForWorkspaceFileJumpQuery(query)

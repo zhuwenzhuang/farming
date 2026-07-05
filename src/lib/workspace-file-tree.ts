@@ -18,6 +18,7 @@ export interface WorkspaceFileTreeNode extends WorkspaceFileEntry {
   compactedPaths?: string[]
   iconPath?: string
   iconSignals?: string[]
+  loading?: boolean
   children?: WorkspaceFileTreeNode[]
 }
 
@@ -166,6 +167,7 @@ export function buildWorkspaceFileTreeNodes(
       compactedPaths.push(child.path)
       visibleChildren = directories[child.path]?.items
     }
+    const loading = compactedPaths.some(directoryPath => directories[directoryPath]?.loading)
 
     return {
       ...visibleEntry,
@@ -174,6 +176,7 @@ export function buildWorkspaceFileTreeNodes(
       compactedPaths,
       iconPath: compactedPaths[0] ?? visibleEntry.path,
       iconSignals: directoryIconSignals(visibleEntry.path, directories, iconSignalCache),
+      loading,
       children: buildWorkspaceFileTreeNodes(visibleChildren ?? [], directories, iconSignalCache),
     }
   })

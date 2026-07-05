@@ -24,11 +24,8 @@ interface UseWorkspaceFileTreeKeyboardOptions {
   focusFileSearchInput: () => void
   focusFileTreePath: (filePath: string | null) => void
   focusFileTreeTarget: (item: WorkspaceFileTreeNode | null) => void
-  hydrateCompactDirectoryChains: (directoryPath: string) => Promise<unknown>
   openFileContextMenu: (x: number, y: number, item: WorkspaceFileTreeNode | null) => void
   openFilePath: (filePath: string) => void | Promise<void>
-  refreshTreeLayout: () => void
-  setDirectoryOpen: (directoryPath: string, open: boolean) => void
   startFileOperation: (kind: WorkspaceFileOperationKind, item?: WorkspaceFileTreeNode | null) => void
 }
 
@@ -43,11 +40,8 @@ export function useWorkspaceFileTreeKeyboard({
   focusFileSearchInput,
   focusFileTreePath,
   focusFileTreeTarget,
-  hydrateCompactDirectoryChains,
   openFileContextMenu,
   openFilePath,
-  refreshTreeLayout,
-  setDirectoryOpen,
   startFileOperation,
 }: UseWorkspaceFileTreeKeyboardOptions) {
   const projectScroller = useCallback(() => (
@@ -56,19 +50,13 @@ export function useWorkspaceFileTreeKeyboard({
 
   const openDirectoryNode = useCallback((node: NodeApi<WorkspaceFileTreeNode>) => {
     preserveWorkspaceFileScrollPosition(projectScroller())
-    void hydrateCompactDirectoryChains(node.data.path).finally(refreshTreeLayout)
-    setDirectoryOpen(node.data.path, true)
     node.open()
     lastFocusedFilePathRef.current = node.data.path
-    refreshTreeLayout()
     focusFileTreeTarget(node.data)
   }, [
     focusFileTreeTarget,
-    hydrateCompactDirectoryChains,
     lastFocusedFilePathRef,
     projectScroller,
-    refreshTreeLayout,
-    setDirectoryOpen,
   ])
 
   const closeDirectoryNode = useCallback((
@@ -76,11 +64,12 @@ export function useWorkspaceFileTreeKeyboard({
     node: NodeApi<WorkspaceFileTreeNode> | null | undefined,
   ) => {
     preserveWorkspaceFileScrollPosition(projectScroller())
-    setDirectoryOpen(filePath, false)
-    treeRef.current?.close(filePath)
-    node?.close()
+    if (node) {
+      node.close()
+    } else {
+      treeRef.current?.close(filePath)
+    }
     lastFocusedFilePathRef.current = filePath
-    refreshTreeLayout()
     if (node) {
       focusFileTreeTarget(node.data)
     } else {
@@ -91,8 +80,6 @@ export function useWorkspaceFileTreeKeyboard({
     focusFileTreeTarget,
     lastFocusedFilePathRef,
     projectScroller,
-    refreshTreeLayout,
-    setDirectoryOpen,
     treeRef,
   ])
 

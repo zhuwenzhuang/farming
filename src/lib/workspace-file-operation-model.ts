@@ -15,6 +15,12 @@ export interface WorkspaceFileOperationState {
   name: string
 }
 
+const FILE_CONTEXT_MENU_WIDTH = 220
+const FILE_CONTEXT_MENU_MARGIN = 8
+const FILE_CONTEXT_MENU_ITEM_HEIGHT = 26
+const FILE_CONTEXT_MENU_SEPARATOR_HEIGHT = 11
+const FILE_CONTEXT_MENU_PADDING_HEIGHT = 10
+
 export interface WorkspaceFileOperationTitleCopy {
   newFile: string
   newFolder: string
@@ -85,12 +91,20 @@ export function workspaceFileContextMenuPosition(
   y: number,
   item: WorkspaceFileTreeNode | null,
   viewportWidth: number,
-  viewportHeight: number
+  viewportHeight: number,
+  agentLaunchOptionCount = 0
 ): Pick<WorkspaceFileContextMenuState, 'x' | 'y'> {
-  const menuWidth = 220
-  const menuHeight = item ? 190 : 96
+  const menuItems = item ? 7 : 4
+  const separators = item ? 4 : 2
+  const submenuHeight = agentLaunchOptionCount > 0
+    ? FILE_CONTEXT_MENU_PADDING_HEIGHT + agentLaunchOptionCount * FILE_CONTEXT_MENU_ITEM_HEIGHT
+    : 0
+  const menuHeight = FILE_CONTEXT_MENU_PADDING_HEIGHT
+    + menuItems * FILE_CONTEXT_MENU_ITEM_HEIGHT
+    + separators * FILE_CONTEXT_MENU_SEPARATOR_HEIGHT
+    + submenuHeight
   return {
-    x: Math.max(8, Math.min(x, viewportWidth - menuWidth - 8)),
-    y: Math.max(8, Math.min(y, viewportHeight - menuHeight - 8)),
+    x: Math.max(FILE_CONTEXT_MENU_MARGIN, Math.min(x, viewportWidth - FILE_CONTEXT_MENU_WIDTH - FILE_CONTEXT_MENU_MARGIN)),
+    y: Math.max(FILE_CONTEXT_MENU_MARGIN, Math.min(y, viewportHeight - menuHeight - FILE_CONTEXT_MENU_MARGIN)),
   }
 }

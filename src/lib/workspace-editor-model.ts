@@ -5,6 +5,7 @@ import {
   shouldShowWorkspaceWorkingCopySaveAction,
   workspaceWorkingCopyState,
   workspaceWorkingCopyKey,
+  workspaceFileResourceKey,
   type WorkspaceWorkingCopyReference,
 } from './workspace-working-copy'
 
@@ -150,10 +151,10 @@ export function workspaceEditorModelContentVersion(file: WorkspaceEditorFileRefe
 }
 
 export function workspaceEditorModelUriParts(file: Pick<WorkspaceEditorFileReference, 'agentId' | 'file' | 'workspaceRoot'>) {
+  const resourceKey = workspaceFileResourceKey(file.file.path, file.workspaceRoot)
   return {
     scheme: WORKSPACE_EDITOR_MODEL_URI_SCHEME,
-    authority: safeWorkspaceEditorDomIdPart(file.workspaceRoot || file.agentId),
-    path: `/${file.file.path.replace(/^\/+/, '')}`,
+    path: resourceKey.startsWith('/') ? resourceKey : `/${resourceKey}`,
   }
 }
 

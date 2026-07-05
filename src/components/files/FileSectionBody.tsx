@@ -7,6 +7,7 @@ import type {
   WorkspaceFileJumpQuery,
 } from '@/lib/workspace-file-search'
 import type { WorkspaceFileSearchMatch } from '@/lib/workspace-files'
+import type { AgentLaunchOption } from '../code/agent-launch-options'
 import type { CodeCopy } from '../code/copy'
 import { FileSearchResults } from './FileSearchResults'
 import { workspaceFileTreeDepthStyle } from '@/lib/workspace-file-tree-row'
@@ -37,6 +38,7 @@ export type FileSectionBodyTree = Omit<FileTreeViewProps, 'copy'>
 
 interface FileSectionBodyProps {
   copy: CodeCopy
+  agentLaunchOptions: AgentLaunchOption[]
   fileMenu: FileContextMenuState | null
   fileMenuRef: RefObject<HTMLDivElement | null>
   openFileError: string | null
@@ -49,12 +51,15 @@ interface FileSectionBodyProps {
   onCloseFileMenu: () => void
   onCloseFileMenuWithFocusRestore: () => void
   onCopyFileMenuPath: () => void
+  onOpenNewAgentFromFileMenu: () => void
   onRefreshFileMenuTarget: () => void
+  onStartAgentFromFileMenu: (command: string) => void
   onStartFileMenuOperation: (kind: WorkspaceFileOperationKind) => void
 }
 
 export function FileSectionBody({
   copy,
+  agentLaunchOptions,
   fileMenu,
   fileMenuRef,
   openFileError,
@@ -67,7 +72,9 @@ export function FileSectionBody({
   onCloseFileMenu,
   onCloseFileMenuWithFocusRestore,
   onCopyFileMenuPath,
+  onOpenNewAgentFromFileMenu,
   onRefreshFileMenuTarget,
+  onStartAgentFromFileMenu,
   onStartFileMenuOperation,
 }: FileSectionBodyProps) {
   return (
@@ -109,6 +116,7 @@ export function FileSectionBody({
       <FileSectionOverlays
         agentId={tree.agentId}
         copy={copy}
+        agentLaunchOptions={agentLaunchOptions}
         fileMenu={fileMenu}
         fileOperation={tree.fileOperation}
         fileMenuRef={fileMenuRef}
@@ -117,8 +125,10 @@ export function FileSectionBody({
         onCloseFileMenuWithFocusRestore={onCloseFileMenuWithFocusRestore}
         onCloseFileOperation={tree.onCloseFileOperation}
         onCopyFileMenuPath={onCopyFileMenuPath}
+        onOpenNewAgent={onOpenNewAgentFromFileMenu}
         onRefreshFileMenuTarget={onRefreshFileMenuTarget}
         onRememberFileOperationName={tree.onRememberFileOperationName}
+        onStartAgent={onStartAgentFromFileMenu}
         onStartFileMenuOperation={onStartFileMenuOperation}
         onSubmitFileOperation={tree.onSubmitFileOperation}
         onUpdateFileOperationName={tree.onUpdateFileOperationName}

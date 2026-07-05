@@ -27,6 +27,7 @@ import {
 import { buildWorkspaceHistory } from '@/lib/workspace-options'
 import {
   fetchWorkspaceFile,
+  fetchWorkspaceTree,
   searchWorkspaceFiles,
   type WorkspaceFileDeleteResult,
   type WorkspaceFileMove,
@@ -151,6 +152,10 @@ import {
   resumedAgentSource,
   saveSessionDisplayState,
 } from './code/session-display'
+import {
+  normalizeAgentLaunchOptions,
+  type AgentLaunchOption,
+} from './code/agent-launch-options'
 
 export type { WorkspaceView } from './code/types'
 
@@ -214,6 +219,7 @@ interface CodeWorkspaceProps {
   uiPreferences: UiPreferences
   onOpenTerminal: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
+  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string }) => void
   onRenameAgent: (agentId: string, title: string) => void
   onUpdateAgentFlags: (agentId: string, flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived'>>) => AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>
   onOpenArchivedAgent: (agentId: string) => void
@@ -500,6 +506,7 @@ export function CodeWorkspace({
   uiPreferences,
   onOpenTerminal,
   onNewAgent,
+  onStartAgent,
   onRenameAgent,
   onUpdateAgentFlags,
   onOpenArchivedAgent,
@@ -534,6 +541,7 @@ export function CodeWorkspace({
   const [searchQuery, setSearchQuery] = useState('')
   const [searchSelectionIndex, setSearchSelectionIndex] = useState(0)
   const [, setWorkspaceHistory] = useState<string[]>([])
+  const [agentLaunchOptions, setAgentLaunchOptions] = useState<AgentLaunchOption[]>([])
   const [mainPageSessionKeys, setMainPageSessionKeys] = useState<Set<string>>(() => new Set())
   const [codexApprovalMode, setCodexApprovalMode] = useState<CodexApprovalMode>('approve')
   const [codexModelPreset, setCodexModelPreset] = useState<CodexModelPreset>('gpt-5.5:xhigh')
@@ -1477,6 +1485,27 @@ export function CodeWorkspace({
     closeSidebarForMobile()
   }, [closeSidebarForMobile, onNewAgent])
 
+  useEffect(() => {
+    let cancelled = false
+    fetch(appPath('/api/executables'))
+      .then(response => {
+        if (!response.ok) throw new Error(`Failed to load executables: ${response.status}`)
+        return response.json()
+      })
+      .then((data: { agents?: AgentLaunchOption[] } | AgentLaunchOption[]) => {
+        if (cancelled) return
+        const agents = Array.isArray(data) ? data : data.agents ?? []
+        setAgentLaunchOptions(normalizeAgentLaunchOptions(agents))
+      })
+      .catch(() => {
+        if (!cancelled) setAgentLaunchOptions([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const persistMainPageSessionKeys = useCallback((keys: string[]) => {
     fetch(appPath('/api/settings'), {
       method: 'POST',
@@ -1952,6 +1981,32 @@ export function CodeWorkspace({
     })
   }, [activeAgents, clearSearch, onWorkspaceViewChange])
 
+  const revealWorkspaceFileInExplorer = useCallback((agentId: string, filePath: string, kind: 'directory' | 'file') => {
+    const agent = activeAgents.find(candidate => candidate.id === agentId)
+    if (agent) {
+      const projectId = agent.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent)
+      setCollapsedProjectIds(previous => {
+        if (!previous.has(projectId)) return previous
+        const next = new Set(previous)
+        next.delete(projectId)
+        return next
+      })
+    }
+    setAgentMenu(null)
+    setProjectMenu(null)
+    setAgentSessionMenu(null)
+    setOptionsMenu(null)
+    clearSearch()
+    setSidebarCollapsed(false)
+    onWorkspaceViewChange('projects')
+    setFileRevealRequest({
+      agentId,
+      path: filePath,
+      kind,
+      requestId: workspaceFileRevealRequestRef.current += 1,
+    })
+  }, [activeAgents, clearSearch, onWorkspaceViewChange])
+
   const resolveTerminalPathTarget = useCallback(async (agentId: string, target: TerminalPathOpenTarget) => {
     const agent = activeAgents.find(candidate => candidate.id === agentId)
     const filePath = terminalTargetFilePath(target.path, agent ? projectWorkspaceForAgent(agent) : '')
@@ -1983,12 +2038,33 @@ export function CodeWorkspace({
       openProjectFile(agentId, file, resolvedTarget)
     }
 
+    const revealResolvedDirectory = (resolvedPath: string) => {
+      if (terminalPathOpenRequestRef.current !== requestId) return
+      revealWorkspaceFileInExplorer(agentId, resolvedPath, 'directory')
+    }
+
+    const openResolvedPathMatch = async (match: WorkspaceFileSearchMatch) => {
+      if (match.entryType === 'directory') {
+        revealResolvedDirectory(match.path)
+        return
+      }
+      await openResolvedFile(match.path)
+    }
+
     const revealSearch = () => {
       if (terminalPathOpenRequestRef.current !== requestId) return
       focusWorkspaceFilesSearch(agentId, filePath)
     }
 
     void (async () => {
+      try {
+        await fetchWorkspaceTree(agentId, filePath)
+        revealResolvedDirectory(filePath)
+        return
+      } catch {
+        // Fall through to file open for normal files.
+      }
+
       try {
         await openResolvedFile(filePath)
         return
@@ -2003,7 +2079,7 @@ export function CodeWorkspace({
         if (pathMatches.length === 1) {
           const match = pathMatches[0]
           if (!match) return
-          await openResolvedFile(match.path)
+          await openResolvedPathMatch(match)
           return
         }
 
@@ -2024,7 +2100,7 @@ export function CodeWorkspace({
 
       revealSearch()
     })()
-  }, [activeAgents, focusWorkspaceFilesSearch, openProjectFile])
+  }, [activeAgents, focusWorkspaceFilesSearch, openProjectFile, revealWorkspaceFileInExplorer])
 
   const selectOpenWorkspaceFile = useCallback((agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
     const agent = activeAgents.find(candidate => candidate.id === agentId)
@@ -2131,32 +2207,6 @@ export function CodeWorkspace({
     })
     return true
   }, [beginWorkspaceNavigation, finishWorkspaceNavigation, restoreWorkspaceNavigationEntry])
-
-  const revealWorkspaceFileInExplorer = useCallback((agentId: string, filePath: string, kind: 'directory' | 'file') => {
-    const agent = activeAgents.find(candidate => candidate.id === agentId)
-    if (agent) {
-      const projectId = agent.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent)
-      setCollapsedProjectIds(previous => {
-        if (!previous.has(projectId)) return previous
-        const next = new Set(previous)
-        next.delete(projectId)
-        return next
-      })
-    }
-    setAgentMenu(null)
-    setProjectMenu(null)
-    setAgentSessionMenu(null)
-    setOptionsMenu(null)
-    clearSearch()
-    setSidebarCollapsed(false)
-    onWorkspaceViewChange('projects')
-    setFileRevealRequest({
-      agentId,
-      path: filePath,
-      kind,
-      requestId: workspaceFileRevealRequestRef.current += 1,
-    })
-  }, [activeAgents, clearSearch, onWorkspaceViewChange])
 
   const backToAgentFromFile = useCallback((agentId: string) => {
     setMainPaneMode('terminal')
@@ -2697,18 +2747,22 @@ export function CodeWorkspace({
     recognition.start()
   }, [activeComposerKey, focusComposerTextarea, speechListening, updateComposerStateForKey])
 
-  const startAgentInContextProject = useCallback(() => {
+  const startAgentInContextProject = useCallback((command?: string) => {
     if (!contextMenuProject) return
     const projectTitle = Array.from(workspaceRef.current?.querySelectorAll<HTMLElement>('[data-testid="code-project-title"]') ?? [])
       .find(title => title.dataset.projectId === contextMenuProject.id)
+    setProjectMenu(null)
+    setOptionsMenu(null)
+    if (command) {
+      onStartAgent(command, contextMenuProject.workspace)
+      return
+    }
     pendingProjectDialogFocusRef.current = {
       projectId: contextMenuProject.id,
       agentCount: activeAgents.length,
     }
-    setProjectMenu(null)
-    setOptionsMenu(null)
     onNewAgent(contextMenuProject.workspace, undefined, projectTitle ?? null)
-  }, [activeAgents.length, contextMenuProject, onNewAgent])
+  }, [activeAgents.length, contextMenuProject, onNewAgent, onStartAgent])
 
   const archiveContextProject = useCallback(() => {
     if (!contextMenuProject) return
@@ -3494,6 +3548,7 @@ export function CodeWorkspace({
         mainAgent={hiddenMainAgent}
         systemStats={systemStats}
         usageSummary={usageSummary}
+        agentLaunchOptions={agentLaunchOptions}
         agentCreationWorkspace={agentCreationWorkspace}
         openWorkspaceFile={openWorkspaceFile}
         openWorkspaceFiles={openWorkspaceFiles}
@@ -3502,6 +3557,7 @@ export function CodeWorkspace({
         searchInputRef={searchInputRef}
         projectListRef={projectListRef}
         onNewAgent={startNewAgentFromSidebar}
+        onStartAgent={onStartAgent}
         onToggleSidebar={() => setSidebarCollapsed(value => !value)}
         onOpenSearch={openSearchFromSidebar}
         onOpenWorkspaceView={openWorkspaceViewFromSidebar}
@@ -3757,6 +3813,7 @@ export function CodeWorkspace({
         killDialog={killDialog}
         deleteWorktreeDialog={deleteWorktreeDialog}
         copyNotice={copyNotice}
+        agentLaunchOptions={agentLaunchOptions}
         contextMenuRef={contextMenuRef}
         renameDialogRef={renameDialogRef}
         renameInputRef={renameInputRef}

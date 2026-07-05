@@ -56,6 +56,16 @@ beside the vendored files at `frontend/vendor/ghostty-web/LICENSE`.
 If vendored assets are updated, keep this notice in sync with the package name,
 version, and license.
 
+## Bundled Data
+
+Farming includes a generated Chinese poetic token word list at
+`backend/data/chinese-poetic-words.json`. It is derived from the
+`chinese-poetry/chinese-poetry` dataset, licensed under MIT:
+https://github.com/chinese-poetry/chinese-poetry.
+
+The generated file stores the source commit and selected corpus directories.
+The original corpus is not bundled in the runtime package.
+
 ## Development And Build Dependencies
 
 Farming also uses development-time tools such as TypeScript, Vite, ESLint,

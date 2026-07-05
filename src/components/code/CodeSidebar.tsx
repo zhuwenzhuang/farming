@@ -24,6 +24,7 @@ import {
   formatAgentSessionWorkspace,
 } from './model'
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
+import type { AgentLaunchOption } from './agent-launch-options'
 import { ShareQrButton } from './ShareQrButton'
 
 declare const __FARMING_PACKAGE_VERSION__: string
@@ -94,6 +95,7 @@ interface CodeSidebarProps {
   mainAgent: Agent | null
   systemStats: SystemStats | null
   usageSummary: UsageSummary | null
+  agentLaunchOptions: AgentLaunchOption[]
   agentCreationWorkspace?: string
   openWorkspaceFile: OpenWorkspaceFile | null
   openWorkspaceFiles: OpenWorkspaceFile[]
@@ -102,6 +104,7 @@ interface CodeSidebarProps {
   searchInputRef: RefObject<HTMLInputElement | null>
   projectListRef: RefObject<HTMLDivElement | null>
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
+  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string }) => void
   onToggleSidebar: () => void
   onOpenSearch: () => void
   onOpenWorkspaceView: (view: WorkspaceView) => void
@@ -151,6 +154,7 @@ export function CodeSidebar({
   mainAgent,
   systemStats,
   usageSummary,
+  agentLaunchOptions,
   agentCreationWorkspace,
   openWorkspaceFile,
   openWorkspaceFiles,
@@ -159,6 +163,7 @@ export function CodeSidebar({
   searchInputRef,
   projectListRef,
   onNewAgent,
+  onStartAgent,
   onToggleSidebar,
   onOpenSearch,
   onOpenWorkspaceView,
@@ -422,10 +427,13 @@ export function CodeSidebar({
             now={now}
             openWorkspaceFile={openWorkspaceFile}
             openWorkspaceFiles={openWorkspaceFiles}
+            agentLaunchOptions={agentLaunchOptions}
             fileRevealRequest={fileRevealRequest}
             fileSearchFocusRequest={fileSearchFocusRequest}
             onToggleProject={onToggleProject}
             onToggleProjectSessions={onToggleProjectSessions}
+            onNewAgent={onNewAgent}
+            onStartAgent={onStartAgent}
             onOpenProjectContextMenu={onOpenProjectContextMenu}
             onOpenProjectKeyboardMenu={onOpenProjectKeyboardMenu}
             onOpenAgent={onOpenAgent}
@@ -851,10 +859,13 @@ interface ProjectSectionProps {
   now: number
   openWorkspaceFile: OpenWorkspaceFile | null
   openWorkspaceFiles: OpenWorkspaceFile[]
+  agentLaunchOptions: AgentLaunchOption[]
   fileRevealRequest: { agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null
   fileSearchFocusRequest: { agentId: string; requestId: number; query?: string } | null
   onToggleProject: (projectId: string) => void
   onToggleProjectSessions: (projectId: string) => void
+  onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
+  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string }) => void
   onOpenProjectContextMenu: (event: ReactMouseEvent<HTMLElement>, projectId: string) => void
   onOpenProjectKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, projectId: string) => void
   onOpenAgent: (agentId: string) => void
@@ -886,10 +897,13 @@ function ProjectSection({
   now,
   openWorkspaceFile,
   openWorkspaceFiles,
+  agentLaunchOptions,
   fileRevealRequest,
   fileSearchFocusRequest,
   onToggleProject,
   onToggleProjectSessions,
+  onNewAgent,
+  onStartAgent,
   onOpenProjectContextMenu,
   onOpenProjectKeyboardMenu,
   onOpenAgent,
@@ -1056,7 +1070,9 @@ function ProjectSection({
             <Suspense fallback={null}>
               <ProjectFilesSection
                 projectId={project.id}
+                projectWorkspace={project.workspace}
                 agentId={projectFileAgent.id}
+                agentLaunchOptions={agentLaunchOptions}
                 activeFilePath={activeProjectFile?.file.path}
                 openFiles={projectOpenWorkspaceFiles
                   .map(file => ({
@@ -1074,6 +1090,8 @@ function ProjectSection({
                 onOpenFile={onOpenProjectFile}
                 onSelectOpenFile={onSelectOpenWorkspaceFile}
                 onCloseOpenFile={onCloseOpenWorkspaceFile}
+                onNewAgent={onNewAgent}
+                onStartAgent={onStartAgent}
                 onMoveEntries={onMoveWorkspaceEntries}
                 onDeleteEntries={onDeleteWorkspaceEntries}
                 copy={copy}

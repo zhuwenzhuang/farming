@@ -3,28 +3,36 @@ import type {
   WorkspaceFileContextMenuState as FileContextMenuState,
   WorkspaceFileOperationKind as FileOperationKind,
 } from '@/lib/workspace-file-operation-model'
+import type { AgentLaunchOption } from '../code/agent-launch-options'
+import { AgentLaunchSubmenu } from '../code/AgentLaunchSubmenu'
 import type { CodeCopy } from '../code/copy'
 import { useWorkspaceMenuKeyboard } from './useWorkspaceMenuKeyboard'
 
 interface FileContextMenuProps {
   copy: CodeCopy
+  agentLaunchOptions: AgentLaunchOption[]
   fileMenu: FileContextMenuState | null
   menuRef: RefObject<HTMLDivElement | null>
   onClose: () => void
   onCloseWithFocusRestore: () => void
   onCopyRelativePath: () => void
+  onOpenNewAgent: () => void
   onRefreshTarget: () => void
+  onStartAgent: (command: string) => void
   onStartOperation: (kind: FileOperationKind) => void
 }
 
 export function FileContextMenu({
   copy,
+  agentLaunchOptions,
   fileMenu,
   menuRef,
   onClose,
   onCloseWithFocusRestore,
   onCopyRelativePath,
+  onOpenNewAgent,
   onRefreshTarget,
+  onStartAgent,
   onStartOperation,
 }: FileContextMenuProps) {
   const handleFileMenuKeyDown = useWorkspaceMenuKeyboard({
@@ -52,6 +60,16 @@ export function FileContextMenu({
       <button type="button" role="menuitem" onClick={() => onStartOperation('new-folder')}>
         {copy.newFolder}
       </button>
+      <div className="code-context-menu-separator" role="separator" />
+      <AgentLaunchSubmenu
+        label={copy.newAgent}
+        options={agentLaunchOptions}
+        testId="file-new-agent-submenu-trigger"
+        submenuTestId="file-new-agent-submenu"
+        onOpenDialog={onOpenNewAgent}
+        onSelect={onStartAgent}
+      />
+      <div className="code-context-menu-separator" role="separator" />
       <button type="button" role="menuitem" onClick={onRefreshTarget}>
         {copy.refresh}
       </button>

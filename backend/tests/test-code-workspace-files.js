@@ -532,6 +532,7 @@ function run() {
       workspaceSource.includes('function claimedAgentSessionKeyByAgentIdForAgents(') &&
       workspaceSource.includes('function dedupeLiveAgentsByRowIdentity(') &&
       workspaceSource.includes('const normalizedLiveAgents = liveAgents.filter(isAgentListLiveAgent)') &&
+      !workspaceSource.includes('isAgentListRecoverableStoppedAgent') &&
       workspaceSource.includes('claimedAgentSessionKeyByAgentIdForAgents(normalizedLiveAgents, sessions)') &&
       workspaceSource.includes('mainPageSessionKeys: remoteMainPageSessionKeys') &&
       workspaceSource.includes('const agentListState = useMemo(') &&
@@ -750,7 +751,7 @@ function run() {
       workspaceSource.includes('code-project-expanded') &&
       workspaceSource.includes('code-terminal-grid') &&
       workspaceSource.includes('code-composer') &&
-      workspaceSource.includes('onNewAgent(agentCreationWorkspace)'),
+      workspaceSource.includes('onClick={event => onNewAgent(agentCreationWorkspace, undefined, event.currentTarget)}'),
     'CodeWorkspace should expose real left-rail actions, Project Files, agent context-menu actions, project-scoped agent creation, keyboard agent navigation, single active terminal pane, and composer'
   );
 

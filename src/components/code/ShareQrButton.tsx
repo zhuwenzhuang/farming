@@ -6,8 +6,8 @@ import type { CodeCopy } from './copy'
 
 const HOVER_DWELL_MS = 250
 const CLOSE_DWELL_MS = 140
-const POPOVER_WIDTH = 252
-const POPOVER_HEIGHT = 326
+const POPOVER_WIDTH = 264
+const POPOVER_HEIGHT = 340
 const QR_QUIET_ZONE = 4
 
 type ShareTicket = {

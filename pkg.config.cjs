@@ -11,6 +11,7 @@ module.exports = {
     ],
     assets: [
       'dist/**/*',
+      'backend/data/**/*.json',
       'frontend/vendor/**/*',
       'frontend/themes/**/*',
       'node_modules/material-icon-theme/icons/**/*.svg',

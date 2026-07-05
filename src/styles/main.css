@@ -297,8 +297,8 @@ body.code-resizing-sidebar {
 .code-share-popover {
   position: fixed;
   z-index: 10005;
-  width: 248px;
-  padding: 10px;
+  width: 264px;
+  padding: 9px;
   border: 1px solid rgba(145, 149, 136, 0.28);
   border-radius: 8px;
   background: rgba(255, 254, 248, 0.98);
@@ -312,7 +312,7 @@ body.code-resizing-sidebar {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 8px 8px 6px;
+  padding: 7px 7px 6px;
   border: 1px solid rgba(114, 126, 105, 0.16);
   border-radius: 8px;
   background:
@@ -1530,8 +1530,24 @@ body.code-resizing-sidebar {
   transform: rotate(45deg);
 }
 
+.code-file-chevron.loading::before {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-top-color: currentColor;
+  border-radius: 999px;
+  transform: none;
+  animation: code-file-chevron-spin 0.8s linear infinite;
+}
+
 .code-file-chevron.placeholder::before {
   content: none;
+}
+
+@keyframes code-file-chevron-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .code-file-type-icon {
@@ -3400,7 +3416,9 @@ body.code-resizing-sidebar {
 .code-context-menu {
   position: fixed;
   z-index: 10003;
-  width: 220px;
+  width: max-content;
+  min-width: 132px;
+  max-width: min(280px, calc(100vw - 24px));
   padding: 5px;
   border: 1px solid #d8dbd2;
   border-radius: 8px;
@@ -3410,12 +3428,18 @@ body.code-resizing-sidebar {
 }
 
 .code-context-menu button {
-  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: auto;
+  min-width: 100%;
+  box-sizing: border-box;
   min-height: 26px;
   padding: 4px 10px;
   text-align: left;
   font-size: 13px;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 .code-context-menu button:hover:not(:disabled) {
@@ -3442,6 +3466,43 @@ body.code-resizing-sidebar {
 
 .code-context-menu button.danger {
   color: #9d2f2f;
+}
+
+.code-agent-launch-submenu {
+  position: relative;
+}
+
+.code-context-menu .code-agent-launch-submenu-trigger,
+.code-agent-launch-submenu > button {
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.code-agent-launch-submenu-arrow {
+  color: #8a8f87;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.code-agent-launch-submenu-panel {
+  position: absolute;
+  z-index: 1;
+  top: -5px;
+  left: calc(100% + 6px);
+  width: max-content;
+  min-width: 112px;
+  max-width: min(220px, calc(100vw - 24px));
+  padding: 5px;
+  border: 1px solid #d8dbd2;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 48px rgba(31, 35, 40, 0.18);
+  color: #24292f;
+}
+
+.code-agent-launch-submenu-panel.left {
+  right: calc(100% + 6px);
+  left: auto;
 }
 
 .code-file-tab-context-menu {
@@ -5150,6 +5211,7 @@ body.code-mode .settings-dialog {
 body.code-mode .input-dialog {
   width: min(92vw, 560px);
   min-height: 368px;
+  max-height: min(86vh, 760px);
   padding: 14px 16px 16px;
 }
 
@@ -5190,6 +5252,10 @@ body.code-mode .dialog-header-title {
 
 body.code-mode .agent-list {
   gap: 4px;
+}
+
+body.code-mode .workspace-input {
+  gap: 8px;
 }
 
 body.code-mode .agent-group {
@@ -5398,6 +5464,13 @@ body.code-mode .kill-btn {
   background: #cf222e;
 }
 
+body.code-mode .input-dialog .workspace-actions {
+  margin-top: 4px;
+  padding-top: 8px;
+  background: #ffffff;
+  border-top: 1px solid #ececea;
+}
+
 body.code-mode .workspace-history-header {
   color: #5d635b;
   border-bottom: 1px solid #e6e8df;
@@ -5431,7 +5504,7 @@ body.code-mode .workspace-history-item.active {
 body.code-mode .workspace-path-suggestions {
   margin-top: -4px;
   padding: 4px;
-  max-height: min(42vh, 320px);
+  max-height: min(168px, 28vh);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -5445,8 +5518,8 @@ body.code-mode .workspace-path-suggestion {
   font-family: inherit;
   font-size: 13px;
   gap: 12px;
-  min-height: 36px;
-  padding: 7px 9px;
+  min-height: 32px;
+  padding: 5px 8px;
 }
 
 body.code-mode .workspace-path-suggestion:hover,
@@ -5966,6 +6039,12 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
   overflow-y: auto;
 }
 
+.input-dialog {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .history-dialog {
   background: var(--theme-panel-bg, #1a1a1a);
   border: 1px solid var(--theme-border-soft, #184d18);
@@ -6112,6 +6191,10 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
   gap: 8px;
 }
 
+.input-dialog > .dialog-header {
+  flex: 0 0 auto;
+}
+
 .dialog-overlay .dialog-header.fx-crt-panel-compact {
   box-shadow: none;
 }
@@ -6139,6 +6222,13 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.input-dialog > .agent-list,
+.input-dialog > .workspace-input {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .agent-list-status {
@@ -6261,7 +6351,7 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
 .workspace-input {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .workspace-field-copy {
@@ -6316,6 +6406,16 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
   gap: 6px;
 }
 
+.input-dialog .workspace-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: 2px;
+  padding-top: 8px;
+  background: var(--theme-panel-bg, #1a1a1a);
+  flex: 0 0 auto;
+}
+
 .workspace-actions button,
 .close-btn,
 .kill-btn {
@@ -6348,7 +6448,7 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
 }
 
 .workspace-history {
-  margin-top: 12px;
+  margin-top: 6px;
   border: 1px solid var(--theme-border-soft, #184d18);
   background: rgba(8, 16, 8, 0.94);
 }
@@ -6357,7 +6457,7 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
   margin-top: -2px;
   border: 1px solid var(--theme-border-soft, #184d18);
   background: rgba(8, 16, 8, 0.94);
-  max-height: min(42vh, 320px);
+  max-height: min(152px, 28vh);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -6369,7 +6469,8 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
   grid-template-columns: minmax(90px, max-content) minmax(0, 1fr);
   align-items: center;
   gap: 8px;
-  padding: 5px 8px;
+  min-height: 30px;
+  padding: 4px 8px;
   border: 1px solid transparent;
   border-top: 1px solid #102910;
   background: transparent;
@@ -6422,7 +6523,7 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
 }
 
 .workspace-history-list {
-  max-height: 200px;
+  max-height: min(170px, 28vh);
   overflow-y: auto;
 }
 
@@ -6431,7 +6532,8 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
+  min-height: 34px;
+  padding: 5px 8px;
   border: 1px solid transparent;
   border-top: 1px solid #102910;
   background: transparent;
@@ -7323,6 +7425,19 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
     background: linear-gradient(to top, rgba(10, 18, 10, 0.98), rgba(10, 18, 10, 0.86));
     border-top: 1px solid var(--theme-border-soft, #184d18);
+  }
+
+  .input-dialog .workspace-actions {
+    bottom: calc(-14px - env(safe-area-inset-bottom));
+    margin: 4px -14px calc(-14px - env(safe-area-inset-bottom));
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    background: linear-gradient(to top, rgba(10, 18, 10, 0.98), rgba(10, 18, 10, 0.86));
+    border-top: 1px solid var(--theme-border-soft, #184d18);
+  }
+
+  body.code-mode .input-dialog .workspace-actions {
+    background: linear-gradient(to top, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.9));
+    border-top: 1px solid #ececea;
   }
 
   .workspace-actions button,

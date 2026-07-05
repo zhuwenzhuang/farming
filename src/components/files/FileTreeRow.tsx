@@ -28,12 +28,9 @@ interface FileTreeRowProps {
   treeViewportRef: RefObject<HTMLDivElement | null>
   onCloseFileOperation: () => void
   onFocusFileTreeTarget: (item: FileExplorerNode | null) => void
-  onHydrateCompactDirectoryChains: (path: string) => Promise<unknown>
   onOpenFileContextMenu: (x: number, y: number, item: FileExplorerNode | null) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
-  onRefreshTreeLayout: () => void
   onRememberFileOperationName: (name: string) => void
-  onSetDirectoryOpen: (path: string, open: boolean) => void
   onSubmitFileOperation: () => Promise<void>
   onUpdateFileOperationName: (name: string) => void
 }
@@ -51,12 +48,9 @@ export function FileTreeRow({
   treeViewportRef,
   onCloseFileOperation,
   onFocusFileTreeTarget,
-  onHydrateCompactDirectoryChains,
   onOpenFileContextMenu,
   onOpenFilePath,
-  onRefreshTreeLayout,
   onRememberFileOperationName,
-  onSetDirectoryOpen,
   onSubmitFileOperation,
   onUpdateFileOperationName,
 }: FileTreeRowProps) {
@@ -91,11 +85,8 @@ export function FileTreeRow({
     node,
     treeViewportRef,
     onFocusFileTreeTarget,
-    onHydrateCompactDirectoryChains,
     onOpenFileContextMenu,
     onOpenFilePath,
-    onRefreshTreeLayout,
-    onSetDirectoryOpen,
   })
 
   return (

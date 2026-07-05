@@ -286,7 +286,13 @@ test.describe('display-backed agent flows', () => {
     fs.rmSync(shortWorkspaceRoot, { recursive: true, force: true })
     const childWorkspace = path.join(shortWorkspaceRoot, 'child-files')
     const deepInnerWorkspace = path.join(childWorkspace, 'deep', 'nested', 'inner')
+    const requestDedupeWorkspace = path.join(childWorkspace, 'request-dedupe')
+    const directorySearchWorkspace = path.join(childWorkspace, 'poem')
+    const nestedDirectorySearchWorkspace = path.join(childWorkspace, 'reference', 'poem')
     fs.mkdirSync(deepInnerWorkspace, { recursive: true })
+    fs.mkdirSync(requestDedupeWorkspace, { recursive: true })
+    fs.mkdirSync(directorySearchWorkspace, { recursive: true })
+    fs.mkdirSync(nestedDirectorySearchWorkspace, { recursive: true })
     const readmePath = path.join(childWorkspace, 'README.md')
     fs.writeFileSync(
       readmePath,
@@ -304,6 +310,11 @@ test.describe('display-backed agent flows', () => {
     fs.writeFileSync(path.join(childWorkspace, 'analysis.ipynb'), '{}\n')
     fs.writeFileSync(path.join(childWorkspace, 'binary.bin'), Buffer.from([0, 1, 2, 3, 0]))
     fs.writeFileSync(path.join(childWorkspace, 'large.log'), `${'large text line\n'.repeat(80_000)}`)
+    fs.writeFileSync(path.join(requestDedupeWorkspace, 'first.txt'), 'first\n')
+    fs.writeFileSync(path.join(requestDedupeWorkspace, 'second.txt'), 'second\n')
+    fs.writeFileSync(path.join(directorySearchWorkspace, 'collection.zip'), 'zip payload\n')
+    fs.writeFileSync(path.join(childWorkspace, 'reference', 'notes.txt'), 'reference notes\n')
+    fs.writeFileSync(path.join(nestedDirectorySearchWorkspace, 'hidden.txt'), 'hidden poem\n')
     fs.writeFileSync(path.join(childWorkspace, 'preview.png'), Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgF/2l2fLwAAAABJRU5ErkJggg==',
       'base64',
@@ -509,6 +520,72 @@ test.describe('display-backed agent flows', () => {
       await filesTitle.click()
     }
     await expect(filesTitle).toHaveAttribute('aria-expanded', 'true')
+    const fileSearchInput = childFiles.getByPlaceholder('Search or path:line')
+    const fileTreeRequests: string[] = []
+    page.on('request', request => {
+      const url = request.url()
+      if (!url.includes('/api/files/tree')) return
+      fileTreeRequests.push(new URL(url).searchParams.get('path') ?? '')
+    })
+    const requestDedupeRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="request-dedupe"]')
+    await expect(requestDedupeRow).toBeVisible()
+    await requestDedupeRow.click()
+    await expect(requestDedupeRow).toHaveAttribute('aria-expanded', 'true')
+    await expect(childFiles.locator('[data-testid="code-file-row"][data-file-path="request-dedupe/first.txt"]')).toBeVisible()
+    await page.waitForTimeout(100)
+    expect(fileTreeRequests.filter(requestPath => requestPath === 'request-dedupe')).toHaveLength(1)
+    await fileSearchInput.fill('poem')
+    const folderSearchResults = childFiles.getByTestId('code-file-search-results')
+    const poemDirectoryResult = folderSearchResults.locator('.code-file-search-result[title="poem"]')
+    await expect(poemDirectoryResult).toBeVisible()
+    await expect(poemDirectoryResult).toContainText('Folder')
+    await expect(folderSearchResults.locator('.code-file-search-result[title="poem/collection.zip:1"]')).toHaveCount(0)
+    await poemDirectoryResult.click()
+    await expect(fileSearchInput).toHaveValue('')
+    const poemRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="poem"]')
+    await expect(poemRow).toBeVisible()
+    await expect(poemRow).toHaveAttribute('aria-expanded', 'true')
+    await expect(childFiles.locator('[data-testid="code-file-row"][data-file-path="poem/collection.zip"]')).toBeVisible()
+    await fileSearchInput.fill('reference/poem')
+    const nestedPoemDirectoryResult = folderSearchResults.locator('.code-file-search-result[title="reference/poem"]')
+    await expect(nestedPoemDirectoryResult).toBeVisible()
+    await expect(nestedPoemDirectoryResult).toContainText('Folder')
+    await nestedPoemDirectoryResult.click()
+    await expect(fileSearchInput).toHaveValue('')
+    const referenceRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="reference"]')
+    await expect(referenceRow).toBeVisible()
+    await expect(referenceRow).toHaveAttribute('aria-expanded', 'true')
+    const nestedPoemRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="reference/poem"]')
+    await expect(nestedPoemRow).toBeVisible()
+    await expect(nestedPoemRow).toHaveAttribute('aria-expanded', 'true')
+    await expect(childFiles.locator('[data-testid="code-file-row"][data-file-path="reference/poem/hidden.txt"]')).toBeVisible()
+    await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
+    await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'collection.zip' })).toHaveCount(0)
+    await nestedPoemRow.click()
+    await expect(nestedPoemRow).toHaveAttribute('aria-expanded', 'false')
+    await expect(childFiles.locator('[data-testid="code-file-row"][data-file-path="reference/poem/hidden.txt"]')).toHaveCount(0)
+    await writeTerminalFixture(page, childAgentId, '$ ls reference/poem\r\nreference/poem\r\n$ ')
+    const directoryPathRows = await terminalRows(page, childAgentId)
+    const directoryPathRow = directoryPathRows.findIndex(row => row.includes('reference/poem'))
+    const directoryPathCol = directoryPathRow >= 0 ? directoryPathRows[directoryPathRow].indexOf('reference/poem') + 2 : -1
+    if (directoryPathRow < 0 || directoryPathCol < 0) {
+      throw new Error(`Terminal directory path fixture row is missing: ${JSON.stringify(directoryPathRows)}`)
+    }
+    const directoryPathCell = await page.evaluate(({ agentId, col, row }) => {
+      return window.__farmingTerminalTest?.getCellCenter(agentId, col, row) ?? null
+    }, { agentId: childAgentId, col: directoryPathCol, row: directoryPathRow })
+    if (!directoryPathCell) {
+      throw new Error('Terminal directory path fixture cell is missing')
+    }
+    await expect.poll(async () => page.evaluate(({ agentId, col, row }) => (
+      window.__farmingTerminalTest?.getPathAtCell(agentId, col, row)?.path ?? null
+    ), { agentId: childAgentId, col: directoryPathCol, row: directoryPathRow })).toBe('reference/poem')
+    await page.mouse.click(directoryPathCell.x, directoryPathCell.y)
+    await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
+    await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'hidden.txt' })).toHaveCount(0)
+    await expect(nestedPoemRow).toBeVisible()
+    await expect(nestedPoemRow).toHaveAttribute('aria-expanded', 'true')
+    await expect(childFiles.locator('[data-testid="code-file-row"][data-file-path="reference/poem/hidden.txt"]')).toBeVisible()
     const deepRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="deep"]')
     const fileTree = childFiles.locator('.code-file-tree')
     await expect(deepRow).toBeVisible()
@@ -562,7 +639,6 @@ test.describe('display-backed agent flows', () => {
       `deep file watch ${Date.now()}\n`,
     )
 
-    const fileSearchInput = childFiles.getByPlaceholder('Search or path:line')
     await childAgentRow.focus()
     await page.keyboard.press('Control+P')
     await expect(fileSearchInput).toBeFocused()
@@ -807,8 +883,13 @@ test.describe('display-backed agent flows', () => {
     const file01Row = childFiles.locator('[data-testid="code-file-row"][data-file-path="deep/nested/inner/file-01.txt"]')
     await expect(file00Row).toBeVisible()
     await expect(file00Row).toHaveClass(/selected/)
-    await childFiles.locator('[role="tree"]').focus()
+    await file00Row.click()
+    await expect(file00Row).toHaveClass(/selected/)
+    await expect.poll(async () => childFiles.locator('[role="tree"]').evaluate(tree => (
+      tree === document.activeElement || tree.contains(document.activeElement)
+    ))).toBe(true)
     await page.keyboard.press('ArrowDown')
+    await expect(file01Row).toHaveClass(/selected/)
     await page.keyboard.press('F2')
     await expect(file01Row.getByTestId('code-file-inline-operation')).toBeVisible()
     await expect(file00Row.getByTestId('code-file-inline-operation')).toHaveCount(0)

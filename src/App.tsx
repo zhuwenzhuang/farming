@@ -24,6 +24,7 @@ type AgentFlagPatch = Partial<{
   archived: boolean
 }>
 type StartAgentExtras = {
+  projectWorkspace?: string
   task?: string
   workflowTemplate?: string
 }
@@ -702,6 +703,7 @@ export function App() {
         uiPreferences={uiPreferences}
         onOpenTerminal={openTerminal}
         onNewAgent={openNewAgentDialog}
+        onStartAgent={handleStartAgent}
         onRenameAgent={handleRenameAgent}
         onUpdateAgentFlags={handleUpdateAgentFlags}
         onOpenArchivedAgent={handleOpenArchivedAgent}

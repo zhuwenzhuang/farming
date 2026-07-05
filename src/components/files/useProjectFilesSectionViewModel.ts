@@ -6,6 +6,7 @@ import type {
 } from '@/lib/workspace-file-operation-model'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
+import type { AgentLaunchOption } from '../code/agent-launch-options'
 import type { CodeCopy } from '../code/copy'
 import type {
   FileSectionBodySearch,
@@ -21,6 +22,7 @@ interface UseProjectFilesSectionViewModelOptions {
   activeFilePath?: string
   activeSearchOptionId?: string
   agentId: string
+  agentLaunchOptions: AgentLaunchOption[]
   copy: CodeCopy
   editorDirtyFilePaths: ReadonlySet<string>
   editorExternalChangedFilePaths: ReadonlySet<string>
@@ -58,18 +60,17 @@ interface UseProjectFilesSectionViewModelOptions {
   onCopyFileMenuPath: () => void
   onFocusFileTreeTarget: (item: WorkspaceFileTreeNode | null) => void
   onFocusStickyDirectory: (node: WorkspaceFileTreeNode) => void
-  onHydrateCompactDirectoryChains: (path: string) => Promise<unknown>
   onOpenFileContextMenu: (x: number, y: number, item: WorkspaceFileTreeNode | null) => void
   onOpenFileJumpQuery: (query: string) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
   onOpenFileSearchMatch: FileSectionBodySearchActions['onOpenMatch']
+  onOpenNewAgentFromFileMenu: () => void
   onRefreshFileMenuTarget: () => void
-  onRefreshTreeLayout: () => void
   onRememberFileOperationName: (name: string) => void
   onRevealOpenEditors: () => void
   onSearchQueryChange: (query: string) => void
   onSelectOpenFile?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
-  onSetDirectoryOpen: (path: string, open: boolean) => void
+  onStartAgentFromFileMenu: (command: string) => void
   onSelectSearchMatchIndex: (index: number) => void
   onStartFileMenuOperation: (kind: WorkspaceFileOperationKind) => void
   onSubmitFileOperation: () => Promise<void>
@@ -85,6 +86,7 @@ export function useProjectFilesSectionViewModel({
   activeFilePath,
   activeSearchOptionId,
   agentId,
+  agentLaunchOptions,
   copy,
   editorDirtyFilePaths,
   editorExternalChangedFilePaths,
@@ -122,19 +124,18 @@ export function useProjectFilesSectionViewModel({
   onCopyFileMenuPath,
   onFocusFileTreeTarget,
   onFocusStickyDirectory,
-  onHydrateCompactDirectoryChains,
   onOpenFileContextMenu,
   onOpenFileJumpQuery,
   onOpenFilePath,
   onOpenFileSearchMatch,
+  onOpenNewAgentFromFileMenu,
   onRefreshFileMenuTarget,
-  onRefreshTreeLayout,
   onRememberFileOperationName,
   onRevealOpenEditors,
   onSearchQueryChange,
   onSelectOpenFile,
   onSelectSearchMatchIndex,
-  onSetDirectoryOpen,
+  onStartAgentFromFileMenu,
   onStartFileMenuOperation,
   onSubmitFileOperation,
   onToggleFilesCollapsed,
@@ -215,13 +216,10 @@ export function useProjectFilesSectionViewModel({
     onCloseFileOperation,
     onFocusFileTreeTarget,
     onFocusStickyDirectory,
-    onHydrateCompactDirectoryChains,
     onOpenFileContextMenu,
     onOpenFilePath,
-    onRefreshTreeLayout,
     onRememberFileOperationName,
     onRevealOpenEditors,
-    onSetDirectoryOpen,
     onSubmitFileOperation,
     onToggleFiles: onToggleFilesCollapsed,
     onToggleOpenEditors: onToggleOpenEditorsCollapsed,
@@ -250,13 +248,10 @@ export function useProjectFilesSectionViewModel({
     onCloseFileOperation,
     onFocusFileTreeTarget,
     onFocusStickyDirectory,
-    onHydrateCompactDirectoryChains,
     onOpenFileContextMenu,
     onOpenFilePath,
-    onRefreshTreeLayout,
     onRememberFileOperationName,
     onRevealOpenEditors,
-    onSetDirectoryOpen,
     onSubmitFileOperation,
     onToggleFilesCollapsed,
     onToggleOpenEditorsCollapsed,
@@ -285,6 +280,7 @@ export function useProjectFilesSectionViewModel({
     },
     sectionBody: {
       copy,
+      agentLaunchOptions,
       fileMenu,
       fileMenuRef,
       openFileError,
@@ -297,7 +293,9 @@ export function useProjectFilesSectionViewModel({
       onCloseFileMenu: onCloseFileMenuWithoutFocus,
       onCloseFileMenuWithFocusRestore,
       onCopyFileMenuPath,
+      onOpenNewAgentFromFileMenu,
       onRefreshFileMenuTarget,
+      onStartAgentFromFileMenu,
       onStartFileMenuOperation,
     },
     sectionHeader: {

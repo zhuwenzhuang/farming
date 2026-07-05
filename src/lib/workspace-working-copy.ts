@@ -21,8 +21,44 @@ export interface WorkspaceWorkingCopyChangeIndicatorReference {
   externalChanged?: boolean
 }
 
-export function workspaceFileCacheKey(agentId: string, filePath: string, workspaceRoot?: string) {
-  return `${workspaceRoot || agentId}:${filePath}`
+export function normalizeWorkspaceResourcePath(value: string) {
+  const normalized = value.trim().replace(/\\/g, '/').replace(/\/+/g, '/')
+  const driveMatch = /^([a-zA-Z]:)(?:\/|$)/.exec(normalized)
+  const drivePrefix = driveMatch?.[1]
+  const rooted = normalized.startsWith('/')
+  const body = drivePrefix
+    ? normalized.slice(drivePrefix.length).replace(/^\/+/, '')
+    : normalized.replace(/^\/+/, '')
+  const segments: string[] = []
+  body.split('/').forEach(segment => {
+    if (!segment || segment === '.') return
+    if (segment === '..') {
+      if (segments.length && segments[segments.length - 1] !== '..') {
+        segments.pop()
+      } else if (!drivePrefix && !rooted) {
+        segments.push(segment)
+      }
+      return
+    }
+    segments.push(segment)
+  })
+  const path = segments.join('/')
+  if (drivePrefix) return path ? `${drivePrefix}/${path}` : drivePrefix
+  if (rooted) return path ? `/${path}` : '/'
+  return path
+}
+
+export function workspaceFileResourceKey(filePath: string, workspaceRoot?: string) {
+  const normalizedPath = normalizeWorkspaceResourcePath(filePath)
+  if (!workspaceRoot || normalizedPath.startsWith('/') || /^[a-zA-Z]:(?:\/|$)/.test(normalizedPath)) {
+    return normalizedPath
+  }
+  const normalizedRoot = normalizeWorkspaceResourcePath(workspaceRoot).replace(/\/+$/, '')
+  return normalizeWorkspaceResourcePath(`${normalizedRoot}/${normalizedPath}`)
+}
+
+export function workspaceFileCacheKey(_agentId: string, filePath: string, workspaceRoot?: string) {
+  return workspaceFileResourceKey(filePath, workspaceRoot)
 }
 
 export function workspaceWorkingCopyKey(file: WorkspaceFileReference) {

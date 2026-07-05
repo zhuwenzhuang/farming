@@ -64,13 +64,23 @@ export function useWorkspaceFileTreeController({
 
   const handleTreeToggle = useCallback((path: string) => {
     preserveWorkspaceFileScrollPosition(treeViewportRef.current?.closest<HTMLElement>('.code-project-list'))
-    const nextOpen = Boolean(treeRef.current?.get(path)?.isOpen)
-    setDirectoryOpen(path, nextOpen)
-    if (nextOpen) {
-      void hydrateCompactDirectoryChains(path).finally(refreshTreeLayout)
-    } else {
-      refreshTreeLayout()
+
+    let lastObservedOpen: boolean | null = null
+    const syncObservedToggle = () => {
+      const nextOpen = Boolean(treeRef.current?.get(path)?.isOpen)
+      if (lastObservedOpen === nextOpen) return
+      lastObservedOpen = nextOpen
+      setDirectoryOpen(path, nextOpen)
+      if (nextOpen) {
+        void hydrateCompactDirectoryChains(path).finally(refreshTreeLayout)
+      } else {
+        refreshTreeLayout()
+      }
     }
+
+    syncObservedToggle()
+    window.requestAnimationFrame(syncObservedToggle)
+    window.setTimeout(syncObservedToggle, 80)
   }, [hydrateCompactDirectoryChains, refreshTreeLayout, setDirectoryOpen])
 
   const rememberFocusedTreeNode = useCallback((node: { data: WorkspaceFileTreeNode } | null | undefined) => {

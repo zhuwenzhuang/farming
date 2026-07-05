@@ -1588,11 +1588,11 @@ function terminalOpenTargetTitle(kind: 'url' | 'path') {
   if (lang.toLowerCase().startsWith('zh')) {
     return kind === 'url'
       ? `按住 ${modifier} 点击打开链接`
-      : '点击打开文件'
+      : '点击打开路径'
   }
   return kind === 'url'
     ? `${modifier}-click to open link`
-    : 'Click to open file'
+    : 'Click to open path'
 }
 
 function setTerminalLinkHoverTarget(record: SessionRecord, kind: 'url' | 'path' | null) {
@@ -2616,6 +2616,19 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
 
   const mouseUpOpenTargetHandler = (event: MouseEvent) => {
     if (isMobileViewport() || event.button !== 0) return
+    const modifierActive = isTerminalOpenModifierActive(record, event)
+    if (modifierActive) {
+      const url = findTerminalUrlAtMouseEvent(record, event)
+      if (url) {
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation()
+        openTerminalUrl(url)
+        record.suppressClickUntil = Date.now() + 250
+        return
+      }
+    }
+
     const mouseDown = record.openTargetMouseDown
     record.openTargetMouseDown = null
     if (!mouseDown) return

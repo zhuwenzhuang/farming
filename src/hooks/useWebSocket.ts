@@ -64,7 +64,7 @@ export function useWebSocket() {
     command: string,
     workspace?: string,
     asMain?: boolean,
-    extras?: { task?: string; workflowTemplate?: string }
+    extras?: { task?: string; workflowTemplate?: string; projectWorkspace?: string }
   ) => {
     const msg: StartAgentMessage = {
       type: 'start-agent',
@@ -74,6 +74,7 @@ export function useWebSocket() {
     }
     if (extras?.task !== undefined) msg.task = extras.task
     if (extras?.workflowTemplate !== undefined) msg.workflowTemplate = extras.workflowTemplate
+    if (extras?.projectWorkspace !== undefined) msg.projectWorkspace = extras.projectWorkspace
     return sendMessage(msg)
   }, [sendMessage])
 

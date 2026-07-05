@@ -158,10 +158,14 @@ function workingCopy(overrides = {}) {
 }
 
 function run() {
-  assert.strictEqual(workspaceFileCacheKey('agent-1', 'src/App.tsx'), 'agent-1:src/App.tsx');
-  assert.strictEqual(workspaceFileCacheKey('agent-1', 'src/App.tsx', '/repo'), '/repo:src/App.tsx');
-  assert.strictEqual(workspaceWorkingCopyKey(workingCopy()), 'agent-1:src/App.tsx');
-  assert.strictEqual(workspaceWorkingCopyKey(workingCopy({ workspaceRoot: '/repo' })), '/repo:src/App.tsx');
+  assert.strictEqual(workspaceFileCacheKey('agent-1', 'src/App.tsx'), 'src/App.tsx');
+  assert.strictEqual(workspaceFileCacheKey('agent-1', 'src/App.tsx', '/repo'), '/repo/src/App.tsx');
+  assert.strictEqual(
+    workspaceFileCacheKey('agent-parent', 'packages/a/src/App.tsx', '/repo'),
+    workspaceFileCacheKey('agent-child', 'src/App.tsx', '/repo/packages/a')
+  );
+  assert.strictEqual(workspaceWorkingCopyKey(workingCopy()), 'src/App.tsx');
+  assert.strictEqual(workspaceWorkingCopyKey(workingCopy({ workspaceRoot: '/repo' })), '/repo/src/App.tsx');
 
   assert.strictEqual(workspaceWorkingCopyState(workingCopy()), 'saved');
   assert.strictEqual(workspaceWorkingCopyState(workingCopy({ dirty: true })), 'dirty');
@@ -507,7 +511,7 @@ function run() {
     selectedPath: 'selected.ts',
     focusedPath: 'focused.ts',
     lastFocusedPath: 'last.ts',
-  }), 'clicked.ts');
+  }), 'selected.ts');
   assert.strictEqual(workspaceFileTreeKeyboardTargetPath({
     selectedPath: 'selected.ts',
     focusedPath: 'focused.ts',
@@ -756,6 +760,7 @@ function run() {
 
   const editorFile = {
     agentId: 'agent 1',
+    workspaceRoot: '/repo',
     file: {
       path: 'src/App.tsx',
       sha1: 'abc',
@@ -763,17 +768,27 @@ function run() {
       mtimeMs: 42,
     },
   };
-  assert.strictEqual(workspaceEditorModelKey(editorFile), 'agent 1:src/App.tsx');
-  assert.strictEqual(workspaceEditorModelContentVersion(editorFile), 'agent 1:src/App.tsx:abc:10:42');
+  const nestedEditorFile = {
+    agentId: 'agent 2',
+    workspaceRoot: '/repo/src',
+    file: {
+      path: 'App.tsx',
+      sha1: 'abc',
+      size: 10,
+      mtimeMs: 42,
+    },
+  };
+  assert.strictEqual(workspaceEditorModelKey(editorFile), '/repo/src/App.tsx');
+  assert.strictEqual(workspaceEditorModelKey(nestedEditorFile), '/repo/src/App.tsx');
+  assert.strictEqual(workspaceEditorModelContentVersion(editorFile), '/repo/src/App.tsx:abc:10:42');
   assert.deepStrictEqual(workspaceEditorModelUriParts(editorFile), {
     scheme: 'farming-file',
-    authority: 'agent-1',
-    path: '/src/App.tsx',
+    path: '/repo/src/App.tsx',
   });
   assert.strictEqual(isWorkspaceEditorModelUri({ scheme: 'farming-file' }), true);
   assert.strictEqual(isWorkspaceEditorModelUri({ scheme: 'file' }), false);
-  assert.strictEqual(safeWorkspaceEditorDomIdPart('agent 1:src/App.tsx'), 'agent-1-src-App-tsx');
-  assert.strictEqual(workspaceEditorTabDomId(editorFile), 'code-file-editor-tab-agent-1-src-App-tsx');
+  assert.strictEqual(safeWorkspaceEditorDomIdPart('/repo/src/App.tsx'), '-repo-src-App-tsx');
+  assert.strictEqual(workspaceEditorTabDomId(editorFile), 'code-file-editor-tab--repo-src-App-tsx');
   assert.strictEqual(workspaceEditorBasename('/src/components/App.tsx'), 'App.tsx');
   assert.deepStrictEqual(workspaceEditorPathSegments('src/components/App.tsx'), ['src', 'components', 'App.tsx']);
   assert.strictEqual(workspaceEditorPathToSegment(['src', 'components', 'App.tsx'], 1), 'src/components');
@@ -781,12 +796,12 @@ function run() {
   assert.strictEqual(workspaceEditorTabLabel({ file: { path: 'src/App.tsx' }, dirty: true }), 'App.tsx, src/App.tsx, unsaved changes');
   assert.strictEqual(workspaceEditorTabLabel({ file: { path: 'src/App.tsx' }, dirty: true, externalChanged: true }), 'App.tsx, src/App.tsx, changed on disk');
   assert.strictEqual(workspaceEditorLanguageLookupPath('src/App.tsx~'), 'src/App.tsx');
-  assert.deepStrictEqual(Array.from(workspaceEditorLiveModelKeys([editorFile])), ['agent 1:src/App.tsx']);
+  assert.deepStrictEqual(Array.from(workspaceEditorLiveModelKeys([editorFile])), ['/repo/src/App.tsx']);
   assert.deepStrictEqual(Array.from(workspaceEditorLiveModelUriStrings([editorFile], file => `uri:${file.file.path}`)), ['uri:src/App.tsx']);
-  assert.strictEqual(shouldKeepWorkspaceEditorViewState('agent 1:src/App.tsx', workspaceEditorLiveModelKeys([editorFile])), true);
-  assert.strictEqual(shouldKeepWorkspaceEditorViewState('agent 1:src/Other.tsx', workspaceEditorLiveModelKeys([editorFile])), false);
-  assert.strictEqual(shouldDisposeWorkspaceEditorModelUri({ scheme: 'farming-file', toString: () => 'farming-file://agent-1/src/Other.tsx' }, new Set(['farming-file://agent-1/src/App.tsx'])), true);
-  assert.strictEqual(shouldDisposeWorkspaceEditorModelUri({ scheme: 'farming-file', toString: () => 'farming-file://agent-1/src/App.tsx' }, new Set(['farming-file://agent-1/src/App.tsx'])), false);
+  assert.strictEqual(shouldKeepWorkspaceEditorViewState('/repo/src/App.tsx', workspaceEditorLiveModelKeys([editorFile])), true);
+  assert.strictEqual(shouldKeepWorkspaceEditorViewState('/repo/src/Other.tsx', workspaceEditorLiveModelKeys([editorFile])), false);
+  assert.strictEqual(shouldDisposeWorkspaceEditorModelUri({ scheme: 'farming-file', toString: () => 'farming-file:/repo/src/Other.tsx' }, new Set(['farming-file:/repo/src/App.tsx'])), true);
+  assert.strictEqual(shouldDisposeWorkspaceEditorModelUri({ scheme: 'farming-file', toString: () => 'farming-file:/repo/src/App.tsx' }, new Set(['farming-file:/repo/src/App.tsx'])), false);
   assert.strictEqual(shouldDisposeWorkspaceEditorModelUri({ scheme: 'file', toString: () => 'file:///tmp/App.tsx' }, new Set()), false);
   assert.deepStrictEqual(workspaceEditorCursorSelection({
     lineNumber: 99,
@@ -899,7 +914,7 @@ function run() {
   const tabA = workingCopy({ file: workspaceFile('src/A.ts') });
   const tabB = workingCopy({ file: workspaceFile('src/B.ts'), dirty: true });
   const tabC = workingCopy({ file: workspaceFile('src/C.ts') });
-  assert.strictEqual(workspaceEditorTabKey(tabA), 'agent-1:src/A.ts');
+  assert.strictEqual(workspaceEditorTabKey(tabA), 'src/A.ts');
   assert.deepStrictEqual(uniqueWorkspaceEditorCloseFiles([tabA, tabA, tabB]), [tabA, tabB]);
   assert.strictEqual(workspaceEditorNextFocusAfterClosingTab([tabA, tabB, tabC], tabB, 1), tabA);
   assert.strictEqual(workspaceEditorNextFocusAfterClosingTab([tabA, tabB, tabC], tabA, 0), tabB);
@@ -1059,7 +1074,11 @@ function run() {
   }), 'New File');
   assert.deepStrictEqual(workspaceFileContextMenuPosition(500, 500, fileNode, 600, 580), {
     x: 372,
-    y: 382,
+    y: 336,
+  });
+  assert.deepStrictEqual(workspaceFileContextMenuPosition(500, 500, fileNode, 600, 580, 4), {
+    x: 372,
+    y: 222,
   });
 
   console.log('test-workspace-file-models passed');

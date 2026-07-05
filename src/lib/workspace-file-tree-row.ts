@@ -69,6 +69,7 @@ export function workspaceFileTreeRowViewState({
 }: WorkspaceFileTreeRowViewStateOptions) {
   const isDirectory = item.type === 'directory'
   const active = activeFilePath === item.path
+  const directoryLoading = isDirectory && item.loading === true
   const editorDirty = !isDirectory && editorDirtyFilePaths.has(item.path)
   const editorExternalChanged = !isDirectory && editorExternalChangedFilePaths.has(item.path)
   const hasEditorDirtyDescendant = isDirectory && hasWorkspaceFileTreeDescendant(editorDirtyFilePaths, item.path)
@@ -103,7 +104,7 @@ export function workspaceFileTreeRowViewState({
       ? 'dirty'
       : null
   const visibleGitStatusClassName = visibleGitStatus ? `code-file-git-status ${visibleGitStatus}` : ''
-  const chevronState = isDirectory ? (isOpen ? 'expanded' : 'collapsed') : 'placeholder'
+  const chevronState = isDirectory ? (directoryLoading ? 'loading' : isOpen ? 'expanded' : 'collapsed') : 'placeholder'
   const rowClasses = [
     'code-file-row',
     isDirectory ? 'directory' : 'file',
@@ -114,6 +115,7 @@ export function workspaceFileTreeRowViewState({
     hasEditorExternalChangedDescendant ? 'editor-descendant-external-changed' : '',
     isFocused ? 'focused' : '',
     isSelected ? 'selected' : '',
+    directoryLoading ? 'loading' : '',
     hasGitStatus ? 'git-status' : '',
     visibleGitStatus ? `git-${visibleGitStatus}` : '',
     hasDescendantGitStatus ? 'git-descendant' : '',
@@ -123,6 +125,7 @@ export function workspaceFileTreeRowViewState({
   return {
     active,
     chevronState,
+    directoryLoading,
     directoryDotClassName,
     directoryDotKind,
     directoryDotTitleKind,

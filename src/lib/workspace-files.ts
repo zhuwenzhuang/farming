@@ -130,6 +130,7 @@ export interface WorkspaceFileLineChanges {
 
 export interface WorkspaceFileSearchMatch {
   kind?: 'content' | 'path'
+  entryType?: WorkspaceFileEntry['type']
   path: string
   lineNumber: number
   lines: string

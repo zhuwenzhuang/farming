@@ -30,13 +30,10 @@ export interface FileTreeViewProps {
   onCloseFileOperation: () => void
   onFocusFileTreeTarget: (item: FileExplorerNode | null) => void
   onFocusStickyDirectory: (node: FileExplorerNode) => void
-  onHydrateCompactDirectoryChains: (path: string) => Promise<unknown>
   onOpenFileContextMenu: (x: number, y: number, item: FileExplorerNode | null) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
-  onRefreshTreeLayout: () => void
   onRememberFileOperationName: (name: string) => void
   onRevealOpenEditors: () => void
-  onSetDirectoryOpen: (path: string, open: boolean) => void
   onSubmitFileOperation: () => Promise<void>
   onToggleFiles: () => void
   onToggleOpenEditors: () => void
@@ -68,13 +65,10 @@ export function FileTreeView({
   onCloseFileOperation,
   onFocusFileTreeTarget,
   onFocusStickyDirectory,
-  onHydrateCompactDirectoryChains,
   onOpenFileContextMenu,
   onOpenFilePath,
-  onRefreshTreeLayout,
   onRememberFileOperationName,
   onRevealOpenEditors,
-  onSetDirectoryOpen,
   onSubmitFileOperation,
   onToggleFiles,
   onToggleOpenEditors,
@@ -105,16 +99,13 @@ export function FileTreeView({
       treeViewportRef={treeViewportRef}
       onCloseFileOperation={onCloseFileOperation}
       onFocusFileTreeTarget={onFocusFileTreeTarget}
-      onHydrateCompactDirectoryChains={onHydrateCompactDirectoryChains}
       onOpenFileContextMenu={onOpenFileContextMenu}
       onOpenFilePath={onOpenFilePath}
-      onRefreshTreeLayout={onRefreshTreeLayout}
       onRememberFileOperationName={onRememberFileOperationName}
-      onSetDirectoryOpen={onSetDirectoryOpen}
       onSubmitFileOperation={onSubmitFileOperation}
       onUpdateFileOperationName={onUpdateFileOperationName}
     />
-  ), [activeFilePath, agentId, copy, editorDirtyFilePaths, editorExternalChangedFilePaths, fileOperation, fileOperationInputRef, lastFocusedFilePathRef, onCloseFileOperation, onFocusFileTreeTarget, onHydrateCompactDirectoryChains, onOpenFileContextMenu, onOpenFilePath, onRefreshTreeLayout, onRememberFileOperationName, onSetDirectoryOpen, onSubmitFileOperation, onUpdateFileOperationName, treeViewportRef])
+  ), [activeFilePath, agentId, copy, editorDirtyFilePaths, editorExternalChangedFilePaths, fileOperation, fileOperationInputRef, lastFocusedFilePathRef, onCloseFileOperation, onFocusFileTreeTarget, onOpenFileContextMenu, onOpenFilePath, onRememberFileOperationName, onSubmitFileOperation, onUpdateFileOperationName, treeViewportRef])
 
   return (
     <div

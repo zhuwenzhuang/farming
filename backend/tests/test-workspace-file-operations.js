@@ -84,9 +84,8 @@ function run() {
   ]);
 
   const movedCache = applyWorkspaceFileMovesToOpenFileCache(files, 'agent-1', [move]);
-  assert.strictEqual(movedCache.has('agent-1:app/App.tsx'), true);
-  assert.strictEqual(movedCache.has('agent-1:src/App.tsx'), false);
-  assert.strictEqual(movedCache.has('agent-2:src/App.tsx'), true);
+  assert.strictEqual(movedCache.has('app/App.tsx'), true);
+  assert.strictEqual(movedCache.has('src/App.tsx'), true);
 
   const deletion = {
     path: 'src',
@@ -107,8 +106,8 @@ function run() {
   ]);
   const remainingCache = removeWorkspaceFileDeletionsFromOpenFileCache(files, 'agent-1', [deletion]);
   assert.deepStrictEqual(Array.from(remainingCache.keys()).sort(), [
-    'agent-1:scripts/build.js',
-    'agent-2:src/App.tsx',
+    'scripts/build.js',
+    'src/App.tsx',
   ]);
 
   console.log('test-workspace-file-operations passed');

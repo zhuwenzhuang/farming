@@ -80,11 +80,15 @@ async function run() {
     fs.mkdirSync(path.join(workspace, '.tmp'), { recursive: true });
     fs.mkdirSync(path.join(workspace, 'node_modules'), { recursive: true });
     fs.mkdirSync(path.join(workspace, 'dist-release'), { recursive: true });
-    fs.mkdirSync(path.join(workspace, 'reference'), { recursive: true });
+    fs.mkdirSync(path.join(workspace, 'reference', 'poem'), { recursive: true });
     fs.mkdirSync(path.join(workspace, 'test-results'), { recursive: true });
     fs.mkdirSync(path.join(workspace, 'playwright-report'), { recursive: true });
+    fs.mkdirSync(path.join(workspace, 'poem'), { recursive: true });
+    fs.mkdirSync(path.join(workspace, 'archive', 'poem', 'bundle'), { recursive: true });
     fs.writeFileSync(path.join(workspace, 'README.md'), '# Farming\n');
     fs.writeFileSync(path.join(srcDir, 'App.tsx'), 'export const label = "Farming";\n');
+    fs.writeFileSync(path.join(workspace, 'poem', 'collection.zip'), 'zip\n');
+    fs.writeFileSync(path.join(workspace, 'archive', 'poem', 'bundle', 'notes.txt'), 'nested poem folder\n');
     fs.writeFileSync(path.join(workspace, 'node_modules', 'ignored.js'), 'ignored');
     fs.writeFileSync(path.join(workspace, '.farming', 'AGENTS.md'), 'internal');
     fs.writeFileSync(path.join(workspace, '.dolt', 'ignored.db'), 'ignored dolt\n');
@@ -92,6 +96,7 @@ async function run() {
     fs.writeFileSync(path.join(workspace, '.tmp', 'ignored.tmp'), 'ignored tmp\n');
     fs.writeFileSync(path.join(workspace, 'dist-release', 'ignored.tgz'), 'ignored release\n');
     fs.writeFileSync(path.join(workspace, 'reference', 'codex-reference.md'), 'codex reference\n');
+    fs.writeFileSync(path.join(workspace, 'reference', 'poem', 'hidden.txt'), 'hidden poem content\n');
     fs.writeFileSync(path.join(workspace, 'test-results', 'ignored.txt'), 'ignored test result\n');
     fs.writeFileSync(path.join(workspace, 'playwright-report', 'index.html'), '<html></html>\n');
     fs.writeFileSync(path.join(workspace, '.DS_Store'), 'ignored metadata\n');
@@ -124,7 +129,9 @@ async function run() {
     assert(!tree.items.some(item => item.name === '.tmp'));
     assert(!tree.items.some(item => item.name === 'node_modules'));
     assert(!tree.items.some(item => item.name === 'dist-release'));
-    assert(!tree.items.some(item => item.name === 'reference'));
+    const referenceTreeItem = tree.items.find(item => item.name === 'reference');
+    assert(referenceTreeItem);
+    assert.strictEqual(referenceTreeItem.type, 'directory');
     assert(!tree.items.some(item => item.name === 'test-results'));
     assert(!tree.items.some(item => item.name === 'playwright-report'));
     assert(!tree.items.some(item => item.name === '.DS_Store'));
@@ -293,10 +300,26 @@ async function run() {
 
       const pathSearch = await service.search(workspace, 'NewFile');
       assert.strictEqual(pathSearch.matches[0].kind, 'path');
+      assert.strictEqual(pathSearch.matches[0].entryType, 'file');
       assert.strictEqual(pathSearch.matches[0].path, 'docs/NewFile.ts');
       assert.strictEqual(pathSearch.matches[0].lines, '');
       assert(!pathSearch.matches.some(match => match.path.startsWith('node_modules/')));
       assert(!pathSearch.matches.some(match => match.path.startsWith('noise/')));
+      const directoryNameSearch = await service.search(workspace, 'poem', { limit: 10 });
+      assert.strictEqual(directoryNameSearch.matches[0].kind, 'path');
+      assert.strictEqual(directoryNameSearch.matches[0].entryType, 'directory');
+      assert.strictEqual(directoryNameSearch.matches[0].path, 'poem');
+      assert(directoryNameSearch.matches.some(match => (
+        match.path === 'archive/poem' && match.entryType === 'directory'
+      )));
+      assert(directoryNameSearch.matches.some(match => (
+        match.path === 'reference/poem' && match.entryType === 'directory'
+      )));
+      assert(!directoryNameSearch.matches.some(match => match.path === 'poem/collection.zip'));
+      assert(!directoryNameSearch.matches.some(match => match.path === 'reference/poem/hidden.txt'));
+      assert(!directoryNameSearch.matches.some(match => (
+        match.kind === 'path' && match.path === 'archive/poem/bundle/notes.txt'
+      )));
       const directoryPathSearch = await service.search(workspace, 'src/', { limit: 5 });
       assert(directoryPathSearch.matches.some(match => match.path === 'src/App.tsx'));
       assert(!directoryPathSearch.matches.some(match => match.path === 'src'));

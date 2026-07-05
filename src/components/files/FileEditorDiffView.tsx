@@ -6,6 +6,7 @@ import {
   workspaceEditorLanguageForPath,
   workspaceEditorMonacoThemeForAppearance,
 } from '@/lib/workspace-editor-monaco'
+import { workspaceFileResourceKey } from '@/lib/workspace-working-copy'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import type { CodeCopy } from '../code/copy'
 import type { FileEditorDiffState } from './useFileEditorDiffController'
@@ -46,10 +47,10 @@ function canShowDiffEditor(diffState: FileEditorDiffState) {
 }
 
 function diffModelUri(openFile: OpenWorkspaceFile, side: 'original' | 'modified') {
+  const resourceKey = workspaceFileResourceKey(openFile.file.path, openFile.workspaceRoot)
   return monaco.Uri.from({
     scheme: 'farming-diff',
-    authority: (openFile.workspaceRoot || openFile.agentId).replace(/[^a-zA-Z0-9_-]+/g, '-') || 'agent',
-    path: `/${openFile.file.path.replace(/^\/+/, '')}`,
+    path: resourceKey.startsWith('/') ? resourceKey : `/${resourceKey}`,
     query: side,
   })
 }

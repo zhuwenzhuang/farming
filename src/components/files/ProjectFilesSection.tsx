@@ -1,13 +1,16 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
+import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
 import {
   type WorkspaceFile,
   type WorkspaceFileDeleteResult,
   type WorkspaceFileMove,
 } from '@/lib/workspace-files'
+import type { AgentLaunchOption } from '../code/agent-launch-options'
 import type { CodeCopy } from '../code/copy'
 import { FileSectionBody } from './FileSectionBody'
 import { FileSectionHeader } from './FileSectionHeader'
+import { FileSectionOverlays } from './FileSectionOverlays'
 import { OpenEditorsSection, type OpenProjectFileSummary } from './OpenEditorsSection'
 import { useProjectFilesSectionViewModel } from './useProjectFilesSectionViewModel'
 import { useWorkspaceFileFocus } from './useWorkspaceFileFocus'
@@ -27,7 +30,9 @@ const EMPTY_FILE_PATHS = new Set<string>()
 
 interface ProjectFilesSectionProps {
   projectId: string
+  projectWorkspace: string
   agentId: string | null
+  agentLaunchOptions: AgentLaunchOption[]
   activeFilePath?: string
   revealRequest?: { path: string; kind: 'directory' | 'file'; requestId: number }
   focusSearchRequest?: { requestId: number; query?: string }
@@ -37,6 +42,8 @@ interface ProjectFilesSectionProps {
   onOpenFile: (agentId: string, file: WorkspaceFile, target?: WorkspaceFileOpenTarget) => void
   onSelectOpenFile?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onCloseOpenFile?: (agentId: string, filePath: string, workspaceRoot?: string) => void
+  onNewAgent?: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
+  onStartAgent?: (command: string, workspace: string, options?: { projectWorkspace?: string }) => void
   onMoveEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
   onDeleteEntries: (agentId: string, deletions: WorkspaceFileDeleteResult[]) => void
   copy: CodeCopy
@@ -46,9 +53,33 @@ function safeDomIdPart(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]+/g, '-') || 'root'
 }
 
+function joinWorkspaceDirectory(workspaceRoot: string, relativeDirectory: string) {
+  const root = workspaceRoot.replace(/\/+$/, '') || '/'
+  const relative = relativeDirectory.replace(/^\/+|\/+$/g, '')
+  if (!relative) return root
+  return root === '/' ? `/${relative}` : `${root}/${relative}`
+}
+
+function filePathBasename(filePath: string) {
+  return filePath.split('/').filter(Boolean).pop() || filePath
+}
+
+function openEditorFileContextNode(file: OpenProjectFileSummary): WorkspaceFileTreeNode {
+  return {
+    id: file.path,
+    name: filePathBasename(file.path),
+    path: file.path,
+    type: 'file',
+    size: 0,
+    mtimeMs: 0,
+  }
+}
+
 export function ProjectFilesSection({
   projectId,
+  projectWorkspace,
   agentId,
+  agentLaunchOptions,
   activeFilePath,
   revealRequest,
   focusSearchRequest,
@@ -58,6 +89,8 @@ export function ProjectFilesSection({
   onOpenFile,
   onSelectOpenFile,
   onCloseOpenFile,
+  onNewAgent,
+  onStartAgent,
   onMoveEntries,
   onDeleteEntries,
   copy,
@@ -69,6 +102,7 @@ export function ProjectFilesSection({
     visibleTreeRowCount,
     loadRootDirectory,
     ensureDirectoryLoaded,
+    isDirectoryLoaded,
     loadMissingDirectories,
     refreshDirectories,
     hydrateCompactDirectoryChains,
@@ -80,6 +114,7 @@ export function ProjectFilesSection({
   const fileOperationActiveRef = useRef(false)
   const fileSearchInputRef = useRef<HTMLInputElement | null>(null)
   const fileSearchResultsRef = useRef<HTMLDivElement | null>(null)
+  const lastAutoRevealedActivePathRef = useRef<string | null>(null)
   const fileSearch = useWorkspaceFileSearch(agentId)
   const fileSearchListboxId = `code-file-search-results-${safeDomIdPart(projectId)}`
 
@@ -116,6 +151,7 @@ export function ProjectFilesSection({
     fileOperationActiveRef,
     lastFocusedFilePathRef,
     treeData,
+    isDirectoryLoaded,
     loadMissingDirectories,
     openDirectoriesInLayout,
     refreshTreeLayout,
@@ -163,11 +199,13 @@ export function ProjectFilesSection({
     closeFileMenuWithFocusRestore,
     closeFileMenuWithoutFocus,
     copyFileMenuPath,
+    fileMenuTargetDirectory,
     openFileContextMenu,
     refreshFileMenuTarget,
     startFileMenuOperation,
   } = useWorkspaceFileMenuController({
     agentId,
+    agentLaunchOptionCount: agentLaunchOptions.length,
     cancelPendingFileFocus,
     clearFileOperation,
     focusFileTreeTarget,
@@ -180,6 +218,27 @@ export function ProjectFilesSection({
     setOpenFileError(null)
     fileSearch.setQuery(query)
   }, [fileSearch.setQuery, setOpenFileError])
+
+  const fileMenuLaunchWorkspace = useCallback(() => (
+    joinWorkspaceDirectory(projectWorkspace, fileMenuTargetDirectory())
+  ), [fileMenuTargetDirectory, projectWorkspace])
+
+  const openNewAgentFromFileMenu = useCallback(() => {
+    if (!onNewAgent) return
+    closeFileMenuWithoutFocus()
+    onNewAgent(projectWorkspace)
+  }, [closeFileMenuWithoutFocus, onNewAgent, projectWorkspace])
+
+  const startAgentFromFileMenu = useCallback((command: string) => {
+    if (!onStartAgent) return
+    const workspace = fileMenuLaunchWorkspace()
+    closeFileMenuWithoutFocus()
+    onStartAgent(command, workspace, workspace === projectWorkspace ? undefined : { projectWorkspace })
+  }, [closeFileMenuWithoutFocus, fileMenuLaunchWorkspace, onStartAgent, projectWorkspace])
+
+  const openEditorContextMenu = useCallback((x: number, y: number, file: OpenProjectFileSummary) => {
+    openFileContextMenu(x, y, openEditorFileContextNode(file))
+  }, [openFileContextMenu])
 
   const {
     filesCollapsed,
@@ -203,6 +262,13 @@ export function ProjectFilesSection({
     setOpenFileError,
     treeData,
   })
+
+  useEffect(() => {
+    if (!activeFilePath || filesCollapsed || !directories['']) return
+    if (lastAutoRevealedActivePathRef.current === activeFilePath) return
+    lastAutoRevealedActivePathRef.current = activeFilePath
+    void revealFilePath(activeFilePath)
+  }, [activeFilePath, directories, filesCollapsed, revealFilePath])
 
   const {
     focusStickyDirectory,
@@ -236,6 +302,7 @@ export function ProjectFilesSection({
     focusFileTreeFromSearch,
     listboxId: fileSearchListboxId,
     onOpenFilePath: openFilePath,
+    onRevealDirectoryPath: directoryPath => revealExplorerPath(directoryPath, 'directory'),
   })
 
   const { handleTreeKeyDownCapture } = useWorkspaceFileTreeKeyboard({
@@ -249,11 +316,8 @@ export function ProjectFilesSection({
     focusFileSearchInput,
     focusFileTreePath,
     focusFileTreeTarget,
-    hydrateCompactDirectoryChains,
     openFileContextMenu,
     openFilePath,
-    refreshTreeLayout,
-    setDirectoryOpen,
     startFileOperation: startFileMenuOperation,
   })
 
@@ -261,6 +325,7 @@ export function ProjectFilesSection({
     activeFilePath,
     activeSearchOptionId,
     agentId: agentId ?? '',
+    agentLaunchOptions,
     copy,
     editorDirtyFilePaths,
     editorExternalChangedFilePaths,
@@ -298,19 +363,18 @@ export function ProjectFilesSection({
     onCopyFileMenuPath: copyFileMenuPath,
     onFocusFileTreeTarget: focusFileTreeTarget,
     onFocusStickyDirectory: focusStickyDirectory,
-    onHydrateCompactDirectoryChains: hydrateCompactDirectoryChains,
     onOpenFileContextMenu: openFileContextMenu,
     onOpenFileJumpQuery: openFileJumpQuery,
     onOpenFilePath: openFilePath,
     onOpenFileSearchMatch: openFileSearchMatch,
+    onOpenNewAgentFromFileMenu: openNewAgentFromFileMenu,
     onRefreshFileMenuTarget: refreshFileMenuTarget,
-    onRefreshTreeLayout: refreshTreeLayout,
     onRememberFileOperationName: rememberFileOperationName,
     onRevealOpenEditors: revealOpenEditorsSection,
     onSearchQueryChange: updateFileSearchQuery,
     onSelectOpenFile,
     onSelectSearchMatchIndex: fileSearch.selectMatchIndex,
-    onSetDirectoryOpen: setDirectoryOpen,
+    onStartAgentFromFileMenu: startAgentFromFileMenu,
     onStartFileMenuOperation: startFileMenuOperation,
     onSubmitFileOperation: submitFileOperation,
     onToggleFilesCollapsed: toggleFilesCollapsed,
@@ -330,6 +394,7 @@ export function ProjectFilesSection({
       <OpenEditorsSection
         {...viewModel.openEditors}
         files={openFiles}
+        onOpenFileContextMenu={openEditorContextMenu}
       />
       <div className={`code-files-section ${filesCollapsed ? 'collapsed' : ''}`} data-testid="code-files-section" data-project-id={projectId}>
         <FileSectionHeader {...viewModel.sectionHeader} />
@@ -337,6 +402,28 @@ export function ProjectFilesSection({
           <FileSectionBody {...viewModel.sectionBody} />
         )}
       </div>
+      {filesCollapsed && (
+        <FileSectionOverlays
+          agentId={agentId}
+          copy={copy}
+          agentLaunchOptions={agentLaunchOptions}
+          fileMenu={fileMenu}
+          fileOperation={fileOperation}
+          fileMenuRef={fileMenuRef}
+          fileOperationInputRef={fileOperationInputRef}
+          onCloseFileMenu={closeFileMenuWithoutFocus}
+          onCloseFileMenuWithFocusRestore={closeFileMenuWithFocusRestore}
+          onCloseFileOperation={closeFileOperation}
+          onCopyFileMenuPath={copyFileMenuPath}
+          onOpenNewAgent={openNewAgentFromFileMenu}
+          onRefreshFileMenuTarget={refreshFileMenuTarget}
+          onRememberFileOperationName={rememberFileOperationName}
+          onStartAgent={startAgentFromFileMenu}
+          onStartFileMenuOperation={startFileMenuOperation}
+          onSubmitFileOperation={submitFileOperation}
+          onUpdateFileOperationName={updateFileOperationName}
+        />
+      )}
     </>
   )
 }

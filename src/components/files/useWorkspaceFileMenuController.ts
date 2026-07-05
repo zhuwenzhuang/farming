@@ -9,6 +9,7 @@ import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
 
 interface UseWorkspaceFileMenuControllerOptions {
   agentId: string | null
+  agentLaunchOptionCount?: number
   cancelPendingFileFocus: () => void
   clearFileOperation: () => void
   focusFileTreeTarget: (item: WorkspaceFileTreeNode | null) => void
@@ -19,6 +20,7 @@ interface UseWorkspaceFileMenuControllerOptions {
 
 export function useWorkspaceFileMenuController({
   agentId,
+  agentLaunchOptionCount = 0,
   cancelPendingFileFocus,
   clearFileOperation,
   focusFileTreeTarget,
@@ -34,14 +36,15 @@ export function useWorkspaceFileMenuController({
   }, [])
 
   const openFileContextMenu = useCallback((x: number, y: number, item: WorkspaceFileTreeNode | null) => {
+    cancelPendingFileFocus()
     setOpenFileError(null)
     clearFileOperation()
-    const position = workspaceFileContextMenuPosition(x, y, item, window.innerWidth, window.innerHeight)
+    const position = workspaceFileContextMenuPosition(x, y, item, window.innerWidth, window.innerHeight, agentLaunchOptionCount)
     setFileMenu({
       ...position,
       item,
     })
-  }, [clearFileOperation, setOpenFileError])
+  }, [agentLaunchOptionCount, cancelPendingFileFocus, clearFileOperation, setOpenFileError])
 
   const closeFileMenu = useCallback((restoreFocus = false) => {
     const menuItem = fileMenu?.item ?? null
@@ -82,6 +85,10 @@ export function useWorkspaceFileMenuController({
     }
   }, [fileMenu?.item, setOpenFileError])
 
+  const fileMenuTargetDirectory = useCallback((item: WorkspaceFileTreeNode | null = fileMenu?.item ?? null) => (
+    workspaceFileOperationTargetDirectory(item)
+  ), [fileMenu?.item])
+
   return {
     fileMenu,
     fileMenuRef,
@@ -89,6 +96,7 @@ export function useWorkspaceFileMenuController({
     closeFileMenuWithFocusRestore,
     closeFileMenuWithoutFocus,
     copyFileMenuPath,
+    fileMenuTargetDirectory,
     openFileContextMenu,
     refreshFileMenuTarget,
     startFileMenuOperation,

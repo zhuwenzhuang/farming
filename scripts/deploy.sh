@@ -514,6 +514,7 @@ cmd_deploy() {
     --exclude '.dolt/' \
     --exclude 'reference/' \
     --exclude 'archive/' \
+    --exclude 'poem/' \
     --exclude 'conversation-log.md' \
     --exclude 'claude_plan.md' \
     --exclude 'remote-communication*.md' \

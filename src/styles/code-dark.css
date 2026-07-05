@@ -883,6 +883,7 @@ body.code-mode[data-appearance='dark'] .code-options-menu,
 body.code-mode[data-appearance='dark'] .code-composer-menu,
 body.code-mode[data-appearance='dark'] .code-model-submenu,
 body.code-mode[data-appearance='dark'] .code-speed-submenu,
+body.code-mode[data-appearance='dark'] .code-agent-launch-submenu-panel,
 body.code-mode[data-appearance='dark'] .code-editor-context-menu,
 body.code-mode[data-appearance='dark'] .terminal-context-menu,
 body.code-mode[data-appearance='dark'] .terminal-context-menu-pooled,
@@ -945,6 +946,10 @@ body.code-mode[data-appearance='dark'] .code-editor-context-menu button:disabled
 body.code-mode[data-appearance='dark'] .code-editor-context-separator,
 body.code-mode[data-appearance='dark'] .code-context-menu-separator {
   background: var(--code-dark-border-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-launch-submenu-arrow {
+  color: var(--code-dark-text-muted);
 }
 
 body.code-mode[data-appearance='dark'] .code-options-menu button.checked,
@@ -1066,6 +1071,11 @@ body.code-mode[data-appearance='dark'] .workspace-input select.workflow-select o
 body.code-mode[data-appearance='dark'] .workspace-history-header {
   border-bottom-color: var(--code-dark-border-soft);
   color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .input-dialog .workspace-actions {
+  background: var(--code-dark-bg-elevated);
+  border-top-color: var(--code-dark-border);
 }
 
 body.code-mode[data-appearance='dark'] .workspace-history-list::-webkit-scrollbar-thumb {

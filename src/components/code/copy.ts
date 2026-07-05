@@ -137,6 +137,7 @@ export interface CodeCopy {
   terminalSearchResults: (current: number, total: number) => string
   terminalSessionUnavailable: string
   file: string
+  folder: string
   go: string
   moreMatchesOmitted: string
   stickyFolderPath: string
@@ -365,6 +366,7 @@ const EN_COPY: CodeCopy = {
   terminalSearchResults: (current, total) => `${current}/${total}`,
   terminalSessionUnavailable: 'Terminal session unavailable',
   file: 'File',
+  folder: 'Folder',
   go: 'Go',
   moreMatchesOmitted: 'More matches omitted',
   stickyFolderPath: 'Sticky folder path',
@@ -629,6 +631,7 @@ const ZH_COPY: CodeCopy = {
   terminalSearchResults: (current, total) => `${current}/${total}`,
   terminalSessionUnavailable: '终端会话不可用',
   file: '文件',
+  folder: '文件夹',
   go: '跳转',
   moreMatchesOmitted: '更多匹配已省略',
   stickyFolderPath: '固定文件夹路径',

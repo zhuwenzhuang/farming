@@ -56,6 +56,7 @@ function run() {
     }),
     agent({ id: 'resumed-claude-old', source: 'claude-history:claude-claimed', command: 'claude', cwd: '/repo2', projectWorkspace: '/repo2', startedAt: 80_000 }),
     agent({ id: 'resumed-claude', source: 'claude-history:claude-claimed', command: 'claude', cwd: '/repo2', projectWorkspace: '/repo2', startedAt: 240_000 }),
+    agent({ id: 'stopped-resumed-claude', source: 'claude-history:stopped-claude', command: 'claude', status: 'stopped', cwd: '/repo3', projectWorkspace: '/repo3', startedAt: 250_000 }),
     agent({ id: 'archived', archived: true, archivedAt: 300_000 }),
     agent({ id: 'stopped', status: 'stopped' }),
     agent({ id: 'dead', status: 'dead' }),
@@ -64,6 +65,7 @@ function run() {
     session({ id: 'code-claimed', workspace: '/repo', cwd: '/repo', updatedAt: new Date(200_000).toISOString() }),
     session({ id: 'sidebar-open', workspace: '/other', cwd: '/other', updatedAt: new Date(260_000).toISOString() }),
     session({ provider: 'claude', id: 'claude-claimed', workspace: '/repo2', cwd: '/repo2', updatedAt: new Date(240_000).toISOString() }),
+    session({ provider: 'claude', id: 'stopped-claude', workspace: '/repo3', cwd: '/repo3', updatedAt: new Date(250_000).toISOString() }),
     session({ id: 'history-open', workspace: '/history', cwd: '/history', updatedAt: new Date(220_000).toISOString() }),
     session({ id: 'older-unclaimed', workspace: '/repo', cwd: '/repo', updatedAt: new Date(10_000).toISOString() }),
   ];
@@ -77,13 +79,14 @@ function run() {
       'agent-session:codex:code-claimed',
       'agent-session:codex:sidebar-open',
       'agent-session:claude:claude-claimed',
+      'agent-session:claude:stopped-claude',
     ]),
   });
 
   assert.deepStrictEqual(
     state.liveAgents.map(item => item.id),
     ['new-shell', 'fork-shell', 'recovered-codex', 'resumed-claude'],
-    'new and forked shells stay unique, while duplicate Codex/Claude resume ids collapse to one visible row'
+    'new and forked shells stay unique, duplicate Codex/Claude resume ids collapse, and stopped runtime rows leave the agent list'
   );
   assert.strictEqual(
     agentListRowIdentity(state.liveAgents.find(item => item.id === 'recovered-codex'), state.claimedAgentSessionKeyByAgentId),
@@ -98,8 +101,8 @@ function run() {
   );
   assert.deepStrictEqual(
     state.sidebarAgentSessions.map(item => item.id),
-    ['sidebar-open'],
-    'only unclaimed main-page sessions should remain as session rows in the agent list'
+    ['sidebar-open', 'stopped-claude'],
+    'unclaimed main-page sessions, including stopped provider sessions, should remain as resumable session rows'
   );
   assert.deepStrictEqual(
     state.historyAgentSessions.map(item => item.id),
@@ -115,7 +118,14 @@ function run() {
       agent({ id: 'archived-codex', archived: true, command: 'codex' }),
     ], sessions)),
     [],
-    'non-live agents should never claim provider sessions'
+    'stopped agents without a provider session identity should never claim provider sessions'
+  );
+  assert.deepStrictEqual(
+    Array.from(claimedAgentSessionKeysForAgents([
+      agent({ id: 'stopped-resumed', status: 'stopped', command: 'claude', source: 'claude-history:stopped-claimed' }),
+    ], sessions)),
+    [],
+    'stopped resumed runtime rows should not claim provider sessions; history/session rows own resume'
   );
 
   console.log('test-code-agent-list-state passed');

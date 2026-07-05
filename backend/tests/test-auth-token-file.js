@@ -38,7 +38,7 @@ function run() {
       'cookie token with encoded Chinese passphrase should verify'
     );
     assert.strictEqual(auth.verify(`${token}-wrong`), false);
-    assert.strictEqual(auth.getTokenInfo().style, 'zh-haiku');
+    assert.strictEqual(auth.getTokenInfo().style, 'zh-classic-haiku');
 
     process.env.FARMING_TOKEN_LOCALE = 'auto';
     const restartedAuth = new TokenAuth({ basePath: '/farming', farmingDir: configDir, timeZone: 'Asia/Tokyo' });
@@ -57,8 +57,8 @@ function run() {
 
     process.env.FARMING_TOKEN_LOCALE = 'auto';
     const japaneseAuth = new TokenAuth({ basePath: '/farming', farmingDir: configDir, timeZone: 'Asia/Tokyo' });
-    assert.strictEqual(japaneseAuth.getTokenInfo().style, 'ja-haiku');
-    assert.match(japaneseAuth.getToken(), /^[\u3040-\u309f-]+$/);
+    assert.strictEqual(japaneseAuth.getTokenInfo().style, 'zh-japan-haiku');
+    assert.match(japaneseAuth.getToken(), /^[\u4e00-\u9fa5-]+$/);
     japaneseAuth.cleanup({ removeTokenFile: true });
 
     auth.cleanup({ removeTokenFile: true });

@@ -40,8 +40,12 @@ function openFile(agentId, path, overrides = {}) {
 }
 
 function run() {
-  assert.strictEqual(workspaceFileCacheKey('agent-1', 'src/App.tsx'), 'agent-1:src/App.tsx');
-  assert.strictEqual(workspaceFileCacheKey('agent-1', 'src/App.tsx', '/repo'), '/repo:src/App.tsx');
+  assert.strictEqual(workspaceFileCacheKey('agent-1', 'src/App.tsx'), 'src/App.tsx');
+  assert.strictEqual(workspaceFileCacheKey('agent-1', 'src/App.tsx', '/repo'), '/repo/src/App.tsx');
+  assert.strictEqual(
+    workspaceFileCacheKey('agent-parent', 'packages/a/src/App.tsx', '/repo'),
+    workspaceFileCacheKey('agent-child', 'src/App.tsx', '/repo/packages/a')
+  );
   assert.strictEqual(normalizeTerminalPathText(' src\\App.tsx '), 'src/App.tsx');
   assert.strictEqual(workspaceHomeRoot('/Users/alice/git/farming'), '/Users/alice');
 
@@ -62,8 +66,8 @@ function run() {
   const one = openFile('agent-1', 'src/App.tsx');
   const two = openFile('agent-2', 'src/App.tsx');
   assert.strictEqual(isSameOpenWorkspaceFile(one, 'agent-1', 'src/App.tsx'), true);
-  assert.strictEqual(isSameOpenWorkspaceFile(one, 'agent-2', 'src/App.tsx'), false);
-  assert.strictEqual(findOpenWorkspaceFile([one, two], 'agent-2', 'src/App.tsx'), two);
+  assert.strictEqual(isSameOpenWorkspaceFile(one, 'agent-2', 'src/App.tsx'), true);
+  assert.strictEqual(findOpenWorkspaceFile([one, two], 'agent-2', 'src/App.tsx'), one);
   assert.strictEqual(findOpenWorkspaceFile([one], 'agent-1', 'missing.ts'), null);
 
   const sharedOne = openFile('agent-1', 'src/App.tsx', { workspaceRoot: '/repo' });
@@ -74,11 +78,17 @@ function run() {
   assert.strictEqual(findOpenWorkspaceFile([sharedOne], 'agent-2', 'src/App.tsx', '/repo'), sharedOne);
   assert.deepStrictEqual(replaceOpenWorkspaceFile([sharedOne], sharedTwo), [sharedTwo]);
   assert.deepStrictEqual(replaceOpenWorkspaceFile([sharedOne], otherWorkspace), [sharedOne, otherWorkspace]);
-  assert.strictEqual(findOpenWorkspaceFile([one], 'agent-1', 'src/App.tsx', '/repo'), one);
-  assert.deepStrictEqual(replaceOpenWorkspaceFile([one], { ...one, workspaceRoot: '/repo', draft: 'rooted' }), [{ ...one, workspaceRoot: '/repo', draft: 'rooted' }]);
+  assert.strictEqual(findOpenWorkspaceFile([one], 'agent-1', 'src/App.tsx', '/repo'), null);
+  assert.deepStrictEqual(replaceOpenWorkspaceFile([one], { ...one, workspaceRoot: '/repo', draft: 'rooted' }), [one, { ...one, workspaceRoot: '/repo', draft: 'rooted' }]);
+
+  const parentWorkspaceFile = openFile('agent-parent', 'packages/a/src/App.tsx', { workspaceRoot: '/repo' });
+  const childWorkspaceFile = openFile('agent-child', 'src/App.tsx', { workspaceRoot: '/repo/packages/a' });
+  assert.strictEqual(isSameOpenWorkspaceFile(parentWorkspaceFile, 'agent-child', 'src/App.tsx', '/repo/packages/a'), true);
+  assert.strictEqual(findOpenWorkspaceFile([parentWorkspaceFile], 'agent-child', 'src/App.tsx', '/repo/packages/a'), parentWorkspaceFile);
+  assert.deepStrictEqual(replaceOpenWorkspaceFile([parentWorkspaceFile], childWorkspaceFile), [childWorkspaceFile]);
 
   const replacement = openFile('agent-1', 'src/App.tsx', { draft: 'new' });
-  assert.deepStrictEqual(replaceOpenWorkspaceFile([one, two], replacement), [replacement, two]);
+  assert.deepStrictEqual(replaceOpenWorkspaceFile([one], replacement), [replacement]);
   const appended = openFile('agent-1', 'src/Other.tsx');
   assert.deepStrictEqual(replaceOpenWorkspaceFile([one], appended), [one, appended]);
 

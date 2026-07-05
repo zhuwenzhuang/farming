@@ -17,6 +17,7 @@ function run() {
   assert(packageSource.includes('"qrcode-generator"'), 'QR rendering should use the mature qrcode-generator matrix library');
   assert(shareButtonSource.includes("import qrcode from 'qrcode-generator'"));
   assert(shareButtonSource.includes('HOVER_DWELL_MS = 250'), 'hover should dwell before creating a share ticket');
+  assert(shareButtonSource.includes('POPOVER_WIDTH = 264'), 'share popover placement should match the compact larger QR width');
   assert(shareButtonSource.includes("fetch(appPath('/api/share/qr-ticket')"));
   assert(shareButtonSource.includes("method: 'DELETE'"));
   assert(shareButtonSource.includes('writeTerminalClipboardText(current.longUrl)'));
@@ -43,6 +44,7 @@ function run() {
   assert(copySource.includes("copyFullShareLink: '复制完整链接'"));
 
   assert(stylesSource.includes('.code-share-popover'));
+  assert(stylesSource.includes('width: 264px;'));
   assert(stylesSource.includes('.code-share-qr-frame'));
   assert(stylesSource.includes('.code-share-qr-canvas'));
   assert(stylesSource.includes('.code-share-countdown'));

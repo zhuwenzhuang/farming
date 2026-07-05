@@ -18,6 +18,8 @@ import {
 } from './menu-model'
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem, ProjectGroup } from './types'
+import type { AgentLaunchOption } from './agent-launch-options'
+import { AgentLaunchSubmenu } from './AgentLaunchSubmenu'
 
 type AgentMenuState = { agentId: string; x: number; y: number } | null
 type ProjectMenuState = { projectId: string; x: number; y: number } | null
@@ -55,6 +57,7 @@ interface CodeOverlaysProps {
   killDialog: KillDialogState | null
   deleteWorktreeDialog: DeleteWorktreeDialogState | null
   copyNotice: CopyNoticeState | null
+  agentLaunchOptions: AgentLaunchOption[]
   contextMenuRef: RefObject<HTMLDivElement | null>
   renameDialogRef: RefObject<HTMLFormElement | null>
   renameInputRef: RefObject<HTMLInputElement | null>
@@ -72,7 +75,7 @@ interface CodeOverlaysProps {
   onToggleSessionPinned: () => void
   onArchiveSession: () => void
   onCopySessionWorkingDirectory: () => void
-  onStartAgentInProject: () => void
+  onStartAgentInProject: (command?: string) => void
   onArchiveProject: () => void
   onDeleteWorktreeProject: () => void
   onCloseRenameDialog: () => void
@@ -96,6 +99,7 @@ export function CodeOverlays({
   killDialog,
   deleteWorktreeDialog,
   copyNotice,
+  agentLaunchOptions,
   contextMenuRef,
   renameDialogRef,
   renameInputRef,
@@ -221,12 +225,6 @@ export function CodeOverlays({
   const projectMenuEntries = compactContextMenuEntries([
     {
       type: 'item',
-      id: 'new-agent',
-      label: copy.newAgent,
-      onSelect: onStartAgentInProject,
-    },
-    {
-      type: 'item',
       id: 'archive-project',
       label: copy.archiveProject,
       disabled: !canArchiveProject,
@@ -280,6 +278,15 @@ export function CodeOverlays({
           onKeyDownCapture={onContextMenuKeyDown}
           onKeyDown={onContextMenuKeyDown}
         >
+          <AgentLaunchSubmenu
+            label={copy.newAgent}
+            options={agentLaunchOptions}
+            testId="project-new-agent-submenu-trigger"
+            submenuTestId="project-new-agent-submenu"
+            onOpenDialog={() => onStartAgentInProject()}
+            onSelect={onStartAgentInProject}
+          />
+          <div className="code-context-menu-separator" role="separator" />
           <ContextMenuEntries entries={projectMenuEntries} />
         </div>
       )}

@@ -19,6 +19,7 @@ interface OpenEditorsSectionProps {
   files: OpenProjectFileSummary[]
   projectId: string
   onCloseOpenFile?: (agentId: string, filePath: string, workspaceRoot?: string) => void
+  onOpenFileContextMenu?: (x: number, y: number, file: OpenProjectFileSummary) => void
   onSelectOpenFile?: (agentId: string, filePath: string) => boolean
   onToggleCollapsed: () => void
 }
@@ -34,6 +35,7 @@ export function OpenEditorsSection({
   files,
   projectId,
   onCloseOpenFile,
+  onOpenFileContextMenu,
   onSelectOpenFile,
   onToggleCollapsed,
 }: OpenEditorsSectionProps) {
@@ -63,6 +65,11 @@ export function OpenEditorsSection({
                 className={`code-open-editor-row ${active ? 'active' : ''}`}
                 data-testid="code-open-editor-row"
                 title={file.path}
+                onContextMenu={event => {
+                  if (!onOpenFileContextMenu) return
+                  event.preventDefault()
+                  onOpenFileContextMenu(event.clientX, event.clientY, file)
+                }}
               >
                 <button
                   type="button"

@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useState, type ReactNode, type RefObject } from 'react'
-import { iconForFilePath } from '@/lib/file-icons'
+import { iconForDirectoryPath, iconForFilePath } from '@/lib/file-icons'
 import {
   normalizeTextRanges,
   pathSearchTextRanges,
@@ -195,14 +195,19 @@ export function FileSearchResults({
               className={`code-file-search-result ${index === activeMatchIndex ? 'active' : ''}`}
               onMouseMove={() => onSelectMatchIndex(index)}
               onClick={() => onOpenMatch(match)}
-              title={`${match.path}:${match.lineNumber}`}
+              title={match.entryType === 'directory' ? match.path : `${match.path}:${match.lineNumber}`}
               role="option"
               aria-selected={index === activeMatchIndex}
             >
-              <img className="code-file-type-icon file" src={iconForFilePath(match.path)} alt="" aria-hidden="true" />
+              <img
+                className={`code-file-type-icon ${match.entryType === 'directory' ? 'folder' : 'file'}`}
+                src={match.entryType === 'directory' ? iconForDirectoryPath(match.path, false) : iconForFilePath(match.path)}
+                alt=""
+                aria-hidden="true"
+              />
               <FileSearchResultPath path={match.path} query={query} />
               {match.kind === 'path' ? (
-                <span className="code-file-search-kind">{copy.file}</span>
+                <span className="code-file-search-kind">{match.entryType === 'directory' ? copy.folder : copy.file}</span>
               ) : (
                 <span className="code-file-search-line">{match.lineNumber}</span>
               )}

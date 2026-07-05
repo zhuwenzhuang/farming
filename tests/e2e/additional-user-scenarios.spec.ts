@@ -3,6 +3,7 @@ import path from 'node:path'
 import {
   expect,
   getAgentIdFromRow,
+  getAgentRowIds,
   openFarming,
   openNewAgentDialog,
   startAgentFromOpenDialog,
@@ -603,5 +604,58 @@ test.describe('additional Farming Code user scenarios', () => {
 
     expect(checked).toHaveLength(10)
     console.log(`additional mobile user scenarios executed ${checked.length} scenarios`)
+  })
+
+  test('starts file-menu agents in the selected directory while keeping the project root', async ({ page, workspaceRoot }) => {
+    const projectDir = path.join(workspaceRoot, 'file-menu-project')
+    const launchDir = path.join(projectDir, 'packages')
+    fs.mkdirSync(launchDir, { recursive: true })
+    fs.writeFileSync(path.join(projectDir, 'README.md'), '# File menu project\n')
+    fs.writeFileSync(path.join(launchDir, 'index.ts'), 'export const value = 1\n')
+
+    await openFarming(page)
+    await openNewAgentDialog(page)
+    const rootAgentId = await startAgentFromOpenDialog(page, 'bash', projectDir)
+    const projectGroup = page.getByTestId('code-project-group').filter({
+      has: page.locator(`[data-testid="code-agent-row"][data-agent-id="${rootAgentId}"]`),
+    })
+    await expect(projectGroup).toHaveCount(1)
+
+    const fileSection = projectGroup.getByTestId('code-files-section')
+    const filesTitle = fileSection.locator('.code-files-title').first()
+    if (await filesTitle.getAttribute('aria-expanded') !== 'true') {
+      await filesTitle.click()
+    }
+    await expect(filesTitle).toHaveAttribute('aria-expanded', 'true')
+
+    const directoryRow = fileSection.locator('[data-testid="code-file-row"][data-file-path="packages"]')
+    await expect(directoryRow).toBeVisible()
+    const beforeIds = new Set(await getAgentRowIds(page))
+    await directoryRow.click({ button: 'right' })
+    const fileContextMenu = page.getByTestId('code-file-context-menu')
+    await expect(fileContextMenu).toBeVisible()
+    await fileContextMenu.getByTestId('file-new-agent-submenu-trigger').hover()
+    await expect(page.getByTestId('file-new-agent-submenu')).toBeVisible()
+    await page.getByTestId('agent-launch-bash').click()
+
+    await expect(fileContextMenu).toBeHidden({ timeout: 30_000 })
+    await expect.poll(async () => {
+      const ids = await getAgentRowIds(page)
+      return ids.find(id => !beforeIds.has(id)) ?? ''
+    }, { timeout: 30_000 }).not.toBe('')
+    const launchedAgentId = (await getAgentRowIds(page)).find(id => !beforeIds.has(id))
+    if (!launchedAgentId) {
+      throw new Error('File-menu launched agent row is missing')
+    }
+
+    await expect(projectGroup.locator(`[data-testid="code-agent-row"][data-agent-id="${launchedAgentId}"]`)).toBeVisible()
+    const controlResponse = await page.request.get('/farming/api/control/agents')
+    expect(controlResponse.ok()).toBeTruthy()
+    const controlState = await controlResponse.json() as {
+      agents?: Array<{ id?: string; cwd?: string; projectWorkspace?: string }>
+    }
+    const launchedAgent = controlState.agents?.find(agent => agent.id === launchedAgentId)
+    expect(launchedAgent?.cwd).toBe(launchDir)
+    expect(launchedAgent?.projectWorkspace).toBe(projectDir)
   })
 })

@@ -67,6 +67,9 @@ const SEARCH_IGNORED_NAMES = new Set([
 const HIDDEN_NAMES = new Set([
   ...SEARCH_IGNORED_NAMES,
 ]);
+const TREE_HIDDEN_NAMES = new Set([
+  ...[...HIDDEN_NAMES].filter(name => name !== 'reference'),
+]);
 
 function resolveBundledRipgrepPath() {
   const script = path.join(__dirname, '..', 'node_modules', 'ripgrep', 'lib', 'rg.mjs');
@@ -270,6 +273,10 @@ function isSearchIgnoredRelativePath(relativePath) {
   return shouldHidePath(relativePath);
 }
 
+function shouldPruneDirectoryNameSearch(relativePath) {
+  return String(relativePath || '').split(/[\\/]/).some(part => IGNORED_NAMES.has(part));
+}
+
 function gitStatusExcludePathspecArgs() {
   const args = ['--', '.'];
   HIDDEN_NAMES.forEach((name) => {
@@ -442,7 +449,7 @@ function scoreBoundaryMatch(text, normalizedQuery) {
   return queryIndex === normalizedQuery.length ? score : null;
 }
 
-function scorePathMatch(filePath, query) {
+function scorePathMatch(filePath, query, options = {}) {
   const pathText = normalizeSearchResultPath(filePath);
   const normalizedPath = pathText.toLowerCase();
   const normalizedQuery = String(query || '').trim().replace(/^\.\/+/, '').toLowerCase();
@@ -459,6 +466,8 @@ function scorePathMatch(filePath, query) {
   const nameIndex = fileName.indexOf(normalizedQuery);
   if (nameIndex !== -1) return 10 + nameIndex;
 
+  if (options.allowPathMatch === false) return null;
+
   const pathIndex = normalizedPath.indexOf(normalizedQuery);
   if (pathIndex !== -1) return 40 + pathIndex;
 
@@ -473,6 +482,85 @@ function scorePathMatch(filePath, query) {
   }
 
   return queryIndex === normalizedQuery.length ? score : null;
+}
+
+function pathSearchEntryRank(entryType) {
+  return entryType === 'directory' ? 0 : 1;
+}
+
+function pathSearchDepth(filePath) {
+  return normalizeSearchResultPath(filePath).split('/').filter(Boolean).length;
+}
+
+function comparePathSearchMatches(a, b) {
+  return (
+    a.score - b.score ||
+    pathSearchDepth(a.path) - pathSearchDepth(b.path) ||
+    pathSearchEntryRank(a.entryType) - pathSearchEntryRank(b.entryType) ||
+    a.path.localeCompare(b.path)
+  );
+}
+
+function pathSearchMatchForPath(filePath, query, entryType, allowPathMatch) {
+  const score = scorePathMatch(filePath, query, { allowPathMatch });
+  if (score === null) return null;
+  return {
+    path: filePath,
+    entryType,
+    score,
+  };
+}
+
+function directoryNameSearchScore(directoryPath, query, allowPathMatch) {
+  const pathText = normalizeSearchResultPath(directoryPath);
+  const normalizedPath = pathText.toLowerCase();
+  const normalizedQuery = String(query || '').trim().replace(/^\.\/+/, '').toLowerCase();
+  if (!normalizedPath || !normalizedQuery) return null;
+
+  const directoryName = path.posix.basename(pathText).toLowerCase();
+  if (normalizedPath === normalizedQuery) return 0;
+  if (directoryName === normalizedQuery) return 1;
+  if (directoryName.startsWith(normalizedQuery)) return 5;
+  if (normalizedQuery.length >= 4) {
+    const nameIndex = directoryName.indexOf(normalizedQuery);
+    if (nameIndex !== -1) return 10 + nameIndex;
+  }
+  if (!allowPathMatch) return null;
+  const pathIndex = normalizedPath.indexOf(normalizedQuery);
+  if (pathIndex !== -1) return 40 + pathIndex;
+  return null;
+}
+
+function directoryNameSearchMatchForPath(directoryPath, query, allowPathMatch) {
+  const score = directoryNameSearchScore(directoryPath, query, allowPathMatch);
+  if (score === null) return null;
+  return {
+    path: directoryPath,
+    entryType: 'directory',
+    score,
+  };
+}
+
+function ancestorDirectoryPaths(filePath) {
+  const segments = normalizeSearchResultPath(filePath).split('/').filter(Boolean);
+  const ancestors = [];
+  for (let index = 1; index < segments.length; index += 1) {
+    ancestors.push(segments.slice(0, index).join('/'));
+  }
+  return ancestors;
+}
+
+function pathSearchMatchesForFile(filePath, query) {
+  const allowPathMatch = isLikelyPathQuery(query);
+  const matches = [];
+  const fileMatch = pathSearchMatchForPath(filePath, query, 'file', allowPathMatch);
+  if (fileMatch) matches.push(fileMatch);
+  ancestorDirectoryPaths(filePath).forEach((directoryPath) => {
+    if (isSearchIgnoredRelativePath(directoryPath)) return;
+    const directoryMatch = pathSearchMatchForPath(directoryPath, query, 'directory', allowPathMatch);
+    if (directoryMatch) matches.push(directoryMatch);
+  });
+  return matches;
 }
 
 function isLikelyPathQuery(query) {
@@ -814,6 +902,7 @@ class WorkspaceFileService {
       let settled = false;
       let truncated = false;
       const scoredMatches = [];
+      const seenMatchPaths = new Set();
 
       const settle = (error) => {
         if (settled) return;
@@ -823,10 +912,11 @@ class WorkspaceFileService {
           reject(error);
           return;
         }
-        scoredMatches.sort((a, b) => a.score - b.score || a.path.localeCompare(b.path));
+        scoredMatches.sort(comparePathSearchMatches);
         resolve({
           matches: scoredMatches.slice(0, limit).map(match => ({
             kind: 'path',
+            entryType: match.entryType,
             path: match.path,
             lineNumber: 1,
             lines: '',
@@ -845,11 +935,14 @@ class WorkspaceFileService {
       const processLine = (line) => {
         const filePath = normalizeSearchResultPath(line);
         if (!filePath || isSearchIgnoredRelativePath(filePath)) return;
-        const score = scorePathMatch(filePath, query);
-        if (score === null) return;
-        scoredMatches.push({ path: filePath, score });
-        if (scoredMatches.length >= candidateLimit) {
-          stopEarly();
+        for (const match of pathSearchMatchesForFile(filePath, query)) {
+          if (seenMatchPaths.has(match.path)) continue;
+          seenMatchPaths.add(match.path);
+          scoredMatches.push(match);
+          if (scoredMatches.length >= candidateLimit) {
+            stopEarly();
+            return;
+          }
         }
       };
 
@@ -917,6 +1010,74 @@ class WorkspaceFileService {
     }
   }
 
+  async collectDirectoryNameMatchCandidates(root, searchPath, query, limit, timeout) {
+    const startedAt = Date.now();
+    const allowPathMatch = isLikelyPathQuery(query);
+    const candidateLimit = Math.max(PATH_SEARCH_MIN_CANDIDATES, limit * PATH_SEARCH_CANDIDATE_MULTIPLIER);
+    const startRelativePath = searchPath === '.' ? '' : normalizeSearchResultPath(searchPath);
+    const startDirectory = path.resolve(root, startRelativePath || '.');
+    const queue = [{ target: startDirectory, relativePath: startRelativePath }];
+    const scoredMatches = [];
+    const seenMatchPaths = new Set();
+    let visited = 0;
+    let truncated = false;
+
+    while (queue.length > 0) {
+      if (Date.now() - startedAt > timeout) {
+        truncated = true;
+        break;
+      }
+      if (visited >= candidateLimit * 4) {
+        truncated = true;
+        break;
+      }
+
+      const current = queue.shift();
+      if (!current || shouldPruneDirectoryNameSearch(current.relativePath)) continue;
+      visited += 1;
+
+      let entries;
+      try {
+        entries = await fsp.readdir(current.target, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const childRelativePath = normalizeSearchResultPath(
+          current.relativePath ? `${current.relativePath}/${entry.name}` : entry.name
+        );
+        if (!childRelativePath || shouldPruneDirectoryNameSearch(childRelativePath)) continue;
+        const childTarget = path.join(current.target, entry.name);
+        const match = directoryNameSearchMatchForPath(childRelativePath, query, allowPathMatch);
+        if (match && !seenMatchPaths.has(match.path)) {
+          seenMatchPaths.add(match.path);
+          scoredMatches.push(match);
+          if (scoredMatches.length >= candidateLimit) {
+            truncated = true;
+            break;
+          }
+        }
+        queue.push({ target: childTarget, relativePath: childRelativePath });
+      }
+      if (truncated) break;
+    }
+
+    scoredMatches.sort(comparePathSearchMatches);
+    return {
+      matches: scoredMatches.slice(0, limit).map(match => ({
+        kind: 'path',
+        entryType: 'directory',
+        path: match.path,
+        lineNumber: 1,
+        lines: '',
+        ranges: [],
+      })),
+      truncated,
+    };
+  }
+
   async collectBundledPathMatchCandidates(root, searchPath, query, limit, timeout, stopAtLimit = false) {
     const candidateLimit = stopAtLimit
       ? limit
@@ -928,22 +1089,27 @@ class WorkspaceFileService {
       searchPath,
     ], { cwd: root, timeout, maxBuffer: SEARCH_FILE_LIST_MAX_BUFFER });
     const scoredMatches = [];
+    const seenMatchPaths = new Set();
     let truncated = false;
     for (const line of stdout.split('\n')) {
       const filePath = normalizeSearchResultPath(line);
       if (!filePath || isSearchIgnoredRelativePath(filePath)) continue;
-      const score = scorePathMatch(filePath, query);
-      if (score === null) continue;
-      scoredMatches.push({ path: filePath, score });
-      if (scoredMatches.length >= candidateLimit) {
-        truncated = true;
-        break;
+      for (const match of pathSearchMatchesForFile(filePath, query)) {
+        if (seenMatchPaths.has(match.path)) continue;
+        seenMatchPaths.add(match.path);
+        scoredMatches.push(match);
+        if (scoredMatches.length >= candidateLimit) {
+          truncated = true;
+          break;
+        }
       }
+      if (truncated) break;
     }
-    scoredMatches.sort((a, b) => a.score - b.score || a.path.localeCompare(b.path));
+    scoredMatches.sort(comparePathSearchMatches);
     return {
       matches: scoredMatches.slice(0, limit).map(match => ({
         kind: 'path',
+        entryType: match.entryType,
         path: match.path,
         lineNumber: 1,
         lines: '',
@@ -964,6 +1130,7 @@ class WorkspaceFileService {
       if (!stat.isFile()) return null;
       return {
         kind: 'path',
+        entryType: 'file',
         path: relativePath,
         lineNumber: 1,
         lines: '',
@@ -1046,7 +1213,7 @@ class WorkspaceFileService {
     const { value: gitStatusByPath, pending: gitStatusPending } = await this.getGitStatusForTree(root);
     const descendantGitStatusByPath = buildDescendantGitStatusByDirectory(gitStatusByPath);
     const items = await Promise.all(entries
-      .filter(entry => !HIDDEN_NAMES.has(entry.name))
+      .filter(entry => !TREE_HIDDEN_NAMES.has(entry.name))
       .map(async (entry) => {
         const absolute = path.join(target, entry.name);
         let entryStat;
@@ -1666,10 +1833,12 @@ class WorkspaceFileService {
         };
       }
       const pathSearch = await this.collectPathMatchCandidates(root, searchPath, query, limit, timeout, likelyPathQuery);
+      const directoryNameSearch = await this.collectDirectoryNameMatchCandidates(root, searchPath, query, limit, timeout);
       pathMatchCandidates = dedupePathMatches([
+        ...directoryNameSearch.matches,
         ...pathSearch.matches,
       ], limit);
-      searchOutputTruncated = pathSearch.truncated;
+      searchOutputTruncated = pathSearch.truncated || directoryNameSearch.truncated;
     } catch (error) {
       if (error.code === 'ENOENT') {
         throw new WorkspaceFileError('ripgrep is not installed', 501);
@@ -1743,6 +1912,7 @@ class WorkspaceFileService {
       if (!resultPath || isSearchIgnoredRelativePath(resultPath)) return;
       matches.push({
         kind: 'content',
+        entryType: 'file',
         path: resultPath,
         lineNumber: data.line_number,
         lines: data.lines && data.lines.text ? data.lines.text.replace(/\n$/, '') : '',

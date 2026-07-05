@@ -192,8 +192,7 @@ export function workspaceOpenFileTargetKey(target: WorkspaceOpenFileTarget) {
 }
 
 export function isSameOpenWorkspaceFile(file: OpenWorkspaceFile, agentId: string, filePath: string, workspaceRoot?: string) {
-  if (workspaceRoot && file.workspaceRoot) return workspaceOpenFileKey(file) === workspaceFileCacheKey(agentId, filePath, workspaceRoot)
-  return file.agentId === agentId && file.file.path === filePath
+  return workspaceOpenFileKey(file) === workspaceFileCacheKey(agentId, filePath, workspaceRoot)
 }
 
 export function findOpenWorkspaceFile(files: readonly OpenWorkspaceFile[], agentId: string, filePath: string, workspaceRoot?: string) {
@@ -201,10 +200,7 @@ export function findOpenWorkspaceFile(files: readonly OpenWorkspaceFile[], agent
 }
 
 export function replaceOpenWorkspaceFile(files: readonly OpenWorkspaceFile[], nextFile: OpenWorkspaceFile) {
-  const index = files.findIndex(file => (
-    workspaceOpenFileKey(file) === workspaceOpenFileKey(nextFile) ||
-    isSameOpenWorkspaceFile(file, nextFile.agentId, nextFile.file.path, nextFile.workspaceRoot)
-  ))
+  const index = files.findIndex(file => workspaceOpenFileKey(file) === workspaceOpenFileKey(nextFile))
   if (index === -1) return [...files, nextFile]
   const nextFiles = [...files]
   nextFiles[index] = nextFile

@@ -18,11 +18,8 @@ interface UseFileTreeRowInteractionsOptions {
   node: NodeRendererProps<WorkspaceFileTreeNode>['node']
   treeViewportRef: RefObject<HTMLDivElement | null>
   onFocusFileTreeTarget: (item: WorkspaceFileTreeNode | null) => void
-  onHydrateCompactDirectoryChains: (path: string) => Promise<unknown>
   onOpenFileContextMenu: (x: number, y: number, item: WorkspaceFileTreeNode | null) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
-  onRefreshTreeLayout: () => void
-  onSetDirectoryOpen: (path: string, open: boolean) => void
 }
 
 export function useFileTreeRowInteractions({
@@ -32,11 +29,8 @@ export function useFileTreeRowInteractions({
   node,
   treeViewportRef,
   onFocusFileTreeTarget,
-  onHydrateCompactDirectoryChains,
   onOpenFileContextMenu,
   onOpenFilePath,
-  onRefreshTreeLayout,
-  onSetDirectoryOpen,
 }: UseFileTreeRowInteractionsOptions) {
   const focusTree = useCallback(() => {
     focusWithoutScrolling(treeViewportRef.current?.querySelector<HTMLElement>('[role="tree"]'))
@@ -69,13 +63,10 @@ export function useFileTreeRowInteractions({
       node.select()
       node.focus()
       focusTree()
-      onSetDirectoryOpen(item.path, nextOpen)
       if (nextOpen) {
         node.open()
-        void onHydrateCompactDirectoryChains(item.path).finally(onRefreshTreeLayout)
       } else {
         node.close()
-        onRefreshTreeLayout()
       }
       onFocusFileTreeTarget(item)
       restoreProjectScroll?.()
@@ -102,10 +93,7 @@ export function useFileTreeRowInteractions({
     lastFocusedFilePathRef,
     node,
     onFocusFileTreeTarget,
-    onHydrateCompactDirectoryChains,
     onOpenFilePath,
-    onRefreshTreeLayout,
-    onSetDirectoryOpen,
     treeViewportRef,
   ])
 

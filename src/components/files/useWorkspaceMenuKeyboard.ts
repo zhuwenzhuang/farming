@@ -8,7 +8,13 @@ interface UseWorkspaceMenuKeyboardOptions {
 }
 
 function focusFirstWorkspaceMenuItem(menu: HTMLElement | null) {
-  if (!menu || menu.contains(document.activeElement)) return
+  if (!menu) return
+  const activeElement = document.activeElement
+  if (
+    activeElement instanceof HTMLButtonElement &&
+    menu.contains(activeElement) &&
+    activeElement.matches('button[role="menuitem"]:not(:disabled)')
+  ) return
   menu.querySelector<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')?.focus()
 }
 

@@ -6,6 +6,7 @@ export interface StartAgentMessage {
   type: 'start-agent'
   command: string
   workspace?: string
+  projectWorkspace?: string
   asMain?: boolean
   /** Sub-agent task body (may include workflow prefix from mergeTaskWithWorkflow) */
   task?: string

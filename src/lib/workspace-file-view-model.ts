@@ -99,7 +99,7 @@ export function workspaceFileTreeKeyboardTargetPath(options: {
   focusedPath?: string
   lastFocusedPath?: string | null
 }) {
-  return options.targetPath ?? options.selectedPath ?? options.focusedPath ?? options.lastFocusedPath ?? null
+  return options.selectedPath ?? options.targetPath ?? options.focusedPath ?? options.lastFocusedPath ?? null
 }
 
 export function shouldCloseWorkspaceFileTreeDirectory(options: {

@@ -1089,6 +1089,7 @@ function handleMessage(ws, data) {
         }
       }, {
         wantsMain: data.asMain === true,
+        projectWorkspace: typeof data.projectWorkspace === 'string' ? data.projectWorkspace : '',
         task: typeof data.task === 'string' ? data.task : '',
         workflowTemplate: typeof data.workflowTemplate === 'string' ? data.workflowTemplate : '',
       });
