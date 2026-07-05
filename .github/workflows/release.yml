@@ -179,7 +179,16 @@ jobs:
             echo "Missing release notes: ${notes_file}" >&2
             exit 1
           fi
-          echo "file=${notes_file}" >> "${GITHUB_OUTPUT}"
+          body_file="${RUNNER_TEMP}/release-notes-v${RELEASE_VERSION}.md"
+          NOTES_FILE="${notes_file}" BODY_FILE="${body_file}" node <<'NODE'
+          const fs = require('fs');
+          const version = process.env.RELEASE_VERSION;
+          let body = fs.readFileSync(process.env.NOTES_FILE, 'utf8');
+          body = body.replaceAll(`](./v${version}.zh_cn.md)`, `](./release-notes/v${version}.zh_cn.md)`);
+          body = body.replaceAll(`](./v${version}.md)`, `](./release-notes/v${version}.md)`);
+          fs.writeFileSync(process.env.BODY_FILE, body);
+          NODE
+          echo "file=${body_file}" >> "${GITHUB_OUTPUT}"
 
       - name: Download release assets
         uses: actions/download-artifact@v4

@@ -253,6 +253,8 @@ async function runTests() {
     assert(releaseWorkflowSource.includes('node scripts/verify-release-bundle.js'));
     assert(releaseWorkflowSource.includes("const { readBundleRelease } = require('../scripts/verify-release-bundle.js');"));
     assert(releaseWorkflowSource.includes('bundledGlibc: bundle.release.bundledGlibc === true'));
+    assert(releaseWorkflowSource.includes('body.replaceAll(`](./v${version}.zh_cn.md)`, `](./release-notes/v${version}.zh_cn.md)`)'));
+    assert(releaseWorkflowSource.includes('body.replaceAll(`](./v${version}.md)`, `](./release-notes/v${version}.md)`)'));
   }
 
   {
