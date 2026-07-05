@@ -676,6 +676,18 @@ test.describe('display-backed agent flows', () => {
     await page.getByRole('button', { name: 'Save file' }).click()
     await expect(page.getByRole('button', { name: 'Save file' })).toHaveCount(0)
     await expect.poll(() => fs.readFileSync(path.join(childWorkspace, 'README.md'), 'utf8')).toContain(shortcutSaveMarker)
+    await page.evaluate(() => {
+      if (!window.__farmingFileEditorTest?.undo()) {
+        throw new Error('Failed to trigger Monaco undo after save')
+      }
+    })
+    await expect.poll(async () => page.evaluate((marker) => {
+      return window.__farmingFileEditorTest?.getValue().includes(marker) ?? true
+    }, shortcutSaveMarker)).toBe(false)
+    await expect(page.getByRole('button', { name: 'Save file' })).toBeVisible()
+    await page.getByRole('button', { name: 'Save file' }).click()
+    await expect(page.getByRole('button', { name: 'Save file' })).toHaveCount(0)
+    await expect.poll(() => fs.readFileSync(path.join(childWorkspace, 'README.md'), 'utf8')).not.toContain(shortcutSaveMarker)
     await page.getByRole('button', { name: 'Open File Diff' }).click()
     await expect(page.getByTestId('code-file-diff-view')).toBeVisible()
     await expect(page.getByTestId('code-file-diff-monaco')).toBeVisible()
@@ -901,6 +913,61 @@ test.describe('display-backed agent flows', () => {
     const results = files.getByTestId('code-file-search-results')
     await expect(results).toContainText('No matches')
     await expect(results).toContainText('Search stopped early')
+  })
+
+  test('keeps editor scroll and undo stack after saving', async ({ page }) => {
+    await mockCodexSessions(page)
+    const workspaceRoot = path.join('/tmp', `farming-editor-save-identity-${process.pid}`)
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
+    fs.mkdirSync(workspaceRoot, { recursive: true })
+    const readmePath = path.join(workspaceRoot, 'README.md')
+    fs.writeFileSync(readmePath, Array.from({ length: 160 }, (_value, index) => `line ${String(index + 1).padStart(3, '0')}`).join('\n') + '\n')
+    execFileSync('git', ['init'], { cwd: workspaceRoot, stdio: 'ignore' })
+    execFileSync('git', ['config', 'user.email', 'farming-e2e@example.test'], { cwd: workspaceRoot })
+    execFileSync('git', ['config', 'user.name', 'Farming E2E'], { cwd: workspaceRoot })
+    execFileSync('git', ['add', 'README.md'], { cwd: workspaceRoot, stdio: 'ignore' })
+    execFileSync('git', ['commit', '-m', 'seed readme'], { cwd: workspaceRoot, stdio: 'ignore' })
+
+    await openFarming(page)
+    await openNewAgentDialog(page)
+    await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+
+    const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspaceRoot) })
+    await expect(project).toHaveCount(1, { timeout: 30_000 })
+    const files = project.getByTestId('code-files-section')
+    const filesTitle = files.locator('.code-files-title').first()
+    await filesTitle.click()
+    await expect(filesTitle).toHaveAttribute('aria-expanded', 'true')
+    await files.locator('[data-testid="code-file-row"][data-file-path="README.md"]').click()
+    await expect(activeFileTabName(page)).toHaveText('README.md')
+    await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+
+    const saveMarker = `save-undo-scroll-${Date.now()}`
+    await page.evaluate((marker) => {
+      const editor = window.__farmingFileEditorTest
+      if (!editor?.revealLine(120) || !editor.insertText(`${marker}\n`)) {
+        throw new Error('Failed to edit README before save identity regression')
+      }
+    }, saveMarker)
+    const scrollBeforeSave = await page.evaluate(() => window.__farmingFileEditorTest?.getScrollTop() ?? 0)
+    expect(scrollBeforeSave).toBeGreaterThan(0)
+    await expect(page.getByRole('button', { name: 'Save file' })).toBeVisible()
+    await page.getByRole('button', { name: 'Save file' }).click()
+    await expect(page.getByRole('button', { name: 'Save file' })).toHaveCount(0)
+    await expect.poll(() => fs.readFileSync(readmePath, 'utf8')).toContain(saveMarker)
+    await expect.poll(async () => page.evaluate(() => window.__farmingFileEditorTest?.getScrollTop() ?? 0)).toBeGreaterThan(0)
+    await page.evaluate(() => {
+      if (!window.__farmingFileEditorTest?.undo()) {
+        throw new Error('Failed to undo after saving README')
+      }
+    })
+    await expect.poll(async () => page.evaluate((marker) => (
+      window.__farmingFileEditorTest?.getValue().includes(marker) ?? true
+    ), saveMarker)).toBe(false)
+    await expect(page.getByRole('button', { name: 'Save file' })).toBeVisible()
+    await page.getByRole('button', { name: 'Save file' }).click()
+    await expect(page.getByRole('button', { name: 'Save file' })).toHaveCount(0)
+    await expect.poll(() => fs.readFileSync(readmePath, 'utf8')).not.toContain(saveMarker)
   })
 
   test('opens editor line changes from the gutter context menu', async ({ page }) => {

@@ -28,7 +28,7 @@ export function useFileEditorWorkingCopyController({
     try {
       const file = await saveWorkspaceFile(fileToSave.agentId, fileToSave.file.path, fileToSave.draft, fileToSave.file.sha1, overwrite)
       onUpdateOpenFile({
-        agentId: fileToSave.agentId,
+        ...fileToSave,
         file,
         draft: file.content,
         dirty: false,
@@ -64,7 +64,7 @@ export function useFileEditorWorkingCopyController({
     try {
       const file = await fetchWorkspaceFile(openFile.agentId, openFile.file.path)
       onUpdateOpenFile({
-        agentId: openFile.agentId,
+        ...openFile,
         file,
         draft: file.content,
         dirty: false,

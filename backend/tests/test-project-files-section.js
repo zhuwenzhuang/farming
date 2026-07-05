@@ -961,6 +961,8 @@ function run() {
 
   assert(
 	      editorWorkingCopyControllerSource.includes('saveWorkspaceFile') &&
+        editorWorkingCopyControllerSource.includes('...fileToSave') &&
+        editorWorkingCopyControllerSource.includes('...openFile') &&
 	        editorWorkingCopyControllerSource.includes('fetchWorkspaceFile') &&
         editorSource.includes('useFileEditorBlameController({') &&
         editorBlameControllerSource.includes('fetchWorkspaceBlame(openFile.agentId, openFile.file.path)') &&

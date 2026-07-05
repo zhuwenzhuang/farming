@@ -14,8 +14,11 @@ declare global {
     __FARMING_E2E__?: boolean
     __farmingFileEditorTest?: {
       focus: () => boolean
+      revealLine: (lineNumber: number) => boolean
       insertText: (text: string) => boolean
+      undo: () => boolean
       getValue: () => string
+      getScrollTop: () => number
     }
     __farmingTerminalTest?: {
       getCellCenter: (agentId: string, col: number, row: number) => { x: number; y: number } | null

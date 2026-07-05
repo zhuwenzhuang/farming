@@ -6,8 +6,11 @@ declare global {
     __FARMING_E2E__?: boolean
     __farmingFileEditorTest?: {
       focus: () => boolean
+      revealLine: (lineNumber: number) => boolean
       insertText: (text: string) => boolean
+      undo: () => boolean
       getValue: () => string
+      getScrollTop: () => number
     }
   }
 }
@@ -29,6 +32,16 @@ export function useFileEditorTestBridge({
         onFocusEditor()
         return Boolean(editorRef.current)
       },
+      revealLine(lineNumber: number) {
+        const editor = editorRef.current
+        const model = editor?.getModel()
+        if (!editor || !model) return false
+        const targetLine = Math.min(Math.max(1, lineNumber), model.getLineCount())
+        editor.setPosition({ lineNumber: targetLine, column: 1 })
+        editor.revealLineInCenter(targetLine)
+        editor.focus()
+        return true
+      },
       insertText(text: string) {
         const editor = editorRef.current
         const selection = editor?.getSelection()
@@ -44,8 +57,18 @@ export function useFileEditorTestBridge({
         editor.focus()
         return true
       },
+      undo() {
+        const editor = editorRef.current
+        if (!editor) return false
+        editor.focus()
+        editor.trigger('farming-e2e', 'undo', null)
+        return true
+      },
       getValue() {
         return editorRef.current?.getValue() ?? ''
+      },
+      getScrollTop() {
+        return editorRef.current?.getScrollTop() ?? 0
       },
     }
     window.__farmingFileEditorTest = testApi
