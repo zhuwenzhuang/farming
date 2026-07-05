@@ -308,6 +308,8 @@ function run() {
       workspaceSource.includes('sidebarCollapsed') &&
       workspaceSource.includes('code-sidebar-toggle') &&
       workspaceSource.includes('code-sidebar-toggle-icon') &&
+      workspaceSource.includes("import { ShareQrButton } from './ShareQrButton'") &&
+      workspaceSource.includes('<ShareQrButton copy={copy} sidebarCollapsed={sidebarCollapsed} />') &&
       !workspaceSource.includes("{sidebarCollapsed ? '>' : '<'}") &&
       workspaceSource.includes('code-folder-icon') &&
       !workspaceSource.includes("{collapsed ? '▸' : '▾'}") &&

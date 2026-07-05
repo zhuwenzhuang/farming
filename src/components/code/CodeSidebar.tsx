@@ -24,6 +24,7 @@ import {
   formatAgentSessionWorkspace,
 } from './model'
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
+import { ShareQrButton } from './ShareQrButton'
 
 declare const __FARMING_PACKAGE_VERSION__: string
 
@@ -324,6 +325,7 @@ export function CodeSidebar({
             <span>{copy.newAgent}</span>
             {keyboardShortcutsEnabled && <kbd>N</kbd>}
           </button>
+          <ShareQrButton copy={copy} sidebarCollapsed={sidebarCollapsed} />
           <button
             type="button"
             className="code-sidebar-toggle"

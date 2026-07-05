@@ -41,6 +41,7 @@ const { isRestartBlockingAgent } = require('./agent-activity');
 const { inputPartsFromMessage } = require('./input-parts');
 const { AppServerApiBridge, createAppServerApiRouter } = require('./app-server-api');
 const { cleanupTerminalRuntime } = require('./terminal-runtime-cleanup');
+const { QrShareTicketStore, SHARE_TICKET_TTL_MS } = require('./qr-share-tickets');
 
 function normalizeBasePath(basePath) {
   if (!basePath || basePath === '/') return '';
@@ -72,6 +73,7 @@ const PORT = process.env.PORT || 3000;
 const tokenAuth = new TokenAuth({ basePath: BASE_PATH || '/' });
 const authEnabled = tokenAuth.isEnabled();
 const WS_PATH = routePath(BASE_PATH, '/ws');
+const encodeCookieToken = TokenAuth.encodeCookieToken;
 
 const app = express();
 const server = http.createServer(app);
@@ -117,6 +119,7 @@ const agentSessionsCache = new AsyncCache((limit) => listAgentSessions({ limit: 
   ttlMs: 30_000,
   staleMs: 5 * 60_000,
 });
+const qrShareTickets = new QrShareTicketStore({ ttlMs: SHARE_TICKET_TTL_MS });
 const workspaceDiscoveryCache = new AsyncCache((key) => {
   const request = JSON.parse(key);
   return discoverAgentWorkspaces({
@@ -231,12 +234,70 @@ app.get(['/favicon.ico', routePath(BASE_PATH, '/favicon.ico')], (_req, res) => {
   res.status(204).end();
 });
 
+app.get(routePath(BASE_PATH, '/j/:code'), (req, res) => {
+  if (req.method === 'HEAD') {
+    res.status(204).end();
+    return;
+  }
+
+  const ticket = qrShareTickets.consume(req.params.code);
+  if (!ticket || (authEnabled && !tokenAuth.verify(ticket.token))) {
+    res.status(410).send('Farming share link expired.');
+    return;
+  }
+
+  if (authEnabled) {
+    res.setHeader(
+      'Set-Cookie',
+      `farming_token=${encodeCookieToken(ticket.token)}; Path=/; HttpOnly; SameSite=Lax`,
+    );
+  }
+  res.redirect(302, BASE_PATH || '/');
+});
+
 // Token authentication middleware (before static files)
 app.use(tokenAuth.middleware());
 
 // Auth status endpoint (allowed without authentication via middleware)
 app.get(routePath(BASE_PATH, '/api/auth/status'), (req, res) => {
   res.json({ authRequired: authEnabled });
+});
+
+function absoluteClientUrl(req, urlPath) {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const protocol = forwardedProto || req.protocol || 'http';
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+  const host = forwardedHost || req.headers.host || `127.0.0.1:${PORT}`;
+  return `${protocol}://${host}${urlPath}`;
+}
+
+function entryPathWithToken() {
+  const entryPath = BASE_PATH || '/';
+  if (!authEnabled) return entryPath;
+  return `${entryPath}?token=${encodeURIComponent(tokenAuth.getToken())}`;
+}
+
+app.post(routePath(BASE_PATH, '/api/share/qr-ticket'), express.json({ limit: '1kb' }), (req, res) => {
+  try {
+    const ticket = qrShareTickets.create(authEnabled ? tokenAuth.getToken() : '');
+    const shortPath = routePath(BASE_PATH, `/j/${ticket.code}`);
+    const longPath = entryPathWithToken();
+    res.json({
+      code: ticket.code,
+      expiresAt: ticket.expiresAt,
+      ttlMs: SHARE_TICKET_TTL_MS,
+      shortPath,
+      shortUrl: absoluteClientUrl(req, shortPath),
+      longUrl: absoluteClientUrl(req, longPath),
+      tokenLabel: authEnabled ? tokenAuth.getToken() : '',
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to create share ticket' });
+  }
+});
+
+app.delete(routePath(BASE_PATH, '/api/share/qr-ticket/:code'), (req, res) => {
+  res.json({ revoked: qrShareTickets.revoke(req.params.code) });
 });
 
 // Vendored ghostty assets stay under frontend/vendor even when the React app is served from dist.

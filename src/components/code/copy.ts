@@ -29,6 +29,13 @@ export interface CodeCopy {
   copyWorkingDirectory: string
   copiedWorkingDirectory: string
   copyFailed: string
+  sharePage: string
+  scanToOpenOnPhone: string
+  copyFullShareLink: string
+  copiedShareLink: string
+  shareLinkFailed: string
+  shareLinkExpired: string
+  refreshShareLink: string
   forkSameWorktree: string
   forkNewWorktree: string
   newWorktreeFork: string
@@ -250,6 +257,13 @@ const EN_COPY: CodeCopy = {
   copyWorkingDirectory: 'Copy working directory',
   copiedWorkingDirectory: 'Copied working directory',
   copyFailed: 'Copy failed',
+  sharePage: 'Share page',
+  scanToOpenOnPhone: 'Scan to open on phone',
+  copyFullShareLink: 'Copy full link',
+  copiedShareLink: 'Copied full link',
+  shareLinkFailed: 'Share link unavailable',
+  shareLinkExpired: 'Expired',
+  refreshShareLink: 'Refresh',
   forkSameWorktree: 'Fork into same worktree',
   forkNewWorktree: 'Fork into new worktree',
   newWorktreeFork: 'Forked to new worktree',
@@ -471,6 +485,13 @@ const ZH_COPY: CodeCopy = {
   copyWorkingDirectory: '复制工作目录',
   copiedWorkingDirectory: '已复制工作目录',
   copyFailed: '复制失败',
+  sharePage: '分享页面',
+  scanToOpenOnPhone: '手机扫码打开',
+  copyFullShareLink: '复制完整链接',
+  copiedShareLink: '已复制完整链接',
+  shareLinkFailed: '分享链接不可用',
+  shareLinkExpired: '已过期',
+  refreshShareLink: '刷新',
   forkSameWorktree: '在同一 worktree 分叉',
   forkNewWorktree: '分叉到新 worktree',
   newWorktreeFork: '已分叉到新 worktree',

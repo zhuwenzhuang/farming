@@ -1,0 +1,486 @@
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import qrcode from 'qrcode-generator'
+import { appPath } from '@/lib/base-path'
+import { writeTerminalClipboardText } from '@/lib/terminal-clipboard'
+import type { CodeCopy } from './copy'
+
+const HOVER_DWELL_MS = 250
+const CLOSE_DWELL_MS = 140
+const POPOVER_WIDTH = 252
+const POPOVER_HEIGHT = 326
+const QR_QUIET_ZONE = 4
+
+type ShareTicket = {
+  code: string
+  expiresAt: number
+  ttlMs: number
+  shortPath: string
+  shortUrl: string
+  longUrl: string
+  tokenLabel: string
+}
+
+function formatCountdown(ms: number) {
+  const seconds = Math.max(0, Math.ceil(ms / 1000))
+  const minutes = Math.floor(seconds / 60)
+  const remainder = seconds % 60
+  return `${minutes}:${String(remainder).padStart(2, '0')}`
+}
+
+function shareTicketIsFresh(ticket: ShareTicket | null, now: number) {
+  return Boolean(ticket && ticket.expiresAt > now + 1000)
+}
+
+function tokenDisplayLines(value: string) {
+  const parts = value
+    .split('-')
+    .map(part => part.trim())
+    .filter(Boolean)
+  return parts
+}
+
+async function revokeShareTicket(ticket: ShareTicket | null) {
+  if (!ticket?.code) return
+  await fetch(appPath(`/api/share/qr-ticket/${encodeURIComponent(ticket.code)}`), { method: 'DELETE' }).catch(() => {})
+}
+
+function isFinderModule(row: number, column: number, moduleCount: number) {
+  const inTop = row < 7
+  const inLeft = column < 7
+  const inRight = column >= moduleCount - 7
+  const inBottom = row >= moduleCount - 7
+  return (inTop && inLeft) || (inTop && inRight) || (inBottom && inLeft)
+}
+
+function isBadgeModule(row: number, column: number, moduleCount: number, badgeModules: number) {
+  const start = Math.floor((moduleCount - badgeModules) / 2)
+  const end = start + badgeModules
+  return row >= start && row < end && column >= start && column < end
+}
+
+function moduleFill(row: number, column: number) {
+  if ((row + column) % 11 === 0) return '#6d8a63'
+  if ((row * 3 + column) % 17 === 0) return '#9b7a35'
+  return '#263327'
+}
+
+function finderPattern(x: number, y: number, key: string) {
+  return (
+    <g key={key}>
+      <rect x={x} y={y} width="7" height="7" rx="1.45" fill="#263327" />
+      <rect x={x + 1} y={y + 1} width="5" height="5" rx="1" fill="#fbfaf2" />
+      <rect x={x + 2} y={y + 2} width="3" height="3" rx="0.72" fill="#263327" />
+      <rect x={x + 3.05} y={y + 3.05} width="0.9" height="0.9" rx="0.32" fill="#d9a735" />
+    </g>
+  )
+}
+
+function FarmingQrCode({ value, badgeUrl }: { value: string; badgeUrl: string }) {
+  const rawId = useId().replace(/:/g, '')
+  const qr = useMemo(() => {
+    const next = qrcode(0, 'H')
+    next.addData(value)
+    next.make()
+    return next
+  }, [value])
+  const moduleCount = qr.getModuleCount()
+  const size = moduleCount + QR_QUIET_ZONE * 2
+  const badgeModules = Math.max(7, Math.min(11, Math.floor(moduleCount * 0.26) | 1))
+  const badgeSize = badgeModules + 1.4
+  const badgeX = QR_QUIET_ZONE + (moduleCount - badgeSize) / 2
+  const badgeY = QR_QUIET_ZONE + (moduleCount - badgeSize) / 2
+  const clipId = `farming-qr-badge-${rawId}`
+  const modules = []
+
+  for (let row = 0; row < moduleCount; row += 1) {
+    for (let column = 0; column < moduleCount; column += 1) {
+      if (!qr.isDark(row, column)) continue
+      if (isFinderModule(row, column, moduleCount)) continue
+      if (isBadgeModule(row, column, moduleCount, badgeModules)) continue
+      modules.push(
+        <rect
+          key={`${row}-${column}`}
+          x={QR_QUIET_ZONE + column + 0.14}
+          y={QR_QUIET_ZONE + row + 0.14}
+          width="0.72"
+          height="0.72"
+          rx="0.24"
+          fill={moduleFill(row, column)}
+        />,
+      )
+    }
+  }
+
+  return (
+    <svg
+      className="code-share-qr-svg"
+      viewBox={`0 0 ${size} ${size}`}
+      role="img"
+      aria-label="QR code"
+      shapeRendering="geometricPrecision"
+    >
+      <defs>
+        <clipPath id={clipId}>
+          <rect x={badgeX + 0.55} y={badgeY + 0.55} width={badgeSize - 1.1} height={badgeSize - 1.1} rx="2.1" />
+        </clipPath>
+      </defs>
+      <rect x="0" y="0" width={size} height={size} rx="4" fill="#fbfaf2" />
+      {modules}
+      {finderPattern(QR_QUIET_ZONE, QR_QUIET_ZONE, 'top-left')}
+      {finderPattern(QR_QUIET_ZONE + moduleCount - 7, QR_QUIET_ZONE, 'top-right')}
+      {finderPattern(QR_QUIET_ZONE, QR_QUIET_ZONE + moduleCount - 7, 'bottom-left')}
+      <rect x={badgeX} y={badgeY} width={badgeSize} height={badgeSize} rx="2.6" fill="#fbfaf2" />
+      <rect x={badgeX + 0.35} y={badgeY + 0.35} width={badgeSize - 0.7} height={badgeSize - 0.7} rx="2.25" fill="#ffffff" />
+      <image
+        href={badgeUrl}
+        x={badgeX + 0.55}
+        y={badgeY + 0.55}
+        width={badgeSize - 1.1}
+        height={badgeSize - 1.1}
+        preserveAspectRatio="xMidYMid slice"
+        clipPath={`url(#${clipId})`}
+      />
+    </svg>
+  )
+}
+
+function QrIcon() {
+  return (
+    <svg className="code-share-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M2.5 2.5h4v4h-4zM9.5 2.5h4v4h-4zM2.5 9.5h4v4h-4z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M4 4h1v1H4zM11 4h1v1h-1zM4 11h1v1H4zM9.5 9.5h1.4v1.4H9.5zM12.1 9.5h1.4v1.4h-1.4zM9.5 12.1h1.4v1.4H9.5zM12.1 12.1h1.4v1.4h-1.4z" fill="currentColor" />
+    </svg>
+  )
+}
+
+export function ShareQrButton({
+  copy,
+  sidebarCollapsed,
+}: {
+  copy: CodeCopy
+  sidebarCollapsed: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [pinned, setPinned] = useState(false)
+  const [ticket, setTicket] = useState<ShareTicket | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [copied, setCopied] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
+  const [placement, setPlacement] = useState({ x: 0, y: 0 })
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
+  const tokenDisplayRef = useRef<HTMLSpanElement | null>(null)
+  const tokenMeasureRef = useRef<HTMLSpanElement | null>(null)
+  const hoverTimerRef = useRef<number | null>(null)
+  const closeTimerRef = useRef<number | null>(null)
+  const requestSeqRef = useRef(0)
+  const ticketRef = useRef<ShareTicket | null>(null)
+  const copiedTimerRef = useRef<number | null>(null)
+  const [singleLineTokenFits, setSingleLineTokenFits] = useState(true)
+  const badgeUrl = appPath('/farming-2/images/avatar-watercolor-v1-bee-garden.png')
+
+  useEffect(() => {
+    ticketRef.current = ticket
+  }, [ticket])
+
+  const clearHoverTimer = useCallback(() => {
+    if (hoverTimerRef.current === null) return
+    window.clearTimeout(hoverTimerRef.current)
+    hoverTimerRef.current = null
+  }, [])
+
+  const clearCloseTimer = useCallback(() => {
+    if (closeTimerRef.current === null) return
+    window.clearTimeout(closeTimerRef.current)
+    closeTimerRef.current = null
+  }, [])
+
+  const updatePlacement = useCallback(() => {
+    const rect = buttonRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const rightX = rect.right + 8
+    const leftX = rect.left - POPOVER_WIDTH - 8
+    const x = rightX + POPOVER_WIDTH + 10 <= window.innerWidth
+      ? rightX
+      : Math.max(8, leftX)
+    const y = Math.max(8, Math.min(rect.top - 4, window.innerHeight - POPOVER_HEIGHT - 8))
+    setPlacement({ x, y })
+  }, [])
+
+  const createTicket = useCallback(async (force = false) => {
+    const current = ticketRef.current
+    const currentNow = Date.now()
+    if (!force && shareTicketIsFresh(current, currentNow)) {
+      return current
+    }
+
+    const requestSeq = requestSeqRef.current + 1
+    requestSeqRef.current = requestSeq
+    setLoading(true)
+    setError('')
+    try {
+      const response = await fetch(appPath('/api/share/qr-ticket'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const body = await response.json() as ShareTicket | { error?: string }
+      if (!response.ok || !('shortUrl' in body)) {
+        throw new Error('error' in body && body.error ? body.error : copy.shareLinkFailed)
+      }
+      if (requestSeq !== requestSeqRef.current) {
+        await revokeShareTicket(body)
+        return null
+      }
+      setTicket(body)
+      setNow(Date.now())
+      setCopied(false)
+      return body
+    } catch (caught) {
+      if (requestSeq === requestSeqRef.current) {
+        setError(caught instanceof Error ? caught.message : copy.shareLinkFailed)
+      }
+      return null
+    } finally {
+      if (requestSeq === requestSeqRef.current) {
+        setLoading(false)
+      }
+    }
+  }, [copy.shareLinkFailed])
+
+  const closePopover = useCallback(() => {
+    clearHoverTimer()
+    clearCloseTimer()
+    requestSeqRef.current += 1
+    setOpen(false)
+    setPinned(false)
+    setError('')
+    setCopied(false)
+    setLoading(false)
+    const current = ticketRef.current
+    ticketRef.current = null
+    setTicket(null)
+    void revokeShareTicket(current)
+  }, [clearCloseTimer, clearHoverTimer])
+
+  const openPopover = useCallback((nextPinned: boolean, force = false) => {
+    clearHoverTimer()
+    clearCloseTimer()
+    updatePlacement()
+    setOpen(true)
+    setPinned(nextPinned)
+    void createTicket(force)
+  }, [clearCloseTimer, clearHoverTimer, createTicket, updatePlacement])
+
+  const scheduleHoverOpen = useCallback(() => {
+    if (sidebarCollapsed) return
+    clearCloseTimer()
+    if (open) return
+    clearHoverTimer()
+    hoverTimerRef.current = window.setTimeout(() => {
+      hoverTimerRef.current = null
+      openPopover(false)
+    }, HOVER_DWELL_MS)
+  }, [clearCloseTimer, clearHoverTimer, open, openPopover, sidebarCollapsed])
+
+  const scheduleClose = useCallback(() => {
+    clearHoverTimer()
+    if (pinned) return
+    clearCloseTimer()
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null
+      closePopover()
+    }, CLOSE_DWELL_MS)
+  }, [clearCloseTimer, clearHoverTimer, closePopover, pinned])
+
+  const handleButtonClick = useCallback(() => {
+    if (open && pinned) {
+      closePopover()
+      return
+    }
+    openPopover(true, true)
+  }, [closePopover, open, openPopover, pinned])
+
+  const handleCopy = useCallback(async () => {
+    const current = shareTicketIsFresh(ticketRef.current, Date.now())
+      ? ticketRef.current
+      : await createTicket(true)
+    if (!current) return
+    const ok = await writeTerminalClipboardText(current.longUrl)
+    if (!ok) {
+      setError(copy.copyFailed)
+      return
+    }
+    setCopied(true)
+    if (copiedTimerRef.current !== null) {
+      window.clearTimeout(copiedTimerRef.current)
+    }
+    copiedTimerRef.current = window.setTimeout(() => {
+      setCopied(false)
+      copiedTimerRef.current = null
+    }, 1800)
+  }, [copy.copyFailed, createTicket])
+
+  useLayoutEffect(() => {
+    if (!open) return undefined
+    updatePlacement()
+    window.addEventListener('resize', updatePlacement)
+    return () => window.removeEventListener('resize', updatePlacement)
+  }, [open, updatePlacement])
+
+  useEffect(() => {
+    if (!open) return undefined
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [open])
+
+  useLayoutEffect(() => {
+    if (!open) return undefined
+
+    const updateTokenFit = () => {
+      const display = tokenDisplayRef.current
+      const measure = tokenMeasureRef.current
+      if (!display || !measure) return
+      setSingleLineTokenFits(measure.scrollWidth <= display.clientWidth + 1)
+    }
+
+    updateTokenFit()
+    const observer = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(updateTokenFit)
+      : null
+    if (observer && tokenDisplayRef.current) {
+      observer.observe(tokenDisplayRef.current)
+    }
+    window.addEventListener('resize', updateTokenFit)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', updateTokenFit)
+    }
+  }, [open, ticket?.tokenLabel, ticket?.shortPath])
+
+  useEffect(() => {
+    if (!open) return undefined
+
+    const closeSharePopoverOnOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Node && rootRef.current?.contains(target)) return
+      closePopover()
+    }
+    const closeSharePopoverOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closePopover()
+    }
+
+    document.addEventListener('pointerdown', closeSharePopoverOnOutsidePointerDown, true)
+    document.addEventListener('keydown', closeSharePopoverOnEscape, true)
+    return () => {
+      document.removeEventListener('pointerdown', closeSharePopoverOnOutsidePointerDown, true)
+      document.removeEventListener('keydown', closeSharePopoverOnEscape, true)
+    }
+  }, [closePopover, open])
+
+  useEffect(() => () => {
+    clearHoverTimer()
+    clearCloseTimer()
+    if (copiedTimerRef.current !== null) {
+      window.clearTimeout(copiedTimerRef.current)
+    }
+    requestSeqRef.current += 1
+    void revokeShareTicket(ticketRef.current)
+  }, [clearCloseTimer, clearHoverTimer])
+
+  const expired = Boolean(ticket && ticket.expiresAt <= now)
+  const countdown = ticket ? formatCountdown(ticket.expiresAt - now) : ''
+  const tokenLabel = ticket?.tokenLabel || ticket?.shortPath || copy.copyFullShareLink
+  const tokenParts = tokenDisplayLines(tokenLabel)
+  const tokenLines = singleLineTokenFits || tokenParts.length <= 1 ? [tokenLabel] : tokenParts
+
+  return (
+    <div
+      ref={rootRef}
+      className="code-share-root"
+      onMouseEnter={scheduleHoverOpen}
+      onMouseLeave={scheduleClose}
+      onFocus={() => clearCloseTimer()}
+      onBlur={event => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null) && !pinned) {
+          closePopover()
+        }
+      }}
+    >
+      <button
+        ref={buttonRef}
+        type="button"
+        className="code-share-button"
+        data-testid="code-share-button"
+        aria-label={copy.sharePage}
+        title={copy.sharePage}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={handleButtonClick}
+      >
+        <QrIcon />
+      </button>
+      {open && (
+        <div
+          className="code-share-popover"
+          data-testid="code-share-popover"
+          role="dialog"
+          aria-label={copy.scanToOpenOnPhone}
+          style={{ left: placement.x, top: placement.y }}
+          onMouseEnter={() => {
+            clearHoverTimer()
+            clearCloseTimer()
+          }}
+          onMouseLeave={scheduleClose}
+          onKeyDown={event => {
+            if (event.key === 'Escape') {
+              closePopover()
+              buttonRef.current?.focus()
+            }
+          }}
+        >
+          <div className="code-share-qr-frame" data-expired={expired ? 'true' : 'false'}>
+            <div className="code-share-qr-canvas">
+              {ticket && !loading ? (
+                <FarmingQrCode value={ticket.shortUrl} badgeUrl={badgeUrl} />
+              ) : (
+                <div className="code-share-qr-loading">{loading ? copy.loading : copy.shareLinkFailed}</div>
+              )}
+            </div>
+            {ticket && (
+              <div className="code-share-countdown">
+                {expired ? copy.shareLinkExpired : countdown}
+              </div>
+            )}
+            {expired && (
+              <button type="button" className="code-share-refresh" onClick={() => void createTicket(true)}>
+                {copy.refreshShareLink}
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            className="code-share-copy-token"
+            data-testid="code-share-copy-link"
+            disabled={!ticket && loading}
+            onClick={() => void handleCopy()}
+          >
+            <span
+              ref={tokenDisplayRef}
+              className={`code-share-token ${singleLineTokenFits ? 'single-line' : ''}`}
+              aria-label={tokenLabel}
+            >
+              <span ref={tokenMeasureRef} className="code-share-token-measure" aria-hidden="true">{tokenLabel}</span>
+              {tokenLines.map((line, index) => (
+                <span key={`${index}-${line}`} className="code-share-token-line">{line}</span>
+              ))}
+            </span>
+            <span className="code-share-copy-action">{copied ? copy.copiedShareLink : copy.copyFullShareLink}</span>
+          </button>
+          {error && <div className="code-share-error" role="status">{error}</div>}
+        </div>
+      )}
+    </div>
+  )
+}

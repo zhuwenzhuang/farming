@@ -91,6 +91,7 @@
     "material-icon-theme": "^5.36.1",
     "monaco-editor": "^0.55.1",
     "node-pty": "^1.2.0-beta.12",
+    "qrcode-generator": "^2.0.4",
     "react": "^19.2.4",
     "react-arborist": "^3.10.5",
     "react-dom": "^19.2.4",
