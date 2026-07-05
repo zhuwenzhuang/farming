@@ -104,6 +104,8 @@ const DENY_WORDS = new Set([
   '天衣', '古马', '云鼓', '长马', '珠人', '红节',
   '地歌', '地叶', '灯古', '灯生', '灯心', '低岸', '低雨', '断新',
   '断长', '风席', '峰日', '峰生', '高河', '歌鸟', '根花',
+  '生辰', '李白', '木鸡', '门书', '深爱', '年日', '冬时', '时心',
+  '笑时', '时生', '日天', '人时', '日人', '天人', '人院',
 ]);
 
 const IMAGE_CHARS = new Set(Array.from([
@@ -118,6 +120,70 @@ const IMAGE_CHARS = new Set(Array.from([
   '寒暑冷暖晴阴清明幽微闲静孤寂空远遥深浅轻薄淡浓',
   '翠碧青苍绿红白黄紫玄素暗新旧古圆斜疏密残断',
 ].join('')));
+
+const SEASON_CHARS = new Set(Array.from('春夏秋冬晨朝晓旦午暮夕晚夜更年岁时节寒暑霜雪露雨'));
+const NATURE_CHARS = new Set(Array.from([
+  '天地日月星辰云霞烟雾风雨雪霜露虹霁霭',
+  '山水江河湖海溪泉潭涧潮浪波浦洲渚岸沙石岩峰岭谷崖壑',
+  '林森树木松柏竹梅兰菊荷莲柳枫桂桃李杏花草苔萝藤芦叶枝根蕊',
+  '鸟莺燕雁鸥鹭鹤鸿鸳鸯鱼龙鹿猿蝉蝶蜂萤',
+].join('')));
+const PLACE_CHARS = new Set(Array.from('城郭楼台亭阁门窗帘院园庭阶桥寺庙宫阙舟船帆岸浦洲渚'));
+const LIGHT_CHARS = new Set(Array.from('日月星辰云霞烟雾虹光影灯烛明暗晴阴青苍绿红白黄紫翠碧金银素玄'));
+const OBJECT_CHARS = new Set(Array.from('笛箫琴弦钟鼓灯烛镜剑书画诗酒茶棋枕席衣裳袖珠玉金银锦绣帘'));
+const FEELING_CHARS = new Set(Array.from('心爱笑梦清幽微闲静孤寂空远遥深淡浓冷暖轻薄'));
+const CONTEXT_EDGE_CHARS = new Set(Array.from('人地马生世时年日门衣书客'));
+const SOFT_BAD_WORD_RE = /[电犬鸡]/;
+const GOOD_WORDS = new Set([
+  '春风', '明月', '白云', '梅花', '秋风', '青山', '清风', '日月',
+  '江湖', '江山', '风月', '草木', '桃李', '月明', '桃花', '山水',
+  '山林', '青云', '烟霞', '日暮', '夜深', '烟雨', '春光', '秋水',
+  '夜雨', '夜月', '风露', '翠微', '松风', '春草', '秋月', '云深',
+  '春水', '花枝', '莲花', '荷花', '孤舟', '古寺', '玉楼', '青灯',
+  '露珠', '春雨', '秋暮', '清水', '岁时', '月光', '红叶', '时雨',
+  '秋夜', '夕暮', '白露', '孤寂', '谷鸟', '黄莺', '夏日', '银河',
+  '白菊', '春夜', '梅香', '山鸟', '松风', '庭园', '茶花', '菊花',
+  '木叶', '岩石', '朝雾', '春山', '海浪', '红梅', '花影', '黄叶',
+  '天空', '清晨', '微笑', '森林', '诗歌', '夜晚', '花园', '河水',
+  '河岸', '光明', '深夜', '节日', '青春', '寺院', '阴影', '遥远',
+  '寂静', '时光', '白天', '日夜', '风雨', '树林', '星辰', '树枝',
+  '莲花', '晨光', '青草', '海岸', '芦笛', '霞光', '星光', '灯光',
+  '暮歌', '晨歌', '心弦', '心花',
+]);
+
+function hasAnyChar(word, chars) {
+  return Array.from(word).some(char => chars.has(char));
+}
+
+function hasAllCharClasses(word, leftClass, rightClass) {
+  const chars = Array.from(word);
+  return leftClass.has(chars[0]) && rightClass.has(chars[1]);
+}
+
+function qualityScore(word, count) {
+  let score = 0;
+  if (GOOD_WORDS.has(word)) score += 8;
+  if (hasAllCharClasses(word, SEASON_CHARS, NATURE_CHARS)) score += 4;
+  if (hasAllCharClasses(word, NATURE_CHARS, NATURE_CHARS)) score += 4;
+  if (hasAllCharClasses(word, NATURE_CHARS, PLACE_CHARS)) score += 3;
+  if (hasAllCharClasses(word, PLACE_CHARS, NATURE_CHARS)) score += 3;
+  if (hasAllCharClasses(word, LIGHT_CHARS, NATURE_CHARS)) score += 3;
+  if (hasAllCharClasses(word, NATURE_CHARS, LIGHT_CHARS)) score += 3;
+  if (hasAllCharClasses(word, OBJECT_CHARS, NATURE_CHARS)) score += 2;
+  if (hasAllCharClasses(word, NATURE_CHARS, OBJECT_CHARS)) score += 2;
+  if (hasAllCharClasses(word, FEELING_CHARS, NATURE_CHARS)) score += 2;
+  if (hasAllCharClasses(word, NATURE_CHARS, FEELING_CHARS)) score += 2;
+  if (hasAnyChar(word, PLACE_CHARS) && hasAnyChar(word, NATURE_CHARS)) score += 1;
+  if (hasAnyChar(word, LIGHT_CHARS) && hasAnyChar(word, NATURE_CHARS)) score += 1;
+  if (hasAnyChar(word, OBJECT_CHARS) && hasAnyChar(word, NATURE_CHARS)) score += 1;
+  if (hasAnyChar(word, CONTEXT_EDGE_CHARS)) score -= 2;
+  if (CONTEXT_EDGE_CHARS.has(Array.from(word)[0]) && !GOOD_WORDS.has(word)) score -= 2;
+  if (CONTEXT_EDGE_CHARS.has(Array.from(word)[1]) && !GOOD_WORDS.has(word)) score -= 2;
+  if (SOFT_BAD_WORD_RE.test(word) && !GOOD_WORDS.has(word)) score -= 4;
+  if (count >= 8) score += 1;
+  if (count >= 32) score += 1;
+  return score;
+}
 
 function walkJsonFiles(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
@@ -240,7 +306,12 @@ function buildPayload({
   targetCount,
 }) {
   const ranked = Array.from(counts.entries())
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0], 'zh-Hans-CN'));
+    .map(([word, count]) => ({ word, count, quality: qualityScore(word, count) }))
+    .sort((left, right) => (
+      right.quality - left.quality
+      || right.count - left.count
+      || left.word.localeCompare(right.word, 'zh-Hans-CN')
+    ));
   const selected = ranked.slice(0, targetCount);
   const tiers = {
     common: selected.filter((_, index) => tierForIndex(index, selected.length) === 'common').length,
@@ -280,12 +351,22 @@ function buildPayload({
       target: targetCount,
       tiers,
       frequencyRange: selected.length
-        ? { max: selected[0][1], min: selected[selected.length - 1][1] }
+        ? {
+            max: Math.max(...selected.map(entry => entry.count)),
+            min: Math.min(...selected.map(entry => entry.count)),
+          }
+        : { max: 0, min: 0 },
+      qualityRange: selected.length
+        ? {
+            max: Math.max(...selected.map(entry => entry.quality)),
+            min: Math.min(...selected.map(entry => entry.quality)),
+          }
         : { max: 0, min: 0 },
     },
-    words: selected.map(([word, count], index) => ({
+    words: selected.map(({ word, count, quality }, index) => ({
       word,
       count,
+      quality,
       tier: tierForIndex(index, selected.length),
     })),
   };

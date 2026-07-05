@@ -17,6 +17,9 @@ const {
   getPoeticTokenEntropyBits,
   resolvePoeticTokenLocale,
 } = require('../haiku-token');
+const CHINA_SOURCE_WORDS = require('../data/poetic-word-sources/china.json');
+const JAPAN_SOURCE_WORDS = require('../data/poetic-word-sources/japan.json');
+const INDIA_SOURCE_WORDS = require('../data/poetic-word-sources/india.json');
 
 function lineLengths(token) {
   return token.split('-').map(part => Array.from(part).length);
@@ -72,11 +75,21 @@ function run() {
   assert(getJapaneseHaikuTokenEntropyBits() >= 85, 'Japanese 5-7-5 token should keep at least 85 bits');
 
   const indianSamples = Array.from({ length: 16 }, () => generateIndianHaikuToken());
+  const indianMarkerPattern = /天空|诗人|清晨|微笑|森林|诗歌|夜晚|花园|河水|河岸|光明|深夜|青春|寺院|阴影|遥远|寂静|时光|月光|旅人|芦笛|莲花|尘世|孤寂|海岸|新生|心花|爱人|霞光|星光|晨光|灯光|暮歌|晨歌|心弦|河心|祝福|自由|灵魂|梦乡/;
   indianSamples.forEach((token) => {
     assert.match(token, /^[\u4e00-\u9fa5-]+$/);
     assert.deepStrictEqual(lineLengths(token), [5, 7, 5]);
+    assert.match(token.split('-')[0].slice(0, 2), indianMarkerPattern);
   });
   assert(getIndianHaikuTokenEntropyBits() >= 85, 'Indian 5-7-5 token should keep at least 85 bits');
+
+  [CHINA_SOURCE_WORDS, JAPAN_SOURCE_WORDS, INDIA_SOURCE_WORDS].forEach((source) => {
+    assert(source.words.length >= 1000, `${source.key} source should keep enough candidates`);
+    source.words.forEach((entry) => {
+      assert.strictEqual(typeof entry.quality, 'number', `${source.key} source word should include a quality score`);
+    });
+    assert(source.stats.qualityRange.max >= source.stats.qualityRange.min, `${source.key} source should report quality range`);
+  });
 
   const englishToken = generateEnglishPassphraseToken();
   assert.match(englishToken, /^[a-z-]+$/);

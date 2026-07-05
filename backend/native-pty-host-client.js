@@ -5,7 +5,7 @@ const net = require('net');
 const path = require('path');
 const { nativePtyHostSocketPath } = require('./native-pty-host-path');
 
-const DEFAULT_CONNECT_RETRIES = 50;
+const DEFAULT_CONNECT_RETRIES = 300;
 const DEFAULT_CONNECT_RETRY_MS = 50;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 const HOST_LOG_FILENAME = 'native-pty-host.log';
@@ -19,6 +19,35 @@ const RECONNECT_RETRYABLE_METHODS = new Set([
   'getSessionPreview',
   'recoverSessions',
   'updateSessionMetadata',
+]);
+const PACKAGED_NATIVE_HOST_ENV_KEYS = new Set([
+  'CLICOLOR',
+  'COLORTERM',
+  'FARMING_CLI_BIN_DIR',
+  'FARMING_CONFIG_DIR',
+  'FARMING_EFFECTIVE_NODE_HEAP_MB',
+  'FARMING_NATIVE_PTY_HOST_IDLE_EXIT_MS',
+  'FARMING_NATIVE_PTY_HOST_OWNER_PID',
+  'FARMING_NATIVE_PTY_HOST_SOCKET',
+  'FARMING_NATIVE_PTY_SCREEN_WORKERS',
+  'FARMING_NODE_BIN',
+  'FARMING_NODE_LD',
+  'FARMING_NODE_LIBRARY_PATH',
+  'FARMING_PACKAGED_RUNTIME',
+  'FARMING_RUN_NATIVE_PTY_HOST',
+  'HOME',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'LOGNAME',
+  'NODE_OPTIONS',
+  'PATH',
+  'SHELL',
+  'TEMP',
+  'TERM',
+  'TMP',
+  'TMPDIR',
+  'USER',
 ]);
 
 function delay(ms) {
@@ -51,6 +80,27 @@ function buildCleanEnvExecCommand(env, command, args = []) {
   return parts.map(quoteShellArg).join(' ');
 }
 
+function packagedNativeHostEnv(env = {}) {
+  const next = {};
+  Object.entries(env).forEach(([key, value]) => {
+    if (!PACKAGED_NATIVE_HOST_ENV_KEYS.has(key)) return;
+    if (value === undefined || value === null) return;
+    next[key] = value;
+  });
+  return next;
+}
+
+function redactCommandArg(arg) {
+  const value = String(arg);
+  const match = value.match(/^([A-Za-z_][A-Za-z0-9_]*)=/);
+  if (!match) return value;
+  const key = match[1].toUpperCase();
+  if (/(TOKEN|SECRET|PASSWORD|PASSWD|PRIVATE|KEY|AUTH|CREDENTIAL|COOKIE)/.test(key)) {
+    return `${match[1]}=<redacted>`;
+  }
+  return value;
+}
+
 function hostConnectErrorMessage(error, spawned, logPath) {
   const code = error && error.code ? ` ${error.code}` : '';
   const logHint = logPath ? ` See ${logPath}.` : '';
@@ -67,16 +117,12 @@ function nativeHostSpawnCommand(hostScript, env) {
   const isPackagedRuntime = env.FARMING_PACKAGED_RUNTIME === '1';
   if (isPackagedRuntime) {
     env[PACKAGED_NATIVE_PTY_HOST_ENV] = '1';
-    if (process.platform !== 'win32') {
-      const command = ldPath && libraryPath ? ldPath : nodeBin;
-      const args = ldPath && libraryPath
-        ? ['--library-path', libraryPath, nodeBin, '--']
-        : ['--'];
-      return {
-        command: '/bin/sh',
-        args: ['-c', buildCleanEnvExecCommand(env, command, args)],
-      };
-    }
+    const hostEnv = packagedNativeHostEnv(env);
+    const command = ldPath && libraryPath ? ldPath : nodeBin;
+    const args = ldPath && libraryPath
+      ? ['--library-path', libraryPath, nodeBin]
+      : [];
+    return { command, args, env: hostEnv };
   }
   const hostArgs = isPackagedRuntime ? [] : [hostScript];
   if (ldPath && libraryPath) {
@@ -126,7 +172,7 @@ class NativePtyHostClient extends EventEmitter {
       stream.write([
         `[${new Date().toISOString()}] Starting native PTY host`,
         `  command: ${spawnCommand.command}`,
-        `  args: ${spawnCommand.args.join(' ')}`,
+        `  args: ${spawnCommand.args.map(redactCommandArg).join(' ')}`,
         `  socket: ${this.socketPath}`,
         `  ownerPid: ${process.pid}`,
         '',
@@ -170,7 +216,7 @@ class NativePtyHostClient extends EventEmitter {
     const child = spawn(spawnCommand.command, spawnCommand.args, {
       detached: false,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env,
+      env: spawnCommand.env || env,
       windowsHide: true,
     });
     this.hostChild = child;

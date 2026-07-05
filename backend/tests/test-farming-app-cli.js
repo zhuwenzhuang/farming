@@ -122,14 +122,19 @@ async function runTests() {
     const env = {
       FARMING_NODE_BIN: '/opt/farming/farming',
       FARMING_PACKAGED_RUNTIME: '1',
+      FARMING_CONFIG_DIR: '/tmp/farming-config',
+      SECRET_TOKEN: 'do-not-leak',
+      OPENAI_API_KEY: 'do-not-leak',
     };
     const command = nativeHostSpawnCommand('/snapshot/farming/backend/native-pty-host.js', env);
 
-    assert.strictEqual(command.command, '/bin/sh');
-    assert.strictEqual(command.args.length, 2);
-    assert.strictEqual(command.args[0], '-c');
-    assert(command.args[1].includes("'FARMING_RUN_NATIVE_PTY_HOST=1'"));
-    assert(command.args[1].endsWith("'/opt/farming/farming' '--'"));
+    assert.strictEqual(command.command, '/opt/farming/farming');
+    assert.deepStrictEqual(command.args, []);
+    assert.strictEqual(command.env.FARMING_RUN_NATIVE_PTY_HOST, '1');
+    assert.strictEqual(command.env.FARMING_CONFIG_DIR, '/tmp/farming-config');
+    assert.strictEqual(command.env.SECRET_TOKEN, undefined);
+    assert.strictEqual(command.env.OPENAI_API_KEY, undefined);
+    assert(!JSON.stringify(command.env).includes('do-not-leak'));
     assert.strictEqual(env.FARMING_RUN_NATIVE_PTY_HOST, '1');
   }
 
