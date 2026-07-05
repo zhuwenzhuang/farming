@@ -30,6 +30,7 @@ import {
 } from '@/lib/workspace-files'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import { isOverlayShortcutTarget, isTerminalShortcutTarget, isTextEditingShortcutTarget } from '@/hooks/useKeyboard'
+import { usePageVisibility } from '@/hooks/usePageVisibility'
 import { CodeMainArea } from './code/CodeMainArea'
 import { CodeOverlays } from './code/CodeOverlays'
 import { CodeSidebar } from './code/CodeSidebar'
@@ -186,6 +187,13 @@ export interface DeleteForkWorktreeProjectResult {
   error?: string
 }
 
+export interface AgentFlagUpdateResult {
+  removedMainPageSessionKeys?: string[]
+  error?: string
+}
+
+type AgentFlagUpdateResponse = AgentFlagUpdateResult | boolean | void
+
 interface CodeWorkspaceProps {
   agents: Agent[]
   taskHistory: TaskHistoryEntry[]
@@ -204,7 +212,7 @@ interface CodeWorkspaceProps {
   onOpenTerminal: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
   onRenameAgent: (agentId: string, title: string) => void
-  onUpdateAgentFlags: (agentId: string, flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived'>>) => void
+  onUpdateAgentFlags: (agentId: string, flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived'>>) => AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>
   onOpenArchivedAgent: (agentId: string) => void
   onForkAgent: (agentId: string, mode: 'same-worktree' | 'new-worktree') => void
   onDeleteForkWorktreeProject: (workspace: string, options?: { force?: boolean }) => Promise<DeleteForkWorktreeProjectResult>
@@ -495,6 +503,7 @@ export function CodeWorkspace({
   onSessionOutput,
   onUpdateUiPreferences,
 }: CodeWorkspaceProps) {
+  const pageVisible = usePageVisibility()
   const [composerByAgentKey, setComposerByAgentKey] = useState<Record<string, AgentComposerState>>({})
   const pendingFollowUpAutoFlushRef = useRef<Record<string, string>>({})
   const [terminalFollowStates, setTerminalFollowStates] = useState<Record<string, TerminalFollowState>>({})
@@ -1482,6 +1491,18 @@ export function CodeWorkspace({
     updateMainPageSessionKeys(previous => Array.from(previous).filter(key => !removeKeys.has(key)))
   }, [updateMainPageSessionKeys])
 
+  const syncRemovedMainPageSessionsFromAgentUpdate = useCallback((result: AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>) => {
+    Promise.resolve(result)
+      .then(value => {
+        if (!value || typeof value !== 'object') return
+        const removedKeys = Array.isArray(value.removedMainPageSessionKeys) ? value.removedMainPageSessionKeys : []
+        if (removedKeys.length > 0) {
+          removeMainPageAgentSessions(removedKeys)
+        }
+      })
+      .catch(() => {})
+  }, [removeMainPageAgentSessions])
+
   useEffect(() => {
     activeAgents.forEach(agent => {
       if (agent.providerSessionTemporary === true) return
@@ -1496,13 +1517,14 @@ export function CodeWorkspace({
   }, [activeAgents, refreshAgentSessions, updateMainPageSessionKeys])
 
   useEffect(() => {
+    if (!pageVisible) return undefined
     const hasTemporaryProviderSession = activeAgents.some(agent => agent.providerSessionTemporary === true)
     if (!hasTemporaryProviderSession) return undefined
 
     refreshAgentSessions()
     const timer = window.setInterval(refreshAgentSessions, 5_000)
     return () => window.clearInterval(timer)
-  }, [activeAgents, refreshAgentSessions])
+  }, [activeAgents, pageVisible, refreshAgentSessions])
 
   const focusActiveProjectListTargetNow = useCallback(() => {
     const activeAgentId = activeTerminalIdRef.current
@@ -2290,9 +2312,10 @@ export function CodeWorkspace({
       window.setTimeout(() => focusActiveProjectListTargetNow(), 360)
       window.setTimeout(() => focusActiveProjectListTargetNow(), 720)
     }
-    onUpdateAgentFlags(agentId, flags)
+    const result = onUpdateAgentFlags(agentId, flags)
+    if (flags.archived === true) syncRemovedMainPageSessionsFromAgentUpdate(result)
     if (flags.archived !== true) focusAgentRow(agentId)
-  }, [contextMenuAgent, focusActiveProjectListTargetNow, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession])
+  }, [contextMenuAgent, focusActiveProjectListTargetNow, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession, syncRemovedMainPageSessionsFromAgentUpdate])
 
   const updateSidebarAgentFlags = useCallback((agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => {
     const agentId = agent.id
@@ -2306,9 +2329,10 @@ export function CodeWorkspace({
       window.setTimeout(() => focusActiveProjectListTargetNow(), 360)
       window.setTimeout(() => focusActiveProjectListTargetNow(), 720)
     }
-    onUpdateAgentFlags(agentId, flags)
+    const result = onUpdateAgentFlags(agentId, flags)
+    if (flags.archived === true) syncRemovedMainPageSessionsFromAgentUpdate(result)
     if (flags.archived !== true) focusAgentRow(agentId)
-  }, [focusActiveProjectListTargetNow, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession])
+  }, [focusActiveProjectListTargetNow, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession, syncRemovedMainPageSessionsFromAgentUpdate])
 
   const restoreArchivedAgent = useCallback((agentId: string) => {
     pendingArchivedFocusAgentRef.current = null
@@ -3107,9 +3131,10 @@ export function CodeWorkspace({
   }, [approvalMenuOpen, currentPermissionMode])
 
   useEffect(() => {
+    if (!pageVisible) return undefined
     const timer = window.setInterval(() => setNow(Date.now()), 60_000)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [pageVisible])
 
   useEffect(() => {
     const SpeechRecognition = (window as WindowWithSpeechRecognition).SpeechRecognition

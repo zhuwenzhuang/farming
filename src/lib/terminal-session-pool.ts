@@ -310,6 +310,7 @@ function isMobileViewport() {
 
 function appendHost(record: SessionRecord, mountEl: HTMLElement) {
   attachTerminalHost(record, mountEl, () => isolateSinglePaneTerminalMount(record.hostEl, mountEl))
+  observeTerminalResize(record)
 }
 
 function findSessionRecordForHost(hostEl: HTMLDivElement) {
@@ -325,8 +326,18 @@ function parkTerminalSessionRecord(record: SessionRecord) {
   record.followOutputHandler = null
   record.pathOpenHandler = null
   record.pathResolveHandler = null
+  pauseTerminalResizeObserver(record)
   resetTransientTerminalUi(record)
   parkTerminalHost(record)
+}
+
+function observeTerminalResize(record: SessionRecord) {
+  if (record.disposed || !record.resizeObserver) return
+  record.resizeObserver.observe(record.hostEl)
+}
+
+function pauseTerminalResizeObserver(record: SessionRecord) {
+  record.resizeObserver?.disconnect()
 }
 
 function isolateSinglePaneTerminalMount(hostEl: HTMLDivElement, mountEl: HTMLElement) {
@@ -2856,7 +2867,6 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
       }
     })
   })
-  resizeObserver.observe(hostEl)
   record.resizeObserver = resizeObserver
 
   const unsubscribeOutput = options.onSessionOutput(agentId, (data, replace, outputSeq) => {
@@ -2980,11 +2990,7 @@ export async function detachTerminalSession(agentId: string, expectedMount?: HTM
   if (sessions.get(agentId) !== record) return
   if (!canDetachTerminalHost(record, expectedMount)) return
 
-  record.followOutputHandler = null
-  record.pathOpenHandler = null
-  record.pathResolveHandler = null
-  resetTransientTerminalUi(record)
-  parkTerminalHost(record)
+  parkTerminalSessionRecord(record)
 }
 
 export async function getTerminalSelection(agentId: string) {

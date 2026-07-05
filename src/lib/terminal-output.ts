@@ -211,6 +211,7 @@ export function writeTerminalOutput(
     const previousScrollbackLength = getTerminalScrollbackLength(record.terminal)
     const shouldFollowOutput = record.followOutput
     const quiet = options.quiet === true || data.length >= QUIET_TERMINAL_WRITE_THRESHOLD
+    const outputObserved = options.isOutputObserved?.() ?? true
 
     if (quiet) {
       record.suspendRendering = true
@@ -222,19 +223,15 @@ export function writeTerminalOutput(
       }
       record.suspendRendering = false
       if (shouldFollowOutput) {
-        const outputObserved = options.isOutputObserved?.() ?? true
-        if (quiet) {
+        if (!outputObserved) {
+          markTerminalOutputUnreadUntilJump(record)
+        } else if (quiet) {
           scrollRecordToBottom(record)
-          if (!outputObserved) {
-            markTerminalOutputUnreadUntilJump(record)
-          }
         } else {
-          if (outputObserved) {
-            setFollowOutputState(record, true, false)
-          } else {
-            markTerminalOutputUnreadUntilJump(record)
-          }
+          setFollowOutputState(record, true, false)
         }
+      } else if (!outputObserved) {
+        markTerminalOutputUnreadUntilJump(record)
       } else {
         restoreUserScrollAfterWrite(record, previousViewportY, previousScrollbackLength)
         requestAnimationFrame(() => {
@@ -243,10 +240,9 @@ export function writeTerminalOutput(
           forceTerminalRender(record)
         })
       }
-      if (quiet && !shouldFollowOutput) {
+      if (outputObserved) {
         forceTerminalRender(record)
       }
-      forceTerminalRender(record)
       completeTerminalWrite(done, callback)
     })
   }, callback)

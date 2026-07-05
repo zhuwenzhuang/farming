@@ -24,7 +24,8 @@ function run() {
     'server should clear unread state when a client focuses an agent'
   );
   assert(
-    app.includes('ws.focusAgent(agentId)') &&
+    app.includes('if (activeTerminalId !== agentId)') &&
+      app.includes('ws.focusAgent(agentId)') &&
       workspace.includes('if (agent?.unread) onUpdateAgentFlags(agentId, { unread: false })'),
     'App should clear unread state over HTTP when opening an agent so refresh/reconnect windows do not keep stale unread dots'
   );

@@ -520,8 +520,13 @@ function run() {
       terminalAttachmentSource.includes('getTerminalSessionParkingLot().appendChild(record.hostEl)') &&
       terminalPoolSource.includes('const record = findSessionRecordForHost(candidate)') &&
       terminalPoolSource.includes('parkTerminalSessionRecord(record)') &&
+      terminalPoolSource.includes('function observeTerminalResize(record: SessionRecord)') &&
+      terminalPoolSource.includes('function pauseTerminalResizeObserver(record: SessionRecord)') &&
+      terminalPoolSource.includes('pauseTerminalResizeObserver(record)') &&
+      terminalPoolSource.includes('observeTerminalResize(record)') &&
+      !terminalPoolSource.includes('resizeObserver.observe(hostEl)') &&
       !terminalPoolSource.includes('function isolateSinglePaneTerminalMount(hostEl: HTMLDivElement, mountEl: HTMLElement) {\n  const terminalGrid = mountEl.closest(\'.code-terminal-grid.panes-1\')\n  if (!terminalGrid) return\n\n  terminalGrid.querySelectorAll(\'.terminal-session-host\').forEach(candidate => {\n    if (candidate === hostEl) return\n    if (!(candidate instanceof HTMLDivElement)) return\n    getTerminalSessionParkingLot().appendChild(candidate)'),
-    'parking a terminal host should update the SessionRecord attachment state, not only move DOM nodes'
+    'parking a terminal host should update attachment state and pause hidden layout observers, not only move DOM nodes'
   );
   assert(
     terminalPoolSource.includes('export function focusTerminalSession(agentId: string)') &&
@@ -539,6 +544,10 @@ function run() {
       terminalOutputSource.includes('export function writeTerminalOutput') &&
       terminalOutputSource.includes('restoreUserScrollAfterWrite(record, previousViewportY, previousScrollbackLength)') &&
       terminalOutputSource.includes('const outputObserved = options.isOutputObserved?.() ?? true') &&
+      terminalOutputSource.includes('} else if (!outputObserved) {') &&
+      terminalOutputSource.includes('if (outputObserved) {') &&
+      terminalOutputSource.includes('forceTerminalRender(record)') &&
+      !terminalOutputSource.includes('if (quiet && !shouldFollowOutput)') &&
       terminalPoolSource.includes('isOutputObserved: () => isTerminalSessionAttached(record)') &&
       terminalPoolSource.includes('preserveUnreadOutputUntilJump: boolean') &&
       terminalPoolSource.includes("from '@/lib/terminal-viewport'") &&

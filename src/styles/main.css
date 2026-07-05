@@ -5236,16 +5236,23 @@ body.code-mode .workspace-history-item.active {
 
 body.code-mode .workspace-path-suggestions {
   margin-top: -4px;
-  overflow: hidden;
+  padding: 4px;
+  max-height: min(42vh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 body.code-mode .workspace-path-suggestion {
   color: #24292f;
   background: transparent;
   border-color: transparent;
+  border-top-color: transparent;
+  border-radius: 6px;
   font-family: inherit;
   font-size: 13px;
   gap: 12px;
+  min-height: 36px;
+  padding: 7px 9px;
 }
 
 body.code-mode .workspace-path-suggestion:hover,
@@ -5263,6 +5270,19 @@ body.code-mode .workspace-path-suggestion-name {
 body.code-mode .workspace-path-suggestion-path {
   color: #6d736b;
   font-weight: 450;
+}
+
+body.code-mode .workspace-path-suggestions::-webkit-scrollbar {
+  width: 8px;
+}
+
+body.code-mode .workspace-path-suggestions::-webkit-scrollbar-thumb {
+  background: rgba(87, 96, 106, 0.22);
+  border-radius: 999px;
+}
+
+body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .main-content {
@@ -6143,6 +6163,9 @@ body.code-mode .workspace-path-suggestion-path {
   margin-top: -2px;
   border: 1px solid var(--theme-border-soft, #184d18);
   background: rgba(8, 16, 8, 0.94);
+  max-height: min(42vh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .workspace-path-suggestion {

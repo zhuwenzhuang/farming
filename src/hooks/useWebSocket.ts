@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Agent, SystemStats, TaskHistoryEntry } from '@/types/agent'
 import type { ClientMessage, InputMessage, ServerMessage, StartAgentMessage, TerminalInputPart, WorkspaceFileEventMessage } from '@/types/messages'
 import { appWsUrl } from '@/lib/base-path'
+import { isPageVisible, usePageVisibility } from '@/hooks/usePageVisibility'
 
 const LAST_MESSAGE_STATE_THROTTLE_MS = 1000
 
@@ -26,6 +27,7 @@ function isInternalMainWorkspace(cwd?: string, parentAgentId?: string) {
 
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
+  const pageVisible = usePageVisibility()
   const [state, setState] = useState<WebSocketState>({
     agents: [],
     taskHistory: [],
@@ -129,7 +131,17 @@ export function useWebSocket() {
 
   useEffect(() => {
     let reconnectTimer: ReturnType<typeof setTimeout>
+    let disposed = false
+    let activeSocket: WebSocket | null = null
     let lastMessageStateUpdateAt = 0
+
+    if (!pageVisible) {
+      const existingSocket = wsRef.current
+      wsRef.current = null
+      existingSocket?.close()
+      setState(prev => prev.connected ? { ...prev, connected: false, error: null } : prev)
+      return () => {}
+    }
 
     function markBackendMessage(receivedAt = Date.now()) {
       if (receivedAt - lastMessageStateUpdateAt < LAST_MESSAGE_STATE_THROTTLE_MS) return
@@ -138,6 +150,7 @@ export function useWebSocket() {
     }
 
     function connect() {
+      if (disposed || !isPageVisible()) return
       let wsUrl = appWsUrl()
       const queryToken = new URLSearchParams(location.search).get('token')
       // Attach token from cookie for mobile WS compatibility
@@ -147,9 +160,11 @@ export function useWebSocket() {
         wsUrl += `?token=${token}`
       }
       const ws = new WebSocket(wsUrl)
+      activeSocket = ws
       wsRef.current = ws
 
       ws.onopen = () => {
+        if (disposed || wsRef.current !== ws) return
         lastMessageStateUpdateAt = Date.now()
         setState(prev => ({
           ...prev,
@@ -167,6 +182,7 @@ export function useWebSocket() {
       }
 
       ws.onmessage = (event) => {
+        if (disposed || wsRef.current !== ws) return
         markBackendMessage()
         try {
           const msg = JSON.parse(event.data) as ServerMessage
@@ -238,6 +254,8 @@ export function useWebSocket() {
       }
 
       ws.onclose = (event) => {
+        if (disposed || wsRef.current !== ws) return
+        wsRef.current = null
         setState(prev => ({
           ...prev,
           connected: false,
@@ -255,10 +273,14 @@ export function useWebSocket() {
     connect()
 
     return () => {
+      disposed = true
       clearTimeout(reconnectTimer)
-      wsRef.current?.close()
+      if (wsRef.current === activeSocket) {
+        wsRef.current = null
+      }
+      activeSocket?.close()
     }
-  }, [])
+  }, [pageVisible])
 
   return {
     ...state,

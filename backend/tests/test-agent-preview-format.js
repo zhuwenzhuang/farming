@@ -38,6 +38,11 @@ const { importTsModule } = require('./helpers/import-ts-module');
     'decorated generic Claude terminal titles should not hide the original resumed chat title'
   );
   assert.strictEqual(
+    agentTitle({ command: 'codex', cwd: '/repo/sql-insight', sessionTitle: '⠙ mc_skills' }),
+    'mc_skills',
+    'Codex spinner-prefixed terminal titles should display the stable title text without a second activity glyph'
+  );
+  assert.strictEqual(
     agentTitle({ command: 'codex', cwd: '/repo/example-project', sessionTitle: 'example-project', task: 'Inspect example-project' }),
     'codex',
     'workspace directory titles should not become chat titles'

@@ -514,6 +514,9 @@ function run() {
       workspaceSource.includes('toggleContextMenuAgentSessionPinned') &&
       workspaceSource.includes('archiveContextMenuAgentSession') &&
       workspaceSource.includes('removeMainPageAgentSession') &&
+      workspaceSource.includes('syncRemovedMainPageSessionsFromAgentUpdate') &&
+      workspaceSource.includes('value.removedMainPageSessionKeys') &&
+      workspaceSource.includes('syncRemovedMainPageSessionsFromAgentUpdate(result)') &&
       workspaceSource.includes('addMainPageAgentSession(provider, sessionId)') &&
       workspaceSource.includes('function resumedAgentSource(provider: string, sessionId: string)') &&
       workspaceSource.includes('function resumedAgentSessionIdFromSource(source?: string)') &&

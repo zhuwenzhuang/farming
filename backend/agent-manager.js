@@ -66,6 +66,10 @@ function shouldRecoverEngineSession(metadata) {
   return !isShellProgram(metadata.forkCommand || metadata.command || '');
 }
 
+function recoveredEngineSessionId(entry, metadata = {}) {
+  return entry && (entry.sessionId || entry.agentId || metadata.agentId) || '';
+}
+
 function agentDisplayName(command) {
   const program = agentProgramName(command).toLowerCase();
   if (program === 'codex') return 'codex';
@@ -377,9 +381,12 @@ class AgentManager extends EventEmitter {
     for (const entry of recovered || []) {
       const metadata = entry.metadata || {};
       const state = entry.state || {};
-      const agentId = entry.agentId || metadata.agentId;
+      const agentId = recoveredEngineSessionId(entry, metadata);
       if (!agentId || this.agents.has(agentId)) continue;
-      if (!shouldRecoverEngineSession(metadata)) continue;
+      if (!shouldRecoverEngineSession(metadata)) {
+        await this.killRecoveredEngineSession(entry, metadata, agentId);
+        continue;
+      }
 
       const agentRecord = this.recoveredAgentRecord(agentId, entry.engineName || metadata.engineName || 'native', metadata, state);
       this.agents.set(agentId, agentRecord);
@@ -393,6 +400,16 @@ class AgentManager extends EventEmitter {
 
     if (changed) {
       this.emit('update');
+    }
+  }
+
+  async killRecoveredEngineSession(entry, metadata, agentId) {
+    if (!this.engineBridge || typeof this.engineBridge.killSession !== 'function') return;
+    const engineName = entry.engineName || metadata.engineName || 'native';
+    try {
+      await this.engineBridge.killSession(engineName, agentId);
+    } catch (error) {
+      console.warn('Failed to kill unrecovered engine session:', agentId, error && (error.message || error));
     }
   }
 
@@ -1382,18 +1399,18 @@ class AgentManager extends EventEmitter {
 
     const keysToRemove = new Set();
     agents.forEach(agent => {
-      const providerSessionKey = this.providerSessionKey(agent.providerSessionProvider, agent.providerSessionId);
+      const providerSessionKey = agent.providerSessionKey || this.providerSessionKey(agent.providerSessionProvider, agent.providerSessionId);
       if (providerSessionKey) keysToRemove.add(providerSessionKey);
     });
     if (keysToRemove.size === 0) return [];
 
     const settings = this.configManager.getSettings();
     const currentKeys = Array.isArray(settings.mainPageSessionKeys) ? settings.mainPageSessionKeys : [];
+    const removedKeys = currentKeys.filter(key => keysToRemove.has(key));
+    if (removedKeys.length === 0) return [];
     const nextKeys = currentKeys.filter(key => !keysToRemove.has(key));
-    if (nextKeys.length !== currentKeys.length) {
-      this.configManager.updateSettings({ mainPageSessionKeys: nextKeys });
-    }
-    return Array.from(keysToRemove);
+    this.configManager.updateSettings({ mainPageSessionKeys: nextKeys });
+    return removedKeys;
   }
 
   async deleteForkWorktreeProject(workspace, options = {}) {
@@ -1535,11 +1552,12 @@ class AgentManager extends EventEmitter {
       return { error: 'Main Agent cannot be archived' };
     }
 
+    const removedMainPageSessionKeys = this.removeMainPageProviderSessionsForAgents([agent]);
     await this.killAgent(agentId, {
       reason: 'manual-archive',
       recordHistory: !isEphemeralShellAgent(agent),
     });
-    return { agentId, archived: true, removed: true };
+    return { agentId, archived: true, removed: true, removedMainPageSessionKeys };
   }
   
   async killAgent(agentId, options = {}) {

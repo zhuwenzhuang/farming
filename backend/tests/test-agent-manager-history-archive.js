@@ -3,6 +3,12 @@ const AgentManager = require('../agent-manager');
 
 async function run() {
   const appended = [];
+  const settings = {
+    mainPageSessionKeys: [
+      'agent-session:codex:archive-session',
+      'agent-session:codex:other-session',
+    ],
+  };
   const manager = new AgentManager({
     getWorkspace() {
       return process.cwd();
@@ -18,6 +24,12 @@ async function run() {
     },
     getTaskHistory() {
       return [];
+    },
+    getSettings() {
+      return settings;
+    },
+    updateSettings(patch) {
+      Object.assign(settings, patch);
     },
     appendTaskHistory(entry) {
       appended.push(entry);
@@ -90,6 +102,9 @@ async function run() {
       status: 'running',
       engineName: 'local',
       source: 'codex-history:019f0000-0000-7000-8000-000000000001',
+      providerSessionProvider: 'codex',
+      providerSessionId: 'archive-session',
+      providerSessionKey: 'agent-session:codex:archive-session',
       customTitle: 'Named archive run',
       task: 'archive target',
     });
@@ -99,6 +114,31 @@ async function run() {
     assert.strictEqual(archived.error, undefined);
     assert.strictEqual(archived.archived, true);
     assert.strictEqual(archived.removed, true);
+    assert.deepStrictEqual(archived.removedMainPageSessionKeys, ['agent-session:codex:archive-session']);
+    assert.deepStrictEqual(
+      settings.mainPageSessionKeys,
+      ['agent-session:codex:other-session'],
+      'archiving a recoverable agent should remove its main-page membership so restart cannot resume it'
+    );
+    settings.mainPageSessionKeys = [
+      'agent-session:claude:key-only-session',
+      ...settings.mainPageSessionKeys,
+    ];
+    assert.deepStrictEqual(
+      manager.removeMainPageProviderSessionsForAgents([
+        { providerSessionKey: 'agent-session:claude:key-only-session' },
+      ]),
+      ['agent-session:claude:key-only-session'],
+      'archive cleanup should also understand legacy agents that only carry providerSessionKey'
+    );
+    assert.deepStrictEqual(
+      manager.removeMainPageProviderSessionsForAgents([
+        { providerSessionKey: 'agent-session:claude:not-present' },
+      ]),
+      [],
+      'archive cleanup should only report session keys that were actually removed from settings'
+    );
+    assert.deepStrictEqual(settings.mainPageSessionKeys, ['agent-session:codex:other-session']);
     assert.strictEqual(manager.agents.has('sub-archive'), false, 'archived live agents should leave live state');
     assert.strictEqual(manager.taskHistory.length, 3, 'archive should create a history run');
     assert.strictEqual(manager.taskHistory[0].reason, 'manual-archive');

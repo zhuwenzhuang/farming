@@ -1,9 +1,10 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { usePageVisibility } from '@/hooks/usePageVisibility'
 import { useAgents } from '@/hooks/useAgents'
 import { useKeyboard, type Shortcut } from '@/hooks/useKeyboard'
 import { InputDialog } from '@/components/InputDialog'
-import { CodeWorkspace, type DeleteForkWorktreeProjectResult, type WorkspaceView } from '@/components/CodeWorkspace'
+import { CodeWorkspace, type AgentFlagUpdateResult, type DeleteForkWorktreeProjectResult, type WorkspaceView } from '@/components/CodeWorkspace'
 import { codeCopyForLanguage } from '@/components/code/copy'
 import { applyThemeAppearance, type ThemeRuntimeSettings } from '@/lib/theme'
 import {
@@ -70,6 +71,7 @@ function hasBlockingOverlay() {
 
 export function App() {
   const ws = useWebSocket()
+  const pageVisible = usePageVisibility()
   const { keyMap } = useAgents(ws.agents, ws.mainAgentId)
 
   const [dialog, setDialog] = useState<DialogState>('none')
@@ -117,9 +119,10 @@ export function App() {
         : ''
 
   useEffect(() => {
+    if (!pageVisible) return undefined
     const timer = window.setInterval(() => setConnectionCheckNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [pageVisible])
 
   const updateUiPreferences = useCallback((patch: Partial<UiPreferences>) => {
     const nextPreferences = {
@@ -230,7 +233,9 @@ export function App() {
   }, [])
 
   const openTerminal = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
-    ws.focusAgent(agentId)
+    if (activeTerminalId !== agentId) {
+      ws.focusAgent(agentId)
+    }
     setOpenTerminalIds(ids => ids.includes(agentId) ? ids : [...ids, agentId])
     setActiveTerminalId(agentId)
     setActiveWorkspaceView('projects')
@@ -241,7 +246,7 @@ export function App() {
       }))
     }
     setDialog('none')
-  }, [ws])
+  }, [activeTerminalId, ws])
 
   const closeTerminal = useCallback((agentId: string) => {
     const openIds = openTerminalIdsRef.current
@@ -424,7 +429,7 @@ export function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(flags),
       })
-      const data = await response.json().catch(() => null) as { error?: string } | null
+      const data = await response.json().catch(() => null) as AgentFlagUpdateResult | null
       if (!response.ok) {
         notifyError(data?.error || `Failed to update agent (${response.status})`)
         return false
@@ -432,7 +437,7 @@ export function App() {
       if (flags.archived === true) {
         closeTerminal(agentId)
       }
-      return true
+      return data ?? true
     } catch (error) {
       notifyError(error instanceof Error ? error.message : 'Failed to update agent')
       return false
@@ -453,6 +458,7 @@ export function App() {
   )
 
   useEffect(() => {
+    if (!pageVisible) return undefined
     if (!canReadCodexContextWindow(activeTerminalAgent)) return undefined
 
     const activeAgentId = activeTerminalAgent.id
@@ -471,6 +477,7 @@ export function App() {
     activeTerminalAgent?.providerSessionId,
     activeTerminalAgent?.providerSessionProvider,
     activeTerminalAgent?.providerSessionTemporary,
+    pageVisible,
     refreshAgentContextWindows,
   ])
 
@@ -535,6 +542,7 @@ export function App() {
   }, [appNotice])
 
   useEffect(() => {
+    if (!pageVisible) return undefined
     let cancelled = false
     let timer: number | undefined
     let firstLoadTimer: number | undefined
@@ -558,7 +566,7 @@ export function App() {
       if (firstLoadTimer !== undefined) window.clearTimeout(firstLoadTimer)
       if (timer !== undefined) window.clearInterval(timer)
     }
-  }, [])
+  }, [pageVisible])
 
   // Clean up pooled terminal instances for agents that no longer exist
   useEffect(() => {

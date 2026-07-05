@@ -27,6 +27,8 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
   zsh: 'zsh',
 }
 
+const TITLE_STATUS_PREFIX_PATTERN = /^[\s*＊✳✱✲✶·•\u2800-\u28FF]+/u
+
 function commandProgram(command: string) {
   return command.split(' ')[0] ?? command
 }
@@ -69,6 +71,10 @@ function truncatePreviewLine(line: string) {
 function truncateTitle(title: string) {
   if (title.length <= 28) return title
   return `${title.slice(0, 27)}…`
+}
+
+function stripTitleStatusPrefix(title: string) {
+  return title.replace(TITLE_STATUS_PREFIX_PATTERN, '').trim()
 }
 
 function titleComparisonKey(title: string) {
@@ -186,7 +192,7 @@ function meaningfulSessionTitle(
   if (genericTitles.has(normalizedTitle)) return ''
   if (workspaceBasenames(agent).includes(normalizedTitle)) return ''
 
-  return truncateTitle(title)
+  return truncateTitle(stripTitleStatusPrefix(title) || title)
 }
 
 /** Prefer a user rename, then the agent-updated session title, then a simple agent kind. */

@@ -207,7 +207,7 @@ async function listWorkspacePathCompletions(partialPath, limit = 12) {
   const query = normalizeWorkspaceCompletionInput(partialPath);
   const entries = await fs.promises.readdir(query.parent, { withFileTypes: true });
   const normalizedPrefix = query.prefix.toLowerCase();
-  const maxResults = Math.max(1, Math.min(Number(limit) || 12, 30));
+  const maxResults = Math.max(1, Math.min(Number(limit) || 12, 100));
 
   return entries
     .filter(entry => entry.isDirectory())

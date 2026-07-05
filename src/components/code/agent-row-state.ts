@@ -21,6 +21,7 @@ export interface AgentRowDisplayState {
   scheduled: boolean
   scheduleTitle: string
   ageLabel: string
+  ageVisible: boolean
   ageTitle?: string
 }
 
@@ -49,6 +50,7 @@ function agentRowStateFromAgent(agent: Agent, now: number): AgentRowDisplayState
   const ageTimestamp = agent.lastActivity ?? agent.startedAt
   const terminalState = inferAgentTerminalState(agent)
   const turnActive = terminalState.turnActive
+  const ageLabel = formatRelativeAge(ageTimestamp, now)
   return {
     kind: 'agent',
     title: agentTitle(agent),
@@ -61,7 +63,8 @@ function agentRowStateFromAgent(agent: Agent, now: number): AgentRowDisplayState
     requiresResume: false,
     scheduled: false,
     scheduleTitle: '',
-    ageLabel: formatRelativeAge(ageTimestamp, now),
+    ageLabel,
+    ageVisible: !turnActive && Boolean(ageLabel),
     ageTitle: timestampTitle(ageTimestamp),
   }
 }
@@ -73,6 +76,7 @@ function agentRowStateFromHistory(
 ): AgentRowDisplayState {
   const updatedAt = agentSessionUpdatedAt(session)
   const scheduleTitle = session.schedule?.label || session.schedule?.name || session.schedule?.rrule || ''
+  const ageLabel = formatRelativeAge(updatedAt, now)
 
   return {
     kind: 'history',
@@ -85,7 +89,8 @@ function agentRowStateFromHistory(
     requiresResume: true,
     scheduled: Boolean(session.schedule),
     scheduleTitle,
-    ageLabel: formatRelativeAge(updatedAt, now),
+    ageLabel,
+    ageVisible: Boolean(ageLabel),
     ageTitle: session.updatedAt ? new Date(session.updatedAt).toLocaleString() : undefined,
   }
 }

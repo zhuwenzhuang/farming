@@ -1308,9 +1308,11 @@ function AgentRow({
           />
         )}
         {rowState.unread && <span className="code-agent-unread" title={copy.unread} />}
-        <span className="code-agent-age" title={rowState.ageTitle}>
-          {rowState.ageLabel}
-        </span>
+        {rowState.ageVisible && (
+          <span className="code-agent-age" title={rowState.ageTitle}>
+            {rowState.ageLabel}
+          </span>
+        )}
         {agent && (
           <span className="code-agent-row-actions" aria-hidden={false}>
             <button

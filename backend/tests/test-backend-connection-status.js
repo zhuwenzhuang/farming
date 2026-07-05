@@ -8,7 +8,9 @@ function read(relativePath) {
 
 function run() {
   const appSource = read('src/App.tsx');
+  const codeWorkspaceSource = read('src/components/CodeWorkspace.tsx');
   const webSocketSource = read('src/hooks/useWebSocket.ts');
+  const pageVisibilitySource = read('src/hooks/usePageVisibility.ts');
   const copySource = read('src/components/code/copy.ts');
   const stylesSource = read('src/styles/main.css');
 
@@ -22,6 +24,33 @@ function run() {
       webSocketSource.includes('event.code === 4001') &&
       webSocketSource.includes('Farming token expired or is invalid'),
     'WebSocket state should expose whether the backend was ever connected and when the last backend message arrived'
+  );
+
+  assert(
+    pageVisibilitySource.includes("document.addEventListener('visibilitychange', updateVisibility)") &&
+      pageVisibilitySource.includes("window.addEventListener('pagehide', updateVisibility)") &&
+      pageVisibilitySource.includes("window.addEventListener('pageshow', updateVisibility)") &&
+      webSocketSource.includes('usePageVisibility') &&
+      webSocketSource.includes('if (!pageVisible)') &&
+      webSocketSource.includes('let disposed = false') &&
+      webSocketSource.includes('if (disposed || wsRef.current !== ws) return'),
+    'WebSocket hook should disconnect hidden pages and guard cleanup-triggered reconnects'
+  );
+
+  assert(
+    appSource.includes('const pageVisible = usePageVisibility()') &&
+      appSource.includes('if (!pageVisible) return undefined') &&
+      appSource.includes('CONTEXT_WINDOW_REFRESH_MS') &&
+      appSource.includes("fetch(appPath('/api/usage'))"),
+    'App should pause visible-only polling such as heartbeat display, context windows, and usage while the page is hidden'
+  );
+
+  assert(
+    codeWorkspaceSource.includes('const pageVisible = usePageVisibility()') &&
+      codeWorkspaceSource.includes('if (!pageVisible) return undefined') &&
+      codeWorkspaceSource.includes('window.setInterval(refreshAgentSessions, 5_000)') &&
+      codeWorkspaceSource.includes('window.setInterval(() => setNow(Date.now()), 60_000)'),
+    'Code workspace should pause session-id polling and relative-time ticks while the page is hidden'
   );
 
   assert(

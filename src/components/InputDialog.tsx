@@ -135,6 +135,7 @@ export function InputDialog({
   const [startClickLocked, setStartClickLocked] = useState(false)
   const dialogRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const workspacePathSuggestionsRef = useRef<HTMLDivElement>(null)
   const workspaceTouchedRef = useRef(false)
   const startClickLockedRef = useRef(false)
   const startClickUnlockTimerRef = useRef<number | null>(null)
@@ -352,7 +353,7 @@ export function InputDialog({
     const timer = window.setTimeout(() => {
       const params = new URLSearchParams({
         path: value,
-        limit: '8',
+        limit: '50',
       })
       fetch(appPath(`/api/workspaces/complete?${params.toString()}`), { signal: controller.signal })
         .then(response => response.json())
@@ -374,6 +375,14 @@ export function InputDialog({
       controller.abort()
     }
   }, [open, step, workspace])
+
+  useEffect(() => {
+    if (workspacePathSelection < 0) return
+    const container = workspacePathSuggestionsRef.current
+    if (!container) return
+    const activeItem = container.querySelector<HTMLElement>('[aria-selected="true"]')
+    activeItem?.scrollIntoView({ block: 'nearest' })
+  }, [workspacePathSelection, workspacePathSuggestions.length])
 
   const resumeStartOptions = useCallback((agent: CliAgent): StartAgentOptions | undefined => {
     if (!mustStartMain || !resumeMainAgent || !resumableMainAgentSession) return undefined
@@ -792,6 +801,7 @@ export function InputDialog({
             />
             {workspacePathSuggestions.length > 0 && (
               <div
+                ref={workspacePathSuggestionsRef}
                 className="workspace-path-suggestions fx-crt-panel"
                 data-testid="workspace-path-suggestions"
                 role="listbox"
