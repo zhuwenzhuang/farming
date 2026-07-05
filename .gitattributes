@@ -1,2 +1,7 @@
 package-lock.json export-ignore
 frontend/vendor/ghostty-web/** export-ignore
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary

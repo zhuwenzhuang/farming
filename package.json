@@ -12,7 +12,6 @@
     "config/*.example",
     "dist/",
     "docs/products/code/",
-    "docs/products/hive/",
     "frontend/vendor/ghostty-web/",
     "scripts/compute-node-heap-mb.sh",
     "scripts/install-release.sh",

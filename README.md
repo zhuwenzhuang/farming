@@ -40,7 +40,7 @@ Farming 2 turns the project into a remote coding workbench:
 - view lightweight usage and CPU/MEM state;
 - access the same remote service from desktop and mobile browsers.
 
-Screenshots, install details, and product notes are in [Farming 2 product guide](./docs/products/code/README.md). The Gas City-inspired managed-task skin concept is in [Farming Hive](./docs/products/hive/README.md).
+Screenshots, install details, and product notes are in [Farming 2 product guide](./docs/products/code/README.md).
 
 ## Quick Start
 
@@ -221,7 +221,6 @@ farming/
 ├── src/                     # React + Vite frontend; Farming Code helpers live under src/components/code/
 ├── docs/products/code/      # Farming Code product docs and screenshots
 ├── docs/products/crt/       # CRT skin layout docs
-├── docs/products/hive/      # Gas City-inspired managed-task skin concept
 ├── config/                  # deployment / install templates
 ├── scripts/                 # release, deployment, screenshots, tests
 ├── tests/e2e/               # Playwright browser flows

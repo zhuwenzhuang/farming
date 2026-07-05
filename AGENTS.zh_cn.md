@@ -195,7 +195,6 @@ farming/
 │   │   │   ├── mobile_layout.zh_cn.md  # CRT 中文手机端布局说明
 │   │   │   ├── pc_layout.md            # CRT 英文桌面端布局说明
 │   │   │   └── pc_layout.zh_cn.md      # CRT 中文桌面端布局说明
-│   │   └── hive/          # Gas City 风格托管任务皮肤概念设计
 ├── package.json           # Node.js 依赖配置
 ├── package-lock.json      # 依赖版本锁定
 ├── pkg.config.cjs         # 平台 CLI 应用打包配置（@yao-pkg/pkg + legacy pkg）
@@ -1118,7 +1117,6 @@ A:
 - 项目仓库：按实际发布渠道配置
 - 产品介绍：[docs/products/code/README.md](./docs/products/code/README.md)
 - CRT 皮肤文档：[docs/products/crt/README.md](./docs/products/crt/README.md)
-- Hive 托管任务皮肤概念：[docs/products/hive/README.zh_cn.md](./docs/products/hive/README.zh_cn.md)
 
 ---
 

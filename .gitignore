@@ -17,6 +17,7 @@ dist/
 dist-release/
 releases/
 reference/
+docs/products/hive/
 .farming/
 .tmp/
 tmp/
