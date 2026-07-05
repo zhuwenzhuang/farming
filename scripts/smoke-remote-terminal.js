@@ -27,9 +27,22 @@ async function main() {
     await page.waitForSelector('[data-testid="app-shell"]', { timeout: 20_000 });
     await page.waitForSelector('[data-testid="code-agent-row"]', { timeout: 20_000 });
 
-    const state = await page.evaluate(async () => {
-      const row = document.querySelector('[data-testid="code-agent-row"]');
-      const rowAgentId = row?.getAttribute('data-agent-id') || '';
+    const row = page.locator('[data-testid="code-agent-row"]').first();
+    const targetAgentId = await row.getAttribute('data-agent-id');
+    assert(targetAgentId, 'first visible agent row has no data-agent-id');
+    await row.click();
+    await page.waitForFunction((agentId) => {
+      const activeRow = document.querySelector('[data-testid="code-agent-row"].active');
+      return activeRow?.getAttribute('data-agent-id') === agentId;
+    }, targetAgentId, { timeout: 20_000 });
+    await page.waitForFunction((agentId) => {
+      const pane = document.querySelector(`[data-testid="code-terminal-pane"][data-agent-id="${CSS.escape(agentId)}"]`);
+      return Boolean(pane?.querySelector(`.terminal-session-host[data-agent-id="${CSS.escape(agentId)}"] .xterm`));
+    }, targetAgentId, { timeout: 20_000 });
+
+    const state = await page.evaluate(async (targetAgentId) => {
+      const row = document.querySelector(`[data-testid="code-agent-row"][data-agent-id="${CSS.escape(targetAgentId)}"]`);
+      const rowAgentId = targetAgentId || row?.getAttribute('data-agent-id') || '';
       const pane = rowAgentId
         ? document.querySelector(`[data-testid="code-terminal-pane"][data-agent-id="${CSS.escape(rowAgentId)}"]`)
         : null;
@@ -59,7 +72,7 @@ async function main() {
         bodyText: document.body?.innerText?.slice(0, 500) || '',
         sessionView,
       };
-    });
+    }, targetAgentId);
 
     assert(state.bodyLength > 0, 'page body is empty');
     assert(state.hasCodeShell, 'Farming Code shell is not mounted');

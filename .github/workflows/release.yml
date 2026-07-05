@@ -168,6 +168,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify release notes
+        id: notes
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          notes_file="release-notes/v${RELEASE_VERSION}.md"
+          if [[ ! -f "${notes_file}" ]]; then
+            echo "Missing release notes: ${notes_file}" >&2
+            exit 1
+          fi
+          echo "file=${notes_file}" >> "${GITHUB_OUTPUT}"
+
       - name: Download release assets
         uses: actions/download-artifact@v4
         with:
@@ -238,6 +251,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          RELEASE_NOTES_FILE: ${{ steps.notes.outputs.file }}
         shell: bash
         run: |
           release_args=(--repo "${GITHUB_REPOSITORY}")
@@ -246,12 +260,13 @@ jobs:
             release-assets/*
             --verify-tag
             --title "Farming ${RELEASE_VERSION}"
-            --notes "Stable Farming ${RELEASE_VERSION} release. Download the platform artifact that matches your machine, or use the app bundle tarball on older Linux hosts."
+            --notes-file "${RELEASE_NOTES_FILE}"
           )
           if [[ "${RELEASE_VERSION}" == *-* ]]; then
             create_args+=(--prerelease)
           fi
           if gh release view "${RELEASE_TAG}" "${release_args[@]}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" "${release_args[@]}" --title "Farming ${RELEASE_VERSION}" --notes-file "${RELEASE_NOTES_FILE}"
             gh release upload "${RELEASE_TAG}" "${release_args[@]}" release-assets/* --clobber
           else
             gh release create "${create_args[@]}" "${release_args[@]}"

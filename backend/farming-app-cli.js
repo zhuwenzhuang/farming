@@ -12,6 +12,7 @@ const SERVER_MODE_ENV = 'FARMING_RUN_SERVER';
 const NATIVE_PTY_HOST_ARG = '--native-pty-host';
 const DEFAULT_PORT = '6694';
 const DEFAULT_BASE_PATH = '/farming';
+const DEFAULT_SERVER_START_TIMEOUT_MS = 30_000;
 const SERVER_COMMANDS = new Set(['start', 'serve', 'daemon', 'stop', 'status', 'logs', 'url', 'help']);
 const CONTROL_COMMANDS = new Set(['skills', 'memory', 'report', 'list', 'spawn', 'output', 'send', 'kill']);
 const SERVER_BACKED_CONTROL_COMMANDS = new Set(['list', 'spawn', 'output', 'send', 'kill']);
@@ -386,7 +387,13 @@ function readTokenForEnv(env) {
   }
 }
 
-function waitForServer(env, timeoutMs = 10_000, childPid = 0) {
+function serverStartTimeoutMs(env) {
+  const parsed = Number(env.FARMING_START_TIMEOUT_MS || env.FARMING_SERVER_START_TIMEOUT_MS);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  return DEFAULT_SERVER_START_TIMEOUT_MS;
+}
+
+function waitForServer(env, timeoutMs = serverStartTimeoutMs(env), childPid = 0) {
   const startedAt = Date.now();
   const port = Number(env.PORT || DEFAULT_PORT);
   const authDisabled = ['1', 'true', 'yes', 'on'].includes(String(env.FARMING_DISABLE_AUTH || '').toLowerCase());
@@ -513,7 +520,7 @@ async function startDaemon(parsed) {
   fs.writeFileSync(pidFile(configDir), String(child.pid));
 
   try {
-    await waitForServer(env, 10_000, child.pid);
+    await waitForServer(env, serverStartTimeoutMs(env), child.pid);
   } catch (error) {
     console.error(error.message);
     const logs = tailFile(logFile(configDir), 80);
@@ -662,6 +669,7 @@ module.exports = {
   findAvailablePort,
   parseServerArgs,
   readServerState,
+  serverStartTimeoutMs,
   splitControlArgs,
   run,
   serverStateFile,

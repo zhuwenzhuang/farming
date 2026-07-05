@@ -8,6 +8,7 @@ const {
   buildControlEnv,
   buildServerEnv,
   parseServerArgs,
+  serverStartTimeoutMs,
   serverStateFile,
   splitControlArgs,
 } = require('../farming-app-cli');
@@ -58,6 +59,13 @@ async function runTests() {
     assert.strictEqual(env.FARMING_CONFIG_DIR, '/tmp/farming-default-config');
     assert.strictEqual(env.FARMING_PACKAGED_RUNTIME, undefined);
     assert(!String(env.NODE_OPTIONS || '').includes('--max-old-space-size'));
+  }
+
+  {
+    assert.strictEqual(serverStartTimeoutMs({}), 30_000);
+    assert.strictEqual(serverStartTimeoutMs({ FARMING_START_TIMEOUT_MS: '45000' }), 45_000);
+    assert.strictEqual(serverStartTimeoutMs({ FARMING_SERVER_START_TIMEOUT_MS: '12000' }), 12_000);
+    assert.strictEqual(serverStartTimeoutMs({ FARMING_START_TIMEOUT_MS: 'nope' }), 30_000);
   }
 
   {

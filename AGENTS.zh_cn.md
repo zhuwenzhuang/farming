@@ -590,6 +590,22 @@ farming/
 - release 远程安装可在 `config/farming.deploy.env` 用 `FARMING_REMOTE_CONFIG_DIR`、`FARMING_REMOTE_SERVER_HOME` 隔离配置目录和 Codex / Claude 历史扫描，适合产品截图、测试实例和多实例部署
 - app bundle 本地安装脚本 `scripts/install-release.sh` 支持 `install/start/daemon/serve/stop/status/logs`，默认读取 `config/farming.install.env`（可从 `config/farming.install.env.example` 复制），通过 `FARMING_INSTALL_DIR`、`FARMING_PORT`、`FARMING_BASE_PATH`、`FARMING_CONFIG_DIR`、`FARMING_SERVER_HOME`、`FARMING_UPDATE_MANIFEST_URL`、`FARMING_UPDATE_ASSET_BASE_URL`、`FARMING_UPDATE_AUTH_TOKEN`、`FARMING_USE_GLIBC`、`FARMING_GLIBC_ROOT`、`FARMING_NODE_MAX_OLD_SPACE_SIZE` 控制目标目录、端口、base path、配置目录、server HOME、应用内升级源、glibc 兼容模式和 server heap 策略；未显式设置 `FARMING_GLIBC_ROOT` 时会优先复用安装目录同级的 `glibc228/`
 
+**公开版本发布前门禁：**
+
+- 从干净 worktree 开始。创建新 release tag 前必须同时更新 `package.json` 和 `package-lock.json` 版本号；不得移动或复用已有 `vX.Y.Z` tag。
+- 先跑快速源码检查：`npm test`、`npm run typecheck`、`npm run lint` 和 `FARMING_BASE_PATH=/farming npm run build`。
+- 对本次改动涉及的 UI 面跑聚焦 Playwright；迭代中优先小而快的浏览器检查，只有变更面足够大时再扩大验证。
+- 为发布新增或更新 `release-notes/vX.Y.Z.md`。package 版本号、Git tag 和 release note 文件名必须严格一致；GitHub Release 正文应来自这个文件，而不是 workflow 里的泛化内联文案。
+- push GitHub 前必须扫描完整待推送 diff，检查 secret、私网 host、token、个人机器路径、公司内部环境名、内部供应商/工具名。公开 release note 和文档不得出现私有部署机器或本地安全工具名称；这些信息只能留在已忽略的本地文件或私有交接说明中。
+- 在本机 Mac 浏览器做类人 smoke：创建和切换 Codex / Claude / shell agent，通过 terminal 和 composer 输入，验证中文输入法、终端选择/复制、文件/路径链接点击、pin/unpin、archive、刷新/重连，以及明显 CPU/内存表现。
+- 对 macOS release 产物，明确记录二进制是 ad-hoc 签名、Developer ID 签名还是已 notarize。未 notarize 时，必须验证并写清首次运行的安全允许行为，不能把手动允许后的 smoke 当成干净的首次运行体验。
+- 在已配置的远程 Linux dogfood 环境用 token auth 做类人 smoke：agent 创建、terminal 输入输出、刷新/重连、archive 清理、native pty host 恢复、进程数量清理。
+- 确认远程 Linux 只剩预期的 Farming service/listener，不得残留旧 Farming server、native pty host、bash、zsh、Codex、Claude 进程。
+- release 产物必须通过仓库 release 脚本或 GitHub release workflow 构建，不得提交生成出来的 bundle。
+- 守住打包依赖：凡是改到打包相关文件时，必须和上一版 package contents 或 manifest 对比，避免用户升级后缺 production dependency、native asset、runtime file 或 install script。
+- 对构建出的 CLI/app bundle 产物跑 smoke；不能只验证源码 checkout。
+- 先 push release commit，再 push 新 `vX.Y.Z` tag；随后观察 GitHub Release workflow，确认 Linux/macOS 产物、checksum、manifest，以及使用 `release-notes/vX.Y.Z.md` 的 GitHub Release 页面都生成后，才算发布完成。
+
 ### 配置项说明
 
 **全局配置（settings.json）：**

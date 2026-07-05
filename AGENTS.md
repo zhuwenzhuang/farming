@@ -202,6 +202,22 @@ npm run release:cli:all
 npm run release:app
 ```
 
+Pre-release gate for public versions:
+
+- Start from a clean worktree. Bump `package.json` and `package-lock.json` before creating a new release tag; never move or reuse an existing `vX.Y.Z` tag.
+- Run the fast source checks first: `npm test`, `npm run typecheck`, `npm run lint`, and `FARMING_BASE_PATH=/farming npm run build`.
+- Run focused Playwright specs for changed UI surfaces. Prefer small, targeted browser checks during iteration, then broaden only when the changed surface warrants it.
+- Add or update `release-notes/vX.Y.Z.md` for the release. The package version, Git tag, and release note filename must match exactly, and the GitHub Release body should come from that file rather than a generic inline note.
+- Before pushing to GitHub, scan the full outgoing diff for secrets, private hosts, tokens, personal machine paths, company-internal environment names, and internal vendor/tool names. Public release notes and docs must not mention private deployment hosts or local security tooling names; keep those details in local-only ignored files or private handoff notes.
+- Do a human-like smoke on the local Mac browser: create and switch Codex / Claude / shell agents, type through the terminal and composer, verify Chinese IME, select/copy terminal text, click file/path links, pin/unpin, archive, refresh/reconnect, and watch obvious CPU/memory behavior.
+- For macOS release artifacts, explicitly record whether the binary is ad-hoc signed, Developer ID signed, or notarized. If it is not notarized, verify and document the first-run security allow behavior instead of treating a manually allowed smoke as a clean first-run experience.
+- Do a human-like smoke on the configured remote Linux dogfood environment with token auth: agent creation, terminal input/output, refresh/reconnect, archive cleanup, native pty host recovery, and process-count cleanup.
+- Verify the remote Linux instance has only the intended Farming service/listener and no leaked old Farming server, native pty host, bash, zsh, Codex, or Claude processes from previous deploys.
+- Build release artifacts through the repo release scripts or GitHub release workflow, not by committing generated bundles.
+- Guard packaged dependencies: when packaging-related files change, compare package contents or manifests against the previous release so an update cannot accidentally drop required production dependencies, native assets, runtime files, or install scripts.
+- Smoke-test the built CLI/app bundle artifacts, not only the source checkout.
+- Push the release commit first, then push the new `vX.Y.Z` tag. Watch the GitHub Release workflow and confirm Linux/macOS artifacts, checksums, manifest, and the GitHub Release page using `release-notes/vX.Y.Z.md` exist before calling the release done.
+
 ## Testing Expectations
 
 - Backend tests live in `backend/tests/`.
