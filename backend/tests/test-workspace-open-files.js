@@ -66,6 +66,17 @@ function run() {
   assert.deepStrictEqual(replaceOpenWorkspaceFile([one], two), [one, two]);
   assert.deepStrictEqual(replaceOpenWorkspaceFile([one, two], { ...one, draft: 'new' }), [{ ...one, draft: 'new' }, two]);
 
+  const sharedOne = openFile('agent-1', 'src/App.tsx', { workspaceRoot: '/repo' });
+  const sharedTwo = openFile('agent-2', 'src/App.tsx', { workspaceRoot: '/repo' });
+  const otherWorkspace = openFile('agent-2', 'src/App.tsx', { workspaceRoot: '/other' });
+  assert.strictEqual(isSameOpenWorkspaceFile(sharedOne, 'agent-2', 'src/App.tsx', '/repo'), true);
+  assert.strictEqual(isSameOpenWorkspaceFile(sharedOne, 'agent-2', 'src/App.tsx', '/other'), false);
+  assert.strictEqual(findOpenWorkspaceFile([sharedOne], 'agent-2', 'src/App.tsx', '/repo'), sharedOne);
+  assert.deepStrictEqual(replaceOpenWorkspaceFile([sharedOne], sharedTwo), [sharedTwo]);
+  assert.deepStrictEqual(replaceOpenWorkspaceFile([sharedOne], otherWorkspace), [sharedOne, otherWorkspace]);
+  assert.strictEqual(findOpenWorkspaceFile([one], 'agent-1', 'src/App.tsx', '/repo'), one);
+  assert.deepStrictEqual(replaceOpenWorkspaceFile([one], { ...one, workspaceRoot: '/repo', draft: 'rooted' }), [{ ...one, workspaceRoot: '/repo', draft: 'rooted' }]);
+
   assert.deepStrictEqual(workspaceFileCursorForTarget({ lineNumber: 3, column: 2, endColumn: 5 }, 8), {
     lineNumber: 3,
     column: 2,
@@ -98,6 +109,37 @@ function run() {
   assert.strictEqual(opened.activeFile.file.path, 'src/App.tsx');
   assert.strictEqual(opened.activeFile.draft, 'server');
   assert.strictEqual(opened.files.length, 1);
+
+  const deduped = openWorkspaceFileFromRead(openWorkspaceFileFromRead(state(), 'agent-1', workspaceFile('src/App.tsx', 'one', 'sha-1'), {
+    workspaceRoot: '/repo',
+    sourceAgentId: 'agent-1',
+  }), 'agent-2', workspaceFile('src/App.tsx', 'two', 'sha-2'), {
+    workspaceRoot: '/repo',
+    sourceAgentId: 'agent-2',
+  });
+  assert.strictEqual(deduped.files.length, 1);
+  assert.strictEqual(deduped.activeFile.agentId, 'agent-2');
+  assert.strictEqual(deduped.activeFile.sourceAgentId, 'agent-2');
+  assert.strictEqual(deduped.activeFile.workspaceRoot, '/repo');
+  assert.strictEqual(deduped.activeFile.draft, 'two');
+
+  const separateWorkspaces = openWorkspaceFileFromRead(deduped, 'agent-3', workspaceFile('src/App.tsx', 'three', 'sha-3'), {
+    workspaceRoot: '/other',
+  });
+  assert.strictEqual(separateWorkspaces.files.length, 2);
+
+  const firstTransient = openWorkspaceFileFromRead(state(), 'agent-1', workspaceFile('src/One.tsx', 'one'), {
+    workspaceRoot: '/repo',
+    transient: true,
+  });
+  assert.strictEqual(firstTransient.activeFile.transient, true);
+  const secondTransient = openWorkspaceFileFromRead(firstTransient, 'agent-1', workspaceFile('src/Two.tsx', 'two'), {
+    workspaceRoot: '/repo',
+    transient: true,
+  });
+  assert.deepStrictEqual(secondTransient.files.map(file => file.file.path), ['src/Two.tsx']);
+  const pinnedTransient = updateWorkspaceOpenFileDraft(secondTransient.activeFile, 'changed');
+  assert.strictEqual(pinnedTransient.transient, false);
 
   const cachedDirty = openFile('agent-1', 'src/Dirty.tsx', {
     draft: 'local edit',

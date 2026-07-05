@@ -8,7 +8,7 @@ import {
   workspaceBlameAuthorProfileUrl,
   workspaceEditorTabDomId as fileEditorTabDomId,
 } from '@/lib/workspace-editor-model'
-import type { OpenWorkspaceFile, WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
+import type { OpenWorkspaceFile, WorkspaceFileOpenTarget, WorkspaceOpenFileTarget } from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
 import type { CodeCopy } from '../code/copy'
 import { FileEditorHeader } from './FileEditorHeader'
@@ -32,8 +32,8 @@ interface FileEditorPaneProps {
   onChangeDraft: (draft: string) => void
   onUpdateOpenFile: (nextFile: OpenWorkspaceFile) => void
   onSelectOpenFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
-  onCloseOpenFile: (agentId: string, filePath: string) => void
-  onCloseOpenFiles: (targets: Array<{ agentId: string; filePath: string }>) => void
+  onCloseOpenFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
+  onCloseOpenFiles: (targets: WorkspaceOpenFileTarget[]) => void
   onRevealInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
   onFocusFilesSearch: (agentId: string) => void
   onRecordNavigationCursor?: (input: WorkspaceNavigationFileInput) => void

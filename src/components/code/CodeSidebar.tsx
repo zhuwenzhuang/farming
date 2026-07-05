@@ -8,6 +8,7 @@ import type { Agent, SystemStats, UsageProviderSummary, UsageSummary } from '@/t
 import type { WorkspaceFileDeleteResult, WorkspaceFileMove } from '@/lib/workspace-files'
 import { appPath } from '@/lib/base-path'
 import { agentTitle, formatRelativeAge } from '@/lib/format'
+import { workspaceOpenFileKey } from '@/lib/workspace-open-files'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import {
   agentRowKey,
@@ -97,10 +98,6 @@ interface CodeSidebarProps {
   openWorkspaceFiles: OpenWorkspaceFile[]
   fileRevealRequest: { agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null
   fileSearchFocusRequest: { agentId: string; requestId: number; query?: string } | null
-  editorFileStateByAgent: {
-    dirty: Map<string, Set<string>>
-    externalChanged: Map<string, Set<string>>
-  }
   searchInputRef: RefObject<HTMLInputElement | null>
   projectListRef: RefObject<HTMLDivElement | null>
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
@@ -126,7 +123,7 @@ interface CodeSidebarProps {
   onOpenAgentSessionKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, provider: string, sessionId: string) => void
   onOpenProjectFile: (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => void
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
-  onCloseOpenWorkspaceFile: (agentId: string, filePath: string) => void
+  onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveWorkspaceEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
   onDeleteWorkspaceEntries: (agentId: string, deletions: WorkspaceFileDeleteResult[]) => void
   onOpenOptionsMenu: (event: ReactMouseEvent<HTMLElement>) => void
@@ -158,7 +155,6 @@ export function CodeSidebar({
   openWorkspaceFiles,
   fileRevealRequest,
   fileSearchFocusRequest,
-  editorFileStateByAgent,
   searchInputRef,
   projectListRef,
   onNewAgent,
@@ -426,7 +422,6 @@ export function CodeSidebar({
             openWorkspaceFiles={openWorkspaceFiles}
             fileRevealRequest={fileRevealRequest}
             fileSearchFocusRequest={fileSearchFocusRequest}
-            editorFileStateByAgent={editorFileStateByAgent}
             onToggleProject={onToggleProject}
             onToggleProjectSessions={onToggleProjectSessions}
             onOpenProjectContextMenu={onOpenProjectContextMenu}
@@ -856,10 +851,6 @@ interface ProjectSectionProps {
   openWorkspaceFiles: OpenWorkspaceFile[]
   fileRevealRequest: { agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null
   fileSearchFocusRequest: { agentId: string; requestId: number; query?: string } | null
-  editorFileStateByAgent: {
-    dirty: Map<string, Set<string>>
-    externalChanged: Map<string, Set<string>>
-  }
   onToggleProject: (projectId: string) => void
   onToggleProjectSessions: (projectId: string) => void
   onOpenProjectContextMenu: (event: ReactMouseEvent<HTMLElement>, projectId: string) => void
@@ -875,7 +866,7 @@ interface ProjectSectionProps {
   onHideAgentSessionPreview: () => void
   onOpenProjectFile: (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => void
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
-  onCloseOpenWorkspaceFile: (agentId: string, filePath: string) => void
+  onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveWorkspaceEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
   onDeleteWorkspaceEntries: (agentId: string, deletions: WorkspaceFileDeleteResult[]) => void
   copy: CodeCopy
@@ -895,7 +886,6 @@ function ProjectSection({
   openWorkspaceFiles,
   fileRevealRequest,
   fileSearchFocusRequest,
-  editorFileStateByAgent,
   onToggleProject,
   onToggleProjectSessions,
   onOpenProjectContextMenu,
@@ -922,10 +912,19 @@ function ProjectSection({
   const projectFileAgent = project.agents.find(agent => !agent.isMain) ?? null
   const showProjectFiles = project.id !== MAIN_AGENT_PROJECT_ID && projectFileAgent !== null
   const projectFileAgentIds = new Set(project.agents.filter(agent => !agent.isMain).map(agent => agent.id))
-  const activeProjectFile = openWorkspaceFile && projectFileAgentIds.has(openWorkspaceFile.agentId)
+  const openFileBelongsToProject = useCallback((file: OpenWorkspaceFile) => (
+    projectFileAgentIds.has(file.agentId) || file.workspaceRoot === project.id
+  ), [project.id, projectFileAgentIds])
+  const activeProjectFile = openWorkspaceFile && openFileBelongsToProject(openWorkspaceFile)
     ? openWorkspaceFile
     : null
-  const projectOpenWorkspaceFiles = openWorkspaceFiles.filter(file => projectFileAgentIds.has(file.agentId))
+  const projectOpenWorkspaceFiles = openWorkspaceFiles.filter(openFileBelongsToProject)
+  const projectEditorDirtyFilePaths = new Set(
+    projectOpenWorkspaceFiles.filter(file => file.dirty).map(file => file.file.path)
+  )
+  const projectEditorExternalChangedFilePaths = new Set(
+    projectOpenWorkspaceFiles.filter(file => file.externalChanged).map(file => file.file.path)
+  )
   const sortedAgents = project.agents.filter(agent => !agent.pinned)
   const visibleAgentSessions = project.agentSessions.filter(session => !session.pinned)
   const showAgentsSection = sortedAgents.length > 0 || visibleAgentSessions.length > 0 || (project.hiddenAgentSessionCount ?? 0) > 0
@@ -1060,14 +1059,16 @@ function ProjectSection({
                 openFiles={projectOpenWorkspaceFiles
                   .map(file => ({
                     agentId: file.agentId,
+                    workspaceRoot: file.workspaceRoot,
+                    key: workspaceOpenFileKey(file),
                     path: file.file.path,
                     dirty: file.dirty,
                     externalChanged: file.externalChanged,
                   }))}
-                revealRequest={fileRevealRequest?.agentId === projectFileAgent.id ? fileRevealRequest : undefined}
-                focusSearchRequest={fileSearchFocusRequest?.agentId === projectFileAgent.id ? fileSearchFocusRequest : undefined}
-                editorDirtyFilePaths={editorFileStateByAgent.dirty.get(projectFileAgent.id)}
-                editorExternalChangedFilePaths={editorFileStateByAgent.externalChanged.get(projectFileAgent.id)}
+                revealRequest={fileRevealRequest && projectFileAgentIds.has(fileRevealRequest.agentId) ? fileRevealRequest : undefined}
+                focusSearchRequest={fileSearchFocusRequest && projectFileAgentIds.has(fileSearchFocusRequest.agentId) ? fileSearchFocusRequest : undefined}
+                editorDirtyFilePaths={projectEditorDirtyFilePaths}
+                editorExternalChangedFilePaths={projectEditorExternalChangedFilePaths}
                 onOpenFile={onOpenProjectFile}
                 onSelectOpenFile={onSelectOpenWorkspaceFile}
                 onCloseOpenFile={onCloseOpenWorkspaceFile}

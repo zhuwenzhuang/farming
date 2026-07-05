@@ -1,5 +1,5 @@
 import type { MutableRefObject, RefObject } from 'react'
-import type { NodeRendererProps, TreeApi } from 'react-arborist'
+import type { NodeRendererProps } from 'react-arborist'
 import { iconForDirectoryPath, iconForFilePath } from '@/lib/file-icons'
 import type {
   WorkspaceFileOperationState,
@@ -9,6 +9,7 @@ import {
   workspaceFileTreeDepthStyle,
   workspaceFileTreeRowViewState,
 } from '@/lib/workspace-file-tree-row'
+import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from '../code/copy'
 import { FileTreeInlineOperation } from './FileTreeInlineOperation'
 import { FileTreeRowStatus } from './FileTreeRowStatus'
@@ -24,13 +25,12 @@ interface FileTreeRowProps {
   fileOperationInputRef: RefObject<HTMLInputElement | null>
   lastFocusedFilePathRef: MutableRefObject<string | null>
   node: NodeRendererProps<FileExplorerNode>['node']
-  treeRef: MutableRefObject<TreeApi<FileExplorerNode> | undefined>
   treeViewportRef: RefObject<HTMLDivElement | null>
   onCloseFileOperation: () => void
   onFocusFileTreeTarget: (item: FileExplorerNode | null) => void
   onHydrateCompactDirectoryChains: (path: string) => Promise<unknown>
   onOpenFileContextMenu: (x: number, y: number, item: FileExplorerNode | null) => void
-  onOpenFilePath: (filePath: string) => Promise<void>
+  onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
   onRefreshTreeLayout: () => void
   onRememberFileOperationName: (name: string) => void
   onSetDirectoryOpen: (path: string, open: boolean) => void
@@ -48,7 +48,6 @@ export function FileTreeRow({
   fileOperationInputRef,
   lastFocusedFilePathRef,
   node,
-  treeRef,
   treeViewportRef,
   onCloseFileOperation,
   onFocusFileTreeTarget,
@@ -90,7 +89,6 @@ export function FileTreeRow({
     item,
     lastFocusedFilePathRef,
     node,
-    treeRef,
     treeViewportRef,
     onFocusFileTreeTarget,
     onHydrateCompactDirectoryChains,

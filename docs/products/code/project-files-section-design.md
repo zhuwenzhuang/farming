@@ -78,6 +78,7 @@ Current implementation boundaries:
 - File rows use single-line truncation.
 - Native `title` should expose the full relative path.
 - Active file uses a subtle background and a thin left marker.
+- Open file identity is `workspaceRoot + path`; two agents pointing at the same workspace path share one working copy and editor tab while preserving the latest source agent for returning to the terminal.
 - Dirty and externally changed files should update both editor tabs and tree decoration.
 - Single-child directory chains should be compacted into one visible directory row, for example `tmp/ata2/assets`, to avoid over-indenting a path that carries no branching information.
 - Expanding a directory should hydrate compactable single-child chains below its immediate children in the same interaction, so a click on `src` can reveal stable rows such as `main/java` without first showing `main` and then morphing after a second click.
@@ -103,6 +104,7 @@ The right pane is a lightweight editor surface:
 - preview for image and binary files;
 - readonly mode for oversized files;
 - tabs with mature `tablist` semantics;
+- transient preview tabs for mouse clicks in the Explorer tree; search results, `path:line`, keyboard Enter, and review/diff opens create pinned tabs, and editing pins a transient tab;
 - per-file Monaco model and view state;
 - breadcrumb as lightweight context;
 - dirty close confirmation.

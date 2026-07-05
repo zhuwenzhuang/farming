@@ -5,6 +5,7 @@ export type WorkspaceWorkingCopyChangeIndicator = 'dirty' | 'external'
 
 export interface WorkspaceFileReference {
   agentId: string
+  workspaceRoot?: string
   file: Pick<WorkspaceFile, 'path' | 'preview'>
 }
 
@@ -20,12 +21,12 @@ export interface WorkspaceWorkingCopyChangeIndicatorReference {
   externalChanged?: boolean
 }
 
-export function workspaceFileCacheKey(agentId: string, filePath: string) {
-  return `${agentId}:${filePath}`
+export function workspaceFileCacheKey(agentId: string, filePath: string, workspaceRoot?: string) {
+  return `${workspaceRoot || agentId}:${filePath}`
 }
 
 export function workspaceWorkingCopyKey(file: WorkspaceFileReference) {
-  return workspaceFileCacheKey(file.agentId, file.file.path)
+  return workspaceFileCacheKey(file.agentId, file.file.path, file.workspaceRoot)
 }
 
 export function workspaceWorkingCopyState(file: WorkspaceWorkingCopyReference): WorkspaceWorkingCopyState {

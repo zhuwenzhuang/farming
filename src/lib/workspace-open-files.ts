@@ -15,6 +15,7 @@ export interface WorkspaceFileOpenTarget {
   endColumn?: number
   view?: 'editor' | 'diff'
   diffOnly?: boolean
+  transient?: boolean
   gitStatus?: WorkspaceFile['gitStatus']
   gitStatusLabel?: string
 }
@@ -30,6 +31,9 @@ export interface WorkspaceOpenFileRequest {
   cursor?: WorkspaceFileCursor
   diffRequestId?: number
   diffOnly?: boolean
+  workspaceRoot?: string
+  sourceAgentId?: string
+  transient?: boolean
 }
 
 type WorkspaceOpenFileRequestInput = WorkspaceOpenFileRequest | WorkspaceFileCursor
@@ -43,6 +47,8 @@ function normalizeWorkspaceOpenFileRequest(options: WorkspaceOpenFileRequestInpu
 
 export interface OpenWorkspaceFile {
   agentId: string
+  sourceAgentId?: string
+  workspaceRoot?: string
   file: WorkspaceFile
   draft: string
   dirty: boolean
@@ -52,11 +58,13 @@ export interface OpenWorkspaceFile {
   cursor?: WorkspaceFileCursor
   diffRequestId?: number
   diffOnly?: boolean
+  transient?: boolean
 }
 
 export interface WorkspaceOpenFileTarget {
   agentId: string
   filePath: string
+  workspaceRoot?: string
 }
 
 export interface WorkspaceOpenFilesState {
@@ -107,6 +115,7 @@ export function workspaceOpenFileRequestForTarget(
     cursor: workspaceFileCursorForTarget(target, requestIds.cursorRequestId),
     diffRequestId: workspaceFileDiffRequestForTarget(target, requestIds.diffRequestId),
     diffOnly: workspaceFileDiffOnlyForTarget(target),
+    transient: target?.transient,
   }
 }
 
@@ -174,16 +183,28 @@ export function shouldRefreshWorkspaceChangesAfterDirtyStateChange(
   return false
 }
 
-export function isSameOpenWorkspaceFile(file: OpenWorkspaceFile, agentId: string, filePath: string) {
+export function workspaceOpenFileKey(file: Pick<OpenWorkspaceFile, 'agentId' | 'file' | 'workspaceRoot'>) {
+  return workspaceFileCacheKey(file.agentId, file.file.path, file.workspaceRoot)
+}
+
+export function workspaceOpenFileTargetKey(target: WorkspaceOpenFileTarget) {
+  return workspaceFileCacheKey(target.agentId, target.filePath, target.workspaceRoot)
+}
+
+export function isSameOpenWorkspaceFile(file: OpenWorkspaceFile, agentId: string, filePath: string, workspaceRoot?: string) {
+  if (workspaceRoot && file.workspaceRoot) return workspaceOpenFileKey(file) === workspaceFileCacheKey(agentId, filePath, workspaceRoot)
   return file.agentId === agentId && file.file.path === filePath
 }
 
-export function findOpenWorkspaceFile(files: readonly OpenWorkspaceFile[], agentId: string, filePath: string) {
-  return files.find(file => isSameOpenWorkspaceFile(file, agentId, filePath)) ?? null
+export function findOpenWorkspaceFile(files: readonly OpenWorkspaceFile[], agentId: string, filePath: string, workspaceRoot?: string) {
+  return files.find(file => isSameOpenWorkspaceFile(file, agentId, filePath, workspaceRoot)) ?? null
 }
 
 export function replaceOpenWorkspaceFile(files: readonly OpenWorkspaceFile[], nextFile: OpenWorkspaceFile) {
-  const index = files.findIndex(file => isSameOpenWorkspaceFile(file, nextFile.agentId, nextFile.file.path))
+  const index = files.findIndex(file => (
+    workspaceOpenFileKey(file) === workspaceOpenFileKey(nextFile) ||
+    isSameOpenWorkspaceFile(file, nextFile.agentId, nextFile.file.path, nextFile.workspaceRoot)
+  ))
   if (index === -1) return [...files, nextFile]
   const nextFiles = [...files]
   nextFiles[index] = nextFile
@@ -223,6 +244,8 @@ export function createWorkspaceOpenFile(
   const request = normalizeWorkspaceOpenFileRequest(options)
   return {
     agentId,
+    sourceAgentId: request.sourceAgentId,
+    workspaceRoot: request.workspaceRoot,
     file,
     draft: file.content,
     dirty: false,
@@ -232,6 +255,7 @@ export function createWorkspaceOpenFile(
     cursor: request.cursor,
     diffRequestId: request.diffRequestId,
     diffOnly: request.diffOnly,
+    transient: request.transient,
   }
 }
 
@@ -243,9 +267,9 @@ export function openWorkspaceFileFromRead(
 ): WorkspaceOpenFilesState {
   const request = normalizeWorkspaceOpenFileRequest(options)
   const closedFileCache = new Map(state.closedFileCache)
-  const cacheKey = workspaceFileCacheKey(agentId, file.path)
+  const cacheKey = workspaceFileCacheKey(agentId, file.path, request.workspaceRoot)
   const cachedFile = closedFileCache.get(cacheKey)
-  const existingFile = findOpenWorkspaceFile(state.files, agentId, file.path)
+  const existingFile = findOpenWorkspaceFile(state.files, agentId, file.path, request.workspaceRoot)
   const restoredFile = !existingFile && cachedFile && cachedFile.draft !== file.content
     ? refreshOpenWorkspaceFileFromRead(cachedFile, file)
     : null
@@ -256,16 +280,30 @@ export function openWorkspaceFileFromRead(
   const baseFile = existingFile
     ? refreshOpenWorkspaceFileFromRead(existingFile, file)
     : restoredFile ?? createWorkspaceOpenFile(agentId, file)
+  const nextTransient = Boolean(request.transient ?? baseFile.transient) && isWorkspaceWorkingCopyClean(baseFile)
   const nextFile = {
     ...baseFile,
+    agentId,
+    sourceAgentId: request.sourceAgentId ?? baseFile.sourceAgentId,
+    workspaceRoot: request.workspaceRoot ?? baseFile.workspaceRoot,
+    file: baseFile.file,
     cursor: request.cursor,
     diffRequestId: request.diffRequestId,
     diffOnly: request.diffOnly === true,
+    transient: nextTransient,
   }
+
+  const files = nextFile.transient
+    ? state.files.filter(candidate => (
+        workspaceOpenFileKey(candidate) === workspaceOpenFileKey(nextFile) ||
+        !candidate.transient ||
+        !isWorkspaceWorkingCopyClean(candidate)
+      ))
+    : state.files
 
   return {
     activeFile: nextFile,
-    files: replaceOpenWorkspaceFile(state.files, nextFile),
+    files: replaceOpenWorkspaceFile(files, nextFile),
     closedFileCache,
   }
 }
@@ -277,15 +315,17 @@ export function selectWorkspaceOpenFile(
   options: WorkspaceOpenFileRequestInput = {}
 ): WorkspaceOpenFilesState | null {
   const request = normalizeWorkspaceOpenFileRequest(options)
-  const nextFile = findOpenWorkspaceFile(state.files, agentId, filePath)
+  const nextFile = findOpenWorkspaceFile(state.files, agentId, filePath, request.workspaceRoot)
   if (!nextFile) return null
   const hasViewRequest = Boolean(request.cursor || request.diffRequestId || request.diffOnly !== undefined || nextFile.diffRequestId)
   const selectedFile = hasViewRequest
     ? {
         ...nextFile,
+        sourceAgentId: request.sourceAgentId ?? nextFile.sourceAgentId,
         cursor: request.cursor ?? nextFile.cursor,
         diffRequestId: request.diffRequestId,
         diffOnly: request.diffOnly ?? nextFile.diffOnly,
+        transient: request.transient ?? nextFile.transient,
       }
     : nextFile
   return {
@@ -299,19 +339,19 @@ export function closeWorkspaceOpenFiles(
   state: WorkspaceOpenFilesState,
   targets: readonly WorkspaceOpenFileTarget[]
 ): WorkspaceOpenFilesCloseResult {
-  const targetKeys = new Set(targets.map(target => workspaceFileCacheKey(target.agentId, target.filePath)))
+  const targetKeys = new Set(targets.map(workspaceOpenFileTargetKey))
   if (targetKeys.size === 0) {
     return { ...state, closedFiles: [], activeFileClosed: false }
   }
 
-  const closedFiles = state.files.filter(file => targetKeys.has(workspaceFileCacheKey(file.agentId, file.file.path)))
+  const closedFiles = state.files.filter(file => targetKeys.has(workspaceOpenFileKey(file)))
   if (closedFiles.length === 0) {
     return { ...state, closedFiles: [], activeFileClosed: false }
   }
 
   const closedFileCache = new Map(state.closedFileCache)
   closedFiles.forEach(file => {
-    const fileHandle = workspaceFileCacheKey(file.agentId, file.file.path)
+    const fileHandle = workspaceOpenFileKey(file)
     if (file.dirty) {
       closedFileCache.set(fileHandle, { ...file, saving: false })
     } else {
@@ -319,10 +359,10 @@ export function closeWorkspaceOpenFiles(
     }
   })
 
-  const files = state.files.filter(file => !targetKeys.has(workspaceFileCacheKey(file.agentId, file.file.path)))
+  const files = state.files.filter(file => !targetKeys.has(workspaceOpenFileKey(file)))
   const activeFileClosed = Boolean(
     state.activeFile &&
-    targetKeys.has(workspaceFileCacheKey(state.activeFile.agentId, state.activeFile.file.path))
+    targetKeys.has(workspaceOpenFileKey(state.activeFile))
   )
   if (!activeFileClosed || !state.activeFile) {
     return {
@@ -334,11 +374,11 @@ export function closeWorkspaceOpenFiles(
     }
   }
 
-  const closedIndex = state.files.findIndex(file => isSameOpenWorkspaceFile(file, state.activeFile!.agentId, state.activeFile!.file.path))
+  const closedIndex = state.files.findIndex(file => state.activeFile && workspaceOpenFileKey(file) === workspaceOpenFileKey(state.activeFile))
   const replacement = [...state.files.slice(0, closedIndex)]
     .reverse()
-    .find(file => !targetKeys.has(workspaceFileCacheKey(file.agentId, file.file.path)))
-    ?? state.files.slice(closedIndex + 1).find(file => !targetKeys.has(workspaceFileCacheKey(file.agentId, file.file.path)))
+    .find(file => !targetKeys.has(workspaceOpenFileKey(file)))
+    ?? state.files.slice(closedIndex + 1).find(file => !targetKeys.has(workspaceOpenFileKey(file)))
     ?? null
 
   return {
@@ -356,7 +396,7 @@ export function updateWorkspaceOpenFile(
 ): WorkspaceOpenFilesState {
   const closedFileCache = new Map(state.closedFileCache)
   if (isWorkspaceWorkingCopyClean(nextFile)) {
-    closedFileCache.delete(workspaceFileCacheKey(nextFile.agentId, nextFile.file.path))
+    closedFileCache.delete(workspaceOpenFileKey(nextFile))
   }
 
   return {
@@ -372,6 +412,7 @@ export function updateWorkspaceOpenFileDraft(file: OpenWorkspaceFile, nextDraft:
     draft: nextDraft,
     dirty: nextDraft !== file.file.content,
     error: null,
+    transient: false,
   }
 }
 

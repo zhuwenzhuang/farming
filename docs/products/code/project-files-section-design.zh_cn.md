@@ -192,6 +192,7 @@ Files
 - 隐藏 `.git`、`.farming`、`node_modules`、`dist`、`build`、`coverage` 等目录
 - 当前打开文件高亮
 - 当前打开文件应在 Explorer 中自动 reveal，避免从 terminal/path 跳转打开后左侧只高亮但不可见
+- 打开文件的 working copy 身份按 `workspaceRoot + path` 去重；多个 agent 指向同一 workspace 的同一路径时只保留一个 editor tab，同时保留最近来源 agent 用于返回终端
 - 当前打开文件的 active 高亮和 tree selection 要分离：active file 用左侧细条 + 很浅背景表示右侧 editor 对应关系，tree selection 用浅底色交给 tree engine 维护键盘焦点和轻量选择态
 - 搜索入口复用 `/api/files/search`，结果点击直接打开对应文件并定位 Monaco 到匹配行；搜索结果列表只在有输入时出现，不变成独立页面
 - 搜索入口同时支持 `path:line` / `path:line:column` / `path#Lline`，用于从 agent 输出或用户手动复制路径后快速跳转
@@ -270,7 +271,7 @@ Files
 - Markdown 源文件可在同一 editor tab 内切换源码 / 渲染预览
 - 图片 / 二进制只读 preview；大文本用只读 Monaco 展示文件开头内容
 - VS Code 风格 tab strip
-- 轻量多文件 tabs：打开过的文件保留 tab，可切换、关闭，并保留各自 dirty / external changed 状态；tab strip 支持键盘切换和关闭，active tab 应自动滚入可见区域；editor 区域支持 `Ctrl/Cmd+PageUp` / `Ctrl/Cmd+PageDown` 切换 tab、`Ctrl/Cmd+W` 关闭当前 tab
+- 轻量多文件 tabs：打开过的文件保留 tab，可切换、关闭，并保留各自 dirty / external changed 状态；从目录树鼠标单击打开的是 transient preview tab，再单击另一个干净文件会复用该 tab；搜索结果、`path:line`、键盘 Enter、diff/review 打开是正式 tab；编辑后 transient tab 固定为正式 tab；tab strip 支持键盘切换和关闭，active tab 应自动滚入可见区域；editor 区域支持 `Ctrl/Cmd+PageUp` / `Ctrl/Cmd+PageDown` 切换 tab、`Ctrl/Cmd+W` 关闭当前 tab
 - editor tab 使用成熟 tablist 语义：只有 active tab 进入正常 Tab 顺序，左右方向键切换；tab 通过 `aria-controls` 关联 Monaco `tabpanel`，避免视觉 tab strip 和 DOM 语义脱节
 - editor tab 的可访问名称需要包含 basename、完整相对路径和 dirty / external changed 状态；close 按钮也使用完整相对路径，避免同名文件 tab 难以区分
 - tab strip 可水平滚动但不显示浏览器原生 scrollbar；大量文件时靠 active tab reveal、滚轮/触控板滚动和键盘切换保持可达性

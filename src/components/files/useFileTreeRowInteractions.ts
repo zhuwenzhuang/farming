@@ -1,9 +1,10 @@
 import { useCallback, type MouseEvent as ReactMouseEvent, type MutableRefObject, type RefObject } from 'react'
-import type { NodeRendererProps, TreeApi } from 'react-arborist'
+import type { NodeRendererProps } from 'react-arborist'
 import {
   preserveWorkspaceFileScrollPosition,
   workspaceFileTreeRowClickIntent,
 } from '@/lib/workspace-file-view-model'
+import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
 
 function focusWithoutScrolling(element: HTMLElement | null | undefined) {
@@ -15,12 +16,11 @@ interface UseFileTreeRowInteractionsOptions {
   item: WorkspaceFileTreeNode
   lastFocusedFilePathRef: MutableRefObject<string | null>
   node: NodeRendererProps<WorkspaceFileTreeNode>['node']
-  treeRef: MutableRefObject<TreeApi<WorkspaceFileTreeNode> | undefined>
   treeViewportRef: RefObject<HTMLDivElement | null>
   onFocusFileTreeTarget: (item: WorkspaceFileTreeNode | null) => void
   onHydrateCompactDirectoryChains: (path: string) => Promise<unknown>
   onOpenFileContextMenu: (x: number, y: number, item: WorkspaceFileTreeNode | null) => void
-  onOpenFilePath: (filePath: string) => Promise<void>
+  onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
   onRefreshTreeLayout: () => void
   onSetDirectoryOpen: (path: string, open: boolean) => void
 }
@@ -30,7 +30,6 @@ export function useFileTreeRowInteractions({
   item,
   lastFocusedFilePathRef,
   node,
-  treeRef,
   treeViewportRef,
   onFocusFileTreeTarget,
   onHydrateCompactDirectoryChains,
@@ -72,10 +71,10 @@ export function useFileTreeRowInteractions({
       focusTree()
       onSetDirectoryOpen(item.path, nextOpen)
       if (nextOpen) {
-        treeRef.current?.open(item.path)
+        node.open()
         void onHydrateCompactDirectoryChains(item.path).finally(onRefreshTreeLayout)
       } else {
-        treeRef.current?.close(item.path)
+        node.close()
         onRefreshTreeLayout()
       }
       onFocusFileTreeTarget(item)
@@ -84,7 +83,7 @@ export function useFileTreeRowInteractions({
     }
 
     if (clickIntent === 'open-file') {
-      void onOpenFilePath(item.path)
+      void onOpenFilePath(item.path, { transient: true })
     }
     node.handleClick(event)
     node.focus()
@@ -107,7 +106,6 @@ export function useFileTreeRowInteractions({
     onOpenFilePath,
     onRefreshTreeLayout,
     onSetDirectoryOpen,
-    treeRef,
     treeViewportRef,
   ])
 

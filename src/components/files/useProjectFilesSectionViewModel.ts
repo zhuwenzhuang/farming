@@ -54,7 +54,7 @@ interface UseProjectFilesSectionViewModelOptions {
   onCloseFileMenuWithFocusRestore: () => void
   onCloseFileMenuWithoutFocus: () => void
   onCloseFileOperation: () => void
-  onCloseOpenFile?: (agentId: string, filePath: string) => void
+  onCloseOpenFile?: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onCopyFileMenuPath: () => void
   onFocusFileTreeTarget: (item: WorkspaceFileTreeNode | null) => void
   onFocusStickyDirectory: (node: WorkspaceFileTreeNode) => void

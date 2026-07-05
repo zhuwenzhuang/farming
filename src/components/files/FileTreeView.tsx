@@ -102,7 +102,6 @@ export function FileTreeView({
       fileOperationInputRef={fileOperationInputRef}
       lastFocusedFilePathRef={lastFocusedFilePathRef}
       node={node}
-      treeRef={treeRef}
       treeViewportRef={treeViewportRef}
       onCloseFileOperation={onCloseFileOperation}
       onFocusFileTreeTarget={onFocusFileTreeTarget}
@@ -115,7 +114,7 @@ export function FileTreeView({
       onSubmitFileOperation={onSubmitFileOperation}
       onUpdateFileOperationName={onUpdateFileOperationName}
     />
-  ), [activeFilePath, agentId, copy, editorDirtyFilePaths, editorExternalChangedFilePaths, fileOperation, fileOperationInputRef, lastFocusedFilePathRef, onCloseFileOperation, onFocusFileTreeTarget, onHydrateCompactDirectoryChains, onOpenFileContextMenu, onOpenFilePath, onRefreshTreeLayout, onRememberFileOperationName, onSetDirectoryOpen, onSubmitFileOperation, onUpdateFileOperationName, treeRef, treeViewportRef])
+  ), [activeFilePath, agentId, copy, editorDirtyFilePaths, editorExternalChangedFilePaths, fileOperation, fileOperationInputRef, lastFocusedFilePathRef, onCloseFileOperation, onFocusFileTreeTarget, onHydrateCompactDirectoryChains, onOpenFileContextMenu, onOpenFilePath, onRefreshTreeLayout, onRememberFileOperationName, onSetDirectoryOpen, onSubmitFileOperation, onUpdateFileOperationName, treeViewportRef])
 
   return (
     <div

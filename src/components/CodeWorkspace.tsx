@@ -13,8 +13,12 @@ import type { TerminalInputPart } from '@/types/messages'
 import { appPath } from '@/lib/base-path'
 import { agentTitle } from '@/lib/format'
 import {
+  shouldRevealSelectedWorkspaceOpenFile,
   workspaceOpenFileRequestForTarget,
+  workspaceOpenFileKey,
+  workspaceOpenFileTargetKey,
   type OpenWorkspaceFile,
+  type WorkspaceOpenFileTarget,
 } from '@/lib/workspace-open-files'
 import {
   workspaceNavigationShortcutDirection,
@@ -119,7 +123,6 @@ import {
 } from './code/agent-list-state'
 import {
   displayedProjectsForSearch,
-  editorFileStateByAgentForFiles,
   projectListProjectsForAgents,
   projectWorkspaceForHistoryRun,
   shouldMarkAgentUnreadForTurnTransition,
@@ -265,6 +268,14 @@ const COLLAPSED_SIDEBAR_WIDTH = 72
 const OPTIONS_MENU_ESTIMATED_WIDTH = 168
 const OPTIONS_MENU_ESTIMATED_HEIGHT = 168
 const TERMINAL_PATH_SEARCH_LIMIT = 12
+
+function isNativeTextEditingShortcutTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+  return target.tagName === 'INPUT'
+    || target.tagName === 'TEXTAREA'
+    || target.isContentEditable
+}
+
 const DEFAULT_AGENT_COMPOSER_UI_STATE: AgentComposerUiState = {
   plusMenuOpen: false,
   approvalMenuOpen: false,
@@ -714,9 +725,6 @@ export function CodeWorkspace({
     () => projectListProjectsForAgents(visibleLiveAgents, unclaimedSearchableAgentSessions),
     [unclaimedSearchableAgentSessions, visibleLiveAgents]
   )
-  const editorFileStateByAgent = useMemo(() => {
-    return editorFileStateByAgentForFiles(openWorkspaceFiles, workspaceOpenFiles.closedFiles)
-  }, [openWorkspaceFiles, workspaceOpenFiles.closedFiles])
   const normalizedSearch = searchQuery.trim().toLowerCase()
   const hasSearchQuery = normalizedSearch.length > 0
   const displayedProjects = useMemo(() => {
@@ -918,6 +926,21 @@ export function CodeWorkspace({
     }
     return activeAgents.find(agent => !agent.isMain) ?? null
   }, [activeAgent, activeAgents, activeProjectWorkspace, openWorkspaceFile])
+  const projectFileSearchAgentForShortcutTarget = useCallback((target: EventTarget | null) => {
+    if (!(target instanceof Element)) return null
+    const rowAgentId = target.closest<HTMLElement>('[data-testid="code-agent-row"][data-agent-id]')?.dataset.agentId
+    if (rowAgentId) {
+      const rowAgent = activeAgents.find(agent => agent.id === rowAgentId && !agent.isMain)
+      if (rowAgent) return rowAgent
+    }
+
+    const projectGroup = target.closest<HTMLElement>('[data-testid="code-project-group"]')
+    const projectId = projectGroup
+      ?.querySelector<HTMLElement>('[data-testid="code-project-title"][data-project-id]')
+      ?.dataset.projectId
+    if (!projectId) return null
+    return activeAgents.find(agent => !agent.isMain && projectWorkspaceForAgent(agent) === projectId) ?? null
+  }, [activeAgents])
   const agentCreationWorkspace = activeAgent?.isMain
     ? lastProjectWorkspace ?? projects[0]?.workspace
     : activeProjectWorkspace ?? lastProjectWorkspace ?? projects[0]?.workspace
@@ -1867,6 +1890,17 @@ export function CodeWorkspace({
   ), [])
 
   const openProjectFile = useCallback((agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => {
+    const agent = activeAgents.find(candidate => candidate.id === agentId)
+    const workspaceRoot = agent && !agent.isMain ? projectWorkspaceForAgent(agent) : undefined
+    if (agent) {
+      const projectId = agent.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent)
+      setCollapsedProjectIds(previous => {
+        if (!previous.has(projectId)) return previous
+        const next = new Set(previous)
+        next.delete(projectId)
+        return next
+      })
+    }
     setAgentMenu(null)
     setProjectMenu(null)
     setAgentSessionMenu(null)
@@ -1874,12 +1908,24 @@ export function CodeWorkspace({
     clearSearch()
     onWorkspaceViewChange('projects')
     setMainPaneMode('editor')
-    const openRequest = createWorkspaceOpenFileRequest(target)
+    const openRequest = {
+      ...createWorkspaceOpenFileRequest(target),
+      workspaceRoot,
+      sourceAgentId: agentId,
+    }
     workspaceOpenFiles.openFromRead(agentId, file, openRequest)
+    if (shouldRevealSelectedWorkspaceOpenFile(target)) {
+      setFileRevealRequest({
+        agentId,
+        path: file.path,
+        kind: 'file',
+        requestId: workspaceFileRevealRequestRef.current += 1,
+      })
+    }
     markAgentReadIfNeeded(agentId)
     onOpenTerminal(agentId, { focusTerminal: false })
     closeSidebarForMobile()
-  }, [clearSearch, closeSidebarForMobile, createWorkspaceOpenFileRequest, markAgentReadIfNeeded, onOpenTerminal, onWorkspaceViewChange, workspaceOpenFiles])
+  }, [activeAgents, clearSearch, closeSidebarForMobile, createWorkspaceOpenFileRequest, markAgentReadIfNeeded, onOpenTerminal, onWorkspaceViewChange, workspaceOpenFiles])
 
   const focusWorkspaceFilesSearch = useCallback((agentId: string, query?: string) => {
     const agent = activeAgents.find(candidate => candidate.id === agentId)
@@ -1981,9 +2027,29 @@ export function CodeWorkspace({
   }, [activeAgents, focusWorkspaceFilesSearch, openProjectFile])
 
   const selectOpenWorkspaceFile = useCallback((agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
-    const hasOpenFile = openWorkspaceFiles.some(file => file.agentId === agentId && file.file.path === filePath)
+    const agent = activeAgents.find(candidate => candidate.id === agentId)
+    const workspaceRoot = agent && !agent.isMain ? projectWorkspaceForAgent(agent) : undefined
+    if (agent) {
+      const projectId = agent.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent)
+      setCollapsedProjectIds(previous => {
+        if (!previous.has(projectId)) return previous
+        const next = new Set(previous)
+        next.delete(projectId)
+        return next
+      })
+    }
+    const requestedKey = workspaceOpenFileTargetKey({
+      agentId,
+      workspaceRoot,
+      filePath,
+    })
+    const hasOpenFile = openWorkspaceFiles.some(file => workspaceOpenFileKey(file) === requestedKey)
     if (!hasOpenFile) return false
-    const openRequest = createWorkspaceOpenFileRequest(target)
+    const openRequest = {
+      ...createWorkspaceOpenFileRequest(target),
+      workspaceRoot,
+      sourceAgentId: agentId,
+    }
     if (!workspaceOpenFiles.select(agentId, filePath, openRequest)) return false
     setAgentMenu(null)
     setProjectMenu(null)
@@ -1992,11 +2058,19 @@ export function CodeWorkspace({
     clearSearch()
     onWorkspaceViewChange('projects')
     setMainPaneMode('editor')
+    if (shouldRevealSelectedWorkspaceOpenFile(target)) {
+      setFileRevealRequest({
+        agentId,
+        path: filePath,
+        kind: 'file',
+        requestId: workspaceFileRevealRequestRef.current += 1,
+      })
+    }
     markAgentReadIfNeeded(agentId)
     onOpenTerminal(agentId, { focusTerminal: false })
     closeSidebarForMobile()
     return true
-  }, [clearSearch, closeSidebarForMobile, createWorkspaceOpenFileRequest, markAgentReadIfNeeded, onOpenTerminal, onWorkspaceViewChange, openWorkspaceFiles, workspaceOpenFiles])
+  }, [activeAgents, clearSearch, closeSidebarForMobile, createWorkspaceOpenFileRequest, markAgentReadIfNeeded, onOpenTerminal, onWorkspaceViewChange, openWorkspaceFiles, workspaceOpenFiles])
 
   const restoreWorkspaceNavigationEntry = useCallback(async (entry: WorkspaceNavigationEntry) => {
     if (!workspaceNavigationAgentIds.has(entry.agentId)) return false
@@ -2091,7 +2165,7 @@ export function CodeWorkspace({
     closeSidebarForMobile()
   }, [closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange])
 
-  const closeOpenWorkspaceFiles = useCallback((targets: Array<{ agentId: string; filePath: string }>) => {
+  const closeOpenWorkspaceFiles = useCallback((targets: WorkspaceOpenFileTarget[]) => {
     const nextState = workspaceOpenFiles.close(targets)
     if (nextState.closedFiles.length === 0) return
     if (nextState.activeFileClosed) {
@@ -2099,8 +2173,8 @@ export function CodeWorkspace({
     }
   }, [workspaceOpenFiles])
 
-  const closeOpenWorkspaceFile = useCallback((agentId: string, filePath: string) => {
-    closeOpenWorkspaceFiles([{ agentId, filePath }])
+  const closeOpenWorkspaceFile = useCallback((agentId: string, filePath: string, workspaceRoot?: string) => {
+    closeOpenWorkspaceFiles([{ agentId, filePath, workspaceRoot }])
   }, [closeOpenWorkspaceFiles])
 
   const updateOpenWorkspaceFile = useCallback((nextFile: OpenWorkspaceFile) => {
@@ -2932,12 +3006,13 @@ export function CodeWorkspace({
         && !killDialog
         && !deleteWorktreeDialog
         && !isOverlayShortcutTarget(target)
-        && !isTextEditingShortcutTarget(target)
+        && !isNativeTextEditingShortcutTarget(target)
         && !isTerminalShortcutTarget(target)
       ) {
-        if (!projectFileSearchAgent) return
+        const targetProjectFileSearchAgent = projectFileSearchAgentForShortcutTarget(target) ?? projectFileSearchAgent
+        if (!targetProjectFileSearchAgent) return
         event.preventDefault()
-        focusWorkspaceFilesSearch(projectFileSearchAgent.id)
+        focusWorkspaceFilesSearch(targetProjectFileSearchAgent.id)
         return
       }
 
@@ -3009,7 +3084,7 @@ export function CodeWorkspace({
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [activeView, agentMenu, approvalMenuOpen, closeActiveComposerMenus, closeDeleteWorktreeDialog, closeKillDialog, closeRenameDialog, agentSessionMenu, deleteWorktreeDialog, dialogOpen, focusAgentRow, focusAgentSessionRow, focusComposerTextarea, focusProjectTitle, focusWorkspaceFilesSearch, handleContextMenuNavigation, killDialog, keyboardShortcutsEnabled, modelMenuOpen, navigateWorkspaceHistory, optionsMenu, plusMenuOpen, projectFileSearchAgent, projectMenu, renameDialog, clearSearch, onWorkspaceViewChange, openSearch])
+  }, [activeView, agentMenu, approvalMenuOpen, closeActiveComposerMenus, closeDeleteWorktreeDialog, closeKillDialog, closeRenameDialog, agentSessionMenu, deleteWorktreeDialog, dialogOpen, focusAgentRow, focusAgentSessionRow, focusComposerTextarea, focusProjectTitle, focusWorkspaceFilesSearch, handleContextMenuNavigation, killDialog, keyboardShortcutsEnabled, modelMenuOpen, navigateWorkspaceHistory, optionsMenu, plusMenuOpen, projectFileSearchAgent, projectFileSearchAgentForShortcutTarget, projectMenu, renameDialog, clearSearch, onWorkspaceViewChange, openSearch])
 
   useEffect(() => {
     if (!renameDialog?.agentId) return
@@ -3424,7 +3499,6 @@ export function CodeWorkspace({
         openWorkspaceFiles={openWorkspaceFiles}
         fileRevealRequest={fileRevealRequest}
         fileSearchFocusRequest={fileSearchFocusRequest}
-        editorFileStateByAgent={editorFileStateByAgent}
         searchInputRef={searchInputRef}
         projectListRef={projectListRef}
         onNewAgent={startNewAgentFromSidebar}

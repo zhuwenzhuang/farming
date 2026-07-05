@@ -5,6 +5,8 @@ import type { CodeCopy } from '../code/copy'
 
 export interface OpenProjectFileSummary {
   agentId: string
+  workspaceRoot?: string
+  key: string
   path: string
   dirty?: boolean
   externalChanged?: boolean
@@ -16,7 +18,7 @@ interface OpenEditorsSectionProps {
   copy: CodeCopy
   files: OpenProjectFileSummary[]
   projectId: string
-  onCloseOpenFile?: (agentId: string, filePath: string) => void
+  onCloseOpenFile?: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onSelectOpenFile?: (agentId: string, filePath: string) => boolean
   onToggleCollapsed: () => void
 }
@@ -57,7 +59,7 @@ export function OpenEditorsSection({
             const changeIndicator = workspaceWorkingCopyChangeIndicator(file)
             return (
               <div
-                key={`${file.agentId}:${file.path}`}
+                key={file.key}
                 className={`code-open-editor-row ${active ? 'active' : ''}`}
                 data-testid="code-open-editor-row"
                 title={file.path}
@@ -80,7 +82,7 @@ export function OpenEditorsSection({
                     className="code-open-editor-close"
                     aria-label={copy.closeFile(file.path)}
                     title={copy.closeFile(file.path)}
-                    onClick={() => onCloseOpenFile(file.agentId, file.path)}
+                    onClick={() => onCloseOpenFile(file.agentId, file.path, file.workspaceRoot)}
                   />
                 )}
               </div>

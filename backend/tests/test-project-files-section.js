@@ -136,9 +136,11 @@ function run() {
 	      workspaceSource.includes('fileRevealRequest') &&
 	      workspaceSource.includes('fileSearchFocusRequest') &&
 	      workspaceSource.includes('projectFileSearchAgent') &&
+	      workspaceSource.includes('projectFileSearchAgentForShortcutTarget') &&
 	      workspaceSource.includes('return activeAgents.find(agent => !agent.isMain) ?? null') &&
 	      workspaceSource.includes("event.key.toLowerCase() === 'p'") &&
-	      workspaceSource.includes('focusWorkspaceFilesSearch(projectFileSearchAgent.id)') &&
+	      workspaceSource.includes('isNativeTextEditingShortcutTarget(target)') &&
+	      workspaceSource.includes('focusWorkspaceFilesSearch(targetProjectFileSearchAgent.id)') &&
 	      workspaceSource.includes("window.addEventListener('keydown', handleKeyDown, true)") &&
 	      workspaceSource.includes('revealWorkspaceFileInExplorer') &&
 	      workspaceSource.includes('setSidebarCollapsed(false)') &&
@@ -161,7 +163,7 @@ function run() {
 	      workspaceSource.includes('workspaceOpenFiles.updateDraft(nextDraft)') &&
 	      workspaceSource.includes('workspaceOpenFiles.move(agentId, moves)') &&
 	      workspaceSource.includes('workspaceOpenFiles.deleteEntries(agentId, deletions)') &&
-	      workspaceSource.includes('workspaceOpenFiles.closedFiles') &&
+	      openFilesHookSource.includes('closedFiles,') &&
 	      openFilesHookSource.includes('export function useWorkspaceOpenFiles') &&
 	      openFilesHookSource.includes('const stateRef = useRef(state)') &&
 	      openFilesHookSource.includes('openWorkspaceFileFromRead(stateRef.current, agentId, file, options)') &&
@@ -175,7 +177,7 @@ function run() {
 	      openFilesSource.includes('workspaceFileCacheKey') &&
 	      openFilesSource.includes('interface WorkspaceFileCursor') &&
 	      openFilesSource.includes('function refreshOpenWorkspaceFileFromRead') &&
-	      openFilesSource.includes('const existingFile = findOpenWorkspaceFile(state.files, agentId, file.path)') &&
+	      openFilesSource.includes('const existingFile = findOpenWorkspaceFile(state.files, agentId, file.path, request.workspaceRoot)') &&
 	      openFilesSource.includes('refreshOpenWorkspaceFileFromRead(existingFile, file)') &&
 	      openFilesSource.includes("view?: 'editor' | 'diff'") &&
 	      openFilesSource.includes('function workspaceOpenFileRequestForTarget') &&
@@ -190,18 +192,20 @@ function run() {
 	      openFilesSource.includes('if (file.dirty)') &&
 	      openFilesSource.includes('const targetKeys = new Set') &&
 	      workspaceSource.includes('onCloseOpenWorkspaceFiles={closeOpenWorkspaceFiles}') &&
-	      openFilesSource.includes('closedFileCache.delete(workspaceFileCacheKey(nextFile.agentId, nextFile.file.path))') &&
+	      openFilesSource.includes('closedFileCache.delete(workspaceOpenFileKey(nextFile))') &&
 	      openFilesSource.includes('applyWorkspaceFileMovesToOpenFileCache') &&
 	      openFilesSource.includes('removeWorkspaceFileDeletionsFromOpenFileCache') &&
-	      workspaceSource.includes('editorFileStateByAgent') &&
+	      !workspaceSource.includes('editorFileStateByAgent') &&
+	      workspaceSource.includes('projectEditorDirtyFilePaths') &&
+	      workspaceSource.includes('projectEditorExternalChangedFilePaths') &&
 	      operationSource.includes('const nextCache = new Map<string, T>()') &&
 	      workspaceSource.includes('const projectFileAgent = project.agents.find(agent => !agent.isMain) ?? null') &&
 	      workspaceSource.includes('const showProjectFiles = project.id !== MAIN_AGENT_PROJECT_ID && projectFileAgent !== null') &&
 	      workspaceSource.includes('{showProjectFiles && projectFileAgent && (') &&
-	      workspaceSource.includes('revealRequest={fileRevealRequest?.agentId === projectFileAgent.id ? fileRevealRequest : undefined}') &&
-	      workspaceSource.includes('focusSearchRequest={fileSearchFocusRequest?.agentId === projectFileAgent.id ? fileSearchFocusRequest : undefined}') &&
-	      workspaceSource.includes('editorDirtyFilePaths={editorFileStateByAgent.dirty.get(projectFileAgent.id)}') &&
-	      workspaceSource.includes('editorExternalChangedFilePaths={editorFileStateByAgent.externalChanged.get(projectFileAgent.id)}') &&
+	      workspaceSource.includes('revealRequest={fileRevealRequest && projectFileAgentIds.has(fileRevealRequest.agentId) ? fileRevealRequest : undefined}') &&
+	      workspaceSource.includes('focusSearchRequest={fileSearchFocusRequest && projectFileAgentIds.has(fileSearchFocusRequest.agentId) ? fileSearchFocusRequest : undefined}') &&
+	      workspaceSource.includes('editorDirtyFilePaths={projectEditorDirtyFilePaths}') &&
+	      workspaceSource.includes('editorExternalChangedFilePaths={projectEditorExternalChangedFilePaths}') &&
 	      workspaceSource.includes('className="code-project-expanded"') &&
 	      !workspaceSource.includes('recentEditorSaveRef') &&
 	      !workspaceSource.includes('watchWorkspaceFiles={watchWorkspaceFiles}') &&
@@ -595,8 +599,8 @@ function run() {
 			      fileTreeKeyboardHookSource.includes('focusedPath: focusedNode?.data.path') &&
 		      fileTreeKeyboardHookSource.includes('openDirectoryNode(node)') &&
 		      fileTreeKeyboardHookSource.includes('node.open()') &&
-		      fileTreeRowInteractionsSource.includes('treeRef.current?.open(item.path)') &&
-		      fileTreeRowInteractionsSource.includes('treeRef.current?.close(item.path)') &&
+		      fileTreeRowInteractionsSource.includes('node.open()') &&
+		      fileTreeRowInteractionsSource.includes('node.close()') &&
 	      fileTreeKeyboardHookSource.includes('firstChild.select()') &&
       fileTreeKeyboardHookSource.includes("event.key === 'ArrowLeft'") &&
 	      fileTreeKeyboardHookSource.includes('closeDirectoryNode(node.data.path, node)') &&
@@ -877,7 +881,7 @@ function run() {
 		      fileTreeKeyboardHookSource.includes("activationIntent === 'close-directory'") &&
 		      fileTreeKeyboardHookSource.includes("activationIntent === 'open-file'") &&
 		      fileTreeKeyboardHookSource.includes('void openFilePath(node.data.path)') &&
-	      fileTreeRowInteractionsSource.includes('void onOpenFilePath(item.path)') &&
+	      fileTreeRowInteractionsSource.includes('void onOpenFilePath(item.path, { transient: true })') &&
 	      !fileSectionSource.includes('onActivate={node =>') &&
 	      fileStickyContextSource.includes('code-file-sticky-row') &&
       !fileSectionSource.includes('aria-expanded="true"') &&
@@ -1115,7 +1119,7 @@ function run() {
 		      editorModelSource.includes("WORKSPACE_EDITOR_MODEL_URI_SCHEME = 'farming-file'") &&
 	      editorMonacoSource.includes('function workspaceEditorModelUriForFile') &&
 	      editorMonacoSource.includes('workspaceEditorModelUriParts(file)') &&
-	      editorModelSource.includes('authority: safeWorkspaceEditorDomIdPart(file.agentId)') &&
+	      editorModelSource.includes('authority: safeWorkspaceEditorDomIdPart(file.workspaceRoot || file.agentId)') &&
 	      editorModelSource.includes("path: `/${file.file.path.replace(/^\\/+/, '')}`") &&
 	      editorMonacoControllerSource.includes('editor.saveViewState()') &&
 	      editorMonacoControllerSource.includes('editor.restoreViewState(viewState)') &&

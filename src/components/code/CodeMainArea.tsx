@@ -3,7 +3,7 @@ import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import type { TerminalInputPart } from '@/types/messages'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import { AgentTerminalPane } from '../AgentTerminalPane'
-import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
+import type { OpenWorkspaceFile, WorkspaceOpenFileTarget } from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
 import { CodeComposer } from './CodeComposer'
 import { HistoryPanel } from './HistoryPanel'
@@ -138,8 +138,8 @@ interface CodeMainAreaProps {
   onChangeWorkspaceFileDraft: (draft: string) => void
   onUpdateOpenWorkspaceFile: (nextFile: OpenWorkspaceFile) => void
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
-  onCloseOpenWorkspaceFile: (agentId: string, filePath: string) => void
-  onCloseOpenWorkspaceFiles: (targets: Array<{ agentId: string; filePath: string }>) => void
+  onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
+  onCloseOpenWorkspaceFiles: (targets: WorkspaceOpenFileTarget[]) => void
   onRevealWorkspaceFileInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
   onFocusWorkspaceFilesSearch: (agentId: string) => void
   onRecordWorkspaceNavigationCursor: (input: WorkspaceNavigationFileInput) => void

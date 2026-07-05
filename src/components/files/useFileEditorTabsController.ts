@@ -20,7 +20,7 @@ import {
   workspaceEditorBasename as basename,
   workspaceEditorModelKey as openFileKey,
 } from '@/lib/workspace-editor-model'
-import type { OpenWorkspaceFile, WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
+import type { OpenWorkspaceFile, WorkspaceFileOpenTarget, WorkspaceOpenFileTarget } from '@/lib/workspace-open-files'
 
 export interface FileEditorTabContextMenuState {
   x: number
@@ -33,8 +33,8 @@ interface UseFileEditorTabsControllerOptions {
   openFiles: OpenWorkspaceFile[]
   filesLabel: string
   onSelectOpenFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
-  onCloseOpenFile: (agentId: string, filePath: string) => void
-  onCloseOpenFiles: (targets: Array<{ agentId: string; filePath: string }>) => void
+  onCloseOpenFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
+  onCloseOpenFiles: (targets: WorkspaceOpenFileTarget[]) => void
   onDismissEditorContextMenu: () => void
   onSaveOpenFile: (file: OpenWorkspaceFile, overwrite?: boolean) => Promise<boolean>
 }
@@ -76,11 +76,11 @@ export function useFileEditorTabsController({
 
   const completeCloseFiles = useCallback((files: OpenWorkspaceFile[], nextFocusFile: OpenWorkspaceFile | null) => {
     if (files.length === 0) return
-    const targets = files.map(file => ({ agentId: file.agentId, filePath: file.file.path }))
+    const targets = files.map(file => ({ agentId: file.agentId, filePath: file.file.path, workspaceRoot: file.workspaceRoot }))
     pendingTabFocusRef.current = nextFocusFile ? openFileKey(nextFocusFile) : null
     if (targets.length === 1) {
       const target = targets[0]
-      if (target) onCloseOpenFile(target.agentId, target.filePath)
+      if (target) onCloseOpenFile(target.agentId, target.filePath, target.workspaceRoot)
       return
     }
     onCloseOpenFiles(targets)

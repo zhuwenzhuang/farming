@@ -48,7 +48,7 @@ function canShowDiffEditor(diffState: FileEditorDiffState) {
 function diffModelUri(openFile: OpenWorkspaceFile, side: 'original' | 'modified') {
   return monaco.Uri.from({
     scheme: 'farming-diff',
-    authority: openFile.agentId.replace(/[^a-zA-Z0-9_-]+/g, '-') || 'agent',
+    authority: (openFile.workspaceRoot || openFile.agentId).replace(/[^a-zA-Z0-9_-]+/g, '-') || 'agent',
     path: `/${openFile.file.path.replace(/^\/+/, '')}`,
     query: side,
   })

@@ -386,9 +386,13 @@ test.describe('display-backed agent flows', () => {
     if (!terminalPathCell) {
       throw new Error('Terminal path fixture cell is missing')
     }
-    await modifierClick(page, terminalPathCell.x, terminalPathCell.y)
+    await expect.poll(async () => page.evaluate(({ agentId, col, row }) => (
+      window.__farmingTerminalTest?.getPathAtCell(agentId, col, row)?.path ?? null
+    ), { agentId: childAgentId, col: terminalPathCol, row: terminalPathRow })).toBe('README.md')
+    await page.mouse.click(terminalPathCell.x, terminalPathCell.y)
     await expect(page.getByTestId('code-file-editor')).toBeVisible()
     await expect(activeFileTabName(page)).toHaveText('README.md')
+    await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'README.md' })).toHaveCount(1)
     await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 4, Col 1')
     const openEditors = childProject.getByTestId('code-open-editors')
     await expect(openEditors).toBeVisible()
@@ -442,9 +446,13 @@ test.describe('display-backed agent flows', () => {
     if (!absolutePathCell) {
       throw new Error('Absolute terminal path fixture cell is missing')
     }
-    await modifierClick(page, absolutePathCell.x, absolutePathCell.y)
+    await expect.poll(async () => page.evaluate(({ agentId, col, row }) => (
+      window.__farmingTerminalTest?.getPathAtCell(agentId, col, row)?.path ?? null
+    ), { agentId: childAgentId, col: absolutePathHit.col, row: absolutePathHit.row })).toContain('README.md')
+    await page.mouse.click(absolutePathCell.x, absolutePathCell.y)
     await expect(page.getByTestId('code-file-editor')).toBeVisible()
     await expect(activeFileTabName(page)).toHaveText('README.md')
+    await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'README.md' })).toHaveCount(1)
     await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 3, Col 1')
 
     await page.getByTestId('code-file-editor-back').click()
@@ -668,9 +676,7 @@ test.describe('display-backed agent flows', () => {
     await page.getByRole('button', { name: 'Save file' }).click()
     await expect(page.getByRole('button', { name: 'Save file' })).toHaveCount(0)
     await expect.poll(() => fs.readFileSync(path.join(childWorkspace, 'README.md'), 'utf8')).toContain(shortcutSaveMarker)
-    const readmeChangeRow = childFiles.getByRole('button', { name: 'Open diff for README.md' })
-    await expect(readmeChangeRow).toBeVisible()
-    await readmeChangeRow.click()
+    await page.getByRole('button', { name: 'Open File Diff' }).click()
     await expect(page.getByTestId('code-file-diff-view')).toBeVisible()
     await expect(page.getByTestId('code-file-diff-monaco')).toBeVisible()
     await page.getByTestId('code-file-diff-view').getByRole('button', { name: 'Close diff' }).click()
@@ -682,6 +688,15 @@ test.describe('display-backed agent flows', () => {
     const readmeRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="README.md"]')
     await expect(readmeRow).toBeVisible()
     await expect(readmeRow).toHaveClass(/active/)
+    const queryRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="query.sql"]')
+    const transientDeleteRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="delete-me.txt"]')
+    await queryRow.click()
+    await expect(activeFileTabName(page)).toHaveText('query.sql')
+    await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'query.sql' })).toHaveCount(1)
+    await transientDeleteRow.click()
+    await expect(activeFileTabName(page)).toHaveText('delete-me.txt')
+    await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'query.sql' })).toHaveCount(0)
+    await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'README.md' })).toHaveCount(1)
 
     await fileSearchInput.fill('')
     await fileTree.evaluate(element => {

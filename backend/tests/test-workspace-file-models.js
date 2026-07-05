@@ -159,7 +159,9 @@ function workingCopy(overrides = {}) {
 
 function run() {
   assert.strictEqual(workspaceFileCacheKey('agent-1', 'src/App.tsx'), 'agent-1:src/App.tsx');
+  assert.strictEqual(workspaceFileCacheKey('agent-1', 'src/App.tsx', '/repo'), '/repo:src/App.tsx');
   assert.strictEqual(workspaceWorkingCopyKey(workingCopy()), 'agent-1:src/App.tsx');
+  assert.strictEqual(workspaceWorkingCopyKey(workingCopy({ workspaceRoot: '/repo' })), '/repo:src/App.tsx');
 
   assert.strictEqual(workspaceWorkingCopyState(workingCopy()), 'saved');
   assert.strictEqual(workspaceWorkingCopyState(workingCopy({ dirty: true })), 'dirty');
@@ -179,6 +181,7 @@ function run() {
     },
     diffRequestId: undefined,
     diffOnly: undefined,
+    transient: undefined,
   });
   assert.deepStrictEqual(workspaceOpenFileRequestForTarget({
     view: 'diff',
@@ -188,6 +191,15 @@ function run() {
     cursor: undefined,
     diffRequestId: 9,
     diffOnly: true,
+    transient: undefined,
+  });
+  assert.deepStrictEqual(workspaceOpenFileRequestForTarget({
+    transient: true,
+  }, { cursorRequestId: 7, diffRequestId: 9 }), {
+    cursor: undefined,
+    diffRequestId: undefined,
+    diffOnly: undefined,
+    transient: true,
   });
   assert.deepStrictEqual(deletedWorkspaceDiffPlaceholderFile('src/deleted.ts', {
     view: 'diff',

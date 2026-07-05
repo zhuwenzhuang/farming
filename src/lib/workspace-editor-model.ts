@@ -26,6 +26,7 @@ const MARKDOWN_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd'])
 
 export interface WorkspaceEditorFileReference {
   agentId: string
+  workspaceRoot?: string
   file: Pick<WorkspaceFile, 'path' | 'sha1' | 'size' | 'mtimeMs'>
 }
 
@@ -140,7 +141,7 @@ export function safeWorkspaceEditorDomIdPart(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]+/g, '-') || 'file'
 }
 
-export function workspaceEditorModelKey(file: Pick<WorkspaceEditorFileReference, 'agentId' | 'file'>) {
+export function workspaceEditorModelKey(file: Pick<WorkspaceEditorFileReference, 'agentId' | 'file' | 'workspaceRoot'>) {
   return workspaceWorkingCopyKey(file)
 }
 
@@ -148,10 +149,10 @@ export function workspaceEditorModelContentVersion(file: WorkspaceEditorFileRefe
   return `${workspaceEditorModelKey(file)}:${file.file.sha1 || ''}:${file.file.size ?? ''}:${file.file.mtimeMs ?? ''}`
 }
 
-export function workspaceEditorModelUriParts(file: Pick<WorkspaceEditorFileReference, 'agentId' | 'file'>) {
+export function workspaceEditorModelUriParts(file: Pick<WorkspaceEditorFileReference, 'agentId' | 'file' | 'workspaceRoot'>) {
   return {
     scheme: WORKSPACE_EDITOR_MODEL_URI_SCHEME,
-    authority: safeWorkspaceEditorDomIdPart(file.agentId),
+    authority: safeWorkspaceEditorDomIdPart(file.workspaceRoot || file.agentId),
     path: `/${file.file.path.replace(/^\/+/, '')}`,
   }
 }
@@ -182,7 +183,7 @@ export function shouldDisposeWorkspaceEditorModelUri(
   return isWorkspaceEditorModelUri(uri) && !liveModelUris.has(uri.toString())
 }
 
-export function workspaceEditorTabDomId(file: Pick<WorkspaceEditorFileReference, 'agentId' | 'file'>) {
+export function workspaceEditorTabDomId(file: Pick<WorkspaceEditorFileReference, 'agentId' | 'file' | 'workspaceRoot'>) {
   return `code-file-editor-tab-${safeWorkspaceEditorDomIdPart(workspaceEditorModelKey(file))}`
 }
 

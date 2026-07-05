@@ -43,15 +43,15 @@ export function FileEditorTabs({
       <button
         type="button"
         className="code-file-editor-action back code-file-editor-tab-back"
-        onClick={() => onBackToAgent(openFile.agentId)}
+        onClick={() => onBackToAgent(openFile.sourceAgentId ?? openFile.agentId)}
         aria-label={copy.back}
         title={copy.back}
         data-testid="code-file-editor-back"
       />
       <div className="code-file-editor-tabs" role="tablist">
         {openFiles.map((file, index) => {
-          const active = file.agentId === openFile.agentId && file.file.path === openFile.file.path
           const tabKey = openFileKey(file)
+          const active = tabKey === openFileKey(openFile)
           const tabStateClass = workspaceWorkingCopyTabClass(file)
           const changeIndicator = workspaceWorkingCopyChangeIndicator(file)
           return (

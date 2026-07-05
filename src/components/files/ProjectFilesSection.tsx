@@ -36,7 +36,7 @@ interface ProjectFilesSectionProps {
   openFiles?: OpenProjectFileSummary[]
   onOpenFile: (agentId: string, file: WorkspaceFile, target?: WorkspaceFileOpenTarget) => void
   onSelectOpenFile?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
-  onCloseOpenFile?: (agentId: string, filePath: string) => void
+  onCloseOpenFile?: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
   onDeleteEntries: (agentId: string, deletions: WorkspaceFileDeleteResult[]) => void
   copy: CodeCopy

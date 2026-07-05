@@ -4,6 +4,7 @@ import { workspaceFileCacheKey } from './workspace-working-copy'
 
 export interface WorkspaceOpenFileReference {
   agentId: string
+  workspaceRoot?: string
   file: { path: string }
   externalChanged: boolean
   error: string | null
@@ -80,7 +81,7 @@ export function applyWorkspaceFileMovesToOpenFileCache<T extends WorkspaceOpenFi
   const nextCache = new Map<string, T>()
   for (const file of files) {
     const movedFile = applyWorkspaceFileMovesToOpenFile(file, agentId, moves)
-    nextCache.set(workspaceFileCacheKey(movedFile.agentId, movedFile.file.path), movedFile)
+    nextCache.set(workspaceFileCacheKey(movedFile.agentId, movedFile.file.path, movedFile.workspaceRoot), movedFile)
   }
   return nextCache
 }
@@ -110,7 +111,7 @@ export function removeWorkspaceFileDeletionsFromOpenFileCache<T extends Workspac
   const nextCache = new Map<string, T>()
   for (const file of files) {
     if (!workspaceFileDeletionMatchesOpenFile(file, agentId, deletions)) {
-      nextCache.set(workspaceFileCacheKey(file.agentId, file.file.path), file)
+      nextCache.set(workspaceFileCacheKey(file.agentId, file.file.path, file.workspaceRoot), file)
     }
   }
   return nextCache

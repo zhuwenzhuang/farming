@@ -237,7 +237,7 @@ export function workspaceEditorLanguageForPath(filePath: string, content?: strin
   return languageForWorkspaceFile(filePath, content, getMonacoLanguageMetadata())
 }
 
-export function workspaceEditorModelUriForFile(file: Pick<OpenWorkspaceFile, 'agentId' | 'file'>) {
+export function workspaceEditorModelUriForFile(file: Pick<OpenWorkspaceFile, 'agentId' | 'file' | 'workspaceRoot'>) {
   return monaco.Uri.from(workspaceEditorModelUriParts(file))
 }
 
