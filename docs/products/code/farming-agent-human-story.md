@@ -60,13 +60,8 @@ Goal: open an existing project and complete a real terminal-backed edit.
 Expected behavior:
 
 - New project agents start in the chosen project directory.
-- Shell terminal output keeps the controlled prompt format:
-
-  ```text
-  [user@host ~/project]
-  $
-  ```
-
+- Shell terminal output preserves the user's bash / zsh prompt while Farming shell integration emits invisible busy and cwd markers.
+- `FARMING_SHELL_CONTROLLED_PROMPT=1` or `FARMING_ANONYMIZE_SHELL_PROMPT=1` may still use the compact controlled prompt for screenshots and privacy-sensitive runs.
 - ANSI color escape sequences are preserved so the terminal renderer can display prompt color.
 
 ## Story 4: Read Older Terminal Output
@@ -105,4 +100,4 @@ npx playwright test tests/e2e/human-story.spec.ts
 - `/farming/` can load static HTML while still feeling unusable if WebSocket is not connected; the story checks enabled agent choices, not just HTTP 200.
 - Recent Codex Desktop sessions were written by Codex `0.142.x`, while PATH could resolve an older global `codex` binary. Farming now records Codex session `cli_version`, prefers a compatible Codex executable, and returns a clear update error instead of launching an incompatible resume.
 - `codex resume` now includes the original session cwd via `-C <cwd>`, so workspace-specific resume and hooks behavior match the original project.
-- Resolving `bash` to `/bin/bash` used to bypass Farming's controlled prompt setup. Shell detection now uses the executable basename, preserving brackets and colors.
+- Resolving `bash` to `/bin/bash` used to bypass Farming shell integration. Shell detection now uses the executable basename, so absolute bash / zsh paths still get prompt-preserving busy and cwd markers.

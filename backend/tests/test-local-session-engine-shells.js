@@ -27,11 +27,14 @@ function run() {
   assert.strictEqual(bashOptions.env.COLORTERM, 'truecolor');
   assert.strictEqual(bashOptions.env.CLICOLOR, '1');
   assert.strictEqual(bashOptions.env.NO_COLOR, undefined);
-  assert.ok(bashOptions.env.PS1.includes('\\[\\e[32m\\]\\u@\\h'));
-  assert.ok(bashOptions.env.PS1.includes('\\[\\e[34m\\]\\w'));
-  assert.ok(bashOptions.env.PS1.includes('\\[\\e[90m\\]['));
-  assert.ok(bashOptions.env.PS1.includes('\\[\\e[90m\\]]'));
-  assert.ok(!bashOptions.env.PS1.includes('\n'), 'bash prompt should stay compact instead of adding a terminal title row');
+  assert.strictEqual(bashOptions.env.PS1, undefined, 'bash shell agents should preserve the user prompt by default');
+  const bashRc = fs.readFileSync(bashOptions.args[1], 'utf8');
+  assert.ok(bashRc.includes('. "$HOME/.bashrc"'), 'bash shell agents should load the user bashrc before installing markers');
+  if (process.platform === 'darwin') {
+    assert.ok(bashRc.includes('. "$HOME/.bash_profile"'), 'macOS bash shell agents should load the user login profile like the local terminal');
+  }
+  assert.ok(bashRc.includes('PROMPT_COMMAND=__farming_shell_prompt'));
+  assert.ok(bashRc.includes('__farming_original_prompt_command=("${PROMPT_COMMAND[@]}")'));
   assert.strictEqual(bashOptions.env.BASH_SILENCE_DEPRECATION_WARNING, '1');
   cleanupShellBusyIntegration(bashOptions.shellBusyIntegration);
 
@@ -43,7 +46,7 @@ function run() {
   });
   assert.strictEqual(absoluteBashOptions.args[0], '--rcfile', 'absolute bash executable paths should keep the temporary integration rcfile');
   assert.strictEqual(absoluteBashOptions.args[2], '-i');
-  assert.ok(absoluteBashOptions.env.PS1.includes('\\[\\e[90m\\]['));
+  assert.strictEqual(absoluteBashOptions.env.PS1, undefined);
   cleanupShellBusyIntegration(absoluteBashOptions.shellBusyIntegration);
 
   const anonymousBashOptions = normalizeShellSessionOptions({
@@ -56,6 +59,8 @@ function run() {
   });
   assert.ok(!anonymousBashOptions.env.PS1.includes('\\u@\\h'), 'anonymous bash prompt should hide user and host');
   assert.ok(!anonymousBashOptions.env.PS1.includes('\\w'), 'anonymous bash prompt should hide cwd');
+  const anonymousBashRc = fs.readFileSync(anonymousBashOptions.args[1], 'utf8');
+  assert.ok(!anonymousBashRc.includes('. "$HOME/.bashrc"'), 'anonymous bash prompt should not source private shell startup files');
   cleanupShellBusyIntegration(anonymousBashOptions.shellBusyIntegration);
 
   const zshOptions = normalizeShellSessionOptions({
@@ -67,12 +72,12 @@ function run() {
 
   assert.deepStrictEqual(zshOptions.args, ['-i'], 'zsh shell agents should use an isolated ZDOTDIR integration rcfile');
   assert.ok(zshOptions.env.ZDOTDIR, 'zsh shell agents should point at a temporary ZDOTDIR');
-  assert.ok(zshOptions.env.PROMPT.includes('%F{2}%n@%m'));
-  assert.ok(zshOptions.env.PROMPT.includes('%F{4}%~'));
-  assert.ok(zshOptions.env.PROMPT.includes('%F{8}['));
-  assert.ok(zshOptions.env.PROMPT.includes('%F{8}]'));
-  assert.ok(!zshOptions.env.PROMPT.includes('\n'), 'zsh prompt should stay compact instead of adding a terminal title row');
-  assert.strictEqual(zshOptions.env.PS1, zshOptions.env.PROMPT);
+  assert.strictEqual(zshOptions.env.PROMPT, undefined, 'zsh shell agents should preserve the user prompt by default');
+  assert.strictEqual(zshOptions.env.PS1, undefined);
+  const zshRc = fs.readFileSync(`${zshOptions.env.ZDOTDIR}/.zshrc`, 'utf8');
+  assert.ok(zshRc.includes('. "${USER_ZDOTDIR:-$HOME}/.zshrc"'), 'zsh shell agents should load the user zshrc before installing markers');
+  assert.ok(zshRc.includes('add-zsh-hook preexec __farming_shell_preexec'));
+  assert.ok(zshRc.includes('add-zsh-hook precmd __farming_shell_precmd'));
   cleanupShellBusyIntegration(zshOptions.shellBusyIntegration);
 
   const anonymousZshOptions = normalizeShellSessionOptions({

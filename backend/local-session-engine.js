@@ -106,16 +106,24 @@ function normalizeShellSessionOptions(options) {
   }
 
   const shellName = path.basename(options.command || '');
+  const useControlledPrompt = normalized.env.FARMING_SHELL_CONTROLLED_PROMPT === '1'
+    || normalized.env.FARMING_ANONYMIZE_SHELL_PROMPT === '1';
   const useAnonymousPrompt = normalized.env.FARMING_ANONYMIZE_SHELL_PROMPT === '1';
 
   if (shellName === 'bash') {
-    normalized.args = normalized.args.length > 0 ? normalized.args : ['--noprofile', '--norc', '-i'];
-    normalized.env.PS1 = useAnonymousPrompt ? CONTROLLED_ANON_BASH_PROMPT : CONTROLLED_BASH_PROMPT;
+    normalized.args = normalized.args.length > 0 ? normalized.args : [];
+    if (useControlledPrompt) {
+      normalized.env.FARMING_SHELL_CONTROLLED_PROMPT = '1';
+      normalized.env.PS1 = useAnonymousPrompt ? CONTROLLED_ANON_BASH_PROMPT : CONTROLLED_BASH_PROMPT;
+    }
     normalized.env.BASH_SILENCE_DEPRECATION_WARNING = normalized.env.BASH_SILENCE_DEPRECATION_WARNING || '1';
   } else if (shellName === 'zsh') {
-    normalized.args = normalized.args.length > 0 ? normalized.args : ['-f', '-i'];
-    normalized.env.PROMPT = useAnonymousPrompt ? CONTROLLED_ANON_ZSH_PROMPT : CONTROLLED_ZSH_PROMPT;
-    normalized.env.PS1 = normalized.env.PROMPT;
+    normalized.args = normalized.args.length > 0 ? normalized.args : [];
+    if (useControlledPrompt) {
+      normalized.env.FARMING_SHELL_CONTROLLED_PROMPT = '1';
+      normalized.env.PROMPT = useAnonymousPrompt ? CONTROLLED_ANON_ZSH_PROMPT : CONTROLLED_ZSH_PROMPT;
+      normalized.env.PS1 = normalized.env.PROMPT;
+    }
   }
 
   normalized.env.SHELL = normalized.env.SHELL || options.command || shellName;

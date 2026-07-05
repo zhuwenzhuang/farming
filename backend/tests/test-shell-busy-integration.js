@@ -73,6 +73,14 @@ function run() {
     assert.ok(fs.existsSync(bashOptions.args[1]));
     const bashRc = fs.readFileSync(bashOptions.args[1], 'utf8');
     assert.ok(bashRc.includes('Farming temporary shell busy integration'));
+    assert.ok(bashRc.includes('. "$HOME/.bashrc"'));
+    if (process.platform === 'darwin') {
+      assert.ok(bashRc.includes('. "$HOME/.bash_profile"'));
+      assert.ok(bashRc.includes('. "$HOME/.bash_login"'));
+      assert.ok(bashRc.includes('. "$HOME/.profile"'));
+    }
+    assert.ok(bashRc.includes('__farming_original_prompt_command=("${PROMPT_COMMAND[@]}")'));
+    assert.ok(bashRc.includes('__farming_in_prompt'), 'bash integration should avoid marking its own prompt hook as busy');
     assert.ok(bashRc.includes('FarmingShellStatus=finish'));
     assert.ok(bashRc.includes('file://%s%s'));
   } finally {
@@ -88,10 +96,12 @@ function run() {
   try {
     assert.deepStrictEqual(zshOptions.args, ['-i']);
     assert.ok(zshOptions.env.ZDOTDIR);
+    assert.ok(zshOptions.env.USER_ZDOTDIR);
     assert.ok(fs.existsSync(`${zshOptions.env.ZDOTDIR}/.zshrc`));
     const zshRc = fs.readFileSync(`${zshOptions.env.ZDOTDIR}/.zshrc`, 'utf8');
-    assert.ok(zshRc.includes('preexec()'));
-    assert.ok(zshRc.includes('precmd()'));
+    assert.ok(zshRc.includes('. "${USER_ZDOTDIR:-$HOME}/.zshrc"'));
+    assert.ok(zshRc.includes('add-zsh-hook preexec __farming_shell_preexec'));
+    assert.ok(zshRc.includes('add-zsh-hook precmd __farming_shell_precmd'));
     assert.ok(zshRc.includes('FarmingShellStatus=finish'));
   } finally {
     cleanupShellBusyIntegration(zshOptions.shellBusyIntegration);

@@ -60,13 +60,8 @@
 期望：
 
 - 新 project agent 在用户选择的目录启动。
-- Shell terminal 输出保留可控 prompt 形式：
-
-  ```text
-  [user@host ~/project]
-  $
-  ```
-
+- Shell terminal 输出保留用户自己的 bash / zsh prompt，同时 Farming shell integration 只注入不可见的 busy 和 cwd 标记。
+- `FARMING_SHELL_CONTROLLED_PROMPT=1` 或 `FARMING_ANONYMIZE_SHELL_PROMPT=1` 仍可用于截图或隐私场景下的紧凑可控 prompt。
 - ANSI color escape sequences 保留给 terminal renderer 渲染颜色。
 
 ## 故事 4：读取旧 terminal 输出
