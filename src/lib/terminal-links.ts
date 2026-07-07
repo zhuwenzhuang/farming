@@ -181,6 +181,13 @@ export function parseTerminalPathLinkAtColumn(lineText: string, col: number): Te
   )) ?? null
 }
 
+export function terminalTextColumnAtPixelOffset(offsetX: number, cellWidth: number, textLength: number) {
+  if (!Number.isFinite(offsetX) || !Number.isFinite(cellWidth) || !Number.isFinite(textLength)) return null
+  if (cellWidth <= 0 || textLength <= 0) return null
+  const col = Math.floor(offsetX / cellWidth)
+  return col >= 0 && col < textLength ? col : null
+}
+
 function rangesOverlap(aStart: number, aLength: number, bStart: number, bLength: number) {
   const aEnd = aStart + aLength
   const bEnd = bStart + bLength

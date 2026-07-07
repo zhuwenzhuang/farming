@@ -48,7 +48,7 @@ const BASIC_COMPOSER_CAPABILITIES: AgentComposerCapabilities = {
   modelPicker: false,
   reasoningEffort: false,
   serviceTier: false,
-  speechInput: false,
+  speechInput: true,
 }
 
 const CODING_AGENT_COMPOSER_CAPABILITIES: AgentComposerCapabilities = {

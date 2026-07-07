@@ -164,6 +164,17 @@ export interface CodeCopy {
   openMarkdownPreview: string
   showMarkdownSource: string
   markdownPreviewFor: (path: string) => string
+  markdownFrontMatter: string
+  markdownHeadingAnchor: string
+  mermaidDiagram: string
+  mermaidDiagramControls: string
+  mermaidRendering: string
+  mermaidRenderFailed: string
+  mermaidZoomIn: string
+  mermaidZoomOut: string
+  mermaidResetView: string
+  mermaidCopySource: string
+  mermaidCopiedSource: string
   fileDiff: string
   loadingDiff: string
   noFileDiff: string
@@ -393,6 +404,17 @@ const EN_COPY: CodeCopy = {
   openMarkdownPreview: 'Open Markdown preview',
   showMarkdownSource: 'Show Markdown source',
   markdownPreviewFor: path => `Markdown preview for ${path}`,
+  markdownFrontMatter: 'Front matter',
+  markdownHeadingAnchor: 'Link to heading',
+  mermaidDiagram: 'Mermaid diagram',
+  mermaidDiagramControls: 'Mermaid diagram controls',
+  mermaidRendering: 'Rendering diagram...',
+  mermaidRenderFailed: 'Unable to render Mermaid diagram',
+  mermaidZoomIn: 'Zoom in',
+  mermaidZoomOut: 'Zoom out',
+  mermaidResetView: 'Reset view',
+  mermaidCopySource: 'Copy Mermaid source',
+  mermaidCopiedSource: 'Copied Mermaid source',
   fileDiff: 'File Diff',
   loadingDiff: 'Loading diff...',
   noFileDiff: 'No file changes.',
@@ -658,6 +680,17 @@ const ZH_COPY: CodeCopy = {
   openMarkdownPreview: '打开 Markdown 预览',
   showMarkdownSource: '显示 Markdown 源码',
   markdownPreviewFor: path => `${path} 的 Markdown 预览`,
+  markdownFrontMatter: 'Front matter',
+  markdownHeadingAnchor: '跳转到这个标题',
+  mermaidDiagram: 'Mermaid 图表',
+  mermaidDiagramControls: 'Mermaid 图表控制',
+  mermaidRendering: '正在渲染图表...',
+  mermaidRenderFailed: '无法渲染 Mermaid 图表',
+  mermaidZoomIn: '放大',
+  mermaidZoomOut: '缩小',
+  mermaidResetView: '重置视图',
+  mermaidCopySource: '复制 Mermaid 源码',
+  mermaidCopiedSource: '已复制 Mermaid 源码',
   fileDiff: '文件 Diff',
   loadingDiff: '正在加载 Diff...',
   noFileDiff: '文件没有变化。',

@@ -1683,8 +1683,12 @@ function run() {
       stylesSource.includes('.code-file-editor-close') &&
       stylesSource.includes('.code-file-editor-close::before') &&
       stylesSource.includes('.code-file-editor-close::after') &&
-      stylesSource.includes('.code-file-editor-action.diff::before') &&
-      stylesSource.includes('.code-file-editor-action.diff::after') &&
+      editorActionsSource.includes('function DiffIcon()') &&
+      editorActionsSource.includes('M5.5 2H2.5C1.673 2 1 2.673 1 3.5V12.5') &&
+      editorActionsSource.includes('<DiffIcon />') &&
+      stylesSource.includes('.code-file-editor-action .code-file-editor-action-svg') &&
+      !stylesSource.includes('.code-file-editor-action.diff::before') &&
+      !stylesSource.includes('.code-file-editor-action.diff::after') &&
       stylesSource.includes('.code-file-editor-action.reload::before') &&
       stylesSource.includes('.code-file-editor-action.reload::after') &&
       !stylesSource.includes('.code-file-editor-action.blame::before') &&

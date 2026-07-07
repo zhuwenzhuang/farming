@@ -4,6 +4,7 @@ async function run() {
   const {
     collectTerminalLinkMatches,
     parseTerminalUrlAtColumn,
+    terminalTextColumnAtPixelOffset,
     trimTerminalUrl,
   } = await import('../../src/lib/terminal-links.ts');
 
@@ -21,6 +22,17 @@ async function run() {
     'terminal URL hit testing should keep underscore query parameters'
   );
   assert.strictEqual(trimTerminalUrl(`${reviewUrl}.`), reviewUrl);
+
+  assert.strictEqual(
+    terminalTextColumnAtPixelOffset(35, 10, 8),
+    3,
+    'terminal DOM fallback should map mouse offsets inside rendered text'
+  );
+  assert.strictEqual(
+    terminalTextColumnAtPixelOffset(85, 10, 8),
+    null,
+    'terminal DOM fallback should not clamp row-end whitespace onto the final path character'
+  );
 
   console.log('✓ Terminal links detect boxed code-review URLs');
 }

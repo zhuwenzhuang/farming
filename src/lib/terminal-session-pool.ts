@@ -19,6 +19,7 @@ import {
   parseTerminalUrlAtColumn,
   readUrlContinuationPrefix,
   shouldReadUrlContinuation,
+  terminalTextColumnAtPixelOffset,
   terminalLinkMatchRange,
 } from '@/lib/terminal-links'
 import type { TerminalLinkHoverTarget, TerminalLinkMatch, TerminalPathOpenTarget } from '@/lib/terminal-links'
@@ -1384,10 +1385,8 @@ function readDomTerminalLineAtMouseEvent(record: SessionRecord, event: MouseEven
   const text = (row.textContent || '').trimEnd()
   if (!text) return null
 
-  const col = Math.max(0, Math.min(
-    Math.floor((event.clientX - rowRect.left) / metrics.width),
-    Math.max(0, text.length - 1),
-  ))
+  const col = terminalTextColumnAtPixelOffset(event.clientX - rowRect.left, metrics.width, text.length)
+  if (col === null) return null
   return { text, col }
 }
 
@@ -1764,15 +1763,19 @@ function clearNativeSelectionInside(hostEl: HTMLElement) {
   selection.removeAllRanges()
 }
 
-function resetTransientTerminalUi(record: SessionRecord) {
-  hideTerminalContextMenu(record)
-  clearTerminalOpenTargetState(record)
+function clearTerminalSelectionState(record: SessionRecord) {
   record.cachedSelection = ''
   record.contextMenuSelection = ''
   record.lastNonEmptySelection = ''
   record.dragSelection = null
   record.terminal.clearTerminalSelection?.()
   clearNativeSelectionInside(record.hostEl)
+}
+
+function resetTransientTerminalUi(record: SessionRecord) {
+  hideTerminalContextMenu(record)
+  clearTerminalOpenTargetState(record)
+  clearTerminalSelectionState(record)
 }
 
 function repairTerminalAfterAttach(record: SessionRecord) {
@@ -2614,6 +2617,10 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     if (isMobileViewport() || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey) return
     const pathLink = record.pathOpenHandler ? readTerminalPathLinkAtMouseEvent(record, event) : null
     if (!pathLink?.pathTarget) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.stopImmediatePropagation()
+    clearTerminalSelectionState(record)
     record.openTargetMouseDown = {
       x: event.clientX,
       y: event.clientY,

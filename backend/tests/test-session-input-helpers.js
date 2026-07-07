@@ -637,6 +637,8 @@ function run() {
       terminalPoolSource.includes('openTargetMouseDown: { x: number; y: number; pathTarget: TerminalPathOpenTarget } | null') &&
       terminalPoolSource.includes('const mouseDownOpenTargetHandler = (event: MouseEvent) =>') &&
       terminalPoolSource.includes('const pathLink = record.pathOpenHandler ? readTerminalPathLinkAtMouseEvent(record, event) : null') &&
+      terminalPoolSource.includes('event.stopImmediatePropagation()') &&
+      terminalPoolSource.includes('clearTerminalSelectionState(record)') &&
       terminalPoolSource.includes('record.openTargetMouseDown = {') &&
       terminalPoolSource.includes('pathTarget: pathLink.pathTarget') &&
       terminalPoolSource.includes('Math.hypot(event.clientX - mouseDown.x, event.clientY - mouseDown.y) > 4') &&

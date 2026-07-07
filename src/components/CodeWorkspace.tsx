@@ -267,10 +267,12 @@ interface AgentComposerState {
   ui: AgentComposerUiState
 }
 
-const DEFAULT_SIDEBAR_WIDTH = 360
-const MIN_SIDEBAR_WIDTH = 240
-const MAX_SIDEBAR_WIDTH = 560
-const COLLAPSED_SIDEBAR_WIDTH = 72
+const DEFAULT_SIDEBAR_WIDTH = 296
+const MIN_SIDEBAR_WIDTH = 220
+const MAX_SIDEBAR_WIDTH = 520
+const COLLAPSED_SIDEBAR_WIDTH = 64
+const SIDEBAR_DRAG_COLLAPSE_WIDTH = 172
+const DESKTOP_AUTO_COLLAPSE_WIDTH = 900
 const OPTIONS_MENU_ESTIMATED_WIDTH = 168
 const OPTIONS_MENU_ESTIMATED_HEIGHT = 168
 const TERMINAL_PATH_SEARCH_LIMIT = 12
@@ -418,12 +420,20 @@ function resumedSessionFromHistoryRunSource(source?: string) {
   return provider && sessionId ? { provider, sessionId } : null
 }
 
-function isNarrowViewport() {
-  return typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)').matches
+function isMobileNavigationViewport() {
+  if (typeof window === 'undefined') return false
+  if (!window.matchMedia('(max-width: 980px)').matches) return false
+  return window.matchMedia('(any-pointer: coarse)').matches ||
+    (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0)
+}
+
+function isDesktopAutoCollapseWidth(width: number) {
+  return !isMobileNavigationViewport() && width > 0 && width < DESKTOP_AUTO_COLLAPSE_WIDTH
 }
 
 function shouldCollapseSidebarInitially() {
-  return isNarrowViewport()
+  if (isMobileNavigationViewport()) return true
+  return typeof window !== 'undefined' && isDesktopAutoCollapseWidth(window.innerWidth)
 }
 
 function consumeWorkspaceNavigationShortcut(event: KeyboardEvent) {
@@ -613,6 +623,29 @@ export function CodeWorkspace({
   const mainPageSessionKeysMutationRef = useRef(0)
   const trackedMainPageAgentKeysRef = useRef<Set<string>>(new Set())
   const resizingSidebarRef = useRef(false)
+  const sidebarAutoCollapsedRef = useRef(sidebarCollapsed)
+
+  const collapseSidebar = useCallback(() => {
+    sidebarAutoCollapsedRef.current = false
+    setSidebarCollapsed(true)
+  }, [])
+
+  const autoCollapseSidebar = useCallback(() => {
+    setSidebarCollapsed(collapsed => {
+      if (!collapsed) sidebarAutoCollapsedRef.current = true
+      return true
+    })
+  }, [])
+
+  const expandSidebar = useCallback(() => {
+    sidebarAutoCollapsedRef.current = false
+    setSidebarCollapsed(false)
+  }, [])
+
+  const toggleSidebar = useCallback(() => {
+    sidebarAutoCollapsedRef.current = false
+    setSidebarCollapsed(collapsed => !collapsed)
+  }, [])
   activeTerminalIdRef.current = activeTerminalId
   const copy = useMemo(() => codeCopyForLanguage(uiPreferences.language), [uiPreferences.language])
 
@@ -1466,19 +1499,19 @@ export function CodeWorkspace({
     setAgentSessionMenu(null)
     setOptionsMenu(null)
     closeActiveComposerMenus()
-    setSidebarCollapsed(false)
+    expandSidebar()
     onWorkspaceViewChange('search')
     setSearchOpen(true)
     requestAnimationFrame(() => searchInputRef.current?.focus())
-  }, [closeActiveComposerMenus, onWorkspaceViewChange])
+  }, [closeActiveComposerMenus, expandSidebar, onWorkspaceViewChange])
 
   const closeSidebarForMobile = useCallback(() => {
-    if (isNarrowViewport()) setSidebarCollapsed(true)
-  }, [])
+    if (isMobileNavigationViewport()) autoCollapseSidebar()
+  }, [autoCollapseSidebar])
 
   const openMobileSidebar = useCallback(() => {
-    setSidebarCollapsed(false)
-  }, [])
+    expandSidebar()
+  }, [expandSidebar])
 
   const startNewAgentFromSidebar = useCallback((workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => {
     onNewAgent(workspace, command, returnFocusTarget)
@@ -1642,13 +1675,13 @@ export function CodeWorkspace({
     setAgentSessionMenu(null)
     setOptionsMenu(null)
     if (view === 'projects') {
-      setSidebarCollapsed(false)
+      expandSidebar()
       clearSearch()
     } else if (view !== 'search') {
       clearSearch()
     }
     onWorkspaceViewChange(view)
-  }, [clearSearch, onWorkspaceViewChange])
+  }, [clearSearch, expandSidebar, onWorkspaceViewChange])
 
   const openSearchFromSidebar = useCallback(() => {
     openSearch()
@@ -1820,9 +1853,16 @@ export function CodeWorkspace({
 
   const updateSidebarWidth = useCallback((clientX: number) => {
     const workspaceLeft = workspaceRef.current?.getBoundingClientRect().left ?? 0
-    const nextWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, clientX - workspaceLeft))
+    const rawWidth = clientX - workspaceLeft
+    if (rawWidth <= SIDEBAR_DRAG_COLLAPSE_WIDTH) {
+      collapseSidebar()
+      return
+    }
+
+    const nextWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, rawWidth))
+    expandSidebar()
     setSidebarWidth(nextWidth)
-  }, [])
+  }, [collapseSidebar, expandSidebar])
 
   const focusAgentRowNow = useCallback((agentId: string) => {
     const rows = Array.from(workspaceRef.current?.querySelectorAll<HTMLElement>('[data-testid="code-agent-row"]') ?? [])
@@ -1885,11 +1925,11 @@ export function CodeWorkspace({
 
   const beginSidebarResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault()
-    setSidebarCollapsed(false)
+    expandSidebar()
     resizingSidebarRef.current = true
     document.body.classList.add('code-resizing-sidebar')
     updateSidebarWidth(event.clientX)
-  }, [updateSidebarWidth])
+  }, [expandSidebar, updateSidebarWidth])
 
   const openTerminalFromWorkspace = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
     setAgentMenu(null)
@@ -1972,14 +2012,14 @@ export function CodeWorkspace({
     setAgentSessionMenu(null)
     setOptionsMenu(null)
     clearSearch()
-    setSidebarCollapsed(false)
+    expandSidebar()
     onWorkspaceViewChange('projects')
     setFileSearchFocusRequest({
       agentId,
       ...(query ? { query } : {}),
       requestId: workspaceFileSearchFocusRequestRef.current += 1,
     })
-  }, [activeAgents, clearSearch, onWorkspaceViewChange])
+  }, [activeAgents, clearSearch, expandSidebar, onWorkspaceViewChange])
 
   const revealWorkspaceFileInExplorer = useCallback((agentId: string, filePath: string, kind: 'directory' | 'file') => {
     const agent = activeAgents.find(candidate => candidate.id === agentId)
@@ -1997,7 +2037,7 @@ export function CodeWorkspace({
     setAgentSessionMenu(null)
     setOptionsMenu(null)
     clearSearch()
-    setSidebarCollapsed(false)
+    expandSidebar()
     onWorkspaceViewChange('projects')
     setFileRevealRequest({
       agentId,
@@ -2005,7 +2045,7 @@ export function CodeWorkspace({
       kind,
       requestId: workspaceFileRevealRequestRef.current += 1,
     })
-  }, [activeAgents, clearSearch, onWorkspaceViewChange])
+  }, [activeAgents, clearSearch, expandSidebar, onWorkspaceViewChange])
 
   const resolveTerminalPathTarget = useCallback(async (agentId: string, target: TerminalPathOpenTarget) => {
     const agent = activeAgents.find(candidate => candidate.id === agentId)
@@ -2953,7 +2993,7 @@ export function CodeWorkspace({
       const focusTarget = approvalMenuOpen
         ? '[data-testid="code-composer-model-picker"]'
         : modelMenuOpen
-          ? (isNarrowViewport() ? '[data-testid="code-composer-send"]' : '[data-testid="code-composer-mic"]')
+          ? (isMobileNavigationViewport() ? '[data-testid="code-composer-send"]' : '[data-testid="code-composer-mic"]')
           : '[data-testid="code-composer-approval"]'
       closeActiveComposerMenus()
       window.requestAnimationFrame(() => {
@@ -3120,7 +3160,7 @@ export function CodeWorkspace({
 
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') {
         event.preventDefault()
-        setSidebarCollapsed(value => !value)
+        toggleSidebar()
         return
       }
 
@@ -3138,7 +3178,7 @@ export function CodeWorkspace({
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [activeView, agentMenu, approvalMenuOpen, closeActiveComposerMenus, closeDeleteWorktreeDialog, closeKillDialog, closeRenameDialog, agentSessionMenu, deleteWorktreeDialog, dialogOpen, focusAgentRow, focusAgentSessionRow, focusComposerTextarea, focusProjectTitle, focusWorkspaceFilesSearch, handleContextMenuNavigation, killDialog, keyboardShortcutsEnabled, modelMenuOpen, navigateWorkspaceHistory, optionsMenu, plusMenuOpen, projectFileSearchAgent, projectFileSearchAgentForShortcutTarget, projectMenu, renameDialog, clearSearch, onWorkspaceViewChange, openSearch])
+  }, [activeView, agentMenu, approvalMenuOpen, closeActiveComposerMenus, closeDeleteWorktreeDialog, closeKillDialog, closeRenameDialog, agentSessionMenu, deleteWorktreeDialog, dialogOpen, focusAgentRow, focusAgentSessionRow, focusComposerTextarea, focusProjectTitle, focusWorkspaceFilesSearch, handleContextMenuNavigation, killDialog, keyboardShortcutsEnabled, modelMenuOpen, navigateWorkspaceHistory, optionsMenu, plusMenuOpen, projectFileSearchAgent, projectFileSearchAgentForShortcutTarget, projectMenu, renameDialog, clearSearch, onWorkspaceViewChange, openSearch, toggleSidebar])
 
   useEffect(() => {
     if (!renameDialog?.agentId) return
@@ -3400,6 +3440,31 @@ export function CodeWorkspace({
   }, [updateSidebarWidth])
 
   useEffect(() => {
+    const workspace = workspaceRef.current
+    if (!workspace || typeof ResizeObserver === 'undefined') return
+
+    const syncSidebarForWorkspaceWidth = (width: number) => {
+      if (isDesktopAutoCollapseWidth(width)) {
+        autoCollapseSidebar()
+        return
+      }
+
+      if (sidebarAutoCollapsedRef.current) {
+        expandSidebar()
+      }
+    }
+
+    syncSidebarForWorkspaceWidth(workspace.getBoundingClientRect().width)
+    const observer = new ResizeObserver(entries => {
+      const width = entries[0]?.contentRect.width ?? workspace.getBoundingClientRect().width
+      syncSidebarForWorkspaceWidth(width)
+    })
+    observer.observe(workspace)
+
+    return () => observer.disconnect()
+  }, [autoCollapseSidebar, expandSidebar])
+
+  useEffect(() => {
     const restoreTarget = restoreProjectListFocusRef.current
     if (!restoreTarget) return
     if (activeView !== 'projects' || searchOpen) return
@@ -3558,7 +3623,7 @@ export function CodeWorkspace({
         projectListRef={projectListRef}
         onNewAgent={startNewAgentFromSidebar}
         onStartAgent={onStartAgent}
-        onToggleSidebar={() => setSidebarCollapsed(value => !value)}
+        onToggleSidebar={toggleSidebar}
         onOpenSearch={openSearchFromSidebar}
         onOpenWorkspaceView={openWorkspaceViewFromSidebar}
         onOpenMainAgent={() => {
@@ -3604,7 +3669,7 @@ export function CodeWorkspace({
           className="code-mobile-sidebar-backdrop"
           data-testid="code-mobile-sidebar-backdrop"
           aria-label={copy.closeNavigation}
-          onClick={() => setSidebarCollapsed(true)}
+          onClick={autoCollapseSidebar}
         />
       )}
 

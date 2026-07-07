@@ -18,7 +18,9 @@ import {
 
 function isMobileViewport() {
   if (typeof window === 'undefined') return false
-  return window.matchMedia('(max-width: 980px)').matches
+  if (!window.matchMedia('(max-width: 980px)').matches) return false
+  return window.matchMedia('(any-pointer: coarse)').matches
+    || (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0)
 }
 
 function normalizeDefaultLaunchAgent(agentName: string | undefined) {

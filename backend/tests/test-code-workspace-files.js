@@ -39,6 +39,8 @@ function run() {
     'src/components/code/workspace-derived.ts',
     'src/components/code/workspace-file-view.ts',
   ].map(read).join('\n');
+  const capabilitiesSource = read('src/components/code/capabilities.ts');
+  const basicComposerCapabilities = capabilitiesSource.match(/const BASIC_COMPOSER_CAPABILITIES[\s\S]*?}\n/)?.[0] || '';
   const workspaceNavigationSource = read('src/lib/workspace-navigation-history.ts');
   const serverSource = read('backend/server.js');
   const agentManagerSource = read('backend/agent-manager.js');
@@ -50,6 +52,7 @@ function run() {
   const inputDialogSource = read('src/components/InputDialog.tsx');
   const settingsFileExists = fs.existsSync(path.join(__dirname, '../..', 'src/components/Settings.tsx'));
   const stylesSource = read('src/styles/main.css');
+  const composerMicStyles = stylesSource.match(/\.code-composer-mic svg \{[\s\S]*?\n\}/)?.[0] || '';
   const darkStylesSource = read('src/styles/code-dark.css');
   const useAgentsSource = read('src/hooks/useAgents.ts');
   const webSocketSource = read('src/hooks/useWebSocket.ts');
@@ -290,7 +293,7 @@ function run() {
       workspaceSource.includes('&& !event.altKey') &&
       workspaceSource.includes('&& !event.shiftKey') &&
       workspaceSource.includes('const openTerminalFromWorkspace') &&
-      workspaceSource.includes("if (view === 'projects') {\n      setSidebarCollapsed(false)\n      clearSearch()") &&
+      workspaceSource.includes("if (view === 'projects') {\n      expandSidebar()\n      clearSearch()") &&
       workspaceSource.includes('clearSearch()') &&
       workspaceSource.includes('onToggleProject(project.id)') &&
       workspaceSource.includes('openVisibleTarget') &&
@@ -687,6 +690,10 @@ function run() {
       workspaceSource.includes('toggleSpeechInput') &&
       workspaceSource.includes('recognition.onresult') &&
       workspaceSource.includes('transcript.trim()') &&
+      workspaceSource.includes('function ComposerMicIcon') &&
+      workspaceSource.includes('listening ? COMPOSER_MIC_FILLED_PATH : COMPOSER_MIC_REGULAR_PATH') &&
+      workspaceSource.includes('M8 10.9995C9.654 10.9995 11 9.65351 11 7.99951V3.99951') &&
+      basicComposerCapabilities.includes('speechInput: true') &&
       workspaceSource.includes('focusComposerTextarea()\n    }') &&
       workspaceSource.includes('autoSizeComposerTextarea') &&
       workspaceSource.includes('textarea.scrollHeight') &&
@@ -892,6 +899,8 @@ function run() {
     inputDialogSource.includes('initialWorkspace') &&
       inputDialogSource.includes('initialCommand') &&
       inputDialogSource.includes("normalizeWorkspaceValue(initialWorkspace || '')") &&
+      inputDialogSource.includes("window.matchMedia('(any-pointer: coarse)').matches") &&
+      inputDialogSource.includes('navigator.maxTouchPoints > 0') &&
       inputDialogSource.includes('role="dialog"') &&
       inputDialogSource.includes('aria-modal="true"') &&
       inputDialogSource.includes('aria-labelledby="input-dialog-title"') &&
@@ -1036,6 +1045,8 @@ function run() {
       stylesSource.includes('.code-speed-option-label') &&
       stylesSource.includes('.code-speed-option-icon') &&
       stylesSource.includes('.code-composer-mic') &&
+      composerMicStyles.includes('fill: currentColor;') &&
+      !composerMicStyles.includes('stroke-width') &&
       stylesSource.includes('.code-pending-followup') &&
       stylesSource.includes('.code-pending-followup-actions') &&
       stylesSource.includes('.code-plus-menu') &&
@@ -1060,6 +1071,29 @@ function run() {
       !stylesSource.includes('.code-terminal-actions'),
     'main.css should include Codex mode shell, embedded resizable panes, Code-styled dialogs, and the left-side agent context menu without fake window/tab/terminal chrome'
 		  );
+
+  assert(
+    workspaceSource.includes('const DEFAULT_SIDEBAR_WIDTH = 296') &&
+      workspaceSource.includes('const COLLAPSED_SIDEBAR_WIDTH = 64') &&
+      workspaceSource.includes('const DESKTOP_AUTO_COLLAPSE_WIDTH = 900') &&
+      workspaceSource.includes('const sidebarAutoCollapsedRef = useRef(sidebarCollapsed)') &&
+      workspaceSource.includes("window.matchMedia('(max-width: 980px)').matches") &&
+      workspaceSource.includes("window.matchMedia('(any-pointer: coarse)').matches") &&
+      workspaceSource.includes('navigator.maxTouchPoints > 0') &&
+      workspaceSource.includes('function isDesktopAutoCollapseWidth(width: number)') &&
+      workspaceSource.includes('const syncSidebarForWorkspaceWidth = (width: number) =>') &&
+      workspaceSource.includes('if (sidebarAutoCollapsedRef.current)') &&
+      workspaceSource.includes('function AgentRail(') &&
+      workspaceSource.includes('data-testid="code-agent-rail-item"') &&
+      stylesSource.includes('.code-sidebar.collapsed .code-agent-rail') &&
+      darkStylesSource.includes(".code-mode[data-appearance='dark'] .code-agent-rail-button") &&
+      stylesSource.includes('@media (max-width: 980px) and (any-pointer: coarse)') &&
+      stylesSource.includes('@media (min-width: 700px) and (max-width: 980px) and (any-pointer: coarse)') &&
+      stylesSource.includes('@media (max-width: 980px) and (any-pointer: fine)') &&
+      stylesSource.includes('body.code-mode .input-dialog {\n    width: min(92vw, 560px);') &&
+      !stylesSource.includes('@media (max-width: 640px), (max-width: 980px) and (pointer: coarse)'),
+    'Collapsed desktop sidebar should stay narrow, auto-collapse on constrained desktop width, and expose live agent rail shortcuts without entering the mobile drawer layout'
+  );
 
   assert(
     darkStylesSource.includes(".code-agent-dot.turn-active {\n  background: transparent;") &&

@@ -20,8 +20,14 @@ function run() {
 
   assert(
     packageSource.includes('"react-markdown"') &&
-      packageSource.includes('"remark-gfm"'),
-    'Markdown preview should use mature React Markdown/GFM rendering dependencies'
+      packageSource.includes('"remark-gfm"') &&
+      packageSource.includes('"remark-math"') &&
+      packageSource.includes('"rehype-katex"') &&
+      packageSource.includes('"rehype-highlight"') &&
+      packageSource.includes('"katex"') &&
+      packageSource.includes('"yaml"') &&
+      packageSource.includes('"mermaid"'),
+    'Markdown preview should use mature React Markdown/GFM/math/highlight/front-matter rendering dependencies and Mermaid diagrams'
   );
 
   assert(
@@ -63,20 +69,53 @@ function run() {
       editorSurfaceSource.includes('markdownPreviewOpen,') &&
       markdownPreviewSource.includes('ReactMarkdown') &&
       markdownPreviewSource.includes('remarkGfm') &&
+      markdownPreviewSource.includes('remarkMath') &&
+      markdownPreviewSource.includes('rehypeKatex') &&
+      markdownPreviewSource.includes('rehypeHighlight') &&
+      markdownPreviewSource.includes("parse as parseYaml") &&
+      markdownPreviewSource.includes("import 'katex/dist/katex.min.css'") &&
+      markdownPreviewSource.includes('createHeadingIdFactory') &&
+      markdownPreviewSource.includes('MarkdownFrontMatterTable') &&
+      markdownPreviewSource.includes('code-markdown-heading-anchor') &&
+      markdownPreviewSource.includes('data-language={language || undefined}') &&
+      markdownPreviewSource.includes("import('mermaid')") &&
+      markdownPreviewSource.includes('language-mermaid') &&
+      markdownPreviewSource.includes('mermaid.parse(source)') &&
+      markdownPreviewSource.includes('useMermaidAppearance') &&
+      markdownPreviewSource.includes('code-markdown-mermaid-toolbar') &&
+      markdownPreviewSource.includes('code-markdown-mermaid-error-message') &&
       markdownPreviewSource.includes('skipHtml') &&
       markdownPreviewSource.includes('rawWorkspaceFileUrl(openFile.agentId') &&
       markdownPreviewSource.includes('data-testid="code-file-markdown-preview"'),
-    'Editor surface should render Markdown preview in the main editor panel with GFM, safe HTML skipping, and workspace image/link support'
+    'Editor surface should render Markdown preview in the main editor panel with GFM, math, front matter, heading anchors, code labels/highlighting, themed Mermaid controls/errors, safe HTML skipping, and workspace image/link support'
   );
 
   assert(
     copySource.includes('openMarkdownPreview') &&
       copySource.includes('showMarkdownSource') &&
       copySource.includes('markdownPreviewFor') &&
+      copySource.includes('markdownFrontMatter') &&
+      copySource.includes('markdownHeadingAnchor') &&
+      copySource.includes('mermaidZoomIn') &&
+      copySource.includes('mermaidRenderFailed') &&
       stylesSource.includes('.code-file-preview-panel.markdown') &&
       stylesSource.includes('.code-markdown-preview') &&
+      stylesSource.includes('.code-markdown-preview .katex-display') &&
+      stylesSource.includes('.code-markdown-preview pre[data-language]::before') &&
+      stylesSource.includes('.code-markdown-heading-anchor') &&
+      stylesSource.includes('.code-markdown-preview .hljs-keyword') &&
+      stylesSource.includes('.code-markdown-preview .code-markdown-frontmatter') &&
+      stylesSource.includes('.code-markdown-mermaid') &&
+      stylesSource.includes('.code-markdown-mermaid-toolbar') &&
+      stylesSource.includes('.code-markdown-mermaid-viewport') &&
+      stylesSource.includes('.code-markdown-mermaid.error') &&
+      darkStylesSource.includes('.code-markdown-preview .katex') &&
+      darkStylesSource.includes('.code-markdown-preview .hljs-keyword') &&
+      darkStylesSource.includes('.code-markdown-preview .code-markdown-frontmatter') &&
+      darkStylesSource.includes('.code-markdown-mermaid') &&
+      darkStylesSource.includes('.code-markdown-mermaid-toolbar') &&
       darkStylesSource.includes('.code-markdown-preview'),
-    'Markdown preview should have toolbar copy plus light and dark editor-panel styling'
+    'Markdown preview should have toolbar copy plus light/dark editor-panel, math, code-label/highlight, front-matter, heading-anchor, and Mermaid interaction styling'
   );
 }
 

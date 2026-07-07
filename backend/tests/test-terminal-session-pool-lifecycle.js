@@ -59,7 +59,7 @@ assert(
 );
 
 assert(
-  poolSource.includes('clearTerminalOpenTargetState(record)\n  record.cachedSelection') &&
+  poolSource.includes('clearTerminalOpenTargetState(record)\n  clearTerminalSelectionState(record)') &&
     poolSource.includes('const linkHoverBlurHandler = () => {\n    clearTerminalOpenTargetState(record)\n  }'),
   'detach and window blur should clear terminal open-target modifier state'
 );
