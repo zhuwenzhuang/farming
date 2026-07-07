@@ -40,6 +40,16 @@ function run() {
   assert.strictEqual(statusParsed.exitCodeSeen, true);
   assert.strictEqual(statusParsed.lastExitCode, null);
 
+  const commandParsed = parseShellBusyMarkers(
+    'x\x1b]133;FarmingShellStatus=start;cmd=git%20status%20--short%20%22%E4%B8%AD%E6%96%87%22\x07y',
+    null
+  );
+  assert.strictEqual(commandParsed.data, 'xy');
+  assert.strictEqual(commandParsed.terminalBusy, true);
+  assert.strictEqual(commandParsed.shellEvent, 'start');
+  assert.strictEqual(commandParsed.commandTextSeen, true);
+  assert.strictEqual(commandParsed.shellCommand, 'git status --short "中文"');
+
   const finished = parseShellBusyMarkers(
     '\x1b]133;FarmingShellStatus=finish;exit=127\x07',
     true
@@ -94,6 +104,8 @@ function run() {
     }
     assert.ok(bashRc.includes('__farming_original_prompt_command=("${PROMPT_COMMAND[@]}")'));
     assert.ok(bashRc.includes('__farming_in_prompt'), 'bash integration should avoid marking its own prompt hook as busy');
+    assert.ok(bashRc.includes('__farming_urlencode'));
+    assert.ok(bashRc.includes('FarmingShellStatus=start;cmd=%s'));
     assert.ok(bashRc.includes('FarmingShellStatus=finish'));
     assert.ok(bashRc.includes('file://%s%s'));
   } finally {
@@ -115,6 +127,8 @@ function run() {
     assert.ok(zshRc.includes('. "${USER_ZDOTDIR:-$HOME}/.zshrc"'));
     assert.ok(zshRc.includes('add-zsh-hook preexec __farming_shell_preexec'));
     assert.ok(zshRc.includes('add-zsh-hook precmd __farming_shell_precmd'));
+    assert.ok(zshRc.includes('__farming_urlencode'));
+    assert.ok(zshRc.includes('FarmingShellStatus=start;cmd=%s'));
     assert.ok(zshRc.includes('FarmingShellStatus=finish'));
   } finally {
     cleanupShellBusyIntegration(zshOptions.shellBusyIntegration);

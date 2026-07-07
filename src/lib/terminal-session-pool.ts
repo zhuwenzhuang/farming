@@ -86,6 +86,7 @@ import {
 } from '@/lib/terminal-bootstrap'
 import type { SessionBootstrapState, SessionDataPayload, TerminalCursorPosition } from '@/lib/terminal-bootstrap'
 import { appPath } from '@/lib/base-path'
+import { isMobileTouchViewport } from '@/lib/responsive-mode'
 
 export type { TerminalPathOpenTarget } from '@/lib/terminal-links'
 export { normalizeTerminalSelection } from '@/lib/terminal-selection'
@@ -228,12 +229,16 @@ interface SessionRecord {
 const sessions = new Map<string, Promise<SessionRecord> | SessionRecord>()
 const TOUCH_SCROLL_ACTIVATION_PX = 6
 const TOUCH_LONG_PRESS_MS = 520
+const TOUCH_MOMENTUM_MIN_VELOCITY = 0.08
+const TOUCH_MOMENTUM_MAX_VELOCITY = 2.4
+const TOUCH_MOMENTUM_DECAY_PER_FRAME = 0.92
 const TERMINAL_PATH_RESOLVE_CACHE_TTL_MS = 30_000
 
 interface TerminalTouchInteraction {
   pointerDownHandler: (event: PointerEvent) => void
   pointerMoveHandler: (event: PointerEvent) => void
   pointerUpHandler: (event: PointerEvent) => void
+  stopTouchMomentum: () => void
 }
 
 declare global {
@@ -305,8 +310,7 @@ declare global {
 }
 
 function isMobileViewport() {
-  if (typeof window === 'undefined') return false
-  return window.matchMedia('(max-width: 980px)').matches
+  return isMobileTouchViewport()
 }
 
 function appendHost(record: SessionRecord, mountEl: HTMLElement) {
@@ -1896,10 +1900,19 @@ function installTerminalTouchInteraction(record: SessionRecord) {
   let touchStartX = 0
   let touchStartY = 0
   let touchLastY = 0
+  let touchLastMoveAt = 0
+  let touchVelocityY = 0
   let touchScrollRemainderPx = 0
   let touchMoved = false
+  let momentumFrame: number | null = null
+  let momentumLastAt = 0
   let longPressTimer: number | null = null
   let longPressEvent: PointerEvent | null = null
+
+  const clampTouchVelocity = (velocity: number) => Math.max(
+    -TOUCH_MOMENTUM_MAX_VELOCITY,
+    Math.min(TOUCH_MOMENTUM_MAX_VELOCITY, velocity)
+  )
 
   const clearLongPress = () => {
     if (longPressTimer !== null) {
@@ -1937,12 +1950,52 @@ function installTerminalTouchInteraction(record: SessionRecord) {
     return moved
   }
 
+  const stopTouchMomentum = () => {
+    if (momentumFrame !== null) {
+      window.cancelAnimationFrame(momentumFrame)
+      momentumFrame = null
+    }
+    momentumLastAt = 0
+    touchVelocityY = 0
+  }
+
+  const stepTouchMomentum = (timestamp: number) => {
+    if (record.disposed) {
+      momentumFrame = null
+      return
+    }
+    const elapsed = momentumLastAt === 0
+      ? 16
+      : Math.min(48, Math.max(1, timestamp - momentumLastAt))
+    momentumLastAt = timestamp
+
+    const moved = scrollByTouchDelta(touchVelocityY * elapsed)
+    touchVelocityY *= Math.pow(TOUCH_MOMENTUM_DECAY_PER_FRAME, elapsed / 16)
+    if (!moved || Math.abs(touchVelocityY) < TOUCH_MOMENTUM_MIN_VELOCITY) {
+      stopTouchMomentum()
+      return
+    }
+
+    momentumFrame = window.requestAnimationFrame(stepTouchMomentum)
+  }
+
+  const startTouchMomentum = () => {
+    if (Math.abs(touchVelocityY) < TOUCH_MOMENTUM_MIN_VELOCITY) {
+      touchVelocityY = 0
+      return
+    }
+    momentumLastAt = 0
+    momentumFrame = window.requestAnimationFrame(stepTouchMomentum)
+  }
+
   const pointerDownHandler = (event: PointerEvent) => {
     if (event.pointerType !== 'touch') return
+    stopTouchMomentum()
     touchPointerId = event.pointerId
     touchStartX = event.clientX
     touchStartY = event.clientY
     touchLastY = event.clientY
+    touchLastMoveAt = event.timeStamp || performance.now()
     touchScrollRemainderPx = 0
     touchMoved = false
     longPressEvent = event
@@ -1963,8 +2016,12 @@ function installTerminalTouchInteraction(record: SessionRecord) {
     }
 
     const deltaY = event.clientY - touchLastY
+    const now = event.timeStamp || performance.now()
+    const elapsed = Math.max(1, now - touchLastMoveAt)
     touchLastY = event.clientY
+    touchLastMoveAt = now
     if (Math.abs(deltaY) < 0.5) return
+    touchVelocityY = clampTouchVelocity(deltaY / elapsed)
 
     const moved = scrollByTouchDelta(deltaY)
     if (touchMoved || moved) {
@@ -1983,6 +2040,9 @@ function installTerminalTouchInteraction(record: SessionRecord) {
       event.preventDefault()
       event.stopPropagation()
       updateFollowStateFromViewport(record)
+      startTouchMomentum()
+    } else {
+      touchVelocityY = 0
     }
     try {
       record.hostEl.releasePointerCapture(event.pointerId)
@@ -1995,10 +2055,12 @@ function installTerminalTouchInteraction(record: SessionRecord) {
   record.hostEl.addEventListener('pointermove', pointerMoveHandler, { capture: true, passive: false })
   record.hostEl.addEventListener('pointerup', pointerUpHandler, { capture: true, passive: false })
   record.hostEl.addEventListener('pointercancel', pointerUpHandler, { capture: true, passive: false })
+  record.hostEl.addEventListener('lostpointercapture', pointerUpHandler, { capture: true, passive: false })
   record.touchInteraction = {
     pointerDownHandler,
     pointerMoveHandler,
     pointerUpHandler,
+    stopTouchMomentum,
   }
 }
 
@@ -3151,10 +3213,12 @@ export async function destroyTerminalSession(agentId: string) {
     record.hostEl.removeEventListener('keydown', record.scrollKeyHandler, true)
   }
   if (record.touchInteraction) {
+    record.touchInteraction.stopTouchMomentum()
     record.hostEl.removeEventListener('pointerdown', record.touchInteraction.pointerDownHandler, true)
     record.hostEl.removeEventListener('pointermove', record.touchInteraction.pointerMoveHandler, true)
     record.hostEl.removeEventListener('pointerup', record.touchInteraction.pointerUpHandler, true)
     record.hostEl.removeEventListener('pointercancel', record.touchInteraction.pointerUpHandler, true)
+    record.hostEl.removeEventListener('lostpointercapture', record.touchInteraction.pointerUpHandler, true)
   }
   if (record.originalRender && record.terminal.renderer) {
     record.terminal.renderer.render = record.originalRender

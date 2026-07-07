@@ -387,6 +387,19 @@ function run() {
     'xterm rows should keep pointer hit testing without forcing native browser text selection over xterm selection'
   );
   assert(
+    terminalPoolSource.includes("import { isMobileTouchViewport } from '@/lib/responsive-mode'") &&
+      terminalPoolSource.includes('return isMobileTouchViewport()') &&
+      terminalPoolSource.includes('TOUCH_MOMENTUM_MIN_VELOCITY') &&
+      terminalPoolSource.includes('TOUCH_MOMENTUM_DECAY_PER_FRAME') &&
+      terminalPoolSource.includes('const stepTouchMomentum = (timestamp: number) =>') &&
+      terminalPoolSource.includes('touchVelocityY *= Math.pow(TOUCH_MOMENTUM_DECAY_PER_FRAME') &&
+      terminalPoolSource.includes('const startTouchMomentum = () =>') &&
+      terminalPoolSource.includes('startTouchMomentum()') &&
+      terminalPoolSource.includes("record.hostEl.addEventListener('lostpointercapture', pointerUpHandler") &&
+      terminalPoolSource.includes('record.touchInteraction.stopTouchMomentum()'),
+    'xterm mobile terminals should keep the touch scroller but add momentum and clean up interrupted gestures instead of stopping at line-by-line drag'
+  );
+  assert(
     terminalPoolSource.includes("hostEl.addEventListener('keydown', inputFallbackKeydownHandler, false)") &&
     terminalPoolSource.includes("hostEl.addEventListener('input', inputFallbackHandler, false)") &&
       terminalPoolSource.includes('if (isXtermTerminal(terminal)) return') &&

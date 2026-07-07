@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
+import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from 'react'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { usePageVisibility } from '@/hooks/usePageVisibility'
 import { useAgents } from '@/hooks/useAgents'
@@ -7,6 +7,7 @@ import { InputDialog } from '@/components/InputDialog'
 import { CodeWorkspace, type AgentFlagUpdateResult, type DeleteForkWorktreeProjectResult, type WorkspaceView } from '@/components/CodeWorkspace'
 import { codeCopyForLanguage } from '@/components/code/copy'
 import { applyThemeAppearance, type ThemeRuntimeSettings } from '@/lib/theme'
+import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import {
   DEFAULT_UI_PREFERENCES,
   normalizeUiAppearance,
@@ -98,7 +99,7 @@ export function App() {
   const inputDialogReturnFocusRef = useRef<HTMLElement | null>(null)
   const inputDialogOpenRequestRef = useRef(0)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     openTerminalIdsRef.current = openTerminalIds
   }, [openTerminalIds])
 
@@ -202,13 +203,14 @@ export function App() {
       const rawHeight = viewport?.height ?? window.innerHeight
       const offsetTop = viewport?.offsetTop ?? 0
       const offsetLeft = viewport?.offsetLeft ?? 0
-      const mobileViewport = window.matchMedia('(max-width: 980px)').matches
+      const mobileViewport = isMobileTouchViewport()
       const layoutHeight = window.innerHeight || rawHeight || MIN_MOBILE_VISUAL_HEIGHT
       const height = mobileViewport
         ? Math.min(Math.max(rawHeight, MIN_MOBILE_VISUAL_HEIGHT), Math.max(layoutHeight, MIN_MOBILE_VISUAL_HEIGHT))
         : rawHeight
       const keyboardOffset = Math.max(0, layoutHeight - rawHeight - offsetTop)
 
+      document.body.classList.toggle('code-mobile-touch', mobileViewport)
       document.documentElement.style.setProperty('--app-visual-width', `${width}px`)
       document.documentElement.style.setProperty('--app-visual-height', `${height}px`)
       document.documentElement.style.setProperty('--app-visual-offset-top', `${offsetTop}px`)
@@ -230,6 +232,7 @@ export function App() {
       document.documentElement.style.removeProperty('--app-visual-offset-top')
       document.documentElement.style.removeProperty('--app-visual-offset-left')
       document.documentElement.style.removeProperty('--mobile-keyboard-offset')
+      document.body.classList.remove('code-mobile-touch')
     }
   }, [])
 

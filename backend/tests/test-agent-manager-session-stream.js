@@ -84,14 +84,42 @@ async function run() {
     manager.engineBridge.router.engines.local.emit('session-busy-state', {
       sessionId: 'local-agent',
       terminalBusy: true,
+      shellEvent: 'start',
+      shellCommand: 'git status --short',
+      shellLastCommand: '',
+      shellCommandStartedAt: 1234,
     });
-    assert.strictEqual(updateCount, 4);
+    assert.strictEqual(manager.agents.get('local-agent').shellCommand, 'git status --short');
+    assert.strictEqual(manager.agents.get('local-agent').shellCommandStartedAt, 1234);
+    assert.strictEqual(
+      manager.getState().agents.find(agent => agent.id === 'local-agent').shellCommand,
+      'git status --short'
+    );
+    assert.strictEqual(updateCount, 5);
     manager.engineBridge.router.engines.local.emit('session-busy-state', {
       sessionId: 'local-agent',
       terminalBusy: false,
+      shellEvent: 'finish',
+      shellCommand: '',
+      shellLastCommand: 'git status --short',
+      shellCommandStartedAt: null,
+      shellLastCommandStartedAt: 1234,
+      shellLastCommandFinishedAt: 2234,
+      shellLastCommandDurationMs: 1000,
     });
     assert.strictEqual(manager.agents.get('local-agent').terminalBusy, false);
-    assert.strictEqual(updateCount, 5);
+    assert.strictEqual(manager.agents.get('local-agent').shellCommand, '');
+    assert.strictEqual(manager.agents.get('local-agent').shellLastCommand, 'git status --short');
+    assert.strictEqual(manager.agents.get('local-agent').shellLastCommandDurationMs, 1000);
+    assert.strictEqual(
+      manager.getState().agents.find(agent => agent.id === 'local-agent').terminalStatus.lastCommand,
+      'git status --short'
+    );
+    assert.strictEqual(
+      manager.getState().agents.find(agent => agent.id === 'local-agent').terminalStatus.lastCommandDurationMs,
+      1000
+    );
+    assert.strictEqual(updateCount, 6);
     manager.engineBridge.router.engines.local.emit('session-error', {
       sessionId: 'local-agent',
       error: 'temporary local engine warning',

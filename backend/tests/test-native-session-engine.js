@@ -481,7 +481,7 @@ async function run() {
 
     const state = await waitFor(async () => {
       const current = await engine.getSessionState('native-smoke');
-      return current && current.output.includes('red') ? current : null;
+      return current && current.output.includes('\u001b[31mred\u001b[0m') ? current : null;
     }, 'native pty output');
 
     assert(state.output.includes('TERM=xterm-256color'), state.output);

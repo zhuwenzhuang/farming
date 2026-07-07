@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { Agent } from '@/types/agent'
 import type { TerminalInputPart } from '@/types/messages'
 import { usePooledTerminal } from '@/hooks/usePooledTerminal'
+import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { TerminalPathOpenTarget, TerminalSearchDirection, TerminalSearchResult } from '@/lib/terminal-session-pool'
 import type { CodeCopy } from './code/copy'
 
@@ -39,8 +40,7 @@ function shouldSuppressRendererCursorForAgent(command?: string) {
 }
 
 function isMobileViewport() {
-  if (typeof window === 'undefined') return false
-  return window.matchMedia('(max-width: 980px)').matches
+  return isMobileTouchViewport()
 }
 
 function isPrimaryFindShortcut(event: Pick<KeyboardEvent, 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey' | 'key'>) {

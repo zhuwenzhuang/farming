@@ -5,11 +5,12 @@ const path = require('path');
 const OSC_PREFIX = '\x1b]133;FarmingShellBusy=';
 const STATUS_OSC_PREFIX = '\x1b]133;FarmingShellStatus=';
 const CWD_OSC_PREFIX = '\x1b]7;file://';
+const SHELL_COMMAND_MAX_CHARS = 2048;
 const MARKERS = {
   busy: `${OSC_PREFIX}busy\x07`,
   idle: `${OSC_PREFIX}idle\x07`,
 };
-const SHELL_INTEGRATION_PATTERN = /\x1b\](?:(?:133;FarmingShellStatus=(start|finish)(?:;exit=(-?\d+))?)|(?:7;file:\/\/([^\x07\x1b]*))|(?:133;FarmingShellBusy=(busy|idle)))(?:\x07|\x1b\\)/g;
+const SHELL_INTEGRATION_PATTERN = /\x1b\](?:(?:133;FarmingShellStatus=(start|finish)((?:;[A-Za-z][A-Za-z0-9_-]*=[^\x07\x1b;]*)*))|(?:7;file:\/\/([^\x07\x1b]*))|(?:133;FarmingShellBusy=(busy|idle)))(?:\x07|\x1b\\)/g;
 
 function shellNameForCommand(command) {
   return path.basename(String(command || '').trim());
@@ -70,13 +71,34 @@ function writeBashRc(tempDir, options = {}) {
     '# Farming temporary shell busy integration. Safe to delete.',
     `__farming_shell_busy=${shSingleQuote(MARKERS.busy)}`,
     `__farming_shell_idle=${shSingleQuote(MARKERS.idle)}`,
-    `__farming_shell_start=${shSingleQuote(`${STATUS_OSC_PREFIX}start\x07`)}`,
     'FARMING_SHELL_INTEGRATION=1',
     'export FARMING_SHELL_INTEGRATION',
     controlledPrompt
       ? '# Controlled prompt mode skips user shell startup files.'
       : userStartupSource,
     '__farming_restore_exit_code() { return "$1"; }',
+    '__farming_urlencode() {',
+    '  local __farming_input="${1:-}"',
+    `  if [ "\${#__farming_input}" -gt ${SHELL_COMMAND_MAX_CHARS} ]; then __farming_input="\${__farming_input:0:${SHELL_COMMAND_MAX_CHARS}}"; fi`,
+    '  local __farming_out=""',
+    '  local __farming_i __farming_char __farming_code __farming_hex',
+    '  local LC_ALL=C',
+    '  for ((__farming_i = 0; __farming_i < ${#__farming_input}; __farming_i++)); do',
+    '    __farming_char="${__farming_input:__farming_i:1}"',
+    '    case "$__farming_char" in',
+    '      [a-zA-Z0-9._~/-]) __farming_out+="$__farming_char" ;;',
+    '      *)',
+    '        printf -v __farming_code "%d" "\'$__farming_char"',
+    '        printf -v __farming_hex "%%%02X" "$((__farming_code & 255))"',
+    '        __farming_out+="$__farming_hex"',
+    '        ;;',
+    '    esac',
+    '  done',
+    '  printf "%s" "$__farming_out"',
+    '}',
+    '__farming_shell_start_marker() {',
+    '  printf "\\033]133;FarmingShellStatus=start;cmd=%s\\007" "$(__farming_urlencode "${1:-}")"',
+    '}',
     '__farming_get_trap() {',
     '  local -a __farming_terms',
     '  eval "__farming_terms=( $(trap -p "${1:-DEBUG}") )"',
@@ -92,9 +114,10 @@ function writeBashRc(tempDir, options = {}) {
     '  local __farming_previous_status=$?',
     '  if [ "${__farming_in_prompt:-0}" = "1" ]; then return "$__farming_previous_status"; fi',
     '  case "${BASH_COMMAND:-}" in',
-    '    __farming_shell_prompt*|__farming_shell_debug*|__farming_restore_exit_code*|__farming_get_trap*|printf\\ *FarmingShell*) return "$__farming_previous_status" ;;',
+    '    __farming_shell_prompt*|__farming_shell_debug*|__farming_restore_exit_code*|__farming_urlencode*|__farming_shell_start_marker*|__farming_get_trap*|printf\\ *FarmingShell*) return "$__farming_previous_status" ;;',
     '  esac',
-    '  printf "%s%s" "$__farming_shell_start" "$__farming_shell_busy"',
+    '  __farming_shell_start_marker "${BASH_COMMAND:-}"',
+    '  printf "%s" "$__farming_shell_busy"',
     '  if [ -n "${__farming_original_debug_trap:-}" ]; then',
     '    eval "$__farming_original_debug_trap"',
     '  fi',
@@ -134,7 +157,6 @@ function writeZshFiles(tempDir, options = {}) {
     '# Farming temporary shell busy integration. Safe to delete.',
     `__farming_shell_busy=${shSingleQuote(MARKERS.busy)}`,
     `__farming_shell_idle=${shSingleQuote(MARKERS.idle)}`,
-    `__farming_shell_start=${shSingleQuote(`${STATUS_OSC_PREFIX}start\x07`)}`,
     'FARMING_SHELL_INTEGRATION=1',
     'export FARMING_SHELL_INTEGRATION',
     controlledPrompt
@@ -147,9 +169,32 @@ function writeZshFiles(tempDir, options = {}) {
         '  ZDOTDIR="$__farming_saved_zdotdir"',
         '  unset __farming_saved_zdotdir',
         'fi',
-      ].join('\n'),
+    ].join('\n'),
     'autoload -Uz add-zsh-hook',
-    '__farming_shell_preexec() { printf "%s%s" "$__farming_shell_start" "$__farming_shell_busy" }',
+    '__farming_urlencode() {',
+    '  emulate -L zsh',
+    '  local __farming_input="${1:-}"',
+    `  if (( \${#__farming_input} > ${SHELL_COMMAND_MAX_CHARS} )); then __farming_input="\${__farming_input[1,${SHELL_COMMAND_MAX_CHARS}]}"; fi`,
+    '  local __farming_out=""',
+    '  local __farming_i __farming_char __farming_code __farming_hex',
+    '  local LC_ALL=C',
+    '  for (( __farming_i = 1; __farming_i <= ${#__farming_input}; __farming_i++ )); do',
+    '    __farming_char="${__farming_input[__farming_i]}"',
+    '    case "$__farming_char" in',
+    '      [a-zA-Z0-9._~/-]) __farming_out+="$__farming_char" ;;',
+    '      *)',
+    '        printf -v __farming_code "%d" "\'$__farming_char"',
+    '        printf -v __farming_hex "%%%02X" "$(( __farming_code & 255 ))"',
+    '        __farming_out+="$__farming_hex"',
+    '        ;;',
+    '    esac',
+    '  done',
+    '  print -rn -- "$__farming_out"',
+    '}',
+    '__farming_shell_start_marker() {',
+    '  printf "\\033]133;FarmingShellStatus=start;cmd=%s\\007" "$(__farming_urlencode "${1:-}")"',
+    '}',
+    '__farming_shell_preexec() { __farming_shell_start_marker "${1:-}"; printf "%s" "$__farming_shell_busy" }',
     '__farming_shell_precmd() {',
     '  local __farming_status=$?',
     '  printf "\\033]133;FarmingShellStatus=finish;exit=%s\\007" "$__farming_status"',
@@ -250,33 +295,71 @@ function cwdFromOsc7(value) {
   }
 }
 
+function parseShellStatusParams(value) {
+  const params = {};
+  for (const part of String(value || '').split(';')) {
+    if (!part) continue;
+    const equalsIndex = part.indexOf('=');
+    if (equalsIndex <= 0) continue;
+    params[part.slice(0, equalsIndex)] = part.slice(equalsIndex + 1);
+  }
+  return params;
+}
+
+function decodeShellStatusValue(value) {
+  try {
+    return decodeURIComponent(String(value || ''));
+  } catch {
+    return String(value || '');
+  }
+}
+
+function normalizeShellCommand(command) {
+  const normalized = String(command || '')
+    .replace(/[\x00-\x1f\x7f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalized.length > SHELL_COMMAND_MAX_CHARS
+    ? normalized.slice(0, SHELL_COMMAND_MAX_CHARS)
+    : normalized;
+}
+
 function parseShellBusyMarkers(data, previousBusy = null, pending = '') {
   let markerSeen = false;
   let statusMarkerSeen = false;
   let busyMarkerSeen = false;
   let exitCodeSeen = false;
+  let commandTextSeen = false;
   let terminalBusy = previousBusy;
   let shellEvent = '';
+  let shellCommand = '';
   let cwd = '';
   let lastExitCode = null;
   const combined = `${pending || ''}${String(data || '')}`;
   const split = splitPendingMarker(combined);
-  const cleanData = split.data.replace(SHELL_INTEGRATION_PATTERN, (_match, statusEvent, exitCode, cwdValue, busyState) => {
+  const cleanData = split.data.replace(SHELL_INTEGRATION_PATTERN, (_match, statusEvent, statusParams, cwdValue, busyState) => {
     markerSeen = true;
 
     if (statusEvent) {
       statusMarkerSeen = true;
       shellEvent = statusEvent;
+      const params = parseShellStatusParams(statusParams);
       if (statusEvent === 'start') {
         terminalBusy = true;
         exitCodeSeen = true;
         lastExitCode = null;
+        if (Object.prototype.hasOwnProperty.call(params, 'cmd')) {
+          commandTextSeen = true;
+          shellCommand = normalizeShellCommand(decodeShellStatusValue(params.cmd));
+        }
       } else if (statusEvent === 'finish') {
         terminalBusy = false;
         exitCodeSeen = true;
-        lastExitCode = typeof exitCode === 'string' && exitCode.length > 0
+        const exitCode = params.exit;
+        const parsedExitCode = typeof exitCode === 'string' && exitCode.length > 0
           ? Number(exitCode)
           : null;
+        lastExitCode = Number.isFinite(parsedExitCode) ? parsedExitCode : null;
       }
       return '';
     }
@@ -304,6 +387,8 @@ function parseShellBusyMarkers(data, previousBusy = null, pending = '') {
     terminalBusy,
     changed: markerSeen && terminalBusy !== previousBusy,
     shellEvent,
+    shellCommand,
+    commandTextSeen,
     cwd,
     lastExitCode,
     exitCodeSeen,
@@ -315,6 +400,7 @@ module.exports = {
   MARKERS,
   applyShellBusyIntegration,
   cleanupShellBusyIntegration,
+  normalizeShellCommand,
   parseShellBusyMarkers,
   shellNameForCommand,
 };

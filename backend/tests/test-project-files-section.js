@@ -1662,8 +1662,8 @@ function run() {
       stylesSource.includes('.code-file-operation-text') &&
       stylesSource.includes('.code-file-sticky-stack') &&
       stylesSource.includes('.code-file-sticky-row') &&
-      stylesSource.includes('@media (min-width: 700px) and (max-width: 980px)') &&
-      stylesSource.includes('grid-template-columns: clamp(260px, 40vw, 340px) minmax(0, 1fr);') &&
+	      stylesSource.includes('@media (min-width: 700px) and (max-width: 980px) and (any-pointer: coarse)') &&
+	      stylesSource.includes('@media (min-width: 700px) and (max-width: 980px) and (any-pointer: coarse) {\n  .code-workspace {\n    grid-template-columns: minmax(0, 1fr);') &&
       stylesSource.includes('.code-file-editor-tabs') &&
       stylesSource.includes('overflow-x: auto') &&
       stylesSource.includes('overscroll-behavior-x: contain') &&

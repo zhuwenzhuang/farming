@@ -16,6 +16,17 @@ function stripTerminalControlSequences(value) {
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
 }
 
+function terminalStatusCommand(value) {
+  return stripTerminalControlSequences(value)
+    .replace(/[\x00-\x1f\x7f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function finiteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
 function inferKindFromText(title, previewText, command) {
   const combined = normalizedText(`${title}\n${previewText}`);
   if (/\bclaude(?:\s+code)?\b/.test(combined)) return 'claude';
@@ -76,7 +87,7 @@ function deriveTerminalStatus(options = {}) {
     ? 'exited'
     : (hasPromptIdleFallback ? 'idle' : inferActivityFromText(previewText, terminalBusy));
 
-  return {
+  const status = {
     kind,
     activity,
     busy: activity === 'busy',
@@ -91,6 +102,31 @@ function deriveTerminalStatus(options = {}) {
           : (terminalBusy === null ? 'terminal-text' : 'shell-busy-marker')
       ),
   };
+  const runningCommand = terminalStatusCommand(options.shellCommand);
+  const lastCommand = terminalStatusCommand(options.shellLastCommand);
+  const runningCommandStartedAt = finiteNumber(options.shellCommandStartedAt);
+  const lastCommandStartedAt = finiteNumber(options.shellLastCommandStartedAt);
+  const lastCommandFinishedAt = finiteNumber(options.shellLastCommandFinishedAt);
+  const lastCommandDurationMs = finiteNumber(options.shellLastCommandDurationMs);
+  if (runningCommand) {
+    status.runningCommand = runningCommand;
+  }
+  if (runningCommandStartedAt !== null) {
+    status.runningCommandStartedAt = runningCommandStartedAt;
+  }
+  if (lastCommand) {
+    status.lastCommand = lastCommand;
+  }
+  if (lastCommandStartedAt !== null) {
+    status.lastCommandStartedAt = lastCommandStartedAt;
+  }
+  if (lastCommandFinishedAt !== null) {
+    status.lastCommandFinishedAt = lastCommandFinishedAt;
+  }
+  if (lastCommandDurationMs !== null) {
+    status.lastCommandDurationMs = lastCommandDurationMs;
+  }
+  return status;
 }
 
 module.exports = {

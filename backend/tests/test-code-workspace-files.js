@@ -42,6 +42,7 @@ function run() {
   const capabilitiesSource = read('src/components/code/capabilities.ts');
   const basicComposerCapabilities = capabilitiesSource.match(/const BASIC_COMPOSER_CAPABILITIES[\s\S]*?}\n/)?.[0] || '';
   const workspaceNavigationSource = read('src/lib/workspace-navigation-history.ts');
+  const responsiveModeSource = read('src/lib/responsive-mode.ts');
   const serverSource = read('backend/server.js');
   const agentManagerSource = read('backend/agent-manager.js');
   const mainPageSessionSource = read('backend/main-page-session.js');
@@ -899,8 +900,10 @@ function run() {
     inputDialogSource.includes('initialWorkspace') &&
       inputDialogSource.includes('initialCommand') &&
       inputDialogSource.includes("normalizeWorkspaceValue(initialWorkspace || '')") &&
-      inputDialogSource.includes("window.matchMedia('(any-pointer: coarse)').matches") &&
-      inputDialogSource.includes('navigator.maxTouchPoints > 0') &&
+      inputDialogSource.includes("import { isMobileTouchViewport } from '@/lib/responsive-mode'") &&
+      inputDialogSource.includes('return isMobileTouchViewport()') &&
+      responsiveModeSource.includes("window.matchMedia('(any-pointer: coarse)').matches") &&
+      responsiveModeSource.includes('navigator.maxTouchPoints > 0') &&
       inputDialogSource.includes('role="dialog"') &&
       inputDialogSource.includes('aria-modal="true"') &&
       inputDialogSource.includes('aria-labelledby="input-dialog-title"') &&
@@ -1057,10 +1060,10 @@ function run() {
       stylesSource.includes('.code-composer-toolbar') &&
       !stylesSource.includes('.code-composer-goal') &&
       stylesSource.includes('resize: both') &&
-	      stylesSource.includes('body.code-mode .input-dialog') &&
-	      stylesSource.includes('body.code-mode .workspace-history-index') &&
-	      stylesSource.includes('body.code-mode .workspace-history-item.active') &&
-	      !stylesSource.includes('.code-project-add') &&
+      stylesSource.includes('body.code-mode .input-dialog') &&
+      stylesSource.includes('body.code-mode .workspace-history-index') &&
+      stylesSource.includes('body.code-mode .workspace-history-item.active') &&
+      !stylesSource.includes('.code-project-add') &&
       !stylesSource.includes('.code-projects-header') &&
       !stylesSource.includes('.code-main-header') &&
       !stylesSource.includes('.code-composer-plus') &&
@@ -1070,18 +1073,25 @@ function run() {
       !stylesSource.includes('.code-thread-tab') &&
       !stylesSource.includes('.code-terminal-actions'),
     'main.css should include Codex mode shell, embedded resizable panes, Code-styled dialogs, and the left-side agent context menu without fake window/tab/terminal chrome'
-		  );
+  );
 
   assert(
     workspaceSource.includes('const DEFAULT_SIDEBAR_WIDTH = 296') &&
       workspaceSource.includes('const COLLAPSED_SIDEBAR_WIDTH = 64') &&
       workspaceSource.includes('const DESKTOP_AUTO_COLLAPSE_WIDTH = 900') &&
       workspaceSource.includes('const sidebarAutoCollapsedRef = useRef(sidebarCollapsed)') &&
-      workspaceSource.includes("window.matchMedia('(max-width: 980px)').matches") &&
-      workspaceSource.includes("window.matchMedia('(any-pointer: coarse)').matches") &&
-      workspaceSource.includes('navigator.maxTouchPoints > 0') &&
+      appSource.includes('useLayoutEffect') &&
+      appSource.includes("import { isMobileTouchViewport } from '@/lib/responsive-mode'") &&
+      appSource.includes('const mobileViewport = isMobileTouchViewport()') &&
+      appSource.includes("document.body.classList.toggle('code-mobile-touch', mobileViewport)") &&
+      workspaceSource.includes("import { isMobileTouchViewport } from '@/lib/responsive-mode'") &&
+      workspaceSource.includes('return isMobileTouchViewport()') &&
+      responsiveModeSource.includes('MOBILE_NAVIGATION_MAX_WIDTH = 980') &&
+      responsiveModeSource.includes("window.matchMedia('(any-pointer: coarse)').matches") &&
+      responsiveModeSource.includes('navigator.maxTouchPoints > 0') &&
       workspaceSource.includes('function isDesktopAutoCollapseWidth(width: number)') &&
       workspaceSource.includes('const syncSidebarForWorkspaceWidth = (width: number) =>') &&
+      workspaceSource.includes('if (isMobileNavigationViewport()) {\n        autoCollapseSidebar()\n        return\n      }') &&
       workspaceSource.includes('if (sidebarAutoCollapsedRef.current)') &&
       workspaceSource.includes('function AgentRail(') &&
       workspaceSource.includes('data-testid="code-agent-rail-item"') &&
@@ -1089,8 +1099,18 @@ function run() {
       darkStylesSource.includes(".code-mode[data-appearance='dark'] .code-agent-rail-button") &&
       stylesSource.includes('@media (max-width: 980px) and (any-pointer: coarse)') &&
       stylesSource.includes('@media (min-width: 700px) and (max-width: 980px) and (any-pointer: coarse)') &&
+      stylesSource.includes('body.code-mode.code-mobile-touch') &&
+      stylesSource.includes('body.code-mode.code-mobile-touch .code-workspace.sidebar-collapsed') &&
+      stylesSource.includes('body.code-mode.code-mobile-touch .code-sidebar.collapsed') &&
+      stylesSource.includes('transform: translateX(calc(-100% - 18px));') &&
+      stylesSource.includes('body.code-mode #root,\n  body.code-mode .app-container,\n  body.code-mode .code-app-shell,\n  body.code-mode .code-workspace') &&
+      stylesSource.includes('width: var(--app-visual-width, 100vw);') &&
+      stylesSource.includes('height: var(--app-visual-height, 100dvh);') &&
+      stylesSource.includes('top: var(--app-visual-offset-top, 0px);') &&
+      stylesSource.includes('@media (min-width: 700px) and (max-width: 980px) and (any-pointer: coarse) {\n  .code-workspace {\n    grid-template-columns: minmax(0, 1fr);') &&
       stylesSource.includes('@media (max-width: 980px) and (any-pointer: fine)') &&
       stylesSource.includes('body.code-mode .input-dialog {\n    width: min(92vw, 560px);') &&
+      stylesSource.includes('body.code-mode .input-dialog {\n    max-height: var(--app-visual-height, 100dvh);') &&
       !stylesSource.includes('@media (max-width: 640px), (max-width: 980px) and (pointer: coarse)'),
     'Collapsed desktop sidebar should stay narrow, auto-collapse on constrained desktop width, and expose live agent rail shortcuts without entering the mobile drawer layout'
   );

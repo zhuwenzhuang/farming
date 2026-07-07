@@ -55,6 +55,12 @@ export interface AgentTerminalStatus {
   cwd: string
   title: string
   lastExitCode?: number | null
+  runningCommand?: string
+  lastCommand?: string
+  runningCommandStartedAt?: number | null
+  lastCommandStartedAt?: number | null
+  lastCommandFinishedAt?: number | null
+  lastCommandDurationMs?: number | null
   source: 'terminal-text' | 'shell-busy-marker' | 'shell-status-marker' | 'shell-prompt-fallback'
 }
 
@@ -92,6 +98,12 @@ export interface Agent {
   startedAt?: number | null
   exitedAt?: number | null
   terminalBusy?: boolean | null
+  shellCommand?: string
+  shellLastCommand?: string
+  shellCommandStartedAt?: number | null
+  shellLastCommandStartedAt?: number | null
+  shellLastCommandFinishedAt?: number | null
+  shellLastCommandDurationMs?: number | null
   terminalStatus?: AgentTerminalStatus | null
   status: AgentStatus
   isMain: boolean

@@ -24,6 +24,7 @@ import {
   workspaceNavigationShortcutDirection,
   type WorkspaceNavigationEntry,
 } from '@/lib/workspace-navigation-history'
+import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import { buildWorkspaceHistory } from '@/lib/workspace-options'
 import {
   fetchWorkspaceFile,
@@ -421,10 +422,7 @@ function resumedSessionFromHistoryRunSource(source?: string) {
 }
 
 function isMobileNavigationViewport() {
-  if (typeof window === 'undefined') return false
-  if (!window.matchMedia('(max-width: 980px)').matches) return false
-  return window.matchMedia('(any-pointer: coarse)').matches ||
-    (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0)
+  return isMobileTouchViewport()
 }
 
 function isDesktopAutoCollapseWidth(width: number) {
@@ -3444,6 +3442,11 @@ export function CodeWorkspace({
     if (!workspace || typeof ResizeObserver === 'undefined') return
 
     const syncSidebarForWorkspaceWidth = (width: number) => {
+      if (isMobileNavigationViewport()) {
+        autoCollapseSidebar()
+        return
+      }
+
       if (isDesktopAutoCollapseWidth(width)) {
         autoCollapseSidebar()
         return

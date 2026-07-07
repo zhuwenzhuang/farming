@@ -72,12 +72,27 @@ function run() {
     pinned: true,
     unread: true,
     previewText: 'Working (12s • esc to interrupt)',
+    shellCommand: 'git status --short',
+    shellCommandStartedAt: now - 125_000,
+    terminalStatus: {
+      kind: 'shell',
+      activity: 'busy',
+      busy: true,
+      cwd: '/repo',
+      title: '',
+      lastExitCode: null,
+      runningCommand: 'git status --short',
+      runningCommandStartedAt: now - 125_000,
+      source: 'shell-status-marker',
+    },
   }) }, now);
 
   assert.deepStrictEqual(
     {
       kind: live.kind,
       title: live.title,
+      rowTitle: live.rowTitle,
+      commandTitle: live.commandTitle,
       lifecycleStatus: live.lifecycleStatus,
       turnActive: live.turnActive,
       statusIndicatorVisible: live.statusIndicatorVisible,
@@ -91,6 +106,8 @@ function run() {
     {
       kind: 'agent',
       title: '值值Debugger',
+      rowTitle: '值值Debugger · Running 2m: git status --short · /repo',
+      commandTitle: 'Running 2m: git status --short',
       lifecycleStatus: 'running',
       turnActive: true,
       statusIndicatorVisible: true,
@@ -102,6 +119,29 @@ function run() {
       ageVisible: false,
     },
     'live agent row state should centralize title, lifecycle, turn activity, user flags, fork marker, and age visibility'
+  );
+
+  const lastCommandState = buildAgentRowDisplayState({ kind: 'agent', agent: agent({
+    command: 'bash',
+    terminalBusy: false,
+    shellLastCommand: 'npm test',
+    shellLastCommandDurationMs: 12_400,
+    terminalStatus: {
+      kind: 'shell',
+      activity: 'idle',
+      busy: false,
+      cwd: '/repo',
+      title: '',
+      lastExitCode: 1,
+      lastCommand: 'npm test',
+      lastCommandDurationMs: 12_400,
+      source: 'shell-status-marker',
+    },
+  }) }, now);
+  assert.strictEqual(
+    lastCommandState.commandTitle,
+    'Last command: npm test (12s, exit 1)',
+    'idle shell rows should expose the most recent command in row tooltips'
   );
 
   assert.strictEqual(isNewWorktreeForkAgent(agent({ source: 'ui-fork-same-worktree', parentAgentId: 'parent-1' })), false);

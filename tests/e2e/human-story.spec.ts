@@ -193,7 +193,7 @@ test.describe('human Farming Agent story', () => {
         dispatchTouch('pointermove', startY + step * 18)
       }
       dispatchTouch('pointerup', startY + 7 * 18)
-      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      await new Promise<void>(resolve => setTimeout(resolve, 180))
       const after = window.__farmingTerminalTest?.getViewport(id)
 
       return {

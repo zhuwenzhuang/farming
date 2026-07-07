@@ -186,6 +186,12 @@ class LocalSessionEngine extends SessionEngine {
       shellCwd: '',
       shellLastExitCode: null,
       shellLastEvent: '',
+      shellCommand: '',
+      shellLastCommand: '',
+      shellCommandStartedAt: null,
+      shellLastCommandStartedAt: null,
+      shellLastCommandFinishedAt: null,
+      shellLastCommandDurationMs: null,
       shellBusyMarkerPending: '',
       shellBusyIntegration: normalized.shellBusyIntegration || null,
       startedAt: Date.now(),
@@ -241,6 +247,7 @@ class LocalSessionEngine extends SessionEngine {
       const busyState = parseShellBusyMarkers(data, current.terminalBusy, current.shellBusyMarkerPending);
       current.shellBusyMarkerPending = busyState.pending;
       if (busyState.markerSeen) {
+        const markerAt = Date.now();
         current.terminalBusy = busyState.terminalBusy;
         if (busyState.cwd) {
           current.shellCwd = busyState.cwd;
@@ -251,12 +258,37 @@ class LocalSessionEngine extends SessionEngine {
         if (busyState.shellEvent) {
           current.shellLastEvent = busyState.shellEvent;
         }
+        if (busyState.shellEvent === 'start') {
+          current.shellCommandStartedAt = markerAt;
+        }
+        if (busyState.commandTextSeen) {
+          current.shellCommand = busyState.shellCommand || '';
+        }
+        if (busyState.shellEvent === 'finish') {
+          const commandStartedAt = current.shellCommandStartedAt;
+          if (current.shellCommand) {
+            current.shellLastCommand = current.shellCommand;
+          }
+          if (typeof commandStartedAt === 'number') {
+            current.shellLastCommandStartedAt = commandStartedAt;
+            current.shellLastCommandFinishedAt = markerAt;
+            current.shellLastCommandDurationMs = Math.max(0, markerAt - commandStartedAt);
+          }
+          current.shellCommand = '';
+          current.shellCommandStartedAt = null;
+        }
         this.emit('session-busy-state', {
           sessionId: current.id,
           terminalBusy: current.terminalBusy,
           cwd: current.shellCwd || current.cwd,
           lastExitCode: current.shellLastExitCode,
           shellEvent: current.shellLastEvent,
+          shellCommand: current.shellCommand,
+          shellLastCommand: current.shellLastCommand,
+          shellCommandStartedAt: current.shellCommandStartedAt,
+          shellLastCommandStartedAt: current.shellLastCommandStartedAt,
+          shellLastCommandFinishedAt: current.shellLastCommandFinishedAt,
+          shellLastCommandDurationMs: current.shellLastCommandDurationMs,
           statusMarkerSeen: busyState.statusMarkerSeen,
           busyMarkerSeen: busyState.busyMarkerSeen,
         });
@@ -455,6 +487,12 @@ class LocalSessionEngine extends SessionEngine {
       startedAt: session.startedAt,
       exitedAt: session.exitedAt || null,
       terminalBusy: session.terminalBusy,
+      shellCommand: session.shellCommand || '',
+      shellLastCommand: session.shellLastCommand || '',
+      shellCommandStartedAt: session.shellCommandStartedAt ?? null,
+      shellLastCommandStartedAt: session.shellLastCommandStartedAt ?? null,
+      shellLastCommandFinishedAt: session.shellLastCommandFinishedAt ?? null,
+      shellLastCommandDurationMs: session.shellLastCommandDurationMs ?? null,
       terminalStatus: deriveTerminalStatus({
         command: session.command,
         cwd: session.shellCwd || session.cwd,
@@ -464,6 +502,12 @@ class LocalSessionEngine extends SessionEngine {
         terminalBusy: session.terminalBusy,
         shellLastExitCode: session.shellLastExitCode,
         shellLastEvent: session.shellLastEvent,
+        shellCommand: session.shellCommand,
+        shellLastCommand: session.shellLastCommand,
+        shellCommandStartedAt: session.shellCommandStartedAt,
+        shellLastCommandStartedAt: session.shellLastCommandStartedAt,
+        shellLastCommandFinishedAt: session.shellLastCommandFinishedAt,
+        shellLastCommandDurationMs: session.shellLastCommandDurationMs,
       })
     };
   }

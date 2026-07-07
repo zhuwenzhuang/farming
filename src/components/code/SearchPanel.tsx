@@ -100,6 +100,7 @@ function AgentSearchResult({
       type="button"
       className={`code-search-result ${rowState.statusIndicatorVisible ? '' : 'no-status'} ${selected ? 'active' : ''}`}
       data-testid="code-search-result"
+      title={rowState.rowTitle || rowState.title}
       onClick={onOpen}
     >
       {rowState.statusIndicatorVisible && (

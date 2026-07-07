@@ -67,6 +67,35 @@ function run() {
   assert.deepStrictEqual(
     deriveTerminalStatus({
       command: 'bash',
+      cwd: '/repo',
+      title: '',
+      previewText: 'git status --short',
+      terminalBusy: true,
+      shellLastEvent: 'start',
+      shellCommand: 'git status --short',
+      shellLastCommand: 'npm test',
+      shellCommandStartedAt: 1000,
+      shellLastCommandDurationMs: 3400,
+    }),
+    {
+      kind: 'shell',
+      activity: 'busy',
+      busy: true,
+      cwd: '/repo',
+      title: '',
+      lastExitCode: null,
+      source: 'shell-status-marker',
+      runningCommand: 'git status --short',
+      runningCommandStartedAt: 1000,
+      lastCommand: 'npm test',
+      lastCommandDurationMs: 3400,
+    },
+    'terminal status should expose structured shell command metadata when available'
+  );
+
+  assert.deepStrictEqual(
+    deriveTerminalStatus({
+      command: 'bash',
       cwd: '/home/admin',
       title: '',
       previewText: '/home/admin $ ',

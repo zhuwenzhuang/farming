@@ -11,6 +11,8 @@ export type AgentRowBacking =
 export interface AgentRowDisplayState {
   kind: AgentRowBacking['kind']
   title: string
+  rowTitle: string
+  commandTitle: string
   lifecycleStatus?: Agent['status']
   turnActive: boolean
   statusIndicatorVisible: boolean
@@ -46,14 +48,66 @@ function shouldShowAgentStatusIndicator(status: Agent['status'], turnActive: boo
   return turnActive || status === 'pending' || status === 'stopped' || status === 'dead'
 }
 
+function compactCommand(command: string) {
+  const text = command.replace(/\s+/g, ' ').trim()
+  return text.length > 160 ? `${text.slice(0, 157)}...` : text
+}
+
+function finiteTimestamp(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function formatCommandDuration(durationMs: number | null) {
+  if (durationMs === null || durationMs < 0) return ''
+  const seconds = Math.max(0, Math.round(durationMs / 1000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`
+}
+
+function agentCommandTitle(agent: Agent, turnActive: boolean, now: number) {
+  const runningCommand = compactCommand(
+    agent.terminalStatus?.runningCommand || agent.shellCommand || ''
+  )
+  if (runningCommand && turnActive) {
+    const startedAt = finiteTimestamp(agent.terminalStatus?.runningCommandStartedAt)
+      ?? finiteTimestamp(agent.shellCommandStartedAt)
+    const duration = startedAt !== null ? formatCommandDuration(now - startedAt) : ''
+    return duration ? `Running ${duration}: ${runningCommand}` : `Running: ${runningCommand}`
+  }
+
+  const lastCommand = compactCommand(
+    agent.terminalStatus?.lastCommand || agent.shellLastCommand || ''
+  )
+  if (!lastCommand) return ''
+
+  const exitCode = agent.terminalStatus?.lastExitCode
+  const duration = formatCommandDuration(
+    finiteTimestamp(agent.terminalStatus?.lastCommandDurationMs)
+      ?? finiteTimestamp(agent.shellLastCommandDurationMs)
+  )
+  const details = [
+    duration,
+    typeof exitCode === 'number' ? `exit ${exitCode}` : '',
+  ].filter(Boolean).join(', ')
+  return details ? `Last command: ${lastCommand} (${details})` : `Last command: ${lastCommand}`
+}
+
 function agentRowStateFromAgent(agent: Agent, now: number): AgentRowDisplayState {
   const ageTimestamp = agent.lastActivity ?? agent.startedAt
   const terminalState = inferAgentTerminalState(agent)
   const turnActive = terminalState.turnActive
   const ageLabel = formatRelativeAge(ageTimestamp, now)
+  const title = agentTitle(agent)
+  const commandTitle = agentCommandTitle(agent, turnActive, now)
   return {
     kind: 'agent',
-    title: agentTitle(agent),
+    title,
+    rowTitle: [title, commandTitle, agent.cwd].filter(Boolean).join(' · '),
+    commandTitle,
     lifecycleStatus: agent.status,
     turnActive,
     statusIndicatorVisible: shouldShowAgentStatusIndicator(agent.status, turnActive),
@@ -81,6 +135,8 @@ function agentRowStateFromHistory(
   return {
     kind: 'history',
     title: session.title || fallbackTitle,
+    rowTitle: [session.title || fallbackTitle, session.cwd || session.workspace].filter(Boolean).join(' · '),
+    commandTitle: '',
     turnActive: false,
     statusIndicatorVisible: false,
     pinned: session.pinned === true,

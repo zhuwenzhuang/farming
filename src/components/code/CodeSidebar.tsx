@@ -831,7 +831,8 @@ function AgentRailButton({
   const backing = { kind: 'agent' as const, agent: item.agent }
   const rowState = buildAgentRowDisplayState(backing, now)
   const active = item.agent.id === activeTerminalId
-  const title = item.projectName ? `${rowState.title} · ${item.projectName}` : rowState.title
+  const titleParts = [rowState.title, rowState.commandTitle, item.projectName].filter(Boolean)
+  const title = titleParts.join(' · ')
   const openItem = () => {
     onOpenAgent(item.agent.id)
   }
@@ -1385,7 +1386,8 @@ function AgentRow({
       data-agent-id={agent?.id}
       data-provider={session?.provider}
       data-session-id={session?.id}
-      aria-label={rowState.title}
+      title={rowState.rowTitle || rowState.title}
+      aria-label={rowState.rowTitle || rowState.title}
       onClick={openRow}
       onMouseEnter={event => {
         if (session) onShowPreview?.(event, session)
@@ -1417,7 +1419,10 @@ function AgentRow({
       </span>
       <span className="code-agent-row-trailing">
         {rowState.statusIndicatorVisible && (
-          <span className={`code-agent-dot ${rowState.lifecycleStatus} ${rowState.turnActive ? 'turn-active' : ''}`} />
+          <span
+            className={`code-agent-dot ${rowState.lifecycleStatus} ${rowState.turnActive ? 'turn-active' : ''}`}
+            title={rowState.commandTitle || rowState.lifecycleStatus}
+          />
         )}
         {rowState.forkedToNewWorktree && (
           <span

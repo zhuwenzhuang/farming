@@ -3,6 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useKeyboard } from '@/hooks/useKeyboard'
 import { appPath } from '@/lib/base-path'
 import { agentDisplayName, formatRelativeAge } from '@/lib/format'
+import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { CodeCopy } from '@/components/code/copy'
 import { mergeTaskWithWorkflow, WORKFLOW_TEMPLATE_OPTIONS } from '@/lib/workflow-templates'
 import {
@@ -17,10 +18,7 @@ import {
 } from '@/lib/workspace-options'
 
 function isMobileViewport() {
-  if (typeof window === 'undefined') return false
-  if (!window.matchMedia('(max-width: 980px)').matches) return false
-  return window.matchMedia('(any-pointer: coarse)').matches
-    || (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0)
+  return isMobileTouchViewport()
 }
 
 function normalizeDefaultLaunchAgent(agentName: string | undefined) {

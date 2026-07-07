@@ -70,6 +70,10 @@ function terminalRuntimeStatus(agentStatus) {
   return agentStatus === 'stopped' || agentStatus === 'dead' ? 'exited' : agentStatus;
 }
 
+function finiteNumberOrNull(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
 function deriveAgentTerminalStatus(agent, overrides = {}) {
   const terminalBusy = Object.prototype.hasOwnProperty.call(overrides, 'terminalBusy')
     ? overrides.terminalBusy
@@ -87,6 +91,24 @@ function deriveAgentTerminalStatus(agent, overrides = {}) {
     terminalBusy: typeof terminalBusy === 'boolean' ? terminalBusy : null,
     shellLastExitCode: typeof agent.shellLastExitCode === 'number' ? agent.shellLastExitCode : null,
     shellLastEvent: agent.shellLastEvent || '',
+    shellCommand: Object.prototype.hasOwnProperty.call(overrides, 'shellCommand')
+      ? overrides.shellCommand
+      : (agent.shellCommand || ''),
+    shellLastCommand: Object.prototype.hasOwnProperty.call(overrides, 'shellLastCommand')
+      ? overrides.shellLastCommand
+      : (agent.shellLastCommand || ''),
+    shellCommandStartedAt: Object.prototype.hasOwnProperty.call(overrides, 'shellCommandStartedAt')
+      ? overrides.shellCommandStartedAt
+      : finiteNumberOrNull(agent.shellCommandStartedAt),
+    shellLastCommandStartedAt: Object.prototype.hasOwnProperty.call(overrides, 'shellLastCommandStartedAt')
+      ? overrides.shellLastCommandStartedAt
+      : finiteNumberOrNull(agent.shellLastCommandStartedAt),
+    shellLastCommandFinishedAt: Object.prototype.hasOwnProperty.call(overrides, 'shellLastCommandFinishedAt')
+      ? overrides.shellLastCommandFinishedAt
+      : finiteNumberOrNull(agent.shellLastCommandFinishedAt),
+    shellLastCommandDurationMs: Object.prototype.hasOwnProperty.call(overrides, 'shellLastCommandDurationMs')
+      ? overrides.shellLastCommandDurationMs
+      : finiteNumberOrNull(agent.shellLastCommandDurationMs),
   });
 }
 
@@ -375,6 +397,12 @@ class AgentManager extends EventEmitter {
           cwd,
           lastExitCode,
           shellEvent,
+          shellCommand,
+          shellLastCommand,
+          shellCommandStartedAt,
+          shellLastCommandStartedAt,
+          shellLastCommandFinishedAt,
+          shellLastCommandDurationMs,
           statusMarkerSeen,
           busyMarkerSeen,
         } = payload;
@@ -386,6 +414,12 @@ class AgentManager extends EventEmitter {
           shellCwd: agent.shellCwd || '',
           shellLastExitCode: agent.shellLastExitCode ?? null,
           shellLastEvent: agent.shellLastEvent || '',
+          shellCommand: agent.shellCommand || '',
+          shellLastCommand: agent.shellLastCommand || '',
+          shellCommandStartedAt: agent.shellCommandStartedAt ?? null,
+          shellLastCommandStartedAt: agent.shellLastCommandStartedAt ?? null,
+          shellLastCommandFinishedAt: agent.shellLastCommandFinishedAt ?? null,
+          shellLastCommandDurationMs: agent.shellLastCommandDurationMs ?? null,
           shellStatusMarkerSeen: agent.shellStatusMarkerSeen === true,
           shellBusyMarkerSeen: agent.shellBusyMarkerSeen === true,
         });
@@ -401,6 +435,27 @@ class AgentManager extends EventEmitter {
         if (shellEvent === 'start' || shellEvent === 'finish') {
           agent.shellLastEvent = shellEvent;
         }
+        if (Object.prototype.hasOwnProperty.call(payload, 'shellCommand')) {
+          agent.shellCommand = typeof shellCommand === 'string' ? shellCommand : '';
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, 'shellLastCommand')) {
+          agent.shellLastCommand = typeof shellLastCommand === 'string' ? shellLastCommand : '';
+        } else if (shellEvent === 'finish' && agent.shellCommand) {
+          agent.shellLastCommand = agent.shellCommand;
+          agent.shellCommand = '';
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, 'shellCommandStartedAt')) {
+          agent.shellCommandStartedAt = finiteNumberOrNull(shellCommandStartedAt);
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, 'shellLastCommandStartedAt')) {
+          agent.shellLastCommandStartedAt = finiteNumberOrNull(shellLastCommandStartedAt);
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, 'shellLastCommandFinishedAt')) {
+          agent.shellLastCommandFinishedAt = finiteNumberOrNull(shellLastCommandFinishedAt);
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, 'shellLastCommandDurationMs')) {
+          agent.shellLastCommandDurationMs = finiteNumberOrNull(shellLastCommandDurationMs);
+        }
         if (statusMarkerSeen === true) {
           agent.shellStatusMarkerSeen = true;
         }
@@ -412,6 +467,12 @@ class AgentManager extends EventEmitter {
           shellCwd: agent.shellCwd || '',
           shellLastExitCode: agent.shellLastExitCode ?? null,
           shellLastEvent: agent.shellLastEvent || '',
+          shellCommand: agent.shellCommand || '',
+          shellLastCommand: agent.shellLastCommand || '',
+          shellCommandStartedAt: agent.shellCommandStartedAt ?? null,
+          shellLastCommandStartedAt: agent.shellLastCommandStartedAt ?? null,
+          shellLastCommandFinishedAt: agent.shellLastCommandFinishedAt ?? null,
+          shellLastCommandDurationMs: agent.shellLastCommandDurationMs ?? null,
           shellStatusMarkerSeen: agent.shellStatusMarkerSeen === true,
           shellBusyMarkerSeen: agent.shellBusyMarkerSeen === true,
         });
@@ -552,6 +613,12 @@ class AgentManager extends EventEmitter {
       shellCwd: state.shellCwd || metadata.cwd || '',
       shellLastExitCode: typeof state.shellLastExitCode === 'number' ? state.shellLastExitCode : null,
       shellLastEvent: state.shellLastEvent || '',
+      shellCommand: typeof state.shellCommand === 'string' ? state.shellCommand : '',
+      shellLastCommand: typeof state.shellLastCommand === 'string' ? state.shellLastCommand : '',
+      shellCommandStartedAt: finiteNumberOrNull(state.shellCommandStartedAt),
+      shellLastCommandStartedAt: finiteNumberOrNull(state.shellLastCommandStartedAt),
+      shellLastCommandFinishedAt: finiteNumberOrNull(state.shellLastCommandFinishedAt),
+      shellLastCommandDurationMs: finiteNumberOrNull(state.shellLastCommandDurationMs),
       pinned: metadata.pinned === true,
       unread: false,
       archived: false,
@@ -1138,6 +1205,12 @@ class AgentManager extends EventEmitter {
       shellCwd: '',
       shellLastExitCode: null,
       shellLastEvent: '',
+      shellCommand: '',
+      shellLastCommand: '',
+      shellCommandStartedAt: null,
+      shellLastCommandStartedAt: null,
+      shellLastCommandFinishedAt: null,
+      shellLastCommandDurationMs: null,
       pinned: false,
       unread: false,
       archived: false,
@@ -1780,6 +1853,24 @@ class AgentManager extends EventEmitter {
     const terminalBusy = sessionState && typeof sessionState.terminalBusy === 'boolean'
       ? sessionState.terminalBusy
       : (typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null);
+    const shellCommand = sessionState && typeof sessionState.shellCommand === 'string'
+      ? sessionState.shellCommand
+      : (agent.shellCommand || '');
+    const shellLastCommand = sessionState && typeof sessionState.shellLastCommand === 'string'
+      ? sessionState.shellLastCommand
+      : (agent.shellLastCommand || '');
+    const shellCommandStartedAt = sessionState && Object.prototype.hasOwnProperty.call(sessionState, 'shellCommandStartedAt')
+      ? finiteNumberOrNull(sessionState.shellCommandStartedAt)
+      : finiteNumberOrNull(agent.shellCommandStartedAt);
+    const shellLastCommandStartedAt = sessionState && Object.prototype.hasOwnProperty.call(sessionState, 'shellLastCommandStartedAt')
+      ? finiteNumberOrNull(sessionState.shellLastCommandStartedAt)
+      : finiteNumberOrNull(agent.shellLastCommandStartedAt);
+    const shellLastCommandFinishedAt = sessionState && Object.prototype.hasOwnProperty.call(sessionState, 'shellLastCommandFinishedAt')
+      ? finiteNumberOrNull(sessionState.shellLastCommandFinishedAt)
+      : finiteNumberOrNull(agent.shellLastCommandFinishedAt);
+    const shellLastCommandDurationMs = sessionState && Object.prototype.hasOwnProperty.call(sessionState, 'shellLastCommandDurationMs')
+      ? finiteNumberOrNull(sessionState.shellLastCommandDurationMs)
+      : finiteNumberOrNull(agent.shellLastCommandDurationMs);
     const previewText = (sessionState && typeof sessionState.previewText === 'string') ? sessionState.previewText : fallbackPreview;
     const sessionTitle = (sessionState && typeof sessionState.title === 'string' && sessionState.title) || agent.sessionTitle || '';
     const terminalStatus = (sessionState && sessionState.terminalStatus) || deriveAgentTerminalStatus(agent, {
@@ -1788,6 +1879,12 @@ class AgentManager extends EventEmitter {
       title: sessionTitle,
       previewText,
       cwd: (sessionState && sessionState.terminalStatus && sessionState.terminalStatus.cwd) || agent.shellCwd || agent.cwd,
+      shellCommand,
+      shellLastCommand,
+      shellCommandStartedAt,
+      shellLastCommandStartedAt,
+      shellLastCommandFinishedAt,
+      shellLastCommandDurationMs,
     });
 
     const now = Date.now();
@@ -1801,6 +1898,12 @@ class AgentManager extends EventEmitter {
       status: agent.status,
       terminalBusy,
       terminalStatus,
+      shellCommand,
+      shellLastCommand,
+      shellCommandStartedAt,
+      shellLastCommandStartedAt,
+      shellLastCommandFinishedAt,
+      shellLastCommandDurationMs,
       parentAgentId: agent.parentAgentId || '',
       task: agent.task || '',
       workflowTemplate: agent.workflowTemplate || '',
@@ -1928,6 +2031,12 @@ class AgentManager extends EventEmitter {
         status: agent.status,
         terminalBusy,
         terminalStatus,
+        shellCommand: agent.shellCommand || '',
+        shellLastCommand: agent.shellLastCommand || '',
+        shellCommandStartedAt: finiteNumberOrNull(agent.shellCommandStartedAt),
+        shellLastCommandStartedAt: finiteNumberOrNull(agent.shellLastCommandStartedAt),
+        shellLastCommandFinishedAt: finiteNumberOrNull(agent.shellLastCommandFinishedAt),
+        shellLastCommandDurationMs: finiteNumberOrNull(agent.shellLastCommandDurationMs),
         isMain,
         parentAgentId: agent.parentAgentId || '',
         task: agent.task || '',

@@ -37,6 +37,16 @@ async function createControlAgent(page: import('@playwright/test').Page, command
   return data.agentId as string
 }
 
+async function cleanupControlAgents(request: import('@playwright/test').APIRequestContext) {
+  const response = await request.get('/farming/api/control/agents').catch(() => null)
+  if (!response?.ok()) return
+  const data = await response.json() as { agents?: Array<{ id?: string }> }
+  await Promise.all((data.agents ?? [])
+    .map(agent => agent.id)
+    .filter((id): id is string => Boolean(id))
+    .map(id => request.delete(`/farming/api/control/agents/${id}`).catch(() => null)))
+}
+
 async function selectAgent(page: import('@playwright/test').Page, agentId: string) {
   const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
   const terminalPane = page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)
@@ -87,6 +97,35 @@ async function cellForText(
 
 function activeTerminalHostSelector(agentId: string) {
   return `[data-testid="code-terminal-pane"][data-agent-id="${agentId}"].active .terminal-session-host[data-agent-id="${agentId}"]`
+}
+
+async function dispatchTouchDrag(
+  page: import('@playwright/test').Page,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  steps = 8,
+) {
+  const client = await page.context().newCDPSession(page)
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ id: 1, x: from.x, y: from.y }],
+  })
+  for (let step = 1; step <= steps; step += 1) {
+    const progress = step / steps
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{
+        id: 1,
+        x: from.x + (to.x - from.x) * progress,
+        y: from.y + (to.y - from.y) * progress,
+      }],
+    })
+  }
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  })
+  await client.detach()
 }
 
 async function pressTerminalScrollKey(
@@ -1298,7 +1337,7 @@ test.describe('terminal regression matrix', () => {
         dispatch('pointerdown', startY)
         for (let step = 1; step <= 8; step += 1) dispatch('pointermove', startY + step * 18)
         dispatch('pointerup', startY + 8 * 18)
-        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+        await new Promise<void>(resolve => setTimeout(resolve, 180))
         const after = window.__farmingTerminalTest?.getViewport(id)
         return {
           before,
@@ -1360,5 +1399,150 @@ test.describe('terminal regression matrix', () => {
     })
 
     console.log(`mobile terminal regression matrix executed ${checked.length} scenarios`)
+  })
+
+  test('pins the coarse mobile shell to the visual viewport during repeated touch drags', async ({ browser, baseURL, workspaceRoot }) => {
+    const context = await browser.newContext({
+      baseURL,
+      viewport: { width: 390, height: 844 },
+      isMobile: true,
+      hasTouch: true,
+      deviceScaleFactor: 3,
+    })
+    const page = await context.newPage()
+    await page.addInitScript(() => {
+      window.__FARMING_E2E__ = true
+      Object.defineProperty(Navigator.prototype, 'maxTouchPoints', {
+        configurable: true,
+        get: () => 1,
+      })
+    })
+
+    const mobileDir = path.join(workspaceRoot, 'coarse-mobile-shell')
+    fs.mkdirSync(mobileDir, { recursive: true })
+
+    const shellMetrics = async () => page.evaluate(() => {
+      const rectFor = (selector: string) => {
+        const element = document.querySelector(selector)
+        if (!(element instanceof HTMLElement)) return null
+        const rect = element.getBoundingClientRect()
+        return {
+          left: Math.round(rect.left),
+          top: Math.round(rect.top),
+          right: Math.round(rect.right),
+          bottom: Math.round(rect.bottom),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        }
+      }
+      const workspace = document.querySelector('[data-testid="code-workspace"]') as HTMLElement | null
+      const columns = workspace ? getComputedStyle(workspace).gridTemplateColumns.split(' ').filter(Boolean) : []
+      return {
+        viewport: {
+          width: Math.round(window.visualViewport?.width ?? window.innerWidth),
+          height: Math.round(window.visualViewport?.height ?? window.innerHeight),
+        },
+        windowScrollX: window.scrollX,
+        windowScrollY: window.scrollY,
+        documentScrollLeft: document.documentElement.scrollLeft,
+        documentScrollTop: document.documentElement.scrollTop,
+        documentClientWidth: document.documentElement.clientWidth,
+        documentScrollWidth: document.documentElement.scrollWidth,
+        bodyClientWidth: document.body.clientWidth,
+        bodyScrollWidth: document.body.scrollWidth,
+        workspaceClientWidth: workspace?.clientWidth ?? 0,
+        workspaceScrollWidth: workspace?.scrollWidth ?? 0,
+        gridTemplateColumnCount: columns.length,
+        app: rectFor('[data-testid="app-shell"]'),
+        workspace: rectFor('[data-testid="code-workspace"]'),
+        main: rectFor('[data-testid="code-main"]'),
+        terminalGrid: rectFor('[data-testid="code-terminal-grid"]'),
+      }
+    })
+
+    const expectPinnedShell = async () => {
+      const metrics = await shellMetrics()
+      expect(metrics.windowScrollX).toBe(0)
+      expect(metrics.windowScrollY).toBe(0)
+      expect(metrics.documentScrollLeft).toBe(0)
+      expect(metrics.documentScrollTop).toBe(0)
+      expect(metrics.documentScrollWidth).toBeLessThanOrEqual(metrics.documentClientWidth + 1)
+      expect(metrics.bodyScrollWidth).toBeLessThanOrEqual(metrics.bodyClientWidth + 1)
+      expect(metrics.workspaceScrollWidth).toBeLessThanOrEqual(metrics.workspaceClientWidth + 1)
+      expect(metrics.gridTemplateColumnCount).toBe(1)
+      for (const rect of [metrics.app, metrics.workspace, metrics.main, metrics.terminalGrid]) {
+        expect(rect).toBeTruthy()
+        expect(rect?.left ?? 0).toBeGreaterThanOrEqual(0)
+        expect(rect?.top ?? 0).toBeGreaterThanOrEqual(0)
+        expect(rect?.right ?? 0).toBeLessThanOrEqual(metrics.viewport.width + 1)
+        expect(rect?.bottom ?? 0).toBeLessThanOrEqual(metrics.viewport.height + 1)
+        expect(rect?.width ?? 0).toBeGreaterThan(0)
+        expect(rect?.height ?? 0).toBeGreaterThan(0)
+      }
+    }
+
+    try {
+      await cleanupControlAgents(context.request)
+      const response = await context.request.post('/farming/api/control/agents', {
+        data: { command: 'bash', workspace: mobileDir },
+      })
+      expect(response.ok()).toBeTruthy()
+      const { agentId } = await response.json() as { agentId: string }
+
+      await page.goto('/farming/', { waitUntil: 'networkidle' })
+      await expect(page.getByTestId('app-shell')).toBeVisible()
+      await page.getByTestId('code-mobile-menu').click()
+      await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click({ timeout: 30_000 })
+      await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
+      const output = Array.from({ length: 220 }, (_, index) => `coarse-mobile-shell-${String(index).padStart(3, '0')}`).join('\r\n')
+      await page.evaluate(async ({ id, text }) => window.__farmingTerminalTest?.writeFixture(id, `${text}\r\n$ `), { id: agentId, text: output })
+
+      await expectPinnedShell()
+      const terminalBox = await page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"] .xterm-screen`).boundingBox()
+      expect(terminalBox).toBeTruthy()
+      if (terminalBox) {
+        for (let index = 0; index < 4; index += 1) {
+          await dispatchTouchDrag(
+            page,
+            { x: terminalBox.x + terminalBox.width / 2, y: terminalBox.y + terminalBox.height * 0.35 },
+            { x: terminalBox.x + terminalBox.width / 2, y: terminalBox.y + terminalBox.height * 0.75 },
+          )
+          await page.waitForTimeout(80)
+        }
+      }
+      await expectPinnedShell()
+
+      await page.getByTestId('code-mobile-menu').click()
+      await expect(page.getByTestId('code-mobile-sidebar-backdrop')).toBeVisible()
+      await expectPinnedShell()
+      const backdropBox = await page.getByTestId('code-mobile-sidebar-backdrop').boundingBox()
+      expect(backdropBox).toBeTruthy()
+      if (backdropBox) {
+        await dispatchTouchDrag(
+          page,
+          { x: backdropBox.x + backdropBox.width * 0.78, y: backdropBox.y + backdropBox.height * 0.7 },
+          { x: backdropBox.x + backdropBox.width * 0.78, y: backdropBox.y + backdropBox.height * 0.18 },
+        )
+      }
+      await expectPinnedShell()
+      if (await page.getByTestId('code-mobile-sidebar-backdrop').count()) {
+        const closeBackdropBox = await page.getByTestId('code-mobile-sidebar-backdrop').boundingBox()
+        expect(closeBackdropBox).toBeTruthy()
+        if (closeBackdropBox) {
+          await page.mouse.click(
+            closeBackdropBox.x + closeBackdropBox.width - 8,
+            closeBackdropBox.y + closeBackdropBox.height / 2,
+          )
+        }
+      }
+      await expect(page.getByTestId('code-mobile-sidebar-backdrop')).toHaveCount(0)
+
+      await page.setViewportSize({ width: 844, height: 390 })
+      await page.waitForTimeout(120)
+      await expectPinnedShell()
+    } finally {
+      await cleanupControlAgents(context.request)
+      await context.close()
+    }
   })
 })
