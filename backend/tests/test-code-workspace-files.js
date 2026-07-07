@@ -1057,9 +1057,9 @@ function run() {
 	      workspaceSource.includes('observer?.observe(projectRow)') &&
 	      stylesSource.includes('min-height: var(--code-project-sticky-height)') &&
 	      stylesSource.includes('.code-agents-section {\n  position: sticky;') &&
-	      stylesSource.includes('.code-agents-section {\n  position: sticky;\n  top: var(--code-project-sticky-height);\n  z-index: 24;') &&
+      stylesSource.includes('.code-agents-section {\n  position: sticky;\n  top: var(--code-project-sticky-height);\n  z-index: 24;') &&
       stylesSource.includes('box-sizing: border-box;\n  margin-left: 0;\n  margin-right: 2px;\n  padding-left: 14px;') &&
-      stylesSource.includes('.code-file-sticky-shell {\n  position: sticky;\n  top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px));\n  height: 0;\n  z-index: 11;') &&
+      stylesSource.includes('.code-file-sticky-shell {\n  position: sticky;\n  top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px));\n  height: 0;\n  z-index: 11;') &&
       stylesSource.includes('.code-product-mark') &&
       stylesSource.includes('grid-template-columns: minmax(0, 1fr) auto') &&
       stylesSource.includes('.code-product-mark-copy') &&

@@ -1157,6 +1157,46 @@ test.describe('display-backed agent flows', () => {
       const rowBox = activeRow.getBoundingClientRect()
       return rowBox.top >= viewportBox.top - 1 && rowBox.bottom <= viewportBox.bottom + 1
     }, 'deep/nested/inner/file-35.txt')).toBe(true)
+
+    for (let index = 0; index < 9; index += 1) {
+      const fileName = `file-${String(index).padStart(2, '0')}.txt`
+      await fileSearchInput.fill(`deep/nested/inner/${fileName}:1`)
+      await fileSearchInput.press('Enter')
+      await expect(activeFileTabName(page)).toHaveText(fileName)
+    }
+    await expect.poll(async () => childProject.getByTestId('code-open-editors').evaluate(section => {
+      const list = section.querySelector<HTMLElement>('.code-open-editors-list')
+      const activeRow = section.querySelector<HTMLElement>('[data-testid="code-open-editor-row"].active')
+      const projectList = section.closest('.code-project-list') as HTMLElement | null
+      const filesHeader = section.closest('.code-project-group')?.querySelector<HTMLElement>('.code-files-header')
+      if (!list || !activeRow || !projectList || !filesHeader) return null
+      const row = list.querySelector<HTMLElement>('[data-testid="code-open-editor-row"]')
+      if (!row) return null
+      const listBox = list.getBoundingClientRect()
+      const activeBox = activeRow.getBoundingClientRect()
+      const sectionBox = section.getBoundingClientRect()
+      const projectListBox = projectList.getBoundingClientRect()
+      const filesHeaderBox = filesHeader.getBoundingClientRect()
+      return {
+        activeVisible: activeBox.top >= listBox.top - 1 && activeBox.bottom <= listBox.bottom + 1,
+        filesHeaderBelowOpenEditors: filesHeaderBox.top >= sectionBox.bottom - 2,
+        listIsCapped: list.clientHeight <= row.getBoundingClientRect().height * 7 + 1,
+        projectKeepsOpenEditors: sectionBox.top >= projectListBox.top - 1 && sectionBox.bottom <= projectListBox.bottom + 1,
+        rowCount: list.querySelectorAll('[data-testid="code-open-editor-row"]').length,
+        scrollable: list.scrollHeight > list.clientHeight + 1,
+        visibleCount: section.dataset.visibleEditorCount,
+      }
+    })).toMatchObject({
+      activeVisible: true,
+      filesHeaderBelowOpenEditors: true,
+      listIsCapped: true,
+      projectKeepsOpenEditors: true,
+      scrollable: true,
+      visibleCount: '7',
+    })
+    await expect.poll(async () => childProject.getByTestId('code-open-editors').locator('.code-open-editors-list').evaluate(list => (
+      list.querySelectorAll('[data-testid="code-open-editor-row"]').length
+    ))).toBeGreaterThanOrEqual(8)
   })
 
   test('shows incomplete state when project file search stops early', async ({ page }) => {

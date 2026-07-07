@@ -747,6 +747,9 @@ body.code-resizing-sidebar {
 
 .code-project-group {
   --code-agents-sticky-height: 0px;
+  --code-open-editors-header-height: 25px;
+  --code-open-editor-row-height: 28px;
+  --code-open-editors-sticky-height: 0px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1282,13 +1285,10 @@ body.code-resizing-sidebar {
 
 .code-open-editors-header,
 .code-files-header {
-  position: sticky;
-  top: var(--code-project-sticky-height);
-  z-index: 10;
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 19px;
+  min-height: var(--code-open-editors-header-height);
   padding: 2px 6px 1px 0;
   color: #5f675e;
   font-size: 11px;
@@ -1296,6 +1296,12 @@ body.code-resizing-sidebar {
   letter-spacing: 0;
   text-transform: uppercase;
   background: #f6f7f3;
+}
+
+.code-files-header {
+  position: sticky;
+  top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px));
+  z-index: 10;
 }
 
 .code-open-editors-title,
@@ -1411,6 +1417,13 @@ body.code-resizing-sidebar {
 
 .code-open-editors {
   margin-top: 3px;
+  position: sticky;
+  top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px));
+  z-index: 18;
+  flex-shrink: 0;
+  background: #f6f7f3;
+  border-radius: 0 0 6px 6px;
+  box-shadow: 0 10px 14px -18px rgba(31, 35, 40, 0.28);
 }
 
 .code-file-changes-section {
@@ -1613,11 +1626,31 @@ body.code-mode .code-file-change-group-toggle {
 .code-open-editors-list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0;
+  max-height: var(--code-open-editors-list-max-height, 196px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(95, 103, 94, 0.26) transparent;
+}
+
+.code-open-editors-list::-webkit-scrollbar {
+  width: 7px;
+}
+
+.code-open-editors-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(95, 103, 94, 0.24);
+}
+
+.code-open-editors-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .code-open-editor-row {
   min-width: 0;
+  min-height: var(--code-open-editor-row-height);
   display: grid;
   grid-template-columns: minmax(0, 1fr) 20px;
   align-items: center;
@@ -1630,6 +1663,7 @@ body.code-mode .code-file-change-group-toggle {
 
 .code-open-editor-main {
   min-width: 0;
+  min-height: var(--code-open-editor-row-height);
   display: grid;
   grid-template-columns: 16px minmax(0, auto) minmax(0, 1fr) 8px;
   align-items: center;
@@ -1862,7 +1896,7 @@ body.code-mode .code-file-change-group-toggle {
 
 .code-file-sticky-shell {
   position: sticky;
-  top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px));
+  top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px));
   height: 0;
   z-index: 11;
   pointer-events: none;

@@ -1,7 +1,12 @@
+import { useEffect, useMemo, useRef, type CSSProperties } from 'react'
 import { iconForFilePath } from '@/lib/file-icons'
 import { parentDirectory } from '@/lib/workspace-file-tree'
 import { workspaceWorkingCopyChangeIndicator } from '@/lib/workspace-working-copy'
 import type { CodeCopy } from '../code/copy'
+
+export const OPEN_EDITORS_VISIBLE_ROW_LIMIT = 7
+export const OPEN_EDITORS_HEADER_HEIGHT = 25
+export const OPEN_EDITOR_ROW_HEIGHT = 28
 
 export interface OpenProjectFileSummary {
   agentId: string
@@ -39,10 +44,40 @@ export function OpenEditorsSection({
   onSelectOpenFile,
   onToggleCollapsed,
 }: OpenEditorsSectionProps) {
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const activeRowRef = useRef<HTMLDivElement | null>(null)
+  const visibleRowCount = Math.min(files.length, OPEN_EDITORS_VISIBLE_ROW_LIMIT)
+  const rootStyle = useMemo(() => ({
+    '--code-open-editors-visible-rows': visibleRowCount,
+    '--code-open-editors-list-max-height': `${visibleRowCount * OPEN_EDITOR_ROW_HEIGHT}px`,
+  }) as CSSProperties, [visibleRowCount])
+
+  useEffect(() => {
+    if (collapsed) return
+    const list = listRef.current
+    const row = activeRowRef.current
+    if (!list || !row) return
+
+    const rowTop = row.offsetTop
+    const rowBottom = rowTop + row.offsetHeight
+    if (rowTop < list.scrollTop) {
+      list.scrollTop = rowTop
+    } else if (rowBottom > list.scrollTop + list.clientHeight) {
+      list.scrollTop = rowBottom - list.clientHeight
+    }
+  }, [activeFilePath, collapsed, files.length])
+
   if (files.length === 0) return null
 
   return (
-    <div className={`code-open-editors ${collapsed ? 'collapsed' : ''}`} data-testid="code-open-editors" data-project-id={projectId}>
+    <div
+      className={`code-open-editors ${collapsed ? 'collapsed' : ''}`}
+      data-testid="code-open-editors"
+      data-project-id={projectId}
+      data-open-editor-count={files.length}
+      data-visible-editor-count={visibleRowCount}
+      style={rootStyle}
+    >
       <div className="code-open-editors-header">
         <button
           type="button"
@@ -55,15 +90,17 @@ export function OpenEditorsSection({
         </button>
       </div>
       {!collapsed && (
-        <div className="code-open-editors-list">
+        <div ref={listRef} className="code-open-editors-list">
           {files.map(file => {
             const active = activeFilePath === file.path
             const changeIndicator = workspaceWorkingCopyChangeIndicator(file)
             return (
               <div
                 key={file.key}
+                ref={active ? activeRowRef : undefined}
                 className={`code-open-editor-row ${active ? 'active' : ''}`}
                 data-testid="code-open-editor-row"
+                data-file-path={file.path}
                 title={file.path}
                 onContextMenu={event => {
                   if (!onOpenFileContextMenu) return

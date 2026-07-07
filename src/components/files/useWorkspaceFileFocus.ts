@@ -39,11 +39,35 @@ function shouldPreserveMonacoFocus() {
   return activeElement instanceof Element && Boolean(activeElement.closest('.code-file-monaco, .monaco-editor'))
 }
 
+function visibleFileTreeRectForReveal(scroller: HTMLElement, row: HTMLElement) {
+  const scrollerRect = scroller.getBoundingClientRect()
+  const projectGroup = row.closest<HTMLElement>('.code-project-group')
+  const filesSection = row.closest<HTMLElement>('.code-files-section')
+  const stickyElements = [
+    projectGroup?.querySelector<HTMLElement>('.code-project-row'),
+    projectGroup?.querySelector<HTMLElement>('.code-agents-section'),
+    projectGroup?.querySelector<HTMLElement>('[data-testid="code-open-editors"]'),
+    filesSection?.querySelector<HTMLElement>('.code-files-header'),
+    filesSection?.querySelector<HTMLElement>('.code-file-sticky-stack'),
+  ]
+  const top = stickyElements.reduce((nextTop, element) => {
+    if (!element) return nextTop
+    const rect = element.getBoundingClientRect()
+    if (rect.height <= 0 || rect.bottom <= scrollerRect.top || rect.top >= scrollerRect.bottom) return nextTop
+    return Math.max(nextTop, rect.bottom)
+  }, scrollerRect.top)
+
+  return {
+    top: Math.min(top, scrollerRect.bottom),
+    bottom: scrollerRect.bottom,
+  }
+}
+
 function revealRowInProjectScroller(row: HTMLElement) {
   const scroller = row.closest<HTMLElement>('.code-project-list')
   if (!scroller) return
 
-  const scrollerRect = scroller.getBoundingClientRect()
+  const scrollerRect = visibleFileTreeRectForReveal(scroller, row)
   const rowRect = row.getBoundingClientRect()
   scroller.scrollTop += workspaceFileRevealScrollDelta(scrollerRect, rowRect)
 }

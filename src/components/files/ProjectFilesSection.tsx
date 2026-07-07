@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
 import {
@@ -14,7 +14,13 @@ import { FileChangesSection } from './FileChangesSection'
 import { FileSectionBody } from './FileSectionBody'
 import { FileSectionHeader } from './FileSectionHeader'
 import { FileSectionOverlays } from './FileSectionOverlays'
-import { OpenEditorsSection, type OpenProjectFileSummary } from './OpenEditorsSection'
+import {
+  OpenEditorsSection,
+  OPEN_EDITOR_ROW_HEIGHT,
+  OPEN_EDITORS_HEADER_HEIGHT,
+  OPEN_EDITORS_VISIBLE_ROW_LIMIT,
+  type OpenProjectFileSummary,
+} from './OpenEditorsSection'
 import { useProjectFilesSectionViewModel } from './useProjectFilesSectionViewModel'
 import { useWorkspaceFileChanges } from './useWorkspaceFileChanges'
 import { useWorkspaceFileFocus } from './useWorkspaceFileFocus'
@@ -288,6 +294,18 @@ export function ProjectFilesSection({
     setOpenFileError,
     treeData,
   })
+  const filesSectionStyle = useMemo(() => {
+    if (openFiles.length === 0) {
+      return { '--code-open-editors-sticky-height': '0px' } as CSSProperties
+    }
+    if (openEditorsCollapsed) {
+      return { '--code-open-editors-sticky-height': `${OPEN_EDITORS_HEADER_HEIGHT}px` } as CSSProperties
+    }
+    const visibleOpenEditorRows = Math.min(openFiles.length, OPEN_EDITORS_VISIBLE_ROW_LIMIT)
+    return {
+      '--code-open-editors-sticky-height': `${OPEN_EDITORS_HEADER_HEIGHT + visibleOpenEditorRows * OPEN_EDITOR_ROW_HEIGHT}px`,
+    } as CSSProperties
+  }, [openEditorsCollapsed, openFiles.length])
 
   useEffect(() => {
     if (!activeFilePath || filesCollapsed || !directories['']) return
@@ -423,7 +441,12 @@ export function ProjectFilesSection({
         files={openFiles}
         onOpenFileContextMenu={openEditorContextMenu}
       />
-      <div className={`code-files-section ${filesCollapsed ? 'collapsed' : ''}`} data-testid="code-files-section" data-project-id={projectId}>
+      <div
+        className={`code-files-section ${filesCollapsed ? 'collapsed' : ''}`}
+        data-testid="code-files-section"
+        data-project-id={projectId}
+        style={filesSectionStyle}
+      >
         <FileSectionHeader {...viewModel.sectionHeader} />
         {!filesCollapsed && (
           <>

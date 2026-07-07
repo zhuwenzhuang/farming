@@ -11,7 +11,7 @@
 
 Farming is a remote browser workspace for AI coding agents. The current public product line is **Farming 2**.
 
-It brings remote terminal sessions, Codex / Claude Code, project files, file search, lightweight editing, git blame, usage signals, and machine status into one browser page. The goal is to reduce the context switching that usually happens between SSH, an IDE, browser tabs, monitoring pages, and separate agent panels.
+It brings remote terminal sessions, Codex / Claude Code, project-scoped agents, open editors, file search, lightweight editing, git review tools, usage signals, and machine status into one browser page. The goal is to reduce the context switching that usually happens between SSH, an IDE, browser tabs, monitoring pages, and separate agent panels.
 
 Farming is designed around remote hosting. Agents, shells, project files, and git state keep running on the remote machine. A desktop browser is good for editing, reviewing, searching, and long follow-up sessions; a mobile browser is good for checking progress, switching sessions, and sending a short intervention while away from the desk.
 
@@ -34,10 +34,11 @@ Farming 2 turns the project into a remote coding workbench:
 - start and manage `codex`, `claude`, `bash`, and `zsh` sessions in the browser;
 - resume local Codex / Claude session history and reconnect to live Farming terminals;
 - group agents by project;
-- open Project Files with file tree, search, Monaco editing, Markdown preview, git diff, and git blame;
+- open Project Files with Open Editors, file tree, search, Monaco editing, Markdown/image preview, git changes, diff, and blame;
 - click terminal `path:line` references and HTTP URLs;
+- use provider controls for Codex / Claude permissions, model, and speed where the underlying CLI supports them;
 - attach text and images to composer messages;
-- view lightweight usage and CPU/MEM state;
+- view lightweight usage, context, token-rate, quota, and CPU/MEM signals where available;
 - access the same remote service from desktop and mobile browsers.
 
 Screenshots, install details, and product notes are in [Farming 2 product guide](./docs/products/code/README.md).

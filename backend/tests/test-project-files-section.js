@@ -1623,7 +1623,16 @@ function run() {
       stylesSource.includes('.code-file-search-highlight') &&
       stylesSource.includes('.code-files-title') &&
       stylesSource.includes('.code-file-section-chevron') &&
-	      stylesSource.includes('.code-open-editors-header,\n.code-files-header {\n  position: sticky') &&
+      openEditorsSectionSource.includes('OPEN_EDITORS_VISIBLE_ROW_LIMIT = 7') &&
+      openEditorsSectionSource.includes('OPEN_EDITOR_ROW_HEIGHT = 28') &&
+      openEditorsSectionSource.includes('OPEN_EDITORS_HEADER_HEIGHT = 25') &&
+      openEditorsSectionSource.includes('data-visible-editor-count={visibleRowCount}') &&
+      openEditorsSectionSource.includes("'--code-open-editors-list-max-height': `${visibleRowCount * OPEN_EDITOR_ROW_HEIGHT}px`") &&
+      stylesSource.includes('.code-open-editors {\n  margin-top: 3px;\n  position: sticky') &&
+      stylesSource.includes('.code-files-header {\n  position: sticky') &&
+      stylesSource.includes('top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px))') &&
+      stylesSource.includes('.code-open-editors-list') &&
+      stylesSource.includes('max-height: var(--code-open-editors-list-max-height, 196px)') &&
       stylesSource.includes('.code-file-changes-section {\n  margin: 1px 0 2px;') &&
       !stylesSource.includes('.code-file-changes-header') &&
       !stylesSource.includes('.code-file-changes-title') &&

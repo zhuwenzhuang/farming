@@ -27,17 +27,17 @@ interface UseWorkspaceFileStickyContextOptions {
   treeViewportRef: RefObject<HTMLDivElement | null>
 }
 
-function stickyContentTop(scroller: HTMLElement, viewport: HTMLElement) {
-  const projectRow = viewport
-    .closest<HTMLElement>('.code-project-group')
-    ?.querySelector<HTMLElement>('.code-project-row')
-  const agentsSection = viewport
-    .closest<HTMLElement>('.code-project-group')
-    ?.querySelector<HTMLElement>('.code-agents-section')
+function stickyContentTop(scroller: HTMLElement, viewport: HTMLElement, includeOpenEditors = true) {
+  const projectGroup = viewport.closest<HTMLElement>('.code-project-group')
+  const projectRow = projectGroup?.querySelector<HTMLElement>('.code-project-row')
+  const agentsSection = projectGroup?.querySelector<HTMLElement>('.code-agents-section')
+  const openEditorsSection = includeOpenEditors
+    ? projectGroup?.querySelector<HTMLElement>('[data-testid="code-open-editors"]')
+    : null
   return workspaceStickyContentTop(
     scroller.getBoundingClientRect().top,
     projectRow?.getBoundingClientRect().height ?? 30,
-    agentsSection?.getBoundingClientRect().height ?? 0
+    (agentsSection?.getBoundingClientRect().height ?? 0) + (openEditorsSection?.getBoundingClientRect().height ?? 0)
   )
 }
 
@@ -122,7 +122,7 @@ export function useWorkspaceFileStickyContext({
         ?.querySelector<HTMLElement>('[data-testid="code-open-editors"]')
       if (!viewport || !scroller || !section) return
 
-      const stickyTop = stickyContentTop(scroller, viewport)
+      const stickyTop = stickyContentTop(scroller, viewport, false)
       scroller.scrollTop += openEditorsRevealScrollDelta(section.getBoundingClientRect().top, stickyTop)
       refreshStickyAncestors()
     }
