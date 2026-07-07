@@ -75,10 +75,13 @@ function deriveTerminalStatus(options = {}) {
   const title = typeof options.title === 'string' ? options.title : '';
   const previewText = typeof options.previewText === 'string' ? options.previewText : '';
   const terminalBusy = typeof options.terminalBusy === 'boolean' ? options.terminalBusy : null;
-  const kind = inferKindFromText(title, previewText, options.command);
   const hasShellStatus = options.shellLastEvent === 'start'
     || options.shellLastEvent === 'finish'
     || typeof options.shellLastExitCode === 'number';
+  const commandName = executableName(options.command).toLowerCase();
+  const kind = hasShellStatus && ['bash', 'zsh', 'sh', 'fish'].includes(commandName)
+    ? 'shell'
+    : inferKindFromText(title, previewText, options.command);
   const hasPromptIdleFallback = options.status !== 'exited'
     && kind === 'shell'
     && terminalBusy === true

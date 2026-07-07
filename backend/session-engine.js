@@ -17,6 +17,10 @@ class SessionEngine extends EventEmitter {
     throw new Error('resizeSession() must be implemented by subclasses');
   }
 
+  async clearBuffer(_sessionId) {
+    throw new Error('clearBuffer() must be implemented by subclasses');
+  }
+
   async killSession(_sessionId) {
     throw new Error('killSession() must be implemented by subclasses');
   }

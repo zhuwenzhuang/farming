@@ -87,6 +87,7 @@ export interface WorkspaceFileDiff {
 export interface WorkspaceFileChange {
   path: string
   name: string
+  type: WorkspaceFileEntry['type']
   gitStatus: NonNullable<WorkspaceFileEntry['gitStatus']>
   gitStatusLabel: string
   previousPath?: string

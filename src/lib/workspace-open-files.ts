@@ -15,6 +15,7 @@ export interface WorkspaceFileOpenTarget {
   endColumn?: number
   view?: 'editor' | 'diff'
   diffOnly?: boolean
+  revealInTree?: boolean
   transient?: boolean
   gitStatus?: WorkspaceFile['gitStatus']
   gitStatusLabel?: string
@@ -82,11 +83,29 @@ export interface WorkspaceOpenFilesDeleteResult extends WorkspaceOpenFilesState 
   activeFileDeleted: boolean
 }
 
+export interface WorkspaceOpenFilesReopenOptions {
+  canReopen?: (file: OpenWorkspaceFile) => boolean
+}
+
 export interface WorkspaceOpenFileDirtySnapshot {
   agentId: string
   path: string
   dirty?: boolean
   externalChanged?: boolean
+}
+
+const MAX_CLOSED_WORKSPACE_FILE_CACHE = 32
+
+function rememberClosedWorkspaceOpenFile(cache: Map<string, OpenWorkspaceFile>, file: OpenWorkspaceFile) {
+  const fileHandle = workspaceOpenFileKey(file)
+  cache.delete(fileHandle)
+  cache.set(fileHandle, { ...file, saving: false })
+
+  while (cache.size > MAX_CLOSED_WORKSPACE_FILE_CACHE) {
+    const oldestKey = cache.keys().next().value
+    if (typeof oldestKey !== 'string') break
+    cache.delete(oldestKey)
+  }
 }
 
 export function workspaceFileCursorForTarget(target: WorkspaceFileOpenTarget | undefined, requestId: number): WorkspaceFileCursor | undefined {
@@ -136,13 +155,14 @@ export function shouldOpenMissingWorkspaceFileAsDiff(target?: WorkspaceFileOpenT
 }
 
 export function shouldRevealSelectedWorkspaceOpenFile(target?: WorkspaceFileOpenTarget) {
-  return target?.gitStatus !== 'deleted'
+  return target?.revealInTree !== false && target?.gitStatus !== 'deleted'
 }
 
 export function workspaceFileOpenTargetForChange(change: WorkspaceFileChange): WorkspaceFileOpenTarget {
   return {
-    view: 'diff',
+    view: change.gitStatus === 'untracked' ? 'editor' : 'diff',
     diffOnly: change.gitStatus === 'deleted',
+    revealInTree: false,
     gitStatus: change.gitStatus,
     gitStatusLabel: change.gitStatusLabel,
   }
@@ -347,12 +367,7 @@ export function closeWorkspaceOpenFiles(
 
   const closedFileCache = new Map(state.closedFileCache)
   closedFiles.forEach(file => {
-    const fileHandle = workspaceOpenFileKey(file)
-    if (file.dirty) {
-      closedFileCache.set(fileHandle, { ...file, saving: false })
-    } else {
-      closedFileCache.delete(fileHandle)
-    }
+    rememberClosedWorkspaceOpenFile(closedFileCache, file)
   })
 
   const files = state.files.filter(file => !targetKeys.has(workspaceOpenFileKey(file)))
@@ -384,6 +399,31 @@ export function closeWorkspaceOpenFiles(
     closedFiles,
     activeFileClosed: true,
   }
+}
+
+export function reopenLastClosedWorkspaceOpenFile(
+  state: WorkspaceOpenFilesState,
+  options: WorkspaceOpenFilesReopenOptions = {}
+): WorkspaceOpenFilesState | null {
+  if (state.closedFileCache.size === 0) return null
+
+  const closedFileCache = new Map(state.closedFileCache)
+  const closedFiles = Array.from(closedFileCache.entries()).reverse()
+
+  for (const [fileHandle, cachedFile] of closedFiles) {
+    closedFileCache.delete(fileHandle)
+    if (options.canReopen && !options.canReopen(cachedFile)) continue
+    if (findOpenWorkspaceFile(state.files, cachedFile.agentId, cachedFile.file.path, cachedFile.workspaceRoot)) continue
+
+    const nextFile = { ...cachedFile, saving: false }
+    return {
+      activeFile: nextFile,
+      files: replaceOpenWorkspaceFile(state.files, nextFile),
+      closedFileCache,
+    }
+  }
+
+  return null
 }
 
 export function updateWorkspaceOpenFile(

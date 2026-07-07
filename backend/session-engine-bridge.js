@@ -66,6 +66,12 @@ class SessionEngineBridge extends EventEmitter {
     return engine.resizeSession(sessionId, cols, rows);
   }
 
+  async clearBuffer(engineName, sessionId) {
+    const engine = this.getEngine(engineName);
+    if (!engine || !engine.clearBuffer) return;
+    return engine.clearBuffer(sessionId);
+  }
+
   async killSession(engineName, sessionId) {
     const engine = this.getEngine(engineName);
     if (!engine) return;

@@ -24,6 +24,7 @@ const FALLBACK_LANGUAGE_ASSOCIATIONS = new Map([
 ])
 
 const MARKDOWN_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.mdown', '.mkd'])
+const SVG_FILE_EXTENSIONS = new Set(['.svg'])
 
 export interface WorkspaceEditorFileReference {
   agentId: string
@@ -64,14 +65,18 @@ export interface WorkspaceEditorFileMode {
 export interface WorkspaceEditorSurfaceStateOptions {
   diffOnly: boolean
   diffOpen: boolean
+  markdownSplitOpen?: boolean
   markdownPreviewOpen?: boolean
+  sourcePreviewOpen?: boolean
   visualPreview: boolean
 }
 
 export interface WorkspaceEditorSurfaceState {
   showDiffView: boolean
   showDiffOnlyPreview: boolean
+  showMarkdownSplit: boolean
   showMarkdownPreview: boolean
+  showSourcePreview: boolean
   showMonaco: boolean
   showEditorOverlays: boolean
 }
@@ -82,6 +87,7 @@ export interface WorkspaceEditorActionState {
   showSave: boolean
   showDiff: boolean
   showMarkdownPreview: boolean
+  showSourcePreview: boolean
   showReload: boolean
   showOverwrite: boolean
 }
@@ -202,6 +208,10 @@ export function isWorkspaceMarkdownFile(filePath: string) {
   return MARKDOWN_FILE_EXTENSIONS.has(workspaceEditorExtension(filePath))
 }
 
+export function isWorkspaceSvgFile(filePath: string) {
+  return SVG_FILE_EXTENSIONS.has(workspaceEditorExtension(filePath))
+}
+
 export function workspaceEditorPathSegments(filePath: string) {
   return filePath.split('/').filter(Boolean)
 }
@@ -240,34 +250,41 @@ export function workspaceEditorFileMode(file: WorkspaceEditorFileModeReference):
 export function workspaceEditorSurfaceState(options: WorkspaceEditorSurfaceStateOptions): WorkspaceEditorSurfaceState {
   const showDiffView = options.diffOpen && !options.visualPreview
   const showDiffOnlyPreview = options.diffOnly && !showDiffView
-  const showMarkdownPreview = Boolean(options.markdownPreviewOpen) && !showDiffView && !showDiffOnlyPreview && !options.visualPreview
-  const showMonaco = !options.visualPreview && !showDiffView && !showDiffOnlyPreview && !showMarkdownPreview
+  const showMarkdownSurface = !showDiffView && !showDiffOnlyPreview && !options.visualPreview
+  const showMarkdownSplit = Boolean(options.markdownSplitOpen) && showMarkdownSurface
+  const showMarkdownPreview = Boolean(options.markdownPreviewOpen) && showMarkdownSurface && !showMarkdownSplit
+  const showSourcePreview = Boolean(options.sourcePreviewOpen) && showMarkdownSurface && !showMarkdownPreview && !showMarkdownSplit
+  const showMonaco = !options.visualPreview && !showDiffView && !showDiffOnlyPreview && !showMarkdownPreview && !showSourcePreview && !showMarkdownSplit
   return {
     showDiffView,
     showDiffOnlyPreview,
+    showMarkdownSplit,
     showMarkdownPreview,
+    showSourcePreview,
     showMonaco,
-    showEditorOverlays: showMonaco,
+    showEditorOverlays: showMonaco || showMarkdownSplit,
   }
 }
 
 export function workspaceEditorActionState(
   file: WorkspaceWorkingCopyReference,
   mode: WorkspaceEditorFileMode,
-  options: { canPreviewMarkdown?: boolean; statusText: string | null; showBreadcrumbs: boolean }
+  options: { canPreviewMarkdown?: boolean; canPreviewSource?: boolean; statusText: string | null; showBreadcrumbs: boolean }
 ): WorkspaceEditorActionState {
   const showStatus = Boolean(options.statusText)
   const showSave = mode.canEditText && shouldShowWorkspaceWorkingCopySaveAction(file)
   const showDiff = mode.canShowDiff
   const showMarkdownPreview = Boolean(options.canPreviewMarkdown)
+  const showSourcePreview = Boolean(options.canPreviewSource)
   const showReload = !mode.diffOnly && shouldShowWorkspaceWorkingCopyReloadAction(file)
   const showOverwrite = mode.canEditText && shouldShowWorkspaceWorkingCopyOverwriteAction(file)
   return {
-    showBar: options.showBreadcrumbs || showStatus || showSave || showDiff || showMarkdownPreview || showReload || showOverwrite,
+    showBar: options.showBreadcrumbs || showStatus || showSave || showDiff || showMarkdownPreview || showSourcePreview || showReload || showOverwrite,
     showStatus,
     showSave,
     showDiff,
     showMarkdownPreview,
+    showSourcePreview,
     showReload,
     showOverwrite,
   }

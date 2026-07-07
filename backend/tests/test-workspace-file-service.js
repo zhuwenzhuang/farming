@@ -107,6 +107,7 @@ async function run() {
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgF/2l2fLwAAAABJRU5ErkJggg==',
       'base64'
     ));
+    fs.writeFileSync(path.join(workspace, 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>\n');
     fs.writeFileSync(outside, 'outside');
     try {
       fs.symlinkSync(outside, path.join(workspace, 'outside-link.txt'));
@@ -191,6 +192,16 @@ async function run() {
     assert.strictEqual(imagePreview.preview.mediaType, 'image/png');
     assert(Buffer.isBuffer(imagePreview.buffer));
     assert(imagePreview.buffer.length > 0);
+    const svgFile = await service.readFile(workspace, 'icon.svg');
+    assert.strictEqual(svgFile.path, 'icon.svg');
+    assert(svgFile.content.includes('<svg'));
+    assert.strictEqual(svgFile.binary, undefined);
+    assert.strictEqual(svgFile.preview, undefined);
+    const svgPreview = await service.readPreviewFile(workspace, 'icon.svg');
+    assert.strictEqual(svgPreview.path, 'icon.svg');
+    assert.strictEqual(svgPreview.preview.kind, 'image');
+    assert.strictEqual(svgPreview.preview.mediaType, 'image/svg+xml');
+    assert(svgPreview.buffer.toString('utf8').includes('<circle'));
     await assertRejectsWithStatus(service.readPreviewFile(workspace, 'README.md'), 415);
     await assertRejectsWithStatus(service.readPreviewFile(workspace, 'binary.bin'), 415);
     await assertRejectsWithStatus(service.writeFile(workspace, 'binary.bin', 'overwrite\n', {
@@ -544,6 +555,18 @@ async function run() {
 
       fs.writeFileSync(path.join(srcDir, 'App.tsx'), 'diff target\n');
       fs.writeFileSync(path.join(srcDir, 'Untracked.ts'), 'untracked\n');
+      fs.mkdirSync(path.join(workspace, 'scratch'), { recursive: true });
+      fs.writeFileSync(path.join(workspace, 'scratch/nested.log'), 'nested untracked\n');
+      const playbackDir = path.join(workspace, 'demo-app/packages/viewer/playback_json');
+      fs.mkdirSync(playbackDir, { recursive: true });
+      execFileSync('git', ['init'], { cwd: playbackDir, stdio: 'ignore' });
+      fs.mkdirSync(path.join(playbackDir, '.empty-hooks'), { recursive: true });
+      execFileSync('git', ['config', 'core.hooksPath', '.empty-hooks'], { cwd: playbackDir });
+      execFileSync('git', ['config', 'user.email', 'nested@example.test'], { cwd: playbackDir });
+      execFileSync('git', ['config', 'user.name', 'Nested Repo'], { cwd: playbackDir });
+      fs.writeFileSync(path.join(playbackDir, 'README.md'), 'nested repo\n');
+      execFileSync('git', ['add', 'README.md'], { cwd: playbackDir });
+      execFileSync('git', ['commit', '-m', 'nested repo'], { cwd: playbackDir, stdio: 'ignore' });
       const rootTreeWithGitStatus = await service.listTree(workspace, '');
       const srcEntryWithGitStatus = rootTreeWithGitStatus.items.find(item => item.path === 'src');
       assert(srcEntryWithGitStatus);
@@ -613,8 +636,15 @@ async function run() {
       assert.strictEqual(changes.truncated, false);
       assert.strictEqual(changeByPath.get('src/App.tsx')?.gitStatus, 'modified');
       assert.strictEqual(changeByPath.get('src/App.tsx')?.gitStatusLabel, 'M');
+      assert.strictEqual(changeByPath.get('src/App.tsx')?.type, 'file');
       assert.strictEqual(changeByPath.get('src/Untracked.ts')?.gitStatus, 'untracked');
       assert.strictEqual(changeByPath.get('src/Untracked.ts')?.gitStatusLabel, 'U');
+      assert.strictEqual(changeByPath.get('src/Untracked.ts')?.type, 'file');
+      assert.strictEqual(changeByPath.get('scratch/nested.log')?.gitStatus, 'untracked');
+      assert.strictEqual(changeByPath.get('scratch/nested.log')?.type, 'file');
+      assert.strictEqual(changeByPath.has('scratch/'), false);
+      assert.strictEqual(changeByPath.get('demo-app/packages/viewer/playback_json')?.gitStatus, 'untracked');
+      assert.strictEqual(changeByPath.get('demo-app/packages/viewer/playback_json')?.type, 'directory');
       assert.strictEqual(changeByPath.get('src/DeleteMe.ts')?.gitStatus, 'deleted');
       assert.strictEqual(changeByPath.get('src/DeleteMe.ts')?.gitStatusLabel, 'D');
       assert.strictEqual(changeByPath.get('src/Renamed.ts')?.gitStatus, 'renamed');

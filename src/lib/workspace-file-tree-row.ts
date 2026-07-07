@@ -52,6 +52,7 @@ export interface WorkspaceFileTreeRowViewStateOptions {
   activeFilePath?: string
   editorDirtyFilePaths: ReadonlySet<string>
   editorExternalChangedFilePaths: ReadonlySet<string>
+  openFilePendingPath?: string | null
   item: WorkspaceFileTreeNode
   isFocused: boolean
   isOpen: boolean
@@ -62,6 +63,7 @@ export function workspaceFileTreeRowViewState({
   activeFilePath,
   editorDirtyFilePaths,
   editorExternalChangedFilePaths,
+  openFilePendingPath,
   item,
   isFocused,
   isOpen,
@@ -70,6 +72,7 @@ export function workspaceFileTreeRowViewState({
   const isDirectory = item.type === 'directory'
   const active = activeFilePath === item.path
   const directoryLoading = isDirectory && item.loading === true
+  const fileOpening = !isDirectory && openFilePendingPath === item.path
   const editorDirty = !isDirectory && editorDirtyFilePaths.has(item.path)
   const editorExternalChanged = !isDirectory && editorExternalChangedFilePaths.has(item.path)
   const hasEditorDirtyDescendant = isDirectory && hasWorkspaceFileTreeDescendant(editorDirtyFilePaths, item.path)
@@ -116,6 +119,7 @@ export function workspaceFileTreeRowViewState({
     isFocused ? 'focused' : '',
     isSelected ? 'selected' : '',
     directoryLoading ? 'loading' : '',
+    fileOpening ? 'opening' : '',
     hasGitStatus ? 'git-status' : '',
     visibleGitStatus ? `git-${visibleGitStatus}` : '',
     hasDescendantGitStatus ? 'git-descendant' : '',
@@ -134,6 +138,7 @@ export function workspaceFileTreeRowViewState({
     fileChangedClassName,
     fileChangedKind,
     fileChangedTitleKind,
+    fileOpening,
     hasDescendantGitStatus,
     hasEditorDirtyDescendant,
     hasEditorExternalChangedDescendant,

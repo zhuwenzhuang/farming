@@ -27,6 +27,7 @@ function run() {
     assert.strictEqual(settings.workspace, farmingDir);
     assert.strictEqual(settings.lastMainWorkspace, farmingDir);
     assert.deepStrictEqual(settings.workspaceHistory, []);
+    assert.deepStrictEqual(settings.projectNames, {});
     assert.deepStrictEqual(settings.mainPageSessionKeys, []);
     assert.strictEqual(settings.appearance, 'light');
     assert.strictEqual(settings.language, 'en');
@@ -49,11 +50,17 @@ function run() {
     manager.updateSettings({
       removedSetting: 'legacy-value',
       workspaceHistory: [farmingDir, projectA, projectA, projectB, '/tmp', '/var/tmp/farming-e2e'],
+      projectNames: {
+        [projectA]: 'Project A',
+        [projectB]: '',
+        '': 'ignored',
+      },
       lastMainWorkspace: projectMain,
     });
 
     settings = manager.getSettings();
     assert.deepStrictEqual(settings.workspaceHistory, [projectA, projectB]);
+    assert.deepStrictEqual(settings.projectNames, { [projectA]: 'Project A' });
     assert.strictEqual(settings.lastMainWorkspace, projectMain);
     assert.strictEqual(settings.removedSetting, undefined);
 

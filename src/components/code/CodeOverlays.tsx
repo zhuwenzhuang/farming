@@ -10,7 +10,6 @@ import {
 import {
   capabilitiesForAgent,
   projectCanArchive,
-  projectCanDeleteWorktree,
 } from './capabilities'
 import {
   compactContextMenuEntries,
@@ -18,17 +17,14 @@ import {
 } from './menu-model'
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem, ProjectGroup } from './types'
-import type { AgentLaunchOption } from './agent-launch-options'
-import { AgentLaunchSubmenu } from './AgentLaunchSubmenu'
 
 type AgentMenuState = { agentId: string; x: number; y: number } | null
 type ProjectMenuState = { projectId: string; x: number; y: number } | null
 type AgentSessionMenuState = { provider: string; sessionId: string; x: number; y: number } | null
 
-interface RenameDialogState {
-  agentId: string
-  title: string
-}
+type RenameDialogState =
+  | { kind: 'agent'; agentId: string; title: string }
+  | { kind: 'project'; projectId: string; workspace: string; title: string }
 
 interface KillDialogState {
   agentId: string
@@ -57,7 +53,6 @@ interface CodeOverlaysProps {
   killDialog: KillDialogState | null
   deleteWorktreeDialog: DeleteWorktreeDialogState | null
   copyNotice: CopyNoticeState | null
-  agentLaunchOptions: AgentLaunchOption[]
   contextMenuRef: RefObject<HTMLDivElement | null>
   renameDialogRef: RefObject<HTMLFormElement | null>
   renameInputRef: RefObject<HTMLInputElement | null>
@@ -68,6 +63,7 @@ interface CodeOverlaysProps {
   onContextMenuKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
   onUpdateAgentFlags: (flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived'>>) => void
   onRenameAgent: () => void
+  onRenameProject: () => void
   onCopyAgentWorkingDirectory: () => void
   onForkAgent: (mode: 'same-worktree' | 'new-worktree') => void
   onKillAgent: () => void
@@ -75,9 +71,7 @@ interface CodeOverlaysProps {
   onToggleSessionPinned: () => void
   onArchiveSession: () => void
   onCopySessionWorkingDirectory: () => void
-  onStartAgentInProject: (command?: string) => void
   onArchiveProject: () => void
-  onDeleteWorktreeProject: () => void
   onCloseRenameDialog: () => void
   onRenameDialogTitleChange: (title: string) => void
   onSubmitRenameDialog: () => void
@@ -99,7 +93,6 @@ export function CodeOverlays({
   killDialog,
   deleteWorktreeDialog,
   copyNotice,
-  agentLaunchOptions,
   contextMenuRef,
   renameDialogRef,
   renameInputRef,
@@ -110,6 +103,7 @@ export function CodeOverlays({
   onContextMenuKeyDown,
   onUpdateAgentFlags,
   onRenameAgent,
+  onRenameProject,
   onCopyAgentWorkingDirectory,
   onForkAgent,
   onKillAgent,
@@ -117,9 +111,7 @@ export function CodeOverlays({
   onToggleSessionPinned,
   onArchiveSession,
   onCopySessionWorkingDirectory,
-  onStartAgentInProject,
   onArchiveProject,
-  onDeleteWorktreeProject,
   onCloseRenameDialog,
   onRenameDialogTitleChange,
   onSubmitRenameDialog,
@@ -131,7 +123,6 @@ export function CodeOverlays({
 }: CodeOverlaysProps) {
   const agentCapabilities = capabilitiesForAgent(contextMenuAgent)
   const canArchiveProject = projectCanArchive(contextMenuProject)
-  const canDeleteWorktree = projectCanDeleteWorktree(contextMenuProject)
   const agentMenuEntries = compactContextMenuEntries([
     {
       type: 'item',
@@ -225,18 +216,19 @@ export function CodeOverlays({
   const projectMenuEntries = compactContextMenuEntries([
     {
       type: 'item',
-      id: 'archive-project',
-      label: copy.archiveProject,
-      disabled: !canArchiveProject,
-      onSelect: onArchiveProject,
+      id: 'rename-project',
+      label: copy.renameProject,
+      icon: 'rename',
+      hidden: !contextMenuProject?.workspace,
+      onSelect: onRenameProject,
     },
     {
       type: 'item',
-      id: 'delete-worktree',
-      label: copy.deleteWorktree,
-      danger: true,
-      hidden: !canDeleteWorktree,
-      onSelect: onDeleteWorktreeProject,
+      id: 'archive-project',
+      label: copy.archiveChats,
+      icon: 'archive',
+      disabled: !canArchiveProject,
+      onSelect: onArchiveProject,
     },
   ])
 
@@ -270,7 +262,7 @@ export function CodeOverlays({
       )}
       {contextMenuProject && (
         <div
-          className="code-context-menu"
+          className="code-context-menu code-project-context-menu"
           data-testid="code-project-context-menu"
           style={{ left: projectMenu?.x ?? 0, top: projectMenu?.y ?? 0 }}
           role="menu"
@@ -278,15 +270,6 @@ export function CodeOverlays({
           onKeyDownCapture={onContextMenuKeyDown}
           onKeyDown={onContextMenuKeyDown}
         >
-          <AgentLaunchSubmenu
-            label={copy.newAgent}
-            options={agentLaunchOptions}
-            testId="project-new-agent-submenu-trigger"
-            submenuTestId="project-new-agent-submenu"
-            onOpenDialog={() => onStartAgentInProject()}
-            onSelect={onStartAgentInProject}
-          />
-          <div className="code-context-menu-separator" role="separator" />
           <ContextMenuEntries entries={projectMenuEntries} />
         </div>
       )}
@@ -308,7 +291,7 @@ export function CodeOverlays({
             }}
           >
             <label id="code-rename-title" htmlFor="code-rename-input">
-              {copy.renameAgent}
+              {renameDialog.kind === 'project' ? copy.renameProject : copy.renameAgent}
             </label>
             <input
               id="code-rename-input"
@@ -400,11 +383,32 @@ function ContextMenuEntries({ entries }: { entries: ContextMenuEntry[] }) {
             disabled={entry.disabled}
             onClick={entry.onSelect}
           >
-            {entry.label}
+            {entry.icon && (
+              <span className="code-context-menu-icon" aria-hidden="true">
+                <ContextMenuIcon kind={entry.icon} />
+              </span>
+            )}
+            <span>{entry.label}</span>
           </button>
         )
       })}
     </>
+  )
+}
+
+function ContextMenuIcon({ kind }: { kind: 'rename' | 'archive' }) {
+  if (kind === 'archive') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M6.5 8C6.22386 8 6 8.22386 6 8.5C6 8.77614 6.22386 9 6.5 9H9.5C9.77614 9 10 8.77614 10 8.5C10 8.22386 9.77614 8 9.5 8H6.5ZM1 3.5C1 2.67157 1.67157 2 2.5 2H13.5C14.3284 2 15 2.67157 15 3.5V4.5C15 5.15311 14.5826 5.70873 14 5.91465V11.5C14 12.8807 12.8807 14 11.5 14H4.5C3.11929 14 2 12.8807 2 11.5V5.91465C1.4174 5.70873 1 5.15311 1 4.5V3.5ZM2.5 3C2.22386 3 2 3.22386 2 3.5V4.5C2 4.77614 2.22386 5 2.5 5H13.5C13.7761 5 14 4.77614 14 4.5V3.5C14 3.22386 13.7761 3 13.5 3H2.5ZM3 6V11.5C3 12.3284 3.67157 13 4.5 13H11.5C12.3284 13 13 12.3284 13 11.5V6H3Z" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path fill="currentColor" d="M11.3536 1.64645C10.963 1.25592 10.3299 1.25592 9.93934 1.64645L3.14645 8.43934C3.05268 8.53311 2.99999 8.66029 2.99999 8.79289V11.5C2.99999 11.7761 3.22385 12 3.49999 12H6.2071C6.33971 12 6.46689 11.9473 6.56066 11.8536L13.3536 5.06066C13.7441 4.67014 13.7441 4.037 13.3536 3.64645L11.3536 1.64645ZM3.99999 9L8.99999 4L11 6L6 11H3.99999V9ZM9.7071 3.29289L10.6464 2.35355L12.6464 4.35355L11.7071 5.29289L9.7071 3.29289ZM2.5 14C2.22386 14 2 14.2239 2 14.5C2 14.7761 2.22386 15 2.5 15H13.5C13.7761 15 14 14.7761 14 14.5C14 14.2239 13.7761 14 13.5 14H2.5Z" />
+    </svg>
   )
 }
 

@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as monaco from 'monaco-editor'
 import {
   isWorkspaceMarkdownFile,
+  isWorkspaceSvgFile,
   workspaceEditorFileMode,
   workspaceEditorModelKey,
   workspaceEditorStatusKind,
@@ -32,6 +33,10 @@ interface FileEditorPaneProps {
   onChangeDraft: (draft: string) => void
   onUpdateOpenFile: (nextFile: OpenWorkspaceFile) => void
   onSelectOpenFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
+  onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
+  canNavigateBack: boolean
+  canNavigateForward: boolean
+  onNavigateHistory: (direction: -1 | 1) => boolean
   onCloseOpenFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onCloseOpenFiles: (targets: WorkspaceOpenFileTarget[]) => void
   onRevealInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
@@ -49,6 +54,10 @@ export function FileEditorPane({
   onChangeDraft,
   onUpdateOpenFile,
   onSelectOpenFile,
+  onOpenFilePath,
+  canNavigateBack,
+  canNavigateForward,
+  onNavigateHistory,
   onCloseOpenFile,
   onCloseOpenFiles,
   onRevealInExplorer,
@@ -61,10 +70,19 @@ export function FileEditorPane({
   const closeEditorContextMenuRef = useRef<() => void>(() => {})
   const activeTabDomId = fileEditorTabDomId(openFile)
   const editorMode = workspaceEditorFileMode(openFile)
-  const [markdownPreviewByFileKey, setMarkdownPreviewByFileKey] = useState<Record<string, boolean>>({})
+  const [sourcePreviewByFileKey, setSourcePreviewByFileKey] = useState<Record<string, boolean>>({})
+  const [markdownSplitByFileKey, setMarkdownSplitByFileKey] = useState<Record<string, boolean>>({})
   const activeFileKey = workspaceEditorModelKey(openFile)
   const canPreviewMarkdown = !editorMode.preview && !editorMode.diffOnly && isWorkspaceMarkdownFile(openFile.file.path)
-  const markdownPreviewOpen = canPreviewMarkdown && markdownPreviewByFileKey[activeFileKey] === true
+  const canPreviewSource = !editorMode.preview && !editorMode.diffOnly && isWorkspaceSvgFile(openFile.file.path)
+  const sourcePreviewPreference = sourcePreviewByFileKey[activeFileKey]
+  const sourcePreviewOpen = canPreviewMarkdown || canPreviewSource
+    ? sourcePreviewPreference !== false
+    : false
+  const markdownReadingOpen = canPreviewMarkdown && sourcePreviewOpen
+  const markdownSplitOpen = markdownReadingOpen && markdownSplitByFileKey[activeFileKey] === true
+  const markdownPreviewOpen = markdownReadingOpen && !markdownSplitOpen
+  const sourceVisualPreviewOpen = canPreviewSource && sourcePreviewOpen
   const readOnly = !editorMode.canEditText
   const canShowBlame = editorMode.canShowBlame
   const canShowLineChanges = editorMode.canShowLineChanges
@@ -211,16 +229,54 @@ export function FileEditorPane({
   const blameAuthorProfileUrl = blameDetail
     ? workspaceBlameAuthorProfileUrl(blameDetail.line.author, BLAME_AUTHOR_URL_TEMPLATE)
     : ''
-  const toggleMarkdownPreview = () => {
-    if (!canPreviewMarkdown) return
-    setMarkdownPreviewByFileKey(previous => ({
+  const toggleSourcePreview = () => {
+    if (!canPreviewMarkdown && !canPreviewSource) return
+    const nextSourcePreviewOpen = !sourcePreviewOpen
+    setSourcePreviewByFileKey(previous => ({
       ...previous,
-      [activeFileKey]: previous[activeFileKey] !== true,
+      [activeFileKey]: nextSourcePreviewOpen,
+    }))
+    if (canPreviewMarkdown && !nextSourcePreviewOpen) {
+      setMarkdownSplitByFileKey(previous => ({
+        ...previous,
+        [activeFileKey]: false,
+      }))
+    }
+  }
+
+  const toggleMarkdownSplit = () => {
+    if (!canPreviewMarkdown) return
+    setSourcePreviewByFileKey(previous => ({
+      ...previous,
+      [activeFileKey]: true,
+    }))
+    setMarkdownSplitByFileKey(previous => ({
+      ...previous,
+      [activeFileKey]: !markdownSplitOpen,
     }))
   }
 
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    document.body.classList.toggle('code-mobile-markdown-reading', markdownReadingOpen)
+    return () => {
+      document.body.classList.remove('code-mobile-markdown-reading')
+    }
+  }, [markdownReadingOpen])
+
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor) return undefined
+    const frame = window.requestAnimationFrame(() => editor.layout())
+    return () => window.cancelAnimationFrame(frame)
+  }, [editorRef, markdownSplitOpen, markdownPreviewOpen, sourcePreviewOpen])
+
   return (
-    <section className="code-file-editor" data-testid="code-file-editor" onKeyDownCapture={handleEditorShellKeyDown}>
+    <section
+      className={`code-file-editor ${markdownReadingOpen ? 'markdown-reading' : ''}`.trim()}
+      data-testid="code-file-editor"
+      onKeyDownCapture={handleEditorShellKeyDown}
+    >
       <FileEditorHeader
         openFile={openFile}
         openFiles={openFiles}
@@ -229,6 +285,9 @@ export function FileEditorPane({
         statusText={statusText}
         onBackToAgent={onBackToAgent}
         onSelectOpenFile={onSelectOpenFile}
+        canNavigateBack={canNavigateBack}
+        canNavigateForward={canNavigateForward}
+        onNavigateHistory={onNavigateHistory}
         onSetTabRef={setTabRef}
         onOpenTabContextMenu={openEditorTabContextMenu}
         onTabAuxClick={handleEditorTabAuxClick}
@@ -237,11 +296,14 @@ export function FileEditorPane({
         onRevealInExplorer={onRevealInExplorer}
         onSave={saveFile}
         onReload={reloadFile}
-        onToggleMarkdownPreview={toggleMarkdownPreview}
+        onToggleSourcePreview={toggleSourcePreview}
+        onToggleMarkdownSplit={toggleMarkdownSplit}
         onToggleDiff={toggleDiff}
         canPreviewMarkdown={canPreviewMarkdown}
+        canPreviewSource={canPreviewSource}
         diffOpen={diffState.open}
-        markdownPreviewOpen={markdownPreviewOpen}
+        markdownSplitOpen={markdownSplitOpen}
+        sourcePreviewOpen={sourcePreviewOpen}
       />
 
       {openFile.error && (
@@ -263,11 +325,14 @@ export function FileEditorPane({
         editorMode={editorMode}
         editorHostRef={editorHostRef}
         lineChanges={lineChanges}
+        markdownSplitOpen={markdownSplitOpen}
         markdownPreviewOpen={markdownPreviewOpen}
+        sourcePreviewOpen={sourceVisualPreviewOpen}
         openFile={openFile}
         onClearBlameDetail={clearBlameDetail}
         onCloseDiff={closeDiff}
         onCloseLineChanges={closeLineChanges}
+        onOpenFilePath={onOpenFilePath}
         onShowBlameDetail={showBlameDetail}
       />
       <FileEditorOverlays

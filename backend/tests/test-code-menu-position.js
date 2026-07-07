@@ -4,6 +4,7 @@ const {
   clampContextMenuPoint,
   estimateAgentContextMenuHeight,
   estimateContextMenuHeight,
+  outwardContextMenuPoint,
 } = require('../../src/components/code/menu-position.ts');
 
 function agent(overrides = {}) {
@@ -34,6 +35,14 @@ function run() {
   assert.deepStrictEqual(
     clampContextMenuPoint(500, 500, 100, { width: 600, height: 400 }, 168),
     { x: 424, y: 292 }
+  );
+  assert.deepStrictEqual(
+    outwardContextMenuPoint({ left: 420, right: 448, top: 80 }, 100, { width: 800, height: 400 }, 160),
+    { x: 456, y: 80 }
+  );
+  assert.deepStrictEqual(
+    outwardContextMenuPoint({ left: 720, right: 748, top: 360 }, 100, { width: 800, height: 400 }, 160),
+    { x: 552, y: 292 }
   );
 
   assert.strictEqual(estimateAgentContextMenuHeight(undefined), estimateContextMenuHeight(0, 0));

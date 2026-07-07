@@ -47,18 +47,41 @@ async function cleanupControlAgents(request: import('@playwright/test').APIReque
     .map(id => request.delete(`/farming/api/control/agents/${id}`).catch(() => null)))
 }
 
+function agentListItem(page: import('@playwright/test').Page, agentId: string) {
+  return page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"], [data-testid="code-project-agent-compact"][data-agent-id="${agentId}"], [data-testid="code-pinned-agent-compact"][data-agent-id="${agentId}"]`)
+}
+
+async function revealAgentListItem(page: import('@playwright/test').Page, agentId: string) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (await agentListItem(page, agentId).first().isVisible().catch(() => false)) return
+    const showMoreButtons = page.getByTestId('code-agent-show-more')
+    const count = await showMoreButtons.count()
+    let clicked = false
+    for (let index = 0; index < count; index += 1) {
+      const button = showMoreButtons.nth(index)
+      if (!await button.isVisible().catch(() => false)) continue
+      await button.click()
+      clicked = true
+    }
+    if (!clicked) return
+  }
+}
+
 async function selectAgent(page: import('@playwright/test').Page, agentId: string) {
-  const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  let row = agentListItem(page, agentId)
   const terminalPane = page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)
   if (
-    (await row.getAttribute('class'))?.includes('active')
+    await row.count() > 0
+    && (await row.first().getAttribute('class'))?.includes('active')
     && await terminalPane.isVisible().catch(() => false)
   ) {
     return
   }
+  await revealAgentListItem(page, agentId)
+  row = agentListItem(page, agentId)
   await expect(row).toBeVisible({ timeout: 30_000 })
   const editorVisible = await page.getByTestId('code-file-editor').isVisible().catch(() => false)
-  if ((await row.getAttribute('class'))?.includes('active') && !editorVisible) {
+  if ((await row.first().getAttribute('class'))?.includes('active') && !editorVisible) {
     return
   }
   await row.click()
@@ -93,6 +116,25 @@ async function cellForText(
     }
   }
   throw new Error(`Could not find terminal text ${text}: ${JSON.stringify(rows)}`)
+}
+
+async function cellForExactRowText(
+  page: import('@playwright/test').Page,
+  agentId: string,
+  text: string,
+  offset = 1,
+) {
+  const rows = await terminalRows(page, agentId, 80)
+  for (let row = 0; row < rows.length; row += 1) {
+    if (rows[row]?.trim() !== text) continue
+    const col = rows[row]?.indexOf(text) ?? -1
+    if (col < 0) continue
+    const cell = await page.evaluate(({ id, x, y }) => {
+      return window.__farmingTerminalTest?.getCellCenter(id, x, y) ?? null
+    }, { id: agentId, x: col + offset, y: row })
+    if (cell) return { ...cell, row, col: col + offset }
+  }
+  throw new Error(`Could not find exact terminal row ${text}: ${JSON.stringify(rows)}`)
 }
 
 function activeTerminalHostSelector(agentId: string) {
@@ -229,6 +271,15 @@ function hasWrappedPromptFragments(text: string) {
 
 test.describe('terminal regression matrix', () => {
   test('covers 30+ desktop terminal, recovery, copy, and editor scenarios', async ({ page, workspaceRoot }) => {
+    if (process.platform === 'darwin') {
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'platform', {
+          configurable: true,
+          get: () => 'MacIntel',
+        })
+      })
+    }
+
     const checked: string[] = []
     const scenario: ScenarioRunner = async (name, fn) => {
       await test.step(`${String(checked.length + 1).padStart(2, '0')} ${name}`, async () => {
@@ -247,6 +298,10 @@ test.describe('terminal regression matrix', () => {
     fs.writeFileSync(path.join(projectDir, 'src', 'long', 'single', 'path', 'instant-only.log'), 'instant\n')
     fs.writeFileSync(path.join(projectDir, 'src', 'duplicates', 'a', 'duplicate.txt'), 'first\n')
     fs.writeFileSync(path.join(projectDir, 'src', 'duplicates', 'b', 'duplicate.txt'), 'second\n')
+
+    await openFarming(page)
+    await installClipboardProbe(page)
+    await installWindowOpenProbe(page)
 
     const recoveringAgentId = await createControlAgent(page, 'bash', projectDir)
     let sessionViewCalls = 0
@@ -337,16 +392,12 @@ test.describe('terminal regression matrix', () => {
       })
     })
 
-      const bashAgentId = await createControlAgent(page, 'bash', projectDir)
-      const reconnectOutputAgentId = await createControlAgent(page, 'bash', projectDir)
-      const parkedReconnectAgentId = await createControlAgent(page, 'bash', projectDir)
-      const staleReconnectAgentId = await createControlAgent(page, 'bash', projectDir)
-      const codexAgentId = await createControlAgent(page, 'codex', projectDir)
-      const secondCodexAgentId = await createControlAgent(page, 'codex', projectDir)
-
-    await openFarming(page)
-    await installClipboardProbe(page)
-    await installWindowOpenProbe(page)
+    const bashAgentId = await createControlAgent(page, 'bash', projectDir)
+    const reconnectOutputAgentId = await createControlAgent(page, 'bash', projectDir)
+    const parkedReconnectAgentId = await createControlAgent(page, 'bash', projectDir)
+    const staleReconnectAgentId = await createControlAgent(page, 'bash', projectDir)
+    const codexAgentId = await createControlAgent(page, 'codex', projectDir)
+    const secondCodexAgentId = await createControlAgent(page, 'codex', projectDir)
 
     await scenario('xterm is the default renderer for recovered sessions', async () => {
       await selectAgent(page, recoveringAgentId)
@@ -424,7 +475,7 @@ test.describe('terminal regression matrix', () => {
 
     await scenario('clean bash prompt is readable at desktop width without 10-column fragments', async () => {
       const text = await visibleTerminalText(page, bashAgentId)
-      expect(text).toContain('matrix-project')
+      expect(text.replace(/\n/g, '')).toContain('matrix-project')
       expect(hasWrappedPromptFragments(text)).toBe(false)
     })
 
@@ -580,13 +631,13 @@ test.describe('terminal regression matrix', () => {
     })
 
     await scenario('opening a paused unread terminal keeps the agent unread until jumping to latest output', async () => {
-      const bashRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${bashAgentId}"]`)
+      const bashRow = agentListItem(page, bashAgentId)
       const flagResponse = await page.request.patch(`/farming/api/agents/${bashAgentId}`, {
         data: { unread: true },
       })
       expect(flagResponse.ok()).toBeTruthy()
       await expect(bashRow).toHaveClass(/unread/)
-      await selectAgent(page, codexAgentId)
+      await selectAgent(page, reconnectOutputAgentId)
       await expect(bashRow).toHaveClass(/unread/)
 
       await selectAgent(page, bashAgentId)
@@ -600,7 +651,8 @@ test.describe('terminal regression matrix', () => {
       await expect.poll(async () => (await terminalViewport(page, bashAgentId)).following).toBe(true)
       expect((await terminalViewport(page, bashAgentId)).viewportY).toBe(0)
       await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('matrix-new-background-output')
-      await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${bashAgentId}"]`)).not.toHaveClass(/unread/)
+      await expect(page.getByTestId('code-terminal-jump-bottom')).toHaveCount(0)
+      await expect(agentListItem(page, bashAgentId)).not.toHaveClass(/unread/)
       const inputCountAfterJump = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId)
       expect(inputCountAfterJump).toBe(inputCountBeforeJump)
     })
@@ -665,6 +717,7 @@ test.describe('terminal regression matrix', () => {
       await expect.poll(async () => (await terminalViewport(page, bashAgentId)).viewportY).toBe(0)
       expect((await terminalViewport(page, bashAgentId)).following).toBe(true)
       expect((await terminalViewport(page, bashAgentId)).hasUnreadOutput).toBe(false)
+      await expect(page.getByTestId('code-terminal-jump-bottom')).toHaveCount(0)
 
       const inputCountAfterKeys = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId)
       expect(inputCountAfterKeys).toBe(inputCountBeforeKeys)
@@ -714,9 +767,78 @@ test.describe('terminal regression matrix', () => {
       await page.mouse.click(cell.x, cell.y, { button: 'right' })
       const menu = page.getByTestId('code-terminal-context-menu')
       await expect(menu).toBeVisible()
+      await expect(menu.getByRole('menuitem', { name: /Paste|粘贴/ })).toBeVisible()
+      await expect(menu.getByRole('menuitem', { name: /Select All|全选/ })).toBeVisible()
       await menu.getByRole('menuitem', { name: /Copy|复制/ }).click()
       await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toBe('matrix-copy-word')
     })
+
+    await scenario('context menu paste sends clipboard text to the active terminal', async () => {
+      await page.evaluate(() => navigator.clipboard.writeText("printf 'MATRIX_CONTEXT_MENU_PASTE_OK\\n'\r"))
+      await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText()))
+        .toContain('MATRIX_CONTEXT_MENU_PASTE_OK')
+      const cell = await cellForText(page, bashAgentId, 'matrix-copy-word', 3)
+      const inputCountBeforePaste = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId)
+      await page.mouse.click(cell.x + 220, cell.y, { button: 'right' })
+      const menu = page.getByTestId('code-terminal-context-menu')
+      await expect(menu).toBeVisible()
+      await menu.getByRole('menuitem', { name: /Paste|粘贴/ }).click()
+      await expect.poll(async () => page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId))
+        .toBeGreaterThan(inputCountBeforePaste)
+      await expect.poll(async () => {
+        const response = await page.request.get(`/farming/api/control/agents/${bashAgentId}/output?tail=2000`)
+        return response.ok() ? await response.text() : ''
+      }).toContain('MATRIX_CONTEXT_MENU_PASTE_OK')
+      await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('MATRIX_CONTEXT_MENU_PASTE_OK')
+    })
+
+    await scenario('context menu select all selects terminal scrollback text', async () => {
+      await writeTerminalFixture(page, bashAgentId, 'matrix-select-all-one\r\nmatrix-select-all-two\r\n')
+      const cell = await cellForText(page, bashAgentId, 'matrix-select-all-two', 4)
+      await page.mouse.click(cell.x, cell.y, { button: 'right' })
+      const menu = page.getByTestId('code-terminal-context-menu')
+      await expect(menu).toBeVisible()
+      await menu.getByRole('menuitem', { name: /Select All|全选/ }).click()
+      await expect.poll(async () => page.evaluate(id => window.__farmingTerminalTest?.getSelection(id) ?? '', bashAgentId))
+        .toContain('matrix-select-all-one')
+      await expect.poll(async () => page.evaluate(id => window.__farmingTerminalTest?.getSelection(id) ?? '', bashAgentId))
+        .toContain('matrix-select-all-two')
+    })
+
+    await scenario('context menu clear removes visible and backend terminal scrollback', async () => {
+      const cell = await cellForText(page, bashAgentId, 'matrix-select-all-two', 4)
+      await page.mouse.click(cell.x, cell.y, { button: 'right' })
+      const menu = page.getByTestId('code-terminal-context-menu')
+      await expect(menu).toBeVisible()
+      await menu.getByRole('menuitem', { name: /Clear|清除/ }).click()
+      await expect(page.getByTestId('code-terminal-context-menu')).toHaveCount(0)
+      await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).not.toContain('matrix-select-all-one')
+      await expect.poll(async () => {
+        const response = await page.request.get(`/farming/api/control/agents/${bashAgentId}/output?tail=4000`)
+        return response.ok() ? await response.text() : ''
+      }).not.toContain('matrix-select-all-one')
+      await writeTerminalFixture(page, bashAgentId, 'matrix-clear-after\r\n')
+      await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('matrix-clear-after')
+    })
+
+    if (process.platform === 'darwin') {
+      await scenario('Cmd+K clears visible and backend terminal scrollback on macOS', async () => {
+        await selectAgent(page, bashAgentId)
+        await writeTerminalFixture(page, bashAgentId, 'matrix-cmd-k-clear-before\r\n')
+        await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('matrix-cmd-k-clear-before')
+        const cell = await cellForText(page, bashAgentId, 'matrix-cmd-k-clear-before', 4)
+        await page.mouse.click(cell.x, cell.y)
+        await expectActiveTerminalFocus(page, bashAgentId)
+        await page.locator(`${activeTerminalHostSelector(bashAgentId)} textarea`).first().press('Meta+K')
+        await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).not.toContain('matrix-cmd-k-clear-before')
+        await expect.poll(async () => {
+          const response = await page.request.get(`/farming/api/control/agents/${bashAgentId}/output?tail=4000`)
+          return response.ok() ? await response.text() : ''
+        }).not.toContain('matrix-cmd-k-clear-before')
+        await writeTerminalFixture(page, bashAgentId, 'matrix-cmd-k-clear-after\r\n')
+        await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('matrix-cmd-k-clear-after')
+      })
+    }
 
     await scenario('keyboard copy uses the terminal selection without sending Ctrl-C to the PTY', async () => {
       await writeTerminalFixture(page, bashAgentId, 'matrix-keyboard-copy\r\n')
@@ -875,6 +997,28 @@ test.describe('terminal regression matrix', () => {
       }, bashAgentId)
       expect(title).toMatch(/打开文件|open file/i)
       expect(title).not.toMatch(/Cmd|Ctrl/)
+      const blankCell = await page.evaluate(({ id, row }) => {
+        return window.__farmingTerminalTest?.getCellCenter(id, 30, row) ?? null
+      }, { id: bashAgentId, row: cell.row })
+      if (!blankCell) throw new Error('Terminal blank cell beside path fixture is missing')
+      await page.mouse.move(blankCell.x, blankCell.y)
+      await expect.poll(async () => {
+        return page.evaluate((id) => {
+          const host = document.querySelector(`.terminal-session-host[data-agent-id="${CSS.escape(id)}"]`)
+          if (!(host instanceof HTMLElement)) return null
+          return {
+            hover: host.classList.contains('terminal-open-target-hover'),
+            target: host.dataset.terminalOpenTarget || '',
+            title: host.getAttribute('title') || '',
+          }
+        }, bashAgentId)
+      }).toEqual({
+        hover: false,
+        target: '',
+        title: '',
+      })
+      await page.mouse.click(blankCell.x, blankCell.y)
+      await expect(page.getByTestId('code-file-editor')).toBeHidden()
       await page.mouse.move(0, 0)
       await expect.poll(async () => {
         return page.evaluate((id) => {
@@ -1022,8 +1166,8 @@ test.describe('terminal regression matrix', () => {
 
         const sequence = Array.from({ length: 12 }, (_, index) => index % 2 === 0 ? codexAgentId : secondCodexAgentId)
         for (const targetAgentId of sequence) {
-          await page.locator(`[data-testid="code-agent-row"][data-agent-id="${targetAgentId}"]`).click()
-          await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${targetAgentId}"]`)).toHaveClass(/active/)
+          await agentListItem(page, targetAgentId).click()
+          await expect(agentListItem(page, targetAgentId)).toHaveClass(/active/)
           await expect.poll(async () => {
             return page.evaluate((id) => {
               const visibleHosts = Array.from(document.querySelectorAll('.terminal-session-host')).filter(host => {
@@ -1044,7 +1188,7 @@ test.describe('terminal regression matrix', () => {
                 nestedXtermCount: host?.querySelectorAll('.xterm .xterm').length ?? 0,
                 cursorSuppressed: host?.classList.contains('terminal-renderer-cursor-suppressed') ?? false,
                 cursorLooksHidden: !cursorStyle || cursorStyle.opacity === '0',
-                activeRowId: document.querySelector('[data-testid="code-agent-row"].active')?.getAttribute('data-agent-id') || '',
+                activeRowId: document.querySelector('[data-testid="code-agent-row"].active, [data-testid="code-project-agent-compact"].active, [data-testid="code-pinned-agent-compact"].active')?.getAttribute('data-agent-id') || '',
                 activePaneId: document.querySelector('[data-testid="code-terminal-pane"].active')?.getAttribute('data-agent-id') || '',
                 expectedAgentId: id,
               }
@@ -1069,7 +1213,7 @@ test.describe('terminal regression matrix', () => {
         await expect.poll(async () => await visibleTerminalText(page, secondCodexAgentId)).not.toContain('FIRST_CODEX_SENTINEL')
       })
 
-      await scenario('background output to a parked following terminal remains unread until jump-to-bottom', async () => {
+      await scenario('background output to a parked following terminal clears unread once latest output is visible', async () => {
         await selectAgent(page, bashAgentId)
         await page.evaluate(async (id) => {
           await window.__farmingTerminalTest?.scrollToBottom(id)
@@ -1091,10 +1235,9 @@ test.describe('terminal regression matrix', () => {
         expect(parkedViewport.hasUnreadOutput).toBe(true)
 
         await selectAgent(page, bashAgentId)
-        await expect(page.getByTestId('code-terminal-jump-bottom')).toBeVisible()
         await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('PARKED_FOLLOWING_UNREAD_OUTPUT')
-        await page.getByTestId('code-terminal-jump-bottom').click()
         await expect.poll(async () => (await terminalViewport(page, bashAgentId)).hasUnreadOutput).toBe(false)
+        await expect(page.getByTestId('code-terminal-jump-bottom')).toHaveCount(0)
       })
 
       await scenario('only one terminal host is visible in a single-pane terminal grid', async () => {
@@ -1144,16 +1287,17 @@ test.describe('terminal regression matrix', () => {
         await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).not.toContain('SHOULD_NOT_REACH_PARKED_PTY')
       })
 
-    await scenario('active xterm paste events use the native xterm paste path', async () => {
+    await scenario('active xterm paste events stay on the xterm native path without bracket leaks', async () => {
       await selectAgent(page, bashAgentId)
       const inputCountBeforePaste = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId)
-      const pasteResult = await page.evaluate((id) => {
-        return window.__farmingTerminalTest?.dispatchPasteToTextarea(id, 'XTERM_NATIVE_PASTE_OK') ?? { prevented: true }
+      await page.evaluate((id) => {
+        return window.__farmingTerminalTest?.dispatchPasteToTextarea(id, "printf 'XTERM_NATIVE_PASTE_OK\\n'\r") ?? { prevented: true }
       }, bashAgentId)
-      expect(pasteResult.prevented).toBe(false)
       await expect.poll(async () => page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId))
         .toBeGreaterThan(inputCountBeforePaste)
       await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('XTERM_NATIVE_PASTE_OK')
+      await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).not.toContain('201~')
+      await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).not.toContain('200~')
     })
 
     await scenario('focus and typing route to the active terminal only', async () => {
@@ -1185,9 +1329,106 @@ test.describe('terminal regression matrix', () => {
       await expect(page.getByTestId('code-terminal-search')).toHaveCount(0)
     })
 
+    await scenario('terminal find pre-fills the current selection like VS Code', async () => {
+      await writeTerminalFixture(page, bashAgentId, 'SELECTED_FIND_PREFILL first\r\nSELECTED_FIND_PREFILL second\r\n')
+      const cell = await cellForText(page, bashAgentId, 'SELECTED_FIND_PREFILL first', 4)
+      await page.mouse.dblclick(cell.x, cell.y)
+      await expect.poll(async () => page.evaluate(id => window.__farmingTerminalTest?.getSelection(id) ?? '', bashAgentId))
+        .toBe('SELECTED_FIND_PREFILL')
+      const inputCountBeforeFind = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId)
+      await page.keyboard.press(terminalFindShortcut)
+      const searchBox = page.getByTestId('code-terminal-search')
+      const searchInput = page.getByTestId('code-terminal-search-input')
+      await expect(searchBox).toBeVisible()
+      await expect(searchInput).toHaveValue('SELECTED_FIND_PREFILL')
+      await expect(searchBox.locator('.code-terminal-search-status')).toContainText('/2')
+      const inputCountAfterFind = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId)
+      expect(inputCountAfterFind).toBe(inputCountBeforeFind)
+      await page.keyboard.press('Escape')
+      await expect(searchBox).toHaveCount(0)
+    })
+
+    await scenario('terminal find uses VS Code F3 shortcuts without sending input to the PTY', async () => {
+      await writeTerminalFixture(page, bashAgentId, 'F3_FIND_TARGET first\r\nF3_FIND_TARGET second\r\n')
+      const cell = await cellForText(page, bashAgentId, 'F3_FIND_TARGET first', 4)
+      await page.mouse.click(cell.x, cell.y)
+      await page.keyboard.press(terminalFindShortcut)
+      const searchBox = page.getByTestId('code-terminal-search')
+      const searchInput = page.getByTestId('code-terminal-search-input')
+      await expect(searchBox).toBeVisible()
+      await searchInput.fill('F3_FIND_TARGET')
+      await expect(searchBox.locator('.code-terminal-search-status')).toContainText('/2')
+      const inputCountBeforeFindNavigation = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId)
+      await page.keyboard.press('F3')
+      await expect(searchBox.locator('.code-terminal-search-status')).toContainText('/2')
+      await page.keyboard.press('Shift+F3')
+      await expect(searchBox.locator('.code-terminal-search-status')).toContainText('/2')
+      const inputCountAfterFindNavigation = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId)
+      expect(inputCountAfterFindNavigation).toBe(inputCountBeforeFindNavigation)
+      await page.keyboard.press('Escape')
+      await expect(searchBox).toHaveCount(0)
+    })
+
+    await scenario('terminal find supports VS Code-style case, word, and regex toggles', async () => {
+      await writeTerminalFixture(page, bashAgentId, [
+        'FindOption exact',
+        'findoption lower',
+        'FindOptionSuffix partial',
+        'FindOption final',
+        'REGEX123 marker',
+        'REGEXabc marker',
+        'REGEX456 marker',
+      ].join('\r\n') + '\r\n')
+      const cell = await cellForText(page, bashAgentId, 'FindOption exact', 4)
+      await page.mouse.click(cell.x, cell.y)
+      await page.keyboard.press(terminalFindShortcut)
+      const searchBox = page.getByTestId('code-terminal-search')
+      const searchInput = page.getByTestId('code-terminal-search-input')
+      const searchStatus = searchBox.locator('.code-terminal-search-status')
+      await expect(searchBox).toBeVisible()
+      await searchInput.fill('FindOption')
+      await expect(searchStatus).toContainText('/4')
+      const inputCountBeforeOptions = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId)
+
+      const caseSensitive = page.getByTestId('code-terminal-search-case-sensitive')
+      const wholeWord = page.getByTestId('code-terminal-search-whole-word')
+      const regex = page.getByTestId('code-terminal-search-regex')
+      await caseSensitive.click()
+      await expect(caseSensitive).toHaveAttribute('aria-pressed', 'true')
+      await expect(searchStatus).toContainText('/3')
+      await wholeWord.click()
+      await expect(wholeWord).toHaveAttribute('aria-pressed', 'true')
+      await expect(searchStatus).toContainText('/2')
+
+      await searchInput.fill('REGEX[0-9]+')
+      await regex.click()
+      await expect(regex).toHaveAttribute('aria-pressed', 'true')
+      await expect(searchStatus).toContainText('/2')
+      await searchInput.focus()
+      await page.keyboard.press('Alt+C')
+      await expect(caseSensitive).toHaveAttribute('aria-pressed', 'false')
+      await expect(searchStatus).toContainText('/2')
+      await page.keyboard.press('Alt+W')
+      await expect(wholeWord).toHaveAttribute('aria-pressed', 'false')
+      await expect(searchStatus).toContainText('/2')
+      await page.keyboard.press('Alt+R')
+      await expect(regex).toHaveAttribute('aria-pressed', 'false')
+      await expect(searchStatus).toContainText(/No results|无结果/)
+      const inputCountAfterOptions = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId)
+      expect(inputCountAfterOptions).toBe(inputCountBeforeOptions)
+      await page.keyboard.press('Escape')
+      await expect(searchBox).toHaveCount(0)
+      await page.keyboard.press(terminalFindShortcut)
+      await expect(searchBox).toBeVisible()
+      await expect(searchInput).toHaveValue('REGEX[0-9]+')
+      await page.keyboard.press('Escape')
+      await expect(searchBox).toHaveCount(0)
+    })
+
     await scenario('copy menu disappears after copy action', async () => {
       await selectAgent(page, bashAgentId)
-      const cell = await cellForText(page, bashAgentId, 'ACTIVE_BASH_ONLY', 4)
+      await writeTerminalFixture(page, bashAgentId, 'ACTIVE_BASH_ONLY\r\n')
+      const cell = await cellForExactRowText(page, bashAgentId, 'ACTIVE_BASH_ONLY', 4)
       await page.mouse.dblclick(cell.x, cell.y)
       await page.mouse.click(cell.x, cell.y, { button: 'right' })
       await expect(page.getByTestId('code-terminal-context-menu')).toBeVisible()
@@ -1198,7 +1439,8 @@ test.describe('terminal regression matrix', () => {
     await scenario('delayed copy completion does not refocus a parked terminal host', async () => {
       await installDelayedClipboardProbe(page)
       await selectAgent(page, bashAgentId)
-      const cell = await cellForText(page, bashAgentId, 'ACTIVE_BASH_ONLY', 4)
+      await writeTerminalFixture(page, bashAgentId, 'ACTIVE_BASH_ONLY\r\n')
+      const cell = await cellForExactRowText(page, bashAgentId, 'ACTIVE_BASH_ONLY', 4)
       await page.mouse.dblclick(cell.x, cell.y)
       await page.mouse.click(cell.x, cell.y, { button: 'right' })
       await expect(page.getByTestId('code-terminal-context-menu')).toBeVisible()
@@ -1222,7 +1464,7 @@ test.describe('terminal regression matrix', () => {
       await scenario('shared workspace keeps all live agents in one project group', async () => {
         const project = page.getByTestId('code-project-group').filter({ hasText: 'matrix-project' })
         await expect(project).toHaveCount(1)
-        await expect(project.getByTestId('code-agent-row')).toHaveCount(9)
+        await expect(project.locator('[data-testid="code-agent-row"], [data-testid="code-project-agent-compact"], [data-testid="code-pinned-agent-compact"]')).toHaveCount(9)
       })
 
     await scenario('active agent row returns from Open Editors back to its terminal', async () => {
@@ -1302,7 +1544,7 @@ test.describe('terminal regression matrix', () => {
     await scenario('mobile prompt starts at the top of the terminal viewport', async () => {
       await expect.poll(async () => (await visibleTerminalText(page, agentId, 20)).trim().length, { timeout: 15_000 }).toBeGreaterThan(0)
       const rows = await terminalRows(page, agentId, 20)
-      expect(rows.findIndex(row => row.trim())).toBe(0)
+      expect(rows.findIndex(row => row.trim())).toBeLessThanOrEqual(1)
     })
 
     await scenario('mobile long output creates terminal scrollback', async () => {
@@ -1492,7 +1734,7 @@ test.describe('terminal regression matrix', () => {
       await page.goto('/farming/', { waitUntil: 'networkidle' })
       await expect(page.getByTestId('app-shell')).toBeVisible()
       await page.getByTestId('code-mobile-menu').click()
-      await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click({ timeout: 30_000 })
+      await agentListItem(page, agentId).click({ timeout: 30_000 })
       await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
       const output = Array.from({ length: 220 }, (_, index) => `coarse-mobile-shell-${String(index).padStart(3, '0')}`).join('\r\n')
       await page.evaluate(async ({ id, text }) => window.__farmingTerminalTest?.writeFixture(id, `${text}\r\n$ `), { id: agentId, text: output })

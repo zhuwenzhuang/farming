@@ -24,6 +24,7 @@ export type SearchTarget =
 export interface WorkspaceHistorySettings {
   lastMainWorkspace?: string
   workspaceHistory?: string[]
+  projectNames?: Record<string, string>
   mainPageSessionKeys?: string[]
 }
 

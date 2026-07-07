@@ -7,9 +7,10 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import type { Agent, SystemStats, UsageProviderSummary, UsageSummary } from '@/types/agent'
 import type { WorkspaceFileDeleteResult, WorkspaceFileMove } from '@/lib/workspace-files'
 import { appPath } from '@/lib/base-path'
-import { agentTitle, formatRelativeAge } from '@/lib/format'
+import { agentDisplayName, agentTitle, formatRelativeAge } from '@/lib/format'
 import { workspaceOpenFileKey } from '@/lib/workspace-open-files'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
+import type { WorkspaceShareTarget } from '@/lib/workspace-share-target'
 import {
   agentRowKey,
   buildAgentRowDisplayState,
@@ -25,11 +26,13 @@ import {
 } from './model'
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
 import type { AgentLaunchOption } from './agent-launch-options'
+import { outwardContextMenuPoint } from './menu-position'
 import { ShareQrButton } from './ShareQrButton'
 
 declare const __FARMING_PACKAGE_VERSION__: string
 
-const DEFAULT_PROJECT_SESSION_LIMIT = 4
+const DEFAULT_PROJECT_SESSION_LIMIT = 5
+const PROJECT_AGENT_VISIBLE_LIMIT = 5
 type SessionPreviewAnchorEvent = { currentTarget: HTMLElement }
 
 type PinnedSidebarItem =
@@ -53,13 +56,6 @@ function compactProductVersion(version: string) {
   }
 
   return normalized.replace(/-dirty$/i, '')
-}
-
-function railCompactLabel(title: string) {
-  const chars = Array.from(title.trim())
-    .filter(char => /[\p{L}\p{N}]/u.test(char))
-    .slice(0, 6)
-  return chars.join('') || '·'
 }
 
 type FarmingUpdateStatus = {
@@ -104,6 +100,7 @@ interface CodeSidebarProps {
   mainAgent: Agent | null
   systemStats: SystemStats | null
   usageSummary: UsageSummary | null
+  shareTarget: WorkspaceShareTarget | null
   agentLaunchOptions: AgentLaunchOption[]
   agentCreationWorkspace?: string
   openWorkspaceFile: OpenWorkspaceFile | null
@@ -163,6 +160,7 @@ export function CodeSidebar({
   mainAgent,
   systemStats,
   usageSummary,
+  shareTarget,
   agentLaunchOptions,
   agentCreationWorkspace,
   openWorkspaceFile,
@@ -207,6 +205,7 @@ export function CodeSidebar({
     y: number
   } | null>(null)
   const [usageCollapsed, setUsageCollapsed] = useState(true)
+  const [pinnedCollapsed, setPinnedCollapsed] = useState(false)
   const [updateStatus, setUpdateStatus] = useState<FarmingUpdateStatus | null>(null)
   const [updateChecking, setUpdateChecking] = useState(false)
   const [updateError, setUpdateError] = useState('')
@@ -325,6 +324,10 @@ export function CodeSidebar({
     : updateStatus?.available
       ? copy.upgradeToVersion(updateStatus.latest?.version || updateStatus.latest?.assetName || '')
       : copy.checkForUpdates
+  // Keep the numeric agent rail for the collapsed sidebar only in this release.
+  // The FILES-pressure compression path made single-agent projects collapse to "1",
+  // which saved no space and made the expanded sidebar harder to scan.
+  const agentCompressionActive = sidebarCollapsed
 
   return (
     <aside
@@ -340,11 +343,15 @@ export function CodeSidebar({
             data-testid="code-new-agent"
             onClick={event => onNewAgent(agentCreationWorkspace, undefined, event.currentTarget)}
           >
-            <span className="code-nav-icon">+</span>
+            <span className="code-nav-icon">
+              <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor" aria-hidden="true">
+                <path d="M14.452 1.548C14.087 1.183 13.608 1 13.13 1C12.652 1 12.173 1.183 11.808 1.548L6.979 6.377C6.697 6.659 6.498 7.011 6.401 7.398L6.027 8.896C5.883 9.473 6.329 10.002 6.886 10.002C6.958 10.002 7.031 9.993 7.106 9.975L8.604 9.601C8.99 9.504 9.343 9.305 9.625 9.023L14.454 4.194C15.184 3.464 15.184 2.28 14.454 1.549L14.452 1.548ZM13.745 3.485L8.916 8.314C8.763 8.467 8.57 8.576 8.36 8.629L7.04 8.962L7.371 7.64C7.424 7.43 7.532 7.237 7.686 7.084L12.516 2.255C12.68 2.091 12.899 2 13.131 2C13.363 2 13.582 2.091 13.746 2.255C14.085 2.594 14.085 3.146 13.746 3.486L13.745 3.485ZM13 7.768L14 6.768V11.5C14 12.878 12.879 14 11.5 14H4.5C3.121 14 2 12.878 2 11.5V4.5C2 3.122 3.121 2 4.5 2H9.236L8.236 3H4.5C3.673 3 3 3.673 3 4.5V11.5C3 12.327 3.673 13 4.5 13H11.5C12.327 13 13 12.327 13 11.5V7.768Z" />
+              </svg>
+            </span>
             <span>{copy.newAgent}</span>
             {keyboardShortcutsEnabled && <kbd>N</kbd>}
           </button>
-          <ShareQrButton copy={copy} sidebarCollapsed={sidebarCollapsed} />
+          <ShareQrButton copy={copy} sidebarCollapsed={sidebarCollapsed} shareTarget={shareTarget} />
           <button
             type="button"
             className="code-sidebar-toggle"
@@ -422,6 +429,8 @@ export function CodeSidebar({
         {pinnedItems.length > 0 && (
           <PinnedSection
             items={pinnedItems}
+            collapsed={pinnedCollapsed}
+            compressed={agentCompressionActive}
             activeTerminalId={activeTerminalId}
             selectedSearchAgentId={selectedSearchAgentId}
             selectedSearchSessionHandle={selectedSearchSessionHandle}
@@ -438,6 +447,7 @@ export function CodeSidebar({
             onOpenAgentSessionKeyboardMenu={onOpenAgentSessionKeyboardMenu}
             onShowAgentSessionPreview={showSessionPreview}
             onHideAgentSessionPreview={hideSessionPreview}
+            onToggleCollapsed={() => setPinnedCollapsed(collapsed => !collapsed)}
             copy={copy}
           />
         )}
@@ -446,6 +456,7 @@ export function CodeSidebar({
             key={project.id}
             project={project}
             collapsed={collapsedProjectIds.has(project.id) && !normalizedSearch}
+            compactAgents={agentCompressionActive}
             activeTerminalId={activeTerminalId}
             selectedSearchAgentId={selectedSearchAgentId}
             selectedSearchSessionHandle={selectedSearchSessionHandle}
@@ -804,10 +815,11 @@ function AgentRail({
 }) {
   return (
     <div className="code-agent-rail" data-testid="code-agent-rail" aria-label={copy.projectsAndAgents}>
-      {items.map(item => (
+      {items.map((item, index) => (
         <AgentRailButton
           key={agentRowKey({ kind: 'agent', agent: item.agent })}
           item={item}
+          index={index}
           activeTerminalId={activeTerminalId}
           now={now}
           onOpenAgent={onOpenAgent}
@@ -819,11 +831,13 @@ function AgentRail({
 
 function AgentRailButton({
   item,
+  index,
   activeTerminalId,
   now,
   onOpenAgent,
 }: {
   item: SidebarRailItem
+  index: number
   activeTerminalId: string | null
   now: number
   onOpenAgent: (agentId: string) => void
@@ -847,7 +861,7 @@ function AgentRailButton({
       title={title}
       onClick={openItem}
     >
-      <span className="code-agent-rail-label">{railCompactLabel(rowState.title)}</span>
+      <span className="code-agent-rail-label">{index + 1}</span>
       {rowState.statusIndicatorVisible && (
         <span className={`code-agent-rail-status ${rowState.lifecycleStatus} ${rowState.turnActive ? 'turn-active' : ''}`} aria-hidden="true" />
       )}
@@ -856,8 +870,168 @@ function AgentRailButton({
   )
 }
 
+function ProjectAgentCompactStrip({
+  agents,
+  activeTerminalId,
+  selectedSearchAgentId,
+  claimedAgentSessionKeyByAgentId,
+  now,
+  onOpenAgent,
+  onOpenAgentContextMenu,
+  onOpenAgentKeyboardMenu,
+}: {
+  agents: Agent[]
+  activeTerminalId: string | null
+  selectedSearchAgentId: string | null
+  claimedAgentSessionKeyByAgentId: ReadonlyMap<string, string>
+  now: number
+  onOpenAgent: (agentId: string) => void
+  onOpenAgentContextMenu: (event: ReactMouseEvent<HTMLElement>, agentId: string) => void
+  onOpenAgentKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, agentId: string) => void
+}) {
+  return (
+    <div className="code-project-agent-strip" data-testid="code-project-agent-strip" aria-label="Project agents">
+      {agents.map((agent, index) => {
+        const rowState = buildAgentRowDisplayState({ kind: 'agent', agent }, now)
+        const active = agent.id === activeTerminalId
+        const searchSelected = agent.id === selectedSearchAgentId
+        const title = rowState.rowTitle || rowState.title
+        return (
+          <button
+            key={agentRowKey({ kind: 'agent', agent, claimedSessionKey: claimedAgentSessionKeyByAgentId.get(agent.id) })}
+            type="button"
+            className={`code-project-agent-compact ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.unread ? 'unread' : ''}`}
+            data-testid="code-project-agent-compact"
+            data-agent-id={agent.id}
+            aria-label={title}
+            title={title}
+            onClick={() => onOpenAgent(agent.id)}
+            onContextMenu={event => onOpenAgentContextMenu(event, agent.id)}
+            onKeyDown={event => {
+              onOpenAgentKeyboardMenu(event, agent.id)
+              if (event.defaultPrevented) return
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                onOpenAgent(agent.id)
+              }
+            }}
+          >
+            <span className="code-project-agent-compact-label">{index + 1}</span>
+            {rowState.statusIndicatorVisible && (
+              <span className={`code-project-agent-compact-status ${rowState.lifecycleStatus} ${rowState.turnActive ? 'turn-active' : ''}`} aria-hidden="true" />
+            )}
+            {rowState.unread && <span className="code-project-agent-compact-unread" aria-hidden="true" />}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function PinnedItemCompactStrip({
+  items,
+  activeTerminalId,
+  selectedSearchAgentId,
+  selectedSearchSessionHandle,
+  claimedAgentSessionKeyByAgentId,
+  now,
+  onOpenAgent,
+  onOpenAgentContextMenu,
+  onOpenAgentKeyboardMenu,
+  onResumeAgentSession,
+  onOpenAgentSessionContextMenu,
+  onOpenAgentSessionKeyboardMenu,
+}: {
+  items: PinnedSidebarItem[]
+  activeTerminalId: string | null
+  selectedSearchAgentId: string | null
+  selectedSearchSessionHandle: string | null
+  claimedAgentSessionKeyByAgentId: ReadonlyMap<string, string>
+  now: number
+  onOpenAgent: (agentId: string) => void
+  onOpenAgentContextMenu: (event: ReactMouseEvent<HTMLElement>, agentId: string) => void
+  onOpenAgentKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, agentId: string) => void
+  onResumeAgentSession: (provider: string, sessionId: string) => void
+  onOpenAgentSessionContextMenu: (event: ReactMouseEvent<HTMLElement>, provider: string, sessionId: string) => void
+  onOpenAgentSessionKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, provider: string, sessionId: string) => void
+}) {
+  return (
+    <div className="code-project-agent-strip code-pinned-agent-strip" data-testid="code-pinned-agent-strip" aria-label="Pinned agents">
+      {items.map((item, index) => {
+        const rowState = item.kind === 'agent'
+          ? buildAgentRowDisplayState({ kind: 'agent', agent: item.agent }, now)
+          : buildAgentRowDisplayState({
+            kind: 'history',
+            session: item.session,
+            fallbackTitle: item.session.providerName || item.session.provider || 'Agent',
+          }, now)
+        const agent = item.kind === 'agent' ? item.agent : null
+        const session = item.kind === 'agent' ? null : item.session
+        const sessionHandle = session ? agentSessionId(session) : null
+        const active = agent ? agent.id === activeTerminalId : false
+        const searchSelected = agent
+          ? agent.id === selectedSearchAgentId
+          : sessionHandle === selectedSearchSessionHandle
+        const title = rowState.rowTitle || rowState.title
+        return (
+          <button
+            key={item.kind === 'agent'
+              ? agentRowKey({ kind: 'agent', agent: item.agent, claimedSessionKey: claimedAgentSessionKeyByAgentId.get(item.agent.id) })
+              : agentRowKey({ kind: 'history', session: item.session })}
+            type="button"
+            className={`code-project-agent-compact ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.unread ? 'unread' : ''}`}
+            data-testid="code-pinned-agent-compact"
+            data-agent-id={agent?.id}
+            data-session-id={sessionHandle ?? undefined}
+            aria-label={title}
+            title={title}
+            onClick={() => {
+              if (agent) {
+                onOpenAgent(agent.id)
+                return
+              }
+              if (session) onResumeAgentSession(session.provider, session.id)
+            }}
+            onContextMenu={event => {
+              if (agent) {
+                onOpenAgentContextMenu(event, agent.id)
+                return
+              }
+              if (session) onOpenAgentSessionContextMenu(event, session.provider, session.id)
+            }}
+            onKeyDown={event => {
+              if (agent) {
+                onOpenAgentKeyboardMenu(event, agent.id)
+              } else if (session) {
+                onOpenAgentSessionKeyboardMenu(event, session.provider, session.id)
+              }
+              if (event.defaultPrevented) return
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                if (agent) {
+                  onOpenAgent(agent.id)
+                } else if (session) {
+                  onResumeAgentSession(session.provider, session.id)
+                }
+              }
+            }}
+          >
+            <span className="code-project-agent-compact-label">{index + 1}</span>
+            {rowState.statusIndicatorVisible && (
+              <span className={`code-project-agent-compact-status ${rowState.lifecycleStatus} ${rowState.turnActive ? 'turn-active' : ''}`} aria-hidden="true" />
+            )}
+            {rowState.unread && <span className="code-project-agent-compact-unread" aria-hidden="true" />}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 interface PinnedSectionProps {
   items: PinnedSidebarItem[]
+  collapsed: boolean
+  compressed: boolean
   activeTerminalId: string | null
   selectedSearchAgentId: string | null
   selectedSearchSessionHandle: string | null
@@ -874,11 +1048,14 @@ interface PinnedSectionProps {
   onOpenAgentSessionKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, provider: string, sessionId: string) => void
   onShowAgentSessionPreview: (event: SessionPreviewAnchorEvent, session: AgentSessionHistoryItem) => void
   onHideAgentSessionPreview: () => void
+  onToggleCollapsed: () => void
   copy: CodeCopy
 }
 
 function PinnedSection({
   items,
+  collapsed,
+  compressed,
   activeTerminalId,
   selectedSearchAgentId,
   selectedSearchSessionHandle,
@@ -895,49 +1072,78 @@ function PinnedSection({
   onOpenAgentSessionKeyboardMenu,
   onShowAgentSessionPreview,
   onHideAgentSessionPreview,
+  onToggleCollapsed,
   copy,
 }: PinnedSectionProps) {
   return (
-    <section className="code-pinned-section" data-testid="code-pinned-section">
-      <div className="code-pinned-title">{copy.pinned}</div>
-      <div className="code-agent-list code-pinned-list">
-        {items.map(item => {
-          if (item.kind === 'agent') {
-            const agent = item.agent
-            const shortcutHint = keyboardShortcutsEnabled ? agentShortcutKeys.get(agent.id) : undefined
-            return (
-              <AgentRow
-                key={agentRowKey({ kind: 'agent', agent, claimedSessionKey: claimedAgentSessionKeyByAgentId.get(agent.id) })}
-                agent={agent}
-                shortcutHint={shortcutHint}
-                active={agent.id === activeTerminalId}
-                searchSelected={agent.id === selectedSearchAgentId}
-                now={now}
-                onOpenAgent={onOpenAgent}
-                onUpdateAgentFlags={onUpdateAgentFlags}
-                onOpenAgentContextMenu={onOpenAgentContextMenu}
-                onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
-                copy={copy}
-              />
-            )
-          }
-
-          return (
-            <AgentRow
-              key={agentRowKey({ kind: 'history', session: item.session })}
-              session={item.session}
-              searchSelected={agentSessionId(item.session) === selectedSearchSessionHandle}
+    <section className={`code-pinned-section ${collapsed ? 'collapsed' : ''}`} data-testid="code-pinned-section">
+      <button
+        type="button"
+        className="code-pinned-title"
+        data-testid="code-pinned-title"
+        aria-expanded={!collapsed}
+        onClick={onToggleCollapsed}
+      >
+        <span className={`code-folder-icon ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true" />
+        <span>{copy.pinned}</span>
+      </button>
+      {!collapsed && (
+        <div className="code-agent-list code-pinned-list">
+          {compressed ? (
+            <PinnedItemCompactStrip
+              items={items}
+              activeTerminalId={activeTerminalId}
+              selectedSearchAgentId={selectedSearchAgentId}
+              selectedSearchSessionHandle={selectedSearchSessionHandle}
+              claimedAgentSessionKeyByAgentId={claimedAgentSessionKeyByAgentId}
               now={now}
-              onResume={onResumeAgentSession}
-              onOpenSessionContextMenu={onOpenAgentSessionContextMenu}
-              onOpenSessionKeyboardMenu={onOpenAgentSessionKeyboardMenu}
-              onShowPreview={onShowAgentSessionPreview}
-              onHidePreview={onHideAgentSessionPreview}
-              copy={copy}
+              onOpenAgent={onOpenAgent}
+              onOpenAgentContextMenu={onOpenAgentContextMenu}
+              onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
+              onResumeAgentSession={onResumeAgentSession}
+              onOpenAgentSessionContextMenu={onOpenAgentSessionContextMenu}
+              onOpenAgentSessionKeyboardMenu={onOpenAgentSessionKeyboardMenu}
             />
-          )
-        })}
-      </div>
+          ) : (
+            items.map(item => {
+              if (item.kind === 'agent') {
+                const agent = item.agent
+                const shortcutHint = keyboardShortcutsEnabled ? agentShortcutKeys.get(agent.id) : undefined
+                return (
+                  <AgentRow
+                    key={agentRowKey({ kind: 'agent', agent, claimedSessionKey: claimedAgentSessionKeyByAgentId.get(agent.id) })}
+                    agent={agent}
+                    shortcutHint={shortcutHint}
+                    active={agent.id === activeTerminalId}
+                    searchSelected={agent.id === selectedSearchAgentId}
+                    now={now}
+                    onOpenAgent={onOpenAgent}
+                    onUpdateAgentFlags={onUpdateAgentFlags}
+                    onOpenAgentContextMenu={onOpenAgentContextMenu}
+                    onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
+                    copy={copy}
+                  />
+                )
+              }
+
+              return (
+                <AgentRow
+                  key={agentRowKey({ kind: 'history', session: item.session })}
+                  session={item.session}
+                  searchSelected={agentSessionId(item.session) === selectedSearchSessionHandle}
+                  now={now}
+                  onResume={onResumeAgentSession}
+                  onOpenSessionContextMenu={onOpenAgentSessionContextMenu}
+                  onOpenSessionKeyboardMenu={onOpenAgentSessionKeyboardMenu}
+                  onShowPreview={onShowAgentSessionPreview}
+                  onHidePreview={onHideAgentSessionPreview}
+                  copy={copy}
+                />
+              )
+            })
+          )}
+        </div>
+      )}
     </section>
   )
 }
@@ -945,6 +1151,7 @@ function PinnedSection({
 interface ProjectSectionProps {
   project: ProjectGroup
   collapsed: boolean
+  compactAgents: boolean
   activeTerminalId: string | null
   selectedSearchAgentId: string | null
   selectedSearchSessionHandle: string | null
@@ -983,6 +1190,7 @@ interface ProjectSectionProps {
 function ProjectSection({
   project,
   collapsed,
+  compactAgents,
   activeTerminalId,
   selectedSearchAgentId,
   selectedSearchSessionHandle,
@@ -1020,6 +1228,10 @@ function ProjectSection({
   const projectGroupRef = useRef<HTMLElement | null>(null)
   const projectRowRef = useRef<HTMLDivElement | null>(null)
   const agentsSectionRef = useRef<HTMLDivElement | null>(null)
+  const launchButtonRef = useRef<HTMLButtonElement | null>(null)
+  const launchMenuRef = useRef<HTMLDivElement | null>(null)
+  const [launchMenu, setLaunchMenu] = useState<{ x: number; y: number } | null>(null)
+  const [projectAgentsExpanded, setProjectAgentsExpanded] = useState(false)
   const projectFileAgent = project.agents.find(agent => !agent.isMain) ?? null
   const showProjectFiles = project.id !== MAIN_AGENT_PROJECT_ID && projectFileAgent !== null
   const projectFileAgentIds = new Set(project.agents.filter(agent => !agent.isMain).map(agent => agent.id))
@@ -1039,6 +1251,17 @@ function ProjectSection({
   const sortedAgents = project.agents.filter(agent => !agent.pinned)
   const visibleAgentSessions = project.agentSessions.filter(session => !session.pinned)
   const showAgentsSection = sortedAgents.length > 0 || visibleAgentSessions.length > 0 || (project.hiddenAgentSessionCount ?? 0) > 0
+  const compactProjectAgents = compactAgents && sortedAgents.length > 0
+  const visibleProjectAgents = compactProjectAgents || projectAgentsExpanded
+    ? sortedAgents
+    : sortedAgents.slice(0, PROJECT_AGENT_VISIBLE_LIMIT)
+  const hiddenProjectAgentCount = Math.max(0, sortedAgents.length - visibleProjectAgents.length)
+
+  useEffect(() => {
+    if (sortedAgents.length <= PROJECT_AGENT_VISIBLE_LIMIT && projectAgentsExpanded) {
+      setProjectAgentsExpanded(false)
+    }
+  }, [projectAgentsExpanded, sortedAgents.length])
 
   useLayoutEffect(() => {
     const projectGroup = projectGroupRef.current
@@ -1077,6 +1300,49 @@ function ProjectSection({
     }
   }, [collapsed, project.id, showAgentsSection])
 
+  useEffect(() => {
+    if (!launchMenu) return
+
+    const closeOnPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      if (target && (launchMenuRef.current?.contains(target) || launchButtonRef.current?.contains(target))) return
+      setLaunchMenu(null)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      setLaunchMenu(null)
+      launchButtonRef.current?.focus()
+    }
+
+    window.addEventListener('pointerdown', closeOnPointerDown, true)
+    window.addEventListener('keydown', closeOnEscape, true)
+    return () => {
+      window.removeEventListener('pointerdown', closeOnPointerDown, true)
+      window.removeEventListener('keydown', closeOnEscape, true)
+    }
+  }, [launchMenu])
+
+  const openProjectLaunchMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (agentLaunchOptions.length === 0) {
+      onNewAgent(project.workspace, undefined, event.currentTarget)
+      return
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect()
+    const menuWidth = 160
+    const menuHeight = Math.min(260, agentLaunchOptions.length * 34 + 12)
+    const point = outwardContextMenuPoint(rect, menuHeight, undefined, menuWidth)
+    setLaunchMenu(point)
+  }
+
+  const startProjectAgent = (command: string) => {
+    setLaunchMenu(null)
+    onStartAgent(command, project.workspace)
+  }
+
   return (
     <section ref={projectGroupRef} className="code-project-group" data-testid="code-project-group">
       <div ref={projectRowRef} className="code-project-row">
@@ -1093,30 +1359,116 @@ function ProjectSection({
           <span className={`code-folder-icon ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true" />
           <span>{project.name}</span>
         </button>
+        <span className="code-project-title-actions" aria-hidden={false}>
+          <button
+            type="button"
+            className="code-project-title-action"
+            data-testid="code-project-actions"
+            aria-label={copy.openOptions}
+            title={copy.openOptions}
+            onClick={event => onOpenProjectContextMenu(event, project.id)}
+          >
+            <ProjectActionsIcon />
+          </button>
+          <button
+            ref={launchButtonRef}
+            type="button"
+            className="code-project-title-action"
+            data-testid="code-project-new-agent"
+            aria-label={copy.newAgent}
+            title={copy.newAgent}
+            aria-haspopup="menu"
+            aria-expanded={launchMenu ? true : undefined}
+            onClick={openProjectLaunchMenu}
+          >
+            <ProjectNewAgentIcon />
+          </button>
+        </span>
+        {launchMenu && (
+          <div
+            ref={launchMenuRef}
+            className="code-context-menu code-project-launch-menu"
+            data-testid="code-project-new-agent-menu"
+            role="menu"
+            style={{ left: launchMenu.x, top: launchMenu.y }}
+          >
+            {agentLaunchOptions.map(option => (
+              <button
+                key={option.name}
+                type="button"
+                role="menuitem"
+                data-testid={`code-project-agent-launch-${option.name}`}
+                onClick={() => startProjectAgent(option.name)}
+              >
+                {agentDisplayName(option.name)}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       {!collapsed && (
         <div className="code-project-expanded">
           {showAgentsSection && (
             <div ref={agentsSectionRef} className="code-agents-section" data-testid="code-agents-section" data-project-id={project.id}>
               <div className="code-agent-list">
-                {sortedAgents.map(agent => {
-                  const shortcutHint = keyboardShortcutsEnabled ? agentShortcutKeys.get(agent.id) : undefined
-                  return (
-                    <AgentRow
-                      key={agentRowKey({ kind: 'agent', agent, claimedSessionKey: claimedAgentSessionKeyByAgentId.get(agent.id) })}
-                      agent={agent}
-                      shortcutHint={shortcutHint}
-                      active={agent.id === activeTerminalId}
-                      searchSelected={agent.id === selectedSearchAgentId}
-                      now={now}
-                      onOpenAgent={onOpenAgent}
-                      onUpdateAgentFlags={onUpdateAgentFlags}
-                      onOpenAgentContextMenu={onOpenAgentContextMenu}
-                      onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
-                      copy={copy}
-                    />
-                  )
-                })}
+                {compactProjectAgents ? (
+                  <ProjectAgentCompactStrip
+                    agents={sortedAgents}
+                    activeTerminalId={activeTerminalId}
+                    selectedSearchAgentId={selectedSearchAgentId}
+                    claimedAgentSessionKeyByAgentId={claimedAgentSessionKeyByAgentId}
+                    now={now}
+                    onOpenAgent={onOpenAgent}
+                    onOpenAgentContextMenu={onOpenAgentContextMenu}
+                    onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
+                  />
+                ) : (
+                  visibleProjectAgents.map(agent => {
+                    const shortcutHint = keyboardShortcutsEnabled ? agentShortcutKeys.get(agent.id) : undefined
+                    return (
+                      <AgentRow
+                        key={agentRowKey({ kind: 'agent', agent, claimedSessionKey: claimedAgentSessionKeyByAgentId.get(agent.id) })}
+                        agent={agent}
+                        shortcutHint={shortcutHint}
+                        active={agent.id === activeTerminalId}
+                        searchSelected={agent.id === selectedSearchAgentId}
+                        now={now}
+                        onOpenAgent={onOpenAgent}
+                        onUpdateAgentFlags={onUpdateAgentFlags}
+                        onOpenAgentContextMenu={onOpenAgentContextMenu}
+                        onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
+                        copy={copy}
+                      />
+                    )
+                  })
+                )}
+                {!compactProjectAgents && hiddenProjectAgentCount > 0 && (
+                  <button
+                    type="button"
+                    className="code-agent-row code-session-show-more"
+                    data-testid="code-agent-show-more"
+                    onClick={() => setProjectAgentsExpanded(true)}
+                  >
+                    <span className="code-agent-row-copy">
+                      <span className="code-agent-name">{copy.showMore}</span>
+                    </span>
+                    <span className="code-agent-row-trailing">
+                      <span className="code-agent-age">{hiddenProjectAgentCount}</span>
+                    </span>
+                  </button>
+                )}
+                {!compactProjectAgents && projectAgentsExpanded && sortedAgents.length > PROJECT_AGENT_VISIBLE_LIMIT && (
+                  <button
+                    type="button"
+                    className="code-agent-row code-session-show-more"
+                    data-testid="code-agent-show-less"
+                    onClick={() => setProjectAgentsExpanded(false)}
+                  >
+                    <span className="code-agent-row-copy">
+                      <span className="code-agent-name">{copy.showLess}</span>
+                    </span>
+                  </button>
+                )}
                 {visibleAgentSessions.map(session => (
                   <AgentRow
                     key={agentRowKey({ kind: 'history', session })}
@@ -1196,6 +1548,22 @@ function ProjectSection({
         </div>
       )}
     </section>
+  )
+}
+
+function ProjectNewAgentIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path fill="currentColor" d="M7.5 3C7.77614 3 8 3.22386 8 3.5V7H11.5C11.7761 7 12 7.22386 12 7.5C12 7.77614 11.7761 8 11.5 8H8V11.5C8 11.7761 7.77614 12 7.5 12C7.22386 12 7 11.7761 7 11.5V8H3.5C3.22386 8 3 7.77614 3 7.5C3 7.22386 3.22386 7 3.5 7H7V3.5C7 3.22386 7.22386 3 7.5 3Z" />
+    </svg>
+  )
+}
+
+function ProjectActionsIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path fill="currentColor" d="M4 8C4 8.55228 3.55228 9 3 9C2.44772 9 2 8.55228 2 8C2 7.44772 2.44772 7 3 7C3.55228 7 4 7.44772 4 8ZM9 8C9 8.55228 8.55228 9 8 9C7.44772 9 7 8.55228 7 8C7 7.44772 7.44772 7 8 7C8.55228 7 9 7.44772 9 8ZM13 9C13.5523 9 14 8.55228 14 8C14 7.44772 13.5523 7 13 7C12.4477 7 12 7.44772 12 8C12 8.55228 12.4477 9 13 9Z" />
+    </svg>
   )
 }
 

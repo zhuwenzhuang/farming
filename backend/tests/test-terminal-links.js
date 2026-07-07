@@ -8,7 +8,7 @@ async function run() {
     trimTerminalUrl,
   } = await import('../../src/lib/terminal-links.ts');
 
-  const reviewUrl = 'https://code.example.test/odps/meta-warehouse/codereview/new?from=master&to=master_3_tier';
+  const reviewUrl = 'https://code.example.test/team/sample-project/codereview/new?from=feature_demo&to=main_branch';
   const boxedLine = `remote: | ${reviewUrl} |`;
   const matches = collectTerminalLinkMatches(boxedLine, false);
   assert.deepStrictEqual(
@@ -17,7 +17,7 @@ async function run() {
     'terminal link matcher should detect git remote code-review URLs inside boxed output'
   );
   assert.strictEqual(
-    parseTerminalUrlAtColumn(boxedLine, boxedLine.indexOf('to=master_3_tier') + 3),
+    parseTerminalUrlAtColumn(boxedLine, boxedLine.indexOf('to=main_branch') + 3),
     reviewUrl,
     'terminal URL hit testing should keep underscore query parameters'
   );

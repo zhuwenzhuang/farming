@@ -153,6 +153,24 @@ export function isClaudePermissionMode(mode: string | undefined): mode is Claude
   return Boolean(mode && mode in CLAUDE_PERMISSION_MODE_LABELS)
 }
 
+export function effectiveCodexApprovalModeForSession(
+  hasActiveAgent: boolean,
+  launchPermissionMode: string | undefined,
+  fallback: CodexApprovalMode,
+): CodexApprovalMode {
+  if (!hasActiveAgent) return fallback
+  return isCodexApprovalMode(launchPermissionMode) ? launchPermissionMode : 'custom'
+}
+
+export function effectiveClaudePermissionModeForSession(
+  hasActiveAgent: boolean,
+  launchPermissionMode: string | undefined,
+  fallback: ClaudePermissionMode,
+): ClaudePermissionMode {
+  if (!hasActiveAgent) return fallback
+  return isClaudePermissionMode(launchPermissionMode) ? launchPermissionMode : 'default'
+}
+
 function normalizeClaudeModelValue(model: string | undefined) {
   if (typeof model !== 'string') return ''
   const value = model.trim()

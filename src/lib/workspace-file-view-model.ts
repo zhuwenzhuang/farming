@@ -7,6 +7,10 @@ const WORKSPACE_FILE_TREE_FOCUS_CANCEL_KEYS = new Set([
   'ArrowUp',
   'ArrowLeft',
   'ArrowRight',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
   'Enter',
   ' ',
   'F2',
@@ -100,6 +104,24 @@ export function workspaceFileTreeKeyboardTargetPath(options: {
   lastFocusedPath?: string | null
 }) {
   return options.selectedPath ?? options.targetPath ?? options.focusedPath ?? options.lastFocusedPath ?? null
+}
+
+export function workspaceFileTreePageJumpSize(viewportHeight: number, rowHeight: number) {
+  const safeRowHeight = Math.max(1, rowHeight)
+  return Math.max(1, Math.floor(Math.max(0, viewportHeight) / safeRowHeight) - 1)
+}
+
+export function workspaceFileTreePageJumpIndex(options: {
+  currentIndex: number
+  key: 'PageUp' | 'PageDown'
+  pageSize: number
+  rowCount: number
+}) {
+  if (options.rowCount <= 0) return -1
+  const currentIndex = Math.max(0, Math.min(options.currentIndex, options.rowCount - 1))
+  const direction = options.key === 'PageUp' ? -1 : 1
+  const nextIndex = currentIndex + direction * Math.max(1, options.pageSize)
+  return Math.max(0, Math.min(nextIndex, options.rowCount - 1))
 }
 
 export function shouldCloseWorkspaceFileTreeDirectory(options: {

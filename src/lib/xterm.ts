@@ -11,6 +11,7 @@ import {
   DEFAULT_THEME,
 } from '@/lib/ghostty'
 import type { GhosttyFitAddon, GhosttyTerminal } from '@/lib/ghostty'
+import type { TerminalSearchOptions } from '@/lib/terminal-search'
 
 export type XtermBackedTerminal = GhosttyTerminal & {
   __farmingTerminalEngine: 'xterm'
@@ -22,10 +23,12 @@ export type XtermBackedTerminal = GhosttyTerminal & {
   reattach: () => void
   forceRedraw: () => void
   clearTerminalSelection: () => void
+  clearBuffer: () => void
+  selectAll: () => void
   search: (
     term: string,
     direction?: 'next' | 'previous',
-    options?: { incremental?: boolean }
+    options?: TerminalSearchOptions
   ) => { found: boolean; resultIndex?: number; resultCount?: number }
   clearSearch: () => void
   attachCustomKeyEventHandler: (handler: (event: KeyboardEvent) => boolean) => void
@@ -187,6 +190,7 @@ function decorateXtermTerminal(terminal: Terminal, searchAddon: SearchAddon): Xt
   const adapted = terminal as unknown as XtermBackedTerminal
   const nativeScrollToLine = terminal.scrollToLine.bind(terminal)
   let lastSearchResult: ISearchResultChangeEvent | null = null
+  let lastSearchOptionsKey = ''
 
   searchAddon.onDidChangeResults(result => {
     lastSearchResult = result
@@ -211,23 +215,54 @@ function decorateXtermTerminal(terminal: Terminal, searchAddon: SearchAddon): Xt
     terminal.refresh?.(0, Math.max(0, terminal.rows - 1))
   }
   adapted.clearTerminalSelection = () => terminal.clearSelection()
+  adapted.clearBuffer = () => {
+    terminal.write('\x1b[2J\x1b[3J\x1b[H')
+    terminal.clearSelection()
+  }
+  adapted.selectAll = () => terminal.selectAll()
   adapted.search = (term, direction = 'next', options = {}) => {
     const normalizedTerm = term.trim()
     if (!normalizedTerm) {
       searchAddon.clearDecorations()
       terminal.clearSelection()
       lastSearchResult = null
+      lastSearchOptionsKey = ''
       return { found: false, resultIndex: 0, resultCount: 0 }
     }
 
     const searchOptions = {
-      caseSensitive: false,
+      caseSensitive: options.caseSensitive === true,
+      wholeWord: options.wholeWord === true,
+      regex: options.regex === true,
       incremental: options.incremental === true,
       decorations: xtermSearchDecorations(),
     }
-    const found = direction === 'previous'
-      ? searchAddon.findPrevious(normalizedTerm, searchOptions)
-      : searchAddon.findNext(normalizedTerm, searchOptions)
+    const searchOptionsKey = [
+      searchOptions.caseSensitive,
+      searchOptions.wholeWord,
+      searchOptions.regex,
+    ].join(':')
+    if (lastSearchOptionsKey && lastSearchOptionsKey !== searchOptionsKey) {
+      searchAddon.clearDecorations()
+      terminal.clearSelection()
+      lastSearchResult = null
+    }
+    lastSearchOptionsKey = searchOptionsKey
+    let found = false
+    try {
+      found = direction === 'previous'
+        ? searchAddon.findPrevious(normalizedTerm, searchOptions)
+        : searchAddon.findNext(normalizedTerm, searchOptions)
+    } catch (error) {
+      if (searchOptions.regex) {
+        searchAddon.clearDecorations()
+        terminal.clearSelection()
+        lastSearchResult = null
+        lastSearchOptionsKey = ''
+        return { found: false, resultIndex: 0, resultCount: 0 }
+      }
+      throw error
+    }
     return {
       found,
       resultIndex: lastSearchResult?.resultIndex,
@@ -238,6 +273,7 @@ function decorateXtermTerminal(terminal: Terminal, searchAddon: SearchAddon): Xt
     searchAddon.clearDecorations()
     terminal.clearSelection()
     lastSearchResult = null
+    lastSearchOptionsKey = ''
   }
   adapted.scrollToLine = (line: number) => {
     const bottomRelativeLine = Number.isFinite(line) ? Math.max(0, line) : 0
@@ -289,6 +325,7 @@ export async function createXtermTerminalInstance(options?: {
     drawBoldTextInBrightColors: false,
     fontFamily: DEFAULT_FONT_FAMILY,
     fontSize,
+    ignoreBracketedPasteMode: true,
     lineHeight: 1.25,
     linkHandler: {
       allowNonHttpProtocols: false,

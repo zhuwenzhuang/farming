@@ -28,11 +28,11 @@ function run() {
   assert.strictEqual(bashOptions.env.CLICOLOR, '1');
   assert.strictEqual(bashOptions.env.NO_COLOR, undefined);
   assert.strictEqual(bashOptions.env.PS1, undefined, 'bash shell agents should preserve the user prompt by default');
+  assert.strictEqual(bashOptions.env.FARMING_SHELL_INJECTION, '1');
+  assert.strictEqual(bashOptions.env.FARMING_SHELL_LOGIN, undefined);
   const bashRc = fs.readFileSync(bashOptions.args[1], 'utf8');
   assert.ok(bashRc.includes('. "$HOME/.bashrc"'), 'bash shell agents should load the user bashrc before installing markers');
-  if (process.platform === 'darwin') {
-    assert.ok(bashRc.includes('. "$HOME/.bash_profile"'), 'macOS bash shell agents should load the user login profile like the local terminal');
-  }
+  assert.ok(bashRc.includes('FARMING_SHELL_LOGIN'), 'bash shell integration should support login-shell profile loading only when requested');
   assert.ok(bashRc.includes('PROMPT_COMMAND=__farming_shell_prompt'));
   assert.ok(bashRc.includes('__farming_original_prompt_command=("${PROMPT_COMMAND[@]}")'));
   assert.strictEqual(bashOptions.env.BASH_SILENCE_DEPRECATION_WARNING, '1');
@@ -48,6 +48,19 @@ function run() {
   assert.strictEqual(absoluteBashOptions.args[2], '-i');
   assert.strictEqual(absoluteBashOptions.env.PS1, undefined);
   cleanupShellBusyIntegration(absoluteBashOptions.shellBusyIntegration);
+
+  const loginBashOptions = normalizeShellSessionOptions({
+    command: 'bash',
+    args: ['-l'],
+    category: 'other',
+    env: {}
+  });
+  assert.strictEqual(loginBashOptions.args[0], '--rcfile', 'login bash shell agents should still use the integration rcfile');
+  assert.strictEqual(loginBashOptions.env.FARMING_SHELL_INJECTION, '1');
+  assert.strictEqual(loginBashOptions.env.FARMING_SHELL_LOGIN, '1');
+  const loginBashRc = fs.readFileSync(loginBashOptions.args[1], 'utf8');
+  assert.ok(loginBashRc.includes('. "$HOME/.bash_profile"'), 'explicit login bash should load the user login profile');
+  cleanupShellBusyIntegration(loginBashOptions.shellBusyIntegration);
 
   const anonymousBashOptions = normalizeShellSessionOptions({
     command: 'bash',

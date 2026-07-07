@@ -127,7 +127,7 @@ export function restoreViewportAfterLayout(
 ) {
   if (record.disposed) return
   if (wasFollowing) {
-    scrollRecordToBottom(record)
+    scrollRecordToBottom(record, { allowClearUnread: true })
     return
   }
   restoreTerminalViewport(record, previousViewportY, previousScrollbackLength, hadUnreadOutput)
@@ -226,9 +226,9 @@ export function writeTerminalOutput(
         if (!outputObserved) {
           markTerminalOutputUnreadUntilJump(record)
         } else if (quiet) {
-          scrollRecordToBottom(record)
+          scrollRecordToBottom(record, { allowClearUnread: true })
         } else {
-          setFollowOutputState(record, true, false)
+          setFollowOutputState(record, true, false, { allowClearUnread: true })
         }
       } else if (!outputObserved) {
         markTerminalOutputUnreadUntilJump(record)
@@ -280,7 +280,7 @@ export function replaceTerminalOutput(
       }
       record.suspendRendering = false
       if (shouldFollowOutput) {
-        scrollRecordToBottom(record)
+        scrollRecordToBottom(record, { allowClearUnread: true })
       } else {
         restoreUserScrollAfterWrite(record, previousViewportY, previousScrollbackLength)
       }

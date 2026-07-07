@@ -42,6 +42,10 @@ function defaultBashArgs(args) {
   );
 }
 
+function bashLoginArgs(args) {
+  return args.length === 1 && (args[0] === '-l' || args[0] === '--login');
+}
+
 function defaultZshArgs(args) {
   return args.length === 0 || (
     args.length === 2 &&
@@ -53,20 +57,26 @@ function defaultZshArgs(args) {
 function writeBashRc(tempDir, options = {}) {
   const rcPath = path.join(tempDir, 'bashrc');
   const controlledPrompt = options.controlledPrompt === true;
-  const sourceLoginProfile = options.sourceLoginProfile === true;
-  const userStartupSource = sourceLoginProfile
-    ? [
-      'if [ -r "$HOME/.bash_profile" ]; then',
-      '  . "$HOME/.bash_profile"',
-      'elif [ -r "$HOME/.bash_login" ]; then',
-      '  . "$HOME/.bash_login"',
-      'elif [ -r "$HOME/.profile" ]; then',
-      '  . "$HOME/.profile"',
-      'elif [ -r "$HOME/.bashrc" ]; then',
-      '  . "$HOME/.bashrc"',
-      'fi',
-    ].join('\n')
-    : 'if [ -r "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi';
+  const userStartupSource = [
+    'if [ "${FARMING_SHELL_INJECTION:-}" = "1" ]; then',
+    '  if [ -n "${FARMING_SHELL_LOGIN:-}" ]; then',
+    '    if [ -r /etc/profile ]; then',
+    '      . /etc/profile',
+    '    fi',
+    '    if [ -r "$HOME/.bash_profile" ]; then',
+    '      . "$HOME/.bash_profile"',
+    '    elif [ -r "$HOME/.bash_login" ]; then',
+    '      . "$HOME/.bash_login"',
+    '    elif [ -r "$HOME/.profile" ]; then',
+    '      . "$HOME/.profile"',
+    '    fi',
+    '    unset FARMING_SHELL_LOGIN',
+    '  elif [ -r "$HOME/.bashrc" ]; then',
+    '    . "$HOME/.bashrc"',
+    '  fi',
+    '  unset FARMING_SHELL_INJECTION',
+    'fi',
+  ].join('\n');
   fs.writeFileSync(rcPath, [
     '# Farming temporary shell busy integration. Safe to delete.',
     `__farming_shell_busy=${shSingleQuote(MARKERS.busy)}`,
@@ -229,7 +239,8 @@ function applyShellBusyIntegration(options) {
     return normalized;
   }
 
-  if (shellName === 'bash' && !defaultBashArgs(normalized.args)) {
+  const isBashLogin = shellName === 'bash' && bashLoginArgs(normalized.args);
+  if (shellName === 'bash' && !defaultBashArgs(normalized.args) && !isBashLogin) {
     return normalized;
   }
   if (shellName === 'zsh' && !defaultZshArgs(normalized.args)) {
@@ -241,10 +252,11 @@ function applyShellBusyIntegration(options) {
     const controlledPrompt = normalized.env.FARMING_SHELL_CONTROLLED_PROMPT === '1'
       || normalized.env.FARMING_ANONYMIZE_SHELL_PROMPT === '1';
     if (shellName === 'bash') {
-      const rcPath = writeBashRc(tempDir, {
-        controlledPrompt,
-        sourceLoginProfile: os.platform() === 'darwin',
-      });
+      normalized.env.FARMING_SHELL_INJECTION = '1';
+      if (isBashLogin) {
+        normalized.env.FARMING_SHELL_LOGIN = '1';
+      }
+      const rcPath = writeBashRc(tempDir, { controlledPrompt });
       normalized.args = ['--rcfile', rcPath, '-i'];
     } else {
       writeZshFiles(tempDir, { controlledPrompt });

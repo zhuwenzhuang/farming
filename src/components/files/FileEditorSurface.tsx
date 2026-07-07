@@ -1,9 +1,9 @@
-import type { RefObject } from 'react'
+import { useRef, type RefObject } from 'react'
 import {
   workspaceEditorSurfaceState,
   type WorkspaceEditorFileMode,
 } from '@/lib/workspace-editor-model'
-import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
+import type { OpenWorkspaceFile, WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { WorkspaceFileBlame } from '@/lib/workspace-files'
 import type { CodeCopy } from '../code/copy'
 import { FileEditorBlameDetail } from './FileEditorBlameDetail'
@@ -36,11 +36,14 @@ interface FileEditorSurfaceProps {
   editorMode: WorkspaceEditorFileMode
   editorHostRef: RefObject<HTMLDivElement | null>
   lineChanges: FileEditorLineChangesState | null
+  markdownSplitOpen: boolean
   markdownPreviewOpen: boolean
+  sourcePreviewOpen: boolean
   openFile: OpenWorkspaceFile
   onClearBlameDetail: () => void
   onCloseLineChanges: () => void
   onCloseDiff: () => void
+  onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onShowBlameDetail: (line: FileEditorBlameLine) => void
 }
 
@@ -57,19 +60,26 @@ export function FileEditorSurface({
   editorMode,
   editorHostRef,
   lineChanges,
+  markdownSplitOpen,
   markdownPreviewOpen,
+  sourcePreviewOpen,
   openFile,
   onClearBlameDetail,
   onCloseLineChanges,
   onCloseDiff,
+  onOpenFilePath,
   onShowBlameDetail,
 }: FileEditorSurfaceProps) {
   const surface = workspaceEditorSurfaceState({
     diffOnly: editorMode.diffOnly,
     diffOpen: diffState.open,
+    markdownSplitOpen,
     markdownPreviewOpen,
+    sourcePreviewOpen,
     visualPreview: editorMode.visualPreview,
   })
+  const markdownPreviewRef = useRef<HTMLElement | null>(null)
+  const showEditorStatusbar = surface.showEditorOverlays || surface.showMarkdownPreview
 
   return (
     <>
@@ -82,14 +92,28 @@ export function FileEditorSurface({
         />
       )}
       <div
-        id="code-file-editor-panel"
-        ref={editorHostRef}
-        className={`code-file-monaco ${surface.showMonaco ? '' : 'hidden'}`}
-        data-testid="code-file-monaco"
-        role="tabpanel"
-        aria-labelledby={activeTabDomId}
-        tabIndex={-1}
-      />
+        className={`code-file-editor-source-region ${surface.showMarkdownSplit ? 'markdown-split' : ''} ${surface.showMonaco || surface.showMarkdownSplit ? '' : 'hidden'}`.trim()}
+        data-testid={surface.showMarkdownSplit ? 'code-file-markdown-split' : undefined}
+      >
+        <div
+          id="code-file-editor-panel"
+          ref={editorHostRef}
+          className="code-file-monaco"
+          data-testid="code-file-monaco"
+          role="tabpanel"
+          aria-labelledby={activeTabDomId}
+          tabIndex={-1}
+        />
+        {surface.showMarkdownSplit && (
+          <FileEditorMarkdownPreview
+            ref={markdownPreviewRef}
+            activeTabDomId={activeTabDomId}
+            openFile={openFile}
+            onOpenFilePath={onOpenFilePath}
+            copy={copy}
+          />
+        )}
+      </div>
       {surface.showDiffOnlyPreview && (
         <section
           className="code-file-preview-panel metadata"
@@ -105,6 +129,7 @@ export function FileEditorSurface({
         <FileEditorMarkdownPreview
           activeTabDomId={activeTabDomId}
           openFile={openFile}
+          onOpenFilePath={onOpenFilePath}
           copy={copy}
         />
       )}
@@ -121,6 +146,7 @@ export function FileEditorSurface({
         openFile={openFile}
         activeTabDomId={activeTabDomId}
         copy={copy}
+        sourcePreviewOpen={surface.showSourcePreview}
       />
       {surface.showEditorOverlays && blameOpen && blameDetailLine && (
         <FileEditorBlameDetail
@@ -142,7 +168,7 @@ export function FileEditorSurface({
           onClose={onCloseLineChanges}
         />
       )}
-      {surface.showEditorOverlays && (
+      {showEditorStatusbar && (
         <div className="code-file-editor-statusbar" data-testid="code-file-editor-statusbar">
           <span className="code-file-editor-cursor-position">{copy.cursorPosition(cursorPosition.lineNumber, cursorPosition.column)}</span>
         </div>

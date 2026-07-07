@@ -40,6 +40,7 @@ interface UseProjectFilesSectionViewModelOptions {
   lastFocusedFilePathRef: MutableRefObject<string | null>
   openEditorsCollapsed: boolean
   openFileError: string | null
+  openFilePendingPath: string | null
   projectId: string
   renderFileTreeRow: NonNullable<Parameters<typeof Tree<WorkspaceFileTreeNode>>[0]['renderRow']>
   rootDirectoryError: string | null
@@ -104,6 +105,7 @@ export function useProjectFilesSectionViewModel({
   lastFocusedFilePathRef,
   openEditorsCollapsed,
   openFileError,
+  openFilePendingPath,
   projectId,
   renderFileTreeRow,
   rootDirectoryError,
@@ -205,6 +207,7 @@ export function useProjectFilesSectionViewModel({
     handleTreeKeyDownCapture,
     lastFocusedFilePathRef,
     openEditorsCollapsed,
+    openFilePendingPath,
     renderFileTreeRow,
     rowHeight,
     stickyContextItems,
@@ -238,6 +241,7 @@ export function useProjectFilesSectionViewModel({
     handleTreeKeyDownCapture,
     lastFocusedFilePathRef,
     openEditorsCollapsed,
+    openFilePendingPath,
     renderFileTreeRow,
     rowHeight,
     stickyContextItems,

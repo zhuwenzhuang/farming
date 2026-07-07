@@ -32,7 +32,9 @@ const IMAGE_PREVIEW_MEDIA_TYPES = new Map([
   ['.bmp', 'image/bmp'],
   ['.ico', 'image/x-icon'],
   ['.avif', 'image/avif'],
+  ['.svg', 'image/svg+xml'],
 ]);
+const TEXT_IMAGE_PREVIEW_EXTENSIONS = new Set(['.svg']);
 const IGNORED_NAMES = new Set([
   '.git',
   '.farming',
@@ -296,8 +298,10 @@ function sha1(buffer) {
   return crypto.createHash('sha1').update(buffer).digest('hex');
 }
 
-function previewForPath(filePath) {
-  const mediaType = IMAGE_PREVIEW_MEDIA_TYPES.get(path.extname(filePath).toLowerCase());
+function previewForPath(filePath, options = {}) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (!options.includeTextImages && TEXT_IMAGE_PREVIEW_EXTENSIONS.has(extension)) return null;
+  const mediaType = IMAGE_PREVIEW_MEDIA_TYPES.get(extension);
   return mediaType ? { kind: 'image', mediaType } : null;
 }
 
@@ -414,6 +418,18 @@ function gitStatusReviewRank(kind) {
   if (kind === 'renamed') return 4;
   if (kind === 'untracked') return 5;
   return 6;
+}
+
+async function workspaceEntryTypeForGitChange(root, filePath) {
+  try {
+    const stat = await fsp.lstat(path.join(root, filePath.replace(/\/+$/, '')));
+    if (stat.isDirectory()) return 'directory';
+    if (stat.isFile()) return 'file';
+    if (stat.isSymbolicLink()) return 'symlink';
+    return 'other';
+  } catch {
+    return 'file';
+  }
 }
 
 function gitStatusRank(kind) {
@@ -1271,13 +1287,14 @@ class WorkspaceFileService {
     if (root) this.gitStatusCache.delete(root);
   }
 
-  async loadGitStatusByPath(root) {
+  async loadGitStatusByPath(root, options = {}) {
+    const untrackedFiles = options.untrackedFiles || 'normal';
     try {
       const { stdout } = await this.execFile(this.gitPath, [
         'status',
         '--porcelain=v1',
         '-z',
-        '--untracked-files=normal',
+        `--untracked-files=${untrackedFiles}`,
         '--ignored=no',
         ...gitStatusExcludePathspecArgs(),
       ], { cwd: root });
@@ -1380,21 +1397,17 @@ class WorkspaceFileService {
   async changes(workspaceRoot, options = {}) {
     const root = await this.resolveRoot(workspaceRoot);
     const limit = Math.max(1, Math.min(2000, Number(options.limit) || DEFAULT_GIT_CHANGES_LIMIT));
-    const gitStatusByPath = await this.loadGitStatusByPath(root);
-    if (this.gitStatusCacheTtlMs > 0) {
-      this.gitStatusCache.set(root, {
-        value: gitStatusByPath,
-        expiresAt: Date.now() + this.gitStatusCacheTtlMs,
-      });
-    }
-    const allItems = Array.from(gitStatusByPath.entries())
-      .map(([filePath, status]) => ({
+    const gitStatusByPath = await this.loadGitStatusByPath(root, { untrackedFiles: 'all' });
+    const allItems = await Promise.all(Array.from(gitStatusByPath.entries())
+      .map(async ([filePath, status]) => ({
         path: filePath,
         name: path.posix.basename(filePath),
+        type: await workspaceEntryTypeForGitChange(root, filePath),
         gitStatus: status.kind,
         gitStatusLabel: status.label,
         ...(status.previousPath ? { previousPath: status.previousPath } : {}),
-      }))
+      })))
+    allItems
       .sort((left, right) => (
         gitStatusReviewRank(left.gitStatus) - gitStatusReviewRank(right.gitStatus)
         || left.path.localeCompare(right.path)
@@ -1473,7 +1486,7 @@ class WorkspaceFileService {
     if (!stat.isFile()) {
       throw new WorkspaceFileError('path must be a file', 400);
     }
-    const preview = previewForPath(relativePath);
+    const preview = previewForPath(relativePath, { includeTextImages: true });
     if (!preview) {
       throw new WorkspaceFileError('file preview is not available', 415);
     }

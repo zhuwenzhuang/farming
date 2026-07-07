@@ -93,15 +93,17 @@ function run() {
   try {
     assert.deepStrictEqual(bashOptions.args.slice(0, 1), ['--rcfile']);
     assert.strictEqual(bashOptions.args[2], '-i');
+    assert.strictEqual(bashOptions.env.FARMING_SHELL_INJECTION, '1');
+    assert.strictEqual(bashOptions.env.FARMING_SHELL_LOGIN, undefined);
     assert.ok(fs.existsSync(bashOptions.args[1]));
     const bashRc = fs.readFileSync(bashOptions.args[1], 'utf8');
     assert.ok(bashRc.includes('Farming temporary shell busy integration'));
+    assert.ok(bashRc.includes('FARMING_SHELL_INJECTION'));
+    assert.ok(bashRc.includes('FARMING_SHELL_LOGIN'));
     assert.ok(bashRc.includes('. "$HOME/.bashrc"'));
-    if (process.platform === 'darwin') {
-      assert.ok(bashRc.includes('. "$HOME/.bash_profile"'));
-      assert.ok(bashRc.includes('. "$HOME/.bash_login"'));
-      assert.ok(bashRc.includes('. "$HOME/.profile"'));
-    }
+    assert.ok(bashRc.includes('. "$HOME/.bash_profile"'));
+    assert.ok(bashRc.includes('. "$HOME/.bash_login"'));
+    assert.ok(bashRc.includes('. "$HOME/.profile"'));
     assert.ok(bashRc.includes('__farming_original_prompt_command=("${PROMPT_COMMAND[@]}")'));
     assert.ok(bashRc.includes('__farming_in_prompt'), 'bash integration should avoid marking its own prompt hook as busy');
     assert.ok(bashRc.includes('__farming_urlencode'));
@@ -110,6 +112,20 @@ function run() {
     assert.ok(bashRc.includes('file://%s%s'));
   } finally {
     cleanupShellBusyIntegration(bashOptions.shellBusyIntegration);
+  }
+
+  const loginBashOptions = applyShellBusyIntegration({
+    command: 'bash',
+    args: ['--login'],
+    category: 'other',
+    env: {},
+  });
+  try {
+    assert.deepStrictEqual(loginBashOptions.args.slice(0, 1), ['--rcfile']);
+    assert.strictEqual(loginBashOptions.env.FARMING_SHELL_INJECTION, '1');
+    assert.strictEqual(loginBashOptions.env.FARMING_SHELL_LOGIN, '1');
+  } finally {
+    cleanupShellBusyIntegration(loginBashOptions.shellBusyIntegration);
   }
 
   const zshOptions = applyShellBusyIntegration({

@@ -25,6 +25,7 @@ interface FileTreeRowProps {
   fileOperationInputRef: RefObject<HTMLInputElement | null>
   lastFocusedFilePathRef: MutableRefObject<string | null>
   node: NodeRendererProps<FileExplorerNode>['node']
+  openFilePendingPath?: string | null
   treeViewportRef: RefObject<HTMLDivElement | null>
   onCancelPendingFileFocus: () => void
   onCloseFileOperation: () => void
@@ -46,6 +47,7 @@ export function FileTreeRow({
   fileOperationInputRef,
   lastFocusedFilePathRef,
   node,
+  openFilePendingPath,
   treeViewportRef,
   onCancelPendingFileFocus,
   onCloseFileOperation,
@@ -61,6 +63,7 @@ export function FileTreeRow({
     activeFilePath,
     editorDirtyFilePaths,
     editorExternalChangedFilePaths,
+    openFilePendingPath,
     item,
     isFocused: node.isFocused,
     isOpen: node.isOpen,

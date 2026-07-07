@@ -96,6 +96,28 @@ function run() {
   assert.deepStrictEqual(
     deriveTerminalStatus({
       command: 'bash',
+      cwd: '/repo',
+      title: 'codex helper output',
+      previewText: 'codex mentioned inside a shell command\n$ ',
+      terminalBusy: false,
+      shellLastEvent: 'finish',
+      shellLastExitCode: 0,
+    }),
+    {
+      kind: 'shell',
+      activity: 'idle',
+      busy: false,
+      cwd: '/repo',
+      title: 'codex helper output',
+      lastExitCode: 0,
+      source: 'shell-status-marker',
+    },
+    'shell status markers should beat incidental coding-agent words in the terminal text'
+  );
+
+  assert.deepStrictEqual(
+    deriveTerminalStatus({
+      command: 'bash',
       cwd: '/home/admin',
       title: '',
       previewText: '/home/admin $ ',

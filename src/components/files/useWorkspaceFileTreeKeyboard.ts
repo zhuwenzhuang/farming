@@ -10,6 +10,8 @@ import {
   shouldCloseWorkspaceFileTreeDirectory,
   workspaceFileTreeActivationIntent,
   workspaceFileTreeKeyboardTargetPath,
+  workspaceFileTreePageJumpIndex,
+  workspaceFileTreePageJumpSize,
 } from '@/lib/workspace-file-view-model'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
 
@@ -47,6 +49,15 @@ export function useWorkspaceFileTreeKeyboard({
   const projectScroller = useCallback(() => (
     treeViewportRef.current?.closest<HTMLElement>('.code-project-list') ?? null
   ), [treeViewportRef])
+
+  const pageJumpSize = useCallback(() => {
+    const viewport = treeViewportRef.current
+    const firstRow = viewport?.querySelector<HTMLElement>('[data-file-path]')
+    const rowHeight = firstRow?.getBoundingClientRect().height || 24
+    const scrollViewport = projectScroller() ?? viewport
+    const viewportHeight = scrollViewport?.getBoundingClientRect().height ?? rowHeight
+    return workspaceFileTreePageJumpSize(viewportHeight, rowHeight)
+  }, [projectScroller, treeViewportRef])
 
   const openDirectoryNode = useCallback((node: NodeApi<WorkspaceFileTreeNode>) => {
     preserveWorkspaceFileScrollPosition(projectScroller())
@@ -150,6 +161,39 @@ export function useWorkspaceFileTreeKeyboard({
       return
     }
 
+    if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault()
+      event.stopPropagation()
+      const visibleNodes = tree?.visibleNodes.filter(visibleNode => !visibleNode.isRoot) ?? []
+      const boundaryNode = event.key === 'Home' ? visibleNodes[0] : visibleNodes[visibleNodes.length - 1]
+      if (!boundaryNode) return
+      boundaryNode.focus()
+      boundaryNode.select()
+      lastFocusedFilePathRef.current = boundaryNode.data.path
+      focusFileTreeTarget(boundaryNode.data)
+      return
+    }
+
+    if (event.key === 'PageUp' || event.key === 'PageDown') {
+      event.preventDefault()
+      event.stopPropagation()
+      const visibleNodes = tree?.visibleNodes.filter(visibleNode => !visibleNode.isRoot) ?? []
+      const currentIndex = visibleNodes.findIndex(visibleNode => visibleNode.id === node.id)
+      const targetIndex = workspaceFileTreePageJumpIndex({
+        currentIndex,
+        key: event.key,
+        pageSize: pageJumpSize(),
+        rowCount: visibleNodes.length,
+      })
+      const pageNode = targetIndex >= 0 ? visibleNodes[targetIndex] : null
+      if (!pageNode) return
+      pageNode.focus()
+      pageNode.select()
+      lastFocusedFilePathRef.current = pageNode.data.path
+      focusFileTreeTarget(pageNode.data)
+      return
+    }
+
     if (event.key === 'F2') {
       event.preventDefault()
       event.stopPropagation()
@@ -241,6 +285,7 @@ export function useWorkspaceFileTreeKeyboard({
     openDirectoryPaths,
     openFileContextMenu,
     openFilePath,
+    pageJumpSize,
     startFileOperation,
     treeRef,
     treeViewportRef,

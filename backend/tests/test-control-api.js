@@ -40,6 +40,10 @@ async function run() {
     async sendInput(agentId, input) {
       calls.push({ type: 'sendInput', agentId, input });
     },
+    async clearAgentSessionBuffer(agentId) {
+      calls.push({ type: 'clearAgentSessionBuffer', agentId });
+      return { cleared: true, outputSeq: 7 };
+    },
     async getAgentSessionText(agentId) {
       return `output for ${agentId}`;
     },
@@ -105,11 +109,22 @@ async function run() {
       input: 'continue\n',
     });
 
+    const cleared = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}/clear`, {
+      method: 'POST',
+    });
+    assert.strictEqual(cleared.response.status, 200);
+    assert.strictEqual(cleared.body.success, true);
+    assert.strictEqual(cleared.body.outputSeq, 7);
+    assert.deepStrictEqual(calls[3], {
+      type: 'clearAgentSessionBuffer',
+      agentId: created.body.agentId,
+    });
+
     const killed = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}`, {
       method: 'DELETE',
     });
     assert.strictEqual(killed.response.status, 200);
-    assert.deepStrictEqual(calls[3], {
+    assert.deepStrictEqual(calls[4], {
       type: 'killAgent',
       agentId: created.body.agentId,
     });

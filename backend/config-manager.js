@@ -50,6 +50,7 @@ const PERSISTED_SETTING_KEYS = new Set([
   'workspace',
   'lastMainWorkspace',
   'workspaceHistory',
+  'projectNames',
   'mainPageSessionKeys',
   'taskHistory',
   'theme',
@@ -214,6 +215,7 @@ class ConfigManager {
         workspace: this.farmingDir,
         lastMainWorkspace: this.farmingDir,
         workspaceHistory: [],
+        projectNames: {},
         mainPageSessionKeys: [],
         taskHistory: [],
         theme: 'terminal',
@@ -242,6 +244,7 @@ class ConfigManager {
       workspace: this.farmingDir,
       lastMainWorkspace: this.farmingDir,
       workspaceHistory: [],
+      projectNames: {},
       mainPageSessionKeys: [],
       taskHistory: [],
       theme: 'terminal',
@@ -277,6 +280,7 @@ class ConfigManager {
     this.settings.workspace = this.farmingDir;
     this.settings.lastMainWorkspace = this.normalizeMainWorkspace(this.settings.lastMainWorkspace, this.farmingDir);
     this.settings.workspaceHistory = this.normalizeWorkspaceHistory(this.settings.workspaceHistory);
+    this.settings.projectNames = this.normalizeProjectNames(this.settings.projectNames);
     this.settings.mainPageSessionKeys = this.normalizeMainPageSessionKeys(this.settings.mainPageSessionKeys);
     this.settings.appearance = this.normalizeAppearance(this.settings.appearance);
     this.settings.language = this.normalizeLanguage(this.settings.language);
@@ -297,6 +301,18 @@ class ConfigManager {
 
   normalizeDefaultLaunchAgent(agentName) {
     return Object.prototype.hasOwnProperty.call(DEFAULT_AGENT_LAUNCH_PROFILES, agentName) ? agentName : 'codex';
+  }
+
+  normalizeProjectNames(projectNames) {
+    if (!projectNames || typeof projectNames !== 'object' || Array.isArray(projectNames)) return {};
+    const normalized = {};
+    Object.entries(projectNames).forEach(([workspace, name]) => {
+      const key = this.expandWorkspacePath(String(workspace || '').trim());
+      const value = String(name || '').trim().slice(0, 80);
+      if (!key || !value) return;
+      normalized[key] = value;
+    });
+    return normalized;
   }
 
   normalizeAppearance(appearance) {
@@ -558,6 +574,7 @@ class ConfigManager {
     };
     this.settings.lastMainWorkspace = this.normalizeMainWorkspace(this.settings.lastMainWorkspace, previousMainWorkspace);
     this.settings.workspaceHistory = this.normalizeWorkspaceHistory(this.settings.workspaceHistory);
+    this.settings.projectNames = this.normalizeProjectNames(this.settings.projectNames);
     this.settings.mainPageSessionKeys = this.normalizeMainPageSessionKeys(this.settings.mainPageSessionKeys);
     this.settings.appearance = this.normalizeAppearance(this.settings.appearance);
     this.settings.language = this.normalizeLanguage(this.settings.language);

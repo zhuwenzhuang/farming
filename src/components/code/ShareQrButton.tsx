@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import qrcode from 'qrcode-generator'
 import { appPath } from '@/lib/base-path'
 import { writeTerminalClipboardText } from '@/lib/terminal-clipboard'
+import { workspaceShareTargetKey, type WorkspaceShareTarget } from '@/lib/workspace-share-target'
 import type { CodeCopy } from './copy'
 
 const HOVER_DWELL_MS = 250
@@ -156,9 +157,11 @@ function QrIcon() {
 export function ShareQrButton({
   copy,
   sidebarCollapsed,
+  shareTarget,
 }: {
   copy: CodeCopy
   sidebarCollapsed: boolean
+  shareTarget?: WorkspaceShareTarget | null
 }) {
   const [open, setOpen] = useState(false)
   const [pinned, setPinned] = useState(false)
@@ -179,6 +182,7 @@ export function ShareQrButton({
   const copiedTimerRef = useRef<number | null>(null)
   const [singleLineTokenFits, setSingleLineTokenFits] = useState(true)
   const badgeUrl = appPath('/farming-2/images/avatar-watercolor-v1-bee-garden.png')
+  const shareTargetSignature = workspaceShareTargetKey(shareTarget)
 
   useEffect(() => {
     ticketRef.current = ticket
@@ -223,7 +227,7 @@ export function ShareQrButton({
       const response = await fetch(appPath('/api/share/qr-ticket'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify(shareTarget ? { target: shareTarget } : {}),
       })
       const body = await response.json() as ShareTicket | { error?: string }
       if (!response.ok || !('shortUrl' in body)) {
@@ -247,7 +251,7 @@ export function ShareQrButton({
         setLoading(false)
       }
     }
-  }, [copy.shareLinkFailed])
+  }, [copy.shareLinkFailed, shareTarget, shareTargetSignature])
 
   const closePopover = useCallback(() => {
     clearHoverTimer()
@@ -334,6 +338,15 @@ export function ShareQrButton({
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [open])
+
+  useEffect(() => {
+    const current = ticketRef.current
+    if (!current) return
+    ticketRef.current = null
+    setTicket(null)
+    setCopied(false)
+    void revokeShareTicket(current)
+  }, [shareTargetSignature])
 
   useLayoutEffect(() => {
     if (!open) return undefined

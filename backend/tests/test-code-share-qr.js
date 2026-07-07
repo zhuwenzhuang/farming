@@ -16,9 +16,13 @@ function run() {
 
   assert(packageSource.includes('"qrcode-generator"'), 'QR rendering should use the mature qrcode-generator matrix library');
   assert(shareButtonSource.includes("import qrcode from 'qrcode-generator'"));
+  assert(shareButtonSource.includes("type WorkspaceShareTarget } from '@/lib/workspace-share-target'"));
+  assert(shareButtonSource.includes('shareTarget?: WorkspaceShareTarget | null'));
+  assert(shareButtonSource.includes('const shareTargetSignature = workspaceShareTargetKey(shareTarget)'));
   assert(shareButtonSource.includes('HOVER_DWELL_MS = 250'), 'hover should dwell before creating a share ticket');
   assert(shareButtonSource.includes('POPOVER_WIDTH = 264'), 'share popover placement should match the compact larger QR width');
   assert(shareButtonSource.includes("fetch(appPath('/api/share/qr-ticket')"));
+  assert(shareButtonSource.includes('JSON.stringify(shareTarget ? { target: shareTarget } : {})'));
   assert(shareButtonSource.includes("method: 'DELETE'"));
   assert(shareButtonSource.includes('writeTerminalClipboardText(current.longUrl)'));
   assert(shareButtonSource.includes('ticket.shortUrl'), 'QR matrix should encode the short URL');
@@ -39,7 +43,8 @@ function run() {
   assert(shareButtonSource.includes('<FarmingQrCode value={ticket.shortUrl} badgeUrl={badgeUrl} />'));
 
   assert(sidebarSource.includes("import { ShareQrButton } from './ShareQrButton'"));
-  assert(sidebarSource.includes('<ShareQrButton copy={copy} sidebarCollapsed={sidebarCollapsed} />'));
+  assert(sidebarSource.includes('shareTarget: WorkspaceShareTarget | null'));
+  assert(sidebarSource.includes('<ShareQrButton copy={copy} sidebarCollapsed={sidebarCollapsed} shareTarget={shareTarget} />'));
   assert(copySource.includes('copyFullShareLink:'));
   assert(copySource.includes("copyFullShareLink: '复制完整链接'"));
 

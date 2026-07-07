@@ -70,11 +70,10 @@ import {
   isTerminalHostAttached,
   parkTerminalHost,
 } from '@/lib/terminal-attachment'
-import { writeTerminalClipboardText } from '@/lib/terminal-clipboard'
+import { readTerminalClipboardText, writeTerminalClipboardText } from '@/lib/terminal-clipboard'
 import {
   TERMINAL_INPUT_FALLBACK_DELAY_MS,
   isXtermHelperTextareaTarget,
-  pasteTerminalText,
   shouldBlockDetachedTerminalPaste,
   shouldHandleTerminalPasteEvent,
   shouldSuppressTerminalInputFallback,
@@ -87,6 +86,7 @@ import {
 import type { SessionBootstrapState, SessionDataPayload, TerminalCursorPosition } from '@/lib/terminal-bootstrap'
 import { appPath } from '@/lib/base-path'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
+import type { TerminalSearchOptions } from '@/lib/terminal-search'
 
 export type { TerminalPathOpenTarget } from '@/lib/terminal-links'
 export { normalizeTerminalSelection } from '@/lib/terminal-selection'
@@ -160,6 +160,7 @@ interface SessionRecord {
   doubleClickHandler: ((event: MouseEvent) => void) | null
   copyHandler: ((event: ClipboardEvent) => void) | null
   copyKeyHandler: ((event: KeyboardEvent) => void) | null
+  clearKeyHandler: ((event: KeyboardEvent) => void) | null
   pasteHandler: ((event: ClipboardEvent) => void) | null
   inputFallbackKeydownHandler: ((event: KeyboardEvent) => void) | null
   inputFallbackHandler: ((event: Event) => void) | null
@@ -301,7 +302,7 @@ declare global {
       }>
       scrollToLine: (agentId: string, line: number) => Promise<void>
       scrollToBottom: (agentId: string) => Promise<void>
-      search: (agentId: string, term: string, direction?: TerminalSearchDirection) => Promise<TerminalSearchResult>
+      search: (agentId: string, term: string, direction?: TerminalSearchDirection, options?: TerminalSearchOptions) => Promise<TerminalSearchResult>
       clearSearch: (agentId: string) => Promise<void>
       dispatchPasteToTextarea: (agentId: string, text: string) => { prevented: boolean }
       dispatchCopyFromTextarea: (agentId: string) => { prevented: boolean; text: string }
@@ -539,6 +540,30 @@ function shouldHandleTerminalCopyKeyEvent(record: SessionRecord, event: Keyboard
   )
 }
 
+function isTerminalClearShortcut(event: KeyboardEvent) {
+  if (event.key.toLowerCase() !== 'k' || event.altKey || event.shiftKey || event.ctrlKey) return false
+  const isMac = navigator.platform.toLowerCase().includes('mac')
+  return isMac && event.metaKey
+}
+
+function shouldHandleTerminalClearKeyEvent(record: SessionRecord, event: KeyboardEvent) {
+  if (!isTerminalClearShortcut(event)) return false
+  if (record.disposed || record.attachedMount === null) return false
+
+  const target = event.target
+  return target instanceof Node && record.hostEl.contains(target)
+}
+
+function handleTerminalClearKeyEvent(record: SessionRecord, event: KeyboardEvent) {
+  if (!shouldHandleTerminalClearKeyEvent(record, event)) return false
+
+  event.preventDefault()
+  event.stopPropagation()
+  event.stopImmediatePropagation()
+  clearTerminalBuffer(record)
+  return true
+}
+
 function isTerminalSessionAttached(record: SessionRecord) {
   return isTerminalHostAttached(record)
 }
@@ -692,6 +717,44 @@ function resyncTerminalOutputAfterBackendReconnect(record: SessionRecord, genera
     })
 }
 
+function syncTerminalOutputFromSnapshot(record: SessionRecord, generation: number) {
+  fetchSessionBootstrapStateForCurrentTerminal(record)
+    .then((bootstrapState) => {
+      if (
+        record.disposed ||
+        record.attachGeneration !== generation ||
+        !bootstrapState.output
+      ) {
+        return
+      }
+      if (
+        bootstrapState.outputSeq !== null &&
+        isSequencedOutputCovered(bootstrapState.outputSeq, record.lastOutputSeq)
+      ) {
+        return
+      }
+      replaceTerminalOutput(record, bootstrapState.output, () => {
+        if (typeof bootstrapState.outputSeq === 'number' && Number.isFinite(bootstrapState.outputSeq)) {
+          record.lastOutputSeq = Math.max(record.lastOutputSeq ?? 0, bootstrapState.outputSeq)
+        }
+        scheduleImeOverlayUpdateIfActive(record)
+      }, { cursor: bootstrapState.cursor })
+    })
+    .catch(() => {
+      // Best effort. Live terminal streams continue after paste.
+    })
+}
+
+function scheduleTerminalOutputSnapshotSync(record: SessionRecord) {
+  const generation = record.attachGeneration
+  ;[120, 400, 1000].forEach(delayMs => {
+    window.setTimeout(() => {
+      if (record.disposed || record.attachGeneration !== generation) return
+      syncTerminalOutputFromSnapshot(record, generation)
+    }, delayMs)
+  })
+}
+
 function dropQueuedBootstrapEventsCoveredBySnapshot(record: SessionRecord) {
   const checkpointSeq = record.snapshotOutputSeq
   if (checkpointSeq === null) return
@@ -744,7 +807,9 @@ function getTerminalScreenRect(record: SessionRecord) {
 
 function updateFollowStateFromViewport(record: SessionRecord) {
   const atBottom = isTerminalAtBottom(record)
-  setFollowOutputState(record, atBottom, atBottom ? false : record.hasUnreadOutput)
+  setFollowOutputState(record, atBottom, atBottom ? false : record.hasUnreadOutput, {
+    allowClearUnread: atBottom,
+  })
 }
 
 function clearPendingTerminalOutput(record: SessionRecord) {
@@ -762,7 +827,9 @@ function scheduleFollowStateFromViewport(record: SessionRecord) {
     record.followCheckFrame = null
     if (record.disposed || !isTerminalSessionAttached(record)) return
     const atBottom = isTerminalAtBottom(record)
-    setFollowOutputState(record, atBottom, record.hasUnreadOutput)
+    setFollowOutputState(record, atBottom, atBottom ? false : record.hasUnreadOutput, {
+      allowClearUnread: atBottom,
+    })
   })
 }
 
@@ -1087,6 +1154,22 @@ function selectTerminalCellRange(record: SessionRecord, startCell: { col: number
   return record.cachedSelection
 }
 
+function selectTerminalBuffer(record: SessionRecord) {
+  const buffer = record.terminal.buffer?.active
+  const cols = record.terminal.cols || 80
+  if (!buffer || typeof buffer.getLine !== 'function' || typeof record.terminal.select !== 'function') {
+    return ''
+  }
+  const rowCount = typeof buffer.length === 'number'
+    ? buffer.length
+    : getTerminalVisibleBufferBase(record.terminal) + (record.terminal.rows || 1)
+  const endRow = Math.max(0, rowCount - 1)
+  const endCol = getLineLastColumn(buffer.getLine(endRow), cols)
+  record.terminal.select(0, 0, selectionLength({ row: 0, col: 0 }, { row: endRow, col: endCol }, cols))
+  record.cachedSelection = normalizeTerminalSelection(record.terminal)
+  return record.cachedSelection
+}
+
 function cellFromMouseEvent(record: SessionRecord, event: MouseEvent) {
   const metrics = getTerminalCellMetrics(record)
   const rect = getTerminalScreenRect(record)
@@ -1236,64 +1319,64 @@ function installTerminalLinkProvider(record: SessionRecord) {
         }
 
         const links = resolvedMatches.map(match => {
-        const pathDirectOpen = match.kind === 'path' && Boolean(match.pathTarget && record.pathOpenHandler)
-        const link = {
-          range: terminalLinkMatchRange(match, logicalLine),
-          text: match.text,
-          decorations: {
-            pointerCursor: pathDirectOpen,
-            underline: pathDirectOpen,
-          },
-          activate: (event: MouseEvent) => {
-            if (event.button !== 0) return
-            const modifierActive = isTerminalOpenModifierActive(record, event)
-            if (!isTerminalSessionAttached(record)) return
-            if (match.kind === 'url' && !modifierActive) return
-            if (match.kind === 'path' && !pathDirectOpen) return
-
-            event.preventDefault()
-            event.stopPropagation()
-            event.stopImmediatePropagation()
-            if (match.kind === 'url') {
-              openTerminalUrl(match.text)
-            } else if (match.pathTarget && record.pathOpenHandler) {
-              record.pathOpenHandler(record.agentId, match.pathTarget)
-            }
-            record.suppressClickUntil = Date.now() + 250
-          },
-          hover: (event: MouseEvent) => {
-            if (!shouldHandleTerminalHoverEvent(record) || isMobileViewport()) return
-            record.linkProviderHoverTarget = {
-              kind: match.kind,
-              text: match.text,
-              ...(match.pathTarget ? { pathTarget: match.pathTarget } : {}),
-            }
-            record.lastLinkHoverEvent = event
-            const active = pathDirectOpen || isTerminalOpenModifierActive(record, event)
-            setTerminalLinkDecorations(link, {
-              pointerCursor: active,
-              underline: pathDirectOpen || match.kind === 'url' || active,
-            })
-            refreshTerminalLinkHoverTarget(record, active)
-          },
-          leave: () => {
-            if (record.linkProviderHoverTarget?.text === match.text) {
-              record.linkProviderHoverTarget = null
-            }
-            setTerminalLinkDecorations(link, {
+          const pathDirectOpen = match.kind === 'path' && Boolean(match.pathTarget && record.pathOpenHandler)
+          const link = {
+            range: terminalLinkMatchRange(match, logicalLine),
+            text: match.text,
+            decorations: {
               pointerCursor: pathDirectOpen,
               underline: pathDirectOpen,
-            })
-            clearTerminalOpenTargetState(record)
-          },
-          dispose: () => {
-            if (record.linkProviderHoverTarget?.text === match.text) {
-              record.linkProviderHoverTarget = null
-            }
-          },
-        }
-        return link
-      })
+            },
+            activate: (event: MouseEvent) => {
+              if (event.button !== 0) return
+              const modifierActive = isTerminalOpenModifierActive(record, event)
+              if (!isTerminalSessionAttached(record)) return
+              if (match.kind === 'url' && !modifierActive) return
+              if (match.kind === 'path' && !pathDirectOpen) return
+
+              event.preventDefault()
+              event.stopPropagation()
+              event.stopImmediatePropagation()
+              if (match.kind === 'url') {
+                openTerminalUrl(match.text)
+              } else if (match.pathTarget && record.pathOpenHandler) {
+                record.pathOpenHandler(record.agentId, match.pathTarget)
+              }
+              record.suppressClickUntil = Date.now() + 250
+            },
+            hover: (event: MouseEvent) => {
+              if (!shouldHandleTerminalHoverEvent(record) || isMobileViewport()) return
+              record.linkProviderHoverTarget = {
+                kind: match.kind,
+                text: match.text,
+                ...(match.pathTarget ? { pathTarget: match.pathTarget } : {}),
+              }
+              record.lastLinkHoverEvent = event
+              const active = pathDirectOpen || isTerminalOpenModifierActive(record, event)
+              setTerminalLinkDecorations(link, {
+                pointerCursor: active,
+                underline: pathDirectOpen || match.kind === 'url' || active,
+              })
+              refreshTerminalLinkHoverTarget(record, active)
+            },
+            leave: () => {
+              if (record.linkProviderHoverTarget?.text === match.text) {
+                record.linkProviderHoverTarget = null
+              }
+              setTerminalLinkDecorations(link, {
+                pointerCursor: pathDirectOpen,
+                underline: pathDirectOpen,
+              })
+              clearTerminalOpenTargetState(record)
+            },
+            dispose: () => {
+              if (record.linkProviderHoverTarget?.text === match.text) {
+                record.linkProviderHoverTarget = null
+              }
+            },
+          }
+          return link
+        })
         callback(links)
       })()
     },
@@ -1600,11 +1683,11 @@ function terminalOpenTargetTitle(kind: 'url' | 'path') {
   if (lang.toLowerCase().startsWith('zh')) {
     return kind === 'url'
       ? `按住 ${modifier} 点击打开链接`
-      : '点击打开路径'
+      : '点击打开文件或文件夹'
   }
   return kind === 'url'
     ? `${modifier}-click to open link`
-    : 'Click to open path'
+    : 'Click to open file or folder'
 }
 
 function setTerminalLinkHoverTarget(record: SessionRecord, kind: 'url' | 'path' | null) {
@@ -1675,17 +1758,75 @@ function hideTerminalContextMenu(record: SessionRecord) {
   record.contextMenuSelection = ''
 }
 
-function terminalCopyMenuLabel() {
+function terminalContextMenuLabel(action: 'copy' | 'paste' | 'selectAll' | 'clear') {
   const lang = document.documentElement.lang || navigator.language || ''
-  return lang.toLowerCase().startsWith('zh') ? '复制' : 'Copy'
+  const zh = lang.toLowerCase().startsWith('zh')
+  if (action === 'copy') return zh ? '复制' : 'Copy'
+  if (action === 'paste') return zh ? '粘贴' : 'Paste'
+  if (action === 'clear') return zh ? '清除' : 'Clear'
+  return zh ? '全选' : 'Select All'
 }
 
-function clampContextMenuPosition(x: number, y: number, width = 160, height = 44) {
+function clampContextMenuPosition(x: number, y: number, width = 160, height = 148) {
   const margin = 8
   return {
     x: Math.max(margin, Math.min(x, window.innerWidth - width - margin)),
     y: Math.max(margin, Math.min(y, window.innerHeight - height - margin)),
   }
+}
+
+function focusTerminalContextMenu(menu: HTMLElement) {
+  const firstEnabled = menu.querySelector<HTMLButtonElement>('button:not(:disabled)')
+  firstEnabled?.focus()
+}
+
+function createTerminalContextMenuItem(
+  label: string,
+  onClick: () => void,
+  options: { disabled?: boolean } = {},
+) {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'terminal-context-menu-item'
+  button.setAttribute('role', 'menuitem')
+  button.textContent = label
+  button.disabled = options.disabled === true
+  button.addEventListener('click', () => {
+    if (button.disabled) return
+    onClick()
+  })
+  return button
+}
+
+function pasteTerminalClipboardText(record: SessionRecord, text: string) {
+  if (!text || record.disposed || record.attachedMount === null) return false
+  scrollRecordToBottom(record, { allowClearUnread: true })
+  record.lastTerminalDataAt = Date.now()
+  record.inputCount += 1
+  record.contextMenuSelection = ''
+  record.lastNonEmptySelection = ''
+  record.inputHandler(text)
+  scheduleTerminalOutputSnapshotSync(record)
+  return true
+}
+
+function clearTerminalBuffer(record: SessionRecord) {
+  if (record.disposed || record.attachedMount === null) return
+  clearTerminalSelectionState(record)
+  record.contextMenuSelection = ''
+  record.lastNonEmptySelection = ''
+  record.terminal.clearSearch?.()
+  if (typeof record.terminal.clearBuffer === 'function') {
+    record.terminal.clearBuffer()
+  } else {
+    record.terminal.reset()
+  }
+  setFollowOutputState(record, true, false, { allowClearUnread: true })
+  void fetch(appPath(`/api/control/agents/${encodeURIComponent(record.agentId)}/clear`), {
+    method: 'POST',
+  }).catch(() => {
+    // Best effort. A later snapshot/reconnect will repair the buffer if the clear failed.
+  })
 }
 
 function showTerminalContextMenu(record: SessionRecord, event: MouseEvent, selection: string) {
@@ -1699,13 +1840,19 @@ function showTerminalContextMenu(record: SessionRecord, event: MouseEvent, selec
   menu.style.left = `${position.x}px`
   menu.style.top = `${position.y}px`
 
-  const button = document.createElement('button')
-  button.type = 'button'
-  button.className = 'terminal-context-menu-item'
-  button.setAttribute('role', 'menuitem')
-  button.textContent = terminalCopyMenuLabel()
-  button.addEventListener('click', () => {
+  const copyButton = createTerminalContextMenuItem(terminalContextMenuLabel('copy'), () => {
     writeTerminalClipboardText(selection).finally(() => {
+      hideTerminalContextMenu(record)
+      if (!isMobileViewport()) {
+        focusAttachedTerminalInput(record)
+      }
+    })
+  }, { disabled: !selection })
+
+  const pasteButton = createTerminalContextMenuItem(terminalContextMenuLabel('paste'), () => {
+    void readTerminalClipboardText().then(text => {
+      pasteTerminalClipboardText(record, text)
+    }).finally(() => {
       hideTerminalContextMenu(record)
       if (!isMobileViewport()) {
         focusAttachedTerminalInput(record)
@@ -1713,9 +1860,44 @@ function showTerminalContextMenu(record: SessionRecord, event: MouseEvent, selec
     })
   })
 
+  const selectAllButton = createTerminalContextMenuItem(terminalContextMenuLabel('selectAll'), () => {
+    hideTerminalContextMenu(record)
+    clearTerminalSelectionState(record)
+    requestAnimationFrame(() => {
+      if (record.disposed) return
+      const selection = selectTerminalBuffer(record)
+      record.contextMenuSelection = selection
+      record.lastNonEmptySelection = selection || record.lastNonEmptySelection
+      if (!isMobileViewport()) {
+        focusAttachedTerminalInput(record)
+      }
+    })
+  }, { disabled: typeof record.terminal.select !== 'function' || !record.terminal.buffer?.active })
+
+  const clearButton = createTerminalContextMenuItem(terminalContextMenuLabel('clear'), () => {
+    hideTerminalContextMenu(record)
+    clearTerminalBuffer(record)
+    if (!isMobileViewport()) {
+      focusAttachedTerminalInput(record)
+    }
+  })
+
   menu.addEventListener('mousedown', event => event.stopPropagation())
   menu.addEventListener('pointerdown', event => event.stopPropagation())
-  menu.appendChild(button)
+  menu.addEventListener('keydown', event => {
+    if (!(event.target instanceof HTMLButtonElement)) return
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+    const items = Array.from(menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+    const index = items.indexOf(event.target)
+    if (index < 0 || items.length === 0) return
+    event.preventDefault()
+    const direction = event.key === 'ArrowDown' ? 1 : -1
+    items[(index + direction + items.length) % items.length]?.focus()
+  })
+  menu.appendChild(copyButton)
+  menu.appendChild(pasteButton)
+  menu.appendChild(selectAllButton)
+  menu.appendChild(clearButton)
   document.body.appendChild(menu)
   record.contextMenuEl = menu
 
@@ -1748,7 +1930,7 @@ function showTerminalContextMenu(record: SessionRecord, event: MouseEvent, selec
     window.removeEventListener('scroll', closeOnScrollOrResize, true)
   }
 
-  requestAnimationFrame(() => button.focus())
+  requestAnimationFrame(() => focusTerminalContextMenu(menu))
 }
 
 function clearNativeSelectionInside(hostEl: HTMLElement) {
@@ -1818,11 +2000,9 @@ function getTerminalCopyTextAtEvent(record: SessionRecord, event: MouseEvent) {
   }
   if (selection) return selection
 
-  if (isMobileViewport()) {
-    const cell = cellFromMouseEvent(record, event)
-    if (cell) {
-      return selectContinuousTextAtCell(record, cell.col, cell.row)
-    }
+  const cell = cellFromMouseEvent(record, event)
+  if (cell) {
+    return selectContinuousTextAtCell(record, cell.col, cell.row)
   }
 
   return ''
@@ -1843,9 +2023,7 @@ function installTerminalContextMenu(record: SessionRecord, agentId: string) {
           return
         }
         const fallbackCopyText = getTerminalCopyTextAtEvent(record, event)
-        if (fallbackCopyText) {
-          showTerminalContextMenu(record, event, fallbackCopyText)
-        }
+        showTerminalContextMenu(record, event, fallbackCopyText)
       })
       return
     }
@@ -1863,17 +2041,10 @@ function installTerminalContextMenu(record: SessionRecord, agentId: string) {
 
     const copyText = getTerminalCopyTextAtEvent(record, event)
 
-    if (copyText) {
-      event.preventDefault()
-      event.stopPropagation()
-      event.stopImmediatePropagation()
-      showTerminalContextMenu(record, event, copyText)
-      return
-    }
-
-    if (!isMobileViewport()) {
-      focusAttachedTerminalInput(record)
-    }
+    event.preventDefault()
+    event.stopPropagation()
+    event.stopImmediatePropagation()
+    showTerminalContextMenu(record, event, copyText)
   }
   const contextMenuMouseDownHandler = (event: MouseEvent) => {
     if (!(event.target instanceof Node) || !record.hostEl.contains(event.target)) return
@@ -2354,8 +2525,8 @@ function installTerminalTestApi() {
       scrollRecordToBottom(record, { allowClearUnread: true })
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     },
-    async search(agentId: string, term: string, direction: TerminalSearchDirection = 'next') {
-      return searchTerminalSession(agentId, term, direction)
+    async search(agentId: string, term: string, direction: TerminalSearchDirection = 'next', options: TerminalSearchOptions = {}) {
+      return searchTerminalSession(agentId, term, direction, options)
     },
     async clearSearch(agentId: string) {
       await clearTerminalSearch(agentId)
@@ -2442,6 +2613,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     doubleClickHandler: null,
     copyHandler: null,
     copyKeyHandler: null,
+    clearKeyHandler: null,
     pasteHandler: null,
     inputFallbackKeydownHandler: null,
     inputFallbackHandler: null,
@@ -2679,10 +2851,9 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     if (isMobileViewport() || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey) return
     const pathLink = record.pathOpenHandler ? readTerminalPathLinkAtMouseEvent(record, event) : null
     if (!pathLink?.pathTarget) return
-    event.preventDefault()
-    event.stopPropagation()
-    event.stopImmediatePropagation()
-    clearTerminalSelectionState(record)
+    // Do not intercept mousedown: xterm needs it to start text selection when
+    // the user drags across a path. The later mouseup/click path decides
+    // whether this was a small click that should open the file.
     record.openTargetMouseDown = {
       x: event.clientX,
       y: event.clientY,
@@ -2710,7 +2881,10 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     const mouseDown = record.openTargetMouseDown
     record.openTargetMouseDown = null
     if (!mouseDown) return
-    if (Math.hypot(event.clientX - mouseDown.x, event.clientY - mouseDown.y) > 4) return
+    if (Math.hypot(event.clientX - mouseDown.x, event.clientY - mouseDown.y) > 4) {
+      record.suppressClickUntil = Date.now() + 250
+      return
+    }
     if (getTerminalSelectionForCopy(record)) return
     if (openTerminalClickTarget(event)) return
 
@@ -2850,6 +3024,14 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
   document.addEventListener('keydown', copyKeyHandler, true)
   record.copyKeyHandler = copyKeyHandler
 
+  const clearKeyHandler = (event: KeyboardEvent) => {
+    handleTerminalClearKeyEvent(record, event)
+  }
+  if (!terminal.attachCustomKeyEventHandler) {
+    document.addEventListener('keydown', clearKeyHandler, true)
+    record.clearKeyHandler = clearKeyHandler
+  }
+
   const pasteHandler = (event: ClipboardEvent) => {
     const isAttached = isTerminalSessionAttached(record)
     if (shouldBlockDetachedTerminalPaste(record.hostEl, event, isAttached)) {
@@ -2863,12 +3045,13 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
       return
     }
     const text = event.clipboardData?.getData('text/plain') || ''
-    if (!pasteTerminalText(record, text)) return
+    if (!pasteTerminalClipboardText(record, text)) return
 
     event.preventDefault()
     event.stopPropagation()
     event.stopImmediatePropagation()
   }
+  window.addEventListener('paste', pasteHandler, true)
   hostEl.addEventListener('paste', pasteHandler, true)
   record.pasteHandler = pasteHandler
 
@@ -2878,6 +3061,10 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
       return
     }
     record.lastLinkHoverEvent = event
+    if (!terminalOpenTargetKindAtMouseEvent(record, event)) {
+      record.linkProviderHoverTarget = null
+      setTerminalLinkHoverTarget(record, null)
+    }
     refreshTerminalLinkHoverTarget(record)
     void resolveTerminalPathLinkAtMouseEvent(record, event).then(pathLink => {
       if (!pathLink || record.disposed || record.lastLinkHoverEvent !== event) return
@@ -2938,7 +3125,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
   }
   if (terminal.attachCustomKeyEventHandler) {
     terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => (
-      handleTerminalScrollKeyEvent(record, event) ? false : true
+      handleTerminalClearKeyEvent(record, event) || handleTerminalScrollKeyEvent(record, event) ? false : true
     ))
   } else {
     document.addEventListener('keydown', scrollKeyHandler, true)
@@ -3168,7 +3355,11 @@ export async function destroyTerminalSession(agentId: string) {
   if (record.copyKeyHandler) {
     document.removeEventListener('keydown', record.copyKeyHandler, true)
   }
+  if (record.clearKeyHandler) {
+    document.removeEventListener('keydown', record.clearKeyHandler, true)
+  }
   if (record.pasteHandler) {
+    window.removeEventListener('paste', record.pasteHandler, true)
     record.hostEl.removeEventListener('paste', record.pasteHandler, true)
   }
   if (record.inputFallbackKeydownHandler) {
@@ -3259,7 +3450,7 @@ export async function searchTerminalSession(
   agentId: string,
   term: string,
   direction: TerminalSearchDirection = 'next',
-  options: { incremental?: boolean } = {},
+  options: TerminalSearchOptions = {},
 ): Promise<TerminalSearchResult> {
   const current = sessions.get(agentId)
   if (!current) return { found: false, resultIndex: 0, resultCount: 0 }

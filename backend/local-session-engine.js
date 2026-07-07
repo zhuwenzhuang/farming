@@ -442,6 +442,64 @@ class LocalSessionEngine extends SessionEngine {
     return { resized: true, cols: session.previewCols, rows: session.previewRows };
   }
 
+  async clearBuffer(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return { cleared: false };
+    }
+
+    session.output = '';
+    session.outputSeq = (session.outputSeq || 0) + 1;
+    session.renderOutput = '';
+    session.previewText = '';
+    session.previewSnapshot = null;
+    session.lastActivityAt = Date.now();
+
+    if (session.screenWorker) {
+      try {
+        const screenState = await session.screenWorker.clear();
+        session.renderOutput = screenState.renderOutput || '';
+        session.previewText = screenState.previewText || '';
+        session.previewSnapshot = screenState.previewSnapshot || null;
+        session.previewCols = screenState.cols || session.previewCols;
+        session.previewRows = screenState.rows || session.previewRows;
+        if (screenState.title && screenState.title !== session.title) {
+          session.title = screenState.title;
+          this.emit('session-title', {
+            sessionId,
+            title: session.title
+          });
+        }
+      } catch (error) {
+        this.emit('session-error', {
+          sessionId,
+          error: `Failed to clear terminal screen state: ${error.message}`,
+          fatal: false
+        });
+      }
+    }
+
+    this.emit('session-sync', {
+      sessionId,
+      output: session.renderOutput || session.output,
+      outputSeq: session.outputSeq,
+      replaceLive: true
+    });
+    this.emit('session-preview', {
+      sessionId,
+      previewText: session.previewText,
+      cols: session.previewCols,
+      rows: session.previewRows,
+      previewSnapshot: session.previewSnapshot,
+      title: session.title
+    });
+    this.emit('session-activity', {
+      sessionId,
+      lastActivityAt: session.lastActivityAt
+    });
+    return { cleared: true, outputSeq: session.outputSeq };
+  }
+
   async killSession(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session || !session.process) {

@@ -1,4 +1,5 @@
 import { appPath } from '@/lib/base-path'
+import type { TerminalSearchOptions } from '@/lib/terminal-search'
 
 /**
  * Ghostty-web terminal loader and instance factory.
@@ -14,7 +15,7 @@ export interface GhosttyTerminal {
   search?: (
     term: string,
     direction?: 'next' | 'previous',
-    options?: { incremental?: boolean }
+    options?: TerminalSearchOptions
   ) => { found: boolean; resultIndex?: number; resultCount?: number }
   clearSearch?: () => void
   write(data: string, callback?: () => void): void

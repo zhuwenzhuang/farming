@@ -13,6 +13,7 @@ import {
   type TerminalSearchResult,
   type TerminalPathOpenTarget,
 } from '@/lib/terminal-session-pool'
+import type { TerminalSearchOptions } from '@/lib/terminal-search'
 
 interface TerminalFollowState {
   following: boolean
@@ -178,7 +179,7 @@ export function usePooledTerminal({
     })
   }, [agentId])
 
-  const search = useCallback((term: string, direction: TerminalSearchDirection = 'next', options?: { incremental?: boolean }): Promise<TerminalSearchResult> => {
+  const search = useCallback((term: string, direction: TerminalSearchDirection = 'next', options?: TerminalSearchOptions): Promise<TerminalSearchResult> => {
     if (!agentId) return Promise.resolve({ found: false, resultIndex: 0, resultCount: 0 })
     return searchTerminalSession(agentId, term, direction, options)
   }, [agentId])

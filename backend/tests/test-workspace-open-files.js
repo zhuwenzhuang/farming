@@ -9,6 +9,7 @@ const {
   openWorkspaceFileFromRead,
   refreshOpenWorkspaceFileFromRead,
   replaceOpenWorkspaceFile,
+  reopenLastClosedWorkspaceOpenFile,
   selectWorkspaceOpenFile,
   updateWorkspaceOpenFile,
   updateWorkspaceOpenFileDraft,
@@ -195,13 +196,46 @@ function run() {
   assert.deepStrictEqual(closed.files, [first, third]);
   assert.strictEqual(closed.closedFileCache.get(workspaceFileCacheKey('agent-1', 'src/Second.tsx')).saving, false);
 
+  const reopenedDirty = reopenLastClosedWorkspaceOpenFile(closed);
+  assert.strictEqual(reopenedDirty.activeFile.file.path, 'src/Second.tsx');
+  assert.strictEqual(reopenedDirty.activeFile.dirty, true);
+  assert.strictEqual(reopenedDirty.activeFile.saving, false);
+  assert.strictEqual(reopenedDirty.files.length, 3);
+  assert.deepStrictEqual(keys(reopenedDirty.closedFileCache), []);
+
   const closeClean = closeWorkspaceOpenFiles(state({
     activeFile: third,
     files: [third],
     closedFileCache: new Map([[workspaceFileCacheKey('agent-1', 'src/Third.tsx'), third]]),
   }), [{ agentId: 'agent-1', filePath: 'src/Third.tsx' }]);
   assert.strictEqual(closeClean.activeFile, null);
-  assert.deepStrictEqual(keys(closeClean.closedFileCache), []);
+  assert.deepStrictEqual(keys(closeClean.closedFileCache), [workspaceFileCacheKey('agent-1', 'src/Third.tsx')]);
+
+  const reopenedClean = reopenLastClosedWorkspaceOpenFile(closeClean);
+  assert.strictEqual(reopenedClean.activeFile.file.path, 'src/Third.tsx');
+  assert.strictEqual(reopenedClean.activeFile.dirty, false);
+  assert.strictEqual(reopenedClean.files.length, 1);
+  assert.deepStrictEqual(keys(reopenedClean.closedFileCache), []);
+
+  const closeMany = closeWorkspaceOpenFiles(state({
+    activeFile: null,
+    files: Array.from({ length: 40 }, (_, index) => openFile('agent-1', `src/Closed-${index}.tsx`)),
+  }), Array.from({ length: 40 }, (_, index) => ({ agentId: 'agent-1', filePath: `src/Closed-${index}.tsx` })));
+  assert.strictEqual(closeMany.closedFileCache.size, 32);
+  assert.strictEqual(reopenLastClosedWorkspaceOpenFile(closeMany).activeFile.file.path, 'src/Closed-39.tsx');
+
+  const skippedClosedFile = openFile('missing-agent', 'src/Missing.tsx');
+  const skippedReopen = reopenLastClosedWorkspaceOpenFile(state({
+    closedFileCache: new Map([[workspaceFileCacheKey('missing-agent', 'src/Missing.tsx'), skippedClosedFile]]),
+  }), { canReopen: file => file.agentId !== 'missing-agent' });
+  assert.strictEqual(skippedReopen, null);
+
+  const alreadyOpen = reopenLastClosedWorkspaceOpenFile(state({
+    activeFile: third,
+    files: [third],
+    closedFileCache: new Map([[workspaceFileCacheKey('agent-1', 'src/Third.tsx'), third]]),
+  }));
+  assert.strictEqual(alreadyOpen, null);
 
   const updatedClean = updateWorkspaceOpenFile(state({
     activeFile: cachedDirty,

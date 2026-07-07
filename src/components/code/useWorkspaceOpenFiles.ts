@@ -5,6 +5,7 @@ import {
   moveWorkspaceOpenFiles,
   openWorkspaceFileFromRead,
   replaceOpenWorkspaceFile,
+  reopenLastClosedWorkspaceOpenFile,
   selectWorkspaceOpenFile,
   updateWorkspaceOpenFile,
   updateWorkspaceOpenFileDraft,
@@ -57,6 +58,12 @@ export function useWorkspaceOpenFiles() {
     return result
   }, [commitState])
 
+  const reopenLastClosed = useCallback((canReopen?: (file: OpenWorkspaceFile) => boolean) => {
+    const nextState = reopenLastClosedWorkspaceOpenFile(stateRef.current, { canReopen })
+    if (!nextState) return null
+    return commitState(nextState)
+  }, [commitState])
+
   const update = useCallback((nextFile: OpenWorkspaceFile) => (
     commitState(updateWorkspaceOpenFile(stateRef.current, nextFile))
   ), [commitState])
@@ -95,9 +102,10 @@ export function useWorkspaceOpenFiles() {
     openFromRead,
     select,
     close,
+    reopenLastClosed,
     update,
     updateDraft,
     move,
     deleteEntries,
-  }), [closedFiles, close, deleteEntries, move, openFromRead, select, state.activeFile, state.files, update, updateDraft])
+  }), [closedFiles, close, deleteEntries, move, openFromRead, reopenLastClosed, select, state.activeFile, state.files, update, updateDraft])
 }

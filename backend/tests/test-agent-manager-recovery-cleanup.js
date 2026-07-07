@@ -56,6 +56,7 @@ async function run() {
             cwd: '/repo',
             category: 'coding',
             source: 'ui',
+            launchPermissionMode: 'full',
           },
           state: { status: 'running', startedAt: 1234 },
         },
@@ -88,6 +89,9 @@ async function run() {
     async killSession(engineName, sessionId) {
       killed.push({ engineName, sessionId });
     },
+    getEngine() {
+      return null;
+    },
     dispose() {},
   };
 
@@ -95,6 +99,11 @@ async function run() {
     await manager.recoverEngineSessions();
 
     assert(manager.agents.has('recovered-codex'), 'recoverable coding sessions should be restored');
+    assert.strictEqual(manager.agents.get('recovered-codex').launchPermissionMode, 'full');
+    assert.strictEqual(
+      manager.getState().agents.find(agent => agent.id === 'recovered-codex').launchPermissionMode,
+      'full'
+    );
     assert.strictEqual(manager.agents.has('untracked-bash'), false, 'shell sessions should not be restored');
     assert.strictEqual(manager.agents.has('untracked-shell-category'), false, 'shell-category sessions should not be restored');
     assert.deepStrictEqual(

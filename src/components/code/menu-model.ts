@@ -4,6 +4,7 @@ export type ContextMenuEntry =
     id: string
     label: string
     ariaLabel?: string
+    icon?: 'rename' | 'archive'
     checked?: boolean
     disabled?: boolean
     danger?: boolean

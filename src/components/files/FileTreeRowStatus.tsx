@@ -21,6 +21,7 @@ export function FileTreeRowStatus({
     directoryDotTitleKind,
     fileChangedClassName,
     fileChangedTitleKind,
+    fileOpening,
     isDirectory,
     showDirectoryDot,
     visibleGitStatus,
@@ -31,18 +32,21 @@ export function FileTreeRowStatus({
   return (
     <>
       <span className="code-file-name">{item.displayName ?? item.name}</span>
-      {showDirectoryDot && (
+      {fileOpening && (
+        <span className="code-file-open-spinner" title={copy.loading} aria-hidden="true" />
+      )}
+      {!fileOpening && showDirectoryDot && (
         <span
           className={directoryDotClassName}
           title={workspaceFileTreeStatusTitle(directoryDotTitleKind, copy)}
         />
       )}
-      {!isDirectory && visibleGitStatusLabel && (
+      {!fileOpening && !isDirectory && visibleGitStatusLabel && (
         <span className={visibleGitStatusClassName} title={copy.gitStatus(visibleGitStatus || '')}>
           {visibleGitStatusLabel}
         </span>
       )}
-      {!isDirectory && !visibleGitStatusLabel && fileChangedClassName && (
+      {!fileOpening && !isDirectory && !visibleGitStatusLabel && fileChangedClassName && (
         <span
           className={fileChangedClassName}
           title={workspaceFileTreeStatusTitle(fileChangedTitleKind, copy)}

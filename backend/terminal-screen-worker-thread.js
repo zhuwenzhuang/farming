@@ -106,6 +106,12 @@ async function handleRequest(message) {
       postPreview(state);
       return state;
     }
+    case 'clear': {
+      await flushPending({ includeRenderOutput: false, emitPreview: false });
+      const state = await screenState.clearBuffer();
+      postPreview(state);
+      return state;
+    }
     case 'get-state':
       return flushPending({
         includeRenderOutput: message.includeRenderOutput !== false,

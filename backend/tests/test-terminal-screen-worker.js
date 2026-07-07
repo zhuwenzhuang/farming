@@ -78,6 +78,11 @@ async function run() {
     assert.strictEqual(resized.previewText, 'three\nfour\nfive');
     assert.strictEqual(resized.rows, 3);
     assert.strictEqual(resized.previewSnapshot.rows, 3);
+
+    const cleared = await worker.clear();
+    assert.strictEqual(cleared.previewText, '');
+    assert.ok(!cleared.renderOutput.includes('five'), 'cleared worker state should not replay old scrollback');
+    assert.strictEqual(cleared.rows, 3);
   } finally {
     await worker.dispose();
   }

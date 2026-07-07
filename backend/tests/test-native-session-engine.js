@@ -493,6 +493,23 @@ async function run() {
     assert.strictEqual(state.terminalStatus.cwd, process.cwd());
     assert.strictEqual(typeof state.terminalStatus.busy, 'boolean');
 
+    const clearResult = await engine.clearBuffer('native-smoke');
+    assert.strictEqual(clearResult.cleared, true, 'native session clear should report success');
+    const clearedState = await waitFor(async () => {
+      const current = await engine.getSessionState('native-smoke');
+      return current && current.outputSeq > state.outputSeq ? current : null;
+    }, 'native pty clear');
+    assert.strictEqual(clearedState.output.includes('TERM=xterm-256color'), false, clearedState.output);
+    assert.strictEqual(clearedState.renderOutput.includes('TERM=xterm-256color'), false, clearedState.renderOutput);
+
+    await engine.sendInput('native-smoke', "printf 'AFTER_CLEAR\\n'\n");
+    const afterClearState = await waitFor(async () => {
+      const current = await engine.getSessionState('native-smoke');
+      return current && current.output.includes('AFTER_CLEAR') ? current : null;
+    }, 'native pty output after clear');
+    assert(afterClearState.output.includes('AFTER_CLEAR'), afterClearState.output);
+    assert.strictEqual(afterClearState.output.includes('TERM=xterm-256color'), false, afterClearState.output);
+
     engine.dispose();
 
     const reconnected = new NativeSessionEngine({ configDir, socketPath });

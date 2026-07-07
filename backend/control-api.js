@@ -97,6 +97,19 @@ function createControlRouter(agentManager, options = {}) {
     res.json({ success: true });
   });
 
+  router.post('/agents/:agentId/clear', async (req, res) => {
+    const agentId = req.params.agentId;
+    const state = agentManager.getState();
+    if (!findAgent(state, agentId)) {
+      res.status(404).json({ error: 'agent not found' });
+      return;
+    }
+
+    const result = await agentManager.clearAgentSessionBuffer(agentId);
+    notifyUpdate();
+    res.json({ success: Boolean(result && result.cleared), ...result });
+  });
+
   router.get('/agents/:agentId/output', async (req, res) => {
     const agentId = req.params.agentId;
     const state = agentManager.getState();

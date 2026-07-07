@@ -184,6 +184,20 @@ class TerminalScreenState {
     return this.refresh({ includeRenderOutput: false });
   }
 
+  async clearBuffer() {
+    this.pendingWrite = this.pendingWrite.then(
+      () =>
+        new Promise((resolve) => {
+          this.terminal.write('\x1b[2J\x1b[3J\x1b[H', () => {
+            this.refreshPreview();
+            resolve(this.getState({ includeRenderOutput: true }));
+          });
+        }),
+    );
+
+    return this.pendingWrite;
+  }
+
   getState(options = {}) {
     const includeRenderOutput = options.includeRenderOutput !== false;
     if (includeRenderOutput && this.renderOutputDirty) {

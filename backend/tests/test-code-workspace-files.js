@@ -38,6 +38,7 @@ function run() {
     'src/components/code/useWorkspaceNavigationHistory.ts',
     'src/components/code/workspace-derived.ts',
     'src/components/code/workspace-file-view.ts',
+    'src/lib/workspace-share-target.ts',
   ].map(read).join('\n');
   const capabilitiesSource = read('src/components/code/capabilities.ts');
   const basicComposerCapabilities = capabilitiesSource.match(/const BASIC_COMPOSER_CAPABILITIES[\s\S]*?}\n/)?.[0] || '';
@@ -48,6 +49,10 @@ function run() {
   const mainPageSessionSource = read('backend/main-page-session.js');
   const inputPartsSource = read('backend/input-parts.js');
   const terminalPaneSource = read('src/components/AgentTerminalPane.tsx');
+  const terminalSearchSource = read('src/lib/terminal-search.ts');
+  const terminalSessionPoolSource = read('src/lib/terminal-session-pool.ts');
+  const usePooledTerminalSource = read('src/hooks/usePooledTerminal.ts');
+  const xtermSource = read('src/lib/xterm.ts');
   const fileEditorMonacoSource = read('src/components/files/useFileEditorMonacoController.ts');
   const sidebarSource = read('src/components/Sidebar.tsx');
   const inputDialogSource = read('src/components/InputDialog.tsx');
@@ -76,6 +81,8 @@ function run() {
       workspaceSource.includes('beginWorkspaceNavigation(direction)') &&
       workspaceSource.includes('pruneWorkspaceNavigationEntries(entry => workspaceNavigationAgentIds.has(entry.agentId))') &&
       workspaceSource.includes('if (!workspaceNavigationAgentIds.has(entry.agentId)) return false') &&
+      workspaceSource.includes('} catch {\n      return false\n    }\n  }, [\n    clearSearch,\n    closeSidebarForMobile,') &&
+      !workspaceSource.includes('focusWorkspaceFilesSearch(entry.agentId, entry.filePath)') &&
       workspaceSource.includes('restoreWorkspaceNavigationEntry(currentEntry)') &&
       workspaceSource.includes('workspaceNavigationShortcutDirection(event)') &&
       workspaceSource.includes('consumeWorkspaceNavigationShortcut(event)') &&
@@ -313,7 +320,14 @@ function run() {
       workspaceSource.includes('code-sidebar-toggle') &&
       workspaceSource.includes('code-sidebar-toggle-icon') &&
       workspaceSource.includes("import { ShareQrButton } from './ShareQrButton'") &&
-      workspaceSource.includes('<ShareQrButton copy={copy} sidebarCollapsed={sidebarCollapsed} />') &&
+      workspaceSource.includes('<ShareQrButton copy={copy} sidebarCollapsed={sidebarCollapsed} shareTarget={shareTarget} />') &&
+      workspaceSource.includes('workspaceShareTargetFromSearch(window.location.search)') &&
+      workspaceSource.includes('const shareTarget = useMemo<WorkspaceShareTarget | null>') &&
+      workspaceSource.includes("kind: 'file'") &&
+      workspaceSource.includes("kind: 'agent'") &&
+      workspaceSource.includes('const restoreWorkspaceShareTarget = useCallback') &&
+      workspaceSource.includes('workspaceFileOpenTargetFromShareTarget(target)') &&
+      workspaceSource.includes('shareTargetRestoreAttemptsRef.current >= 20') &&
       !workspaceSource.includes("{sidebarCollapsed ? '>' : '<'}") &&
       workspaceSource.includes('code-folder-icon') &&
       !workspaceSource.includes("{collapsed ? '▸' : '▾'}") &&
@@ -323,10 +337,17 @@ function run() {
       workspaceSource.includes('const agentCreationWorkspace = activeAgent?.isMain') &&
       workspaceSource.includes('? lastProjectWorkspace ?? projects[0]?.workspace') &&
       workspaceSource.includes(': activeProjectWorkspace ?? lastProjectWorkspace ?? projects[0]?.workspace') &&
-      workspaceSource.includes('data-testid="code-new-agent"') &&
-      workspaceSource.includes('onClick={event => onNewAgent(agentCreationWorkspace, undefined, event.currentTarget)}') &&
-      workspaceSource.includes('agentMenu') &&
-      workspaceSource.includes('projectMenu') &&
+	      workspaceSource.includes('data-testid="code-new-agent"') &&
+	      workspaceSource.includes('onClick={event => onNewAgent(agentCreationWorkspace, undefined, event.currentTarget)}') &&
+	      workspaceSource.includes('data-testid="code-project-new-agent"') &&
+	      workspaceSource.includes('data-testid="code-project-actions"') &&
+	      workspaceSource.includes('data-testid="code-project-new-agent-menu"') &&
+	      !workspaceSource.includes("launchMenuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()") &&
+	      workspaceSource.includes('code-project-agent-launch-${option.name}') &&
+	      workspaceSource.includes('onStartAgent(command, project.workspace)') &&
+	      workspaceSource.includes('onNewAgent(project.workspace, undefined, event.currentTarget)') &&
+	      workspaceSource.includes('agentMenu') &&
+	      workspaceSource.includes('projectMenu') &&
       workspaceSource.includes('contextMenuRef') &&
       workspaceSource.includes('handleContextMenuKeyDown') &&
       workspaceSource.includes("event.key === 'ArrowDown'") &&
@@ -336,22 +357,21 @@ function run() {
       workspaceSource.includes('openAgentContextMenu') &&
       workspaceSource.includes('openProjectContextMenu') &&
       workspaceSource.includes('data-testid="code-agent-context-menu"') &&
-      workspaceSource.includes('data-testid="code-project-context-menu"') &&
-      workspaceSource.includes('data-project-id={project.id}') &&
-      workspaceSource.includes('focusAgentRow') &&
-      workspaceSource.includes('focusProjectTitle') &&
-      workspaceSource.includes('pendingProjectDialogFocusRef') &&
-      workspaceSource.includes('agentCount: activeAgents.length') &&
-      workspaceSource.includes('pending.agentCount === activeAgents.length') &&
-      workspaceSource.includes('focusProjectTitle(pending.projectId)') &&
-      !workspaceSource.includes('Open First Agent') &&
+	      workspaceSource.includes('data-testid="code-project-context-menu"') &&
+	      workspaceSource.includes('data-project-id={project.id}') &&
+	      workspaceSource.includes('focusAgentRow') &&
+	      workspaceSource.includes('focusProjectTitle') &&
+	      workspaceSource.includes('projectNames') &&
+	      workspaceSource.includes('copy.renameProject') &&
+	      workspaceSource.includes('copy.archiveChats') &&
+	      !workspaceSource.includes('Open First Agent') &&
       !workspaceSource.includes('Open First Session') &&
       !workspaceSource.includes('Collapse Project') &&
       !workspaceSource.includes('Expand Project') &&
-      !workspaceSource.includes('New Agent in Project') &&
-      workspaceSource.includes('New Agent') &&
-      workspaceSource.includes('Archive Project') &&
-      workspaceSource.includes('const archivableAgents = contextMenuProject.agents.filter(agent => !agent.isMain)') &&
+	      !workspaceSource.includes('New Agent in Project') &&
+	      workspaceSource.includes('New Agent') &&
+	      workspaceSource.includes('Archive chats') &&
+	      workspaceSource.includes('const archivableAgents = contextMenuProject.agents.filter(agent => !agent.isMain)') &&
       workspaceSource.includes('onUpdateAgentFlags(agent.id, { archived: true })') &&
       workspaceSource.includes('Pin Agent') &&
       workspaceSource.includes('Unpin Agent') &&
@@ -370,7 +390,9 @@ function run() {
       workspaceSource.includes('restoreArchivedAgent') &&
       workspaceSource.includes('pendingRestoredFocusAgentRef') &&
       workspaceSource.includes("onWorkspaceViewChange('projects')") &&
+      workspaceSource.includes("type RenameDialogState =") &&
       workspaceSource.includes('Rename Agent') &&
+      workspaceSource.includes('Rename project') &&
       workspaceSource.includes('data-testid="code-rename-dialog"') &&
       workspaceSource.includes('data-testid="code-rename-input"') &&
       workspaceSource.includes('data-testid="code-kill-dialog"') &&
@@ -382,8 +404,12 @@ function run() {
       workspaceSource.includes('onKeyDown={event => trapFocusInContainer(event, renameDialogRef.current)}') &&
       workspaceSource.includes('onKeyDown={event => trapFocusInContainer(event, killDialogRef.current)}') &&
       workspaceSource.includes('onKeyDown={event => trapFocusInContainer(event, deleteWorktreeDialogRef.current)}') &&
-      workspaceSource.includes('}, [renameDialog?.agentId])') &&
-      workspaceSource.includes('const agentId = renameDialog?.agentId') &&
+      workspaceSource.includes('const target = renameDialog') &&
+      workspaceSource.includes("if (target.kind === 'agent') focusAgentRow(target.agentId)") &&
+      workspaceSource.includes("if (target.kind === 'project') focusProjectTitle(target.projectId)") &&
+      workspaceSource.includes('let initializedSelection = false') &&
+      workspaceSource.includes("if (renameDialog.kind === 'project')") &&
+      workspaceSource.includes('input.setSelectionRange(cursorPosition, cursorPosition)') &&
       workspaceSource.includes('focusAgentRow(renameDialog.agentId)') &&
       workspaceSource.includes('const agentId = killDialog?.agentId') &&
       workspaceSource.includes('if (agentId) focusAgentRow(agentId)') &&
@@ -416,12 +442,13 @@ function run() {
       workspaceSource.includes("onForkAgent('new-worktree')") &&
       workspaceSource.includes('compactContextMenuEntries') &&
       workspaceSource.includes('function ContextMenuEntries') &&
-      workspaceSource.includes('type ContextMenuEntry') &&
-      workspaceSource.includes('agent?.canForkNewWorktree === true') &&
-      workspaceSource.includes('projectCanArchive(contextMenuProject)') &&
-      workspaceSource.includes('projectCanDeleteWorktree(contextMenuProject)') &&
-      workspaceSource.includes("onDeleteForkWorktreeProject(workspace)") &&
-      workspaceSource.includes("onDeleteForkWorktreeProject(dialog.workspace, { force: true })") &&
+	      workspaceSource.includes('type ContextMenuEntry') &&
+	      workspaceSource.includes("icon?: 'rename' | 'archive'") &&
+	      workspaceSource.includes('function ContextMenuIcon') &&
+	      workspaceSource.includes('agent?.canForkNewWorktree === true') &&
+	      workspaceSource.includes('projectCanArchive(contextMenuProject)') &&
+	      !workspaceSource.includes('projectCanDeleteWorktree(contextMenuProject)') &&
+	      workspaceSource.includes("onDeleteForkWorktreeProject(dialog.workspace, { force: true })") &&
       appSource.includes("appPath('/api/projects/delete-worktree')") &&
       !workspaceSource.includes('Open Terminal') &&
       !workspaceSource.includes('Close Terminal') &&
@@ -450,6 +477,11 @@ function run() {
       workspaceSource.includes('export function capabilitiesForAgent') &&
       workspaceSource.includes('const activeAgentCapabilities = useMemo') &&
       workspaceSource.includes('capabilities: activeAgentCapabilities.composer') &&
+      workspaceSource.includes('codexApprovalMode,') &&
+      workspaceSource.includes('claudePermissionMode,') &&
+      !workspaceSource.includes("const activeLaunchPermissionMode = activeAgent?.launchPermissionMode || ''") &&
+      !workspaceSource.includes('effectiveCodexApprovalModeForSession(Boolean(activeAgent), activeLaunchPermissionMode, codexApprovalMode)') &&
+      !workspaceSource.includes('effectiveClaudePermissionModeForSession(Boolean(activeAgent), activeLaunchPermissionMode, claudePermissionMode)') &&
       workspaceSource.includes('const showPermissionMode = active && capabilities.permissionMode') &&
       workspaceSource.includes('const showModelPicker = active && capabilities.modelPicker') &&
       workspaceSource.includes('const showPlusMenu = active && capabilities.plusMenu') &&
@@ -546,8 +578,8 @@ function run() {
       workspaceSource.includes('const visibleLiveAgents = agentListState.liveAgents') &&
       workspaceSource.includes('claimedAgentSessionKeyByAgentId={agentListState.claimedAgentSessionKeyByAgentId}') &&
       !workspaceSource.includes('visibleProjectAgentSessions') &&
-      workspaceSource.includes('projectListProjectsForAgents(visibleLiveAgents, sidebarAgentSessions)') &&
-      workspaceSource.includes('projectListProjectsForAgents(visibleLiveAgents, unclaimedSearchableAgentSessions)') &&
+      workspaceSource.includes('projectListProjectsForAgents(visibleLiveAgents, sidebarAgentSessions, projectNames)') &&
+      workspaceSource.includes('projectListProjectsForAgents(visibleLiveAgents, unclaimedSearchableAgentSessions, projectNames)') &&
       workspaceSource.includes('limitProjectAgentSessions(\n    projectListProjects') &&
       workspaceSource.includes('historyAgentSessions') &&
       workspaceSource.includes('historyAgentSessionsForSessions(sessions, mainPageSessionKeys, claimedAgentSessionKeys)') &&
@@ -571,10 +603,12 @@ function run() {
 	      workspaceSource.includes('requires-resume') &&
 	      workspaceSource.includes('isNewWorktreeForkAgent') &&
 	      workspaceSource.includes('data-testid="code-agent-new-worktree-fork"') &&
-	      workspaceSource.includes('copy.newWorktreeFork') &&
-	      workspaceSource.includes('role="img"') &&
-	      workspaceSource.includes('copy.scheduledTask') &&
-	      workspaceSource.includes("const scheduleTitle = session.schedule?.label || session.schedule?.name || session.schedule?.rrule || ''") &&
+		      workspaceSource.includes('copy.newWorktreeFork') &&
+		      workspaceSource.includes('role="img"') &&
+		      workspaceSource.includes('copy.scheduledTask') &&
+		      workspaceSource.includes('function ProjectNewAgentIcon()') &&
+		      workspaceSource.includes('function ProjectActionsIcon()') &&
+		      workspaceSource.includes("const scheduleTitle = session.schedule?.label || session.schedule?.name || session.schedule?.rrule || ''") &&
 	      !workspaceSource.includes('{session.pinned && <span className="code-agent-pin" title="Pinned">Pin</span>}') &&
 	      workspaceSource.includes("className={`code-agent-dot ${rowState.lifecycleStatus} ${rowState.turnActive ? 'turn-active' : ''}`}") &&
       workspaceSource.includes('data-testid="code-agent-row-pin"') &&
@@ -657,6 +691,7 @@ function run() {
       workspaceSource.includes('const interruptActiveAgent = useCallback') &&
       workspaceSource.includes('const sendComposerMessageToAgent = useCallback') &&
       workspaceSource.includes('terminalInputPartsForComposerMessage') &&
+      workspaceSource.includes("agentKindForCommand(agent.command) === 'shell'") &&
       workspaceSource.includes("capabilitiesForAgent(agent).kind === 'shell'") &&
       workspaceSource.includes("return sendInput(`${message}\\r`, agent.id)") &&
       workspaceSource.includes('return sendInput(terminalInputPartsForComposerMessage(message), agent.id)') &&
@@ -743,6 +778,7 @@ function run() {
       workspaceSource.includes("'.code-model-picker-menu > .code-model-option.selected'") &&
       !workspaceSource.includes('<small>{option.description}</small>') &&
       workspaceSource.includes('copy.serviceTierDescription(option.value, option.description)') &&
+      workspaceSource.includes('code-composer-speed-active') &&
       workspaceSource.includes('code-speed-option-icon') &&
       workspaceSource.includes('code-composer-toolbar') &&
       !workspaceSource.includes('setActiveAgentGoal') &&
@@ -756,6 +792,21 @@ function run() {
       !workspaceSource.includes('code-resource-strip') &&
       !workspaceSource.includes('role="button"') &&
       workspaceSource.includes('code-agent-row') &&
+      workspaceSource.includes('PROJECT_AGENT_VISIBLE_LIMIT = 5') &&
+      workspaceSource.includes('const agentCompressionActive = sidebarCollapsed') &&
+      workspaceSource.includes('single-agent projects collapse to "1"') &&
+      workspaceSource.includes('function ProjectAgentCompactStrip') &&
+      workspaceSource.includes('function PinnedItemCompactStrip') &&
+      workspaceSource.includes('data-testid="code-project-agent-strip"') &&
+      workspaceSource.includes('data-testid="code-project-agent-compact"') &&
+      workspaceSource.includes('data-testid="code-pinned-title"') &&
+      workspaceSource.includes('data-testid="code-pinned-agent-compact"') &&
+      workspaceSource.includes('data-testid="code-agent-show-more"') &&
+      workspaceSource.includes('data-agent-id={agent.id}') &&
+      workspaceSource.includes('rowState.statusIndicatorVisible') &&
+      workspaceSource.includes('code-project-agent-compact-unread') &&
+      workspaceSource.includes('const compactProjectAgents = compactAgents && sortedAgents.length > 0') &&
+      workspaceSource.includes('const visibleProjectAgents = compactProjectAgents || projectAgentsExpanded') &&
       workspaceSource.includes('code-project-expanded') &&
       workspaceSource.includes('code-terminal-grid') &&
       workspaceSource.includes('code-composer') &&
@@ -833,10 +884,42 @@ function run() {
       terminalPaneSource.includes("const clickedTerminalSurface = target instanceof Element && target.closest('.xterm')") &&
       terminalPaneSource.includes("if (!active) onActivate(agent.id, { focusTerminal: false })") &&
       terminalPaneSource.includes('isPrimaryFindShortcut') &&
+      terminalPaneSource.includes('function isTerminalFindNavigationShortcut') &&
+      terminalPaneSource.includes('function terminalSearchQueryFromSelection') &&
+      terminalPaneSource.includes('type TerminalSearchOptionKey') &&
+      terminalPaneSource.includes('function terminalSearchOptionShortcut') &&
+      terminalPaneSource.includes('terminalSearchOptionButtonClass') &&
+      terminalPaneSource.includes('setTerminalSearchOptions(previous => ({') &&
+      terminalPaneSource.includes('const selectedQuery = terminalSearchQueryFromSelection(getSelectionNow())') &&
+      terminalPaneSource.includes('onKeyDown={handleTerminalSearchKeyDown}') &&
+      terminalPaneSource.includes("if (key === 'KeyC') return 'caseSensitive'") &&
+      terminalPaneSource.includes("if (key === 'KeyW') return 'wholeWord'") &&
+      terminalPaneSource.includes("if (key === 'KeyR') return 'regex'") &&
+      !terminalPaneSource.includes("setTerminalSearchQuery('')") &&
+      terminalPaneSource.includes("return event.key === 'F3'") &&
       terminalPaneSource.includes('data-testid="code-terminal-search"') &&
       terminalPaneSource.includes('data-testid="code-terminal-search-input"') &&
+      terminalPaneSource.includes('data-testid="code-terminal-search-case-sensitive"') &&
+      terminalPaneSource.includes('data-testid="code-terminal-search-whole-word"') &&
+      terminalPaneSource.includes('data-testid="code-terminal-search-regex"') &&
+      terminalPaneSource.includes('aria-pressed={terminalSearchOptions.caseSensitive === true}') &&
+      terminalPaneSource.includes('aria-pressed={terminalSearchOptions.wholeWord === true}') &&
+      terminalPaneSource.includes('aria-pressed={terminalSearchOptions.regex === true}') &&
       terminalPaneSource.includes("runTerminalSearch(terminalSearchQuery, event.shiftKey ? 'previous' : 'next')") &&
       terminalPaneSource.includes('copy.terminalSearchPlaceholder') &&
+      terminalPaneSource.includes('copy.terminalSearchCaseSensitive') &&
+      terminalPaneSource.includes('copy.terminalSearchWholeWord') &&
+      terminalPaneSource.includes('copy.terminalSearchRegex') &&
+      terminalSearchSource.includes('caseSensitive?: boolean') &&
+      terminalSearchSource.includes('wholeWord?: boolean') &&
+      terminalSearchSource.includes('regex?: boolean') &&
+      usePooledTerminalSource.includes('options?: TerminalSearchOptions') &&
+      terminalSessionPoolSource.includes('options: TerminalSearchOptions = {}') &&
+      xtermSource.includes('caseSensitive: options.caseSensitive === true') &&
+      xtermSource.includes('wholeWord: options.wholeWord === true') &&
+      xtermSource.includes('regex: options.regex === true') &&
+      xtermSource.includes('let lastSearchOptionsKey') &&
+      xtermSource.includes('lastSearchOptionsKey !== searchOptionsKey') &&
       terminalPaneSource.includes('data-testid="code-terminal-status-card"') &&
       terminalPaneSource.includes('copy.terminalSessionUnavailable') &&
       terminalPaneSource.includes('retryTerminalAttach') &&
@@ -1010,7 +1093,15 @@ function run() {
 	      stylesSource.includes('.code-agent-dot.running') &&
 	      stylesSource.includes('.code-agent-dot.turn-active') &&
 	      stylesSource.includes('animation: code-agent-running-spin 0.9s linear infinite;') &&
-	      stylesSource.includes('.code-agent-fork-new-worktree svg') &&
+	      stylesSource.includes('.code-project-agent-strip') &&
+		      stylesSource.includes('.code-project-agent-compact.active') &&
+		      stylesSource.includes('.code-project-agent-compact-status.running') &&
+		      stylesSource.includes('.code-project-agent-compact-unread') &&
+		      stylesSource.includes('.code-project-title-actions') &&
+		      stylesSource.includes('.code-project-row:hover .code-project-title-actions') &&
+		      stylesSource.includes('.code-project-title-action svg') &&
+		      stylesSource.includes('.code-context-menu-icon') &&
+		      stylesSource.includes('.code-agent-fork-new-worktree svg') &&
 	      !stylesSource.includes('.code-agent-fork-new-worktree::before') &&
 	      !stylesSource.includes('.code-agent-fork-new-worktree::after') &&
 	      stylesSource.includes('.code-agent-unread') &&
@@ -1045,6 +1136,7 @@ function run() {
       !stylesSource.includes('.code-agent-submenu') &&
       stylesSource.includes('.code-model-submenu') &&
       stylesSource.includes('.code-speed-submenu') &&
+      stylesSource.includes('.code-composer-speed-active') &&
       stylesSource.includes('.code-speed-option-label') &&
       stylesSource.includes('.code-speed-option-icon') &&
       stylesSource.includes('.code-composer-mic') &&

@@ -228,6 +228,8 @@ class NativePtyHost {
         return this.sendInput(params.sessionId, params.input);
       case 'resizeSession':
         return this.resizeSession(params.sessionId, params.cols, params.rows);
+      case 'clearBuffer':
+        return this.clearBuffer(params.sessionId);
       case 'killSession':
         return this.killSession(params.sessionId);
       case 'getSessionState':
@@ -571,6 +573,64 @@ class NativePtyHost {
     }
 
     return { resized: true, cols: session.previewCols, rows: session.previewRows };
+  }
+
+  async clearBuffer(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return { cleared: false };
+    }
+
+    session.output = '';
+    session.outputSeq = (session.outputSeq || 0) + 1;
+    session.renderOutput = '';
+    session.previewText = '';
+    session.previewSnapshot = null;
+    session.lastActivityAt = Date.now();
+
+    if (session.screenWorker) {
+      try {
+        const screenState = await session.screenWorker.clear();
+        session.renderOutput = screenState.renderOutput || '';
+        session.previewText = screenState.previewText || '';
+        session.previewSnapshot = screenState.previewSnapshot || null;
+        session.previewCols = screenState.cols || session.previewCols;
+        session.previewRows = screenState.rows || session.previewRows;
+        if (screenState.title && screenState.title !== session.title) {
+          session.title = screenState.title;
+          this.emitSessionEvent('session-title', {
+            sessionId,
+            title: session.title,
+          });
+        }
+      } catch (error) {
+        this.emitSessionEvent('session-error', {
+          sessionId,
+          error: `Failed to clear terminal screen state: ${error.message}`,
+          fatal: false,
+        });
+      }
+    }
+
+    this.emitSessionEvent('session-sync', {
+      sessionId,
+      output: session.renderOutput || session.output,
+      outputSeq: session.outputSeq,
+      replaceLive: true,
+    });
+    this.emitSessionEvent('session-preview', {
+      sessionId,
+      previewText: session.previewText,
+      cols: session.previewCols,
+      rows: session.previewRows,
+      previewSnapshot: session.previewSnapshot,
+      title: session.title,
+    });
+    this.emitSessionEvent('session-activity', {
+      sessionId,
+      lastActivityAt: session.lastActivityAt,
+    });
+    return { cleared: true, outputSeq: session.outputSeq };
   }
 
   async killSession(sessionId) {

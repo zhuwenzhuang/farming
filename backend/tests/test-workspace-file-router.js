@@ -69,6 +69,7 @@ async function run() {
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgF/2l2fLwAAAABJRU5ErkJggg==',
       'base64'
     ));
+    fs.writeFileSync(path.join(projectWorkspace, 'icon.svg'), '<svg><rect/></svg>\n');
 
     const agentManager = {
       getAgentWorkspaceRoot(agentId) {
@@ -104,6 +105,10 @@ async function run() {
       assert.strictEqual(previewFile.response.status, 200);
       assert.strictEqual(previewFile.body.file.binary, true);
       assert.strictEqual(previewFile.body.file.preview.mediaType, 'image/png');
+      const svgFile = await fetchJson(baseUrl, '/api/files/file?agentId=agent-main&path=icon.svg');
+      assert.strictEqual(svgFile.response.status, 200);
+      assert(svgFile.body.file.content.includes('<svg'));
+      assert.strictEqual(svgFile.body.file.preview, undefined);
       const binaryFile = await fetchJson(baseUrl, '/api/files/file?agentId=agent-main&path=binary.bin');
       assert.strictEqual(binaryFile.response.status, 200);
       assert.strictEqual(binaryFile.body.file.content, '');
@@ -120,6 +125,10 @@ async function run() {
       assert.strictEqual(rawPreview.response.status, 200);
       assert(rawPreview.response.headers.get('content-type').includes('image/png'));
       assert(rawPreview.buffer.length > 0);
+      const rawSvgPreview = await fetchRaw(baseUrl, '/api/files/raw?agentId=agent-main&path=icon.svg');
+      assert.strictEqual(rawSvgPreview.response.status, 200);
+      assert(rawSvgPreview.response.headers.get('content-type').includes('image/svg+xml'));
+      assert(rawSvgPreview.buffer.toString('utf8').includes('<rect'));
       const rawEscaped = await fetchJson(baseUrl, '/api/files/raw?agentId=agent-main&path=../secret.png');
       assert.strictEqual(rawEscaped.response.status, 403);
 
@@ -172,15 +181,33 @@ async function run() {
         execFileSync('git', ['commit', '-m', 'rename source'], { cwd: projectWorkspace, stdio: 'ignore' });
         execFileSync('git', ['mv', 'old-name.md', 'new-name.md'], { cwd: projectWorkspace });
         fs.writeFileSync(path.join(projectWorkspace, 'README.md'), '# Saved\nchanged\n');
+        fs.mkdirSync(path.join(projectWorkspace, 'scratch'), { recursive: true });
+        fs.writeFileSync(path.join(projectWorkspace, 'scratch/nested.log'), 'nested untracked\n');
+        const playbackDir = path.join(projectWorkspace, 'demo-app/packages/viewer/playback_json');
+        fs.mkdirSync(playbackDir, { recursive: true });
+        execFileSync('git', ['init'], { cwd: playbackDir, stdio: 'ignore' });
+        fs.mkdirSync(path.join(playbackDir, '.empty-hooks'), { recursive: true });
+        execFileSync('git', ['config', 'core.hooksPath', '.empty-hooks'], { cwd: playbackDir });
+        execFileSync('git', ['config', 'user.email', 'nested@example.test'], { cwd: playbackDir });
+        execFileSync('git', ['config', 'user.name', 'Nested Repo'], { cwd: playbackDir });
+        fs.writeFileSync(path.join(playbackDir, 'README.md'), 'nested repo\n');
+        execFileSync('git', ['add', 'README.md'], { cwd: playbackDir });
+        execFileSync('git', ['commit', '-m', 'nested repo'], { cwd: playbackDir, stdio: 'ignore' });
         const changes = await fetchJson(baseUrl, '/api/files/changes?agentId=agent-main');
         assert.strictEqual(changes.response.status, 200);
         assert.strictEqual(changes.body.changes.truncated, false);
         const changeByPath = new Map(changes.body.changes.items.map(item => [item.path, item]));
         assert.strictEqual(changeByPath.get('README.md').gitStatus, 'modified');
         assert.strictEqual(changeByPath.get('README.md').gitStatusLabel, 'M');
+        assert.strictEqual(changeByPath.get('README.md').type, 'file');
         assert.strictEqual(changeByPath.get('new-name.md').gitStatus, 'renamed');
         assert.strictEqual(changeByPath.get('new-name.md').gitStatusLabel, 'R');
         assert.strictEqual(changeByPath.get('new-name.md').previousPath, 'old-name.md');
+        assert.strictEqual(changeByPath.get('scratch/nested.log').gitStatus, 'untracked');
+        assert.strictEqual(changeByPath.get('scratch/nested.log').type, 'file');
+        assert.strictEqual(changeByPath.has('scratch/'), false);
+        assert.strictEqual(changeByPath.get('demo-app/packages/viewer/playback_json').gitStatus, 'untracked');
+        assert.strictEqual(changeByPath.get('demo-app/packages/viewer/playback_json').type, 'directory');
         const renamedDiff = await fetchJson(baseUrl, '/api/files/diff?agentId=agent-main&path=new-name.md');
         assert.strictEqual(renamedDiff.response.status, 200);
         assert.strictEqual(renamedDiff.body.diff.originalContent, 'rename through api\n');

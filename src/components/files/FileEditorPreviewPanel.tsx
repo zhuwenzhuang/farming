@@ -1,5 +1,5 @@
 import { iconForFilePath } from '@/lib/file-icons'
-import { workspaceEditorBasename as basename } from '@/lib/workspace-editor-model'
+import { isWorkspaceSvgFile, workspaceEditorBasename as basename } from '@/lib/workspace-editor-model'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import { rawWorkspaceFileUrl } from '@/lib/workspace-files'
 import type { CodeCopy } from '../code/copy'
@@ -8,15 +8,20 @@ interface FileEditorPreviewPanelProps {
   openFile: OpenWorkspaceFile
   activeTabDomId: string
   copy: CodeCopy
+  sourcePreviewOpen?: boolean
 }
 
 export function FileEditorPreviewPanel({
   openFile,
   activeTabDomId,
   copy,
+  sourcePreviewOpen,
 }: FileEditorPreviewPanelProps) {
   const filePreview = openFile.file.preview ?? null
-  const imagePreview = filePreview?.kind === 'image' ? filePreview : null
+  const sourceImagePreview = sourcePreviewOpen && isWorkspaceSvgFile(openFile.file.path)
+    ? { kind: 'image' as const, mediaType: 'image/svg+xml' }
+    : null
+  const imagePreview = filePreview?.kind === 'image' ? filePreview : sourceImagePreview
   const binaryPreview = filePreview?.kind === 'binary' ? filePreview : null
 
   if (imagePreview) {

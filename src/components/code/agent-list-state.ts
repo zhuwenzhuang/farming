@@ -125,6 +125,7 @@ export function historyAgentSessionsForSessions(
 ) {
   return sessions.filter(session => {
     const sessionId = agentSessionId(session)
+    if (session.archived) return !claimedKeys.has(sessionId)
     return !mainPageSessionKeys.has(sessionId) && !claimedKeys.has(sessionId)
   })
 }
@@ -140,7 +141,7 @@ export function buildAgentListState({
   const claimedAgentSessionKeys = new Set(claimedAgentSessionKeyByAgentId.values())
   const visibleLiveAgents = dedupeLiveAgentsByRowIdentity(normalizedLiveAgents, claimedAgentSessionKeyByAgentId)
   const mainPageAgentSessions = sessions
-    .filter(session => mainPageSessionKeys.has(agentSessionId(session)))
+    .filter(session => !session.archived && mainPageSessionKeys.has(agentSessionId(session)))
     .sort(compareAgentSessions)
   const sidebarAgentSessions = unclaimedAgentSessions(mainPageAgentSessions, claimedAgentSessionKeys)
   const searchableAgentSessions = unclaimedAgentSessions(sessions, claimedAgentSessionKeys).sort(compareAgentSessions)

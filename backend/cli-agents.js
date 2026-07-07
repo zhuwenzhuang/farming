@@ -249,6 +249,54 @@ function hasArgValue(args, names) {
   ));
 }
 
+function argValue(args, names) {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    for (const name of names) {
+      if (arg === name) {
+        const value = args[index + 1];
+        return value && !String(value).startsWith('-') ? String(value) : '';
+      }
+      if (arg.startsWith(`${name}=`)) {
+        return arg.slice(name.length + 1);
+      }
+    }
+  }
+  return '';
+}
+
+function inferLaunchPermissionMode(spec, launchArgs, options = {}) {
+  if (!spec) return '';
+
+  if (spec.name === 'codex') {
+    if (launchArgs.includes('--dangerously-bypass-approvals-and-sandbox')) return 'full';
+
+    const approvalMode = argValue(launchArgs, ['-a', '--ask-for-approval']);
+    if (approvalMode === 'untrusted') return 'ask';
+    if (approvalMode === 'on-request') return 'approve';
+    if (approvalMode) return 'custom';
+
+    if (options.codexApprovalMode === 'custom') return 'custom';
+    return '';
+  }
+
+  if (spec.name === 'claude') {
+    if (launchArgs.includes('--dangerously-skip-permissions')) return 'bypassPermissions';
+    return argValue(launchArgs, ['--permission-mode']);
+  }
+
+  if (
+    spec.permissions &&
+    spec.permissions.supportsDangerousSkip &&
+    Array.isArray(spec.permissions.dangerousSkipArgs) &&
+    spec.permissions.dangerousSkipArgs.some(arg => launchArgs.includes(arg))
+  ) {
+    return 'full';
+  }
+
+  return '';
+}
+
 function resolveLaunchCommand(command, options = {}) {
   const parts = parseCommand(command);
   const program = parts[0] || '';
@@ -357,7 +405,8 @@ function resolveLaunchCommand(command, options = {}) {
   return {
     program,
     args: launchArgs,
-    spec
+    spec,
+    permissionMode: inferLaunchPermissionMode(spec, launchArgs, { codexApprovalMode })
   };
 }
 

@@ -4,7 +4,7 @@ import {
   ancestorDirectories,
   findWorkspaceFileTreeNode,
   findVisibleWorkspaceTreePath,
-  visibleWorkspaceDirectoryPathsForTarget,
+  visibleWorkspaceDirectoryPathsToOpenForTarget,
   type WorkspaceFileTreeNode,
 } from '@/lib/workspace-file-tree'
 import {
@@ -27,7 +27,7 @@ interface UseWorkspaceFileFocusOptions {
   isDirectoryLoaded: (directoryPath: string) => boolean
   loadMissingDirectories: (directoryPaths: string[]) => Promise<unknown>
   openDirectoriesInLayout: (directoryPaths: string[]) => void
-  refreshTreeLayout: () => void
+  refreshTreeLayout: (preserveOpenPaths?: readonly string[]) => void
 }
 
 function focusWithoutScrolling(element: HTMLElement | null | undefined) {
@@ -165,11 +165,15 @@ export function useWorkspaceFileFocus({
     const revealIsCurrent = () => fileTreeRevealGenerationRef.current === revealGeneration
     const tree = treeRef.current
     const currentTreeData = treeDataRef.current
-    const visibleAncestors = visibleWorkspaceDirectoryPathsForTarget(currentTreeData, filePath)
+    const directoryPathsToOpen = visibleWorkspaceDirectoryPathsToOpenForTarget(
+      currentTreeData,
+      filePath,
+      openTargetDirectory
+    )
     const visibleTargetPath = findVisibleWorkspaceTreePath(currentTreeData, filePath) ?? filePath
     const visibleTargetNode = findWorkspaceFileTreeNode(currentTreeData, visibleTargetPath)
     let ready = Boolean(tree)
-    openDirectoriesInLayout(openTargetDirectory ? [...visibleAncestors, visibleTargetPath] : visibleAncestors)
+    openDirectoriesInLayout(directoryPathsToOpen)
 
     if (
       openTargetDirectory
@@ -182,7 +186,7 @@ export function useWorkspaceFileFocus({
     }
 
     if (tree) {
-      visibleAncestors.forEach(directoryPath => {
+      directoryPathsToOpen.forEach(directoryPath => {
         if (tree.get(directoryPath)) {
           tree.open(directoryPath)
         } else {
@@ -207,9 +211,8 @@ export function useWorkspaceFileFocus({
 
     const reveal = () => {
       if (!revealIsCurrent()) return
-      visibleAncestors.forEach(directoryPath => treeRef.current?.open(directoryPath))
-      if (openTargetDirectory) treeRef.current?.open(visibleTargetPath)
-      refreshTreeLayout()
+      directoryPathsToOpen.forEach(directoryPath => treeRef.current?.open(directoryPath))
+      refreshTreeLayout(directoryPathsToOpen)
       scrollFileTreeToPath(visibleTargetPath, true)
     }
     const queueRevealFrame = (callback: () => void) => {
@@ -318,7 +321,11 @@ export function useWorkspaceFileFocus({
         const targetTree = row?.closest<HTMLElement>('[role="tree"]')
           ?? treeViewportRef.current?.querySelector<HTMLElement>('[role="tree"]')
         focusWithoutScrolling(targetTree)
-        if (row) return
+        if (row) {
+          row.scrollIntoView({ block: 'nearest' })
+          revealRowInProjectScroller(row)
+          return
+        }
       }
       focusWithoutScrolling(treeViewportRef.current?.querySelector<HTMLElement>('[role="tree"]'))
     }

@@ -138,6 +138,10 @@ interface CodeMainAreaProps {
   onChangeWorkspaceFileDraft: (draft: string) => void
   onUpdateOpenWorkspaceFile: (nextFile: OpenWorkspaceFile) => void
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
+  onOpenWorkspaceFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
+  canNavigateWorkspaceBack: boolean
+  canNavigateWorkspaceForward: boolean
+  onNavigateWorkspaceHistory: (direction: -1 | 1) => boolean
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onCloseOpenWorkspaceFiles: (targets: WorkspaceOpenFileTarget[]) => void
   onRevealWorkspaceFileInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
@@ -190,6 +194,10 @@ export function CodeMainArea({
   onChangeWorkspaceFileDraft,
   onUpdateOpenWorkspaceFile,
   onSelectOpenWorkspaceFile,
+  onOpenWorkspaceFilePath,
+  canNavigateWorkspaceBack,
+  canNavigateWorkspaceForward,
+  onNavigateWorkspaceHistory,
   onCloseOpenWorkspaceFile,
   onCloseOpenWorkspaceFiles,
   onRevealWorkspaceFileInExplorer,
@@ -240,6 +248,10 @@ export function CodeMainArea({
             onChangeDraft={onChangeWorkspaceFileDraft}
             onUpdateOpenFile={onUpdateOpenWorkspaceFile}
             onSelectOpenFile={onSelectOpenWorkspaceFile}
+            onOpenFilePath={onOpenWorkspaceFilePath}
+            canNavigateBack={canNavigateWorkspaceBack}
+            canNavigateForward={canNavigateWorkspaceForward}
+            onNavigateHistory={onNavigateWorkspaceHistory}
             onCloseOpenFile={onCloseOpenWorkspaceFile}
             onCloseOpenFiles={onCloseOpenWorkspaceFiles}
             onRevealInExplorer={onRevealWorkspaceFileInExplorer}

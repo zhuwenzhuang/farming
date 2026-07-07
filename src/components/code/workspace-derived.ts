@@ -34,9 +34,15 @@ export function projectWorkspaceForHistoryRun(entry: Pick<TaskHistoryEntry, 'cwd
 
 export function projectListProjectsForAgents(
   agents: Agent[],
-  sessions: AgentSessionHistoryItem[]
+  sessions: AgentSessionHistoryItem[],
+  projectNames: Record<string, string> = {}
 ) {
-  return groupAgentsByProject(agents, sessions)
+  return groupAgentsByProject(agents, sessions).map(project => {
+    const customName = project.workspace ? projectNames[project.workspace]?.trim() : ''
+    return customName && !project.hasMain
+      ? { ...project, name: customName }
+      : project
+  })
 }
 
 export function displayedProjectsForSearch(

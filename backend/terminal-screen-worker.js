@@ -215,6 +215,10 @@ class TerminalScreenWorker extends EventEmitter {
     return this.request('resize', { cols, rows });
   }
 
+  clear() {
+    return this.request('clear');
+  }
+
   getState(options = {}) {
     return this.request('get-state', {
       includeRenderOutput: options.includeRenderOutput !== false,

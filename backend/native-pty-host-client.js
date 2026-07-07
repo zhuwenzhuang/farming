@@ -14,6 +14,7 @@ const RECONNECT_RETRYABLE_METHODS = new Set([
   'ping',
   'createSession',
   'resizeSession',
+  'clearBuffer',
   'killSession',
   'getSessionState',
   'getSessionPreview',

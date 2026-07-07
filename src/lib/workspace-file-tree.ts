@@ -75,6 +75,19 @@ export function visibleWorkspaceDirectoryPathsForTarget(nodes: WorkspaceFileTree
   return []
 }
 
+export function visibleWorkspaceDirectoryPathsToOpenForTarget(
+  nodes: WorkspaceFileTreeNode[],
+  targetPath: string,
+  openTargetDirectory = false
+): string[] {
+  const pathsToOpen = visibleWorkspaceDirectoryPathsForTarget(nodes, targetPath)
+  if (openTargetDirectory) {
+    const visibleTargetPath = findVisibleWorkspaceTreePath(nodes, targetPath) ?? targetPath
+    if (visibleTargetPath) pathsToOpen.push(visibleTargetPath)
+  }
+  return Array.from(new Set(pathsToOpen.filter(Boolean)))
+}
+
 export function countVisibleWorkspaceTreeRows(nodes: WorkspaceFileTreeNode[], openDirectoryPaths: ReadonlySet<string>): number {
   return nodes.reduce((count, node) => {
     if (node.type !== 'directory' || !openDirectoryPaths.has(node.path)) return count + 1

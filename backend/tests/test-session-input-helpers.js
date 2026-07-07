@@ -136,6 +136,10 @@ function run() {
     path.join(__dirname, '../../src/lib/terminal-engine.ts'),
     'utf8'
   );
+  const terminalRegressionMatrixSource = fs.readFileSync(
+    path.join(__dirname, '../../tests/e2e/terminal-regression-matrix.spec.ts'),
+    'utf8'
+  );
   assert(
     mainCssSource.includes('min-width: 148px') &&
       mainCssSource.includes('max-width: min(210px, calc(100vw - 32px))') &&
@@ -195,9 +199,8 @@ function run() {
       copyTextAtEventBody.includes('const pathLink = record.pathOpenHandler ? findTerminalPathLinkAtMouseEvent(record, event) : null') &&
       copyTextAtEventBody.includes('if (pathLink?.text && (!selectionAtEvent || pathLink.text.includes(compactSelection)))') &&
       terminalPoolSource.includes("window.addEventListener('contextmenu', contextMenuHandler, true)") &&
-      copyTextAtEventBody.includes('if (isMobileViewport())') &&
       copyTextAtEventBody.includes('return selectContinuousTextAtCell(record, cell.col, cell.row)'),
-    'terminal context-menu copy should preserve xterm selection, copy URL/path links at the click point, and only fall back to clicked text on mobile'
+    'terminal context-menu copy should preserve xterm selection, copy URL/path links at the click point, and fall back to clicked text'
   );
   assert(
     terminalPoolSource.includes('fetchSessionBootstrapStateForCurrentTerminal') &&
@@ -312,20 +315,20 @@ function run() {
       terminalClipboardSource.includes('selection.removeAllRanges()') &&
       terminalClipboardSource.includes('export function createTerminalClipboardProvider') &&
       terminalClipboardSource.includes("selection === 'c'"),
-    'terminal clipboard helper should own browser clipboard and textarea fallback behavior'
+    'terminal clipboard helper should provide browser clipboard and textarea fallback behavior to xterm and Farming actions'
   );
   assert(
     terminalPoolSource.includes("from '@/lib/terminal-clipboard'") &&
+      terminalPoolSource.includes('readTerminalClipboardText') &&
       terminalPoolSource.includes('writeTerminalClipboardText(selection)') &&
       !terminalPoolSource.includes('async function writeClipboardText'),
-    'terminal session pool should use the shared terminal clipboard helper for copy actions'
+    'terminal session pool should use the shared terminal clipboard helper for copy and paste actions'
   );
   assert(
-    xtermSource.includes("from '@/lib/terminal-clipboard'") &&
-      xtermSource.includes('new ClipboardAddon(undefined, createTerminalClipboardProvider())') &&
-      !xtermSource.includes('function createFarmingClipboardProvider') &&
-      !xtermSource.includes('async function writeSystemClipboardText'),
-    'xterm adapter should use the shared terminal clipboard provider'
+    xtermSource.includes("import { ClipboardAddon } from '@xterm/addon-clipboard'") &&
+      xtermSource.includes("from '@/lib/terminal-clipboard'") &&
+      xtermSource.includes('new ClipboardAddon(undefined, createTerminalClipboardProvider())'),
+    'xterm adapter should keep the standard xterm clipboard addon wired to the shared Farming clipboard provider'
   );
   assert(
     terminalInputSource.includes('export function shouldBlockDetachedTerminalPaste') &&
@@ -335,14 +338,58 @@ function run() {
       terminalInputSource.includes('destination.terminal.paste(text)') &&
       terminalInputSource.includes('destination.terminal.input(text, true)') &&
       terminalPoolSource.includes("from '@/lib/terminal-input'") &&
+      terminalPoolSource.includes('function pasteTerminalClipboardText(record: SessionRecord, text: string)') &&
+      terminalPoolSource.includes('scrollRecordToBottom(record, { allowClearUnread: true })') &&
+      terminalPoolSource.includes('function scheduleTerminalOutputSnapshotSync(record: SessionRecord)') &&
+      terminalPoolSource.includes('[120, 400, 1000].forEach') &&
+      terminalPoolSource.includes('syncTerminalOutputFromSnapshot(record, generation)') &&
+      terminalPoolSource.includes('scheduleTerminalOutputSnapshotSync(record)') &&
+      terminalPoolSource.includes('record.inputCount += 1') &&
+      terminalPoolSource.includes('record.inputHandler(text)') &&
+      terminalPoolSource.includes("window.addEventListener('paste', pasteHandler, true)") &&
       terminalPoolSource.includes("hostEl.addEventListener('paste', pasteHandler, true)") &&
       terminalPoolSource.includes('shouldBlockDetachedTerminalPaste(record.hostEl, event, isAttached)') &&
       terminalPoolSource.includes('if (!shouldHandleTerminalPasteEvent(record.hostEl, event, isAttached)) return') &&
       terminalPoolSource.includes('if (isXtermTerminal(record.terminal))') &&
+      terminalPoolSource.includes('if (!pasteTerminalClipboardText(record, text)) return') &&
+      terminalPoolSource.includes("window.removeEventListener('paste', record.pasteHandler, true)") &&
       terminalPoolSource.includes("record.hostEl.removeEventListener('paste', record.pasteHandler, true)") &&
       !terminalPoolSource.includes('function pasteTerminalText(record: SessionRecord, text: string)') &&
       terminalPoolSource.includes('dispatchPasteToTextarea'),
-    'terminal session pool should let active xterm paste use xterm while blocking parked hosts and preserving fallback paste'
+    'terminal session pool should leave active xterm paste to xterm while blocking parked hosts and serving non-xterm fallbacks'
+  );
+  assert(
+    terminalPoolSource.includes("function terminalContextMenuLabel(action: 'copy' | 'paste' | 'selectAll' | 'clear')") &&
+      terminalPoolSource.includes("terminalContextMenuLabel('paste')") &&
+      terminalPoolSource.includes("terminalContextMenuLabel('selectAll')") &&
+      terminalPoolSource.includes("terminalContextMenuLabel('clear')") &&
+      terminalPoolSource.includes('function selectTerminalBuffer(record: SessionRecord)') &&
+      terminalPoolSource.includes('function clearTerminalBuffer(record: SessionRecord)') &&
+      terminalPoolSource.includes("appPath(`/api/control/agents/${encodeURIComponent(record.agentId)}/clear`)") &&
+      terminalPoolSource.includes('record.terminal.clearBuffer()') &&
+      terminalPoolSource.includes('record.terminal.select(0, 0, selectionLength') &&
+      terminalPoolSource.includes('const selection = selectTerminalBuffer(record)') &&
+      terminalPoolSource.includes('function isTerminalClearShortcut(event: KeyboardEvent)') &&
+      terminalPoolSource.includes('function shouldHandleTerminalClearKeyEvent(record: SessionRecord, event: KeyboardEvent)') &&
+      terminalPoolSource.includes('function handleTerminalClearKeyEvent(record: SessionRecord, event: KeyboardEvent)') &&
+      terminalPoolSource.includes('return isMac && event.metaKey') &&
+      terminalPoolSource.includes('handleTerminalClearKeyEvent(record, event) || handleTerminalScrollKeyEvent(record, event) ? false : true') &&
+      terminalPoolSource.includes("document.addEventListener('keydown', clearKeyHandler, true)") &&
+      terminalPoolSource.includes('document.removeEventListener(\'keydown\', record.clearKeyHandler, true)') &&
+      terminalPoolSource.includes("menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')") &&
+      terminalRegressionMatrixSource.includes('context menu paste sends clipboard text to the active terminal') &&
+      terminalRegressionMatrixSource.includes('context menu select all selects terminal scrollback text') &&
+      terminalRegressionMatrixSource.includes('context menu clear removes visible and backend terminal scrollback') &&
+      terminalRegressionMatrixSource.includes('Cmd+K clears visible and backend terminal scrollback on macOS'),
+    'terminal context menu and macOS keybinding should expose VS Code-style Copy, Paste, Select All, and Clear actions with browser coverage'
+  );
+  assert(
+    !terminalPoolSource.includes('record.terminal.input(text, true)\n    scheduleTerminalOutputSnapshotSync(record)'),
+    'terminal context-menu paste should not use xterm.input because it can leave bracketed-paste control fragments in the buffer'
+  );
+  assert(
+    xtermSource.includes('ignoreBracketedPasteMode: true'),
+    'xterm should use the official bracketed-paste escape hatch to avoid leaking 200~/201~ markers in legacy shells'
   );
   assert(
     xtermSource.includes("import { SearchAddon") &&
@@ -358,7 +405,7 @@ function run() {
       terminalPoolSource.includes('export async function clearTerminalSearch') &&
       terminalPoolSource.includes('record.terminal.search(term, direction, options)') &&
       terminalPoolSource.includes('window.__farmingTerminalTest') &&
-      terminalPoolSource.includes('search: (agentId: string, term: string, direction?: TerminalSearchDirection)'),
+      terminalPoolSource.includes('search: (agentId: string, term: string, direction?: TerminalSearchDirection, options?: TerminalSearchOptions)'),
     'terminal session pool should route terminal search by agent id and expose it to browser regression tests'
   );
   assert(
@@ -568,8 +615,11 @@ function run() {
       terminalViewportSource.includes('record.preserveUnreadOutputUntilJump = true') &&
       terminalOutputSource.includes('markTerminalOutputUnreadUntilJump(record)') &&
       terminalPoolSource.includes('allowClearUnread: true') &&
+      terminalPoolSource.includes('setFollowOutputState(record, atBottom, atBottom ? false : record.hasUnreadOutput, {\n      allowClearUnread: atBottom,') &&
       terminalPoolSource.includes('if (record.disposed || !isTerminalSessionAttached(record)) return') &&
       terminalOutputSource.includes('export function restoreViewportAfterLayout') &&
+      terminalOutputSource.includes('scrollRecordToBottom(record, { allowClearUnread: true })') &&
+      terminalOutputSource.includes('setFollowOutputState(record, true, false, { allowClearUnread: true })') &&
       terminalPoolSource.includes('restoreViewportAfterLayout(record, previousViewportY, previousScrollbackLength, wasFollowing, hadUnreadOutput)') &&
       terminalPoolSource.includes('previousViewportY') &&
       terminalPoolSource.includes('previousScrollbackLength') &&

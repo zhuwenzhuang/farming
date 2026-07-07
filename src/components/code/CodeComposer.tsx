@@ -79,6 +79,14 @@ function ComposerMicIcon({ listening }: { listening: boolean }) {
   )
 }
 
+function ComposerSpeedIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M8.85 1.35a.55.55 0 0 1 .55.68L8.28 6.1h3.07a.55.55 0 0 1 .42.9l-5.5 6.6a.55.55 0 0 1-.96-.48l1.12-4.2H3.65a.55.55 0 0 1-.44-.88l5.2-6.48a.55.55 0 0 1 .44-.21ZM4.8 7.9h2.34a.55.55 0 0 1 .53.69l-.63 2.38L10.17 7.1H7.56a.55.55 0 0 1-.53-.7l.62-2.26L4.8 7.9Z" />
+    </svg>
+  )
+}
+
 interface SlashTrigger {
   start: number
   end: number
@@ -722,6 +730,11 @@ export function CodeComposer({
                 title={[currentModelLabel, displayedReasoningLabel, displayedSpeedLabel].filter(Boolean).join(' · ')}
                 onClick={onToggleModelMenu}
               >
+                {agentServiceTier === 'priority' && (
+                  <span className="code-composer-speed-active" aria-hidden="true">
+                    <ComposerSpeedIcon />
+                  </span>
+                )}
                 <span className="code-composer-model-label desktop">{currentModelLabel}</span>
                 <span className="code-composer-model-label mobile">{compactModelLabel}</span>
                 <span className="code-composer-model-picker-muted desktop">{displayedReasoningLabel}</span>

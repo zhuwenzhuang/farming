@@ -1,13 +1,17 @@
 import {
   Children,
+  createContext,
+  forwardRef,
   isValidElement,
   useCallback,
+  useContext,
   useEffect,
   useId,
   useMemo,
   useRef,
   useState,
   type HTMLAttributes,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent,
   type ReactNode,
 } from 'react'
@@ -20,12 +24,13 @@ import { parse as parseYaml } from 'yaml'
 import 'katex/dist/katex.min.css'
 import { rawWorkspaceFileUrl } from '@/lib/workspace-files'
 import { workspaceEditorBasename } from '@/lib/workspace-editor-model'
-import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
+import type { OpenWorkspaceFile, WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from '../code/copy'
 
 interface FileEditorMarkdownPreviewProps {
   activeTabDomId: string
   openFile: OpenWorkspaceFile
+  onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   copy: CodeCopy
 }
 
@@ -42,8 +47,21 @@ type MarkdownFrontMatter = {
   entries: MarkdownFrontMatterEntry[]
   error?: string
 }
+type MarkdownPreviewContextValue = {
+  openFile: OpenWorkspaceFile
+  onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
+  copy: CodeCopy
+  nextHeadingId: (children: ReactNode) => string
+}
 
 const MERMAID_FONT = 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+const MarkdownPreviewContext = createContext<MarkdownPreviewContextValue | null>(null)
+
+function useMarkdownPreviewContext() {
+  const value = useContext(MarkdownPreviewContext)
+  if (!value) throw new Error('Markdown preview context is missing')
+  return value
+}
 
 function dirname(filePath: string) {
   const parts = filePath.split('/').filter(Boolean)
@@ -79,10 +97,9 @@ function markdownImageUrl(openFile: OpenWorkspaceFile, src: string) {
   return workspacePath ? rawWorkspaceFileUrl(openFile.agentId, workspacePath) : src
 }
 
-function markdownLinkUrl(openFile: OpenWorkspaceFile, href: string) {
-  if (!href || href.startsWith('#') || isExternalResource(href)) return href
-  const workspacePath = normalizeWorkspaceResourcePath(openFile.file.path, href)
-  return workspacePath ? rawWorkspaceFileUrl(openFile.agentId, workspacePath) : href
+function markdownWorkspaceLinkPath(openFile: OpenWorkspaceFile, href: string) {
+  if (!href || href.startsWith('#') || isExternalResource(href)) return null
+  return normalizeWorkspaceResourcePath(openFile.file.path, href)
 }
 
 function hashMermaidSource(source: string) {
@@ -242,6 +259,117 @@ function MarkdownHeading({
       </a>
     </HeadingTag>
   )
+}
+
+const MarkdownH1: Components['h1'] = ({ children, ...props }) => {
+  const { copy, nextHeadingId } = useMarkdownPreviewContext()
+  return (
+    <MarkdownHeading {...props} tag="h1" copy={copy} nextHeadingId={nextHeadingId}>
+      {children}
+    </MarkdownHeading>
+  )
+}
+
+const MarkdownH2: Components['h2'] = ({ children, ...props }) => {
+  const { copy, nextHeadingId } = useMarkdownPreviewContext()
+  return (
+    <MarkdownHeading {...props} tag="h2" copy={copy} nextHeadingId={nextHeadingId}>
+      {children}
+    </MarkdownHeading>
+  )
+}
+
+const MarkdownH3: Components['h3'] = ({ children, ...props }) => {
+  const { copy, nextHeadingId } = useMarkdownPreviewContext()
+  return (
+    <MarkdownHeading {...props} tag="h3" copy={copy} nextHeadingId={nextHeadingId}>
+      {children}
+    </MarkdownHeading>
+  )
+}
+
+const MarkdownH4: Components['h4'] = ({ children, ...props }) => {
+  const { copy, nextHeadingId } = useMarkdownPreviewContext()
+  return (
+    <MarkdownHeading {...props} tag="h4" copy={copy} nextHeadingId={nextHeadingId}>
+      {children}
+    </MarkdownHeading>
+  )
+}
+
+const MarkdownH5: Components['h5'] = ({ children, ...props }) => {
+  const { copy, nextHeadingId } = useMarkdownPreviewContext()
+  return (
+    <MarkdownHeading {...props} tag="h5" copy={copy} nextHeadingId={nextHeadingId}>
+      {children}
+    </MarkdownHeading>
+  )
+}
+
+const MarkdownH6: Components['h6'] = ({ children, ...props }) => {
+  const { copy, nextHeadingId } = useMarkdownPreviewContext()
+  return (
+    <MarkdownHeading {...props} tag="h6" copy={copy} nextHeadingId={nextHeadingId}>
+      {children}
+    </MarkdownHeading>
+  )
+}
+
+const MarkdownLink: Components['a'] = ({ href, children, onClick, ...props }) => {
+  const { openFile, onOpenFilePath } = useMarkdownPreviewContext()
+  const workspacePath = href ? markdownWorkspaceLinkPath(openFile, href) : null
+  const external = href ? isExternalResource(href) : false
+  const nextHref = workspacePath ? '#' : href
+  const handleClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    onClick?.(event)
+    if (event.defaultPrevented || !workspacePath) return
+    event.preventDefault()
+    void onOpenFilePath(openFile.agentId, workspacePath)
+  }
+  return (
+    <a
+      {...props}
+      href={nextHref}
+      target={external ? '_blank' : undefined}
+      rel={external ? 'noreferrer' : undefined}
+      onClick={handleClick}
+    >
+      {children}
+    </a>
+  )
+}
+
+const MarkdownImage: Components['img'] = ({ src, alt, ...props }) => {
+  const { openFile } = useMarkdownPreviewContext()
+  const nextSrc = src ? markdownImageUrl(openFile, src) : undefined
+  return (
+    <img
+      {...props}
+      src={nextSrc}
+      alt={alt || workspaceEditorBasename(openFile.file.path)}
+      draggable={false}
+    />
+  )
+}
+
+const MarkdownPre: Components['pre'] = ({ children, ...props }) => {
+  const { copy } = useMarkdownPreviewContext()
+  const mermaidSource = isMermaidCodeBlock(children)
+  if (mermaidSource !== null) return <MermaidBlock source={mermaidSource} copy={copy} />
+  const language = codeBlockLanguage(children)
+  return <pre {...props} data-language={language || undefined}>{children}</pre>
+}
+
+const MARKDOWN_COMPONENTS: Components = {
+  h1: MarkdownH1,
+  h2: MarkdownH2,
+  h3: MarkdownH3,
+  h4: MarkdownH4,
+  h5: MarkdownH5,
+  h6: MarkdownH6,
+  a: MarkdownLink,
+  img: MarkdownImage,
+  pre: MarkdownPre,
 }
 
 function currentMermaidAppearance(): MermaidAppearance {
@@ -525,68 +653,20 @@ function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy }) {
   )
 }
 
-export function FileEditorMarkdownPreview({
+export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkdownPreviewProps>(function FileEditorMarkdownPreview({
   activeTabDomId,
   openFile,
+  onOpenFilePath,
   copy,
-}: FileEditorMarkdownPreviewProps) {
+}, ref) {
   const source = openFile.draft ?? openFile.file.content ?? ''
   const markdownDocument = splitMarkdownFrontMatter(source)
   const nextHeadingId = createHeadingIdFactory()
-  const components: Components = {
-    h1({ children, ...props }) {
-      return <MarkdownHeading {...props} tag="h1" copy={copy} nextHeadingId={nextHeadingId}>{children}</MarkdownHeading>
-    },
-    h2({ children, ...props }) {
-      return <MarkdownHeading {...props} tag="h2" copy={copy} nextHeadingId={nextHeadingId}>{children}</MarkdownHeading>
-    },
-    h3({ children, ...props }) {
-      return <MarkdownHeading {...props} tag="h3" copy={copy} nextHeadingId={nextHeadingId}>{children}</MarkdownHeading>
-    },
-    h4({ children, ...props }) {
-      return <MarkdownHeading {...props} tag="h4" copy={copy} nextHeadingId={nextHeadingId}>{children}</MarkdownHeading>
-    },
-    h5({ children, ...props }) {
-      return <MarkdownHeading {...props} tag="h5" copy={copy} nextHeadingId={nextHeadingId}>{children}</MarkdownHeading>
-    },
-    h6({ children, ...props }) {
-      return <MarkdownHeading {...props} tag="h6" copy={copy} nextHeadingId={nextHeadingId}>{children}</MarkdownHeading>
-    },
-    a({ href, children, ...props }) {
-      const nextHref = href ? markdownLinkUrl(openFile, href) : undefined
-      const external = nextHref ? isExternalResource(nextHref) : false
-      return (
-        <a
-          {...props}
-          href={nextHref}
-          target={external ? '_blank' : undefined}
-          rel={external ? 'noreferrer' : undefined}
-        >
-          {children}
-        </a>
-      )
-    },
-    img({ src, alt, ...props }) {
-      const nextSrc = src ? markdownImageUrl(openFile, src) : undefined
-      return (
-        <img
-          {...props}
-          src={nextSrc}
-          alt={alt || workspaceEditorBasename(openFile.file.path)}
-          draggable={false}
-        />
-      )
-    },
-    pre({ children, ...props }) {
-      const mermaidSource = isMermaidCodeBlock(children)
-      if (mermaidSource !== null) return <MermaidBlock source={mermaidSource} copy={copy} />
-      const language = codeBlockLanguage(children)
-      return <pre {...props} data-language={language || undefined}>{children}</pre>
-    },
-  }
+  const contextValue = { openFile, onOpenFilePath, copy, nextHeadingId }
 
   return (
     <section
+      ref={ref}
       className="code-file-preview-panel markdown"
       data-testid="code-file-markdown-preview"
       role="tabpanel"
@@ -594,14 +674,21 @@ export function FileEditorMarkdownPreview({
       aria-label={copy.markdownPreviewFor(openFile.file.path)}
       tabIndex={-1}
     >
-      <article className="code-markdown-preview">
-        {markdownDocument.frontMatter && (
-          <MarkdownFrontMatterTable frontMatter={markdownDocument.frontMatter} copy={copy} />
-        )}
-        <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex, rehypeHighlight]} components={components} skipHtml>
-          {markdownDocument.body}
-        </ReactMarkdown>
-      </article>
+      <MarkdownPreviewContext.Provider value={contextValue}>
+        <article className="code-markdown-preview">
+          {markdownDocument.frontMatter && (
+            <MarkdownFrontMatterTable frontMatter={markdownDocument.frontMatter} copy={copy} />
+          )}
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[rehypeKatex, rehypeHighlight]}
+            components={MARKDOWN_COMPONENTS}
+            skipHtml
+          >
+            {markdownDocument.body}
+          </ReactMarkdown>
+        </article>
+      </MarkdownPreviewContext.Provider>
     </section>
   )
-}
+})

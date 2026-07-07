@@ -4,18 +4,23 @@ const { parseCommand, resolveLaunchCommand } = require('../cli-agents');
 function run() {
   const claudeDefault = resolveLaunchCommand('claude', { dangerouslySkipPermissions: false });
   assert.deepStrictEqual(claudeDefault.args, []);
+  assert.strictEqual(claudeDefault.permissionMode, '');
 
   const claudeSkip = resolveLaunchCommand('claude', { dangerouslySkipPermissions: true });
   assert.deepStrictEqual(claudeSkip.args, ['--dangerously-skip-permissions']);
+  assert.strictEqual(claudeSkip.permissionMode, 'bypassPermissions');
 
   const codexSkip = resolveLaunchCommand('codex', { dangerouslySkipPermissions: true });
   assert.deepStrictEqual(codexSkip.args, ['--dangerously-bypass-approvals-and-sandbox']);
+  assert.strictEqual(codexSkip.permissionMode, 'full');
 
   const codexAsk = resolveLaunchCommand('codex', { codexApprovalMode: 'ask', dangerouslySkipPermissions: true });
   assert.deepStrictEqual(codexAsk.args, ['--ask-for-approval', 'untrusted', '--sandbox', 'workspace-write']);
+  assert.strictEqual(codexAsk.permissionMode, 'ask');
 
   const codexApprove = resolveLaunchCommand('codex --search', { codexApprovalMode: 'approve' });
   assert.deepStrictEqual(codexApprove.args, ['--ask-for-approval', 'on-request', '--sandbox', 'workspace-write', '--search']);
+  assert.strictEqual(codexApprove.permissionMode, 'approve');
 
   const codexModel = resolveLaunchCommand('codex', { codexModelPreset: 'gpt-5.5-pro:high' });
   assert.deepStrictEqual(codexModel.args, ['-c', 'model_reasoning_effort="high"', '--model', 'gpt-5.5-pro']);
@@ -39,9 +44,11 @@ function run() {
 
   const codexFull = resolveLaunchCommand('codex', { codexApprovalMode: 'full' });
   assert.deepStrictEqual(codexFull.args, ['--dangerously-bypass-approvals-and-sandbox']);
+  assert.strictEqual(codexFull.permissionMode, 'full');
 
   const codexManualApproval = resolveLaunchCommand('codex --ask-for-approval never', { codexApprovalMode: 'ask' });
   assert.deepStrictEqual(codexManualApproval.args, ['--ask-for-approval', 'never']);
+  assert.strictEqual(codexManualApproval.permissionMode, 'custom');
 
   assert.deepStrictEqual(
     parseCommand("codex resume -C '/repo/with space' 019f0000-0000-7000-8000-000000000101"),
@@ -60,9 +67,23 @@ function run() {
     '/repo/with space',
     '019f0000-0000-7000-8000-000000000101',
   ]);
+  assert.strictEqual(codexResume.permissionMode, 'approve');
+
+  const codexFullResume = resolveLaunchCommand("codex resume -C '/repo/with space' 019f0000-0000-7000-8000-000000000101", {
+    codexApprovalMode: 'full',
+  });
+  assert.deepStrictEqual(codexFullResume.args, [
+    '--dangerously-bypass-approvals-and-sandbox',
+    'resume',
+    '-C',
+    '/repo/with space',
+    '019f0000-0000-7000-8000-000000000101',
+  ]);
+  assert.strictEqual(codexFullResume.permissionMode, 'full');
 
   const codexCustom = resolveLaunchCommand('codex', { codexApprovalMode: 'custom', dangerouslySkipPermissions: false });
   assert.deepStrictEqual(codexCustom.args, []);
+  assert.strictEqual(codexCustom.permissionMode, 'custom');
 
   const codexUnifiedProfile = resolveLaunchCommand('codex --search', {
     agentLaunchProfiles: {
@@ -121,6 +142,7 @@ function run() {
     },
   });
   assert.deepStrictEqual(claudeBypassProfile.args, ['--permission-mode', 'bypassPermissions']);
+  assert.strictEqual(claudeBypassProfile.permissionMode, 'bypassPermissions');
 
   const claudeManualProfileArgs = resolveLaunchCommand('claude --permission-mode default --model opus --effort low', {
     agentLaunchProfiles: {

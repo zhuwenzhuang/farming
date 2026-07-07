@@ -23,6 +23,7 @@ export interface CodeCopy {
   pinAgent: string
   unpinAgent: string
   renameAgent: string
+  renameProject: string
   archiveAgent: string
   markAsRead: string
   markAsUnread: string
@@ -46,6 +47,7 @@ export interface CodeCopy {
   pinChat: string
   unpinChat: string
   archiveChat: string
+  archiveChats: string
   archiveProject: string
   deleteWorktree: string
   deleteWorktreeQuestion: string
@@ -121,6 +123,8 @@ export interface CodeCopy {
   files: string
   changes: string
   changedFiles: string
+  trackedChanges: string
+  untrackedChanges: string
   refreshChanges: string
   searchOrPathLine: string
   searchFilesOrJump: string
@@ -133,6 +137,9 @@ export interface CodeCopy {
   terminalSearchPrevious: string
   terminalSearchNext: string
   terminalSearchClose: string
+  terminalSearchCaseSensitive: string
+  terminalSearchWholeWord: string
+  terminalSearchRegex: string
   terminalSearchNoResults: string
   terminalSearchResults: (current: number, total: number) => string
   terminalSessionUnavailable: string
@@ -161,8 +168,12 @@ export interface CodeCopy {
   openFileDiff: string
   openFileDiffFor: (path: string) => string
   closeDiff: string
+  openFilePreview: string
+  showFileSource: string
   openMarkdownPreview: string
   showMarkdownSource: string
+  openMarkdownSplitPreview: string
+  closeMarkdownSplitPreview: string
   markdownPreviewFor: (path: string) => string
   markdownFrontMatter: string
   markdownHeadingAnchor: string
@@ -235,6 +246,9 @@ export interface CodeCopy {
   recentWorkspacesLower: string
   start: string
   back: string
+  backToAgent: string
+  goBack: string
+  goForward: string
   backendConnecting: string
   backendConnectionLost: string
   backendHeartbeatLost: string
@@ -263,6 +277,7 @@ const EN_COPY: CodeCopy = {
   pinAgent: 'Pin Agent',
   unpinAgent: 'Unpin Agent',
   renameAgent: 'Rename Agent',
+  renameProject: 'Rename project',
   archiveAgent: 'Archive',
   markAsRead: 'Mark as read',
   markAsUnread: 'Mark as unread',
@@ -286,6 +301,7 @@ const EN_COPY: CodeCopy = {
   pinChat: 'Pin chat',
   unpinChat: 'Unpin chat',
   archiveChat: 'Archive',
+  archiveChats: 'Archive chats',
   archiveProject: 'Archive Project',
   deleteWorktree: 'Delete Worktree',
   deleteWorktreeQuestion: 'Delete Worktree?',
@@ -361,6 +377,8 @@ const EN_COPY: CodeCopy = {
   files: 'Files',
   changes: 'Changes',
   changedFiles: 'Changed files',
+  trackedChanges: 'Tracked',
+  untrackedChanges: 'Untracked',
   refreshChanges: 'Refresh changes',
   searchOrPathLine: 'Search or path:line',
   searchFilesOrJump: 'Search files or jump to path line',
@@ -373,6 +391,9 @@ const EN_COPY: CodeCopy = {
   terminalSearchPrevious: 'Previous match',
   terminalSearchNext: 'Next match',
   terminalSearchClose: 'Close terminal search',
+  terminalSearchCaseSensitive: 'Match case',
+  terminalSearchWholeWord: 'Match whole word',
+  terminalSearchRegex: 'Use regular expression',
   terminalSearchNoResults: 'No results',
   terminalSearchResults: (current, total) => `${current}/${total}`,
   terminalSessionUnavailable: 'Terminal session unavailable',
@@ -401,8 +422,12 @@ const EN_COPY: CodeCopy = {
   openFileDiff: 'Open File Diff',
   openFileDiffFor: path => `Open diff for ${path}`,
   closeDiff: 'Close diff',
+  openFilePreview: 'Open preview',
+  showFileSource: 'Show source',
   openMarkdownPreview: 'Open Markdown preview',
   showMarkdownSource: 'Show Markdown source',
+  openMarkdownSplitPreview: 'Open Markdown preview to side',
+  closeMarkdownSplitPreview: 'Close Markdown side preview',
   markdownPreviewFor: path => `Markdown preview for ${path}`,
   markdownFrontMatter: 'Front matter',
   markdownHeadingAnchor: 'Link to heading',
@@ -475,6 +500,9 @@ const EN_COPY: CodeCopy = {
   recentWorkspacesLower: 'recent workspaces',
   start: 'Start',
   back: 'Back',
+  backToAgent: 'Back to Agent',
+  goBack: 'Go Back',
+  goForward: 'Go Forward',
   backendConnecting: 'Connecting to Farming backend...',
   backendConnectionLost: 'Farming backend disconnected. Reconnecting...',
   backendHeartbeatLost: 'No Farming backend heartbeat. Waiting for it to recover...',
@@ -503,6 +531,7 @@ const ZH_COPY: CodeCopy = {
   pinAgent: '置顶 Agent',
   unpinAgent: '取消置顶',
   renameAgent: '重命名 Agent',
+  renameProject: '重命名项目',
   archiveAgent: '归档',
   markAsRead: '标为已读',
   markAsUnread: '标为未读',
@@ -526,6 +555,7 @@ const ZH_COPY: CodeCopy = {
   pinChat: '置顶会话',
   unpinChat: '取消置顶会话',
   archiveChat: '归档',
+  archiveChats: '归档会话',
   archiveProject: '归档项目',
   deleteWorktree: '删除 worktree',
   deleteWorktreeQuestion: '删除 worktree？',
@@ -637,6 +667,8 @@ const ZH_COPY: CodeCopy = {
   files: '文件',
   changes: '变更',
   changedFiles: '变更文件',
+  trackedChanges: '已跟踪',
+  untrackedChanges: '未跟踪',
   refreshChanges: '刷新变更',
   searchOrPathLine: '搜索或路径:行号',
   searchFilesOrJump: '搜索文件或跳转到路径行号',
@@ -649,6 +681,9 @@ const ZH_COPY: CodeCopy = {
   terminalSearchPrevious: '上一个匹配',
   terminalSearchNext: '下一个匹配',
   terminalSearchClose: '关闭终端搜索',
+  terminalSearchCaseSensitive: '区分大小写',
+  terminalSearchWholeWord: '全词匹配',
+  terminalSearchRegex: '使用正则表达式',
   terminalSearchNoResults: '无结果',
   terminalSearchResults: (current, total) => `${current}/${total}`,
   terminalSessionUnavailable: '终端会话不可用',
@@ -677,8 +712,12 @@ const ZH_COPY: CodeCopy = {
   openFileDiff: '打开文件 Diff',
   openFileDiffFor: path => `打开 ${path} 的 Diff`,
   closeDiff: '关闭 Diff',
+  openFilePreview: '打开预览',
+  showFileSource: '显示源码',
   openMarkdownPreview: '打开 Markdown 预览',
   showMarkdownSource: '显示 Markdown 源码',
+  openMarkdownSplitPreview: '打开 Markdown 侧边预览',
+  closeMarkdownSplitPreview: '关闭 Markdown 侧边预览',
   markdownPreviewFor: path => `${path} 的 Markdown 预览`,
   markdownFrontMatter: 'Front matter',
   markdownHeadingAnchor: '跳转到这个标题',
@@ -751,6 +790,9 @@ const ZH_COPY: CodeCopy = {
   recentWorkspacesLower: '最近工作区',
   start: '启动',
   back: '返回',
+  backToAgent: '返回 Agent',
+  goBack: '后退',
+  goForward: '前进',
   backendConnecting: '正在连接 Farming 后端...',
   backendConnectionLost: 'Farming 后端连接已断开，正在重连...',
   backendHeartbeatLost: '没有收到 Farming 后端心跳，正在等待恢复...',

@@ -600,49 +600,11 @@ test.describe('human Farming Agent story', () => {
     await expect.poll(() => sessionText(page, agentId)).toContain('/goal ship slash commands')
   })
 
-  test('offers Claude Code slash commands and workspace skills without a real Claude account', async ({ page, workspaceRoot }) => {
-    const projectDir = path.join(workspaceRoot, 'claude-skills')
-    const skillDir = path.join(projectDir, '.claude', 'skills', 'port-mapping')
-    fs.mkdirSync(skillDir, { recursive: true })
-    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), 'Port mapping skill body should stay server-side.\n')
-
+  test('shows Claude Code as an available launch option without starting it', async ({ page }) => {
     await openFarming(page)
     await openNewAgentDialog(page)
-    const agentId = await startAgentFromOpenDialog(page, 'claude', projectDir)
-
-    const textarea = page.getByTestId('code-composer').locator('textarea')
-    await textarea.fill('/')
-    await expect(page.getByTestId('code-slash-menu')).toBeVisible()
-    await expect.poll(async () => {
-      const box = await page.getByTestId('code-slash-menu').boundingBox()
-      return Math.round(box?.width ?? 0)
-    }).toBeLessThanOrEqual(760)
-    await textarea.press('End')
-    await expect.poll(async () => page.getByTestId('code-slash-command-memory').evaluate(element => {
-      const menu = element.closest('[data-testid="code-slash-menu"]')
-      if (!menu) return false
-      const itemRect = element.getBoundingClientRect()
-      const menuRect = menu.getBoundingClientRect()
-      return itemRect.top >= menuRect.top && itemRect.bottom <= menuRect.bottom
-    })).toBe(true)
-    await textarea.press('Escape')
-
-    await textarea.fill('/per')
-    await expect(page.getByTestId('code-slash-menu')).toBeVisible()
-    await expect(page.getByTestId('code-slash-command-permissions')).toBeVisible()
-    await expect(page.getByTestId('code-slash-command-goal')).toHaveCount(0)
-    await textarea.press('Escape')
-    await expect(page.getByTestId('code-slash-menu')).toBeHidden()
-
-    await textarea.fill('/port')
-    await expect(page.getByTestId('code-slash-command-port-mapping')).toBeVisible()
-    await expect(page.getByTestId('code-slash-menu')).not.toContainText('Port mapping skill body')
-    await textarea.press('Enter')
-    await expect(textarea).toHaveValue('/port-mapping ')
-    await textarea.type('show routes')
-    await expect(textarea).toHaveValue('/port-mapping show routes')
-    await page.getByTestId('code-composer-send').click()
-    await expect.poll(() => sessionText(page, agentId)).toContain('/port-mapping show routes')
+    await expect(page.getByTestId('agent-option-claude')).toContainText('Claude Code')
+    await expect(page.getByTestId('code-agent-row')).toHaveCount(0)
   })
 
   test('opens an existing project agent and completes a real file edit through the terminal', async ({ page, workspaceRoot }) => {

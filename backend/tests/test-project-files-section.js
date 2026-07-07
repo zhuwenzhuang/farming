@@ -27,6 +27,8 @@ function run() {
   const fileSearchResultsSource = read('src/components/files/FileSearchResults.tsx');
   const fileSectionBodySource = read('src/components/files/FileSectionBody.tsx');
   const fileSectionHeaderSource = read('src/components/files/FileSectionHeader.tsx');
+  const fileChangesSectionSource = read('src/components/files/FileChangesSection.tsx');
+  const fileChangesHookSource = read('src/components/files/useWorkspaceFileChanges.ts');
   const fileSectionViewModelSource = read('src/components/files/useProjectFilesSectionViewModel.ts');
   const fileSectionOverlaysSource = read('src/components/files/FileSectionOverlays.tsx');
   const fileStickyContextSource = read('src/components/files/FileStickyContext.tsx');
@@ -159,22 +161,32 @@ function run() {
 	      workspaceSource.includes('workspaceOpenFiles.openFromRead(agentId, file, openRequest)') &&
 	      workspaceSource.includes('workspaceOpenFiles.select(agentId, filePath, openRequest)') &&
 	      workspaceSource.includes('workspaceOpenFiles.close(targets)') &&
+	      workspaceSource.includes('workspaceOpenFiles.reopenLastClosed(file => activeAgents.some(agent => (') &&
 	      workspaceSource.includes('workspaceOpenFiles.update(nextFile)') &&
 	      workspaceSource.includes('workspaceOpenFiles.updateDraft(nextDraft)') &&
 	      workspaceSource.includes('workspaceOpenFiles.move(agentId, moves)') &&
 	      workspaceSource.includes('workspaceOpenFiles.deleteEntries(agentId, deletions)') &&
+	      workspaceSource.includes('function isReopenClosedEditorShortcut') &&
+	      workspaceSource.includes('isReopenClosedEditorShortcut(event)') &&
+	      workspaceSource.includes('reopenLastClosedWorkspaceFile()') &&
 	      openFilesHookSource.includes('closedFiles,') &&
+	      openFilesHookSource.includes('reopenLastClosed,') &&
 	      openFilesHookSource.includes('export function useWorkspaceOpenFiles') &&
 	      openFilesHookSource.includes('const stateRef = useRef(state)') &&
 	      openFilesHookSource.includes('openWorkspaceFileFromRead(stateRef.current, agentId, file, options)') &&
 	      openFilesHookSource.includes('selectWorkspaceOpenFile(stateRef.current, agentId, filePath, options)') &&
 	      openFilesHookSource.includes('closeWorkspaceOpenFiles(stateRef.current, targets)') &&
+	      openFilesHookSource.includes('reopenLastClosedWorkspaceOpenFile(stateRef.current, { canReopen })') &&
 	      openFilesHookSource.includes('updateWorkspaceOpenFile(stateRef.current, nextFile)') &&
 	      openFilesHookSource.includes('updateWorkspaceOpenFileDraft(activeFile, nextDraft)') &&
 	      openFilesHookSource.includes('moveWorkspaceOpenFiles(stateRef.current, agentId, moves)') &&
 	      openFilesHookSource.includes('deleteWorkspaceOpenFiles(stateRef.current, agentId, deletions)') &&
 	      openFilesHookSource.includes('Array.from(state.closedFileCache.values())') &&
 	      openFilesSource.includes('workspaceFileCacheKey') &&
+	      openFilesSource.includes('const MAX_CLOSED_WORKSPACE_FILE_CACHE = 32') &&
+	      openFilesSource.includes('function rememberClosedWorkspaceOpenFile') &&
+	      openFilesSource.includes('rememberClosedWorkspaceOpenFile(closedFileCache, file)') &&
+	      openFilesSource.includes('export function reopenLastClosedWorkspaceOpenFile') &&
 	      openFilesSource.includes('interface WorkspaceFileCursor') &&
 	      openFilesSource.includes('function refreshOpenWorkspaceFileFromRead') &&
 	      openFilesSource.includes('const existingFile = findOpenWorkspaceFile(state.files, agentId, file.path, request.workspaceRoot)') &&
@@ -189,7 +201,6 @@ function run() {
 	      openFilesSource.includes('function normalizeWorkspaceOpenFileRequest') &&
 	      openFilesSource.includes('diffOnly: request.diffOnly === true') &&
 	      openFilesSource.includes('cachedFile.draft !== file.content') &&
-	      openFilesSource.includes('if (file.dirty)') &&
 	      openFilesSource.includes('const targetKeys = new Set') &&
 	      workspaceSource.includes('onCloseOpenWorkspaceFiles={closeOpenWorkspaceFiles}') &&
 	      openFilesSource.includes('closedFileCache.delete(workspaceOpenFileKey(nextFile))') &&
@@ -251,8 +262,8 @@ function run() {
 	      terminalPoolSource.includes('function readDomTerminalLineAtMouseEvent') &&
 	      terminalPoolSource.includes("target.closest<HTMLElement>('.xterm-rows > div')") &&
 	      terminalPoolSource.includes('function findTerminalPathTargetAtMouseEvent') &&
-	      terminalPoolSource.includes('Click to open path') &&
-	      terminalPoolSource.includes('点击打开路径') &&
+	      terminalPoolSource.includes('Click to open file or folder') &&
+	      terminalPoolSource.includes('点击打开文件或文件夹') &&
       terminalLinksSource.includes('const TERMINAL_URL_PATTERN') &&
       terminalLinksSource.includes('function parseTerminalUrlAtColumn') &&
       terminalPoolSource.includes('function findTerminalUrlAtMouseEvent') &&
@@ -314,10 +325,30 @@ function run() {
       !fileSectionSource.includes('renameWorkspaceEntry') &&
       !fileSectionSource.includes('deleteWorkspaceEntry') &&
       fileSectionSource.includes('useWorkspaceFileSearch') &&
-      !fileSectionSource.includes('useWorkspaceFileChangesController') &&
-      !fileSectionSource.includes('<FileChangesSection') &&
-      !fileSectionSource.includes('onWorkspaceChange: refreshFileChanges') &&
-      !fileSectionSource.includes('const openFileDirtyStateRef = useRef(new Map<string, boolean>())') &&
+      fileSectionSource.includes('useWorkspaceFileChanges') &&
+      fileSectionSource.includes('<FileChangesSection') &&
+      fileSectionSource.includes('const [changesCollapsed, setChangesCollapsed] = useState(true)') &&
+      fileSectionSource.includes('onWorkspaceChange: fileChanges.refreshChanges') &&
+      fileSectionSource.includes('workspaceFileOpenTargetForChange(change)') &&
+      fileSectionSource.includes('transient: true') &&
+      fileChangesHookSource.includes('fetchWorkspaceChanges') &&
+      fileChangesHookSource.includes('workspaceOpenFileDirtyStateForAgent') &&
+      fileChangesHookSource.includes('shouldRefreshWorkspaceChangesAfterDirtyStateChange') &&
+      fileChangesSectionSource.includes('workspaceFileChangeRowKey(change)') &&
+      fileChangesSectionSource.includes('workspaceFileChangeTitle(change, gitStatusTitle)') &&
+      fileChangesSectionSource.includes('function buildChangeTree') &&
+      fileChangesSectionSource.includes('function compactChangeTreeNodes') &&
+      fileChangesSectionSource.includes("change.type === 'directory'") &&
+      fileChangesSectionSource.includes('displayName: `${compacted.displayName ?? compacted.name}/${child.displayName ?? child.name}`') &&
+      fileChangesSectionSource.includes('data-testid="code-file-change-directory-row"') &&
+      fileChangesSectionSource.includes('if (collapsed) changes.refreshChanges()') &&
+      !fileChangesSectionSource.includes('code-file-changes-refresh') &&
+      fileChangesSectionSource.includes('data-testid="code-file-change-row"') &&
+      fileChangesSectionSource.includes('data-testid="code-file-change-tracked-group"') &&
+      fileChangesSectionSource.includes('data-testid="code-file-change-untracked-group"') &&
+      fileChangesSectionSource.includes('<span>{copy.changes}</span>') &&
+      !fileChangesSectionSource.includes('copy.trackedChanges') &&
+      fileChangesSectionSource.includes('copy.untrackedChanges') &&
       !fileSectionSource.includes("diffOnly: change.gitStatus === 'deleted'") &&
       openFilesSource.includes('function workspaceFileOpenTargetForChange') &&
       openFilesSource.includes("diffOnly: change.gitStatus === 'deleted'") &&
@@ -335,7 +366,9 @@ function run() {
       !fileOpenControllerSource.includes('function deletedDiffPlaceholderFile') &&
       !fileOpenControllerSource.includes('function shouldOpenMissingFileAsDiff') &&
       !fileOpenControllerSource.includes('function shouldRevealSelectedOpenFile') &&
-      openFilesSource.includes("target?.gitStatus !== 'deleted'") &&
+      openFilesSource.includes("target?.revealInTree !== false && target?.gitStatus !== 'deleted'") &&
+      openFilesSource.includes("view: change.gitStatus === 'untracked' ? 'editor' : 'diff'") &&
+      openFilesSource.includes('revealInTree: false') &&
       fileOpenControllerSource.includes('onSelectOpenFile?.(agentId, filePath, target)') &&
       fileOpenControllerSource.includes('if (shouldRevealSelectedWorkspaceOpenFile(target)) void onRevealFilePath(filePath)') &&
 	      fileOpenControllerSource.includes('onClearSearch()') &&
@@ -484,8 +517,11 @@ function run() {
       fileFocusHookSource.includes('const treeDataRef = useRef(treeData)') &&
       fileFocusHookSource.includes('treeDataRef.current = treeData') &&
       fileFocusHookSource.includes('const currentTreeData = treeDataRef.current') &&
+      treeModelSource.includes('function visibleWorkspaceDirectoryPathsToOpenForTarget') &&
+      fileFocusHookSource.includes('const directoryPathsToOpen = visibleWorkspaceDirectoryPathsToOpenForTarget(') &&
       fileFocusHookSource.includes('const visibleTargetPath = findVisibleWorkspaceTreePath(currentTreeData, filePath) ?? filePath') &&
-      fileFocusHookSource.includes('if (openTargetDirectory) treeRef.current?.open(visibleTargetPath)') &&
+      fileFocusHookSource.includes('directoryPathsToOpen.forEach(directoryPath => treeRef.current?.open(directoryPath))') &&
+      fileFocusHookSource.includes('refreshTreeLayout(directoryPathsToOpen)') &&
       fileFocusHookSource.includes('const fileTreeRevealGenerationRef = useRef(0)') &&
       fileFocusHookSource.includes('const revealIsCurrent = () => fileTreeRevealGenerationRef.current === revealGeneration') &&
       fileFocusHookSource.includes('if (!revealIsCurrent()) return') &&
@@ -526,8 +562,14 @@ function run() {
 		      fileTreeKeyboardHookSource.includes('shouldCloseWorkspaceFileTreeDirectory({') &&
 		      fileTreeKeyboardHookSource.includes('workspaceFileTreeActivationIntent({') &&
 		      fileViewModelSource.includes('function shouldCancelPendingWorkspaceFileTreeFocus') &&
-		      fileViewModelSource.includes('WORKSPACE_FILE_TREE_FOCUS_CANCEL_KEYS') &&
-		      fileViewModelSource.includes('function workspaceFileTreeKeyboardTargetPath') &&
+				      fileViewModelSource.includes('WORKSPACE_FILE_TREE_FOCUS_CANCEL_KEYS') &&
+				      fileViewModelSource.includes("'Home'") &&
+				      fileViewModelSource.includes("'End'") &&
+				      fileViewModelSource.includes("'PageUp'") &&
+				      fileViewModelSource.includes("'PageDown'") &&
+				      fileViewModelSource.includes('function workspaceFileTreePageJumpSize') &&
+				      fileViewModelSource.includes('function workspaceFileTreePageJumpIndex') &&
+				      fileViewModelSource.includes('function workspaceFileTreeKeyboardTargetPath') &&
 		      fileViewModelSource.includes('function shouldCloseWorkspaceFileTreeDirectory') &&
 		      fileViewModelSource.includes('function workspaceFileTreeActivationIntent') &&
 	      hookSource.includes('if (!directory || directory.loading || directory.error)') &&
@@ -607,7 +649,11 @@ function run() {
 		      !fileTreeRowInteractionsSource.includes('onSetDirectoryOpen(item.path, nextOpen)') &&
 		      !fileTreeRowInteractionsSource.includes('onHydrateCompactDirectoryChains') &&
 		      !fileTreeRowInteractionsSource.includes('onRefreshTreeLayout') &&
-		      fileTreeControllerHookSource.includes('const refreshTreeLayout = useCallback') &&
+		      fileTreeControllerHookSource.includes('const refreshTreeLayout = useCallback((preserveOpenPaths: readonly string[] = []) =>') &&
+		      fileTreeControllerHookSource.includes('openTreePaths(preserveOpenPaths)') &&
+		      fileTreeControllerHookSource.includes('const pathsToOpen = Array.from(openDirectoryPaths)') &&
+		      fileTreeControllerHookSource.includes('const reconcileTreeOpenState = () =>') &&
+		      fileTreeControllerHookSource.includes('syncTreeStateFromArborist()') &&
 	      !fileSectionSource.includes('const refreshTreeLayout = useCallback') &&
       fileFocusHookSource.includes('function revealRowInProjectScroller') &&
       fileFocusHookSource.includes("row.closest<HTMLElement>('.code-project-list')") &&
@@ -622,10 +668,16 @@ function run() {
 		      fileTreeKeyboardHookSource.includes('const handleTreeKeyDownCapture = useCallback') &&
       fileTreeKeyboardHookSource.includes('targetElement?.closest(\'input, textarea, [contenteditable="true"], .code-file-inline-operation\')') &&
       fileTreeKeyboardHookSource.includes("event.key === 'ArrowRight'") &&
-      fileTreeKeyboardHookSource.includes("event.key === 'ArrowDown' || event.key === 'ArrowUp'") &&
-      fileTreeKeyboardHookSource.includes("const nextNode = event.key === 'ArrowDown' ? node.next : node.prev") &&
-      fileTreeKeyboardHookSource.includes('lastFocusedFilePathRef.current = nextNode.data.path') &&
-      fileSectionSource.includes('lastFocusedFilePathRef') &&
+	      fileTreeKeyboardHookSource.includes("event.key === 'ArrowDown' || event.key === 'ArrowUp'") &&
+	      fileTreeKeyboardHookSource.includes("const nextNode = event.key === 'ArrowDown' ? node.next : node.prev") &&
+	      fileTreeKeyboardHookSource.includes('lastFocusedFilePathRef.current = nextNode.data.path') &&
+		      fileTreeKeyboardHookSource.includes("event.key === 'Home' || event.key === 'End'") &&
+		      fileTreeKeyboardHookSource.includes('const visibleNodes = tree?.visibleNodes.filter') &&
+		      fileTreeKeyboardHookSource.includes("const boundaryNode = event.key === 'Home' ? visibleNodes[0] : visibleNodes[visibleNodes.length - 1]") &&
+		      fileTreeKeyboardHookSource.includes("event.key === 'PageUp' || event.key === 'PageDown'") &&
+		      fileTreeKeyboardHookSource.includes('const targetIndex = workspaceFileTreePageJumpIndex({') &&
+		      fileTreeKeyboardHookSource.includes('pageSize: pageJumpSize()') &&
+		      fileSectionSource.includes('lastFocusedFilePathRef') &&
       fileTreeKeyboardHookSource.includes('const focusedNode = tree?.focusedNode && !tree.focusedNode.isRoot ? tree.focusedNode : null') &&
 			      fileTreeKeyboardHookSource.includes("treeViewportRef.current?.querySelector<HTMLElement>('[data-file-path].selected')") &&
 			      fileTreeKeyboardHookSource.includes('selectedPath: selectedRowState.path') &&
@@ -868,9 +920,16 @@ function run() {
 	      fileSearchResultsSource.includes('data-testid="code-file-search-results"') &&
 	      !fileSectionSource.includes('data-testid="code-file-search-results"') &&
       fileSectionHeaderSource.includes('placeholder={copy.searchOrPathLine}') &&
+      fileOpenControllerSource.includes('const FILE_OPEN_PENDING_DELAY_MS = 220') &&
+      fileOpenControllerSource.includes('openFilePendingPath') &&
+      fileOpenControllerSource.includes('scheduleOpenFilePending(requestId, filePath)') &&
+      fileOpenControllerSource.includes('clearOpenFilePending()') &&
+      fileOpenControllerSource.includes('setOpenFilePendingPath(filePath)') &&
+      fileSectionSource.includes('openFilePendingPath') &&
       fileSearchControllerHookSource.includes("event.key === 'ArrowDown'") &&
       fileSearchControllerHookSource.includes("event.key === 'ArrowUp'") &&
       fileTreeViewSource.includes('<FileTreeRow') &&
+      fileTreeViewSource.includes('openFilePendingPath={openFilePendingPath}') &&
       !fileSectionSource.includes('<FileTreeRow') &&
       fileTreeRowSource.includes('data-testid="code-file-row"') &&
       fileTreeRowSource.includes('data-file-type={item.type}') &&
@@ -884,6 +943,8 @@ function run() {
       !fileSectionSource.includes('code-files-header-chevron') &&
       treeRowModelSource.includes("directoryLoading ? 'loading' : isOpen ? 'expanded' : 'collapsed'") &&
       treeRowModelSource.includes('const directoryLoading = isDirectory && item.loading === true') &&
+      treeRowModelSource.includes('const fileOpening = !isDirectory && openFilePendingPath === item.path') &&
+      treeRowModelSource.includes("fileOpening ? 'opening' : ''") &&
       treeRowModelSource.includes("return status === 'untracked' ? undefined : status") &&
       treeRowModelSource.includes('const visibleGitStatus = visibleWorkspaceFileTreeGitStatus(item.gitStatus)') &&
       treeRowModelSource.includes('const visibleDescendantGitStatus = visibleWorkspaceFileTreeGitStatus(item.descendantGitStatus)') &&
@@ -899,6 +960,8 @@ function run() {
       fileTreeRowStatusSource.includes('className={visibleGitStatusClassName}') &&
       fileTreeRowStatusSource.includes('className={directoryDotClassName}') &&
       fileTreeRowStatusSource.includes('className={fileChangedClassName}') &&
+      fileTreeRowStatusSource.includes('code-file-open-spinner') &&
+      fileTreeRowStatusSource.includes('{fileOpening && (') &&
       fileTreeRowStatusSource.includes('workspaceFileTreeStatusTitle(directoryDotTitleKind, copy)') &&
       fileTreeRowStatusSource.includes('workspaceFileTreeStatusTitle(fileChangedTitleKind, copy)') &&
       !fileTreeRowStatusSource.includes('function statusTitle') &&
@@ -1261,7 +1324,7 @@ function run() {
 		      editorModelSource.includes('function workspaceEditorSurfaceState') &&
 		      editorModelSource.includes('const showDiffView = options.diffOpen && !options.visualPreview') &&
 		      editorModelSource.includes('const showDiffOnlyPreview = options.diffOnly && !showDiffView') &&
-		      editorModelSource.includes('showEditorOverlays: showMonaco') &&
+		      editorModelSource.includes('showEditorOverlays: showMonaco || showMarkdownSplit') &&
 		      editorSurfaceSource.includes('const surface = workspaceEditorSurfaceState({') &&
 		      editorSurfaceSource.includes('editorMode: WorkspaceEditorFileMode') &&
 		      editorSurfaceSource.includes('diffOnly: editorMode.diffOnly') &&
@@ -1301,7 +1364,9 @@ function run() {
 		      editorSource.includes('readOnly={readOnly}') &&
 		      !editorSource.includes('const isPreviewFile = isWorkspaceWorkingCopyPreview(openFile)') &&
 		      !editorSource.includes("const visualPreview = filePreview?.kind === 'image' || filePreview?.kind === 'binary'") &&
-			      editorSurfaceSource.includes("className={`code-file-monaco ${surface.showMonaco ? '' : 'hidden'}`}") &&
+				      editorSurfaceSource.includes('code-file-editor-source-region') &&
+				      editorSurfaceSource.includes("surface.showMonaco || surface.showMarkdownSplit ? '' : 'hidden'") &&
+				      !editorSurfaceSource.includes('if (surface.showMarkdownSplit)') &&
 	      editorMonacoControllerSource.includes('readOnly,') &&
 	      editorMonacoControllerSource.includes('domReadOnly: readOnly') &&
       editorPreviewPanelSource.includes('rawWorkspaceFileUrl(openFile.agentId, openFile.file.path, openFile.file.sha1)') &&
@@ -1558,7 +1623,15 @@ function run() {
       stylesSource.includes('.code-file-search-highlight') &&
       stylesSource.includes('.code-files-title') &&
       stylesSource.includes('.code-file-section-chevron') &&
-      stylesSource.includes('.code-open-editors-header,\n.code-files-header {\n  position: sticky') &&
+	      stylesSource.includes('.code-open-editors-header,\n.code-files-header {\n  position: sticky') &&
+      stylesSource.includes('.code-file-changes-section {\n  margin: 1px 0 2px;') &&
+      !stylesSource.includes('.code-file-changes-header') &&
+      !stylesSource.includes('.code-file-changes-title') &&
+      !stylesSource.includes('.code-file-change-group-title') &&
+      !stylesSource.includes('.code-file-changes-refresh') &&
+      !stylesSource.includes('.code-file-change-indent-spacer') &&
+      stylesSource.includes('background: transparent;') &&
+      stylesSource.includes('body.code-mode .code-file-change-group-toggle') &&
       stylesSource.includes('z-index: 10') &&
       !stylesSource.includes('.code-file-header-actions') &&
       !stylesSource.includes('.code-file-header-action') &&
@@ -1686,6 +1759,14 @@ function run() {
       editorActionsSource.includes('function DiffIcon()') &&
       editorActionsSource.includes('M5.5 2H2.5C1.673 2 1 2.673 1 3.5V12.5') &&
       editorActionsSource.includes('<DiffIcon />') &&
+      editorTabsComponentSource.includes('function BackToAgentIcon()') &&
+      editorTabsComponentSource.includes('function HistoryBackIcon()') &&
+      editorTabsComponentSource.includes('function HistoryForwardIcon()') &&
+      editorTabsComponentSource.includes('data-testid="code-file-editor-history-back"') &&
+      editorTabsComponentSource.includes('data-testid="code-file-editor-history-forward"') &&
+      stylesSource.includes('.code-file-editor-navigation') &&
+      stylesSource.includes('.code-file-editor-agent-return') &&
+      stylesSource.includes('.code-file-editor-navigation-divider') &&
       stylesSource.includes('.code-file-editor-action .code-file-editor-action-svg') &&
       !stylesSource.includes('.code-file-editor-action.diff::before') &&
       !stylesSource.includes('.code-file-editor-action.diff::after') &&
@@ -1694,7 +1775,7 @@ function run() {
       !stylesSource.includes('.code-file-editor-action.blame::before') &&
       !stylesSource.includes('.code-file-editor-action.blame::after') &&
       !stylesSource.includes("content: 'B'") &&
-      stylesSource.includes('.code-file-editor-action-icon') &&
+      !stylesSource.includes('.code-file-editor-action-icon') &&
       stylesSource.includes('.code-file-editor-action.overwrite::before') &&
       stylesSource.includes('.code-file-editor-action.overwrite::after') &&
       !stylesSource.includes('.code-file-row.changed .code-file-name') &&
@@ -1718,9 +1799,12 @@ function run() {
       stylesSource.includes('.code-editor-context-separator') &&
       stylesSource.includes('.code-file-editor') &&
       stylesSource.includes('.code-file-editor-statusbar') &&
-      !stylesSource.includes('.code-file-changes-section') &&
-      !stylesSource.includes('.code-file-change-row') &&
-      !stylesSource.includes('.code-file-change-status.modified') &&
+      stylesSource.includes('.code-file-changes-section') &&
+      stylesSource.includes('.code-file-change-group-toggle') &&
+      stylesSource.includes('.code-file-change-row') &&
+      stylesSource.includes('.code-file-change-status.modified') &&
+      stylesSource.includes('.code-file-row.opening:not(.active)') &&
+      stylesSource.includes('.code-file-open-spinner') &&
       stylesSource.includes('.code-file-diff-view') &&
       stylesSource.includes('.code-file-diff-header') &&
       stylesSource.includes('.code-file-diff-monaco') &&
@@ -1750,12 +1834,18 @@ function run() {
       editorMonacoSource.includes('editor?.updateOptions({ theme })') &&
       editorMonacoSource.includes('window.requestAnimationFrame(() => editor.layout())') &&
       editorMonacoControllerSource.includes('new MutationObserver(() => applyWorkspaceEditorMonacoTheme(editor))') &&
-	      darkStylesSource.includes(".code-file-monaco,\nbody.code-mode[data-appearance='dark'] .code-file-diff-view") &&
-	      darkStylesSource.includes(".code-file-diff-monaco,\nbody.code-mode[data-appearance='dark'] .code-file-preview-panel") &&
+	      darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-file-monaco") &&
+	      darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-file-editor-source-region") &&
+	      darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-file-editor-split") &&
+	      darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-file-diff-view") &&
+      darkStylesSource.includes(".code-file-diff-monaco,\nbody.code-mode[data-appearance='dark'] .code-file-preview-panel") &&
       darkStylesSource.includes('.code-file-inline-blame') &&
-      !darkStylesSource.includes('.code-file-changes-section') &&
-      !darkStylesSource.includes('.code-file-change-row.active') &&
-      !darkStylesSource.includes('.code-file-change-status.modified') &&
+      !darkStylesSource.includes('.code-file-changes-header') &&
+      !darkStylesSource.includes('.code-file-changes-title') &&
+      !darkStylesSource.includes('.code-file-change-group-title') &&
+      darkStylesSource.includes('.code-file-change-row.active') &&
+      darkStylesSource.includes('.code-file-open-spinner') &&
+      darkStylesSource.includes('.code-file-change-status.modified') &&
       darkStylesSource.includes('.code-file-blame-toast') &&
       darkStylesSource.includes('.code-file-blame-detail') &&
       darkStylesSource.includes('.code-file-line-changes-panel') &&

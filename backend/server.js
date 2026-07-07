@@ -5,6 +5,9 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const { URLSearchParams } = require('url');
 const AgentManager = require('./agent-manager');
 const ConfigManager = require('./config-manager');
 const ThemeManager = require('./theme-manager');
@@ -42,6 +45,8 @@ const { inputPartsFromMessage } = require('./input-parts');
 const { AppServerApiBridge, createAppServerApiRouter } = require('./app-server-api');
 const { cleanupTerminalRuntime } = require('./terminal-runtime-cleanup');
 const { QrShareTicketStore, SHARE_TICKET_TTL_MS } = require('./qr-share-tickets');
+
+const execFileAsync = promisify(execFile);
 
 function normalizeBasePath(basePath) {
   if (!basePath || basePath === '/') return '';
@@ -252,7 +257,7 @@ app.get(routePath(BASE_PATH, '/j/:code'), (req, res) => {
       `farming_token=${encodeCookieToken(ticket.token)}; Path=/; HttpOnly; SameSite=Lax`,
     );
   }
-  res.redirect(302, BASE_PATH || '/');
+  res.redirect(302, entryPathWithQuery(ticket.targetQuery));
 });
 
 // Token authentication middleware (before static files)
@@ -271,17 +276,65 @@ function absoluteClientUrl(req, urlPath) {
   return `${protocol}://${host}${urlPath}`;
 }
 
-function entryPathWithToken() {
-  const entryPath = BASE_PATH || '/';
-  if (!authEnabled) return entryPath;
-  return `${entryPath}?token=${encodeURIComponent(tokenAuth.getToken())}`;
+function shareTargetPositiveInteger(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? String(number) : '';
 }
 
-app.post(routePath(BASE_PATH, '/api/share/qr-ticket'), express.json({ limit: '1kb' }), (req, res) => {
+function shareTargetString(value, maxLength) {
+  const string = String(value || '').trim();
+  if (!string || string.length > maxLength || string.includes('\0')) return '';
+  return string;
+}
+
+function shareTargetQueryFromBody(body) {
+  const target = body && typeof body === 'object' ? body.target : null;
+  if (!target || typeof target !== 'object') return '';
+
+  const kind = target.kind === 'file' ? 'file' : target.kind === 'agent' ? 'agent' : '';
+  const agentId = shareTargetString(target.agentId, 160);
+  if (!kind || !agentId) return '';
+
+  const params = new URLSearchParams();
+  params.set('ftarget', kind);
+  params.set('agent', agentId);
+
+  if (kind === 'file') {
+    const filePath = shareTargetString(target.filePath, 2048);
+    if (!filePath) return '';
+    params.set('file', filePath);
+    if (target.view === 'diff') params.set('view', 'diff');
+    const line = shareTargetPositiveInteger(target.lineNumber);
+    const column = shareTargetPositiveInteger(target.column);
+    const endColumn = shareTargetPositiveInteger(target.endColumn);
+    if (line) params.set('line', line);
+    if (column) params.set('column', column);
+    if (endColumn) params.set('endColumn', endColumn);
+  }
+
+  return params.toString();
+}
+
+function entryPathWithQuery(query = '', options = {}) {
+  const entryPath = BASE_PATH || '/';
+  const params = new URLSearchParams(query || '');
+  if (options.includeToken && authEnabled) {
+    params.set('token', tokenAuth.getToken());
+  }
+  const queryString = params.toString();
+  return queryString ? `${entryPath}?${queryString}` : entryPath;
+}
+
+function entryPathWithToken(targetQuery = '') {
+  return entryPathWithQuery(targetQuery, { includeToken: true });
+}
+
+app.post(routePath(BASE_PATH, '/api/share/qr-ticket'), express.json({ limit: '8kb' }), (req, res) => {
   try {
-    const ticket = qrShareTickets.create(authEnabled ? tokenAuth.getToken() : '');
+    const targetQuery = shareTargetQueryFromBody(req.body);
+    const ticket = qrShareTickets.create(authEnabled ? tokenAuth.getToken() : '', { targetQuery });
     const shortPath = routePath(BASE_PATH, `/j/${ticket.code}`);
-    const longPath = entryPathWithToken();
+    const longPath = entryPathWithToken(ticket.targetQuery);
     res.json({
       code: ticket.code,
       expiresAt: ticket.expiresAt,
@@ -756,6 +809,46 @@ function rememberMainPageAgentSession(provider, sessionId) {
   });
 }
 
+function forgetMainPageAgentSession(provider, sessionId) {
+  const sessionKey = mainPageAgentSessionKey(provider, sessionId);
+  const settings = configManager.getSettings();
+  const currentKeys = Array.isArray(settings.mainPageSessionKeys) ? settings.mainPageSessionKeys : [];
+  if (!currentKeys.includes(sessionKey)) return;
+  configManager.updateSettings({
+    mainPageSessionKeys: currentKeys.filter(key => key !== sessionKey),
+  });
+}
+
+async function unarchiveCodexSession(sessionId, session = {}) {
+  const codexResolution = resolveCompatibleCodexExecutable(session.cliVersion || '');
+  if (!codexResolution.compatible) {
+    return {
+      error: codexResolution.error || 'Codex CLI is not compatible with this session',
+      status: 400,
+    };
+  }
+
+  try {
+    await execFileAsync(codexResolution.path || 'codex', ['unarchive', sessionId], {
+      cwd: session.cwd || session.workspace || os.homedir(),
+      env: process.env,
+      timeout: 30_000,
+      maxBuffer: 1024 * 1024,
+    });
+    return { unarchived: true };
+  } catch (error) {
+    const message = [
+      error && error.stdout ? String(error.stdout).trim() : '',
+      error && error.stderr ? String(error.stderr).trim() : '',
+      error && error.message ? String(error.message).trim() : '',
+    ].filter(Boolean).join('\n') || 'failed to unarchive Codex session';
+    return {
+      error: message,
+      status: 409,
+    };
+  }
+}
+
 async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
   const normalizedProvider = normalizeProvider(provider);
   const sessionId = String(rawSessionId || '').trim();
@@ -793,7 +886,26 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
   }
 
   const startPromise = (async () => {
-    const session = await findAgentSession(normalizedProvider, sessionId, { limit: 200 });
+    let session = await findAgentSession(normalizedProvider, sessionId, { limit: 200 });
+    if (session && session.archived && !shouldFork) {
+      if (options.allowUnarchiveArchived === true && normalizedProvider === 'codex' && !requestedAsMain) {
+        const unarchiveResult = await unarchiveCodexSession(sessionId, session);
+        if (unarchiveResult.error) {
+          return unarchiveResult;
+        }
+        session = await findAgentSession(normalizedProvider, sessionId, { limit: 200 }) || {
+          ...session,
+          archived: false,
+        };
+      } else {
+        forgetMainPageAgentSession(normalizedProvider, sessionId);
+        return {
+          error: `${session.providerName || normalizedProvider} session is archived. Unarchive it before resuming.`,
+          status: 409,
+          archived: true,
+        };
+      }
+    }
     if (!shouldFork && !requestedAsMain) {
       const claimingAgent = findActiveAgentClaimingSession(agentManager.getState().agents, normalizedProvider, {
         id: sessionId,
@@ -870,9 +982,11 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
 async function startResumedAgentSession(req, res, provider, rawSessionId) {
   const shouldFork = req.body && req.body.fork === true;
   const requestedAsMain = req.body && req.body.asMain === true && !shouldFork;
+  const allowUnarchiveArchived = req.body && req.body.unarchiveArchived === true && !shouldFork && !requestedAsMain;
   const result = await resumeAgentSessionById(provider, rawSessionId, {
     fork: shouldFork,
     asMain: requestedAsMain,
+    allowUnarchiveArchived,
   });
 
   if (result.error) {

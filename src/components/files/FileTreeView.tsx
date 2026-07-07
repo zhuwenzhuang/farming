@@ -19,6 +19,7 @@ export interface FileTreeViewProps {
   handleTreeKeyDownCapture: (event: ReactKeyboardEvent<HTMLDivElement>) => void
   lastFocusedFilePathRef: MutableRefObject<string | null>
   openEditorsCollapsed: boolean
+  openFilePendingPath?: string | null
   renderFileTreeRow: NonNullable<Parameters<typeof Tree<FileExplorerNode>>[0]['renderRow']>
   rowHeight: number
   stickyContextItems: FileStickyContextItem[]
@@ -55,6 +56,7 @@ export function FileTreeView({
   handleTreeKeyDownCapture,
   lastFocusedFilePathRef,
   openEditorsCollapsed,
+  openFilePendingPath,
   renderFileTreeRow,
   rowHeight,
   stickyContextItems,
@@ -99,6 +101,7 @@ export function FileTreeView({
       fileOperationInputRef={fileOperationInputRef}
       lastFocusedFilePathRef={lastFocusedFilePathRef}
       node={node}
+      openFilePendingPath={openFilePendingPath}
       treeViewportRef={treeViewportRef}
       onCancelPendingFileFocus={onCancelPendingFileFocus}
       onCloseFileOperation={onCloseFileOperation}
@@ -109,7 +112,7 @@ export function FileTreeView({
       onSubmitFileOperation={onSubmitFileOperation}
       onUpdateFileOperationName={onUpdateFileOperationName}
     />
-  ), [activeFilePath, agentId, copy, editorDirtyFilePaths, editorExternalChangedFilePaths, fileOperation, fileOperationInputRef, lastFocusedFilePathRef, onCancelPendingFileFocus, onCloseFileOperation, onFocusFileTreeTarget, onOpenFileContextMenu, onOpenFilePath, onRememberFileOperationName, onSubmitFileOperation, onUpdateFileOperationName, treeViewportRef])
+  ), [activeFilePath, agentId, copy, editorDirtyFilePaths, editorExternalChangedFilePaths, fileOperation, fileOperationInputRef, lastFocusedFilePathRef, onCancelPendingFileFocus, onCloseFileOperation, onFocusFileTreeTarget, onOpenFileContextMenu, onOpenFilePath, onRememberFileOperationName, onSubmitFileOperation, onUpdateFileOperationName, openFilePendingPath, treeViewportRef])
 
   return (
     <div

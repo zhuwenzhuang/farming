@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { Agent } from '@/types/agent'
 import type { TerminalInputPart } from '@/types/messages'
 import { usePooledTerminal } from '@/hooks/usePooledTerminal'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { TerminalPathOpenTarget, TerminalSearchDirection, TerminalSearchResult } from '@/lib/terminal-session-pool'
+import type { TerminalSearchOptions } from '@/lib/terminal-search'
 import type { CodeCopy } from './code/copy'
 
 interface AgentTerminalPaneProps {
@@ -26,6 +27,8 @@ interface TerminalFollowState {
   hasUnreadOutput: boolean
 }
 
+type TerminalSearchOptionKey = 'caseSensitive' | 'wholeWord' | 'regex'
+
 function shouldSuppressRendererCursorForAgent(command?: string) {
   const program = String(command || '').trim().split(/\s+/)[0] || ''
   return [
@@ -46,6 +49,19 @@ function isMobileViewport() {
 function isPrimaryFindShortcut(event: Pick<KeyboardEvent, 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey' | 'key'>) {
   const primaryModifier = (event.metaKey && !event.ctrlKey) || (event.ctrlKey && !event.metaKey)
   return primaryModifier && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'f'
+}
+
+function isTerminalFindNavigationShortcut(event: Pick<KeyboardEvent, 'metaKey' | 'ctrlKey' | 'altKey' | 'key'>) {
+  return event.key === 'F3' && !event.metaKey && !event.ctrlKey && !event.altKey
+}
+
+function terminalSearchOptionShortcut(event: Pick<KeyboardEvent, 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey' | 'key' | 'code'>): TerminalSearchOptionKey | null {
+  if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return null
+  const key = event.code || `Key${event.key.toUpperCase()}`
+  if (key === 'KeyC') return 'caseSensitive'
+  if (key === 'KeyW') return 'wholeWord'
+  if (key === 'KeyR') return 'regex'
+  return null
 }
 
 function isTerminalFindTarget(target: EventTarget | null, paneEl: HTMLElement | null) {
@@ -72,6 +88,19 @@ function terminalSearchStatus(
   return ''
 }
 
+function terminalSearchQueryFromSelection(selection: string) {
+  const normalized = selection.replace(/\r/g, '').trim()
+  if (!normalized) return ''
+  const lines = normalized.split('\n').map(line => line.trim()).filter(Boolean)
+  if (lines.length !== 1) return ''
+  const firstLine = lines[0]
+  return firstLine ? firstLine.slice(0, 240) : ''
+}
+
+function terminalSearchOptionButtonClass(enabled?: boolean) {
+  return `code-terminal-search-button option${enabled ? ' active' : ''}`
+}
+
 export function AgentTerminalPane({
   agent,
   active,
@@ -94,6 +123,7 @@ export function AgentTerminalPane({
   })
   const [terminalSearchOpen, setTerminalSearchOpen] = useState(false)
   const [terminalSearchQuery, setTerminalSearchQuery] = useState('')
+  const [terminalSearchOptions, setTerminalSearchOptions] = useState<TerminalSearchOptions>({})
   const [terminalSearchResult, setTerminalSearchResult] = useState<TerminalSearchResult | null>(null)
   const [terminalError, setTerminalError] = useState<string | null>(null)
 
@@ -118,7 +148,7 @@ export function AgentTerminalPane({
     setTerminalError(error.message || copy.terminalSessionUnavailable)
   }, [copy.terminalSessionUnavailable])
 
-  const { focus, scrollToBottom, search, clearSearch } = usePooledTerminal({
+  const { focus, getSelectionNow, scrollToBottom, search, clearSearch } = usePooledTerminal({
     agentId: agent.id,
     containerRef: terminalContainerRef,
     onInput: handleTerminalInput,
@@ -147,7 +177,7 @@ export function AgentTerminalPane({
   const runTerminalSearch = useCallback((
     query: string,
     direction: TerminalSearchDirection = 'next',
-    options?: { incremental?: boolean },
+    options?: TerminalSearchOptions,
   ) => {
     const trimmedQuery = query.trim()
     if (!trimmedQuery) {
@@ -155,30 +185,60 @@ export function AgentTerminalPane({
       void clearSearch()
       return
     }
-    search(trimmedQuery, direction, options)
+    search(trimmedQuery, direction, { ...terminalSearchOptions, ...options })
       .then(setTerminalSearchResult)
       .catch(error => {
         console.error('Failed to search terminal:', error)
         setTerminalSearchResult({ found: false, resultIndex: 0, resultCount: 0 })
       })
-  }, [clearSearch, search])
+  }, [clearSearch, search, terminalSearchOptions])
+
+  const toggleTerminalSearchOption = useCallback((option: TerminalSearchOptionKey) => {
+    setTerminalSearchOptions(previous => ({
+      ...previous,
+      [option]: previous[option] !== true,
+    }))
+  }, [])
 
   const openTerminalSearch = useCallback(() => {
+    const selectedQuery = terminalSearchQueryFromSelection(getSelectionNow())
+    if (selectedQuery) {
+      setTerminalSearchQuery(selectedQuery)
+      runTerminalSearch(selectedQuery, 'next', { incremental: true })
+    }
     setTerminalSearchOpen(true)
     window.requestAnimationFrame(() => {
       const input = searchInputRef.current
       input?.focus()
       input?.select()
     })
-  }, [])
+  }, [getSelectionNow, runTerminalSearch])
 
   const closeTerminalSearch = useCallback(() => {
     setTerminalSearchOpen(false)
-    setTerminalSearchQuery('')
     setTerminalSearchResult(null)
     void clearSearch()
     if (!isMobileViewport()) focus()
   }, [clearSearch, focus])
+
+  const handleTerminalSearchKeyDown = useCallback((event: ReactKeyboardEvent<HTMLFormElement>) => {
+    const optionShortcut = terminalSearchOptionShortcut(event.nativeEvent)
+    if (optionShortcut) {
+      event.preventDefault()
+      event.stopPropagation()
+      toggleTerminalSearchOption(optionShortcut)
+      return
+    }
+
+    if (event.target === searchInputRef.current && event.key === 'Enter') {
+      event.preventDefault()
+      runTerminalSearch(terminalSearchQuery, event.shiftKey ? 'previous' : 'next')
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeTerminalSearch()
+    }
+  }, [closeTerminalSearch, runTerminalSearch, terminalSearchQuery, toggleTerminalSearchOption])
 
   useEffect(() => {
     if (!terminalSearchOpen) return
@@ -194,12 +254,19 @@ export function AgentTerminalPane({
       return
     }
 
+    if (terminalSearchOpen && isTerminalFindNavigationShortcut(event)) {
+      event.preventDefault()
+      event.stopPropagation()
+      runTerminalSearch(terminalSearchQuery, event.shiftKey ? 'previous' : 'next')
+      return
+    }
+
     if (terminalSearchOpen && event.key === 'Escape') {
       event.preventDefault()
       event.stopPropagation()
       closeTerminalSearch()
     }
-  }, [closeTerminalSearch, openTerminalSearch, terminalSearchOpen])
+  }, [closeTerminalSearch, openTerminalSearch, runTerminalSearch, terminalSearchOpen, terminalSearchQuery])
 
   useEffect(() => {
     if (!active) return
@@ -287,6 +354,7 @@ export function AgentTerminalPane({
             event.preventDefault()
             runTerminalSearch(terminalSearchQuery, 'next')
           }}
+          onKeyDown={handleTerminalSearchKeyDown}
         >
           <input
             ref={searchInputRef}
@@ -296,20 +364,43 @@ export function AgentTerminalPane({
             data-testid="code-terminal-search-input"
             spellCheck={false}
             onChange={event => setTerminalSearchQuery(event.target.value)}
-            onKeyDown={event => {
-              if (event.key === 'Enter') {
-                event.preventDefault()
-                runTerminalSearch(terminalSearchQuery, event.shiftKey ? 'previous' : 'next')
-              }
-              if (event.key === 'Escape') {
-                event.preventDefault()
-                closeTerminalSearch()
-              }
-            }}
           />
           <span className={`code-terminal-search-status ${terminalSearchResult && !terminalSearchResult.found ? 'empty' : ''}`}>
             {searchStatus}
           </span>
+          <button
+            type="button"
+            className={terminalSearchOptionButtonClass(terminalSearchOptions.caseSensitive)}
+            aria-label={copy.terminalSearchCaseSensitive}
+            aria-pressed={terminalSearchOptions.caseSensitive === true}
+            title={copy.terminalSearchCaseSensitive}
+            data-testid="code-terminal-search-case-sensitive"
+            onClick={() => toggleTerminalSearchOption('caseSensitive')}
+          >
+            Aa
+          </button>
+          <button
+            type="button"
+            className={terminalSearchOptionButtonClass(terminalSearchOptions.wholeWord)}
+            aria-label={copy.terminalSearchWholeWord}
+            aria-pressed={terminalSearchOptions.wholeWord === true}
+            title={copy.terminalSearchWholeWord}
+            data-testid="code-terminal-search-whole-word"
+            onClick={() => toggleTerminalSearchOption('wholeWord')}
+          >
+            ab
+          </button>
+          <button
+            type="button"
+            className={terminalSearchOptionButtonClass(terminalSearchOptions.regex)}
+            aria-label={copy.terminalSearchRegex}
+            aria-pressed={terminalSearchOptions.regex === true}
+            title={copy.terminalSearchRegex}
+            data-testid="code-terminal-search-regex"
+            onClick={() => toggleTerminalSearchOption('regex')}
+          >
+            .*
+          </button>
           <button
             type="button"
             className="code-terminal-search-button"

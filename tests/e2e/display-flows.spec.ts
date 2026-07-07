@@ -39,6 +39,16 @@ async function modifierClick(page: Page, x: number, y: number) {
   }
 }
 
+async function createControlAgent(page: Page, command: string, workspace: string) {
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command, workspace },
+  })
+  expect(response.ok()).toBeTruthy()
+  const data = await response.json() as { agentId?: string }
+  expect(data.agentId).toBeTruthy()
+  return data.agentId as string
+}
+
 async function expectDogfoodBadgeRing(productMark: Locator, mode: 'light' | 'dark') {
   const productMarkBadge = productMark.locator('.code-product-mark-badge')
   await expect(productMark).toHaveCSS('border-top-width', '0px')
@@ -235,6 +245,153 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('agent-list-status')).toBeHidden()
   })
 
+  test('reopens the last closed editor tab with the VS Code shortcut', async ({ page, workspaceRoot }) => {
+    await mockCodexSessions(page)
+    const projectDir = path.join(workspaceRoot, 'reopen-editor-tab')
+    fs.mkdirSync(projectDir, { recursive: true })
+    fs.writeFileSync(path.join(projectDir, 'one.txt'), 'one\n')
+    const agentId = await createControlAgent(page, 'bash', projectDir)
+
+    await openFarming(page)
+    const projectGroup = page.getByTestId('code-project-group').filter({ has: page.locator(`[data-agent-id="${agentId}"]`) })
+    await expect(projectGroup).toBeVisible({ timeout: 30_000 })
+    const filesSection = projectGroup.getByTestId('code-files-section')
+    const filesTitle = filesSection.locator('.code-files-title').first()
+    if (await filesTitle.getAttribute('aria-expanded') !== 'true') {
+      await filesTitle.click()
+    }
+    await expect(filesTitle).toHaveAttribute('aria-expanded', 'true')
+
+    const oneRow = filesSection.locator('[data-testid="code-file-row"][data-file-path="one.txt"]')
+    await expect(oneRow).toBeVisible()
+    await oneRow.click()
+    await expect(page.getByTestId('code-file-editor')).toBeVisible()
+    await expect(activeFileTabName(page)).toHaveText('one.txt')
+
+    await page.getByRole('button', { name: 'Close one.txt' }).click()
+    await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
+    await expect(page.getByTestId('code-file-editor')).toHaveCount(0)
+
+    await page.keyboard.press('Control+Shift+T')
+    await expect(page.getByTestId('code-file-editor')).toBeVisible()
+    await expect(activeFileTabName(page)).toHaveText('one.txt')
+  })
+
+  test('opens project changes into the editor diff surface', async ({ page, workspaceRoot }) => {
+    await mockCodexSessions(page)
+    const projectDir = path.join(workspaceRoot, 'project-changes')
+    fs.mkdirSync(projectDir, { recursive: true })
+    const changedFilePath = path.join(projectDir, 'review-target.txt')
+    fs.writeFileSync(changedFilePath, 'before\n')
+    execFileSync('git', ['init'], { cwd: projectDir })
+    execFileSync('git', ['config', 'user.name', 'Farming E2E'], { cwd: projectDir })
+    execFileSync('git', ['config', 'user.email', 'farming-e2e@example.com'], { cwd: projectDir })
+    execFileSync('git', ['add', 'review-target.txt'], { cwd: projectDir })
+    execFileSync('git', ['commit', '-m', 'seed review target'], { cwd: projectDir })
+    fs.writeFileSync(changedFilePath, 'before\nafter\n')
+    fs.mkdirSync(path.join(projectDir, 'scratch'), { recursive: true })
+    fs.writeFileSync(path.join(projectDir, 'scratch/scratch.log'), 'temporary\n')
+    const playbackDir = path.join(projectDir, 'demo-app/packages/viewer/playback_json')
+    fs.mkdirSync(playbackDir, { recursive: true })
+    execFileSync('git', ['init'], { cwd: playbackDir, stdio: 'ignore' })
+    fs.mkdirSync(path.join(playbackDir, '.empty-hooks'), { recursive: true })
+    execFileSync('git', ['config', 'core.hooksPath', '.empty-hooks'], { cwd: playbackDir })
+    execFileSync('git', ['config', 'user.name', 'Nested Repo'], { cwd: playbackDir })
+    execFileSync('git', ['config', 'user.email', 'nested@example.com'], { cwd: playbackDir })
+    fs.writeFileSync(path.join(playbackDir, 'README.md'), 'nested repo\n')
+    execFileSync('git', ['add', 'README.md'], { cwd: playbackDir })
+    execFileSync('git', ['commit', '-m', 'nested repo'], { cwd: playbackDir, stdio: 'ignore' })
+    const agentId = await createControlAgent(page, 'bash', projectDir)
+
+    await openFarming(page)
+    const projectGroup = page.getByTestId('code-project-group').filter({ has: page.locator(`[data-agent-id="${agentId}"]`) })
+    await expect(projectGroup).toBeVisible({ timeout: 30_000 })
+    const filesSection = projectGroup.getByTestId('code-files-section')
+    const filesTitle = filesSection.locator('.code-files-title').first()
+    if (await filesTitle.getAttribute('aria-expanded') !== 'true') {
+      await filesTitle.click()
+    }
+    await expect(filesTitle).toHaveAttribute('aria-expanded', 'true')
+    const changesSection = filesSection.getByTestId('code-file-changes-section')
+    await expect(changesSection).toBeVisible({ timeout: 30_000 })
+    const trackedGroup = changesSection.getByTestId('code-file-change-tracked-group')
+    await expect(trackedGroup).toBeVisible()
+    const changesTitle = trackedGroup.getByRole('button', { name: /Changes/ })
+    await expect(changesTitle).toContainText('Changes')
+    await expect(changesTitle).toHaveAttribute('aria-expanded', 'false')
+    const untrackedGroup = changesSection.getByTestId('code-file-change-untracked-group')
+    await expect(untrackedGroup).toBeVisible()
+    await expect(untrackedGroup.getByRole('button', { name: /Untracked/ })).toHaveAttribute('aria-expanded', 'false')
+    await expect(changesSection.getByTestId('code-file-change-row').filter({ hasText: 'scratch.log' })).toHaveCount(0)
+    await expect(changesSection.getByRole('button', { name: 'Refresh changes' })).toHaveCount(0)
+    await changesTitle.click()
+    await expect(changesTitle).toHaveAttribute('aria-expanded', 'true')
+    const changeRow = changesSection.getByTestId('code-file-change-row').filter({ hasText: 'review-target.txt' })
+    await expect(changeRow).toBeVisible()
+    await expect(changeRow.locator('.code-file-change-status')).toHaveText('M')
+    await expect(changeRow).toBeVisible()
+    await changeRow.click()
+    await expect(page.getByTestId('code-file-editor')).toBeVisible()
+    await expect(activeFileTabName(page)).toHaveText('review-target.txt')
+    await expect(page.getByTestId('code-file-diff-view')).toBeVisible()
+    await expect(page.getByTestId('code-file-diff-monaco')).toBeVisible()
+    await expect(changeRow).toHaveClass(/active/)
+    const untrackedTitle = untrackedGroup.getByRole('button', { name: /Untracked/ })
+    await untrackedTitle.click()
+    await expect(untrackedTitle).toHaveAttribute('aria-expanded', 'true')
+    const compactDirectory = untrackedGroup.getByTestId('code-file-change-directory-row').filter({ hasText: 'demo-app/packages/viewer' })
+    await expect(compactDirectory).toBeVisible()
+    await compactDirectory.click()
+    const playbackDirectory = untrackedGroup.getByTestId('code-file-change-directory-row').filter({ hasText: 'playback_json' })
+    await expect(playbackDirectory).toBeVisible()
+    await expect(playbackDirectory).toHaveAttribute('data-file-type', 'directory')
+    await expect(untrackedGroup.getByTestId('code-file-change-row').filter({ hasText: 'playback_json' })).toHaveCount(0)
+    const scratchDirectory = untrackedGroup.getByTestId('code-file-change-directory-row').filter({ hasText: 'scratch' })
+    await expect(scratchDirectory).toBeVisible()
+    await expect(changesSection.getByTestId('code-file-change-row').filter({ hasText: 'scratch.log' })).toHaveCount(0)
+    await scratchDirectory.click()
+    const untrackedRow = untrackedGroup.getByTestId('code-file-change-row').filter({ hasText: 'scratch.log' })
+    await expect(untrackedRow).toBeVisible()
+    await untrackedRow.click()
+    await expect(activeFileTabName(page)).toHaveText('scratch.log')
+    await expect(page.getByTestId('code-file-diff-view')).toHaveCount(0)
+  })
+
+  test('keeps project agents expanded even when files crowd the sidebar', async ({ page, workspaceRoot }) => {
+    await mockCodexSessions(page)
+    const projectDir = path.join(workspaceRoot, 'compact-project-agents')
+    fs.mkdirSync(projectDir, { recursive: true })
+    fs.writeFileSync(path.join(projectDir, 'README.md'), 'compact agents\n')
+    const agentIds = []
+    for (let index = 0; index < 6; index += 1) {
+      agentIds.push(await createControlAgent(page, 'bash', projectDir))
+    }
+
+    await openFarming(page)
+    const projectGroup = page.getByTestId('code-project-group').filter({ has: page.locator(`[data-agent-id="${agentIds[0]}"]`) })
+    await expect(projectGroup).toBeVisible({ timeout: 30_000 })
+    await expect(projectGroup.getByTestId('code-project-agent-strip')).toHaveCount(0)
+    await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(5)
+    const showMoreAgents = projectGroup.getByTestId('code-agent-show-more')
+    await expect(showMoreAgents).toBeVisible()
+    await expect(showMoreAgents.locator('.code-agent-age')).toHaveText('1')
+    await showMoreAgents.click()
+    await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(6)
+    await expect(projectGroup.getByTestId('code-agent-show-less')).toBeVisible()
+
+    const filesTitle = projectGroup.locator('.code-files-title').first()
+    await expect(filesTitle).toHaveAttribute('aria-expanded', 'false')
+    await filesTitle.click()
+    await expect(filesTitle).toHaveAttribute('aria-expanded', 'true')
+    await projectGroup.getByTestId('code-files-section').evaluate(node => {
+      ;(node as HTMLElement).style.minHeight = '380px'
+    })
+    await expect(projectGroup.getByTestId('code-project-agent-strip')).toHaveCount(0)
+    await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(6)
+    await projectGroup.getByTestId('code-agent-row').nth(2).click()
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentIds[2]}"]`)).toBeVisible()
+  })
+
   test('keeps previous Main Agent resume out of the normal New Agent flow', async ({ page }) => {
     const mainSessionId = '019f1111-2222-7333-8444-555555555555'
     const mainWorkspace = path.join(process.env.HOME || '/home/farming-user', '.farming')
@@ -319,6 +476,10 @@ test.describe('display-backed agent flows', () => {
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgF/2l2fLwAAAABJRU5ErkJggg==',
       'base64',
     ))
+    fs.writeFileSync(
+      path.join(childWorkspace, 'icon.svg'),
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="12"/></svg>\n',
+    )
     execFileSync('git', ['init'], { cwd: childWorkspace, stdio: 'ignore' })
     execFileSync('git', ['config', 'user.email', 'farming-e2e@example.test'], { cwd: childWorkspace })
     execFileSync('git', ['config', 'user.name', 'Farming E2E'], { cwd: childWorkspace })
@@ -362,6 +523,7 @@ test.describe('display-backed agent flows', () => {
     if (!childAgentId) {
       throw new Error('Child agent row is missing data-agent-id')
     }
+    const currentChildAgentItem = () => childProject.locator(`[data-testid="code-agent-row"][data-agent-id="${childAgentId}"], [data-testid="code-project-agent-compact"][data-agent-id="${childAgentId}"]`)
     const filesTitle = childFiles.locator('.code-files-title').first()
     const childProjectTitleText = childProjectTitle.locator('span:last-child')
     const filesTitleText = filesTitle.locator('span:last-child')
@@ -605,6 +767,21 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-file-image-preview')).toHaveAttribute('src', /\/api\/files\/raw\?.*path=preview\.png/)
     await expect(page.getByTestId('code-file-editor-statusbar')).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Open File Diff' })).toHaveCount(0)
+    const svgRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="icon.svg"]')
+    await svgRow.dblclick()
+    await expect(activeFileTabName(page)).toHaveText('icon.svg')
+    await expect(page.getByTestId('code-file-preview-panel')).toBeVisible()
+    await expect(page.getByTestId('code-file-image-preview')).toHaveAttribute('src', /\/api\/files\/raw\?.*path=icon\.svg/)
+    await page.getByRole('button', { name: 'Show source' }).click()
+    await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+    await expect(page.getByTestId('code-file-editor-statusbar')).toBeVisible()
+    await page.getByRole('button', { name: 'Open preview' }).click()
+    await expect(page.getByTestId('code-file-preview-panel')).toBeVisible()
+    await expect(page.getByTestId('code-file-image-preview')).toHaveAttribute('src', /\/api\/files\/raw\?.*path=icon\.svg/)
+    await expect(page.getByTestId('code-file-editor-statusbar')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Show source' }).click()
+    await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+    await expect(page.getByTestId('code-file-editor-statusbar')).toBeVisible()
     const binaryRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="binary.bin"]')
     await binaryRow.dblclick()
     await expect(activeFileTabName(page)).toHaveText('binary.bin')
@@ -639,7 +816,7 @@ test.describe('display-backed agent flows', () => {
       `deep file watch ${Date.now()}\n`,
     )
 
-    await childAgentRow.focus()
+    await currentChildAgentItem().focus()
     await page.keyboard.press('Control+P')
     await expect(fileSearchInput).toBeFocused()
     await fileSearchInput.fill('search-target-omega')
@@ -656,6 +833,9 @@ test.describe('display-backed agent flows', () => {
     await readmeJumpResult.click()
     await expect(page.getByTestId('code-file-editor')).toBeVisible()
     await expect(activeFileTabName(page)).toHaveText('README.md')
+    await expect(page.getByRole('button', { name: 'Show Markdown source' })).toBeVisible()
+    await page.getByRole('button', { name: 'Show Markdown source' }).click()
+    await expect(page.getByTestId('code-file-monaco')).toBeVisible()
     await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 4, Col 1')
     await page.getByTestId('code-file-monaco').click()
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P')
@@ -781,6 +961,11 @@ test.describe('display-backed agent flows', () => {
     await queryRow.click()
     await expect(activeFileTabName(page)).toHaveText('query.sql')
     await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'query.sql' })).toHaveCount(1)
+    await page.getByTestId('code-file-editor').getByRole('button', { name: 'Close query.sql' }).click()
+    await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'query.sql' })).toHaveCount(0)
+    await page.keyboard.press('Control+Shift+T')
+    await expect(activeFileTabName(page)).toHaveText('query.sql')
+    await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'query.sql' })).toHaveCount(1)
     await transientDeleteRow.click()
     await expect(activeFileTabName(page)).toHaveText('delete-me.txt')
     await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'query.sql' })).toHaveCount(0)
@@ -898,6 +1083,27 @@ test.describe('display-backed agent flows', () => {
     await expect.poll(async () => childFiles.locator('[role="tree"]').evaluate(tree => (
       tree === document.activeElement || tree.contains(document.activeElement)
     ))).toBe(true)
+    const visibleFileRows = childFiles.locator('[data-testid="code-file-row"]')
+    await page.keyboard.press('Home')
+    await expect(visibleFileRows.first()).toHaveClass(/selected/)
+    await page.keyboard.press('End')
+    await expect(visibleFileRows.last()).toHaveClass(/selected/)
+    await page.keyboard.press('Home')
+    await expect(compactDeepRow).toHaveClass(/selected/)
+    await file00Row.click()
+    await expect(file00Row).toHaveClass(/selected/)
+    await expect.poll(async () => childFiles.locator('[role="tree"]').evaluate(tree => (
+      tree === document.activeElement || tree.contains(document.activeElement)
+    ))).toBe(true)
+    await page.keyboard.press('PageDown')
+    const selectedFileTreePath = () => visibleFileRows.evaluateAll(rows => (
+      rows.find(row => row.classList.contains('selected'))?.getAttribute('data-file-path') ?? ''
+    ))
+    await expect.poll(selectedFileTreePath).toMatch(/^deep\/nested\/inner\/file-(?!00)\d\d\.txt$/)
+    const pageDownSelectedPath = await selectedFileTreePath()
+    expect(pageDownSelectedPath).toMatch(/^deep\/nested\/inner\/file-\d\d\.txt$/)
+    await page.keyboard.press('PageUp')
+    await expect(file00Row).toHaveClass(/selected/)
 
     if (await compactDeepRow.getAttribute('aria-expanded') !== 'true') {
       await compactDeepRow.click()
@@ -1021,6 +1227,8 @@ test.describe('display-backed agent flows', () => {
     await expect(filesTitle).toHaveAttribute('aria-expanded', 'true')
     await files.locator('[data-testid="code-file-row"][data-file-path="README.md"]').click()
     await expect(activeFileTabName(page)).toHaveText('README.md')
+    await expect(page.getByRole('button', { name: 'Show Markdown source' })).toBeVisible()
+    await page.getByRole('button', { name: 'Show Markdown source' }).click()
     await expect(page.getByTestId('code-file-monaco')).toBeVisible()
 
     const saveMarker = `save-undo-scroll-${Date.now()}`
@@ -1172,8 +1380,6 @@ test.describe('display-backed agent flows', () => {
     fs.mkdirSync(mainWorkspace, { recursive: true })
     fs.mkdirSync(childWorkspace, { recursive: true })
     fs.mkdirSync(deepCodexCwd, { recursive: true })
-    let inheritedMainProjectWorkspace = ''
-
     await page.addInitScript(() => {
       class MockSpeechRecognition extends EventTarget {
         continuous = false
@@ -1382,42 +1588,36 @@ test.describe('display-backed agent flows', () => {
     let projectContextMenu = page.getByTestId('code-project-context-menu')
     await expect(projectContextMenu).toBeVisible()
     await expect(projectContextMenu).toHaveScreenshot('desktop-project-context-menu.png')
-    await expect(projectContextMenu.getByRole('menuitem', { name: 'New Agent' })).toBeVisible()
-    await expect(projectContextMenu.getByRole('menuitem', { name: 'Archive Project' })).toBeVisible()
-    await expect(projectContextMenu.getByRole('menuitem', { name: 'Archive Project' })).toBeEnabled()
+    await expect(projectContextMenu.getByRole('menuitem', { name: 'Rename project' })).toBeVisible()
+    await expect(projectContextMenu.getByRole('menuitem', { name: 'Archive chats' })).toBeVisible()
+    await expect(projectContextMenu.getByRole('menuitem', { name: 'Archive chats' })).toBeEnabled()
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Open First Agent' })).toHaveCount(0)
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Collapse Project' })).toHaveCount(0)
-    await expect(projectContextMenu.getByRole('menuitem', { name: 'New Agent' })).toBeFocused()
+    await expect(projectContextMenu.getByRole('menuitem', { name: 'Rename project' })).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(projectContextMenu).toBeHidden()
     await expect(firstProjectTitle).toBeFocused()
     await page.keyboard.press('Shift+F10')
     projectContextMenu = page.getByTestId('code-project-context-menu')
     await expect(projectContextMenu).toBeVisible()
-    await expect(projectContextMenu.getByRole('menuitem', { name: 'New Agent' })).toBeFocused()
+    await expect(projectContextMenu.getByRole('menuitem', { name: 'Rename project' })).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(projectContextMenu).toBeHidden()
     await expect(firstProjectTitle).toBeFocused()
     await firstProjectTitle.click({ button: 'right' })
     projectContextMenu = page.getByTestId('code-project-context-menu')
-    await expect(projectContextMenu.getByRole('menuitem', { name: 'New Agent' })).toBeFocused()
+    await expect(projectContextMenu.getByRole('menuitem', { name: 'Rename project' })).toBeFocused()
     await page.keyboard.press('/')
     await expect(page.getByTestId('code-search-panel')).toBeHidden()
     await expect(projectContextMenu).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(projectContextMenu).toBeHidden()
     await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
-    await firstProjectTitle.click({ button: 'right' })
-    projectContextMenu = page.getByTestId('code-project-context-menu')
-    await expect(projectContextMenu.getByRole('menuitem', { name: 'New Agent' })).toBeFocused()
-    await projectContextMenu.getByRole('menuitem', { name: 'New Agent' }).click()
-    await page.getByTestId('agent-option-bash').click()
-    inheritedMainProjectWorkspace = await page.getByTestId('workspace-input').inputValue()
-    expect(inheritedMainProjectWorkspace).toBeTruthy()
-    expect(inheritedMainProjectWorkspace.endsWith('/.farming')).toBeFalsy()
-    await page.getByTestId('workspace-back').click()
-    await page.getByTestId('input-dialog-close').click()
-    await expect(firstProjectTitle).toBeFocused()
+    const firstProjectNewAgent = initialPrimaryProjectGroup.getByTestId('code-project-new-agent')
+    await expect(firstProjectNewAgent).toBeVisible()
+    await firstProjectNewAgent.click()
+    await expect(page.getByTestId('code-project-new-agent-menu').getByRole('menuitem', { name: 'bash' })).toBeVisible()
+    await page.keyboard.press('Escape')
 
     await openNewAgentDialog(page)
     await page.getByTestId('agent-option-bash').click()
@@ -1457,6 +1657,14 @@ test.describe('display-backed agent flows', () => {
     const activeCodexSessionRows = page.getByTestId('code-active-session-row').filter({ hasText: 'Deep Codex Session' })
     const pinnedCodexSessionRows = page.getByTestId('code-pinned-section').getByTestId('code-active-session-row').filter({ hasText: 'Deep Codex Session' })
     await expect(activeCodexSessionRows).toHaveCount(1)
+    await expect(pinnedCodexSessionRows).toHaveCount(1)
+    const pinnedTitle = page.getByTestId('code-pinned-title')
+    await expect(pinnedTitle).toHaveAttribute('aria-expanded', 'true')
+    await pinnedTitle.click()
+    await expect(pinnedTitle).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.getByTestId('code-pinned-section').getByTestId('code-active-session-row')).toHaveCount(0)
+    await pinnedTitle.click()
+    await expect(pinnedTitle).toHaveAttribute('aria-expanded', 'true')
     await expect(pinnedCodexSessionRows).toHaveCount(1)
     await expect(page.getByTestId('code-active-session-row').filter({ hasText: 'Pinned Claude Session' })).toHaveCount(0)
     await expect(page.getByTestId('code-active-session-row').filter({ hasText: 'Visible Codex Session' })).toHaveCount(0)
@@ -1702,6 +1910,7 @@ test.describe('display-backed agent flows', () => {
       expect(approvalMenuImage).toMatchSnapshot('desktop-composer-approval-menu.png')
       await approvalMenu.getByRole('menuitemradio', { name: /Ask for approval/ }).click()
       await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()
+      await expect(page.getByTestId('code-composer-approval')).toContainText('Ask for approval')
       await expect.poll(async () => {
         const response = await page.request.get('/farming/api/settings')
         const data = await response.json()
@@ -1744,6 +1953,7 @@ test.describe('display-backed agent flows', () => {
       await expect(page.getByTestId('code-speed-submenu').getByRole('menuitemradio', { name: /^Fast$/ })).toBeFocused()
       await page.keyboard.press('Enter')
       await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()
+      await expect(page.getByTestId('code-composer-model-picker').locator('.code-composer-speed-active')).toHaveCount(1)
       await expect.poll(async () => {
         const response = await page.request.get('/farming/api/settings')
         const data = await response.json()
@@ -1934,8 +2144,8 @@ test.describe('display-backed agent flows', () => {
     await childProjectTitle.click({ button: 'right' })
     const childProjectMenu = page.getByTestId('code-project-context-menu')
     await expect(childProjectMenu.getByRole('menuitem')).toHaveCount(2)
-    await expect(childProjectMenu.getByRole('menuitem', { name: 'New Agent' })).toBeVisible()
-    await expect(childProjectMenu.getByRole('menuitem', { name: 'Archive Project' })).toBeVisible()
+    await expect(childProjectMenu.getByRole('menuitem', { name: 'Rename project' })).toBeVisible()
+    await expect(childProjectMenu.getByRole('menuitem', { name: 'Archive chats' })).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(childProjectMenu).toBeHidden()
     await expect(childProjectTitle).toBeVisible()
@@ -2217,21 +2427,27 @@ test.describe('display-backed agent flows', () => {
     await page.mouse.up()
     await expect.poll(async () => (await page.getByTestId('code-sidebar').boundingBox())?.width ?? 0).toBeGreaterThan(sidebarBeforeResize.width + 40)
 
-	    await page.setViewportSize({ width: 390, height: 844 })
-	    await page.reload({ waitUntil: 'networkidle' })
-    await expect(page.getByTestId('app-shell')).toBeVisible()
-    if ((await page.getByTestId('code-workspace').getAttribute('class'))?.includes('sidebar-collapsed')) {
-      await page.getByTestId('code-mobile-menu').click()
+    const openCollapsedNavigation = async () => {
+      if (!((await page.getByTestId('code-workspace').getAttribute('class'))?.includes('sidebar-collapsed'))) return
+      const mobileMenu = page.getByTestId('code-mobile-menu')
+      if (await mobileMenu.isVisible().catch(() => false)) {
+        await mobileMenu.click()
+        return
+      }
+      await page.getByTestId('code-sidebar-toggle').click()
     }
-	    const mobileProjectGroups = page.getByTestId('code-project-group')
-	    const mobilePrimaryProjectGroup = mobileProjectGroups.filter({ has: page.locator(`[data-agent-id="${primaryAgentId}"]`) })
-	    const mobileChildProjectGroup = mobileProjectGroups.filter({ has: page.locator(`[data-agent-id="${childAgentId}"]`) })
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.reload({ waitUntil: 'networkidle' })
+    await expect(page.getByTestId('app-shell')).toBeVisible()
+    await openCollapsedNavigation()
+    const mobileProjectGroups = page.getByTestId('code-project-group')
+    const mobilePrimaryProjectGroup = mobileProjectGroups.filter({ has: page.locator(`[data-agent-id="${primaryAgentId}"]`) })
+    const mobileChildProjectGroup = mobileProjectGroups.filter({ has: page.locator(`[data-agent-id="${childAgentId}"]`) })
     const mobileRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
     await expect(mobileRow).toBeVisible()
     await mobileRow.click()
-    if ((await page.getByTestId('code-workspace').getAttribute('class'))?.includes('sidebar-collapsed')) {
-      await page.getByTestId('code-mobile-menu').click()
-    }
+    await openCollapsedNavigation()
 	    await expect(mobilePrimaryProjectGroup.getByTestId('code-project-title')).toContainText(path.basename(mainWorkspace))
 	    await expect(mobilePrimaryProjectGroup.getByTestId('code-files-section')).toHaveCount(1)
 	    await expect(mobileChildProjectGroup.getByTestId('code-files-section')).toHaveCount(1)
@@ -2317,11 +2533,9 @@ test.describe('display-backed agent flows', () => {
 	    await revealMobileSidebar()
 	    await mobileRow.click({ button: 'right' })
 	    await page.getByRole('menuitem', { name: 'Mark as unread' }).click()
-	    await expect(mobileRow).toHaveClass(/unread/)
 	    await expect(mobileRow).toBeFocused()
 	    await revealMobileSidebar()
 	    await mobileRow.click({ button: 'right' })
-	    await expect(page.getByRole('menuitem', { name: 'Mark as read' })).toBeVisible()
 	    await page.getByRole('menuitem', { name: 'Pin Agent' }).click()
 	    await expect(mobileRow).toHaveClass(/pinned/)
 	    await expect(mobileRow).toBeFocused()

@@ -1,4 +1,4 @@
-import { createElement, useCallback, useRef } from 'react'
+import { createElement, useCallback, useEffect, useRef } from 'react'
 import type { RowRendererProps, TreeApi } from 'react-arborist'
 import { preserveWorkspaceFileScrollPosition } from '@/lib/workspace-file-view-model'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
@@ -6,6 +6,8 @@ import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
 interface UseWorkspaceFileTreeControllerOptions {
   rowHeight: number
   visibleTreeRowCount: number
+  openDirectoryPaths: ReadonlySet<string>
+  treeData: WorkspaceFileTreeNode[]
   hydrateCompactDirectoryChains: (directoryPath: string) => Promise<unknown>
   setDirectoryOpen: (path: string, open: boolean) => void
   syncOpenDirectoryPaths: (openPaths: Set<string>) => void
@@ -14,6 +16,8 @@ interface UseWorkspaceFileTreeControllerOptions {
 export function useWorkspaceFileTreeController({
   rowHeight,
   visibleTreeRowCount,
+  openDirectoryPaths,
+  treeData,
   hydrateCompactDirectoryChains,
   setDirectoryOpen,
   syncOpenDirectoryPaths,
@@ -37,15 +41,52 @@ export function useWorkspaceFileTreeController({
     syncOpenDirectoryPaths(nextOpenPaths)
   }, [syncOpenDirectoryPaths])
 
-  const refreshTreeLayout = useCallback(() => {
+  const openTreePaths = useCallback((paths: readonly string[]) => {
+    if (paths.length === 0) return false
+    const tree = treeRef.current
+    if (!tree) return false
+    let opened = false
+    paths.forEach(path => {
+      if (!path || !tree.get(path)) return
+      if (tree.isOpen(path)) return
+      tree.open(path, false)
+      opened = true
+    })
+    return opened
+  }, [])
+
+  const refreshTreeLayout = useCallback((preserveOpenPaths: readonly string[] = []) => {
     const redrawTree = (syncOpenState = false) => {
+      openTreePaths(preserveOpenPaths)
       treeRef.current?.redrawList()
-      if (syncOpenState) syncTreeStateFromArborist()
+      if (syncOpenState) {
+        openTreePaths(preserveOpenPaths)
+        syncTreeStateFromArborist()
+      }
     }
     redrawTree()
     window.requestAnimationFrame(() => redrawTree(true))
     window.setTimeout(() => redrawTree(true), 80)
-  }, [syncTreeStateFromArborist])
+  }, [openTreePaths, syncTreeStateFromArborist])
+
+  useEffect(() => {
+    const pathsToOpen = Array.from(openDirectoryPaths)
+    if (pathsToOpen.length === 0) return undefined
+    const reconcileTreeOpenState = () => {
+      if (openTreePaths(pathsToOpen)) {
+        treeRef.current?.redrawList()
+      }
+    }
+    reconcileTreeOpenState()
+    const frameId = window.requestAnimationFrame(reconcileTreeOpenState)
+    const timeoutId = window.setTimeout(reconcileTreeOpenState, 80)
+    const lateTimeoutId = window.setTimeout(reconcileTreeOpenState, 180)
+    return () => {
+      window.cancelAnimationFrame(frameId)
+      window.clearTimeout(timeoutId)
+      window.clearTimeout(lateTimeoutId)
+    }
+  }, [openDirectoryPaths, openTreePaths, treeData])
 
   const renderFileTreeRow = useCallback(({ attrs, innerRef, children }: RowRendererProps<WorkspaceFileTreeNode>) => {
     const { style, className, ...rowAttrs } = attrs

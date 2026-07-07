@@ -1,18 +1,22 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
 import {
   type WorkspaceFile,
+  type WorkspaceFileChange,
   type WorkspaceFileDeleteResult,
   type WorkspaceFileMove,
 } from '@/lib/workspace-files'
+import { workspaceFileOpenTargetForChange } from '@/lib/workspace-open-files'
 import type { AgentLaunchOption } from '../code/agent-launch-options'
 import type { CodeCopy } from '../code/copy'
+import { FileChangesSection } from './FileChangesSection'
 import { FileSectionBody } from './FileSectionBody'
 import { FileSectionHeader } from './FileSectionHeader'
 import { FileSectionOverlays } from './FileSectionOverlays'
 import { OpenEditorsSection, type OpenProjectFileSummary } from './OpenEditorsSection'
 import { useProjectFilesSectionViewModel } from './useProjectFilesSectionViewModel'
+import { useWorkspaceFileChanges } from './useWorkspaceFileChanges'
 import { useWorkspaceFileFocus } from './useWorkspaceFileFocus'
 import { useWorkspaceFileExplorer } from './useWorkspaceFileExplorer'
 import { useWorkspaceFileMenuController } from './useWorkspaceFileMenuController'
@@ -131,6 +135,8 @@ export function ProjectFilesSection({
   } = useWorkspaceFileTreeController({
     rowHeight: FILE_ROW_HEIGHT,
     visibleTreeRowCount,
+    openDirectoryPaths,
+    treeData,
     hydrateCompactDirectoryChains,
     setDirectoryOpen,
     syncOpenDirectoryPaths,
@@ -161,6 +167,7 @@ export function ProjectFilesSection({
 
   const {
     openFileError,
+    openFilePendingPath,
     openFilePath,
     setOpenFileError,
   } = useWorkspaceFileOpenController({
@@ -170,6 +177,24 @@ export function ProjectFilesSection({
     onRevealFilePath: revealFilePath,
     onSelectOpenFile,
   })
+
+  const fileChanges = useWorkspaceFileChanges(agentId, openFiles)
+  const [changesCollapsed, setChangesCollapsed] = useState(true)
+
+  useEffect(() => {
+    setChangesCollapsed(true)
+  }, [agentId])
+
+  const toggleChangesCollapsed = useCallback(() => {
+    setChangesCollapsed(current => !current)
+  }, [])
+
+  const openFileChange = useCallback((change: WorkspaceFileChange) => {
+    void openFilePath(change.path, {
+      ...workspaceFileOpenTargetForChange(change),
+      transient: true,
+    })
+  }, [openFilePath])
 
   const {
     fileOperation,
@@ -188,6 +213,7 @@ export function ProjectFilesSection({
     onDeleteEntries,
     onMoveEntries,
     onOpenFile,
+    onWorkspaceChange: fileChanges.refreshChanges,
     refreshDirectories,
     setOpenFileError,
   })
@@ -343,6 +369,7 @@ export function ProjectFilesSection({
     lastFocusedFilePathRef,
     openEditorsCollapsed,
     openFileError,
+    openFilePendingPath,
     projectId,
     renderFileTreeRow,
     rootDirectoryError: directories['']?.error ?? null,
@@ -399,7 +426,18 @@ export function ProjectFilesSection({
       <div className={`code-files-section ${filesCollapsed ? 'collapsed' : ''}`} data-testid="code-files-section" data-project-id={projectId}>
         <FileSectionHeader {...viewModel.sectionHeader} />
         {!filesCollapsed && (
-          <FileSectionBody {...viewModel.sectionBody} />
+          <>
+            <FileChangesSection
+              activeFilePath={activeFilePath}
+              changes={fileChanges}
+              collapsed={changesCollapsed}
+              copy={copy}
+              projectId={projectId}
+              onOpenChange={openFileChange}
+              onToggleCollapsed={toggleChangesCollapsed}
+            />
+            <FileSectionBody {...viewModel.sectionBody} />
+          </>
         )}
       </div>
       {filesCollapsed && (

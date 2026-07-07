@@ -127,6 +127,10 @@ class NativeSessionEngine extends SessionEngine {
     return this.client.request('resizeSession', { sessionId, cols, rows });
   }
 
+  async clearBuffer(sessionId) {
+    return this.client.request('clearBuffer', { sessionId });
+  }
+
   async killSession(sessionId) {
     const result = await this.client.request('killSession', { sessionId });
     this.activeSessionIds.delete(sessionId);

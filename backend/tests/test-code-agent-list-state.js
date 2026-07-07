@@ -67,6 +67,7 @@ function run() {
     session({ provider: 'claude', id: 'claude-claimed', workspace: '/repo2', cwd: '/repo2', updatedAt: new Date(240_000).toISOString() }),
     session({ provider: 'claude', id: 'stopped-claude', workspace: '/repo3', cwd: '/repo3', updatedAt: new Date(250_000).toISOString() }),
     session({ id: 'history-open', workspace: '/history', cwd: '/history', updatedAt: new Date(220_000).toISOString() }),
+    session({ id: 'archived-main-page', workspace: '/repo', cwd: '/repo', updatedAt: new Date(230_000).toISOString(), archived: true }),
     session({ id: 'older-unclaimed', workspace: '/repo', cwd: '/repo', updatedAt: new Date(10_000).toISOString() }),
   ];
 
@@ -78,6 +79,7 @@ function run() {
     mainPageSessionKeys: new Set([
       'agent-session:codex:code-claimed',
       'agent-session:codex:sidebar-open',
+      'agent-session:codex:archived-main-page',
       'agent-session:claude:claude-claimed',
       'agent-session:claude:stopped-claude',
     ]),
@@ -102,12 +104,12 @@ function run() {
   assert.deepStrictEqual(
     state.sidebarAgentSessions.map(item => item.id),
     ['sidebar-open', 'stopped-claude'],
-    'unclaimed main-page sessions, including stopped provider sessions, should remain as resumable session rows'
+    'unclaimed main-page sessions, including stopped provider sessions, should remain as resumable session rows while archived sessions stay out'
   );
   assert.deepStrictEqual(
     state.historyAgentSessions.map(item => item.id),
-    ['history-open', 'older-unclaimed'],
-    'history keeps unclaimed non-main-page sessions out of the active agent list'
+    ['archived-main-page', 'history-open', 'older-unclaimed'],
+    'history keeps unclaimed non-main-page sessions and archived main-page sessions out of the active agent list'
   );
   assert.deepStrictEqual(
     Array.from(claimedAgentSessionKeysForAgents([

@@ -30,6 +30,16 @@ function run() {
   const ticket = store.create('春风-轻落庭前-一枝梅', { now: 1000 });
   assert.strictEqual(ticket.code, 'BBBBBBBBBB');
   assert.strictEqual(ticket.expiresAt, 1000 + SHARE_TICKET_TTL_MS);
+  assert.strictEqual(ticket.targetQuery, '');
+
+  const targetedStore = new QrShareTicketStore({
+    ttlMs: SHARE_TICKET_TTL_MS,
+    codeLength: 10,
+    randomBytes: fixedBytes(2),
+  });
+  const targeted = targetedStore.create('target-token', { now: 1500, targetQuery: 'ftarget=agent&agent=agent-1' });
+  assert.strictEqual(targeted.targetQuery, 'ftarget=agent&agent=agent-1');
+  assert.strictEqual(targetedStore.consume(targeted.code, { now: 1501 }).targetQuery, 'ftarget=agent&agent=agent-1');
 
   const consumed = store.consume('bbbbbbbbbb', { now: 1000 + SHARE_TICKET_TTL_MS - 1 });
   assert.strictEqual(consumed.token, '春风-轻落庭前-一枝梅');
@@ -50,7 +60,11 @@ function run() {
   );
   assert(serverSource.includes("app.post(routePath(BASE_PATH, '/api/share/qr-ticket')"));
   assert(serverSource.includes("app.delete(routePath(BASE_PATH, '/api/share/qr-ticket/:code')"));
+  assert(serverSource.includes('function shareTargetQueryFromBody'));
+  assert(serverSource.includes("params.set('ftarget', kind)"));
+  assert(serverSource.includes("res.redirect(302, entryPathWithQuery(ticket.targetQuery))"));
   assert(serverSource.includes('tokenLabel: authEnabled ? tokenAuth.getToken() :'));
+  assert(serverSource.includes('const longPath = entryPathWithToken(ticket.targetQuery)'));
   assert(serverSource.includes('longUrl: absoluteClientUrl(req, longPath)'));
   assert(serverSource.includes('shortUrl: absoluteClientUrl(req, shortPath)'));
 

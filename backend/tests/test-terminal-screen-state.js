@@ -38,6 +38,11 @@ async function run() {
     assert.strictEqual(resized.previewText, 'three\nfour\nfive');
     assert.strictEqual(resized.previewSnapshot.rows, 3);
 
+    const cleared = await screen.clearBuffer();
+    assert.strictEqual(cleared.previewText, '');
+    assert.ok(!cleared.renderOutput.includes('five'), 'cleared render output should not replay old scrollback');
+    assert.strictEqual(cleared.previewSnapshot.rows, 3);
+
     const lfScreen = new TerminalScreenState({ cols: 24, rows: 4 });
     try {
       await lfScreen.write('alpha\nbeta\ngamma');

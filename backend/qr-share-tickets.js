@@ -31,6 +31,7 @@ class QrShareTicketStore {
 
   create(token, options = {}) {
     const now = Number(options.now) || Date.now();
+    const targetQuery = typeof options.targetQuery === 'string' ? options.targetQuery : '';
     this.cleanup(now);
     this.trim(now);
 
@@ -47,6 +48,7 @@ class QrShareTicketStore {
     const ticket = {
       code,
       token: String(token || ''),
+      targetQuery,
       createdAt: now,
       expiresAt: now + this.ttlMs,
     };

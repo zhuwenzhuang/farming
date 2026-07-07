@@ -14,6 +14,9 @@ interface FileEditorHeaderProps {
   statusText: string | null
   onBackToAgent: (agentId: string) => void
   onSelectOpenFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
+  canNavigateBack: boolean
+  canNavigateForward: boolean
+  onNavigateHistory: (direction: -1 | 1) => boolean
   onSetTabRef: (key: string, element: HTMLDivElement | null) => void
   onOpenTabContextMenu: (event: ReactMouseEvent<HTMLDivElement>, index: number) => void
   onTabAuxClick: (event: ReactMouseEvent<HTMLDivElement>, index: number) => void
@@ -22,11 +25,14 @@ interface FileEditorHeaderProps {
   onRevealInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
   onSave: (overwrite?: boolean) => void
   onReload: () => void
-  onToggleMarkdownPreview: () => void
+  onToggleSourcePreview: () => void
+  onToggleMarkdownSplit: () => void
   onToggleDiff: () => void
   canPreviewMarkdown: boolean
+  canPreviewSource: boolean
   diffOpen: boolean
-  markdownPreviewOpen: boolean
+  markdownSplitOpen: boolean
+  sourcePreviewOpen: boolean
 }
 
 export function FileEditorHeader({
@@ -37,6 +43,9 @@ export function FileEditorHeader({
   statusText,
   onBackToAgent,
   onSelectOpenFile,
+  canNavigateBack,
+  canNavigateForward,
+  onNavigateHistory,
   onSetTabRef,
   onOpenTabContextMenu,
   onTabAuxClick,
@@ -45,15 +54,19 @@ export function FileEditorHeader({
   onRevealInExplorer,
   onSave,
   onReload,
-  onToggleMarkdownPreview,
+  onToggleSourcePreview,
+  onToggleMarkdownSplit,
   onToggleDiff,
   canPreviewMarkdown,
+  canPreviewSource,
   diffOpen,
-  markdownPreviewOpen,
+  markdownSplitOpen,
+  sourcePreviewOpen,
 }: FileEditorHeaderProps) {
   const showBreadcrumbs = openFile.file.path.includes('/')
   const actions = workspaceEditorActionState(openFile, editorMode, {
     canPreviewMarkdown,
+    canPreviewSource,
     statusText,
     showBreadcrumbs,
   })
@@ -66,6 +79,9 @@ export function FileEditorHeader({
         copy={copy}
         onBackToAgent={onBackToAgent}
         onSelectOpenFile={onSelectOpenFile}
+        canNavigateBack={canNavigateBack}
+        canNavigateForward={canNavigateForward}
+        onNavigateHistory={onNavigateHistory}
         onSetTabRef={onSetTabRef}
         onOpenTabContextMenu={onOpenTabContextMenu}
         onTabAuxClick={onTabAuxClick}
@@ -83,12 +99,14 @@ export function FileEditorHeader({
             actions={actions}
             copy={copy}
             diffOpen={diffOpen}
-            markdownPreviewOpen={markdownPreviewOpen}
             openFile={openFile}
+            markdownSplitOpen={markdownSplitOpen}
+            sourcePreviewOpen={sourcePreviewOpen}
             statusText={statusText}
             onReload={onReload}
             onSave={onSave}
-            onToggleMarkdownPreview={onToggleMarkdownPreview}
+            onToggleMarkdownSplit={onToggleMarkdownSplit}
+            onToggleSourcePreview={onToggleSourcePreview}
             onToggleDiff={onToggleDiff}
           />
         </div>

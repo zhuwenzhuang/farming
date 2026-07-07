@@ -1,7 +1,7 @@
 import type { AgentSessionHistoryItem, ProjectGroup } from './types'
 import { agentSessionId, workspaceTargetId } from './model'
 
-export const DEFAULT_PROJECT_SESSION_LIMIT = 4
+export const DEFAULT_PROJECT_SESSION_LIMIT = 5
 export const SESSION_DISPLAY_STATE_STORAGE_KEY = 'farming.codex.sessionDisplayState.v1'
 const MAX_MAIN_PAGE_SESSION_KEYS = 50
 const TEMPORARY_PROVIDER_SESSION_ID_PREFIX = 'tmp_uuid'

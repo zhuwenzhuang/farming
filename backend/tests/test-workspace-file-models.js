@@ -22,6 +22,7 @@ const {
   isDescendantPath,
   parentDirectory,
   visibleWorkspaceDirectoryPathsForTarget,
+  visibleWorkspaceDirectoryPathsToOpenForTarget,
 } = require('../../src/lib/workspace-file-tree.ts');
 const {
   hasWorkspaceFileTreeDescendant,
@@ -40,6 +41,8 @@ const {
   shouldFocusWorkspaceFileTree,
   shouldSelectWorkspaceFileSearchText,
   shouldSkipWorkspaceFileSearchFocus,
+  workspaceFileTreePageJumpIndex,
+  workspaceFileTreePageJumpSize,
   workspaceFileTreeFocusTargetPath,
   workspaceFileTreeKeyboardTargetPath,
   workspaceFileRevealScrollDelta,
@@ -55,6 +58,7 @@ const {
   estimateWorkspaceBlameLabelWidth,
   formatWorkspaceBlameTime,
   isWorkspaceMarkdownFile,
+  isWorkspaceSvgFile,
   isWorkspaceEditorModelUri,
   isPermanentWorkspaceBlameFailureStatus,
   languageForWorkspaceFile,
@@ -231,6 +235,7 @@ function run() {
   }), false);
   assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'deleted' }), false);
   assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'modified' }), true);
+  assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'modified', revealInTree: false }), false);
   assert.deepStrictEqual(workspaceFileOpenTargetForChange({
     path: 'src/App.tsx',
     name: 'App.tsx',
@@ -239,8 +244,21 @@ function run() {
   }), {
     view: 'diff',
     diffOnly: false,
+    revealInTree: false,
     gitStatus: 'modified',
     gitStatusLabel: 'M',
+  });
+  assert.deepStrictEqual(workspaceFileOpenTargetForChange({
+    path: 'src/New.tsx',
+    name: 'New.tsx',
+    gitStatus: 'untracked',
+    gitStatusLabel: 'U',
+  }), {
+    view: 'editor',
+    diffOnly: false,
+    revealInTree: false,
+    gitStatus: 'untracked',
+    gitStatusLabel: 'U',
   });
   assert.deepStrictEqual(workspaceFileOpenTargetForChange({
     path: 'src/deleted.ts',
@@ -250,6 +268,7 @@ function run() {
   }), {
     view: 'diff',
     diffOnly: true,
+    revealInTree: false,
     gitStatus: 'deleted',
     gitStatusLabel: 'D',
   });
@@ -349,52 +368,86 @@ function run() {
 	  assert.strictEqual(isWorkspaceMarkdownFile('README.md'), true);
 	  assert.strictEqual(isWorkspaceMarkdownFile('docs/guide.markdown'), true);
 	  assert.strictEqual(isWorkspaceMarkdownFile('src/main.ts'), false);
+	  assert.strictEqual(isWorkspaceSvgFile('assets/icon.svg'), true);
+	  assert.strictEqual(isWorkspaceSvgFile('assets/icon.svgz'), false);
 	  assert.deepStrictEqual(workspaceEditorSurfaceState({ diffOnly: false, diffOpen: false, visualPreview: false }), {
 	    showDiffView: false,
 	    showDiffOnlyPreview: false,
+	    showMarkdownSplit: false,
 	    showMarkdownPreview: false,
+	    showSourcePreview: false,
 	    showMonaco: true,
 	    showEditorOverlays: true,
 	  });
 	  assert.deepStrictEqual(workspaceEditorSurfaceState({ diffOnly: false, diffOpen: true, visualPreview: false }), {
 	    showDiffView: true,
 	    showDiffOnlyPreview: false,
+	    showMarkdownSplit: false,
 	    showMarkdownPreview: false,
+	    showSourcePreview: false,
 	    showMonaco: false,
 	    showEditorOverlays: false,
 	  });
 	  assert.deepStrictEqual(workspaceEditorSurfaceState({ diffOnly: false, diffOpen: true, visualPreview: true }), {
 	    showDiffView: false,
 	    showDiffOnlyPreview: false,
+	    showMarkdownSplit: false,
 	    showMarkdownPreview: false,
+	    showSourcePreview: false,
 	    showMonaco: false,
 	    showEditorOverlays: false,
 	  });
 	  assert.deepStrictEqual(workspaceEditorSurfaceState({ diffOnly: true, diffOpen: false, visualPreview: false }), {
 	    showDiffView: false,
 	    showDiffOnlyPreview: true,
+	    showMarkdownSplit: false,
 	    showMarkdownPreview: false,
+	    showSourcePreview: false,
 	    showMonaco: false,
 	    showEditorOverlays: false,
 	  });
 	  assert.deepStrictEqual(workspaceEditorSurfaceState({ diffOnly: true, diffOpen: true, visualPreview: false }), {
 	    showDiffView: true,
 	    showDiffOnlyPreview: false,
+	    showMarkdownSplit: false,
 	    showMarkdownPreview: false,
+	    showSourcePreview: false,
 	    showMonaco: false,
 	    showEditorOverlays: false,
 	  });
 	  assert.deepStrictEqual(workspaceEditorSurfaceState({ diffOnly: false, diffOpen: false, markdownPreviewOpen: true, visualPreview: false }), {
 	    showDiffView: false,
 	    showDiffOnlyPreview: false,
+	    showMarkdownSplit: false,
 	    showMarkdownPreview: true,
+	    showSourcePreview: false,
 	    showMonaco: false,
 	    showEditorOverlays: false,
+	  });
+	  assert.deepStrictEqual(workspaceEditorSurfaceState({ diffOnly: false, diffOpen: false, markdownPreviewOpen: true, markdownSplitOpen: true, visualPreview: false }), {
+	    showDiffView: false,
+	    showDiffOnlyPreview: false,
+	    showMarkdownSplit: true,
+	    showMarkdownPreview: false,
+	    showSourcePreview: false,
+	    showMonaco: false,
+	    showEditorOverlays: true,
 	  });
 	  assert.deepStrictEqual(workspaceEditorSurfaceState({ diffOnly: false, diffOpen: true, markdownPreviewOpen: true, visualPreview: false }), {
 	    showDiffView: true,
 	    showDiffOnlyPreview: false,
+	    showMarkdownSplit: false,
 	    showMarkdownPreview: false,
+	    showSourcePreview: false,
+	    showMonaco: false,
+	    showEditorOverlays: false,
+	  });
+	  assert.deepStrictEqual(workspaceEditorSurfaceState({ diffOnly: false, diffOpen: false, sourcePreviewOpen: true, visualPreview: false }), {
+	    showDiffView: false,
+	    showDiffOnlyPreview: false,
+	    showMarkdownSplit: false,
+	    showMarkdownPreview: false,
+	    showSourcePreview: true,
 	    showMonaco: false,
 	    showEditorOverlays: false,
 	  });
@@ -407,6 +460,7 @@ function run() {
 	    showSave: true,
 	    showDiff: true,
 	    showMarkdownPreview: false,
+	    showSourcePreview: false,
 	    showReload: false,
 	    showOverwrite: false,
 	  });
@@ -420,6 +474,7 @@ function run() {
 	    showSave: false,
 	    showDiff: true,
 	    showMarkdownPreview: false,
+	    showSourcePreview: false,
 	    showReload: true,
 	    showOverwrite: true,
 	  });
@@ -433,6 +488,7 @@ function run() {
 	    showSave: false,
 	    showDiff: true,
 	    showMarkdownPreview: false,
+	    showSourcePreview: false,
 	    showReload: false,
 	    showOverwrite: false,
 	  });
@@ -446,6 +502,21 @@ function run() {
 	    showSave: false,
 	    showDiff: true,
 	    showMarkdownPreview: true,
+	    showSourcePreview: false,
+	    showReload: false,
+	    showOverwrite: false,
+	  });
+	  assert.deepStrictEqual(workspaceEditorActionState(
+	    workingCopy(),
+	    workspaceEditorFileMode(workingCopy()),
+	    { canPreviewSource: true, statusText: null, showBreadcrumbs: false }
+	  ), {
+	    showBar: true,
+	    showStatus: false,
+	    showSave: false,
+	    showDiff: true,
+	    showMarkdownPreview: false,
+	    showSourcePreview: true,
 	    showReload: false,
 	    showOverwrite: false,
 	  });
@@ -504,8 +575,38 @@ function run() {
   assert.strictEqual(shouldShowWorkspaceWorkingCopyReloadAction(workingCopy({ error: 'failed' })), true);
   assert.strictEqual(workspaceWorkingCopyTabClass(workingCopy({ dirty: true, externalChanged: true })), 'dirty warning');
   assert.strictEqual(shouldCancelPendingWorkspaceFileTreeFocus('ArrowDown'), true);
+  assert.strictEqual(shouldCancelPendingWorkspaceFileTreeFocus('Home'), true);
+  assert.strictEqual(shouldCancelPendingWorkspaceFileTreeFocus('End'), true);
+  assert.strictEqual(shouldCancelPendingWorkspaceFileTreeFocus('PageUp'), true);
+  assert.strictEqual(shouldCancelPendingWorkspaceFileTreeFocus('PageDown'), true);
   assert.strictEqual(shouldCancelPendingWorkspaceFileTreeFocus('F2'), true);
   assert.strictEqual(shouldCancelPendingWorkspaceFileTreeFocus('a'), false);
+  assert.strictEqual(workspaceFileTreePageJumpSize(120, 24), 4);
+  assert.strictEqual(workspaceFileTreePageJumpSize(10, 24), 1);
+  assert.strictEqual(workspaceFileTreePageJumpIndex({
+    currentIndex: 5,
+    key: 'PageDown',
+    pageSize: 4,
+    rowCount: 20,
+  }), 9);
+  assert.strictEqual(workspaceFileTreePageJumpIndex({
+    currentIndex: 5,
+    key: 'PageUp',
+    pageSize: 4,
+    rowCount: 20,
+  }), 1);
+  assert.strictEqual(workspaceFileTreePageJumpIndex({
+    currentIndex: 18,
+    key: 'PageDown',
+    pageSize: 4,
+    rowCount: 20,
+  }), 19);
+  assert.strictEqual(workspaceFileTreePageJumpIndex({
+    currentIndex: 1,
+    key: 'PageUp',
+    pageSize: 4,
+    rowCount: 20,
+  }), 0);
   assert.strictEqual(workspaceFileTreeKeyboardTargetPath({
     targetPath: 'clicked.ts',
     selectedPath: 'selected.ts',
@@ -598,8 +699,23 @@ function run() {
   assert.strictEqual(findWorkspaceFileTreeNode(tree, 'src'), tree[0]);
   assert.strictEqual(findVisibleWorkspaceTreePath(tree, 'src'), 'src/components');
   assert.deepStrictEqual(visibleWorkspaceDirectoryPathsForTarget(tree, 'src/components/App.tsx'), ['src/components']);
+  assert.deepStrictEqual(visibleWorkspaceDirectoryPathsToOpenForTarget(tree, 'src', true), ['src/components']);
   assert.strictEqual(countVisibleWorkspaceTreeRows(tree, new Set()), 2);
   assert.strictEqual(countVisibleWorkspaceTreeRows(tree, new Set(['src/components'])), 4);
+  const nestedRevealDirectories = {
+    '': { items: [directory('reference')] },
+    reference: { items: [directory('reference/poem'), workspaceFile('reference/index.md')] },
+    'reference/poem': { items: [workspaceFile('reference/poem/hidden.txt')] },
+  };
+  const nestedRevealTree = buildWorkspaceFileTreeNodes(nestedRevealDirectories[''].items, nestedRevealDirectories);
+  assert.deepStrictEqual(
+    visibleWorkspaceDirectoryPathsToOpenForTarget(nestedRevealTree, 'reference/poem', true),
+    ['reference', 'reference/poem']
+  );
+  assert.deepStrictEqual(
+    visibleWorkspaceDirectoryPathsToOpenForTarget(nestedRevealTree, 'reference/poem/hidden.txt'),
+    ['reference', 'reference/poem']
+  );
   assert.deepStrictEqual(workspaceFileTreeDepthStyle(2), {
     '--file-indent': '28px',
     '--file-status-indent': '46px',
@@ -636,6 +752,7 @@ function run() {
   assert.strictEqual(fileRowState.visibleGitStatusLabel, 'M');
   assert.strictEqual(fileRowState.fileChangedClassName, 'code-file-changed dirty');
   assert.strictEqual(fileRowState.fileChangedTitleKind, 'dirty');
+  assert.strictEqual(fileRowState.fileOpening, false);
   assert.strictEqual(fileRowState.showDirectoryDot, false);
   assert(fileRowState.rowClasses.includes('file'));
   assert(fileRowState.rowClasses.includes('active'));
@@ -643,6 +760,18 @@ function run() {
   assert(fileRowState.rowClasses.includes('git-status'));
   assert(fileRowState.rowClasses.includes('focused'));
   assert(fileRowState.rowClasses.includes('selected'));
+  const openingFileRowState = workspaceFileTreeRowViewState({
+    activeFilePath: 'src/Other.tsx',
+    editorDirtyFilePaths: new Set(),
+    editorExternalChangedFilePaths: new Set(),
+    openFilePendingPath: 'src/App.tsx',
+    item: workspaceFile('src/App.tsx'),
+    isFocused: false,
+    isOpen: false,
+    isSelected: false,
+  });
+  assert.strictEqual(openingFileRowState.fileOpening, true);
+  assert(openingFileRowState.rowClasses.includes('opening'));
   const directoryRowState = workspaceFileTreeRowViewState({
     editorDirtyFilePaths: new Set(['src/components/App.tsx']),
     editorExternalChangedFilePaths: new Set(['src/components/config.json']),

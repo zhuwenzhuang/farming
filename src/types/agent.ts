@@ -71,6 +71,7 @@ export interface Agent {
   engineName?: string
   cwd: string
   projectWorkspace?: string
+  launchPermissionMode?: string
   output: string
   previewText?: string
   previewSnapshot?: TerminalPreviewSnapshot | null

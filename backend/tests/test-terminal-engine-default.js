@@ -34,6 +34,9 @@ function run() {
       xtermSource.includes('adapted.forceRedraw = () =>') &&
       xtermSource.includes('terminal.clearTextureAtlas()') &&
       xtermSource.includes('adapted.clearTerminalSelection = () => terminal.clearSelection()') &&
+      xtermSource.includes("terminal.write('\\x1b[2J\\x1b[3J\\x1b[H')") &&
+      xtermSource.includes('adapted.selectAll = () => terminal.selectAll()') &&
+      xtermSource.includes('ignoreBracketedPasteMode: true') &&
       xtermSource.includes('linkHandler:') &&
       xtermSource.includes('allowNonHttpProtocols: false') &&
       xtermSource.includes('minimumContrastRatio: 4.5') &&
@@ -55,7 +58,7 @@ function run() {
     packageJson.dependencies['@xterm/xterm'] &&
       packageJson.dependencies['@xterm/addon-fit'] &&
       packageJson.dependencies['@xterm/addon-clipboard'],
-    'runtime dependencies should include xterm.js, the fit addon, and the clipboard addon'
+    'runtime dependencies should include xterm.js, the fit addon, and the standard xterm clipboard addon'
   );
 
   assert(

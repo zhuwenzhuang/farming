@@ -9,6 +9,7 @@ import {
 import type { GhosttyFitAddon, GhosttyTerminal } from '@/lib/ghostty'
 import { createXtermTerminalInstance } from '@/lib/xterm'
 import type { ILinkProvider } from '@xterm/xterm'
+import type { TerminalSearchOptions } from '@/lib/terminal-search'
 
 export {
   DEFAULT_FONT_FAMILY,
@@ -31,10 +32,12 @@ export type FarmingTerminal = GhosttyTerminal & {
   reattach?: () => void
   forceRedraw?: () => void
   clearTerminalSelection?: () => void
+  clearBuffer?: () => void
+  selectAll?: () => void
   search?: (
     term: string,
     direction?: 'next' | 'previous',
-    options?: { incremental?: boolean }
+    options?: TerminalSearchOptions
   ) => { found: boolean; resultIndex?: number; resultCount?: number }
   clearSearch?: () => void
   refresh?: (start: number, end: number) => void

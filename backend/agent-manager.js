@@ -320,7 +320,7 @@ class AgentManager extends EventEmitter {
         this.emit('session-stream', stream);
       });
 
-    this.engineBridge.on('session-sync', ({ sessionId, output, engineName, replaceLive = true }) => {
+    this.engineBridge.on('session-sync', ({ sessionId, output, engineName, replaceLive = true, outputSeq }) => {
         const agent = this.agents.get(sessionId);
         if (!agent) return;
 
@@ -330,12 +330,16 @@ class AgentManager extends EventEmitter {
 
         if (replaceLive) {
           const sessionSource = this.getEngineSessionSource(engineName);
-          this.emit('session-stream', {
+          const stream = {
             agentId: sessionId,
             data: agent.output,
             sessionSource,
             replace: true,
-          });
+          };
+          if (Number.isFinite(outputSeq)) {
+            stream.outputSeq = outputSeq;
+          }
+          this.emit('session-stream', stream);
         }
         this.observeAgentStateChange(sessionId);
         this.emit('update');
@@ -593,6 +597,7 @@ class AgentManager extends EventEmitter {
       mainWorkspace: metadata.mainWorkspace || '',
       projectWorkspace: metadata.projectWorkspace || metadata.cwd || '',
       category: metadata.category || 'coding',
+      launchPermissionMode: metadata.launchPermissionMode || '',
       parentAgentId: metadata.parentAgentId || '',
       task: metadata.task || '',
       workflowTemplate: metadata.workflowTemplate || '',
@@ -679,6 +684,7 @@ class AgentManager extends EventEmitter {
       providerSessionSource: agent.providerSessionSource || '',
       providerSessionResolvedAt: agent.providerSessionResolvedAt || null,
       forkedFromProviderSessionId: agent.forkedFromProviderSessionId || '',
+      launchPermissionMode: agent.launchPermissionMode || '',
     })).catch((error) => {
       console.warn('Failed to update provider session metadata:', error && (error.message || error));
     });
@@ -1189,6 +1195,7 @@ class AgentManager extends EventEmitter {
       mainWorkspace: wantsMain ? workspace : '',
       projectWorkspace,
       category: resolution.spec ? resolution.spec.category : 'other',
+      launchPermissionMode: launch.permissionMode || '',
       parentAgentId,
       task: typeof options.task === 'string' ? options.task : '',
       workflowTemplate: typeof options.workflowTemplate === 'string' ? options.workflowTemplate : '',
@@ -1244,6 +1251,7 @@ class AgentManager extends EventEmitter {
           mainWorkspace: agentRecord.mainWorkspace || '',
           wantsMain,
           category: agentRecord.category,
+          launchPermissionMode: agentRecord.launchPermissionMode,
           parentAgentId,
           task: agentRecord.task,
           workflowTemplate: agentRecord.workflowTemplate,
@@ -1405,6 +1413,35 @@ class AgentManager extends EventEmitter {
       this.lastResizeByAgent.set(agentId, { cols: nextCols, rows: nextRows });
     } catch (error) {
       console.error('Failed to resize agent session:', error);
+    }
+  }
+
+  async clearAgentSessionBuffer(agentId) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return { cleared: false };
+
+    try {
+      const engine = this.engineBridge.getEngine(agent.engineName);
+      if (!engine || !engine.clearBuffer) return { cleared: false };
+      const result = await engine.clearBuffer(agentId);
+      if (result && result.cleared === false) {
+        this.markAgentSessionDead(agentId, 'Session not available');
+        return result;
+      }
+      agent.output = '';
+      agent.previewText = '';
+      agent.previewSnapshot = null;
+      this.outputEvents.delete(agentId);
+      this.lastActivity.set(agentId, Date.now());
+      this.observeAgentStateChange(agentId, { force: true });
+      this.emit('update');
+      return result || { cleared: true };
+    } catch (error) {
+      console.error('Failed to clear agent session buffer:', error);
+      if (isSessionNotAvailableError(error)) {
+        this.markAgentSessionDead(agentId, error);
+      }
+      return { cleared: false, error: error && error.message ? error.message : String(error) };
     }
   }
 
@@ -2049,6 +2086,7 @@ class AgentManager extends EventEmitter {
         providerSessionSource: agent.providerSessionSource || '',
         providerSessionResolvedAt: agent.providerSessionResolvedAt || null,
         forkedFromProviderSessionId: agent.forkedFromProviderSessionId || '',
+        launchPermissionMode: agent.launchPermissionMode || '',
         customTitle: agent.customTitle || '',
         pinned: agent.pinned === true,
         unread: agent.unread === true,

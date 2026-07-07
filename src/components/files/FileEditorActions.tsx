@@ -51,16 +51,39 @@ function DiffIcon() {
   )
 }
 
+function MarkdownSplitPreviewIcon() {
+  return (
+    <svg
+      className="code-file-editor-action-svg"
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M2.5 2C1.673 2 1 2.673 1 3.5V12.5C1 13.327 1.673 14 2.5 14H13.5C14.327 14 15 13.327 15 12.5V3.5C15 2.673 14.327 2 13.5 2H2.5ZM2 3.5C2 3.224 2.225 3 2.5 3H7.5V13H2.5C2.225 13 2 12.776 2 12.5V3.5ZM8.5 13V3H13.5C13.775 3 14 3.224 14 3.5V12.5C14 12.776 13.775 13 13.5 13H8.5ZM3.5 5H6V6H3.5V5ZM3.5 7H6V8H3.5V7ZM10 5H12.5V6H10V5ZM10 7H12.5V8H10V7ZM10 9H12.5V10H10V9Z" />
+    </svg>
+  )
+}
+
+function sourcePreviewLabel(actions: WorkspaceEditorActionState, copy: CodeCopy, open: boolean) {
+  if (actions.showMarkdownPreview) return open ? copy.showMarkdownSource : copy.openMarkdownPreview
+  return open ? copy.showFileSource : copy.openFilePreview
+}
+
 interface FileEditorActionsProps {
   actions: WorkspaceEditorActionState
   copy: CodeCopy
   diffOpen: boolean
-  markdownPreviewOpen: boolean
+  markdownSplitOpen: boolean
   openFile: OpenWorkspaceFile
+  sourcePreviewOpen: boolean
   statusText: string | null
   onReload: () => void
   onSave: (overwrite?: boolean) => void
-  onToggleMarkdownPreview: () => void
+  onToggleMarkdownSplit: () => void
+  onToggleSourcePreview: () => void
   onToggleDiff: () => void
 }
 
@@ -68,14 +91,20 @@ export function FileEditorActions({
   actions,
   copy,
   diffOpen,
-  markdownPreviewOpen,
+  markdownSplitOpen,
   openFile,
+  sourcePreviewOpen,
   statusText,
   onReload,
   onSave,
-  onToggleMarkdownPreview,
+  onToggleMarkdownSplit,
+  onToggleSourcePreview,
   onToggleDiff,
 }: FileEditorActionsProps) {
+  const showSourcePreviewAction = actions.showMarkdownPreview || actions.showSourcePreview
+  const previewLabel = sourcePreviewLabel(actions, copy, sourcePreviewOpen)
+  const splitPreviewLabel = markdownSplitOpen ? copy.closeMarkdownSplitPreview : copy.openMarkdownSplitPreview
+
   return (
     <div className="code-file-editor-actions">
       {actions.showStatus && statusText && (
@@ -105,16 +134,28 @@ export function FileEditorActions({
           <DiffIcon />
         </button>
       )}
+      {showSourcePreviewAction && (
+        <button
+          type="button"
+          className="code-file-editor-action source-preview"
+          onClick={onToggleSourcePreview}
+          disabled={openFile.saving}
+          aria-label={previewLabel}
+          title={previewLabel}
+        >
+          <MarkdownPreviewIcon previewOpen={sourcePreviewOpen} />
+        </button>
+      )}
       {actions.showMarkdownPreview && (
         <button
           type="button"
-          className={`code-file-editor-action markdown-preview ${markdownPreviewOpen ? 'active' : ''}`}
-          onClick={onToggleMarkdownPreview}
+          className={`code-file-editor-action markdown-split ${markdownSplitOpen ? 'active' : ''}`}
+          onClick={onToggleMarkdownSplit}
           disabled={openFile.saving}
-          aria-label={markdownPreviewOpen ? copy.showMarkdownSource : copy.openMarkdownPreview}
-          title={markdownPreviewOpen ? copy.showMarkdownSource : copy.openMarkdownPreview}
+          aria-label={splitPreviewLabel}
+          title={splitPreviewLabel}
         >
-          <MarkdownPreviewIcon previewOpen={markdownPreviewOpen} />
+          <MarkdownSplitPreviewIcon />
         </button>
       )}
       {actions.showReload && (
