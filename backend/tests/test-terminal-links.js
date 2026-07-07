@@ -1,4 +1,5 @@
 const assert = require('assert');
+require('tsx/cjs');
 
 async function run() {
   const {
@@ -6,7 +7,7 @@ async function run() {
     parseTerminalUrlAtColumn,
     terminalTextColumnAtPixelOffset,
     trimTerminalUrl,
-  } = await import('../../src/lib/terminal-links.ts');
+  } = require('../../src/lib/terminal-links.ts');
 
   const reviewUrl = 'https://code.example.test/team/sample-project/codereview/new?from=feature_demo&to=main_branch';
   const boxedLine = `remote: | ${reviewUrl} |`;
