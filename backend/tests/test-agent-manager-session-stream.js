@@ -68,6 +68,19 @@ async function run() {
     });
     assert.strictEqual(manager.agents.get('local-agent').terminalBusy, true);
     assert.strictEqual(updateCount, 4);
+    manager.agents.get('local-agent').command = 'bash';
+    manager.engineBridge.router.engines.local.emit('session-preview', {
+      sessionId: 'local-agent',
+      previewText: '/tmp $ ',
+      cols: 80,
+      rows: 24,
+      previewSnapshot: null,
+    });
+    assert.strictEqual(
+      manager.getState().agents.find(agent => agent.id === 'local-agent').terminalStatus.activity,
+      'idle',
+      'agent list terminal status should not stay busy when a shell prompt is visible'
+    );
     manager.engineBridge.router.engines.local.emit('session-busy-state', {
       sessionId: 'local-agent',
       terminalBusy: true,

@@ -1,4 +1,4 @@
-import type { AppState, SystemStats, TerminalPreviewSnapshot } from './agent'
+import type { AgentTerminalStatus, AppState, SystemStats, TerminalPreviewSnapshot } from './agent'
 
 // ---- Client → Server messages ----
 
@@ -112,6 +112,7 @@ export interface SessionPreviewMessage {
     cols: number
     rows: number
     previewSnapshot?: TerminalPreviewSnapshot | null
+    terminalStatus?: AgentTerminalStatus | null
   }
 }
 

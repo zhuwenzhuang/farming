@@ -9,9 +9,7 @@ const MARKERS = {
   busy: `${OSC_PREFIX}busy\x07`,
   idle: `${OSC_PREFIX}idle\x07`,
 };
-const MARKER_PATTERN = /\x1b\]133;FarmingShellBusy=(busy|idle)(?:\x07|\x1b\\)/g;
-const STATUS_PATTERN = /\x1b\]133;FarmingShellStatus=(start|finish)(?:;exit=(-?\d+))?(?:\x07|\x1b\\)/g;
-const CWD_PATTERN = /\x1b\]7;file:\/\/([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
+const SHELL_INTEGRATION_PATTERN = /\x1b\](?:(?:133;FarmingShellStatus=(start|finish)(?:;exit=(-?\d+))?)|(?:7;file:\/\/([^\x07\x1b]*))|(?:133;FarmingShellBusy=(busy|idle)))(?:\x07|\x1b\\)/g;
 
 function shellNameForCommand(command) {
   return path.basename(String(command || '').trim());
@@ -254,45 +252,61 @@ function cwdFromOsc7(value) {
 
 function parseShellBusyMarkers(data, previousBusy = null, pending = '') {
   let markerSeen = false;
+  let statusMarkerSeen = false;
+  let busyMarkerSeen = false;
+  let exitCodeSeen = false;
   let terminalBusy = previousBusy;
   let shellEvent = '';
   let cwd = '';
   let lastExitCode = null;
   const combined = `${pending || ''}${String(data || '')}`;
   const split = splitPendingMarker(combined);
-  const statusCleanData = split.data.replace(STATUS_PATTERN, (_match, event, exitCode) => {
+  const cleanData = split.data.replace(SHELL_INTEGRATION_PATTERN, (_match, statusEvent, exitCode, cwdValue, busyState) => {
     markerSeen = true;
-    shellEvent = event;
-    if (event === 'start') {
-      terminalBusy = true;
-    } else if (event === 'finish') {
-      terminalBusy = false;
-      if (typeof exitCode === 'string' && exitCode.length > 0) {
-        lastExitCode = Number(exitCode);
+
+    if (statusEvent) {
+      statusMarkerSeen = true;
+      shellEvent = statusEvent;
+      if (statusEvent === 'start') {
+        terminalBusy = true;
+        exitCodeSeen = true;
+        lastExitCode = null;
+      } else if (statusEvent === 'finish') {
+        terminalBusy = false;
+        exitCodeSeen = true;
+        lastExitCode = typeof exitCode === 'string' && exitCode.length > 0
+          ? Number(exitCode)
+          : null;
+      }
+      return '';
+    }
+
+    if (cwdValue) {
+      cwd = cwdFromOsc7(cwdValue);
+      return '';
+    }
+
+    if (busyState) {
+      busyMarkerSeen = true;
+      if (!statusMarkerSeen) {
+        terminalBusy = busyState === 'busy';
+        shellEvent = busyState === 'busy' ? 'start' : 'finish';
       }
     }
-    return '';
-  });
-  const cwdCleanData = statusCleanData.replace(CWD_PATTERN, (_match, value) => {
-    markerSeen = true;
-    cwd = cwdFromOsc7(value);
-    return '';
-  });
-  const cleanData = cwdCleanData.replace(MARKER_PATTERN, (_match, state) => {
-    markerSeen = true;
-    terminalBusy = state === 'busy';
-    shellEvent = state === 'busy' ? 'start' : 'finish';
     return '';
   });
 
   return {
     data: cleanData,
     markerSeen,
+    statusMarkerSeen,
+    busyMarkerSeen,
     terminalBusy,
     changed: markerSeen && terminalBusy !== previousBusy,
     shellEvent,
     cwd,
     lastExitCode,
+    exitCodeSeen,
     pending: split.pending,
   };
 }

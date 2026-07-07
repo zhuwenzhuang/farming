@@ -276,7 +276,8 @@ function run() {
 			      terminalPoolSource.includes('const pathDirectOpen = match.kind === \'path\' && Boolean(match.pathTarget && record.pathOpenHandler)') &&
 				      terminalPoolSource.includes('pointerCursor: pathDirectOpen') &&
 				      terminalPoolSource.includes('underline: pathDirectOpen') &&
-				      terminalPoolSource.includes("setTerminalLinkDecorations(link, pathDirectOpen)") &&
+				      terminalPoolSource.includes("underline: pathDirectOpen || match.kind === 'url' || active") &&
+				      terminalPoolSource.includes('pointerCursor: active') &&
 				      terminalPoolSource.includes('const mouseDownOpenTargetHandler = (event: MouseEvent) =>') &&
 				      terminalPoolSource.includes('record.openTargetMouseDown = {') &&
 				      terminalPoolSource.includes('Math.hypot(event.clientX - mouseDown.x, event.clientY - mouseDown.y) > 4') &&
@@ -485,6 +486,9 @@ function run() {
       fileFocusHookSource.includes('const currentTreeData = treeDataRef.current') &&
       fileFocusHookSource.includes('const visibleTargetPath = findVisibleWorkspaceTreePath(currentTreeData, filePath) ?? filePath') &&
       fileFocusHookSource.includes('if (openTargetDirectory) treeRef.current?.open(visibleTargetPath)') &&
+      fileFocusHookSource.includes('const fileTreeRevealGenerationRef = useRef(0)') &&
+      fileFocusHookSource.includes('const revealIsCurrent = () => fileTreeRevealGenerationRef.current === revealGeneration') &&
+      fileFocusHookSource.includes('if (!revealIsCurrent()) return') &&
       fileFocusHookSource.includes('const retryTimeoutId = window.setTimeout(() => {') &&
       fileFocusHookSource.includes('fileTreeRevealTimeoutsRef.current.push(retryTimeoutId)') &&
       fileFocusHookSource.includes('const queueRevealFrame = (callback: () => void) =>') &&
@@ -598,7 +602,8 @@ function run() {
 	      fileViewModelSource.includes("return 'toggle-directory'") &&
 		      fileViewModelSource.includes("return 'open-file'") &&
 		      !fileTreeRowInteractionsSource.includes('const plainClick = !event.metaKey && !event.ctrlKey && !event.shiftKey') &&
-		      fileTreeRowInteractionsSource.includes('const nextOpen = !node.isOpen') &&
+	      fileTreeRowInteractionsSource.includes('onCancelPendingFileFocus()') &&
+	      fileTreeRowInteractionsSource.includes('const nextOpen = !node.isOpen') &&
 		      !fileTreeRowInteractionsSource.includes('onSetDirectoryOpen(item.path, nextOpen)') &&
 		      !fileTreeRowInteractionsSource.includes('onHydrateCompactDirectoryChains') &&
 		      !fileTreeRowInteractionsSource.includes('onRefreshTreeLayout') &&
@@ -870,7 +875,8 @@ function run() {
       fileTreeRowSource.includes('data-testid="code-file-row"') &&
       fileTreeRowSource.includes('data-file-type={item.type}') &&
       fileTreeRowSource.includes('aria-expanded={isDirectory ? node.isOpen : undefined}') &&
-      fileTreeRowSource.includes('title={item.path}') &&
+      fileTreeRowSource.includes('aria-label={item.path}') &&
+      !fileTreeRowSource.includes('title={item.path}') &&
 	      fileSectionBodySource.includes('data-testid="code-file-open-error"') &&
 	      !fileSectionSource.includes('data-testid="code-file-open-error"') &&
       !fileSectionSource.includes('window.alert') &&
@@ -1625,7 +1631,7 @@ function run() {
       stylesSource.includes('.code-file-row::before') &&
       stylesSource.includes('repeating-linear-gradient') &&
       stylesSource.includes('opacity: 0.32') &&
-      stylesSource.includes('rgba(97, 105, 94, 0.14) 11px') &&
+      stylesSource.includes('rgba(97, 105, 94, 0.14) 5px') &&
       stylesSource.includes('.code-file-type-icon') &&
       stylesSource.includes('object-fit: contain') &&
       !stylesSource.includes('.code-file-type-icon.file::before') &&

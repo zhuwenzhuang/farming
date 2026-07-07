@@ -39,6 +39,9 @@ async function run() {
     controlUrl: 'http://127.0.0.1:3000/farming',
     tokenFile: path.join(farmingDir, '.session-token'),
     cliBinDir: '/repo/bin',
+    agentShellEnvProvider() {
+      return { PATH: '/shell/bin' };
+    },
   });
 
   manager.engineBridge.resolve = () => ({
@@ -115,6 +118,9 @@ async function run() {
       controlUrl: 'http://127.0.0.1:3000/farming',
       authDisabled: true,
       cliBinDir: '/repo/bin',
+      agentShellEnvProvider() {
+        return { PATH: '/shell/bin' };
+      },
     });
     const disabledEnv = disabledAuthManager.buildAgentEnv('agent-disabled', { wantsMain: false });
     assert.strictEqual(disabledEnv.FARMING_DISABLE_AUTH, '1');

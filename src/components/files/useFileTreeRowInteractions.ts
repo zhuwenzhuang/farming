@@ -17,6 +17,7 @@ interface UseFileTreeRowInteractionsOptions {
   lastFocusedFilePathRef: MutableRefObject<string | null>
   node: NodeRendererProps<WorkspaceFileTreeNode>['node']
   treeViewportRef: RefObject<HTMLDivElement | null>
+  onCancelPendingFileFocus: () => void
   onFocusFileTreeTarget: (item: WorkspaceFileTreeNode | null) => void
   onOpenFileContextMenu: (x: number, y: number, item: WorkspaceFileTreeNode | null) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
@@ -28,6 +29,7 @@ export function useFileTreeRowInteractions({
   lastFocusedFilePathRef,
   node,
   treeViewportRef,
+  onCancelPendingFileFocus,
   onFocusFileTreeTarget,
   onOpenFileContextMenu,
   onOpenFilePath,
@@ -39,12 +41,14 @@ export function useFileTreeRowInteractions({
   const handleRowContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault()
     event.stopPropagation()
+    onCancelPendingFileFocus()
     lastFocusedFilePathRef.current = item.path
     node.select()
     onOpenFileContextMenu(event.clientX, event.clientY, item)
-  }, [item, lastFocusedFilePathRef, node, onOpenFileContextMenu])
+  }, [item, lastFocusedFilePathRef, node, onCancelPendingFileFocus, onOpenFileContextMenu])
 
   const handleRowClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    onCancelPendingFileFocus()
     lastFocusedFilePathRef.current = item.path
     const clickIntent = workspaceFileTreeRowClickIntent({
       nodeType: item.type,
@@ -92,6 +96,7 @@ export function useFileTreeRowInteractions({
     item,
     lastFocusedFilePathRef,
     node,
+    onCancelPendingFileFocus,
     onFocusFileTreeTarget,
     onOpenFilePath,
     treeViewportRef,

@@ -101,6 +101,42 @@ function run() {
   assert.strictEqual(
     isRestartBlockingAgent(agent({
       command: 'bash',
+      terminalBusy: true,
+      terminalStatus: {
+        kind: 'shell',
+        activity: 'idle',
+        busy: false,
+        cwd: '/tmp',
+        title: '',
+        lastExitCode: null,
+        source: 'shell-prompt-fallback',
+      },
+    })),
+    false,
+    'structured idle terminal status should override stale legacy terminalBusy=true'
+  );
+
+  assert.strictEqual(
+    isRestartBlockingAgent(agent({
+      command: 'bash',
+      terminalBusy: false,
+      terminalStatus: {
+        kind: 'shell',
+        activity: 'busy',
+        busy: true,
+        cwd: '/tmp',
+        title: '',
+        lastExitCode: null,
+        source: 'shell-status-marker',
+      },
+    })),
+    true,
+    'structured busy terminal status should override stale legacy terminalBusy=false'
+  );
+
+  assert.strictEqual(
+    isRestartBlockingAgent(agent({
+      command: 'bash',
       engineName: 'native',
       terminalBusy: true,
     })),

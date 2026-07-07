@@ -14,6 +14,12 @@ const { resolveAgentExecutable, resolveCompatibleCodexExecutable } = require('./
 const { ensureMainAgentSkillFiles, renderMainAgentBootstrap } = require('./main-agent-skills');
 const { mainPageAgentSessionKey } = require('./main-page-session');
 const { isTemporaryProviderSessionId } = require('./provider-session-id');
+const { deriveTerminalStatus } = require('./terminal-status');
+const {
+  buildInteractiveAgentBaseEnv,
+  normalizeInteractiveTerminalEnv,
+  resolveUserShellEnvSync,
+} = require('./agent-env');
 
 const SESSION_OUTPUT_LIMIT = 10000;
 const AGENT_USAGE_RATE_WINDOW_MS = 5 * 60 * 1000;
@@ -58,6 +64,30 @@ function isShellProgram(command) {
 
 function isEphemeralShellAgent(agent) {
   return agent && isShellProgram(agent.forkCommand || agent.command || '');
+}
+
+function terminalRuntimeStatus(agentStatus) {
+  return agentStatus === 'stopped' || agentStatus === 'dead' ? 'exited' : agentStatus;
+}
+
+function deriveAgentTerminalStatus(agent, overrides = {}) {
+  const terminalBusy = Object.prototype.hasOwnProperty.call(overrides, 'terminalBusy')
+    ? overrides.terminalBusy
+    : agent.terminalBusy;
+  return deriveTerminalStatus({
+    command: agent.forkCommand || agent.command,
+    cwd: overrides.cwd || agent.shellCwd || agent.cwd,
+    status: overrides.status || terminalRuntimeStatus(agent.status),
+    title: Object.prototype.hasOwnProperty.call(overrides, 'title')
+      ? overrides.title
+      : (agent.sessionTitle || ''),
+    previewText: Object.prototype.hasOwnProperty.call(overrides, 'previewText')
+      ? overrides.previewText
+      : (agent.previewText || agent.output || ''),
+    terminalBusy: typeof terminalBusy === 'boolean' ? terminalBusy : null,
+    shellLastExitCode: typeof agent.shellLastExitCode === 'number' ? agent.shellLastExitCode : null,
+    shellLastEvent: agent.shellLastEvent || '',
+  });
 }
 
 function shouldRecoverEngineSession(metadata) {
@@ -136,6 +166,12 @@ function timestampMs(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizePositiveInteger(value, fallback, min, max) {
+  const parsed = Math.floor(Number(value));
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
 function isSessionNotAvailableError(error) {
   const message = String(error && (error.message || error));
   return /Session not available/i.test(message) ||
@@ -179,6 +215,20 @@ class AgentManager extends EventEmitter {
     this.tokenFile = options.tokenFile || '';
     this.authDisabled = options.authDisabled === true;
     this.cliBinDir = options.cliBinDir || path.join(__dirname, '..', 'bin');
+    this.agentShellEnvProvider = typeof options.agentShellEnvProvider === 'function'
+      ? options.agentShellEnvProvider
+      : () => resolveUserShellEnvSync({ processEnv: process.env });
+    this.agentShellEnvCache = {
+      resolvedAt: 0,
+      env: null,
+      initialized: false,
+    };
+    this.agentShellEnvCacheMs = normalizePositiveInteger(
+      process.env.FARMING_AGENT_SHELL_ENV_CACHE_MS,
+      5 * 60 * 1000,
+      0,
+      60 * 60 * 1000
+    );
     this.agents = new Map();
     this.mainAgentId = null;
     this.lastActivity = new Map();
@@ -290,6 +340,11 @@ class AgentManager extends EventEmitter {
           cols: agent.previewCols || 80,
           rows: agent.previewRows || 30,
           previewSnapshot: agent.previewSnapshot,
+          terminalStatus: deriveAgentTerminalStatus(agent, {
+            previewText: agent.previewText,
+            title: agent.sessionTitle || '',
+            terminalBusy: typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null,
+          }),
         });
         this.observeAgentStateChange(sessionId);
         if (titleChanged) {
@@ -313,13 +368,54 @@ class AgentManager extends EventEmitter {
         this.emitActivityUpdate(sessionId, lastActivityAt || Date.now());
       });
 
-    this.engineBridge.on('session-busy-state', ({ sessionId, terminalBusy }) => {
+    this.engineBridge.on('session-busy-state', (payload = {}) => {
+        const {
+          sessionId,
+          terminalBusy,
+          cwd,
+          lastExitCode,
+          shellEvent,
+          statusMarkerSeen,
+          busyMarkerSeen,
+        } = payload;
         const agent = this.agents.get(sessionId);
         if (!agent) return;
 
-        const nextBusy = terminalBusy === true;
-        if (agent.terminalBusy === nextBusy) return;
-        agent.terminalBusy = nextBusy;
+        const previousState = JSON.stringify({
+          terminalBusy: agent.terminalBusy,
+          shellCwd: agent.shellCwd || '',
+          shellLastExitCode: agent.shellLastExitCode ?? null,
+          shellLastEvent: agent.shellLastEvent || '',
+          shellStatusMarkerSeen: agent.shellStatusMarkerSeen === true,
+          shellBusyMarkerSeen: agent.shellBusyMarkerSeen === true,
+        });
+        if (typeof terminalBusy === 'boolean') {
+          agent.terminalBusy = terminalBusy;
+        }
+        if (typeof cwd === 'string' && cwd) {
+          agent.shellCwd = cwd;
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, 'lastExitCode')) {
+          agent.shellLastExitCode = typeof lastExitCode === 'number' ? lastExitCode : null;
+        }
+        if (shellEvent === 'start' || shellEvent === 'finish') {
+          agent.shellLastEvent = shellEvent;
+        }
+        if (statusMarkerSeen === true) {
+          agent.shellStatusMarkerSeen = true;
+        }
+        if (busyMarkerSeen === true) {
+          agent.shellBusyMarkerSeen = true;
+        }
+        const nextState = JSON.stringify({
+          terminalBusy: agent.terminalBusy,
+          shellCwd: agent.shellCwd || '',
+          shellLastExitCode: agent.shellLastExitCode ?? null,
+          shellLastEvent: agent.shellLastEvent || '',
+          shellStatusMarkerSeen: agent.shellStatusMarkerSeen === true,
+          shellBusyMarkerSeen: agent.shellBusyMarkerSeen === true,
+        });
+        if (previousState === nextState) return;
         this.observeAgentStateChange(sessionId);
         this.emit('update');
       });
@@ -453,6 +549,9 @@ class AgentManager extends EventEmitter {
       forkedFromProviderSessionId: metadata.forkedFromProviderSessionId || '',
       customTitle: metadata.customTitle || '',
       terminalBusy: typeof state.terminalBusy === 'boolean' ? state.terminalBusy : null,
+      shellCwd: state.shellCwd || metadata.cwd || '',
+      shellLastExitCode: typeof state.shellLastExitCode === 'number' ? state.shellLastExitCode : null,
+      shellLastEvent: state.shellLastEvent || '',
       pinned: metadata.pinned === true,
       unread: false,
       archived: false,
@@ -668,29 +767,46 @@ class AgentManager extends EventEmitter {
     return 'buffer';
   }
 
+  resolveAgentShellEnv() {
+    const now = Date.now();
+    if (
+      this.agentShellEnvCache.initialized &&
+      (this.agentShellEnvCacheMs === 0 || now - this.agentShellEnvCache.resolvedAt < this.agentShellEnvCacheMs)
+    ) {
+      return this.agentShellEnvCache.env;
+    }
+
+    let shellEnv = null;
+    try {
+      shellEnv = this.agentShellEnvProvider() || null;
+    } catch (error) {
+      console.warn('Failed to resolve user shell environment for agent:', error && (error.message || error));
+    }
+
+    this.agentShellEnvCache = {
+      initialized: true,
+      resolvedAt: now,
+      env: shellEnv,
+    };
+    return shellEnv;
+  }
+
+  buildAgentBaseEnv() {
+    return buildInteractiveAgentBaseEnv({
+      processEnv: process.env,
+      shellEnv: this.resolveAgentShellEnv(),
+    });
+  }
+
   buildAgentEnv(agentId, agent) {
-    const env = { ...process.env };
+    const env = this.buildAgentBaseEnv();
     const pathEntries = [this.cliBinDir, env.PATH || ''].filter(Boolean);
 
     env.PATH = pathEntries.join(path.delimiter);
-    // Runtime shims used to start the Farming server (for example a CentOS 7
-    // glibc compatibility LD_LIBRARY_PATH or Node heap NODE_OPTIONS) must not
-    // leak into child agents.
-    if (env.FARMING_STRIP_AGENT_LD_LIBRARY_PATH !== '0') {
-      delete env.LD_LIBRARY_PATH;
-      delete env.GLIBC_DIR;
-    }
-    if (env.FARMING_STRIP_AGENT_NODE_OPTIONS !== '0') {
-      delete env.NODE_OPTIONS;
-    }
-    delete env.NO_COLOR;
-    if (!env.TERM || String(env.TERM).toLowerCase() === 'dumb') {
-      env.TERM = 'xterm-256color';
-    }
-    env.COLORTERM = 'truecolor';
-    env.CLICOLOR = env.CLICOLOR || '1';
-    env.TERM_PROGRAM = 'farming';
-    env.TERM_PROGRAM_VERSION = env.TERM_PROGRAM_VERSION || process.env.npm_package_version || '';
+    normalizeInteractiveTerminalEnv(env, {
+      stripRuntimeShims: process.env.FARMING_STRIP_AGENT_LD_LIBRARY_PATH !== '0',
+      stripNodeOptions: process.env.FARMING_STRIP_AGENT_NODE_OPTIONS !== '0',
+    });
     env.FARMING_AGENT_ID = agentId;
     env.FARMING_IS_MAIN_AGENT = agent.wantsMain ? '1' : '0';
     env.FARMING_SKILLS_COMMAND = 'farming skills';
@@ -1019,6 +1135,9 @@ class AgentManager extends EventEmitter {
       forkedFromProviderSessionId: providerSessionPlan.forkedFromProviderSessionId || '',
       customTitle: '',
       terminalBusy: null,
+      shellCwd: '',
+      shellLastExitCode: null,
+      shellLastEvent: '',
       pinned: false,
       unread: false,
       archived: false,
@@ -1658,6 +1777,18 @@ class AgentManager extends EventEmitter {
     const fallbackOutput = agent.output || '';
     const fallbackPreview = agent.previewText || fallbackOutput.slice(-2000);
     const lastActivity = this.lastActivity.get(agentId) || Date.now();
+    const terminalBusy = sessionState && typeof sessionState.terminalBusy === 'boolean'
+      ? sessionState.terminalBusy
+      : (typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null);
+    const previewText = (sessionState && typeof sessionState.previewText === 'string') ? sessionState.previewText : fallbackPreview;
+    const sessionTitle = (sessionState && typeof sessionState.title === 'string' && sessionState.title) || agent.sessionTitle || '';
+    const terminalStatus = (sessionState && sessionState.terminalStatus) || deriveAgentTerminalStatus(agent, {
+      terminalBusy,
+      status: sessionState && sessionState.status ? sessionState.status : terminalRuntimeStatus(agent.status),
+      title: sessionTitle,
+      previewText,
+      cwd: (sessionState && sessionState.terminalStatus && sessionState.terminalStatus.cwd) || agent.shellCwd || agent.cwd,
+    });
 
     const now = Date.now();
     const isMain = this.isMainAgentRecord(agent.id, agent);
@@ -1668,10 +1799,8 @@ class AgentManager extends EventEmitter {
       cwd: agent.cwd,
       projectWorkspace: agent.projectWorkspace || '',
       status: agent.status,
-      terminalBusy: sessionState && typeof sessionState.terminalBusy === 'boolean'
-        ? sessionState.terminalBusy
-        : (typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null),
-      terminalStatus: (sessionState && sessionState.terminalStatus) || null,
+      terminalBusy,
+      terminalStatus,
       parentAgentId: agent.parentAgentId || '',
       task: agent.task || '',
       workflowTemplate: agent.workflowTemplate || '',
@@ -1697,10 +1826,10 @@ class AgentManager extends EventEmitter {
       isZombie: isMain ? false : this.isZombie(agentId, now),
       startedAt: (sessionState && sessionState.startedAt) || agent.startedAt || null,
       exitedAt: (sessionState && sessionState.exitedAt) || agent.exitedAt || null,
-      sessionTitle: (sessionState && typeof sessionState.title === 'string' && sessionState.title) || agent.sessionTitle || '',
+      sessionTitle,
       output: (sessionState && typeof sessionState.output === 'string') ? sessionState.output : fallbackOutput,
       renderOutput: (sessionState && typeof sessionState.renderOutput === 'string') ? sessionState.renderOutput : fallbackOutput,
-      previewText: (sessionState && typeof sessionState.previewText === 'string') ? sessionState.previewText : fallbackPreview,
+      previewText,
       previewSnapshot: (sessionState && sessionState.previewSnapshot) || agent.previewSnapshot || null,
       previewCols: (sessionState && Number.isFinite(sessionState.previewCols) && sessionState.previewCols > 0)
         ? sessionState.previewCols
@@ -1776,6 +1905,13 @@ class AgentManager extends EventEmitter {
       const now = Date.now();
       const lastActivity = this.lastActivity.get(id) || now;
       const isMain = this.isMainAgentRecord(id, agent);
+      const terminalBusy = typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null;
+      const terminalStatus = deriveAgentTerminalStatus(agent, {
+        terminalBusy,
+        status: terminalRuntimeStatus(agent.status),
+        title: agent.sessionTitle || '',
+        previewText: agent.previewText || '',
+      });
 
       state.agents.push({
         id: agent.id,
@@ -1790,7 +1926,8 @@ class AgentManager extends EventEmitter {
         sessionTitle: agent.sessionTitle || '',
         sessionSource: this.getEngineSessionSource(agent.engineName),
         status: agent.status,
-        terminalBusy: typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null,
+        terminalBusy,
+        terminalStatus,
         isMain,
         parentAgentId: agent.parentAgentId || '',
         task: agent.task || '',
@@ -1910,6 +2047,11 @@ class AgentManager extends EventEmitter {
         cols: agent.previewCols || 80,
         rows: agent.previewRows || 30,
         previewSnapshot: agent.previewSnapshot || null,
+        terminalStatus: deriveAgentTerminalStatus(agent, {
+          previewText: agent.previewText || '',
+          title: agent.sessionTitle || '',
+          terminalBusy: typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null,
+        }),
       });
     }
 

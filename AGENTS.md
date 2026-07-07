@@ -150,6 +150,8 @@ Farming stores runtime settings under `~/.farming/settings.json` by default. Imp
 
 Interactive runtime sessions default to the native pty host. The host uses a Farming-specific local socket derived from `configDir`, keeps PTY processes outside the Farming server process, and exposes recovery metadata to the server after restarts. By default, server shutdown preserves the host for restart recovery; after the last live session and client disappear, the host shuts itself down after a short idle grace period. Set `FARMING_NATIVE_PTY_HOST_PERSIST=0` only when the host should die with the server. Avoid adding alternate terminal-runtime paths when improving product behavior.
 
+Agent processes must not blindly inherit the Farming server process environment. The backend resolves a user shell environment for interactive agents, overlays only agent-relevant server variables such as model credentials, proxies, SSH auth, and certificate paths, then normalizes terminal variables (`TERM`, `COLORTERM`, `TERM_PROGRAM`) and strips server/runtime shims such as `NO_COLOR`, non-interactive `cat` pagers, glibc launcher paths, and Node heap flags. Keep new launch paths on this resolver instead of copying `process.env` directly.
+
 The product CLI defaults to:
 
 - port `6694`;

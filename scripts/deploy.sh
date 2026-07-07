@@ -432,14 +432,24 @@ function isRecoverableEngineAgent(agent) {
   return agent && agent.engineName === 'native';
 }
 
+function isAgentTerminalBusy(agent) {
+  if (agent && agent.terminalStatus) {
+    if (agent.terminalStatus.activity === 'busy') return true;
+    if (agent.terminalStatus.activity === 'idle' || agent.terminalStatus.activity === 'exited') return false;
+  }
+  return agent && agent.terminalBusy === true;
+}
+
 function isRestartBlockingAgent(agent) {
   if (!agent || agent.isMain === true || agent.archived === true) return false;
   if (agent.status === 'pending') return true;
   if (agent.status !== 'running') return false;
   if (isRecoverableEngineAgent(agent)) return false;
-  if (agent.terminalBusy === true) return true;
+  if (isAgentTerminalBusy(agent)) return true;
 
-  const kind = agentKindForCommand(agent.command);
+  const kind = agent.terminalStatus && agent.terminalStatus.kind && agent.terminalStatus.kind !== 'unknown'
+    ? agent.terminalStatus.kind
+    : agentKindForCommand(agent.command);
   if (kind === 'shell') return false;
   if (kind === 'codex') return isCodexRestartBlocking(agent);
   if (kind === 'claude') return isClaudeRestartBlocking(agent);

@@ -629,6 +629,7 @@ function run() {
       terminalPoolSource.includes('const pathDirectOpen = match.kind === \'path\' && Boolean(match.pathTarget && record.pathOpenHandler)') &&
       terminalPoolSource.includes('pointerCursor: pathDirectOpen') &&
       terminalPoolSource.includes('underline: pathDirectOpen') &&
+      terminalPoolSource.includes("underline: pathDirectOpen || match.kind === 'url' || active") &&
       terminalPoolSource.includes('if (event.button !== 0) return') &&
       terminalPoolSource.includes("if (match.kind === 'url' && !modifierActive) return") &&
       terminalPoolSource.includes("if (match.kind === 'path' && !pathDirectOpen) return") &&

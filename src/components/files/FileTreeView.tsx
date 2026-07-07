@@ -27,6 +27,7 @@ export interface FileTreeViewProps {
   treeRef: MutableRefObject<TreeApi<FileExplorerNode> | undefined>
   treeViewportRef: RefObject<HTMLDivElement | null>
   visibleTreeRowCount: number
+  onCancelPendingFileFocus: () => void
   onCloseFileOperation: () => void
   onFocusFileTreeTarget: (item: FileExplorerNode | null) => void
   onFocusStickyDirectory: (node: FileExplorerNode) => void
@@ -62,6 +63,7 @@ export function FileTreeView({
   treeRef,
   treeViewportRef,
   visibleTreeRowCount,
+  onCancelPendingFileFocus,
   onCloseFileOperation,
   onFocusFileTreeTarget,
   onFocusStickyDirectory,
@@ -80,8 +82,9 @@ export function FileTreeView({
   const handleViewportContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     if ((event.target as HTMLElement | null)?.closest('[data-file-path]')) return
     event.preventDefault()
+    onCancelPendingFileFocus()
     onOpenFileContextMenu(event.clientX, event.clientY, null)
-  }, [onOpenFileContextMenu])
+  }, [onCancelPendingFileFocus, onOpenFileContextMenu])
 
   const FileNodeRenderer = useCallback(({
     node,
@@ -97,6 +100,7 @@ export function FileTreeView({
       lastFocusedFilePathRef={lastFocusedFilePathRef}
       node={node}
       treeViewportRef={treeViewportRef}
+      onCancelPendingFileFocus={onCancelPendingFileFocus}
       onCloseFileOperation={onCloseFileOperation}
       onFocusFileTreeTarget={onFocusFileTreeTarget}
       onOpenFileContextMenu={onOpenFileContextMenu}
@@ -105,7 +109,7 @@ export function FileTreeView({
       onSubmitFileOperation={onSubmitFileOperation}
       onUpdateFileOperationName={onUpdateFileOperationName}
     />
-  ), [activeFilePath, agentId, copy, editorDirtyFilePaths, editorExternalChangedFilePaths, fileOperation, fileOperationInputRef, lastFocusedFilePathRef, onCloseFileOperation, onFocusFileTreeTarget, onOpenFileContextMenu, onOpenFilePath, onRememberFileOperationName, onSubmitFileOperation, onUpdateFileOperationName, treeViewportRef])
+  ), [activeFilePath, agentId, copy, editorDirtyFilePaths, editorExternalChangedFilePaths, fileOperation, fileOperationInputRef, lastFocusedFilePathRef, onCancelPendingFileFocus, onCloseFileOperation, onFocusFileTreeTarget, onOpenFileContextMenu, onOpenFilePath, onRememberFileOperationName, onSubmitFileOperation, onUpdateFileOperationName, treeViewportRef])
 
   return (
     <div

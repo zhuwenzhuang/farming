@@ -64,6 +64,27 @@ function run() {
     'terminal status should expose shell status marker cwd and exit code'
   );
 
+  assert.deepStrictEqual(
+    deriveTerminalStatus({
+      command: 'bash',
+      cwd: '/home/admin',
+      title: '',
+      previewText: '/home/admin $ ',
+      terminalBusy: true,
+      shellLastEvent: 'start',
+    }),
+    {
+      kind: 'shell',
+      activity: 'idle',
+      busy: false,
+      cwd: '/home/admin',
+      title: '',
+      lastExitCode: null,
+      source: 'shell-prompt-fallback',
+    },
+    'shell prompt text should override a stale busy marker'
+  );
+
   assert.strictEqual(
     deriveTerminalStatus({
       command: 'python3 server.py',

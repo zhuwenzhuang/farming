@@ -8,6 +8,7 @@ const {
 } = require('./shell-busy-integration');
 const { terminalInputToPtyString } = require('./input-parts');
 const { deriveTerminalStatus } = require('./terminal-status');
+const { normalizeInteractiveTerminalEnv } = require('./agent-env');
 
 const CONTROLLED_BASH_PROMPT = [
   '\\[\\e[90m\\][',
@@ -84,13 +85,10 @@ function normalizeShellSessionOptions(options) {
     }
   };
 
-  if (!normalized.env.TERM || normalized.env.TERM.toLowerCase() === 'dumb') {
-    normalized.env.TERM = 'xterm-256color';
-  }
-  delete normalized.env.NO_COLOR;
-  normalized.env.COLORTERM = 'truecolor';
-  normalized.env.CLICOLOR = normalized.env.CLICOLOR || '1';
-  normalized.env.TERM_PROGRAM = 'farming';
+  normalizeInteractiveTerminalEnv(normalized.env, {
+    stripRuntimeShims: false,
+    stripNodeOptions: false,
+  });
 
   if (options.category === 'coding') {
     // Run coding agents directly to avoid user shell init side effects
@@ -247,7 +245,7 @@ class LocalSessionEngine extends SessionEngine {
         if (busyState.cwd) {
           current.shellCwd = busyState.cwd;
         }
-        if (typeof busyState.lastExitCode === 'number') {
+        if (busyState.exitCodeSeen) {
           current.shellLastExitCode = busyState.lastExitCode;
         }
         if (busyState.shellEvent) {
@@ -259,6 +257,8 @@ class LocalSessionEngine extends SessionEngine {
           cwd: current.shellCwd || current.cwd,
           lastExitCode: current.shellLastExitCode,
           shellEvent: current.shellLastEvent,
+          statusMarkerSeen: busyState.statusMarkerSeen,
+          busyMarkerSeen: busyState.busyMarkerSeen,
         });
       }
 

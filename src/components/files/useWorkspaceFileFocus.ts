@@ -66,6 +66,7 @@ export function useWorkspaceFileFocus({
   const fileTreeFocusTimeoutsRef = useRef<number[]>([])
   const fileTreeRevealFrameRefs = useRef<number[]>([])
   const fileTreeRevealTimeoutsRef = useRef<number[]>([])
+  const fileTreeRevealGenerationRef = useRef(0)
   const treeDataRef = useRef(treeData)
   const isDirectoryLoadedRef = useRef(isDirectoryLoaded)
 
@@ -96,6 +97,7 @@ export function useWorkspaceFileFocus({
   }, [])
 
   const cancelPendingFileTreeFocus = useCallback(() => {
+    fileTreeRevealGenerationRef.current += 1
     cancelPendingFileTreeScrollFocus()
     fileTreeRevealFrameRefs.current.forEach(frameId => window.cancelAnimationFrame(frameId))
     fileTreeRevealFrameRefs.current = []
@@ -152,7 +154,15 @@ export function useWorkspaceFileFocus({
     })
   }, [cancelPendingFileTreeScrollFocus, fileOperationActiveRef, fileSearchInputRef, treeRef, treeViewportRef])
 
-  const revealFilePathInTree = useCallback((filePath: string, attempt = 0, openTargetDirectory = false) => {
+  const revealFilePathInTree = useCallback((
+    filePath: string,
+    attempt = 0,
+    openTargetDirectory = false,
+    generation?: number
+  ) => {
+    const revealGeneration = generation ?? (fileTreeRevealGenerationRef.current + 1)
+    if (generation === undefined) fileTreeRevealGenerationRef.current = revealGeneration
+    const revealIsCurrent = () => fileTreeRevealGenerationRef.current === revealGeneration
     const tree = treeRef.current
     const currentTreeData = treeDataRef.current
     const visibleAncestors = visibleWorkspaceDirectoryPathsForTarget(currentTreeData, filePath)
@@ -188,13 +198,15 @@ export function useWorkspaceFileFocus({
     if (!ready && attempt < 10) {
       const retryTimeoutId = window.setTimeout(() => {
         fileTreeRevealTimeoutsRef.current = fileTreeRevealTimeoutsRef.current.filter(id => id !== retryTimeoutId)
-        revealFilePathInTree(filePath, attempt + 1, openTargetDirectory)
+        if (!revealIsCurrent()) return
+        revealFilePathInTree(filePath, attempt + 1, openTargetDirectory, revealGeneration)
       }, 50)
       fileTreeRevealTimeoutsRef.current.push(retryTimeoutId)
       return
     }
 
     const reveal = () => {
+      if (!revealIsCurrent()) return
       visibleAncestors.forEach(directoryPath => treeRef.current?.open(directoryPath))
       if (openTargetDirectory) treeRef.current?.open(visibleTargetPath)
       refreshTreeLayout()
@@ -203,6 +215,7 @@ export function useWorkspaceFileFocus({
     const queueRevealFrame = (callback: () => void) => {
       const frameId = window.requestAnimationFrame(() => {
         fileTreeRevealFrameRefs.current = fileTreeRevealFrameRefs.current.filter(id => id !== frameId)
+        if (!revealIsCurrent()) return
         callback()
       })
       fileTreeRevealFrameRefs.current.push(frameId)
@@ -213,6 +226,7 @@ export function useWorkspaceFileFocus({
     })
     const timeoutId = window.setTimeout(() => {
       fileTreeRevealTimeoutsRef.current = fileTreeRevealTimeoutsRef.current.filter(id => id !== timeoutId)
+      if (!revealIsCurrent()) return
       reveal()
     }, 80)
     fileTreeRevealTimeoutsRef.current.push(timeoutId)

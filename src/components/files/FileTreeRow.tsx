@@ -26,6 +26,7 @@ interface FileTreeRowProps {
   lastFocusedFilePathRef: MutableRefObject<string | null>
   node: NodeRendererProps<FileExplorerNode>['node']
   treeViewportRef: RefObject<HTMLDivElement | null>
+  onCancelPendingFileFocus: () => void
   onCloseFileOperation: () => void
   onFocusFileTreeTarget: (item: FileExplorerNode | null) => void
   onOpenFileContextMenu: (x: number, y: number, item: FileExplorerNode | null) => void
@@ -46,6 +47,7 @@ export function FileTreeRow({
   lastFocusedFilePathRef,
   node,
   treeViewportRef,
+  onCancelPendingFileFocus,
   onCloseFileOperation,
   onFocusFileTreeTarget,
   onOpenFileContextMenu,
@@ -84,6 +86,7 @@ export function FileTreeRow({
     lastFocusedFilePathRef,
     node,
     treeViewportRef,
+    onCancelPendingFileFocus,
     onFocusFileTreeTarget,
     onOpenFileContextMenu,
     onOpenFilePath,
@@ -97,7 +100,7 @@ export function FileTreeRow({
       data-file-path={item.path}
       data-file-type={item.type}
       data-tree-level={node.level}
-      title={item.path}
+      aria-label={item.path}
       tabIndex={-1}
       aria-expanded={isDirectory ? node.isOpen : undefined}
       onContextMenu={handleRowContextMenu}

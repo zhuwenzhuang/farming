@@ -226,6 +226,7 @@ export function useWebSocket() {
                         previewCols: msg.preview.cols,
                         previewRows: msg.preview.rows,
                         previewSnapshot: msg.preview.previewSnapshot ?? null,
+                        terminalStatus: msg.preview.terminalStatus ?? agent.terminalStatus ?? null,
                       }
                     : agent
                 )),

@@ -122,9 +122,18 @@ function inferAgentKind(agent) {
   if (!agent) return null;
   return activeTerminalTitleKind(agent)
     || latestTerminalOutputKind(currentTerminalText(agent))
+    || (agent.terminalStatus && agent.terminalStatus.kind !== 'unknown' ? agent.terminalStatus.kind : null)
     || (agent.terminalBusy === true ? 'shell' : null)
     || genericTerminalTitleKind(agent)
     || agentKindForCommand(agent.command);
+}
+
+function isAgentTerminalBusy(agent) {
+  if (agent && agent.terminalStatus) {
+    if (agent.terminalStatus.activity === 'busy') return true;
+    if (agent.terminalStatus.activity === 'idle' || agent.terminalStatus.activity === 'exited') return false;
+  }
+  return agent && agent.terminalBusy === true;
 }
 
 function isCodexRestartBlocking(agent) {
@@ -161,7 +170,7 @@ function isRestartBlockingAgent(agent) {
   if (agent.status === 'pending') return true;
   if (agent.status !== 'running') return false;
   if (isRecoverableEngineAgent(agent)) return false;
-  if (agent.terminalBusy === true) return true;
+  if (isAgentTerminalBusy(agent)) return true;
 
   const kind = inferAgentKind(agent);
   if (kind === 'shell') return false;

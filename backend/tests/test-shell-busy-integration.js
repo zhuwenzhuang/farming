@@ -36,6 +36,9 @@ function run() {
   assert.strictEqual(statusParsed.terminalBusy, true);
   assert.strictEqual(statusParsed.shellEvent, 'start');
   assert.strictEqual(statusParsed.cwd, '/tmp/farming repo');
+  assert.strictEqual(statusParsed.statusMarkerSeen, true);
+  assert.strictEqual(statusParsed.exitCodeSeen, true);
+  assert.strictEqual(statusParsed.lastExitCode, null);
 
   const finished = parseShellBusyMarkers(
     '\x1b]133;FarmingShellStatus=finish;exit=127\x07',
@@ -44,6 +47,16 @@ function run() {
   assert.strictEqual(finished.data, '');
   assert.strictEqual(finished.terminalBusy, false);
   assert.strictEqual(finished.lastExitCode, 127);
+  assert.strictEqual(finished.exitCodeSeen, true);
+
+  const statusWinsOverLegacy = parseShellBusyMarkers(
+    '\x1b]133;FarmingShellStatus=start\x07\x1b]133;FarmingShellBusy=idle\x07',
+    null
+  );
+  assert.strictEqual(statusWinsOverLegacy.terminalBusy, true);
+  assert.strictEqual(statusWinsOverLegacy.shellEvent, 'start');
+  assert.strictEqual(statusWinsOverLegacy.statusMarkerSeen, true);
+  assert.strictEqual(statusWinsOverLegacy.busyMarkerSeen, true);
 
   const partialStatus = parseShellBusyMarkers('\x1b]133;FarmingShellStatus=finish;ex', true);
   assert.strictEqual(partialStatus.data, '');

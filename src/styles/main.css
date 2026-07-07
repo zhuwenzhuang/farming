@@ -1411,9 +1411,11 @@ body.code-resizing-sidebar {
   background-image: repeating-linear-gradient(
     to right,
     transparent 0,
-    transparent 11px,
-    rgba(97, 105, 94, 0.14) 11px,
-    rgba(97, 105, 94, 0.14) 12px
+    transparent 5px,
+    rgba(97, 105, 94, 0.14) 5px,
+    rgba(97, 105, 94, 0.14) 6px,
+    transparent 6px,
+    transparent 12px
   );
 }
 

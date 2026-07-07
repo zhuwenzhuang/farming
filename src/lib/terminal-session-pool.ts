@@ -1131,13 +1131,16 @@ function isTerminalOpenModifierActive(record: SessionRecord, event: Pick<MouseEv
   return isTerminalOpenModifierEvent(event) || record.openModifierActive
 }
 
-function setTerminalLinkDecorations(link: { decorations?: { pointerCursor: boolean; underline: boolean } }, active: boolean) {
+function setTerminalLinkDecorations(
+  link: { decorations?: { pointerCursor: boolean; underline: boolean } },
+  options: { pointerCursor: boolean; underline: boolean },
+) {
   if (!link.decorations) {
-    link.decorations = { pointerCursor: active, underline: active }
+    link.decorations = options
     return
   }
-  link.decorations.pointerCursor = active
-  link.decorations.underline = active
+  link.decorations.pointerCursor = options.pointerCursor
+  link.decorations.underline = options.underline
 }
 
 function terminalPathResolveCacheKey(target: TerminalPathOpenTarget) {
@@ -1262,14 +1265,20 @@ function installTerminalLinkProvider(record: SessionRecord) {
             }
             record.lastLinkHoverEvent = event
             const active = pathDirectOpen || isTerminalOpenModifierActive(record, event)
-            setTerminalLinkDecorations(link, active)
+            setTerminalLinkDecorations(link, {
+              pointerCursor: active,
+              underline: pathDirectOpen || match.kind === 'url' || active,
+            })
             refreshTerminalLinkHoverTarget(record, active)
           },
           leave: () => {
             if (record.linkProviderHoverTarget?.text === match.text) {
               record.linkProviderHoverTarget = null
             }
-            setTerminalLinkDecorations(link, pathDirectOpen)
+            setTerminalLinkDecorations(link, {
+              pointerCursor: pathDirectOpen,
+              underline: pathDirectOpen,
+            })
             clearTerminalOpenTargetState(record)
           },
           dispose: () => {

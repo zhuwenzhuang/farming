@@ -55,7 +55,7 @@ export interface AgentTerminalStatus {
   cwd: string
   title: string
   lastExitCode?: number | null
-  source: 'terminal-text' | 'shell-busy-marker' | 'shell-status-marker'
+  source: 'terminal-text' | 'shell-busy-marker' | 'shell-status-marker' | 'shell-prompt-fallback'
 }
 
 /** A single CLI agent instance */

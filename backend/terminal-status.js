@@ -7,7 +7,13 @@ function executableName(command) {
 }
 
 function normalizedText(value) {
-  return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  return stripTerminalControlSequences(value).replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function stripTerminalControlSequences(value) {
+  return String(value || '')
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
 }
 
 function inferKindFromText(title, previewText, command) {
@@ -20,6 +26,18 @@ function inferKindFromText(title, previewText, command) {
   if (commandName === 'codex') return 'codex';
   if (['bash', 'zsh', 'sh', 'fish'].includes(commandName)) return 'shell';
   return commandName ? 'process' : 'unknown';
+}
+
+function terminalTextLooksIdleShellPrompt(previewText) {
+  const lines = stripTerminalControlSequences(previewText)
+    .replace(/\r/g, '')
+    .split('\n')
+    .map(line => line.trimEnd())
+    .filter(Boolean);
+  if (lines.length === 0) return false;
+
+  const tail = lines.slice(-3).join('\n');
+  return /(?:^|\n).{0,180}(?:[$%#])\s*$/.test(tail);
 }
 
 function inferActivityFromText(previewText, terminalBusy) {
@@ -46,26 +64,36 @@ function deriveTerminalStatus(options = {}) {
   const title = typeof options.title === 'string' ? options.title : '';
   const previewText = typeof options.previewText === 'string' ? options.previewText : '';
   const terminalBusy = typeof options.terminalBusy === 'boolean' ? options.terminalBusy : null;
+  const kind = inferKindFromText(title, previewText, options.command);
   const hasShellStatus = options.shellLastEvent === 'start'
     || options.shellLastEvent === 'finish'
     || typeof options.shellLastExitCode === 'number';
+  const hasPromptIdleFallback = options.status !== 'exited'
+    && kind === 'shell'
+    && terminalBusy === true
+    && terminalTextLooksIdleShellPrompt(previewText);
   const activity = options.status === 'exited'
     ? 'exited'
-    : inferActivityFromText(previewText, terminalBusy);
+    : (hasPromptIdleFallback ? 'idle' : inferActivityFromText(previewText, terminalBusy));
 
   return {
-    kind: inferKindFromText(title, previewText, options.command),
+    kind,
     activity,
     busy: activity === 'busy',
     cwd: typeof options.cwd === 'string' ? options.cwd : '',
     title,
     lastExitCode: typeof options.shellLastExitCode === 'number' ? options.shellLastExitCode : null,
-    source: hasShellStatus
-      ? 'shell-status-marker'
-      : (terminalBusy === null ? 'terminal-text' : 'shell-busy-marker'),
+    source: hasPromptIdleFallback
+      ? 'shell-prompt-fallback'
+      : (
+        hasShellStatus
+          ? 'shell-status-marker'
+          : (terminalBusy === null ? 'terminal-text' : 'shell-busy-marker')
+      ),
   };
 }
 
 module.exports = {
   deriveTerminalStatus,
+  terminalTextLooksIdleShellPrompt,
 };

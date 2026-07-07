@@ -223,7 +223,7 @@ export function AgentTerminalPane({
     }
     if (clickedTerminalSurface) {
       if (!active) onActivate(agent.id, { focusTerminal: false })
-      if (!active && (!isMobileViewport() || (pointerType && pointerType !== 'touch'))) {
+      if (!isMobileViewport() || (pointerType && pointerType !== 'touch')) {
         focus()
       }
       return

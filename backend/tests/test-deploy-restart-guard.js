@@ -14,9 +14,11 @@ function run() {
       deploySource.includes("const WebSocket = require('ws');") &&
       deploySource.includes('function isRestartBlockingAgent(agent)') &&
       deploySource.includes('function isRecoverableEngineAgent(agent)') &&
+      deploySource.includes('function isAgentTerminalBusy(agent)') &&
       deploySource.includes("return agent && agent.engineName === 'native';") &&
       deploySource.includes('if (isRecoverableEngineAgent(agent)) return false;') &&
-      deploySource.includes('if (agent.terminalBusy === true) return true;') &&
+      deploySource.includes('if (isAgentTerminalBusy(agent)) return true;') &&
+      deploySource.includes("agent.terminalStatus.activity === 'idle'") &&
       deploySource.includes("if (kind === 'codex') return isCodexRestartBlocking(agent);") &&
       deploySource.includes('const blocking = agents.filter(isRestartBlockingAgent);') &&
       deploySource.includes("FARMING_GUARD_HTTP_URL='http://127.0.0.1:${REMOTE_PORT}${REMOTE_BASE_PATH}/api/update'") &&
@@ -36,10 +38,10 @@ function run() {
   );
 
   assert(
-    deploySource.indexOf("if (agent.status === 'pending') return true;") <
+      deploySource.indexOf("if (agent.status === 'pending') return true;") <
       deploySource.indexOf('if (isRecoverableEngineAgent(agent)) return false;') &&
       deploySource.indexOf('if (isRecoverableEngineAgent(agent)) return false;') <
-        deploySource.indexOf('if (agent.terminalBusy === true) return true;'),
+        deploySource.indexOf('if (isAgentTerminalBusy(agent)) return true;'),
     'deploy restart guard should still block pending agents, then allow recoverable running agents before busy checks'
   );
 

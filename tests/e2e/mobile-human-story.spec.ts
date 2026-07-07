@@ -48,7 +48,7 @@ test.describe('mobile Farming Code user story', () => {
     await expect(page.getByTestId('code-options-menu')).not.toContainText('History')
     await expect.poll(() => page.locator('body').getAttribute('data-appearance')).toBe('light')
 
-    await page.getByRole('menuitemradio', { name: /Language: Chinese/ }).click()
+    await page.getByRole('menuitemradio', { name: /Language: 中文/ }).click()
     await expect(page.getByTestId('code-mobile-more')).toHaveAttribute('aria-label', '打开选项')
     await expect(page.getByTestId('code-empty-workspace')).toContainText('启动或选择一个 Agent')
     await expect(page.getByTestId('code-composer').locator('textarea')).toHaveAttribute('placeholder', '先打开一个 Agent 终端')

@@ -8,6 +8,7 @@ const path = require('path');
 const TerminalScreenWorkerPool = require('./terminal-screen-worker-pool');
 const { nativePtyHostSocketPath } = require('./native-pty-host-path');
 const { terminalInputToPtyString } = require('./input-parts');
+const { normalizeInteractiveTerminalEnv } = require('./agent-env');
 const {
   cleanupShellBusyIntegration,
   parseShellBusyMarkers,
@@ -40,16 +41,10 @@ function normalizePositiveInteger(value, fallback, min, max) {
 
 function sanitizeAgentEnv(env) {
   const next = { ...(env || process.env) };
-  delete next.NO_COLOR;
-
-  if (!next.TERM || String(next.TERM).toLowerCase() === 'dumb') {
-    next.TERM = 'xterm-256color';
-  }
-  next.COLORTERM = 'truecolor';
-  next.CLICOLOR = '1';
-  next.TERM_PROGRAM = 'farming';
-  next.TERM_PROGRAM_VERSION = next.TERM_PROGRAM_VERSION || process.env.npm_package_version || '';
-  return next;
+  return normalizeInteractiveTerminalEnv(next, {
+    stripRuntimeShims: false,
+    stripNodeOptions: false,
+  });
 }
 
 class NativePtyHost {
@@ -411,7 +406,7 @@ class NativePtyHost {
       if (busyState.cwd) {
         current.shellCwd = busyState.cwd;
       }
-      if (typeof busyState.lastExitCode === 'number') {
+      if (busyState.exitCodeSeen) {
         current.shellLastExitCode = busyState.lastExitCode;
       }
       if (busyState.shellEvent) {
@@ -423,6 +418,8 @@ class NativePtyHost {
         cwd: current.shellCwd || current.cwd,
         lastExitCode: current.shellLastExitCode,
         shellEvent: current.shellLastEvent,
+        statusMarkerSeen: busyState.statusMarkerSeen,
+        busyMarkerSeen: busyState.busyMarkerSeen,
       });
     }
 
