@@ -6,9 +6,12 @@ import type {
   KeyboardEvent,
   RefObject,
   CSSProperties,
+  PointerEvent,
+  TouchEvent,
 } from 'react'
 import type { AgentContextWindowUsage } from '@/types/agent'
 import { ArrowUpGlyph, ChevronDownGlyph, ChevronRightGlyph, PlusGlyph } from '@/components/IconGlyphs'
+import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import { codexModelDisplayName } from './model'
 import type { AgentComposerCapabilities, SlashCommandOption } from './capabilities'
 import {
@@ -49,7 +52,8 @@ function composerModePlaceholder(copy: CodeCopy, mode: ComposerMode) {
 }
 
 function isMobileComposerViewport() {
-  return typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)').matches
+  return typeof window !== 'undefined' &&
+    (window.matchMedia('(max-width: 980px)').matches || isMobileTouchViewport())
 }
 
 function compactComposerModelLabel(label: string) {
@@ -335,6 +339,32 @@ export function CodeComposer({
   const submitIsInterrupt = active && submitAction === 'interrupt'
   const commandMenuTitle = slashTrigger?.trigger === '$' ? 'Skills' : 'Commands'
   const showMobileRecordingBar = mobileComposerViewport && speechListening && showSpeechInput
+  const speechControlAvailable = speechSupported || mobileComposerViewport
+
+  const handleMobileSpeechTouchEnd = (event: TouchEvent<HTMLButtonElement>) => {
+    if (!mobileComposerViewport) return
+    event.preventDefault()
+    onToggleSpeechInput()
+  }
+
+  function focusTextareaForMobileInputIntent(target: EventTarget | null) {
+    if (!mobileComposerViewport || !active) return
+    if (target instanceof Element && target.closest('.code-composer-menu, button, input, select, [role="menuitem"]')) return
+
+    const textarea = textareaRef.current
+    if (!textarea || textarea.disabled) return
+    textarea.focus({ preventScroll: true })
+    updateSelectionFromTextarea(textarea)
+  }
+
+  const handleComposerPointerDownCapture = (event: PointerEvent<HTMLElement>) => {
+    if (event.pointerType && event.pointerType !== 'touch') return
+    focusTextareaForMobileInputIntent(event.target)
+  }
+
+  const handleComposerTouchStartCapture = (event: TouchEvent<HTMLElement>) => {
+    focusTextareaForMobileInputIntent(event.target)
+  }
 
   useEffect(() => {
     setActiveSlashIndex(0)
@@ -355,10 +385,14 @@ export function CodeComposer({
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
     const query = window.matchMedia('(max-width: 980px)')
-    const updateMobileViewport = () => setMobileComposerViewport(query.matches)
+    const updateMobileViewport = () => setMobileComposerViewport(isMobileComposerViewport())
     updateMobileViewport()
+    window.addEventListener('resize', updateMobileViewport)
     query.addEventListener('change', updateMobileViewport)
-    return () => query.removeEventListener('change', updateMobileViewport)
+    return () => {
+      window.removeEventListener('resize', updateMobileViewport)
+      query.removeEventListener('change', updateMobileViewport)
+    }
   }, [])
 
   useEffect(() => {
@@ -413,7 +447,12 @@ export function CodeComposer({
   ].filter(Boolean).join(' ')
 
   return (
-    <footer className={composerClasses} data-testid="code-composer">
+    <footer
+      className={composerClasses}
+      data-testid="code-composer"
+      onPointerDownCapture={handleComposerPointerDownCapture}
+      onTouchStartCapture={handleComposerTouchStartCapture}
+    >
       {pendingFollowUp && active && (
         <div className="code-pending-followup" data-testid="code-pending-followup">
           {pendingFollowUp.messages.map(message => (
@@ -631,6 +670,7 @@ export function CodeComposer({
               data-testid="code-composer-recording-stop"
               aria-label={copy.stopDictation}
               onClick={onToggleSpeechInput}
+              onTouchEnd={handleMobileSpeechTouchEnd}
             >
               <span aria-hidden="true" />
             </button>
@@ -938,8 +978,9 @@ export function CodeComposer({
               aria-label={speechListening ? copy.stopDictation : copy.startDictation}
               aria-pressed={speechListening}
               onClick={onToggleSpeechInput}
-              disabled={!active || (!speechSupported && !mobileComposerViewport)}
-              title={speechSupported ? (speechListening ? copy.stopDictation : copy.startDictation) : copy.speechUnsupported}
+              onTouchEnd={handleMobileSpeechTouchEnd}
+              disabled={!active || !speechControlAvailable}
+              title={speechControlAvailable ? (speechListening ? copy.stopDictation : copy.startDictation) : copy.speechUnsupported}
             >
               <ComposerMicIcon listening={speechListening} />
             </button>

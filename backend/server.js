@@ -45,33 +45,14 @@ const { inputPartsFromMessage } = require('./input-parts');
 const { AppServerApiBridge, createAppServerApiRouter } = require('./app-server-api');
 const { cleanupTerminalRuntime } = require('./terminal-runtime-cleanup');
 const { QrShareTicketStore, SHARE_TICKET_TTL_MS } = require('./qr-share-tickets');
+const {
+  normalizeBasePath,
+  routePath,
+  rewriteIndexHtmlForBasePath,
+  appendIndexHtmlAssetToken,
+} = require('./index-html');
 
 const execFileAsync = promisify(execFile);
-
-function normalizeBasePath(basePath) {
-  if (!basePath || basePath === '/') return '';
-  return basePath.endsWith('/') ? basePath.slice(0, -1) : basePath;
-}
-
-function routePath(basePath, suffix = '') {
-  const normalizedBase = normalizeBasePath(basePath);
-  const normalizedSuffix = suffix.startsWith('/') ? suffix : `/${suffix}`;
-  return normalizedBase ? `${normalizedBase}${normalizedSuffix}` : normalizedSuffix;
-}
-
-function rewriteIndexHtmlForBasePath(html, basePath) {
-  const normalizedBase = normalizeBasePath(basePath);
-  const runtimeBaseScript = `<script>window.__FARMING_BASE_PATH__=${JSON.stringify(normalizedBase || '')}</script>`;
-  const withRuntimeBase = String(html || '').includes('window.__FARMING_BASE_PATH__')
-    ? String(html || '')
-    : String(html || '').replace('</head>', `    ${runtimeBaseScript}\n  </head>`);
-  if (!normalizedBase) return withRuntimeBase;
-  const escapedBase = normalizedBase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return withRuntimeBase
-    .replace(/(src|href)="\/assets\//g, `$1="${normalizedBase}/assets/`)
-    .replace(/(src|href)="\/farming-2\//g, `$1="${normalizedBase}/farming-2/`)
-    .replace(new RegExp(`(src|href)="${escapedBase}${escapedBase}/`, 'g'), `$1="${normalizedBase}/`);
-}
 
 const BASE_PATH = normalizeBasePath(process.env.FARMING_BASE_PATH || '/');
 const PORT = process.env.PORT || 3000;
@@ -385,7 +366,13 @@ app.get([BASE_PATH || '/', `${BASE_PATH || ''}/`].filter(Boolean), (req, res) =>
     }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache');
-    res.send(rewriteIndexHtmlForBasePath(html, BASE_PATH));
+    const rewrittenHtml = rewriteIndexHtmlForBasePath(html, BASE_PATH);
+    const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    const requestToken = requestUrl.searchParams.has('token') ? tokenAuth.extractToken(req) : '';
+    const htmlWithAssetToken = authEnabled && requestToken && tokenAuth.verify(requestToken)
+      ? appendIndexHtmlAssetToken(rewrittenHtml, requestToken)
+      : rewrittenHtml;
+    res.send(htmlWithAssetToken);
   });
 });
 
@@ -1691,6 +1678,8 @@ module.exports = {
   handleMessage,
   resolveCliBinDir,
   resolveInputTargetAgentId,
+  rewriteIndexHtmlForBasePath,
+  appendIndexHtmlAssetToken,
   startServer,
   shutdownServer,
   runTerminalRuntimeStartupCleanup,

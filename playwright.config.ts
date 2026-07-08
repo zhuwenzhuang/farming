@@ -7,6 +7,17 @@ const includeInternalTests = process.env.FARMING_PLAYWRIGHT_INTERNAL === '1'
 const localChromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const executablePath = process.env.FARMING_PLAYWRIGHT_CHROME_PATH
   || (fs.existsSync(localChromePath) ? localChromePath : undefined)
+const chromiumLaunchOptions = {
+  executablePath,
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--proxy-server=direct://',
+    '--proxy-bypass-list=*',
+  ],
+}
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -34,22 +45,22 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: process.env.CI ? 'retain-on-failure' : 'off',
     viewport: { width: 1440, height: 900 },
-    launchOptions: {
-      executablePath,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--proxy-server=direct://',
-        '--proxy-bypass-list=*',
-      ],
-    },
   },
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: chromiumLaunchOptions,
+      },
+    },
+    {
+      name: 'iphone-webkit',
+      testMatch: /iphone-mobile-layout\.spec\.ts/,
+      use: {
+        ...devices['iPhone 14 Pro'],
+        browserName: 'webkit',
+      },
     },
   ],
   webServer: {

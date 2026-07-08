@@ -122,6 +122,10 @@ async function terminalText(page: import('@playwright/test').Page, agentId: stri
   return (await terminalRows(page, agentId, 40)).join('\n')
 }
 
+async function terminalTextWithoutWhitespace(page: import('@playwright/test').Page, agentId: string) {
+  return (await terminalText(page, agentId)).replace(/\s+/g, '')
+}
+
 test.describe('additional Farming Code user scenarios', () => {
   test('covers 31 additional desktop user-facing UI scenarios', async ({ page, workspaceRoot }) => {
     const checked: string[] = []
@@ -233,7 +237,7 @@ test.describe('additional Farming Code user scenarios', () => {
       await expect(page.getByTestId('input-dialog')).toBeHidden({ timeout: 30_000 })
       const { agentId } = await getAgentIdFromRow(page)
       bashAgentId = agentId
-      await expect.poll(async () => terminalText(page, agentId)).toContain(path.basename(projectDir))
+      await expect.poll(async () => terminalTextWithoutWhitespace(page, agentId)).toContain(path.basename(projectDir))
     })
 
     await scenario('New Agent can pick an existing recent workspace history entry', async () => {
@@ -522,7 +526,7 @@ test.describe('additional Farming Code user scenarios', () => {
     console.log(`additional desktop user scenarios executed ${checked.length} scenarios`)
   })
 
-  test('covers 13 additional mobile user-facing UI scenarios', async ({ page, workspaceRoot }) => {
+  test('covers 14 additional mobile user-facing UI scenarios', async ({ page, workspaceRoot }) => {
     const checked: string[] = []
     const scenario: ScenarioRunner = async (name, fn) => {
       await test.step(`${String(checked.length + 1).padStart(2, '0')} ${name}`, async () => {
@@ -591,6 +595,24 @@ test.describe('additional Farming Code user scenarios', () => {
         const rows = await terminalRows(page, mobileAgentId, 8)
         return rows.findIndex(row => row.trim().length > 0)
       }).toBeLessThanOrEqual(1)
+      const terminalBackgrounds = await page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${mobileAgentId}"]`).evaluate(element => {
+        const pane = element as HTMLElement
+        const container = pane.querySelector('[data-testid="code-terminal-container"]') as HTMLElement | null
+        const screen = pane.querySelector('.xterm-screen') as HTMLElement | null
+        const viewport = pane.querySelector('.xterm-viewport') as HTMLElement | null
+        return {
+          pane: getComputedStyle(pane).backgroundColor,
+          container: container ? getComputedStyle(container).backgroundColor : '',
+          screen: screen ? getComputedStyle(screen).backgroundColor : '',
+          viewport: viewport ? getComputedStyle(viewport).backgroundColor : '',
+        }
+      })
+      expect(terminalBackgrounds).toEqual({
+        pane: 'rgb(255, 255, 255)',
+        container: 'rgb(255, 255, 255)',
+        screen: 'rgb(255, 255, 255)',
+        viewport: 'rgb(255, 255, 255)',
+      })
       await expectNoDocumentOverflow(page)
     })
 
@@ -666,8 +688,8 @@ test.describe('additional Farming Code user scenarios', () => {
         }
       })
       expect(iosKeyboardComposerBox.height).toBeLessThanOrEqual(130)
-      expect(iosKeyboardComposerBox.bottomBeyondVisualViewport).toBeGreaterThan(96)
-      expect(iosKeyboardComposerBox.bottomBeyondVisualViewport).toBeLessThanOrEqual(140)
+      expect(iosKeyboardComposerBox.bottomBeyondVisualViewport).toBeGreaterThan(250)
+      expect(iosKeyboardComposerBox.bottomBeyondVisualViewport).toBeLessThanOrEqual(290)
       await page.evaluate(() => {
         document.documentElement.style.setProperty('--app-visual-height', `${window.innerHeight}px`)
         document.documentElement.style.setProperty('--mobile-keyboard-offset', '0px')
@@ -710,6 +732,23 @@ test.describe('additional Farming Code user scenarios', () => {
       await expect(recording).toHaveCount(0)
       await expect(textarea).toHaveValue('mobile voice')
       await textarea.fill('')
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('mobile mic still enters recording mode without speech recognition support', async () => {
+      const textarea = page.getByTestId('code-composer').locator('textarea')
+      await textarea.fill('')
+      await page.evaluate(() => {
+        delete (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition
+        delete (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition
+      })
+      await page.getByTestId('code-composer-mic').click()
+      const recording = page.getByTestId('code-composer-recording')
+      await expect(recording).toBeVisible()
+      await expect(recording.locator('.code-composer-recording-wave span')).toHaveCount(24)
+      await page.getByTestId('code-composer-recording-stop').click()
+      await expect(recording).toHaveCount(0)
+      await expect(textarea).toHaveValue('')
       await expectNoDocumentOverflow(page)
     })
 
@@ -802,7 +841,7 @@ test.describe('additional Farming Code user scenarios', () => {
       await expect(menu).toHaveCount(0)
     })
 
-    expect(checked).toHaveLength(13)
+    expect(checked).toHaveLength(14)
     console.log(`additional mobile user scenarios executed ${checked.length} scenarios`)
   })
 

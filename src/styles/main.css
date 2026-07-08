@@ -9635,6 +9635,15 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     padding: 4px 6px 6px;
   }
 
+  body.code-mode.code-mobile-touch .code-terminal-grid,
+  body.code-mode.code-mobile-touch .code-terminal-pane,
+  body.code-mode.code-mobile-touch .code-terminal-container,
+  body.code-mode.code-mobile-touch .terminal-session-host .xterm,
+  body.code-mode.code-mobile-touch .terminal-session-host .xterm-screen,
+  body.code-mode.code-mobile-touch .terminal-session-host .xterm-viewport {
+    background: #ffffff !important;
+  }
+
   body.code-mode.code-mobile-touch .code-composer {
     --mobile-composer-height: 62px;
     --mobile-composer-keyboard-nudge: 0px;
@@ -9688,7 +9697,11 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   body.code-mode.code-mobile-touch.code-mobile-ios .code-composer.recording,
   body.code-mode.code-mobile-touch.code-mobile-ios .code-composer.has-attachments,
   body.code-mode.code-mobile-touch.code-mobile-ios .code-composer.has-pending-followup {
-    --mobile-composer-keyboard-nudge: min(132px, max(0px, calc(var(--mobile-keyboard-offset, 0px) - 360px)));
+    --mobile-composer-keyboard-nudge: min(
+      280px,
+      max(0px, calc(var(--mobile-keyboard-offset, 0px) - 240px)),
+      max(0px, calc(100vh - var(--app-visual-offset-top, 0px) - var(--app-visual-height, 100dvh) - 8px))
+    );
   }
 
   body.code-mode.code-mobile-touch .code-composer textarea {

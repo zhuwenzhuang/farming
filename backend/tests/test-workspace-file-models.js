@@ -461,6 +461,7 @@ function run() {
 	    showDiff: true,
 	    showMarkdownPreview: false,
 	    showSourcePreview: false,
+	    showWordWrap: true,
 	    showReload: false,
 	    showOverwrite: false,
 	  });
@@ -475,6 +476,7 @@ function run() {
 	    showDiff: true,
 	    showMarkdownPreview: false,
 	    showSourcePreview: false,
+	    showWordWrap: true,
 	    showReload: true,
 	    showOverwrite: true,
 	  });
@@ -489,6 +491,7 @@ function run() {
 	    showDiff: true,
 	    showMarkdownPreview: false,
 	    showSourcePreview: false,
+	    showWordWrap: false,
 	    showReload: false,
 	    showOverwrite: false,
 	  });
@@ -503,6 +506,7 @@ function run() {
 	    showDiff: true,
 	    showMarkdownPreview: true,
 	    showSourcePreview: false,
+	    showWordWrap: true,
 	    showReload: false,
 	    showOverwrite: false,
 	  });
@@ -517,6 +521,7 @@ function run() {
 	    showDiff: true,
 	    showMarkdownPreview: false,
 	    showSourcePreview: true,
+	    showWordWrap: true,
 	    showReload: false,
 	    showOverwrite: false,
 	  });

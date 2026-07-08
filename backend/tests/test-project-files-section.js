@@ -1195,7 +1195,7 @@ function run() {
       editorMonacoSource.includes('export function workspaceEditorCreateOptions') &&
       editorMonacoSource.includes('unicodeHighlight:') &&
       editorMonacoSource.includes('lineNumbersMinChars: 4') &&
-      editorMonacoControllerSource.includes('updateWorkspaceEditorResponsiveOptions(editor)') &&
+      editorMonacoControllerSource.includes('updateWorkspaceEditorResponsiveOptions(editor, wordWrapEnabled') &&
       editorMonacoSource.includes('export function updateWorkspaceEditorResponsiveOptions') &&
       editorMonacoControllerSource.includes('const onSaveShortcutRef = useRef(onSaveShortcut)') &&
       editorMonacoControllerSource.includes('registerWorkspaceEditorCommands(editor, {') &&

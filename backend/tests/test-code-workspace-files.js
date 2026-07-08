@@ -485,7 +485,8 @@ function run() {
       workspaceSource.includes('const showPermissionMode = active && capabilities.permissionMode') &&
       workspaceSource.includes('const showModelPicker = active && capabilities.modelPicker') &&
       workspaceSource.includes('const showPlusMenu = active && capabilities.plusMenu') &&
-      workspaceSource.includes('const showSpeechInput = active && capabilities.speechInput && !narrowComposerViewport') &&
+      workspaceSource.includes('const showSpeechInput = active && capabilities.speechInput') &&
+      workspaceSource.includes('const speechControlAvailable = speechSupported || mobileComposerViewport') &&
       workspaceSource.includes("window.matchMedia('(max-width: 980px)')") &&
       workspaceSource.includes('if (activeAgentCapabilities.composer.permissionMode || activeAgentCapabilities.composer.modelPicker) return') &&
       workspaceSource.includes("return { ...closed, mode: 'default' }") &&

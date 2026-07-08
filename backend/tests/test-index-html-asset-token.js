@@ -1,0 +1,57 @@
+const assert = require('assert');
+const {
+  appendIndexHtmlAssetToken,
+  rewriteIndexHtmlForBasePath,
+} = require('../index-html');
+
+function run() {
+  const html = [
+    '<!doctype html>',
+    '<html>',
+    '<head>',
+    '<script type="module" src="/assets/index.js"></script>',
+    '<link rel="modulepreload" href="/assets/chunk.js">',
+    '<link rel="stylesheet" href="/farming/assets/index.css">',
+    '<link rel="icon" href="/farming-2/favicon.ico">',
+    '<link rel="preconnect" href="https://example.invalid/assets/remote.js">',
+    '</head>',
+    '</html>',
+  ].join('\n');
+
+  const startupToken = '测试令牌-山月-晨光';
+  const encodedToken = encodeURIComponent(startupToken);
+  const rewritten = rewriteIndexHtmlForBasePath(html, '/farming');
+  const withToken = appendIndexHtmlAssetToken(rewritten, startupToken);
+
+  assert(
+    withToken.includes(`/farming/assets/index.js?token=${encodedToken}`),
+    'entry script should carry the startup token when the entry page was opened with a token'
+  );
+  assert(
+    withToken.includes('/farming/assets/chunk.js?token='),
+    'modulepreload assets should carry the startup token'
+  );
+  assert(
+    withToken.includes('/farming/assets/index.css?token='),
+    'stylesheet assets should carry the startup token'
+  );
+  assert(
+    withToken.includes('/farming/farming-2/favicon.ico?token='),
+    'static product icons should carry the startup token'
+  );
+  assert(
+    withToken.includes('https://example.invalid/assets/remote.js'),
+    'external asset-like URLs should not be rewritten'
+  );
+
+  const once = appendIndexHtmlAssetToken('<script src="/farming/assets/index.js?token=old"></script>', 'new');
+  assert.strictEqual(
+    once,
+    '<script src="/farming/assets/index.js?token=old"></script>',
+    'asset token rewriting should not duplicate an existing token query parameter'
+  );
+
+  console.log('✓ Tokenized entry page assets for first-load mobile browsers');
+}
+
+run();

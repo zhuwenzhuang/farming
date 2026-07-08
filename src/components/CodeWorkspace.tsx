@@ -2962,6 +2962,7 @@ export function CodeWorkspace({
   const toggleSpeechInput = useCallback(() => {
     if (speechListening) {
       recognitionRef.current?.stop()
+      recognitionRef.current = null
       setSpeechListening(false)
       return
     }
@@ -2969,9 +2970,17 @@ export function CodeWorkspace({
     const targetComposerKey = activeComposerKey
     if (!targetComposerKey) return
 
+    const mobileComposerFallback = isMobileTouchViewport() ||
+      (typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)').matches)
     const SpeechRecognition = (window as WindowWithSpeechRecognition).SpeechRecognition
       || (window as WindowWithSpeechRecognition).webkitSpeechRecognition
-    if (!SpeechRecognition) return
+    if (!SpeechRecognition) {
+      if (mobileComposerFallback) {
+        setSpeechListening(true)
+        focusComposerTextarea()
+      }
+      return
+    }
 
     const recognition = new SpeechRecognition()
     recognition.continuous = false
@@ -3001,7 +3010,14 @@ export function CodeWorkspace({
     }
     recognitionRef.current = recognition
     setSpeechListening(true)
-    recognition.start()
+    try {
+      recognition.start()
+    } catch {
+      recognitionRef.current = null
+      if (!mobileComposerFallback) {
+        setSpeechListening(false)
+      }
+    }
   }, [activeComposerKey, focusComposerTextarea, speechListening, updateComposerStateForKey])
 
   const archiveContextProject = useCallback(() => {
