@@ -26,6 +26,7 @@ interface UseFileEditorMonacoControllerOptions {
   openFile: OpenWorkspaceFile
   openFiles: OpenWorkspaceFile[]
   readOnly: boolean
+  wordWrapEnabled: boolean
   editorLabel: string
   onChangeDraft: (draft: string) => void
   onFocusFilesSearch: (agentId: string) => void
@@ -38,6 +39,7 @@ export function useFileEditorMonacoController({
   openFile,
   openFiles,
   readOnly,
+  wordWrapEnabled,
   editorLabel,
   onChangeDraft,
   onFocusFilesSearch,
@@ -60,6 +62,7 @@ export function useFileEditorMonacoController({
   const onSaveShortcutRef = useRef(onSaveShortcut)
   const openFileAgentIdRef = useRef(openFile.agentId)
   const openFilePathRef = useRef(openFile.file.path)
+  const wordWrapEnabledRef = useRef(wordWrapEnabled)
   const editorLabelRef = useRef(editorLabel)
   const lastCursorRequestRef = useRef<number | null>(null)
   const suppressEditorChangeRef = useRef(0)
@@ -72,6 +75,7 @@ export function useFileEditorMonacoController({
   onSaveShortcutRef.current = onSaveShortcut
   openFileAgentIdRef.current = openFile.agentId
   openFilePathRef.current = openFile.file.path
+  wordWrapEnabledRef.current = wordWrapEnabled
   editorLabelRef.current = editorLabel
 
   const updateCursorPosition = useCallback((editor: monaco.editor.IStandaloneCodeEditor | null) => {
@@ -117,10 +121,11 @@ export function useFileEditorMonacoController({
       value: openFile.draft,
       language: workspaceEditorLanguageForPath(openFile.file.path, openFile.draft),
       ariaLabel: editorLabelRef.current,
+      wordWrapEnabled: wordWrapEnabledRef.current,
     }))
     applyWorkspaceEditorMonacoTheme(editor)
 
-    const applyResponsiveEditorOptions = () => updateWorkspaceEditorResponsiveOptions(editor)
+    const applyResponsiveEditorOptions = () => updateWorkspaceEditorResponsiveOptions(editor, wordWrapEnabledRef.current)
     const viewportMedia = workspaceEditorViewportMedia()
     const handleViewportMediaChange = () => applyResponsiveEditorOptions()
     if (typeof viewportMedia.addEventListener === 'function') {
@@ -277,6 +282,12 @@ export function useFileEditorMonacoController({
       domReadOnly: readOnly,
     })
   }, [readOnly])
+
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor) return
+    updateWorkspaceEditorResponsiveOptions(editor, wordWrapEnabled)
+  }, [wordWrapEnabled])
 
   return {
     editorHostRef,

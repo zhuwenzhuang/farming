@@ -170,6 +170,8 @@ export interface CodeCopy {
   closeDiff: string
   openFilePreview: string
   showFileSource: string
+  enableWordWrap: string
+  disableWordWrap: string
   openMarkdownPreview: string
   showMarkdownSource: string
   openMarkdownSplitPreview: string
@@ -424,6 +426,8 @@ const EN_COPY: CodeCopy = {
   closeDiff: 'Close diff',
   openFilePreview: 'Open preview',
   showFileSource: 'Show source',
+  enableWordWrap: 'Enable word wrap',
+  disableWordWrap: 'Disable word wrap',
   openMarkdownPreview: 'Open Markdown preview',
   showMarkdownSource: 'Show Markdown source',
   openMarkdownSplitPreview: 'Open Markdown preview to side',
@@ -714,6 +718,8 @@ const ZH_COPY: CodeCopy = {
   closeDiff: '关闭 Diff',
   openFilePreview: '打开预览',
   showFileSource: '显示源码',
+  enableWordWrap: '开启折行',
+  disableWordWrap: '关闭折行',
   openMarkdownPreview: '打开 Markdown 预览',
   showMarkdownSource: '显示 Markdown 源码',
   openMarkdownSplitPreview: '打开 Markdown 侧边预览',

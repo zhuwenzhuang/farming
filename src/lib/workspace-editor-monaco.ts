@@ -126,12 +126,18 @@ export interface WorkspaceEditorCreateOptions {
   value: string
   language: string
   ariaLabel: string
+  wordWrapEnabled?: boolean
+}
+
+function workspaceEditorWordWrapValue(wordWrapEnabled?: boolean) {
+  return wordWrapEnabled === true || isNarrowWorkspaceEditorViewport() ? 'on' : 'off'
 }
 
 export function workspaceEditorCreateOptions({
   value,
   language,
   ariaLabel,
+  wordWrapEnabled,
 }: WorkspaceEditorCreateOptions): monaco.editor.IStandaloneEditorConstructionOptions {
   return {
     value,
@@ -144,7 +150,7 @@ export function workspaceEditorCreateOptions({
     lineHeight: 21,
     tabSize: 2,
     insertSpaces: true,
-    wordWrap: isNarrowWorkspaceEditorViewport() ? 'on' : 'off',
+    wordWrap: workspaceEditorWordWrapValue(wordWrapEnabled),
     wrappingIndent: 'same',
     renderLineHighlight: 'line',
     overviewRulerBorder: false,
@@ -162,9 +168,9 @@ export function workspaceEditorCreateOptions({
   }
 }
 
-export function updateWorkspaceEditorResponsiveOptions(editor: monaco.editor.IStandaloneCodeEditor) {
+export function updateWorkspaceEditorResponsiveOptions(editor: monaco.editor.IStandaloneCodeEditor, wordWrapEnabled?: boolean) {
   editor.updateOptions({
-    wordWrap: isNarrowWorkspaceEditorViewport() ? 'on' : 'off',
+    wordWrap: workspaceEditorWordWrapValue(wordWrapEnabled),
     wrappingIndent: 'same',
   })
   editor.layout()

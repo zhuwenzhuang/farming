@@ -27,12 +27,14 @@ interface FileEditorHeaderProps {
   onReload: () => void
   onToggleSourcePreview: () => void
   onToggleMarkdownSplit: () => void
+  onToggleWordWrap: () => void
   onToggleDiff: () => void
   canPreviewMarkdown: boolean
   canPreviewSource: boolean
   diffOpen: boolean
   markdownSplitOpen: boolean
   sourcePreviewOpen: boolean
+  wordWrapEnabled: boolean
 }
 
 export function FileEditorHeader({
@@ -56,12 +58,14 @@ export function FileEditorHeader({
   onReload,
   onToggleSourcePreview,
   onToggleMarkdownSplit,
+  onToggleWordWrap,
   onToggleDiff,
   canPreviewMarkdown,
   canPreviewSource,
   diffOpen,
   markdownSplitOpen,
   sourcePreviewOpen,
+  wordWrapEnabled,
 }: FileEditorHeaderProps) {
   const showBreadcrumbs = openFile.file.path.includes('/')
   const actions = workspaceEditorActionState(openFile, editorMode, {
@@ -102,11 +106,13 @@ export function FileEditorHeader({
             openFile={openFile}
             markdownSplitOpen={markdownSplitOpen}
             sourcePreviewOpen={sourcePreviewOpen}
+            wordWrapEnabled={wordWrapEnabled}
             statusText={statusText}
             onReload={onReload}
             onSave={onSave}
             onToggleMarkdownSplit={onToggleMarkdownSplit}
             onToggleSourcePreview={onToggleSourcePreview}
+            onToggleWordWrap={onToggleWordWrap}
             onToggleDiff={onToggleDiff}
           />
         </div>

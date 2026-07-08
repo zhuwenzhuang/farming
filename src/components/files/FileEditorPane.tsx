@@ -47,6 +47,25 @@ interface FileEditorPaneProps {
 }
 
 const BLAME_AUTHOR_URL_TEMPLATE = String(import.meta.env.VITE_FARMING_BLAME_AUTHOR_URL_TEMPLATE || '').trim()
+const WORD_WRAP_STORAGE_KEY = 'farming.code.fileEditor.wordWrap'
+
+function readWordWrapPreference() {
+  if (typeof window === 'undefined') return false
+  try {
+    return window.localStorage.getItem(WORD_WRAP_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeWordWrapPreference(enabled: boolean) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(WORD_WRAP_STORAGE_KEY, enabled ? '1' : '0')
+  } catch {
+    // Ignore unavailable storage; the in-memory toggle still applies.
+  }
+}
 
 export function FileEditorPane({
   openFile,
@@ -72,6 +91,7 @@ export function FileEditorPane({
   const editorMode = workspaceEditorFileMode(openFile)
   const [sourcePreviewByFileKey, setSourcePreviewByFileKey] = useState<Record<string, boolean>>({})
   const [markdownSplitByFileKey, setMarkdownSplitByFileKey] = useState<Record<string, boolean>>({})
+  const [wordWrapEnabled, setWordWrapEnabled] = useState(readWordWrapPreference)
   const activeFileKey = workspaceEditorModelKey(openFile)
   const canPreviewMarkdown = !editorMode.preview && !editorMode.diffOnly && isWorkspaceMarkdownFile(openFile.file.path)
   const canPreviewSource = !editorMode.preview && !editorMode.diffOnly && isWorkspaceSvgFile(openFile.file.path)
@@ -142,6 +162,7 @@ export function FileEditorPane({
     openFile,
     openFiles,
     readOnly,
+    wordWrapEnabled,
     editorLabel: copy.editorFor(openFile.file.path),
     onChangeDraft,
     onFocusFilesSearch,
@@ -256,6 +277,14 @@ export function FileEditorPane({
     }))
   }
 
+  const toggleWordWrap = () => {
+    setWordWrapEnabled(current => {
+      const next = !current
+      writeWordWrapPreference(next)
+      return next
+    })
+  }
+
   useEffect(() => {
     if (typeof document === 'undefined') return
     document.body.classList.toggle('code-mobile-markdown-reading', markdownReadingOpen)
@@ -298,12 +327,14 @@ export function FileEditorPane({
         onReload={reloadFile}
         onToggleSourcePreview={toggleSourcePreview}
         onToggleMarkdownSplit={toggleMarkdownSplit}
+        onToggleWordWrap={toggleWordWrap}
         onToggleDiff={toggleDiff}
         canPreviewMarkdown={canPreviewMarkdown}
         canPreviewSource={canPreviewSource}
         diffOpen={diffState.open}
         markdownSplitOpen={markdownSplitOpen}
         sourcePreviewOpen={sourcePreviewOpen}
+        wordWrapEnabled={wordWrapEnabled}
       />
 
       {openFile.error && (

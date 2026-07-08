@@ -88,6 +88,7 @@ export interface WorkspaceEditorActionState {
   showDiff: boolean
   showMarkdownPreview: boolean
   showSourcePreview: boolean
+  showWordWrap: boolean
   showReload: boolean
   showOverwrite: boolean
 }
@@ -276,15 +277,17 @@ export function workspaceEditorActionState(
   const showDiff = mode.canShowDiff
   const showMarkdownPreview = Boolean(options.canPreviewMarkdown)
   const showSourcePreview = Boolean(options.canPreviewSource)
+  const showWordWrap = !mode.visualPreview && !mode.diffOnly
   const showReload = !mode.diffOnly && shouldShowWorkspaceWorkingCopyReloadAction(file)
   const showOverwrite = mode.canEditText && shouldShowWorkspaceWorkingCopyOverwriteAction(file)
   return {
-    showBar: options.showBreadcrumbs || showStatus || showSave || showDiff || showMarkdownPreview || showSourcePreview || showReload || showOverwrite,
+    showBar: options.showBreadcrumbs || showStatus || showSave || showDiff || showMarkdownPreview || showSourcePreview || showWordWrap || showReload || showOverwrite,
     showStatus,
     showSave,
     showDiff,
     showMarkdownPreview,
     showSourcePreview,
+    showWordWrap,
     showReload,
     showOverwrite,
   }
