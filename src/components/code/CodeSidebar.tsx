@@ -26,8 +26,9 @@ import {
 } from './model'
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
 import type { AgentLaunchOption } from './agent-launch-options'
-import { outwardContextMenuPoint } from './menu-position'
+import { clampContextMenuPoint, outwardContextMenuPoint } from './menu-position'
 import { ShareQrButton } from './ShareQrButton'
+import { isMobileTouchViewport } from '@/lib/responsive-mode'
 
 declare const __FARMING_PACKAGE_VERSION__: string
 
@@ -1334,7 +1335,9 @@ function ProjectSection({
     const rect = event.currentTarget.getBoundingClientRect()
     const menuWidth = 160
     const menuHeight = Math.min(260, agentLaunchOptions.length * 34 + 12)
-    const point = outwardContextMenuPoint(rect, menuHeight, undefined, menuWidth)
+    const point = isMobileTouchViewport()
+      ? clampContextMenuPoint(rect.right - menuWidth, rect.bottom + 4, menuHeight, undefined, menuWidth)
+      : outwardContextMenuPoint(rect, menuHeight, undefined, menuWidth)
     setLaunchMenu(point)
   }
 

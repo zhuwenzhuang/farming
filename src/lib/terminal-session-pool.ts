@@ -230,9 +230,9 @@ interface SessionRecord {
 const sessions = new Map<string, Promise<SessionRecord> | SessionRecord>()
 const TOUCH_SCROLL_ACTIVATION_PX = 6
 const TOUCH_LONG_PRESS_MS = 520
-const TOUCH_MOMENTUM_MIN_VELOCITY = 0.08
-const TOUCH_MOMENTUM_MAX_VELOCITY = 2.4
-const TOUCH_MOMENTUM_DECAY_PER_FRAME = 0.92
+const TOUCH_MOMENTUM_MIN_VELOCITY = 0.035
+const TOUCH_MOMENTUM_MAX_VELOCITY = 3.2
+const TOUCH_MOMENTUM_DECAY_PER_FRAME = 0.965
 const TERMINAL_PATH_RESOLVE_CACHE_TTL_MS = 30_000
 
 interface TerminalTouchInteraction {
@@ -2128,6 +2128,7 @@ function installTerminalTouchInteraction(record: SessionRecord) {
     }
     momentumLastAt = 0
     touchVelocityY = 0
+    touchScrollRemainderPx = 0
   }
 
   const stepTouchMomentum = (timestamp: number) => {
@@ -2192,7 +2193,12 @@ function installTerminalTouchInteraction(record: SessionRecord) {
     touchLastY = event.clientY
     touchLastMoveAt = now
     if (Math.abs(deltaY) < 0.5) return
-    touchVelocityY = clampTouchVelocity(deltaY / elapsed)
+    const instantVelocity = deltaY / elapsed
+    touchVelocityY = clampTouchVelocity(
+      touchVelocityY === 0
+        ? instantVelocity
+        : touchVelocityY * 0.55 + instantVelocity * 0.45
+    )
 
     const moved = scrollByTouchDelta(deltaY)
     if (touchMoved || moved) {
@@ -2206,7 +2212,6 @@ function installTerminalTouchInteraction(record: SessionRecord) {
     const wasMoving = touchMoved
     touchPointerId = null
     clearLongPress()
-    touchScrollRemainderPx = 0
     if (wasMoving) {
       event.preventDefault()
       event.stopPropagation()
@@ -2214,6 +2219,7 @@ function installTerminalTouchInteraction(record: SessionRecord) {
       startTouchMomentum()
     } else {
       touchVelocityY = 0
+      touchScrollRemainderPx = 0
     }
     try {
       record.hostEl.releasePointerCapture(event.pointerId)

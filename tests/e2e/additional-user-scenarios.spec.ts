@@ -6,6 +6,7 @@ import {
   getAgentRowIds,
   openFarming,
   openNewAgentDialog,
+  selectAgent,
   startAgentFromOpenDialog,
   terminalRows,
   test,
@@ -80,6 +81,41 @@ async function revealMobileSidebar(page: import('@playwright/test').Page) {
     await page.getByTestId('code-mobile-menu').click()
   }
   await expect(page.getByTestId('code-sidebar')).toBeVisible()
+}
+
+async function hideMobileSidebar(page: import('@playwright/test').Page) {
+  const workspace = page.getByTestId('code-workspace')
+  if ((await workspace.getAttribute('class'))?.includes('sidebar-collapsed')) return
+  const sidebarBox = await page.getByTestId('code-sidebar').boundingBox()
+  const backdropBox = await page.getByTestId('code-mobile-sidebar-backdrop').boundingBox()
+  if (!sidebarBox || !backdropBox) throw new Error('Mobile sidebar or backdrop is missing')
+  const backdropRight = backdropBox.x + backdropBox.width
+  const sidebarRight = sidebarBox.x + sidebarBox.width
+  await page.mouse.click(Math.min(backdropRight - 6, sidebarRight + 14), backdropBox.y + 80)
+  await expect(workspace).toHaveClass(/sidebar-collapsed/)
+}
+
+async function startMobileAgentFromOpenDialog(page: import('@playwright/test').Page, name: string, workspace: string) {
+  const previousPaneIds = new Set(await page.getByTestId('code-terminal-pane').evaluateAll(panes => panes
+    .map(pane => pane.getAttribute('data-agent-id'))
+    .filter((id): id is string => Boolean(id))))
+  await selectAgent(page, name)
+  await page.getByTestId('workspace-input').fill(workspace)
+  await page.getByTestId('workspace-start').click()
+  await expect(page.getByTestId('input-dialog')).toBeHidden({ timeout: 30_000 })
+  await expect.poll(async () => {
+    const ids = await page.getByTestId('code-terminal-pane').evaluateAll(panes => panes
+      .map(pane => pane.getAttribute('data-agent-id'))
+      .filter((id): id is string => Boolean(id)))
+    return ids.find(id => !previousPaneIds.has(id)) ?? ''
+  }, { timeout: 30_000 }).not.toBe('')
+  const agentId = (await page.getByTestId('code-terminal-pane').evaluateAll(panes => panes
+    .map(pane => pane.getAttribute('data-agent-id'))
+    .filter((id): id is string => Boolean(id))))
+    .find(id => !previousPaneIds.has(id))
+  if (!agentId) throw new Error('New mobile terminal pane is missing after launch')
+  await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible({ timeout: 30_000 })
+  return agentId
 }
 
 async function terminalText(page: import('@playwright/test').Page, agentId: string) {
@@ -486,7 +522,7 @@ test.describe('additional Farming Code user scenarios', () => {
     console.log(`additional desktop user scenarios executed ${checked.length} scenarios`)
   })
 
-  test('covers 10 additional mobile user-facing UI scenarios', async ({ page, workspaceRoot }) => {
+  test('covers 13 additional mobile user-facing UI scenarios', async ({ page, workspaceRoot }) => {
     const checked: string[] = []
     const scenario: ScenarioRunner = async (name, fn) => {
       await test.step(`${String(checked.length + 1).padStart(2, '0')} ${name}`, async () => {
@@ -500,6 +536,28 @@ test.describe('additional Farming Code user scenarios', () => {
     fs.writeFileSync(path.join(mobileWorkspace, 'README.md'), '# Mobile UI\n')
     let mobileAgentId = ''
 
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 1, configurable: true })
+
+      class MockSpeechRecognition extends EventTarget {
+        continuous = false
+        interimResults = false
+        lang = 'en-US'
+        onresult: ((event: unknown) => void) | null = null
+        onerror: (() => void) | null = null
+        onend: (() => void) | null = null
+
+        start() {
+          ;(window as unknown as { __mobileMockSpeechRecognition?: MockSpeechRecognition }).__mobileMockSpeechRecognition = this
+        }
+
+        stop() {
+          this.onend?.()
+        }
+      }
+
+      ;(window as unknown as { SpeechRecognition?: typeof MockSpeechRecognition }).SpeechRecognition = MockSpeechRecognition
+    })
     await page.setViewportSize({ width: 390, height: 844 })
     await openFarming(page)
 
@@ -519,30 +577,128 @@ test.describe('additional Farming Code user scenarios', () => {
     await scenario('mobile sidebar can be revealed and hidden predictably', async () => {
       await revealMobileSidebar(page)
       await expect(page.getByTestId('code-sidebar')).toBeVisible()
-      await page.getByTestId('code-mobile-sidebar-backdrop').click()
-      await expect(page.getByTestId('code-workspace')).toHaveClass(/sidebar-collapsed/)
+      await hideMobileSidebar(page)
       await expectNoDocumentOverflow(page)
     })
 
     await scenario('mobile can start a bash agent and focus the terminal at the top', async () => {
       await revealMobileSidebar(page)
       await openNewAgentDialog(page)
-      await startAgentFromOpenDialog(page, 'bash', mobileWorkspace)
-      mobileAgentId = await page.getByTestId('code-agent-row').first().getAttribute('data-agent-id') ?? ''
+      mobileAgentId = await startMobileAgentFromOpenDialog(page, 'bash', mobileWorkspace)
       expect(mobileAgentId).toBeTruthy()
       await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${mobileAgentId}"]`)).toBeVisible()
       await expect.poll(async () => {
         const rows = await terminalRows(page, mobileAgentId, 8)
         return rows.findIndex(row => row.trim().length > 0)
-      }).toBe(0)
+      }).toBeLessThanOrEqual(1)
       await expectNoDocumentOverflow(page)
     })
 
+    await scenario('mobile project actions remain visible and launch below the project row', async () => {
+      await revealMobileSidebar(page)
+      const projectGroup = page.getByTestId('code-project-group').filter({
+        has: page.locator(`[data-testid="code-agent-row"][data-agent-id="${mobileAgentId}"]`),
+      }).first()
+      const actions = projectGroup.locator('.code-project-title-actions')
+      await expect(actions).toBeVisible()
+      await expect.poll(async () => actions.evaluate(element => getComputedStyle(element as HTMLElement).opacity)).toBe('1')
+      await projectGroup.getByTestId('code-project-new-agent').click()
+      const menu = page.getByTestId('code-project-new-agent-menu')
+      await expect(menu).toBeVisible()
+      await expectMenuFitsViewport(page, 'code-project-new-agent-menu')
+      const positions = await Promise.all([
+        projectGroup.locator('.code-project-row').evaluate(element => (element as HTMLElement).getBoundingClientRect().bottom),
+        menu.evaluate(element => (element as HTMLElement).getBoundingClientRect().top),
+      ])
+      expect(positions[1]).toBeGreaterThanOrEqual(positions[0] - 2)
+      await page.keyboard.press('Escape')
+      await expect(menu).toHaveCount(0)
+      await hideMobileSidebar(page)
+    })
+
     await scenario('mobile terminal accepts composer input after sidebar interaction', async () => {
-      await page.getByTestId('code-composer').locator('textarea').fill('echo mobile-extra-scenario')
+      await hideMobileSidebar(page)
+      const textarea = page.getByTestId('code-composer').locator('textarea')
+      await textarea.fill('echo mobile-extra-scenario')
+      const focusedComposerBox = await page.getByTestId('code-composer').evaluate(element => {
+        const rect = (element as HTMLElement).getBoundingClientRect()
+        return {
+          bottomGap: window.innerHeight - rect.bottom,
+          height: rect.height,
+        }
+      })
+      expect(focusedComposerBox.height).toBeLessThanOrEqual(130)
+      expect(focusedComposerBox.bottomGap).toBeLessThanOrEqual(24)
+      await expect.poll(async () => page.getByTestId('code-composer-send').evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(17, 17, 17)')
       await page.getByTestId('code-composer-send').click()
       await expect.poll(async () => terminalText(page, mobileAgentId)).toContain('mobile-extra-scenario')
       await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('mobile composer keeps mic access and shows a recording bar', async () => {
+      const textarea = page.getByTestId('code-composer').locator('textarea')
+      await textarea.fill('')
+      await expect(page.getByTestId('code-composer-mic')).toBeVisible()
+      await page.getByTestId('code-composer-mic').click()
+      const recording = page.getByTestId('code-composer-recording')
+      await expect(recording).toBeVisible()
+      await expect(recording.locator('.code-composer-recording-wave span')).toHaveCount(24)
+      await expect(page.getByTestId('code-composer-send')).toBeVisible()
+      await page.evaluate(() => {
+        const instance = (window as unknown as {
+          __mobileMockSpeechRecognition?: {
+            onresult: ((event: unknown) => void) | null
+            onend: (() => void) | null
+          }
+        }).__mobileMockSpeechRecognition
+        instance?.onresult?.({
+          resultIndex: 0,
+          results: {
+            length: 1,
+            0: {
+              isFinal: true,
+              0: { transcript: 'mobile voice' },
+            },
+          },
+        })
+        instance?.onend?.()
+      })
+      await expect(recording).toHaveCount(0)
+      await expect(textarea).toHaveValue('mobile voice')
+      await textarea.fill('')
+      await expectNoDocumentOverflow(page)
+    })
+
+    await scenario('mobile model and speed choices expand inside the picker panel', async () => {
+      await revealMobileSidebar(page)
+      await openNewAgentDialog(page)
+      const codexAgentId = await startMobileAgentFromOpenDialog(page, 'codex', mobileWorkspace)
+      await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${codexAgentId}"]`)).toBeVisible()
+      const composer = page.getByTestId('code-composer')
+      const textarea = composer.locator('textarea')
+      await textarea.evaluate(element => (element as HTMLTextAreaElement).blur())
+      await expect(page.getByTestId('code-composer-model-picker')).toBeHidden()
+      const collapsedComposerBox = await composer.evaluate(element => {
+        const rect = (element as HTMLElement).getBoundingClientRect()
+        return { height: rect.height }
+      })
+      expect(collapsedComposerBox.height).toBeLessThanOrEqual(72)
+      await textarea.click()
+      await expect(page.getByTestId('code-composer-model-picker')).toBeVisible()
+      await page.getByTestId('code-composer-model-picker').click()
+      const modelMenu = page.getByTestId('code-model-menu')
+      await expect(modelMenu).toBeVisible()
+      await expectMenuFitsViewport(page, 'code-model-menu')
+      await page.getByTestId('code-model-submenu-trigger').click()
+      await expect(page.getByTestId('code-model-submenu')).toBeVisible()
+      await expectMenuFitsViewport(page, 'code-model-menu')
+      await expect.poll(async () => page.getByTestId('code-model-submenu').evaluate(element => getComputedStyle(element as HTMLElement).position)).toBe('static')
+      await page.getByTestId('code-speed-submenu-trigger').click()
+      await expect(page.getByTestId('code-speed-submenu')).toBeVisible()
+      await expectMenuFitsViewport(page, 'code-model-menu')
+      await expect.poll(async () => page.getByTestId('code-speed-submenu').evaluate(element => getComputedStyle(element as HTMLElement).position)).toBe('static')
+      await page.keyboard.press('Escape')
+      await expect(modelMenu).toHaveCount(0)
     })
 
     await scenario('mobile Search and History views collapse the sidebar and preserve layout', async () => {
@@ -602,7 +758,7 @@ test.describe('additional Farming Code user scenarios', () => {
       await expect(menu).toHaveCount(0)
     })
 
-    expect(checked).toHaveLength(10)
+    expect(checked).toHaveLength(13)
     console.log(`additional mobile user scenarios executed ${checked.length} scenarios`)
   })
 

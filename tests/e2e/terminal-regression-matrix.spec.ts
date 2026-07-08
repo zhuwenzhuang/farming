@@ -1579,11 +1579,13 @@ test.describe('terminal regression matrix', () => {
         dispatch('pointerdown', startY)
         for (let step = 1; step <= 8; step += 1) dispatch('pointermove', startY + step * 18)
         dispatch('pointerup', startY + 8 * 18)
-        await new Promise<void>(resolve => setTimeout(resolve, 180))
-        const after = window.__farmingTerminalTest?.getViewport(id)
+        const afterRelease = window.__farmingTerminalTest?.getViewport(id)
+        await new Promise<void>(resolve => setTimeout(resolve, 360))
+        const afterMomentum = window.__farmingTerminalTest?.getViewport(id)
         return {
           before,
-          after,
+          afterRelease,
+          afterMomentum,
           windowScrollX: window.scrollX,
           windowScrollY: window.scrollY,
           documentScrollLeft: document.documentElement.scrollLeft,
@@ -1593,7 +1595,10 @@ test.describe('terminal regression matrix', () => {
           terminalTouchAction: getComputedStyle(host).touchAction,
         }
       }, agentId)
-      expect(result.after?.viewportY ?? 0).toBeGreaterThan(result.before?.viewportY ?? 0)
+      expect(result.afterRelease?.viewportY ?? 0).toBeGreaterThan(result.before?.viewportY ?? 0)
+      if ((result.afterRelease?.scrollbackLength ?? 0) - (result.afterRelease?.viewportY ?? 0) > 1) {
+        expect(result.afterMomentum?.viewportY ?? 0).toBeGreaterThan(result.afterRelease?.viewportY ?? 0)
+      }
       expect(result.windowScrollX).toBe(0)
       expect(result.windowScrollY).toBe(0)
       expect(result.documentScrollLeft).toBe(0)

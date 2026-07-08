@@ -3,10 +3,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   expect,
-  getFirstAgentId,
   openFarming,
   openNewAgentDialog,
-  startAgentFromOpenDialog,
   test,
 } from './fixtures'
 
@@ -27,6 +25,33 @@ async function revealMobileSidebar(page: import('@playwright/test').Page) {
     await page.getByTestId('code-mobile-menu').click()
   }
   await expect(page.getByTestId('code-sidebar')).toBeVisible()
+}
+
+async function startMobileAgentFromOpenDialog(page: import('@playwright/test').Page, name: string, workspace: string) {
+  const previousPaneIds = new Set(await page.getByTestId('code-terminal-pane').evaluateAll(panes => panes
+    .map(pane => pane.getAttribute('data-agent-id'))
+    .filter((id): id is string => Boolean(id))))
+  await expect(page.getByTestId('agent-list-status')).toBeHidden({ timeout: 30_000 })
+  const agentOption = page.getByTestId(`agent-option-${name}`)
+  await expect(agentOption).toBeEnabled({ timeout: 30_000 })
+  await agentOption.click()
+  await expect(page.getByTestId('workspace-step')).toBeVisible()
+  await page.getByTestId('workspace-input').fill(workspace)
+  await page.getByTestId('workspace-start').click()
+  await expect(page.getByTestId('input-dialog')).toBeHidden({ timeout: 30_000 })
+  await expect.poll(async () => {
+    const ids = await page.getByTestId('code-terminal-pane').evaluateAll(panes => panes
+      .map(pane => pane.getAttribute('data-agent-id'))
+      .filter((id): id is string => Boolean(id)))
+    return ids.find(id => !previousPaneIds.has(id)) ?? ''
+  }, { timeout: 30_000 }).not.toBe('')
+  const agentId = (await page.getByTestId('code-terminal-pane').evaluateAll(panes => panes
+    .map(pane => pane.getAttribute('data-agent-id'))
+    .filter((id): id is string => Boolean(id))))
+    .find(id => !previousPaneIds.has(id))
+  if (!agentId) throw new Error('New mobile terminal pane is missing after launch')
+  await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible({ timeout: 30_000 })
+  return agentId
 }
 
 test.describe('mobile Farming Code user story', () => {
@@ -104,6 +129,9 @@ test.describe('mobile Farming Code user story', () => {
     git(projectDir, ['add', 'README.md'])
     git(projectDir, ['commit', '-m', 'Seed mobile README'])
 
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 1, configurable: true })
+    })
     await page.setViewportSize({ width: 390, height: 844 })
     await openFarming(page)
     await expect(page.getByTestId('code-mobile-topbar')).toBeVisible()
@@ -111,14 +139,12 @@ test.describe('mobile Farming Code user story', () => {
 
     await revealMobileSidebar(page)
     await openNewAgentDialog(page)
-    await startAgentFromOpenDialog(page, 'bash', projectDir)
-
-    const agentId = await getFirstAgentId(page)
+    const agentId = await startMobileAgentFromOpenDialog(page, 'bash', projectDir)
     await expect(page.getByTestId('code-mobile-topbar')).toContainText('bash')
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()
     await expectNoPageOverflow(page)
 
-    await expect(page.getByTestId('code-composer-mic')).toHaveCount(0)
+    await expect(page.getByTestId('code-composer-mic')).toBeVisible()
     await expect(page.getByTestId('code-composer-send')).toBeVisible()
     await page.getByTestId('code-composer').locator('textarea').focus()
     await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()
@@ -153,10 +179,13 @@ test.describe('mobile Farming Code user story', () => {
     await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 2, Col 1')
     await expectNoPageOverflow(page)
 
-    const gutterLine = page.locator('.monaco-editor .margin-view-overlays .line-numbers').first()
-    await expect(gutterLine).toBeVisible()
-    await gutterLine.click({ button: 'right', force: true })
-    await page.getByRole('menuitem', { name: 'Annotate with Blame' }).click()
+    const sourcePreviewToggle = page.getByRole('button', { name: 'Show Markdown source' })
+    if (await sourcePreviewToggle.isVisible()) {
+      await sourcePreviewToggle.click()
+    }
+    await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+    await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 42, y: 38 } })
+    await page.getByTestId('code-editor-context-menu').getByRole('menuitem', { name: 'Annotate with Blame' }).click()
     const inlineBlame = page.locator('.code-file-inline-blame')
     await expect(inlineBlame).toHaveCount(3)
     await expect.poll(async () => inlineBlame.first().evaluate(element => element.getBoundingClientRect().width)).toBeLessThanOrEqual(110)
