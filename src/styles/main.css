@@ -2482,6 +2482,13 @@ body.code-mode .code-file-change-group-toggle {
   line-height: 1;
 }
 
+.code-sidebar.collapsed .code-product-mark-collapsed svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  fill: currentColor;
+}
+
 .code-sidebar.collapsed .code-product-mark.upgrade .code-product-mark-collapsed {
   border-color: rgba(82, 99, 135, 0.32);
   background: #526387;
@@ -4372,9 +4379,11 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-agent-launch-submenu-arrow {
+  width: 16px;
+  height: 16px;
+  display: block;
   color: #8a8f87;
-  font-size: 13px;
-  line-height: 1;
+  fill: currentColor;
 }
 
 .code-agent-launch-submenu-panel {
@@ -5441,10 +5450,15 @@ button.code-history-card {
   border-radius: 999px;
   color: #747b76;
   background: transparent;
-  font-size: 28px;
-  font-weight: 300;
   line-height: 1;
   cursor: pointer;
+}
+
+.code-composer-add svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  fill: currentColor;
 }
 
 .code-composer-approval {
@@ -5559,22 +5573,18 @@ button.code-history-card {
   flex: 0 0 auto;
   display: inline-grid;
   place-items: center;
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   color: currentColor;
   opacity: 0.8;
-  transform: translateY(-2px);
 }
 
 .code-chevron svg {
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   display: block;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  fill: currentColor;
+  stroke: none;
 }
 
 .code-composer-menu-anchor {
@@ -5903,6 +5913,14 @@ button.code-history-card {
   cursor: pointer;
 }
 
+.code-menu-chevron-right {
+  width: 16px;
+  height: 16px;
+  justify-self: center;
+  display: block;
+  fill: currentColor;
+}
+
 .code-model-nested-anchor {
   position: relative;
 }
@@ -6103,10 +6121,15 @@ button.code-history-card {
   background: #8d9492;
   color: #fff;
   box-shadow: none;
-  font-size: 19px;
-  font-weight: 520;
   line-height: 1;
   padding: 0;
+}
+
+.code-composer-send svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  fill: currentColor;
 }
 
 .code-composer-send:not(:disabled):hover {
@@ -7976,6 +7999,14 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
   background: var(--theme-panel-strong-bg, #2a2a2a);
 }
 
+.mobile-terminal-controls button svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  margin: 0 auto;
+  fill: currentColor;
+}
+
 .mobile-terminal-input-row,
 .mobile-terminal-nav-row {
   display: grid;
@@ -9562,6 +9593,22 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     pointer-events: auto;
   }
 
+  body.code-mode.code-mobile-touch .code-project-context-menu,
+  body.code-mode.code-mobile-touch .code-project-launch-menu {
+    z-index: 10030;
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body.code-mode.code-mobile-touch .code-project-context-menu {
+    width: 214px;
+  }
+
+  body.code-mode.code-mobile-touch .code-project-launch-menu {
+    width: 160px;
+  }
+
   body.code-mode.code-mobile-touch .code-terminal-grid {
     padding: 8px 8px 76px;
     grid-template-columns: minmax(0, 1fr);
@@ -9590,9 +9637,10 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 
   body.code-mode.code-mobile-touch .code-composer {
     --mobile-composer-height: 62px;
+    --mobile-composer-keyboard-nudge: 0px;
     position: fixed;
     left: calc(var(--app-visual-offset-left, 0px) + 12px);
-    top: calc(var(--app-visual-offset-top, 0px) + var(--app-visual-height, 100dvh) - var(--mobile-composer-height) - max(8px, env(safe-area-inset-bottom)));
+    top: calc(var(--app-visual-offset-top, 0px) + var(--app-visual-height, 100dvh) - var(--mobile-composer-height) - max(8px, env(safe-area-inset-bottom)) + var(--mobile-composer-keyboard-nudge));
     z-index: 56;
     width: calc(var(--app-visual-width, 100vw) - 24px);
     max-width: calc(var(--app-visual-width, 100vw) - 24px);
@@ -9625,11 +9673,22 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   body.code-mode.code-mobile-touch .code-composer.has-attachments,
   body.code-mode.code-mobile-touch .code-composer.has-pending-followup {
     --mobile-composer-height: 122px;
+    top: calc(var(--app-visual-offset-top, 0px) + var(--app-visual-height, 100dvh) - 122px - max(8px, env(safe-area-inset-bottom)) + var(--mobile-composer-keyboard-nudge));
+    height: 122px;
+    min-height: 122px;
     grid-template-rows: minmax(0, 1fr) 34px;
     gap: 7px;
     padding: 10px 10px 8px;
     border-radius: 18px;
     box-shadow: 0 16px 44px rgba(31, 35, 40, 0.13);
+  }
+
+  body.code-mode.code-mobile-touch.code-mobile-ios .code-composer:focus-within,
+  body.code-mode.code-mobile-touch.code-mobile-ios .code-composer.menu-open,
+  body.code-mode.code-mobile-touch.code-mobile-ios .code-composer.recording,
+  body.code-mode.code-mobile-touch.code-mobile-ios .code-composer.has-attachments,
+  body.code-mode.code-mobile-touch.code-mobile-ios .code-composer.has-pending-followup {
+    --mobile-composer-keyboard-nudge: min(132px, max(0px, calc(var(--mobile-keyboard-offset, 0px) - 360px)));
   }
 
   body.code-mode.code-mobile-touch .code-composer textarea {
@@ -9702,7 +9761,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     position: fixed;
     left: calc(var(--app-visual-offset-left, 0px) + (var(--app-visual-width, 100vw) / 2));
     right: auto;
-    bottom: calc(100vh - var(--app-visual-offset-top, 0px) - var(--app-visual-height, 100dvh) + var(--mobile-composer-height) + max(18px, env(safe-area-inset-bottom)));
+    bottom: calc(100vh - var(--app-visual-offset-top, 0px) - var(--app-visual-height, 100dvh) + var(--mobile-composer-height) + max(18px, env(safe-area-inset-bottom)) - var(--mobile-composer-keyboard-nudge));
     transform: translateX(-50%);
   }
 

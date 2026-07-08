@@ -3,7 +3,9 @@ import type {
   MouseEvent as ReactMouseEvent,
   RefObject,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ArrowUpGlyph } from '@/components/IconGlyphs'
 import type { Agent, SystemStats, UsageProviderSummary, UsageSummary } from '@/types/agent'
 import type { WorkspaceFileDeleteResult, WorkspaceFileMove } from '@/lib/workspace-files'
 import { appPath } from '@/lib/base-path'
@@ -26,7 +28,7 @@ import {
 } from './model'
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
 import type { AgentLaunchOption } from './agent-launch-options'
-import { clampContextMenuPoint, outwardContextMenuPoint } from './menu-position'
+import { mobileActionMenuPoint, outwardContextMenuPoint } from './menu-position'
 import { ShareQrButton } from './ShareQrButton'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
 
@@ -317,7 +319,7 @@ export function CodeSidebar({
       : updateStatus?.available
         ? copy.upgrade
         : ''
-  const updateCollapsedLabel = updateBusy ? '…' : updateError ? '!' : updateStatus?.available ? '↑' : 'β'
+  const updateCollapsedLabel = updateBusy ? '…' : updateError ? '!' : updateStatus?.available ? <ArrowUpGlyph /> : 'β'
   const currentVersion = compactProductVersion(updateStatus?.current?.releaseVersion || updateStatus?.current?.packageVersion || __FARMING_PACKAGE_VERSION__ || '')
   const currentVersionLabel = currentVersion ? `v${currentVersion}` : ''
   const updateTitle = updateError
@@ -1336,7 +1338,7 @@ function ProjectSection({
     const menuWidth = 160
     const menuHeight = Math.min(260, agentLaunchOptions.length * 34 + 12)
     const point = isMobileTouchViewport()
-      ? clampContextMenuPoint(rect.right - menuWidth, rect.bottom + 4, menuHeight, undefined, menuWidth)
+      ? mobileActionMenuPoint(rect, menuHeight, undefined, menuWidth)
       : outwardContextMenuPoint(rect, menuHeight, undefined, menuWidth)
     setLaunchMenu(point)
   }
@@ -1387,7 +1389,7 @@ function ProjectSection({
             <ProjectNewAgentIcon />
           </button>
         </span>
-        {launchMenu && (
+        {launchMenu && typeof document !== 'undefined' && createPortal(
           <div
             ref={launchMenuRef}
             className="code-context-menu code-project-launch-menu"
@@ -1406,7 +1408,8 @@ function ProjectSection({
                 {agentDisplayName(option.name)}
               </button>
             ))}
-          </div>
+          </div>,
+          document.body
         )}
       </div>
       {!collapsed && (

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
+import { ChevronRightGlyph } from '@/components/IconGlyphs'
 import { agentDisplayName } from '@/lib/format'
 import type { AgentLaunchOption } from './agent-launch-options'
 
@@ -108,7 +109,7 @@ export function AgentLaunchSubmenu({
         onKeyDown={handleTriggerKeyDown}
       >
         <span>{label}</span>
-        {hasOptions && <span className="code-agent-launch-submenu-arrow" aria-hidden="true">&gt;</span>}
+        {hasOptions && <ChevronRightGlyph className="code-agent-launch-submenu-arrow" />}
       </button>
       {hasOptions && open && (
         <div

@@ -8,6 +8,7 @@ import type {
   CSSProperties,
 } from 'react'
 import type { AgentContextWindowUsage } from '@/types/agent'
+import { ArrowUpGlyph, ChevronDownGlyph, ChevronRightGlyph, PlusGlyph } from '@/components/IconGlyphs'
 import { codexModelDisplayName } from './model'
 import type { AgentComposerCapabilities, SlashCommandOption } from './capabilities'
 import {
@@ -652,7 +653,7 @@ export function CodeComposer({
               onClick={submitIsInterrupt ? onInterrupt : onSubmit}
               disabled={submitDisabled}
             >
-              {submitIsInterrupt ? <span className="code-composer-stop-icon" aria-hidden="true" /> : '↑'}
+              {submitIsInterrupt ? <span className="code-composer-stop-icon" aria-hidden="true" /> : <ArrowUpGlyph />}
             </button>
           </div>
         ) : (
@@ -670,7 +671,7 @@ export function CodeComposer({
               disabled={!active}
               onClick={onTogglePlusMenu}
             >
-              +
+              <PlusGlyph />
             </button>
             {plusMenuOpen && (
               <div
@@ -854,7 +855,7 @@ export function CodeComposer({
                       onClick={() => onSetModelPickerPane(modelPickerPane === 'model' ? null : 'model')}
                     >
                       <span>{currentModelLabel}</span>
-                      <span aria-hidden="true">›</span>
+                      <ChevronRightGlyph className="code-menu-chevron-right" />
                     </button>
                     {modelPickerPane === 'model' && (
                       <div
@@ -891,7 +892,7 @@ export function CodeComposer({
                         onClick={() => onSetModelPickerPane(modelPickerPane === 'speed' ? null : 'speed')}
                       >
                         <span>{copy.speed}</span>
-                        <span aria-hidden="true">›</span>
+                        <ChevronRightGlyph className="code-menu-chevron-right" />
                       </button>
                       {modelPickerPane === 'speed' && (
                         <div
@@ -952,7 +953,7 @@ export function CodeComposer({
             onClick={submitIsInterrupt ? onInterrupt : onSubmit}
             disabled={submitDisabled}
           >
-            {submitIsInterrupt ? <span className="code-composer-stop-icon" aria-hidden="true" /> : '↑'}
+            {submitIsInterrupt ? <span className="code-composer-stop-icon" aria-hidden="true" /> : <ArrowUpGlyph />}
               </button>
             </div>
           </>
@@ -993,9 +994,5 @@ function ApprovalIcon({ mode }: { mode: string }) {
 }
 
 function ChevronDownIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path d="M4.5 6.25 8 9.75l3.5-3.5" />
-    </svg>
-  )
+  return <ChevronDownGlyph />
 }

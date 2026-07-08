@@ -18,6 +18,10 @@ interface ContextMenuAnchorRect {
   top: number
 }
 
+interface ContextMenuActionAnchorRect extends ContextMenuAnchorRect {
+  bottom: number
+}
+
 function currentViewport(): ContextMenuViewport {
   if (typeof window === 'undefined') {
     return {
@@ -67,6 +71,24 @@ export function outwardContextMenuPoint(
   return {
     x,
     y: clampContextMenuPoint(x, anchor.top, estimatedHeight, viewport, estimatedWidth).y,
+  }
+}
+
+export function mobileActionMenuPoint(
+  anchor: ContextMenuActionAnchorRect,
+  estimatedHeight: number,
+  viewport: ContextMenuViewport = currentViewport(),
+  estimatedWidth = CONTEXT_MENU_WIDTH
+) {
+  const maxX = Math.max(CONTEXT_MENU_MARGIN, viewport.width - estimatedWidth - CONTEXT_MENU_MARGIN)
+  const x = Math.max(CONTEXT_MENU_MARGIN, Math.min(anchor.right - estimatedWidth, maxX))
+  const belowY = anchor.bottom + 6
+  const maxY = Math.max(CONTEXT_MENU_MARGIN, viewport.height - estimatedHeight - CONTEXT_MENU_MARGIN)
+  const aboveY = anchor.top - estimatedHeight - 6
+
+  return {
+    x,
+    y: belowY <= maxY ? belowY : Math.max(CONTEXT_MENU_MARGIN, Math.min(aboveY, maxY)),
   }
 }
 

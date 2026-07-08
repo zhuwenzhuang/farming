@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { Agent } from '@/types/agent'
+import { ArrowDownGlyph, ArrowUpGlyph } from '@/components/IconGlyphs'
 import { agentTitle } from '@/lib/format'
 import { usePooledTerminal } from '@/hooks/usePooledTerminal'
 import { applyThemeAppearance } from '@/lib/theme'
@@ -409,8 +410,8 @@ export function SessionModal({
             <button type="button" data-testid="mobile-terminal-send" onClick={submitMobileInput}>Send</button>
           </div>
           <div className="mobile-terminal-nav-row" data-testid="mobile-terminal-nav-row">
-            <button type="button" data-testid="mobile-terminal-up" onClick={() => sendMobileKey('\x1b[A')}>↑</button>
-            <button type="button" data-testid="mobile-terminal-down" onClick={() => sendMobileKey('\x1b[B')}>↓</button>
+            <button type="button" data-testid="mobile-terminal-up" aria-label="Up" onClick={() => sendMobileKey('\x1b[A')}><ArrowUpGlyph /></button>
+            <button type="button" data-testid="mobile-terminal-down" aria-label="Down" onClick={() => sendMobileKey('\x1b[B')}><ArrowDownGlyph /></button>
           </div>
         </div>
         {contextMenu && (

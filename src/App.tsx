@@ -36,6 +36,15 @@ const BACKEND_HEARTBEAT_STALE_MS = 6000
 const MIN_MOBILE_VISUAL_HEIGHT = 240
 const CONTEXT_WINDOW_REFRESH_MS = 30_000
 
+function isIOSLikeTouchViewport() {
+  if (typeof navigator === 'undefined') return false
+  const platform = navigator.platform || ''
+  const userAgent = navigator.userAgent || ''
+  return /iP(?:ad|hone|od)/.test(platform)
+    || /iP(?:ad|hone|od)/.test(userAgent)
+    || (platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
+}
+
 function projectWorkspaceForAgent(agent: { cwd: string; projectWorkspace?: string; isMain?: boolean } | null | undefined) {
   if (!agent) return undefined
   if (agent.projectWorkspace) return agent.projectWorkspace
@@ -209,8 +218,10 @@ export function App() {
         ? Math.min(Math.max(rawHeight, MIN_MOBILE_VISUAL_HEIGHT), Math.max(layoutHeight, MIN_MOBILE_VISUAL_HEIGHT))
         : rawHeight
       const keyboardOffset = Math.max(0, layoutHeight - rawHeight - offsetTop)
+      const iosLikeTouchViewport = mobileViewport && isIOSLikeTouchViewport()
 
       document.body.classList.toggle('code-mobile-touch', mobileViewport)
+      document.body.classList.toggle('code-mobile-ios', iosLikeTouchViewport)
       document.documentElement.style.setProperty('--app-visual-width', `${width}px`)
       document.documentElement.style.setProperty('--app-visual-height', `${height}px`)
       document.documentElement.style.setProperty('--app-visual-offset-top', `${offsetTop}px`)
@@ -233,6 +244,7 @@ export function App() {
       document.documentElement.style.removeProperty('--app-visual-offset-left')
       document.documentElement.style.removeProperty('--mobile-keyboard-offset')
       document.body.classList.remove('code-mobile-touch')
+      document.body.classList.remove('code-mobile-ios')
     }
   }, [])
 

@@ -602,15 +602,37 @@ test.describe('additional Farming Code user scenarios', () => {
       const actions = projectGroup.locator('.code-project-title-actions')
       await expect(actions).toBeVisible()
       await expect.poll(async () => actions.evaluate(element => getComputedStyle(element as HTMLElement).opacity)).toBe('1')
-      await projectGroup.getByTestId('code-project-new-agent').click()
+      const contextButton = projectGroup.getByTestId('code-project-actions')
+      await contextButton.click()
+      const contextMenu = page.getByTestId('code-project-context-menu')
+      await expect(contextMenu).toBeVisible()
+      await expectMenuFitsViewport(page, 'code-project-context-menu')
+      const contextButtonBox = await contextButton.boundingBox()
+      const contextMenuBox = await contextMenu.boundingBox()
+      if (!contextButtonBox || !contextMenuBox) throw new Error('Expected mobile project context menu geometry')
+      expect(contextMenuBox.y).toBeGreaterThanOrEqual(contextButtonBox.y + contextButtonBox.height - 2)
+      expect(Math.abs((contextMenuBox.x + contextMenuBox.width) - (contextButtonBox.x + contextButtonBox.width))).toBeLessThanOrEqual(2)
+      await page.keyboard.press('Escape')
+      await expect(contextMenu).toHaveCount(0)
+
+      const launchButton = projectGroup.getByTestId('code-project-new-agent')
+      await launchButton.click()
       const menu = page.getByTestId('code-project-new-agent-menu')
       await expect(menu).toBeVisible()
       await expectMenuFitsViewport(page, 'code-project-new-agent-menu')
-      const positions = await Promise.all([
-        projectGroup.locator('.code-project-row').evaluate(element => (element as HTMLElement).getBoundingClientRect().bottom),
-        menu.evaluate(element => (element as HTMLElement).getBoundingClientRect().top),
-      ])
-      expect(positions[1]).toBeGreaterThanOrEqual(positions[0] - 2)
+      const launchButtonBox = await launchButton.boundingBox()
+      const launchMenuBox = await menu.boundingBox()
+      if (!launchButtonBox || !launchMenuBox) throw new Error('Expected mobile project launch menu geometry')
+      expect(launchMenuBox.y).toBeGreaterThanOrEqual(launchButtonBox.y + launchButtonBox.height - 2)
+      expect(Math.abs((launchMenuBox.x + launchMenuBox.width) - (launchButtonBox.x + launchButtonBox.width))).toBeLessThanOrEqual(2)
+      await expect.poll(async () => menu.locator('button').evaluateAll(buttons => {
+        const menuRect = buttons[0]?.closest('[data-testid="code-project-new-agent-menu"]')?.getBoundingClientRect()
+        if (!menuRect) return 0
+        return buttons.filter(button => {
+          const rect = button.getBoundingClientRect()
+          return rect.top < menuRect.top - 1 || rect.bottom > menuRect.bottom + 1
+        }).length
+      })).toBe(0)
       await page.keyboard.press('Escape')
       await expect(menu).toHaveCount(0)
       await hideMobileSidebar(page)
@@ -629,6 +651,28 @@ test.describe('additional Farming Code user scenarios', () => {
       })
       expect(focusedComposerBox.height).toBeLessThanOrEqual(130)
       expect(focusedComposerBox.bottomGap).toBeLessThanOrEqual(24)
+      const iosKeyboardComposerBox = await page.getByTestId('code-composer').evaluate(async element => {
+        const root = document.documentElement
+        document.body.classList.add('code-mode', 'code-mobile-touch', 'code-mobile-ios')
+        element.classList.add('menu-open')
+        root.style.setProperty('--app-visual-height', '420px')
+        root.style.setProperty('--mobile-keyboard-offset', '520px')
+        await new Promise(resolve => window.setTimeout(resolve, 220))
+        const rect = (element as HTMLElement).getBoundingClientRect()
+        const fakeVisualBottom = Number.parseFloat(root.style.getPropertyValue('--app-visual-height')) || 0
+        return {
+          bottomBeyondVisualViewport: rect.bottom - fakeVisualBottom,
+          height: rect.height,
+        }
+      })
+      expect(iosKeyboardComposerBox.height).toBeLessThanOrEqual(130)
+      expect(iosKeyboardComposerBox.bottomBeyondVisualViewport).toBeGreaterThan(96)
+      expect(iosKeyboardComposerBox.bottomBeyondVisualViewport).toBeLessThanOrEqual(140)
+      await page.evaluate(() => {
+        document.documentElement.style.setProperty('--app-visual-height', `${window.innerHeight}px`)
+        document.documentElement.style.setProperty('--mobile-keyboard-offset', '0px')
+        document.querySelector('[data-testid="code-composer"]')?.classList.remove('menu-open')
+      })
       await expect.poll(async () => page.getByTestId('code-composer-send').evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(17, 17, 17)')
       await page.getByTestId('code-composer-send').click()
       await expect.poll(async () => terminalText(page, mobileAgentId)).toContain('mobile-extra-scenario')

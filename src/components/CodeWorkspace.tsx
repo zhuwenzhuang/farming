@@ -143,6 +143,7 @@ import {
   clampContextMenuPoint,
   estimateAgentContextMenuHeight,
   estimateContextMenuHeight,
+  mobileActionMenuPoint,
   outwardContextMenuPoint,
 } from './code/menu-position'
 import { useWorkspaceOpenFiles } from './code/useWorkspaceOpenFiles'
@@ -306,6 +307,8 @@ const DESKTOP_AUTO_COLLAPSE_WIDTH = 900
 const OPTIONS_MENU_ESTIMATED_WIDTH = 168
 const OPTIONS_MENU_ESTIMATED_HEIGHT = 168
 const TERMINAL_PATH_SEARCH_LIMIT = 12
+const MOBILE_PROJECT_CONTEXT_MENU_WIDTH = 214
+const MOBILE_PROJECT_CONTEXT_MENU_HEIGHT = 86
 
 function isNativeTextEditingShortcutTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false
@@ -2499,7 +2502,13 @@ export function CodeWorkspace({
   const openProjectContextMenu = useCallback((event: ReactMouseEvent<HTMLElement>, projectId: string) => {
     event.preventDefault()
     event.stopPropagation()
-    const point = outwardContextMenuPoint(event.currentTarget.getBoundingClientRect(), estimateContextMenuHeight(2))
+    const rect = event.currentTarget.getBoundingClientRect()
+    const estimatedHeight = isMobileTouchViewport()
+      ? MOBILE_PROJECT_CONTEXT_MENU_HEIGHT
+      : estimateContextMenuHeight(2)
+    const point = isMobileTouchViewport()
+      ? mobileActionMenuPoint(rect, estimatedHeight, undefined, MOBILE_PROJECT_CONTEXT_MENU_WIDTH)
+      : outwardContextMenuPoint(rect, estimatedHeight)
     setAgentMenu(null)
     setAgentSessionMenu(null)
     setOptionsMenu(null)
@@ -2516,7 +2525,12 @@ export function CodeWorkspace({
     event.preventDefault()
     event.stopPropagation()
     const rect = event.currentTarget.getBoundingClientRect()
-    const point = outwardContextMenuPoint(rect, estimateContextMenuHeight(2))
+    const estimatedHeight = isMobileTouchViewport()
+      ? MOBILE_PROJECT_CONTEXT_MENU_HEIGHT
+      : estimateContextMenuHeight(2)
+    const point = isMobileTouchViewport()
+      ? mobileActionMenuPoint(rect, estimatedHeight, undefined, MOBILE_PROJECT_CONTEXT_MENU_WIDTH)
+      : outwardContextMenuPoint(rect, estimatedHeight)
     setAgentMenu(null)
     setAgentSessionMenu(null)
     setOptionsMenu(null)
