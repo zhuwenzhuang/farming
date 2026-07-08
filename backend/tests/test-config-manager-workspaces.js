@@ -43,6 +43,8 @@ function run() {
     assert.strictEqual(settings.codexReasoningEffort, 'xhigh');
     assert.strictEqual(settings.codexServiceTier, 'default');
     assert.strictEqual(settings.removedSetting, undefined);
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).mainPageSessionKeys, undefined);
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).taskHistory, undefined);
     assert(fs.existsSync(path.join(farmingDir, 'FARMING_MAIN_AGENT_SKILLS.md')));
     assert(fs.existsSync(path.join(farmingDir, 'CLAUDE.md')));
     assert(fs.existsSync(path.join(farmingDir, 'AGENTS.md')));
@@ -78,6 +80,15 @@ function run() {
       'agent-session:codex:abc-123',
       'agent-session:claude:chat:with-colon',
     ]);
+    const sessionIndex = JSON.parse(fs.readFileSync(path.join(farmingDir, 'sessions', 'index.json'), 'utf8'));
+    assert.deepStrictEqual(sessionIndex.mainPageSessionKeys, [
+      'agent-session:codex:abc-123',
+      'agent-session:claude:chat:with-colon',
+    ]);
+    const codexSessionRecord = sessionIndex.providerSessionRecords['agent-session:codex:abc-123'];
+    assert(/^fsess_/.test(codexSessionRecord), 'provider session should map to a stable Farming session id');
+    assert(fs.existsSync(path.join(farmingDir, 'sessions', `${codexSessionRecord}.json`)));
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).mainPageSessionKeys, undefined);
 
     manager.updateSettings({
       mainPageSessionKeys: Array.from({ length: 60 }, (_, index) => `agent-session:codex:bulk-${index}`),
@@ -168,18 +179,28 @@ function run() {
       lastActivity: archivedAt - 500,
       archivedAt,
     });
-    assert(fs.existsSync(path.join(farmingDir, 'settings.json')));
     assert.strictEqual(manager.getTaskHistory()[0].agentId, 'agent-after-config-dir-prune');
+    const runHistory = JSON.parse(fs.readFileSync(path.join(farmingDir, 'history', 'runs.json'), 'utf8'));
+    assert.strictEqual(runHistory[0].agentId, 'agent-after-config-dir-prune');
 
     const legacyDir = path.join(tmpRoot, '.farming-legacy');
     fs.mkdirSync(legacyDir, { recursive: true });
     fs.writeFileSync(path.join(legacyDir, 'settings.json'), JSON.stringify({
       dangerouslySkipAgentPermissionsByDefault: true,
+      taskHistory: [{
+        id: 'legacy-history-entry',
+        agentId: 'legacy-agent',
+        reason: 'manual-kill',
+        archivedAt: Date.now(),
+      }],
     }));
     process.env.FARMING_CONFIG_DIR = legacyDir;
     const legacyManager = new ConfigManager();
     legacyManager.init();
     assert.strictEqual(legacyManager.getSettings().codexApprovalMode, 'full');
+    assert.strictEqual(legacyManager.getTaskHistory()[0].agentId, 'legacy-agent');
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(legacyDir, 'settings.json'), 'utf8')).taskHistory, undefined);
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(legacyDir, 'history', 'runs.json'), 'utf8'))[0].agentId, 'legacy-agent');
 
     console.log('test-config-manager-workspaces passed');
   } finally {

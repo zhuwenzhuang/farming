@@ -103,7 +103,7 @@ const agentManager = new AgentManager(configManager, {
   authDisabled: !authEnabled,
   cliBinDir: resolveCliBinDir(),
 });
-const themeManager = new ThemeManager();
+const themeManager = new ThemeManager({ configDir: configManager.farmingDir });
 const workspaceFileService = new WorkspaceFileService();
 const updateService = new FarmingUpdateService({
   rootDir: path.join(__dirname, '..'),
@@ -799,8 +799,18 @@ function isMainAgentSessionWorkspace(session) {
 
 function rememberMainPageAgentSession(provider, sessionId) {
   const sessionKey = mainPageAgentSessionKey(provider, sessionId);
-  const settings = configManager.getSettings();
-  const currentKeys = Array.isArray(settings.mainPageSessionKeys) ? settings.mainPageSessionKeys : [];
+  if (typeof configManager.rememberMainPageSessionKey === 'function') {
+    configManager.rememberMainPageSessionKey(sessionKey, {
+      provider,
+      providerSessionId: sessionId,
+      providerSessionKey: sessionKey,
+      source: 'resume',
+    });
+    return;
+  }
+  const currentKeys = typeof configManager.getMainPageSessionKeys === 'function'
+    ? configManager.getMainPageSessionKeys()
+    : (Array.isArray(configManager.getSettings().mainPageSessionKeys) ? configManager.getSettings().mainPageSessionKeys : []);
   configManager.updateSettings({
     mainPageSessionKeys: [
       sessionKey,
@@ -811,8 +821,13 @@ function rememberMainPageAgentSession(provider, sessionId) {
 
 function forgetMainPageAgentSession(provider, sessionId) {
   const sessionKey = mainPageAgentSessionKey(provider, sessionId);
-  const settings = configManager.getSettings();
-  const currentKeys = Array.isArray(settings.mainPageSessionKeys) ? settings.mainPageSessionKeys : [];
+  if (typeof configManager.removeMainPageSessionKey === 'function') {
+    configManager.removeMainPageSessionKey(sessionKey);
+    return;
+  }
+  const currentKeys = typeof configManager.getMainPageSessionKeys === 'function'
+    ? configManager.getMainPageSessionKeys()
+    : (Array.isArray(configManager.getSettings().mainPageSessionKeys) ? configManager.getSettings().mainPageSessionKeys : []);
   if (!currentKeys.includes(sessionKey)) return;
   configManager.updateSettings({
     mainPageSessionKeys: currentKeys.filter(key => key !== sessionKey),
@@ -1328,10 +1343,11 @@ async function watchWorkspaceFiles(ws, data) {
 }
 
 function buildStatePayload() {
-  const settings = configManager.getSettings();
   return {
     ...agentManager.getState(),
-    mainPageSessionKeys: Array.isArray(settings.mainPageSessionKeys) ? settings.mainPageSessionKeys : [],
+    mainPageSessionKeys: typeof configManager.getMainPageSessionKeys === 'function'
+      ? configManager.getMainPageSessionKeys()
+      : (Array.isArray(configManager.getSettings().mainPageSessionKeys) ? configManager.getSettings().mainPageSessionKeys : []),
   };
 }
 

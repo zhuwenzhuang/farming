@@ -163,6 +163,15 @@ npm run start:no-auth
 ## Configuration
 
 Runtime settings are stored in `~/.farming/settings.json`.
+Agent session metadata is stored separately in `~/.farming/sessions/`. Farming
+uses stable `fsess_*` files for its own Agent records; live `agent-...` ids and
+Codex / Claude provider session ids are stored as metadata on those records.
+The main Projects page membership lives in `sessions/index.json` and is exposed
+as `mainPageSessionKeys` only for API compatibility.
+Archived run history is stored in `~/.farming/history/runs.json`, not in
+`settings.json`.
+Theme overrides, the startup token, server pid/state/log files, and native pty
+host logs live under the same config directory.
 
 Common settings:
 
@@ -170,7 +179,6 @@ Common settings:
 - `agentLaunchProfiles.codex`
 - `agentLaunchProfiles.claude`
 - `workspaceHistory`
-- `mainPageSessionKeys`: the real provider session keys Farming keeps on the main Projects page; Codex `tmp_uuid...` live ids are not stored here, while sessions not listed here stay in History.
 - `dangerouslySkipAgentPermissionsByDefault`
 
 Native terminal sessions are owned by a Farming pty host reached through a local socket derived from `configDir`. By default the host is preserved during server shutdown so a restarted Farming server can recover live terminals; after the last live session and client disappear, the host shuts itself down after a short idle grace period. Set `FARMING_NATIVE_PTY_HOST_PERSIST=0` to tie the host lifetime to the server process. Terminal work should target the native pty host and xterm.js path.

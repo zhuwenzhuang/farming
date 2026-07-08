@@ -110,10 +110,13 @@ farming/
 │   ├── native-pty-host.js
 │   ├── native-pty-host-client.js
 │   ├── local-session-engine.js
+│   ├── farming-session-store.js
+│   ├── run-history-store.js
 │   ├── shell-busy-integration.js
 │   ├── workspace-file-service.js
 │   ├── workspace-file-router.js
 │   ├── farming-app-cli.js
+│   ├── storage-layout.js
 │   └── tests/
 ├── src/
 │   ├── App.tsx
@@ -139,14 +142,17 @@ farming/
 
 ## Runtime Configuration
 
-Farming stores runtime settings under `~/.farming/settings.json` by default. Important user-facing settings include:
+Farming stores runtime settings under `~/.farming/settings.json` by default. Backend-owned file locations under the config directory are centralized in `backend/storage-layout.js`; new config-dir files should go through that helper instead of hand-writing `path.join(configDir, ...)` in feature modules. Important user-facing settings include:
 
 - `defaultLaunchAgent`
 - `agentLaunchProfiles.codex`
 - `agentLaunchProfiles.claude`
 - `workspaceHistory`
-- `mainPageSessionKeys`: Farming 自己维护的主页面真实 provider-session membership；Codex `tmp_uuid...` live id 不得进入该列表，不在该列表里的 provider session 只出现在 History。
 - `dangerouslySkipAgentPermissionsByDefault`
+
+Runtime session metadata lives under `~/.farming/sessions/`, not in `settings.json`. Farming assigns each persisted Agent record a stable `fsess_*` id used as the session metadata filename. The live native pty `agent-...` id is stored as runtime metadata, while Codex / Claude provider session ids are stored as external correlation fields. `sessions/index.json` owns the main Projects page provider-session membership; `settings.mainPageSessionKeys` remains only an API compatibility projection. Codex `tmp_uuid...` live ids must not enter this persisted main-page membership; provider sessions not listed there stay in History.
+
+Run/archive history lives in `history/runs.json`, not in `settings.json`. Theme overrides live in `theme-settings.json` under the same config directory. Server control metadata (`farming-server.json`, `farming-server.pid`, `farming-server.log`), the startup token (`.session-token`), and native pty host logs also belong to the config directory layout. External provider histories such as Codex `~/.codex/sessions` and Claude history files are read-only integrations and should not be treated as Farming-owned metadata.
 
 Interactive runtime sessions default to the native pty host. The host uses a Farming-specific local socket derived from `configDir`, keeps PTY processes outside the Farming server process, and exposes recovery metadata to the server after restarts. By default, server shutdown preserves the host for restart recovery; after the last live session and client disappear, the host shuts itself down after a short idle grace period. Set `FARMING_NATIVE_PTY_HOST_PERSIST=0` only when the host should die with the server. Avoid adding alternate terminal-runtime paths when improving product behavior.
 

@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { run: runControlCli } = require('./farming-cli');
+const storageLayout = require('./storage-layout');
 
 const SERVER_MODE_ARG = '--farming-server';
 const SERVER_MODE_ENV = 'FARMING_RUN_SERVER';
@@ -18,7 +19,7 @@ const CONTROL_COMMANDS = new Set(['skills', 'memory', 'report', 'list', 'spawn',
 const SERVER_BACKED_CONTROL_COMMANDS = new Set(['list', 'spawn', 'output', 'send', 'kill']);
 
 function defaultConfigDir(env = process.env) {
-  return env.FARMING_CONFIG_DIR || path.join(env.HOME || os.homedir(), '.farming');
+  return storageLayout.farmingConfigDir(env);
 }
 
 function normalizeBasePath(basePath) {
@@ -271,7 +272,7 @@ function buildControlEnv(overrides = {}, baseEnv = process.env) {
     if (state.basePath) env.FARMING_BASE_PATH = state.basePath;
   }
   env.FARMING_CONTROL_URL = env.FARMING_CONTROL_URL || entryUrl(env, '127.0.0.1');
-  env.FARMING_TOKEN_FILE = env.FARMING_TOKEN_FILE || path.join(env.FARMING_CONFIG_DIR, '.session-token');
+  env.FARMING_TOKEN_FILE = env.FARMING_TOKEN_FILE || storageLayout.sessionTokenFile(env.FARMING_CONFIG_DIR);
   return env;
 }
 
@@ -317,15 +318,15 @@ function ensureConfigDir(configDir) {
 }
 
 function pidFile(configDir) {
-  return path.join(configDir, 'farming-server.pid');
+  return storageLayout.serverPidFile(configDir);
 }
 
 function serverStateFile(configDir) {
-  return path.join(configDir, 'farming-server.json');
+  return storageLayout.serverStateFile(configDir);
 }
 
 function logFile(configDir) {
-  return path.join(configDir, 'farming-server.log');
+  return storageLayout.serverLogFile(configDir);
 }
 
 function readServerState(configDir) {
@@ -379,7 +380,7 @@ function entryUrl(env, host = 'localhost') {
 }
 
 function readTokenForEnv(env) {
-  const tokenFile = path.join(env.FARMING_CONFIG_DIR || defaultConfigDir(env), '.session-token');
+  const tokenFile = storageLayout.sessionTokenFile(env.FARMING_CONFIG_DIR || defaultConfigDir(env));
   try {
     return fs.readFileSync(tokenFile, 'utf8').trim();
   } catch {

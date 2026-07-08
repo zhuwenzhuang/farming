@@ -220,6 +220,12 @@ npm run start:no-auth
 ## 配置
 
 运行时配置存储在 `~/.farming/settings.json`。
+Agent session 元数据单独存储在 `~/.farming/sessions/`。Farming 使用稳定的
+`fsess_*` 文件作为自己的 Agent 记录；live `agent-...` id 以及 Codex / Claude
+provider session id 都作为这些记录上的元数据保存。主页面 Projects membership
+存放在 `sessions/index.json`，`mainPageSessionKeys` 只是为兼容 API 暴露出来的投影。
+归档 run/history 存储在 `~/.farming/history/runs.json`，不属于 `settings.json`。
+主题覆盖配置、启动 token、server pid/state/log 文件和 native pty host 日志也都在同一个 config 目录下。
 
 主要用户配置项：
 
@@ -227,7 +233,6 @@ npm run start:no-auth
 - `agentLaunchProfiles.codex`：Codex 的权限、模型、reasoning、service tier profile；
 - `agentLaunchProfiles.claude`：Claude 的 permission、model、effort profile；
 - `workspaceHistory`：New Agent 启动时使用的最近 workspace；
-- `mainPageSessionKeys`：Farming 保留在主页面的真实 provider session key；Codex `tmp_uuid...` live id 不会写入这里，不在这里的 session 只出现在 History；
 - `dangerouslySkipAgentPermissionsByDefault`：是否默认启用支持 agent 的激进权限绕过模式。
 
 Native terminal session 由 Farming pty host 托管，通过从 `configDir` 派生的本地 socket 连接。默认保留 host 以支持 server 重启恢复；最后一个 live session 和 client 都消失后，host 会在短暂空闲宽限期后自退出。后续 terminal runtime 工作应面向 native pty host 和 xterm.js 链路。

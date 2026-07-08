@@ -1,12 +1,12 @@
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
+const storageLayout = require('./storage-layout');
 
 class ThemeManager {
-  constructor() {
+  constructor(options = {}) {
     this.themesPath = path.join(__dirname, '../frontend/themes');
-    this.farmingDir = path.join(os.homedir(), '.farming');
-    this.themeSettingsFile = path.join(this.farmingDir, 'theme-settings.json');
+    this.farmingDir = options.configDir || storageLayout.farmingConfigDir();
+    this.themeSettingsFile = storageLayout.themeSettingsFile(this.farmingDir);
     this.availableThemes = this.loadAvailableThemes();
     this.userThemeSettings = this.loadUserThemeSettings();
   }

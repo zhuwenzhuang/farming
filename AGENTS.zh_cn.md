@@ -614,7 +614,6 @@ farming/
 - **workspace**：Farming 内部默认工作空间（固定为 `~/.farming`）
 - **lastMainWorkspace**：Main Agent 上次启动使用的工作空间；缺省时 UI 默认填 `~/.farming`
 - **workspaceHistory**：New Agent 最近使用的工作空间历史，最多保留 5 条，供启动对话框下拉和方向键选择；不存在的目录不得进入历史记录，手动填错路径必须通过错误提示反馈给用户；不得包含 Farming 内部目录（如 `~/.farming`）
-- **mainPageSessionKeys**：Farming 自己维护的主页面真实 provider-session membership；Codex `tmp_uuid...` live id 不得进入这里；不在列表里的 Codex / Claude provider session 只出现在 History；Move to History / Move Project to History 会从这里移除对应 key，从 History 恢复会写回 key
 - **theme**：UI 主题名称（默认：terminal）
 - **heartbeatInterval**：心跳检测和系统监控间隔（单位：毫秒，默认：1000）
 - **dangerouslySkipAgentPermissionsByDefault**：是否默认使用各 coding agent 最激进的内置权限绕过模式
@@ -625,6 +624,14 @@ farming/
 - **agentLaunchProfiles.claude.permissionMode / model / effort**：Claude 权限、模型和 effort；`config` 表示沿用 Claude 自己的配置
 - **codexApprovalMode / codexModel / codexReasoningEffort / codexServiceTier / codexModelPreset**：旧配置兼容字段，会与 `agentLaunchProfiles.codex` 自动镜像
 - **version**：配置文件版本
+
+**Agent session state（sessions/）：**
+
+- Agent session 元数据存储在 `~/.farming/sessions/`，不属于 `settings.json`。
+- Farming 自己的持久 Agent 记录使用稳定 `fsess_*` 文件名；live `agent-...` id 只表示当前 native pty runtime，Codex / Claude provider session id 作为外部关联字段保存。
+- `sessions/index.json` 维护主页面真实 provider-session membership；`mainPageSessionKeys` 只是 API 兼容投影。Codex `tmp_uuid...` live id 不得进入这里；不在列表里的 Codex / Claude provider session 只出现在 History；Move to History / Move Project to History 会从这里移除对应 key，从 History 恢复会写回 key。
+- 归档 run/history 存储在 `~/.farming/history/runs.json`，不属于 `settings.json`。
+- config 目录下后端自有文件路径统一由 `backend/storage-layout.js` 定义；新增 `settings.json`、`theme-settings.json`、`.session-token`、`sessions/`、`history/`、server pid/state/log、native pty host log 这类路径时，不要在功能模块里手写 `path.join(configDir, ...)`。Codex `~/.codex/sessions`、Claude history 等外部 provider 历史是只读集成，不属于 Farming 自有元数据。
 
 **主题特定设置（theme-settings.json）：**
 

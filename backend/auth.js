@@ -1,8 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
-const path = require('path');
-const os = require('os');
 const { createPoeticToken, generatePoeticToken, getPoeticTokenEntropyBits } = require('./haiku-token');
+const storageLayout = require('./storage-layout');
 
 function normalizeBasePath(basePath) {
   if (!basePath || basePath === '/') return '';
@@ -47,13 +46,11 @@ class TokenAuth {
       return;
     }
 
-    const farmingDir = options.farmingDir
-      || process.env.FARMING_CONFIG_DIR
-      || path.join(os.homedir(), '.farming');
+    const farmingDir = options.farmingDir || storageLayout.farmingConfigDir();
     if (!fs.existsSync(farmingDir)) {
       fs.mkdirSync(farmingDir, { recursive: true });
     }
-    this.tokenFile = path.join(farmingDir, '.session-token');
+    this.tokenFile = storageLayout.sessionTokenFile(farmingDir);
     const configuredToken = String(options.token || process.env.FARMING_TOKEN || '').trim();
     const existingToken = configuredToken ? '' : readExistingTokenFile(this.tokenFile);
     if (configuredToken) {

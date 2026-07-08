@@ -550,6 +550,7 @@ class AgentManager extends EventEmitter {
       }
 
       const agentRecord = this.recoveredAgentRecord(agentId, entry.engineName || metadata.engineName || 'native', metadata, state);
+      this.ensurePersistentAgentSession(agentRecord);
       this.agents.set(agentId, agentRecord);
       this.lastActivity.set(agentId, state.lastActivityAt || metadata.lastActivityAt || Date.now());
       if (agentRecord.wantsMain && !this.mainAgentId) {
@@ -613,6 +614,7 @@ class AgentManager extends EventEmitter {
       providerSessionSource: metadata.providerSessionSource || '',
       providerSessionResolvedAt: metadata.providerSessionResolvedAt || null,
       forkedFromProviderSessionId: metadata.forkedFromProviderSessionId || '',
+      persistentSessionId: metadata.persistentSessionId || '',
       customTitle: metadata.customTitle || '',
       terminalBusy: typeof state.terminalBusy === 'boolean' ? state.terminalBusy : null,
       shellCwd: state.shellCwd || metadata.cwd || '',
@@ -641,6 +643,39 @@ class AgentManager extends EventEmitter {
     return provider && sessionId ? mainPageAgentSessionKey(provider, sessionId) : '';
   }
 
+  getMainPageSessionKeys() {
+    if (this.configManager && typeof this.configManager.getMainPageSessionKeys === 'function') {
+      return this.configManager.getMainPageSessionKeys();
+    }
+    if (this.configManager && typeof this.configManager.getSettings === 'function') {
+      const settings = this.configManager.getSettings();
+      return Array.isArray(settings.mainPageSessionKeys) ? settings.mainPageSessionKeys : [];
+    }
+    return [];
+  }
+
+  setMainPageSessionKeys(keys) {
+    if (this.configManager && typeof this.configManager.setMainPageSessionKeys === 'function') {
+      return this.configManager.setMainPageSessionKeys(keys);
+    }
+    if (this.configManager && typeof this.configManager.updateSettings === 'function') {
+      this.configManager.updateSettings({ mainPageSessionKeys: keys });
+      return keys;
+    }
+    return [];
+  }
+
+  ensurePersistentAgentSession(agent, patch = {}) {
+    if (!agent || !this.configManager || typeof this.configManager.ensureAgentSessionRecord !== 'function') {
+      return '';
+    }
+    const persistentSessionId = this.configManager.ensureAgentSessionRecord(agent, patch);
+    if (persistentSessionId && !agent.persistentSessionId) {
+      agent.persistentSessionId = persistentSessionId;
+    }
+    return persistentSessionId;
+  }
+
   currentProviderSessionIds(provider, excludedAgentId = '') {
     const ids = new Set();
     for (const agent of this.agents.values()) {
@@ -655,21 +690,26 @@ class AgentManager extends EventEmitter {
   rememberMainPageProviderSession(agent) {
     if (!agent || agent.wantsMain) return;
     if (!agent.providerSessionProvider || !agent.providerSessionId || agent.providerSessionTemporary === true) return;
-    if (!this.configManager || typeof this.configManager.getSettings !== 'function' || typeof this.configManager.updateSettings !== 'function') {
+    if (!this.configManager) {
       return;
     }
 
     const sessionKey = this.providerSessionKey(agent.providerSessionProvider, agent.providerSessionId);
     if (!sessionKey) return;
-    const settings = this.configManager.getSettings();
-    const currentKeys = Array.isArray(settings.mainPageSessionKeys) ? settings.mainPageSessionKeys : [];
-    if (currentKeys[0] === sessionKey) return;
-    this.configManager.updateSettings({
-      mainPageSessionKeys: [
-        sessionKey,
-        ...currentKeys.filter(key => key !== sessionKey),
-      ],
-    });
+    const currentKeys = this.getMainPageSessionKeys();
+    if (currentKeys[0] === sessionKey) {
+      this.ensurePersistentAgentSession(agent, { visibleOnMainPage: true, archived: false });
+      return;
+    }
+    if (typeof this.configManager.rememberAgentSessionRecord === 'function') {
+      const persistentSessionId = this.configManager.rememberAgentSessionRecord(agent);
+      if (persistentSessionId) agent.persistentSessionId = persistentSessionId;
+      return;
+    }
+    this.setMainPageSessionKeys([
+      sessionKey,
+      ...currentKeys.filter(key => key !== sessionKey),
+    ]);
   }
 
   updateEngineProviderSessionMetadata(agent) {
@@ -791,6 +831,7 @@ class AgentManager extends EventEmitter {
     agent.providerSessionResolvedAt = Date.now();
 
     this.stopCodexProviderSessionResolver(agentId);
+    this.ensurePersistentAgentSession(agent);
     this.updateEngineProviderSessionMetadata(agent);
     this.rememberMainPageProviderSession(agent);
     this.emit('provider-session-updated', {
@@ -1207,6 +1248,7 @@ class AgentManager extends EventEmitter {
       providerSessionSource: providerSessionPlan.source || '',
       providerSessionResolvedAt: providerSessionPlan.temporary === true ? null : Date.now(),
       forkedFromProviderSessionId: providerSessionPlan.forkedFromProviderSessionId || '',
+      persistentSessionId: '',
       customTitle: '',
       terminalBusy: null,
       shellCwd: '',
@@ -1227,6 +1269,8 @@ class AgentManager extends EventEmitter {
       engineStarted: false,
       startedAt: Date.now()
     };
+
+    agentRecord.persistentSessionId = this.ensurePersistentAgentSession(agentRecord);
 
     this.agents.set(agentId, agentRecord);
 
@@ -1263,6 +1307,7 @@ class AgentManager extends EventEmitter {
           providerSessionSource: agentRecord.providerSessionSource,
           providerSessionResolvedAt: agentRecord.providerSessionResolvedAt,
           forkedFromProviderSessionId: agentRecord.forkedFromProviderSessionId,
+          persistentSessionId: agentRecord.persistentSessionId,
           customTitle: agentRecord.customTitle,
           pinned: agentRecord.pinned,
           startedAt: agentRecord.startedAt,
@@ -1622,7 +1667,7 @@ class AgentManager extends EventEmitter {
   }
 
   removeMainPageProviderSessionsForAgents(agents) {
-    if (!this.configManager || typeof this.configManager.getSettings !== 'function' || typeof this.configManager.updateSettings !== 'function') {
+    if (!this.configManager) {
       return [];
     }
 
@@ -1633,12 +1678,15 @@ class AgentManager extends EventEmitter {
     });
     if (keysToRemove.size === 0) return [];
 
-    const settings = this.configManager.getSettings();
-    const currentKeys = Array.isArray(settings.mainPageSessionKeys) ? settings.mainPageSessionKeys : [];
+    const currentKeys = this.getMainPageSessionKeys();
     const removedKeys = currentKeys.filter(key => keysToRemove.has(key));
     if (removedKeys.length === 0) return [];
-    const nextKeys = currentKeys.filter(key => !keysToRemove.has(key));
-    this.configManager.updateSettings({ mainPageSessionKeys: nextKeys });
+    if (typeof this.configManager.removeMainPageSessionKeys === 'function') {
+      this.configManager.removeMainPageSessionKeys(removedKeys);
+    } else {
+      const nextKeys = currentKeys.filter(key => !keysToRemove.has(key));
+      this.setMainPageSessionKeys(nextKeys);
+    }
     return removedKeys;
   }
 

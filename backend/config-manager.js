@@ -4,6 +4,9 @@ const os = require('os');
 const { ensureMainAgentSkillFiles } = require('./main-agent-skills');
 const { normalizeClaudeModelValue } = require('./claude-settings');
 const { isTemporaryProviderSessionId } = require('./provider-session-id');
+const { FarmingSessionStore, MAX_MAIN_PAGE_SESSION_KEYS } = require('./farming-session-store');
+const { RunHistoryStore } = require('./run-history-store');
+const storageLayout = require('./storage-layout');
 
 function splitCodexModelPreset(preset) {
   if (preset === 'config') {
@@ -44,15 +47,11 @@ const DEFAULT_AGENT_LAUNCH_PROFILES = {
   claude: DEFAULT_CLAUDE_LAUNCH_PROFILE,
 };
 
-const MAX_MAIN_PAGE_SESSION_KEYS = 50;
-
 const PERSISTED_SETTING_KEYS = new Set([
   'workspace',
   'lastMainWorkspace',
   'workspaceHistory',
   'projectNames',
-  'mainPageSessionKeys',
-  'taskHistory',
   'theme',
   'appearance',
   'language',
@@ -74,8 +73,14 @@ function cloneLaunchProfile(profile) {
 
 class ConfigManager {
   constructor() {
-    this.farmingDir = process.env.FARMING_CONFIG_DIR || path.join(os.homedir(), '.farming');
-    this.settingsFile = path.join(this.farmingDir, 'settings.json');
+    this.farmingDir = storageLayout.farmingConfigDir();
+    this.settingsFile = storageLayout.settingsFile(this.farmingDir);
+    this.sessionStore = new FarmingSessionStore(this.farmingDir, {
+      normalizeMainPageSessionKeys: keys => this.normalizeMainPageSessionKeys(keys),
+    });
+    this.runHistoryStore = new RunHistoryStore(this.farmingDir, {
+      normalizeTaskHistory: entries => this.normalizeTaskHistory(entries),
+    });
     this.settings = null;
   }
 
@@ -216,8 +221,6 @@ class ConfigManager {
         lastMainWorkspace: this.farmingDir,
         workspaceHistory: [],
         projectNames: {},
-        mainPageSessionKeys: [],
-        taskHistory: [],
         theme: 'terminal',
         appearance: 'light',
         language: 'en',
@@ -245,8 +248,6 @@ class ConfigManager {
       lastMainWorkspace: this.farmingDir,
       workspaceHistory: [],
       projectNames: {},
-      mainPageSessionKeys: [],
-      taskHistory: [],
       theme: 'terminal',
       appearance: 'light',
       language: 'en',
@@ -281,13 +282,18 @@ class ConfigManager {
     this.settings.lastMainWorkspace = this.normalizeMainWorkspace(this.settings.lastMainWorkspace, this.farmingDir);
     this.settings.workspaceHistory = this.normalizeWorkspaceHistory(this.settings.workspaceHistory);
     this.settings.projectNames = this.normalizeProjectNames(this.settings.projectNames);
-    this.settings.mainPageSessionKeys = this.normalizeMainPageSessionKeys(this.settings.mainPageSessionKeys);
+    const legacyMainPageSessionKeys = this.normalizeMainPageSessionKeys(this.settings.mainPageSessionKeys);
+    delete this.settings.mainPageSessionKeys;
+    this.sessionStore.init({ legacyMainPageSessionKeys });
+    const legacyTaskHistory = this.normalizeTaskHistory(this.settings.taskHistory);
+    delete this.settings.taskHistory;
+    this.runHistoryStore.init({ legacyTaskHistory });
     this.settings.appearance = this.normalizeAppearance(this.settings.appearance);
     this.settings.language = this.normalizeLanguage(this.settings.language);
-    this.settings.taskHistory = this.normalizeTaskHistory(this.settings.taskHistory);
     this.normalizeAgentLaunchSettings(launchRawSettings);
     this.pruneUnknownSettings();
     ensureMainAgentSkillFiles(this.farmingDir);
+    this.writeSettingsFile();
     console.log('Loaded settings:', this.settings);
   }
 
@@ -542,12 +548,42 @@ class ConfigManager {
   getSettings() {
     return {
       ...this.settings,
-      workspace: this.farmingDir
+      workspace: this.farmingDir,
+      mainPageSessionKeys: this.getMainPageSessionKeys(),
+      taskHistory: this.getTaskHistory(),
     };
   }
 
+  getMainPageSessionKeys() {
+    return this.sessionStore ? this.sessionStore.getMainPageSessionKeys() : [];
+  }
+
+  setMainPageSessionKeys(keys) {
+    return this.sessionStore ? this.sessionStore.setMainPageSessionKeys(keys) : [];
+  }
+
+  rememberMainPageSessionKey(sessionKey, patch = {}) {
+    return this.sessionStore ? this.sessionStore.rememberMainPageSessionKey(sessionKey, patch) : [];
+  }
+
+  removeMainPageSessionKey(sessionKey) {
+    return this.sessionStore ? this.sessionStore.removeMainPageSessionKey(sessionKey) : false;
+  }
+
+  removeMainPageSessionKeys(keys) {
+    return this.sessionStore ? this.sessionStore.removeMainPageSessionKeys(keys) : [];
+  }
+
+  ensureAgentSessionRecord(agent, patch = {}) {
+    return this.sessionStore ? this.sessionStore.ensureRecordForAgent(agent, patch) : '';
+  }
+
+  rememberAgentSessionRecord(agent) {
+    return this.sessionStore ? this.sessionStore.rememberAgent(agent) : '';
+  }
+
   getTaskHistory() {
-    return this.settings ? this.settings.taskHistory || [] : [];
+    return this.runHistoryStore ? this.runHistoryStore.getEntries() : [];
   }
 
   writeSettingsFile() {
@@ -556,30 +592,43 @@ class ConfigManager {
   }
 
   appendTaskHistory(entry) {
-    if (!this.settings) return;
-    this.settings.taskHistory = this.normalizeTaskHistory([entry, ...(this.settings.taskHistory || [])]);
-    this.pruneUnknownSettings();
-    this.writeSettingsFile();
+    if (!this.runHistoryStore) return;
+    this.runHistoryStore.appendEntry(entry);
   }
   
   updateSettings(newSettings) {
+    const incomingMainPageSessionKeys = Object.prototype.hasOwnProperty.call(newSettings || {}, 'mainPageSessionKeys')
+      ? newSettings.mainPageSessionKeys
+      : undefined;
+    const settingsPatch = { ...(newSettings || {}) };
+    delete settingsPatch.mainPageSessionKeys;
+    const incomingTaskHistory = Object.prototype.hasOwnProperty.call(settingsPatch, 'taskHistory')
+      ? settingsPatch.taskHistory
+      : undefined;
+    delete settingsPatch.taskHistory;
     const previousMainWorkspace = this.settings.lastMainWorkspace || this.farmingDir;
     const previousProfiles = this.settings.agentLaunchProfiles || {};
-    const incomingProfiles = newSettings.agentLaunchProfiles || {};
+    const incomingProfiles = settingsPatch.agentLaunchProfiles || {};
     this.settings = {
       ...this.settings,
-      ...newSettings,
+      ...settingsPatch,
       agentLaunchProfiles: this.mergeAgentLaunchProfiles(previousProfiles, incomingProfiles),
       workspace: this.farmingDir
     };
     this.settings.lastMainWorkspace = this.normalizeMainWorkspace(this.settings.lastMainWorkspace, previousMainWorkspace);
     this.settings.workspaceHistory = this.normalizeWorkspaceHistory(this.settings.workspaceHistory);
     this.settings.projectNames = this.normalizeProjectNames(this.settings.projectNames);
-    this.settings.mainPageSessionKeys = this.normalizeMainPageSessionKeys(this.settings.mainPageSessionKeys);
+    delete this.settings.mainPageSessionKeys;
+    delete this.settings.taskHistory;
+    if (incomingMainPageSessionKeys !== undefined) {
+      this.setMainPageSessionKeys(incomingMainPageSessionKeys);
+    }
+    if (incomingTaskHistory !== undefined && this.runHistoryStore) {
+      this.runHistoryStore.setEntries(incomingTaskHistory);
+    }
     this.settings.appearance = this.normalizeAppearance(this.settings.appearance);
     this.settings.language = this.normalizeLanguage(this.settings.language);
-    this.settings.taskHistory = this.normalizeTaskHistory(this.settings.taskHistory);
-    this.normalizeAgentLaunchSettings(newSettings);
+    this.normalizeAgentLaunchSettings(settingsPatch);
     this.pruneUnknownSettings();
     this.writeSettingsFile();
   }

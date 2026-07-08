@@ -1,10 +1,9 @@
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
-const os = require('os');
-const path = require('path');
 const { buildMemoryReport, formatMemoryReport } = require('./agent-memory-report');
 const { renderMainAgentSkills } = require('./main-agent-skills');
+const storageLayout = require('./storage-layout');
 
 function usage() {
   return `Usage:
@@ -46,7 +45,7 @@ function getToken(options = {}) {
 
   const tokenFile = options.tokenFile
     || process.env.FARMING_TOKEN_FILE
-    || path.join(process.env.FARMING_CONFIG_DIR || path.join(os.homedir(), '.farming'), '.session-token');
+    || storageLayout.sessionTokenFile(storageLayout.farmingConfigDir());
   return readTokenFile(tokenFile);
 }
 

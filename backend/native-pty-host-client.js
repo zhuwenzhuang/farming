@@ -4,11 +4,11 @@ const fs = require('fs');
 const net = require('net');
 const path = require('path');
 const { nativePtyHostSocketPath } = require('./native-pty-host-path');
+const storageLayout = require('./storage-layout');
 
 const DEFAULT_CONNECT_RETRIES = 300;
 const DEFAULT_CONNECT_RETRY_MS = 50;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
-const HOST_LOG_FILENAME = 'native-pty-host.log';
 const PACKAGED_NATIVE_PTY_HOST_ENV = 'FARMING_RUN_NATIVE_PTY_HOST';
 const RECONNECT_RETRYABLE_METHODS = new Set([
   'ping',
@@ -163,7 +163,7 @@ class NativePtyHostClient extends EventEmitter {
 
   defaultHostLogPath() {
     const root = this.configDir || path.dirname(this.socketPath);
-    return path.join(root, HOST_LOG_FILENAME);
+    return storageLayout.nativePtyHostLogFile(root);
   }
 
   openHostLogStream(spawnCommand) {
