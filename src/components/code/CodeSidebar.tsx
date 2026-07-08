@@ -509,7 +509,10 @@ export function CodeSidebar({
             disabled={updateBusy}
           >
             <span className="code-product-mark-copy">
-              <span className="code-product-mark-main">Farming Code</span>
+              <span className="code-product-mark-main-slot">
+                <span className="code-product-mark-main code-product-mark-main-full">Farming Code</span>
+                <span className="code-product-mark-main code-product-mark-main-short" aria-hidden="true">Farming</span>
+              </span>
               {currentVersionLabel && (
                 <span className="code-product-mark-badge">DOGFOOD BETA · {currentVersionLabel}</span>
               )}

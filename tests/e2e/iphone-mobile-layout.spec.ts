@@ -18,7 +18,14 @@ test.describe('iPhone mobile layout', () => {
 
     const projectDir = path.join(workspaceRoot, 'iphone-layout')
     fs.mkdirSync(projectDir, { recursive: true })
-    fs.writeFileSync(path.join(projectDir, 'README.md'), '# iPhone layout\n')
+    fs.writeFileSync(path.join(projectDir, 'README.md'), [
+      '# iPhone layout',
+      '',
+      'This file exercises the mobile Markdown reading surface.',
+      '',
+      ...Array.from({ length: 32 }, (_, index) => `- Mobile reading line ${String(index + 1).padStart(2, '0')}`),
+      '',
+    ].join('\n'))
 
     await page.addInitScript(() => {
       Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true })
@@ -86,11 +93,51 @@ test.describe('iPhone mobile layout', () => {
     expect(keyboardMetrics.layoutViewportBottomGap).toBeGreaterThanOrEqual(0)
     expect(keyboardMetrics.layoutViewportBottomGap).toBeLessThan(32)
 
+    await page.evaluate(() => {
+      const root = document.documentElement
+      const visualViewport = window.visualViewport
+      root.style.setProperty('--app-visual-height', `${Math.round(visualViewport?.height ?? window.innerHeight)}px`)
+      root.style.setProperty('--app-visual-offset-top', `${Math.round(visualViewport?.offsetTop ?? 0)}px`)
+      root.style.setProperty('--app-visual-offset-left', `${Math.round(visualViewport?.offsetLeft ?? 0)}px`)
+      root.style.setProperty('--mobile-keyboard-offset', '0px')
+    })
+
     await page.getByTestId('code-composer-mic').tap()
     const recording = page.getByTestId('code-composer-recording')
     await expect(recording).toBeVisible()
     await expect(recording.locator('.code-composer-recording-wave span')).toHaveCount(24)
     await page.getByTestId('code-composer-recording-stop').click()
     await expect(recording).toHaveCount(0)
+
+    await page.getByTestId('code-mobile-menu').click()
+    const filesSection = page.getByTestId('code-files-section').first()
+    const filesToggle = filesSection.getByRole('button', { name: /^Files$/ })
+    if (await filesToggle.getAttribute('aria-expanded') === 'false') {
+      await filesToggle.click()
+    }
+    const fileSearch = filesSection.getByPlaceholder('Search or path:line')
+    await fileSearch.fill('README.md')
+    await page.getByTestId('code-file-search-results').getByRole('option', { name: /README\.md/ }).click()
+    await expect(page.getByTestId('code-file-editor')).toBeVisible()
+    await expect(page.locator('.code-file-preview-panel.markdown')).toBeVisible()
+
+    const markdownReadingMetrics = await page.locator('.code-file-preview-panel.markdown').evaluate(element => {
+      const panel = element as HTMLElement
+      const article = panel.querySelector('.code-markdown-preview') as HTMLElement | null
+      const main = document.querySelector('[data-testid="code-main"]') as HTMLElement | null
+      if (!article || !main) throw new Error('Markdown reading layout is missing required elements')
+      const panelRect = panel.getBoundingClientRect()
+      const mainRect = main.getBoundingClientRect()
+      return {
+        articlePaddingBottom: Number.parseFloat(getComputedStyle(article).paddingBottom),
+        mainPaddingBottom: Number.parseFloat(getComputedStyle(main).paddingBottom),
+        panelBottomGap: Math.round(mainRect.bottom - panelRect.bottom),
+        scrollable: panel.scrollHeight > panel.clientHeight + 4,
+      }
+    })
+    expect(markdownReadingMetrics.mainPaddingBottom).toBe(0)
+    expect(markdownReadingMetrics.panelBottomGap).toBeLessThanOrEqual(2)
+    expect(markdownReadingMetrics.articlePaddingBottom).toBeLessThanOrEqual(40)
+    expect(markdownReadingMetrics.scrollable).toBe(true)
   })
 })

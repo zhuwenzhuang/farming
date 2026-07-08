@@ -2369,9 +2369,32 @@ body.code-mode .code-file-change-group-toggle {
   gap: 8px;
 }
 
+.code-product-mark-main-slot {
+  container-type: inline-size;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .code-product-mark-main {
   font-size: 13px;
   font-weight: 600;
+}
+
+.code-product-mark-main-short {
+  display: none;
+}
+
+@container (max-width: 90px) {
+  .code-product-mark-main-full {
+    display: none;
+  }
+
+  .code-product-mark-main-short {
+    display: inline;
+  }
 }
 
 .code-product-mark-meta {
@@ -9468,6 +9491,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 
   body.code-mode.code-mobile-touch.code-mobile-markdown-reading .code-main {
     padding-top: 0;
+    padding-bottom: 0;
   }
 
   body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-header {
@@ -9564,7 +9588,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     padding:
       calc(58px + max(8px, env(safe-area-inset-top)))
       18px
-      calc(84px + env(safe-area-inset-bottom));
+      calc(22px + env(safe-area-inset-bottom));
   }
 
   body.code-mode.code-mobile-touch .code-nav-item {

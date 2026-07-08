@@ -128,6 +128,7 @@ async function terminalTextWithoutWhitespace(page: import('@playwright/test').Pa
 
 test.describe('additional Farming Code user scenarios', () => {
   test('covers 31 additional desktop user-facing UI scenarios', async ({ page, workspaceRoot }) => {
+    test.setTimeout(90_000)
     const checked: string[] = []
     const scenario: ScenarioRunner = async (name, fn) => {
       await test.step(`${String(checked.length + 1).padStart(2, '0')} ${name}`, async () => {
@@ -367,6 +368,24 @@ test.describe('additional Farming Code user scenarios', () => {
       await expect(productMark).toHaveClass(/upgrade/)
       await expect(productMark).toHaveAttribute('title', 'Upgrade to 2.0.7')
       await expectNoInlineOverflow(productMark)
+      const constrainedLabel = await productMark.evaluate(element => {
+        const mark = element as HTMLElement
+        const previousWidth = mark.style.width
+        mark.style.width = '245px'
+        const full = mark.querySelector('.code-product-mark-main-full') as HTMLElement | null
+        const short = mark.querySelector('.code-product-mark-main-short') as HTMLElement | null
+        const result = {
+          fullVisible: full ? getComputedStyle(full).display !== 'none' : false,
+          shortVisible: short ? getComputedStyle(short).display !== 'none' : false,
+          text: mark.innerText,
+        }
+        mark.style.width = previousWidth
+        return result
+      })
+      expect(constrainedLabel.fullVisible).toBe(false)
+      expect(constrainedLabel.shortVisible).toBe(true)
+      expect(constrainedLabel.text).toContain('Farming')
+      expect(constrainedLabel.text).not.toContain('Farming Code')
     })
 
     await scenario('collapsed sidebar keeps product status as an icon-sized affordance', async () => {
