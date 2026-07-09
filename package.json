@@ -1,6 +1,6 @@
 {
   "name": "farming-code",
-  "version": "2.2.5",
+  "version": "2.2.6",
   "description": "Remote browser workspace for supervising AI coding agents",
   "main": "backend/server.js",
   "bin": {
@@ -12,10 +12,10 @@
     "bin/",
     "config/*.example",
     "dist/",
-    "docs/products/code/",
+    "frontend/*.js",
+    "frontend/skins/",
+    "frontend/themes/",
     "frontend/vendor/ghostty-web/",
-    "scripts/compute-node-heap-mb.sh",
-    "scripts/install-release.sh",
     "scripts/sync-ghostty-vendor.js",
     "LICENSE",
     "README.md",
@@ -39,11 +39,16 @@
     "release:cli": "./scripts/package-cli-release.sh",
     "release:cli:all": "FARMING_CLI_TARGETS=${FARMING_CLI_TARGETS:-node22-macos-arm64,node22-linux-x64} ./scripts/package-cli-release.sh",
     "release:cli:smoke": "./scripts/smoke-cli-release.sh",
+    "release:npm:smoke": "./scripts/smoke-npm-package.sh",
     "release:app": "./scripts/package-release.sh",
+    "release:app:linux-compat": "./scripts/package-linux-compat-release.sh",
     "release:tarball": "./scripts/package-release.sh",
     "release:remote": "./scripts/install-remote-release.sh",
+    "release:remote:linux-compat": "./scripts/install-remote-linux-compat-release.sh",
     "docs:product:screenshots": "node scripts/capture-product-screenshots.js",
     "test": "node scripts/run-tests.js",
+    "test:codex-app-server:real": "FARMING_REAL_CODEX_APP_SERVER_SMOKE=1 node scripts/smoke-codex-app-server.js",
+    "test:update:platforms": "node scripts/test-update-platforms.js",
     "test:e2e": "npm run test:e2e:playwright",
     "test:e2e:playwright": "playwright test",
     "test:e2e:playwright:update": "playwright test --update-snapshots",
@@ -54,7 +59,7 @@
     "test:e2e:workspaces:local": "FARMING_BASE_PATH=/farming npm run build && node scripts/e2e-workspaces.js local",
     "test:e2e:workspaces:remote": "FARMING_BASE_PATH=/farming npm run build && node scripts/e2e-workspaces.js remote",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint \"backend/**/*.js\" \"frontend/**/*.js\" \"scripts/**/*.js\" bin/farming --ignore-pattern \"frontend/vendor/**\" --ignore-pattern \"frontend/themes/**\"",
+    "lint": "eslint --max-warnings=0 \"backend/**/*.js\" \"frontend/**/*.js\" \"scripts/**/*.js\" bin/farming --ignore-pattern \"frontend/vendor/**\" --ignore-pattern \"frontend/themes/**\"",
     "check": "npm run typecheck && npm run lint && npm test"
   },
   "keywords": [
@@ -75,6 +80,9 @@
     "url": "https://github.com/zhuwenzhuang/farming/issues"
   },
   "homepage": "https://github.com/zhuwenzhuang/farming#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=22"
   },
@@ -89,6 +97,7 @@
     "chokidar": "^5.0.0",
     "express": "^4.18.2",
     "ghostty-web": "^0.4.0",
+    "highlight.js": "^11.11.1",
     "katex": "^0.17.0",
     "material-icon-theme": "^5.36.1",
     "mermaid": "^11.16.0",
@@ -104,8 +113,7 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "ripgrep": "^0.3.1",
-    "systeminformation": "^5.31.5",
-    "ws": "^8.14.2",
+    "ws": "^8.21.0",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
@@ -117,10 +125,13 @@
     "@yao-pkg/pkg": "6.20.0",
     "esbuild": "^0.27.7",
     "eslint": "^10.2.0",
-    "pkg-legacy": "npm:pkg@5.8.1",
     "puppeteer": "^24.40.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vite": "^8.0.3"
+  },
+  "overrides": {
+    "qs": "6.15.3",
+    "dompurify": "3.4.11"
   }
 }

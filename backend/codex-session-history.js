@@ -2,9 +2,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const readline = require('readline');
+const { stripCodexInternalContextBlocks } = require('./codex-transcript-sanitizer');
 
 const DEFAULT_LIMIT = 40;
 const DEFAULT_SCAN_LIMIT = 400;
+const MAX_SESSION_HISTORY_LIMIT = 1000;
+const MAX_SESSION_HISTORY_SCAN_LIMIT = 5000;
 const MAX_SCAN_DIRECTORIES = 2000;
 const SESSION_INDEX_TAIL_BYTES = 4 * 1024 * 1024;
 const RECENT_FILE_CANDIDATE_MULTIPLIER = 4;
@@ -301,7 +304,7 @@ function eventMessagePreview(event) {
   if (!payload || typeof payload.type !== 'string') return '';
 
   if (payload.type === 'user_message') {
-    const message = normalizePreviewText(stripUserMessagePrefix(payload.message));
+    const message = normalizePreviewText(stripCodexInternalContextBlocks(stripUserMessagePrefix(payload.message)));
     if (message) return message;
 
     const hasRemoteImages = Array.isArray(payload.images) && payload.images.length > 0;
@@ -454,10 +457,10 @@ function resolveSessionWorkspace(id, cwd, indexed, globalState) {
 async function listCodexSessions(options = {}) {
   const codexHome = options.codexHome || path.join(os.homedir(), '.codex');
   const limit = Number.isFinite(options.limit)
-    ? Math.max(0, Math.min(200, Math.floor(options.limit)))
+    ? Math.max(0, Math.min(MAX_SESSION_HISTORY_LIMIT, Math.floor(options.limit)))
     : DEFAULT_LIMIT;
   const scanLimit = Number.isFinite(options.scanLimit)
-    ? Math.max(limit, Math.min(1000, Math.floor(options.scanLimit)))
+    ? Math.max(limit, Math.min(MAX_SESSION_HISTORY_SCAN_LIMIT, Math.floor(options.scanLimit)))
     : DEFAULT_SCAN_LIMIT;
 
   const index = readSessionIndex(codexHome);
@@ -478,7 +481,7 @@ async function listCodexSessions(options = {}) {
     const indexed = index.get(metadata.id);
     const cwd = normalizePathValue(metadata.cwd || indexed?.cwd || globalState.workspaceHints[metadata.id] || indexed?.workspace || '');
     const workspace = resolveSessionWorkspace(metadata.id, cwd, indexed, globalState);
-    const title = indexed?.title || metadata.firstUserMessage || metadata.preview || 'Codex session';
+    const title = stripCodexInternalContextBlocks(indexed?.title) || metadata.firstUserMessage || metadata.preview || 'Codex session';
     if (isTemporaryWorkspace(cwd) || isTemporaryWorkspace(workspace) || hasTemporaryWorkspaceReference(title)) {
       skippedTemporaryIds.add(metadata.id);
       continue;
@@ -508,7 +511,7 @@ async function listCodexSessions(options = {}) {
     if (sessions.has(id) || skippedTemporaryIds.has(id)) continue;
     const cwd = normalizePathValue(indexed.cwd || globalState.workspaceHints[id] || indexed.workspace || '');
     const workspace = resolveSessionWorkspace(id, cwd, indexed, globalState);
-    const title = indexed.title || 'Codex session';
+    const title = stripCodexInternalContextBlocks(indexed.title) || 'Codex session';
     if (isTemporaryWorkspace(cwd) || isTemporaryWorkspace(workspace) || hasTemporaryWorkspaceReference(title)) continue;
     sessions.set(id, {
       id,

@@ -95,7 +95,7 @@ async function run() {
       manager.getState().agents.find(agent => agent.id === 'local-agent').shellCommand,
       'git status --short'
     );
-    assert.strictEqual(updateCount, 5);
+    assert.strictEqual(updateCount, 6);
     manager.engineBridge.router.engines.local.emit('session-busy-state', {
       sessionId: 'local-agent',
       terminalBusy: false,
@@ -119,7 +119,7 @@ async function run() {
       manager.getState().agents.find(agent => agent.id === 'local-agent').terminalStatus.lastCommandDurationMs,
       1000
     );
-    assert.strictEqual(updateCount, 6);
+    assert.strictEqual(updateCount, 7);
     manager.engineBridge.router.engines.local.emit('session-error', {
       sessionId: 'local-agent',
       error: 'temporary local engine warning',

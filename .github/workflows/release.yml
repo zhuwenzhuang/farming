@@ -26,6 +26,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify release version
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          lock_version="$(node -p "require('./package-lock.json').packages[''].version")"
+          if [[ "${RELEASE_VERSION}" != "${package_version}" || "${RELEASE_VERSION}" != "${lock_version}" ]]; then
+            echo "Tag, package.json, and package-lock.json versions must match: tag=${RELEASE_VERSION}, package=${package_version}, lock=${lock_version}" >&2
+            exit 1
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -59,7 +71,7 @@ jobs:
       - name: Verify Linux app bundle
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
-        run: node scripts/verify-release-bundle.js "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}.tar.gz"
+        run: node scripts/verify-release-bundle.js "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64.tar.gz"
 
       - name: Smoke-test Linux app bundle
         env:
@@ -68,8 +80,8 @@ jobs:
         shell: bash
         run: |
           tmp="$(mktemp -d)"
-          tar -xzf "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}.tar.gz" -C "${tmp}"
-          npm run release:cli:smoke -- "${tmp}/farming-${FARMING_RELEASE_VERSION}/farming"
+          tar -xzf "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64.tar.gz" -C "${tmp}"
+          npm run release:cli:smoke -- "${tmp}/farming-${FARMING_RELEASE_VERSION}-linux-x64/farming"
 
       - name: Collect Linux release assets
         env:
@@ -78,7 +90,7 @@ jobs:
           mkdir -p release-upload
           cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_linux_amd64" release-upload/
           cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_linux_arm64" release-upload/
-          cp "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}.tar.gz" release-upload/
+          cp "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64.tar.gz" release-upload/
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
@@ -103,6 +115,18 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Verify release version
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          lock_version="$(node -p "require('./package-lock.json').packages[''].version")"
+          if [[ "${RELEASE_VERSION}" != "${package_version}" || "${RELEASE_VERSION}" != "${lock_version}" ]]; then
+            echo "Tag, package.json, and package-lock.json versions must match: tag=${RELEASE_VERSION}, package=${package_version}, lock=${lock_version}" >&2
+            exit 1
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -132,6 +156,11 @@ jobs:
           esac
           npm run release:cli:smoke -- "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_${asset}"
 
+      - name: Build macOS app bundle
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: npm run release:app
+
       - name: Collect macOS release assets
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
@@ -139,6 +168,7 @@ jobs:
           mkdir -p release-upload
           cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_darwin_amd64" release-upload/
           cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_darwin_arm64" release-upload/
+          cp releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-darwin-*.tar.gz release-upload/
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -174,6 +204,12 @@ jobs:
           RELEASE_VERSION: ${{ steps.version.outputs.value }}
         shell: bash
         run: |
+          package_version="$(node -p "require('./package.json').version")"
+          lock_version="$(node -p "require('./package-lock.json').packages[''].version")"
+          if [[ "${RELEASE_VERSION}" != "${package_version}" || "${RELEASE_VERSION}" != "${lock_version}" ]]; then
+            echo "Tag, package.json, and package-lock.json versions must match: tag=${RELEASE_VERSION}, package=${package_version}, lock=${lock_version}" >&2
+            exit 1
+          fi
           notes_file="release-notes/v${RELEASE_VERSION}.md"
           if [[ ! -f "${notes_file}" ]]; then
             echo "Missing release notes: ${notes_file}" >&2
@@ -208,6 +244,7 @@ jobs:
             shasum -a 256 farming* > "farming_${FARMING_RELEASE_VERSION}_checksums.txt"
           fi
           node <<'NODE'
+          const crypto = require('crypto');
           const fs = require('fs');
           const { readBundleRelease } = require('../scripts/verify-release-bundle.js');
           const version = process.env.FARMING_RELEASE_VERSION;
@@ -221,24 +258,25 @@ jobs:
               return {
                 type: 'cli',
                 file,
+                sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
                 releaseVersion: cliMatch[1],
                 platform: cliMatch[2],
                 arch: cliMatch[3],
               };
             }
-            const bundleMatch = file.match(/^farming-(.+)\.tar\.gz$/);
+            const bundleMatch = file.match(/^farming-(.+)-(darwin|linux)-(x64|arm64)\.tar\.gz$/);
             if (bundleMatch) {
               const bundle = readBundleRelease(file);
               return {
                 type: 'app-bundle',
                 file,
+                sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
                 releaseVersion: bundleMatch[1],
                 packageVersion: bundle.release.packageVersion || '',
                 gitSha: bundle.release.gitSha || '',
-                platform: 'linux',
-                arch: 'portable',
+                platform: bundle.release.platform || bundleMatch[2],
+                arch: bundle.release.arch || bundleMatch[3],
                 bundledNodeModules: bundle.release.bundledNodeModules === true,
-                bundledGlibc: bundle.release.bundledGlibc === true,
               };
             }
             return { type: 'unknown', file };
@@ -264,6 +302,10 @@ jobs:
         shell: bash
         run: |
           release_args=(--repo "${GITHUB_REPOSITORY}")
+          if gh release view "${RELEASE_TAG}" "${release_args[@]}" >/dev/null 2>&1; then
+            echo "Refusing to overwrite existing GitHub Release ${RELEASE_TAG}. Publish a new version instead." >&2
+            exit 1
+          fi
           create_args=(
             "${RELEASE_TAG}"
             release-assets/*
@@ -274,9 +316,63 @@ jobs:
           if [[ "${RELEASE_VERSION}" == *-* ]]; then
             create_args+=(--prerelease)
           fi
-          if gh release view "${RELEASE_TAG}" "${release_args[@]}" >/dev/null 2>&1; then
-            gh release edit "${RELEASE_TAG}" "${release_args[@]}" --title "Farming ${RELEASE_VERSION}" --notes-file "${RELEASE_NOTES_FILE}"
-            gh release upload "${RELEASE_TAG}" "${release_args[@]}" release-assets/* --clobber
-          else
-            gh release create "${create_args[@]}" "${release_args[@]}"
+          gh release create "${create_args[@]}" "${release_args[@]}"
+
+  publish-npm:
+    name: Publish npm package
+    runs-on: ubuntu-latest
+    needs:
+      - publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install current npm CLI
+        run: npm install --global npm@latest
+
+      - name: Install dependencies
+        run: npm ci --registry=https://registry.npmjs.org/
+
+      - name: Verify package version
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_VERSION#v}"
+          package_version="$(node -p "require('./package.json').version")"
+          if [ "${version}" != "${package_version}" ]; then
+            echo "Tag and npm package versions must match: tag=${version}, package=${package_version}" >&2
+            exit 1
           fi
+          if npm view "farming-code@${version}" version >/dev/null 2>&1; then
+            echo "Refusing to overwrite farming-code@${version}" >&2
+            exit 1
+          fi
+
+      - name: Run checks
+        run: npm run check
+
+      - name: Smoke-test packed npm package
+        run: npm run release:npm:smoke
+
+      - name: Publish npm package with provenance
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "${NPM_TOKEN}" ]; then
+            printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > "${HOME}/.npmrc"
+          fi
+          version="$(node -p "require('./package.json').version")"
+          dist_tag="latest"
+          if [[ "${version}" == *-* ]]; then
+            dist_tag="next"
+          fi
+          npm publish --access public --provenance --tag "${dist_tag}"

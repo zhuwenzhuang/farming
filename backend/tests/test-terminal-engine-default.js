@@ -40,6 +40,7 @@ function run() {
       xtermSource.includes('linkHandler:') &&
       xtermSource.includes('allowNonHttpProtocols: false') &&
       xtermSource.includes('minimumContrastRatio: 4.5') &&
+      xtermSource.includes("cursorStyle: 'block'") &&
       xtermSource.includes('scrollback: 5000') &&
       xtermSource.includes('new FitAddon()'),
     'xterm adapter should expose the Farming terminal compatibility surface and bypass the default xterm link confirmation'
@@ -63,7 +64,7 @@ function run() {
 
   assert(
     readmeSource.includes('The browser terminal renderer defaults to xterm.js') &&
-      agentsSource.includes('The browser terminal renderer defaults to xterm.js'),
+      agentsSource.includes('Both browser skins default to xterm.js'),
     'public docs should describe xterm.js as the default terminal renderer'
   );
 

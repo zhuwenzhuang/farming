@@ -11,27 +11,37 @@ const { deriveTerminalStatus } = require('./terminal-status');
 const { normalizeInteractiveTerminalEnv } = require('./agent-env');
 
 const CONTROLLED_BASH_PROMPT = [
-  '\\[\\e[90m\\][',
-  '\\[\\e[32m\\]\\u@\\h',
-  '\\[\\e[90m\\] ',
-  '\\[\\e[34m\\]\\w',
-  '\\[\\e[90m\\]]',
+  '\\[\\e[90m\\]│\\[\\e[0m\\] ',
+  '\\[\\e[34m\\]\\W',
   '\\[\\e[90m\\] \\$ ',
   '\\[\\e[0m\\]',
 ].join('');
 
 const CONTROLLED_ZSH_PROMPT = [
-  '%F{8}[',
-  '%F{2}%n@%m',
-  '%F{8} ',
-  '%F{4}%~',
-  '%F{8}]',
+  '%F{8}│%f ',
+  '%F{4}%1~',
   '%F{8} %# ',
   '%f',
 ].join('');
 
-const CONTROLLED_ANON_BASH_PROMPT = '\\[\\e[90m\\]\\$ \\[\\e[0m\\]';
-const CONTROLLED_ANON_ZSH_PROMPT = '%F{8}%# %f';
+const CONTROLLED_ANON_BASH_PROMPT = '\\[\\e[90m\\]│ \\$ \\[\\e[0m\\]';
+const CONTROLLED_ANON_ZSH_PROMPT = '%F{8}│ %# %f';
+const INHERITED_PROMPT_ENV_KEYS = [
+  'PS1',
+  'PS2',
+  'PS3',
+  'PS4',
+  'PROMPT',
+  'RPROMPT',
+  'RPS1',
+  'PROMPT_COMMAND',
+];
+
+function stripInheritedPromptEnv(env) {
+  for (const key of INHERITED_PROMPT_ENV_KEYS) {
+    delete env[key];
+  }
+}
 
 function extractLatestTerminalTitle(data) {
   if (!data) return null;
@@ -104,9 +114,14 @@ function normalizeShellSessionOptions(options) {
   }
 
   const shellName = path.basename(options.command || '');
+  // Match VS Code's terminal contract: a normal shell starts as the user's
+  // interactive shell. Farming's OSC markers observe it without owning PS1.
+  // The compact prompt remains an explicit privacy / screenshot mode only.
   const useControlledPrompt = normalized.env.FARMING_SHELL_CONTROLLED_PROMPT === '1'
     || normalized.env.FARMING_ANONYMIZE_SHELL_PROMPT === '1';
   const useAnonymousPrompt = normalized.env.FARMING_ANONYMIZE_SHELL_PROMPT === '1';
+
+  if (useControlledPrompt) stripInheritedPromptEnv(normalized.env);
 
   if (shellName === 'bash') {
     normalized.args = normalized.args.length > 0 ? normalized.args : [];

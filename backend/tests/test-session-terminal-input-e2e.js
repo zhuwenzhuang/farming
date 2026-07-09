@@ -438,7 +438,7 @@ async function run() {
   assert.notStrictEqual(dialogState.workspaceDisplay, 'none');
   assert.strictEqual(dialogState.dialogActive, true);
   assert.strictEqual(dialogState.workspaceValue, '');
-  assert.strictEqual(dialogState.historyVisible, false);
+  assert.strictEqual(dialogState.historyVisible, true);
 
   await dialogPage.keyboard.press('ArrowDown');
   const historyVisibleAfterArrow = await dialogPage.$eval('#workspace-history', (node) => getComputedStyle(node).display !== 'none');

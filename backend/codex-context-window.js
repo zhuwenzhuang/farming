@@ -148,6 +148,16 @@ class CodexContextWindowReader {
   }
 
   async readForAgent(agent) {
+    const requestedCodexHome = String(agent?.providerHomePath || '').trim();
+    if (requestedCodexHome && requestedCodexHome !== this.codexHome) {
+      const reader = new CodexContextWindowReader({
+        codexHome: requestedCodexHome,
+        cacheTtlMs: this.cacheTtlMs,
+        scanLimit: this.scanLimit,
+        now: this.now,
+      });
+      return reader.readForAgent({ ...agent, providerHomePath: '' });
+    }
     const agentId = String(agent?.id || '');
     if (!agentId) return unavailable('', 'Agent id is empty.');
     if (agent?.providerSessionProvider !== 'codex') return unavailable(agentId, 'Agent is not a Codex session.');

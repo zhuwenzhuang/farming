@@ -106,6 +106,7 @@ function run() {
     assert.ok(bashRc.includes('. "$HOME/.profile"'));
     assert.ok(bashRc.includes('__farming_original_prompt_command=("${PROMPT_COMMAND[@]}")'));
     assert.ok(bashRc.includes('__farming_in_prompt'), 'bash integration should avoid marking its own prompt hook as busy');
+    assert.ok(bashRc.includes('__farming_get_trap*|PROMPT_COMMAND=__farming_shell_prompt|printf'), 'bash integration should not report its own prompt hook as a user command');
     assert.ok(bashRc.includes('__farming_urlencode'));
     assert.ok(bashRc.includes('FarmingShellStatus=start;cmd=%s'));
     assert.ok(bashRc.includes('FarmingShellStatus=finish'));

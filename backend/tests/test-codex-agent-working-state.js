@@ -1,5 +1,6 @@
 const assert = require('assert');
 const { importTsModule } = require('./helpers/import-ts-module');
+const { deriveTerminalStatus } = require('../terminal-status');
 
 const {
   inferAgentTerminalState,
@@ -189,6 +190,52 @@ function run() {
 
   assert.deepStrictEqual(
     pickTerminalState(codexAgent({
+      terminalStatus: {
+        kind: 'shell',
+        activity: 'idle',
+        busy: false,
+        cwd: '/tmp/farming',
+        title: '',
+        source: 'shell-status-marker',
+      },
+      command: 'bash',
+      sessionTitle: '\u283c farming',
+      previewText: '› 执行中\ngpt-5.5 xhigh fast · ~/git/farming',
+    })),
+    {
+      kind: 'shell',
+      kindSource: 'terminal-status',
+      turnActive: false,
+      terminalBusy: false,
+    },
+    'Structured idle status should override a stale spinner-like terminal title'
+  );
+
+  assert.deepStrictEqual(
+    pickTerminalState(codexAgent({
+      command: 'qwen',
+      sessionTitle: '\u283c Reading files',
+      terminalStatus: {
+        kind: 'process',
+        activity: 'idle',
+        busy: false,
+        cwd: '/tmp/farming',
+        title: '\u283c Reading files',
+        source: 'terminal-text',
+      },
+      previewText: '│ › Qwen OAuth',
+    })),
+    {
+      kind: 'agent',
+      kindSource: 'terminal-status',
+      turnActive: false,
+      terminalBusy: false,
+    },
+    'Braille titles from non-Codex agents should not grant Codex activity or capabilities'
+  );
+
+  assert.deepStrictEqual(
+    pickTerminalState(codexAgent({
       command: 'bash',
       previewText: '› Explain this codebase\ngpt-5.5 xhigh fast · ~/git/farming',
     })),
@@ -257,6 +304,84 @@ function run() {
     isAgentTurnActive(claudeAgent({ previewText: 'Thinking...\npress esc to interrupt' })),
     true,
     'Claude should be active while the current viewport shows interrupt text'
+  );
+
+  const codexCompletedPreview = [
+    'Working (2s • esc to interrupt)',
+    '› Explain this codebase',
+    'gpt-5.5 xhigh · ~/git/farming',
+  ].join('\n');
+  assert.strictEqual(
+    isAgentTurnActive(codexAgent({
+      previewText: codexCompletedPreview,
+      terminalStatus: deriveTerminalStatus({
+        command: 'codex',
+        cwd: '/tmp/farming',
+        previewText: codexCompletedPreview,
+        terminalBusy: null,
+      }),
+    })),
+    false,
+    'Structured backend status should preserve the newer Codex idle footer result'
+  );
+
+  const openCodeCompletedPreview = [
+    'Claude and Codex both expose thinking and working states.',
+    'The phrase esc to interrupt can appear in the completed answer.',
+    '┃ Build · Big Pickle OpenCode Zen  ~/git/farming:main',
+    '19.4K (10%)  ctrl+p commands  • OpenCode 1.17.15',
+  ].join('\n');
+  assert.deepStrictEqual(
+    pickTerminalState(codexAgent({
+      command: 'opencode',
+      previewText: openCodeCompletedPreview,
+      terminalStatus: deriveTerminalStatus({
+        command: 'opencode',
+        cwd: '/tmp/farming',
+        title: 'OC | status audit',
+        previewText: openCodeCompletedPreview,
+        terminalBusy: null,
+      }),
+    })),
+    {
+      kind: 'agent',
+      kindSource: 'terminal-status',
+      turnActive: false,
+      terminalBusy: false,
+    },
+    'OpenCode completed prose should not grant Claude capabilities or keep the row spinning'
+  );
+
+  const qoderActivePreview = '⣙ Reading files (1s · esc to cancel)';
+  assert.strictEqual(
+    isAgentTurnActive(codexAgent({
+      command: 'qodercli',
+      previewText: qoderActivePreview,
+      terminalStatus: deriveTerminalStatus({
+        command: 'qodercli',
+        cwd: '/tmp/farming',
+        previewText: qoderActivePreview,
+        terminalBusy: null,
+      }),
+    })),
+    true,
+    'Qoder loading rows should drive the shared active-turn state'
+  );
+
+  const qoderIdlePreview = 'Thinking\n▪ Done\n> Type your message or @path/to/file';
+  assert.strictEqual(
+    isAgentTurnActive(codexAgent({
+      command: 'qodercli',
+      previewText: qoderIdlePreview,
+      terminalStatus: deriveTerminalStatus({
+        command: 'qodercli',
+        cwd: '/tmp/farming',
+        previewText: qoderIdlePreview,
+        terminalBusy: null,
+      }),
+    })),
+    false,
+    'Qoder completed turns should stop the shared sidebar and composer activity state'
   );
 
   console.log('✓ Codex agent working state is scoped to the current terminal view');

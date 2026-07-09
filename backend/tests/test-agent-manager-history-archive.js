@@ -144,6 +144,7 @@ async function run() {
     assert.strictEqual(manager.taskHistory[0].reason, 'manual-archive');
     assert.strictEqual(manager.taskHistory[0].projectWorkspace, '/repo');
     assert.strictEqual(manager.taskHistory[0].title, 'Named archive run');
+    assert.strictEqual(manager.taskHistory[0].customTitle, 'Named archive run');
 
     manager.agents.set('shell-archive', {
       id: 'shell-archive',
@@ -180,6 +181,26 @@ async function run() {
     assert.strictEqual(manager.agents.has('shell-kill'), false, 'killed shell agents should be destroyed');
     assert.strictEqual(manager.taskHistory.length, 3, 'manual shell kill should not create a history run');
     assert.strictEqual(appended.length, 3, 'manual shell kill should not be persisted to task history');
+
+    manager.recordTaskHistory({
+      id: 'shell-process-exit',
+      command: 'env TERM=xterm-256color /bin/fish',
+      cwd: '/repo',
+      status: 'stopped',
+      source: 'ui',
+    }, { reason: 'process-exit', archivedAt: now });
+    assert.strictEqual(manager.taskHistory.length, 3, 'central history recording should reject shell process exits');
+    assert.strictEqual(appended.length, 3, 'shell process exits should never be persisted to task history');
+
+    manager.recordTaskHistory({
+      id: 'unsupported-process-exit',
+      command: 'unknown-agent',
+      cwd: '/repo',
+      status: 'stopped',
+      source: 'ui',
+    }, { reason: 'process-exit', archivedAt: now });
+    assert.strictEqual(manager.taskHistory.length, 3, 'central history recording should reject unsupported Agents');
+    assert.strictEqual(appended.length, 3, 'unsupported Agents should never be persisted to task history');
 
     assert.strictEqual((await manager.archiveAgent('missing-agent')).error, 'Agent not found');
     assert.strictEqual((await manager.archiveAgent('main-1')).error, 'Main Agent cannot be archived');

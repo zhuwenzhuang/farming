@@ -19,18 +19,21 @@ export interface FileSectionBodySearch {
   activeMatchIndex: number
   anchorRef: RefObject<HTMLElement | null>
   error: string | null
+  includeIgnored: boolean
   jumpTarget: WorkspaceFileJumpQuery | null
   listboxId: string
   loading: boolean
   matches: WorkspaceFileSearchMatch[]
   query: string
   resultsRef: RefObject<HTMLDivElement | null>
+  timeoutMs: number
   truncated: boolean
 }
 
 export interface FileSectionBodySearchActions {
   onOpenJumpQuery: (query: string) => void
   onOpenMatch: (match: WorkspaceFileSearchMatch) => void
+  onSearchIgnored: () => void
   onSelectMatchIndex: (index: number) => void
 }
 
@@ -51,10 +54,12 @@ interface FileSectionBodyProps {
   onCloseFileMenu: () => void
   onCloseFileMenuWithFocusRestore: () => void
   onCopyFileMenuPath: () => void
+  onCopyFileMenuShareUrl: () => void
   onOpenNewAgentFromFileMenu: () => void
   onRefreshFileMenuTarget: () => void
   onStartAgentFromFileMenu: (command: string) => void
   onStartFileMenuOperation: (kind: WorkspaceFileOperationKind) => void
+  readOnly?: boolean
 }
 
 export function FileSectionBody({
@@ -72,10 +77,12 @@ export function FileSectionBody({
   onCloseFileMenu,
   onCloseFileMenuWithFocusRestore,
   onCopyFileMenuPath,
+  onCopyFileMenuShareUrl,
   onOpenNewAgentFromFileMenu,
   onRefreshFileMenuTarget,
   onStartAgentFromFileMenu,
   onStartFileMenuOperation,
+  readOnly = false,
 }: FileSectionBodyProps) {
   return (
     <>
@@ -103,9 +110,12 @@ export function FileSectionBody({
           matches={search.matches}
           openFileError={openFileError}
           query={search.query}
+          showIgnoredSearch={!search.includeIgnored}
+          timeoutMs={search.timeoutMs}
           truncated={search.truncated}
           onOpenJumpQuery={searchActions.onOpenJumpQuery}
           onOpenMatch={searchActions.onOpenMatch}
+          onSearchIgnored={searchActions.onSearchIgnored}
           onSelectMatchIndex={searchActions.onSelectMatchIndex}
         />
       )}
@@ -125,6 +135,7 @@ export function FileSectionBody({
         onCloseFileMenuWithFocusRestore={onCloseFileMenuWithFocusRestore}
         onCloseFileOperation={tree.onCloseFileOperation}
         onCopyFileMenuPath={onCopyFileMenuPath}
+        onCopyFileMenuShareUrl={onCopyFileMenuShareUrl}
         onOpenNewAgent={onOpenNewAgentFromFileMenu}
         onRefreshFileMenuTarget={onRefreshFileMenuTarget}
         onRememberFileOperationName={tree.onRememberFileOperationName}
@@ -132,6 +143,7 @@ export function FileSectionBody({
         onStartFileMenuOperation={onStartFileMenuOperation}
         onSubmitFileOperation={tree.onSubmitFileOperation}
         onUpdateFileOperationName={tree.onUpdateFileOperationName}
+        readOnly={readOnly}
       />
     </>
   )

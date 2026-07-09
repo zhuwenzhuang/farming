@@ -100,8 +100,6 @@ function run() {
       unread: live.unread,
       forkedToNewWorktree: live.forkedToNewWorktree,
       requiresResume: live.requiresResume,
-      ageLabel: live.ageLabel,
-      ageVisible: live.ageVisible,
     },
     {
       kind: 'agent',
@@ -115,10 +113,8 @@ function run() {
       unread: true,
       forkedToNewWorktree: true,
       requiresResume: false,
-      ageLabel: '2d',
-      ageVisible: false,
     },
-    'live agent row state should centralize title, lifecycle, turn activity, user flags, fork marker, and age visibility'
+    'live agent row state should centralize title, lifecycle, turn activity, user flags, and fork marker'
   );
 
   const lastCommandState = buildAgentRowDisplayState({ kind: 'agent', agent: agent({
@@ -161,21 +157,6 @@ function run() {
     true,
     'pending agents should keep an explicit status indicator'
   );
-  const idleAgentState = buildAgentRowDisplayState({ kind: 'agent', agent: agent({
-      startedAt: now - 2 * 24 * 60 * 60 * 1000,
-      lastActivity: now - 35 * 60 * 1000,
-    }) }, now);
-  assert.strictEqual(
-    idleAgentState.ageLabel,
-    '35m',
-    'live agent row age should show time since last activity, not time since process start'
-  );
-  assert.strictEqual(
-    idleAgentState.ageVisible,
-    true,
-    'idle live agent rows should still show their age when no active-turn spinner is visible'
-  );
-
   const resumeRequired = buildAgentRowDisplayState({ kind: 'history', session: session({
     pinned: true,
     unread: true,
@@ -197,8 +178,6 @@ function run() {
       statusIndicatorVisible: resumeRequired.statusIndicatorVisible,
       scheduled: resumeRequired.scheduled,
       scheduleTitle: resumeRequired.scheduleTitle,
-      ageLabel: resumeRequired.ageLabel,
-      ageVisible: resumeRequired.ageVisible,
     },
     {
       kind: 'history',
@@ -209,8 +188,6 @@ function run() {
       statusIndicatorVisible: false,
       scheduled: true,
       scheduleTitle: 'Every day',
-      ageLabel: '2d',
-      ageVisible: true,
     },
     'agent row state should treat resume as an activation state, not a separate row concept'
   );

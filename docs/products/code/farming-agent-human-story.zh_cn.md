@@ -61,6 +61,7 @@
 
 - 新 project agent 在用户选择的目录启动。
 - Shell terminal 输出保留用户自己的 bash / zsh prompt，同时 Farming shell integration 只注入不可见的 busy 和 cwd 标记。
+- 在 macOS 上，内置 bash 和 zsh 按 VS Code 的 login shell 方式启动；每个 shell 只加载自己的 profile，不能继承另一个 shell 的 prompt 变量。
 - `FARMING_SHELL_CONTROLLED_PROMPT=1` 或 `FARMING_ANONYMIZE_SHELL_PROMPT=1` 仍可用于截图或隐私场景下的紧凑可控 prompt。
 - ANSI color escape sequences 保留给 terminal renderer 渲染颜色。
 

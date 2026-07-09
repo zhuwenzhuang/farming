@@ -3,7 +3,6 @@ import { findWorkspaceFileTreeNode, type WorkspaceFileTreeNode as FileExplorerNo
 import {
   firstVisibleWorkspaceFilePath,
   isWorkspaceStickyContextVisible,
-  openEditorsRevealScrollDelta,
   workspaceStickyContentTop,
   workspaceStickyContextItems,
   workspaceStickyDirectoryPaths,
@@ -15,40 +14,33 @@ export type FileStickyContextItem = WorkspaceFileStickyContextItem
 
 interface UseWorkspaceFileStickyContextOptions {
   filesCollapsed: boolean
-  filesLabel: string
   focusFileTreePath: (path: string) => void
   lastFocusedFilePathRef: MutableRefObject<string | null>
   openDirectoryPaths: ReadonlySet<string>
-  openEditorsLabel: string
-  openFilesCount: number
   refreshTreeLayout: () => void
   resetKey: string | null
   treeData: FileExplorerNode[]
   treeViewportRef: RefObject<HTMLDivElement | null>
 }
 
-function stickyContentTop(scroller: HTMLElement, viewport: HTMLElement, includeOpenEditors = true) {
+function stickyContentTop(scroller: HTMLElement, viewport: HTMLElement) {
   const projectGroup = viewport.closest<HTMLElement>('.code-project-group')
   const projectRow = projectGroup?.querySelector<HTMLElement>('.code-project-row')
   const agentsSection = projectGroup?.querySelector<HTMLElement>('.code-agents-section')
-  const openEditorsSection = includeOpenEditors
-    ? projectGroup?.querySelector<HTMLElement>('[data-testid="code-open-editors"]')
-    : null
+  const openEditorsSection = projectGroup?.querySelector<HTMLElement>('[data-testid="code-open-editors"]')
   return workspaceStickyContentTop(
     scroller.getBoundingClientRect().top,
     projectRow?.getBoundingClientRect().height ?? 30,
-    (agentsSection?.getBoundingClientRect().height ?? 0) + (openEditorsSection?.getBoundingClientRect().height ?? 0)
+    (agentsSection?.getBoundingClientRect().height ?? 0) + (openEditorsSection?.getBoundingClientRect().height ?? 0),
+    25
   )
 }
 
 export function useWorkspaceFileStickyContext({
   filesCollapsed,
-  filesLabel,
   focusFileTreePath,
   lastFocusedFilePathRef,
   openDirectoryPaths,
-  openEditorsLabel,
-  openFilesCount,
   refreshTreeLayout,
   resetKey,
   treeData,
@@ -67,11 +59,8 @@ export function useWorkspaceFileStickyContext({
     workspaceStickyContextItems({
       visible: stickyContextVisible,
       directoryNodes: stickyDirectoryNodes,
-      openFilesCount,
-      openEditorsLabel,
-      filesLabel,
     })
-  ), [filesLabel, openEditorsLabel, openFilesCount, stickyContextVisible, stickyDirectoryNodes])
+  ), [stickyContextVisible, stickyDirectoryNodes])
 
   const clearStickyContext = useCallback(() => {
     setStickyDirectoryPaths(current => current.length === 0 ? current : [])
@@ -113,24 +102,6 @@ export function useWorkspaceFileStickyContext({
     ))
   }, [clearStickyContext, filesCollapsed, treeViewportRef])
 
-  const revealOpenEditorsSection = useCallback(() => {
-    const reveal = () => {
-      const viewport = treeViewportRef.current
-      const scroller = viewport?.closest<HTMLElement>('.code-project-list')
-      const section = viewport
-        ?.closest<HTMLElement>('.code-project-group')
-        ?.querySelector<HTMLElement>('[data-testid="code-open-editors"]')
-      if (!viewport || !scroller || !section) return
-
-      const stickyTop = stickyContentTop(scroller, viewport, false)
-      scroller.scrollTop += openEditorsRevealScrollDelta(section.getBoundingClientRect().top, stickyTop)
-      refreshStickyAncestors()
-    }
-
-    window.requestAnimationFrame(reveal)
-    window.setTimeout(reveal, 80)
-  }, [refreshStickyAncestors, treeViewportRef])
-
   const focusStickyDirectory = useCallback((node: FileExplorerNode) => {
     lastFocusedFilePathRef.current = node.path
     focusFileTreePath(node.path)
@@ -147,7 +118,7 @@ export function useWorkspaceFileStickyContext({
     }
 
     refreshTreeLayout()
-    const frameId = window.requestAnimationFrame(refreshTreeLayout)
+    const frameId = window.requestAnimationFrame(() => refreshTreeLayout())
     const timeoutId = window.setTimeout(refreshTreeLayout, 80)
     const lateTimeoutId = window.setTimeout(refreshTreeLayout, 180)
     return () => {
@@ -182,7 +153,6 @@ export function useWorkspaceFileStickyContext({
 
   return {
     focusStickyDirectory,
-    revealOpenEditorsSection,
     stickyContextItems,
   }
 }

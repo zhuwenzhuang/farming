@@ -10,6 +10,8 @@
 
 **Farming** 是一个 AI Agent UI 产品，关注用户在指挥 AI Agent 工作过程中的注意力和体验。
 
+浏览器在同一个后端上提供两套实时 UI：`<base-path>/code/` 是 Farming Code，`<base-path>/crt/` 是原始 CRT UI，base path 根路径继续作为 Code 的兼容入口。两套 UI 观察和操作同一批后端 session；Code 启动或渲染失败时，应在有限的错误详情浮层后显露仍然实时运行的 CRT UI，不得重启或复制 Agent 进程。
+
 ### 产品定位
 
 该产品本质上是一个 AI Agent UI，关心 AI Agent 用户（人类）的注意力，让用户在指挥 AI Agent 工作的过程中感到快乐，让用户成为更好的"监工"。
@@ -106,6 +108,7 @@
 
 - **不硬编码密钥**：敏感信息通过环境变量或配置文件
 - **输入过滤**：防止命令注入
+- **Codex transcript/chat 净化**：所有用户可见的 Codex transcript/chat 文本必须经过后端共享 sanitizer，过滤 Codex 内部注入上下文；Codex 更新内部上下文格式时，必须同步更新 sanitizer 和回归测试
 - **进程隔离**：每个 agent 独立进程，避免相互影响
 - **权限最小化**：agent 进程只拥有必要权限
 
@@ -154,7 +157,11 @@
 
 新的交互式 agent 默认由 `NativeSessionEngine` 托管，node-pty 进程运行在独立 native pty host 中，Farming 服务重启后通过本地 socket 重新挂回仍存活的 terminal。native pty host 默认会跨 Farming server 重启保留；当没有 live session 和 client 后会在空闲宽限期后退出。只有希望 host 跟随 server 一起退出时才设置 `FARMING_NATIVE_PTY_HOST_PERSIST=0`。`LocalSessionEngine` 仅保留为 `FARMING_SESSION_ENGINE=local` 调试路径；产品 runtime 工作应面向 native pty host。
 
-Agent 进程不能直接完整继承 Farming server 的 `process.env`。后端应先解析用户 shell 环境，再只叠加 agent 需要的服务端变量，例如模型凭据、代理、SSH auth 和证书路径，最后统一规范化 `TERM`、`COLORTERM`、`TERM_PROGRAM` 等 terminal 变量，并移除 `NO_COLOR`、非交互式 `cat` pager、glibc launcher 路径和 Node heap flag 等 server/runtime shim。新增启动路径必须复用这套 resolver，不能重新复制 `process.env`。
+Agent 进程不能直接完整继承 Farming server 的 `process.env`。后端应先解析用户 shell 环境，再只叠加 agent 需要的服务端变量，例如模型凭据、代理、SSH auth 和证书路径，最后统一规范化 `TERM`、`COLORTERM`、`TERM_PROGRAM` 等 terminal 变量，并移除 `NO_COLOR`、非交互式 `cat` pager、动态库覆盖和 Node heap flag 等 server/runtime shim。新增启动路径必须复用这套 resolver，不能重新复制 `process.env`。
+
+Shell agent（`bash` / `zsh`）默认保留用户自己的交互启动流程和 prompt，行为与 VS Code 集成终端一致。Farming 通过不可见的 OSC busy / cwd marker 观测 shell，而不接管 `PS1` 或 `PROMPT`。需要紧凑受控 prompt 时显式设置 `FARMING_SHELL_CONTROLLED_PROMPT=1`；隐私截图可设置 `FARMING_ANONYMIZE_SHELL_PROMPT=1`。这些仅限 shell 的变量不能传给直接启动的 coding agent。
+
+在 macOS 上，内置 bash / zsh 与 VS Code 的内置 profile 一致，默认以 login shell 启动。必须按目标 shell 分别解析环境，不能在 bash 和 zsh 之间传递继承的 `PS1`、`PROMPT` 或 prompt hook；终端外观只能由被启动 shell 自己的 startup 文件决定。
 
 ### 核心：主 Agent 机制
 
@@ -211,7 +218,7 @@ farming/
 │   ├── package-cli-release.sh # 生成按平台发布的 farming CLI 应用；先 esbuild bundle/minify 后端，再交给 @yao-pkg/pkg / legacy pkg
 │   ├── smoke-cli-release.sh   # 平台 CLI 冷路径 smoke：干净 HOME、自动配置、token、agent 控制链路
 │   ├── package-release.sh     # 生成可解压运行的 app bundle tarball，包内根目录自带 ./farming
-│   ├── install-release.sh     # app bundle / tarball 本地安装、glibc launcher、启动、停止脚本
+│   ├── install-release.sh     # app bundle / tarball 本地安装、启动、停止脚本
 │   ├── install-remote-release.sh # 本机打包、上传 tarball 并远程安装启动
 │   ├── compute-node-heap-mb.sh # 按 cgroup / 系统内存计算 Farming server Node heap
 │   ├── start-playwright-server.js # Playwright 本地临时测试服务入口
@@ -421,7 +428,10 @@ farming/
 │       ├── display-flows.spec.ts # 桌面/移动端真实展示流程测试
 │       └── display-flows.spec.ts-snapshots/ # Playwright 截图基线
 │
-├── frontend/              # 旧原型前端与 vendored 浏览器资源
+├── frontend/              # CRT 皮肤、共享浏览器 bridge 与 vendored 资源
+│   ├── skins/
+│   │   └── crt/           # 独立 CRT 入口、应用逻辑与效果文件
+│   ├── *.js               # 多皮肤共享的 terminal/session bridge
 │   ├── vendor/
 │   │   └── ghostty-web/   # vendored Ghostty 浏览器资源
 │   │       - ghostty-web.js / ghostty-vt.wasm / 配套运行文件
@@ -479,10 +489,9 @@ farming/
     │   ├── workspace-files.ts # `/api/files/*` 前端 API client
     │   ├── workspace-options.ts # Main/New Agent workspace 候选与默认值规则
     │   ├── format.ts       # 展示格式化
-    │   └── theme.ts        # 主题运行时应用；Code 初版固定 light 外观，仍负责 CRT on/off
+    │   └── theme.ts        # Code 主题运行时外观；不读取 CRT 皮肤效果设置
     ├── styles/
     │   ├── tokens.css      # 主题 token（颜色、边框、效果变量）
-    │   ├── effects.css     # CRT 效果层（扫描线、暗角、panel/screen effect）
     │   └── main.css        # 基础布局与组件样式
     └── types/
         ├── agent.ts        # Agent / AppState / SystemStats 类型
@@ -534,24 +543,13 @@ farming/
 }
 ```
 
-**主题设置**：`~/.farming/theme-settings.json`
-
-存储用户对主题特定设置的覆盖（如 CRT 效果开关）。
-
-**默认配置**：
-```json
-{
-  "terminal": {
-    "crtEffects": true
-  }
-}
-```
+CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEnabled` 字段中，只允许 CRT 入口读取；Farming Code 不得读取或应用该字段。动态热力开关使用 `crtDynamicHeatEnabled`，默认关闭；关闭时 CRT 不挂载 hot/warm/cool/cold 样式类，所有 Agent 使用统一绿色边框和稳定尺寸。打开终端的正文字号使用 `crtTerminalFontSize`，后端限定为 `10`–`20` 像素，默认 `12` 像素。
 
 **前端主题样式分层（React 前端）：**
 
-- `src/styles/tokens.css`：主题 token，定义颜色、边框、文字光晕和 CRT 强度变量
-- `src/styles/effects.css`：统一 CRT 效果层，负责扫描线、暗角和 `fx-crt-shell/panel/screen` 容器效果
-- `src/styles/main.css`：基础布局和组件样式，不再承载全局 CRT 渲染逻辑
+- `src/styles/tokens.css`：Farming Code 主题 token
+- `src/styles/main.css`：Farming Code 基础布局和组件样式
+- `frontend/skins/crt/styles/effects.css`：仅在 CRT 页面加载的静态扫描线、网罩、暗角和五分钟一次的短暂扫描光带
 
 **远端部署入口：**
 
@@ -559,7 +557,7 @@ farming/
 - 远程部署默认首选端口为 `6694`；CLI 应用在未显式覆盖端口时会从 `6694` 起自动上探可用端口，用户或环境变量显式覆盖时严格使用指定端口
 - 启动日志会打印保留 token 的入口 URL；token 保存在 `~/.farming/.session-token`，重启和升级必须复用，除非显式设置 `FARMING_TOKEN`；新 token 默认 `FARMING_TOKEN_LOCALE=auto`，中文时区生成中文 5-7-5 俳句式口令，日本时区生成日文 5-7-5 俳句式口令，其它时区生成英文 passphrase；也可显式设置 `FARMING_TOKEN_LOCALE=zh|ja|en`
 - 短语 token 保持至少约 85 bit 随机熵，比旧的 256 bit 十六进制 token 更易读，但安全余量相应更低；仍只建议用于可信开发机入口，不应直接公网裸露
-- 应用内升级默认关闭；只有显式设置 `FARMING_UPDATE_MANIFEST_URL` 指向 HTTP(S) JSON manifest 后才允许检查和下载升级包。不要恢复默认 GitHub release polling；`config/farming.deploy.env` 可用 `FARMING_REMOTE_UPDATE_MANIFEST_URL` 等远端变量写入远端实例。
+- 更新行为必须识别安装方式。npm 安装读取 `farming-code` registry 元数据并支持一键更新：旧服务运行期间先安装目标版本，安装成功后才重启，进度持久化到 config 目录，新服务启动失败时尝试回退。源码 checkout 通过 Git 更新，单文件 CLI 手动替换。App bundle 的可信 HTTP(S) 目录或 manifest URL 保存为 `settings.updateUrl`，每个 bundle 必须匹配运行平台并提供 64 位 `sha256`。Farming 不携带、下载、选择或启动私有系统 C 库；所有发布形态都依赖目标系统为 Node.js 和 native dependency 提供兼容 runtime。
 - 默认推荐发布形态是按平台生成的直跑 `farming` CLI 应用：`npm run release:cli` 输出当前 target 的 `releases/<release-version>/farming_<release-version>_<platform>_<arch>`、统一 `manifest.json` 和 `farming_<release-version>_checksums.txt`；`npm run release:cli:all` 默认一次生成 macOS arm64 与 Linux x64；最终用户拿到二进制后可直接改名为 `farming` 并执行 `./farming daemon`
 - CLI 应用默认自配置：首选端口 `6694`、base path `/farming`、配置目录 `~/.farming`；首次启动自动创建 `settings.json`、token 文件和必要运行目录，不要求用户先写 env 文件
 - CLI 应用默认使用 native pty host session engine；目标机需要能加载打包的 `node-pty` runtime。只有排查 native host 边界时才设置 `FARMING_SESSION_ENGINE=local` 使用进程内 node-pty engine。
@@ -568,12 +566,12 @@ farming/
 - CLI 应用同时保留 Main Agent 控制命令：用户终端可用 `farming start/status/stop/logs/url` 管理 server，agent 内仍可用 `farming list/spawn/output/send/kill/memory report`
 - CLI 应用发布产物不包含仓库 `backend/`、`src/`、测试或脚本源码；服务端逻辑进入平台二进制，浏览器侧只包含 Vite 构建后的 `dist/` 静态资源；Farming 自身运行依赖尽量自包含，但目标机仍需要可执行的 shell，Codex / Claude agent 仍依赖目标机已有对应 CLI
 - `scripts/package-cli-release.sh` 通过 `scripts/bundle-cli-runtime.js` 用 esbuild 将后端 runtime bundle/minify 为临时 `backend/farming-app-cli.pkg.js` 和 `backend/terminal-screen-worker-thread.pkg.js`，不生成 sourcemap；bundler 会把 Express 可选 view engine 动态 require 隔离为 runtime require，避免 pkg 误判；pkg 只接收这些临时 bundle 和静态 assets，脚本退出时必须清理临时 bundle
-- `scripts/package-cli-release.sh` 按 target 选择打包器：macOS / 现代 target 使用 `@yao-pkg/pkg`，`node16-linux-*` / `node14-linux-*` 兼容 target 使用 `pkg-legacy`
-- `scripts/package-cli-release.sh` 调 pkg 时使用 `--no-native-build`；`node-pty` native addon 和 `spawn-helper` 通过显式 assets 进入包，运行时由 `packaged-node-pty.js` 提取；老 glibc Linux 如果需要真实 `node-pty`，应使用 app bundle 通过私有 glibc launcher 启动外部 Node
+- `scripts/package-cli-release.sh` 统一使用 `@yao-pkg/pkg` 和 Node 22 target
+- `scripts/package-cli-release.sh` 调 pkg 时使用 `--no-native-build`；`node-pty` native addon 和 `spawn-helper` 通过显式 assets 进入包，运行时由 `packaged-node-pty.js` 提取
 - `scripts/package-cli-release.sh` 在 checksum 前会用 `strings` 扫最终二进制，命中源码路径、测试名或内部文档标记时必须失败；该检查是 release 质量门禁，不是强防逆向
 - `scripts/smoke-cli-release.sh` 是平台 CLI 冷路径验收脚本：使用干净 `HOME` 启动二进制，验证自动配置、token auth、shell agent spawn/send/output/kill/stop；默认不传端口，覆盖端口占用时的自适应行为
-- Linux x64 推荐兼容 target 为 `node16-linux-x64`，覆盖 CentOS 7 / glibc 2.17 这类老开发机；macOS 默认仍使用 `node22-macos-<arch>`
-- terminal 能力默认依赖打包的 `node-pty` native addon；Darwin packaged runtime 会把 `pty.node` / `spawn-helper` 提取到 `~/.farming/runtime/node-pty/<platform-arch>/`；Linux 单文件 pkg binary 无法被私有 glibc loader 直接包裹，CentOS 7 / glibc 2.17 类机器优先走 app bundle tarball。
+- Linux 和 macOS release target 使用 Node 22；目标系统必须能加载对应的 Node.js 和 `node-pty` native runtime。
+- terminal 能力默认依赖打包的 `node-pty` native addon；Darwin packaged runtime 会把 `pty.node` / `spawn-helper` 提取到 `~/.farming/runtime/node-pty/<platform-arch>/`。
 - 本机临时调试可用 `FARMING_DISABLE_AUTH=1` 关闭 HTTP / WebSocket token 校验；关闭后 `/api/auth/status` 返回 `authRequired: false`，启动日志不打印 token，控制 CLI 不要求 `FARMING_TOKEN_FILE`
 - 本机可信环境可用 `npm run start:no-auth` 快捷关闭 token 校验
 - 远程 `scripts/deploy.sh up` / `npm run deploy:remote` 会执行 deploy + start，一步同步、构建、裁剪 dev 依赖并重启
@@ -583,13 +581,11 @@ farming/
 - 远程 `scripts/deploy.sh start` 默认启用 token 校验，并在 launcher 中清理 `FARMING_DISABLE_AUTH`；仅可信网络临时调试时可显式使用 `scripts/deploy.sh start --disable-auth` 或 `npm run deploy:remote:no-auth`
 - 远程 `scripts/deploy.sh deploy` 会先检查 node/npm/git，使用跳过浏览器下载的 `npm ci` 按 lockfile 安装依赖，并在 `vite build` 后执行 `npm prune --omit=dev`，运行目录只保留后端服务需要的生产依赖
 - 远程启动时会按目标机 cgroup / 系统内存自动设置 Farming server 的 Node heap；可用 `FARMING_NODE_MAX_OLD_SPACE_SIZE=<MB>` 覆盖，或设置为 `0` 使用 Node 默认值；该 `NODE_OPTIONS` 默认不会传给子 agent
-- 远程脚本默认为 CentOS 7 兼容环境准备 `glibc 2.28`；现代 Linux 可设置 `FARMING_REMOTE_USE_GLIBC=0`
-- app bundle 方案使用 `npm run release:app` 或兼容别名 `npm run release:tarball` 生成 `releases/<release-version>/farming-<release-version>.tar.gz`，包内包含已经构建好的 `dist/`、production `node_modules/`、根目录 `./farming` 启动脚本和 `vendor/glibc228-lib.tar.gz`；无参数运行会直接 start，只有显式设置 `FARMING_BUNDLE_NODE_MODULES=0` 或包内缺依赖时才会先 install
-- 工作区存在未提交或未跟踪文件时，release 包名保持稳定，CLI `manifest.json` 或兼容 tarball `RELEASE.json` 会记录 `"dirty": true`
-- CentOS 7 / glibc 2.17 类机器默认使用 app bundle 内置的 `vendor/glibc228-lib.tar.gz`；打包时若不能访问默认 glibc 来源或需要内部镜像，可用 `FARMING_GLIBC_BUNDLE=/path/to/glibc228-lib.tar.gz` 替换来源，但 `release:app` 始终会把 glibc runtime 放进包内
-- `npm run release:remote` 会按 `FARMING_REMOTE_BASE_PATH` 打包、上传 tarball 到远程 Linux、执行 `scripts/install-release.sh install`，并以 token auth 启动真实服务；默认优先复用 `FARMING_REMOTE_DIR` 旁边的 `glibc228`，也可在 `config/farming.deploy.env` 用 `FARMING_REMOTE_GLIBC_ROOT` 指向远端已有 glibc runtime，避免旧 Linux 上安装脚本再联网拉取
+- app bundle 方案使用 `npm run release:app` 或兼容别名 `npm run release:tarball` 生成 `releases/<release-version>/farming-<release-version>-<platform>-<arch>.tar.gz`，包内包含已经构建好的 `dist/`、production `node_modules/` 和根目录 `./farming` 启动脚本；无参数运行会直接 start，只有显式设置 `FARMING_BUNDLE_NODE_MODULES=0` 或包内缺依赖时才会先 install
+- `release:app` 只能从干净 worktree 打包，并通过 Git 跟踪文件白名单构建；它必须拒绝未提交或未跟踪内容，避免把本地 token、私有配置或测试数据带入发行包。
+- `npm run release:remote` 会按 `FARMING_REMOTE_BASE_PATH` 打包、上传 tarball 到远程 Linux、执行 `scripts/install-release.sh install`，并以 token auth 启动真实服务
 - release 远程安装可在 `config/farming.deploy.env` 用 `FARMING_REMOTE_CONFIG_DIR`、`FARMING_REMOTE_SERVER_HOME` 隔离配置目录和 Codex / Claude 历史扫描，适合产品截图、测试实例和多实例部署
-- app bundle 本地安装脚本 `scripts/install-release.sh` 支持 `install/start/daemon/serve/stop/status/logs`，默认读取 `config/farming.install.env`（可从 `config/farming.install.env.example` 复制），通过 `FARMING_INSTALL_DIR`、`FARMING_PORT`、`FARMING_BASE_PATH`、`FARMING_CONFIG_DIR`、`FARMING_SERVER_HOME`、`FARMING_UPDATE_MANIFEST_URL`、`FARMING_UPDATE_ASSET_BASE_URL`、`FARMING_UPDATE_AUTH_TOKEN`、`FARMING_USE_GLIBC`、`FARMING_GLIBC_ROOT`、`FARMING_NODE_MAX_OLD_SPACE_SIZE` 控制目标目录、端口、base path、配置目录、server HOME、应用内升级源、glibc 兼容模式和 server heap 策略；未显式设置 `FARMING_GLIBC_ROOT` 时会优先复用安装目录同级的 `glibc228/`
+- app bundle 本地安装脚本 `scripts/install-release.sh` 支持 `install/start/daemon/serve/stop/status/logs`，默认读取 `config/farming.install.env`（可从 `config/farming.install.env.example` 复制），通过 `FARMING_INSTALL_DIR`、`FARMING_PORT`、`FARMING_BASE_PATH`、`FARMING_CONFIG_DIR`、`FARMING_SERVER_HOME`、`FARMING_NODE_MAX_OLD_SPACE_SIZE` 控制目标目录、端口、base path、配置目录、server HOME 和 server heap 策略；应用内升级源在 Web Settings 中配置并写入 `settings.json`
 
 **公开版本发布前门禁：**
 
@@ -597,6 +593,7 @@ farming/
 - 先跑快速源码检查：`npm test`、`npm run typecheck`、`npm run lint` 和 `FARMING_BASE_PATH=/farming npm run build`。
 - 对本次改动涉及的 UI 面跑聚焦 Playwright；迭代中优先小而快的浏览器检查，只有变更面足够大时再扩大验证。
 - 为发布新增或更新 `release-notes/vX.Y.Z.md`。package 版本号、Git tag 和 release note 文件名必须严格一致；GitHub Release 正文应来自这个文件，而不是 workflow 里的泛化内联文案。
+- Release workflow 还会发布 `farming-code@X.Y.Z` 到 npm。首个公开包尚不能配置 Trusted Publishing，先用只用于自动化发布的仓库 secret `NPM_TOKEN` 引导一次；首包存在后，在 npm 配置本仓库与 `.github/workflows/release.yml` 的 Trusted Publisher，删除 token secret，后续由 GitHub OIDC 带 provenance 发布。不得复用 npm 版本或已有 Git tag。
 - push GitHub 前必须扫描完整待推送 diff，检查 secret、私网 host、token、个人机器路径、公司内部环境名、内部供应商/工具名。公开 release note 和文档不得出现私有部署机器或本地安全工具名称；这些信息只能留在已忽略的本地文件或私有交接说明中。
 - 在本机 Mac 浏览器做类人 smoke：创建和切换 Codex / Claude / shell agent，通过 terminal 和 composer 输入，验证中文输入法、终端选择/复制、文件/路径链接点击、pin/unpin、archive、刷新/重连，以及明显 CPU/内存表现。
 - 对 macOS release 产物，明确记录二进制是 ad-hoc 签名、Developer ID 签名还是已 notarize。未 notarize 时，必须验证并写清首次运行的安全允许行为，不能把手动允许后的 smoke 当成干净的首次运行体验。
@@ -616,9 +613,11 @@ farming/
 - **workspaceHistory**：New Agent 最近使用的工作空间历史，最多保留 5 条，供启动对话框下拉和方向键选择；不存在的目录不得进入历史记录，手动填错路径必须通过错误提示反馈给用户；不得包含 Farming 内部目录（如 `~/.farming`）
 - **theme**：UI 主题名称（默认：terminal）
 - **heartbeatInterval**：心跳检测和系统监控间隔（单位：毫秒，默认：1000）
-- **dangerouslySkipAgentPermissionsByDefault**：是否默认使用各 coding agent 最激进的内置权限绕过模式
+- **dangerouslySkipAgentPermissionsByDefault**：是否默认让支持的 coding agent（如 Codex、Claude、OpenCode、Qoder、Qwen、Aider、GitHub Copilot CLI、Amazon Q）使用各自最激进的权限绕过启动 flag
+- **codexRuntimeMode**：新启动 Codex Agent 的全局运行时模式；默认稳定的 `cli`，也可以在设置中显式选择实验性的 `app-server`，不影响已经运行的 Agent。App Server 模式会为每个 Agent 创建短路径、专属的 runtime `CODEX_HOME`，链接所选 Agent Home 的身份/配置，同时隔离 Codex Desktop、其他 Agent 的 socket、session 与日志。
 - **defaultLaunchAgent**：New Agent 对话框默认聚焦的 agent provider（当前 `codex` / `claude`）；composer 不提供 Codex / Claude provider 热切换
 - **agentLaunchProfiles**：按 provider 保存启动能力；Codex profile 会转换成 `codex --model`、reasoning/service tier 和 approval/sandbox 参数，Claude profile 会转换成 `claude --permission-mode`、`--model`、`--effort`
+- **agentHomes**：管理 Codex、Claude、OpenCode、Qoder 的 agent home 元数据；每项只包含稳定 `id` 和配置目录 `path`，每个 provider 都保留不可删除的 `default` home，例如 `codex/default -> ~/.codex`、`codex/zwz -> ~/.codex.zwz`
 - **agentLaunchProfiles.codex.approvalMode**：Codex 权限模式（`ask` / `approve` / `full` / `custom`）
 - **agentLaunchProfiles.codex.model / reasoningEffort / serviceTier**：Codex 模型、智能和速度；UI 从本机 `codex debug models` 动态生成模型目录
 - **agentLaunchProfiles.claude.permissionMode / model / effort**：Claude 权限、模型和 effort；`config` 表示沿用 Claude 自己的配置
@@ -630,14 +629,12 @@ farming/
 - Agent session 元数据存储在 `~/.farming/sessions/`，不属于 `settings.json`。
 - Farming 自己的持久 Agent 记录使用稳定 `fsess_*` 文件名；live `agent-...` id 只表示当前 native pty runtime，Codex / Claude provider session id 作为外部关联字段保存。
 - `sessions/index.json` 维护主页面真实 provider-session membership；`mainPageSessionKeys` 只是 API 兼容投影。Codex `tmp_uuid...` live id 不得进入这里；不在列表里的 Codex / Claude provider session 只出现在 History；Move to History / Move Project to History 会从这里移除对应 key，从 History 恢复会写回 key。
-- 归档 run/history 存储在 `~/.farming/history/runs.json`，不属于 `settings.json`。
+- 归档 run/history 存储在 `~/.farming/history/runs.json`，不属于 `settings.json`；其中可选的 `customTitle` 用于在恢复时保留用户明确重命名过的 Agent 名称，旧记录没有该字段也继续兼容。
 - config 目录下后端自有文件路径统一由 `backend/storage-layout.js` 定义；新增 `settings.json`、`theme-settings.json`、`.session-token`、`sessions/`、`history/`、server pid/state/log、native pty host log 这类路径时，不要在功能模块里手写 `path.join(configDir, ...)`。Codex `~/.codex/sessions`、Claude history 等外部 provider 历史是只读集成，不属于 Farming 自有元数据。
 
-**主题特定设置（theme-settings.json）：**
+**CRT 皮肤设置（settings.json）：**
 
-每个主题的设置独立存储，以主题 ID 为 key。设置值会覆盖主题默认值。
-
-- **terminal.crtEffects**：CRT 效果开关（扫描线、屏幕曲率、文字发光）
+- **crtSkinEffectsEnabled**：只控制 `/crt/` 的扫描线、网罩、暗角和五分钟一次的扫描光带；不得影响 `/code/`
 
 ### 配置代码位置
 
@@ -647,12 +644,10 @@ farming/
   - `backend/agent-manager.js` 的 `startAgent` 方法（workspace）
   - `backend/agent-manager.js` 的 `startHeartbeat` 方法（heartbeatInterval）
 
-**主题设置：**
-- 主题管理器：`backend/theme-manager.js`
-- API 端点：
-  - `GET /api/themes/:themeId/settings` - 获取主题设置
-  - `POST /api/themes/:themeId/settings` - 更新主题设置
-- 前端使用：React 启动时会读取主题设置并应用外观；Code 初版固定白色系，`appearance` 会归一为 `light`，Code-style 工作台不展示深色/系统外观切换入口
+**CRT 皮肤设置：**
+- 配置管理器：`backend/config-manager.js`
+- API 端点：`GET/POST /api/settings`
+- 前端使用：`frontend/skins/crt/app.js`；React Code 入口不读取该字段
 
 ### 配置修改方式
 
@@ -666,13 +661,11 @@ farming/
 }
 ```
 
-编辑 `~/.farming/theme-settings.json`，修改主题特定设置：
+编辑 `~/.farming/settings.json`，修改 CRT 皮肤设置：
 
 ```json
 {
-  "terminal": {
-    "crtEffects": false
-  }
+  "crtSkinEffectsEnabled": false
 }
 ```
 
@@ -711,7 +704,7 @@ farming/
 - **react-arborist** - Project Files section 的虚拟化 Explorer tree 行为层
 - **material-icon-theme** - Project Files section 的文件类型 icon manifest 与精选 SVG 资产
 - **Monaco Editor** - Project Files section 的代码编辑器
-- **xterm.js** - 默认浏览器 terminal renderer
+- **xterm.js** - Farming Code 与 CRT 两个浏览器皮肤的默认 terminal renderer
 - **ghostty-web** - 保留为显式调试 renderer，可通过 `localStorage.farmingTerminalEngine = 'ghostty'` 切换
 - **Ghostty vendor 资源** - 调试 renderer 的 JS/WASM 固定到 `frontend/vendor/ghostty-web/`，运行时不再依赖 `node_modules` 暴露静态文件
 - **reference 目录仅用于参考** - 不作为生产运行时依赖，也不作为部署前提
@@ -871,7 +864,7 @@ farming/
 3. 控制命令读取 `FARMING_CONTROL_URL` 和 `FARMING_TOKEN_FILE`；服务以 `FARMING_DISABLE_AUTH=1` 启动时跳过 token 读取
 4. `AgentManager` 启动每个 agent 时把 CLI 所在目录注入 `PATH`；源码态是仓库 `bin/`，packaged runtime 是 `farming` 二进制所在目录
 5. `AgentManager` 同时注入 `FARMING_AGENT_ID`、`FARMING_IS_MAIN_AGENT`、`FARMING_PARENT_AGENT_ID`
-6. 子 agent 环境会剥离服务进程自己的 `LD_LIBRARY_PATH/GLIBC_DIR` 和 `NODE_OPTIONS`，避免部署 shim 或 server heap 设置污染 agent 运行时
+6. 子 agent 环境会剥离服务进程自己的 `LD_LIBRARY_PATH` 和 `NODE_OPTIONS`，避免部署 shim 或 server heap 设置污染 agent 运行时
 7. Main Agent 启动目录固定为 Farming 身份工作区：用户选择的目录若不是 `.farming` 结尾，则实际进入 `<选择目录>/.farming`；Code-style 前端在 Projects 分组和 Project 下新增 Agent 时会把 Main Agent 的 `.farming` 身份目录折叠回真实项目目录
 8. Farming 在身份工作区维护 canonical `AGENTS.md`、`FARMING_MAIN_AGENT_SKILLS.md`，并把完整 Main Agent 身份与技能内联写入常见 coding CLI 兼容入口；Claude 启动时还会通过 `--append-system-prompt` 注入同一份 bootstrap，避免只依赖 memory 文件自动发现；Main Agent 也可运行 `farming skills` 查看技能
 9. Main Agent 可用 `farming memory report` 只读总结本机近期 agent 记忆
@@ -909,7 +902,7 @@ farming memory report --period week
 
 **代码位置**：
 - 后端：`backend/agent-manager.js` 的 `startHeartbeat` 方法
-- 前端：`frontend/app.js` 的 `checkMainAgentStatus` 方法
+- 前端：`frontend/skins/crt/app.js` 的 `checkMainAgentStatus` 方法
 
 ### Agent 状态同步
 
@@ -950,7 +943,7 @@ farming memory report --period week
 
 **代码位置**：
 - 后端：`backend/agent-manager.js` 的 `getState` 和 `calculateActivityLevel` 方法
-- 前端：`frontend/app.js` 的状态渲染逻辑
+- 前端：`frontend/skins/crt/app.js` 的状态渲染逻辑
 
 ---
 
@@ -1003,6 +996,7 @@ FARMING_INCLUDE_SERVER_TESTS=1 npm test
 ```
 
 E2E 覆盖要求：
+- `npm test` 默认使用 4 个相互隔离的 worker；串行排查时设置 `FARMING_TEST_CONCURRENCY=1`，CI 可在 1–16 范围内按容量调整。
 - `npm test` 默认运行不依赖外部 server 的后端测试；固定 `localhost:3000` 的旧 server-backed 测试默认跳过，由 E2E 脚本覆盖真实浏览器流程。
 - `test:e2e` 默认运行 Playwright 展示效果 E2E：构建前端、启动临时本地服务、使用临时 `FARMING_CONFIG_DIR`、关闭本地测试认证，并通过真实 React 页面、WebSocket、native pty session 和 xterm.js terminal 验证桌面/移动端操作流程。
 - `test:e2e:playwright:update` 只在 UI 展示确实变更后运行，用于更新 `tests/e2e/*-snapshots/` 中的截图基线。

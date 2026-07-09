@@ -14,6 +14,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent,
   type ReactNode,
+  type WheelEvent as ReactWheelEvent,
 } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
@@ -421,7 +422,7 @@ function mermaidThemeVariables(appearance: MermaidAppearance) {
   }
 }
 
-function MermaidControlIcon({ kind }: { kind: 'zoomIn' | 'zoomOut' | 'reset' | 'copy' }) {
+function MermaidControlIcon({ kind }: { kind: 'zoomIn' | 'zoomOut' | 'reset' | 'copy' | 'pan' | 'fullscreen' | 'fullscreenExit' }) {
   if (kind === 'copy') {
     return (
       <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -434,6 +435,26 @@ function MermaidControlIcon({ kind }: { kind: 'zoomIn' | 'zoomOut' | 'reset' | '
     return (
       <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
         <path d="M7.5 2C5.015 2 3 4.015 3 6.5H4.5L2.5 9L0.5 6.5H2C2 3.462 4.462 1 7.5 1C10.538 1 13 3.462 13 6.5C13 9.538 10.538 12 7.5 12C6.017 12 4.671 11.413 3.682 10.459L4.379 9.741C5.189 10.523 6.289 11 7.5 11C9.985 11 12 8.985 12 6.5C12 4.015 9.985 2 7.5 2Z" />
+      </svg>
+    )
+  }
+
+  if (kind === 'pan') {
+    return (
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M7.5 1 5 3.5h1.75V6H4V4.25L1.5 6.75 4 9.25V7.5h2.75v2.75H5L7.5 12.75 10 10.25H8.25V7.5H11v1.75l2.5-2.5L11 4.25V6H8.25V3.5H10L7.5 1Z" />
+      </svg>
+    )
+  }
+
+  if (kind === 'fullscreen' || kind === 'fullscreenExit') {
+    return (
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        {kind === 'fullscreen' ? (
+          <path d="M2 1h4v1H3v3H2V1Zm8 0h4v4h-1V2h-3V1ZM2 11h1v3h3v1H2v-4Zm11 0h1v4h-4v-1h3v-3Z" />
+        ) : (
+          <path d="M2 1h4v1H3v3H2V1Zm8 0h4v4h-1V2h-3V1ZM5 5h6v6H5V5Zm1 1v4h4V6H6Z" />
+        )}
       </svg>
     )
   }
@@ -453,6 +474,15 @@ async function copyTextToClipboard(text: string) {
   }
   const textarea = document.createElement('textarea')
   textarea.value = text
+  textarea.setAttribute('readonly', 'true')
+  textarea.setAttribute('autocomplete', 'off')
+  textarea.setAttribute('autocorrect', 'off')
+  textarea.setAttribute('autocapitalize', 'none')
+  textarea.setAttribute('spellcheck', 'false')
+  textarea.setAttribute('data-lpignore', 'true')
+  textarea.setAttribute('data-1p-ignore', 'true')
+  textarea.setAttribute('data-bwignore', 'true')
+  textarea.setAttribute('data-form-type', 'other')
   textarea.style.position = 'fixed'
   textarea.style.left = '-9999px'
   document.body.appendChild(textarea)
@@ -461,15 +491,20 @@ async function copyTextToClipboard(text: string) {
   textarea.remove()
 }
 
-function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy }) {
+export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy }) {
   const reactId = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const appearance = useMermaidAppearance()
   const renderId = useMemo(() => `farming-mermaid-${reactId}-${hashMermaidSource(source)}-${appearance}`, [appearance, reactId, source])
   const canvasRef = useRef<HTMLDivElement | null>(null)
+  const viewportRef = useRef<HTMLDivElement | null>(null)
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; baseX: number; baseY: number } | null>(null)
+  const didPanRef = useRef(false)
   const [renderState, setRenderState] = useState<MermaidRenderState>({ status: source.trim() ? 'loading' : 'empty' })
   const [zoom, setZoom] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const [panMode, setPanMode] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [fullscreenCanvasSize, setFullscreenCanvasSize] = useState<{ width: number; height: number } | null>(null)
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
@@ -513,8 +548,24 @@ function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy }) {
   useEffect(() => {
     setZoom(1)
     setOffset({ x: 0, y: 0 })
+    setPanMode(false)
+    setIsFullscreen(false)
     setCopied(false)
   }, [appearance, source])
+
+  useEffect(() => {
+    if (!isFullscreen) return
+    const previousOverflow = document.body.style.overflow
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsFullscreen(false)
+    }
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isFullscreen])
 
   useEffect(() => {
     if (renderState.status !== 'ready' || !renderState.bindFunctions || !canvasRef.current) return
@@ -522,16 +573,70 @@ function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy }) {
   }, [renderState])
 
   const setNextZoom = useCallback((nextZoom: number) => {
-    setZoom(Math.min(3, Math.max(0.5, Number(nextZoom.toFixed(2)))))
+    setZoom(Math.min(6, Math.max(0.5, Number(nextZoom.toFixed(2)))))
+  }, [])
+
+  const fitFullscreenDiagram = useCallback(() => {
+    const viewport = viewportRef.current
+    const svg = canvasRef.current?.querySelector('svg')
+    const viewBox = svg?.viewBox.baseVal
+    if (!viewport || !viewBox || viewBox.width <= 0 || viewBox.height <= 0) return
+
+    const availableWidth = Math.max(1, viewport.clientWidth - 72)
+    const availableHeight = Math.max(1, viewport.clientHeight - 108)
+    const scale = Math.min(availableWidth / viewBox.width, availableHeight / viewBox.height)
+    setFullscreenCanvasSize({
+      width: Math.max(1, Math.floor(viewBox.width * scale)),
+      height: Math.max(1, Math.floor(viewBox.height * scale)),
+    })
+    setZoom(1)
+    setOffset({ x: 0, y: 0 })
+    setPanMode(false)
   }, [])
 
   const resetView = useCallback(() => {
+    if (isFullscreen) {
+      fitFullscreenDiagram()
+      return
+    }
     setZoom(1)
     setOffset({ x: 0, y: 0 })
-  }, [])
+    setPanMode(false)
+  }, [fitFullscreenDiagram, isFullscreen])
+
+  const toggleFullscreen = useCallback(() => {
+    if (isFullscreen) {
+      setIsFullscreen(false)
+      return
+    }
+    setFullscreenCanvasSize(null)
+    setZoom(1)
+    setOffset({ x: 0, y: 0 })
+    setPanMode(false)
+    setIsFullscreen(true)
+  }, [isFullscreen])
+
+  useEffect(() => {
+    if (!isFullscreen || renderState.status !== 'ready') {
+      if (!isFullscreen) setFullscreenCanvasSize(null)
+      return undefined
+    }
+
+    let frameId = window.requestAnimationFrame(fitFullscreenDiagram)
+    const scheduleFit = () => {
+      window.cancelAnimationFrame(frameId)
+      frameId = window.requestAnimationFrame(fitFullscreenDiagram)
+    }
+    window.addEventListener('resize', scheduleFit)
+    return () => {
+      window.cancelAnimationFrame(frameId)
+      window.removeEventListener('resize', scheduleFit)
+    }
+  }, [fitFullscreenDiagram, isFullscreen, renderState.status])
 
   const handlePointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
-    if (zoom <= 1 || renderState.status !== 'ready') return
+    if (zoom <= 1 || renderState.status !== 'ready' || (!panMode && !event.altKey)) return
+    didPanRef.current = false
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -540,11 +645,12 @@ function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy }) {
       baseY: offset.y,
     }
     event.currentTarget.setPointerCapture(event.pointerId)
-  }, [offset.x, offset.y, renderState.status, zoom])
+  }, [offset.x, offset.y, panMode, renderState.status, zoom])
 
   const handlePointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current
     if (!drag || drag.pointerId !== event.pointerId) return
+    didPanRef.current = true
     setOffset({
       x: drag.baseX + event.clientX - drag.startX,
       y: drag.baseY + event.clientY - drag.startY,
@@ -556,6 +662,21 @@ function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy }) {
       dragRef.current = null
     }
   }, [])
+
+  const handleWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+    if (renderState.status !== 'ready' || (!event.altKey && !event.ctrlKey)) return
+    event.preventDefault()
+    setNextZoom(zoom * (event.deltaY < 0 ? 1.2 : 1 / 1.2))
+  }, [renderState.status, setNextZoom, zoom])
+
+  const handleDiagramClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (didPanRef.current) {
+      didPanRef.current = false
+      return
+    }
+    if (renderState.status !== 'ready' || !event.altKey || dragRef.current) return
+    setNextZoom(zoom * (event.shiftKey ? 1 / 1.2 : 1.2))
+  }, [renderState.status, setNextZoom, zoom])
 
   const handleCopySource = useCallback(() => {
     copyTextToClipboard(source)
@@ -591,11 +712,25 @@ function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy }) {
   const readyState = renderState.status === 'ready' ? renderState : null
 
   return (
-    <figure className={`code-markdown-mermaid ${renderState.status === 'loading' ? 'loading' : ''}`} aria-label={copy.mermaidDiagram}>
+    <figure
+      className={`code-markdown-mermaid ${renderState.status === 'loading' ? 'loading' : ''} ${isFullscreen ? 'fullscreen' : ''}`}
+      aria-label={copy.mermaidDiagram}
+      role={isFullscreen ? 'dialog' : undefined}
+      aria-modal={isFullscreen || undefined}
+    >
       <div className="code-markdown-mermaid-toolbar" aria-label={copy.mermaidDiagramControls}>
         <button
           type="button"
-          onClick={() => setNextZoom(zoom - 0.15)}
+          onClick={toggleFullscreen}
+          disabled={renderState.status !== 'ready'}
+          aria-label={isFullscreen ? copy.mermaidExitFullscreen : copy.mermaidEnterFullscreen}
+          title={isFullscreen ? copy.mermaidExitFullscreen : copy.mermaidEnterFullscreen}
+        >
+          <MermaidControlIcon kind={isFullscreen ? 'fullscreenExit' : 'fullscreen'} />
+        </button>
+        <button
+          type="button"
+          onClick={() => setNextZoom(zoom / 1.2)}
           disabled={renderState.status !== 'ready' || zoom <= 0.5}
           aria-label={copy.mermaidZoomOut}
           title={copy.mermaidZoomOut}
@@ -604,12 +739,22 @@ function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy }) {
         </button>
         <button
           type="button"
-          onClick={() => setNextZoom(zoom + 0.15)}
-          disabled={renderState.status !== 'ready' || zoom >= 3}
+          onClick={() => setNextZoom(zoom * 1.2)}
+          disabled={renderState.status !== 'ready' || zoom >= 6}
           aria-label={copy.mermaidZoomIn}
           title={copy.mermaidZoomIn}
         >
           <MermaidControlIcon kind="zoomIn" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setPanMode(value => !value)}
+          disabled={renderState.status !== 'ready' || zoom <= 1}
+          aria-pressed={panMode}
+          aria-label={copy.mermaidPanMode}
+          title={copy.mermaidPanMode}
+        >
+          <MermaidControlIcon kind="pan" />
         </button>
         <button
           type="button"
@@ -633,16 +778,23 @@ function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy }) {
         <div className="code-markdown-mermaid-loading">{copy.mermaidRendering}</div>
       ) : (
         <div
+          ref={viewportRef}
           className={`code-markdown-mermaid-viewport ${zoom > 1 ? 'pannable' : ''}`}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerEnd}
           onPointerCancel={handlePointerEnd}
+          onWheel={handleWheel}
+          onClick={handleDiagramClick}
         >
           <div
             ref={canvasRef}
             className="code-markdown-mermaid-canvas"
             style={{
+              ...(isFullscreen && fullscreenCanvasSize ? {
+                width: `${fullscreenCanvasSize.width}px`,
+                height: `${fullscreenCanvasSize.height}px`,
+              } : {}),
               transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
             }}
             dangerouslySetInnerHTML={{ __html: readyState.svg }}

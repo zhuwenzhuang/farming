@@ -66,12 +66,66 @@ const SEARCH_IGNORED_NAMES = new Set([
   '.ruff_cache',
   '__pycache__',
 ]);
+const EXPANDED_SEARCH_IGNORED_NAMES = new Set([
+  '.git',
+  '.DS_Store',
+  'server.log',
+  'local-farming.log',
+  'node_modules',
+  'dist',
+  'build',
+  'coverage',
+  '.next',
+  '.vite',
+  '.turbo',
+  '.cache',
+  '.pytest_cache',
+  '.mypy_cache',
+  '.ruff_cache',
+  '__pycache__',
+  'test-results',
+  'playwright-report',
+]);
 const HIDDEN_NAMES = new Set([
-  ...SEARCH_IGNORED_NAMES,
+  ...IGNORED_NAMES,
+  '.dolt',
+  '.doltcfg',
+  '.idea',
+  '.vscode',
+  '.tmp',
+  '.DS_Store',
+  'dist-release',
+  'reference',
+  'test-results',
+  'playwright-report',
+  'server.log',
+  'local-farming.log',
+  '.turbo',
+  '.cache',
+  '.pytest_cache',
+  '.mypy_cache',
+  '.ruff_cache',
+  '__pycache__',
 ]);
 const TREE_HIDDEN_NAMES = new Set([
-  ...[...HIDDEN_NAMES].filter(name => name !== 'reference'),
+  '.git',
+  '.DS_Store',
+  'server.log',
+  'local-farming.log',
 ]);
+
+function gitDiffWhitespaceArgs(value) {
+  if (value === 'ALL' || value === 'IGNORE_ALL') return ['--ignore-all-space'];
+  if (value === 'TRAILING' || value === 'IGNORE_TRAILING') return ['--ignore-space-at-eol'];
+  if (value === 'LEADING_AND_TRAILING' || value === 'IGNORE_LEADING_AND_TRAILING') return ['--ignore-space-change'];
+  return [];
+}
+
+function gitDiffContextArgs(value) {
+  const context = Number(value);
+  if (!Number.isInteger(context) || context < 0) return [];
+  return [`--unified=${Math.min(context, 10000)}`];
+}
 
 function resolveBundledRipgrepPath() {
   const script = path.join(__dirname, '..', 'node_modules', 'ripgrep', 'lib', 'rg.mjs');
@@ -240,6 +294,25 @@ function isInside(root, target) {
   return relative === '' || Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
+function isInsideAnyRoot(roots, target) {
+  return (Array.isArray(roots) ? roots : []).some((root) => {
+    let realRoot = root;
+    try {
+      realRoot = fs.realpathSync(root);
+    } catch {
+      // Missing allowed roots cannot authorize a resolved target.
+    }
+    return isInside(realRoot, target);
+  });
+}
+
+function joinRelativePath(parentPath, name) {
+  return [String(parentPath || '').replace(/\/+$/, ''), name]
+    .filter(Boolean)
+    .join('/')
+    .replace(/\\/g, '/');
+}
+
 function normalizeUserPath(userPath = '') {
   const value = String(userPath || '').trim();
   if (!value || value === '.') return '';
@@ -262,6 +335,10 @@ function normalizeSearchResultPath(resultPath) {
   return String(resultPath || '').replace(/^\.\//, '');
 }
 
+function searchIgnoredNames(includeIgnored = false) {
+  return includeIgnored ? EXPANDED_SEARCH_IGNORED_NAMES : SEARCH_IGNORED_NAMES;
+}
+
 function searchExcludeGlobArgs() {
   const args = [];
   SEARCH_IGNORED_NAMES.forEach((name) => {
@@ -271,8 +348,8 @@ function searchExcludeGlobArgs() {
   return args;
 }
 
-function isSearchIgnoredRelativePath(relativePath) {
-  return shouldHidePath(relativePath);
+function isSearchIgnoredRelativePath(relativePath, includeIgnored = false) {
+  return String(relativePath || '').split(/[\\/]/).some(part => searchIgnoredNames(includeIgnored).has(part));
 }
 
 function shouldPruneDirectoryNameSearch(relativePath) {
@@ -282,6 +359,17 @@ function shouldPruneDirectoryNameSearch(relativePath) {
 function gitStatusExcludePathspecArgs() {
   const args = ['--', '.'];
   HIDDEN_NAMES.forEach((name) => {
+    args.push(`:(exclude)${name}`);
+    args.push(`:(exclude)${name}/**`);
+    args.push(`:(exclude)**/${name}`);
+    args.push(`:(exclude)**/${name}/**`);
+  });
+  return args;
+}
+
+function gitSearchExcludePathspecArgs(includeIgnored = false, searchPath = '.') {
+  const args = ['--', searchPath];
+  searchIgnoredNames(includeIgnored).forEach((name) => {
     args.push(`:(exclude)${name}`);
     args.push(`:(exclude)${name}/**`);
     args.push(`:(exclude)**/${name}`);
@@ -566,13 +654,13 @@ function ancestorDirectoryPaths(filePath) {
   return ancestors;
 }
 
-function pathSearchMatchesForFile(filePath, query) {
+function pathSearchMatchesForFile(filePath, query, includeIgnored = false) {
   const allowPathMatch = isLikelyPathQuery(query);
   const matches = [];
   const fileMatch = pathSearchMatchForPath(filePath, query, 'file', allowPathMatch);
   if (fileMatch) matches.push(fileMatch);
   ancestorDirectoryPaths(filePath).forEach((directoryPath) => {
-    if (isSearchIgnoredRelativePath(directoryPath)) return;
+    if (isSearchIgnoredRelativePath(directoryPath, includeIgnored)) return;
     const directoryMatch = pathSearchMatchForPath(directoryPath, query, 'directory', allowPathMatch);
     if (directoryMatch) matches.push(directoryMatch);
   });
@@ -721,6 +809,63 @@ function parseUnifiedDiffHunks(patch) {
 
   finishHunk();
   return hunks;
+}
+
+function parseUnifiedDiffRows(patch) {
+  return parseUnifiedDiffHunks(patch).map(hunk => {
+    let oldLine = hunk.oldStart;
+    let newLine = hunk.newStart;
+    const rows = [];
+    for (const line of hunk.patchLines.slice(1)) {
+      if (line.startsWith('\\ No newline at end of file')) continue;
+      if (line.startsWith(' ')) {
+        const text = line.slice(1);
+        rows.push({
+          kind: 'context',
+          left: { line: oldLine, text },
+          right: { line: newLine, text },
+        });
+        oldLine++;
+        newLine++;
+        continue;
+      }
+      if (line.startsWith('-')) {
+        rows.push({ kind: 'deleted', left: { line: oldLine, text: line.slice(1) } });
+        oldLine++;
+        continue;
+      }
+      if (line.startsWith('+')) {
+        rows.push({ kind: 'added', right: { line: newLine, text: line.slice(1) } });
+        newLine++;
+      }
+    }
+    const pairedRows = [];
+    for (let index = 0; index < rows.length;) {
+      if (rows[index].kind !== 'deleted') {
+        pairedRows.push(rows[index]);
+        index += 1;
+        continue;
+      }
+      const deleted = [];
+      while (index < rows.length && rows[index].kind === 'deleted') deleted.push(rows[index++]);
+      const added = [];
+      while (index < rows.length && rows[index].kind === 'added') added.push(rows[index++]);
+      const paired = Math.min(deleted.length, added.length);
+      for (let pairIndex = 0; pairIndex < paired; pairIndex += 1) {
+        pairedRows.push({ kind: 'changed', left: deleted[pairIndex].left, right: added[pairIndex].right });
+      }
+      pairedRows.push(...deleted.slice(paired));
+      pairedRows.push(...added.slice(paired));
+    }
+    return {
+      header: hunk.header,
+      oldStart: hunk.oldStart,
+      oldLines: hunk.oldLines,
+      newStart: hunk.newStart,
+      newLines: hunk.newLines,
+      rows: pairedRows,
+    };
+  });
 }
 
 function lineInUnifiedDiffHunk(hunk, side, lineNumber) {
@@ -895,6 +1040,50 @@ class WorkspaceFileService {
         searchPath,
       ], { cwd: root, timeout, maxBuffer: SEARCH_FILE_LIST_MAX_BUFFER });
     }
+  }
+
+  async collectGitIgnoredPathMatchCandidates(root, searchPath, query, limit, timeout) {
+    const candidateLimit = Math.max(PATH_SEARCH_MIN_CANDIDATES, limit * PATH_SEARCH_CANDIDATE_MULTIPLIER);
+    const { stdout } = await this.execFile(this.gitPath, [
+      '-C',
+      root,
+      'ls-files',
+      '--others',
+      '--ignored',
+      '--exclude-standard',
+      ...gitSearchExcludePathspecArgs(true, searchPath),
+    ], { cwd: root, timeout, maxBuffer: SEARCH_FILE_LIST_MAX_BUFFER });
+    const scoredMatches = [];
+    const seenMatchPaths = new Set();
+    let truncated = false;
+
+    for (const line of stdout.split('\n')) {
+      const filePath = normalizeSearchResultPath(line);
+      if (!filePath || isSearchIgnoredRelativePath(filePath, true)) continue;
+      for (const match of pathSearchMatchesForFile(filePath, query, true)) {
+        if (seenMatchPaths.has(match.path)) continue;
+        seenMatchPaths.add(match.path);
+        scoredMatches.push(match);
+        if (scoredMatches.length >= candidateLimit) {
+          truncated = true;
+          break;
+        }
+      }
+      if (truncated) break;
+    }
+
+    scoredMatches.sort(comparePathSearchMatches);
+    return {
+      matches: scoredMatches.slice(0, limit).map(match => ({
+        kind: 'path',
+        entryType: match.entryType,
+        path: match.path,
+        lineNumber: 1,
+        lines: '',
+        ranges: [],
+      })),
+      truncated,
+    };
   }
 
   streamPathMatches(command, root, searchPath, query, limit, timeout, stopAtLimit = false) {
@@ -1135,13 +1324,13 @@ class WorkspaceFileService {
     };
   }
 
-  async directPathMatchCandidate(root, query) {
+  async directPathMatchCandidate(root, query, includeIgnored = false) {
     if (!isLikelyPathQuery(query)) return null;
     const candidatePath = normalizeSearchResultPath(String(query || '').trim().replace(/^\.\/+/, ''));
-    if (!candidatePath || candidatePath.includes('\0') || shouldHidePath(candidatePath)) return null;
+    if (!candidatePath || candidatePath.includes('\0') || isSearchIgnoredRelativePath(candidatePath, includeIgnored)) return null;
     try {
       const { target, relativePath } = await this.resolvePath(root, candidatePath);
-      if (!relativePath || isSearchIgnoredRelativePath(relativePath)) return null;
+      if (!relativePath || isSearchIgnoredRelativePath(relativePath, includeIgnored)) return null;
       const stat = await fsp.stat(target);
       if (!stat.isFile()) return null;
       return {
@@ -1206,30 +1395,62 @@ class WorkspaceFileService {
       throw new WorkspaceFileError('path not found', 404);
     }
 
-    if (!isInside(root, realTarget)) {
-      throw new WorkspaceFileError('symlinks outside the workspace are not allowed', 403);
+    const external = !isInside(root, realTarget);
+    if (external && !isInsideAnyRoot(options.allowedExternalRoots, realTarget)) {
+      throw new WorkspaceFileError('symlink target is outside allowed workspaces', 403);
     }
+
+    const requestedStat = await fsp.lstat(target).catch(() => null);
 
     return {
       root,
       target: realTarget,
       relativePath: requestedRelativePath,
-      actualRelativePath: relativeFromRoot(root, realTarget),
+      actualRelativePath: external ? '' : relativeFromRoot(root, realTarget),
+      external,
+      readOnly: external,
+      symbolicLink: Boolean(requestedStat && requestedStat.isSymbolicLink()),
     };
   }
 
-  async listTree(workspaceRoot, userPath = '') {
-    const { root, target, relativePath } = await this.resolvePath(workspaceRoot, userPath);
+  async resolveEntryPath(workspaceRoot, userPath) {
+    const root = await this.resolveRoot(workspaceRoot);
+    const normalized = normalizeUserPath(userPath);
+    const target = path.resolve(root, normalized);
+    const relativePath = relativeFromRoot(root, target);
+    if (!relativePath) {
+      throw new WorkspaceFileError('workspace root cannot be changed', 400);
+    }
+    if (!isInside(root, target)) {
+      throw new WorkspaceFileError('path must stay inside the workspace', 403);
+    }
+    try {
+      await fsp.lstat(target);
+    } catch {
+      throw new WorkspaceFileError('path not found', 404);
+    }
+    const realParent = await fsp.realpath(path.dirname(target)).catch(() => null);
+    if (!realParent || !isInside(root, realParent)) {
+      throw new WorkspaceFileError('symlink target is read-only', 403);
+    }
+    return { root, target, relativePath };
+  }
+
+  async listTree(workspaceRoot, userPath = '', options = {}) {
+    const { root, target, relativePath, external: parentExternal = false } = await this.resolvePath(workspaceRoot, userPath, options);
     const stat = await fsp.stat(target);
     if (!stat.isDirectory()) {
       throw new WorkspaceFileError('path must be a directory', 400);
     }
 
     const entries = await fsp.readdir(target, { withFileTypes: true });
-    const { value: gitStatusByPath, pending: gitStatusPending } = await this.getGitStatusForTree(root);
+    const visibleEntries = entries.filter(entry => !TREE_HIDDEN_NAMES.has(entry.name));
+    const [{ value: gitStatusByPath, pending: gitStatusPending }, ignoredPaths] = await Promise.all([
+      this.getGitStatusForTree(root),
+      this.loadGitIgnoredPaths(root, visibleEntries.map(entry => joinRelativePath(relativePath, entry.name))),
+    ]);
     const descendantGitStatusByPath = buildDescendantGitStatusByDirectory(gitStatusByPath);
-    const items = await Promise.all(entries
-      .filter(entry => !TREE_HIDDEN_NAMES.has(entry.name))
+    const items = await Promise.all(visibleEntries
       .map(async (entry) => {
         const absolute = path.join(target, entry.name);
         let entryStat;
@@ -1239,17 +1460,35 @@ class WorkspaceFileService {
           if (error && error.code === 'ENOENT') return null;
           throw error;
         }
-        const type = entryStat.isSymbolicLink()
-          ? 'symlink'
-          : entryStat.isDirectory()
-            ? 'directory'
-            : entryStat.isFile()
-              ? 'file'
-              : 'other';
-        const itemPath = relativeFromRoot(root, absolute);
+        const itemPath = joinRelativePath(relativePath, entry.name);
+        let type = entryStat.isDirectory() ? 'directory' : entryStat.isFile() ? 'file' : 'other';
+        let symbolicLink = false;
+        let external = parentExternal;
+        let readOnly = parentExternal;
+        let linkTarget = '';
+        let linkError = '';
+        let targetStat = entryStat;
+        if (entryStat.isSymbolicLink()) {
+          symbolicLink = true;
+          try {
+            linkTarget = await fsp.realpath(absolute);
+            external = !isInside(root, linkTarget);
+            if (external && !isInsideAnyRoot(options.allowedExternalRoots, linkTarget)) {
+              type = 'symlink';
+              linkError = 'outside-allowed-roots';
+            } else {
+              targetStat = await fsp.stat(linkTarget);
+              type = targetStat.isDirectory() ? 'directory' : targetStat.isFile() ? 'file' : 'other';
+              readOnly = external;
+            }
+          } catch (error) {
+            type = 'symlink';
+            linkError = error && error.code === 'ENOENT' ? 'broken' : 'unavailable';
+          }
+        }
         const directGitStatus = gitStatusByPath.get(itemPath);
         let descendantGitStatus = null;
-        if (entryStat.isDirectory()) {
+        if (type === 'directory' && !external) {
           descendantGitStatus = descendantGitStatusByPath.get(itemPath) || null;
         }
 
@@ -1257,8 +1496,14 @@ class WorkspaceFileService {
           name: entry.name,
           path: itemPath,
           type,
-          size: entryStat.size,
-          mtimeMs: entryStat.mtimeMs,
+          size: targetStat.size,
+          mtimeMs: targetStat.mtimeMs,
+          ...(symbolicLink ? { symbolicLink: true } : {}),
+          ...(external ? { external: true } : {}),
+          ...(readOnly ? { readOnly: true } : {}),
+          ...(linkTarget ? { linkTarget } : {}),
+          ...(linkError ? { linkError } : {}),
+          ...(ignoredPaths.has(itemPath) ? { ignored: true } : {}),
           ...(directGitStatus ? {
             gitStatus: directGitStatus.kind,
             gitStatusLabel: directGitStatus.label,
@@ -1303,6 +1548,27 @@ class WorkspaceFileService {
       if (error.code === 'ENOENT') return new Map();
       if (error.stderr && /not a git repository/i.test(error.stderr)) return new Map();
       return new Map();
+    }
+  }
+
+  async loadGitIgnoredPaths(root, relativePaths) {
+    const paths = Array.from(new Set(relativePaths
+      .map(normalizeGitStatusPath)
+      .filter(Boolean)));
+    if (paths.length === 0) return new Set();
+
+    try {
+      const { stdout } = await this.execFile(this.gitPath, [
+        'check-ignore',
+        '--',
+        ...paths,
+      ], { cwd: root });
+      return new Set(stdout
+        .split(/\r?\n/)
+        .map(normalizeGitStatusPath)
+        .filter(Boolean));
+    } catch {
+      return new Set();
     }
   }
 
@@ -1394,6 +1660,19 @@ class WorkspaceFileService {
     return this.loadGitStatusForPath(root, normalizedPath);
   }
 
+  async gitBranch(workspaceRoot) {
+    const root = await this.resolveRoot(workspaceRoot);
+    try {
+      const { stdout } = await this.execFile(this.gitPath, ['-C', root, 'branch', '--show-current'], {
+        timeout: 1500,
+        maxBuffer: 64 * 1024,
+      });
+      return String(stdout || '').trim();
+    } catch {
+      return '';
+    }
+  }
+
   async changes(workspaceRoot, options = {}) {
     const root = await this.resolveRoot(workspaceRoot);
     const limit = Math.max(1, Math.min(2000, Number(options.limit) || DEFAULT_GIT_CHANGES_LIMIT));
@@ -1419,8 +1698,8 @@ class WorkspaceFileService {
     };
   }
 
-  async readFile(workspaceRoot, userPath) {
-    const { target, relativePath } = await this.resolvePath(workspaceRoot, userPath);
+  async readFile(workspaceRoot, userPath, options = {}) {
+    const { target, relativePath, external, readOnly, symbolicLink } = await this.resolvePath(workspaceRoot, userPath, options);
     const stat = await fsp.stat(target);
     if (!stat.isFile()) {
       throw new WorkspaceFileError('path must be a file', 400);
@@ -1439,6 +1718,9 @@ class WorkspaceFileService {
         sha1: sha1(buffer),
         binary: true,
         preview,
+        ...(symbolicLink ? { symbolicLink: true } : {}),
+        ...(external ? { external: true } : {}),
+        ...(readOnly ? { readOnly: true } : {}),
       };
     }
     if (await isProbablyBinaryFile(target)) {
@@ -1453,6 +1735,9 @@ class WorkspaceFileService {
           kind: 'binary',
           mediaType: 'application/octet-stream',
         },
+        ...(symbolicLink ? { symbolicLink: true } : {}),
+        ...(external ? { external: true } : {}),
+        ...(readOnly ? { readOnly: true } : {}),
       };
     }
     if (stat.size > this.maxFileSize) {
@@ -1467,6 +1752,9 @@ class WorkspaceFileService {
           mediaType: 'text/plain',
           truncated: true,
         },
+        ...(symbolicLink ? { symbolicLink: true } : {}),
+        ...(external ? { external: true } : {}),
+        ...(readOnly ? { readOnly: true } : {}),
       };
     }
 
@@ -1477,11 +1765,14 @@ class WorkspaceFileService {
       size: stat.size,
       mtimeMs: stat.mtimeMs,
       sha1: sha1(buffer),
+      ...(symbolicLink ? { symbolicLink: true } : {}),
+      ...(external ? { external: true } : {}),
+      ...(readOnly ? { readOnly: true } : {}),
     };
   }
 
-  async readPreviewFile(workspaceRoot, userPath) {
-    const { target, relativePath } = await this.resolvePath(workspaceRoot, userPath);
+  async readPreviewFile(workspaceRoot, userPath, options = {}) {
+    const { target, relativePath, external, readOnly, symbolicLink } = await this.resolvePath(workspaceRoot, userPath, options);
     const stat = await fsp.stat(target);
     if (!stat.isFile()) {
       throw new WorkspaceFileError('path must be a file', 400);
@@ -1501,11 +1792,14 @@ class WorkspaceFileService {
       mtimeMs: stat.mtimeMs,
       sha1: sha1(buffer),
       preview,
+      ...(symbolicLink ? { symbolicLink: true } : {}),
+      ...(external ? { external: true } : {}),
+      ...(readOnly ? { readOnly: true } : {}),
     };
   }
 
-  async blameCapability(workspaceRoot, userPath) {
-    const { root, target, relativePath, actualRelativePath } = await this.resolvePath(workspaceRoot, userPath);
+  async blameCapability(workspaceRoot, userPath, options = {}) {
+    const { root, target, relativePath, actualRelativePath, external } = await this.resolvePath(workspaceRoot, userPath, options);
     const capability = (available, reason = '') => ({
       isGitRepo: reason !== 'not-git-repo' && reason !== 'git-unavailable',
       path: relativePath,
@@ -1515,6 +1809,9 @@ class WorkspaceFileService {
     const stat = await fsp.stat(target);
     if (!stat.isFile()) {
       throw new WorkspaceFileError('path must be a file', 400);
+    }
+    if (external) {
+      return capability(false, 'external');
     }
     if (stat.size > this.maxFileSize) {
       return capability(false, 'too-large');
@@ -1624,7 +1921,7 @@ class WorkspaceFileService {
       throw new WorkspaceFileError('ignored paths cannot be moved', 403);
     }
 
-    const source = await this.resolvePath(workspaceRoot, normalizedSource);
+    const source = await this.resolveEntryPath(workspaceRoot, normalizedSource);
     const targetDirectoryPath = path.resolve(root, normalizedTargetDirectory);
     let targetDirectoryRealPath;
     try {
@@ -1656,7 +1953,7 @@ class WorkspaceFileService {
       };
     }
 
-    const sourceStat = await fsp.stat(source.target);
+    const sourceStat = await fsp.lstat(source.target);
     if (sourceStat.isDirectory() && isInside(source.target, target)) {
       throw new WorkspaceFileError('directory cannot be moved into itself', 400);
     }
@@ -1763,7 +2060,7 @@ class WorkspaceFileService {
       throw new WorkspaceFileError('ignored paths cannot be changed', 403);
     }
 
-    const source = await this.resolvePath(workspaceRoot, normalizedSource);
+    const source = await this.resolveEntryPath(workspaceRoot, normalizedSource);
     const target = path.join(path.dirname(source.target), entryName);
     const targetPath = relativeFromRoot(root, target);
     if (shouldIgnorePath(targetPath)) {
@@ -1799,7 +2096,7 @@ class WorkspaceFileService {
   }
 
   async deleteEntry(workspaceRoot, userPath) {
-    const { root, target, relativePath } = await this.resolvePath(workspaceRoot, userPath);
+    const { root, target, relativePath } = await this.resolveEntryPath(workspaceRoot, userPath);
     if (!relativePath) {
       throw new WorkspaceFileError('workspace root cannot be deleted', 400);
     }
@@ -1831,19 +2128,38 @@ class WorkspaceFileService {
     const limit = Math.max(1, Math.min(500, Number(options.limit) || this.searchLimit));
     const searchPath = relativePath || '.';
     const timeout = Math.max(1000, Number(options.timeoutMs) || this.searchTimeoutMs);
+    const includeIgnored = options.includeIgnored === true;
     const likelyPathQuery = isLikelyPathQuery(query);
+    const result = (matches, truncated) => ({
+      query,
+      path: searchPath,
+      matches,
+      truncated,
+      timeoutMs: timeout,
+    });
     let pathMatchCandidates = [];
     let searchOutputTruncated = false;
+
+    if (includeIgnored) {
+      try {
+        const directPathMatch = likelyPathQuery ? await this.directPathMatchCandidate(root, query, true) : null;
+        if (directPathMatch) {
+          return result([directPathMatch], false);
+        }
+        const ignoredPathSearch = await this.collectGitIgnoredPathMatchCandidates(root, searchPath, query, limit, timeout);
+        return result(ignoredPathSearch.matches, ignoredPathSearch.truncated);
+      } catch (error) {
+        if (error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM' || error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+          return result([], true);
+        }
+        return result([], false);
+      }
+    }
 
     try {
       const directPathMatch = likelyPathQuery ? await this.directPathMatchCandidate(root, query) : null;
       if (directPathMatch) {
-        return {
-          query,
-          path: searchPath,
-          matches: [directPathMatch],
-          truncated: false,
-        };
+        return result([directPathMatch], false);
       }
       const pathSearch = await this.collectPathMatchCandidates(root, searchPath, query, limit, timeout, likelyPathQuery);
       const directoryNameSearch = await this.collectDirectoryNameMatchCandidates(root, searchPath, query, limit, timeout);
@@ -1863,12 +2179,7 @@ class WorkspaceFileService {
     }
 
     if (pathMatchCandidates.length >= limit || pathMatchCandidates.length > 0 && likelyPathQuery) {
-      return {
-        query,
-        path: searchPath,
-        matches: pathMatchCandidates,
-        truncated: searchOutputTruncated || pathMatchCandidates.length >= limit,
-      };
+      return result(pathMatchCandidates, searchOutputTruncated || pathMatchCandidates.length >= limit);
     }
 
     const args = [
@@ -1879,6 +2190,7 @@ class WorkspaceFileService {
       '--column',
       '--max-count',
       String(Math.min(3, limit)),
+      '--hidden',
       ...searchExcludeGlobArgs(),
       '--',
       query,
@@ -1944,15 +2256,10 @@ class WorkspaceFileService {
       combinedMatches.push(match);
     });
 
-    return {
-      query,
-      path: searchPath,
-      matches: combinedMatches.slice(0, limit),
-      truncated: searchOutputTruncated || combinedMatches.length > limit,
-    };
+    return result(combinedMatches.slice(0, limit), searchOutputTruncated || combinedMatches.length > limit);
   }
 
-  async diff(workspaceRoot, userPath = '') {
+  async diff(workspaceRoot, userPath = '', options = {}) {
     const root = await this.resolveRoot(workspaceRoot);
     const normalized = normalizeUserPath(userPath);
     let target = null;
@@ -1973,7 +2280,7 @@ class WorkspaceFileService {
         }
       }
     }
-    const args = ['-C', root, 'diff', 'HEAD', '--'];
+    const args = ['-C', root, 'diff', ...gitDiffWhitespaceArgs(options.ignoreWhitespace), ...gitDiffContextArgs(options.context), 'HEAD', '--'];
     if (normalized) args.push(gitRelativePath);
 
     try {
@@ -2022,6 +2329,7 @@ class WorkspaceFileService {
           ...result,
           path: relativePath,
           binary: true,
+          size: stat.size,
         };
       }
 
@@ -2403,6 +2711,7 @@ module.exports = {
   DEFAULT_WATCH_DEPTH,
   isPackagedRuntime,
   parseGitBlamePorcelain,
+  parseUnifiedDiffRows,
   createAddedFileLineChangesHunk,
   parseUnifiedDiffHunks,
   selectUnifiedDiffHunk,

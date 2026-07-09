@@ -230,9 +230,13 @@ interface SessionRecord {
 const sessions = new Map<string, Promise<SessionRecord> | SessionRecord>()
 const TOUCH_SCROLL_ACTIVATION_PX = 6
 const TOUCH_LONG_PRESS_MS = 520
-const TOUCH_MOMENTUM_MIN_VELOCITY = 0.035
+const TOUCH_MOMENTUM_MIN_VELOCITY = 0.025
 const TOUCH_MOMENTUM_MAX_VELOCITY = 3.2
-const TOUCH_MOMENTUM_DECAY_PER_FRAME = 0.965
+const TOUCH_MOMENTUM_DECAY_PER_FRAME = 0.972
+const TOUCH_VELOCITY_WINDOW_MS = 90
+const TOUCH_EDGE_RESISTANCE = 0.28
+const TOUCH_EDGE_MAX_OFFSET_PX = 30
+const TOUCH_EDGE_SPRING_MS = 240
 const TERMINAL_PATH_RESOLVE_CACHE_TTL_MS = 30_000
 
 interface TerminalTouchInteraction {
@@ -441,6 +445,14 @@ async function refreshBootstrapOutput(record: SessionRecord) {
 }
 
 function focusTerminalInput(hostEl: HTMLDivElement, terminal: FarmingTerminal) {
+  // xterm owns its helper textarea and composition lifecycle. Go through its
+  // public focus API so a focus change from the composer does not bypass the
+  // same IME path it uses for ordinary terminal input.
+  if (isXtermTerminal(terminal)) {
+    terminal.focus()
+    return true
+  }
+
   const input = hostEl.querySelector('textarea')
   if (input instanceof HTMLTextAreaElement) {
     updateTerminalImeOverlay(hostEl, terminal)
@@ -843,6 +855,7 @@ function scheduleImeOverlayUpdateIfActive(record: SessionRecord) {
 }
 
 function shouldSuppressRendererCursor(record: SessionRecord) {
+  if (isXtermTerminal(record.terminal)) return false
   return record.imeComposing || record.suppressRendererCursor
 }
 
@@ -2067,6 +2080,7 @@ function installTerminalContextMenu(record: SessionRecord, agentId: string) {
 }
 
 function installTerminalTouchInteraction(record: SessionRecord) {
+  type TouchVelocitySample = { y: number; at: number }
   let touchPointerId: number | null = null
   let touchStartX = 0
   let touchStartY = 0
@@ -2077,6 +2091,9 @@ function installTerminalTouchInteraction(record: SessionRecord) {
   let touchMoved = false
   let momentumFrame: number | null = null
   let momentumLastAt = 0
+  let touchVelocitySamples: TouchVelocitySample[] = []
+  let touchEdgeOffsetPx = 0
+  let touchEdgeResetTimer: number | null = null
   let longPressTimer: number | null = null
   let longPressEvent: PointerEvent | null = null
 
@@ -2091,6 +2108,61 @@ function installTerminalTouchInteraction(record: SessionRecord) {
       longPressTimer = null
     }
     longPressEvent = null
+  }
+
+  const getTouchSurface = () => record.hostEl.querySelector<HTMLElement>('.xterm-screen')
+
+  const clearTouchEdgeResetTimer = () => {
+    if (touchEdgeResetTimer !== null) {
+      window.clearTimeout(touchEdgeResetTimer)
+      touchEdgeResetTimer = null
+    }
+  }
+
+  const renderTouchEdgeOffset = (offsetPx: number, animate = false) => {
+    const surface = getTouchSurface()
+    touchEdgeOffsetPx = offsetPx
+    if (!surface) return
+    clearTouchEdgeResetTimer()
+    surface.style.transition = animate
+      ? `transform ${TOUCH_EDGE_SPRING_MS}ms cubic-bezier(0.22, 0.75, 0.28, 1)`
+      : 'none'
+    surface.style.transform = offsetPx === 0 ? '' : `translate3d(0, ${offsetPx}px, 0)`
+    if (animate) {
+      touchEdgeResetTimer = window.setTimeout(() => {
+        surface.style.transition = ''
+        surface.style.transform = ''
+        touchEdgeResetTimer = null
+      }, TOUCH_EDGE_SPRING_MS)
+    }
+  }
+
+  const pullTouchEdge = (deltaY: number) => {
+    const nextOffset = Math.max(
+      -TOUCH_EDGE_MAX_OFFSET_PX,
+      Math.min(TOUCH_EDGE_MAX_OFFSET_PX, touchEdgeOffsetPx + deltaY * TOUCH_EDGE_RESISTANCE)
+    )
+    renderTouchEdgeOffset(nextOffset)
+  }
+
+  const releaseTouchEdge = (animate = true) => {
+    if (touchEdgeOffsetPx === 0 && touchEdgeResetTimer === null) return
+    renderTouchEdgeOffset(0, animate)
+  }
+
+  const pushTouchVelocitySample = (y: number, at: number) => {
+    touchVelocitySamples.push({ y, at })
+    const cutoff = at - TOUCH_VELOCITY_WINDOW_MS
+    while (touchVelocitySamples.length > 2 && touchVelocitySamples[0]!.at < cutoff) {
+      touchVelocitySamples.shift()
+    }
+  }
+
+  const readTouchGestureVelocity = () => {
+    const first = touchVelocitySamples[0]
+    const last = touchVelocitySamples[touchVelocitySamples.length - 1]
+    if (!first || !last || last.at <= first.at) return touchVelocityY
+    return clampTouchVelocity((last.y - first.y) / (last.at - first.at))
   }
 
   const handleLongPress = () => {
@@ -2141,10 +2213,15 @@ function installTerminalTouchInteraction(record: SessionRecord) {
       : Math.min(48, Math.max(1, timestamp - momentumLastAt))
     momentumLastAt = timestamp
 
-    const moved = scrollByTouchDelta(touchVelocityY * elapsed)
+    const momentumDelta = touchVelocityY * elapsed
+    const moved = scrollByTouchDelta(momentumDelta)
     touchVelocityY *= Math.pow(TOUCH_MOMENTUM_DECAY_PER_FRAME, elapsed / 16)
     if (!moved || Math.abs(touchVelocityY) < TOUCH_MOMENTUM_MIN_VELOCITY) {
+      if (!moved) {
+        pullTouchEdge(momentumDelta)
+      }
       stopTouchMomentum()
+      releaseTouchEdge()
       return
     }
 
@@ -2163,11 +2240,14 @@ function installTerminalTouchInteraction(record: SessionRecord) {
   const pointerDownHandler = (event: PointerEvent) => {
     if (event.pointerType !== 'touch') return
     stopTouchMomentum()
+    releaseTouchEdge(false)
     touchPointerId = event.pointerId
     touchStartX = event.clientX
     touchStartY = event.clientY
     touchLastY = event.clientY
     touchLastMoveAt = event.timeStamp || performance.now()
+    touchVelocitySamples = []
+    pushTouchVelocitySample(event.clientY, touchLastMoveAt)
     touchScrollRemainderPx = 0
     touchMoved = false
     longPressEvent = event
@@ -2193,14 +2273,17 @@ function installTerminalTouchInteraction(record: SessionRecord) {
     touchLastY = event.clientY
     touchLastMoveAt = now
     if (Math.abs(deltaY) < 0.5) return
+    pushTouchVelocitySample(event.clientY, now)
     const instantVelocity = deltaY / elapsed
-    touchVelocityY = clampTouchVelocity(
-      touchVelocityY === 0
-        ? instantVelocity
-        : touchVelocityY * 0.55 + instantVelocity * 0.45
-    )
+    const gestureVelocity = readTouchGestureVelocity()
+    touchVelocityY = clampTouchVelocity(gestureVelocity * 0.72 + instantVelocity * 0.28)
 
     const moved = scrollByTouchDelta(deltaY)
+    if (!moved && touchMoved) {
+      pullTouchEdge(deltaY)
+    } else if (moved && touchEdgeOffsetPx !== 0) {
+      releaseTouchEdge(false)
+    }
     if (touchMoved || moved) {
       event.preventDefault()
       event.stopPropagation()
@@ -2216,11 +2299,19 @@ function installTerminalTouchInteraction(record: SessionRecord) {
       event.preventDefault()
       event.stopPropagation()
       updateFollowStateFromViewport(record)
-      startTouchMomentum()
+      touchVelocityY = readTouchGestureVelocity()
+      if (event.type === 'pointerup' && touchEdgeOffsetPx === 0) {
+        startTouchMomentum()
+      } else {
+        stopTouchMomentum()
+        releaseTouchEdge()
+      }
     } else {
       touchVelocityY = 0
       touchScrollRemainderPx = 0
+      releaseTouchEdge()
     }
+    touchVelocitySamples = []
     try {
       record.hostEl.releasePointerCapture(event.pointerId)
     } catch {
@@ -2517,6 +2608,7 @@ function installTerminalTestApi() {
       const current = sessions.get(agentId)
       const record = current instanceof Promise ? await current : current
       if (!record || record.disposed) throw new Error(`Terminal session not found: ${agentId}`)
+      record.touchInteraction?.stopTouchMomentum()
       scrollRecordToLine(record, line)
       const atBottom = isTerminalAtBottom(record)
       setFollowOutputState(record, atBottom, atBottom ? false : record.hasUnreadOutput, {
@@ -2528,6 +2620,7 @@ function installTerminalTestApi() {
       const current = sessions.get(agentId)
       const record = current instanceof Promise ? await current : current
       if (!record || record.disposed) throw new Error(`Terminal session not found: ${agentId}`)
+      record.touchInteraction?.stopTouchMomentum()
       scrollRecordToBottom(record, { allowClearUnread: true })
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     },
@@ -2743,11 +2836,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
   record.inputFallbackKeydownHandler = inputFallbackKeydownHandler
 
   const inputFallbackHandler = (event: Event) => {
-    if (!shouldUseTerminalInputFallback({
-      isXterm: isXtermTerminal(terminal),
-      imeComposing: record.imeComposing,
-      terminal,
-    })) return
+    if (record.imeComposing || typeof terminal.input !== 'function') return
     const target = event.target
     if (!isXtermHelperTextareaTarget(target)) return
     const inputEventAt = Date.now()
@@ -2760,6 +2849,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
       if (!shouldUseTerminalInputFallback({
         isXterm: isXtermTerminal(terminal),
         imeComposing: record.imeComposing,
+        text: target.value,
         terminal,
       })) return
       const terminalInput = terminal.input
@@ -3444,11 +3534,46 @@ export function focusTerminalSession(agentId: string) {
   })
 }
 
+export async function refreshTerminalSessionLayout(agentId: string, options: { autoFocus?: boolean } = {}) {
+  const current = sessions.get(agentId)
+  if (!current) return false
+  const record = await current
+  if (record.disposed) return false
+  if (!isTerminalSessionAttached(record)) return false
+
+  const wasFollowing = record.followOutput
+  const previousViewportY = getTerminalViewportY(record.terminal)
+  const previousScrollbackLength = getTerminalScrollbackLength(record.terminal)
+  const hadUnreadOutput = record.hasUnreadOutput
+
+  const refresh = () => {
+    if (record.disposed || !isTerminalSessionAttached(record)) return
+    try {
+      record.fitAddon.fit()
+    } catch {
+      // ignore transient zero-size states while a pane is being revealed
+    }
+    syncTerminalSize(record, record.resizeHandler, { force: true })
+    restoreViewportAfterLayout(record, previousViewportY, previousScrollbackLength, wasFollowing, hadUnreadOutput)
+    scheduleTerminalRepaint(record)
+    if (options.autoFocus && !isMobileViewport() && shouldAllowTerminalAutoFocus(record.hostEl)) {
+      focusTerminalInputWhenReady(record, record.attachGeneration)
+    }
+  }
+
+  requestAnimationFrame(() => {
+    refresh()
+    requestAnimationFrame(refresh)
+  })
+  return true
+}
+
 export async function scrollTerminalSessionToBottom(agentId: string) {
   const current = sessions.get(agentId)
   if (!current) return
   const record = await current
   if (record.disposed) return
+  record.touchInteraction?.stopTouchMomentum()
   scrollRecordToBottom(record, { allowClearUnread: true })
 }
 

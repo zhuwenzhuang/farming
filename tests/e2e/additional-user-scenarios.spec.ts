@@ -87,11 +87,15 @@ async function hideMobileSidebar(page: import('@playwright/test').Page) {
   const workspace = page.getByTestId('code-workspace')
   if ((await workspace.getAttribute('class'))?.includes('sidebar-collapsed')) return
   const sidebarBox = await page.getByTestId('code-sidebar').boundingBox()
-  const backdropBox = await page.getByTestId('code-mobile-sidebar-backdrop').boundingBox()
+  const backdrop = page.getByTestId('code-mobile-sidebar-backdrop')
+  const backdropBox = await backdrop.boundingBox()
   if (!sidebarBox || !backdropBox) throw new Error('Mobile sidebar or backdrop is missing')
-  const backdropRight = backdropBox.x + backdropBox.width
-  const sidebarRight = sidebarBox.x + sidebarBox.width
-  await page.mouse.click(Math.min(backdropRight - 6, sidebarRight + 14), backdropBox.y + 80)
+  await backdrop.click({
+    position: {
+      x: backdropBox.width - 6,
+      y: 80,
+    },
+  })
   await expect(workspace).toHaveClass(/sidebar-collapsed/)
 }
 
@@ -301,7 +305,7 @@ test.describe('additional Farming Code user scenarios', () => {
     await scenario('sidebar search filters the active project and clears cleanly', async () => {
       await page.getByTestId('code-nav-search').click()
       await expect(page.getByTestId('code-search-box')).toBeVisible()
-      await expect(page.getByTestId('code-search-empty')).toBeVisible()
+      await expect(page.getByTestId('code-search-empty')).toHaveCount(0)
       await expect(page.getByTestId('code-search-panel').locator('.code-search-result')).toHaveCount(0)
       const searchInput = page.getByTestId('code-search-box').locator('input')
       await searchInput.fill(path.basename(projectDir))
@@ -419,11 +423,11 @@ test.describe('additional Farming Code user scenarios', () => {
 
     await scenario('switching language updates labels without leaving duplicate menus', async () => {
       await page.getByRole('menuitemradio', { name: 'Language: 中文' }).click()
-      await expect(page.getByTestId('code-nav-search')).toContainText('搜索')
+      await expect(page.getByTestId('code-nav-search')).toHaveAttribute('aria-label', '搜索')
       await expect(page.getByTestId('code-options-menu')).toHaveCount(0)
       await page.getByTestId('code-sidebar-options').click()
       await page.getByRole('menuitemradio', { name: '语言：English' }).click()
-      await expect(page.getByTestId('code-nav-search')).toContainText('Search')
+      await expect(page.getByTestId('code-nav-search')).toHaveAttribute('aria-label', 'Search')
       await expectNoDocumentOverflow(page)
     })
 
@@ -516,10 +520,15 @@ test.describe('additional Farming Code user scenarios', () => {
       await expectNoInlineOverflow(page.getByTestId('code-composer'))
     })
 
-    await scenario('image attachment uses a compact chip and can be removed cleanly', async () => {
+    await scenario('image attachment uses a preview card and can be removed cleanly', async () => {
       await page.getByTestId('code-composer-file-input').setInputFiles(imageAttachmentPath)
       const attachment = page.getByTestId('code-composer-attachment')
       await expect(attachment).toBeVisible()
+      await expect(attachment).toHaveClass(/image/)
+      await expect(attachment.getByTestId('code-composer-attachment-preview')).toBeVisible()
+      const attachmentBox = await attachment.boundingBox()
+      expect(attachmentBox?.width ?? 0).toBeGreaterThanOrEqual(100)
+      expect(attachmentBox?.height ?? 0).toBeGreaterThanOrEqual(90)
       await expectNoInlineOverflow(attachment)
       await attachment.getByRole('button', { name: /Remove / }).click()
       await expect(page.getByTestId('code-composer-attachment')).toHaveCount(0)
@@ -545,7 +554,10 @@ test.describe('additional Farming Code user scenarios', () => {
     console.log(`additional desktop user scenarios executed ${checked.length} scenarios`)
   })
 
-  test('covers 14 additional mobile user-facing UI scenarios', async ({ page, workspaceRoot }) => {
+  test.describe('touch mobile scenarios', () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+    test('covers 14 additional mobile user-facing UI scenarios', async ({ page, workspaceRoot }) => {
     const checked: string[] = []
     const scenario: ScenarioRunner = async (name, fn) => {
       await test.step(`${String(checked.length + 1).padStart(2, '0')} ${name}`, async () => {
@@ -688,13 +700,20 @@ test.describe('additional Farming Code user scenarios', () => {
         return {
           bottomGap: window.innerHeight - rect.bottom,
           height: rect.height,
+          leftGap: rect.left,
+          rightGap: window.innerWidth - rect.right,
+          width: rect.width,
         }
       })
       expect(focusedComposerBox.height).toBeLessThanOrEqual(130)
       expect(focusedComposerBox.bottomGap).toBeLessThanOrEqual(24)
+      expect(focusedComposerBox.leftGap).toBeLessThanOrEqual(12)
+      expect(focusedComposerBox.rightGap).toBeLessThanOrEqual(12)
+      expect(focusedComposerBox.width).toBeGreaterThanOrEqual(366)
       const iosKeyboardComposerBox = await page.getByTestId('code-composer').evaluate(async element => {
         const root = document.documentElement
         document.body.classList.add('code-mode', 'code-mobile-touch', 'code-mobile-ios')
+        document.body.classList.add('code-mobile-keyboard-active')
         element.classList.add('menu-open')
         root.style.setProperty('--app-visual-height', '420px')
         root.style.setProperty('--mobile-keyboard-offset', '520px')
@@ -703,15 +722,18 @@ test.describe('additional Farming Code user scenarios', () => {
         const fakeVisualBottom = Number.parseFloat(root.style.getPropertyValue('--app-visual-height')) || 0
         return {
           bottomBeyondVisualViewport: rect.bottom - fakeVisualBottom,
+          visualViewportBottomGap: fakeVisualBottom - rect.bottom,
           height: rect.height,
         }
       })
       expect(iosKeyboardComposerBox.height).toBeLessThanOrEqual(130)
-      expect(iosKeyboardComposerBox.bottomBeyondVisualViewport).toBeGreaterThan(250)
-      expect(iosKeyboardComposerBox.bottomBeyondVisualViewport).toBeLessThanOrEqual(290)
+      expect(iosKeyboardComposerBox.bottomBeyondVisualViewport).toBeLessThanOrEqual(0)
+      expect(iosKeyboardComposerBox.visualViewportBottomGap).toBeGreaterThanOrEqual(0)
+      expect(iosKeyboardComposerBox.visualViewportBottomGap).toBeLessThanOrEqual(32)
       await page.evaluate(() => {
         document.documentElement.style.setProperty('--app-visual-height', `${window.innerHeight}px`)
         document.documentElement.style.setProperty('--mobile-keyboard-offset', '0px')
+        document.body.classList.remove('code-mobile-keyboard-active')
         document.querySelector('[data-testid="code-composer"]')?.classList.remove('menu-open')
       })
       await expect.poll(async () => page.getByTestId('code-composer-send').evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(17, 17, 17)')
@@ -754,7 +776,7 @@ test.describe('additional Farming Code user scenarios', () => {
       await expectNoDocumentOverflow(page)
     })
 
-    await scenario('mobile mic still enters recording mode without speech recognition support', async () => {
+    await scenario('mobile mic falls back to native keyboard dictation without speech recognition support', async () => {
       const textarea = page.getByTestId('code-composer').locator('textarea')
       await textarea.fill('')
       await page.evaluate(() => {
@@ -763,10 +785,9 @@ test.describe('additional Farming Code user scenarios', () => {
       })
       await page.getByTestId('code-composer-mic').click()
       const recording = page.getByTestId('code-composer-recording')
-      await expect(recording).toBeVisible()
-      await expect(recording.locator('.code-composer-recording-wave span')).toHaveCount(24)
-      await page.getByTestId('code-composer-recording-stop').click()
       await expect(recording).toHaveCount(0)
+      await expect(page.getByTestId('code-composer-dictation-hint')).toBeVisible()
+      await expect(textarea).toBeFocused()
       await expect(textarea).toHaveValue('')
       await expectNoDocumentOverflow(page)
     })
@@ -829,7 +850,6 @@ test.describe('additional Farming Code user scenarios', () => {
     await scenario('mobile search box accepts and clears a query without widening the shell', async () => {
       await revealMobileSidebar(page)
       await page.getByTestId('code-nav-search').click()
-      await revealMobileSidebar(page)
       const searchInput = page.getByTestId('code-search-box').locator('input')
       await searchInput.fill('mobile-ui-project')
       await expect(page.getByTestId('code-search-box')).toBeVisible()
@@ -846,7 +866,7 @@ test.describe('additional Farming Code user scenarios', () => {
       await expectNoDocumentOverflow(page)
     })
 
-    await scenario('mobile options menu keeps language choices compact and inside the viewport', async () => {
+    await scenario('mobile options menu stays compact and inside the viewport', async () => {
       if (!((await page.getByTestId('code-workspace').getAttribute('class')) ?? '').includes('sidebar-collapsed')) {
         await page.mouse.click(382, 96)
         await expect(page.getByTestId('code-workspace')).toHaveClass(/sidebar-collapsed/)
@@ -854,14 +874,34 @@ test.describe('additional Farming Code user scenarios', () => {
       await page.getByTestId('code-mobile-more').click()
       const menu = page.getByTestId('code-options-menu')
       await expect(menu).toBeVisible()
-      await expect(menu.getByRole('menuitemradio', { name: 'Language: English' })).toContainText('English')
+      await expect(menu.getByRole('menuitem', { name: 'Chat' })).toBeVisible()
+      await expect(menu.getByRole('menuitem', { name: 'Terminal' })).toBeVisible()
+      await expect(menu.getByRole('menuitem', { name: 'Share page' })).toBeVisible()
+      await expect(menu).not.toContainText('Settings')
+      await expect(menu).not.toContainText('Language')
       await expectMenuFitsViewport(page, 'code-options-menu')
       await page.keyboard.press('Escape')
       await expect(menu).toHaveCount(0)
     })
 
     expect(checked).toHaveLength(14)
-    console.log(`additional mobile user scenarios executed ${checked.length} scenarios`)
+      console.log(`additional mobile user scenarios executed ${checked.length} scenarios`)
+    })
+  })
+
+  test('keeps New Agent dialog inside short wide mobile-style viewports', async ({ page }) => {
+    await page.setViewportSize({ width: 980, height: 360 })
+    await openFarming(page)
+
+    await openNewAgentDialog(page)
+    await expect(page.getByTestId('agent-list-status')).toBeHidden({ timeout: 30_000 })
+    await expectMenuFitsViewport(page, 'input-dialog')
+
+    await page.getByTestId('agent-option-codex').click()
+    await expect(page.getByTestId('workspace-step')).toBeVisible()
+    await expectMenuFitsViewport(page, 'input-dialog')
+    await expect(page.getByTestId('workspace-start')).toBeInViewport()
+    await expectNoDocumentOverflow(page)
   })
 
   test('starts file-menu agents in the selected directory while keeping the project root', async ({ page, workspaceRoot }) => {

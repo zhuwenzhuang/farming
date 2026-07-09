@@ -64,6 +64,34 @@ export interface AgentTerminalStatus {
   source: 'terminal-text' | 'shell-busy-marker' | 'shell-status-marker' | 'shell-prompt-fallback'
 }
 
+export interface CodexAppServerPendingRequest {
+  id: string
+  method: string
+  params: Record<string, unknown>
+  receivedAt: string
+}
+
+export interface CodexAppServerNotice {
+  id: string
+  kind: 'approval-rejected' | string
+  method: string
+  message: string
+  receivedAt: string
+}
+
+export type CodexGoalStatus = 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete'
+
+export interface CodexAppServerGoal {
+  threadId: string
+  objective: string
+  status: CodexGoalStatus
+  tokenBudget: number | null
+  tokensUsed: number
+  timeUsedSeconds: number
+  createdAt: number
+  updatedAt: number
+}
+
 /** A single CLI agent instance */
 export interface Agent {
   id: string
@@ -85,14 +113,43 @@ export interface Agent {
   workflowTemplate?: string
   source?: string
   providerSessionProvider?: 'codex' | 'claude' | string
+  providerHomeId?: string
+  providerHomePath?: string
   providerSessionId?: string
   providerSessionKey?: string
   providerSessionTemporary?: boolean
   providerSessionSource?: string
   providerSessionResolvedAt?: number | null
+  providerSessionTitle?: string
+  codexRuntimeMode?: 'app-server' | 'cli' | string
+  agentRuntimeMode?: 'terminal' | 'json' | string
+  jsonCliState?: string
+  jsonCliError?: string
+  jsonCliTranscriptUpdatedAt?: string
+  codexAppServerState?: string
+  codexAppServerEndpoint?: string
+  codexAppServerThreadId?: string
+  codexAppServerTurnId?: string
+  codexAppServerError?: string
+  codexAppServerPendingRequestId?: string
+  codexAppServerPendingRequestMethod?: string
+  codexAppServerPendingRequest?: CodexAppServerPendingRequest | null
+  codexAppServerNotice?: CodexAppServerNotice | null
+  codexAppServerGoal?: CodexAppServerGoal | null
+  codexCliObserverDeferred?: boolean
   forkedFromProviderSessionId?: string
+  restartedFromAgentId?: string
+  restartedFromAgentIds?: string[]
   pinned?: boolean
+  projectOrder?: number | null
+  pinnedOrder?: number | null
   unread?: boolean
+  attentionSeq?: number
+  readAttentionSeq?: number
+  attentionUpdatedAt?: number | null
+  readAttentionAt?: number | null
+  attentionReason?: string
+  attentionOutputSeq?: number | null
   archived?: boolean
   archivedAt?: number | null
   canForkNewWorktree?: boolean
@@ -123,6 +180,7 @@ export interface AgentLaunchPrefill {
   workspace: string
   task?: string
   workflowTemplate?: string
+  customTitle?: string
 }
 
 export interface TaskHistoryEntry {
@@ -132,6 +190,7 @@ export interface TaskHistoryEntry {
   cwd: string
   projectWorkspace?: string
   title?: string
+  customTitle?: string
   task: string
   workflowTemplate?: string
   source: string
@@ -156,13 +215,33 @@ export interface ProviderQuotaLimit {
   usedPercent: number | null
   windowMinutes: number | null
   resetsAt: number | null
+  totalTokens?: number | null
+  forecast?: ProviderQuotaForecast | null
+}
+
+export interface ProviderQuotaForecast {
+  source: string
+  usedPercent: number
+  remainingPercent: number
+  burnRatePercentPerMinute: number
+  etaMs: number | null
+  projectedExhaustedAt: number | null
+  projectedEndPercent: number | null
+  resetInMs: number | null
+  windowElapsedMs: number
+  totalTokens: number | null
+  usedTokens: number | null
+  remainingTokens: number | null
 }
 
 export interface ProviderQuota {
   available: boolean
   source: string
   reason?: string
+  limitId?: string
+  limitName?: string | null
   planType?: string
+  resetCreditsAvailable?: number | null
   primary?: ProviderQuotaLimit | null
   secondary?: ProviderQuotaLimit | null
 }

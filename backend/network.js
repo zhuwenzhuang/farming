@@ -16,4 +16,8 @@ function getLocalIPs() {
   return ips;
 }
 
-module.exports = { getLocalIPs };
+function getPrimaryLocalIP() {
+  return getLocalIPs()[0] || '127.0.0.1';
+}
+
+module.exports = { getLocalIPs, getPrimaryLocalIP };

@@ -1,5 +1,6 @@
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import type { WorkspaceEditorActionState } from '@/lib/workspace-editor-model'
+import { ErrorGlyph } from '@/components/IconGlyphs'
 import type { CodeCopy } from '../code/copy'
 
 function MarkdownPreviewIcon({ previewOpen }: { previewOpen: boolean }) {
@@ -213,7 +214,9 @@ export function FileEditorActions({
           disabled={openFile.saving}
           aria-label={copy.overwriteChangedFile}
           title={copy.overwriteChangedFile}
-        />
+        >
+          <ErrorGlyph className="code-file-editor-action-svg" />
+        </button>
       )}
     </div>
   )

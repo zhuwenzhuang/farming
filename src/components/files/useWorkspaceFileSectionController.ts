@@ -1,4 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  loadCodeProjectFilesViewState,
+  saveCodeProjectFilesViewState,
+} from '@/components/code/workspace-view-state'
 
 interface WorkspaceFileRevealRequest {
   path: string
@@ -13,6 +17,7 @@ interface WorkspaceFileSearchFocusRequest {
 
 interface UseWorkspaceFileSectionControllerOptions {
   agentId: string | null
+  workspaceKey: string
   clearFileMenu: () => void
   clearFileOperation: () => void
   clearFileSearch: () => void
@@ -31,6 +36,7 @@ interface UseWorkspaceFileSectionControllerOptions {
 
 export function useWorkspaceFileSectionController({
   agentId,
+  workspaceKey,
   clearFileMenu,
   clearFileOperation,
   clearFileSearch,
@@ -46,8 +52,12 @@ export function useWorkspaceFileSectionController({
   setOpenFileError,
   treeData,
 }: UseWorkspaceFileSectionControllerOptions) {
-  const [filesCollapsed, setFilesCollapsed] = useState(true)
+  const [filesCollapsed, setFilesCollapsed] = useState(() => (
+    loadCodeProjectFilesViewState(workspaceKey).filesCollapsed ?? true
+  ))
   const [openEditorsCollapsed, setOpenEditorsCollapsed] = useState(true)
+  const handledRevealRequestIdRef = useRef<number | null>(null)
+  const filesCollapsedWorkspaceKeyRef = useRef(workspaceKey)
 
   const toggleFilesCollapsed = useCallback(() => {
     const nextCollapsed = !filesCollapsed
@@ -75,7 +85,12 @@ export function useWorkspaceFileSectionController({
   useEffect(() => {
     if (!revealRequest) return
     setFilesCollapsed(false)
-    if (!rootDirectoryLoaded) loadRootDirectory()
+    if (!rootDirectoryLoaded) {
+      loadRootDirectory()
+      return
+    }
+    if (handledRevealRequestIdRef.current === revealRequest.requestId) return
+    handledRevealRequestIdRef.current = revealRequest.requestId
     void revealExplorerPath(revealRequest.path, revealRequest.kind)
   }, [loadRootDirectory, revealExplorerPath, revealRequest, rootDirectoryLoaded])
 
@@ -92,6 +107,21 @@ export function useWorkspaceFileSectionController({
   useEffect(() => {
     if (openFilesCount === 0) setOpenEditorsCollapsed(true)
   }, [openFilesCount])
+
+  useEffect(() => {
+    if (filesCollapsedWorkspaceKeyRef.current !== workspaceKey) return
+    saveCodeProjectFilesViewState(workspaceKey, { filesCollapsed })
+  }, [filesCollapsed, workspaceKey])
+
+  useEffect(() => {
+    if (filesCollapsedWorkspaceKeyRef.current === workspaceKey) return
+    filesCollapsedWorkspaceKeyRef.current = workspaceKey
+    setFilesCollapsed(loadCodeProjectFilesViewState(workspaceKey).filesCollapsed ?? true)
+  }, [workspaceKey])
+
+  useEffect(() => {
+    if (!filesCollapsed && !rootDirectoryLoaded) loadRootDirectory()
+  }, [filesCollapsed, loadRootDirectory, rootDirectoryLoaded])
 
   useEffect(() => {
     if (filesCollapsed) return

@@ -117,14 +117,19 @@ async function run() {
     assert(failed.error, 'new-worktree fork should fail outside a git repo');
 
     const codexSessionId = '22222222-3333-4444-8555-666666666666';
+    const codexHome = path.join(tmpRoot, '.codex-work');
     const resumedCodexId = await startAgent(manager, `codex resume ${codexSessionId}`, repo, {
       wantsMain: false,
-      source: `codex-history:${codexSessionId}`,
+      source: `codex-history:home:work:${codexSessionId}`,
+      providerHomeId: 'work',
+      providerHomePath: codexHome,
     });
     const resumedCodexFork = await manager.forkAgent(resumedCodexId, 'same-worktree');
     assert.strictEqual(resumedCodexFork.error, undefined);
     assert.strictEqual(captured.at(-1).command, expectedCodexCommand);
     assert.deepStrictEqual(captured.at(-1).args.slice(-4), ['fork', '-C', repo, codexSessionId]);
+    assert.strictEqual(captured.at(-1).env.CODEX_HOME, codexHome);
+    assert.strictEqual(manager.getState().agents.find(agent => agent.id === resumedCodexFork.agentId).providerHomeId, 'work');
 
     const claudeSessionId = '11111111-2222-4333-8444-555555555555';
     const resumedClaudeId = await startAgent(manager, `claude --resume ${claudeSessionId}`, repo, {

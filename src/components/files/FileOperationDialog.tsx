@@ -71,12 +71,20 @@ export function FileOperationDialog({
             id="code-file-operation-input"
             data-testid="code-file-operation-input"
             name={`farming-file-${agentId}-${fileOperation.kind}`}
+            type="text"
+            inputMode="text"
             ref={inputRef}
             value={fileOperation.name}
-            autoComplete="new-password"
+            autoComplete="off"
             aria-autocomplete="none"
             autoCapitalize="none"
+            autoCorrect="off"
             spellCheck={false}
+            enterKeyHint="done"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-bwignore="true"
+            data-form-type="other"
             autoFocus
             onInput={event => {
               onInputName(event.currentTarget.value)

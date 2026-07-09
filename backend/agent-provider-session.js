@@ -6,7 +6,7 @@ const {
   isSafeProviderSessionId,
 } = require('./provider-session-id');
 
-const CODING_SESSION_PROVIDERS = new Set(['codex', 'claude']);
+const CODING_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder']);
 const CODEX_VALUE_OPTIONS = new Set([
   '-a',
   '-c',
@@ -28,14 +28,20 @@ function normalizeProvider(provider) {
 }
 
 function providerForProgram(program) {
-  return normalizeProvider(path.basename(String(program || '').trim()));
+  const basename = path.basename(String(program || '').trim());
+  if (basename === 'qodercli') return 'qoder';
+  return normalizeProvider(basename);
 }
 
 function sessionFromExactResumeSource(source) {
-  const match = String(source || '').match(/^(codex|claude)-history:([A-Za-z0-9._:-]+)$/);
+  const match = String(source || '').match(/^(codex|claude|opencode|qoder)-history:(?:home:([A-Za-z0-9._-]+):)?([A-Za-z0-9._:-]+)$/);
   if (!match) return null;
-  if (!isSafeProviderSessionId(match[2])) return null;
-  return { provider: match[1], sessionId: match[2] };
+  if (!isSafeProviderSessionId(match[3])) return null;
+  return {
+    provider: match[1],
+    providerHomeId: match[2] || 'default',
+    sessionId: match[3],
+  };
 }
 
 function optionTakesValue(option, valueOptions) {
@@ -156,6 +162,61 @@ function claudeProviderSessionPlan(rawArgs, launchArgs) {
   };
 }
 
+function qoderProviderSessionPlan(rawArgs, launchArgs) {
+  const explicitSessionId = argValue(rawArgs, ['--session-id']);
+  const resumeSessionId = argValue(rawArgs, ['--resume']);
+  const isFork = hasArg(rawArgs, ['--fork-session']);
+  const isContinue = hasArg(rawArgs, ['--continue']);
+
+  if (explicitSessionId && isSafeProviderSessionId(explicitSessionId)) {
+    return {
+      id: explicitSessionId,
+      temporary: false,
+      source: 'launch-session-id',
+      forkedFromProviderSessionId: isFork && isSafeProviderSessionId(resumeSessionId) ? resumeSessionId : '',
+    };
+  }
+
+  if (resumeSessionId && isSafeProviderSessionId(resumeSessionId) && !isFork) {
+    return {
+      id: resumeSessionId,
+      temporary: false,
+      source: 'resume',
+    };
+  }
+
+  if (isContinue) {
+    return null;
+  }
+
+  const sessionId = createProviderSessionId();
+  return {
+    id: sessionId,
+    temporary: false,
+    source: isFork ? 'qoder-fork-session-id' : 'qoder-session-id',
+    forkedFromProviderSessionId: isFork && isSafeProviderSessionId(resumeSessionId) ? resumeSessionId : '',
+    args: ['--session-id', sessionId, ...launchArgs],
+  };
+}
+
+function openCodeProviderSessionPlan(rawArgs) {
+  const sessionId = argValue(rawArgs, ['--session', '-s']);
+  if (!sessionId || !isSafeProviderSessionId(sessionId)) return null;
+  if (hasArg(rawArgs, ['--fork'])) {
+    return {
+      id: createTemporaryProviderSessionId(),
+      temporary: true,
+      source: 'opencode-fork-temporary',
+      forkedFromProviderSessionId: sessionId,
+    };
+  }
+  return {
+    id: sessionId,
+    temporary: false,
+    source: 'resume',
+  };
+}
+
 function buildAgentProviderSessionPlan({ command, program, args, source } = {}) {
   const sourceSession = sessionFromExactResumeSource(source);
   const rawParts = parseCommand(command);
@@ -178,6 +239,7 @@ function buildAgentProviderSessionPlan({ command, program, args, source } = {}) 
     return {
       provider,
       id: sourceSession.sessionId,
+      providerHomeId: sourceSession.providerHomeId || 'default',
       temporary: false,
       source: 'resume-source',
       forkedFromProviderSessionId: '',
@@ -186,9 +248,16 @@ function buildAgentProviderSessionPlan({ command, program, args, source } = {}) 
   }
 
   const rawArgs = rawParts.slice(1);
-  const plan = provider === 'codex'
-    ? codexProviderSessionPlan(rawArgs)
-    : claudeProviderSessionPlan(rawArgs, launchArgs);
+  let plan = null;
+  if (provider === 'codex') {
+    plan = codexProviderSessionPlan(rawArgs);
+  } else if (provider === 'claude') {
+    plan = claudeProviderSessionPlan(rawArgs, launchArgs);
+  } else if (provider === 'qoder') {
+    plan = qoderProviderSessionPlan(rawArgs, launchArgs);
+  } else if (provider === 'opencode') {
+    plan = openCodeProviderSessionPlan(rawArgs);
+  }
 
   if (!plan || !plan.id) {
     return {

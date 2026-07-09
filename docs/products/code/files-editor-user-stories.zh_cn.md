@@ -50,6 +50,8 @@ Project 侧栏的文件体验应接近紧凑版 VS Code Explorer。具体 agent 
 - 普通二进制显示元数据 preview。
 - 过大文本只读打开文件开头内容，不进入保存链路。
 - 右侧切到 editor 时，左侧 Project / agent / Files 上下文仍保留。
+- editor 或应用分包缺失时不能停留在空白页：Farming 先自动恢复一次，仍失败则显示紧凑的重新加载状态，并直接给出经过长度限制的错误类型、失败请求路径、可用状态和原因；刷新页面不会停止正在运行的 Agent。
+- 视觉验收提供固定地址 `/farming/error-preview`。仍可用 `?farming-error-preview=light` 或 `?farming-error-preview=dark` 切换预览，追加 `&farming-error-language=zh` 可查看中文文案；点击重新加载会回到 Farming。
 
 ### 3. 搜索和跳转
 
@@ -64,6 +66,7 @@ Project 侧栏的文件体验应接近紧凑版 VS Code Explorer。具体 agent 
 - 搜索结果以 listbox / option 语义展示，方向键可移动 active result。
 - 点击搜索结果后打开文件并跳到匹配行。
 - `path:line` 跳转后 Monaco 光标和状态栏行号正确。
+- 若搜索提前停止，结果浮层会显示当前超时时间；可在 **设置 → 文件搜索** 中用即时生效的预设滑杆调整为 3 秒到 3 分钟，默认 3 秒。
 
 ### 4. 编辑和保存
 
@@ -136,6 +139,38 @@ Project 侧栏的文件体验应接近紧凑版 VS Code Explorer。具体 agent 
 - rename 使用行内输入框，并选中文件名主体。
 - 删除目录必须确认。
 
+### 9. 软链接
+
+期望：
+
+- 软链接保留目标类型：目录链接可原地展开，文件链接可原地打开，并像 VS Code Explorer 一样显示轻量链接标记。
+- 指向项目内部的链接保持正常编辑能力。
+- 指向项目外部、但已进入 Farming 全局 Files 根路径白名单的链接，仍以项目内别名展示，内容只读。
+- 损坏链接或超出允许根路径的链接保留可见，但不能打开。
+- 重命名和删除只作用于链接条目本身，不能通过项目内别名移动或删除外部目标。
+- Git 状态只处理项目里的链接条目，不把外部目标仓库合并进当前项目仓库。
+
+### 10. 刷新后恢复工作区视图
+
+期望：
+
+- 刷新页面后恢复 Projects 中最后使用的界面：要么是选中的 Agent terminal，要么是 editor 中正在查看的文件。
+- 文件恢复按 workspace 隔离，重新读取磁盘上最新的已保存内容，恢复可选的光标位置，并在 Files 中展开到该文件的父目录。
+- 每个 workspace 独立记住 Files 是否折叠及已展开的目录；即使刷新时正在看 Agent terminal，这些目录状态也不能丢失。
+- Agent、workspace 或文件已经不存在时，Farming 清理过期目标并回到仍可用的 Projects 界面，不能卡在损坏的 editor。
+- 这是浏览器本地的导航状态，不是 editor hot exit；完整刷新不会保留尚未保存的编辑草稿。
+
+### 11. URL 定位目标
+
+期望：
+
+- Agent、文件和文件夹共用一套 URL target 契约。
+- 文件目标打开 editor，并恢复可选的行列位置。
+- 文件夹目标优先打开该目录根层的代表文件：`README.md`、其他 Markdown、其余第一个文件。根层没有文件时，Files 才逐级加载祖先目录，把目标目录放到靠上位置并临时强调，用户点击其他区域后消失。
+- 全局 `/` 下的文件和文件夹继续使用现有全局 Files 身份和允许根路径校验，不把它当成 terminal agent。
+- 软链接位置在 URL 中保留可见别名路径，例如 `reference/lobe-icons`，不暴露解析后的外部路径。
+- 文件和文件夹右键菜单提供 `拷贝分享 URL`，复用二维码分享流程生成的同一条带认证完整 URL。
+
 ## Computer Use 验收脚本
 
 以下脚本用于类人端到端验收，优先用真实浏览器坐标/鼠标/键盘操作，不只依赖 DOM 断言。
@@ -153,6 +188,8 @@ Project 侧栏的文件体验应接近紧凑版 VS Code Explorer。具体 agent 
 11. 在 editor gutter 右键，确认可以打开上一版 / 工作区文件的行级变化。
 12. 在 `Changes` 中点击改动文件，确认右侧主区域打开 Monaco diff。
 13. 在 Files 目录行右键，确认菜单焦点进入 `New File`，`Escape` 后焦点回到 tree。
+14. 创建项目内文件/目录链接和允许的项目外链接，验证原地展开、外部文件只读，以及删除链接后目标仍存在。
+15. 展开多层目录并打开一个文件后刷新，确认恢复同一文件和目录层级；回到 Agent terminal 再刷新，确认仍停在 terminal，且 Files 的展开状态不变。
 
 当前自动化覆盖：
 - `tests/e2e/display-flows.spec.ts` 中 `keeps project files as a collapsible project-level section` 走通上述主要链路。

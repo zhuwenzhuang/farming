@@ -38,6 +38,14 @@ function configManager() {
     getTaskHistory() {
       return [];
     },
+    listAgentSessionRecords() {
+      return [{
+        runtimeAgentId: 'recovered-codex',
+        pinned: true,
+        projectOrder: 4096,
+        pinnedOrder: 2048,
+      }];
+    },
   };
 }
 
@@ -100,6 +108,9 @@ async function run() {
 
     assert(manager.agents.has('recovered-codex'), 'recoverable coding sessions should be restored');
     assert.strictEqual(manager.agents.get('recovered-codex').launchPermissionMode, 'full');
+    assert.strictEqual(manager.agents.get('recovered-codex').pinned, true);
+    assert.strictEqual(manager.agents.get('recovered-codex').projectOrder, 4096);
+    assert.strictEqual(manager.agents.get('recovered-codex').pinnedOrder, 2048);
     assert.strictEqual(
       manager.getState().agents.find(agent => agent.id === 'recovered-codex').launchPermissionMode,
       'full'

@@ -4,7 +4,8 @@ const http = require('http');
 const net = require('net');
 const os = require('os');
 const path = require('path');
-const { spawn } = require('child_process');
+const { URLSearchParams } = require('url');
+const { execFileSync, spawn } = require('child_process');
 const { run: runControlCli } = require('./farming-cli');
 const storageLayout = require('./storage-layout');
 
@@ -262,6 +263,111 @@ function splitControlArgs(argv) {
   }
 
   return { argv: controlArgs, env };
+}
+
+function parseReviewArgs(argv) {
+  const options = {
+    branch: '',
+    env: {},
+    noOpen: false,
+    portExplicit: false,
+    positional: [],
+  };
+  for (let index = 0; index < argv.length; index++) {
+    const arg = argv[index];
+    const readValue = (name) => {
+      const value = argv[index + 1];
+      if (!value || value.startsWith('--')) throw new Error(`${name} requires a value`);
+      index++;
+      return value;
+    };
+    if (arg === '--branch') {
+      options.branch = readValue(arg);
+      continue;
+    }
+    if (arg.startsWith('--branch=')) {
+      options.branch = arg.slice('--branch='.length);
+      continue;
+    }
+    if (arg === '--no-open') {
+      options.noOpen = true;
+      continue;
+    }
+    const consumed = parseSharedAppOption(arg, argv, index, options.env);
+    if (consumed > 0) {
+      if (arg === '--port' || arg.startsWith('--port=')) options.portExplicit = true;
+      index += consumed - 1;
+      continue;
+    }
+    if (arg.startsWith('--')) throw new Error(`Unknown review option: ${arg}`);
+    options.positional.push(arg);
+  }
+  if (options.positional.length !== 3) {
+    throw new Error('Usage: farming review <git-dir> <old-revision> <new-revision|now> [--branch <branch>]');
+  }
+  const [gitDir, base, head] = options.positional;
+  if (base === 'now') throw new Error('the old revision cannot be now');
+  return { ...options, base, gitDir, head };
+}
+
+function runGit(root, args) {
+  try {
+    return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  } catch (error) {
+    const detail = String(error.stderr || error.message || '').trim();
+    throw new Error(detail || `git ${args.join(' ')} failed`, { cause: error });
+  }
+}
+
+function resolveReviewTarget(parsed) {
+  const requestedRoot = path.resolve(parsed.gitDir);
+  const root = runGit(requestedRoot, ['rev-parse', '--show-toplevel']);
+  const branch = parsed.branch || runGit(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
+  runGit(root, ['rev-parse', '--verify', `${branch}^{commit}`]);
+  const resolveRevision = (revision) => {
+    if (revision === 'now') return 'now';
+    const branchRelative = revision === 'HEAD'
+      ? branch
+      : revision.startsWith('HEAD~') || revision.startsWith('HEAD^')
+        ? `${branch}${revision.slice('HEAD'.length)}`
+        : revision;
+    return runGit(root, ['rev-parse', '--verify', `${branchRelative}^{commit}`]);
+  };
+  return {
+    base: resolveRevision(parsed.base),
+    branch,
+    head: resolveRevision(parsed.head),
+    root,
+  };
+}
+
+function reviewUrl(env, target) {
+  const params = new URLSearchParams({
+    base: target.base,
+    head: target.head,
+    root: target.root,
+  });
+  const token = ['1', 'true', 'yes', 'on'].includes(String(env.FARMING_DISABLE_AUTH || '').toLowerCase()) ? '' : readTokenForEnv(env);
+  if (token) params.set('token', token);
+  return `${entryUrl(env, '127.0.0.1')}/review?${params.toString()}`;
+}
+
+function openBrowser(url) {
+  const command = process.platform === 'darwin' ? 'open' : 'xdg-open';
+  const child = spawn(command, [url], { detached: true, stdio: 'ignore' });
+  child.unref();
+}
+
+async function runReview(parsed) {
+  const target = resolveReviewTarget(parsed);
+  const serverParsed = { command: 'daemon', env: parsed.env, portExplicit: parsed.portExplicit };
+  const code = await startDaemon(serverParsed);
+  if (code) return code;
+  const env = buildControlEnv(parsed.env);
+  const url = reviewUrl(env, target);
+  console.log(url);
+  if (!parsed.noOpen) openBrowser(url);
+  return 0;
 }
 
 function buildControlEnv(overrides = {}, baseEnv = process.env) {
@@ -598,6 +704,7 @@ function usage() {
   farming stop
   farming logs
   farming url
+  farming review <git-dir> <old-revision> <new-revision|now> [--branch <branch>] [--no-open]
 
 Agent control commands are also available:
   farming skills
@@ -636,6 +743,8 @@ async function run(argv = process.argv.slice(2)) {
     return runControlCli(argv);
   }
 
+  if (argv[0] === 'review') return runReview(parseReviewArgs(argv.slice(1)));
+
   const parsed = parseServerArgs(argv);
   if (parsed.command === 'help') {
     console.log(usage());
@@ -669,6 +778,9 @@ module.exports = {
   defaultConfigDir,
   findAvailablePort,
   parseServerArgs,
+  parseReviewArgs,
+  resolveReviewTarget,
+  reviewUrl,
   readServerState,
   serverStartTimeoutMs,
   splitControlArgs,

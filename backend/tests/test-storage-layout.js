@@ -24,16 +24,23 @@ function run() {
     assert.strictEqual(storageLayout.sessionIndexFile(configDir), path.join(configDir, 'sessions', 'index.json'));
     assert.strictEqual(storageLayout.historyDir(configDir), path.join(configDir, 'history'));
     assert.strictEqual(storageLayout.runHistoryFile(configDir), path.join(configDir, 'history', 'runs.json'));
+    assert.strictEqual(storageLayout.reviewStateFile(configDir), path.join(configDir, 'history', 'review-state.json'));
     assert.strictEqual(storageLayout.serverPidFile(configDir), path.join(configDir, 'farming-server.pid'));
     assert.strictEqual(storageLayout.serverStateFile(configDir), path.join(configDir, 'farming-server.json'));
     assert.strictEqual(storageLayout.serverLogFile(configDir), path.join(configDir, 'farming-server.log'));
     assert.strictEqual(storageLayout.nativePtyHostLogFile(configDir), path.join(configDir, 'native-pty-host.log'));
+    assert.strictEqual(storageLayout.updateStateFile(configDir), path.join(configDir, 'farming-update.json'));
+    assert.strictEqual(storageLayout.updateLogFile(configDir), path.join(configDir, 'farming-update.log'));
 
     const manager = new ThemeManager({ configDir });
     manager.availableThemes = [{ id: 'terminal', defaultSettings: { crtEffects: false } }];
     assert.strictEqual(manager.updateThemeSettings('terminal', { crtEffects: true }), true);
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(storageLayout.themeSettingsFile(configDir), 'utf8')), {
       terminal: { crtEffects: true },
+    });
+    assert.strictEqual(manager.updateThemeSettings('terminal', { settings: { crtEffects: false } }), true);
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(storageLayout.themeSettingsFile(configDir), 'utf8')), {
+      terminal: { crtEffects: false },
     });
     assert.strictEqual(
       fs.existsSync(path.join(homeDir, '.farming', 'theme-settings.json')),

@@ -35,7 +35,6 @@ const {
 const {
   firstVisibleWorkspaceFilePath,
   isWorkspaceStickyContextVisible,
-  openEditorsRevealScrollDelta,
   shouldCancelPendingWorkspaceFileTreeFocus,
   shouldCloseWorkspaceFileTreeDirectory,
   shouldFocusWorkspaceFileTree,
@@ -48,6 +47,7 @@ const {
   workspaceFileRevealScrollDelta,
   workspaceFileTreeActivationIntent,
   workspaceFileTreeRowClickIntent,
+  workspaceCompactStickyDirectoryLabel,
   workspaceStickyContentTop,
   workspaceStickyContextItems,
   workspaceStickyDirectoryPaths,
@@ -132,6 +132,16 @@ const {
   workspaceFileOperationTargetDirectory,
   workspaceFileOperationTitle,
 } = require('../../src/lib/workspace-file-operation-model.ts');
+const {
+  clearWorkspaceShareTargetSearch,
+  resolveWorkspaceSharePath,
+  workspaceShareAbsolutePath,
+  workspaceShareTargetFromSearch,
+  workspaceFolderPreviewFilePath,
+  workspaceShareTargetKey,
+  workspaceShareTargetSearchParams,
+  workspaceShareProjectLabel,
+} = require('../../src/lib/workspace-share-target.ts');
 
 function workspaceFile(path, overrides = {}) {
   return {
@@ -162,6 +172,88 @@ function workingCopy(overrides = {}) {
 }
 
 function run() {
+  const folderShareTarget = { kind: 'folder', agentId: 'agent-1', folderPath: 'reference/lobe-icons' };
+  assert.strictEqual(
+    workspaceShareTargetKey(folderShareTarget),
+    'folder:agent-1:reference/lobe-icons'
+  );
+  assert.strictEqual(
+    workspaceShareTargetSearchParams(folderShareTarget).toString(),
+    'ftarget=folder&agent=agent-1&folder=reference%2Flobe-icons'
+  );
+  assert.deepStrictEqual(
+    workspaceShareTargetFromSearch('?ftarget=folder&agent=agent-1&folder=reference%2Flobe-icons'),
+    folderShareTarget
+  );
+  assert.strictEqual(workspaceShareTargetFromSearch('?ftarget=folder&agent=agent-1'), null);
+  const absoluteFolderTarget = {
+    kind: 'folder',
+    agentId: 'agent-1',
+    folderPath: 'reference/lobe-icons',
+    absolutePath: '/Users/demo/git/farming/reference/lobe-icons',
+    projectLabel: 'farming',
+  };
+  assert.strictEqual(
+    workspaceShareTargetSearchParams(absoluteFolderTarget).toString(),
+    'ftarget=folder&path=%2FUsers%2Fdemo%2Fgit%2Ffarming%2Freference%2Flobe-icons&project=farming'
+  );
+  assert.strictEqual(
+    workspaceShareTargetSearchParams({
+      kind: 'file',
+      agentId: 'agent-1',
+      filePath: 'README.md',
+      absolutePath: `/${'nested/'.repeat(300)}README.md`,
+    }).toString(),
+    'ftarget=file&agent=agent-1&file=README.md'
+  );
+  assert.deepStrictEqual(
+    workspaceShareTargetFromSearch('?ftarget=folder&path=%2FUsers%2Fdemo%2Fgit%2Ffarming%2Freference%2Flobe-icons'),
+    { kind: 'folder', folderPath: '', absolutePath: '/Users/demo/git/farming/reference/lobe-icons' }
+  );
+  assert.strictEqual(workspaceShareAbsolutePath('/Users/demo/git/farming', 'reference/lobe-icons'), '/Users/demo/git/farming/reference/lobe-icons');
+  assert.strictEqual(workspaceShareProjectLabel('/Users/demo/git/farming'), 'farming');
+  assert.deepStrictEqual(resolveWorkspaceSharePath(absoluteFolderTarget, [
+    { agentId: 'agent-parent', workspace: '/Users/demo/git' },
+    { agentId: 'agent-project', workspace: '/Users/demo/git/farming' },
+  ], '__global__'), {
+    agentId: 'agent-project',
+    filePath: 'reference/lobe-icons',
+    globalRoot: false,
+  });
+  assert.deepStrictEqual(resolveWorkspaceSharePath(absoluteFolderTarget, [], '__global__'), {
+    agentId: '__global__',
+    filePath: 'Users/demo/git/farming/reference/lobe-icons',
+    globalRoot: true,
+  });
+  assert.deepStrictEqual(resolveWorkspaceSharePath({
+    kind: 'file',
+    agentId: 'stale-agent',
+    projectLabel: 'farming',
+    filePath: 'README.md',
+  }, [{ agentId: 'replacement-agent', workspace: '/Users/demo/git/farming' }], '__global__'), {
+    agentId: 'replacement-agent',
+    filePath: 'README.md',
+    globalRoot: false,
+  });
+  assert.strictEqual(
+    clearWorkspaceShareTargetSearch('?token=keep&ftarget=folder&path=%2Ftmp%2Fa#ignored'),
+    '?token=keep'
+  );
+  assert.strictEqual(workspaceFolderPreviewFilePath([
+    workspaceFile('reference/index.ts'),
+    workspaceFile('reference/guide.md'),
+    workspaceFile('reference/README.md'),
+  ]), 'reference/README.md');
+  assert.strictEqual(workspaceFolderPreviewFilePath([
+    workspaceFile('reference/index.ts'),
+    workspaceFile('reference/guide.md'),
+  ]), 'reference/guide.md');
+  assert.strictEqual(workspaceFolderPreviewFilePath([
+    workspaceFile('reference/index.ts'),
+  ]), 'reference/index.ts');
+  assert.strictEqual(workspaceFolderPreviewFilePath([
+    directory('reference/src'),
+  ]), '');
   assert.strictEqual(workspaceFileCacheKey('agent-1', 'src/App.tsx'), 'src/App.tsx');
   assert.strictEqual(workspaceFileCacheKey('agent-1', 'src/App.tsx', '/repo'), '/repo/src/App.tsx');
   assert.strictEqual(
@@ -721,6 +813,14 @@ function run() {
     visibleWorkspaceDirectoryPathsToOpenForTarget(nestedRevealTree, 'reference/poem/hidden.txt'),
     ['reference', 'reference/poem']
   );
+  const linkedDirectoryTree = buildWorkspaceFileTreeNodes([
+    directory('reference', { symbolicLink: true, external: true, readOnly: true }),
+  ], {
+    reference: { items: [workspaceFile('reference/index.md', { external: true, readOnly: true })] },
+  });
+  assert.strictEqual(linkedDirectoryTree[0].type, 'directory');
+  assert.strictEqual(linkedDirectoryTree[0].symbolicLink, true);
+  assert.strictEqual(linkedDirectoryTree[0].children[0].path, 'reference/index.md');
   assert.deepStrictEqual(workspaceFileTreeDepthStyle(2), {
     '--file-indent': '28px',
     '--file-status-indent': '46px',
@@ -759,6 +859,17 @@ function run() {
   assert.strictEqual(fileRowState.fileChangedTitleKind, 'dirty');
   assert.strictEqual(fileRowState.fileOpening, false);
   assert.strictEqual(fileRowState.showDirectoryDot, false);
+  const linkedDirectoryRowState = workspaceFileTreeRowViewState({
+    activeFilePath: '',
+    editorDirtyFilePaths: new Set(),
+    editorExternalChangedFilePaths: new Set(),
+    item: directory('reference', { symbolicLink: true, external: true, readOnly: true }),
+    isFocused: false,
+    isOpen: false,
+    isSelected: false,
+  });
+  assert(linkedDirectoryRowState.rowClasses.includes('symbolic-link'));
+  assert(linkedDirectoryRowState.rowClasses.includes('external-link'));
   assert(fileRowState.rowClasses.includes('file'));
   assert(fileRowState.rowClasses.includes('active'));
   assert(fileRowState.rowClasses.includes('editor-dirty'));
@@ -799,24 +910,40 @@ function run() {
   assert(directoryRowState.rowClasses.includes('editor-descendant-dirty'));
   assert(directoryRowState.rowClasses.includes('editor-descendant-external-changed'));
   assert(directoryRowState.rowClasses.includes('git-descendant-deleted'));
+  const loadingDirectoryRowState = workspaceFileTreeRowViewState({
+    editorDirtyFilePaths: new Set(),
+    editorExternalChangedFilePaths: new Set(),
+    item: directory('packages', { loading: true }),
+    isFocused: false,
+    isOpen: true,
+    isSelected: false,
+  });
+  assert.strictEqual(loadingDirectoryRowState.directoryLoading, true);
+  assert.strictEqual(loadingDirectoryRowState.chevronState, 'expanded');
+  const ignoredDirectoryRowState = workspaceFileTreeRowViewState({
+    editorDirtyFilePaths: new Set(),
+    editorExternalChangedFilePaths: new Set(),
+    item: directory('.tmp', { ignored: true }),
+    isFocused: false,
+    isOpen: false,
+    isSelected: false,
+  });
+  assert(ignoredDirectoryRowState.rowClasses.includes('ignored'));
   assert.deepStrictEqual(workspaceStickyContextItems({
     visible: false,
     directoryNodes: [],
-    openFilesCount: 0,
-    openEditorsLabel: 'OPEN EDITORS',
-    filesLabel: 'FILES',
   }), []);
   assert.deepStrictEqual(workspaceStickyContextItems({
     visible: true,
     directoryNodes: [directory('src')],
-    openFilesCount: 2,
-    openEditorsLabel: 'OPEN EDITORS',
-    filesLabel: 'FILES',
-  }).map(item => item.kind === 'directory' ? `${item.kind}:${item.node.path}` : `${item.kind}:${item.name}`), [
-    'open-editors:OPEN EDITORS',
-    'files:FILES',
+  }).map(item => `${item.kind}:${item.node.path}`), [
     'directory:src',
   ]);
+  assert.strictEqual(workspaceCompactStickyDirectoryLabel([
+    directory('Users/example'),
+    directory('Users/example/git'),
+    directory('Users/example/git/farming'),
+  ]), 'example/git/farming');
   assert.strictEqual(workspaceFileRevealScrollDelta({ top: 100, bottom: 200 }, { top: 80, bottom: 120 }), -20);
   assert.strictEqual(workspaceFileRevealScrollDelta({ top: 100, bottom: 200 }, { top: 180, bottom: 220 }), 20);
   assert.strictEqual(workspaceFileRevealScrollDelta({ top: 100, bottom: 200 }, { top: 120, bottom: 180 }), 0);
@@ -878,7 +1005,8 @@ function run() {
     lastFocusedPath: null,
     rows: [],
   }), null);
-  assert.strictEqual(workspaceStickyContentTop(10, 30, 12), 52);
+  assert.strictEqual(workspaceStickyContentTop(10, 30, 12), 77);
+  assert.strictEqual(workspaceStickyContentTop(10, 30, 12, 0), 52);
   assert.strictEqual(isWorkspaceStickyContextVisible(40, 41), true);
   assert.strictEqual(isWorkspaceStickyContextVisible(43, 41), false);
   const rowSnapshots = [
@@ -888,7 +1016,6 @@ function run() {
   ];
   assert.strictEqual(firstVisibleWorkspaceFilePath(rowSnapshots, 50, 120), 'src/components');
   assert.deepStrictEqual(workspaceStickyDirectoryPaths('src/components/App.tsx', rowSnapshots, 70), ['src', 'src/components']);
-  assert.strictEqual(openEditorsRevealScrollDelta(180, 64), 116);
   assert.deepStrictEqual(WORKSPACE_FILE_SEARCH_FOCUS_RETRY_DELAYS, [0, 80, 180, 300, 520, 900, 1200]);
   assert.deepStrictEqual(WORKSPACE_FILE_TREE_FOCUS_RETRY_DELAYS, [80, 180, 360]);
 
@@ -988,6 +1115,8 @@ function run() {
   assert.strictEqual(languageForWorkspaceFile('vite.config.js', '', languages), 'config-js');
   assert.strictEqual(languageForWorkspaceFile('bin/tool', '#!/usr/bin/env python\nprint(1)', languages), 'python');
   assert.strictEqual(languageForWorkspaceFile('data/events.jsonl', '{}', languages), 'json');
+  assert.strictEqual(languageForWorkspaceFile('scripts/warehouse.osql', '', languages), 'sql');
+  assert.strictEqual(languageForWorkspaceFile('scripts/warehouse.odpsql', '', languages), 'sql');
   assert.strictEqual(languageForWorkspaceFile('notes/readme.unknown', '', languages), 'plaintext');
   assert.ok(formatWorkspaceBlameTime(1704067200).includes('2024'));
   assert.strictEqual(workspaceBlameInlineLabel({ author: '', authorTime: null }), 'Unknown');
@@ -1208,11 +1337,11 @@ function run() {
   }), 'New File');
   assert.deepStrictEqual(workspaceFileContextMenuPosition(500, 500, fileNode, 600, 580), {
     x: 372,
-    y: 336,
+    y: 310,
   });
   assert.deepStrictEqual(workspaceFileContextMenuPosition(500, 500, fileNode, 600, 580, 4), {
     x: 372,
-    y: 222,
+    y: 196,
   });
 
   console.log('test-workspace-file-models passed');

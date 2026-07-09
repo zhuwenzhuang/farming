@@ -48,3 +48,10 @@ export function shouldSubmitComposerEnter(
   }
   return true
 }
+
+export function composerDraftForSubmit(
+  textareaValue: string | null | undefined,
+  latestDraft: string,
+) {
+  return textareaValue || latestDraft
+}

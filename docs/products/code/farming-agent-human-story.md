@@ -61,6 +61,7 @@ Expected behavior:
 
 - New project agents start in the chosen project directory.
 - Shell terminal output preserves the user's bash / zsh prompt while Farming shell integration emits invisible busy and cwd markers.
+- On macOS, built-in bash and zsh use VS Code-style login-shell startup; each shell sources its own profile and never inherits another shell's prompt variables.
 - `FARMING_SHELL_CONTROLLED_PROMPT=1` or `FARMING_ANONYMIZE_SHELL_PROMPT=1` may still use the compact controlled prompt for screenshots and privacy-sensitive runs.
 - ANSI color escape sequences are preserved so the terminal renderer can display prompt color.
 

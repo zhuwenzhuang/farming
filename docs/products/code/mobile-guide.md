@@ -45,6 +45,8 @@ Expected:
 - Tapping terminal output should not accidentally summon the keyboard.
 - The input area remains visible when the keyboard appears.
 - Long output should scroll inside the terminal experience without causing page-wide horizontal overflow.
+- Live Codex work stays collapsed to a compact status row by default; expand a step only when its detail is needed.
+- Mobile uses the device keyboard's dictation instead of a separate web speech button.
 
 ## Files Workflow
 

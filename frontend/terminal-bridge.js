@@ -37,7 +37,27 @@
     'monospace',
   ].join(', ');
 
-  async function ensureLibrary() {
+  function preferredEngine() {
+    try {
+      return global.localStorage.getItem('farmingTerminalEngine') === 'ghostty'
+        ? 'ghostty'
+        : 'xterm';
+    } catch {
+      return 'xterm';
+    }
+  }
+
+  function ensureXtermLibrary() {
+    if (global.Terminal && global.FitAddon && global.FitAddon.FitAddon) {
+      return {
+        Terminal: global.Terminal,
+        FitAddon: global.FitAddon.FitAddon,
+      };
+    }
+    return null;
+  }
+
+  async function ensureGhosttyLibrary() {
     if (global.GhosttyWeb && global.GhosttyWeb.Terminal) {
       return global.GhosttyWeb;
     }
@@ -68,8 +88,12 @@
       scrollback: options.scrollback || 20000,
     };
 
-    const ghostty = await ensureLibrary();
-    if (ghostty && ghostty.Terminal) {
+    if (preferredEngine() === 'ghostty') {
+      const ghostty = await ensureGhosttyLibrary();
+      if (!ghostty || !ghostty.Terminal) {
+        console.error('Ghostty terminal is unavailable.');
+        return null;
+      }
       return {
         kind: 'ghostty',
         terminal: new ghostty.Terminal({
@@ -81,14 +105,42 @@
         fitAddon: new ghostty.FitAddon(),
       };
     }
-    console.error('Ghostty terminal is unavailable; renderer hard-cut does not allow fallback.');
-    return null;
+
+    const xterm = ensureXtermLibrary();
+    if (!xterm) {
+      console.error('xterm terminal is unavailable.');
+      return null;
+    }
+    return {
+      kind: 'xterm',
+      terminal: new xterm.Terminal({
+        ...baseOptions,
+        allowProposedApi: true,
+        altClickMovesCursor: false,
+        cols: 80,
+        convertEol: true,
+        cursorStyle: 'block',
+        drawBoldTextInBrightColors: false,
+        lineHeight: 1.18,
+        macOptionClickForcesSelection: true,
+        minimumContrastRatio: 4.5,
+        rows: 30,
+        scrollOnEraseInDisplay: true,
+        scrollOnUserInput: true,
+        smoothScrollDuration: 0,
+        theme,
+      }),
+      fitAddon: new xterm.FitAddon(),
+    };
   }
 
   global.FarmingTerminalBridge = {
     DEFAULT_THEME,
     DEFAULT_FONT_FAMILY,
-    ensureLibrary,
+    preferredEngine,
+    ensureLibrary: ensureGhosttyLibrary,
+    ensureGhosttyLibrary,
+    ensureXtermLibrary,
     createInstance,
   };
 })(window);

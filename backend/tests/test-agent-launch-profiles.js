@@ -1,5 +1,6 @@
 const assert = require('assert');
-const { parseCommand, resolveLaunchCommand } = require('../cli-agents');
+const CLI_AGENTS = require('../cli-agents');
+const { parseCommand, resolveLaunchCommand } = CLI_AGENTS;
 
 function run() {
   const claudeDefault = resolveLaunchCommand('claude', { dangerouslySkipPermissions: false });
@@ -9,6 +10,22 @@ function run() {
   const claudeSkip = resolveLaunchCommand('claude', { dangerouslySkipPermissions: true });
   assert.deepStrictEqual(claudeSkip.args, ['--dangerously-skip-permissions']);
   assert.strictEqual(claudeSkip.permissionMode, 'bypassPermissions');
+
+  const claudeExplicitPermission = resolveLaunchCommand('claude --resume claude-session-123', {
+    claudePermissionMode: 'dontAsk',
+    dangerouslySkipPermissions: true,
+  });
+  assert.deepStrictEqual(claudeExplicitPermission.args, ['--permission-mode', 'dontAsk', '--resume', 'claude-session-123']);
+  assert.strictEqual(claudeExplicitPermission.permissionMode, 'dontAsk');
+
+  ['acceptEdits', 'auto', 'bypassPermissions', 'dontAsk', 'plan'].forEach((permissionMode) => {
+    const launch = resolveLaunchCommand('claude --resume claude-session-123', { claudePermissionMode: permissionMode });
+    assert.deepStrictEqual(launch.args, ['--permission-mode', permissionMode, '--resume', 'claude-session-123']);
+    assert.strictEqual(launch.permissionMode, permissionMode);
+  });
+  const claudeExplicitDefault = resolveLaunchCommand('claude --resume claude-session-123', { claudePermissionMode: 'default' });
+  assert.deepStrictEqual(claudeExplicitDefault.args, ['--resume', 'claude-session-123']);
+  assert.strictEqual(claudeExplicitDefault.permissionMode, '');
 
   const codexSkip = resolveLaunchCommand('codex', { dangerouslySkipPermissions: true });
   assert.deepStrictEqual(codexSkip.args, ['--dangerously-bypass-approvals-and-sandbox']);
@@ -85,6 +102,10 @@ function run() {
   assert.deepStrictEqual(codexCustom.args, []);
   assert.strictEqual(codexCustom.permissionMode, 'custom');
 
+  const codexCustomResume = resolveLaunchCommand('codex resume codex-session-123', { codexApprovalMode: 'custom' });
+  assert.deepStrictEqual(codexCustomResume.args, ['resume', 'codex-session-123']);
+  assert.strictEqual(codexCustomResume.permissionMode, 'custom');
+
   const codexUnifiedProfile = resolveLaunchCommand('codex --search', {
     agentLaunchProfiles: {
       codex: {
@@ -141,7 +162,7 @@ function run() {
       claude: { permissionMode: 'bypassPermissions', model: 'config', effort: 'config' },
     },
   });
-  assert.deepStrictEqual(claudeBypassProfile.args, ['--permission-mode', 'bypassPermissions']);
+  assert.deepStrictEqual(claudeBypassProfile.args, ['--dangerously-skip-permissions']);
   assert.strictEqual(claudeBypassProfile.permissionMode, 'bypassPermissions');
 
   const claudeManualProfileArgs = resolveLaunchCommand('claude --permission-mode default --model opus --effort low', {
@@ -151,11 +172,43 @@ function run() {
   });
   assert.deepStrictEqual(claudeManualProfileArgs.args, ['--permission-mode', 'default', '--model', 'opus', '--effort', 'low']);
 
+  const codexDangerousOverridesProfile = resolveLaunchCommand('codex', {
+    dangerouslySkipPermissions: true,
+    agentLaunchProfiles: { codex: { approvalMode: 'approve' } },
+  });
+  assert.deepStrictEqual(codexDangerousOverridesProfile.args, ['--dangerously-bypass-approvals-and-sandbox']);
+  assert.strictEqual(codexDangerousOverridesProfile.permissionMode, 'full');
+
   const qwenSkip = resolveLaunchCommand('qwen', { dangerouslySkipPermissions: true });
   assert.deepStrictEqual(qwenSkip.args, ['--yolo']);
 
+  const aiderSkip = resolveLaunchCommand('aider', { dangerouslySkipPermissions: true });
+  assert.deepStrictEqual(aiderSkip.args, ['--yes-always']);
+  assert.strictEqual(aiderSkip.permissionMode, 'full');
+
+  const copilotSkip = resolveLaunchCommand('github-copilot-cli', { dangerouslySkipPermissions: true });
+  assert.deepStrictEqual(copilotSkip.args, ['--allow-all-tools']);
+  assert.strictEqual(copilotSkip.permissionMode, 'full');
+
+  const amazonQSkip = resolveLaunchCommand('amazon-q', { dangerouslySkipPermissions: true });
+  assert.deepStrictEqual(amazonQSkip.args, ['--trust-all-tools']);
+  assert.strictEqual(amazonQSkip.permissionMode, 'full');
+
+  CLI_AGENTS
+    .filter(spec => spec.supported !== false && spec.interactive !== false && spec.category === 'coding')
+    .forEach(spec => {
+      assert(
+        spec.permissions?.supportsDangerousSkip === true && Array.isArray(spec.permissions.dangerousSkipArgs) && spec.permissions.dangerousSkipArgs.length > 0,
+        `${spec.name} should declare provider-specific dangerous skip args`
+      );
+      const launch = resolveLaunchCommand(spec.name, { dangerouslySkipPermissions: true });
+      spec.permissions.dangerousSkipArgs.forEach(arg => assert(launch.args.includes(arg), `${spec.name} should launch with ${arg}`));
+    });
+
   const shellSkip = resolveLaunchCommand('bash', { dangerouslySkipPermissions: true });
-  assert.deepStrictEqual(shellSkip.args, []);
+  assert.deepStrictEqual(shellSkip.args, process.platform === 'darwin' ? ['-l'] : []);
+  const zshShell = resolveLaunchCommand('zsh');
+  assert.deepStrictEqual(zshShell.args, process.platform === 'darwin' ? ['-l'] : []);
 
   const customArgs = resolveLaunchCommand('claude --debug', { dangerouslySkipPermissions: true });
   assert.deepStrictEqual(customArgs.args, ['--dangerously-skip-permissions', '--debug']);

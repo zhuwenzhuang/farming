@@ -118,8 +118,11 @@ export function normalizeModelCatalog(data: { catalog?: CodexModelOption[]; mode
   return converted.length > 0 ? converted : FALLBACK_CODEX_MODEL_OPTIONS
 }
 
-export function agentSessionId(session: Pick<AgentSessionHistoryItem, 'provider' | 'id'>) {
-  return workspaceTargetId({ kind: 'agent-session', provider: session.provider, id: session.id })
+export function agentSessionId(session: Pick<AgentSessionHistoryItem, 'provider' | 'id' | 'providerHomeId'>) {
+  const sessionId = session.providerHomeId && session.providerHomeId !== 'default'
+    ? `home:${session.providerHomeId}:${session.id}`
+    : session.id
+  return workspaceTargetId({ kind: 'agent-session', provider: session.provider, id: sessionId })
 }
 
 export function formatAgentSessionWorkspace(session: AgentSessionHistoryItem) {
@@ -200,8 +203,9 @@ export function groupAgentsByProject(agents: Agent[], agentSessions: AgentSessio
     ...group,
     agents: group.agents.sort((a, b) => {
       if (a.isMain !== b.isMain) return a.isMain ? -1 : 1
-      if ((a.pinned === true) !== (b.pinned === true)) return a.pinned ? -1 : 1
-      return 0
+      const orderDifference = (b.projectOrder ?? 0) - (a.projectOrder ?? 0)
+      if (orderDifference !== 0) return orderDifference
+      return (b.startedAt ?? 0) - (a.startedAt ?? 0)
     }),
     agentSessions: group.agentSessions.sort(compareAgentSessions),
   })).sort((a, b) => {

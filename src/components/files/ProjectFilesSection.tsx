@@ -56,6 +56,8 @@ interface ProjectFilesSectionProps {
   onStartAgent?: (command: string, workspace: string, options?: { projectWorkspace?: string }) => void
   onMoveEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
   onDeleteEntries: (agentId: string, deletions: WorkspaceFileDeleteResult[]) => void
+  onFilesCollapsedChange?: (collapsed: boolean) => void
+  readOnly?: boolean
   copy: CodeCopy
 }
 
@@ -103,6 +105,8 @@ export function ProjectFilesSection({
   onStartAgent,
   onMoveEntries,
   onDeleteEntries,
+  onFilesCollapsedChange,
+  readOnly = false,
   copy,
 }: ProjectFilesSectionProps) {
   const {
@@ -116,10 +120,11 @@ export function ProjectFilesSection({
     loadMissingDirectories,
     refreshDirectories,
     hydrateCompactDirectoryChains,
+    finishRestoringOpenDirectoryPaths,
     syncOpenDirectoryPaths,
     setDirectoryOpen,
     openDirectoriesInLayout,
-  } = useWorkspaceFileExplorer(agentId)
+  } = useWorkspaceFileExplorer(agentId, projectId)
 
   const fileOperationActiveRef = useRef(false)
   const fileSearchInputRef = useRef<HTMLInputElement | null>(null)
@@ -144,6 +149,7 @@ export function ProjectFilesSection({
     openDirectoryPaths,
     treeData,
     hydrateCompactDirectoryChains,
+    finishRestoringOpenDirectoryPaths,
     setDirectoryOpen,
     syncOpenDirectoryPaths,
   })
@@ -154,6 +160,7 @@ export function ProjectFilesSection({
     focusFileTreeFromSearch,
     focusFileTreePath,
     focusFileTreeTarget,
+    locatedFilePath,
     revealExplorerPath,
     revealFilePath,
   } = useWorkspaceFileFocus({
@@ -184,7 +191,7 @@ export function ProjectFilesSection({
     onSelectOpenFile,
   })
 
-  const fileChanges = useWorkspaceFileChanges(agentId, openFiles)
+  const fileChanges = useWorkspaceFileChanges(readOnly ? null : agentId, openFiles)
   const [changesCollapsed, setChangesCollapsed] = useState(true)
 
   useEffect(() => {
@@ -231,6 +238,7 @@ export function ProjectFilesSection({
     closeFileMenuWithFocusRestore,
     closeFileMenuWithoutFocus,
     copyFileMenuPath,
+    copyFileMenuShareUrl,
     fileMenuTargetDirectory,
     openFileContextMenu,
     refreshFileMenuTarget,
@@ -241,7 +249,9 @@ export function ProjectFilesSection({
     cancelPendingFileFocus,
     clearFileOperation,
     focusFileTreeTarget,
+    projectWorkspace,
     refreshDirectories,
+    shareLinkFailed: copy.shareLinkFailed,
     setOpenFileError,
     startFileOperation: startFileOperationController,
   })
@@ -279,6 +289,7 @@ export function ProjectFilesSection({
     toggleOpenEditorsCollapsed,
   } = useWorkspaceFileSectionController({
     agentId,
+    workspaceKey: projectId,
     clearFileMenu,
     clearFileOperation,
     clearFileSearch,
@@ -294,6 +305,10 @@ export function ProjectFilesSection({
     setOpenFileError,
     treeData,
   })
+
+  useEffect(() => {
+    onFilesCollapsedChange?.(filesCollapsed)
+  }, [filesCollapsed, onFilesCollapsedChange])
   const filesSectionStyle = useMemo(() => {
     if (openFiles.length === 0) {
       return { '--code-open-editors-sticky-height': '0px' } as CSSProperties
@@ -316,16 +331,12 @@ export function ProjectFilesSection({
 
   const {
     focusStickyDirectory,
-    revealOpenEditorsSection,
     stickyContextItems,
   } = useWorkspaceFileStickyContext({
     filesCollapsed,
-    filesLabel: copy.files,
     focusFileTreePath,
     lastFocusedFilePathRef,
     openDirectoryPaths,
-    openEditorsLabel: copy.openEditors,
-    openFilesCount: openFiles.length,
     refreshTreeLayout,
     resetKey: agentId,
     treeData,
@@ -385,6 +396,7 @@ export function ProjectFilesSection({
     handleFileSearchKeyDown,
     handleTreeKeyDownCapture,
     lastFocusedFilePathRef,
+    locatedFilePath,
     openEditorsCollapsed,
     openFileError,
     openFilePendingPath,
@@ -394,6 +406,7 @@ export function ProjectFilesSection({
     rootDirectoryHasItems: Boolean(directories['']?.items.length),
     rootDirectoryLoading: Boolean(directories['']?.loading),
     rowHeight: FILE_ROW_HEIGHT,
+    readOnly,
     stickyContextItems,
     treeData,
     treeHeight,
@@ -406,6 +419,7 @@ export function ProjectFilesSection({
     onCloseFileOperation: closeFileOperation,
     onCloseOpenFile,
     onCopyFileMenuPath: copyFileMenuPath,
+    onCopyFileMenuShareUrl: copyFileMenuShareUrl,
     onFocusFileTreeTarget: focusFileTreeTarget,
     onFocusStickyDirectory: focusStickyDirectory,
     onOpenFileContextMenu: openFileContextMenu,
@@ -415,7 +429,6 @@ export function ProjectFilesSection({
     onOpenNewAgentFromFileMenu: openNewAgentFromFileMenu,
     onRefreshFileMenuTarget: refreshFileMenuTarget,
     onRememberFileOperationName: rememberFileOperationName,
-    onRevealOpenEditors: revealOpenEditorsSection,
     onSearchQueryChange: updateFileSearchQuery,
     onSelectOpenFile,
     onSelectSearchMatchIndex: fileSearch.selectMatchIndex,
@@ -450,15 +463,18 @@ export function ProjectFilesSection({
         <FileSectionHeader {...viewModel.sectionHeader} />
         {!filesCollapsed && (
           <>
-            <FileChangesSection
-              activeFilePath={activeFilePath}
-              changes={fileChanges}
-              collapsed={changesCollapsed}
-              copy={copy}
-              projectId={projectId}
-              onOpenChange={openFileChange}
-              onToggleCollapsed={toggleChangesCollapsed}
-            />
+            {!readOnly && (
+              <FileChangesSection
+                activeFilePath={activeFilePath}
+                agentId={agentId}
+                changes={fileChanges}
+                collapsed={changesCollapsed}
+                copy={copy}
+                projectId={projectId}
+                onOpenChange={openFileChange}
+                onToggleCollapsed={toggleChangesCollapsed}
+              />
+            )}
             <FileSectionBody {...viewModel.sectionBody} />
           </>
         )}
@@ -476,6 +492,7 @@ export function ProjectFilesSection({
           onCloseFileMenuWithFocusRestore={closeFileMenuWithFocusRestore}
           onCloseFileOperation={closeFileOperation}
           onCopyFileMenuPath={copyFileMenuPath}
+          onCopyFileMenuShareUrl={copyFileMenuShareUrl}
           onOpenNewAgent={openNewAgentFromFileMenu}
           onRefreshFileMenuTarget={refreshFileMenuTarget}
           onRememberFileOperationName={rememberFileOperationName}
@@ -483,6 +500,7 @@ export function ProjectFilesSection({
           onStartFileMenuOperation={startFileMenuOperation}
           onSubmitFileOperation={submitFileOperation}
           onUpdateFileOperationName={updateFileOperationName}
+          readOnly={readOnly}
         />
       )}
     </>

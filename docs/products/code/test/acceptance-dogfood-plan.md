@@ -81,15 +81,27 @@ Cover first screen, token URL, WebSocket, heartbeat state, Main Agent / New Agen
 
 ### 2. Agent Launch Profiles
 
-Cover executable discovery, Codex model / reasoning / speed, Claude settings summary, permissions, and launch profile merging.
+Cover executable discovery, Codex model / reasoning / speed, Claude settings summary, launch permissions, and launch profile merging. Running permission changes should restart with the selected flags, resume when a stable provider session id exists, start fresh when it does not, and preserve the selected agent plus Chat / Terminal view throughout the replacement.
 
 ### 3. Composer And Input
 
 Cover plain text, Enter, Shift+Enter, Ctrl/Cmd+Enter, busy-agent follow-up queue, steer, slash commands, skill mentions, attachments, paste image, and keyboard shortcut boundaries.
 
+Do not treat the bottom composer as the only input path. Real-agent smoke must also focus the embedded terminal itself and type directly into the CLI prompt, because Qoder / Claude Code / OpenCode users often work that way.
+
+Terminal input cases must include:
+
+- ASCII direct terminal typing and Enter submission;
+- non-ASCII committed text such as Chinese;
+- IME composition behavior, using the same hidden-textarea / composition event model as xterm.js and VS Code;
+- paste / committed text that contains mixed Chinese and ASCII;
+- verification that normal ASCII input is not duplicated by IME fallbacks.
+
 ### 4. Terminal And Session Output
 
 Cover native `node-pty`, packaged `node-pty`, canvas rendering, URL hit-test, `path:line` hit-test, scroll stability, jump-to-latest, focus, copy cwd, multi-terminal switching, and agent exit.
+
+For terminal IME bugs, prefer the xterm.js / VS Code principle: let browser composition events complete in the xterm helper textarea, then send only the committed text to the PTY. Do not invent a parallel input method, and do not rely only on synthetic paste tests; capture screenshots of the real CLI prompt before and after Enter.
 
 ### 5. Project / Sidebar / History
 

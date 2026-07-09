@@ -27,6 +27,16 @@ async function revealMobileSidebar(page: import('@playwright/test').Page) {
   await expect(page.getByTestId('code-sidebar')).toBeVisible()
 }
 
+async function createControlAgent(page: import('@playwright/test').Page, command: string, workspace: string) {
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command, workspace },
+  })
+  expect(response.ok()).toBeTruthy()
+  const data = await response.json() as { agentId?: string }
+  expect(data.agentId).toBeTruthy()
+  return data.agentId as string
+}
+
 async function startMobileAgentFromOpenDialog(page: import('@playwright/test').Page, name: string, workspace: string) {
   const previousPaneIds = new Set(await page.getByTestId('code-terminal-pane').evaluateAll(panes => panes
     .map(pane => pane.getAttribute('data-agent-id'))
@@ -55,7 +65,10 @@ async function startMobileAgentFromOpenDialog(page: import('@playwright/test').P
 }
 
 test.describe('mobile Farming Code user story', () => {
-  test('uses mobile options for language preferences', async ({ page }) => {
+  test('keeps mobile actions compact and moves settings out of the three-dot menu', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 1, configurable: true })
+    })
     await page.setViewportSize({ width: 390, height: 844 })
     await openFarming(page)
     await expect(page.getByTestId('code-mobile-topbar')).toBeVisible()
@@ -64,54 +77,151 @@ test.describe('mobile Farming Code user story', () => {
     await expectNoPageOverflow(page)
 
     await page.getByTestId('code-mobile-more').click()
-    await expect(page.getByTestId('code-options-menu')).toBeVisible()
-    await expect(page.getByTestId('code-options-menu')).not.toContainText('Appearance:')
-    await expect(page.getByTestId('code-options-menu')).toContainText('Dark')
-    await expect(page.getByTestId('code-options-menu')).not.toContainText('New Agent')
-    await expect(page.getByTestId('code-options-menu')).not.toContainText('Agent actions')
-    await expect(page.getByTestId('code-options-menu')).not.toContainText('Search')
-    await expect(page.getByTestId('code-options-menu')).not.toContainText('History')
-    await expect.poll(() => page.locator('body').getAttribute('data-appearance')).toBe('light')
+    const mobileOptions = page.getByTestId('code-options-menu')
+    await expect(mobileOptions).toBeVisible()
+    await expect(mobileOptions.getByRole('menuitem', { name: 'Chat' })).toBeVisible()
+    await expect(mobileOptions.getByRole('menuitem', { name: 'Terminal' })).toBeVisible()
+    await expect(mobileOptions.getByRole('menuitem', { name: 'Share page' })).toBeVisible()
+    await expect(mobileOptions).not.toContainText('Settings')
+    await expect(page.getByTestId('code-mobile-more')).toHaveAttribute('aria-label', 'Open options')
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('code-empty-workspace')).toContainText('Start or select an agent')
+    const inactiveComposerInput = page.getByTestId('code-composer-input')
+    await expect(inactiveComposerInput).toHaveAttribute('data-placeholder', 'Open an agent terminal first')
+    await expect(inactiveComposerInput).toHaveAttribute('aria-disabled', 'true')
 
-    await page.getByRole('menuitemradio', { name: /Language: 中文/ }).click()
-    await expect(page.getByTestId('code-mobile-more')).toHaveAttribute('aria-label', '打开选项')
-    await expect(page.getByTestId('code-empty-workspace')).toContainText('启动或选择一个 Agent')
-    await expect(page.getByTestId('code-composer').locator('textarea')).toHaveAttribute('placeholder', '先打开一个 Agent 终端')
-
-    await page.getByTestId('code-empty-workspace').getByRole('button', { name: '新建 Agent' }).click()
-    await expect(page.getByTestId('input-dialog')).toContainText('启动新 Agent')
-    await expect(page.getByTestId('input-dialog-close')).toHaveAttribute('aria-label', '关闭')
+    await page.getByTestId('code-empty-workspace').getByRole('button', { name: 'New Agent' }).click()
+    await expect(page.getByTestId('input-dialog')).toContainText('Start New Agent')
+    await expect(page.getByTestId('input-dialog-close')).toHaveAttribute('aria-label', 'Close')
     await expect(page.getByTestId('agent-list-status')).toBeHidden({ timeout: 30_000 })
-    await expect(page.locator('.input-dialog .group-label').first()).toContainText(/代码 Agent|其他/)
+    await expect(page.locator('.input-dialog .group-label').first()).toContainText(/coding agents|other/i)
     await page.getByTestId('input-dialog-close').click()
     await expect(page.getByTestId('input-dialog')).toBeHidden()
-
-    await page.getByTestId('code-mobile-more').click()
-    await expect(page.getByRole('menuitemradio', { name: /语言：中文/ })).toHaveAttribute('aria-checked', 'true')
-    await expect(page.getByTestId('code-options-menu')).toContainText('中文')
-    await expect(page.getByTestId('code-options-menu')).not.toContainText('✓ 语言：中文')
-    await expect(page.getByTestId('code-options-menu')).not.toContainText('外观：')
-    await expect(page.getByTestId('code-options-menu')).not.toContainText('新建 Agent')
-    await expect(page.getByTestId('code-options-menu')).not.toContainText('Agent 操作')
-    await expect(page.getByTestId('code-options-menu')).not.toContainText('搜索')
-    await expect(page.getByTestId('code-options-menu')).not.toContainText('历史')
-    await page.keyboard.press('Escape')
 
     await page.setViewportSize({ width: 1280, height: 800 })
     await expect(page.getByTestId('code-sidebar-options')).toBeVisible()
     await page.getByTestId('code-sidebar-options').click()
-    await expect(page.getByTestId('code-options-menu')).not.toContainText('外观：')
-    await expect(page.getByTestId('code-options-menu')).toContainText('深色')
-    await expect(page.getByTestId('code-options-menu')).not.toContainText('新建 Agent')
-    await expect(page.getByTestId('code-options-menu')).not.toContainText('Agent 操作')
-    await expect(page.getByTestId('code-options-menu')).not.toContainText('搜索')
-    await expect(page.getByTestId('code-options-menu')).not.toContainText('历史')
+    const settingsPanel = page.getByTestId('code-settings-panel')
+    await expect(settingsPanel).toBeVisible()
+    await settingsPanel.getByRole('button', { name: '中文' }).click()
+    await expect(settingsPanel.getByRole('button', { name: '中文' })).toHaveClass(/active/)
+    await settingsPanel.getByRole('button', { name: '关闭' }).click()
     await expect.poll(() => page.locator('body').getAttribute('data-appearance')).toBe('light')
 
     const settingsResponse = await page.request.get('/farming/api/settings')
     const settingsData = await settingsResponse.json()
     expect(settingsData.settings?.appearance).toBe('light')
     expect(settingsData.settings?.language).toBe('zh')
+
+  })
+
+  test('keeps running transcript status docked near the mobile composer', async ({ page, workspaceRoot }) => {
+    const projectDir = path.join(workspaceRoot, 'mobile-transcript-status')
+    fs.mkdirSync(path.join(projectDir, 'src/components/code'), { recursive: true })
+    fs.mkdirSync(path.join(projectDir, 'backend/tests'), { recursive: true })
+    fs.writeFileSync(path.join(projectDir, 'src/components/code/MobileCodeComposerInput.tsx'), 'export const mobile = true\n')
+    fs.writeFileSync(path.join(projectDir, 'backend/tests/test-mobile.js'), 'console.log("mobile")\n')
+    const sessionId = `019f-mobile-status-${Date.now()}`
+
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 1, configurable: true })
+    })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.route(/\/farming\/api\/agents\/[^/]+\/codex-transcript(?:\?.*)?$/, async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          transcript: {
+            available: true,
+            sessionId,
+            updatedAt: new Date('2026-07-10T00:00:00.000Z').toISOString(),
+            source: 'mobile-status-fixture',
+            turns: [
+              {
+                id: 'completed-turn',
+                userMessage: 'Keep long mobile transcript content readable without horizontal scrolling.',
+                finalMessage: [
+                  'Mobile chat should wrap long commands and paths:',
+                  '',
+                  '```bash',
+                  'node backend/tests/test-mobile.js --workspace /very/long/workspace/path/that/should/wrap/instead/of/creating/a-horizontal-scrollbar --mode mobile-chat',
+                  '```',
+                  '',
+                  'Inline paths such as `src/components/code/MobileCodeComposerInput.tsx` should wrap too.',
+                ].join('\n'),
+                startedAt: Date.now() - 120_000,
+                completedAt: Date.now() - 90_000,
+                durationMs: 30_000,
+                status: 'completed',
+                processItems: [
+                  { id: 'completed-patch', type: 'patch', title: 'Edited 2 files', detail: 'update src/components/code/MobileCodeComposerInput.tsx +34 -4\nupdate src/styles/main.css +21 -9', status: 'completed' },
+                ],
+              },
+              {
+                id: 'running-turn',
+                userMessage: 'Continue and keep the file changes close to the composer.',
+                finalMessage: '',
+                startedAt: Date.now() - 45_000,
+                status: 'inProgress',
+                processItems: [
+                  { id: 'running-command', type: 'command', title: 'Ran mobile layout audit', detail: 'measuring visual viewport and composer gap', status: 'completed' },
+                  { id: 'running-patch', type: 'patch', title: 'Edited 3 files', detail: 'update src/components/code/CodeComposer.tsx +18 -6\nupdate src/components/code/MobileCodeComposerInput.tsx +11 -2\nupdate src/styles/main.css +29 -14', status: 'running' },
+                ],
+              },
+            ],
+          },
+        }),
+      })
+    })
+
+    const agentId = await createControlAgent(page, `codex resume ${sessionId}`, projectDir)
+    await openFarming(page)
+    await expect(page.getByTestId('code-mobile-topbar')).toBeVisible()
+    await revealMobileSidebar(page)
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    await expect(page.getByTestId('code-codex-transcript')).toBeVisible()
+    await page.getByTestId('code-codex-transcript-scroll').evaluate(element => {
+      element.scrollTop = element.scrollHeight
+    })
+    const composerInput = page.getByTestId('code-composer-input')
+    await composerInput.click()
+    await composerInput.fill('follow up\nkeep compact')
+    await expect(composerInput).toBeFocused()
+
+    const metrics = await page.evaluate(() => {
+      const composer = document.querySelector('[data-testid="code-composer"]') as HTMLElement | null
+      const input = document.querySelector('[data-testid="code-composer-input"]') as HTMLElement | null
+      const rows = Array.from(document.querySelectorAll('.code-codex-transcript-status-row')) as HTMLElement[]
+      const statusRow = rows.at(-1) ?? null
+      const runningPlaceholder = document.querySelector('.code-codex-transcript-turn.running:last-child .code-codex-transcript-placeholder') as HTMLElement | null
+      return {
+        innerWidth: window.innerWidth,
+        documentScrollWidth: document.documentElement.scrollWidth,
+        bodyScrollWidth: document.body.scrollWidth,
+        composerHeight: Math.round(composer?.getBoundingClientRect().height ?? 0),
+        inputHeight: Math.round(input?.getBoundingClientRect().height ?? 0),
+        inputAutocomplete: input?.getAttribute('autocomplete'),
+        inputMode: input?.getAttribute('inputmode'),
+        inputName: input?.getAttribute('name'),
+        inputRole: input?.getAttribute('role'),
+        placeholderDisplay: runningPlaceholder ? getComputedStyle(runningPlaceholder).display : '',
+        statusGapToComposer: statusRow && composer
+          ? Math.round(composer.getBoundingClientRect().top - statusRow.getBoundingClientRect().bottom)
+          : -1,
+      }
+    })
+    expect(metrics.documentScrollWidth).toBe(metrics.innerWidth)
+    expect(metrics.bodyScrollWidth).toBe(metrics.innerWidth)
+    expect(metrics.composerHeight).toBeLessThanOrEqual(90)
+    expect(metrics.inputHeight).toBeGreaterThanOrEqual(34)
+    expect(metrics.inputHeight).toBeLessThanOrEqual(52)
+    expect(metrics.inputAutocomplete).toBeNull()
+    expect(metrics.inputMode).toBeNull()
+    expect(metrics.inputName).toBeNull()
+    expect(metrics.inputRole).toBeNull()
+    expect(metrics.placeholderDisplay).toBe('none')
+    expect(metrics.statusGapToComposer).toBeGreaterThanOrEqual(0)
+    expect(metrics.statusGapToComposer).toBeLessThanOrEqual(24)
   })
 
   test('returns to a remote shell, opens files, and uses touch-accessible blame', async ({ page, workspaceRoot }) => {
@@ -144,15 +254,61 @@ test.describe('mobile Farming Code user story', () => {
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()
     await expectNoPageOverflow(page)
 
-    await expect(page.getByTestId('code-composer-mic')).toBeVisible()
+    // Chromium exposes SpeechRecognition even in a touch-sized viewport;
+    // iOS Safari usually does not. The mobile composer should follow the
+    // capability rather than hard-code one browser's result.
+    const mobileMic = page.getByTestId('code-composer-mic')
+    if (await mobileMic.count()) {
+      await expect(mobileMic).toBeVisible()
+    }
     await expect(page.getByTestId('code-composer-send')).toBeVisible()
-    await page.getByTestId('code-composer').locator('textarea').focus()
-    await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()
+    const composerInput = page.getByTestId('code-composer-input')
+    await expect(composerInput).toHaveAttribute('contenteditable', 'true')
+    await expect(composerInput).toHaveAttribute('autocorrect', 'off')
+    await expect(composerInput).toHaveAttribute('autocapitalize', 'none')
+    await expect(composerInput).toHaveAttribute('spellcheck', 'false')
+    await expect(composerInput).toHaveAttribute('data-lpignore', 'true')
+    await expect(composerInput).toHaveAttribute('data-1p-ignore', 'true')
+    await expect(composerInput).toHaveAttribute('data-bwignore', 'true')
+    await expect(composerInput).toHaveAttribute('data-form-type', 'other')
+    expect(await composerInput.evaluate(element => element.getAttribute('role'))).toBeNull()
+    expect(await composerInput.evaluate(element => element.getAttribute('autocomplete'))).toBeNull()
+    expect(await composerInput.evaluate(element => element.getAttribute('aria-autocomplete'))).toBeNull()
+    expect(await composerInput.evaluate(element => element.getAttribute('inputmode'))).toBeNull()
+    expect(await composerInput.evaluate(element => element.getAttribute('name'))).toBeNull()
+    await composerInput.focus()
+    await expect(composerInput).toBeFocused()
+    await expect(page.locator('input[type="password"], input[autocomplete="new-password"]')).toHaveCount(0)
+    const terminalInput = page.locator('.xterm-helper-textarea').first()
+    if (await terminalInput.count()) {
+      await expect(terminalInput).toHaveAttribute('autocomplete', 'off')
+      await expect(terminalInput).toHaveAttribute('autocorrect', 'off')
+      await expect(terminalInput).toHaveAttribute('autocapitalize', 'none')
+      await expect(terminalInput).toHaveAttribute('data-form-type', 'other')
+    }
+    const compactComposerMetrics = await page.getByTestId('code-composer').evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      const input = element.querySelector('[data-testid="code-composer-input"]') as HTMLElement | null
+      const inputRect = input?.getBoundingClientRect()
+      return { height: rect.height, inputHeight: inputRect?.height ?? 0 }
+    })
+    expect(compactComposerMetrics.height).toBeLessThanOrEqual(88)
+    expect(compactComposerMetrics.inputHeight).toBeGreaterThanOrEqual(22)
+    expect(compactComposerMetrics.inputHeight).toBeLessThanOrEqual(34)
+    await composerInput.fill(['line one', 'line two', 'line three', 'line four'].join('\n'))
+    await expect.poll(async () => page.getByTestId('code-composer').evaluate(element => {
+      const input = element.querySelector('[data-testid="code-composer-input"]') as HTMLElement | null
+      const inputRect = input?.getBoundingClientRect()
+      return inputRect?.height ?? 0
+    })).toBeGreaterThanOrEqual(56)
+    const expandedComposerHeight = await page.getByTestId('code-composer').evaluate(element => element.getBoundingClientRect().height)
+    expect(expandedComposerHeight).toBeLessThanOrEqual(112)
+    await composerInput.fill('')
 
     const marker = `mobile-story-${Date.now()}`
-    await page.getByTestId('code-composer').locator('textarea').fill(`echo ${marker}`)
+    await composerInput.fill(`echo ${marker}`)
     await page.getByTestId('code-composer-send').click()
-    await expect(page.getByTestId('code-composer').locator('textarea')).toHaveValue('')
+    await expect.poll(async () => composerInput.evaluate(element => element.textContent || '')).toBe('')
     await expect.poll(async () => {
       const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
       const data = await response.json()
@@ -170,8 +326,15 @@ test.describe('mobile Farming Code user story', () => {
       await filesToggle.click()
     }
     const fileSearch = filesSection.getByPlaceholder('Search or path:line')
+    await expect(fileSearch).toHaveAttribute('type', 'search')
+    await expect(fileSearch).toHaveAttribute('autocomplete', 'off')
+    await expect(fileSearch).toHaveAttribute('autocorrect', 'off')
+    await expect(fileSearch).toHaveAttribute('autocapitalize', 'none')
+    await expect(fileSearch).toHaveAttribute('spellcheck', 'false')
+    await expect(fileSearch).toHaveAttribute('data-form-type', 'other')
     await fileSearch.fill('README.md:2')
-    await fileSearch.press('Enter')
+    await expect(page.getByTestId('code-file-search-results')).toBeVisible()
+    await page.getByTestId('code-file-search-results').getByRole('option').first().click()
 
     await expect(page.getByTestId('code-file-editor')).toBeVisible()
     await expect(page.getByTestId('code-mobile-topbar')).toContainText('README.md')
@@ -193,6 +356,8 @@ test.describe('mobile Farming Code user story', () => {
     await expect(page.getByTestId('code-file-blame-detail')).toContainText('Seed mobile README')
     await expectNoPageOverflow(page)
 
+    await page.getByTestId('code-mobile-back').click()
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()
     await revealMobileSidebar(page)
     await page.getByTestId('code-nav-search').click()
     await expect(page.getByTestId('code-mobile-topbar')).toContainText('Search')

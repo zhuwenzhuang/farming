@@ -63,6 +63,7 @@ export function useWorkspaceFileOperationController({
   }, [])
 
   const startFileOperation = useCallback((kind: WorkspaceFileOperationKind, item: WorkspaceFileTreeNode | null) => {
+    if (item?.readOnly && !(item.symbolicLink && (kind === 'rename' || kind === 'delete'))) return
     const operation = createWorkspaceFileOperation(kind, item)
     fileOperationNameRef.current = operation.name
     fileOperationActiveRef.current = true

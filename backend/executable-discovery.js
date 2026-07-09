@@ -184,7 +184,7 @@ function listAvailableAgents(pathEnv = process.env.PATH || '') {
   return getUserLaunchAgents()
     .map((agent) => ({
       ...agent,
-      resolvedPath: resolveAgentExecutable(agent.name, pathEnv),
+      resolvedPath: resolveAgentExecutable(agent.command || agent.name, pathEnv),
     }))
     .filter((agent) => Boolean(agent.resolvedPath))
     .map((agent) => ({

@@ -1,5 +1,6 @@
 const assert = require('assert');
 const {
+  composerDraftForSubmit,
   isComposerImeCompositionEvent,
   shouldSubmitComposerEnter,
   shouldSuppressComposerEnterAfterComposition,
@@ -76,6 +77,18 @@ function run() {
     shouldSubmitComposerEnter(keyEvent({ shiftKey: true }), false, 0),
     false,
     'Shift+Enter should stay available for multiline input'
+  );
+
+  assert.strictEqual(
+    composerDraftForSubmit('', '测试'),
+    '测试',
+    'iOS submit should retain the last committed Chinese draft when WebKit reports an empty textarea during Enter'
+  );
+
+  assert.strictEqual(
+    composerDraftForSubmit('当前输入', '测试'),
+    '当前输入',
+    'the live textarea value should win when it is available at submit time'
   );
 
   let history = createDefaultComposerHistoryState();

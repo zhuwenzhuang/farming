@@ -3,8 +3,9 @@
  * Run all backend tests and report results.
  * Usage: node scripts/run-tests.js
  */
-const { execFileSync } = require('child_process');
+const { execFile } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 /** Backend tests may dynamic-import TypeScript under src/; native node cannot load those without tsx. */
@@ -15,40 +16,99 @@ const serverBackedTests = new Set([
   'test-final.js',
   'test-session-terminal-input-e2e.js',
 ]);
+const DEFAULT_TEST_TIMEOUT_MS = 45_000;
+const DEFAULT_TEST_CONCURRENCY = Math.min(4, Math.max(1, os.availableParallelism?.() || os.cpus().length));
+const MAX_TEST_CONCURRENCY = 16;
 const testFiles = fs.readdirSync(testsDir)
   .filter(f => f.startsWith('test-') && f.endsWith('.js'))
   .filter(f => process.env.FARMING_INCLUDE_SERVER_TESTS === '1' || !serverBackedTests.has(f))
   .sort();
+const stateTestFiles = [
+  path.join(__dirname, '..', 'tests', 'review-demo-state.test.ts'),
+].filter(fs.existsSync);
 
-let passed = 0;
-let failed = 0;
-const failures = [];
+const testRuns = [
+  ...stateTestFiles.map(filePath => ({
+    args: [tsxCli, '--test', filePath],
+    label: path.basename(filePath),
+  })),
+  ...testFiles.map(file => ({
+    args: [tsxCli, path.join(testsDir, file)],
+    label: file,
+  })),
+];
 
-for (const file of testFiles) {
-  const filePath = path.join(testsDir, file);
-  try {
-    execFileSync(process.execPath, [tsxCli, filePath], {
-      timeout: 30000,
-      stdio: 'pipe',
+const requestedConcurrency = Number.parseInt(process.env.FARMING_TEST_CONCURRENCY || '', 10);
+const testConcurrency = Math.min(
+  testRuns.length,
+  MAX_TEST_CONCURRENCY,
+  Number.isFinite(requestedConcurrency) && requestedConcurrency > 0
+    ? requestedConcurrency
+    : DEFAULT_TEST_CONCURRENCY
+);
+
+function runTest({ args, label }) {
+  return new Promise(resolve => {
+    execFile(process.execPath, args, {
+      timeout: Number(process.env.FARMING_TEST_TIMEOUT_MS) || DEFAULT_TEST_TIMEOUT_MS,
       env: { ...process.env, NODE_ENV: 'test' }
+    }, (error, stdout, stderr) => {
+      resolve({
+        label,
+        error,
+        stdout: String(stdout || '').trim(),
+        stderr: String(stderr || '').trim(),
+      });
     });
-    passed++;
-    console.log(`  \x1b[32m✓\x1b[0m ${file}`);
-  } catch (err) {
-    failed++;
-    const stderr = err.stderr ? err.stderr.toString().split('\n').slice(0, 5).join('\n') : '';
-    failures.push({ file, stderr });
-    console.log(`  \x1b[31m✗\x1b[0m ${file}`);
+  });
+}
+
+async function main() {
+  let nextIndex = 0;
+  let passed = 0;
+  let failed = 0;
+  const failures = [];
+
+  console.log(`Running ${testRuns.length} tests with ${testConcurrency} workers...`);
+
+  async function worker() {
+    while (nextIndex < testRuns.length) {
+      const testRun = testRuns[nextIndex++];
+      const result = await runTest(testRun);
+      if (!result.error) {
+        passed++;
+        console.log(`  \x1b[32m✓\x1b[0m ${result.label}`);
+        continue;
+      }
+
+      failed++;
+      failures.push({
+        file: result.label,
+        stderr: result.stderr,
+        stdout: result.stdout,
+        errorMessage: result.error.message ? String(result.error.message) : '',
+      });
+      console.log(`  \x1b[31m✗\x1b[0m ${result.label}`);
+    }
+  }
+
+  await Promise.all(Array.from({ length: testConcurrency }, () => worker()));
+
+  console.log(`\n${passed + failed} tests, ${passed} passed, ${failed} failed`);
+
+  if (failures.length > 0) {
+    console.log('\nFailures:');
+    for (const { file, stderr, stdout, errorMessage } of failures) {
+      console.log(`\n  ${file}:`);
+      if (stderr) console.log(`    ${stderr.replace(/\n/g, '\n    ')}`);
+      if (stdout) console.log(`    stdout: ${stdout.replace(/\n/g, '\n    ')}`);
+      if (!stderr && !stdout && errorMessage) console.log(`    ${errorMessage.replace(/\n/g, '\n    ')}`);
+    }
+    process.exitCode = 1;
   }
 }
 
-console.log(`\n${passed + failed} tests, ${passed} passed, ${failed} failed`);
-
-if (failures.length > 0) {
-  console.log('\nFailures:');
-  for (const { file, stderr } of failures) {
-    console.log(`\n  ${file}:`);
-    if (stderr) console.log(`    ${stderr.replace(/\n/g, '\n    ')}`);
-  }
-  process.exit(1);
-}
+main().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

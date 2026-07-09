@@ -4,23 +4,48 @@ import type {
   ClipboardEvent,
   FocusEvent,
   KeyboardEvent,
+  MouseEvent,
   RefObject,
   CSSProperties,
   PointerEvent,
   TouchEvent,
 } from 'react'
-import type { AgentContextWindowUsage } from '@/types/agent'
-import { ArrowUpGlyph, ChevronDownGlyph, ChevronRightGlyph, PlusGlyph } from '@/components/IconGlyphs'
+import type { AgentContextWindowUsage, CodexAppServerNotice, CodexAppServerPendingRequest } from '@/types/agent'
+import {
+  ArrowUpGlyph,
+  CheckGlyph,
+  ChevronDownGlyph,
+  ChevronRightGlyph,
+  CloseGlyph,
+  HandGlyph,
+  PlusGlyph,
+  ReplyGlyph,
+} from '@/components/IconGlyphs'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import { codexModelDisplayName } from './model'
-import type { AgentComposerCapabilities, SlashCommandOption } from './capabilities'
+import type { AgentComposerCapabilities, ComposerAgentKind, SlashCommandOption } from './capabilities'
 import {
+  composerDraftForSubmit,
   isComposerImeCompositionEvent,
   shouldSubmitComposerEnter,
   shouldSuppressComposerEnterAfterComposition,
 } from './composer-keyboard'
 import type { CodeCopy } from './copy'
+import { CodexAppServerRequestCard } from './CodexAppServerRequestCard'
 import type { PermissionModeColor, PermissionModeOption } from './composer-profile'
+import { ComposerAttachments, type ComposerAttachmentView } from './ComposerAttachments'
+import {
+  composerCommandTestId,
+  findComposerCommandTrigger,
+  matchesComposerCommand,
+  rankComposerCommand,
+} from './composer-slash-commands'
+import {
+  MobileCodeComposerInput,
+  mobileComposerPlainText,
+  mobileComposerSelectionOffset,
+  setMobileComposerSelectionOffset,
+} from './MobileCodeComposerInput'
 import type {
   CodexModelOption,
   CodeModelPickerPane,
@@ -45,15 +70,15 @@ function composerModeLabel(copy: CodeCopy, mode: ComposerMode) {
   return copy.messageMode
 }
 
-function composerModePlaceholder(copy: CodeCopy, mode: ComposerMode) {
+function composerModePlaceholder(copy: CodeCopy, mode: ComposerMode, agentKind: ComposerAgentKind) {
   if (mode === 'goal') return copy.describeAgentGoal
   if (mode === 'plan') return copy.describePlanFirst
+  if (agentKind === 'shell') return copy.shellCommandPlaceholder
   return copy.askFollowUpChanges
 }
 
 function isMobileComposerViewport() {
-  return typeof window !== 'undefined' &&
-    (window.matchMedia('(max-width: 980px)').matches || isMobileTouchViewport())
+  return typeof window !== 'undefined' && isMobileTouchViewport()
 }
 
 function compactComposerModelLabel(label: string) {
@@ -84,6 +109,9 @@ const COMPOSER_VOICE_WAVEFORM_BARS = [
   0.28, 0.5, 0.72, 0.46, 0.9, 0.36, 0.62, 0.82, 0.42, 0.68, 0.95, 0.52,
   0.33, 0.75, 0.57, 0.88, 0.4, 0.64, 0.93, 0.48, 0.7, 0.31, 0.58, 0.83,
 ]
+const MOBILE_COMPOSER_INPUT_REST_HEIGHT = 22
+const MOBILE_COMPOSER_INPUT_MIN_HEIGHT = 22
+const MOBILE_COMPOSER_INPUT_MAX_HEIGHT = 66
 
 const COMPOSER_MIC_REGULAR_PATH = 'M8 10.9995C9.654 10.9995 11 9.65351 11 7.99951V3.99951C11 2.34551 9.654 0.999512 8 0.999512C6.346 0.999512 5 2.34551 5 3.99951V7.99951C5 9.65351 6.346 10.9995 8 10.9995ZM6 3.99951C6 2.89651 6.897 1.99951 8 1.99951C9.103 1.99951 10 2.89651 10 3.99951V7.99951C10 9.10251 9.103 9.99951 8 9.99951C6.897 9.99951 6 9.10251 6 7.99951V3.99951ZM13 7.49951V7.99951C13 10.5855 11.02 12.6935 8.5 12.9485V14.4995C8.5 14.7755 8.276 14.9995 8 14.9995C7.724 14.9995 7.5 14.7755 7.5 14.4995V12.9485C4.98 12.6935 3 10.5845 3 7.99951V7.49951C3 7.22351 3.224 6.99951 3.5 6.99951C3.776 6.99951 4 7.22351 4 7.49951V7.99951C4 10.2055 5.794 11.9995 8 11.9995C10.206 11.9995 12 10.2055 12 7.99951V7.49951C12 7.22351 12.224 6.99951 12.5 6.99951C12.776 6.99951 13 7.22351 13 7.49951Z'
 const COMPOSER_MIC_FILLED_PATH = 'M8 10.9995C9.654 10.9995 11 9.65351 11 7.99951V3.99951C11 2.34551 9.654 0.999512 8 0.999512C6.346 0.999512 5 2.34551 5 3.99951V7.99951C5 9.65351 6.346 10.9995 8 10.9995ZM13 7.49951V7.99951C13 10.5855 11.02 12.6935 8.5 12.9485V14.4995C8.5 14.7755 8.276 14.9995 8 14.9995C7.724 14.9995 7.5 14.7755 7.5 14.4995V12.9485C4.98 12.6935 3 10.5845 3 7.99951V7.49951C3 7.22351 3.224 6.99951 3.5 6.99951C3.776 6.99951 4 7.22351 4 7.49951V7.99951C4 10.2055 5.794 11.9995 8 11.9995C10.206 11.9995 12 10.2055 12 7.99951V7.49951C12 7.22351 12.224 6.99951 12.5 6.99951C12.776 6.99951 13 7.22351 13 7.49951Z'
@@ -104,71 +132,9 @@ function ComposerSpeedIcon() {
   )
 }
 
-interface SlashTrigger {
-  start: number
-  end: number
-  query: string
-  trigger: '/' | '$'
-}
-
-interface ComposerAttachmentView {
-  id: string
-  kind: 'image'
-  name: string
-  status: 'uploading' | 'ready' | 'error'
-  previewUrl?: string
-  error?: string
-}
-
-function findCommandTrigger(draft: string, selectionStart: number): SlashTrigger | null {
-  const cursor = Math.max(0, Math.min(selectionStart, draft.length))
-  const lineStart = draft.lastIndexOf('\n', Math.max(0, cursor - 1)) + 1
-  const lineBeforeCursor = draft.slice(lineStart, cursor)
-
-  const slashMatch = lineBeforeCursor.match(/^(\s*)\/([A-Za-z0-9._:-]*)$/)
-  if (slashMatch) {
-    return {
-      start: lineStart + (slashMatch[1]?.length ?? 0),
-      end: cursor,
-      query: slashMatch[2] ?? '',
-      trigger: '/',
-    }
-  }
-
-  const mentionMatch = lineBeforeCursor.match(/(^|\s)\$([A-Za-z0-9._:-]*)$/)
-  if (!mentionMatch) return null
-
-  return {
-    start: lineStart + (mentionMatch.index ?? 0) + (mentionMatch[1]?.length ?? 0),
-    end: cursor,
-    query: mentionMatch[2] ?? '',
-    trigger: '$',
-  }
-}
-
-function slashCommandMatches(command: SlashCommandOption, query: string, trigger: '/' | '$') {
-  const normalizedQuery = query.trim().toLowerCase()
-  if (!command.command.startsWith(trigger)) return false
-  if (!normalizedQuery) return true
-  return (
-    command.command.slice(1).toLowerCase().startsWith(normalizedQuery)
-    || command.label.toLowerCase().includes(normalizedQuery)
-  )
-}
-
-function slashCommandRank(command: SlashCommandOption, query: string) {
-  const normalizedQuery = query.trim().toLowerCase()
-  if (!normalizedQuery) return 0
-  return command.command.slice(1).toLowerCase().startsWith(normalizedQuery) ? 0 : 1
-}
-
-function slashCommandTestId(command: string) {
-  const suffix = command.replace(/^[/$]/, '').replace(/[^A-Za-z0-9_-]+/g, '-')
-  return `code-slash-command-${suffix || 'root'}`
-}
-
 interface CodeComposerProps {
   active: boolean
+  agentKind: ComposerAgentKind
   capabilities: AgentComposerCapabilities
   slashCommands: SlashCommandOption[]
   draft: string
@@ -184,8 +150,10 @@ interface CodeComposerProps {
   agentServiceTier: string
   agentModelOptions: CodexModelOption[]
   currentPermissionMode: string
+  permissionModeDisabled: boolean
   currentPermissionLabel: string
   currentPermissionColor: PermissionModeColor
+  permissionModeHint: string
   currentModelLabel: string
   currentReasoningLabel: string
   currentSpeedLabel: string
@@ -194,6 +162,8 @@ interface CodeComposerProps {
   permissionModeOptions: PermissionModeOption[]
   contextWindow: AgentContextWindowUsage | null
   pendingFollowUp: { messages: PendingFollowUpMessage[]; createdAt: number } | null
+  appServerRequest: CodexAppServerPendingRequest | null
+  appServerNotice: CodexAppServerNotice | null
   submitAction: 'send' | 'interrupt' | 'disabled'
   speechSupported: boolean
   speechListening: boolean
@@ -205,11 +175,13 @@ interface CodeComposerProps {
   onDraftChange: (value: string) => void
   onNavigateHistory: (direction: ComposerHistoryDirection, input: ComposerHistoryNavigationInput) => string | null
   onRemoveAttachment: (id: string) => void
-  onSubmit: () => void
+  onSubmit: (draft?: string) => void
   onInterrupt: () => void
   onSteerPendingFollowUp: (messageId: string) => void
   onDiscardPendingFollowUp: (messageId: string) => void
-  onPasteAttachment: (event: ClipboardEvent<HTMLTextAreaElement>) => void
+  onRespondToAppServerRequest: (requestId: string, result: unknown) => void
+  onRejectAppServerRequest: (requestId: string) => void
+  onPasteAttachment: (event: ClipboardEvent<HTMLElement>) => void
   onAttachmentFiles: (event: ChangeEvent<HTMLInputElement>) => void
   onChooseAttachmentFile: () => void
   onActivateComposerMode: (mode: Exclude<ComposerMode, 'default'>) => void
@@ -217,6 +189,7 @@ interface CodeComposerProps {
   onTogglePlusMenu: () => void
   onToggleApprovalMenu: () => void
   onToggleModelMenu: () => void
+  onCloseMenus: () => void
   onSetModelPickerPane: (pane: CodeModelPickerPane) => void
   onComposerMenuKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void
   onComposerMenuBlur: (event: FocusEvent<HTMLDivElement>) => void
@@ -230,6 +203,7 @@ interface CodeComposerProps {
 
 export function CodeComposer({
   active,
+  agentKind,
   capabilities,
   slashCommands,
   draft,
@@ -245,8 +219,10 @@ export function CodeComposer({
   agentServiceTier,
   agentModelOptions,
   currentPermissionMode,
+  permissionModeDisabled,
   currentPermissionLabel,
   currentPermissionColor,
+  permissionModeHint,
   currentModelLabel,
   currentReasoningLabel,
   currentSpeedLabel,
@@ -255,6 +231,8 @@ export function CodeComposer({
   permissionModeOptions,
   contextWindow,
   pendingFollowUp,
+  appServerRequest,
+  appServerNotice,
   submitAction,
   speechSupported,
   speechListening,
@@ -270,6 +248,8 @@ export function CodeComposer({
   onInterrupt,
   onSteerPendingFollowUp,
   onDiscardPendingFollowUp,
+  onRespondToAppServerRequest,
+  onRejectAppServerRequest,
   onPasteAttachment,
   onAttachmentFiles,
   onChooseAttachmentFile,
@@ -278,6 +258,7 @@ export function CodeComposer({
   onTogglePlusMenu,
   onToggleApprovalMenu,
   onToggleModelMenu,
+  onCloseMenus,
   onSetModelPickerPane,
   onComposerMenuKeyDown,
   onComposerMenuBlur,
@@ -292,20 +273,31 @@ export function CodeComposer({
   const showPermissionMode = active && capabilities.permissionMode
   const showModelPicker = active && capabilities.modelPicker
   const showServiceTierPicker = capabilities.serviceTier && currentServiceTierOptions.length > 0
-  const showSpeechInput = active && capabilities.speechInput
   const [mobileComposerViewport, setMobileComposerViewport] = useState(isMobileComposerViewport)
   const [recordingElapsedSeconds, setRecordingElapsedSeconds] = useState(0)
   const [textareaFocused, setTextareaFocused] = useState(false)
   const [textareaSelectionStart, setTextareaSelectionStart] = useState(draft.length)
+  const [mobileDictationHintVisible, setMobileDictationHintVisible] = useState(false)
   const [dismissedSlashTriggerId, setDismissedSlashTriggerId] = useState<string | null>(null)
   const [activeSlashIndex, setActiveSlashIndex] = useState(0)
+  // iOS already provides dictation from the native keyboard. Only render the
+  // web control on a touch viewport when the browser actually exposes a
+  // usable SpeechRecognition implementation; otherwise it is dead weight in
+  // the narrow composer. Desktop keeps the control for supported agents.
+  const showSpeechInput = active
+    && capabilities.speechInput
+    && (!mobileComposerViewport || speechSupported)
   const slashCommandRefs = useRef(new Map<string, HTMLButtonElement>())
+  const composerRef = useRef<HTMLElement | null>(null)
+  const mobileEditorRef = useRef<HTMLDivElement | null>(null)
   const compositionActiveRef = useRef(false)
   const lastCompositionEndAtRef = useRef(0)
+  const latestDraftRef = useRef(draft)
+  const mobileSpeechPointerHandledRef = useRef(false)
 
   const baseComposerMenuOpen = plusMenuOpen || approvalMenuOpen || modelMenuOpen
   const slashTrigger = useMemo(
-    () => findCommandTrigger(draft, textareaSelectionStart),
+    () => findComposerCommandTrigger(draft, textareaSelectionStart),
     [draft, textareaSelectionStart]
   )
   const slashTriggerId = slashTrigger
@@ -314,8 +306,8 @@ export function CodeComposer({
   const filteredSlashCommands = useMemo(
     () => slashTrigger
       ? slashCommands
-        .filter(command => slashCommandMatches(command, slashTrigger.query, slashTrigger.trigger))
-        .sort((a, b) => slashCommandRank(a, slashTrigger.query) - slashCommandRank(b, slashTrigger.query))
+        .filter(command => matchesComposerCommand(command, slashTrigger.query, slashTrigger.trigger))
+        .sort((a, b) => rankComposerCommand(a, slashTrigger.query) - rankComposerCommand(b, slashTrigger.query))
       : [],
     [slashCommands, slashTrigger]
   )
@@ -341,15 +333,39 @@ export function CodeComposer({
   const showMobileRecordingBar = mobileComposerViewport && speechListening && showSpeechInput
   const speechControlAvailable = speechSupported || mobileComposerViewport
 
-  const handleMobileSpeechTouchEnd = (event: TouchEvent<HTMLButtonElement>) => {
-    if (!mobileComposerViewport) return
-    event.preventDefault()
+  const startSpeechInputIntent = () => {
+    if (mobileComposerViewport || isMobileTouchViewport()) {
+      setMobileDictationHintVisible(true)
+    }
     onToggleSpeechInput()
+  }
+
+  const handleSpeechClick = () => {
+    if (mobileSpeechPointerHandledRef.current) {
+      mobileSpeechPointerHandledRef.current = false
+      return
+    }
+    startSpeechInputIntent()
+  }
+
+  const handleSpeechPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType === 'mouse') return
+    event.preventDefault()
+    mobileSpeechPointerHandledRef.current = true
+    startSpeechInputIntent()
   }
 
   function focusTextareaForMobileInputIntent(target: EventTarget | null) {
     if (!mobileComposerViewport || !active) return
     if (target instanceof Element && target.closest('.code-composer-menu, button, input, select, [role="menuitem"]')) return
+
+    const mobileEditor = mobileEditorRef.current
+    if (mobileEditor) {
+      mobileEditor.focus({ preventScroll: true })
+      const nextSelection = mobileComposerSelectionOffset(mobileEditor)
+      setTextareaSelectionStart(nextSelection || (mobileEditor.textContent || '').length)
+      return
+    }
 
     const textarea = textareaRef.current
     if (!textarea || textarea.disabled) return
@@ -358,7 +374,6 @@ export function CodeComposer({
   }
 
   const handleComposerPointerDownCapture = (event: PointerEvent<HTMLElement>) => {
-    if (event.pointerType && event.pointerType !== 'touch') return
     focusTextareaForMobileInputIntent(event.target)
   }
 
@@ -366,9 +381,24 @@ export function CodeComposer({
     focusTextareaForMobileInputIntent(event.target)
   }
 
+  const handleComposerMouseInputCapture = (event: MouseEvent<HTMLElement>) => {
+    focusTextareaForMobileInputIntent(event.target)
+  }
+
   useEffect(() => {
     setActiveSlashIndex(0)
   }, [slashTrigger?.query, filteredSlashCommands.length])
+
+  useEffect(() => {
+    latestDraftRef.current = draft
+  }, [draft])
+
+  useEffect(() => () => {
+    const composer = composerRef.current
+    composer?.style.removeProperty('--mobile-composer-current-height')
+    const main = composer?.closest('.code-main') as HTMLElement | null
+    main?.style.removeProperty('--mobile-composer-current-height')
+  }, [])
 
   useEffect(() => {
     if (!slashTrigger) {
@@ -396,6 +426,24 @@ export function CodeComposer({
   }, [])
 
   useEffect(() => {
+    if (mobileComposerViewport) return
+    const composer = composerRef.current
+    const main = composer?.closest('.code-main') as HTMLElement | null
+    composer?.style.removeProperty('--mobile-composer-current-height')
+    main?.style.removeProperty('--mobile-composer-current-height')
+  }, [mobileComposerViewport])
+
+  useEffect(() => {
+    if (speechListening || !mobileDictationHintVisible) return undefined
+    const timer = window.setTimeout(() => setMobileDictationHintVisible(false), 3600)
+    return () => window.clearTimeout(timer)
+  }, [mobileDictationHintVisible, speechListening])
+
+  useEffect(() => {
+    if (speechListening) setMobileDictationHintVisible(false)
+  }, [speechListening])
+
+  useEffect(() => {
     if (!speechListening) {
       setRecordingElapsedSeconds(0)
       return undefined
@@ -420,6 +468,10 @@ export function CodeComposer({
     setTextareaSelectionStart(textarea.selectionStart ?? draft.length)
   }
 
+  function updateSelectionFromMobileEditor() {
+    setTextareaSelectionStart(mobileComposerSelectionOffset(mobileEditorRef.current))
+  }
+
   function insertSlashCommand(command: SlashCommandOption) {
     if (!slashTrigger) return
 
@@ -430,6 +482,14 @@ export function CodeComposer({
     setTextareaSelectionStart(nextCursor)
     setDismissedSlashTriggerId(null)
     window.requestAnimationFrame(() => {
+      if (mobileComposerViewport) {
+        const mobileEditor = mobileEditorRef.current
+        if (!mobileEditor) return
+        mobileEditor.focus({ preventScroll: true })
+        setMobileComposerSelectionOffset(mobileEditor, nextCursor)
+        setTextareaSelectionStart(nextCursor)
+        return
+      }
       const textarea = textareaRef.current
       if (!textarea) return
       textarea.focus({ preventScroll: true })
@@ -438,26 +498,32 @@ export function CodeComposer({
     })
   }
 
+  const hasAppServerPrompt = active && Boolean(appServerRequest || appServerNotice)
+
   const composerClasses = [
     'code-composer',
     composerMenuOpen ? 'menu-open' : '',
     showMobileRecordingBar ? 'recording' : '',
     attachments.length > 0 ? 'has-attachments' : '',
     pendingFollowUp && active ? 'has-pending-followup' : '',
+    hasAppServerPrompt ? 'has-app-server-request' : '',
   ].filter(Boolean).join(' ')
 
   return (
     <footer
+      ref={composerRef}
       className={composerClasses}
       data-testid="code-composer"
       onPointerDownCapture={handleComposerPointerDownCapture}
       onTouchStartCapture={handleComposerTouchStartCapture}
+      onMouseDownCapture={handleComposerMouseInputCapture}
+      onClickCapture={handleComposerMouseInputCapture}
     >
       {pendingFollowUp && active && (
         <div className="code-pending-followup" data-testid="code-pending-followup">
           {pendingFollowUp.messages.map(message => (
             <div className="code-pending-followup-row" data-testid="code-pending-followup-row" key={message.id}>
-              <span className="code-pending-followup-icon" aria-hidden="true">↳</span>
+              <span className="code-pending-followup-icon" aria-hidden="true"><ReplyGlyph /></span>
               <p>{message.text}</p>
               <div className="code-pending-followup-actions">
                 <button
@@ -465,7 +531,8 @@ export function CodeComposer({
                   data-testid="code-pending-followup-steer"
                   onClick={() => onSteerPendingFollowUp(message.id)}
                 >
-                  ↪ {copy.steerQueuedMessage}
+                  <ReplyGlyph />
+                  <span>{copy.steerQueuedMessage}</span>
                 </button>
                 <button
                   type="button"
@@ -474,12 +541,29 @@ export function CodeComposer({
                   aria-label={copy.discardQueuedMessage}
                   onClick={() => onDiscardPendingFollowUp(message.id)}
                 >
-                  ×
+                  <CloseGlyph />
                 </button>
               </div>
             </div>
           ))}
         </div>
+      )}
+      {active && appServerRequest && (
+        <CodexAppServerRequestCard
+          request={appServerRequest}
+          onRespond={onRespondToAppServerRequest}
+          onReject={onRejectAppServerRequest}
+          copy={copy}
+        />
+      )}
+      {active && appServerNotice && appServerNotice.kind === 'approval-rejected' && (
+        <section className="code-app-server-request code-app-server-notice" data-testid="code-app-server-notice">
+          <header>
+            <strong>{copy.appServerApprovalRejectedTitle}</strong>
+            {appServerNotice.method ? <span>{appServerNotice.method}</span> : null}
+          </header>
+          <p>{copy.appServerApprovalRejectedDescription}</p>
+        </section>
       )}
       {showSlashMenu && (
         <div
@@ -494,7 +578,7 @@ export function CodeComposer({
               key={command.command}
               type="button"
               className={`code-slash-command ${index === activeSlashIndex ? 'active' : ''}`}
-              data-testid={slashCommandTestId(command.command)}
+              data-testid={composerCommandTestId(command.command)}
               role="option"
               aria-selected={index === activeSlashIndex}
               ref={element => {
@@ -521,138 +605,190 @@ export function CodeComposer({
           ))}
         </div>
       )}
-      <textarea
-        ref={textareaRef}
-        value={draft}
-        onFocus={event => {
-          setTextareaFocused(true)
-          updateSelectionFromTextarea(event.currentTarget)
-        }}
-        onBlur={() => setTextareaFocused(false)}
-        onClick={event => updateSelectionFromTextarea(event.currentTarget)}
-        onKeyUp={event => updateSelectionFromTextarea(event.currentTarget)}
-        onSelect={event => updateSelectionFromTextarea(event.currentTarget)}
-        onCompositionStart={() => {
-          compositionActiveRef.current = true
-        }}
-        onCompositionEnd={event => {
-          compositionActiveRef.current = false
-          lastCompositionEndAtRef.current = Date.now()
-          updateSelectionFromTextarea(event.currentTarget)
-        }}
-        onChange={event => {
-          onDraftChange(event.target.value)
-          setDismissedSlashTriggerId(null)
-          updateSelectionFromTextarea(event.currentTarget)
-        }}
-        onPaste={onPasteAttachment}
-        onKeyDown={event => {
-          const compositionActive = compositionActiveRef.current
-          if (isComposerImeCompositionEvent(event, compositionActive)) return
-          if (shouldSuppressComposerEnterAfterComposition(event, lastCompositionEndAtRef.current)) {
-            event.preventDefault()
-            event.stopPropagation()
-            return
+      {mobileComposerViewport ? (
+        <MobileCodeComposerInput
+          active={active}
+          draft={draft}
+          placeholder={active ? composerModePlaceholder(copy, composerMode, agentKind) : copy.openAgentTerminalFirst}
+          minHeight={
+            textareaFocused || composerMenuOpen || attachments.length > 0 || Boolean(pendingFollowUp && active)
+              ? MOBILE_COMPOSER_INPUT_MIN_HEIGHT
+              : MOBILE_COMPOSER_INPUT_REST_HEIGHT
           }
-
-          if (showSlashMenu) {
-            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          maxHeight={MOBILE_COMPOSER_INPUT_MAX_HEIGHT}
+          editorRef={mobileEditorRef}
+          composerRef={composerRef}
+          onFocus={() => {
+            onCloseMenus()
+            setTextareaFocused(true)
+            setTextareaSelectionStart(mobileComposerSelectionOffset(mobileEditorRef.current))
+          }}
+          onBlur={() => setTextareaFocused(false)}
+          onInput={event => {
+            const nextDraft = mobileComposerPlainText(event.currentTarget)
+            latestDraftRef.current = nextDraft
+            onDraftChange(nextDraft)
+            setDismissedSlashTriggerId(null)
+            setTextareaSelectionStart(mobileComposerSelectionOffset(event.currentTarget))
+          }}
+          onPaste={onPasteAttachment}
+          onCompositionStart={() => {
+            compositionActiveRef.current = true
+          }}
+          onCompositionEnd={event => {
+            compositionActiveRef.current = false
+            lastCompositionEndAtRef.current = Date.now()
+            const nextDraft = mobileComposerPlainText(event.currentTarget)
+            latestDraftRef.current = nextDraft
+            onDraftChange(nextDraft)
+            setTextareaSelectionStart(mobileComposerSelectionOffset(event.currentTarget))
+          }}
+          onKeyDown={event => {
+            const compositionActive = compositionActiveRef.current
+            if (isComposerImeCompositionEvent(event, compositionActive)) return
+            if (shouldSuppressComposerEnterAfterComposition(event, lastCompositionEndAtRef.current)) {
               event.preventDefault()
               event.stopPropagation()
-              const direction = event.key === 'ArrowDown' ? 1 : -1
-              setActiveSlashIndex(index => (index + direction + filteredSlashCommands.length) % filteredSlashCommands.length)
               return
             }
-
-            if (event.key === 'Home') {
-              event.preventDefault()
-              event.stopPropagation()
-              setActiveSlashIndex(0)
-              return
-            }
-
-            if (event.key === 'End') {
-              event.preventDefault()
-              event.stopPropagation()
-              setActiveSlashIndex(filteredSlashCommands.length - 1)
-              return
-            }
-
-            if (event.key === 'Escape') {
-              event.preventDefault()
-              event.stopPropagation()
-              setDismissedSlashTriggerId(slashTriggerId)
-              return
-            }
-
-            if ((event.key === 'Enter' || event.key === 'Tab') && selectedSlashCommand) {
+            if (showSlashMenu && (event.key === 'Enter' || event.key === 'Tab') && selectedSlashCommand) {
               event.preventDefault()
               event.stopPropagation()
               insertSlashCommand(selectedSlashCommand)
               return
             }
-          }
-
-          if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-            const direction = event.key === 'ArrowUp' ? 'previous' : 'next'
-            const nextHistoryValue = onNavigateHistory(direction, {
-              direction,
-              value: event.currentTarget.value,
-              selectionStart: event.currentTarget.selectionStart,
-              selectionEnd: event.currentTarget.selectionEnd,
-            })
-            if (nextHistoryValue !== null) {
+            if (event.key !== 'Enter' || event.shiftKey) return
+            event.preventDefault()
+            event.stopPropagation()
+            onSubmit(composerDraftForSubmit(mobileComposerPlainText(event.currentTarget), latestDraftRef.current))
+          }}
+          onSelectionIntent={updateSelectionFromMobileEditor}
+        />
+      ) : (
+        <textarea
+          data-testid="code-composer-input"
+          ref={textareaRef}
+          enterKeyHint="send"
+          name="farming-chat-message"
+          inputMode="text"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-bwignore="true"
+          data-form-type="other"
+          value={draft}
+          onFocus={event => {
+            onCloseMenus()
+            setTextareaFocused(true)
+            updateSelectionFromTextarea(event.currentTarget)
+          }}
+          onBlur={() => setTextareaFocused(false)}
+          onClick={event => updateSelectionFromTextarea(event.currentTarget)}
+          onKeyUp={event => updateSelectionFromTextarea(event.currentTarget)}
+          onSelect={event => updateSelectionFromTextarea(event.currentTarget)}
+          onCompositionStart={() => {
+            compositionActiveRef.current = true
+          }}
+          onCompositionEnd={event => {
+            compositionActiveRef.current = false
+            lastCompositionEndAtRef.current = Date.now()
+            latestDraftRef.current = event.currentTarget.value
+            updateSelectionFromTextarea(event.currentTarget)
+          }}
+          onChange={event => {
+            latestDraftRef.current = event.target.value
+            onDraftChange(event.target.value)
+            setDismissedSlashTriggerId(null)
+            updateSelectionFromTextarea(event.currentTarget)
+          }}
+          onPaste={onPasteAttachment}
+          onKeyDown={event => {
+            const compositionActive = compositionActiveRef.current
+            if (isComposerImeCompositionEvent(event, compositionActive)) return
+            if (shouldSuppressComposerEnterAfterComposition(event, lastCompositionEndAtRef.current)) {
               event.preventDefault()
               event.stopPropagation()
-              window.requestAnimationFrame(() => {
-                const textarea = textareaRef.current
-                if (!textarea) return
-                const nextCursor = nextHistoryValue.length
-                textarea.setSelectionRange(nextCursor, nextCursor)
-                updateSelectionFromTextarea(textarea)
-              })
               return
             }
-          }
 
-          if (!shouldSubmitComposerEnter(event, compositionActive, lastCompositionEndAtRef.current)) return
-          event.preventDefault()
-          event.stopPropagation()
-          onSubmit()
-        }}
-        placeholder={active ? composerModePlaceholder(copy, composerMode) : copy.openAgentTerminalFirst}
-        disabled={!active}
-      />
-      {attachments.length > 0 && (
-        <div className="code-composer-attachments" data-testid="code-composer-attachments">
-          {attachments.map(attachment => (
-            <div
-              key={attachment.id}
-              className={`code-composer-attachment ${attachment.status}`}
-              data-testid="code-composer-attachment"
-            >
-              {attachment.previewUrl ? (
-                <img src={attachment.previewUrl} alt="" />
-              ) : (
-                <span className="code-composer-attachment-fallback" aria-hidden="true">□</span>
-              )}
-              <span className="code-composer-attachment-name">{attachment.name}</span>
-              {attachment.status !== 'ready' && (
-                <span className="code-composer-attachment-status">
-                  {attachment.status === 'uploading' ? 'Uploading' : 'Failed'}
-                </span>
-              )}
-              <button
-                type="button"
-                aria-label={`Remove ${attachment.name}`}
-                onClick={() => onRemoveAttachment(attachment.id)}
-              >
-                ×
-              </button>
-            </div>
-          ))}
+            if (showSlashMenu) {
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault()
+                event.stopPropagation()
+                const direction = event.key === 'ArrowDown' ? 1 : -1
+                setActiveSlashIndex(index => (index + direction + filteredSlashCommands.length) % filteredSlashCommands.length)
+                return
+              }
+
+              if (event.key === 'Home') {
+                event.preventDefault()
+                event.stopPropagation()
+                setActiveSlashIndex(0)
+                return
+              }
+
+              if (event.key === 'End') {
+                event.preventDefault()
+                event.stopPropagation()
+                setActiveSlashIndex(filteredSlashCommands.length - 1)
+                return
+              }
+
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                event.stopPropagation()
+                setDismissedSlashTriggerId(slashTriggerId)
+                return
+              }
+
+              if ((event.key === 'Enter' || event.key === 'Tab') && selectedSlashCommand) {
+                event.preventDefault()
+                event.stopPropagation()
+                insertSlashCommand(selectedSlashCommand)
+                return
+              }
+            }
+
+            if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+              const direction = event.key === 'ArrowUp' ? 'previous' : 'next'
+              const nextHistoryValue = onNavigateHistory(direction, {
+                direction,
+                value: event.currentTarget.value,
+                selectionStart: event.currentTarget.selectionStart,
+                selectionEnd: event.currentTarget.selectionEnd,
+              })
+              if (nextHistoryValue !== null) {
+                event.preventDefault()
+                event.stopPropagation()
+                window.requestAnimationFrame(() => {
+                  const textarea = textareaRef.current
+                  if (!textarea) return
+                  const nextCursor = nextHistoryValue.length
+                  textarea.setSelectionRange(nextCursor, nextCursor)
+                  updateSelectionFromTextarea(textarea)
+                })
+                return
+              }
+            }
+
+            if (!shouldSubmitComposerEnter(event, compositionActive, lastCompositionEndAtRef.current)) return
+            event.preventDefault()
+            event.stopPropagation()
+            onSubmit(composerDraftForSubmit(event.currentTarget.value, latestDraftRef.current))
+          }}
+          placeholder={active ? composerModePlaceholder(copy, composerMode, agentKind) : copy.openAgentTerminalFirst}
+          disabled={!active}
+        />
+      )}
+      {mobileDictationHintVisible && !speechListening && (
+        <div className="code-composer-dictation-hint" data-testid="code-composer-dictation-hint">
+          {copy.mobileDictationHint}
         </div>
       )}
+      <ComposerAttachments attachments={attachments} onRemove={onRemoveAttachment} />
       <input
         ref={attachmentInputRef}
         className="code-composer-file-input"
@@ -669,8 +805,8 @@ export function CodeComposer({
               className="code-composer-recording-stop"
               data-testid="code-composer-recording-stop"
               aria-label={copy.stopDictation}
-              onClick={onToggleSpeechInput}
-              onTouchEnd={handleMobileSpeechTouchEnd}
+              onPointerDown={handleSpeechPointerDown}
+              onClick={handleSpeechClick}
             >
               <span aria-hidden="true" />
             </button>
@@ -690,7 +826,7 @@ export function CodeComposer({
               data-testid="code-composer-send"
               data-action={submitAction}
               aria-label={submitIsInterrupt ? copy.interruptAgent : copy.sendMessage}
-              onClick={submitIsInterrupt ? onInterrupt : onSubmit}
+              onClick={submitIsInterrupt ? onInterrupt : () => onSubmit(latestDraftRef.current)}
               disabled={submitDisabled}
             >
               {submitIsInterrupt ? <span className="code-composer-stop-icon" aria-hidden="true" /> : <ArrowUpGlyph />}
@@ -748,7 +884,7 @@ export function CodeComposer({
               onClick={onClearComposerMode}
             >
               <span>{composerModeLabel(copy, composerMode)}</span>
-              <span aria-hidden="true">×</span>
+              <span aria-hidden="true"><CloseGlyph /></span>
             </button>
               )}
               {showPermissionMode && (
@@ -760,6 +896,7 @@ export function CodeComposer({
                 aria-label={copy.agentPermissionMode}
                 aria-haspopup="menu"
                 aria-expanded={approvalMenuOpen}
+                disabled={permissionModeDisabled}
                 onClick={onToggleApprovalMenu}
               >
                 <span className="code-tool-icon" aria-hidden="true">
@@ -782,6 +919,7 @@ export function CodeComposer({
                 >
                   <div className="code-approval-menu-header">
                     <span>{copy.permissionsPrompt}</span>
+                    <small>{permissionModeHint}</small>
                   </div>
                   {permissionModeOptions.map(option => (
                     <button
@@ -799,7 +937,7 @@ export function CodeComposer({
                         <span>{copy.permissionModeLabel(option.value, option.label)}</span>
                         <small>{copy.permissionModeDescription(option.value, option.description)}</small>
                       </span>
-                      {option.value === currentPermissionMode && <span className="code-menu-check" aria-hidden="true">✓</span>}
+                      {option.value === currentPermissionMode && <span className="code-menu-check" aria-hidden="true"><CheckGlyph /></span>}
                     </button>
                   ))}
                 </div>
@@ -880,7 +1018,7 @@ export function CodeComposer({
                           <span className="code-model-option-copy">
                             <span>{copy.reasoningOptionLabel(option.value, option.label)}</span>
                           </span>
-                          {option.value === agentReasoningEffort && <span className="code-menu-check" aria-hidden="true">✓</span>}
+                          {option.value === agentReasoningEffort && <span className="code-menu-check" aria-hidden="true"><CheckGlyph /></span>}
                         </button>
                       ))}
                       <div className="code-context-menu-separator" role="separator" />
@@ -916,7 +1054,7 @@ export function CodeComposer({
                             <span className="code-model-option-copy">
                               <span>{codexModelDisplayName(option, option.value)}</span>
                             </span>
-                            {option.value === agentModel && <span className="code-menu-check" aria-hidden="true">✓</span>}
+                            {option.value === agentModel && <span className="code-menu-check" aria-hidden="true"><CheckGlyph /></span>}
                           </button>
                         ))}
                       </div>
@@ -952,14 +1090,14 @@ export function CodeComposer({
                             >
                               <span className="code-model-option-copy">
                                 <span className="code-speed-option-label">
-                                  {option.value === 'priority' && <span className="code-speed-option-icon" aria-hidden="true">↯</span>}
+                                  {option.value === 'priority' && <span className="code-speed-option-icon" aria-hidden="true"><ComposerSpeedIcon /></span>}
                                   <span>{copy.serviceTierLabel(option.value, option.label)}</span>
                                 </span>
                                 {option.description && (
                                   <small>{copy.serviceTierDescription(option.value, option.description)}</small>
                                 )}
                               </span>
-                              {option.value === agentServiceTier && <span className="code-menu-check" aria-hidden="true">✓</span>}
+                              {option.value === agentServiceTier && <span className="code-menu-check" aria-hidden="true"><CheckGlyph /></span>}
                             </button>
                           ))}
                         </div>
@@ -975,12 +1113,12 @@ export function CodeComposer({
               type="button"
               className={`code-composer-mic ${speechListening ? 'listening' : ''}`}
               data-testid="code-composer-mic"
-              aria-label={speechListening ? copy.stopDictation : copy.startDictation}
+              aria-label={speechListening ? copy.stopDictation : (speechSupported ? copy.startDictation : copy.mobileDictationHint)}
               aria-pressed={speechListening}
-              onClick={onToggleSpeechInput}
-              onTouchEnd={handleMobileSpeechTouchEnd}
+              onPointerDown={handleSpeechPointerDown}
+              onClick={handleSpeechClick}
               disabled={!active || !speechControlAvailable}
-              title={speechControlAvailable ? (speechListening ? copy.stopDictation : copy.startDictation) : copy.speechUnsupported}
+              title={speechControlAvailable ? (speechListening ? copy.stopDictation : (speechSupported ? copy.startDictation : copy.mobileDictationHint)) : copy.speechUnsupported}
             >
               <ComposerMicIcon listening={speechListening} />
             </button>
@@ -991,7 +1129,7 @@ export function CodeComposer({
             data-testid="code-composer-send"
             data-action={submitAction}
             aria-label={submitIsInterrupt ? copy.interruptAgent : copy.sendMessage}
-            onClick={submitIsInterrupt ? onInterrupt : onSubmit}
+            onClick={submitIsInterrupt ? onInterrupt : () => onSubmit(latestDraftRef.current)}
             disabled={submitDisabled}
           >
             {submitIsInterrupt ? <span className="code-composer-stop-icon" aria-hidden="true" /> : <ArrowUpGlyph />}
@@ -1006,21 +1144,13 @@ export function CodeComposer({
 
 function ApprovalIcon({ mode }: { mode: string }) {
   if (mode === 'ask') {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M8 11V5.8a1.6 1.6 0 0 1 3.2 0V10" />
-        <path d="M11.2 10V4.7a1.6 1.6 0 0 1 3.2 0V10" />
-        <path d="M14.4 10V6.2a1.6 1.6 0 0 1 3.2 0v6.2" />
-        <path d="M8 11.5 6.5 9.7a1.7 1.7 0 0 0-2.5 2.2l4.4 5.8a6 6 0 0 0 10.8-3.6v-2.3" />
-      </svg>
-    )
+    return <HandGlyph className="code-approval-hand-glyph" />
   }
 
   if (mode === 'custom') {
     return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 8.4a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2Z" />
-        <path d="M19 13.3v-2.6l-2.1-.4a7 7 0 0 0-.6-1.4l1.2-1.8-1.9-1.9-1.8 1.2a7 7 0 0 0-1.4-.6L12 3.7H9.4L9 5.8a7 7 0 0 0-1.4.6L5.8 5.2 3.9 7.1l1.2 1.8a7 7 0 0 0-.6 1.4l-2.1.4v2.6l2.1.4a7 7 0 0 0 .6 1.4l-1.2 1.8 1.9 1.9 1.8-1.2a7 7 0 0 0 1.4.6l.4 2.1H12l.4-2.1a7 7 0 0 0 1.4-.6l1.8 1.2 1.9-1.9-1.2-1.8a7 7 0 0 0 .6-1.4l2.1-.4Z" />
+      <svg className="filled" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M7.99997 6C6.89497 6 5.99997 6.895 5.99997 8C5.99997 9.105 6.89497 10 7.99997 10C9.10497 10 9.99997 9.105 9.99997 8C9.99997 6.895 9.10497 6 7.99997 6ZM7.99997 9C7.44797 9 6.99997 8.552 6.99997 8C6.99997 7.448 7.44797 7 7.99997 7C8.55197 7 8.99997 7.448 8.99997 8C8.99997 8.552 8.55197 9 7.99997 9ZM14.565 9.715L13.279 8.628C13.245 8.599 13.213 8.567 13.184 8.533C12.888 8.186 12.931 7.667 13.279 7.372L14.565 6.285C14.693 6.177 14.742 6.003 14.691 5.844C14.386 4.903 13.882 4.04 13.219 3.308C13.139 3.22 13.027 3.172 12.912 3.172C12.865 3.172 12.818 3.18 12.773 3.196L11.186 3.761C11.144 3.776 11.1 3.788 11.056 3.796C11.006 3.805 10.956 3.81 10.907 3.81C10.515 3.81 10.167 3.532 10.094 3.134L9.79097 1.482C9.76097 1.318 9.63397 1.188 9.46997 1.153C8.98997 1.051 8.49897 1 8.00097 1C7.50297 1 7.01097 1.052 6.53097 1.153C6.36697 1.188 6.23997 1.318 6.20997 1.482L5.90797 3.134C5.89997 3.178 5.88797 3.221 5.87297 3.263C5.75197 3.6 5.43397 3.81 5.09397 3.81C5.00197 3.81 4.90797 3.794 4.81597 3.762L3.22897 3.197C3.18397 3.181 3.13597 3.173 3.08997 3.173C2.97497 3.173 2.86297 3.221 2.78297 3.309C2.11897 4.041 1.61597 4.904 1.30997 5.845C1.25797 6.004 1.30797 6.178 1.43597 6.286L2.72197 7.373C2.75597 7.402 2.78797 7.434 2.81697 7.468C3.11297 7.815 3.06997 8.334 2.72197 8.629L1.43597 9.716C1.30797 9.824 1.25897 9.998 1.30997 10.157C1.61497 11.098 2.11897 11.961 2.78297 12.693C2.86297 12.781 2.97497 12.829 3.08997 12.829C3.13697 12.829 3.18397 12.821 3.22897 12.805L4.81597 12.24C4.85797 12.225 4.90197 12.213 4.94597 12.205C4.99597 12.196 5.04597 12.192 5.09497 12.192C5.48697 12.192 5.83497 12.47 5.90797 12.868L6.20997 14.52C6.23997 14.684 6.36697 14.814 6.53097 14.849C7.01097 14.951 7.50297 15.002 8.00097 15.002C8.49897 15.002 8.99097 14.95 9.46997 14.849C9.63397 14.814 9.76097 14.684 9.79097 14.52L10.094 12.868C10.102 12.824 10.114 12.781 10.129 12.739C10.25 12.402 10.568 12.192 10.908 12.192C11 12.192 11.094 12.208 11.186 12.24L12.772 12.805C12.818 12.821 12.865 12.829 12.911 12.829C13.026 12.829 13.138 12.781 13.218 12.693C13.882 11.961 14.385 11.098 14.69 10.157C14.742 9.998 14.692 9.824 14.564 9.716L14.565 9.715ZM12.728 11.726L11.521 11.296C11.323 11.226 11.117 11.19 10.908 11.19C10.139 11.19 9.44697 11.676 9.18797 12.399C9.15397 12.492 9.12897 12.588 9.11097 12.686L8.88097 13.937C8.59097 13.979 8.29597 14 8.00097 14C7.70597 14 7.41097 13.979 7.11997 13.936L6.89097 12.685C6.73197 11.818 5.97697 11.189 5.09497 11.189C4.98697 11.189 4.87697 11.199 4.76597 11.219C4.66897 11.237 4.57397 11.262 4.47997 11.295L3.27297 11.725C2.90497 11.264 2.61097 10.759 2.39397 10.214L3.36797 9.391C3.74097 9.076 3.96797 8.634 4.00797 8.148C4.04797 7.662 3.89497 7.19 3.57797 6.818C3.51397 6.743 3.44297 6.672 3.36797 6.608L2.39397 5.785C2.61097 5.24 2.90497 4.734 3.27297 4.274L4.47997 4.704C4.67797 4.774 4.88397 4.81 5.09397 4.81C5.86297 4.81 6.55497 4.324 6.81397 3.601C6.84797 3.507 6.87297 3.411 6.89097 3.314L7.11997 2.063C7.41097 2.021 7.70597 1.999 8.00097 1.999C8.29597 1.999 8.59097 2.02 8.88097 2.062L9.10997 3.313C9.26897 4.18 10.024 4.809 10.906 4.809C11.014 4.809 11.124 4.799 11.234 4.779C11.331 4.761 11.427 4.736 11.521 4.703L12.728 4.273C13.096 4.733 13.39 5.239 13.607 5.784L12.634 6.607C12.261 6.922 12.033 7.364 11.994 7.85C11.954 8.336 12.107 8.809 12.424 9.18C12.489 9.256 12.559 9.326 12.635 9.39L13.609 10.213C13.392 10.758 13.098 11.264 12.73 11.724L12.728 11.726Z" />
       </svg>
     )
   }

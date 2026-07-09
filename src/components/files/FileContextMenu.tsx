@@ -16,10 +16,12 @@ interface FileContextMenuProps {
   onClose: () => void
   onCloseWithFocusRestore: () => void
   onCopyRelativePath: () => void
+  onCopyShareUrl: () => void
   onOpenNewAgent: () => void
   onRefreshTarget: () => void
   onStartAgent: (command: string) => void
   onStartOperation: (kind: FileOperationKind) => void
+  readOnly?: boolean
 }
 
 export function FileContextMenu({
@@ -30,10 +32,12 @@ export function FileContextMenu({
   onClose,
   onCloseWithFocusRestore,
   onCopyRelativePath,
+  onCopyShareUrl,
   onOpenNewAgent,
   onRefreshTarget,
   onStartAgent,
   onStartOperation,
+  readOnly = false,
 }: FileContextMenuProps) {
   const handleFileMenuKeyDown = useWorkspaceMenuKeyboard({
     menuOpen: Boolean(fileMenu),
@@ -43,6 +47,10 @@ export function FileContextMenu({
   })
 
   if (!fileMenu) return null
+
+  const targetReadOnly = fileMenu.item?.readOnly === true
+  const canCreateInTarget = !readOnly && !targetReadOnly
+  const canChangeTargetEntry = !readOnly && (!targetReadOnly || fileMenu.item?.symbolicLink === true)
 
   return (
     <div
@@ -54,38 +62,53 @@ export function FileContextMenu({
       onKeyDown={handleFileMenuKeyDown}
       onMouseDown={event => event.stopPropagation()}
     >
-      <button type="button" role="menuitem" autoFocus onClick={() => onStartOperation('new-file')}>
-        {copy.newFile}
-      </button>
-      <button type="button" role="menuitem" onClick={() => onStartOperation('new-folder')}>
-        {copy.newFolder}
-      </button>
-      <div className="code-context-menu-separator" role="separator" />
-      <AgentLaunchSubmenu
-        label={copy.newAgent}
-        options={agentLaunchOptions}
-        testId="file-new-agent-submenu-trigger"
-        submenuTestId="file-new-agent-submenu"
-        onOpenDialog={onOpenNewAgent}
-        onSelect={onStartAgent}
-      />
-      <div className="code-context-menu-separator" role="separator" />
+      {canCreateInTarget && (
+        <>
+          <button type="button" role="menuitem" autoFocus onClick={() => onStartOperation('new-file')}>
+            {copy.newFile}
+          </button>
+          <button type="button" role="menuitem" onClick={() => onStartOperation('new-folder')}>
+            {copy.newFolder}
+          </button>
+          <div className="code-context-menu-separator" role="separator" />
+          <AgentLaunchSubmenu
+            label={copy.newAgent}
+            options={agentLaunchOptions}
+            testId="file-new-agent-submenu-trigger"
+            submenuTestId="file-new-agent-submenu"
+            onOpenDialog={onOpenNewAgent}
+            onSelect={onStartAgent}
+          />
+          <div className="code-context-menu-separator" role="separator" />
+        </>
+      )}
       <button type="button" role="menuitem" onClick={onRefreshTarget}>
         {copy.refresh}
       </button>
       {fileMenu.item && (
         <>
           <div className="code-context-menu-separator" role="separator" />
-          <button type="button" role="menuitem" onClick={() => onStartOperation('rename')}>
-            {copy.rename}
-          </button>
+          {canChangeTargetEntry && (
+            <button type="button" role="menuitem" onClick={() => onStartOperation('rename')}>
+              {copy.rename}
+            </button>
+          )}
           <button type="button" role="menuitem" onClick={onCopyRelativePath}>
             {copy.copyRelativePath}
           </button>
-          <div className="code-context-menu-separator" role="separator" />
-          <button type="button" role="menuitem" className="danger" onClick={() => onStartOperation('delete')}>
-            {copy.delete}
-          </button>
+          {(fileMenu.item.type === 'file' || fileMenu.item.type === 'directory') && (
+            <button type="button" role="menuitem" onClick={onCopyShareUrl}>
+              {copy.copyShareUrl}
+            </button>
+          )}
+          {canChangeTargetEntry && (
+            <>
+              <div className="code-context-menu-separator" role="separator" />
+              <button type="button" role="menuitem" className="danger" onClick={() => onStartOperation('delete')}>
+                {copy.delete}
+              </button>
+            </>
+          )}
         </>
       )}
     </div>

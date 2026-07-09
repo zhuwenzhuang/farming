@@ -6,6 +6,12 @@ export interface WorkspaceFileEntry {
   type: 'directory' | 'file' | 'symlink' | 'other'
   size: number
   mtimeMs: number
+  ignored?: boolean
+  symbolicLink?: boolean
+  external?: boolean
+  readOnly?: boolean
+  linkTarget?: string
+  linkError?: 'broken' | 'outside-allowed-roots' | 'unavailable'
   gitStatus?: 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflicted'
   gitStatusLabel?: string
   descendantGitStatus?: 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflicted'
@@ -17,6 +23,9 @@ export interface WorkspaceFile {
   size: number
   mtimeMs: number
   sha1: string
+  symbolicLink?: boolean
+  external?: boolean
+  readOnly?: boolean
   gitStatus?: WorkspaceFileEntry['gitStatus']
   gitStatusLabel?: string
   binary?: boolean
@@ -143,6 +152,7 @@ export interface WorkspaceFileSearchResult {
   path: string
   matches: WorkspaceFileSearchMatch[]
   truncated: boolean
+  timeoutMs?: number
 }
 
 export class WorkspaceFileApiError extends Error {
@@ -294,8 +304,9 @@ export async function fetchWorkspaceLineChanges(agentId: string, filePath: strin
   return body.changes
 }
 
-export async function searchWorkspaceFiles(agentId: string, query: string, options: { path?: string; limit?: number; signal?: AbortSignal } = {}) {
+export async function searchWorkspaceFiles(agentId: string, query: string, options: { includeIgnored?: boolean; path?: string; limit?: number; signal?: AbortSignal } = {}) {
   const params = new URLSearchParams({ agentId, q: query })
+  if (options.includeIgnored) params.set('includeIgnored', 'true')
   if (options.path) params.set('path', options.path)
   if (options.limit) params.set('limit', String(options.limit))
   const response = await fetch(appPath(`/api/files/search?${params.toString()}`), { signal: options.signal })

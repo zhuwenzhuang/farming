@@ -78,6 +78,17 @@ function run() {
   const hiddenClaudeRecord = readJson(path.join(root, 'sessions', `${claudeRecordId}.json`));
   assert.strictEqual(hiddenClaudeRecord.visibleOnMainPage, false);
   assert(fs.existsSync(path.join(root, 'sessions', `${claudeRecordId}.json`)), 'history metadata should survive main-page removal');
+  assert.strictEqual(
+    store.setProviderSessionDisplayState('agent-session:claude:claude-session', { pinned: true }),
+    claudeRecordId
+  );
+  assert.strictEqual(
+    readJson(path.join(root, 'sessions', `${claudeRecordId}.json`)).displayPinned,
+    true,
+    'Farming pin overrides should persist in the stable provider session record'
+  );
+  store.setProviderSessionDisplayState('agent-session:claude:claude-session', { pinned: false });
+  assert.strictEqual(readJson(path.join(root, 'sessions', `${claudeRecordId}.json`)).displayPinned, false);
 
   const tempRecordId = store.ensureRecordForAgent({
     id: 'agent-temp-codex',
@@ -88,8 +99,13 @@ function run() {
     providerSessionId: 'tmp_uuid_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
     providerSessionTemporary: true,
     engineName: 'native',
+    projectOrder: 4096,
+    pinnedOrder: 2048,
   });
   assert(/^fsess_/.test(tempRecordId));
+  const temporaryRecord = readJson(path.join(root, 'sessions', `${tempRecordId}.json`));
+  assert.strictEqual(temporaryRecord.projectOrder, 4096);
+  assert.strictEqual(temporaryRecord.pinnedOrder, 2048);
   const resolvedRecordId = store.ensureRecordForAgent({
     id: 'agent-temp-codex',
     persistentSessionId: tempRecordId,
@@ -100,6 +116,7 @@ function run() {
     providerSessionId: 'resolved-codex-session',
     providerSessionKey: 'agent-session:codex:resolved-codex-session',
     providerSessionTemporary: false,
+    providerSessionTitle: '看下cron worker怎么加新模块',
     engineName: 'native',
   });
   assert.strictEqual(resolvedRecordId, tempRecordId, 'resolved provider id should keep the original Farming session file');
@@ -108,6 +125,27 @@ function run() {
   const resolvedRecord = readJson(path.join(root, 'sessions', `${tempRecordId}.json`));
   assert.strictEqual(resolvedRecord.providerSessionId, 'resolved-codex-session');
   assert.strictEqual(resolvedRecord.providerSessionTemporary, false);
+  assert.strictEqual(resolvedRecord.providerSessionTitle, '看下cron worker怎么加新模块');
+  assert.strictEqual(resolvedRecord.title, '看下cron worker怎么加新模块');
+
+  const workRecordId = store.ensureRecordForAgent({
+    id: 'agent-work-codex',
+    command: 'codex',
+    cwd: '/repo',
+    providerHomeId: 'work',
+    providerHomePath: '/homes/codex-work',
+    providerSessionProvider: 'codex',
+    providerSessionId: 'resolved-codex-session',
+    providerSessionTemporary: false,
+    engineName: 'native',
+  });
+  assert.notStrictEqual(workRecordId, resolvedRecordId, 'the same provider session id in another home needs its own Farming record');
+  index = readJson(indexFile);
+  assert.strictEqual(index.providerSessionRecords['agent-session:codex:home:work:resolved-codex-session'], workRecordId);
+  const workRecord = readJson(path.join(root, 'sessions', `${workRecordId}.json`));
+  assert.strictEqual(workRecord.providerHomeId, 'work');
+  assert.strictEqual(workRecord.providerHomePath, '/homes/codex-work');
+  assert.strictEqual(workRecord.providerSessionId, 'resolved-codex-session');
 
   console.log('test-farming-session-store passed');
 }

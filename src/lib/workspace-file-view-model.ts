@@ -39,10 +39,7 @@ export interface WorkspaceFileTreeFocusRowCandidate {
   selected: boolean
 }
 
-export type WorkspaceFileStickyContextItem =
-  | { kind: 'open-editors'; key: string; name: string }
-  | { kind: 'files'; key: string; name: string }
-  | { kind: 'directory'; key: string; node: WorkspaceFileTreeNode }
+export type WorkspaceFileStickyContextItem = { kind: 'directory'; key: string; node: WorkspaceFileTreeNode }
 
 export type WorkspaceFileTreeRowClickIntent = 'toggle-directory' | 'open-file' | 'select'
 export type WorkspaceFileTreeActivationIntent = 'open-directory' | 'close-directory' | 'open-file' | 'none'
@@ -159,8 +156,8 @@ export function workspaceFileTreeActivationIntent(options: {
   return 'none'
 }
 
-export function workspaceStickyContentTop(scrollerTop: number, projectRowHeight = 30, agentsSectionHeight = 0) {
-  return scrollerTop + projectRowHeight + agentsSectionHeight
+export function workspaceStickyContentTop(scrollerTop: number, projectRowHeight = 30, precedingSectionHeight = 0, filesHeaderHeight = 25) {
+  return scrollerTop + projectRowHeight + precedingSectionHeight + filesHeaderHeight
 }
 
 export function isWorkspaceStickyContextVisible(viewportTop: number, stickyTop: number, margin = 1) {
@@ -192,20 +189,13 @@ export function workspaceStickyDirectoryPaths(
 export function workspaceStickyContextItems(options: {
   visible: boolean
   directoryNodes: readonly WorkspaceFileTreeNode[]
-  openFilesCount: number
-  openEditorsLabel: string
-  filesLabel: string
 }): WorkspaceFileStickyContextItem[] {
   if (!options.visible && options.directoryNodes.length === 0) return []
-  return [
-    ...(options.openFilesCount > 0 ? [{ kind: 'open-editors' as const, key: '__open-editors', name: options.openEditorsLabel }] : []),
-    { kind: 'files', key: '__files', name: options.filesLabel },
-    ...options.directoryNodes.map(node => ({ kind: 'directory' as const, key: node.path, node })),
-  ]
+  return options.directoryNodes.map(node => ({ kind: 'directory' as const, key: node.path, node }))
 }
 
-export function openEditorsRevealScrollDelta(sectionTop: number, stickyTop: number) {
-  return sectionTop - stickyTop
+export function workspaceCompactStickyDirectoryLabel(nodes: readonly WorkspaceFileTreeNode[]) {
+  return nodes.map(node => node.displayName ?? node.name).filter(Boolean).join('/')
 }
 
 export function preserveWorkspaceFileScrollPosition(scroller: HTMLElement | null | undefined) {

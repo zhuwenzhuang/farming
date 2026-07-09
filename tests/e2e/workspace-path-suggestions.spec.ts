@@ -17,6 +17,105 @@ async function expectNoDocumentOverflow(page: import('@playwright/test').Page) {
 }
 
 test.describe('workspace path suggestions', () => {
+  test('keeps New Agent home and workspace recommendations in the Code skin', async ({ page, workspaceRoot }) => {
+    const suggestionParent = path.join(workspaceRoot, 'code-skin-picks')
+    fs.mkdirSync(path.join(suggestionParent, 'alpha'), { recursive: true })
+
+    await openFarming(page)
+    await page.request.post('/farming/api/settings', {
+      data: {
+        codexRuntimeMode: 'cli',
+        agentHomes: {
+          codex: [
+            { id: 'default', path: '~/.codex' },
+            { id: 'mobile', path: path.join(workspaceRoot, 'mobile-home') },
+          ],
+        },
+      },
+    })
+    await page.getByTestId('code-empty-workspace').getByRole('button', { name: 'New Agent' }).click()
+    await expect(page.getByTestId('agent-list-status')).toBeHidden({ timeout: 30_000 })
+    await page.getByTestId('agent-option-codex').click()
+
+    const homeSelect = page.getByTestId('agent-home-select')
+    await expect(homeSelect).toBeVisible()
+    await expect(page.getByText('Codex Home', { exact: true })).toBeVisible()
+    const homeMetrics = await homeSelect.evaluate(element => {
+      const style = getComputedStyle(element)
+      return { background: style.backgroundColor, color: style.color, fontFamily: style.fontFamily }
+    })
+    expect(homeMetrics.background).toBe('rgb(255, 255, 255)')
+    expect(homeMetrics.color).toBe('rgb(36, 41, 47)')
+    expect(homeMetrics.fontFamily).not.toContain('Courier')
+
+    await homeSelect.click()
+    await expect(page.getByTestId('agent-home-menu')).toBeVisible()
+    await page.getByTestId('agent-home-option').filter({ hasText: 'mobile' }).click()
+    await expect(homeSelect).toContainText('mobile')
+
+    const runtimeMode = page.getByTestId('codex-runtime-mode')
+    await expect(runtimeMode).toBeVisible()
+    await expect(runtimeMode.getByRole('button', { name: /Terminal/ })).toHaveAttribute('aria-pressed', 'true')
+    await runtimeMode.getByRole('button', { name: /App Server/ }).click()
+    await expect(runtimeMode.getByRole('button', { name: /App Server/ })).toHaveAttribute('aria-pressed', 'true')
+
+    const workspaceInput = page.getByTestId('workspace-input')
+    await expect(workspaceInput).toHaveAttribute('autocomplete', 'off')
+    await expect(workspaceInput).toHaveAttribute('autocorrect', 'off')
+    await expect(workspaceInput).toHaveAttribute('autocapitalize', 'none')
+    await expect(workspaceInput).toHaveAttribute('spellcheck', 'false')
+    await expect(workspaceInput).toHaveAttribute('data-form-type', 'other')
+
+    await workspaceInput.fill(`${suggestionParent}${path.sep}a`)
+    await expect(page.getByTestId('workspace-path-suggestions')).toBeVisible()
+    const suggestionMetrics = await page.locator('.workspace-path-suggestion-name').first().evaluate(element => ({
+      fontWeight: getComputedStyle(element).fontWeight,
+      color: getComputedStyle(element).color,
+    }))
+    expect(Number(suggestionMetrics.fontWeight)).toBeLessThanOrEqual(500)
+    expect(suggestionMetrics.color).toBe('rgb(36, 41, 47)')
+  })
+
+  test('uses the dark skin for the custom home menu and Codex runtime choice', async ({ page, workspaceRoot }) => {
+    await openFarming(page)
+    await page.request.post('/farming/api/settings', {
+      data: {
+        appearance: 'dark',
+        codexRuntimeMode: 'cli',
+        agentHomes: {
+          codex: [
+            { id: 'default', path: '~/.codex' },
+            { id: 'dark', path: path.join(workspaceRoot, 'dark-codex-home') },
+          ],
+        },
+      },
+    })
+    await page.reload()
+    await expect(page.locator('body')).toHaveAttribute('data-appearance', 'dark')
+    await page.getByTestId('code-empty-workspace').getByRole('button', { name: 'New Agent' }).click()
+    await expect(page.getByTestId('agent-list-status')).toBeHidden({ timeout: 30_000 })
+    await page.getByTestId('agent-option-codex').click()
+
+    await page.getByTestId('agent-home-select').click()
+    const homeMenu = page.getByTestId('agent-home-menu')
+    await expect(homeMenu).toBeVisible()
+    const homeMenuMetrics = await homeMenu.evaluate(element => {
+      const style = getComputedStyle(element)
+      return { background: style.backgroundColor, color: style.color }
+    })
+    expect(homeMenuMetrics.background).toBe('rgb(22, 27, 34)')
+    expect(homeMenuMetrics.color).toBe('rgb(230, 237, 243)')
+    await page.keyboard.press('Escape')
+    await expect(homeMenu).toBeHidden()
+
+    const runtimeMetrics = await page.getByTestId('codex-runtime-mode').locator('.workspace-runtime-options').evaluate(element => {
+      const style = getComputedStyle(element)
+      return { background: style.backgroundColor, color: style.color }
+    })
+    expect(runtimeMetrics.background).toBe('rgb(22, 27, 34)')
+    expect(runtimeMetrics.color).toBe('rgb(230, 237, 243)')
+  })
+
   test('remain scrollable when many directories match', async ({ page, workspaceRoot }) => {
     const suggestionParent = path.join(workspaceRoot, 'many-workspace-picks')
     const suggestionNames = Array.from({ length: 24 }, (_, index) => `workspace-${String(index + 1).padStart(2, '0')}`)

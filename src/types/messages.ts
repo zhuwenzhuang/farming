@@ -8,9 +8,15 @@ export interface StartAgentMessage {
   workspace?: string
   projectWorkspace?: string
   asMain?: boolean
+  codexApprovalMode?: string
+  codexRuntimeMode?: 'cli' | 'app-server'
+  agentRuntimeMode?: 'terminal' | 'json'
+  providerHomeId?: string
+  dangerouslySkipPermissions?: boolean
   /** Sub-agent task body (may include workflow prefix from mergeTaskWithWorkflow) */
   task?: string
   workflowTemplate?: string
+  customTitle?: string
 }
 
 export interface InputMessage {
@@ -18,6 +24,21 @@ export interface InputMessage {
   input?: string
   inputParts?: TerminalInputPart[]
   agentId?: string
+}
+
+export interface ComposerInputMessage {
+  type: 'composer-input'
+  message: string
+  agentId?: string
+}
+
+export interface AppServerRequestResponseMessage {
+  type: 'app-server-request-response'
+  agentId: string
+  requestId: string
+  result?: unknown
+  reject?: boolean
+  reason?: string
 }
 
 export interface PasteInputPart {
@@ -51,7 +72,7 @@ export interface InterruptAgentMessage {
 
 export interface RestartMainAgentMessage {
   type: 'restart-main-agent'
-  command: 'bash' | 'zsh' | 'codex' | 'claude'
+  command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh'
 }
 
 export interface WatchWorkspaceFilesMessage {
@@ -67,6 +88,8 @@ export interface UnwatchWorkspaceFilesMessage {
 export type ClientMessage =
   | StartAgentMessage
   | InputMessage
+  | ComposerInputMessage
+  | AppServerRequestResponseMessage
   | FocusAgentMessage
   | ResizeAgentMessage
   | KillAgentMessage
@@ -85,6 +108,11 @@ export interface StateMessage {
 export interface ErrorMessage {
   type: 'error'
   message: string
+}
+
+export interface AgentStartedMessage {
+  type: 'agent-started'
+  agentId: string
 }
 
 export interface SessionOutputMessage {
@@ -135,6 +163,7 @@ export interface WorkspaceFileEventMessage {
 export type ServerMessage =
   | StateMessage
   | ErrorMessage
+  | AgentStartedMessage
   | SessionOutputMessage
   | SessionPreviewMessage
   | SystemStatsMessage

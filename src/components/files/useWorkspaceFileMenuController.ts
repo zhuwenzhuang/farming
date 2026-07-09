@@ -1,4 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
+import { appPath } from '@/lib/base-path'
+import { writeTerminalClipboardText } from '@/lib/terminal-clipboard'
+import { workspaceShareAbsolutePath, workspaceShareProjectLabel } from '@/lib/workspace-share-target'
 import {
   workspaceFileContextMenuPosition,
   workspaceFileOperationTargetDirectory,
@@ -14,6 +17,8 @@ interface UseWorkspaceFileMenuControllerOptions {
   clearFileOperation: () => void
   focusFileTreeTarget: (item: WorkspaceFileTreeNode | null) => void
   refreshDirectories: (directoryPaths: Array<string | null | undefined>) => void
+  projectWorkspace: string
+  shareLinkFailed: string
   setOpenFileError: (error: string | null) => void
   startFileOperation: (kind: WorkspaceFileOperationKind, item: WorkspaceFileTreeNode | null) => void
 }
@@ -25,6 +30,8 @@ export function useWorkspaceFileMenuController({
   clearFileOperation,
   focusFileTreeTarget,
   refreshDirectories,
+  projectWorkspace,
+  shareLinkFailed,
   setOpenFileError,
   startFileOperation,
 }: UseWorkspaceFileMenuControllerOptions) {
@@ -85,6 +92,29 @@ export function useWorkspaceFileMenuController({
     }
   }, [fileMenu?.item, setOpenFileError])
 
+  const copyFileMenuShareUrl = useCallback(async () => {
+    const item = fileMenu?.item
+    if (!agentId || !item || (item.type !== 'file' && item.type !== 'directory')) return
+    setFileMenu(null)
+    setOpenFileError(null)
+    try {
+      const target = item.type === 'directory'
+        ? { kind: 'folder', agentId, folderPath: item.path, absolutePath: workspaceShareAbsolutePath(projectWorkspace, item.path), projectLabel: workspaceShareProjectLabel(projectWorkspace) }
+        : { kind: 'file', agentId, filePath: item.path, absolutePath: workspaceShareAbsolutePath(projectWorkspace, item.path), projectLabel: workspaceShareProjectLabel(projectWorkspace) }
+      const response = await fetch(appPath('/api/share/qr-ticket'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target }),
+      })
+      const body = await response.json() as { longUrl?: string; error?: string }
+      if (!response.ok || !body.longUrl || !await writeTerminalClipboardText(body.longUrl)) {
+        throw new Error(body.error || shareLinkFailed)
+      }
+    } catch (error) {
+      setOpenFileError(error instanceof Error ? error.message : shareLinkFailed)
+    }
+  }, [agentId, fileMenu?.item, projectWorkspace, setOpenFileError, shareLinkFailed])
+
   const fileMenuTargetDirectory = useCallback((item: WorkspaceFileTreeNode | null = fileMenu?.item ?? null) => (
     workspaceFileOperationTargetDirectory(item)
   ), [fileMenu?.item])
@@ -96,6 +126,7 @@ export function useWorkspaceFileMenuController({
     closeFileMenuWithFocusRestore,
     closeFileMenuWithoutFocus,
     copyFileMenuPath,
+    copyFileMenuShareUrl,
     fileMenuTargetDirectory,
     openFileContextMenu,
     refreshFileMenuTarget,

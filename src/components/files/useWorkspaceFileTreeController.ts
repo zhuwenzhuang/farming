@@ -9,6 +9,7 @@ interface UseWorkspaceFileTreeControllerOptions {
   openDirectoryPaths: ReadonlySet<string>
   treeData: WorkspaceFileTreeNode[]
   hydrateCompactDirectoryChains: (directoryPath: string) => Promise<unknown>
+  finishRestoringOpenDirectoryPaths: () => void
   setDirectoryOpen: (path: string, open: boolean) => void
   syncOpenDirectoryPaths: (openPaths: Set<string>) => void
 }
@@ -19,6 +20,7 @@ export function useWorkspaceFileTreeController({
   openDirectoryPaths,
   treeData,
   hydrateCompactDirectoryChains,
+  finishRestoringOpenDirectoryPaths,
   setDirectoryOpen,
   syncOpenDirectoryPaths,
 }: UseWorkspaceFileTreeControllerOptions) {
@@ -76,6 +78,9 @@ export function useWorkspaceFileTreeController({
       if (openTreePaths(pathsToOpen)) {
         treeRef.current?.redrawList()
       }
+      if (pathsToOpen.every(path => Boolean(treeRef.current?.get(path)))) {
+        finishRestoringOpenDirectoryPaths()
+      }
     }
     reconcileTreeOpenState()
     const frameId = window.requestAnimationFrame(reconcileTreeOpenState)
@@ -86,7 +91,7 @@ export function useWorkspaceFileTreeController({
       window.clearTimeout(timeoutId)
       window.clearTimeout(lateTimeoutId)
     }
-  }, [openDirectoryPaths, openTreePaths, treeData])
+  }, [finishRestoringOpenDirectoryPaths, openDirectoryPaths, openTreePaths, treeData])
 
   const renderFileTreeRow = useCallback(({ attrs, innerRef, children }: RowRendererProps<WorkspaceFileTreeNode>) => {
     const { style, className, ...rowAttrs } = attrs

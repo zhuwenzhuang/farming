@@ -124,6 +124,16 @@ function run() {
       markdownPreviewSource.includes('mermaid.parse(source)') &&
       markdownPreviewSource.includes('useMermaidAppearance') &&
       markdownPreviewSource.includes('code-markdown-mermaid-toolbar') &&
+      markdownPreviewSource.includes('handleWheel') &&
+      markdownPreviewSource.includes('event.altKey') &&
+      markdownPreviewSource.includes('event.ctrlKey') &&
+      markdownPreviewSource.includes('mermaidPanMode') &&
+      markdownPreviewSource.includes('mermaidEnterFullscreen') &&
+      markdownPreviewSource.includes('isFullscreen') &&
+      markdownPreviewSource.includes('fitFullscreenDiagram') &&
+      markdownPreviewSource.includes('fullscreenCanvasSize') &&
+      markdownPreviewSource.includes('viewBox.width') &&
+      markdownPreviewSource.includes('didPanRef') &&
       markdownPreviewSource.includes('code-markdown-mermaid-error-message') &&
       markdownPreviewSource.includes('skipHtml') &&
       markdownPreviewSource.includes('rawWorkspaceFileUrl(openFile.agentId') &&
@@ -133,9 +143,9 @@ function run() {
       codeMainAreaSource.includes('onOpenFilePath={onOpenWorkspaceFilePath}') &&
       workspaceSource.includes('onOpenWorkspaceFilePath={openWorkspaceFilePath}') &&
       workspaceSource.includes('const openWorkspaceFilePath = useCallback(async (agentId: string, filePath: string') &&
-      workspaceSource.includes('if (selectOpenWorkspaceFile(agentId, filePath, target)) return') &&
+      (workspaceSource.includes('if (selectOpenWorkspaceFile(agentId, filePath, target)) return') || workspaceSource.includes('if (selectOpenWorkspaceFile(fileAgentId, resolvedFilePath, resolvedTarget)) return')) &&
       workspaceSource.includes('await fetchWorkspaceTree(agentId, filePath)') &&
-      workspaceSource.includes("revealWorkspaceFileInExplorer(agentId, filePath, 'directory')") &&
+      (workspaceSource.includes("revealWorkspaceFileInExplorer(agentId, filePath, 'directory')") || workspaceSource.includes("revealWorkspaceFileInExplorer(fileAgentId, resolvedFilePath, 'directory')")) &&
       workspaceSource.includes('focusWorkspaceFilesSearch(agentId, filePath)') &&
       markdownPreviewSource.includes('data-testid="code-file-markdown-preview"'),
     'Editor surface should render Markdown as preview by default, expose explicit split source/preview without scroll sync, and support GFM, math, front matter, heading anchors, stable renderers that avoid Mermaid remount flicker, code labels/highlighting, themed Mermaid controls/errors, safe HTML skipping, raw workspace images, and app-routed workspace links including relative directory links'
@@ -150,6 +160,8 @@ function run() {
       copySource.includes('markdownFrontMatter') &&
       copySource.includes('markdownHeadingAnchor') &&
       copySource.includes('mermaidZoomIn') &&
+      copySource.includes('mermaidPanMode') &&
+      copySource.includes('mermaidEnterFullscreen') &&
       copySource.includes('mermaidRenderFailed') &&
       stylesSource.includes('.code-file-preview-panel.markdown') &&
       stylesSource.includes('.code-file-editor-split.markdown') &&
@@ -172,7 +184,9 @@ function run() {
       stylesSource.includes('.code-file-editor.markdown-reading .code-file-editor-action.source-preview::after') &&
       stylesSource.includes('.code-markdown-mermaid') &&
       stylesSource.includes('.code-markdown-mermaid-toolbar') &&
+      stylesSource.includes('.code-markdown-mermaid.fullscreen') &&
       stylesSource.includes('.code-markdown-mermaid-viewport') &&
+      stylesSource.includes('.code-markdown-mermaid.fullscreen .code-markdown-mermaid-canvas') &&
       stylesSource.includes('.code-markdown-mermaid.error') &&
       darkStylesSource.includes('.code-markdown-preview .katex') &&
       darkStylesSource.includes('.code-markdown-preview .hljs-keyword') &&

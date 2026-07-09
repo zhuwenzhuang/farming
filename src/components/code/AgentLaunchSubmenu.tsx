@@ -3,6 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerE
 import { ChevronRightGlyph } from '@/components/IconGlyphs'
 import { agentDisplayName } from '@/lib/format'
 import type { AgentLaunchOption } from './agent-launch-options'
+import { AgentLaunchIcon } from './AgentLaunchIcon'
 
 interface AgentLaunchSubmenuProps {
   label: string
@@ -127,9 +128,10 @@ export function AgentLaunchSubmenu({
               type="button"
               role="menuitem"
               data-testid={`agent-launch-${option.name}`}
-              onClick={() => onSelect(option.name)}
+              onClick={() => onSelect(option.command || option.name)}
             >
-              {agentDisplayName(option.name)}
+              <AgentLaunchIcon name={option.name} />
+              <span>{agentDisplayName(option.name)}</span>
             </button>
           ))}
         </div>

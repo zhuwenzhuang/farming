@@ -8,6 +8,7 @@ function read(relativePath) {
 
 function run() {
   const shareButtonSource = read('src/components/code/ShareQrButton.tsx');
+  const mobileShareSource = read('src/components/code/MobileShareSheet.tsx');
   const sidebarSource = read('src/components/code/CodeSidebar.tsx');
   const copySource = read('src/components/code/copy.ts');
   const stylesSource = read('src/styles/main.css');
@@ -15,11 +16,15 @@ function run() {
   const packageSource = read('package.json');
 
   assert(packageSource.includes('"qrcode-generator"'), 'QR rendering should use the mature qrcode-generator matrix library');
-  assert(shareButtonSource.includes("import qrcode from 'qrcode-generator'"));
+  assert(shareButtonSource.includes("import type qrcode from 'qrcode-generator'"));
   assert(shareButtonSource.includes("type WorkspaceShareTarget } from '@/lib/workspace-share-target'"));
   assert(shareButtonSource.includes('shareTarget?: WorkspaceShareTarget | null'));
   assert(shareButtonSource.includes('const shareTargetSignature = workspaceShareTargetKey(shareTarget)'));
-  assert(shareButtonSource.includes('HOVER_DWELL_MS = 250'), 'hover should dwell before creating a share ticket');
+  assert(shareButtonSource.includes('function preloadQrCodeFactory'));
+  assert(shareButtonSource.includes("import('qrcode-generator')"), 'hover should preload the QR renderer without creating a share ticket');
+  assert(shareButtonSource.includes('onMouseEnter={preloadQrRenderer}'));
+  assert(!shareButtonSource.includes('scheduleHoverOpen'), 'hover should not open the QR popover or create a share ticket');
+  assert(shareButtonSource.includes('if (!open || pinned) return'), 'only an open, unpinned popover should schedule hover close');
   assert(shareButtonSource.includes('POPOVER_WIDTH = 264'), 'share popover placement should match the compact larger QR width');
   assert(shareButtonSource.includes("fetch(appPath('/api/share/qr-ticket')"));
   assert(shareButtonSource.includes('JSON.stringify(shareTarget ? { target: shareTarget } : {})'));
@@ -40,7 +45,7 @@ function run() {
   assert(shareButtonSource.includes("document.addEventListener('pointerdown', closeSharePopoverOnOutsidePointerDown, true)"));
   assert(shareButtonSource.includes('rootRef.current?.contains(target)'));
   assert(shareButtonSource.includes("appPath('/farming-2/images/avatar-watercolor-v1-bee-garden.png')"));
-  assert(shareButtonSource.includes('<FarmingQrCode value={ticket.shortUrl} badgeUrl={badgeUrl} />'));
+  assert(shareButtonSource.includes('<FarmingQrCode value={ticket.shortUrl} badgeUrl={badgeUrl} qrCodeFactory={qrCodeFactory} />'));
 
   assert(sidebarSource.includes("import { ShareQrButton } from './ShareQrButton'"));
   assert(sidebarSource.includes('shareTarget: WorkspaceShareTarget | null'));
@@ -64,6 +69,27 @@ function run() {
   assert(darkStylesSource.includes('.code-share-countdown'));
   assert(!darkStylesSource.includes('.code-share-meta'));
   assert(darkStylesSource.includes('.code-share-copy-token'));
+
+  assert(!mobileShareSource.includes('MobileSharePlatform'));
+  assert(!mobileShareSource.includes('navigator.userAgent'));
+  assert(mobileShareSource.includes('writeTerminalClipboardText'));
+  assert(!mobileShareSource.includes('code-mobile-share-system-action'));
+  assert(mobileShareSource.includes('code-mobile-share-copy-action'));
+  assert(mobileShareSource.includes('copy.mobileForwardTitle'));
+  assert(mobileShareSource.includes('copy.mobileInstallChromeHint'));
+  assert(mobileShareSource.includes('copy.mobileInstallShareStep'));
+  assert(mobileShareSource.includes('copy.mobileInstallMoreStep'));
+  assert(mobileShareSource.includes('copy.mobileInstallAddStep'));
+  assert(copySource.includes("mobileShareTitle: '分享页面'"));
+  assert(copySource.includes("mobileForwardTitle: '转发当前页面'"));
+  assert(copySource.includes("mobileShareCopyAction: '复制链接'"));
+  assert(copySource.includes("mobileInstallChromeHint: '确认已使用系统浏览器或 Chrome 打开当前页面。'"));
+  assert(copySource.includes("mobileInstallAddStep: '选择“添加到主屏幕”。'"));
+  assert(stylesSource.includes('.code-mobile-install-steps'));
+  assert(stylesSource.includes('.code-mobile-install-control'));
+  assert(stylesSource.includes('.code-mobile-install-more'));
+  assert(stylesSource.includes('.code-mobile-share-link-row'));
+  assert(darkStylesSource.includes('.code-mobile-install-control'));
 
   console.log('code share QR assertions passed');
 }

@@ -1,5 +1,6 @@
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 
 function farmingConfigDir(env = process.env) {
   return env.FARMING_CONFIG_DIR || path.join(env.HOME || os.homedir(), '.farming');
@@ -29,6 +30,14 @@ function runHistoryFile(configDir) {
   return path.join(historyDir(configDir), 'runs.json');
 }
 
+function reviewStateFile(configDir) {
+  return path.join(historyDir(configDir), 'review-state.json');
+}
+
+function reviewSessionsFile(configDir) {
+  return path.join(historyDir(configDir), 'review-sessions.json');
+}
+
 function sessionIndexFile(configDir) {
   return path.join(sessionsDir(configDir), 'index.json');
 }
@@ -49,11 +58,36 @@ function nativePtyHostLogFile(configDir) {
   return path.join(configDir, 'native-pty-host.log');
 }
 
+function updateStateFile(configDir) {
+  return path.join(configDir, 'farming-update.json');
+}
+
+function updateLogFile(configDir) {
+  return path.join(configDir, 'farming-update.log');
+}
+
+function codexAppServerRuntimeDir(configDir) {
+  return path.join(configDir, 'c');
+}
+
+function codexAppServerAgentHome(configDir, agentId) {
+  const safeAgentId = String(agentId || '').trim();
+  if (!/^agent-[A-Za-z0-9_-]+$/.test(safeAgentId)) {
+    throw new Error('Invalid Codex App Server agent id');
+  }
+  const homeId = crypto.createHash('sha256').update(safeAgentId).digest('hex').slice(0, 16);
+  return path.join(codexAppServerRuntimeDir(configDir), homeId);
+}
+
 module.exports = {
+  codexAppServerAgentHome,
+  codexAppServerRuntimeDir,
   farmingConfigDir,
   historyDir,
   nativePtyHostLogFile,
   runHistoryFile,
+  reviewSessionsFile,
+  reviewStateFile,
   serverLogFile,
   serverPidFile,
   serverStateFile,
@@ -62,4 +96,6 @@ module.exports = {
   sessionsDir,
   settingsFile,
   themeSettingsFile,
+  updateLogFile,
+  updateStateFile,
 };

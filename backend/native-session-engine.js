@@ -1,5 +1,7 @@
 const SessionEngine = require('./session-engine');
 const NativePtyHostClient = require('./native-pty-host-client');
+const { normalizeShellSessionOptions } = require('./local-session-engine');
+const { cleanupShellBusyIntegration } = require('./shell-busy-integration');
 
 function isRecoverableConnectError(error) {
   const code = error && error.code;
@@ -109,8 +111,19 @@ class NativeSessionEngine extends SessionEngine {
   }
 
   async createSession(options) {
-    const result = await this.client.request('createSession', { options });
-    const sessionId = nativeSessionId(result, options.agentId);
+    // Prepare the startup plan in the server process. A native PTY host may
+    // deliberately survive a server restart, so it must not retain authority
+    // over how newly created shells source rc files or choose a prompt.
+    const preparedOptions = normalizeShellSessionOptions(options);
+    preparedOptions.shellIntegrationPrepared = true;
+    let result;
+    try {
+      result = await this.client.request('createSession', { options: preparedOptions });
+    } catch (error) {
+      cleanupShellBusyIntegration(preparedOptions.shellBusyIntegration);
+      throw error;
+    }
+    const sessionId = nativeSessionId(result, preparedOptions.agentId);
     if (sessionId) this.activeSessionIds.add(sessionId);
     return result;
   }

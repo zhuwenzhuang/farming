@@ -9,6 +9,7 @@ import {
   workspaceBlameAuthorProfileUrl,
   workspaceEditorTabDomId as fileEditorTabDomId,
 } from '@/lib/workspace-editor-model'
+import { isGlobalWorkspaceFilesAgentId } from '@/lib/global-workspace-files'
 import type { OpenWorkspaceFile, WorkspaceFileOpenTarget, WorkspaceOpenFileTarget } from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
 import type { CodeCopy } from '../code/copy'
@@ -103,9 +104,9 @@ export function FileEditorPane({
   const markdownSplitOpen = markdownReadingOpen && markdownSplitByFileKey[activeFileKey] === true
   const markdownPreviewOpen = markdownReadingOpen && !markdownSplitOpen
   const sourceVisualPreviewOpen = canPreviewSource && sourcePreviewOpen
-  const readOnly = !editorMode.canEditText
-  const canShowBlame = editorMode.canShowBlame
-  const canShowLineChanges = editorMode.canShowLineChanges
+  const readOnly = !editorMode.canEditText || isGlobalWorkspaceFilesAgentId(openFile.agentId) || openFile.file.readOnly === true
+  const canShowBlame = editorMode.canShowBlame && openFile.file.external !== true
+  const canShowLineChanges = editorMode.canShowLineChanges && openFile.file.external !== true
 
   const {
     saveOpenWorkspaceFile,

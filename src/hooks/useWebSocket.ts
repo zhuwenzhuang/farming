@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Agent, SystemStats, TaskHistoryEntry } from '@/types/agent'
-import type { ClientMessage, InputMessage, ServerMessage, StartAgentMessage, TerminalInputPart, WorkspaceFileEventMessage } from '@/types/messages'
+import type { AppServerRequestResponseMessage, ClientMessage, ComposerInputMessage, InputMessage, ServerMessage, StartAgentMessage, TerminalInputPart, WorkspaceFileEventMessage } from '@/types/messages'
 import { appWsUrl } from '@/lib/base-path'
 import { isPageVisible, usePageVisibility } from '@/hooks/usePageVisibility'
 
@@ -18,6 +18,7 @@ export interface WebSocketState {
   lastMessageAt: number
   error: string | null
   errorId: number
+  lastStartedAgentId: string | null
 }
 
 function isInternalMainWorkspace(cwd?: string, parentAgentId?: string) {
@@ -40,6 +41,7 @@ export function useWebSocket() {
     lastMessageAt: Date.now(),
     error: null,
     errorId: 0,
+    lastStartedAgentId: null,
   })
 
   // Session output callback — components can subscribe
@@ -64,7 +66,7 @@ export function useWebSocket() {
     command: string,
     workspace?: string,
     asMain?: boolean,
-    extras?: { task?: string; workflowTemplate?: string; projectWorkspace?: string }
+    extras?: { task?: string; workflowTemplate?: string; customTitle?: string; projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string }
   ) => {
     const msg: StartAgentMessage = {
       type: 'start-agent',
@@ -74,7 +76,13 @@ export function useWebSocket() {
     }
     if (extras?.task !== undefined) msg.task = extras.task
     if (extras?.workflowTemplate !== undefined) msg.workflowTemplate = extras.workflowTemplate
+    if (extras?.customTitle !== undefined) msg.customTitle = extras.customTitle
     if (extras?.projectWorkspace !== undefined) msg.projectWorkspace = extras.projectWorkspace
+    if (extras?.codexApprovalMode !== undefined) msg.codexApprovalMode = extras.codexApprovalMode
+    if (extras?.codexRuntimeMode !== undefined) msg.codexRuntimeMode = extras.codexRuntimeMode
+    if (extras?.agentRuntimeMode !== undefined) msg.agentRuntimeMode = extras.agentRuntimeMode
+    if (extras?.dangerouslySkipPermissions !== undefined) msg.dangerouslySkipPermissions = extras.dangerouslySkipPermissions
+    if (extras?.providerHomeId !== undefined) msg.providerHomeId = extras.providerHomeId
     return sendMessage(msg)
   }, [sendMessage])
 
@@ -82,6 +90,28 @@ export function useWebSocket() {
     const message: InputMessage = Array.isArray(input)
       ? { type: 'input', inputParts: input, agentId }
       : { type: 'input', input, agentId }
+    return sendMessage(message)
+  }, [sendMessage])
+
+  const sendComposerInput = useCallback((message: string, agentId?: string) => {
+    const input: ComposerInputMessage = { type: 'composer-input', message, agentId }
+    return sendMessage(input)
+  }, [sendMessage])
+
+  const respondToAppServerRequest = useCallback((
+    agentId: string,
+    requestId: string,
+    result?: unknown,
+    options?: { reject?: boolean; reason?: string },
+  ) => {
+    const message: AppServerRequestResponseMessage = {
+      type: 'app-server-request-response',
+      agentId,
+      requestId,
+      result,
+      ...(options?.reject === true ? { reject: true } : {}),
+      ...(options?.reason ? { reason: options.reason } : {}),
+    }
     return sendMessage(message)
   }, [sendMessage])
 
@@ -101,7 +131,7 @@ export function useWebSocket() {
     return sendMessage({ type: 'interrupt-agent', agentId })
   }, [sendMessage])
 
-  const restartMainAgent = useCallback((command: 'bash' | 'zsh' | 'codex' | 'claude') => {
+  const restartMainAgent = useCallback((command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => {
     return sendMessage({ type: 'restart-main-agent', command })
   }, [sendMessage])
 
@@ -215,6 +245,9 @@ export function useWebSocket() {
             case 'error':
               setState(prev => ({ ...prev, error: msg.message, errorId: prev.errorId + 1 }))
               break
+            case 'agent-started':
+              setState(prev => ({ ...prev, lastStartedAgentId: msg.agentId }))
+              break
             case 'session-preview':
               setState(prev => ({
                 ...prev,
@@ -288,6 +321,8 @@ export function useWebSocket() {
     ...state,
     startAgent,
     sendInput,
+    sendComposerInput,
+    respondToAppServerRequest,
     focusAgent,
     resizeAgent,
     killAgent,

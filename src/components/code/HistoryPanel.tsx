@@ -1,6 +1,7 @@
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { agentTitle, formatRelativeAge } from '@/lib/format'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
+import { ArrowRightGlyph, ExternalLinkGlyph } from '@/components/IconGlyphs'
 import {
   agentSessionId,
   agentSessionUpdatedAt,
@@ -10,6 +11,7 @@ import {
 } from './model'
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem } from './types'
+import { resumedAgentSessionFromSource } from './session-display'
 
 export type HistoryAgentItem =
   | { kind: 'run'; historyKey: string; updatedAt: number; entry: TaskHistoryEntry }
@@ -21,59 +23,24 @@ interface HistoryPanelProps {
   archivedAgents: Agent[]
   agentSessions: AgentSessionHistoryItem[]
   now: number
-  onResumeSession: (provider: string, sessionId: string) => void
+  onResumeSession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onContinueRun: (entry: TaskHistoryEntry) => void
   onOpenArchivedAgent: (agentId: string) => void
   onRestoreArchivedAgent: (agentId: string) => void
   copy: CodeCopy
 }
 
-function compactHistoryId(id: string) {
-  const value = String(id || '').trim()
-  if (!value) return ''
-  if (value.length <= 16) return value
-  return `${value.slice(0, 6)}...${value.slice(-6)}`
-}
-
-function historySessionIdentity(session: AgentSessionHistoryItem) {
-  const provider = session.provider || 'agent'
-  const id = compactHistoryId(session.id)
-  if (!id) return null
-  return {
-    label: `resume ${provider}:${id}`,
-    title: `resume ${provider}:${session.id}`,
-  }
-}
-
 function normalizeHistoryProvider(provider?: string) {
   const value = String(provider || '').trim().toLowerCase()
-  return value === 'codex' || value === 'claude' ? value : ''
+  return value === 'codex' || value === 'claude' || value === 'qoder' ? value : ''
 }
 
 function resumedSessionFromHistorySource(source?: string) {
-  const match = /^(codex|claude)-history(?:-fork)?:(.+)$/.exec(source || '')
-  if (!match) return null
-  const provider = normalizeHistoryProvider(match[1])
-  const sessionId = String(match[2] || '').trim()
-  return provider && sessionId ? { provider, sessionId } : null
-}
-
-function resumedIdentityFromAgentSource(source?: string) {
-  const resumed = resumedSessionFromHistorySource(source)
-  if (!resumed) return null
-  const { provider, sessionId } = resumed
-  if (!provider || !sessionId) return null
-  return {
-    label: `resume ${provider}:${compactHistoryId(sessionId)}`,
-    title: `resume ${provider}:${sessionId}`,
-  }
-}
-
-function historyAgentIdentity(agent: Agent) {
-  return resumedIdentityFromAgentSource(agent.source) ?? {
-    label: `run ${compactHistoryId(agent.id)}`,
-    title: `run ${agent.id}`,
-  }
+  const session = resumedAgentSessionFromSource(source)
+  if (!session) return null
+  const provider = normalizeHistoryProvider(session.provider)
+  const sessionId = String(session.sessionId || '').trim()
+  return provider && sessionId ? { ...session, provider, sessionId } : null
 }
 
 function historyRunTitle(entry: TaskHistoryEntry) {
@@ -84,13 +51,28 @@ function historyRunWorkspace(entry: TaskHistoryEntry) {
   return entry.projectWorkspace || entry.cwd || ''
 }
 
-function historyRunIdentity(entry: TaskHistoryEntry) {
-  const resumed = resumedIdentityFromAgentSource(entry.source)
-  if (resumed) return resumed
-  return {
-    label: `run ${compactHistoryId(entry.agentId || entry.id)}`,
-    title: `run ${entry.agentId || entry.id}`,
-  }
+function historyMeta(...parts: Array<string | undefined | null>) {
+  return parts.map(part => String(part || '').trim()).filter(Boolean).join(' · ')
+}
+
+function historyRunMeta(entry: TaskHistoryEntry) {
+  return historyMeta(formatWorkspaceForDisplay(historyRunWorkspace(entry)))
+}
+
+function historyAgentMeta(agent: Agent) {
+  return historyMeta(
+    agent.providerSessionProvider || agent.engineName,
+    formatWorkspaceForDisplay(projectWorkspaceForAgent(agent))
+  )
+}
+
+function historySessionMeta(session: AgentSessionHistoryItem) {
+  return historyMeta(
+    session.providerName || session.provider,
+    session.model,
+    session.effort ? effortLabel(session.effort) : '',
+    formatAgentSessionWorkspace(session)
+  )
 }
 
 function historyRunUpdatedAt(entry: TaskHistoryEntry) {
@@ -105,14 +87,22 @@ function historyItemResumeSession(item: HistoryAgentItem) {
   if (item.kind === 'session') {
     const provider = normalizeHistoryProvider(item.session.provider)
     const sessionId = String(item.session.id || '').trim()
-    return provider && sessionId ? { provider, sessionId } : null
+    return provider && sessionId ? {
+      provider,
+      sessionId,
+      providerHomeId: item.session.providerHomeId || 'default',
+    } : null
   }
 
   if (item.kind === 'agent') {
     const provider = normalizeHistoryProvider(item.agent.providerSessionProvider)
     const sessionId = String(item.agent.providerSessionId || '').trim()
     if (provider && sessionId && item.agent.providerSessionTemporary !== true) {
-      return { provider, sessionId }
+      return {
+        provider,
+        sessionId,
+        providerHomeId: item.agent.providerHomeId || 'default',
+      }
     }
 
     return resumedSessionFromHistorySource(item.agent.source)
@@ -123,7 +113,7 @@ function historyItemResumeSession(item: HistoryAgentItem) {
 
 function historyItemResumeKey(item: HistoryAgentItem) {
   const resumed = historyItemResumeSession(item)
-  return resumed ? `resume:${resumed.provider}:${resumed.sessionId}` : ''
+  return resumed ? `resume:${resumed.provider}:${resumed.providerHomeId || 'default'}:${resumed.sessionId}` : ''
 }
 
 function historyItemDisplayPriority(item: HistoryAgentItem) {
@@ -137,6 +127,16 @@ function shouldReplaceHistoryItem(current: HistoryAgentItem, candidate: HistoryA
     return candidate.updatedAt > current.updatedAt
   }
   return historyItemDisplayPriority(candidate) > historyItemDisplayPriority(current)
+}
+
+function historySessionDisplayKey(item: HistoryAgentItem) {
+  if (item.kind !== 'session') return ''
+  const title = String(item.session.title || '').trim().toLocaleLowerCase()
+  const workspace = String(formatAgentSessionWorkspace(item.session) || '').trim().toLocaleLowerCase()
+  const provider = normalizeHistoryProvider(item.session.provider)
+  const home = String(item.session.providerHomeId || 'default').trim().toLocaleLowerCase()
+  // Empty/provider-default titles are not meaningful enough to collapse.
+  return title.length > 4 && workspace ? `${provider}:${home}:${workspace}:${title}` : ''
 }
 
 export function dedupeHistoryAgentItems(items: HistoryAgentItem[]) {
@@ -156,10 +156,24 @@ export function dedupeHistoryAgentItems(items: HistoryAgentItem[]) {
     }
   })
 
-  return [
+  const exactDedupe = [
     ...retainedItems,
     ...resumableItems.values(),
-  ].sort((a, b) => b.updatedAt - a.updatedAt)
+  ]
+  const visualSessions = new Map<string, HistoryAgentItem>()
+  return exactDedupe.filter(item => {
+    const displayKey = historySessionDisplayKey(item)
+    if (!displayKey) return true
+    const current = visualSessions.get(displayKey)
+    if (!current || shouldReplaceHistoryItem(current, item)) {
+      visualSessions.set(displayKey, item)
+      return true
+    }
+    return false
+  }).filter(item => {
+    const displayKey = historySessionDisplayKey(item)
+    return !displayKey || visualSessions.get(displayKey) === item
+  }).sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
 export function buildHistoryAgentItems(
@@ -207,7 +221,6 @@ export function HistoryPanel({
     <div className="code-history-panel" data-testid="code-history-panel">
       <div className="code-history-panel-header">
         <h2>{copy.history}</h2>
-        <span>{copy.historySummary(0, 0, totalHistoryItems, 0)}</span>
       </div>
       {totalHistoryItems === 0 ? (
         <div className="code-empty-workspace">
@@ -217,18 +230,14 @@ export function HistoryPanel({
       ) : (
         <div className="code-history-list">
           <section className="code-history-section" data-testid="code-history-agents">
-            <h3>{copy.historyAgents}</h3>
             {historyAgents.map(item => {
               if (item.kind === 'run') {
                 const { entry } = item
-                const identity = historyRunIdentity(entry)
                 return (
                   <article key={item.historyKey} className="code-history-card archived" data-testid="code-archived-run-card">
                     <div>
                       <h3>{historyRunTitle(entry)}</h3>
-                      <p>{entry.command || 'unknown command'}</p>
-                      <p>{formatWorkspaceForDisplay(historyRunWorkspace(entry))}</p>
-                      <p className="code-history-identity" title={identity.title}>{identity.label}</p>
+                      <p>{historyRunMeta(entry)}</p>
                     </div>
                     <div className="code-history-actions">
                       <span>{formatRelativeAge(item.updatedAt, now)}</span>
@@ -236,8 +245,10 @@ export function HistoryPanel({
                         type="button"
                         data-testid="code-archived-run-continue"
                         onClick={() => onContinueRun(entry)}
+                        aria-label={copy.continueRun}
+                        title={copy.continueRun}
                       >
-                        {copy.continueRun}
+                        <ArrowRightGlyph />
                       </button>
                     </div>
                   </article>
@@ -246,14 +257,11 @@ export function HistoryPanel({
 
               if (item.kind === 'agent') {
                 const { agent } = item
-                const identity = historyAgentIdentity(agent)
                 return (
                   <article key={item.historyKey} className="code-history-card archived" data-testid="code-archived-agent-card">
                     <div>
                       <h3>{agentTitle(agent)}</h3>
-                      <p>{agent.task || agent.command}</p>
-                      <p>{formatWorkspaceForDisplay(projectWorkspaceForAgent(agent))}</p>
-                      <p className="code-history-identity" title={identity.title}>{identity.label}</p>
+                      <p>{historyAgentMeta(agent)}</p>
                     </div>
                     <div className="code-history-actions">
                       <span>{formatRelativeAge(item.updatedAt, now)}</span>
@@ -261,15 +269,19 @@ export function HistoryPanel({
                         type="button"
                         data-testid="code-archived-agent-open"
                         onClick={() => onOpenArchivedAgent(agent.id)}
+                        aria-label={copy.open}
+                        title={copy.open}
                       >
-                        {copy.open}
+                        <ExternalLinkGlyph />
                       </button>
                       <button
                         type="button"
                         data-testid="code-archived-agent-restore"
                         onClick={() => onRestoreArchivedAgent(agent.id)}
+                        aria-label={copy.restore}
+                        title={copy.restore}
                       >
-                        {copy.restore}
+                        <ArrowRightGlyph />
                       </button>
                     </div>
                   </article>
@@ -278,25 +290,21 @@ export function HistoryPanel({
 
               const { session } = item
               const sessionTitle = session.title || copy.sessionFallbackTitle(session.providerName)
-              const identity = historySessionIdentity(session)
               return (
                 <article key={item.historyKey} className="code-history-card code-session" data-testid="code-session-history-card">
                   <div>
                     <h3>{sessionTitle}</h3>
-                    <p>{session.model ? `${session.providerName || session.provider} · ${session.model}${session.effort ? ` · ${effortLabel(session.effort)}` : ''}` : (session.providerName || session.provider)}</p>
-                    <p>{formatAgentSessionWorkspace(session)}</p>
-                    {identity && (
-                      <p className="code-history-identity" title={identity.title}>{identity.label}</p>
-                    )}
+                    <p>{historySessionMeta(session)}</p>
                   </div>
                   <div className="code-history-actions">
                     <span>{formatRelativeAge(item.updatedAt, now)}</span>
                     <button
                       type="button"
                       aria-label={copy.resumeSessionAria(sessionTitle)}
-                      onClick={() => onResumeSession(session.provider, session.id)}
+                      title={copy.restore}
+                      onClick={() => onResumeSession(session.provider, session.id, session.providerHomeId)}
                     >
-                      {copy.restore}
+                      <ArrowRightGlyph />
                     </button>
                   </div>
                 </article>

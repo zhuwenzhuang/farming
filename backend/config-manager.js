@@ -6,6 +6,7 @@ const { normalizeClaudeModelValue } = require('./claude-settings');
 const { isTemporaryProviderSessionId } = require('./provider-session-id');
 const { FarmingSessionStore, MAX_MAIN_PAGE_SESSION_KEYS } = require('./farming-session-store');
 const { RunHistoryStore } = require('./run-history-store');
+const { isSupportedHistoryAgent } = require('./cli-agents');
 const storageLayout = require('./storage-layout');
 
 function splitCodexModelPreset(preset) {
@@ -47,6 +48,25 @@ const DEFAULT_AGENT_LAUNCH_PROFILES = {
   claude: DEFAULT_CLAUDE_LAUNCH_PROFILE,
 };
 
+const DEFAULT_LAUNCH_AGENT_NAMES = new Set(['codex', 'claude', 'opencode', 'qoder', 'bash', 'zsh']);
+
+const DEFAULT_AGENT_HOMES = {
+  codex: [{ id: 'default', path: '~/.codex' }],
+  claude: [{ id: 'default', path: '~/.claude' }],
+  opencode: [{ id: 'default', path: '~/.opencode' }],
+  qoder: [{ id: 'default', path: '~/.qoder' }],
+};
+
+const DEFAULT_UPDATE_URL = 'https://github.com/zhuwenzhuang/farming/releases/latest';
+const LEGACY_DEFAULT_UPDATE_URL = 'https://github.com/zhuwenzhuang/farming/releases/latest/download/manifest.json';
+const API_DEFAULT_UPDATE_URL = 'https://api.github.com/repos/zhuwenzhuang/farming/releases/latest';
+const DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS = 3000;
+const MIN_WORKSPACE_FILE_SEARCH_TIMEOUT_MS = 3000;
+const MAX_WORKSPACE_FILE_SEARCH_TIMEOUT_MS = 180000;
+const DEFAULT_CRT_TERMINAL_FONT_SIZE = 12;
+const MIN_CRT_TERMINAL_FONT_SIZE = 10;
+const MAX_CRT_TERMINAL_FONT_SIZE = 20;
+
 const PERSISTED_SETTING_KEYS = new Set([
   'workspace',
   'lastMainWorkspace',
@@ -57,8 +77,15 @@ const PERSISTED_SETTING_KEYS = new Set([
   'language',
   'heartbeatInterval',
   'dangerouslySkipAgentPermissionsByDefault',
+  'crtSkinEffectsEnabled',
+  'crtDynamicHeatEnabled',
+  'crtTerminalFontSize',
   'defaultLaunchAgent',
   'agentLaunchProfiles',
+  'agentHomes',
+  'updateUrl',
+  'workspaceFileSearchTimeoutMs',
+  'codexRuntimeMode',
   'codexApprovalMode',
   'codexModel',
   'codexReasoningEffort',
@@ -69,6 +96,16 @@ const PERSISTED_SETTING_KEYS = new Set([
 
 function cloneLaunchProfile(profile) {
   return { ...profile };
+}
+
+function cloneAgentHomes(agentHomes) {
+  const cloned = {};
+  Object.entries(agentHomes || {}).forEach(([provider, homes]) => {
+    cloned[provider] = Array.isArray(homes)
+      ? homes.map(home => ({ ...home }))
+      : [];
+  });
+  return cloned;
 }
 
 class ConfigManager {
@@ -187,6 +224,7 @@ class ConfigManager {
       if (typeof entry.agentId !== 'string' || !entry.agentId) continue;
       if (typeof entry.reason !== 'string' || !entry.reason) continue;
       if (typeof entry.archivedAt !== 'number' || !Number.isFinite(entry.archivedAt)) continue;
+      if (!isSupportedHistoryAgent(entry.command)) continue;
       normalized.push({
         id: entry.id,
         agentId: entry.agentId,
@@ -194,6 +232,7 @@ class ConfigManager {
         cwd: typeof entry.cwd === 'string' ? entry.cwd : '',
         projectWorkspace: typeof entry.projectWorkspace === 'string' ? entry.projectWorkspace : '',
         title: typeof entry.title === 'string' ? entry.title : '',
+        customTitle: typeof entry.customTitle === 'string' ? entry.customTitle.trim().slice(0, 80) : '',
         task: typeof entry.task === 'string' ? entry.task : '',
         workflowTemplate: typeof entry.workflowTemplate === 'string' ? entry.workflowTemplate : '',
         source: typeof entry.source === 'string' ? entry.source : 'ui',
@@ -226,11 +265,18 @@ class ConfigManager {
         language: 'en',
         heartbeatInterval: 1000,
         dangerouslySkipAgentPermissionsByDefault: false,
+        crtSkinEffectsEnabled: true,
+        crtDynamicHeatEnabled: false,
+        crtTerminalFontSize: DEFAULT_CRT_TERMINAL_FONT_SIZE,
         defaultLaunchAgent: 'codex',
         agentLaunchProfiles: {
           codex: cloneLaunchProfile(DEFAULT_CODEX_LAUNCH_PROFILE),
           claude: cloneLaunchProfile(DEFAULT_CLAUDE_LAUNCH_PROFILE),
         },
+        agentHomes: cloneAgentHomes(DEFAULT_AGENT_HOMES),
+        updateUrl: DEFAULT_UPDATE_URL,
+        workspaceFileSearchTimeoutMs: DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS,
+        codexRuntimeMode: 'cli',
         codexApprovalMode: 'approve',
         codexModel: 'gpt-5.5',
         codexReasoningEffort: 'xhigh',
@@ -253,11 +299,18 @@ class ConfigManager {
       language: 'en',
       heartbeatInterval: 1000,
       dangerouslySkipAgentPermissionsByDefault: false,
+      crtSkinEffectsEnabled: true,
+      crtDynamicHeatEnabled: false,
+      crtTerminalFontSize: DEFAULT_CRT_TERMINAL_FONT_SIZE,
       defaultLaunchAgent: 'codex',
       agentLaunchProfiles: {
         codex: cloneLaunchProfile(DEFAULT_CODEX_LAUNCH_PROFILE),
         claude: cloneLaunchProfile(DEFAULT_CLAUDE_LAUNCH_PROFILE),
       },
+      agentHomes: cloneAgentHomes(DEFAULT_AGENT_HOMES),
+      updateUrl: DEFAULT_UPDATE_URL,
+      workspaceFileSearchTimeoutMs: DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS,
+      codexRuntimeMode: 'cli',
       codexApprovalMode: 'approve',
       codexModel: 'gpt-5.5',
       codexReasoningEffort: 'xhigh',
@@ -282,6 +335,13 @@ class ConfigManager {
     this.settings.lastMainWorkspace = this.normalizeMainWorkspace(this.settings.lastMainWorkspace, this.farmingDir);
     this.settings.workspaceHistory = this.normalizeWorkspaceHistory(this.settings.workspaceHistory);
     this.settings.projectNames = this.normalizeProjectNames(this.settings.projectNames);
+    this.settings.agentHomes = this.normalizeAgentHomes(this.settings.agentHomes);
+    if (this.settings.updateUrl === LEGACY_DEFAULT_UPDATE_URL || this.settings.updateUrl === API_DEFAULT_UPDATE_URL) {
+      this.settings.updateUrl = DEFAULT_UPDATE_URL;
+    }
+    this.settings.updateUrl = this.normalizeUpdateUrl(this.settings.updateUrl);
+    this.settings.workspaceFileSearchTimeoutMs = this.normalizeWorkspaceFileSearchTimeoutMs(this.settings.workspaceFileSearchTimeoutMs);
+    this.settings.codexRuntimeMode = this.normalizeCodexRuntimeMode(this.settings.codexRuntimeMode);
     const legacyMainPageSessionKeys = this.normalizeMainPageSessionKeys(this.settings.mainPageSessionKeys);
     delete this.settings.mainPageSessionKeys;
     this.sessionStore.init({ legacyMainPageSessionKeys });
@@ -290,6 +350,9 @@ class ConfigManager {
     this.runHistoryStore.init({ legacyTaskHistory });
     this.settings.appearance = this.normalizeAppearance(this.settings.appearance);
     this.settings.language = this.normalizeLanguage(this.settings.language);
+    this.settings.crtSkinEffectsEnabled = this.settings.crtSkinEffectsEnabled !== false;
+    this.settings.crtDynamicHeatEnabled = this.settings.crtDynamicHeatEnabled === true;
+    this.settings.crtTerminalFontSize = this.normalizeCrtTerminalFontSize(this.settings.crtTerminalFontSize);
     this.normalizeAgentLaunchSettings(launchRawSettings);
     this.pruneUnknownSettings();
     ensureMainAgentSkillFiles(this.farmingDir);
@@ -306,7 +369,64 @@ class ConfigManager {
   }
 
   normalizeDefaultLaunchAgent(agentName) {
-    return Object.prototype.hasOwnProperty.call(DEFAULT_AGENT_LAUNCH_PROFILES, agentName) ? agentName : 'codex';
+    return DEFAULT_LAUNCH_AGENT_NAMES.has(agentName) ? agentName : 'codex';
+  }
+
+  normalizeWorkspaceFileSearchTimeoutMs(value) {
+    const timeoutMs = Number(value);
+    if (!Number.isFinite(timeoutMs)) return DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS;
+    return Math.min(
+      MAX_WORKSPACE_FILE_SEARCH_TIMEOUT_MS,
+      Math.max(MIN_WORKSPACE_FILE_SEARCH_TIMEOUT_MS, Math.round(timeoutMs))
+    );
+  }
+
+  normalizeCrtTerminalFontSize(value) {
+    const fontSize = Number(value);
+    if (!Number.isFinite(fontSize)) return DEFAULT_CRT_TERMINAL_FONT_SIZE;
+    return Math.min(
+      MAX_CRT_TERMINAL_FONT_SIZE,
+      Math.max(MIN_CRT_TERMINAL_FONT_SIZE, Math.round(fontSize))
+    );
+  }
+
+  normalizeAgentHomes(agentHomes) {
+    const source = agentHomes && typeof agentHomes === 'object' && !Array.isArray(agentHomes)
+      ? agentHomes
+      : {};
+    const normalized = {};
+
+    Object.entries(source).forEach(([rawProvider, rawHomes]) => {
+      const provider = String(rawProvider || '').trim().toLowerCase();
+      if (!/^[a-z0-9._-]+$/.test(provider)) return;
+      if (!Object.prototype.hasOwnProperty.call(DEFAULT_AGENT_HOMES, provider)) return;
+      if (!Array.isArray(rawHomes)) return;
+
+      const seenIds = new Set();
+      const homes = [];
+      rawHomes.forEach(rawHome => {
+        if (!rawHome || typeof rawHome !== 'object') return;
+        const id = String(rawHome.id || '').trim();
+        const homePath = String(rawHome.path || '').trim();
+        if (!id || !homePath) return;
+        if (!/^[A-Za-z0-9._-]+$/.test(id)) return;
+        const idKey = id.toLowerCase();
+        if (seenIds.has(idKey)) return;
+        seenIds.add(idKey);
+        homes.push({ id, path: homePath });
+      });
+      if (homes.length > 0) normalized[provider] = homes;
+    });
+
+    for (const [provider, homes] of Object.entries(DEFAULT_AGENT_HOMES)) {
+      const defaultHome = homes[0];
+      const providerHomes = normalized[provider] || [];
+      if (!providerHomes.some(home => String(home.id || '').toLowerCase() === 'default')) {
+        normalized[provider] = [{ ...defaultHome }, ...providerHomes];
+      }
+    }
+
+    return normalized;
   }
 
   normalizeProjectNames(projectNames) {
@@ -329,6 +449,12 @@ class ConfigManager {
     return ['en', 'zh'].includes(language) ? language : 'en';
   }
 
+  normalizeUpdateUrl(value) {
+    const url = String(value || '').trim();
+    if (!url) return DEFAULT_UPDATE_URL;
+    return /^https?:\/\//i.test(url) ? url.slice(0, 2000) : DEFAULT_UPDATE_URL;
+  }
+
   normalizeClaudePermissionMode(mode) {
     return ['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'].includes(mode)
       ? mode
@@ -348,6 +474,10 @@ class ConfigManager {
 
   normalizeCodexApprovalMode(mode) {
     return ['ask', 'approve', 'full', 'custom'].includes(mode) ? mode : 'approve';
+  }
+
+  normalizeCodexRuntimeMode(mode) {
+    return mode === 'app-server' ? 'app-server' : 'cli';
   }
 
   normalizeCodexModelPreset(preset) {
@@ -505,6 +635,11 @@ class ConfigManager {
     return this.getAgentLaunchProfile('codex').approvalMode;
   }
 
+  getCodexRuntimeMode() {
+    if (!this.settings) return 'cli';
+    return this.normalizeCodexRuntimeMode(this.settings.codexRuntimeMode);
+  }
+
   getCodexModelPreset() {
     if (!this.settings) return 'gpt-5.5:xhigh';
     return this.getAgentLaunchProfile('codex').modelPreset;
@@ -523,6 +658,21 @@ class ConfigManager {
   getCodexServiceTier() {
     if (!this.settings) return 'default';
     return this.getAgentLaunchProfile('codex').serviceTier;
+  }
+
+
+  getAgentHomes(provider) {
+    const homes = this.settings && this.settings.agentHomes && this.settings.agentHomes[provider]
+      ? this.settings.agentHomes[provider]
+      : [];
+    return homes.map(home => ({ ...home, path: this.expandWorkspacePath(home.path) }));
+  }
+
+  getAgentHome(provider, homeId = 'default') {
+    const normalizedProvider = String(provider || '').trim().toLowerCase();
+    const normalizedHomeId = String(homeId || 'default').trim();
+    const homes = this.getAgentHomes(normalizedProvider);
+    return homes.find(home => home.id === normalizedHomeId) || null;
   }
 
   getDefaultLaunchAgent() {
@@ -578,6 +728,14 @@ class ConfigManager {
     return this.sessionStore ? this.sessionStore.ensureRecordForAgent(agent, patch) : '';
   }
 
+  setProviderSessionDisplayState(sessionKey, patch = {}) {
+    return this.sessionStore ? this.sessionStore.setProviderSessionDisplayState(sessionKey, patch) : '';
+  }
+
+  listAgentSessionRecords() {
+    return this.sessionStore ? this.sessionStore.listAgentRecords() : [];
+  }
+
   rememberAgentSessionRecord(agent) {
     return this.sessionStore ? this.sessionStore.rememberAgent(agent) : '';
   }
@@ -618,6 +776,10 @@ class ConfigManager {
     this.settings.lastMainWorkspace = this.normalizeMainWorkspace(this.settings.lastMainWorkspace, previousMainWorkspace);
     this.settings.workspaceHistory = this.normalizeWorkspaceHistory(this.settings.workspaceHistory);
     this.settings.projectNames = this.normalizeProjectNames(this.settings.projectNames);
+    this.settings.agentHomes = this.normalizeAgentHomes(this.settings.agentHomes);
+    this.settings.updateUrl = this.normalizeUpdateUrl(this.settings.updateUrl);
+    this.settings.workspaceFileSearchTimeoutMs = this.normalizeWorkspaceFileSearchTimeoutMs(this.settings.workspaceFileSearchTimeoutMs);
+    this.settings.codexRuntimeMode = this.normalizeCodexRuntimeMode(this.settings.codexRuntimeMode);
     delete this.settings.mainPageSessionKeys;
     delete this.settings.taskHistory;
     if (incomingMainPageSessionKeys !== undefined) {
@@ -628,6 +790,9 @@ class ConfigManager {
     }
     this.settings.appearance = this.normalizeAppearance(this.settings.appearance);
     this.settings.language = this.normalizeLanguage(this.settings.language);
+    this.settings.crtSkinEffectsEnabled = this.settings.crtSkinEffectsEnabled !== false;
+    this.settings.crtDynamicHeatEnabled = this.settings.crtDynamicHeatEnabled === true;
+    this.settings.crtTerminalFontSize = this.normalizeCrtTerminalFontSize(this.settings.crtTerminalFontSize);
     this.normalizeAgentLaunchSettings(settingsPatch);
     this.pruneUnknownSettings();
     this.writeSettingsFile();
@@ -635,3 +800,8 @@ class ConfigManager {
 }
 
 module.exports = ConfigManager;
+module.exports.DEFAULT_UPDATE_URL = DEFAULT_UPDATE_URL;
+module.exports.DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS = DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS;
+module.exports.DEFAULT_CRT_TERMINAL_FONT_SIZE = DEFAULT_CRT_TERMINAL_FONT_SIZE;
+module.exports.MIN_CRT_TERMINAL_FONT_SIZE = MIN_CRT_TERMINAL_FONT_SIZE;
+module.exports.MAX_CRT_TERMINAL_FONT_SIZE = MAX_CRT_TERMINAL_FONT_SIZE;

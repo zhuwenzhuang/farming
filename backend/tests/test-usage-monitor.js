@@ -33,6 +33,7 @@ async function run() {
           last_token_usage: { total_tokens: 1000 },
         },
         rate_limits: {
+          limit_id: 'codex',
           primary: { used_percent: 12, window_minutes: 300, resets_at: 1782558828 },
         },
       },
@@ -47,6 +48,7 @@ async function run() {
           last_token_usage: { input_tokens: 400, output_tokens: 200, total_tokens: 600 },
         },
         rate_limits: {
+          limit_id: 'codex',
           primary: { used_percent: 44, window_minutes: 300, resets_at: 1782558828 },
           secondary: { used_percent: 9, window_minutes: 10080, resets_at: 1782952632 },
           plan_type: 'pro',
@@ -63,8 +65,24 @@ async function run() {
           last_token_usage: { input_tokens: 400, output_tokens: 200, total_tokens: 600 },
         },
         rate_limits: {
+          limit_id: 'codex',
           primary: { used_percent: 44, window_minutes: 300, resets_at: 1782558828 },
           secondary: { used_percent: 9, window_minutes: 10080, resets_at: 1782952632 },
+          plan_type: 'pro',
+        },
+      },
+    }),
+    JSON.stringify({
+      timestamp: '2026-06-28T11:59:45.000Z',
+      type: 'event_msg',
+      payload: {
+        type: 'token_count',
+        info: {},
+        rate_limits: {
+          limit_id: 'codex_bengalfox',
+          limit_name: 'GPT-5.3-Codex-Spark',
+          primary: { used_percent: 0, window_minutes: 300, resets_at: 1782600000 },
+          secondary: { used_percent: 0, window_minutes: 10080, resets_at: 1783000000 },
           plan_type: 'pro',
         },
       },
@@ -97,11 +115,15 @@ async function run() {
 
   const codexUsage = await collectCodexUsage({ codexHome, now, windowMs });
   assert.strictEqual(codexUsage.quota.available, true);
+  assert.strictEqual(codexUsage.quota.limitId, 'codex');
   assert.strictEqual(codexUsage.quota.planType, 'pro');
   assert.strictEqual(codexUsage.quota.primary.usedPercent, 44);
+  assert.strictEqual(codexUsage.quota.primary.forecast.remainingPercent, 56);
+  assert.strictEqual(codexUsage.quota.primary.forecast.remainingTokens, null);
   assert.strictEqual(codexUsage.quota.primary.windowMinutes, 300);
   assert.strictEqual(codexUsage.quota.primary.resetsAt, 1782558828 * 1000);
   assert.strictEqual(codexUsage.quota.secondary.usedPercent, 9);
+  assert.strictEqual(codexUsage.quota.secondary.forecast.remainingPercent, 91);
   assert.strictEqual(codexUsage.tokenUsage.totalTokens, 600);
   assert.strictEqual(codexUsage.tokenUsage.tokensPerMinute, 120);
 

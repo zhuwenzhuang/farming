@@ -184,7 +184,7 @@ test.describe('display-backed agent flows', () => {
     await expect(productMark).not.toContainText('UPGRADE')
     await expect(productMark).not.toHaveClass(/upgrade/)
     await expectDogfoodBadgeRing(productMark, 'light')
-    const productMarkMainBox = await productMark.locator('.code-product-mark-main').boundingBox()
+    const productMarkMainBox = await productMark.locator('.code-product-mark-main').first().boundingBox()
     const productMarkMetaBox = await productMark.locator('.code-product-mark-badge').boundingBox()
     if (!productMarkMainBox || !productMarkMetaBox) {
       throw new Error('Product mark layout boxes are missing')
@@ -324,6 +324,18 @@ test.describe('display-backed agent flows', () => {
     await expect(untrackedGroup.getByRole('button', { name: /Untracked/ })).toHaveAttribute('aria-expanded', 'false')
     await expect(changesSection.getByTestId('code-file-change-row').filter({ hasText: 'scratch.log' })).toHaveCount(0)
     await expect(changesSection.getByRole('button', { name: 'Refresh changes' })).toHaveCount(0)
+    const trackedReviewPromise = page.waitForEvent('popup')
+    await trackedGroup.getByRole('button', { name: 'Review', exact: true }).click()
+    const trackedReview = await trackedReviewPromise
+    await expect.poll(() => new URL(trackedReview.url()).searchParams.get('scope')).toBe('tracked')
+    await expect(changesTitle).toHaveAttribute('aria-expanded', 'false')
+    await trackedReview.close()
+    const untrackedReviewPromise = page.waitForEvent('popup')
+    await untrackedGroup.getByRole('button', { name: 'Review', exact: true }).click()
+    const untrackedReview = await untrackedReviewPromise
+    await expect.poll(() => new URL(untrackedReview.url()).searchParams.get('scope')).toBe('untracked')
+    expect(new URL(untrackedReview.url()).searchParams.get('modifiedWithinDays')).toBe('3')
+    await untrackedReview.close()
     await changesTitle.click()
     await expect(changesTitle).toHaveAttribute('aria-expanded', 'true')
     const changeRow = changesSection.getByTestId('code-file-change-row').filter({ hasText: 'review-target.txt' })
@@ -402,7 +414,7 @@ test.describe('display-backed agent flows', () => {
       workspace: mainWorkspace,
       updatedAt: new Date().toISOString(),
       createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-      archived: false,
+      archived: true,
       pinned: false,
       unread: false,
       projectless: false,
@@ -1407,6 +1419,45 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-terminal-jump-bottom')).toBeVisible()
   })
 
+  test('resumes an others Codex session from mouse search result click', async ({ page }) => {
+    await mockCodexSessions(page, [{
+      id: '019f0000-0000-7000-8000-000000000106',
+      title: 'Farming others',
+      cwd: '',
+      workspace: '',
+      updatedAt: new Date().toISOString(),
+      createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      archived: false,
+      pinned: false,
+      unread: false,
+      projectless: true,
+      model: 'gpt-5.5',
+      effort: 'xhigh',
+      source: 'codex',
+    }])
+
+    let resumedCodexSessionId = ''
+    await page.route(/\/farming\/api\/(?:codex\/sessions|agent-sessions\/codex)\/[^/]+\/resume$/, async route => {
+      const match = route.request().url().match(/\/(?:codex\/sessions|agent-sessions\/codex)\/([^/]+)\/resume$/)
+      resumedCodexSessionId = match ? decodeURIComponent(match[1]) : ''
+      await route.fulfill({
+        contentType: 'application/json',
+        status: 201,
+        body: JSON.stringify({ agentId: 'farming-others-agent' }),
+      })
+    })
+
+    await openFarming(page)
+    await page.getByRole('button', { name: /Search/ }).click()
+    await expect(page.getByTestId('code-search-panel')).toBeVisible()
+    await page.getByTestId('code-search-box').locator('input').fill('Farming others')
+    await expect(page.getByTestId('code-session-search-result')).toHaveCount(1)
+    await page.getByTestId('code-session-search-result').first().click()
+    await expect.poll(async () => resumedCodexSessionId).toBe('019f0000-0000-7000-8000-000000000106')
+    await expect(page.getByTestId('code-search-box')).toBeHidden()
+    await expect(page.getByTestId('code-active-session-row').filter({ hasText: 'Farming others' })).toHaveCount(1)
+  })
+
   test('covers desktop and mobile flows with real rendered surfaces', async ({ page, workspaceRoot }) => {
     test.setTimeout(180_000)
 
@@ -1657,6 +1708,10 @@ test.describe('display-backed agent flows', () => {
     await expect(firstProjectNewAgent).toBeVisible()
     await firstProjectNewAgent.click()
     await expect(page.getByTestId('code-project-new-agent-menu').getByRole('menuitem', { name: 'bash' })).toBeVisible()
+    await expect(page.getByTestId('code-project-agent-launch-codex').locator('.agent-launch-icon-codex')).toBeVisible()
+    await expect(page.getByTestId('code-project-agent-launch-claude').locator('.agent-launch-icon-claude')).toBeVisible()
+    await expect(page.getByTestId('code-project-agent-launch-bash').locator('.agent-launch-icon-bash')).toBeVisible()
+    await expect(page.getByTestId('code-project-agent-launch-zsh').locator('.agent-launch-icon-zsh')).toBeVisible()
     await page.keyboard.press('Escape')
 
     await openNewAgentDialog(page)
@@ -1718,18 +1773,16 @@ test.describe('display-backed agent flows', () => {
     const activeCodexSessionRow = activeCodexSessionRows.first()
     await expect(activeCodexSessionRow.locator('.code-agent-pin')).toHaveCount(0)
     await activeCodexSessionRow.hover()
-    const sessionPreview = page.getByTestId('code-session-preview')
-    await expect(sessionPreview).toBeVisible()
-    await expect(sessionPreview).toContainText('Deep Codex Session')
-    await expect(sessionPreview).toContainText('Codex')
-    await expect(sessionPreview).toContainText('gpt-5.5')
-    await expect(sessionPreview).toContainText('Extra High')
+    const agentPreview = page.getByTestId('code-agent-hover-preview')
+    await expect(agentPreview).toBeVisible()
+    await expect(agentPreview).toContainText('Deep Codex Session')
+    await expect(agentPreview).toContainText('child-files')
     await page.mouse.move(900, 500)
-    await expect(page.getByTestId('code-session-preview')).toHaveCount(0)
+    await expect(page.getByTestId('code-agent-hover-preview')).toHaveCount(0)
     await activeCodexSessionRow.focus()
-    await expect(page.getByTestId('code-session-preview')).toHaveCount(0)
+    await expect(page.getByTestId('code-agent-hover-preview')).toHaveCount(0)
     await activeCodexSessionRow.hover()
-    await expect(sessionPreview).toBeVisible()
+    await expect(agentPreview).toBeVisible()
     await activeCodexSessionRow.click({ button: 'right' })
     const codexSessionContextMenu = page.getByTestId('code-session-context-menu')
     await expect(codexSessionContextMenu).toBeVisible()
@@ -1778,7 +1831,7 @@ test.describe('display-backed agent flows', () => {
 
     await page.getByRole('button', { name: /Search/ }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
-    await expect(page.getByTestId('code-search-empty')).toBeVisible()
+    await expect(page.getByTestId('code-search-empty')).toHaveCount(0)
     await expect(page.getByTestId('code-search-panel').locator('.code-search-result')).toHaveCount(0)
     await page.getByTestId('code-search-box').locator('input').fill(mainSearchTerm)
     await page.getByTestId('code-new-agent').click()
@@ -1805,7 +1858,7 @@ test.describe('display-backed agent flows', () => {
     await page.getByRole('button', { name: /Search/ }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
     await page.getByTestId('code-search-box').locator('input').fill(mainSearchTerm)
-    await page.getByRole('button', { name: 'Clear search' }).click()
+    await page.getByTestId('code-search-box').getByRole('button', { name: 'Clear search' }).click()
     await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
     await expect(page.getByTestId('code-search-box')).toBeHidden()
     await expect(childStartedRow).toBeFocused()
@@ -1813,7 +1866,7 @@ test.describe('display-backed agent flows', () => {
     await page.getByRole('button', { name: /Search/ }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
     await page.getByTestId('code-search-box').locator('input').fill(mainSearchTerm)
-    await page.getByRole('button', { name: 'Clear search' }).click()
+    await page.getByTestId('code-search-box').getByRole('button', { name: 'Clear search' }).click()
     await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
     await expect(page.getByTestId('code-search-box')).toBeHidden()
     await expect(page.getByTestId('code-nav-search')).not.toHaveClass(/active/)
@@ -1821,8 +1874,9 @@ test.describe('display-backed agent flows', () => {
     await page.getByRole('button', { name: /Search/ }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
     await page.getByTestId('code-search-box').locator('input').fill('child')
-    await expect(page.getByTestId('code-project-group')).toHaveCount(1)
+    await expect(page.getByTestId('code-project-group')).toHaveCount(2)
     await expect(page.getByTestId('code-project-group').first()).toContainText('child')
+    await expect(page.getByTestId('code-project-group').filter({ hasText: 'farming-playwright-main' })).toHaveCount(1)
     await expect(page.getByTestId('code-search-result')).toHaveCount(1)
     await expect(page.getByTestId('code-search-panel')).toContainText('child')
     await expect(page.getByTestId('code-agent-row').first()).toHaveClass(/search-selected/)
@@ -1893,7 +1947,7 @@ test.describe('display-backed agent flows', () => {
     await expect(archivedCodexSessionCard).toHaveCount(1)
     await expect(archivedCodexSessionCard.first()).toContainText(childWorkspaceDisplay)
     await expect(archivedCodexSessionCard.first()).not.toContainText(deepCodexCwdDisplay)
-    await expect(archivedCodexSessionCard.first()).toContainText('resume codex:019f00...000100')
+    await expect(archivedCodexSessionCard.first()).not.toContainText('resume codex:019f00...000100')
     await expect(page.getByTestId('code-session-history-card').filter({ hasText: 'Deep Codex Session' })).toHaveCount(0)
     await expect(page.getByTestId('code-session-history-card').filter({ hasText: 'Plain Codex Session' })).toHaveCount(0)
     await expect(page.getByTestId('code-session-history-card').filter({ hasText: 'Pinned Claude Session' })).toHaveCount(1)
@@ -2170,7 +2224,17 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-workspace')).toHaveClass(/sidebar-collapsed/)
     await expect(page.getByTestId('code-project-list')).toBeHidden()
     await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
-    await expect.poll(async () => (await page.getByTestId('code-sidebar').boundingBox())?.width ?? 0).toBeLessThan(100)
+    await expect(page.getByTestId('code-nav-search')).toHaveCount(0)
+    await expect(page.getByTestId('code-nav-history')).toHaveCount(0)
+    await expect.poll(async () => (await page.getByTestId('code-sidebar').boundingBox())?.width ?? 0).toBeLessThanOrEqual(52)
+    const collapsedAgentRailMetrics = await page.getByTestId('code-agent-rail-item').first().evaluate(element => {
+      const rect = (element as HTMLElement).getBoundingClientRect()
+      const style = getComputedStyle(element)
+      return { width: rect.width, height: rect.height, fontSize: style.fontSize }
+    })
+    expect(collapsedAgentRailMetrics.width).toBe(42)
+    expect(collapsedAgentRailMetrics.height).toBe(42)
+    expect(collapsedAgentRailMetrics.fontSize).toBe('12px')
     await page.getByTestId('code-sidebar-toggle').click()
     await expect(page.getByTestId('code-workspace')).not.toHaveClass(/sidebar-collapsed/)
     await expect(page.getByTestId('code-project-list')).toBeVisible()
@@ -2516,9 +2580,10 @@ test.describe('display-backed agent flows', () => {
       ],
     })
     const mobileMarker = `mobile-flow-${Date.now()}`
-    await page.getByTestId('code-composer').locator('textarea').fill(`echo ${mobileMarker}`)
-    await page.getByTestId('code-composer').locator('textarea').press('Enter')
-    await expect(page.getByTestId('code-composer').locator('textarea')).toHaveValue('')
+    const mobileComposerInput = page.getByTestId('code-composer-input')
+    await mobileComposerInput.fill(`echo ${mobileMarker}`)
+    await mobileComposerInput.press('Enter')
+    await expect.poll(async () => mobileComposerInput.evaluate(element => element.textContent || '')).toBe('')
     await expect.poll(async () => {
       const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
       const data = await response.json()

@@ -1,15 +1,30 @@
 import type {
+  DragEvent as ReactDragEvent,
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowUpGlyph } from '@/components/IconGlyphs'
-import type { Agent, SystemStats, UsageProviderSummary, UsageSummary } from '@/types/agent'
+import {
+  ArrowUpGlyph,
+  ChevronDownGlyph,
+  ChevronLeftGlyph,
+  ChevronRightGlyph,
+  SettingsGlyph,
+  ErrorGlyph,
+  SearchGlyph,
+} from '@/components/IconGlyphs'
+import type { Agent, ProviderQuotaLimit, SystemStats, UsageProviderSummary, UsageSummary } from '@/types/agent'
 import type { WorkspaceFileDeleteResult, WorkspaceFileMove } from '@/lib/workspace-files'
 import { appPath } from '@/lib/base-path'
 import { agentDisplayName, agentTitle, formatRelativeAge } from '@/lib/format'
+import {
+  GLOBAL_WORKSPACE_FILES_AGENT_ID,
+  GLOBAL_WORKSPACE_FILES_PROJECT_ID,
+  GLOBAL_WORKSPACE_FILES_ROOT,
+  isGlobalWorkspaceFilesAgentId,
+} from '@/lib/global-workspace-files'
 import { workspaceOpenFileKey } from '@/lib/workspace-open-files'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import type { WorkspaceShareTarget } from '@/lib/workspace-share-target'
@@ -21,28 +36,67 @@ import type { CodeCopy } from './copy'
 import {
   MAIN_AGENT_PROJECT_ID,
   agentSessionId,
+  agentSessionProjectName,
   agentSessionUpdatedAt,
-  agentSessionWorkingDirectory,
-  effortLabel,
-  formatAgentSessionWorkspace,
+  projectNameForWorkspace,
 } from './model'
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
 import type { AgentLaunchOption } from './agent-launch-options'
+import { AgentLaunchIcon } from './AgentLaunchIcon'
 import { mobileActionMenuPoint, outwardContextMenuPoint } from './menu-position'
 import { ShareQrButton } from './ShareQrButton'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
+import { stableProjectFileAgentId } from './workspace-derived'
 
 declare const __FARMING_PACKAGE_VERSION__: string
 
 const DEFAULT_PROJECT_SESSION_LIMIT = 5
 const PROJECT_AGENT_VISIBLE_LIMIT = 5
-type SessionPreviewAnchorEvent = { currentTarget: HTMLElement }
+const PROJECT_AGENT_DROP_END = '__project_agent_drop_end__'
+type AgentPreviewAnchorEvent = { currentTarget: HTMLElement }
+
+type AgentPreviewTarget = {
+  key: string
+  title: string
+  project: string
+  lastActive: number
+  provider?: PreviewAgentIconName
+  agentId?: string
+}
+
+type PreviewAgentIconName = 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh'
+
+function previewAgentIconName(value?: string): PreviewAgentIconName | undefined {
+  const normalized = value?.trim().toLowerCase() || ''
+  if (normalized === 'claude-code') return 'claude'
+  if (['codex', 'claude', 'opencode', 'qoder', 'bash', 'zsh'].includes(normalized)) {
+    return normalized as PreviewAgentIconName
+  }
+  return undefined
+}
+
+function previewAgentIconNameForAgent(agent: Agent): PreviewAgentIconName | undefined {
+  const provider = previewAgentIconName(agent.providerSessionProvider)
+  if (provider) return provider
+  const command = agent.command.trim().split(/\s+/).find(token => (
+    token !== 'env' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)
+  ))
+  return previewAgentIconName(command?.split('/').pop())
+}
 
 type PinnedSidebarItem =
   | { kind: 'agent'; agent: Agent }
   | { kind: 'agent-session'; session: AgentSessionHistoryItem }
 
 type SidebarRailItem = { agent: Agent; projectName: string }
+
+function FocusModeGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor" aria-hidden="true">
+      <path d="M3.75 3C3.33579 3 3 3.33579 3 3.75V5.5C3 5.77614 2.77614 6 2.5 6C2.22386 6 2 5.77614 2 5.5V3.75C2 2.7835 2.7835 2 3.75 2H5.5C5.77614 2 6 2.22386 6 2.5C6 2.77614 5.77614 3 5.5 3H3.75ZM10 2.5C10 2.22386 10.2239 2 10.5 2H12.25C13.2165 2 14 2.7835 14 3.75V5.5C14 5.77614 13.7761 6 13.5 6C13.2239 6 13 5.77614 13 5.5V3.75C13 3.33579 12.6642 3 12.25 3H10.5C10.2239 3 10 2.77614 10 2.5ZM2.5 10C2.77614 10 3 10.2239 3 10.5V12.25C3 12.6642 3.33579 13 3.75 13H5.5C5.77614 13 6 13.2239 6 13.5C6 13.7761 5.77614 14 5.5 14H3.75C2.7835 14 2 13.2165 2 12.25V10.5C2 10.2239 2.22386 10 2.5 10ZM13.5 10C13.7761 10 14 10.2239 14 10.5V12.25C14 13.2165 13.2165 14 12.25 14H10.5C10.2239 14 10 13.7761 10 13.5C10 13.2239 10.2239 13 10.5 13H12.25C12.6642 13 13 12.6642 13 12.25V10.5C13 10.2239 13.2239 10 13.5 10Z" />
+    </svg>
+  )
+}
 
 function compactProductVersion(version: string) {
   const normalized = version.trim().replace(/^v/i, '')
@@ -87,7 +141,6 @@ interface CodeSidebarProps {
   sidebarCollapsed: boolean
   activeView: WorkspaceView
   searchOpen: boolean
-  searchQuery: string
   displayedProjects: ProjectGroup[]
   collapsedProjectIds: Set<string>
   normalizedSearch: string
@@ -110,7 +163,6 @@ interface CodeSidebarProps {
   openWorkspaceFiles: OpenWorkspaceFile[]
   fileRevealRequest: { agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null
   fileSearchFocusRequest: { agentId: string; requestId: number; query?: string } | null
-  searchInputRef: RefObject<HTMLInputElement | null>
   projectListRef: RefObject<HTMLDivElement | null>
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
   onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string }) => void
@@ -118,10 +170,7 @@ interface CodeSidebarProps {
   onOpenSearch: () => void
   onOpenWorkspaceView: (view: WorkspaceView) => void
   onOpenMainAgent: () => void
-  onRestartMainAgent: (command: 'bash' | 'zsh' | 'codex' | 'claude') => void
-  onSearchQueryChange: (value: string) => void
-  onSearchKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void
-  onCloseSearch: () => void
+  onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => void
   onProjectListKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
   onToggleProject: (projectId: string) => void
   onToggleProjectSessions: (projectId: string) => void
@@ -129,9 +178,10 @@ interface CodeSidebarProps {
   onOpenProjectKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, projectId: string) => void
   onOpenAgent: (agentId: string) => void
   onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
+  onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
   onOpenAgentContextMenu: (event: ReactMouseEvent<HTMLElement>, agentId: string) => void
   onOpenAgentKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, agentId: string) => void
-  onResumeAgentSession: (provider: string, sessionId: string) => void
+  onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onOpenAgentSessionContextMenu: (event: ReactMouseEvent<HTMLElement>, provider: string, sessionId: string) => void
   onOpenAgentSessionKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, provider: string, sessionId: string) => void
   onOpenProjectFile: (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => void
@@ -147,7 +197,6 @@ export function CodeSidebar({
   sidebarCollapsed,
   activeView,
   searchOpen,
-  searchQuery,
   displayedProjects,
   collapsedProjectIds,
   normalizedSearch,
@@ -170,7 +219,6 @@ export function CodeSidebar({
   openWorkspaceFiles,
   fileRevealRequest,
   fileSearchFocusRequest,
-  searchInputRef,
   projectListRef,
   onNewAgent,
   onStartAgent,
@@ -179,9 +227,6 @@ export function CodeSidebar({
   onOpenWorkspaceView,
   onOpenMainAgent,
   onRestartMainAgent,
-  onSearchQueryChange,
-  onSearchKeyDown,
-  onCloseSearch,
   onProjectListKeyDown,
   onToggleProject,
   onToggleProjectSessions,
@@ -189,6 +234,7 @@ export function CodeSidebar({
   onOpenProjectKeyboardMenu,
   onOpenAgent,
   onUpdateAgentFlags,
+  onReorderAgent,
   onOpenAgentContextMenu,
   onOpenAgentKeyboardMenu,
   onResumeAgentSession,
@@ -202,28 +248,87 @@ export function CodeSidebar({
   onOpenOptionsMenu,
   copy,
 }: CodeSidebarProps) {
-  const [sessionPreview, setSessionPreview] = useState<{
-    session: AgentSessionHistoryItem
+  const [agentPreview, setAgentPreview] = useState<(AgentPreviewTarget & {
     x: number
     y: number
-  } | null>(null)
+    width: number
+    branch: string
+  }) | null>(null)
+  const previewTimerRef = useRef<number | null>(null)
+  const previewBrowsingRef = useRef(false)
+  const branchCacheRef = useRef(new Map<string, { branch: string; expiresAt: number }>())
   const [usageCollapsed, setUsageCollapsed] = useState(true)
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false)
   const [updateStatus, setUpdateStatus] = useState<FarmingUpdateStatus | null>(null)
   const [updateChecking, setUpdateChecking] = useState(false)
   const [updateError, setUpdateError] = useState('')
-  const hideSessionPreview = () => setSessionPreview(null)
-  const showSessionPreview = (event: SessionPreviewAnchorEvent, session: AgentSessionHistoryItem) => {
-    const rect = event.currentTarget.getBoundingClientRect()
-    const width = 320
-    const x = Math.min(window.innerWidth - width - 12, rect.right + 8)
-    const y = Math.max(8, Math.min(rect.top - 4, window.innerHeight - 112))
-    setSessionPreview({
-      session,
-      x: Math.max(12, x),
-      y,
-    })
-  }
+  const [focusModeActive, setFocusModeActive] = useState(false)
+  const [focusModeSupported, setFocusModeSupported] = useState(false)
+  const [rootFilesCollapsed, setRootFilesCollapsed] = useState(false)
+  const clearPreviewTimer = useCallback(() => {
+    if (previewTimerRef.current === null) return
+    window.clearTimeout(previewTimerRef.current)
+    previewTimerRef.current = null
+  }, [])
+  const hideAgentPreview = useCallback(() => {
+    clearPreviewTimer()
+    setAgentPreview(null)
+  }, [clearPreviewTimer])
+  const resetAgentPreview = useCallback(() => {
+    previewBrowsingRef.current = false
+    hideAgentPreview()
+  }, [hideAgentPreview])
+  const showAgentPreview = useCallback((event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact = false) => {
+    clearPreviewTimer()
+    const anchor = event.currentTarget
+    const delay = previewBrowsingRef.current ? 0 : (compact ? 450 : 1500)
+    previewTimerRef.current = window.setTimeout(() => {
+      previewTimerRef.current = null
+      if (!anchor.matches(':hover')) return
+      const rect = anchor.getBoundingClientRect()
+      const x = rect.right + 10
+      const width = Math.min(320, window.innerWidth - x - 12)
+      if (width < 200) return
+      const y = Math.max(8, Math.min(rect.top - 4, window.innerHeight - 152))
+      const cachedBranch = target.agentId ? branchCacheRef.current.get(target.agentId) : undefined
+      const branch = cachedBranch && cachedBranch.expiresAt > Date.now() ? cachedBranch.branch : ''
+      previewBrowsingRef.current = true
+      setAgentPreview({ ...target, x, y, width, branch })
+      if (!target.agentId || branch) return
+      fetch(appPath(`/api/files/branch?agentId=${encodeURIComponent(target.agentId)}`))
+        .then(response => response.ok ? response.json() : null)
+        .then((data: { branch?: string } | null) => {
+          const resolvedBranch = typeof data?.branch === 'string' ? data.branch.trim() : ''
+          branchCacheRef.current.set(target.agentId!, { branch: resolvedBranch, expiresAt: Date.now() + 30_000 })
+          setAgentPreview(current => current?.key === target.key ? { ...current, branch: resolvedBranch } : current)
+        })
+        .catch(() => {
+          branchCacheRef.current.set(target.agentId!, { branch: '', expiresAt: Date.now() + 30_000 })
+        })
+    }, delay)
+  }, [clearPreviewTimer])
+
+  useEffect(() => () => clearPreviewTimer(), [clearPreviewTimer])
+
+  useEffect(() => {
+    setFocusModeSupported(Boolean(document.fullscreenEnabled && document.documentElement.requestFullscreen))
+    const handleFullscreenChange = () => {
+      setFocusModeActive(Boolean(document.fullscreenElement))
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    handleFullscreenChange()
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    }
+  }, [])
+
+  const toggleFocusMode = useCallback(() => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {})
+      return
+    }
+    document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {})
+  }, [])
   const pinnedItems = displayedProjects
     .flatMap<PinnedSidebarItem>(project => [
       ...project.agents
@@ -234,13 +339,15 @@ export function CodeSidebar({
         .map(session => ({ kind: 'agent-session' as const, session })),
     ])
     .sort((a, b) => {
-      const aTime = a.kind === 'agent'
-        ? a.agent.lastActivity ?? a.agent.startedAt ?? 0
-        : agentSessionUpdatedAt(a.session)
-      const bTime = b.kind === 'agent'
-        ? b.agent.lastActivity ?? b.agent.startedAt ?? 0
-        : agentSessionUpdatedAt(b.session)
-      return bTime - aTime
+      if (a.kind === 'agent' && b.kind === 'agent') {
+        return (a.agent.pinnedOrder ?? 0) - (b.agent.pinnedOrder ?? 0)
+          || (a.agent.startedAt ?? 0) - (b.agent.startedAt ?? 0)
+      }
+      if (a.kind !== b.kind) return a.kind === 'agent' ? -1 : 1
+      if (a.kind === 'agent-session' && b.kind === 'agent-session') {
+        return agentSessionUpdatedAt(b.session) - agentSessionUpdatedAt(a.session)
+      }
+      return 0
     })
   const visibleProjectSections = displayedProjects.filter(project => (
     project.agents.some(agent => !agent.pinned || !agent.isMain)
@@ -252,9 +359,27 @@ export function CodeSidebar({
       .filter(agent => !agent.isMain)
       .map(agent => ({ agent, projectName: project.name })),
   ])
-  const refreshUpdateStatus = useCallback((force = false) => {
-    setUpdateChecking(true)
-    setUpdateError('')
+  const globalWorkspaceOpenFiles = openWorkspaceFiles.filter(file => isGlobalWorkspaceFilesAgentId(file.agentId))
+  const activeGlobalWorkspaceFile = openWorkspaceFile && isGlobalWorkspaceFilesAgentId(openWorkspaceFile.agentId)
+    ? openWorkspaceFile
+    : null
+  const globalFilesRevealPending = fileRevealRequest?.agentId === GLOBAL_WORKSPACE_FILES_AGENT_ID
+  const showGlobalFilesSection = globalWorkspaceOpenFiles.length > 0 || globalFilesRevealPending
+
+  useEffect(() => {
+    if (!showGlobalFilesSection) {
+      setRootFilesCollapsed(false)
+    }
+  }, [showGlobalFilesSection])
+
+  useEffect(() => {
+    if (globalFilesRevealPending) setRootFilesCollapsed(false)
+  }, [globalFilesRevealPending])
+  const refreshUpdateStatus = useCallback((force = false, quiet = false) => {
+    if (!quiet) {
+      setUpdateChecking(true)
+      setUpdateError('')
+    }
     fetch(appPath(`/api/update${force ? '?force=1' : ''}`))
       .then(response => {
         if (!response.ok) {
@@ -266,18 +391,19 @@ export function CodeSidebar({
         setUpdateStatus(body.update ?? null)
       })
       .catch(error => {
-        setUpdateError(error instanceof Error ? error.message : copy.updateFailed)
+        if (!quiet) setUpdateError(error instanceof Error ? error.message : copy.updateFailed)
       })
-      .finally(() => setUpdateChecking(false))
+      .finally(() => {
+        if (!quiet) setUpdateChecking(false)
+      })
   }, [copy.updateFailed])
   const startUpgrade = useCallback(() => {
     const phase = updateStatus?.state?.phase || ''
-    if (phase === 'downloading' || phase === 'extracting' || phase === 'installing') return
+    if (['downloading', 'extracting', 'installing', 'restarting', 'rolling-back'].includes(phase)) return
     if (!updateStatus?.available) {
       refreshUpdateStatus(true)
       return
     }
-
     setUpdateChecking(true)
     setUpdateError('')
     fetch(appPath('/api/update/install'), {
@@ -303,14 +429,19 @@ export function CodeSidebar({
         setUpdateError(error instanceof Error ? error.message : copy.updateFailed)
       })
       .finally(() => setUpdateChecking(false))
-  }, [copy.updateFailed, refreshUpdateStatus, updateStatus?.available, updateStatus?.state?.phase])
+  }, [copy, refreshUpdateStatus, updateStatus])
 
   useEffect(() => {
     refreshUpdateStatus(false)
   }, [refreshUpdateStatus])
 
   const updatePhase = updateStatus?.state?.phase || ''
-  const updateInstalling = updatePhase === 'downloading' || updatePhase === 'extracting' || updatePhase === 'installing'
+  const updateInstalling = ['downloading', 'extracting', 'installing', 'restarting', 'rolling-back'].includes(updatePhase)
+  useEffect(() => {
+    if (!updateInstalling) return
+    const timer = window.setInterval(() => refreshUpdateStatus(false, true), 1500)
+    return () => window.clearInterval(timer)
+  }, [refreshUpdateStatus, updateInstalling])
   const updateBusy = updateInstalling || (updateChecking && Boolean(updateStatus?.available))
   const updateButtonLabel = updateBusy
     ? copy.updating
@@ -319,7 +450,7 @@ export function CodeSidebar({
       : updateStatus?.available
         ? copy.upgrade
         : ''
-  const updateCollapsedLabel = updateBusy ? '…' : updateError ? '!' : updateStatus?.available ? <ArrowUpGlyph /> : 'β'
+  const updateCollapsedLabel = updateBusy ? '…' : updateError ? <ErrorGlyph /> : updateStatus?.available ? <ArrowUpGlyph /> : 'β'
   const currentVersion = compactProductVersion(updateStatus?.current?.releaseVersion || updateStatus?.current?.packageVersion || __FARMING_PACKAGE_VERSION__ || '')
   const currentVersionLabel = currentVersion ? `v${currentVersion}` : ''
   const updateTitle = updateError
@@ -336,7 +467,7 @@ export function CodeSidebar({
     <aside
       className={`code-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}
       data-testid="code-sidebar"
-      onMouseLeave={hideSessionPreview}
+      onMouseLeave={resetAgentPreview}
     >
       <div className="code-nav">
         <div className="code-nav-top-row">
@@ -355,6 +486,51 @@ export function CodeSidebar({
             {keyboardShortcutsEnabled && <kbd>N</kbd>}
           </button>
           <ShareQrButton copy={copy} sidebarCollapsed={sidebarCollapsed} shareTarget={shareTarget} />
+          {focusModeSupported && !sidebarCollapsed && (
+            <button
+              type="button"
+              className={`code-sidebar-focus-toggle ${focusModeActive ? 'active' : ''}`}
+              data-testid="code-sidebar-focus-toggle"
+              aria-label={focusModeActive ? copy.exitFocusMode : copy.enterFocusMode}
+              title={focusModeActive ? copy.exitFocusMode : copy.enterFocusMode}
+              aria-pressed={focusModeActive}
+              onClick={toggleFocusMode}
+            >
+              <span className="code-sidebar-focus-icon">
+                <FocusModeGlyph />
+              </span>
+            </button>
+          )}
+          {!sidebarCollapsed && (
+            <>
+              <button
+                type="button"
+                className={`code-sidebar-search-toggle ${activeView === 'search' || searchOpen ? 'active' : ''}`}
+                data-testid="code-nav-search"
+                aria-label={copy.search}
+                title={copy.search}
+                aria-pressed={activeView === 'search' || searchOpen}
+                onClick={onOpenSearch}
+              >
+                <span className="code-sidebar-search-icon" aria-hidden="true">
+                  <SearchGlyph />
+                </span>
+              </button>
+              <button
+                type="button"
+                className={`code-sidebar-history-toggle ${activeView === 'history' ? 'active' : ''}`}
+                data-testid="code-nav-history"
+                aria-label={copy.history}
+                title={copy.history}
+                aria-pressed={activeView === 'history'}
+                onClick={() => onOpenWorkspaceView('history')}
+              >
+                <span className="code-sidebar-history-icon" aria-hidden="true">
+                  <HistoryIcon />
+                </span>
+              </button>
+            </>
+          )}
           <button
             type="button"
             className="code-sidebar-toggle"
@@ -366,40 +542,12 @@ export function CodeSidebar({
             <span
               className={`code-sidebar-toggle-icon ${sidebarCollapsed ? 'collapsed' : 'expanded'}`}
               aria-hidden="true"
-            />
+            >
+              {sidebarCollapsed ? <ChevronRightGlyph /> : <ChevronLeftGlyph />}
+            </span>
           </button>
         </div>
-        <button type="button" className={`code-nav-item ${activeView === 'search' || searchOpen ? 'active' : ''}`} data-testid="code-nav-search" onClick={onOpenSearch}>
-          <span className="code-nav-icon">
-            <SearchIcon />
-          </span>
-          <span>{copy.search}</span>
-          {keyboardShortcutsEnabled && <kbd>/</kbd>}
-        </button>
-        <button type="button" className={`code-nav-item ${activeView === 'history' ? 'active' : ''}`} data-testid="code-nav-history" onClick={() => onOpenWorkspaceView('history')}>
-          <span className="code-nav-icon">
-            <HistoryIcon />
-          </span>
-          <span>{copy.history}</span>
-        </button>
       </div>
-
-      {searchOpen && (
-        <div className="code-search-box" data-testid="code-search-box">
-          <span>
-            <SearchIcon />
-          </span>
-          <input
-            ref={searchInputRef}
-            value={searchQuery}
-            onChange={event => onSearchQueryChange(event.target.value)}
-            onKeyDown={onSearchKeyDown}
-            placeholder={copy.searchProjectsOrAgents}
-            aria-label={copy.searchProjectsOrAgents}
-          />
-          <button type="button" onClick={onCloseSearch} aria-label={copy.clearSearch}>×</button>
-        </div>
-      )}
 
       {sidebarCollapsed && sidebarRailItems.length > 0 && (
         <AgentRail
@@ -407,6 +555,8 @@ export function CodeSidebar({
           activeTerminalId={activeTerminalId}
           now={now}
           onOpenAgent={onOpenAgent}
+          onShowPreview={showAgentPreview}
+          onHidePreview={hideAgentPreview}
           copy={copy}
         />
       )}
@@ -443,16 +593,66 @@ export function CodeSidebar({
             now={now}
             onOpenAgent={onOpenAgent}
             onUpdateAgentFlags={onUpdateAgentFlags}
+            onReorderAgent={onReorderAgent}
             onOpenAgentContextMenu={onOpenAgentContextMenu}
             onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
             onResumeAgentSession={onResumeAgentSession}
             onOpenAgentSessionContextMenu={onOpenAgentSessionContextMenu}
             onOpenAgentSessionKeyboardMenu={onOpenAgentSessionKeyboardMenu}
-            onShowAgentSessionPreview={showSessionPreview}
-            onHideAgentSessionPreview={hideSessionPreview}
+            onShowAgentPreview={showAgentPreview}
+            onHideAgentPreview={hideAgentPreview}
             onToggleCollapsed={() => setPinnedCollapsed(collapsed => !collapsed)}
             copy={copy}
           />
+        )}
+        {showGlobalFilesSection && (
+          <section className="code-project-group code-root-files-group" data-testid="code-root-files-group">
+            <div className="code-project-row code-root-files-row">
+              <button
+                type="button"
+                className="code-project-title"
+                data-testid="code-root-files-title"
+                aria-expanded={!rootFilesCollapsed}
+                onClick={() => setRootFilesCollapsed(collapsed => !collapsed)}
+              >
+                <span className={`code-folder-icon ${rootFilesCollapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
+                  {rootFilesCollapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
+                </span>
+                <span>/</span>
+              </button>
+            </div>
+            {!rootFilesCollapsed && (
+              <div className="code-project-expanded">
+                <Suspense fallback={null}>
+                  <ProjectFilesSection
+                    projectId={GLOBAL_WORKSPACE_FILES_PROJECT_ID}
+                    projectWorkspace={GLOBAL_WORKSPACE_FILES_ROOT}
+                    agentId={GLOBAL_WORKSPACE_FILES_AGENT_ID}
+                    agentLaunchOptions={[]}
+                    activeFilePath={activeGlobalWorkspaceFile?.file.path}
+                    openFiles={globalWorkspaceOpenFiles
+                      .map(file => ({
+                        agentId: file.agentId,
+                        workspaceRoot: file.workspaceRoot,
+                        key: workspaceOpenFileKey(file),
+                        path: file.file.path,
+                        dirty: file.dirty,
+                        externalChanged: file.externalChanged,
+                      }))}
+                    revealRequest={fileRevealRequest?.agentId === GLOBAL_WORKSPACE_FILES_AGENT_ID ? fileRevealRequest : undefined}
+                    focusSearchRequest={fileSearchFocusRequest?.agentId === GLOBAL_WORKSPACE_FILES_AGENT_ID ? fileSearchFocusRequest : undefined}
+                    onOpenFile={onOpenProjectFile}
+                    onSelectOpenFile={onSelectOpenWorkspaceFile}
+                    onCloseOpenFile={onCloseOpenWorkspaceFile}
+                    onMoveEntries={onMoveWorkspaceEntries}
+                    onDeleteEntries={onDeleteWorkspaceEntries}
+                    readOnly
+                    copy={copy}
+                  />
+                </Suspense>
+              </div>
+            )}
+          </section>
         )}
         {visibleProjectSections.map(project => (
           <ProjectSection
@@ -480,13 +680,14 @@ export function CodeSidebar({
             onOpenProjectKeyboardMenu={onOpenProjectKeyboardMenu}
             onOpenAgent={onOpenAgent}
             onUpdateAgentFlags={onUpdateAgentFlags}
+            onReorderAgent={onReorderAgent}
             onOpenAgentContextMenu={onOpenAgentContextMenu}
             onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
             onResumeAgentSession={onResumeAgentSession}
             onOpenAgentSessionContextMenu={onOpenAgentSessionContextMenu}
             onOpenAgentSessionKeyboardMenu={onOpenAgentSessionKeyboardMenu}
-            onShowAgentSessionPreview={showSessionPreview}
-            onHideAgentSessionPreview={hideSessionPreview}
+            onShowAgentPreview={showAgentPreview}
+            onHideAgentPreview={hideAgentPreview}
             onOpenProjectFile={onOpenProjectFile}
             onSelectOpenWorkspaceFile={onSelectOpenWorkspaceFile}
             onCloseOpenWorkspaceFile={onCloseOpenWorkspaceFile}
@@ -524,11 +725,11 @@ export function CodeSidebar({
             type="button"
             className="code-sidebar-options"
             data-testid="code-sidebar-options"
-            aria-label={copy.openOptions}
-            title={copy.openOptions}
+            aria-label={copy.openSettings}
+            title={copy.openSettings}
             onClick={onOpenOptionsMenu}
           >
-            ◐
+            <SettingsGlyph />
           </button>
         </div>
         {(usageSummary || systemStats || mainAgent) && (
@@ -539,7 +740,6 @@ export function CodeSidebar({
                 mainAgent={mainAgent}
                 usageSummary={usageSummary}
                 systemStats={systemStats}
-                now={now}
                 onToggleCollapsed={() => setUsageCollapsed(collapsed => !collapsed)}
                 onOpenMainAgent={onOpenMainAgent}
                 onRestartMainAgent={onRestartMainAgent}
@@ -548,12 +748,10 @@ export function CodeSidebar({
           </>
         )}
       </div>
-      {sessionPreview && (
-        <AgentSessionPreview
-          session={sessionPreview.session}
+      {agentPreview && (
+        <AgentHoverPreview
+          preview={agentPreview}
           now={now}
-          x={sessionPreview.x}
-          y={sessionPreview.y}
         />
       )}
     </aside>
@@ -569,22 +767,41 @@ function formatUsageWindow(minutes: number | null | undefined) {
   return `${value}m`
 }
 
-function formatResetTime(value: number | null | undefined, now: number) {
-  const resetAt = Number(value)
-  if (!Number.isFinite(resetAt) || resetAt <= 0) return ''
-  const date = new Date(resetAt)
-  const current = new Date(now)
-  const sameDay = date.toDateString() === current.toDateString()
-  return new Intl.DateTimeFormat(undefined, sameDay
-    ? { hour: 'numeric', minute: '2-digit' }
-    : { month: 'short', day: 'numeric' }
-  ).format(date)
-}
-
 function formatPercent(value: number | null | undefined) {
   const percent = Number(value)
   if (!Number.isFinite(percent)) return '--'
   return `${Math.round(percent)}%`
+}
+
+function formatRemainingPercent(value: number | null | undefined) {
+  const usedPercent = Number(value)
+  if (!Number.isFinite(usedPercent)) return '-- left'
+  const remainingPercent = Math.max(0, Math.min(100, 100 - usedPercent))
+  return `${Math.round(remainingPercent)}% left`
+}
+
+function formatQuotaRemaining(limit: ProviderQuotaLimit) {
+  const remainingTokensRaw = limit.forecast?.remainingTokens
+  const remainingTokens = remainingTokensRaw === null || remainingTokensRaw === undefined
+    ? null
+    : Number(remainingTokensRaw)
+  if (typeof remainingTokens === 'number' && Number.isFinite(remainingTokens) && remainingTokens >= 0) {
+    return `${formatCompactNumber(Math.round(remainingTokens))} tok left`
+  }
+  return formatRemainingPercent(limit.usedPercent)
+}
+
+function formatQuotaLimitValue(limit: ProviderQuotaLimit) {
+  return formatQuotaRemaining(limit)
+}
+
+function formatQuotaLimitTitle(source: string, limit: ProviderQuotaLimit) {
+  const parts = [source]
+  const used = formatPercent(limit.usedPercent)
+  const remaining = formatQuotaRemaining(limit)
+  if (used !== '--') parts.push(`${used} used`)
+  if (remaining !== '-- left') parts.push(remaining)
+  return parts.filter(Boolean).join(' / ')
 }
 
 function formatCompactNumber(value: number) {
@@ -621,18 +838,104 @@ function providerLocalTokenRate(usageSummary: UsageSummary | null) {
   }, 0)
 }
 
-function formatCollapsedUsageSummary(tokenRate: number | null, systemStats: SystemStats | null) {
+function quotaRemainingPercent(limit: ProviderQuotaLimit) {
+  const forecastRemaining = limit.forecast?.remainingPercent
+  if (typeof forecastRemaining === 'number' && Number.isFinite(forecastRemaining)) {
+    return Math.max(0, Math.min(100, forecastRemaining))
+  }
+  const usedPercent = Number(limit.usedPercent)
+  if (!Number.isFinite(usedPercent)) return null
+  return Math.max(0, Math.min(100, 100 - usedPercent))
+}
+
+function quotaLimitSortWeight(limit: ProviderQuotaLimit) {
+  const minutes = Number(limit.windowMinutes)
+  if (Number.isFinite(minutes) && minutes >= 7 * 24 * 60 - 60) return 0
+  if (Number.isFinite(minutes) && minutes >= 5 * 60 - 15 && minutes <= 5 * 60 + 15) return 1
+  return 2
+}
+
+function providerQuotaLimits(provider: UsageProviderSummary) {
+  return [provider.quota.primary, provider.quota.secondary]
+    .filter((limit): limit is ProviderQuotaLimit => Boolean(limit))
+    .map(limit => ({
+      label: formatUsageWindow(limit.windowMinutes),
+      limit,
+      remaining: quotaRemainingPercent(limit),
+      exhaustedAt: typeof limit.forecast?.projectedExhaustedAt === 'number' && Number.isFinite(limit.forecast.projectedExhaustedAt)
+        ? limit.forecast.projectedExhaustedAt
+        : null,
+    }))
+    .filter(item => item.remaining !== null)
+    .sort((a, b) => quotaLimitSortWeight(a.limit) - quotaLimitSortWeight(b.limit))
+}
+
+function providerHasTokenBurn(provider: UsageProviderSummary) {
+  const tokensPerMinute = Number(provider.tokenUsage.tokensPerMinute)
+  return Number.isFinite(tokensPerMinute) && tokensPerMinute > 0
+}
+
+function dynamicQuotaProvider(usageSummary: UsageSummary | null) {
+  if (!usageSummary?.providers.length) return null
+  const candidates = usageSummary.providers
+    .filter(provider => providerHasTokenBurn(provider) && provider.quota.available)
+    .map(provider => {
+      const limits = providerQuotaLimits(provider)
+      const lowLimits = limits.filter(item => item.remaining !== null && item.remaining < 50)
+      if (!lowLimits.length) return null
+      const earliestExhaustedAt = lowLimits.reduce<number | null>((best, item) => {
+        if (item.exhaustedAt === null) return best
+        return best === null ? item.exhaustedAt : Math.min(best, item.exhaustedAt)
+      }, null)
+      const lowestRemaining = lowLimits.reduce((best, item) => Math.min(best, item.remaining ?? 100), 100)
+      return {
+        provider,
+        limits,
+        earliestExhaustedAt,
+        lowestRemaining,
+      }
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+
+  return candidates.sort((a, b) => {
+    if (a.earliestExhaustedAt !== null && b.earliestExhaustedAt !== null) {
+      return a.earliestExhaustedAt - b.earliestExhaustedAt
+    }
+    if (a.earliestExhaustedAt !== null) return -1
+    if (b.earliestExhaustedAt !== null) return 1
+    return a.lowestRemaining - b.lowestRemaining
+  })[0] ?? null
+}
+
+function formatDynamicQuotaSummary(usageSummary: UsageSummary | null) {
+  const candidate = dynamicQuotaProvider(usageSummary)
+  if (!candidate) return null
+
+  const parts = [
+    candidate.provider.providerName,
+    ...candidate.limits.map(item => `${item.label} ${Math.round(item.remaining ?? 0)}%`),
+  ]
+  return parts.join(' · ')
+}
+
+function formatDefaultCollapsedUsageSummary(usageSummary: UsageSummary | null, systemStats: SystemStats | null) {
   const parts: string[] = []
-
-  if (tokenRate !== null) {
-    parts.push(formatTokenRate(tokenRate))
-  }
-
-  if (systemStats) {
-    parts.push(`CPU ${systemStats.cpu}% / MEM ${systemStats.memory.percentage}%`)
-  }
-
+  const localTokenRate = providerLocalTokenRate(usageSummary)
+  if (localTokenRate !== null) parts.push(formatTokenRate(localTokenRate))
+  if (systemStats) parts.push(`CPU ${systemStats.cpu}% / MEM ${systemStats.memory.percentage}%`)
   return parts.join(' · ') || '5m'
+}
+
+function formatCollapsedUsageSummary(
+  usageSummary: UsageSummary | null,
+  systemStats: SystemStats | null,
+) {
+  const dynamicSummary = formatDynamicQuotaSummary(usageSummary)
+  if (dynamicSummary) {
+    return dynamicSummary
+  }
+
+  return formatDefaultCollapsedUsageSummary(usageSummary, systemStats)
 }
 
 function formatMainAgentStatus(agent: Agent) {
@@ -646,7 +949,6 @@ function UsagePanel({
   mainAgent,
   usageSummary,
   systemStats,
-  now,
   onToggleCollapsed,
   onOpenMainAgent,
   onRestartMainAgent,
@@ -655,13 +957,12 @@ function UsagePanel({
   mainAgent: Agent | null
   usageSummary: UsageSummary | null
   systemStats: SystemStats | null
-  now: number
   onToggleCollapsed: () => void
   onOpenMainAgent: () => void
-  onRestartMainAgent: (command: 'bash' | 'zsh' | 'codex' | 'claude') => void
+  onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => void
 }) {
   const localTokenRate = providerLocalTokenRate(usageSummary)
-  const collapsedSummary = formatCollapsedUsageSummary(localTokenRate, systemStats)
+  const collapsedSummary = formatCollapsedUsageSummary(usageSummary, systemStats)
   const [restartMenuOpen, setRestartMenuOpen] = useState(false)
 
   return (
@@ -675,7 +976,9 @@ function UsagePanel({
         onClick={onToggleCollapsed}
       >
         <span className="code-usage-title">
-          <span className={`code-usage-chevron ${collapsed ? '' : 'expanded'}`} aria-hidden="true" />
+          <span className={`code-usage-chevron ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
+            {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
+          </span>
           <span>Usage</span>
         </span>
         <span className="code-usage-header-meta">
@@ -715,10 +1018,12 @@ function UsagePanel({
               {restartMenuOpen && (
                 <div className="code-main-agent-restart-menu" data-testid="code-main-agent-restart-menu" role="menu">
                   {([
-                    ['bash', 'bash'],
-                    ['zsh', 'zsh'],
                     ['codex', 'Codex'],
                     ['claude', 'Claude Code'],
+                    ['opencode', 'OpenCode'],
+                    ['qoder', 'Qoder'],
+                    ['bash', 'bash'],
+                    ['zsh', 'zsh'],
                   ] as const).map(([command, label]) => (
                     <button
                       key={command}
@@ -738,7 +1043,7 @@ function UsagePanel({
             </div>
           )}
           {usageSummary?.providers.map(provider => (
-            <ProviderUsage key={provider.provider} provider={provider} now={now} />
+            <ProviderUsage key={provider.provider} provider={provider} />
           ))}
           {localTokenRate !== null && (
             <div className="code-usage-row" title="Sum of local token usage reported by providers.">
@@ -760,10 +1065,8 @@ function UsagePanel({
 
 function ProviderUsage({
   provider,
-  now,
 }: {
   provider: UsageProviderSummary
-  now: number
 }) {
   const primary = provider.quota.primary ?? null
   const secondary = provider.quota.secondary ?? null
@@ -780,15 +1083,15 @@ function ProviderUsage({
       {provider.quota.available ? (
         <>
           {primary && (
-            <div className="code-usage-row code-usage-subrow" title={quotaTitle}>
+            <div className="code-usage-row code-usage-subrow" title={formatQuotaLimitTitle(quotaTitle, primary)}>
               <span>{formatUsageWindow(primary.windowMinutes)}</span>
-              <strong>{formatPercent(primary.usedPercent)} {formatResetTime(primary.resetsAt, now)}</strong>
+              <strong>{formatQuotaLimitValue(primary)}</strong>
             </div>
           )}
           {secondary && (
-            <div className="code-usage-row code-usage-subrow" title={quotaTitle}>
+            <div className="code-usage-row code-usage-subrow" title={formatQuotaLimitTitle(quotaTitle, secondary)}>
               <span>{formatUsageWindow(secondary.windowMinutes)}</span>
-              <strong>{formatPercent(secondary.usedPercent)} {formatResetTime(secondary.resetsAt, now)}</strong>
+              <strong>{formatQuotaLimitValue(secondary)}</strong>
             </div>
           )}
         </>
@@ -811,12 +1114,16 @@ function AgentRail({
   activeTerminalId,
   now,
   onOpenAgent,
+  onShowPreview,
+  onHidePreview,
   copy,
 }: {
   items: SidebarRailItem[]
   activeTerminalId: string | null
   now: number
   onOpenAgent: (agentId: string) => void
+  onShowPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
+  onHidePreview: () => void
   copy: CodeCopy
 }) {
   return (
@@ -829,6 +1136,8 @@ function AgentRail({
           activeTerminalId={activeTerminalId}
           now={now}
           onOpenAgent={onOpenAgent}
+          onShowPreview={onShowPreview}
+          onHidePreview={onHidePreview}
         />
       ))}
     </div>
@@ -841,18 +1150,21 @@ function AgentRailButton({
   activeTerminalId,
   now,
   onOpenAgent,
+  onShowPreview,
+  onHidePreview,
 }: {
   item: SidebarRailItem
   index: number
   activeTerminalId: string | null
   now: number
   onOpenAgent: (agentId: string) => void
+  onShowPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
+  onHidePreview: () => void
 }) {
   const backing = { kind: 'agent' as const, agent: item.agent }
   const rowState = buildAgentRowDisplayState(backing, now)
   const active = item.agent.id === activeTerminalId
-  const titleParts = [rowState.title, rowState.commandTitle, item.projectName].filter(Boolean)
-  const title = titleParts.join(' · ')
+  const title = [rowState.title, rowState.commandTitle, item.projectName].filter(Boolean).join(' · ')
   const openItem = () => {
     onOpenAgent(item.agent.id)
   }
@@ -864,8 +1176,9 @@ function AgentRailButton({
       data-testid="code-agent-rail-item"
       data-agent-id={item.agent.id}
       aria-label={title}
-      title={title}
       onClick={openItem}
+      onMouseEnter={event => onShowPreview(event, previewTargetForAgent(item.agent, rowState, item.projectName), true)}
+      onMouseLeave={onHidePreview}
     >
       <span className="code-agent-rail-label">{index + 1}</span>
       {rowState.statusIndicatorVisible && (
@@ -885,6 +1198,8 @@ function ProjectAgentCompactStrip({
   onOpenAgent,
   onOpenAgentContextMenu,
   onOpenAgentKeyboardMenu,
+  onShowPreview,
+  onHidePreview,
 }: {
   agents: Agent[]
   activeTerminalId: string | null
@@ -894,6 +1209,8 @@ function ProjectAgentCompactStrip({
   onOpenAgent: (agentId: string) => void
   onOpenAgentContextMenu: (event: ReactMouseEvent<HTMLElement>, agentId: string) => void
   onOpenAgentKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, agentId: string) => void
+  onShowPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
+  onHidePreview: () => void
 }) {
   return (
     <div className="code-project-agent-strip" data-testid="code-project-agent-strip" aria-label="Project agents">
@@ -910,8 +1227,9 @@ function ProjectAgentCompactStrip({
             data-testid="code-project-agent-compact"
             data-agent-id={agent.id}
             aria-label={title}
-            title={title}
             onClick={() => onOpenAgent(agent.id)}
+            onMouseEnter={event => onShowPreview(event, previewTargetForAgent(agent, rowState), true)}
+            onMouseLeave={onHidePreview}
             onContextMenu={event => onOpenAgentContextMenu(event, agent.id)}
             onKeyDown={event => {
               onOpenAgentKeyboardMenu(event, agent.id)
@@ -947,6 +1265,8 @@ function PinnedItemCompactStrip({
   onResumeAgentSession,
   onOpenAgentSessionContextMenu,
   onOpenAgentSessionKeyboardMenu,
+  onShowPreview,
+  onHidePreview,
 }: {
   items: PinnedSidebarItem[]
   activeTerminalId: string | null
@@ -957,9 +1277,11 @@ function PinnedItemCompactStrip({
   onOpenAgent: (agentId: string) => void
   onOpenAgentContextMenu: (event: ReactMouseEvent<HTMLElement>, agentId: string) => void
   onOpenAgentKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, agentId: string) => void
-  onResumeAgentSession: (provider: string, sessionId: string) => void
+  onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onOpenAgentSessionContextMenu: (event: ReactMouseEvent<HTMLElement>, provider: string, sessionId: string) => void
   onOpenAgentSessionKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, provider: string, sessionId: string) => void
+  onShowPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
+  onHidePreview: () => void
 }) {
   return (
     <div className="code-project-agent-strip code-pinned-agent-strip" data-testid="code-pinned-agent-strip" aria-label="Pinned agents">
@@ -990,26 +1312,33 @@ function PinnedItemCompactStrip({
             data-agent-id={agent?.id}
             data-session-id={sessionHandle ?? undefined}
             aria-label={title}
-            title={title}
             onClick={() => {
               if (agent) {
                 onOpenAgent(agent.id)
                 return
               }
-              if (session) onResumeAgentSession(session.provider, session.id)
+              if (session) onResumeAgentSession(session.provider, session.id, session.providerHomeId)
             }}
+            onMouseEnter={event => onShowPreview(
+              event,
+              agent
+                ? previewTargetForAgent(agent, rowState)
+                : previewTargetForSession(session!, rowState),
+              true
+            )}
+            onMouseLeave={onHidePreview}
             onContextMenu={event => {
               if (agent) {
                 onOpenAgentContextMenu(event, agent.id)
                 return
               }
-              if (session) onOpenAgentSessionContextMenu(event, session.provider, session.id)
+              if (session) onOpenAgentSessionContextMenu(event, session.provider, agentSessionId(session))
             }}
             onKeyDown={event => {
               if (agent) {
                 onOpenAgentKeyboardMenu(event, agent.id)
               } else if (session) {
-                onOpenAgentSessionKeyboardMenu(event, session.provider, session.id)
+                onOpenAgentSessionKeyboardMenu(event, session.provider, agentSessionId(session))
               }
               if (event.defaultPrevented) return
               if (event.key === 'Enter' || event.key === ' ') {
@@ -1017,7 +1346,7 @@ function PinnedItemCompactStrip({
                 if (agent) {
                   onOpenAgent(agent.id)
                 } else if (session) {
-                  onResumeAgentSession(session.provider, session.id)
+                  onResumeAgentSession(session.provider, session.id, session.providerHomeId)
                 }
               }
             }}
@@ -1047,13 +1376,14 @@ interface PinnedSectionProps {
   now: number
   onOpenAgent: (agentId: string) => void
   onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
+  onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
   onOpenAgentContextMenu: (event: ReactMouseEvent<HTMLElement>, agentId: string) => void
   onOpenAgentKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, agentId: string) => void
-  onResumeAgentSession: (provider: string, sessionId: string) => void
+  onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onOpenAgentSessionContextMenu: (event: ReactMouseEvent<HTMLElement>, provider: string, sessionId: string) => void
   onOpenAgentSessionKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, provider: string, sessionId: string) => void
-  onShowAgentSessionPreview: (event: SessionPreviewAnchorEvent, session: AgentSessionHistoryItem) => void
-  onHideAgentSessionPreview: () => void
+  onShowAgentPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
+  onHideAgentPreview: () => void
   onToggleCollapsed: () => void
   copy: CodeCopy
 }
@@ -1071,16 +1401,59 @@ function PinnedSection({
   now,
   onOpenAgent,
   onUpdateAgentFlags,
+  onReorderAgent,
   onOpenAgentContextMenu,
   onOpenAgentKeyboardMenu,
   onResumeAgentSession,
   onOpenAgentSessionContextMenu,
   onOpenAgentSessionKeyboardMenu,
-  onShowAgentSessionPreview,
-  onHideAgentSessionPreview,
+  onShowAgentPreview,
+  onHideAgentPreview,
   onToggleCollapsed,
   copy,
 }: PinnedSectionProps) {
+  const pinnedAgents = items.flatMap(item => item.kind === 'agent' ? [item.agent] : [])
+  const [agentDrag, setAgentDrag] = useState<{
+    agentId: string
+    targetAgentId: string
+    position: 'before' | 'after'
+  } | null>(null)
+  const beginAgentDrag = (event: ReactDragEvent<HTMLElement>, agentId: string) => {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', agentId)
+    onHideAgentPreview()
+    setAgentDrag({ agentId, targetAgentId: '', position: 'before' })
+  }
+  const updateAgentDropTarget = (event: ReactDragEvent<HTMLElement>, targetAgentId: string) => {
+    if (!agentDrag || agentDrag.agentId === targetAgentId) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    const rect = event.currentTarget.getBoundingClientRect()
+    const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+    if (agentDrag.targetAgentId === targetAgentId && agentDrag.position === position) return
+    setAgentDrag(current => current ? { ...current, targetAgentId, position } : null)
+  }
+  const finishAgentDrag = () => setAgentDrag(null)
+  const dropAgent = (event: ReactDragEvent<HTMLElement>, targetAgentId: string) => {
+    event.preventDefault()
+    if (!agentDrag || agentDrag.agentId === targetAgentId) {
+      finishAgentDrag()
+      return
+    }
+    const candidates = pinnedAgents.filter(agent => agent.id !== agentDrag.agentId)
+    const targetIndex = candidates.findIndex(agent => agent.id === targetAgentId)
+    if (targetIndex < 0) {
+      finishAgentDrag()
+      return
+    }
+    const insertIndex = agentDrag.position === 'before' ? targetIndex : targetIndex + 1
+    onReorderAgent(
+      agentDrag.agentId,
+      insertIndex > 0 ? candidates[insertIndex - 1]?.id ?? '' : '',
+      insertIndex < candidates.length ? candidates[insertIndex]?.id ?? '' : '',
+    )
+    finishAgentDrag()
+  }
   return (
     <section className={`code-pinned-section ${collapsed ? 'collapsed' : ''}`} data-testid="code-pinned-section">
       <button
@@ -1090,7 +1463,9 @@ function PinnedSection({
         aria-expanded={!collapsed}
         onClick={onToggleCollapsed}
       >
-        <span className={`code-folder-icon ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true" />
+        <span className={`code-folder-icon ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
+          {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
+        </span>
         <span>{copy.pinned}</span>
       </button>
       {!collapsed && (
@@ -1109,6 +1484,8 @@ function PinnedSection({
               onResumeAgentSession={onResumeAgentSession}
               onOpenAgentSessionContextMenu={onOpenAgentSessionContextMenu}
               onOpenAgentSessionKeyboardMenu={onOpenAgentSessionKeyboardMenu}
+              onShowPreview={onShowAgentPreview}
+              onHidePreview={onHideAgentPreview}
             />
           ) : (
             items.map(item => {
@@ -1125,8 +1502,17 @@ function PinnedSection({
                     now={now}
                     onOpenAgent={onOpenAgent}
                     onUpdateAgentFlags={onUpdateAgentFlags}
+                    reorderable
+                    dragging={agentDrag?.agentId === agent.id}
+                    dropPosition={agentDrag?.targetAgentId === agent.id ? agentDrag.position : undefined}
+                    onAgentDragStart={beginAgentDrag}
+                    onAgentDragEnd={finishAgentDrag}
+                    onAgentDragOver={updateAgentDropTarget}
+                    onAgentDrop={dropAgent}
                     onOpenAgentContextMenu={onOpenAgentContextMenu}
                     onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
+                    onShowPreview={onShowAgentPreview}
+                    onHidePreview={onHideAgentPreview}
                     copy={copy}
                   />
                 )
@@ -1141,8 +1527,8 @@ function PinnedSection({
                   onResume={onResumeAgentSession}
                   onOpenSessionContextMenu={onOpenAgentSessionContextMenu}
                   onOpenSessionKeyboardMenu={onOpenAgentSessionKeyboardMenu}
-                  onShowPreview={onShowAgentSessionPreview}
-                  onHidePreview={onHideAgentSessionPreview}
+                  onShowPreview={onShowAgentPreview}
+                  onHidePreview={onHideAgentPreview}
                   copy={copy}
                 />
               )
@@ -1178,13 +1564,14 @@ interface ProjectSectionProps {
   onOpenProjectKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, projectId: string) => void
   onOpenAgent: (agentId: string) => void
   onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
+  onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
   onOpenAgentContextMenu: (event: ReactMouseEvent<HTMLElement>, agentId: string) => void
   onOpenAgentKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, agentId: string) => void
-  onResumeAgentSession: (provider: string, sessionId: string) => void
+  onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onOpenAgentSessionContextMenu: (event: ReactMouseEvent<HTMLElement>, provider: string, sessionId: string) => void
   onOpenAgentSessionKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, provider: string, sessionId: string) => void
-  onShowAgentSessionPreview: (event: SessionPreviewAnchorEvent, session: AgentSessionHistoryItem) => void
-  onHideAgentSessionPreview: () => void
+  onShowAgentPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
+  onHideAgentPreview: () => void
   onOpenProjectFile: (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => void
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
@@ -1217,13 +1604,14 @@ function ProjectSection({
   onOpenProjectKeyboardMenu,
   onOpenAgent,
   onUpdateAgentFlags,
+  onReorderAgent,
   onOpenAgentContextMenu,
   onOpenAgentKeyboardMenu,
   onResumeAgentSession,
   onOpenAgentSessionContextMenu,
   onOpenAgentSessionKeyboardMenu,
-  onShowAgentSessionPreview,
-  onHideAgentSessionPreview,
+  onShowAgentPreview,
+  onHideAgentPreview,
   onOpenProjectFile,
   onSelectOpenWorkspaceFile,
   onCloseOpenWorkspaceFile,
@@ -1238,7 +1626,19 @@ function ProjectSection({
   const launchMenuRef = useRef<HTMLDivElement | null>(null)
   const [launchMenu, setLaunchMenu] = useState<{ x: number; y: number } | null>(null)
   const [projectAgentsExpanded, setProjectAgentsExpanded] = useState(false)
-  const projectFileAgent = project.agents.find(agent => !agent.isMain) ?? null
+  const [projectFilesExpanded, setProjectFilesExpanded] = useState(false)
+  const [agentDrag, setAgentDrag] = useState<{
+    agentId: string
+    targetAgentId: string
+    position: 'before' | 'after'
+  } | null>(null)
+  const [projectFileAgentId, setProjectFileAgentId] = useState<string | null>(() => (
+    stableProjectFileAgentId(null, project.agents)
+  ))
+  const nextProjectFileAgentId = stableProjectFileAgentId(projectFileAgentId, project.agents)
+  const projectFileAgent = project.agents.find(agent => (
+    !agent.isMain && agent.id === nextProjectFileAgentId
+  )) ?? null
   const showProjectFiles = project.id !== MAIN_AGENT_PROJECT_ID && projectFileAgent !== null
   const projectFileAgentIds = new Set(project.agents.filter(agent => !agent.isMain).map(agent => agent.id))
   const openFileBelongsToProject = useCallback((file: OpenWorkspaceFile) => (
@@ -1257,11 +1657,80 @@ function ProjectSection({
   const sortedAgents = project.agents.filter(agent => !agent.pinned)
   const visibleAgentSessions = project.agentSessions.filter(session => !session.pinned)
   const showAgentsSection = sortedAgents.length > 0 || visibleAgentSessions.length > 0 || (project.hiddenAgentSessionCount ?? 0) > 0
-  const compactProjectAgents = compactAgents && sortedAgents.length > 0
+  const filesCompressAgents = projectFilesExpanded && isMobileTouchViewport() && sortedAgents.length > 1
+  const compactProjectAgents = (compactAgents || filesCompressAgents) && sortedAgents.length > 0
   const visibleProjectAgents = compactProjectAgents || projectAgentsExpanded
     ? sortedAgents
-    : sortedAgents.slice(0, PROJECT_AGENT_VISIBLE_LIMIT)
+    : visibleAgentsWithForcedRows(sortedAgents, PROJECT_AGENT_VISIBLE_LIMIT, [
+      activeTerminalId,
+      selectedSearchAgentId,
+    ])
   const hiddenProjectAgentCount = Math.max(0, sortedAgents.length - visibleProjectAgents.length)
+
+  useEffect(() => {
+    if (projectFileAgentId !== nextProjectFileAgentId) {
+      setProjectFileAgentId(nextProjectFileAgentId)
+    }
+  }, [nextProjectFileAgentId, projectFileAgentId])
+
+  const handleFilesCollapsedChange = useCallback((filesCollapsed: boolean) => {
+    setProjectFilesExpanded(!filesCollapsed)
+  }, [])
+
+  const beginAgentDrag = (event: ReactDragEvent<HTMLElement>, agentId: string) => {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', agentId)
+    onHideAgentPreview()
+    setAgentDrag({ agentId, targetAgentId: '', position: 'before' })
+  }
+  const updateAgentDropTarget = (event: ReactDragEvent<HTMLElement>, targetAgentId: string) => {
+    if (!agentDrag || agentDrag.agentId === targetAgentId) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    const rect = event.currentTarget.getBoundingClientRect()
+    const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+    if (agentDrag.targetAgentId === targetAgentId && agentDrag.position === position) return
+    setAgentDrag(current => current ? { ...current, targetAgentId, position } : null)
+  }
+  const finishAgentDrag = () => setAgentDrag(null)
+  const dropAgent = (event: ReactDragEvent<HTMLElement>, targetAgentId: string) => {
+    event.preventDefault()
+    if (!agentDrag || agentDrag.agentId === targetAgentId) {
+      finishAgentDrag()
+      return
+    }
+    const candidates = sortedAgents.filter(agent => agent.id !== agentDrag.agentId)
+    const targetIndex = candidates.findIndex(agent => agent.id === targetAgentId)
+    if (targetIndex < 0) {
+      finishAgentDrag()
+      return
+    }
+    const insertIndex = agentDrag.position === 'before' ? targetIndex : targetIndex + 1
+    onReorderAgent(
+      agentDrag.agentId,
+      insertIndex > 0 ? candidates[insertIndex - 1]?.id ?? '' : '',
+      insertIndex < candidates.length ? candidates[insertIndex]?.id ?? '' : '',
+    )
+    finishAgentDrag()
+  }
+  const dropAgentAtProjectEnd = (event: ReactDragEvent<HTMLElement>) => {
+    event.preventDefault()
+    if (!agentDrag) return
+    const candidates = sortedAgents.filter(agent => agent.id !== agentDrag.agentId)
+    onReorderAgent(agentDrag.agentId, candidates[candidates.length - 1]?.id ?? '', '')
+    finishAgentDrag()
+  }
+  const updateProjectEndDropTarget = (event: ReactDragEvent<HTMLElement>) => {
+    if (!agentDrag) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    if (agentDrag.targetAgentId === PROJECT_AGENT_DROP_END) return
+    setAgentDrag(current => current ? {
+      ...current,
+      targetAgentId: PROJECT_AGENT_DROP_END,
+      position: 'after',
+    } : null)
+  }
 
   useEffect(() => {
     if (sortedAgents.length <= PROJECT_AGENT_VISIBLE_LIMIT && projectAgentsExpanded) {
@@ -1364,7 +1833,9 @@ function ProjectSection({
           onContextMenu={event => onOpenProjectContextMenu(event, project.id)}
           onKeyDown={event => onOpenProjectKeyboardMenu(event, project.id)}
         >
-          <span className={`code-folder-icon ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true" />
+          <span className={`code-folder-icon ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
+            {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
+          </span>
           <span>{project.name}</span>
         </button>
         <span className="code-project-title-actions" aria-hidden={false}>
@@ -1406,9 +1877,10 @@ function ProjectSection({
                 type="button"
                 role="menuitem"
                 data-testid={`code-project-agent-launch-${option.name}`}
-                onClick={() => startProjectAgent(option.name)}
+                onClick={() => startProjectAgent(option.command || option.name)}
               >
-                {agentDisplayName(option.name)}
+                <AgentLaunchIcon name={option.name} />
+                <span>{agentDisplayName(option.name)}</span>
               </button>
             ))}
           </div>,
@@ -1430,6 +1902,8 @@ function ProjectSection({
                     onOpenAgent={onOpenAgent}
                     onOpenAgentContextMenu={onOpenAgentContextMenu}
                     onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
+                    onShowPreview={onShowAgentPreview}
+                    onHidePreview={onHideAgentPreview}
                   />
                 ) : (
                   visibleProjectAgents.map(agent => {
@@ -1444,8 +1918,17 @@ function ProjectSection({
                         now={now}
                         onOpenAgent={onOpenAgent}
                         onUpdateAgentFlags={onUpdateAgentFlags}
+                        reorderable
+                        dragging={agentDrag?.agentId === agent.id}
+                        dropPosition={agentDrag?.targetAgentId === agent.id ? agentDrag.position : undefined}
+                        onAgentDragStart={beginAgentDrag}
+                        onAgentDragEnd={finishAgentDrag}
+                        onAgentDragOver={updateAgentDropTarget}
+                        onAgentDrop={dropAgent}
                         onOpenAgentContextMenu={onOpenAgentContextMenu}
                         onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
+                        onShowPreview={onShowAgentPreview}
+                        onHidePreview={onHideAgentPreview}
                         copy={copy}
                       />
                     )
@@ -1454,9 +1937,11 @@ function ProjectSection({
                 {!compactProjectAgents && hiddenProjectAgentCount > 0 && (
                   <button
                     type="button"
-                    className="code-agent-row code-session-show-more"
+                    className={`code-agent-row code-session-show-more ${agentDrag?.targetAgentId === PROJECT_AGENT_DROP_END ? 'drop-after' : ''}`}
                     data-testid="code-agent-show-more"
                     onClick={() => setProjectAgentsExpanded(true)}
+                    onDragOver={updateProjectEndDropTarget}
+                    onDrop={dropAgentAtProjectEnd}
                   >
                     <span className="code-agent-row-copy">
                       <span className="code-agent-name">{copy.showMore}</span>
@@ -1487,8 +1972,8 @@ function ProjectSection({
                     onResume={onResumeAgentSession}
                     onOpenSessionContextMenu={onOpenAgentSessionContextMenu}
                     onOpenSessionKeyboardMenu={onOpenAgentSessionKeyboardMenu}
-                    onShowPreview={onShowAgentSessionPreview}
-                    onHidePreview={onHideAgentSessionPreview}
+                    onShowPreview={onShowAgentPreview}
+                    onHidePreview={onHideAgentPreview}
                     copy={copy}
                   />
                 ))}
@@ -1550,6 +2035,7 @@ function ProjectSection({
                 onStartAgent={onStartAgent}
                 onMoveEntries={onMoveWorkspaceEntries}
                 onDeleteEntries={onDeleteWorkspaceEntries}
+                onFilesCollapsedChange={handleFilesCollapsedChange}
                 copy={copy}
               />
             </Suspense>
@@ -1568,6 +2054,29 @@ function ProjectNewAgentIcon() {
   )
 }
 
+function visibleAgentsWithForcedRows(
+  agents: Agent[],
+  limit: number,
+  forcedIds: Array<string | null | undefined>,
+) {
+  if (agents.length <= limit) return agents
+  const visible = agents.slice(0, limit)
+  const visibleIds = new Set(visible.map(agent => agent.id))
+  const forced = new Set(forcedIds.filter((id): id is string => Boolean(id)))
+  for (const agent of agents) {
+    if (!forced.has(agent.id) || visibleIds.has(agent.id)) continue
+    if (visible.length >= limit && visible.length > 0) {
+      const removed = visible[visible.length - 1]!
+      visibleIds.delete(removed.id)
+      visible[visible.length - 1] = agent
+    } else {
+      visible.push(agent)
+    }
+    visibleIds.add(agent.id)
+  }
+  return visible
+}
+
 function ProjectActionsIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -1576,53 +2085,73 @@ function ProjectActionsIcon() {
   )
 }
 
-function AgentSessionPreview({
-  session,
-  now,
-  x,
-  y,
-}: {
-  session: AgentSessionHistoryItem
-  now: number
-  x: number
-  y: number
-}) {
-  const title = session.title || `${session.providerName || 'Agent'} session`
-  const provider = session.providerName || session.provider
-  const workspace = formatAgentSessionWorkspace(session)
-  const workingDirectory = agentSessionWorkingDirectory(session)
-  const modelLine = session.model
-    ? `${provider} · ${session.model}${session.effort ? ` · ${effortLabel(session.effort)}` : ''}`
-    : provider
+function previewTargetForAgent(agent: Agent, rowState: ReturnType<typeof buildAgentRowDisplayState>, project?: string): AgentPreviewTarget {
+  return {
+    key: `agent:${agent.id}`,
+    title: rowState.title,
+    project: project || projectNameForWorkspace(agent.projectWorkspace || agent.cwd),
+    lastActive: agent.lastActivity || agent.startedAt || 0,
+    provider: previewAgentIconNameForAgent(agent),
+    agentId: agent.id,
+  }
+}
 
+function previewTargetForSession(session: AgentSessionHistoryItem, rowState: ReturnType<typeof buildAgentRowDisplayState>): AgentPreviewTarget {
+  return {
+    key: `session:${agentSessionId(session)}`,
+    title: rowState.title,
+    project: agentSessionProjectName(session),
+    lastActive: agentSessionUpdatedAt(session),
+    provider: previewAgentIconName(session.provider),
+  }
+}
+
+function AgentHoverPreview({
+  preview,
+  now,
+}: {
+  preview: AgentPreviewTarget & { x: number; y: number; width: number; branch: string }
+  now: number
+}) {
   return (
     <div
-      className="code-session-preview"
-      data-testid="code-session-preview"
-      style={{ left: x, top: y }}
+      className="code-agent-hover-preview"
+      data-testid="code-agent-hover-preview"
+      style={{ left: preview.x, top: preview.y, width: preview.width }}
       aria-hidden="true"
     >
-      <div className="code-session-preview-header">
-        <strong>{title}</strong>
-        <span title={session.updatedAt ? new Date(session.updatedAt).toLocaleString() : undefined}>
-          {formatRelativeAge(agentSessionUpdatedAt(session), now)}
-        </span>
+      <div className="code-agent-hover-preview-header">
+        <strong>{preview.title}</strong>
+        <span>{formatRelativeAge(preview.lastActive, now)}</span>
       </div>
-      <div className="code-session-preview-line">
-        <span className="code-session-preview-icon">▣</span>
-        <span>{workspace}</span>
-      </div>
-      <div className="code-session-preview-line">
-        <span className="code-session-preview-icon">⌁</span>
-        <span>{modelLine}</span>
-      </div>
-      {workingDirectory && workingDirectory !== session.workspace && (
-        <div className="code-session-preview-line">
-          <span className="code-session-preview-icon">↗</span>
-          <span>{workingDirectory}</span>
+      <div className="code-agent-hover-preview-line">
+        <span className="code-agent-hover-preview-icon"><AgentPreviewFolderIcon /></span>
+        <div className="code-agent-hover-preview-project">
+          <span className="code-agent-hover-preview-project-name">{preview.project}</span>
+          {preview.provider && <AgentLaunchIcon name={preview.provider} variant="color" className="code-agent-hover-preview-provider-icon" />}
         </div>
-      )}
+      </div>
+      <div className="code-agent-hover-preview-line">
+        <span className="code-agent-hover-preview-icon"><AgentPreviewBranchIcon /></span>
+        <span>{preview.branch || '—'}</span>
+      </div>
     </div>
+  )
+}
+
+function AgentPreviewFolderIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path fill="currentColor" d="M1.5 3.75C1.5 2.784 2.284 2 3.25 2h3.104c.464 0 .91.184 1.237.513l.841.842c.14.14.33.22.528.22h3.79c.966 0 1.75.784 1.75 1.75v6.925c0 .966-.784 1.75-1.75 1.75H3.25a1.75 1.75 0 0 1-1.75-1.75V3.75Zm1.75-.75a.75.75 0 0 0-.75.75v8.5c0 .414.336.75.75.75h9.5a.75.75 0 0 0 .75-.75V5.325a.75.75 0 0 0-.75-.75H8.96a1.75 1.75 0 0 1-1.235-.512l-.841-.842A.75.75 0 0 0 6.354 3H3.25Z" />
+    </svg>
+  )
+}
+
+function AgentPreviewBranchIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+      <path d="M21 8.25C21 6.1815 19.3185 4.5 17.25 4.5C15.1815 4.5 13.5 6.1815 13.5 8.25C13.5 10.023 14.739 11.5035 16.395 11.892C16.116 12.819 15.2655 13.5 14.25 13.5H9.75C8.9025 13.5 8.1285 13.7925 7.5 14.268V7.4235C9.21 7.0755 10.5 5.5605 10.5 3.75C10.5 1.6815 8.8185 0 6.75 0C4.6815 0 3 1.6815 3 3.75C3 5.562 4.29 7.0755 6 7.4235V16.575C4.29 16.923 3 18.438 3 20.2485C3 22.317 4.6815 23.9985 6.75 23.9985C8.8185 23.9985 10.5 22.317 10.5 20.2485C10.5 18.4755 9.261 16.995 7.605 16.6065C7.884 15.6795 8.7345 14.9985 9.75 14.9985H14.25C16.0845 14.9985 17.61 13.6725 17.931 11.9295C19.674 11.607 21 10.0845 21 8.25ZM4.5 3.75C4.5 2.5095 5.5095 1.5 6.75 1.5C7.9905 1.5 9 2.5095 9 3.75C9 4.9905 7.9905 6 6.75 6C5.5095 6 4.5 4.9905 4.5 3.75ZM9 20.25C9 21.4905 7.9905 22.5 6.75 22.5C5.5095 22.5 4.5 21.4905 4.5 20.25C4.5 19.0095 5.5095 18 6.75 18C7.9905 18 9 19.0095 9 20.25ZM17.25 10.5C16.0095 10.5 15 9.4905 15 8.25C15 7.0095 16.0095 6 17.25 6C18.4905 6 19.5 7.0095 19.5 8.25C19.5 9.4905 18.4905 10.5 17.25 10.5Z" />
+    </svg>
   )
 }
 
@@ -1641,14 +2170,6 @@ function AgentUnpinIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor" aria-hidden="true" focusable="false">
       <path d="M9.56016 10.2673L14.1464 14.8536C14.3417 15.0488 14.6583 15.0488 14.8536 14.8536C15.0488 14.6583 15.0488 14.3417 14.8536 14.1464L1.85355 1.14645C1.65829 0.951184 1.34171 0.951184 1.14645 1.14645C0.951184 1.34171 0.951184 1.65829 1.14645 1.85355L5.73223 6.43934L5.6526 6.58876L2.8419 7.52566C2.6775 7.58046 2.5532 7.71648 2.51339 7.88513C2.47357 8.05378 2.52392 8.23102 2.64646 8.35356L4.79291 10.5L2.14645 13.1465L2 14L2.85356 13.8536L5.50002 11.2071L7.64646 13.3536C7.76899 13.4761 7.94623 13.5264 8.11489 13.4866C8.28354 13.4468 8.41955 13.3225 8.47435 13.1581L9.41143 10.3469L9.56016 10.2673ZM8.82138 9.52849L8.76403 9.5592C8.65137 9.61951 8.56608 9.72066 8.52567 9.84189L7.7815 12.0744L3.92562 8.21851L6.15812 7.47435C6.27966 7.43383 6.38101 7.34822 6.44126 7.23516L6.47143 7.17854L8.82138 9.52849ZM12.7178 7.4426L10.6636 8.54227L11.4024 9.28105L13.1897 8.32422C14.0759 7.84981 14.2538 6.65509 13.5443 5.94304L10.0589 2.44509C9.34701 1.73062 8.14697 1.90828 7.67261 2.79838L6.71556 4.59421L7.45476 5.33341L8.55511 3.26869C8.71323 2.97199 9.11324 2.91277 9.35055 3.15093L12.836 6.64888C13.0725 6.88623 13.0131 7.28446 12.7178 7.4426Z" />
-    </svg>
-  )
-}
-
-function SearchIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor" aria-hidden="true" focusable="false">
-      <path d="M10.0195 10.7266C9.06578 11.5217 7.83875 12 6.5 12C3.46243 12 1 9.53757 1 6.5C1 3.46243 3.46243 1 6.5 1C9.53757 1 12 3.46243 12 6.5C12 7.83875 11.5217 9.06578 10.7266 10.0195L13.8535 13.1464C14.0488 13.3417 14.0488 13.6583 13.8535 13.8536C13.6583 14.0488 13.3417 14.0488 13.1464 13.8536L10.0195 10.7266ZM11 6.5C11 4.01472 8.98528 2 6.5 2C4.01472 2 2 4.01472 2 6.5C2 8.98528 4.01472 11 6.5 11C8.98528 11 11 8.98528 11 6.5Z" />
     </svg>
   )
 }
@@ -1695,6 +2216,13 @@ function AgentRow({
   now,
   onOpenAgent,
   onUpdateAgentFlags,
+  reorderable = false,
+  dragging = false,
+  dropPosition,
+  onAgentDragStart,
+  onAgentDragEnd,
+  onAgentDragOver,
+  onAgentDrop,
   onOpenAgentContextMenu,
   onOpenAgentKeyboardMenu,
   onResume,
@@ -1712,15 +2240,23 @@ function AgentRow({
   now: number
   onOpenAgent?: (agentId: string) => void
   onUpdateAgentFlags?: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
+  reorderable?: boolean
+  dragging?: boolean
+  dropPosition?: 'before' | 'after'
+  onAgentDragStart?: (event: ReactDragEvent<HTMLElement>, agentId: string) => void
+  onAgentDragEnd?: () => void
+  onAgentDragOver?: (event: ReactDragEvent<HTMLElement>, agentId: string) => void
+  onAgentDrop?: (event: ReactDragEvent<HTMLElement>, agentId: string) => void
   onOpenAgentContextMenu?: (event: ReactMouseEvent<HTMLElement>, agentId: string) => void
   onOpenAgentKeyboardMenu?: (event: ReactKeyboardEvent<HTMLElement>, agentId: string) => void
-  onResume?: (provider: string, sessionId: string) => void
+  onResume?: (provider: string, sessionId: string, providerHomeId?: string) => void
   onOpenSessionContextMenu?: (event: ReactMouseEvent<HTMLElement>, provider: string, sessionId: string) => void
   onOpenSessionKeyboardMenu?: (event: ReactKeyboardEvent<HTMLElement>, provider: string, sessionId: string) => void
-  onShowPreview?: (event: SessionPreviewAnchorEvent, session: AgentSessionHistoryItem) => void
+  onShowPreview?: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
   onHidePreview?: () => void
   copy: CodeCopy
 }) {
+  const draggedRef = useRef(false)
   const backing = agent
     ? { kind: 'agent' as const, agent }
     : session
@@ -1734,10 +2270,13 @@ function AgentRow({
   const sessionProvider = session?.provider ?? ''
   const sessionId = session?.id ?? ''
   const rowTestId = requiresResume ? 'code-active-session-row' : 'code-agent-row'
+  const providerIcon = agent
+    ? previewAgentIconNameForAgent(agent)
+    : previewAgentIconName(session?.provider)
   const openRow = () => {
     if (requiresResume) {
       onHidePreview?.()
-      if (sessionProvider && sessionId) onResume?.(sessionProvider, sessionId)
+      if (sessionProvider && sessionId) onResume?.(sessionProvider, sessionId, session?.providerHomeId)
       return
     }
     if (liveAgentId) onOpenAgent?.(liveAgentId)
@@ -1754,33 +2293,67 @@ function AgentRow({
     if (!agent) return
     onUpdateAgentFlags?.(agent, { archived: true })
   }
+  const openRowMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (requiresResume) {
+      onHidePreview?.()
+      if (sessionProvider && session) onOpenSessionContextMenu?.(event, sessionProvider, agentSessionId(session))
+      return
+    }
+    if (liveAgentId) onOpenAgentContextMenu?.(event, liveAgentId)
+  }
 
   return (
     <div
       tabIndex={0}
-      className={`code-agent-row ${requiresResume ? 'requires-resume' : ''} ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.pinned ? 'pinned' : ''} ${rowState.unread ? 'unread' : ''}`}
+      className={`code-agent-row ${requiresResume ? 'requires-resume' : ''} ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.pinned ? 'pinned' : ''} ${rowState.unread ? 'unread' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
+      draggable={reorderable || undefined}
       data-testid={rowTestId}
       data-agent-id={agent?.id}
       data-provider={session?.provider}
-      data-session-id={session?.id}
-      title={rowState.rowTitle || rowState.title}
+      data-session-id={session ? agentSessionId(session) : undefined}
       aria-label={rowState.rowTitle || rowState.title}
-      onClick={openRow}
+      onDragStart={event => {
+        if (!liveAgentId || !reorderable) return
+        draggedRef.current = true
+        onAgentDragStart?.(event, liveAgentId)
+      }}
+      onDragEnd={() => {
+        onAgentDragEnd?.()
+        window.setTimeout(() => {
+          draggedRef.current = false
+        }, 0)
+      }}
+      onDragOver={event => liveAgentId && onAgentDragOver?.(event, liveAgentId)}
+      onDrop={event => liveAgentId && onAgentDrop?.(event, liveAgentId)}
+      onClick={event => {
+        if (draggedRef.current) {
+          event.preventDefault()
+          event.stopPropagation()
+          return
+        }
+        openRow()
+      }}
       onMouseEnter={event => {
-        if (session) onShowPreview?.(event, session)
+        if (agent) {
+          onShowPreview?.(event, previewTargetForAgent(agent, rowState))
+        } else if (session) {
+          onShowPreview?.(event, previewTargetForSession(session, rowState))
+        }
       }}
       onMouseLeave={onHidePreview}
       onContextMenu={event => {
         if (requiresResume) {
           onHidePreview?.()
-          if (sessionProvider && sessionId) onOpenSessionContextMenu?.(event, sessionProvider, sessionId)
+          if (sessionProvider && session) onOpenSessionContextMenu?.(event, sessionProvider, agentSessionId(session))
           return
         }
         if (liveAgentId) onOpenAgentContextMenu?.(event, liveAgentId)
       }}
       onKeyDown={event => {
         if (requiresResume) {
-          if (sessionProvider && sessionId) onOpenSessionKeyboardMenu?.(event, sessionProvider, sessionId)
+          if (sessionProvider && session) onOpenSessionKeyboardMenu?.(event, sessionProvider, agentSessionId(session))
         } else if (liveAgentId) {
           onOpenAgentKeyboardMenu?.(event, liveAgentId)
         }
@@ -1791,6 +2364,11 @@ function AgentRow({
         }
       }}
     >
+      {providerIcon && (
+        <span className="code-agent-row-provider-icon" aria-hidden="true">
+          <AgentLaunchIcon name={providerIcon} variant="color" />
+        </span>
+      )}
       <span className="code-agent-row-copy">
         <span className="code-agent-name">{rowState.title}</span>
       </span>
@@ -1821,11 +2399,6 @@ function AgentRow({
           />
         )}
         {rowState.unread && <span className="code-agent-unread" title={copy.unread} />}
-        {rowState.ageVisible && (
-          <span className="code-agent-age" title={rowState.ageTitle}>
-            {rowState.ageLabel}
-          </span>
-        )}
         {agent && (
           <span className="code-agent-row-actions" aria-hidden={false}>
             <button
@@ -1849,6 +2422,18 @@ function AgentRow({
               <AgentArchiveIcon />
             </button>
           </span>
+        )}
+        {(agent || session) && (
+          <button
+            type="button"
+            className="code-agent-row-more"
+            data-testid="code-agent-row-more"
+            aria-label={copy.openOptions}
+            title={copy.openOptions}
+            onClick={openRowMenu}
+          >
+            <ProjectActionsIcon />
+          </button>
         )}
         {shortcutHint && <kbd>{shortcutHint}</kbd>}
       </span>

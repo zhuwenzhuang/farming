@@ -49,7 +49,9 @@ async function run() {
 
   const createClient = new EventEmitter();
   createClient.disconnect = () => {};
-  createClient.request = async (method) => {
+  let createOptions = null;
+  createClient.request = async (method, params) => {
+    if (method === 'createSession') createOptions = params.options;
     if (method === 'createSession') return { sessionId: 'created-session-id' };
     return null;
   };
@@ -59,6 +61,7 @@ async function run() {
     const errors = [];
     createEngine.on('session-error', event => errors.push(event));
     await createEngine.createSession({ agentId: 'fallback-agent-id' });
+    assert.strictEqual(createOptions.shellIntegrationPrepared, true, 'the server should prepare shell startup before a persistent host receives it');
     createClient.emit('host-exit', { code: 9, signal: null });
     assert.strictEqual(errors.length, 1, 'created native session should be tracked by returned sessionId');
     assert.strictEqual(errors[0].sessionId, 'created-session-id');

@@ -1,10 +1,13 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useKeyboard } from '@/hooks/useKeyboard'
 import { appPath } from '@/lib/base-path'
 import { agentDisplayName, formatRelativeAge } from '@/lib/format'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { CodeCopy } from '@/components/code/copy'
+import { AgentLaunchIcon } from '@/components/code/AgentLaunchIcon'
+import { normalizeAgentLaunchOptions } from '@/components/code/agent-launch-options'
+import { ArrowDownGlyph, ArrowUpGlyph, CheckGlyph, ChevronDownGlyph, CloseGlyph } from '@/components/IconGlyphs'
 import { mergeTaskWithWorkflow, WORKFLOW_TEMPLATE_OPTIONS } from '@/lib/workflow-templates'
 import {
   buildWorkspaceHistory,
@@ -22,15 +25,20 @@ function isMobileViewport() {
 }
 
 function normalizeDefaultLaunchAgent(agentName: string | undefined) {
+  if (agentName === 'opencode') return 'opencode'
+  if (agentName === 'qoder') return 'qoder'
+  if (agentName === 'bash') return 'bash'
+  if (agentName === 'zsh') return 'zsh'
   return agentName === 'claude' ? 'claude' : 'codex'
 }
 
 function isResumeProvider(provider: string | undefined) {
-  return provider === 'codex' || provider === 'claude'
+  return provider === 'codex' || provider === 'claude' || provider === 'qoder'
 }
 
 interface CliAgent {
   name: string
+  command?: string
   description: string
   category: string
 }
@@ -46,6 +54,7 @@ interface WorkspacePathSuggestion {
 
 interface MainAgentResumeSession {
   provider: string
+  providerHomeId?: string
   providerName?: string
   id: string
   title: string
@@ -57,12 +66,17 @@ interface MainAgentResumeSession {
 }
 
 export interface StartAgentOptions {
+  providerHomeId?: string
+  codexRuntimeMode?: 'cli' | 'app-server'
+  agentRuntimeMode?: 'terminal' | 'json'
   resumeSession?: {
     provider: string
     id: string
+    providerHomeId?: string
   }
   task?: string
   workflowTemplate?: string
+  customTitle?: string
 }
 
 interface InputDialogProps {
@@ -70,6 +84,7 @@ interface InputDialogProps {
   mustStartMain: boolean
   initialWorkspace?: string
   initialCommand?: string
+  initialCustomTitle?: string
   showWorkflowTaskFields?: boolean
   copy: CodeCopy
   onStart: (command: string, workspace: string, options?: StartAgentOptions) => void
@@ -109,6 +124,7 @@ export function InputDialog({
   mustStartMain,
   initialWorkspace,
   initialCommand,
+  initialCustomTitle,
   showWorkflowTaskFields = true,
   copy,
   onStart,
@@ -123,6 +139,10 @@ export function InputDialog({
   const [taskText, setTaskText] = useState('')
   const [workflowId, setWorkflowId] = useState('')
   const [workspaceHistory, setWorkspaceHistory] = useState<string[]>([])
+  const [agentHomes, setAgentHomes] = useState<Record<string, Array<{ id: string; path: string }>>>({})
+  const [selectedHomeId, setSelectedHomeId] = useState('default')
+  const [codexRuntimeMode, setCodexRuntimeMode] = useState<'cli' | 'app-server' | 'json'>('cli')
+  const [homeMenuOpen, setHomeMenuOpen] = useState(false)
   const [discoveredWorkspaces, setDiscoveredWorkspaces] = useState<string[]>([])
   const [workspacePathSuggestions, setWorkspacePathSuggestions] = useState<WorkspacePathSuggestion[]>([])
   const [workspacePathSelection, setWorkspacePathSelection] = useState(-1)
@@ -135,6 +155,8 @@ export function InputDialog({
   const [startClickLocked, setStartClickLocked] = useState(false)
   const dialogRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const homeMenuRef = useRef<HTMLDivElement>(null)
+  const homeMenuTriggerRef = useRef<HTMLButtonElement>(null)
   const workspacePathSuggestionsRef = useRef<HTMLDivElement>(null)
   const workspaceTouchedRef = useRef(false)
   const startClickLockedRef = useRef(false)
@@ -153,7 +175,7 @@ export function InputDialog({
     ? resumableMainAgentSession.provider
     : defaultLaunchAgent
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return
     let cancelled = false
     setStep('agent-list')
@@ -174,6 +196,10 @@ export function InputDialog({
     setMainAgentResumeSession(null)
     setResumeMainAgent(true)
     setDefaultLaunchAgent('codex')
+    setAgentHomes({})
+    setSelectedHomeId('default')
+    setCodexRuntimeMode('cli')
+    setHomeMenuOpen(false)
     setHistorySelection(-1)
     setAgentsLoaded(false)
     setAgentLoadFailed(false)
@@ -187,10 +213,15 @@ export function InputDialog({
       .then((data: { agents: CliAgent[] } | CliAgent[]) => {
         if (cancelled) return
         const nextAgents = Array.isArray(data) ? data : data.agents ?? []
+        const normalizedAgents = normalizeAgentLaunchOptions(nextAgents).map(agent => ({
+          ...agent,
+          description: agent.description ?? '',
+          category: agent.category ?? 'coding',
+        }))
         const initialAgent = !mustStartMain && initialCommand
-          ? nextAgents.find(agent => agent.name === initialCommand)
+          ? normalizedAgents.find(agent => agent.name === initialCommand)
           : null
-        setAgents(nextAgents)
+        setAgents(normalizedAgents)
         setAgentLoadFailed(false)
         const nextSelectedAgent = !mustStartMain ? initialAgent : null
         if (nextSelectedAgent) {
@@ -212,13 +243,15 @@ export function InputDialog({
 
     fetch(appPath('/api/settings'))
       .then(r => r.json())
-      .then((data: { settings?: { workspace?: string; lastMainWorkspace?: string; workspaceHistory?: string[]; defaultLaunchAgent?: string } }) => {
+      .then((data: { settings?: { workspace?: string; lastMainWorkspace?: string; workspaceHistory?: string[]; defaultLaunchAgent?: string; codexRuntimeMode?: string; agentHomes?: Record<string, Array<{ id: string; path: string }>> } }) => {
         const settings = data.settings ?? {}
         const nextMainWorkspaceDefault = getMainWorkspaceDefault(settings)
         const history = buildWorkspaceHistory(null, settings.workspaceHistory ?? [])
         setMainWorkspaceDefault(nextMainWorkspaceDefault)
         setDefaultLaunchAgent(normalizeDefaultLaunchAgent(settings.defaultLaunchAgent))
         setWorkspaceHistory(history)
+        setAgentHomes(settings.agentHomes ?? {})
+        setCodexRuntimeMode(settings.codexRuntimeMode === 'app-server' ? 'app-server' : 'cli')
         if (mustStartMain && !workspaceTouchedRef.current) {
           setWorkspace(nextMainWorkspaceDefault)
         }
@@ -288,11 +321,14 @@ export function InputDialog({
       return
     }
 
-    requestAnimationFrame(() => {
+    const focusDefaultAgent = () => {
       const agentButtons = Array.from(dialog.querySelectorAll<HTMLButtonElement>('.agent-item:not(:disabled)'))
       const defaultAgentButton = agentButtons.find(button => button.dataset.testid === `agent-option-${effectiveDefaultLaunchAgent}`)
       ;(defaultAgentButton ?? agentButtons[0])?.focus()
-    })
+    }
+    focusDefaultAgent()
+    const frame = requestAnimationFrame(focusDefaultAgent)
+    return () => cancelAnimationFrame(frame)
   }, [agentLoadFailed, agentsLoaded, effectiveDefaultLaunchAgent, mustStartMain, open, settingsLoaded, step])
 
   const lockStartClick = useCallback(() => {
@@ -391,7 +427,9 @@ export function InputDialog({
       resumeSession: {
         provider: resumableMainAgentSession.provider,
         id: resumableMainAgentSession.id,
+        providerHomeId: resumableMainAgentSession.providerHomeId,
       },
+      providerHomeId: resumableMainAgentSession.providerHomeId,
     }
   }, [mustStartMain, resumableMainAgentSession, resumeMainAgent])
 
@@ -400,11 +438,14 @@ export function InputDialog({
       if (!settingsLoaded) return
       if (!lockStartClick()) return
       const resolvedWorkspace = resolveWorkspaceToStart(workspace, true, mainWorkspaceDefault)
-      if (resolvedWorkspace) onStart(agent.name, resolvedWorkspace, resumeStartOptions(agent))
+      if (resolvedWorkspace) onStart(agent.command || agent.name, resolvedWorkspace, { ...(resumeStartOptions(agent) || {}), providerHomeId: selectedHomeId })
       return
     }
 
     setSelectedAgent(agent)
+    const nextHomes = (Array.isArray(agentHomes[agent.name]) ? agentHomes[agent.name] : []) as Array<{ id: string; path: string }>
+    setSelectedHomeId(nextHomes[0]?.id || 'default')
+    setHomeMenuOpen(false)
     workspaceTouchedRef.current = false
     setWorkspace(normalizeWorkspaceValue(initialWorkspace || ''))
     setDiscoveredWorkspaces([])
@@ -448,21 +489,29 @@ export function InputDialog({
 
     const options = resumeStartOptions(selectedAgent)
     if (options) {
-      onStart(selectedAgent.name, resolvedWorkspace, options)
+      onStart(selectedAgent.command || selectedAgent.name, resolvedWorkspace, { ...(options || {}), providerHomeId: selectedHomeId })
       return
     }
 
     if (mustStartMain) {
-      onStart(selectedAgent.name, resolvedWorkspace)
+      onStart(selectedAgent.command || selectedAgent.name, resolvedWorkspace, { providerHomeId: selectedHomeId })
       return
     }
 
     const merged = showWorkflowTaskFields
       ? mergeTaskWithWorkflow(taskText, workflowId)
       : { task: '', workflowTemplate: '' }
-    onStart(selectedAgent.name, resolvedWorkspace, {
+    onStart(selectedAgent.command || selectedAgent.name, resolvedWorkspace, {
       task: merged.task,
       workflowTemplate: merged.workflowTemplate,
+      ...(initialCustomTitle ? { customTitle: initialCustomTitle } : {}),
+      providerHomeId: selectedHomeId,
+      ...(selectedAgent.name === 'codex' ? {
+        codexRuntimeMode: codexRuntimeMode === 'app-server' ? 'app-server' : 'cli',
+        agentRuntimeMode: codexRuntimeMode === 'json' ? 'json' : 'terminal',
+      } : selectedAgent.name === 'opencode' ? {
+        agentRuntimeMode: codexRuntimeMode === 'json' ? 'json' : 'terminal',
+      } : {}),
     })
   }, [
     selectedAgent,
@@ -476,6 +525,8 @@ export function InputDialog({
     showWorkflowTaskFields,
     taskText,
     workflowId,
+    codexRuntimeMode,
+    initialCustomTitle,
   ])
 
   const syncSelectionWithValue = useCallback((value: string) => {
@@ -493,10 +544,60 @@ export function InputDialog({
     setHistorySelection(normalizedIndex)
     requestAnimationFrame(() => {
       if (!inputRef.current) return
+      if (isMobileViewport()) {
+        inputRef.current.blur()
+        return
+      }
       inputRef.current.focus()
       inputRef.current.setSelectionRange(nextValue.length, nextValue.length)
     })
   }, [workspaceOptions])
+
+
+  const homesForSelectedAgent = useMemo(() => {
+    if (!selectedAgent) return []
+    const homes = (Array.isArray(agentHomes[selectedAgent.name]) ? agentHomes[selectedAgent.name] : []) as Array<{ id: string; path: string }>
+    if (homes.length > 0) return homes
+    if (selectedAgent.name === 'codex') return [{ id: 'default', path: '~/.codex' }]
+    if (selectedAgent.name === 'claude') return [{ id: 'default', path: '~/.claude' }]
+    if (selectedAgent.name === 'opencode') return [{ id: 'default', path: '~/.opencode' }]
+    if (selectedAgent.name === 'qoder') return [{ id: 'default', path: '~/.qoder' }]
+    return [{ id: 'default', path: `~/.${selectedAgent.name}` }]
+  }, [agentHomes, selectedAgent])
+
+  const selectedHome = useMemo(
+    () => homesForSelectedAgent.find(home => home.id === selectedHomeId) ?? homesForSelectedAgent[0],
+    [homesForSelectedAgent, selectedHomeId]
+  )
+
+  useEffect(() => {
+    const current = homesForSelectedAgent || []
+    if (current.length === 0) {
+      setSelectedHomeId('default')
+      return
+    }
+    if (!current.some(home => home.id === selectedHomeId)) {
+      setSelectedHomeId(current[0]?.id || 'default')
+    }
+  }, [homesForSelectedAgent, selectedHomeId])
+
+  useEffect(() => {
+    if (!homeMenuOpen) return
+
+    const closeIfOutside = (event: MouseEvent) => {
+      if (!homeMenuRef.current?.contains(event.target as Node)) setHomeMenuOpen(false)
+    }
+    window.addEventListener('mousedown', closeIfOutside)
+    return () => {
+      window.removeEventListener('mousedown', closeIfOutside)
+    }
+  }, [homeMenuOpen])
+
+  const selectHome = useCallback((id: string) => {
+    setSelectedHomeId(id)
+    setHomeMenuOpen(false)
+    requestAnimationFrame(() => homeMenuTriggerRef.current?.focus())
+  }, [])
 
   const acceptWorkspacePathSuggestion = useCallback((index: number) => {
     const suggestion = workspacePathSuggestions[index]
@@ -508,6 +609,10 @@ export function InputDialog({
     setWorkspacePathSelection(-1)
     requestAnimationFrame(() => {
       if (!inputRef.current) return
+      if (isMobileViewport()) {
+        inputRef.current.blur()
+        return
+      }
       inputRef.current.focus()
       inputRef.current.setSelectionRange(suggestion.path.length, suggestion.path.length)
     })
@@ -616,7 +721,18 @@ export function InputDialog({
 
   useKeyboard(
     [
-      { key: 'Escape', allowInOverlay: true, handler: () => setStep('agent-list') },
+      {
+        key: 'Escape',
+        allowInOverlay: true,
+        handler: () => {
+          if (homeMenuOpen) {
+            setHomeMenuOpen(false)
+            requestAnimationFrame(() => homeMenuTriggerRef.current?.focus())
+            return
+          }
+          setStep('agent-list')
+        },
+      },
     ],
     open && step === 'workspace'
   )
@@ -651,7 +767,7 @@ export function InputDialog({
               aria-label={copy.close}
               onClick={onClose}
             >
-              ×
+              <CloseGlyph />
             </button>
           )}
         </div>
@@ -699,9 +815,12 @@ export function InputDialog({
                     disabled={mustStartMain && (startClickLocked || !settingsLoaded)}
                     onClick={() => selectAgent(agent)}
                   >
+                    <AgentLaunchIcon name={agent.name} />
                     <span className="key-hint-badge">{i < 9 ? i + 1 : 0}</span>
-                    <span className="agent-item-name">{agentDisplayName(agent.name)}</span>
-                    <span className="agent-item-desc">{agent.description}</span>
+                    <span className="agent-item-copy">
+                      <span className="agent-item-name">{agentDisplayName(agent.name)}</span>
+                      <span className="agent-item-desc">{agent.description}</span>
+                    </span>
                   </button>
                 ))}
               </div>
@@ -719,11 +838,14 @@ export function InputDialog({
                       disabled={mustStartMain && (startClickLocked || !settingsLoaded)}
                       onClick={() => selectAgent(agent)}
                     >
+                      <AgentLaunchIcon name={agent.name} />
                       <span className="key-hint-badge">
                         {globalIndex < 9 ? globalIndex + 1 : 0}
                       </span>
-                      <span className="agent-item-name">{agentDisplayName(agent.name)}</span>
-                      <span className="agent-item-desc">{agent.description}</span>
+                      <span className="agent-item-copy">
+                        <span className="agent-item-name">{agentDisplayName(agent.name)}</span>
+                        <span className="agent-item-desc">{agent.description}</span>
+                      </span>
                     </button>
                   )
                 })}
@@ -734,6 +856,94 @@ export function InputDialog({
 
         {step === 'workspace' && selectedAgent && (
           <div className="workspace-input" data-testid="workspace-step">
+            {(homesForSelectedAgent?.length ?? 0) > 1 && (
+              <div className="workspace-home-field" ref={homeMenuRef}>
+                <p className="workspace-field-copy">{agentDisplayName(selectedAgent.name)} Home</p>
+                <button
+                  ref={homeMenuTriggerRef}
+                  type="button"
+                  className="workspace-home-trigger"
+                  data-testid="agent-home-select"
+                  aria-label={`${agentDisplayName(selectedAgent.name)} home`}
+                  aria-expanded={homeMenuOpen}
+                  aria-controls="agent-home-options"
+                  onClick={() => setHomeMenuOpen(open => !open)}
+                  onKeyDown={event => {
+                    if (event.key === 'Escape' && homeMenuOpen) {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      setHomeMenuOpen(false)
+                      return
+                    }
+                    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+                    event.preventDefault()
+                    setHomeMenuOpen(true)
+                    requestAnimationFrame(() => {
+                      const selector = event.key === 'ArrowDown'
+                        ? '[data-home-option]:first-child'
+                        : '[data-home-option]:last-child'
+                      homeMenuRef.current?.querySelector<HTMLButtonElement>(selector)?.focus()
+                    })
+                  }}
+                >
+                  <span className="workspace-home-trigger-copy">
+                    <strong>{selectedHome?.id || 'default'}</strong>
+                    <span>{formatWorkspaceForDisplay(selectedHome?.path || '')}</span>
+                  </span>
+                  <ChevronDownGlyph />
+                </button>
+                {homeMenuOpen && (
+                  <div
+                    className="workspace-home-menu"
+                    id="agent-home-options"
+                    data-testid="agent-home-menu"
+                    role="listbox"
+                    aria-label={`${agentDisplayName(selectedAgent.name)} home`}
+                    onKeyDown={event => {
+                      if (event.key !== 'Escape') return
+                      event.preventDefault()
+                      event.stopPropagation()
+                      setHomeMenuOpen(false)
+                      requestAnimationFrame(() => homeMenuTriggerRef.current?.focus())
+                    }}
+                  >
+                    {homesForSelectedAgent.map(home => {
+                      const selected = home.id === selectedHomeId
+                      return (
+                        <button
+                          key={home.id}
+                          type="button"
+                          className={`workspace-home-option ${selected ? 'selected' : ''}`}
+                          data-testid="agent-home-option"
+                          data-home-option
+                          role="option"
+                          aria-selected={selected}
+                          onClick={() => selectHome(home.id)}
+                        >
+                          <CheckGlyph className="workspace-home-option-check" />
+                          <span className="workspace-home-option-copy">
+                            <strong>{home.id}</strong>
+                            <span>{formatWorkspaceForDisplay(home.path)}</span>
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+            {(selectedAgent.name === 'codex' || selectedAgent.name === 'opencode') && (
+              <div className="workspace-runtime-field" data-testid="codex-runtime-mode">
+                <p className="workspace-field-copy">{agentDisplayName(selectedAgent.name)} runtime</p>
+                <div className="workspace-runtime-options" role="group" aria-label={`${agentDisplayName(selectedAgent.name)} runtime`}>
+                  <button type="button" className={codexRuntimeMode === 'cli' ? 'active' : ''} aria-pressed={codexRuntimeMode === 'cli'} onClick={() => setCodexRuntimeMode('cli')}>Terminal</button>
+                  <button type="button" className={codexRuntimeMode === 'json' ? 'active' : ''} aria-pressed={codexRuntimeMode === 'json'} onClick={() => setCodexRuntimeMode('json')}>Chat <span>JSON</span></button>
+                  {selectedAgent.name === 'codex' && (
+                    <button type="button" className={codexRuntimeMode === 'app-server' ? 'active' : ''} aria-pressed={codexRuntimeMode === 'app-server'} onClick={() => setCodexRuntimeMode('app-server')}>App Server <span>unstable</span></button>
+                  )}
+                </div>
+              </div>
+            )}
             <p className="workspace-field-copy">{copy.workspace}</p>
             <input
               ref={inputRef}
@@ -791,7 +1001,7 @@ export function InputDialog({
               inputMode="text"
               autoComplete="off"
               autoCorrect="off"
-              autoCapitalize="off"
+              autoCapitalize="none"
               spellCheck={false}
               enterKeyHint="go"
               data-lpignore="true"
@@ -848,8 +1058,16 @@ export function InputDialog({
                   placeholder="Describe what this agent should focus on"
                   rows={4}
                   name="agent-task"
+                  inputMode="text"
                   autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="none"
                   spellCheck={false}
+                  enterKeyHint="done"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
                 />
               </>
             )}
@@ -860,7 +1078,10 @@ export function InputDialog({
               >
                 <div className="workspace-history-header">
                   <span>{copy.recentWorkspacesLower}</span>
-                  <span className="hint">↑ ↓</span>
+                  <span className="hint" aria-hidden="true">
+                    <ArrowUpGlyph />
+                    <ArrowDownGlyph />
+                  </span>
                 </div>
                 <div className="workspace-history-list">
                   {workspaceOptions.map((entry, index) => (

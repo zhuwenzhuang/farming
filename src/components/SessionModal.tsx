@@ -50,6 +50,14 @@ function fallbackCopyText(text: string) {
   const textarea = document.createElement('textarea')
   textarea.value = text
   textarea.setAttribute('readonly', 'true')
+  textarea.setAttribute('autocomplete', 'off')
+  textarea.setAttribute('autocorrect', 'off')
+  textarea.setAttribute('autocapitalize', 'none')
+  textarea.setAttribute('spellcheck', 'false')
+  textarea.setAttribute('data-lpignore', 'true')
+  textarea.setAttribute('data-1p-ignore', 'true')
+  textarea.setAttribute('data-bwignore', 'true')
+  textarea.setAttribute('data-form-type', 'other')
   textarea.style.position = 'fixed'
   textarea.style.left = '-10000px'
   textarea.style.top = '-10000px'
@@ -399,7 +407,7 @@ export function SessionModal({
               inputMode="text"
               autoComplete="off"
               autoCorrect="off"
-              autoCapitalize="off"
+              autoCapitalize="none"
               spellCheck={false}
               enterKeyHint="send"
               data-lpignore="true"

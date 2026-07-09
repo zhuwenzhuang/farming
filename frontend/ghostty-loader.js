@@ -1,8 +1,17 @@
-import { init, Terminal, FitAddon } from '/vendor/ghostty-web/ghostty-web.js';
+let shouldLoadGhostty = false;
+try {
+  shouldLoadGhostty = window.localStorage.getItem('farmingTerminalEngine') === 'ghostty';
+} catch {
+  shouldLoadGhostty = false;
+}
 
-window.__ghosttyReadyPromise = (async () => {
+window.__ghosttyReadyPromise = shouldLoadGhostty ? (async () => {
   try {
-    await init('/vendor/ghostty-web/ghostty-vt.wasm');
+    const vendorPath = window.FarmingRuntimePaths
+      ? window.FarmingRuntimePaths.path('/vendor/ghostty-web')
+      : '/vendor/ghostty-web';
+    const { init, Terminal, FitAddon } = await import(`${vendorPath}/ghostty-web.js`);
+    await init(`${vendorPath}/ghostty-vt.wasm`);
     window.GhosttyWeb = {
       Terminal,
       FitAddon
@@ -12,4 +21,4 @@ window.__ghosttyReadyPromise = (async () => {
     console.error('Failed to initialize Ghostty terminal:', error);
     return null;
   }
-})();
+})() : Promise.resolve(null);

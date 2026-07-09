@@ -45,9 +45,12 @@ export function isXtermHelperTextareaTarget(target: EventTarget | null): target 
 export function shouldUseTerminalInputFallback(options: {
   isXterm: boolean
   imeComposing: boolean
+  text?: string
   terminal: TerminalTextInputTarget
 }) {
-  return !options.isXterm && !options.imeComposing && typeof options.terminal.input === 'function'
+  if (options.imeComposing || typeof options.terminal.input !== 'function') return false
+  if (!options.isXterm) return true
+  return Boolean(options.text && /[^\x00-\x7F]/.test(options.text))
 }
 
 export function shouldSuppressTerminalInputFallback(lastTerminalDataAt: number, inputEventAt: number) {

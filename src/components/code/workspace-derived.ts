@@ -12,19 +12,14 @@ export interface EditorFileStateByAgent {
   externalChanged: Map<string, Set<string>>
 }
 
-export interface AgentUnreadTurnTransition {
-  wasTurnActive: boolean
-  isTurnActive: boolean
-  isMain: boolean
-  alreadyUnread: boolean
-  terminalPaneViewed: boolean
-  terminalFollowingLatest: boolean
-}
-
-export function shouldMarkAgentUnreadForTurnTransition(state: AgentUnreadTurnTransition) {
-  if (state.isMain || state.alreadyUnread) return false
-  if (!state.wasTurnActive || state.isTurnActive) return false
-  return !(state.terminalPaneViewed && state.terminalFollowingLatest)
+export function stableProjectFileAgentId(
+  currentAgentId: string | null | undefined,
+  agents: ReadonlyArray<Pick<Agent, 'id' | 'isMain'>>
+) {
+  if (currentAgentId && agents.some(agent => !agent.isMain && agent.id === currentAgentId)) {
+    return currentAgentId
+  }
+  return agents.find(agent => !agent.isMain)?.id ?? null
 }
 
 export function projectWorkspaceForHistoryRun(entry: Pick<TaskHistoryEntry, 'cwd' | 'projectWorkspace'> | null | undefined) {
@@ -95,7 +90,12 @@ export function visibleSearchTargetsForProjects(
     if (collapsedProjectIds.has(project.id) && !normalizedSearch) return []
     return [
       ...project.agents.map(agent => ({ kind: 'agent' as const, id: agent.id })),
-      ...project.agentSessions.map(session => ({ kind: 'agent-session' as const, provider: session.provider, id: session.id })),
+      ...project.agentSessions.map(session => ({
+        kind: 'agent-session' as const,
+        provider: session.provider,
+        id: session.id,
+        ...(session.providerHomeId ? { providerHomeId: session.providerHomeId } : {}),
+      })),
     ]
   })
 }

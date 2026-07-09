@@ -7,7 +7,7 @@ export interface AgentLaunchOption {
   interactive?: boolean
 }
 
-const PREFERRED_AGENT_ORDER = ['codex', 'claude', 'bash', 'zsh']
+const PREFERRED_AGENT_ORDER = ['codex', 'claude', 'opencode', 'qoder', 'bash', 'zsh']
 const PREFERRED_AGENT_NAMES = new Set(PREFERRED_AGENT_ORDER)
 
 function agentLaunchRank(agentName: string) {

@@ -56,6 +56,13 @@ beside the vendored files at `frontend/vendor/ghostty-web/LICENSE`.
 If vendored assets are updated, keep this notice in sync with the package name,
 version, and license.
 
+The CRT skin bundles one font file under `frontend/skins/crt/fonts/`:
+
+| Font | License | Purpose |
+| --- | --- | --- |
+
+The corresponding license texts are stored beside the font files.
+
 ## Bundled Data
 
 Farming includes a generated Chinese poetic token word list at

@@ -38,6 +38,22 @@ function run() {
   assert.strictEqual(bashOptions.env.BASH_SILENCE_DEPRECATION_WARNING, '1');
   cleanupShellBusyIntegration(bashOptions.shellBusyIntegration);
 
+  const controlledBashOptions = normalizeShellSessionOptions({
+    command: 'bash',
+    args: [],
+    category: 'other',
+    env: {
+      FARMING_SHELL_CONTROLLED_PROMPT: '1',
+      PS1: 'inherited prompt',
+      PROMPT_COMMAND: 'echo inherited hook',
+    }
+  });
+  assert.ok(controlledBashOptions.env.PS1.includes('│'), 'explicit controlled bash sessions should use the compact prompt');
+  assert.strictEqual(controlledBashOptions.env.PROMPT_COMMAND, undefined, 'controlled bash sessions should not retain an inherited prompt hook');
+  const controlledBashRc = fs.readFileSync(controlledBashOptions.args[1], 'utf8');
+  assert.ok(!controlledBashRc.includes('. "$HOME/.bashrc"'), 'controlled bash sessions should skip user startup files');
+  cleanupShellBusyIntegration(controlledBashOptions.shellBusyIntegration);
+
   const absoluteBashOptions = normalizeShellSessionOptions({
     command: '/bin/bash',
     args: [],
@@ -88,10 +104,42 @@ function run() {
   assert.strictEqual(zshOptions.env.PROMPT, undefined, 'zsh shell agents should preserve the user prompt by default');
   assert.strictEqual(zshOptions.env.PS1, undefined);
   const zshRc = fs.readFileSync(`${zshOptions.env.ZDOTDIR}/.zshrc`, 'utf8');
+  const zshEnv = fs.readFileSync(`${zshOptions.env.ZDOTDIR}/.zshenv`, 'utf8');
+  const zshProfile = fs.readFileSync(`${zshOptions.env.ZDOTDIR}/.zprofile`, 'utf8');
+  const zshLogin = fs.readFileSync(`${zshOptions.env.ZDOTDIR}/.zlogin`, 'utf8');
   assert.ok(zshRc.includes('. "${USER_ZDOTDIR:-$HOME}/.zshrc"'), 'zsh shell agents should load the user zshrc before installing markers');
+  assert.ok(zshEnv.includes('.zshenv'), 'zsh shell agents should bridge the user zshenv like VS Code');
+  assert.ok(zshProfile.includes('.zprofile'), 'zsh shell agents should bridge the user zprofile like VS Code');
+  assert.ok(zshLogin.includes('.zlogin'), 'zsh shell agents should bridge the user zlogin like VS Code');
+  assert.ok(!zshEnv.includes('no_global_rcs'), 'zsh shell agents should not disable global startup files');
   assert.ok(zshRc.includes('add-zsh-hook preexec __farming_shell_preexec'));
   assert.ok(zshRc.includes('add-zsh-hook precmd __farming_shell_precmd'));
   cleanupShellBusyIntegration(zshOptions.shellBusyIntegration);
+
+  const controlledZshOptions = normalizeShellSessionOptions({
+    command: 'zsh',
+    args: [],
+    category: 'other',
+    env: {
+      FARMING_SHELL_CONTROLLED_PROMPT: '1',
+      PROMPT: 'inherited prompt',
+      RPROMPT: 'inherited right prompt',
+    }
+  });
+  assert.ok(controlledZshOptions.env.PROMPT.includes('│'), 'explicit controlled zsh sessions should use the compact prompt');
+  assert.strictEqual(controlledZshOptions.env.RPROMPT, undefined, 'controlled zsh sessions should not retain an inherited right prompt');
+  const controlledZshRc = fs.readFileSync(`${controlledZshOptions.env.ZDOTDIR}/.zshrc`, 'utf8');
+  assert.ok(!controlledZshRc.includes('. "${USER_ZDOTDIR:-$HOME}/.zshrc"'), 'controlled zsh sessions should skip user startup files');
+  cleanupShellBusyIntegration(controlledZshOptions.shellBusyIntegration);
+
+  const loginZshOptions = normalizeShellSessionOptions({
+    command: 'zsh',
+    args: ['-l'],
+    category: 'other',
+    env: {},
+  });
+  assert.deepStrictEqual(loginZshOptions.args, ['-il'], 'login zsh should preserve login startup while installing integration');
+  cleanupShellBusyIntegration(loginZshOptions.shellBusyIntegration);
 
   const anonymousZshOptions = normalizeShellSessionOptions({
     command: 'zsh',

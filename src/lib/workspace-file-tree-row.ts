@@ -107,7 +107,7 @@ export function workspaceFileTreeRowViewState({
       ? 'dirty'
       : null
   const visibleGitStatusClassName = visibleGitStatus ? `code-file-git-status ${visibleGitStatus}` : ''
-  const chevronState = isDirectory ? (directoryLoading ? 'loading' : isOpen ? 'expanded' : 'collapsed') : 'placeholder'
+  const chevronState = isDirectory ? (isOpen ? 'expanded' : 'collapsed') : 'placeholder'
   const rowClasses = [
     'code-file-row',
     isDirectory ? 'directory' : 'file',
@@ -120,6 +120,10 @@ export function workspaceFileTreeRowViewState({
     isSelected ? 'selected' : '',
     directoryLoading ? 'loading' : '',
     fileOpening ? 'opening' : '',
+    item.ignored ? 'ignored' : '',
+    item.symbolicLink ? 'symbolic-link' : '',
+    item.external ? 'external-link' : '',
+    item.linkError ? 'link-error' : '',
     hasGitStatus ? 'git-status' : '',
     visibleGitStatus ? `git-${visibleGitStatus}` : '',
     hasDescendantGitStatus ? 'git-descendant' : '',

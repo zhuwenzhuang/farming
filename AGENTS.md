@@ -10,6 +10,8 @@ Farming is a browser-based workspace for supervising AI coding agents. It focuse
 
 The current public product line is **Farming 2**, whose default skin is **Farming Code**. It combines remote terminals, Codex / Claude Code sessions, project files, file search, Monaco-based light editing, git blame, usage signals, and machine status in one browser page.
 
+The browser serves Farming Code at `<base-path>/code/` and the original live CRT UI at `<base-path>/crt/`; the base-path root remains a compatible Code entry. Both UIs connect to the same backend sessions. Code startup and render failures should reveal the live CRT UI behind a bounded diagnostic overlay, without restarting or duplicating Agent processes.
+
 Longer term, Farming explores a Main Agent workflow: a supervising agent can observe other agents, organize work, report progress, and reduce context switching for the human operator.
 
 ## Design Philosophy
@@ -63,6 +65,7 @@ Do not maintain public conversation logs. Ordinary Q&A, temporary debugging, and
 - Avoid premature abstraction in prototype surfaces.
 - Validate user input and return actionable errors.
 - Do not hard-code secrets or private environment assumptions.
+- Codex transcript/chat rendering must pass user-visible text through the shared backend sanitizer for Codex internal envelopes; when Codex changes injected context formats, update that sanitizer and its tests in the same change.
 - Keep agent processes isolated.
 - Use asynchronous IO for server paths.
 - Cache heavy filesystem / CLI scans with stale-while-refresh behavior where the codebase already does so.
@@ -89,7 +92,7 @@ Execution environment
 
 The backend owns lifecycle, auth, session routing, terminal IO, workspace file APIs, session history, usage collection, and configuration. Frontend skins organize these capabilities into product experiences. New interactive sessions use `NativeSessionEngine` by default: Farming keeps node-pty agent processes in a separate native pty host process, so the browser and Farming server can reconnect to live terminals. The native pty host persists across Farming server restarts unless `FARMING_NATIVE_PTY_HOST_PERSIST=0` is set, then exits after an idle grace period once no live sessions or clients remain. `LocalSessionEngine` remains available through `FARMING_SESSION_ENGINE=local` for focused debugging, but product runtime work should target the native pty host path.
 
-The browser terminal renderer defaults to xterm.js. The Ghostty web renderer remains available only as an explicit debug path via `localStorage.farmingTerminalEngine = 'ghostty'`, but new product work should target the xterm adapter first.
+Both browser skins default to xterm.js. The Ghostty web renderer remains available only as an explicit debug path via `localStorage.farmingTerminalEngine = 'ghostty'`, but new product work should target the xterm adapter first.
 
 ## Repository Layout
 
@@ -126,6 +129,9 @@ farming/
 │   ├── lib/
 │   └── styles/
 ├── frontend/
+│   ├── skins/
+│   │   └── crt/            # Independent CRT entry, app, static effects, and bundled display font
+│   ├── *.js                # Shared browser terminal/session bridges
 │   └── vendor/
 ├── docs/
 │   └── products/
@@ -147,16 +153,25 @@ Farming stores runtime settings under `~/.farming/settings.json` by default. Bac
 - `defaultLaunchAgent`
 - `agentLaunchProfiles.codex`
 - `agentLaunchProfiles.claude`
+- `agentHomes` (home metadata for Codex, Claude, OpenCode, and Qoder; each provider keeps a non-removable `default` home)
+- `codexRuntimeMode` (`cli` by default, or explicitly selected experimental `app-server`; applied only to newly launched Codex agents). App Server mode gives each Agent a dedicated short runtime `CODEX_HOME` that links the selected Agent Home’s identity/configuration entries while isolating its socket, session, and logs from Codex Desktop and other Agents.
 - `workspaceHistory`
-- `dangerouslySkipAgentPermissionsByDefault`
+- `dangerouslySkipAgentPermissionsByDefault` (launch supported coding agents such as Codex, Claude, OpenCode, Qoder, Qwen, Aider, GitHub Copilot CLI, and Amazon Q with their provider-specific dangerous permission-skip flags by default)
+- `crtSkinEffectsEnabled` (controls only the CRT skin's scanlines, mask, vignette, and infrequent scan beam; Farming Code must not read or apply it)
+- `crtDynamicHeatEnabled` (disabled by default; lets the CRT skin apply activity-level classes for dynamic Agent colors and sizing)
+- `crtTerminalFontSize` (the CRT opened-terminal text size in pixels, clamped to `10`–`20`; the default is `12`)
 
 Runtime session metadata lives under `~/.farming/sessions/`, not in `settings.json`. Farming assigns each persisted Agent record a stable `fsess_*` id used as the session metadata filename. The live native pty `agent-...` id is stored as runtime metadata, while Codex / Claude provider session ids are stored as external correlation fields. `sessions/index.json` owns the main Projects page provider-session membership; `settings.mainPageSessionKeys` remains only an API compatibility projection. Codex `tmp_uuid...` live ids must not enter this persisted main-page membership; provider sessions not listed there stay in History.
 
-Run/archive history lives in `history/runs.json`, not in `settings.json`. Theme overrides live in `theme-settings.json` under the same config directory. Server control metadata (`farming-server.json`, `farming-server.pid`, `farming-server.log`), the startup token (`.session-token`), and native pty host logs also belong to the config directory layout. External provider histories such as Codex `~/.codex/sessions` and Claude history files are read-only integrations and should not be treated as Farming-owned metadata.
+Run/archive history lives in `history/runs.json`, not in `settings.json`. A run may keep an optional `customTitle` so an explicitly renamed Agent retains that display name when restored; older entries without it remain valid. Theme overrides live in `theme-settings.json` under the same config directory. Server control metadata (`farming-server.json`, `farming-server.pid`, `farming-server.log`), the startup token (`.session-token`), and native pty host logs also belong to the config directory layout. External provider histories such as Codex `~/.codex/sessions` and Claude history files are read-only integrations and should not be treated as Farming-owned metadata.
 
 Interactive runtime sessions default to the native pty host. The host uses a Farming-specific local socket derived from `configDir`, keeps PTY processes outside the Farming server process, and exposes recovery metadata to the server after restarts. By default, server shutdown preserves the host for restart recovery; after the last live session and client disappear, the host shuts itself down after a short idle grace period. Set `FARMING_NATIVE_PTY_HOST_PERSIST=0` only when the host should die with the server. Avoid adding alternate terminal-runtime paths when improving product behavior.
 
-Agent processes must not blindly inherit the Farming server process environment. The backend resolves a user shell environment for interactive agents, overlays only agent-relevant server variables such as model credentials, proxies, SSH auth, and certificate paths, then normalizes terminal variables (`TERM`, `COLORTERM`, `TERM_PROGRAM`) and strips server/runtime shims such as `NO_COLOR`, non-interactive `cat` pagers, glibc launcher paths, and Node heap flags. Keep new launch paths on this resolver instead of copying `process.env` directly.
+Agent processes must not blindly inherit the Farming server process environment. The backend resolves a user shell environment for interactive agents, overlays only agent-relevant server variables such as model credentials, proxies, SSH auth, and certificate paths, then normalizes terminal variables (`TERM`, `COLORTERM`, `TERM_PROGRAM`) and strips server/runtime shims such as `NO_COLOR`, non-interactive `cat` pagers, dynamic-library overrides, and Node heap flags. Keep new launch paths on this resolver instead of copying `process.env` directly.
+
+Shell agents (`bash` / `zsh`) preserve the user's normal interactive startup and prompt by default, like VS Code's integrated terminal. Farming observes those shells through its invisible OSC busy / cwd markers rather than owning `PS1` or `PROMPT`. Use `FARMING_SHELL_CONTROLLED_PROMPT=1` for the compact controlled prompt, or `FARMING_ANONYMIZE_SHELL_PROMPT=1` for privacy-sensitive screenshots. Keep these shell-only variables out of directly launched coding agents.
+
+On macOS, the built-in bash and zsh entries follow VS Code's built-in profiles and start as login shells. Resolve shell environment per target shell, and never pass inherited `PS1`, `PROMPT`, or prompt hooks between bash and zsh; the launched shell's own startup files are the sole owner of its presentation.
 
 The product CLI defaults to:
 
@@ -167,7 +182,7 @@ The product CLI defaults to:
 
 The startup token is stored in `~/.farming/.session-token` and must be reused across restarts and upgrades unless `FARMING_TOKEN` explicitly overrides it. New token generation uses locale `auto`: Chinese time zones produce Chinese haiku-style tokens, Japanese time zones produce Japanese haiku-style tokens, and other time zones produce English passphrases.
 
-In-app upgrades are disabled unless `FARMING_UPDATE_MANIFEST_URL` explicitly points at an HTTP(S) JSON manifest. Do not add default GitHub release polling; unconfigured users should upgrade manually. Configured manifests may declare `version` plus `tarUrl`, or an `assets` array with an `app-bundle` tarball.
+Update behavior is installation-aware. npm installations query the `farming-code` registry metadata and may update in one click: install the target package while the current server is alive, restart only after installation succeeds, persist progress under the config directory, and attempt a rollback if restart fails. Source checkouts update through Git and standalone CLI artifacts update manually. App-bundle installs may use a trusted HTTP(S) directory or manifest URL stored as `settings.updateUrl`; every bundle must match the runtime and provide a 64-character `sha256`. Farming does not bundle, download, select, or launch a private system C library; every release form relies on the target system runtime for Node.js and native dependencies.
 
 ## Development Commands
 
@@ -179,6 +194,8 @@ npm run typecheck
 npm run lint
 npm run check
 ```
+
+`npm test` uses four isolated worker processes by default. Set `FARMING_TEST_CONCURRENCY=1` for serial debugging, or choose a value from 1 to 16 when tuning CI capacity.
 
 Local source smoke for the product path:
 
@@ -207,7 +224,10 @@ Packaging:
 npm run release:cli
 npm run release:cli:all
 npm run release:app
+npm run release:app:linux-compat  # explicit glibc 2.17 builder only
 ```
+
+The Linux compatibility bundle is separate from the normal release workflow. Build it only inside a clean Linux x64 environment whose glibc is exactly 2.17 and which provides Node.js 22+, GCC/G++, Make, and Python 3. Its `node-pty` module is compiled from source and ABI-checked before packaging. The bundle uses the target machine's Node.js and libc; do not restore a bundled glibc or a custom dynamic-loader path.
 
 Pre-release gate for public versions:
 
@@ -224,6 +244,7 @@ Pre-release gate for public versions:
 - Guard packaged dependencies: when packaging-related files change, compare package contents or manifests against the previous release so an update cannot accidentally drop required production dependencies, native assets, runtime files, or install scripts.
 - Smoke-test the built CLI/app bundle artifacts, not only the source checkout.
 - Push the release commit first, then push the new `vX.Y.Z` tag. Watch the GitHub Release workflow and confirm Linux/macOS artifacts, checksums, manifest, and the GitHub Release page using `release-notes/vX.Y.Z.md` exist before calling the release done.
+- The release workflow also publishes `farming-code@X.Y.Z` to npm. Bootstrap the first public package with a scoped automation `NPM_TOKEN` repository secret; after that first package exists, configure npm Trusted Publishing for this repository and `.github/workflows/release.yml`, remove the token secret, and let GitHub OIDC publish with provenance. Never reuse an npm version or an existing Git tag.
 
 ## Testing Expectations
 

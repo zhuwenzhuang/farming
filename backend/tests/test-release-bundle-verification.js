@@ -19,18 +19,8 @@ function makeArchive(options = {}) {
     type: 'app-bundle',
     releaseVersion,
     packageVersion: releaseVersion,
-    bundledGlibc: options.bundledGlibc !== false,
+    dirty: options.dirty === undefined ? false : options.dirty,
   }));
-
-  if (options.includeGlibc !== false) {
-    const glibcRoot = path.join(rootDir, 'glibc-root');
-    fs.mkdirSync(path.join(glibcRoot, 'lib'), { recursive: true });
-    if (options.includeLoader !== false) {
-      fs.writeFileSync(path.join(glibcRoot, 'lib', 'ld-2.28.so'), 'loader\n');
-    }
-    fs.mkdirSync(path.join(appDir, 'vendor'), { recursive: true });
-    execFileSync('tar', ['-czf', path.join(appDir, 'vendor', 'glibc228-lib.tar.gz'), '-C', glibcRoot, 'lib']);
-  }
 
   const archivePath = path.join(rootDir, `farming-${releaseVersion}.tar.gz`);
   execFileSync('tar', ['-czf', archivePath, '-C', rootDir, `farming-${releaseVersion}`]);
@@ -41,22 +31,13 @@ function run() {
   const archive = makeArchive();
   const bundle = verifyReleaseBundle(archive);
   assert.strictEqual(bundle.release.releaseVersion, '9.9.9');
-  assert.strictEqual(readBundleRelease(archive).release.bundledGlibc, true);
-
+  assert.strictEqual(readBundleRelease(archive).release.type, 'app-bundle');
   assert.throws(
-    () => verifyReleaseBundle(makeArchive({ bundledGlibc: false })),
-    /does not declare bundledGlibc=true/,
-  );
-  assert.throws(
-    () => verifyReleaseBundle(makeArchive({ includeGlibc: false })),
-    /missing vendor\/glibc228-lib\.tar\.gz/,
-  );
-  assert.throws(
-    () => verifyReleaseBundle(makeArchive({ includeLoader: false })),
-    /does not contain ld-2\.28\.so/,
+    () => verifyReleaseBundle(makeArchive({ dirty: true })),
+    /must be built from a clean working tree/,
   );
 
-  console.log('✓ release bundle verification requires bundled glibc');
+  console.log('✓ release bundle verification requires clean release metadata');
 }
 
 run();

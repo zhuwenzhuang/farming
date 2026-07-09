@@ -7,6 +7,7 @@ import {
   type WorkspaceFileJumpQuery,
 } from '@/lib/workspace-file-search'
 import type { WorkspaceFileSearchMatch } from '@/lib/workspace-files'
+import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { CodeCopy } from '../code/copy'
 
 interface FileSearchResultsProps {
@@ -21,9 +22,12 @@ interface FileSearchResultsProps {
   matches: WorkspaceFileSearchMatch[]
   openFileError: string | null
   query: string
+  showIgnoredSearch: boolean
+  timeoutMs: number
   truncated: boolean
   onOpenJumpQuery: (query: string) => void
   onOpenMatch: (match: WorkspaceFileSearchMatch) => void
+  onSearchIgnored: () => void
   onSelectMatchIndex: (index: number) => void
 }
 
@@ -77,6 +81,30 @@ function splitWorkspaceFilePath(pathText: string) {
 function fileSearchPanelStyle(anchor: HTMLElement | null): FileSearchPanelStyle | null {
   if (!anchor || typeof window === 'undefined') return null
   const rect = anchor.getBoundingClientRect()
+  if (isMobileTouchViewport()) {
+    const visualViewport = window.visualViewport
+    const viewportTop = visualViewport?.offsetTop ?? 0
+    const viewportLeft = visualViewport?.offsetLeft ?? 0
+    const viewportWidth = visualViewport?.width ?? window.innerWidth
+    const viewportHeight = visualViewport?.height ?? window.innerHeight
+    const sidebarRect = anchor.closest('.code-sidebar')?.getBoundingClientRect()
+    const left = Math.max(viewportLeft + 6, (sidebarRect?.left ?? viewportLeft) + 6)
+    const right = Math.min(viewportLeft + viewportWidth - 6, (sidebarRect?.right ?? (viewportLeft + viewportWidth)) - 6)
+    const viewportBottom = viewportTop + viewportHeight
+    const availableBelow = viewportBottom - rect.bottom - 10
+    const availableAbove = rect.top - viewportTop - 10
+    const opensAbove = availableBelow < 120 && availableAbove > availableBelow
+    const maxHeight = Math.max(72, Math.min(320, opensAbove ? availableAbove : availableBelow))
+    const top = opensAbove
+      ? Math.max(viewportTop + 6, rect.top - maxHeight - 4)
+      : Math.max(viewportTop + 6, rect.bottom + 4)
+    return {
+      left,
+      top,
+      width: Math.max(180, right - left),
+      maxHeight,
+    }
+  }
   const margin = 12
   const viewportWidth = Math.max(document.documentElement.clientWidth, window.innerWidth || 0)
   const viewportHeight = Math.max(document.documentElement.clientHeight, window.innerHeight || 0)
@@ -118,9 +146,12 @@ export function FileSearchResults({
   matches,
   openFileError,
   query,
+  showIgnoredSearch,
+  timeoutMs,
   truncated,
   onOpenJumpQuery,
   onOpenMatch,
+  onSearchIgnored,
   onSelectMatchIndex,
 }: FileSearchResultsProps) {
   const [panelStyle, setPanelStyle] = useState<FileSearchPanelStyle | null>(() => fileSearchPanelStyle(anchorRef.current))
@@ -134,10 +165,14 @@ export function FileSearchResults({
     const scroller = anchor?.closest('.code-project-list')
     window.addEventListener('resize', updatePanelStyle)
     window.addEventListener('scroll', updatePanelStyle, true)
+    window.visualViewport?.addEventListener('resize', updatePanelStyle)
+    window.visualViewport?.addEventListener('scroll', updatePanelStyle)
     scroller?.addEventListener('scroll', updatePanelStyle, { passive: true })
     return () => {
       window.removeEventListener('resize', updatePanelStyle)
       window.removeEventListener('scroll', updatePanelStyle, true)
+      window.visualViewport?.removeEventListener('resize', updatePanelStyle)
+      window.visualViewport?.removeEventListener('scroll', updatePanelStyle)
       scroller?.removeEventListener('scroll', updatePanelStyle)
     }
   }, [anchorRef, updatePanelStyle])
@@ -181,8 +216,13 @@ export function FileSearchResults({
       ) : matches.length === 0 ? (
         <>
           <div className="code-file-search-state">{copy.noMatches}</div>
+          {showIgnoredSearch && (
+            <button type="button" className="code-file-search-ignored-action" onClick={onSearchIgnored}>
+              {copy.searchIgnoredFolders}
+            </button>
+          )}
           {truncated && (
-            <div className="code-file-search-state muted">{copy.searchIncomplete}</div>
+            <div className="code-file-search-state muted">{copy.searchIncomplete(timeoutMs)}</div>
           )}
         </>
       ) : (
@@ -193,7 +233,9 @@ export function FileSearchResults({
               key={`${match.path}:${match.lineNumber}:${index}`}
               type="button"
               className={`code-file-search-result ${index === activeMatchIndex ? 'active' : ''}`}
-              onMouseMove={() => onSelectMatchIndex(index)}
+              onPointerMove={event => {
+                if (event.pointerType === 'mouse') onSelectMatchIndex(index)
+              }}
               onClick={() => onOpenMatch(match)}
               title={match.entryType === 'directory' ? match.path : `${match.path}:${match.lineNumber}`}
               role="option"
@@ -218,6 +260,11 @@ export function FileSearchResults({
               )}
             </button>
           ))}
+          {showIgnoredSearch && (
+            <button type="button" className="code-file-search-ignored-action" onClick={onSearchIgnored}>
+              {copy.searchIgnoredFolders}
+            </button>
+          )}
           {truncated && (
             <div className="code-file-search-state muted">{copy.moreMatchesOmitted}</div>
           )}

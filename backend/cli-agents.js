@@ -2,18 +2,6 @@ const path = require('path');
 
 const CLI_AGENTS = [
   {
-    name: 'qwen',
-    description: 'Qwen Code coding assistant',
-    category: 'coding',
-    interactive: true,
-    supported: true,
-    preferredEngine: 'native',
-    permissions: {
-      supportsDangerousSkip: true,
-      dangerousSkipArgs: ['--yolo']
-    }
-  },
-  {
     name: 'codex',
     description: 'Codex CLI - OpenAI coding assistant',
     category: 'coding',
@@ -24,30 +12,6 @@ const CLI_AGENTS = [
       supportsDangerousSkip: true,
       dangerousSkipArgs: ['--dangerously-bypass-approvals-and-sandbox']
     }
-  },
-  {
-    name: 'opencode',
-    description: 'OpenCode - AI coding assistant',
-    category: 'coding',
-    interactive: true,
-    supported: true,
-    preferredEngine: 'native'
-  },
-  {
-    name: 'aider',
-    description: 'Aider - AI pair programming',
-    category: 'coding',
-    interactive: true,
-    supported: true,
-    preferredEngine: 'native'
-  },
-  {
-    name: 'github-copilot-cli',
-    description: 'GitHub Copilot CLI',
-    category: 'coding',
-    interactive: true,
-    supported: true,
-    preferredEngine: 'native'
   },
   {
     name: 'claude',
@@ -63,12 +27,29 @@ const CLI_AGENTS = [
     systemPromptArg: '--append-system-prompt'
   },
   {
-    name: 'amazon-q',
-    description: 'Amazon Q - AWS AI assistant',
+    name: 'opencode',
+    description: 'OpenCode - AI coding assistant',
     category: 'coding',
     interactive: true,
     supported: true,
-    preferredEngine: 'native'
+    preferredEngine: 'native',
+    permissions: {
+      supportsDangerousSkip: true,
+      dangerousSkipArgs: ['--auto']
+    }
+  },
+  {
+    name: 'qoder',
+    command: 'qodercli',
+    description: 'Qoder - AI coding assistant',
+    category: 'coding',
+    interactive: true,
+    supported: true,
+    preferredEngine: 'native',
+    permissions: {
+      supportsDangerousSkip: true,
+      dangerousSkipArgs: ['--dangerously-skip-permissions']
+    }
   },
   {
     name: 'bash',
@@ -85,6 +66,54 @@ const CLI_AGENTS = [
     interactive: true,
     supported: true,
     preferredEngine: 'native'
+  },
+  {
+    name: 'qwen',
+    description: 'Qwen Code coding assistant',
+    category: 'coding',
+    interactive: true,
+    supported: true,
+    preferredEngine: 'native',
+    permissions: {
+      supportsDangerousSkip: true,
+      dangerousSkipArgs: ['--yolo']
+    }
+  },
+  {
+    name: 'aider',
+    description: 'Aider - AI pair programming',
+    category: 'coding',
+    interactive: true,
+    supported: true,
+    preferredEngine: 'native',
+    permissions: {
+      supportsDangerousSkip: true,
+      dangerousSkipArgs: ['--yes-always']
+    }
+  },
+  {
+    name: 'github-copilot-cli',
+    description: 'GitHub Copilot CLI',
+    category: 'coding',
+    interactive: true,
+    supported: true,
+    preferredEngine: 'native',
+    permissions: {
+      supportsDangerousSkip: true,
+      dangerousSkipArgs: ['--allow-all-tools']
+    }
+  },
+  {
+    name: 'amazon-q',
+    description: 'Amazon Q - AWS AI assistant',
+    category: 'coding',
+    interactive: true,
+    supported: true,
+    preferredEngine: 'native',
+    permissions: {
+      supportsDangerousSkip: true,
+      dangerousSkipArgs: ['--trust-all-tools']
+    }
   },
   {
     name: 'cursor',
@@ -163,7 +192,7 @@ const CLI_AGENTS = [
 function getAgentSpec(command) {
   const program = parseCommand(command)[0] || '';
   const executableName = path.basename(program);
-  return CLI_AGENTS.find((agent) => agent.name === executableName) || null;
+  return CLI_AGENTS.find((agent) => agent.name === executableName || agent.command === executableName) || null;
 }
 
 function parseCommand(command) {
@@ -217,7 +246,19 @@ function parseCommand(command) {
 
 function getAgentSpecForProgram(program) {
   const executableName = path.basename(program);
-  return CLI_AGENTS.find((agent) => agent.name === executableName) || null;
+  return CLI_AGENTS.find((agent) => agent.name === executableName || agent.command === executableName) || null;
+}
+
+function getHistoryAgentSpec(command) {
+  const program = parseCommand(command).find(token => (
+    token !== 'env' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)
+  ));
+  return program ? getAgentSpecForProgram(program) : null;
+}
+
+function isSupportedHistoryAgent(command) {
+  const spec = getHistoryAgentSpec(command);
+  return Boolean(spec && spec.supported === true && spec.category === 'coding');
 }
 
 function getSupportedAgents() {
@@ -299,12 +340,27 @@ function inferLaunchPermissionMode(spec, launchArgs, options = {}) {
 
 function resolveLaunchCommand(command, options = {}) {
   const parts = parseCommand(command);
-  const program = parts[0] || '';
+  const rawProgram = parts[0] || '';
   const args = parts.slice(1);
-  const spec = getAgentSpecForProgram(program);
+  const spec = getAgentSpecForProgram(rawProgram);
+  const rawProgramBasename = path.basename(rawProgram);
+  const program = spec && spec.command && rawProgramBasename === spec.name && rawProgramBasename === rawProgram
+    ? spec.command
+    : rawProgram;
   const launchArgs = [...args];
+  // Match VS Code's built-in macOS profiles: bash and zsh launch as login
+  // shells, so their normal user profile is the source of prompt and PATH.
+  if (
+    process.platform === 'darwin' &&
+    launchArgs.length === 0 &&
+    spec &&
+    (spec.name === 'bash' || spec.name === 'zsh')
+  ) {
+    launchArgs.push('-l');
+  }
   const profile = spec ? getConfiguredProfile(options, spec.name) : {};
-  const codexApprovalMode = ['ask', 'approve', 'full', 'custom'].includes(options.codexApprovalMode)
+  const explicitCodexApprovalMode = ['ask', 'approve', 'full', 'custom'].includes(options.codexApprovalMode);
+  const codexApprovalMode = explicitCodexApprovalMode
     ? options.codexApprovalMode
     : (['ask', 'approve', 'full', 'custom'].includes(profile.approvalMode) ? profile.approvalMode : '');
   const codexModelPreset = typeof options.codexModelPreset === 'string'
@@ -319,9 +375,12 @@ function resolveLaunchCommand(command, options = {}) {
   const codexServiceTier = typeof options.codexServiceTier === 'string'
     ? options.codexServiceTier
     : (typeof profile.serviceTier === 'string' ? profile.serviceTier : '');
-  const claudePermissionMode = ['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'].includes(profile.permissionMode)
-    ? profile.permissionMode
-    : 'default';
+  const explicitClaudePermissionMode = ['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'].includes(options.claudePermissionMode);
+  const claudePermissionMode = explicitClaudePermissionMode
+    ? options.claudePermissionMode
+    : (['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'].includes(profile.permissionMode)
+      ? profile.permissionMode
+      : 'default');
   const claudeModel = typeof profile.model === 'string' ? profile.model : '';
   const claudeEffort = typeof profile.effort === 'string' ? profile.effort : '';
   const hasCodexApprovalOverride = launchArgs.some((arg) => [
@@ -370,12 +429,25 @@ function resolveLaunchCommand(command, options = {}) {
     if (claudeEffort && claudeEffort !== 'config' && !hasClaudeEffortOverride) {
       launchArgs.unshift('--effort', claudeEffort);
     }
-    if (claudePermissionMode !== 'default' && !hasClaudePermissionOverride) {
-      launchArgs.unshift('--permission-mode', claudePermissionMode);
-    }
   }
 
-  if (spec && spec.name === 'codex' && codexApprovalMode && codexApprovalMode !== 'custom' && !hasCodexApprovalOverride) {
+  const hasDangerousSkipArgs = spec && spec.permissions && spec.permissions.supportsDangerousSkip && Array.isArray(spec.permissions.dangerousSkipArgs);
+  const hasDangerousSkipOverride = hasDangerousSkipArgs && spec.permissions.dangerousSkipArgs.some(arg => launchArgs.includes(arg));
+  const hasPermissionOverride = spec && spec.name === 'codex'
+    ? hasCodexApprovalOverride
+    : spec && spec.name === 'claude'
+      ? hasClaudePermissionOverride
+      : hasDangerousSkipOverride;
+
+  const hasExplicitFarmingPermissionMode = spec && spec.name === 'codex'
+    ? explicitCodexApprovalMode
+    : spec && spec.name === 'claude'
+      ? explicitClaudePermissionMode
+      : false;
+
+  if (options.dangerouslySkipPermissions === true && hasDangerousSkipArgs && !hasPermissionOverride && !hasExplicitFarmingPermissionMode) {
+    launchArgs.unshift(...spec.permissions.dangerousSkipArgs);
+  } else if (spec && spec.name === 'codex' && codexApprovalMode && codexApprovalMode !== 'custom' && !hasCodexApprovalOverride) {
     if (codexApprovalMode === 'ask') {
       launchArgs.unshift('--ask-for-approval', 'untrusted', '--sandbox', 'workspace-write');
     } else if (codexApprovalMode === 'approve') {
@@ -383,15 +455,8 @@ function resolveLaunchCommand(command, options = {}) {
     } else if (codexApprovalMode === 'full') {
       launchArgs.unshift('--dangerously-bypass-approvals-and-sandbox');
     }
-  } else if (
-    options.dangerouslySkipPermissions === true &&
-    spec &&
-    spec.permissions &&
-    spec.permissions.supportsDangerousSkip &&
-    Array.isArray(spec.permissions.dangerousSkipArgs)
-    && !(spec.name === 'claude' && claudePermissionMode !== 'default')
-  ) {
-    launchArgs.unshift(...spec.permissions.dangerousSkipArgs);
+  } else if (spec && spec.name === 'claude' && claudePermissionMode !== 'default' && !hasClaudePermissionOverride) {
+    launchArgs.unshift('--permission-mode', claudePermissionMode);
   }
 
   if (
@@ -415,4 +480,5 @@ module.exports.getAgentSpec = getAgentSpec;
 module.exports.parseCommand = parseCommand;
 module.exports.getSupportedAgents = getSupportedAgents;
 module.exports.getUserLaunchAgents = getUserLaunchAgents;
+module.exports.isSupportedHistoryAgent = isSupportedHistoryAgent;
 module.exports.resolveLaunchCommand = resolveLaunchCommand;

@@ -60,6 +60,7 @@ async function run() {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-files-'));
   const workspace = path.join(tmpRoot, 'repo');
   const outside = path.join(tmpRoot, 'outside.txt');
+  const externalDirectory = path.join(tmpRoot, 'external-directory');
   const srcDir = path.join(workspace, 'src');
   const service = new WorkspaceFileService({
     maxFileSize: 1024 * 32,
@@ -74,6 +75,21 @@ async function run() {
 
   try {
     fs.mkdirSync(srcDir, { recursive: true });
+    fs.mkdirSync(externalDirectory, { recursive: true });
+    fs.writeFileSync(path.join(externalDirectory, 'external.md'), 'external reference\n');
+    fs.writeFileSync(path.join(workspace, '.gitignore'), [
+      '.farming/',
+      '.dolt/',
+      '.idea/',
+      '.tmp/',
+      'node_modules/',
+      'dist-release/',
+      'reference/',
+      'test-results/',
+      'playwright-report/',
+      'fa-*/',
+      '',
+    ].join('\n'));
     fs.mkdirSync(path.join(workspace, '.farming'), { recursive: true });
     fs.mkdirSync(path.join(workspace, '.dolt'), { recursive: true });
     fs.mkdirSync(path.join(workspace, '.idea'), { recursive: true });
@@ -94,6 +110,7 @@ async function run() {
     fs.writeFileSync(path.join(workspace, '.dolt', 'ignored.db'), 'ignored dolt\n');
     fs.writeFileSync(path.join(workspace, '.idea', 'workspace.xml'), 'ignored idea\n');
     fs.writeFileSync(path.join(workspace, '.tmp', 'ignored.tmp'), 'ignored tmp\n');
+    fs.writeFileSync(path.join(workspace, '.tmp', 'zhilin.md'), 'ignored markdown\n');
     fs.writeFileSync(path.join(workspace, 'dist-release', 'ignored.tgz'), 'ignored release\n');
     fs.writeFileSync(path.join(workspace, 'reference', 'codex-reference.md'), 'codex reference\n');
     fs.writeFileSync(path.join(workspace, 'reference', 'poem', 'hidden.txt'), 'hidden poem content\n');
@@ -119,22 +136,30 @@ async function run() {
     } catch {
       // Some environments disallow symlinks; skip the symlink path-preservation assertion there.
     }
+    try {
+      fs.symlinkSync(externalDirectory, path.join(workspace, 'external-directory-link'));
+    } catch {
+      // Some environments disallow symlinks; skip external directory link assertions there.
+    }
 
     const tree = await service.listTree(workspace, '');
     const treeNames = tree.items.map(item => item.name);
     assert(treeNames.includes('src'));
     assert(treeNames.includes('README.md'));
-    assert(!tree.items.some(item => item.name === '.farming'));
-    assert(!tree.items.some(item => item.name === '.dolt'));
-    assert(!tree.items.some(item => item.name === '.idea'));
-    assert(!tree.items.some(item => item.name === '.tmp'));
-    assert(!tree.items.some(item => item.name === 'node_modules'));
-    assert(!tree.items.some(item => item.name === 'dist-release'));
+    assert(tree.items.some(item => item.name === '.farming'));
+    assert(tree.items.some(item => item.name === '.dolt'));
+    assert(tree.items.some(item => item.name === '.idea'));
+    assert(tree.items.some(item => item.name === '.tmp'));
+    assert(tree.items.some(item => item.name === '.tmp'));
+    assert(tree.items.some(item => item.name === 'node_modules'));
+    assert(tree.items.some(item => item.name === 'dist-release'));
     const referenceTreeItem = tree.items.find(item => item.name === 'reference');
     assert(referenceTreeItem);
     assert.strictEqual(referenceTreeItem.type, 'directory');
-    assert(!tree.items.some(item => item.name === 'test-results'));
-    assert(!tree.items.some(item => item.name === 'playwright-report'));
+    const tmpTree = await service.listTree(workspace, '.tmp');
+    assert(tmpTree.items.some(item => item.name === 'ignored.tmp'));
+    assert(tree.items.some(item => item.name === 'test-results'));
+    assert(tree.items.some(item => item.name === 'playwright-report'));
     assert(!tree.items.some(item => item.name === '.DS_Store'));
     assert(!tree.items.some(item => item.name === 'server.log'));
 
@@ -172,6 +197,33 @@ async function run() {
     await assertRejectsWithStatus(service.readFile(workspace, '../outside.txt'), 403);
     if (fs.existsSync(path.join(workspace, 'outside-link.txt'))) {
       await assertRejectsWithStatus(service.readFile(workspace, 'outside-link.txt'), 403);
+    }
+    if (fs.existsSync(path.join(workspace, 'external-directory-link'))) {
+      const externalTree = await service.listTree(workspace, '', { allowedExternalRoots: [externalDirectory] });
+      const externalLink = externalTree.items.find(item => item.name === 'external-directory-link');
+      assert(externalLink);
+      assert.strictEqual(externalLink.type, 'directory');
+      assert.strictEqual(externalLink.symbolicLink, true);
+      assert.strictEqual(externalLink.external, true);
+      assert.strictEqual(externalLink.readOnly, true);
+
+      const externalChildren = await service.listTree(workspace, 'external-directory-link', { allowedExternalRoots: [externalDirectory] });
+      assert.strictEqual(externalChildren.items[0].path, 'external-directory-link/external.md');
+      assert.strictEqual(externalChildren.items[0].readOnly, true);
+      const externalFile = await service.readFile(
+        workspace,
+        'external-directory-link/external.md',
+        { allowedExternalRoots: [externalDirectory] }
+      );
+      assert.strictEqual(externalFile.content, 'external reference\n');
+      assert.strictEqual(externalFile.path, 'external-directory-link/external.md');
+      assert.strictEqual(externalFile.readOnly, true);
+      await assertRejectsWithStatus(service.deleteEntry(workspace, 'external-directory-link/external.md'), 403);
+
+      const deletedLink = await service.deleteEntry(workspace, 'external-directory-link');
+      assert.strictEqual(deletedLink.type, 'symlink');
+      assert.strictEqual(fs.existsSync(path.join(workspace, 'external-directory-link')), false);
+      assert.strictEqual(fs.readFileSync(path.join(externalDirectory, 'external.md'), 'utf8'), 'external reference\n');
     }
     const binaryFile = await service.readFile(workspace, 'binary.bin');
     assert.strictEqual(binaryFile.path, 'binary.bin');
@@ -380,6 +432,9 @@ async function run() {
       assert(!hiddenSearch.matches.some(match => match.path === '.DS_Store'));
       assert(!hiddenSearch.matches.some(match => match.path === 'server.log'));
 
+      const ignoredPathSearch = await service.search(workspace, 'ignored.tmp');
+      assert(!ignoredPathSearch.matches.some(match => match.path === '.tmp/ignored.tmp'));
+
       const fallbackService = new WorkspaceFileService({
         rgPath: 'farming-missing-rg-for-test',
         rgFallbackPath: 'rg',
@@ -471,6 +526,26 @@ async function run() {
       execFileSync('git', ['config', 'user.name', 'Farming Test'], { cwd: workspace });
       execFileSync('git', ['add', '.'], { cwd: workspace });
       execFileSync('git', ['commit', '-m', 'initial'], { cwd: workspace, stdio: 'ignore' });
+
+      const ignoredTree = await service.listTree(workspace, '');
+      assert(ignoredTree.items.some(item => item.name === '.farming' && item.ignored));
+      assert(ignoredTree.items.some(item => item.name === '.tmp' && item.ignored));
+      assert(ignoredTree.items.some(item => item.name === 'dist-release' && item.ignored));
+
+      const expandedIgnoredSearch = await service.search(workspace, 'ignored', { includeIgnored: true });
+      assert(expandedIgnoredSearch.matches.some(match => match.path.startsWith('.dolt/')));
+      assert(expandedIgnoredSearch.matches.some(match => match.path.startsWith('.tmp/')));
+      assert(expandedIgnoredSearch.matches.some(match => match.path.startsWith('dist-release/')));
+      assert(!expandedIgnoredSearch.matches.some(match => match.path === '.DS_Store'));
+      assert(!expandedIgnoredSearch.matches.some(match => match.path === 'server.log'));
+      assert.strictEqual(expandedIgnoredSearch.truncated, false);
+
+      const expandedIgnoredPathSearch = await service.search(workspace, 'ignored.tmp', { includeIgnored: true });
+      assert(expandedIgnoredPathSearch.matches.some(match => match.path === '.tmp/ignored.tmp'));
+
+      const expandedZhilinSearch = await service.search(workspace, 'zhilin', { includeIgnored: true });
+      assert(expandedZhilinSearch.matches.some(match => match.path === '.tmp/zhilin.md'));
+      assert.strictEqual(expandedZhilinSearch.truncated, false);
 
       fs.writeFileSync(path.join(srcDir, 'App.tsx'), 'external change\nsecond line\n');
       execFileSync('git', ['add', 'src/App.tsx'], { cwd: workspace });
@@ -599,6 +674,21 @@ async function run() {
       assert.strictEqual(diff.originalContent, 'external change\nsecond line\n');
       assert.strictEqual(diff.modifiedContent, 'diff target\n');
       assert.strictEqual(diff.untracked, false);
+      let capturedDiffArgs = null;
+      const originalDiffOptionsExecFile = service.execFile.bind(service);
+      service.execFile = async (command, args, options) => {
+        if (command === service.gitPath && args.includes('diff') && args.includes('HEAD')) {
+          capturedDiffArgs = args;
+        }
+        return originalDiffOptionsExecFile(command, args, options);
+      };
+      try {
+        await service.diff(workspace, 'src/App.tsx', { context: 25, ignoreWhitespace: 'ALL' });
+      } finally {
+        service.execFile = originalDiffOptionsExecFile;
+      }
+      assert(capturedDiffArgs.includes('--ignore-all-space'));
+      assert(capturedDiffArgs.includes('--unified=25'));
       const workingLineChanges = await service.lineChanges(workspace, 'src/App.tsx', 1, 'working');
       assert.strictEqual(workingLineChanges.isGitRepo, true);
       assert.strictEqual(workingLineChanges.available, true);

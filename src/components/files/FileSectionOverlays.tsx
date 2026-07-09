@@ -21,6 +21,7 @@ interface FileSectionOverlaysProps {
   onCloseFileMenuWithFocusRestore: () => void
   onCloseFileOperation: () => void
   onCopyFileMenuPath: () => void
+  onCopyFileMenuShareUrl: () => void
   onOpenNewAgent: () => void
   onRefreshFileMenuTarget: () => void
   onRememberFileOperationName: (name: string) => void
@@ -28,6 +29,7 @@ interface FileSectionOverlaysProps {
   onStartFileMenuOperation: (kind: WorkspaceFileOperationKind) => void
   onSubmitFileOperation: () => Promise<void>
   onUpdateFileOperationName: (name: string) => void
+  readOnly?: boolean
 }
 
 export function FileSectionOverlays({
@@ -42,6 +44,7 @@ export function FileSectionOverlays({
   onCloseFileMenuWithFocusRestore,
   onCloseFileOperation,
   onCopyFileMenuPath,
+  onCopyFileMenuShareUrl,
   onOpenNewAgent,
   onRefreshFileMenuTarget,
   onRememberFileOperationName,
@@ -49,6 +52,7 @@ export function FileSectionOverlays({
   onStartFileMenuOperation,
   onSubmitFileOperation,
   onUpdateFileOperationName,
+  readOnly = false,
 }: FileSectionOverlaysProps) {
   return (
     <>
@@ -60,10 +64,12 @@ export function FileSectionOverlays({
         onClose={onCloseFileMenu}
         onCloseWithFocusRestore={onCloseFileMenuWithFocusRestore}
         onCopyRelativePath={onCopyFileMenuPath}
+        onCopyShareUrl={onCopyFileMenuShareUrl}
         onOpenNewAgent={onOpenNewAgent}
         onRefreshTarget={onRefreshFileMenuTarget}
         onStartAgent={onStartAgent}
         onStartOperation={onStartFileMenuOperation}
+        readOnly={readOnly}
       />
       <FileOperationDialog
         agentId={agentId}

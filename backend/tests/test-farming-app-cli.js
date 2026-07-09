@@ -7,7 +7,10 @@ const {
   buildCleanEnvExecCommand,
   buildControlEnv,
   buildServerEnv,
+  parseReviewArgs,
   parseServerArgs,
+  resolveReviewTarget,
+  reviewUrl,
   serverStartTimeoutMs,
   serverStateFile,
   splitControlArgs,
@@ -46,6 +49,50 @@ async function runTests() {
     const parsed = parseServerArgs(['daemon', '--config-dir', '/tmp/farming-cli-test']);
     assert.strictEqual(parsed.command, 'daemon');
     assert.strictEqual(parsed.portExplicit, false);
+  }
+
+  {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-cli.'));
+    execFileSync('git', ['init', '-q', repo]);
+    execFileSync('git', ['-C', repo, 'config', 'user.email', 'review@example.com']);
+    execFileSync('git', ['-C', repo, 'config', 'user.name', 'Review Test']);
+    fs.writeFileSync(path.join(repo, 'review.txt'), 'base\n');
+    execFileSync('git', ['-C', repo, 'add', 'review.txt']);
+    execFileSync('git', ['-C', repo, 'commit', '-qm', 'base']);
+    fs.writeFileSync(path.join(repo, 'review.txt'), 'base\nchanged\n');
+
+    const parsed = parseReviewArgs([repo, 'HEAD', 'now', '--no-open', '--port', '7788']);
+    assert.strictEqual(parsed.noOpen, true);
+    assert.strictEqual(parsed.portExplicit, true);
+    assert.strictEqual(parsed.env.PORT, '7788');
+    const target = resolveReviewTarget(parsed);
+    assert.strictEqual(target.head, 'now');
+    assert.match(target.base, /^[0-9a-f]{40}$/);
+    assert.strictEqual(target.root, fs.realpathSync.native(repo));
+    assert.match(reviewUrl({ FARMING_BASE_PATH: '/farm', FARMING_DISABLE_AUTH: '1', PORT: '7788' }, target), /127\.0\.0\.1:7788\/farm\/review\?base=/);
+    assert.throws(() => parseReviewArgs([repo, 'now', 'HEAD']), /old revision cannot be now/);
+
+    execFileSync('git', ['-C', repo, 'add', 'review.txt']);
+    execFileSync('git', ['-C', repo, 'commit', '-qm', 'change']);
+    const baseCommit = execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD~1'], { encoding: 'utf8' }).trim();
+    const headCommit = execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const rangeTarget = resolveReviewTarget(parseReviewArgs([repo, 'HEAD~1', 'HEAD', '--no-open']));
+    assert.strictEqual(rangeTarget.base, baseCommit);
+    assert.strictEqual(rangeTarget.head, headCommit);
+    assert.notStrictEqual(rangeTarget.head, 'now');
+
+    execFileSync('git', ['-C', repo, 'branch', 'review-topic', 'HEAD']);
+    const branchTarget = resolveReviewTarget(parseReviewArgs([
+      repo,
+      'HEAD~1',
+      'HEAD',
+      '--branch',
+      'review-topic',
+      '--no-open',
+    ]));
+    assert.strictEqual(branchTarget.branch, 'review-topic');
+    assert.strictEqual(branchTarget.base, baseCommit);
+    assert.strictEqual(branchTarget.head, headCommit);
   }
 
   {
@@ -230,6 +277,7 @@ async function runTests() {
     });
     assert(output.includes('farming daemon'));
     assert(output.includes('farming list'));
+    assert(output.includes('farming review'));
   }
 
   {
@@ -242,12 +290,8 @@ async function runTests() {
     assert(packageReleaseSource.includes('set -- install'));
     assert(packageReleaseSource.includes('"type": "app-bundle"'));
     assert(packageReleaseSource.includes('"bundledNodeModules"'));
-    assert(packageReleaseSource.includes('resolve_glibc_bundle()'));
-    assert(packageReleaseSource.includes('GLIBC_SOURCE_REPO='));
-    assert(packageReleaseSource.includes('vendor/glibc228-lib.tar.gz'));
-    assert(packageReleaseSource.includes('"bundledGlibc": true'));
-    assert(packageReleaseSource.includes('awk \'/(^|\\/)ld-2\\.28\\.so$/'));
-    assert(!packageReleaseSource.includes("grep -Eq '(^|/)ld-2\\.28\\.so$'"));
+    assert(packageReleaseSource.includes('cp "${PROJECT_ROOT}/package-lock.json"'));
+    assert(!packageReleaseSource.includes('glibc'));
   }
 
   {
@@ -257,7 +301,7 @@ async function runTests() {
     );
     assert(releaseWorkflowSource.includes('node scripts/verify-release-bundle.js'));
     assert(releaseWorkflowSource.includes("const { readBundleRelease } = require('../scripts/verify-release-bundle.js');"));
-    assert(releaseWorkflowSource.includes('bundledGlibc: bundle.release.bundledGlibc === true'));
+    assert(!releaseWorkflowSource.includes('bundledGlibc'));
     assert(releaseWorkflowSource.includes('body.replaceAll(`](./v${version}.zh_cn.md)`, `](./release-notes/v${version}.zh_cn.md)`)'));
     assert(releaseWorkflowSource.includes('body.replaceAll(`](./v${version}.md)`, `](./release-notes/v${version}.md)`)'));
   }
@@ -267,9 +311,10 @@ async function runTests() {
       path.join(process.cwd(), 'scripts/install-release.sh'),
       'utf8',
     );
-    assert(installReleaseSource.includes('default_glibc_root()'));
     assert(installReleaseSource.includes('Using bundled production dependencies.'));
-    assert(installReleaseSource.includes('sibling glibc228/'));
+    assert(installReleaseSource.includes('bundled_dependencies=true'));
+    assert(installReleaseSource.includes('rsync_excludes+=(--exclude \'node_modules/\')'));
+    assert(!installReleaseSource.includes('glibc'));
     assert(installReleaseSource.includes('start|serve|daemon) start_server ;;'));
   }
 

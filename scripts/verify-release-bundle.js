@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 const { execFileSync } = require('child_process');
 const fs = require('fs');
-const os = require('os');
-const path = require('path');
 
 function tarOutput(args, options = {}) {
   try {
@@ -33,6 +31,34 @@ function findBundleEntry(entries, suffix) {
   return entries.find(entry => entry.endsWith(suffix) && entry.split('/').length >= 2) || '';
 }
 
+function relativeBundleEntry(entry) {
+  const normalized = String(entry || '').replace(/\\/g, '/');
+  if (!normalized || normalized.startsWith('/') || normalized.includes('\0')) {
+    throw new Error(`release archive contains an unsafe path: ${entry}`);
+  }
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.some(part => part === '..')) {
+    throw new Error(`release archive contains path traversal: ${entry}`);
+  }
+  return parts.slice(1).join('/');
+}
+
+function verifyArchiveEntries(entries) {
+  const roots = new Set();
+  const forbidden = /^(?:\.git|\.gc|\.beads|\.codex|\.claude|\.farming|\.tmp|tests|backend\/tests|docs\/internal)(?:\/|$)|^fa-[^/]*(?:\/|$)/;
+  entries.forEach(entry => {
+    const parts = String(entry || '').replace(/\\/g, '/').split('/').filter(Boolean);
+    if (parts[0]) roots.add(parts[0]);
+    const relative = relativeBundleEntry(entry);
+    if (forbidden.test(relative)) {
+      throw new Error(`release archive contains forbidden private or test content: ${entry}`);
+    }
+  });
+  if (roots.size !== 1) {
+    throw new Error(`release archive must contain exactly one top-level directory, found ${roots.size}`);
+  }
+}
+
 function readBundleRelease(archivePath) {
   if (!archivePath || !fs.existsSync(archivePath)) {
     throw new Error(`release archive not found: ${archivePath || '(missing)'}`);
@@ -44,46 +70,30 @@ function readBundleRelease(archivePath) {
     throw new Error(`release archive is missing RELEASE.json: ${archivePath}`);
   }
 
-  const glibcEntry = findBundleEntry(entries, '/vendor/glibc228-lib.tar.gz');
   const installerEntry = findBundleEntry(entries, '/scripts/install-release.sh');
   return {
     entries,
     releaseEntry,
-    glibcEntry,
     installerEntry,
     release: readArchiveJson(archivePath, releaseEntry),
   };
 }
 
-function verifyNestedGlibcArchive(archivePath, glibcEntry) {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-release-verify.'));
-  try {
-    tarOutput(['-xzf', archivePath, '-C', tmpDir, glibcEntry]);
-    const glibcArchive = path.join(tmpDir, glibcEntry);
-    const nestedEntries = archiveEntries(glibcArchive);
-    if (!nestedEntries.some(entry => /(^|\/)ld-2\.28\.so$/.test(entry))) {
-      throw new Error(`bundled glibc archive does not contain ld-2.28.so: ${glibcEntry}`);
-    }
-  } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  }
-}
-
 function verifyReleaseBundle(archivePath) {
   const bundle = readBundleRelease(archivePath);
+  verifyArchiveEntries(bundle.entries);
   if (bundle.release.type !== 'app-bundle') {
     throw new Error(`release archive is not an app bundle: ${archivePath}`);
   }
-  if (bundle.release.bundledGlibc !== true) {
-    throw new Error(`release archive does not declare bundledGlibc=true: ${archivePath}`);
+  if (bundle.release.dirty !== false) {
+    throw new Error(`release archive must be built from a clean working tree: ${archivePath}`);
+  }
+  if (!bundle.release.releaseVersion || bundle.release.releaseVersion !== bundle.release.packageVersion) {
+    throw new Error(`release and package versions do not match: ${archivePath}`);
   }
   if (!bundle.installerEntry) {
     throw new Error(`release archive is missing scripts/install-release.sh: ${archivePath}`);
   }
-  if (!bundle.glibcEntry) {
-    throw new Error(`release archive is missing vendor/glibc228-lib.tar.gz: ${archivePath}`);
-  }
-  verifyNestedGlibcArchive(archivePath, bundle.glibcEntry);
   return bundle;
 }
 
@@ -94,7 +104,7 @@ function main() {
     process.exit(2);
   }
   const bundle = verifyReleaseBundle(archivePath);
-  console.log(`Verified app bundle ${archivePath}: glibc bundled, version ${bundle.release.releaseVersion || 'unknown'}`);
+  console.log(`Verified app bundle ${archivePath}: version ${bundle.release.releaseVersion || 'unknown'}`);
 }
 
 if (require.main === module) {
@@ -109,5 +119,6 @@ if (require.main === module) {
 module.exports = {
   archiveEntries,
   readBundleRelease,
+  verifyArchiveEntries,
   verifyReleaseBundle,
 };

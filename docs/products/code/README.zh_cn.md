@@ -8,6 +8,8 @@ Farming 2 运行在一台 Linux 开发机上，把 Web Terminal、AI coding agen
 
 初版视觉只提供白色系界面，不提供黑色系或跟随系统外观切换。
 
+打开 **设置 → 界面**，可以从 Farming Code 切换到 **Farming CRT**。两套皮肤连接同一组后端 Agent，切换界面不会重启或复制 Agent 进程；Farming CRT 的 UI Theme 设置中也提供返回入口。
+
 ![Farming Code 工作台](assets/01-code-workspace.png)
 
 上面的工作台截图展示了 Farming Code 的核心形态：一个远程浏览器页面里同时有 live Codex terminal、项目文件、usage 状态和 follow-up 控件。
@@ -15,7 +17,7 @@ Farming 2 运行在一台 Linux 开发机上，把 Web Terminal、AI coding agen
 ## 核心能力
 
 - **Web Terminal**：在浏览器里启动 bash 或 zsh，背后是真实的 Linux PTY。
-- **Codex / Claude Code 托管**：把 CLI coding agent 跑在服务端，之后可以从浏览器重新接入。
+- **Codex / Claude Code 托管**：把 CLI coding agent 跑在服务端，之后可以从浏览器重新接入。稳定的 Codex session 还可以使用基于 Codex 本地历史的结构化 Chat 视图，同时保留 raw Terminal 作为兜底。
 - **项目文件**：浏览文件树，搜索文件名或内容，打开 `path:line`，编辑文本文件并保存。
 - **Git Blame**：在代码旁查看作者和提交时间，接近 IDE 的 annotate 体验。
 - **运行状态**：查看 token 速率、CPU、内存和输出活动，不用另开监控页面。
@@ -24,15 +26,11 @@ Farming 2 运行在一台 Linux 开发机上，把 Web Terminal、AI coding agen
 
 ## Agent 状态推断
 
-Farming Code 把启动命令当作兜底信息，而不是当前 Agent 状态的真相。一个 row 可以从 `bash` 启动，随后进入 Codex 或 Claude Code，也可以回到 shell prompt，再继续运行其他命令。当前 row 状态按下面顺序从 terminal 观测推断：
+Farming Code 把进程生命周期、Agent 类型和当前 turn 是否活跃分开判断。直接启动的 coding agent 会保留启动命令对应的类型，普通回答正文即使提到其他 provider，也不能改变它的能力；`bash` 或 `zsh` row 只有在 viewport 出现足够强的 TUI 证据时，才会切换成内层 Codex 或 Claude Code。
 
-1. 活动中的 terminal title 信号，例如 Codex spinner title；
-2. 当前 viewport 文本，例如 Codex footer、Codex `Working`、Claude `Thinking` 加 interrupt 文案，或可见 shell prompt；
-3. Farming shell integration 发出的 shell busy marker；
-4. 普通 terminal title，例如 `Claude Code`、`Codex`、`bash` 或 `zsh`；
-5. 启动命令，仅在没有 terminal 证据时兜底使用。
+后端统一产出一份结构化 terminal status。它优先识别 provider 自己的实时控制面：Codex / Claude 的 interrupt 提示、OpenCode 的运行 footer，以及 Qoder / Qwen 带 `esc to cancel` 的 loading 行。更晚出现的 idle footer 或输入提示会覆盖旧的 `Working` / `Thinking` 文本；权限选择器表示等待用户介入，不算仍在计算。Shell session 使用 Farming 的 start / finish marker，并用可见 prompt 修正陈旧的 busy 状态。普通输出里的 `working`、`thinking`、`Claude` 或 `Codex` 等词不再单独作为判断依据。
 
-Codex / Claude 是否正在工作由它们自己的 terminal UI 推断；shell 是否正在执行用户命令由 shell busy marker 推断。这样长生命周期 terminal session 不会只因为最初怎么启动就被固定成某一种 Agent。
+前端用同一份结构化结果驱动侧栏 spinner 和输入框的 interrupt 动作。Terminal title 只作为对应 provider 的辅助证据，其他 CLI 的 spinner 风格 title 不会再被一律当成 Codex。
 
 ## Agent 行身份
 
@@ -43,6 +41,12 @@ Farming Code 的项目列表只保留两类行身份：
 - 归档 bash 或 zsh 行会直接销毁这次 shell runtime，不会写入 History。
 
 新启动 Claude 时，Farming 会先生成 uuid 并通过 `--session-id` 传给 Claude。新启动 Codex terminal session 时，稳定 resume id 要等首个可落盘 rollout item 写入后才出现，所以 Farming 会先给 live 行一个 `tmp_uuid...` 临时 provider id；这个临时 id 不进入 History 或 `mainPageSessionKeys`，等 Codex 本地 metadata 出现后再替换成真实 rollout id。历史恢复启动的 session 一开始就知道 id；runtime session 恢复时读取 Farming 写入的 provider-session metadata。
+
+运行中切换权限时，Farming 会用所选启动 flag 重启 CLI。已有稳定 provider Session ID 时 resume 同一会话；新 Codex 还没有稳定 ID 时，则停止临时 runtime 并启动新会话。界面会在原位置显示切换中，并保持当前 agent 以及 Chat / Terminal 视图，不会回退到其他 agent。
+
+## Agent 排序
+
+每个运行中的 Agent 都有持久化的 Project 内顺序。新建 Agent 出现在所属 Project 最前面；桌面端可以在同一 Project 内或 Pinned 列表内拖动 Agent。置顶后 Agent 会离开 Project 列表并追加到独立的 Pinned 列表末尾；取消置顶后恢复到原来的 Project 位置。Farming 也会持久化 provider 历史 Session 的置顶状态；浏览器刷新、权限重启和 runtime 恢复都会保留这些信息。
 
 ## 产品导览
 
@@ -80,7 +84,7 @@ Farming 2 不试图替代完整本地 IDE。它提供的是监督 AI coding agen
 
 Farming 2 默认推荐以平台 CLI 应用发布。Linux 和 macOS 都是一个名为 `farming` 的可执行程序；它内置 Farming server、前端资源和必要运行时代码，不要求用户先解包源码目录。
 
-对老 Linux 开发机，尤其是 CentOS 7 / glibc 2.17 但又需要真实 `node-pty` 终端链路的环境，推荐使用 app bundle tarball。它不是单独 binary，而是解压后的目录，通过根目录 `./farming` 脚本启动；包内默认包含 production dependencies，脚本负责选择私有 glibc 2.28 launcher、写入环境变量并启动服务。
+App bundle 是目录式部署的备选形态：解压后通过根目录 `./farming` 脚本启动，包内包含 production dependencies。它直接使用目标机器的普通 Node.js 和 native runtime；Farming 不再携带或安装私有系统 C 库。
 
 ### 前置条件
 
@@ -118,20 +122,11 @@ chmod +x farming
 - 首次启动自动创建 `~/.farming/settings.json`
 - 首次鉴权启动自动生成 token，保存到 `~/.farming/.session-token`，之后重启和升级复用，并在启动日志打印完整 URL
 - 自动按机器内存为 server 子进程设置 Node heap；不会把该限制传给子 agent
-- 单文件 CLI 适合现代 Linux 和 macOS；老 glibc Linux 如果遇到 `node-pty` 的 `GLIBC_2.28` 依赖，应使用 app bundle
+- 单文件 CLI 适合 Linux 和 macOS；所有发布形态都依赖目标系统提供兼容的 native runtime
 
-应用内升级默认关闭。只有设置 `FARMING_UPDATE_MANIFEST_URL` 指向 HTTP(S) JSON manifest 后，Farming 才会检查和下载升级包：
+npm 是默认发布方式：`npm install --global farming-code` 后运行 `farming daemon`。npm 安装会从 registry 读取可用版本，在 **设置 → 更新** 中一键升级；旧服务会保持运行直到安装成功，新服务启动失败时会尝试恢复旧版本。源码 checkout 通过 Git 更新，单文件 CLI 手动替换。App bundle 仍可配置 Update URL，升级包按 OS/CPU 匹配并校验 checksum。该设置面板也用于管理各 provider 的 **Agent Homes**。
 
-```json
-{
-  "version": "2.0.7",
-  "tarUrl": "farming-2.0.7.tar.gz",
-  "bundledGlibc": true,
-  "sha256": "<optional-sha256>"
-}
-```
-
-相对 `tarUrl` 会按 manifest URL 解析；如果 tarball 放在另一个目录，可以设置 `FARMING_UPDATE_ASSET_BASE_URL`。未配置时不会请求 GitHub release，用户应手动升级。
+最简单的更新源是一个以 `/` 结尾的 HTTP(S) 目录 URL，目录里列出带平台标记的 `farming-<version>-<platform>-<arch>.tar.gz` app bundle，并为每个 bundle 提供相邻的 `<bundle>.sha256` 文件。Farming 会在解压前校验所选 bundle 的 SHA-256 与归档路径。
 
 启动日志会打印浏览器入口，例如：
 
@@ -181,7 +176,7 @@ releases/2/manifest.json
 FARMING_CLI_TARGETS=node22-linux-x64 npm run release:cli
 ```
 
-macOS 和 Linux 单文件 CLI 产物都使用 `@yao-pkg/pkg` 的现代 Node runtime。Linux 单文件 CLI 在 CI 中验证 server 启动；Linux native PTY / agent 启动通过 app bundle 做完整 smoke。打包态 Darwin 会把 `node-pty` 的 `spawn-helper` 释放到 `~/.farming/runtime/node-pty/<platform-arch>/`。Linux 单文件 CLI 无法通过私有 glibc loader 包裹整个 pkg binary；因此老 glibc 机器如果需要 `node-pty`，应使用下面的 app bundle 发布形态。
+macOS 和 Linux 单文件 CLI 产物都使用 `@yao-pkg/pkg` 的现代 Node runtime。Linux 单文件 CLI 在 CI 中验证 server 启动；Linux native PTY / agent 启动通过 app bundle 做完整 smoke。打包态 Darwin 会把 `node-pty` 的 `spawn-helper` 释放到 `~/.farming/runtime/node-pty/<platform-arch>/`。所有发布形态都依赖目标系统提供兼容的 native runtime。
 
 `npm run release:cli` 使用 Vite 构建前端，再通过 `scripts/bundle-cli-runtime.js` 用 esbuild 将后端 runtime bundle/minify 为临时入口，最后按目标平台选择 `@yao-pkg/pkg` 或 legacy `pkg` 生成可执行文件。发布产物里不包含仓库的 `backend/`、`src/`、测试或脚本源码；服务端代码进入二进制，浏览器前端只包含构建后的 `dist/` 资源。`node-pty` native addon 和 `spawn-helper` 作为显式 assets 进入包，pkg 不执行 native build。
 
@@ -207,20 +202,20 @@ npm run release:app
 输出示例：
 
 ```text
-releases/2/farming-2.tar.gz
+releases/2/farming-2-linux-x64.tar.gz
 ```
 
 ### 在 Linux 上安装 app bundle
 
-如果已经拿到别人构建好的 app bundle，例如 `farming-2.tar.gz`，上传到目标 Linux 后直接解压启动：
+如果已经拿到别人构建好的 app bundle，例如 `farming-2-linux-x64.tar.gz`，上传到目标 Linux 后直接解压启动：
 
 ```bash
-tar -xzf farming-2.tar.gz
-cd farming-2
+tar -xzf farming-2-linux-x64.tar.gz
+cd farming-2-linux-x64
 ./farming
 ```
 
-默认包内已经包含 production dependencies 和低 glibc Linux 使用的 `vendor/glibc228-lib.tar.gz`。无参数运行会直接准备运行环境、写入 `.farming-install-env` 并启动服务；启动日志会打印带 token 的浏览器 URL。
+默认包内已经包含 production dependencies。无参数运行会直接准备运行环境、写入 `.farming-install-env` 并启动服务；启动日志会打印带 token 的浏览器 URL。
 
 常用命令：
 
@@ -233,48 +228,6 @@ cd farming-2
 ```
 
 如果打包时显式设置 `FARMING_BUNDLE_NODE_MODULES=0`，或者包内缺少依赖，无参数运行会自动走一次 `./farming install` 来安装 production dependencies。
-
-### 低 glibc Linux 安装方式
-
-CentOS 7 / glibc 2.17 这类机器如果需要真实 `node-pty` 终端链路，不要使用单文件 pkg binary，使用 app bundle。
-
-app bundle 默认已经带 `vendor/glibc228-lib.tar.gz`。直接运行 `./farming` 即可；脚本默认 `FARMING_USE_GLIBC=auto`，检测到系统 glibc 低于 2.28 时，会用包内 tarball 安装私有 glibc 2.28 runtime。
-
-如果目标机已有私有 glibc 2.28 runtime，并且目录结构是：
-
-```text
-/opt/farming/glibc228/lib/ld-2.28.so
-```
-
-可以显式指定后启动：
-
-```bash
-tar -xzf farming-2.tar.gz
-cd farming-2
-FARMING_USE_GLIBC=auto FARMING_GLIBC_ROOT=/opt/farming/glibc228 ./farming
-```
-
-如果 app bundle 解压目录的同级已经有 `glibc228/lib/ld-2.28.so`，脚本会自动优先复用，不需要显式传 `FARMING_GLIBC_ROOT`：
-
-```text
-/deploy/farming-2/
-/deploy/glibc228/lib/ld-2.28.so
-```
-
-这种情况下直接运行：
-
-```bash
-cd /deploy/farming-2
-./farming
-```
-
-打包时如果打包机不能访问默认 glibc 2.28 来源，或团队需要使用内部镜像，可以显式指定 glibc tarball 来源：
-
-```bash
-FARMING_GLIBC_BUNDLE=/opt/farming/glibc228-lib.tar.gz npm run release:app
-```
-
-这不是“是否携带 glibc”的开关，只是替换来源；`release:app` 生成的 app bundle 仍然会包含 `vendor/glibc228-lib.tar.gz`。
 
 ### 从源码远程部署
 
@@ -326,16 +279,7 @@ agent 启动后，浏览器工作台会显示 live terminal、agent 列表、Pro
 
 最终用户通常不需要手写配置文件。`farming` CLI 默认使用 `~/.farming/settings.json`；文件不存在时会自动创建默认配置。
 
-源码远程部署仍可使用 `config/farming.deploy.env` 承载复杂 SSH 目标、远程目录和兼容运行时配置。仓库内提供 `.example` 模板，真正的 `.env` 配置文件会被 git 忽略，避免机器名、安装路径和 demo 配置被误提交。
-
-如果目标机是 CentOS 7 / glibc 2.17，并且已有 glibc 2.28 runtime，可以在源码部署配置里写：
-
-```bash
-FARMING_REMOTE_USE_GLIBC=auto
-FARMING_REMOTE_GLIBC_ROOT=/opt/farming/glibc228
-```
-
-单文件 CLI 应用发布路径不要求用户手写安装目录配置。app bundle 和源码远程部署可使用 `FARMING_USE_GLIBC` / `FARMING_GLIBC_ROOT` 等变量，在脚本里解决老 Linux 的 glibc runtime 问题。
+源码远程部署仍可使用 `config/farming.deploy.env` 承载复杂 SSH 目标和远程目录。仓库内提供 `.example` 模板，真正的 `.env` 配置文件会被 git 忽略，避免机器名、安装路径和 demo 配置被误提交。
 
 ## Main Agent
 
@@ -363,6 +307,8 @@ Linux 执行环境
 后端负责提供浏览器应用、校验 HTTP 和 WebSocket token、管理 agent 生命周期、转发 terminal 输入输出，并提供 workspace 文件 API。
 
 Farming Code 默认使用 xterm.js 作为浏览器 terminal renderer。旧的 Ghostty web renderer 仍作为显式调试选项保留，可通过 `localStorage.farmingTerminalEngine = 'ghostty'` 切换。
+
+对于稳定的 Codex provider session，Farming 可以从 Codex rollout 历史渲染 Chat 视图：用户请求、最终答复、默认折叠的工作过程摘要，以及文件修改结果卡片。这个视图是对 Codex 历史的重放，不替代 terminal IO；需要精确 CLI 行为或 live 边界情况时仍可以切回 raw Terminal。
 
 本地 session engine 基于 `node-pty`。文件搜索优先使用系统 `rg`，缺失时使用 npm `ripgrep` fallback。git diff 和 git blame 复用目标机器上的 `git`，不在 Farming 2 内部重写这些能力。
 

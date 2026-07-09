@@ -27,23 +27,6 @@ PORT_VALUE="${FARMING_PORT:-${PORT:-6694}}"
 BASE_PATH="${FARMING_BASE_PATH:-/farming}"
 CONFIG_DIR_VALUE="${FARMING_CONFIG_DIR:-}"
 SERVER_HOME_VALUE="${FARMING_SERVER_HOME:-}"
-USE_GLIBC="${FARMING_USE_GLIBC:-auto}"
-
-default_glibc_root() {
-  local install_parent
-  install_parent="$(cd "$(dirname "${INSTALL_DIR}")" 2>/dev/null && pwd || dirname "${INSTALL_DIR}")"
-  if [ -x "${install_parent}/glibc228/lib/ld-2.28.so" ]; then
-    printf '%s\n' "${install_parent}/glibc228"
-  else
-    printf '%s\n' "${HOME}/.farming/glibc228"
-  fi
-}
-
-GLIBC_ROOT="${FARMING_GLIBC_ROOT:-$(default_glibc_root)}"
-GLIBC_DIR="${GLIBC_ROOT}/lib"
-GLIBC_TARBALL="${FARMING_GLIBC_TARBALL:-}"
-BUNDLED_GLIBC_TARBALL="${SOURCE_DIR}/vendor/glibc228-lib.tar.gz"
-GLIBC_SOURCE_REPO="https://github.com/liuliping0315/glibc2.28_for_CentOS7.git"
 PID_FILE="${INSTALL_DIR}/.farming.pid"
 LOG_FILE="${INSTALL_DIR}/farming.log"
 
@@ -55,136 +38,63 @@ is_truthy() {
   [[ "${1:-}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]
 }
 
-glibc_version_lt_228() {
-  local version
-  version="$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{print $2}' || true)"
-  if [ -z "${version}" ]; then
-    return 1
-  fi
-  awk -v version="${version}" 'BEGIN {
-    split(version, parts, ".")
-    major = parts[1] + 0
-    minor = parts[2] + 0
-    exit !(major < 2 || (major == 2 && minor < 28))
-  }'
-}
-
-use_glibc() {
-  case "${USE_GLIBC}" in
-    1|true|TRUE|yes|YES|on|ON)
-      return 0
-      ;;
-    0|false|FALSE|no|NO|off|OFF)
-      return 1
-      ;;
-    auto)
-      glibc_version_lt_228
-      ;;
-    *)
-      echo "Unknown FARMING_USE_GLIBC value: ${USE_GLIBC}" >&2
-      exit 1
-      ;;
-  esac
-}
-
 ensure_prerequisites() {
   command -v node >/dev/null
   command -v npm >/dev/null
-  if use_glibc && [ ! -f "${GLIBC_TARBALL}" ] && [ ! -f "${BUNDLED_GLIBC_TARBALL}" ]; then
-    command -v git >/dev/null
-  fi
-}
-
-install_glibc_from_tarball() {
-  local tarball="$1"
-  local tmp_dir found lib_source
-  tmp_dir="$(mktemp -d /tmp/farming-glibc.XXXXXX)"
-  tar --no-same-owner -xf "${tarball}" -C "${tmp_dir}"
-  chmod -R u+rwX "${tmp_dir}" 2>/dev/null || true
-  found="$(find "${tmp_dir}" -type f -name 'ld-2.28.so' | head -1 || true)"
-  if [ -z "${found}" ]; then
-    chmod -R u+rwX "${tmp_dir}" 2>/dev/null || true
-    rm -rf "${tmp_dir}"
-    echo "glibc tarball does not contain ld-2.28.so: ${tarball}" >&2
-    exit 1
-  fi
-
-  lib_source="$(dirname "${found}")"
-  mkdir -p "${GLIBC_ROOT}"
-  rm -rf "${GLIBC_DIR}"
-  cp -R "${lib_source}" "${GLIBC_DIR}"
-  chmod -R u+rwX "${GLIBC_DIR}" 2>/dev/null || true
-  rm -rf "${tmp_dir}"
-}
-
-ensure_glibc() {
-  if ! use_glibc; then
-    log "Skipping glibc 2.28 runtime setup."
-    return 0
-  fi
-
-  log "Ensuring glibc 2.28 runtime is available ..."
-  if [ -x "${GLIBC_DIR}/ld-2.28.so" ]; then
-    return 0
-  fi
-
-  if [ -n "${GLIBC_TARBALL}" ]; then
-    log "Installing glibc runtime from ${GLIBC_TARBALL} ..."
-    install_glibc_from_tarball "${GLIBC_TARBALL}"
-    return 0
-  fi
-
-  if [ -f "${BUNDLED_GLIBC_TARBALL}" ]; then
-    log "Installing bundled glibc runtime ..."
-    install_glibc_from_tarball "${BUNDLED_GLIBC_TARBALL}"
-    return 0
-  fi
-
-  local tmp_dir
-  tmp_dir="$(mktemp -d /tmp/farming-glibc.XXXXXX)"
-  git clone --depth 1 "${GLIBC_SOURCE_REPO}" "${tmp_dir}/repo" >/dev/null 2>&1
-  tar -xf "${tmp_dir}/repo/lib.tgz" -C "${tmp_dir}/repo"
-  mkdir -p "${GLIBC_ROOT}"
-  rm -rf "${GLIBC_DIR}"
-  cp -R "${tmp_dir}/repo/lib" "${GLIBC_ROOT}/"
-  rm -rf "${tmp_dir}"
 }
 
 sync_release_files() {
   mkdir -p "${INSTALL_DIR}"
-  local source_real install_real
+  local source_real install_real bundled_dependencies
   source_real="$(cd "${SOURCE_DIR}" && pwd)"
   install_real="$(cd "${INSTALL_DIR}" && pwd)"
   if [ "${source_real}" = "${install_real}" ]; then
     return 0
   fi
+  bundled_dependencies=false
+  if [ -d "${SOURCE_DIR}/node_modules/express" ] && [ -d "${SOURCE_DIR}/node_modules/node-pty" ]; then
+    bundled_dependencies=true
+  fi
 
   log "Installing release files to ${INSTALL_DIR} ..."
   if command -v rsync >/dev/null 2>&1; then
-    rsync -a --delete \
-      --exclude 'node_modules/' \
+    local rsync_excludes=(
       --exclude '.farming.pid' \
       --exclude '.farming-install-env' \
-      --exclude 'farming.log' \
+      --exclude 'farming.log'
+    )
+    if [ "${bundled_dependencies}" != "true" ]; then
+      rsync_excludes+=(--exclude 'node_modules/')
+    fi
+    rsync -a --delete \
+      "${rsync_excludes[@]}" \
       "${SOURCE_DIR}/" "${INSTALL_DIR}/"
     return 0
   fi
 
-  find "${INSTALL_DIR}" -mindepth 1 -maxdepth 1 \
-    ! -name node_modules \
-    ! -name .farming.pid \
-    ! -name .farming-install-env \
-    ! -name farming.log \
-    -exec rm -rf {} +
-  (
-    cd "${SOURCE_DIR}"
-    tar \
-      --exclude './node_modules' \
-      --exclude './.farming.pid' \
-      --exclude './.farming-install-env' \
-      --exclude './farming.log' \
-      -cf - .
-  ) | (
+  if [ "${bundled_dependencies}" = "true" ]; then
+    find "${INSTALL_DIR}" -mindepth 1 -maxdepth 1 \
+      ! -name .farming.pid \
+      ! -name .farming-install-env \
+      ! -name farming.log \
+      -exec rm -rf {} +
+  else
+    find "${INSTALL_DIR}" -mindepth 1 -maxdepth 1 \
+      ! -name node_modules \
+      ! -name .farming.pid \
+      ! -name .farming-install-env \
+      ! -name farming.log \
+      -exec rm -rf {} +
+  fi
+  local tar_excludes=(
+    --exclude './.farming.pid'
+    --exclude './.farming-install-env'
+    --exclude './farming.log'
+  )
+  if [ "${bundled_dependencies}" != "true" ]; then
+    tar_excludes+=(--exclude './node_modules')
+  fi
+  (cd "${SOURCE_DIR}" && tar "${tar_excludes[@]}" -cf - .) | (
     cd "${INSTALL_DIR}"
     tar -xf -
   )
@@ -237,7 +147,7 @@ stop_server() {
 }
 
 write_launcher() {
-  local node_bin auth_line config_line home_line node_runtime_lines exec_line
+  local node_bin auth_line config_line home_line
   node_bin="$(command -v node)"
   auth_line="unset FARMING_DISABLE_AUTH"
   if is_truthy "${FARMING_DISABLE_AUTH:-0}"; then
@@ -261,16 +171,6 @@ write_launcher() {
 
   write_persisted_env
 
-  if use_glibc; then
-    exec_line="exec ${GLIBC_DIR}/ld-2.28.so --library-path ${GLIBC_DIR} ${node_bin} backend/server.js"
-    node_runtime_lines="export FARMING_NODE_LD=\"${GLIBC_DIR}/ld-2.28.so\"
-export FARMING_NODE_LIBRARY_PATH=\"${GLIBC_DIR}\""
-  else
-    exec_line="exec ${node_bin} backend/server.js"
-    node_runtime_lines="unset FARMING_NODE_LD
-unset FARMING_NODE_LIBRARY_PATH"
-  fi
-
   cat > "${INSTALL_DIR}/.farming-launcher.sh" <<EOF
 #!/usr/bin/env bash
 source ~/.bashrc 2>/dev/null || source ~/.bash_profile 2>/dev/null || true
@@ -278,7 +178,6 @@ cd "${INSTALL_DIR}"
 export PORT="${PORT_VALUE}"
 export FARMING_BASE_PATH="${BASE_PATH}"
 export FARMING_NODE_BIN="${node_bin}"
-${node_runtime_lines}
 ${config_line}
 ${home_line}
 if [ "\${FARMING_NODE_MAX_OLD_SPACE_SIZE:-auto}" = "auto" ] || [ -z "\${FARMING_NODE_MAX_OLD_SPACE_SIZE:-}" ]; then
@@ -294,7 +193,7 @@ case "\${FARMING_NODE_MAX_OLD_SPACE_SIZE}" in
     ;;
 esac
 ${auth_line}
-${exec_line}
+exec ${node_bin} backend/server.js
 EOF
   chmod +x "${INSTALL_DIR}/.farming-launcher.sh"
 }
@@ -311,23 +210,14 @@ write_persisted_env() {
   chmod 600 "${PERSISTED_ENV_FILE}" 2>/dev/null || true
   write_default_env_var FARMING_PORT "${PORT_VALUE}"
   write_default_env_var FARMING_BASE_PATH "${BASE_PATH}"
-  write_default_env_var FARMING_USE_GLIBC "${USE_GLIBC}"
-  write_default_env_var FARMING_GLIBC_ROOT "${GLIBC_ROOT}"
   write_default_env_var FARMING_NODE_MAX_OLD_SPACE_SIZE "${FARMING_NODE_MAX_OLD_SPACE_SIZE:-auto}"
   [ -n "${CONFIG_DIR_VALUE}" ] && write_default_env_var FARMING_CONFIG_DIR "${CONFIG_DIR_VALUE}"
   [ -n "${SERVER_HOME_VALUE}" ] && write_default_env_var FARMING_SERVER_HOME "${SERVER_HOME_VALUE}"
-  [ -n "${GLIBC_TARBALL}" ] && write_default_env_var FARMING_GLIBC_TARBALL "${GLIBC_TARBALL}"
-  [ -n "${FARMING_UPDATE_MANIFEST_URL:-}" ] && write_default_env_var FARMING_UPDATE_MANIFEST_URL "${FARMING_UPDATE_MANIFEST_URL}"
-  [ -n "${FARMING_UPDATE_ASSET_BASE_URL:-}" ] && write_default_env_var FARMING_UPDATE_ASSET_BASE_URL "${FARMING_UPDATE_ASSET_BASE_URL}"
-  [ -n "${FARMING_UPDATE_ASSET_PATTERN:-}" ] && write_default_env_var FARMING_UPDATE_ASSET_PATTERN "${FARMING_UPDATE_ASSET_PATTERN}"
-  [ -n "${FARMING_UPDATE_AUTH_TOKEN:-}" ] && write_default_env_var FARMING_UPDATE_AUTH_TOKEN "${FARMING_UPDATE_AUTH_TOKEN}"
-  [ -n "${FARMING_UPDATE_ALLOW_UNBUNDLED_GLIBC:-}" ] && write_default_env_var FARMING_UPDATE_ALLOW_UNBUNDLED_GLIBC "${FARMING_UPDATE_ALLOW_UNBUNDLED_GLIBC}"
   return 0
 }
 
 start_server() {
   ensure_prerequisites
-  ensure_glibc
   stop_server
   write_launcher
 
@@ -390,10 +280,7 @@ Environment:
   FARMING_BASE_PATH=/farming
   FARMING_CONFIG_DIR=          # optional, custom settings/token directory
   FARMING_SERVER_HOME=         # optional, isolate Codex/Claude history for demos/tests
-  FARMING_UPDATE_MANIFEST_URL= # optional, enable in-app upgrades from an HTTP(S) manifest
-  FARMING_UPDATE_ASSET_BASE_URL= # optional, base URL for relative update tarball paths
-  FARMING_USE_GLIBC=auto
-  FARMING_GLIBC_ROOT=          # optional, defaults to sibling glibc228/ or ~/.farming/glibc228
+  # Configure upgrades in the web Settings panel; the URL is stored in settings.json.
   FARMING_NODE_MAX_OLD_SPACE_SIZE=auto  # auto-detect from cgroup or system memory; 0 disables override
   FARMING_DISABLE_AUTH=1      # optional, trusted local networks only
 EOF

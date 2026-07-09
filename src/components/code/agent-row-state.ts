@@ -1,7 +1,7 @@
 import type { Agent } from '@/types/agent'
-import { agentTitle, formatRelativeAge } from '@/lib/format'
+import { agentTitle } from '@/lib/format'
 import { inferAgentTerminalState } from './capabilities'
-import { agentSessionId, agentSessionUpdatedAt } from './model'
+import { agentSessionId } from './model'
 import type { AgentSessionHistoryItem } from './types'
 
 export type AgentRowBacking =
@@ -22,9 +22,6 @@ export interface AgentRowDisplayState {
   requiresResume: boolean
   scheduled: boolean
   scheduleTitle: string
-  ageLabel: string
-  ageVisible: boolean
-  ageTitle?: string
 }
 
 export type AgentRowKeyBacking =
@@ -38,10 +35,6 @@ export function agentRowKey(backing: AgentRowKeyBacking) {
 
 export function isNewWorktreeForkAgent(agent: Pick<Agent, 'source' | 'parentAgentId'>) {
   return Boolean(agent.parentAgentId) && agent.source === 'ui-fork-new-worktree'
-}
-
-function timestampTitle(timestamp: number | null | undefined) {
-  return timestamp ? new Date(timestamp).toLocaleString() : undefined
 }
 
 function shouldShowAgentStatusIndicator(status: Agent['status'], turnActive: boolean) {
@@ -97,10 +90,8 @@ function agentCommandTitle(agent: Agent, turnActive: boolean, now: number) {
 }
 
 function agentRowStateFromAgent(agent: Agent, now: number): AgentRowDisplayState {
-  const ageTimestamp = agent.lastActivity ?? agent.startedAt
   const terminalState = inferAgentTerminalState(agent)
   const turnActive = terminalState.turnActive
-  const ageLabel = formatRelativeAge(ageTimestamp, now)
   const title = agentTitle(agent)
   const commandTitle = agentCommandTitle(agent, turnActive, now)
   return {
@@ -117,20 +108,14 @@ function agentRowStateFromAgent(agent: Agent, now: number): AgentRowDisplayState
     requiresResume: false,
     scheduled: false,
     scheduleTitle: '',
-    ageLabel,
-    ageVisible: !turnActive && Boolean(ageLabel),
-    ageTitle: timestampTitle(ageTimestamp),
   }
 }
 
 function agentRowStateFromHistory(
   session: AgentSessionHistoryItem,
-  fallbackTitle: string,
-  now: number
+  fallbackTitle: string
 ): AgentRowDisplayState {
-  const updatedAt = agentSessionUpdatedAt(session)
   const scheduleTitle = session.schedule?.label || session.schedule?.name || session.schedule?.rrule || ''
-  const ageLabel = formatRelativeAge(updatedAt, now)
 
   return {
     kind: 'history',
@@ -145,13 +130,10 @@ function agentRowStateFromHistory(
     requiresResume: true,
     scheduled: Boolean(session.schedule),
     scheduleTitle,
-    ageLabel,
-    ageVisible: Boolean(ageLabel),
-    ageTitle: session.updatedAt ? new Date(session.updatedAt).toLocaleString() : undefined,
   }
 }
 
 export function buildAgentRowDisplayState(backing: AgentRowBacking, now = Date.now()): AgentRowDisplayState {
   if (backing.kind === 'agent') return agentRowStateFromAgent(backing.agent, now)
-  return agentRowStateFromHistory(backing.session, backing.fallbackTitle, now)
+  return agentRowStateFromHistory(backing.session, backing.fallbackTitle)
 }

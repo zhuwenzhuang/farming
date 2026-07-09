@@ -2,7 +2,10 @@ let currentTheme = 'terminal';
 
 async function loadTheme(themeId) {
   try {
-    const response = await fetch(`/api/themes/${themeId}`);
+    const path = window.FarmingRuntimePaths
+      ? window.FarmingRuntimePaths.apiPath(`/themes/${themeId}`)
+      : `/api/themes/${themeId}`;
+    const response = await fetch(path);
     const data = await response.json();
     
     if (data.css) {
@@ -28,7 +31,10 @@ async function loadTheme(themeId) {
 
 async function getAllThemes() {
   try {
-    const response = await fetch('/api/themes');
+    const path = window.FarmingRuntimePaths
+      ? window.FarmingRuntimePaths.apiPath('/themes')
+      : '/api/themes';
+    const response = await fetch(path);
     return await response.json();
   } catch (error) {
     console.error('Failed to get themes:', error);
@@ -38,7 +44,10 @@ async function getAllThemes() {
 
 async function setTheme(themeId) {
   try {
-    const response = await fetch(`/api/themes/${themeId}/set`, {
+    const path = window.FarmingRuntimePaths
+      ? window.FarmingRuntimePaths.apiPath(`/themes/${themeId}/set`)
+      : `/api/themes/${themeId}/set`;
+    const response = await fetch(path, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

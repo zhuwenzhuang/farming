@@ -11,6 +11,7 @@ function run() {
   const workspaceSource = [
     'src/components/CodeWorkspace.tsx',
     'src/components/code/CodeComposer.tsx',
+    'src/components/code/ComposerAttachments.tsx',
     'src/components/code/CodeMainArea.tsx',
     'src/components/code/CodeOverlays.tsx',
     'src/components/code/CodeSidebar.tsx',
@@ -19,12 +20,14 @@ function run() {
     'src/components/code/agent-terminal-inference.ts',
     'src/components/code/agent-kind.ts',
     'src/components/code/agent-working-state.ts',
+    'src/components/code/AgentWorkPane.tsx',
     'src/components/code/capabilities.ts',
     'src/components/code/composer-message.ts',
     'src/components/code/composer-submit.ts',
     'src/components/code/composer-history.ts',
     'src/components/code/composer-keyboard.ts',
     'src/components/code/composer-profile.ts',
+    'src/components/code/composer-state.ts',
     'src/components/code/copy.ts',
     'src/components/code/focus-retry.ts',
     'src/components/code/HistoryPanel.tsx',
@@ -35,11 +38,13 @@ function run() {
     'src/components/code/model.ts',
     'src/components/code/session-display.ts',
     'src/components/code/types.ts',
+    'src/components/code/useAgentComposerState.ts',
     'src/components/code/useWorkspaceNavigationHistory.ts',
     'src/components/code/workspace-derived.ts',
     'src/components/code/workspace-file-view.ts',
     'src/lib/workspace-share-target.ts',
   ].map(read).join('\n');
+  const settingsPanelSource = read('src/components/code/AgentHomesSettingsPanel.tsx');
   const capabilitiesSource = read('src/components/code/capabilities.ts');
   const basicComposerCapabilities = capabilitiesSource.match(/const BASIC_COMPOSER_CAPABILITIES[\s\S]*?}\n/)?.[0] || '';
   const workspaceNavigationSource = read('src/lib/workspace-navigation-history.ts');
@@ -49,6 +54,7 @@ function run() {
   const mainPageSessionSource = read('backend/main-page-session.js');
   const inputPartsSource = read('backend/input-parts.js');
   const terminalPaneSource = read('src/components/AgentTerminalPane.tsx');
+  const agentWorkPaneSource = read('src/components/code/AgentWorkPane.tsx');
   const terminalSearchSource = read('src/lib/terminal-search.ts');
   const terminalSessionPoolSource = read('src/lib/terminal-session-pool.ts');
   const usePooledTerminalSource = read('src/hooks/usePooledTerminal.ts');
@@ -148,7 +154,11 @@ function run() {
       appSource.includes('ws.startAgent(command, workspace, false, extras)') &&
       appSource.includes('function isOpenableAgent(agent: Agent)') &&
       appSource.includes("agent.status !== 'dead' && agent.status !== 'stopped'") &&
-      appSource.includes('const nextAgent = ws.agents.find(agent => !agent.isMain && isOpenableAgent(agent) && !pending.beforeIds.has(agent.id))') &&
+      appSource.includes('const [pendingTerminalOpen, setPendingTerminalOpen]') &&
+      appSource.includes("if (!displayedAgents.some(agent => agent.id === pendingTerminalOpen.agentId && isOpenableAgent(agent)))") &&
+      appSource.includes('activateTerminal(pendingTerminalOpen.agentId, pendingTerminalOpen.options)') &&
+      appSource.includes('closeTerminals(data.archivedAgentIds ?? [])') &&
+      !appSource.includes('const nextAgent = ws.agents.find(agent => !agent.isMain && isOpenableAgent(agent) && !pending.beforeIds.has(agent.id))') &&
       appSource.includes('mustStartMain={false}') &&
       !appSource.includes('Failed to resume Main Agent') &&
       !appSource.includes('body: JSON.stringify({ asMain: true })') &&
@@ -167,16 +177,44 @@ function run() {
       appSource.includes('lastActiveWorkspaceRef.current)') &&
       appSource.includes('if (didAutoOpenInitialTerminalRef.current) return') &&
       appSource.includes('const nextMain = ws.agents.find(agent => agent.isMain && !agent.archived && !pending.beforeIds.has(agent.id))') &&
-      appSource.includes('if (!ws.agents.some(agent => !agent.isMain && isOpenableAgent(agent)))') &&
-      appSource.includes('ws.agents.find(agent => !agent.isMain && isOpenableAgent(agent))?.id') &&
-      appSource.includes('if (current && openTerminalIds.includes(current)) return current') &&
+      appSource.includes('if (!displayedAgents.some(agent => !agent.isMain && isOpenableAgent(agent)))') &&
+      appSource.includes('displayedAgents.find(agent => !agent.isMain && isOpenableAgent(agent))?.id') &&
+      appSource.includes('permissionSwitchStateRef.current?.agent.id === current') &&
       appSource.includes('return openTerminalIds[0] ?? null') &&
-      appSource.includes('closedIndex') &&
+      appSource.includes('const closeTerminals = useCallback') &&
+      appSource.includes('const activeIndex = openIds.indexOf(activeTerminalId ?? \'\')') &&
       appSource.includes('data-testid="app-toast"') &&
       !appSource.includes('window.alert') &&
       appSource.includes('keyMap={keyMap}') &&
       appSource.includes('keyboardShortcutsEnabled={CODEX_SKIN_KEYBOARD_SHORTCUTS_ENABLED}'),
     'App should keep Codex skin global shortcuts behind a default-off switch while preserving workspace navigation, settings routing, and terminal lifecycle wiring'
+  );
+
+  assert(
+      appSource.includes('const [permissionSwitch, setPermissionSwitch]') &&
+      appSource.includes('permissionSwitchRequestRef') &&
+      appSource.includes('return [...agents, permissionSwitch.agent]') &&
+      appSource.includes('latestRestartDescendant(ws.agents, current.originalAgentId)') &&
+      appSource.includes('agent.restartedFromAgentIds?.includes(ancestorAgentId)') &&
+      appSource.includes('requestSettled: true') &&
+      appSource.includes('requestFreshStateAt') &&
+      appSource.includes('Math.min(hardDeadline, freshStateDeadline)') &&
+      appSource.includes('setOpenTerminalIds(ids => ids.map(id => id === agentId ? restartedAgentId : id))') &&
+      appSource.includes('setActiveTerminalId(activeId => activeId === agentId ? restartedAgentId : activeId)') &&
+      !appSource.includes('openTerminal(data.restartedAgentId)') &&
+      workspaceSource.includes('active: Boolean(activeAgent) && !activeAgentPermissionSwitching') &&
+      workspaceSource.includes('permissionModeDisabled: Boolean(permissionSwitchingAgentId)') &&
+      workspaceSource.includes('disabled={permissionModeDisabled}') &&
+      workspaceSource.includes('const sourceState = next[permissionSwitchReplacement.originalAgentId]') &&
+      workspaceSource.includes('previousActiveTerminalIdRef') &&
+      agentManagerSource.includes('permissionRestartInFlight') &&
+      agentManagerSource.includes('restartedFromAgentId: agentId') &&
+      agentManagerSource.includes('restartedFromAgentIds: Array.from(new Set([') &&
+      agentManagerSource.includes('permissionRestartSuppressedAgentIds') &&
+      agentManagerSource.includes('emitUpdate: false') &&
+      stylesSource.includes('.code-permission-switching') &&
+      darkStylesSource.includes('.code-permission-switching'),
+    'Permission restarts should keep the old agent visible while pending, replace its runtime id in place, and avoid stealing the current agent or workspace view'
   );
 
   assert(
@@ -190,7 +228,7 @@ function run() {
 
   assert(
     messagesSource.includes("type: 'restart-main-agent'") &&
-      messagesSource.includes("command: 'bash' | 'zsh' | 'codex' | 'claude'") &&
+      messagesSource.includes("command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh'") &&
       webSocketSource.includes('const restartMainAgent = useCallback') &&
       webSocketSource.includes("sendMessage({ type: 'restart-main-agent', command })") &&
       webSocketSource.includes('restartMainAgent,'),
@@ -206,7 +244,7 @@ function run() {
       workspaceSource.includes('if (!keyboardShortcutsEnabled) return') &&
       workspaceSource.includes('keyboardShortcutsEnabled={keyboardShortcutsEnabled}') &&
       workspaceSource.includes('keyboardShortcutsEnabled && <kbd>N</kbd>') &&
-      workspaceSource.includes('keyboardShortcutsEnabled && <kbd>/</kbd>') &&
+      workspaceSource.includes('aria-label={copy.search}') &&
       workspaceSource.includes('const shortcutHint = keyboardShortcutsEnabled') &&
       !workspaceSource.includes("agent.isMain ? '0'") &&
       workspaceSource.includes('const visibleAgents = useMemo(() => agents.filter(agent => !agent.isMain), [agents])') &&
@@ -218,6 +256,9 @@ function run() {
       workspaceSource.includes('data-testid="code-main-agent-restart"') &&
       workspaceSource.includes('data-testid="code-main-agent-restart-menu"') &&
       workspaceSource.includes('onRestartMainAgent(command)') &&
+      workspaceSource.includes("['codex', 'Codex']") &&
+      workspaceSource.includes("['opencode', 'OpenCode']") &&
+      workspaceSource.includes("['qoder', 'Qoder']") &&
       workspaceSource.includes("['zsh', 'zsh']") &&
       workspaceSource.includes("['claude', 'Claude Code']") &&
       workspaceSource.includes('isAgentListLiveAgent') &&
@@ -244,6 +285,8 @@ function run() {
       workspaceSource.includes('codeCopyForLanguage') &&
       workspaceSource.includes('data-testid="code-options-menu"') &&
       workspaceSource.includes('data-testid="code-sidebar-options"') &&
+      workspaceSource.includes("id: 'options-open-settings'") &&
+      workspaceSource.includes('setSettingsPanelOpen(true)') &&
       workspaceSource.includes('data-testid="code-product-mark"') &&
       workspaceSource.includes('Farming Code') &&
       !workspaceSource.includes('Farming - Codex Web Skin') &&
@@ -262,13 +305,16 @@ function run() {
       workspaceSource.includes('buildWorkspaceHistory') &&
       workspaceSource.includes('code-history-panel') &&
       workspaceSource.includes('code-history-agents') &&
-      !workspaceSource.includes('SettingsPanel') &&
+      workspaceSource.includes('AgentHomesSettingsPanel') &&
+      settingsPanelSource.includes('dangerouslySkipAgentPermissionsByDefault') &&
+      settingsPanelSource.includes('dangerousSkipLabel') &&
+      settingsPanelSource.includes('saveDangerouslySkipPermissions') &&
       workspaceSource.includes('code-search-panel') &&
       workspaceSource.includes('searchResultProjects') &&
       workspaceSource.includes('searchHasQuery') &&
-      workspaceSource.includes('data-testid="code-search-empty"') &&
+      !workspaceSource.includes('data-testid="code-search-empty"') &&
       workspaceSource.includes('code-search-result') &&
-      workspaceSource.includes('code-search-box') &&
+      workspaceSource.includes('code-sidebar-search-toggle') &&
       workspaceSource.includes('searchSelectionIndex') &&
       workspaceSource.includes('handleSearchInputKeyDown') &&
       workspaceSource.includes('closeSearchView') &&
@@ -276,7 +322,7 @@ function run() {
       workspaceSource.includes('activeRow ?? rows[0] ?? projectListRef.current') &&
       workspaceSource.includes("setMainPaneMode('terminal')\n    onWorkspaceViewChange('projects')") &&
       workspaceSource.includes("if (target.kind === 'agent')") &&
-      workspaceSource.includes('resumeAgentSessionRef.current(target.provider, target.id)') &&
+      workspaceSource.includes('resumeAgentSessionRef.current(target.provider, target.id, target.providerHomeId)') &&
       workspaceSource.includes("restoreProjectListFocusRef.current = 'active-force'") &&
       workspaceSource.includes("restoreProjectListFocusRef.current = 'list'") &&
       workspaceSource.includes("if (activeView !== 'projects' || searchOpen) return") &&
@@ -292,7 +338,7 @@ function run() {
       workspaceSource.includes('setAgentMenu(null)\n    setProjectMenu(null)\n    setAgentSessionMenu(null)\n    setOptionsMenu(null)\n    closeActiveComposerMenus()') &&
       workspaceSource.includes('if (!dialogOpen) return') &&
       workspaceSource.includes('if (dialogOpen) return') &&
-      workspaceSource.includes('onClick={onCloseSearch} aria-label={copy.clearSearch}') &&
+      workspaceSource.includes('onClick={onClearSearch} aria-label={copy.clearSearch}') &&
       workspaceSource.includes("event.key === 'Escape' && activeView !== 'projects'") &&
       !workspaceSource.includes("activeView === 'settings'") &&
       workspaceSource.includes('openSelectedSearchTarget') &&
@@ -312,13 +358,16 @@ function run() {
       !workspaceSource.includes("event.key.toLowerCase() === 'k'") &&
       workspaceSource.includes('activeTerminalIdRef') &&
       workspaceSource.includes('activeTerminalIdRef.current = activeTerminalId') &&
-      workspaceSource.includes('visibleProjectListTargets.findIndex(target => workspaceTargetId(target) === currentTargetId)') &&
-      workspaceSource.includes('resumeAgentSessionRef.current(target.provider, target.id)') &&
+      workspaceSource.includes('visibleProjectListTargets.findIndex(target => searchTargetHandle(target) === currentTargetId)') &&
+      workspaceSource.includes('resumeAgentSessionRef.current(target.provider, target.id, target.providerHomeId)') &&
       workspaceSource.includes('code-sidebar-resizer') &&
       workspaceSource.includes('beginSidebarResize') &&
       workspaceSource.includes('sidebarCollapsed') &&
       workspaceSource.includes('code-sidebar-toggle') &&
       workspaceSource.includes('code-sidebar-toggle-icon') &&
+      workspaceSource.includes('ChevronLeftGlyph') &&
+      workspaceSource.includes('ChevronRightGlyph') &&
+      workspaceSource.includes('ChevronDownGlyph') &&
       workspaceSource.includes("import { ShareQrButton } from './ShareQrButton'") &&
       workspaceSource.includes('<ShareQrButton copy={copy} sidebarCollapsed={sidebarCollapsed} shareTarget={shareTarget} />') &&
       workspaceSource.includes('workspaceShareTargetFromSearch(window.location.search)') &&
@@ -327,6 +376,11 @@ function run() {
       workspaceSource.includes("kind: 'agent'") &&
       workspaceSource.includes('const restoreWorkspaceShareTarget = useCallback') &&
       workspaceSource.includes('workspaceFileOpenTargetFromShareTarget(target)') &&
+      workspaceSource.includes("target.kind === 'folder'") &&
+      workspaceSource.includes("revealWorkspaceFileInExplorer(resolvedPath.agentId, resolvedPath.filePath, 'directory')") &&
+      workspaceSource.includes('resolveWorkspaceSharePath(') &&
+      workspaceSource.includes('clearWorkspaceShareTargetSearch(window.location.search)') &&
+      workspaceSource.includes('copy.sharedLocationUnavailable(sharedPath)') &&
       workspaceSource.includes('shareTargetRestoreAttemptsRef.current >= 20') &&
       !workspaceSource.includes("{sidebarCollapsed ? '>' : '<'}") &&
       workspaceSource.includes('code-folder-icon') &&
@@ -341,13 +395,14 @@ function run() {
 	      workspaceSource.includes('onClick={event => onNewAgent(agentCreationWorkspace, undefined, event.currentTarget)}') &&
 	      workspaceSource.includes('data-testid="code-project-new-agent"') &&
 	      workspaceSource.includes('data-testid="code-project-actions"') &&
-	      workspaceSource.includes('data-testid="code-project-new-agent-menu"') &&
-	      !workspaceSource.includes("launchMenuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()") &&
-	      workspaceSource.includes('code-project-agent-launch-${option.name}') &&
-	      workspaceSource.includes('onStartAgent(command, project.workspace)') &&
-	      workspaceSource.includes('onNewAgent(project.workspace, undefined, event.currentTarget)') &&
-	      workspaceSource.includes('agentMenu') &&
-	      workspaceSource.includes('projectMenu') &&
+      workspaceSource.includes('data-testid="code-project-new-agent-menu"') &&
+      !workspaceSource.includes("launchMenuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()") &&
+      workspaceSource.includes('code-project-agent-launch-${option.name}') &&
+      workspaceSource.includes('onClick={() => startProjectAgent(option.command || option.name)}') &&
+      workspaceSource.includes('onStartAgent(command, project.workspace)') &&
+      workspaceSource.includes('onNewAgent(project.workspace, undefined, event.currentTarget)') &&
+      workspaceSource.includes('agentMenu') &&
+      workspaceSource.includes('projectMenu') &&
       workspaceSource.includes('contextMenuRef') &&
       workspaceSource.includes('handleContextMenuKeyDown') &&
       workspaceSource.includes("event.key === 'ArrowDown'") &&
@@ -427,7 +482,7 @@ function run() {
       workspaceSource.includes('writeClipboardText') &&
       workspaceSource.includes("copyContextMenuValue(projectWorkspaceForAgent(contextMenuAgent), { kind: 'agent', id: contextMenuAgent.id })") &&
       workspaceSource.includes("if (focusTarget?.kind === 'agent') focusAgentRow(focusTarget.id)") &&
-      workspaceSource.includes("if (focusTarget?.kind === 'agent-session') focusAgentSessionRow(focusTarget.provider, focusTarget.id)") &&
+      workspaceSource.includes("if (focusTarget?.kind === 'agent-session') focusAgentSessionRow(focusTarget.provider, agentSessionId(focusTarget))") &&
       workspaceSource.includes('pendingArchivedFocusAgentRef') &&
       workspaceSource.includes('if (flags.archived === true) {') &&
       workspaceSource.includes('const sessionHandle = contextMenuAgent.providerSessionKey || resumedAgentSessionIdFromSource(contextMenuAgent.source)') &&
@@ -467,8 +522,11 @@ function run() {
       workspaceSource.includes('tabIndex={0}') &&
       workspaceSource.includes('data-testid="code-composer-approval"') &&
       workspaceSource.includes('data-testid="code-approval-menu"') &&
-      workspaceSource.includes('How should this agent handle permissions?') &&
+      workspaceSource.includes('Launch permission profile') &&
+      workspaceSource.includes('permissionRestartHint') &&
       workspaceSource.includes('updatePermissionMode') &&
+      workspaceSource.includes('launchPermissionMode: nextMode') &&
+      workspaceSource.includes('permissionProfileRestarting') &&
       workspaceSource.includes('data-testid="code-composer-model-picker"') &&
       workspaceSource.includes('export function agentKindForCommand(command?: string)') &&
       workspaceSource.includes("if (basename === 'claude') return 'claude'") &&
@@ -477,15 +535,25 @@ function run() {
       workspaceSource.includes('export function capabilitiesForAgent') &&
       workspaceSource.includes('const activeAgentCapabilities = useMemo') &&
       workspaceSource.includes('capabilities: activeAgentCapabilities.composer') &&
-      workspaceSource.includes('codexApprovalMode,') &&
-      workspaceSource.includes('claudePermissionMode,') &&
+      workspaceSource.includes('displayedCodexApprovalMode') &&
+      workspaceSource.includes('displayedClaudePermissionMode') &&
+      workspaceSource.includes('effectiveCodexApprovalModeForSession(') &&
+      workspaceSource.includes('effectiveClaudePermissionModeForSession(') &&
+      workspaceSource.includes('activeAgent?.launchPermissionMode') &&
+      workspaceSource.includes('codexApprovalMode: displayedCodexApprovalMode') &&
+      workspaceSource.includes('claudePermissionMode: displayedClaudePermissionMode') &&
+      workspaceSource.includes('const startAgentWithLaunchProfile = useCallback') &&
+      workspaceSource.includes('dangerouslySkipPermissions: true') &&
+      workspaceSource.includes('onStartAgent={startAgentWithLaunchProfile}') &&
       !workspaceSource.includes("const activeLaunchPermissionMode = activeAgent?.launchPermissionMode || ''") &&
       !workspaceSource.includes('effectiveCodexApprovalModeForSession(Boolean(activeAgent), activeLaunchPermissionMode, codexApprovalMode)') &&
       !workspaceSource.includes('effectiveClaudePermissionModeForSession(Boolean(activeAgent), activeLaunchPermissionMode, claudePermissionMode)') &&
       workspaceSource.includes('const showPermissionMode = active && capabilities.permissionMode') &&
       workspaceSource.includes('const showModelPicker = active && capabilities.modelPicker') &&
       workspaceSource.includes('const showPlusMenu = active && capabilities.plusMenu') &&
-      workspaceSource.includes('const showSpeechInput = active && capabilities.speechInput') &&
+      workspaceSource.includes('const showSpeechInput = active') &&
+      workspaceSource.includes('&& capabilities.speechInput') &&
+      workspaceSource.includes('&& (!mobileComposerViewport || speechSupported)') &&
       workspaceSource.includes('const speechControlAvailable = speechSupported || mobileComposerViewport') &&
       workspaceSource.includes("window.matchMedia('(max-width: 980px)')") &&
       workspaceSource.includes('if (activeAgentCapabilities.composer.permissionMode || activeAgentCapabilities.composer.modelPicker) return') &&
@@ -556,8 +624,8 @@ function run() {
       workspaceSource.includes('syncRemovedMainPageSessionsFromAgentUpdate') &&
       workspaceSource.includes('value.removedMainPageSessionKeys') &&
       workspaceSource.includes('syncRemovedMainPageSessionsFromAgentUpdate(result)') &&
-      workspaceSource.includes('addMainPageAgentSession(provider, sessionId)') &&
-      workspaceSource.includes('function resumedAgentSource(provider: string, sessionId: string)') &&
+      workspaceSource.includes('addMainPageAgentSession(provider, sessionId, providerHomeId)') &&
+      workspaceSource.includes("function resumedAgentSource(provider: string, sessionId: string, providerHomeId = '')") &&
       workspaceSource.includes('function resumedAgentSessionIdFromSource(source?: string)') &&
       workspaceSource.includes('visibleAgents.filter(isAgentListLiveAgent)') &&
       workspaceSource.includes('const existingAgent = activeAgents.find(agent => (') &&
@@ -584,17 +652,18 @@ function run() {
       workspaceSource.includes('limitProjectAgentSessions(\n    projectListProjects') &&
       workspaceSource.includes('historyAgentSessions') &&
       workspaceSource.includes('historyAgentSessionsForSessions(sessions, mainPageSessionKeys, claimedAgentSessionKeys)') &&
-      workspaceSource.includes('function historySessionIdentity(session: AgentSessionHistoryItem)') &&
-      workspaceSource.includes('function historyAgentIdentity(agent: Agent)') &&
-      workspaceSource.includes('code-history-identity') &&
+      workspaceSource.includes('function historySessionMeta(session: AgentSessionHistoryItem)') &&
+      workspaceSource.includes('function historyAgentMeta(agent: Agent)') &&
+      !workspaceSource.includes('code-history-identity') &&
       workspaceSource.includes('visibleSearchTargets') &&
       workspaceSource.includes("kind: 'agent-session'") &&
-      workspaceSource.includes("return workspaceTargetId({ kind: 'agent-session', provider: session.provider, id: session.id })") &&
+      workspaceSource.includes("? `home:${session.providerHomeId}:${session.id}`") &&
       workspaceSource.includes('openSelectedSearchTarget') &&
 	      workspaceSource.includes('data-testid="code-active-session-row"') &&
-	      workspaceSource.includes('data-testid="code-session-preview"') &&
-	      workspaceSource.includes('AgentSessionPreview') &&
-	      !workspaceSource.includes('onFocus={event => onShowAgentSessionPreview(event, session)}') &&
+	      workspaceSource.includes('data-testid="code-agent-hover-preview"') &&
+	      workspaceSource.includes('AgentHoverPreview') &&
+	      workspaceSource.includes('previewBrowsingRef.current') &&
+	      workspaceSource.includes('compact ? 450 : 1500') &&
 	      !workspaceSource.includes('className="code-agent-pin"') &&
 	      workspaceSource.includes('data-testid="code-agent-schedule-clock"') &&
 	      workspaceSource.includes('buildAgentRowDisplayState') &&
@@ -616,23 +685,24 @@ function run() {
       workspaceSource.includes('data-testid="code-agent-row-archive"') &&
       workspaceSource.includes('onUpdateAgentFlags?.(agent, { pinned: !rowState.pinned })') &&
       workspaceSource.includes('onUpdateAgentFlags?.(agent, { archived: true })') &&
-      workspaceSource.includes('const ageTimestamp = agent.lastActivity ?? agent.startedAt') &&
+	      workspaceSource.includes('lastActive: agent.lastActivity || agent.startedAt || 0') &&
       workspaceSource.includes('const terminalState = inferAgentTerminalState(agent)') &&
       workspaceSource.includes('const turnActive = terminalState.turnActive') &&
       workspaceSource.includes('statusIndicatorVisible: shouldShowAgentStatusIndicator(agent.status, turnActive)') &&
       workspaceSource.includes('const markAgentReadIfNeeded = useCallback') &&
-      workspaceSource.includes('if (agent?.unread) onUpdateAgentFlags(agentId, { unread: false })') &&
+      workspaceSource.includes('onUpdateAgentFlags(agentId, { readAttentionSeq: attentionSeq })') &&
       workspaceSource.includes('const [terminalFollowStates, setTerminalFollowStates] = useState<Record<string, TerminalFollowState>>({})') &&
       workspaceSource.includes('const handleTerminalFollowOutputChange = useCallback') &&
       workspaceSource.includes('state.following && !state.hasUnreadOutput') &&
       workspaceSource.includes('const handleDraftChange = useCallback') &&
       workspaceSource.includes('onDraftChange: handleDraftChange') &&
       workspaceSource.includes('onTerminalFollowOutputChange={handleTerminalFollowOutputChange}') &&
-      workspaceSource.includes('previousTurnActiveByAgentRef') &&
-      workspaceSource.includes('shouldMarkAgentUnreadForTurnTransition({') &&
-      workspaceSource.includes('wasTurnActive: wasActive') &&
-      workspaceSource.includes('terminalFollowingLatest') &&
+      workspaceSource.includes('onAgentReadLatest={markAgentReadIfNeeded}') &&
+      workspaceSource.includes('terminalFollowingLatest = state ? state.following && !state.hasUnreadOutput : false') &&
       workspaceSource.includes('markAgentReadIfNeeded(agentId)') &&
+	      (workspaceSource.match(/markAgentReadIfNeeded\(/g) || []).length === 2 &&
+	      workspaceSource.includes("agentId === activeTerminalId") &&
+	      workspaceSource.includes("mainPaneMode === 'terminal'") &&
       workspaceSource.includes('data-testid="code-session-search-result"') &&
       workspaceSource.includes('data-testid="code-session-context-menu"') &&
       workspaceSource.includes('data-testid="code-session-history-card"') &&
@@ -640,8 +710,18 @@ function run() {
       workspaceSource.includes('historyAgents.map(item =>') &&
 	      workspaceSource.includes('const [usageCollapsed, setUsageCollapsed] = useState(true)') &&
 	      workspaceSource.includes('function providerLocalTokenRate(usageSummary: UsageSummary | null)') &&
-	      workspaceSource.includes('function formatCollapsedUsageSummary(tokenRate: number | null, systemStats: SystemStats | null)') &&
-	      workspaceSource.includes('parts.push(formatTokenRate(tokenRate))') &&
+	      workspaceSource.includes('function formatCollapsedUsageSummary(') &&
+	      workspaceSource.includes('function formatRemainingPercent(value: number | null | undefined)') &&
+	      workspaceSource.includes('function formatQuotaRemaining(limit: ProviderQuotaLimit)') &&
+	      workspaceSource.includes('function formatQuotaLimitValue(limit: ProviderQuotaLimit)') &&
+	      workspaceSource.includes('function formatQuotaLimitTitle(source: string, limit: ProviderQuotaLimit)') &&
+	      workspaceSource.includes('function providerHasTokenBurn(provider: UsageProviderSummary)') &&
+	      workspaceSource.includes('provider.tokenUsage.tokensPerMinute') &&
+	      workspaceSource.includes('function dynamicQuotaProvider(usageSummary: UsageSummary | null)') &&
+	      workspaceSource.includes('function formatDynamicQuotaSummary(usageSummary: UsageSummary | null)') &&
+	      workspaceSource.includes("return `${Math.round(remainingPercent)}% left`") &&
+	      workspaceSource.includes('if (localTokenRate !== null) parts.push(formatTokenRate(localTokenRate))') &&
+	      workspaceSource.includes('if (systemStats) parts.push(`CPU ${systemStats.cpu}% / MEM ${systemStats.memory.percentage}%`)') &&
 	      workspaceSource.includes('const localTokenRate = providerLocalTokenRate(usageSummary)') &&
 	      workspaceSource.includes('Sum of local token usage reported by providers.') &&
 	      workspaceSource.includes('Total local tokens') &&
@@ -654,10 +734,10 @@ function run() {
       workspaceSource.includes('data-testid="code-session-show-more"') &&
       workspaceSource.includes('data-testid="code-session-show-less"') &&
       workspaceSource.includes('onToggleProjectSessions(project.id)') &&
-      workspaceSource.includes('onClick={() => onResumeSession(session.provider, session.id)}') &&
-      workspaceSource.includes('onResume?.(sessionProvider, sessionId)') &&
-      workspaceSource.includes('onOpenSessionContextMenu?.(event, sessionProvider, sessionId)') &&
-      workspaceSource.includes('onOpenSessionKeyboardMenu?.(event, sessionProvider, sessionId)') &&
+      workspaceSource.includes('onClick={() => onResumeSession(session.provider, session.id, session.providerHomeId)}') &&
+      workspaceSource.includes('onResume?.(sessionProvider, sessionId, session?.providerHomeId)') &&
+      workspaceSource.includes('onOpenSessionContextMenu?.(event, sessionProvider, agentSessionId(session))') &&
+      workspaceSource.includes('onOpenSessionKeyboardMenu?.(event, sessionProvider, agentSessionId(session))') &&
       workspaceSource.includes('Open Session') &&
       workspaceSource.includes('Pin chat') &&
       workspaceSource.includes('Unpin chat') &&
@@ -703,7 +783,7 @@ function run() {
       workspaceSource.includes('function createPendingFollowUpMessage(text: string)') &&
       workspaceSource.includes('function removePendingFollowUpMessage(') &&
       workspaceSource.includes('const pendingFollowUpAutoFlushRef = useRef<Record<string, string>>({})') &&
-      workspaceSource.includes('const latestDraft = composerTextareaRef.current?.value ?? draft') &&
+      workspaceSource.includes('const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft') &&
       workspaceSource.includes('const navigateActiveComposerHistory = useCallback') &&
       workspaceSource.includes('canUseComposerHistoryNavigation(input)') &&
       workspaceSource.includes('navigateComposerHistory(activeComposerState.history, direction, input.value)') &&
@@ -720,7 +800,7 @@ function run() {
       workspaceSource.includes('data-testid="code-pending-followup-steer"') &&
       workspaceSource.includes('data-testid="code-pending-followup-discard"') &&
       workspaceSource.includes('data-action={submitAction}') &&
-      workspaceSource.includes('submitIsInterrupt ? onInterrupt : onSubmit') &&
+      workspaceSource.includes('submitIsInterrupt ? onInterrupt : () => onSubmit(latestDraftRef.current)') &&
       workspaceSource.includes('copy.interruptAgent') &&
       workspaceSource.includes('code-composer-stop-icon') &&
       workspaceSource.includes('SpeechRecognition') &&
@@ -795,7 +875,8 @@ function run() {
       workspaceSource.includes('code-agent-row') &&
       workspaceSource.includes('PROJECT_AGENT_VISIBLE_LIMIT = 5') &&
       workspaceSource.includes('const agentCompressionActive = sidebarCollapsed') &&
-      workspaceSource.includes('single-agent projects collapse to "1"') &&
+      workspaceSource.includes('const filesCompressAgents = projectFilesExpanded && isMobileTouchViewport() && sortedAgents.length > 1') &&
+      workspaceSource.includes('onFilesCollapsedChange={handleFilesCollapsedChange}') &&
       workspaceSource.includes('function ProjectAgentCompactStrip') &&
       workspaceSource.includes('function PinnedItemCompactStrip') &&
       workspaceSource.includes('data-testid="code-project-agent-strip"') &&
@@ -806,7 +887,7 @@ function run() {
       workspaceSource.includes('data-agent-id={agent.id}') &&
       workspaceSource.includes('rowState.statusIndicatorVisible') &&
       workspaceSource.includes('code-project-agent-compact-unread') &&
-      workspaceSource.includes('const compactProjectAgents = compactAgents && sortedAgents.length > 0') &&
+      workspaceSource.includes('const compactProjectAgents = (compactAgents || filesCompressAgents) && sortedAgents.length > 0') &&
       workspaceSource.includes('const visibleProjectAgents = compactProjectAgents || projectAgentsExpanded') &&
       workspaceSource.includes('code-project-expanded') &&
       workspaceSource.includes('code-terminal-grid') &&
@@ -827,8 +908,8 @@ function run() {
   );
 
   assert(
-    mainPageSessionSource.includes('function resumedAgentSource(provider, sessionId)') &&
-      serverSource.includes("const MAIN_AGENT_RESTART_COMMANDS = new Set(['bash', 'zsh', 'codex', 'claude'])") &&
+    mainPageSessionSource.includes("function resumedAgentSource(provider, sessionId, providerHomeId = '')") &&
+      serverSource.includes("const MAIN_AGENT_RESTART_COMMANDS = new Set(['codex', 'claude', 'opencode', 'qoder', 'bash', 'zsh'])") &&
       serverSource.includes('function restartMainAgent(ws, command)') &&
       serverSource.includes("case 'restart-main-agent'") &&
       serverSource.includes("case 'interrupt-agent'") &&
@@ -848,9 +929,9 @@ function run() {
       !serverSource.includes('for (let index = 0; index < inputParts.length; index += 1)') &&
       serverSource.includes('await agentManager.killAgent(currentMain.id)') &&
       serverSource.includes('await agentManager.startAgent(normalizedCommand, null') &&
-      serverSource.includes('function findResumedAgent(provider, sessionId)') &&
-      serverSource.includes('function rememberMainPageAgentSession(provider, sessionId)') &&
-      mainPageSessionSource.includes("const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude'])") &&
+      serverSource.includes("function findResumedAgent(provider, sessionId, providerHomeId = '')") &&
+      serverSource.includes("function rememberMainPageAgentSession(provider, sessionId, providerHomeId = '')") &&
+      mainPageSessionSource.includes("const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder'])") &&
       mainPageSessionSource.includes('function mainPageAgentSessionFromKey(key)') &&
       serverSource.includes('function autoResumeMainPageAgentSessions()') &&
       serverSource.includes('findActiveAgentClaimingSession(agentManager.getState().agents') &&
@@ -863,14 +944,14 @@ function run() {
       serverSource.includes('const requestedAsMain = req.body && req.body.asMain === true && !shouldFork') &&
       serverSource.includes('const shouldRememberMainPageSession = options.rememberMainPageSession !== false && !shouldFork && !requestedAsMain') &&
       serverSource.includes("return { error: 'session is not a Main Agent session', status: 400 }") &&
-      serverSource.includes('if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId);') &&
+      serverSource.includes('if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);') &&
       serverSource.includes('return { agentId: existingAgent.id, reused: true }') &&
-	      serverSource.includes('wantsMain: resumeAsMain') &&
-	      serverSource.includes('source: shouldFork ? `${normalizedProvider}-history-fork:${sessionId}` : resumedAgentSource(normalizedProvider, sessionId)') &&
-	      mainPageSessionSource.includes("agent.status !== 'dead'") &&
-	      mainPageSessionSource.includes("agent.status !== 'stopped'") &&
-	      !resumeAgentSessionSource.includes("agent.status === 'dead' || agent.status === 'stopped'"),
-    'Resuming the same Codex/Claude session should reuse only live agents and keep stopped rows out of the input target flow'
+      serverSource.includes('wantsMain: resumeAsMain') &&
+      serverSource.includes("source: shouldFork ? resumeSource.replace('-history:', '-history-fork:') : resumeSource") &&
+      mainPageSessionSource.includes("agent.status !== 'dead'") &&
+      mainPageSessionSource.includes("agent.status !== 'stopped'") &&
+      !resumeAgentSessionSource.includes("agent.status === 'dead' || agent.status === 'stopped'"),
+    'Resuming the same Codex/Claude/Qoder session should reuse only live agents and keep stopped rows out of the input target flow'
   );
 
   assert(
@@ -890,6 +971,28 @@ function run() {
       terminalPaneSource.includes('type TerminalSearchOptionKey') &&
       terminalPaneSource.includes('function terminalSearchOptionShortcut') &&
       terminalPaneSource.includes('terminalSearchOptionButtonClass') &&
+      !terminalPaneSource.includes('CodexTranscriptPane') &&
+      !terminalPaneSource.includes('codex-transcript') &&
+      !terminalPaneSource.includes('session-text') &&
+      !terminalPaneSource.includes('TerminalDisplayMode') &&
+      !terminalPaneSource.includes('transcriptAvailability') &&
+      agentWorkPaneSource.includes('CodexAppServerTranscriptPane') &&
+      agentWorkPaneSource.includes('JsonCliTranscriptPane') &&
+      agentWorkPaneSource.includes('AgentTerminalPane') &&
+      agentWorkPaneSource.includes('const appServerChat = isCodexAppServerAgent(agent)') &&
+      agentWorkPaneSource.includes("const jsonChat = agent.agentRuntimeMode === 'json'") &&
+      agentWorkPaneSource.includes('data-testid="code-terminal-mode-toggle"') &&
+      agentWorkPaneSource.includes('onRuntimeModeChange') &&
+      agentWorkPaneSource.includes('agentWorkPaneModeStorageIdentity') &&
+      agentWorkPaneSource.includes('providerSessionKey') &&
+      agentWorkPaneSource.includes('data-testid="code-permission-switching"') &&
+      agentWorkPaneSource.includes('aria-busy={switching}') &&
+      agentWorkPaneSource.includes('data-testid="code-agent-terminal-view"') &&
+      agentWorkPaneSource.includes('data-testid="code-agent-chat-view"') &&
+      agentWorkPaneSource.includes('onActivate(agent.id, { focusTerminal: false })') &&
+      agentWorkPaneSource.includes('active={active}') &&
+      agentWorkPaneSource.includes('{!chatMode ? (') &&
+      agentWorkPaneSource.includes('{chatMode ? (') &&
       terminalPaneSource.includes('setTerminalSearchOptions(previous => ({') &&
       terminalPaneSource.includes('const selectedQuery = terminalSearchQueryFromSelection(getSelectionNow())') &&
       terminalPaneSource.includes('onKeyDown={handleTerminalSearchKeyDown}') &&
@@ -1006,6 +1109,7 @@ function run() {
       inputDialogSource.includes('lockStartClick') &&
       inputDialogSource.includes('settingsLoaded') &&
       inputDialogSource.includes('defaultLaunchAgent') &&
+      inputDialogSource.includes("if (agentName === 'opencode') return 'opencode'") &&
       inputDialogSource.includes('effectiveDefaultLaunchAgent') &&
       inputDialogSource.includes('agent-option-${effectiveDefaultLaunchAgent}') &&
 	      inputDialogSource.includes("fetch(appPath('/api/agent-sessions?limit=100'))") &&
@@ -1014,11 +1118,11 @@ function run() {
 	      inputDialogSource.includes('copy.resumePreviousMainAgent') &&
 	      inputDialogSource.includes('resumeStartOptions(agent)') &&
 	      inputDialogSource.includes('resolveWorkspaceToStart(workspace, true, mainWorkspaceDefault)') &&
-	      inputDialogSource.includes('onStart(agent.name, resolvedWorkspace, resumeStartOptions(agent))') &&
+	      inputDialogSource.includes('onStart(agent.command || agent.name, resolvedWorkspace, { ...(resumeStartOptions(agent) || {}), providerHomeId: selectedHomeId })') &&
       !inputDialogSource.includes("onStart(agent.name, '')") &&
       inputDialogSource.includes('disabled={mustStartMain && (startClickLocked || !settingsLoaded)}') &&
       inputDialogSource.includes('disabled={startClickLocked}') &&
-      inputDialogSource.includes('onStart(selectedAgent.name, resolvedWorkspace)') &&
+      inputDialogSource.includes('onStart(selectedAgent.command || selectedAgent.name, resolvedWorkspace, { providerHomeId: selectedHomeId })') &&
 	      !inputDialogSource.includes("onStart(selectedAgent.name, '')") &&
 	      inputDialogSource.includes('data-testid="agent-list-status"') &&
 	      inputDialogSource.includes('copy.loadingAgents') &&
@@ -1049,7 +1153,7 @@ function run() {
       stylesSource.includes('.code-sidebar-resizer') &&
       stylesSource.includes('.code-workspace.sidebar-collapsed') &&
       stylesSource.includes('.code-sidebar-toggle') &&
-      stylesSource.includes('.code-sidebar-toggle-icon::before') &&
+      stylesSource.includes('.code-sidebar-toggle-icon svg') &&
       stylesSource.includes('.code-sidebar-footer') &&
 	      stylesSource.includes('margin-top: auto') &&
 	      stylesSource.includes('flex: 1 1 0') &&
@@ -1060,7 +1164,7 @@ function run() {
 	      stylesSource.includes('.code-agents-section {\n  position: sticky;') &&
       stylesSource.includes('.code-agents-section {\n  position: sticky;\n  top: var(--code-project-sticky-height);\n  z-index: 24;') &&
       stylesSource.includes('box-sizing: border-box;\n  margin-left: 0;\n  margin-right: 2px;\n  padding-left: 14px;') &&
-      stylesSource.includes('.code-file-sticky-shell {\n  position: sticky;\n  top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px));\n  height: 0;\n  z-index: 11;') &&
+      stylesSource.includes('.code-file-sticky-shell {\n  position: sticky;\n  top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px) + var(--code-files-header-height, 25px));\n  height: 0;\n  z-index: 11;') &&
       stylesSource.includes('.code-product-mark') &&
       stylesSource.includes('grid-template-columns: minmax(0, 1fr) auto') &&
       stylesSource.includes('.code-product-mark-copy') &&
@@ -1069,14 +1173,13 @@ function run() {
       stylesSource.includes('.code-product-mark-update') &&
       stylesSource.includes('.code-product-mark-collapsed') &&
       stylesSource.includes('.code-sidebar.collapsed') &&
-      stylesSource.includes('.code-folder-icon::before') &&
-      stylesSource.includes('.code-folder-icon.expanded::before') &&
+      stylesSource.includes('.code-folder-icon svg') &&
       stylesSource.includes('.code-side-view-panel') &&
       stylesSource.includes('.code-search-view') &&
       stylesSource.includes('.code-search-result') &&
       stylesSource.includes('.code-history-view') &&
       stylesSource.includes('.code-history-card') &&
-      stylesSource.includes('.code-history-card p.code-history-identity') &&
+      stylesSource.includes('.code-history-actions button svg') &&
       stylesSource.includes('button.code-history-card') &&
       stylesSource.includes('.code-history-card:focus-visible') &&
       !stylesSource.includes('.code-settings-view') &&
@@ -1108,6 +1211,10 @@ function run() {
 	      stylesSource.includes('.code-agent-unread') &&
 	      stylesSource.includes('.code-agent-row-actions') &&
 	      stylesSource.includes('.code-agent-row:hover .code-agent-row-actions') &&
+	      stylesSource.includes('--code-agent-row-action-surface: #e7e8e4;') &&
+	      stylesSource.includes('background: linear-gradient(90deg, transparent 0, var(--code-agent-row-action-surface) 21px, var(--code-agent-row-action-surface) 100%);') &&
+	      darkStylesSource.includes('body.code-mode[data-appearance=\'dark\'] .code-agent-row:hover .code-agent-row-actions,') &&
+	      darkStylesSource.includes('--code-agent-row-action-surface: var(--code-dark-bg-hover);') &&
 	      stylesSource.includes('.code-agent-row-action.pin.active') &&
 	      stylesSource.includes('.code-agent-row-action svg') &&
 	      workspaceSource.includes('function HistoryIcon()') &&
@@ -1119,13 +1226,13 @@ function run() {
 	      workspaceSource.includes('<AgentPinIcon />') &&
       workspaceSource.includes('<AgentArchiveIcon />') &&
       darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-agent-row-action") &&
-      stylesSource.includes('.code-session-preview') &&
+	      stylesSource.includes('.code-agent-hover-preview') &&
       stylesSource.includes('.code-usage-panel.collapsed') &&
       stylesSource.includes('.code-usage-summary') &&
-      stylesSource.includes('.code-usage-chevron.expanded') &&
-	      stylesSource.includes('width: min(320px, calc(100vw - 32px));') &&
+      stylesSource.includes('.code-usage-chevron svg') &&
+	      stylesSource.includes('border-radius: 20px;') &&
       stylesSource.includes('.main-agent-resume-option') &&
-      stylesSource.includes('.code-session-preview-header') &&
+	      stylesSource.includes('.code-agent-hover-preview-header') &&
       stylesSource.includes('.code-history-card.archived') &&
       stylesSource.includes('.code-files-section') &&
       stylesSource.includes('.code-file-editor') &&
@@ -1169,12 +1276,21 @@ function run() {
   );
 
   assert(
+    stylesSource.includes('.code-composer-collapse-zone:hover .code-composer-collapse') &&
+      !stylesSource.includes('.code-composer-shell.collapsible:hover .code-composer-collapse') &&
+      stylesSource.includes('.code-composer-restore-bar:hover .code-composer-restore') &&
+      stylesSource.includes('.code-composer-restore-bar {\n  position: absolute;\n  left: 0;\n  right: 0;\n  bottom: 0;') &&
+      stylesSource.includes('height: 30px;\n  pointer-events: auto;'),
+    'Composer collapse and restore controls should appear only from their edge hover zones'
+  );
+
+  assert(
     workspaceSource.includes('const DEFAULT_SIDEBAR_WIDTH = 296') &&
-      workspaceSource.includes('const COLLAPSED_SIDEBAR_WIDTH = 64') &&
+      workspaceSource.includes('const COLLAPSED_SIDEBAR_WIDTH = 52') &&
       workspaceSource.includes('const DESKTOP_AUTO_COLLAPSE_WIDTH = 900') &&
       workspaceSource.includes('const sidebarAutoCollapsedRef = useRef(sidebarCollapsed)') &&
       appSource.includes('useLayoutEffect') &&
-      appSource.includes("import { isMobileTouchViewport } from '@/lib/responsive-mode'") &&
+      appSource.includes("import { isIOSLikeTouchViewport, isMobileTouchViewport } from '@/lib/responsive-mode'") &&
       appSource.includes('const mobileViewport = isMobileTouchViewport()') &&
       appSource.includes("document.body.classList.toggle('code-mobile-touch', mobileViewport)") &&
       workspaceSource.includes("import { isMobileTouchViewport } from '@/lib/responsive-mode'") &&
@@ -1184,11 +1300,13 @@ function run() {
       responsiveModeSource.includes('navigator.maxTouchPoints > 0') &&
       workspaceSource.includes('function isDesktopAutoCollapseWidth(width: number)') &&
       workspaceSource.includes('const syncSidebarForWorkspaceWidth = (width: number) =>') &&
-      workspaceSource.includes('if (isMobileNavigationViewport()) {\n        autoCollapseSidebar()\n        return\n      }') &&
+      workspaceSource.includes('if (mobileNavigationViewport) {\n        if (!mobileNavigationViewportRef.current) autoCollapseSidebar()\n        mobileNavigationViewportRef.current = true\n        return\n      }') &&
       workspaceSource.includes('if (sidebarAutoCollapsedRef.current)') &&
       workspaceSource.includes('function AgentRail(') &&
       workspaceSource.includes('data-testid="code-agent-rail-item"') &&
       stylesSource.includes('.code-sidebar.collapsed .code-agent-rail') &&
+      stylesSource.includes('grid-auto-rows: 42px;') &&
+      stylesSource.includes('width: 42px;\n  height: 42px;\n  flex: 0 0 42px;') &&
       darkStylesSource.includes(".code-mode[data-appearance='dark'] .code-agent-rail-button") &&
       stylesSource.includes('@media (max-width: 980px) and (any-pointer: coarse)') &&
       stylesSource.includes('@media (min-width: 700px) and (max-width: 980px) and (any-pointer: coarse)') &&

@@ -9,6 +9,7 @@ import {
 } from '@/lib/workspace-files'
 
 export const WORKSPACE_FILE_SEARCH_LIMIT = 60
+const DEFAULT_SEARCH_TIMEOUT_MS = 3000
 
 export function useWorkspaceFileSearch(agentId: string | null) {
   const [query, setQuery] = useState('')
@@ -17,6 +18,8 @@ export function useWorkspaceFileSearch(agentId: string | null) {
   const [error, setError] = useState<string | null>(null)
   const [selectionIndex, setSelectionIndex] = useState(0)
   const [truncated, setTruncated] = useState(false)
+  const [timeoutMs, setTimeoutMs] = useState(DEFAULT_SEARCH_TIMEOUT_MS)
+  const [includeIgnored, setIncludeIgnored] = useState(false)
   const requestRef = useRef(0)
 
   const active = query.trim().length > 0
@@ -35,7 +38,18 @@ export function useWorkspaceFileSearch(agentId: string | null) {
     setError(null)
     setSelectionIndex(0)
     setTruncated(false)
+    setTimeoutMs(DEFAULT_SEARCH_TIMEOUT_MS)
+    setIncludeIgnored(false)
     setLoading(false)
+  }, [])
+
+  const setSearchQuery = useCallback((nextQuery: string) => {
+    setIncludeIgnored(false)
+    setQuery(nextQuery)
+  }, [])
+
+  const searchIgnored = useCallback(() => {
+    setIncludeIgnored(true)
   }, [])
 
   const selectNext = useCallback(() => {
@@ -71,6 +85,7 @@ export function useWorkspaceFileSearch(agentId: string | null) {
     const abortController = new AbortController()
     const timeoutId = window.setTimeout(() => {
       searchWorkspaceFiles(agentId, trimmedQuery, {
+        includeIgnored,
         limit: WORKSPACE_FILE_SEARCH_LIMIT,
         signal: abortController.signal,
       })
@@ -78,6 +93,7 @@ export function useWorkspaceFileSearch(agentId: string | null) {
           if (requestRef.current !== requestId) return
           setMatches(results.matches)
           setTruncated(results.truncated)
+          setTimeoutMs(results.timeoutMs ?? DEFAULT_SEARCH_TIMEOUT_MS)
           setLoading(false)
         })
         .catch(searchError => {
@@ -94,7 +110,7 @@ export function useWorkspaceFileSearch(agentId: string | null) {
       window.clearTimeout(timeoutId)
       abortController.abort()
     }
-  }, [agentId, query])
+  }, [agentId, includeIgnored, query])
 
   useEffect(() => {
     setSelectionIndex(index => Math.min(index, Math.max(matches.length - 1, 0)))
@@ -102,17 +118,20 @@ export function useWorkspaceFileSearch(agentId: string | null) {
 
   return useMemo(() => ({
     query,
-    setQuery,
+    setQuery: setSearchQuery,
     matches,
     loading,
     error,
     selectMatchIndex,
     truncated,
+    timeoutMs,
+    includeIgnored,
     active,
     jumpTarget,
     activeMatchIndex,
     selectedMatch,
     clear,
+    searchIgnored,
     selectNext,
     selectPrevious,
   }), [
@@ -123,12 +142,15 @@ export function useWorkspaceFileSearch(agentId: string | null) {
     jumpTarget,
     loading,
     matches,
+    includeIgnored,
+    searchIgnored,
     query,
     selectMatchIndex,
     selectNext,
     selectPrevious,
     selectedMatch,
     truncated,
+    timeoutMs,
   ])
 }
 

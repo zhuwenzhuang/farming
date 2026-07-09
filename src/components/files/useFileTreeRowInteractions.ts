@@ -47,6 +47,17 @@ export function useFileTreeRowInteractions({
     onOpenFileContextMenu(event.clientX, event.clientY, item)
   }, [item, lastFocusedFilePathRef, node, onCancelPendingFileFocus, onOpenFileContextMenu])
 
+  const handleRowMouseDown = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (
+      isDirectory
+      || event.button !== 0
+      || event.metaKey
+      || event.ctrlKey
+      || event.shiftKey
+    ) return
+    void onOpenFilePath(item.path, { transient: true })
+  }, [isDirectory, item.path, onOpenFilePath])
+
   const handleRowClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     onCancelPendingFileFocus()
     lastFocusedFilePathRef.current = item.path
@@ -77,7 +88,7 @@ export function useFileTreeRowInteractions({
       return
     }
 
-    if (clickIntent === 'open-file') {
+    if (clickIntent === 'open-file' && event.detail === 0) {
       void onOpenFilePath(item.path, { transient: true })
     }
     node.handleClick(event)
@@ -105,5 +116,6 @@ export function useFileTreeRowInteractions({
   return {
     handleRowClick,
     handleRowContextMenu,
+    handleRowMouseDown,
   }
 }

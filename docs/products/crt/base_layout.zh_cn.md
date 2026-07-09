@@ -179,7 +179,9 @@ Title bar 的文字和边框颜色跟随 `--agent-color`（由活跃度等级决
 
 ## 6. CRT 视觉效果
 
-在 CRT terminal 主题下，不同状态的 agent 有不同的视觉反馈。定义在 `src/styles/effects.css` 中。
+在 CRT terminal 皮肤下，不同状态的 agent 有不同的视觉反馈。屏幕纹理由 `frontend/skins/crt/styles/effects.css` 提供：使用静态单色扫描线，不再压暗屏幕四周；轻量扫描光带按参考效果约 6.7 秒循环，光带经过的区域会在本轮结束前保持轻微背景增亮。数字快捷键保留绿色荧光底和深色文字，不增加额外描边。
+
+Agent 卡片使用全部剩余正文高度，以统一可读字号从底部显示实时终端末端；内容过多时从顶部裁掉，禁止压缩文字。只有后端终端状态为 working 时才闪烁。卡片和打开后的 session 使用与 Farming Code 相同的 Agent 标题优先级，并始终保持单行省略。
 
 ### 6.1 按活跃度分级
 
@@ -235,7 +237,7 @@ Agents layout 中的 agent 按 `attentionScore` 降序排列。最高分的 agen
 | `src/components/Settings.tsx` | Settings 对话框 |
 | `src/App.tsx` | 页面整体 layout 组装 |
 | `src/styles/main.css` | 布局样式 |
-| `src/styles/effects.css` | CRT 视觉效果（发光、闪烁、glitch） |
+| `frontend/skins/crt/styles/effects.css` | CRT 专属视觉效果（静态扫描线与轻量扫描刷新） |
 | `src/types/agent.ts` | Agent 类型定义（`attentionScore`、`isZombie`、`activityLevel`） |
 | `src/components/MapView.tsx` | Agents Layout 的排序入口（按 `attentionScore`） |
 | `src/App.tsx` | TopBar `Attn` 指示与最高关注 agent 选择 |

@@ -3,6 +3,7 @@ const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+const { attachQuotaForecasts } = require('./usage-forecast');
 
 const execFileAsync = promisify(execFile);
 
@@ -275,15 +276,17 @@ async function readJsonlRecords(filePath) {
 
 function parseCodexLimit(limit) {
   if (!limit || typeof limit !== 'object') return null;
-  const usedPercent = numberOrNull(limit.used_percent);
-  const windowMinutes = numberOrNull(limit.window_minutes);
-  const resetsAt = normalizeEpochMs(limit.resets_at);
+  const usedPercent = numberOrNull(limit.used_percent ?? limit.usedPercent);
+  const windowMinutes = numberOrNull(limit.window_minutes ?? limit.windowMinutes ?? limit.windowDurationMins);
+  const resetsAt = normalizeEpochMs(limit.resets_at ?? limit.resetsAt);
+  const totalTokens = numberOrNull(limit.total_tokens ?? limit.totalTokens ?? limit.limit_tokens ?? limit.limitTokens);
 
-  if (usedPercent === null && windowMinutes === null && resetsAt === null) return null;
+  if (usedPercent === null && windowMinutes === null && resetsAt === null && totalTokens === null) return null;
   return {
     usedPercent,
     windowMinutes,
     resetsAt,
+    totalTokens,
   };
 }
 
@@ -293,13 +296,23 @@ function parseCodexRateLimits(rateLimits) {
   const secondary = parseCodexLimit(rateLimits.secondary);
 
   if (!primary && !secondary) return null;
+  const resetCredits = rateLimits.rate_limit_reset_credits ?? rateLimits.rateLimitResetCredits;
+  const resetCreditsAvailable = numberOrNull(resetCredits?.available_count ?? resetCredits?.availableCount);
   return {
     available: true,
     source: 'codex token_count events',
-    planType: rateLimits.plan_type || '',
+    limitId: rateLimits.limit_id || rateLimits.limitId || '',
+    limitName: rateLimits.limit_name ?? rateLimits.limitName ?? null,
+    planType: rateLimits.plan_type || rateLimits.planType || '',
+    resetCreditsAvailable,
     primary,
     secondary,
   };
+}
+
+function isCodexOverallRateLimit(quota) {
+  const limitId = String(quota?.limitId || '').trim().toLowerCase();
+  return !limitId || limitId === 'codex';
 }
 
 async function collectCodexUsage(options = {}) {
@@ -319,6 +332,8 @@ async function collectCodexUsage(options = {}) {
   let eventCount = 0;
   let latestQuota = null;
   let latestQuotaAt = 0;
+  let latestOverallQuota = null;
+  let latestOverallQuotaAt = 0;
 
   for (const filePath of files) {
     const records = await readJsonlRecords(filePath).catch(() => []);
@@ -330,19 +345,24 @@ async function collectCodexUsage(options = {}) {
         latestQuota = rateLimits;
         latestQuotaAt = timestamp ?? latestQuotaAt;
       }
+      if (rateLimits && isCodexOverallRateLimit(rateLimits) && (!timestamp || timestamp >= latestOverallQuotaAt)) {
+        latestOverallQuota = rateLimits;
+        latestOverallQuotaAt = timestamp ?? latestOverallQuotaAt;
+      }
 
     }
     const fileUsage = collectCodexTokenDeltas(records, { now, windowMs });
     totalTokens += fileUsage.totalTokens;
     eventCount += fileUsage.eventCount;
   }
+  const quota = latestOverallQuota || latestQuota || {
+    available: false,
+    source: 'codex token_count events',
+    reason: 'No recent Codex token_count event with rate limits was found.',
+  };
 
   return {
-    quota: latestQuota || {
-      available: false,
-      source: 'codex token_count events',
-      reason: 'No recent Codex token_count event with rate limits was found.',
-    },
+    quota: attachQuotaForecasts(quota, { now }),
     tokenUsage: tokenUsageSummary({
       totalTokens,
       eventCount,

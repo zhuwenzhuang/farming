@@ -3,6 +3,7 @@ const assert = require('assert');
 const {
   shouldUseLiveSessionText,
   deriveSessionTextPatch,
+  replaceTerminalOutput,
   normalizeSessionViewPayload,
   deriveSessionStreamPatch,
   getAgentDisplayText,
@@ -11,7 +12,7 @@ const {
   deriveSessionSearchMatchesFromLines,
   createSessionModalState,
   shouldPollSessionView
-} = require('../../frontend/app.js');
+} = require('../../frontend/skins/crt/app.js');
 
 function run() {
   assert.strictEqual(shouldUseLiveSessionText({ sessionSource: 'live-text' }), true);
@@ -65,6 +66,20 @@ function run() {
     }
   );
 
+  const resetCalls = [];
+  replaceTerminalOutput({
+    reset: () => resetCalls.push('reset'),
+    write: (text) => resetCalls.push(`write:${text}`)
+  }, 'screen');
+  assert.deepStrictEqual(resetCalls, ['reset', 'write:screen']);
+
+  const emptyCalls = [];
+  replaceTerminalOutput({
+    reset: () => emptyCalls.push('reset'),
+    write: () => emptyCalls.push('write')
+  }, '');
+  assert.deepStrictEqual(emptyCalls, ['reset']);
+
   assert.strictEqual(
     getAgentDisplayText({
       previewText: '\u001b[32mpreview\u001b[0m',
@@ -79,6 +94,14 @@ function run() {
       output: '\u001b[31moutput\u001b[0m'
     }),
     'output'
+  );
+
+  assert.strictEqual(
+    getAgentDisplayText({
+      previewText: 'hello from Qoder\n▀▀▀▀▀▀▀▀\n* Type your message or @path/to/file\nAuto Model · ctx ▓░░░░ 13%',
+      output: ''
+    }),
+    'hello from Qoder'
   );
 
   assert.deepStrictEqual(
@@ -127,6 +150,10 @@ function run() {
           agentId: 'agent-1',
           command: 'claude',
           output: 'remote output',
+          renderOutput: 'rendered screen',
+          outputSeq: 42,
+          previewCols: 120,
+          previewRows: 36,
           previewText: 'remote preview',
           sessionSource: 'live-text',
           status: 'running'
@@ -149,6 +176,10 @@ function run() {
       status: 'running',
       sessionSource: 'live-text',
       output: 'remote output',
+      renderOutput: 'rendered screen',
+      outputSeq: 42,
+      previewCols: 120,
+      previewRows: 36,
       previewText: 'remote preview',
       isMain: false,
       activityLevel: 'cold',
@@ -211,7 +242,7 @@ function run() {
   );
   assert.strictEqual(modalState.agentId, 'agent-1');
   assert.strictEqual(modalState.sessionSource, 'live-text');
-  assert.strictEqual(modalState.title, 'claude (agent-1)');
+  assert.strictEqual(modalState.title, 'Claude Code');
 
   console.log('✓ Session modal helpers handle live-text routing and text patching');
 }

@@ -85,17 +85,32 @@ function applyXtermAppearance(terminal: Terminal) {
   terminal.refresh?.(0, Math.max(0, terminal.rows - 1))
 }
 
+function applyTerminalInputAttributes(element: HTMLElement) {
+  element.querySelectorAll<HTMLTextAreaElement>('textarea').forEach((textarea, index) => {
+    textarea.setAttribute('name', index === 0 ? 'farming-terminal-input' : `farming-terminal-input-${index + 1}`)
+    textarea.setAttribute('autocomplete', 'off')
+    textarea.setAttribute('autocorrect', 'off')
+    textarea.setAttribute('autocapitalize', 'none')
+    textarea.setAttribute('spellcheck', 'false')
+    textarea.setAttribute('data-lpignore', 'true')
+    textarea.setAttribute('data-1p-ignore', 'true')
+    textarea.setAttribute('data-bwignore', 'true')
+    textarea.setAttribute('data-form-type', 'other')
+  })
+}
+
 function applyXtermElementAppearance(terminal: Terminal, theme = xtermThemeForCurrentAppearance()) {
   const element = getXtermElement(terminal)
   if (!element) return
 
   const background = theme.background
   const foreground = theme.foreground
+  applyTerminalInputAttributes(element)
   element.style.backgroundColor = background
   element.style.color = foreground
   element.querySelectorAll<HTMLElement>('.xterm-screen, .xterm-viewport, .xterm-rows, .xterm-helper-textarea').forEach(child => {
     child.style.backgroundColor = background
-    if (child.classList.contains('xterm-helper-textarea')) child.style.color = foreground
+    child.style.color = foreground
   })
 }
 
@@ -326,7 +341,7 @@ export async function createXtermTerminalInstance(options?: {
     fontFamily: DEFAULT_FONT_FAMILY,
     fontSize,
     ignoreBracketedPasteMode: true,
-    lineHeight: 1.25,
+    lineHeight: 1.18,
     linkHandler: {
       allowNonHttpProtocols: false,
       activate: (_event, uri) => {

@@ -415,12 +415,19 @@ class AppServerConnection {
 
       let ws;
       if (endpoint.startsWith('unix://')) {
-        ws = new WebSocket('ws://localhost/', {
+        const socketPath = endpoint.slice('unix://'.length);
+        // `ws` deliberately ignores a `socketPath` option for ws:// URLs.
+        // Its documented IPC transport is ws+unix://<socket-path>:/<request-path>.
+        // Codex uses `/` for its control-socket WebSocket upgrade.
+        ws = new WebSocket(`ws+unix://${socketPath}:/`, {
           headers,
-          socketPath: endpoint.slice('unix://'.length),
+          // Codex's Unix control socket uses tokio-tungstenite without
+          // permessage-deflate negotiation. `ws` enables it by default,
+          // which makes the server reject the upgrade before initialize.
+          perMessageDeflate: false,
         });
       } else {
-        ws = new WebSocket(endpoint, { headers });
+        ws = new WebSocket(endpoint, { headers, perMessageDeflate: false });
       }
       ws.once('open', () => handleOpen(ws));
       ws.once('error', handleError);
@@ -899,6 +906,7 @@ function createAppServerApiRouter(options = {}) {
 }
 
 module.exports = {
+  AppServerConnection,
   AppServerApiBridge,
   AppServerApiError,
   CODEX_APP_SERVER_CLIENT_METHODS,

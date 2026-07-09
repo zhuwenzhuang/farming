@@ -37,8 +37,8 @@ export declare class CanvasRenderer {
     render(buffer: IRenderable, forceAll?: boolean, viewportY?: number, scrollbackProvider?: IScrollbackProvider, scrollbarOpacity?: number): void;
     /**
      * Render a single line using two-pass approach:
-     * 1. Background phase: Draw all cell backgrounds
-     * 2. Text phase: Draw all cell text and decorations
+     * 1. First pass: Draw all cell backgrounds
+     * 2. Second pass: Draw all cell text and decorations
      *
      * This two-pass approach is necessary for proper rendering of complex scripts
      * like Devanagari where diacritics (like vowel sign ि) can extend LEFT of the
@@ -712,8 +712,8 @@ export declare class InputHandler {
     private onKeyCallback?;
     private customKeyEventHandler?;
     private getModeCallback?;
-    private keyboardDownListener;
-    private keyboardPressListener;
+    private keydownListener;
+    private keypressListener;
     private pasteListener;
     private compositionStartListener;
     private compositionUpdateListener;
@@ -1474,7 +1474,7 @@ export declare class Terminal implements ITerminalCore {
     private resizeEmitter;
     private bellEmitter;
     private selectionChangeEmitter;
-    private keyboardEventEmitter;
+    private keyEmitter;
     private titleChangeEmitter;
     private scrollEmitter;
     private renderEmitter;

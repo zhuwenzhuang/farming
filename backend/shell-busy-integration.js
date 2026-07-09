@@ -54,6 +54,10 @@ function defaultZshArgs(args) {
   );
 }
 
+function zshLoginArgs(args) {
+  return args.length === 1 && (args[0] === '-l' || args[0] === '--login');
+}
+
 function writeBashRc(tempDir, options = {}) {
   const rcPath = path.join(tempDir, 'bashrc');
   const controlledPrompt = options.controlledPrompt === true;
@@ -124,7 +128,7 @@ function writeBashRc(tempDir, options = {}) {
     '  local __farming_previous_status=$?',
     '  if [ "${__farming_in_prompt:-0}" = "1" ]; then return "$__farming_previous_status"; fi',
     '  case "${BASH_COMMAND:-}" in',
-    '    __farming_shell_prompt*|__farming_shell_debug*|__farming_restore_exit_code*|__farming_urlencode*|__farming_shell_start_marker*|__farming_get_trap*|printf\\ *FarmingShell*) return "$__farming_previous_status" ;;',
+    '    __farming_shell_prompt*|__farming_shell_debug*|__farming_restore_exit_code*|__farming_urlencode*|__farming_shell_start_marker*|__farming_get_trap*|PROMPT_COMMAND=__farming_shell_prompt|printf\\ *FarmingShell*) return "$__farming_previous_status" ;;',
     '  esac',
     '  __farming_shell_start_marker "${BASH_COMMAND:-}"',
     '  printf "%s" "$__farming_shell_busy"',
@@ -159,26 +163,71 @@ function writeZshFiles(tempDir, options = {}) {
   const controlledPrompt = options.controlledPrompt === true;
   fs.writeFileSync(path.join(tempDir, '.zshenv'), [
     '# Farming temporary shell busy integration. Safe to delete.',
-    'setopt no_global_rcs',
-    'if [ -z "${USER_ZDOTDIR:-}" ]; then export USER_ZDOTDIR="${ZDOTDIR:-$HOME}"; fi',
+    controlledPrompt
+      ? '# Controlled prompt mode skips user shell startup files.'
+      : [
+        'if [[ -f "${USER_ZDOTDIR:-$HOME}/.zshenv" ]]; then',
+        '  __farming_zdotdir="$ZDOTDIR"',
+        '  ZDOTDIR="${USER_ZDOTDIR:-$HOME}"',
+        '  if [[ "${USER_ZDOTDIR:-$HOME}" != "$__farming_zdotdir" ]]; then',
+        '    . "${USER_ZDOTDIR:-$HOME}/.zshenv"',
+        '  fi',
+        '  USER_ZDOTDIR="$ZDOTDIR"',
+        '  ZDOTDIR="$__farming_zdotdir"',
+        '  unset __farming_zdotdir',
+        'fi',
+      ].join('\n'),
+    '',
+  ].join('\n'));
+  fs.writeFileSync(path.join(tempDir, '.zprofile'), [
+    '# Farming temporary shell busy integration. Safe to delete.',
+    controlledPrompt
+      ? '# Controlled prompt mode skips user shell startup files.'
+      : [
+        'if [[ $options[norcs] = off && -o login && -f "${USER_ZDOTDIR:-$HOME}/.zprofile" ]]; then',
+        '  __farming_zdotdir="$ZDOTDIR"',
+        '  ZDOTDIR="${USER_ZDOTDIR:-$HOME}"',
+        '  . "${USER_ZDOTDIR:-$HOME}/.zprofile"',
+        '  ZDOTDIR="$__farming_zdotdir"',
+        '  unset __farming_zdotdir',
+        'fi',
+      ].join('\n'),
+    '',
+  ].join('\n'));
+  fs.writeFileSync(path.join(tempDir, '.zlogin'), [
+    '# Farming temporary shell busy integration. Safe to delete.',
+    controlledPrompt
+      ? '# Controlled prompt mode skips user shell startup files.'
+      : [
+        'if [[ $options[norcs] = off && -o login && -f "${USER_ZDOTDIR:-$HOME}/.zlogin" ]]; then',
+        '  ZDOTDIR="${USER_ZDOTDIR:-$HOME}"',
+        '  . "${USER_ZDOTDIR:-$HOME}/.zlogin"',
+        'fi',
+      ].join('\n'),
     '',
   ].join('\n'));
   fs.writeFileSync(path.join(tempDir, '.zshrc'), [
     '# Farming temporary shell busy integration. Safe to delete.',
     `__farming_shell_busy=${shSingleQuote(MARKERS.busy)}`,
     `__farming_shell_idle=${shSingleQuote(MARKERS.idle)}`,
+    'if [ -n "${FARMING_SHELL_INTEGRATION:-}" ]; then',
+    '  ZDOTDIR="${USER_ZDOTDIR:-$HOME}"',
+    '  builtin return',
+    'fi',
     'FARMING_SHELL_INTEGRATION=1',
     'export FARMING_SHELL_INTEGRATION',
     controlledPrompt
       ? '# Controlled prompt mode skips user shell startup files.'
       : [
-        'if [ -r "${USER_ZDOTDIR:-$HOME}/.zshrc" ]; then',
-        '  __farming_saved_zdotdir="${ZDOTDIR:-}"',
+        'if [[ "${FARMING_SHELL_INJECTION:-}" = "1" && $options[norcs] = off && -r "${USER_ZDOTDIR:-$HOME}/.zshrc" ]]; then',
+        '  HISTFILE="${USER_ZDOTDIR:-$HOME}/.zsh_history"',
+        '  __farming_saved_zdotdir="$ZDOTDIR"',
         '  ZDOTDIR="${USER_ZDOTDIR:-$HOME}"',
         '  . "${USER_ZDOTDIR:-$HOME}/.zshrc"',
         '  ZDOTDIR="$__farming_saved_zdotdir"',
         '  unset __farming_saved_zdotdir',
         'fi',
+        'unset FARMING_SHELL_INJECTION',
     ].join('\n'),
     'autoload -Uz add-zsh-hook',
     '__farming_urlencode() {',
@@ -219,6 +268,9 @@ function writeZshFiles(tempDir, options = {}) {
     '  preexec_functions+=(__farming_shell_preexec)',
     '  precmd_functions+=(__farming_shell_precmd)',
     'fi',
+    controlledPrompt
+      ? ''
+      : 'if [[ $options[login] = off && "${USER_ZDOTDIR:-$HOME}" != "$ZDOTDIR" ]]; then ZDOTDIR="${USER_ZDOTDIR:-$HOME}"; fi',
     '',
   ].join('\n'));
 }
@@ -240,10 +292,11 @@ function applyShellBusyIntegration(options) {
   }
 
   const isBashLogin = shellName === 'bash' && bashLoginArgs(normalized.args);
+  const isZshLogin = shellName === 'zsh' && zshLoginArgs(normalized.args);
   if (shellName === 'bash' && !defaultBashArgs(normalized.args) && !isBashLogin) {
     return normalized;
   }
-  if (shellName === 'zsh' && !defaultZshArgs(normalized.args)) {
+  if (shellName === 'zsh' && !defaultZshArgs(normalized.args) && !isZshLogin) {
     return normalized;
   }
 
@@ -260,9 +313,10 @@ function applyShellBusyIntegration(options) {
       normalized.args = ['--rcfile', rcPath, '-i'];
     } else {
       writeZshFiles(tempDir, { controlledPrompt });
-      normalized.args = ['-i'];
+      normalized.args = isZshLogin ? ['-il'] : ['-i'];
       normalized.env.USER_ZDOTDIR = normalized.env.ZDOTDIR || normalized.env.HOME || os.homedir();
       normalized.env.ZDOTDIR = tempDir;
+      if (!controlledPrompt) normalized.env.FARMING_SHELL_INJECTION = '1';
     }
     normalized.shellBusyIntegration = {
       shellName,

@@ -20,6 +20,8 @@ const FALLBACK_LANGUAGE_ASSOCIATIONS = new Map([
   ['.inl', 'cpp'],
   ['.ipp', 'cpp'],
   ['.jsonl', 'json'],
+  ['.odpsql', 'sql'],
+  ['.osql', 'sql'],
   ['.zsh', 'shell'],
 ])
 

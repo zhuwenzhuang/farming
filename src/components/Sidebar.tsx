@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import type { Agent } from '@/types/agent'
+import { ChevronLeftGlyph, ChevronRightGlyph } from '@/components/IconGlyphs'
 import { AgentCard } from './AgentCard'
 
 interface SidebarMenuItem {
@@ -31,7 +32,7 @@ export function Sidebar({ mainAgent, onNewAgent, onOpenSession }: SidebarProps) 
   return (
     <div className={`sidebar${expanded ? ' sidebar-expanded' : ''}`} data-testid="sidebar">
       <button className="sidebar-toggle fx-crt-panel fx-crt-panel-compact" data-testid="sidebar-toggle" onClick={toggleExpand}>
-        <span className="key-hint">{expanded ? '[×]' : '[=]'}</span>
+        <span className="key-hint">{expanded ? <ChevronLeftGlyph /> : <ChevronRightGlyph />}</span>
       </button>
       <div className="sidebar-menu">
         {MENU_ITEMS.map(item => {

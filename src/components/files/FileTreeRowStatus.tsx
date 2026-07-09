@@ -32,6 +32,9 @@ export function FileTreeRowStatus({
   return (
     <>
       <span className="code-file-name">{item.displayName ?? item.name}</span>
+      {item.symbolicLink && (
+        <span className="code-file-symbolic-link" aria-hidden="true">↷</span>
+      )}
       {fileOpening && (
         <span className="code-file-open-spinner" title={copy.loading} aria-hidden="true" />
       )}

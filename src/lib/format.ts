@@ -19,6 +19,8 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
   qwen: 'Qwen Code',
   codex: 'Codex',
   opencode: 'OpenCode',
+  qoder: 'Qoder',
+  qodercli: 'Qoder',
   aider: 'Aider',
   'github-copilot-cli': 'GitHub Copilot CLI',
   claude: 'Claude Code',
@@ -27,7 +29,8 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
   zsh: 'zsh',
 }
 
-const TITLE_STATUS_PREFIX_PATTERN = /^[\s*＊✳✱✲✶·•\u2800-\u28FF]+/u
+const TITLE_STATUS_PREFIX_PATTERN = /^[\s*＊✳✱✲✶·•◇✋✦⏲\u2800-\u28FF]+/u
+const QODER_RUNTIME_TITLE_PATTERN = /^[◇✋✦⏲]/u
 
 function commandProgram(command: string) {
   return command.split(' ')[0] ?? command
@@ -80,7 +83,7 @@ function stripTitleStatusPrefix(title: string) {
 function titleComparisonKey(title: string) {
   return title
     .trim()
-    .replace(/^[\s*＊✳✱✲✶·•:.\u2800-\u28FF]+/u, '')
+    .replace(/^[\s*＊✳✱✲✶·•:.◇✋✦⏲\u2800-\u28FF]+/u, '')
     .replace(/\s+/g, ' ')
     .toLowerCase()
 }
@@ -180,6 +183,7 @@ function meaningfulSessionTitle(
   const normalizedTitle = titleComparisonKey(title)
   const program = commandProgram(agent.command).toLowerCase()
   const displayName = agentDisplayName(agent.command).toLowerCase()
+  if ((program === 'qoder' || program === 'qodercli') && QODER_RUNTIME_TITLE_PATTERN.test(title)) return ''
   const genericTitles = new Set([
     program,
     displayName,
@@ -201,6 +205,7 @@ export function agentTitle(agent: {
   cwd?: string
   projectWorkspace?: string
   customTitle?: string
+  providerSessionTitle?: string
   sessionTitle?: string
   task?: string
   source?: string
@@ -211,6 +216,9 @@ export function agentTitle(agent: {
 
   if (agent.isMain) return 'Main Agent'
 
+  const providerSessionTitle = meaningfulSessionTitle(agent.providerSessionTitle, agent)
+  if (providerSessionTitle) return providerSessionTitle
+
   const sessionTitle = meaningfulSessionTitle(agent.sessionTitle, agent)
   if (sessionTitle) return sessionTitle
 
@@ -219,7 +227,7 @@ export function agentTitle(agent: {
     if (taskTitle) return taskTitle
   }
 
-  return commandProgram(agent.command)
+  return agentDisplayName(agent.command)
 }
 
 /** Get preview text for an agent, stripping ANSI codes */

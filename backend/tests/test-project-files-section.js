@@ -210,13 +210,17 @@ function run() {
 	      workspaceSource.includes('projectEditorDirtyFilePaths') &&
 	      workspaceSource.includes('projectEditorExternalChangedFilePaths') &&
 	      operationSource.includes('const nextCache = new Map<string, T>()') &&
-	      workspaceSource.includes('const projectFileAgent = project.agents.find(agent => !agent.isMain) ?? null') &&
+	      workspaceSource.includes('stableProjectFileAgentId(null, project.agents)') &&
+	      workspaceSource.includes('const nextProjectFileAgentId = stableProjectFileAgentId(projectFileAgentId, project.agents)') &&
+	      workspaceSource.includes('agent.id === nextProjectFileAgentId') &&
 	      workspaceSource.includes('const showProjectFiles = project.id !== MAIN_AGENT_PROJECT_ID && projectFileAgent !== null') &&
 	      workspaceSource.includes('{showProjectFiles && projectFileAgent && (') &&
 	      workspaceSource.includes('revealRequest={fileRevealRequest && projectFileAgentIds.has(fileRevealRequest.agentId) ? fileRevealRequest : undefined}') &&
 	      workspaceSource.includes('focusSearchRequest={fileSearchFocusRequest && projectFileAgentIds.has(fileSearchFocusRequest.agentId) ? fileSearchFocusRequest : undefined}') &&
 	      workspaceSource.includes('editorDirtyFilePaths={projectEditorDirtyFilePaths}') &&
 	      workspaceSource.includes('editorExternalChangedFilePaths={projectEditorExternalChangedFilePaths}') &&
+	      fileSectionSource.includes('useWorkspaceFileExplorer(agentId, projectId)') &&
+	      !fileTreeViewSource.includes('key={agentId}') &&
 	      workspaceSource.includes('className="code-project-expanded"') &&
 	      !workspaceSource.includes('recentEditorSaveRef') &&
 	      !workspaceSource.includes('watchWorkspaceFiles={watchWorkspaceFiles}') &&
@@ -429,8 +433,8 @@ function run() {
 	      fileSearchResultsSource.includes('aria-selected="true"') &&
 	      fileSectionSource.includes('const fileSearchResultsRef = useRef<HTMLDivElement | null>(null)') &&
 	      fileSearchControllerHookSource.includes("querySelector<HTMLElement>('.code-file-search-result.active')") &&
-	      fileSearchControllerHookSource.includes("scrollIntoView({ block: 'nearest' })") &&
-	      fileSearchResultsSource.includes('onMouseMove={() => onSelectMatchIndex(index)}') &&
+	      fileSearchControllerHookSource.includes('results.scrollTop = resultTop') &&
+	      fileSearchResultsSource.includes("event.pointerType === 'mouse'") &&
 	      !fileSearchResultsSource.includes('onMouseEnter={() => onSelectMatchIndex(index)}') &&
 	      fileSearchResultsSource.includes('iconForDirectoryPath(match.path, false)') &&
 	      fileSearchResultsSource.includes('<FileSearchResultPath path={match.path} query={query} />') &&
@@ -502,7 +506,7 @@ function run() {
 	      fileViewModelSource.includes('WORKSPACE_FILE_TREE_FOCUS_RETRY_DELAYS = [80, 180, 360]') &&
 	      fileFocusHookSource.includes('input.select()') &&
 	      fileSectionHeaderSource.includes('onFocus={onCancelPendingFileFocus}') &&
-      fileSectionHeaderSource.includes('onPointerDown={onCancelPendingFileFocus}') &&
+      fileSectionHeaderSource.includes('event.currentTarget.focus({ preventScroll: true })') &&
       fileSectionHeaderSource.includes('onMouseDown={onCancelPendingFileFocus}') &&
       fileSectionHeaderSource.includes('onKeyDownCapture={onFileSearchKeyDown}') &&
       !fileSectionHeaderSource.includes('onKeyDown={onFileSearchKeyDown}') &&
@@ -530,9 +534,9 @@ function run() {
       fileFocusHookSource.includes('const queueRevealFrame = (callback: () => void) =>') &&
 	      fileSectionControllerHookSource.includes('void revealExplorerPath(revealRequest.path, revealRequest.kind)') &&
 	      !fileSectionSource.includes('void revealExplorerPath(revealRequest.path, revealRequest.kind)') &&
-      fileFocusHookSource.includes('if (focusRow) {') &&
+      fileFocusHookSource.includes('if (focusRow && !treePositionRequested) {') &&
       fileFocusHookSource.includes('tree?.get(filePath)?.select()') &&
-      fileFocusHookSource.includes("tree?.scrollTo(filePath, 'smart')") &&
+      fileFocusHookSource.includes("tree?.scrollTo(filePath, emphasizeLocation ? 'start' : 'smart')") &&
       fileSectionSource.includes('const fileOperationActiveRef = useRef(false)') &&
       fileFocusHookSource.includes('shouldFocusWorkspaceFileTree({') &&
       fileFocusHookSource.includes('shouldSkipWorkspaceFileSearchFocus({') &&
@@ -543,7 +547,7 @@ function run() {
       fileViewModelSource.includes('function shouldSelectWorkspaceFileSearchText') &&
       fileViewModelSource.includes('function workspaceFileTreeFocusTargetPath') &&
       fileFocusHookSource.includes("if (shouldFocusTree) focusWithoutScrolling(row.closest<HTMLElement>('[role=\"tree\"]'))") &&
-      fileFocusHookSource.includes('scrollFileTreeToPath(visibleTargetPath, true)') &&
+      fileFocusHookSource.includes('scrollFileTreeToPath(visibleTargetPath, true, openTargetDirectory)') &&
 	      fileFocusHookSource.includes('treeRef.current?.open(directoryPath)') &&
 				      fileTreeControllerHookSource.includes('if (nextOpen) {') &&
 				      !fileSectionSource.includes('if (nextOpen) {') &&
@@ -597,7 +601,8 @@ function run() {
       explorerHookSource.includes('buildWorkspaceFileTreeNodes') &&
       treeModelSource.includes('function buildWorkspaceFileTreeNodes') &&
       treeModelSource.includes('iconPath: compactedPaths[0] ?? visibleEntry.path') &&
-      treeModelSource.includes('iconSignals: directoryIconSignals(visibleEntry.path, directories, iconSignalCache)') &&
+      !treeModelSource.includes('iconSignals') &&
+      !treeModelSource.includes('directoryIconSignals') &&
       fileSectionSource.includes('editorDirtyFilePaths?: ReadonlySet<string>') &&
 	      fileSectionSource.includes('editorExternalChangedFilePaths?: ReadonlySet<string>') &&
 	      treeRowModelSource.includes('function hasWorkspaceFileTreeDescendant') &&
@@ -616,7 +621,9 @@ function run() {
       !fileSectionSource.includes('FILE_TREE_FALLBACK_HEIGHT') &&
       !fileSectionSource.includes('function useMeasuredHeight') &&
       treeModelSource.includes('function countVisibleWorkspaceTreeRows') &&
-      explorerHookSource.includes('const [openDirectoryPaths, setOpenDirectoryPaths] = useState<Set<string>>(() => new Set())') &&
+      explorerHookSource.includes('const [openDirectoryPaths, setOpenDirectoryPaths] = useState<Set<string>>(() => new Set(') &&
+      explorerHookSource.includes('loadCodeProjectFilesViewState(normalizedWorkspaceKey).openDirectoryPaths ?? []') &&
+      explorerHookSource.includes('saveCodeProjectFilesViewState(normalizedWorkspaceKey, {') &&
       !fileSectionSource.includes('const [openDirectoryPaths, setOpenDirectoryPaths] = useState<Set<string>>(() => new Set())') &&
       !fileSectionSource.includes('treeVisibleRowCount') &&
       !fileSectionSource.includes('setTreeVisibleRowCount') &&
@@ -640,6 +647,9 @@ function run() {
 	      !fileSectionSource.includes('const rememberFocusedTreeNode = useCallback') &&
 	      !fileSectionSource.includes('const rememberSelectedTreeNodes = useCallback') &&
 	      fileTreeRowInteractionsSource.includes('workspaceFileTreeRowClickIntent({') &&
+	      fileTreeRowInteractionsSource.includes('const handleRowMouseDown = useCallback') &&
+	      fileTreeRowInteractionsSource.includes("void onOpenFilePath(item.path, { transient: true })") &&
+	      fileTreeRowSource.includes('onMouseDown={handleRowMouseDown}') &&
 	      fileViewModelSource.includes('function workspaceFileTreeRowClickIntent') &&
 	      fileViewModelSource.includes("return 'toggle-directory'") &&
 		      fileViewModelSource.includes("return 'open-file'") &&
@@ -751,15 +761,13 @@ function run() {
 	      fileStickyContextSource.includes("workspaceFileTreeStatusTitle('git', copy)") &&
 	      !fileStickyContextSource.includes('title={copy.containsUncommittedChanges}') &&
 	      !fileStickyContextSource.includes('visibleWorkspaceFileTreeGitStatus(item.node.descendantGitStatus)') &&
-	      fileStickyContextSource.includes('code-file-sticky-context') &&
-	      fileStickyContextSource.includes("item.kind === 'open-editors'") &&
-	      fileStickyContextSource.includes('onToggleOpenEditors()') &&
-	      fileStickyContextHookSource.includes('const revealOpenEditorsSection = useCallback') &&
-	      fileStickyContextHookSource.includes("querySelector<HTMLElement>('[data-testid=\"code-open-editors\"]')") &&
-	      fileStickyContextHookSource.includes('openEditorsRevealScrollDelta(section.getBoundingClientRect().top, stickyTop)') &&
-	      fileViewModelSource.includes('function openEditorsRevealScrollDelta') &&
-	      fileStickyContextSource.includes('onRevealOpenEditors()') &&
-	      fileStickyContextSource.includes('onToggleFiles()') &&
+	      !fileStickyContextSource.includes('code-file-sticky-context') &&
+	      !fileStickyContextSource.includes("item.kind === 'open-editors'") &&
+	      !fileStickyContextHookSource.includes('const revealOpenEditorsSection = useCallback') &&
+	      !fileStickyContextHookSource.includes('openEditorsRevealScrollDelta') &&
+	      !fileViewModelSource.includes('function openEditorsRevealScrollDelta') &&
+	      !fileStickyContextSource.includes('onRevealOpenEditors') &&
+	      !fileStickyContextSource.includes('onToggleFiles') &&
       !workspaceSource.includes('projectName={project.name}') &&
       !fileSectionSource.includes('onToggleProject') &&
       !fileSectionSource.includes('refreshTreeScrollEdges') &&
@@ -784,7 +792,6 @@ function run() {
       fileSectionHeaderSource.includes('className="code-files-title"') &&
       fileSectionHeaderSource.includes('aria-expanded={!filesCollapsed}') &&
       fileSectionSource.includes('{!filesCollapsed && (') &&
-      fileTreeViewSource.includes('key={agentId}') &&
 	      fileOperationControllerSource.includes('const fileOperationInputRef = useRef<HTMLInputElement | null>(null)') &&
 	      fileSectionSource.includes('fileOperationInputRef,') &&
 	      fileOperationModelSource.includes('function workspaceFileOperationSelectionEnd') &&
@@ -809,7 +816,7 @@ function run() {
 	      fileTreeRowSource.includes('<FileTreeInlineOperation') &&
 	      fileTreeInlineOperationSource.includes('data-testid="code-file-inline-operation"') &&
 	      fileTreeInlineOperationSource.includes('aria-label={copy.renameEntry(item.name)}') &&
-      fileTreeInlineOperationSource.includes('autoComplete="new-password"') &&
+      fileTreeInlineOperationSource.includes('autoComplete="off"') &&
       fileTreeInlineOperationSource.includes('aria-autocomplete="none"') &&
 	      fileOperationDialogSource.includes("fileOperation.kind === 'rename'") &&
 	      fileOperationModelSource.includes('name.endsWith(`${extension}${extension}`)') &&
@@ -912,8 +919,8 @@ function run() {
       !fileSectionSource.includes('renderCursor=') &&
       !fileSectionSource.includes('ref={dragHandle}') &&
       fileOpenControllerSource.includes('fetchWorkspaceFile') &&
-      fileTreeRowSource.includes('iconForFilePath') &&
-      fileStickyContextSource.includes('iconForDirectoryPath') &&
+	      fileTreeRowSource.includes('iconForFilePath') &&
+	      !fileStickyContextSource.includes('iconForDirectoryPath') &&
 	      fileTreeRowSource.includes('<img') &&
 	      fileTreeRowSource.includes('src={iconUrl}') &&
 	      fileSectionSource.includes('data-testid="code-files-section"') &&
@@ -940,8 +947,10 @@ function run() {
 	      !fileSectionSource.includes('data-testid="code-file-open-error"') &&
       !fileSectionSource.includes('window.alert') &&
       fileTreeRowSource.includes('code-file-chevron') &&
+      fileTreeRowSource.includes('ChevronDownGlyph') &&
+      fileTreeRowSource.includes('ChevronRightGlyph') &&
       !fileSectionSource.includes('code-files-header-chevron') &&
-      treeRowModelSource.includes("directoryLoading ? 'loading' : isOpen ? 'expanded' : 'collapsed'") &&
+	      treeRowModelSource.includes("isDirectory ? (isOpen ? 'expanded' : 'collapsed') : 'placeholder'") &&
       treeRowModelSource.includes('const directoryLoading = isDirectory && item.loading === true') &&
       treeRowModelSource.includes('const fileOpening = !isDirectory && openFilePendingPath === item.path') &&
       treeRowModelSource.includes("fileOpening ? 'opening' : ''") &&
@@ -992,7 +1001,9 @@ function run() {
       !fileSectionSource.includes('▾') &&
       !fileSectionSource.includes('▸') &&
       fileTreeRowSource.includes('code-file-type-icon') &&
-      fileStickyContextSource.includes('iconForDirectoryPath(item.node.iconPath ?? item.node.path, true, item.node.iconSignals)') &&
+      fileTreeRowSource.includes('!isDirectory') &&
+      !fileTreeRowSource.includes('iconForDirectoryPath') &&
+      !fileStickyContextSource.includes('iconForDirectoryPath') &&
       !fileSectionSource.includes("isDirectory ? '2 / -1' : '3 / -1'") &&
       treeRowModelSource.includes("'--file-depth': depth") &&
 	      fileTreeViewSource.includes('<FileTreeRow') &&
@@ -1317,7 +1328,7 @@ function run() {
 	      editorDiffViewSource.includes('monaco.editor.createDiffEditor') &&
 	      editorDiffViewSource.includes('monaco.editor.getModel(uri)?.dispose()') &&
 	      editorDiffViewSource.includes('function createDiffTextModel') &&
-	      editorDiffViewSource.includes('renderSideBySide: true') &&
+	      editorDiffViewSource.includes('renderSideBySide: !isMobileTouchViewport()') &&
 		      editorDiffViewSource.includes('data-testid="code-file-diff-view"') &&
 	      editorDiffViewSource.includes('data-testid="code-file-diff-monaco"') &&
 		      editorSurfaceSource.includes('<FileEditorDiffView') &&
@@ -1509,12 +1520,16 @@ function run() {
       serverSource.includes('const fallbackIcon =') &&
       fileIconsSource.includes('fileNames') &&
       fileIconsSource.includes('fileExtensions') &&
-      fileIconsSource.includes('folderNamesExpanded') &&
-      fileIconsSource.includes('contentSignals: string[] = []') &&
-      fileIconsSource.includes('folderIconForSignal(signal, map)') &&
+      !fileIconsSource.includes('folderNames') &&
+      !fileIconsSource.includes('folderNamesExpanded') &&
+      !fileIconsSource.includes('contentSignals') &&
+      !fileIconsSource.includes('folderIconForSignal') &&
+      fileIconsSource.includes("lowerName.endsWith('.osql')") &&
+      fileIconsSource.includes('maxComputeOsqlIconUrl') &&
       fileIconsSource.includes('export function iconForFilePath') &&
-      fileIconsSource.includes('export function iconForDirectoryPath'),
-    'file icon resolver should reuse Material Icon Theme manifest mappings and serve the full icon set as lightweight static vendor assets'
+      fileIconsSource.includes('export function iconForDirectoryPath(_directoryPath: string, expanded: boolean)') &&
+      fileIconsSource.includes('return expanded ? folderOpenIconUrl : folderIconUrl'),
+    'file icon resolver should reuse Material Icon Theme mappings for files, keep directory icons limited to open/closed folder states, preserve the MaxCompute .osql icon override, and serve the full icon set as lightweight static vendor assets'
   );
 
   assert(
@@ -1666,7 +1681,7 @@ function run() {
       !stylesSource.includes('has-bottom-shadow') &&
       stylesSource.includes('.code-file-sticky-shell') &&
       stylesSource.includes('position: sticky') &&
-      stylesSource.includes('--code-project-sticky-height: 30px') &&
+      stylesSource.includes('--code-project-sticky-height: 32px') &&
       stylesSource.includes('min-height: var(--code-project-sticky-height)') &&
       stylesSource.includes('top: var(--code-project-sticky-height)') &&
       stylesSource.includes('box-sizing: border-box;\n  margin-left: 0;\n  margin-right: 2px;\n  padding-left: 14px;') &&
@@ -1676,11 +1691,10 @@ function run() {
       stylesSource.includes('.code-file-sticky-stack') &&
       stylesSource.includes('box-shadow: 0 10px 14px -16px') &&
       stylesSource.includes('.code-file-row.code-file-sticky-row') &&
-      stylesSource.includes('.code-file-row.code-file-sticky-context') &&
-      stylesSource.includes('cursor: pointer') &&
-      stylesSource.includes('.code-file-row.code-file-sticky-context.open-editors') &&
-      stylesSource.includes('.code-file-row.code-file-sticky-context.files') &&
-      !stylesSource.includes('.code-file-row.code-file-sticky-context.project') &&
+	      !stylesSource.includes('.code-file-row.code-file-sticky-context') &&
+	      stylesSource.includes('cursor: pointer') &&
+	      !stylesSource.includes('.code-file-row.code-file-sticky-context.open-editors') &&
+	      !stylesSource.includes('.code-file-row.code-file-sticky-context.files') &&
       !stylesSource.includes('.code-agent-list {\n  position: sticky') &&
       stylesSource.includes('.code-file-tree-row-frame') &&
       stylesSource.includes('.code-file-row') &&
@@ -1702,11 +1716,12 @@ function run() {
       stylesSource.includes('.code-file-row.editor-dirty .code-file-name') &&
       !stylesSource.includes('.code-file-row.editor-descendant-dirty .code-file-name') &&
       !stylesSource.includes('.code-file-row.editor-descendant-external-changed .code-file-name') &&
-      !stylesSource.includes('.code-file-row.directory .code-file-type-icon') &&
-      !stylesSource.includes('grid-template-columns: 14px minmax(0, 1fr) auto') &&
+	      !stylesSource.includes('.code-file-row.directory .code-file-type-icon') &&
+	      stylesSource.includes('.code-file-row.ignored') &&
+	      stylesSource.includes('.code-file-row.directory') &&
+	      stylesSource.includes('grid-template-columns: 14px minmax(0, 1fr) auto') &&
       !stylesSource.includes('.code-files-header-chevron') &&
-      stylesSource.includes('.code-file-chevron::before') &&
-      stylesSource.includes('.code-file-chevron.expanded::before') &&
+      stylesSource.includes('.code-file-chevron svg') &&
       stylesSource.includes('.code-file-chevron.loading::before') &&
       stylesSource.includes('.code-file-chevron.placeholder::before') &&
       stylesSource.includes('--file-guide-width') &&
@@ -1785,8 +1800,10 @@ function run() {
       !stylesSource.includes('.code-file-editor-action.blame::after') &&
       !stylesSource.includes("content: 'B'") &&
       !stylesSource.includes('.code-file-editor-action-icon') &&
-      stylesSource.includes('.code-file-editor-action.overwrite::before') &&
-      stylesSource.includes('.code-file-editor-action.overwrite::after') &&
+	      editorActionsSource.includes('import { ErrorGlyph }') &&
+	      editorActionsSource.includes('<ErrorGlyph className="code-file-editor-action-svg" />') &&
+	      !stylesSource.includes('.code-file-editor-action.overwrite::before') &&
+	      !stylesSource.includes('.code-file-editor-action.overwrite::after') &&
       !stylesSource.includes('.code-file-row.changed .code-file-name') &&
       !stylesSource.includes('.code-file-row.changed-descendant .code-file-name') &&
       stylesSource.includes('.code-file-editor-tab:hover .code-file-editor-dirty') &&
@@ -1855,6 +1872,12 @@ function run() {
       darkStylesSource.includes('.code-file-change-row.active') &&
       darkStylesSource.includes('.code-file-open-spinner') &&
       darkStylesSource.includes('.code-file-change-status.modified') &&
+      darkStylesSource.includes('.code-file-row.ignored .code-file-name') &&
+      darkStylesSource.includes('.code-file-changed.external') &&
+      darkStylesSource.includes('.code-file-descendant-status.modified') &&
+      darkStylesSource.includes('.code-file-git-status.renamed') &&
+      darkStylesSource.includes('.code-file-row.selected:not(.active)') &&
+      darkStylesSource.includes('.code-file-row.active::after') &&
       darkStylesSource.includes('.code-file-blame-toast') &&
       darkStylesSource.includes('.code-file-blame-detail') &&
       darkStylesSource.includes('.code-file-line-changes-panel') &&

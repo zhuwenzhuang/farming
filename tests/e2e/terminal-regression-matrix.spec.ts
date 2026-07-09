@@ -1187,7 +1187,11 @@ test.describe('terminal regression matrix', () => {
                 xtermRootCount: host?.querySelectorAll(':scope > .xterm').length ?? 0,
                 nestedXtermCount: host?.querySelectorAll('.xterm .xterm').length ?? 0,
                 cursorSuppressed: host?.classList.contains('terminal-renderer-cursor-suppressed') ?? false,
-                cursorLooksHidden: !cursorStyle || cursorStyle.opacity === '0',
+                cursorPaintSuppressed: !cursorStyle || (
+                  cursorStyle.opacity === '0' &&
+                  cursorStyle.backgroundColor === 'rgba(0, 0, 0, 0)' &&
+                  cursorStyle.outlineColor === 'rgba(0, 0, 0, 0)'
+                ),
                 activeRowId: document.querySelector('[data-testid="code-agent-row"].active, [data-testid="code-project-agent-compact"].active, [data-testid="code-pinned-agent-compact"].active')?.getAttribute('data-agent-id') || '',
                 activePaneId: document.querySelector('[data-testid="code-terminal-pane"].active')?.getAttribute('data-agent-id') || '',
                 expectedAgentId: id,
@@ -1200,8 +1204,8 @@ test.describe('terminal regression matrix', () => {
             hostCountInMount: 1,
             xtermRootCount: 1,
             nestedXtermCount: 0,
-            cursorSuppressed: true,
-            cursorLooksHidden: true,
+            cursorSuppressed: false,
+            cursorPaintSuppressed: false,
             activeRowId: targetAgentId,
             activePaneId: targetAgentId,
             expectedAgentId: targetAgentId,
@@ -1318,6 +1322,35 @@ test.describe('terminal regression matrix', () => {
       await page.keyboard.press(terminalFindShortcut)
       await expect(page.getByTestId('code-terminal-search')).toHaveCount(0)
       await expect(composer).toBeFocused()
+    })
+
+    await scenario('composer focus hides the inactive terminal outline cursor', async () => {
+      await selectAgent(page, bashAgentId)
+      const composer = page.getByTestId('code-composer').locator('textarea')
+      await composer.fill('draft while terminal cursor is inactive')
+      await composer.focus()
+      await expect(composer).toBeFocused()
+      await expect.poll(async () => {
+        return page.evaluate(() => {
+          const host = Array.from(document.querySelectorAll('.terminal-session-host')).find(element => {
+            if (!(element instanceof HTMLElement)) return false
+            if (element.closest('#terminal-session-parking-lot')) return false
+            const rect = element.getBoundingClientRect()
+            return rect.width > 0 && rect.height > 0
+          })
+          const cursor = host?.querySelector('.xterm-cursor')
+          const style = cursor instanceof HTMLElement ? getComputedStyle(cursor) : null
+          return {
+            activeInComposer: Boolean(document.activeElement?.closest?.('.code-composer')),
+            opacity: style?.opacity ?? '',
+            outlineColor: style?.outlineColor ?? '',
+          }
+        })
+      }).toEqual({
+        activeInComposer: true,
+        opacity: '0',
+        outlineColor: 'rgba(0, 0, 0, 0)',
+      })
     })
 
     await scenario('terminal focus still opens terminal find', async () => {
@@ -1519,7 +1552,10 @@ test.describe('terminal regression matrix', () => {
     console.log(`terminal regression matrix executed ${checked.length} scenarios`)
   })
 
-  test('covers mobile terminal gestures, copy, and page stability scenarios', async ({ page, workspaceRoot }) => {
+  test.describe('touch mobile terminal regression', () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+    test('covers mobile terminal gestures, copy, and page stability scenarios', async ({ page, workspaceRoot }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     const checked: string[] = []
     const scenario: ScenarioRunner = async (name, fn) => {
@@ -1604,7 +1640,7 @@ test.describe('terminal regression matrix', () => {
       expect(result.documentScrollLeft).toBe(0)
       expect(result.documentScrollTop).toBe(0)
       expect(result.workspaceScrollWidth).toBeLessThanOrEqual(result.workspaceClientWidth + 1)
-      expect(result.terminalTouchAction).toBe('none')
+      expect(result.terminalTouchAction).toBe('pan-y')
     })
 
     await scenario('mobile terminal can jump back to latest output', async () => {
@@ -1645,7 +1681,8 @@ test.describe('terminal regression matrix', () => {
       expect(checked.length + 1).toBeGreaterThanOrEqual(8)
     })
 
-    console.log(`mobile terminal regression matrix executed ${checked.length} scenarios`)
+      console.log(`mobile terminal regression matrix executed ${checked.length} scenarios`)
+    })
   })
 
   test('pins the coarse mobile shell to the visual viewport during repeated touch drags', async ({ browser, baseURL, workspaceRoot }) => {

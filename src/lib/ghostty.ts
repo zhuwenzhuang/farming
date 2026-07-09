@@ -88,10 +88,10 @@ interface GhosttyModule {
 }
 
 export const DEFAULT_THEME = {
-  background: '#fbfbf8',
+  background: '#ffffff',
   foreground: '#24292f',
   cursor: '#24292f',
-  cursorAccent: '#fbfbf8',
+  cursorAccent: '#ffffff',
   selectionBackground: 'rgba(31, 35, 40, 0.18)',
   black: '#24292f',
   red: '#cf222e',
@@ -126,7 +126,7 @@ export const DEFAULT_FONT_FAMILY = [
   'monospace',
 ].join(', ')
 
-export const DEFAULT_FONT_SIZE = 13
+export const DEFAULT_FONT_SIZE = 12
 export const SESSION_TERMINAL_FONT_DESKTOP = DEFAULT_FONT_SIZE
 export const SESSION_TERMINAL_FONT_MOBILE = 11
 

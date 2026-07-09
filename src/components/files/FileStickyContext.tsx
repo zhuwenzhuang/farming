@@ -1,5 +1,6 @@
-import { iconForDirectoryPath } from '@/lib/file-icons'
+import { ChevronDownGlyph } from '@/components/IconGlyphs'
 import { filePathDepth, type WorkspaceFileTreeNode as FileExplorerNode } from '@/lib/workspace-file-tree'
+import { workspaceCompactStickyDirectoryLabel } from '@/lib/workspace-file-view-model'
 import {
   workspaceFileTreeDescendantGitStatusClassName,
   workspaceFileTreeDepthStyle,
@@ -11,11 +12,7 @@ import type { FileStickyContextItem } from './useWorkspaceFileStickyContext'
 interface FileStickyContextProps {
   copy: CodeCopy
   items: FileStickyContextItem[]
-  openEditorsCollapsed: boolean
   onFocusDirectory: (node: FileExplorerNode) => void
-  onRevealOpenEditors: () => void
-  onToggleFiles: () => void
-  onToggleOpenEditors: () => void
 }
 
 function renderDirectoryStickyItem(
@@ -37,13 +34,9 @@ function renderDirectoryStickyItem(
         onFocusDirectory(item.node)
       }}
     >
-      <span className="code-file-chevron expanded" aria-hidden="true" />
-      <img
-        className="code-file-type-icon folder open"
-        src={iconForDirectoryPath(item.node.iconPath ?? item.node.path, true, item.node.iconSignals)}
-        alt=""
-        aria-hidden="true"
-      />
+      <span className="code-file-chevron expanded" aria-hidden="true">
+        <ChevronDownGlyph />
+      </span>
       <span className="code-file-name">{item.node.displayName ?? item.node.name}</span>
       {descendantStatusClassName && (
         <span
@@ -58,49 +51,36 @@ function renderDirectoryStickyItem(
 export function FileStickyContext({
   copy,
   items,
-  openEditorsCollapsed,
   onFocusDirectory,
-  onRevealOpenEditors,
-  onToggleFiles,
-  onToggleOpenEditors,
 }: FileStickyContextProps) {
   if (items.length === 0) return null
+  const directoryItems = items.filter((item): item is Extract<FileStickyContextItem, { kind: 'directory' }> => item.kind === 'directory')
+  const compactTarget = directoryItems[directoryItems.length - 1]
 
   return (
     <div className="code-file-sticky-shell">
       <div className="code-file-sticky-stack" data-testid="code-file-sticky-stack" aria-label={copy.stickyFolderPath}>
-        {items.map(item => (
-          item.kind === 'directory' ? (
-            renderDirectoryStickyItem(item, copy, onFocusDirectory)
-          ) : (
-            <button
-              key={item.key}
-              type="button"
-              className={`code-file-row directory code-file-sticky-row code-file-sticky-context ${item.kind}`}
-              style={workspaceFileTreeDepthStyle(0)}
-              title={item.name}
-              aria-expanded={item.kind === 'open-editors' ? !openEditorsCollapsed : true}
-              onClick={event => {
-                event.preventDefault()
-                event.stopPropagation()
-                if (item.kind === 'open-editors') {
-                  onToggleOpenEditors()
-                  onRevealOpenEditors()
-                } else {
-                  onToggleFiles()
-                }
-              }}
-            >
-              <span
-                className={`code-file-section-chevron ${
-                  item.kind === 'open-editors' && openEditorsCollapsed ? 'collapsed' : 'expanded'
-                }`}
-                aria-hidden="true"
-              />
-              <span className="code-file-name">{item.name}</span>
-            </button>
-          )
-        ))}
+        <div className="code-file-sticky-expanded-rows">
+          {directoryItems.map(item => renderDirectoryStickyItem(item, copy, onFocusDirectory))}
+        </div>
+        {compactTarget && (
+          <button
+            type="button"
+            className="code-file-row directory code-file-sticky-row code-file-sticky-compact-row"
+            style={workspaceFileTreeDepthStyle(0)}
+            title={compactTarget.node.path}
+            onClick={event => {
+              event.preventDefault()
+              event.stopPropagation()
+              onFocusDirectory(compactTarget.node)
+            }}
+          >
+            <span className="code-file-chevron expanded" aria-hidden="true">
+              <ChevronDownGlyph />
+            </span>
+            <span className="code-file-name">{workspaceCompactStickyDirectoryLabel(directoryItems.map(item => item.node))}</span>
+          </button>
+        )}
       </div>
     </div>
   )

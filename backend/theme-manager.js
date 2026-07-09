@@ -8,7 +8,11 @@ class ThemeManager {
     this.farmingDir = options.configDir || storageLayout.farmingConfigDir();
     this.themeSettingsFile = storageLayout.themeSettingsFile(this.farmingDir);
     this.availableThemes = this.loadAvailableThemes();
-    this.userThemeSettings = this.loadUserThemeSettings();
+    const loadedThemeSettings = this.loadUserThemeSettings();
+    this.userThemeSettings = this.normalizeUserThemeSettings(loadedThemeSettings);
+    if (JSON.stringify(this.userThemeSettings) !== JSON.stringify(loadedThemeSettings)) {
+      this.saveUserThemeSettings();
+    }
   }
   
   loadAvailableThemes() {
@@ -48,6 +52,31 @@ class ThemeManager {
       console.error('Failed to load user theme settings:', error.message);
     }
     return {};
+  }
+
+  normalizeThemeSettings(settings) {
+    const normalized = {};
+    let current = settings;
+    let depth = 0;
+
+    while (current && typeof current === 'object' && !Array.isArray(current) && depth < 20) {
+      Object.entries(current).forEach(([key, value]) => {
+        if (key !== 'settings' && normalized[key] === undefined) {
+          normalized[key] = value;
+        }
+      });
+      current = current.settings;
+      depth += 1;
+    }
+
+    return normalized;
+  }
+
+  normalizeUserThemeSettings(settings) {
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return {};
+    return Object.fromEntries(Object.entries(settings).map(([themeId, value]) => (
+      [themeId, this.normalizeThemeSettings(value)]
+    )));
   }
   
   saveUserThemeSettings() {
@@ -102,9 +131,10 @@ class ThemeManager {
       return false;
     }
     
+    const normalizedSettings = this.normalizeThemeSettings(settings);
     this.userThemeSettings[themeId] = {
       ...this.userThemeSettings[themeId],
-      ...settings
+      ...normalizedSettings
     };
     
     this.saveUserThemeSettings();

@@ -58,9 +58,13 @@ Render only when a Main Agent exists. It uses stronger visual emphasis than norm
 - static layout where possible;
 - no placeholder menu items for unimplemented actions.
 
+CRT screen texture uses static monochrome scanlines without a dark edge vignette. A lightweight scan beam runs on the approximately 6.7-second reference cycle; the region it has already crossed stays gently brighter until the cycle resets. Numeric shortcut badges retain their green phosphor fill and dark text without an extra outline.
+
 ## Sessions
 
 Session windows should use restrained CRT styling: thin borders, compact headers, and terminal-first focus. The terminal canvas should use small monospace type consistent with the global CRT density.
+
+Agent cards keep a uniform readable font and use their remaining body height for a bottom-aligned live terminal tail; excess content clips from the top and text must never be compressed. A card blinks only while the backend terminal state is working. Card and session headers use the Farming Code agent-title priority and remain on one ellipsized line.
 
 ## Dialogs
 

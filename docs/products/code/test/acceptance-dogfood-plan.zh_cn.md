@@ -98,8 +98,8 @@ Linux 目标每轮都要记录：
 覆盖：
 - Codex / Claude / bash / zsh 可执行发现。
 - Codex model / reasoning / speed。
-- Claude settings 摘要、模型、effort、permission mode。
-- agent launch profile 合并和手写 CLI 参数优先级。
+- Claude settings 摘要、模型、effort、启动 permission mode。
+- agent launch profile 合并和手写 CLI 参数优先级；运行中切换权限会用所选 flag 重启，已有稳定 provider Session ID 时 resume、没有时启动新会话，并在替换过程中保持当前 agent 与 Chat / Terminal 视图。
 
 验收不变量：
 - UI 只展示真实可用或配置推导出的选项。
@@ -114,6 +114,8 @@ Linux 目标每轮都要记录：
 - slash command、Skill mention、Claude workspace skill。
 - 附件、粘贴图片、语音按钮、plan / goal 模式。
 - 快捷键默认关闭，不能抢普通输入。
+- 不能只测底部 composer。真实 agent smoke 必须同时聚焦嵌入式 terminal 本身，直接在 CLI prompt 里输入和回车；Qoder / Claude Code / OpenCode 的重度用户经常这样工作。
+- terminal 直输必须覆盖 ASCII、中文等非 ASCII committed text、IME composition、中文和 ASCII 混输、粘贴 / committed text，以及普通 ASCII 不会被 IME fallback 重复发送。
 
 验收不变量：
 - 输入框聚焦时任何字母都不能被全局快捷键吞掉。
@@ -128,6 +130,7 @@ Linux 目标每轮都要记录：
 - 滚动到旧输出时，新输出不强拉到底。
 - jump-to-latest、terminal focus、复制工作目录。
 - 多 terminal 打开、切换、关闭和 agent 退出。
+- 排查 terminal 中文 / IME 问题时，优先参考 xterm.js / VS Code 原则：让浏览器 composition 事件在 xterm helper textarea 中完整结束，只把最终 committed text 送入 PTY；不要另造一条并行输入法路径，也不要只用 synthetic paste 代替真实 CLI 截图验证。
 
 验收不变量：
 - terminal 非空、可交互、可持续追加输出。

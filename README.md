@@ -15,6 +15,8 @@ It brings remote terminal sessions, Codex / Claude Code, project-scoped agents, 
 
 Farming is designed around remote hosting. Agents, shells, project files, and git state keep running on the remote machine. A desktop browser is good for editing, reviewing, searching, and long follow-up sessions; a mobile browser is good for checking progress, switching sessions, and sending a short intervention while away from the desk.
 
+The browser exposes two live interfaces over the same backend: Farming Code at `/farming/code/` and the original CRT interface at `/farming/crt/`. `/farming/` continues to open Farming Code. If Code cannot start or render, the failure view keeps the live CRT interface visible behind the bounded error details, without restarting running agents.
+
 For a product-oriented introduction, screenshots, and the architecture diagram, see the [Farming 2 Wiki](https://github.com/zhuwenzhuang/farming/wiki/English).
 
 ![Farming Code workspace](./docs/products/code/assets/01-code-workspace.png)
@@ -31,12 +33,12 @@ Farming first solves the practical workbench problem: put the tools needed to su
 
 Farming 2 turns the project into a remote coding workbench:
 
-- start and manage `codex`, `claude`, `bash`, and `zsh` sessions in the browser;
-- resume local Codex / Claude session history and reconnect to live Farming terminals;
+- start and manage Codex, Claude, OpenCode, Qoder, bash, and zsh sessions in the browser;
+- discover and resume local Codex, Claude, OpenCode, and Qoder session history, then reconnect it to live Farming terminals;
 - group agents by project;
 - open Project Files with Open Editors, file tree, search, Monaco editing, Markdown/image preview, git changes, diff, and blame;
 - click terminal `path:line` references and HTTP URLs;
-- use provider controls for Codex / Claude permissions, model, and speed where the underlying CLI supports them;
+- set Codex / Claude launch profiles for permissions, model, and speed where the underlying runtime supports them; App Server Codex updates permissions on its current thread, while terminal-owned sessions restart and resume when they already have a provider session id, or start fresh when no resumable id exists yet;
 - attach text and images to composer messages;
 - view lightweight usage, context, token-rate, quota, and CPU/MEM signals where available;
 - access the same remote service from desktop and mobile browsers.
@@ -45,11 +47,11 @@ Screenshots, install details, and product notes are in [Farming 2 product guide]
 
 ## Quick Start
 
-The easiest path is to run Farming on the same Linux development machine where `codex` or `claude` already works in a normal SSH shell.
+The easiest path is the npm package. Run Farming on the same development machine where `codex` or `claude` already works in a normal shell.
 
 ```bash
-chmod +x farming
-./farming daemon
+npm install --global farming-code
+farming daemon
 ```
 
 Farming defaults to port `6694`, base path `/farming`, config directory `~/.farming`, and token auth. The first authenticated start generates a random readable token and stores it in `~/.farming/.session-token`; later restarts and upgrades reuse that token unless `FARMING_TOKEN` is explicitly set. In Chinese time zones this is a Chinese haiku-style passphrase by default; Japanese time zones use Japanese haiku-style passphrases, and other time zones use English passphrases. The startup log prints a URL like:
@@ -62,15 +64,16 @@ Open that URL in a desktop or mobile browser, click `New Agent`, choose `Codex`,
 
 ## Downloads
 
-Download release artifacts from [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases), or build them locally from source.
+The npm package is the default distribution. GitHub release artifacts remain available for manual installation.
 
-Farming uses three practical deployment shapes:
+Farming uses these practical deployment shapes:
 
 | Environment | Artifact | When to use it |
 | --- | --- | --- |
-| Modern Linux | `farming_2_linux_amd64` / `farming_2_linux_arm64` | The target machine has a compatible glibc and should run a single executable. |
-| Older Linux | `farming-2.tar.gz` | CentOS 7 / glibc 2.17 style hosts that need the app bundle launcher and bundled glibc 2.28 runtime. |
-| macOS | `farming_2_darwin_arm64` | Local development, demos, and light use from a Mac. |
+| macOS and Linux | `npm install --global farming-code` | Default path. Requires Node.js 22 or newer and a system runtime that can load `node-pty`. |
+| Standalone use | platform CLI from GitHub Releases | Manual installation for environments that do not want npm; upgrades remain manual. |
+| Directory deployment | `farming-<version>-<platform>-<arch>.tar.gz` | App bundle with production dependencies and launcher scripts; it uses the target system runtime. |
+| Older Linux runtime | `farming-<version>-linux-x64-glibc217.tar.gz` | Separately built compatibility bundle. It requires Node.js 22+, but rebuilds `node-pty` against a glibc 2.17 baseline. |
 
 If you want Farming to launch Codex or Claude Code, install and log in to those CLIs on the same machine first. Farming hosts their CLI sessions; it does not replace their installation or account setup.
 
@@ -97,6 +100,15 @@ The browser terminal renderer defaults to xterm.js. The older Ghostty web render
 
 ## Install And Run
 
+### Install From npm
+
+```bash
+npm install --global farming-code
+farming daemon
+```
+
+Open **Settings → Updates** to check and install a newer npm version in one click. Farming installs the new package while the current server is still running, restarts only after installation succeeds, and attempts to restore the previous version if the new server cannot start. The equivalent manual command is `npm install --global farming-code@latest`.
+
 ### Build From Source
 
 ```bash
@@ -111,7 +123,15 @@ npm install
 npm run release:app
 ```
 
-The app bundle always includes production dependencies and `vendor/glibc228-lib.tar.gz` for older Linux hosts. If the packager cannot reach the default glibc source, set `FARMING_GLIBC_BUNDLE=/opt/farming/glibc228-lib.tar.gz` to provide the source tarball; the generated bundle still carries it.
+The app bundle includes production dependencies and launcher scripts. It does not bundle or install a private system C library; Node.js and native dependencies must run on the target system as installed.
+
+Older Linux compatibility is an explicit, separate build and is not part of the normal release workflow. Run the following command inside a clean Linux x64 builder that has glibc 2.17, Node.js 22+, GCC/G++, Make, and Python 3:
+
+```bash
+npm run release:app:linux-compat
+```
+
+The command forces `node-pty` to build from source and rejects the archive unless its native module requires no newer than glibc 2.17. Install it remotely with `FARMING_REMOTE=user@host FARMING_RELEASE_TARBALL=<archive> npm run release:remote:linux-compat`. This compatibility bundle still uses the target machine's Node.js and libc; it does not carry a private glibc or a custom loader.
 
 ### Run A Single-File CLI
 
@@ -134,18 +154,12 @@ Useful commands:
 ### Run An App Bundle
 
 ```bash
-tar -xzf farming-2.tar.gz
-cd farming-2
+tar -xzf farming-<version>-linux-x64.tar.gz
+cd farming-<version>-linux-x64
 ./farming
 ```
 
-On older Linux hosts the same command works. The launcher uses `FARMING_USE_GLIBC=auto` by default and installs the bundled glibc 2.28 runtime when the system glibc is too old.
-
-For older Linux environments with an existing glibc 2.28 runtime:
-
-```bash
-FARMING_USE_GLIBC=auto FARMING_GLIBC_ROOT=/opt/farming/glibc228 ./farming
-```
+The launcher uses the target machine's ordinary Node.js and native runtime. Farming no longer bundles, downloads, or selects a private system C library.
 
 ## Development
 
@@ -178,23 +192,15 @@ Common settings:
 - `defaultLaunchAgent`
 - `agentLaunchProfiles.codex`
 - `agentLaunchProfiles.claude`
+- `agentHomes` (home metadata for Codex, Claude, OpenCode, and Qoder; each provider keeps a non-removable `default` home)
 - `workspaceHistory`
-- `dangerouslySkipAgentPermissionsByDefault`
+- `dangerouslySkipAgentPermissionsByDefault` (launch supported coding agents such as Codex, Claude, OpenCode, Qoder, Qwen, Aider, GitHub Copilot CLI, and Amazon Q with their provider-specific dangerous permission-skip flags by default)
 
 Native terminal sessions are owned by a Farming pty host reached through a local socket derived from `configDir`. By default the host is preserved during server shutdown so a restarted Farming server can recover live terminals; after the last live session and client disappear, the host shuts itself down after a short idle grace period. Set `FARMING_NATIVE_PTY_HOST_PERSIST=0` to tie the host lifetime to the server process. Terminal work should target the native pty host and xterm.js path.
 
-In-app upgrades are disabled unless an update source is configured. Set `FARMING_UPDATE_MANIFEST_URL` to an HTTP(S) JSON manifest that declares a version and an app-bundle tarball:
+Update behavior follows the installation method. npm installations read versions from the npm registry and provide one-click upgrades in **Settings → Updates**. Source checkouts update through Git, and standalone CLI artifacts are replaced manually. App-bundle installations can use a trusted HTTP(S) package directory or manifest URL; the updater only offers a bundle matching the current OS and CPU architecture and verifies its checksum before installation. The app-bundle Update URL is stored in `~/.farming/settings.json` as `updateUrl`.
 
-```json
-{
-  "version": "2.0.7",
-  "tarUrl": "farming-2.0.7.tar.gz",
-  "bundledGlibc": true,
-  "sha256": "<optional-sha256>"
-}
-```
-
-Relative `tarUrl` values are resolved relative to the manifest URL. Use `FARMING_UPDATE_ASSET_BASE_URL` when tarballs live under a different base URL. The updater does not contact GitHub unless you explicitly point `FARMING_UPDATE_MANIFEST_URL` at a GitHub-hosted manifest.
+The simplest source is an HTTP(S) directory URL ending in `/` that lists platform-tagged `farming-<version>-<platform>-<arch>.tar.gz` app bundles and an adjacent `<bundle>.sha256` file for every bundle. Farming verifies the selected bundle's SHA-256 and archive layout before extraction, then runs its installer.
 
 Example deployment templates:
 
@@ -209,14 +215,14 @@ Farming controls real terminals and agent processes on the target machine. Run i
 
 The startup token protects both HTTP and WebSocket traffic. It is generated on first authenticated startup, persisted in `~/.farming/.session-token`, and reused across restarts and upgrades. The generated token is designed to be easier to copy than a long hexadecimal secret: Chinese time zones get a Chinese haiku-style passphrase by default, Japanese time zones get a Japanese haiku-style passphrase, and other time zones get an English passphrase. `FARMING_TOKEN_LOCALE=zh|ja|en|auto` can override generation behavior for a new token.
 
-`FARMING_DISABLE_AUTH=1` is only for trusted local development. Agent permissions are still handled by the underlying Codex / Claude Code profile and CLI behavior.
+`FARMING_DISABLE_AUTH=1` is only for trusted local development. Terminal-owned Codex / Claude sessions apply a permission change by restarting with the selected CLI flags, resuming when a provider session id is available and starting fresh otherwise. App Server Codex applies the new approval and sandbox policy to its existing thread without a CLI restart.
 
 See [SECURITY.md](./SECURITY.md) for the reporting policy and deployment notes.
 
 ## Troubleshooting
 
 - **No `codex` or `claude` option works**: verify the CLI is installed, logged in, and runnable from a normal shell on the same host.
-- **Native PTY cannot start**: verify the packaged `node-pty` runtime can load on the host; on older Linux hosts use the `farming-2.tar.gz` app bundle instead of the single-file binary.
+- **Native PTY cannot start**: verify the target system's Node.js and packaged `node-pty` runtime are compatible; Farming does not provide a private system-runtime compatibility layer.
 - **Port already in use**: pass `--port <port>` or let the default daemon mode choose the next available port when no explicit port is provided.
 - **Phone cannot connect**: use the network URL printed by the server and make sure the phone can reach the target machine.
 - **Lost the token URL**: run `./farming url`, or check `./farming logs`.
@@ -228,6 +234,8 @@ farming/
 ├── .gitattributes          # Source archive export rules
 ├── backend/                 # Node.js server, session engines, and backend APIs
 ├── src/                     # React + Vite frontend; Farming Code helpers live under src/components/code/
+├── frontend/skins/crt/      # Independent live CRT entry, app, and visual effects
+├── frontend/*.js            # Shared terminal/session browser bridges
 ├── docs/products/code/      # Farming Code product docs and screenshots
 ├── docs/products/crt/       # CRT skin layout docs
 ├── config/                  # deployment / install templates

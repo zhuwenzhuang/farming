@@ -36,6 +36,14 @@ export async function writeTerminalClipboardText(text: string) {
   const textarea = document.createElement('textarea')
   textarea.value = text
   textarea.setAttribute('readonly', 'true')
+  textarea.setAttribute('autocomplete', 'off')
+  textarea.setAttribute('autocorrect', 'off')
+  textarea.setAttribute('autocapitalize', 'none')
+  textarea.setAttribute('spellcheck', 'false')
+  textarea.setAttribute('data-lpignore', 'true')
+  textarea.setAttribute('data-1p-ignore', 'true')
+  textarea.setAttribute('data-bwignore', 'true')
+  textarea.setAttribute('data-form-type', 'other')
   textarea.style.position = 'fixed'
   textarea.style.left = '-9999px'
   textarea.style.top = '0'

@@ -1,6 +1,7 @@
 import type { MutableRefObject, RefObject } from 'react'
 import type { NodeRendererProps } from 'react-arborist'
-import { iconForDirectoryPath, iconForFilePath } from '@/lib/file-icons'
+import { ChevronDownGlyph, ChevronRightGlyph } from '@/components/IconGlyphs'
+import { iconForFilePath } from '@/lib/file-icons'
 import type {
   WorkspaceFileOperationState,
 } from '@/lib/workspace-file-operation-model'
@@ -24,6 +25,7 @@ interface FileTreeRowProps {
   fileOperation: WorkspaceFileOperationState | null
   fileOperationInputRef: RefObject<HTMLInputElement | null>
   lastFocusedFilePathRef: MutableRefObject<string | null>
+  locatedFilePath?: string | null
   node: NodeRendererProps<FileExplorerNode>['node']
   openFilePendingPath?: string | null
   treeViewportRef: RefObject<HTMLDivElement | null>
@@ -46,6 +48,7 @@ export function FileTreeRow({
   fileOperation,
   fileOperationInputRef,
   lastFocusedFilePathRef,
+  locatedFilePath,
   node,
   openFilePendingPath,
   treeViewportRef,
@@ -72,17 +75,16 @@ export function FileTreeRow({
   const {
     chevronState,
     isDirectory,
-    rowClasses,
   } = viewState
-  const iconUrl = isDirectory
-    ? iconForDirectoryPath(item.iconPath ?? item.path, node.isOpen, item.iconSignals)
-    : iconForFilePath(item.path)
+  const rowClasses = `${viewState.rowClasses} ${locatedFilePath === item.path ? 'located' : ''}`.trim()
+  const iconUrl = isDirectory ? '' : iconForFilePath(item.path)
   const inlineRenameOperation = fileOperation?.kind === 'rename' && fileOperation.item?.path === item.path
     ? fileOperation
     : null
   const {
     handleRowClick,
     handleRowContextMenu,
+    handleRowMouseDown,
   } = useFileTreeRowInteractions({
     isDirectory,
     item,
@@ -104,18 +106,19 @@ export function FileTreeRow({
       data-file-type={item.type}
       data-tree-level={node.level}
       aria-label={item.path}
+      title={item.linkTarget ? `${item.path} ↷ ${item.linkTarget}` : item.linkError ? `${item.path} (${item.linkError})` : undefined}
       tabIndex={-1}
       aria-expanded={isDirectory ? node.isOpen : undefined}
       onContextMenu={handleRowContextMenu}
+      onMouseDown={handleRowMouseDown}
       onClick={handleRowClick}
     >
-      <span className={`code-file-chevron ${chevronState}`} aria-hidden="true" />
-      <img
-        className={`code-file-type-icon ${isDirectory ? 'folder' : 'file'} ${isDirectory && node.isOpen ? 'open' : ''}`}
-        src={iconUrl}
-        alt=""
-        aria-hidden="true"
-      />
+      <span className={`code-file-chevron ${chevronState}`} aria-hidden="true">
+        {chevronState === 'expanded' ? <ChevronDownGlyph /> : chevronState === 'collapsed' ? <ChevronRightGlyph /> : null}
+      </span>
+      {!isDirectory && (
+        <img className="code-file-type-icon file" src={iconUrl} alt="" aria-hidden="true" />
+      )}
       {inlineRenameOperation ? (
         <FileTreeInlineOperation
           agentId={agentId}

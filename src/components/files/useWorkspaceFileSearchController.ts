@@ -90,8 +90,16 @@ export function useWorkspaceFileSearchController({
 
   useEffect(() => {
     if (!fileSearch.active || fileSearch.matches.length === 0) return
-    const activeResult = fileSearchResultsRef.current?.querySelector<HTMLElement>('.code-file-search-result.active')
-    activeResult?.scrollIntoView({ block: 'nearest' })
+    const results = fileSearchResultsRef.current
+    const activeResult = results?.querySelector<HTMLElement>('.code-file-search-result.active')
+    if (!results || !activeResult) return
+    const resultTop = activeResult.offsetTop
+    const resultBottom = resultTop + activeResult.offsetHeight
+    if (resultTop < results.scrollTop) {
+      results.scrollTop = resultTop
+    } else if (resultBottom > results.scrollTop + results.clientHeight) {
+      results.scrollTop = resultBottom - results.clientHeight
+    }
   }, [fileSearch.active, fileSearch.activeMatchIndex, fileSearch.matches.length, fileSearchResultsRef])
 
   useEffect(() => {

@@ -32,9 +32,15 @@ function parseProviderSessionKey(key) {
   const match = String(key || '').match(/^agent-session:([^:]+):(.+)$/);
   if (!match) return null;
   const provider = String(match[1] || '').trim().toLowerCase();
-  const sessionId = String(match[2] || '').trim();
+  let sessionId = String(match[2] || '').trim();
+  let providerHomeId = 'default';
+  const homeMatch = sessionId.match(/^home:([A-Za-z0-9._-]+):(.+)$/);
+  if (homeMatch) {
+    providerHomeId = homeMatch[1];
+    sessionId = String(homeMatch[2] || '').trim();
+  }
   if (!provider || !sessionId) return null;
-  return { provider, sessionId };
+  return { provider, providerHomeId, sessionId };
 }
 
 class FarmingSessionStore {
@@ -132,7 +138,10 @@ class FarmingSessionStore {
     if (!agent || agent.providerSessionTemporary === true) return '';
     if (agent.providerSessionKey) return agent.providerSessionKey;
     if (agent.providerSessionProvider && agent.providerSessionId) {
-      return `agent-session:${agent.providerSessionProvider}:${agent.providerSessionId}`;
+      const homeId = typeof agent.providerHomeId === 'string' ? agent.providerHomeId.trim() : '';
+      return homeId && homeId !== 'default'
+        ? `agent-session:${agent.providerSessionProvider}:home:${homeId}:${agent.providerSessionId}`
+        : `agent-session:${agent.providerSessionProvider}:${agent.providerSessionId}`;
     }
     return '';
   }
@@ -149,21 +158,42 @@ class FarmingSessionStore {
       mainWorkspace: typeof agent.mainWorkspace === 'string' ? agent.mainWorkspace : '',
       source: typeof agent.source === 'string' ? agent.source : '',
       provider: parsed ? parsed.provider : (typeof agent.providerSessionProvider === 'string' ? agent.providerSessionProvider : ''),
+      providerHomeId: parsed ? parsed.providerHomeId : (typeof agent.providerHomeId === 'string' ? agent.providerHomeId : ''),
+      providerHomePath: typeof agent.providerHomePath === 'string' ? agent.providerHomePath : '',
       providerSessionId: parsed ? parsed.sessionId : (typeof agent.providerSessionId === 'string' ? agent.providerSessionId : ''),
       providerSessionKey,
       providerSessionTemporary: agent.providerSessionTemporary === true,
       providerSessionSource: typeof agent.providerSessionSource === 'string' ? agent.providerSessionSource : '',
       providerSessionResolvedAt: typeof agent.providerSessionResolvedAt === 'number' ? agent.providerSessionResolvedAt : null,
+      providerSessionTitle: typeof agent.providerSessionTitle === 'string' ? agent.providerSessionTitle : '',
+      codexRuntimeMode: typeof agent.codexRuntimeMode === 'string' ? agent.codexRuntimeMode : '',
+      codexAppServerHomePath: typeof agent.codexAppServerHomePath === 'string' ? agent.codexAppServerHomePath : '',
+      codexAppServerState: typeof agent.codexAppServerState === 'string' ? agent.codexAppServerState : '',
+      codexAppServerEndpoint: typeof agent.codexAppServerEndpoint === 'string' ? agent.codexAppServerEndpoint : '',
+      codexAppServerThreadId: typeof agent.codexAppServerThreadId === 'string' ? agent.codexAppServerThreadId : '',
+      codexAppServerTurnId: typeof agent.codexAppServerTurnId === 'string' ? agent.codexAppServerTurnId : '',
+      codexAppServerError: typeof agent.codexAppServerError === 'string' ? agent.codexAppServerError : '',
+      codexCliObserverDeferred: agent.codexCliObserverDeferred === true,
       engine: typeof agent.engineName === 'string' ? agent.engineName : '',
       category: typeof agent.category === 'string' ? agent.category : '',
       task: typeof agent.task === 'string' ? agent.task : '',
       workflowTemplate: typeof agent.workflowTemplate === 'string' ? agent.workflowTemplate : '',
       pinned: agent.pinned === true,
+      projectOrder: typeof agent.projectOrder === 'number' && Number.isFinite(agent.projectOrder) ? agent.projectOrder : null,
+      pinnedOrder: typeof agent.pinnedOrder === 'number' && Number.isFinite(agent.pinnedOrder) ? agent.pinnedOrder : null,
+      attentionSeq: typeof agent.attentionSeq === 'number' && Number.isFinite(agent.attentionSeq) ? Math.max(0, Math.floor(agent.attentionSeq)) : 0,
+      readAttentionSeq: typeof agent.readAttentionSeq === 'number' && Number.isFinite(agent.readAttentionSeq) ? Math.max(0, Math.floor(agent.readAttentionSeq)) : 0,
+      attentionUpdatedAt: typeof agent.attentionUpdatedAt === 'number' ? agent.attentionUpdatedAt : null,
+      readAttentionAt: typeof agent.readAttentionAt === 'number' ? agent.readAttentionAt : null,
+      attentionReason: typeof agent.attentionReason === 'string' ? agent.attentionReason : '',
+      attentionOutputSeq: typeof agent.attentionOutputSeq === 'number' ? agent.attentionOutputSeq : null,
       archived: agent.archived === true,
       archivedAt: typeof agent.archivedAt === 'number' ? agent.archivedAt : null,
       title: typeof agent.customTitle === 'string' && agent.customTitle
         ? agent.customTitle
-        : (typeof agent.sessionTitle === 'string' ? agent.sessionTitle : ''),
+        : (typeof agent.providerSessionTitle === 'string' && agent.providerSessionTitle
+          ? agent.providerSessionTitle
+          : (typeof agent.sessionTitle === 'string' ? agent.sessionTitle : '')),
       startedAt: typeof agent.startedAt === 'number' ? agent.startedAt : null,
       lastSeenAt: now(),
     };
@@ -187,6 +217,7 @@ class FarmingSessionStore {
       ...existing,
       ...patch,
       provider: parsed.provider,
+      providerHomeId: parsed.providerHomeId,
       providerSessionId: parsed.sessionId,
       providerSessionKey: sessionKey,
       providerSessionTemporary: false,
@@ -224,6 +255,12 @@ class FarmingSessionStore {
     };
     this.writeRecord(record);
     return id;
+  }
+
+  setProviderSessionDisplayState(sessionKey, patch = {}) {
+    const displayPatch = {};
+    if (typeof patch.pinned === 'boolean') displayPatch.displayPinned = patch.pinned;
+    return this.ensureRecordForProviderSessionKey(sessionKey, displayPatch);
   }
 
   rememberMainPageSessionKey(sessionKey, patch = {}) {
@@ -307,6 +344,20 @@ class FarmingSessionStore {
 
   getMainPageSessionKeys() {
     return this.ensureIndex().mainPageSessionKeys.slice();
+  }
+
+  listAgentRecords() {
+    this.ensureIndex();
+    let names = [];
+    try {
+      names = fs.readdirSync(this.sessionsDir);
+    } catch {
+      return [];
+    }
+    return names
+      .filter(name => name.endsWith('.json') && safeSessionFileName(name.slice(0, -5)))
+      .map(name => this.readRecord(name.slice(0, -5)))
+      .filter(record => record && record.kind === 'agent');
   }
 }
 

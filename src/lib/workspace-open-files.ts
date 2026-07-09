@@ -15,8 +15,11 @@ export interface WorkspaceFileOpenTarget {
   endColumn?: number
   view?: 'editor' | 'diff'
   diffOnly?: boolean
+  globalRoot?: boolean
   revealInTree?: boolean
+  sourceAgentId?: string
   transient?: boolean
+  suppressSearchOnMiss?: boolean
   gitStatus?: WorkspaceFile['gitStatus']
   gitStatusLabel?: string
 }

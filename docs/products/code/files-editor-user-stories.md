@@ -55,6 +55,8 @@ Expected:
 - Binary files show metadata previews.
 - Very large text opens as a readonly preview and does not enter the save path.
 - Project / agent / Files context stays visible.
+- A missing editor or application chunk never leaves a blank screen: Farming retries once, then shows a compact reload state with a bounded error type, failed request path, available status, and reason if recovery still fails. Reloading the page does not stop running agents.
+- Visual QA has a stable `/farming/error-preview` route. Query previews remain available through `?farming-error-preview=light` or `?farming-error-preview=dark`; append `&farming-error-language=zh` for Chinese copy. The reload action returns to Farming.
 
 ### 3. Search And Jump
 
@@ -71,6 +73,7 @@ Expected:
 - Results expose listbox / option semantics.
 - Arrow keys move the active result.
 - Selecting a result opens the file and moves the editor cursor to the target line.
+- If a search stops early, the result panel shows the active timeout. Change it with a live preset slider in **Settings → File Search** (3 seconds to 3 minutes; default 3 seconds).
 
 ### 4. Edit And Save
 
@@ -131,6 +134,38 @@ Expected:
 - Open editors should show an external-change state.
 - The user can reload without losing the current project context.
 
+### 10. Symbolic Links
+
+Expected:
+
+- A symbolic link keeps its target type: directory links expand and file links open in place, with a small link decoration like VS Code Explorer.
+- Links that resolve inside the project retain normal editing behavior.
+- Links to another workspace already allowed by Farming's global Files roots remain under their project alias and are read-only.
+- Broken links and links outside the allowed roots stay visible but cannot be opened.
+- Rename and delete operate on the link entry itself. Farming must never delete or move an external target through its project alias.
+- Git status remains scoped to the project entry and does not merge the external target repository into the project repository.
+
+### 11. Restore The Workspace View After Reload
+
+Expected:
+
+- Reloading the page restores the last Projects surface: either the selected Agent terminal or the file that was open in the editor.
+- File restoration is scoped by workspace, reopens the latest saved disk content, restores an optional cursor location, and reveals the file's parent directories in Files.
+- Each workspace remembers whether Files was collapsed and which directory paths were expanded, even when the Agent terminal was the active surface at reload time.
+- Missing Agents, workspaces, or files never trap the user in a broken editor; Farming clears the stale target and falls back to an available Projects surface.
+- This is browser-local navigation state, not editor hot exit. Unsaved editor drafts are not persisted across a full page reload.
+
+### 12. URL Location Targets
+
+Expected:
+
+- Agent, file, and folder locations share one URL target contract.
+- A file target opens the editor and restores its optional line and column.
+- A folder target opens a representative file from that directory when available: `README.md`, then another Markdown file, then the first file. If the directory has no direct files, Files loads its ancestors, places the folder near the top, and temporarily highlights it until the user clicks elsewhere.
+- Global `/` file and folder targets use the existing global Files identity and allowed-root checks; they are not treated as terminal agents.
+- Symbolic-link locations keep their visible alias path in the URL, such as `reference/lobe-icons`, rather than exposing the resolved external path.
+- File and folder context menus expose `Copy Share URL`; it reuses the same authenticated long URL produced by the QR share flow.
+
 ## Human Acceptance Script
 
 1. Start a project agent in a temporary git repository.
@@ -145,3 +180,5 @@ Expected:
 10. Open a changed file from `Changes` and verify the main pane shows Monaco diff.
 11. Close a dirty file and verify the save/discard/cancel dialog.
 12. Repeat the path on a narrow mobile viewport.
+13. Add internal and allowed external file/directory links; verify inline navigation, read-only external files, and link-only deletion.
+14. Expand nested directories, open a file, and reload; verify the same file and directory path are restored. Return to the Agent terminal, reload again, and verify the terminal stays active while the Files expansion remains unchanged.

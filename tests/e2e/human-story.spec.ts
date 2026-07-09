@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   expect,
+  getAgentRowIds,
   openFarming,
   openNewAgentDialog,
   scrollTerminalToLine,
@@ -146,7 +147,10 @@ test.describe('human Farming Agent story', () => {
     await expect.poll(() => page.evaluate((id) => window.__farmingTerminalTest?.getSelection(id), agentId)).toBe('')
   })
 
-  test('supports mobile terminal drag scroll and copy without page drift', async ({ page, workspaceRoot }) => {
+  test.describe('touch mobile terminal', () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+    test('supports mobile terminal drag scroll and copy without page drift', async ({ page, workspaceRoot }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await openFarming(page)
     if ((await page.getByTestId('code-workspace').getAttribute('class'))?.includes('sidebar-collapsed')) {
@@ -216,7 +220,7 @@ test.describe('human Farming Agent story', () => {
     expect(dragMetrics.documentScrollLeft).toBe(0)
     expect(dragMetrics.documentScrollTop).toBe(0)
     expect(dragMetrics.workspaceScrollWidth).toBeLessThanOrEqual(dragMetrics.workspaceClientWidth + 1)
-    expect(dragMetrics.terminalTouchAction).toBe('none')
+    expect(dragMetrics.terminalTouchAction).toBe('pan-y')
 
     const copyTarget = 'mobile-copy-target'
     await page.evaluate(() => {
@@ -262,6 +266,7 @@ test.describe('human Farming Agent story', () => {
     await expect.poll(async () => page.evaluate(() => {
       return (window as unknown as { __copiedText?: string }).__copiedText
     })).toBe(copyTarget)
+    })
   })
 
   test('opens terminal URLs and copies selected terminal text after right click', async ({ page, workspaceRoot }) => {
@@ -603,8 +608,52 @@ test.describe('human Farming Agent story', () => {
   test('shows Claude Code as an available launch option without starting it', async ({ page }) => {
     await openFarming(page)
     await openNewAgentDialog(page)
+    await expect(page.getByTestId('agent-option-codex').locator('.agent-launch-icon-codex')).toBeVisible()
     await expect(page.getByTestId('agent-option-claude')).toContainText('Claude Code')
+    await expect(page.getByTestId('agent-option-claude').locator('.agent-launch-icon-claude')).toBeVisible()
+    await expect(page.getByTestId('agent-option-bash').locator('.agent-launch-icon-bash')).toBeVisible()
+    await expect(page.getByTestId('agent-option-zsh').locator('.agent-launch-icon-zsh')).toBeVisible()
     await expect(page.getByTestId('code-agent-row')).toHaveCount(0)
+  })
+
+  test('keeps a newly created shell active when another agent is already open', async ({ page, workspaceRoot }) => {
+    await openFarming(page)
+    const projectDir = path.join(workspaceRoot, 'selection-race')
+    fs.mkdirSync(projectDir, { recursive: true })
+
+    await openNewAgentDialog(page)
+    const bashAgentId = await startAgentFromOpenDialog(page, 'bash', projectDir)
+    await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${bashAgentId}"]`)).toHaveClass(/active/)
+
+    await openNewAgentDialog(page)
+    const zshAgentId = await startAgentFromOpenDialog(page, 'zsh', projectDir)
+    await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${zshAgentId}"]`)).toHaveClass(/active/)
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${zshAgentId}"]`)).toBeVisible()
+    await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${bashAgentId}"]`)).not.toHaveClass(/active/)
+  })
+
+  test('activates a same-worktree fork instead of falling back to the previously active shell', async ({ page, workspaceRoot }) => {
+    await openFarming(page)
+    const projectDir = path.join(workspaceRoot, 'fork-selection-race')
+    fs.mkdirSync(projectDir, { recursive: true })
+
+    await openNewAgentDialog(page)
+    const bashAgentId = await startAgentFromOpenDialog(page, 'bash', projectDir)
+    await openNewAgentDialog(page)
+    const zshAgentId = await startAgentFromOpenDialog(page, 'zsh', projectDir)
+    const beforeIds = new Set(await getAgentRowIds(page))
+
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${bashAgentId}"]`).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Fork into same worktree' }).click()
+    await expect.poll(async () => (
+      (await getAgentRowIds(page)).find(agentId => !beforeIds.has(agentId)) ?? ''
+    ), { timeout: 30_000 }).not.toBe('')
+
+    const createdAgentId = (await getAgentRowIds(page)).find(agentId => !beforeIds.has(agentId))
+    if (!createdAgentId) throw new Error('Forked agent row is missing')
+    await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${createdAgentId}"]`)).toHaveClass(/active/)
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${createdAgentId}"]`)).toBeVisible()
+    await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${zshAgentId}"]`)).not.toHaveClass(/active/)
   })
 
   test('opens an existing project agent and completes a real file edit through the terminal', async ({ page, workspaceRoot }) => {
@@ -646,7 +695,7 @@ test.describe('human Farming Agent story', () => {
 
     await expect.poll(() => fs.readFileSync(appFile, 'utf8')).toContain('console.log(greet("Farming"))')
     const text = await sessionText(page, bashAgentId)
-    expect(text).toContain('\u001b[90m[')
+    expect(text).toContain('\u001b[90m│')
     expect(text).toContain('\u001b[32m')
     expect(text).toContain('\u001b[34m')
   })

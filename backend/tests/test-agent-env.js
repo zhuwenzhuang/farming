@@ -93,7 +93,7 @@ async function run() {
     NO_COLOR: '1',
     PAGER: 'cat',
     GIT_PAGER: 'cat',
-    LD_LIBRARY_PATH: '/server/glibc',
+    LD_LIBRARY_PATH: '/server/runtime-libraries',
     NODE_OPTIONS: '--max-old-space-size=99999',
     TERM_PROGRAM_VERSION: 'not-farming',
   });
@@ -118,6 +118,7 @@ async function run() {
   assert.strictEqual(shellOptions.env.PAGER, undefined);
   assert.strictEqual(shellOptions.env.GIT_PAGER, undefined);
 
+  const resolvedShells = [];
   const manager = new AgentManager({
     getWorkspace() {
       return '/tmp';
@@ -126,19 +127,40 @@ async function run() {
       return 1000;
     },
   }, {
-    agentShellEnvProvider() {
-      return { PATH: '/shell/bin' };
+    agentShellEnvProvider(shell) {
+      resolvedShells.push(shell || 'default');
+      return String(shell).endsWith('zsh')
+        ? { PATH: '/zsh/bin', PROMPT: 'zsh prompt', RPROMPT: 'zsh right prompt' }
+        : { PATH: '/bash/bin', PS1: 'bash prompt', PROMPT_COMMAND: 'bash hook' };
     },
   });
   const previousPager = process.env.PAGER;
   const previousGitPager = process.env.GIT_PAGER;
+  const previousControlledPrompt = process.env.FARMING_SHELL_CONTROLLED_PROMPT;
+  const previousAnonymousPrompt = process.env.FARMING_ANONYMIZE_SHELL_PROMPT;
   process.env.PAGER = 'cat';
   process.env.GIT_PAGER = 'cat';
+  process.env.FARMING_SHELL_CONTROLLED_PROMPT = '1';
+  process.env.FARMING_ANONYMIZE_SHELL_PROMPT = '1';
   try {
-    const env = manager.buildAgentEnv('agent-env', { wantsMain: false });
+    const env = manager.buildAgentEnv('agent-env', { wantsMain: false, category: 'other', command: 'bash' });
     assert.strictEqual(env.PATH.startsWith(`${manager.cliBinDir}${path.delimiter}`), true);
     assert.strictEqual(env.PAGER, undefined);
     assert.strictEqual(env.GIT_PAGER, undefined);
+    assert.strictEqual(env.FARMING_SHELL_CONTROLLED_PROMPT, '1', 'shell sessions should retain their explicit prompt policy');
+    assert.strictEqual(env.FARMING_ANONYMIZE_SHELL_PROMPT, '1');
+    assert.strictEqual(env.PS1, undefined, 'bash must source its own prompt instead of inheriting another shell prompt');
+    assert.strictEqual(env.PROMPT_COMMAND, undefined, 'bash must source its own prompt hook instead of inheriting one');
+
+    const zshEnv = manager.buildAgentEnv('agent-zsh', { wantsMain: false, category: 'other', command: 'zsh' });
+    assert.strictEqual(zshEnv.PATH.startsWith(`${manager.cliBinDir}${path.delimiter}/zsh/bin`), true);
+    assert.strictEqual(zshEnv.PROMPT, undefined, 'zsh must source its own prompt instead of inheriting another shell prompt');
+    assert.strictEqual(zshEnv.RPROMPT, undefined, 'zsh must source its own right prompt instead of inheriting one');
+    assert(resolvedShells.some(shell => String(shell).endsWith('bash')) && resolvedShells.some(shell => String(shell).endsWith('zsh')), 'shell environment capture should be keyed by the target shell');
+
+    const codingEnv = manager.buildAgentEnv('agent-coding', { wantsMain: false, category: 'coding' });
+    assert.strictEqual(codingEnv.FARMING_SHELL_CONTROLLED_PROMPT, undefined, 'coding CLIs should not inherit shell prompt policy');
+    assert.strictEqual(codingEnv.FARMING_ANONYMIZE_SHELL_PROMPT, undefined, 'coding CLIs should not inherit shell anonymization policy');
   } finally {
     clearInterval(manager.heartbeatInterval);
     await manager.engineBridge.dispose();
@@ -146,6 +168,10 @@ async function run() {
     else process.env.PAGER = previousPager;
     if (previousGitPager === undefined) delete process.env.GIT_PAGER;
     else process.env.GIT_PAGER = previousGitPager;
+    if (previousControlledPrompt === undefined) delete process.env.FARMING_SHELL_CONTROLLED_PROMPT;
+    else process.env.FARMING_SHELL_CONTROLLED_PROMPT = previousControlledPrompt;
+    if (previousAnonymousPrompt === undefined) delete process.env.FARMING_ANONYMIZE_SHELL_PROMPT;
+    else process.env.FARMING_ANONYMIZE_SHELL_PROMPT = previousAnonymousPrompt;
   }
 
   console.log('✓ Agent env removes non-interactive cat pagers');

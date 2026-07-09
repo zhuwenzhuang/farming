@@ -6,9 +6,12 @@ const https = require('https');
 const os = require('os');
 const path = require('path');
 const { pipeline } = require('stream/promises');
+const storageLayout = require('./storage-layout');
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-const UPDATE_SOURCE_UNCONFIGURED_REASON = 'Update source is not configured. Set FARMING_UPDATE_MANIFEST_URL to enable in-app upgrades.';
+const UPDATE_SOURCE_UNCONFIGURED_REASON = 'Update source is empty. Save an Update URL in Settings or restore the default source.';
+const NPM_PACKAGE_NAME = 'farming-code';
+const DEFAULT_NPM_REGISTRY = 'https://registry.npmjs.org';
 
 function readJsonFile(filePath) {
   try {
@@ -48,8 +51,47 @@ function compareVersions(left, right) {
   return 0;
 }
 
+function detectInstallMethod(rootDir, options = {}) {
+  if (options.packagedRuntime) return 'standalone-cli';
+  const release = readJsonFile(path.join(rootDir, 'RELEASE.json')) || {};
+  if (release.type) return String(release.type);
+  if (fs.existsSync(path.join(rootDir, '.farming.pid')) || fs.existsSync(path.join(rootDir, '.farming-launcher.sh'))) {
+    return 'app-bundle';
+  }
+  const pkg = readJsonFile(path.join(rootDir, 'package.json')) || {};
+  if (pkg.name === NPM_PACKAGE_NAME && !fs.existsSync(path.join(rootDir, '.git'))) return 'npm';
+  return 'source';
+}
+
+function installMethodAllowsBundleUpdate(method) {
+  return method === 'app-bundle' || method === 'source-deploy';
+}
+
+function installMethodBlockedReason(method) {
+  if (method === 'source') return 'Source checkouts update through Git, not the in-app updater';
+  if (method === 'standalone-cli') return 'Standalone CLI updates must reinstall the matching release asset';
+  return `In-app updates are not supported for ${method || 'this installation'}`;
+}
+
+function hasComparableVersion(value) {
+  return versionParts(value).length > 0;
+}
+
+function releaseVersionFromAsset(asset) {
+  return normalizeVersion(asset && (
+    asset.releaseVersion ||
+    asset.version ||
+    asset.file ||
+    asset.name ||
+    basenameFromUrl(asset.browser_download_url || asset.downloadUrl || asset.url)
+  ));
+}
+
 function releaseVersionFromRelease(release) {
-  return normalizeVersion(release && (release.tag_name || release.name));
+  const taggedVersion = normalizeVersion(release && (release.tag_name || release.name));
+  if (hasComparableVersion(taggedVersion)) return taggedVersion;
+  const assetVersion = releaseVersionFromAsset(selectReleaseAsset(release));
+  return hasComparableVersion(assetVersion) ? assetVersion : taggedVersion;
 }
 
 function releaseVersionFromManifest(manifest) {
@@ -59,7 +101,7 @@ function releaseVersionFromManifest(manifest) {
   if (manifest.tag) return normalizeVersion(manifest.tag);
   const assets = manifestAssets(manifest);
   const appBundle = assets.find(asset => asset && asset.type === 'app-bundle') || assets[0];
-  return normalizeVersion(appBundle && (appBundle.releaseVersion || appBundle.file || appBundle.name));
+  return releaseVersionFromAsset(appBundle);
 }
 
 function releaseTagFromManifest(manifest) {
@@ -108,9 +150,57 @@ function manifestAssets(manifest) {
     url: tarUrl,
     size: manifest.size || manifest.bytes || 0,
     sha256: manifest.sha256 || '',
-    bundledGlibc: manifest.bundledGlibc,
     releaseVersion: manifest.releaseVersion || manifest.version || '',
   }];
+}
+
+function normalizeSha256(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return /^[a-f0-9]{64}$/.test(normalized) ? normalized : '';
+}
+
+function normalizePlatform(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'darwin' || raw === 'macos' || raw === 'macosx' || raw === 'osx') return 'darwin';
+  if (raw === 'linux') return 'linux';
+  return raw;
+}
+
+function normalizeArch(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'x64' || raw === 'amd64' || raw === 'x86_64') return 'x64';
+  if (raw === 'arm64' || raw === 'aarch64') return 'arm64';
+  return raw;
+}
+
+function assetMatchesRuntime(asset, runtime) {
+  if (!runtime) return true;
+  return normalizePlatform(asset && asset.platform) === runtime.platform
+    && normalizeArch(asset && asset.arch) === runtime.arch;
+}
+
+function runtimeFromBundleName(value) {
+  const match = /-(darwin|linux)-(x64|arm64)\.tar\.gz$/i.exec(String(value || ''));
+  return match ? { platform: normalizePlatform(match[1]), arch: normalizeArch(match[2]) } : null;
+}
+
+function releaseFromAssetListing(release) {
+  const rawAssets = Array.isArray(release && release.assets) ? release.assets : [];
+  const checksumAsset = rawAssets.find(asset => /(?:checksums?|sha256)\.(?:txt|sha256)$/i.test(String(asset && asset.name || '')));
+  return {
+    ...release,
+    __directAssets: true,
+    assets: rawAssets.map(asset => {
+      const runtime = runtimeFromBundleName(asset && asset.name);
+      const isBundle = /^farming[-_].*\.tar\.gz$/i.test(String(asset && asset.name || ''));
+      return {
+        ...asset,
+        ...(isBundle ? { type: 'app-bundle' } : {}),
+        ...(runtime || {}),
+        ...(checksumAsset?.browser_download_url ? { checksum_url: checksumAsset.browser_download_url } : {}),
+      };
+    }),
+  };
 }
 
 function releaseFromManifest(manifest, options = {}) {
@@ -124,7 +214,11 @@ function releaseFromManifest(manifest, options = {}) {
     published_at: manifest && (manifest.publishedAt || manifest.builtAt) ? String(manifest.publishedAt || manifest.builtAt) : '',
     assets: assets
       .map(asset => {
-        const file = String(asset && (asset.file || asset.name) || '');
+        const file = String(asset && (
+          asset.file ||
+          asset.name ||
+          basenameFromUrl(asset.browser_download_url || asset.downloadUrl || asset.url)
+        ) || '');
         if (!file) return null;
         return {
           ...asset,
@@ -148,9 +242,40 @@ function selectReleaseAsset(release, patternText = '') {
 
   return assets.find(asset => (
     /^farming[-_].*\.tar\.gz$/i.test(String(asset.name || '')) &&
-    !/(sha256|checksum|checksums|glibc)/i.test(String(asset.name || '')) &&
+    !/(sha256|checksum|checksums)/i.test(String(asset.name || '')) &&
     asset.browser_download_url
   )) || null;
+}
+
+function releaseAssetVersion(asset, fallbackVersion = '') {
+  return normalizeVersion(
+    asset && (asset.releaseVersion || asset.version || asset.name || asset.file || asset.browser_download_url) ||
+    fallbackVersion
+  );
+}
+
+function selectableReleaseAssets(release, patternText = '', runtime = null) {
+  const assets = Array.isArray(release && release.assets) ? release.assets : [];
+  const pattern = patternText ? new RegExp(patternText) : null;
+  return assets
+    .filter(asset => (
+      /^farming[-_].*\.tar\.gz$/i.test(String(asset.name || '')) &&
+      !/(sha256|checksum|checksums)/i.test(String(asset.name || '')) &&
+      asset.browser_download_url &&
+      assetMatchesRuntime(asset, runtime) &&
+      (!pattern || pattern.test(String(asset.name || '')))
+    ))
+    .sort((left, right) => (
+      compareVersions(releaseAssetVersion(right), releaseAssetVersion(left)) ||
+      String(right.name || '').localeCompare(String(left.name || ''))
+    ));
+}
+
+function selectReleaseAssetByName(release, assetName, patternText = '', runtime = null) {
+  const wanted = String(assetName || '').trim();
+  if (!wanted) return selectableReleaseAssets(release, patternText, runtime)[0] || null;
+  return selectableReleaseAssets(release, patternText, runtime)
+    .find(asset => String(asset.name || '') === wanted) || null;
 }
 
 function selectManifestAsset(release) {
@@ -161,70 +286,75 @@ function selectManifestAsset(release) {
   )) || null;
 }
 
-function manifestAssetSafety(asset, manifest, allowUnbundledGlibc = false) {
+function manifestAssetSafety(asset, manifest, options = {}) {
+  const runtime = options.runtime || null;
   if (!asset) {
     return {
       safe: false,
-      bundledGlibc: false,
       reason: 'Update manifest has no app bundle asset',
     };
   }
-  if (allowUnbundledGlibc) {
-    return { safe: true, bundledGlibc: null, reason: '' };
-  }
   const assets = manifestAssets(manifest);
-  if (assets.length === 0) {
+  if (assets.length === 0 && !asset.checksum_url && !asset.checksumUrl && !asset.sha256) {
     return {
       safe: false,
-      bundledGlibc: false,
-      reason: 'Update manifest is missing bundled glibc metadata',
+      reason: 'Update manifest is missing a SHA-256 checksum',
     };
   }
 
   const assetName = String(asset.name || '');
-  const entry = assets.find(item => String(item.file || item.name || basenameFromUrl(item.url || item.tarUrl || item.downloadUrl) || '') === assetName);
+  const entry = assets.find(item => String(item.file || item.name || basenameFromUrl(item.url || item.tarUrl || item.downloadUrl) || '') === assetName) || (assets.length === 0 ? asset : null);
   if (!entry) {
     return {
       safe: false,
-      bundledGlibc: false,
       reason: 'Update manifest does not describe the app bundle',
     };
   }
   if (entry.type && entry.type !== 'app-bundle') {
     return {
       safe: false,
-      bundledGlibc: false,
       reason: 'Update manifest does not mark the app bundle correctly',
     };
   }
-  if (entry.bundledGlibc === false) {
+  if (!assetMatchesRuntime(entry, runtime)) {
     return {
       safe: false,
-      bundledGlibc: false,
-      reason: 'Update manifest app bundle does not declare bundled glibc',
+      reason: `Update app bundle is not compatible with ${runtime.platform}-${runtime.arch}`,
     };
   }
-  return { safe: true, bundledGlibc: entry.bundledGlibc === true ? true : null, reason: '' };
+  const checksumUrl = entry.checksum_url || entry.checksumUrl || asset.checksum_url || asset.checksumUrl || '';
+  if (!normalizeSha256(entry.sha256 || asset.sha256) && !checksumUrl) {
+    return {
+      safe: false,
+      reason: 'Update manifest app bundle is missing a SHA-256 checksum',
+    };
+  }
+  return { safe: true, reason: '' };
 }
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
-function requestWithRedirects(url, options = {}, redirectCount = 0) {
+function requestWithRedirects(url, options = {}, redirectCount = 0, authOrigin = null) {
   if (redirectCount > 5) {
     return Promise.reject(new Error(`too many redirects for ${url}`));
   }
 
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
+    const allowedAuthOrigin = authOrigin === false ? '' : (authOrigin || parsed.origin);
+    const sameAuthOrigin = Boolean(allowedAuthOrigin) && parsed.origin === allowedAuthOrigin;
     const client = parsed.protocol === 'http:' ? http : https;
     const headers = {
       'User-Agent': 'Farming-Update-Check',
       Accept: options.accept || 'application/json',
       ...(options.headers || {}),
     };
-    if (options.authToken) {
+    if (!sameAuthOrigin) {
+      delete headers.Authorization;
+      delete headers.authorization;
+    } else if (options.authToken) {
       headers.Authorization = `Bearer ${options.authToken}`;
     }
 
@@ -234,7 +364,24 @@ function requestWithRedirects(url, options = {}, redirectCount = 0) {
       if (status >= 300 && status < 400 && location) {
         response.resume();
         const nextUrl = new URL(location, parsed).toString();
-        requestWithRedirects(nextUrl, options, redirectCount + 1).then(resolve, reject);
+        const nextParsed = new URL(nextUrl);
+        const nextOptions = { ...options };
+        if (nextParsed.origin !== allowedAuthOrigin) {
+          // Update-source tokens are scoped to the configured origin. Never
+          // forward them to a redirect target on another origin.
+          delete nextOptions.authToken;
+          if (nextOptions.headers) {
+            nextOptions.headers = { ...nextOptions.headers };
+            delete nextOptions.headers.Authorization;
+            delete nextOptions.headers.authorization;
+          }
+        }
+        requestWithRedirects(
+          nextUrl,
+          nextOptions,
+          redirectCount + 1,
+          nextParsed.origin === allowedAuthOrigin ? allowedAuthOrigin : false,
+        ).then(resolve, reject);
         return;
       }
       if (status < 200 || status >= 300) {
@@ -260,6 +407,169 @@ async function requestJson(url, options = {}) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
+async function requestText(url, options = {}) {
+  const response = await requestWithRedirects(url, options);
+  const chunks = [];
+  for await (const chunk of response) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function decodeHtmlAttribute(value) {
+  return String(value || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function isDirectoryUpdateSource(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+  try {
+    return new URL(raw).pathname.endsWith('/');
+  } catch {
+    return raw.endsWith('/');
+  }
+}
+
+function isGitHubReleasePage(value) {
+  try {
+    const url = new URL(value);
+    return url.hostname === 'github.com' && /\/releases\/(?:latest|tag\/[^/]+)\/?$/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function githubReleaseTagFromPage(body) {
+  for (const match of String(body || '').matchAll(/\/releases\/tag\/([^"'/?#<]+)/gi)) {
+    const tag = decodeHtmlAttribute(match[1]);
+    if (/^v\d/.test(tag)) return tag;
+  }
+  return '';
+}
+
+function githubExpandedAssetsUrl(pageUrl, tag) {
+  try {
+    const url = new URL(pageUrl);
+    const parts = url.pathname.split('/').filter(Boolean);
+    if (parts.length < 2 || !tag) return '';
+    return `${url.origin}/${parts[0]}/${parts[1]}/releases/expanded_assets/${encodeURIComponent(tag)}`;
+  } catch {
+    return '';
+  }
+}
+
+function releaseFromGitHubReleasePage(body, options = {}) {
+  const pageUrl = options.pageUrl || '';
+  const entries = [];
+  for (const match of String(body || '').matchAll(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) {
+    const value = decodeHtmlAttribute(match[1] || match[2] || match[3]).trim();
+    if (value) entries.push(value);
+  }
+  const checksumUrl = entries
+    .map(entry => ({ entry, file: basenameFromUrl(entry) }))
+    .find(({ file }) => /(?:checksums?|sha256)\.(?:txt|sha256)$/i.test(file))?.entry || '';
+  const assets = entries
+    .map(entry => {
+      const file = basenameFromUrl(entry);
+      const runtime = runtimeFromBundleName(file);
+      if (!runtime || !/^farming[-_].*\.tar\.gz$/i.test(file)) return null;
+      const browser_download_url = resolveUpdateUrl(entry, pageUrl);
+      if (!browser_download_url) return null;
+      return {
+        type: 'app-bundle',
+        name: file,
+        file,
+        releaseVersion: normalizeVersion(file),
+        browser_download_url,
+        checksum_url: resolveUpdateUrl(checksumUrl, pageUrl),
+        ...runtime,
+      };
+    })
+    .filter(Boolean);
+  const latestVersion = assets[0]?.releaseVersion || '';
+  return {
+    __directAssets: true,
+    tag_name: latestVersion ? `v${latestVersion}` : '',
+    name: latestVersion ? `v${latestVersion}` : '',
+    published_at: '',
+    assets,
+  };
+}
+
+function releaseFromDirectoryListing(body, options = {}) {
+  const directoryUrl = options.directoryUrl || '';
+  const assetBaseUrl = options.assetBaseUrl || directoryUrl;
+  const entries = [];
+  const seen = new Set();
+  const addCandidate = (value) => {
+    const raw = decodeHtmlAttribute(value).trim();
+    if (!raw || seen.has(raw)) return;
+    seen.add(raw);
+    entries.push(raw);
+  };
+
+  for (const match of String(body || '').matchAll(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) {
+    addCandidate(match[1] || match[2] || match[3]);
+  }
+  for (const match of String(body || '').matchAll(/\bfarming[-_][^\s"'<>]+?\.tar\.gz(?![\w.])/gi)) {
+    addCandidate(match[0]);
+  }
+
+  const checksumUrls = new Map();
+  entries.forEach(entry => {
+    const file = basenameFromUrl(entry);
+    const match = /^(farming[-_].*\.tar\.gz)\.sha256$/i.exec(file);
+    if (!match) return;
+    const url = resolveUpdateUrl(entry, assetBaseUrl) || resolveUpdateUrl(file, assetBaseUrl);
+    if (url) checksumUrls.set(match[1], url);
+  });
+
+  const assets = entries
+    .map(entry => {
+      const file = basenameFromUrl(entry);
+      if (!/^farming[-_].*\.tar\.gz$/i.test(file)) return null;
+      if (/(sha256|checksum|checksums)/i.test(file)) return null;
+      const url = resolveUpdateUrl(entry, assetBaseUrl) || resolveUpdateUrl(file, assetBaseUrl);
+      if (!url) return null;
+      return {
+        type: 'app-bundle',
+        file,
+        name: file,
+        releaseVersion: normalizeVersion(file),
+        browser_download_url: url,
+        checksum_url: checksumUrls.get(file) || '',
+        size: 0,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => (
+      compareVersions(right.releaseVersion, left.releaseVersion) ||
+      String(right.name).localeCompare(String(left.name))
+    ));
+  const latestVersion = assets[0] ? assets[0].releaseVersion : '';
+  return {
+    __manifest: {
+      releaseVersion: latestVersion,
+      assets: assets.map(asset => ({
+        type: asset.type,
+        file: asset.file,
+        url: asset.browser_download_url,
+        checksum_url: asset.checksum_url,
+        releaseVersion: asset.releaseVersion,
+      })),
+    },
+    tag_name: latestVersion ? `v${latestVersion}` : '',
+    name: latestVersion ? `v${latestVersion}` : '',
+    published_at: '',
+    assets,
+  };
+}
+
 async function downloadFile(url, outputPath, options = {}) {
   const response = await requestWithRedirects(url, {
     ...options,
@@ -272,6 +582,61 @@ function sha256File(filePath) {
   const hash = crypto.createHash('sha256');
   hash.update(fs.readFileSync(filePath));
   return hash.digest('hex');
+}
+
+function sha256FromChecksumText(text, assetName) {
+  const escapedName = String(assetName || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`^\\s*([a-f0-9]{64})\\s+(?:\\*?${escapedName})\\s*$`, 'im').exec(String(text || ''));
+  return normalizeSha256(match && match[1]);
+}
+
+function validateArchiveEntries(entries) {
+  const roots = new Set();
+  for (const rawEntry of Array.isArray(entries) ? entries : []) {
+    const entry = String(rawEntry || '').replace(/\\/g, '/');
+    if (!entry || entry.startsWith('/') || entry.includes('\0')) {
+      throw new Error(`downloaded release contains an unsafe archive path: ${rawEntry}`);
+    }
+    const parts = entry.split('/').filter(Boolean);
+    if (parts.some(part => part === '..')) {
+      throw new Error(`downloaded release contains path traversal: ${rawEntry}`);
+    }
+    if (parts[0]) roots.add(parts[0]);
+  }
+  if (roots.size !== 1) {
+    throw new Error(`downloaded release must contain exactly one top-level directory, found ${roots.size}`);
+  }
+}
+
+function listTarArchiveEntries(archivePath) {
+  return new Promise((resolve, reject) => {
+    childProcess.execFile('tar', ['-tzf', archivePath], { maxBuffer: 20 * 1024 * 1024 }, (error, stdout) => {
+      if (error) {
+        reject(new Error(`failed to inspect downloaded release archive: ${error.message || error}`));
+        return;
+      }
+      resolve(String(stdout || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean));
+    });
+  });
+}
+
+function validateExtractedSymlinks(releaseDir) {
+  const releaseRoot = path.resolve(releaseDir);
+  const visit = directory => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) {
+        const target = fs.readlinkSync(entryPath);
+        const resolvedTarget = path.resolve(path.dirname(entryPath), target);
+        if (path.isAbsolute(target) || (resolvedTarget !== releaseRoot && !resolvedTarget.startsWith(`${releaseRoot}${path.sep}`))) {
+          throw new Error(`downloaded release contains a symlink outside the bundle: ${entryPath}`);
+        }
+        continue;
+      }
+      if (entry.isDirectory()) visit(entryPath);
+    }
+  };
+  visit(releaseRoot);
 }
 
 function findReleaseDirectory(rootDir) {
@@ -291,29 +656,65 @@ function releaseInstallDir(rootDir, env = process.env) {
   return path.join(os.homedir(), 'farming');
 }
 
-function releaseHasBundledGlibc(releaseDir) {
-  const release = readJsonFile(path.join(releaseDir, 'RELEASE.json')) || {};
-  return release.bundledGlibc === true &&
-    fs.existsSync(path.join(releaseDir, 'vendor', 'glibc228-lib.tar.gz'));
+function npmPackageMetadataUrl(registryUrl, packageName) {
+  const registry = String(registryUrl || DEFAULT_NPM_REGISTRY).replace(/\/+$/, '');
+  return `${registry}/${encodeURIComponent(packageName).replace(/^%40/, '@')}`;
+}
+
+function npmVersionsFromMetadata(metadata, currentVersion) {
+  const versions = metadata && metadata.versions && typeof metadata.versions === 'object'
+    ? Object.keys(metadata.versions)
+    : [];
+  return versions
+    .filter(version => hasComparableVersion(version) && !version.includes('-'))
+    .sort((left, right) => compareVersions(right, left))
+    .map(version => ({
+      version,
+      assetName: version,
+      assetSize: Number(metadata.versions[version]?.dist?.unpackedSize || 0),
+      blockedReason: '',
+      installable: true,
+      available: compareVersions(version, currentVersion) > 0,
+    }));
 }
 
 class FarmingUpdateService {
   constructor(options = {}) {
     this.rootDir = options.rootDir || path.join(__dirname, '..');
-    this.manifestUrl = options.manifestUrl || process.env.FARMING_UPDATE_MANIFEST_URL || '';
-    this.assetBaseUrl = options.assetBaseUrl || process.env.FARMING_UPDATE_ASSET_BASE_URL || '';
-    this.assetPattern = options.assetPattern || process.env.FARMING_UPDATE_ASSET_PATTERN || '';
-    this.authToken = options.authToken || process.env.FARMING_UPDATE_AUTH_TOKEN || '';
-    this.allowUnbundledGlibc = options.allowUnbundledGlibc === true ||
-      /^(1|true|TRUE|yes|YES|on|ON)$/.test(process.env.FARMING_UPDATE_ALLOW_UNBUNDLED_GLIBC || '');
+    this.getUpdateUrl = typeof options.getUpdateUrl === 'function' ? options.getUpdateUrl : null;
+    this.manifestUrl = options.updateUrl || options.manifestUrl || '';
+    this.assetBaseUrl = options.assetBaseUrl || '';
+    this.assetPattern = options.assetPattern || '';
+    this.authToken = options.authToken || '';
+    this.installMethod = options.installMethod || detectInstallMethod(this.rootDir, {
+      packagedRuntime: options.packagedRuntime === true,
+    });
+    this.npmPackageName = options.npmPackageName || NPM_PACKAGE_NAME;
+    this.npmRegistryUrl = options.npmRegistryUrl || process.env.FARMING_NPM_REGISTRY || DEFAULT_NPM_REGISTRY;
+    this.runtime = options.platform || options.arch
+      ? {
+        platform: normalizePlatform(options.platform || process.platform),
+        arch: normalizeArch(options.arch || process.arch),
+      }
+      : null;
     this.configDir = options.configDir || path.join(os.homedir(), '.farming');
     this.now = options.now || (() => Date.now());
     this.fetchJson = options.fetchJson || requestJson;
+    this.fetchText = options.fetchText || requestText;
     this.downloadFile = options.downloadFile || downloadFile;
+    this.listArchiveEntries = options.listArchiveEntries || listTarArchiveEntries;
     this.execFile = options.execFile || childProcess.execFile;
     this.spawn = options.spawn || childProcess.spawn;
     this.latestCache = null;
+    this.npmCache = null;
     this.installState = { phase: 'idle' };
+    this.updateStateFile = options.updateStateFile || storageLayout.updateStateFile(this.configDir);
+    this.updateLogFile = options.updateLogFile || storageLayout.updateLogFile(this.configDir);
+  }
+
+  updateUrl() {
+    const configured = this.getUpdateUrl ? this.getUpdateUrl() : this.manifestUrl;
+    return String(configured || '').trim();
   }
 
   currentVersion() {
@@ -325,32 +726,153 @@ class FarmingUpdateService {
       releaseVersion,
       packageVersion,
       gitSha: release.gitSha || '',
-      type: release.type || (fs.existsSync(path.join(this.rootDir, 'RELEASE.json')) ? 'app-bundle' : 'source'),
+      type: this.installMethod,
       installDir: releaseInstallDir(this.rootDir),
     };
   }
 
+  currentInstallState() {
+    const persisted = readJsonFile(this.updateStateFile);
+    if (this.installMethod === 'npm' && persisted && persisted.method === 'npm') return persisted;
+    return this.installState;
+  }
+
+  persistInstallState(state) {
+    this.installState = state;
+    fs.mkdirSync(this.configDir, { recursive: true });
+    const temporaryPath = `${this.updateStateFile}.${process.pid}.tmp`;
+    fs.writeFileSync(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+    fs.renameSync(temporaryPath, this.updateStateFile);
+    return state;
+  }
+
+  async npmMetadata(options = {}) {
+    const source = npmPackageMetadataUrl(this.npmRegistryUrl, this.npmPackageName);
+    if (!options.force && this.npmCache && this.npmCache.source === source && this.now() - this.npmCache.checkedAt < CACHE_TTL_MS) {
+      return this.npmCache.metadata;
+    }
+    const metadata = await this.fetchJson(source, { accept: 'application/json' });
+    this.npmCache = { checkedAt: this.now(), source, metadata };
+    return metadata;
+  }
+
+  async npmStatus(options = {}) {
+    const current = this.currentVersion();
+    const currentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
+    const metadata = await this.npmMetadata(options);
+    const versions = npmVersionsFromMetadata(metadata, currentVersion);
+    const latestVersion = normalizeVersion(metadata && metadata['dist-tags'] && metadata['dist-tags'].latest)
+      || versions[0]?.version
+      || '';
+    const requestedVersion = normalizeVersion(options.assetName);
+    const selected = versions.find(version => version.version === requestedVersion)
+      || versions.find(version => version.version === latestVersion)
+      || versions[0]
+      || null;
+    const available = Boolean(selected && selected.available);
+    return {
+      method: 'npm',
+      current,
+      latest: {
+        version: latestVersion,
+        tag: latestVersion ? `v${latestVersion}` : '',
+        name: latestVersion ? `${this.npmPackageName}@${latestVersion}` : '',
+        publishedAt: '',
+        assetName: latestVersion,
+        assetSize: 0,
+        blockedReason: '',
+        source: npmPackageMetadataUrl(this.npmRegistryUrl, this.npmPackageName),
+      },
+      selected: {
+        version: selected?.version || '',
+        assetName: selected?.assetName || '',
+        assetSize: selected?.assetSize || 0,
+        blockedReason: selected?.blockedReason || '',
+      },
+      versions,
+      runtime: this.runtime,
+      available,
+      installable: Boolean(selected),
+      checkedAt: new Date(this.now()).toISOString(),
+      state: this.currentInstallState(),
+    };
+  }
+
+  unsupportedStatus() {
+    const current = this.currentVersion();
+    const reason = installMethodBlockedReason(this.installMethod);
+    return {
+      method: this.installMethod,
+      current,
+      latest: {
+        version: '',
+        tag: '',
+        name: '',
+        publishedAt: '',
+        assetName: '',
+        assetSize: 0,
+        blockedReason: reason,
+        source: '',
+      },
+      selected: { version: '', assetName: '', assetSize: 0, blockedReason: reason },
+      versions: [],
+      runtime: this.runtime,
+      available: false,
+      installable: false,
+      checkedAt: new Date(this.now()).toISOString(),
+      state: this.currentInstallState(),
+    };
+  }
+
   async latestRelease(options = {}) {
-    if (!this.manifestUrl) return null;
-    if (!options.force && this.latestCache && this.now() - this.latestCache.checkedAt < CACHE_TTL_MS) {
+    const updateUrl = this.updateUrl();
+    if (!updateUrl) return null;
+    if (!options.force && this.latestCache && this.latestCache.source === updateUrl && this.now() - this.latestCache.checkedAt < CACHE_TTL_MS) {
       return this.latestCache.release;
     }
-    const manifest = await this.fetchJson(this.manifestUrl, {
-      accept: 'application/json',
-      authToken: this.authToken,
-    });
-    const release = releaseFromManifest(manifest, {
-      manifestUrl: this.manifestUrl,
-      assetBaseUrl: this.assetBaseUrl,
-    });
+    let release;
+    if (isGitHubReleasePage(updateUrl)) {
+      const pageBody = await this.fetchText(updateUrl, {
+        accept: 'text/html,application/xhtml+xml',
+        authToken: this.authToken,
+      });
+      const tag = githubReleaseTagFromPage(pageBody);
+      const expandedAssetsUrl = githubExpandedAssetsUrl(updateUrl, tag);
+      if (!expandedAssetsUrl) throw new Error('GitHub Release page did not expose a release tag');
+      release = releaseFromGitHubReleasePage(await this.fetchText(expandedAssetsUrl, {
+        accept: 'text/html,application/xhtml+xml',
+        authToken: this.authToken,
+      }), { pageUrl: expandedAssetsUrl });
+    } else if (isDirectoryUpdateSource(updateUrl)) {
+      release = releaseFromDirectoryListing(await this.fetchText(updateUrl, {
+        accept: 'text/html, text/plain',
+        authToken: this.authToken,
+      }), {
+        directoryUrl: updateUrl,
+        assetBaseUrl: this.assetBaseUrl,
+      });
+    } else {
+      const payload = await this.fetchJson(updateUrl, {
+        accept: 'application/json',
+        authToken: this.authToken,
+      });
+      release = Array.isArray(payload && payload.assets) && payload.assets.some(asset => asset && asset.browser_download_url)
+        ? releaseFromAssetListing(payload)
+        : releaseFromManifest(payload, {
+          manifestUrl: updateUrl,
+          assetBaseUrl: this.assetBaseUrl,
+        });
+    }
     this.latestCache = {
       checkedAt: this.now(),
+      source: updateUrl,
       release,
     };
     return release;
   }
 
   async latestManifest(release) {
+    if (release && release.__directAssets) return null;
     if (release && release.__manifest) return release.__manifest;
     const asset = selectManifestAsset(release);
     if (!asset) return null;
@@ -363,43 +885,83 @@ class FarmingUpdateService {
     }
   }
 
-  statusFromRelease(release, manifest = null) {
+  versionOptionsFromRelease(release, manifest = null) {
     const current = this.currentVersion();
+    const updateUrl = this.updateUrl();
+    const comparableCurrentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
+    const latestVersion = releaseVersionFromRelease(release);
+    const configured = Boolean(updateUrl);
+    return selectableReleaseAssets(release, this.assetPattern, this.runtime).map(asset => {
+      const version = releaseAssetVersion(asset, latestVersion);
+      const safety = configured
+        ? manifestAssetSafety(asset, manifest, { runtime: this.runtime })
+        : { safe: false, reason: UPDATE_SOURCE_UNCONFIGURED_REASON };
+      const newer = Boolean(version && compareVersions(version, comparableCurrentVersion) > 0);
+      return {
+        version,
+        assetName: asset.name || '',
+        assetSize: asset.size || 0,
+        blockedReason: safety.reason,
+        installable: Boolean(safety.safe),
+        available: Boolean(newer && safety.safe),
+      };
+    });
+  }
+
+  statusFromRelease(release, manifest = null, options = {}) {
+    const current = this.currentVersion();
+    const updateUrl = this.updateUrl();
     const latestVersion = releaseVersionFromRelease(release);
     const comparableCurrentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
-    const asset = selectReleaseAsset(release, this.assetPattern);
-    const configured = Boolean(this.manifestUrl);
+    const latestAsset = selectableReleaseAssets(release, this.assetPattern, this.runtime)[0] || null;
+    const asset = selectReleaseAssetByName(release, options.assetName, this.assetPattern, this.runtime);
+    const configured = Boolean(updateUrl);
     const safety = configured
-      ? manifestAssetSafety(asset, manifest, this.allowUnbundledGlibc)
-      : { safe: false, bundledGlibc: false, reason: UPDATE_SOURCE_UNCONFIGURED_REASON };
-    const newer = Boolean(asset && latestVersion && compareVersions(latestVersion, comparableCurrentVersion) > 0);
+      ? manifestAssetSafety(asset, manifest, { runtime: this.runtime })
+      : { safe: false, reason: UPDATE_SOURCE_UNCONFIGURED_REASON };
+    const selectedVersion = releaseAssetVersion(asset, latestVersion);
+    const newer = Boolean(asset && selectedVersion && compareVersions(selectedVersion, comparableCurrentVersion) > 0);
     const available = Boolean(newer && safety.safe);
+    const versions = this.versionOptionsFromRelease(release, manifest);
+    const noCompatibleBundleReason = this.runtime
+      ? `Update source has no compatible app bundle for ${this.runtime.platform}-${this.runtime.arch}`
+      : 'Update source has no app bundle asset';
 
     return {
+      method: this.installMethod,
       current,
       latest: {
         version: latestVersion,
         tag: release && release.tag_name ? release.tag_name : '',
         name: release && release.name ? release.name : '',
         publishedAt: release && release.published_at ? release.published_at : '',
+        assetName: latestAsset ? latestAsset.name : '',
+        assetSize: latestAsset ? latestAsset.size || 0 : 0,
+        blockedReason: versions[0] ? versions[0].blockedReason : (this.runtime ? noCompatibleBundleReason : (safety.reason || noCompatibleBundleReason)),
+        source: updateUrl || '',
+      },
+      selected: {
+        version: selectedVersion,
         assetName: asset ? asset.name : '',
         assetSize: asset ? asset.size || 0 : 0,
-        assetBundledGlibc: safety.bundledGlibc,
         blockedReason: safety.reason,
-        source: this.manifestUrl || '',
       },
+      versions,
+      runtime: this.runtime,
       available,
       installable: Boolean(asset && safety.safe),
       checkedAt: new Date(this.now()).toISOString(),
-      state: this.installState,
+      state: this.currentInstallState(),
     };
   }
 
   async check(options = {}) {
-    if (!this.manifestUrl) return this.statusFromRelease(null, null);
+    if (this.installMethod === 'npm') return this.npmStatus(options);
+    if (!installMethodAllowsBundleUpdate(this.installMethod)) return this.unsupportedStatus();
+    if (!this.updateUrl()) return this.statusFromRelease(null, null, options);
     const release = await this.latestRelease(options);
     const manifest = await this.latestManifest(release);
-    return this.statusFromRelease(release, manifest);
+    return this.statusFromRelease(release, manifest, options);
   }
 
   installEnvironment() {
@@ -409,20 +971,26 @@ class FarmingUpdateService {
       FARMING_INSTALL_DIR: current.installDir,
       FARMING_PORT: process.env.FARMING_PORT || process.env.PORT || '6694',
       FARMING_BASE_PATH: process.env.FARMING_BASE_PATH || '/farming',
-      ...(process.env.FARMING_CONFIG_DIR ? { FARMING_CONFIG_DIR: process.env.FARMING_CONFIG_DIR } : {}),
+      FARMING_CONFIG_DIR: process.env.FARMING_CONFIG_DIR || this.configDir,
       ...(process.env.FARMING_SERVER_HOME ? { FARMING_SERVER_HOME: process.env.FARMING_SERVER_HOME } : {}),
       ...(process.env.FARMING_DISABLE_AUTH ? { FARMING_DISABLE_AUTH: process.env.FARMING_DISABLE_AUTH } : {}),
     };
   }
 
-  async startInstall() {
-    if (['downloading', 'extracting', 'installing'].includes(this.installState.phase)) {
-      return this.installState;
+  async startInstall(options = {}) {
+    const currentState = this.currentInstallState();
+    if (['downloading', 'extracting', 'installing', 'restarting', 'rolling-back'].includes(currentState.phase)) {
+      return currentState;
+    }
+
+    if (this.installMethod === 'npm') return this.startNpmInstall(options);
+    if (!installMethodAllowsBundleUpdate(this.installMethod)) {
+      throw new Error(installMethodBlockedReason(this.installMethod));
     }
 
     const release = await this.latestRelease({ force: true });
     const manifest = await this.latestManifest(release);
-    const status = this.statusFromRelease(release, manifest);
+    const status = this.statusFromRelease(release, manifest, options);
     if (!status.available) {
       const error = status.installable
         ? 'Farming is already up to date'
@@ -435,11 +1003,11 @@ class FarmingUpdateService {
       return this.installState;
     }
 
-    const asset = selectReleaseAsset(release, this.assetPattern);
+    const asset = selectReleaseAssetByName(release, options.assetName, this.assetPattern, this.runtime);
     this.installState = {
       phase: 'downloading',
-      version: status.latest.version,
-      assetName: status.latest.assetName,
+      version: status.selected.version,
+      assetName: status.selected.assetName,
       startedAt: new Date(this.now()).toISOString(),
       logPath: path.join(this.configDir, 'farming-update.log'),
     };
@@ -453,6 +1021,58 @@ class FarmingUpdateService {
     return this.installState;
   }
 
+  async startNpmInstall(options = {}) {
+    const status = await this.npmStatus({ force: true, assetName: options.assetName });
+    if (!status.available) {
+      return this.persistInstallState({
+        method: 'npm',
+        phase: status.installable ? 'succeeded' : 'failed',
+        version: status.selected.version,
+        error: status.installable ? '' : (status.selected.blockedReason || 'No installable npm update is available'),
+        completedAt: new Date(this.now()).toISOString(),
+      });
+    }
+
+    const startedAt = new Date(this.now()).toISOString();
+    const state = this.persistInstallState({
+      method: 'npm',
+      phase: 'installing',
+      version: status.selected.version,
+      previousVersion: status.current.releaseVersion || status.current.packageVersion,
+      packageName: this.npmPackageName,
+      startedAt,
+      logPath: this.updateLogFile,
+    });
+    const helperPath = path.join(__dirname, 'npm-update-helper.js');
+    const payload = {
+      packageName: this.npmPackageName,
+      targetVersion: status.selected.version,
+      previousVersion: status.current.releaseVersion || status.current.packageVersion,
+      startedAt,
+      stateFile: this.updateStateFile,
+      logPath: this.updateLogFile,
+      cliPath: path.join(this.rootDir, 'bin', 'farming'),
+      nodePath: process.execPath,
+      npmCommand: process.env.FARMING_NPM_COMMAND || 'npm',
+      serverPid: process.pid,
+      configDir: this.configDir,
+      port: process.env.FARMING_PORT || process.env.PORT || '6694',
+      basePath: process.env.FARMING_BASE_PATH || '/farming',
+      serverHome: process.env.FARMING_SERVER_HOME || '',
+      disableAuth: /^(1|true|yes|on)$/i.test(String(process.env.FARMING_DISABLE_AUTH || '')),
+    };
+    const child = this.spawn(process.execPath, [helperPath], {
+      detached: true,
+      stdio: 'ignore',
+      env: {
+        ...process.env,
+        FARMING_NPM_UPDATE_PAYLOAD: JSON.stringify(payload),
+      },
+    });
+    if (child && typeof child.unref === 'function') child.unref();
+    return state;
+  }
+
   async runInstall(asset) {
     if (!asset || !asset.browser_download_url) {
       throw new Error('release asset is missing a download URL');
@@ -464,12 +1084,24 @@ class FarmingUpdateService {
     await this.downloadFile(asset.browser_download_url, archivePath, {
       authToken: this.authToken,
     });
-    if (asset.sha256) {
-      const actualSha256 = sha256File(archivePath);
-      if (actualSha256 !== String(asset.sha256).toLowerCase()) {
-        throw new Error(`downloaded release checksum mismatch for ${asset.name || 'asset'}`);
-      }
+    let expectedSha256 = normalizeSha256(asset.sha256);
+    const checksumUrl = asset.checksum_url || asset.checksumUrl || '';
+    if (!expectedSha256 && checksumUrl) {
+      const checksumText = await this.fetchText(checksumUrl, {
+        accept: 'text/plain',
+        authToken: this.authToken,
+      });
+      expectedSha256 = sha256FromChecksumText(checksumText, asset.name);
     }
+    if (!expectedSha256) {
+      throw new Error(`release asset is missing a valid SHA-256 checksum: ${asset.name || 'asset'}`);
+    }
+    const actualSha256 = sha256File(archivePath);
+    if (actualSha256 !== expectedSha256) {
+      throw new Error(`downloaded release checksum mismatch for ${asset.name || 'asset'}`);
+    }
+
+    validateArchiveEntries(await this.listArchiveEntries(archivePath));
 
     this.installState = { ...this.installState, phase: 'extracting' };
     await new Promise((resolve, reject) => {
@@ -480,14 +1112,15 @@ class FarmingUpdateService {
     });
 
     const releaseDir = findReleaseDirectory(tempRoot);
+    validateExtractedSymlinks(releaseDir);
+    const releaseMetadata = readJsonFile(path.join(releaseDir, 'RELEASE.json')) || {};
+    if (!assetMatchesRuntime(releaseMetadata, this.runtime)) {
+      throw new Error(`downloaded release is not compatible with ${this.runtime.platform}-${this.runtime.arch}`);
+    }
     const installer = path.join(releaseDir, 'scripts', 'install-release.sh');
     if (!fs.existsSync(installer)) {
       throw new Error('downloaded release is missing scripts/install-release.sh');
     }
-    if (!this.allowUnbundledGlibc && !releaseHasBundledGlibc(releaseDir)) {
-      throw new Error('downloaded release does not bundle glibc; refusing in-app upgrade');
-    }
-
     const logPath = this.installState.logPath || path.join(this.configDir, 'farming-update.log');
     const installCommand = [
       'sleep 1',
@@ -512,11 +1145,18 @@ class FarmingUpdateService {
 module.exports = {
   FarmingUpdateService,
   compareVersions,
+  detectInstallMethod,
+  installMethodAllowsBundleUpdate,
   normalizeVersion,
+  npmPackageMetadataUrl,
+  npmVersionsFromMetadata,
   releaseInstallDir,
-  releaseHasBundledGlibc,
   manifestAssetSafety,
+  normalizeSha256,
+  validateArchiveEntries,
   releaseFromManifest,
+  releaseFromDirectoryListing,
+  releaseFromGitHubReleasePage,
   releaseVersionFromManifest,
   selectManifestAsset,
   selectReleaseAsset,

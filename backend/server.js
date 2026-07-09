@@ -12,7 +12,7 @@ const AgentManager = require('./agent-manager');
 const ConfigManager = require('./config-manager');
 const ThemeManager = require('./theme-manager');
 const TokenAuth = require('./auth');
-const { getLocalIPs } = require('./network');
+const { getLocalIPs, getPrimaryLocalIP } = require('./network');
 const { listAvailableAgents, resolveCompatibleCodexExecutable } = require('./executable-discovery');
 const { readClaudeSettingsSummary } = require('./claude-settings');
 const { listCodexModelOptions } = require('./codex-models');
@@ -36,6 +36,7 @@ const { WorkspaceFileService, WorkspaceFileError } = require('./workspace-file-s
 const { createWorkspaceFileRouter } = require('./workspace-file-router');
 const { UsageMonitor } = require('./usage-monitor');
 const { CodexContextWindowReader } = require('./codex-context-window');
+const { DEFAULT_MAX_TURNS: DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS, readCodexTranscript } = require('./codex-transcript');
 const { AsyncCache } = require('./async-cache');
 const { getMainAgentSkillsCatalog } = require('./main-agent-skills');
 const { discoverSlashCommands } = require('./slash-command-discovery');
@@ -45,6 +46,13 @@ const { inputPartsFromMessage } = require('./input-parts');
 const { AppServerApiBridge, createAppServerApiRouter } = require('./app-server-api');
 const { cleanupTerminalRuntime } = require('./terminal-runtime-cleanup');
 const { QrShareTicketStore, SHARE_TICKET_TTL_MS } = require('./qr-share-tickets');
+const { ReviewStateStore } = require('./review-state-store');
+const { createReviewStateRouter } = require('./review-state-router');
+const { ReviewDiffService } = require('./review-diff-service');
+const { createReviewDiffRouter } = require('./review-diff-router');
+const { ReviewSessionStore } = require('./review-session-store');
+const { ReviewSessionService } = require('./review-session-service');
+const { createReviewSessionRouter } = require('./review-session-router');
 const {
   normalizeBasePath,
   routePath,
@@ -60,6 +68,7 @@ const tokenAuth = new TokenAuth({ basePath: BASE_PATH || '/' });
 const authEnabled = tokenAuth.isEnabled();
 const WS_PATH = routePath(BASE_PATH, '/ws');
 const encodeCookieToken = TokenAuth.encodeCookieToken;
+const MAX_CODEX_TRANSCRIPT_TURNS = 1000;
 
 const app = express();
 const server = http.createServer(app);
@@ -89,6 +98,10 @@ const workspaceFileService = new WorkspaceFileService();
 const updateService = new FarmingUpdateService({
   rootDir: path.join(__dirname, '..'),
   configDir: configManager.farmingDir,
+  platform: process.platform,
+  arch: process.arch,
+  packagedRuntime: Boolean(process.pkg || process.env.FARMING_PACKAGED_RUNTIME === '1'),
+  getUpdateUrl: () => configManager.getSettings().updateUrl || '',
 });
 const appServerApiBridge = new AppServerApiBridge();
 const usageMonitor = new UsageMonitor({ agentManager });
@@ -101,11 +114,52 @@ const codexModelOptionsCache = new AsyncCache(() => listCodexModelOptions(), {
   ttlMs: 5 * 60_000,
   staleMs: 30 * 60_000,
 });
-const agentSessionsCache = new AsyncCache((limit) => listAgentSessions({ limit: Number(limit) || 60 }), {
+function configuredProviderHomes() {
+  const settings = configManager.getSettings();
+  const agentHomes = settings.agentHomes && typeof settings.agentHomes === 'object' ? settings.agentHomes : {};
+  const result = {};
+  for (const [provider, homes] of Object.entries(agentHomes)) {
+    if (!Array.isArray(homes)) continue;
+    result[provider] = homes.map(home => ({
+      id: String(home.id || 'default'),
+      path: configManager.expandWorkspacePath(String(home.path || '')),
+    })).filter(home => home.id && home.path);
+  }
+  return result;
+}
+
+const agentSessionsCache = new AsyncCache((key) => {
+  let parsed = {};
+  try {
+    parsed = JSON.parse(key);
+  } catch {
+    parsed = {};
+  }
+  return listAgentSessions({
+    limit: Number(parsed.limit) || 60,
+    scanLimit: Number(parsed.scanLimit) || undefined,
+    providerHomes: configuredProviderHomes(),
+  });
+}, {
   ttlMs: 30_000,
   staleMs: 5 * 60_000,
 });
 const qrShareTickets = new QrShareTicketStore({ ttlMs: SHARE_TICKET_TTL_MS });
+const reviewStateStore = new ReviewStateStore(configManager.farmingDir, {
+  seedReviews: {
+    'review-demo-553987': {
+      patchsets: {
+        'Patchset 20': { reviewedPaths: ['clis/dataflow.py', 'clis/fetch_instance_log.py'], revision: 0 },
+        'Patchset 19': { reviewedPaths: ['clis/fetch_instance_log.py'], revision: 0 },
+      },
+    },
+  },
+});
+const reviewDiffService = new ReviewDiffService(agentManager, workspaceFileService);
+const reviewSessionStore = new ReviewSessionStore(configManager.farmingDir);
+const reviewSessionService = new ReviewSessionService(workspaceFileService, reviewSessionStore, reviewStateStore, {
+  resolveAgentRoot: agentId => agentManager.getAgentWorkspaceRoot(agentId),
+});
 const workspaceDiscoveryCache = new AsyncCache((key) => {
   const request = JSON.parse(key);
   return discoverAgentWorkspaces({
@@ -118,8 +172,12 @@ const workspaceDiscoveryCache = new AsyncCache((key) => {
 });
 
 const frontendDir = path.join(__dirname, '../frontend');
+const crtFrontendDir = path.join(frontendDir, 'skins', 'crt');
 const distDir = path.join(__dirname, '../dist');
 const staticAppDir = fs.existsSync(distDir) ? distDir : frontendDir;
+const xtermBrowserEntryPath = path.join(__dirname, '..', 'node_modules', '@xterm', 'xterm', 'lib', 'xterm.js');
+const xtermFitEntryPath = path.join(__dirname, '..', 'node_modules', '@xterm', 'addon-fit', 'lib', 'addon-fit.js');
+const xtermCssPath = path.join(__dirname, '..', 'node_modules', '@xterm', 'xterm', 'css', 'xterm.css');
 const materialIconDir = path.join(__dirname, '..', 'node_modules', 'material-icon-theme', 'icons');
 
 function getAvailableAgentsForRequest() {
@@ -272,18 +330,26 @@ function shareTargetQueryFromBody(body) {
   const target = body && typeof body === 'object' ? body.target : null;
   if (!target || typeof target !== 'object') return '';
 
-  const kind = target.kind === 'file' ? 'file' : target.kind === 'agent' ? 'agent' : '';
+  const kind = target.kind === 'file' ? 'file' : target.kind === 'folder' ? 'folder' : target.kind === 'agent' ? 'agent' : '';
   const agentId = shareTargetString(target.agentId, 160);
-  if (!kind || !agentId) return '';
+  const absolutePath = shareTargetString(target.absolutePath, 2048);
+  const projectLabel = shareTargetString(target.projectLabel, 160);
+  if (!kind || kind === 'agent' && !agentId || kind !== 'agent' && !absolutePath && !agentId && !projectLabel) return '';
 
   const params = new URLSearchParams();
   params.set('ftarget', kind);
-  params.set('agent', agentId);
+  if (agentId) params.set('agent', agentId);
+  if (absolutePath) params.set('path', absolutePath);
+  if (projectLabel) params.set('project', projectLabel);
 
-  if (kind === 'file') {
+  if (kind === 'folder') {
+    const folderPath = shareTargetString(target.folderPath, 2048);
+    if (!absolutePath && !folderPath) return '';
+    if (folderPath) params.set('folder', folderPath);
+  } else if (kind === 'file') {
     const filePath = shareTargetString(target.filePath, 2048);
-    if (!filePath) return '';
-    params.set('file', filePath);
+    if (!absolutePath && !filePath) return '';
+    if (filePath) params.set('file', filePath);
     if (target.view === 'diff') params.set('view', 'diff');
     const line = shareTargetPositiveInteger(target.lineNumber);
     const column = shareTargetPositiveInteger(target.column);
@@ -291,6 +357,14 @@ function shareTargetQueryFromBody(body) {
     if (line) params.set('line', line);
     if (column) params.set('column', column);
     if (endColumn) params.set('endColumn', endColumn);
+  }
+
+  if (absolutePath) {
+    const absoluteParams = new URLSearchParams(params);
+    absoluteParams.delete('agent');
+    absoluteParams.delete(kind === 'folder' ? 'folder' : 'file');
+    if (absoluteParams.toString().length <= 1800) return absoluteParams.toString();
+    params.delete('path');
   }
 
   return params.toString();
@@ -334,8 +408,17 @@ app.delete(routePath(BASE_PATH, '/api/share/qr-ticket/:code'), (req, res) => {
   res.json({ revoked: qrShareTickets.revoke(req.params.code) });
 });
 
-// Vendored ghostty assets stay under frontend/vendor even when the React app is served from dist.
+// Terminal assets remain available to the standalone CRT skin when React is served from dist.
 app.use(routePath(BASE_PATH, '/vendor'), express.static(path.join(frontendDir, 'vendor')));
+app.get(routePath(BASE_PATH, '/vendor/xterm/xterm.js'), (_req, res) => {
+  res.sendFile(xtermBrowserEntryPath);
+});
+app.get(routePath(BASE_PATH, '/vendor/xterm/addon-fit.js'), (_req, res) => {
+  res.sendFile(xtermFitEntryPath);
+});
+app.get(routePath(BASE_PATH, '/vendor/xterm/xterm.css'), (_req, res) => {
+  res.sendFile(xtermCssPath);
+});
 app.use(routePath(BASE_PATH, '/vendor/material-icons'), express.static(materialIconDir));
 app.get(routePath(BASE_PATH, '/vendor/material-icons/:iconId.svg'), (req, res) => {
   const fallbackIcon = String(req.params.iconId || '').startsWith('folder-') ? 'folder.svg' : 'file.svg';
@@ -345,9 +428,25 @@ if (BASE_PATH) {
   app.use('/assets', express.static(path.join(staticAppDir, 'assets'), { index: false }));
   app.use('/farming-2', express.static(path.join(staticAppDir, 'farming-2'), { index: false }));
 }
+const crtEntryPath = routePath(BASE_PATH, '/crt');
+app.get(crtEntryPath, (req, res) => {
+  if (req.path.endsWith('/')) {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(crtFrontendDir, 'index.html'));
+    return;
+  }
+  const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  res.redirect(308, `${crtEntryPath}/${requestUrl.search}`);
+});
+app.use(`${crtEntryPath}/shared`, express.static(frontendDir, { index: false }));
+app.use(`${crtEntryPath}/`, express.static(crtFrontendDir, { index: false }));
 app.use(BASE_PATH || '/', express.static(staticAppDir, { index: false }));
 
 app.use(routePath(BASE_PATH, '/api/files'), createWorkspaceFileRouter(agentManager, workspaceFileService));
+
+app.use(routePath(BASE_PATH, '/api/review-sessions'), createReviewSessionRouter(reviewSessionService));
+app.use(routePath(BASE_PATH, '/api/reviews'), createReviewDiffRouter(reviewDiffService, reviewSessionService));
+app.use(routePath(BASE_PATH, '/api/reviews'), createReviewStateRouter(reviewStateStore));
 
 app.use(routePath(BASE_PATH, '/api/control'), createControlRouter(agentManager, {
   notifyUpdate: broadcastState,
@@ -357,7 +456,15 @@ app.use(routePath(BASE_PATH, '/api/app-server'), createAppServerApiRouter({
   bridge: appServerApiBridge,
 }));
 
-app.get([BASE_PATH || '/', `${BASE_PATH || ''}/`].filter(Boolean), (req, res) => {
+app.get([
+  BASE_PATH || '/',
+  `${BASE_PATH || ''}/`,
+  routePath(BASE_PATH, '/code'),
+  routePath(BASE_PATH, '/code/'),
+  routePath(BASE_PATH, '/error-preview'),
+  routePath(BASE_PATH, '/review'),
+  routePath(BASE_PATH, '/review-demo'),
+].filter(Boolean), (req, res) => {
   const indexPath = path.join(staticAppDir, 'index.html');
   fs.readFile(indexPath, 'utf8', (error, html) => {
     if (error) {
@@ -568,7 +675,9 @@ app.post(routePath(BASE_PATH, '/api/update/install'), express.json(), async (req
   }
 
   try {
-    const state = await updateService.startInstall();
+    const state = await updateService.startInstall({
+      assetName: req.body && typeof req.body.assetName === 'string' ? req.body.assetName : '',
+    });
     res.status(202).json({
       update: {
         state,
@@ -594,21 +703,53 @@ function warmCodexExecutableVersionCache() {
 
 app.get(routePath(BASE_PATH, '/api/codex/sessions'), async (req, res) => {
   const requestedLimit = Number(req.query.limit);
-  const limit = Number.isFinite(requestedLimit) ? Math.max(0, Math.min(100, requestedLimit)) : 40;
-  const sessions = await listCodexSessions({ limit });
+  const limit = Number.isFinite(requestedLimit) ? Math.max(0, Math.min(1000, requestedLimit)) : 40;
+  const requestedScanLimit = Number(req.query.scanLimit);
+  const scanLimit = Number.isFinite(requestedScanLimit) ? Math.max(limit, Math.min(5000, requestedScanLimit)) : undefined;
+  const sessions = await listCodexSessions({ limit, scanLimit });
   res.json({ sessions });
 });
 
 app.get(routePath(BASE_PATH, '/api/agent-sessions'), async (req, res) => {
   try {
     const requestedLimit = Number(req.query.limit);
-    const limit = Number.isFinite(requestedLimit) ? Math.max(0, Math.min(100, requestedLimit)) : 60;
-    const sessions = await agentSessionsCache.get(String(limit));
-    res.json({ sessions });
+    const limit = Number.isFinite(requestedLimit) ? Math.max(0, Math.min(1000, requestedLimit)) : 60;
+    const requestedScanLimit = Number(req.query.scanLimit);
+    const scanLimit = Number.isFinite(requestedScanLimit) ? Math.max(limit, Math.min(5000, requestedScanLimit)) : undefined;
+    const sessions = await agentSessionsCache.get(JSON.stringify({ limit, scanLimit, homes: configManager.getSettings().agentHomes || {} }));
+    const displayStateByKey = new Map(configManager.listAgentSessionRecords()
+      .filter(record => record && record.providerSessionKey)
+      .map(record => [record.providerSessionKey, record]));
+    res.json({
+      sessions: sessions.map(session => {
+        const key = mainPageAgentSessionKey(session.provider, session.id, session.providerHomeId);
+        const displayState = displayStateByKey.get(key);
+        return typeof displayState?.displayPinned === 'boolean'
+          ? { ...session, pinned: displayState.displayPinned }
+          : session;
+      }),
+    });
   } catch (error) {
     console.error('Failed to read agent sessions:', error);
     res.status(500).json({ error: error.message || 'Failed to read agent sessions' });
   }
+});
+
+app.patch(routePath(BASE_PATH, '/api/agent-sessions/:provider/:sessionId'), express.json(), (req, res) => {
+  const provider = normalizeProvider(req.params.provider);
+  const sessionId = String(req.params.sessionId || '').trim();
+  const providerHomeId = String(req.body?.providerHomeId || 'default').trim() || 'default';
+  if (!provider || !isSafeSessionId(sessionId) || !/^[A-Za-z0-9._-]+$/.test(providerHomeId)) {
+    res.status(400).json({ error: 'Invalid Agent session' });
+    return;
+  }
+  if (typeof req.body?.pinned !== 'boolean') {
+    res.status(400).json({ error: 'Pinned state is required' });
+    return;
+  }
+  const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
+  configManager.setProviderSessionDisplayState(sessionKey, { pinned: req.body.pinned });
+  res.json({ sessionKey, pinned: req.body.pinned });
 });
 
 app.get(routePath(BASE_PATH, '/api/themes'), (req, res) => {
@@ -661,6 +802,110 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/session-view'), async (req, r
   res.json({ session: sessionView });
 });
 
+app.get(routePath(BASE_PATH, '/api/agents/:agentId/codex-transcript'), async (req, res) => {
+  // Legacy JSONL transcript reader. New App Server Agents use the dedicated
+  // structured endpoint below; Terminal Agents stay in their terminal UI.
+  const providerSession = agentManager.getAgentProviderSession(req.params.agentId);
+  if (!providerSession) {
+    res.status(404).json({ error: 'Agent not found' });
+    return;
+  }
+  if (
+    providerSession.provider !== 'codex'
+    || providerSession.temporary
+    || !providerSession.sessionId
+    || providerSession.sessionId.startsWith('tmp_uuid')
+  ) {
+    res.json({
+      transcript: {
+        available: false,
+        reason: 'not-codex-provider-session',
+        sessionId: providerSession.sessionId || '',
+        turns: [],
+      },
+    });
+    return;
+  }
+
+  try {
+    const requestedMaxTurns = Number.parseInt(String(req.query.maxTurns || ''), 10);
+    const maxTurns = Number.isFinite(requestedMaxTurns)
+      ? Math.min(MAX_CODEX_TRANSCRIPT_TURNS, Math.max(20, requestedMaxTurns))
+      : DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS;
+    const transcript = await readCodexTranscript(providerSession.sessionId, {
+      maxTurns,
+      codexHome: providerSession.codexRuntimeMode === 'app-server'
+        ? (providerSession.codexAppServerHomePath || providerSession.providerHomePath || '')
+        : (providerSession.providerHomePath || ''),
+    });
+    res.json({ transcript });
+  } catch (error) {
+    console.error('Failed to read Codex transcript:', error);
+    res.status(500).json({ error: error.message || 'Failed to read Codex transcript' });
+  }
+});
+
+app.get(routePath(BASE_PATH, '/api/agents/:agentId/codex-app-server-transcript'), async (req, res) => {
+  try {
+    const requestedMaxTurns = Number.parseInt(String(req.query.maxTurns || ''), 10);
+    const maxTurns = Number.isFinite(requestedMaxTurns)
+      ? Math.min(MAX_CODEX_TRANSCRIPT_TURNS, Math.max(20, requestedMaxTurns))
+      : DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS;
+    const transcript = agentManager.getCodexAppServerTranscript(req.params.agentId, { maxTurns });
+    res.json({ transcript });
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to read Codex App Server transcript';
+    res.status(/not using the Codex App Server runtime/i.test(message) ? 409 : 500).json({ error: message });
+  }
+});
+
+app.get(routePath(BASE_PATH, '/api/agents/:agentId/json-cli-transcript'), async (req, res) => {
+  try {
+    const transcript = agentManager.getJsonCliTranscript(req.params.agentId, {
+      maxTurns: DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS,
+    });
+    res.json({ transcript });
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to read JSON CLI transcript';
+    res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
+  }
+});
+
+app.get(routePath(BASE_PATH, '/api/agents/:agentId/codex-goal'), async (req, res) => {
+  try {
+    const goal = await agentManager.getCodexAppServerGoal(req.params.agentId);
+    res.json({ goal });
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to read Codex goal';
+    res.status(message === 'Agent not found' ? 404 : 400).json({ error: message });
+  }
+});
+
+app.patch(routePath(BASE_PATH, '/api/agents/:agentId/codex-goal'), express.json(), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const goal = await agentManager.setCodexAppServerGoal(req.params.agentId, {
+      objective: typeof body.objective === 'string' ? body.objective : undefined,
+      status: typeof body.status === 'string' ? body.status : undefined,
+      ...(Object.prototype.hasOwnProperty.call(body, 'tokenBudget') ? { tokenBudget: body.tokenBudget } : {}),
+    });
+    res.json({ goal });
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to update Codex goal';
+    res.status(message === 'Agent not found' ? 404 : 400).json({ error: message });
+  }
+});
+
+app.delete(routePath(BASE_PATH, '/api/agents/:agentId/codex-goal'), async (req, res) => {
+  try {
+    await agentManager.clearCodexAppServerGoal(req.params.agentId);
+    res.json({ goal: null });
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to clear Codex goal';
+    res.status(message === 'Agent not found' ? 404 : 400).json({ error: message });
+  }
+});
+
 app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (req, res) => {
   const body = req.body || {};
   const updates = {};
@@ -689,6 +934,9 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
       flagPatch[flagName] = body[flagName];
     }
   });
+  if (typeof body.readAttentionSeq === 'number' && Number.isFinite(body.readAttentionSeq)) {
+    flagPatch.readAttentionSeq = body.readAttentionSeq;
+  }
 
   if (flagPatch.archived === true) {
     const result = await agentManager.archiveAgent(req.params.agentId);
@@ -713,13 +961,51 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
     delete updates.agentId;
   }
 
+  if (typeof body.launchPermissionMode === 'string') {
+    const result = await agentManager.syncCodexTerminalPermissionMode(req.params.agentId, body.launchPermissionMode);
+    if (result.error) {
+      const status = result.error === 'Agent not found' ? 404 : 400;
+      res.status(status).json({ error: result.error });
+      return;
+    }
+    updates.launchPermissionMode = result.launchPermissionMode;
+    if (result.restarted === true) updates.restarted = true;
+    if (result.restartedAgentId) updates.restartedAgentId = result.restartedAgentId;
+  }
+
+  if (typeof body.agentRuntimeMode === 'string') {
+    const result = await agentManager.restartAgentRuntimeMode(req.params.agentId, body.agentRuntimeMode);
+    if (result.error) {
+      const status = result.error === 'Agent not found' ? 404 : 400;
+      res.status(status).json({ error: result.error });
+      return;
+    }
+    updates.agentRuntimeMode = result.agentRuntimeMode;
+    if (result.restarted === true) updates.restarted = true;
+    if (result.restartedAgentId) updates.restartedAgentId = result.restartedAgentId;
+  }
+
   if (Object.keys(updates).length === 0) {
-    res.status(400).json({ error: 'customTitle, task, pinned, unread, or archived is required' });
+    res.status(400).json({ error: 'customTitle, task, pinned, unread, archived, readAttentionSeq, launchPermissionMode, or agentRuntimeMode is required' });
     return;
   }
 
   scheduleBroadcastState();
   res.json({ agentId: req.params.agentId, ...updates });
+});
+
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/reorder'), express.json(), (req, res) => {
+  const result = agentManager.reorderAgent(req.params.agentId, {
+    beforeAgentId: req.body?.beforeAgentId,
+    afterAgentId: req.body?.afterAgentId,
+  });
+  if (result.error) {
+    const status = result.error === 'Agent not found' ? 404 : 400;
+    res.status(status).json({ error: result.error });
+    return;
+  }
+  scheduleBroadcastState();
+  res.json(result);
 });
 
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork'), express.json(), async (req, res) => {
@@ -766,14 +1052,15 @@ const pendingResumeStarts = new Map();
 function resumedAgentStartKey(provider, sessionId, options = {}) {
   return [
     provider,
+    options.providerHomeId || 'default',
     sessionId,
     options.fork === true ? 'fork' : 'resume',
     options.asMain === true ? 'main' : 'agent',
   ].join(':');
 }
 
-function findResumedAgent(provider, sessionId) {
-  return findActiveAgentClaimingSession(agentManager.getState().agents, provider, { id: sessionId });
+function findResumedAgent(provider, sessionId, providerHomeId = '') {
+  return findActiveAgentClaimingSession(agentManager.getState().agents, provider, { id: sessionId, providerHomeId });
 }
 
 function isMainAgentSessionWorkspace(session) {
@@ -784,13 +1071,14 @@ function isMainAgentSessionWorkspace(session) {
   });
 }
 
-function rememberMainPageAgentSession(provider, sessionId) {
-  const sessionKey = mainPageAgentSessionKey(provider, sessionId);
+function rememberMainPageAgentSession(provider, sessionId, providerHomeId = '') {
+  const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
   if (typeof configManager.rememberMainPageSessionKey === 'function') {
     configManager.rememberMainPageSessionKey(sessionKey, {
       provider,
       providerSessionId: sessionId,
       providerSessionKey: sessionKey,
+      providerHomeId: providerHomeId || 'default',
       source: 'resume',
     });
     return;
@@ -806,8 +1094,8 @@ function rememberMainPageAgentSession(provider, sessionId) {
   });
 }
 
-function forgetMainPageAgentSession(provider, sessionId) {
-  const sessionKey = mainPageAgentSessionKey(provider, sessionId);
+function forgetMainPageAgentSession(provider, sessionId, providerHomeId = '') {
+  const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
   if (typeof configManager.removeMainPageSessionKey === 'function') {
     configManager.removeMainPageSessionKey(sessionKey);
     return;
@@ -833,7 +1121,9 @@ async function unarchiveCodexSession(sessionId, session = {}) {
   try {
     await execFileAsync(codexResolution.path || 'codex', ['unarchive', sessionId], {
       cwd: session.cwd || session.workspace || os.homedir(),
-      env: process.env,
+      env: session.providerHomePath
+        ? { ...process.env, CODEX_HOME: session.providerHomePath }
+        : process.env,
       timeout: 30_000,
       maxBuffer: 1024 * 1024,
     });
@@ -854,6 +1144,7 @@ async function unarchiveCodexSession(sessionId, session = {}) {
 async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
   const normalizedProvider = normalizeProvider(provider);
   const sessionId = String(rawSessionId || '').trim();
+  const providerHomeId = typeof options.providerHomeId === 'string' && options.providerHomeId.trim() ? options.providerHomeId.trim() : 'default';
   if (!normalizedProvider || !isSafeSessionId(sessionId)) {
     return { error: 'invalid session id', status: 400 };
   }
@@ -864,11 +1155,12 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
   const pendingResumeId = resumedAgentStartKey(normalizedProvider, sessionId, {
     fork: shouldFork,
     asMain: requestedAsMain,
+    providerHomeId,
   });
   if (!shouldFork) {
-    const existingAgent = findResumedAgent(normalizedProvider, sessionId);
+    const existingAgent = findResumedAgent(normalizedProvider, sessionId, providerHomeId);
     if (existingAgent) {
-      if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId);
+      if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);
       return { agentId: existingAgent.id, reused: true };
     }
   }
@@ -878,7 +1170,7 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
     if (result.error) {
       return result;
     }
-    if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId);
+    if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);
     return {
       agentId: result.agentId,
       reused: true,
@@ -888,19 +1180,19 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
   }
 
   const startPromise = (async () => {
-    let session = await findAgentSession(normalizedProvider, sessionId, { limit: 200 });
+    let session = await findAgentSession(normalizedProvider, sessionId, { limit: 200, providerHomeId, providerHomes: configuredProviderHomes() });
     if (session && session.archived && !shouldFork) {
       if (options.allowUnarchiveArchived === true && normalizedProvider === 'codex' && !requestedAsMain) {
         const unarchiveResult = await unarchiveCodexSession(sessionId, session);
         if (unarchiveResult.error) {
           return unarchiveResult;
         }
-        session = await findAgentSession(normalizedProvider, sessionId, { limit: 200 }) || {
+        session = await findAgentSession(normalizedProvider, sessionId, { limit: 200, providerHomeId, providerHomes: configuredProviderHomes() }) || {
           ...session,
           archived: false,
         };
       } else {
-        forgetMainPageAgentSession(normalizedProvider, sessionId);
+        forgetMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);
         return {
           error: `${session.providerName || normalizedProvider} session is archived. Unarchive it before resuming.`,
           status: 409,
@@ -911,10 +1203,11 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
     if (!shouldFork && !requestedAsMain) {
       const claimingAgent = findActiveAgentClaimingSession(agentManager.getState().agents, normalizedProvider, {
         id: sessionId,
+        providerHomeId,
         ...(session || {}),
       });
       if (claimingAgent) {
-        if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId);
+        if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);
         return { agentId: claimingAgent.id, reused: true, claimed: true };
       }
     }
@@ -935,6 +1228,8 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
     }
 
     return new Promise((resolve) => {
+      const resolvedProviderHomeId = session ? (session.providerHomeId || providerHomeId) : providerHomeId;
+      const resumeSource = resumedAgentSource(normalizedProvider, sessionId, resolvedProviderHomeId);
       const startResult = agentManager.startAgent(command, workingDirectory, (agentId, error) => {
         if (error) {
           resolve({ error, status: 400 });
@@ -950,9 +1245,13 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
       }, {
         wantsMain: resumeAsMain,
         task: session ? session.title : '',
+        customTitle: typeof options.customTitle === 'string' ? options.customTitle : '',
         requiredCliVersion: normalizedProvider === 'codex' && session ? session.cliVersion : '',
         projectWorkspace: session ? (session.workspace || session.cwd || '') : '',
-        source: shouldFork ? `${normalizedProvider}-history-fork:${sessionId}` : resumedAgentSource(normalizedProvider, sessionId),
+        source: shouldFork ? resumeSource.replace('-history:', '-history-fork:') : resumeSource,
+        providerHomeId: resolvedProviderHomeId,
+        providerHomePath: session ? (session.providerHomePath || '') : '',
+        autoReadInitialAttention: options.autoReadInitialAttention === true,
       });
       Promise.resolve(startResult).catch((error) => {
         resolve({ error: error.message || 'failed to resume agent session', status: 500 });
@@ -970,7 +1269,7 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
     return result;
   }
 
-  if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId);
+  if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);
   if (result.reused) {
     return {
       agentId: result.agentId,
@@ -989,6 +1288,8 @@ async function startResumedAgentSession(req, res, provider, rawSessionId) {
     fork: shouldFork,
     asMain: requestedAsMain,
     allowUnarchiveArchived,
+    providerHomeId: req.body && typeof req.body.providerHomeId === 'string' ? req.body.providerHomeId : '',
+    customTitle: req.body && typeof req.body.customTitle === 'string' ? req.body.customTitle : '',
   });
 
   if (result.error) {
@@ -1021,7 +1322,13 @@ async function autoResumeMainPageAgentSessions() {
   let resumedCount = 0;
   for (const session of sessions) {
     try {
-      const sessionDetails = await findAgentSession(session.provider, session.sessionId, { limit: 200 });
+      const sessionDetails = await findAgentSession(session.provider, session.sessionId, { limit: 200, providerHomeId: session.providerHomeId || 'default', providerHomes: configuredProviderHomes() });
+      if (!sessionDetails) {
+        console.warn('Dropping stale main-page session from auto-resume:', session.provider, session.sessionId);
+        forgetMainPageAgentSession(session.provider, session.sessionId, session.providerHomeId || 'default');
+        continue;
+      }
+
       const claimingAgent = findActiveAgentClaimingSession(agentManager.getState().agents, session.provider, {
         id: session.sessionId,
         ...(sessionDetails || {}),
@@ -1032,8 +1339,16 @@ async function autoResumeMainPageAgentSessions() {
 
       const result = await resumeAgentSessionById(session.provider, session.sessionId, {
         rememberMainPageSession: false,
+        providerHomeId: session.providerHomeId || 'default',
+        autoReadInitialAttention: true,
       });
       if (result.error) {
+        const message = String(result.error || '').toLowerCase();
+        if (session.provider === 'qoder' && message.includes('invalid session identifier')) {
+          console.warn('Dropping stale qoder session from auto-resume:', session.provider, session.sessionId, result.error);
+          forgetMainPageAgentSession(session.provider, session.sessionId, session.providerHomeId || 'default');
+          continue;
+        }
         console.warn('Failed to auto-resume main page agent session:', session.provider, session.sessionId, result.error);
       } else {
         resumedCount += 1;
@@ -1051,6 +1366,7 @@ async function autoResumeMainPageAgentSessions() {
 
 app.post(routePath(BASE_PATH, '/api/settings'), express.json(), (req, res) => {
   configManager.updateSettings(req.body || {});
+  agentSessionsCache.invalidate();
   res.json({
     success: true,
     settings: configManager.getSettings()
@@ -1141,7 +1457,7 @@ wss.on('connection', (ws, req) => {
   sendState(ws);
 });
 
-const MAIN_AGENT_RESTART_COMMANDS = new Set(['bash', 'zsh', 'codex', 'claude']);
+const MAIN_AGENT_RESTART_COMMANDS = new Set(['codex', 'claude', 'opencode', 'qoder', 'bash', 'zsh']);
 
 function normalizeMainAgentRestartCommand(command) {
   const normalized = String(command || '').trim();
@@ -1171,6 +1487,7 @@ function restartMainAgent(ws, command) {
         } else if (agentId) {
           ws.agentId = agentId;
           broadcastState();
+          ws.send(JSON.stringify({ type: 'agent-started', agentId }));
         }
       }, {
         wantsMain: true
@@ -1192,6 +1509,37 @@ async function sendInputMessage(ws, data) {
   await agentManager.sendInput(targetAgentId, inputParts);
 }
 
+async function sendComposerInputMessage(ws, data) {
+  const targetAgentId = resolveInputTargetAgentId(ws, data);
+  const message = typeof data.message === 'string' ? data.message : '';
+  if (!targetAgentId || !message.trim()) return;
+  try {
+    await agentManager.sendComposerMessage(targetAgentId, message);
+  } catch (error) {
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: error && error.message ? error.message : 'Failed to send Composer message',
+    }));
+  }
+}
+
+async function respondToAppServerRequest(ws, data) {
+  const targetAgentId = resolveInputTargetAgentId(ws, data);
+  const requestId = typeof data.requestId === 'string' ? data.requestId : '';
+  if (!targetAgentId || !requestId) return;
+  try {
+    agentManager.respondToCodexAppServerRequest(targetAgentId, requestId, data.result, {
+      reject: data.reject === true,
+      reason: typeof data.reason === 'string' ? data.reason : '',
+    });
+  } catch (error) {
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: error && error.message ? error.message : 'Failed to respond to Codex App Server request',
+    }));
+  }
+}
+
 function handleMessage(ws, data) {
   switch (data.type) {
     case 'start-agent': {
@@ -1202,18 +1550,39 @@ function handleMessage(ws, data) {
         } else if (agentId) {
           ws.agentId = agentId;
           broadcastState();
+          ws.send(JSON.stringify({ type: 'agent-started', agentId }));
         }
       }, {
         wantsMain: data.asMain === true,
         projectWorkspace: typeof data.projectWorkspace === 'string' ? data.projectWorkspace : '',
         task: typeof data.task === 'string' ? data.task : '',
         workflowTemplate: typeof data.workflowTemplate === 'string' ? data.workflowTemplate : '',
+        customTitle: typeof data.customTitle === 'string' ? data.customTitle : '',
+        codexApprovalMode: typeof data.codexApprovalMode === 'string' ? data.codexApprovalMode : undefined,
+        codexRuntimeMode: data.codexRuntimeMode === 'app-server' || data.codexRuntimeMode === 'cli'
+          ? data.codexRuntimeMode
+          : undefined,
+        agentRuntimeMode: data.agentRuntimeMode === 'json' ? 'json' : 'terminal',
+        providerHomeId: typeof data.providerHomeId === 'string' ? data.providerHomeId : '',
+        ...(data.dangerouslySkipPermissions === true ? { dangerouslySkipPermissions: true } : {}),
       });
       break;
     }
     case 'input':
       {
         void sendInputMessage(ws, data);
+      }
+      break;
+
+    case 'composer-input':
+      {
+        void sendComposerInputMessage(ws, data);
+      }
+      break;
+
+    case 'app-server-request-response':
+      {
+        void respondToAppServerRequest(ws, data);
       }
       break;
 
@@ -1225,8 +1594,14 @@ function handleMessage(ws, data) {
       
     case 'focus-agent':
       ws.focusedAgentId = data.agentId;
-      if (data.agentId) {
-        agentManager.setAgentUnread(data.agentId, false);
+      if (data.streamScope === 'focused' || data.streamScope === 'all') {
+        ws.streamScope = data.streamScope;
+      }
+      if (data.previewScope === 'none' || data.previewScope === 'focused' || data.previewScope === 'all') {
+        ws.previewScope = data.previewScope;
+      }
+      if (data.refreshState === true) {
+        sendState(ws);
       }
       break;
 
@@ -1401,7 +1776,9 @@ function broadcastSessionPreview(preview) {
   });
 
   wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
+    const previewAllowed = client.previewScope !== 'none'
+      && (client.previewScope !== 'focused' || client.focusedAgentId === preview.agentId);
+    if (client.readyState === WebSocket.OPEN && previewAllowed) {
       client.send(message);
     }
   });
@@ -1473,6 +1850,7 @@ function broadcastSessionStream(stream) {
 
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
+      if (client.streamScope === 'focused' && client.focusedAgentId !== stream.agentId) return;
       if (client.bufferedAmount > MAX_SESSION_STREAM_CLIENT_BUFFERED_AMOUNT) return;
       client.send(message);
     }
@@ -1595,7 +1973,11 @@ agentManager.onSessionPreview((preview) => {
 agentManager.onSystemStats((systemStats) => {
   const message = JSON.stringify({ 
     type: 'system-stats', 
-    stats: systemStats,
+    stats: {
+      ...systemStats,
+      ip: getPrimaryLocalIP(),
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+    },
     uptime: agentManager.getUptime()
   });
   wss.clients.forEach(client => {

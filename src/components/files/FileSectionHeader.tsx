@@ -1,4 +1,6 @@
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react'
+import { ChevronDownGlyph, ChevronRightGlyph } from '@/components/IconGlyphs'
+import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { CodeCopy } from '../code/copy'
 
 export interface FileSectionHeaderSearch {
@@ -36,7 +38,9 @@ export function FileSectionHeader({
         aria-expanded={!filesCollapsed}
         onClick={onToggleFilesCollapsed}
       >
-        <span className={`code-file-section-chevron ${filesCollapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true" />
+        <span className={`code-file-section-chevron ${filesCollapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
+          {filesCollapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
+        </span>
         <span>{copy.files}</span>
       </button>
       {!filesCollapsed && (
@@ -44,13 +48,30 @@ export function FileSectionHeader({
           <span className="code-file-search-icon" aria-hidden="true" />
           <input
             ref={search.inputRef}
+            type="search"
+            name="farming-file-search"
+            inputMode="search"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            enterKeyHint="search"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-bwignore="true"
+            data-form-type="other"
             value={search.query}
             onChange={event => {
               onCancelPendingFileFocus()
               onSearchQueryChange(event.target.value)
             }}
             onFocus={onCancelPendingFileFocus}
-            onPointerDown={onCancelPendingFileFocus}
+            onPointerDown={event => {
+              onCancelPendingFileFocus()
+              if (!isMobileTouchViewport()) return
+              event.preventDefault()
+              event.currentTarget.focus({ preventScroll: true })
+            }}
             onMouseDown={onCancelPendingFileFocus}
             onKeyDownCapture={onFileSearchKeyDown}
             placeholder={copy.searchOrPathLine}
@@ -60,7 +81,6 @@ export function FileSectionHeader({
             aria-expanded={search.active}
             aria-activedescendant={search.activeOptionId}
             role="combobox"
-            spellCheck={false}
           />
         </label>
       )}

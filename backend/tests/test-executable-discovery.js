@@ -41,6 +41,7 @@ function run() {
   try {
     const executablePath = writeExecutable(tempDir, 'claude');
     writeExecutable(tempDir, 'bash');
+    writeExecutable(tempDir, 'qodercli');
     writeExecutable(tempDir, 'qwen');
     const preferredCodex = writeExecutable(tempDir, 'preferred-codex');
     const textPath = path.join(tempDir, 'notes.txt');
@@ -54,9 +55,16 @@ function run() {
     const names = agents.map((agent) => agent.name);
     const codex = agents.find((agent) => agent.name === 'codex');
 
+    assert.deepStrictEqual(
+      names.slice(0, 4),
+      ['codex', 'claude', 'qoder', 'bash'],
+      'available launch agents should keep the stable product order while omitting missing agents'
+    );
     assert(names.includes('claude'), 'claude should be discovered from PATH');
+    assert(names.includes('qoder'), 'qoder should be discovered from qodercli on PATH');
     assert(names.includes('codex'), 'codex should be discovered from the preferred Codex.app-style binary');
     assert.strictEqual(codex.resolvedPath, preferredCodex, 'preferred codex binary should win over PATH');
+    assert.strictEqual(agents.find((agent) => agent.name === 'qoder').command, 'qodercli');
     assert.strictEqual(resolveAgentExecutable('codex', `${tempDir}${path.delimiter}/usr/bin`), preferredCodex);
     assert.strictEqual(getPreferredExecutableCandidates('codex', tempDir)[0], preferredCodex);
     assert.strictEqual(parseCliVersion('codex-cli 0.142.3'), '0.142.3');

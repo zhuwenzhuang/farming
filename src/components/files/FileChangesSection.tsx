@@ -1,5 +1,7 @@
 import { useMemo, useState, type CSSProperties } from 'react'
-import { iconForDirectoryPath, iconForFilePath } from '@/lib/file-icons'
+import { ChevronDownGlyph, ChevronRightGlyph } from '@/components/IconGlyphs'
+import { appPath } from '@/lib/base-path'
+import { iconForFilePath } from '@/lib/file-icons'
 import {
   workspaceFileChangePathLabel,
   workspaceFileChangeRowKey,
@@ -11,6 +13,7 @@ import type { WorkspaceFileChangesController } from './useWorkspaceFileChanges'
 
 interface FileChangesSectionProps {
   activeFilePath?: string
+  agentId: string
   changes: WorkspaceFileChangesController
   collapsed: boolean
   copy: CodeCopy
@@ -23,7 +26,6 @@ type FileChangeTreeNode =
   | {
     id: string
     displayName?: string
-    iconPath?: string
     name: string
     path: string
     type: 'directory'
@@ -86,7 +88,6 @@ function compactChangeTreeNodes(nodes: FileChangeTreeNode[]): FileChangeTreeNode
       compacted = {
         ...child,
         displayName: `${compacted.displayName ?? compacted.name}/${child.displayName ?? child.name}`,
-        iconPath: compacted.iconPath ?? compacted.path,
       }
     }
 
@@ -251,10 +252,10 @@ function FileChangeTreeRows({
                   if (canExpand) onToggleDirectory(node.id)
                 }}
               >
-                <span className={`code-file-chevron ${canExpand ? expanded ? 'expanded' : 'collapsed' : 'placeholder'}`} aria-hidden="true" />
-                <img className={`code-file-type-icon folder ${expanded ? 'open' : ''}`} src={iconForDirectoryPath(node.iconPath ?? node.path, expanded)} alt="" aria-hidden="true" />
+                <span className={`code-file-chevron ${canExpand ? expanded ? 'expanded' : 'collapsed' : 'placeholder'}`} aria-hidden="true">
+                  {canExpand ? expanded ? <ChevronDownGlyph /> : <ChevronRightGlyph /> : null}
+                </span>
                 <span className="code-file-change-name">{node.displayName ?? node.name}</span>
-                <span className="code-file-change-path" />
                 <span className="code-file-change-status directory">{node.descendantCount || ''}</span>
               </button>
             </div>
@@ -278,6 +279,7 @@ function FileChangeTreeRows({
 
 export function FileChangesSection({
   activeFilePath,
+  agentId,
   changes,
   collapsed,
   copy,
@@ -314,21 +316,33 @@ export function FileChangesSection({
       return next
     })
   }
+  const openReview = (scope: 'tracked' | 'untracked') => {
+    const params = new URLSearchParams({ agentId, scope })
+    if (scope === 'untracked') params.set('modifiedWithinDays', '3')
+    window.open(appPath(`/review?${params.toString()}`), '_blank', 'noopener,noreferrer')
+  }
 
   return (
     <div className="code-file-changes-section" data-testid="code-file-changes-section" data-project-id={projectId} aria-label={copy.changedFiles}>
       {trackedChanges.length > 0 && (
         <div className={`code-file-change-group tracked ${collapsed ? 'collapsed' : ''}`} data-testid="code-file-change-tracked-group">
-          <button
-            type="button"
-            className="code-file-change-group-toggle"
-            aria-expanded={!collapsed}
-            onClick={toggleCollapsed}
-          >
-            <span className={`code-file-section-chevron ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true" />
-            <span>{copy.changes}</span>
-            <span className="code-file-changes-count">{trackedChanges.length}</span>
-          </button>
+          <div className="code-file-change-group-header">
+            <button
+              type="button"
+              className="code-file-change-group-toggle"
+              aria-expanded={!collapsed}
+              onClick={toggleCollapsed}
+            >
+              <span className={`code-file-section-chevron ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
+                {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
+              </span>
+              <span>{copy.changes}</span>
+              <span className="code-file-changes-count">{trackedChanges.length}</span>
+            </button>
+            <button type="button" className="code-file-change-review" onClick={() => openReview('tracked')}>
+              {copy.reviewChanges}
+            </button>
+          </div>
           {!collapsed && (
             <FileChangeTreeRows
               activeFilePath={activeFilePath}
@@ -344,16 +358,23 @@ export function FileChangesSection({
       )}
       {untrackedChanges.length > 0 && (
         <div className={`code-file-change-group untracked ${untrackedCollapsed ? 'collapsed' : ''}`} data-testid="code-file-change-untracked-group">
-          <button
-            type="button"
-            className="code-file-change-group-toggle"
-            aria-expanded={!untrackedCollapsed}
-            onClick={toggleUntrackedCollapsed}
-          >
-            <span className={`code-file-section-chevron ${untrackedCollapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true" />
-            <span>{copy.untrackedChanges}</span>
-            <span className="code-file-changes-count">{untrackedChanges.length}{changes.truncated ? '+' : ''}</span>
-          </button>
+          <div className="code-file-change-group-header">
+            <button
+              type="button"
+              className="code-file-change-group-toggle"
+              aria-expanded={!untrackedCollapsed}
+              onClick={toggleUntrackedCollapsed}
+            >
+              <span className={`code-file-section-chevron ${untrackedCollapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
+                {untrackedCollapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
+              </span>
+              <span>{copy.untrackedChanges}</span>
+              <span className="code-file-changes-count">{untrackedChanges.length}{changes.truncated ? '+' : ''}</span>
+            </button>
+            <button type="button" className="code-file-change-review" onClick={() => openReview('untracked')}>
+              {copy.reviewChanges}
+            </button>
+          </div>
           {!untrackedCollapsed && (
             <FileChangeTreeRows
               activeFilePath={activeFilePath}

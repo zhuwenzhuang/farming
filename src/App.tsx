@@ -6,8 +6,8 @@ import { useKeyboard, type Shortcut } from '@/hooks/useKeyboard'
 import { InputDialog } from '@/components/InputDialog'
 import { CodeWorkspace, type AgentFlagUpdateResult, type DeleteForkWorktreeProjectResult, type WorkspaceView } from '@/components/CodeWorkspace'
 import { codeCopyForLanguage } from '@/components/code/copy'
-import { applyThemeAppearance, type ThemeRuntimeSettings } from '@/lib/theme'
-import { isMobileTouchViewport } from '@/lib/responsive-mode'
+import { applyThemeAppearance } from '@/lib/theme'
+import { isIOSLikeTouchViewport, isMobileTouchViewport } from '@/lib/responsive-mode'
 import {
   DEFAULT_UI_PREFERENCES,
   normalizeUiAppearance,
@@ -17,33 +17,47 @@ import {
 import { destroyTerminalSession, pruneTerminalSessions } from '@/lib/terminal-session-pool'
 import { appPath } from '@/lib/base-path'
 import type { Agent, AgentContextWindowUsage, UsageSummary } from '@/types/agent'
+import { loadCodeWorkspaceViewState, saveCodeWorkspaceViewState } from '@/components/code/workspace-view-state'
 
 type DialogState = 'none' | 'input'
 type AgentFlagPatch = Partial<{
   pinned: boolean
   unread: boolean
   archived: boolean
+  launchPermissionMode: string
+  readAttentionSeq: number
+  agentRuntimeMode: 'terminal' | 'json'
 }>
 type StartAgentExtras = {
   projectWorkspace?: string
   task?: string
   workflowTemplate?: string
+  customTitle?: string
+  codexApprovalMode?: string
+  codexRuntimeMode?: 'cli' | 'app-server'
+  agentRuntimeMode?: 'terminal' | 'json'
+  dangerouslySkipPermissions?: boolean
+  providerHomeId?: string
 }
+type PermissionSwitchState = {
+  originalAgentId: string
+  agent: Agent
+  replacementAgentId?: string
+  transitionFromAgentId?: string
+  requestSettled?: boolean
+  requestError?: string
+  requestErrorAt?: number
+  requestFreshStateAt?: number
+}
+type AgentReplacementTransition = { originalAgentId: string; replacementAgentId: string }
 
 const CODEX_SKIN_KEYBOARD_SHORTCUTS_ENABLED = false
 const BACKEND_INITIAL_CONNECT_GRACE_MS = 3000
 const BACKEND_HEARTBEAT_STALE_MS = 6000
 const MIN_MOBILE_VISUAL_HEIGHT = 240
 const CONTEXT_WINDOW_REFRESH_MS = 30_000
-
-function isIOSLikeTouchViewport() {
-  if (typeof navigator === 'undefined') return false
-  const platform = navigator.platform || ''
-  const userAgent = navigator.userAgent || ''
-  return /iP(?:ad|hone|od)/.test(platform)
-    || /iP(?:ad|hone|od)/.test(userAgent)
-    || (platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
-}
+const PERMISSION_SWITCH_REPLACEMENT_GRACE_MS = 10_000
+const PERMISSION_SWITCH_REPLACEMENT_HARD_TIMEOUT_MS = 60_000
 
 function projectWorkspaceForAgent(agent: { cwd: string; projectWorkspace?: string; isMain?: boolean } | null | undefined) {
   if (!agent) return undefined
@@ -53,6 +67,21 @@ function projectWorkspaceForAgent(agent: { cwd: string; projectWorkspace?: strin
 
 function isOpenableAgent(agent: Agent) {
   return !agent.archived && agent.status !== 'dead' && agent.status !== 'stopped'
+}
+
+function isRestartDescendantOf(agent: Agent, ancestorAgentId: string) {
+  return agent.restartedFromAgentId === ancestorAgentId
+    || agent.restartedFromAgentIds?.includes(ancestorAgentId) === true
+}
+
+function latestRestartDescendant(agents: Agent[], ancestorAgentId: string) {
+  return agents
+    .filter(agent => isOpenableAgent(agent) && isRestartDescendantOf(agent, ancestorAgentId))
+    .sort((a, b) => {
+      const lineageDifference = (b.restartedFromAgentIds?.length ?? 0) - (a.restartedFromAgentIds?.length ?? 0)
+      if (lineageDifference !== 0) return lineageDifference
+      return (b.startedAt ?? 0) - (a.startedAt ?? 0)
+    })[0] ?? null
 }
 
 function canReadCodexContextWindow(agent: Agent | null | undefined): agent is Agent & { providerSessionProvider: 'codex'; providerSessionId: string } {
@@ -84,22 +113,31 @@ export function App() {
   const ws = useWebSocket()
   const pageVisible = usePageVisibility()
   const { keyMap } = useAgents(ws.agents, ws.mainAgentId)
+  const [initialWorkspaceViewState] = useState(() => loadCodeWorkspaceViewState())
 
   const [dialog, setDialog] = useState<DialogState>('none')
   const [inputInitialWorkspace, setInputInitialWorkspace] = useState<string | undefined>(undefined)
   const [inputInitialCommand, setInputInitialCommand] = useState<string | undefined>(undefined)
-  const [openTerminalIds, setOpenTerminalIds] = useState<string[]>([])
-  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null)
+  const [inputInitialCustomTitle, setInputInitialCustomTitle] = useState<string | undefined>(undefined)
+  const [openTerminalIds, setOpenTerminalIds] = useState<string[]>(() => initialWorkspaceViewState.openTerminalIds ?? [])
+  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(() => initialWorkspaceViewState.activeTerminalId ?? null)
   const [terminalFocusRequest, setTerminalFocusRequest] = useState<{ agentId: string; nonce: number } | null>(null)
-  const [activeWorkspaceView, setActiveWorkspaceView] = useState<WorkspaceView>('projects')
+  const [pendingTerminalOpen, setPendingTerminalOpen] = useState<{
+    agentId: string
+    options?: { focusTerminal?: boolean }
+  } | null>(null)
+  const [activeWorkspaceView, setActiveWorkspaceView] = useState<WorkspaceView>(() => initialWorkspaceViewState.activeView ?? 'projects')
   const [appNotice, setAppNotice] = useState<{ id: number; kind: 'error'; message: string } | null>(null)
+  const [permissionSwitch, setPermissionSwitch] = useState<PermissionSwitchState | null>(null)
+  const [externalAgentReplacement, setExternalAgentReplacement] = useState<AgentReplacementTransition | null>(null)
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null)
   const [contextWindowByAgentId, setContextWindowByAgentId] = useState<Record<string, AgentContextWindowUsage>>({})
-  const [themeRuntimeSettings, setThemeRuntimeSettings] = useState<ThemeRuntimeSettings>({})
   const [uiPreferences, setUiPreferences] = useState<UiPreferences>(DEFAULT_UI_PREFERENCES)
   const [connectionCheckNow, setConnectionCheckNow] = useState(() => Date.now())
   const pendingStartRef = useRef<{ beforeIds: Set<string> } | null>(null)
   const pendingMainRestartRef = useRef<{ beforeIds: Set<string> } | null>(null)
+  const permissionSwitchRequestRef = useRef<string | null>(null)
+  const permissionSwitchStateRef = useRef<PermissionSwitchState | null>(null)
   const openTerminalIdsRef = useRef<string[]>([])
   const hiddenMainStartRequestedRef = useRef(false)
   const didAutoOpenInitialTerminalRef = useRef(false)
@@ -112,8 +150,142 @@ export function App() {
     openTerminalIdsRef.current = openTerminalIds
   }, [openTerminalIds])
 
+  useEffect(() => {
+    saveCodeWorkspaceViewState({
+      activeTerminalId,
+      activeView: activeWorkspaceView,
+      openTerminalIds,
+    })
+  }, [activeTerminalId, activeWorkspaceView, openTerminalIds])
+
+  const commitPermissionSwitch = useCallback((next: PermissionSwitchState | null) => {
+    permissionSwitchStateRef.current = next
+    setPermissionSwitch(next)
+  }, [])
+
   const effectiveDialog = dialog
   const copy = useMemo(() => codeCopyForLanguage(uiPreferences.language), [uiPreferences.language])
+  const displayedAgents = useMemo(() => {
+    if (!permissionSwitch) {
+      return ws.agents
+    }
+    const agents = ws.agents.filter(agent => (
+      agent.id === permissionSwitch.agent.id
+      || !isRestartDescendantOf(agent, permissionSwitch.originalAgentId)
+    ))
+    if (agents.some(agent => agent.id === permissionSwitch.agent.id)) return agents
+    return [...agents, permissionSwitch.agent]
+  }, [permissionSwitch, ws.agents])
+  const observedAgentReplacements = useMemo(() => {
+    const replacements = new Map<string, string>()
+    const candidateIds = new Set(openTerminalIds)
+    if (activeTerminalId) candidateIds.add(activeTerminalId)
+    candidateIds.forEach(agentId => {
+      if (displayedAgents.some(agent => agent.id === agentId && isOpenableAgent(agent))) return
+      const replacement = latestRestartDescendant(displayedAgents, agentId)
+      if (replacement) replacements.set(agentId, replacement.id)
+    })
+    return replacements
+  }, [activeTerminalId, displayedAgents, openTerminalIds])
+  const observedAgentReplacement = useMemo<AgentReplacementTransition | null>(() => {
+    if (activeTerminalId) {
+      const replacementAgentId = observedAgentReplacements.get(activeTerminalId)
+      if (replacementAgentId) return { originalAgentId: activeTerminalId, replacementAgentId }
+    }
+    const first = observedAgentReplacements.entries().next().value as [string, string] | undefined
+    return first ? { originalAgentId: first[0], replacementAgentId: first[1] } : null
+  }, [activeTerminalId, observedAgentReplacements])
+  const effectiveOpenTerminalIds = useMemo(() => Array.from(new Set(
+    openTerminalIds.map(agentId => observedAgentReplacements.get(agentId) ?? agentId)
+  )), [observedAgentReplacements, openTerminalIds])
+  const effectiveActiveTerminalId = activeTerminalId
+    ? observedAgentReplacements.get(activeTerminalId) ?? activeTerminalId
+    : null
+
+  useLayoutEffect(() => {
+    if (!observedAgentReplacement) return
+    setOpenTerminalIds(effectiveOpenTerminalIds)
+    setActiveTerminalId(effectiveActiveTerminalId)
+    setExternalAgentReplacement(observedAgentReplacement)
+  }, [effectiveActiveTerminalId, effectiveOpenTerminalIds, observedAgentReplacement])
+
+  useEffect(() => {
+    if (!externalAgentReplacement || observedAgentReplacement) return
+    setExternalAgentReplacement(null)
+  }, [externalAgentReplacement, observedAgentReplacement])
+
+  useEffect(() => {
+    const current = permissionSwitchStateRef.current
+    if (!current) return
+    const replacement = latestRestartDescendant(ws.agents, current.originalAgentId)
+    if (!replacement || replacement.id === current.agent.id) return
+
+    const transitionFromAgentId = current.agent.id
+    const next = {
+      ...current,
+      agent: replacement,
+      replacementAgentId: replacement.id,
+      transitionFromAgentId,
+    }
+    setOpenTerminalIds(ids => Array.from(new Set(ids.map(id => (
+      isRestartDescendantOf(replacement, id) ? replacement.id : id
+    )))))
+    setActiveTerminalId(activeId => (
+      activeId && isRestartDescendantOf(replacement, activeId) ? replacement.id : activeId
+    ))
+    commitPermissionSwitch(next)
+  }, [commitPermissionSwitch, permissionSwitch?.agent.id, permissionSwitch?.originalAgentId, ws.agents])
+
+  useEffect(() => {
+    const current = permissionSwitch
+    if (!current?.requestSettled || !current.replacementAgentId) return
+    if (!ws.agents.some(agent => agent.id === current.agent.id)) return
+    if (permissionSwitchStateRef.current?.agent.id !== current.agent.id) return
+    permissionSwitchRequestRef.current = null
+    commitPermissionSwitch(null)
+  }, [
+    commitPermissionSwitch,
+    permissionSwitch?.agent.id,
+    permissionSwitch?.replacementAgentId,
+    permissionSwitch?.requestSettled,
+    ws.agents,
+  ])
+
+  useEffect(() => {
+    const current = permissionSwitch
+    if (!current?.requestSettled || !current.requestError || current.replacementAgentId) return undefined
+    const errorAt = current.requestErrorAt ?? Date.now()
+    if (!current.requestFreshStateAt && ws.connected && ws.lastMessageAt > errorAt) {
+      const latest = permissionSwitchStateRef.current
+      if (
+        latest?.originalAgentId === current.originalAgentId
+        && !latest.replacementAgentId
+        && !latest.requestFreshStateAt
+      ) {
+        commitPermissionSwitch({ ...latest, requestFreshStateAt: ws.lastMessageAt })
+      }
+      return undefined
+    }
+    const hardDeadline = errorAt + PERMISSION_SWITCH_REPLACEMENT_HARD_TIMEOUT_MS
+    const freshStateDeadline = current.requestFreshStateAt
+      ? current.requestFreshStateAt + PERMISSION_SWITCH_REPLACEMENT_GRACE_MS
+      : Number.POSITIVE_INFINITY
+    const deadline = Math.min(hardDeadline, freshStateDeadline)
+    const delay = Math.max(0, deadline - Date.now())
+    const timer = window.setTimeout(() => {
+      const latest = permissionSwitchStateRef.current
+      if (
+        !latest?.requestSettled
+        || !latest.requestError
+        || latest.replacementAgentId
+        || latest.originalAgentId !== current.originalAgentId
+      ) return
+      permissionSwitchRequestRef.current = null
+      commitPermissionSwitch(null)
+      setAppNotice({ id: Date.now(), kind: 'error', message: latest.requestError })
+    }, delay)
+    return () => window.clearTimeout(timer)
+  }, [commitPermissionSwitch, permissionSwitch, ws.connected, ws.lastMessageAt])
   const backendConnectionState = useMemo(() => {
     const elapsed = Math.max(0, connectionCheckNow - ws.lastMessageAt)
     if (!ws.connected && ws.everConnected) return 'lost'
@@ -219,9 +391,15 @@ export function App() {
         : rawHeight
       const keyboardOffset = Math.max(0, layoutHeight - rawHeight - offsetTop)
       const iosLikeTouchViewport = mobileViewport && isIOSLikeTouchViewport()
+      const mobileKeyboardActive = mobileViewport && keyboardOffset > 80
+      const iosNavigator = navigator as Navigator & { standalone?: boolean }
+      const standaloneWebApp = iosNavigator.standalone === true
+        || window.matchMedia('(display-mode: standalone)').matches
 
       document.body.classList.toggle('code-mobile-touch', mobileViewport)
       document.body.classList.toggle('code-mobile-ios', iosLikeTouchViewport)
+      document.body.classList.toggle('code-mobile-standalone', mobileViewport && standaloneWebApp)
+      document.body.classList.toggle('code-mobile-keyboard-active', mobileKeyboardActive)
       document.documentElement.style.setProperty('--app-visual-width', `${width}px`)
       document.documentElement.style.setProperty('--app-visual-height', `${height}px`)
       document.documentElement.style.setProperty('--app-visual-offset-top', `${offsetTop}px`)
@@ -245,10 +423,12 @@ export function App() {
       document.documentElement.style.removeProperty('--mobile-keyboard-offset')
       document.body.classList.remove('code-mobile-touch')
       document.body.classList.remove('code-mobile-ios')
+      document.body.classList.remove('code-mobile-standalone')
+      document.body.classList.remove('code-mobile-keyboard-active')
     }
   }, [])
 
-  const openTerminal = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
+  const activateTerminal = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
     if (activeTerminalId !== agentId) {
       ws.focusAgent(agentId)
     }
@@ -264,26 +444,55 @@ export function App() {
     setDialog('none')
   }, [activeTerminalId, ws])
 
-  const closeTerminal = useCallback((agentId: string) => {
-    const openIds = openTerminalIdsRef.current
-    const closedIndex = openIds.indexOf(agentId)
-    const remaining = openIds.filter(id => id !== agentId)
-    const nextActiveId = closedIndex === -1
-      ? remaining[remaining.length - 1] ?? null
-      : remaining[Math.min(closedIndex, remaining.length - 1)] ?? null
+  // Keep the user intent separate from the authoritative agent list. A lifecycle
+  // response may name an agent before the matching WebSocket state has rendered.
+  const requestTerminalOpen = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
+    setPendingTerminalOpen({ agentId, options })
+  }, [])
 
+  const openTerminal = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
+    if (agentId === activeTerminalId && openTerminalIds.includes(agentId)) {
+      activateTerminal(agentId, options)
+      return
+    }
+    requestTerminalOpen(agentId, options)
+  }, [activateTerminal, activeTerminalId, openTerminalIds, requestTerminalOpen])
+
+  useEffect(() => {
+    if (!pendingTerminalOpen) return
+    if (!displayedAgents.some(agent => agent.id === pendingTerminalOpen.agentId && isOpenableAgent(agent))) return
+
+    setPendingTerminalOpen(null)
+    activateTerminal(pendingTerminalOpen.agentId, pendingTerminalOpen.options)
+  }, [activateTerminal, displayedAgents, pendingTerminalOpen])
+
+  const closeTerminals = useCallback((agentIds: Iterable<string>) => {
+    const closingIds = new Set(agentIds)
+    if (closingIds.size === 0) return
+    const openIds = openTerminalIdsRef.current
+    const activeIndex = openIds.indexOf(activeTerminalId ?? '')
+    const remaining = openIds.filter(id => !closingIds.has(id))
+    const nextActiveId = activeIndex === -1
+      ? remaining[remaining.length - 1] ?? null
+      : remaining[Math.min(activeIndex, remaining.length - 1)] ?? null
+
+    openTerminalIdsRef.current = remaining
     setOpenTerminalIds(remaining)
     setActiveTerminalId(current => {
-      if (current !== agentId) return current
+      if (!current || !closingIds.has(current)) return current
       return nextActiveId
     })
-    if (activeTerminalId === agentId && nextActiveId) {
+    if (activeTerminalId && closingIds.has(activeTerminalId) && nextActiveId) {
       setTerminalFocusRequest(previous => ({
         agentId: nextActiveId,
         nonce: (previous?.nonce ?? 0) + 1,
       }))
     }
   }, [activeTerminalId])
+
+  const closeTerminal = useCallback((agentId: string) => {
+    closeTerminals([agentId])
+  }, [closeTerminals])
 
   const cycleOpenTerminal = useCallback((direction: 1 | -1) => {
     if (openTerminalIds.length === 0) return
@@ -293,7 +502,7 @@ export function App() {
     if (nextId) openTerminal(nextId)
   }, [activeTerminalId, openTerminal, openTerminalIds])
 
-  const openNewAgentDialog = useCallback((workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => {
+  const openNewAgentDialog = useCallback((workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null, customTitle?: string) => {
     const requestId = inputDialogOpenRequestRef.current + 1
     inputDialogOpenRequestRef.current = requestId
     inputDialogReturnFocusRef.current = returnFocusTarget ?? (document.activeElement instanceof HTMLElement
@@ -301,6 +510,7 @@ export function App() {
       : null)
     setInputInitialWorkspace(workspace)
     setInputInitialCommand(command)
+    setInputInitialCustomTitle(customTitle)
     setActiveWorkspaceView('projects')
     setDialog('input')
 
@@ -355,7 +565,7 @@ export function App() {
     closeTerminal(agentId)
   }, [ws, closeTerminal])
 
-  const handleRestartMainAgent = useCallback((command: 'bash' | 'zsh' | 'codex' | 'claude') => {
+  const handleRestartMainAgent = useCallback((command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => {
     if (pendingMainRestartRef.current) return
     hiddenMainStartRequestedRef.current = true
     pendingMainRestartRef.current = { beforeIds: new Set(ws.agents.map(agent => agent.id)) }
@@ -374,6 +584,16 @@ export function App() {
     }
   }, [ws])
 
+  useEffect(() => {
+    const agentId = ws.lastStartedAgentId
+    const pending = pendingStartRef.current
+    if (!agentId || !pending || pending.beforeIds.has(agentId)) return
+
+    pendingStartRef.current = null
+    setDialog('none')
+    requestTerminalOpen(agentId)
+  }, [requestTerminalOpen, ws.lastStartedAgentId])
+
   const handleForkAgent = useCallback(async (agentId: string, mode: 'same-worktree' | 'new-worktree') => {
     try {
       const response = await fetch(appPath(`/api/agents/${agentId}/fork`), {
@@ -386,11 +606,11 @@ export function App() {
         notifyError(data?.error || `Failed to fork agent (${response.status})`)
         return
       }
-      openTerminal(data.agentId)
+      requestTerminalOpen(data.agentId)
     } catch (error) {
       notifyError(error instanceof Error ? error.message : 'Failed to fork agent')
     }
-  }, [notifyError, openTerminal])
+  }, [notifyError, requestTerminalOpen])
 
   const handleDeleteForkWorktreeProject = useCallback(async (
     workspace: string,
@@ -407,9 +627,7 @@ export function App() {
         notifyError(data?.error || `Failed to delete worktree (${response.status})`)
       }
       if (data?.deleted) {
-        ;(data.archivedAgentIds ?? []).forEach(agentId => {
-          closeTerminal(agentId)
-        })
+        closeTerminals(data.archivedAgentIds ?? [])
       }
       if (data) return data
       const error = `Failed to delete worktree (${response.status})`
@@ -420,7 +638,7 @@ export function App() {
       notifyError(message)
       return { error: message }
     }
-  }, [closeTerminal, notifyError])
+  }, [closeTerminals, notifyError])
 
   const handleRenameAgent = useCallback(async (agentId: string, customTitle: string) => {
     try {
@@ -439,6 +657,35 @@ export function App() {
   }, [notifyError])
 
   const handleUpdateAgentFlags = useCallback(async (agentId: string, flags: AgentFlagPatch) => {
+    const permissionMode = typeof flags.launchPermissionMode === 'string'
+      ? flags.launchPermissionMode
+      : ''
+    const runtimeSwitch = typeof flags.agentRuntimeMode === 'string'
+    const permissionAgent = permissionMode || runtimeSwitch
+      ? ws.agents.find(agent => agent.id === agentId) ?? null
+      : null
+    const switchingAgent = permissionAgent?.providerSessionProvider === 'codex'
+      && permissionAgent.codexRuntimeMode === 'app-server'
+      && !runtimeSwitch
+      ? null
+      : permissionAgent
+    if (switchingAgent) {
+      if (permissionSwitchRequestRef.current) return false
+      permissionSwitchRequestRef.current = agentId
+      commitPermissionSwitch({
+        originalAgentId: agentId,
+        agent: switchingAgent,
+      })
+    }
+
+    const clearPermissionSwitch = () => {
+      if (!switchingAgent) return
+      const current = permissionSwitchStateRef.current
+      if (current?.originalAgentId !== agentId) return
+      permissionSwitchRequestRef.current = null
+      commitPermissionSwitch(null)
+    }
+
     try {
       const response = await fetch(appPath(`/api/agents/${agentId}`), {
         method: 'PATCH',
@@ -447,30 +694,82 @@ export function App() {
       })
       const data = await response.json().catch(() => null) as AgentFlagUpdateResult | null
       if (!response.ok) {
+        const current = permissionSwitchStateRef.current
+        if (switchingAgent && current?.originalAgentId === agentId && current.replacementAgentId) {
+          commitPermissionSwitch({ ...current, requestSettled: true })
+          return data ?? true
+        }
+        clearPermissionSwitch()
         notifyError(data?.error || `Failed to update agent (${response.status})`)
         return false
       }
       if (flags.archived === true) {
         closeTerminal(agentId)
       }
+      if (data?.restartedAgentId) {
+        const restartedAgentId = data.restartedAgentId
+        const current = permissionSwitchStateRef.current
+        if (switchingAgent && current?.originalAgentId === agentId) {
+          if (current.agent.id === agentId) {
+            setOpenTerminalIds(ids => ids.map(id => id === agentId ? restartedAgentId : id))
+            setActiveTerminalId(activeId => activeId === agentId ? restartedAgentId : activeId)
+            commitPermissionSwitch({
+              ...current,
+              replacementAgentId: restartedAgentId,
+              transitionFromAgentId: agentId,
+              requestSettled: true,
+              agent: {
+                ...current.agent,
+                id: restartedAgentId,
+                launchPermissionMode: data.launchPermissionMode ?? permissionMode,
+                agentRuntimeMode: data.agentRuntimeMode ?? current.agent.agentRuntimeMode,
+                restartedFromAgentId: agentId,
+                restartedFromAgentIds: Array.from(new Set([
+                  ...(current.agent.restartedFromAgentIds ?? []),
+                  agentId,
+                ])),
+              },
+            })
+          } else {
+            commitPermissionSwitch({
+              ...current,
+              requestSettled: true,
+              requestError: undefined,
+            })
+          }
+        }
+      } else {
+        clearPermissionSwitch()
+      }
       return data ?? true
     } catch (error) {
-      notifyError(error instanceof Error ? error.message : 'Failed to update agent')
+      const message = error instanceof Error ? error.message : 'Failed to update agent'
+      const current = permissionSwitchStateRef.current
+      if (switchingAgent && current?.originalAgentId === agentId) {
+        commitPermissionSwitch({
+          ...current,
+          requestSettled: true,
+          requestError: message,
+          requestErrorAt: Date.now(),
+        })
+        return current.replacementAgentId ? true : false
+      }
+      notifyError(message)
       return false
     }
-  }, [closeTerminal, notifyError])
+  }, [closeTerminal, commitPermissionSwitch, notifyError, ws.agents])
 
   const handleOpenArchivedAgent = useCallback(async (agentId: string) => {
     const updated = await handleUpdateAgentFlags(agentId, { archived: false })
     if (updated) {
-      openTerminal(agentId)
+      requestTerminalOpen(agentId)
     }
-  }, [handleUpdateAgentFlags, openTerminal])
+  }, [handleUpdateAgentFlags, requestTerminalOpen])
 
   // Focused agent for top-level labels
   const activeTerminalAgent = useMemo(
-    () => ws.agents.find(a => a.id === activeTerminalId) ?? null,
-    [ws.agents, activeTerminalId]
+    () => displayedAgents.find(a => a.id === effectiveActiveTerminalId) ?? null,
+    [displayedAgents, effectiveActiveTerminalId]
   )
 
   useEffect(() => {
@@ -532,20 +831,9 @@ export function App() {
   useKeyboard(globalShortcuts, CODEX_SKIN_KEYBOARD_SHORTCUTS_ENABLED && effectiveDialog === 'none')
 
   useEffect(() => {
-    const pending = pendingStartRef.current
-    if (!pending) return
-
-    const nextAgent = ws.agents.find(agent => !agent.isMain && isOpenableAgent(agent) && !pending.beforeIds.has(agent.id))
-    if (!nextAgent) return
-
-    pendingStartRef.current = null
-    setDialog('none')
-    openTerminal(nextAgent.id)
-  }, [openTerminal, ws.agents])
-
-  useEffect(() => {
     if (!ws.error) return
     pendingStartRef.current = null
+    setPendingTerminalOpen(null)
     pendingMainRestartRef.current = null
     hiddenMainStartRequestedRef.current = false
     notifyError(ws.error)
@@ -586,39 +874,48 @@ export function App() {
 
   // Clean up pooled terminal instances for agents that no longer exist
   useEffect(() => {
-    const activeIds = ws.agents.filter(isOpenableAgent).map(a => a.id)
+    const activeIds = displayedAgents.filter(isOpenableAgent).map(a => a.id)
     pruneTerminalSessions(activeIds).catch(error => {
       console.error('Failed to prune terminal sessions:', error)
     })
-  }, [ws.agents])
+  }, [displayedAgents])
 
   useEffect(() => {
-    const liveIds = new Set(ws.agents.filter(isOpenableAgent).map(agent => agent.id))
-    setOpenTerminalIds(ids => ids.filter(id => liveIds.has(id)))
-  }, [ws.agents])
+    const liveIds = new Set(displayedAgents.filter(isOpenableAgent).map(agent => agent.id))
+    setOpenTerminalIds(ids => Array.from(new Set(ids.map(id => {
+      if (liveIds.has(id)) return id
+      return latestRestartDescendant(displayedAgents, id)?.id ?? id
+    }))).filter(id => (
+      liveIds.has(id) || permissionSwitchStateRef.current?.agent.id === id
+    )))
+  }, [displayedAgents])
 
   useEffect(() => {
+    const liveIds = new Set(displayedAgents.filter(isOpenableAgent).map(agent => agent.id))
     setActiveTerminalId(current => {
-      if (current && openTerminalIds.includes(current)) return current
+      if (current && (
+        liveIds.has(current)
+        || permissionSwitchStateRef.current?.agent.id === current
+      )) return current
       return openTerminalIds[0] ?? null
     })
-  }, [openTerminalIds])
+  }, [displayedAgents, openTerminalIds])
 
   useEffect(() => {
-    if (!ws.agents.some(agent => !agent.isMain && isOpenableAgent(agent))) {
+    if (!displayedAgents.some(agent => !agent.isMain && isOpenableAgent(agent))) {
       didAutoOpenInitialTerminalRef.current = false
     }
-  }, [ws.agents])
+  }, [displayedAgents])
 
   useEffect(() => {
     if (openTerminalIds.length > 0) return
     if (didAutoOpenInitialTerminalRef.current) return
-    const fallbackId = ws.agents.find(agent => !agent.isMain && isOpenableAgent(agent))?.id
+    const fallbackId = displayedAgents.find(agent => !agent.isMain && isOpenableAgent(agent))?.id
     if (!fallbackId) return
     didAutoOpenInitialTerminalRef.current = true
     setOpenTerminalIds([fallbackId])
     setActiveTerminalId(fallbackId)
-  }, [openTerminalIds.length, ws.agents, ws.mainAgentId])
+  }, [displayedAgents, openTerminalIds.length, ws.mainAgentId])
 
   useEffect(() => {
     const pending = pendingMainRestartRef.current
@@ -647,8 +944,6 @@ export function App() {
     openTerminal(agentId)
   }, [openTerminal, ws.agents])
 
-  // Load CRT setting on startup (matching old frontend's loadThemes behavior)
-  // Only apply if the setting has been explicitly saved; otherwise leave body class unchanged
   useEffect(() => {
     document.body.classList.add('code-mode')
     return () => { document.body.classList.remove('code-mode') }
@@ -656,10 +951,10 @@ export function App() {
 
   useEffect(() => {
     applyThemeAppearance('terminal', {
-      ...themeRuntimeSettings,
+      crtEffects: false,
       appearance: uiPreferences.appearance,
     })
-  }, [themeRuntimeSettings, uiPreferences.appearance])
+  }, [uiPreferences.appearance])
 
   useEffect(() => {
     let cancelled = false
@@ -680,29 +975,10 @@ export function App() {
     }
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
-    fetch(appPath('/api/themes'))
-      .then(r => r.json())
-      .then((data: { current?: string }) => {
-        const themeId = data.current || 'terminal'
-        return fetch(appPath(`/api/themes/${themeId}/settings`))
-      })
-      .then(r => r.json())
-      .then((data: { settings?: { crtEffects?: boolean } }) => {
-        if (!cancelled) setThemeRuntimeSettings(data.settings || {})
-      })
-      .catch(() => {})
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
   return (
     <div className="app-container code-app-shell" data-testid="app-shell">
       <CodeWorkspace
-        agents={ws.agents}
+        agents={displayedAgents}
         taskHistory={ws.taskHistory}
         mainPageSessionKeys={ws.mainPageSessionKeys}
         activeView={activeWorkspaceView}
@@ -710,13 +986,21 @@ export function App() {
         systemStats={ws.systemStats ?? usageSummary?.systemStats ?? null}
         usageSummary={usageSummary}
         contextWindowByAgentId={contextWindowByAgentId}
-        activeTerminalId={activeTerminalId}
-        openTerminalIds={openTerminalIds}
+        activeTerminalId={effectiveActiveTerminalId}
+        permissionSwitchingAgentId={permissionSwitch?.agent.id ?? null}
+        permissionSwitchReplacement={permissionSwitch?.replacementAgentId
+          ? {
+            originalAgentId: permissionSwitch.transitionFromAgentId ?? permissionSwitch.originalAgentId,
+            replacementAgentId: permissionSwitch.replacementAgentId,
+          }
+          : observedAgentReplacement ?? externalAgentReplacement}
+        openTerminalIds={effectiveOpenTerminalIds}
         terminalFocusRequest={terminalFocusRequest}
         keyMap={keyMap}
         keyboardShortcutsEnabled={CODEX_SKIN_KEYBOARD_SHORTCUTS_ENABLED}
         uiPreferences={uiPreferences}
         onOpenTerminal={openTerminal}
+        onOpenTerminalWhenReady={requestTerminalOpen}
         onNewAgent={openNewAgentDialog}
         onStartAgent={handleStartAgent}
         onRenameAgent={handleRenameAgent}
@@ -729,6 +1013,8 @@ export function App() {
         onKill={handleKill}
         onInterruptAgent={ws.interruptAgent}
         sendInput={ws.sendInput}
+        sendComposerInput={ws.sendComposerInput}
+        respondToAppServerRequest={ws.respondToAppServerRequest}
         resizeAgent={ws.resizeAgent}
         onSessionOutput={ws.onSessionOutput}
         onUpdateUiPreferences={updateUiPreferences}
@@ -739,6 +1025,7 @@ export function App() {
         mustStartMain={false}
         initialWorkspace={inputInitialWorkspace}
         initialCommand={inputInitialCommand}
+        initialCustomTitle={inputInitialCustomTitle}
         showWorkflowTaskFields={false}
         copy={copy}
         onStart={handleStartAgent}

@@ -7,6 +7,7 @@ import {
   focusTerminalSession,
   getTerminalSelection,
   getTerminalSelectionNow,
+  refreshTerminalSessionLayout,
   scrollTerminalSessionToBottom,
   searchTerminalSession,
   type TerminalSearchDirection,
@@ -140,27 +141,40 @@ export function usePooledTerminal({
   }, [agentId, containerRef, handleError, handleFollowOutputChange, handleInput, handlePathOpen, handlePathResolve, handleReady, handleResize, handleSessionOutput, suppressRendererCursor])
 
   const focus = useCallback(() => {
-    if (!agentId || !containerRef.current) return
-    focusTerminalSession(agentId).catch((error) => {
-      console.error('Failed to focus terminal session:', error)
-    })
-    attachTerminalSession(agentId, {
-      mountEl: containerRef.current,
-      onInput: handleInput,
-      onResize: handleResize,
-      onSessionOutput: handleSessionOutput,
-      autoFocus: true,
-      suppressRendererCursor,
-      onFollowOutputChange: handleFollowOutputChange,
-      onPathOpen: handlePathOpen,
-      onPathResolve: handlePathResolve,
-      onError: handleError,
-      onReady: handleReady,
+    const mountEl = containerRef.current
+    if (!agentId || !mountEl) return
+    focusTerminalSession(agentId).then((focused) => {
+      if (focused) return
+
+      // A visible session is already attached. Reattaching it after every
+      // click moves xterm's hidden textarea while an IME may be preparing a
+      // composition. Only attach here when the pooled session is absent or
+      // parked; otherwise keep xterm's native focus lifecycle intact.
+      return attachTerminalSession(agentId, {
+        mountEl,
+        onInput: handleInput,
+        onResize: handleResize,
+        onSessionOutput: handleSessionOutput,
+        autoFocus: true,
+        suppressRendererCursor,
+        onFollowOutputChange: handleFollowOutputChange,
+        onPathOpen: handlePathOpen,
+        onPathResolve: handlePathResolve,
+        onError: handleError,
+        onReady: handleReady,
+      })
     }).catch((error) => {
-      console.error('Failed to refocus terminal session:', error)
+      console.error('Failed to focus terminal session:', error)
       handleError(error instanceof Error ? error : new Error(String(error)))
     })
   }, [agentId, containerRef, handleError, handleFollowOutputChange, handleInput, handlePathOpen, handlePathResolve, handleReady, handleResize, handleSessionOutput, suppressRendererCursor])
+
+  const refreshLayout = useCallback((options: { autoFocus?: boolean } = {}) => {
+    if (!agentId) return
+    refreshTerminalSessionLayout(agentId, options).catch((error) => {
+      console.error('Failed to refresh terminal layout:', error)
+    })
+  }, [agentId])
 
   const getSelection = useCallback(async () => {
     if (!agentId) return ''
@@ -189,5 +203,5 @@ export function usePooledTerminal({
     return clearTerminalSearch(agentId)
   }, [agentId])
 
-  return { focus, getSelection, getSelectionNow, scrollToBottom, search, clearSearch }
+  return { focus, refreshLayout, getSelection, getSelectionNow, scrollToBottom, search, clearSearch }
 }

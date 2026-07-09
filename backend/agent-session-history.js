@@ -3,6 +3,7 @@ const fsp = require('fs/promises');
 const os = require('os');
 const path = require('path');
 const readline = require('readline');
+const { execFile } = require('child_process');
 const {
   formatAutomationRRuleLabel,
   hasTemporaryWorkspaceReference,
@@ -13,9 +14,12 @@ const { isSafeProviderSessionId } = require('./provider-session-id');
 
 const DEFAULT_LIMIT = 60;
 const DEFAULT_SCAN_LIMIT = 500;
+const MAX_AGENT_SESSION_HISTORY_LIMIT = 1000;
+const MAX_AGENT_SESSION_SCAN_LIMIT = 5000;
 const CLAUDE_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
+const QODER_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
 const MAX_RECENT_FILE_SCAN_DIRECTORIES = 2000;
-const PROVIDERS = new Set(['codex', 'claude']);
+const PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder']);
 
 function quoteCommandArg(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
@@ -72,6 +76,61 @@ function extractClaudeEffort(event) {
     event?.request?.effort,
     event?.options?.effort
   );
+}
+
+function extractQoderModel(event) {
+  return firstTrimmedString(
+    event?.model,
+    event?.message?.model,
+    event?.metadata?.model,
+    event?.message?.metadata?.model
+  );
+}
+
+function extractQoderEffort(event) {
+  return firstTrimmedString(
+    event?.reasoningEffort,
+    event?.reasoning_effort,
+    event?.effort,
+    event?.metadata?.reasoningEffort,
+    event?.metadata?.reasoning_effort,
+    event?.message?.metadata?.reasoningEffort,
+    event?.message?.metadata?.reasoning_effort
+  );
+}
+
+function isoTimestamp(value) {
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : '';
+  }
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    try {
+      const date = new Date(value);
+      return Number.isFinite(date.getTime()) ? date.toISOString() : '';
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
+function qoderTextFromMessage(message) {
+  if (typeof message === 'string') return message.trim();
+  if (!message || typeof message !== 'object') return '';
+  const content = message.content;
+  if (typeof content === 'string') return content.trim();
+  if (!Array.isArray(content)) return '';
+  return content
+    .map(part => {
+      if (typeof part === 'string') return part;
+      if (!part || typeof part !== 'object') return '';
+      if (typeof part.text === 'string') return part.text;
+      if (typeof part.content === 'string') return part.content;
+      return '';
+    })
+    .join('\n')
+    .trim();
 }
 
 function isVisibleAgentSession(session) {
@@ -293,10 +352,10 @@ async function readClaudeSessionMetadata(filePath, promptHistory, maxLines = 160
 async function listClaudeSessions(options = {}) {
   const claudeHome = options.claudeHome || path.join(os.homedir(), '.claude');
   const limit = Number.isFinite(options.limit)
-    ? Math.max(0, Math.min(200, Math.floor(options.limit)))
+    ? Math.max(0, Math.min(MAX_AGENT_SESSION_HISTORY_LIMIT, Math.floor(options.limit)))
     : DEFAULT_LIMIT;
   const scanLimit = Number.isFinite(options.scanLimit)
-    ? Math.max(limit, Math.min(1000, Math.floor(options.scanLimit)))
+    ? Math.max(limit, Math.min(MAX_AGENT_SESSION_SCAN_LIMIT, Math.floor(options.scanLimit)))
     : DEFAULT_SCAN_LIMIT;
   const promptHistory = await readClaudePromptHistory(claudeHome);
   const sessionFiles = await collectRecentFiles(path.join(claudeHome, 'projects'), '.jsonl', scanLimit);
@@ -338,6 +397,233 @@ async function listClaudeSessions(options = {}) {
     .slice(0, limit);
 }
 
+function qoderSessionIdFromFilePath(filePath) {
+  const match = path.basename(filePath).match(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i);
+  return match ? match[1] : '';
+}
+
+function applyQoderSessionEvent(metadata, event, fileSessionId) {
+  if (!event || typeof event !== 'object') return;
+  const eventSessionId = typeof event.sessionId === 'string'
+    ? event.sessionId
+    : typeof event.session_id === 'string'
+      ? event.session_id
+      : '';
+  if (eventSessionId && isSafeProviderSessionId(eventSessionId)) {
+    metadata.id = eventSessionId;
+  }
+
+  const timestamp = isoTimestamp(event.timestamp);
+  if (timestamp) {
+    metadata.updatedAt = timestamp;
+    metadata.createdAt = metadata.createdAt || timestamp;
+  }
+
+  if (typeof event.cwd === 'string' && event.cwd.trim()) {
+    metadata.cwd = normalizePathValue(event.cwd);
+  }
+  if (typeof event.entrypoint === 'string' && event.entrypoint.trim()) {
+    metadata.source = event.entrypoint.trim();
+  }
+  if (event.type === 'system' && typeof event.qodercli_version === 'string') {
+    metadata.cliVersion = event.qodercli_version.trim();
+  }
+  if (typeof event.version === 'string' && event.version.trim()) {
+    metadata.cliVersion = event.version.trim();
+  }
+  if (event.type === 'runtime-config' && typeof event.version === 'string') {
+    metadata.cliVersion = event.version.trim();
+  }
+  if (event.type === 'ai-title' && typeof event.aiTitle === 'string' && event.aiTitle.trim()) {
+    metadata.title = event.aiTitle.trim();
+  }
+  if (event.type === 'last-prompt' && typeof event.lastPrompt === 'string' && event.lastPrompt.trim()) {
+    metadata.lastPrompt = event.lastPrompt.trim();
+  }
+  if (!metadata.firstPrompt && event.type === 'user') {
+    metadata.firstPrompt = qoderTextFromMessage(event.message);
+  }
+
+  metadata.model = extractQoderModel(event) || metadata.model;
+  metadata.effort = extractQoderEffort(event) || metadata.effort;
+
+  if (!metadata.id && fileSessionId) {
+    metadata.id = fileSessionId;
+  }
+}
+
+async function readQoderSessionMetadata(filePath, maxLines = 160) {
+  const fileSessionId = qoderSessionIdFromFilePath(filePath);
+  const metadata = {
+    filePath,
+    id: fileSessionId,
+    title: '',
+    lastPrompt: '',
+    firstPrompt: '',
+    cwd: '',
+    workspace: '',
+    createdAt: '',
+    updatedAt: '',
+    model: '',
+    effort: '',
+    source: '',
+    cliVersion: '',
+  };
+
+  const stream = fs.createReadStream(filePath, { encoding: 'utf8' });
+  const reader = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  let lineCount = 0;
+
+  try {
+    for await (const line of reader) {
+      if (!line) continue;
+      lineCount += 1;
+      try {
+        applyQoderSessionEvent(metadata, JSON.parse(line), fileSessionId);
+      } catch {
+        // Ignore individual corrupt session lines.
+      }
+      if (lineCount >= maxLines || (metadata.id && metadata.cwd && metadata.model && metadata.title)) {
+        break;
+      }
+    }
+  } finally {
+    reader.close();
+    stream.destroy();
+  }
+
+  const tail = await readTextTail(filePath, QODER_HISTORY_TAIL_BYTES);
+  for (const line of tail.split('\n').filter(Boolean)) {
+    try {
+      applyQoderSessionEvent(metadata, JSON.parse(line), fileSessionId);
+    } catch {
+      // Ignore individual corrupt session lines.
+    }
+  }
+
+  if (!metadata.id || !isSafeProviderSessionId(metadata.id)) return null;
+  metadata.title = firstTrimmedString(metadata.title, metadata.lastPrompt, metadata.firstPrompt, 'Qoder session');
+  metadata.workspace = normalizePathValue(metadata.cwd || '');
+  metadata.source = metadata.source || 'qodercli';
+
+  return metadata;
+}
+
+async function listQoderSessions(options = {}) {
+  const qoderHome = options.qoderHome || path.join(os.homedir(), '.qoder');
+  const limit = Number.isFinite(options.limit)
+    ? Math.max(0, Math.min(MAX_AGENT_SESSION_HISTORY_LIMIT, Math.floor(options.limit)))
+    : DEFAULT_LIMIT;
+  const scanLimit = Number.isFinite(options.scanLimit)
+    ? Math.max(limit, Math.min(MAX_AGENT_SESSION_SCAN_LIMIT, Math.floor(options.scanLimit)))
+    : DEFAULT_SCAN_LIMIT;
+  const sessionFiles = await collectRecentFiles(path.join(qoderHome, 'projects'), '.jsonl', scanLimit);
+
+  const sessions = [];
+  for (const { filePath, mtimeMs } of sessionFiles) {
+    const metadata = await readQoderSessionMetadata(filePath);
+    if (!metadata) continue;
+    const mtimeIso = mtimeMs > 0 ? new Date(mtimeMs).toISOString() : '';
+    const updatedAt = timestampMs(mtimeIso) > timestampMs(metadata.updatedAt)
+      ? mtimeIso
+      : (metadata.updatedAt || mtimeIso);
+    const session = {
+      provider: 'qoder',
+      providerName: 'Qoder',
+      id: metadata.id,
+      title: metadata.title,
+      cwd: metadata.cwd,
+      workspace: metadata.workspace,
+      updatedAt,
+      createdAt: metadata.createdAt,
+      archived: false,
+      pinned: false,
+      unread: false,
+      projectless: !metadata.workspace,
+      model: metadata.model,
+      effort: metadata.effort,
+      source: metadata.source,
+      cliVersion: metadata.cliVersion,
+      capabilities: ['resume', 'fork'],
+    };
+    if (isVisibleAgentSession(session)) {
+      sessions.push(session);
+    }
+  }
+
+  return sessions
+    .sort((a, b) => timestampMs(b.updatedAt) - timestampMs(a.updatedAt))
+    .slice(0, limit);
+}
+
+function runOpenCodeSessionList(options = {}) {
+  const executable = options.opencodeBin || process.env.FARMING_OPENCODE_BIN || 'opencode';
+  const maxCount = Number.isFinite(options.maxCount) ? Math.max(1, Math.floor(options.maxCount)) : DEFAULT_SCAN_LIMIT;
+  const env = { ...process.env };
+  if (options.opencodeHome) env.OPENCODE_CONFIG_DIR = options.opencodeHome;
+  return new Promise((resolve, reject) => {
+    execFile(executable, ['session', 'list', '--format', 'json', '--max-count', String(maxCount)], {
+      env,
+      maxBuffer: 4 * 1024 * 1024,
+      timeout: 15_000,
+    }, (error, stdout) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(stdout);
+    });
+  });
+}
+
+async function listOpenCodeSessions(options = {}) {
+  const limit = Number.isFinite(options.limit)
+    ? Math.max(0, Math.min(MAX_AGENT_SESSION_HISTORY_LIMIT, Math.floor(options.limit)))
+    : DEFAULT_LIMIT;
+  const scanLimit = Number.isFinite(options.scanLimit)
+    ? Math.max(limit, Math.min(MAX_AGENT_SESSION_SCAN_LIMIT, Math.floor(options.scanLimit)))
+    : DEFAULT_SCAN_LIMIT;
+  const listCommand = options.runOpenCodeSessionList || runOpenCodeSessionList;
+  let rawSessions = [];
+  try {
+    const output = await listCommand({
+      maxCount: scanLimit,
+      opencodeBin: options.opencodeBin,
+      opencodeHome: options.opencodeHome,
+    });
+    rawSessions = JSON.parse(String(output || '[]'));
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(rawSessions)) return [];
+
+  return rawSessions
+    .map(raw => {
+      const id = firstTrimmedString(raw?.id);
+      const cwd = normalizePathValue(raw?.directory || '');
+      if (!id || !isSafeProviderSessionId(id)) return null;
+      return {
+        provider: 'opencode',
+        providerName: 'OpenCode',
+        id,
+        title: firstTrimmedString(raw?.title, 'OpenCode session'),
+        cwd,
+        workspace: cwd,
+        updatedAt: isoTimestamp(raw?.updated),
+        createdAt: isoTimestamp(raw?.created),
+        archived: false,
+        pinned: false,
+        unread: false,
+        projectless: !cwd,
+        source: 'opencode',
+        capabilities: ['resume', 'fork'],
+      };
+    })
+    .filter(session => session && isVisibleAgentSession(session))
+    .sort((a, b) => timestampMs(b.updatedAt) - timestampMs(a.updatedAt))
+    .slice(0, limit);
+}
+
 function normalizeCodexSession(session) {
   return {
     provider: 'codex',
@@ -373,35 +659,90 @@ function buildAgentSessionResumeCommand(provider, sessionId, options = {}) {
       : `claude --resume ${normalizedSessionId}`;
   }
 
+  if (normalizedProvider === 'qoder') {
+    return options.fork === true
+      ? `qodercli --resume ${normalizedSessionId} --fork-session`
+      : `qodercli --resume ${normalizedSessionId}`;
+  }
+
+  if (normalizedProvider === 'opencode') {
+    return `opencode --session ${normalizedSessionId}${options.fork === true ? ' --fork' : ''}`;
+  }
+
   return '';
 }
 
 async function listAgentSessions(options = {}) {
   const limit = Number.isFinite(options.limit)
-    ? Math.max(0, Math.min(200, Math.floor(options.limit)))
+    ? Math.max(0, Math.min(MAX_AGENT_SESSION_HISTORY_LIMIT, Math.floor(options.limit)))
     : DEFAULT_LIMIT;
   const requestedProviders = Array.isArray(options.providers)
     ? options.providers.map(normalizeProvider).filter(Boolean)
-    : ['codex', 'claude'];
+    : ['codex', 'claude', 'opencode', 'qoder'];
   const providers = Array.from(new Set(requestedProviders));
   const sessions = [];
 
+  const providerHomes = options.providerHomes && typeof options.providerHomes === 'object'
+    ? options.providerHomes
+    : {};
+
+  async function listForHomes(provider, homes, fallbackHomeKey, listFn, homeOptionKey, normalize = session => session) {
+    const configuredHomes = Array.isArray(homes) && homes.length > 0
+      ? homes
+      : [{ id: 'default', path: options[fallbackHomeKey] }];
+    const perHomeLimit = Number.isFinite(options.providerLimit)
+      ? Math.max(0, Math.min(MAX_AGENT_SESSION_HISTORY_LIMIT, Math.floor(options.providerLimit)))
+      : limit;
+    for (const home of configuredHomes) {
+      const providerHomeId = String(home && home.id || 'default').trim() || 'default';
+      const providerHomePath = String(home && home.path || '').trim();
+      const listOptions = {
+        limit: perHomeLimit,
+        scanLimit: options.scanLimit,
+        opencodeBin: options.opencodeBin,
+        runOpenCodeSessionList: options.runOpenCodeSessionList,
+      };
+      if (providerHomePath) listOptions[homeOptionKey] = providerHomePath;
+      const homeSessions = await listFn(listOptions);
+      sessions.push(...homeSessions.map(session => normalize({
+        ...session,
+        providerHomeId,
+        providerHomePath,
+      })).filter(isVisibleAgentSession));
+    }
+  }
+
   if (providers.includes('codex')) {
-    const codexSessions = await listCodexSessions({
-      codexHome: options.codexHome,
-      limit: options.providerLimit || limit,
-      scanLimit: options.scanLimit,
-    });
-    sessions.push(...codexSessions.map(normalizeCodexSession).filter(isVisibleAgentSession));
+    await listForHomes('codex', providerHomes.codex, 'codexHome', listCodexSessions, 'codexHome', normalizeCodexSession);
   }
 
   if (providers.includes('claude')) {
-    const claudeSessions = await listClaudeSessions({
-      claudeHome: options.claudeHome,
-      limit: options.providerLimit || limit,
+    await listForHomes('claude', providerHomes.claude, 'claudeHome', listClaudeSessions, 'claudeHome');
+  }
+
+  if (providers.includes('qoder')) {
+    await listForHomes('qoder', providerHomes.qoder, 'qoderHome', listQoderSessions, 'qoderHome');
+  }
+
+  if (providers.includes('opencode')) {
+    const configuredHomes = Array.isArray(providerHomes.opencode) && providerHomes.opencode.length > 0
+      ? providerHomes.opencode
+      : [{ id: 'default', path: options.opencodeHome }];
+    const home = configuredHomes.find(candidate => String(candidate?.id || '') === 'default') || configuredHomes[0];
+    const providerHomeId = String(home?.id || 'default').trim() || 'default';
+    const providerHomePath = String(home?.path || '').trim();
+    const homeSessions = await listOpenCodeSessions({
+      limit: Number.isFinite(options.providerLimit) ? options.providerLimit : limit,
       scanLimit: options.scanLimit,
+      opencodeBin: options.opencodeBin,
+      opencodeHome: providerHomePath,
+      runOpenCodeSessionList: options.runOpenCodeSessionList,
     });
-    sessions.push(...claudeSessions);
+    sessions.push(...homeSessions.map(session => ({
+      ...session,
+      providerHomeId,
+      providerHomePath,
+    })));
   }
 
   return sessions
@@ -420,7 +761,8 @@ async function findAgentSession(provider, sessionId, options = {}) {
     limit: options.limit || 200,
     providerLimit: options.providerLimit || 200,
   });
-  return sessions.find(session => session.id === normalizedSessionId) || null;
+  const requestedHomeId = typeof options.providerHomeId === 'string' ? options.providerHomeId.trim() : '';
+  return sessions.find(session => session.id === normalizedSessionId && (!requestedHomeId || (session.providerHomeId || 'default') === requestedHomeId)) || null;
 }
 
 module.exports = {
@@ -434,5 +776,7 @@ module.exports = {
   isVisibleAgentSession,
   listAgentSessions,
   listClaudeSessions,
+  listOpenCodeSessions,
+  listQoderSessions,
   normalizeProvider,
 };

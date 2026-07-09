@@ -1,5 +1,5 @@
 import type { AgentSessionHistoryItem, ProjectGroup } from './types'
-import { agentSessionId, workspaceTargetId } from './model'
+import { agentSessionId } from './model'
 
 export const DEFAULT_PROJECT_SESSION_LIMIT = 5
 export const SESSION_DISPLAY_STATE_STORAGE_KEY = 'farming.codex.sessionDisplayState.v1'
@@ -84,17 +84,28 @@ export function applySessionDisplayOverrides(
   })
 }
 
-export function resumedAgentSource(provider: string, sessionId: string) {
-  return `${provider}-history:${sessionId}`
+export function resumedAgentSource(provider: string, sessionId: string, providerHomeId = '') {
+  return providerHomeId && providerHomeId !== 'default'
+    ? `${provider}-history:home:${providerHomeId}:${sessionId}`
+    : `${provider}-history:${sessionId}`
+}
+
+export function resumedAgentSessionFromSource(source?: string) {
+  const match = /^([a-z]+)-history(?:-fork)?:(?:(?:home:([A-Za-z0-9._-]+):)?(.+))$/.exec(source || '')
+  if (!match) return null
+  const provider = match[1]
+  const providerHomeId = match[2] || 'default'
+  const sessionId = match[3]
+  return provider && sessionId ? { provider, providerHomeId, sessionId } : null
 }
 
 export function resumedAgentSessionIdFromSource(source?: string) {
-  const match = /^([a-z]+)-history:(.+)$/.exec(source || '')
-  if (!match) return ''
-  const provider = match[1]
-  const id = match[2]
-  if (!provider || !id) return ''
-  return workspaceTargetId({ kind: 'agent-session', provider, id })
+  const session = resumedAgentSessionFromSource(source)
+  return session ? agentSessionId({
+    provider: session.provider,
+    id: session.sessionId,
+    providerHomeId: session.providerHomeId,
+  }) : ''
 }
 
 export function limitProjectAgentSessions(

@@ -71,6 +71,7 @@ export function HistoryDialog({ open, entries, needsMainAgent, onClose, onRelaun
                         workspace: entry.cwd,
                         task: entry.task,
                         workflowTemplate: entry.workflowTemplate,
+                        customTitle: entry.customTitle,
                       })
                     }}
                   >

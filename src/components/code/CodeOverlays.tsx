@@ -297,6 +297,18 @@ export function CodeOverlays({
               id="code-rename-input"
               ref={renameInputRef}
               data-testid="code-rename-input"
+              type="text"
+              name="farming-rename-title"
+              inputMode="text"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              enterKeyHint="done"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-form-type="other"
               value={renameDialog.title}
               onChange={event => onRenameDialogTitleChange(event.target.value)}
               onKeyDown={event => {

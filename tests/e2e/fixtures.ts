@@ -174,21 +174,27 @@ export async function selectAgent(page: Page, name: string) {
 }
 
 export async function startAgentFromOpenDialog(page: Page, name: string, workspace: string) {
-  const previousIds = new Set(await getAgentRowIds(page))
+  const workspaceAgentIds = async () => page.locator('[data-testid="code-agent-row"], [data-testid="code-terminal-pane"]')
+    .evaluateAll(elements => Array.from(new Set(elements
+      .map(element => element.getAttribute('data-agent-id'))
+      .filter((id): id is string => Boolean(id)))))
+  const previousIds = new Set(await workspaceAgentIds())
   await selectAgent(page, name)
   await page.getByTestId('workspace-input').fill(workspace)
   await page.getByTestId('workspace-start').click()
   await expect(page.getByTestId('input-dialog')).toBeHidden({ timeout: 30_000 })
   await expect.poll(async () => {
-    const ids = await getAgentRowIds(page)
+    const ids = await workspaceAgentIds()
     return ids.find(id => !previousIds.has(id)) ?? ''
   }, { timeout: 30_000 }).not.toBe('')
-  const agentId = (await getAgentRowIds(page)).find(id => !previousIds.has(id))
+  const agentId = (await workspaceAgentIds()).find(id => !previousIds.has(id))
   if (!agentId) {
     throw new Error('New agent row is missing after launch')
   }
   const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
-  await expect(row).toHaveClass(/active/, { timeout: 30_000 })
+  if (await row.count()) {
+    await expect(row).toHaveClass(/active/, { timeout: 30_000 })
+  }
   await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible({ timeout: 30_000 })
   return agentId
 }

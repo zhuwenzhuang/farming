@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, type CSSProperties } from 'react'
 import { iconForFilePath } from '@/lib/file-icons'
+import { ChevronDownGlyph, ChevronRightGlyph } from '@/components/IconGlyphs'
 import { parentDirectory } from '@/lib/workspace-file-tree'
 import { workspaceWorkingCopyChangeIndicator } from '@/lib/workspace-working-copy'
 import type { CodeCopy } from '../code/copy'
@@ -85,7 +86,9 @@ export function OpenEditorsSection({
           aria-expanded={!collapsed}
           onClick={onToggleCollapsed}
         >
-          <span className={`code-file-section-chevron ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true" />
+          <span className={`code-file-section-chevron ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
+            {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
+          </span>
           <span>{copy.openEditors}</span>
         </button>
       </div>

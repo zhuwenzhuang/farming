@@ -6,7 +6,10 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const { WorkspaceFileService } = require('../workspace-file-service');
-const { createWorkspaceFileRouter } = require('../workspace-file-router');
+const {
+  GLOBAL_WORKSPACE_FILES_AGENT_ID,
+  createWorkspaceFileRouter,
+} = require('../workspace-file-router');
 
 function hasCommand(command) {
   try {
@@ -58,10 +61,14 @@ async function run() {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-file-router-'));
   const projectWorkspace = path.join(tmpRoot, 'project');
   const mainWorkspace = path.join(projectWorkspace, '.farming');
+  const externalWorkspace = path.join(tmpRoot, 'external-workspace');
   const service = new WorkspaceFileService({ maxFileSize: 64, maxWriteSize: 1024 * 32 });
 
   try {
     fs.mkdirSync(mainWorkspace, { recursive: true });
+    fs.mkdirSync(externalWorkspace, { recursive: true });
+    fs.writeFileSync(path.join(externalWorkspace, 'reference.md'), 'external router reference\n');
+    fs.symlinkSync(externalWorkspace, path.join(projectWorkspace, 'reference-link'));
     fs.writeFileSync(path.join(projectWorkspace, 'README.md'), 'hello farming\n');
     fs.writeFileSync(path.join(projectWorkspace, 'binary.bin'), Buffer.from([0, 1, 2, 3, 0]));
     fs.writeFileSync(path.join(projectWorkspace, 'large.log'), `${'large text line\n'.repeat(8)}`);
@@ -70,8 +77,17 @@ async function run() {
       'base64'
     ));
     fs.writeFileSync(path.join(projectWorkspace, 'icon.svg'), '<svg><rect/></svg>\n');
+    const globalReadFile = path.join(projectWorkspace, 'global-note.md');
+    fs.writeFileSync(globalReadFile, 'global file\n');
+    const forbiddenGlobalReadFile = path.join(tmpRoot, 'outside-project.md');
+    fs.writeFileSync(forbiddenGlobalReadFile, 'outside project\n');
 
     const agentManager = {
+      configManager: {
+        getSettings() {
+          return { workspaceHistory: [externalWorkspace] };
+        },
+      },
       getAgentWorkspaceRoot(agentId) {
         if (agentId === 'agent-main') return projectWorkspace;
         return null;
@@ -96,10 +112,45 @@ async function run() {
       const tree = await fetchJson(baseUrl, '/api/files/tree?agentId=agent-main');
       assert.strictEqual(tree.response.status, 200);
       assert(tree.body.tree.items.some(item => item.path === 'README.md'));
+      const referenceLink = tree.body.tree.items.find(item => item.path === 'reference-link');
+      assert.strictEqual(referenceLink.type, 'directory');
+      assert.strictEqual(referenceLink.symbolicLink, true);
+      assert.strictEqual(referenceLink.external, true);
+      assert.strictEqual(referenceLink.readOnly, true);
+      const referenceTree = await fetchJson(baseUrl, '/api/files/tree?agentId=agent-main&path=reference-link');
+      assert.strictEqual(referenceTree.response.status, 200);
+      assert.strictEqual(referenceTree.body.tree.items[0].path, 'reference-link/reference.md');
+      assert.strictEqual(referenceTree.body.tree.items[0].readOnly, true);
+      const referenceRead = await fetchJson(baseUrl, '/api/files/file?agentId=agent-main&path=reference-link%2Freference.md');
+      assert.strictEqual(referenceRead.response.status, 200);
+      assert.strictEqual(referenceRead.body.file.content, 'external router reference\n');
+      assert.strictEqual(referenceRead.body.file.readOnly, true);
+
+      const branch = await fetchJson(baseUrl, '/api/files/branch?agentId=agent-main');
+      assert.strictEqual(branch.response.status, 200);
+      assert.strictEqual(branch.body.branch, '');
 
       const read = await fetchJson(baseUrl, '/api/files/file?agentId=agent-main&path=README.md');
       assert.strictEqual(read.response.status, 200);
       assert.strictEqual(read.body.file.content, 'hello farming\n');
+      const globalReadPath = globalReadFile.replace(/^\/+/, '');
+      const globalRead = await fetchJson(baseUrl, `/api/files/file?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}&path=${encodeURIComponent(globalReadPath)}`);
+      assert.strictEqual(globalRead.response.status, 200);
+      assert.strictEqual(globalRead.body.root, '/');
+      assert.strictEqual(globalRead.body.file.content, 'global file\n');
+      const forbiddenGlobalReadPath = forbiddenGlobalReadFile.replace(/^\/+/, '');
+      const forbiddenGlobalRead = await fetchJson(baseUrl, `/api/files/file?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}&path=${encodeURIComponent(forbiddenGlobalReadPath)}`);
+      assert.strictEqual(forbiddenGlobalRead.response.status, 403);
+      const globalWrite = await fetchJson(baseUrl, '/api/files/file', {
+        method: 'PUT',
+        body: JSON.stringify({
+          agentId: GLOBAL_WORKSPACE_FILES_AGENT_ID,
+          path: globalReadPath,
+          content: 'should not save\n',
+          baseSha1: globalRead.body.file.sha1,
+        }),
+      });
+      assert.strictEqual(globalWrite.response.status, 403);
 
       const previewFile = await fetchJson(baseUrl, '/api/files/file?agentId=agent-main&path=preview.png');
       assert.strictEqual(previewFile.response.status, 200);

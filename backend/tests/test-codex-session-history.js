@@ -141,7 +141,13 @@ async function run() {
       type: 'event_msg',
       payload: {
         type: 'user_message',
-        message: '## My request for Codex:   Build a focused session title\nwith whitespace  ',
+        message: [
+          '## My request for Codex:   Build a focused session title',
+          'with whitespace',
+          '<codex_internal_context source="goal">',
+          'Continue working toward the active thread goal.',
+          '</codex_internal_context>',
+        ].join('\n'),
         kind: 'plain',
       },
     }),
@@ -188,6 +194,25 @@ async function run() {
   assert.strictEqual(sessions[3].model, 'gpt-5.5');
   assert.strictEqual(sessions[3].effort, 'medium');
   assert.strictEqual(sessions[3].schedule, undefined);
+
+  const manyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-codex-history-many-'));
+  const manySessionsDir = path.join(manyRoot, 'sessions', '2026', '07', '01');
+  fs.mkdirSync(manySessionsDir, { recursive: true });
+  const manyCount = 260;
+  for (let index = 0; index < manyCount; index += 1) {
+    const suffix = String(index + 1).padStart(12, '0');
+    const sessionId = `019f0000-0000-7000-8000-${suffix}`;
+    fs.writeFileSync(path.join(manySessionsDir, `rollout-2026-07-01T00-00-00-${sessionId}.jsonl`), [
+      JSON.stringify({
+        timestamp: `2026-07-01T00:${String(index % 60).padStart(2, '0')}:00.000Z`,
+        type: 'session_meta',
+        payload: { id: sessionId, cwd: '/repo/many', source: 'cli' },
+      }),
+    ].join('\n'));
+  }
+  const manySessions = await listCodexSessions({ codexHome: manyRoot, limit: manyCount, scanLimit: manyCount });
+  assert.strictEqual(manySessions.length, manyCount);
+  fs.rmSync(manyRoot, { recursive: true, force: true });
 
   fs.rmSync(root, { recursive: true, force: true });
   console.log('✓ Codex session history metadata is merged read-only');

@@ -87,7 +87,12 @@ function titleWithoutActivityPrefix(title: string) {
 
 function activeTerminalTitleEvidence(agent: Agent | null | undefined): KindEvidence | null {
   const title = typeof agent?.sessionTitle === 'string' ? agent.sessionTitle.trim() : ''
-  if (/^[\u2800-\u28ff]/u.test(title)) return { kind: 'codex', source: 'terminal-title' }
+  if (!/^[\u2800-\u28ff]/u.test(title)) return null
+
+  const statusKind = agent?.terminalStatus?.kind
+  if (statusKind === 'codex') return { kind: 'codex', source: 'terminal-title' }
+  if (statusKind && statusKind !== 'unknown') return null
+  if (agentKindForCommand(agent?.command) === 'codex') return { kind: 'codex', source: 'terminal-title' }
   return null
 }
 
@@ -125,14 +130,14 @@ function latestTerminalOutputEvidence(text: string): KindEvidence | null {
 function inferAgentKind(agent: Agent | null | undefined): KindEvidence {
   if (!agent) return { kind: null, source: 'none' }
 
+  const activeTitleEvidence = activeTerminalTitleEvidence(agent)
+  if (activeTitleEvidence) return activeTitleEvidence
+
   const statusKind = agent.terminalStatus?.kind
   if (statusKind === 'codex' || statusKind === 'claude' || statusKind === 'shell') {
     return { kind: statusKind, source: 'terminal-status' }
   }
   if (statusKind === 'process') return { kind: 'agent', source: 'terminal-status' }
-
-  const activeTitleEvidence = activeTerminalTitleEvidence(agent)
-  if (activeTitleEvidence) return activeTitleEvidence
 
   const outputEvidence = latestTerminalOutputEvidence(currentTerminalText(agent))
   if (outputEvidence) return outputEvidence
@@ -204,20 +209,29 @@ export function inferAgentTerminalState(agent: Agent | null | undefined): AgentT
   const terminalBusy = agent?.terminalStatus
     ? agent.terminalStatus.busy === true
     : agent?.terminalBusy === true
+  const codexTitleActive = codexTitleShowsActiveTurn(agent)
   let turnActive = false
 
   if (agent?.terminalStatus?.activity === 'busy' && agent.status === 'running') {
     turnActive = true
   } else if (agent?.terminalStatus?.activity === 'idle' || agent?.terminalStatus?.activity === 'exited') {
     turnActive = false
+  } else if (codexTitleActive && agent?.status === 'running') {
+    turnActive = true
   } else if (kindEvidence.kind === 'codex') turnActive = isCodexTerminalActive(agent)
   else if (kindEvidence.kind === 'claude') turnActive = isClaudeTerminalActive(agent)
   else if (kindEvidence.kind === 'shell' || kindEvidence.kind === 'agent') turnActive = isShellTerminalActive(agent)
 
+  const appServerTurnActive = agent?.providerSessionProvider === 'codex'
+    && agent.codexRuntimeMode === 'app-server'
+    && ['working', 'waiting-for-input', 'interrupting'].includes(agent.codexAppServerState || '')
+  const jsonCliTurnActive = agent?.agentRuntimeMode === 'json'
+    && agent.jsonCliState === 'working'
+
   return {
-    kind: kindEvidence.kind,
+    kind: appServerTurnActive || jsonCliTurnActive ? (agent?.providerSessionProvider === 'codex' ? 'codex' : kindEvidence.kind) : kindEvidence.kind,
     kindSource: kindEvidence.source,
-    turnActive,
+    turnActive: appServerTurnActive || jsonCliTurnActive || turnActive,
     terminalBusy,
   }
 }

@@ -44,14 +44,22 @@ export function FileTreeInlineOperation({
         id="code-file-operation-input"
         data-testid="code-file-operation-input"
         name={`farming-file-${agentId}-rename`}
+        type="text"
+        inputMode="text"
         ref={inputRef}
         value={fileOperation.name}
         aria-label={copy.renameEntry(item.name)}
-        autoComplete="new-password"
+        autoComplete="off"
         aria-autocomplete="none"
         autoCapitalize="none"
+        autoCorrect="off"
         autoFocus
         spellCheck={false}
+        enterKeyHint="done"
+        data-lpignore="true"
+        data-1p-ignore="true"
+        data-bwignore="true"
+        data-form-type="other"
         onInput={event => {
           onInputName(event.currentTarget.value)
         }}

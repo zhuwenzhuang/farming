@@ -94,7 +94,7 @@ export function workspaceFileContextMenuPosition(
   viewportHeight: number,
   agentLaunchOptionCount = 0
 ): Pick<WorkspaceFileContextMenuState, 'x' | 'y'> {
-  const menuItems = item ? 7 : 4
+  const menuItems = item ? 8 : 4
   const separators = item ? 4 : 2
   const submenuHeight = agentLaunchOptionCount > 0
     ? FILE_CONTEXT_MENU_PADDING_HEIGHT + agentLaunchOptionCount * FILE_CONTEXT_MENU_ITEM_HEIGHT

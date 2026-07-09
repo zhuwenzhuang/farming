@@ -5,7 +5,7 @@ declare global {
 }
 
 const runtimeBasePath = typeof window !== 'undefined' ? window.__FARMING_BASE_PATH__ : ''
-const rawBaseUrl = runtimeBasePath || import.meta.env.BASE_URL || '/'
+const rawBaseUrl = runtimeBasePath || import.meta.env?.BASE_URL || '/'
 
 function normalizeBasePath(baseUrl: string) {
   if (!baseUrl || baseUrl === '/') return ''

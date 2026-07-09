@@ -5,7 +5,7 @@ const {
   editorFileStateByAgentForFiles,
   projectListProjectsForAgents,
   projectWorkspaceForHistoryRun,
-  shouldMarkAgentUnreadForTurnTransition,
+  stableProjectFileAgentId,
   visibleSearchTargetsForProjects,
 } = importTsModule('src/components/code/workspace-derived.ts');
 
@@ -62,6 +62,17 @@ function run() {
   assert.strictEqual(projectWorkspaceForHistoryRun({ cwd: '/cwd', projectWorkspace: '' }), '/cwd');
   assert.strictEqual(projectWorkspaceForHistoryRun({ cwd: '/cwd', projectWorkspace: '/project' }), '/project');
 
+  const fileAgents = [
+    agent({ id: 'main', isMain: true }),
+    agent({ id: 'older' }),
+    agent({ id: 'newer' }),
+  ];
+  assert.strictEqual(stableProjectFileAgentId(null, fileAgents), 'older');
+  assert.strictEqual(stableProjectFileAgentId('older', [...fileAgents].reverse()), 'older');
+  assert.strictEqual(stableProjectFileAgentId('missing', fileAgents), 'older');
+  assert.strictEqual(stableProjectFileAgentId('main', fileAgents), 'older');
+  assert.strictEqual(stableProjectFileAgentId(null, [agent({ id: 'main', isMain: true })]), null);
+
   const projectList = projectListProjectsForAgents(
     [agent({ id: 'main', isMain: true, projectWorkspace: '/main', cwd: '/main' }), agent({ id: 'sub', projectWorkspace: '/repo' })],
     [session({ id: 'session', workspace: '/repo' })],
@@ -69,6 +80,11 @@ function run() {
   );
   assert.strictEqual(projectList[0].id, '__farming_main_agent__');
   assert(projectList.some(project => project.workspace === '/repo' && project.agentSessions.length === 1));
+  const orderedProject = projectListProjectsForAgents([
+    agent({ id: 'older', projectOrder: 1024 }),
+    agent({ id: 'newer', projectOrder: 2048 }),
+  ], [], new Set()).find(project => project.workspace === '/repo');
+  assert.deepStrictEqual(orderedProject.agents.map(item => item.id), ['newer', 'older']);
 
   const searchSourceProjects = projectListProjectsForAgents(
     [
@@ -107,6 +123,15 @@ function run() {
       { kind: 'agent-session', provider: 'codex', id: 'session-beta' },
     ]
   );
+  const homeSearchProjects = projectListProjectsForAgents(
+    [],
+    [session({ id: 'shared-id', providerHomeId: 'work' })],
+    new Set()
+  );
+  assert.deepStrictEqual(
+    visibleSearchTargetsForProjects(homeSearchProjects, new Set(), ''),
+    [{ kind: 'agent-session', provider: 'codex', id: 'shared-id', providerHomeId: 'work' }]
+  );
 
   const editorState = editorFileStateByAgentForFiles(
     [
@@ -121,67 +146,6 @@ function run() {
   assert.deepStrictEqual(Array.from(editorState.externalChanged.get('agent-1') || []), ['src/b.ts']);
   assert.deepStrictEqual(Array.from(editorState.dirty.get('agent-2') || []), ['src/c.ts']);
   assert.deepStrictEqual(Array.from(editorState.externalChanged.get('agent-2') || []), ['src/c.ts']);
-
-  assert.strictEqual(
-    shouldMarkAgentUnreadForTurnTransition({
-      wasTurnActive: true,
-      isTurnActive: false,
-      isMain: false,
-      alreadyUnread: false,
-      terminalPaneViewed: false,
-      terminalFollowingLatest: false,
-    }),
-    true,
-    'a background agent should become unread when an active turn ends unseen'
-  );
-  assert.strictEqual(
-    shouldMarkAgentUnreadForTurnTransition({
-      wasTurnActive: true,
-      isTurnActive: false,
-      isMain: false,
-      alreadyUnread: false,
-      terminalPaneViewed: true,
-      terminalFollowingLatest: true,
-    }),
-    false,
-    'a viewed terminal at the latest output should not become unread when the turn ends'
-  );
-  assert.strictEqual(
-    shouldMarkAgentUnreadForTurnTransition({
-      wasTurnActive: false,
-      isTurnActive: false,
-      isMain: false,
-      alreadyUnread: false,
-      terminalPaneViewed: false,
-      terminalFollowingLatest: false,
-    }),
-    false,
-    'plain background output without an active-to-idle transition should not mark unread'
-  );
-  assert.strictEqual(
-    shouldMarkAgentUnreadForTurnTransition({
-      wasTurnActive: true,
-      isTurnActive: false,
-      isMain: true,
-      alreadyUnread: false,
-      terminalPaneViewed: false,
-      terminalFollowingLatest: false,
-    }),
-    false,
-    'main agent rows should not get unread dots from turn transitions'
-  );
-  assert.strictEqual(
-    shouldMarkAgentUnreadForTurnTransition({
-      wasTurnActive: true,
-      isTurnActive: false,
-      isMain: false,
-      alreadyUnread: true,
-      terminalPaneViewed: false,
-      terminalFollowingLatest: false,
-    }),
-    false,
-    'already unread rows should not emit duplicate unread updates'
-  );
 
   console.log('test-code-workspace-derived passed');
 }

@@ -39,7 +39,7 @@ export function MobileMainAgentBar({ mainAgent, mainAgentId, onOpenSession, send
         inputMode="text"
         autoComplete="off"
         autoCorrect="off"
-        autoCapitalize="off"
+        autoCapitalize="none"
         spellCheck={false}
         enterKeyHint="send"
         data-lpignore="true"

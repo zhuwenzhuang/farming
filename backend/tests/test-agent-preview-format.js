@@ -29,9 +29,36 @@ const { importTsModule } = require('./helpers/import-ts-module');
   );
   assert.strictEqual(
     agentTitle({ command: 'claude', sessionTitle: 'Claude Code' }),
-    'claude',
-    'generic program titles should fall back to the agent command'
+    'Claude Code',
+    'generic program titles should fall back to the friendly agent name'
   );
+
+  assert.strictEqual(
+    agentTitle({ command: 'qodercli', sessionTitle: 'Qoder session' }),
+    'Qoder',
+    'Qoder executable names should display as the provider name'
+  );
+  assert.strictEqual(
+    agentTitle({ command: 'qodercli', sessionTitle: '◇  Ready (farming)' }),
+    'Qoder',
+    'Qoder runtime status titles should not replace the stable provider name'
+  );
+  assert.strictEqual(
+    agentTitle({ command: 'qodercli', sessionTitle: '✦  Working… (farming)' }),
+    'Qoder',
+    'Qoder busy runtime titles should not replace the stable provider name'
+  );
+  assert.strictEqual(
+    agentTitle({ command: 'qodercli', sessionTitle: '✋  Action Required (farming)' }),
+    'Qoder',
+    'Qoder attention runtime titles should not replace the stable provider name'
+  );
+  assert.strictEqual(
+    agentTitle({ command: 'opencode', sessionTitle: 'OpenCode' }),
+    'OpenCode',
+    'OpenCode generic titles should stay friendly'
+  );
+
   assert.strictEqual(
     agentTitle({ command: 'claude', source: 'claude-history:8d8f', task: '带读一下精读 AbstractOptimizer.optimize', sessionTitle: '＊ Claude Code' }),
     '带读一下精读 AbstractOptimizer.op…',
@@ -44,8 +71,19 @@ const { importTsModule } = require('./helpers/import-ts-module');
   );
   assert.strictEqual(
     agentTitle({ command: 'codex', cwd: '/repo/example-project', sessionTitle: 'example-project', task: 'Inspect example-project' }),
-    'codex',
+    'Codex',
     'workspace directory titles should not become chat titles'
+  );
+  assert.strictEqual(
+    agentTitle({
+      command: 'codex',
+      cwd: '/repo/warehouse-engine',
+      projectWorkspace: '/repo/warehouse-engine',
+      providerSessionTitle: '看下cron worker怎么加新模块',
+      sessionTitle: 'warehouse-engine',
+    }),
+    '看下cron worker怎么加新模块',
+    'resolved provider session titles should win over generic terminal workspace titles'
   );
   assert.strictEqual(
     agentTitle({ command: 'codex', source: 'codex-history:019d0f73', task: 'Hash delta daily 问题调查3', sessionTitle: 'Codex' }),
@@ -64,7 +102,7 @@ const { importTsModule } = require('./helpers/import-ts-module');
   );
   assert.strictEqual(
     agentTitle({ command: 'codex', source: 'ui', task: 'Inspect example-project', sessionTitle: 'Codex' }),
-    'codex',
+    'Codex',
     'ordinary new agents should not use task text as their sidebar title'
   );
   assert.strictEqual(

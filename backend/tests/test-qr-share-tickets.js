@@ -62,6 +62,8 @@ function run() {
   assert(serverSource.includes("app.delete(routePath(BASE_PATH, '/api/share/qr-ticket/:code')"));
   assert(serverSource.includes('function shareTargetQueryFromBody'));
   assert(serverSource.includes("params.set('ftarget', kind)"));
+  assert(serverSource.includes("target.kind === 'folder'"));
+  assert(serverSource.includes("params.set('folder', folderPath)"));
   assert(serverSource.includes("res.redirect(302, entryPathWithQuery(ticket.targetQuery))"));
   assert(serverSource.includes('tokenLabel: authEnabled ? tokenAuth.getToken() :'));
   assert(serverSource.includes('const longPath = entryPathWithToken(ticket.targetQuery)'));

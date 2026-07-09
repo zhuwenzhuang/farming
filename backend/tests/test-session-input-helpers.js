@@ -6,7 +6,8 @@ const {
   isCopyShortcut,
   isPasteShortcut,
   getTerminalSequenceForKey,
-} = require('../../frontend/app.js');
+} = require('../../frontend/skins/crt/app.js');
+const { importTsModule } = require('./helpers/import-ts-module');
 
 function makeEvent(overrides = {}) {
   return {
@@ -20,6 +21,51 @@ function makeEvent(overrides = {}) {
 }
 
 function run() {
+  const {
+    shouldUseTerminalInputFallback,
+  } = importTsModule('src/lib/terminal-input.ts');
+
+  assert.strictEqual(
+    shouldUseTerminalInputFallback({
+      isXterm: true,
+      imeComposing: false,
+      text: 'hello',
+      terminal: { input() {} },
+    }),
+    false,
+    'xterm residual input fallback should not duplicate ordinary ASCII typing'
+  );
+  assert.strictEqual(
+    shouldUseTerminalInputFallback({
+      isXterm: true,
+      imeComposing: false,
+      text: '中文',
+      terminal: { input() {} },
+    }),
+    true,
+    'xterm residual input fallback should rescue committed IME/non-ASCII text'
+  );
+  assert.strictEqual(
+    shouldUseTerminalInputFallback({
+      isXterm: true,
+      imeComposing: true,
+      text: '中文',
+      terminal: { input() {} },
+    }),
+    false,
+    'terminal input fallback should not fire while IME composition is active'
+  );
+  assert.strictEqual(
+    shouldUseTerminalInputFallback({
+      isXterm: false,
+      imeComposing: false,
+      text: 'hello',
+      terminal: { input() {} },
+    }),
+    true,
+    'non-xterm fallback should continue to handle residual textarea input'
+  );
+
   assert.strictEqual(getTerminalSequenceForKey(makeEvent({ key: 'Enter' })), '\r');
   assert.strictEqual(getTerminalSequenceForKey(makeEvent({ key: 'ArrowUp' })), '\x1b[A');
   assert.strictEqual(getTerminalSequenceForKey(makeEvent({ key: 'Tab', shiftKey: true })), '\x1b[Z');
@@ -438,13 +484,19 @@ function run() {
       terminalPoolSource.includes('return isMobileTouchViewport()') &&
       terminalPoolSource.includes('TOUCH_MOMENTUM_MIN_VELOCITY') &&
       terminalPoolSource.includes('TOUCH_MOMENTUM_DECAY_PER_FRAME') &&
+      terminalPoolSource.includes('TOUCH_VELOCITY_WINDOW_MS') &&
+      terminalPoolSource.includes('const readTouchGestureVelocity = () =>') &&
+      terminalPoolSource.includes('TOUCH_EDGE_RESISTANCE') &&
+      terminalPoolSource.includes('TOUCH_EDGE_SPRING_MS') &&
+      terminalPoolSource.includes('const releaseTouchEdge = (animate = true) =>') &&
+      terminalPoolSource.includes('record.touchInteraction?.stopTouchMomentum()') &&
       terminalPoolSource.includes('const stepTouchMomentum = (timestamp: number) =>') &&
       terminalPoolSource.includes('touchVelocityY *= Math.pow(TOUCH_MOMENTUM_DECAY_PER_FRAME') &&
       terminalPoolSource.includes('const startTouchMomentum = () =>') &&
       terminalPoolSource.includes('startTouchMomentum()') &&
       terminalPoolSource.includes("record.hostEl.addEventListener('lostpointercapture', pointerUpHandler") &&
       terminalPoolSource.includes('record.touchInteraction.stopTouchMomentum()'),
-    'xterm mobile terminals should keep the touch scroller but add momentum and clean up interrupted gestures instead of stopping at line-by-line drag'
+    'xterm mobile terminals should estimate flick velocity over a short gesture window, preserve momentum, spring at the edge, and clean up interrupted gestures'
   );
   assert(
     terminalPoolSource.includes("hostEl.addEventListener('keydown', inputFallbackKeydownHandler, false)") &&
@@ -453,11 +505,16 @@ function run() {
       terminalInputSource.includes('export function isXtermHelperTextareaTarget') &&
       terminalInputSource.includes("target.classList.contains('xterm-helper-textarea')") &&
       terminalInputSource.includes('export function shouldUseTerminalInputFallback') &&
+      !terminalInputSource.includes('return !options.isXterm && !options.imeComposing') &&
+      terminalInputSource.includes("if (options.imeComposing || typeof options.terminal.input !== 'function') return false") &&
+      terminalInputSource.includes('if (!options.isXterm) return true') &&
+      terminalInputSource.includes("Boolean(options.text && /[^\\x00-\\x7F]/.test(options.text))") &&
       terminalInputSource.includes('export function shouldSuppressTerminalInputFallback') &&
       terminalInputSource.includes('TERMINAL_INPUT_FALLBACK_DELAY_MS = 80') &&
       terminalInputSource.includes('TERMINAL_INPUT_FALLBACK_SUPPRESSION_MS = 120') &&
       terminalPoolSource.includes('isXtermHelperTextareaTarget(event.target)') &&
       terminalPoolSource.includes('shouldUseTerminalInputFallback({') &&
+      terminalPoolSource.includes('text: target.value') &&
       terminalPoolSource.includes('window.setTimeout(() =>') &&
       terminalPoolSource.includes('}, TERMINAL_INPUT_FALLBACK_DELAY_MS)') &&
       terminalPoolSource.includes('lastTerminalDataAt') &&
@@ -561,9 +618,9 @@ function run() {
       terminalPoolSource.includes("record.hostEl.classList.toggle('terminal-renderer-cursor-suppressed'") &&
         mainCssSource.includes('.terminal-session-host.terminal-renderer-cursor-suppressed .xterm .xterm-cursor') &&
         mainCssSource.includes('background-color: transparent !important') &&
-        mainCssSource.includes('opacity: 0 !important') &&
+        mainCssSource.includes('opacity: 1 !important') &&
         mainCssSource.includes('contain: layout paint size'),
-    'xterm terminal hosts should isolate paint and hide renderer cursors for coding-agent TUIs'
+    'xterm terminal hosts should isolate paint and suppress cursor paint without hiding the cursor cell text for coding-agent TUIs'
   );
   assert(
     terminalPoolSource.includes('if (sessions.get(agentId) !== record) return'),
@@ -592,6 +649,8 @@ function run() {
     terminalPoolSource.includes('export function focusTerminalSession(agentId: string)') &&
       terminalPoolSource.includes('function focusAttachedTerminalInput(record: SessionRecord)') &&
       terminalPoolSource.includes('return focusTerminalInput(record.hostEl, record.terminal)') &&
+      terminalPoolSource.includes('if (isXtermTerminal(terminal)) {') &&
+      terminalPoolSource.includes('terminal.focus()') &&
       terminalPoolSource.includes('function focusTerminalInputWhenReady(\n  record: SessionRecord,\n  generation: number,') &&
       terminalPoolSource.includes('if (!isCurrentAttachment(record, generation)) return') &&
       terminalPoolSource.includes('focusTerminalInputWhenReady(record, generation, attemptsRemaining - 1)') &&
@@ -599,6 +658,13 @@ function run() {
       terminalPoolSource.includes('focusAttachedTerminalInput(record)') &&
       !terminalPoolSource.includes('focusTerminalInput(record.hostEl, record.terminal)\n      }'),
     'terminal session focus should reuse the attached-owner guard and not focus parked or disposed terminal hosts'
+  );
+  assert(
+    pooledTerminalHookSource.includes('focusTerminalSession(agentId).then((focused) => {') &&
+      pooledTerminalHookSource.includes('if (focused) return') &&
+      pooledTerminalHookSource.includes('Only attach here when the pooled session is absent or') &&
+      !pooledTerminalHookSource.includes("focusTerminalSession(agentId).catch((error) => {\n      console.error('Failed to focus terminal session:', error)\n    })\n    attachTerminalSession(agentId, {"),
+    'refocusing an attached xterm should not reattach its IME textarea'
   );
   assert(
       terminalOutputSource.includes('export function writeTerminalOutput') &&
@@ -732,7 +798,7 @@ function run() {
 
   const ghosttySource = fs.readFileSync(path.join(__dirname, '../../src/lib/ghostty.ts'), 'utf8');
   assert(
-    ghosttySource.includes('export const DEFAULT_FONT_SIZE = 13'),
+    ghosttySource.includes('export const DEFAULT_FONT_SIZE = 12'),
     'ghostty terminal font size should match the tighter Codex desktop terminal feel'
   );
   assert(
@@ -790,7 +856,7 @@ function run() {
     'Start Agent should ignore duplicate clicks while a start request is already pending'
   );
 
-  const legacyAppSource = fs.readFileSync(path.join(__dirname, '../../frontend/app.js'), 'utf8');
+  const legacyAppSource = fs.readFileSync(path.join(__dirname, '../../frontend/skins/crt/app.js'), 'utf8');
   assert(
     legacyAppSource.includes('function normalizeTerminalSelectionText'),
     'legacy session modal should normalize soft-wrapped terminal selections'

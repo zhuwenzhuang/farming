@@ -1,4 +1,5 @@
 let ws = null;
+let wsReconnectTimer = null;
 let state = null;
 let focusedAgentId = null;
 let keyMap = {};
@@ -16,13 +17,30 @@ let sessionClient = null;
 let globalSettings = {
   workspace: '',
   workspaceHistory: [],
-  codingAgentEngine: 'local',
+  defaultLaunchAgent: '',
   dangerouslySkipAgentPermissionsByDefault: false,
-  vtBaseUrl: 'http://localhost:4020'
+  crtSkinEffectsEnabled: true,
+  crtDynamicHeatEnabled: false,
+  crtTerminalFontSize: 12
 };
+let crtTerminalFontSizeSaveTimer = null;
 let workspaceHistorySelection = -1;
 let workspaceHistoryExpanded = false;
 let pendingMainAgentLaunch = false;
+let pendingAgentLaunchPrefill = null;
+let crtNavigationKey = '';
+let crtMainView = 'agents';
+let historyAgentSessions = [];
+let historyLoading = false;
+let historyError = '';
+let historyActionPendingKey = '';
+let pendingHistoryOpenAgentId = '';
+let historyPage = 0;
+let historyPageSize = 1;
+let dashboardRenderDeferred = false;
+let lastCrtDashboardSignature = '';
+let crtPreviewRenderTimer = null;
+const pendingCrtPreviewRenders = new Map();
 let sessionRuntime = null;
 let legacySessionPoller = null;
 let terminalInputBridge = null;
@@ -30,41 +48,367 @@ let terminalInputComposing = false;
 let terminalInputLastBackspaceAt = 0;
 let terminalInputLastDeleteAt = 0;
 let terminalInputPendingTexts = [];
+const terminalPreviewSnapshots = new Map();
+const crtBrandPulseTimers = new Map();
 const SESSION_INPUT_SETTINGS = {
-  imeEnabled: true
+  // xterm's native textarea is the same low-latency input path used by Farming Code.
+  imeEnabled: false
 };
 const SESSION_LINK_LIMIT = 6;
+const CRT_PREVIEW_RENDER_INTERVAL_MS = 1000;
+const CRT_AGENT_DISPLAY_NAMES = {
+  qwen: 'Qwen Code',
+  codex: 'Codex',
+  opencode: 'OpenCode',
+  qoder: 'Qoder',
+  qodercli: 'Qoder',
+  aider: 'Aider',
+  'github-copilot-cli': 'GitHub Copilot CLI',
+  claude: 'Claude Code',
+  'amazon-q': 'Amazon Q',
+  bash: 'bash',
+  zsh: 'zsh'
+};
+const CRT_TITLE_STATUS_PREFIX_PATTERN = /^[\s*＊✳✱✲✶·•◇✋✦⏲\u2800-\u28FF]+/u;
+const CRT_QODER_RUNTIME_TITLE_PATTERN = /^[◇✋✦⏲]/u;
+const RUNTIME_PATHS = typeof window !== 'undefined' ? window.FarmingRuntimePaths : null;
+
+function farmingApiPath(path) {
+  return RUNTIME_PATHS ? RUNTIME_PATHS.apiPath(path) : `/api${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+function farmingWebSocketUrl() {
+  if (RUNTIME_PATHS) return RUNTIME_PATHS.webSocketUrl();
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${location.host}`;
+}
+
+function findDirectionalNavigationIndex(rects, currentIndex, key, wrap = false) {
+  if (!Array.isArray(rects) || rects.length === 0) return -1;
+  if (currentIndex < 0 || currentIndex >= rects.length) return 0;
+
+  const current = rects[currentIndex];
+  const currentX = (current.left + current.right) / 2;
+  const currentY = (current.top + current.bottom) / 2;
+  const horizontal = key === 'ArrowLeft' || key === 'ArrowRight';
+  const direction = key === 'ArrowLeft' || key === 'ArrowUp' ? -1 : 1;
+  let bestIndex = -1;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  rects.forEach((rect, index) => {
+    if (index === currentIndex) return;
+    const x = (rect.left + rect.right) / 2;
+    const y = (rect.top + rect.bottom) / 2;
+    const primaryDelta = horizontal ? x - currentX : y - currentY;
+    if (primaryDelta * direction <= 1) return;
+    const crossDelta = horizontal ? Math.abs(y - currentY) : Math.abs(x - currentX);
+    const score = Math.abs(primaryDelta) + crossDelta * 2;
+    if (score < bestScore) {
+      bestScore = score;
+      bestIndex = index;
+    }
+  });
+
+  if (bestIndex >= 0 || !wrap || rects.length < 2) return bestIndex;
+
+  const centers = rects.map((rect) => ({
+    x: (rect.left + rect.right) / 2,
+    y: (rect.top + rect.bottom) / 2,
+  }));
+  const primaryValues = centers.map((center) => horizontal ? center.x : center.y);
+  if (Math.max(...primaryValues) - Math.min(...primaryValues) <= 1) return -1;
+  const wrapEdge = direction > 0 ? Math.min(...primaryValues) : Math.max(...primaryValues);
+
+  centers.forEach((center, index) => {
+    if (index === currentIndex) return;
+    const primary = horizontal ? center.x : center.y;
+    const crossDelta = horizontal ? Math.abs(center.y - currentY) : Math.abs(center.x - currentX);
+    const score = Math.abs(primary - wrapEdge) * 1000 + crossDelta;
+    if (score < bestScore) {
+      bestScore = score;
+      bestIndex = index;
+    }
+  });
+
+  return bestIndex;
+}
+
+function findDefaultNewAgentIndex(agentOptions, preferredAgentName) {
+  if (!Array.isArray(agentOptions) || agentOptions.length === 0) return -1;
+  const preferredName = String(preferredAgentName || '').trim().toLowerCase();
+  if (!preferredName) return 0;
+  const preferredIndex = agentOptions.findIndex((agent) => (
+    String(agent && agent.name || '').trim().toLowerCase() === preferredName
+  ));
+  return preferredIndex >= 0 ? preferredIndex : 0;
+}
+
+function crtAgentSessionKey(session) {
+  const provider = String(session && session.provider || '').trim().toLowerCase();
+  const sessionId = String(session && session.id || '').trim();
+  const providerHomeId = String(session && session.providerHomeId || 'default').trim() || 'default';
+  if (!provider || !sessionId) return '';
+  const scopedSessionId = providerHomeId === 'default'
+    ? sessionId
+    : `home:${providerHomeId}:${sessionId}`;
+  return `agent-session:${provider}:${scopedSessionId}`;
+}
+
+function crtResumedSessionFromSource(source) {
+  const match = /^([a-z]+)-history(?:-fork)?:(?:(?:home:([A-Za-z0-9._-]+):)?(.+))$/.exec(source || '');
+  if (!match) return null;
+  return {
+    provider: match[1],
+    providerHomeId: match[2] || 'default',
+    sessionId: match[3]
+  };
+}
+
+function crtHistoryItemResumeSession(item) {
+  if (!item) return null;
+  if (item.kind === 'session') {
+    const provider = String(item.session.provider || '').trim().toLowerCase();
+    const sessionId = String(item.session.id || '').trim();
+    if (!provider || !sessionId) return null;
+    return {
+      provider,
+      sessionId,
+      providerHomeId: item.session.providerHomeId || 'default'
+    };
+  }
+  if (item.kind === 'agent') {
+    const provider = String(item.agent.providerSessionProvider || '').trim().toLowerCase();
+    const sessionId = String(item.agent.providerSessionId || '').trim();
+    if (provider && sessionId && item.agent.providerSessionTemporary !== true) {
+      return {
+        provider,
+        sessionId,
+        providerHomeId: item.agent.providerHomeId || 'default'
+      };
+    }
+    return crtResumedSessionFromSource(item.agent.source);
+  }
+  return crtResumedSessionFromSource(item.entry.source);
+}
+
+function crtHistoryTimestamp(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const parsed = Date.parse(value || '');
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function crtHistoryItemUpdatedAt(item) {
+  if (item.kind === 'session') {
+    return Math.max(crtHistoryTimestamp(item.session.updatedAt), crtHistoryTimestamp(item.session.createdAt));
+  }
+  const source = item.kind === 'agent' ? item.agent : item.entry;
+  return Math.max(source.archivedAt || 0, source.lastActivity || 0, source.startedAt || 0);
+}
+
+function crtHistoryItemResumeKey(item) {
+  const resumed = crtHistoryItemResumeSession(item);
+  return resumed
+    ? `resume:${resumed.provider}:${resumed.providerHomeId || 'default'}:${resumed.sessionId}`
+    : '';
+}
+
+function crtHistoryItemPriority(item) {
+  if (item.kind === 'session') return 30;
+  if (item.kind === 'agent') return 20;
+  return 10;
+}
+
+function shouldReplaceCrtHistoryItem(current, candidate) {
+  if (candidate.updatedAt !== current.updatedAt) return candidate.updatedAt > current.updatedAt;
+  return crtHistoryItemPriority(candidate) > crtHistoryItemPriority(current);
+}
+
+function crtHistorySessionDisplayKey(item) {
+  if (item.kind !== 'session') return '';
+  const title = String(item.session.title || '').trim().toLowerCase();
+  const workspace = String(item.session.workspace || item.session.cwd || '').trim().toLowerCase();
+  const provider = String(item.session.provider || '').trim().toLowerCase();
+  const home = String(item.session.providerHomeId || 'default').trim().toLowerCase();
+  return title.length > 4 && workspace ? `${provider}:${home}:${workspace}:${title}` : '';
+}
+
+function buildCrtHistoryItems({ taskHistory = [], agents: agentRecords = [], sessions = [], mainPageSessionKeys = [] } = {}) {
+  const liveAgents = agentRecords.filter((agent) => (
+    agent.isMain !== true
+    && agent.archived !== true
+    && agent.status !== 'dead'
+    && agent.status !== 'stopped'
+  ));
+  const claimedSessionKeys = new Set(liveAgents.map((agent) => (
+    agent.providerSessionKey || (() => {
+      const resumed = crtResumedSessionFromSource(agent.source);
+      return resumed ? crtAgentSessionKey({
+        provider: resumed.provider,
+        id: resumed.sessionId,
+        providerHomeId: resumed.providerHomeId
+      }) : '';
+    })()
+  )).filter(Boolean));
+  const mainPageKeys = new Set(Array.isArray(mainPageSessionKeys) ? mainPageSessionKeys : []);
+  const historySessions = sessions.filter((session) => {
+    const key = crtAgentSessionKey(session);
+    if (!key || claimedSessionKeys.has(key)) return false;
+    return session.archived === true || !mainPageKeys.has(key);
+  });
+  const candidates = [
+    ...taskHistory.map((entry) => ({ kind: 'run', historyKey: `run:${entry.id}`, entry })),
+    ...agentRecords
+      .filter((agent) => agent.isMain !== true && agent.archived === true)
+      .map((agent) => ({ kind: 'agent', historyKey: `agent:${agent.id}`, agent })),
+    ...historySessions.map((session) => ({ kind: 'session', historyKey: crtAgentSessionKey(session), session }))
+  ].map((item) => ({ ...item, updatedAt: crtHistoryItemUpdatedAt(item) }));
+
+  const retained = [];
+  const resumable = new Map();
+  candidates.forEach((item) => {
+    const resumeKey = crtHistoryItemResumeKey(item);
+    if (!resumeKey) {
+      retained.push(item);
+      return;
+    }
+    const current = resumable.get(resumeKey);
+    if (!current || shouldReplaceCrtHistoryItem(current, item)) resumable.set(resumeKey, item);
+  });
+
+  const exactDedupe = [...retained, ...resumable.values()];
+  const visualSessions = new Map();
+  exactDedupe.forEach((item) => {
+    const displayKey = crtHistorySessionDisplayKey(item);
+    if (!displayKey) return;
+    const current = visualSessions.get(displayKey);
+    if (!current || shouldReplaceCrtHistoryItem(current, item)) visualSessions.set(displayKey, item);
+  });
+
+  return exactDedupe
+    .filter((item) => {
+      const displayKey = crtHistorySessionDisplayKey(item);
+      return !displayKey || visualSessions.get(displayKey) === item;
+    })
+    .sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+function getCrtNavigationScope() {
+  const settingsModal = document.getElementById('settings-modal');
+  if (settingsModal && settingsModal.classList.contains('active')) return settingsModal;
+  const inputDialog = document.getElementById('input-dialog');
+  if (inputDialog && inputDialog.classList.contains('active')) return inputDialog;
+  const historyArea = document.getElementById('history-area');
+  if (historyArea && !historyArea.classList.contains('hidden')) return historyArea;
+  return document.querySelector('.main-container');
+}
+
+function getCrtNavigationItems() {
+  const scope = getCrtNavigationScope();
+  if (!scope) return [];
+  return Array.from(scope.querySelectorAll('[data-crt-nav-key]')).filter((element) => {
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+  });
+}
+
+function clearCrtNavigationSelection({ forget = true } = {}) {
+  document.querySelectorAll('.crt-nav-selected').forEach((element) => {
+    element.classList.remove('crt-nav-selected');
+  });
+  if (forget) crtNavigationKey = '';
+}
+
+function setCrtNavigationSelection(element) {
+  if (!element) return false;
+  clearCrtNavigationSelection({ forget: false });
+  crtNavigationKey = element.dataset.crtNavKey || '';
+  element.classList.add('crt-nav-selected');
+  if (typeof element.focus === 'function') element.focus({ preventScroll: true });
+  const scrollTarget = element.closest && element.closest('#settings-modal .settings-panel')
+    ? element.closest('#settings-modal .settings-panel')
+    : element;
+  if (typeof scrollTarget.scrollIntoView === 'function') {
+    scrollTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+  return true;
+}
+
+function restoreCrtNavigationSelection() {
+  if (!crtNavigationKey) return false;
+  const element = getCrtNavigationItems().find((candidate) => candidate.dataset.crtNavKey === crtNavigationKey);
+  return element ? setCrtNavigationSelection(element) : false;
+}
+
+function moveCrtNavigationSelection(key) {
+  const scope = getCrtNavigationScope();
+  const items = getCrtNavigationItems();
+  if (!items.length) return false;
+  const currentIndex = items.findIndex((element) => (
+    element.classList.contains('crt-nav-selected') || element.dataset.crtNavKey === crtNavigationKey
+  ));
+  if (currentIndex < 0) {
+    const defaultItem = items.find((element) => element.dataset.crtNavDefault === 'true') || items[0];
+    return setCrtNavigationSelection(defaultItem);
+  }
+  const rects = items.map((element) => element.getBoundingClientRect());
+  const wrap = Boolean(scope && (
+    scope.id === 'input-dialog'
+    || scope.classList.contains('main-container')
+  ));
+  const nextIndex = findDirectionalNavigationIndex(rects, currentIndex, key, wrap);
+  return nextIndex >= 0 ? setCrtNavigationSelection(items[nextIndex]) : false;
+}
+
+function activateCrtNavigationSelection() {
+  const item = getCrtNavigationItems().find((element) => element.classList.contains('crt-nav-selected'));
+  if (!item) return false;
+  if (item.matches('input, textarea, select')) {
+    item.focus();
+    return true;
+  }
+  item.click();
+  return true;
+}
+
 let sessionSearchMatches = [];
 let sessionSearchIndex = -1;
 const MAX_WORKSPACE_HISTORY = 5;
-const TERMINAL_THEME = typeof window !== 'undefined' && window.FarmingTerminalBridge
-  ? window.FarmingTerminalBridge.DEFAULT_THEME
-  : {
-      background: '#090b09',
-      foreground: '#7CFF76',
-      cursor: '#8CFF83',
-      cursorAccent: '#050605',
-      selectionBackground: 'rgba(124, 255, 118, 0.22)',
-      black: '#0b120b',
-      red: '#ff5f56',
-      green: '#7CFF76',
-      yellow: '#f3f99d',
-      blue: '#55c7ff',
-      magenta: '#ff7bf1',
-      cyan: '#78ffd6',
-      white: '#f2fff0',
-      brightBlack: '#4f6b4c',
-      brightRed: '#ff8a7a',
-      brightGreen: '#a7ff9f',
-      brightYellow: '#fbffb8',
-      brightBlue: '#8dddff',
-      brightMagenta: '#ffacef',
-      brightCyan: '#a9ffec',
-      brightWhite: '#ffffff'
-    };
+const TERMINAL_THEME = {
+  background: '#000000',
+  foreground: '#0ccc68',
+  cursor: '#55f59b',
+  cursorAccent: '#001409',
+  selectionBackground: 'rgba(12, 204, 104, 0.3)',
+  black: '#000000',
+  red: '#087a42',
+  green: '#0ccc68',
+  yellow: '#45dc8c',
+  blue: '#09683a',
+  magenta: '#16a95f',
+  cyan: '#2bd47e',
+  white: '#87eeb1',
+  brightBlack: '#07532f',
+  brightRed: '#12a95e',
+  brightGreen: '#55f59b',
+  brightYellow: '#79f5ad',
+  brightBlue: '#18a763',
+  brightMagenta: '#4bdd91',
+  brightCyan: '#70efaa',
+  brightWhite: '#c5f8d9'
+};
 const TERMINAL_FONT_FAMILY = typeof window !== 'undefined' && window.FarmingTerminalBridge
   ? window.FarmingTerminalBridge.DEFAULT_FONT_FAMILY
   : '"JetBrains Mono", "SF Mono", Menlo, Monaco, "Cascadia Mono", "Segoe UI Mono", "Sarasa Mono SC", "PingFang SC", "Hiragino Sans GB", "Noto Sans Mono CJK SC", "Microsoft YaHei UI", monospace';
+const DEFAULT_TERMINAL_FONT_SIZE = 12;
+const MIN_TERMINAL_FONT_SIZE = 10;
+const MAX_TERMINAL_FONT_SIZE = 20;
+const TERMINAL_SCROLLBACK = 5000;
+const FARMING_CODE_THEME = {
+  id: 'farming-code',
+  displayName: 'Farming Code',
+  description: 'Modern workspace for coding, files, review, and agent supervision'
+};
 const SESSION_MODAL_BRIDGE = (() => {
   if (typeof window !== 'undefined' && window.FarmingSessionModalBridge) {
     return window.FarmingSessionModalBridge;
@@ -169,7 +513,7 @@ function schedulePrintableInput(text) {
         resetTerminalInputBridgeValue();
       }
       terminalInputPendingTexts = terminalInputPendingTexts.filter((item) => item !== pending);
-    }, 10)
+    }, 0)
   };
   terminalInputPendingTexts.push(pending);
 }
@@ -178,6 +522,7 @@ function focusTerminalInputBridge() {
   if (!SESSION_INPUT_SETTINGS.imeEnabled) return;
   if (!terminalInputBridge) return;
   if (isOverlayBlockingTerminalInput()) return;
+  syncTerminalInputBridgePosition();
   terminalInputBridge.focus();
   resetTerminalInputBridgeValue();
 }
@@ -494,11 +839,13 @@ function setupTerminalInputBridge() {
   input.style.caretColor = 'transparent';
   input.style.border = 'none';
   input.style.outline = 'none';
-  input.style.fontSize = '16px';
+  input.style.fontSize = `${getCrtTerminalFontSize()}px`;
+  input.style.fontFamily = TERMINAL_FONT_FAMILY;
   input.style.pointerEvents = 'none';
   input.style.zIndex = '2';
 
   input.addEventListener('compositionstart', () => {
+    syncTerminalInputBridgePosition();
     clearPendingPrintableInput();
     terminalInputComposing = true;
     document.body.setAttribute('data-ime-composing', 'true');
@@ -513,6 +860,8 @@ function setupTerminalInputBridge() {
     }
     resetTerminalInputBridgeValue();
   });
+
+  input.addEventListener('compositionupdate', syncTerminalInputBridgePosition);
 
   input.addEventListener('beforeinput', (event) => {
     if (terminalInputComposing) {
@@ -668,6 +1017,54 @@ function setupTerminalInputBridge() {
     document.body.appendChild(input);
   }
   terminalInputBridge = input;
+  syncTerminalInputBridgePosition();
+}
+
+function calculateTerminalInputBridgePosition(cursor, dimensions, screenRect, parentRect) {
+  if (!cursor || !dimensions || !screenRect || !parentRect) return null;
+  if (dimensions.cols <= 0 || dimensions.rows <= 0) return null;
+
+  const cellWidth = screenRect.width / dimensions.cols;
+  const cellHeight = screenRect.height / dimensions.rows;
+  return {
+    left: Math.max(0, screenRect.left - parentRect.left + cursor.x * cellWidth),
+    top: Math.max(0, screenRect.top - parentRect.top + cursor.y * cellHeight),
+    height: Math.max(getCrtTerminalFontSize() + 2, cellHeight)
+  };
+}
+
+function syncTerminalInputBridgePosition() {
+  if (!terminalInputBridge || !terminal) return;
+  const sessionModal = document.getElementById('session-modal');
+  const terminalElement = terminal.element;
+  const screen = terminalElement && terminalElement.querySelector
+    ? terminalElement.querySelector('.xterm-screen')
+    : null;
+  const activeBuffer = terminal.buffer && terminal.buffer.active;
+  if (!sessionModal || !(screen instanceof HTMLElement) || !activeBuffer) return;
+
+  const position = calculateTerminalInputBridgePosition(
+    { x: activeBuffer.cursorX, y: activeBuffer.cursorY },
+    { cols: terminal.cols, rows: terminal.rows },
+    screen.getBoundingClientRect(),
+    sessionModal.getBoundingClientRect()
+  );
+  if (!position) return;
+
+  terminalInputBridge.style.left = `${position.left}px`;
+  terminalInputBridge.style.top = `${position.top}px`;
+  terminalInputBridge.style.height = `${position.height}px`;
+  terminalInputBridge.style.lineHeight = `${position.height}px`;
+}
+
+function normalizeCrtTerminalFontSize(value) {
+  const fontSize = Number(value);
+  if (!Number.isFinite(fontSize)) return DEFAULT_TERMINAL_FONT_SIZE;
+  return Math.min(MAX_TERMINAL_FONT_SIZE, Math.max(MIN_TERMINAL_FONT_SIZE, Math.round(fontSize)));
+}
+
+function getCrtTerminalFontSize() {
+  return normalizeCrtTerminalFontSize(globalSettings.crtTerminalFontSize);
 }
 
 async function createTerminalInstance() {
@@ -676,12 +1073,12 @@ async function createTerminalInstance() {
       theme: currentSessionSkin && currentSessionSkin.terminalTheme
         ? currentSessionSkin.terminalTheme
         : TERMINAL_THEME,
-      fontSize: 14,
+      fontSize: getCrtTerminalFontSize(),
       fontFamily: TERMINAL_FONT_FAMILY,
       cursorBlink: false,
       smoothScrollDuration: 120,
       disableStdin: true,
-      scrollback: 20000
+      scrollback: TERMINAL_SCROLLBACK
     });
   }
 
@@ -694,7 +1091,408 @@ function shouldUseLiveSessionText(agent) {
 
 function getAgentDisplayText(agent) {
   if (!agent) return '';
-  return stripAnsi(agent.previewText || agent.output || '');
+  const text = stripAnsi(agent.previewText || agent.output || '');
+  const decorativeLine = /^[\s▀▄─━═░▒▓█│┃┄┅┈┉┌┐└┘├┤┬┴┼╭╮╰╯]+$/u;
+  const terminalChrome = /(?:Type your message or @path\/to\/file|\? for shortcuts|YOLO Shift\+Tab|Auto Model · ctx|Enjoy Off-Peak Discount|Try \/(?:effort|context-window))/i;
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !decorativeLine.test(line) && !terminalChrome.test(line))
+    .join('\n');
+}
+
+function crtPreviewColor(index) {
+  const ansi16 = [
+    '#000000', '#cd3131', '#0dbc79', '#e5e510',
+    '#2472c8', '#bc3fbc', '#11a8cd', '#c8c8c8',
+    '#666666', '#f14c4c', '#23d18b', '#f5f543',
+    '#3b8eea', '#d670d6', '#29b8db', '#ffffff'
+  ];
+  if (!Number.isFinite(index) || index < 0) return '';
+  if (index < ansi16.length) return ansi16[index];
+  if (index <= 231) {
+    const offset = index - 16;
+    const levels = [0, 95, 135, 175, 215, 255];
+    return `rgb(${levels[Math.floor(offset / 36)]}, ${levels[Math.floor((offset % 36) / 6)]}, ${levels[offset % 6]})`;
+  }
+  if (index <= 255) {
+    const level = 8 + (index - 232) * 10;
+    return `rgb(${level}, ${level}, ${level})`;
+  }
+  return `rgb(${(index >> 16) & 0xff}, ${(index >> 8) & 0xff}, ${index & 0xff})`;
+}
+
+function getCrtPreviewCellStyle(cell) {
+  const attrs = cell && cell.attributes || 0;
+  let color = crtPreviewColor(cell && cell.fg);
+  let backgroundColor = crtPreviewColor(cell && cell.bg);
+  if (attrs & 0x10) {
+    [color, backgroundColor] = [backgroundColor || '#000000', color || '#0ccc68'];
+  }
+  return {
+    color,
+    backgroundColor,
+    fontWeight: attrs & 0x01 ? 'bold' : '',
+    fontStyle: attrs & 0x02 ? 'italic' : '',
+    textDecoration: [attrs & 0x04 ? 'underline' : '', attrs & 0x40 ? 'line-through' : ''].filter(Boolean).join(' '),
+    opacity: attrs & 0x20 ? '0' : (attrs & 0x08 ? '0.65' : '')
+  };
+}
+
+function renderCrtTerminalSnapshot(container, snapshot) {
+  if (!container || !snapshot || !Array.isArray(snapshot.cells)) return false;
+  container.classList.add('terminal-snapshot');
+  snapshot.cells.forEach((cells) => {
+    const row = document.createElement('div');
+    row.className = 'terminal-snapshot-row';
+    let currentSpan = null;
+    let currentStyleKey = '';
+    cells.forEach((cell) => {
+      if (!cell || cell.width === 0) return;
+      const style = getCrtPreviewCellStyle(cell);
+      const styleKey = JSON.stringify(style);
+      if (!currentSpan || styleKey !== currentStyleKey) {
+        currentSpan = document.createElement('span');
+        Object.assign(currentSpan.style, style);
+        row.appendChild(currentSpan);
+        currentStyleKey = styleKey;
+      }
+      currentSpan.appendChild(document.createTextNode(cell.char || ' '));
+    });
+    container.appendChild(row);
+  });
+  return true;
+}
+
+function crtDashboardStateSignature(value) {
+  if (!value || !Array.isArray(value.agents)) return '';
+  return JSON.stringify([
+    value.mainAgentId || '',
+    value.agents.map((agent) => [
+      agent.id,
+      agent.status,
+      agent.activityLevel,
+      agent.command,
+      agent.customTitle,
+      agent.providerSessionTitle,
+      agent.sessionTitle,
+      agent.cwd,
+      agent.projectWorkspace,
+      agent.unread === true,
+      agent.pinned === true,
+      agent.projectOrder,
+      agent.pinnedOrder,
+    ]),
+  ]);
+}
+
+function isCrtSessionOpen() {
+  return typeof document !== 'undefined' && document.body.classList.contains('session-open');
+}
+
+function renderCrtDashboardIfNeeded(force = false) {
+  if (!state) return false;
+  if (!force && isCrtSessionOpen()) {
+    dashboardRenderDeferred = true;
+    return false;
+  }
+  const signature = crtDashboardStateSignature(state);
+  if (!force && signature === lastCrtDashboardSignature) return false;
+  dashboardRenderDeferred = false;
+  renderState();
+  return true;
+}
+
+function updateCrtAgentPreviewCard(agent) {
+  if (typeof document === 'undefined' || !agent) return false;
+  const block = Array.from(document.querySelectorAll('[data-agent-id]'))
+    .find((candidate) => candidate.dataset.agentId === agent.id);
+  if (!block) return false;
+
+  const isMain = block.id === 'main-agent-block';
+  const header = block.querySelector('.agent-header');
+  const status = block.querySelector('.agent-status');
+  const output = block.querySelector('.agent-output');
+  if (!header || !status || !output) return false;
+
+  header.textContent = getCrtAgentTitle(agent);
+  if (isMain) {
+    status.textContent = `${agent.status} | ${agent.activityLevel}`;
+  } else {
+    const selected = block.classList.contains('crt-nav-selected');
+    const activityClass = globalSettings.crtDynamicHeatEnabled === true ? agent.activityLevel : '';
+    block.className = `agent-block ${activityClass} ${agent.status} ${isCrtAgentWorking(agent) ? 'working' : ''} ${agent.unread === true ? 'unread' : ''}`;
+    if (selected) block.classList.add('crt-nav-selected');
+    const projectName = getCrtProjectName(agent);
+    status.textContent = [agent.status, agent.activityLevel, projectName].filter(Boolean).join(' | ');
+  }
+
+  const outputTail = document.createElement('div');
+  outputTail.className = 'agent-output-tail';
+  const cleanOutput = getAgentDisplayText(agent);
+  if (!renderCrtTerminalSnapshot(outputTail, agent.previewSnapshot)) {
+    outputTail.textContent = isMain
+      ? cleanOutput.slice(-150) || 'No output yet...'
+      : cleanOutput || 'No output yet...';
+  }
+  output.replaceChildren(outputTail);
+  lastCrtDashboardSignature = crtDashboardStateSignature(state);
+  return true;
+}
+
+function flushCrtPreviewCardRenders() {
+  crtPreviewRenderTimer = null;
+  const pending = Array.from(pendingCrtPreviewRenders.values());
+  pendingCrtPreviewRenders.clear();
+  if (pending.length === 0) return;
+  if (isCrtSessionOpen()) {
+    dashboardRenderDeferred = true;
+    return;
+  }
+
+  pending.forEach(({ agent, previousSnapshot, previousText, previewChanged }) => {
+    if (!updateCrtAgentPreviewCard(agent)) {
+      renderCrtDashboardIfNeeded(true);
+      return;
+    }
+    if (previewChanged) {
+      appendCrtPreviewAfterimage(agent.id, previousSnapshot, previousText);
+      pulseCrtBrandForAgent(agent.id);
+    }
+  });
+}
+
+function scheduleCrtPreviewCardRender(agent, previousSnapshot, previousText, previewChanged) {
+  const existing = pendingCrtPreviewRenders.get(agent.id);
+  pendingCrtPreviewRenders.set(agent.id, {
+    agent,
+    previousSnapshot: existing ? existing.previousSnapshot : previousSnapshot,
+    previousText: existing ? existing.previousText : previousText,
+    previewChanged: Boolean(previewChanged || (existing && existing.previewChanged)),
+  });
+  if (!crtPreviewRenderTimer) {
+    crtPreviewRenderTimer = setTimeout(flushCrtPreviewCardRenders, CRT_PREVIEW_RENDER_INTERVAL_MS);
+  }
+}
+
+function appendCrtPreviewAfterimage(agentId, snapshot, fallbackText) {
+  if (typeof document === 'undefined') return;
+  const block = Array.from(document.querySelectorAll('[data-agent-id]'))
+    .find((candidate) => candidate.dataset.agentId === agentId);
+  const output = block && block.querySelector('.agent-output');
+  if (!output || (!snapshot && !fallbackText)) return;
+
+  const afterimage = document.createElement('div');
+  afterimage.className = 'agent-output-afterimage';
+  const tail = document.createElement('div');
+  tail.className = 'agent-output-tail';
+  if (!renderCrtTerminalSnapshot(tail, snapshot)) tail.textContent = fallbackText;
+  afterimage.appendChild(tail);
+  afterimage.addEventListener('animationend', () => afterimage.remove(), { once: true });
+  output.appendChild(afterimage);
+}
+
+function crtCommandProgram(command) {
+  const tokens = String(command || '').trim().split(/\s+/).filter(Boolean);
+  let index = tokens[0] === 'env' ? 1 : 0;
+  while (index < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[index])) index += 1;
+  const executable = tokens[index] || '';
+  return executable.split('/').pop() || '';
+}
+
+function crtAgentDisplayName(command) {
+  const program = crtCommandProgram(command);
+  return CRT_AGENT_DISPLAY_NAMES[program] || program || 'Agent';
+}
+
+function crtWorkspaceBasenames(agent) {
+  return [agent && agent.cwd, agent && agent.projectWorkspace]
+    .filter((value) => typeof value === 'string' && value.trim())
+    .map((value) => value.replace(/[/\\]+$/, '').split(/[/\\]/).filter(Boolean).pop() || '')
+    .filter(Boolean)
+    .map((value) => value.toLowerCase());
+}
+
+function getCrtProjectName(agent, projectNames = globalSettings && globalSettings.projectNames) {
+  const workspace = normalizeWorkspaceValue(agent && (agent.projectWorkspace || agent.cwd));
+  if (!workspace) return '';
+  const workspaceKey = workspace.replace(/[/\\]+$/, '') || workspace;
+
+  if (projectNames && typeof projectNames === 'object') {
+    const configuredEntry = Object.entries(projectNames).find(
+      ([candidate]) => (normalizeWorkspaceValue(candidate).replace(/[/\\]+$/, '') || candidate) === workspaceKey,
+    );
+    const configuredName = configuredEntry && typeof configuredEntry[1] === 'string'
+      ? configuredEntry[1].trim()
+      : '';
+    if (configuredName) return configuredName;
+  }
+
+  return workspaceKey.split(/[/\\]/).filter(Boolean).pop() || workspace;
+}
+
+function crtTitleComparisonKey(title) {
+  return String(title || '')
+    .trim()
+    .replace(/^[\s*＊✳✱✲✶·•:.◇✋✦⏲\u2800-\u28FF]+/u, '')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function truncateCrtAgentTitle(title) {
+  const text = String(title || '').trim();
+  return text.length <= 28 ? text : `${text.slice(0, 27)}…`;
+}
+
+function meaningfulCrtSessionTitle(title, agent) {
+  const text = typeof title === 'string' ? title.trim() : '';
+  if (!text) return '';
+
+  const program = crtCommandProgram(agent && agent.command).toLowerCase();
+  const displayName = crtAgentDisplayName(agent && agent.command).toLowerCase();
+  if ((program === 'qoder' || program === 'qodercli') && CRT_QODER_RUNTIME_TITLE_PATTERN.test(text)) {
+    return '';
+  }
+
+  const normalized = crtTitleComparisonKey(text);
+  const genericTitles = new Set([
+    program,
+    displayName,
+    `${program} session`,
+    `${displayName} session`,
+    'main agent',
+    'farming'
+  ].filter(Boolean));
+  if (genericTitles.has(normalized) || crtWorkspaceBasenames(agent).includes(normalized)) {
+    return '';
+  }
+
+  return truncateCrtAgentTitle(text.replace(CRT_TITLE_STATUS_PREFIX_PATTERN, '').trim() || text);
+}
+
+function getCrtAgentTitle(agent) {
+  if (!agent) return 'Agent';
+  const customTitle = typeof agent.customTitle === 'string' ? agent.customTitle.trim() : '';
+  if (customTitle) return truncateCrtAgentTitle(customTitle);
+  if (agent.isMain) return 'Main Agent';
+
+  const providerTitle = meaningfulCrtSessionTitle(agent.providerSessionTitle, agent);
+  if (providerTitle) return providerTitle;
+
+  const sessionTitle = meaningfulCrtSessionTitle(agent.sessionTitle, agent);
+  if (sessionTitle) return sessionTitle;
+
+  if (/^[a-z]+-history(?:-fork)?:/.test(agent.source || '')) {
+    const taskTitle = meaningfulCrtSessionTitle(agent.task, agent);
+    if (taskTitle) return taskTitle;
+  }
+
+  return crtAgentDisplayName(agent.command);
+}
+
+function isCrtAgentWorking(agent) {
+  if (!agent) return false;
+  if (agent.status === 'pending') return true;
+  if (agent.status !== 'running') return false;
+
+  const activity = agent.terminalStatus && agent.terminalStatus.activity;
+  if (activity === 'busy') return true;
+  if (activity === 'idle' || activity === 'exited') return false;
+  if (agent.terminalStatus && agent.terminalStatus.busy === true) return true;
+  if (
+    agent.providerSessionProvider === 'codex' &&
+    agent.codexRuntimeMode === 'app-server' &&
+    ['working', 'waiting-for-input', 'interrupting'].includes(agent.codexAppServerState || '')
+  ) {
+    return true;
+  }
+  return agent.terminalBusy === true;
+}
+
+function getCrtAgentReadPatch(agent) {
+  if (!agent || agent.unread !== true) return null;
+  const attentionSeq = Number.isFinite(agent.attentionSeq) ? Math.max(0, Number(agent.attentionSeq)) : 0;
+  const readAttentionSeq = Number.isFinite(agent.readAttentionSeq) ? Math.max(0, Number(agent.readAttentionSeq)) : 0;
+  return attentionSeq > readAttentionSeq
+    ? { readAttentionSeq: attentionSeq }
+    : { unread: false };
+}
+
+async function markCrtAgentReadIfNeeded(agent) {
+  const patch = getCrtAgentReadPatch(agent);
+  if (!patch) return;
+
+  try {
+    const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agent.id)}`), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    agent.unread = false;
+    if (typeof patch.readAttentionSeq === 'number') {
+      agent.readAttentionSeq = patch.readAttentionSeq;
+    }
+    renderCrtDashboardIfNeeded();
+  } catch (error) {
+    console.warn('Failed to mark CRT agent as read:', error && (error.message || error));
+  }
+}
+
+function getCrtBrandPaneKey(agentId, currentState) {
+  if (!agentId || !currentState || !Array.isArray(currentState.agents)) return null;
+  const agent = currentState.agents.find((candidate) => candidate.id === agentId);
+  if (!agent) return null;
+  if (agent.id === currentState.mainAgentId || agent.isMain) return 'main';
+
+  const workers = currentState.agents.filter(
+    (candidate) => candidate.id !== currentState.mainAgentId && !candidate.isMain,
+  );
+  const workerIndex = workers.findIndex((candidate) => candidate.id === agentId);
+  if (workerIndex < 0) return null;
+  return workerIndex % 2 === 0 ? 'worker-a' : 'worker-b';
+}
+
+function isCrtBrandAgentLive(agent) {
+  return Boolean(agent && (agent.status === 'running' || agent.status === 'pending'));
+}
+
+function updateCrtBrandState(currentState) {
+  const brand = document.getElementById('crt-brand-lockup');
+  if (!brand || !currentState || !Array.isArray(currentState.agents)) return;
+
+  const paneLive = {
+    main: false,
+    'worker-a': false,
+    'worker-b': false,
+  };
+  currentState.agents.forEach((agent) => {
+    const paneKey = getCrtBrandPaneKey(agent.id, currentState);
+    if (paneKey && isCrtBrandAgentLive(agent)) paneLive[paneKey] = true;
+  });
+
+  Object.entries(paneLive).forEach(([paneKey, live]) => {
+    brand.dataset[`${paneKey.replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase())}Live`] = String(live);
+    const pane = brand.querySelector(`[data-brand-pane="${paneKey}"]`);
+    if (pane) pane.classList.toggle('is-live', live);
+  });
+}
+
+function pulseCrtBrandForAgent(agentId) {
+  const paneKey = getCrtBrandPaneKey(agentId, state);
+  const brand = document.getElementById('crt-brand-lockup');
+  const pane = paneKey && brand && brand.querySelector(`[data-brand-pane="${paneKey}"]`);
+  if (!pane) return;
+
+  const previousTimer = crtBrandPulseTimers.get(paneKey);
+  if (previousTimer) clearTimeout(previousTimer);
+  pane.classList.remove('is-signaling');
+  void pane.getBoundingClientRect();
+  pane.classList.add('is-signaling');
+  crtBrandPulseTimers.set(paneKey, setTimeout(() => {
+    pane.classList.remove('is-signaling');
+    crtBrandPulseTimers.delete(paneKey);
+  }, 600));
 }
 
 function normalizeSessionLink(rawUrl) {
@@ -1228,6 +2026,18 @@ function deriveSessionTextPatch(fullText, previousLength, forceReplace = false) 
   };
 }
 
+function replaceTerminalOutput(terminalInstance, text) {
+  if (!terminalInstance) return;
+  if (typeof terminalInstance.reset === 'function') {
+    terminalInstance.reset();
+  } else if (typeof terminalInstance.clear === 'function') {
+    terminalInstance.clear();
+  }
+  if (text && typeof terminalInstance.write === 'function') {
+    terminalInstance.write(text);
+  }
+}
+
 function normalizeSessionViewPayload(payload, fallbackAgent = null) {
   const session = payload && payload.session ? payload.session : {};
 
@@ -1238,6 +2048,10 @@ function normalizeSessionViewPayload(payload, fallbackAgent = null) {
     status: session.status || (fallbackAgent && fallbackAgent.status) || 'running',
     sessionSource: session.sessionSource || (fallbackAgent && fallbackAgent.sessionSource) || 'buffer',
     output: typeof session.output === 'string' ? session.output : ((fallbackAgent && fallbackAgent.output) || ''),
+    renderOutput: typeof session.renderOutput === 'string' ? session.renderOutput : '',
+    outputSeq: Number.isFinite(session.outputSeq) ? session.outputSeq : null,
+    previewCols: Number.isFinite(session.previewCols) ? session.previewCols : null,
+    previewRows: Number.isFinite(session.previewRows) ? session.previewRows : null,
     previewText: typeof session.previewText === 'string' ? session.previewText : ((fallbackAgent && fallbackAgent.previewText) || ''),
     isMain: typeof session.isMain === 'boolean' ? session.isMain : Boolean(fallbackAgent && fallbackAgent.isMain),
     activityLevel: session.activityLevel || (fallbackAgent && fallbackAgent.activityLevel) || 'cold',
@@ -1260,8 +2074,12 @@ function deriveSessionStreamPatch(stream, currentFocusedAgentId, currentSessionS
 }
 
 function createSessionModalState(agent, themeId, currentThemeSettings) {
+  const title = agent ? getCrtAgentTitle(agent) : 'Agent Session';
   if (SESSION_MODAL_BRIDGE && SESSION_MODAL_BRIDGE.createModalState) {
-    return SESSION_MODAL_BRIDGE.createModalState(agent, themeId, currentThemeSettings);
+    return {
+      ...SESSION_MODAL_BRIDGE.createModalState(agent, themeId, currentThemeSettings),
+      title
+    };
   }
 
   const sessionSource = agent && agent.sessionSource ? agent.sessionSource : 'buffer';
@@ -1269,7 +2087,7 @@ function createSessionModalState(agent, themeId, currentThemeSettings) {
     agentId: agent ? agent.id : null,
     sessionSource,
     sessionSkin: null,
-    title: agent ? `${agent.command} (${agent.id})` : 'Agent Session'
+    title
   };
 }
 
@@ -1348,18 +2166,15 @@ function stripAnsi(str) {
 
 async function loadThemes() {
   try {
-    const response = await fetch('/api/themes');
+    const response = await fetch(farmingApiPath('/themes'));
     const data = await response.json();
     availableThemes = data.themes;
     currentTheme = data.current;
     
-    const settingsResponse = await fetch(`/api/themes/${currentTheme}/settings`);
+    const settingsResponse = await fetch(farmingApiPath(`/themes/${currentTheme}/settings`));
     const settingsData = await settingsResponse.json();
     themeSettings = settingsData.settings || {};
     
-    if (themeSettings.crtEffects !== undefined) {
-      applyCRTEffects(themeSettings.crtEffects);
-    }
   } catch (error) {
     console.error('Failed to load themes:', error);
   }
@@ -1367,12 +2182,15 @@ async function loadThemes() {
 
 async function loadGlobalSettings() {
   try {
-    const response = await fetch('/api/settings');
+    const response = await fetch(farmingApiPath('/settings'));
     const data = await response.json();
     globalSettings = {
       ...globalSettings,
       ...(data.settings || {})
     };
+    applyCRTEffects(globalSettings.crtSkinEffectsEnabled !== false);
+    if (state) renderCrtDashboardIfNeeded();
+    if (agents.length > 0) renderAgentList();
     syncWorkspaceSettings();
     refreshWorkspaceMemoryUI();
   } catch (error) {
@@ -1383,7 +2201,7 @@ async function loadGlobalSettings() {
 async function saveGlobalSettings() {
   try {
     syncWorkspaceSettings();
-    const response = await fetch('/api/settings', {
+    const response = await fetch(farmingApiPath('/settings'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -1406,7 +2224,7 @@ async function saveGlobalSettings() {
 
 async function setTheme(themeId) {
   try {
-    const response = await fetch(`/api/themes/${themeId}/set`, {
+    const response = await fetch(farmingApiPath(`/themes/${themeId}/set`), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -1425,24 +2243,16 @@ async function setTheme(themeId) {
   }
 }
 
-async function saveThemeSettings() {
-  try {
-    const response = await fetch(`/api/themes/${currentTheme}/settings`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(themeSettings)
-    });
-    
-    const data = await response.json();
-    
-    if (data.success) {
-      console.log('Theme settings saved');
-    }
-  } catch (error) {
-    console.error('Failed to save theme settings:', error);
+function getUiThemeOptions() {
+  return [...availableThemes, FARMING_CODE_THEME];
+}
+
+function activateUiTheme(themeId) {
+  if (themeId === FARMING_CODE_THEME.id) {
+    location.assign(RUNTIME_PATHS ? RUNTIME_PATHS.path('/code/') : '/code/');
+    return;
   }
+  setTheme(themeId);
 }
 
 function applyCRTEffects(enabled) {
@@ -1460,10 +2270,18 @@ function renderThemeList() {
   if (!container) return;
   
   container.innerHTML = '';
+  const themeOptions = getUiThemeOptions();
+  const hasCurrentTheme = themeOptions.some((option) => option.id === currentTheme);
   
-  availableThemes.forEach((theme, index) => {
+  themeOptions.forEach((theme, index) => {
     const item = document.createElement('div');
     item.className = 'theme-item';
+    item.tabIndex = -1;
+    item.setAttribute('role', 'button');
+    item.dataset.crtNavKey = `settings:theme:${theme.id}`;
+    if (theme.id === currentTheme || (index === 0 && !hasCurrentTheme)) {
+      item.dataset.crtNavDefault = 'true';
+    }
     item.style.cssText = `
       border: 1px solid ${theme.id === currentTheme ? '#00ff00' : '#444'};
       padding: 10px;
@@ -1473,32 +2291,60 @@ function renderThemeList() {
       position: relative;
     `;
     
-    const keyNum = index < 9 ? index + 1 : 0;
-    
     item.innerHTML = `
-      <div style="position: absolute; top: 5px; right: 5px; background: #00ff00; color: #1a1a1a; padding: 2px 5px; font-size: 10px; font-weight: bold;">[${keyNum}]</div>
       <div style="font-weight: bold; color: #00ff00;">${theme.displayName}</div>
       <div style="font-size: 12px; color: #888; margin-top: 5px;">${theme.description}</div>
     `;
     
-    item.onclick = () => setTheme(theme.id);
+    item.onclick = () => activateUiTheme(theme.id);
     container.appendChild(item);
   });
+  restoreCrtNavigationSelection();
+}
+
+function applyCrtTerminalFontSize(value) {
+  const fontSize = normalizeCrtTerminalFontSize(value);
+  globalSettings.crtTerminalFontSize = fontSize;
+  const input = document.getElementById('crt-terminal-font-size');
+  const output = document.getElementById('crt-terminal-font-size-value');
+  if (input) input.value = String(fontSize);
+  if (output) output.textContent = `${fontSize} px`;
+  if (terminal && terminal.options) terminal.options.fontSize = fontSize;
+  if (terminalInputBridge) terminalInputBridge.style.fontSize = `${fontSize}px`;
+  if (terminal && fitAddon && focusedAgentId && typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => {
+      if (!terminal || !fitAddon || !focusedAgentId) return;
+      fitAddon.fit();
+      syncTerminalInputBridgePosition();
+      sendSessionResize();
+    });
+  }
+  return fontSize;
+}
+
+function scheduleCrtTerminalFontSizeSave() {
+  if (crtTerminalFontSizeSaveTimer) clearTimeout(crtTerminalFontSizeSaveTimer);
+  crtTerminalFontSizeSaveTimer = setTimeout(() => {
+    crtTerminalFontSizeSaveTimer = null;
+    void saveGlobalSettings();
+  }, 150);
 }
 
 function initDisplaySettings() {
   const crtContainer = document.getElementById('crt-effects-container');
   const crtToggle = document.getElementById('crt-effects');
+  const dynamicHeatToggle = document.getElementById('dynamic-heat');
+  const terminalFontSizeInput = document.getElementById('crt-terminal-font-size');
   
   if (crtContainer) {
     if (currentTheme === 'terminal') {
       crtContainer.style.display = 'block';
       if (crtToggle) {
-        crtToggle.checked = themeSettings.crtEffects || false;
-        crtToggle.onchange = () => {
-          themeSettings.crtEffects = crtToggle.checked;
+        crtToggle.checked = globalSettings.crtSkinEffectsEnabled !== false;
+        crtToggle.onchange = async () => {
+          globalSettings.crtSkinEffectsEnabled = crtToggle.checked;
           applyCRTEffects(crtToggle.checked);
-          saveThemeSettings();
+          await saveGlobalSettings();
         };
       }
     } else {
@@ -1506,43 +2352,39 @@ function initDisplaySettings() {
     }
   }
   
-  if (themeSettings.crtEffects !== undefined) {
-    applyCRTEffects(themeSettings.crtEffects);
+  applyCRTEffects(globalSettings.crtSkinEffectsEnabled !== false);
+
+  if (dynamicHeatToggle) {
+    dynamicHeatToggle.checked = globalSettings.crtDynamicHeatEnabled === true;
+    dynamicHeatToggle.onchange = async () => {
+      globalSettings.crtDynamicHeatEnabled = dynamicHeatToggle.checked;
+      renderState();
+      await saveGlobalSettings();
+    };
+  }
+
+  if (terminalFontSizeInput) {
+    applyCrtTerminalFontSize(globalSettings.crtTerminalFontSize);
+    terminalFontSizeInput.oninput = () => {
+      applyCrtTerminalFontSize(terminalFontSizeInput.value);
+      scheduleCrtTerminalFontSizeSave();
+    };
   }
 }
 
 function initSessionEngineSettings() {
-  const engineSelect = document.getElementById('coding-agent-engine');
   const skipPermissionCheckToggle = document.getElementById('skip-permission-check-by-default');
-  const vtBaseUrlInput = document.getElementById('vt-base-url');
-  const vtSettingsContainer = document.getElementById('vt-settings-container');
+  if (!skipPermissionCheckToggle) return;
 
-  if (!engineSelect || !skipPermissionCheckToggle || !vtBaseUrlInput || !vtSettingsContainer) return;
-
-  engineSelect.value = globalSettings.codingAgentEngine || 'local';
   skipPermissionCheckToggle.checked = globalSettings.dangerouslySkipAgentPermissionsByDefault === true;
-  vtBaseUrlInput.value = globalSettings.vtBaseUrl || 'http://localhost:4020';
-  vtSettingsContainer.style.display = engineSelect.value === 'vt' ? 'block' : 'none';
-
-  engineSelect.onchange = async () => {
-    globalSettings.codingAgentEngine = engineSelect.value;
-    vtSettingsContainer.style.display = engineSelect.value === 'vt' ? 'block' : 'none';
-    await saveGlobalSettings();
-  };
-
   skipPermissionCheckToggle.onchange = async () => {
     globalSettings.dangerouslySkipAgentPermissionsByDefault = skipPermissionCheckToggle.checked;
-    await saveGlobalSettings();
-  };
-
-  vtBaseUrlInput.onchange = async () => {
-    globalSettings.vtBaseUrl = vtBaseUrlInput.value.trim() || 'http://localhost:4020';
-    vtBaseUrlInput.value = globalSettings.vtBaseUrl;
     await saveGlobalSettings();
   };
 }
 
 function showSettings() {
+  clearCrtNavigationSelection();
   renderThemeList();
   initDisplaySettings();
   initSessionEngineSettings();
@@ -1551,10 +2393,11 @@ function showSettings() {
 
 function hideSettings() {
   document.getElementById('settings-modal').classList.remove('active');
+  clearCrtNavigationSelection();
 }
 
 function loadAgents() {
-  fetch('/api/executables')
+  fetch(farmingApiPath('/executables'))
     .then(res => res.json())
     .then(data => {
       agents = data.agents || [];
@@ -1573,6 +2416,7 @@ function renderAgentList() {
   }
   
   container.innerHTML = '';
+  const defaultAgentIndex = findDefaultNewAgentIndex(agents, globalSettings.defaultLaunchAgent);
 
   const groups = [
     {
@@ -1601,6 +2445,10 @@ function renderAgentList() {
       const item = document.createElement('div');
       item.className = 'agent-item';
       item.dataset.index = index;
+      item.dataset.crtNavKey = `new-agent:provider:${index}`;
+      if (index === defaultAgentIndex) item.dataset.crtNavDefault = 'true';
+      item.tabIndex = -1;
+      item.setAttribute('role', 'button');
       
       const keyNum = index < 9 ? index + 1 : 0;
       
@@ -1613,6 +2461,349 @@ function renderAgentList() {
       container.appendChild(item);
     });
   });
+  if (!restoreCrtNavigationSelection()) selectDefaultNewAgentNavigation();
+}
+
+function selectDefaultNewAgentNavigation() {
+  const defaultAgentIndex = findDefaultNewAgentIndex(agents, globalSettings.defaultLaunchAgent);
+  if (defaultAgentIndex < 0) return false;
+  const defaultItem = getCrtNavigationItems().find((item) => (
+    item.dataset.crtNavKey === `new-agent:provider:${defaultAgentIndex}`
+  ));
+  return defaultItem ? setCrtNavigationSelection(defaultItem) : false;
+}
+
+function formatCrtHistoryAge(timestamp, now = Date.now()) {
+  if (!timestamp || !Number.isFinite(timestamp)) return '';
+  const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
+  if (seconds < 60) return 'now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 14) return `${days}d`;
+  if (days < 56) return `${Math.floor(days / 7)}w`;
+  const months = Math.floor(days / 30);
+  return months < 12 ? `${months}mo` : `${Math.floor(days / 365)}y`;
+}
+
+function crtHistoryItemTitle(item) {
+  if (item.kind === 'run') {
+    return item.entry.title || item.entry.task || item.entry.command || 'History agent';
+  }
+  if (item.kind === 'agent') return getCrtAgentTitle(item.agent);
+  return item.session.title || `${item.session.providerName || item.session.provider || 'Agent'} session`;
+}
+
+function crtHistoryAgentName(command) {
+  const program = crtCommandProgram(command).toLowerCase();
+  return CRT_AGENT_DISPLAY_NAMES[program] || (program ? `${program.slice(0, 1).toUpperCase()}${program.slice(1)}` : 'Agent');
+}
+
+function crtHistoryItemMeta(item) {
+  if (item.kind === 'run') {
+    return [
+      crtHistoryAgentName(item.entry.command),
+      formatWorkspaceForDisplay(item.entry.projectWorkspace || item.entry.cwd || '')
+    ].filter(Boolean).join(' · ');
+  }
+  if (item.kind === 'agent') {
+    return [
+      crtHistoryAgentName(item.agent.providerSessionProvider || item.agent.command || item.agent.engineName),
+      formatWorkspaceForDisplay(item.agent.projectWorkspace || item.agent.cwd || '')
+    ].filter(Boolean).join(' · ');
+  }
+  const effort = item.session.effort
+    ? `${item.session.effort.slice(0, 1).toUpperCase()}${item.session.effort.slice(1)}`
+    : '';
+  return [
+    item.session.providerName || item.session.provider,
+    item.session.model,
+    effort,
+    formatWorkspaceForDisplay(item.session.workspace || item.session.cwd || '')
+  ].filter(Boolean).join(' · ');
+}
+
+function crtHistoryPrimaryAction(item) {
+  if (item.kind === 'run') return 'Continue';
+  if (item.kind === 'agent') return 'Open';
+  return 'Resume';
+}
+
+function setCrtMainView(view) {
+  crtMainView = view === 'history' ? 'history' : 'agents';
+  const mapArea = document.getElementById('map-area');
+  const historyArea = document.getElementById('history-area');
+  const historySidebarItem = document.getElementById('history-sidebar-item');
+  if (mapArea) mapArea.classList.toggle('hidden', crtMainView === 'history');
+  if (historyArea) historyArea.classList.toggle('hidden', crtMainView !== 'history');
+  if (historySidebarItem) historySidebarItem.classList.toggle('active', crtMainView === 'history');
+}
+
+function getCrtHistoryItems() {
+  return buildCrtHistoryItems({
+    taskHistory: state && Array.isArray(state.taskHistory) ? state.taskHistory : [],
+    agents: state && Array.isArray(state.agents) ? state.agents : [],
+    sessions: historyAgentSessions,
+    mainPageSessionKeys: globalSettings.mainPageSessionKeys
+  });
+}
+
+function createCrtHistoryMessage(className, text) {
+  const message = document.createElement('div');
+  message.className = className;
+  message.textContent = text;
+  return message;
+}
+
+function calculateCrtHistoryPageSize(availableHeight, rowHeight = 68) {
+  const height = Number(availableHeight);
+  const itemHeight = Number(rowHeight);
+  if (!Number.isFinite(height) || !Number.isFinite(itemHeight) || height <= 0 || itemHeight <= 0) return 1;
+  return Math.max(1, Math.floor(height / itemHeight));
+}
+
+function getCrtHistoryPage(items, page, pageSize) {
+  const source = Array.isArray(items) ? items : [];
+  const size = Math.max(1, Math.floor(Number(pageSize) || 1));
+  const totalPages = Math.max(1, Math.ceil(source.length / size));
+  const currentPage = Math.max(0, Math.min(totalPages - 1, Math.floor(Number(page) || 0)));
+  const start = currentPage * size;
+  return {
+    items: source.slice(start, start + size),
+    page: currentPage,
+    pageSize: size,
+    totalItems: source.length,
+    totalPages,
+    start
+  };
+}
+
+function updateCrtHistoryPagination(pageState) {
+  const status = document.getElementById('history-page-status');
+  const previous = document.getElementById('history-page-prev');
+  const next = document.getElementById('history-page-next');
+  if (status) status.textContent = `${pageState.page + 1}/${pageState.totalPages} · ${pageState.totalItems}`;
+  if (previous) previous.disabled = pageState.page <= 0;
+  if (next) next.disabled = pageState.page >= pageState.totalPages - 1;
+}
+
+function renderCrtHistory() {
+  const list = document.getElementById('history-list');
+  if (!list) return;
+  list.innerHTML = '';
+
+  const historyItems = getCrtHistoryItems();
+  historyPageSize = calculateCrtHistoryPageSize(list.clientHeight);
+  const selectedIndex = historyItems.findIndex((item) => (
+    crtNavigationKey === `history:${item.historyKey}`
+    || crtNavigationKey === `history:${item.historyKey}:restore`
+  ));
+  if (selectedIndex >= 0) historyPage = Math.floor(selectedIndex / historyPageSize);
+  const pageState = getCrtHistoryPage(historyItems, historyPage, historyPageSize);
+  historyPage = pageState.page;
+  updateCrtHistoryPagination(pageState);
+  if (historyError) list.appendChild(createCrtHistoryMessage('history-error', historyError));
+  if (historyLoading && historyItems.length === 0) {
+    list.appendChild(createCrtHistoryMessage('history-loading', 'Loading history...'));
+    return;
+  }
+  if (historyItems.length === 0) {
+    list.appendChild(createCrtHistoryMessage('history-empty', 'No history yet.'));
+    return;
+  }
+
+  pageState.items.forEach((item, index) => {
+    const row = document.createElement('div');
+    row.className = `history-row${historyActionPendingKey === item.historyKey ? ' is-pending' : ''}`;
+    row.dataset.crtNavKey = `history:${item.historyKey}`;
+    if (index === 0) row.dataset.crtNavDefault = 'true';
+    row.tabIndex = -1;
+    row.setAttribute('role', 'button');
+
+    const copy = document.createElement('div');
+    copy.className = 'history-copy';
+    const title = document.createElement('div');
+    title.className = 'history-title';
+    title.textContent = crtHistoryItemTitle(item);
+    const meta = document.createElement('div');
+    meta.className = 'history-meta';
+    meta.textContent = crtHistoryItemMeta(item);
+    copy.append(title, meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'history-actions';
+    const age = document.createElement('span');
+    age.className = 'history-age';
+    age.textContent = formatCrtHistoryAge(item.updatedAt);
+    const primary = document.createElement('span');
+    primary.className = 'history-action-label';
+    primary.textContent = crtHistoryPrimaryAction(item);
+    actions.append(age, primary);
+
+    if (item.kind === 'agent') {
+      const restoreButton = document.createElement('button');
+      restoreButton.type = 'button';
+      restoreButton.className = 'history-action';
+      restoreButton.dataset.crtNavKey = `history:${item.historyKey}:restore`;
+      restoreButton.textContent = 'Restore';
+      restoreButton.onclick = (event) => {
+        event.stopPropagation();
+        void restoreCrtArchivedAgent(item.agent.id, false, item.historyKey);
+      };
+      actions.appendChild(restoreButton);
+    }
+
+    row.append(copy, actions);
+    row.onclick = () => void activateCrtHistoryItem(item);
+    list.appendChild(row);
+  });
+
+  if (crtMainView !== 'history') return;
+  if (!restoreCrtNavigationSelection()) {
+    const defaultRow = list.querySelector('[data-crt-nav-default="true"]');
+    if (defaultRow) setCrtNavigationSelection(defaultRow);
+  }
+}
+
+function changeCrtHistoryPage(direction) {
+  const historyItems = getCrtHistoryItems();
+  const current = getCrtHistoryPage(historyItems, historyPage, historyPageSize);
+  const nextPage = Math.max(0, Math.min(current.totalPages - 1, current.page + direction));
+  if (nextPage === current.page) return false;
+  historyPage = nextPage;
+  const next = getCrtHistoryPage(historyItems, historyPage, historyPageSize);
+  const target = direction > 0 ? next.items[0] : next.items[next.items.length - 1];
+  crtNavigationKey = target ? `history:${target.historyKey}` : '';
+  renderCrtHistory();
+  return true;
+}
+
+async function loadCrtHistoryAgentSessions() {
+  historyLoading = true;
+  historyError = '';
+  renderCrtHistory();
+  try {
+    const response = await fetch(farmingApiPath('/agent-sessions?limit=60'));
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(data && data.error ? data.error : `History request failed (${response.status})`);
+    historyAgentSessions = data && Array.isArray(data.sessions) ? data.sessions : [];
+  } catch (error) {
+    historyError = error instanceof Error ? error.message : 'Failed to load history';
+  } finally {
+    historyLoading = false;
+    renderCrtHistory();
+  }
+}
+
+function showHistory() {
+  clearCrtNavigationSelection();
+  historyPage = 0;
+  setCrtMainView('history');
+  renderCrtHistory();
+  void loadCrtHistoryAgentSessions();
+}
+
+function hideHistory() {
+  clearCrtNavigationSelection();
+  setCrtMainView('agents');
+  renderState();
+}
+
+async function resumeCrtHistorySession(resumed, customTitle, historyKey) {
+  if (!resumed || historyActionPendingKey) return;
+  historyActionPendingKey = historyKey;
+  historyError = '';
+  renderCrtHistory();
+  try {
+    const response = await fetch(farmingApiPath(`/agent-sessions/${encodeURIComponent(resumed.provider)}/${encodeURIComponent(resumed.sessionId)}/resume`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        unarchiveArchived: true,
+        providerHomeId: resumed.providerHomeId || 'default',
+        ...(customTitle ? { customTitle } : {})
+      })
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data || !data.agentId) {
+      throw new Error(data && data.error ? data.error : `Failed to resume session (${response.status})`);
+    }
+    pendingHistoryOpenAgentId = data.agentId;
+    historyActionPendingKey = '';
+    hideHistory();
+    openPendingHistoryAgentIfReady();
+  } catch (error) {
+    historyActionPendingKey = '';
+    historyError = error instanceof Error ? error.message : 'Failed to resume session';
+    renderCrtHistory();
+  }
+}
+
+async function restoreCrtArchivedAgent(agentId, openAfterRestore, historyKey) {
+  if (!agentId || historyActionPendingKey) return;
+  historyActionPendingKey = historyKey;
+  historyError = '';
+  renderCrtHistory();
+  try {
+    const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agentId)}`), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archived: false })
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(data && data.error ? data.error : `Failed to restore Agent (${response.status})`);
+    crtNavigationKey = `agent:${agentId}`;
+    if (openAfterRestore) pendingHistoryOpenAgentId = agentId;
+    historyActionPendingKey = '';
+    hideHistory();
+    openPendingHistoryAgentIfReady();
+  } catch (error) {
+    historyActionPendingKey = '';
+    historyError = error instanceof Error ? error.message : 'Failed to restore Agent';
+    renderCrtHistory();
+  }
+}
+
+function continueCrtHistoryRun(entry) {
+  const resumed = crtResumedSessionFromSource(entry.source);
+  if (resumed) {
+    void resumeCrtHistorySession(resumed, entry.customTitle || '', `run:${entry.id}`);
+    return;
+  }
+  hideHistory();
+  showInputDialog({
+    command: entry.command || '',
+    workspace: entry.projectWorkspace || entry.cwd || '',
+    task: entry.task || '',
+    workflowTemplate: entry.workflowTemplate || '',
+    customTitle: entry.customTitle || ''
+  });
+}
+
+function activateCrtHistoryItem(item) {
+  if (!item || historyActionPendingKey) return;
+  if (item.kind === 'run') {
+    continueCrtHistoryRun(item.entry);
+    return;
+  }
+  if (item.kind === 'agent') {
+    void restoreCrtArchivedAgent(item.agent.id, true, item.historyKey);
+    return;
+  }
+  const resumed = crtHistoryItemResumeSession(item);
+  void resumeCrtHistorySession(resumed, '', item.historyKey);
+}
+
+function openPendingHistoryAgentIfReady() {
+  if (!pendingHistoryOpenAgentId || !state) return false;
+  const agent = state.agents.find((candidate) => candidate.id === pendingHistoryOpenAgentId);
+  if (!agent || agent.archived === true) return false;
+  const agentId = pendingHistoryOpenAgentId;
+  pendingHistoryOpenAgentId = '';
+  openSession(agentId);
+  return true;
 }
 
 function getRememberedWorkspace() {
@@ -1795,6 +2986,7 @@ function renderWorkspaceHistoryUI() {
     const item = document.createElement('button');
     item.type = 'button';
     item.className = 'workspace-history-item';
+    item.dataset.crtNavKey = `new-agent:workspace-history:${index}`;
     if (index === workspaceHistorySelection) {
       item.classList.add('active');
     }
@@ -1809,6 +3001,7 @@ function renderWorkspaceHistoryUI() {
     };
     list.appendChild(item);
   });
+  restoreCrtNavigationSelection();
 }
 
 function refreshWorkspaceMemoryUI() {
@@ -1823,6 +3016,7 @@ function seedWorkspaceInput() {
     ? formatWorkspaceForDisplay(getDefaultWorkspaceForDialog(true))
     : '/path/to/workspace';
   workspaceHistorySelection = -1;
+  workspaceHistoryExpanded = getWorkspaceHistory().length > 0;
   refreshWorkspaceMemoryUI();
 }
 
@@ -1903,15 +3097,26 @@ async function confirmStartAgent() {
     type: 'start-agent',
     command: agent.name,
     workspace: workspaceToUse,
-    asMain: asMainAgent
+    asMain: asMainAgent,
+    ...(pendingAgentLaunchPrefill && pendingAgentLaunchPrefill.task
+      ? { task: pendingAgentLaunchPrefill.task }
+      : {}),
+    ...(pendingAgentLaunchPrefill && pendingAgentLaunchPrefill.workflowTemplate
+      ? { workflowTemplate: pendingAgentLaunchPrefill.workflowTemplate }
+      : {}),
+    ...(pendingAgentLaunchPrefill && pendingAgentLaunchPrefill.customTitle
+      ? { customTitle: pendingAgentLaunchPrefill.customTitle }
+      : {})
   }));
 }
 
 function backToAgentList() {
+  clearCrtNavigationSelection();
   selectedAgentIndex = null;
   document.getElementById('agent-list').style.display = 'block';
   document.getElementById('workspace-input-container').style.display = 'none';
   resetWorkspaceHistorySelection();
+  selectDefaultNewAgentNavigation();
 }
 
 function selectAgent(index) {
@@ -1920,6 +3125,7 @@ function selectAgent(index) {
   const agent = agents[index];
 
   console.log('Selected agent:', agent.name);
+  clearCrtNavigationSelection();
   selectedAgentIndex = index;
   
   if (pendingMainAgentLaunch) {
@@ -1940,22 +3146,49 @@ function selectAgent(index) {
 }
 
 function connect() {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+  if (wsReconnectTimer) {
+    clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = null;
+  }
   loadThemes();
   loadGlobalSettings();
+
+  const socket = new WebSocket(farmingWebSocketUrl());
+  ws = socket;
   
-  ws = new WebSocket(`ws://${location.hostname}:${location.port}`);
-  
-  ws.onopen = () => {
+  socket.onopen = () => {
+    if (ws !== socket) return;
     console.log('Connected to server');
+    const activeAgentId = isCrtSessionOpen() ? focusedAgentId : null;
+    getSessionClient()?.focusAgent(activeAgentId, {
+      streamScope: 'focused',
+      previewScope: activeAgentId ? 'none' : 'all',
+    });
+    if (activeAgentId && terminal) {
+      void refreshSessionView(true, activeAgentId, getCurrentSessionToken());
+    }
     loadAgents();
   };
   
-  ws.onmessage = (event) => {
+  socket.onmessage = (event) => {
+    if (ws !== socket) return;
     const data = JSON.parse(event.data);
     if (data.type === 'state') {
       const prevAgentCount = state ? state.agents.length : 0;
       state = data.state;
-      renderState();
+      const activeAgentIds = new Set(state.agents.map((agent) => agent.id));
+      terminalPreviewSnapshots.forEach((_snapshot, agentId) => {
+        if (!activeAgentIds.has(agentId)) terminalPreviewSnapshots.delete(agentId);
+      });
+      state.agents.forEach((agent) => {
+        if (terminalPreviewSnapshots.has(agent.id)) {
+          agent.previewSnapshot = terminalPreviewSnapshots.get(agent.id);
+        }
+      });
+      const dashboardRendered = renderCrtDashboardIfNeeded();
+      if (dashboardRendered && crtMainView === 'history') renderCrtHistory();
       generateKeyMap();
       checkMainAgentStatus();
       
@@ -1963,10 +3196,32 @@ function connect() {
         waitingForAgent = false;
         hideInputDialog();
       }
+      openPendingHistoryAgentIfReady();
       const runtime = getSessionRuntime();
       if (runtime) {
         const sessionState = runtime.handleStateMessage(state);
         focusedAgentId = sessionState.focusedAgentId;
+      }
+    } else if (data.type === 'agent-started') {
+      selectCrtStartedAgent(data.agentId);
+    } else if (data.type === 'session-preview') {
+      const preview = data.preview;
+      if (preview && preview.agentId) {
+        terminalPreviewSnapshots.set(preview.agentId, preview.previewSnapshot || null);
+        const agent = state && state.agents.find((candidate) => candidate.id === preview.agentId);
+        if (agent) {
+          const previousSnapshot = agent.previewSnapshot;
+          const previousText = getAgentDisplayText(agent);
+          const previewChanged = typeof preview.previewText === 'string'
+            && preview.previewText !== agent.previewText;
+          agent.previewText = preview.previewText || agent.previewText;
+          agent.previewCols = preview.cols || agent.previewCols;
+          agent.previewRows = preview.rows || agent.previewRows;
+          agent.previewSnapshot = preview.previewSnapshot || null;
+          if (preview.terminalStatus) agent.terminalStatus = preview.terminalStatus;
+          if (isCrtSessionOpen()) dashboardRenderDeferred = true;
+          else scheduleCrtPreviewCardRender(agent, previousSnapshot, previousText, previewChanged);
+        }
       }
     } else if (data.type === 'session-output') {
       const runtime = getSessionRuntime();
@@ -1995,14 +3250,39 @@ function connect() {
     }
   };
   
-  ws.onclose = () => {
+  socket.onclose = () => {
+    if (ws !== socket) return;
+    ws = null;
     console.log('Disconnected from server');
-    setTimeout(connect, 1000);
+    if (typeof document === 'undefined' || document.visibilityState !== 'hidden') {
+      wsReconnectTimer = setTimeout(() => {
+        wsReconnectTimer = null;
+        connect();
+      }, 1000);
+    }
   };
   
-  ws.onerror = (error) => {
+  socket.onerror = (error) => {
     console.error('WebSocket error:', error);
+    socket.close();
   };
+}
+
+function suspendCrtPageConnection() {
+  document.body.classList.add('page-hidden');
+  if (wsReconnectTimer) {
+    clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = null;
+  }
+  const socket = ws;
+  ws = null;
+  if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
+}
+
+function resumeCrtPageConnection() {
+  if (document.visibilityState === 'hidden') return;
+  document.body.classList.remove('page-hidden');
+  connect();
 }
 
 function checkMainAgentStatus() {
@@ -2017,6 +3297,24 @@ function checkMainAgentStatus() {
   }
 }
 
+function formatSystemClock(timestamp, timeZone) {
+  if (!Number.isFinite(timestamp)) return '--';
+  try {
+    return new Intl.DateTimeFormat('sv-SE', {
+      timeZone: timeZone || undefined,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    }).format(new Date(timestamp));
+  } catch {
+    return new Date(timestamp).toLocaleString(undefined, { hour12: false });
+  }
+}
+
 function updateSystemStats(stats, uptime) {
   if (stats.cpu !== undefined) {
     document.getElementById('cpu-usage').textContent = stats.cpu;
@@ -2024,6 +3322,14 @@ function updateSystemStats(stats, uptime) {
   
   if (stats.memory) {
     document.getElementById('mem-percentage').textContent = stats.memory.percentage;
+  }
+
+  if (stats.ip) {
+    document.getElementById('system-ip').textContent = stats.ip;
+  }
+
+  if (stats.timestamp !== undefined) {
+    document.getElementById('system-time').textContent = formatSystemClock(stats.timestamp, stats.timeZone);
   }
   
   if (uptime !== undefined) {
@@ -2046,12 +3352,14 @@ function updateSystemStats(stats, uptime) {
 
 function renderState() {
   if (!state) return;
+  lastCrtDashboardSignature = crtDashboardStateSignature(state);
   
   // 更新吊顶的 Agent 数量
   const activeAgents = state.agents.filter(a => a.status === 'running').length;
   const totalAgents = state.agents.length;
   document.getElementById('active-agents').textContent = activeAgents;
   document.getElementById('total-agents').textContent = totalAgents;
+  updateCrtBrandState(state);
   
   const mapArea = document.getElementById('map-area');
   const emptyState = document.getElementById('empty-state');
@@ -2077,10 +3385,14 @@ function renderState() {
     const mainAgent = state.agents.find(a => a.id === state.mainAgentId);
     if (mainAgent) {
       mainAgentPanel.style.display = 'block';
+      mainAgentBlock.dataset.crtNavKey = `agent:${mainAgent.id}`;
+      mainAgentBlock.dataset.agentId = mainAgent.id;
+      mainAgentBlock.tabIndex = -1;
+      mainAgentBlock.setAttribute('role', 'button');
       
       const header = document.createElement('div');
       header.className = 'agent-header';
-      header.textContent = mainAgent.command.split(' ')[0];
+      header.textContent = getCrtAgentTitle(mainAgent);
       mainAgentBlock.appendChild(header);
       
       const status = document.createElement('div');
@@ -2092,7 +3404,12 @@ function renderState() {
       output.className = 'agent-output';
       output.style.height = '80px';
       const cleanOutput = getAgentDisplayText(mainAgent);
-      output.textContent = cleanOutput.slice(-150) || 'No output yet...';
+      const outputTail = document.createElement('div');
+      outputTail.className = 'agent-output-tail';
+      if (!renderCrtTerminalSnapshot(outputTail, mainAgent.previewSnapshot)) {
+        outputTail.textContent = cleanOutput.slice(-150) || 'No output yet...';
+      }
+      output.appendChild(outputTail);
       mainAgentBlock.appendChild(output);
       
       mainAgentBlock.onclick = () => openSession(mainAgent.id);
@@ -2109,8 +3426,13 @@ function renderState() {
     if (agent.id === state.mainAgentId) return; // 跳过 Main Agent
     
     const block = document.createElement('div');
-    block.className = `agent-block ${agent.activityLevel} ${agent.status}`;
+    const activityClass = globalSettings.crtDynamicHeatEnabled === true ? agent.activityLevel : '';
+    block.className = `agent-block ${activityClass} ${agent.status} ${isCrtAgentWorking(agent) ? 'working' : ''} ${agent.unread === true ? 'unread' : ''}`;
     block.dataset.agentId = agent.id;
+    block.dataset.crtNavKey = `agent:${agent.id}`;
+    if (keyIndex === 1) block.dataset.crtNavDefault = 'true';
+    block.tabIndex = -1;
+    block.setAttribute('role', 'button');
     
     const keyHint = document.createElement('div');
     keyHint.className = 'key-hint';
@@ -2119,18 +3441,26 @@ function renderState() {
     
     const header = document.createElement('div');
     header.className = 'agent-header';
-    header.textContent = agent.command.split(' ')[0];
+    header.textContent = getCrtAgentTitle(agent);
+    header.title = getCrtAgentTitle(agent);
     block.appendChild(header);
     
     const status = document.createElement('div');
     status.className = 'agent-status';
-    status.textContent = `${agent.status} | ${agent.activityLevel} | ${agent.cwd}`;
+    const projectName = getCrtProjectName(agent);
+    status.textContent = [agent.status, agent.activityLevel, projectName].filter(Boolean).join(' | ');
+    status.title = agent.projectWorkspace || agent.cwd || '';
     block.appendChild(status);
     
     const output = document.createElement('div');
     output.className = 'agent-output';
     const cleanOutput = getAgentDisplayText(agent);
-    output.textContent = cleanOutput.slice(-200) || 'No output yet...';
+    const outputTail = document.createElement('div');
+    outputTail.className = 'agent-output-tail';
+    if (!renderCrtTerminalSnapshot(outputTail, agent.previewSnapshot)) {
+      outputTail.textContent = cleanOutput || 'No output yet...';
+    }
+    output.appendChild(outputTail);
     block.appendChild(output);
     
     block.onclick = () => openSession(agent.id);
@@ -2138,6 +3468,7 @@ function renderState() {
     mapArea.appendChild(block);
     keyIndex++;
   });
+  restoreCrtNavigationSelection();
 }
 
 function generateKeyMap() {
@@ -2152,11 +3483,13 @@ function generateKeyMap() {
   });
 }
 
-function showInputDialog() {
+function showInputDialog(prefill = null) {
+  clearCrtNavigationSelection();
   const title = document.getElementById('dialog-title');
   const cancelButtonContainer = document.getElementById('cancel-button-container');
   const needMainAgent = needsMainAgent();
   pendingMainAgentLaunch = needMainAgent;
+  pendingAgentLaunchPrefill = prefill && typeof prefill === 'object' ? prefill : null;
   
   if (needMainAgent) {
     title.textContent = 'Start Main Agent';
@@ -2173,6 +3506,19 @@ function showInputDialog() {
   document.getElementById('input-dialog').classList.add('active');
   resetWorkspaceHistorySelection();
   refreshWorkspaceMemoryUI();
+  if (pendingAgentLaunchPrefill && !needMainAgent) {
+    const requestedProgram = crtCommandProgram(pendingAgentLaunchPrefill.command || '');
+    const requestedAgentIndex = agents.findIndex((agent) => crtCommandProgram(agent.name || '') === requestedProgram);
+    if (requestedAgentIndex >= 0) {
+      selectAgent(requestedAgentIndex);
+      const workspaceInput = document.getElementById('workspace-input');
+      workspaceInput.value = normalizeWorkspaceValue(pendingAgentLaunchPrefill.workspace);
+      workspaceInput.placeholder = workspaceInput.value || '/path/to/workspace';
+      workspaceInput.setSelectionRange(workspaceInput.value.length, workspaceInput.value.length);
+      return;
+    }
+  }
+  selectDefaultNewAgentNavigation();
 }
 
 function hideInputDialog() {
@@ -2183,13 +3529,24 @@ function hideInputDialog() {
   }
   
   selectedAgentIndex = null;
+  clearCrtNavigationSelection();
   pendingMainAgentLaunch = false;
+  pendingAgentLaunchPrefill = null;
   waitingForAgent = false;
   document.getElementById('agent-list').style.display = 'block';
   document.getElementById('workspace-input-container').style.display = 'none';
   document.getElementById('input-dialog').classList.remove('active');
-  document.getElementById('map-area').classList.remove('hidden');
+  document.getElementById('map-area').classList.toggle('hidden', crtMainView === 'history');
   resetWorkspaceHistorySelection();
+}
+
+function selectCrtStartedAgent(agentId) {
+  const normalizedAgentId = String(agentId || '').trim();
+  if (!normalizedAgentId) return false;
+  waitingForAgent = false;
+  hideInputDialog();
+  crtNavigationKey = `agent:${normalizedAgentId}`;
+  return restoreCrtNavigationSelection();
 }
 
 function teardownSessionSurface() {
@@ -2213,13 +3570,17 @@ async function openSession(agentId) {
   
   const agent = state.agents.find(a => a.id === agentId);
   if (!agent) return;
+  void markCrtAgentReadIfNeeded(agent);
 
   const sessionModal = document.getElementById('session-modal');
   if (sessionModal && sessionModal.classList.contains('active')) {
     closeSession();
   }
 
-  const modalState = createSessionModalState(agent, currentTheme, themeSettings);
+  const modalState = createSessionModalState(agent, currentTheme, {
+    ...themeSettings,
+    crtEffects: globalSettings.crtSkinEffectsEnabled !== false
+  });
   const runtime = getSessionRuntime();
   focusedAgentId = modalState.agentId;
   currentSessionTitle = modalState.title;
@@ -2242,7 +3603,10 @@ async function openSession(agentId) {
   
   const sessionClient = getSessionClient();
   if (sessionClient) {
-    sessionClient.focusAgent(agentId);
+    sessionClient.focusAgent(agentId, {
+      streamScope: 'focused',
+      previewScope: 'none',
+    });
   }
   
   currentSessionSkin = modalState.sessionSkin;
@@ -2270,7 +3634,9 @@ async function openSession(agentId) {
   disposeTerminal();
   const mountedTerminal = SESSION_MODAL_BRIDGE && SESSION_MODAL_BRIDGE.mountTerminal
     ? SESSION_MODAL_BRIDGE.mountTerminal(document, terminalBundle, {
-        initialOutput: runtime ? runtime.prepareInitialOutput(agent.output) : agent.output,
+        initialOutput: shouldUseLiveSessionText(agent)
+          ? (runtime ? runtime.prepareInitialOutput(agent.output) : agent.output)
+          : '',
         onData: (data) => {
           if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) return;
           sendTerminalInput(data);
@@ -2397,6 +3763,11 @@ function closeSession() {
   }
   currentSessionSkin = null;
   focusedAgentId = null;
+  getSessionClient()?.focusAgent(null, {
+    streamScope: 'focused',
+    previewScope: 'all',
+    refreshState: true,
+  });
   teardownSessionSurface();
   resetSessionUiState();
   updateSessionTitleDisplay('Agent Session');
@@ -2405,6 +3776,11 @@ function closeSession() {
   const focusRegion = document.getElementById('focus-region');
   if (focusRegion) {
     focusRegion.style.display = 'none';
+  }
+  if (dashboardRenderDeferred) {
+    renderCrtDashboardIfNeeded(true);
+    if (crtMainView === 'history') renderCrtHistory();
+    generateKeyMap();
   }
 }
 
@@ -2443,7 +3819,21 @@ async function refreshSessionView(forceReplace = false, expectedAgentId = focuse
   try {
     const sessionClient = getSessionClient();
     if (!sessionClient) return;
-    const payload = await sessionClient.getSessionView(expectedAgentId);
+    let payload = null;
+    const retryDelays = forceReplace ? [0, 60, 140] : [0];
+    for (const delay of retryDelays) {
+      if (delay > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+      payload = await sessionClient.getSessionView(expectedAgentId);
+      const candidate = normalizeSessionViewPayload(payload);
+      const dimensionsMatch = !Number.isFinite(candidate.previewCols)
+        || !Number.isFinite(candidate.previewRows)
+        || (candidate.previewCols === terminal.cols && candidate.previewRows === terminal.rows);
+      if (dimensionsMatch) {
+        break;
+      }
+    }
     if (runtime && !runtime.isCurrentSession(expectedAgentId, expectedSessionToken)) {
       return;
     }
@@ -2451,11 +3841,11 @@ async function refreshSessionView(forceReplace = false, expectedAgentId = focuse
       ? state.agents.find((agent) => agent.id === expectedAgentId)
       : null;
     const sessionView = normalizeSessionViewPayload(payload, currentAgent);
-    const patch = deriveSessionTextPatch(sessionView.output, getSessionOutputLength(), forceReplace);
+    const sessionText = sessionView.renderOutput || sessionView.output;
+    const patch = deriveSessionTextPatch(sessionText, getSessionOutputLength(), forceReplace);
 
     if (patch.mode === 'replace') {
-      terminal.clear();
-      terminal.write(patch.text);
+      replaceTerminalOutput(terminal, patch.text);
       refreshSessionTerminalUi({ preserveSearchIndex: true });
       if (runtime) {
         runtime.markHydrated(patch.nextLength);
@@ -2511,9 +3901,11 @@ function stopSessionViewPolling() {
 
 if (typeof document !== 'undefined') {
   window.addEventListener('resize', () => {
+    if (crtMainView === 'history') renderCrtHistory();
     if (!terminal || !fitAddon || !focusedAgentId) return;
 
     fitAddon.fit();
+    syncTerminalInputBridgePosition();
     sendSessionResize();
   });
 
@@ -2523,19 +3915,79 @@ if (typeof document !== 'undefined') {
     const settingsActive = document.getElementById('settings-modal').classList.contains('active');
     const workspaceInputVisible = document.getElementById('workspace-input-container').style.display !== 'none';
     const workspaceInputFocused = document.activeElement === document.getElementById('workspace-input');
+    const terminalFontSizeInputFocused = settingsActive
+      && document.activeElement === document.getElementById('crt-terminal-font-size');
+    const navigationArrow = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key);
+
+    if (terminalFontSizeInputFocused && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return;
+
+    if (
+      crtMainView === 'history'
+      && !sessionActive
+      && !workspaceInputFocused
+      && !e.ctrlKey
+      && !e.metaKey
+      && !e.altKey
+      && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
+    ) {
+      changeCrtHistoryPage(e.key === 'ArrowRight' ? 1 : -1);
+      e.preventDefault();
+      return;
+    }
+
+    if (
+      !sessionActive
+      && !workspaceInputFocused
+      && !e.ctrlKey
+      && !e.metaKey
+      && !e.altKey
+      && navigationArrow
+      && moveCrtNavigationSelection(e.key)
+    ) {
+      e.preventDefault();
+      return;
+    }
+
+    if (
+      crtMainView === 'history'
+      && !sessionActive
+      && !workspaceInputFocused
+      && !e.ctrlKey
+      && !e.metaKey
+      && !e.altKey
+      && (e.key === 'ArrowUp' || e.key === 'ArrowDown')
+      && changeCrtHistoryPage(e.key === 'ArrowDown' ? 1 : -1)
+    ) {
+      e.preventDefault();
+      return;
+    }
+
+    if (
+      !sessionActive
+      && !workspaceInputFocused
+      && !e.ctrlKey
+      && !e.metaKey
+      && !e.altKey
+      && e.key === 'Enter'
+      && activateCrtNavigationSelection()
+    ) {
+      e.preventDefault();
+      return;
+    }
     
     if (settingsActive) {
+      const themeOptions = getUiThemeOptions();
       const num = parseInt(e.key);
       if (num >= 1 && num <= 9) {
         const index = num - 1;
-        if (index < availableThemes.length) {
-          setTheme(availableThemes[index].id);
+        if (index < themeOptions.length) {
+          activateUiTheme(themeOptions[index].id);
           e.preventDefault();
           return;
         }
       }
-      if (e.key === '0' && availableThemes.length >= 10) {
-        setTheme(availableThemes[9].id);
+      if (e.key === '0' && themeOptions.length >= 10) {
+        activateUiTheme(themeOptions[9].id);
         e.preventDefault();
         return;
       }
@@ -2604,9 +4056,17 @@ if (typeof document !== 'undefined') {
         e.preventDefault();
       }
     }
+
+    if (e.key === 'h' || e.key === 'H') {
+      if (!dialogActive && !sessionActive && !settingsActive) {
+        showHistory();
+        e.preventDefault();
+        return;
+      }
+    }
     
     if (e.key === '0') {
-      if (!dialogActive && !sessionActive && state && state.mainAgentId) {
+      if (!dialogActive && !sessionActive && crtMainView === 'agents' && state && state.mainAgentId) {
         openSession(state.mainAgentId);
         e.preventDefault();
       }
@@ -2643,7 +4103,9 @@ if (typeof document !== 'undefined') {
         return;
       }
       if (e.isComposing || terminalInputComposing) {
-        e.preventDefault();
+        if (SESSION_INPUT_SETTINGS.imeEnabled) {
+          e.preventDefault();
+        }
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'Escape') {
@@ -2654,6 +4116,9 @@ if (typeof document !== 'undefined') {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
         killCurrentAgent();
         e.preventDefault();
+        return;
+      }
+      if (!SESSION_INPUT_SETTINGS.imeEnabled) {
         return;
       }
       if (
@@ -2681,8 +4146,20 @@ if (typeof document !== 'undefined') {
       }
       return;
     }
+
+    if (e.key === 'Escape' && crtMainView === 'history') {
+      hideHistory();
+      e.preventDefault();
+      return;
+    }
+
+    if (e.key === 'Escape' && crtNavigationKey) {
+      clearCrtNavigationSelection();
+      e.preventDefault();
+      return;
+    }
     
-    if (keyMap[e.key] && !sessionActive && !dialogActive) {
+    if (keyMap[e.key] && !sessionActive && !dialogActive && crtMainView === 'agents') {
       openSession(keyMap[e.key]);
       e.preventDefault();
     }
@@ -2727,6 +4204,15 @@ if (typeof document !== 'undefined') {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
+    buildCrtHistoryItems,
+    calculateCrtHistoryPageSize,
+    crtHistoryAgentName,
+    normalizeCrtTerminalFontSize,
+    crtAgentSessionKey,
+    crtResumedSessionFromSource,
+    crtDashboardStateSignature,
+    findDefaultNewAgentIndex,
+    findDirectionalNavigationIndex,
     isBrowserShortcut,
     isCopyShortcut,
     isPasteShortcut,
@@ -2734,9 +4220,21 @@ if (typeof module !== 'undefined' && module.exports) {
     shouldUseLiveSessionText,
     shouldPollSessionView,
     deriveSessionTextPatch,
+    replaceTerminalOutput,
     normalizeSessionViewPayload,
     deriveSessionStreamPatch,
+    formatSystemClock,
+    formatCrtHistoryAge,
+    getCrtHistoryPage,
     getAgentDisplayText,
+    getCrtPreviewCellStyle,
+    getCrtAgentTitle,
+    getCrtProjectName,
+    calculateTerminalInputBridgePosition,
+    getCrtTerminalFontSize,
+    isCrtAgentWorking,
+    getCrtAgentReadPatch,
+    getCrtBrandPaneKey,
     extractSessionLinks,
     formatSelectionStatus,
     deriveSessionSearchMatchesFromLines,
@@ -2751,5 +4249,11 @@ if (typeof module !== 'undefined' && module.exports) {
   };
 } else {
   setupWorkspaceHistoryControls();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') suspendCrtPageConnection();
+    else resumeCrtPageConnection();
+  });
+  window.addEventListener('pagehide', suspendCrtPageConnection);
+  window.addEventListener('pageshow', resumeCrtPageConnection);
   connect();
 }

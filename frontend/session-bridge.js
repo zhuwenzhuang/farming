@@ -13,10 +13,13 @@
     }
 
     return {
-      focusAgent(agentId) {
+      focusAgent(agentId, options = {}) {
         return send({
           type: 'focus-agent',
           agentId,
+          ...(options.streamScope ? { streamScope: options.streamScope } : {}),
+          ...(options.previewScope ? { previewScope: options.previewScope } : {}),
+          ...(options.refreshState === true ? { refreshState: true } : {}),
         });
       },
 
@@ -45,7 +48,10 @@
       },
 
       async getSessionView(agentId) {
-        const response = await fetchImpl(`/api/agents/${agentId}/session-view`);
+        const path = global.FarmingRuntimePaths
+          ? global.FarmingRuntimePaths.apiPath(`/agents/${agentId}/session-view`)
+          : `/api/agents/${agentId}/session-view`;
+        const response = await fetchImpl(path);
         if (!response.ok) {
           throw new Error(`Failed to load session view: ${response.status}`);
         }

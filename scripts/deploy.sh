@@ -41,13 +41,6 @@ REMOTE="$(resolve_remote)"
 REMOTE_DIR="${FARMING_REMOTE_DIR:-farming}"
 REMOTE_PORT="${FARMING_REMOTE_PORT:-6694}"
 REMOTE_BASE_PATH="${FARMING_REMOTE_BASE_PATH:-/farming}"
-REMOTE_USE_GLIBC="${FARMING_REMOTE_USE_GLIBC:-auto}"
-
-# glibc 2.28 for CentOS 7 (node-pty prebuilt needs GLIBC_2.28)
-REMOTE_DIR_PARENT="$(dirname "${REMOTE_DIR}")"
-GLIBC_ROOT="${FARMING_REMOTE_GLIBC_ROOT:-${FARMING_GLIBC_ROOT:-${REMOTE_DIR_PARENT}/glibc228}}"
-GLIBC_DIR="${GLIBC_ROOT}/lib"
-GLIBC_SOURCE_REPO="https://github.com/liuliping0315/glibc2.28_for_CentOS7.git"
 
 PID_FILE="${REMOTE_DIR}/.farming.pid"
 LOG_FILE="${REMOTE_DIR}/farming.log"
@@ -68,39 +61,6 @@ ensure_remote_dir() {
 ensure_remote_prerequisites() {
   log "Checking remote prerequisites ..."
   remote "command -v node >/dev/null && command -v npm >/dev/null && command -v git >/dev/null"
-}
-
-use_glibc() {
-  if [[ "${REMOTE_USE_GLIBC}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
-    return 0
-  fi
-  if [[ ! "${REMOTE_USE_GLIBC}" =~ ^(auto|AUTO)$ ]]; then
-    return 1
-  fi
-
-  remote "version=\$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{print \$2}'); \
-    if [ -z \"\$version\" ]; then exit 1; fi; \
-    newest=\$(printf '%s\n' '2.28' \"\$version\" | sort -V | tail -1); \
-    [ \"\$newest\" != \"\$version\" ]"
-}
-
-ensure_glibc() {
-  if ! use_glibc; then
-    log "Skipping glibc 2.28 runtime setup."
-    return 0
-  fi
-
-  log "Ensuring glibc 2.28 runtime is available ..."
-  remote "if [ ! -x '${GLIBC_DIR}/ld-2.28.so' ]; then \
-    set -euo pipefail; \
-    tmp_dir=\$(mktemp -d /tmp/farming-glibc.XXXXXX); \
-    trap 'rm -rf \"\$tmp_dir\"' EXIT; \
-    git clone --depth 1 '${GLIBC_SOURCE_REPO}' \"\$tmp_dir/repo\" >/dev/null 2>&1; \
-    tar -xf \"\$tmp_dir/repo/lib.tgz\" -C \"\$tmp_dir/repo\"; \
-    mkdir -p '${GLIBC_ROOT}'; \
-    rm -rf '${GLIBC_DIR}'; \
-    cp -R \"\$tmp_dir/repo/lib\" '${GLIBC_ROOT}/'; \
-  fi"
 }
 
 configured_token() {
@@ -226,7 +186,6 @@ process.stdout.write(JSON.stringify({
   dirty,
   deployedAt: new Date().toISOString(),
   bundledNodeModules: false,
-  bundledGlibc: false,
 }, null, 2));
 process.stdout.write('\n');
 NODE
@@ -503,7 +462,6 @@ NODE"; then
 cmd_deploy() {
   ensure_remote_dir
   ensure_remote_prerequisites
-  ensure_glibc
 
   log "Syncing code to ${REMOTE}:${REMOTE_DIR} ..."
   rsync -azP --delete \
@@ -595,7 +553,6 @@ cmd_start() {
   done
 
   ensure_remote_dir
-  ensure_glibc
 
   local configured_token
   configured_token="$(configured_token)"
@@ -646,15 +603,7 @@ cmd_start() {
 
   # Write launcher script on remote (login shell to inherit user PATH)
   local exec_line
-  if use_glibc; then
-    exec_line="exec ${GLIBC_DIR}/ld-2.28.so --library-path ${GLIBC_DIR} ${remote_node} backend/server.js"
-    node_runtime_lines="'export FARMING_NODE_LD=${GLIBC_DIR}/ld-2.28.so' \
-    'export FARMING_NODE_LIBRARY_PATH=${GLIBC_DIR}'"
-  else
-    exec_line="exec ${remote_node} backend/server.js"
-    node_runtime_lines="'unset FARMING_NODE_LD' \
-    'unset FARMING_NODE_LIBRARY_PATH'"
-  fi
+  exec_line="exec ${remote_node} backend/server.js"
 
   remote "printf '%s\n' \
     '#!/usr/bin/env bash' \
@@ -663,7 +612,6 @@ cmd_start() {
     'export PORT=${REMOTE_PORT}' \
     'export FARMING_BASE_PATH=${REMOTE_BASE_PATH}' \
     'export FARMING_NODE_BIN=${remote_node}' \
-    ${node_runtime_lines} \
     'if [ \"\${FARMING_NODE_MAX_OLD_SPACE_SIZE:-auto}\" = \"auto\" ] || [ -z \"\${FARMING_NODE_MAX_OLD_SPACE_SIZE:-}\" ]; then' \
     '  export FARMING_NODE_MAX_OLD_SPACE_SIZE=\"\$(./scripts/compute-node-heap-mb.sh)\"' \
     'fi' \
@@ -764,7 +712,6 @@ Environment:
   FARMING_REMOTE_DIR=/path/to/farming
   FARMING_REMOTE_PORT=6694
   FARMING_REMOTE_BASE_PATH=/farming
-  FARMING_REMOTE_USE_GLIBC=1       # optional for CentOS 7 source deployments
   FARMING_REMOTE_FORCE_RESTART=1   # bypass active-agent restart guard
 EOF
 }

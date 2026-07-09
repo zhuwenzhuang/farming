@@ -10,8 +10,15 @@ import type {
 } from 'react'
 import type { Agent, AgentContextWindowUsage, SystemStats, TaskHistoryEntry, UsageSummary } from '@/types/agent'
 import type { TerminalInputPart } from '@/types/messages'
+import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { agentTitle } from '@/lib/format'
+import {
+  GLOBAL_WORKSPACE_FILES_AGENT_ID,
+  GLOBAL_WORKSPACE_FILES_ROOT,
+  isGlobalWorkspaceFilesAgentId,
+  normalizeGlobalWorkspaceFilePath,
+} from '@/lib/global-workspace-files'
 import {
   shouldRevealSelectedWorkspaceOpenFile,
   workspaceOpenFileRequestForTarget,
@@ -25,11 +32,16 @@ import {
   type WorkspaceNavigationEntry,
 } from '@/lib/workspace-navigation-history'
 import {
+  clearWorkspaceShareTargetSearch,
+  resolveWorkspaceSharePath,
+  workspaceShareAbsolutePath,
+  workspaceShareProjectLabel,
   workspaceFileOpenTargetFromShareTarget,
+  workspaceFolderPreviewFilePath,
   workspaceShareTargetFromSearch,
   type WorkspaceShareTarget,
 } from '@/lib/workspace-share-target'
-import { isMobileTouchViewport } from '@/lib/responsive-mode'
+import { isIOSLikeTouchViewport, isMobileTouchViewport } from '@/lib/responsive-mode'
 import { buildWorkspaceHistory } from '@/lib/workspace-options'
 import {
   fetchWorkspaceFile,
@@ -43,8 +55,10 @@ import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import { isOverlayShortcutTarget, isTerminalShortcutTarget, isTextEditingShortcutTarget } from '@/hooks/useKeyboard'
 import { usePageVisibility } from '@/hooks/usePageVisibility'
 import { CodeMainArea } from './code/CodeMainArea'
+import { MobileShareSheet } from './code/MobileShareSheet'
 import { CodeOverlays } from './code/CodeOverlays'
 import { CodeSidebar } from './code/CodeSidebar'
+import { AgentHomesSettingsPanel } from './code/AgentHomesSettingsPanel'
 import {
   capabilitiesForAgent,
   agentKindForCommand,
@@ -76,17 +90,27 @@ import { terminalInputPartsForComposerMessage } from './code/composer-submit'
 import {
   addComposerHistoryEntry,
   canUseComposerHistoryNavigation,
-  createDefaultComposerHistoryState,
   navigateComposerHistory,
   type ComposerHistoryDirection,
   type ComposerHistoryNavigationInput,
-  type ComposerHistoryState,
 } from './code/composer-history'
+import {
+  closeComposerMenusForState,
+  composerStateAliasKeysForAgent,
+  composerStateKeyForAgent,
+  createPendingFollowUpMessage,
+  DEFAULT_AGENT_COMPOSER_STATE,
+  removePendingFollowUpMessage,
+  type AgentComposerPendingFollowUpMessage,
+  type AgentComposerState,
+} from './code/composer-state'
 import { codeCopyForLanguage } from './code/copy'
 import { scheduleFocusRetries } from './code/focus-retry'
 import {
   DEFAULT_CLAUDE_SETTINGS,
   buildComposerControlState,
+  effectiveClaudePermissionModeForSession,
+  effectiveCodexApprovalModeForSession,
   isClaudePermissionMode,
   isCodexApprovalMode,
   normalizeClaudeEffort,
@@ -100,9 +124,8 @@ import type {
   ClaudePermissionMode,
   CodexApprovalMode,
   CodexModelOption,
-  CodeModelPickerPane,
-  CodexModelPreset,
   ComposerMode,
+  CodexModelPreset,
   GlobalSettings,
   LegacyCodexModelOption,
   MainPaneMode,
@@ -132,7 +155,6 @@ import {
   displayedProjectsForSearch,
   projectListProjectsForAgents,
   projectWorkspaceForHistoryRun,
-  shouldMarkAgentUnreadForTurnTransition,
   visibleSearchTargetsForProjects,
 } from './code/workspace-derived'
 import {
@@ -149,6 +171,12 @@ import {
 import { useWorkspaceOpenFiles } from './code/useWorkspaceOpenFiles'
 import { useWorkspaceNavigationHistory } from './code/useWorkspaceNavigationHistory'
 import {
+  loadCodeWorkspaceViewState,
+  saveCodeWorkspaceViewState,
+  type CodeWorkspaceSurface,
+} from './code/workspace-view-state'
+import { useAgentComposerState } from './code/useAgentComposerState'
+import {
   terminalTargetFilePath,
 } from './code/workspace-file-view'
 import {
@@ -156,6 +184,7 @@ import {
   limitProjectAgentSessions,
   loadSessionDisplayState,
   normalizeMainPageSessionKeys,
+  resumedAgentSessionFromSource,
   resumedAgentSessionIdFromSource,
   resumedAgentSource,
   saveSessionDisplayState,
@@ -228,6 +257,10 @@ export interface DeleteForkWorktreeProjectResult {
 
 export interface AgentFlagUpdateResult {
   removedMainPageSessionKeys?: string[]
+  restarted?: boolean
+  restartedAgentId?: string
+  launchPermissionMode?: string
+  agentRuntimeMode?: string
   error?: string
 }
 
@@ -243,24 +276,29 @@ interface CodeWorkspaceProps {
   usageSummary: UsageSummary | null
   contextWindowByAgentId: Record<string, AgentContextWindowUsage>
   activeTerminalId: string | null
+  permissionSwitchingAgentId: string | null
+  permissionSwitchReplacement: { originalAgentId: string; replacementAgentId: string } | null
   openTerminalIds: string[]
   terminalFocusRequest: { agentId: string; nonce: number } | null
   keyMap: Map<string, string>
   keyboardShortcutsEnabled: boolean
   uiPreferences: UiPreferences
   onOpenTerminal: (agentId: string, options?: { focusTerminal?: boolean }) => void
-  onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
-  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string }) => void
+  onOpenTerminalWhenReady: (agentId: string, options?: { focusTerminal?: boolean }) => void
+  onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null, customTitle?: string) => void
+  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string }) => void
   onRenameAgent: (agentId: string, title: string) => void
-  onUpdateAgentFlags: (agentId: string, flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived'>>) => AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>
+  onUpdateAgentFlags: (agentId: string, flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived' | 'launchPermissionMode' | 'readAttentionSeq'>> & { agentRuntimeMode?: 'terminal' | 'json' }) => AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>
   onOpenArchivedAgent: (agentId: string) => void
   onForkAgent: (agentId: string, mode: 'same-worktree' | 'new-worktree') => void
   onDeleteForkWorktreeProject: (workspace: string, options?: { force?: boolean }) => Promise<DeleteForkWorktreeProjectResult>
-  onRestartMainAgent: (command: 'bash' | 'zsh' | 'codex' | 'claude') => void
+  onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => void
   onWorkspaceViewChange: (view: WorkspaceView) => void
   onKill: (agentId: string) => void
   onInterruptAgent: (agentId: string) => void
   sendInput: (input: string | TerminalInputPart[], agentId?: string) => boolean
+  sendComposerInput: (message: string, agentId?: string) => boolean
+  respondToAppServerRequest: (agentId: string, requestId: string, result?: unknown, options?: { reject?: boolean; reason?: string }) => boolean
   resizeAgent: (agentId: string, cols: number, rows: number) => boolean
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null) => void) => () => void
   onUpdateUiPreferences: (patch: Partial<UiPreferences>) => void
@@ -271,44 +309,30 @@ interface TerminalFollowState {
   hasUnreadOutput: boolean
 }
 
-interface AgentComposerPendingFollowUpMessage {
-  id: string
-  text: string
-  createdAt: number
-}
-
-interface AgentComposerPendingFollowUp {
-  messages: AgentComposerPendingFollowUpMessage[]
-  createdAt: number
-}
-
-interface AgentComposerUiState {
-  plusMenuOpen: boolean
-  approvalMenuOpen: boolean
-  modelMenuOpen: boolean
-  modelPickerPane: CodeModelPickerPane
-}
-
-interface AgentComposerState {
-  draft: string
-  attachments: ComposerAttachment[]
-  mode: ComposerMode
-  history: ComposerHistoryState
-  pendingFollowUp?: AgentComposerPendingFollowUp
-  ui: AgentComposerUiState
-}
-
 const DEFAULT_SIDEBAR_WIDTH = 296
 const MIN_SIDEBAR_WIDTH = 220
 const MAX_SIDEBAR_WIDTH = 520
-const COLLAPSED_SIDEBAR_WIDTH = 64
+const COLLAPSED_SIDEBAR_WIDTH = 52
 const SIDEBAR_DRAG_COLLAPSE_WIDTH = 172
 const DESKTOP_AUTO_COLLAPSE_WIDTH = 900
-const OPTIONS_MENU_ESTIMATED_WIDTH = 168
-const OPTIONS_MENU_ESTIMATED_HEIGHT = 168
 const TERMINAL_PATH_SEARCH_LIMIT = 12
 const MOBILE_PROJECT_CONTEXT_MENU_WIDTH = 214
 const MOBILE_PROJECT_CONTEXT_MENU_HEIGHT = 86
+
+
+function shouldUseNativeMobileDictation() {
+  if (typeof window === 'undefined') return false
+  return isMobileTouchViewport() && isIOSLikeTouchViewport()
+}
+
+function isPlainTextComposerAgentCommand(command?: string) {
+  const executable = (command || '')
+    .trim()
+    .split(/\s+/)
+    .find(token => token !== 'env' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token))
+  const basename = executable?.split('/').pop() || ''
+  return basename === 'qoder' || basename === 'qodercli' || basename === 'opencode'
+}
 
 function isNativeTextEditingShortcutTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false
@@ -317,140 +341,12 @@ function isNativeTextEditingShortcutTarget(target: EventTarget | null) {
     || target.isContentEditable
 }
 
-const DEFAULT_AGENT_COMPOSER_UI_STATE: AgentComposerUiState = {
-  plusMenuOpen: false,
-  approvalMenuOpen: false,
-  modelMenuOpen: false,
-  modelPickerPane: null,
-}
-const DEFAULT_AGENT_COMPOSER_STATE: AgentComposerState = createDefaultAgentComposerState()
-
-function createDefaultAgentComposerState(): AgentComposerState {
-  return {
-    draft: '',
-    attachments: [],
-    mode: 'default',
-    history: createDefaultComposerHistoryState(),
-    ui: { ...DEFAULT_AGENT_COMPOSER_UI_STATE },
-  }
-}
-
-function createPendingFollowUpMessage(text: string): AgentComposerPendingFollowUpMessage {
-  const randomId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-  return {
-    id: `pending-${randomId}`,
-    text,
-    createdAt: Date.now(),
-  }
-}
-
-function removePendingFollowUpMessage(
-  pendingFollowUp: AgentComposerPendingFollowUp | undefined,
-  messageId: string
-): AgentComposerPendingFollowUp | undefined {
-  if (!pendingFollowUp) return undefined
-  const messages = pendingFollowUp.messages.filter(message => message.id !== messageId)
-  return messages.length > 0
-    ? { ...pendingFollowUp, messages }
-    : undefined
-}
-
-function closeComposerMenusForState(state: AgentComposerState): AgentComposerState {
-  if (
-    !state.ui.plusMenuOpen
-    && !state.ui.approvalMenuOpen
-    && !state.ui.modelMenuOpen
-    && state.ui.modelPickerPane === null
-  ) {
-    return state
-  }
-
-  return {
-    ...state,
-    ui: { ...DEFAULT_AGENT_COMPOSER_UI_STATE },
-  }
-}
-
-function isDefaultAgentComposerUiState(ui: AgentComposerUiState) {
-  return (
-    !ui.plusMenuOpen
-    && !ui.approvalMenuOpen
-    && !ui.modelMenuOpen
-    && ui.modelPickerPane === null
-  )
-}
-
-function mergeAgentComposerStates(primary: AgentComposerState, incoming: AgentComposerState): AgentComposerState {
-  const pendingMessages = [
-    ...(primary.pendingFollowUp?.messages || []),
-    ...(incoming.pendingFollowUp?.messages || []),
-  ]
-  const pendingCreatedAt = Math.min(
-    primary.pendingFollowUp?.createdAt ?? Number.POSITIVE_INFINITY,
-    incoming.pendingFollowUp?.createdAt ?? Number.POSITIVE_INFINITY
-  )
-
-  return {
-    ...primary,
-    draft: primary.draft || incoming.draft,
-    attachments: [...incoming.attachments, ...primary.attachments],
-    mode: primary.mode !== 'default' ? primary.mode : incoming.mode,
-    history: {
-      entries: [...incoming.history.entries, ...primary.history.entries].slice(-100),
-      cursor: null,
-    },
-    pendingFollowUp: pendingMessages.length > 0
-      ? {
-        messages: pendingMessages,
-        createdAt: Number.isFinite(pendingCreatedAt) ? pendingCreatedAt : Date.now(),
-      }
-      : undefined,
-    ui: isDefaultAgentComposerUiState(primary.ui) ? incoming.ui : primary.ui,
-  }
-}
-
-function providerComposerStateKey(agent: Agent | null | undefined) {
-  if (!agent || agent.providerSessionTemporary === true) return ''
-  if (agent.providerSessionKey) return agent.providerSessionKey
-  if (agent.providerSessionProvider && agent.providerSessionId) {
-    return workspaceTargetId({
-      kind: 'agent-session',
-      provider: agent.providerSessionProvider,
-      id: agent.providerSessionId,
-    })
-  }
-  return resumedAgentSessionIdFromSource(agent.source)
-}
-
-function composerStateKeyForAgent(agent: Agent | null | undefined) {
-  if (!agent) return ''
-  return providerComposerStateKey(agent) || agent.id
-}
-
-function composerStateAliasKeysForAgent(agent: Agent) {
-  const keys = new Set<string>()
-  if (agent.id) keys.add(agent.id)
-  if (agent.providerSessionKey) keys.add(agent.providerSessionKey)
-  if (agent.providerSessionProvider && agent.providerSessionId) {
-    keys.add(workspaceTargetId({
-      kind: 'agent-session',
-      provider: agent.providerSessionProvider,
-      id: agent.providerSessionId,
-    }))
-  }
-  const sourceKey = resumedAgentSessionIdFromSource(agent.source)
-  if (sourceKey) keys.add(sourceKey)
-  return Array.from(keys)
-}
-
 function resumedSessionFromHistoryRunSource(source?: string) {
-  const match = /^([a-z]+)-history(?:-fork)?:(.+)$/.exec(source || '')
-  if (!match) return null
-  const provider = match[1]
-  const sessionId = match[2]
-  return provider && sessionId ? { provider, sessionId } : null
+  return resumedAgentSessionFromSource(source)
+}
+
+function searchTargetHandle(target: SearchTarget) {
+  return target.kind === 'agent-session' ? agentSessionId(target) : workspaceTargetId(target)
 }
 
 function isMobileNavigationViewport() {
@@ -517,6 +413,14 @@ async function writeClipboardText(text: string) {
   const textarea = document.createElement('textarea')
   textarea.value = text
   textarea.setAttribute('readonly', 'true')
+  textarea.setAttribute('autocomplete', 'off')
+  textarea.setAttribute('autocorrect', 'off')
+  textarea.setAttribute('autocapitalize', 'none')
+  textarea.setAttribute('spellcheck', 'false')
+  textarea.setAttribute('data-lpignore', 'true')
+  textarea.setAttribute('data-1p-ignore', 'true')
+  textarea.setAttribute('data-bwignore', 'true')
+  textarea.setAttribute('data-form-type', 'other')
   textarea.style.position = 'fixed'
   textarea.style.left = '-9999px'
   textarea.style.top = '0'
@@ -539,12 +443,15 @@ export function CodeWorkspace({
   usageSummary,
   contextWindowByAgentId = {},
   activeTerminalId,
+  permissionSwitchingAgentId,
+  permissionSwitchReplacement,
   openTerminalIds,
   terminalFocusRequest,
   keyMap,
   keyboardShortcutsEnabled,
   uiPreferences,
   onOpenTerminal,
+  onOpenTerminalWhenReady,
   onNewAgent,
   onStartAgent,
   onRenameAgent,
@@ -557,15 +464,30 @@ export function CodeWorkspace({
   onKill,
   onInterruptAgent,
   sendInput,
+  sendComposerInput,
+  respondToAppServerRequest,
   resizeAgent,
   onSessionOutput,
   onUpdateUiPreferences,
 }: CodeWorkspaceProps) {
   const pageVisible = usePageVisibility()
-  const [composerByAgentKey, setComposerByAgentKey] = useState<Record<string, AgentComposerState>>({})
+  const {
+    composerByAgentKey,
+    updateComposerStateForKey,
+    updateExistingComposerStateForKey,
+  } = useAgentComposerState({
+    agents,
+    permissionSwitchReplacement,
+    onDiscardAttachment: revokeComposerAttachmentPreview,
+  })
   const pendingFollowUpAutoFlushRef = useRef<Record<string, string>>({})
   const [terminalFollowStates, setTerminalFollowStates] = useState<Record<string, TerminalFollowState>>({})
   const [mainPaneMode, setMainPaneMode] = useState<MainPaneMode>('terminal')
+  const [initialWorkspaceSurface] = useState<CodeWorkspaceSurface | undefined>(() => (
+    loadCodeWorkspaceViewState().surface
+  ))
+  const workspaceSurfaceRestoreStartedRef = useRef(false)
+  const workspaceSurfaceRestoredRef = useRef(!initialWorkspaceSurface)
   const workspaceOpenFiles = useWorkspaceOpenFiles()
   const {
     canGoBack: canNavigateWorkspaceBack,
@@ -616,12 +538,19 @@ export function CodeWorkspace({
   const [projectMenu, setProjectMenu] = useState<{ projectId: string; x: number; y: number } | null>(null)
   const [agentSessionMenu, setAgentSessionMenu] = useState<{ provider: string; sessionId: string; x: number; y: number } | null>(null)
   const [optionsMenu, setOptionsMenu] = useState<{ x: number; y: number; returnFocusTarget: HTMLElement | null } | null>(null)
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
+  const [mobileShareUrl, setMobileShareUrl] = useState('')
   const [renameDialog, setRenameDialog] = useState<RenameDialogState | null>(null)
   const [killDialog, setKillDialog] = useState<{ agentId: string; title: string } | null>(null)
   const [deleteWorktreeDialog, setDeleteWorktreeDialog] = useState<{ projectId: string; workspace: string; dirtyEntries: string[]; sessionHandles: string[] } | null>(null)
   const [copyNotice, setCopyNotice] = useState<{ id: number; kind: 'success' | 'error'; message: string } | null>(null)
   const [fileRevealRequest, setFileRevealRequest] = useState<{ agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null>(null)
   const [fileSearchFocusRequest, setFileSearchFocusRequest] = useState<{ agentId: string; requestId: number; query?: string } | null>(null)
+  const renameDialogIdentity = renameDialog
+    ? renameDialog.kind === 'agent'
+      ? `agent:${renameDialog.agentId}`
+      : `project:${renameDialog.projectId}`
+    : ''
   const [now, setNow] = useState(Date.now())
   const workspaceRef = useRef<HTMLDivElement>(null)
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -644,10 +573,9 @@ export function CodeWorkspace({
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const codexModelsLoadedRef = useRef(false)
   const codexModelsLoadingRef = useRef(false)
-  const resumeAgentSessionRef = useRef<(provider: string, sessionId: string) => void>(() => {})
+  const resumeAgentSessionRef = useRef<(provider: string, sessionId: string, providerHomeId?: string) => void>(() => {})
   const activeTerminalIdRef = useRef<string | null>(activeTerminalId)
-  const agentListOrderRef = useRef<Map<string, number>>(new Map())
-  const nextAgentListOrderRef = useRef(0)
+  const previousActiveTerminalIdRef = useRef<string | null>(activeTerminalId)
   const workspaceFileCursorRequestRef = useRef(0)
   const workspaceFileDiffRequestRef = useRef(0)
   const workspaceFileRevealRequestRef = useRef(0)
@@ -661,6 +589,7 @@ export function CodeWorkspace({
   const trackedMainPageAgentKeysRef = useRef<Set<string>>(new Set())
   const resizingSidebarRef = useRef(false)
   const sidebarAutoCollapsedRef = useRef(sidebarCollapsed)
+  const mobileNavigationViewportRef = useRef(isMobileNavigationViewport())
 
   const collapseSidebar = useCallback(() => {
     sidebarAutoCollapsedRef.current = false
@@ -700,25 +629,7 @@ export function CodeWorkspace({
     () => visibleAgents.filter(isAgentListLiveAgent),
     [visibleAgents]
   )
-  const activeAgents = useMemo(
-    () => {
-      const active = unorderedLiveAgents
-      const visibleIds = new Set(visibleAgents.map(agent => agent.id))
-      Array.from(agentListOrderRef.current.keys()).forEach(agentId => {
-        if (!visibleIds.has(agentId)) agentListOrderRef.current.delete(agentId)
-      })
-      active.forEach(agent => {
-        if (!agentListOrderRef.current.has(agent.id)) {
-          agentListOrderRef.current.set(agent.id, nextAgentListOrderRef.current)
-          nextAgentListOrderRef.current += 1
-        }
-      })
-      return active.slice().sort((a, b) => (
-        (agentListOrderRef.current.get(a.id) ?? 0) - (agentListOrderRef.current.get(b.id) ?? 0)
-      ))
-    },
-    [unorderedLiveAgents, visibleAgents]
-  )
+  const activeAgents = unorderedLiveAgents
   const workspaceNavigationAgentIds = useMemo(() => {
     const ids = new Set(activeAgents.map(agent => agent.id))
     if (hiddenMainAgent) ids.add(hiddenMainAgent.id)
@@ -729,46 +640,6 @@ export function CodeWorkspace({
     pruneWorkspaceNavigationEntries(entry => workspaceNavigationAgentIds.has(entry.agentId))
   }, [pruneWorkspaceNavigationEntries, workspaceNavigationAgentIds])
 
-  useLayoutEffect(() => {
-    const retainedComposerKeys = new Set(
-      agents
-        .filter(agent => !agent.archived && agent.status !== 'dead' && agent.status !== 'stopped')
-        .map(composerStateKeyForAgent)
-        .filter(Boolean)
-    )
-    setComposerByAgentKey(current => {
-      let next = current
-      let changed = false
-      const mutable = () => {
-        if (next === current) next = { ...current }
-        changed = true
-        return next
-      }
-
-      agents.forEach(agent => {
-        const canonicalKey = composerStateKeyForAgent(agent)
-        if (!canonicalKey) return
-        composerStateAliasKeysForAgent(agent).forEach(aliasKey => {
-          if (aliasKey === canonicalKey) return
-          const aliasState = next[aliasKey]
-          if (!aliasState) return
-          const nextStateByKey = mutable()
-          nextStateByKey[canonicalKey] = nextStateByKey[canonicalKey]
-            ? mergeAgentComposerStates(nextStateByKey[canonicalKey], aliasState)
-            : aliasState
-          delete nextStateByKey[aliasKey]
-        })
-      })
-
-      Object.entries(next).forEach(([composerKey, state]) => {
-        if (retainedComposerKeys.has(composerKey)) return
-        const nextStateByKey = mutable()
-        state.attachments.forEach(revokeComposerAttachmentPreview)
-        delete nextStateByKey[composerKey]
-      })
-      return changed ? next : current
-    })
-  }, [agents])
   const decoratedAgentSessions = useMemo(
     () => applySessionDisplayOverrides(agentSessions, agentSessionPinnedOverrides, {}),
     [agentSessionPinnedOverrides, agentSessions]
@@ -814,7 +685,6 @@ export function CodeWorkspace({
     )
   }, [activeView, expandedSessionProjectIds, hasSearchQuery, normalizedSearch, projects, searchableProjects, searchOpen])
   const hasProjectListItems = projects.some(project => project.agents.length > 0 || project.agentSessions.length > 0)
-  const hasDisplayedProjectListItems = displayedProjects.some(project => project.agents.length > 0 || project.agentSessions.length > 0)
   const searchResultProjects = useMemo(
     () => hasSearchQuery ? displayedProjects : [],
     [displayedProjects, hasSearchQuery]
@@ -852,6 +722,9 @@ export function CodeWorkspace({
       ?? (hiddenMainAgent?.id === activeTerminalId ? hiddenMainAgent : null),
     [activeAgents, activeTerminalId, hiddenMainAgent]
   )
+  const activeAgentPermissionSwitching = Boolean(
+    activeAgent && activeAgent.id === permissionSwitchingAgentId
+  )
   const activeAgentContextWindow = activeAgent ? contextWindowByAgentId[activeAgent.id] ?? null : null
   const activeComposerKey = activeAgent ? composerStateKeyForAgent(activeAgent) : ''
   const activeAgentCapabilities = useMemo(
@@ -880,6 +753,16 @@ export function CodeWorkspace({
     [activeAgent]
   )
   const composerAgentKind = activeAgentCapabilities.kind
+  const displayedCodexApprovalMode = useMemo(() => effectiveCodexApprovalModeForSession(
+    Boolean(activeAgent && composerAgentKind === 'codex'),
+    activeAgent?.launchPermissionMode,
+    codexApprovalMode,
+  ), [activeAgent, codexApprovalMode, composerAgentKind])
+  const displayedClaudePermissionMode = useMemo(() => effectiveClaudePermissionModeForSession(
+    Boolean(activeAgent && composerAgentKind === 'claude'),
+    activeAgent?.launchPermissionMode,
+    claudePermissionMode,
+  ), [activeAgent, claudePermissionMode, composerAgentKind])
   const activeAgentCanInterrupt = useMemo(
     () => activeAgentTurnActive || (
       Boolean(activeAgent)
@@ -932,38 +815,6 @@ export function CodeWorkspace({
     : activeAgentCanInterrupt
       ? 'interrupt'
       : 'disabled'
-  const resolveComposerStateKey = useCallback((composerKey: string) => {
-    if (!composerKey) return ''
-    for (const agent of agents) {
-      const canonicalKey = composerStateKeyForAgent(agent)
-      if (!canonicalKey) continue
-      if (composerKey === canonicalKey || composerStateAliasKeysForAgent(agent).includes(composerKey)) {
-        return canonicalKey
-      }
-    }
-    return composerKey
-  }, [agents])
-  const updateComposerStateForKey = useCallback((composerKey: string, updater: (state: AgentComposerState) => AgentComposerState) => {
-    setComposerByAgentKey(current => {
-      const canonicalKey = resolveComposerStateKey(composerKey)
-      if (!canonicalKey) return current
-      const previous = current[canonicalKey] ?? createDefaultAgentComposerState()
-      const nextState = updater(previous)
-      if (nextState === previous) return current
-      return { ...current, [canonicalKey]: nextState }
-    })
-  }, [resolveComposerStateKey])
-  const updateExistingComposerStateForKey = useCallback((composerKey: string, updater: (state: AgentComposerState) => AgentComposerState) => {
-    setComposerByAgentKey(current => {
-      const canonicalKey = resolveComposerStateKey(composerKey)
-      if (!canonicalKey) return current
-      const previous = current[canonicalKey]
-      if (!previous) return current
-      const nextState = updater(previous)
-      if (nextState === previous) return current
-      return { ...current, [canonicalKey]: nextState }
-    })
-  }, [resolveComposerStateKey])
   const updateActiveComposerState = useCallback((updater: (state: AgentComposerState) => AgentComposerState) => {
     if (!activeComposerKey) return
     updateComposerStateForKey(activeComposerKey, updater)
@@ -975,22 +826,20 @@ export function CodeWorkspace({
     () => activeAgents.find(agent => agent.id === agentMenu?.agentId) ?? null,
     [activeAgents, agentMenu?.agentId]
   )
-  const previousTurnActiveByAgentRef = useRef<Map<string, boolean>>(new Map())
-  const turnActiveTrackingReadyRef = useRef(false)
   const contextMenuProject = useMemo(
     () => projectListProjects.find(project => project.id === projectMenu?.projectId) ?? null,
     [projectListProjects, projectMenu?.projectId]
   )
   const contextMenuAgentSession = useMemo(
     () => displayedProjects.flatMap(project => project.agentSessions).find(session => (
-      session.provider === agentSessionMenu?.provider && session.id === agentSessionMenu?.sessionId
+      session.provider === agentSessionMenu?.provider && agentSessionId(session) === agentSessionMenu?.sessionId
     )) ?? null,
     [agentSessionMenu?.provider, agentSessionMenu?.sessionId, displayedProjects]
   )
   const selectedSearchTarget = searchOpen ? visibleSearchTargets[searchSelectionIndex] ?? null : null
   const selectedSearchAgentId = selectedSearchTarget?.kind === 'agent' ? selectedSearchTarget.id : null
   const selectedSearchSessionHandle = selectedSearchTarget?.kind === 'agent-session'
-    ? workspaceTargetId(selectedSearchTarget)
+    ? agentSessionId(selectedSearchTarget)
     : null
   const activeProjectWorkspace = activeAgent ? projectWorkspaceForAgent(activeAgent) : undefined
   const projectFileSearchAgent = useMemo(() => {
@@ -1025,10 +874,16 @@ export function CodeWorkspace({
   const showFileEditor = mainPaneMode === 'editor' && Boolean(openWorkspaceFile)
   const shareTarget = useMemo<WorkspaceShareTarget | null>(() => {
     if (showFileEditor && openWorkspaceFile) {
+      const workspaceRoot = openWorkspaceFile.workspaceRoot
+        ?? activeAgents.find(agent => agent.id === openWorkspaceFile.agentId)?.projectWorkspace
+        ?? activeAgents.find(agent => agent.id === openWorkspaceFile.agentId)?.cwd
+        ?? ''
       return {
         kind: 'file',
         agentId: openWorkspaceFile.agentId,
         filePath: openWorkspaceFile.file.path,
+        ...(workspaceRoot ? { absolutePath: workspaceShareAbsolutePath(workspaceRoot, openWorkspaceFile.file.path) } : {}),
+        ...(workspaceRoot ? { projectLabel: workspaceShareProjectLabel(workspaceRoot) } : {}),
         view: openWorkspaceFile.diffRequestId ? 'diff' : 'editor',
         lineNumber: openWorkspaceFile.cursor?.lineNumber,
         column: openWorkspaceFile.cursor?.column,
@@ -1050,7 +905,9 @@ export function CodeWorkspace({
     openWorkspaceFile?.cursor?.lineNumber,
     openWorkspaceFile?.diffRequestId,
     openWorkspaceFile?.file.path,
+    openWorkspaceFile?.workspaceRoot,
     showFileEditor,
+    activeAgents,
     workspaceNavigationAgentIds,
   ])
   const composerControlState = useMemo(() => buildComposerControlState({
@@ -1060,17 +917,17 @@ export function CodeWorkspace({
     codexServiceTier,
     codexModelPreset,
     codexModelOptions,
-    codexApprovalMode,
+    codexApprovalMode: displayedCodexApprovalMode,
     claudeModel,
     claudeEffort,
     claudeSettings,
-    claudePermissionMode,
+    claudePermissionMode: displayedClaudePermissionMode,
   }), [
     claudeEffort,
     claudeModel,
     claudeSettings,
-    claudePermissionMode,
-    codexApprovalMode,
+    displayedClaudePermissionMode,
+    displayedCodexApprovalMode,
     codexModel,
     codexModelOptions,
     codexModelPreset,
@@ -1108,6 +965,10 @@ export function CodeWorkspace({
   const mobileHeaderSubtitle = activeAgent
     ? `${mobileHeaderWorkspace} · ${browserHost}`
     : browserHost
+  const mobileBackAgentId = showFileEditor && openWorkspaceFile
+    ? openWorkspaceFile.sourceAgentId ?? openWorkspaceFile.agentId
+    : null
+  const showMobileBackButton = Boolean(mobileBackAgentId)
   const autoSizeComposerTextarea = useCallback(() => {
     const textarea = composerTextareaRef.current
     if (!textarea) return
@@ -1355,7 +1216,7 @@ export function CodeWorkspace({
     void appendAttachmentFiles(files)
   }, [appendAttachmentFiles])
 
-  const handlePasteAttachment = useCallback((event: ReactClipboardEvent<HTMLTextAreaElement>) => {
+  const handlePasteAttachment = useCallback((event: ReactClipboardEvent<HTMLElement>) => {
     const files = clipboardImageFiles(event.clipboardData)
     if (files.length === 0) return
 
@@ -1390,7 +1251,14 @@ export function CodeWorkspace({
 
   const markAgentReadIfNeeded = useCallback((agentId: string) => {
     const agent = activeAgents.find(candidate => candidate.id === agentId)
-    if (agent?.unread) onUpdateAgentFlags(agentId, { unread: false })
+    if (!agent) return
+    const attentionSeq = Number.isFinite(agent.attentionSeq) ? Math.max(0, Number(agent.attentionSeq)) : 0
+    const readAttentionSeq = Number.isFinite(agent.readAttentionSeq) ? Math.max(0, Number(agent.readAttentionSeq)) : 0
+    if (attentionSeq > readAttentionSeq) {
+      onUpdateAgentFlags(agentId, { readAttentionSeq: attentionSeq })
+    } else if (agent.unread) {
+      onUpdateAgentFlags(agentId, { unread: false })
+    }
   }, [activeAgents, onUpdateAgentFlags])
 
   const handleTerminalFollowOutputChange = useCallback((agentId: string, state: TerminalFollowState) => {
@@ -1399,21 +1267,25 @@ export function CodeWorkspace({
       if (previous?.following === state.following && previous?.hasUnreadOutput === state.hasUnreadOutput) return current
       return { ...current, [agentId]: state }
     })
-    if (state.following && !state.hasUnreadOutput) {
+    if (
+      agentId === activeTerminalId
+      && activeView === 'projects'
+      && mainPaneMode === 'terminal'
+      && state.following
+      && !state.hasUnreadOutput
+    ) {
       markAgentReadIfNeeded(agentId)
     }
-  }, [markAgentReadIfNeeded])
+  }, [activeTerminalId, activeView, mainPaneMode, markAgentReadIfNeeded])
 
   useEffect(() => {
-    if (!activeTerminalId || mainPaneMode !== 'terminal') return
+    if (!activeTerminalId || activeView !== 'projects' || mainPaneMode !== 'terminal') return
     const state = terminalFollowStates[activeTerminalId]
-    const terminalFollowingLatest = state
-      ? state.following && !state.hasUnreadOutput
-      : true
+    const terminalFollowingLatest = state ? state.following && !state.hasUnreadOutput : false
     if (terminalFollowingLatest) {
       markAgentReadIfNeeded(activeTerminalId)
     }
-  }, [activeTerminalId, mainPaneMode, markAgentReadIfNeeded, terminalFollowStates])
+  }, [activeTerminalId, activeView, mainPaneMode, markAgentReadIfNeeded, terminalFollowStates])
 
   const handleDraftChange = useCallback((value: string) => {
     updateActiveComposerState(state => ({
@@ -1421,8 +1293,7 @@ export function CodeWorkspace({
       draft: value,
       history: { ...state.history, cursor: null },
     }))
-    if (activeAgent) markAgentReadIfNeeded(activeAgent.id)
-  }, [activeAgent, markAgentReadIfNeeded, updateActiveComposerState])
+  }, [updateActiveComposerState])
 
   const navigateActiveComposerHistory = useCallback((
     direction: ComposerHistoryDirection,
@@ -1439,26 +1310,65 @@ export function CodeWorkspace({
       draft: result.value,
       history: result.history,
     }))
-    markAgentReadIfNeeded(activeAgent.id)
     return result.value
-  }, [activeAgent, activeComposerKey, activeComposerState.history, markAgentReadIfNeeded, updateComposerStateForKey])
+  }, [activeAgent, activeComposerKey, activeComposerState.history, updateComposerStateForKey])
 
   const sendComposerMessageToAgent = useCallback((agent: Agent, message: string) => {
-    markAgentReadIfNeeded(agent.id)
-    if (agentKindForCommand(agent.command) === 'shell' || capabilitiesForAgent(agent).kind === 'shell') {
+    if (agent.agentRuntimeMode === 'json' || (agent.providerSessionProvider === 'codex' && agent.codexRuntimeMode === 'app-server')) {
+      return sendComposerInput(message, agent.id)
+    }
+    if (
+      agentKindForCommand(agent.command) === 'shell'
+      || capabilitiesForAgent(agent).kind === 'shell'
+      || isPlainTextComposerAgentCommand(agent.command)
+    ) {
       return sendInput(`${message}\r`, agent.id)
     }
     return sendInput(terminalInputPartsForComposerMessage(message), agent.id)
-  }, [markAgentReadIfNeeded, sendInput])
+  }, [sendComposerInput, sendInput])
 
-  const submitDraft = useCallback(() => {
-    const latestDraft = composerTextareaRef.current?.value ?? draft
+  const setNativeCodexGoalFromComposer = useCallback(async (agent: Agent, objective: string) => {
+    const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agent.id)}/codex-goal`), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        objective,
+        status: 'active',
+        tokenBudget: null,
+      }),
+    })
+    return response.ok
+  }, [])
+
+  const submitDraft = useCallback((submittedDraft?: string) => {
+    const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft
     const text = composerMessageWithAttachments(latestDraft, composerAttachments)
     if (!text || !activeAgent || !activeComposerKey || composerAttachments.some(attachment => attachment.status === 'uploading')) return
+
+    if (composerMode === 'goal' && activeAgent.providerSessionProvider === 'codex' && activeAgent.codexRuntimeMode === 'app-server') {
+      void (async () => {
+        const goalSaved = await setNativeCodexGoalFromComposer(activeAgent, text)
+        if (!goalSaved) return
+        const submitted = sendComposerMessageToAgent(activeAgent, text)
+        if (!submitted) return
+        updateComposerStateForKey(activeComposerKey, state => {
+          state.attachments.forEach(revokeComposerAttachmentPreview)
+          return {
+            ...state,
+            draft: '',
+            attachments: [],
+            mode: 'default',
+            history: addComposerHistoryEntry(state.history, latestDraft),
+          }
+        })
+        focusComposerTextarea()
+      })()
+      return
+    }
+
     const message = formatComposerMessage(composerMode, text)
     let submitted = true
-    if (isCodexAgentWorking(activeAgent)) {
-      markAgentReadIfNeeded(activeAgent.id)
+    if (isCodexAgentWorking(activeAgent) && activeAgent.codexRuntimeMode !== 'app-server' && activeAgent.agentRuntimeMode !== 'json') {
       updateComposerStateForKey(activeComposerKey, state => {
         const existing = state.pendingFollowUp
         return {
@@ -1484,13 +1394,26 @@ export function CodeWorkspace({
       }
     })
     focusComposerTextarea()
-  }, [activeAgent, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, markAgentReadIfNeeded, sendComposerMessageToAgent, updateComposerStateForKey])
+  }, [activeAgent, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, setNativeCodexGoalFromComposer, updateComposerStateForKey])
 
   const interruptActiveAgent = useCallback(() => {
     if (!activeAgent || !activeAgentCanInterrupt) return
     onInterruptAgent(activeAgent.id)
     focusComposerTextarea()
   }, [activeAgent, activeAgentCanInterrupt, focusComposerTextarea, onInterruptAgent])
+
+  const respondToActiveAppServerRequest = useCallback((requestId: string, result: unknown) => {
+    if (!activeAgent) return
+    respondToAppServerRequest(activeAgent.id, requestId, result)
+  }, [activeAgent, respondToAppServerRequest])
+
+  const rejectActiveAppServerRequest = useCallback((requestId: string) => {
+    if (!activeAgent) return
+    respondToAppServerRequest(activeAgent.id, requestId, undefined, {
+      reject: true,
+      reason: 'Declined in Farming',
+    })
+  }, [activeAgent, respondToAppServerRequest])
 
   const steerPendingFollowUp = useCallback((messageId: string) => {
     if (!activeAgent || !activeComposerKey) return
@@ -1547,19 +1470,12 @@ export function CodeWorkspace({
     pendingFlushes.forEach(({ agent, composerKey, message }) => {
       if (!sendComposerMessageToAgent(agent, message.text)) return
       pendingFollowUpAutoFlushRef.current[composerKey] = message.id
-      setComposerByAgentKey(current => {
-        const state = current[composerKey]
-        if (!state?.pendingFollowUp) return current
-        return {
-          ...current,
-          [composerKey]: {
-            ...state,
-            pendingFollowUp: removePendingFollowUpMessage(state.pendingFollowUp, message.id),
-          },
-        }
+      updateExistingComposerStateForKey(composerKey, state => {
+        if (!state.pendingFollowUp) return state
+        return { ...state, pendingFollowUp: removePendingFollowUpMessage(state.pendingFollowUp, message.id) }
       })
     })
-  }, [activeAgents, composerByAgentKey, sendComposerMessageToAgent])
+  }, [activeAgents, composerByAgentKey, sendComposerMessageToAgent, updateExistingComposerStateForKey])
 
   const openSearch = useCallback(() => {
     setAgentMenu(null)
@@ -1585,6 +1501,30 @@ export function CodeWorkspace({
     onNewAgent(workspace, command, returnFocusTarget)
     closeSidebarForMobile()
   }, [closeSidebarForMobile, onNewAgent])
+
+  const startAgentWithLaunchProfile = useCallback((
+    command: string,
+    workspace: string,
+    options?: { projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string },
+  ) => {
+    setSearchQuery('')
+    setSearchOpen(false)
+    setSearchSelectionIndex(0)
+    setMainPaneMode('terminal')
+    onWorkspaceViewChange('projects')
+
+    if (agentKindForCommand(command) !== 'codex') {
+      onStartAgent(command, workspace, options)
+      return
+    }
+
+    const selectedApprovalMode = options?.codexApprovalMode || codexApprovalMode
+    onStartAgent(command, workspace, {
+      ...options,
+      codexApprovalMode: selectedApprovalMode,
+      ...(selectedApprovalMode === 'full' ? { dangerouslySkipPermissions: true } : {}),
+    })
+  }, [codexApprovalMode, onStartAgent, onWorkspaceViewChange])
 
   useEffect(() => {
     let cancelled = false
@@ -1630,8 +1570,8 @@ export function CodeWorkspace({
     setMainPageSessionKeys(previous => sameStringSet(previous, normalized) ? previous : new Set(normalized))
   }, [remoteMainPageSessionKeys])
 
-  const addMainPageAgentSession = useCallback((provider: string, sessionId: string) => {
-    const sessionHandle = workspaceTargetId({ kind: 'agent-session', provider, id: sessionId })
+  const addMainPageAgentSession = useCallback((provider: string, sessionId: string, providerHomeId = '') => {
+    const sessionHandle = agentSessionId({ provider, id: sessionId, providerHomeId })
     updateMainPageSessionKeys(previous => [...previous, sessionHandle])
   }, [updateMainPageSessionKeys])
 
@@ -1696,7 +1636,7 @@ export function CodeWorkspace({
     const rows = Array.from(workspaceRef.current?.querySelectorAll<HTMLElement>('[data-testid="code-agent-row"], [data-testid="code-project-agent-compact"], [data-testid="code-pinned-agent-compact"], [data-testid="code-agent-rail-item"], [data-testid="code-active-session-row"]') ?? [])
     const row = rows.find(candidate => {
       if (target.kind === 'agent') return candidate.dataset.agentId === target.id
-      return candidate.dataset.provider === target.provider && candidate.dataset.sessionId === target.id
+      return candidate.dataset.provider === target.provider && candidate.dataset.sessionId === searchTargetHandle(target)
     })
     if (!row) return false
 
@@ -1736,6 +1676,22 @@ export function CodeWorkspace({
     onWorkspaceViewChange('projects')
     restoreProjectListFocusRef.current = 'active-force'
   }, [clearSearch, onWorkspaceViewChange])
+
+  useEffect(() => {
+    if (!searchOpen || activeView !== 'search') return undefined
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (target.closest('.code-search-panel, [data-testid="code-nav-search"], [data-testid="code-mobile-menu"]')) return
+      closeSearchView()
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+    }
+  }, [activeView, closeSearchView, searchOpen])
 
   const openWorkspaceView = useCallback((view: WorkspaceView) => {
     setAgentMenu(null)
@@ -1785,44 +1741,13 @@ export function CodeWorkspace({
     })
   }, [])
 
-  useEffect(() => {
-    const previous = previousTurnActiveByAgentRef.current
-    const next = new Map<string, boolean>()
-
-    for (const agent of activeAgents) {
-      const turnActive = isAgentTurnActive(agent)
-      next.set(agent.id, turnActive)
-
-      if (!turnActiveTrackingReadyRef.current) continue
-      const wasActive = previous.get(agent.id) === true
-      const isTerminalPaneViewed = agent.id === activeTerminalId && mainPaneMode === 'terminal'
-      const terminalFollowState = terminalFollowStates[agent.id]
-      const terminalFollowingLatest = terminalFollowState
-        ? terminalFollowState.following && !terminalFollowState.hasUnreadOutput
-        : true
-      if (shouldMarkAgentUnreadForTurnTransition({
-        wasTurnActive: wasActive,
-        isTurnActive: turnActive,
-        isMain: agent.isMain,
-        alreadyUnread: agent.unread === true,
-        terminalPaneViewed: isTerminalPaneViewed,
-        terminalFollowingLatest,
-      })) {
-        onUpdateAgentFlags(agent.id, { unread: true })
-      }
-    }
-
-    previousTurnActiveByAgentRef.current = next
-    turnActiveTrackingReadyRef.current = true
-  }, [activeAgents, activeTerminalId, mainPaneMode, onUpdateAgentFlags, terminalFollowStates])
-
   const openVisibleTarget = useCallback((target: SearchTarget, options?: { focusTerminal?: boolean }) => {
     setMainPaneMode('terminal')
     onWorkspaceViewChange('projects')
     if (target.kind === 'agent') {
       onOpenTerminal(target.id, { focusTerminal: options?.focusTerminal })
     } else {
-      resumeAgentSessionRef.current(target.provider, target.id)
+      resumeAgentSessionRef.current(target.provider, target.id, target.providerHomeId)
     }
   }, [onOpenTerminal, onWorkspaceViewChange])
 
@@ -1832,7 +1757,7 @@ export function CodeWorkspace({
       const row = activeElement.closest<HTMLElement>('[data-testid="code-agent-row"], [data-testid="code-project-agent-compact"], [data-testid="code-pinned-agent-compact"], [data-testid="code-agent-rail-item"], [data-testid="code-active-session-row"]')
       if (row?.dataset.agentId) return workspaceTargetId({ kind: 'agent', id: row.dataset.agentId })
       if (row?.dataset.sessionId && row.dataset.provider) {
-        return workspaceTargetId({ kind: 'agent-session', provider: row.dataset.provider, id: row.dataset.sessionId })
+        return row.dataset.sessionId
       }
     }
 
@@ -1844,7 +1769,7 @@ export function CodeWorkspace({
     if (visibleProjectListTargets.length === 0) return
 
     const currentTargetId = currentProjectListTargetId()
-    const currentIndex = visibleProjectListTargets.findIndex(target => workspaceTargetId(target) === currentTargetId)
+    const currentIndex = visibleProjectListTargets.findIndex(target => searchTargetHandle(target) === currentTargetId)
     const startIndex = direction > 0 ? -1 : 0
     const nextIndex = ((currentIndex === -1 ? startIndex : currentIndex) + direction + visibleProjectListTargets.length) % visibleProjectListTargets.length
     const nextTarget = visibleProjectListTargets[nextIndex]
@@ -1947,10 +1872,10 @@ export function CodeWorkspace({
     }, { delays: [80, 180] })
   }, [focusAgentRowNow])
 
-  const focusAgentSessionRow = useCallback((provider: string, sessionId: string) => {
+  const focusAgentSessionRow = useCallback((provider: string, sessionHandle: string) => {
     window.requestAnimationFrame(() => {
       const rows = Array.from(workspaceRef.current?.querySelectorAll<HTMLButtonElement>('[data-testid="code-active-session-row"]') ?? [])
-      rows.find(row => row.dataset.provider === provider && row.dataset.sessionId === sessionId)?.focus({ preventScroll: true })
+      rows.find(row => row.dataset.provider === provider && row.dataset.sessionId === sessionHandle)?.focus({ preventScroll: true })
     })
   }, [])
 
@@ -1961,7 +1886,7 @@ export function CodeWorkspace({
     })
   }, [])
 
-  const toggleContextMenuAgentSessionPinned = useCallback(() => {
+  const toggleContextMenuAgentSessionPinned = useCallback(async () => {
     if (!contextMenuAgentSession) return
     const sessionId = agentSessionId(contextMenuAgentSession)
     const nextPinned = contextMenuAgentSession.pinned !== true
@@ -1972,11 +1897,39 @@ export function CodeWorkspace({
     setAgentSessionMenu(null)
     setOptionsMenu(null)
     if (mainPageSessionKeys.has(sessionId)) {
-      focusAgentSessionRow(contextMenuAgentSession.provider, contextMenuAgentSession.id)
+      focusAgentSessionRow(contextMenuAgentSession.provider, sessionId)
     } else {
       window.requestAnimationFrame(() => projectListRef.current?.focus({ preventScroll: true }))
     }
-  }, [contextMenuAgentSession, focusAgentSessionRow, mainPageSessionKeys])
+    try {
+      const response = await fetch(appPath(`/api/agent-sessions/${encodeURIComponent(contextMenuAgentSession.provider)}/${encodeURIComponent(contextMenuAgentSession.id)}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pinned: nextPinned,
+          providerHomeId: contextMenuAgentSession.providerHomeId || 'default',
+        }),
+      })
+      if (!response.ok) throw new Error(copy.updateFailed)
+      const sessions = await fetchAgentSessions()
+      setAgentSessions(sessions)
+      setAgentSessionPinnedOverrides(previous => {
+        const next = { ...previous }
+        delete next[sessionId]
+        return next
+      })
+    } catch (error) {
+      setAgentSessionPinnedOverrides(previous => ({
+        ...previous,
+        [sessionId]: !nextPinned,
+      }))
+      setCopyNotice({
+        id: Date.now(),
+        kind: 'error',
+        message: error instanceof Error ? error.message : copy.updateFailed,
+      })
+    }
+  }, [contextMenuAgentSession, copy.updateFailed, fetchAgentSessions, focusAgentSessionRow, mainPageSessionKeys])
 
   const archiveContextMenuAgentSession = useCallback(() => {
     if (!contextMenuAgentSession) return
@@ -2027,9 +1980,13 @@ export function CodeWorkspace({
   ), [])
 
   const openProjectFile = useCallback((agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => {
-    const agent = activeAgents.find(candidate => candidate.id === agentId)
-    const workspaceRoot = agent && !agent.isMain ? projectWorkspaceForAgent(agent) : undefined
-    if (agent) {
+    const globalFile = isGlobalWorkspaceFilesAgentId(agentId)
+    const sourceAgentId = target?.sourceAgentId ?? (globalFile ? activeTerminalIdRef.current ?? undefined : agentId)
+    const agent = activeAgents.find(candidate => candidate.id === (globalFile ? sourceAgentId : agentId))
+    const workspaceRoot = globalFile
+      ? GLOBAL_WORKSPACE_FILES_ROOT
+      : agent && !agent.isMain ? projectWorkspaceForAgent(agent) : undefined
+    if (!globalFile && agent) {
       const projectId = agent.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent)
       setCollapsedProjectIds(previous => {
         if (!previous.has(projectId)) return previous
@@ -2048,7 +2005,7 @@ export function CodeWorkspace({
     const openRequest = {
       ...createWorkspaceOpenFileRequest(target),
       workspaceRoot,
-      sourceAgentId: agentId,
+      sourceAgentId,
     }
     workspaceOpenFiles.openFromRead(agentId, file, openRequest)
     if (shouldRevealSelectedWorkspaceOpenFile(target)) {
@@ -2059,14 +2016,102 @@ export function CodeWorkspace({
         requestId: workspaceFileRevealRequestRef.current += 1,
       })
     }
-    markAgentReadIfNeeded(agentId)
-    onOpenTerminal(agentId, { focusTerminal: false })
+    if (agent && sourceAgentId) {
+      onOpenTerminal(sourceAgentId, { focusTerminal: false })
+    }
     closeSidebarForMobile()
-  }, [activeAgents, clearSearch, closeSidebarForMobile, createWorkspaceOpenFileRequest, markAgentReadIfNeeded, onOpenTerminal, onWorkspaceViewChange, workspaceOpenFiles])
+  }, [activeAgents, clearSearch, closeSidebarForMobile, createWorkspaceOpenFileRequest, onOpenTerminal, onWorkspaceViewChange, workspaceOpenFiles])
+
+  useEffect(() => {
+    if (workspaceSurfaceRestoredRef.current || workspaceSurfaceRestoreStartedRef.current) return
+    if (activeAgents.length === 0) return
+    workspaceSurfaceRestoreStartedRef.current = true
+
+    const surface = initialWorkspaceSurface
+    if (!surface) {
+      workspaceSurfaceRestoredRef.current = true
+      return
+    }
+
+    if (surface.kind === 'agent') {
+      const targetAgent = activeAgents.find(agent => agent.id === surface.agentId)
+        ?? activeAgents.find(agent => Boolean(surface.providerSessionKey) && agent.providerSessionKey === surface.providerSessionKey)
+        ?? activeAgents.find(agent => Boolean(surface.workspace) && projectWorkspaceForAgent(agent) === surface.workspace)
+      if (targetAgent) {
+        openTerminalFromWorkspace(targetAgent.id, { focusTerminal: false })
+      } else {
+        saveCodeWorkspaceViewState({ surface: undefined })
+      }
+      workspaceSurfaceRestoredRef.current = true
+      return
+    }
+
+    const targetAgentId = surface.workspace === GLOBAL_WORKSPACE_FILES_ROOT
+      ? GLOBAL_WORKSPACE_FILES_AGENT_ID
+      : activeAgents.find(agent => projectWorkspaceForAgent(agent) === surface.workspace)?.id
+    if (!targetAgentId) {
+      saveCodeWorkspaceViewState({ surface: undefined })
+      workspaceSurfaceRestoredRef.current = true
+      return
+    }
+
+    void fetchWorkspaceFile(targetAgentId, surface.filePath)
+      .then(file => {
+        openProjectFile(targetAgentId, file, {
+          view: surface.view ?? 'editor',
+          lineNumber: surface.lineNumber,
+          column: surface.column,
+          endColumn: surface.endColumn,
+          revealInTree: true,
+          sourceAgentId: surface.sourceAgentId,
+        })
+      })
+      .catch(() => {
+        saveCodeWorkspaceViewState({ surface: undefined })
+      })
+      .finally(() => {
+        workspaceSurfaceRestoredRef.current = true
+      })
+  }, [activeAgents, initialWorkspaceSurface, openProjectFile, openTerminalFromWorkspace])
+
+  useEffect(() => {
+    if (!workspaceSurfaceRestoredRef.current || activeView !== 'projects') return
+    if (mainPaneMode === 'terminal') {
+      const agent = activeAgents.find(candidate => candidate.id === activeTerminalId)
+      if (!agent) return
+      saveCodeWorkspaceViewState({
+        surface: {
+          kind: 'agent',
+          agentId: agent.id,
+          providerSessionKey: agent.providerSessionKey || undefined,
+          workspace: projectWorkspaceForAgent(agent),
+        },
+      })
+      return
+    }
+    if (!openWorkspaceFile) return
+    const workspace = openWorkspaceFile.workspaceRoot
+      ?? activeAgents.find(agent => agent.id === openWorkspaceFile.agentId)?.projectWorkspace
+      ?? activeAgents.find(agent => agent.id === openWorkspaceFile.agentId)?.cwd
+      ?? ''
+    if (!workspace) return
+    saveCodeWorkspaceViewState({
+      surface: {
+        kind: 'file',
+        workspace,
+        filePath: openWorkspaceFile.file.path,
+        view: openWorkspaceFile.diffRequestId ? 'diff' : 'editor',
+        lineNumber: openWorkspaceFile.cursor?.lineNumber,
+        column: openWorkspaceFile.cursor?.column,
+        endColumn: openWorkspaceFile.cursor?.endColumn,
+        sourceAgentId: openWorkspaceFile.sourceAgentId,
+      },
+    })
+  }, [activeAgents, activeTerminalId, activeView, mainPaneMode, openWorkspaceFile])
 
   const focusWorkspaceFilesSearch = useCallback((agentId: string, query?: string) => {
     const agent = activeAgents.find(candidate => candidate.id === agentId)
-    if (agent) {
+    if (!isGlobalWorkspaceFilesAgentId(agentId) && agent) {
       const projectId = agent.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent)
       setCollapsedProjectIds(previous => {
         if (!previous.has(projectId)) return previous
@@ -2091,7 +2136,7 @@ export function CodeWorkspace({
 
   const revealWorkspaceFileInExplorer = useCallback((agentId: string, filePath: string, kind: 'directory' | 'file') => {
     const agent = activeAgents.find(candidate => candidate.id === agentId)
-    if (agent) {
+    if (!isGlobalWorkspaceFilesAgentId(agentId) && agent) {
       const projectId = agent.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent)
       setCollapsedProjectIds(previous => {
         if (!previous.has(projectId)) return previous
@@ -2211,9 +2256,13 @@ export function CodeWorkspace({
   }, [activeAgents, focusWorkspaceFilesSearch, openProjectFile, revealWorkspaceFileInExplorer])
 
   const selectOpenWorkspaceFile = useCallback((agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
-    const agent = activeAgents.find(candidate => candidate.id === agentId)
-    const workspaceRoot = agent && !agent.isMain ? projectWorkspaceForAgent(agent) : undefined
-    if (agent) {
+    const globalFile = isGlobalWorkspaceFilesAgentId(agentId)
+    const sourceAgentId = target?.sourceAgentId ?? (globalFile ? activeTerminalIdRef.current ?? undefined : agentId)
+    const agent = activeAgents.find(candidate => candidate.id === (globalFile ? sourceAgentId : agentId))
+    const workspaceRoot = globalFile
+      ? GLOBAL_WORKSPACE_FILES_ROOT
+      : agent && !agent.isMain ? projectWorkspaceForAgent(agent) : undefined
+    if (!globalFile && agent) {
       const projectId = agent.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent)
       setCollapsedProjectIds(previous => {
         if (!previous.has(projectId)) return previous
@@ -2232,7 +2281,7 @@ export function CodeWorkspace({
     const openRequest = {
       ...createWorkspaceOpenFileRequest(target),
       workspaceRoot,
-      sourceAgentId: agentId,
+      sourceAgentId,
     }
     if (!workspaceOpenFiles.select(agentId, filePath, openRequest)) return false
     setAgentMenu(null)
@@ -2250,31 +2299,70 @@ export function CodeWorkspace({
         requestId: workspaceFileRevealRequestRef.current += 1,
       })
     }
-    markAgentReadIfNeeded(agentId)
-    onOpenTerminal(agentId, { focusTerminal: false })
+    if (agent && sourceAgentId) {
+      onOpenTerminal(sourceAgentId, { focusTerminal: false })
+    }
     closeSidebarForMobile()
     return true
-  }, [activeAgents, clearSearch, closeSidebarForMobile, createWorkspaceOpenFileRequest, markAgentReadIfNeeded, onOpenTerminal, onWorkspaceViewChange, openWorkspaceFiles, workspaceOpenFiles])
+  }, [activeAgents, clearSearch, closeSidebarForMobile, createWorkspaceOpenFileRequest, onOpenTerminal, onWorkspaceViewChange, openWorkspaceFiles, workspaceOpenFiles])
 
   const openWorkspaceFilePath = useCallback(async (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
-    if (selectOpenWorkspaceFile(agentId, filePath, target)) return
+    const fileAgentId = target?.globalRoot ? GLOBAL_WORKSPACE_FILES_AGENT_ID : agentId
+    const resolvedFilePath = target?.globalRoot ? normalizeGlobalWorkspaceFilePath(filePath) : filePath
+    const resolvedTarget = target?.globalRoot
+      ? { ...target, sourceAgentId: target.sourceAgentId ?? agentId }
+      : target
+    if (selectOpenWorkspaceFile(fileAgentId, resolvedFilePath, resolvedTarget)) return
+    const openResolvedFile = async (resolvedPath: string, fileTarget = resolvedTarget) => {
+      const file = await fetchWorkspaceFile(fileAgentId, resolvedPath)
+      openProjectFile(fileAgentId, file, fileTarget)
+    }
     try {
-      const file = await fetchWorkspaceFile(agentId, filePath)
-      openProjectFile(agentId, file, target)
+      await openResolvedFile(resolvedFilePath, resolvedTarget)
     } catch {
       try {
-        await fetchWorkspaceTree(agentId, filePath)
-        revealWorkspaceFileInExplorer(agentId, filePath, 'directory')
+        await fetchWorkspaceTree(fileAgentId, resolvedFilePath)
+        revealWorkspaceFileInExplorer(fileAgentId, resolvedFilePath, 'directory')
       } catch {
-        focusWorkspaceFilesSearch(agentId, filePath)
+        try {
+          const results = await searchWorkspaceFiles(fileAgentId, resolvedFilePath, { limit: TERMINAL_PATH_SEARCH_LIMIT })
+          const pathMatches = uniqueTerminalPathSearchMatches(results.matches)
+          const fileMatches = uniqueTerminalFileSearchMatches(results.matches)
+          if (pathMatches.length === 1) {
+            const match = pathMatches[0]
+            if (match?.entryType === 'directory') {
+              revealWorkspaceFileInExplorer(fileAgentId, match.path, 'directory')
+              return
+            }
+            if (match?.path) {
+              await openResolvedFile(match.path, resolvedTarget)
+              return
+            }
+          }
+          if (pathMatches.length === 0 && fileMatches.length === 1) {
+            const match = fileMatches[0]
+            if (match?.path) {
+              await openResolvedFile(match.path, resolvedTarget ?? (match.kind === 'content' ? {
+                lineNumber: match.lineNumber,
+                column: match.ranges[0] ? match.ranges[0].start + 1 : undefined,
+                endColumn: match.ranges[0] ? Math.max(match.ranges[0].start + 1, match.ranges[0].end + 1) : undefined,
+              } : undefined))
+              return
+            }
+          }
+        } catch {
+          // Fall through to a visible Files search when resolution fails.
+        }
+        if (!resolvedTarget?.suppressSearchOnMiss) {
+          focusWorkspaceFilesSearch(fileAgentId, resolvedFilePath)
+        }
       }
     }
   }, [focusWorkspaceFilesSearch, openProjectFile, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
 
   const restoreWorkspaceShareTarget = useCallback(async (target: WorkspaceShareTarget) => {
-    if (!workspaceNavigationAgentIds.has(target.agentId)) return false
-
     if (target.kind === 'agent') {
+      if (!workspaceNavigationAgentIds.has(target.agentId)) return false
       setAgentMenu(null)
       setProjectMenu(null)
       setAgentSessionMenu(null)
@@ -2287,41 +2375,82 @@ export function CodeWorkspace({
       return true
     }
 
+    const resolvedPath = resolveWorkspaceSharePath(
+      target,
+      activeAgents
+        .filter(agent => !agent.isMain)
+        .map(agent => ({ agentId: agent.id, workspace: projectWorkspaceForAgent(agent) })),
+      GLOBAL_WORKSPACE_FILES_AGENT_ID,
+    )
+    if (!resolvedPath) return false
+
+    if (target.kind === 'folder') {
+      try {
+        const tree = await fetchWorkspaceTree(resolvedPath.agentId, resolvedPath.filePath)
+        const previewFilePath = workspaceFolderPreviewFilePath(tree.items)
+        if (previewFilePath) {
+          const file = await fetchWorkspaceFile(resolvedPath.agentId, previewFilePath)
+          openProjectFile(resolvedPath.agentId, file)
+          return true
+        }
+        revealWorkspaceFileInExplorer(resolvedPath.agentId, resolvedPath.filePath, 'directory')
+        return true
+      } catch {
+        return false
+      }
+    }
+
     const openTarget = workspaceFileOpenTargetFromShareTarget(target)
-    if (selectOpenWorkspaceFile(target.agentId, target.filePath, openTarget)) return true
+    if (selectOpenWorkspaceFile(resolvedPath.agentId, resolvedPath.filePath, openTarget)) return true
 
     try {
-      const file = await fetchWorkspaceFile(target.agentId, target.filePath)
-      openProjectFile(target.agentId, file, openTarget)
+      const file = await fetchWorkspaceFile(resolvedPath.agentId, resolvedPath.filePath)
+      openProjectFile(resolvedPath.agentId, file, openTarget)
       return true
     } catch {
       return false
     }
   }, [
+    activeAgents,
     clearSearch,
     closeSidebarForMobile,
     onOpenTerminal,
     onWorkspaceViewChange,
     openProjectFile,
+    revealWorkspaceFileInExplorer,
     selectOpenWorkspaceFile,
     workspaceNavigationAgentIds,
   ])
+  const restoreWorkspaceShareTargetRef = useRef(restoreWorkspaceShareTarget)
+  restoreWorkspaceShareTargetRef.current = restoreWorkspaceShareTarget
+
+  const clearWorkspaceShareLocation = useCallback(() => {
+    if (typeof window === 'undefined') return
+    const nextSearch = clearWorkspaceShareTargetSearch(window.location.search)
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${nextSearch}${window.location.hash}`)
+  }, [])
 
   useEffect(() => {
     if (!pendingShareTarget) return undefined
     let cancelled = false
     let retryTimer: number | null = null
+    const sharedPath = pendingShareTarget.kind === 'agent'
+      ? pendingShareTarget.agentId
+      : pendingShareTarget.absolutePath || (pendingShareTarget.kind === 'folder' ? pendingShareTarget.folderPath : pendingShareTarget.filePath)
 
-    void restoreWorkspaceShareTarget(pendingShareTarget)
+    void restoreWorkspaceShareTargetRef.current(pendingShareTarget)
       .then(restored => {
         if (cancelled) return
         if (restored) {
           setPendingShareTarget(null)
+          clearWorkspaceShareLocation()
           return
         }
         shareTargetRestoreAttemptsRef.current += 1
         if (shareTargetRestoreAttemptsRef.current >= 20) {
+          setCopyNotice({ id: Date.now(), kind: 'error', message: copy.sharedLocationUnavailable(sharedPath) })
           setPendingShareTarget(null)
+          clearWorkspaceShareLocation()
           return
         }
         retryTimer = window.setTimeout(() => {
@@ -2329,14 +2458,18 @@ export function CodeWorkspace({
         }, 250)
       })
       .catch(() => {
-        if (!cancelled) setPendingShareTarget(null)
+        if (!cancelled) {
+          setCopyNotice({ id: Date.now(), kind: 'error', message: copy.sharedLocationUnavailable(sharedPath) })
+          setPendingShareTarget(null)
+          clearWorkspaceShareLocation()
+        }
       })
 
     return () => {
       cancelled = true
       if (retryTimer !== null) window.clearTimeout(retryTimer)
     }
-  }, [pendingShareTarget, restoreWorkspaceShareTarget, shareTargetRestoreTick])
+  }, [clearWorkspaceShareLocation, copy.sharedLocationUnavailable, pendingShareTarget, shareTargetRestoreTick])
 
   const restoreWorkspaceNavigationEntry = useCallback(async (entry: WorkspaceNavigationEntry) => {
     if (!workspaceNavigationAgentIds.has(entry.agentId)) return false
@@ -2399,7 +2532,7 @@ export function CodeWorkspace({
   const backToAgentFromFile = useCallback((agentId: string) => {
     setMainPaneMode('terminal')
     onWorkspaceViewChange('projects')
-    onOpenTerminal(agentId, { focusTerminal: true })
+    onOpenTerminal(agentId, { focusTerminal: !isMobileTouchViewport() })
     closeSidebarForMobile()
   }, [closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange])
 
@@ -2418,7 +2551,7 @@ export function CodeWorkspace({
   const reopenLastClosedWorkspaceFile = useCallback(() => {
     const nextState = workspaceOpenFiles.reopenLastClosed(file => activeAgents.some(agent => (
       agent.id === file.agentId && !agent.isMain
-    )))
+    )) || isGlobalWorkspaceFilesAgentId(file.agentId))
     const nextFile = nextState?.activeFile
     if (!nextFile) return false
 
@@ -2429,11 +2562,15 @@ export function CodeWorkspace({
     clearSearch()
     onWorkspaceViewChange('projects')
     setMainPaneMode('editor')
-    markAgentReadIfNeeded(nextFile.agentId)
-    onOpenTerminal(nextFile.agentId, { focusTerminal: false })
+    const sourceAgentId = isGlobalWorkspaceFilesAgentId(nextFile.agentId)
+      ? nextFile.sourceAgentId
+      : nextFile.agentId
+    if (sourceAgentId && activeAgents.some(agent => agent.id === sourceAgentId)) {
+      onOpenTerminal(sourceAgentId, { focusTerminal: false })
+    }
     closeSidebarForMobile()
     return true
-  }, [activeAgents, clearSearch, closeSidebarForMobile, markAgentReadIfNeeded, onOpenTerminal, onWorkspaceViewChange, workspaceOpenFiles])
+  }, [activeAgents, clearSearch, closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange, workspaceOpenFiles])
 
   const updateOpenWorkspaceFile = useCallback((nextFile: OpenWorkspaceFile) => {
     workspaceOpenFiles.update(nextFile)
@@ -2650,7 +2787,7 @@ export function CodeWorkspace({
       message: copied ? copy.copiedWorkingDirectory : copy.copyFailed,
     })
     if (focusTarget?.kind === 'agent') focusAgentRow(focusTarget.id)
-    if (focusTarget?.kind === 'agent-session') focusAgentSessionRow(focusTarget.provider, focusTarget.id)
+    if (focusTarget?.kind === 'agent-session') focusAgentSessionRow(focusTarget.provider, agentSessionId(focusTarget))
   }, [copy.copiedWorkingDirectory, copy.copyFailed, focusAgentRow, focusAgentSessionRow])
 
   const killContextMenuAgent = useCallback(() => {
@@ -2714,6 +2851,30 @@ export function CodeWorkspace({
     if (flags.archived !== true) focusAgentRow(agentId)
   }, [focusActiveProjectListTargetNow, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession, syncRemovedMainPageSessionsFromAgentUpdate])
 
+  const reorderSidebarAgent = useCallback(async (
+    agentId: string,
+    beforeAgentId: string,
+    afterAgentId: string,
+  ) => {
+    try {
+      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/reorder`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ beforeAgentId, afterAgentId }),
+      })
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: string } | null
+        throw new Error(body?.error || copy.reorderAgentFailed)
+      }
+    } catch (error) {
+      setCopyNotice({
+        id: Date.now(),
+        kind: 'error',
+        message: error instanceof Error ? error.message : copy.reorderAgentFailed,
+      })
+    }
+  }, [copy.reorderAgentFailed])
+
   const restoreArchivedAgent = useCallback((agentId: string) => {
     pendingArchivedFocusAgentRef.current = null
     pendingRestoredFocusAgentRef.current = agentId
@@ -2731,19 +2892,27 @@ export function CodeWorkspace({
     onOpenArchivedAgent(agentId)
   }, [onOpenArchivedAgent])
 
-  const resumeAgentSession = useCallback(async (provider: string, sessionId: string) => {
-    const sessionHandle = workspaceTargetId({ kind: 'agent-session', provider, id: sessionId })
+  const resumeAgentSession = useCallback(async (provider: string, sessionId: string, providerHomeId = '', customTitle = '') => {
+    const sessionHandle = agentSessionId({ provider, id: sessionId, providerHomeId })
+    const markSessionResumedLocally = () => {
+      setAgentSessions(current => current.map(session => (
+        session.provider === provider && session.id === sessionId && ((session.providerHomeId || 'default') === (providerHomeId || 'default'))
+          ? { ...session, archived: false }
+          : session
+      )))
+    }
     const existingAgent = activeAgents.find(agent => (
       (
         agent.providerSessionKey === sessionHandle
-        || agent.source === resumedAgentSource(provider, sessionId)
+        || agent.source === resumedAgentSource(provider, sessionId, providerHomeId)
       )
       && agent.archived !== true
       && agent.status !== 'dead'
       && agent.status !== 'stopped'
     ))
     if (existingAgent) {
-      addMainPageAgentSession(provider, sessionId)
+      markSessionResumedLocally()
+      addMainPageAgentSession(provider, sessionId, providerHomeId)
       onOpenTerminal(existingAgent.id)
       closeSidebarForMobile()
       return
@@ -2753,54 +2922,75 @@ export function CodeWorkspace({
       const response = await fetch(appPath(`/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(sessionId)}/resume`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ unarchiveArchived: true }),
+        body: JSON.stringify({
+          unarchiveArchived: true,
+          providerHomeId,
+          ...(customTitle ? { customTitle } : {}),
+        }),
       })
       const data = await response.json().catch(() => null) as { agentId?: string; error?: string } | null
       if (!response.ok || !data?.agentId) {
         setCopyNotice({ id: Date.now(), kind: 'error', message: data?.error || `Failed to resume agent session (${response.status})` })
         return
       }
-      addMainPageAgentSession(provider, sessionId)
-      onOpenTerminal(data.agentId)
+      markSessionResumedLocally()
+      addMainPageAgentSession(provider, sessionId, providerHomeId)
+      onOpenTerminalWhenReady(data.agentId)
       closeSidebarForMobile()
     } catch (error) {
       setCopyNotice({ id: Date.now(), kind: 'error', message: error instanceof Error ? error.message : 'Failed to resume agent session' })
     }
-  }, [activeAgents, addMainPageAgentSession, closeSidebarForMobile, onOpenTerminal])
+  }, [activeAgents, addMainPageAgentSession, closeSidebarForMobile, onOpenTerminal, onOpenTerminalWhenReady])
   resumeAgentSessionRef.current = resumeAgentSession
 
   const continueArchivedRun = useCallback((entry: TaskHistoryEntry) => {
     const resumedSession = resumedSessionFromHistoryRunSource(entry.source)
     if (resumedSession) {
-      resumeAgentSession(resumedSession.provider, resumedSession.sessionId)
+      resumeAgentSession(resumedSession.provider, resumedSession.sessionId, resumedSession.providerHomeId, entry.customTitle || '')
       onWorkspaceViewChange('projects')
       return
     }
 
-    onNewAgent(projectWorkspaceForHistoryRun(entry), entry.command || undefined, null)
+    onNewAgent(projectWorkspaceForHistoryRun(entry), entry.command || undefined, null, entry.customTitle || undefined)
   }, [onNewAgent, onWorkspaceViewChange, resumeAgentSession])
 
   const openOptionsMenu = useCallback((event: ReactMouseEvent<HTMLElement>) => {
     event.preventDefault()
     event.stopPropagation()
-    const rect = event.currentTarget.getBoundingClientRect()
-    const point = clampContextMenuPoint(
-      rect.right - OPTIONS_MENU_ESTIMATED_WIDTH,
-      rect.bottom + 8,
-      OPTIONS_MENU_ESTIMATED_HEIGHT,
-      undefined,
-      OPTIONS_MENU_ESTIMATED_WIDTH
-    )
-
     setAgentMenu(null)
     setProjectMenu(null)
     setAgentSessionMenu(null)
+    if (!isMobileTouchViewport()) {
+      setOptionsMenu(null)
+      setSettingsPanelOpen(true)
+      return
+    }
+    const rect = event.currentTarget.getBoundingClientRect()
     setOptionsMenu({
-      x: point.x,
-      y: point.y,
+      x: Math.max(8, rect.right - 164),
+      y: Math.min(window.innerHeight - 12, rect.bottom + 6),
       returnFocusTarget: event.currentTarget,
     })
   }, [])
+
+  const shareCurrentView = useCallback(async () => {
+    setOptionsMenu(null)
+    try {
+      const response = await fetch(appPath('/api/share/qr-ticket'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(shareTarget ? { target: shareTarget } : {}),
+      })
+      const body = await response.json().catch(() => null) as { longUrl?: string; shortUrl?: string; error?: string } | null
+      if (!response.ok || (!body?.longUrl && !body?.shortUrl)) {
+        throw new Error(body?.error || copy.shareLinkFailed)
+      }
+      setMobileShareUrl(body.longUrl || body.shortUrl || '')
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return
+      setCopyNotice({ id: Date.now(), kind: 'error', message: error instanceof Error ? error.message : copy.shareLinkFailed })
+    }
+  }, [copy.shareLinkFailed, shareTarget])
 
   const updateLanguagePreference = useCallback((language: UiPreferences['language']) => {
     setOptionsMenu(null)
@@ -2812,7 +3002,32 @@ export function CodeWorkspace({
     onUpdateUiPreferences({ appearance })
   }, [onUpdateUiPreferences])
 
-  const optionsMenuEntries = useMemo<ContextMenuEntry[]>(() => compactContextMenuEntries([
+  const openSettingsPanel = useCallback(() => {
+    setOptionsMenu(null)
+    setSettingsPanelOpen(true)
+  }, [])
+
+  const openSettingsFromSidebar = useCallback((event: ReactMouseEvent<HTMLElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setOptionsMenu(null)
+    setSettingsPanelOpen(true)
+  }, [])
+
+  const optionsMenuEntries = useMemo<ContextMenuEntry[]>(() => {
+    if (isMobileTouchViewport()) {
+      return compactContextMenuEntries([
+        { type: 'separator', id: 'options-mobile-share-separator' },
+        {
+          type: 'item',
+          id: 'options-mobile-share',
+          label: copy.sharePage,
+          ariaLabel: copy.sharePage,
+          onSelect: shareCurrentView,
+        },
+      ])
+    }
+    return compactContextMenuEntries([
     {
       type: 'item',
       id: 'options-appearance-light',
@@ -2846,11 +3061,24 @@ export function CodeWorkspace({
       checked: uiPreferences.language === 'zh',
       onSelect: () => updateLanguagePreference('zh'),
     },
-  ]), [
+    { type: 'separator', id: 'options-settings-separator' },
+    {
+      type: 'item',
+      id: 'options-open-settings',
+      label: copy.openSettings,
+      ariaLabel: copy.openSettings,
+      onSelect: openSettingsPanel,
+    },
+    ])
+  }, [
     copy.appearanceDark,
     copy.appearanceLight,
     copy.languageChinese,
     copy.languageEnglish,
+    copy.openSettings,
+    copy.sharePage,
+    openSettingsPanel,
+    shareCurrentView,
     uiPreferences.appearance,
     uiPreferences.language,
     updateAppearancePreference,
@@ -2870,10 +3098,15 @@ export function CodeWorkspace({
   }, [])
 
   const updatePermissionMode = useCallback((mode: string) => {
+    if (permissionSwitchingAgentId) return
     if (composerAgentKind === 'claude') {
       const nextMode = isClaudePermissionMode(mode) ? mode : 'default'
       setClaudePermissionMode(nextMode)
       persistAgentLaunchProfile('claude', { permissionMode: nextMode })
+      if (activeAgent) {
+        setCopyNotice({ id: Date.now(), kind: 'success', message: copy.permissionProfileRestarting })
+        void onUpdateAgentFlags(activeAgent.id, { launchPermissionMode: nextMode })
+      }
       closeActiveComposerMenus()
       focusComposerTextarea()
       return
@@ -2882,9 +3115,25 @@ export function CodeWorkspace({
     const nextMode = isCodexApprovalMode(mode) ? mode : 'approve'
     setCodexApprovalMode(nextMode)
     persistAgentLaunchProfile('codex', { approvalMode: nextMode })
+    if (activeAgent && composerAgentKind === 'codex') {
+      setCopyNotice({
+        id: Date.now(),
+        kind: 'success',
+        message: activeAgent.codexRuntimeMode === 'app-server'
+          ? copy.permissionProfileApplying
+          : copy.permissionProfileRestarting,
+      })
+      void onUpdateAgentFlags(activeAgent.id, { launchPermissionMode: nextMode })
+    }
     closeActiveComposerMenus()
     focusComposerTextarea()
-  }, [closeActiveComposerMenus, composerAgentKind, focusComposerTextarea, persistAgentLaunchProfile])
+  }, [activeAgent, closeActiveComposerMenus, composerAgentKind, copy.permissionProfileApplying, copy.permissionProfileRestarting, focusComposerTextarea, onUpdateAgentFlags, permissionSwitchingAgentId, persistAgentLaunchProfile])
+
+  const updateAgentRuntimeMode = useCallback((agentId: string, mode: 'terminal' | 'json') => {
+    if (permissionSwitchingAgentId) return
+    setCopyNotice({ id: Date.now(), kind: 'success', message: copy.permissionProfileRestarting })
+    void onUpdateAgentFlags(agentId, { agentRuntimeMode: mode })
+  }, [copy.permissionProfileRestarting, onUpdateAgentFlags, permissionSwitchingAgentId])
 
   const updateAgentModel = useCallback((model: string) => {
     if (composerAgentKind === 'claude') {
@@ -2970,22 +3219,37 @@ export function CodeWorkspace({
     const targetComposerKey = activeComposerKey
     if (!targetComposerKey) return
 
-    const mobileComposerFallback = isMobileTouchViewport() ||
-      (typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)').matches)
-    const SpeechRecognition = (window as WindowWithSpeechRecognition).SpeechRecognition
-      || (window as WindowWithSpeechRecognition).webkitSpeechRecognition
+    const mobileComposerFallback = isMobileTouchViewport()
+    const nativeMobileDictation = shouldUseNativeMobileDictation()
+    const SpeechRecognition = speechSupported && !nativeMobileDictation
+      ? (window as WindowWithSpeechRecognition).SpeechRecognition
+        || (window as WindowWithSpeechRecognition).webkitSpeechRecognition
+      : null
     if (!SpeechRecognition) {
-      if (mobileComposerFallback) {
-        setSpeechListening(true)
-        focusComposerTextarea()
-      }
+      if (shouldUseNativeMobileDictation() || mobileComposerFallback) focusComposerTextarea()
+      setSpeechListening(false)
       return
     }
 
     const recognition = new SpeechRecognition()
+    let recognitionStopTimer: number | null = null
+    const clearRecognitionStopTimer = () => {
+      if (recognitionStopTimer === null) return
+      window.clearTimeout(recognitionStopTimer)
+      recognitionStopTimer = null
+    }
+    const stopRecognitionIfCurrent = () => {
+      if (recognitionRef.current !== recognition) return
+      try {
+        recognition.stop()
+      } catch {
+        setSpeechListening(false)
+        recognitionRef.current = null
+      }
+    }
     recognition.continuous = false
     recognition.interimResults = false
-    recognition.lang = navigator.language || 'en-US'
+    recognition.lang = uiPreferences.language === 'zh' ? 'zh-CN' : (navigator.language || 'en-US')
     recognition.onresult = event => {
       let transcript = ''
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
@@ -3002,9 +3266,13 @@ export function CodeWorkspace({
       focusComposerTextarea()
     }
     recognition.onerror = () => {
+      clearRecognitionStopTimer()
       setSpeechListening(false)
     }
+    recognition.onspeechend = stopRecognitionIfCurrent
+    recognition.onaudioend = stopRecognitionIfCurrent
     recognition.onend = () => {
+      clearRecognitionStopTimer()
       setSpeechListening(false)
       recognitionRef.current = null
     }
@@ -3012,13 +3280,14 @@ export function CodeWorkspace({
     setSpeechListening(true)
     try {
       recognition.start()
+      recognitionStopTimer = window.setTimeout(stopRecognitionIfCurrent, 60_000)
     } catch {
+      clearRecognitionStopTimer()
       recognitionRef.current = null
-      if (!mobileComposerFallback) {
-        setSpeechListening(false)
-      }
+      setSpeechListening(false)
+      if (mobileComposerFallback) focusComposerTextarea()
     }
-  }, [activeComposerKey, focusComposerTextarea, speechListening, updateComposerStateForKey])
+  }, [activeComposerKey, focusComposerTextarea, speechListening, speechSupported, uiPreferences.language, updateComposerStateForKey])
 
   const archiveContextProject = useCallback(() => {
     if (!contextMenuProject) return
@@ -3084,6 +3353,12 @@ export function CodeWorkspace({
 
   const handleContextMenuNavigation = useCallback((event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'preventDefault' | 'stopPropagation'>, menu: HTMLElement | null) => {
     if (!menu) return false
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      closeContextMenuAndRestoreFocus()
+      return true
+    }
     const buttons = Array.from(menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
     if (buttons.length === 0) return
     const activeIndex = buttons.findIndex(button => button === document.activeElement)
@@ -3400,7 +3675,7 @@ export function CodeWorkspace({
       }
     }
     return scheduleFocusRetries(focusRenameInput, { delays: [0, 80, 180, 360] })
-  }, [renameDialog])
+  }, [renameDialogIdentity])
 
   useEffect(() => {
     if (!killDialog) return
@@ -3511,17 +3786,32 @@ export function CodeWorkspace({
   }, [pageVisible])
 
   useEffect(() => {
-    const SpeechRecognition = (window as WindowWithSpeechRecognition).SpeechRecognition
-      || (window as WindowWithSpeechRecognition).webkitSpeechRecognition
-    setSpeechSupported(Boolean(SpeechRecognition))
+    const speechViewportQuery = window.matchMedia('(max-width: 980px)')
+    const updateSpeechSupported = () => {
+      const SpeechRecognition = (window as WindowWithSpeechRecognition).SpeechRecognition
+        || (window as WindowWithSpeechRecognition).webkitSpeechRecognition
+      setSpeechSupported(Boolean(SpeechRecognition) && !shouldUseNativeMobileDictation())
+    }
+    updateSpeechSupported()
+    speechViewportQuery.addEventListener('change', updateSpeechSupported)
 
     return () => {
+      speechViewportQuery.removeEventListener('change', updateSpeechSupported)
       recognitionRef.current?.stop()
       recognitionRef.current = null
     }
   }, [])
 
   useEffect(() => loadGlobalSettings(), [loadGlobalSettings])
+
+  useEffect(() => {
+    const handleAgentHomesSaved = () => {
+      loadGlobalSettings()
+      loadAgentSessions()
+    }
+    window.addEventListener('farming-agent-homes-saved', handleAgentHomesSaved)
+    return () => window.removeEventListener('farming-agent-homes-saved', handleAgentHomesSaved)
+  }, [loadAgentSessions, loadGlobalSettings])
   useEffect(() => loadClaudeSettings(), [loadClaudeSettings])
   useEffect(
     () => loadSlashCommands(composerAgentKind || '', activeAgent?.cwd),
@@ -3638,10 +3928,13 @@ export function CodeWorkspace({
     if (!workspace || typeof ResizeObserver === 'undefined') return
 
     const syncSidebarForWorkspaceWidth = (width: number) => {
-      if (isMobileNavigationViewport()) {
-        autoCollapseSidebar()
+      const mobileNavigationViewport = isMobileNavigationViewport()
+      if (mobileNavigationViewport) {
+        if (!mobileNavigationViewportRef.current) autoCollapseSidebar()
+        mobileNavigationViewportRef.current = true
         return
       }
+      mobileNavigationViewportRef.current = false
 
       if (isDesktopAutoCollapseWidth(width)) {
         autoCollapseSidebar()
@@ -3760,9 +4053,17 @@ export function CodeWorkspace({
   }, [activeAgents, activeView, focusAgentRowNow, searchOpen, shouldSkipProjectFocusRestore])
 
   useEffect(() => {
-    if (!activeTerminalId) return
+    const previousAgentId = previousActiveTerminalIdRef.current
+    previousActiveTerminalIdRef.current = activeTerminalId
+    if (!activeTerminalId || activeTerminalId === previousAgentId) return
+    if (
+      permissionSwitchReplacement?.originalAgentId === previousAgentId
+      && permissionSwitchReplacement.replacementAgentId === activeTerminalId
+    ) {
+      return
+    }
     onWorkspaceViewChange('projects')
-  }, [activeTerminalId, onWorkspaceViewChange])
+  }, [activeTerminalId, onWorkspaceViewChange, permissionSwitchReplacement])
 
   useEffect(() => {
     if (activeProjectWorkspace) {
@@ -3796,12 +4097,11 @@ export function CodeWorkspace({
         sidebarCollapsed={sidebarCollapsed}
         activeView={activeView}
         searchOpen={searchOpen}
-        searchQuery={searchQuery}
-        displayedProjects={displayedProjects}
+        displayedProjects={projects}
         collapsedProjectIds={collapsedProjectIds}
-        normalizedSearch={normalizedSearch}
+        normalizedSearch=""
         hasProjectListItems={hasProjectListItems}
-        hasDisplayedProjectListItems={hasDisplayedProjectListItems}
+        hasDisplayedProjectListItems={hasProjectListItems}
         activeTerminalId={activeTerminalId}
         selectedSearchAgentId={selectedSearchAgentId}
         selectedSearchSessionHandle={selectedSearchSessionHandle}
@@ -3819,10 +4119,9 @@ export function CodeWorkspace({
         openWorkspaceFiles={openWorkspaceFiles}
         fileRevealRequest={fileRevealRequest}
         fileSearchFocusRequest={fileSearchFocusRequest}
-        searchInputRef={searchInputRef}
         projectListRef={projectListRef}
         onNewAgent={startNewAgentFromSidebar}
-        onStartAgent={onStartAgent}
+        onStartAgent={startAgentWithLaunchProfile}
         onToggleSidebar={toggleSidebar}
         onOpenSearch={openSearchFromSidebar}
         onOpenWorkspaceView={openWorkspaceViewFromSidebar}
@@ -3833,9 +4132,6 @@ export function CodeWorkspace({
           onOpenTerminal(hiddenMainAgent.id)
         }}
         onRestartMainAgent={onRestartMainAgent}
-        onSearchQueryChange={setSearchQuery}
-        onSearchKeyDown={handleSearchInputKeyDown}
-        onCloseSearch={closeSearchView}
         onProjectListKeyDown={handleProjectListKeyDown}
         onToggleProject={toggleProject}
         onToggleProjectSessions={toggleProjectSessions}
@@ -3843,6 +4139,7 @@ export function CodeWorkspace({
         onOpenProjectKeyboardMenu={openProjectKeyboardMenu}
         onOpenAgent={openTerminalFromSidebar}
         onUpdateAgentFlags={updateSidebarAgentFlags}
+        onReorderAgent={reorderSidebarAgent}
         onOpenAgentContextMenu={openAgentContextMenu}
         onOpenAgentKeyboardMenu={openAgentKeyboardMenu}
         onResumeAgentSession={resumeAgentSession}
@@ -3853,9 +4150,27 @@ export function CodeWorkspace({
         onCloseOpenWorkspaceFile={closeOpenWorkspaceFile}
         onMoveWorkspaceEntries={handleWorkspaceFileMove}
         onDeleteWorkspaceEntries={handleWorkspaceFileDelete}
-        onOpenOptionsMenu={openOptionsMenu}
+        onOpenOptionsMenu={openSettingsFromSidebar}
         copy={copy}
       />
+
+      <AgentHomesSettingsPanel
+        open={settingsPanelOpen}
+        language={uiPreferences.language}
+        uiPreferences={uiPreferences}
+        agentLaunchOptions={agentLaunchOptions}
+        onClose={() => setSettingsPanelOpen(false)}
+        onUpdateUiPreferences={onUpdateUiPreferences}
+      />
+
+      {mobileShareUrl && (
+        <MobileShareSheet
+          copy={copy}
+          title={mobileHeaderTitle}
+          url={mobileShareUrl}
+          onClose={() => setMobileShareUrl('')}
+        />
+      )}
 
       <div
         className="code-sidebar-resizer"
@@ -3869,20 +4184,34 @@ export function CodeWorkspace({
           className="code-mobile-sidebar-backdrop"
           data-testid="code-mobile-sidebar-backdrop"
           aria-label={copy.closeNavigation}
-          onClick={autoCollapseSidebar}
+          onPointerDown={autoCollapseSidebar}
         />
       )}
 
       <div className="code-mobile-topbar" data-testid="code-mobile-topbar">
-        <button
-          type="button"
-          className="code-mobile-topbar-button menu"
-          data-testid="code-mobile-menu"
-          aria-label={copy.openNavigation}
-          onClick={openMobileSidebar}
-        >
-          <span aria-hidden="true" />
-        </button>
+        {showMobileBackButton ? (
+          <button
+            type="button"
+            className="code-mobile-topbar-button back"
+            data-testid="code-mobile-back"
+            aria-label={copy.backToAgent}
+            onClick={() => {
+              if (mobileBackAgentId) backToAgentFromFile(mobileBackAgentId)
+            }}
+          >
+            <span aria-hidden="true" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="code-mobile-topbar-button menu"
+            data-testid="code-mobile-menu"
+            aria-label={copy.openNavigation}
+            onClick={openMobileSidebar}
+          >
+            <span aria-hidden="true" />
+          </button>
+        )}
         <div className="code-mobile-topbar-title">
           <strong>{mobileHeaderTitle}</strong>
           {mobileHeaderSubtitle && (
@@ -3925,19 +4254,23 @@ export function CodeWorkspace({
         openAgentsCount={openAgents.length}
         visibleOpenAgents={visibleOpenAgents}
         activeTerminalId={activeTerminalId}
+        permissionSwitchingAgentId={permissionSwitchingAgentId}
         terminalFocusRequest={terminalFocusRequest}
         agentCreationWorkspace={agentCreationWorkspace}
         displayedProjects={searchResultProjects}
+        searchQuery={searchQuery}
         searchHasQuery={hasSearchQuery}
         visibleSearchTargetCount={visibleSearchTargets.length}
         selectedSearchAgentId={selectedSearchAgentId}
         selectedSearchSessionHandle={selectedSearchSessionHandle}
+        searchInputRef={searchInputRef}
         archivedRuns={visibleArchivedRuns}
         archivedAgents={visibleArchivedAgents}
         historyAgentSessions={visibleHistoryAgentSessions}
         now={now}
         composerProps={{
-          active: Boolean(activeAgent),
+          active: Boolean(activeAgent) && !activeAgentPermissionSwitching,
+          agentKind: composerAgentKind,
           capabilities: activeAgentCapabilities.composer,
           slashCommands: composerSlashCommands,
           draft,
@@ -3953,8 +4286,12 @@ export function CodeWorkspace({
           agentServiceTier: activeAgentServiceTier,
           agentModelOptions: activeAgentModelOptions,
           currentPermissionMode,
+          permissionModeDisabled: Boolean(permissionSwitchingAgentId),
           currentPermissionLabel,
           currentPermissionColor,
+          permissionModeHint: activeAgent?.codexRuntimeMode === 'app-server'
+            ? copy.permissionAppServerHint
+            : copy.permissionRestartHint,
           currentModelLabel,
           currentReasoningLabel,
           currentSpeedLabel,
@@ -3968,6 +4305,8 @@ export function CodeWorkspace({
               createdAt: activePendingFollowUp.createdAt,
             }
             : null,
+          appServerRequest: activeAgent?.codexAppServerPendingRequest || null,
+          appServerNotice: activeAgent?.codexAppServerNotice || null,
           submitAction: composerSubmitAction,
           speechSupported,
           speechListening,
@@ -3983,6 +4322,8 @@ export function CodeWorkspace({
           onInterrupt: interruptActiveAgent,
           onSteerPendingFollowUp: steerPendingFollowUp,
           onDiscardPendingFollowUp: discardPendingFollowUp,
+          onRespondToAppServerRequest: respondToActiveAppServerRequest,
+          onRejectAppServerRequest: rejectActiveAppServerRequest,
           onPasteAttachment: handlePasteAttachment,
           onAttachmentFiles: handleAttachmentFiles,
           onChooseAttachmentFile: chooseAttachmentFile,
@@ -4024,6 +4365,7 @@ export function CodeWorkspace({
               },
             }))
           },
+          onCloseMenus: closeActiveComposerMenus,
           onSetModelPickerPane: pane => {
             updateActiveComposerState(state => ({
               ...state,
@@ -4043,15 +4385,20 @@ export function CodeWorkspace({
         onOpenTerminalPath={openTerminalPathTarget}
         onResolveTerminalPath={resolveTerminalPathTarget}
         onTerminalFollowOutputChange={handleTerminalFollowOutputChange}
+        onAgentReadLatest={markAgentReadIfNeeded}
+        onRuntimeModeChange={updateAgentRuntimeMode}
         sendInput={sendInput}
         resizeAgent={resizeAgent}
         onSessionOutput={onSessionOutput}
         onOpenSearchAgent={openTerminalFromWorkspace}
         onOpenSearchSession={session => {
-          resumeAgentSession(session.provider, session.id)
+          resumeAgentSession(session.provider, session.id, session.providerHomeId)
           clearSearch()
           onWorkspaceViewChange('projects')
         }}
+        onSearchQueryChange={setSearchQuery}
+        onSearchKeyDown={handleSearchInputKeyDown}
+        onCloseSearch={closeSearchView}
         onResumeHistorySession={resumeAgentSession}
         onContinueArchivedRun={continueArchivedRun}
         onOpenArchivedAgent={openArchivedAgent}
@@ -4102,8 +4449,8 @@ export function CodeWorkspace({
         onOpenSession={(provider, sessionId) => {
           setAgentSessionMenu(null)
           setOptionsMenu(null)
-          resumeAgentSession(provider, sessionId)
-          focusAgentSessionRow(provider, sessionId)
+          resumeAgentSession(provider, sessionId, contextMenuAgentSession?.providerHomeId)
+          if (contextMenuAgentSession) focusAgentSessionRow(provider, agentSessionId(contextMenuAgentSession))
         }}
         onToggleSessionPinned={toggleContextMenuAgentSessionPinned}
         onArchiveSession={archiveContextMenuAgentSession}
@@ -4113,6 +4460,7 @@ export function CodeWorkspace({
             kind: 'agent-session',
             provider: contextMenuAgentSession.provider,
             id: contextMenuAgentSession.id,
+            providerHomeId: contextMenuAgentSession.providerHomeId,
           })
         }}
         onArchiveProject={archiveContextProject}
@@ -4155,7 +4503,7 @@ function CodexMenuEntries({ entries }: { entries: ContextMenuEntry[] }) {
             onClick={entry.onSelect}
           >
             {typeof entry.checked === 'boolean' && (
-              <span className="code-options-menu-check" aria-hidden="true">{entry.checked ? '✓' : ''}</span>
+              <span className="code-options-menu-check" aria-hidden="true">{entry.checked ? <CheckGlyph /> : null}</span>
             )}
             {entry.icon && (
               <span className="code-context-menu-icon" aria-hidden="true">

@@ -7,6 +7,14 @@ import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { TerminalPathOpenTarget, TerminalSearchDirection, TerminalSearchResult } from '@/lib/terminal-session-pool'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
 import type { CodeCopy } from './code/copy'
+import {
+  ArrowDownGlyph,
+  ArrowUpGlyph,
+  CaseSensitiveGlyph,
+  CloseGlyph,
+  RegexGlyph,
+  WholeWordGlyph,
+} from './IconGlyphs'
 
 interface AgentTerminalPaneProps {
   agent: Agent
@@ -36,6 +44,7 @@ function shouldSuppressRendererCursorForAgent(command?: string) {
     'codex',
     'qwen',
     'opencode',
+    'qodercli',
     'aider',
     'github-copilot-cli',
     'amazon-q',
@@ -126,10 +135,12 @@ export function AgentTerminalPane({
   const [terminalSearchOptions, setTerminalSearchOptions] = useState<TerminalSearchOptions>({})
   const [terminalSearchResult, setTerminalSearchResult] = useState<TerminalSearchResult | null>(null)
   const [terminalError, setTerminalError] = useState<string | null>(null)
+  const appServerWaitingForFirstMessage = agent.codexCliObserverDeferred === true
 
   const handleTerminalInput = useCallback((data: string) => {
+    if (appServerWaitingForFirstMessage) return
     sendInput(data, agent.id)
-  }, [agent.id, sendInput])
+  }, [agent.id, appServerWaitingForFirstMessage, sendInput])
 
   const handleTerminalResize = useCallback((cols: number, rows: number) => {
     return resizeAgent(agent.id, cols, rows)
@@ -148,7 +159,7 @@ export function AgentTerminalPane({
     setTerminalError(error.message || copy.terminalSessionUnavailable)
   }, [copy.terminalSessionUnavailable])
 
-  const { focus, getSelectionNow, scrollToBottom, search, clearSearch } = usePooledTerminal({
+  const { focus, refreshLayout, getSelectionNow, scrollToBottom, search, clearSearch } = usePooledTerminal({
     agentId: agent.id,
     containerRef: terminalContainerRef,
     onInput: handleTerminalInput,
@@ -162,11 +173,24 @@ export function AgentTerminalPane({
     onError: handleTerminalError,
   })
 
+  const refreshVisibleTerminalLayout = useCallback((autoFocus = false) => {
+    window.requestAnimationFrame(() => {
+      refreshLayout({ autoFocus })
+      window.requestAnimationFrame(() => refreshLayout({ autoFocus }))
+    })
+  }, [refreshLayout])
+
+  useEffect(() => {
+    if (!active) return
+    refreshVisibleTerminalLayout(false)
+  }, [active, refreshVisibleTerminalLayout])
+
   useEffect(() => {
     if (!active || focusSignal <= 0) return
     if (isMobileViewport()) return
+    refreshVisibleTerminalLayout(true)
     focus()
-  }, [active, focus, focusSignal])
+  }, [active, focus, focusSignal, refreshVisibleTerminalLayout])
 
   useEffect(() => {
     return () => {
@@ -330,7 +354,16 @@ export function AgentTerminalPane({
         data-testid="code-terminal-container"
         ref={terminalContainerRef}
       />
-      {terminalError ? (
+      {appServerWaitingForFirstMessage ? (
+        <div
+          className="code-terminal-status-card"
+          data-testid="code-terminal-app-server-ready"
+          onPointerDown={event => event.stopPropagation()}
+          onMouseDown={event => event.stopPropagation()}
+        >
+          <span>{copy.appServerWaitingForFirstMessage}</span>
+        </div>
+      ) : terminalError ? (
         <div
           className="code-terminal-status-card"
           data-testid="code-terminal-status-card"
@@ -358,11 +391,22 @@ export function AgentTerminalPane({
         >
           <input
             ref={searchInputRef}
+            type="search"
+            name="farming-terminal-search"
+            inputMode="search"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="none"
             value={terminalSearchQuery}
             placeholder={copy.terminalSearchPlaceholder}
             aria-label={copy.terminalSearchPlaceholder}
             data-testid="code-terminal-search-input"
             spellCheck={false}
+            enterKeyHint="search"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-bwignore="true"
+            data-form-type="other"
             onChange={event => setTerminalSearchQuery(event.target.value)}
           />
           <span className={`code-terminal-search-status ${terminalSearchResult && !terminalSearchResult.found ? 'empty' : ''}`}>
@@ -377,7 +421,7 @@ export function AgentTerminalPane({
             data-testid="code-terminal-search-case-sensitive"
             onClick={() => toggleTerminalSearchOption('caseSensitive')}
           >
-            Aa
+            <CaseSensitiveGlyph />
           </button>
           <button
             type="button"
@@ -388,7 +432,7 @@ export function AgentTerminalPane({
             data-testid="code-terminal-search-whole-word"
             onClick={() => toggleTerminalSearchOption('wholeWord')}
           >
-            ab
+            <WholeWordGlyph />
           </button>
           <button
             type="button"
@@ -399,7 +443,7 @@ export function AgentTerminalPane({
             data-testid="code-terminal-search-regex"
             onClick={() => toggleTerminalSearchOption('regex')}
           >
-            .*
+            <RegexGlyph />
           </button>
           <button
             type="button"
@@ -408,7 +452,7 @@ export function AgentTerminalPane({
             title={copy.terminalSearchPrevious}
             onClick={() => runTerminalSearch(terminalSearchQuery, 'previous')}
           >
-            ↑
+            <ArrowUpGlyph />
           </button>
           <button
             type="button"
@@ -417,7 +461,7 @@ export function AgentTerminalPane({
             title={copy.terminalSearchNext}
             onClick={() => runTerminalSearch(terminalSearchQuery, 'next')}
           >
-            ↓
+            <ArrowDownGlyph />
           </button>
           <button
             type="button"
@@ -426,7 +470,7 @@ export function AgentTerminalPane({
             title={copy.terminalSearchClose}
             onClick={closeTerminalSearch}
           >
-            ×
+            <CloseGlyph />
           </button>
         </form>
       ) : null}
@@ -443,7 +487,7 @@ export function AgentTerminalPane({
             jumpToLatestOutput()
           }}
         >
-          ↓
+          <ArrowDownGlyph />
         </button>
       ) : null}
     </section>

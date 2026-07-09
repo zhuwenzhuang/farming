@@ -1480,8 +1480,8 @@ class $ {
   }
   /**
    * Render a single line using two-pass approach:
-   * 1. Background phase: Draw all cell backgrounds
-   * 2. Text phase: Draw all cell text and decorations
+   * 1. First pass: Draw all cell backgrounds
+   * 2. Second pass: Draw all cell text and decorations
    *
    * This two-pass approach is necessary for proper rendering of complex scripts
    * like Devanagari where diacritics (like vowel sign ि) can extend LEFT of the

@@ -266,10 +266,16 @@ class NativePtyHost {
 
   async createSession(options) {
     this.cancelIdleExit();
-    const normalized = normalizeShellSessionOptions({
-      ...options,
-      env: sanitizeAgentEnv(options.env),
-    });
+    const normalized = options.shellIntegrationPrepared === true
+      ? {
+        ...options,
+        args: [...(options.args || [])],
+        env: sanitizeAgentEnv(options.env),
+      }
+      : normalizeShellSessionOptions({
+        ...options,
+        env: sanitizeAgentEnv(options.env),
+      });
     const agentId = normalized.agentId;
     if (!agentId) {
       throw new Error('Missing native pty session id');

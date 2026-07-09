@@ -101,10 +101,31 @@ function run() {
     ],
     'History should dedupe Codex/Claude resume ids while preserving ordinary runs'
   );
+
+  const repeatedTitleItems = buildHistoryAgentItems([], [], [
+    session({ id: 'session-old', title: 'Same task', updatedAt: new Date(1_000).toISOString() }),
+    session({ id: 'session-new', title: 'Same task', updatedAt: new Date(2_000).toISOString() }),
+  ]);
+  assert.deepStrictEqual(
+    repeatedTitleItems.map(item => item.historyKey),
+    ['agent-session:codex:session-new'],
+    'History should collapse duplicate provider sessions with the same title and workspace'
+  );
   assert.strictEqual(
     items.filter(item => item.kind === 'run' && item.entry.source === claudeSource).length,
     1,
     'Repeated Claude process-exit history rows with the same resume id should collapse'
+  );
+
+  const sharedId = '019f26d3-7485-76d0-8a64-f5cf5d690130';
+  const homeItems = buildHistoryAgentItems([], [], [
+    session({ id: sharedId, providerHomeId: 'default' }),
+    session({ id: sharedId, providerHomeId: 'work' }),
+  ]);
+  assert.deepStrictEqual(
+    homeItems.map(item => item.historyKey).sort(),
+    [`agent-session:codex:${sharedId}`, `agent-session:codex:home:work:${sharedId}`].sort(),
+    'Sessions with the same provider id in different Agent Homes must remain distinct'
   );
 
   console.log('test-code-history-dedupe passed');

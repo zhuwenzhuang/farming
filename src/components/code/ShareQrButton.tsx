@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import qrcode from 'qrcode-generator'
+import type qrcode from 'qrcode-generator'
 import { appPath } from '@/lib/base-path'
 import { writeTerminalClipboardText } from '@/lib/terminal-clipboard'
 import { workspaceShareTargetKey, type WorkspaceShareTarget } from '@/lib/workspace-share-target'
 import type { CodeCopy } from './copy'
 
-const HOVER_DWELL_MS = 250
 const CLOSE_DWELL_MS = 140
 const POPOVER_WIDTH = 264
 const POPOVER_HEIGHT = 340
@@ -19,6 +18,28 @@ type ShareTicket = {
   shortUrl: string
   longUrl: string
   tokenLabel: string
+}
+
+type QrCodeFactory = typeof qrcode
+type QrCodeModule = {
+  default?: unknown
+  qrcode?: unknown
+}
+
+let qrCodeFactoryPromise: Promise<QrCodeFactory> | null = null
+
+function resolveQrCodeFactory(module: QrCodeModule | QrCodeFactory) {
+  if (typeof module === 'function') return module
+  if (typeof module.default === 'function') return module.default as QrCodeFactory
+  if (typeof module.qrcode === 'function') return module.qrcode as QrCodeFactory
+  throw new Error('QR renderer failed to load')
+}
+
+function preloadQrCodeFactory() {
+  if (!qrCodeFactoryPromise) {
+    qrCodeFactoryPromise = import('qrcode-generator').then(module => resolveQrCodeFactory(module as QrCodeModule))
+  }
+  return qrCodeFactoryPromise
 }
 
 function formatCountdown(ms: number) {
@@ -76,14 +97,14 @@ function finderPattern(x: number, y: number, key: string) {
   )
 }
 
-function FarmingQrCode({ value, badgeUrl }: { value: string; badgeUrl: string }) {
+function FarmingQrCode({ value, badgeUrl, qrCodeFactory }: { value: string; badgeUrl: string; qrCodeFactory: QrCodeFactory }) {
   const rawId = useId().replace(/:/g, '')
   const qr = useMemo(() => {
-    const next = qrcode(0, 'H')
+    const next = qrCodeFactory(0, 'H')
     next.addData(value)
     next.make()
     return next
-  }, [value])
+  }, [qrCodeFactory, value])
   const moduleCount = qr.getModuleCount()
   const size = moduleCount + QR_QUIET_ZONE * 2
   const badgeModules = Math.max(7, Math.min(11, Math.floor(moduleCount * 0.26) | 1))
@@ -175,24 +196,18 @@ export function ShareQrButton({
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const tokenDisplayRef = useRef<HTMLSpanElement | null>(null)
   const tokenMeasureRef = useRef<HTMLSpanElement | null>(null)
-  const hoverTimerRef = useRef<number | null>(null)
   const closeTimerRef = useRef<number | null>(null)
   const requestSeqRef = useRef(0)
   const ticketRef = useRef<ShareTicket | null>(null)
   const copiedTimerRef = useRef<number | null>(null)
   const [singleLineTokenFits, setSingleLineTokenFits] = useState(true)
+  const [qrCodeFactory, setQrCodeFactory] = useState<QrCodeFactory | null>(null)
   const badgeUrl = appPath('/farming-2/images/avatar-watercolor-v1-bee-garden.png')
   const shareTargetSignature = workspaceShareTargetKey(shareTarget)
 
   useEffect(() => {
     ticketRef.current = ticket
   }, [ticket])
-
-  const clearHoverTimer = useCallback(() => {
-    if (hoverTimerRef.current === null) return
-    window.clearTimeout(hoverTimerRef.current)
-    hoverTimerRef.current = null
-  }, [])
 
   const clearCloseTimer = useCallback(() => {
     if (closeTimerRef.current === null) return
@@ -211,6 +226,17 @@ export function ShareQrButton({
     const y = Math.max(8, Math.min(rect.top - 4, window.innerHeight - POPOVER_HEIGHT - 8))
     setPlacement({ x, y })
   }, [])
+
+  const preloadQrRenderer = useCallback(() => {
+    if (sidebarCollapsed) return
+    void preloadQrCodeFactory()
+      // React treats a function passed directly to a state setter as an
+      // updater. Wrap the QR factory so it is stored as a value; otherwise
+      // opening the popover invokes it as an updater and leaves a non-callable
+      // QR object in state, which blanks the whole app on the next render.
+      .then(factory => setQrCodeFactory(() => factory))
+      .catch(() => setError(copy.shareLinkFailed))
+  }, [copy.shareLinkFailed, sidebarCollapsed])
 
   const createTicket = useCallback(async (force = false) => {
     const current = ticketRef.current
@@ -254,7 +280,6 @@ export function ShareQrButton({
   }, [copy.shareLinkFailed, shareTarget, shareTargetSignature])
 
   const closePopover = useCallback(() => {
-    clearHoverTimer()
     clearCloseTimer()
     requestSeqRef.current += 1
     setOpen(false)
@@ -266,37 +291,25 @@ export function ShareQrButton({
     ticketRef.current = null
     setTicket(null)
     void revokeShareTicket(current)
-  }, [clearCloseTimer, clearHoverTimer])
+  }, [clearCloseTimer])
 
   const openPopover = useCallback((nextPinned: boolean, force = false) => {
-    clearHoverTimer()
     clearCloseTimer()
     updatePlacement()
     setOpen(true)
     setPinned(nextPinned)
+    preloadQrRenderer()
     void createTicket(force)
-  }, [clearCloseTimer, clearHoverTimer, createTicket, updatePlacement])
-
-  const scheduleHoverOpen = useCallback(() => {
-    if (sidebarCollapsed) return
-    clearCloseTimer()
-    if (open) return
-    clearHoverTimer()
-    hoverTimerRef.current = window.setTimeout(() => {
-      hoverTimerRef.current = null
-      openPopover(false)
-    }, HOVER_DWELL_MS)
-  }, [clearCloseTimer, clearHoverTimer, open, openPopover, sidebarCollapsed])
+  }, [clearCloseTimer, createTicket, preloadQrRenderer, updatePlacement])
 
   const scheduleClose = useCallback(() => {
-    clearHoverTimer()
-    if (pinned) return
+    if (!open || pinned) return
     clearCloseTimer()
     closeTimerRef.current = window.setTimeout(() => {
       closeTimerRef.current = null
       closePopover()
     }, CLOSE_DWELL_MS)
-  }, [clearCloseTimer, clearHoverTimer, closePopover, pinned])
+  }, [clearCloseTimer, closePopover, open, pinned])
 
   const handleButtonClick = useCallback(() => {
     if (open && pinned) {
@@ -393,14 +406,13 @@ export function ShareQrButton({
   }, [closePopover, open])
 
   useEffect(() => () => {
-    clearHoverTimer()
     clearCloseTimer()
     if (copiedTimerRef.current !== null) {
       window.clearTimeout(copiedTimerRef.current)
     }
     requestSeqRef.current += 1
     void revokeShareTicket(ticketRef.current)
-  }, [clearCloseTimer, clearHoverTimer])
+  }, [clearCloseTimer])
 
   const expired = Boolean(ticket && ticket.expiresAt <= now)
   const countdown = ticket ? formatCountdown(ticket.expiresAt - now) : ''
@@ -412,9 +424,12 @@ export function ShareQrButton({
     <div
       ref={rootRef}
       className="code-share-root"
-      onMouseEnter={scheduleHoverOpen}
+      onMouseEnter={preloadQrRenderer}
       onMouseLeave={scheduleClose}
-      onFocus={() => clearCloseTimer()}
+      onFocus={() => {
+        clearCloseTimer()
+        preloadQrRenderer()
+      }}
       onBlur={event => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null) && !pinned) {
           closePopover()
@@ -442,7 +457,6 @@ export function ShareQrButton({
           aria-label={copy.scanToOpenOnPhone}
           style={{ left: placement.x, top: placement.y }}
           onMouseEnter={() => {
-            clearHoverTimer()
             clearCloseTimer()
           }}
           onMouseLeave={scheduleClose}
@@ -455,8 +469,8 @@ export function ShareQrButton({
         >
           <div className="code-share-qr-frame" data-expired={expired ? 'true' : 'false'}>
             <div className="code-share-qr-canvas">
-              {ticket && !loading ? (
-                <FarmingQrCode value={ticket.shortUrl} badgeUrl={badgeUrl} />
+              {ticket && !loading && qrCodeFactory ? (
+                <FarmingQrCode value={ticket.shortUrl} badgeUrl={badgeUrl} qrCodeFactory={qrCodeFactory} />
               ) : (
                 <div className="code-share-qr-loading">{loading ? copy.loading : copy.shareLinkFailed}</div>
               )}

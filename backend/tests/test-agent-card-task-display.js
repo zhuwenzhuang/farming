@@ -15,7 +15,7 @@ function run() {
   assert(format.includes('if (customTitle) return truncateTitle(customTitle)'), 'agentTitle should prefer custom titles before agent titles');
   assert(format.includes("if (agent.isMain) return 'Main Agent'"), 'agentTitle should use a clear Main Agent label');
   assert(format.includes('meaningfulSessionTitle(agent.sessionTitle, agent)'), 'agentTitle should use agent-updated session titles');
-  assert(format.includes('return commandProgram(agent.command)'), 'agentTitle should fall back to the simple command name');
+  assert(format.includes('return agentDisplayName(agent.command)'), 'agentTitle should fall back to the agent display name');
   assert(styles.includes('.agent-task'), 'main.css should style task summary');
   assert(styles.includes('.child-badge'), 'main.css should style child badge');
   assert(types.includes('parentAgentId?: string'), 'Agent type should include parentAgentId');

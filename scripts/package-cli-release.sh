@@ -100,7 +100,6 @@ check_release_binary() {
 }
 
 MODERN_PKG_BIN="${PROJECT_ROOT}/node_modules/@yao-pkg/pkg/lib-es5/bin.js"
-LEGACY_PKG_BIN="${PROJECT_ROOT}/node_modules/pkg-legacy/lib-es5/bin.js"
 BUNDLE_CLI_RUNTIME="${PROJECT_ROOT}/scripts/bundle-cli-runtime.js"
 
 cleanup() {
@@ -110,11 +109,6 @@ trap cleanup EXIT
 
 if [ ! -f "${MODERN_PKG_BIN}" ]; then
   echo "Missing @yao-pkg/pkg. Run npm install first." >&2
-  exit 1
-fi
-
-if [ ! -f "${LEGACY_PKG_BIN}" ]; then
-  echo "Missing pkg-legacy. Run npm install first." >&2
   exit 1
 fi
 
@@ -159,16 +153,11 @@ for target in "${TARGET_ARRAY[@]}"; do
   log "Packaging ${target} -> ${out_bin} ..."
   rm -f "${out_bin}"
 
-  pkg_bin="${MODERN_PKG_BIN}"
-  if [[ "${target}" == node16-* || "${target}" == node14-* ]]; then
-    pkg_bin="${LEGACY_PKG_BIN}"
-  fi
-
   (
     cd "${PROJECT_ROOT}"
     FARMING_PKG_ENTRY="backend/farming-app-cli.pkg.js" \
     FARMING_PKG_WORKER_ENTRY="backend/terminal-screen-worker-thread.pkg.js" \
-      node "${pkg_bin}" \
+      node "${MODERN_PKG_BIN}" \
       -c pkg.config.cjs \
       -t "${target}" \
       --no-native-build \

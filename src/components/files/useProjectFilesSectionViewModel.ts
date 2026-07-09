@@ -38,6 +38,7 @@ interface UseProjectFilesSectionViewModelOptions {
   handleFileSearchKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void
   handleTreeKeyDownCapture: (event: ReactKeyboardEvent<HTMLDivElement>) => void
   lastFocusedFilePathRef: MutableRefObject<string | null>
+  locatedFilePath?: string | null
   openEditorsCollapsed: boolean
   openFileError: string | null
   openFilePendingPath: string | null
@@ -47,6 +48,7 @@ interface UseProjectFilesSectionViewModelOptions {
   rootDirectoryHasItems: boolean
   rootDirectoryLoading: boolean
   rowHeight: number
+  readOnly?: boolean
   stickyContextItems: FileStickyContextItem[]
   treeData: WorkspaceFileTreeNode[]
   treeHeight: number
@@ -59,6 +61,7 @@ interface UseProjectFilesSectionViewModelOptions {
   onCloseFileOperation: () => void
   onCloseOpenFile?: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onCopyFileMenuPath: () => void
+  onCopyFileMenuShareUrl: () => void
   onFocusFileTreeTarget: (item: WorkspaceFileTreeNode | null) => void
   onFocusStickyDirectory: (node: WorkspaceFileTreeNode) => void
   onOpenFileContextMenu: (x: number, y: number, item: WorkspaceFileTreeNode | null) => void
@@ -68,7 +71,6 @@ interface UseProjectFilesSectionViewModelOptions {
   onOpenNewAgentFromFileMenu: () => void
   onRefreshFileMenuTarget: () => void
   onRememberFileOperationName: (name: string) => void
-  onRevealOpenEditors: () => void
   onSearchQueryChange: (query: string) => void
   onSelectOpenFile?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onStartAgentFromFileMenu: (command: string) => void
@@ -103,6 +105,7 @@ export function useProjectFilesSectionViewModel({
   handleFileSearchKeyDown,
   handleTreeKeyDownCapture,
   lastFocusedFilePathRef,
+  locatedFilePath,
   openEditorsCollapsed,
   openFileError,
   openFilePendingPath,
@@ -112,6 +115,7 @@ export function useProjectFilesSectionViewModel({
   rootDirectoryHasItems,
   rootDirectoryLoading,
   rowHeight,
+  readOnly = false,
   stickyContextItems,
   treeData,
   treeHeight,
@@ -124,6 +128,7 @@ export function useProjectFilesSectionViewModel({
   onCloseFileOperation,
   onCloseOpenFile,
   onCopyFileMenuPath,
+  onCopyFileMenuShareUrl,
   onFocusFileTreeTarget,
   onFocusStickyDirectory,
   onOpenFileContextMenu,
@@ -133,7 +138,6 @@ export function useProjectFilesSectionViewModel({
   onOpenNewAgentFromFileMenu,
   onRefreshFileMenuTarget,
   onRememberFileOperationName,
-  onRevealOpenEditors,
   onSearchQueryChange,
   onSelectOpenFile,
   onSelectSearchMatchIndex,
@@ -166,22 +170,26 @@ export function useProjectFilesSectionViewModel({
     activeMatchIndex: fileSearch.activeMatchIndex,
     anchorRef: fileSearchInputRef,
     error: fileSearch.error,
+    includeIgnored: fileSearch.includeIgnored,
     jumpTarget: fileSearch.jumpTarget,
     listboxId: fileSearchListboxId,
     loading: fileSearch.loading,
     matches: fileSearch.matches,
     query: fileSearch.query,
     resultsRef: fileSearchResultsRef,
+    timeoutMs: fileSearch.timeoutMs,
     truncated: fileSearch.truncated,
   }), [
     fileSearch.active,
     fileSearch.activeMatchIndex,
     fileSearch.error,
+    fileSearch.includeIgnored,
     fileSearchInputRef,
     fileSearch.jumpTarget,
     fileSearch.loading,
     fileSearch.matches,
     fileSearch.query,
+    fileSearch.timeoutMs,
     fileSearch.truncated,
     fileSearchListboxId,
     fileSearchResultsRef,
@@ -190,10 +198,12 @@ export function useProjectFilesSectionViewModel({
   const bodySearchActions: FileSectionBodySearchActions = useMemo(() => ({
     onOpenJumpQuery: onOpenFileJumpQuery,
     onOpenMatch: onOpenFileSearchMatch,
+    onSearchIgnored: fileSearch.searchIgnored,
     onSelectMatchIndex: onSelectSearchMatchIndex,
   }), [
     onOpenFileJumpQuery,
     onOpenFileSearchMatch,
+    fileSearch.searchIgnored,
     onSelectSearchMatchIndex,
   ])
 
@@ -206,7 +216,7 @@ export function useProjectFilesSectionViewModel({
     fileOperationInputRef,
     handleTreeKeyDownCapture,
     lastFocusedFilePathRef,
-    openEditorsCollapsed,
+    locatedFilePath,
     openFilePendingPath,
     renderFileTreeRow,
     rowHeight,
@@ -223,10 +233,7 @@ export function useProjectFilesSectionViewModel({
     onOpenFileContextMenu,
     onOpenFilePath,
     onRememberFileOperationName,
-    onRevealOpenEditors,
     onSubmitFileOperation,
-    onToggleFiles: onToggleFilesCollapsed,
-    onToggleOpenEditors: onToggleOpenEditorsCollapsed,
     onToggleTreeNode,
     onTreeFocus,
     onTreeSelect,
@@ -240,7 +247,7 @@ export function useProjectFilesSectionViewModel({
     fileOperationInputRef,
     handleTreeKeyDownCapture,
     lastFocusedFilePathRef,
-    openEditorsCollapsed,
+    locatedFilePath,
     openFilePendingPath,
     renderFileTreeRow,
     rowHeight,
@@ -257,10 +264,7 @@ export function useProjectFilesSectionViewModel({
     onOpenFileContextMenu,
     onOpenFilePath,
     onRememberFileOperationName,
-    onRevealOpenEditors,
     onSubmitFileOperation,
-    onToggleFilesCollapsed,
-    onToggleOpenEditorsCollapsed,
     onToggleTreeNode,
     onTreeFocus,
     onTreeSelect,
@@ -299,10 +303,12 @@ export function useProjectFilesSectionViewModel({
       onCloseFileMenu: onCloseFileMenuWithoutFocus,
       onCloseFileMenuWithFocusRestore,
       onCopyFileMenuPath,
+      onCopyFileMenuShareUrl,
       onOpenNewAgentFromFileMenu,
       onRefreshFileMenuTarget,
       onStartAgentFromFileMenu,
       onStartFileMenuOperation,
+      readOnly,
     },
     sectionHeader: {
       copy,

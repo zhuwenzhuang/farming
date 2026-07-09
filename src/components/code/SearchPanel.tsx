@@ -1,3 +1,5 @@
+import { useEffect, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
+import { CloseGlyph, SearchGlyph } from '@/components/IconGlyphs'
 import type { Agent } from '@/types/agent'
 import {
   agentSessionId,
@@ -10,43 +12,83 @@ import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem, ProjectGroup } from './types'
 
 interface SearchPanelProps {
+  query: string
   displayedProjects: ProjectGroup[]
   hasQuery: boolean
   resultCount: number
   selectedAgentId: string | null
   selectedSessionHandle: string | null
+  inputRef: RefObject<HTMLInputElement | null>
+  onQueryChange: (value: string) => void
+  onKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void
+  onClearSearch: () => void
   onOpenAgent: (agentId: string) => void
   onOpenSession: (session: AgentSessionHistoryItem) => void
   copy: CodeCopy
 }
 
 export function SearchPanel({
+  query,
   displayedProjects,
   hasQuery,
   resultCount,
   selectedAgentId,
   selectedSessionHandle,
+  inputRef,
+  onQueryChange,
+  onKeyDown,
+  onClearSearch,
   onOpenAgent,
   onOpenSession,
   copy,
 }: SearchPanelProps) {
+  useEffect(() => {
+    const input = inputRef.current
+    if (!input) return
+    window.requestAnimationFrame(() => {
+      input.focus({ preventScroll: true })
+    })
+  }, [inputRef])
+
   return (
     <div className="code-search-panel" data-testid="code-search-panel">
       <div className="code-search-panel-header">
         <h2>{copy.search}</h2>
-        <span>{hasQuery ? copy.resultsCount(resultCount) : copy.searchHint}</span>
+        {hasQuery ? <span>{copy.resultsCount(resultCount)}</span> : null}
       </div>
-      {!hasQuery ? (
-        <div className="code-empty-workspace" data-testid="code-search-empty">
-          <h2>{copy.searchEmptyTitle}</h2>
-          <p>{copy.searchEmptyDescription}</p>
-        </div>
-      ) : resultCount === 0 ? (
+      <div className="code-search-panel-input" data-testid="code-search-box">
+        <span className="code-search-panel-icon" aria-hidden="true"><SearchGlyph /></span>
+        <input
+          ref={inputRef}
+          type="search"
+          name="farming-workspace-search"
+          inputMode="search"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          enterKeyHint="search"
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-bwignore="true"
+          data-form-type="other"
+          value={query}
+          onChange={event => onQueryChange(event.currentTarget.value)}
+          onKeyDown={onKeyDown}
+          placeholder={copy.searchProjectsOrAgents}
+          aria-label={copy.searchProjectsOrAgents}
+        />
+        {query && (
+          <button type="button" onClick={onClearSearch} aria-label={copy.clearSearch}>
+            <CloseGlyph />
+          </button>
+        )}
+      </div>
+      {hasQuery && resultCount === 0 ? (
         <div className="code-empty-workspace">
           <h2>{copy.noMatchingAgents}</h2>
-          <p>{copy.searchHint}</p>
         </div>
-      ) : (
+      ) : hasQuery ? (
         <div className="code-search-results">
           {displayedProjects.map(project => (
             <section key={project.id} className="code-search-result-group">
@@ -79,7 +121,7 @@ export function SearchPanel({
             </section>
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   )
 }

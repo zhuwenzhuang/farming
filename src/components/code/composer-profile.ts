@@ -70,10 +70,10 @@ const CODEX_APPROVAL_MODE_LABELS: Record<CodexApprovalMode, string> = {
 }
 
 const CODEX_APPROVAL_MODE_DESCRIPTIONS: Record<CodexApprovalMode, string> = {
-  ask: 'Always ask to edit external files and use the internet',
-  approve: 'Only ask for actions detected as potentially unsafe',
-  full: 'Unrestricted access to the internet and any file on your computer',
-  custom: 'Uses permissions defined in config.toml',
+  ask: 'Launch Codex with workspace-write sandbox and ask for untrusted actions',
+  approve: 'Launch Codex with workspace-write sandbox and ask when Codex requests approval',
+  full: 'Launch Codex with approvals and sandbox bypassed; use only in trusted sandboxes',
+  custom: 'Launch Codex with permissions defined in config.toml',
 }
 
 export const CODEX_PERMISSION_OPTIONS: PermissionModeOption[] = (['ask', 'approve', 'full', 'custom'] as CodexApprovalMode[]).map(mode => ({
@@ -93,12 +93,12 @@ const CLAUDE_PERMISSION_MODE_LABELS: Record<ClaudePermissionMode, string> = {
 }
 
 const CLAUDE_PERMISSION_MODE_DESCRIPTIONS: Record<ClaudePermissionMode, string> = {
-  default: 'Use Claude Code settings',
-  auto: 'Let Claude choose when to ask',
-  acceptEdits: 'Allow file edits while still asking for other risky actions',
-  dontAsk: 'Avoid interactive approval prompts where Claude supports it',
-  plan: 'Start Claude Code in plan permission mode',
-  bypassPermissions: 'Bypass permission checks for trusted sandboxes only',
+  default: 'Launch Claude Code with its default settings',
+  auto: 'Launch Claude Code in auto permission mode',
+  acceptEdits: 'Launch Claude Code allowing file edits while still asking for other risky actions',
+  dontAsk: 'Launch Claude Code avoiding interactive approval prompts where supported',
+  plan: 'Launch Claude Code in plan permission mode',
+  bypassPermissions: 'Launch Claude Code with permission checks bypassed; use only in trusted sandboxes',
 }
 
 export const CLAUDE_PERMISSION_MODES: ClaudePermissionMode[] = ['default', 'auto', 'acceptEdits', 'dontAsk', 'plan', 'bypassPermissions']

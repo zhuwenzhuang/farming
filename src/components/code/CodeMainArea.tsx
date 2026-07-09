@@ -1,13 +1,16 @@
-import { lazy, Suspense, type ComponentProps } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type RefObject, type SyntheticEvent as ReactSyntheticEvent } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import type { TerminalInputPart } from '@/types/messages'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
-import { AgentTerminalPane } from '../AgentTerminalPane'
 import type { OpenWorkspaceFile, WorkspaceOpenFileTarget } from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
+import { isMobileTouchViewport } from '@/lib/responsive-mode'
+import { AgentWorkPane } from './AgentWorkPane'
 import { CodeComposer } from './CodeComposer'
+import { CodexGoalControls } from './CodexGoalControls'
 import { HistoryPanel } from './HistoryPanel'
 import { SearchPanel } from './SearchPanel'
+import { ChevronDownGlyph, ChevronUpGlyph } from '../IconGlyphs'
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
 
@@ -17,10 +20,32 @@ type TerminalFollowState = {
   hasUnreadOutput: boolean
 }
 
+const FILE_EDITOR_CHUNK_RECOVERY_KEY = 'farming.code.fileEditor.chunk-recovery'
+
+function reloadAfterFileEditorChunkLoadFailure() {
+  if (typeof window === 'undefined') return false
+  try {
+    if (window.sessionStorage.getItem(FILE_EDITOR_CHUNK_RECOVERY_KEY) === '1') return false
+    window.sessionStorage.setItem(FILE_EDITOR_CHUNK_RECOVERY_KEY, '1')
+    window.location.reload()
+    return true
+  } catch {
+    return false
+  }
+}
+
 function loadFileEditorPane() {
-  return import('../files/FileEditorPane').then(module => ({
-    default: module.FileEditorPane,
-  }))
+  return import('../files/FileEditorPane').then(module => {
+    try {
+      window.sessionStorage.removeItem(FILE_EDITOR_CHUNK_RECOVERY_KEY)
+    } catch {
+      // The editor is available even when session storage is unavailable.
+    }
+    return { default: module.FileEditorPane }
+  }).catch(error => {
+    if (reloadAfterFileEditorChunkLoadFailure()) return new Promise<never>(() => {})
+    throw error
+  })
 }
 
 const FileEditorPane = lazy(() => loadFileEditorPane())
@@ -89,9 +114,18 @@ function FileEditorFallback({
       <textarea
         className="code-file-editor-fallback-textarea"
         data-testid="code-file-editor-fallback-textarea"
+        name="farming-file-editor-fallback"
+        inputMode="text"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="none"
         value={openFile.draft}
         onChange={event => onChangeDraft(event.currentTarget.value)}
         spellCheck={false}
+        data-lpignore="true"
+        data-1p-ignore="true"
+        data-bwignore="true"
+        data-form-type="other"
         aria-label={copy.editorFor(openFile.file.path)}
       />
       <footer className="code-file-editor-statusbar">
@@ -109,13 +143,16 @@ interface CodeMainAreaProps {
   openAgentsCount: number
   visibleOpenAgents: Agent[]
   activeTerminalId: string | null
+  permissionSwitchingAgentId: string | null
   terminalFocusRequest: { agentId: string; nonce: number } | null
   agentCreationWorkspace?: string
   displayedProjects: ProjectGroup[]
+  searchQuery: string
   searchHasQuery: boolean
   visibleSearchTargetCount: number
   selectedSearchAgentId: string | null
   selectedSearchSessionHandle: string | null
+  searchInputRef: RefObject<HTMLInputElement | null>
   archivedRuns: TaskHistoryEntry[]
   archivedAgents: Agent[]
   historyAgentSessions: AgentSessionHistoryItem[]
@@ -126,12 +163,17 @@ interface CodeMainAreaProps {
   onOpenTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => void
   onResolveTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
   onTerminalFollowOutputChange: (agentId: string, state: TerminalFollowState) => void
+  onAgentReadLatest: (agentId: string) => void
+  onRuntimeModeChange: (agentId: string, mode: 'terminal' | 'json') => void
   sendInput: (input: string | TerminalInputPart[], agentId?: string) => boolean
   resizeAgent: (agentId: string, cols: number, rows: number) => boolean
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null) => void) => () => void
   onOpenSearchAgent: (agentId: string) => void
   onOpenSearchSession: (session: AgentSessionHistoryItem) => void
-  onResumeHistorySession: (provider: string, sessionId: string) => void
+  onSearchQueryChange: (value: string) => void
+  onSearchKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void
+  onCloseSearch: () => void
+  onResumeHistorySession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onContinueArchivedRun: (entry: TaskHistoryEntry) => void
   onOpenArchivedAgent: (agentId: string) => void
   onRestoreArchivedAgent: (agentId: string) => void
@@ -165,13 +207,16 @@ export function CodeMainArea({
   openAgentsCount,
   visibleOpenAgents,
   activeTerminalId,
+  permissionSwitchingAgentId,
   terminalFocusRequest,
   agentCreationWorkspace,
   displayedProjects,
+  searchQuery,
   searchHasQuery,
   visibleSearchTargetCount,
   selectedSearchAgentId,
   selectedSearchSessionHandle,
+  searchInputRef,
   archivedRuns,
   archivedAgents,
   historyAgentSessions,
@@ -182,11 +227,16 @@ export function CodeMainArea({
   onOpenTerminalPath,
   onResolveTerminalPath,
   onTerminalFollowOutputChange,
+  onAgentReadLatest,
+  onRuntimeModeChange,
   sendInput,
   resizeAgent,
   onSessionOutput,
   onOpenSearchAgent,
   onOpenSearchSession,
+  onSearchQueryChange,
+  onSearchKeyDown,
+  onCloseSearch,
   onResumeHistorySession,
   onContinueArchivedRun,
   onOpenArchivedAgent,
@@ -206,8 +256,60 @@ export function CodeMainArea({
   onBackToAgentFromFile,
   copy,
 }: CodeMainAreaProps) {
+  const [terminalComposerCollapsed, setTerminalComposerCollapsed] = useState(false)
+  const [composerCollapseSupported, setComposerCollapseSupported] = useState(false)
+  const activeAgent = activeTerminalId
+    ? visibleOpenAgents.find(agent => agent.id === activeTerminalId) || null
+    : null
+  const activeWorkPaneMode = activeAgent?.agentRuntimeMode === 'json'
+    || (activeAgent?.providerSessionProvider === 'codex'
+    && activeAgent.codexRuntimeMode === 'app-server')
+    ? 'transcript'
+    : 'terminal'
+  const canCollapseComposer = composerCollapseSupported
+    && activeView === 'projects'
+    && !showFileEditor
+    && openAgentsCount > 0
+    && activeWorkPaneMode === 'terminal'
+  const composerCollapsed = canCollapseComposer && terminalComposerCollapsed
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(hover: hover) and (pointer: fine)')
+    const updateCollapseSupport = () => setComposerCollapseSupported(mediaQuery.matches)
+    updateCollapseSupport()
+    mediaQuery.addEventListener('change', updateCollapseSupport)
+    return () => mediaQuery.removeEventListener('change', updateCollapseSupport)
+  }, [])
+
+  useEffect(() => {
+    if (!canCollapseComposer && terminalComposerCollapsed) {
+      setTerminalComposerCollapsed(false)
+    }
+  }, [canCollapseComposer, terminalComposerCollapsed])
+
+  const dismissComposerKeyboardOnMainPress = useCallback((event: ReactSyntheticEvent<HTMLElement>) => {
+    if (!isMobileTouchViewport()) return
+    const target = event.target
+    if (target instanceof Element && target.closest('.code-composer')) return
+    const activeElement = document.activeElement
+    if (!(activeElement instanceof HTMLElement)) return
+    if (!activeElement.closest('.code-composer')) return
+    if (
+      activeElement instanceof HTMLTextAreaElement
+      || activeElement.isContentEditable
+      || activeElement.getAttribute('role') === 'textbox'
+    ) {
+      activeElement.blur()
+    }
+  }, [])
+
   return (
-    <main className="code-main" data-testid="code-main">
+    <main
+      className="code-main"
+      data-testid="code-main"
+      onPointerDownCapture={dismissComposerKeyboardOnMainPress}
+      onTouchStartCapture={dismissComposerKeyboardOnMainPress}
+    >
       {activeView !== 'projects' ? (
         <section
           className={`code-side-view-panel ${activeView === 'search' ? 'code-search-view' : ''} ${activeView === 'history' ? 'code-history-view' : ''}`}
@@ -215,11 +317,16 @@ export function CodeMainArea({
         >
           {activeView === 'search' ? (
             <SearchPanel
+              query={searchQuery}
               displayedProjects={displayedProjects}
               hasQuery={searchHasQuery}
               resultCount={visibleSearchTargetCount}
               selectedAgentId={selectedSearchAgentId}
               selectedSessionHandle={selectedSearchSessionHandle}
+              inputRef={searchInputRef}
+              onQueryChange={onSearchQueryChange}
+              onKeyDown={onSearchKeyDown}
+              onClearSearch={onCloseSearch}
               onOpenAgent={onOpenSearchAgent}
               onOpenSession={onOpenSearchSession}
               copy={copy}
@@ -275,14 +382,18 @@ export function CodeMainArea({
               </div>
             ) : (
               visibleOpenAgents.map(agent => (
-                <AgentTerminalPane
+                <AgentWorkPane
                   key={agent.id}
                   agent={agent}
                   active={agent.id === activeTerminalId}
+                  switching={agent.id === permissionSwitchingAgentId}
                   onActivate={onOpenTerminal}
                   onOpenPath={onOpenTerminalPath}
                   onResolvePath={onResolveTerminalPath}
+                  onOpenWorkspaceFilePath={onOpenWorkspaceFilePath}
                   onFollowOutputChange={onTerminalFollowOutputChange}
+                  onReadLatest={onAgentReadLatest}
+                  onRuntimeModeChange={onRuntimeModeChange}
                   sendInput={sendInput}
                   resizeAgent={resizeAgent}
                   onSessionOutput={onSessionOutput}
@@ -293,7 +404,43 @@ export function CodeMainArea({
             )}
           </div>
 
-          <CodeComposer {...composerProps} copy={copy} />
+          {composerCollapsed ? (
+            <div className="code-composer-restore-bar" data-testid="code-composer-restore-bar">
+              <button
+                type="button"
+                className="code-composer-restore"
+                data-testid="code-composer-restore"
+                aria-label={copy.restoreComposer}
+                title={copy.restoreComposer}
+                onClick={() => setTerminalComposerCollapsed(false)}
+              >
+                <ChevronUpGlyph />
+              </button>
+            </div>
+          ) : (
+            <div className={`code-composer-shell ${canCollapseComposer ? 'collapsible' : ''}`}>
+              {canCollapseComposer ? (
+                <div className="code-composer-collapse-zone" aria-hidden="false">
+                  <button
+                    type="button"
+                    className="code-composer-collapse"
+                    data-testid="code-composer-collapse"
+                    aria-label={copy.collapseComposer}
+                    title={copy.collapseComposer}
+                    onClick={() => setTerminalComposerCollapsed(true)}
+                  >
+                    <ChevronDownGlyph />
+                  </button>
+                </div>
+              ) : null}
+              <CodexGoalControls
+                agent={activeAgent}
+                active={activeView === 'projects' && !showFileEditor && !composerCollapsed}
+                copy={copy}
+              />
+              <CodeComposer {...composerProps} copy={copy} />
+            </div>
+          )}
         </>
       )}
     </main>

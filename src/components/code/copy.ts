@@ -7,6 +7,44 @@ export interface CodeCopy {
   codex: string
   expandSidebar: string
   collapseSidebar: string
+  enterFocusMode: string
+  exitFocusMode: string
+  terminalView: string
+  transcriptView: string
+  collapseComposer: string
+  restoreComposer: string
+  codexTranscriptSyncing: string
+  codexTranscriptUnavailable: string
+  codexTranscriptEmpty: string
+  codexTranscriptWaiting: string
+  codexTranscriptGoalProgress: string
+  codexTranscriptProcess: string
+  codexTranscriptWorking: string
+  codexTranscriptWorkedFor: (duration: string) => string
+  codexTranscriptProcessCount: (count: number) => string
+  codexTranscriptCopyDetails: string
+  codexTranscriptCopiedDetails: string
+  codexTranscriptCopyAnswer: string
+  codexTranscriptCopiedAnswer: string
+  codexTranscriptReviewChanges: string
+  codexTranscriptShowMoreFiles: (count: number) => string
+  codexGoalTitle: string
+  codexGoalEmpty: string
+  codexGoalOpen: string
+  codexGoalObjective: string
+  codexGoalStatus: string
+  codexGoalTokenBudget: string
+  codexGoalNoBudget: string
+  codexGoalUsage: (tokens: number, seconds: number) => string
+  codexGoalStatusLabel: (status: string) => string
+  codexGoalEdit: string
+  codexGoalStart: string
+  codexGoalStop: string
+  codexGoalDelete: string
+  codexGoalSave: string
+  codexGoalClear: string
+  codexGoalSaving: string
+  codexGoalUnsupported: string
   searchProjectsOrAgents: string
   clearSearch: string
   projectsAndAgents: string
@@ -15,6 +53,7 @@ export interface CodeCopy {
   openNavigation: string
   closeNavigation: string
   openOptions: string
+  openSettings: string
   agentActions: string
   appearanceLight: string
   appearanceDark: string
@@ -25,6 +64,7 @@ export interface CodeCopy {
   renameAgent: string
   renameProject: string
   archiveAgent: string
+  reorderAgentFailed: string
   markAsRead: string
   markAsUnread: string
   copyWorkingDirectory: string
@@ -35,8 +75,21 @@ export interface CodeCopy {
   copyFullShareLink: string
   copiedShareLink: string
   shareLinkFailed: string
+  sharedLocationUnavailable: (path: string) => string
   shareLinkExpired: string
   refreshShareLink: string
+  mobileShareTitle: string
+  mobileForwardTitle: string
+  mobileForwardHint: string
+  mobileShareCopyAction: string
+  mobileShareCopied: string
+  mobileInstallTitle: string
+  mobileInstallChromeHint: string
+  mobileInstallShareStep: string
+  mobileInstallMoreStep: string
+  mobileInstallAddStep: string
+  mobileInstallOpenStep: string
+  mobileShareInstalled: string
   forkSameWorktree: string
   forkNewWorktree: string
   newWorktreeFork: string
@@ -66,6 +119,7 @@ export interface CodeCopy {
   goalMode: string
   planMode: string
   askFollowUpChanges: string
+  shellCommandPlaceholder: string
   describeAgentGoal: string
   describePlanFirst: string
   openAgentTerminalFirst: string
@@ -80,12 +134,18 @@ export interface CodeCopy {
   clearComposerMode: string
   agentPermissionMode: string
   permissionsPrompt: string
+  permissionProfileSavedForNextLaunch: string
+  permissionProfileRestarting: string
+  permissionProfileApplying: string
+  permissionRestartHint: string
+  permissionAppServerHint: string
   modelAndReasoning: string
   reasoning: string
   speed: string
   startDictation: string
   stopDictation: string
   speechUnsupported: string
+  mobileDictationHint: string
   sendMessage: string
   interruptAgent: string
   startOrSelectAgent: string
@@ -125,6 +185,7 @@ export interface CodeCopy {
   changedFiles: string
   trackedChanges: string
   untrackedChanges: string
+  reviewChanges: string
   refreshChanges: string
   searchOrPathLine: string
   searchFilesOrJump: string
@@ -132,7 +193,8 @@ export interface CodeCopy {
   loading: string
   searching: string
   noMatches: string
-  searchIncomplete: string
+  searchIgnoredFolders: string
+  searchIncomplete: (timeoutMs: number) => string
   terminalSearchPlaceholder: string
   terminalSearchPrevious: string
   terminalSearchNext: string
@@ -143,6 +205,16 @@ export interface CodeCopy {
   terminalSearchNoResults: string
   terminalSearchResults: (current: number, total: number) => string
   terminalSessionUnavailable: string
+  appServerWaitingForFirstMessage: string
+  appServerRequestTitle: string
+  appServerRequestCommand: string
+  appServerRequestQuestion: string
+  appServerRequestApprove: string
+  appServerRequestDecline: string
+  appServerRequestSubmit: string
+  appServerRequestUnsupported: string
+  appServerApprovalRejectedTitle: string
+  appServerApprovalRejectedDescription: string
   file: string
   folder: string
   go: string
@@ -158,6 +230,7 @@ export interface CodeCopy {
   refresh: string
   rename: string
   copyRelativePath: string
+  copyShareUrl: string
   delete: string
   deleteFolderContents: (path?: string) => string
   deleteFile: (path?: string) => string
@@ -185,6 +258,9 @@ export interface CodeCopy {
   mermaidRenderFailed: string
   mermaidZoomIn: string
   mermaidZoomOut: string
+  mermaidPanMode: string
+  mermaidEnterFullscreen: string
+  mermaidExitFullscreen: string
   mermaidResetView: string
   mermaidCopySource: string
   mermaidCopiedSource: string
@@ -263,6 +339,51 @@ const EN_COPY: CodeCopy = {
   codex: 'Farming Code',
   expandSidebar: 'Expand sidebar',
   collapseSidebar: 'Collapse sidebar',
+  enterFocusMode: 'Enter focus mode',
+  exitFocusMode: 'Exit focus mode',
+  terminalView: 'Terminal',
+  transcriptView: 'Chat',
+  collapseComposer: 'Hide input',
+  restoreComposer: 'Show input',
+  codexTranscriptSyncing: 'Syncing Codex history...',
+  codexTranscriptUnavailable: '',
+  codexTranscriptEmpty: '',
+  codexTranscriptWaiting: 'Codex is still working...',
+  codexTranscriptGoalProgress: 'Progressing goal',
+  codexTranscriptProcess: 'Worked',
+  codexTranscriptWorking: 'Working',
+  codexTranscriptWorkedFor: duration => `Worked for ${duration}`,
+  codexTranscriptProcessCount: count => `${count} ${count === 1 ? 'event' : 'events'}`,
+  codexTranscriptCopyDetails: 'Copy details',
+  codexTranscriptCopiedDetails: 'Copied',
+  codexTranscriptCopyAnswer: 'Copy answer',
+  codexTranscriptCopiedAnswer: 'Copied answer',
+  codexTranscriptReviewChanges: 'Review',
+  codexTranscriptShowMoreFiles: count => `Show ${count} more file${count === 1 ? '' : 's'}`,
+  codexGoalTitle: 'Goal',
+  codexGoalEmpty: 'No active goal',
+  codexGoalOpen: 'Open goal controls',
+  codexGoalObjective: 'Objective',
+  codexGoalStatus: 'Status',
+  codexGoalTokenBudget: 'Token budget',
+  codexGoalNoBudget: 'No budget',
+  codexGoalUsage: (tokens, seconds) => `${tokens.toLocaleString()} tokens · ${Math.round(seconds / 60)}m`,
+  codexGoalStatusLabel: status => ({
+    active: 'Active',
+    paused: 'Paused',
+    blocked: 'Blocked',
+    usageLimited: 'Usage limited',
+    budgetLimited: 'Budget limited',
+    complete: 'Complete',
+  }[status] ?? status),
+  codexGoalEdit: 'Edit',
+  codexGoalStart: 'Start',
+  codexGoalStop: 'Stop',
+  codexGoalDelete: 'Delete',
+  codexGoalSave: 'Save goal',
+  codexGoalClear: 'Clear',
+  codexGoalSaving: 'Saving...',
+  codexGoalUnsupported: 'Native goal controls require a Codex App Server session.',
   searchProjectsOrAgents: 'Search projects or agents',
   clearSearch: 'Clear search',
   projectsAndAgents: 'Projects and agents',
@@ -271,6 +392,7 @@ const EN_COPY: CodeCopy = {
   openNavigation: 'Open navigation',
   closeNavigation: 'Close navigation',
   openOptions: 'Open options',
+  openSettings: 'Settings',
   agentActions: 'Agent actions',
   appearanceLight: 'Appearance: Light',
   appearanceDark: 'Appearance: Dark',
@@ -281,6 +403,7 @@ const EN_COPY: CodeCopy = {
   renameAgent: 'Rename Agent',
   renameProject: 'Rename project',
   archiveAgent: 'Archive',
+  reorderAgentFailed: 'Failed to reorder Agent',
   markAsRead: 'Mark as read',
   markAsUnread: 'Mark as unread',
   copyWorkingDirectory: 'Copy working directory',
@@ -291,8 +414,21 @@ const EN_COPY: CodeCopy = {
   copyFullShareLink: 'Copy full link',
   copiedShareLink: 'Copied full link',
   shareLinkFailed: 'Share link unavailable',
+  sharedLocationUnavailable: path => `Unable to locate shared path: ${path}`,
   shareLinkExpired: 'Expired',
   refreshShareLink: 'Refresh',
+  mobileShareTitle: 'Share page',
+  mobileForwardTitle: 'Send this page',
+  mobileForwardHint: 'Copy the link to send the current view to someone else.',
+  mobileShareCopyAction: 'Copy link',
+  mobileShareCopied: 'Copied',
+  mobileInstallTitle: 'Add to Home Screen',
+  mobileInstallChromeHint: 'Make sure this page is open in your system browser or Chrome.',
+  mobileInstallShareStep: 'Tap Share in the browser toolbar.',
+  mobileInstallMoreStep: 'If it is hidden, tap •••, then Share.',
+  mobileInstallAddStep: 'Choose “Add to Home Screen”.',
+  mobileInstallOpenStep: 'Open Farming from its Home Screen icon next time.',
+  mobileShareInstalled: 'Farming is already open as a Home Screen app.',
   forkSameWorktree: 'Fork into same worktree',
   forkNewWorktree: 'Fork into new worktree',
   newWorktreeFork: 'Forked to new worktree',
@@ -322,6 +458,7 @@ const EN_COPY: CodeCopy = {
   goalMode: 'Goal',
   planMode: 'Plan',
   askFollowUpChanges: 'Ask for follow-up changes',
+  shellCommandPlaceholder: 'Type a shell command',
   describeAgentGoal: 'Describe the goal for this agent',
   describePlanFirst: 'Describe what should be planned first',
   openAgentTerminalFirst: 'Open an agent terminal first',
@@ -335,13 +472,19 @@ const EN_COPY: CodeCopy = {
   planFirst: 'Plan first',
   clearComposerMode: 'Clear composer mode',
   agentPermissionMode: 'Agent permission mode',
-  permissionsPrompt: 'How should this agent handle permissions?',
+  permissionsPrompt: 'Launch permission profile',
+  permissionProfileSavedForNextLaunch: 'Saved for new agents. Running sessions keep the permissions they launched with.',
+  permissionProfileRestarting: 'Switching agent permissions…',
+  permissionProfileApplying: 'Applying App Server permissions…',
+  permissionRestartHint: 'The running agent restarts to apply these permissions. If it has no resumable session id yet, a fresh session starts.',
+  permissionAppServerHint: 'Applies to this App Server thread without restarting the Agent. New permissions take effect for subsequent turns.',
   modelAndReasoning: 'Model and reasoning',
   reasoning: 'Reasoning',
   speed: 'Speed',
   startDictation: 'Start dictation',
   stopDictation: 'Stop dictation',
   speechUnsupported: 'Speech recognition is not supported in this browser',
+  mobileDictationHint: 'Use the microphone key on the iOS keyboard to dictate.',
   sendMessage: 'Send message',
   interruptAgent: 'Interrupt agent',
   startOrSelectAgent: 'Start or select an agent',
@@ -381,6 +524,7 @@ const EN_COPY: CodeCopy = {
   changedFiles: 'Changed files',
   trackedChanges: 'Tracked',
   untrackedChanges: 'Untracked',
+  reviewChanges: 'Review',
   refreshChanges: 'Refresh changes',
   searchOrPathLine: 'Search or path:line',
   searchFilesOrJump: 'Search files or jump to path line',
@@ -388,7 +532,8 @@ const EN_COPY: CodeCopy = {
   loading: 'Loading...',
   searching: 'Searching...',
   noMatches: 'No matches',
-  searchIncomplete: 'Search stopped early',
+  searchIgnoredFolders: 'Also search ignored folders',
+  searchIncomplete: timeoutMs => `Search stopped early. Current timeout: ${Math.round(timeoutMs / 1000)}s.`,
   terminalSearchPlaceholder: 'Find in terminal',
   terminalSearchPrevious: 'Previous match',
   terminalSearchNext: 'Next match',
@@ -399,6 +544,16 @@ const EN_COPY: CodeCopy = {
   terminalSearchNoResults: 'No results',
   terminalSearchResults: (current, total) => `${current}/${total}`,
   terminalSessionUnavailable: 'Terminal session unavailable',
+  appServerWaitingForFirstMessage: 'App Server is ready. Send the first Composer message to start the shared Codex CLI terminal.',
+  appServerRequestTitle: 'Codex needs your input',
+  appServerRequestCommand: 'Requested command',
+  appServerRequestQuestion: 'Question',
+  appServerRequestApprove: 'Allow',
+  appServerRequestDecline: 'Decline',
+  appServerRequestSubmit: 'Submit answer',
+  appServerRequestUnsupported: 'This Codex request is not supported in Farming. Declining it will let the turn continue safely.',
+  appServerApprovalRejectedTitle: 'Permission request declined',
+  appServerApprovalRejectedDescription: 'Chat does not approve this permission request. Increase this Agent permission mode, or handle it in Terminal view.',
   file: 'File',
   folder: 'Folder',
   go: 'Go',
@@ -414,6 +569,7 @@ const EN_COPY: CodeCopy = {
   refresh: 'Refresh',
   rename: 'Rename',
   copyRelativePath: 'Copy Relative Path',
+  copyShareUrl: 'Copy Share URL',
   delete: 'Delete',
   deleteFolderContents: path => `Delete folder and all contents: ${path || ''}`,
   deleteFile: path => `Delete file: ${path || ''}`,
@@ -441,6 +597,9 @@ const EN_COPY: CodeCopy = {
   mermaidRenderFailed: 'Unable to render Mermaid diagram',
   mermaidZoomIn: 'Zoom in',
   mermaidZoomOut: 'Zoom out',
+  mermaidPanMode: 'Toggle pan mode',
+  mermaidEnterFullscreen: 'Open fullscreen diagram',
+  mermaidExitFullscreen: 'Close fullscreen diagram',
   mermaidResetView: 'Reset view',
   mermaidCopySource: 'Copy Mermaid source',
   mermaidCopiedSource: 'Copied Mermaid source',
@@ -498,7 +657,7 @@ const EN_COPY: CodeCopy = {
   noSupportedAgentsFound: 'No supported agents found.',
   resumePreviousMainAgent: 'Resume previous Main Agent',
   codingAgents: 'coding agents',
-  otherAgents: 'others',
+  otherAgents: 'Shell',
   workspace: 'Workspace:',
   workspacePathPlaceholder: '/path/to/workspace',
   recentWorkspacesLower: 'recent workspaces',
@@ -519,6 +678,51 @@ const ZH_COPY: CodeCopy = {
   codex: 'Farming Code',
   expandSidebar: '展开侧边栏',
   collapseSidebar: '收起侧边栏',
+  enterFocusMode: '进入沉浸模式',
+  exitFocusMode: '退出沉浸模式',
+  terminalView: '终端',
+  transcriptView: '对话',
+  collapseComposer: '收起输入框',
+  restoreComposer: '唤出输入框',
+  codexTranscriptSyncing: '正在同步 Codex 历史...',
+  codexTranscriptUnavailable: '',
+  codexTranscriptEmpty: '',
+  codexTranscriptWaiting: 'Codex 还在工作...',
+  codexTranscriptGoalProgress: '正在推进目标',
+  codexTranscriptProcess: '执行过程',
+  codexTranscriptWorking: '执行中',
+  codexTranscriptWorkedFor: duration => `Worked for ${duration}`,
+  codexTranscriptProcessCount: count => `${count} 个事件`,
+  codexTranscriptCopyDetails: '复制详情',
+  codexTranscriptCopiedDetails: '已复制',
+  codexTranscriptCopyAnswer: '复制答复',
+  codexTranscriptCopiedAnswer: '已复制答复',
+  codexTranscriptReviewChanges: 'Review',
+  codexTranscriptShowMoreFiles: count => `显示另外 ${count} 个文件`,
+  codexGoalTitle: '目标',
+  codexGoalEmpty: '没有活动目标',
+  codexGoalOpen: '打开目标控制',
+  codexGoalObjective: '目标内容',
+  codexGoalStatus: '状态',
+  codexGoalTokenBudget: 'Token 预算',
+  codexGoalNoBudget: '不限制',
+  codexGoalUsage: (tokens, seconds) => `${tokens.toLocaleString()} tokens · ${Math.round(seconds / 60)} 分钟`,
+  codexGoalStatusLabel: status => ({
+    active: '进行中',
+    paused: '已暂停',
+    blocked: '已阻塞',
+    usageLimited: '用量受限',
+    budgetLimited: '预算受限',
+    complete: '已完成',
+  }[status] ?? status),
+  codexGoalEdit: '编辑',
+  codexGoalStart: '启动',
+  codexGoalStop: '停止',
+  codexGoalDelete: '删除',
+  codexGoalSave: '保存目标',
+  codexGoalClear: '清除',
+  codexGoalSaving: '保存中...',
+  codexGoalUnsupported: '原生目标控制需要 Codex App Server 会话。',
   searchProjectsOrAgents: '搜索项目或 Agent',
   clearSearch: '清空搜索',
   projectsAndAgents: '项目与 Agent',
@@ -527,6 +731,7 @@ const ZH_COPY: CodeCopy = {
   openNavigation: '打开导航',
   closeNavigation: '关闭导航',
   openOptions: '打开选项',
+  openSettings: '设置',
   agentActions: 'Agent 操作',
   appearanceLight: '外观：浅色',
   appearanceDark: '外观：深色',
@@ -537,6 +742,7 @@ const ZH_COPY: CodeCopy = {
   renameAgent: '重命名 Agent',
   renameProject: '重命名项目',
   archiveAgent: '归档',
+  reorderAgentFailed: '调整 Agent 顺序失败',
   markAsRead: '标为已读',
   markAsUnread: '标为未读',
   copyWorkingDirectory: '复制工作目录',
@@ -547,8 +753,21 @@ const ZH_COPY: CodeCopy = {
   copyFullShareLink: '复制完整链接',
   copiedShareLink: '已复制完整链接',
   shareLinkFailed: '分享链接不可用',
+  sharedLocationUnavailable: path => `无法定位分享路径：${path}`,
   shareLinkExpired: '已过期',
   refreshShareLink: '刷新',
+  mobileShareTitle: '分享页面',
+  mobileForwardTitle: '转发当前页面',
+  mobileForwardHint: '复制链接，发送给其他人。',
+  mobileShareCopyAction: '复制链接',
+  mobileShareCopied: '已复制',
+  mobileInstallTitle: '添加到主屏幕',
+  mobileInstallChromeHint: '确认已使用系统浏览器或 Chrome 打开当前页面。',
+  mobileInstallShareStep: '点浏览器工具栏里的“分享”。',
+  mobileInstallMoreStep: '没看到时，点 •••，再点“分享”。',
+  mobileInstallAddStep: '选择“添加到主屏幕”。',
+  mobileInstallOpenStep: '以后从主屏幕的 Farming 图标进入。',
+  mobileShareInstalled: 'Farming 已经作为主屏幕 App 打开。',
   forkSameWorktree: '在同一 worktree 分叉',
   forkNewWorktree: '分叉到新 worktree',
   newWorktreeFork: '已分叉到新 worktree',
@@ -582,16 +801,16 @@ const ZH_COPY: CodeCopy = {
     bypassPermissions: '绕过权限',
   }[value] ?? fallback),
   permissionModeDescription: (value, fallback) => ({
-    ask: '编辑外部文件或访问网络时始终询问',
-    approve: '仅在检测到潜在风险操作时询问',
-    full: '允许访问网络和这台电脑上的任意文件',
-    custom: '使用 config.toml 中定义的权限',
-    default: '使用 Claude Code 设置',
-    auto: '让 Claude 判断何时询问',
-    acceptEdits: '允许文件编辑，其他高风险操作仍会询问',
-    dontAsk: '在 Claude 支持时尽量避免交互式批准',
-    plan: '以计划权限模式启动 Claude Code',
-    bypassPermissions: '仅在可信沙箱中绕过权限检查',
+    ask: '新 Codex 会话以 workspace-write 沙箱启动，并对不可信操作询问',
+    approve: '新 Codex 会话以 workspace-write 沙箱启动，并在 Codex 请求时询问',
+    full: '新 Codex 会话绕过批准和沙箱；仅用于可信沙箱',
+    custom: '新 Codex 会话使用 config.toml 中定义的权限',
+    default: '新 Claude Code 会话使用默认设置',
+    auto: '新 Claude Code 会话以 auto 权限模式启动',
+    acceptEdits: '新 Claude Code 会话允许文件编辑，其他高风险操作仍会询问',
+    dontAsk: '新 Claude Code 会话在支持时尽量避免交互式批准',
+    plan: '新 Claude Code 会话以计划权限模式启动',
+    bypassPermissions: '新 Claude Code 会话绕过权限检查；仅用于可信沙箱',
   }[value] ?? fallback),
   reasoningOptionLabel: (value, fallback) => ({
     config: '使用配置',
@@ -614,6 +833,7 @@ const ZH_COPY: CodeCopy = {
   goalMode: '目标',
   planMode: '计划',
   askFollowUpChanges: '输入后续修改要求',
+  shellCommandPlaceholder: '输入 Shell 命令',
   describeAgentGoal: '描述这个 Agent 的目标',
   describePlanFirst: '描述需要先规划的事情',
   openAgentTerminalFirst: '先打开一个 Agent 终端',
@@ -627,13 +847,19 @@ const ZH_COPY: CodeCopy = {
   planFirst: '先做计划',
   clearComposerMode: '清除输入模式',
   agentPermissionMode: 'Agent 权限模式',
-  permissionsPrompt: '这个 Agent 应该如何处理权限？',
+  permissionsPrompt: '启动权限 profile',
+  permissionProfileSavedForNextLaunch: '已保存给新 Agent。运行中的会话保留启动时的权限。',
+  permissionProfileRestarting: '正在切换 Agent 权限…',
+  permissionProfileApplying: '正在应用 App Server 权限…',
+  permissionRestartHint: '运行中的 Agent 会重启以应用权限；如果还没有可 resume 的 Session ID，则启动一个新会话。',
+  permissionAppServerHint: '直接应用到当前 App Server thread，不重启 Agent；新权限从后续 turn 生效。',
   modelAndReasoning: '模型与推理',
   reasoning: '推理',
   speed: '速度',
   startDictation: '开始语音输入',
   stopDictation: '停止语音输入',
   speechUnsupported: '当前浏览器不支持语音识别',
+  mobileDictationHint: '请点 iOS 键盘上的麦克风进行听写。',
   sendMessage: '发送消息',
   interruptAgent: '中止 Agent',
   startOrSelectAgent: '启动或选择一个 Agent',
@@ -673,6 +899,7 @@ const ZH_COPY: CodeCopy = {
   changedFiles: '变更文件',
   trackedChanges: '已跟踪',
   untrackedChanges: '未跟踪',
+  reviewChanges: 'Review',
   refreshChanges: '刷新变更',
   searchOrPathLine: '搜索或路径:行号',
   searchFilesOrJump: '搜索文件或跳转到路径行号',
@@ -680,7 +907,8 @@ const ZH_COPY: CodeCopy = {
   loading: '加载中...',
   searching: '搜索中...',
   noMatches: '无匹配',
-  searchIncomplete: '搜索提前停止',
+  searchIgnoredFolders: '同时在已忽略目录中搜索',
+  searchIncomplete: timeoutMs => `搜索提前停止（当前超时：${Math.round(timeoutMs / 1000)} 秒）`,
   terminalSearchPlaceholder: '在终端中查找',
   terminalSearchPrevious: '上一个匹配',
   terminalSearchNext: '下一个匹配',
@@ -691,6 +919,16 @@ const ZH_COPY: CodeCopy = {
   terminalSearchNoResults: '无结果',
   terminalSearchResults: (current, total) => `${current}/${total}`,
   terminalSessionUnavailable: '终端会话不可用',
+  appServerWaitingForFirstMessage: 'App Server 已就绪。发送第一条 Composer 消息后，会启动加入同一条 thread 的 Codex CLI 终端。',
+  appServerRequestTitle: 'Codex 需要你的输入',
+  appServerRequestCommand: '请求执行的命令',
+  appServerRequestQuestion: '问题',
+  appServerRequestApprove: '允许',
+  appServerRequestDecline: '拒绝',
+  appServerRequestSubmit: '提交回答',
+  appServerRequestUnsupported: 'Farming 目前不支持这类 Codex 请求。拒绝后，当前 turn 会安全地继续。',
+  appServerApprovalRejectedTitle: '已拒绝权限申请',
+  appServerApprovalRejectedDescription: 'Chat 界面不会批准这类权限申请。请调高这个 Agent 的权限，或切到 Terminal 界面处理。',
   file: '文件',
   folder: '文件夹',
   go: '跳转',
@@ -706,6 +944,7 @@ const ZH_COPY: CodeCopy = {
   refresh: '刷新',
   rename: '重命名',
   copyRelativePath: '复制相对路径',
+  copyShareUrl: '拷贝分享 URL',
   delete: '删除',
   deleteFolderContents: path => `删除文件夹及其所有内容：${path || ''}`,
   deleteFile: path => `删除文件：${path || ''}`,
@@ -733,6 +972,9 @@ const ZH_COPY: CodeCopy = {
   mermaidRenderFailed: '无法渲染 Mermaid 图表',
   mermaidZoomIn: '放大',
   mermaidZoomOut: '缩小',
+  mermaidPanMode: '切换平移模式',
+  mermaidEnterFullscreen: '全屏查看图表',
+  mermaidExitFullscreen: '退出全屏查看',
   mermaidResetView: '重置视图',
   mermaidCopySource: '复制 Mermaid 源码',
   mermaidCopiedSource: '已复制 Mermaid 源码',
@@ -789,8 +1031,8 @@ const ZH_COPY: CodeCopy = {
   agentListUnavailable: 'Agent 列表不可用。',
   noSupportedAgentsFound: '没有找到支持的 Agent。',
   resumePreviousMainAgent: '恢复上一个 Main Agent',
-  codingAgents: '代码 Agent',
-  otherAgents: '其他',
+  codingAgents: 'Coding Agent',
+  otherAgents: 'Shell',
   workspace: '工作区：',
   workspacePathPlaceholder: '/工作区/路径',
   recentWorkspacesLower: '最近工作区',

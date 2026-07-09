@@ -18,7 +18,7 @@ function normalizeDirectoryPath(directoryPath: string) {
   return directoryPath.replace(/^\/+|\/+$/g, '')
 }
 
-export function useWorkspaceFiles(agentId: string | null) {
+export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId) {
   const [directories, setDirectories] = useState<Record<string, DirectoryState>>({})
   const directoriesRef = useRef<Record<string, DirectoryState>>({})
   const inFlightDirectoryLoadsRef = useRef(new Map<string, Promise<WorkspaceDirectoryTree | null>>())
@@ -103,12 +103,15 @@ export function useWorkspaceFiles(agentId: string | null) {
 
   useEffect(() => {
     generationRef.current += 1
-    setDirectories({})
-    directoriesRef.current = {}
     inFlightDirectoryLoadsRef.current.clear()
     gitStatusRefreshTimersRef.current.forEach(timer => window.clearTimeout(timer))
     gitStatusRefreshTimersRef.current.clear()
-  }, [agentId])
+  }, [agentId, workspaceKey])
+
+  useEffect(() => {
+    setDirectories({})
+    directoriesRef.current = {}
+  }, [workspaceKey])
 
   useEffect(() => () => {
     inFlightDirectoryLoadsRef.current.clear()

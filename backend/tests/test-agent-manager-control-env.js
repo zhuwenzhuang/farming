@@ -13,10 +13,8 @@ async function run() {
 
   const captured = [];
   const previousLdLibraryPath = process.env.LD_LIBRARY_PATH;
-  const previousGlibcDir = process.env.GLIBC_DIR;
   const previousNodeOptions = process.env.NODE_OPTIONS;
-  process.env.LD_LIBRARY_PATH = '/server/glibc-shim';
-  process.env.GLIBC_DIR = '/server/glibc-shim';
+  process.env.LD_LIBRARY_PATH = '/server/runtime-libraries';
   process.env.NODE_OPTIONS = '--max-old-space-size=99999';
   const manager = new AgentManager({
     farmingDir,
@@ -78,7 +76,6 @@ async function run() {
     assert.strictEqual(captured[0].env.FARMING_PROJECT_WORKSPACE, workspace);
     assert.strictEqual(captured[0].env.FARMING_SKILLS_FILE, path.join(mainWorkspace, 'FARMING_MAIN_AGENT_SKILLS.md'));
     assert.strictEqual(captured[0].env.LD_LIBRARY_PATH, undefined);
-    assert.strictEqual(captured[0].env.GLIBC_DIR, undefined);
     assert.strictEqual(captured[0].env.NODE_OPTIONS, undefined);
     assert(captured[0].env.PATH.startsWith(`/repo/bin${path.delimiter}`));
     assert(captured[0].args.includes('--append-system-prompt'));
@@ -136,11 +133,6 @@ async function run() {
       delete process.env.LD_LIBRARY_PATH;
     } else {
       process.env.LD_LIBRARY_PATH = previousLdLibraryPath;
-    }
-    if (previousGlibcDir === undefined) {
-      delete process.env.GLIBC_DIR;
-    } else {
-      process.env.GLIBC_DIR = previousGlibcDir;
     }
     if (previousNodeOptions === undefined) {
       delete process.env.NODE_OPTIONS;

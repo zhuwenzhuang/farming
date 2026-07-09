@@ -5,7 +5,7 @@ const {
   shouldRememberWorkspace,
   getDefaultWorkspaceForDialog,
   resolveWorkspaceToStart,
-} = require('../../frontend/app.js');
+} = require('../../frontend/skins/crt/app.js');
 
 function run() {
   assert.strictEqual(normalizeWorkspaceValue('  /tmp/foo  '), '/tmp/foo');

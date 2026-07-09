@@ -133,6 +133,8 @@ const PROCESS_ENV_EXACT_KEYS = new Set([
   'all_proxy',
   'CLAUDE_CONFIG_DIR',
   'CODEX_HOME',
+  'OPENCODE_CONFIG_DIR',
+  'QODER_CONFIG_DIR',
   'CURL_CA_BUNDLE',
   'DASHSCOPE_API_KEY',
   'EDITOR',
@@ -216,7 +218,6 @@ function normalizeInteractiveTerminalEnv(env, options = {}) {
 
   if (options.stripRuntimeShims !== false) {
     delete next.LD_LIBRARY_PATH;
-    delete next.GLIBC_DIR;
   }
   if (options.stripNodeOptions !== false) {
     delete next.NODE_OPTIONS;

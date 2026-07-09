@@ -1,8 +1,5 @@
 import type { WorkspaceFileEntry } from './workspace-files'
 
-const DIRECTORY_ICON_SIGNAL_MAX_DEPTH = 4
-const DIRECTORY_ICON_SIGNAL_LIMIT = 4
-
 export interface WorkspaceDirectorySnapshot {
   items: WorkspaceFileEntry[]
   loading?: boolean
@@ -17,7 +14,6 @@ export interface WorkspaceFileTreeNode extends WorkspaceFileEntry {
   displayName?: string
   compactedPaths?: string[]
   iconPath?: string
-  iconSignals?: string[]
   loading?: boolean
   children?: WorkspaceFileTreeNode[]
 }
@@ -95,67 +91,9 @@ export function countVisibleWorkspaceTreeRows(nodes: WorkspaceFileTreeNode[], op
   }, 0)
 }
 
-function fileExtensionCandidates(fileName: string) {
-  const parts = fileName.toLowerCase().split('.').filter(Boolean)
-  const candidates: string[] = []
-
-  for (let index = 1; index < parts.length; index += 1) {
-    candidates.push(parts.slice(index).join('.'))
-  }
-
-  return candidates
-}
-
-function collectDirectoryIconSignalCounts(
-  directoryPath: string,
-  directories: WorkspaceDirectoryMap,
-  counts: Map<string, number>,
-  seen: Set<string>,
-  depth = 0
-) {
-  if (depth > DIRECTORY_ICON_SIGNAL_MAX_DEPTH || seen.has(directoryPath)) return
-  seen.add(directoryPath)
-
-  const directory = directories[directoryPath]
-  if (!directory || directory.loading || directory.error) return
-
-  for (const item of directory.items) {
-    if (item.type === 'file') {
-      for (const extension of fileExtensionCandidates(item.name)) {
-        counts.set(extension, (counts.get(extension) ?? 0) + 1)
-      }
-      continue
-    }
-
-    if (item.type === 'directory') {
-      collectDirectoryIconSignalCounts(item.path, directories, counts, seen, depth + 1)
-    }
-  }
-}
-
-function directoryIconSignals(
-  directoryPath: string,
-  directories: WorkspaceDirectoryMap,
-  cache: Map<string, string[]>
-) {
-  const cached = cache.get(directoryPath)
-  if (cached) return cached
-
-  const counts = new Map<string, number>()
-  collectDirectoryIconSignalCounts(directoryPath, directories, counts, new Set())
-
-  const signals = Array.from(counts.entries())
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-    .slice(0, DIRECTORY_ICON_SIGNAL_LIMIT)
-    .map(([extension]) => extension)
-  cache.set(directoryPath, signals)
-  return signals
-}
-
 export function buildWorkspaceFileTreeNodes(
   items: WorkspaceFileEntry[],
-  directories: WorkspaceDirectoryMap,
-  iconSignalCache = new Map<string, string[]>()
+  directories: WorkspaceDirectoryMap
 ): WorkspaceFileTreeNode[] {
   return items.map(item => {
     if (item.type !== 'directory') {
@@ -171,8 +109,10 @@ export function buildWorkspaceFileTreeNodes(
     let visibleChildren = directories[item.path]?.items
 
     while (
+      !visibleEntry.symbolicLink &&
       visibleChildren?.length === 1 &&
-      visibleChildren[0]?.type === 'directory'
+      visibleChildren[0]?.type === 'directory' &&
+      !visibleChildren[0]?.symbolicLink
     ) {
       const child = visibleChildren[0]
       visibleEntry = child
@@ -188,9 +128,8 @@ export function buildWorkspaceFileTreeNodes(
       displayName: compactedNames.join('/'),
       compactedPaths,
       iconPath: compactedPaths[0] ?? visibleEntry.path,
-      iconSignals: directoryIconSignals(visibleEntry.path, directories, iconSignalCache),
       loading,
-      children: buildWorkspaceFileTreeNodes(visibleChildren ?? [], directories, iconSignalCache),
+      children: buildWorkspaceFileTreeNodes(visibleChildren ?? [], directories),
     }
   })
 }

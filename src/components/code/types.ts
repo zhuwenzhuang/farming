@@ -19,7 +19,7 @@ export interface ProjectGroup {
 
 export type SearchTarget =
   | { kind: 'agent'; id: string }
-  | { kind: 'agent-session'; provider: string; id: string }
+  | { kind: 'agent-session'; provider: string; id: string; providerHomeId?: string }
 
 export interface WorkspaceHistorySettings {
   lastMainWorkspace?: string
@@ -29,15 +29,28 @@ export interface WorkspaceHistorySettings {
 }
 
 export type CodexApprovalMode = 'ask' | 'approve' | 'full' | 'custom'
+export type CodexRuntimeMode = 'app-server' | 'cli'
 export type ClaudePermissionMode = 'acceptEdits' | 'auto' | 'bypassPermissions' | 'default' | 'dontAsk' | 'plan'
 export type CodexModelPreset = string
 export type MainPaneMode = 'terminal' | 'editor'
 export type ComposerMode = 'default' | 'goal' | 'plan'
 export type CodeModelPickerPane = 'model' | 'speed' | null
 
+export interface AgentHomeSetting {
+  id: string
+  path: string
+}
+
+export type AgentHomesSettings = Record<string, AgentHomeSetting[]>
+
 export interface GlobalSettings extends WorkspaceHistorySettings {
   appearance?: UiAppearance
   language?: UiLanguage
+  dangerouslySkipAgentPermissionsByDefault?: boolean
+  updateUrl?: string
+  workspaceFileSearchTimeoutMs?: number
+  codexRuntimeMode?: CodexRuntimeMode
+  agentHomes?: AgentHomesSettings
   agentLaunchProfiles?: {
     codex?: {
       approvalMode?: CodexApprovalMode
@@ -95,6 +108,8 @@ export interface LegacyCodexModelOption {
 export interface AgentSessionHistoryItem {
   provider: string
   providerName?: string
+  providerHomeId?: string
+  providerHomePath?: string
   id: string
   title: string
   cwd: string
@@ -141,6 +156,8 @@ export type SpeechRecognitionLike = EventTarget & {
   lang: string
   onresult: ((event: SpeechRecognitionEventLike) => void) | null
   onerror: (() => void) | null
+  onspeechend?: (() => void) | null
+  onaudioend?: (() => void) | null
   onend: (() => void) | null
   start: () => void
   stop: () => void

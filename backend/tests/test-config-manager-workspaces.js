@@ -3,6 +3,13 @@ const fs = require('fs');
 const path = require('path');
 
 const ConfigManager = require('../config-manager');
+const {
+  DEFAULT_CRT_TERMINAL_FONT_SIZE,
+  DEFAULT_UPDATE_URL,
+  DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS,
+  MAX_CRT_TERMINAL_FONT_SIZE,
+  MIN_CRT_TERMINAL_FONT_SIZE,
+} = ConfigManager;
 
 function run() {
   const previousConfigDir = process.env.FARMING_CONFIG_DIR;
@@ -31,6 +38,9 @@ function run() {
     assert.deepStrictEqual(settings.mainPageSessionKeys, []);
     assert.strictEqual(settings.appearance, 'light');
     assert.strictEqual(settings.language, 'en');
+    assert.strictEqual(settings.crtSkinEffectsEnabled, true);
+    assert.strictEqual(settings.crtDynamicHeatEnabled, false);
+    assert.strictEqual(settings.crtTerminalFontSize, DEFAULT_CRT_TERMINAL_FONT_SIZE);
     assert.strictEqual(settings.defaultLaunchAgent, 'codex');
     assert.strictEqual(settings.agentLaunchProfiles.codex.approvalMode, 'approve');
     assert.strictEqual(settings.agentLaunchProfiles.codex.modelPreset, 'gpt-5.5:xhigh');
@@ -42,6 +52,10 @@ function run() {
     assert.strictEqual(settings.codexModel, 'gpt-5.5');
     assert.strictEqual(settings.codexReasoningEffort, 'xhigh');
     assert.strictEqual(settings.codexServiceTier, 'default');
+    assert.strictEqual(settings.codexRuntimeMode, 'cli');
+    assert.strictEqual(manager.getCodexRuntimeMode(), 'cli');
+    assert.strictEqual(settings.updateUrl, DEFAULT_UPDATE_URL);
+    assert.strictEqual(settings.workspaceFileSearchTimeoutMs, DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS);
     assert.strictEqual(settings.removedSetting, undefined);
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).mainPageSessionKeys, undefined);
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).taskHistory, undefined);
@@ -50,6 +64,9 @@ function run() {
     assert(fs.existsSync(path.join(farmingDir, 'AGENTS.md')));
 
     manager.updateSettings({
+      crtSkinEffectsEnabled: false,
+      crtDynamicHeatEnabled: true,
+      crtTerminalFontSize: 16,
       removedSetting: 'legacy-value',
       workspaceHistory: [farmingDir, projectA, projectA, projectB, '/tmp', '/var/tmp/farming-e2e'],
       projectNames: {
@@ -61,6 +78,12 @@ function run() {
     });
 
     settings = manager.getSettings();
+    assert.strictEqual(settings.crtSkinEffectsEnabled, false);
+    assert.strictEqual(settings.crtDynamicHeatEnabled, true);
+    assert.strictEqual(settings.crtTerminalFontSize, 16);
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).crtSkinEffectsEnabled, false);
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).crtDynamicHeatEnabled, true);
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).crtTerminalFontSize, 16);
     assert.deepStrictEqual(settings.workspaceHistory, [projectA, projectB]);
     assert.deepStrictEqual(settings.projectNames, { [projectA]: 'Project A' });
     assert.strictEqual(settings.lastMainWorkspace, projectMain);
@@ -103,6 +126,24 @@ function run() {
     manager.updateSettings({ appearance: 'sepia', language: 'jp' });
     assert.strictEqual(manager.getSettings().appearance, 'light');
     assert.strictEqual(manager.getSettings().language, 'en');
+    manager.updateSettings({ updateUrl: 'https://updates.example.test/farming/' });
+    assert.strictEqual(manager.getSettings().updateUrl, 'https://updates.example.test/farming/');
+    manager.updateSettings({ updateUrl: 'file:///tmp/farming/' });
+    assert.strictEqual(manager.getSettings().updateUrl, DEFAULT_UPDATE_URL);
+    manager.updateSettings({ updateUrl: '' });
+    assert.strictEqual(manager.getSettings().updateUrl, DEFAULT_UPDATE_URL);
+    manager.updateSettings({ workspaceFileSearchTimeoutMs: 12000 });
+    assert.strictEqual(manager.getSettings().workspaceFileSearchTimeoutMs, 12000);
+    manager.updateSettings({ workspaceFileSearchTimeoutMs: 999999 });
+    assert.strictEqual(manager.getSettings().workspaceFileSearchTimeoutMs, 180000);
+    manager.updateSettings({ workspaceFileSearchTimeoutMs: 'invalid' });
+    assert.strictEqual(manager.getSettings().workspaceFileSearchTimeoutMs, DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS);
+    manager.updateSettings({ crtTerminalFontSize: 1 });
+    assert.strictEqual(manager.getSettings().crtTerminalFontSize, MIN_CRT_TERMINAL_FONT_SIZE);
+    manager.updateSettings({ crtTerminalFontSize: 99 });
+    assert.strictEqual(manager.getSettings().crtTerminalFontSize, MAX_CRT_TERMINAL_FONT_SIZE);
+    manager.updateSettings({ crtTerminalFontSize: 'invalid' });
+    assert.strictEqual(manager.getSettings().crtTerminalFontSize, DEFAULT_CRT_TERMINAL_FONT_SIZE);
 
     manager.updateSettings({
       lastMainWorkspace: path.join(tmpRoot, 'missing-workspace'),
@@ -112,6 +153,17 @@ function run() {
     settings = manager.getSettings();
     assert.deepStrictEqual(settings.workspaceHistory, [projectB]);
     assert.strictEqual(settings.lastMainWorkspace, projectMain);
+
+    manager.updateSettings({ dangerouslySkipAgentPermissionsByDefault: true });
+    assert.strictEqual(manager.getDangerouslySkipAgentPermissionsByDefault(), true);
+    assert.strictEqual(manager.getSettings().dangerouslySkipAgentPermissionsByDefault, true);
+    manager.updateSettings({ dangerouslySkipAgentPermissionsByDefault: false });
+    assert.strictEqual(manager.getDangerouslySkipAgentPermissionsByDefault(), false);
+
+    manager.updateSettings({ codexRuntimeMode: 'app-server' });
+    assert.strictEqual(manager.getCodexRuntimeMode(), 'app-server');
+    manager.updateSettings({ codexRuntimeMode: 'not-a-runtime' });
+    assert.strictEqual(manager.getCodexRuntimeMode(), 'cli');
 
     manager.updateSettings({ codexApprovalMode: 'full' });
     assert.strictEqual(manager.getSettings().codexApprovalMode, 'full');
@@ -136,6 +188,10 @@ function run() {
       },
     });
     assert.strictEqual(manager.getDefaultLaunchAgent(), 'claude');
+    manager.updateSettings({ defaultLaunchAgent: 'opencode' });
+    assert.strictEqual(manager.getDefaultLaunchAgent(), 'opencode');
+    manager.updateSettings({ defaultLaunchAgent: 'qoder' });
+    assert.strictEqual(manager.getDefaultLaunchAgent(), 'qoder');
     assert.deepStrictEqual(manager.getAgentLaunchProfile('claude'), {
       permissionMode: 'auto',
       model: 'sonnet',
@@ -174,6 +230,7 @@ function run() {
       cwd: projectA,
       projectWorkspace: projectA,
       title: 'config dir prune recovery',
+      customTitle: '  Renamed archived Agent  ',
       reason: 'stopped',
       startedAt: archivedAt - 1000,
       lastActivity: archivedAt - 500,
@@ -182,6 +239,7 @@ function run() {
     assert.strictEqual(manager.getTaskHistory()[0].agentId, 'agent-after-config-dir-prune');
     const runHistory = JSON.parse(fs.readFileSync(path.join(farmingDir, 'history', 'runs.json'), 'utf8'));
     assert.strictEqual(runHistory[0].agentId, 'agent-after-config-dir-prune');
+    assert.strictEqual(runHistory[0].customTitle, 'Renamed archived Agent');
 
     const legacyDir = path.join(tmpRoot, '.farming-legacy');
     fs.mkdirSync(legacyDir, { recursive: true });
@@ -190,8 +248,21 @@ function run() {
       taskHistory: [{
         id: 'legacy-history-entry',
         agentId: 'legacy-agent',
+        command: 'codex',
         reason: 'manual-kill',
         archivedAt: Date.now(),
+      }, {
+        id: 'legacy-shell-history-entry',
+        agentId: 'legacy-shell-agent',
+        command: 'env TERM=xterm-256color /bin/bash',
+        reason: 'process-exit',
+        archivedAt: Date.now() + 1,
+      }, {
+        id: 'legacy-unsupported-history-entry',
+        agentId: 'legacy-unsupported-agent',
+        command: 'unknown-agent',
+        reason: 'process-exit',
+        archivedAt: Date.now() + 2,
       }],
     }));
     process.env.FARMING_CONFIG_DIR = legacyDir;
@@ -199,6 +270,8 @@ function run() {
     legacyManager.init();
     assert.strictEqual(legacyManager.getSettings().codexApprovalMode, 'full');
     assert.strictEqual(legacyManager.getTaskHistory()[0].agentId, 'legacy-agent');
+    assert.strictEqual(legacyManager.getTaskHistory().length, 1, 'unsupported legacy runs should be removed during history normalization');
+    assert.strictEqual(legacyManager.getTaskHistory()[0].customTitle, '');
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(legacyDir, 'settings.json'), 'utf8')).taskHistory, undefined);
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(legacyDir, 'history', 'runs.json'), 'utf8'))[0].agentId, 'legacy-agent');
 
