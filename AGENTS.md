@@ -94,6 +94,10 @@ The backend owns lifecycle, auth, session routing, terminal IO, workspace file A
 
 Both browser skins default to xterm.js. The Ghostty web renderer remains available only as an explicit debug path via `localStorage.farmingTerminalEngine = 'ghostty'`, but new product work should target the xterm adapter first.
 
+For Codex, Claude Code, and OpenCode, Farming Code's structured Chat runtime uses ACP. The Chat / Terminal control restarts the Agent into ACP or the native PTY runtime and resumes the same provider session; it is not a view-only toggle. Legacy JSON CLI Chat remains a compatibility reader, while Codex App Server remains a separate experimental path.
+
+ACP history replay and live updates must reduce into the same ordered entry stream. Do not introduce a backend `Turn -> Item` reconstruction for ACP. User-facing result/process grouping is an ACP frontend attention projection: it must remain reversible, preserve entry order and tool details, and hide Codex internal heartbeat/context activity without deleting visible automation notifications.
+
 ## Repository Layout
 
 ```text
@@ -182,7 +186,7 @@ The product CLI defaults to:
 
 The startup token is stored in `~/.farming/.session-token` and must be reused across restarts and upgrades unless `FARMING_TOKEN` explicitly overrides it. New token generation uses locale `auto`: Chinese time zones produce Chinese haiku-style tokens, Japanese time zones produce Japanese haiku-style tokens, and other time zones produce English passphrases.
 
-Update behavior is installation-aware. npm installations query the `farming-code` registry metadata and may update in one click: install the target package while the current server is alive, restart only after installation succeeds, persist progress under the config directory, and attempt a rollback if restart fails. Source checkouts update through Git and standalone CLI artifacts update manually. App-bundle installs may use a trusted HTTP(S) directory or manifest URL stored as `settings.updateUrl`; every bundle must match the runtime and provide a 64-character `sha256`. Farming does not bundle, download, select, or launch a private system C library; every release form relies on the target system runtime for Node.js and native dependencies.
+Update behavior is installation-aware. npm installations query the `farming-code` registry metadata and may update in one click: install the target package while the current server is alive, restart only after installation succeeds, persist progress under the config directory, and attempt a rollback if restart fails. Source checkouts update through Git and standalone CLI artifacts update manually. App-bundle installs may use a trusted HTTP(S) directory or manifest URL stored as `settings.updateUrl`; every bundle must match the runtime and provide a 64-character `sha256`. Standard bundles rely on the target system runtime. The separate `linux-x64-legacy-glibc228` bundle includes a pinned glibc 2.28 runtime and its installer activates it only on Linux x64 systems whose glibc is older than 2.28.
 
 ## Development Commands
 
@@ -225,9 +229,10 @@ npm run release:cli
 npm run release:cli:all
 npm run release:app
 npm run release:app:linux-compat  # explicit glibc 2.17 builder only
+npm run release:app:legacy-linux  # Linux x64 legacy glibc 2.28 runtime bundle
 ```
 
-The Linux compatibility bundle is separate from the normal release workflow. Build it only inside a clean Linux x64 environment whose glibc is exactly 2.17 and which provides Node.js 22+, GCC/G++, Make, and Python 3. Its `node-pty` module is compiled from source and ABI-checked before packaging. The bundle uses the target machine's Node.js and libc; do not restore a bundled glibc or a custom dynamic-loader path.
+The Linux `glibc217` ABI bundle is separate from the normal release workflow. Build it only inside a clean Linux x64 environment whose glibc is exactly 2.17 and which provides Node.js 22+, GCC/G++, Make, and Python 3. Its `node-pty` module is compiled from source and ABI-checked before packaging. The regular GitHub Release workflow additionally publishes `linux-x64-legacy-glibc228`: it embeds a pinned glibc 2.28 runtime to keep the full Node.js 22 app bundle usable on older Linux x64 hosts.
 
 Pre-release gate for public versions:
 

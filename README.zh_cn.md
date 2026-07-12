@@ -80,7 +80,8 @@ Farming 2 当前有三种实际部署形态：
 | macOS 与 Linux | `npm install --global farming-code` | 默认路径，需要 Node.js 22+，并且系统 runtime 能加载 `node-pty`。 |
 | 不使用 npm 的环境 | GitHub Releases 平台 CLI | 手动安装，升级也需要手动替换。 |
 | 目录部署 | `farming-<version>-<platform>-<arch>.tar.gz` | 包含 production dependencies 和 launcher 脚本的 App Bundle，直接使用目标系统 runtime。 |
-| 老 Linux runtime | `farming-<version>-linux-x64-glibc217.tar.gz` | 独立构建的兼容包；仍要求 Node.js 22+，但会基于 glibc 2.17 重新编译 `node-pty`。 |
+| 老 Linux x64（glibc < 2.28） | `farming-<version>-linux-x64-legacy-glibc228.tar.gz` | GitHub Release 随附的兼容 App Bundle，包含固定校验的 glibc 2.28 runtime；仅在系统 runtime 过旧时启用，但目标机仍需有 Node.js 22 可执行文件。 |
+| 自建老 Linux 包 | `farming-<version>-linux-x64-glibc217.tar.gz` | 独立构建的兼容包；基于 glibc 2.17 重新编译 `node-pty`，但仍要求目标机有可用的 Node.js runtime。 |
 
 如果要通过 Farming 启动 Codex 或 Claude Code，同一台机器上仍然需要提前安装并登录对应 CLI。Farming 托管的是这些 CLI session，不替代它们自己的安装和账号流程。
 
@@ -143,15 +144,25 @@ npm install
 npm run release:app
 ```
 
-`release:app` 会生成 `releases/<version>/farming-<version>-<platform>-<arch>.tar.gz`，包内包含已经构建好的前端、production dependencies 和根目录启动脚本，不携带或安装私有系统 C 库。
+`release:app` 会生成 `releases/<version>/farming-<version>-<platform>-<arch>.tar.gz`，包内包含已经构建好的前端、production dependencies 和根目录启动脚本，使用目标系统 runtime。
 
-老 Linux 兼容包是显式、独立的构建，不进入普通发布流程。在干净的 Linux x64 构建环境中准备 glibc 2.17、Node.js 22+、GCC/G++、Make 和 Python 3，然后运行：
+如果目标是 glibc 低于 2.28 的 Linux x64，构建带固定 glibc 2.28 runtime 的发布资产：
+
+```bash
+npm run release:app:legacy-linux
+```
+
+它会生成 `farming-<version>-linux-x64-legacy-glibc228.tar.gz`。安装时 runtime 解压到 `~/.farming/glibc228`，且仅在旧 Linux 上启用；现代 Linux 和 macOS 包不受影响。
+
+如果只需要将 `node-pty` 编译到更低 ABI，仍可在干净的 Linux x64 构建环境中准备 glibc 2.17、Node.js 22+、GCC/G++、Make 和 Python 3，然后运行：
 
 ```bash
 npm run release:app:linux-compat
 ```
 
-该命令会强制从源码编译 `node-pty`，并在其 native module 依赖高于 glibc 2.17 时拒绝产物。远程安装使用 `FARMING_REMOTE=user@host FARMING_RELEASE_TARBALL=<archive> npm run release:remote:linux-compat`。兼容包仍使用目标机器自己的 Node.js 和 libc，不携带私有 glibc，也不使用自定义 loader。
+该命令会强制从源码编译 `node-pty`，并在其 native module 依赖高于 glibc 2.17 时拒绝产物。远程安装使用 `FARMING_REMOTE=user@host FARMING_RELEASE_TARBALL=<archive> npm run release:remote:linux-compat`。这个 ABI 包仍使用目标机器自己的 Node.js 和 libc。
+
+如果已经在配置好的 Linux x64 构建机上准备了干净源码，`scripts/build-linux-compat-release-on-builder.sh` 可以继续自动完成容器构建、ABI 校验、打包后 bash Agent 冒烟和产物输出。通过 `FARMING_COMPAT_IMAGE` 指定构建机上已经存在的镜像。脚本使用 `--pull=never`，并默认关闭容器网络，以复用已有镜像和缓存，避免发布时隐式下载构建环境；只有确实需要主动刷新缓存时才设置 `FARMING_COMPAT_ALLOW_NETWORK=1`。
 
 ### 启动单文件 CLI
 

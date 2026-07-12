@@ -3,14 +3,22 @@
   "short_name": "Farming 2",
   "icons": [
     {
-      "src": "logo-192.png",
+      "src": "app-icon-v2-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "logo-512.png",
+      "src": "app-icon-v2-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "app-icon-v2-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "theme_color": "#f8f4e8",

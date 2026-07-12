@@ -8,6 +8,7 @@ let waitingForAgent = false;
 let selectedAgentIndex = null;
 let terminal = null;
 let fitAddon = null;
+let sessionCrtEffects = null;
 let availableThemes = [];
 let currentTheme = 'terminal';
 let themeSettings = {};
@@ -473,6 +474,10 @@ function isPasteShortcut(event) {
 }
 
 function disposeTerminal() {
+  if (sessionCrtEffects) {
+    sessionCrtEffects.dispose();
+    sessionCrtEffects = null;
+  }
   if (terminal) {
     terminal.dispose();
     terminal = null;
@@ -1076,6 +1081,10 @@ async function createTerminalInstance() {
       fontSize: getCrtTerminalFontSize(),
       fontFamily: TERMINAL_FONT_FAMILY,
       cursorBlink: false,
+      requireWebgl: true,
+      onWebglContextLoss: () => {
+        showCrtWebglFailure(new Error('The xterm WebGL context was lost. Close and reopen this terminal to restore it.'));
+      },
       smoothScrollDuration: 120,
       disableStdin: true,
       scrollback: TERMINAL_SCROLLBACK
@@ -1083,6 +1092,40 @@ async function createTerminalInstance() {
   }
 
   return null;
+}
+
+function showCrtWebglFailure(error) {
+  const terminalContainer = document.getElementById('terminal-output');
+  if (!terminalContainer) return;
+  terminalContainer.querySelector('.crt-webgl-error')?.remove();
+  const panel = document.createElement('div');
+  panel.className = 'crt-webgl-error';
+  const title = document.createElement('strong');
+  title.textContent = 'CRT WEBGL ERROR';
+  const message = document.createElement('span');
+  message.textContent = error && error.message
+    ? error.message
+    : 'Farming CRT requires WebGL2 hardware acceleration.';
+  const detail = document.createElement('small');
+  detail.textContent = 'The Agent is still running. Close and reopen this terminal after WebGL is available.';
+  panel.append(title, message, detail);
+  terminalContainer.appendChild(panel);
+}
+
+function startCrtSessionEffects() {
+  if (!terminal || !window.FarmingCrtWebglEffects) {
+    throw new Error('The Farming CRT WebGL effects engine is unavailable.');
+  }
+  const terminalContainer = document.getElementById('terminal-output');
+  if (!terminalContainer) {
+    throw new Error('The Farming CRT terminal surface is unavailable.');
+  }
+  if (sessionCrtEffects) sessionCrtEffects.dispose();
+  sessionCrtEffects = window.FarmingCrtWebglEffects.create({
+    terminal,
+    container: terminalContainer,
+    onError: showCrtWebglFailure,
+  });
 }
 
 function shouldUseLiveSessionText(agent) {
@@ -3243,7 +3286,7 @@ function connect() {
         }
       }
     } else if (data.type === 'system-stats') {
-      updateSystemStats(data.stats, data.uptime);
+      updateSystemStats(data.stats, data.uptime, data.usageRate);
     } else if (data.type === 'error') {
       waitingForAgent = false;
       alert('Error: ' + data.message);
@@ -3315,7 +3358,22 @@ function formatSystemClock(timestamp, timeZone) {
   }
 }
 
-function updateSystemStats(stats, uptime) {
+function formatCrtTokenRate(value) {
+  const rate = Number(value);
+  if (!Number.isFinite(rate) || rate < 0) return '--';
+  const rounded = rate < 10 ? Math.round(rate * 10) / 10 : Math.round(rate);
+  if (rounded >= 1_000_000) {
+    const compact = rounded / 1_000_000;
+    return `~${compact >= 10 ? Math.round(compact) : Math.round(compact * 10) / 10}M`;
+  }
+  if (rounded >= 1_000) {
+    const compact = rounded / 1_000;
+    return `~${compact >= 10 ? Math.round(compact) : Math.round(compact * 10) / 10}K`;
+  }
+  return `~${rounded}`;
+}
+
+function updateSystemStats(stats, uptime, usageRate) {
   if (stats.cpu !== undefined) {
     document.getElementById('cpu-usage').textContent = stats.cpu;
   }
@@ -3330,6 +3388,11 @@ function updateSystemStats(stats, uptime) {
 
   if (stats.timestamp !== undefined) {
     document.getElementById('system-time').textContent = formatSystemClock(stats.timestamp, stats.timeZone);
+  }
+
+  const tokensPerMinute = document.getElementById('tokens-per-minute');
+  if (tokensPerMinute) {
+    tokensPerMinute.textContent = formatCrtTokenRate(usageRate && usageRate.estimatedTokensPerMinute);
   }
   
   if (uptime !== undefined) {
@@ -3617,7 +3680,13 @@ async function openSession(agentId) {
       : getSessionModalDomState(document));
   const terminalContainer = domState.terminalContainer;
   
-  const terminalBundle = await createTerminalInstance();
+  let terminalBundle;
+  try {
+    terminalBundle = await createTerminalInstance();
+  } catch (error) {
+    showCrtWebglFailure(error);
+    return;
+  }
   if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) {
     return;
   }
@@ -3632,8 +3701,10 @@ async function openSession(agentId) {
   }
 
   disposeTerminal();
-  const mountedTerminal = SESSION_MODAL_BRIDGE && SESSION_MODAL_BRIDGE.mountTerminal
-    ? SESSION_MODAL_BRIDGE.mountTerminal(document, terminalBundle, {
+  let mountedTerminal = null;
+  try {
+    mountedTerminal = SESSION_MODAL_BRIDGE && SESSION_MODAL_BRIDGE.mountTerminal
+      ? SESSION_MODAL_BRIDGE.mountTerminal(document, terminalBundle, {
         initialOutput: shouldUseLiveSessionText(agent)
           ? (runtime ? runtime.prepareInitialOutput(agent.output) : agent.output)
           : '',
@@ -3655,8 +3726,13 @@ async function openSession(agentId) {
           if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) return;
           sendSessionResize(agentId);
         }
-      })
-    : null;
+        })
+      : null;
+  } catch (error) {
+    terminalBundle.terminal?.dispose?.();
+    showCrtWebglFailure(error);
+    return;
+  }
 
   if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) {
     if (terminalBundle.terminal && typeof terminalBundle.terminal.dispose === 'function') {
@@ -3703,7 +3779,15 @@ async function openSession(agentId) {
     });
 
     terminalContainer.innerHTML = '';
-    terminal.open(terminalContainer);
+    try {
+      terminal.open(terminalContainer);
+    } catch (error) {
+      terminal.dispose();
+      terminal = null;
+      fitAddon = null;
+      showCrtWebglFailure(error);
+      return;
+    }
     const restoreTerminalFocus = () => {
       if (hasAnySelection()) {
         return;
@@ -3731,13 +3815,18 @@ async function openSession(agentId) {
       focusSessionTerminal();
     });
   }
-  
-  if (mountedTerminal && mountedTerminal.readyPromise) {
-    await mountedTerminal.readyPromise;
-    if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) {
-      return;
+
+  try {
+    if (mountedTerminal && mountedTerminal.readyPromise) {
+      await mountedTerminal.readyPromise;
+      if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) {
+        return;
+      }
+      refreshSessionTerminalUi();
     }
-    refreshSessionTerminalUi();
+    startCrtSessionEffects();
+  } catch (error) {
+    showCrtWebglFailure(error);
   }
 
   await refreshSessionView(true, agentId, sessionToken);
@@ -4224,6 +4313,7 @@ if (typeof module !== 'undefined' && module.exports) {
     normalizeSessionViewPayload,
     deriveSessionStreamPatch,
     formatSystemClock,
+    formatCrtTokenRate,
     formatCrtHistoryAge,
     getCrtHistoryPage,
     getAgentDisplayText,

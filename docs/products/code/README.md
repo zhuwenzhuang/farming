@@ -24,6 +24,8 @@ The workspace screenshot above shows the central product shape: a live Codex ter
 - **Mobile Browser Access**: check agent state, switch sessions, start a simple agent, or send a short intervention from a phone.
 - **Optional Main Agent**: use a supervising agent when it is useful to start, observe, nudge, or summarize other agents.
 
+The backend also includes an experimental [ACP runtime](acp-runtime.md) for structured Codex, Claude Code, and OpenCode sessions. Its Chat UI consumes the same ordered ACP entry stream for loaded history and live updates, while Terminal remains an isolated PTY runtime.
+
 ## Agent State Inference
 
 Farming Code separates process lifecycle, agent kind, and active-turn state. A directly launched coding agent keeps the identity of its launch command, so ordinary answer text mentioning another provider cannot change its capabilities. A `bash` or `zsh` row can still enter Codex or Claude Code when the viewport contains strong TUI evidence.
@@ -184,7 +186,7 @@ Build an explicit target:
 FARMING_CLI_TARGETS=node22-linux-x64 npm run release:cli
 ```
 
-macOS and Linux single-file CLI artifacts use `@yao-pkg/pkg` with a modern Node runtime. The Linux single-file CLI is smoke-tested for server startup; Linux native PTY / agent startup is smoke-tested through the app bundle. All release forms rely on the target system runtime for native compatibility.
+macOS and Linux single-file CLI artifacts use `@yao-pkg/pkg` with a modern Node runtime. The Linux single-file CLI is smoke-tested for server startup; Linux native PTY / agent startup is smoke-tested through the app bundle. Standard release forms rely on the target system runtime. GitHub Releases also publishes a Linux x64 legacy app bundle, `farming-<release>-linux-x64-legacy-glibc228.tar.gz`, for systems whose glibc is older than 2.28; it carries a pinned runtime that the installer activates only on those systems.
 
 The release script builds the frontend with Vite, bundles the backend runtime through esbuild, packages the executable, writes checksums and a manifest, and runs a basic `strings` scan to catch accidental source or debug markers.
 
@@ -216,6 +218,8 @@ cd farming-2-linux-x64
 ```
 
 With no arguments, the root launcher prepares the runtime, writes `.farming-install-env`, starts the service, and prints the token URL. If production dependencies are missing, it falls back to `./farming install`.
+
+For Linux x64 with glibc older than 2.28, download and unpack `farming-<release>-linux-x64-legacy-glibc228.tar.gz` using the same steps. Its installer extracts the bundled runtime to `~/.farming/glibc228` and uses it only for that legacy host.
 
 Common commands:
 

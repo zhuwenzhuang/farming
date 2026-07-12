@@ -157,6 +157,10 @@
 
 新的交互式 agent 默认由 `NativeSessionEngine` 托管，node-pty 进程运行在独立 native pty host 中，Farming 服务重启后通过本地 socket 重新挂回仍存活的 terminal。native pty host 默认会跨 Farming server 重启保留；当没有 live session 和 client 后会在空闲宽限期后退出。只有希望 host 跟随 server 一起退出时才设置 `FARMING_NATIVE_PTY_HOST_PERSIST=0`。`LocalSessionEngine` 仅保留为 `FARMING_SESSION_ENGINE=local` 调试路径；产品 runtime 工作应面向 native pty host。
 
+对于 Codex、Claude Code 和 OpenCode，Farming Code 的结构化 Chat runtime 使用 ACP。Chat / Terminal 控件会把 Agent 重启到 ACP 或 native PTY runtime，并恢复同一个 provider Session；它不是单纯切换画面。旧 JSON CLI Chat 只保留兼容读取，Codex App Server 继续作为独立实验路径。
+
+ACP 历史重放和实时更新必须归约到同一条有序 entry stream，不要在后端为 ACP 重建 `Turn -> Item` 模型。面向用户的结果/过程分组属于 ACP 前端的注意力投影：必须可逆、保留 entry 顺序与 tool 详情，并在不删除可见 automation 通知的前提下隐藏 Codex 内部 heartbeat/context 活动。
+
 Agent 进程不能直接完整继承 Farming server 的 `process.env`。后端应先解析用户 shell 环境，再只叠加 agent 需要的服务端变量，例如模型凭据、代理、SSH auth 和证书路径，最后统一规范化 `TERM`、`COLORTERM`、`TERM_PROGRAM` 等 terminal 变量，并移除 `NO_COLOR`、非交互式 `cat` pager、动态库覆盖和 Node heap flag 等 server/runtime shim。新增启动路径必须复用这套 resolver，不能重新复制 `process.env`。
 
 Shell agent（`bash` / `zsh`）默认保留用户自己的交互启动流程和 prompt，行为与 VS Code 集成终端一致。Farming 通过不可见的 OSC busy / cwd marker 观测 shell，而不接管 `PS1` 或 `PROMPT`。需要紧凑受控 prompt 时显式设置 `FARMING_SHELL_CONTROLLED_PROMPT=1`；隐私截图可设置 `FARMING_ANONYMIZE_SHELL_PROMPT=1`。这些仅限 shell 的变量不能传给直接启动的 coding agent。
@@ -557,7 +561,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - 远程部署默认首选端口为 `6694`；CLI 应用在未显式覆盖端口时会从 `6694` 起自动上探可用端口，用户或环境变量显式覆盖时严格使用指定端口
 - 启动日志会打印保留 token 的入口 URL；token 保存在 `~/.farming/.session-token`，重启和升级必须复用，除非显式设置 `FARMING_TOKEN`；新 token 默认 `FARMING_TOKEN_LOCALE=auto`，中文时区生成中文 5-7-5 俳句式口令，日本时区生成日文 5-7-5 俳句式口令，其它时区生成英文 passphrase；也可显式设置 `FARMING_TOKEN_LOCALE=zh|ja|en`
 - 短语 token 保持至少约 85 bit 随机熵，比旧的 256 bit 十六进制 token 更易读，但安全余量相应更低；仍只建议用于可信开发机入口，不应直接公网裸露
-- 更新行为必须识别安装方式。npm 安装读取 `farming-code` registry 元数据并支持一键更新：旧服务运行期间先安装目标版本，安装成功后才重启，进度持久化到 config 目录，新服务启动失败时尝试回退。源码 checkout 通过 Git 更新，单文件 CLI 手动替换。App bundle 的可信 HTTP(S) 目录或 manifest URL 保存为 `settings.updateUrl`，每个 bundle 必须匹配运行平台并提供 64 位 `sha256`。Farming 不携带、下载、选择或启动私有系统 C 库；所有发布形态都依赖目标系统为 Node.js 和 native dependency 提供兼容 runtime。
+- 更新行为必须识别安装方式。npm 安装读取 `farming-code` registry 元数据并支持一键更新：旧服务运行期间先安装目标版本，安装成功后才重启，进度持久化到 config 目录，新服务启动失败时尝试回退。源码 checkout 通过 Git 更新，单文件 CLI 手动替换。App bundle 的可信 HTTP(S) 目录或 manifest URL 保存为 `settings.updateUrl`，每个 bundle 必须匹配运行平台并提供 64 位 `sha256`。标准包依赖目标系统为 Node.js 和 native dependency 提供兼容 runtime；独立的 `linux-x64-legacy-glibc228` 包内带固定校验的 glibc 2.28 runtime，安装器只在 glibc 低于 2.28 的 Linux x64 上启用它。
 - 默认推荐发布形态是按平台生成的直跑 `farming` CLI 应用：`npm run release:cli` 输出当前 target 的 `releases/<release-version>/farming_<release-version>_<platform>_<arch>`、统一 `manifest.json` 和 `farming_<release-version>_checksums.txt`；`npm run release:cli:all` 默认一次生成 macOS arm64 与 Linux x64；最终用户拿到二进制后可直接改名为 `farming` 并执行 `./farming daemon`
 - CLI 应用默认自配置：首选端口 `6694`、base path `/farming`、配置目录 `~/.farming`；首次启动自动创建 `settings.json`、token 文件和必要运行目录，不要求用户先写 env 文件
 - CLI 应用默认使用 native pty host session engine；目标机需要能加载打包的 `node-pty` runtime。只有排查 native host 边界时才设置 `FARMING_SESSION_ENGINE=local` 使用进程内 node-pty engine。
@@ -581,11 +585,11 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - 远程 `scripts/deploy.sh start` 默认启用 token 校验，并在 launcher 中清理 `FARMING_DISABLE_AUTH`；仅可信网络临时调试时可显式使用 `scripts/deploy.sh start --disable-auth` 或 `npm run deploy:remote:no-auth`
 - 远程 `scripts/deploy.sh deploy` 会先检查 node/npm/git，使用跳过浏览器下载的 `npm ci` 按 lockfile 安装依赖，并在 `vite build` 后执行 `npm prune --omit=dev`，运行目录只保留后端服务需要的生产依赖
 - 远程启动时会按目标机 cgroup / 系统内存自动设置 Farming server 的 Node heap；可用 `FARMING_NODE_MAX_OLD_SPACE_SIZE=<MB>` 覆盖，或设置为 `0` 使用 Node 默认值；该 `NODE_OPTIONS` 默认不会传给子 agent
-- app bundle 方案使用 `npm run release:app` 或兼容别名 `npm run release:tarball` 生成 `releases/<release-version>/farming-<release-version>-<platform>-<arch>.tar.gz`，包内包含已经构建好的 `dist/`、production `node_modules/` 和根目录 `./farming` 启动脚本；无参数运行会直接 start，只有显式设置 `FARMING_BUNDLE_NODE_MODULES=0` 或包内缺依赖时才会先 install
+- app bundle 方案使用 `npm run release:app` 或兼容别名 `npm run release:tarball` 生成 `releases/<release-version>/farming-<release-version>-<platform>-<arch>.tar.gz`，包内包含已经构建好的 `dist/`、production `node_modules/` 和根目录 `./farming` 启动脚本；无参数运行会直接 start，只有显式设置 `FARMING_BUNDLE_NODE_MODULES=0` 或包内缺依赖时才会先 install。`npm run release:app:legacy-linux` 会额外生成 Linux x64 的 `-legacy-glibc228.tar.gz`，用于 glibc 低于 2.28 的旧系统。
 - `release:app` 只能从干净 worktree 打包，并通过 Git 跟踪文件白名单构建；它必须拒绝未提交或未跟踪内容，避免把本地 token、私有配置或测试数据带入发行包。
 - `npm run release:remote` 会按 `FARMING_REMOTE_BASE_PATH` 打包、上传 tarball 到远程 Linux、执行 `scripts/install-release.sh install`，并以 token auth 启动真实服务
 - release 远程安装可在 `config/farming.deploy.env` 用 `FARMING_REMOTE_CONFIG_DIR`、`FARMING_REMOTE_SERVER_HOME` 隔离配置目录和 Codex / Claude 历史扫描，适合产品截图、测试实例和多实例部署
-- app bundle 本地安装脚本 `scripts/install-release.sh` 支持 `install/start/daemon/serve/stop/status/logs`，默认读取 `config/farming.install.env`（可从 `config/farming.install.env.example` 复制），通过 `FARMING_INSTALL_DIR`、`FARMING_PORT`、`FARMING_BASE_PATH`、`FARMING_CONFIG_DIR`、`FARMING_SERVER_HOME`、`FARMING_NODE_MAX_OLD_SPACE_SIZE` 控制目标目录、端口、base path、配置目录、server HOME 和 server heap 策略；应用内升级源在 Web Settings 中配置并写入 `settings.json`
+- app bundle 本地安装脚本 `scripts/install-release.sh` 支持 `install/start/daemon/serve/stop/status/logs`，默认读取 `config/farming.install.env`（可从 `config/farming.install.env.example` 复制），通过 `FARMING_INSTALL_DIR`、`FARMING_PORT`、`FARMING_BASE_PATH`、`FARMING_CONFIG_DIR`、`FARMING_SERVER_HOME`、`FARMING_NODE_MAX_OLD_SPACE_SIZE` 控制目标目录、端口、base path、配置目录、server HOME 和 server heap 策略；旧 Linux 包还支持 `FARMING_USE_GLIBC_RUNTIME` 与 `FARMING_GLIBC_RUNTIME_ROOT`。应用内升级源在 Web Settings 中配置并写入 `settings.json`
 
 **公开版本发布前门禁：**
 

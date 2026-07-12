@@ -8,6 +8,7 @@ import { AgentTerminalPane } from '../AgentTerminalPane'
 import { ChatBubblesGlyph, TerminalSquareGlyph } from '../IconGlyphs'
 import { CodexAppServerTranscriptPane } from './CodexAppServerTranscriptPane'
 import { JsonCliTranscriptPane } from './JsonCliTranscriptPane'
+import { AcpTranscriptPane } from './acp/AcpTranscriptPane'
 import type { CodeCopy } from './copy'
 
 type TerminalFollowState = {
@@ -19,6 +20,7 @@ interface AgentWorkPaneProps {
   agent: Agent
   active: boolean
   switching: boolean
+  switchingKind: 'permission' | 'runtime' | null
   focusSignal: number
   onActivate: (agentId: string, options?: { focusTerminal?: boolean }) => void
   sendInput: (input: string | TerminalInputPart[], agentId?: string) => boolean
@@ -29,7 +31,7 @@ interface AgentWorkPaneProps {
   onOpenWorkspaceFilePath?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onFollowOutputChange?: (agentId: string, state: TerminalFollowState) => void
   onReadLatest?: (agentId: string) => void
-  onRuntimeModeChange?: (agentId: string, mode: 'terminal' | 'json') => void
+  onRuntimeModeChange?: (agentId: string, mode: 'terminal' | 'acp') => void
   copy: CodeCopy
 }
 
@@ -49,6 +51,7 @@ export function AgentWorkPane({
   agent,
   active,
   switching,
+  switchingKind,
   focusSignal,
   onActivate,
   sendInput,
@@ -64,8 +67,9 @@ export function AgentWorkPane({
 }: AgentWorkPaneProps) {
   const appServerChat = isCodexAppServerAgent(agent)
   const jsonChat = agent.agentRuntimeMode === 'json'
-  const chatMode = appServerChat || jsonChat
-  const canSwitchRuntime = ['codex', 'opencode'].includes(agent.providerSessionProvider || '')
+  const acpChat = agent.agentRuntimeMode === 'acp'
+  const chatMode = appServerChat || jsonChat || acpChat
+  const canSwitchRuntime = ['codex', 'claude', 'opencode'].includes(agent.providerSessionProvider || '')
     && agent.providerSessionTemporary !== true
     && Boolean(agent.providerSessionId)
 
@@ -83,7 +87,7 @@ export function AgentWorkPane({
     >
       {canSwitchRuntime ? (
         <div className="code-terminal-mode-toggle" data-testid="code-terminal-mode-toggle" onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}>
-          <button type="button" className={chatMode ? 'active' : ''} aria-pressed={chatMode} aria-label={copy.transcriptView} title={copy.transcriptView} disabled={switching} onClick={() => !chatMode && onRuntimeModeChange?.(agent.id, 'json')}>
+          <button type="button" className={chatMode ? 'active' : ''} aria-pressed={chatMode} aria-label={copy.transcriptView} title={copy.transcriptView} disabled={switching} onClick={() => !chatMode && onRuntimeModeChange?.(agent.id, 'acp')}>
             <ChatBubblesGlyph />
           </button>
           <button type="button" className={!chatMode ? 'active' : ''} aria-pressed={!chatMode} aria-label={copy.terminalView} title={copy.terminalView} disabled={switching} onClick={() => chatMode && onRuntimeModeChange?.(agent.id, 'terminal')}>
@@ -119,7 +123,9 @@ export function AgentWorkPane({
           aria-hidden={false}
           onPointerDown={activateChatView}
         >
-          {appServerChat ? (
+          {acpChat ? (
+            <AcpTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
+          ) : appServerChat ? (
             <CodexAppServerTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
           ) : (
             <JsonCliTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} refreshSignal={agent.jsonCliTranscriptUpdatedAt ? Date.parse(agent.jsonCliTranscriptUpdatedAt) : 0} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
@@ -129,7 +135,7 @@ export function AgentWorkPane({
       {switching ? (
         <div className="code-permission-switching" data-testid="code-permission-switching" role="status" aria-live="polite">
           <span className="code-permission-switching-spinner" aria-hidden="true" />
-          <span>{copy.permissionProfileRestarting}</span>
+          <span>{switchingKind === 'runtime' ? copy.runtimeModeRestarting : copy.permissionProfileRestarting}</span>
         </div>
       ) : null}
     </section>

@@ -17,7 +17,6 @@ export interface CodeCopy {
   codexTranscriptUnavailable: string
   codexTranscriptEmpty: string
   codexTranscriptWaiting: string
-  codexTranscriptGoalProgress: string
   codexTranscriptProcess: string
   codexTranscriptWorking: string
   codexTranscriptWorkedFor: (duration: string) => string
@@ -137,6 +136,8 @@ export interface CodeCopy {
   permissionProfileSavedForNextLaunch: string
   permissionProfileRestarting: string
   permissionProfileApplying: string
+  runtimeModeRestarting: string
+  agentRestartTimedOut: string
   permissionRestartHint: string
   permissionAppServerHint: string
   modelAndReasoning: string
@@ -215,6 +216,8 @@ export interface CodeCopy {
   appServerRequestUnsupported: string
   appServerApprovalRejectedTitle: string
   appServerApprovalRejectedDescription: string
+  acpPermissionTitle: string
+  acpPermissionTool: string
   file: string
   folder: string
   go: string
@@ -349,7 +352,6 @@ const EN_COPY: CodeCopy = {
   codexTranscriptUnavailable: '',
   codexTranscriptEmpty: '',
   codexTranscriptWaiting: 'Codex is still working...',
-  codexTranscriptGoalProgress: 'Progressing goal',
   codexTranscriptProcess: 'Worked',
   codexTranscriptWorking: 'Working',
   codexTranscriptWorkedFor: duration => `Worked for ${duration}`,
@@ -476,6 +478,8 @@ const EN_COPY: CodeCopy = {
   permissionProfileSavedForNextLaunch: 'Saved for new agents. Running sessions keep the permissions they launched with.',
   permissionProfileRestarting: 'Switching agent permissions…',
   permissionProfileApplying: 'Applying App Server permissions…',
+  runtimeModeRestarting: 'Restarting Agent…',
+  agentRestartTimedOut: 'Agent restart timed out. The previous Agent remains available; try switching again.',
   permissionRestartHint: 'The running agent restarts to apply these permissions. If it has no resumable session id yet, a fresh session starts.',
   permissionAppServerHint: 'Applies to this App Server thread without restarting the Agent. New permissions take effect for subsequent turns.',
   modelAndReasoning: 'Model and reasoning',
@@ -554,6 +558,8 @@ const EN_COPY: CodeCopy = {
   appServerRequestUnsupported: 'This Codex request is not supported in Farming. Declining it will let the turn continue safely.',
   appServerApprovalRejectedTitle: 'Permission request declined',
   appServerApprovalRejectedDescription: 'Chat does not approve this permission request. Increase this Agent permission mode, or handle it in Terminal view.',
+  acpPermissionTitle: 'Agent needs permission',
+  acpPermissionTool: 'Requested tool',
   file: 'File',
   folder: 'Folder',
   go: 'Go',
@@ -688,7 +694,6 @@ const ZH_COPY: CodeCopy = {
   codexTranscriptUnavailable: '',
   codexTranscriptEmpty: '',
   codexTranscriptWaiting: 'Codex 还在工作...',
-  codexTranscriptGoalProgress: '正在推进目标',
   codexTranscriptProcess: '执行过程',
   codexTranscriptWorking: '执行中',
   codexTranscriptWorkedFor: duration => `Worked for ${duration}`,
@@ -851,6 +856,8 @@ const ZH_COPY: CodeCopy = {
   permissionProfileSavedForNextLaunch: '已保存给新 Agent。运行中的会话保留启动时的权限。',
   permissionProfileRestarting: '正在切换 Agent 权限…',
   permissionProfileApplying: '正在应用 App Server 权限…',
+  runtimeModeRestarting: '正在重启 Agent…',
+  agentRestartTimedOut: 'Agent 重启超时。原 Agent 仍然可用，请重新切换。',
   permissionRestartHint: '运行中的 Agent 会重启以应用权限；如果还没有可 resume 的 Session ID，则启动一个新会话。',
   permissionAppServerHint: '直接应用到当前 App Server thread，不重启 Agent；新权限从后续 turn 生效。',
   modelAndReasoning: '模型与推理',
@@ -929,6 +936,8 @@ const ZH_COPY: CodeCopy = {
   appServerRequestUnsupported: 'Farming 目前不支持这类 Codex 请求。拒绝后，当前 turn 会安全地继续。',
   appServerApprovalRejectedTitle: '已拒绝权限申请',
   appServerApprovalRejectedDescription: 'Chat 界面不会批准这类权限申请。请调高这个 Agent 的权限，或切到 Terminal 界面处理。',
+  acpPermissionTitle: 'Agent 需要权限',
+  acpPermissionTool: '请求使用工具',
   file: '文件',
   folder: '文件夹',
   go: '跳转',

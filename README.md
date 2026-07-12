@@ -73,7 +73,8 @@ Farming uses these practical deployment shapes:
 | macOS and Linux | `npm install --global farming-code` | Default path. Requires Node.js 22 or newer and a system runtime that can load `node-pty`. |
 | Standalone use | platform CLI from GitHub Releases | Manual installation for environments that do not want npm; upgrades remain manual. |
 | Directory deployment | `farming-<version>-<platform>-<arch>.tar.gz` | App bundle with production dependencies and launcher scripts; it uses the target system runtime. |
-| Older Linux runtime | `farming-<version>-linux-x64-glibc217.tar.gz` | Separately built compatibility bundle. It requires Node.js 22+, but rebuilds `node-pty` against a glibc 2.17 baseline. |
+| Legacy Linux x64 (glibc < 2.28) | `farming-<version>-linux-x64-legacy-glibc228.tar.gz` | GitHub Release app bundle with a pinned glibc 2.28 runtime. The installer uses it only when the system runtime is older; a Node.js 22 executable is still required. |
+| Custom older Linux build | `farming-<version>-linux-x64-glibc217.tar.gz` | Separately built bundle that rebuilds `node-pty` against a glibc 2.17 baseline; it still needs a usable target Node.js runtime. |
 
 If you want Farming to launch Codex or Claude Code, install and log in to those CLIs on the same machine first. Farming hosts their CLI sessions; it does not replace their installation or account setup.
 
@@ -123,15 +124,25 @@ npm install
 npm run release:app
 ```
 
-The app bundle includes production dependencies and launcher scripts. It does not bundle or install a private system C library; Node.js and native dependencies must run on the target system as installed.
+The standard app bundle includes production dependencies and launcher scripts, and uses the target system runtime as installed.
 
-Older Linux compatibility is an explicit, separate build and is not part of the normal release workflow. Run the following command inside a clean Linux x64 builder that has glibc 2.17, Node.js 22+, GCC/G++, Make, and Python 3:
+For Linux x64 systems whose glibc is older than 2.28, build the release asset that carries the pinned legacy runtime:
+
+```bash
+npm run release:app:legacy-linux
+```
+
+The resulting `farming-<version>-linux-x64-legacy-glibc228.tar.gz` extracts its bundled runtime to `~/.farming/glibc228` and uses it only on older Linux. It does not affect modern Linux or macOS bundles.
+
+For a separately built `node-pty` ABI baseline, run the following command inside a clean Linux x64 builder that has glibc 2.17, Node.js 22+, GCC/G++, Make, and Python 3:
 
 ```bash
 npm run release:app:linux-compat
 ```
 
-The command forces `node-pty` to build from source and rejects the archive unless its native module requires no newer than glibc 2.17. Install it remotely with `FARMING_REMOTE=user@host FARMING_RELEASE_TARBALL=<archive> npm run release:remote:linux-compat`. This compatibility bundle still uses the target machine's Node.js and libc; it does not carry a private glibc or a custom loader.
+The command forces `node-pty` to build from source and rejects the archive unless its native module requires no newer than glibc 2.17. Install it remotely with `FARMING_REMOTE=user@host FARMING_RELEASE_TARBALL=<archive> npm run release:remote:linux-compat`. This ABI-focused bundle still uses the target machine's Node.js and libc.
+
+When a clean source checkout is already present on a provisioned Linux x64 builder host, `scripts/build-linux-compat-release-on-builder.sh` automates the remaining container build, ABI verification, packaged bash-agent smoke, and artifact output. Set `FARMING_COMPAT_IMAGE` to an image that already exists on that host. The script uses `--pull=never` and disables container networking by default so release builds reuse existing images and caches instead of downloading infrastructure implicitly; set `FARMING_COMPAT_ALLOW_NETWORK=1` only when an intentional cache refresh is required.
 
 ### Run A Single-File CLI
 
@@ -159,7 +170,7 @@ cd farming-<version>-linux-x64
 ./farming
 ```
 
-The launcher uses the target machine's ordinary Node.js and native runtime. Farming no longer bundles, downloads, or selects a private system C library.
+The standard bundle uses the target machine's ordinary Node.js and native runtime. On a legacy Linux x64 host, download the `-legacy-glibc228.tar.gz` bundle instead; its launcher activates the bundled runtime only when required.
 
 ## Development
 

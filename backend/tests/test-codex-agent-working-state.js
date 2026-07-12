@@ -143,6 +143,27 @@ function run() {
     'Bash-launched Codex TUIs should be inferred from terminal output instead of launch command'
   );
 
+  assert.strictEqual(
+    isAgentTurnActive(codexAgent({
+      agentRuntimeMode: 'acp',
+      acpState: 'idle',
+      startedAt: Date.now(),
+      previewText: '',
+    })),
+    false,
+    'ACP idle state should override the terminal startup heuristic'
+  );
+
+  assert.strictEqual(
+    isAgentTurnActive(codexAgent({
+      agentRuntimeMode: 'acp',
+      acpState: 'working',
+      previewText: '',
+    })),
+    true,
+    'ACP working state should drive the shared active-turn state'
+  );
+
   assert.deepStrictEqual(
     pickTerminalState(codexAgent({
       terminalStatus: {

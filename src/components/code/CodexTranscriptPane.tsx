@@ -80,11 +80,12 @@ export interface CodexTranscriptPaneProps {
   agentId: string
   workspaceRoot?: string
   active: boolean
-  source?: 'app-server' | 'json-cli' | 'legacy-jsonl'
+  source?: 'acp' | 'app-server' | 'json-cli' | 'legacy-jsonl'
   refreshSignal?: number
   onOpenWorkspaceFilePath?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onAvailabilityChange?: (state: { loading: boolean; hasContent: boolean; available: boolean }) => void
   onReadLatest?: () => void
+  groupProcessActions?: boolean
   copy: CodeCopy
 }
 
@@ -98,6 +99,7 @@ const TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD = 96
 function durationLabel(durationMs: number | null | undefined) {
   if (!durationMs || !Number.isFinite(durationMs) || durationMs <= 0) return ''
   const seconds = Math.round(durationMs / 1000)
+  if (seconds <= 0) return ''
   if (seconds < 60) return `${seconds}s`
   const minutes = Math.floor(seconds / 60)
   const rest = seconds % 60
@@ -1010,6 +1012,7 @@ function CodexTranscriptTurnView({
   onOpenFile,
   workspaceRoot,
   processOpen,
+  groupProcessActions,
   onToggleProcess,
 }: {
   turn: CodexTranscriptTurn
@@ -1017,6 +1020,7 @@ function CodexTranscriptTurnView({
   onOpenFile?: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   workspaceRoot?: string
   processOpen: boolean
+  groupProcessActions: boolean
   onToggleProcess: (turnId: string) => void
 }) {
   const hasProcess = turn.processItems.length > 0
@@ -1027,7 +1031,11 @@ function CodexTranscriptTurnView({
   const [answerCopied, setAnswerCopied] = useState(false)
   const [openProcessItemIds, setOpenProcessItemIds] = useState<Set<string>>(() => new Set())
   const [, setProgressClock] = useState(0)
-  const processEntries = useMemo(() => processEntriesForTurn(turn.processItems), [turn.processItems])
+  const processEntries = useMemo(() => (
+    groupProcessActions
+      ? processEntriesForTurn(turn.processItems)
+      : turn.processItems.map(item => ({ kind: 'item' as const, item }))
+  ), [groupProcessActions, turn.processItems])
   const mobileTouch = isMobileTouchViewport()
   const answerMessage = useMemo(() => stripRawMemoryCitation(turn.finalMessage), [turn.finalMessage])
   const shouldShowWaiting = turn.status === 'inProgress' && !answerMessage && (
@@ -1038,7 +1046,7 @@ function CodexTranscriptTurnView({
     const timer = window.setInterval(() => setProgressClock(Date.now()), 30_000)
     return () => window.clearInterval(timer)
   }, [turn.startedAt, turn.status])
-  const goalProgressDuration = turn.status === 'inProgress'
+  const progressDuration = turn.status === 'inProgress'
     ? elapsedDurationLabel(turn.startedAt)
     : ''
   const handleCopyItem = useCallback((item: CodexTranscriptProcessItem) => {
@@ -1249,8 +1257,8 @@ function CodexTranscriptTurnView({
             />
           ) : null}
           {turn.status === 'inProgress' ? (
-            <span className="code-codex-transcript-goal-progress">
-              {[copy.codexTranscriptGoalProgress, goalProgressDuration].filter(Boolean).join(' ')}
+            <span className="code-codex-transcript-progress">
+              {[copy.codexTranscriptWorking, progressDuration].filter(Boolean).join(' ')}
             </span>
           ) : null}
         </div>
@@ -1268,6 +1276,7 @@ export function CodexTranscriptPane({
   onOpenWorkspaceFilePath,
   onAvailabilityChange,
   onReadLatest,
+  groupProcessActions = true,
   copy,
 }: CodexTranscriptPaneProps) {
   const [transcript, setTranscript] = useState<CodexTranscript | null>(null)
@@ -1316,11 +1325,13 @@ export function CodexTranscriptPane({
       controller?.abort()
       controller = new AbortController()
       const params = new URLSearchParams({ maxTurns: String(turnLimit) })
-      const endpoint = source === 'app-server'
-        ? 'codex-app-server-transcript'
-        : source === 'json-cli'
-          ? 'json-cli-transcript'
-          : 'codex-transcript'
+      const endpoint = source === 'acp'
+        ? 'acp-transcript'
+        : source === 'app-server'
+          ? 'codex-app-server-transcript'
+          : source === 'json-cli'
+            ? 'json-cli-transcript'
+            : 'codex-transcript'
       fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/${endpoint}?${params.toString()}`), {
         signal: controller.signal,
       })
@@ -1531,6 +1542,7 @@ export function CodexTranscriptPane({
               onOpenFile={onOpenWorkspaceFilePath ? handleOpenFile : undefined}
               workspaceRoot={workspaceRoot}
               processOpen={openProcessTurnIds.has(turn.id)}
+              groupProcessActions={groupProcessActions}
               onToggleProcess={handleToggleProcess}
             />
           ))}

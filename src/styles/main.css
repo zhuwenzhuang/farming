@@ -3057,13 +3057,290 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 }
 
 .code-agent-work-view > .code-terminal-pane,
-.code-agent-work-view > .code-codex-transcript {
+.code-agent-work-view > .code-codex-transcript,
+.code-agent-work-view > .code-acp-transcript {
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
   flex: 1;
   resize: none;
+}
+
+.code-acp-transcript {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+  color: #24292f;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.code-acp-transcript-scroll {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 36px clamp(18px, 4vw, 54px) 40px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(87, 96, 106, 0.16) transparent;
+}
+
+.code-acp-transcript-state,
+.code-acp-transcript-blank {
+  height: 100%;
+}
+
+.code-acp-transcript-state {
+  display: grid;
+  place-items: center;
+  color: #8c959f;
+  font-size: 13px;
+}
+
+.code-acp-entry {
+  width: min(980px, 100%);
+  box-sizing: border-box;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.code-acp-message.user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  margin-bottom: 20px;
+}
+
+.code-acp-user-text {
+  width: fit-content;
+  max-width: min(720px, 78%);
+  padding: 9px 14px;
+  border-radius: 17px;
+  background: rgba(31, 35, 40, 0.06);
+  color: #1f2328;
+  font-size: 14px;
+  line-height: 20px;
+  white-space: pre-wrap;
+}
+
+.code-acp-message.assistant {
+  margin-bottom: 18px;
+  padding: 0 18px;
+  color: #24292f;
+  font-size: 14px;
+  line-height: 1.58;
+}
+
+.code-acp-message.assistant.notification {
+  color: #656d76;
+}
+
+.code-acp-message.assistant > :first-child,
+.code-acp-message.assistant > div > :first-child {
+  margin-top: 0;
+}
+
+.code-acp-message.assistant > :last-child,
+.code-acp-message.assistant > div > :last-child {
+  margin-bottom: 0;
+}
+
+.code-acp-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.code-acp-images img {
+  display: block;
+  max-width: min(520px, 100%);
+  max-height: 360px;
+  border: 1px solid rgba(208, 215, 222, 0.72);
+  border-radius: 12px;
+  object-fit: contain;
+}
+
+.code-acp-activity {
+  margin-bottom: 2px;
+  color: #656d76;
+  font-size: 13px;
+}
+
+.code-acp-activity-group {
+  width: min(980px, 100%);
+  margin: 0 auto 14px;
+  color: #656d76;
+  font-size: 13px;
+}
+
+.code-acp-activity-group > summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 18px;
+  box-sizing: border-box;
+  list-style: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 560;
+}
+
+.code-acp-activity-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.code-acp-activity-group > summary:hover,
+.code-acp-activity-group > summary:focus-visible {
+  background: rgba(31, 35, 40, 0.04);
+  outline: none;
+}
+
+.code-acp-activity-group > summary > .code-acp-activity-chevron {
+  margin-left: 2px;
+}
+
+.code-acp-activity-group[open] > summary > .code-acp-activity-chevron {
+  transform: rotate(90deg);
+}
+
+.code-acp-activity-count {
+  min-width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: rgba(31, 35, 40, 0.06);
+  color: #8c959f;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.code-acp-activity-list {
+  padding: 3px 0 4px 14px;
+}
+
+.code-acp-activity > summary,
+.code-acp-activity:not(details) {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 3px 18px;
+  box-sizing: border-box;
+}
+
+.code-acp-activity > summary {
+  list-style: none;
+  cursor: pointer;
+  border-radius: 7px;
+}
+
+.code-acp-activity > summary::-webkit-details-marker {
+  display: none;
+}
+
+.code-acp-activity > summary:hover,
+.code-acp-activity > summary:focus-visible {
+  background: rgba(31, 35, 40, 0.04);
+  outline: none;
+}
+
+.code-acp-activity-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #8c959f;
+}
+
+.code-acp-activity.running .code-acp-activity-dot {
+  background: #bf8700;
+  box-shadow: 0 0 0 3px rgba(191, 135, 0, 0.12);
+}
+
+.code-acp-activity.failed .code-acp-activity-dot {
+  background: #cf222e;
+}
+
+.code-acp-activity-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-acp-activity-chevron {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  transition: transform 140ms ease;
+}
+
+.code-acp-activity[open] .code-acp-activity-chevron {
+  transform: rotate(90deg);
+}
+
+.code-acp-activity-detail {
+  max-height: min(440px, 48vh);
+  margin: 3px 18px 10px 33px;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid rgba(208, 215, 222, 0.72);
+  border-radius: 8px;
+  background: rgba(246, 248, 250, 0.8);
+  color: #424a53;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.code-acp-working {
+  width: min(980px, 100%);
+  margin: 14px auto 0;
+  padding: 0 18px;
+  box-sizing: border-box;
+  color: #8c959f;
+  font-size: 13px;
+}
+
+.code-acp-load-earlier {
+  display: block;
+  margin: 0 auto 24px;
+  border: 0;
+  background: transparent;
+  color: #656d76;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.code-acp-jump-bottom {
+  position: absolute;
+  right: 22px;
+  bottom: 18px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(208, 215, 222, 0.82);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #57606a;
+  box-shadow: 0 8px 24px rgba(31, 35, 40, 0.12);
+  cursor: pointer;
 }
 
 .code-terminal-pane.active {
@@ -4265,7 +4542,7 @@ button.code-codex-transcript-result-summary:focus-visible {
   color: #cf222e;
 }
 
-.code-codex-transcript-goal-progress {
+.code-codex-transcript-progress {
   min-height: 34px;
   display: inline-flex;
   flex: 0 1 auto;
@@ -4283,7 +4560,7 @@ button.code-codex-transcript-result-summary:focus-visible {
   text-overflow: ellipsis;
 }
 
-.code-codex-transcript-goal-progress::before {
+.code-codex-transcript-progress::before {
   content: '◎';
   margin-right: 5px;
   color: currentColor;
@@ -7239,6 +7516,93 @@ button.code-history-card {
 .code-composer-left-tools {
   flex: 1 1 auto;
   overflow: visible;
+}
+
+.code-acp-session-controls {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.code-acp-session-controls::-webkit-scrollbar {
+  display: none;
+}
+
+.code-acp-config-select {
+  flex: 0 0 auto;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border-radius: 8px;
+  color: #687068;
+  font-size: 11px;
+}
+
+.code-acp-config-select select {
+  min-width: 0;
+  max-width: 150px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #303630;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.code-acp-config-toggle {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #687068;
+  font: inherit;
+  font-size: 12px;
+}
+
+.code-acp-config-toggle.active {
+  background: #edf3eb;
+  color: #355438;
+}
+
+.code-acp-usage {
+  flex: 0 0 auto;
+  color: #858b84;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.code-acp-permission-details {
+  color: #555d56;
+  font-size: 12px;
+}
+
+.code-acp-permission-details summary {
+  width: max-content;
+  cursor: pointer;
+}
+
+.code-acp-permission-details div {
+  margin-top: 7px;
+}
+
+.code-acp-permission-details pre {
+  max-height: 160px;
+  margin: 3px 0 0;
+  padding: 8px;
+  overflow: auto;
+  border-radius: 8px;
+  background: rgba(31, 35, 40, 0.045);
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .code-composer-right-tools {
@@ -12172,7 +12536,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     line-height: 18px;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-goal-progress {
+  body.code-mode.code-mobile-touch .code-codex-transcript-progress {
     min-height: 34px;
     padding: 6px 11px;
     border-radius: 17px;

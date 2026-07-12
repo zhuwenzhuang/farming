@@ -28,12 +28,13 @@
 
 | 项目 | 格式 | 说明 |
 |------|------|------|
-| Agents | `Agents: {active}/{total}` | 活跃/总数 agent 计数 |
+| Agents | `AGENTS: {active}/{total}` | 活跃/总数 agent 计数 |
+| Token 速率 | `TOK/MIN: ~{rate}` | 最近五分钟所有终端输出的 token 估算速率 |
 | CPU | `CPU: {n}%` | 系统 CPU 占用 |
 | MEM | `MEM: {n}%` | 系统内存占用 |
 | Focus | `Focus: {name}` | 当前正在查看的 agent 名称（仅当 session 打开时显示） |
 | Attn | `Attn: {name} [{score}]` | 最高注意力分数的 agent（仅当无 focus 且有活跃 agent 时显示） |
-| Uptime | `Uptime: {time}` | 系统运行时长，始终靠右对齐（`margin-left: auto`） |
+| Uptime | `UPTIME: {time}` | 系统运行时长，始终靠右对齐（`margin-left: auto`） |
 
 ### 2.2 条件显示逻辑
 
@@ -51,7 +52,7 @@
 
 ## 3. Sidebar（菜单栏）
 
-桌面端侧栏菜单项与 CRT 通用入口对齐：**Task List**、**History**、**Skills**、**Billing**（以及基础的 **New Agent**、**Settings**）。僵尸标记与治理在 Agents Layout / 后端规则层呈现，**不设独立「Zombies」侧栏菜单**。
+桌面端侧栏菜单项统一使用大写标签：**TASK LIST**、**HISTORY**、**SKILLS**、**BILLING**（以及基础的 **NEW AGENT**、**SETTINGS**）。僵尸标记与治理在 Agents Layout / 后端规则层呈现，**不设独立「Zombies」侧栏菜单**。
 
 ### 3.1 菜单项
 

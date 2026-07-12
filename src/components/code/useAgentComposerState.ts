@@ -7,6 +7,11 @@ import {
   mergeAgentComposerStates,
   type AgentComposerState,
 } from './composer-state'
+import {
+  acpComposerStateAliasKeysForAgent,
+  acpComposerStateKeyForAgent,
+  isAcpComposerStateKey,
+} from './acp/acp-composer-state'
 
 type PermissionSwitchReplacement = {
   originalAgentId: string
@@ -30,7 +35,7 @@ export function useAgentComposerState({
     const retainedComposerKeys = new Set(
       agents
         .filter(agent => !agent.archived && agent.status !== 'dead' && agent.status !== 'stopped')
-        .map(composerStateKeyForAgent)
+        .flatMap(agent => [composerStateKeyForAgent(agent), acpComposerStateKeyForAgent(agent)])
         .filter(Boolean)
     )
     setComposerByAgentKey(current => {
@@ -43,15 +48,24 @@ export function useAgentComposerState({
       }
 
       if (permissionSwitchReplacement) {
-        const sourceState = next[permissionSwitchReplacement.originalAgentId]
-        if (sourceState) {
+        const moveReplacementState = (sourceKey: string, replacementKey: string) => {
+          const sourceState = next[sourceKey]
+          if (!sourceState) return
           const nextStateByKey = mutable()
-          const replacementState = nextStateByKey[permissionSwitchReplacement.replacementAgentId]
-          nextStateByKey[permissionSwitchReplacement.replacementAgentId] = replacementState
+          const replacementState = nextStateByKey[replacementKey]
+          nextStateByKey[replacementKey] = replacementState
             ? mergeAgentComposerStates(replacementState, sourceState)
             : sourceState
-          delete nextStateByKey[permissionSwitchReplacement.originalAgentId]
+          delete nextStateByKey[sourceKey]
         }
+        moveReplacementState(
+          permissionSwitchReplacement.originalAgentId,
+          permissionSwitchReplacement.replacementAgentId,
+        )
+        moveReplacementState(
+          `acp:${permissionSwitchReplacement.originalAgentId}`,
+          `acp:${permissionSwitchReplacement.replacementAgentId}`,
+        )
       }
 
       agents.forEach(agent => {
@@ -64,6 +78,17 @@ export function useAgentComposerState({
           const nextStateByKey = mutable()
           nextStateByKey[canonicalKey] = nextStateByKey[canonicalKey]
             ? mergeAgentComposerStates(nextStateByKey[canonicalKey], aliasState)
+            : aliasState
+          delete nextStateByKey[aliasKey]
+        })
+        const acpCanonicalKey = acpComposerStateKeyForAgent(agent)
+        acpComposerStateAliasKeysForAgent(agent).forEach(aliasKey => {
+          if (aliasKey === acpCanonicalKey) return
+          const aliasState = next[aliasKey]
+          if (!aliasState) return
+          const nextStateByKey = mutable()
+          nextStateByKey[acpCanonicalKey] = nextStateByKey[acpCanonicalKey]
+            ? mergeAgentComposerStates(nextStateByKey[acpCanonicalKey], aliasState)
             : aliasState
           delete nextStateByKey[aliasKey]
         })
@@ -82,9 +107,15 @@ export function useAgentComposerState({
   const resolveComposerStateKey = useCallback((composerKey: string) => {
     if (!composerKey) return ''
     for (const agent of agents) {
-      const canonicalKey = composerStateKeyForAgent(agent)
+      const acpState = isAcpComposerStateKey(composerKey)
+      const canonicalKey = acpState
+        ? acpComposerStateKeyForAgent(agent)
+        : composerStateKeyForAgent(agent)
       if (!canonicalKey) continue
-      if (composerKey === canonicalKey || composerStateAliasKeysForAgent(agent).includes(composerKey)) {
+      const aliasKeys = acpState
+        ? acpComposerStateAliasKeysForAgent(agent)
+        : composerStateAliasKeysForAgent(agent)
+      if (composerKey === canonicalKey || aliasKeys.includes(composerKey)) {
         return canonicalKey
       }
     }

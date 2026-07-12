@@ -54,7 +54,17 @@ function run() {
   const mainPageSessionSource = read('backend/main-page-session.js');
   const inputPartsSource = read('backend/input-parts.js');
   const terminalPaneSource = read('src/components/AgentTerminalPane.tsx');
+  const transcriptPaneSource = read('src/components/code/CodexTranscriptPane.tsx');
   const agentWorkPaneSource = read('src/components/code/AgentWorkPane.tsx');
+  const codeMainAreaSource = read('src/components/code/CodeMainArea.tsx');
+  const terminalComposerSource = read('src/components/code/CodeComposer.tsx');
+  const acpComposerSource = read('src/components/code/acp/AcpComposer.tsx');
+  const acpComposerBehaviorSource = read('src/components/code/acp/acp-composer-behavior.ts');
+  const acpComposerStateSource = read('src/components/code/acp/acp-composer-state.ts');
+  const acpSessionControlsSource = read('src/components/code/acp/AcpSessionControls.tsx');
+  const acpSessionHookSource = read('src/components/code/acp/useAcpSession.ts');
+  const acpPermissionSource = read('src/components/code/acp/AcpPermissionCard.tsx');
+  const acpTranscriptSource = read('src/components/code/acp/AcpTranscriptPane.tsx');
   const terminalSearchSource = read('src/lib/terminal-search.ts');
   const terminalSessionPoolSource = read('src/lib/terminal-session-pool.ts');
   const usePooledTerminalSource = read('src/hooks/usePooledTerminal.ts');
@@ -197,6 +207,13 @@ function run() {
       appSource.includes('latestRestartDescendant(ws.agents, current.originalAgentId)') &&
       appSource.includes('agent.restartedFromAgentIds?.includes(ancestorAgentId)') &&
       appSource.includes('requestSettled: true') &&
+      appSource.includes("kind: runtimeSwitch ? 'runtime' : 'permission'") &&
+      appSource.includes('startedAt: Date.now()') &&
+      appSource.includes('AGENT_SWITCH_REQUEST_TIMEOUT_MS = 45_000') &&
+      appSource.includes('AGENT_SWITCH_OVERLAY_TIMEOUT_MS = 60_000') &&
+      appSource.includes('requestController.abort()') &&
+      appSource.includes('message: copy.agentRestartTimedOut') &&
+      appSource.includes('agentSwitchingKind={permissionSwitch?.kind ?? null}') &&
       appSource.includes('requestFreshStateAt') &&
       appSource.includes('Math.min(hardDeadline, freshStateDeadline)') &&
       appSource.includes('setOpenTerminalIds(ids => ids.map(id => id === agentId ? restartedAgentId : id))') &&
@@ -204,8 +221,11 @@ function run() {
       !appSource.includes('openTerminal(data.restartedAgentId)') &&
       workspaceSource.includes('active: Boolean(activeAgent) && !activeAgentPermissionSwitching') &&
       workspaceSource.includes('permissionModeDisabled: Boolean(permissionSwitchingAgentId)') &&
+      workspaceSource.includes('message: copy.runtimeModeRestarting') &&
+      workspaceSource.includes("runtimeModeRestarting: 'Restarting Agent…'") &&
       workspaceSource.includes('disabled={permissionModeDisabled}') &&
-      workspaceSource.includes('const sourceState = next[permissionSwitchReplacement.originalAgentId]') &&
+      workspaceSource.includes('moveReplacementState(\n          permissionSwitchReplacement.originalAgentId') &&
+      workspaceSource.includes('`acp:${permissionSwitchReplacement.originalAgentId}`') &&
       workspaceSource.includes('previousActiveTerminalIdRef') &&
       agentManagerSource.includes('permissionRestartInFlight') &&
       agentManagerSource.includes('restartedFromAgentId: agentId') &&
@@ -759,7 +779,8 @@ function run() {
       workspaceSource.includes('mergeAgentComposerStates(nextStateByKey[canonicalKey], aliasState)') &&
       workspaceSource.includes('const resolveComposerStateKey = useCallback') &&
       workspaceSource.includes('const canonicalKey = resolveComposerStateKey(composerKey)') &&
-      workspaceSource.includes('const activeComposerKey = activeAgent ? composerStateKeyForAgent(activeAgent) :') &&
+      workspaceSource.includes("const activeComposerKey = activeAgent?.agentRuntimeMode === 'acp'") &&
+      workspaceSource.includes('acpComposerStateKeyForAgent(activeAgent)') &&
       workspaceSource.includes('const activeComposerState = activeComposerKey') &&
       workspaceSource.includes('const activePendingFollowUp = activeComposerState.pendingFollowUp') &&
       workspaceSource.includes('const activeAgentTurnActive = useMemo') &&
@@ -978,15 +999,21 @@ function run() {
       !terminalPaneSource.includes('transcriptAvailability') &&
       agentWorkPaneSource.includes('CodexAppServerTranscriptPane') &&
       agentWorkPaneSource.includes('JsonCliTranscriptPane') &&
+      agentWorkPaneSource.includes('AcpTranscriptPane') &&
       agentWorkPaneSource.includes('AgentTerminalPane') &&
       agentWorkPaneSource.includes('const appServerChat = isCodexAppServerAgent(agent)') &&
       agentWorkPaneSource.includes("const jsonChat = agent.agentRuntimeMode === 'json'") &&
+      agentWorkPaneSource.includes("const acpChat = agent.agentRuntimeMode === 'acp'") &&
       agentWorkPaneSource.includes('data-testid="code-terminal-mode-toggle"') &&
       agentWorkPaneSource.includes('onRuntimeModeChange') &&
       agentWorkPaneSource.includes('agentWorkPaneModeStorageIdentity') &&
       agentWorkPaneSource.includes('providerSessionKey') &&
       agentWorkPaneSource.includes('data-testid="code-permission-switching"') &&
+      agentWorkPaneSource.includes("switchingKind === 'runtime' ? copy.runtimeModeRestarting : copy.permissionProfileRestarting") &&
       agentWorkPaneSource.includes('aria-busy={switching}') &&
+      transcriptPaneSource.includes("[copy.codexTranscriptWorking, progressDuration]") &&
+      transcriptPaneSource.includes('if (seconds <= 0) return') &&
+      !workspaceSource.includes('codexTranscriptGoalProgress') &&
       agentWorkPaneSource.includes('data-testid="code-agent-terminal-view"') &&
       agentWorkPaneSource.includes('data-testid="code-agent-chat-view"') &&
       agentWorkPaneSource.includes('onActivate(agent.id, { focusTerminal: false })') &&
@@ -1046,6 +1073,41 @@ function run() {
       stylesSource.includes('.code-composer-send:disabled') &&
       stylesSource.includes('.code-composer-stop-icon'),
     'Codex composer should expose a real interrupt action with send/interrupt/disabled button states'
+  );
+
+  assert(
+    codeMainAreaSource.includes("const acpComposerActive = activeAgent?.agentRuntimeMode === 'acp'") &&
+      codeMainAreaSource.includes('<AcpComposer {...acpComposerProps} copy={copy} />') &&
+      codeMainAreaSource.includes('<CodeComposer {...composerProps} copy={copy} />') &&
+      !terminalComposerSource.includes('AcpPermission') &&
+      !terminalComposerSource.includes('acpPermission') &&
+      acpComposerSource.includes('data-testid="code-acp-composer"') &&
+      acpComposerSource.includes('AcpPermissionCard') &&
+      acpComposerSource.includes('data-testid="code-acp-command-menu"') &&
+      acpComposerSource.includes('session?.availableCommands') &&
+      acpComposerSource.includes('<AcpSessionControls') &&
+      acpComposerSource.includes('permissions.map') &&
+      !acpComposerSource.includes('ComposerAttachments') &&
+      !acpComposerSource.includes('composerMode') &&
+      !acpComposerSource.includes('slashCommands') &&
+      acpComposerBehaviorSource.includes("agent.agentRuntimeMode !== 'acp'") &&
+      !acpComposerBehaviorSource.includes('terminalInputPartsForComposerMessage') &&
+      !acpComposerBehaviorSource.includes('formatComposerMessage') &&
+      !acpComposerBehaviorSource.includes('composerMessageWithAttachments') &&
+      acpComposerStateSource.includes("const ACP_COMPOSER_STATE_PREFIX = 'acp:'") &&
+      acpSessionHookSource.includes('/acp-session') &&
+      acpSessionHookSource.includes("method: 'PATCH'") &&
+      acpSessionControlsSource.includes('data-testid="code-acp-mode"') &&
+      acpSessionControlsSource.includes('configOptions.map') &&
+      acpSessionControlsSource.includes("option.category !== 'mode' && option.id !== 'mode'") &&
+      acpPermissionSource.includes('code-acp-permission-details') &&
+      !agentWorkPaneSource.includes('acpSessionUpdatedAt ? Date.parse') &&
+      !acpTranscriptSource.includes('refreshSignal={') &&
+      acpTranscriptSource.includes('groupProcessActions={false}') &&
+      workspaceSource.includes("activeAgent?.agentRuntimeMode === 'acp'") &&
+      workspaceSource.includes('acpComposerStateKeyForAgent(activeAgent)') &&
+      workspaceSource.includes('acpComposerStateAliasKeysForAgent(activeAgent)'),
+    'ACP chat should own a separate composer and behavior module without changing the Terminal composer contract'
   );
   assert(
     workspaceSource.includes('const activeAgentCanInterrupt = useMemo') &&

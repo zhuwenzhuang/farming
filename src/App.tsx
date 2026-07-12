@@ -26,7 +26,7 @@ type AgentFlagPatch = Partial<{
   archived: boolean
   launchPermissionMode: string
   readAttentionSeq: number
-  agentRuntimeMode: 'terminal' | 'json'
+  agentRuntimeMode: 'terminal' | 'acp' | 'json'
 }>
 type StartAgentExtras = {
   projectWorkspace?: string
@@ -35,13 +35,15 @@ type StartAgentExtras = {
   customTitle?: string
   codexApprovalMode?: string
   codexRuntimeMode?: 'cli' | 'app-server'
-  agentRuntimeMode?: 'terminal' | 'json'
+  agentRuntimeMode?: 'terminal' | 'acp' | 'json'
   dangerouslySkipPermissions?: boolean
   providerHomeId?: string
 }
 type PermissionSwitchState = {
   originalAgentId: string
   agent: Agent
+  kind: 'permission' | 'runtime'
+  startedAt: number
   replacementAgentId?: string
   transitionFromAgentId?: string
   requestSettled?: boolean
@@ -58,6 +60,8 @@ const MIN_MOBILE_VISUAL_HEIGHT = 240
 const CONTEXT_WINDOW_REFRESH_MS = 30_000
 const PERMISSION_SWITCH_REPLACEMENT_GRACE_MS = 10_000
 const PERMISSION_SWITCH_REPLACEMENT_HARD_TIMEOUT_MS = 60_000
+const AGENT_SWITCH_REQUEST_TIMEOUT_MS = 45_000
+const AGENT_SWITCH_OVERLAY_TIMEOUT_MS = 60_000
 
 function projectWorkspaceForAgent(agent: { cwd: string; projectWorkspace?: string; isMain?: boolean } | null | undefined) {
   if (!agent) return undefined
@@ -286,6 +290,20 @@ export function App() {
     }, delay)
     return () => window.clearTimeout(timer)
   }, [commitPermissionSwitch, permissionSwitch, ws.connected, ws.lastMessageAt])
+
+  useEffect(() => {
+    const current = permissionSwitch
+    if (!current) return undefined
+    const delay = Math.max(0, current.startedAt + AGENT_SWITCH_OVERLAY_TIMEOUT_MS - Date.now())
+    const timer = window.setTimeout(() => {
+      const latest = permissionSwitchStateRef.current
+      if (!latest || latest.startedAt !== current.startedAt) return
+      permissionSwitchRequestRef.current = null
+      commitPermissionSwitch(null)
+      setAppNotice({ id: Date.now(), kind: 'error', message: copy.agentRestartTimedOut })
+    }, delay)
+    return () => window.clearTimeout(timer)
+  }, [commitPermissionSwitch, copy.agentRestartTimedOut, permissionSwitch])
   const backendConnectionState = useMemo(() => {
     const elapsed = Math.max(0, connectionCheckNow - ws.lastMessageAt)
     if (!ws.connected && ws.everConnected) return 'lost'
@@ -675,6 +693,8 @@ export function App() {
       commitPermissionSwitch({
         originalAgentId: agentId,
         agent: switchingAgent,
+        kind: runtimeSwitch ? 'runtime' : 'permission',
+        startedAt: Date.now(),
       })
     }
 
@@ -687,11 +707,15 @@ export function App() {
     }
 
     try {
+      const requestController = new AbortController()
+      const requestTimeout = window.setTimeout(() => requestController.abort(), AGENT_SWITCH_REQUEST_TIMEOUT_MS)
       const response = await fetch(appPath(`/api/agents/${agentId}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(flags),
+        signal: requestController.signal,
       })
+      window.clearTimeout(requestTimeout)
       const data = await response.json().catch(() => null) as AgentFlagUpdateResult | null
       if (!response.ok) {
         const current = permissionSwitchStateRef.current
@@ -743,7 +767,9 @@ export function App() {
       }
       return data ?? true
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to update agent'
+      const message = error instanceof DOMException && error.name === 'AbortError'
+        ? copy.agentRestartTimedOut
+        : error instanceof Error ? error.message : 'Failed to update agent'
       const current = permissionSwitchStateRef.current
       if (switchingAgent && current?.originalAgentId === agentId) {
         commitPermissionSwitch({
@@ -757,7 +783,7 @@ export function App() {
       notifyError(message)
       return false
     }
-  }, [closeTerminal, commitPermissionSwitch, notifyError, ws.agents])
+  }, [closeTerminal, commitPermissionSwitch, copy.agentRestartTimedOut, notifyError, ws.agents])
 
   const handleOpenArchivedAgent = useCallback(async (agentId: string) => {
     const updated = await handleUpdateAgentFlags(agentId, { archived: false })
@@ -988,6 +1014,7 @@ export function App() {
         contextWindowByAgentId={contextWindowByAgentId}
         activeTerminalId={effectiveActiveTerminalId}
         permissionSwitchingAgentId={permissionSwitch?.agent.id ?? null}
+        agentSwitchingKind={permissionSwitch?.kind ?? null}
         permissionSwitchReplacement={permissionSwitch?.replacementAgentId
           ? {
             originalAgentId: permissionSwitch.transitionFromAgentId ?? permissionSwitch.originalAgentId,

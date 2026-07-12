@@ -67,6 +67,29 @@ const AgentManager = require('../agent-manager');
   assert.strictEqual(result.restartedAgentId, 'agent-new');
   assert.strictEqual(result.agentRuntimeMode, 'json');
 
+  manager.agents.set('agent-acp-switch', {
+    id: 'agent-acp-switch',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: sessionId,
+    providerSessionTemporary: false,
+    providerHomeId: 'zwz',
+    providerHomePath: codexHome,
+    providerSessionTitle: 'ACP demo',
+    agentRuntimeMode: 'terminal',
+    status: 'running',
+    output: '',
+  });
+  killed = '';
+  started = null;
+  const acpResult = await manager.restartAgentRuntimeMode('agent-acp-switch', 'acp');
+  assert.strictEqual(killed, 'agent-acp-switch');
+  assert.strictEqual(started.options.agentRuntimeMode, 'acp');
+  assert.strictEqual(acpResult.agentRuntimeMode, 'acp');
+
   manager.agents.set('agent-stale', {
     id: 'agent-stale',
     cwd: '/tmp/project',

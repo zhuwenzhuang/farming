@@ -22,12 +22,13 @@ TopBar items:
 
 | Item | Format | Meaning |
 | --- | --- | --- |
-| Agents | `Agents: {active}/{total}` | active / total agent count |
+| Agents | `AGENTS: {active}/{total}` | active / total agent count |
+| Token rate | `TOK/MIN: ~{rate}` | five-minute aggregate terminal-output token estimate |
 | CPU | `CPU: {n}%` | system CPU usage |
 | MEM | `MEM: {n}%` | system memory usage |
 | Focus | `Focus: {name}` | focused agent when a session is open |
 | Attn | `Attn: {name} [{score}]` | highest-attention agent when there is no focus |
-| Uptime | `Uptime: {time}` | system uptime, right-aligned |
+| Uptime | `UPTIME: {time}` | system uptime, right-aligned |
 
 Focus and Attn are mutually exclusive. Attn becomes hot when score is high, but the UI should avoid nagging notification patterns.
 
@@ -37,12 +38,12 @@ Desktop sidebar entries:
 
 | Key | Action | State |
 | --- | --- | --- |
-| N | New Agent | enabled |
-| L | Task List | enabled |
-| H | History | enabled |
-| K | Skills | enabled |
-| $ | Billing | enabled |
-| S | Settings | enabled |
+| N | NEW AGENT | enabled |
+| L | TASK LIST | enabled |
+| H | HISTORY | enabled |
+| K | SKILLS | enabled |
+| $ | BILLING | enabled |
+| S | SETTINGS | enabled |
 
 Zombie cleanup does not get its own sidebar item. Zombie state appears on agent cards and in backend lifecycle rules.
 

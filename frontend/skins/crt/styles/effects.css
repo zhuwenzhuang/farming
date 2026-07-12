@@ -139,6 +139,50 @@
     animation: crt-content-afterimage 620ms cubic-bezier(0.16, 0.72, 0.28, 1) forwards;
 }
 
+#farming-crt .xterm-screen {
+    position: relative;
+}
+
+#farming-crt .crt-webgl-effects-canvas {
+    position: absolute;
+    inset: 0;
+    z-index: 8;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    mix-blend-mode: screen;
+    contain: strict;
+}
+
+#farming-crt.no-crt .crt-webgl-effects-canvas {
+    display: none;
+}
+
+#farming-crt .crt-webgl-error {
+    position: absolute;
+    inset: 18px;
+    z-index: 20;
+    display: grid;
+    place-content: center;
+    gap: 10px;
+    padding: 24px;
+    border: 1px solid #ff4d4d;
+    background: rgba(5, 5, 5, 0.94);
+    color: #ff6b6b;
+    text-align: center;
+    pointer-events: none;
+}
+
+#farming-crt .crt-webgl-error strong,
+#farming-crt .crt-webgl-error span,
+#farming-crt .crt-webgl-error small {
+    display: block;
+}
+
+#farming-crt .crt-webgl-error small {
+    color: #b98282;
+}
+
 #farming-crt .agent-output-afterimage {
     position: absolute;
     inset: 0;
@@ -164,6 +208,7 @@
     #farming-crt .crt-phosphor-noise,
     #farming-crt .crt-scan-afterglow,
     #farming-crt .crt-scan-beam,
+    #farming-crt .crt-webgl-effects-canvas,
     #farming-crt .agent-output-afterimage {
         display: none;
     }

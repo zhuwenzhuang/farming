@@ -727,13 +727,14 @@
     <div class="crt-scan-afterglow" aria-hidden="true"></div>
     <div class="crt-scan-beam" aria-hidden="true"></div>
 <div class="top-bar">
-        <div class="top-bar-item">Agents: <span id="active-agents">0</span>/<span id="total-agents">0</span></div>
+        <div class="top-bar-item">AGENTS: <span id="active-agents">0</span>/<span id="total-agents">0</span></div>
+        <div class="top-bar-item" title="Estimated terminal output tokens per minute over the last 5 minutes">TOK/MIN: <span id="tokens-per-minute">--</span></div>
         <div class="top-bar-item">CPU: <span id="cpu-usage">--</span>%</div>
         <div class="top-bar-item">MEM: <span id="mem-percentage">--</span>%</div>
         <div class="top-bar-item" id="focus-region" style="display: none;">Focus: <span id="focus-region-name">--</span></div>
         <div class="top-bar-item system-ip">IP: <span id="system-ip">--</span></div>
-        <div class="top-bar-item">Time: <span id="system-time">--</span></div>
-        <div class="top-bar-item">Uptime: <span id="uptime">0s</span></div>
+        <div class="top-bar-item">TIME: <span id="system-time">--</span></div>
+        <div class="top-bar-item">UPTIME: <span id="uptime">0s</span></div>
     </div>
     
     <div class="main-container">
@@ -762,22 +763,22 @@
         <div class="sidebar">
             <div class="sidebar-actions">
                 <div class="sidebar-item" role="button" tabindex="-1" data-crt-nav-key="sidebar:new-agent" onclick="showInputDialog()">
-                    <span class="key">[N]</span> New Agent
+                    <span class="key">[N]</span> NEW AGENT
                 </div>
                 <div class="sidebar-item" style="opacity: 0.5; cursor: not-allowed;">
-                    <span class="key">[L]</span> Task List
+                    <span class="key">[L]</span> TASK LIST
                 </div>
                 <div class="sidebar-item" id="history-sidebar-item" role="button" tabindex="-1" data-crt-nav-key="sidebar:history" onclick="showHistory()">
-                    <span class="key">[H]</span> History
+                    <span class="key">[H]</span> HISTORY
                 </div>
                 <div class="sidebar-item" style="opacity: 0.5; cursor: not-allowed;">
-                    <span class="key">[K]</span> Skills
+                    <span class="key">[K]</span> SKILLS
                 </div>
                 <div class="sidebar-item" style="opacity: 0.5; cursor: not-allowed;">
-                    <span class="key">[$]</span> Billing
+                    <span class="key">[$]</span> BILLING
                 </div>
                 <div class="sidebar-item" role="button" tabindex="-1" data-crt-nav-key="sidebar:settings" onclick="showSettings()">
-                    <span class="key">[S]</span> Settings
+                    <span class="key">[S]</span> SETTINGS
                 </div>
             </div>
 
@@ -979,12 +980,14 @@
     <script src="shared/runtime-paths.js"></script>
     <script src="../vendor/xterm/xterm.js"></script>
     <script src="../vendor/xterm/addon-fit.js"></script>
+    <script src="../vendor/xterm/addon-webgl.js"></script>
     <script src="shared/terminal-bridge.js"></script>
     <script src="shared/skin-bridge.js"></script>
     <script src="shared/session-bridge.js"></script>
     <script src="shared/session-modal-bridge.js"></script>
     <script type="module" src="shared/ghostty-loader.js"></script>
     <script src="effects.js"></script>
+    <script src="effects/crt-webgl-effects.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

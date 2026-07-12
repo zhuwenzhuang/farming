@@ -202,7 +202,7 @@ export function ShareQrButton({
   const copiedTimerRef = useRef<number | null>(null)
   const [singleLineTokenFits, setSingleLineTokenFits] = useState(true)
   const [qrCodeFactory, setQrCodeFactory] = useState<QrCodeFactory | null>(null)
-  const badgeUrl = appPath('/farming-2/images/avatar-watercolor-v1-bee-garden.png')
+  const badgeUrl = appPath('/farming-2/app-icon-v2-180.png')
   const shareTargetSignature = workspaceShareTargetKey(shareTarget)
 
   useEffect(() => {

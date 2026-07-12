@@ -177,6 +177,7 @@ const distDir = path.join(__dirname, '../dist');
 const staticAppDir = fs.existsSync(distDir) ? distDir : frontendDir;
 const xtermBrowserEntryPath = path.join(__dirname, '..', 'node_modules', '@xterm', 'xterm', 'lib', 'xterm.js');
 const xtermFitEntryPath = path.join(__dirname, '..', 'node_modules', '@xterm', 'addon-fit', 'lib', 'addon-fit.js');
+const xtermWebglEntryPath = path.join(__dirname, '..', 'node_modules', '@xterm', 'addon-webgl', 'lib', 'addon-webgl.js');
 const xtermCssPath = path.join(__dirname, '..', 'node_modules', '@xterm', 'xterm', 'css', 'xterm.css');
 const materialIconDir = path.join(__dirname, '..', 'node_modules', 'material-icon-theme', 'icons');
 
@@ -415,6 +416,9 @@ app.get(routePath(BASE_PATH, '/vendor/xterm/xterm.js'), (_req, res) => {
 });
 app.get(routePath(BASE_PATH, '/vendor/xterm/addon-fit.js'), (_req, res) => {
   res.sendFile(xtermFitEntryPath);
+});
+app.get(routePath(BASE_PATH, '/vendor/xterm/addon-webgl.js'), (_req, res) => {
+  res.sendFile(xtermWebglEntryPath);
 });
 app.get(routePath(BASE_PATH, '/vendor/xterm/xterm.css'), (_req, res) => {
   res.sendFile(xtermCssPath);
@@ -867,6 +871,117 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/json-cli-transcript'), async 
     res.json({ transcript });
   } catch (error) {
     const message = error && error.message ? error.message : 'Failed to read JSON CLI transcript';
+    res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
+  }
+});
+
+app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-session'), async (req, res) => {
+  try {
+    res.json({
+      session: agentManager.getAcpSession(req.params.agentId, {
+        includeUpdates: req.query.includeUpdates === '1',
+      }),
+    });
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to read ACP session';
+    res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
+  }
+});
+
+app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-transcript'), async (req, res) => {
+  try {
+    const requestedMaxEntries = Number.parseInt(String(req.query.maxEntries || ''), 10);
+    const maxEntries = Number.isFinite(requestedMaxEntries)
+      ? Math.min(4_000, Math.max(100, requestedMaxEntries))
+      : 600;
+    res.json({ transcript: agentManager.getAcpTranscript(req.params.agentId, { maxEntries }) });
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to read ACP transcript';
+    res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
+  }
+});
+
+app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-sessions'), async (req, res) => {
+  try {
+    const result = await agentManager.listAcpSessions(req.params.agentId, {
+      cwd: typeof req.query.cwd === 'string' ? req.query.cwd : '',
+      cursor: typeof req.query.cursor === 'string' ? req.query.cursor : '',
+    });
+    res.json(result);
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to list ACP sessions';
+    res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-permission'), express.json(), (req, res) => {
+  try {
+    const result = agentManager.respondToAcpPermission(
+      req.params.agentId,
+      req.body?.requestId,
+      req.body?.optionId,
+      req.body?.cancelled === true
+    );
+    res.json(result);
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to respond to ACP permission';
+    res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/authenticate'), express.json(), async (req, res) => {
+  try {
+    res.json(await agentManager.authenticateAcpAgent(req.params.agentId, req.body?.methodId));
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to authenticate ACP Agent';
+    res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/fork'), express.json(), async (req, res) => {
+  try {
+    res.json(await agentManager.forkAcpSession(req.params.agentId, req.body || {}));
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to fork ACP session';
+    res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
+  }
+});
+
+app.delete(routePath(BASE_PATH, '/api/agents/:agentId/acp-sessions/:sessionId'), async (req, res) => {
+  try {
+    res.json(await agentManager.deleteAcpSession(req.params.agentId, req.params.sessionId));
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to delete ACP session';
+    res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/close'), async (req, res) => {
+  try {
+    res.json(await agentManager.closeAcpSession(req.params.agentId));
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to close ACP session';
+    res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
+  }
+});
+
+app.patch(routePath(BASE_PATH, '/api/agents/:agentId/acp-session'), express.json(), async (req, res) => {
+  try {
+    if (typeof req.body?.modeId === 'string') {
+      res.json(await agentManager.setAcpSessionMode(req.params.agentId, req.body.modeId));
+      return;
+    }
+    if (typeof req.body?.configId === 'string' && Object.prototype.hasOwnProperty.call(req.body, 'value')) {
+      res.json(await agentManager.setAcpSessionConfigOption(
+        req.params.agentId,
+        req.body.configId,
+        req.body.value
+      ));
+      return;
+    }
+    res.status(400).json({ error: 'ACP modeId or configId/value is required' });
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to update ACP session';
     res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
   }
 });
@@ -1562,7 +1677,8 @@ function handleMessage(ws, data) {
         codexRuntimeMode: data.codexRuntimeMode === 'app-server' || data.codexRuntimeMode === 'cli'
           ? data.codexRuntimeMode
           : undefined,
-        agentRuntimeMode: data.agentRuntimeMode === 'json' ? 'json' : 'terminal',
+        agentRuntimeMode: ['json', 'acp'].includes(data.agentRuntimeMode) ? data.agentRuntimeMode : 'terminal',
+        acpHistoryMode: data.acpHistoryMode === 'resume' ? 'resume' : 'load',
         providerHomeId: typeof data.providerHomeId === 'string' ? data.providerHomeId : '',
         ...(data.dangerouslySkipPermissions === true ? { dangerouslySkipPermissions: true } : {}),
       });
@@ -1583,6 +1699,22 @@ function handleMessage(ws, data) {
     case 'app-server-request-response':
       {
         void respondToAppServerRequest(ws, data);
+      }
+      break;
+
+    case 'acp-permission-response':
+      try {
+        agentManager.respondToAcpPermission(
+          data.agentId,
+          data.requestId,
+          data.optionId,
+          data.cancelled === true
+        );
+      } catch (error) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: error && error.message ? error.message : 'Failed to respond to ACP permission',
+        }));
       }
       break;
 
@@ -1971,6 +2103,7 @@ agentManager.onSessionPreview((preview) => {
 });
 
 agentManager.onSystemStats((systemStats) => {
+  const usageSnapshot = agentManager.getAgentUsageSnapshots();
   const message = JSON.stringify({ 
     type: 'system-stats', 
     stats: {
@@ -1978,7 +2111,12 @@ agentManager.onSystemStats((systemStats) => {
       ip: getPrimaryLocalIP(),
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
     },
-    uptime: agentManager.getUptime()
+    uptime: agentManager.getUptime(),
+    usageRate: {
+      windowMs: usageSnapshot.windowMs,
+      estimatedTokensPerMinute: usageSnapshot.estimatedTokensPerMinute,
+      source: usageSnapshot.source,
+    }
   });
   wss.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {

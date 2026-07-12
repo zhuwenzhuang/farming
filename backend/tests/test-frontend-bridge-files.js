@@ -8,18 +8,22 @@ function run() {
   const runtimePathsPath = path.join(__dirname, '../../frontend/runtime-paths.js');
   const indexHtmlPath = path.join(__dirname, '../../frontend/skins/crt/index.html');
   const effectsCssPath = path.join(__dirname, '../../frontend/skins/crt/styles/effects.css');
+  const webglEffectsPath = path.join(__dirname, '../../frontend/skins/crt/effects/crt-webgl-effects.js');
   const monochromeCssPath = path.join(__dirname, '../../frontend/skins/crt/styles/monochrome-green.css');
   const departureFontPath = path.join(__dirname, '../../frontend/skins/crt/assets/fonts/departure-mono/DepartureMonoNerdFontMono-Regular.otf');
   const departureLicensePath = path.join(__dirname, '../../frontend/skins/crt/assets/fonts/departure-mono/LICENSE');
   const pkgConfigPath = path.join(__dirname, '../../pkg.config.cjs');
+  const serverPath = path.join(__dirname, '../../backend/server.js');
 
   const terminalBridge = fs.readFileSync(terminalBridgePath, 'utf8');
   const skinBridge = fs.readFileSync(skinBridgePath, 'utf8');
   const runtimePaths = fs.readFileSync(runtimePathsPath, 'utf8');
   const indexHtml = fs.readFileSync(indexHtmlPath, 'utf8');
   const effectsCss = fs.readFileSync(effectsCssPath, 'utf8');
+  const webglEffects = fs.readFileSync(webglEffectsPath, 'utf8');
   const monochromeCss = fs.readFileSync(monochromeCssPath, 'utf8');
   const pkgConfig = fs.readFileSync(pkgConfigPath, 'utf8');
+  const server = fs.readFileSync(serverPath, 'utf8');
   const crtApp = fs.readFileSync(path.join(__dirname, '../../frontend/skins/crt/app.js'), 'utf8');
 
   assert(
@@ -46,9 +50,12 @@ function run() {
   );
   assert(indexHtml.includes('../vendor/xterm/xterm.js'), 'CRT should load the shared xterm browser runtime');
   assert(indexHtml.includes('../vendor/xterm/addon-fit.js'), 'CRT should load the xterm fit addon');
+  assert(indexHtml.includes('../vendor/xterm/addon-webgl.js'), 'CRT should load the xterm WebGL addon');
+  assert(indexHtml.includes('effects/crt-webgl-effects.js'), 'CRT should load its isolated WebGL effects engine');
   assert(indexHtml.includes('../vendor/xterm/xterm.css'), 'CRT should load the xterm stylesheet');
   assert(pkgConfig.includes("node_modules/@xterm/xterm/lib/xterm.js"), 'standalone packages should include the CRT xterm runtime');
   assert(pkgConfig.includes("node_modules/@xterm/addon-fit/lib/addon-fit.js"), 'standalone packages should include the CRT fit addon');
+  assert(pkgConfig.includes("node_modules/@xterm/addon-webgl/lib/addon-webgl.js"), 'standalone packages should include the CRT WebGL addon');
   assert(
     indexHtml.indexOf('xterm/xterm.js') < indexHtml.indexOf('terminal-bridge.js'),
     'xterm should load before the CRT terminal bridge'
@@ -76,6 +83,7 @@ function run() {
   assert(crtApp.includes('CRT_PREVIEW_RENDER_INTERVAL_MS = 1000'), 'CRT dashboard previews should batch to at most one visual update per second');
   assert(crtApp.includes('scheduleCrtPreviewCardRender') && crtApp.includes('dashboardRenderDeferred'), 'CRT should target changed cards and defer dashboard rendering behind an open terminal');
   assert(!crtApp.includes('drawImage('), 'CRT terminal output must not copy xterm canvases on the typing path');
+  assert(!/(getImageData|toDataURL|drawImage|createImageBitmap)\s*\(/.test(webglEffects), 'CRT WebGL effects should avoid CPU screenshot APIs');
   assert(!crtApp.includes('pulseSessionTerminalPhosphor'), 'CRT terminal output must not animate the xterm screen on the typing path');
   assert(!effectsCss.includes('crt-phosphor-noise-shift'), 'CRT phosphor noise should remain static to avoid continuous full-screen compositing');
   assert(effectsCss.includes('#farming-crt.session-open .crt-scan-afterglow'), 'CRT should suspend moving scan layers while the user types in an opened terminal');
@@ -116,6 +124,13 @@ function run() {
   assert(indexHtml.includes('.agent-block:hover') && indexHtml.includes('background: #3a3a3a'), 'CRT agent hover should match the sidebar background response');
   assert(!indexHtml.includes('text-shadow: 0 0 10px rgba(0, 255, 255, 0.5)'), 'CRT agent hover should not weaken the inherited phosphor glow');
   assert(indexHtml.includes('id="system-ip"') && indexHtml.includes('id="system-time"'), 'CRT top bar should expose system identity and time');
+  assert(indexHtml.includes('>IP: <span id="system-ip"') && indexHtml.includes('>TIME: <span id="system-time"') && indexHtml.includes('>UPTIME: <span id="uptime"'), 'CRT system identity labels should remain uppercase');
+  assert(indexHtml.includes('AGENTS:') && indexHtml.includes('TOK/MIN:') && indexHtml.includes('id="tokens-per-minute"'), 'CRT top bar should expose uppercase Agent count and token rate');
+  for (const label of ['NEW AGENT', 'TASK LIST', 'HISTORY', 'SKILLS', 'BILLING', 'SETTINGS']) {
+    assert(indexHtml.includes(`</span> ${label}`), `CRT sidebar label should be uppercase: ${label}`);
+  }
+  assert(crtApp.includes('data.usageRate') && crtApp.includes('formatCrtTokenRate'), 'CRT should render the server token-rate estimate');
+  assert(server.includes('agentManager.getAgentUsageSnapshots()') && server.includes('estimatedTokensPerMinute: usageSnapshot.estimatedTokensPerMinute'), 'System stats should publish the aggregate token-rate estimate');
   assert(indexHtml.indexOf('id="system-ip"') < indexHtml.indexOf('id="system-time"') && indexHtml.indexOf('id="system-time"') < indexHtml.indexOf('id="uptime"'), 'CRT IP and time should sit immediately before uptime');
   assert(indexHtml.includes('id="dynamic-heat"'), 'CRT settings should expose the dynamic heat toggle');
   assert(crtApp.includes("globalSettings.crtDynamicHeatEnabled === true ? agent.activityLevel : ''"), 'CRT heat classes should be opt-in');

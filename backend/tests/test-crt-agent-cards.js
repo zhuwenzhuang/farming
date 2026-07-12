@@ -21,6 +21,7 @@ const {
   getCrtAgentReadPatch,
   getCrtBrandPaneKey,
   formatSystemClock,
+  formatCrtTokenRate,
   formatCrtHistoryAge,
   getCrtHistoryPage,
   createSessionModalState,
@@ -37,6 +38,11 @@ function run() {
   assert.strictEqual(normalizeCrtTerminalFontSize(15.6), 16);
   assert.strictEqual(normalizeCrtTerminalFontSize(100), 20);
   assert.strictEqual(normalizeCrtTerminalFontSize('invalid'), 12);
+  assert.strictEqual(formatCrtTokenRate(undefined), '--');
+  assert.strictEqual(formatCrtTokenRate(0), '~0');
+  assert.strictEqual(formatCrtTokenRate(9.94), '~9.9');
+  assert.strictEqual(formatCrtTokenRate(1250), '~1.3K');
+  assert.strictEqual(formatCrtTokenRate(1200000), '~1.2M');
   assert.strictEqual(crtHistoryAgentName('codex resume session-1'), 'Codex');
   assert.strictEqual(crtHistoryAgentName('qodercli'), 'Qoder');
   assert.strictEqual(crtHistoryAgentName('env QODER_HOME=/tmp/qoder /usr/local/bin/qodercli'), 'Qoder');

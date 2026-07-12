@@ -79,6 +79,28 @@ export interface CodexAppServerNotice {
   receivedAt: string
 }
 
+export interface AcpPermissionOption {
+  optionId: string
+  name: string
+  kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always' | string
+}
+
+export interface AcpPendingPermission {
+  requestId: string
+  sessionId: string
+  toolCall: {
+    toolCallId: string
+    title?: string | null
+    kind?: string | null
+    status?: string | null
+    content?: unknown
+    locations?: unknown
+    rawInput?: unknown
+    rawOutput?: unknown
+  }
+  options: AcpPermissionOption[]
+}
+
 export type CodexGoalStatus = 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete'
 
 export interface CodexAppServerGoal {
@@ -122,10 +144,16 @@ export interface Agent {
   providerSessionResolvedAt?: number | null
   providerSessionTitle?: string
   codexRuntimeMode?: 'app-server' | 'cli' | string
-  agentRuntimeMode?: 'terminal' | 'json' | string
+  agentRuntimeMode?: 'terminal' | 'acp' | 'json' | string
   jsonCliState?: string
   jsonCliError?: string
   jsonCliTranscriptUpdatedAt?: string
+  acpState?: string
+  acpError?: string
+  acpStopReason?: string
+  acpPendingPermission?: AcpPendingPermission | null
+  acpPendingPermissions?: AcpPendingPermission[]
+  acpSessionUpdatedAt?: string
   codexAppServerState?: string
   codexAppServerEndpoint?: string
   codexAppServerThreadId?: string

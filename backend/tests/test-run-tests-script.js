@@ -6,6 +6,7 @@ const source = fs.readFileSync(path.join(__dirname, '..', '..', 'scripts', 'run-
 
 assert(source.includes("process.env.FARMING_TEST_CONCURRENCY"));
 assert(source.includes('DEFAULT_TEST_CONCURRENCY'));
+assert(source.includes("['test-workspace-file-service.js', 90_000]"));
 assert(source.includes('Promise.all'));
 assert(!source.includes('execFileSync'));
 

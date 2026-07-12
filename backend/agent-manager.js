@@ -17,6 +17,8 @@ const { isSafeProviderSessionId, isTemporaryProviderSessionId } = require('./pro
 const { deriveTerminalStatus } = require('./terminal-status');
 const { CodexAppServerRuntime, normalizeCodexRuntimeMode } = require('./codex-app-server-runtime');
 const { JsonCliRuntime } = require('./json-cli-runtime');
+const { AcpRuntime } = require('./acp-runtime');
+const { acpSessionTranscript } = require('./acp-transcript');
 const { ensureCodexAppServerHome } = require('./codex-app-server-home');
 const {
   ensureAgentOrders,
@@ -106,6 +108,10 @@ function shouldRecoverAsCodexAppServer(metadata) {
 
 function isJsonCliAgent(agent) {
   return agent && agent.agentRuntimeMode === 'json';
+}
+
+function isAcpAgent(agent) {
+  return agent && agent.agentRuntimeMode === 'acp';
 }
 
 function isShellProgram(command) {
@@ -347,6 +353,7 @@ class AgentManager extends EventEmitter {
     this.permissionRestartSuppressedAgentIds = new Set();
     this.codexAppServerRuntime = options.codexAppServerRuntime || new CodexAppServerRuntime();
     this.jsonCliRuntime = options.jsonCliRuntime || new JsonCliRuntime();
+    this.acpRuntime = options.acpRuntime || new AcpRuntime();
     this.gitWorkspaceCache = new Map();
     this.heartbeatInterval = null;
     this.disposed = false;
@@ -362,6 +369,7 @@ class AgentManager extends EventEmitter {
     this.bindEngineEvents();
     this.bindCodexAppServerRuntimeEvents();
     this.bindJsonCliRuntimeEvents();
+    this.bindAcpRuntimeEvents();
     if (this.configManager && this.configManager.farmingDir) {
       this.recoveryPromise = this.recoverEngineSessions().catch((error) => {
         console.warn('Failed to recover engine sessions:', error && (error.message || error));
@@ -394,6 +402,38 @@ class AgentManager extends EventEmitter {
       if (!agent) return;
       agent.jsonCliEvents = this.jsonCliRuntime.getEvents(agentId);
       agent.jsonCliTranscriptUpdatedAt = new Date().toISOString();
+      this.emit('update');
+    });
+  }
+
+  bindAcpRuntimeEvents() {
+    if (!this.acpRuntime || typeof this.acpRuntime.on !== 'function') return;
+    this.acpRuntime.on('agent-runtime', ({ agentId, state, error, sessionId, stopReason, pendingPermission, pendingPermissions, updatedAt }) => {
+      const agent = this.agents.get(agentId);
+      if (!agent) return;
+      agent.acpState = state || '';
+      agent.acpError = error || '';
+      agent.acpStopReason = stopReason || '';
+      agent.acpPendingPermission = pendingPermission || null;
+      agent.acpPendingPermissions = Array.isArray(pendingPermissions) ? pendingPermissions : [];
+      agent.acpSessionUpdatedAt = updatedAt || '';
+      if (sessionId) {
+        agent.providerSessionId = sessionId;
+        agent.providerSessionTemporary = false;
+        agent.providerSessionKey = this.providerSessionKey(
+          agent.providerSessionProvider,
+          sessionId,
+          agent.providerHomeId || 'default'
+        );
+        this.ensurePersistentAgentSession(agent);
+      }
+      if (state === 'working' || state === 'waiting-for-permission') this.lastActivity.set(agentId, Date.now());
+      this.emit('update');
+    });
+    this.acpRuntime.on('session', ({ agentId }) => {
+      const agent = this.agents.get(agentId);
+      if (!agent) return;
+      agent.acpSessionUpdatedAt = new Date().toISOString();
       this.emit('update');
     });
   }
@@ -772,6 +812,54 @@ class AgentManager extends EventEmitter {
     }
 
     await this.recoverCodexAppServerSessions();
+    await this.recoverAcpSessions();
+  }
+
+  async recoverAcpSessions() {
+    if (!this.acpRuntime || !this.configManager || typeof this.configManager.listAgentSessionRecords !== 'function') return;
+    for (const record of this.configManager.listAgentSessionRecords()) {
+      if (!record || record.archived === true || record.agentRuntimeMode !== 'acp') continue;
+      const agentId = String(record.runtimeAgentId || '').trim();
+      const provider = String(record.providerSessionProvider || record.provider || '').trim();
+      const sessionId = String(record.providerSessionId || '').trim();
+      if (!agentId || !sessionId || !['codex', 'claude', 'opencode'].includes(provider)) continue;
+      let agent = this.agents.get(agentId);
+      if (!agent) {
+        agent = this.recoveredAgentRecord(agentId, record.engine || 'native', record, { status: 'running' });
+        ensureAgentOrders(agent, Array.from(this.agents.values()));
+        agent.persistentSessionId = record.id || '';
+        agent.engineStarted = false;
+        this.agents.set(agentId, agent);
+        this.lastActivity.set(agentId, Date.now());
+      }
+      try {
+        const executable = resolveAgentExecutable(provider === 'claude' ? 'claude' : provider) || provider;
+        const prepared = await this.acpRuntime.prepareAgent({
+          agentId,
+          provider,
+          executable,
+          env: this.buildAgentEnv(agentId, agent),
+          cwd: agent.cwd,
+          sessionId,
+          historyMode: 'load',
+          approvalMode: agent.launchPermissionMode || 'approve',
+        });
+        agent.providerSessionId = prepared.sessionId;
+        agent.providerSessionTemporary = false;
+        agent.providerSessionSource = `acp-${prepared.historyMode}`;
+        agent.agentRuntimeMode = 'acp';
+        agent.acpState = 'idle';
+        agent.acpError = '';
+        agent.status = 'running';
+        agent.engineStatus = 'running';
+        agent.engineStarted = false;
+        this.ensurePersistentAgentSession(agent);
+      } catch (error) {
+        agent.acpState = 'error';
+        agent.acpError = `ACP recovery failed: ${error && (error.message || error)}`;
+      }
+    }
+    this.emit('update');
   }
 
   async recoverCodexAppServerSessions() {
@@ -909,6 +997,13 @@ class AgentManager extends EventEmitter {
       // UI in a split state where the pane is terminal but Composer sends to
       // App Server.
       codexRuntimeMode: recoverCodexAppServer ? 'app-server' : 'cli',
+      agentRuntimeMode: metadata.agentRuntimeMode === 'acp' ? 'acp' : (metadata.agentRuntimeMode === 'json' ? 'json' : 'terminal'),
+      acpState: metadata.agentRuntimeMode === 'acp' ? (metadata.acpState || '') : '',
+      acpError: metadata.agentRuntimeMode === 'acp' ? (metadata.acpError || '') : '',
+      acpStopReason: metadata.agentRuntimeMode === 'acp' ? (metadata.acpStopReason || '') : '',
+      acpPendingPermission: null,
+      acpPendingPermissions: [],
+      acpSessionUpdatedAt: metadata.agentRuntimeMode === 'acp' ? (metadata.acpSessionUpdatedAt || '') : '',
       codexAppServerHomePath: recoverCodexAppServer ? metadata.codexAppServerHomePath : '',
       codexAppServerState: recoverCodexAppServer ? (metadata.codexAppServerState || '') : '',
       codexAppServerEndpoint: recoverCodexAppServer ? (metadata.codexAppServerEndpoint || '') : '',
@@ -1079,6 +1174,11 @@ class AgentManager extends EventEmitter {
       providerSessionResolvedAt: agent.providerSessionResolvedAt || null,
       providerSessionTitle: agent.providerSessionTitle || '',
       codexRuntimeMode: agent.codexRuntimeMode || '',
+      agentRuntimeMode: agent.agentRuntimeMode || 'terminal',
+      acpState: agent.acpState || '',
+      acpError: agent.acpError || '',
+      acpStopReason: agent.acpStopReason || '',
+      acpSessionUpdatedAt: agent.acpSessionUpdatedAt || '',
       codexAppServerHomePath: agent.codexAppServerHomePath || '',
       codexAppServerState: agent.codexAppServerState || '',
       codexAppServerEndpoint: agent.codexAppServerEndpoint || '',
@@ -1686,6 +1786,7 @@ class AgentManager extends EventEmitter {
     if (this.jsonCliRuntime) {
       for (const agentId of this.agents.keys()) this.jsonCliRuntime.unregisterAgent(agentId);
     }
+    if (this.acpRuntime && typeof this.acpRuntime.dispose === 'function') this.acpRuntime.dispose();
     if (this.engineBridge && typeof this.engineBridge.dispose === 'function') {
       await this.engineBridge.dispose({
         preserveHost: options.preserveTerminalHost === true,
@@ -1734,6 +1835,12 @@ class AgentManager extends EventEmitter {
       agentRuntimeMode: agent.agentRuntimeMode || 'terminal',
       jsonCliState: agent.jsonCliState || '',
       jsonCliError: agent.jsonCliError || '',
+      acpState: agent.acpState || '',
+      acpError: agent.acpError || '',
+      acpStopReason: agent.acpStopReason || '',
+      acpPendingPermission: agent.acpPendingPermission || null,
+      acpPendingPermissions: Array.isArray(agent.acpPendingPermissions) ? agent.acpPendingPermissions : [],
+      acpSessionUpdatedAt: agent.acpSessionUpdatedAt || '',
       codexAppServerHomePath: agent.codexAppServerHomePath || '',
       codexAppServerState: agent.codexAppServerState,
       codexAppServerEndpoint: agent.codexAppServerEndpoint,
@@ -1959,15 +2066,22 @@ class AgentManager extends EventEmitter {
         : 'cli');
     const useCodexAppServer = providerSessionPlan.provider === 'codex'
       && this.codexAppServerRuntime
+      && options.agentRuntimeMode !== 'acp'
       // The deterministic browser/server fixtures are terminal-only shims,
       // not an implementation of the Codex App Server protocol. App Server
       // behavior has its own mock runtime test; keep these legacy PTY tests
       // on the path they are designed to exercise.
       && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
       && normalizeCodexRuntimeMode(requestedCodexRuntimeMode) === 'app-server';
-    const requestedAgentRuntimeMode = options.agentRuntimeMode === 'json' ? 'json' : 'terminal';
+    const requestedAgentRuntimeMode = ['json', 'acp'].includes(options.agentRuntimeMode)
+      ? options.agentRuntimeMode
+      : 'terminal';
     const useJsonCli = requestedAgentRuntimeMode === 'json'
       && ['codex', 'opencode'].includes(providerSessionPlan.provider)
+      && !useCodexAppServer
+      && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1';
+    const useAcp = requestedAgentRuntimeMode === 'acp'
+      && ['codex', 'claude', 'opencode'].includes(providerSessionPlan.provider)
       && !useCodexAppServer
       && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1';
     let codexAppServerHomePath = '';
@@ -2017,11 +2131,17 @@ class AgentManager extends EventEmitter {
       codexRuntimeMode: providerSessionPlan.provider === 'codex'
         ? (useCodexAppServer ? 'app-server' : 'cli')
         : '',
-      agentRuntimeMode: useJsonCli ? 'json' : 'terminal',
+      agentRuntimeMode: useAcp ? 'acp' : (useJsonCli ? 'json' : 'terminal'),
       jsonCliState: useJsonCli ? 'idle' : '',
       jsonCliError: '',
       jsonCliTranscriptUpdatedAt: '',
       jsonCliEvents: Array.isArray(options.jsonCliEvents) ? options.jsonCliEvents : [],
+      acpState: useAcp ? 'connecting' : '',
+      acpError: '',
+      acpStopReason: '',
+      acpPendingPermission: null,
+      acpPendingPermissions: [],
+      acpSessionUpdatedAt: '',
       codexAppServerHomePath,
       codexAppServerState: useCodexAppServer ? 'connecting' : '',
       codexAppServerEndpoint: '',
@@ -2143,8 +2263,32 @@ class AgentManager extends EventEmitter {
         });
       }
 
+      if (useAcp) {
+        const prepared = await this.acpRuntime.prepareAgent({
+          agentId,
+          provider: providerSessionPlan.provider,
+          executable: spawnProgram,
+          env: this.buildAgentEnv(agentId, agentRecord),
+          cwd: workspace,
+          sessionId: agentRecord.providerSessionTemporary ? '' : agentRecord.providerSessionId,
+          historyMode: options.acpHistoryMode === 'resume' ? 'resume' : 'load',
+          approvalMode: agentRecord.launchPermissionMode || 'approve',
+        });
+        agentRecord.providerSessionId = prepared.sessionId;
+        agentRecord.providerSessionKey = this.providerSessionKey(
+          providerSessionPlan.provider,
+          prepared.sessionId,
+          agentRecord.providerHomeId || 'default'
+        );
+        agentRecord.providerSessionTemporary = false;
+        agentRecord.providerSessionSource = `acp-${prepared.historyMode}`;
+        agentRecord.providerSessionResolvedAt = Date.now();
+        agentRecord.acpState = 'idle';
+        agentRecord.acpError = '';
+      }
+
       agentRecord.persistentSessionId = this.ensurePersistentAgentSession(agentRecord);
-      if (!useCodexAppServer && !useJsonCli) {
+      if (!useCodexAppServer && !useJsonCli && !useAcp) {
         const engineLaunch = {
           command: spawnProgram,
           args,
@@ -2180,6 +2324,7 @@ class AgentManager extends EventEmitter {
       if (this.codexAppServerRuntime && typeof this.codexAppServerRuntime.unregisterAgent === 'function') {
         this.codexAppServerRuntime.unregisterAgent(agentId);
       }
+      if (this.acpRuntime) this.acpRuntime.unregisterAgent(agentId);
 
       if (this.mainAgentId === agentId) {
         this.mainAgentId = null;
@@ -2289,6 +2434,14 @@ class AgentManager extends EventEmitter {
       return { kind: 'json', sessionId: agent.providerSessionId };
     }
 
+    if (isAcpAgent(agent)) {
+      const result = await this.acpRuntime.prompt(agentId, text);
+      agent.acpState = 'idle';
+      agent.acpStopReason = result.stopReason || '';
+      this.ensurePersistentAgentSession(agent);
+      return { kind: 'acp', ...result };
+    }
+
     await this.sendInputNow(agentId, [{ type: 'paste', text }, '\r']);
     return { kind: 'terminal' };
   }
@@ -2356,6 +2509,61 @@ class AgentManager extends EventEmitter {
     return this.jsonCliRuntime.getTranscript(agentId, options);
   }
 
+  getAcpSession(agentId, options = {}) {
+    const agent = this.agents.get(agentId);
+    if (!agent) throw new Error('Agent not found');
+    if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
+    return this.acpRuntime.getSession(agentId, options);
+  }
+
+  getAcpTranscript(agentId, options = {}) {
+    return acpSessionTranscript(this.getAcpSession(agentId), options);
+  }
+
+  listAcpSessions(agentId, options = {}) {
+    const agent = this.agents.get(agentId);
+    if (!agent) throw new Error('Agent not found');
+    if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
+    return this.acpRuntime.listSessions(agentId, options);
+  }
+
+  respondToAcpPermission(agentId, requestId, optionId, cancelled = false) {
+    const agent = this.agents.get(agentId);
+    if (!agent) throw new Error('Agent not found');
+    if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
+    return this.acpRuntime.respondPermission(agentId, requestId, optionId, cancelled);
+  }
+
+  authenticateAcpAgent(agentId, methodId) {
+    this.getAcpSession(agentId);
+    return this.acpRuntime.authenticate(agentId, methodId);
+  }
+
+  forkAcpSession(agentId, options = {}) {
+    this.getAcpSession(agentId);
+    return this.acpRuntime.forkSession(agentId, options);
+  }
+
+  deleteAcpSession(agentId, sessionId) {
+    this.getAcpSession(agentId);
+    return this.acpRuntime.deleteSession(agentId, sessionId);
+  }
+
+  closeAcpSession(agentId) {
+    this.getAcpSession(agentId);
+    return this.acpRuntime.closeSession(agentId);
+  }
+
+  setAcpSessionMode(agentId, modeId) {
+    this.getAcpSession(agentId);
+    return this.acpRuntime.setSessionMode(agentId, modeId);
+  }
+
+  setAcpSessionConfigOption(agentId, configId, value) {
+    this.getAcpSession(agentId);
+    return this.acpRuntime.setSessionConfigOption(agentId, configId, value);
+  }
+
   async setCodexAppServerGoal(agentId, patch = {}) {
     const agent = this.assertCodexAppServerGoalAgent(agentId);
     const objective = typeof patch.objective === 'string' ? patch.objective.trim().slice(0, 4000) : undefined;
@@ -2393,7 +2601,7 @@ class AgentManager extends EventEmitter {
     if (!agent) return;
     // The observer PTY is optional telemetry for App Server Agents. Its
     // disappearance must never redefine the App Server Agent as dead.
-    if (isCodexAppServerAgent(agent) || isJsonCliAgent(agent)) return;
+    if (isCodexAppServerAgent(agent) || isJsonCliAgent(agent) || isAcpAgent(agent)) return;
 
     const engine = this.engineBridge.getEngine(agent.engineName);
     if (!engine) return;
@@ -2463,6 +2671,10 @@ class AgentManager extends EventEmitter {
         this.jsonCliRuntime.interruptAgent(agentId);
         return;
       }
+      if (isAcpAgent(agent)) {
+        await this.acpRuntime.cancel(agentId);
+        return;
+      }
       const engine = this.engineBridge.getEngine(agent.engineName);
       if (!engine) return;
 
@@ -2483,7 +2695,7 @@ class AgentManager extends EventEmitter {
   async resizeAgentSession(agentId, cols, rows) {
     const agent = this.agents.get(agentId);
     if (!agent) return;
-    if (isCodexAppServerAgent(agent)) return;
+    if (isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) return;
 
     const nextCols = Math.floor(Number(cols));
     const nextRows = Math.floor(Number(rows));
@@ -2519,7 +2731,7 @@ class AgentManager extends EventEmitter {
   async clearAgentSessionBuffer(agentId) {
     const agent = this.agents.get(agentId);
     if (!agent) return { cleared: false };
-    if (isCodexAppServerAgent(agent)) return { cleared: false };
+    if (isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) return { cleared: false };
 
     try {
       const engine = this.engineBridge.getEngine(agent.engineName);
@@ -2750,12 +2962,13 @@ class AgentManager extends EventEmitter {
   async restartAgentRuntimeMode(agentId, mode) {
     const agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
-    const nextMode = mode === 'json' ? 'json' : mode === 'terminal' ? 'terminal' : '';
+    const nextMode = ['terminal', 'json', 'acp'].includes(mode) ? mode : '';
     if (!nextMode) return { error: 'Unsupported Agent runtime mode' };
     if (agent.agentRuntimeMode === nextMode) return { agentId, agentRuntimeMode: nextMode };
     const provider = agent.providerSessionProvider || '';
-    if (!['codex', 'opencode'].includes(provider)) {
-      return { error: 'Agent does not support JSON Chat runtime' };
+    const supportedProviders = nextMode === 'json' ? ['codex', 'opencode'] : ['codex', 'claude', 'opencode'];
+    if (!supportedProviders.includes(provider)) {
+      return { error: `Agent does not support the ${nextMode.toUpperCase()} runtime` };
     }
     const sessionId = String(agent.providerSessionId || '').trim();
     if (!isSafeProviderSessionId(sessionId)) {
@@ -3294,6 +3507,7 @@ class AgentManager extends EventEmitter {
       this.codexAppServerRuntime.unregisterAgent(agentId);
     }
     if (this.jsonCliRuntime) this.jsonCliRuntime.unregisterAgent(agentId);
+    if (this.acpRuntime) this.acpRuntime.unregisterAgent(agentId);
 
     if (this.mainAgentId === agentId) {
       this.mainAgentId = null;
@@ -3459,6 +3673,13 @@ class AgentManager extends EventEmitter {
       providerSessionResolvedAt: agent.providerSessionResolvedAt || null,
       providerSessionTitle: agent.providerSessionTitle || '',
       codexRuntimeMode: agent.codexRuntimeMode || '',
+      agentRuntimeMode: agent.agentRuntimeMode || 'terminal',
+      acpState: agent.acpState || '',
+      acpError: agent.acpError || '',
+      acpStopReason: agent.acpStopReason || '',
+      acpPendingPermission: agent.acpPendingPermission || null,
+      acpPendingPermissions: Array.isArray(agent.acpPendingPermissions) ? agent.acpPendingPermissions : [],
+      acpSessionUpdatedAt: agent.acpSessionUpdatedAt || '',
       codexAppServerState: agent.codexAppServerState || '',
       codexAppServerEndpoint: agent.codexAppServerEndpoint || '',
       codexAppServerThreadId: agent.codexAppServerThreadId || '',
@@ -3617,6 +3838,12 @@ class AgentManager extends EventEmitter {
         jsonCliState: agent.jsonCliState || '',
         jsonCliError: agent.jsonCliError || '',
         jsonCliTranscriptUpdatedAt: agent.jsonCliTranscriptUpdatedAt || '',
+        acpState: agent.acpState || '',
+        acpError: agent.acpError || '',
+        acpStopReason: agent.acpStopReason || '',
+        acpPendingPermission: agent.acpPendingPermission || null,
+        acpPendingPermissions: Array.isArray(agent.acpPendingPermissions) ? agent.acpPendingPermissions : [],
+        acpSessionUpdatedAt: agent.acpSessionUpdatedAt || '',
         codexAppServerState: agent.codexAppServerState || '',
         codexAppServerEndpoint: agent.codexAppServerEndpoint || '',
         codexAppServerThreadId: agent.codexAppServerThreadId || '',

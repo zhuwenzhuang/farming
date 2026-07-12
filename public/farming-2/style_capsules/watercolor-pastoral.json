@@ -53,15 +53,15 @@
   },
   "modes": {
     "favicon_small": {
-      "reference_asset": "../images/avatar-watercolor-v3.png",
-      "current_production_asset": "../logo-512.png",
-      "goal": "Readable at 16px and 32px before it is beautiful at full size.",
+      "reference_asset": "../images/avatar-watercolor-v1-bee-garden.png",
+      "current_production_asset": "../app-icon-v2-master.png",
+      "goal": "Keep the farmer readable at 16px and 32px while retaining the garden and bee as Farming brand cues at larger app-icon sizes.",
       "composition_rules": [
         "face, eyes, smile, cheeks, and straw hat must be readable as simple shapes",
-        "use minimal background and minimal outer whitespace",
+        "use a tighter crop for browser favicons and the complete garden composition for installed app icons",
         "keep the expression simple and cute",
         "favor broad color blocks over watercolor detail",
-        "do not use bee garden scenery or dense paper texture around the face"
+        "keep the bee and flower accents when the output size can render them clearly"
       ],
       "prompt_addendum": "Make the face and straw hat dominant. Use a very thin, uneven, partially broken warm gray pencil circle if a frame is needed. Keep only four readable color blocks: honey-yellow hat, peach face, soft brown hair, muted sage clothing. Almost no background details."
     },

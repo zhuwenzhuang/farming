@@ -24,6 +24,8 @@ Farming 2 运行在一台 Linux 开发机上，把 Web Terminal、AI coding agen
 - **手机浏览器访问**：离开电脑后，也可以在手机上查看 agent 状态、打开终端、启动新 agent 或做轻量介入。
 - **可选 Main Agent**：当你需要一个 agent 去启动、观察、推进和总结其他 agent 时，可以使用 Main Agent。
 
+后端还提供实验性的 [ACP runtime](acp-runtime.zh_cn.md)，用于 Codex、Claude Code 和 OpenCode 的结构化 Session。Chat UI 对历史加载和实时更新消费同一条有序 ACP entry stream，Terminal 则继续保持为隔离的 PTY runtime。
+
 ## Agent 状态推断
 
 Farming Code 把进程生命周期、Agent 类型和当前 turn 是否活跃分开判断。直接启动的 coding agent 会保留启动命令对应的类型，普通回答正文即使提到其他 provider，也不能改变它的能力；`bash` 或 `zsh` row 只有在 viewport 出现足够强的 TUI 证据时，才会切换成内层 Codex 或 Claude Code。
@@ -122,7 +124,7 @@ chmod +x farming
 - 首次启动自动创建 `~/.farming/settings.json`
 - 首次鉴权启动自动生成 token，保存到 `~/.farming/.session-token`，之后重启和升级复用，并在启动日志打印完整 URL
 - 自动按机器内存为 server 子进程设置 Node heap；不会把该限制传给子 agent
-- 单文件 CLI 适合 Linux 和 macOS；所有发布形态都依赖目标系统提供兼容的 native runtime
+- 单文件 CLI 适合 Linux 和 macOS；标准发布形态依赖目标系统提供兼容的 native runtime。GitHub Release 还会提供 `farming-<release>-linux-x64-legacy-glibc228.tar.gz`，面向 glibc 低于 2.28 的 Linux x64；它带有固定 runtime，安装器只在旧系统上启用。
 
 npm 是默认发布方式：`npm install --global farming-code` 后运行 `farming daemon`。npm 安装会从 registry 读取可用版本，在 **设置 → 更新** 中一键升级；旧服务会保持运行直到安装成功，新服务启动失败时会尝试恢复旧版本。源码 checkout 通过 Git 更新，单文件 CLI 手动替换。App bundle 仍可配置 Update URL，升级包按 OS/CPU 匹配并校验 checksum。该设置面板也用于管理各 provider 的 **Agent Homes**。
 
@@ -216,6 +218,8 @@ cd farming-2-linux-x64
 ```
 
 默认包内已经包含 production dependencies。无参数运行会直接准备运行环境、写入 `.farming-install-env` 并启动服务；启动日志会打印带 token 的浏览器 URL。
+
+Linux x64 的 glibc 低于 2.28 时，下载并按同样步骤解压 `farming-<release>-linux-x64-legacy-glibc228.tar.gz`。安装器会把包内 runtime 解压到 `~/.farming/glibc228`，仅用于该旧系统。
 
 常用命令：
 

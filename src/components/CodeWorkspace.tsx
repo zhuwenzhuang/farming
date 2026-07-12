@@ -55,6 +55,8 @@ import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import { isOverlayShortcutTarget, isTerminalShortcutTarget, isTextEditingShortcutTarget } from '@/hooks/useKeyboard'
 import { usePageVisibility } from '@/hooks/usePageVisibility'
 import { CodeMainArea } from './code/CodeMainArea'
+import { respondToAcpPermission, submitAcpDraft as submitAcpComposerDraft } from './code/acp/acp-composer-behavior'
+import { acpComposerStateAliasKeysForAgent, acpComposerStateKeyForAgent } from './code/acp/acp-composer-state'
 import { MobileShareSheet } from './code/MobileShareSheet'
 import { CodeOverlays } from './code/CodeOverlays'
 import { CodeSidebar } from './code/CodeSidebar'
@@ -277,6 +279,7 @@ interface CodeWorkspaceProps {
   contextWindowByAgentId: Record<string, AgentContextWindowUsage>
   activeTerminalId: string | null
   permissionSwitchingAgentId: string | null
+  agentSwitchingKind: 'permission' | 'runtime' | null
   permissionSwitchReplacement: { originalAgentId: string; replacementAgentId: string } | null
   openTerminalIds: string[]
   terminalFocusRequest: { agentId: string; nonce: number } | null
@@ -286,9 +289,9 @@ interface CodeWorkspaceProps {
   onOpenTerminal: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onOpenTerminalWhenReady: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null, customTitle?: string) => void
-  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string }) => void
+  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string }) => void
   onRenameAgent: (agentId: string, title: string) => void
-  onUpdateAgentFlags: (agentId: string, flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived' | 'launchPermissionMode' | 'readAttentionSeq'>> & { agentRuntimeMode?: 'terminal' | 'json' }) => AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>
+  onUpdateAgentFlags: (agentId: string, flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived' | 'launchPermissionMode' | 'readAttentionSeq'>> & { agentRuntimeMode?: 'terminal' | 'acp' | 'json' }) => AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>
   onOpenArchivedAgent: (agentId: string) => void
   onForkAgent: (agentId: string, mode: 'same-worktree' | 'new-worktree') => void
   onDeleteForkWorktreeProject: (workspace: string, options?: { force?: boolean }) => Promise<DeleteForkWorktreeProjectResult>
@@ -444,6 +447,7 @@ export function CodeWorkspace({
   contextWindowByAgentId = {},
   activeTerminalId,
   permissionSwitchingAgentId,
+  agentSwitchingKind,
   permissionSwitchReplacement,
   openTerminalIds,
   terminalFocusRequest,
@@ -726,7 +730,11 @@ export function CodeWorkspace({
     activeAgent && activeAgent.id === permissionSwitchingAgentId
   )
   const activeAgentContextWindow = activeAgent ? contextWindowByAgentId[activeAgent.id] ?? null : null
-  const activeComposerKey = activeAgent ? composerStateKeyForAgent(activeAgent) : ''
+  const activeComposerKey = activeAgent?.agentRuntimeMode === 'acp'
+    ? acpComposerStateKeyForAgent(activeAgent)
+    : activeAgent
+      ? composerStateKeyForAgent(activeAgent)
+      : ''
   const activeAgentCapabilities = useMemo(
     () => capabilitiesForAgent(activeAgent),
     [activeAgent]
@@ -734,7 +742,9 @@ export function CodeWorkspace({
   const activeComposerState = activeComposerKey
     ? composerByAgentKey[activeComposerKey]
       ?? (activeAgent
-        ? composerStateAliasKeysForAgent(activeAgent)
+        ? (activeAgent.agentRuntimeMode === 'acp'
+          ? acpComposerStateAliasKeysForAgent(activeAgent)
+          : composerStateAliasKeysForAgent(activeAgent))
           .map(aliasKey => composerByAgentKey[aliasKey])
           .find(Boolean)
         : undefined)
@@ -1314,7 +1324,7 @@ export function CodeWorkspace({
   }, [activeAgent, activeComposerKey, activeComposerState.history, updateComposerStateForKey])
 
   const sendComposerMessageToAgent = useCallback((agent: Agent, message: string) => {
-    if (agent.agentRuntimeMode === 'json' || (agent.providerSessionProvider === 'codex' && agent.codexRuntimeMode === 'app-server')) {
+    if (['acp', 'json'].includes(agent.agentRuntimeMode || '') || (agent.providerSessionProvider === 'codex' && agent.codexRuntimeMode === 'app-server')) {
       return sendComposerInput(message, agent.id)
     }
     if (
@@ -1368,7 +1378,7 @@ export function CodeWorkspace({
 
     const message = formatComposerMessage(composerMode, text)
     let submitted = true
-    if (isCodexAgentWorking(activeAgent) && activeAgent.codexRuntimeMode !== 'app-server' && activeAgent.agentRuntimeMode !== 'json') {
+    if (isCodexAgentWorking(activeAgent) && activeAgent.codexRuntimeMode !== 'app-server' && !['acp', 'json'].includes(activeAgent.agentRuntimeMode || '')) {
       updateComposerStateForKey(activeComposerKey, state => {
         const existing = state.pendingFollowUp
         return {
@@ -1396,6 +1406,18 @@ export function CodeWorkspace({
     focusComposerTextarea()
   }, [activeAgent, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, setNativeCodexGoalFromComposer, updateComposerStateForKey])
 
+  const submitAcpDraft = useCallback((submittedDraft?: string) => {
+    const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft
+    const submitted = submitAcpComposerDraft({
+      agent: activeAgent,
+      composerKey: activeComposerKey,
+      draft: latestDraft,
+      sendMessage: sendComposerMessageToAgent,
+      updateComposerState: updateComposerStateForKey,
+    })
+    if (submitted) focusComposerTextarea()
+  }, [activeAgent, activeComposerKey, draft, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
+
   const interruptActiveAgent = useCallback(() => {
     if (!activeAgent || !activeAgentCanInterrupt) return
     onInterruptAgent(activeAgent.id)
@@ -1414,6 +1436,11 @@ export function CodeWorkspace({
       reason: 'Declined in Farming',
     })
   }, [activeAgent, respondToAppServerRequest])
+
+  const respondToActiveAcpPermission = useCallback((requestId: string, optionId?: string, cancelled?: boolean) => {
+    if (!activeAgent) return
+    void respondToAcpPermission(activeAgent.id, requestId, optionId, cancelled === true)
+  }, [activeAgent])
 
   const steerPendingFollowUp = useCallback((messageId: string) => {
     if (!activeAgent || !activeComposerKey) return
@@ -1505,7 +1532,7 @@ export function CodeWorkspace({
   const startAgentWithLaunchProfile = useCallback((
     command: string,
     workspace: string,
-    options?: { projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string },
+    options?: { projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string },
   ) => {
     setSearchQuery('')
     setSearchOpen(false)
@@ -3129,11 +3156,11 @@ export function CodeWorkspace({
     focusComposerTextarea()
   }, [activeAgent, closeActiveComposerMenus, composerAgentKind, copy.permissionProfileApplying, copy.permissionProfileRestarting, focusComposerTextarea, onUpdateAgentFlags, permissionSwitchingAgentId, persistAgentLaunchProfile])
 
-  const updateAgentRuntimeMode = useCallback((agentId: string, mode: 'terminal' | 'json') => {
+  const updateAgentRuntimeMode = useCallback((agentId: string, mode: 'terminal' | 'acp') => {
     if (permissionSwitchingAgentId) return
-    setCopyNotice({ id: Date.now(), kind: 'success', message: copy.permissionProfileRestarting })
+    setCopyNotice({ id: Date.now(), kind: 'success', message: copy.runtimeModeRestarting })
     void onUpdateAgentFlags(agentId, { agentRuntimeMode: mode })
-  }, [copy.permissionProfileRestarting, onUpdateAgentFlags, permissionSwitchingAgentId])
+  }, [copy.runtimeModeRestarting, onUpdateAgentFlags, permissionSwitchingAgentId])
 
   const updateAgentModel = useCallback((model: string) => {
     if (composerAgentKind === 'claude') {
@@ -4255,6 +4282,7 @@ export function CodeWorkspace({
         visibleOpenAgents={visibleOpenAgents}
         activeTerminalId={activeTerminalId}
         permissionSwitchingAgentId={permissionSwitchingAgentId}
+        agentSwitchingKind={agentSwitchingKind}
         terminalFocusRequest={terminalFocusRequest}
         agentCreationWorkspace={agentCreationWorkspace}
         displayedProjects={searchResultProjects}
@@ -4268,6 +4296,24 @@ export function CodeWorkspace({
         archivedAgents={visibleArchivedAgents}
         historyAgentSessions={visibleHistoryAgentSessions}
         now={now}
+        acpComposerProps={{
+          active: Boolean(activeAgent) && !activeAgentPermissionSwitching,
+          agentId: activeAgent?.id || '',
+          runtimeState: activeAgent?.acpState || '',
+          runtimeError: activeAgent?.acpError || '',
+          draft,
+          submitAction: composerSubmitAction,
+          textareaRef: composerTextareaRef,
+          permissions: activeAgent?.acpPendingPermissions?.length
+            ? activeAgent.acpPendingPermissions
+            : activeAgent?.acpPendingPermission
+              ? [activeAgent.acpPendingPermission]
+              : [],
+          onDraftChange: handleDraftChange,
+          onSubmit: submitAcpDraft,
+          onInterrupt: interruptActiveAgent,
+          onRespondToPermission: respondToActiveAcpPermission,
+        }}
         composerProps={{
           active: Boolean(activeAgent) && !activeAgentPermissionSwitching,
           agentKind: composerAgentKind,

@@ -19,6 +19,9 @@ const serverBackedTests = new Set([
 const DEFAULT_TEST_TIMEOUT_MS = 45_000;
 const DEFAULT_TEST_CONCURRENCY = Math.min(4, Math.max(1, os.availableParallelism?.() || os.cpus().length));
 const MAX_TEST_CONCURRENCY = 16;
+const TEST_TIMEOUT_OVERRIDES_MS = new Map([
+  ['test-workspace-file-service.js', 90_000],
+]);
 const testFiles = fs.readdirSync(testsDir)
   .filter(f => f.startsWith('test-') && f.endsWith('.js'))
   .filter(f => process.env.FARMING_INCLUDE_SERVER_TESTS === '1' || !serverBackedTests.has(f))
@@ -35,6 +38,7 @@ const testRuns = [
   ...testFiles.map(file => ({
     args: [tsxCli, path.join(testsDir, file)],
     label: file,
+    timeoutMs: TEST_TIMEOUT_OVERRIDES_MS.get(file),
   })),
 ];
 
@@ -47,10 +51,10 @@ const testConcurrency = Math.min(
     : DEFAULT_TEST_CONCURRENCY
 );
 
-function runTest({ args, label }) {
+function runTest({ args, label, timeoutMs }) {
   return new Promise(resolve => {
     execFile(process.execPath, args, {
-      timeout: Number(process.env.FARMING_TEST_TIMEOUT_MS) || DEFAULT_TEST_TIMEOUT_MS,
+      timeout: Number(process.env.FARMING_TEST_TIMEOUT_MS) || timeoutMs || DEFAULT_TEST_TIMEOUT_MS,
       env: { ...process.env, NODE_ENV: 'test' }
     }, (error, stdout, stderr) => {
       resolve({

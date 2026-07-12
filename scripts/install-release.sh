@@ -27,6 +27,8 @@ PORT_VALUE="${FARMING_PORT:-${PORT:-6694}}"
 BASE_PATH="${FARMING_BASE_PATH:-/farming}"
 CONFIG_DIR_VALUE="${FARMING_CONFIG_DIR:-}"
 SERVER_HOME_VALUE="${FARMING_SERVER_HOME:-}"
+USE_GLIBC_RUNTIME="${FARMING_USE_GLIBC_RUNTIME:-auto}"
+GLIBC_RUNTIME_ROOT="${FARMING_GLIBC_RUNTIME_ROOT:-${HOME}/.farming/glibc228}"
 PID_FILE="${INSTALL_DIR}/.farming.pid"
 LOG_FILE="${INSTALL_DIR}/farming.log"
 
@@ -40,7 +42,54 @@ is_truthy() {
 
 ensure_prerequisites() {
   command -v node >/dev/null
-  command -v npm >/dev/null
+  if [ ! -d "${SOURCE_DIR}/node_modules/express" ] || [ ! -d "${SOURCE_DIR}/node_modules/node-pty" ]; then
+    command -v npm >/dev/null
+  fi
+}
+
+system_glibc_lt_228() {
+  [ "$(uname -s)" = "Linux" ] || return 1
+  local version
+  version="$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{print $2}' || true)"
+  [ -n "${version}" ] || return 1
+  [ "$(printf '%s\n%s\n' "2.28" "${version}" | sort -V | head -1)" = "${version}" ] && [ "${version}" != "2.28" ]
+}
+
+use_glibc_runtime() {
+  case "${USE_GLIBC_RUNTIME}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    0|false|FALSE|no|NO|off|OFF) return 1 ;;
+    auto) system_glibc_lt_228 && [ -f "${INSTALL_DIR}/vendor/glibc228-lib.tar.gz" ] ;;
+    *) echo "Unknown FARMING_USE_GLIBC_RUNTIME value: ${USE_GLIBC_RUNTIME}" >&2; exit 1 ;;
+  esac
+}
+
+ensure_glibc_runtime() {
+  if ! use_glibc_runtime; then
+    return 0
+  fi
+  if [ -x "${GLIBC_RUNTIME_ROOT}/lib/ld-2.28.so" ]; then
+    return 0
+  fi
+  local bundle="${INSTALL_DIR}/vendor/glibc228-lib.tar.gz"
+  if [ ! -f "${bundle}" ]; then
+    echo "Legacy glibc runtime was requested, but this release does not include vendor/glibc228-lib.tar.gz." >&2
+    exit 1
+  fi
+  local temp_dir
+  temp_dir="$(mktemp -d /tmp/farming-glibc.XXXXXX)"
+  tar --no-same-owner -xzf "${bundle}" -C "${temp_dir}"
+  local loader
+  loader="$(find "${temp_dir}" -type f -name 'ld-2.28.so' | head -1 || true)"
+  if [ -z "${loader}" ]; then
+    rm -rf "${temp_dir}"
+    echo "Legacy glibc runtime is missing ld-2.28.so: ${bundle}" >&2
+    exit 1
+  fi
+  mkdir -p "${GLIBC_RUNTIME_ROOT}"
+  rm -rf "${GLIBC_RUNTIME_ROOT}/lib"
+  cp -R "$(dirname "${loader}")" "${GLIBC_RUNTIME_ROOT}/lib"
+  rm -rf "${temp_dir}"
 }
 
 sync_release_files() {
@@ -147,8 +196,15 @@ stop_server() {
 }
 
 write_launcher() {
-  local node_bin auth_line config_line home_line
+  local node_bin auth_line config_line home_line exec_line runtime_lines
   node_bin="$(command -v node)"
+  exec_line="exec ${node_bin} backend/server.js"
+  runtime_lines="unset FARMING_NODE_LD FARMING_NODE_LIBRARY_PATH"
+  if use_glibc_runtime; then
+    exec_line="exec ${GLIBC_RUNTIME_ROOT}/lib/ld-2.28.so --library-path ${GLIBC_RUNTIME_ROOT}/lib ${node_bin} backend/server.js"
+    runtime_lines="export FARMING_NODE_LD=\"${GLIBC_RUNTIME_ROOT}/lib/ld-2.28.so\"
+export FARMING_NODE_LIBRARY_PATH=\"${GLIBC_RUNTIME_ROOT}/lib\""
+  fi
   auth_line="unset FARMING_DISABLE_AUTH"
   if is_truthy "${FARMING_DISABLE_AUTH:-0}"; then
     auth_line="export FARMING_DISABLE_AUTH=1"
@@ -178,6 +234,7 @@ cd "${INSTALL_DIR}"
 export PORT="${PORT_VALUE}"
 export FARMING_BASE_PATH="${BASE_PATH}"
 export FARMING_NODE_BIN="${node_bin}"
+${runtime_lines}
 ${config_line}
 ${home_line}
 if [ "\${FARMING_NODE_MAX_OLD_SPACE_SIZE:-auto}" = "auto" ] || [ -z "\${FARMING_NODE_MAX_OLD_SPACE_SIZE:-}" ]; then
@@ -193,7 +250,7 @@ case "\${FARMING_NODE_MAX_OLD_SPACE_SIZE}" in
     ;;
 esac
 ${auth_line}
-exec ${node_bin} backend/server.js
+${exec_line}
 EOF
   chmod +x "${INSTALL_DIR}/.farming-launcher.sh"
 }
@@ -210,6 +267,8 @@ write_persisted_env() {
   chmod 600 "${PERSISTED_ENV_FILE}" 2>/dev/null || true
   write_default_env_var FARMING_PORT "${PORT_VALUE}"
   write_default_env_var FARMING_BASE_PATH "${BASE_PATH}"
+  write_default_env_var FARMING_USE_GLIBC_RUNTIME "${USE_GLIBC_RUNTIME}"
+  write_default_env_var FARMING_GLIBC_RUNTIME_ROOT "${GLIBC_RUNTIME_ROOT}"
   write_default_env_var FARMING_NODE_MAX_OLD_SPACE_SIZE "${FARMING_NODE_MAX_OLD_SPACE_SIZE:-auto}"
   [ -n "${CONFIG_DIR_VALUE}" ] && write_default_env_var FARMING_CONFIG_DIR "${CONFIG_DIR_VALUE}"
   [ -n "${SERVER_HOME_VALUE}" ] && write_default_env_var FARMING_SERVER_HOME "${SERVER_HOME_VALUE}"
@@ -218,6 +277,7 @@ write_persisted_env() {
 
 start_server() {
   ensure_prerequisites
+  ensure_glibc_runtime
   stop_server
   write_launcher
 
@@ -280,6 +340,8 @@ Environment:
   FARMING_BASE_PATH=/farming
   FARMING_CONFIG_DIR=          # optional, custom settings/token directory
   FARMING_SERVER_HOME=         # optional, isolate Codex/Claude history for demos/tests
+  FARMING_USE_GLIBC_RUNTIME=auto  # use a bundled legacy runtime on Linux glibc < 2.28
+  FARMING_GLIBC_RUNTIME_ROOT=  # optional extraction directory for that runtime
   # Configure upgrades in the web Settings panel; the URL is stored in settings.json.
   FARMING_NODE_MAX_OLD_SPACE_SIZE=auto  # auto-detect from cgroup or system memory; 0 disables override
   FARMING_DISABLE_AUTH=1      # optional, trusted local networks only

@@ -874,6 +874,56 @@ body.code-mode[data-appearance='dark'] .code-codex-transcript {
   color: var(--code-dark-text);
 }
 
+body.code-mode[data-appearance='dark'] .code-acp-transcript {
+  background: var(--code-dark-bg);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-acp-user-text {
+  border: 1px solid rgba(139, 148, 158, 0.12);
+  background: rgba(139, 148, 158, 0.16);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-acp-message.assistant {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-acp-message.assistant.notification,
+body.code-mode[data-appearance='dark'] .code-acp-activity,
+body.code-mode[data-appearance='dark'] .code-acp-working,
+body.code-mode[data-appearance='dark'] .code-acp-load-earlier {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-acp-activity > summary:hover,
+body.code-mode[data-appearance='dark'] .code-acp-activity > summary:focus-visible,
+body.code-mode[data-appearance='dark'] .code-acp-activity-group > summary:hover,
+body.code-mode[data-appearance='dark'] .code-acp-activity-group > summary:focus-visible {
+  background: rgba(139, 148, 158, 0.1);
+}
+
+body.code-mode[data-appearance='dark'] .code-acp-activity-group {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-acp-activity-count {
+  background: rgba(139, 148, 158, 0.12);
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-acp-activity-detail {
+  border-color: var(--code-dark-border);
+  background: rgba(22, 27, 34, 0.8);
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-acp-jump-bottom {
+  border-color: var(--code-dark-border);
+  background: rgba(22, 27, 34, 0.94);
+  color: var(--code-dark-text-soft);
+}
+
 body.code-mode[data-appearance='dark'] .code-codex-transcript-scroll {
   scrollbar-color: rgba(139, 148, 158, 0.18) transparent;
 }

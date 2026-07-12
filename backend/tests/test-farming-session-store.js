@@ -117,6 +117,8 @@ function run() {
     providerSessionKey: 'agent-session:codex:resolved-codex-session',
     providerSessionTemporary: false,
     providerSessionTitle: '看下cron worker怎么加新模块',
+    agentRuntimeMode: 'acp',
+    acpState: 'idle',
     engineName: 'native',
   });
   assert.strictEqual(resolvedRecordId, tempRecordId, 'resolved provider id should keep the original Farming session file');
@@ -126,6 +128,8 @@ function run() {
   assert.strictEqual(resolvedRecord.providerSessionId, 'resolved-codex-session');
   assert.strictEqual(resolvedRecord.providerSessionTemporary, false);
   assert.strictEqual(resolvedRecord.providerSessionTitle, '看下cron worker怎么加新模块');
+  assert.strictEqual(resolvedRecord.agentRuntimeMode, 'acp');
+  assert.strictEqual(resolvedRecord.acpState, 'idle');
   assert.strictEqual(resolvedRecord.title, '看下cron worker怎么加新模块');
 
   const workRecordId = store.ensureRecordForAgent({

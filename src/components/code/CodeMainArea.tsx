@@ -7,6 +7,7 @@ import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-hi
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import { AgentWorkPane } from './AgentWorkPane'
 import { CodeComposer } from './CodeComposer'
+import { AcpComposer } from './acp/AcpComposer'
 import { CodexGoalControls } from './CodexGoalControls'
 import { HistoryPanel } from './HistoryPanel'
 import { SearchPanel } from './SearchPanel'
@@ -15,6 +16,7 @@ import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
 
 type ComposerProps = Omit<ComponentProps<typeof CodeComposer>, 'copy'>
+type AcpComposerProps = Omit<ComponentProps<typeof AcpComposer>, 'copy'>
 type TerminalFollowState = {
   following: boolean
   hasUnreadOutput: boolean
@@ -144,6 +146,7 @@ interface CodeMainAreaProps {
   visibleOpenAgents: Agent[]
   activeTerminalId: string | null
   permissionSwitchingAgentId: string | null
+  agentSwitchingKind: 'permission' | 'runtime' | null
   terminalFocusRequest: { agentId: string; nonce: number } | null
   agentCreationWorkspace?: string
   displayedProjects: ProjectGroup[]
@@ -158,13 +161,14 @@ interface CodeMainAreaProps {
   historyAgentSessions: AgentSessionHistoryItem[]
   now: number
   composerProps: ComposerProps
+  acpComposerProps: AcpComposerProps
   onNewAgent: (workspace?: string, command?: string) => void
   onOpenTerminal: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onOpenTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => void
   onResolveTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
   onTerminalFollowOutputChange: (agentId: string, state: TerminalFollowState) => void
   onAgentReadLatest: (agentId: string) => void
-  onRuntimeModeChange: (agentId: string, mode: 'terminal' | 'json') => void
+  onRuntimeModeChange: (agentId: string, mode: 'terminal' | 'acp') => void
   sendInput: (input: string | TerminalInputPart[], agentId?: string) => boolean
   resizeAgent: (agentId: string, cols: number, rows: number) => boolean
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null) => void) => () => void
@@ -208,6 +212,7 @@ export function CodeMainArea({
   visibleOpenAgents,
   activeTerminalId,
   permissionSwitchingAgentId,
+  agentSwitchingKind,
   terminalFocusRequest,
   agentCreationWorkspace,
   displayedProjects,
@@ -222,6 +227,7 @@ export function CodeMainArea({
   historyAgentSessions,
   now,
   composerProps,
+  acpComposerProps,
   onNewAgent,
   onOpenTerminal,
   onOpenTerminalPath,
@@ -261,7 +267,8 @@ export function CodeMainArea({
   const activeAgent = activeTerminalId
     ? visibleOpenAgents.find(agent => agent.id === activeTerminalId) || null
     : null
-  const activeWorkPaneMode = activeAgent?.agentRuntimeMode === 'json'
+  const acpComposerActive = activeAgent?.agentRuntimeMode === 'acp'
+  const activeWorkPaneMode = ['acp', 'json'].includes(activeAgent?.agentRuntimeMode || '')
     || (activeAgent?.providerSessionProvider === 'codex'
     && activeAgent.codexRuntimeMode === 'app-server')
     ? 'transcript'
@@ -387,6 +394,7 @@ export function CodeMainArea({
                   agent={agent}
                   active={agent.id === activeTerminalId}
                   switching={agent.id === permissionSwitchingAgentId}
+                  switchingKind={agent.id === permissionSwitchingAgentId ? agentSwitchingKind : null}
                   onActivate={onOpenTerminal}
                   onOpenPath={onOpenTerminalPath}
                   onResolvePath={onResolveTerminalPath}
@@ -433,12 +441,18 @@ export function CodeMainArea({
                   </button>
                 </div>
               ) : null}
-              <CodexGoalControls
-                agent={activeAgent}
-                active={activeView === 'projects' && !showFileEditor && !composerCollapsed}
-                copy={copy}
-              />
-              <CodeComposer {...composerProps} copy={copy} />
+              {!acpComposerActive ? (
+                <CodexGoalControls
+                  agent={activeAgent}
+                  active={activeView === 'projects' && !showFileEditor && !composerCollapsed}
+                  copy={copy}
+                />
+              ) : null}
+              {acpComposerActive ? (
+                <AcpComposer {...acpComposerProps} copy={copy} />
+              ) : (
+                <CodeComposer {...composerProps} copy={copy} />
+              )}
             </div>
           )}
         </>

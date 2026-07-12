@@ -32,6 +32,7 @@ function run() {
   assert(shareButtonSource.includes('writeTerminalClipboardText(current.longUrl)'));
   assert(shareButtonSource.includes('ticket.shortUrl'), 'QR matrix should encode the short URL');
   assert(shareButtonSource.includes('className="code-share-qr-canvas"'));
+  assert(shareButtonSource.includes("appPath('/farming-2/app-icon-v2-180.png')"), 'QR center should use the production-safe Farming icon');
   assert(shareButtonSource.includes('className="code-share-countdown"'));
   assert(!shareButtonSource.includes('ticket?.code ||'), 'short ticket codes should stay out of the visible QR popover');
   assert(shareButtonSource.includes('ticket?.tokenLabel'), 'visible copy label should prefer the poetic token');

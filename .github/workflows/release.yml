@@ -83,6 +83,26 @@ jobs:
           tar -xzf "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64.tar.gz" -C "${tmp}"
           npm run release:cli:smoke -- "${tmp}/farming-${FARMING_RELEASE_VERSION}-linux-x64/farming"
 
+      - name: Build legacy Linux app bundle
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: npm run release:app:legacy-linux
+
+      - name: Verify legacy Linux app bundle
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: node scripts/verify-linux-legacy-release.js "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64-legacy-glibc228.tar.gz"
+
+      - name: Smoke-test legacy Linux app bundle
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          FARMING_SMOKE_PORT: "6696"
+        shell: bash
+        run: |
+          tmp="$(mktemp -d)"
+          tar -xzf "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64-legacy-glibc228.tar.gz" -C "${tmp}"
+          FARMING_USE_GLIBC_RUNTIME=1 npm run release:cli:smoke -- "${tmp}/farming-${FARMING_RELEASE_VERSION}-linux-x64-legacy-glibc228/farming"
+
       - name: Collect Linux release assets
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
@@ -91,6 +111,7 @@ jobs:
           cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_linux_amd64" release-upload/
           cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_linux_arm64" release-upload/
           cp "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64.tar.gz" release-upload/
+          cp "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64-legacy-glibc228.tar.gz" release-upload/
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
@@ -277,6 +298,7 @@ jobs:
                 platform: bundle.release.platform || bundleMatch[2],
                 arch: bundle.release.arch || bundleMatch[3],
                 bundledNodeModules: bundle.release.bundledNodeModules === true,
+                bundledGlibcRuntime: bundle.release.bundledGlibcRuntime === true,
               };
             }
             return { type: 'unknown', file };

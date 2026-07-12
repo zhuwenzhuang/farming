@@ -12,7 +12,9 @@ test.describe('workspace sharing', () => {
 
     const popover = page.getByTestId('code-share-popover')
     await expect(popover).toBeVisible()
-    await expect(popover.locator('svg[aria-label="QR code"]')).toBeVisible()
+    const qrCode = popover.locator('svg[aria-label="QR code"]')
+    await expect(qrCode).toBeVisible()
+    await expect(qrCode.locator('image')).toHaveAttribute('href', /farming-2\/app-icon-v2-180\.png/)
     await expect(page.getByTestId('app-shell')).toBeVisible()
     await expect.poll(() => pageErrors).toEqual([])
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)')

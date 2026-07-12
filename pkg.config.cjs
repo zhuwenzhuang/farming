@@ -20,6 +20,7 @@ module.exports = {
       'node_modules/@xterm/xterm/lib/xterm.js',
       'node_modules/@xterm/xterm/css/xterm.css',
       'node_modules/@xterm/addon-fit/lib/addon-fit.js',
+      'node_modules/@xterm/addon-webgl/lib/addon-webgl.js',
       'node_modules/ripgrep/package.json',
       'node_modules/ripgrep/lib/**/*',
       'node_modules/node-pty/lib/**/*.js',

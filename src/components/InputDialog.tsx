@@ -68,7 +68,7 @@ interface MainAgentResumeSession {
 export interface StartAgentOptions {
   providerHomeId?: string
   codexRuntimeMode?: 'cli' | 'app-server'
-  agentRuntimeMode?: 'terminal' | 'json'
+  agentRuntimeMode?: 'terminal' | 'acp' | 'json'
   resumeSession?: {
     provider: string
     id: string
@@ -141,7 +141,7 @@ export function InputDialog({
   const [workspaceHistory, setWorkspaceHistory] = useState<string[]>([])
   const [agentHomes, setAgentHomes] = useState<Record<string, Array<{ id: string; path: string }>>>({})
   const [selectedHomeId, setSelectedHomeId] = useState('default')
-  const [codexRuntimeMode, setCodexRuntimeMode] = useState<'cli' | 'app-server' | 'json'>('cli')
+  const [codexRuntimeMode, setCodexRuntimeMode] = useState<'cli' | 'app-server' | 'acp'>('cli')
   const [homeMenuOpen, setHomeMenuOpen] = useState(false)
   const [discoveredWorkspaces, setDiscoveredWorkspaces] = useState<string[]>([])
   const [workspacePathSuggestions, setWorkspacePathSuggestions] = useState<WorkspacePathSuggestion[]>([])
@@ -506,11 +506,9 @@ export function InputDialog({
       workflowTemplate: merged.workflowTemplate,
       ...(initialCustomTitle ? { customTitle: initialCustomTitle } : {}),
       providerHomeId: selectedHomeId,
-      ...(selectedAgent.name === 'codex' ? {
+      ...(['codex', 'claude', 'opencode'].includes(selectedAgent.name) ? {
         codexRuntimeMode: codexRuntimeMode === 'app-server' ? 'app-server' : 'cli',
-        agentRuntimeMode: codexRuntimeMode === 'json' ? 'json' : 'terminal',
-      } : selectedAgent.name === 'opencode' ? {
-        agentRuntimeMode: codexRuntimeMode === 'json' ? 'json' : 'terminal',
+        agentRuntimeMode: codexRuntimeMode === 'acp' ? 'acp' : 'terminal',
       } : {}),
     })
   }, [
@@ -932,12 +930,12 @@ export function InputDialog({
                 )}
               </div>
             )}
-            {(selectedAgent.name === 'codex' || selectedAgent.name === 'opencode') && (
+            {['codex', 'claude', 'opencode'].includes(selectedAgent.name) && (
               <div className="workspace-runtime-field" data-testid="codex-runtime-mode">
                 <p className="workspace-field-copy">{agentDisplayName(selectedAgent.name)} runtime</p>
                 <div className="workspace-runtime-options" role="group" aria-label={`${agentDisplayName(selectedAgent.name)} runtime`}>
                   <button type="button" className={codexRuntimeMode === 'cli' ? 'active' : ''} aria-pressed={codexRuntimeMode === 'cli'} onClick={() => setCodexRuntimeMode('cli')}>Terminal</button>
-                  <button type="button" className={codexRuntimeMode === 'json' ? 'active' : ''} aria-pressed={codexRuntimeMode === 'json'} onClick={() => setCodexRuntimeMode('json')}>Chat <span>JSON</span></button>
+                  <button type="button" className={codexRuntimeMode === 'acp' ? 'active' : ''} aria-pressed={codexRuntimeMode === 'acp'} onClick={() => setCodexRuntimeMode('acp')}>Chat <span>ACP</span></button>
                   {selectedAgent.name === 'codex' && (
                     <button type="button" className={codexRuntimeMode === 'app-server' ? 'active' : ''} aria-pressed={codexRuntimeMode === 'app-server'} onClick={() => setCodexRuntimeMode('app-server')}>App Server <span>unstable</span></button>
                   )}

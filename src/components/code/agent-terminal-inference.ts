@@ -227,11 +227,16 @@ export function inferAgentTerminalState(agent: Agent | null | undefined): AgentT
     && ['working', 'waiting-for-input', 'interrupting'].includes(agent.codexAppServerState || '')
   const jsonCliTurnActive = agent?.agentRuntimeMode === 'json'
     && agent.jsonCliState === 'working'
+  const acpTurnActive = agent?.agentRuntimeMode === 'acp'
+    && ['working', 'waiting-for-permission', 'interrupting'].includes(agent.acpState || '')
+  const structuredTurnActive = agent?.agentRuntimeMode === 'acp'
+    ? acpTurnActive
+    : appServerTurnActive || jsonCliTurnActive || turnActive
 
   return {
-    kind: appServerTurnActive || jsonCliTurnActive ? (agent?.providerSessionProvider === 'codex' ? 'codex' : kindEvidence.kind) : kindEvidence.kind,
+    kind: appServerTurnActive || jsonCliTurnActive || acpTurnActive ? (agent?.providerSessionProvider === 'codex' ? 'codex' : kindEvidence.kind) : kindEvidence.kind,
     kindSource: kindEvidence.source,
-    turnActive: appServerTurnActive || jsonCliTurnActive || turnActive,
+    turnActive: structuredTurnActive,
     terminalBusy,
   }
 }

@@ -57,6 +57,27 @@
     return null;
   }
 
+  function ensureXtermWebglLibrary() {
+    if (global.WebglAddon && global.WebglAddon.WebglAddon) {
+      return global.WebglAddon.WebglAddon;
+    }
+    return null;
+  }
+
+  function supportsWebgl2() {
+    try {
+      const canvas = global.document && global.document.createElement
+        ? global.document.createElement('canvas')
+        : null;
+      const context = canvas && canvas.getContext('webgl2');
+      if (!context) return false;
+      context.getExtension?.('WEBGL_lose_context')?.loseContext();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function ensureGhosttyLibrary() {
     if (global.GhosttyWeb && global.GhosttyWeb.Terminal) {
       return global.GhosttyWeb;
@@ -88,7 +109,7 @@
       scrollback: options.scrollback || 20000,
     };
 
-    if (preferredEngine() === 'ghostty') {
+    if (!options.requireWebgl && preferredEngine() === 'ghostty') {
       const ghostty = await ensureGhosttyLibrary();
       if (!ghostty || !ghostty.Terminal) {
         console.error('Ghostty terminal is unavailable.');
@@ -111,9 +132,7 @@
       console.error('xterm terminal is unavailable.');
       return null;
     }
-    return {
-      kind: 'xterm',
-      terminal: new xterm.Terminal({
+    const terminal = new xterm.Terminal({
         ...baseOptions,
         allowProposedApi: true,
         altClickMovesCursor: false,
@@ -129,9 +148,34 @@
         scrollOnUserInput: true,
         smoothScrollDuration: 0,
         theme,
-      }),
+      });
+    const bundle = {
+      kind: 'xterm',
+      terminal,
       fitAddon: new xterm.FitAddon(),
     };
+
+    if (options.requireWebgl) {
+      const WebglAddon = ensureXtermWebglLibrary();
+      if (!WebglAddon) {
+        throw new Error('Farming CRT requires the xterm WebGL addon.');
+      }
+      if (!supportsWebgl2()) {
+        throw new Error('Farming CRT requires WebGL2 hardware acceleration.');
+      }
+      // CRT's separate GPU feedback layer copies this canvas directly. Keeping the
+      // drawing buffer avoids a CPU readback and makes that cross-context upload
+      // deterministic after xterm presents the frame.
+      const webglAddon = new WebglAddon(true);
+      if (webglAddon.onContextLoss && options.onWebglContextLoss) {
+        webglAddon.onContextLoss(options.onWebglContextLoss);
+      }
+      terminal.loadAddon(webglAddon);
+      bundle.kind = 'xterm-webgl';
+      bundle.webglAddon = webglAddon;
+    }
+
+    return bundle;
   }
 
   global.FarmingTerminalBridge = {
@@ -141,6 +185,8 @@
     ensureLibrary: ensureGhosttyLibrary,
     ensureGhosttyLibrary,
     ensureXtermLibrary,
+    ensureXtermWebglLibrary,
+    supportsWebgl2,
     createInstance,
   };
 })(window);
