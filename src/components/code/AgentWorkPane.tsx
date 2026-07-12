@@ -69,7 +69,7 @@ export function AgentWorkPane({
   const jsonChat = agent.agentRuntimeMode === 'json'
   const acpChat = agent.agentRuntimeMode === 'acp'
   const chatMode = appServerChat || jsonChat || acpChat
-  const canSwitchRuntime = ['codex', 'claude', 'opencode'].includes(agent.providerSessionProvider || '')
+  const canSwitchRuntime = ['codex', 'claude', 'opencode', 'qoder'].includes(agent.providerSessionProvider || '')
     && agent.providerSessionTemporary !== true
     && Boolean(agent.providerSessionId)
 
@@ -124,7 +124,7 @@ export function AgentWorkPane({
           onPointerDown={activateChatView}
         >
           {acpChat ? (
-            <AcpTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
+            <AcpTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} refreshSignal={agent.acpSessionUpdatedAt ? Date.parse(agent.acpSessionUpdatedAt) : 0} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
           ) : appServerChat ? (
             <CodexAppServerTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
           ) : (

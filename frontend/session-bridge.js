@@ -31,6 +31,21 @@
         });
       },
 
+      sendComposerMessage(agentId, message) {
+        return send({
+          type: 'composer-input',
+          agentId,
+          message,
+        });
+      },
+
+      interruptAgent(agentId) {
+        return send({
+          type: 'interrupt-agent',
+          agentId,
+        });
+      },
+
       resizeAgent(agentId, cols, rows) {
         return send({
           type: 'resize-agent',

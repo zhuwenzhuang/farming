@@ -37,7 +37,7 @@ function run() {
   assert.strictEqual(normalizeCrtTerminalFontSize(10), 10);
   assert.strictEqual(normalizeCrtTerminalFontSize(15.6), 16);
   assert.strictEqual(normalizeCrtTerminalFontSize(100), 20);
-  assert.strictEqual(normalizeCrtTerminalFontSize('invalid'), 12);
+  assert.strictEqual(normalizeCrtTerminalFontSize('invalid'), 15);
   assert.strictEqual(formatCrtTokenRate(undefined), '--');
   assert.strictEqual(formatCrtTokenRate(0), '~0');
   assert.strictEqual(formatCrtTokenRate(9.94), '~9.9');
@@ -205,7 +205,7 @@ function run() {
     ),
     { left: 190, top: 280, height: 20 },
   );
-  assert.strictEqual(getCrtTerminalFontSize(), 12);
+  assert.strictEqual(getCrtTerminalFontSize(), 15);
   assert.deepStrictEqual(
     getCrtAgentReadPatch({ unread: true, attentionSeq: 4, readAttentionSeq: 2 }),
     { readAttentionSeq: 4 },

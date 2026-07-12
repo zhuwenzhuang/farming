@@ -506,7 +506,7 @@ export function InputDialog({
       workflowTemplate: merged.workflowTemplate,
       ...(initialCustomTitle ? { customTitle: initialCustomTitle } : {}),
       providerHomeId: selectedHomeId,
-      ...(['codex', 'claude', 'opencode'].includes(selectedAgent.name) ? {
+      ...(['codex', 'claude', 'opencode', 'qoder'].includes(selectedAgent.name) ? {
         codexRuntimeMode: codexRuntimeMode === 'app-server' ? 'app-server' : 'cli',
         agentRuntimeMode: codexRuntimeMode === 'acp' ? 'acp' : 'terminal',
       } : {}),
@@ -930,7 +930,7 @@ export function InputDialog({
                 )}
               </div>
             )}
-            {['codex', 'claude', 'opencode'].includes(selectedAgent.name) && (
+            {['codex', 'claude', 'opencode', 'qoder'].includes(selectedAgent.name) && (
               <div className="workspace-runtime-field" data-testid="codex-runtime-mode">
                 <p className="workspace-field-copy">{agentDisplayName(selectedAgent.name)} runtime</p>
                 <div className="workspace-runtime-options" role="group" aria-label={`${agentDisplayName(selectedAgent.name)} runtime`}>

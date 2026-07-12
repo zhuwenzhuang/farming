@@ -7,12 +7,10 @@ import type {
 import { createPortal } from 'react-dom'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
-  ArrowUpGlyph,
   ChevronDownGlyph,
   ChevronLeftGlyph,
   ChevronRightGlyph,
   SettingsGlyph,
-  ErrorGlyph,
   SearchGlyph,
 } from '@/components/IconGlyphs'
 import type { Agent, ProviderQuotaLimit, SystemStats, UsageProviderSummary, UsageSummary } from '@/types/agent'
@@ -43,6 +41,7 @@ import {
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
 import type { AgentLaunchOption } from './agent-launch-options'
 import { AgentLaunchIcon } from './AgentLaunchIcon'
+import { BrandAboutDialog } from './BrandAboutDialog'
 import { mobileActionMenuPoint, outwardContextMenuPoint } from './menu-position'
 import { ShareQrButton } from './ShareQrButton'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
@@ -113,24 +112,6 @@ function compactProductVersion(version: string) {
   }
 
   return normalized.replace(/-dirty$/i, '')
-}
-
-type FarmingUpdateStatus = {
-  current?: {
-    releaseVersion?: string
-    packageVersion?: string
-  }
-  latest?: {
-    version?: string
-    assetName?: string
-  }
-  available?: boolean
-  installable?: boolean
-  blockingAgents?: Array<{ id: string; command: string; task?: string; cwd?: string }>
-  state?: {
-    phase?: string
-    error?: string
-  }
 }
 
 const ProjectFilesSection = lazy(() => import('../files/ProjectFilesSection').then(module => ({
@@ -259,9 +240,8 @@ export function CodeSidebar({
   const branchCacheRef = useRef(new Map<string, { branch: string; expiresAt: number }>())
   const [usageCollapsed, setUsageCollapsed] = useState(true)
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false)
-  const [updateStatus, setUpdateStatus] = useState<FarmingUpdateStatus | null>(null)
-  const [updateChecking, setUpdateChecking] = useState(false)
-  const [updateError, setUpdateError] = useState('')
+  const [brandDialogOpen, setBrandDialogOpen] = useState(false)
+  const closeBrandDialog = useCallback(() => setBrandDialogOpen(false), [])
   const [focusModeActive, setFocusModeActive] = useState(false)
   const [focusModeSupported, setFocusModeSupported] = useState(false)
   const [rootFilesCollapsed, setRootFilesCollapsed] = useState(false)
@@ -375,89 +355,8 @@ export function CodeSidebar({
   useEffect(() => {
     if (globalFilesRevealPending) setRootFilesCollapsed(false)
   }, [globalFilesRevealPending])
-  const refreshUpdateStatus = useCallback((force = false, quiet = false) => {
-    if (!quiet) {
-      setUpdateChecking(true)
-      setUpdateError('')
-    }
-    fetch(appPath(`/api/update${force ? '?force=1' : ''}`))
-      .then(response => {
-        if (!response.ok) {
-          throw new Error(`Update check failed (${response.status})`)
-        }
-        return response.json()
-      })
-      .then((body: { update?: FarmingUpdateStatus }) => {
-        setUpdateStatus(body.update ?? null)
-      })
-      .catch(error => {
-        if (!quiet) setUpdateError(error instanceof Error ? error.message : copy.updateFailed)
-      })
-      .finally(() => {
-        if (!quiet) setUpdateChecking(false)
-      })
-  }, [copy.updateFailed])
-  const startUpgrade = useCallback(() => {
-    const phase = updateStatus?.state?.phase || ''
-    if (['downloading', 'extracting', 'installing', 'restarting', 'rolling-back'].includes(phase)) return
-    if (!updateStatus?.available) {
-      refreshUpdateStatus(true)
-      return
-    }
-    setUpdateChecking(true)
-    setUpdateError('')
-    fetch(appPath('/api/update/install'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    })
-      .then(response => response.json().then(body => ({ response, body })))
-      .then(({ response, body }: { response: Response; body: { update?: FarmingUpdateStatus; error?: string; blockingAgents?: FarmingUpdateStatus['blockingAgents'] } }) => {
-        if (!response.ok) {
-          const blockers = body.blockingAgents || []
-          const suffix = blockers.length > 0
-            ? `: ${blockers.map(agent => agent.command).join(', ')}`
-            : ''
-          throw new Error(`${body.error || copy.updateFailed}${suffix}`)
-        }
-        setUpdateStatus(current => ({
-          ...(current ?? {}),
-          ...(body.update ?? {}),
-        }))
-      })
-      .catch(error => {
-        setUpdateError(error instanceof Error ? error.message : copy.updateFailed)
-      })
-      .finally(() => setUpdateChecking(false))
-  }, [copy, refreshUpdateStatus, updateStatus])
-
-  useEffect(() => {
-    refreshUpdateStatus(false)
-  }, [refreshUpdateStatus])
-
-  const updatePhase = updateStatus?.state?.phase || ''
-  const updateInstalling = ['downloading', 'extracting', 'installing', 'restarting', 'rolling-back'].includes(updatePhase)
-  useEffect(() => {
-    if (!updateInstalling) return
-    const timer = window.setInterval(() => refreshUpdateStatus(false, true), 1500)
-    return () => window.clearInterval(timer)
-  }, [refreshUpdateStatus, updateInstalling])
-  const updateBusy = updateInstalling || (updateChecking && Boolean(updateStatus?.available))
-  const updateButtonLabel = updateBusy
-    ? copy.updating
-    : updateError
-      ? copy.retryUpdate
-      : updateStatus?.available
-        ? copy.upgrade
-        : ''
-  const updateCollapsedLabel = updateBusy ? '…' : updateError ? <ErrorGlyph /> : updateStatus?.available ? <ArrowUpGlyph /> : 'β'
-  const currentVersion = compactProductVersion(updateStatus?.current?.releaseVersion || updateStatus?.current?.packageVersion || __FARMING_PACKAGE_VERSION__ || '')
+  const currentVersion = compactProductVersion(__FARMING_PACKAGE_VERSION__ || '')
   const currentVersionLabel = currentVersion ? `v${currentVersion}` : ''
-  const updateTitle = updateError
-    ? updateError
-    : updateStatus?.available
-      ? copy.upgradeToVersion(updateStatus.latest?.version || updateStatus.latest?.assetName || '')
-      : copy.checkForUpdates
   // Keep the numeric agent rail for the collapsed sidebar only in this release.
   // The FILES-pressure compression path made single-agent projects collapse to "1",
   // which saved no space and made the expanded sidebar harder to scan.
@@ -702,24 +601,27 @@ export function CodeSidebar({
         <div className="code-product-row">
           <button
             type="button"
-            className={`code-product-mark ${updateStatus?.available ? 'upgrade' : ''} ${updateBusy ? 'busy' : ''} ${updateError ? 'error' : ''}`}
+            className="code-product-mark"
             data-testid="code-product-mark"
-            title={updateTitle}
-            aria-label={updateTitle}
-            onClick={startUpgrade}
-            disabled={updateBusy}
+            title="Farming Code"
+            aria-label="Farming Code"
+            onClick={() => setBrandDialogOpen(true)}
           >
+            <img
+              className="code-product-logo"
+              src={appPath('/farming-2/app-icon-v2-180.png')}
+              alt=""
+              aria-hidden="true"
+            />
             <span className="code-product-mark-copy">
               <span className="code-product-mark-main-slot">
                 <span className="code-product-mark-main code-product-mark-main-full">Farming Code</span>
                 <span className="code-product-mark-main code-product-mark-main-short" aria-hidden="true">Farming</span>
               </span>
               {currentVersionLabel && (
-                <span className="code-product-mark-badge">DOGFOOD BETA · {currentVersionLabel}</span>
+                <span className="code-product-mark-badge">{currentVersionLabel}</span>
               )}
             </span>
-            {updateButtonLabel && <span className="code-product-mark-update">{updateButtonLabel}</span>}
-            <span className="code-product-mark-collapsed" aria-hidden="true">{updateCollapsedLabel}</span>
           </button>
           <button
             type="button"
@@ -753,6 +655,9 @@ export function CodeSidebar({
           preview={agentPreview}
           now={now}
         />
+      )}
+      {brandDialogOpen && (
+        <BrandAboutDialog copy={copy} version={currentVersionLabel} onClose={closeBrandDialog} />
       )}
     </aside>
   )

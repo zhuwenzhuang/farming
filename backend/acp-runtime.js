@@ -11,9 +11,13 @@ const ADAPTER_VERSIONS = Object.freeze({
   codex: '1.1.2',
   claude: '0.58.1',
   opencode: 'native',
+  qoder: 'native',
 });
 const DEFAULT_INITIALIZE_TIMEOUT_MS = 15_000;
 const DEFAULT_SESSION_SETUP_TIMEOUT_MS = 120_000;
+const DEFAULT_HISTORY_REPLAY_MIN_WAIT_MS = 350;
+const DEFAULT_HISTORY_REPLAY_QUIET_MS = 150;
+const DEFAULT_HISTORY_REPLAY_MAX_WAIT_MS = 5_000;
 
 let sdkPromise;
 const runtimeRequire = createRequire(__filename);
@@ -55,6 +59,13 @@ function resolveAcpLaunch(provider, options = {}) {
       command: options.executable || 'opencode',
       args: ['acp', '--cwd', path.resolve(options.cwd || process.cwd())],
       version: ADAPTER_VERSIONS.opencode,
+    };
+  }
+  if (normalized === 'qoder') {
+    return {
+      command: options.executable || 'qodercli',
+      args: ['--acp'],
+      version: ADAPTER_VERSIONS.qoder,
     };
   }
   throw new Error(`Unsupported ACP provider: ${provider}`);
@@ -105,6 +116,9 @@ class AcpRuntime extends EventEmitter {
     this.maxUpdates = options.maxUpdates;
     this.initializeTimeoutMs = options.initializeTimeoutMs || DEFAULT_INITIALIZE_TIMEOUT_MS;
     this.sessionSetupTimeoutMs = options.sessionSetupTimeoutMs || DEFAULT_SESSION_SETUP_TIMEOUT_MS;
+    this.historyReplayMinWaitMs = options.historyReplayMinWaitMs ?? DEFAULT_HISTORY_REPLAY_MIN_WAIT_MS;
+    this.historyReplayQuietMs = options.historyReplayQuietMs ?? DEFAULT_HISTORY_REPLAY_QUIET_MS;
+    this.historyReplayMaxWaitMs = options.historyReplayMaxWaitMs ?? DEFAULT_HISTORY_REPLAY_MAX_WAIT_MS;
     this.bindings = new Map();
     this.permissionSequence = 0;
   }
@@ -192,6 +206,7 @@ class AcpRuntime extends EventEmitter {
             this.sessionSetupTimeoutMs,
             'ACP session/load'
           );
+          if (provider === 'qoder') await this.waitForHistoryReplay(binding);
           binding.sessionState.finishHistoryReplay();
           historyMode = 'load';
         } else if (capabilities.sessionCapabilities?.resume) {
@@ -244,6 +259,25 @@ class AcpRuntime extends EventEmitter {
     const sdk = await loadAcpSdk();
     const stream = sdk.ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(child.stdout));
     return new sdk.ClientSideConnection(() => handlers, stream);
+  }
+
+  async waitForHistoryReplay(binding) {
+    const startedAt = Date.now();
+    let lastUpdateCount = binding.sessionState?.updates.length || 0;
+    let lastChangedAt = startedAt;
+    while (Date.now() - startedAt < this.historyReplayMaxWaitMs) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const now = Date.now();
+      const updateCount = binding.sessionState?.updates.length || 0;
+      if (updateCount !== lastUpdateCount) {
+        lastUpdateCount = updateCount;
+        lastChangedAt = now;
+      }
+      if (
+        now - startedAt >= this.historyReplayMinWaitMs
+        && now - lastChangedAt >= this.historyReplayQuietMs
+      ) return;
+    }
   }
 
   clientHandlers(binding) {

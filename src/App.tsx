@@ -78,9 +78,21 @@ function isRestartDescendantOf(agent: Agent, ancestorAgentId: string) {
     || agent.restartedFromAgentIds?.includes(ancestorAgentId) === true
 }
 
-function latestRestartDescendant(agents: Agent[], ancestorAgentId: string) {
+function latestRestartDescendant(agents: Agent[], ancestorAgentId: string, expectedSession?: Agent | null) {
   return agents
-    .filter(agent => isOpenableAgent(agent) && isRestartDescendantOf(agent, ancestorAgentId))
+    .filter(agent => (
+      isOpenableAgent(agent)
+      && isRestartDescendantOf(agent, ancestorAgentId)
+      && (
+        !expectedSession?.providerSessionProvider
+        || !expectedSession.providerSessionId
+        || (
+          agent.providerSessionProvider === expectedSession.providerSessionProvider
+          && agent.providerSessionId === expectedSession.providerSessionId
+          && (agent.providerHomeId || '') === (expectedSession.providerHomeId || '')
+        )
+      )
+    ))
     .sort((a, b) => {
       const lineageDifference = (b.restartedFromAgentIds?.length ?? 0) - (a.restartedFromAgentIds?.length ?? 0)
       if (lineageDifference !== 0) return lineageDifference
@@ -221,7 +233,7 @@ export function App() {
   useEffect(() => {
     const current = permissionSwitchStateRef.current
     if (!current) return
-    const replacement = latestRestartDescendant(ws.agents, current.originalAgentId)
+    const replacement = latestRestartDescendant(ws.agents, current.originalAgentId, current.agent)
     if (!replacement || replacement.id === current.agent.id) return
 
     const transitionFromAgentId = current.agent.id

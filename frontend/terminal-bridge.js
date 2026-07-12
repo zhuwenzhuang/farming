@@ -106,6 +106,7 @@
       fontSize: options.fontSize || 14,
       fontFamily: options.fontFamily || DEFAULT_FONT_FAMILY,
       cursorBlink: options.cursorBlink || false,
+      disableStdin: options.disableStdin === true,
       scrollback: options.scrollback || 20000,
     };
 
@@ -163,10 +164,9 @@
       if (!supportsWebgl2()) {
         throw new Error('Farming CRT requires WebGL2 hardware acceleration.');
       }
-      // CRT's separate GPU feedback layer copies this canvas directly. Keeping the
-      // drawing buffer avoids a CPU readback and makes that cross-context upload
-      // deterministic after xterm presents the frame.
-      const webglAddon = new WebglAddon(true);
+      // Keep xterm on its default disposable framebuffer. Preserving every frame
+      // makes terminal input compete with CRT post-processing for GPU bandwidth.
+      const webglAddon = new WebglAddon();
       if (webglAddon.onContextLoss && options.onWebglContextLoss) {
         webglAddon.onContextLoss(options.onWebglContextLoss);
       }

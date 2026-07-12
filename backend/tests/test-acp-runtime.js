@@ -11,6 +11,11 @@ async function run() {
     args: ['acp', '--cwd', '/tmp/demo'],
     version: 'native',
   });
+  assert.deepStrictEqual(resolveAcpLaunch('qoder', { executable: '/bin/qodercli' }), {
+    command: '/bin/qodercli',
+    args: ['--acp'],
+    version: 'native',
+  });
   assert.deepStrictEqual(autoPermissionResponse({
     options: [{ optionId: 'yes', kind: 'allow_once' }],
   }, 'full'), { outcome: { outcome: 'selected', optionId: 'yes' } });
@@ -125,6 +130,19 @@ async function run() {
     assert.strictEqual(history.entries.length, 2);
     assert.strictEqual(history.entries[0].content[0].text, 'historical question');
     assert.strictEqual(history.entries[1].content[0].text, 'historical answer');
+
+    const delayedHistory = await runtime.prepareAgent({
+      agentId: 'agent-acp-qoder-load',
+      provider: 'qoder',
+      cwd: process.cwd(),
+      env: process.env,
+      sessionId: 'delayed-history-session',
+      approvalMode: 'full',
+    });
+    assert.strictEqual(delayedHistory.historyMode, 'load');
+    const qoderHistory = runtime.getSession('agent-acp-qoder-load');
+    assert.strictEqual(qoderHistory.entries.length, 2);
+    assert.strictEqual(qoderHistory.entries[1].content[0].text, 'delayed historical answer');
 
     await runtime.prepareAgent({
       agentId: 'agent-acp-permission',

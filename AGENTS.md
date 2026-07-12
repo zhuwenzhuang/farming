@@ -163,7 +163,7 @@ Farming stores runtime settings under `~/.farming/settings.json` by default. Bac
 - `dangerouslySkipAgentPermissionsByDefault` (launch supported coding agents such as Codex, Claude, OpenCode, Qoder, Qwen, Aider, GitHub Copilot CLI, and Amazon Q with their provider-specific dangerous permission-skip flags by default)
 - `crtSkinEffectsEnabled` (controls only the CRT skin's scanlines, mask, vignette, and infrequent scan beam; Farming Code must not read or apply it)
 - `crtDynamicHeatEnabled` (disabled by default; lets the CRT skin apply activity-level classes for dynamic Agent colors and sizing)
-- `crtTerminalFontSize` (the CRT opened-terminal text size in pixels, clamped to `10`–`20`; the default is `12`)
+- `crtTerminalFontSize` (the CRT opened-terminal text size in pixels, clamped to `10`–`20`; the default is `15`)
 
 Runtime session metadata lives under `~/.farming/sessions/`, not in `settings.json`. Farming assigns each persisted Agent record a stable `fsess_*` id used as the session metadata filename. The live native pty `agent-...` id is stored as runtime metadata, while Codex / Claude provider session ids are stored as external correlation fields. `sessions/index.json` owns the main Projects page provider-session membership; `settings.mainPageSessionKeys` remains only an API compatibility projection. Codex `tmp_uuid...` live ids must not enter this persisted main-page membership; provider sessions not listed there stay in History.
 

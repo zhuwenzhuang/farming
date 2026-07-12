@@ -90,6 +90,56 @@ const AgentManager = require('../agent-manager');
   assert.strictEqual(started.options.agentRuntimeMode, 'acp');
   assert.strictEqual(acpResult.agentRuntimeMode, 'acp');
 
+  manager.agents.set('agent-app-server-switch', {
+    id: 'agent-app-server-switch',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: sessionId,
+    providerSessionTemporary: false,
+    providerHomeId: 'zwz',
+    providerHomePath: codexHome,
+    providerSessionTitle: 'App Server demo',
+    codexRuntimeMode: 'app-server',
+    agentRuntimeMode: 'terminal',
+    status: 'running',
+    output: '',
+  });
+  killed = '';
+  started = null;
+  const appServerTerminalResult = await manager.restartAgentRuntimeMode('agent-app-server-switch', 'terminal');
+  assert.strictEqual(killed, 'agent-app-server-switch');
+  assert.strictEqual(started.options.codexRuntimeMode, 'cli');
+  assert.strictEqual(started.options.agentRuntimeMode, 'terminal');
+  assert.strictEqual(appServerTerminalResult.agentRuntimeMode, 'terminal');
+
+  manager.agents.set('agent-qoder-switch', {
+    id: 'agent-qoder-switch',
+    command: 'qodercli',
+    forkCommand: 'qodercli',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'qoder',
+    providerSessionId: 'c4fa82d7-cf26-4c62-9c35-00aabfcc032a',
+    providerSessionTemporary: false,
+    providerHomeId: 'default',
+    providerHomePath: '/tmp/qoder-home',
+    providerSessionTitle: 'Qoder ACP demo',
+    agentRuntimeMode: 'terminal',
+    status: 'running',
+    output: '',
+  });
+  manager.findRuntimeSwitchSession = async () => ({ provider: 'qoder' });
+  killed = '';
+  started = null;
+  const qoderAcpResult = await manager.restartAgentRuntimeMode('agent-qoder-switch', 'acp');
+  assert.strictEqual(killed, 'agent-qoder-switch');
+  assert.strictEqual(started.command.includes('qodercli --resume'), true);
+  assert.strictEqual(started.options.agentRuntimeMode, 'acp');
+  assert.strictEqual(qoderAcpResult.agentRuntimeMode, 'acp');
+
   manager.agents.set('agent-stale', {
     id: 'agent-stale',
     cwd: '/tmp/project',

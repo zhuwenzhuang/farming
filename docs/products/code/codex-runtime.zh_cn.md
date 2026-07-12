@@ -33,6 +33,7 @@ flowchart LR
 - 配置中的 Agent Home 仍是身份/配置来源；runtime home 只隔离生成的 socket、session、日志，并保持短路径以满足 Unix socket 长度上限。
 - Farming 使用 Agent 的专属 runtime 环境启动 `codex app-server --listen unix://`，并等待 `initialize` 成功。
 - Farming 在 live 和持久化 Agent 元数据中保存运行时模式、runtime home、app-server 状态、thread id 和当前 turn id。App Server 模式下 provider session id 就是 Codex thread id。
+- 如果持久化的 App Server thread 已无法恢复，Chat 会明确显示不可用状态，不再留下空白区域。把该 Agent 切换到 Terminal 时会真正重启为 CLI，即使旧元数据中的 `agentRuntimeMode` 已经是 `terminal`。
 - 结束一个 Agent 会结束专属 app-server。Farming 服务重启保留健康的专属服务，供恢复后的 Agent 重新连接。
 
 Native PTY host 只负责 CLI 模式。App Server 模式独立于 PTY 生命周期、terminal 输出、terminal 焦点和 rollout JSONL 轮询。

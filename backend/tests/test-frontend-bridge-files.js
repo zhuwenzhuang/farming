@@ -8,7 +8,6 @@ function run() {
   const runtimePathsPath = path.join(__dirname, '../../frontend/runtime-paths.js');
   const indexHtmlPath = path.join(__dirname, '../../frontend/skins/crt/index.html');
   const effectsCssPath = path.join(__dirname, '../../frontend/skins/crt/styles/effects.css');
-  const webglEffectsPath = path.join(__dirname, '../../frontend/skins/crt/effects/crt-webgl-effects.js');
   const monochromeCssPath = path.join(__dirname, '../../frontend/skins/crt/styles/monochrome-green.css');
   const departureFontPath = path.join(__dirname, '../../frontend/skins/crt/assets/fonts/departure-mono/DepartureMonoNerdFontMono-Regular.otf');
   const departureLicensePath = path.join(__dirname, '../../frontend/skins/crt/assets/fonts/departure-mono/LICENSE');
@@ -20,7 +19,6 @@ function run() {
   const runtimePaths = fs.readFileSync(runtimePathsPath, 'utf8');
   const indexHtml = fs.readFileSync(indexHtmlPath, 'utf8');
   const effectsCss = fs.readFileSync(effectsCssPath, 'utf8');
-  const webglEffects = fs.readFileSync(webglEffectsPath, 'utf8');
   const monochromeCss = fs.readFileSync(monochromeCssPath, 'utf8');
   const pkgConfig = fs.readFileSync(pkgConfigPath, 'utf8');
   const server = fs.readFileSync(serverPath, 'utf8');
@@ -51,7 +49,7 @@ function run() {
   assert(indexHtml.includes('../vendor/xterm/xterm.js'), 'CRT should load the shared xterm browser runtime');
   assert(indexHtml.includes('../vendor/xterm/addon-fit.js'), 'CRT should load the xterm fit addon');
   assert(indexHtml.includes('../vendor/xterm/addon-webgl.js'), 'CRT should load the xterm WebGL addon');
-  assert(indexHtml.includes('effects/crt-webgl-effects.js'), 'CRT should load its isolated WebGL effects engine');
+  assert(!indexHtml.includes('effects/crt-webgl-effects.js'), 'CRT terminal input should not load a cross-context full-canvas feedback engine');
   assert(indexHtml.includes('../vendor/xterm/xterm.css'), 'CRT should load the xterm stylesheet');
   assert(pkgConfig.includes("node_modules/@xterm/xterm/lib/xterm.js"), 'standalone packages should include the CRT xterm runtime');
   assert(pkgConfig.includes("node_modules/@xterm/addon-fit/lib/addon-fit.js"), 'standalone packages should include the CRT fit addon');
@@ -68,6 +66,7 @@ function run() {
     !effectsCss.includes('animation: scanlines'),
     'CRT scanlines should remain static to avoid compositor churn'
   );
+  assert(!effectsCss.includes('mix-blend-mode: multiply'), 'CRT static scanlines should not force full-screen blend recomposition');
   assert(indexHtml.includes('class="crt-scan-beam"'), 'CRT entry should render the lightweight scan beam');
   assert(indexHtml.includes('class="crt-phosphor-noise"'), 'CRT entry should render one shared procedural phosphor noise layer');
   assert(indexHtml.includes('class="crt-scan-afterglow"'), 'CRT entry should retain a brighter region behind the scan beam');
@@ -80,10 +79,26 @@ function run() {
   assert(effectsCss.includes('phosphor-noise.svg'), 'CRT scan trail should use an original static noise texture');
   assert(effectsCss.includes('crt-content-afterimage 620ms'), 'CRT content changes should leave a short phosphor afterimage');
   assert(crtApp.includes('appendCrtPreviewAfterimage'), 'CRT previews should use event-driven phosphor decay');
+  assert(indexHtml.includes('id="crt-structured-composer"'), 'CRT should expose a native composer for structured Agent runtimes');
+  assert(indexHtml.includes('class="crt-structured-input-prompt"') && indexHtml.includes('MESSAGE&gt;'), 'CRT structured input should use a terminal prompt instead of a boxed web form');
+  assert(indexHtml.includes('id="crt-structured-input" rows="2"') && crtApp.includes('resizeStructuredComposerInput'), 'CRT structured input should grow to show multiline drafts');
+  assert(crtApp.includes('structuredComposerCompositionEndAt'), 'CRT structured input should not submit the Enter used to confirm an IME composition');
+  assert(crtApp.includes('navigateStructuredComposerHistory') && crtApp.includes('structuredComposerHistory'), 'CRT structured input should provide terminal-style draft history');
+  assert(indexHtml.includes('id="crt-structured-attach"') && crtApp.includes('prepareStructuredAttachment'), 'CRT structured input should attach image and text context through the shared attachment format');
+  assert(indexHtml.includes('id="crt-structured-command"') && crtApp.includes('availableCommands'), 'CRT structured input should expose ACP slash commands');
+  assert(crtApp.includes("target.closest('#crt-structured-composer')"), 'CRT global clipboard handlers should leave structured input copy and paste native');
+  assert(crtApp.includes('renderStructuredPermissions') && crtApp.includes('/acp-permission'), 'CRT structured input should surface ACP permission requests beside the prompt');
+  assert(crtApp.includes('isStructuredRuntimeAgent') && crtApp.includes('sendComposerMessage'), 'CRT should not route ACP, JSON, or App Server Agents through PTY input');
+  assert(indexHtml.includes('id="crt-runtime-toggle"') && indexHtml.includes('id="crt-runtime-chat"') && indexHtml.includes('id="crt-runtime-terminal"'), 'CRT should expose symbolic Chat and Terminal runtime controls');
+  assert(crtApp.includes("body: JSON.stringify({ agentRuntimeMode: targetMode })"), 'CRT runtime controls should use the backend restart path');
+  assert(crtApp.includes('isCrtRuntimeSwitchShortcut') && indexHtml.includes('Ctrl+Shift+M'), 'CRT should expose a non-terminal runtime switch shortcut');
+  assert(crtApp.includes("document.addEventListener('keydown', (event) => {") && crtApp.includes('}, true);'), 'CRT should capture the runtime shortcut before xterm sends it to the PTY');
+  assert(crtApp.includes('[READ ONLY]') && terminalBridge.includes('disableStdin'), 'CRT should make exited terminal sessions explicitly read-only');
   assert(crtApp.includes('CRT_PREVIEW_RENDER_INTERVAL_MS = 1000'), 'CRT dashboard previews should batch to at most one visual update per second');
   assert(crtApp.includes('scheduleCrtPreviewCardRender') && crtApp.includes('dashboardRenderDeferred'), 'CRT should target changed cards and defer dashboard rendering behind an open terminal');
   assert(!crtApp.includes('drawImage('), 'CRT terminal output must not copy xterm canvases on the typing path');
-  assert(!/(getImageData|toDataURL|drawImage|createImageBitmap)\s*\(/.test(webglEffects), 'CRT WebGL effects should avoid CPU screenshot APIs');
+  assert(terminalBridge.includes('new WebglAddon()'), 'CRT should use xterm\'s disposable WebGL framebuffer for low-latency input');
+  assert(!terminalBridge.includes('new WebglAddon(true)'), 'CRT should not preserve xterm\'s drawing buffer for post-processing');
   assert(!crtApp.includes('pulseSessionTerminalPhosphor'), 'CRT terminal output must not animate the xterm screen on the typing path');
   assert(!effectsCss.includes('crt-phosphor-noise-shift'), 'CRT phosphor noise should remain static to avoid continuous full-screen compositing');
   assert(effectsCss.includes('#farming-crt.session-open .crt-scan-afterglow'), 'CRT should suspend moving scan layers while the user types in an opened terminal');
@@ -100,7 +115,7 @@ function run() {
   assert(monochromeCss.includes('"PingFang SC"') && monochromeCss.includes('"Noto Sans Mono CJK SC"'), 'CRT should retain readable CJK font fallbacks');
   assert(crtApp.includes('FarmingTerminalBridge.DEFAULT_FONT_FAMILY'), 'CRT terminal output should use the shared mixed-language font stack');
   assert(
-    crtApp.includes('DEFAULT_TERMINAL_FONT_SIZE = 12') &&
+    crtApp.includes('DEFAULT_TERMINAL_FONT_SIZE = 15') &&
       crtApp.includes('MIN_TERMINAL_FONT_SIZE = 10') &&
       crtApp.includes('MAX_TERMINAL_FONT_SIZE = 20') &&
       crtApp.includes('normalizeCrtTerminalFontSize'),

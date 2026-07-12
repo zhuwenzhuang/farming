@@ -8,7 +8,6 @@ let waitingForAgent = false;
 let selectedAgentIndex = null;
 let terminal = null;
 let fitAddon = null;
-let sessionCrtEffects = null;
 let availableThemes = [];
 let currentTheme = 'terminal';
 let themeSettings = {};
@@ -22,7 +21,7 @@ let globalSettings = {
   dangerouslySkipAgentPermissionsByDefault: false,
   crtSkinEffectsEnabled: true,
   crtDynamicHeatEnabled: false,
-  crtTerminalFontSize: 12
+  crtTerminalFontSize: 15
 };
 let crtTerminalFontSizeSaveTimer = null;
 let workspaceHistorySelection = -1;
@@ -44,6 +43,20 @@ let crtPreviewRenderTimer = null;
 const pendingCrtPreviewRenders = new Map();
 let sessionRuntime = null;
 let legacySessionPoller = null;
+let structuredSessionPoller = null;
+let structuredSessionLoading = false;
+let structuredSessionRenderedAt = '';
+let structuredSessionSnapshot = null;
+let structuredSessionControlsLoading = false;
+let structuredSessionControlsRevision = '';
+let structuredComposerMenu = '';
+let structuredComposerAttachments = [];
+const structuredComposerHistory = new Map();
+let structuredComposerHistoryIndex = -1;
+let structuredComposerCompositionEndAt = 0;
+let runtimeSwitchPending = false;
+let pendingRuntimeSwitchAgentId = '';
+let runtimeSwitchRequestSequence = 0;
 let terminalInputBridge = null;
 let terminalInputComposing = false;
 let terminalInputLastBackspaceAt = 0;
@@ -401,7 +414,7 @@ const TERMINAL_THEME = {
 const TERMINAL_FONT_FAMILY = typeof window !== 'undefined' && window.FarmingTerminalBridge
   ? window.FarmingTerminalBridge.DEFAULT_FONT_FAMILY
   : '"JetBrains Mono", "SF Mono", Menlo, Monaco, "Cascadia Mono", "Segoe UI Mono", "Sarasa Mono SC", "PingFang SC", "Hiragino Sans GB", "Noto Sans Mono CJK SC", "Microsoft YaHei UI", monospace';
-const DEFAULT_TERMINAL_FONT_SIZE = 12;
+const DEFAULT_TERMINAL_FONT_SIZE = 15;
 const MIN_TERMINAL_FONT_SIZE = 10;
 const MAX_TERMINAL_FONT_SIZE = 20;
 const TERMINAL_SCROLLBACK = 5000;
@@ -474,10 +487,6 @@ function isPasteShortcut(event) {
 }
 
 function disposeTerminal() {
-  if (sessionCrtEffects) {
-    sessionCrtEffects.dispose();
-    sessionCrtEffects = null;
-  }
   if (terminal) {
     terminal.dispose();
     terminal = null;
@@ -1072,7 +1081,7 @@ function getCrtTerminalFontSize() {
   return normalizeCrtTerminalFontSize(globalSettings.crtTerminalFontSize);
 }
 
-async function createTerminalInstance() {
+async function createTerminalInstance(options = {}) {
   if (window.FarmingTerminalBridge && window.FarmingTerminalBridge.createInstance) {
     return window.FarmingTerminalBridge.createInstance({
       theme: currentSessionSkin && currentSessionSkin.terminalTheme
@@ -1086,7 +1095,7 @@ async function createTerminalInstance() {
         showCrtWebglFailure(new Error('The xterm WebGL context was lost. Close and reopen this terminal to restore it.'));
       },
       smoothScrollDuration: 120,
-      disableStdin: true,
+      disableStdin: options.disableStdin === true,
       scrollback: TERMINAL_SCROLLBACK
     });
   }
@@ -1110,22 +1119,6 @@ function showCrtWebglFailure(error) {
   detail.textContent = 'The Agent is still running. Close and reopen this terminal after WebGL is available.';
   panel.append(title, message, detail);
   terminalContainer.appendChild(panel);
-}
-
-function startCrtSessionEffects() {
-  if (!terminal || !window.FarmingCrtWebglEffects) {
-    throw new Error('The Farming CRT WebGL effects engine is unavailable.');
-  }
-  const terminalContainer = document.getElementById('terminal-output');
-  if (!terminalContainer) {
-    throw new Error('The Farming CRT terminal surface is unavailable.');
-  }
-  if (sessionCrtEffects) sessionCrtEffects.dispose();
-  sessionCrtEffects = window.FarmingCrtWebglEffects.create({
-    terminal,
-    container: terminalContainer,
-    onError: showCrtWebglFailure,
-  });
 }
 
 function shouldUseLiveSessionText(agent) {
@@ -3240,6 +3233,7 @@ function connect() {
         hideInputDialog();
       }
       openPendingHistoryAgentIfReady();
+      openPendingRuntimeSwitchAgentIfReady();
       const runtime = getSessionRuntime();
       if (runtime) {
         const sessionState = runtime.handleStateMessage(state);
@@ -3612,10 +3606,822 @@ function selectCrtStartedAgent(agentId) {
   return restoreCrtNavigationSelection();
 }
 
+function isCrtAgentInteractive(agent) {
+  return Boolean(agent && (agent.status === 'running' || agent.status === 'pending'));
+}
+
+function structuredRuntimeKind(agent) {
+  if (!agent) return '';
+  if (agent.agentRuntimeMode === 'acp') return 'ACP';
+  if (agent.agentRuntimeMode === 'json') return 'JSON';
+  if (agent.providerSessionProvider === 'codex' && agent.codexRuntimeMode === 'app-server') return 'APP SERVER';
+  return '';
+}
+
+function isStructuredRuntimeAgent(agent) {
+  return Boolean(structuredRuntimeKind(agent));
+}
+
+function crtRuntimeView(agent) {
+  return isStructuredRuntimeAgent(agent) ? 'chat' : 'terminal';
+}
+
+function canSwitchCrtAgentRuntime(agent) {
+  return Boolean(
+    agent
+    && ['codex', 'claude', 'opencode', 'qoder'].includes(agent.providerSessionProvider || '')
+    && agent.providerSessionTemporary !== true
+    && String(agent.providerSessionId || '').trim()
+  );
+}
+
+function isCrtRuntimeSwitchShortcut(event) {
+  return Boolean(
+    event
+    && event.ctrlKey
+    && event.shiftKey
+    && !event.metaKey
+    && !event.altKey
+    && String(event.key || '').toLowerCase() === 'm'
+  );
+}
+
+function setCrtRuntimeSwitchStatus(message = '', error = false) {
+  const status = document.getElementById('crt-runtime-switch-status');
+  const messageNode = document.getElementById('crt-runtime-switch-message');
+  if (!status || !messageNode) return;
+  status.hidden = !message;
+  status.classList.toggle('error', Boolean(error));
+  messageNode.textContent = message;
+}
+
+function updateCrtRuntimeSwitchControl(agent) {
+  const control = document.getElementById('crt-runtime-toggle');
+  const chatButton = document.getElementById('crt-runtime-chat');
+  const terminalButton = document.getElementById('crt-runtime-terminal');
+  if (!control || !chatButton || !terminalButton) return;
+  const supported = canSwitchCrtAgentRuntime(agent);
+  const view = crtRuntimeView(agent);
+  control.hidden = !supported;
+  control.setAttribute('aria-busy', runtimeSwitchPending ? 'true' : 'false');
+  chatButton.disabled = !supported || runtimeSwitchPending;
+  terminalButton.disabled = !supported || runtimeSwitchPending;
+  chatButton.classList.toggle('active', view === 'chat');
+  terminalButton.classList.toggle('active', view === 'terminal');
+  chatButton.setAttribute('aria-pressed', view === 'chat' ? 'true' : 'false');
+  terminalButton.setAttribute('aria-pressed', view === 'terminal' ? 'true' : 'false');
+}
+
+function resetCrtRuntimeSwitchState(cancelRequest = true) {
+  if (cancelRequest) runtimeSwitchRequestSequence += 1;
+  runtimeSwitchPending = false;
+  pendingRuntimeSwitchAgentId = '';
+  setCrtRuntimeSwitchStatus('');
+}
+
+function openPendingRuntimeSwitchAgentIfReady() {
+  if (!pendingRuntimeSwitchAgentId || !state) return false;
+  const agent = state.agents.find((candidate) => candidate.id === pendingRuntimeSwitchAgentId);
+  if (!agent || agent.archived === true) return false;
+  const agentId = pendingRuntimeSwitchAgentId;
+  resetCrtRuntimeSwitchState(false);
+  openSession(agentId);
+  return true;
+}
+
+async function switchCrtSessionRuntimeMode(mode) {
+  if (runtimeSwitchPending || !focusedAgentId || !state) return;
+  const agent = state.agents.find((candidate) => candidate.id === focusedAgentId);
+  if (!canSwitchCrtAgentRuntime(agent)) return;
+  const targetMode = mode === 'terminal' ? 'terminal' : 'acp';
+  if (crtRuntimeView(agent) === (targetMode === 'terminal' ? 'terminal' : 'chat')) return;
+
+  const requestSequence = ++runtimeSwitchRequestSequence;
+  runtimeSwitchPending = true;
+  updateCrtRuntimeSwitchControl(agent);
+  setCrtRuntimeSwitchStatus('RESTARTING AGENT...');
+  try {
+    const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agent.id)}`), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentRuntimeMode: targetMode })
+    });
+    const data = await response.json().catch(() => null);
+    if (requestSequence !== runtimeSwitchRequestSequence) return;
+    if (!response.ok || !data) {
+      throw new Error(data && data.error ? data.error : `Failed to switch Agent runtime (${response.status})`);
+    }
+    pendingRuntimeSwitchAgentId = data.restartedAgentId || agent.id;
+    setCrtRuntimeSwitchStatus('RESTORING SESSION...');
+    openPendingRuntimeSwitchAgentIfReady();
+  } catch (error) {
+    if (requestSequence !== runtimeSwitchRequestSequence) return;
+    runtimeSwitchPending = false;
+    pendingRuntimeSwitchAgentId = '';
+    updateCrtRuntimeSwitchControl(state.agents.find((candidate) => candidate.id === focusedAgentId));
+    setCrtRuntimeSwitchStatus(error && error.message ? error.message : 'Failed to switch Agent runtime', true);
+  }
+}
+
+function toggleCrtSessionRuntimeMode() {
+  if (!focusedAgentId || !state) return;
+  const agent = state.agents.find((candidate) => candidate.id === focusedAgentId);
+  if (!canSwitchCrtAgentRuntime(agent)) return;
+  void switchCrtSessionRuntimeMode(crtRuntimeView(agent) === 'chat' ? 'terminal' : 'acp');
+}
+
+function structuredTranscriptEndpoint(agent) {
+  if (agent.agentRuntimeMode === 'acp') return 'acp-transcript';
+  if (agent.agentRuntimeMode === 'json') return 'json-cli-transcript';
+  return 'codex-app-server-transcript';
+}
+
+function structuredRuntimeStatus(agent) {
+  if (!agent) return '';
+  if (agent.agentRuntimeMode === 'acp') return agent.acpState || 'idle';
+  if (agent.agentRuntimeMode === 'json') return agent.jsonCliState || 'idle';
+  return agent.codexAppServerState || 'idle';
+}
+
+function structuredRuntimeError(agent) {
+  if (!agent) return '';
+  if (agent.agentRuntimeMode === 'acp') return agent.acpError || '';
+  if (agent.agentRuntimeMode === 'json') return agent.jsonCliError || '';
+  return agent.codexAppServerError || '';
+}
+
+function structuredComposerAction(agent, draft = '') {
+  if (!isCrtAgentInteractive(agent) || structuredRuntimeError(agent)) return 'disabled';
+  if (structuredComposerAttachments.some(item => item.status === 'uploading')) return 'disabled';
+  const status = String(structuredRuntimeStatus(agent) || 'idle');
+  const working = ['working', 'waiting-for-permission'].includes(status);
+  if (working) {
+    if (
+      agent.providerSessionProvider === 'codex'
+      && agent.codexRuntimeMode === 'app-server'
+      && String(draft || '').trim()
+    ) return 'steer';
+    return 'interrupt';
+  }
+  if (['starting', 'interrupting'].includes(status)) return 'disabled';
+  return String(draft || '').trim() || structuredComposerAttachments.some(item => item.status === 'ready')
+    ? 'send'
+    : 'disabled';
+}
+
+function formatStructuredUsage(session) {
+  const tokens = Number(session && session.usage && session.usage.totalTokens);
+  if (!Number.isFinite(tokens) || tokens <= 0) return '';
+  return `${Math.round(tokens / 1000)}K TOK`;
+}
+
+function structuredSelectOptions(option) {
+  if (!option || !Array.isArray(option.options)) return [];
+  return option.options.flatMap((candidate) => (
+    candidate && Array.isArray(candidate.options) ? candidate.options : [candidate]
+  )).filter(Boolean);
+}
+
+function currentStructuredConfigLabel(session) {
+  const options = session && Array.isArray(session.configOptions) ? session.configOptions : [];
+  const model = options.find((option) => option.type === 'select' && /(^|[\s_-])model([\s_-]|$)/i.test(`${option.id} ${option.name}`));
+  if (!model) return 'CONFIG';
+  const selected = structuredSelectOptions(model).find((option) => option.value === model.currentValue);
+  return selected && selected.name ? selected.name : model.currentValue || 'CONFIG';
+}
+
+function resetStructuredSessionControls() {
+  structuredSessionSnapshot = null;
+  structuredSessionControlsLoading = false;
+  structuredSessionControlsRevision = '';
+  structuredComposerMenu = '';
+  const menu = document.getElementById('crt-structured-composer-menu');
+  const commandButton = document.getElementById('crt-structured-command');
+  const modeButton = document.getElementById('crt-structured-mode');
+  const configButton = document.getElementById('crt-structured-config');
+  const usage = document.getElementById('crt-structured-composer-usage');
+  if (menu) {
+    menu.hidden = true;
+    menu.replaceChildren();
+  }
+  if (commandButton) commandButton.hidden = true;
+  if (modeButton) modeButton.hidden = true;
+  if (configButton) configButton.hidden = true;
+  if (usage) usage.textContent = '';
+}
+
+function setStructuredComposerMenu(menu) {
+  structuredComposerMenu = structuredComposerMenu === menu ? '' : menu;
+  renderStructuredSessionControls();
+}
+
+async function patchStructuredAcpSession(patch) {
+  if (!focusedAgentId) return;
+  const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(focusedAgentId)}/acp-session`), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch)
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(body && body.error ? body.error : `Failed to update ACP session (${response.status})`);
+  structuredComposerMenu = '';
+  await refreshStructuredSessionControls(focusedAgentId, true);
+}
+
+function structuredMenuButton(label, description, active, onClick) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `crt-structured-menu-item${active ? ' active' : ''}`;
+  const title = document.createElement('span');
+  title.textContent = label;
+  button.appendChild(title);
+  if (description) {
+    const detail = document.createElement('small');
+    detail.textContent = description;
+    button.appendChild(detail);
+  }
+  button.onclick = onClick;
+  return button;
+}
+
+function renderStructuredComposerMenu() {
+  const menu = document.getElementById('crt-structured-composer-menu');
+  if (!menu) return;
+  menu.replaceChildren();
+  const session = structuredSessionSnapshot;
+  if (!structuredComposerMenu || !session) {
+    menu.hidden = true;
+    return;
+  }
+
+  const title = document.createElement('div');
+  title.className = 'crt-structured-menu-title';
+  title.textContent = structuredComposerMenu === 'commands'
+    ? 'COMMAND DIRECTORY'
+    : structuredComposerMenu === 'mode' ? 'AGENT MODE' : 'SESSION CONFIG';
+  const items = document.createElement('div');
+  items.className = 'crt-structured-menu-items';
+
+  if (structuredComposerMenu === 'commands') {
+    const input = document.getElementById('crt-structured-input');
+    const commandMatch = String(input && input.value || '').match(/^\/([^\s]*)$/);
+    const query = commandMatch ? commandMatch[1].toLowerCase() : '';
+    (session.availableCommands || [])
+      .filter((command) => !query || String(command.name || '').toLowerCase().includes(query))
+      .slice(0, 12)
+      .forEach((command) => {
+        items.appendChild(structuredMenuButton(`/${command.name}`, command.description || (command.input && command.input.hint) || '', false, () => {
+          if (!input) return;
+          input.value = `/${command.name} `;
+          resizeStructuredComposerInput(input);
+          structuredComposerMenu = '';
+          renderStructuredSessionControls();
+          updateStructuredComposerState(state && state.agents.find((agent) => agent.id === focusedAgentId));
+          input.focus();
+        }));
+      });
+  } else if (structuredComposerMenu === 'mode') {
+    const modes = session.modes && Array.isArray(session.modes.availableModes) ? session.modes.availableModes : [];
+    const current = session.currentModeId || (session.modes && session.modes.currentModeId) || '';
+    modes.forEach((mode) => {
+      items.appendChild(structuredMenuButton(mode.name || mode.id, mode.description || '', mode.id === current, () => {
+        void patchStructuredAcpSession({ modeId: mode.id }).catch(showStructuredComposerError);
+      }));
+    });
+  } else {
+    (session.configOptions || []).forEach((option) => {
+      if (option.type === 'boolean') {
+        items.appendChild(structuredMenuButton(`[${option.currentValue ? '✓' : ' '}] ${option.name}`, option.description || '', false, () => {
+          void patchStructuredAcpSession({ configId: option.id, value: !option.currentValue }).catch(showStructuredComposerError);
+        }));
+        return;
+      }
+      structuredSelectOptions(option).forEach((candidate) => {
+        items.appendChild(structuredMenuButton(`${option.name}: ${candidate.name || candidate.value}`, candidate.description || '', candidate.value === option.currentValue, () => {
+          void patchStructuredAcpSession({ configId: option.id, value: candidate.value }).catch(showStructuredComposerError);
+        }));
+      });
+    });
+  }
+
+  menu.append(title, items);
+  menu.hidden = false;
+}
+
+function renderStructuredSessionControls() {
+  const session = structuredSessionSnapshot;
+  const commandButton = document.getElementById('crt-structured-command');
+  const modeButton = document.getElementById('crt-structured-mode');
+  const configButton = document.getElementById('crt-structured-config');
+  const usage = document.getElementById('crt-structured-composer-usage');
+  if (!commandButton || !modeButton || !configButton || !usage) return;
+  const commands = session && Array.isArray(session.availableCommands) ? session.availableCommands : [];
+  const modes = session && session.modes && Array.isArray(session.modes.availableModes) ? session.modes.availableModes : [];
+  const configs = session && Array.isArray(session.configOptions) ? session.configOptions : [];
+  commandButton.hidden = commands.length === 0;
+  modeButton.hidden = modes.length === 0;
+  configButton.hidden = configs.length === 0;
+  const currentMode = modes.find((mode) => mode.id === (session && (session.currentModeId || (session.modes && session.modes.currentModeId))));
+  modeButton.textContent = `[MODE ${currentMode ? currentMode.name : ''}]`;
+  configButton.textContent = `[${currentStructuredConfigLabel(session)}]`;
+  usage.textContent = formatStructuredUsage(session);
+  renderStructuredComposerMenu();
+}
+
+async function refreshStructuredSessionControls(agentId = focusedAgentId, force = false) {
+  if (!agentId || structuredSessionControlsLoading) return;
+  const agent = state && state.agents.find((candidate) => candidate.id === agentId);
+  if (!agent || agent.agentRuntimeMode !== 'acp') {
+    resetStructuredSessionControls();
+    return;
+  }
+  const revision = String(agent.acpSessionUpdatedAt || '');
+  if (!force && (
+    (revision && revision === structuredSessionControlsRevision)
+    || (!revision && structuredSessionSnapshot)
+  )) return;
+  structuredSessionControlsLoading = true;
+  try {
+    const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agentId)}/acp-session`));
+    const body = await response.json().catch(() => null);
+    if (!response.ok || !body || !body.session) {
+      throw new Error(body && body.error ? body.error : `Failed to read ACP session (${response.status})`);
+    }
+    structuredSessionSnapshot = body.session;
+    structuredSessionControlsRevision = revision || String(body.session.updatedAt || Date.now());
+    renderStructuredSessionControls();
+  } catch (error) {
+    showStructuredComposerError(error);
+  } finally {
+    structuredSessionControlsLoading = false;
+  }
+}
+
+function showStructuredComposerError(error) {
+  const status = document.getElementById('crt-structured-composer-status');
+  if (!status) return;
+  status.textContent = error && error.message ? error.message : String(error || 'Structured session error');
+  status.classList.add('error');
+}
+
+function resizeStructuredComposerInput(input) {
+  if (!input) return;
+  input.style.height = 'auto';
+  const maxHeight = Number.parseFloat(window.getComputedStyle(input).maxHeight) || 168;
+  const nextHeight = Math.min(input.scrollHeight, maxHeight);
+  input.style.height = `${nextHeight}px`;
+  input.style.overflowY = input.scrollHeight > maxHeight ? 'auto' : 'hidden';
+}
+
+function setStructuredComposerActive(active) {
+  const composer = document.getElementById('crt-structured-composer');
+  const input = document.getElementById('crt-structured-input');
+  const statusNode = document.getElementById('crt-structured-composer-status');
+  if (composer) composer.classList.toggle('active', active);
+  if (!active && input) {
+    input.value = '';
+    input.disabled = false;
+    resizeStructuredComposerInput(input);
+  }
+  if (!active) {
+    structuredComposerAttachments = [];
+    structuredComposerHistoryIndex = -1;
+    resetStructuredSessionControls();
+    renderStructuredComposerAttachments();
+    const notices = document.getElementById('crt-structured-composer-notices');
+    if (notices) notices.replaceChildren();
+  }
+  if (!active && statusNode) {
+    statusNode.textContent = '';
+    statusNode.classList.remove('error');
+  }
+}
+
+function updateStructuredComposerState(agent) {
+  const input = document.getElementById('crt-structured-input');
+  const sendButton = document.getElementById('crt-structured-send');
+  const statusNode = document.getElementById('crt-structured-composer-status');
+  if (!input || !sendButton || !statusNode) return;
+
+  const kind = structuredRuntimeKind(agent);
+  const runtimeStatus = structuredRuntimeStatus(agent);
+  const error = structuredRuntimeError(agent);
+  const action = structuredComposerAction(agent, input.value);
+  const busy = ['starting', 'interrupting'].includes(runtimeStatus);
+  input.disabled = !isCrtAgentInteractive(agent) || Boolean(error) || busy;
+  sendButton.disabled = action === 'disabled';
+  sendButton.dataset.action = action;
+  sendButton.textContent = action === 'interrupt'
+    ? 'Break [Esc]'
+    : action === 'steer' ? 'Steer [Enter]' : 'Send [Enter]';
+  input.placeholder = error
+    ? 'Session unavailable'
+    : (busy ? 'Agent is changing state...' : 'Type a message...');
+  statusNode.textContent = error || `${kind} ${String(runtimeStatus || 'idle').toUpperCase()}`;
+  statusNode.classList.toggle('error', Boolean(error));
+  renderStructuredPermissions(agent);
+  if (agent && agent.agentRuntimeMode === 'acp') void refreshStructuredSessionControls(agent.id);
+}
+
+function structuredAttachmentId(file) {
+  return `crt-${Date.now()}-${String(file && file.name || 'attachment')}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function structuredAttachmentBlock(current, block) {
+  const text = String(current || '').trimEnd();
+  const next = String(block || '').trimEnd();
+  if (!next) return text;
+  return `${text}${text ? '\n\n' : ''}${next}`;
+}
+
+function renderStructuredComposerAttachments() {
+  const container = document.getElementById('crt-structured-attachments');
+  if (!container) return;
+  container.replaceChildren();
+  structuredComposerAttachments.forEach((attachment) => {
+    const row = document.createElement('div');
+    row.className = 'crt-structured-attachment';
+    const stateLabel = attachment.status === 'uploading'
+      ? 'LOADING'
+      : attachment.status === 'error' ? 'ERROR' : 'READY';
+    const label = document.createElement('span');
+    label.textContent = `[${stateLabel}] ${attachment.name}`;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '[REMOVE]';
+    remove.setAttribute('aria-label', `Remove ${attachment.name}`);
+    remove.onclick = () => {
+      structuredComposerAttachments = structuredComposerAttachments.filter((item) => item.id !== attachment.id);
+      renderStructuredComposerAttachments();
+      updateStructuredComposerState(state && state.agents.find((agent) => agent.id === focusedAgentId));
+    };
+    row.append(label, remove);
+    container.appendChild(row);
+  });
+}
+
+function readStructuredTextFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new window.FileReader();
+    reader.onerror = () => reject(reader.error || new Error('File read failed'));
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.readAsText(file);
+  });
+}
+
+async function prepareStructuredAttachment(file) {
+  const attachment = {
+    id: structuredAttachmentId(file),
+    name: file.name || 'attachment',
+    status: 'uploading',
+    messageBlock: ''
+  };
+  structuredComposerAttachments.push(attachment);
+  renderStructuredComposerAttachments();
+  try {
+    if (String(file.type || '').startsWith('image/')) {
+      const response = await fetch(farmingApiPath('/attachments/image'), {
+        method: 'POST',
+        headers: { 'Content-Type': file.type || 'image/png' },
+        body: file
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body || !body.path) throw new Error(`Image upload failed (${response.status})`);
+      attachment.messageBlock = `Attached image: ${body.name || attachment.name}\n\nImage path: ${body.path}`;
+    } else {
+      const content = await readStructuredTextFile(file);
+      const limit = 50000;
+      const truncated = content.length > limit;
+      attachment.messageBlock = `Attached file: ${attachment.name}\n\n${content.slice(0, limit)}${truncated ? `\n\n[File truncated after ${limit} characters]` : ''}`;
+    }
+    attachment.status = 'ready';
+  } catch (error) {
+    attachment.status = 'error';
+    attachment.messageBlock = '';
+    attachment.error = error && error.message ? error.message : 'Attachment failed';
+    showStructuredComposerError(error);
+  }
+  renderStructuredComposerAttachments();
+  updateStructuredComposerState(state && state.agents.find((agent) => agent.id === focusedAgentId));
+}
+
+function addStructuredAttachmentFiles(files) {
+  Array.from(files || []).forEach((file) => void prepareStructuredAttachment(file));
+}
+
+function structuredComposerMessage(draft) {
+  return structuredComposerAttachments
+    .filter((attachment) => attachment.status === 'ready' && attachment.messageBlock)
+    .reduce((message, attachment) => structuredAttachmentBlock(message, attachment.messageBlock), String(draft || ''))
+    .trim();
+}
+
+function structuredComposerHistoryFor(agentId) {
+  if (!agentId) return [];
+  return structuredComposerHistory.get(agentId) || [];
+}
+
+function addStructuredComposerHistory(agentId, value) {
+  const draft = String(value || '').trim();
+  if (!agentId || !draft) return;
+  const history = structuredComposerHistoryFor(agentId).filter((entry) => entry !== draft);
+  history.push(draft);
+  structuredComposerHistory.set(agentId, history.slice(-50));
+  structuredComposerHistoryIndex = -1;
+}
+
+function navigateStructuredComposerHistory(input, direction) {
+  const history = structuredComposerHistoryFor(focusedAgentId);
+  if (!history.length) return false;
+  const atStart = input.selectionStart === 0 && input.selectionEnd === 0;
+  const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
+  if ((direction < 0 && !atStart) || (direction > 0 && !atEnd)) return false;
+  if (direction < 0) {
+    structuredComposerHistoryIndex = structuredComposerHistoryIndex < 0
+      ? history.length - 1
+      : Math.max(0, structuredComposerHistoryIndex - 1);
+  } else if (structuredComposerHistoryIndex >= 0) {
+    structuredComposerHistoryIndex += 1;
+    if (structuredComposerHistoryIndex >= history.length) structuredComposerHistoryIndex = -1;
+  } else {
+    return false;
+  }
+  input.value = structuredComposerHistoryIndex < 0 ? '' : history[structuredComposerHistoryIndex];
+  resizeStructuredComposerInput(input);
+  const cursor = input.value.length;
+  input.setSelectionRange(cursor, cursor);
+  return true;
+}
+
+function renderStructuredPermissions(agent) {
+  const container = document.getElementById('crt-structured-composer-notices');
+  if (!container) return;
+  container.replaceChildren();
+  if (!agent || agent.agentRuntimeMode !== 'acp') return;
+  const requests = Array.isArray(agent.acpPendingPermissions) && agent.acpPendingPermissions.length
+    ? agent.acpPendingPermissions
+    : (agent.acpPendingPermission ? [agent.acpPendingPermission] : []);
+  requests.forEach((request) => {
+    const panel = document.createElement('section');
+    panel.className = 'crt-structured-permission';
+    const title = document.createElement('div');
+    title.className = 'crt-structured-permission-title';
+    title.textContent = `PERMISSION REQUEST / ${request.toolCall && request.toolCall.kind || 'TOOL'}`;
+    const description = document.createElement('p');
+    description.textContent = request.toolCall && request.toolCall.title || 'Agent requests permission to continue.';
+    const actions = document.createElement('div');
+    actions.className = 'crt-structured-permission-actions';
+    (request.options || []).forEach((option) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = `[${option.name}]`;
+      button.onclick = () => void respondToStructuredPermission(request.requestId, option.optionId, false);
+      actions.appendChild(button);
+    });
+    const decline = document.createElement('button');
+    decline.type = 'button';
+    decline.textContent = '[DECLINE]';
+    decline.onclick = () => void respondToStructuredPermission(request.requestId, undefined, true);
+    actions.appendChild(decline);
+    panel.append(title, description, actions);
+    container.appendChild(panel);
+  });
+}
+
+async function respondToStructuredPermission(requestId, optionId, cancelled) {
+  if (!focusedAgentId) return;
+  const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(focusedAgentId)}/acp-permission`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requestId, optionId, cancelled: cancelled === true })
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    showStructuredComposerError(new Error(body && body.error ? body.error : `Permission response failed (${response.status})`));
+  }
+}
+
+function renderStructuredTranscript(transcript, force = false) {
+  const container = document.getElementById('terminal-output');
+  if (!container) return;
+  const updatedAt = String(transcript && transcript.updatedAt || '');
+  if (!force && updatedAt && updatedAt === structuredSessionRenderedAt) return;
+  const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+  const transcriptNode = document.createElement('div');
+  transcriptNode.className = 'crt-structured-transcript';
+  const turns = transcript && Array.isArray(transcript.turns) ? transcript.turns : [];
+
+  if (!turns.length) {
+    const empty = document.createElement('div');
+    empty.className = 'crt-structured-empty';
+    empty.textContent = 'No conversation yet.';
+    transcriptNode.appendChild(empty);
+  } else {
+    turns.forEach((turn) => {
+      const section = document.createElement('section');
+      section.className = 'crt-structured-turn';
+      if (turn.userMessage) {
+        const user = document.createElement('p');
+        user.className = 'crt-structured-message user';
+        user.textContent = turn.userMessage;
+        section.appendChild(user);
+      }
+      if (turn.finalMessage) {
+        const assistant = document.createElement('p');
+        assistant.className = 'crt-structured-message assistant';
+        assistant.textContent = turn.finalMessage;
+        section.appendChild(assistant);
+      }
+      transcriptNode.appendChild(section);
+    });
+  }
+
+  container.replaceChildren(transcriptNode);
+  structuredSessionRenderedAt = updatedAt;
+  if (force || nearBottom) container.scrollTop = container.scrollHeight;
+}
+
+async function refreshStructuredSession(agentId = focusedAgentId, force = false) {
+  if (!agentId || structuredSessionLoading) return;
+  const agent = state && state.agents.find((candidate) => candidate.id === agentId);
+  if (!agent || !isStructuredRuntimeAgent(agent)) return;
+  structuredSessionLoading = true;
+  try {
+    const endpoint = structuredTranscriptEndpoint(agent);
+    const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agentId)}/${endpoint}?maxTurns=80`));
+    const body = await response.json().catch(() => null);
+    if (!response.ok || !body || !body.transcript) {
+      throw new Error(body && body.error ? body.error : `Failed to read conversation (${response.status})`);
+    }
+    renderStructuredTranscript(body.transcript, force);
+    updateStructuredComposerState(agent);
+  } catch (error) {
+    const container = document.getElementById('terminal-output');
+    if (container && !container.querySelector('.crt-structured-transcript')) {
+      const message = document.createElement('div');
+      message.className = 'crt-structured-error';
+      message.textContent = error && error.message ? error.message : 'Failed to read conversation';
+      container.replaceChildren(message);
+    }
+    updateStructuredComposerState(agent);
+  } finally {
+    structuredSessionLoading = false;
+  }
+}
+
+function stopStructuredSessionPolling() {
+  if (structuredSessionPoller) {
+    clearInterval(structuredSessionPoller);
+    structuredSessionPoller = null;
+  }
+  structuredSessionLoading = false;
+  structuredSessionRenderedAt = '';
+}
+
+function startStructuredSessionPolling(agentId) {
+  stopStructuredSessionPolling();
+  structuredSessionPoller = setInterval(() => {
+    if (focusedAgentId === agentId) void refreshStructuredSession(agentId);
+  }, 1000);
+}
+
+function setupStructuredSessionComposer() {
+  const composer = document.getElementById('crt-structured-composer');
+  const input = document.getElementById('crt-structured-input');
+  const fileInput = document.getElementById('crt-structured-file-input');
+  const attachButton = document.getElementById('crt-structured-attach');
+  const commandButton = document.getElementById('crt-structured-command');
+  const modeButton = document.getElementById('crt-structured-mode');
+  const configButton = document.getElementById('crt-structured-config');
+  if (!composer || !input || composer.dataset.bound === 'true') return;
+  composer.dataset.bound = 'true';
+  input.addEventListener('input', () => {
+    resizeStructuredComposerInput(input);
+    structuredComposerHistoryIndex = -1;
+    const commandMatch = input.value.match(/^\/([^\s]*)$/);
+    if (commandMatch && structuredSessionSnapshot && (structuredSessionSnapshot.availableCommands || []).length) {
+      structuredComposerMenu = 'commands';
+      renderStructuredSessionControls();
+    } else if (structuredComposerMenu === 'commands') {
+      structuredComposerMenu = '';
+      renderStructuredSessionControls();
+    }
+    const agent = state && state.agents.find((candidate) => candidate.id === focusedAgentId);
+    updateStructuredComposerState(agent);
+  });
+  input.addEventListener('paste', (event) => {
+    const imageFiles = Array.from(event.clipboardData && event.clipboardData.files || [])
+      .filter((file) => String(file.type || '').startsWith('image/'));
+    if (!imageFiles.length) return;
+    event.preventDefault();
+    addStructuredAttachmentFiles(imageFiles);
+  });
+  input.addEventListener('compositionend', () => {
+    structuredComposerCompositionEndAt = Date.now();
+  });
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      const agent = state && state.agents.find((candidate) => candidate.id === focusedAgentId);
+      if (structuredComposerAction(agent, input.value) === 'interrupt') {
+        event.preventDefault();
+        getSessionClient()?.interruptAgent(focusedAgentId);
+        return;
+      }
+      if (structuredComposerMenu) {
+        event.preventDefault();
+        structuredComposerMenu = '';
+        renderStructuredSessionControls();
+        return;
+      }
+    }
+    if (event.key === 'ArrowUp' && navigateStructuredComposerHistory(input, -1)) {
+      event.preventDefault();
+      return;
+    }
+    if (event.key === 'ArrowDown' && navigateStructuredComposerHistory(input, 1)) {
+      event.preventDefault();
+      return;
+    }
+    if (
+      event.key === 'Enter'
+      && !event.shiftKey
+      && !event.isComposing
+      && Date.now() - structuredComposerCompositionEndAt > 80
+    ) {
+      event.preventDefault();
+      composer.requestSubmit();
+    }
+  });
+  if (attachButton && fileInput) attachButton.addEventListener('click', () => fileInput.click());
+  if (fileInput) fileInput.addEventListener('change', () => {
+    addStructuredAttachmentFiles(fileInput.files);
+    fileInput.value = '';
+  });
+  if (commandButton) commandButton.addEventListener('click', () => setStructuredComposerMenu('commands'));
+  if (modeButton) modeButton.addEventListener('click', () => setStructuredComposerMenu('mode'));
+  if (configButton) configButton.addEventListener('click', () => setStructuredComposerMenu('config'));
+  composer.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const agent = state && state.agents.find((candidate) => candidate.id === focusedAgentId);
+    const action = structuredComposerAction(agent, input.value);
+    if (!agent || action === 'disabled') return;
+    if (action === 'interrupt') {
+      const interrupted = getSessionClient()?.interruptAgent(focusedAgentId);
+      if (!interrupted) showStructuredComposerError(new Error('Connection unavailable'));
+      return;
+    }
+    const draft = input.value;
+    const message = structuredComposerMessage(draft);
+    if (!message) return;
+    const sent = getSessionClient()?.sendComposerMessage(focusedAgentId, message);
+    const statusNode = document.getElementById('crt-structured-composer-status');
+    if (!sent) {
+      if (statusNode) {
+        statusNode.textContent = 'Connection unavailable';
+        statusNode.classList.add('error');
+      }
+      return;
+    }
+    addStructuredComposerHistory(focusedAgentId, draft);
+    input.value = '';
+    structuredComposerAttachments = [];
+    renderStructuredComposerAttachments();
+    resizeStructuredComposerInput(input);
+    if (statusNode) {
+      statusNode.textContent = action === 'steer' ? 'STEERING...' : 'SENDING...';
+      statusNode.classList.remove('error');
+    }
+    updateStructuredComposerState(agent);
+    setTimeout(() => void refreshStructuredSession(focusedAgentId, true), 160);
+  });
+}
+
+async function openStructuredSession(agent, sessionToken) {
+  const runtime = getSessionRuntime();
+  const container = document.getElementById('terminal-output');
+  if (!container) return;
+  container.classList.add('crt-structured-session');
+  setStructuredComposerActive(true);
+  setupStructuredSessionComposer();
+  updateStructuredComposerState(agent);
+  await refreshStructuredSessionControls(agent.id, true);
+  await refreshStructuredSession(agent.id, true);
+  if (runtime && !runtime.isCurrentSession(agent.id, sessionToken)) return;
+  startStructuredSessionPolling(agent.id);
+  const input = document.getElementById('crt-structured-input');
+  if (input) {
+    resizeStructuredComposerInput(input);
+    if (!input.disabled) input.focus();
+  }
+}
+
 function teardownSessionSurface() {
   stopSessionViewPolling();
+  stopStructuredSessionPolling();
   disposeTerminal();
   destroyTerminalInputBridge();
+  setStructuredComposerActive(false);
+  document.getElementById('terminal-output')?.classList.remove('crt-structured-session');
   if (SESSION_MODAL_BRIDGE && SESSION_MODAL_BRIDGE.resetTerminalShell) {
     SESSION_MODAL_BRIDGE.resetTerminalShell(document);
     return;
@@ -3623,6 +4429,7 @@ function teardownSessionSurface() {
 
   const domState = getSessionModalDomState(document);
   if (domState.terminalContainer) {
+    domState.terminalContainer.classList.remove('crt-structured-session');
     domState.terminalContainer.innerHTML = '';
     domState.terminalContainer.textContent = '';
   }
@@ -3655,6 +4462,7 @@ async function openSession(agentId) {
     syncSessionRuntimeState();
   }
   updateSessionTitleDisplay(modalState.title);
+  updateCrtRuntimeSwitchControl(agent);
   
   // 更新吊顶的"当前关注地域"
   const focusRegion = document.getElementById('focus-region');
@@ -3679,10 +4487,21 @@ async function openSession(agentId) {
       ? SESSION_MODAL_BRIDGE.openShell(document, modalState)
       : getSessionModalDomState(document));
   const terminalContainer = domState.terminalContainer;
+
+  if (isStructuredRuntimeAgent(agent)) {
+    disposeTerminal();
+    await openStructuredSession(agent, sessionToken);
+    return;
+  }
+
+  const interactiveTerminal = isCrtAgentInteractive(agent);
+  if (!interactiveTerminal) {
+    updateSessionTitleDisplay(`${modalState.title} [READ ONLY]`);
+  }
   
   let terminalBundle;
   try {
-    terminalBundle = await createTerminalInstance();
+    terminalBundle = await createTerminalInstance({ disableStdin: !interactiveTerminal });
   } catch (error) {
     showCrtWebglFailure(error);
     return;
@@ -3710,6 +4529,7 @@ async function openSession(agentId) {
           : '',
         onData: (data) => {
           if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) return;
+          if (!interactiveTerminal) return;
           sendTerminalInput(data);
         },
         onResize: (cols, rows) => {
@@ -3768,6 +4588,7 @@ async function openSession(agentId) {
     terminal.loadAddon(fitAddon);
     terminal.onData((data) => {
       if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) return;
+      if (!interactiveTerminal) return;
       sendTerminalInput(data);
     });
     terminal.onResize(({ cols, rows }) => {
@@ -3824,7 +4645,6 @@ async function openSession(agentId) {
       }
       refreshSessionTerminalUi();
     }
-    startCrtSessionEffects();
   } catch (error) {
     showCrtWebglFailure(error);
   }
@@ -3836,6 +4656,7 @@ async function openSession(agentId) {
 }
 
 function closeSession() {
+  resetCrtRuntimeSwitchState();
   const runtime = getSessionRuntime();
   if (runtime) {
     runtime.close(document);
@@ -3997,6 +4818,16 @@ if (typeof document !== 'undefined') {
     syncTerminalInputBridgePosition();
     sendSessionResize();
   });
+
+  document.addEventListener('keydown', (event) => {
+    const sessionActive = document.getElementById('session-modal').classList.contains('active');
+    if (!sessionActive || !isCrtRuntimeSwitchShortcut(event)) return;
+    const agent = state && state.agents.find((candidate) => candidate.id === focusedAgentId);
+    if (!canSwitchCrtAgentRuntime(agent)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    toggleCrtSessionRuntimeMode();
+  }, true);
 
   document.addEventListener('keydown', (e) => {
     const dialogActive = document.getElementById('input-dialog').classList.contains('active');
@@ -4169,6 +5000,15 @@ if (typeof document !== 'undefined') {
     }
     
     if (sessionActive) {
+      const structuredInput = document.getElementById('crt-structured-input');
+      const structuredInputFocused = structuredInput && document.activeElement === structuredInput;
+      if (structuredInputFocused) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Escape') {
+          closeSession();
+          e.preventDefault();
+        }
+        return;
+      }
       if (isCopyShortcut(e)) {
         if (hasAnySelection()) {
           e.preventDefault();
@@ -4261,6 +5101,10 @@ if (typeof document !== 'undefined') {
       return;
     }
 
+    if (e.target && e.target.closest && e.target.closest('#crt-structured-composer')) {
+      return;
+    }
+
     const text = getTerminalSelectionText() || getDocumentSelectionText();
     if (!text) {
       return;
@@ -4274,6 +5118,10 @@ if (typeof document !== 'undefined') {
   document.addEventListener('paste', (e) => {
     const sessionActive = document.getElementById('session-modal').classList.contains('active');
     if (!sessionActive) {
+      return;
+    }
+
+    if (e.target && e.target.closest && e.target.closest('#crt-structured-composer')) {
       return;
     }
 
@@ -4324,6 +5172,9 @@ if (typeof module !== 'undefined' && module.exports) {
     getCrtTerminalFontSize,
     isCrtAgentWorking,
     getCrtAgentReadPatch,
+    crtRuntimeView,
+    canSwitchCrtAgentRuntime,
+    isCrtRuntimeSwitchShortcut,
     getCrtBrandPaneKey,
     extractSessionLinks,
     formatSelectionStatus,

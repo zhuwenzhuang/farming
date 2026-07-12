@@ -52,7 +52,7 @@ async function run() {
   });
   assert.strictEqual(webglResult.kind, 'xterm-webgl');
   assert(webglResult.webglAddon instanceof WebglAddonStub);
-  assert.strictEqual(webglResult.webglAddon.preserveDrawingBuffer, true);
+  assert.strictEqual(webglResult.webglAddon.preserveDrawingBuffer, undefined);
   assert.strictEqual(webglResult.webglAddon.contextLossListener, contextLoss);
   assert(webglResult.terminal.addons.includes(webglResult.webglAddon));
 

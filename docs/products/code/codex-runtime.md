@@ -33,6 +33,7 @@ flowchart LR
 - The configured Agent Home remains the selected identity/configuration source; the runtime home keeps generated socket/session/log state separate and uses a short path that fits Unix socket limits.
 - Farming starts `codex app-server --listen unix://` with the Agent’s dedicated runtime environment and waits for its `initialize` response.
 - Farming records the selected runtime mode, runtime-home path, app-server state, thread id, and current turn id in live and persisted Agent metadata. The provider session id is the Codex thread id in App Server mode.
+- If a persisted App Server thread can no longer be recovered, Chat shows an explicit unavailable state instead of an empty pane. Switching that Agent to Terminal performs a real CLI restart even though its legacy `agentRuntimeMode` metadata may already say `terminal`.
 - Killing an Agent terminates its dedicated app-server process. Farming server restart preserves a healthy dedicated server so the recovered Agent can reconnect.
 
 The native PTY host owns CLI mode only. App Server mode is independent of PTY lifecycle, terminal output, terminal focus, and rollout JSONL polling.

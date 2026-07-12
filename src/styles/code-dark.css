@@ -578,20 +578,15 @@ body.code-mode[data-appearance='dark'] .code-product-mark:focus-visible {
 }
 
 body.code-mode[data-appearance='dark'] .code-product-mark-badge {
-  background: rgba(22, 27, 34, 0.72);
-  border-color: var(--code-dark-border);
-  color: #d8c978;
+  background: transparent;
+  border-color: transparent;
+  color: var(--code-dark-text-muted);
 }
 
 body.code-mode[data-appearance='dark'] .code-product-mark:hover .code-product-mark-badge,
 body.code-mode[data-appearance='dark'] .code-product-mark:focus-visible .code-product-mark-badge {
-  background: var(--code-dark-bg-hover);
-  border-color: rgba(88, 166, 255, 0.24);
-}
-
-body.code-mode[data-appearance='dark'] .code-product-mark-collapsed {
-  background: rgba(22, 27, 34, 0.72);
-  border-color: var(--code-dark-border);
+  background: transparent;
+  border-color: transparent;
   color: var(--code-dark-text-soft);
 }
 
@@ -705,6 +700,33 @@ body.code-mode[data-appearance='dark'] .code-mobile-install-step {
 body.code-mode[data-appearance='dark'] .code-mobile-install-control {
   background: rgba(240, 246, 252, 0.09);
   color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-brand-backdrop {
+  background: rgba(1, 4, 9, 0.58);
+}
+
+body.code-mode[data-appearance='dark'] .code-brand-dialog {
+  border-color: var(--code-dark-border);
+  background: rgba(22, 27, 34, 0.98);
+  color: var(--code-dark-text);
+  box-shadow: 0 24px 68px rgba(1, 4, 9, 0.52);
+}
+
+body.code-mode[data-appearance='dark'] .code-brand-close,
+body.code-mode[data-appearance='dark'] .code-brand-heading span,
+body.code-mode[data-appearance='dark'] .code-brand-story {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-brand-close:hover,
+body.code-mode[data-appearance='dark'] .code-brand-close:focus-visible {
+  background: var(--code-dark-bg-hover);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-brand-github {
+  color: #8cbcff;
 }
 
 body.code-mode[data-appearance='dark'].code-mobile-touch .code-options-menu,

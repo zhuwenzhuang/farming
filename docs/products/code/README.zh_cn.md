@@ -24,7 +24,7 @@ Farming 2 运行在一台 Linux 开发机上，把 Web Terminal、AI coding agen
 - **手机浏览器访问**：离开电脑后，也可以在手机上查看 agent 状态、打开终端、启动新 agent 或做轻量介入。
 - **可选 Main Agent**：当你需要一个 agent 去启动、观察、推进和总结其他 agent 时，可以使用 Main Agent。
 
-后端还提供实验性的 [ACP runtime](acp-runtime.zh_cn.md)，用于 Codex、Claude Code 和 OpenCode 的结构化 Session。Chat UI 对历史加载和实时更新消费同一条有序 ACP entry stream，Terminal 则继续保持为隔离的 PTY runtime。
+后端还提供实验性的 [ACP runtime](acp-runtime.zh_cn.md)，用于 Codex、Claude Code、OpenCode 和 Qoder 的结构化 Session。Chat UI 对历史加载和实时更新消费同一条有序 ACP entry stream，Terminal 则继续保持为隔离的 PTY runtime。
 
 ## Agent 状态推断
 

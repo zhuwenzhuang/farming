@@ -49,13 +49,13 @@ async function createControlAgent(page: Page, command: string, workspace: string
   return data.agentId as string
 }
 
-async function expectDogfoodBadgeRing(productMark: Locator, mode: 'light' | 'dark') {
+async function expectCompactVersionLabel(productMark: Locator, mode: 'light' | 'dark') {
   const productMarkBadge = productMark.locator('.code-product-mark-badge')
   await expect(productMark).toHaveCSS('border-top-width', '0px')
-  await expect(productMarkBadge).toHaveCSS('border-top-style', 'solid')
-  await expect(productMarkBadge).not.toHaveCSS('border-top-width', '0px')
+  await expect(productMarkBadge).toHaveCSS('border-top-width', '0px')
   const metrics = await productMark.evaluate(element => {
-    const main = element.querySelector('.code-product-mark-main') as HTMLElement | null
+    const main = Array.from(element.querySelectorAll<HTMLElement>('.code-product-mark-main'))
+      .find(candidate => getComputedStyle(candidate).display !== 'none') ?? null
     const badge = element.querySelector('.code-product-mark-badge') as HTMLElement | null
     if (!main || !badge) {
       return null
@@ -78,19 +78,18 @@ async function expectDogfoodBadgeRing(productMark: Locator, mode: 'light' | 'dar
     throw new Error(`Product mark metrics are missing in ${mode} mode`)
   }
   expect(metrics.markBackground, `${mode} product mark should not draw the outer ring`).toBe('rgba(0, 0, 0, 0)')
-  expect(metrics.badgeBackground, `${mode} badge ring should have its own background`).not.toBe('rgba(0, 0, 0, 0)')
-  expect(metrics.badgeBorderRadius, `${mode} badge ring should be rounded`).toBeGreaterThanOrEqual(10)
-  expect(metrics.badgeHeight, `${mode} badge ring should stay compact`).toBeGreaterThanOrEqual(18)
-  expect(metrics.badgeHeight, `${mode} badge ring should stay compact`).toBeLessThanOrEqual(28)
-  expect(metrics.badgeDisplay, `${mode} badge ring should be visible`).not.toBe('none')
-  expect(metrics.badgeX, `${mode} badge ring should sit to the right of the title`).toBeGreaterThan(metrics.mainRight - 1)
+  expect(metrics.badgeBackground, `${mode} version should stay borderless`).toBe('rgba(0, 0, 0, 0)')
+  expect(metrics.badgeBorderRadius, `${mode} version should not use a pill`).toBe(0)
+  expect(metrics.badgeHeight, `${mode} version should stay compact`).toBeLessThanOrEqual(16)
+  expect(metrics.badgeDisplay, `${mode} version should be visible`).not.toBe('none')
+  expect(metrics.badgeX, `${mode} version should sit to the right of the title`).toBeGreaterThan(metrics.mainRight - 1)
 }
 
 async function expectCollapsedProductMarkIsIconOnly(productMark: Locator) {
   const metrics = await productMark.evaluate(element => {
     const main = element.querySelector('.code-product-mark-main') as HTMLElement | null
     const badge = element.querySelector('.code-product-mark-badge') as HTMLElement | null
-    const collapsed = element.querySelector('.code-product-mark-collapsed') as HTMLElement | null
+    const logo = element.querySelector('.code-product-logo') as HTMLElement | null
     const markStyle = getComputedStyle(element)
     const rect = element.getBoundingClientRect()
     return {
@@ -99,7 +98,8 @@ async function expectCollapsedProductMarkIsIconOnly(productMark: Locator) {
       markBackground: markStyle.backgroundColor,
       mainDisplay: main ? getComputedStyle(main).display : null,
       badgeDisplay: badge ? getComputedStyle(badge).display : null,
-      collapsedDisplay: collapsed ? getComputedStyle(collapsed).display : null,
+      logoDisplay: logo ? getComputedStyle(logo).display : null,
+      logoWidth: logo?.getBoundingClientRect().width ?? 0,
     }
   })
   expect(metrics.width).toBeLessThanOrEqual(56)
@@ -107,7 +107,8 @@ async function expectCollapsedProductMarkIsIconOnly(productMark: Locator) {
   expect(metrics.markBackground).toBe('rgba(0, 0, 0, 0)')
   expect(metrics.mainDisplay).toBe('none')
   expect(metrics.badgeDisplay).toBe('none')
-  expect(metrics.collapsedDisplay).not.toBe('none')
+  expect(metrics.logoDisplay).not.toBe('none')
+  expect(metrics.logoWidth).toBeGreaterThanOrEqual(24)
 }
 
 async function mockCodexSessions(page: Page, sessions: MockAgentSession[] = []) {
@@ -150,41 +151,21 @@ function formatWorkspaceForVisibleText(workspace: string) {
 }
 
 test.describe('display-backed agent flows', () => {
-  test('shows compact dogfood source version without raw git suffixes', async ({ page }) => {
+  test('shows a compact product version without raw git suffixes', async ({ page }) => {
     await mockCodexSessions(page)
-    await page.route('**/farming/api/update', async route => {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          update: {
-            current: {
-              releaseVersion: '2.0.6',
-              packageVersion: '2.0.6',
-            },
-            latest: {
-              version: '2.0.5',
-              assetName: 'farming-2.0.5.tar.gz',
-            },
-            available: false,
-            installable: true,
-            blockingAgents: [],
-            state: { phase: 'idle' },
-          },
-        }),
-      })
-    })
 
     await openFarming(page)
     const productMark = page.getByTestId('code-product-mark')
     await expect(productMark).toContainText('Farming Code')
-    await expect(productMark).toContainText('DOGFOOD BETA · v2.0.6')
+    await expect(productMark).toContainText('v2.2.6')
+    await expect(productMark).not.toContainText('DOGFOOD')
     await expect(productMark).not.toContainText('g25c4faf4')
     await expect(productMark).not.toContainText('dirty')
-    await expect(productMark).toHaveAttribute('title', 'Check for updates')
+    await expect(productMark).toHaveAttribute('title', 'Farming Code')
     await expect(productMark).not.toContainText('UPGRADE')
     await expect(productMark).not.toHaveClass(/upgrade/)
-    await expectDogfoodBadgeRing(productMark, 'light')
-    const productMarkMainBox = await productMark.locator('.code-product-mark-main').first().boundingBox()
+    await expectCompactVersionLabel(productMark, 'light')
+    const productMarkMainBox = await productMark.locator('.code-product-mark-main:visible').boundingBox()
     const productMarkMetaBox = await productMark.locator('.code-product-mark-badge').boundingBox()
     if (!productMarkMainBox || !productMarkMetaBox) {
       throw new Error('Product mark layout boxes are missing')
@@ -195,11 +176,19 @@ test.describe('display-backed agent flows', () => {
     expect(productMarkMetaBox.x).toBeGreaterThan(productMarkMainBox.x + productMarkMainBox.width - 1)
 
     await productMark.click()
-    await expect(productMark).not.toContainText('UPGRADE')
-    await page.getByTestId('code-sidebar-options').click()
-    await page.getByTestId('code-options-menu').getByRole('menuitemradio', { name: 'Appearance: Dark' }).click()
+    const brandDialog = page.getByTestId('code-brand-dialog')
+    await expect(brandDialog).toBeVisible()
+    await expect(brandDialog.getByRole('heading', { name: 'Farming Code' })).toBeVisible()
+    await expect(brandDialog).toContainText('v2.2.6')
+    await expect(brandDialog).toContainText('Farming Code began with a simple idea')
+    await expect(brandDialog.getByRole('link', { name: 'GitHub' })).toHaveAttribute('href', 'https://github.com/zhuwenzhuang/farming')
+    await expect(brandDialog).not.toContainText('https://github.com/zhuwenzhuang/farming')
+    await page.evaluate(() => document.body.setAttribute('data-appearance', 'dark'))
     await expect(page.locator('body')).toHaveAttribute('data-appearance', 'dark')
-    await expectDogfoodBadgeRing(productMark, 'dark')
+    await expect(brandDialog.locator('.code-brand-dialog')).toHaveCSS('color', 'rgb(230, 237, 243)')
+    await brandDialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(brandDialog).toHaveCount(0)
+    await expectCompactVersionLabel(productMark, 'dark')
     await page.getByTestId('code-sidebar-toggle').click()
     await expect(page.getByTestId('code-sidebar')).toHaveClass(/collapsed/)
     await expectCollapsedProductMarkIsIconOnly(productMark)

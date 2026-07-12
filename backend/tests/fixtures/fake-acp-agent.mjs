@@ -27,6 +27,27 @@ class FakeAgent {
 
   async loadSession(params) {
     sessionId = params.sessionId;
+    if (sessionId === 'delayed-history-session') {
+      await client.sessionUpdate({
+        sessionId,
+        update: {
+          sessionUpdate: 'user_message_chunk',
+          messageId: 'delayed-history-user',
+          content: { type: 'text', text: 'delayed historical question' },
+        },
+      });
+      setTimeout(() => {
+        void client.sessionUpdate({
+          sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            messageId: 'delayed-history-answer',
+            content: { type: 'text', text: 'delayed historical answer' },
+          },
+        });
+      }, 120);
+      return {};
+    }
     await client.sessionUpdate({
       sessionId,
       update: {

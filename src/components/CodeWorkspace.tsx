@@ -825,6 +825,9 @@ export function CodeWorkspace({
     : activeAgentCanInterrupt
       ? 'interrupt'
       : 'disabled'
+  const acpComposerSubmitAction = activeAgent?.agentRuntimeMode === 'acp' && activeAgentTurnActive
+    ? (activeAgentCanInterrupt ? 'interrupt' : 'disabled')
+    : composerSubmitAction
   const updateActiveComposerState = useCallback((updater: (state: AgentComposerState) => AgentComposerState) => {
     if (!activeComposerKey) return
     updateComposerStateForKey(activeComposerKey, updater)
@@ -1412,11 +1415,12 @@ export function CodeWorkspace({
       agent: activeAgent,
       composerKey: activeComposerKey,
       draft: latestDraft,
+      attachments: composerAttachments,
       sendMessage: sendComposerMessageToAgent,
       updateComposerState: updateComposerStateForKey,
     })
     if (submitted) focusComposerTextarea()
-  }, [activeAgent, activeComposerKey, draft, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
+  }, [activeAgent, activeComposerKey, composerAttachments, draft, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
 
   const interruptActiveAgent = useCallback(() => {
     if (!activeAgent || !activeAgentCanInterrupt) return
@@ -4302,16 +4306,26 @@ export function CodeWorkspace({
           runtimeState: activeAgent?.acpState || '',
           runtimeError: activeAgent?.acpError || '',
           draft,
-          submitAction: composerSubmitAction,
+          attachments: composerAttachments,
+          submitAction: acpComposerSubmitAction,
           textareaRef: composerTextareaRef,
+          attachmentInputRef,
           permissions: activeAgent?.acpPendingPermissions?.length
             ? activeAgent.acpPendingPermissions
             : activeAgent?.acpPendingPermission
               ? [activeAgent.acpPendingPermission]
               : [],
+          speechSupported,
+          speechListening,
           onDraftChange: handleDraftChange,
+          onNavigateHistory: navigateActiveComposerHistory,
+          onRemoveAttachment: removeComposerAttachment,
           onSubmit: submitAcpDraft,
           onInterrupt: interruptActiveAgent,
+          onToggleSpeechInput: toggleSpeechInput,
+          onPasteAttachment: handlePasteAttachment,
+          onAttachmentFiles: handleAttachmentFiles,
+          onChooseAttachmentFile: chooseAttachmentFile,
           onRespondToPermission: respondToActiveAcpPermission,
         }}
         composerProps={{

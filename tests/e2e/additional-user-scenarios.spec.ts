@@ -159,39 +159,6 @@ test.describe('additional Farming Code user scenarios', () => {
       'base64',
     ))
 
-    let installRequests = 0
-    await page.route('**/farming/api/update/install', async route => {
-      installRequests += 1
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          update: {
-            current: { releaseVersion: '2.0.6', packageVersion: '2.0.6' },
-            latest: { version: '2.0.7', assetName: 'farming-2.0.7.tar.gz' },
-            available: true,
-            installable: true,
-            blockingAgents: [],
-            state: { phase: 'installing' },
-          },
-        }),
-      })
-    })
-    await page.route('**/farming/api/update', async route => {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          update: {
-            current: { releaseVersion: '2.0.6', packageVersion: '2.0.6' },
-            latest: { version: '2.0.7', assetName: 'farming-2.0.7.tar.gz' },
-            available: true,
-            installable: true,
-            blockingAgents: [],
-            state: { phase: 'idle' },
-          },
-        }),
-      })
-    })
-
     await openFarming(page)
     let bashAgentId = ''
     let codexAgentId = ''
@@ -364,35 +331,24 @@ test.describe('additional Farming Code user scenarios', () => {
       await expect.poll(async () => terminalText(page, bashAgentId)).toContain('additional-desktop-context')
     })
 
-    await scenario('upgrade badge is compact, blue, versioned, and keyboard-readable', async () => {
+    await scenario('product mark opens the restrained brand story and repository link', async () => {
       const productMark = page.getByTestId('code-product-mark')
       await expect(productMark).toContainText('Farming Code')
-      await expect(productMark).toContainText('DOGFOOD BETA · v2.0.6')
-      await expect(productMark).toContainText('UPGRADE')
-      await expect(productMark).toHaveClass(/upgrade/)
-      await expect(productMark).toHaveAttribute('title', 'Upgrade to 2.0.7')
+      await expect(productMark).toContainText('v2.2.6')
+      await expect(productMark).not.toContainText('DOGFOOD')
+      await expect(productMark).not.toContainText('UPGRADE')
+      await expect(productMark).toHaveAttribute('title', 'Farming Code')
       await expectNoInlineOverflow(productMark)
-      const constrainedLabel = await productMark.evaluate(element => {
-        const mark = element as HTMLElement
-        const previousWidth = mark.style.width
-        mark.style.width = '245px'
-        const full = mark.querySelector('.code-product-mark-main-full') as HTMLElement | null
-        const short = mark.querySelector('.code-product-mark-main-short') as HTMLElement | null
-        const result = {
-          fullVisible: full ? getComputedStyle(full).display !== 'none' : false,
-          shortVisible: short ? getComputedStyle(short).display !== 'none' : false,
-          text: mark.innerText,
-        }
-        mark.style.width = previousWidth
-        return result
-      })
-      expect(constrainedLabel.fullVisible).toBe(false)
-      expect(constrainedLabel.shortVisible).toBe(true)
-      expect(constrainedLabel.text).toContain('Farming')
-      expect(constrainedLabel.text).not.toContain('Farming Code')
+      await productMark.click()
+      const brandDialog = page.getByTestId('code-brand-dialog')
+      await expect(brandDialog).toBeVisible()
+      await expect(brandDialog.locator('.code-brand-logo')).toBeVisible()
+      await expect(brandDialog).toContainText('Farming Code began with a simple idea')
+      await expect(brandDialog.getByRole('link', { name: 'GitHub' })).toHaveAttribute('href', 'https://github.com/zhuwenzhuang/farming')
+      await brandDialog.getByRole('button', { name: 'Cancel' }).click()
     })
 
-    await scenario('collapsed sidebar keeps product status as an icon-sized affordance', async () => {
+    await scenario('collapsed sidebar keeps the brand logo as an icon-sized affordance', async () => {
       await page.getByTestId('code-sidebar-toggle').click()
       await expect(page.getByTestId('code-sidebar')).toHaveClass(/collapsed/)
       const metrics = await page.getByTestId('code-product-mark').evaluate(element => {
@@ -543,10 +499,13 @@ test.describe('additional Farming Code user scenarios', () => {
       await expectNoDocumentOverflow(page)
     })
 
-    await scenario('clicking the upgrade badge calls the install endpoint once and stays in place', async () => {
-      await page.getByTestId('code-product-mark').click()
-      await expect.poll(() => installRequests).toBe(1)
-      await expect(page.getByTestId('code-product-mark')).toContainText(/UPDATING|Updating/i)
+    await scenario('brand dialog closes with Escape and restores focus to the product mark', async () => {
+      const productMark = page.getByTestId('code-product-mark')
+      await productMark.click()
+      await expect(page.getByTestId('code-brand-dialog')).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('code-brand-dialog')).toHaveCount(0)
+      await expect(productMark).toBeFocused()
       await expectNoDocumentOverflow(page)
     })
 

@@ -1336,7 +1336,7 @@ export function CodexTranscriptPane({
         signal: controller.signal,
       })
         .then(response => {
-          if (!response.ok) throw new Error(`${response.status}`)
+          if (!response.ok) throw new Error(copy.codexTranscriptUnavailable)
           return response.json()
         })
         .then(payload => {
@@ -1355,7 +1355,10 @@ export function CodexTranscriptPane({
     }
 
     load()
-    timer = window.setInterval(load, 3000)
+    // ACP entry updates already advance refreshSignal through the shared state
+    // websocket. Re-fetching a complete, idle history every three seconds is
+    // especially expensive for long sessions with many tool details.
+    if (source !== 'acp') timer = window.setInterval(load, 3000)
 
     return () => {
       stopped = true
@@ -1517,7 +1520,7 @@ export function CodexTranscriptPane({
       {loading ? (
         <div className="code-codex-transcript-state subtle">{copy.codexTranscriptSyncing}</div>
       ) : error ? (
-        <div className="code-codex-transcript-blank" />
+        <div className="code-codex-transcript-state" role="status">{error}</div>
       ) : !transcript?.available ? (
         <div className="code-codex-transcript-blank" />
       ) : turns.length === 0 ? (

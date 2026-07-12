@@ -291,7 +291,8 @@ async function runTests() {
     assert(packageReleaseSource.includes('"type": "app-bundle"'));
     assert(packageReleaseSource.includes('"bundledNodeModules"'));
     assert(packageReleaseSource.includes('cp "${PROJECT_ROOT}/package-lock.json"'));
-    assert(!packageReleaseSource.includes('glibc'));
+    assert(packageReleaseSource.includes('linux-x64-legacy-glibc228'));
+    assert(packageReleaseSource.includes('"bundledGlibcRuntime"'));
   }
 
   {
@@ -301,7 +302,7 @@ async function runTests() {
     );
     assert(releaseWorkflowSource.includes('node scripts/verify-release-bundle.js'));
     assert(releaseWorkflowSource.includes("const { readBundleRelease } = require('../scripts/verify-release-bundle.js');"));
-    assert(!releaseWorkflowSource.includes('bundledGlibc'));
+    assert(releaseWorkflowSource.includes('bundledGlibcRuntime'));
     assert(releaseWorkflowSource.includes('body.replaceAll(`](./v${version}.zh_cn.md)`, `](./release-notes/v${version}.zh_cn.md)`)'));
     assert(releaseWorkflowSource.includes('body.replaceAll(`](./v${version}.md)`, `](./release-notes/v${version}.md)`)'));
   }
@@ -314,7 +315,8 @@ async function runTests() {
     assert(installReleaseSource.includes('Using bundled production dependencies.'));
     assert(installReleaseSource.includes('bundled_dependencies=true'));
     assert(installReleaseSource.includes('rsync_excludes+=(--exclude \'node_modules/\')'));
-    assert(!installReleaseSource.includes('glibc'));
+    assert(installReleaseSource.includes('FARMING_USE_GLIBC_RUNTIME'));
+    assert(installReleaseSource.includes('vendor/glibc228-lib.tar.gz'));
     assert(installReleaseSource.includes('start|serve|daemon) start_server ;;'));
   }
 

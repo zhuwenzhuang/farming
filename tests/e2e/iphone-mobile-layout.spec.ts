@@ -44,6 +44,26 @@ test.describe('iPhone mobile layout', () => {
     await createControlAgent(page, 'bash', projectDir)
     await createControlAgent(page, 'bash', projectDir)
     await page.getByTestId('code-mobile-menu').click()
+    const productMark = page.getByTestId('code-product-mark')
+    await expect(productMark.locator('.code-product-logo')).toBeVisible()
+    await productMark.click()
+    const brandDialog = page.getByTestId('code-brand-dialog')
+    await expect(brandDialog).toBeVisible()
+    await expect(brandDialog.getByRole('link', { name: 'GitHub' })).toHaveAttribute('href', 'https://github.com/zhuwenzhuang/farming')
+    const brandMetrics = await brandDialog.locator('.code-brand-dialog').evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      const logo = element.querySelector('.code-brand-logo')?.getBoundingClientRect()
+      return {
+        width: rect.width,
+        bottomGap: window.innerHeight - rect.bottom,
+        viewportWidth: window.innerWidth,
+        logoWidth: logo?.width ?? 0,
+      }
+    })
+    expect(brandMetrics.width).toBeLessThanOrEqual(brandMetrics.viewportWidth - 16)
+    expect(brandMetrics.bottomGap).toBeLessThanOrEqual(10)
+    expect(brandMetrics.logoWidth).toBeGreaterThanOrEqual(80)
+    await brandDialog.getByRole('button', { name: 'Cancel' }).click()
     const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
     await expect(agentRow).toBeVisible({ timeout: 30_000 })
     await agentRow.click()

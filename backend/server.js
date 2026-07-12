@@ -890,11 +890,11 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-session'), async (req, re
 
 app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-transcript'), async (req, res) => {
   try {
-    const requestedMaxEntries = Number.parseInt(String(req.query.maxEntries || ''), 10);
-    const maxEntries = Number.isFinite(requestedMaxEntries)
-      ? Math.min(4_000, Math.max(100, requestedMaxEntries))
-      : 600;
-    res.json({ transcript: agentManager.getAcpTranscript(req.params.agentId, { maxEntries }) });
+    const requestedMaxTurns = Number.parseInt(String(req.query.maxTurns || ''), 10);
+    const maxTurns = Number.isFinite(requestedMaxTurns)
+      ? Math.min(MAX_CODEX_TRANSCRIPT_TURNS, Math.max(20, requestedMaxTurns))
+      : DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS;
+    res.json({ transcript: agentManager.getAcpTranscript(req.params.agentId, { maxTurns }) });
   } catch (error) {
     const message = error && error.message ? error.message : 'Failed to read ACP transcript';
     res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });

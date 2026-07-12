@@ -40,6 +40,7 @@ function run() {
     assert.strictEqual(settings.language, 'en');
     assert.strictEqual(settings.crtSkinEffectsEnabled, true);
     assert.strictEqual(settings.crtDynamicHeatEnabled, false);
+    assert.strictEqual(DEFAULT_CRT_TERMINAL_FONT_SIZE, 15);
     assert.strictEqual(settings.crtTerminalFontSize, DEFAULT_CRT_TERMINAL_FONT_SIZE);
     assert.strictEqual(settings.defaultLaunchAgent, 'codex');
     assert.strictEqual(settings.agentLaunchProfiles.codex.approvalMode, 'approve');

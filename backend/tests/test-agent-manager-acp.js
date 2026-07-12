@@ -47,7 +47,7 @@ async function run() {
     assert.strictEqual(session.entries.find(item => item.role === 'assistant').content[0].text, 'ACP reply');
     const listed = await manager.listAcpSessions(agentId);
     assert.strictEqual(listed.sessions.length, 1);
-    assert.strictEqual(manager.getAcpTranscript(agentId).entries.find(item => item.role === 'assistant').text, 'ACP reply');
+    assert.strictEqual(manager.getAcpTranscript(agentId).turns[0].finalMessage, 'ACP reply');
     assert.strictEqual((await manager.forkAcpSession(agentId)).sessionId, 'acp-fork-session');
     assert.strictEqual((await manager.setAcpSessionMode(agentId, 'plan')).modeId, 'plan');
   } finally {

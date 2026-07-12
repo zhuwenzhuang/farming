@@ -547,7 +547,7 @@ farming/
 }
 ```
 
-CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEnabled` 字段中，只允许 CRT 入口读取；Farming Code 不得读取或应用该字段。动态热力开关使用 `crtDynamicHeatEnabled`，默认关闭；关闭时 CRT 不挂载 hot/warm/cool/cold 样式类，所有 Agent 使用统一绿色边框和稳定尺寸。打开终端的正文字号使用 `crtTerminalFontSize`，后端限定为 `10`–`20` 像素，默认 `12` 像素。
+CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEnabled` 字段中，只允许 CRT 入口读取；Farming Code 不得读取或应用该字段。动态热力开关使用 `crtDynamicHeatEnabled`，默认关闭；关闭时 CRT 不挂载 hot/warm/cool/cold 样式类，所有 Agent 使用统一绿色边框和稳定尺寸。打开终端的正文字号使用 `crtTerminalFontSize`，后端限定为 `10`–`20` 像素，默认 `15` 像素。
 
 **前端主题样式分层（React 前端）：**
 

@@ -1,9 +1,47 @@
+const { createTwoFilesPatch } = require('diff');
+
+const MAX_RENDERED_DIFF_CHARS = 64 * 1024;
+
 function contentText(content) {
   return (Array.isArray(content) ? content : [])
     .filter(block => block?.type === 'text' && typeof block.text === 'string')
     .map(block => block.text)
     .join('')
     .trim();
+}
+
+function diffBlocks(content) {
+  return (Array.isArray(content) ? content : [])
+    .filter(block => block?.type === 'diff' && typeof block.path === 'string' && block.path.trim());
+}
+
+function diffAction(block) {
+  const kind = String(block?._meta?.kind || '').trim().toLowerCase();
+  if (['add', 'added', 'create', 'created'].includes(kind)) return 'Added';
+  if (['delete', 'deleted', 'remove', 'removed'].includes(kind)) return 'Deleted';
+  if (['move', 'moved'].includes(kind)) return 'Moved';
+  if (['rename', 'renamed'].includes(kind)) return 'Renamed';
+  return 'Updated';
+}
+
+function patchSummaryText(content) {
+  return diffBlocks(content)
+    .map(block => `${diffAction(block)} ${block.path.trim()}`)
+    .join('\n');
+}
+
+function boundedDiffText(value) {
+  const text = String(value || '');
+  if (text.length <= MAX_RENDERED_DIFF_CHARS) return text;
+  return `${text.slice(0, MAX_RENDERED_DIFF_CHARS)}\n\n[Diff detail truncated]`;
+}
+
+function renderedDiffText(block) {
+  const path = String(block.path || '').trim();
+  const oldText = block.oldText == null ? '' : String(block.oldText);
+  const newText = block.newText == null ? '' : String(block.newText);
+  const patch = createTwoFilesPatch(path, path, oldText, newText, 'before', 'after', { context: 3 });
+  return `File: ${path}\n${boundedDiffText(patch)}`.trim();
 }
 
 function jsonText(value) {
@@ -29,10 +67,7 @@ function toolContentText(content) {
       return jsonText(inner);
     }
     if (block.type === 'diff') {
-      const oldText = block.oldText == null ? '' : String(block.oldText);
-      return [`File: ${block.path || ''}`, '--- before', oldText, '+++ after', String(block.newText || '')]
-        .filter(Boolean)
-        .join('\n');
+      return renderedDiffText(block);
     }
     if (block.type === 'terminal') return `Terminal: ${block.terminalId || ''}`.trim();
     if (block.type === 'text') return String(block.text || '');
@@ -80,23 +115,7 @@ function planDetail(plan) {
   return '';
 }
 
-function projectEntry(entry) {
-  if (!entry || typeof entry !== 'object') return null;
-  if (entry.internal === true && entry.type !== 'message') return null;
-  if (entry.type === 'message') {
-    const text = contentText(entry.content);
-    const images = contentImages(entry.content, entry.id || 'message');
-    if (!text && images.length === 0) return null;
-    if (entry.internal === true && entry.role !== 'assistant') return null;
-    return {
-      id: String(entry.id || ''),
-      type: 'message',
-      role: entry.role === 'user' ? 'user' : 'assistant',
-      text,
-      images,
-      internal: entry.internal === true,
-    };
-  }
+function processEntry(entry) {
   if (entry.type === 'thought') {
     const detail = contentText(entry.content);
     if (!detail) return null;
@@ -109,12 +128,14 @@ function projectEntry(entry) {
     };
   }
   if (entry.type === 'tool') {
+    const patchSummary = patchSummaryText(entry.content);
+    const detail = detailForTool(entry);
     return {
       id: String(entry.id || ''),
-      type: 'tool',
+      type: patchSummary ? 'patch' : 'tool',
       kind: String(entry.kind || 'other'),
       title: String(entry.title || 'Tool'),
-      detail: detailForTool(entry),
+      detail: [patchSummary, detail].filter(Boolean).join('\n\n'),
       status: String(entry.status || ''),
     };
   }
@@ -133,27 +154,105 @@ function projectEntry(entry) {
   return null;
 }
 
+function emptyTurn(id, internal) {
+  return {
+    id,
+    internal,
+    userMessage: '',
+    userImages: [],
+    userFiles: [],
+    finalMessage: '',
+    startedAt: null,
+    completedAt: null,
+    durationMs: null,
+    status: 'completed',
+    processItems: [],
+    assistantMessages: [],
+  };
+}
+
+function finishTurn(turn) {
+  if (!turn) return null;
+  if (turn.assistantMessages.length > 0) {
+    turn.finalMessage = turn.assistantMessages[turn.assistantMessages.length - 1];
+    if (!turn.internal) {
+      const progress = turn.assistantMessages.slice(0, -1).filter(Boolean);
+      if (progress.length > 0) {
+        turn.processItems.unshift({
+          id: `${turn.id}-progress-updates`,
+          type: 'progress',
+          title: 'Progress updates',
+          detail: progress.join('\n\n'),
+          status: 'completed',
+        });
+      }
+    }
+  }
+  delete turn.assistantMessages;
+  if (turn.internal) turn.processItems = [];
+  delete turn.internal;
+  return turn.userMessage || turn.finalMessage || turn.userImages.length > 0 || turn.processItems.length > 0
+    ? turn
+    : null;
+}
+
 function acpSessionTranscript(session, options = {}) {
-  const allEntries = (Array.isArray(session?.entries) ? session.entries : [])
-    .map(projectEntry)
-    .filter(Boolean);
-  const maxEntries = Number.isFinite(Number(options.maxEntries))
-    ? Math.max(1, Math.floor(Number(options.maxEntries)))
-    : 600;
-  const entries = allEntries.slice(-maxEntries);
+  const turns = [];
+  let current = null;
+  let sequence = 0;
+  const flush = () => {
+    const finished = finishTurn(current);
+    if (finished) turns.push(finished);
+    current = null;
+  };
+  for (const entry of Array.isArray(session?.entries) ? session.entries : []) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (entry.type === 'message' && entry.role === 'user') {
+      flush();
+      current = emptyTurn(`acp-segment-${++sequence}`, entry.internal === true);
+      if (!entry.internal) {
+        current.userMessage = contentText(entry.content);
+        current.userImages = contentImages(entry.content, entry.id || current.id);
+      }
+      continue;
+    }
+    if (!current) current = emptyTurn(`acp-segment-${++sequence}`, entry.internal === true);
+    if (entry.internal === true && !current.internal) {
+      flush();
+      current = emptyTurn(`acp-segment-${++sequence}`, true);
+    }
+    if (entry.type === 'message' && entry.role === 'assistant') {
+      const text = contentText(entry.content);
+      // Preserve an empty sanitized assistant entry as the final boundary. A
+      // DONT_NOTIFY heartbeat is intentionally empty; promoting the preceding
+      // progress sentence to a user-visible result would leak internal work.
+      current.assistantMessages.push(text);
+      continue;
+    }
+    if (current.internal || entry.internal === true) continue;
+    const process = processEntry(entry);
+    if (process) current.processItems.push(process);
+  }
+  flush();
+
+  if (turns.length > 0 && ['working', 'waiting-for-permission', 'interrupting'].includes(String(session?.state || ''))) {
+    turns[turns.length - 1].status = 'inProgress';
+  }
+  const maxTurns = Number.isFinite(Number(options.maxTurns))
+    ? Math.max(1, Math.floor(Number(options.maxTurns)))
+    : 80;
+  const visibleTurns = turns.slice(-maxTurns);
   return {
     version: 2,
-    available: entries.length > 0,
-    reason: entries.length > 0 ? undefined : 'empty-acp-session',
+    available: visibleTurns.length > 0,
+    reason: visibleTurns.length > 0 ? undefined : 'empty-acp-session',
     sessionId: String(session?.sessionId || ''),
     updatedAt: String(session?.updatedAt || ''),
     source: 'acp',
-    state: String(session?.state || ''),
-    stopReason: String(session?.stopReason || ''),
-    hasMoreBefore: allEntries.length > entries.length,
-    entryLimit: maxEntries,
+    hasMoreBefore: turns.length > visibleTurns.length,
+    turnLimit: maxTurns,
     truncated: session?.truncated === true,
-    entries,
+    turns: visibleTurns,
   };
 }
 

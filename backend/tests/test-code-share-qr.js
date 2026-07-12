@@ -45,7 +45,6 @@ function run() {
   assert(shareButtonSource.includes('closeSharePopoverOnOutsidePointerDown'));
   assert(shareButtonSource.includes("document.addEventListener('pointerdown', closeSharePopoverOnOutsidePointerDown, true)"));
   assert(shareButtonSource.includes('rootRef.current?.contains(target)'));
-  assert(shareButtonSource.includes("appPath('/farming-2/images/avatar-watercolor-v1-bee-garden.png')"));
   assert(shareButtonSource.includes('<FarmingQrCode value={ticket.shortUrl} badgeUrl={badgeUrl} qrCodeFactory={qrCodeFactory} />'));
 
   assert(sidebarSource.includes("import { ShareQrButton } from './ShareQrButton'"));

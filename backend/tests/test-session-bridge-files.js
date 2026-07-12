@@ -32,6 +32,8 @@ function run() {
     'Farming Code should retain the default all-stream subscription behavior'
   );
   assert(sessionBridge.includes('resize-agent'), 'session bridge should handle resize requests');
+  assert(sessionBridge.includes('sendComposerMessage') && sessionBridge.includes("type: 'composer-input'"), 'CRT should route structured Agent messages through the Composer API');
+  assert(sessionBridge.includes('interruptAgent') && sessionBridge.includes("type: 'interrupt-agent'"), 'CRT structured Composer should expose the shared Agent interrupt path');
   assert(
     app.includes('if (activeTerminalId !== agentId)') &&
       app.includes('ws.focusAgent(agentId)') &&

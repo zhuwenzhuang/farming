@@ -77,6 +77,9 @@ export interface CodeCopy {
   sharedLocationUnavailable: (path: string) => string
   shareLinkExpired: string
   refreshShareLink: string
+  brandStoryOrigin: string
+  brandStoryPurpose: string
+  brandGithub: string
   mobileShareTitle: string
   mobileForwardTitle: string
   mobileForwardHint: string
@@ -349,7 +352,7 @@ const EN_COPY: CodeCopy = {
   collapseComposer: 'Hide input',
   restoreComposer: 'Show input',
   codexTranscriptSyncing: 'Syncing Codex history...',
-  codexTranscriptUnavailable: '',
+  codexTranscriptUnavailable: 'This session’s Chat history could not be loaded.',
   codexTranscriptEmpty: '',
   codexTranscriptWaiting: 'Codex is still working...',
   codexTranscriptProcess: 'Worked',
@@ -419,6 +422,9 @@ const EN_COPY: CodeCopy = {
   sharedLocationUnavailable: path => `Unable to locate shared path: ${path}`,
   shareLinkExpired: 'Expired',
   refreshShareLink: 'Refresh',
+  brandStoryOrigin: 'Farming Code began with a simple idea: when several coding agents work at once, people should not have to bounce between terminals, editors, and browser tabs.',
+  brandStoryPurpose: 'It brings conversations, terminals, project files, and progress into one calm workspace, so attention stays on what matters.',
+  brandGithub: 'GitHub',
   mobileShareTitle: 'Share page',
   mobileForwardTitle: 'Send this page',
   mobileForwardHint: 'Copy the link to send the current view to someone else.',
@@ -691,7 +697,7 @@ const ZH_COPY: CodeCopy = {
   collapseComposer: '收起输入框',
   restoreComposer: '唤出输入框',
   codexTranscriptSyncing: '正在同步 Codex 历史...',
-  codexTranscriptUnavailable: '',
+  codexTranscriptUnavailable: '无法加载此会话的 Chat 历史。',
   codexTranscriptEmpty: '',
   codexTranscriptWaiting: 'Codex 还在工作...',
   codexTranscriptProcess: '执行过程',
@@ -761,6 +767,9 @@ const ZH_COPY: CodeCopy = {
   sharedLocationUnavailable: path => `无法定位分享路径：${path}`,
   shareLinkExpired: '已过期',
   refreshShareLink: '刷新',
+  brandStoryOrigin: 'Farming Code 从一个简单的问题出发：当多个 Coding Agent 同时工作，人不该在终端、编辑器和浏览器标签页之间反复切换。',
+  brandStoryPurpose: '它把对话、终端、项目文件与进展放在一个安静的工作空间里，让注意力留在真正重要的事情上。',
+  brandGithub: 'GitHub',
   mobileShareTitle: '分享页面',
   mobileForwardTitle: '转发当前页面',
   mobileForwardHint: '复制链接，发送给其他人。',

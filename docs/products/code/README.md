@@ -24,7 +24,7 @@ The workspace screenshot above shows the central product shape: a live Codex ter
 - **Mobile Browser Access**: check agent state, switch sessions, start a simple agent, or send a short intervention from a phone.
 - **Optional Main Agent**: use a supervising agent when it is useful to start, observe, nudge, or summarize other agents.
 
-The backend also includes an experimental [ACP runtime](acp-runtime.md) for structured Codex, Claude Code, and OpenCode sessions. Its Chat UI consumes the same ordered ACP entry stream for loaded history and live updates, while Terminal remains an isolated PTY runtime.
+The backend also includes an experimental [ACP runtime](acp-runtime.md) for structured Codex, Claude Code, OpenCode, and Qoder sessions. Its Chat UI consumes the same ordered ACP entry stream for loaded history and live updates, while Terminal remains an isolated PTY runtime.
 
 ## Agent State Inference
 

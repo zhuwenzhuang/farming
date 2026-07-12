@@ -822,7 +822,7 @@ class AgentManager extends EventEmitter {
       const agentId = String(record.runtimeAgentId || '').trim();
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
       const sessionId = String(record.providerSessionId || '').trim();
-      if (!agentId || !sessionId || !['codex', 'claude', 'opencode'].includes(provider)) continue;
+      if (!agentId || !sessionId || !['codex', 'claude', 'opencode', 'qoder'].includes(provider)) continue;
       let agent = this.agents.get(agentId);
       if (!agent) {
         agent = this.recoveredAgentRecord(agentId, record.engine || 'native', record, { status: 'running' });
@@ -857,6 +857,11 @@ class AgentManager extends EventEmitter {
       } catch (error) {
         agent.acpState = 'error';
         agent.acpError = `ACP recovery failed: ${error && (error.message || error)}`;
+        agent.status = 'stopped';
+        agent.engineStatus = 'stopped';
+        agent.engineStarted = false;
+        agent.exitedAt = Date.now();
+        this.ensurePersistentAgentSession(agent);
       }
     }
     this.emit('update');
@@ -933,6 +938,12 @@ class AgentManager extends EventEmitter {
         this.ensurePersistentAgentSession(agent);
       } catch (error) {
         agent.codexAppServerError = `Codex App Server recovery failed: ${error && (error.message || error)}`;
+        agent.codexAppServerState = 'error';
+        agent.status = 'stopped';
+        agent.engineStatus = 'stopped';
+        agent.engineStarted = false;
+        agent.exitedAt = Date.now();
+        this.ensurePersistentAgentSession(agent);
       }
     }
     this.emit('update');
@@ -2081,7 +2092,7 @@ class AgentManager extends EventEmitter {
       && !useCodexAppServer
       && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1';
     const useAcp = requestedAgentRuntimeMode === 'acp'
-      && ['codex', 'claude', 'opencode'].includes(providerSessionPlan.provider)
+      && ['codex', 'claude', 'opencode', 'qoder'].includes(providerSessionPlan.provider)
       && !useCodexAppServer
       && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1';
     let codexAppServerHomePath = '';
@@ -2964,9 +2975,14 @@ class AgentManager extends EventEmitter {
     if (!agent) return { error: 'Agent not found' };
     const nextMode = ['terminal', 'json', 'acp'].includes(mode) ? mode : '';
     if (!nextMode) return { error: 'Unsupported Agent runtime mode' };
-    if (agent.agentRuntimeMode === nextMode) return { agentId, agentRuntimeMode: nextMode };
     const provider = agent.providerSessionProvider || '';
-    const supportedProviders = nextMode === 'json' ? ['codex', 'opencode'] : ['codex', 'claude', 'opencode'];
+    const leavesCodexAppServer = provider === 'codex'
+      && agent.codexRuntimeMode === 'app-server'
+      && nextMode === 'terminal';
+    if (agent.agentRuntimeMode === nextMode && !leavesCodexAppServer) {
+      return { agentId, agentRuntimeMode: nextMode };
+    }
+    const supportedProviders = nextMode === 'json' ? ['codex', 'opencode'] : ['codex', 'claude', 'opencode', 'qoder'];
     if (!supportedProviders.includes(provider)) {
       return { error: `Agent does not support the ${nextMode.toUpperCase()} runtime` };
     }

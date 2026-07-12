@@ -21,6 +21,7 @@ function run() {
     'src/components/code/agent-kind.ts',
     'src/components/code/agent-working-state.ts',
     'src/components/code/AgentWorkPane.tsx',
+    'src/components/code/BrandAboutDialog.tsx',
     'src/components/code/capabilities.ts',
     'src/components/code/composer-message.ts',
     'src/components/code/composer-submit.ts',
@@ -204,8 +205,10 @@ function run() {
       appSource.includes('const [permissionSwitch, setPermissionSwitch]') &&
       appSource.includes('permissionSwitchRequestRef') &&
       appSource.includes('return [...agents, permissionSwitch.agent]') &&
-      appSource.includes('latestRestartDescendant(ws.agents, current.originalAgentId)') &&
+      appSource.includes('latestRestartDescendant(ws.agents, current.originalAgentId, current.agent)') &&
       appSource.includes('agent.restartedFromAgentIds?.includes(ancestorAgentId)') &&
+      appSource.includes('agent.providerSessionId === expectedSession.providerSessionId') &&
+      appSource.includes("(agent.providerHomeId || '') === (expectedSession.providerHomeId || '')") &&
       appSource.includes('requestSettled: true') &&
       appSource.includes("kind: runtimeSwitch ? 'runtime' : 'permission'") &&
       appSource.includes('startedAt: Date.now()') &&
@@ -310,13 +313,13 @@ function run() {
       workspaceSource.includes('data-testid="code-product-mark"') &&
       workspaceSource.includes('Farming Code') &&
       !workspaceSource.includes('Farming - Codex Web Skin') &&
-      workspaceSource.includes('DOGFOOD BETA') &&
+      !workspaceSource.includes('DOGFOOD BETA') &&
       workspaceSource.includes('function compactProductVersion') &&
       workspaceSource.includes('-(\\d+)-g[0-9a-f]+') &&
       workspaceSource.includes('return `${describedVersion[1]}-${describedVersion[2]}`') &&
-      workspaceSource.includes("fetch(appPath(`/api/update${force ? '?force=1' : ''}`))") &&
-      workspaceSource.includes("fetch(appPath('/api/update/install')") &&
-      workspaceSource.includes('copy.upgrade') &&
+      workspaceSource.includes("import { BrandAboutDialog } from './BrandAboutDialog'") &&
+      workspaceSource.includes('setBrandDialogOpen(true)') &&
+      workspaceSource.includes('<BrandAboutDialog copy={copy} version={currentVersionLabel}') &&
       workspaceSource.includes('code-product-mark-badge') &&
       workspaceSource.includes('appPath') &&
       !workspaceSource.includes('code-nav-plugins') &&
@@ -1013,6 +1016,8 @@ function run() {
       agentWorkPaneSource.includes('aria-busy={switching}') &&
       transcriptPaneSource.includes("[copy.codexTranscriptWorking, progressDuration]") &&
       transcriptPaneSource.includes('if (seconds <= 0) return') &&
+      transcriptPaneSource.includes('role="status">{error}</div>') &&
+      workspaceSource.includes('无法加载此会话的 Chat 历史。') &&
       !workspaceSource.includes('codexTranscriptGoalProgress') &&
       agentWorkPaneSource.includes('data-testid="code-agent-terminal-view"') &&
       agentWorkPaneSource.includes('data-testid="code-agent-chat-view"') &&
@@ -1085,24 +1090,39 @@ function run() {
       acpComposerSource.includes('AcpPermissionCard') &&
       acpComposerSource.includes('data-testid="code-acp-command-menu"') &&
       acpComposerSource.includes('session?.availableCommands') &&
-      acpComposerSource.includes('<AcpSessionControls') &&
+      acpComposerSource.includes('<AcpModeControl') &&
+      acpComposerSource.includes('<AcpModelControl') &&
+      acpComposerSource.includes('className="code-composer-add"') &&
+      acpComposerSource.includes('className="code-composer-right-tools"') &&
+      acpComposerSource.includes('code-composer-mic') &&
+      acpComposerSource.includes('code-composer-send') &&
+      acpComposerSource.includes('<ComposerAttachments attachments={attachments}') &&
+      acpComposerSource.includes('data-testid="code-acp-composer-file-input"') &&
+      acpComposerSource.includes('onPaste={onPasteAttachment}') &&
+      acpComposerSource.includes('onNavigateHistory(direction') &&
       acpComposerSource.includes('permissions.map') &&
-      !acpComposerSource.includes('ComposerAttachments') &&
       !acpComposerSource.includes('composerMode') &&
       !acpComposerSource.includes('slashCommands') &&
       acpComposerBehaviorSource.includes("agent.agentRuntimeMode !== 'acp'") &&
       !acpComposerBehaviorSource.includes('terminalInputPartsForComposerMessage') &&
       !acpComposerBehaviorSource.includes('formatComposerMessage') &&
-      !acpComposerBehaviorSource.includes('composerMessageWithAttachments') &&
+      acpComposerBehaviorSource.includes('composerMessageWithAttachments') &&
+      workspaceSource.includes("activeAgent?.agentRuntimeMode === 'acp' && activeAgentTurnActive") &&
       acpComposerStateSource.includes("const ACP_COMPOSER_STATE_PREFIX = 'acp:'") &&
       acpSessionHookSource.includes('/acp-session') &&
       acpSessionHookSource.includes("method: 'PATCH'") &&
       acpSessionControlsSource.includes('data-testid="code-acp-mode"') &&
-      acpSessionControlsSource.includes('configOptions.map') &&
-      acpSessionControlsSource.includes("option.category !== 'mode' && option.id !== 'mode'") &&
+      acpSessionControlsSource.includes('className="code-composer-approval muted"') &&
+      acpSessionControlsSource.includes('className="code-composer-model-picker"') &&
+      acpSessionControlsSource.includes('code-model-picker-menu code-composer-menu') &&
+      acpSessionControlsSource.includes('code-model-submenu code-composer-menu') &&
+      acpSessionControlsSource.includes('code-speed-submenu code-composer-menu') &&
+      agentWorkPaneSource.includes("['codex', 'claude', 'opencode', 'qoder'].includes") &&
+      inputDialogSource.includes("['codex', 'claude', 'opencode', 'qoder'].includes(selectedAgent.name)") &&
       acpPermissionSource.includes('code-acp-permission-details') &&
-      !agentWorkPaneSource.includes('acpSessionUpdatedAt ? Date.parse') &&
-      !acpTranscriptSource.includes('refreshSignal={') &&
+      agentWorkPaneSource.includes('refreshSignal={agent.acpSessionUpdatedAt ? Date.parse(agent.acpSessionUpdatedAt) : 0}') &&
+      transcriptPaneSource.includes("if (source !== 'acp') timer = window.setInterval(load, 3000)") &&
+      acpTranscriptSource.includes("Omit<CodexTranscriptPaneProps, 'source'>") &&
       acpTranscriptSource.includes('groupProcessActions={false}') &&
       workspaceSource.includes("activeAgent?.agentRuntimeMode === 'acp'") &&
       workspaceSource.includes('acpComposerStateKeyForAgent(activeAgent)') &&
@@ -1228,12 +1248,14 @@ function run() {
       stylesSource.includes('box-sizing: border-box;\n  margin-left: 0;\n  margin-right: 2px;\n  padding-left: 14px;') &&
       stylesSource.includes('.code-file-sticky-shell {\n  position: sticky;\n  top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px) + var(--code-files-header-height, 25px));\n  height: 0;\n  z-index: 11;') &&
       stylesSource.includes('.code-product-mark') &&
-      stylesSource.includes('grid-template-columns: minmax(0, 1fr) auto') &&
+      stylesSource.includes('grid-template-columns: 20px minmax(0, 1fr) auto') &&
+      workspaceSource.includes("src={appPath('/farming-2/app-icon-v2-180.png')}") &&
+      workspaceSource.includes('className="code-product-logo"') &&
       stylesSource.includes('.code-product-mark-copy') &&
       stylesSource.includes('.code-product-mark-meta') &&
       stylesSource.includes('.code-product-mark-badge') &&
-      stylesSource.includes('.code-product-mark-update') &&
-      stylesSource.includes('.code-product-mark-collapsed') &&
+      stylesSource.includes('.code-brand-dialog') &&
+      stylesSource.includes('.code-brand-story') &&
       stylesSource.includes('.code-sidebar.collapsed') &&
       stylesSource.includes('.code-folder-icon svg') &&
       stylesSource.includes('.code-side-view-panel') &&
