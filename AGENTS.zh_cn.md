@@ -599,6 +599,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - 对 macOS release 产物，明确记录二进制是 ad-hoc 签名、Developer ID 签名还是已 notarize。未 notarize 时，必须验证并写清首次运行的安全允许行为，不能把手动允许后的 smoke 当成干净的首次运行体验。
 - 在已配置的远程 Linux dogfood 环境用 token auth 做类人 smoke：agent 创建、terminal 输入输出、刷新/重连、archive 清理、native pty host 恢复、进程数量清理。
 - 确认远程 Linux 只剩预期的 Farming service/listener，不得残留旧 Farming server、native pty host、bash、zsh、Codex、Claude 进程。
+- 下载容器镜像或临时搭建新工具链之前，先检查已有 release 产物、本地缓存和已配置的 Linux 构建机。Linux 打包和 smoke 优先复用干净的物理机或远程 x86_64 Linux 环境，以及其已经准备好的 toolchain 或缓存构建容器；不要把宿主机默认编译器误当成指定构建器。只有确实没有合适的真实 Linux 构建机时，才退回 ARM 主机上的 x86 模拟方案。
 - release 产物必须通过仓库 release 脚本或 GitHub release workflow 构建，不得提交生成出来的 bundle。
 - 守住打包依赖：凡是改到打包相关文件时，必须和上一版 package contents 或 manifest 对比，避免用户升级后缺 production dependency、native asset、runtime file 或 install script。
 - 对构建出的 CLI/app bundle 产物跑 smoke；不能只验证源码 checkout。
