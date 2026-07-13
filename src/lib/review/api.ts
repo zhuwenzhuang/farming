@@ -49,8 +49,16 @@ function reviewWorkingCopyFileDiffPath(path: string) {
   return appPath(`/api/reviews/working-copy/files/${encodeURIComponent(path)}/diff`)
 }
 
+function reviewWorkingCopyFileContextPath(path: string) {
+  return appPath(`/api/reviews/working-copy/files/${encodeURIComponent(path)}/context`)
+}
+
 function reviewGitRangeFileDiffPath(path: string) {
   return appPath(`/api/reviews/git-range/files/${encodeURIComponent(path)}/diff`)
+}
+
+function reviewGitRangeFileContextPath(path: string) {
+  return appPath(`/api/reviews/git-range/files/${encodeURIComponent(path)}/context`)
 }
 
 function commentPath(reviewId: string, patchset: string) {
@@ -428,6 +436,7 @@ function isDiffCell(value: unknown): value is ReviewDiffCell {
     && cell.line > 0
     && cell.line <= 100000000
     && typeof cell.text === 'string'
+    && (cell.missingNewlineAtEnd === undefined || cell.missingNewlineAtEnd === true)
     && (intraline === undefined || (Array.isArray(intraline) && intraline.every(range => {
       return Number.isInteger(range.start)
         && Number.isInteger(range.end)
@@ -793,6 +802,63 @@ export async function loadReviewFileDiff(request: ReviewDiffSnapshotRequest, pat
   const value: unknown = await response.json().catch(() => null)
   if (!response.ok || !isExpectedReviewFileResponse(value, path)) {
     throw new ReviewApiError(errorMessageFromValue(value, request.source === 'git-range' ? 'review git range file diff request failed' : 'review file diff request failed'))
+  }
+  return value
+}
+
+export type ReviewContextRange = {
+  lines: number
+  newStart: number
+  oldStart: number
+}
+
+export type ReviewContextRows = {
+  leftLines: number
+  rightLines: number
+  rows: ReviewDiffRow[]
+}
+
+function appendReviewContextRange(params: URLSearchParams, range: ReviewContextRange) {
+  for (const [name, value] of Object.entries(range)) {
+    if (!Number.isInteger(value) || value < 1) throw new ReviewApiError(`review context ${name} is invalid`)
+    params.set(name, String(value))
+  }
+}
+
+function isReviewContextRows(value: unknown): value is ReviewContextRows {
+  if (!value || typeof value !== 'object') return false
+  const context = value as ReviewContextRows
+  return Number.isInteger(context.leftLines)
+    && context.leftLines >= 0
+    && Number.isInteger(context.rightLines)
+    && context.rightLines >= 0
+    && Array.isArray(context.rows)
+    && context.rows.length > 0
+    && context.rows.every(row => isDiffRow(row) && row.kind === 'context')
+}
+
+export function reviewFileContextUrl(request: ReviewDiffSnapshotRequest, path: string, range: ReviewContextRange) {
+  assertReviewPath(path)
+  const params = new URLSearchParams()
+  appendReviewWorkspaceTarget(params, request)
+  appendReviewSessionIdentity(params, request)
+  appendReviewContextRange(params, range)
+  if (request.source === 'working-copy') {
+    if (request.scope) params.set('scope', request.scope)
+    if (request.scope === 'untracked' && request.modifiedWithinDays) params.set('modifiedWithinDays', String(request.modifiedWithinDays))
+    return `${reviewWorkingCopyFileContextPath(path)}?${params.toString()}`
+  }
+  const revisions = assertGitRangeRevisions(request.base, request.head)
+  params.set('base', revisions.base)
+  params.set('head', revisions.head)
+  return `${reviewGitRangeFileContextPath(path)}?${params.toString()}`
+}
+
+export async function loadReviewFileContext(request: ReviewDiffSnapshotRequest, path: string, range: ReviewContextRange): Promise<ReviewContextRows> {
+  const response = await fetch(reviewFileContextUrl(request, path, range))
+  const value: unknown = await response.json().catch(() => null)
+  if (!response.ok || !isReviewContextRows(value) || value.rows.length !== range.lines) {
+    throw new ReviewApiError(errorMessageFromValue(value, 'review context request failed'))
   }
   return value
 }

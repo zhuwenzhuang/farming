@@ -1,4 +1,5 @@
-const MAX_ACP_UPDATES = 12_000;
+const MAX_ACP_UPDATES = 2_000;
+const MAX_ACP_UPDATE_LOG_VALUE_CHARS = 32 * 1024;
 const {
   isCodexInjectedContextMessage,
   stripCodexInternalContextBlocks,
@@ -6,6 +7,23 @@ const {
 
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
+function compactUpdateForLog(update) {
+  let serialized = '';
+  try {
+    serialized = JSON.stringify(update);
+  } catch {
+    return { sessionUpdate: String(update?.sessionUpdate || ''), truncated: true };
+  }
+  if (serialized.length <= MAX_ACP_UPDATE_LOG_VALUE_CHARS) return clone(update);
+  return {
+    sessionUpdate: String(update?.sessionUpdate || ''),
+    toolCallId: String(update?.toolCallId || ''),
+    messageId: String(update?.messageId || ''),
+    truncated: true,
+    originalChars: serialized.length,
+  };
 }
 
 function appendContent(blocks, content) {
@@ -54,6 +72,7 @@ class AcpSessionState {
     this.updatedAt = '';
     this.truncated = false;
     this.sequence = 0;
+    this.revision = 0;
   }
 
   setSessionId(sessionId) {
@@ -65,8 +84,22 @@ class AcpSessionState {
   }
 
   pushEntry(entry) {
+    this.touchEntry(entry);
     this.entries.push(entry);
     return entry;
+  }
+
+  touchEntry(entry) {
+    if (!entry) return this.revision;
+    entry._revision = ++this.revision;
+    return this.revision;
+  }
+
+  touchCurrentTurn() {
+    const entry = this.entries[this.entries.length - 1];
+    if (entry) this.touchEntry(entry);
+    else this.revision += 1;
+    return this.revision;
   }
 
   beginPrompt(prompt) {
@@ -85,7 +118,10 @@ class AcpSessionState {
   }
 
   completePrompt() {
-    // Prompt lifecycle is runtime state, not a transcript entry boundary.
+    // Runtime completion changes the visible state of the last turn. Touch the
+    // existing entry so delta readers can refresh that turn without inventing
+    // a protocol entry boundary.
+    this.touchCurrentTurn();
   }
 
   finishHistoryReplay() {
@@ -96,7 +132,11 @@ class AcpSessionState {
     if (!notification || notification.sessionId !== this.sessionId) return false;
     const update = notification.update;
     if (!update || typeof update !== 'object') return false;
-    this.updates.push({ sequence: this.updates.length + 1, at: new Date().toISOString(), update: clone(update) });
+    this.updates.push({
+      sequence: this.updates.length + 1,
+      at: new Date().toISOString(),
+      update: compactUpdateForLog(update),
+    });
     if (this.updates.length > this.maxUpdates) {
       this.updates.splice(0, this.updates.length - this.maxUpdates);
       this.truncated = true;
@@ -147,6 +187,7 @@ class AcpSessionState {
       && (last.content || []).some(content => JSON.stringify(content) === JSON.stringify(update.content))
     ) {
       if (!last.messageId) last.messageId = messageId;
+      this.touchEntry(last);
       return;
     }
 
@@ -157,6 +198,7 @@ class AcpSessionState {
     ) {
       if (!last.messageId) last.messageId = messageId;
       appendContent(last.content, update.content);
+      this.touchEntry(last);
       return;
     }
 
@@ -191,6 +233,7 @@ class AcpSessionState {
         if (update[field] !== undefined) entry[field] = clone(update[field]);
       }
     }
+    this.touchEntry(entry);
   }
 
   applyPlan(plan) {
@@ -204,6 +247,7 @@ class AcpSessionState {
       return;
     }
     this.activePlanEntry.plan = clone(plan);
+    this.touchEntry(this.activePlanEntry);
   }
 
   removePlan() {
@@ -213,25 +257,104 @@ class AcpSessionState {
     }
     this.activePlanEntry = null;
     this.plan = null;
+    this.touchCurrentTurn();
   }
 
-  snapshot(extra = {}, options = {}) {
-    const entries = clone(this.entries);
-    if (this.provider === 'codex') {
-      let internalSegment = false;
-      for (const entry of entries) {
-        if (entry.type === 'message' && entry.role === 'user') {
-          const hasAttachment = (entry.content || []).some(content => content.type !== 'text');
-          const rawText = contentText(entry.content);
-          internalSegment = !hasAttachment && isCodexInjectedContextMessage(rawText);
+  transcriptSlice(options = {}) {
+    const maxTurns = Number.isFinite(Number(options.maxTurns))
+      ? Math.max(1, Math.floor(Number(options.maxTurns)))
+      : 80;
+    const requestedRevision = Number(options.sinceRevision);
+    const delta = Number.isFinite(requestedRevision) && requestedRevision >= 0;
+    let startIndex = 0;
+
+    if (delta) {
+      startIndex = this.entries.findIndex(entry => Number(entry?._revision || 0) > requestedRevision);
+      if (startIndex < 0) startIndex = this.entries.length;
+      if (startIndex < this.entries.length) {
+        while (startIndex > 0) {
+          const entry = this.entries[startIndex];
+          if (entry?.type === 'message' && entry.role === 'user') break;
+          startIndex -= 1;
         }
-        entry.internal = internalSegment;
-        if (!['message', 'thought'].includes(entry.type)) continue;
-        for (const content of entry.content || []) {
-          if (content.type === 'text') content.text = stripCodexInternalContextBlocks(content.text);
+      }
+    } else {
+      let remaining = maxTurns;
+      startIndex = this.entries.length;
+      while (startIndex > 0) {
+        startIndex -= 1;
+        const entry = this.entries[startIndex];
+        if (entry?.type === 'message' && entry.role === 'user') {
+          remaining -= 1;
+          if (remaining <= 0) break;
         }
       }
     }
+
+    return {
+      entries: this.sanitizedEntries(startIndex, { forTranscript: true }),
+      revision: this.revision,
+      delta,
+      hasMoreBefore: startIndex > 0,
+    };
+  }
+
+  sanitizedEntries(startIndex = 0, options = {}) {
+    const safeStart = Math.min(this.entries.length, Math.max(0, Math.floor(startIndex)));
+    const entries = options.forTranscript === true
+      ? this.entries.slice(safeStart).map(entry => {
+        const visible = { ...entry };
+        delete visible._revision;
+        if (entry.type !== 'tool') return clone(visible);
+        // Tool details are read synchronously by the transcript projector and
+        // never mutated there. Keep their potentially large protocol payloads
+        // by reference so an initial page does not deep-clone megabytes merely
+        // to produce a compact summary.
+        return visible;
+      })
+      : clone(this.entries.slice(safeStart));
+    if (options.forTranscript !== true) {
+      for (const entry of entries) delete entry._revision;
+    }
+    if (this.provider !== 'codex') return entries;
+
+    let internalSegment = false;
+    for (let index = 0; index < safeStart; index += 1) {
+      const entry = this.entries[index];
+      if (entry?.type !== 'message' || entry.role !== 'user') continue;
+      const hasAttachment = (entry.content || []).some(content => content.type !== 'text');
+      internalSegment = !hasAttachment && isCodexInjectedContextMessage(contentText(entry.content));
+    }
+    for (const entry of entries) {
+      if (entry.type === 'message' && entry.role === 'user') {
+        const hasAttachment = (entry.content || []).some(content => content.type !== 'text');
+        const rawText = contentText(entry.content);
+        internalSegment = !hasAttachment && isCodexInjectedContextMessage(rawText);
+      }
+      entry.internal = internalSegment;
+      if (!['message', 'thought'].includes(entry.type)) continue;
+      for (const content of entry.content || []) {
+        if (content.type === 'text') content.text = stripCodexInternalContextBlocks(content.text);
+      }
+    }
+    return entries;
+  }
+
+  isInternalEntry(targetEntry) {
+    if (this.provider !== 'codex' || !targetEntry) return false;
+    let internalSegment = false;
+    for (const entry of this.entries) {
+      if (entry.type === 'message' && entry.role === 'user') {
+        const hasAttachment = (entry.content || []).some(content => content.type !== 'text');
+        internalSegment = !hasAttachment && isCodexInjectedContextMessage(contentText(entry.content));
+      }
+      if (entry === targetEntry) return internalSegment;
+    }
+    return false;
+  }
+
+  snapshot(extra = {}, options = {}) {
+    const entries = options.includeEntries === false ? [] : this.sanitizedEntries(0);
     const snapshot = {
       version: 2,
       protocol: 'acp',
@@ -241,6 +364,7 @@ class AcpSessionState {
       title: this.title,
       updatedAt: this.updatedAt || extra.updatedAt || '',
       truncated: this.truncated,
+      revision: this.revision,
       entries,
       usage: clone(this.usage),
       availableCommands: clone(this.availableCommands),
@@ -253,4 +377,8 @@ class AcpSessionState {
   }
 }
 
-module.exports = { AcpSessionState, MAX_ACP_UPDATES };
+module.exports = {
+  AcpSessionState,
+  MAX_ACP_UPDATES,
+  MAX_ACP_UPDATE_LOG_VALUE_CHARS,
+};

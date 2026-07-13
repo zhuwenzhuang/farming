@@ -57,6 +57,7 @@ export interface AcpComposerProps {
   active: boolean
   agentId: string
   runtimeState: string
+  sessionUpdatedAt?: string
   runtimeError: string
   draft: string
   attachments: ComposerAttachmentView[]
@@ -89,6 +90,7 @@ export function AcpComposer({
   active,
   agentId,
   runtimeState,
+  sessionUpdatedAt,
   runtimeError,
   draft,
   attachments,
@@ -125,7 +127,11 @@ export function AcpComposer({
   const [activeCommandIndex, setActiveCommandIndex] = useState(0)
   const [openMenu, setOpenMenu] = useState<AcpComposerMenu>(null)
   const [modelPane, setModelPane] = useState<'model' | 'speed' | null>(null)
-  const { session, error: sessionError, updatingId, setMode, setConfigOption } = useAcpSession(agentId, active, runtimeState)
+  const { session, error: sessionError, updatingId, setMode, setConfigOption } = useAcpSession(
+    agentId,
+    active,
+    `${runtimeState}:${sessionUpdatedAt || ''}`,
+  )
   latestDraftRef.current = draft
   const interrupting = submitAction === 'interrupt'
   const disabled = submitAction === 'disabled'

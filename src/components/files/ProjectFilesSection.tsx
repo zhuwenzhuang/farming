@@ -143,6 +143,7 @@ export function ProjectFilesSection({
     rememberFocusedTreeNode,
     rememberSelectedTreeNodes,
     renderFileTreeRow,
+    setTreePathOpen,
   } = useWorkspaceFileTreeController({
     rowHeight: FILE_ROW_HEIGHT,
     visibleTreeRowCount,
@@ -432,6 +433,7 @@ export function ProjectFilesSection({
     onSearchQueryChange: updateFileSearchQuery,
     onSelectOpenFile,
     onSelectSearchMatchIndex: fileSearch.selectMatchIndex,
+    onSetDirectoryOpen: setTreePathOpen,
     onStartAgentFromFileMenu: startAgentFromFileMenu,
     onStartFileMenuOperation: startFileMenuOperation,
     onSubmitFileOperation: submitFileOperation,

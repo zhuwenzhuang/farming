@@ -54,7 +54,7 @@ function session(overrides = {}) {
 }
 
 function run() {
-  const { buildHistoryAgentItems } = importTsModule('src/components/code/HistoryPanel.tsx');
+  const { buildHistoryAgentItems, filterHistoryAgentItems } = importTsModule('src/components/code/HistoryPanel.tsx');
   const claudeResumeId = 'd7450fc4-37bd-40b1-8523-02ce5b753082';
   const claudeSource = `claude-history:${claudeResumeId}`;
   const codexResumeId = '019f26d3-7485-76d0-8a64-f5cf5d690129';
@@ -126,6 +126,27 @@ function run() {
     homeItems.map(item => item.historyKey).sort(),
     [`agent-session:codex:${sharedId}`, `agent-session:codex:home:work:${sharedId}`].sort(),
     'Sessions with the same provider id in different Agent Homes must remain distinct'
+  );
+
+  const searchableItems = buildHistoryAgentItems(
+    [historyEntry({ id: 'run-search', task: 'Repair deployment pipeline', cwd: '/repo/infra' })],
+    [archivedAgent({ id: 'agent-search', title: 'Review API changes', projectWorkspace: '/repo/backend' })],
+    [session({ id: 'session-search', title: '检查SQLTask Alter clustered支持', workspace: '/repo/odps_src' })]
+  );
+  assert.deepStrictEqual(
+    filterHistoryAgentItems(searchableItems, 'alter').map(item => item.historyKey),
+    ['agent-session:codex:session-search'],
+    'History search should match Agent titles without case sensitivity'
+  );
+  assert.deepStrictEqual(
+    filterHistoryAgentItems(searchableItems, 'BACKEND').map(item => item.historyKey),
+    ['agent:agent-search'],
+    'History search should match workspace metadata without case sensitivity'
+  );
+  assert.strictEqual(
+    filterHistoryAgentItems(searchableItems, '  ').length,
+    searchableItems.length,
+    'Blank History queries should preserve the complete list'
   );
 
   console.log('test-code-history-dedupe passed');

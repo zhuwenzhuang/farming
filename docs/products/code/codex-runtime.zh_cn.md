@@ -7,7 +7,7 @@ Farming 为**新启动的** Codex Agent 提供两种运行时模式：
 - **CLI**（默认）：Farming 按原来的终端拥有方式启动 Codex；Composer 直接向终端写入消息，作为稳定路径。
 - **App Server**（实验性）：Farming 为每个 Codex Agent 持有专属的 Codex app-server；App Server Chat 页面只通过结构化 Codex 协议读写，不创建 CLI 或 PTY observer。其上游协议可能随 Codex 版本变化。
 
-设置提供默认模式；**New Agent** 对话框会为每个新建的 Codex Agent 提供运行方式选择，该次选择只覆盖这一次启动。已经运行的 session 保持创建时的模式，因此切换任一入口都不会抢焦点、重启当前终端，或把用户切换到其他 Agent。
+**New Agent** 对话框是新建 Codex Agent 时唯一可见的运行方式选择入口。持久化的 `codexRuntimeMode` 只作为兼容元数据保留，不再出现在 Settings 中。已经运行的 session 保持创建时的模式，因此为新 Agent 选择运行方式不会抢焦点、重启当前终端，或把用户切换到其他 Agent。
 
 ## 两条运行时边界
 

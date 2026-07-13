@@ -2,6 +2,7 @@ import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { agentTitle } from '@/lib/format'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import {
+  agentSessionId,
   groupAgentsByProject,
 } from './model'
 import { limitProjectAgentSessions } from './session-display'
@@ -43,7 +44,9 @@ export function projectListProjectsForAgents(
 export function displayedProjectsForSearch(
   sourceProjects: ProjectGroup[],
   normalizedSearch: string,
-  expandedProjectIds: ReadonlySet<string>
+  expandedProjectIds: ReadonlySet<string>,
+  matchedSessionIds: ReadonlySet<string> = new Set(),
+  matchedAgentIds: ReadonlySet<string> = new Set()
 ) {
   if (!normalizedSearch) return sourceProjects
 
@@ -55,22 +58,16 @@ export function displayedProjectsForSearch(
       ].some(value => value.toLowerCase().includes(normalizedSearch))
       const filteredAgents = projectMatches
         ? project.agents
-        : project.agents.filter(agent => [
-          agentTitle(agent),
-          agent.command,
-          agent.cwd,
-          agent.task || '',
-        ].some(value => value.toLowerCase().includes(normalizedSearch)))
+        : project.agents.filter(agent => (
+          matchedAgentIds.has(agent.id)
+          || agentTitle(agent).toLowerCase().includes(normalizedSearch)
+        ))
       const filteredAgentSessions = projectMatches
         ? project.agentSessions
-        : project.agentSessions.filter(session => [
-          session.title,
-          session.providerName || session.provider,
-          session.cwd,
-          session.workspace || '',
-          session.model || '',
-          session.effort || '',
-        ].some(value => value.toLowerCase().includes(normalizedSearch)))
+        : project.agentSessions.filter(session => (
+          matchedSessionIds.has(agentSessionId(session))
+          || session.title.toLowerCase().includes(normalizedSearch)
+        ))
 
       return filteredAgents.length > 0 || filteredAgentSessions.length > 0
         ? { ...project, agents: filteredAgents, agentSessions: filteredAgentSessions }

@@ -210,7 +210,11 @@ async function run() {
         oldLines: 1,
         newStart: 1,
         newLines: 1,
-        rows: [{ kind: 'changed', left: { line: 1, text: 'return files;' }, right: { line: 1, text: 'return reviewedFiles;' } }],
+        rows: [{
+          kind: 'changed',
+          left: { intraline: [{ start: 7, end: 8 }], line: 1, text: 'return files;' },
+          right: { intraline: [{ start: 7, end: 10 }, { start: 11, end: 17 }], line: 1, text: 'return reviewedFiles;' },
+        }],
       }],
     },
     kind: 'modified',
@@ -278,6 +282,13 @@ async function run() {
             ':100644 000000 4444444 0000000 D\tremoved.ts',
           ].join('\n'),
         };
+      }
+      if (args[2] === 'show' && args.length === 4) {
+        const object = args[3];
+        if (object === 'HEAD~1:src/review.ts') return { stdout: 'const before = true;\nreturn files;\nconst tail = true;\n' };
+        if (object === 'HEAD:src/review.ts') return { stdout: 'const before = true;\nreturn reviewedFiles;\nconst tail = true;\n' };
+        if (object === 'HEAD~1:old/name.ts' || object === 'HEAD:new/name.ts') return { stdout: 'rename content\n' };
+        if (object === 'HEAD~1:removed.ts') return { stdout: 'removed();\n' };
       }
       const filePath = args[args.length - 1];
       if (filePath === 'src/review.ts') return {
@@ -366,7 +377,11 @@ async function run() {
             newStart: 2,
             newLines: 2,
             rows: [
-              { kind: 'changed', left: { line: 2, text: 'return files;' }, right: { line: 2, text: 'return reviewedFiles;' } },
+              {
+                kind: 'changed',
+                left: { intraline: [{ start: 7, end: 8 }], line: 2, text: 'return files;' },
+                right: { intraline: [{ start: 7, end: 10 }, { start: 11, end: 17 }], line: 2, text: 'return reviewedFiles;' },
+              },
               { kind: 'added', right: { line: 3, text: 'return status;' } },
             ],
           }],
@@ -472,6 +487,42 @@ async function run() {
   assert.deepStrictEqual(diffCalls.map(call => call.options), [{}, { context: 25 }]);
   await assert.rejects(() => service.getWorkingCopyFile('agent-1', '../bad.ts'), /file path is required/);
   await assert.rejects(() => service.getWorkingCopyFile('agent-1', 'missing.ts'), /review file not found/);
+  const workingContextService = new ReviewDiffService({
+    getAgentWorkspaceRoot(agentId) {
+      return agentId === 'agent-context' ? '/context-workspace' : '';
+    },
+  }, {
+    async changes() {
+      return { items: [{ path: 'src/context.ts', gitStatus: 'modified' }], truncated: false };
+    },
+    async diff() {
+      return {
+        modifiedContent: 'line 1\nline 2\nnew line 3\nline 4\n',
+        originalContent: 'line 1\nline 2\nold line 3\nline 4\n',
+        patch: '@@ -3,1 +3,1 @@\n-old line 3\n+new line 3',
+      };
+    },
+  });
+  assert.deepStrictEqual(await workingContextService.getWorkingCopyFileContext('agent-context', 'src/context.ts', {
+    lines: 2,
+    newStart: 1,
+    oldStart: 1,
+  }), {
+    leftLines: 4,
+    rightLines: 4,
+    rows: [
+      { kind: 'context', left: { line: 1, text: 'line 1' }, right: { line: 1, text: 'line 1' } },
+      { kind: 'context', left: { line: 2, text: 'line 2' }, right: { line: 2, text: 'line 2' } },
+    ],
+  });
+  await assert.rejects(
+    () => workingContextService.getWorkingCopyFileContext('agent-context', 'src/context.ts', { lines: 0, newStart: 1, oldStart: 1 }),
+    /lines must be an integer/,
+  );
+  await assert.rejects(
+    () => workingContextService.getWorkingCopyFileContext('agent-context', 'src/context.ts', { lines: 3, newStart: 3, oldStart: 3 }),
+    /outside the file/,
+  );
   const downloaded = await service.getWorkingCopyPatch('agent-1', { limit: 3 });
   assert.strictEqual(downloaded.truncated, true);
   assert.match(downloaded.patch, /diff --git a\/src\/review\.ts b\/src\/review\.ts/);
@@ -630,7 +681,11 @@ async function run() {
             oldLines: 1,
             newStart: 2,
             newLines: 1,
-            rows: [{ kind: 'changed', left: { line: 2, text: 'return files;' }, right: { line: 2, text: 'return reviewedFiles;' } }],
+            rows: [{
+              kind: 'changed',
+              left: { intraline: [{ start: 7, end: 8 }], line: 2, text: 'return files;' },
+              right: { intraline: [{ start: 7, end: 10 }, { start: 11, end: 17 }], line: 2, text: 'return reviewedFiles;' },
+            }],
           }],
         },
         kind: 'modified',
@@ -749,6 +804,23 @@ async function run() {
   assert.strictEqual(presentationRange.patchset, range.patchset);
   const rangeFile = await service.getGitRangeFile('agent-1', { base: 'HEAD~1', head: 'HEAD', path: 'new/name.ts' });
   assert.deepStrictEqual(rangeFile, range.files[1]);
+  const rangeContext = await service.getGitRangeFileContext('agent-1', {
+    base: 'HEAD~1',
+    head: 'HEAD',
+    lines: 1,
+    newStart: 1,
+    oldStart: 1,
+    path: 'src/review.ts',
+  });
+  assert.deepStrictEqual(rangeContext, {
+    leftLines: 3,
+    rightLines: 3,
+    rows: [{
+      kind: 'context',
+      left: { line: 1, text: 'const before = true;' },
+      right: { line: 1, text: 'const before = true;' },
+    }],
+  });
 
   const nulServiceCalls = [];
   const nulService = new ReviewDiffService({

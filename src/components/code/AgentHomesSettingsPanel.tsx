@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CheckGlyph, ChevronLeftGlyph, CloseGlyph, ColorModeGlyph, PlusGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import type { UiPreferences } from '@/lib/ui-preferences'
-import type { AgentHomeSetting, AgentHomesSettings, CodexRuntimeMode, GlobalSettings } from './types'
+import type { AgentHomeSetting, AgentHomesSettings, GlobalSettings } from './types'
 import type { AgentLaunchOption } from './agent-launch-options'
 
 type DraftState = { provider: string; id: string; path: string } | null
@@ -50,11 +50,11 @@ interface AgentHomesSettingsPanelProps {
 const KNOWN_PROVIDERS = ['codex', 'claude', 'opencode', 'qoder']
 const NON_CODING_AGENT_NAMES = new Set(['bash', 'zsh'])
 const ID_PATTERN = /^[A-Za-z0-9._-]+$/
-const FILE_SEARCH_TIMEOUT_OPTIONS_SECONDS = [3, 5, 10, 30, 60, 180]
+const SEARCH_TIMEOUT_OPTIONS_SECONDS = [3, 5, 10, 15, 30, 60, 180]
 
-function nearestFileSearchTimeoutSeconds(timeoutMs: number) {
+function nearestSearchTimeoutSeconds(timeoutMs: number) {
   const seconds = timeoutMs / 1000
-  return FILE_SEARCH_TIMEOUT_OPTIONS_SECONDS.reduce((closest, option) => (
+  return SEARCH_TIMEOUT_OPTIONS_SECONDS.reduce((closest, option) => (
     Math.abs(option - seconds) < Math.abs(closest - seconds) ? option : closest
   ))
 }
@@ -77,22 +77,14 @@ function panelCopy(language: UiPreferences['language']) {
     language: zh ? '语言' : 'Language',
     english: 'English',
     chinese: '中文',
-    codexRuntime: zh ? 'Codex 运行时' : 'Codex runtime',
-    runtimeAndSearch: zh ? '运行与搜索' : 'Runtime & Search',
-    appServer: zh ? 'App Server（实验性）' : 'App Server (Experimental)',
-    cli: zh ? '终端（CLI）' : 'Terminal (CLI)',
-    codexRuntimeHint: zh
-      ? '仅影响新建 Agent。'
-      : 'Applies only to newly created agents.',
+    search: zh ? '搜索' : 'Search',
     agentPermissions: zh ? 'Agent 权限' : 'Agent Permissions',
     dangerousSkipLabel: zh ? '默认跳过所有 agent 权限检查' : 'Skip all agent permission checks by default',
     dangerousSkipHint: zh
       ? '开启后，新启动的 Codex、Claude、OpenCode、Qoder、Qwen、Aider、GitHub Copilot CLI、Amazon Q 等会使用各自的危险跳过权限 flag。只在可信沙箱中使用。'
       : 'When enabled, new Codex, Claude, OpenCode, Qoder, Qwen, Aider, GitHub Copilot CLI, Amazon Q, and similar agents launch with their provider-specific dangerous skip flags. Use only in trusted sandboxes.',
-    fileSearch: zh ? '文件搜索' : 'File Search',
-    fileSearchTimeout: zh ? '搜索超时' : 'Search timeout',
-    fileSearchTimeoutHint: zh ? '大目录搜索的最长等待时间。' : 'Maximum wait for large-directory searches.',
-    fileSearchTimeoutValue: (seconds: number) => zh
+    searchTimeout: zh ? '搜索超时' : 'Search timeout',
+    searchTimeoutValue: (seconds: number) => zh
       ? (seconds >= 60 ? `${seconds / 60} 分钟` : `${seconds} 秒`)
       : (seconds >= 60 ? `${seconds / 60} min` : `${seconds} sec`),
     updates: zh ? '更新' : 'Updates',
@@ -279,9 +271,8 @@ export function AgentHomesSettingsPanel({
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
   const searchTimeoutSaveTimerRef = useRef<number | null>(null)
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false)
-  const [codexRuntimeMode, setCodexRuntimeMode] = useState<CodexRuntimeMode>('cli')
   const [updateUrl, setUpdateUrl] = useState('')
-  const [workspaceFileSearchTimeoutSeconds, setWorkspaceFileSearchTimeoutSeconds] = useState(3)
+  const [searchTimeoutSeconds, setSearchTimeoutSeconds] = useState(15)
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
   const [selectedUpdateAsset, setSelectedUpdateAsset] = useState('')
   const [updateChecking, setUpdateChecking] = useState(false)
@@ -306,9 +297,8 @@ export function AgentHomesSettingsPanel({
       .then((data: { settings?: GlobalSettings }) => {
         setHomes(normalizeHomes(data.settings?.agentHomes))
         setDangerouslySkipPermissions(data.settings?.dangerouslySkipAgentPermissionsByDefault === true)
-        setCodexRuntimeMode(data.settings?.codexRuntimeMode === 'app-server' ? 'app-server' : 'cli')
         setUpdateUrl(String(data.settings?.updateUrl ?? ''))
-        setWorkspaceFileSearchTimeoutSeconds(nearestFileSearchTimeoutSeconds(Number(data.settings?.workspaceFileSearchTimeoutMs ?? 3000)))
+        setSearchTimeoutSeconds(nearestSearchTimeoutSeconds(Number(data.settings?.searchTimeoutMs ?? 15000)))
       })
       .catch(() => setError(copy.loadFailed))
       .finally(() => setLoading(false))
@@ -403,20 +393,20 @@ export function AgentHomesSettingsPanel({
       .finally(() => setUpdateSaving(false))
   }, [copy.saveFailed, copy.saved, refreshUpdateStatus, updateUrl])
 
-  const setWorkspaceFileSearchTimeout = useCallback((seconds: number) => {
-    setWorkspaceFileSearchTimeoutSeconds(seconds)
+  const setSearchTimeout = useCallback((seconds: number) => {
+    setSearchTimeoutSeconds(seconds)
     setError('')
     if (searchTimeoutSaveTimerRef.current !== null) window.clearTimeout(searchTimeoutSaveTimerRef.current)
     searchTimeoutSaveTimerRef.current = window.setTimeout(() => {
       fetch(appPath('/api/settings'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceFileSearchTimeoutMs: seconds * 1000 }),
+        body: JSON.stringify({ searchTimeoutMs: seconds * 1000 }),
       })
         .then(async response => {
           const data = await response.json().catch(() => null) as { settings?: GlobalSettings; error?: string } | null
           if (!response.ok) throw new Error(data?.error || copy.saveFailed)
-          setWorkspaceFileSearchTimeoutSeconds(nearestFileSearchTimeoutSeconds(Number(data?.settings?.workspaceFileSearchTimeoutMs ?? seconds * 1000)))
+          setSearchTimeoutSeconds(nearestSearchTimeoutSeconds(Number(data?.settings?.searchTimeoutMs ?? seconds * 1000)))
         })
         .catch(error => setError(error instanceof Error ? error.message : copy.saveFailed))
     }, 120)
@@ -481,31 +471,6 @@ export function AgentHomesSettingsPanel({
       })
       .finally(() => setSaving(false))
   }, [copy.saveFailed, copy.saved])
-
-  const saveCodexRuntimeMode = useCallback((mode: CodexRuntimeMode) => {
-    const previous = codexRuntimeMode
-    setCodexRuntimeMode(mode)
-    setSaving(true)
-    setError('')
-    setNotice('')
-    fetch(appPath('/api/settings'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ codexRuntimeMode: mode }),
-    })
-      .then(async response => {
-        const data = await response.json().catch(() => null) as { settings?: GlobalSettings; error?: string } | null
-        if (!response.ok) throw new Error(data?.error || copy.saveFailed)
-        setCodexRuntimeMode(data?.settings?.codexRuntimeMode === 'app-server' ? 'app-server' : 'cli')
-        setNotice(copy.saved)
-      })
-      .catch(error => {
-        setCodexRuntimeMode(previous)
-        setError(error instanceof Error ? error.message : copy.saveFailed)
-      })
-      .finally(() => setSaving(false))
-  }, [codexRuntimeMode, copy.saveFailed, copy.saved])
-
 
   const submitDraft = useCallback(() => {
     if (!draft) return
@@ -633,44 +598,23 @@ export function AgentHomesSettingsPanel({
 
           <section className="code-settings-section code-settings-group">
             <div className="code-settings-section-heading">
-              <div><h3>{copy.runtimeAndSearch}</h3></div>
+              <div><h3>{copy.search}</h3></div>
             </div>
             <div className="code-settings-card">
-              <div className="code-settings-choice-row code-settings-runtime-row" title={copy.codexRuntimeHint}>
+              <div className="code-settings-choice-row code-settings-search-timeout-row">
                 <div className="code-settings-row-copy">
-                  <strong>{copy.codexRuntime}</strong>
-                  <small>{copy.codexRuntimeHint}</small>
-                </div>
-                <div className="code-settings-segmented code-settings-runtime-choice" role="group" aria-label={copy.codexRuntime}>
-                  <button
-                    type="button"
-                    className={codexRuntimeMode === 'app-server' ? 'active' : ''}
-                    disabled={saving}
-                    onClick={() => saveCodexRuntimeMode('app-server')}
-                  >{copy.appServer}</button>
-                  <button
-                    type="button"
-                    className={codexRuntimeMode === 'cli' ? 'active' : ''}
-                    disabled={saving}
-                    onClick={() => saveCodexRuntimeMode('cli')}
-                  >{copy.cli}</button>
-                </div>
-              </div>
-              <div className="code-settings-choice-row code-settings-search-timeout-row" title={copy.fileSearchTimeoutHint}>
-                <div className="code-settings-row-copy">
-                  <strong>{copy.fileSearchTimeout}</strong>
-                  <small>{copy.fileSearchTimeoutHint}</small>
+                  <strong>{copy.searchTimeout}</strong>
                 </div>
                 <input
                   type="range"
                   min="0"
-                  max={String(FILE_SEARCH_TIMEOUT_OPTIONS_SECONDS.length - 1)}
+                  max={String(SEARCH_TIMEOUT_OPTIONS_SECONDS.length - 1)}
                   step="1"
-                  value={FILE_SEARCH_TIMEOUT_OPTIONS_SECONDS.indexOf(workspaceFileSearchTimeoutSeconds)}
-                  aria-label={copy.fileSearchTimeout}
-                  onChange={event => setWorkspaceFileSearchTimeout(FILE_SEARCH_TIMEOUT_OPTIONS_SECONDS[Number(event.target.value)] ?? 3)}
+                  value={SEARCH_TIMEOUT_OPTIONS_SECONDS.indexOf(searchTimeoutSeconds)}
+                  aria-label={copy.searchTimeout}
+                  onChange={event => setSearchTimeout(SEARCH_TIMEOUT_OPTIONS_SECONDS[Number(event.target.value)] ?? 15)}
                 />
-                <output>{copy.fileSearchTimeoutValue(workspaceFileSearchTimeoutSeconds)}</output>
+                <output>{copy.searchTimeoutValue(searchTimeoutSeconds)}</output>
               </div>
             </div>
           </section>

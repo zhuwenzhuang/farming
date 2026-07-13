@@ -33,7 +33,6 @@ class AsyncCache {
       })
       .catch(error => {
         entry.error = error;
-        if (entry.hasValue) return entry.value;
         throw error;
       })
       .finally(() => {
@@ -46,6 +45,9 @@ class AsyncCache {
   get(entryId = 'default', options = {}) {
     const cacheId = String(entryId);
     const now = this.now();
+    const maxAgeMs = Number.isFinite(options.maxAgeMs)
+      ? Math.max(0, options.maxAgeMs)
+      : null;
     let entry = this.entries.get(cacheId);
     if (!entry) {
       entry = {
@@ -56,6 +58,13 @@ class AsyncCache {
         error: null,
       };
       this.entries.set(cacheId, entry);
+    }
+
+    if (!options.force && maxAgeMs !== null) {
+      if (entry.hasValue && now - entry.fetchedAt <= maxAgeMs) {
+        return Promise.resolve(entry.value);
+      }
+      return this.refresh(cacheId, entry);
     }
 
     if (!options.force && this.isFresh(entry, now)) {

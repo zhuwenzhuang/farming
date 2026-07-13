@@ -35,6 +35,26 @@ async function run() {
   assert.deepStrictEqual(calls, ['sessions', 'sessions']);
   assert.strictEqual(await cache.get('sessions'), 'sessions:2');
 
+  let boundedCalls = 0;
+  const boundedCache = new AsyncCache(async () => {
+    boundedCalls += 1;
+    return `bounded:${boundedCalls}`;
+  }, {
+    ttlMs: 1_000,
+    staleMs: 2_000,
+    now: () => now,
+  });
+  assert.strictEqual(await boundedCache.get('value', { maxAgeMs: 3 }), 'bounded:1');
+  now += 2;
+  assert.strictEqual(await boundedCache.get('value', { maxAgeMs: 3 }), 'bounded:1');
+  now += 2;
+  assert.strictEqual(
+    await boundedCache.get('value', { maxAgeMs: 3 }),
+    'bounded:2',
+    'a caller-specific maximum age should wait for a current value instead of serving stale data'
+  );
+  assert.strictEqual(boundedCalls, 2);
+
   let failingCalls = 0;
   const failingCache = new AsyncCache(async () => {
     failingCalls += 1;
@@ -48,7 +68,28 @@ async function run() {
   await assert.rejects(() => failingCache.get('missing'), /boom/);
   assert.strictEqual(failingCalls, 1);
 
-  console.log('✓ AsyncCache coalesces refreshes and serves stale values while refreshing');
+  let expiringCalls = 0;
+  const expiringCache = new AsyncCache(async () => {
+    expiringCalls += 1;
+    if (expiringCalls > 1) throw new Error('refresh failed');
+    return 'initial';
+  }, {
+    ttlMs: 10,
+    staleMs: 20,
+    now: () => now,
+  });
+  assert.strictEqual(await expiringCache.get('value'), 'initial');
+  now += 15;
+  assert.strictEqual(await expiringCache.get('value'), 'initial', 'stale window should return the old value while refreshing');
+  await waitForMicrotasks();
+  now += 10;
+  await assert.rejects(
+    () => expiringCache.get('value'),
+    /refresh failed/,
+    'a failed refresh beyond the stale window must not silently return an indefinitely old value'
+  );
+
+  console.log('✓ AsyncCache coalesces refreshes and supports bounded current reads');
 }
 
 run().catch(error => {

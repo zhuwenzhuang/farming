@@ -14,7 +14,7 @@ const { isSafeProviderSessionId } = require('./provider-session-id');
 
 const DEFAULT_LIMIT = 60;
 const DEFAULT_SCAN_LIMIT = 500;
-const MAX_AGENT_SESSION_HISTORY_LIMIT = 1000;
+const MAX_AGENT_SESSION_HISTORY_LIMIT = 5000;
 const MAX_AGENT_SESSION_SCAN_LIMIT = 5000;
 const CLAUDE_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
 const QODER_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
@@ -100,6 +100,35 @@ function paginateAgentSessions(sessions, options = {}) {
     nextCursor: hasMore && page.length > 0 ? encodeAgentSessionCursor(page[page.length - 1]) : '',
     hasMore,
     invalidCursor: false,
+  };
+}
+
+function searchAgentSessions(sessions, query, options = {}) {
+  const normalizedQuery = String(query || '').trim().toLowerCase();
+  const limit = Number.isFinite(options.limit)
+    ? Math.max(1, Math.min(MAX_AGENT_SESSION_HISTORY_LIMIT, Math.floor(options.limit)))
+    : DEFAULT_LIMIT;
+  if (!normalizedQuery) {
+    return { sessions: [], total: 0, query: '', scope: 'title-project' };
+  }
+
+  const projectNames = options.projectNames && typeof options.projectNames === 'object'
+    ? options.projectNames
+    : {};
+  const matches = sessions.filter(session => {
+    const projectPaths = [session?.workspace, session?.cwd];
+    return [
+      session?.title,
+      ...projectPaths,
+      ...projectPaths.map(workspace => projectNames[String(workspace || '')]),
+    ].some(value => String(value || '').toLowerCase().includes(normalizedQuery));
+  });
+
+  return {
+    sessions: matches.slice(0, limit),
+    total: matches.length,
+    query: normalizedQuery,
+    scope: 'title-project',
   };
 }
 
@@ -855,4 +884,5 @@ module.exports = {
   listQoderSessions,
   normalizeProvider,
   paginateAgentSessions,
+  searchAgentSessions,
 };

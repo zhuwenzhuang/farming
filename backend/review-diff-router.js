@@ -67,6 +67,7 @@ function createReviewDiffRouter(reviewDiffService, reviewSessionService) {
     try {
       const file = await reviewDiffService.getWorkingCopyFile(req.query.agentId, req.params.filePath, {
         context: req.query.context,
+        fileMeta: true,
         ignoreWhitespace: req.query.ignoreWhitespace,
         ...(req.query.modifiedWithinDays !== undefined ? { modifiedWithinDays: req.query.modifiedWithinDays } : {}),
         ...(req.query.scope !== undefined ? { scope: req.query.scope } : {}),
@@ -75,6 +76,21 @@ function createReviewDiffRouter(reviewDiffService, reviewSessionService) {
       res.json(file);
     } catch (error) {
       sendWorkspaceError(res, error, 'review file diff operation failed', 'Review file diff API error:');
+    }
+  });
+  router.get('/working-copy/files/:filePath/context', async (req, res) => {
+    try {
+      const context = await reviewDiffService.getWorkingCopyFileContext(req.query.agentId, req.params.filePath, {
+        lines: req.query.lines,
+        newStart: req.query.newStart,
+        oldStart: req.query.oldStart,
+        ...(req.query.modifiedWithinDays !== undefined ? { modifiedWithinDays: req.query.modifiedWithinDays } : {}),
+        ...(req.query.scope !== undefined ? { scope: req.query.scope } : {}),
+        ...(req.query.root !== undefined ? { root: req.query.root } : {}),
+      });
+      res.json(context);
+    } catch (error) {
+      sendWorkspaceError(res, error, 'review context operation failed', 'Review context API error:');
     }
   });
   router.get('/git-range/patch', async (req, res) => {
@@ -118,6 +134,7 @@ function createReviewDiffRouter(reviewDiffService, reviewSessionService) {
       const file = await reviewDiffService.getGitRangeFile(req.query.agentId, {
         base: req.query.base,
         context: req.query.context,
+        fileMeta: true,
         head: req.query.head,
         ignoreWhitespace: req.query.ignoreWhitespace,
         path: req.params.filePath,
@@ -127,6 +144,24 @@ function createReviewDiffRouter(reviewDiffService, reviewSessionService) {
       res.json(file);
     } catch (error) {
       sendWorkspaceError(res, error, 'review git range file diff operation failed', 'Review git range file diff API error:');
+    }
+  });
+  router.get('/git-range/files/:filePath/context', async (req, res) => {
+    try {
+      assertReviewSessionRange(req);
+      const context = await reviewDiffService.getGitRangeFileContext(req.query.agentId, {
+        base: req.query.base,
+        head: req.query.head,
+        lines: req.query.lines,
+        newStart: req.query.newStart,
+        oldStart: req.query.oldStart,
+        path: req.params.filePath,
+        ...(req.query.reviewId !== undefined ? { reviewId: req.query.reviewId } : {}),
+        ...(req.query.root !== undefined ? { root: req.query.root } : {}),
+      });
+      res.json(context);
+    } catch (error) {
+      sendWorkspaceError(res, error, 'review git range context operation failed', 'Review git range context API error:');
     }
   });
   return router;

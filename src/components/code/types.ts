@@ -48,7 +48,7 @@ export interface GlobalSettings extends WorkspaceHistorySettings {
   language?: UiLanguage
   dangerouslySkipAgentPermissionsByDefault?: boolean
   updateUrl?: string
-  workspaceFileSearchTimeoutMs?: number
+  searchTimeoutMs?: number
   codexRuntimeMode?: CodexRuntimeMode
   agentHomes?: AgentHomesSettings
   agentLaunchProfiles?: {

@@ -161,6 +161,17 @@ async function run() {
     const codingEnv = manager.buildAgentEnv('agent-coding', { wantsMain: false, category: 'coding' });
     assert.strictEqual(codingEnv.FARMING_SHELL_CONTROLLED_PROMPT, undefined, 'coding CLIs should not inherit shell prompt policy');
     assert.strictEqual(codingEnv.FARMING_ANONYMIZE_SHELL_PROMPT, undefined, 'coding CLIs should not inherit shell anonymization policy');
+
+    let freshPath = '/first/bin';
+    manager.agentShellEnvProvider = () => ({ PATH: freshPath });
+    assert.strictEqual(manager.resolveAgentShellEnv('', { force: true }).PATH, '/first/bin');
+    freshPath = '/second/bin';
+    assert.strictEqual(manager.resolveAgentShellEnv('').PATH, '/first/bin', 'normal shell env reads should reuse the bounded cache');
+    assert.strictEqual(manager.resolveAgentShellEnv('', { maxAgeMs: 3_000 }).PATH, '/first/bin', 'short discovery reads should reuse a recent shell environment');
+    manager.agentShellEnvCache.get('__default__').resolvedAt -= 3_001;
+    assert.strictEqual(manager.resolveAgentShellEnv('', { maxAgeMs: 3_000 }).PATH, '/second/bin', 'short discovery reads should refresh an expired shell environment');
+    freshPath = '/third/bin';
+    assert.strictEqual(manager.resolveAgentShellEnv('', { force: true }).PATH, '/third/bin', 'forced shell env reads should still bypass every cache');
   } finally {
     clearInterval(manager.heartbeatInterval);
     await manager.engineBridge.dispose();

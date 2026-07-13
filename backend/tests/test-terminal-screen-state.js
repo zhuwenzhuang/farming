@@ -9,6 +9,7 @@ async function run() {
     await screen.write('\x1b[1;31mA\x1b[0m \x1b[3;4;38;2;1;2;3;48;5;25mB\x1b[0m');
 
     const styledState = screen.getState({ includeRenderOutput: false });
+    assert.strictEqual(styledState.previewSnapshot.cursorVisible, true);
     assert.strictEqual(styledState.previewSnapshot.cells[0][0].char, 'A');
     assert.strictEqual(styledState.previewSnapshot.cells[0][0].fg, 1);
     assert.strictEqual(styledState.previewSnapshot.cells[0][0].attributes, 0x01);
@@ -42,6 +43,21 @@ async function run() {
     assert.strictEqual(cleared.previewText, '');
     assert.ok(!cleared.renderOutput.includes('five'), 'cleared render output should not replay old scrollback');
     assert.strictEqual(cleared.previewSnapshot.rows, 3);
+
+    const hiddenCursorScreen = new TerminalScreenState({ cols: 12, rows: 4 });
+    try {
+      await hiddenCursorScreen.write('painted cursor\x1b[?25l');
+      const hiddenState = hiddenCursorScreen.getState();
+      assert.strictEqual(hiddenState.previewSnapshot.cursorVisible, false);
+      assert.ok(hiddenState.renderOutput.endsWith('\x1b[?25l'));
+
+      await hiddenCursorScreen.write('\x1b[?25h');
+      const visibleState = hiddenCursorScreen.getState();
+      assert.strictEqual(visibleState.previewSnapshot.cursorVisible, true);
+      assert.ok(visibleState.renderOutput.endsWith('\x1b[?25h'));
+    } finally {
+      hiddenCursorScreen.dispose();
+    }
 
     const lfScreen = new TerminalScreenState({ cols: 24, rows: 4 });
     try {

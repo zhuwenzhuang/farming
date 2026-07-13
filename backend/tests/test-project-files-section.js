@@ -656,10 +656,13 @@ function run() {
 		      !fileTreeRowInteractionsSource.includes('const plainClick = !event.metaKey && !event.ctrlKey && !event.shiftKey') &&
 	      fileTreeRowInteractionsSource.includes('onCancelPendingFileFocus()') &&
 	      fileTreeRowInteractionsSource.includes('const nextOpen = !node.isOpen') &&
-		      !fileTreeRowInteractionsSource.includes('onSetDirectoryOpen(item.path, nextOpen)') &&
+		      fileTreeRowInteractionsSource.includes('onSetDirectoryOpen(item.path, nextOpen)') &&
 		      !fileTreeRowInteractionsSource.includes('onHydrateCompactDirectoryChains') &&
 		      !fileTreeRowInteractionsSource.includes('onRefreshTreeLayout') &&
 		      fileTreeControllerHookSource.includes('const refreshTreeLayout = useCallback((preserveOpenPaths: readonly string[] = []) =>') &&
+		      fileTreeControllerHookSource.includes('const setTreePathOpen = useCallback((path: string, open: boolean) =>') &&
+		      fileSectionSource.includes('onSetDirectoryOpen: setTreePathOpen') &&
+		      fileTreeViewSource.includes('onSetDirectoryOpen={onSetDirectoryOpen}') &&
 		      fileTreeControllerHookSource.includes('openTreePaths(preserveOpenPaths)') &&
 		      fileTreeControllerHookSource.includes('const pathsToOpen = Array.from(openDirectoryPaths)') &&
 		      fileTreeControllerHookSource.includes('const reconcileTreeOpenState = () =>') &&
@@ -872,9 +875,9 @@ function run() {
 	      fileTreeKeyboardHookSource.includes('preserveWorkspaceFileScrollPosition') &&
 	      !fileSectionSource.includes('preserveWorkspaceFileScrollPosition') &&
       fileFocusHookSource.includes('focusWithoutScrolling(targetTree)') &&
-      fileFocusHookSource.includes('window.setTimeout(focusTarget, 80)') &&
-      fileFocusHookSource.includes('window.setTimeout(focusTarget, 180)') &&
-      fileFocusHookSource.includes('window.setTimeout(focusTarget, 360)') &&
+      fileFocusHookSource.includes(';[80, 180, 360].forEach(delay =>') &&
+      fileFocusHookSource.includes('window.setTimeout(focusTarget, delay)') &&
+      fileFocusHookSource.includes('fileTreeFocusTimeoutsRef.current.push(timeoutId)') &&
 	      !fileSectionSource.includes('const closeFileMenu = useCallback') &&
 	      fileMenuControllerSource.includes('const closeFileMenu = useCallback') &&
 		      fileSectionBodySource.includes('<FileSectionOverlays') &&

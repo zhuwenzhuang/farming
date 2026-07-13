@@ -15,6 +15,8 @@ const ADAPTER_VERSIONS = Object.freeze({
 });
 const DEFAULT_INITIALIZE_TIMEOUT_MS = 15_000;
 const DEFAULT_SESSION_SETUP_TIMEOUT_MS = 120_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_CANCEL_TIMEOUT_MS = 15_000;
 const DEFAULT_HISTORY_REPLAY_MIN_WAIT_MS = 350;
 const DEFAULT_HISTORY_REPLAY_QUIET_MS = 150;
 const DEFAULT_HISTORY_REPLAY_MAX_WAIT_MS = 5_000;
@@ -146,6 +148,8 @@ class AcpRuntime extends EventEmitter {
     this.maxUpdates = options.maxUpdates;
     this.initializeTimeoutMs = options.initializeTimeoutMs || DEFAULT_INITIALIZE_TIMEOUT_MS;
     this.sessionSetupTimeoutMs = options.sessionSetupTimeoutMs || DEFAULT_SESSION_SETUP_TIMEOUT_MS;
+    this.requestTimeoutMs = options.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS;
+    this.cancelTimeoutMs = options.cancelTimeoutMs || DEFAULT_CANCEL_TIMEOUT_MS;
     this.historyReplayMinWaitMs = options.historyReplayMinWaitMs ?? DEFAULT_HISTORY_REPLAY_MIN_WAIT_MS;
     this.historyReplayQuietMs = options.historyReplayQuietMs ?? DEFAULT_HISTORY_REPLAY_QUIET_MS;
     this.historyReplayMaxWaitMs = options.historyReplayMaxWaitMs ?? DEFAULT_HISTORY_REPLAY_MAX_WAIT_MS;
@@ -398,25 +402,44 @@ class AcpRuntime extends EventEmitter {
     binding.permissionResolvers.clear();
     binding.pendingPermissions.clear();
     this.emitRuntime(binding);
-    await binding.connection.cancel({ sessionId: binding.sessionId });
-    return true;
+    try {
+      await withTimeout(
+        binding.connection.cancel({ sessionId: binding.sessionId }),
+        this.cancelTimeoutMs,
+        'ACP session/cancel'
+      );
+      return true;
+    } catch (error) {
+      const runtimeError = new Error(acpErrorMessage(error), { cause: error });
+      binding.state = 'error';
+      binding.error = runtimeError.message;
+      binding.stopReason = 'cancel_error';
+      binding.updatedAt = new Date().toISOString();
+      this.emitSession(binding);
+      this.emitRuntime(binding);
+      throw runtimeError;
+    }
   }
 
   async listSessions(agentId, options = {}) {
     const binding = this.requireBinding(agentId);
     const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
     if (!capabilities?.list) throw new Error(`${binding.provider} ACP Agent does not support session/list`);
-    return binding.connection.listSessions({
+    return withTimeout(binding.connection.listSessions({
       ...(options.cwd ? { cwd: path.resolve(options.cwd) } : {}),
       ...(options.cursor ? { cursor: String(options.cursor) } : {}),
-    });
+    }), this.requestTimeoutMs, 'ACP session/list');
   }
 
   async authenticate(agentId, methodId) {
     const binding = this.requireBinding(agentId);
     const method = binding.initializeResponse?.authMethods?.find(item => item.id === methodId);
     if (!method) throw new Error('Unknown ACP authentication method');
-    await binding.connection.authenticate({ methodId });
+    await withTimeout(
+      binding.connection.authenticate({ methodId }),
+      this.requestTimeoutMs,
+      'ACP authenticate'
+    );
     return { authenticated: true, methodId };
   }
 
@@ -424,21 +447,25 @@ class AcpRuntime extends EventEmitter {
     const binding = this.requireBinding(agentId);
     const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
     if (!capabilities?.fork) throw new Error(`${binding.provider} ACP Agent does not support session/fork`);
-    return binding.connection.unstable_forkSession({
+    return withTimeout(binding.connection.unstable_forkSession({
       sessionId: options.sessionId || binding.sessionId,
       cwd: path.resolve(options.cwd || binding.cwd),
       additionalDirectories: Array.isArray(options.additionalDirectories)
         ? options.additionalDirectories.map(directory => path.resolve(directory))
         : [],
       mcpServers: [],
-    });
+    }), this.sessionSetupTimeoutMs, 'ACP session/fork');
   }
 
   async deleteSession(agentId, sessionId) {
     const binding = this.requireBinding(agentId);
     const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
     if (!capabilities?.delete) throw new Error(`${binding.provider} ACP Agent does not support session/delete`);
-    await binding.connection.deleteSession({ sessionId: String(sessionId || '') });
+    await withTimeout(
+      binding.connection.deleteSession({ sessionId: String(sessionId || '') }),
+      this.requestTimeoutMs,
+      'ACP session/delete'
+    );
     return { deleted: true, sessionId: String(sessionId || '') };
   }
 
@@ -446,7 +473,11 @@ class AcpRuntime extends EventEmitter {
     const binding = this.requireBinding(agentId);
     const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
     if (!capabilities?.close) throw new Error(`${binding.provider} ACP Agent does not support session/close`);
-    await binding.connection.closeSession({ sessionId: binding.sessionId });
+    await withTimeout(
+      binding.connection.closeSession({ sessionId: binding.sessionId }),
+      this.requestTimeoutMs,
+      'ACP session/close'
+    );
     binding.state = 'closed';
     this.emitRuntime(binding);
     return { closed: true, sessionId: binding.sessionId };
@@ -454,7 +485,11 @@ class AcpRuntime extends EventEmitter {
 
   async setSessionMode(agentId, modeId) {
     const binding = this.requireBinding(agentId);
-    await binding.connection.setSessionMode({ sessionId: binding.sessionId, modeId: String(modeId || '') });
+    await withTimeout(
+      binding.connection.setSessionMode({ sessionId: binding.sessionId, modeId: String(modeId || '') }),
+      this.requestTimeoutMs,
+      'ACP session/set_mode'
+    );
     binding.sessionState.currentModeId = String(modeId || '');
     if (binding.modes) binding.modes = { ...binding.modes, currentModeId: binding.sessionState.currentModeId };
     this.emitSession(binding);
@@ -466,7 +501,11 @@ class AcpRuntime extends EventEmitter {
     const request = typeof value === 'boolean'
       ? { sessionId: binding.sessionId, configId: String(configId || ''), type: 'boolean', value }
       : { sessionId: binding.sessionId, configId: String(configId || ''), value: String(value ?? '') };
-    const response = await binding.connection.setSessionConfigOption(request);
+    const response = await withTimeout(
+      binding.connection.setSessionConfigOption(request),
+      this.requestTimeoutMs,
+      'ACP session/set_config_option'
+    );
     binding.configOptions = response?.configOptions || binding.configOptions;
     binding.sessionState.configOptions = JSON.parse(JSON.stringify(binding.configOptions));
     this.emitSession(binding);
@@ -511,6 +550,34 @@ class AcpRuntime extends EventEmitter {
     return binding.sessionState.snapshot(runtimeState, options);
   }
 
+  getTranscriptSession(agentId, options = {}) {
+    const binding = this.requireBinding(agentId);
+    const slice = binding.sessionState
+      ? binding.sessionState.transcriptSlice(options)
+      : { entries: [], revision: 0, delta: false, hasMoreBefore: false };
+    return {
+      version: 2,
+      protocol: 'acp',
+      provider: binding.provider,
+      sessionId: binding.sessionId,
+      cwd: binding.cwd,
+      title: binding.sessionState?.title || '',
+      updatedAt: binding.updatedAt,
+      truncated: binding.sessionState?.truncated === true,
+      state: binding.state,
+      error: binding.error,
+      stopReason: binding.stopReason,
+      ...slice,
+    };
+  }
+
+  getToolEntry(agentId, toolCallId) {
+    const binding = this.requireBinding(agentId);
+    const entry = binding.sessionState?.toolEntries.get(String(toolCallId || ''));
+    if (!entry || binding.sessionState.isInternalEntry(entry)) return null;
+    return JSON.parse(JSON.stringify(entry));
+  }
+
   requireBinding(agentId) {
     const binding = this.bindings.get(agentId);
     if (!binding) throw new Error('ACP Agent is not registered');
@@ -532,7 +599,11 @@ class AcpRuntime extends EventEmitter {
   }
 
   emitSession(binding) {
-    this.emit('session', { agentId: binding.agentId, updatedAt: binding.updatedAt });
+    this.emit('session', {
+      agentId: binding.agentId,
+      updatedAt: binding.updatedAt,
+      revision: binding.sessionState?.revision || 0,
+    });
   }
 
   handleExit(binding, error) {

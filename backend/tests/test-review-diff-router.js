@@ -49,6 +49,14 @@ async function run() {
         status: 'M',
       };
     },
+    async getWorkingCopyFileContext(agentId, filePath, options) {
+      calls.push(['working-copy-context', agentId, filePath, options]);
+      return {
+        leftLines: 100,
+        rightLines: 100,
+        rows: [{ kind: 'context', left: { line: 21, text: 'same' }, right: { line: 21, text: 'same' } }],
+      };
+    },
     async getGitRange(agentId, options) {
       calls.push(['git-range', agentId, options]);
       if (options.base === 'bad') throw new WorkspaceFileError('base and head revisions are required', 400, { base: options.base });
@@ -79,6 +87,14 @@ async function run() {
         path: options.path,
         removed: 1,
         status: 'M',
+      };
+    },
+    async getGitRangeFileContext(agentId, options) {
+      calls.push(['git-range-context', agentId, options]);
+      return {
+        leftLines: 100,
+        rightLines: 100,
+        rows: [{ kind: 'context', left: { line: 21, text: 'same' }, right: { line: 21, text: 'same' } }],
       };
     },
   };
@@ -161,14 +177,24 @@ async function run() {
     const workingCopyFile = await fetchJson(baseUrl, '/api/reviews/working-copy/files/src%2Freview.ts/diff?agentId=agent-1&context=25&ignoreWhitespace=ALL');
     assert.strictEqual(workingCopyFile.response.status, 200);
     assert.strictEqual(workingCopyFile.body.path, 'src/review.ts');
-    assert.deepStrictEqual(calls.at(-1), ['working-copy-file', 'agent-1', 'src/review.ts', { context: '25', ignoreWhitespace: 'ALL' }]);
+    assert.deepStrictEqual(calls.at(-1), ['working-copy-file', 'agent-1', 'src/review.ts', { context: '25', fileMeta: true, ignoreWhitespace: 'ALL' }]);
 
     await fetchJson(baseUrl, '/api/reviews/working-copy/files/src%2Freview.ts/diff?agentId=agent-1&scope=untracked&modifiedWithinDays=3');
     assert.deepStrictEqual(calls.at(-1), ['working-copy-file', 'agent-1', 'src/review.ts', {
       context: undefined,
+      fileMeta: true,
       ignoreWhitespace: undefined,
       modifiedWithinDays: '3',
       scope: 'untracked',
+    }]);
+
+    const workingCopyContext = await fetchJson(baseUrl, '/api/reviews/working-copy/files/src%2Freview.ts/context?agentId=agent-1&oldStart=21&newStart=21&lines=1&scope=tracked');
+    assert.strictEqual(workingCopyContext.response.status, 200);
+    assert.deepStrictEqual(calls.at(-1), ['working-copy-context', 'agent-1', 'src/review.ts', {
+      lines: '1',
+      newStart: '21',
+      oldStart: '21',
+      scope: 'tracked',
     }]);
 
     const rangePatch = await fetchText(baseUrl, '/api/reviews/git-range/patch?agentId=agent-1&base=HEAD~1&head=HEAD&limit=4&context=10&ignoreWhitespace=ALL');
@@ -182,7 +208,18 @@ async function run() {
     const gitRangeFile = await fetchJson(baseUrl, '/api/reviews/git-range/files/src%2Freview.ts/diff?agentId=agent-1&base=HEAD~1&head=HEAD&context=10&ignoreWhitespace=TRAILING');
     assert.strictEqual(gitRangeFile.response.status, 200);
     assert.strictEqual(gitRangeFile.body.path, 'src/review.ts');
-    assert.deepStrictEqual(calls.at(-1), ['git-range-file', 'agent-1', { base: 'HEAD~1', context: '10', head: 'HEAD', ignoreWhitespace: 'TRAILING', path: 'src/review.ts' }]);
+    assert.deepStrictEqual(calls.at(-1), ['git-range-file', 'agent-1', { base: 'HEAD~1', context: '10', fileMeta: true, head: 'HEAD', ignoreWhitespace: 'TRAILING', path: 'src/review.ts' }]);
+
+    const gitRangeContext = await fetchJson(baseUrl, '/api/reviews/git-range/files/src%2Freview.ts/context?agentId=agent-1&base=HEAD~1&head=HEAD&oldStart=21&newStart=21&lines=1');
+    assert.strictEqual(gitRangeContext.response.status, 200);
+    assert.deepStrictEqual(calls.at(-1), ['git-range-context', 'agent-1', {
+      base: 'HEAD~1',
+      head: 'HEAD',
+      lines: '1',
+      newStart: '21',
+      oldStart: '21',
+      path: 'src/review.ts',
+    }]);
 
     const error = await fetchJson(baseUrl, '/api/reviews/git-range?agentId=agent-1&base=bad&head=HEAD');
     assert.strictEqual(error.response.status, 400);

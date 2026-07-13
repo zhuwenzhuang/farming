@@ -336,7 +336,7 @@ test.describe('permission switching', () => {
 
     await openPermissionTestApp(page)
     await agentRow(page, codexAgentId).click()
-    await page.getByRole('button', { name: 'Terminal' }).click()
+    await expect(page.getByRole('button', { name: 'Terminal' })).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByTestId('code-agent-terminal-view')).toHaveClass(/active/)
     await expect(page.getByTestId('code-agent-chat-view')).toHaveCount(0)
     await page.getByTestId('code-composer-approval').click()

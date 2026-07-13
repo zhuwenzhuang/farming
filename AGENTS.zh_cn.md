@@ -619,7 +619,8 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - **theme**：UI 主题名称（默认：terminal）
 - **heartbeatInterval**：心跳检测和系统监控间隔（单位：毫秒，默认：1000）
 - **dangerouslySkipAgentPermissionsByDefault**：是否默认让支持的 coding agent（如 Codex、Claude、OpenCode、Qoder、Qwen、Aider、GitHub Copilot CLI、Amazon Q）使用各自最激进的权限绕过启动 flag
-- **codexRuntimeMode**：新启动 Codex Agent 的全局运行时模式；默认稳定的 `cli`，也可以在设置中显式选择实验性的 `app-server`，不影响已经运行的 Agent。App Server 模式会为每个 Agent 创建短路径、专属的 runtime `CODEX_HOME`，链接所选 Agent Home 的身份/配置，同时隔离 Codex Desktop、其他 Agent 的 socket、session 与日志。
+- **codexRuntimeMode**：`cli` 与实验性 `app-server` 的旧配置兼容默认值；Settings 面板不再提供这个选项。App Server 模式会为每个 Agent 创建短路径、专属的 runtime `CODEX_HOME`，链接所选 Agent Home 的身份/配置，同时隔离 Codex Desktop、其他 Agent 的 socket、session 与日志。
+- **searchTimeoutMs**：Project Files 搜索与 Agent 历史搜索共用的超时时间，默认 15 秒。
 - **defaultLaunchAgent**：New Agent 对话框默认聚焦的 agent provider（当前 `codex` / `claude`）；composer 不提供 Codex / Claude provider 热切换
 - **agentLaunchProfiles**：按 provider 保存启动能力；Codex profile 会转换成 `codex --model`、reasoning/service tier 和 approval/sandbox 参数，Claude profile 会转换成 `claude --permission-mode`、`--model`、`--effort`
 - **agentHomes**：管理 Codex、Claude、OpenCode、Qoder 的 agent home 元数据；每项只包含稳定 `id` 和配置目录 `path`，每个 provider 都保留不可删除的 `default` home，例如 `codex/default -> ~/.codex`、`codex/zwz -> ~/.codex.zwz`

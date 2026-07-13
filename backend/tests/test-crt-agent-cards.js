@@ -38,6 +38,19 @@ function run() {
       && crtSource.includes('selectCrtStartedAgent(data.agentId)'),
     'CRT should select the Agent confirmed by the agent-started message',
   );
+  const newAgentDialogSource = crtSource.slice(
+    crtSource.indexOf('function showInputDialog'),
+    crtSource.indexOf('function hideInputDialog'),
+  );
+  assert(
+    newAgentDialogSource.includes('void loadAgents();')
+      && crtSource.includes("fetch(farmingApiPath('/executables'), { cache: 'no-store' })"),
+    'Opening the CRT New Agent dialog should rediscover executable agents without an HTTP cache',
+  );
+  assert(
+    crtSource.includes("fetch(farmingApiPath('/agent-sessions?limit=60&fresh=1'), { cache: 'no-store' })"),
+    'Opening CRT History should request a bounded current backend session scan',
+  );
   assert.strictEqual(normalizeCrtTerminalFontSize(10), 10);
   assert.strictEqual(normalizeCrtTerminalFontSize(15.6), 16);
   assert.strictEqual(normalizeCrtTerminalFontSize(100), 20);
@@ -63,8 +76,26 @@ function run() {
     { items: ['c'], page: 1, pageSize: 2, totalItems: 3, totalPages: 2, start: 2 },
   );
   assert.deepStrictEqual(
-    calculateCrtAgentPageLayout(680, 400),
+    calculateCrtAgentPageLayout(680, 400, 1),
+    { columns: 2, rows: 2, pageSize: 4 },
+    'a single Agent should occupy one stable bay instead of stretching across the dashboard',
+  );
+  assert.deepStrictEqual(
+    calculateCrtAgentPageLayout(680, 400, 4),
+    { columns: 2, rows: 2, pageSize: 4 },
+  );
+  assert.deepStrictEqual(
+    calculateCrtAgentPageLayout(680, 400, 6),
     { columns: 3, rows: 2, pageSize: 6 },
+  );
+  assert.deepStrictEqual(
+    calculateCrtAgentPageLayout(680, 560, 9),
+    { columns: 3, rows: 3, pageSize: 9 },
+  );
+  assert.deepStrictEqual(
+    calculateCrtAgentPageLayout(240, 560, 4),
+    { columns: 1, rows: 2, pageSize: 2 },
+    'small screens should preserve the minimum card width instead of squeezing two columns',
   );
   assert.deepStrictEqual(
     getCrtAgentPage(['a', 'b', 'c', 'd', 'e', 'f', 'g'], 1, 6),

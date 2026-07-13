@@ -44,10 +44,10 @@ test('keeps Gerrit-style review controls and independent inline diffs working', 
   await expect(dataflowDiff.locator('.hljs-keyword').first()).toBeVisible()
   await expect(review.getByLabel('Diff for clis/diagnose.py')).toBeVisible()
 
-  await dataflowDiff.getByRole('button', { name: 'Show 90 common lines' }).click()
-  await expect(dataflowDiff.getByRole('button', { name: 'Hide 90 common lines' })).toBeVisible()
+  await dataflowDiff.getByRole('button', { name: 'Show 10 lines below' }).click()
+  await expect(dataflowDiff.getByRole('button', { name: 'Show all 109 common lines' })).toBeVisible()
   const firstDiffRow = dataflowDiff.locator('.review-demo-diff-row').first()
-  await expect(firstDiffRow).toContainText('unchanged review context 1')
+  await expect(firstDiffRow).toContainText('unchanged review context 82')
 
   await review.getByRole('button', { name: 'Diff preferences' }).click()
   await page.getByLabel('Syntax highlighting').uncheck()
@@ -121,7 +121,7 @@ test('persists reviewed files and diff preferences across a refresh', async ({ p
   await review.getByRole('button', { name: 'Diff preferences' }).click()
   await page.getByLabel('Context', { exact: true }).selectOption('25')
   await page.getByRole('button', { name: 'CANCEL' }).click()
-  await expect(review.getByLabel('Diff for clis/diagnose.py').getByRole('button', { name: 'Show 90 common lines' })).toBeVisible()
+  await expect(review.getByLabel('Diff for clis/diagnose.py').getByRole('button', { name: 'Show all 119 common lines' })).toBeVisible()
 
   await review.getByRole('button', { name: 'Diff preferences' }).click()
   await page.getByLabel('Context', { exact: true }).selectOption('3')
@@ -143,7 +143,7 @@ test('persists reviewed files and diff preferences across a refresh', async ({ p
 
   await page.reload()
   await expect(diagnoseRow.getByText('Reviewed', { exact: true })).toBeVisible()
-  await expect(review.getByLabel('Diff for clis/diagnose.py').getByRole('button', { name: 'Show 97 common lines' })).toBeVisible()
+  await expect(review.getByLabel('Diff for clis/diagnose.py').getByRole('button', { name: 'Show all 126 common lines' })).toBeVisible()
   const persistedDiff = review.getByLabel('Diff for clis/diagnose.py')
   await expect(persistedDiff.getByText('Keep the base range explicit.', { exact: true })).toBeVisible()
   await persistedDiff.getByRole('button', { name: 'Delete comment on line 13' }).click()
@@ -178,8 +178,8 @@ test('applies whitespace presentation preferences to the rendered diff', async (
 
   const review = page.getByTestId('review-demo-page')
   const diagnoseDiff = review.getByLabel('Diff for clis/diagnose.py')
-  await diagnoseDiff.getByRole('button', { name: 'Show 90 common lines' }).click()
-  await expect(diagnoseDiff.locator('.review-demo-tab-marker')).toHaveCount(4)
+  await diagnoseDiff.getByRole('button', { name: 'Show 10 lines below' }).click()
+  await expect(diagnoseDiff.locator('.review-demo-tab-marker')).toHaveCount(2)
   await expect(diagnoseDiff.locator('.review-demo-trailing-whitespace')).toHaveCount(1)
   await expect(diagnoseDiff.locator('code[data-review-line="139"]')).toHaveCount(2)
 
@@ -203,8 +203,8 @@ test('renders the full selected common context instead of silently truncating it
   await page.getByRole('button', { name: 'SAVE' }).click()
 
   const diagnoseDiff = review.getByLabel('Diff for clis/diagnose.py')
-  await expect(diagnoseDiff.getByRole('button', { name: 'Show 1 common lines' })).toHaveCount(0)
-  await expect(diagnoseDiff.locator('code[data-review-line="29"][data-review-side="right"]')).toBeVisible()
+  await expect(diagnoseDiff.getByRole('button', { name: 'Show all 29 common lines' })).toBeVisible()
+  await expect(diagnoseDiff.locator('code[data-review-line="30"][data-review-side="right"]')).toBeVisible()
 })
 
 test('marks a single opened file reviewed while expand-all does not mark every file', async ({ page }) => {
@@ -298,6 +298,17 @@ test('captures an agent working copy as an isolated immutable review session', a
                 { kind: 'deleted', left: { intraline: [{ start: 7, end: 18 }], line: 8, text: 'return staleReview;' } },
                 { kind: 'added', right: { intraline: [{ start: 7, end: 19 }], line: 8, text: 'return activeReview;' } },
               ],
+            }, {
+              header: '@@ -839,1 +840,1 @@',
+              oldStart: 839,
+              oldLines: 1,
+              newStart: 840,
+              newLines: 1,
+              rows: [{
+                kind: 'changed',
+                left: { line: 839, missingNewlineAtEnd: true, text: ';' },
+                right: { line: 840, text: ';' },
+              }],
             }],
             truncated: false,
           },
@@ -416,6 +427,7 @@ test('captures an agent working copy as an isolated immutable review session', a
   const workingDiff = review.getByLabel('Diff for src/review.cpp')
   await expect(workingDiff).toBeVisible()
   await expect(workingDiff.locator('.review-demo-intraline')).toHaveCount(2)
+  await expect(workingDiff.getByText('No newline at end of left file.', { exact: true })).toBeVisible()
   await review.getByRole('button', { name: 'Diff preferences' }).click()
   await page.getByLabel('Intraline differences').uncheck()
   await page.getByRole('button', { name: 'SAVE' }).click()
@@ -659,6 +671,7 @@ test('refreshes a review revision without losing inherited state or attaching ou
 test('uses the git-range endpoint when base and head are selected in the review URL', async ({ page }) => {
   let loadedRangeFileDiff = 0
   const loadedContexts: string[] = []
+  const contextRanges: Array<{ lines: number; newStart: number; oldStart: number }> = []
   let reviewedFiles: string[] = []
   await page.route('**/api/reviews/**', async route => {
     const request = route.request()
@@ -671,11 +684,62 @@ test('uses the git-range endpoint when base and head are selected in the review 
       })
       return
     }
+    if (url.includes('/git-range/files/src%2Frange.cpp/context')) {
+      const params = new URL(url).searchParams
+      const range = {
+        lines: Number(params.get('lines')),
+        newStart: Number(params.get('newStart')),
+        oldStart: Number(params.get('oldStart')),
+      }
+      contextRanges.push(range)
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          leftLines: 55,
+          rightLines: 55,
+          rows: Array.from({ length: range.lines }, (_, index) => ({
+            kind: 'context',
+            left: { line: range.oldStart + index, text: `context ${range.oldStart + index}` },
+            right: { line: range.newStart + index, text: `context ${range.newStart + index}` },
+          })),
+        }),
+      })
+      return
+    }
     if (url.includes('/git-range/files/src%2Frange.cpp/diff')) {
       loadedRangeFileDiff += 1
       const context = new URL(url).searchParams.get('context') ?? ''
       loadedContexts.push(context)
-      const expandedContext = context !== '10'
+      const contextLines = Number(context || 10)
+      const fullContext = contextLines >= 50
+      const common = (line: number) => ({ kind: 'context', left: { line, text: `context ${line}` }, right: { line, text: `context ${line}` } })
+      const change = (line: number, suffix: string) => ({
+        kind: 'changed',
+        left: { line, text: `return old${suffix};` },
+        right: { line, text: `return new${suffix};` },
+      })
+      const hunks = fullContext ? [{
+        header: '@@ -4,52 +4,52 @@',
+        oldStart: 4,
+        oldLines: 52,
+        newStart: 4,
+        newLines: 52,
+        rows: [change(4, 'Range'), ...Array.from({ length: 50 }, (_, index) => common(index + 5)), change(55, 'Tail')],
+      }] : [{
+        header: `@@ -4,${contextLines + 1} +4,${contextLines + 1} @@`,
+        oldStart: 4,
+        oldLines: contextLines + 1,
+        newStart: 4,
+        newLines: contextLines + 1,
+        rows: [change(4, 'Range'), ...Array.from({ length: contextLines }, (_, index) => common(index + 5))],
+      }, {
+        header: `@@ -${55 - contextLines},${contextLines + 1} +${55 - contextLines},${contextLines + 1} @@`,
+        oldStart: 55 - contextLines,
+        oldLines: contextLines + 1,
+        newStart: 55 - contextLines,
+        newLines: contextLines + 1,
+        rows: [...Array.from({ length: contextLines }, (_, index) => common(55 - contextLines + index)), change(55, 'Tail')],
+      }]
       expect(url).toContain('agentId=fsess-demo')
       expect(url).toContain('base=HEAD%7E3')
       expect(url).toContain('head=HEAD')
@@ -684,17 +748,9 @@ test('uses the git-range endpoint when base and head are selected in the review 
         body: JSON.stringify({
           added: 1,
           diff: {
-            hunks: [{
-              header: expandedContext ? '@@ -1,4 +1,4 @@' : '@@ -4,1 +4,1 @@',
-              oldStart: expandedContext ? 1 : 4,
-              oldLines: expandedContext ? 4 : 1,
-              newStart: expandedContext ? 1 : 4,
-              newLines: expandedContext ? 4 : 1,
-              rows: [
-                ...(expandedContext ? [1, 2, 3].map(line => ({ kind: 'context', left: { line, text: `context ${line}` }, right: { line, text: `context ${line}` } })) : []),
-                { kind: 'changed', left: { line: 4, text: 'return oldRange;' }, right: { line: 4, text: 'return newRange;' } },
-              ],
-            }],
+            hunks,
+            leftMeta: { contentType: 'text/plain', lines: 55, name: 'src/range.cpp' },
+            rightMeta: { contentType: 'text/plain', lines: 55, name: 'src/range.cpp' },
           },
           diffLoaded: true,
           kind: 'modified',
@@ -778,10 +834,23 @@ test('uses the git-range endpoint when base and head are selected in the review 
   const rangeDiff = review.getByLabel('Diff for src/range.cpp')
   await expect(rangeDiff).toContainText('return newRange;')
   expect(loadedRangeFileDiff).toBe(1)
-  await rangeDiff.getByRole('button', { name: 'Show 3 common lines' }).click()
-  await expect(rangeDiff.getByText('context 1', { exact: true }).first()).toBeVisible()
-  await expect(rangeDiff.getByRole('button', { name: 'Show 3 common lines' })).toHaveCount(0)
-  expect(loadedRangeFileDiff).toBe(2)
+  await expect(rangeDiff.getByRole('button', { name: 'Show 10 lines above' })).toBeVisible()
+  await expect(rangeDiff.getByRole('button', { name: 'Show 10 lines below' })).toBeVisible()
+  await rangeDiff.getByRole('button', { name: 'Show 10 lines above' }).click()
+  await expect(rangeDiff.getByText('context 15', { exact: true }).first()).toBeVisible()
+  await expect(rangeDiff.getByRole('button', { name: 'Show all 20 common lines' })).toBeVisible()
+  await rangeDiff.getByRole('button', { name: 'Show 10 lines below' }).click()
+  await expect(rangeDiff.getByText('context 44', { exact: true }).first()).toBeVisible()
+  await expect(rangeDiff.getByRole('button', { name: 'Show all 10 common lines' })).toBeVisible()
+  await rangeDiff.getByRole('button', { name: 'Show all 10 common lines' }).click()
+  await expect(rangeDiff.getByText('context 25', { exact: true }).first()).toBeVisible()
+  await expect(rangeDiff.getByRole('group', { name: /hidden common lines/ })).toHaveCount(0)
+  expect(loadedRangeFileDiff).toBe(1)
+  expect(contextRanges).toEqual(expect.arrayContaining([
+    { lines: 10, newStart: 15, oldStart: 15 },
+    { lines: 10, newStart: 35, oldStart: 35 },
+    { lines: 10, newStart: 25, oldStart: 25 },
+  ]))
   const rangeReviewedSwitch = rangeFile.getByRole('switch', { name: 'Reviewed' })
   await expect(rangeReviewedSwitch).toHaveAttribute('aria-checked', 'true')
   await rangeFile.hover()
@@ -792,10 +861,154 @@ test('uses the git-range endpoint when base and head are selected in the review 
   await review.getByRole('button', { name: 'Diff preferences' }).click()
   await page.getByLabel('Context', { exact: true }).selectOption('25')
   await page.getByRole('button', { name: 'SAVE' }).click()
-  await expect.poll(() => loadedRangeFileDiff).toBe(3)
-  expect(loadedContexts).toEqual(['10', '13', '25'])
+  await expect.poll(() => loadedRangeFileDiff).toBe(2)
+  expect(loadedContexts).toEqual(['10', '25'])
 
   await expect(review.getByRole('button', { name: 'DOWNLOAD' })).toHaveCount(0)
+})
+
+test('matches Gerrit context controls at file boundaries and auto-expands tiny gaps', async ({ page }) => {
+  const contextRequests: Array<{ lines: number; newStart: number; oldStart: number; path: string }> = []
+  let failedMiddleOnce = false
+  const common = (line: number) => ({ kind: 'context', left: { line, text: `context ${line}` }, right: { line, text: `context ${line}` } })
+  const change = (line: number) => ({ kind: 'changed', left: { line, text: `old ${line}` }, right: { line, text: `new ${line}` } })
+  await page.route('**/api/reviews/**', async route => {
+    const request = route.request()
+    const url = new URL(request.url())
+    const contextMatch = url.pathname.match(/\/git-range\/files\/(boundaries\.cpp|small\.cpp)\/context$/)
+    if (contextMatch) {
+      const range = {
+        lines: Number(url.searchParams.get('lines')),
+        newStart: Number(url.searchParams.get('newStart')),
+        oldStart: Number(url.searchParams.get('oldStart')),
+        path: contextMatch[1],
+      }
+      contextRequests.push(range)
+      if (range.path === 'boundaries.cpp' && range.oldStart === 41 && !failedMiddleOnce) {
+        failedMiddleOnce = true
+        await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'temporary context failure' }) })
+        return
+      }
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          leftLines: range.path === 'boundaries.cpp' ? 100 : 44,
+          rightLines: range.path === 'boundaries.cpp' ? 100 : 44,
+          rows: Array.from({ length: range.lines }, (_, index) => common(range.oldStart + index)),
+        }),
+      })
+      return
+    }
+    if (url.pathname.endsWith('/git-range/files/boundaries.cpp/diff')) {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          added: 2,
+          diff: {
+            hunks: [
+              { header: '@@ -20,21 +20,21 @@', oldStart: 20, oldLines: 21, newStart: 20, newLines: 21, rows: [...Array.from({ length: 10 }, (_, index) => common(20 + index)), change(30), ...Array.from({ length: 10 }, (_, index) => common(31 + index))] },
+              { header: '@@ -60,21 +60,21 @@', oldStart: 60, oldLines: 21, newStart: 60, newLines: 21, rows: [...Array.from({ length: 10 }, (_, index) => common(60 + index)), change(70), ...Array.from({ length: 10 }, (_, index) => common(71 + index))] },
+            ],
+            leftMeta: { contentType: 'text/plain', lines: 100, name: 'boundaries.cpp' },
+            rightMeta: { contentType: 'text/plain', lines: 100, name: 'boundaries.cpp' },
+          },
+          diffLoaded: true,
+          kind: 'modified',
+          path: 'boundaries.cpp',
+          removed: 2,
+          status: 'M',
+        }),
+      })
+      return
+    }
+    if (url.pathname.endsWith('/git-range/files/small.cpp/diff')) {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          added: 2,
+          diff: {
+            hunks: [
+              { header: '@@ -1,20 +1,20 @@', oldStart: 1, oldLines: 20, newStart: 1, newLines: 20, rows: [...Array.from({ length: 9 }, (_, index) => common(1 + index)), change(10), ...Array.from({ length: 10 }, (_, index) => common(11 + index))] },
+              { header: '@@ -24,21 +24,21 @@', oldStart: 24, oldLines: 21, newStart: 24, newLines: 21, rows: [...Array.from({ length: 10 }, (_, index) => common(24 + index)), change(34), ...Array.from({ length: 10 }, (_, index) => common(35 + index))] },
+            ],
+            leftMeta: { contentType: 'text/plain', lines: 44, name: 'small.cpp' },
+            rightMeta: { contentType: 'text/plain', lines: 44, name: 'small.cpp' },
+          },
+          diffLoaded: true,
+          kind: 'modified',
+          path: 'small.cpp',
+          removed: 2,
+          status: 'M',
+        }),
+      })
+      return
+    }
+    if (url.pathname.endsWith('/git-range')) {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          basePatchset: 'HEAD~1',
+          files: ['boundaries.cpp', 'small.cpp'].map(path => ({ added: 2, diff: { hunks: [] }, diffLoaded: false, kind: 'modified', path, removed: 2, status: 'M' })),
+          isGitRepo: true,
+          patchset: 'HEAD',
+          reviewId: 'git-range-context-boundaries',
+          root: '/workspace/demo',
+          source: 'git-range',
+          truncated: false,
+        }),
+      })
+      return
+    }
+    if (url.searchParams.has('reviewed')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]', headers: { 'X-Farming-Review-Revision': '0' } })
+      return
+    }
+    if (url.pathname.includes('/reviewed')) {
+      await route.fulfill({ status: request.method() === 'GET' ? 200 : 201, contentType: 'application/json', body: request.method() === 'GET' ? '[]' : '' })
+      return
+    }
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ comments: [] }) })
+  })
+
+  await page.goto('/farming/review?agentId=fsess-demo&base=HEAD~1&head=HEAD')
+  const review = page.getByTestId('review-demo-page')
+  await review.locator('[data-file-path="boundaries.cpp"] .review-demo-file-select').click()
+  const boundaryDiff = review.getByLabel('Diff for boundaries.cpp')
+  const topGap = boundaryDiff.getByRole('group', { name: '19 hidden common lines', exact: true }).nth(0)
+  const middleGap = boundaryDiff.getByRole('group', { name: '19 hidden common lines', exact: true }).nth(1)
+  const bottomGap = boundaryDiff.getByRole('group', { name: '20 hidden common lines', exact: true })
+  await expect(topGap.getByRole('button', { name: 'Show 10 lines above' })).toHaveCount(0)
+  await expect(topGap.getByRole('button', { name: 'Show 10 lines below' })).toBeVisible()
+  await expect(middleGap.getByRole('button', { name: 'Show 10 lines above' })).toBeVisible()
+  await expect(middleGap.getByRole('button', { name: 'Show 10 lines below' })).toBeVisible()
+  await expect(bottomGap.getByRole('button', { name: 'Show 10 lines above' })).toBeVisible()
+  await expect(bottomGap.getByRole('button', { name: 'Show 10 lines below' })).toHaveCount(0)
+
+  await middleGap.getByRole('button', { name: 'Show 10 lines above' }).click()
+  await expect(middleGap.getByRole('alert')).toHaveText('temporary context failure')
+  await expect(boundaryDiff.getByText('context 41', { exact: true })).toHaveCount(0)
+  await expect(boundaryDiff.getByRole('group', { name: '19 hidden common lines', exact: true })).toHaveCount(2)
+  await middleGap.getByRole('button', { name: 'Show 10 lines above' }).click()
+  await expect(boundaryDiff.getByText('context 41', { exact: true }).first()).toBeVisible()
+
+  await topGap.getByRole('button', { name: 'Show 10 lines below' }).click()
+  const remainingTopGap = boundaryDiff.getByRole('group', { name: '9 hidden common lines', exact: true }).first()
+  await expect(remainingTopGap.getByRole('button', { name: 'Show 10 lines above' })).toHaveCount(0)
+  await expect(remainingTopGap.getByRole('button', { name: 'Show 10 lines below' })).toHaveCount(0)
+  await expect(remainingTopGap.getByRole('button', { name: 'Show all 9 common lines' })).toBeVisible()
+
+  await bottomGap.getByRole('button', { name: 'Show 10 lines above' }).click()
+  await expect(boundaryDiff.getByText('context 81', { exact: true }).first()).toBeVisible()
+  expect(contextRequests).toEqual(expect.arrayContaining([
+    { lines: 10, newStart: 10, oldStart: 10, path: 'boundaries.cpp' },
+    { lines: 10, newStart: 81, oldStart: 81, path: 'boundaries.cpp' },
+  ]))
+
+  await review.locator('[data-file-path="small.cpp"] .review-demo-file-select').click()
+  const smallDiff = review.getByLabel('Diff for small.cpp')
+  await expect(smallDiff.getByText('context 22', { exact: true }).first()).toBeVisible()
+  await expect(smallDiff.getByRole('group', { name: /hidden common lines/ })).toHaveCount(0)
+  expect(contextRequests).toContainEqual({ lines: 3, newStart: 21, oldStart: 21, path: 'small.cpp' })
 })
 
 test('does not silently fall back to working copy when a range URL is invalid', async ({ page }) => {

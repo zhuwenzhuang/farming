@@ -6,6 +6,7 @@ const { WorkspaceFileError, parseUnifiedDiffRows } = require('./workspace-file-s
 const MAX_REVIEW_FILES = 200;
 const MAX_WORKING_COPY_SCAN_FILES = 2000;
 const MAX_UNTRACKED_LINES = 500;
+const MAX_REVIEW_CONTEXT_RANGE_LINES = 10000;
 const DIFF_CONCURRENCY = 4;
 
 function reviewKind(gitStatus) {
@@ -57,6 +58,53 @@ function normalizeReviewLimit(value) {
   const limit = Number(value);
   if (!Number.isInteger(limit) || limit <= 0) return MAX_REVIEW_FILES;
   return Math.min(MAX_REVIEW_FILES, limit);
+}
+
+function normalizeContextRangeInteger(value, name, { allowZero = false } = {}) {
+  const number = Number(value);
+  const minimum = allowZero ? 0 : 1;
+  if (!Number.isInteger(number) || number < minimum) {
+    throw new WorkspaceFileError(`${name} must be an integer greater than or equal to ${minimum}`, 400);
+  }
+  return number;
+}
+
+function textLines(content) {
+  if (content === undefined || content === null || content === '') return [];
+  const lines = String(content).split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  return lines;
+}
+
+function reviewTextFileMeta(name, lines) {
+  return {
+    contentType: 'text/plain',
+    lines: lines.length,
+    name,
+  };
+}
+
+function contextRowsFromSources(sources, options = {}) {
+  const oldStart = normalizeContextRangeInteger(options.oldStart, 'oldStart');
+  const newStart = normalizeContextRangeInteger(options.newStart, 'newStart');
+  const requestedLines = normalizeContextRangeInteger(options.lines, 'lines');
+  if (requestedLines > MAX_REVIEW_CONTEXT_RANGE_LINES) {
+    throw new WorkspaceFileError(`lines must not exceed ${MAX_REVIEW_CONTEXT_RANGE_LINES}`, 400);
+  }
+  const left = sources.leftLines.slice(oldStart - 1, oldStart - 1 + requestedLines);
+  const right = sources.rightLines.slice(newStart - 1, newStart - 1 + requestedLines);
+  if (left.length !== requestedLines || right.length !== requestedLines) {
+    throw new WorkspaceFileError('review context range is outside the file', 416);
+  }
+  return {
+    leftLines: sources.leftLines.length,
+    rightLines: sources.rightLines.length,
+    rows: Array.from({ length: requestedLines }, (_, index) => ({
+      kind: 'context',
+      left: { line: oldStart + index, text: left[index] },
+      right: { line: newStart + index, text: right[index] },
+    })),
+  };
 }
 
 function normalizeWorkingCopyScope(value) {
@@ -622,6 +670,90 @@ class ReviewDiffService {
     };
   }
 
+  async readGitTextFile(root, revision, filePath) {
+    try {
+      const { stdout } = await this.fileService.execFile(this.fileService.gitPath, [
+        '-C',
+        root,
+        'show',
+        `${revision}:${filePath}`,
+      ], { cwd: root, encoding: 'buffer', timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
+      const buffer = Buffer.isBuffer(stdout) ? stdout : Buffer.from(String(stdout || ''));
+      if (buffer.includes(0)) throw new WorkspaceFileError('binary files do not have expandable text context', 415);
+      return textLines(buffer.toString('utf8'));
+    } catch (error) {
+      if (error instanceof WorkspaceFileError) throw error;
+      if (error?.code === 'ETIMEDOUT') throw new WorkspaceFileError('git show timed out', 504);
+      throw new WorkspaceFileError(error?.stderr || error?.message || 'git file content could not be loaded', 500);
+    }
+  }
+
+  async readWorkingTreeTextFile(root, filePath) {
+    try {
+      const resolved = await this.fileService.resolvePath(root, filePath);
+      const buffer = await fs.promises.readFile(resolved.target);
+      if (buffer.includes(0)) throw new WorkspaceFileError('binary files do not have expandable text context', 415);
+      return textLines(buffer.toString('utf8'));
+    } catch (error) {
+      if (error instanceof WorkspaceFileError) throw error;
+      throw new WorkspaceFileError(error?.message || 'working tree file content could not be loaded', 500);
+    }
+  }
+
+  async getWorkingCopyTextSources(root, change, source) {
+    const kind = reviewKind(change.gitStatus);
+    const leftLines = kind === 'added' ? [] : textLines(source.originalContent);
+    const rightLines = kind === 'deleted' ? [] : textLines(source.modifiedContent);
+    return {
+      leftLines,
+      leftName: change.previousPath || change.path,
+      rightLines,
+      rightName: change.path,
+    };
+  }
+
+  async getGitRangeTextSources(root, base, head, change) {
+    const kind = change.kind || reviewKind(change.gitStatus);
+    const leftName = change.previousPath || change.path;
+    const [leftLines, rightLines] = await Promise.all([
+      kind === 'added' ? Promise.resolve([]) : this.readGitTextFile(root, base, leftName),
+      kind === 'deleted'
+        ? Promise.resolve([])
+        : head === 'now'
+          ? this.readWorkingTreeTextFile(root, change.path)
+          : this.readGitTextFile(root, head, change.path),
+    ]);
+    return { leftLines, leftName, rightLines, rightName: change.path };
+  }
+
+  async getWorkingCopyFileContext(agentId, filePath, options = {}) {
+    const root = this.resolveWorkspace(agentId, options.root);
+    if (!isSafeReviewPath(filePath)) throw new WorkspaceFileError('file path is required', 400);
+    const changes = await this.getWorkingCopyChanges(root, options, MAX_REVIEW_FILES);
+    const change = changes.items.find(item => item.path === filePath);
+    if (!change) throw new WorkspaceFileError('review file not found', 404);
+    if (change.gitStatus === 'untracked') throw new WorkspaceFileError('untracked files do not have common diff context', 400);
+    const source = await this.fileService.diff(root, change.path);
+    if (source.binary === true) throw new WorkspaceFileError('binary files do not have expandable text context', 415);
+    return contextRowsFromSources(await this.getWorkingCopyTextSources(root, change, source), options);
+  }
+
+  async getGitRangeFileContext(agentId, options = {}) {
+    const root = this.resolveWorkspace(agentId, options.root);
+    const base = String(options.base || '').trim();
+    const head = String(options.head || '').trim();
+    const filePath = typeof options.path === 'string' ? options.path : '';
+    if (!isSafeGitRevision(base) || !isReviewHead(head)) {
+      throw new WorkspaceFileError('base and head revisions are required', 400);
+    }
+    if (!isSafeReviewPath(filePath)) throw new WorkspaceFileError('file path is required', 400);
+    const changes = assertUniqueReviewPaths(await this.getGitRangeChanges(root, base, head));
+    const change = changes.find(item => item.path === filePath);
+    if (!change) throw new WorkspaceFileError('review file not found', 404);
+    if (change.gitStatus === 'untracked') throw new WorkspaceFileError('untracked files do not have common diff context', 400);
+    return contextRowsFromSources(await this.getGitRangeTextSources(root, base, head, change), options);
+  }
+
   async getGitRangeUntrackedFile(root, change, metadataOnly) {
     const source = await this.fileService.diff(root, change.path);
     const hunks = untrackedHunks(source.modifiedContent);
@@ -745,12 +877,21 @@ class ReviewDiffService {
     const diffHeader = patchDiffHeader(isUntracked ? untrackedPatch(change.path, source.modifiedContent) : (diffSource.patch || source.patch));
     const metadata = patchMetadata(diffHeader);
     const untrackedTooLarge = isUntracked && untrackedContentTooLarge(source.modifiedContent);
+    const textSources = options.fileMeta === true
+      && !isUntracked
+      && source.binary !== true
+      && typeof source.originalContent === 'string'
+      && typeof source.modifiedContent === 'string'
+      ? await this.getWorkingCopyTextSources(root, change, source)
+      : null;
     return {
       added: totals.added,
       ...(source.binary === true ? { binary: true } : {}),
       diff: {
         ...(diffHeader.length ? { diffHeader } : {}),
         hunks,
+        ...(textSources ? { leftMeta: reviewTextFileMeta(textSources.leftName, textSources.leftLines) } : {}),
+        ...(textSources ? { rightMeta: reviewTextFileMeta(textSources.rightName, textSources.rightLines) } : {}),
         truncated: source.truncated === true || diffSource.truncated === true || untrackedTooLarge,
       },
       ...(source.truncated === true || diffSource.truncated === true || untrackedTooLarge ? { diffTooExpensive: true } : {}),
@@ -897,6 +1038,14 @@ class ReviewDiffService {
         ...gitDiffPathArgs(change),
       ], { cwd: root, timeout: this.fileService.diffTimeoutMs, maxBuffer: this.fileService.diffMaxBuffer });
       const file = fileFromPatch(change, stdout);
+      if (options.fileMeta === true && file.binary !== true) {
+        const textSources = await this.getGitRangeTextSources(root, base, head, change);
+        file.diff = {
+          ...file.diff,
+          leftMeta: reviewTextFileMeta(textSources.leftName, textSources.leftLines),
+          rightMeta: reviewTextFileMeta(textSources.rightName, textSources.rightLines),
+        };
+      }
       const stat = stats?.get(change.path);
       return fileWithStats(file, stat);
     } catch (error) {

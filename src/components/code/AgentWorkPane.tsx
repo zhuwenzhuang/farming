@@ -9,6 +9,7 @@ import { ChatBubblesGlyph, TerminalSquareGlyph } from '../IconGlyphs'
 import { CodexAppServerTranscriptPane } from './CodexAppServerTranscriptPane'
 import { JsonCliTranscriptPane } from './JsonCliTranscriptPane'
 import { AcpTranscriptPane } from './acp/AcpTranscriptPane'
+import { isAgentTurnActive } from './agent-working-state'
 import type { CodeCopy } from './copy'
 
 type TerminalFollowState = {
@@ -72,6 +73,7 @@ export function AgentWorkPane({
   const canSwitchRuntime = ['codex', 'claude', 'opencode', 'qoder'].includes(agent.providerSessionProvider || '')
     && agent.providerSessionTemporary !== true
     && Boolean(agent.providerSessionId)
+  const runtimeSwitchDisabled = switching || isAgentTurnActive(agent)
 
   const activateChatView = useCallback((event: ReactPointerEvent) => {
     if (event.button !== 0) return
@@ -87,10 +89,10 @@ export function AgentWorkPane({
     >
       {canSwitchRuntime ? (
         <div className="code-terminal-mode-toggle" data-testid="code-terminal-mode-toggle" onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}>
-          <button type="button" className={chatMode ? 'active' : ''} aria-pressed={chatMode} aria-label={copy.transcriptView} title={copy.transcriptView} disabled={switching} onClick={() => !chatMode && onRuntimeModeChange?.(agent.id, 'acp')}>
+          <button type="button" className={chatMode ? 'active' : ''} aria-pressed={chatMode} aria-label={copy.transcriptView} title={copy.transcriptView} disabled={runtimeSwitchDisabled} onClick={() => !chatMode && onRuntimeModeChange?.(agent.id, 'acp')}>
             <ChatBubblesGlyph />
           </button>
-          <button type="button" className={!chatMode ? 'active' : ''} aria-pressed={!chatMode} aria-label={copy.terminalView} title={copy.terminalView} disabled={switching} onClick={() => chatMode && onRuntimeModeChange?.(agent.id, 'terminal')}>
+          <button type="button" className={!chatMode ? 'active' : ''} aria-pressed={!chatMode} aria-label={copy.terminalView} title={copy.terminalView} disabled={runtimeSwitchDisabled} onClick={() => chatMode && onRuntimeModeChange?.(agent.id, 'terminal')}>
             <TerminalSquareGlyph />
           </button>
         </div>

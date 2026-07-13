@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
+const { diffChars } = require('diff');
 const { execFile, spawn } = require('child_process');
 const readline = require('readline');
 const { pathToFileURL } = require('url');
@@ -811,31 +812,69 @@ function parseUnifiedDiffHunks(patch) {
   return hunks;
 }
 
+function intralineRanges(leftText, rightText) {
+  const changes = diffChars(leftText, rightText, { timeout: 100 });
+  if (!changes) return {};
+  const left = [];
+  const right = [];
+  let leftOffset = 0;
+  let rightOffset = 0;
+  for (const change of changes) {
+    const length = Array.from(change.value).length;
+    if (change.removed) {
+      if (length > 0) left.push({ start: leftOffset, end: leftOffset + length });
+      leftOffset += length;
+      continue;
+    }
+    if (change.added) {
+      if (length > 0) right.push({ start: rightOffset, end: rightOffset + length });
+      rightOffset += length;
+      continue;
+    }
+    leftOffset += length;
+    rightOffset += length;
+  }
+  return {
+    ...(left.length ? { left } : {}),
+    ...(right.length ? { right } : {}),
+  };
+}
+
 function parseUnifiedDiffRows(patch) {
   return parseUnifiedDiffHunks(patch).map(hunk => {
     let oldLine = hunk.oldStart;
     let newLine = hunk.newStart;
     const rows = [];
+    let previousCell = null;
     for (const line of hunk.patchLines.slice(1)) {
-      if (line.startsWith('\\ No newline at end of file')) continue;
+      if (line.startsWith('\\ No newline at end of file')) {
+        if (previousCell) previousCell.missingNewlineAtEnd = true;
+        continue;
+      }
       if (line.startsWith(' ')) {
         const text = line.slice(1);
-        rows.push({
+        const row = {
           kind: 'context',
           left: { line: oldLine, text },
           right: { line: newLine, text },
-        });
+        };
+        rows.push(row);
+        previousCell = row.right;
         oldLine++;
         newLine++;
         continue;
       }
       if (line.startsWith('-')) {
-        rows.push({ kind: 'deleted', left: { line: oldLine, text: line.slice(1) } });
+        const row = { kind: 'deleted', left: { line: oldLine, text: line.slice(1) } };
+        rows.push(row);
+        previousCell = row.left;
         oldLine++;
         continue;
       }
       if (line.startsWith('+')) {
-        rows.push({ kind: 'added', right: { line: newLine, text: line.slice(1) } });
+        const row = { kind: 'added', right: { line: newLine, text: line.slice(1) } };
+        rows.push(row);
+        previousCell = row.right;
         newLine++;
       }
     }
@@ -852,7 +891,14 @@ function parseUnifiedDiffRows(patch) {
       while (index < rows.length && rows[index].kind === 'added') added.push(rows[index++]);
       const paired = Math.min(deleted.length, added.length);
       for (let pairIndex = 0; pairIndex < paired; pairIndex += 1) {
-        pairedRows.push({ kind: 'changed', left: deleted[pairIndex].left, right: added[pairIndex].right });
+        const left = deleted[pairIndex].left;
+        const right = added[pairIndex].right;
+        const intraline = intralineRanges(left.text, right.text);
+        pairedRows.push({
+          kind: 'changed',
+          left: { ...left, ...(intraline.left ? { intraline: intraline.left } : {}) },
+          right: { ...right, ...(intraline.right ? { intraline: intraline.right } : {}) },
+        });
       }
       pairedRows.push(...deleted.slice(paired));
       pairedRows.push(...added.slice(paired));

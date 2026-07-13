@@ -40,7 +40,7 @@ assert.strictEqual(transcript.turns.length, 1);
 assert.strictEqual(transcript.turns[0].userMessage, 'Fix it');
 assert.strictEqual(transcript.turns[0].finalMessage, 'Done');
 assert.deepStrictEqual(transcript.turns[0].processItems.map(entry => entry.title), [
-  'Progress updates', 'Reasoning', 'Run tests', 'Plan',
+  'Progress update', 'Reasoning', 'Run tests', 'Plan',
 ]);
 assert.strictEqual(transcript.turns[0].processItems[2].type, 'patch');
 assert.strictEqual(transcript.turns[0].processItems[3].completedSteps, 1);
@@ -54,6 +54,52 @@ assert.match(transcript.turns[0].processItems[2].detail, /\+new/);
 assert.match(transcript.turns[0].processItems[2].detail, /Terminal: terminal-1/);
 assert.match(transcript.turns[0].processItems[2].detail, /Output\nok/);
 assert.match(transcript.turns[0].processItems[2].detail, /Locations\n\/tmp\/a\.js:3/);
+
+const orderedProgressTranscript = acpSessionTranscript({
+  state: 'working',
+  entries: [
+    { id: 'ordered-user', type: 'message', role: 'user', content: [{ type: 'text', text: 'Fix it' }] },
+    { id: 'ordered-progress-1', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'First finding' }] },
+    { id: 'ordered-tool-1', type: 'tool', kind: 'read', title: 'Read source', status: 'completed' },
+    { id: 'ordered-progress-2', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Second finding' }] },
+    { id: 'ordered-tool-2', type: 'tool', kind: 'execute', title: 'Run tests', status: 'pending' },
+  ],
+});
+assert.strictEqual(orderedProgressTranscript.turns[0].finalMessage, '');
+assert.deepStrictEqual(
+  orderedProgressTranscript.turns[0].processItems.map(entry => [entry.type, entry.detail || entry.title]),
+  [
+    ['progress', 'First finding'],
+    ['tool', 'Read source'],
+    ['progress', 'Second finding'],
+    ['tool', 'Run tests'],
+  ],
+  'ACP commentary and actions must retain their protocol order',
+);
+
+const completedOrderedProgressTranscript = acpSessionTranscript({
+  entries: [
+    { id: 'completed-user', type: 'message', role: 'user', content: [{ type: 'text', text: 'Fix it' }] },
+    { id: 'completed-progress', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Found the cause' }] },
+    { id: 'completed-tool', type: 'tool', kind: 'edit', title: 'Edit source', status: 'completed' },
+    { id: 'completed-answer', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Done' }] },
+  ],
+});
+assert.strictEqual(completedOrderedProgressTranscript.turns[0].finalMessage, 'Done');
+assert.deepStrictEqual(
+  completedOrderedProgressTranscript.turns[0].processItems.map(entry => entry.title),
+  ['Progress update', 'Edit source'],
+);
+
+const liveTailProgressTranscript = acpSessionTranscript({
+  state: 'working',
+  entries: [
+    { id: 'live-tail-user', type: 'message', role: 'user', content: [{ type: 'text', text: 'Investigate' }] },
+    { id: 'live-tail-assistant', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'I found the first cause' }] },
+  ],
+});
+assert.strictEqual(liveTailProgressTranscript.turns[0].finalMessage, '');
+assert.strictEqual(liveTailProgressTranscript.turns[0].processItems[0].detail, 'I found the first cause');
 
 const internalTranscript = acpSessionTranscript({
   sessionId: 'session-internal',
@@ -121,5 +167,57 @@ const activePlanTranscript = acpSessionTranscript({
 assert.strictEqual(activePlanTranscript.turns[0].processItems[0].completedSteps, 1);
 assert.strictEqual(activePlanTranscript.turns[0].processItems[0].totalSteps, 3);
 assert.strictEqual(activePlanTranscript.turns[0].processItems[0].currentStep, 'Update parser');
+
+const largeToolTranscript = acpSessionTranscript({
+  revision: 7,
+  delta: true,
+  hasMoreBefore: true,
+  entries: [
+    { id: 'user-large-tool', type: 'message', role: 'user', content: [{ type: 'text', text: 'Inspect output' }] },
+    { id: 'tool-large-output', type: 'tool', title: 'Run command', status: 'completed', rawOutput: 'x'.repeat(100_000) },
+  ],
+});
+assert.strictEqual(largeToolTranscript.revision, 7);
+assert.strictEqual(largeToolTranscript.delta, true);
+assert.strictEqual(largeToolTranscript.replaceFromTurnId, 'acp-turn-user-large-tool');
+assert.strictEqual(largeToolTranscript.hasMoreBefore, true);
+assert.strictEqual(largeToolTranscript.turns[0].processItems[0].detailTruncated, true);
+assert(largeToolTranscript.turns[0].processItems[0].detail.length < 5_000);
+
+const limitedTranscript = acpSessionTranscript({
+  stopReason: 'max_tokens',
+  entries: [
+    { id: 'user-limited', type: 'message', role: 'user', content: [{ type: 'text', text: 'Long task' }] },
+    { id: 'answer-limited', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Partial answer' }] },
+  ],
+});
+assert.strictEqual(limitedTranscript.stopReason, 'max_tokens');
+assert.strictEqual(limitedTranscript.turns[0].status, 'interrupted');
+
+const compactedTranscript = acpSessionTranscript({
+  entries: [
+    { id: 'user-compacted', type: 'message', role: 'user', content: [{ type: 'text', text: 'Continue' }] },
+    {
+      id: 'answer-compacted',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: "*Context compacted to fit the model's context window.*\n\nActual answer" }],
+    },
+  ],
+});
+assert.strictEqual(compactedTranscript.turns[0].finalMessage, 'Actual answer');
+
+const replayedCompactionTranscript = acpSessionTranscript({
+  entries: [
+    { id: 'user-replayed-compaction', type: 'message', role: 'user', content: [{ type: 'text', text: 'Reply' }] },
+    {
+      id: 'answer-replayed-compaction',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Actual answerContext compacted.' }],
+    },
+  ],
+});
+assert.strictEqual(replayedCompactionTranscript.turns[0].finalMessage, 'Actual answer');
 
 console.log('ACP transcript tests passed');

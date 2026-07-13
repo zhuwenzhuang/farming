@@ -15,6 +15,7 @@ export interface TerminalPreviewSnapshot {
   viewportY: number
   cursorX: number
   cursorY: number
+  cursorVisible?: boolean
   cells: TerminalPreviewCell[][]
 }
 

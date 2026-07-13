@@ -9,6 +9,7 @@ export type ReviewPatchRange = {
 export type ReviewDiffCell = {
   intraline?: Array<{ end: number; start: number }>
   line: number
+  missingNewlineAtEnd?: true
   text: string
 }
 

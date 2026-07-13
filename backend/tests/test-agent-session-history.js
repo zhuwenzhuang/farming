@@ -14,9 +14,18 @@ const {
   listOpenCodeSessions,
   listQoderSessions,
   paginateAgentSessions,
+  searchAgentSessions,
 } = require('../agent-session-history');
 
 async function run() {
+  const serverSource = fs.readFileSync(path.resolve(__dirname, '../server.js'), 'utf8');
+  assert(
+    serverSource.includes("req.query.force === '1'")
+      && serverSource.includes("req.query.fresh === '1' ? { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS } : {}")
+      && serverSource.includes("routePath(BASE_PATH, '/api/agent-sessions/search')"),
+    'Agent session list and search APIs should expose bounded fresh reads and explicit force refreshes'
+  );
+
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-session-history-'));
   const codexHome = path.join(root, 'codex');
   const codexAltHome = path.join(root, 'codex-alt');
@@ -376,6 +385,43 @@ async function run() {
   ], { limit: 2, cursor: firstPage.nextCursor });
   assert.deepStrictEqual(insertedBeforeCursor.sessions.map(session => session.id), ['page-1']);
   assert.strictEqual(paginateAgentSessions(pagedSessions, { cursor: 'not-a-cursor' }).invalidCursor, true);
+
+  const searchableSessions = [
+    ...Array.from({ length: 60 }, (_, index) => ({
+      provider: 'codex',
+      id: `recent-${index}`,
+      title: `Recent session ${index}`,
+      cwd: '/repo/recent',
+    })),
+    {
+      provider: 'codex',
+      id: 'older-alter-session',
+      title: '检查SQLTask Alter clustered支持',
+      cwd: '/repo/odps_src',
+      model: 'hidden-model-name',
+      source: 'hidden-source-name',
+    },
+  ];
+  const titleSearch = searchAgentSessions(searchableSessions, 'aLtEr', { limit: 20 });
+  assert.deepStrictEqual(titleSearch.sessions.map(session => session.id), ['older-alter-session']);
+  assert.strictEqual(titleSearch.total, 1);
+  assert.strictEqual(titleSearch.query, 'alter');
+  assert.strictEqual(titleSearch.scope, 'title-project');
+  assert.deepStrictEqual(
+    searchAgentSessions(searchableSessions, 'ODPS_SRC', { limit: 20 }).sessions.map(session => session.id),
+    ['older-alter-session']
+  );
+  assert.deepStrictEqual(
+    searchAgentSessions(searchableSessions, 'compiler core', {
+      limit: 20,
+      projectNames: { '/repo/odps_src': 'Compiler Core' },
+    }).sessions.map(session => session.id),
+    ['older-alter-session']
+  );
+  assert.deepStrictEqual(searchAgentSessions(searchableSessions, 'hidden-model-name', { limit: 20 }).sessions, []);
+  assert.deepStrictEqual(searchAgentSessions(searchableSessions, 'hidden-source-name', { limit: 20 }).sessions, []);
+  assert.deepStrictEqual(searchAgentSessions(searchableSessions, 'older-alter-session', { limit: 20 }).sessions, []);
+  assert.deepStrictEqual(searchAgentSessions(searchableSessions, '  ').sessions, []);
 
   fs.rmSync(root, { recursive: true, force: true });
   console.log('✓ Agent session history unifies Codex, Claude, OpenCode, and Qoder metadata');

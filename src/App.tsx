@@ -739,6 +739,7 @@ export function App() {
         notifyError(data?.error || `Failed to update agent (${response.status})`)
         return false
       }
+      if (data?.warning) notifyError(data.warning)
       if (flags.archived === true) {
         closeTerminal(agentId)
       }

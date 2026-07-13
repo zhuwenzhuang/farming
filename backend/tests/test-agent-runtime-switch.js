@@ -159,6 +159,60 @@ const AgentManager = require('../agent-manager');
   assert.strictEqual(killed, '');
   assert.strictEqual(started, null);
   assert.strictEqual(manager.agents.has('agent-stale'), true);
+
+  manager.agents.set('agent-active', {
+    id: 'agent-active',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: sessionId,
+    providerHomeId: 'zwz',
+    providerHomePath: codexHome,
+    providerSessionTemporary: false,
+    agentRuntimeMode: 'acp',
+    acpState: 'working',
+    status: 'running',
+  });
+  manager.findRuntimeSwitchSession = async () => ({ provider: 'codex' });
+  const activeResult = await manager.restartAgentRuntimeMode('agent-active', 'terminal');
+  assert.match(activeResult.error, /Interrupt the active Agent turn/);
+  assert.strictEqual(manager.agents.has('agent-active'), true);
+
+  manager.agents.set('agent-rollback', {
+    id: 'agent-rollback',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: sessionId,
+    providerSessionTemporary: false,
+    providerHomeId: 'zwz',
+    providerHomePath: codexHome,
+    agentRuntimeMode: 'terminal',
+    codexRuntimeMode: 'cli',
+    terminalBusy: false,
+    status: 'running',
+    output: '',
+  });
+  let rollbackStarts = 0;
+  manager.startAgent = async (command, cwd, callback, options) => {
+    rollbackStarts += 1;
+    if (rollbackStarts === 1) {
+      callback(null, 'ACP adapter failed');
+      return null;
+    }
+    manager.agents.set('agent-restored', { id: 'agent-restored', ...options, status: 'running' });
+    callback('agent-restored');
+    return 'agent-restored';
+  };
+  const rollbackResult = await manager.restartAgentRuntimeMode('agent-rollback', 'acp');
+  assert.strictEqual(rollbackStarts, 2);
+  assert.strictEqual(rollbackResult.switchFailed, true);
+  assert.strictEqual(rollbackResult.restartedAgentId, 'agent-restored');
+  assert.strictEqual(rollbackResult.agentRuntimeMode, 'terminal');
+  assert.match(rollbackResult.warning, /Original runtime restored/);
+  assert.strictEqual(manager.agents.get('agent-restored').agentRuntimeMode, 'terminal');
   await manager.dispose();
   fs.rmSync(codexHome, { recursive: true, force: true });
   console.log('agent runtime switch tests passed');

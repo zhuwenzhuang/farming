@@ -73,6 +73,28 @@ async function run() {
   state.beginPrompt('limited');
   state.completePrompt('max_tokens');
   assert.strictEqual(state.snapshot().entries.at(-1).content[0].text, 'limited');
+  const fullSlice = state.transcriptSlice({ maxTurns: 1 });
+  assert.strictEqual(fullSlice.delta, false);
+  assert.strictEqual(fullSlice.entries[0].role, 'user');
+  const beforeDeltaRevision = fullSlice.revision;
+  state.apply({ sessionId: 's1', update: {
+    sessionUpdate: 'agent_message_chunk', messageId: 'delta-answer', content: { type: 'text', text: 'delta' },
+  } });
+  const deltaSlice = state.transcriptSlice({ maxTurns: 1, sinceRevision: beforeDeltaRevision });
+  assert.strictEqual(deltaSlice.delta, true);
+  assert.strictEqual(deltaSlice.entries[0].role, 'user');
+  assert.strictEqual(deltaSlice.entries.at(-1).content[0].text, 'delta');
+  assert.deepStrictEqual(
+    state.transcriptSlice({ sinceRevision: deltaSlice.revision }).entries,
+    [],
+  );
+  state.apply({ sessionId: 's1', update: {
+    sessionUpdate: 'tool_call_update',
+    toolCallId: 'large-log-entry',
+    status: 'completed',
+    rawOutput: 'x'.repeat(40 * 1024),
+  } });
+  assert.strictEqual(state.snapshot({}, { includeUpdates: true }).updates.at(-1).update.truncated, true);
   const sanitizedState = new AcpSessionState({ provider: 'codex', sessionId: 's2', cwd: '/tmp' });
   sanitizedState.apply({ sessionId: 's2', update: {
     sessionUpdate: 'user_message_chunk',
@@ -226,6 +248,16 @@ async function run() {
     assert.strictEqual(runtime.getSession('agent-acp-permission').pendingPermissions.length, 0);
     assert.strictEqual(runtime.getSession('agent-acp-permission').state, 'interrupting');
     assert.deepStrictEqual(await cancelledPermission, { outcome: { outcome: 'cancelled' } });
+
+    const timeoutBinding = runtime.bindings.get('agent-acp-new');
+    timeoutBinding.connection.cancel = () => new Promise(() => {});
+    runtime.cancelTimeoutMs = 10;
+    await assert.rejects(
+      runtime.cancel('agent-acp-new'),
+      /ACP session\/cancel timed out/,
+    );
+    assert.strictEqual(runtime.getSession('agent-acp-new').state, 'error');
+    assert.strictEqual(runtime.getSession('agent-acp-new').stopReason, 'cancel_error');
   } finally {
     runtime.dispose();
   }

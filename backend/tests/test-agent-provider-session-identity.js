@@ -86,6 +86,7 @@ async function run() {
     const startedAt = Number(codexAgent.startedAt) || Date.now();
     const codexHistoryWorkspace = fs.realpathSync(path.join(__dirname, '../..'));
     const liveCodexAgent = manager.agents.get(codexId);
+    liveCodexAgent.engineStarted = true;
     liveCodexAgent.projectWorkspace = codexHistoryWorkspace;
     liveCodexAgent.cwd = codexHistoryWorkspace;
     writeCodexSession(tmpRoot, incompleteCodexSessionId, [
@@ -150,6 +151,7 @@ async function run() {
       providerSessionSource: 'codex-rollout',
       providerSessionTitle: '',
       validated: true,
+      engineStarted: true,
       startedAt,
     });
     const titleResolved = await manager.attemptProviderSessionTitleResolution(recoveredCodexId, { force: true });

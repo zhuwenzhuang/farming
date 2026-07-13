@@ -38,6 +38,7 @@ import {
   type ReviewCommentRange,
   type ReviewCommentSide,
   type ReviewDiffCell,
+  type ReviewDiffHunk,
   type ReviewDiffMode,
   type ReviewDiffRow,
   type ReviewCatalog,
@@ -46,7 +47,7 @@ import {
   type ReviewPreferences,
   type ReviewState,
 } from '@/lib/review/state'
-import { createReviewSession, deleteReviewComment, loadReviewComments, loadReviewDiffSnapshot, loadReviewFileDiff, loadReviewedPatchsetState, loadReviewSession, refreshReviewSession, reviewRequestForSessionRevision, ReviewApiError, REVIEW_DEMO_ID, saveReviewComment, saveReviewedFilesStatus, updateReviewCommentStatus, type ReviewSessionRevision } from '@/lib/review/api'
+import { createReviewSession, deleteReviewComment, loadReviewComments, loadReviewDiffSnapshot, loadReviewFileContext, loadReviewFileDiff, loadReviewedPatchsetState, loadReviewSession, refreshReviewSession, reviewRequestForSessionRevision, ReviewApiError, REVIEW_DEMO_ID, saveReviewComment, saveReviewedFilesStatus, updateReviewCommentStatus, type ReviewContextRange, type ReviewSessionRevision } from '@/lib/review/api'
 
 type DiffMode = ReviewDiffMode
 type IgnoreWhitespace = ReviewPreferences['ignoreWhitespace']
@@ -60,6 +61,29 @@ type CommentTarget = {
 }
 
 type DiffPreferences = ReviewPreferences
+
+type ContextGapDirection = 'above' | 'all' | 'below'
+type ContextGapExpansion = {
+  aboveRows: ReviewDiffRow[]
+  belowRows: ReviewDiffRow[]
+  error?: string
+  pending?: ContextGapDirection
+}
+
+type ContextGapLocation = 'bottom' | 'middle' | 'top'
+
+type ContextGapDescriptor = {
+  availableRows: ReviewDiffRow[]
+  baseAboveRows: ReviewDiffRow[]
+  baseBelowRows: ReviewDiffRow[]
+  expansion: ContextGapExpansion
+  header: string
+  hiddenLines: number
+  key: string
+  location: ContextGapLocation
+  newHiddenStart: number
+  oldHiddenStart: number
+}
 
 type ReviewFileSeed = Omit<ReviewFile, 'diff'>
 
@@ -93,11 +117,14 @@ function createDemoDiff(file: ReviewFileSeed): ReviewFileDiff {
     left: { line, text },
     right: { line, text },
   })
-  const commonContext = Array.from({ length: 100 }, (_, index) => {
-    const line = 29 + index
+  const commonContext = Array.from({ length: 128 }, (_, index) => {
+    const line = index + 1
     const prefix = language === 'python' ? '#' : language === 'markdown' ? '<!--' : '//'
     const suffix = language === 'markdown' ? ' -->' : ''
-    return context(line, `${index === 0 || index === 99 ? '\t' : ''}${prefix} unchanged review context ${index + 1}${suffix}`)
+    const label = line >= 29
+      ? `unchanged review context ${line - 28}`
+      : `unchanged review prelude ${line}`
+    return context(line, `${line === 29 || line === 128 ? '\t' : ''}${prefix} ${label}${suffix}`)
   })
 
   if (file.kind === 'added') {
@@ -517,27 +544,205 @@ function SplitRow({
   )
 }
 
+function splitOuterContext(rows: ReviewDiffRow[]) {
+  const firstChange = rows.findIndex(row => row.kind !== 'context')
+  if (firstChange < 0) return { body: rows, leading: [] as ReviewDiffRow[], trailing: [] as ReviewDiffRow[] }
+  let lastChange = rows.length - 1
+  while (lastChange > firstChange && rows[lastChange]?.kind === 'context') lastChange -= 1
+  return {
+    body: rows.slice(firstChange, lastChange + 1),
+    leading: rows.slice(0, firstChange),
+    trailing: rows.slice(lastChange + 1),
+  }
+}
+
+function changedBoundaryLine(rows: ReviewDiffRow[], edge: 'first' | 'last', side: 'left' | 'right') {
+  const changes = rows.filter(row => row.kind !== 'context' && row.kind !== 'skipped')
+  const ordered = edge === 'first' ? changes : [...changes].reverse()
+  return ordered.find(row => row[side]?.line)?.[side]?.line
+}
+
+function commonLinesBeforeHunk(hunks: ReviewDiffHunk[], index: number) {
+  const currentRows = hunks[index]?.rows ?? []
+  const previousRows = hunks[index - 1]?.rows ?? []
+  const gaps = (['left', 'right'] as const).flatMap(side => {
+    const currentLine = changedBoundaryLine(currentRows, 'first', side)
+    if (!currentLine) return []
+    const previousLine = changedBoundaryLine(previousRows, 'last', side)
+    return [Math.max(0, currentLine - (previousLine ?? 0) - 1)]
+  })
+  return gaps.length ? Math.min(...gaps) : 0
+}
+
+function commonLinesAfterFile(file: ReviewFile) {
+  const lastHunk = file.diff.hunks[file.diff.hunks.length - 1]
+  const leftLines = file.diff.leftMeta?.lines
+  const rightLines = file.diff.rightMeta?.lines
+  if (!lastHunk || !Number.isInteger(leftLines) || !Number.isInteger(rightLines)) return 0
+  const lastLeft = changedBoundaryLine(lastHunk.rows, 'last', 'left')
+  const lastRight = changedBoundaryLine(lastHunk.rows, 'last', 'right')
+  if (!lastLeft || !lastRight) return 0
+  return Math.max(0, Math.min((leftLines ?? 0) - lastLeft, (rightLines ?? 0) - lastRight))
+}
+
+function contextGapKey(prefix: string, path: string, hunks: ReviewDiffHunk[], index: number) {
+  const previousRows = hunks[index - 1]?.rows ?? []
+  const currentRows = hunks[index]?.rows ?? []
+  const previous = ['left', 'right'].map(side => changedBoundaryLine(previousRows, 'last', side as 'left' | 'right') ?? 0).join(':')
+  const current = ['left', 'right'].map(side => changedBoundaryLine(currentRows, 'first', side as 'left' | 'right') ?? 0).join(':')
+  return `${prefix}:${path}:${previous}>${current}`
+}
+
+function bottomContextGapKey(prefix: string, file: ReviewFile) {
+  const lastRows = file.diff.hunks[file.diff.hunks.length - 1]?.rows ?? []
+  const previous = ['left', 'right'].map(side => changedBoundaryLine(lastRows, 'last', side as 'left' | 'right') ?? 0).join(':')
+  return `${prefix}:${file.path}:${previous}>eof:${file.diff.leftMeta?.lines ?? 0}:${file.diff.rightMeta?.lines ?? 0}`
+}
+
+function emptyContextGapExpansion(): ContextGapExpansion {
+  return { aboveRows: [], belowRows: [] }
+}
+
+function contextGapBeforeHunk(
+  contextKeyPrefix: string,
+  contextGapExpansions: Record<string, ContextGapExpansion>,
+  file: ReviewFile,
+  hunkIndex: number,
+  context: number,
+): ContextGapDescriptor {
+  const hunk = file.diff.hunks[hunkIndex]
+  const previousHunk = file.diff.hunks[hunkIndex - 1]
+  const outerContext = splitOuterContext(hunk?.rows ?? [])
+  const previousOuterContext = previousHunk ? splitOuterContext(previousHunk.rows) : null
+  const commonContext = [...(hunk?.commonContext ?? []), ...outerContext.leading]
+  const totalLines = commonLinesBeforeHunk(file.diff.hunks, hunkIndex)
+  const key = contextGapKey(contextKeyPrefix, file.path, file.diff.hunks, hunkIndex)
+  const expansion = contextGapExpansions[key] ?? emptyContextGapExpansion()
+  const baseAboveRows = previousOuterContext?.trailing.slice(0, hunkIndex > 0 ? Math.min(totalLines, context) : 0) ?? []
+  const baseBelowCount = Math.min(Math.max(0, totalLines - baseAboveRows.length), context)
+  const baseBelowRows = baseBelowCount > 0 ? commonContext.slice(-baseBelowCount) : []
+  const hiddenLines = Math.max(0, totalLines - baseAboveRows.length - baseBelowRows.length - expansion.aboveRows.length - expansion.belowRows.length)
+  const previousRows = previousHunk?.rows ?? []
+  const previousLeft = changedBoundaryLine(previousRows, 'last', 'left') ?? 0
+  const previousRight = changedBoundaryLine(previousRows, 'last', 'right') ?? 0
+  const oldHiddenStart = previousLeft + baseAboveRows.length + expansion.aboveRows.length + 1
+  const newHiddenStart = previousRight + baseAboveRows.length + expansion.aboveRows.length + 1
+  const candidateRows = [...(previousOuterContext?.trailing ?? []), ...(hunk?.commonContext ?? []), ...outerContext.leading]
+  return {
+    availableRows: candidateRows.filter(row => {
+      const oldLine = row.left?.line
+      const newLine = row.right?.line
+      return oldLine !== undefined && newLine !== undefined
+        && oldLine >= oldHiddenStart && oldLine < oldHiddenStart + hiddenLines
+        && newLine >= newHiddenStart && newLine < newHiddenStart + hiddenLines
+    }),
+    baseAboveRows,
+    baseBelowRows,
+    expansion,
+    header: hunk?.header ?? '',
+    hiddenLines,
+    key,
+    location: hunkIndex === 0 ? 'top' : 'middle',
+    newHiddenStart,
+    oldHiddenStart,
+  }
+}
+
+function contextGapAfterFile(
+  contextKeyPrefix: string,
+  contextGapExpansions: Record<string, ContextGapExpansion>,
+  file: ReviewFile,
+  context: number,
+): ContextGapDescriptor | null {
+  const lastHunk = file.diff.hunks[file.diff.hunks.length - 1]
+  if (!lastHunk) return null
+  const totalLines = commonLinesAfterFile(file)
+  const key = bottomContextGapKey(contextKeyPrefix, file)
+  const expansion = contextGapExpansions[key] ?? emptyContextGapExpansion()
+  const trailingRows = splitOuterContext(lastHunk.rows).trailing
+  const baseAboveRows = trailingRows.slice(0, Math.min(totalLines, context))
+  const hiddenLines = Math.max(0, totalLines - baseAboveRows.length - expansion.aboveRows.length)
+  const previousLeft = changedBoundaryLine(lastHunk.rows, 'last', 'left') ?? 0
+  const previousRight = changedBoundaryLine(lastHunk.rows, 'last', 'right') ?? 0
+  const oldHiddenStart = previousLeft + baseAboveRows.length + expansion.aboveRows.length + 1
+  const newHiddenStart = previousRight + baseAboveRows.length + expansion.aboveRows.length + 1
+  return {
+    availableRows: trailingRows.filter(row => {
+      const oldLine = row.left?.line
+      const newLine = row.right?.line
+      return oldLine !== undefined && newLine !== undefined
+        && oldLine >= oldHiddenStart
+        && newLine >= newHiddenStart
+    }),
+    baseAboveRows,
+    baseBelowRows: [],
+    expansion,
+    header: '',
+    hiddenLines,
+    key,
+    location: 'bottom',
+    newHiddenStart,
+    oldHiddenStart,
+  }
+}
+
+function ContextGapControl({
+  gap,
+  onExpand,
+}: {
+  gap: ContextGapDescriptor
+  onExpand: (direction: ContextGapDirection) => void
+}) {
+  const showPartial = gap.hiddenLines > 10
+  const disabled = Boolean(gap.expansion.pending)
+  return (
+    <div className="review-demo-diff-hunk interactive" role="group" aria-label={`${gap.hiddenLines} hidden common lines`}>
+      <span>{gap.header}</span>
+      <span className="review-demo-context-controls">
+        {showPartial && gap.location !== 'top' ? <button type="button" disabled={disabled} aria-label="Show 10 lines above" onClick={() => onExpand('above')}>+10↑</button> : null}
+        {showPartial && gap.location !== 'top' ? <span aria-hidden="true">−</span> : null}
+        <button type="button" disabled={disabled} aria-label={`Show all ${gap.hiddenLines} common lines`} onClick={() => onExpand('all')}>+{gap.hiddenLines} common {gap.hiddenLines === 1 ? 'line' : 'lines'}</button>
+        {showPartial && gap.location !== 'bottom' ? <span aria-hidden="true">−</span> : null}
+        {showPartial && gap.location !== 'bottom' ? <button type="button" disabled={disabled} aria-label="Show 10 lines below" onClick={() => onExpand('below')}>+10↓</button> : null}
+      </span>
+      {gap.expansion.error ? <span className="review-demo-context-error" role="alert">{gap.expansion.error}</span> : null}
+    </div>
+  )
+}
+
 function DiffRows({
+  contextKeyPrefix,
+  contextGapExpansions,
   file,
   mode,
   preferences,
-  revealedContextHunks,
   renderAttachment,
   onExpandContext,
-  onToggleContext,
+  onExpandSkippedContext,
 }: {
+  contextKeyPrefix: string
+  contextGapExpansions: Record<string, ContextGapExpansion>
   file: ReviewFile
   mode: DiffMode
   preferences: DiffPreferences
-  revealedContextHunks: Set<string>
   renderAttachment: (line: number, sides: CommentSide[]) => ReactNode
-  onExpandContext: (hunkIndex: number, context: number) => void
-  onToggleContext: (hunkIndex: number) => void
+  onExpandContext: (gap: ContextGapDescriptor, direction: ContextGapDirection, range: ReviewContextRange) => void
+  onExpandSkippedContext: (gapKey: string, hunkIndex: number, context: number) => void
 }) {
   const language = diffLanguageForPath(file.path)
+  const missingNewline = file.diff.hunks.reduce((result, hunk) => {
+    for (const row of [...(hunk.commonContext ?? []), ...hunk.rows]) {
+      if (row.left?.missingNewlineAtEnd) result.left = true
+      if (row.right?.missingNewlineAtEnd) result.right = true
+    }
+    return result
+  }, { left: false, right: false })
   const renderSkippedRow = (row: ReviewDiffRow, key: string, hunkIndex: number) => {
     const skipped = Math.max(row.leftLines ?? 0, row.rightLines ?? 0)
-    return <button type="button" key={key} className="review-demo-skipped-row" onClick={() => onExpandContext(hunkIndex, Math.min(10000, preferences.context + skipped))}>Show {skipped} common lines</button>
+    const gapKey = contextGapKey(contextKeyPrefix, file.path, file.diff.hunks, hunkIndex)
+    const currentContext = preferences.context
+    const step = Math.min(10, skipped)
+    return <button type="button" key={key} className="review-demo-skipped-row" onClick={() => onExpandSkippedContext(gapKey, hunkIndex, Math.min(10000, currentContext + step))}>Show {step} more common lines ({skipped} hidden)</button>
   }
   const renderRows = (rows: ReviewDiffRow[], hunkIndex: number, section: 'change' | 'context') => {
     const visibleRows = preferences.ignoreWhitespace === 'NONE'
@@ -571,43 +776,63 @@ function DiffRows({
     )
   }
 
+  const gapsBefore = file.diff.hunks.map((_, index) => contextGapBeforeHunk(contextKeyPrefix, contextGapExpansions, file, index, preferences.context))
+  const bottomGap = contextGapAfterFile(contextKeyPrefix, contextGapExpansions, file, preferences.context)
+  const allGaps = [...gapsBefore, ...(bottomGap ? [bottomGap] : [])]
+  const autoExpandGaps = allGaps.filter(gap => gap.hiddenLines > 0 && gap.hiddenLines <= 3 && !gap.expansion.pending && !gap.expansion.error)
+  const autoExpandSignature = autoExpandGaps.map(gap => `${gap.key}:${gap.hiddenLines}:${gap.oldHiddenStart}:${gap.newHiddenStart}`).join('|')
+  const onExpandContextRef = useRef(onExpandContext)
+  onExpandContextRef.current = onExpandContext
+  useEffect(() => {
+    for (const gap of autoExpandGaps) {
+      onExpandContextRef.current(gap, 'all', {
+        lines: gap.hiddenLines,
+        newStart: gap.newHiddenStart,
+        oldStart: gap.oldHiddenStart,
+      })
+    }
+  }, [autoExpandSignature])
+
+  const expandGap = (gap: ContextGapDescriptor, direction: ContextGapDirection) => {
+    const lines = direction === 'all' ? gap.hiddenLines : Math.min(10, gap.hiddenLines)
+    const offset = direction === 'below' ? gap.hiddenLines - lines : 0
+    onExpandContext(gap, direction, {
+      lines,
+      newStart: gap.newHiddenStart + offset,
+      oldStart: gap.oldHiddenStart + offset,
+    })
+  }
+  const renderGap = (gap: ContextGapDescriptor, hunkIndex: number) => {
+    const expanded = gap.expansion.aboveRows.length > 0 || gap.expansion.belowRows.length > 0
+    const showControl = gap.hiddenLines > 3 || Boolean(gap.expansion.error)
+    return <>
+      {renderRows(gap.baseAboveRows, hunkIndex, 'context')}
+      {renderRows(gap.expansion.aboveRows, hunkIndex, 'context')}
+      {showControl ? <ContextGapControl gap={gap} onExpand={direction => expandGap(gap, direction)} /> : null}
+      {!showControl && gap.hiddenLines > 0 ? <div className="review-demo-diff-hunk interactive loading" role="status"><span>{gap.header}</span><span>Loading {gap.hiddenLines} common {gap.hiddenLines === 1 ? 'line' : 'lines'}…</span></div> : null}
+      {!showControl && gap.hiddenLines === 0 && !expanded && gap.location !== 'bottom' ? <div className={`review-demo-diff-hunk ${hunkIndex > 0 ? 'secondary' : ''}`}><span>{gap.header}</span></div> : null}
+      {renderRows(gap.expansion.belowRows, hunkIndex, 'context')}
+      {renderRows(gap.baseBelowRows, hunkIndex, 'context')}
+    </>
+  }
+
   return (
     <>
-      {file.diff.hunks.map((hunk, index) => {
-        const hunkKey = `${file.path}:${index}`
-        const previousHunk = file.diff.hunks[index - 1]
-        const previousOldEnd = previousHunk ? previousHunk.oldStart + previousHunk.oldLines - 1 : 0
-        const previousNewEnd = previousHunk ? previousHunk.newStart + previousHunk.newLines - 1 : 0
-        const hiddenGaps = [
-          hunk.oldStart > 0 ? hunk.oldStart - previousOldEnd - 1 : null,
-          hunk.newStart > 0 ? hunk.newStart - previousNewEnd - 1 : null,
-        ].filter((value): value is number => typeof value === 'number' && value >= 0)
-        const inferredHiddenLineCount = hiddenGaps.length ? Math.min(...hiddenGaps) : 0
-        const commonContext = hunk.commonContext ?? []
-        const commonContextExpanded = revealedContextHunks.has(hunkKey)
-        const compactContext = commonContext.slice(Math.max(0, commonContext.length - preferences.context))
-        const localHiddenLineCount = commonContext.length - compactContext.length
-        const hiddenCommonLineCount = localHiddenLineCount || inferredHiddenLineCount
-        const renderedContext = commonContextExpanded ? commonContext : compactContext
-        const contextLabel = commonContextExpanded && localHiddenLineCount > 0
-          ? `Hide ${localHiddenLineCount} common lines`
-          : `Show ${hiddenCommonLineCount} common lines`
-        const expandContext = () => {
-          if (localHiddenLineCount > 0) onToggleContext(index)
-          else onExpandContext(index, Math.min(10000, preferences.context + inferredHiddenLineCount))
-        }
-        return (
-          <Fragment key={`${hunk.header}:${index}`}>
-            {hiddenCommonLineCount > 0 ? (
-              <button type="button" className={`review-demo-diff-hunk interactive ${index > 0 ? 'secondary' : ''}`} aria-label={contextLabel} onClick={expandContext}>
-                <span>{hunk.header}</span><span>{contextLabel}</span>
-              </button>
-            ) : <div className={`review-demo-diff-hunk ${index > 0 ? 'secondary' : ''}`}><span>{hunk.header}</span></div>}
-            {renderRows(renderedContext, index, 'context')}
-            {renderRows(hunk.rows, index, 'change')}
-          </Fragment>
-        )
-      })}
+      {file.diff.hunks.map((hunk, index) => (
+        <Fragment key={`${hunk.header}:${index}`}>
+          {renderGap(gapsBefore[index]!, index)}
+          {renderRows(splitOuterContext(hunk.rows).body, index, 'change')}
+        </Fragment>
+      ))}
+      {bottomGap ? renderGap(bottomGap, file.diff.hunks.length) : null}
+      {missingNewline.left || missingNewline.right ? (
+        <div className="review-demo-newline-warning" role="note">
+          {[
+            missingNewline.left ? 'No newline at end of left file.' : '',
+            missingNewline.right ? 'No newline at end of right file.' : '',
+          ].filter(Boolean).join(' — ')}
+        </div>
+      ) : null}
     </>
   )
 }
@@ -799,12 +1024,12 @@ export function ReviewDemoPage() {
   const [reviewCommentError, setReviewCommentError] = useState('')
   const [reviewingPath, setReviewingPath] = useState('')
   const [contextLoadPaths, setContextLoadPaths] = useState<string[]>([])
+  const [contextGapExpansions, setContextGapExpansions] = useState<Record<string, ContextGapExpansion>>({})
   const reviewId = externalReview ? reviewState.reviewId ?? '' : REVIEW_DEMO_ID
   const patchset = reviewState.patchRange.patchset
   const basePatch = reviewState.patchRange.basePatchset
   const patchsetState = reviewStateForPatchset(reviewState, patchset)
   const expandedPaths = new Set(patchsetState.expandedPaths)
-  const revealedContextHunks = new Set(patchsetState.revealedContextHunks)
   const diffMode = reviewState.diffMode
   const reviewScope = reviewSessionRevision?.scope ?? (reviewRequestBase?.source === 'working-copy' ? reviewRequestBase.scope : undefined)
   const effectiveDiffMode: DiffMode = reviewScope === 'untracked' ? 'unified' : diffMode
@@ -1136,11 +1361,14 @@ export function ReviewDemoPage() {
   const savePreferences = () => {
     const previous = diffPreferences
     const next = normalizeReviewPreferences(draftPreferences)
+    const diffShapeChanged = previous.context !== next.context
+      || previous.ignoreWhitespace !== next.ignoreWhitespace
     applyReviewAction({ preferences: next, type: 'set-preferences' })
     setShowPreferences(false)
+    if (diffShapeChanged) setContextGapExpansions({})
     if (
       !externalReview || !reviewRequestBase
-      || (previous.context === next.context && previous.ignoreWhitespace === next.ignoreWhitespace)
+      || !diffShapeChanged
     ) return
     const targetPatchset = patchset
     const filesByPath = new Map(files.map(file => [file.path, file]))
@@ -1169,9 +1397,6 @@ export function ReviewDemoPage() {
     setCommitCopied(true)
     window.setTimeout(() => setCommitCopied(false), 1200)
   }
-  const toggleCommonContext = (path: string, hunkIndex: number) => {
-    applyReviewAction({ hunkIndex, path, type: 'toggle-common-context' })
-  }
   const expandRemoteContext = (path: string, context: number) => {
     const request = reviewDiffRequestRef.current
     if (!request || contextLoadPaths.includes(path)) return
@@ -1185,6 +1410,50 @@ export function ReviewDemoPage() {
       })
       .catch(error => setReviewLoadError(error instanceof Error ? error.message : 'review context request failed'))
       .finally(() => setContextLoadPaths(current => current.filter(item => item !== path)))
+  }
+  const expandFileContext = (file: ReviewFile, gap: ContextGapDescriptor, direction: ContextGapDirection, range: ReviewContextRange) => {
+    const request = reviewDiffRequestRef.current
+    if (gap.expansion.pending || range.lines < 1) return
+    const commitRows = (rows: ReviewDiffRow[]) => {
+      setContextGapExpansions(current => {
+        const previous = current[gap.key] ?? emptyContextGapExpansion()
+        return {
+          ...current,
+          [gap.key]: direction === 'below'
+            ? { ...previous, belowRows: [...rows, ...previous.belowRows], error: undefined, pending: undefined }
+            : { ...previous, aboveRows: [...previous.aboveRows, ...rows], error: undefined, pending: undefined },
+        }
+      })
+    }
+    const failRows = (error: unknown) => {
+      const message = error instanceof Error ? error.message : 'review context request failed'
+      setContextGapExpansions(current => {
+        const previous = current[gap.key] ?? emptyContextGapExpansion()
+        return { ...current, [gap.key]: { ...previous, error: message, pending: undefined } }
+      })
+    }
+    setContextGapExpansions(current => {
+      const previous = current[gap.key] ?? emptyContextGapExpansion()
+      return {
+        ...current,
+        [gap.key]: { ...previous, error: undefined, pending: direction },
+      }
+    })
+    if (!request) {
+      const rows = gap.availableRows.filter(row => {
+        const oldLine = row.left?.line
+        const newLine = row.right?.line
+        return oldLine !== undefined && newLine !== undefined
+          && oldLine >= range.oldStart && oldLine < range.oldStart + range.lines
+          && newLine >= range.newStart && newLine < range.newStart + range.lines
+      })
+      if (rows.length === range.lines) commitRows(rows)
+      else failRows(new Error('review context is unavailable'))
+      return
+    }
+    void loadReviewFileContext(request, file.path, range)
+      .then(result => commitRows(result.rows))
+      .catch(failRows)
   }
   const startComment = (path: string, line: number, side: CommentSide, range?: ReviewCommentRange) => {
     applyReviewAction({ line, path, range, side, type: 'start-comment' })
@@ -1416,7 +1685,7 @@ export function ReviewDemoPage() {
                             startComment(commentPathForSide(selected.side), selected.line, selected.side, selected.range)
                           }}
                         >
-                          <DiffRows file={file} mode={effectiveDiffMode} preferences={diffPreferences} revealedContextHunks={revealedContextHunks} renderAttachment={renderLineAttachment} onExpandContext={(_hunkIndex, context) => expandRemoteContext(file.path, context)} onToggleContext={hunkIndex => toggleCommonContext(file.path, hunkIndex)} />
+                          <DiffRows contextKeyPrefix={`${reviewId}:${patchset}`} contextGapExpansions={contextGapExpansions} file={file} mode={effectiveDiffMode} preferences={diffPreferences} renderAttachment={renderLineAttachment} onExpandContext={(gap, direction, range) => expandFileContext(file, gap, direction, range)} onExpandSkippedContext={(_gapKey, _hunkIndex, context) => expandRemoteContext(file.path, context)} />
                         </div>
                       </>
                     )}

@@ -7,7 +7,7 @@ Farming supports two runtime modes for newly started Codex agents:
 - **CLI** (default): Farming starts Codex exactly as a terminal-owned CLI session. Composer messages are written to the terminal, preserving the stable legacy behavior.
 - **App Server** (experimental): Farming gives each Codex Agent a dedicated Codex app-server. The App Server Chat page sends and reads only the structured Codex protocol; it does not create a CLI or PTY observer. Its upstream protocol may change between Codex versions.
 
-Settings provide the default mode. The **New Agent** dialog exposes a Codex Runtime choice for each new Codex Agent, which overrides that default for that launch only. Existing sessions keep the runtime that created them, so changing either control never steals input focus, restarts a visible terminal, or moves the user to another agent.
+The **New Agent** dialog is the visible runtime selector for each new Codex Agent. The persisted `codexRuntimeMode` remains only as compatibility metadata and is not exposed in Settings. Existing sessions keep the runtime that created them, so choosing a runtime for a new launch never steals input focus, restarts a visible terminal, or moves the user to another agent.
 
 ## Separate runtime boundaries
 

@@ -158,7 +158,8 @@ Farming stores runtime settings under `~/.farming/settings.json` by default. Bac
 - `agentLaunchProfiles.codex`
 - `agentLaunchProfiles.claude`
 - `agentHomes` (home metadata for Codex, Claude, OpenCode, and Qoder; each provider keeps a non-removable `default` home)
-- `codexRuntimeMode` (`cli` by default, or explicitly selected experimental `app-server`; applied only to newly launched Codex agents). App Server mode gives each Agent a dedicated short runtime `CODEX_HOME` that links the selected Agent Home’s identity/configuration entries while isolating its socket, session, and logs from Codex Desktop and other Agents.
+- `codexRuntimeMode` (legacy compatibility default for `cli` or experimental `app-server`; the Settings panel no longer exposes this choice). App Server mode gives each Agent a dedicated short runtime `CODEX_HOME` that links the selected Agent Home’s identity/configuration entries while isolating its socket, session, and logs from Codex Desktop and other Agents.
+- `searchTimeoutMs` (shared timeout for Project Files search and Agent history search; defaults to 15 seconds)
 - `workspaceHistory`
 - `dangerouslySkipAgentPermissionsByDefault` (launch supported coding agents such as Codex, Claude, OpenCode, Qoder, Qwen, Aider, GitHub Copilot CLI, and Amazon Q with their provider-specific dangerous permission-skip flags by default)
 - `crtSkinEffectsEnabled` (controls only the CRT skin's scanlines, mask, vignette, and infrequent scan beam; Farming Code must not read or apply it)

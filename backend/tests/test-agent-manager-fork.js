@@ -115,6 +115,9 @@ async function run() {
     assert.strictEqual(plainAgent.canForkNewWorktree, false);
     const failed = await manager.forkAgent(plainId, 'new-worktree');
     assert(failed.error, 'new-worktree fork should fail outside a git repo');
+    execFileSync('git', ['-C', nonGit, 'init'], { stdio: 'ignore' });
+    const refreshedPlainAgent = manager.getState().agents.find(agent => agent.id === plainId);
+    assert.strictEqual(refreshedPlainAgent.canForkNewWorktree, true, 'fork capability should refresh when a workspace becomes a Git repository');
 
     const codexSessionId = '22222222-3333-4444-8555-666666666666';
     const codexHome = path.join(tmpRoot, '.codex-work');

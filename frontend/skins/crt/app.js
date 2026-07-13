@@ -161,17 +161,25 @@ function findDirectionalNavigationIndex(rects, currentIndex, key, wrap = false) 
   return bestIndex;
 }
 
-function calculateCrtAgentPageLayout(availableWidth, availableHeight) {
+function calculateCrtAgentPageLayout(availableWidth, availableHeight, itemCount) {
   const width = Math.max(0, Number(availableWidth) || 0);
   const height = Math.max(0, Number(availableHeight) || 0);
   const innerWidth = Math.max(0, width - CRT_AGENT_GRID_PADDING * 2);
   const innerHeight = Math.max(0, height - CRT_AGENT_GRID_PADDING * 2);
-  const columns = Math.max(1, Math.floor(
+  const maxColumns = Math.max(1, Math.floor(
     (innerWidth + CRT_AGENT_GRID_GAP) / (CRT_AGENT_CARD_MIN_WIDTH + CRT_AGENT_GRID_GAP),
   ));
-  const rows = Math.max(1, Math.floor(
+  const maxRows = Math.max(1, Math.floor(
     (innerHeight + CRT_AGENT_GRID_GAP) / (CRT_AGENT_CARD_MIN_HEIGHT + CRT_AGENT_GRID_GAP),
   ));
+  const count = Math.max(0, Math.floor(Number(itemCount) || 0));
+  const preferred = count <= 4
+    ? { columns: 2, rows: 2 }
+    : count <= 6
+      ? { columns: 3, rows: 2 }
+      : { columns: 3, rows: 3 };
+  const columns = Math.min(preferred.columns, maxColumns);
+  const rows = Math.min(preferred.rows, maxRows);
   return { columns, rows, pageSize: columns * rows };
 }
 
@@ -2172,12 +2180,34 @@ function normalizeSessionViewPayload(payload, fallbackAgent = null) {
     previewCols: Number.isFinite(session.previewCols) ? session.previewCols : null,
     previewRows: Number.isFinite(session.previewRows) ? session.previewRows : null,
     previewText: typeof session.previewText === 'string' ? session.previewText : ((fallbackAgent && fallbackAgent.previewText) || ''),
+    previewSnapshot: session.previewSnapshot && typeof session.previewSnapshot === 'object'
+      ? session.previewSnapshot
+      : ((fallbackAgent && fallbackAgent.previewSnapshot) || null),
     isMain: typeof session.isMain === 'boolean' ? session.isMain : Boolean(fallbackAgent && fallbackAgent.isMain),
     activityLevel: session.activityLevel || (fallbackAgent && fallbackAgent.activityLevel) || 'cold',
     lastActivity: session.lastActivity || (fallbackAgent && fallbackAgent.lastActivity) || null,
     startedAt: session.startedAt || null,
     exitedAt: session.exitedAt || null
   };
+}
+
+function applySessionReplayCursorVisibility(text, sessionView, agent) {
+  if (!text) return text;
+  if (/\x1b\[\?25[hl]/.test(text)) return text;
+
+  const snapshotVisibility = sessionView
+    && sessionView.previewSnapshot
+    && sessionView.previewSnapshot.cursorVisible;
+  if (typeof snapshotVisibility === 'boolean') {
+    return `${text}\x1b[?25${snapshotVisibility ? 'h' : 'l'}`;
+  }
+
+  // Compatibility for a live native PTY host started before cursor visibility
+  // was added to snapshots. Claude's TUI paints its own input cursor and hides
+  // the hardware cursor, so its replay must not expose xterm's default cursor.
+  return crtCommandProgram(agent && agent.command) === 'claude'
+    ? `${text}\x1b[?25l`
+    : text;
 }
 
 function deriveSessionStreamPatch(stream, currentFocusedAgentId, currentSessionSource) {
@@ -2516,7 +2546,7 @@ function hideSettings() {
 }
 
 function loadAgents() {
-  fetch(farmingApiPath('/executables'))
+  return fetch(farmingApiPath('/executables'), { cache: 'no-store' })
     .then(res => res.json())
     .then(data => {
       agents = data.agents || [];
@@ -2804,7 +2834,7 @@ async function loadCrtHistoryAgentSessions() {
   historyError = '';
   renderCrtHistory();
   try {
-    const response = await fetch(farmingApiPath('/agent-sessions?limit=60'));
+    const response = await fetch(farmingApiPath('/agent-sessions?limit=60&fresh=1'), { cache: 'no-store' });
     const data = await response.json().catch(() => null);
     if (!response.ok) throw new Error(data && data.error ? data.error : `History request failed (${response.status})`);
     historyAgentSessions = data && Array.isArray(data.sessions) ? data.sessions : [];
@@ -3588,7 +3618,11 @@ function renderState() {
   emptyState.style.display = 'none';
 
   const regularAgents = getCrtRegularAgents(state);
-  const pageLayout = calculateCrtAgentPageLayout(mapArea.clientWidth, mapArea.clientHeight);
+  const pageLayout = calculateCrtAgentPageLayout(
+    mapArea.clientWidth,
+    mapArea.clientHeight,
+    regularAgents.length,
+  );
   crtAgentPageSize = pageLayout.pageSize;
   crtAgentPageColumns = pageLayout.columns;
   const selectedRegularAgentIndex = regularAgents.findIndex((agent) => (
@@ -3600,10 +3634,8 @@ function renderState() {
   const agentPage = getCrtAgentPage(regularAgents, crtAgentPage, crtAgentPageSize);
   crtAgentPage = agentPage.page;
   updateCrtAgentPageStatus(agentPage);
-  const renderedRows = agentPage.totalPages > 1
-    ? pageLayout.rows
-    : Math.max(1, Math.ceil(agentPage.items.length / pageLayout.columns));
-  mapArea.style.setProperty('--crt-agent-page-rows', String(renderedRows));
+  mapArea.style.setProperty('--crt-agent-page-columns', String(pageLayout.columns));
+  mapArea.style.setProperty('--crt-agent-page-rows', String(pageLayout.rows));
 
   // 渲染 Main Agent 到右下角
   if (state.mainAgentId) {
@@ -3708,6 +3740,7 @@ function generateKeyMap() {
 
 function showInputDialog(prefill = null) {
   clearCrtNavigationSelection();
+  void loadAgents();
   const title = document.getElementById('dialog-title');
   const cancelButtonContainer = document.getElementById('cancel-button-container');
   const needMainAgent = needsMainAgent();
@@ -3836,6 +3869,16 @@ function updateCrtRuntimeSwitchControl(agent) {
   terminalButton.classList.toggle('active', view === 'terminal');
   chatButton.setAttribute('aria-pressed', view === 'chat' ? 'true' : 'false');
   terminalButton.setAttribute('aria-pressed', view === 'terminal' ? 'true' : 'false');
+}
+
+function updateCrtSessionCloseControl(agent) {
+  const closeButton = document.querySelector('#session-modal .close-btn');
+  if (!closeButton) return;
+  const chat = isStructuredRuntimeAgent(agent);
+  closeButton.textContent = chat ? 'CLOSE [ESC]' : 'CLOSE [CTRL+ESC]';
+  closeButton.setAttribute('aria-label', chat
+    ? 'Close session, Escape'
+    : 'Close session, Ctrl+Escape');
 }
 
 function resetCrtRuntimeSwitchState(cancelRequest = true) {
@@ -4886,6 +4929,7 @@ async function openSession(agentId) {
   }
   updateSessionTitleDisplay(modalState.title);
   updateCrtRuntimeSwitchControl(agent);
+  updateCrtSessionCloseControl(agent);
 
   // 更新吊顶的"当前关注地域"
   const focusRegion = document.getElementById('focus-region');
@@ -5178,7 +5222,10 @@ async function refreshSessionView(forceReplace = false, expectedAgentId = focuse
     const patch = deriveSessionTextPatch(sessionText, getSessionOutputLength(), forceReplace);
 
     if (patch.mode === 'replace') {
-      replaceTerminalOutput(terminal, patch.text);
+      replaceTerminalOutput(
+        terminal,
+        applySessionReplayCursorVisibility(patch.text, sessionView, currentAgent),
+      );
       refreshSessionTerminalUi({ preserveSearchIndex: true });
       if (runtime) {
         runtime.markHydrated(patch.nextLength);

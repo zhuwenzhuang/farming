@@ -1019,6 +1019,10 @@ body.code-mode[data-appearance='dark'] .code-codex-transcript-process {
   color: var(--code-dark-text-muted);
 }
 
+body.code-mode[data-appearance='dark'] .code-acp-progress-update {
+  color: var(--code-dark-text);
+}
+
 body.code-mode[data-appearance='dark'] .code-codex-transcript-process-title {
   color: var(--code-dark-text-soft);
 }

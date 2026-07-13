@@ -66,6 +66,7 @@ function run() {
   const acpSessionHookSource = read('src/components/code/acp/useAcpSession.ts');
   const acpPermissionSource = read('src/components/code/acp/AcpPermissionCard.tsx');
   const acpTranscriptSource = read('src/components/code/acp/AcpTranscriptPane.tsx');
+  const acpProgressTimelineSource = read('src/components/code/acp/acp-progress-timeline.ts');
   const terminalSearchSource = read('src/lib/terminal-search.ts');
   const terminalSessionPoolSource = read('src/lib/terminal-session-pool.ts');
   const usePooledTerminalSource = read('src/hooks/usePooledTerminal.ts');
@@ -591,6 +592,10 @@ function run() {
       !workspaceSource.includes('useEffect(() => loadCodexModels(), [loadCodexModels])') &&
       workspaceSource.includes('const AGENT_SESSION_PAGE_SIZE = 60') &&
       workspaceSource.includes("params.set('cursor', options.cursor)") &&
+      workspaceSource.includes("params.set('fresh', '1')") &&
+      workspaceSource.includes("cache: options.fresh ? 'no-store' : 'default'") &&
+      workspaceSource.includes("fresh: '1'") &&
+      workspaceSource.includes("cache: 'no-store'") &&
       workspaceSource.includes('const loadMoreAgentSessions = useCallback') &&
       workspaceSource.includes('setAgentSessionNextCursor(page.nextCursor)') &&
       workspaceSource.includes('const seen = new Set(current.map(agentSessionId))') &&
@@ -682,7 +687,7 @@ function run() {
       workspaceSource.includes('claimedAgentSessionKeyByAgentId={agentListState.claimedAgentSessionKeyByAgentId}') &&
       !workspaceSource.includes('visibleProjectAgentSessions') &&
       workspaceSource.includes('projectListProjectsForAgents(visibleLiveAgents, sidebarAgentSessions, projectNames)') &&
-      workspaceSource.includes('projectListProjectsForAgents(visibleLiveAgents, unclaimedSearchableAgentSessions, projectNames)') &&
+      workspaceSource.includes('projectListProjectsForAgents(visibleLiveAgents, searchableAgentSessions, projectNames)') &&
       workspaceSource.includes('limitProjectAgentSessions(\n    projectListProjects') &&
       workspaceSource.includes('historyAgentSessions') &&
       workspaceSource.includes('historyAgentSessionsForSessions(sessions, mainPageSessionKeys, claimedAgentSessionKeys)') &&
@@ -741,7 +746,7 @@ function run() {
       workspaceSource.includes('data-testid="code-session-context-menu"') &&
       workspaceSource.includes('data-testid="code-session-history-card"') &&
       workspaceSource.includes('const historyAgents = buildHistoryAgentItems(archivedRuns, archivedAgents, agentSessions)') &&
-      workspaceSource.includes('historyAgents.map(item =>') &&
+      workspaceSource.includes('displayedHistoryAgents.map(item =>') &&
 	      workspaceSource.includes('const [usageCollapsed, setUsageCollapsed] = useState(true)') &&
 	      workspaceSource.includes('function providerLocalTokenRate(usageSummary: UsageSummary | null)') &&
 	      workspaceSource.includes('function formatCollapsedUsageSummary(') &&
@@ -1177,11 +1182,24 @@ function run() {
       transcriptPaneSource.includes('const StableCodexTranscriptTurnView = memo(CodexTranscriptTurnView)') &&
       transcriptPaneSource.includes("document.addEventListener('selectionchange', updateSelectionState)") &&
       transcriptPaneSource.includes('onPointerDown={handleTranscriptPointerDown}') &&
-      transcriptPaneSource.includes('setTranscript(current => preserveCompletedTranscriptTurns(current, nextTranscript))') &&
+      transcriptPaneSource.includes("source === 'acp'") &&
+      transcriptPaneSource.includes('mergeAcpTranscript(current, nextTranscript)') &&
+      transcriptPaneSource.includes('preserveCompletedTranscriptTurns(current, nextTranscript)') &&
       !transcriptPaneSource.includes('deferredTranscriptRef') &&
       !terminalPaneSource.includes('textSelectionGestureRef') &&
       !terminalComposerSource.includes('textSelectionGestureRef'),
     'Chat transcript selection should pause live rendering without changing Terminal selection or composer behavior'
+  );
+  assert(
+    transcriptPaneSource.includes('data-testid="code-acp-progress-update"') &&
+      transcriptPaneSource.includes("source !== 'acp'") &&
+      transcriptPaneSource.includes("turn.status === 'inProgress'") &&
+      transcriptPaneSource.includes('closedLiveProcessTurnIds') &&
+      transcriptPaneSource.includes('acpActionGroupLabel(entry.items)') &&
+      acpProgressTimelineSource.includes("return String(item.type || '').trim().toLowerCase() === 'progress'") &&
+      acpProgressTimelineSource.includes("return 'Reasoning'") &&
+      !terminalPaneSource.includes('code-acp-progress-update'),
+    'ACP Chat should show ordered progress prose and compact action groups while a turn is live without changing Terminal rendering'
   );
 
   const keyboardSource = read('src/hooks/useKeyboard.ts');
@@ -1236,8 +1254,9 @@ function run() {
       inputDialogSource.includes('defaultLaunchAgent') &&
       inputDialogSource.includes("if (agentName === 'opencode') return 'opencode'") &&
       inputDialogSource.includes('effectiveDefaultLaunchAgent') &&
-      inputDialogSource.includes('agent-option-${effectiveDefaultLaunchAgent}') &&
-	      inputDialogSource.includes("fetch(appPath('/api/agent-sessions?limit=100'))") &&
+	      inputDialogSource.includes('agent-option-${effectiveDefaultLaunchAgent}') &&
+	      inputDialogSource.includes("fetch(appPath('/api/executables'), { cache: 'no-store' })") &&
+	      inputDialogSource.includes("fetch(appPath('/api/agent-sessions?limit=100&fresh=1'), { cache: 'no-store' })") &&
 	      inputDialogSource.includes('canResumeMainAgentSession') &&
 	      inputDialogSource.includes('data-testid="main-agent-resume-toggle"') &&
 	      inputDialogSource.includes('copy.resumePreviousMainAgent') &&

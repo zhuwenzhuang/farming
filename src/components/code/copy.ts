@@ -166,6 +166,7 @@ export interface CodeCopy {
   startOrSelectAgent: string
   startOrSelectAgentDescription: string
   historySummary: (workspaces: number, projects: number, archived: number, sessions: number) => string
+  searchHistory: string
   noHistoryYet: string
   noHistoryDescription: string
   historyAgents: string
@@ -544,6 +545,7 @@ const EN_COPY: CodeCopy = {
   startOrSelectAgent: 'Start or select an agent',
   startOrSelectAgentDescription: 'Projects live on the left. Open any agent terminal without closing the rest of the workspace.',
   historySummary: (_workspaces, _projects, archived, sessions) => `${archived + sessions} history agents`,
+  searchHistory: 'Search history',
   noHistoryYet: 'No history yet',
   noHistoryDescription: 'Agents moved off the main page will appear here.',
   historyAgents: 'History Agents',
@@ -569,9 +571,9 @@ const EN_COPY: CodeCopy = {
   resumeSessionAria: title => `Resume ${title}`,
   resultsCount: count => `${count} results`,
   noMatchingAgents: 'No matching agents',
-  searchHint: 'Search by project, command, task, or workspace.',
+  searchHint: 'Search by Agent title, session title, or project.',
   searchEmptyTitle: 'Start a search',
-  searchEmptyDescription: 'Type a project, command, task, workspace, or session title.',
+  searchEmptyDescription: 'Type an Agent title, session title, or project name or path.',
   agents: 'Agents',
   files: 'Files',
   changes: 'Changes',
@@ -958,6 +960,7 @@ const ZH_COPY: CodeCopy = {
   startOrSelectAgent: '启动或选择一个 Agent',
   startOrSelectAgentDescription: '项目在左侧。打开任意 Agent 终端时，不会关闭其他工作区。',
   historySummary: (_workspaces, _projects, archived, sessions) => `${archived + sessions} 个 History Agents`,
+  searchHistory: '搜索历史记录',
   noHistoryYet: '还没有历史记录',
   noHistoryDescription: '从主页面移出的 Agent 会出现在这里。',
   historyAgents: 'History Agents',
@@ -983,9 +986,9 @@ const ZH_COPY: CodeCopy = {
   resumeSessionAria: title => `恢复 ${title}`,
   resultsCount: count => `${count} 个结果`,
   noMatchingAgents: '没有匹配的 Agent',
-  searchHint: '可按项目、命令、任务或工作区搜索。',
+  searchHint: '可按 Agent 标题、会话标题或项目搜索。',
   searchEmptyTitle: '开始搜索',
-  searchEmptyDescription: '输入项目、命令、任务、工作区或会话标题。',
+  searchEmptyDescription: '输入 Agent 标题、会话标题，或项目名称、路径。',
   agents: 'Agent',
   files: '文件',
   changes: '变更',

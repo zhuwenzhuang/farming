@@ -26,6 +26,10 @@ async function run() {
     resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
   });
   const manager = new AgentManager(config(), { acpRuntime: runtime });
+  let nativeMetadataUpdateCount = 0;
+  manager.engineBridge.getEngine('native').updateSessionMetadata = async () => {
+    nativeMetadataUpdateCount += 1;
+  };
   try {
     const agentId = await new Promise(resolve => {
       manager.startAgent('codex', process.cwd(), (id, error) => {
@@ -70,6 +74,7 @@ async function run() {
     assert.strictEqual(manager.getAcpTranscript(agentId).turns[0].finalMessage, 'ACP reply');
     assert.strictEqual((await manager.forkAcpSession(agentId)).sessionId, 'acp-fork-session');
     assert.strictEqual((await manager.setAcpSessionMode(agentId, 'plan')).modeId, 'plan');
+    assert.strictEqual(nativeMetadataUpdateCount, 0, 'ACP sessions must not update native PTY metadata');
   } finally {
     await manager.dispose();
   }

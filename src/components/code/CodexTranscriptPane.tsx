@@ -28,6 +28,7 @@ import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from './copy'
 import { acpActivityKind, acpCompactPlanLabel, acpPlanProgress, type AcpActivityKind } from './acp/acp-activity-label'
+import { acpActionGroupLabel, isAcpProgressUpdate } from './acp/acp-progress-timeline'
 import { terminalTargetFilePath } from './workspace-file-view'
 import 'katex/dist/katex.min.css'
 
@@ -43,6 +44,7 @@ interface CodexTranscriptProcessItem {
   completedSteps?: number
   totalSteps?: number
   currentStep?: string
+  detailTruncated?: boolean
 }
 
 interface CodexTranscriptUserImage {
@@ -80,6 +82,10 @@ interface CodexTranscript {
   source?: string
   hasMoreBefore?: boolean
   turnLimit?: number
+  revision?: number
+  delta?: boolean
+  replaceFromTurnId?: string
+  stopReason?: string
   turns: CodexTranscriptTurn[]
 }
 
@@ -126,6 +132,45 @@ function preserveCompletedTranscriptTurns(
   }
 }
 
+function mergeAcpTranscript(
+  current: CodexTranscript | null,
+  next: CodexTranscript | null,
+) {
+  if (!next?.delta) return preserveCompletedTranscriptTurns(current, next)
+  if (!current || current.sessionId !== next.sessionId) return next
+  if (!next.replaceFromTurnId || next.turns.length === 0) {
+    return {
+      ...current,
+      ...next,
+      available: current.available,
+      hasMoreBefore: current.hasMoreBefore,
+      turns: current.turns,
+    }
+  }
+  const replaceIndex = current.turns.findIndex(turn => turn.id === next.replaceFromTurnId)
+  if (replaceIndex < 0) {
+    const currentIds = new Set(current.turns.map(turn => turn.id))
+    const appended = next.turns.filter(turn => !currentIds.has(turn.id))
+    const mergedTurns = [...current.turns, ...appended]
+    const boundedTurns = current.turnLimit && mergedTurns.length > current.turnLimit
+      ? mergedTurns.slice(-current.turnLimit)
+      : mergedTurns
+    return preserveCompletedTranscriptTurns(current, {
+      ...current,
+      ...next,
+      available: current.available || next.available,
+      hasMoreBefore: current.hasMoreBefore || next.hasMoreBefore || boundedTurns.length < mergedTurns.length,
+      turns: boundedTurns,
+    })
+  }
+  return preserveCompletedTranscriptTurns(current, {
+    ...next,
+    available: current.available || next.available,
+    hasMoreBefore: current.hasMoreBefore || next.hasMoreBefore,
+    turns: [...current.turns.slice(0, replaceIndex), ...next.turns],
+  })
+}
+
 export interface CodexTranscriptPaneProps {
   agentId: string
   workspaceRoot?: string
@@ -142,7 +187,15 @@ export interface CodexTranscriptPaneProps {
 const transcriptScrollPositions = new Map<string, number>()
 const INITIAL_TRANSCRIPT_TURN_LIMIT = 80
 const TRANSCRIPT_TURN_PAGE_SIZE = 80
+const INITIAL_ACP_TRANSCRIPT_TURN_LIMIT = 20
+const ACP_TRANSCRIPT_TURN_PAGE_SIZE = 20
 const MAX_TRANSCRIPT_TURN_LIMIT = 1000
+
+function initialTranscriptTurnLimit(source: CodexTranscriptPaneProps['source']) {
+  return source === 'acp'
+    ? INITIAL_ACP_TRANSCRIPT_TURN_LIMIT
+    : INITIAL_TRANSCRIPT_TURN_LIMIT
+}
 const TRANSCRIPT_LOAD_MORE_THRESHOLD = 72
 const TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD = 96
 
@@ -613,6 +666,7 @@ function shouldRenderDetailAsProse(item: CodexTranscriptProcessItem) {
   return [
     'message',
     'agent-message',
+    'progress',
     'reasoning',
     'hook',
     'warning',
@@ -981,6 +1035,7 @@ function CodexTranscriptProcessItemView({
 function CodexTranscriptProcessGroupView({
   groupId,
   items,
+  summaryLabel,
   copy,
   copiedItemId,
   detailOpen,
@@ -991,6 +1046,7 @@ function CodexTranscriptProcessGroupView({
 }: {
   groupId: string
   items: CodexTranscriptProcessItem[]
+  summaryLabel?: string
   copy: CodeCopy
   copiedItemId: string
   detailOpen: boolean
@@ -1025,7 +1081,7 @@ function CodexTranscriptProcessGroupView({
         }}
       >
         <span className="code-codex-transcript-process-dot" aria-hidden="true" />
-        <span className="code-codex-transcript-process-title-text">{processGroupLabel(items)}</span>
+        <span className="code-codex-transcript-process-title-text">{summaryLabel || processGroupLabel(items)}</span>
         <ChevronRightGlyph className="code-codex-transcript-process-item-chevron" />
       </button>
       {detailOpen ? (
@@ -1106,6 +1162,7 @@ function CodexTranscriptTurnView({
   groupProcessActions,
   source,
   onToggleProcess,
+  onLoadProcessItemDetail,
 }: {
   turn: CodexTranscriptTurn
   copy: CodeCopy
@@ -1115,9 +1172,17 @@ function CodexTranscriptTurnView({
   groupProcessActions: boolean
   source: CodexTranscriptPaneProps['source']
   onToggleProcess: (turnId: string) => void
+  onLoadProcessItemDetail?: (itemId: string) => Promise<string>
 }) {
-  const hasProcess = turn.processItems.length > 0
-  const patchResults = turn.processItems.filter(isPatchResultItem)
+  const [loadedProcessDetails, setLoadedProcessDetails] = useState<Record<string, string>>({})
+  const loadingProcessDetailsRef = useRef<Set<string>>(new Set())
+  const resolvedProcessItems = useMemo(() => turn.processItems.map(item => (
+    Object.prototype.hasOwnProperty.call(loadedProcessDetails, item.id)
+      ? { ...item, detail: loadedProcessDetails[item.id], detailTruncated: false }
+      : item
+  )), [loadedProcessDetails, turn.processItems])
+  const hasProcess = resolvedProcessItems.length > 0
+  const patchResults = resolvedProcessItems.filter(isPatchResultItem)
   const userImages = turn.userImages || []
   const userFiles = turn.userFiles || []
   const [copiedItemId, setCopiedItemId] = useState('')
@@ -1126,9 +1191,9 @@ function CodexTranscriptTurnView({
   const [, setProgressClock] = useState(0)
   const processEntries = useMemo(() => (
     groupProcessActions
-      ? processEntriesForTurn(turn.processItems)
-      : turn.processItems.map(item => ({ kind: 'item' as const, item }))
-  ), [groupProcessActions, turn.processItems])
+      ? processEntriesForTurn(resolvedProcessItems)
+      : resolvedProcessItems.map(item => ({ kind: 'item' as const, item }))
+  ), [groupProcessActions, resolvedProcessItems])
   const mobileTouch = isMobileTouchViewport()
   const answerMessage = useMemo(() => stripRawMemoryCitation(turn.finalMessage), [turn.finalMessage])
   const shouldShowWaiting = turn.status === 'inProgress' && !answerMessage && (
@@ -1142,17 +1207,37 @@ function CodexTranscriptTurnView({
   const progressDuration = turn.status === 'inProgress'
     ? elapsedDurationLabel(turn.startedAt)
     : ''
-  const workingLabel = source === 'acp' ? acpActivityLabel(turn, copy) : copy.codexTranscriptWorking
-  const planLabel = source === 'acp' ? acpPlanLabel(turn, copy) : ''
+  const activityTurn = resolvedProcessItems === turn.processItems
+    ? turn
+    : { ...turn, processItems: resolvedProcessItems }
+  const workingLabel = source === 'acp' ? acpActivityLabel(activityTurn, copy) : copy.codexTranscriptWorking
+  const planLabel = source === 'acp' ? acpPlanLabel(activityTurn, copy) : ''
+  const loadFullProcessDetail = useCallback(async (item: CodexTranscriptProcessItem) => {
+    if (!item.detailTruncated || !onLoadProcessItemDetail) return item.detail || ''
+    if (Object.prototype.hasOwnProperty.call(loadedProcessDetails, item.id)) {
+      return loadedProcessDetails[item.id]
+    }
+    if (loadingProcessDetailsRef.current.has(item.id)) return item.detail || ''
+    loadingProcessDetailsRef.current.add(item.id)
+    try {
+      const detail = await onLoadProcessItemDetail(item.id)
+      setLoadedProcessDetails(current => ({ ...current, [item.id]: detail }))
+      return detail
+    } finally {
+      loadingProcessDetailsRef.current.delete(item.id)
+    }
+  }, [loadedProcessDetails, onLoadProcessItemDetail])
   const handleCopyItem = useCallback((item: CodexTranscriptProcessItem) => {
-    const text = [item.title, item.detail].filter(Boolean).join('\n\n')
-    if (!text) return
-    void writeClipboardText(text).then(copied => {
+    void loadFullProcessDetail(item).then(detail => {
+      const text = [item.title, detail].filter(Boolean).join('\n\n')
+      if (!text) return
+      return writeClipboardText(text)
+    }).then(copied => {
       if (!copied) return
       setCopiedItemId(item.id)
       window.setTimeout(() => setCopiedItemId(current => (current === item.id ? '' : current)), 1200)
-    })
-  }, [])
+    }).catch(() => {})
+  }, [loadFullProcessDetail])
   const handleCopyAnswer = useCallback(() => {
     const text = answerMessage.trim()
     if (!text) return
@@ -1166,13 +1251,18 @@ function CodexTranscriptTurnView({
     onToggleProcess(turn.id)
   }, [onToggleProcess, turn.id])
   const handleToggleProcessItem = useCallback((itemId: string) => {
+    const opening = !openProcessItemIds.has(itemId)
+    if (opening) {
+      const item = resolvedProcessItems.find(candidate => candidate.id === itemId)
+      if (item?.detailTruncated) void loadFullProcessDetail(item).catch(() => {})
+    }
     setOpenProcessItemIds(current => {
       const next = new Set(current)
       if (next.has(itemId)) next.delete(itemId)
       else next.add(itemId)
       return next
     })
-  }, [])
+  }, [loadFullProcessDetail, openProcessItemIds, resolvedProcessItems])
   // Keep the process compact while the agent works. The short activity label
   // carries the live state; full reasoning and tool details remain opt-in.
   const effectiveProcessOpen = processOpen
@@ -1277,12 +1367,17 @@ function CodexTranscriptTurnView({
             <div className="code-codex-transcript-process-list">
               {processEntries.map(entry => {
                 if (entry.kind === 'group') {
-                  const groupOpen = openProcessItemIds.has(entry.id) || (!mobileTouch && entry.items.some(isProcessItemRunning))
+                  const groupOpen = openProcessItemIds.has(entry.id) || (
+                    source !== 'acp'
+                    && !mobileTouch
+                    && entry.items.some(isProcessItemRunning)
+                  )
                   return (
                     <CodexTranscriptProcessGroupView
                       key={entry.id}
                       groupId={entry.id}
                       items={entry.items}
+                      summaryLabel={source === 'acp' ? acpActionGroupLabel(entry.items) : undefined}
                       copy={copy}
                       copiedItemId={copiedItemId}
                       detailOpen={groupOpen}
@@ -1291,6 +1386,27 @@ function CodexTranscriptTurnView({
                       onToggleItem={handleToggleProcessItem}
                       onCopy={handleCopyItem}
                     />
+                  )
+                }
+                if (source === 'acp' && isAcpProgressUpdate(entry.item)) {
+                  const progressText = String(entry.item.detail || '').trim()
+                  if (!progressText) return null
+                  return (
+                    <div
+                      key={entry.item.id}
+                      className="code-acp-progress-update code-markdown-preview"
+                      data-testid="code-acp-progress-update"
+                    >
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm, remarkMath]}
+                        rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                        components={markdownComponents}
+                        skipHtml
+                        urlTransform={codexTranscriptUrlTransform}
+                      >
+                        {progressText}
+                      </ReactMarkdown>
+                    </div>
                   )
                 }
                 return (
@@ -1376,10 +1492,12 @@ export function CodexTranscriptPane({
   copy,
 }: CodexTranscriptPaneProps) {
   const [transcript, setTranscript] = useState<CodexTranscript | null>(null)
+  const transcriptRef = useRef<CodexTranscript | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [openProcessTurnIds, setOpenProcessTurnIds] = useState<Set<string>>(() => new Set())
-  const [turnLimit, setTurnLimit] = useState(INITIAL_TRANSCRIPT_TURN_LIMIT)
+  const [closedLiveProcessTurnIds, setClosedLiveProcessTurnIds] = useState<Set<string>>(() => new Set())
+  const [turnLimit, setTurnLimit] = useState(() => initialTranscriptTurnLimit(source))
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -1399,16 +1517,19 @@ export function CodexTranscriptPane({
 
   useEffect(() => {
     setTranscript(null)
+    transcriptRef.current = null
     setError('')
     setLoading(true)
     setLoadingOlder(false)
-    setTurnLimit(INITIAL_TRANSCRIPT_TURN_LIMIT)
+    setTurnLimit(initialTranscriptTurnLimit(source))
+    setOpenProcessTurnIds(new Set())
+    setClosedLiveProcessTurnIds(new Set())
     setShowJumpToBottom(false)
     followBottomRef.current = true
     textSelectionGestureRef.current = false
     textSelectionHadRangeRef.current = false
     pendingPrependAnchorRef.current = null
-  }, [agentId])
+  }, [agentId, source])
 
   useEffect(() => () => {
     if (userScrollGestureTimerRef.current !== null) {
@@ -1466,6 +1587,15 @@ export function CodexTranscriptPane({
       controller?.abort()
       controller = new AbortController()
       const params = new URLSearchParams({ maxTurns: String(turnLimit) })
+      const currentTranscript = transcriptRef.current
+      if (
+        source === 'acp'
+        && currentTranscript?.sessionId
+        && currentTranscript.turnLimit === turnLimit
+        && Number.isFinite(currentTranscript.revision)
+      ) {
+        params.set('sinceRevision', String(currentTranscript.revision))
+      }
       const endpoint = source === 'acp'
         ? 'acp-transcript'
         : source === 'app-server'
@@ -1483,7 +1613,13 @@ export function CodexTranscriptPane({
         .then(payload => {
           if (stopped) return
           const nextTranscript = payload.transcript || null
-          setTranscript(current => preserveCompletedTranscriptTurns(current, nextTranscript))
+          setTranscript(current => {
+            const merged = source === 'acp'
+              ? mergeAcpTranscript(current, nextTranscript)
+              : preserveCompletedTranscriptTurns(current, nextTranscript)
+            transcriptRef.current = merged
+            return merged
+          })
           setError('')
           setLoading(false)
           setLoadingOlder(false)
@@ -1581,6 +1717,14 @@ export function CodexTranscriptPane({
       suppressSearchOnMiss: true,
     })
   ), [agentId, onOpenWorkspaceFilePath])
+  const handleLoadProcessItemDetail = useCallback(async (itemId: string) => {
+    const response = await fetch(appPath(
+      `/api/agents/${encodeURIComponent(agentId)}/acp-tool-details/${encodeURIComponent(itemId)}`,
+    ))
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(payload.error || copy.codexTranscriptUnavailable)
+    return String(payload.detail || '')
+  }, [agentId, copy.codexTranscriptUnavailable])
   const requestOlderTurns = useCallback((element: HTMLDivElement) => {
     if (
       !transcript?.hasMoreBefore ||
@@ -1595,13 +1739,16 @@ export function CodexTranscriptPane({
     }
     setLoadingOlder(true)
     setTurnLimit(current => {
-      const next = Math.min(MAX_TRANSCRIPT_TURN_LIMIT, current + TRANSCRIPT_TURN_PAGE_SIZE)
+      const pageSize = source === 'acp'
+        ? ACP_TRANSCRIPT_TURN_PAGE_SIZE
+        : TRANSCRIPT_TURN_PAGE_SIZE
+      const next = Math.min(MAX_TRANSCRIPT_TURN_LIMIT, current + pageSize)
       if (next === current) {
         setLoadingOlder(false)
       }
       return next
     })
-  }, [loadingOlder, transcript?.hasMoreBefore, turnLimit])
+  }, [loadingOlder, source, transcript?.hasMoreBefore, turnLimit])
   const markUserScrollGesture = useCallback(() => {
     userScrollGestureRef.current = true
     if (userScrollGestureTimerRef.current !== null) {
@@ -1667,13 +1814,23 @@ export function CodexTranscriptPane({
     textSelectionGestureRef.current = true
   }, [])
   const handleToggleProcess = useCallback((turnId: string) => {
+    const turn = turns.find(candidate => candidate.id === turnId)
+    if (source === 'acp' && turn?.status === 'inProgress') {
+      setClosedLiveProcessTurnIds(current => {
+        const next = new Set(current)
+        if (next.has(turnId)) next.delete(turnId)
+        else next.add(turnId)
+        return next
+      })
+      return
+    }
     setOpenProcessTurnIds(current => {
       const next = new Set(current)
       if (next.has(turnId)) next.delete(turnId)
       else next.add(turnId)
       return next
     })
-  }, [])
+  }, [source, turns])
   const handleJumpToBottom = useCallback(() => {
     const element = scrollRef.current
     if (!element) return
@@ -1711,19 +1868,25 @@ export function CodexTranscriptPane({
           onTouchEnd={handleTouchEnd}
           onTouchCancel={handleTouchEnd}
         >
-          {turns.map(turn => (
-            <StableCodexTranscriptTurnView
-              key={turn.id}
-              turn={turn}
-              copy={copy}
-              onOpenFile={onOpenWorkspaceFilePath ? handleOpenFile : undefined}
-              workspaceRoot={workspaceRoot}
-              processOpen={openProcessTurnIds.has(turn.id)}
-              groupProcessActions={groupProcessActions}
-              source={source}
-              onToggleProcess={handleToggleProcess}
-            />
-          ))}
+          {turns.map(turn => {
+            const liveAcpProcessOpen = source === 'acp'
+              && turn.status === 'inProgress'
+              && !closedLiveProcessTurnIds.has(turn.id)
+            return (
+              <StableCodexTranscriptTurnView
+                key={turn.id}
+                turn={turn}
+                copy={copy}
+                onOpenFile={onOpenWorkspaceFilePath ? handleOpenFile : undefined}
+                workspaceRoot={workspaceRoot}
+                processOpen={openProcessTurnIds.has(turn.id) || liveAcpProcessOpen}
+                groupProcessActions={groupProcessActions}
+                source={source}
+                onToggleProcess={handleToggleProcess}
+                onLoadProcessItemDetail={source === 'acp' ? handleLoadProcessItemDetail : undefined}
+              />
+            )
+          })}
         </div>
       )}
       {showJumpToBottom ? (

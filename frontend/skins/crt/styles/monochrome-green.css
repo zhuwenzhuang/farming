@@ -354,6 +354,40 @@
     background: var(--crt-phosphor-bright);
 }
 
+#farming-crt .session-header-actions > .close-btn {
+    color: var(--crt-phosphor-bright) !important;
+    background: rgba(12, 204, 104, 0.2) !important;
+    border: 1px solid rgba(85, 245, 155, 0.72) !important;
+    box-shadow:
+        0 0 6px rgba(12, 204, 104, 0.16),
+        inset 0 0 8px rgba(12, 204, 104, 0.08);
+    text-shadow: 0 0 3px rgba(85, 245, 155, 0.34);
+}
+
+#farming-crt .session-header-actions > .close-btn:hover {
+    background: rgba(12, 204, 104, 0.3) !important;
+    box-shadow:
+        0 0 8px rgba(12, 204, 104, 0.22),
+        inset 0 0 9px rgba(12, 204, 104, 0.12);
+}
+
+#farming-crt .session-header-actions > .kill-btn {
+    color: #ff7770 !important;
+    background: rgba(204, 40, 40, 0.18) !important;
+    border: 1px solid rgba(255, 88, 80, 0.72) !important;
+    box-shadow:
+        0 0 6px rgba(255, 50, 45, 0.12),
+        inset 0 0 8px rgba(204, 40, 40, 0.08);
+    text-shadow: 0 0 3px rgba(255, 88, 80, 0.3);
+}
+
+#farming-crt .session-header-actions > .kill-btn:hover {
+    background: rgba(204, 40, 40, 0.28) !important;
+    box-shadow:
+        0 0 8px rgba(255, 50, 45, 0.18),
+        inset 0 0 9px rgba(204, 40, 40, 0.12);
+}
+
 #farming-crt :where(.workspace-input, .workspace-history) {
     color: var(--crt-phosphor);
     background: rgba(0, 8, 3, 0.96);

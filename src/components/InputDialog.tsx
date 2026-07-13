@@ -205,7 +205,7 @@ export function InputDialog({
     setAgentLoadFailed(false)
     setSettingsLoaded(false)
 
-    fetch(appPath('/api/executables'))
+    fetch(appPath('/api/executables'), { cache: 'no-store' })
       .then(r => {
         if (!r.ok) throw new Error(`Failed to load executables: ${r.status}`)
         return r.json()
@@ -278,7 +278,7 @@ export function InputDialog({
     setMainAgentResumeSession(null)
     setResumeMainAgent(true)
 
-    fetch(appPath('/api/agent-sessions?limit=100'))
+    fetch(appPath('/api/agent-sessions?limit=100&fresh=1'), { cache: 'no-store' })
       .then(response => response.json())
       .then((data: { sessions?: MainAgentResumeSession[] }) => {
         if (!active) return

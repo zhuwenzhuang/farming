@@ -477,13 +477,35 @@
   justify-content: flex-start;
   border: 0;
   border-bottom: 1px solid #f0d98a;
-  cursor: pointer;
   font: inherit;
   text-align: left;
 }
-.review-demo-diff-hunk.interactive span:last-child { margin-inline: auto; color: #62686c; }
-.review-demo-diff-hunk.interactive:hover { background: #ffefad; color: #4f5150; }
-.review-demo-diff-hunk.interactive:focus-visible { outline: 2px solid rgba(82, 99, 135, 0.4); outline-offset: -2px; }
+.review-demo-context-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-inline: auto;
+  color: #77736b;
+}
+.review-demo-context-controls button {
+  padding: 1px 4px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: #5f6467;
+  cursor: pointer;
+  font: inherit;
+}
+.review-demo-context-controls button:hover { background: #ffec9c; color: #343839; }
+.review-demo-context-controls button:disabled { cursor: wait; opacity: 0.55; }
+.review-demo-context-controls button:focus-visible { outline: 2px solid rgba(82, 99, 135, 0.4); outline-offset: 0; }
+.review-demo-diff-hunk.loading { justify-content: space-between; }
+.review-demo-context-error {
+  margin-left: 8px;
+  color: #a84943;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 11px;
+}
 
 .review-demo-diff-code {
   overflow-x: auto;
@@ -543,7 +565,25 @@
 
 .review-demo-intraline {
   border-radius: 2px;
-  background: rgba(255, 183, 77, 0.38);
+}
+
+.review-demo-diff-row.added .review-demo-intraline,
+.review-demo-diff-row.changed code:nth-child(4) .review-demo-intraline {
+  background: #aee9b9;
+}
+
+.review-demo-diff-row.deleted .review-demo-intraline,
+.review-demo-diff-row.changed code:nth-child(2) .review-demo-intraline {
+  background: #ffc2c7;
+}
+
+.review-demo-newline-warning {
+  padding: 5px 12px;
+  border-top: 1px solid #edf0f3;
+  background: #fff;
+  color: #737b82;
+  font: 12px/1.35 "Roboto Mono", "SF Mono", "Lucida Console", Monaco, monospace;
+  text-align: center;
 }
 
 /* Gerrit's light syntax palette, applied to Highlight.js semantic tokens. */

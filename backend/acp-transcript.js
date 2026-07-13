@@ -1,12 +1,19 @@
 const { createTwoFilesPatch } = require('diff');
 
 const MAX_RENDERED_DIFF_CHARS = 64 * 1024;
+const MAX_INLINE_TOOL_DETAIL_CHARS = 4 * 1024;
 
 function contentText(content) {
   return (Array.isArray(content) ? content : [])
     .filter(block => block?.type === 'text' && typeof block.text === 'string')
     .map(block => block.text)
     .join('')
+    .trim();
+}
+
+function visibleAssistantText(text) {
+  return String(text || '')
+    .replace(/\s*\*?Context compacted(?: to fit the model's context window)?\.\*?\s*/gi, '')
     .trim();
 }
 
@@ -105,6 +112,17 @@ function detailForTool(entry) {
   return sections.join('\n\n');
 }
 
+function boundedInlineDetail(detail) {
+  const text = String(detail || '');
+  if (text.length <= MAX_INLINE_TOOL_DETAIL_CHARS) {
+    return { detail: text, detailTruncated: false };
+  }
+  return {
+    detail: `${text.slice(0, MAX_INLINE_TOOL_DETAIL_CHARS)}\n\n[Open to load full detail]`,
+    detailTruncated: true,
+  };
+}
+
 function planDetail(plan) {
   const entries = Array.isArray(plan?.entries) ? plan.entries : [];
   if (entries.length > 0) {
@@ -130,12 +148,14 @@ function processEntry(entry) {
   if (entry.type === 'tool') {
     const patchSummary = patchSummaryText(entry.content);
     const detail = detailForTool(entry);
+    const inline = boundedInlineDetail([patchSummary, detail].filter(Boolean).join('\n\n'));
     return {
       id: String(entry.id || ''),
       type: patchSummary ? 'patch' : 'tool',
       kind: String(entry.kind || 'other'),
       title: String(entry.title || 'Tool'),
-      detail: [patchSummary, detail].filter(Boolean).join('\n\n'),
+      detail: inline.detail,
+      detailTruncated: inline.detailTruncated,
       status: String(entry.status || ''),
     };
   }
@@ -176,22 +196,20 @@ function emptyTurn(id, internal) {
   };
 }
 
-function finishTurn(turn) {
+function finishTurn(turn, options = {}) {
   if (!turn) return null;
-  if (turn.assistantMessages.length > 0) {
-    turn.finalMessage = turn.assistantMessages[turn.assistantMessages.length - 1];
-    if (!turn.internal) {
-      const progress = turn.assistantMessages.slice(0, -1).filter(Boolean);
-      if (progress.length > 0) {
-        turn.processItems.unshift({
-          id: `${turn.id}-progress-updates`,
-          type: 'progress',
-          title: 'Progress updates',
-          detail: progress.join('\n\n'),
-          status: 'completed',
-        });
-      }
-    }
+  const lastAssistant = turn.assistantMessages[turn.assistantMessages.length - 1];
+  const lastProcess = turn.processItems[turn.processItems.length - 1];
+  if (turn.internal && lastAssistant?.text) {
+    turn.finalMessage = lastAssistant.text;
+  } else if (
+    options.keepTailAsProgress !== true
+    && lastAssistant?.text
+    && lastAssistant.processItemId
+    && lastProcess?.id === lastAssistant.processItemId
+  ) {
+    turn.finalMessage = lastAssistant.text;
+    turn.processItems.pop();
   }
   delete turn.assistantMessages;
   if (turn.internal) turn.processItems = [];
@@ -205,8 +223,9 @@ function acpSessionTranscript(session, options = {}) {
   const turns = [];
   let current = null;
   let sequence = 0;
-  const flush = () => {
-    const finished = finishTurn(current);
+  const activeSession = ['working', 'waiting-for-permission', 'interrupting'].includes(String(session?.state || ''));
+  const flush = (flushOptions = {}) => {
+    const finished = finishTurn(current, flushOptions);
     if (finished) turns.push(finished);
     current = null;
   };
@@ -214,7 +233,7 @@ function acpSessionTranscript(session, options = {}) {
     if (!entry || typeof entry !== 'object') continue;
     if (entry.type === 'message' && entry.role === 'user') {
       flush();
-      current = emptyTurn(`acp-segment-${++sequence}`, entry.internal === true);
+      current = emptyTurn(`acp-turn-${String(entry.id || ++sequence)}`, entry.internal === true);
       if (!entry.internal) {
         current.userMessage = contentText(entry.content);
         current.userImages = contentImages(entry.content, entry.id || current.id);
@@ -227,21 +246,41 @@ function acpSessionTranscript(session, options = {}) {
       current = emptyTurn(`acp-segment-${++sequence}`, true);
     }
     if (entry.type === 'message' && entry.role === 'assistant') {
-      const text = contentText(entry.content);
+      const text = visibleAssistantText(contentText(entry.content));
       // Preserve an empty sanitized assistant entry as the final boundary. A
       // DONT_NOTIFY heartbeat is intentionally empty; promoting the preceding
       // progress sentence to a user-visible result would leak internal work.
-      current.assistantMessages.push(text);
+      const processItemId = text ? `acp-progress-${String(entry.id || ++sequence)}` : '';
+      current.assistantMessages.push({ text, processItemId });
+      if (!current.internal && text) {
+        current.processItems.push({
+          id: processItemId,
+          type: 'progress',
+          title: 'Progress update',
+          detail: text,
+          status: 'completed',
+        });
+      }
       continue;
     }
     if (current.internal || entry.internal === true) continue;
     const process = processEntry(entry);
     if (process) current.processItems.push(process);
   }
-  flush();
+  flush({ keepTailAsProgress: activeSession });
 
-  if (turns.length > 0 && ['working', 'waiting-for-permission', 'interrupting'].includes(String(session?.state || ''))) {
+  if (turns.length > 0 && activeSession) {
     turns[turns.length - 1].status = 'inProgress';
+  } else if (turns.length > 0 && [
+    'cancelled',
+    'canceled',
+    'max_tokens',
+    'max_turn_requests',
+    'refusal',
+    'error',
+    'cancel_error',
+  ].includes(String(session?.stopReason || '').toLowerCase())) {
+    turns[turns.length - 1].status = 'interrupted';
   }
   const maxTurns = Number.isFinite(Number(options.maxTurns))
     ? Math.max(1, Math.floor(Number(options.maxTurns)))
@@ -254,11 +293,19 @@ function acpSessionTranscript(session, options = {}) {
     sessionId: String(session?.sessionId || ''),
     updatedAt: String(session?.updatedAt || ''),
     source: 'acp',
-    hasMoreBefore: turns.length > visibleTurns.length,
+    revision: Number(session?.revision || 0),
+    delta: session?.delta === true,
+    replaceFromTurnId: session?.delta === true ? String(visibleTurns[0]?.id || '') : '',
+    stopReason: String(session?.stopReason || ''),
+    hasMoreBefore: session?.hasMoreBefore === true || turns.length > visibleTurns.length,
     turnLimit: maxTurns,
     truncated: session?.truncated === true,
     turns: visibleTurns,
   };
 }
 
-module.exports = { acpSessionTranscript };
+module.exports = {
+  MAX_INLINE_TOOL_DETAIL_CHARS,
+  acpSessionTranscript,
+  acpToolDetail: detailForTool,
+};

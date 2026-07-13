@@ -319,7 +319,7 @@ function createWorkspaceFileRouter(agentManager, fileService) {
         includeIgnored: req.query.includeIgnored === 'true',
         path: req.query.path || '',
         limit: req.query.limit,
-        timeoutMs: settings.workspaceFileSearchTimeoutMs,
+        timeoutMs: settings.searchTimeoutMs,
       });
       res.json({ root, results });
     } catch (error) {

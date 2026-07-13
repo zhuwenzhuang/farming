@@ -6,11 +6,13 @@ const NativeSessionEngine = require('../native-session-engine');
 const NativePtyHost = require('../native-pty-host');
 const { nativePtyHostSocketPath } = require('../native-pty-host-path');
 
+const SHELL_PROFILE_PROBE_TIMEOUT_MS = 10_000;
+
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function waitFor(read, label, timeoutMs = 3000) {
+async function waitFor(read, label, timeoutMs = SHELL_PROFILE_PROBE_TIMEOUT_MS) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const value = await read();

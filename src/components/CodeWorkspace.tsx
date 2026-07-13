@@ -153,6 +153,7 @@ import {
 import {
   buildAgentListState,
   isAgentListLiveAgent,
+  unclaimedAgentSessions,
 } from './code/agent-list-state'
 import {
   displayedProjectsForSearch,
@@ -264,6 +265,8 @@ export interface AgentFlagUpdateResult {
   restartedAgentId?: string
   launchPermissionMode?: string
   agentRuntimeMode?: string
+  switchFailed?: boolean
+  warning?: string
   error?: string
 }
 
@@ -323,6 +326,8 @@ const TERMINAL_PATH_SEARCH_LIMIT = 12
 const MOBILE_PROJECT_CONTEXT_MENU_WIDTH = 214
 const MOBILE_PROJECT_CONTEXT_MENU_HEIGHT = 86
 const AGENT_SESSION_PAGE_SIZE = 60
+const AGENT_SESSION_SEARCH_LIMIT = 1000
+const AGENT_SESSION_SEARCH_DEBOUNCE_MS = 150
 
 
 function shouldUseNativeMobileDictation() {
@@ -528,6 +533,8 @@ export function CodeWorkspace({
   const [agentSessions, setAgentSessions] = useState<AgentSessionHistoryItem[]>([])
   const [agentSessionNextCursor, setAgentSessionNextCursor] = useState('')
   const [agentSessionsHasMore, setAgentSessionsHasMore] = useState(false)
+  const [searchedAgentSessions, setSearchedAgentSessions] = useState<AgentSessionHistoryItem[]>([])
+  const [agentSessionSearchLoading, setAgentSessionSearchLoading] = useState(false)
   const agentSessionsLoadingRef = useRef(false)
   const agentSessionLoadedCountRef = useRef(AGENT_SESSION_PAGE_SIZE)
   const [agentSessionPinnedOverrides, setAgentSessionPinnedOverrides] = useState<Record<string, boolean>>(
@@ -671,6 +678,20 @@ export function CodeWorkspace({
   const visibleArchivedAgents = agentListState.archivedAgents
   const visibleArchivedRuns = taskHistory
   const visibleHistoryAgentSessions = historyAgentSessions
+  const searchedAgentSessionIds = useMemo(
+    () => new Set(searchedAgentSessions.map(agentSessionId)),
+    [searchedAgentSessions]
+  )
+  const searchedAgentIds = useMemo(() => new Set(
+    Array.from(agentListState.claimedAgentSessionKeyByAgentId.entries())
+      .filter(([, sessionId]) => searchedAgentSessionIds.has(sessionId))
+      .map(([agentId]) => agentId)
+  ), [agentListState.claimedAgentSessionKeyByAgentId, searchedAgentSessionIds])
+  const searchableAgentSessions = useMemo(() => {
+    const sessionsById = new Map(unclaimedSearchableAgentSessions.map(session => [agentSessionId(session), session]))
+    searchedAgentSessions.forEach(session => sessionsById.set(agentSessionId(session), session))
+    return unclaimedAgentSessions(Array.from(sessionsById.values()), agentListState.claimedAgentSessionKeys)
+  }, [agentListState.claimedAgentSessionKeys, searchedAgentSessions, unclaimedSearchableAgentSessions])
   const projectListProjects = useMemo(
     () => projectListProjectsForAgents(visibleLiveAgents, sidebarAgentSessions, projectNames),
     [projectNames, sidebarAgentSessions, visibleLiveAgents]
@@ -681,8 +702,8 @@ export function CodeWorkspace({
     false
   ), [expandedSessionProjectIds, projectListProjects])
   const searchableProjects = useMemo(
-    () => projectListProjectsForAgents(visibleLiveAgents, unclaimedSearchableAgentSessions, projectNames),
-    [projectNames, unclaimedSearchableAgentSessions, visibleLiveAgents]
+    () => projectListProjectsForAgents(visibleLiveAgents, searchableAgentSessions, projectNames),
+    [projectNames, searchableAgentSessions, visibleLiveAgents]
   )
   const normalizedSearch = searchQuery.trim().toLowerCase()
   const hasSearchQuery = normalizedSearch.length > 0
@@ -691,9 +712,11 @@ export function CodeWorkspace({
     return displayedProjectsForSearch(
       sourceProjects,
       normalizedSearch,
-      expandedSessionProjectIds
+      expandedSessionProjectIds,
+      searchedAgentSessionIds,
+      searchedAgentIds
     )
-  }, [activeView, expandedSessionProjectIds, hasSearchQuery, normalizedSearch, projects, searchableProjects, searchOpen])
+  }, [activeView, expandedSessionProjectIds, hasSearchQuery, normalizedSearch, projects, searchableProjects, searchedAgentIds, searchedAgentSessionIds, searchOpen])
   const hasProjectListItems = projects.some(project => project.agents.length > 0 || project.agentSessions.length > 0)
   const searchResultProjects = useMemo(
     () => hasSearchQuery ? displayedProjects : [],
@@ -1075,10 +1098,13 @@ export function CodeWorkspace({
       cancelled = true
     }
   }, [])
-  const fetchAgentSessions = useCallback(async (options: { cursor?: string; limit?: number } = {}) => {
+  const fetchAgentSessions = useCallback(async (options: { cursor?: string; limit?: number; fresh?: boolean } = {}) => {
     const params = new URLSearchParams({ limit: String(options.limit || AGENT_SESSION_PAGE_SIZE) })
     if (options.cursor) params.set('cursor', options.cursor)
-    const response = await fetch(appPath(`/api/agent-sessions?${params.toString()}`))
+    if (options.fresh) params.set('fresh', '1')
+    const response = await fetch(appPath(`/api/agent-sessions?${params.toString()}`), {
+      cache: options.fresh ? 'no-store' : 'default',
+    })
     const data = await response.json() as {
       sessions?: AgentSessionHistoryItem[]
       nextCursor?: string
@@ -1090,9 +1116,9 @@ export function CodeWorkspace({
       hasMore: data.hasMore === true,
     }
   }, [])
-  const loadAgentSessions = useCallback(() => {
+  const loadAgentSessions = useCallback((fresh = false) => {
     let cancelled = false
-    fetchAgentSessions()
+    fetchAgentSessions({ fresh })
       .then(page => {
         if (cancelled) return
         setAgentSessions(page.sessions)
@@ -1113,7 +1139,7 @@ export function CodeWorkspace({
     }
   }, [fetchAgentSessions])
   const refreshAgentSessions = useCallback(() => {
-    fetchAgentSessions({ limit: agentSessionLoadedCountRef.current })
+    fetchAgentSessions({ limit: agentSessionLoadedCountRef.current, fresh: true })
       .then(page => {
         setAgentSessions(page.sessions)
         setAgentSessionNextCursor(page.nextCursor)
@@ -1146,6 +1172,49 @@ export function CodeWorkspace({
         agentSessionsLoadingRef.current = false
       })
   }, [agentSessionNextCursor, agentSessionsHasMore, fetchAgentSessions])
+
+  useEffect(() => {
+    const searchActive = (activeView === 'search' || searchOpen) && hasSearchQuery
+    if (!searchActive) {
+      setSearchedAgentSessions([])
+      setAgentSessionSearchLoading(false)
+      return undefined
+    }
+
+    const controller = new AbortController()
+    setSearchedAgentSessions([])
+    setAgentSessionSearchLoading(true)
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams({
+        q: normalizedSearch,
+        limit: String(AGENT_SESSION_SEARCH_LIMIT),
+        fresh: '1',
+      })
+      fetch(appPath(`/api/agent-sessions/search?${params.toString()}`), {
+        signal: controller.signal,
+        cache: 'no-store',
+      })
+        .then(response => {
+          if (!response.ok) throw new Error(`Failed to search Agent sessions: ${response.status}`)
+          return response.json()
+        })
+        .then((data: { sessions?: AgentSessionHistoryItem[] }) => {
+          setSearchedAgentSessions(Array.isArray(data.sessions) ? data.sessions : [])
+        })
+        .catch(error => {
+          if (error instanceof DOMException && error.name === 'AbortError') return
+          setSearchedAgentSessions([])
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setAgentSessionSearchLoading(false)
+        })
+    }, AGENT_SESSION_SEARCH_DEBOUNCE_MS)
+
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [activeView, hasSearchQuery, normalizedSearch, searchOpen])
 
   const loadSlashCommands = useCallback((provider: string, workspace?: string) => {
     if (provider !== 'codex' && provider !== 'claude') {
@@ -3975,7 +4044,7 @@ export function CodeWorkspace({
           setMainPageSessionKeys(new Set(normalizeMainPageSessionKeys(settings.mainPageSessionKeys ?? [])))
         }
         applyLaunchSettings(settings)
-        loadAgentSessions()
+        loadAgentSessions(true)
       })
       .catch(() => {
         if (!cancelled) setWorkspaceHistory([])
@@ -4354,6 +4423,7 @@ export function CodeWorkspace({
         displayedProjects={searchResultProjects}
         searchQuery={searchQuery}
         searchHasQuery={hasSearchQuery}
+        searchLoading={agentSessionSearchLoading}
         visibleSearchTargetCount={visibleSearchTargets.length}
         selectedSearchAgentId={selectedSearchAgentId}
         selectedSearchSessionHandle={selectedSearchSessionHandle}
@@ -4367,6 +4437,7 @@ export function CodeWorkspace({
           active: Boolean(activeAgent) && !activeAgentPermissionSwitching,
           agentId: activeAgent?.id || '',
           runtimeState: activeAgent?.acpState || '',
+          sessionUpdatedAt: activeAgent?.acpSessionUpdatedAt || '',
           runtimeError: activeAgent?.acpError || '',
           draft,
           attachments: composerAttachments,

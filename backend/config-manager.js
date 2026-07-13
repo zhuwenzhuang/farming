@@ -60,9 +60,10 @@ const DEFAULT_AGENT_HOMES = {
 const DEFAULT_UPDATE_URL = 'https://github.com/zhuwenzhuang/farming/releases/latest';
 const LEGACY_DEFAULT_UPDATE_URL = 'https://github.com/zhuwenzhuang/farming/releases/latest/download/manifest.json';
 const API_DEFAULT_UPDATE_URL = 'https://api.github.com/repos/zhuwenzhuang/farming/releases/latest';
-const DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS = 3000;
-const MIN_WORKSPACE_FILE_SEARCH_TIMEOUT_MS = 3000;
-const MAX_WORKSPACE_FILE_SEARCH_TIMEOUT_MS = 180000;
+const LEGACY_DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS = 3000;
+const DEFAULT_SEARCH_TIMEOUT_MS = 15000;
+const MIN_SEARCH_TIMEOUT_MS = 3000;
+const MAX_SEARCH_TIMEOUT_MS = 180000;
 const DEFAULT_CRT_TERMINAL_FONT_SIZE = 15;
 const MIN_CRT_TERMINAL_FONT_SIZE = 10;
 const MAX_CRT_TERMINAL_FONT_SIZE = 20;
@@ -84,7 +85,7 @@ const PERSISTED_SETTING_KEYS = new Set([
   'agentLaunchProfiles',
   'agentHomes',
   'updateUrl',
-  'workspaceFileSearchTimeoutMs',
+  'searchTimeoutMs',
   'codexRuntimeMode',
   'codexApprovalMode',
   'codexModel',
@@ -275,7 +276,7 @@ class ConfigManager {
         },
         agentHomes: cloneAgentHomes(DEFAULT_AGENT_HOMES),
         updateUrl: DEFAULT_UPDATE_URL,
-        workspaceFileSearchTimeoutMs: DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS,
+        searchTimeoutMs: DEFAULT_SEARCH_TIMEOUT_MS,
         codexRuntimeMode: 'cli',
         codexApprovalMode: 'approve',
         codexModel: 'gpt-5.5',
@@ -309,7 +310,7 @@ class ConfigManager {
       },
       agentHomes: cloneAgentHomes(DEFAULT_AGENT_HOMES),
       updateUrl: DEFAULT_UPDATE_URL,
-      workspaceFileSearchTimeoutMs: DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS,
+      searchTimeoutMs: DEFAULT_SEARCH_TIMEOUT_MS,
       codexRuntimeMode: 'cli',
       codexApprovalMode: 'approve',
       codexModel: 'gpt-5.5',
@@ -319,6 +320,13 @@ class ConfigManager {
       version: '2',
       ...rawSettings
     };
+    if (rawSettings.searchTimeoutMs === undefined && rawSettings.workspaceFileSearchTimeoutMs !== undefined) {
+      const legacyTimeoutMs = Number(rawSettings.workspaceFileSearchTimeoutMs);
+      this.settings.searchTimeoutMs = legacyTimeoutMs === LEGACY_DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS
+        ? DEFAULT_SEARCH_TIMEOUT_MS
+        : rawSettings.workspaceFileSearchTimeoutMs;
+    }
+    delete this.settings.workspaceFileSearchTimeoutMs;
     if (
       this.settings.dangerouslySkipAgentPermissionsByDefault === undefined
       && this.settings.skipPermissionCheckByDefault !== undefined
@@ -340,7 +348,7 @@ class ConfigManager {
       this.settings.updateUrl = DEFAULT_UPDATE_URL;
     }
     this.settings.updateUrl = this.normalizeUpdateUrl(this.settings.updateUrl);
-    this.settings.workspaceFileSearchTimeoutMs = this.normalizeWorkspaceFileSearchTimeoutMs(this.settings.workspaceFileSearchTimeoutMs);
+    this.settings.searchTimeoutMs = this.normalizeSearchTimeoutMs(this.settings.searchTimeoutMs);
     this.settings.codexRuntimeMode = this.normalizeCodexRuntimeMode(this.settings.codexRuntimeMode);
     const legacyMainPageSessionKeys = this.normalizeMainPageSessionKeys(this.settings.mainPageSessionKeys);
     delete this.settings.mainPageSessionKeys;
@@ -372,12 +380,12 @@ class ConfigManager {
     return DEFAULT_LAUNCH_AGENT_NAMES.has(agentName) ? agentName : 'codex';
   }
 
-  normalizeWorkspaceFileSearchTimeoutMs(value) {
+  normalizeSearchTimeoutMs(value) {
     const timeoutMs = Number(value);
-    if (!Number.isFinite(timeoutMs)) return DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS;
+    if (!Number.isFinite(timeoutMs)) return DEFAULT_SEARCH_TIMEOUT_MS;
     return Math.min(
-      MAX_WORKSPACE_FILE_SEARCH_TIMEOUT_MS,
-      Math.max(MIN_WORKSPACE_FILE_SEARCH_TIMEOUT_MS, Math.round(timeoutMs))
+      MAX_SEARCH_TIMEOUT_MS,
+      Math.max(MIN_SEARCH_TIMEOUT_MS, Math.round(timeoutMs))
     );
   }
 
@@ -778,7 +786,7 @@ class ConfigManager {
     this.settings.projectNames = this.normalizeProjectNames(this.settings.projectNames);
     this.settings.agentHomes = this.normalizeAgentHomes(this.settings.agentHomes);
     this.settings.updateUrl = this.normalizeUpdateUrl(this.settings.updateUrl);
-    this.settings.workspaceFileSearchTimeoutMs = this.normalizeWorkspaceFileSearchTimeoutMs(this.settings.workspaceFileSearchTimeoutMs);
+    this.settings.searchTimeoutMs = this.normalizeSearchTimeoutMs(this.settings.searchTimeoutMs);
     this.settings.codexRuntimeMode = this.normalizeCodexRuntimeMode(this.settings.codexRuntimeMode);
     delete this.settings.mainPageSessionKeys;
     delete this.settings.taskHistory;
@@ -801,7 +809,7 @@ class ConfigManager {
 
 module.exports = ConfigManager;
 module.exports.DEFAULT_UPDATE_URL = DEFAULT_UPDATE_URL;
-module.exports.DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS = DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS;
+module.exports.DEFAULT_SEARCH_TIMEOUT_MS = DEFAULT_SEARCH_TIMEOUT_MS;
 module.exports.DEFAULT_CRT_TERMINAL_FONT_SIZE = DEFAULT_CRT_TERMINAL_FONT_SIZE;
 module.exports.MIN_CRT_TERMINAL_FONT_SIZE = MIN_CRT_TERMINAL_FONT_SIZE;
 module.exports.MAX_CRT_TERMINAL_FONT_SIZE = MAX_CRT_TERMINAL_FONT_SIZE;

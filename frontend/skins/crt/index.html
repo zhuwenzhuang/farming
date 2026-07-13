@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Farming - AI Agent Manager</title>
+    <link rel="icon" type="image/svg+xml" href="assets/branding/farming-crt-icon.svg">
     <link rel="stylesheet" href="../vendor/xterm/xterm.css">
     <link rel="stylesheet" href="styles/effects.css">
     <style>
@@ -57,7 +58,7 @@
             flex: 1;
             padding: 20px;
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            grid-template-columns: repeat(var(--crt-agent-page-columns, 2), minmax(0, 1fr));
             grid-template-rows: repeat(var(--crt-agent-page-rows, 1), minmax(0, 1fr));
             gap: 15px;
             min-width: 0;
@@ -1397,7 +1398,7 @@
                         <span class="crt-command-shortcut" aria-hidden="true">[ALT+M]</span>
                     </div>
                     <button class="kill-btn" aria-label="Kill Agent, Ctrl+K" onclick="killCurrentAgent()">KILL [CTRL+K]</button>
-                    <button class="close-btn" aria-label="Close session, Escape" onclick="closeSession()">CLOSE [ESC]</button>
+                    <button class="close-btn" aria-label="Close session, Ctrl+Escape" onclick="closeSession()">CLOSE [CTRL+ESC]</button>
                 </div>
             </div>
             <div class="crt-runtime-switch-status" id="crt-runtime-switch-status" role="status" aria-live="polite" hidden>

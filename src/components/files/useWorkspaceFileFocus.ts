@@ -393,6 +393,7 @@ export function useWorkspaceFileFocus({
   }, [cancelPendingFileFocus, fileSearchInputRef, lastFocusedFilePathRef, treeRef, treeViewportRef])
 
   const focusFileTreePath = useCallback((filePath: string | null) => {
+    cancelPendingFileTreeScrollFocus()
     const focusTarget = () => {
       if (shouldPreserveMonacoFocus()) return
       if (filePath) {
@@ -411,13 +412,15 @@ export function useWorkspaceFileFocus({
       focusWithoutScrolling(treeViewportRef.current?.querySelector<HTMLElement>('[role="tree"]'))
     }
     focusTarget()
-    window.requestAnimationFrame(() => {
+    fileTreeFocusFrameRef.current = window.requestAnimationFrame(() => {
+      fileTreeFocusFrameRef.current = null
       focusTarget()
     })
-    window.setTimeout(focusTarget, 80)
-    window.setTimeout(focusTarget, 180)
-    window.setTimeout(focusTarget, 360)
-  }, [treeRef, treeViewportRef])
+    ;[80, 180, 360].forEach(delay => {
+      const timeoutId = window.setTimeout(focusTarget, delay)
+      fileTreeFocusTimeoutsRef.current.push(timeoutId)
+    })
+  }, [cancelPendingFileTreeScrollFocus, treeRef, treeViewportRef])
 
   const focusFileTreeTarget = useCallback((item: WorkspaceFileTreeNode | null) => {
     focusFileTreePath(item?.path ?? null)

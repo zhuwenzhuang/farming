@@ -1,5 +1,5 @@
 const EventEmitter = require('events');
-const { execFile, execFileSync } = require('child_process');
+const { execFile } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -18,7 +18,7 @@ const { deriveTerminalStatus } = require('./terminal-status');
 const { CodexAppServerRuntime, normalizeCodexRuntimeMode } = require('./codex-app-server-runtime');
 const { JsonCliRuntime } = require('./json-cli-runtime');
 const { AcpRuntime } = require('./acp-runtime');
-const { acpSessionTranscript } = require('./acp-transcript');
+const { acpSessionTranscript, acpToolDetail } = require('./acp-transcript');
 const { ensureCodexAppServerHome } = require('./codex-app-server-home');
 const {
   ensureAgentOrders,
@@ -48,6 +48,7 @@ const MIN_TERMINAL_RESIZE_ROWS = 10;
 const CODEX_PROVIDER_SESSION_RESOLVE_COOLDOWN_MS = 1000;
 const CODEX_PROVIDER_SESSION_MATCH_GRACE_MS = 30 * 1000;
 const PROVIDER_SESSION_TITLE_RESOLVE_COOLDOWN_MS = 30 * 1000;
+const AGENT_DISCOVERY_CACHE_MAX_AGE_MS = 3_000;
 const SHELL_PROMPT_ENV_KEYS = [
   'PS1',
   'PS2',
@@ -350,11 +351,11 @@ class AgentManager extends EventEmitter {
     this.providerSessionTitleResolveInFlight = new Map();
     this.providerSessionTitleResolveLastAttemptAt = new Map();
     this.permissionRestartInFlight = new Map();
+    this.runtimeRestartInFlight = new Map();
     this.permissionRestartSuppressedAgentIds = new Set();
     this.codexAppServerRuntime = options.codexAppServerRuntime || new CodexAppServerRuntime();
     this.jsonCliRuntime = options.jsonCliRuntime || new JsonCliRuntime();
     this.acpRuntime = options.acpRuntime || new AcpRuntime();
-    this.gitWorkspaceCache = new Map();
     this.heartbeatInterval = null;
     this.disposed = false;
     this.systemMonitor = new SystemMonitor();
@@ -1185,7 +1186,7 @@ class AgentManager extends EventEmitter {
   }
 
   updateEngineProviderSessionMetadata(agent) {
-    if (!agent || !agent.engineName) return;
+    if (!agent || !agent.engineName || agent.engineStarted !== true) return;
     const engine = this.engineBridge.getEngine(agent.engineName);
     if (!engine || typeof engine.updateSessionMetadata !== 'function') return;
     Promise.resolve(engine.updateSessionMetadata(agent.id, {
@@ -1588,13 +1589,18 @@ class AgentManager extends EventEmitter {
     return 'buffer';
   }
 
-  resolveAgentShellEnv(shell = '') {
+  resolveAgentShellEnv(shell = '', options = {}) {
     const now = Date.now();
     const cacheKey = String(shell || '').trim() || '__default__';
     const cached = this.agentShellEnvCache.get(cacheKey);
+    const hasMaxAgeOverride = Number.isFinite(options.maxAgeMs);
+    const maxAgeMs = hasMaxAgeOverride
+      ? Math.max(0, options.maxAgeMs)
+      : this.agentShellEnvCacheMs;
     if (
+      options.force !== true &&
       cached &&
-      (this.agentShellEnvCacheMs === 0 || now - cached.resolvedAt < this.agentShellEnvCacheMs)
+      ((!hasMaxAgeOverride && maxAgeMs === 0) || now - cached.resolvedAt < maxAgeMs)
     ) {
       return cached.env;
     }
@@ -1693,24 +1699,13 @@ class AgentManager extends EventEmitter {
   canCreateForkWorktree(workspace) {
     const sourceWorkspace = this.expandWorkspacePath(workspace);
     if (!sourceWorkspace) return false;
-    const workspaceHandle = path.resolve(sourceWorkspace);
-    if (this.gitWorkspaceCache.has(workspaceHandle)) {
-      return this.gitWorkspaceCache.get(workspaceHandle) === true;
+    let current = path.resolve(sourceWorkspace);
+    while (true) {
+      if (fs.existsSync(path.join(current, '.git'))) return true;
+      const parent = path.dirname(current);
+      if (parent === current) return false;
+      current = parent;
     }
-
-    let canFork = false;
-    try {
-      execFileSync('git', ['-C', sourceWorkspace, 'rev-parse', '--show-toplevel'], {
-        stdio: 'ignore',
-        timeout: 3000,
-      });
-      canFork = true;
-    } catch {
-      canFork = false;
-    }
-
-    this.gitWorkspaceCache.set(workspaceHandle, canFork);
-    return canFork;
   }
 
   resolveMainAgentWorkspace(requestedWorkspace) {
@@ -1803,6 +1798,7 @@ class AgentManager extends EventEmitter {
     this.providerSessionTitleResolveInFlight.clear();
     this.providerSessionTitleResolveLastAttemptAt.clear();
     this.permissionRestartInFlight.clear();
+    this.runtimeRestartInFlight.clear();
     this.permissionRestartSuppressedAgentIds.clear();
     this.inputQueues.clear();
     if (this.codexAppServerRuntime && typeof this.codexAppServerRuntime.dispose === 'function') {
@@ -1972,9 +1968,13 @@ class AgentManager extends EventEmitter {
     }
 
     let args = providerSessionPlan.args;
-    let spawnProgram = resolveAgentExecutable(program) || program;
+    const userShellEnv = this.resolveAgentShellEnv('', { maxAgeMs: AGENT_DISCOVERY_CACHE_MAX_AGE_MS });
+    const launchPathEnv = typeof userShellEnv?.PATH === 'string' && userShellEnv.PATH.trim()
+      ? userShellEnv.PATH
+      : (process.env.PATH || '');
+    let spawnProgram = resolveAgentExecutable(program, launchPathEnv) || program;
     if (path.basename(program) === 'codex') {
-      const codexResolution = resolveCompatibleCodexExecutable(options.requiredCliVersion || '');
+      const codexResolution = resolveCompatibleCodexExecutable(options.requiredCliVersion || '', launchPathEnv);
       if (!codexResolution.compatible) {
         if (callback) callback(null, codexResolution.error || 'Codex CLI is not compatible with this session');
         return null;
@@ -2558,7 +2558,22 @@ class AgentManager extends EventEmitter {
   }
 
   getAcpTranscript(agentId, options = {}) {
-    return acpSessionTranscript(this.getAcpSession(agentId), options);
+    const agent = this.agents.get(agentId);
+    if (!agent) throw new Error('Agent not found');
+    if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
+    return acpSessionTranscript(this.acpRuntime.getTranscriptSession(agentId, options), options);
+  }
+
+  getAcpToolDetail(agentId, toolCallId) {
+    const agent = this.agents.get(agentId);
+    if (!agent) throw new Error('Agent not found');
+    if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
+    const entry = this.acpRuntime.getToolEntry(agentId, toolCallId);
+    if (!entry) throw new Error('ACP tool call not found');
+    return {
+      toolCallId: String(toolCallId || ''),
+      detail: acpToolDetail(entry),
+    };
   }
 
   listAcpSessions(agentId, options = {}) {
@@ -3001,6 +3016,25 @@ class AgentManager extends EventEmitter {
   }
 
   async restartAgentRuntimeMode(agentId, mode) {
+    const inFlight = this.runtimeRestartInFlight.get(agentId);
+    if (inFlight) {
+      return inFlight.mode === mode
+        ? inFlight.promise
+        : { error: 'Agent runtime switch already in progress' };
+    }
+    const restart = this.performAgentRuntimeModeRestart(agentId, mode);
+    const entry = { mode, promise: restart };
+    this.runtimeRestartInFlight.set(agentId, entry);
+    try {
+      return await restart;
+    } finally {
+      if (this.runtimeRestartInFlight.get(agentId) === entry) {
+        this.runtimeRestartInFlight.delete(agentId);
+      }
+    }
+  }
+
+  async performAgentRuntimeModeRestart(agentId, mode) {
     const agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
     const nextMode = ['terminal', 'json', 'acp'].includes(mode) ? mode : '';
@@ -3011,6 +3045,12 @@ class AgentManager extends EventEmitter {
       && nextMode === 'terminal';
     if (agent.agentRuntimeMode === nextMode && !leavesCodexAppServer) {
       return { agentId, agentRuntimeMode: nextMode };
+    }
+    const turnActive = agent.agentRuntimeMode === 'acp'
+      ? ['working', 'waiting-for-permission', 'interrupting'].includes(agent.acpState || '')
+      : this.isAgentAttentionTurnActive(agent);
+    if (turnActive) {
+      return { error: 'Interrupt the active Agent turn before switching Chat and Terminal.' };
     }
     const supportedProviders = nextMode === 'json' ? ['codex', 'opencode'] : ['codex', 'claude', 'opencode', 'qoder'];
     if (!supportedProviders.includes(provider)) {
@@ -3060,29 +3100,81 @@ class AgentManager extends EventEmitter {
       codexApprovalMode: agent.launchPermissionMode || undefined,
       jsonCliEvents: preserved.jsonCliEvents,
     };
-    await this.killAgent(agentId, { reason: 'runtime-switch', recordHistory: false, emitUpdate: false });
-    return new Promise(resolve => {
-      const started = this.startAgent(command, agent.cwd || agent.projectWorkspace || null, (restartedAgentId, error) => {
-        if (error || !restartedAgentId) {
-          this.emit('update');
-          resolve({ error: error || 'Failed to switch Agent runtime' });
-          return;
-        }
-        const replacement = this.agents.get(restartedAgentId);
-        if (replacement) {
-          Object.assign(replacement, preserved);
-          this.ensurePersistentAgentSession(replacement);
-        }
-        this.emit('update');
-        resolve({
-          agentId,
-          restarted: true,
-          restartedAgentId,
-          agentRuntimeMode: nextMode,
-        });
-      }, restartOptions);
-      Promise.resolve(started).catch(error => resolve({ error: error.message || 'Failed to switch Agent runtime' }));
+    const originalMode = agent.agentRuntimeMode || 'terminal';
+    const originalOptions = {
+      ...restartOptions,
+      agentRuntimeMode: originalMode,
+      codexRuntimeMode: agent.codexRuntimeMode || 'cli',
+    };
+    const startReplacement = options => new Promise(resolve => {
+      let settled = false;
+      const finish = (restartedAgentId, error) => {
+        if (settled) return;
+        settled = true;
+        resolve({ restartedAgentId: restartedAgentId || '', error: error || '' });
+      };
+      try {
+        const started = this.startAgent(
+          command,
+          agent.cwd || agent.projectWorkspace || null,
+          (restartedAgentId, error) => finish(restartedAgentId, error),
+          options
+        );
+        Promise.resolve(started).catch(error => finish('', error?.message || 'Failed to start Agent'));
+      } catch (error) {
+        finish('', error?.message || 'Failed to start Agent');
+      }
     });
+    const restorePreservedState = restartedAgentId => {
+      const replacement = this.agents.get(restartedAgentId);
+      if (!replacement) return;
+      Object.assign(replacement, preserved);
+      this.ensurePersistentAgentSession(replacement);
+    };
+    await this.killAgent(agentId, { reason: 'runtime-switch', recordHistory: false, emitUpdate: false });
+    const switched = await startReplacement(restartOptions);
+    if (switched.restartedAgentId && !switched.error) {
+      restorePreservedState(switched.restartedAgentId);
+      this.emit('update');
+      return {
+        agentId,
+        restarted: true,
+        restartedAgentId: switched.restartedAgentId,
+        agentRuntimeMode: nextMode,
+      };
+    }
+    if (switched.restartedAgentId && this.agents.has(switched.restartedAgentId)) {
+      await this.killAgent(switched.restartedAgentId, {
+        reason: 'runtime-switch-start-failed',
+        recordHistory: false,
+        emitUpdate: false,
+      });
+    }
+
+    const restored = await startReplacement(originalOptions);
+    if (restored.restartedAgentId && !restored.error) {
+      restorePreservedState(restored.restartedAgentId);
+      this.emit('update');
+      return {
+        agentId,
+        restarted: true,
+        restartedAgentId: restored.restartedAgentId,
+        agentRuntimeMode: originalMode,
+        switchFailed: true,
+        warning: `${switched.error || 'Failed to switch Agent runtime'} Original runtime restored.`,
+      };
+    }
+    if (restored.restartedAgentId && this.agents.has(restored.restartedAgentId)) {
+      await this.killAgent(restored.restartedAgentId, {
+        reason: 'runtime-switch-restore-failed',
+        recordHistory: false,
+        emitUpdate: false,
+      });
+    }
+    this.emit('update');
+    return {
+      error: `${switched.error || 'Failed to switch Agent runtime'} Restore also failed: ${restored.error || 'unknown error'}`,
+    };
   }
 
   findRuntimeSwitchSession(agent) {
@@ -3918,7 +4010,7 @@ class AgentManager extends EventEmitter {
         unread: agentAttentionUnread(agent),
         archived: agent.archived === true,
         archivedAt: agent.archivedAt || null,
-        canForkNewWorktree: agent.canForkNewWorktree === true,
+        canForkNewWorktree: this.canCreateForkWorktree(agent.projectWorkspace || agent.cwd || ''),
         startedAt: agent.startedAt || null,
         exitedAt: agent.exitedAt || null,
         // Main agent is exempt from activity/attention/zombie scoring

@@ -152,6 +152,7 @@ interface CodeMainAreaProps {
   displayedProjects: ProjectGroup[]
   searchQuery: string
   searchHasQuery: boolean
+  searchLoading: boolean
   visibleSearchTargetCount: number
   selectedSearchAgentId: string | null
   selectedSearchSessionHandle: string | null
@@ -220,6 +221,7 @@ export function CodeMainArea({
   displayedProjects,
   searchQuery,
   searchHasQuery,
+  searchLoading,
   visibleSearchTargetCount,
   selectedSearchAgentId,
   selectedSearchSessionHandle,
@@ -337,6 +339,7 @@ export function CodeMainArea({
               query={searchQuery}
               displayedProjects={displayedProjects}
               hasQuery={searchHasQuery}
+              loading={searchLoading}
               resultCount={visibleSearchTargetCount}
               selectedAgentId={selectedSearchAgentId}
               selectedSessionHandle={selectedSearchSessionHandle}

@@ -3887,6 +3887,26 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   padding: 6px 0 14px;
 }
 
+.code-acp-progress-update {
+  padding: 8px 0 5px;
+  color: #24292f;
+  font-size: 15px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.code-acp-progress-update > :first-child {
+  margin-top: 0;
+}
+
+.code-acp-progress-update > :last-child {
+  margin-bottom: 0;
+}
+
+.code-acp-progress-update p {
+  margin: 0 0 10px;
+}
+
 .code-codex-transcript-process-group {
   position: relative;
   padding: 1px 0 1px 18px;
@@ -6930,10 +6950,18 @@ button.code-codex-transcript-result-summary:focus-visible {
 }
 
 .code-history-panel-header h2 {
+  flex: 0 0 auto;
   font-size: 15px;
   font-weight: 400;
   letter-spacing: -0.01em;
   color: #24292f;
+}
+
+.code-history-search {
+  flex: 0 1 320px;
+  min-width: 0;
+  min-height: 34px;
+  padding-block: 3px;
 }
 
 .code-history-list {
@@ -14119,16 +14147,6 @@ body.code-mode[data-appearance='dark'] .code-settings-inline-choice > span {
   white-space: nowrap;
 }
 
-.code-settings-runtime-choice {
-  flex: 0 0 auto;
-}
-
-.code-settings-runtime-choice button {
-  padding-inline: 10px;
-  font-size: 14px;
-  white-space: nowrap;
-}
-
 .code-settings-search-timeout-row input[type='range'] {
   flex: 1 1 auto;
   min-width: 84px;
@@ -14483,10 +14501,6 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     gap: 10px;
   }
 
-  .code-settings-runtime-choice button {
-    padding-inline: 7px;
-    font-size: 13px;
-  }
 }
 
 /* Mobile hand-feel pass: keep the drawer useful, but make it feel like a sheet

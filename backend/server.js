@@ -24,6 +24,7 @@ const {
   listAgentSessions,
   normalizeProvider,
   paginateAgentSessions,
+  searchAgentSessions,
 } = require('./agent-session-history');
 const {
   findActiveAgentClaimingSession,
@@ -70,6 +71,7 @@ const authEnabled = tokenAuth.isEnabled();
 const WS_PATH = routePath(BASE_PATH, '/ws');
 const encodeCookieToken = TokenAuth.encodeCookieToken;
 const MAX_CODEX_TRANSCRIPT_TURNS = 1000;
+const INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS = 3_000;
 
 const app = express();
 const server = http.createServer(app);
@@ -131,8 +133,8 @@ function configuredProviderHomes() {
 
 const agentSessionsCache = new AsyncCache(() => {
   return listAgentSessions({
-    limit: 1000,
-    providerLimit: 1000,
+    limit: 5000,
+    providerLimit: 5000,
     scanLimit: 5000,
     providerHomes: configuredProviderHomes(),
   });
@@ -140,6 +142,19 @@ const agentSessionsCache = new AsyncCache(() => {
   ttlMs: 30_000,
   staleMs: 5 * 60_000,
 });
+
+function withSearchTimeout(promise, timeoutMs) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error('Agent search timed out');
+      error.code = 'ETIMEDOUT';
+      reject(error);
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 const qrShareTickets = new QrShareTicketStore({ ttlMs: SHARE_TICKET_TTL_MS });
 const reviewStateStore = new ReviewStateStore(configManager.farmingDir, {
   seedReviews: {
@@ -215,7 +230,11 @@ function getAvailableAgentsForRequest() {
     ];
   }
 
-  return listAvailableAgents(process.env.PATH || '');
+  const shellEnv = agentManager.resolveAgentShellEnv('', { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS });
+  const pathEnv = typeof shellEnv?.PATH === 'string' && shellEnv.PATH.trim()
+    ? shellEnv.PATH
+    : (process.env.PATH || '');
+  return listAvailableAgents(pathEnv);
 }
 
 function normalizeWorkspaceCompletionInput(value) {
@@ -501,6 +520,7 @@ app.get([
 
 app.get(routePath(BASE_PATH, '/api/executables'), (req, res) => {
   const availableAgents = getAvailableAgentsForRequest();
+  res.setHeader('Cache-Control', 'no-store');
   res.json({
     agents: availableAgents,
     total: availableAgents.length
@@ -731,7 +751,13 @@ app.get(routePath(BASE_PATH, '/api/agent-sessions'), async (req, res) => {
     const requestedLimit = Number(req.query.limit);
     const limit = Number.isFinite(requestedLimit) ? Math.max(0, Math.min(1000, requestedLimit)) : 60;
     const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : '';
-    const sessions = await agentSessionsCache.get(JSON.stringify(configManager.getSettings().agentHomes || {}));
+    const cacheOptions = req.query.force === '1'
+      ? { force: true }
+      : (req.query.fresh === '1' ? { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS } : {});
+    const sessions = await agentSessionsCache.get(
+      JSON.stringify(configManager.getSettings().agentHomes || {}),
+      cacheOptions
+    );
     const page = paginateAgentSessions(sessions, { limit: Math.max(1, limit), cursor });
     if (page.invalidCursor) {
       res.status(400).json({ error: 'Invalid Agent session cursor' });
@@ -755,6 +781,49 @@ app.get(routePath(BASE_PATH, '/api/agent-sessions'), async (req, res) => {
   } catch (error) {
     console.error('Failed to read agent sessions:', error);
     res.status(500).json({ error: error.message || 'Failed to read agent sessions' });
+  }
+});
+
+app.get(routePath(BASE_PATH, '/api/agent-sessions/search'), async (req, res) => {
+  try {
+    const query = typeof req.query.q === 'string' ? req.query.q : '';
+    const requestedLimit = Number(req.query.limit);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(1000, requestedLimit)) : 100;
+    const settings = configManager.getSettings();
+    const cacheOptions = req.query.force === '1'
+      ? { force: true }
+      : (req.query.fresh === '1' ? { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS } : {});
+    const sessions = await withSearchTimeout(
+      agentSessionsCache.get(
+        JSON.stringify(settings.agentHomes || {}),
+        cacheOptions
+      ),
+      settings.searchTimeoutMs
+    );
+    const result = searchAgentSessions(sessions, query, {
+      limit,
+      projectNames: settings.projectNames,
+    });
+    const displayStateByKey = new Map(configManager.listAgentSessionRecords()
+      .filter(record => record && record.providerSessionKey)
+      .map(record => [record.providerSessionKey, record]));
+    res.json({
+      ...result,
+      sessions: result.sessions.map(session => {
+        const key = mainPageAgentSessionKey(session.provider, session.id, session.providerHomeId);
+        const displayState = displayStateByKey.get(key);
+        return typeof displayState?.displayPinned === 'boolean'
+          ? { ...session, pinned: displayState.displayPinned }
+          : session;
+      }),
+    });
+  } catch (error) {
+    if (error?.code === 'ETIMEDOUT') {
+      res.status(504).json({ error: error.message });
+      return;
+    }
+    console.error('Failed to search agent sessions:', error);
+    res.status(500).json({ error: error.message || 'Failed to search Agent sessions' });
   }
 });
 
@@ -899,6 +968,7 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-session'), async (req, re
     res.json({
       session: agentManager.getAcpSession(req.params.agentId, {
         includeUpdates: req.query.includeUpdates === '1',
+        includeEntries: req.query.includeEntries !== '0',
       }),
     });
   } catch (error) {
@@ -913,10 +983,26 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-transcript'), async (req,
     const maxTurns = Number.isFinite(requestedMaxTurns)
       ? Math.min(MAX_CODEX_TRANSCRIPT_TURNS, Math.max(20, requestedMaxTurns))
       : DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS;
-    res.json({ transcript: agentManager.getAcpTranscript(req.params.agentId, { maxTurns }) });
+    const requestedRevision = Number.parseInt(String(req.query.sinceRevision || ''), 10);
+    res.json({ transcript: agentManager.getAcpTranscript(req.params.agentId, {
+      maxTurns,
+      ...(Number.isFinite(requestedRevision) && requestedRevision >= 0
+        ? { sinceRevision: requestedRevision }
+        : {}),
+    }) });
   } catch (error) {
     const message = error && error.message ? error.message : 'Failed to read ACP transcript';
     res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
+  }
+});
+
+app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-tool-details/:toolCallId'), async (req, res) => {
+  try {
+    res.json(agentManager.getAcpToolDetail(req.params.agentId, req.params.toolCallId));
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to read ACP tool details';
+    const status = message === 'Agent not found' || message === 'ACP tool call not found' ? 404 : 409;
+    res.status(status).json({ error: message });
   }
 });
 
@@ -1117,6 +1203,8 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
     updates.agentRuntimeMode = result.agentRuntimeMode;
     if (result.restarted === true) updates.restarted = true;
     if (result.restartedAgentId) updates.restartedAgentId = result.restartedAgentId;
+    if (result.switchFailed === true) updates.switchFailed = true;
+    if (result.warning) updates.warning = result.warning;
   }
 
   if (Object.keys(updates).length === 0) {

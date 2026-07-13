@@ -27,6 +27,8 @@ export function useWorkspaceFileTreeController({
   const treeRef = useRef<TreeApi<WorkspaceFileTreeNode> | undefined>(undefined)
   const treeViewportRef = useRef<HTMLDivElement | null>(null)
   const lastFocusedFilePathRef = useRef<string | null>(null)
+  const manuallyClosedPathsRef = useRef(new Set<string>())
+  const appliedManualClosuresRef = useRef(new Set<string>())
 
   const treeHeight = Math.max(rowHeight, visibleTreeRowCount * rowHeight)
 
@@ -50,6 +52,7 @@ export function useWorkspaceFileTreeController({
     let opened = false
     paths.forEach(path => {
       if (!path || !tree.get(path)) return
+      if (manuallyClosedPathsRef.current.has(path)) return
       if (tree.isOpen(path)) return
       tree.open(path, false)
       opened = true
@@ -70,6 +73,29 @@ export function useWorkspaceFileTreeController({
     window.requestAnimationFrame(() => redrawTree(true))
     window.setTimeout(() => redrawTree(true), 80)
   }, [openTreePaths, syncTreeStateFromArborist])
+
+  const setTreePathOpen = useCallback((path: string, open: boolean) => {
+    if (open) {
+      manuallyClosedPathsRef.current.delete(path)
+      appliedManualClosuresRef.current.delete(path)
+    } else {
+      manuallyClosedPathsRef.current.add(path)
+      appliedManualClosuresRef.current.delete(path)
+    }
+    setDirectoryOpen(path, open)
+  }, [setDirectoryOpen])
+
+  useEffect(() => {
+    manuallyClosedPathsRef.current.forEach(path => {
+      if (!openDirectoryPaths.has(path)) {
+        appliedManualClosuresRef.current.add(path)
+        return
+      }
+      if (!appliedManualClosuresRef.current.has(path)) return
+      manuallyClosedPathsRef.current.delete(path)
+      appliedManualClosuresRef.current.delete(path)
+    })
+  }, [openDirectoryPaths])
 
   useEffect(() => {
     const pathsToOpen = Array.from(openDirectoryPaths)
@@ -113,7 +139,9 @@ export function useWorkspaceFileTreeController({
 
     let lastObservedOpen: boolean | null = null
     const syncObservedToggle = () => {
-      const nextOpen = Boolean(treeRef.current?.get(path)?.isOpen)
+      const nextOpen = manuallyClosedPathsRef.current.has(path)
+        ? false
+        : Boolean(treeRef.current?.get(path)?.isOpen)
       if (lastObservedOpen === nextOpen) return
       lastObservedOpen = nextOpen
       setDirectoryOpen(path, nextOpen)
@@ -150,5 +178,6 @@ export function useWorkspaceFileTreeController({
     rememberFocusedTreeNode,
     rememberSelectedTreeNodes,
     renderFileTreeRow,
+    setTreePathOpen,
   }
 }

@@ -15,6 +15,7 @@ interface SearchPanelProps {
   query: string
   displayedProjects: ProjectGroup[]
   hasQuery: boolean
+  loading: boolean
   resultCount: number
   selectedAgentId: string | null
   selectedSessionHandle: string | null
@@ -31,6 +32,7 @@ export function SearchPanel({
   query,
   displayedProjects,
   hasQuery,
+  loading,
   resultCount,
   selectedAgentId,
   selectedSessionHandle,
@@ -84,7 +86,11 @@ export function SearchPanel({
           </button>
         )}
       </div>
-      {hasQuery && resultCount === 0 ? (
+      {hasQuery && loading && resultCount === 0 ? (
+        <div className="code-empty-workspace" data-testid="code-search-loading">
+          <h2>{copy.searching}</h2>
+        </div>
+      ) : hasQuery && resultCount === 0 ? (
         <div className="code-empty-workspace" data-testid="code-empty-search">
           <h2>{copy.noMatchingAgents}</h2>
         </div>

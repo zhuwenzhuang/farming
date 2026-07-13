@@ -1,7 +1,8 @@
+import { useState } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { agentTitle, formatRelativeAge } from '@/lib/format'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
-import { ArrowRightGlyph, ExternalLinkGlyph } from '@/components/IconGlyphs'
+import { ArrowRightGlyph, CloseGlyph, ExternalLinkGlyph, SearchGlyph } from '@/components/IconGlyphs'
 import {
   agentSessionId,
   agentSessionUpdatedAt,
@@ -203,6 +204,40 @@ export function buildHistoryAgentItems(
   ])
 }
 
+function normalizeHistorySearchValue(value: unknown) {
+  return String(value || '').normalize('NFKC').toLocaleLowerCase()
+}
+
+export function filterHistoryAgentItems(items: HistoryAgentItem[], query: string) {
+  const normalizedQuery = normalizeHistorySearchValue(query).trim()
+  if (!normalizedQuery) return items
+
+  return items.filter(item => {
+    if (item.kind === 'run') {
+      return normalizeHistorySearchValue([
+        historyRunTitle(item.entry),
+        historyRunMeta(item.entry),
+        item.entry.command,
+        item.entry.task,
+      ].join('\n')).includes(normalizedQuery)
+    }
+
+    if (item.kind === 'agent') {
+      return normalizeHistorySearchValue([
+        agentTitle(item.agent),
+        historyAgentMeta(item.agent),
+        item.agent.command,
+      ].join('\n')).includes(normalizedQuery)
+    }
+
+    return normalizeHistorySearchValue([
+      item.session.title,
+      historySessionMeta(item.session),
+      item.session.provider,
+    ].join('\n')).includes(normalizedQuery)
+  })
+}
+
 export function HistoryPanel({
   archivedRuns,
   archivedAgents,
@@ -214,23 +249,47 @@ export function HistoryPanel({
   onRestoreArchivedAgent,
   copy,
 }: HistoryPanelProps) {
+  const [query, setQuery] = useState('')
   const historyAgents = buildHistoryAgentItems(archivedRuns, archivedAgents, agentSessions)
+  const displayedHistoryAgents = filterHistoryAgentItems(historyAgents, query)
   const totalHistoryItems = historyAgents.length
+  const hasQuery = Boolean(query.trim())
 
   return (
     <div className="code-history-panel" data-testid="code-history-panel">
       <div className="code-history-panel-header">
         <h2>{copy.history}</h2>
+        <div className="code-search-panel-input code-history-search" data-testid="code-history-search-box">
+          <span className="code-search-panel-icon" aria-hidden="true"><SearchGlyph /></span>
+          <input
+            type="search"
+            value={query}
+            onChange={event => setQuery(event.currentTarget.value)}
+            placeholder={copy.searchHistory}
+            aria-label={copy.searchHistory}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          {query && (
+            <button type="button" onClick={() => setQuery('')} aria-label={copy.clearSearch}>
+              <CloseGlyph />
+            </button>
+          )}
+        </div>
       </div>
       {totalHistoryItems === 0 ? (
         <div className="code-empty-workspace">
           <h2>{copy.noHistoryYet}</h2>
           <p>{copy.noHistoryDescription}</p>
         </div>
+      ) : hasQuery && displayedHistoryAgents.length === 0 ? (
+        <div className="code-empty-workspace" data-testid="code-empty-history-search">
+          <h2>{copy.noMatchingAgents}</h2>
+        </div>
       ) : (
         <div className="code-history-list">
           <section className="code-history-section" data-testid="code-history-agents">
-            {historyAgents.map(item => {
+            {displayedHistoryAgents.map(item => {
               if (item.kind === 'run') {
                 const { entry } = item
                 return (

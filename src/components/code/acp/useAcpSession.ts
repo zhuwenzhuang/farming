@@ -10,7 +10,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   const refresh = useCallback(async (signal?: AbortSignal) => {
     if (!agentId || !active) return
     try {
-      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-session`), { signal })
+      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-session?includeEntries=0`), { signal })
       const body = await response.json().catch(() => null) as { session?: AcpSessionSnapshot; error?: string } | null
       if (!response.ok || !body?.session) throw new Error(body?.error || `Failed to read ACP session (${response.status})`)
       setSession(body.session)

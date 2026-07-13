@@ -104,8 +104,19 @@ function collectViewportSnapshot(terminal) {
     viewportY: buffer.viewportY,
     cursorX: buffer.cursorX,
     cursorY: buffer.cursorY,
+    cursorVisible: getTerminalCursorVisible(terminal),
     cells,
   };
+}
+
+function getTerminalCursorVisible(terminal) {
+  // xterm does not currently expose DECTCEM through its public buffer API.
+  // The headless core still tracks it, and replay must preserve it to avoid
+  // showing xterm's cursor on top of a TUI-rendered cursor.
+  const isCursorHidden = terminal && terminal._core && terminal._core.coreService
+    ? terminal._core.coreService.isCursorHidden
+    : false;
+  return isCursorHidden !== true;
 }
 
 class TerminalScreenState {
@@ -149,9 +160,13 @@ class TerminalScreenState {
   }
 
   refreshRenderOutput() {
-    this.renderOutput = this.serializeAddon.serialize({
+    const serialized = this.serializeAddon.serialize({
       scrollback: this.scrollback,
     });
+    // SerializeAddon preserves screen contents and most terminal modes, but it
+    // omits DECTCEM (CSI ? 25 h/l). Make the cursor state explicit so a fresh
+    // browser terminal does not fall back to its visible-cursor default.
+    this.renderOutput = `${serialized}\x1b[?25${getTerminalCursorVisible(this.terminal) ? 'h' : 'l'}`;
     this.renderOutputDirty = false;
   }
 
@@ -222,3 +237,4 @@ class TerminalScreenState {
 module.exports = TerminalScreenState;
 module.exports.collectViewportText = collectViewportText;
 module.exports.collectViewportSnapshot = collectViewportSnapshot;
+module.exports.getTerminalCursorVisible = getTerminalCursorVisible;

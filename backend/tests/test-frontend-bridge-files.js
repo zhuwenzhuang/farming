@@ -12,6 +12,7 @@ function run() {
   const monochromeCssPath = path.join(__dirname, '../../frontend/skins/crt/styles/monochrome-green.css');
   const departureFontPath = path.join(__dirname, '../../frontend/skins/crt/assets/fonts/departure-mono/DepartureMonoNerdFontMono-Regular.otf');
   const departureLicensePath = path.join(__dirname, '../../frontend/skins/crt/assets/fonts/departure-mono/LICENSE');
+  const crtIconPath = path.join(__dirname, '../../frontend/skins/crt/assets/branding/farming-crt-icon.svg');
   const pkgConfigPath = path.join(__dirname, '../../pkg.config.cjs');
   const serverPath = path.join(__dirname, '../../backend/server.js');
 
@@ -22,6 +23,7 @@ function run() {
   const indexHtml = fs.readFileSync(indexHtmlPath, 'utf8');
   const effectsCss = fs.readFileSync(effectsCssPath, 'utf8');
   const monochromeCss = fs.readFileSync(monochromeCssPath, 'utf8');
+  const crtIcon = fs.readFileSync(crtIconPath, 'utf8');
   const pkgConfig = fs.readFileSync(pkgConfigPath, 'utf8');
   const server = fs.readFileSync(serverPath, 'utf8');
   const crtApp = fs.readFileSync(path.join(__dirname, '../../frontend/skins/crt/app.js'), 'utf8');
@@ -111,8 +113,9 @@ function run() {
   assert(indexHtml.includes('id="crt-runtime-toggle"') && indexHtml.includes('class="crt-runtime-glyph" aria-hidden="true">MSG</span>') && indexHtml.includes('class="crt-runtime-glyph" aria-hidden="true">TTY</span>'), 'CRT should expose retro MSG and TTY runtime controls');
   assert(crtApp.includes("body: JSON.stringify({ agentRuntimeMode: targetMode })"), 'CRT runtime controls should use the backend restart path');
   assert(crtApp.includes('isCrtRuntimeSwitchShortcut') && indexHtml.includes('class="crt-command-shortcut" aria-hidden="true">[ALT+M]</span>'), 'CRT should expose a visible non-terminal runtime switch shortcut');
-  assert(indexHtml.includes('class="kill-btn" aria-label="Kill Agent, Ctrl+K"') && indexHtml.includes('class="close-btn" aria-label="Close session, Escape"'), 'CRT Kill and Close should retain their standalone button styles');
-  assert(indexHtml.includes('>KILL [CTRL+K]</button>') && indexHtml.includes('>CLOSE [ESC]</button>'), 'CRT session actions should show their primary keyboard labels');
+  assert(indexHtml.includes('class="kill-btn" aria-label="Kill Agent, Ctrl+K"') && indexHtml.includes('class="close-btn" aria-label="Close session, Ctrl+Escape"'), 'CRT Kill and Close should retain their standalone button styles');
+  assert(indexHtml.includes('>KILL [CTRL+K]</button>') && indexHtml.includes('>CLOSE [CTRL+ESC]</button>'), 'CRT session actions should default to the Terminal keyboard labels');
+  assert(crtApp.includes('function updateCrtSessionCloseControl(agent)') && crtApp.includes("chat ? 'CLOSE [ESC]' : 'CLOSE [CTRL+ESC]'"), 'CRT should show Escape for Chat and Ctrl+Escape for Terminal');
   assert(crtApp.includes('structuredSessionActive') && crtApp.includes('(e.ctrlKey || e.metaKey || !structuredComposerMenu)'), 'CRT structured sessions should close with Escape or Ctrl+Escape while preserving submenu back navigation');
   assert(indexHtml.includes('#farming-crt .session-header-actions > .kill-btn') && indexHtml.includes('height: 38px;') && indexHtml.includes('font-size: 16px;'), 'CRT session header controls should share one height and type size');
   assert(crtApp.includes("document.addEventListener('keydown', (event) => {") && crtApp.includes('}, true);'), 'CRT should capture the runtime shortcut before xterm sends it to the PTY');
@@ -130,6 +133,8 @@ function run() {
   assert(crtApp.includes('resumeCrtPageConnection') && crtApp.includes('refreshSessionView(true, activeAgentId'), 'CRT should reconnect and resync the focused terminal when visible again');
   assert(!effectsCss.includes('repeating-linear-gradient(\n            to right'), 'Monochrome Green should not use an RGB aperture mask');
   assert(indexHtml.includes('id="farming-crt"'), 'CRT effects should be scoped to the CRT skin root');
+  assert(indexHtml.includes('rel="icon" type="image/svg+xml" href="assets/branding/farming-crt-icon.svg"'), 'CRT should use its terminal-computer brand mark as the page icon');
+  assert(crtIcon.includes('<title>FARMING CRT</title>') && crtIcon.includes('>CRT</text>'), 'CRT page icon should expose the complete brand name and retain a visible CRT wordmark');
   assert(indexHtml.includes('styles/effects.css'), 'CRT entry should load its private effects stylesheet');
   assert(indexHtml.includes('styles/monochrome-green.css'), 'CRT entry should load its private Monochrome Green stylesheet');
   assert(fs.existsSync(departureFontPath), 'CRT should bundle the Departure Mono font');

@@ -7,6 +7,7 @@ import {
   loadReviewedFiles,
   loadReviewComments,
   loadReviewDiffSnapshot,
+  loadReviewFileContext,
   loadReviewFileDiff,
   loadReviewPatch,
   loadReviewPatchText,
@@ -15,6 +16,7 @@ import {
   ReviewApiError,
   refreshReviewSession,
   reviewFileDiffUrl,
+  reviewFileContextUrl,
   reviewPatchUrl,
   reviewRequestForSessionRevision,
   reviewSnapshotUrl,
@@ -532,6 +534,40 @@ test('loads single-file review diffs for lazy expansion', async () => {
       '/api/reviews/working-copy/files/src%2Freview.ts/diff?agentId=agent-1&context=25&ignoreWhitespace=ALL',
       '/api/reviews/git-range/files/src%2Freview.ts/diff?agentId=agent-1&context=10&ignoreWhitespace=TRAILING&base=HEAD%7E1&head=HEAD',
     ])
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('loads one bounded common-line range without reloading the file diff', async () => {
+  const calls: string[] = []
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async input => {
+    calls.push(String(input))
+    return jsonResponse({
+      leftLines: 100,
+      rightLines: 101,
+      rows: [
+        { kind: 'context', left: { line: 21, text: 'same 21' }, right: { line: 22, text: 'same 21' } },
+        { kind: 'context', left: { line: 22, text: 'same 22' }, right: { line: 23, text: 'same 22' } },
+      ],
+    })
+  }
+  try {
+    const range = { lines: 2, newStart: 22, oldStart: 21 }
+    const result = await loadReviewFileContext({ agentId: 'agent-1', base: 'HEAD~1', head: 'HEAD', source: 'git-range' }, 'src/review.ts', range)
+    assert.equal(result.rows.length, 2)
+    assert.equal(
+      reviewFileContextUrl({ agentId: 'agent-1', source: 'working-copy' }, 'src/review.ts', range),
+      '/api/reviews/working-copy/files/src%2Freview.ts/context?agentId=agent-1&lines=2&newStart=22&oldStart=21'
+    )
+    assert.deepEqual(calls, [
+      '/api/reviews/git-range/files/src%2Freview.ts/context?agentId=agent-1&lines=2&newStart=22&oldStart=21&base=HEAD%7E1&head=HEAD',
+    ])
+    await assert.rejects(
+      () => loadReviewFileContext({ agentId: 'agent-1', source: 'working-copy' }, 'src/review.ts', { lines: 0, newStart: 1, oldStart: 1 }),
+      /review context lines is invalid/
+    )
   } finally {
     globalThis.fetch = previousFetch
   }
