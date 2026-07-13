@@ -88,7 +88,10 @@ function latestRestartDescendant(agents: Agent[], ancestorAgentId: string, expec
         || !expectedSession.providerSessionId
         || (
           agent.providerSessionProvider === expectedSession.providerSessionProvider
-          && agent.providerSessionId === expectedSession.providerSessionId
+          && (
+            expectedSession.providerSessionTemporary === true
+            || agent.providerSessionId === expectedSession.providerSessionId
+          )
           && (agent.providerHomeId || '') === (expectedSession.providerHomeId || '')
         )
       )

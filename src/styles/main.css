@@ -8442,8 +8442,8 @@ button.code-history-card {
 .code-model-submenu,
 .code-speed-submenu {
   right: calc(100% + 8px);
-  top: 0;
-  bottom: auto;
+  top: auto;
+  bottom: 0;
   width: max-content;
   min-width: 180px;
   max-width: min(260px, calc(100vw - 48px));
@@ -12758,6 +12758,24 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   body.code-mode.code-mobile-touch .code-codex-goal-bar,
   body.code-mode.code-mobile-touch .code-composer {
     pointer-events: auto;
+  }
+
+  body.code-mode.code-mobile-touch .code-codex-goal-bar {
+    position: fixed;
+    left: calc(var(--app-visual-offset-left, 0px) + 12px);
+    bottom: calc(
+      100vh
+      - var(--app-visual-offset-top, 0px)
+      - var(--app-visual-height, 100dvh)
+      + var(--mobile-composer-current-height, var(--mobile-composer-resting-height, 52px))
+      + var(--mobile-composer-viewport-gap, max(6px, env(safe-area-inset-bottom)))
+      + 144px
+    );
+    z-index: 58;
+    width: calc(var(--app-visual-width, 100vw) - 24px);
+    max-height: min(42vh, 300px);
+    margin: 0;
+    overflow: auto;
   }
 
   body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request) {

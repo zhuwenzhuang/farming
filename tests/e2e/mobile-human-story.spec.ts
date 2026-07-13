@@ -7,6 +7,21 @@ import {
   openNewAgentDialog,
   test,
 } from './fixtures'
+import type { Agent } from '../../src/types/agent'
+
+type FarmingState = {
+  agents: Agent[]
+  taskHistory: unknown[]
+  mainPageSessionKeys: string[]
+  mainAgentId: string | null
+  systemStats: null
+}
+
+declare global {
+  interface Window {
+    __farmingEmitState?: (state: FarmingState) => void
+  }
+}
 
 function git(cwd: string, args: string[]) {
   execFileSync('git', args, { cwd, stdio: 'ignore' })
@@ -35,6 +50,56 @@ async function createControlAgent(page: import('@playwright/test').Page, command
   const data = await response.json() as { agentId?: string }
   expect(data.agentId).toBeTruthy()
   return data.agentId as string
+}
+
+async function installStateSocket(page: import('@playwright/test').Page, initialState: FarmingState) {
+  await page.addInitScript((state) => {
+    const sockets = new Set<{
+      readyState: number
+      onopen: ((event: Event) => void) | null
+      onmessage: ((event: MessageEvent) => void) | null
+      onclose: ((event: CloseEvent) => void) | null
+      send: (data: string) => void
+      close: () => void
+    }>()
+
+    class MockWebSocket {
+      static CONNECTING = 0
+      static OPEN = 1
+      static CLOSED = 3
+
+      readyState = MockWebSocket.CONNECTING
+      onopen: ((event: Event) => void) | null = null
+      onmessage: ((event: MessageEvent) => void) | null = null
+      onclose: ((event: CloseEvent) => void) | null = null
+
+      constructor() {
+        sockets.add(this)
+        window.setTimeout(() => {
+          this.readyState = MockWebSocket.OPEN
+          this.onopen?.(new Event('open'))
+          this.onmessage?.({ data: JSON.stringify({ type: 'state', state }) } as MessageEvent)
+        }, 0)
+      }
+
+      send() {}
+
+      close() {
+        this.readyState = MockWebSocket.CLOSED
+        this.onclose?.(new CloseEvent('close'))
+        sockets.delete(this)
+      }
+    }
+
+    window.__farmingEmitState = nextState => {
+      for (const socket of sockets) {
+        if (socket.readyState === MockWebSocket.OPEN) {
+          socket.onmessage?.({ data: JSON.stringify({ type: 'state', state: nextState }) } as MessageEvent)
+        }
+      }
+    }
+    window.WebSocket = MockWebSocket as unknown as typeof WebSocket
+  }, initialState)
 }
 
 async function startMobileAgentFromOpenDialog(page: import('@playwright/test').Page, name: string, workspace: string) {
@@ -79,8 +144,8 @@ test.describe('mobile Farming Code user story', () => {
     await page.getByTestId('code-mobile-more').click()
     const mobileOptions = page.getByTestId('code-options-menu')
     await expect(mobileOptions).toBeVisible()
-    await expect(mobileOptions.getByRole('menuitem', { name: 'Chat' })).toBeVisible()
-    await expect(mobileOptions.getByRole('menuitem', { name: 'Terminal' })).toBeVisible()
+    await expect(mobileOptions.getByRole('menuitem', { name: 'Chat' })).toHaveCount(0)
+    await expect(mobileOptions.getByRole('menuitem', { name: 'Terminal' })).toHaveCount(0)
     await expect(mobileOptions.getByRole('menuitem', { name: 'Share page' })).toBeVisible()
     await expect(mobileOptions).not.toContainText('Settings')
     await expect(page.getByTestId('code-mobile-more')).toHaveAttribute('aria-label', 'Open options')
@@ -122,12 +187,43 @@ test.describe('mobile Farming Code user story', () => {
     fs.writeFileSync(path.join(projectDir, 'src/components/code/MobileCodeComposerInput.tsx'), 'export const mobile = true\n')
     fs.writeFileSync(path.join(projectDir, 'backend/tests/test-mobile.js'), 'console.log("mobile")\n')
     const sessionId = `019f-mobile-status-${Date.now()}`
+    const agentId = `agent-mobile-status-${Date.now()}`
+    const providerSessionKey = `agent-session:codex:${sessionId}`
 
     await page.addInitScript(() => {
       Object.defineProperty(navigator, 'maxTouchPoints', { value: 1, configurable: true })
     })
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.route(/\/farming\/api\/agents\/[^/]+\/codex-transcript(?:\?.*)?$/, async route => {
+    await installStateSocket(page, {
+      agents: [{
+        id: agentId,
+        command: 'codex',
+        cwd: projectDir,
+        projectWorkspace: projectDir,
+        output: '',
+        previewText: 'Codex mobile transcript fixture',
+        status: 'running',
+        isMain: false,
+        activityLevel: 'warm',
+        lastActivity: Date.now(),
+        attentionScore: 0,
+        isZombie: false,
+        providerSessionProvider: 'codex',
+        providerHomeId: 'default',
+        providerHomePath: '',
+        providerSessionId: sessionId,
+        providerSessionKey,
+        providerSessionSource: 'json-cli',
+        agentRuntimeMode: 'json',
+        jsonCliState: 'working',
+        terminalBusy: true,
+      }],
+      taskHistory: [],
+      mainPageSessionKeys: [providerSessionKey],
+      mainAgentId: null,
+      systemStats: null,
+    })
+    await page.route(/\/farming\/api\/agents\/[^/]+\/json-cli-transcript(?:\?.*)?$/, async route => {
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
@@ -174,7 +270,6 @@ test.describe('mobile Farming Code user story', () => {
       })
     })
 
-    const agentId = await createControlAgent(page, `codex resume ${sessionId}`, projectDir)
     await openFarming(page)
     await expect(page.getByTestId('code-mobile-topbar')).toBeVisible()
     await revealMobileSidebar(page)

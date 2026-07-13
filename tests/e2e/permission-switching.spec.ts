@@ -279,7 +279,7 @@ test.describe('permission switching', () => {
     await openPermissionTestApp(page)
     await openPermissionTestApp(observerPage)
     await agentRow(observerPage, codexAgentId).click()
-    await observerPage.getByRole('button', { name: 'Terminal' }).click()
+    await expect(observerPage.getByRole('button', { name: 'Terminal' })).toHaveAttribute('aria-pressed', 'true')
     const observerDraft = 'keep the observing browser draft and view'
     await observerPage.getByTestId('code-composer-input').fill(observerDraft)
     await observerPage.getByTestId('code-nav-history').click()
@@ -304,7 +304,7 @@ test.describe('permission switching', () => {
     await expect(observerPage.getByTestId('code-history-panel')).toBeVisible()
     await observerPage.keyboard.press('Escape')
     await expect(observerPage.getByTestId('code-agent-terminal-view')).toHaveClass(/active/)
-    await expect(observerPage.getByTestId('code-agent-chat-view')).toHaveClass(/hidden/)
+    await expect(observerPage.getByTestId('code-agent-chat-view')).toHaveCount(0)
     await expect(observerPage.getByTestId('code-composer-input')).toHaveValue(observerDraft)
   })
 

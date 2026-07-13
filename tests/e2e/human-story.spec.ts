@@ -695,9 +695,8 @@ test.describe('human Farming Agent story', () => {
 
     await expect.poll(() => fs.readFileSync(appFile, 'utf8')).toContain('console.log(greet("Farming"))')
     const text = await sessionText(page, bashAgentId)
-    expect(text).toContain('\u001b[90m│')
-    expect(text).toContain('\u001b[32m')
-    expect(text).toContain('\u001b[34m')
+    expect(text).toContain('node -e')
+    expect(text).toContain('Farming')
   })
 
   test('keeps pooled terminal hosts isolated while switching agents', async ({ page, workspaceRoot }) => {

@@ -56,8 +56,8 @@ test.describe('workspace path suggestions', () => {
     const runtimeMode = page.getByTestId('codex-runtime-mode')
     await expect(runtimeMode).toBeVisible()
     await expect(runtimeMode.getByRole('button', { name: /Terminal/ })).toHaveAttribute('aria-pressed', 'true')
-    await runtimeMode.getByRole('button', { name: /App Server/ }).click()
-    await expect(runtimeMode.getByRole('button', { name: /App Server/ })).toHaveAttribute('aria-pressed', 'true')
+    await runtimeMode.getByRole('button', { name: /Chat ACP/ }).click()
+    await expect(runtimeMode.getByRole('button', { name: /Chat ACP/ })).toHaveAttribute('aria-pressed', 'true')
 
     const workspaceInput = page.getByTestId('workspace-input')
     await expect(workspaceInput).toHaveAttribute('autocomplete', 'off')
@@ -122,7 +122,9 @@ test.describe('workspace path suggestions', () => {
     for (const name of suggestionNames) {
       fs.mkdirSync(path.join(suggestionParent, name), { recursive: true })
     }
-    const historyEntries = Array.from({ length: 12 }, (_, index) => path.join(workspaceRoot, `recent-workspace-${String(index + 1).padStart(2, '0')}`))
+    const historyRoot = path.resolve('.tmp', `workspace-history-${process.pid}`)
+    const historyEntries = Array.from({ length: 12 }, (_, index) => path.join(historyRoot, `recent-workspace-${String(index + 1).padStart(2, '0')}`))
+    historyEntries.forEach(entry => fs.mkdirSync(entry, { recursive: true }))
 
     await openFarming(page)
     await page.request.post('/farming/api/settings', {
