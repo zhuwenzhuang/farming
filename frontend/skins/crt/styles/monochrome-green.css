@@ -11,7 +11,7 @@
     --crt-phosphor-bright: #55f59b;
     --crt-phosphor-muted: #087a42;
     --crt-phosphor-faint: rgba(12, 204, 104, 0.16);
-    --crt-background: #010c06;
+    --crt-background: #000d06;
     --crt-panel: #030806;
     --crt-panel-raised: #07110b;
     --crt-border: rgba(12, 204, 104, 0.76);
@@ -458,7 +458,7 @@
 
 #farming-crt #session-modal {
     padding: 7px;
-    background: #010805;
+    background: var(--crt-background);
     align-items: stretch;
     justify-content: stretch;
 }
@@ -468,13 +468,13 @@
     max-width: none;
     height: 100%;
     max-height: none;
-    background: #062114;
+    background: var(--crt-background);
     border: 1px solid rgba(12, 204, 104, 0.3);
     box-shadow: none;
 }
 
 #farming-crt #session-modal .terminal {
-    background: #062114;
+    background: var(--crt-background);
 }
 
 #farming-crt .terminal canvas {

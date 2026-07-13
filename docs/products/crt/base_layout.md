@@ -59,7 +59,7 @@ Render only when a Main Agent exists. It uses stronger visual emphasis than norm
 - static layout where possible;
 - no placeholder menu items for unimplemented actions.
 
-CRT screen texture uses static monochrome scanlines without a dark edge vignette. A lightweight scan beam runs on the approximately 6.7-second reference cycle; the region it has already crossed stays gently brighter until the cycle resets. Numeric shortcut badges retain their green phosphor fill and dark text without an extra outline.
+CRT screen texture uses a flat phosphor-tinted black with static monochrome scanlines and no dark edge vignette. A low-contrast 300-pixel scan trail runs on the approximately 6.8-second reference cycle across both the dashboard and opened sessions; it has no separate bright line head. Numeric shortcut badges retain their green phosphor fill and dark text without an extra outline.
 
 ## Sessions
 

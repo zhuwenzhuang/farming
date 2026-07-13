@@ -473,7 +473,7 @@ let sessionSearchMatches = [];
 let sessionSearchIndex = -1;
 const MAX_WORKSPACE_HISTORY = 5;
 const TERMINAL_THEME = {
-  background: '#062114',
+  background: '#000d06',
   foreground: '#0ccc68',
   cursor: '#55f59b',
   cursorAccent: '#001409',

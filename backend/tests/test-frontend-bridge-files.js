@@ -72,17 +72,18 @@ function run() {
     'CRT effects should include visible static scanlines'
   );
   assert(
-    !effectsCss.includes('animation: scanlines'),
-    'CRT scanlines should remain static to avoid compositor churn'
+    effectsCss.includes('background-size: 100% 3px') && !effectsCss.includes('crt-scanline-drift'),
+    'CRT scanlines should use a static three-pixel phosphor raster without compositor drift'
   );
   assert(!effectsCss.includes('mix-blend-mode: multiply'), 'CRT static scanlines should not force full-screen blend recomposition');
   assert(indexHtml.includes('class="crt-scan-beam"'), 'CRT entry should render the lightweight scan beam');
   assert(indexHtml.includes('class="crt-phosphor-noise"'), 'CRT entry should render one shared procedural phosphor noise layer');
   assert(!indexHtml.includes('class="crt-scan-afterglow"'), 'CRT entry should not retain a separate cumulative afterglow layer');
-  assert(effectsCss.includes('animation: crt-scan-beam-cycle 13s'), 'CRT beam should combine a five-second scan with an eight-second rest');
+  assert(effectsCss.includes('animation: crt-scan-beam-cycle 6.8s linear infinite'), 'CRT beam should follow the quiet continuous reference cycle');
   assert(effectsCss.includes('height: 300px'), 'CRT scan should use the reference-shaped 300px phosphor trail');
-  assert(effectsCss.includes('rgba(58, 208, 58, 0.16) 85%'), 'CRT scan trail should reach the reference peak brightness');
-  assert(effectsCss.includes('39.2615%') && effectsCss.includes('40.0615%'), 'CRT scan should move for five seconds and reset only after fading out');
+  assert(effectsCss.includes('rgba(12, 204, 104, 0.04) 100%'), 'CRT scan trail should keep its peak at the low reference intensity');
+  assert(!effectsCss.includes('.crt-scan-beam::after'), 'CRT scan should not add a separate attention-grabbing line head');
+  assert(!effectsCss.includes('#farming-crt.session-open .crt-scan-beam'), 'CRT scan should remain a whole-screen surface effect in opened sessions');
   assert(!effectsCss.includes('#farming-crt:not(.no-crt)::after'), 'CRT should not darken the viewport edges with a vignette');
   assert(effectsCss.includes('phosphor-noise.svg'), 'CRT screen surface should retain its original static noise texture');
   assert(effectsCss.includes('crt-content-afterimage 620ms'), 'CRT content changes should leave a short phosphor afterimage');
@@ -127,7 +128,7 @@ function run() {
   assert(!terminalBridge.includes('new WebglAddon(true)'), 'CRT should not preserve xterm\'s drawing buffer for post-processing');
   assert(!crtApp.includes('pulseSessionTerminalPhosphor'), 'CRT terminal output must not animate the xterm screen on the typing path');
   assert(!effectsCss.includes('crt-phosphor-noise-shift'), 'CRT phosphor noise should remain static to avoid continuous full-screen compositing');
-  assert(effectsCss.includes('#farming-crt.session-open .crt-scan-beam'), 'CRT should suspend the broad scan beam while the user types in an opened terminal');
+  assert(effectsCss.includes('#farming-crt.page-hidden .crt-scan-beam'), 'CRT should pause the scan beam while its page is hidden');
   assert(crtApp.includes("document.addEventListener('visibilitychange'") && crtApp.includes("window.addEventListener('pagehide'"), 'CRT should observe page visibility lifecycle events');
   assert(crtApp.includes('suspendCrtPageConnection') && crtApp.includes('wsReconnectTimer'), 'CRT should close hidden-page sockets and cancel reconnect work');
   assert(crtApp.includes('resumeCrtPageConnection') && crtApp.includes('refreshSessionView(true, activeAgentId'), 'CRT should reconnect and resync the focused terminal when visible again');
@@ -163,7 +164,7 @@ function run() {
   assert(
     monochromeCss.includes('#farming-crt #session-modal {') &&
       monochromeCss.includes('padding: 7px;') &&
-      monochromeCss.includes('background: #010805;') &&
+      monochromeCss.includes('background: var(--crt-background);') &&
       monochromeCss.includes('#farming-crt #session-modal .modal-content') &&
       monochromeCss.includes('width: 100%;') &&
       monochromeCss.includes('height: 100%;') &&

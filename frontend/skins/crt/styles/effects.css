@@ -1,8 +1,5 @@
 #farming-crt:not(.no-crt) {
-    background-color: #062114;
-    box-shadow:
-        inset 0 0 24px rgba(0, 0, 0, 0.6),
-        inset 0 0 90px rgba(0, 0, 0, 0.45);
+    background-color: #000d06;
 }
 
 #farming-crt:not(.no-crt) .top-bar,
@@ -19,27 +16,24 @@
 }
 
 #farming-crt:not(.no-crt) .terminal {
-    background: #062114;
-    box-shadow:
-        inset 0 0 24px rgba(0, 0, 0, 0.6),
-        inset 0 0 90px rgba(0, 0, 0, 0.45);
+    background: #000d06;
 }
 
 #farming-crt:not(.no-crt)::before {
     content: "";
     position: fixed;
-    inset: -60px 0;
-    background-image: repeating-linear-gradient(
+    inset: 0;
+    background: repeating-linear-gradient(
         to bottom,
-        rgba(255, 255, 255, 0.04) 0,
-        rgba(255, 255, 255, 0.04) 1px,
-        transparent 4px
+        rgba(0, 0, 0, 0.11) 0,
+        rgba(0, 0, 0, 0.11) 0.7px,
+        rgba(12, 204, 104, 0.012) 1.45px,
+        rgba(12, 204, 104, 0.006) 2.15px,
+        rgba(0, 0, 0, 0.07) 3px
     );
-    background-size: 100% 6px;
+    background-size: 100% 3px;
     pointer-events: none;
     z-index: 10101;
-    will-change: transform;
-    animation: crt-scanline-drift 6s linear infinite;
 }
 
 #farming-crt .crt-phosphor-noise {
@@ -60,18 +54,12 @@
 }
 
 #farming-crt .crt-phosphor-noise::before {
-    opacity: 0.026;
+    opacity: 0.022;
     background: url("../assets/effects/phosphor-noise.svg") 0 0 / 256px 256px repeat;
 }
 
 #farming-crt .crt-phosphor-noise::after {
-    background: repeating-linear-gradient(
-        to bottom,
-        rgba(0, 255, 0, 0.015) 0,
-        rgba(0, 255, 0, 0.015) 1px,
-        transparent 1px,
-        transparent 3px
-    );
+    background: rgba(12, 204, 104, 0.004);
 }
 
 #farming-crt .crt-scan-beam {
@@ -80,30 +68,21 @@
     width: 100%;
     height: 300px;
     pointer-events: none;
-    z-index: 10103;
-    opacity: 0;
+    /* Keep the moving phosphor lift below the fixed raster mask so it reads
+       as part of the tube surface instead of a luminous UI overlay. */
+    z-index: 10100;
+    opacity: 1;
     transform: translate3d(0, -100%, 0);
-    will-change: transform, opacity;
-    mix-blend-mode: screen;
-    filter: blur(5px);
+    will-change: transform;
     background: linear-gradient(
         to bottom,
-        rgba(58, 208, 58, 0),
-        rgba(58, 208, 58, 0.04) 35%,
-        rgba(58, 208, 58, 0.12) 65%,
-        rgba(58, 208, 58, 0.16) 85%
+        rgba(12, 204, 104, 0) 0%,
+        rgba(12, 204, 104, 0.004) 20%,
+        rgba(12, 204, 104, 0.02) 50%,
+        rgba(12, 204, 104, 0.036) 80%,
+        rgba(12, 204, 104, 0.04) 100%
     );
-    animation: crt-scan-beam-cycle 13s linear infinite;
-}
-
-#farming-crt .crt-scan-beam::after {
-    content: "";
-    position: absolute;
-    right: 0;
-    bottom: 8px;
-    left: 0;
-    height: 2px;
-    background: rgba(58, 208, 58, 0.3);
+    animation: crt-scan-beam-cycle 6.8s linear infinite;
 }
 
 #farming-crt.no-crt .crt-phosphor-noise,
@@ -116,40 +95,12 @@
     animation-play-state: paused;
 }
 
-#farming-crt.page-hidden:not(.no-crt)::before {
-    animation-play-state: paused;
-}
-
-#farming-crt.session-open .crt-scan-beam {
-    display: none;
-}
-
-@keyframes crt-scanline-drift {
+@keyframes crt-scan-beam-cycle {
     from {
-        transform: translate3d(0, 0, 0);
+        transform: translate3d(0, -100%, 0);
     }
     to {
-        transform: translate3d(0, 60px, 0);
-    }
-}
-
-@keyframes crt-scan-beam-cycle {
-    0% {
-        opacity: 0;
-        transform: translate3d(0, -100%, 0);
-    }
-    0.8% {
-        opacity: 0.5;
-        transform: translate3d(0, -100%, 0);
-    }
-    39.2615% {
-        opacity: 0.5;
-        transform: translate3d(0, calc(100vh + 100%), 0);
-    }
-    40.0615%,
-    100% {
-        opacity: 0;
-        transform: translate3d(0, calc(100vh + 100%), 0);
+        transform: translate3d(0, calc(100vh - 100%), 0);
     }
 }
 
@@ -213,11 +164,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    #farming-crt:not(.no-crt)::before {
-        animation: none;
-    }
-
-    #farming-crt .crt-phosphor-noise,
     #farming-crt .crt-scan-beam,
     #farming-crt .agent-output-afterimage {
         display: none;
