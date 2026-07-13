@@ -1,5 +1,6 @@
 package-lock.json export-ignore
 frontend/vendor/ghostty-web/** export-ignore
+frontend/vendor/ghostty-web/index.d.ts whitespace=-trailing-space
 *.png binary
 *.jpg binary
 *.jpeg binary
