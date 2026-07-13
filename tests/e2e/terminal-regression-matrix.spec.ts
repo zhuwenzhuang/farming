@@ -142,15 +142,18 @@ async function dispatchTerminalModifierClick(
   await page.evaluate(({ id, clientX, clientY, isMac }) => {
     const host = document.querySelector(`.terminal-session-host[data-agent-id="${CSS.escape(id)}"]`)
     if (!(host instanceof HTMLElement)) throw new Error(`Terminal host is missing for ${id}`)
-    host.dispatchEvent(new MouseEvent('click', {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX,
-      clientY,
-      metaKey: isMac,
-      ctrlKey: !isMac,
-    }))
+    for (const eventType of ['mousedown', 'mouseup', 'click']) {
+      host.dispatchEvent(new MouseEvent(eventType, {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        buttons: eventType === 'mousedown' ? 1 : 0,
+        clientX,
+        clientY,
+        metaKey: isMac,
+        ctrlKey: !isMac,
+      }))
+    }
   }, { id: agentId, clientX: x, clientY: y, isMac: process.platform === 'darwin' })
 }
 
@@ -951,6 +954,9 @@ test.describe('terminal regression matrix', () => {
       await expect.poll(async () => page.evaluate(() => {
         return (window as unknown as { __openedTerminalUrls?: string[] }).__openedTerminalUrls ?? []
       })).toHaveLength(0)
+      await expect.poll(async () => page.evaluate(({ id, col, row }) => {
+        return window.__farmingTerminalTest?.getUrlAtCell(id, col, row) ?? null
+      }, { id: bashAgentId, col: cell.col, row: cell.row })).toBe(url)
       await dispatchTerminalModifierClick(page, bashAgentId, cell.x, cell.y)
       await expect.poll(async () => page.evaluate(() => {
         return (window as unknown as { __openedTerminalUrls?: string[] }).__openedTerminalUrls ?? []
@@ -975,6 +981,8 @@ test.describe('terminal regression matrix', () => {
         '&mode=wrapped',
       ].join('')
       await writeTerminalFixture(page, bashAgentId, `${wrappedUrl}\r\n`)
+      await expect.poll(async () => (await terminalRows(page, bashAgentId, 40)).join('\n'))
+        .toContain('segment-002')
       const rows = await terminalRows(page, bashAgentId, 40)
       let hit: { row: number; col: number } | null = null
       for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {

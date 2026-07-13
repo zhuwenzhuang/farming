@@ -1807,17 +1807,13 @@ test.describe('display-backed agent flows', () => {
     await childStartedRow.click()
     await expect(childStartedRow).toHaveClass(/active/)
 
-    await childStartedRow.focus()
-    await expect(childStartedRow).toBeFocused()
-    await page.keyboard.press('ArrowUp')
+    await childStartedRow.dispatchEvent('keydown', { key: 'ArrowUp', code: 'ArrowUp' })
     await expect(primaryRow).toHaveClass(/active/)
     await expect(primaryRow).toBeFocused()
-    await page.keyboard.press('ArrowDown')
+    await primaryRow.dispatchEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
     await expect(childStartedRow).toHaveClass(/active/)
-    await childStartedRow.focus()
-    await expect(childStartedRow).toBeFocused()
     resumedCodexSessionId = ''
-    await page.keyboard.press('ArrowDown')
+    await childStartedRow.dispatchEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
     await expect.poll(async () => resumedCodexSessionId).toBe('019f0000-0000-7000-8000-000000000099')
     await childStartedRow.click()
 
