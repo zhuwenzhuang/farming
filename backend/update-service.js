@@ -179,6 +179,13 @@ function assetMatchesRuntime(asset, runtime) {
     && normalizeArch(asset && asset.arch) === runtime.arch;
 }
 
+function assetCompatibilityPreference(asset, preferredProfile = '') {
+  const profile = String(asset && asset.compatibilityProfile || '').trim();
+  const preferred = String(preferredProfile || '').trim();
+  if (preferred) return profile === preferred ? 0 : 1;
+  return profile ? 1 : 0;
+}
+
 function runtimeFromBundleName(value) {
   const match = /-(darwin|linux)-(x64|arm64)\.tar\.gz$/i.exec(String(value || ''));
   return match ? { platform: normalizePlatform(match[1]), arch: normalizeArch(match[2]) } : null;
@@ -254,7 +261,7 @@ function releaseAssetVersion(asset, fallbackVersion = '') {
   );
 }
 
-function selectableReleaseAssets(release, patternText = '', runtime = null) {
+function selectableReleaseAssets(release, patternText = '', runtime = null, preferredCompatibilityProfile = '') {
   const assets = Array.isArray(release && release.assets) ? release.assets : [];
   const pattern = patternText ? new RegExp(patternText) : null;
   return assets
@@ -263,18 +270,20 @@ function selectableReleaseAssets(release, patternText = '', runtime = null) {
       !/(sha256|checksum|checksums)/i.test(String(asset.name || '')) &&
       asset.browser_download_url &&
       assetMatchesRuntime(asset, runtime) &&
+      (!preferredCompatibilityProfile || String(asset.compatibilityProfile || '').trim() === preferredCompatibilityProfile) &&
       (!pattern || pattern.test(String(asset.name || '')))
     ))
     .sort((left, right) => (
       compareVersions(releaseAssetVersion(right), releaseAssetVersion(left)) ||
+      assetCompatibilityPreference(left, preferredCompatibilityProfile) - assetCompatibilityPreference(right, preferredCompatibilityProfile) ||
       String(right.name || '').localeCompare(String(left.name || ''))
     ));
 }
 
-function selectReleaseAssetByName(release, assetName, patternText = '', runtime = null) {
+function selectReleaseAssetByName(release, assetName, patternText = '', runtime = null, preferredCompatibilityProfile = '') {
   const wanted = String(assetName || '').trim();
-  if (!wanted) return selectableReleaseAssets(release, patternText, runtime)[0] || null;
-  return selectableReleaseAssets(release, patternText, runtime)
+  if (!wanted) return selectableReleaseAssets(release, patternText, runtime, preferredCompatibilityProfile)[0] || null;
+  return selectableReleaseAssets(release, patternText, runtime, preferredCompatibilityProfile)
     .find(asset => String(asset.name || '') === wanted) || null;
 }
 
@@ -726,6 +735,8 @@ class FarmingUpdateService {
       releaseVersion,
       packageVersion,
       gitSha: release.gitSha || '',
+      compatibilityProfile: String(release.compatibilityProfile || ''),
+      bundledGlibcRuntime: release.bundledGlibcRuntime === true,
       type: this.installMethod,
       installDir: releaseInstallDir(this.rootDir),
     };
@@ -891,7 +902,7 @@ class FarmingUpdateService {
     const comparableCurrentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
     const latestVersion = releaseVersionFromRelease(release);
     const configured = Boolean(updateUrl);
-    return selectableReleaseAssets(release, this.assetPattern, this.runtime).map(asset => {
+    return selectableReleaseAssets(release, this.assetPattern, this.runtime, current.compatibilityProfile).map(asset => {
       const version = releaseAssetVersion(asset, latestVersion);
       const safety = configured
         ? manifestAssetSafety(asset, manifest, { runtime: this.runtime })
@@ -913,8 +924,8 @@ class FarmingUpdateService {
     const updateUrl = this.updateUrl();
     const latestVersion = releaseVersionFromRelease(release);
     const comparableCurrentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
-    const latestAsset = selectableReleaseAssets(release, this.assetPattern, this.runtime)[0] || null;
-    const asset = selectReleaseAssetByName(release, options.assetName, this.assetPattern, this.runtime);
+    const latestAsset = selectableReleaseAssets(release, this.assetPattern, this.runtime, current.compatibilityProfile)[0] || null;
+    const asset = selectReleaseAssetByName(release, options.assetName, this.assetPattern, this.runtime, current.compatibilityProfile);
     const configured = Boolean(updateUrl);
     const safety = configured
       ? manifestAssetSafety(asset, manifest, { runtime: this.runtime })
@@ -1003,7 +1014,13 @@ class FarmingUpdateService {
       return this.installState;
     }
 
-    const asset = selectReleaseAssetByName(release, options.assetName, this.assetPattern, this.runtime);
+    const asset = selectReleaseAssetByName(
+      release,
+      options.assetName,
+      this.assetPattern,
+      this.runtime,
+      this.currentVersion().compatibilityProfile,
+    );
     this.installState = {
       phase: 'downloading',
       version: status.selected.version,

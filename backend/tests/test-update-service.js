@@ -351,6 +351,48 @@ async function run() {
   );
   assert.deepStrictEqual(macRuntimeStatus.runtime, { platform: 'darwin', arch: 'arm64' });
 
+  const linuxManifest = {
+    releaseVersion: '2.0.6',
+    assets: [
+      { type: 'app-bundle', file: 'farming-2.0.6-linux-x64-legacy-glibc228.tar.gz', platform: 'linux', arch: 'x64', compatibilityProfile: 'linux-x64-legacy-glibc228', sha256: VALID_SHA256 },
+      { type: 'app-bundle', file: 'farming-2.0.6-linux-x64.tar.gz', platform: 'linux', arch: 'x64', compatibilityProfile: '', sha256: VALID_SHA256 },
+    ],
+  };
+  const standardLinuxService = new FarmingUpdateService({
+    rootDir,
+    configDir,
+    platform: 'linux',
+    arch: 'x64',
+    manifestUrl: 'https://updates.example.test/farming/manifest.json',
+    fetchJson: async () => linuxManifest,
+  });
+  const standardLinuxStatus = await standardLinuxService.check({ force: true });
+  assert.strictEqual(standardLinuxStatus.latest.assetName, 'farming-2.0.6-linux-x64.tar.gz');
+
+  fs.writeFileSync(path.join(rootDir, 'RELEASE.json'), JSON.stringify({
+    releaseVersion: '2.0.0',
+    packageVersion: '2.0.0',
+    compatibilityProfile: 'linux-x64-legacy-glibc228',
+    bundledGlibcRuntime: true,
+  }));
+  const legacyLinuxService = new FarmingUpdateService({
+    rootDir,
+    configDir,
+    platform: 'linux',
+    arch: 'x64',
+    manifestUrl: 'https://updates.example.test/farming/manifest.json',
+    fetchJson: async () => linuxManifest,
+  });
+  const legacyLinuxStatus = await legacyLinuxService.check({ force: true });
+  assert.strictEqual(legacyLinuxStatus.latest.assetName, 'farming-2.0.6-linux-x64-legacy-glibc228.tar.gz');
+  assert.strictEqual(legacyLinuxStatus.current.compatibilityProfile, 'linux-x64-legacy-glibc228');
+  assert.deepStrictEqual(
+    legacyLinuxStatus.versions.map(version => version.assetName),
+    ['farming-2.0.6-linux-x64-legacy-glibc228.tar.gz'],
+    'legacy installations must not offer an incompatible standard bundle update'
+  );
+  fs.rmSync(path.join(rootDir, 'RELEASE.json'));
+
   const githubListingService = new FarmingUpdateService({
     rootDir,
     configDir,

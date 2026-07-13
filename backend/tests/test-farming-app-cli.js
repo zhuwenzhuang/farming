@@ -303,6 +303,13 @@ async function runTests() {
     assert(releaseWorkflowSource.includes('node scripts/verify-release-bundle.js'));
     assert(releaseWorkflowSource.includes("const { readBundleRelease } = require('../scripts/verify-release-bundle.js');"));
     assert(releaseWorkflowSource.includes('bundledGlibcRuntime'));
+    assert(releaseWorkflowSource.includes("(-legacy-glibc228)?\\.tar\\.gz"));
+    assert(releaseWorkflowSource.includes("compatibilityProfile: bundle.release.compatibilityProfile"));
+    assert(releaseWorkflowSource.includes('runner: macos-15-intel'));
+    assert(releaseWorkflowSource.includes('runner: macos-15'));
+    assert(releaseWorkflowSource.includes('Verify native runner architecture'));
+    assert(releaseWorkflowSource.includes('farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}.tar.gz'));
+    assert(releaseWorkflowSource.includes('Smoke-test macOS app bundle'));
     assert(releaseWorkflowSource.includes('body.replaceAll(`](./v${version}.zh_cn.md)`, `](./release-notes/v${version}.zh_cn.md)`)'));
     assert(releaseWorkflowSource.includes('body.replaceAll(`](./v${version}.md)`, `](./release-notes/v${version}.md)`)'));
   }
@@ -318,6 +325,28 @@ async function runTests() {
     assert(installReleaseSource.includes('FARMING_USE_GLIBC_RUNTIME'));
     assert(installReleaseSource.includes('vendor/glibc228-lib.tar.gz'));
     assert(installReleaseSource.includes('start|serve|daemon) start_server ;;'));
+  }
+
+  {
+    const packageJson = require('../../package.json');
+    const packageLock = require('../../package-lock.json');
+    const notices = fs.readFileSync(path.join(process.cwd(), 'THIRD_PARTY_NOTICES.md'), 'utf8');
+    const directSection = notices.match(/## Direct Runtime Dependencies\n([\s\S]*?)\n## Vendored Assets/);
+    assert(directSection, 'third-party notices must include a direct runtime dependency section');
+    const rows = new Map(
+      [...directSection[1].matchAll(/^\| `([^`]+)` \| ([^|]+) \|/gm)]
+        .map(match => [match[1], match[2].trim()])
+    );
+    assert.deepStrictEqual(
+      [...rows.keys()].sort(),
+      Object.keys(packageJson.dependencies || {}).sort(),
+      'third-party notices must list every direct runtime dependency and no removed dependency'
+    );
+    for (const dependency of Object.keys(packageJson.dependencies || {})) {
+      const locked = packageLock.packages[`node_modules/${dependency}`];
+      assert(locked?.version, `missing lockfile package metadata for ${dependency}`);
+      assert.strictEqual(rows.get(dependency), locked.version, `stale third-party notice version for ${dependency}`);
+    }
   }
 
   console.log('Farming 2 CLI tests passed');

@@ -121,8 +121,20 @@ jobs:
           if-no-files-found: error
 
   build-macos:
-    name: Build macOS artifacts
-    runs-on: macos-latest
+    name: Build macOS ${{ matrix.arch }} artifacts
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: x64
+            cliTarget: node22-macos-x64
+            cliAsset: darwin_amd64
+          - runner: macos-15
+            arch: arm64
+            cliTarget: node22-macos-arm64
+            cliAsset: darwin_arm64
+    runs-on: ${{ matrix.runner }}
     env:
       FARMING_BASE_PATH: /farming
       FARMING_RELEASE_VERSION: ${{ github.ref_name }}
@@ -156,45 +168,62 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
+      - name: Verify native runner architecture
+        shell: bash
+        run: |
+          case "${{ matrix.arch }}:$(uname -m)" in
+            x64:x86_64|arm64:arm64) ;;
+            *) echo "Runner architecture does not match release target: target=${{ matrix.arch }}, host=$(uname -m)" >&2; exit 1 ;;
+          esac
+
       - name: Install dependencies
         run: npm ci --registry=https://registry.npmjs.org/
 
-      - name: Build macOS CLIs
+      - name: Build native macOS CLI
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
-          FARMING_CLI_TARGETS: node22-macos-x64,node22-macos-arm64
+          FARMING_CLI_TARGETS: ${{ matrix.cliTarget }}
         run: npm run release:cli
 
       - name: Smoke-test native macOS CLI
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
-        shell: bash
-        run: |
-          case "$(uname -m)" in
-            arm64|aarch64) asset="darwin_arm64" ;;
-            x86_64|amd64) asset="darwin_amd64" ;;
-            *) echo "Skipping smoke test on unsupported architecture: $(uname -m)"; exit 0 ;;
-          esac
-          npm run release:cli:smoke -- "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_${asset}"
+        run: npm run release:cli:smoke -- "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_${{ matrix.cliAsset }}"
 
       - name: Build macOS app bundle
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          FARMING_RELEASE_PLATFORM: darwin
+          FARMING_RELEASE_ARCH: ${{ matrix.arch }}
         run: npm run release:app
+
+      - name: Verify macOS app bundle
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: node scripts/verify-release-bundle.js "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}.tar.gz"
+
+      - name: Smoke-test macOS app bundle
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "${tmp}"' EXIT
+          tar -xzf "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}.tar.gz" -C "${tmp}"
+          npm run release:cli:smoke -- "${tmp}/farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}/farming"
 
       - name: Collect macOS release assets
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
         run: |
           mkdir -p release-upload
-          cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_darwin_amd64" release-upload/
-          cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_darwin_arm64" release-upload/
-          cp releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-darwin-*.tar.gz release-upload/
+          cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_${{ matrix.cliAsset }}" release-upload/
+          cp "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}.tar.gz" release-upload/
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: farming-macos-${{ steps.version.outputs.value }}
+          name: farming-macos-${{ steps.version.outputs.value }}-${{ matrix.arch }}
           path: release-upload/*
           if-no-files-found: error
 
@@ -285,7 +314,7 @@ jobs:
                 arch: cliMatch[3],
               };
             }
-            const bundleMatch = file.match(/^farming-(.+)-(darwin|linux)-(x64|arm64)\.tar\.gz$/);
+            const bundleMatch = file.match(/^farming-(.+)-(darwin|linux)-(x64|arm64)(-legacy-glibc228)?\.tar\.gz$/);
             if (bundleMatch) {
               const bundle = readBundleRelease(file);
               return {
@@ -297,6 +326,7 @@ jobs:
                 gitSha: bundle.release.gitSha || '',
                 platform: bundle.release.platform || bundleMatch[2],
                 arch: bundle.release.arch || bundleMatch[3],
+                compatibilityProfile: bundle.release.compatibilityProfile || (bundleMatch[4] ? 'linux-x64-legacy-glibc228' : ''),
                 bundledNodeModules: bundle.release.bundledNodeModules === true,
                 bundledGlibcRuntime: bundle.release.bundledGlibcRuntime === true,
               };

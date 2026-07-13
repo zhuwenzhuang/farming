@@ -233,7 +233,7 @@ See [SECURITY.md](./SECURITY.md) for the reporting policy and deployment notes.
 ## Troubleshooting
 
 - **No `codex` or `claude` option works**: verify the CLI is installed, logged in, and runnable from a normal shell on the same host.
-- **Native PTY cannot start**: verify the target system's Node.js and packaged `node-pty` runtime are compatible; Farming does not provide a private system-runtime compatibility layer.
+- **Native PTY cannot start**: verify the target system's Node.js and packaged `node-pty` runtime are compatible. On Linux x64 with glibc older than 2.28, use the `-legacy-glibc228` app bundle.
 - **Port already in use**: pass `--port <port>` or let the default daemon mode choose the next available port when no explicit port is provided.
 - **Phone cannot connect**: use the network URL printed by the server and make sure the phone can reach the target machine.
 - **Lost the token URL**: run `./farming url`, or check `./farming logs`.

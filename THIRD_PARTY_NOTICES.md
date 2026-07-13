@@ -6,21 +6,9 @@ with.
 
 ## Bundled Production Dependencies
 
-Farming's app bundle installs production npm dependencies from `package.json`
-and `package-lock.json`. As of this snapshot, the production dependency tree
-contains 115 npm packages with these license families:
-
-| License | Package count |
-| --- | ---: |
-| MIT | 107 |
-| BSD-3-Clause | 3 |
-| ISC | 2 |
-| BSD-2-Clause | 1 |
-| BSD-3-Clause AND Apache-2.0 | 1 |
-| MPL-2.0 OR Apache-2.0 | 1 |
-
-The package-level license files are preserved in bundled `node_modules` when
-the app bundle is built with bundled dependencies enabled.
+Farming's app bundle installs the production dependency tree pinned by
+`package.json` and `package-lock.json`. Package-level license files are
+preserved in bundled `node_modules` when bundled dependencies are enabled.
 
 ## Direct Runtime Dependencies
 
@@ -40,15 +28,24 @@ the app bundle is built with bundled dependencies enabled.
 | `chokidar` | 5.0.0 | MIT | Filesystem watching |
 | `express` | 4.22.1 | MIT | HTTP API server |
 | `ghostty-web` | 0.4.0 | MIT | Optional/debug terminal renderer assets |
+| `highlight.js` | 11.11.1 | BSD-3-Clause | Syntax highlighting |
+| `katex` | 0.17.0 | MIT | Mathematical notation rendering |
 | `material-icon-theme` | 5.36.1 | MIT | File and folder icons |
+| `mermaid` | 11.16.0 | MIT | Diagram rendering |
 | `monaco-editor` | 0.55.1 | MIT | Lightweight code editor |
 | `node-pty` | 1.2.0-beta.12 | MIT | Native pseudo-terminal integration |
+| `qrcode-generator` | 2.0.4 | MIT | Browser share QR generation |
 | `react` | 19.2.4 | MIT | Frontend UI framework |
 | `react-arborist` | 3.10.5 | MIT | Tree view UI |
 | `react-dom` | 19.2.4 | MIT | React DOM renderer |
+| `react-markdown` | 10.1.0 | MIT | Markdown rendering |
+| `rehype-highlight` | 7.0.2 | MIT | Markdown syntax-highlighting integration |
+| `rehype-katex` | 7.0.1 | MIT | Markdown math rendering integration |
+| `remark-gfm` | 4.0.1 | MIT | GitHub Flavored Markdown support |
+| `remark-math` | 6.0.0 | MIT | Markdown math syntax support |
 | `ripgrep` | 0.3.1 | MIT | Node wrapper for file search support |
-| `systeminformation` | 5.31.5 | MIT | Machine status collection |
-| `ws` | 8.20.0 | MIT | WebSocket server/client support |
+| `ws` | 8.21.0 | MIT | WebSocket server/client support |
+| `yaml` | 2.9.0 | ISC | YAML parsing |
 
 ## Vendored Assets
 
