@@ -1,15 +1,26 @@
 import type { Agent } from '@/types/agent'
 import { appPath } from '@/lib/base-path'
 import { addComposerHistoryEntry } from '../composer-history'
+import { createPendingFollowUpMessage } from '../composer-state'
 import type { AgentComposerState } from '../composer-state'
-import { composerMessageWithAttachments, revokeComposerAttachmentPreview, type ComposerAttachment } from '../composer-message'
+import {
+  composerMessageForAcp,
+  composerPromptAttachments,
+  formatComposerMessage,
+  revokeComposerAttachmentPreview,
+  type ComposerAttachment,
+  type ComposerPromptAttachment,
+} from '../composer-message'
+import type { ComposerMode } from '../types'
 
 interface SubmitAcpDraftInput {
   agent: Agent | null
   composerKey: string
   draft: string
   attachments: ComposerAttachment[]
-  sendMessage: (agent: Agent, message: string) => boolean
+  composerMode: ComposerMode
+  turnActive: boolean
+  sendMessage: (agent: Agent, message: string, attachments?: ComposerPromptAttachment[]) => boolean
   updateComposerState: (
     key: string,
     updater: (state: AgentComposerState) => AgentComposerState,
@@ -26,18 +37,31 @@ export function submitAcpDraft({
   composerKey,
   draft,
   attachments,
+  composerMode,
+  turnActive,
   sendMessage,
   updateComposerState,
 }: SubmitAcpDraftInput) {
-  const text = composerMessageWithAttachments(draft, attachments).trim()
-  if (!text || !agent || agent.agentRuntimeMode !== 'acp' || !composerKey) return false
-  if (!sendMessage(agent, text)) return false
+  const promptAttachments = composerPromptAttachments(attachments)
+  const text = formatComposerMessage(composerMode, composerMessageForAcp(draft, attachments).trim())
+  if ((!text && promptAttachments.length === 0) || !agent || agent.agentRuntimeMode !== 'acp' || !composerKey) return false
+  if (!turnActive && !sendMessage(agent, text, promptAttachments)) return false
 
   updateComposerState(composerKey, state => ({
     ...state,
     draft: '',
     attachments: [],
+    mode: 'default',
     history: addComposerHistoryEntry(state.history, draft),
+    ...(turnActive ? {
+      pendingFollowUp: {
+        messages: [
+          ...(state.pendingFollowUp?.messages || []),
+          createPendingFollowUpMessage(text, promptAttachments),
+        ],
+        createdAt: state.pendingFollowUp?.createdAt || Date.now(),
+      },
+    } : {}),
   }))
   attachments.forEach(revokeComposerAttachmentPreview)
   return true

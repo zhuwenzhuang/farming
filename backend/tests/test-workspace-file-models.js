@@ -1320,6 +1320,10 @@ function run() {
     name: 'App.test.tsx',
   });
   assert.strictEqual(workspaceFileOperationSelectionEnd(createWorkspaceFileOperation('rename', fileNode)), 8);
+  assert.strictEqual(
+    workspaceFileOperationSelectionEnd(createWorkspaceFileOperation('rename', workspaceFile('README.md'))),
+    'README'.length
+  );
   assert.strictEqual(workspaceFileOperationSelectionEnd(createWorkspaceFileOperation('delete', fileNode)), 'App.test.tsx'.length);
   assert.strictEqual(workspaceFileOperationSubmitName({
     ...createWorkspaceFileOperation('rename', fileNode),

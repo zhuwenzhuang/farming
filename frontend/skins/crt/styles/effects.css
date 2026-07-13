@@ -1,19 +1,45 @@
+#farming-crt:not(.no-crt) {
+    background-color: #062114;
+    box-shadow:
+        inset 0 0 24px rgba(0, 0, 0, 0.6),
+        inset 0 0 90px rgba(0, 0, 0, 0.45);
+}
+
+#farming-crt:not(.no-crt) .top-bar,
+#farming-crt:not(.no-crt) .sidebar {
+    background-color: rgba(0, 0, 0, 0.28);
+}
+
+#farming-crt:not(.no-crt) .agent-block {
+    background-color: rgba(0, 0, 0, 0.18);
+}
+
+#farming-crt:not(.no-crt) .agent-block:hover {
+    background-color: rgba(15, 187, 107, 0.12);
+}
+
+#farming-crt:not(.no-crt) .terminal {
+    background: #062114;
+    box-shadow:
+        inset 0 0 24px rgba(0, 0, 0, 0.6),
+        inset 0 0 90px rgba(0, 0, 0, 0.45);
+}
+
 #farming-crt:not(.no-crt)::before {
     content: "";
     position: fixed;
-    inset: 0;
-    background: repeating-linear-gradient(
+    inset: -60px 0;
+    background-image: repeating-linear-gradient(
         to bottom,
-        rgba(12, 204, 104, 0.022) 0,
-        rgba(12, 204, 104, 0.022) 1px,
-        rgba(0, 0, 0, 0.055) 1px,
-        rgba(0, 0, 0, 0.055) 2px,
-        rgba(0, 0, 0, 0.17) 2px,
-        rgba(0, 0, 0, 0.17) 3px
+        rgba(255, 255, 255, 0.04) 0,
+        rgba(255, 255, 255, 0.04) 1px,
+        transparent 4px
     );
-    background-size: 100% 3px;
+    background-size: 100% 6px;
     pointer-events: none;
     z-index: 10101;
+    will-change: transform;
+    animation: crt-scanline-drift 6s linear infinite;
 }
 
 #farming-crt .crt-phosphor-noise {
@@ -21,111 +47,109 @@
     inset: -32px;
     pointer-events: none;
     z-index: 10100;
-    opacity: 0.04;
+    opacity: 1;
     contain: strict;
+}
+
+#farming-crt .crt-phosphor-noise::before,
+#farming-crt .crt-phosphor-noise::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+#farming-crt .crt-phosphor-noise::before {
+    opacity: 0.026;
     background: url("../assets/effects/phosphor-noise.svg") 0 0 / 256px 256px repeat;
 }
 
-#farming-crt .crt-scan-afterglow {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 10102;
-    opacity: 0;
-    transform: scale3d(1, 0, 1);
-    transform-origin: 50% 0;
-    will-change: transform, opacity;
-    contain: strict;
-    background: rgba(39, 225, 118, 0.026);
-    animation: crt-scan-afterglow-cycle 6.7s linear infinite;
+#farming-crt .crt-phosphor-noise::after {
+    background: repeating-linear-gradient(
+        to bottom,
+        rgba(0, 255, 0, 0.015) 0,
+        rgba(0, 255, 0, 0.015) 1px,
+        transparent 1px,
+        transparent 3px
+    );
 }
 
 #farming-crt .crt-scan-beam {
     position: fixed;
     inset: 0 0 auto;
     width: 100%;
-    height: clamp(180px, 30vh, 320px);
+    height: 300px;
     pointer-events: none;
     z-index: 10103;
     opacity: 0;
-    transform: translate3d(0, -97%, 0);
+    transform: translate3d(0, -100%, 0);
     will-change: transform, opacity;
+    mix-blend-mode: screen;
+    filter: blur(5px);
     background: linear-gradient(
         to bottom,
-        transparent 0%,
-        rgba(12, 204, 104, 0.002) 12%,
-        rgba(12, 204, 104, 0.005) 38%,
-        rgba(39, 225, 118, 0.011) 68%,
-        rgba(85, 245, 155, 0.022) 91%,
-        rgba(126, 255, 181, 0.038) 97%,
-        rgba(85, 245, 155, 0.018) 99%,
-        transparent 100%
+        rgba(58, 208, 58, 0),
+        rgba(58, 208, 58, 0.04) 35%,
+        rgba(58, 208, 58, 0.12) 65%,
+        rgba(58, 208, 58, 0.16) 85%
     );
-    animation: crt-scan-beam-cycle 6.7s linear infinite;
+    animation: crt-scan-beam-cycle 13s linear infinite;
 }
 
-#farming-crt .crt-scan-beam::before {
+#farming-crt .crt-scan-beam::after {
     content: "";
     position: absolute;
-    inset: 0;
-    opacity: 0.08;
-    background: url("../assets/effects/phosphor-noise.svg") 0 0 / 256px 256px repeat;
-    -webkit-mask-image: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.18) 35%, #000 92%, transparent);
-    mask-image: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.18) 35%, #000 92%, transparent);
+    right: 0;
+    bottom: 8px;
+    left: 0;
+    height: 2px;
+    background: rgba(58, 208, 58, 0.3);
 }
 
 #farming-crt.no-crt .crt-phosphor-noise,
-#farming-crt.no-crt .crt-scan-afterglow,
 #farming-crt.no-crt .crt-scan-beam,
 #farming-crt.no-crt .agent-output-afterimage {
     display: none;
 }
 
-#farming-crt.page-hidden .crt-scan-afterglow,
 #farming-crt.page-hidden .crt-scan-beam {
     animation-play-state: paused;
 }
 
-#farming-crt.session-open .crt-scan-afterglow,
+#farming-crt.page-hidden:not(.no-crt)::before {
+    animation-play-state: paused;
+}
+
 #farming-crt.session-open .crt-scan-beam {
     display: none;
 }
 
-@keyframes crt-scan-afterglow-cycle {
-    0% {
-        opacity: 0;
-        transform: scale3d(1, 0, 1);
+@keyframes crt-scanline-drift {
+    from {
+        transform: translate3d(0, 0, 0);
     }
-    4% {
-        opacity: 1;
-        transform: scale3d(1, 0, 1);
-    }
-    96% {
-        opacity: 1;
-        transform: scale3d(1, 1, 1);
-    }
-    100% {
-        opacity: 0;
-        transform: scale3d(1, 1, 1);
+    to {
+        transform: translate3d(0, 60px, 0);
     }
 }
 
 @keyframes crt-scan-beam-cycle {
     0% {
         opacity: 0;
-        transform: translate3d(0, -97%, 0);
+        transform: translate3d(0, -100%, 0);
     }
-    4% {
-        opacity: 0.55;
-        transform: translate3d(0, -97%, 0);
+    0.8% {
+        opacity: 0.5;
+        transform: translate3d(0, -100%, 0);
     }
-    96% {
-        opacity: 0.55;
-        transform: translate3d(0, calc(100vh - 97%), 0);
+    39.2615% {
+        opacity: 0.5;
+        transform: translate3d(0, calc(100vh + 100%), 0);
     }
+    40.0615%,
     100% {
         opacity: 0;
-        transform: translate3d(0, calc(100vh - 97%), 0);
+        transform: translate3d(0, calc(100vh + 100%), 0);
     }
 }
 
@@ -189,8 +213,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+    #farming-crt:not(.no-crt)::before {
+        animation: none;
+    }
+
     #farming-crt .crt-phosphor-noise,
-    #farming-crt .crt-scan-afterglow,
     #farming-crt .crt-scan-beam,
     #farming-crt .agent-output-afterimage {
         display: none;

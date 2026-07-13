@@ -10,7 +10,7 @@ Farming has an Agent Client Protocol runtime for Codex, Claude Code, OpenCode, a
 - Claude Code uses the pinned `@agentclientprotocol/claude-agent-acp` adapter.
 - OpenCode uses its native `opencode acp --cwd <workspace>` command.
 - Qoder uses its native `qodercli --acp` command. Qoder can emit the tail of a loaded history after `session/load` returns, so Farming waits for the replay stream to settle before exposing the restored session.
-- All three communicate through the official `@agentclientprotocol/sdk` over newline-delimited JSON-RPC on subprocess stdio.
+- All four communicate through the official `@agentclientprotocol/sdk` over newline-delimited JSON-RPC on subprocess stdio.
 
 Adapter package versions are exact production dependencies. Farming does not run `npx latest` during Agent startup.
 
@@ -20,6 +20,8 @@ The runtime supports ACP `initialize`, `session/new`, `session/load`, `session/r
 
 An existing history session uses `session/load` by default. This matters because ACP load replays the complete conversation through `session/update` notifications before the load request returns. Explicit `resume` reconnects the context without replaying old messages. Farming registers the session reducer before sending load so early replay notifications cannot be lost.
 
+History discovery keeps the full supported metadata window in the backend cache and sends Farming Code bounded cursor pages. Scrolling near the bottom of the project list loads the next page; project-level “Show more” still controls only local presentation within the pages already loaded. History resume resolves provider metadata across the full backend window so an older session keeps its original workspace when it moves between Terminal and Chat. Qoder discovery treats only project-level transcript files as sessions; nested child-agent transcripts are replay details, not duplicate history rows.
+
 ACP updates are retained in bounded raw form and reduced into one provider-neutral ordered entry stream. History replay and live updates use the same reducer. Adjacent compatible message chunks merge by message id, tool updates mutate the original tool-call entry by id, and plan entries update in place. Session metadata such as usage, modes, commands, and config options stays outside the conversation stream. Runtime notifications carry only lightweight invalidation metadata so history replay does not repeatedly clone a growing transcript.
 
 ## Farming Code Presentation
@@ -28,14 +30,16 @@ ACP uses its own composer, draft namespace, permission cards, session controls, 
 
 The composer renders the modes, model, reasoning level, boolean options, usage, and available commands negotiated from the live ACP session. The existing Chat UI design is preserved: an adapter projects the canonical ordered entries into its user/result/process view model without changing the composer or transcript component hierarchy. The projection keeps the last assistant entry following a visible user message as the result and folds preceding commentary, thoughts, tools, and plans into the existing reversible process disclosure. A tool update containing ACP `diff` blocks is also projected as the existing file-change result card, which opens the workspace's current Review page. Tool details, raw input/output, compact contextual patches, terminals, and locations remain expandable. ACP transcript refreshes follow session update signals from the shared state websocket instead of repeatedly downloading an unchanged idle history. Internal Codex context and heartbeat activity is hidden as a segment, while a visible automation notification remains an assistant message.
 
-The ACP composer preserves the ordinary message-box behavior that does not depend on PTY input: drafts and history navigation, Enter/Shift+Enter and IME handling, file selection, pasted image previews, attachment removal, voice dictation, provider commands, interrupt, and provider permission/configuration controls. Text files are embedded in the message and uploaded images are passed by their Farming-local path, matching the existing composer representation.
+The ACP composer preserves the ordinary message-box behavior that does not depend on PTY input: drafts and history navigation, Enter/Shift+Enter and IME handling, file selection, pasted image previews, attachment removal, voice dictation, provider commands and skills, Goal/Plan request modes, queued follow-ups, interrupt, context-window usage when exact Codex data is available, and provider permission/configuration controls. The `+` menu contains attachment, Goal, and Plan actions; provider commands remain searchable through `/`, while `$` opens the provider-advertised skill subset. Uploaded images travel as native ACP image content blocks. Text files remain embedded in the message, and unavailable image uploads retain the existing textual fallback.
+
+For Codex, Farming maps the selected launch profile into the ACP adapter's `CODEX_CONFIG` and `INITIAL_AGENT_MODE`. Switching between Terminal and Chat therefore preserves model, reasoning effort, service tier, and the matching initial permission mode instead of silently reverting to adapter defaults.
 
 ACP boundaries remain explicit:
 
-- ACP has no concurrent prompt/steer operation. While a turn is running, the composer offers interrupt and preserves the draft; the draft can be sent after the Agent returns to idle.
-- Goal/Plan, model, reasoning, speed, and other settings are shown only when the provider advertises the corresponding ACP mode or config option. Farming does not synthesize provider settings.
-- A context-window percentage needs both used and maximum tokens. ACP providers that expose only cumulative usage get a token count rather than the Terminal composer's percentage ring.
-- Attachments currently use the established text/local-path message representation. Farming does not claim native ACP binary image, audio, or arbitrary resource-block transport until the provider and adapter negotiate it end to end.
+- ACP has no concurrent prompt/steer operation. A message entered during a running turn is queued and sent when the Agent returns to idle; the user may discard it before then. Interrupt remains available when the draft is empty.
+- Goal and Plan are explicit composer request modes, matching Terminal behavior. Provider session modes, model, reasoning, speed, and other runtime settings are still shown only when the Agent advertises the corresponding ACP mode or config option.
+- A context-window percentage needs both used and maximum tokens. Codex uses its exact provider-session token event when available; ACP providers that expose only cumulative usage get a token count instead.
+- Native image blocks are supported. Audio and arbitrary resource blocks are not yet exposed by the composer.
 
 ## Permissions And Failure Behavior
 

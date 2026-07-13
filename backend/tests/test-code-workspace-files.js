@@ -589,7 +589,18 @@ function run() {
       workspaceSource.includes('if (!modelMenuOpen) return undefined') &&
       workspaceSource.includes('return loadCodexModels()') &&
       !workspaceSource.includes('useEffect(() => loadCodexModels(), [loadCodexModels])') &&
-      workspaceSource.includes("fetch(appPath('/api/agent-sessions?limit=60'))") &&
+      workspaceSource.includes('const AGENT_SESSION_PAGE_SIZE = 60') &&
+      workspaceSource.includes("params.set('cursor', options.cursor)") &&
+      workspaceSource.includes('const loadMoreAgentSessions = useCallback') &&
+      workspaceSource.includes('setAgentSessionNextCursor(page.nextCursor)') &&
+      workspaceSource.includes('const seen = new Set(current.map(agentSessionId))') &&
+      workspaceSource.includes('canLoadMoreAgentSessions={agentSessionsHasMore}') &&
+      workspaceSource.includes('canLoadMoreHistoryAgentSessions={agentSessionsHasMore}') &&
+      workspaceSource.includes('onLoadMoreHistoryAgentSessions={loadMoreAgentSessions}') &&
+      workspaceSource.includes('remaining <= 240') &&
+      workspaceSource.includes('onScroll={event => loadMoreNearProjectListEnd(event.currentTarget)}') &&
+      workspaceSource.includes('remaining <= 320') &&
+      workspaceSource.includes("onScroll={activeView === 'history' ? event => loadMoreHistoryNearEnd(event.currentTarget) : undefined}") &&
       workspaceSource.includes('data-testid="code-model-menu"') &&
       !workspaceSource.includes('data-agent-launch-provider') &&
       !workspaceSource.includes('data-testid="agent-profile-submenu-trigger"') &&
@@ -804,7 +815,7 @@ function run() {
       workspaceSource.includes('if (!submitted) return') &&
       !workspaceSource.includes("window.setTimeout(() => sendInput('\\r', agent.id), 80)") &&
       workspaceSource.includes('sendComposerMessageToAgent(activeAgent, message)') &&
-      workspaceSource.includes('function createPendingFollowUpMessage(text: string)') &&
+      workspaceSource.includes('function createPendingFollowUpMessage(text: string, attachments: ComposerPromptAttachment[] = [])') &&
       workspaceSource.includes('function removePendingFollowUpMessage(') &&
       workspaceSource.includes('const pendingFollowUpAutoFlushRef = useRef<Record<string, string>>({})') &&
       workspaceSource.includes('const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft') &&
@@ -812,9 +823,9 @@ function run() {
       workspaceSource.includes('canUseComposerHistoryNavigation(input)') &&
       workspaceSource.includes('navigateComposerHistory(activeComposerState.history, direction, input.value)') &&
       workspaceSource.includes('const message = pending.messages.find(item => item.id === messageId)') &&
-      workspaceSource.includes('sendComposerMessageToAgent(activeAgent, message.text)') &&
+      workspaceSource.includes('sendComposerMessageToAgent(activeAgent, message.text, message.attachments)') &&
       workspaceSource.includes('pendingFlushes.push({ agent, composerKey, message: nextMessage })') &&
-      workspaceSource.includes('sendComposerMessageToAgent(agent, message.text)') &&
+      workspaceSource.includes('sendComposerMessageToAgent(agent, message.text, message.attachments)') &&
       !workspaceSource.includes("pending.messages.join('\\n\\n')") &&
       workspaceSource.includes('submitAction: composerSubmitAction') &&
       workspaceSource.includes('onInterrupt: interruptActiveAgent') &&
@@ -1100,14 +1111,23 @@ function run() {
       acpComposerSource.includes('data-testid="code-acp-composer-file-input"') &&
       acpComposerSource.includes('onPaste={onPasteAttachment}') &&
       acpComposerSource.includes('onNavigateHistory(direction') &&
+      !acpComposerSource.includes('(session?.availableCommands || []).map') &&
       acpComposerSource.includes('permissions.map') &&
-      !acpComposerSource.includes('composerMode') &&
+      acpComposerSource.includes('data-testid="code-acp-composer-goal-mode"') &&
+      acpComposerSource.includes('data-testid="code-acp-composer-plan-mode"') &&
+      acpComposerSource.includes('data-testid="code-acp-context-window"') &&
+      acpComposerSource.includes('data-testid="code-acp-pending-followup"') &&
+      acpComposerSource.includes('data-testid="code-acp-pending-followup-discard"') &&
       !acpComposerSource.includes('slashCommands') &&
       acpComposerBehaviorSource.includes("agent.agentRuntimeMode !== 'acp'") &&
       !acpComposerBehaviorSource.includes('terminalInputPartsForComposerMessage') &&
-      !acpComposerBehaviorSource.includes('formatComposerMessage') &&
-      acpComposerBehaviorSource.includes('composerMessageWithAttachments') &&
-      workspaceSource.includes("activeAgent?.agentRuntimeMode === 'acp' && activeAgentTurnActive") &&
+      acpComposerBehaviorSource.includes('formatComposerMessage') &&
+      acpComposerBehaviorSource.includes('composerPromptAttachments') &&
+      acpComposerBehaviorSource.includes('createPendingFollowUpMessage') &&
+      serverSource.includes("data: data.toString('base64')") &&
+      serverSource.includes('uri: pathToFileURL(filePath).href') &&
+      agentManagerSource.includes('this.acpRuntime.prompt(agentId, prompt)') &&
+      workspaceSource.includes("activeAgent?.agentRuntimeMode === 'acp'") &&
       acpComposerStateSource.includes("const ACP_COMPOSER_STATE_PREFIX = 'acp:'") &&
       acpSessionHookSource.includes('/acp-session') &&
       acpSessionHookSource.includes("method: 'PATCH'") &&

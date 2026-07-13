@@ -37,6 +37,10 @@ let historyActionPendingKey = '';
 let pendingHistoryOpenAgentId = '';
 let historyPage = 0;
 let historyPageSize = 1;
+let crtAgentPage = 0;
+let crtAgentPageSize = 1;
+let crtAgentPageColumns = 1;
+let crtAgentPageResizeFrame = null;
 let dashboardRenderDeferred = false;
 let lastCrtDashboardSignature = '';
 let crtPreviewRenderTimer = null;
@@ -50,10 +54,15 @@ let structuredSessionSnapshot = null;
 let structuredSessionControlsLoading = false;
 let structuredSessionControlsRevision = '';
 let structuredComposerMenu = '';
+let structuredComposerMenuOpenerId = '';
+let structuredComposerMenuFocusPending = false;
+let structuredComposerConfigId = '';
 let structuredComposerAttachments = [];
 const structuredComposerHistory = new Map();
+const structuredComposerPendingFollowUps = new Map();
 let structuredComposerHistoryIndex = -1;
 let structuredComposerCompositionEndAt = 0;
+let structuredComposerRestoreFocusAfterInterrupt = false;
 let runtimeSwitchPending = false;
 let pendingRuntimeSwitchAgentId = '';
 let runtimeSwitchRequestSequence = 0;
@@ -70,6 +79,10 @@ const SESSION_INPUT_SETTINGS = {
 };
 const SESSION_LINK_LIMIT = 6;
 const CRT_PREVIEW_RENDER_INTERVAL_MS = 1000;
+const CRT_AGENT_CARD_MIN_WIDTH = 200;
+const CRT_AGENT_CARD_MIN_HEIGHT = 160;
+const CRT_AGENT_GRID_GAP = 15;
+const CRT_AGENT_GRID_PADDING = 20;
 const CRT_AGENT_DISPLAY_NAMES = {
   qwen: 'Qwen Code',
   codex: 'Codex',
@@ -145,6 +158,68 @@ function findDirectionalNavigationIndex(rects, currentIndex, key, wrap = false) 
   });
 
   return bestIndex;
+}
+
+function calculateCrtAgentPageLayout(availableWidth, availableHeight) {
+  const width = Math.max(0, Number(availableWidth) || 0);
+  const height = Math.max(0, Number(availableHeight) || 0);
+  const innerWidth = Math.max(0, width - CRT_AGENT_GRID_PADDING * 2);
+  const innerHeight = Math.max(0, height - CRT_AGENT_GRID_PADDING * 2);
+  const columns = Math.max(1, Math.floor(
+    (innerWidth + CRT_AGENT_GRID_GAP) / (CRT_AGENT_CARD_MIN_WIDTH + CRT_AGENT_GRID_GAP),
+  ));
+  const rows = Math.max(1, Math.floor(
+    (innerHeight + CRT_AGENT_GRID_GAP) / (CRT_AGENT_CARD_MIN_HEIGHT + CRT_AGENT_GRID_GAP),
+  ));
+  return { columns, rows, pageSize: columns * rows };
+}
+
+function getCrtAgentPage(items, page, pageSize) {
+  const source = Array.isArray(items) ? items : [];
+  const size = Math.max(1, Math.floor(Number(pageSize) || 1));
+  const totalPages = Math.max(1, Math.ceil(source.length / size));
+  const currentPage = Math.max(0, Math.min(totalPages - 1, Math.floor(Number(page) || 0)));
+  const start = currentPage * size;
+  return {
+    items: source.slice(start, start + size),
+    page: currentPage,
+    pageSize: size,
+    totalItems: source.length,
+    totalPages,
+    start,
+  };
+}
+
+function getCrtAgentVerticalPageTarget({ itemIndex, totalItems, pageSize, columns, key }) {
+  const rawIndex = Number(itemIndex);
+  const total = Math.max(0, Math.floor(Number(totalItems) || 0));
+  const size = Math.max(1, Math.floor(Number(pageSize) || 1));
+  const columnCount = Math.max(1, Math.floor(Number(columns) || 1));
+  if (!Number.isFinite(rawIndex)) return -1;
+  const index = Math.floor(rawIndex);
+  if (index < 0 || index >= total || (key !== 'ArrowUp' && key !== 'ArrowDown')) return -1;
+
+  const page = Math.floor(index / size);
+  const pageStart = page * size;
+  const localIndex = index - pageStart;
+  const pageItemCount = Math.min(size, total - pageStart);
+  const row = Math.floor(localIndex / columnCount);
+  const column = localIndex % columnCount;
+
+  if (key === 'ArrowDown') {
+    const lastRow = Math.ceil(pageItemCount / columnCount) - 1;
+    const nextStart = pageStart + size;
+    if (row !== lastRow || nextStart >= total) return -1;
+    const nextCount = Math.min(size, total - nextStart);
+    return nextStart + Math.min(column, nextCount - 1);
+  }
+
+  if (row !== 0 || page === 0) return -1;
+  const previousStart = pageStart - size;
+  const previousCount = Math.min(size, total - previousStart);
+  const previousLastRowStart = Math.floor((previousCount - 1) / columnCount) * columnCount;
+  const previousLastRowCount = previousCount - previousLastRowStart;
+  return previousStart + previousLastRowStart + Math.min(column, previousLastRowCount - 1);
 }
 
 function findDefaultNewAgentIndex(agentOptions, preferredAgentName) {
@@ -389,7 +464,7 @@ let sessionSearchMatches = [];
 let sessionSearchIndex = -1;
 const MAX_WORKSPACE_HISTORY = 5;
 const TERMINAL_THEME = {
-  background: '#000000',
+  background: '#062114',
   foreground: '#0ccc68',
   cursor: '#55f59b',
   cursorAccent: '#001409',
@@ -1084,9 +1159,12 @@ function getCrtTerminalFontSize() {
 async function createTerminalInstance(options = {}) {
   if (window.FarmingTerminalBridge && window.FarmingTerminalBridge.createInstance) {
     return window.FarmingTerminalBridge.createInstance({
-      theme: currentSessionSkin && currentSessionSkin.terminalTheme
-        ? currentSessionSkin.terminalTheme
-        : TERMINAL_THEME,
+      theme: {
+        ...(currentSessionSkin && currentSessionSkin.terminalTheme
+          ? currentSessionSkin.terminalTheme
+          : TERMINAL_THEME),
+        background: TERMINAL_THEME.background
+      },
       fontSize: getCrtTerminalFontSize(),
       fontFamily: TERMINAL_FONT_FAMILY,
       cursorBlink: false,
@@ -1288,6 +1366,10 @@ function flushCrtPreviewCardRenders() {
 
   pending.forEach(({ agent, previousSnapshot, previousText, previewChanged }) => {
     if (!updateCrtAgentPreviewCard(agent)) {
+      if (agent.id !== state.mainAgentId && !isCrtAgentOnCurrentPage(agent.id)) {
+        if (previewChanged) pulseCrtBrandForAgent(agent.id);
+        return;
+      }
       renderCrtDashboardIfNeeded(true);
       return;
     }
@@ -2206,11 +2288,11 @@ async function loadThemes() {
     const data = await response.json();
     availableThemes = data.themes;
     currentTheme = data.current;
-    
+
     const settingsResponse = await fetch(farmingApiPath(`/themes/${currentTheme}/settings`));
     const settingsData = await settingsResponse.json();
     themeSettings = settingsData.settings || {};
-    
+
   } catch (error) {
     console.error('Failed to load themes:', error);
   }
@@ -2266,9 +2348,9 @@ async function setTheme(themeId) {
         'Content-Type': 'application/json'
       }
     });
-    
+
     const data = await response.json();
-    
+
     if (data.success) {
       currentTheme = themeId;
       // 重新加载页面应用新主题
@@ -2293,7 +2375,7 @@ function activateUiTheme(themeId) {
 
 function applyCRTEffects(enabled) {
   const body = document.body;
-  
+
   if (enabled) {
     body.classList.remove('no-crt');
   } else {
@@ -2304,11 +2386,11 @@ function applyCRTEffects(enabled) {
 function renderThemeList() {
   const container = document.getElementById('theme-list');
   if (!container) return;
-  
+
   container.innerHTML = '';
   const themeOptions = getUiThemeOptions();
   const hasCurrentTheme = themeOptions.some((option) => option.id === currentTheme);
-  
+
   themeOptions.forEach((theme, index) => {
     const item = document.createElement('div');
     item.className = 'theme-item';
@@ -2326,12 +2408,12 @@ function renderThemeList() {
       background: ${theme.id === currentTheme ? '#1a2a1a' : '#1a1a1a'};
       position: relative;
     `;
-    
+
     item.innerHTML = `
       <div style="font-weight: bold; color: #00ff00;">${theme.displayName}</div>
       <div style="font-size: 12px; color: #888; margin-top: 5px;">${theme.description}</div>
     `;
-    
+
     item.onclick = () => activateUiTheme(theme.id);
     container.appendChild(item);
   });
@@ -2371,7 +2453,7 @@ function initDisplaySettings() {
   const crtToggle = document.getElementById('crt-effects');
   const dynamicHeatToggle = document.getElementById('dynamic-heat');
   const terminalFontSizeInput = document.getElementById('crt-terminal-font-size');
-  
+
   if (crtContainer) {
     if (currentTheme === 'terminal') {
       crtContainer.style.display = 'block';
@@ -2387,7 +2469,7 @@ function initDisplaySettings() {
       crtContainer.style.display = 'none';
     }
   }
-  
+
   applyCRTEffects(globalSettings.crtSkinEffectsEnabled !== false);
 
   if (dynamicHeatToggle) {
@@ -2445,12 +2527,12 @@ function loadAgents() {
 
 function renderAgentList() {
   const container = document.getElementById('agent-list');
-  
+
   if (agents.length === 0) {
     container.innerHTML = '<p style="color: #888; font-size: 12px;">No CLI agents found in PATH</p>';
     return;
   }
-  
+
   container.innerHTML = '';
   const defaultAgentIndex = findDefaultNewAgentIndex(agents, globalSettings.defaultLaunchAgent);
 
@@ -2485,14 +2567,14 @@ function renderAgentList() {
       if (index === defaultAgentIndex) item.dataset.crtNavDefault = 'true';
       item.tabIndex = -1;
       item.setAttribute('role', 'button');
-      
+
       const keyNum = index < 9 ? index + 1 : 0;
-      
+
       item.innerHTML = `
         <div class="name">${agent.name}<span class="key-hint">[${keyNum}]</span></div>
         <div class="description">${agent.description}</div>
       `;
-      
+
       item.onclick = () => selectAgent(index);
       container.appendChild(item);
     });
@@ -3111,14 +3193,14 @@ function setupWorkspaceHistoryControls() {
 
 async function confirmStartAgent() {
   if (waitingForAgent || selectedAgentIndex === null || selectedAgentIndex < 0 || selectedAgentIndex >= agents.length) return;
-  
+
   const agent = agents[selectedAgentIndex];
   const workspaceInput = normalizeWorkspaceValue(document.getElementById('workspace-input').value);
   const asMainAgent = pendingMainAgentLaunch;
   const workspaceToUse = resolveWorkspaceToStart(workspaceInput, asMainAgent);
-  
+
   console.log('Starting agent:', agent.name, 'workspace:', workspaceToUse || 'default');
-  
+
   waitingForAgent = true;
   const previousHistory = JSON.stringify(getWorkspaceHistory());
   if (workspaceToUse) {
@@ -3128,7 +3210,7 @@ async function confirmStartAgent() {
     refreshWorkspaceMemoryUI();
     await saveGlobalSettings();
   }
-  
+
   ws.send(JSON.stringify({
     type: 'start-agent',
     command: agent.name,
@@ -3157,17 +3239,17 @@ function backToAgentList() {
 
 function selectAgent(index) {
   if (index < 0 || index >= agents.length) return;
-  
+
   const agent = agents[index];
 
   console.log('Selected agent:', agent.name);
   clearCrtNavigationSelection();
   selectedAgentIndex = index;
-  
+
   if (pendingMainAgentLaunch) {
     document.getElementById('agent-list').style.display = 'none';
     document.getElementById('workspace-input-container').style.display = 'none';
-    
+
     setTimeout(() => {
       confirmStartAgent();
     }, 100);
@@ -3193,7 +3275,7 @@ function connect() {
 
   const socket = new WebSocket(farmingWebSocketUrl());
   ws = socket;
-  
+
   socket.onopen = () => {
     if (ws !== socket) return;
     console.log('Connected to server');
@@ -3207,7 +3289,7 @@ function connect() {
     }
     loadAgents();
   };
-  
+
   socket.onmessage = (event) => {
     if (ws !== socket) return;
     const data = JSON.parse(event.data);
@@ -3227,13 +3309,20 @@ function connect() {
       if (dashboardRendered && crtMainView === 'history') renderCrtHistory();
       generateKeyMap();
       checkMainAgentStatus();
-      
+
       if (waitingForAgent && state.agents.length > prevAgentCount) {
         waitingForAgent = false;
         hideInputDialog();
       }
       openPendingHistoryAgentIfReady();
       openPendingRuntimeSwitchAgentIfReady();
+      if (focusedAgentId) {
+        const focusedAgent = state.agents.find((agent) => agent.id === focusedAgentId);
+        updateCrtRuntimeSwitchControl(focusedAgent);
+        if (focusedAgent && isStructuredRuntimeAgent(focusedAgent)) {
+          updateStructuredComposerState(focusedAgent);
+        }
+      }
       const runtime = getSessionRuntime();
       if (runtime) {
         const sessionState = runtime.handleStateMessage(state);
@@ -3286,7 +3375,7 @@ function connect() {
       alert('Error: ' + data.message);
     }
   };
-  
+
   socket.onclose = () => {
     if (ws !== socket) return;
     ws = null;
@@ -3298,7 +3387,7 @@ function connect() {
       }, 1000);
     }
   };
-  
+
   socket.onerror = (error) => {
     console.error('WebSocket error:', error);
     socket.close();
@@ -3324,11 +3413,11 @@ function resumeCrtPageConnection() {
 
 function checkMainAgentStatus() {
   if (!state) return;
-  
-  const mainAgent = state.mainAgentId 
+
+  const mainAgent = state.mainAgentId
     ? state.agents.find(a => a.id === state.mainAgentId)
     : null;
-  
+
   if (!state.mainAgentId || (mainAgent && mainAgent.status === 'dead')) {
     showInputDialog();
   }
@@ -3371,7 +3460,7 @@ function updateSystemStats(stats, uptime, usageRate) {
   if (stats.cpu !== undefined) {
     document.getElementById('cpu-usage').textContent = stats.cpu;
   }
-  
+
   if (stats.memory) {
     document.getElementById('mem-percentage').textContent = stats.memory.percentage;
   }
@@ -3388,12 +3477,12 @@ function updateSystemStats(stats, uptime, usageRate) {
   if (tokensPerMinute) {
     tokensPerMinute.textContent = formatCrtTokenRate(usageRate && usageRate.estimatedTokensPerMinute);
   }
-  
+
   if (uptime !== undefined) {
     const hours = Math.floor(uptime / 3600);
     const minutes = Math.floor((uptime % 3600) / 60);
     const seconds = uptime % 60;
-    
+
     let uptimeStr = '';
     if (hours > 0) {
       uptimeStr = `${hours}h ${minutes}m`;
@@ -3402,41 +3491,100 @@ function updateSystemStats(stats, uptime, usageRate) {
     } else {
       uptimeStr = `${seconds}s`;
     }
-    
+
     document.getElementById('uptime').textContent = uptimeStr;
   }
+}
+
+function getCrtRegularAgents(currentState = state) {
+  if (!currentState || !Array.isArray(currentState.agents)) return [];
+  return currentState.agents.filter((agent) => agent.id !== currentState.mainAgentId);
+}
+
+function updateCrtAgentPageStatus(pageState) {
+  const item = document.getElementById('agent-page-item');
+  const status = document.getElementById('agent-page-status');
+  if (item) item.hidden = pageState.totalPages <= 1;
+  if (status) status.textContent = `${pageState.page + 1}/${pageState.totalPages}`;
+}
+
+function isCrtAgentOnCurrentPage(agentId) {
+  const regularAgents = getCrtRegularAgents();
+  const index = regularAgents.findIndex((agent) => agent.id === agentId);
+  if (index < 0) return false;
+  const start = crtAgentPage * crtAgentPageSize;
+  return index >= start && index < start + crtAgentPageSize;
+}
+
+function moveCrtAgentPageSelection(key) {
+  if (crtMainView !== 'agents' || (key !== 'ArrowUp' && key !== 'ArrowDown')) return false;
+  const selected = document.querySelector('#map-area .agent-block.crt-nav-selected[data-agent-id]');
+  if (!selected) return false;
+  const regularAgents = getCrtRegularAgents();
+  const itemIndex = regularAgents.findIndex((agent) => agent.id === selected.dataset.agentId);
+  const targetIndex = getCrtAgentVerticalPageTarget({
+    itemIndex,
+    totalItems: regularAgents.length,
+    pageSize: crtAgentPageSize,
+    columns: crtAgentPageColumns,
+    key,
+  });
+  if (targetIndex < 0) return false;
+  crtNavigationKey = `agent:${regularAgents[targetIndex].id}`;
+  crtAgentPage = Math.floor(targetIndex / crtAgentPageSize);
+  renderState();
+  return restoreCrtNavigationSelection();
 }
 
 function renderState() {
   if (!state) return;
   lastCrtDashboardSignature = crtDashboardStateSignature(state);
-  
+
   // 更新吊顶的 Agent 数量
   const activeAgents = state.agents.filter(a => a.status === 'running').length;
   const totalAgents = state.agents.length;
   document.getElementById('active-agents').textContent = activeAgents;
   document.getElementById('total-agents').textContent = totalAgents;
   updateCrtBrandState(state);
-  
+
   const mapArea = document.getElementById('map-area');
   const emptyState = document.getElementById('empty-state');
   const mainAgentPanel = document.getElementById('main-agent-panel');
   const mainAgentBlock = document.getElementById('main-agent-block');
-  
+
   const agentBlocks = mapArea.querySelectorAll('.agent-block');
   agentBlocks.forEach(block => block.remove());
-  
+
   mainAgentBlock.innerHTML = '';
-  
+
   if (state.agents.length === 0) {
     emptyState.style.display = 'flex';
     mainAgentPanel.style.display = 'none';
+    updateCrtAgentPageStatus(getCrtAgentPage([], 0, 1));
     showInputDialog();
     return;
   }
-  
+
   emptyState.style.display = 'none';
-  
+
+  const regularAgents = getCrtRegularAgents(state);
+  const pageLayout = calculateCrtAgentPageLayout(mapArea.clientWidth, mapArea.clientHeight);
+  crtAgentPageSize = pageLayout.pageSize;
+  crtAgentPageColumns = pageLayout.columns;
+  const selectedRegularAgentIndex = regularAgents.findIndex((agent) => (
+    crtNavigationKey === `agent:${agent.id}`
+  ));
+  if (selectedRegularAgentIndex >= 0) {
+    crtAgentPage = Math.floor(selectedRegularAgentIndex / crtAgentPageSize);
+  }
+  const agentPage = getCrtAgentPage(regularAgents, crtAgentPage, crtAgentPageSize);
+  crtAgentPage = agentPage.page;
+  updateCrtAgentPageStatus(agentPage);
+  const renderedRows = agentPage.totalPages > 1
+    ? pageLayout.rows
+    : Math.max(1, Math.ceil(agentPage.items.length / pageLayout.columns));
+  mapArea.style.setProperty('--crt-agent-page-rows', String(renderedRows));
+
   // 渲染 Main Agent 到右下角
   if (state.mainAgentId) {
     const mainAgent = state.agents.find(a => a.id === state.mainAgentId);
@@ -3446,17 +3594,17 @@ function renderState() {
       mainAgentBlock.dataset.agentId = mainAgent.id;
       mainAgentBlock.tabIndex = -1;
       mainAgentBlock.setAttribute('role', 'button');
-      
+
       const header = document.createElement('div');
       header.className = 'agent-header';
       header.textContent = getCrtAgentTitle(mainAgent);
       mainAgentBlock.appendChild(header);
-      
+
       const status = document.createElement('div');
       status.className = 'agent-status';
       status.textContent = `${mainAgent.status} | ${mainAgent.activityLevel}`;
       mainAgentBlock.appendChild(status);
-      
+
       const output = document.createElement('div');
       output.className = 'agent-output';
       output.style.height = '80px';
@@ -3468,7 +3616,7 @@ function renderState() {
       }
       output.appendChild(outputTail);
       mainAgentBlock.appendChild(output);
-      
+
       mainAgentBlock.onclick = () => openSession(mainAgent.id);
     } else {
       mainAgentPanel.style.display = 'none';
@@ -3476,12 +3624,11 @@ function renderState() {
   } else {
     mainAgentPanel.style.display = 'none';
   }
-  
+
   // 渲染其他普通 agents 到地图
-  let keyIndex = 1;
-  state.agents.forEach((agent) => {
-    if (agent.id === state.mainAgentId) return; // 跳过 Main Agent
-    
+  agentPage.items.forEach((agent, pageItemIndex) => {
+    const keyIndex = agentPage.start + pageItemIndex + 1;
+
     const block = document.createElement('div');
     const activityClass = globalSettings.crtDynamicHeatEnabled === true ? agent.activityLevel : '';
     block.className = `agent-block ${activityClass} ${agent.status} ${isCrtAgentWorking(agent) ? 'working' : ''} ${agent.unread === true ? 'unread' : ''}`;
@@ -3490,25 +3637,25 @@ function renderState() {
     if (keyIndex === 1) block.dataset.crtNavDefault = 'true';
     block.tabIndex = -1;
     block.setAttribute('role', 'button');
-    
+
     const keyHint = document.createElement('div');
     keyHint.className = 'key-hint';
     keyHint.textContent = `[${keyIndex}]`;
     block.appendChild(keyHint);
-    
+
     const header = document.createElement('div');
     header.className = 'agent-header';
     header.textContent = getCrtAgentTitle(agent);
     header.title = getCrtAgentTitle(agent);
     block.appendChild(header);
-    
+
     const status = document.createElement('div');
     status.className = 'agent-status';
     const projectName = getCrtProjectName(agent);
     status.textContent = [agent.status, agent.activityLevel, projectName].filter(Boolean).join(' | ');
     status.title = agent.projectWorkspace || agent.cwd || '';
     block.appendChild(status);
-    
+
     const output = document.createElement('div');
     output.className = 'agent-output';
     const cleanOutput = getAgentDisplayText(agent);
@@ -3519,18 +3666,17 @@ function renderState() {
     }
     output.appendChild(outputTail);
     block.appendChild(output);
-    
+
     block.onclick = () => openSession(agent.id);
-    
+
     mapArea.appendChild(block);
-    keyIndex++;
   });
   restoreCrtNavigationSelection();
 }
 
 function generateKeyMap() {
   if (!state) return;
-  
+
   keyMap = {};
   let keyIndex = 1;
   state.agents.forEach((agent) => {
@@ -3547,7 +3693,7 @@ function showInputDialog(prefill = null) {
   const needMainAgent = needsMainAgent();
   pendingMainAgentLaunch = needMainAgent;
   pendingAgentLaunchPrefill = prefill && typeof prefill === 'object' ? prefill : null;
-  
+
   if (needMainAgent) {
     title.textContent = 'Start Main Agent';
     cancelButtonContainer.style.display = 'none';
@@ -3555,7 +3701,7 @@ function showInputDialog(prefill = null) {
     title.textContent = 'Start New Agent';
     cancelButtonContainer.style.display = 'block';
   }
-  
+
   selectedAgentIndex = null;
   document.getElementById('agent-list').style.display = 'block';
   document.getElementById('workspace-input-container').style.display = 'none';
@@ -3580,11 +3726,11 @@ function showInputDialog(prefill = null) {
 
 function hideInputDialog() {
   const needMainAgent = needsMainAgent();
-  
+
   if (needMainAgent) {
     return;
   }
-  
+
   selectedAgentIndex = null;
   clearCrtNavigationSelection();
   pendingMainAgentLaunch = false;
@@ -3638,11 +3784,11 @@ function canSwitchCrtAgentRuntime(agent) {
 function isCrtRuntimeSwitchShortcut(event) {
   return Boolean(
     event
-    && event.ctrlKey
-    && event.shiftKey
+    && event.altKey
+    && !event.ctrlKey
+    && !event.shiftKey
     && !event.metaKey
-    && !event.altKey
-    && String(event.key || '').toLowerCase() === 'm'
+    && (event.code === 'KeyM' || String(event.key || '').toLowerCase() === 'm')
   );
 }
 
@@ -3756,6 +3902,7 @@ function structuredComposerAction(agent, draft = '') {
   const status = String(structuredRuntimeStatus(agent) || 'idle');
   const working = ['working', 'waiting-for-permission'].includes(status);
   if (working) {
+    if (agent.agentRuntimeMode === 'acp' && String(draft || '').trim()) return 'send';
     if (
       agent.providerSessionProvider === 'codex'
       && agent.codexRuntimeMode === 'app-server'
@@ -3767,6 +3914,26 @@ function structuredComposerAction(agent, draft = '') {
   return String(draft || '').trim() || structuredComposerAttachments.some(item => item.status === 'ready')
     ? 'send'
     : 'disabled';
+}
+
+function queueStructuredComposerFollowUp(agentId, message) {
+  const queue = structuredComposerPendingFollowUps.get(agentId) || [];
+  queue.push(message);
+  structuredComposerPendingFollowUps.set(agentId, queue);
+}
+
+function flushStructuredComposerFollowUp(agent) {
+  if (!agent || structuredRuntimeStatus(agent) !== 'idle') return;
+  const queue = structuredComposerPendingFollowUps.get(agent.id);
+  if (!queue || queue.length === 0) return;
+  const message = queue.shift();
+  if (queue.length === 0) structuredComposerPendingFollowUps.delete(agent.id);
+  if (!getSessionClient()?.sendComposerMessage(agent.id, message)) {
+    queue.unshift(message);
+    structuredComposerPendingFollowUps.set(agent.id, queue);
+    return;
+  }
+  setTimeout(() => void refreshStructuredSession(agent.id, true), 160);
 }
 
 function formatStructuredUsage(session) {
@@ -3782,12 +3949,28 @@ function structuredSelectOptions(option) {
   )).filter(Boolean);
 }
 
-function currentStructuredConfigLabel(session) {
+function structuredVisibleConfigOptions(session) {
   const options = session && Array.isArray(session.configOptions) ? session.configOptions : [];
+  return options.filter((option) => (
+    String(option && option.id || '').toLowerCase() !== 'mode'
+    && String(option && option.category || '').toLowerCase() !== 'mode'
+  ));
+}
+
+function currentStructuredConfigLabel(session) {
+  const options = structuredVisibleConfigOptions(session);
   const model = options.find((option) => option.type === 'select' && /(^|[\s_-])model([\s_-]|$)/i.test(`${option.id} ${option.name}`));
   if (!model) return 'CONFIG';
   const selected = structuredSelectOptions(model).find((option) => option.value === model.currentValue);
   return selected && selected.name ? selected.name : model.currentValue || 'CONFIG';
+}
+
+function structuredConfigValueLabel(option) {
+  if (!option) return '';
+  if (option.type === 'boolean') return option.currentValue ? 'ON' : 'OFF';
+  const selected = structuredSelectOptions(option)
+    .find((candidate) => candidate.value === option.currentValue);
+  return selected && selected.name ? selected.name : String(option.currentValue || '');
 }
 
 function resetStructuredSessionControls() {
@@ -3795,6 +3978,9 @@ function resetStructuredSessionControls() {
   structuredSessionControlsLoading = false;
   structuredSessionControlsRevision = '';
   structuredComposerMenu = '';
+  structuredComposerMenuOpenerId = '';
+  structuredComposerMenuFocusPending = false;
+  structuredComposerConfigId = '';
   const menu = document.getElementById('crt-structured-composer-menu');
   const commandButton = document.getElementById('crt-structured-command');
   const modeButton = document.getElementById('crt-structured-mode');
@@ -3810,13 +3996,79 @@ function resetStructuredSessionControls() {
   if (usage) usage.textContent = '';
 }
 
-function setStructuredComposerMenu(menu) {
+function setStructuredComposerMenu(menu, { focusFirst = false, opener = null } = {}) {
+  if (opener && opener.id) structuredComposerMenuOpenerId = opener.id;
   structuredComposerMenu = structuredComposerMenu === menu ? '' : menu;
+  if (structuredComposerMenu !== 'config') structuredComposerConfigId = '';
+  structuredComposerMenuFocusPending = Boolean(structuredComposerMenu && focusFirst);
   renderStructuredSessionControls();
+}
+
+function structuredComposerToolbarButtons() {
+  return [
+    document.getElementById('crt-structured-attach'),
+    document.getElementById('crt-structured-command'),
+    document.getElementById('crt-structured-mode'),
+    document.getElementById('crt-structured-config')
+  ].filter((button) => button && !button.hidden && !button.disabled);
+}
+
+function focusStructuredComposerToolbarButton(current, offset = 0) {
+  const buttons = structuredComposerToolbarButtons();
+  if (!buttons.length) return false;
+  const currentIndex = buttons.indexOf(current);
+  const nextIndex = currentIndex < 0
+    ? 0
+    : (currentIndex + offset + buttons.length) % buttons.length;
+  buttons[nextIndex].focus();
+  return true;
+}
+
+function structuredComposerMenuButtons() {
+  const menu = document.getElementById('crt-structured-composer-menu');
+  if (!menu || menu.hidden) return [];
+  return Array.from(menu.querySelectorAll('.crt-structured-menu-item'))
+    .filter((button) => !button.disabled);
+}
+
+function focusStructuredComposerMenuButton(current, offset = 0) {
+  const buttons = structuredComposerMenuButtons();
+  if (!buttons.length) return false;
+  const currentIndex = buttons.indexOf(current);
+  const activeIndex = buttons.findIndex((button) => button.classList.contains('active'));
+  const nextIndex = currentIndex < 0
+    ? Math.max(0, activeIndex)
+    : (currentIndex + offset + buttons.length) % buttons.length;
+  buttons[nextIndex].focus();
+  buttons[nextIndex].scrollIntoView({ block: 'nearest' });
+  return true;
+}
+
+function closeStructuredComposerMenu({ restoreFocus = true } = {}) {
+  structuredComposerMenu = '';
+  structuredComposerConfigId = '';
+  structuredComposerMenuFocusPending = false;
+  renderStructuredSessionControls();
+  if (!restoreFocus) return;
+  const opener = structuredComposerMenuOpenerId
+    ? document.getElementById(structuredComposerMenuOpenerId)
+    : null;
+  if (opener && !opener.hidden && !opener.disabled) opener.focus();
+}
+
+function backStructuredComposerMenu() {
+  if (structuredComposerMenu === 'config' && structuredComposerConfigId) {
+    structuredComposerConfigId = '';
+    structuredComposerMenuFocusPending = true;
+    renderStructuredSessionControls();
+    return;
+  }
+  closeStructuredComposerMenu();
 }
 
 async function patchStructuredAcpSession(patch) {
   if (!focusedAgentId) return;
+  const openerId = structuredComposerMenuOpenerId;
   const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(focusedAgentId)}/acp-session`), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -3825,7 +4077,10 @@ async function patchStructuredAcpSession(patch) {
   const body = await response.json().catch(() => null);
   if (!response.ok) throw new Error(body && body.error ? body.error : `Failed to update ACP session (${response.status})`);
   structuredComposerMenu = '';
+  structuredComposerConfigId = '';
   await refreshStructuredSessionControls(focusedAgentId, true);
+  const opener = openerId ? document.getElementById(openerId) : null;
+  if (opener && !opener.hidden && !opener.disabled) opener.focus();
 }
 
 function structuredMenuButton(label, description, active, onClick) {
@@ -3854,11 +4109,16 @@ function renderStructuredComposerMenu() {
     return;
   }
 
+  const selectedConfig = structuredComposerMenu === 'config'
+    ? structuredVisibleConfigOptions(session).find((option) => option.id === structuredComposerConfigId)
+    : null;
   const title = document.createElement('div');
   title.className = 'crt-structured-menu-title';
   title.textContent = structuredComposerMenu === 'commands'
     ? 'COMMAND DIRECTORY'
-    : structuredComposerMenu === 'mode' ? 'AGENT MODE' : 'SESSION CONFIG';
+    : structuredComposerMenu === 'mode'
+      ? 'AGENT MODE'
+      : selectedConfig ? `SESSION CONFIG / ${selectedConfig.name}` : 'SESSION CONFIG';
   const items = document.createElement('div');
   items.className = 'crt-structured-menu-items';
 
@@ -3888,24 +4148,39 @@ function renderStructuredComposerMenu() {
         void patchStructuredAcpSession({ modeId: mode.id }).catch(showStructuredComposerError);
       }));
     });
+  } else if (!selectedConfig) {
+    structuredVisibleConfigOptions(session).forEach((option) => {
+      items.appendChild(structuredMenuButton(
+        `${option.name}: ${structuredConfigValueLabel(option)}`,
+        option.description || '',
+        false,
+        () => {
+          structuredComposerConfigId = option.id;
+          structuredComposerMenuFocusPending = true;
+          renderStructuredSessionControls();
+        }
+      ));
+    });
+  } else if (selectedConfig.type === 'boolean') {
+    [false, true].forEach((value) => {
+      items.appendChild(structuredMenuButton(value ? 'ON' : 'OFF', selectedConfig.description || '', selectedConfig.currentValue === value, () => {
+        void patchStructuredAcpSession({ configId: selectedConfig.id, value }).catch(showStructuredComposerError);
+      }));
+    });
   } else {
-    (session.configOptions || []).forEach((option) => {
-      if (option.type === 'boolean') {
-        items.appendChild(structuredMenuButton(`[${option.currentValue ? '✓' : ' '}] ${option.name}`, option.description || '', false, () => {
-          void patchStructuredAcpSession({ configId: option.id, value: !option.currentValue }).catch(showStructuredComposerError);
-        }));
-        return;
-      }
-      structuredSelectOptions(option).forEach((candidate) => {
-        items.appendChild(structuredMenuButton(`${option.name}: ${candidate.name || candidate.value}`, candidate.description || '', candidate.value === option.currentValue, () => {
-          void patchStructuredAcpSession({ configId: option.id, value: candidate.value }).catch(showStructuredComposerError);
-        }));
-      });
+    structuredSelectOptions(selectedConfig).forEach((candidate) => {
+      items.appendChild(structuredMenuButton(candidate.name || candidate.value, candidate.description || '', candidate.value === selectedConfig.currentValue, () => {
+        void patchStructuredAcpSession({ configId: selectedConfig.id, value: candidate.value }).catch(showStructuredComposerError);
+      }));
     });
   }
 
   menu.append(title, items);
   menu.hidden = false;
+  if (structuredComposerMenuFocusPending) {
+    structuredComposerMenuFocusPending = false;
+    window.requestAnimationFrame(() => focusStructuredComposerMenuButton(null, 0));
+  }
 }
 
 function renderStructuredSessionControls() {
@@ -3917,7 +4192,7 @@ function renderStructuredSessionControls() {
   if (!commandButton || !modeButton || !configButton || !usage) return;
   const commands = session && Array.isArray(session.availableCommands) ? session.availableCommands : [];
   const modes = session && session.modes && Array.isArray(session.modes.availableModes) ? session.modes.availableModes : [];
-  const configs = session && Array.isArray(session.configOptions) ? session.configOptions : [];
+  const configs = structuredVisibleConfigOptions(session);
   commandButton.hidden = commands.length === 0;
   modeButton.hidden = modes.length === 0;
   configButton.hidden = configs.length === 0;
@@ -3984,6 +4259,7 @@ function setStructuredComposerActive(active) {
     resizeStructuredComposerInput(input);
   }
   if (!active) {
+    structuredComposerRestoreFocusAfterInterrupt = false;
     structuredComposerAttachments = [];
     structuredComposerHistoryIndex = -1;
     resetStructuredSessionControls();
@@ -4007,13 +4283,18 @@ function updateStructuredComposerState(agent) {
   const runtimeStatus = structuredRuntimeStatus(agent);
   const error = structuredRuntimeError(agent);
   const action = structuredComposerAction(agent, input.value);
+  flushStructuredComposerFollowUp(agent);
   const busy = ['starting', 'interrupting'].includes(runtimeStatus);
   input.disabled = !isCrtAgentInteractive(agent) || Boolean(error) || busy;
+  if (structuredComposerRestoreFocusAfterInterrupt && !input.disabled) {
+    structuredComposerRestoreFocusAfterInterrupt = false;
+    requestAnimationFrame(() => input.focus());
+  }
   sendButton.disabled = action === 'disabled';
   sendButton.dataset.action = action;
   sendButton.textContent = action === 'interrupt'
-    ? 'Break [Esc]'
-    : action === 'steer' ? 'Steer [Enter]' : 'Send [Enter]';
+    ? 'BREAK [ESC]'
+    : action === 'steer' ? 'STEER [ENTER]' : 'SEND [ENTER]';
   input.placeholder = error
     ? 'Session unavailable'
     : (busy ? 'Agent is changing state...' : 'Type a message...');
@@ -4293,6 +4574,7 @@ function setupStructuredSessionComposer() {
   const commandButton = document.getElementById('crt-structured-command');
   const modeButton = document.getElementById('crt-structured-mode');
   const configButton = document.getElementById('crt-structured-config');
+  const menu = document.getElementById('crt-structured-composer-menu');
   if (!composer || !input || composer.dataset.bound === 'true') return;
   composer.dataset.bound = 'true';
   input.addEventListener('input', () => {
@@ -4324,7 +4606,13 @@ function setupStructuredSessionComposer() {
       const agent = state && state.agents.find((candidate) => candidate.id === focusedAgentId);
       if (structuredComposerAction(agent, input.value) === 'interrupt') {
         event.preventDefault();
-        getSessionClient()?.interruptAgent(focusedAgentId);
+        structuredComposerRestoreFocusAfterInterrupt = true;
+        const interrupted = getSessionClient()?.interruptAgent(focusedAgentId);
+        if (!interrupted) {
+          structuredComposerRestoreFocusAfterInterrupt = false;
+          showStructuredComposerError(new Error('Connection unavailable'));
+          input.focus();
+        }
         return;
       }
       if (structuredComposerMenu) {
@@ -4338,9 +4626,16 @@ function setupStructuredSessionComposer() {
       event.preventDefault();
       return;
     }
-    if (event.key === 'ArrowDown' && navigateStructuredComposerHistory(input, 1)) {
-      event.preventDefault();
-      return;
+    if (event.key === 'ArrowDown') {
+      if (structuredComposerHistoryIndex >= 0 && navigateStructuredComposerHistory(input, 1)) {
+        event.preventDefault();
+        return;
+      }
+      const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
+      if (atEnd && focusStructuredComposerToolbarButton(null, 0)) {
+        event.preventDefault();
+        return;
+      }
     }
     if (
       event.key === 'Enter'
@@ -4357,23 +4652,69 @@ function setupStructuredSessionComposer() {
     addStructuredAttachmentFiles(fileInput.files);
     fileInput.value = '';
   });
-  if (commandButton) commandButton.addEventListener('click', () => setStructuredComposerMenu('commands'));
-  if (modeButton) modeButton.addEventListener('click', () => setStructuredComposerMenu('mode'));
-  if (configButton) configButton.addEventListener('click', () => setStructuredComposerMenu('config'));
+  if (commandButton) commandButton.addEventListener('click', (event) => setStructuredComposerMenu('commands', { opener: event.currentTarget }));
+  if (modeButton) modeButton.addEventListener('click', (event) => setStructuredComposerMenu('mode', { opener: event.currentTarget }));
+  if (configButton) configButton.addEventListener('click', (event) => setStructuredComposerMenu('config', { opener: event.currentTarget }));
+  composer.addEventListener('keydown', (event) => {
+    const tool = event.target && event.target.closest
+      ? event.target.closest('.crt-structured-tool')
+      : null;
+    if (!tool) return;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      focusStructuredComposerToolbarButton(tool, event.key === 'ArrowRight' ? 1 : -1);
+      return;
+    }
+    if (event.key === 'ArrowUp' || event.key === 'Escape') {
+      event.preventDefault();
+      if (structuredComposerMenu) closeStructuredComposerMenu({ restoreFocus: false });
+      input.focus();
+      return;
+    }
+    const menuName = tool === commandButton
+      ? 'commands'
+      : tool === modeButton ? 'mode' : tool === configButton ? 'config' : '';
+    if (menuName && (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown')) {
+      event.preventDefault();
+      setStructuredComposerMenu(menuName, { focusFirst: true, opener: tool });
+    }
+  });
+  if (menu) menu.addEventListener('keydown', (event) => {
+    const item = event.target && event.target.closest
+      ? event.target.closest('.crt-structured-menu-item')
+      : null;
+    if (!item) return;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      focusStructuredComposerMenuButton(item, event.key === 'ArrowDown' ? 1 : -1);
+      return;
+    }
+    if (event.key === 'Escape' || event.key === 'ArrowLeft') {
+      event.preventDefault();
+      backStructuredComposerMenu();
+    }
+  });
   composer.addEventListener('submit', (event) => {
     event.preventDefault();
     const agent = state && state.agents.find((candidate) => candidate.id === focusedAgentId);
     const action = structuredComposerAction(agent, input.value);
     if (!agent || action === 'disabled') return;
     if (action === 'interrupt') {
+      structuredComposerRestoreFocusAfterInterrupt = true;
       const interrupted = getSessionClient()?.interruptAgent(focusedAgentId);
-      if (!interrupted) showStructuredComposerError(new Error('Connection unavailable'));
+      if (!interrupted) {
+        structuredComposerRestoreFocusAfterInterrupt = false;
+        showStructuredComposerError(new Error('Connection unavailable'));
+        input.focus();
+      }
       return;
     }
     const draft = input.value;
     const message = structuredComposerMessage(draft);
     if (!message) return;
-    const sent = getSessionClient()?.sendComposerMessage(focusedAgentId, message);
+    const sent = action === 'send' && structuredRuntimeStatus(agent) !== 'idle'
+      ? (queueStructuredComposerFollowUp(focusedAgentId, message), true)
+      : getSessionClient()?.sendComposerMessage(focusedAgentId, message);
     const statusNode = document.getElementById('crt-structured-composer-status');
     if (!sent) {
       if (statusNode) {
@@ -4437,7 +4778,7 @@ function teardownSessionSurface() {
 
 async function openSession(agentId) {
   if (!state) return;
-  
+
   const agent = state.agents.find(a => a.id === agentId);
   if (!agent) return;
   void markCrtAgentReadIfNeeded(agent);
@@ -4463,7 +4804,7 @@ async function openSession(agentId) {
   }
   updateSessionTitleDisplay(modalState.title);
   updateCrtRuntimeSwitchControl(agent);
-  
+
   // 更新吊顶的"当前关注地域"
   const focusRegion = document.getElementById('focus-region');
   const focusRegionName = document.getElementById('focus-region-name');
@@ -4471,7 +4812,7 @@ async function openSession(agentId) {
     focusRegion.style.display = 'block';
     focusRegionName.textContent = agent.command.split(' ')[0];
   }
-  
+
   const sessionClient = getSessionClient();
   if (sessionClient) {
     sessionClient.focusAgent(agentId, {
@@ -4479,7 +4820,7 @@ async function openSession(agentId) {
       previewScope: 'none',
     });
   }
-  
+
   currentSessionSkin = modalState.sessionSkin;
   const domState = runtime
     ? openResult.domState
@@ -4498,7 +4839,7 @@ async function openSession(agentId) {
   if (!interactiveTerminal) {
     updateSessionTitleDisplay(`${modalState.title} [READ ONLY]`);
   }
-  
+
   let terminalBundle;
   try {
     terminalBundle = await createTerminalInstance({ disableStdin: !interactiveTerminal });
@@ -4681,7 +5022,7 @@ function closeSession() {
   teardownSessionSurface();
   resetSessionUiState();
   updateSessionTitleDisplay('Agent Session');
-  
+
   // 隐藏吊顶的"当前关注地域"
   const focusRegion = document.getElementById('focus-region');
   if (focusRegion) {
@@ -4701,7 +5042,7 @@ function killCurrentAgent() {
   if (sessionClient) {
     sessionClient.killAgent(focusedAgentId);
   }
-  
+
   closeSession();
 }
 
@@ -4812,6 +5153,13 @@ function stopSessionViewPolling() {
 if (typeof document !== 'undefined') {
   window.addEventListener('resize', () => {
     if (crtMainView === 'history') renderCrtHistory();
+    if (crtMainView === 'agents' && state) {
+      if (crtAgentPageResizeFrame !== null) window.cancelAnimationFrame(crtAgentPageResizeFrame);
+      crtAgentPageResizeFrame = window.requestAnimationFrame(() => {
+        crtAgentPageResizeFrame = null;
+        renderCrtDashboardIfNeeded(true);
+      });
+    }
     if (!terminal || !fitAddon || !focusedAgentId) return;
 
     fitAddon.fit();
@@ -4861,6 +5209,19 @@ if (typeof document !== 'undefined') {
       && !e.ctrlKey
       && !e.metaKey
       && !e.altKey
+      && (e.key === 'ArrowUp' || e.key === 'ArrowDown')
+      && moveCrtAgentPageSelection(e.key)
+    ) {
+      e.preventDefault();
+      return;
+    }
+
+    if (
+      !sessionActive
+      && !workspaceInputFocused
+      && !e.ctrlKey
+      && !e.metaKey
+      && !e.altKey
       && navigationArrow
       && moveCrtNavigationSelection(e.key)
     ) {
@@ -4894,7 +5255,7 @@ if (typeof document !== 'undefined') {
       e.preventDefault();
       return;
     }
-    
+
     if (settingsActive) {
       const themeOptions = getUiThemeOptions();
       const num = parseInt(e.key);
@@ -4917,7 +5278,7 @@ if (typeof document !== 'undefined') {
         return;
       }
     }
-    
+
     if (dialogActive) {
       if (workspaceInputVisible) {
         if (workspaceInputFocused) {
@@ -4969,7 +5330,7 @@ if (typeof document !== 'undefined') {
         }
       }
     }
-    
+
     if (e.key === 'n' || e.key === 'N') {
       if (!dialogActive && !sessionActive) {
         showInputDialog();
@@ -4984,21 +5345,21 @@ if (typeof document !== 'undefined') {
         return;
       }
     }
-    
+
     if (e.key === '0') {
       if (!dialogActive && !sessionActive && crtMainView === 'agents' && state && state.mainAgentId) {
         openSession(state.mainAgentId);
         e.preventDefault();
       }
     }
-    
+
     if (e.key === 's' || e.key === 'S') {
       if (!dialogActive && !sessionActive && !settingsActive) {
         showSettings();
         e.preventDefault();
       }
     }
-    
+
     if (sessionActive) {
       const structuredInput = document.getElementById('crt-structured-input');
       const structuredInputFocused = structuredInput && document.activeElement === structuredInput;
@@ -5087,12 +5448,12 @@ if (typeof document !== 'undefined') {
       e.preventDefault();
       return;
     }
-    
+
     if (keyMap[e.key] && !sessionActive && !dialogActive && crtMainView === 'agents') {
       openSession(keyMap[e.key]);
       e.preventDefault();
     }
-    
+
   }, true);
 
   document.addEventListener('copy', (e) => {
@@ -5142,6 +5503,7 @@ if (typeof document !== 'undefined') {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     buildCrtHistoryItems,
+    calculateCrtAgentPageLayout,
     calculateCrtHistoryPageSize,
     crtHistoryAgentName,
     normalizeCrtTerminalFontSize,
@@ -5164,6 +5526,8 @@ if (typeof module !== 'undefined' && module.exports) {
     formatCrtTokenRate,
     formatCrtHistoryAge,
     getCrtHistoryPage,
+    getCrtAgentPage,
+    getCrtAgentVerticalPageTarget,
     getAgentDisplayText,
     getCrtPreviewCellStyle,
     getCrtAgentTitle,
@@ -5175,6 +5539,7 @@ if (typeof module !== 'undefined' && module.exports) {
     crtRuntimeView,
     canSwitchCrtAgentRuntime,
     isCrtRuntimeSwitchShortcut,
+    structuredComposerAction,
     getCrtBrandPaneKey,
     extractSessionLinks,
     formatSelectionStatus,

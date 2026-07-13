@@ -13,7 +13,7 @@ test('switches from Farming Code to Farming CRT in Settings', async ({ page }) =
   await expect(page).toHaveURL(/\/farming\/crt\/$/)
   await expect(page.locator('body')).toHaveAttribute('id', 'farming-crt')
 
-  await page.getByRole('button', { name: '[S] Settings', exact: true }).click()
+  await page.getByRole('button', { name: '[S] SETTINGS', exact: true }).click()
   await expect(page.getByText('Farming CRT', { exact: true })).toBeVisible()
   await expect(page.getByText('Terminal', { exact: true })).toHaveCount(0)
 })

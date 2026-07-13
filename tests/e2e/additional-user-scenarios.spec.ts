@@ -364,26 +364,23 @@ test.describe('additional Farming Code user scenarios', () => {
       await page.getByTestId('code-sidebar-toggle').click()
     })
 
-    await scenario('options menu uses concise visible language labels with full ARIA labels', async () => {
+    await scenario('settings panel uses concise visible language controls', async () => {
       await page.getByTestId('code-sidebar-options').click()
-      const menu = page.getByTestId('code-options-menu')
-      await expect(menu).toBeVisible()
-      const english = menu.getByRole('menuitemradio', { name: 'Language: English' })
-      const chinese = menu.getByRole('menuitemradio', { name: 'Language: 中文' })
-      await expect(english).toContainText('English')
-      await expect(english).not.toContainText('Language:')
-      await expect(chinese).toContainText('中文')
-      await expect(chinese).not.toContainText('Language:')
-      await expectMenuFitsViewport(page, 'code-options-menu')
+      const panel = page.getByTestId('code-settings-panel')
+      await expect(panel).toBeVisible()
+      const language = panel.getByRole('group', { name: 'Language' })
+      await expect(language.getByRole('button', { name: 'English', exact: true })).toBeVisible()
+      await expect(language.getByRole('button', { name: '中文', exact: true })).toBeVisible()
     })
 
-    await scenario('switching language updates labels without leaving duplicate menus', async () => {
-      await page.getByRole('menuitemradio', { name: 'Language: 中文' }).click()
+    await scenario('switching language updates labels without duplicating settings', async () => {
+      const panel = page.getByTestId('code-settings-panel')
+      await panel.getByRole('group', { name: 'Language' }).getByRole('button', { name: '中文', exact: true }).click()
       await expect(page.getByTestId('code-nav-search')).toHaveAttribute('aria-label', '搜索')
-      await expect(page.getByTestId('code-options-menu')).toHaveCount(0)
-      await page.getByTestId('code-sidebar-options').click()
-      await page.getByRole('menuitemradio', { name: '语言：English' }).click()
+      await expect(page.getByTestId('code-settings-panel')).toHaveCount(1)
+      await panel.getByRole('group', { name: '语言' }).getByRole('button', { name: 'English', exact: true }).click()
       await expect(page.getByTestId('code-nav-search')).toHaveAttribute('aria-label', 'Search')
+      await panel.getByRole('button', { name: 'Close' }).click()
       await expectNoDocumentOverflow(page)
     })
 
@@ -861,6 +858,36 @@ test.describe('additional Farming Code user scenarios', () => {
     await expectMenuFitsViewport(page, 'input-dialog')
     await expect(page.getByTestId('workspace-start')).toBeInViewport()
     await expectNoDocumentOverflow(page)
+  })
+
+  test('keeps a markdown basename selected and the rename caret stable', async ({ page, workspaceRoot }) => {
+    const projectDir = path.join(workspaceRoot, 'markdown-rename-project')
+    fs.mkdirSync(projectDir, { recursive: true })
+    fs.writeFileSync(path.join(projectDir, 'zhilin.md'), '# Rename me\n')
+
+    await openFarming(page)
+    await openNewAgentDialog(page)
+    const agentId = await startAgentFromOpenDialog(page, 'bash', projectDir)
+    const projectGroup = page.getByTestId('code-project-group').filter({
+      has: page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`),
+    })
+    const fileSection = projectGroup.getByTestId('code-files-section')
+    const filesTitle = fileSection.locator('.code-files-title').first()
+    if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+
+    const renameRow = fileSection.locator('[data-testid="code-file-row"][data-file-path="zhilin.md"]')
+    await expect(renameRow).toBeVisible()
+    await renameRow.click({ button: 'right' })
+    await page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'Rename' }).click()
+
+    const renameInput = renameRow.getByTestId('code-file-operation-input')
+    await expect(renameInput).toBeFocused()
+    await expect.poll(() => renameInput.evaluate(element => {
+      const input = element as HTMLInputElement
+      return `${input.selectionStart}:${input.selectionEnd}`
+    })).toBe('0:6')
+    await renameInput.pressSequentially('XY')
+    await expect(renameInput).toHaveValue('XY.md')
   })
 
   test('starts file-menu agents in the selected directory while keeping the project root', async ({ page, workspaceRoot }) => {

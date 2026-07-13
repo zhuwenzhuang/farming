@@ -71,6 +71,36 @@ function resolveAcpLaunch(provider, options = {}) {
   throw new Error(`Unsupported ACP provider: ${provider}`);
 }
 
+function codexAcpEnvironment(options = {}) {
+  const env = { ...(options.env || process.env) };
+  let config = {};
+  if (env.CODEX_CONFIG) {
+    try {
+      const parsed = JSON.parse(env.CODEX_CONFIG);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) config = parsed;
+    } catch {
+      // A selected Farming profile below replaces an invalid adapter config.
+    }
+  }
+
+  if (options.model && options.model !== 'config') config.model = options.model;
+  if (options.reasoningEffort && options.reasoningEffort !== 'config') {
+    config.model_reasoning_effort = options.reasoningEffort;
+  }
+  if (options.serviceTier && !['config', 'default'].includes(options.serviceTier)) {
+    config.service_tier = options.serviceTier;
+  }
+  if (Object.keys(config).length > 0) env.CODEX_CONFIG = JSON.stringify(config);
+
+  const initialMode = {
+    ask: 'read-only',
+    approve: 'agent',
+    full: 'agent-full-access',
+  }[options.approvalMode];
+  if (initialMode) env.INITIAL_AGENT_MODE = initialMode;
+  return env;
+}
+
 function selectedPermission(option) {
   return { outcome: { outcome: 'selected', optionId: option.optionId } };
 }
@@ -133,7 +163,7 @@ class AcpRuntime extends EventEmitter {
       agentId,
       provider,
       cwd: path.resolve(options.cwd || process.cwd()),
-      env: options.env || process.env,
+      env: provider === 'codex' ? codexAcpEnvironment(options) : (options.env || process.env),
       launch,
       approvalMode: options.approvalMode || 'approve',
       child: null,
@@ -545,5 +575,6 @@ module.exports = {
   AcpRuntime,
   ADAPTER_VERSIONS,
   autoPermissionResponse,
+  codexAcpEnvironment,
   resolveAcpLaunch,
 };

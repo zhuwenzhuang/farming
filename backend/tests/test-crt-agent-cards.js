@@ -4,6 +4,7 @@ const path = require('path');
 
 const {
   buildCrtHistoryItems,
+  calculateCrtAgentPageLayout,
   calculateCrtHistoryPageSize,
   crtHistoryAgentName,
   crtAgentSessionKey,
@@ -24,6 +25,8 @@ const {
   formatCrtTokenRate,
   formatCrtHistoryAge,
   getCrtHistoryPage,
+  getCrtAgentPage,
+  getCrtAgentVerticalPageTarget,
   createSessionModalState,
 } = require('../../frontend/skins/crt/app.js');
 
@@ -56,6 +59,35 @@ function run() {
     getCrtHistoryPage(['a', 'b', 'c'], 99, 2),
     { items: ['c'], page: 1, pageSize: 2, totalItems: 3, totalPages: 2, start: 2 },
   );
+  assert.deepStrictEqual(
+    calculateCrtAgentPageLayout(680, 400),
+    { columns: 3, rows: 2, pageSize: 6 },
+  );
+  assert.deepStrictEqual(
+    getCrtAgentPage(['a', 'b', 'c', 'd', 'e', 'f', 'g'], 1, 6),
+    { items: ['g'], page: 1, pageSize: 6, totalItems: 7, totalPages: 2, start: 6 },
+  );
+  assert.strictEqual(getCrtAgentVerticalPageTarget({
+    itemIndex: 4,
+    totalItems: 12,
+    pageSize: 6,
+    columns: 3,
+    key: 'ArrowDown',
+  }), 7, 'ArrowDown should keep the selected column on the next Agent page');
+  assert.strictEqual(getCrtAgentVerticalPageTarget({
+    itemIndex: 7,
+    totalItems: 12,
+    pageSize: 6,
+    columns: 3,
+    key: 'ArrowUp',
+  }), 4, 'ArrowUp should keep the selected column on the previous Agent page');
+  assert.strictEqual(getCrtAgentVerticalPageTarget({
+    itemIndex: 1,
+    totalItems: 12,
+    pageSize: 6,
+    columns: 3,
+    key: 'ArrowDown',
+  }), -1, 'Agent page navigation should not intercept arrows within a visible page');
 
   assert.strictEqual(
     crtAgentSessionKey({ provider: 'codex', id: 'session-1', providerHomeId: 'work' }),

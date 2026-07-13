@@ -87,6 +87,7 @@ import {
   revokeComposerAttachmentPreview,
   uploadImageAttachment,
   type ComposerAttachment,
+  type ComposerPromptAttachment,
 } from './code/composer-message'
 import { terminalInputPartsForComposerMessage } from './code/composer-submit'
 import {
@@ -300,7 +301,7 @@ interface CodeWorkspaceProps {
   onKill: (agentId: string) => void
   onInterruptAgent: (agentId: string) => void
   sendInput: (input: string | TerminalInputPart[], agentId?: string) => boolean
-  sendComposerInput: (message: string, agentId?: string) => boolean
+  sendComposerInput: (message: string, agentId?: string, attachments?: ComposerPromptAttachment[]) => boolean
   respondToAppServerRequest: (agentId: string, requestId: string, result?: unknown, options?: { reject?: boolean; reason?: string }) => boolean
   resizeAgent: (agentId: string, cols: number, rows: number) => boolean
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null) => void) => () => void
@@ -321,6 +322,7 @@ const DESKTOP_AUTO_COLLAPSE_WIDTH = 900
 const TERMINAL_PATH_SEARCH_LIMIT = 12
 const MOBILE_PROJECT_CONTEXT_MENU_WIDTH = 214
 const MOBILE_PROJECT_CONTEXT_MENU_HEIGHT = 86
+const AGENT_SESSION_PAGE_SIZE = 60
 
 
 function shouldUseNativeMobileDictation() {
@@ -524,6 +526,10 @@ export function CodeWorkspace({
   const [claudeSettings, setClaudeSettings] = useState<ClaudeSettingsSummary>(DEFAULT_CLAUDE_SETTINGS)
   const [discoveredSlashCommands, setDiscoveredSlashCommands] = useState<SlashCommandOption[]>([])
   const [agentSessions, setAgentSessions] = useState<AgentSessionHistoryItem[]>([])
+  const [agentSessionNextCursor, setAgentSessionNextCursor] = useState('')
+  const [agentSessionsHasMore, setAgentSessionsHasMore] = useState(false)
+  const agentSessionsLoadingRef = useRef(false)
+  const agentSessionLoadedCountRef = useRef(AGENT_SESSION_PAGE_SIZE)
   const [agentSessionPinnedOverrides, setAgentSessionPinnedOverrides] = useState<Record<string, boolean>>(
     () => loadSessionDisplayState().pinnedOverrides
   )
@@ -825,9 +831,9 @@ export function CodeWorkspace({
     : activeAgentCanInterrupt
       ? 'interrupt'
       : 'disabled'
-  const acpComposerSubmitAction = activeAgent?.agentRuntimeMode === 'acp' && activeAgentTurnActive
-    ? (activeAgentCanInterrupt ? 'interrupt' : 'disabled')
-    : composerSubmitAction
+  const acpComposerSubmitAction = activeAgent?.agentRuntimeMode === 'acp'
+    ? composerSubmitAction
+    : 'disabled'
   const updateActiveComposerState = useCallback((updater: (state: AgentComposerState) => AgentComposerState) => {
     if (!activeComposerKey) return
     updateComposerStateForKey(activeComposerKey, updater)
@@ -1069,20 +1075,37 @@ export function CodeWorkspace({
       cancelled = true
     }
   }, [])
-  const fetchAgentSessions = useCallback(async () => {
-    const response = await fetch(appPath('/api/agent-sessions?limit=60'))
-    const data = await response.json() as { sessions?: AgentSessionHistoryItem[] }
-    return Array.isArray(data.sessions) ? data.sessions : []
+  const fetchAgentSessions = useCallback(async (options: { cursor?: string; limit?: number } = {}) => {
+    const params = new URLSearchParams({ limit: String(options.limit || AGENT_SESSION_PAGE_SIZE) })
+    if (options.cursor) params.set('cursor', options.cursor)
+    const response = await fetch(appPath(`/api/agent-sessions?${params.toString()}`))
+    const data = await response.json() as {
+      sessions?: AgentSessionHistoryItem[]
+      nextCursor?: string
+      hasMore?: boolean
+    }
+    return {
+      sessions: Array.isArray(data.sessions) ? data.sessions : [],
+      nextCursor: typeof data.nextCursor === 'string' ? data.nextCursor : '',
+      hasMore: data.hasMore === true,
+    }
   }, [])
   const loadAgentSessions = useCallback(() => {
     let cancelled = false
     fetchAgentSessions()
-      .then((sessions: AgentSessionHistoryItem[]) => {
+      .then(page => {
         if (cancelled) return
-        setAgentSessions(sessions)
+        setAgentSessions(page.sessions)
+        setAgentSessionNextCursor(page.nextCursor)
+        setAgentSessionsHasMore(page.hasMore)
+        agentSessionLoadedCountRef.current = Math.max(AGENT_SESSION_PAGE_SIZE, page.sessions.length)
       })
       .catch(() => {
-        if (!cancelled) setAgentSessions([])
+        if (!cancelled) {
+          setAgentSessions([])
+          setAgentSessionNextCursor('')
+          setAgentSessionsHasMore(false)
+        }
       })
 
     return () => {
@@ -1090,10 +1113,39 @@ export function CodeWorkspace({
     }
   }, [fetchAgentSessions])
   const refreshAgentSessions = useCallback(() => {
-    fetchAgentSessions()
-      .then(setAgentSessions)
+    fetchAgentSessions({ limit: agentSessionLoadedCountRef.current })
+      .then(page => {
+        setAgentSessions(page.sessions)
+        setAgentSessionNextCursor(page.nextCursor)
+        setAgentSessionsHasMore(page.hasMore)
+      })
       .catch(() => setAgentSessions([]))
   }, [fetchAgentSessions])
+  const loadMoreAgentSessions = useCallback(() => {
+    if (!agentSessionsHasMore || !agentSessionNextCursor || agentSessionsLoadingRef.current) return
+    agentSessionsLoadingRef.current = true
+    fetchAgentSessions({ cursor: agentSessionNextCursor })
+      .then(page => {
+        setAgentSessions(current => {
+          const seen = new Set(current.map(agentSessionId))
+          const next = [...current]
+          page.sessions.forEach(session => {
+            const sessionId = agentSessionId(session)
+            if (seen.has(sessionId)) return
+            seen.add(sessionId)
+            next.push(session)
+          })
+          agentSessionLoadedCountRef.current = Math.max(AGENT_SESSION_PAGE_SIZE, next.length)
+          return next
+        })
+        setAgentSessionNextCursor(page.nextCursor)
+        setAgentSessionsHasMore(page.hasMore)
+      })
+      .catch(() => {})
+      .finally(() => {
+        agentSessionsLoadingRef.current = false
+      })
+  }, [agentSessionNextCursor, agentSessionsHasMore, fetchAgentSessions])
 
   const loadSlashCommands = useCallback((provider: string, workspace?: string) => {
     if (provider !== 'codex' && provider !== 'claude') {
@@ -1159,6 +1211,7 @@ export function CodeWorkspace({
                 type: uploaded.type || attachment.type,
                 size: uploaded.size || attachment.size,
                 status: 'ready',
+                path: uploaded.path,
                 messageBlock: formatAttachedImage(uploaded),
                 error: undefined,
               }
@@ -1326,9 +1379,9 @@ export function CodeWorkspace({
     return result.value
   }, [activeAgent, activeComposerKey, activeComposerState.history, updateComposerStateForKey])
 
-  const sendComposerMessageToAgent = useCallback((agent: Agent, message: string) => {
+  const sendComposerMessageToAgent = useCallback((agent: Agent, message: string, attachments: ComposerPromptAttachment[] = []) => {
     if (['acp', 'json'].includes(agent.agentRuntimeMode || '') || (agent.providerSessionProvider === 'codex' && agent.codexRuntimeMode === 'app-server')) {
-      return sendComposerInput(message, agent.id)
+      return sendComposerInput(message, agent.id, agent.agentRuntimeMode === 'acp' ? attachments : [])
     }
     if (
       agentKindForCommand(agent.command) === 'shell'
@@ -1416,11 +1469,13 @@ export function CodeWorkspace({
       composerKey: activeComposerKey,
       draft: latestDraft,
       attachments: composerAttachments,
+      composerMode,
+      turnActive: activeAgentTurnActive,
       sendMessage: sendComposerMessageToAgent,
       updateComposerState: updateComposerStateForKey,
     })
     if (submitted) focusComposerTextarea()
-  }, [activeAgent, activeComposerKey, composerAttachments, draft, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
+  }, [activeAgent, activeAgentTurnActive, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
 
   const interruptActiveAgent = useCallback(() => {
     if (!activeAgent || !activeAgentCanInterrupt) return
@@ -1452,7 +1507,7 @@ export function CodeWorkspace({
     if (!pending || pending.messages.length === 0) return
     const message = pending.messages.find(item => item.id === messageId)
     if (!message) return
-    if (!sendComposerMessageToAgent(activeAgent, message.text)) return
+    if (!sendComposerMessageToAgent(activeAgent, message.text, message.attachments)) return
     pendingFollowUpAutoFlushRef.current[activeComposerKey] = message.id
     updateComposerStateForKey(activeComposerKey, state => {
       if (!state.pendingFollowUp) return state
@@ -1478,7 +1533,9 @@ export function CodeWorkspace({
     }> = []
 
     activeAgents.forEach(agent => {
-      const composerKey = composerStateKeyForAgent(agent)
+      const composerKey = agent.agentRuntimeMode === 'acp'
+        ? acpComposerStateKeyForAgent(agent)
+        : composerStateKeyForAgent(agent)
       if (!composerKey) return
       const pending = composerByAgentKey[composerKey]?.pendingFollowUp
       if (!pending || pending.messages.length === 0) {
@@ -1486,7 +1543,7 @@ export function CodeWorkspace({
         return
       }
       if (agent.archived || agent.status === 'dead' || agent.status === 'stopped') return
-      if (isCodexAgentWorking(agent)) {
+      if (agent.agentRuntimeMode === 'acp' ? isAgentTurnActive(agent) : isCodexAgentWorking(agent)) {
         delete pendingFollowUpAutoFlushRef.current[composerKey]
         return
       }
@@ -1499,7 +1556,7 @@ export function CodeWorkspace({
     if (pendingFlushes.length === 0) return
 
     pendingFlushes.forEach(({ agent, composerKey, message }) => {
-      if (!sendComposerMessageToAgent(agent, message.text)) return
+      if (!sendComposerMessageToAgent(agent, message.text, message.attachments)) return
       pendingFollowUpAutoFlushRef.current[composerKey] = message.id
       updateExistingComposerStateForKey(composerKey, state => {
         if (!state.pendingFollowUp) return state
@@ -1942,8 +1999,10 @@ export function CodeWorkspace({
         }),
       })
       if (!response.ok) throw new Error(copy.updateFailed)
-      const sessions = await fetchAgentSessions()
-      setAgentSessions(sessions)
+      const page = await fetchAgentSessions({ limit: agentSessionLoadedCountRef.current })
+      setAgentSessions(page.sessions)
+      setAgentSessionNextCursor(page.nextCursor)
+      setAgentSessionsHasMore(page.hasMore)
       setAgentSessionPinnedOverrides(previous => {
         const next = { ...previous }
         delete next[sessionId]
@@ -4151,6 +4210,8 @@ export function CodeWorkspace({
         fileRevealRequest={fileRevealRequest}
         fileSearchFocusRequest={fileSearchFocusRequest}
         projectListRef={projectListRef}
+        canLoadMoreAgentSessions={agentSessionsHasMore}
+        onLoadMoreAgentSessions={loadMoreAgentSessions}
         onNewAgent={startNewAgentFromSidebar}
         onStartAgent={startAgentWithLaunchProfile}
         onToggleSidebar={toggleSidebar}
@@ -4299,6 +4360,7 @@ export function CodeWorkspace({
         archivedRuns={visibleArchivedRuns}
         archivedAgents={visibleArchivedAgents}
         historyAgentSessions={visibleHistoryAgentSessions}
+        canLoadMoreHistoryAgentSessions={agentSessionsHasMore}
         now={now}
         acpComposerProps={{
           active: Boolean(activeAgent) && !activeAgentPermissionSwitching,
@@ -4307,6 +4369,9 @@ export function CodeWorkspace({
           runtimeError: activeAgent?.acpError || '',
           draft,
           attachments: composerAttachments,
+          composerMode,
+          contextWindow: activeAgentContextWindow,
+          pendingFollowUp: activePendingFollowUp ?? null,
           submitAction: acpComposerSubmitAction,
           textareaRef: composerTextareaRef,
           attachmentInputRef,
@@ -4322,10 +4387,15 @@ export function CodeWorkspace({
           onRemoveAttachment: removeComposerAttachment,
           onSubmit: submitAcpDraft,
           onInterrupt: interruptActiveAgent,
+          onDiscardPendingFollowUp: discardPendingFollowUp,
           onToggleSpeechInput: toggleSpeechInput,
           onPasteAttachment: handlePasteAttachment,
           onAttachmentFiles: handleAttachmentFiles,
           onChooseAttachmentFile: chooseAttachmentFile,
+          onActivateComposerMode: activateComposerMode,
+          onClearComposerMode: () => {
+            updateActiveComposerState(state => ({ ...state, mode: 'default' }))
+          },
           onRespondToPermission: respondToActiveAcpPermission,
         }}
         composerProps={{
@@ -4459,6 +4529,7 @@ export function CodeWorkspace({
         onSearchQueryChange={setSearchQuery}
         onSearchKeyDown={handleSearchInputKeyDown}
         onCloseSearch={closeSearchView}
+        onLoadMoreHistoryAgentSessions={loadMoreAgentSessions}
         onResumeHistorySession={resumeAgentSession}
         onContinueArchivedRun={continueArchivedRun}
         onOpenArchivedAgent={openArchivedAgent}

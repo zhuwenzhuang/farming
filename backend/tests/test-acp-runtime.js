@@ -1,6 +1,6 @@
 const assert = require('assert');
 const path = require('path');
-const { AcpRuntime, autoPermissionResponse, resolveAcpLaunch } = require('../acp-runtime');
+const { AcpRuntime, autoPermissionResponse, codexAcpEnvironment, resolveAcpLaunch } = require('../acp-runtime');
 const { AcpSessionState } = require('../acp-session-state');
 
 async function run() {
@@ -19,6 +19,22 @@ async function run() {
   assert.deepStrictEqual(autoPermissionResponse({
     options: [{ optionId: 'yes', kind: 'allow_once' }],
   }, 'full'), { outcome: { outcome: 'selected', optionId: 'yes' } });
+  const codexEnv = codexAcpEnvironment({
+    env: { KEEP: 'yes', CODEX_CONFIG: '{"existing":true}' },
+    approvalMode: 'full',
+    model: 'gpt-5.5',
+    reasoningEffort: 'xhigh',
+    serviceTier: 'priority',
+  });
+  assert.strictEqual(codexEnv.KEEP, 'yes');
+  assert.strictEqual(codexEnv.INITIAL_AGENT_MODE, 'agent-full-access');
+  assert.deepStrictEqual(JSON.parse(codexEnv.CODEX_CONFIG), {
+    existing: true,
+    model: 'gpt-5.5',
+    model_reasoning_effort: 'xhigh',
+    service_tier: 'priority',
+  });
+  assert.strictEqual(codexAcpEnvironment({ env: {}, approvalMode: 'ask' }).INITIAL_AGENT_MODE, 'read-only');
 
   const state = new AcpSessionState({ provider: 'codex', sessionId: 's1', cwd: '/tmp' });
   state.apply({ sessionId: 's1', update: {
@@ -59,6 +75,15 @@ async function run() {
   } });
   assert.strictEqual(sanitizedState.snapshot().entries[0].content[0].text, 'visible');
   assert.strictEqual(sanitizedState.snapshot().entries[0].internal, false);
+  sanitizedState.apply({ sessionId: 's2', update: {
+    sessionUpdate: 'agent_message_chunk',
+    messageId: 'a2',
+    content: {
+      type: 'text',
+      text: 'answer\n\n<oai-mem-citation>\n<citation_entries>MEMORY.md:1-2</citation_entries>\n<rollout_ids>thread-id</rollout_ids>\n</oai-mem-citation>',
+    },
+  } });
+  assert.strictEqual(sanitizedState.snapshot().entries[1].content[0].text, 'answer');
   const heartbeatState = new AcpSessionState({ provider: 'codex', sessionId: 's3', cwd: '/tmp' });
   heartbeatState.apply({ sessionId: 's3', update: {
     sessionUpdate: 'user_message_chunk',

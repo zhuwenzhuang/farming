@@ -1,7 +1,7 @@
 import type { Agent } from '@/types/agent'
 import { agentSessionId } from './model'
 import { createDefaultComposerHistoryState, type ComposerHistoryState } from './composer-history'
-import type { ComposerAttachment } from './composer-message'
+import type { ComposerAttachment, ComposerPromptAttachment } from './composer-message'
 import type { CodeModelPickerPane, ComposerMode } from './types'
 import { resumedAgentSessionIdFromSource } from './session-display'
 
@@ -9,6 +9,7 @@ export interface AgentComposerPendingFollowUpMessage {
   id: string
   text: string
   createdAt: number
+  attachments?: ComposerPromptAttachment[]
 }
 
 export interface AgentComposerPendingFollowUp {
@@ -51,7 +52,7 @@ export function createDefaultAgentComposerState(): AgentComposerState {
   }
 }
 
-export function createPendingFollowUpMessage(text: string): AgentComposerPendingFollowUpMessage {
+export function createPendingFollowUpMessage(text: string, attachments: ComposerPromptAttachment[] = []): AgentComposerPendingFollowUpMessage {
   const randomId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
@@ -59,6 +60,7 @@ export function createPendingFollowUpMessage(text: string): AgentComposerPending
     id: `pending-${randomId}`,
     text,
     createdAt: Date.now(),
+    ...(attachments.length > 0 ? { attachments } : {}),
   }
 }
 

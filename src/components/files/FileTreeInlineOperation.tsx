@@ -1,17 +1,20 @@
-import type { RefObject } from 'react'
+import { useLayoutEffect, type RefObject } from 'react'
+import {
+  workspaceFileOperationSelectionEnd,
+  type WorkspaceFileOperationState,
+} from '@/lib/workspace-file-operation-model'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
 import type { CodeCopy } from '../code/copy'
 
 interface FileTreeInlineOperationProps {
   agentId: string
   copy: CodeCopy
-  fileOperation: { name: string }
+  fileOperation: WorkspaceFileOperationState
   inputRef: RefObject<HTMLInputElement | null>
   item: WorkspaceFileTreeNode
   onCancel: () => void
   onInputName: (name: string) => void
   onSubmit: () => Promise<void>
-  onUpdateName: (name: string) => void
 }
 
 export function FileTreeInlineOperation({
@@ -23,8 +26,16 @@ export function FileTreeInlineOperation({
   onCancel,
   onInputName,
   onSubmit,
-  onUpdateName,
 }: FileTreeInlineOperationProps) {
+  useLayoutEffect(() => {
+    const input = inputRef.current
+    if (!input) return
+    input.focus({ preventScroll: true })
+    if (document.activeElement === input) {
+      input.setSelectionRange(0, workspaceFileOperationSelectionEnd(fileOperation))
+    }
+  }, [fileOperation.item?.path, inputRef])
+
   return (
     <form
       className="code-file-inline-operation"
@@ -47,7 +58,7 @@ export function FileTreeInlineOperation({
         type="text"
         inputMode="text"
         ref={inputRef}
-        value={fileOperation.name}
+        defaultValue={fileOperation.name}
         aria-label={copy.renameEntry(item.name)}
         autoComplete="off"
         aria-autocomplete="none"
@@ -62,9 +73,6 @@ export function FileTreeInlineOperation({
         data-form-type="other"
         onInput={event => {
           onInputName(event.currentTarget.value)
-        }}
-        onChange={event => {
-          onUpdateName(event.target.value)
         }}
         onKeyDown={event => {
           if (event.key === 'Escape') {

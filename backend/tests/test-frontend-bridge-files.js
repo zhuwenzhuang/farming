@@ -6,6 +6,7 @@ function run() {
   const terminalBridgePath = path.join(__dirname, '../../frontend/terminal-bridge.js');
   const skinBridgePath = path.join(__dirname, '../../frontend/skin-bridge.js');
   const runtimePathsPath = path.join(__dirname, '../../frontend/runtime-paths.js');
+  const sessionBridgePath = path.join(__dirname, '../../frontend/session-bridge.js');
   const indexHtmlPath = path.join(__dirname, '../../frontend/skins/crt/index.html');
   const effectsCssPath = path.join(__dirname, '../../frontend/skins/crt/styles/effects.css');
   const monochromeCssPath = path.join(__dirname, '../../frontend/skins/crt/styles/monochrome-green.css');
@@ -17,6 +18,7 @@ function run() {
   const terminalBridge = fs.readFileSync(terminalBridgePath, 'utf8');
   const skinBridge = fs.readFileSync(skinBridgePath, 'utf8');
   const runtimePaths = fs.readFileSync(runtimePathsPath, 'utf8');
+  const sessionBridge = fs.readFileSync(sessionBridgePath, 'utf8');
   const indexHtml = fs.readFileSync(indexHtmlPath, 'utf8');
   const effectsCss = fs.readFileSync(effectsCssPath, 'utf8');
   const monochromeCss = fs.readFileSync(monochromeCssPath, 'utf8');
@@ -41,6 +43,11 @@ function run() {
   );
   assert(skinBridge.includes('getSessionSkin'), 'skin bridge should expose session skin resolution');
   assert(runtimePaths.includes('FarmingRuntimePaths'), 'CRT runtime should expose base-path-aware URLs');
+  assert(
+    sessionBridge.includes('sendComposerMessage(agentId, message, attachments = [])') &&
+      sessionBridge.includes('...(attachments.length > 0 ? { attachments } : {})'),
+    'structured runtimes should preserve native ACP prompt attachments through the session bridge'
+  );
   assert(runtimePaths.includes("path('/ws')"), 'CRT runtime should connect to the base-path WebSocket');
   assert(
     indexHtml.indexOf('runtime-paths.js') < indexHtml.indexOf('terminal-bridge.js'),
@@ -69,29 +76,41 @@ function run() {
   assert(!effectsCss.includes('mix-blend-mode: multiply'), 'CRT static scanlines should not force full-screen blend recomposition');
   assert(indexHtml.includes('class="crt-scan-beam"'), 'CRT entry should render the lightweight scan beam');
   assert(indexHtml.includes('class="crt-phosphor-noise"'), 'CRT entry should render one shared procedural phosphor noise layer');
-  assert(indexHtml.includes('class="crt-scan-afterglow"'), 'CRT entry should retain a brighter region behind the scan beam');
-  assert(effectsCss.includes('animation: crt-scan-beam-cycle 6.7s'), 'CRT beam should follow the frequent lightweight reference cycle');
-  assert(effectsCss.includes('animation: crt-scan-afterglow-cycle 6.7s'), 'CRT afterglow should stay synchronized with the scan beam');
-  assert(effectsCss.includes('transform: scale3d(1, 1, 1)'), 'CRT afterglow should brighten the area already scanned');
-  assert(effectsCss.includes('height: clamp(180px, 30vh, 320px)'), 'CRT scan should use a long reference-shaped phosphor trail');
-  assert(effectsCss.includes('background: rgba(39, 225, 118, 0.026)'), 'CRT afterglow should stay perceptible without looking like an alert signal');
+  assert(!indexHtml.includes('class="crt-scan-afterglow"'), 'CRT entry should not retain a separate cumulative afterglow layer');
+  assert(effectsCss.includes('animation: crt-scan-beam-cycle 13s'), 'CRT beam should combine a five-second scan with an eight-second rest');
+  assert(effectsCss.includes('height: 300px'), 'CRT scan should use the reference-shaped 300px phosphor trail');
+  assert(effectsCss.includes('rgba(58, 208, 58, 0.16) 85%'), 'CRT scan trail should reach the reference peak brightness');
+  assert(effectsCss.includes('39.2615%') && effectsCss.includes('40.0615%'), 'CRT scan should move for five seconds and reset only after fading out');
   assert(!effectsCss.includes('#farming-crt:not(.no-crt)::after'), 'CRT should not darken the viewport edges with a vignette');
-  assert(effectsCss.includes('phosphor-noise.svg'), 'CRT scan trail should use an original static noise texture');
+  assert(effectsCss.includes('phosphor-noise.svg'), 'CRT screen surface should retain its original static noise texture');
   assert(effectsCss.includes('crt-content-afterimage 620ms'), 'CRT content changes should leave a short phosphor afterimage');
   assert(crtApp.includes('appendCrtPreviewAfterimage'), 'CRT previews should use event-driven phosphor decay');
   assert(indexHtml.includes('id="crt-structured-composer"'), 'CRT should expose a native composer for structured Agent runtimes');
-  assert(indexHtml.includes('class="crt-structured-input-prompt"') && indexHtml.includes('MESSAGE&gt;'), 'CRT structured input should use a terminal prompt instead of a boxed web form');
+  assert(!indexHtml.includes('crt-structured-input-prompt') && !indexHtml.includes('MESSAGE&gt;'), 'CRT structured input should not spend horizontal space on a redundant prompt label');
   assert(indexHtml.includes('id="crt-structured-input" rows="2"') && crtApp.includes('resizeStructuredComposerInput'), 'CRT structured input should grow to show multiline drafts');
+  assert(crtApp.includes('focusStructuredComposerToolbarButton') && crtApp.includes('focusStructuredComposerMenuButton'), 'CRT structured Composer should support layered keyboard navigation from the draft into inline controls');
+  assert(crtApp.includes('structuredComposerConfigId') && crtApp.includes('structuredConfigValueLabel'), 'CRT structured config should reveal categories before their individual values');
+  assert(crtApp.includes('structuredVisibleConfigOptions') && crtApp.includes("String(option && option.id || '').toLowerCase() !== 'mode'"), 'CRT structured config should not repeat the ACP mode control');
+  assert(crtApp.includes('backStructuredComposerMenu'), 'CRT structured config should return one keyboard level at a time');
+  assert(indexHtml.indexOf('id="crt-structured-composer-toolbar"') < indexHtml.indexOf('id="crt-structured-composer-menu"'), 'CRT structured control menus should expand below the toolbar');
+  assert(indexHtml.includes('.crt-structured-menu-item:hover small') && indexHtml.includes('.crt-structured-menu-item:focus-visible small') && indexHtml.includes('-webkit-line-clamp: 2'), 'CRT selected menu descriptions should stay compact and use readable reverse-video text for mouse and keyboard selection');
+  assert(indexHtml.includes('#farming-crt #crt-structured-send:disabled') && indexHtml.includes('background: rgba(0, 28, 12, 0.7)'), 'CRT structured Send should use a phosphor command state instead of the browser-native disabled button');
+  assert(indexHtml.includes('#crt-structured-send[data-action="interrupt"]'), 'CRT structured Send should retain a distinct interrupt command state');
   assert(crtApp.includes('structuredComposerCompositionEndAt'), 'CRT structured input should not submit the Enter used to confirm an IME composition');
   assert(crtApp.includes('navigateStructuredComposerHistory') && crtApp.includes('structuredComposerHistory'), 'CRT structured input should provide terminal-style draft history');
+  assert(crtApp.includes('structuredComposerPendingFollowUps') && crtApp.includes('queueStructuredComposerFollowUp'), 'CRT ACP Composer should queue follow-up messages instead of treating a second Enter as interrupt');
+  assert(crtApp.includes('structuredComposerRestoreFocusAfterInterrupt') && crtApp.includes('requestAnimationFrame(() => input.focus())'), 'CRT structured input should restore focus after an interrupt reaches a stable runtime state');
   assert(indexHtml.includes('id="crt-structured-attach"') && crtApp.includes('prepareStructuredAttachment'), 'CRT structured input should attach image and text context through the shared attachment format');
   assert(indexHtml.includes('id="crt-structured-command"') && crtApp.includes('availableCommands'), 'CRT structured input should expose ACP slash commands');
   assert(crtApp.includes("target.closest('#crt-structured-composer')"), 'CRT global clipboard handlers should leave structured input copy and paste native');
   assert(crtApp.includes('renderStructuredPermissions') && crtApp.includes('/acp-permission'), 'CRT structured input should surface ACP permission requests beside the prompt');
   assert(crtApp.includes('isStructuredRuntimeAgent') && crtApp.includes('sendComposerMessage'), 'CRT should not route ACP, JSON, or App Server Agents through PTY input');
-  assert(indexHtml.includes('id="crt-runtime-toggle"') && indexHtml.includes('id="crt-runtime-chat"') && indexHtml.includes('id="crt-runtime-terminal"'), 'CRT should expose symbolic Chat and Terminal runtime controls');
+  assert(indexHtml.includes('id="crt-runtime-toggle"') && indexHtml.includes('class="crt-runtime-glyph" aria-hidden="true">MSG</span>') && indexHtml.includes('class="crt-runtime-glyph" aria-hidden="true">TTY</span>'), 'CRT should expose retro MSG and TTY runtime controls');
   assert(crtApp.includes("body: JSON.stringify({ agentRuntimeMode: targetMode })"), 'CRT runtime controls should use the backend restart path');
-  assert(crtApp.includes('isCrtRuntimeSwitchShortcut') && indexHtml.includes('Ctrl+Shift+M'), 'CRT should expose a non-terminal runtime switch shortcut');
+  assert(crtApp.includes('isCrtRuntimeSwitchShortcut') && indexHtml.includes('class="crt-command-shortcut" aria-hidden="true">[ALT+M]</span>'), 'CRT should expose a visible non-terminal runtime switch shortcut');
+  assert(indexHtml.includes('class="kill-btn" aria-label="Kill Agent, Ctrl+K"') && indexHtml.includes('class="close-btn" aria-label="Close session, Ctrl+Escape"'), 'CRT Kill and Close should retain their original standalone button styles');
+  assert(indexHtml.includes('>KILL [CTRL+K]</button>') && indexHtml.includes('>CLOSE [CTRL+ESC]</button>'), 'CRT session actions should keep their original complete-button labels');
+  assert(indexHtml.includes('#farming-crt .session-header-actions > .kill-btn') && indexHtml.includes('height: 38px;') && indexHtml.includes('font-size: 16px;'), 'CRT session header controls should share one height and type size');
   assert(crtApp.includes("document.addEventListener('keydown', (event) => {") && crtApp.includes('}, true);'), 'CRT should capture the runtime shortcut before xterm sends it to the PTY');
   assert(crtApp.includes('[READ ONLY]') && terminalBridge.includes('disableStdin'), 'CRT should make exited terminal sessions explicitly read-only');
   assert(crtApp.includes('CRT_PREVIEW_RENDER_INTERVAL_MS = 1000'), 'CRT dashboard previews should batch to at most one visual update per second');
@@ -101,7 +120,7 @@ function run() {
   assert(!terminalBridge.includes('new WebglAddon(true)'), 'CRT should not preserve xterm\'s drawing buffer for post-processing');
   assert(!crtApp.includes('pulseSessionTerminalPhosphor'), 'CRT terminal output must not animate the xterm screen on the typing path');
   assert(!effectsCss.includes('crt-phosphor-noise-shift'), 'CRT phosphor noise should remain static to avoid continuous full-screen compositing');
-  assert(effectsCss.includes('#farming-crt.session-open .crt-scan-afterglow'), 'CRT should suspend moving scan layers while the user types in an opened terminal');
+  assert(effectsCss.includes('#farming-crt.session-open .crt-scan-beam'), 'CRT should suspend the broad scan beam while the user types in an opened terminal');
   assert(crtApp.includes("document.addEventListener('visibilitychange'") && crtApp.includes("window.addEventListener('pagehide'"), 'CRT should observe page visibility lifecycle events');
   assert(crtApp.includes('suspendCrtPageConnection') && crtApp.includes('wsReconnectTimer'), 'CRT should close hidden-page sockets and cancel reconnect work');
   assert(crtApp.includes('resumeCrtPageConnection') && crtApp.includes('refreshSessionView(true, activeAgentId'), 'CRT should reconnect and resync the focused terminal when visible again');
@@ -132,6 +151,14 @@ function run() {
   assert(crtApp.includes('renderCrtTerminalSnapshot(outputTail, agent.previewSnapshot)'), 'CRT previews should preserve terminal snapshot colors');
   assert(crtApp.includes("data.type === 'session-preview'") && crtApp.includes('terminalPreviewSnapshots.set'), 'CRT should consume backend color preview snapshots');
   assert(monochromeCss.includes('font-family: var(--crt-terminal-font)'), 'CRT Agent previews should use the readable terminal font stack');
+  assert(
+    monochromeCss.includes('#farming-crt #session-modal .modal-content') &&
+      monochromeCss.includes('#farming-crt #session-modal .crt-structured-composer') &&
+      monochromeCss.includes('#farming-crt:not(.no-crt) #session-modal .terminal') &&
+      monochromeCss.includes('#farming-crt #session-modal .terminal::before') &&
+      monochromeCss.includes('background: transparent;'),
+    'CRT session transcript and Composer should share the viewport scanline surface instead of painting a nested screen'
+  );
   assert(monochromeCss.includes('button:not(.workspace-history-item)'), 'CRT dialog button styling should not hide recent workspace paths');
   assert(indexHtml.includes('.key-hint') && indexHtml.includes('background: #00ff00'), 'CRT numeric keys should retain their original phosphor fill');
   assert(indexHtml.includes('text-shadow: 0 0 5px currentColor'), 'CRT interface should retain its original phosphor text glow');

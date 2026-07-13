@@ -159,6 +159,7 @@ interface CodeMainAreaProps {
   archivedRuns: TaskHistoryEntry[]
   archivedAgents: Agent[]
   historyAgentSessions: AgentSessionHistoryItem[]
+  canLoadMoreHistoryAgentSessions: boolean
   now: number
   composerProps: ComposerProps
   acpComposerProps: AcpComposerProps
@@ -177,6 +178,7 @@ interface CodeMainAreaProps {
   onSearchQueryChange: (value: string) => void
   onSearchKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void
   onCloseSearch: () => void
+  onLoadMoreHistoryAgentSessions: () => void
   onResumeHistorySession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onContinueArchivedRun: (entry: TaskHistoryEntry) => void
   onOpenArchivedAgent: (agentId: string) => void
@@ -225,6 +227,7 @@ export function CodeMainArea({
   archivedRuns,
   archivedAgents,
   historyAgentSessions,
+  canLoadMoreHistoryAgentSessions,
   now,
   composerProps,
   acpComposerProps,
@@ -243,6 +246,7 @@ export function CodeMainArea({
   onSearchQueryChange,
   onSearchKeyDown,
   onCloseSearch,
+  onLoadMoreHistoryAgentSessions,
   onResumeHistorySession,
   onContinueArchivedRun,
   onOpenArchivedAgent,
@@ -264,6 +268,11 @@ export function CodeMainArea({
 }: CodeMainAreaProps) {
   const [terminalComposerCollapsed, setTerminalComposerCollapsed] = useState(false)
   const [composerCollapseSupported, setComposerCollapseSupported] = useState(false)
+  const loadMoreHistoryNearEnd = useCallback((element: HTMLElement) => {
+    if (!canLoadMoreHistoryAgentSessions) return
+    const remaining = element.scrollHeight - element.scrollTop - element.clientHeight
+    if (remaining <= 320) onLoadMoreHistoryAgentSessions()
+  }, [canLoadMoreHistoryAgentSessions, onLoadMoreHistoryAgentSessions])
   const activeAgent = activeTerminalId
     ? visibleOpenAgents.find(agent => agent.id === activeTerminalId) || null
     : null
@@ -321,6 +330,7 @@ export function CodeMainArea({
         <section
           className={`code-side-view-panel ${activeView === 'search' ? 'code-search-view' : ''} ${activeView === 'history' ? 'code-history-view' : ''}`}
           data-testid="code-side-view-panel"
+          onScroll={activeView === 'history' ? event => loadMoreHistoryNearEnd(event.currentTarget) : undefined}
         >
           {activeView === 'search' ? (
             <SearchPanel

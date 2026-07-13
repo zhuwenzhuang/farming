@@ -422,13 +422,23 @@
     color: var(--crt-phosphor-bright) !important;
 }
 
-#farming-crt .terminal {
-    background:
-        radial-gradient(ellipse at 50% 44%, rgba(12, 204, 104, 0.055), transparent 62%),
-        #000;
-    box-shadow:
-        inset 0 0 42px rgba(12, 204, 104, 0.07),
-        0 0 10px rgba(12, 204, 104, 0.14);
+#farming-crt .terminal,
+#farming-crt:not(.no-crt) #session-modal .terminal {
+    background: transparent;
+    box-shadow: none;
+}
+
+#farming-crt #session-modal {
+    background: rgba(0, 4, 2, 0.52);
+}
+
+#farming-crt #session-modal .modal-content,
+#farming-crt #session-modal .crt-structured-composer {
+    background: transparent;
+}
+
+#farming-crt #session-modal .terminal::before {
+    display: none;
 }
 
 #farming-crt .terminal canvas {

@@ -30,6 +30,15 @@ export interface ComposerInputMessage {
   type: 'composer-input'
   message: string
   agentId?: string
+  attachments?: ComposerInputAttachment[]
+}
+
+export interface ComposerInputAttachment {
+  kind: 'image'
+  path: string
+  name: string
+  type: string
+  size: number
 }
 
 export interface AppServerRequestResponseMessage {

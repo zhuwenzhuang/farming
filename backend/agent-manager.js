@@ -834,6 +834,11 @@ class AgentManager extends EventEmitter {
       }
       try {
         const executable = resolveAgentExecutable(provider === 'claude' ? 'claude' : provider) || provider;
+        const approvalMode = agent.launchPermissionMode || (
+          provider === 'codex' && this.configManager.getCodexApprovalMode
+            ? this.configManager.getCodexApprovalMode()
+            : 'approve'
+        );
         const prepared = await this.acpRuntime.prepareAgent({
           agentId,
           provider,
@@ -842,7 +847,16 @@ class AgentManager extends EventEmitter {
           cwd: agent.cwd,
           sessionId,
           historyMode: 'load',
-          approvalMode: agent.launchPermissionMode || 'approve',
+          approvalMode,
+          model: this.configManager.getCodexModel
+            ? this.configManager.getCodexModel()
+            : '',
+          reasoningEffort: this.configManager.getCodexReasoningEffort
+            ? this.configManager.getCodexReasoningEffort()
+            : '',
+          serviceTier: this.configManager.getCodexServiceTier
+            ? this.configManager.getCodexServiceTier()
+            : '',
         });
         agent.providerSessionId = prepared.sessionId;
         agent.providerSessionTemporary = false;
@@ -2284,6 +2298,15 @@ class AgentManager extends EventEmitter {
           sessionId: agentRecord.providerSessionTemporary ? '' : agentRecord.providerSessionId,
           historyMode: options.acpHistoryMode === 'resume' ? 'resume' : 'load',
           approvalMode: agentRecord.launchPermissionMode || 'approve',
+          model: this.configManager && this.configManager.getCodexModel
+            ? this.configManager.getCodexModel()
+            : '',
+          reasoningEffort: this.configManager && this.configManager.getCodexReasoningEffort
+            ? this.configManager.getCodexReasoningEffort()
+            : '',
+          serviceTier: this.configManager && this.configManager.getCodexServiceTier
+            ? this.configManager.getCodexServiceTier()
+            : '',
         });
         agentRecord.providerSessionId = prepared.sessionId;
         agentRecord.providerSessionKey = this.providerSessionKey(
@@ -2414,8 +2437,15 @@ class AgentManager extends EventEmitter {
   async sendComposerMessageNow(agentId, message) {
     const agent = this.agents.get(agentId);
     if (!agent) throw new Error('Agent not found');
-    const text = String(message || '').trim();
-    if (!text) throw new Error('Composer message is empty');
+    const prompt = Array.isArray(message) ? message : [{ type: 'text', text: String(message || '') }];
+    const text = prompt
+      .filter(content => content?.type === 'text')
+      .map(content => String(content.text || ''))
+      .join('')
+      .trim();
+    if (prompt.length === 0 || (!text && !prompt.some(content => content?.type !== 'text'))) {
+      throw new Error('Composer message is empty');
+    }
 
     if (
       agent.providerSessionProvider === 'codex'
@@ -2446,7 +2476,7 @@ class AgentManager extends EventEmitter {
     }
 
     if (isAcpAgent(agent)) {
-      const result = await this.acpRuntime.prompt(agentId, text);
+      const result = await this.acpRuntime.prompt(agentId, prompt);
       agent.acpState = 'idle';
       agent.acpStopReason = result.stopReason || '';
       this.ensurePersistentAgentSession(agent);

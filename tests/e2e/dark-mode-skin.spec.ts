@@ -69,10 +69,11 @@ async function expectDarkSeparator(locator: import('@playwright/test').Locator, 
 
 async function chooseAppearance(page: import('@playwright/test').Page, appearance: 'Light' | 'Dark') {
   await page.getByTestId('code-sidebar-options').click()
-  const optionsMenu = page.getByTestId('code-options-menu')
-  await expect(optionsMenu).toBeVisible()
-  await optionsMenu.getByRole('menuitemradio', { name: `Appearance: ${appearance}` }).click()
+  const settingsPanel = page.getByTestId('code-settings-panel')
+  await expect(settingsPanel).toBeVisible()
+  await settingsPanel.getByRole('group', { name: 'Appearance' }).getByRole('button', { name: appearance, exact: true }).click()
   await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance.toLowerCase())
+  await settingsPanel.getByRole('button', { name: 'Close' }).click()
 }
 
 async function expectSurfaceBackground(
@@ -162,9 +163,9 @@ test.describe('Farming Code dark skin', () => {
     await saveScreenshot(testInfo, 'desktop-shell.png', page)
 
     await page.getByTestId('code-sidebar-options').click()
-    await expect(page.getByTestId('code-options-menu')).toBeVisible()
-    await expectDarkSurface(page.getByTestId('code-options-menu'), 'options menu')
-    await saveScreenshot(testInfo, 'options-menu.png', page.getByTestId('code-options-menu'))
+    await expect(page.getByTestId('code-settings-panel')).toBeVisible()
+    await expectDarkSurface(page.locator('.code-settings-panel'), 'settings panel')
+    await saveScreenshot(testInfo, 'options-menu.png', page.locator('.code-settings-panel'))
     await page.keyboard.press('Escape')
 
     await openNewAgentDialog(page)
@@ -273,6 +274,7 @@ test.describe('Farming Code dark skin', () => {
     await saveScreenshot(testInfo, 'model-menu.png', page.getByTestId('code-model-menu'))
     await page.keyboard.press('Escape')
 
+    await page.evaluate(() => document.body.classList.add('code-mobile-touch'))
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(page.getByTestId('code-mobile-topbar')).toBeVisible()
     await expectDarkSurface(page.getByTestId('code-mobile-topbar'), 'mobile topbar')

@@ -7,7 +7,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
-const { URLSearchParams } = require('url');
+const { URLSearchParams, pathToFileURL } = require('url');
 const AgentManager = require('./agent-manager');
 const ConfigManager = require('./config-manager');
 const ThemeManager = require('./theme-manager');
@@ -23,6 +23,7 @@ const {
   isSafeSessionId,
   listAgentSessions,
   normalizeProvider,
+  paginateAgentSessions,
 } = require('./agent-session-history');
 const {
   findActiveAgentClaimingSession,
@@ -128,16 +129,11 @@ function configuredProviderHomes() {
   return result;
 }
 
-const agentSessionsCache = new AsyncCache((key) => {
-  let parsed = {};
-  try {
-    parsed = JSON.parse(key);
-  } catch {
-    parsed = {};
-  }
+const agentSessionsCache = new AsyncCache(() => {
   return listAgentSessions({
-    limit: Number(parsed.limit) || 60,
-    scanLimit: Number(parsed.scanLimit) || undefined,
+    limit: 1000,
+    providerLimit: 1000,
+    scanLimit: 5000,
     providerHomes: configuredProviderHomes(),
   });
 }, {
@@ -718,20 +714,27 @@ app.get(routePath(BASE_PATH, '/api/agent-sessions'), async (req, res) => {
   try {
     const requestedLimit = Number(req.query.limit);
     const limit = Number.isFinite(requestedLimit) ? Math.max(0, Math.min(1000, requestedLimit)) : 60;
-    const requestedScanLimit = Number(req.query.scanLimit);
-    const scanLimit = Number.isFinite(requestedScanLimit) ? Math.max(limit, Math.min(5000, requestedScanLimit)) : undefined;
-    const sessions = await agentSessionsCache.get(JSON.stringify({ limit, scanLimit, homes: configManager.getSettings().agentHomes || {} }));
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : '';
+    const sessions = await agentSessionsCache.get(JSON.stringify(configManager.getSettings().agentHomes || {}));
+    const page = paginateAgentSessions(sessions, { limit: Math.max(1, limit), cursor });
+    if (page.invalidCursor) {
+      res.status(400).json({ error: 'Invalid Agent session cursor' });
+      return;
+    }
     const displayStateByKey = new Map(configManager.listAgentSessionRecords()
       .filter(record => record && record.providerSessionKey)
       .map(record => [record.providerSessionKey, record]));
     res.json({
-      sessions: sessions.map(session => {
+      sessions: page.sessions.map(session => {
         const key = mainPageAgentSessionKey(session.provider, session.id, session.providerHomeId);
         const displayState = displayStateByKey.get(key);
         return typeof displayState?.displayPinned === 'boolean'
           ? { ...session, pinned: displayState.displayPinned }
           : session;
       }),
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+      total: sessions.length,
     });
   } catch (error) {
     console.error('Failed to read agent sessions:', error);
@@ -1295,14 +1298,26 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
   }
 
   const startPromise = (async () => {
-    let session = await findAgentSession(normalizedProvider, sessionId, { limit: 200, providerHomeId, providerHomes: configuredProviderHomes() });
+    let session = await findAgentSession(normalizedProvider, sessionId, {
+      limit: 1000,
+      providerLimit: 1000,
+      scanLimit: 5000,
+      providerHomeId,
+      providerHomes: configuredProviderHomes(),
+    });
     if (session && session.archived && !shouldFork) {
       if (options.allowUnarchiveArchived === true && normalizedProvider === 'codex' && !requestedAsMain) {
         const unarchiveResult = await unarchiveCodexSession(sessionId, session);
         if (unarchiveResult.error) {
           return unarchiveResult;
         }
-        session = await findAgentSession(normalizedProvider, sessionId, { limit: 200, providerHomeId, providerHomes: configuredProviderHomes() }) || {
+        session = await findAgentSession(normalizedProvider, sessionId, {
+          limit: 1000,
+          providerLimit: 1000,
+          scanLimit: 5000,
+          providerHomeId,
+          providerHomes: configuredProviderHomes(),
+        }) || {
           ...session,
           archived: false,
         };
@@ -1627,9 +1642,34 @@ async function sendInputMessage(ws, data) {
 async function sendComposerInputMessage(ws, data) {
   const targetAgentId = resolveInputTargetAgentId(ws, data);
   const message = typeof data.message === 'string' ? data.message : '';
-  if (!targetAgentId || !message.trim()) return;
+  const content = [];
+  if (message.trim()) content.push({ type: 'text', text: message });
+  const attachmentsRoot = path.resolve(imageAttachmentsDir());
+  const attachments = Array.isArray(data.attachments) ? data.attachments.slice(0, 8) : [];
+  for (const attachment of attachments) {
+    if (attachment?.kind !== 'image' || typeof attachment.path !== 'string') continue;
+    const filePath = path.resolve(attachment.path);
+    if (!filePath.startsWith(`${attachmentsRoot}${path.sep}`)) continue;
+    const mimeType = typeof attachment.type === 'string' && /^image\/(?:png|jpe?g|gif|webp)$/i.test(attachment.type)
+      ? attachment.type.toLowerCase()
+      : '';
+    if (!mimeType) continue;
+    try {
+      const data = await fs.promises.readFile(filePath);
+      if (data.length === 0 || data.length > 12 * 1024 * 1024) continue;
+      content.push({
+        type: 'image',
+        data: data.toString('base64'),
+        mimeType,
+        uri: pathToFileURL(filePath).href,
+      });
+    } catch {
+      // The text fallback already explains failed or unavailable uploads.
+    }
+  }
+  if (!targetAgentId || content.length === 0) return;
   try {
-    await agentManager.sendComposerMessage(targetAgentId, message);
+    await agentManager.sendComposerMessage(targetAgentId, content);
   } catch (error) {
     ws.send(JSON.stringify({
       type: 'error',

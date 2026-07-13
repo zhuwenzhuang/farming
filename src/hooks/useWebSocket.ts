@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Agent, SystemStats, TaskHistoryEntry } from '@/types/agent'
-import type { AppServerRequestResponseMessage, ClientMessage, ComposerInputMessage, InputMessage, ServerMessage, StartAgentMessage, TerminalInputPart, WorkspaceFileEventMessage } from '@/types/messages'
+import type { AppServerRequestResponseMessage, ClientMessage, ComposerInputAttachment, ComposerInputMessage, InputMessage, ServerMessage, StartAgentMessage, TerminalInputPart, WorkspaceFileEventMessage } from '@/types/messages'
 import { appWsUrl } from '@/lib/base-path'
 import { isPageVisible, usePageVisibility } from '@/hooks/usePageVisibility'
 
@@ -93,8 +93,13 @@ export function useWebSocket() {
     return sendMessage(message)
   }, [sendMessage])
 
-  const sendComposerInput = useCallback((message: string, agentId?: string) => {
-    const input: ComposerInputMessage = { type: 'composer-input', message, agentId }
+  const sendComposerInput = useCallback((message: string, agentId?: string, attachments: ComposerInputAttachment[] = []) => {
+    const input: ComposerInputMessage = {
+      type: 'composer-input',
+      message,
+      agentId,
+      ...(attachments.length > 0 ? { attachments } : {}),
+    }
     return sendMessage(input)
   }, [sendMessage])
 

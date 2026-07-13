@@ -145,6 +145,8 @@ interface CodeSidebarProps {
   fileRevealRequest: { agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null
   fileSearchFocusRequest: { agentId: string; requestId: number; query?: string } | null
   projectListRef: RefObject<HTMLDivElement | null>
+  canLoadMoreAgentSessions: boolean
+  onLoadMoreAgentSessions: () => void
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
   onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string }) => void
   onToggleSidebar: () => void
@@ -201,6 +203,8 @@ export function CodeSidebar({
   fileRevealRequest,
   fileSearchFocusRequest,
   projectListRef,
+  canLoadMoreAgentSessions,
+  onLoadMoreAgentSessions,
   onNewAgent,
   onStartAgent,
   onToggleSidebar,
@@ -245,6 +249,11 @@ export function CodeSidebar({
   const [focusModeActive, setFocusModeActive] = useState(false)
   const [focusModeSupported, setFocusModeSupported] = useState(false)
   const [rootFilesCollapsed, setRootFilesCollapsed] = useState(false)
+  const loadMoreNearProjectListEnd = useCallback((element: HTMLDivElement) => {
+    if (!canLoadMoreAgentSessions) return
+    const remaining = element.scrollHeight - element.scrollTop - element.clientHeight
+    if (remaining <= 240) onLoadMoreAgentSessions()
+  }, [canLoadMoreAgentSessions, onLoadMoreAgentSessions])
   const clearPreviewTimer = useCallback(() => {
     if (previewTimerRef.current === null) return
     window.clearTimeout(previewTimerRef.current)
@@ -466,6 +475,7 @@ export function CodeSidebar({
         ref={projectListRef}
         tabIndex={0}
         onKeyDown={onProjectListKeyDown}
+        onScroll={event => loadMoreNearProjectListEnd(event.currentTarget)}
         aria-label={copy.projectsAndAgents}
       >
         {!hasProjectListItems && (

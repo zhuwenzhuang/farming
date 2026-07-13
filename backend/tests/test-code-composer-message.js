@@ -3,7 +3,9 @@ const {
   appendDraftBlock,
   clipboardImageFiles,
   composerAttachmentMessageBlocks,
+  composerMessageForAcp,
   composerMessageWithAttachments,
+  composerPromptAttachments,
   fileDisplayName,
   formatAttachedFile,
   formatAttachedImage,
@@ -25,6 +27,27 @@ function run() {
     appendDraftBlock('hello', 'world\n'),
     'hello\n\nworld',
     'draft blocks should be separated by one blank line'
+  );
+  const readyImage = {
+    kind: 'image',
+    status: 'ready',
+    path: '/tmp/a.png',
+    name: 'a.png',
+    type: 'image/png',
+    size: 12,
+    messageBlock: 'Attached image: a.png\n\nImage path: /tmp/a.png',
+  };
+  assert.strictEqual(composerMessageForAcp('Please inspect', [readyImage]), 'Please inspect');
+  assert.deepStrictEqual(composerPromptAttachments([readyImage]), [{
+    kind: 'image',
+    path: '/tmp/a.png',
+    name: 'a.png',
+    type: 'image/png',
+    size: 12,
+  }]);
+  assert.strictEqual(
+    composerMessageForAcp('', [{ ...readyImage, status: 'error', path: undefined, messageBlock: 'upload failed' }]),
+    'upload failed'
   );
   assert.strictEqual(appendDraftBlock('hello', '   '), 'hello');
 

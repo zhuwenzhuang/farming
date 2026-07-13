@@ -97,6 +97,7 @@ export function AgentWorkPane({
       ) : null}
       {!chatMode ? (
         <div
+          key="terminal"
           className="code-agent-work-view terminal active"
           data-testid="code-agent-terminal-view"
           aria-hidden={false}
@@ -118,6 +119,7 @@ export function AgentWorkPane({
       ) : null}
       {chatMode ? (
         <div
+          key="chat"
           className="code-agent-work-view transcript active"
           data-testid="code-agent-chat-view"
           aria-hidden={false}

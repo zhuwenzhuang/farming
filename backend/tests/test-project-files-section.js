@@ -806,8 +806,8 @@ function run() {
 		      !fileSectionSource.includes('workspaceFileContextMenuPosition') &&
 		      !fileSectionSource.includes('workspaceFileOperationTargetDirectory') &&
 		      !fileSectionSource.includes('navigator.clipboard?.writeText(item.path)') &&
-		      fileOperationControllerSource.includes('workspaceFileOperationSelectionEnd(fileOperation)') &&
-		      !fileSectionSource.includes('workspaceFileOperationSelectionEnd(fileOperation)') &&
+	      fileTreeInlineOperationSource.includes('workspaceFileOperationSelectionEnd(fileOperation)') &&
+	      !fileSectionSource.includes('workspaceFileOperationSelectionEnd(fileOperation)') &&
 		      fileOperationControllerSource.includes('workspaceFileOperationSubmitName(operation)') &&
 	      !fileSectionSource.includes('workspaceFileOperationSubmitName(operation)') &&
 	      fileOperationDialogSource.includes('workspaceFileOperationTitle(fileOperation, copy)') &&
@@ -824,10 +824,9 @@ function run() {
       fileOperationModelSource.includes("const extensionIndex = operation.name.lastIndexOf('.')") &&
 	      fileOperationControllerSource.includes('const closeInlineOperationOnEscape = (event: KeyboardEvent) =>') &&
 	      !fileSectionSource.includes('const closeInlineOperationOnEscape = (event: KeyboardEvent) =>') &&
-	      fileOperationControllerSource.includes('const selectInputName = () =>') &&
-	      fileOperationControllerSource.includes('input.setSelectionRange(0, selectionEnd)') &&
-	      fileOperationControllerSource.includes('window.setTimeout(selectInputName, 40)') &&
-	      !fileSectionSource.includes('const selectInputName = () =>') &&
+	      fileTreeInlineOperationSource.includes('input.setSelectionRange(0, workspaceFileOperationSelectionEnd(fileOperation))') &&
+      fileTreeInlineOperationSource.includes('defaultValue={fileOperation.name}') &&
+      !fileTreeInlineOperationSource.includes('value={fileOperation.name}') &&
       fileTreeInlineOperationSource.includes('ref={inputRef}') &&
       !fileSectionSource.includes('startHeaderFileOperation') &&
       !fileSectionSource.includes('focusedOperationItem') &&

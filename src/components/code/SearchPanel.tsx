@@ -85,7 +85,7 @@ export function SearchPanel({
         )}
       </div>
       {hasQuery && resultCount === 0 ? (
-        <div className="code-empty-workspace">
+        <div className="code-empty-workspace" data-testid="code-empty-search">
           <h2>{copy.noMatchingAgents}</h2>
         </div>
       ) : hasQuery ? (

@@ -37,6 +37,72 @@ function timestampMs(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function agentSessionIdentity(session) {
+  return [
+    String(session?.provider || ''),
+    String(session?.providerHomeId || 'default'),
+    String(session?.id || ''),
+  ].join('\u0000');
+}
+
+function compareAgentSessions(a, b) {
+  const timeDelta = timestampMs(b?.updatedAt || b?.createdAt) - timestampMs(a?.updatedAt || a?.createdAt);
+  return timeDelta || agentSessionIdentity(a).localeCompare(agentSessionIdentity(b));
+}
+
+function encodeAgentSessionCursor(session) {
+  if (!session?.provider || !session?.id) return '';
+  return Buffer.from(JSON.stringify({
+    version: 1,
+    provider: String(session.provider),
+    providerHomeId: String(session.providerHomeId || 'default'),
+    id: String(session.id),
+    updatedAt: String(session.updatedAt || session.createdAt || ''),
+  })).toString('base64url');
+}
+
+function decodeAgentSessionCursor(value) {
+  try {
+    const parsed = JSON.parse(Buffer.from(String(value || ''), 'base64url').toString('utf8'));
+    if (parsed?.version !== 1 || !parsed.provider || !parsed.id) return null;
+    return {
+      provider: String(parsed.provider),
+      providerHomeId: String(parsed.providerHomeId || 'default'),
+      id: String(parsed.id),
+      updatedAt: String(parsed.updatedAt || ''),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function paginateAgentSessions(sessions, options = {}) {
+  const limit = Number.isFinite(options.limit)
+    ? Math.max(1, Math.min(MAX_AGENT_SESSION_HISTORY_LIMIT, Math.floor(options.limit)))
+    : DEFAULT_LIMIT;
+  const cursorValue = String(options.cursor || '').trim();
+  let start = 0;
+  if (cursorValue) {
+    const cursor = decodeAgentSessionCursor(cursorValue);
+    if (!cursor) return { sessions: [], nextCursor: '', hasMore: false, invalidCursor: true };
+    const exactIndex = sessions.findIndex(session => agentSessionIdentity(session) === agentSessionIdentity(cursor));
+    if (exactIndex >= 0) {
+      start = exactIndex + 1;
+    } else {
+      const nextIndex = sessions.findIndex(session => compareAgentSessions(session, cursor) > 0);
+      start = nextIndex >= 0 ? nextIndex : sessions.length;
+    }
+  }
+  const page = sessions.slice(start, start + limit);
+  const hasMore = start + page.length < sessions.length;
+  return {
+    sessions: page,
+    nextCursor: hasMore && page.length > 0 ? encodeAgentSessionCursor(page[page.length - 1]) : '',
+    hasMore,
+    invalidCursor: false,
+  };
+}
+
 function isAgentManagedWorktree(workspace) {
   const value = normalizePathValue(workspace);
   return value.includes(`${path.sep}.codex${path.sep}worktrees${path.sep}`)
@@ -190,7 +256,7 @@ function scheduleFromClaudeEvent(event, sessionId) {
   return null;
 }
 
-async function collectRecentFiles(root, extension, limit) {
+async function collectRecentFiles(root, extension, limit, acceptFile = () => true) {
   const directories = [root];
   let files = [];
   let visitedDirectories = 0;
@@ -213,7 +279,7 @@ async function collectRecentFiles(root, extension, limit) {
       const fullPath = path.join(directory, entry.name);
       if (entry.isDirectory()) {
         directories.push(fullPath);
-      } else if (entry.isFile() && entry.name.endsWith(extension)) {
+      } else if (entry.isFile() && entry.name.endsWith(extension) && acceptFile(fullPath)) {
         let mtimeMs = 0;
         try {
           mtimeMs = (await fsp.stat(fullPath)).mtimeMs;
@@ -517,7 +583,15 @@ async function listQoderSessions(options = {}) {
   const scanLimit = Number.isFinite(options.scanLimit)
     ? Math.max(limit, Math.min(MAX_AGENT_SESSION_SCAN_LIMIT, Math.floor(options.scanLimit)))
     : DEFAULT_SCAN_LIMIT;
-  const sessionFiles = await collectRecentFiles(path.join(qoderHome, 'projects'), '.jsonl', scanLimit);
+  const projectsRoot = path.join(qoderHome, 'projects');
+  // Child-agent transcripts live deeper under <project>/<session-id>/subagents
+  // and may repeat the parent id, so only count direct project session files.
+  const sessionFiles = await collectRecentFiles(
+    projectsRoot,
+    '.jsonl',
+    scanLimit,
+    filePath => path.relative(projectsRoot, filePath).split(path.sep).length === 2
+  );
 
   const sessions = [];
   for (const { filePath, mtimeMs } of sessionFiles) {
@@ -746,7 +820,7 @@ async function listAgentSessions(options = {}) {
   }
 
   return sessions
-    .sort((a, b) => timestampMs(b.updatedAt) - timestampMs(a.updatedAt))
+    .sort(compareAgentSessions)
     .slice(0, limit);
 }
 
@@ -767,6 +841,7 @@ async function findAgentSession(provider, sessionId, options = {}) {
 
 module.exports = {
   buildAgentSessionResumeCommand,
+  compareAgentSessions,
   findAgentSession,
   hasTemporaryWorkspaceReference,
   isAgentManagedWorktree,
@@ -779,4 +854,5 @@ module.exports = {
   listOpenCodeSessions,
   listQoderSessions,
   normalizeProvider,
+  paginateAgentSessions,
 };

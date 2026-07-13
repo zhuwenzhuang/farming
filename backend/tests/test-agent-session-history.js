@@ -13,6 +13,7 @@ const {
   listClaudeSessions,
   listOpenCodeSessions,
   listQoderSessions,
+  paginateAgentSessions,
 } = require('../agent-session-history');
 
 async function run() {
@@ -227,6 +228,17 @@ async function run() {
       lastPrompt: 'Inspect qoder history again',
     }),
   ].join('\n'));
+  const qoderSubagentDir = path.join(qoderProjectDir, qoderId, 'subagents');
+  fs.mkdirSync(qoderSubagentDir, { recursive: true });
+  fs.writeFileSync(path.join(qoderSubagentDir, 'agent-aExplore.jsonl'), [
+    JSON.stringify({
+      type: 'user',
+      sessionId: qoderId,
+      cwd: '/repo/qoder/packages/api',
+      timestamp: '2026-06-28T10:50:03.000Z',
+      message: 'Child-agent prompt that must not replace the parent history row',
+    }),
+  ].join('\n'));
   fs.writeFileSync(path.join(qoderTempProjectDir, `${tempQoderId}.jsonl`), [
     JSON.stringify({
       type: 'user',
@@ -344,6 +356,26 @@ async function run() {
   assert.strictEqual(buildAgentSessionResumeCommand('opencode', openCodeId, { fork: true }), `opencode --session ${openCodeId} --fork`);
   assert.strictEqual(buildAgentSessionResumeCommand('codex', 'tmp_uuid_11111111-2222-4333-8444-555555555555'), '');
   assert.strictEqual(buildAgentSessionResumeCommand('unknown', claudeId), '');
+
+  const pagedSessions = [
+    { provider: 'codex', providerHomeId: 'default', id: 'page-3', updatedAt: '2026-06-28T12:03:00.000Z' },
+    { provider: 'qoder', providerHomeId: 'default', id: 'page-2', updatedAt: '2026-06-28T12:02:00.000Z' },
+    { provider: 'opencode', providerHomeId: 'default', id: 'page-1', updatedAt: '2026-06-28T12:01:00.000Z' },
+  ];
+  const firstPage = paginateAgentSessions(pagedSessions, { limit: 2 });
+  assert.deepStrictEqual(firstPage.sessions.map(session => session.id), ['page-3', 'page-2']);
+  assert.strictEqual(firstPage.hasMore, true);
+  assert(firstPage.nextCursor);
+  const secondPage = paginateAgentSessions(pagedSessions, { limit: 2, cursor: firstPage.nextCursor });
+  assert.deepStrictEqual(secondPage.sessions.map(session => session.id), ['page-1']);
+  assert.strictEqual(secondPage.hasMore, false);
+  assert.strictEqual(secondPage.nextCursor, '');
+  const insertedBeforeCursor = paginateAgentSessions([
+    { provider: 'claude', providerHomeId: 'default', id: 'page-4', updatedAt: '2026-06-28T12:04:00.000Z' },
+    ...pagedSessions,
+  ], { limit: 2, cursor: firstPage.nextCursor });
+  assert.deepStrictEqual(insertedBeforeCursor.sessions.map(session => session.id), ['page-1']);
+  assert.strictEqual(paginateAgentSessions(pagedSessions, { cursor: 'not-a-cursor' }).invalidCursor, true);
 
   fs.rmSync(root, { recursive: true, force: true });
   console.log('✓ Agent session history unifies Codex, Claude, OpenCode, and Qoder metadata');

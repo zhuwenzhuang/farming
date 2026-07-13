@@ -338,7 +338,7 @@ test.describe('permission switching', () => {
     await agentRow(page, codexAgentId).click()
     await page.getByRole('button', { name: 'Terminal' }).click()
     await expect(page.getByTestId('code-agent-terminal-view')).toHaveClass(/active/)
-    await expect(page.getByTestId('code-agent-chat-view')).toHaveClass(/hidden/)
+    await expect(page.getByTestId('code-agent-chat-view')).toHaveCount(0)
     await page.getByTestId('code-composer-approval').click()
     await page.getByTestId('code-approval-menu').getByRole('menuitemradio', { name: /Full access/ }).click()
 
@@ -358,6 +358,6 @@ test.describe('permission switching', () => {
     await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
     await agentRow(page, restartedAgentId).click()
     await expect(page.getByTestId('code-agent-terminal-view')).toHaveClass(/active/)
-    await expect(page.getByTestId('code-agent-chat-view')).toHaveClass(/hidden/)
+    await expect(page.getByTestId('code-agent-chat-view')).toHaveCount(0)
   })
 })

@@ -12,7 +12,7 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: 'Courier New', monospace;
             background: #0f0f0f;
@@ -24,7 +24,7 @@
             text-shadow: 0 0 5px currentColor;
             border: 1px solid #00ff00;
         }
-        
+
         .top-bar {
             background: #2a2a2a;
             padding: 4px 15px;
@@ -33,39 +33,44 @@
             border-bottom: 1px solid #00ff00;
             font-size: 12px;
         }
-        
+
         .top-bar-item {
             padding: 2px 8px;
             background: transparent;
             margin-right: 10px;
             font-size: 12px;
         }
-        
+
         .top-bar-item.system-ip {
             margin-left: auto;
         }
-        
+
         .main-container {
             flex: 1;
             display: flex;
             position: relative;
+            min-height: 0;
+            overflow: hidden;
         }
-        
+
         .map-area {
             flex: 1;
             padding: 20px;
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            grid-template-rows: repeat(var(--crt-agent-page-rows, 1), minmax(0, 1fr));
             gap: 15px;
-            overflow-y: auto;
+            min-width: 0;
+            min-height: 0;
+            overflow: hidden;
             position: relative;
             z-index: 1;
         }
-        
+
         .map-area.hidden {
             display: none;
         }
-        
+
         .agent-block {
             border: 1px solid #00ff00;
             background: #0a0a0a;
@@ -77,32 +82,32 @@
             flex-direction: column;
             overflow: hidden;
         }
-        
+
         .agent-block:hover {
             background: #3a3a3a;
         }
-        
+
         .agent-block.hot {
             border-color: #ff0000;
         }
-        
+
         .agent-block.warm {
             border-color: #ff8800;
         }
-        
+
         .agent-block.cool {
             border-color: #0088ff;
         }
-        
+
         .agent-block.cold {
             border-color: #004488;
         }
-        
+
         .agent-block.stopped {
             border-color: #444;
             opacity: 0.5;
         }
-        
+
         .agent-header {
             font-weight: bold;
             margin-bottom: 5px;
@@ -112,7 +117,7 @@
             text-overflow: ellipsis;
             flex: 0 0 auto;
         }
-        
+
         .agent-status {
             font-size: 12px;
             margin-bottom: 5px;
@@ -122,7 +127,7 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        
+
         .agent-output {
             font-size: 11px;
             flex: 1 1 auto;
@@ -150,16 +155,16 @@
             min-height: 1em;
             white-space: pre;
         }
-        
+
         .agent-block.working .agent-output {
             animation: blink 0.5s infinite;
         }
-        
+
         @keyframes blink {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.8; }
         }
-        
+
         .sidebar {
             width: 200px;
             background: #2a2a2a;
@@ -167,15 +172,17 @@
             border-left: 1px solid #00ff00;
             display: flex;
             flex-direction: column;
+            min-height: 0;
+            overflow-y: auto;
         }
-        
+
         .sidebar-main-agent {
             border: 1px solid #ff0000;
             background: #1a1a1a;
             margin-bottom: 15px;
             flex-shrink: 0;
         }
-        
+
         .sidebar-main-agent-header {
             background: #2a2a2a;
             padding: 8px;
@@ -184,22 +191,22 @@
             color: #ff0000;
             font-size: 12px;
         }
-        
+
         .sidebar-main-agent-content {
             padding: 10px;
             cursor: pointer;
             max-height: 120px;
             overflow: hidden;
         }
-        
+
         .sidebar-main-agent-content:hover {
             background: #2a2a2a;
         }
-        
+
         .sidebar-actions {
             flex: 1;
         }
-        
+
         .sidebar-item {
             padding: 10px;
             margin: 5px 0;
@@ -207,11 +214,11 @@
             cursor: pointer;
             background: #1a1a1a;
         }
-        
+
         .sidebar-item:hover {
             background: #3a3a3a;
         }
-        
+
         .sidebar-item .key {
             color: #00ffff;
             font-weight: bold;
@@ -228,13 +235,13 @@
             background: rgba(0, 0, 0, 0.8);
             z-index: 10001;
         }
-        
+
         .modal.active {
             display: flex;
             justify-content: center;
             align-items: center;
         }
-        
+
         .modal-content {
             width: min(92vw, 1600px);
             max-width: 1600px;
@@ -249,7 +256,7 @@
             overflow: hidden;
             position: relative;
         }
-        
+
         .modal-header {
             padding: 10px;
             background: #2a2a2a;
@@ -279,54 +286,102 @@
             justify-content: flex-end;
         }
 
-        .crt-runtime-toggle {
-            display: inline-flex;
-            gap: 0 !important;
-            border: 1px solid #00cc66;
-            box-shadow: 0 0 7px rgba(0, 255, 102, 0.22);
+        #farming-crt .session-header-actions {
+            align-items: center;
+            gap: 10px;
         }
 
-        .crt-runtime-toggle[hidden] {
+        #farming-crt .session-header-actions > .kill-btn,
+        #farming-crt .session-header-actions > .close-btn {
+            height: 38px;
+            margin-left: 0;
+            padding: 0 14px;
+            font-size: 16px;
+            line-height: 1;
+        }
+
+        #farming-crt .crt-runtime-control {
+            display: inline-flex;
+            align-items: stretch;
+            height: 38px;
+            min-height: 38px;
+            margin: 0;
+            overflow: hidden;
+            border: 1px solid var(--crt-phosphor, #00cc66);
+            color: var(--crt-phosphor, #00cc66);
+            background: #030806;
+            box-shadow:
+                0 0 7px rgba(0, 255, 102, 0.24),
+                inset 0 0 7px rgba(0, 255, 102, 0.08);
+            font-family: var(--crt-font, 'Courier New', monospace);
+            font-size: 16px;
+            line-height: 1;
+            white-space: nowrap;
+            text-shadow: none;
+        }
+
+        #farming-crt .crt-runtime-control[hidden] {
             display: none;
         }
 
-        .crt-runtime-toggle button {
+        #farming-crt .crt-runtime-control button,
+        #farming-crt .crt-command-shortcut {
             display: grid;
             place-items: center;
-            width: 34px;
-            height: 28px;
-            padding: 0;
+            height: 100%;
             border: 0;
             border-radius: 0;
-            color: #00cc66;
+            font: inherit;
+            line-height: 1;
+        }
+
+        #farming-crt .crt-runtime-control button {
+            width: 46px;
+            padding: 0;
+            color: var(--crt-phosphor, #00cc66);
             background: #030806;
             cursor: pointer;
         }
 
-        .crt-runtime-toggle button + button {
-            border-left: 1px solid #00cc66;
+        #farming-crt .crt-runtime-control button + button,
+        #farming-crt .crt-command-shortcut {
+            border-left: 1px solid var(--crt-phosphor, #00cc66);
         }
 
-        .crt-runtime-toggle button.active {
+        #farming-crt .crt-runtime-control button.active,
+        #farming-crt .crt-runtime-control button:hover:not(:disabled) {
             color: #001409;
-            background: #00cc66;
-            box-shadow: 0 0 8px rgba(0, 255, 102, 0.42);
+            background: var(--crt-phosphor-bright, #55f59b);
+            box-shadow: inset 0 0 8px rgba(0, 255, 102, 0.48);
         }
 
-        .crt-runtime-toggle button:hover:not(:disabled) {
-            color: #001409;
-            background: #55f59b;
-        }
-
-        .crt-runtime-toggle button:disabled {
+        #farming-crt .crt-runtime-control button:disabled {
             cursor: wait;
             opacity: 0.62;
         }
 
-        .crt-runtime-toggle svg {
-            width: 18px;
-            height: 18px;
-            fill: currentColor;
+        #farming-crt .crt-runtime-glyph {
+            font-size: inherit;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+        }
+
+        #farming-crt .crt-command-shortcut {
+            padding: 0 15px;
+            color: var(--crt-phosphor-bright, #55f59b);
+            background: #030806;
+            font-size: inherit;
+            letter-spacing: 0.02em;
+        }
+
+        #farming-crt .crt-runtime-control:hover {
+            box-shadow:
+                0 0 10px rgba(0, 255, 102, 0.42),
+                inset 0 0 9px rgba(0, 255, 102, 0.12);
+        }
+
+        #farming-crt .crt-runtime-control:hover .crt-command-shortcut {
+            background: #06150d;
         }
 
         .crt-runtime-switch-status {
@@ -512,11 +567,17 @@
             color: #00ff00;
         }
 
-        .crt-structured-menu-items,
         .crt-structured-permission-actions {
             display: flex;
             flex-wrap: wrap;
             gap: 6px;
+        }
+
+        .crt-structured-menu-items {
+            display: grid;
+            gap: 4px;
+            max-height: min(240px, 36vh);
+            overflow-y: auto;
         }
 
         .crt-structured-menu-item,
@@ -548,12 +609,38 @@
             color: #001a08;
         }
 
+        .crt-structured-menu-item {
+            width: 100%;
+            text-align: left;
+        }
+
+        .crt-structured-menu-item:hover,
+        .crt-structured-menu-item:focus-visible,
+        .crt-structured-tool:focus-visible {
+            background: #00ff00;
+            color: #001a08;
+            text-shadow: none;
+        }
+
         .crt-structured-menu-item small,
         .crt-structured-permission p {
             display: block;
             margin: 3px 0 0;
             color: #7d9b86;
             font-size: 11px;
+        }
+
+        .crt-structured-menu-item small {
+            display: -webkit-box;
+            overflow: hidden;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+        }
+
+        .crt-structured-menu-item.active small,
+        .crt-structured-menu-item:hover small,
+        .crt-structured-menu-item:focus-visible small {
+            color: #001a08;
         }
 
         .crt-structured-attachments {
@@ -580,19 +667,11 @@
         }
 
         .crt-structured-input-field {
-            display: grid;
-            grid-template-columns: auto minmax(0, 1fr);
-            gap: 10px;
-            align-items: start;
+            display: block;
             min-width: 0;
             padding: 7px 0;
             border-bottom: 1px solid rgba(0, 255, 0, 0.34);
             color: #00cc66;
-        }
-
-        .crt-structured-input-prompt {
-            padding-top: 2px;
-            white-space: nowrap;
         }
 
         .crt-structured-composer textarea {
@@ -624,6 +703,50 @@
             opacity: 0.55;
         }
 
+        #farming-crt #crt-structured-send {
+            min-width: 132px;
+            min-height: 34px;
+            margin: 0 0 7px;
+            padding: 5px 12px;
+            border: 1px solid #00ff00;
+            border-radius: 0;
+            color: #001a08;
+            background: #00ff00;
+            box-shadow:
+                0 0 7px rgba(0, 255, 0, 0.34),
+                inset 0 0 6px rgba(210, 255, 220, 0.24);
+            font: inherit;
+            font-weight: 700;
+            text-transform: uppercase;
+            text-shadow: none;
+            cursor: pointer;
+        }
+
+        #farming-crt #crt-structured-send:hover:not(:disabled),
+        #farming-crt #crt-structured-send:focus-visible {
+            background: #55f59b;
+            outline: none;
+            box-shadow:
+                0 0 11px rgba(0, 255, 0, 0.52),
+                inset 0 0 8px rgba(255, 255, 255, 0.28);
+        }
+
+        #farming-crt #crt-structured-send:disabled {
+            border-color: #205c39;
+            color: #2d7650;
+            background: rgba(0, 28, 12, 0.7);
+            box-shadow: inset 0 0 6px rgba(0, 255, 0, 0.06);
+            opacity: 1;
+            cursor: default;
+        }
+
+        #farming-crt #crt-structured-send[data-action="interrupt"] {
+            border-color: #ff3030;
+            color: #190000;
+            background: #ff3b30;
+            box-shadow: 0 0 8px rgba(255, 48, 48, 0.42);
+        }
+
         .crt-structured-composer-status {
             grid-column: 1 / -1;
             color: #7d9b86;
@@ -650,7 +773,7 @@
         .crt-structured-file-input {
             display: none;
         }
-        
+
         .empty-state {
             display: flex;
             justify-content: center;
@@ -658,15 +781,15 @@
             flex: 1;
             flex-direction: column;
         }
-        
+
         .empty-state h2 {
             margin-bottom: 20px;
         }
-        
+
         .modal.active {
             z-index: 10001;
         }
-        
+
         .input-dialog {
             display: none;
             position: fixed;
@@ -692,7 +815,7 @@
         .input-dialog.active {
             display: flex;
         }
-        
+
         .input-dialog-content {
             background: #1a1a1a;
             border: 1px solid #00ff00;
@@ -701,12 +824,12 @@
             max-height: 80vh;
             overflow-y: auto;
         }
-        
+
         .input-dialog-content h3 {
             margin-bottom: 15px;
             color: #00ff00;
         }
-        
+
         .input-dialog-content button {
             background: #00ff00;
             color: #1a1a1a;
@@ -716,28 +839,28 @@
             font-family: 'Courier New', monospace;
             margin-right: 10px;
         }
-        
+
         .input-dialog-content button:hover {
             background: #00cc00;
         }
-        
+
         .input-dialog-content button:disabled {
             background: #555;
             color: #888;
             cursor: not-allowed;
         }
-        
+
         .input-dialog-content .close-btn {
             background: #00ff00 !important;
             color: #1a1a1a !important;
             border: none !important;
             padding: 10px 20px;
         }
-        
+
         .input-dialog-content .close-btn:hover {
             background: #00cc00 !important;
         }
-        
+
         .agent-list {
             margin-top: 15px;
         }
@@ -748,7 +871,7 @@
             margin: 12px 0 8px;
             text-transform: lowercase;
         }
-        
+
         .agent-item {
             border: 1px solid #00ff00;
             background: #0a0a0a;
@@ -758,23 +881,23 @@
             transition: all 0.2s;
             position: relative;
         }
-        
+
         .agent-item:hover {
             background: #1a2a1a;
             border-color: #00ffff;
         }
-        
+
         .agent-item .name {
             font-weight: bold;
             color: #00ff00;
             margin-bottom: 5px;
         }
-        
+
         .agent-item .description {
             font-size: 12px;
             color: #888;
         }
-        
+
         .agent-item .key-hint {
             display: inline-block;
             background: #00ff00;
@@ -784,7 +907,7 @@
             font-weight: bold;
             margin-left: 10px;
         }
-        
+
 .close-btn {
         background: #00ff00 !important;
         color: #1a1a1a !important;
@@ -794,11 +917,11 @@
         margin-left: 10px;
         font-family: 'Courier New', monospace;
     }
-    
+
     .close-btn:hover {
         background: #00cc00 !important;
     }
-    
+
     .kill-btn {
         background: #ff0000 !important;
         color: #1a1a1a !important;
@@ -807,11 +930,11 @@
         cursor: pointer;
         font-family: 'Courier New', monospace;
     }
-    
+
     .kill-btn:hover {
         background: #cc0000 !important;
     }
-    
+
     .dialog-header {
         padding: 10px;
         background: #2a2a2a;
@@ -821,12 +944,12 @@
         align-items: center;
         margin: -20px -20px 15px -20px;
     }
-    
+
     .dialog-header h3 {
         color: #00ff00;
         margin: 0;
     }
-        
+
         .key-hint {
             position: absolute;
             top: 5px;
@@ -1045,10 +1168,10 @@
 </head>
 <body id="farming-crt">
     <div class="crt-phosphor-noise" aria-hidden="true"></div>
-    <div class="crt-scan-afterglow" aria-hidden="true"></div>
     <div class="crt-scan-beam" aria-hidden="true"></div>
-<div class="top-bar">
+    <div class="top-bar">
         <div class="top-bar-item">AGENTS: <span id="active-agents">0</span>/<span id="total-agents">0</span></div>
+        <div class="top-bar-item" id="agent-page-item" hidden>PAGE: <span id="agent-page-status">1/1</span></div>
         <div class="top-bar-item" title="Estimated terminal output tokens per minute over the last 5 minutes">TOK/MIN: <span id="tokens-per-minute">--</span></div>
         <div class="top-bar-item">CPU: <span id="cpu-usage">--</span>%</div>
         <div class="top-bar-item">MEM: <span id="mem-percentage">--</span>%</div>
@@ -1057,7 +1180,7 @@
         <div class="top-bar-item">TIME: <span id="system-time">--</span></div>
         <div class="top-bar-item">UPTIME: <span id="uptime">0s</span></div>
     </div>
-    
+
     <div class="main-container">
         <div class="map-area" id="map-area">
             <div class="empty-state" id="empty-state">
@@ -1080,7 +1203,7 @@
                 </span>
             </div>
         </section>
-        
+
         <div class="sidebar">
             <div class="sidebar-actions">
                 <div class="sidebar-item" role="button" tabindex="-1" data-crt-nav-key="sidebar:new-agent" onclick="showInputDialog()">
@@ -1170,7 +1293,7 @@
                     </g>
                 </svg>
             </div>
-            
+
             <div class="sidebar-main-agent" id="main-agent-panel" style="display: none;">
                 <div class="sidebar-main-agent-header">
                     MAIN AGENT <span style="background: #ff0000; color: #1a1a1a; padding: 2px 5px; font-size: 10px; font-weight: bold;">[0]</span>
@@ -1179,7 +1302,7 @@
             </div>
         </div>
     </div>
-    
+
     <div class="input-dialog" id="input-dialog">
         <div class="input-dialog-content">
             <div class="dialog-header">
@@ -1220,22 +1343,23 @@
             </div>
         </div>
     </div>
-    
+
     <div class="modal" id="session-modal">
         <div class="modal-content">
             <div class="modal-header">
                 <span id="session-title">Agent Session</span>
                 <div class="session-header-actions">
-                    <div class="crt-runtime-toggle" id="crt-runtime-toggle" role="group" aria-label="Session view" hidden>
-                        <button type="button" id="crt-runtime-chat" aria-label="Chat view" title="Chat view [Ctrl+Shift+M]" aria-pressed="false" onclick="switchCrtSessionRuntimeMode('acp')">
-                            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M14.56 7.44A1.5 1.5 0 0 0 13.5 7H13V4a2 2 0 0 0-2-2H3a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2v1c0 .82.93 1.29 1.59.81L7 11.05v.45A1.5 1.5 0 0 0 8.5 13h1.79l1.86 1.85a.5.5 0 0 0 .85-.35V13h.5a1.5 1.5 0 0 0 1.5-1.5v-3a1.5 1.5 0 0 0-.44-1.06ZM6.75 10 4 12v-2H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v3H8.5A1.5 1.5 0 0 0 7 8.5V10h-.25ZM14 11.5a.5.5 0 0 1-.5.5h-1a.5.5 0 0 0-.5.5v.79l-1.15-1.14a.5.5 0 0 0-.35-.15h-2a.5.5 0 0 1-.5-.5v-3a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v3Z"/></svg>
+                    <div class="crt-runtime-control" id="crt-runtime-toggle" role="group" aria-label="Session view" hidden>
+                        <button type="button" id="crt-runtime-chat" aria-label="Chat view" title="Chat view [Alt+M]" aria-pressed="false" onclick="switchCrtSessionRuntimeMode('acp')">
+                            <span class="crt-runtime-glyph" aria-hidden="true">MSG</span>
                         </button>
-                        <button type="button" id="crt-runtime-terminal" aria-label="Terminal view" title="Terminal view [Ctrl+Shift+M]" aria-pressed="false" onclick="switchCrtSessionRuntimeMode('terminal')">
-                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18.75 1.5H5.25A3.75 3.75 0 0 0 1.5 5.25v13.5a3.75 3.75 0 0 0 3.75 3.75h13.5a3.75 3.75 0 0 0 3.75-3.75V5.25a3.75 3.75 0 0 0-3.75-3.75ZM21 18.75A2.25 2.25 0 0 1 18.75 21H5.25A2.25 2.25 0 0 1 3 18.75V5.25A2.25 2.25 0 0 1 5.25 3h13.5A2.25 2.25 0 0 1 21 5.25v13.5ZM10.28 13.28l-4.5 4.5a.75.75 0 0 1-1.06-1.06l3.97-3.97-3.97-3.97a.75.75 0 1 1 1.06-1.06l4.5 4.5a.75.75 0 0 1 0 1.06ZM19.5 17.25a.75.75 0 0 1-.75.75h-7.5a.75.75 0 0 1 0-1.5h7.5a.75.75 0 0 1 .75.75Z"/></svg>
+                        <button type="button" id="crt-runtime-terminal" aria-label="Terminal view" title="Terminal view [Alt+M]" aria-pressed="false" onclick="switchCrtSessionRuntimeMode('terminal')">
+                            <span class="crt-runtime-glyph" aria-hidden="true">TTY</span>
                         </button>
+                        <span class="crt-command-shortcut" aria-hidden="true">[ALT+M]</span>
                     </div>
-                    <button class="kill-btn" onclick="killCurrentAgent()">Kill [Ctrl+K]</button>
-                    <button class="close-btn" onclick="closeSession()">Close [Ctrl+Esc]</button>
+                    <button class="kill-btn" aria-label="Kill Agent, Ctrl+K" onclick="killCurrentAgent()">KILL [CTRL+K]</button>
+                    <button class="close-btn" aria-label="Close session, Ctrl+Escape" onclick="closeSession()">CLOSE [CTRL+ESC]</button>
                 </div>
             </div>
             <div class="crt-runtime-switch-status" id="crt-runtime-switch-status" role="status" aria-live="polite" hidden>
@@ -1244,13 +1368,11 @@
             <div class="terminal" id="terminal-output"></div>
             <form class="crt-structured-composer" id="crt-structured-composer">
                 <div class="crt-structured-composer-notices" id="crt-structured-composer-notices"></div>
-                <div class="crt-structured-composer-menu" id="crt-structured-composer-menu" hidden></div>
                 <div class="crt-structured-attachments" id="crt-structured-attachments"></div>
                 <label class="crt-structured-input-field" for="crt-structured-input">
-                    <span class="crt-structured-input-prompt" aria-hidden="true">MESSAGE&gt;</span>
                     <textarea id="crt-structured-input" rows="2" placeholder="Type a message..."></textarea>
                 </label>
-                <button type="submit" id="crt-structured-send">Send [Enter]</button>
+                <button type="submit" id="crt-structured-send">SEND [ENTER]</button>
                 <div class="crt-structured-composer-toolbar" id="crt-structured-composer-toolbar">
                     <button class="crt-structured-tool" type="button" id="crt-structured-attach">[+ FILE]</button>
                     <button class="crt-structured-tool" type="button" id="crt-structured-command" hidden>[CMD]</button>
@@ -1258,12 +1380,13 @@
                     <button class="crt-structured-tool" type="button" id="crt-structured-config" hidden>[CONFIG]</button>
                     <span class="crt-structured-composer-usage" id="crt-structured-composer-usage"></span>
                 </div>
+                <div class="crt-structured-composer-menu" id="crt-structured-composer-menu" hidden></div>
                 <input class="crt-structured-file-input" type="file" id="crt-structured-file-input" multiple>
                 <div class="crt-structured-composer-status" id="crt-structured-composer-status"></div>
             </form>
         </div>
     </div>
-    
+
     <div class="modal" id="settings-modal">
         <div class="modal-content" style="max-width: 600px;">
             <div class="modal-header">
@@ -1273,7 +1396,7 @@
             <div class="settings-body">
                 <h3 style="margin-bottom: 15px; color: #00ff00;">UI Theme</h3>
                 <div id="theme-list"></div>
-                
+
                 <h3 style="margin: 30px 0 15px; color: #00ff00;">Display</h3>
 <div id="display-settings">
                     <div id="crt-effects-container" class="settings-panel">
@@ -1327,7 +1450,7 @@
             </div>
         </div>
     </div>
-    
+
     <script src="shared/runtime-paths.js"></script>
     <script src="../vendor/xterm/xterm.js"></script>
     <script src="../vendor/xterm/addon-fit.js"></script>

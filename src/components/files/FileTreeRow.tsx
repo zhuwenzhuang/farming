@@ -59,7 +59,6 @@ export function FileTreeRow({
   onOpenFilePath,
   onRememberFileOperationName,
   onSubmitFileOperation,
-  onUpdateFileOperationName,
 }: FileTreeRowProps) {
   const item = node.data
   const viewState = workspaceFileTreeRowViewState({
@@ -129,7 +128,6 @@ export function FileTreeRow({
           onCancel={onCloseFileOperation}
           onInputName={onRememberFileOperationName}
           onSubmit={onSubmitFileOperation}
-          onUpdateName={onUpdateFileOperationName}
         />
       ) : (
         <FileTreeRowStatus

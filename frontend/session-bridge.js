@@ -31,11 +31,12 @@
         });
       },
 
-      sendComposerMessage(agentId, message) {
+      sendComposerMessage(agentId, message, attachments = []) {
         return send({
           type: 'composer-input',
           agentId,
           message,
+          ...(attachments.length > 0 ? { attachments } : {}),
         });
       },
 

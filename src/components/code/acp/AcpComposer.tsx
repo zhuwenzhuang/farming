@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type RefObject } from 'react'
-import { ArrowUpGlyph, PlusGlyph } from '@/components/IconGlyphs'
-import type { AcpPendingPermission } from '@/types/agent'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type RefObject } from 'react'
+import { ArrowUpGlyph, CloseGlyph, PlusGlyph, ReplyGlyph } from '@/components/IconGlyphs'
+import type { AcpPendingPermission, AgentContextWindowUsage } from '@/types/agent'
 import { ComposerAttachments, type ComposerAttachmentView } from '../ComposerAttachments'
 import type { ComposerHistoryDirection, ComposerHistoryNavigationInput } from '../composer-history'
 import {
   composerDraftForSubmit,
   shouldSubmitComposerEnter,
 } from '../composer-keyboard'
+import { findComposerCommandTrigger } from '../composer-slash-commands'
 import type { CodeCopy } from '../copy'
+import type { ComposerMode } from '../types'
 import { AcpPermissionCard } from './AcpPermissionCard'
 import {
   AcpModeControl,
@@ -27,6 +29,29 @@ function ComposerMicIcon({ listening }: { listening: boolean }) {
   )
 }
 
+function formatContextTokens(value: number) {
+  if (!Number.isFinite(value) || value < 0) return '0'
+  if (value >= 1_000_000) return `${Math.round(value / 100_000) / 10}m`
+  if (value >= 1_000) return `${Math.round(value / 1_000)}k`
+  return String(Math.round(value))
+}
+
+function findAcpCommandTrigger(draft: string, selectionStart: number) {
+  const trigger = findComposerCommandTrigger(draft, selectionStart)
+  if (trigger) return trigger
+  const cursor = Math.max(0, Math.min(selectionStart, draft.length))
+  const lineStart = draft.lastIndexOf('\n', Math.max(0, cursor - 1)) + 1
+  const lineBeforeCursor = draft.slice(lineStart, cursor)
+  const skillCommand = lineBeforeCursor.match(/^(\s*)\/(\$[A-Za-z0-9._:-]*)$/)
+  if (!skillCommand) return null
+  return {
+    start: lineStart + (skillCommand[1]?.length ?? 0),
+    end: cursor,
+    query: skillCommand[2] ?? '',
+    trigger: '/' as const,
+  }
+}
+
 export interface AcpComposerProps {
   active: boolean
   agentId: string
@@ -34,6 +59,9 @@ export interface AcpComposerProps {
   runtimeError: string
   draft: string
   attachments: ComposerAttachmentView[]
+  composerMode: ComposerMode
+  contextWindow: AgentContextWindowUsage | null
+  pendingFollowUp: { messages: Array<{ id: string; text: string; createdAt: number; attachments?: Array<{ name: string }> }>; createdAt: number } | null
   submitAction: 'send' | 'interrupt' | 'disabled'
   textareaRef: RefObject<HTMLTextAreaElement | null>
   attachmentInputRef: RefObject<HTMLInputElement | null>
@@ -45,10 +73,13 @@ export interface AcpComposerProps {
   onRemoveAttachment: (id: string) => void
   onSubmit: (draft?: string) => void
   onInterrupt: () => void
+  onDiscardPendingFollowUp: (messageId: string) => void
   onToggleSpeechInput: () => void
   onPasteAttachment: (event: ClipboardEvent<HTMLElement>) => void
   onAttachmentFiles: (event: ChangeEvent<HTMLInputElement>) => void
   onChooseAttachmentFile: () => void
+  onActivateComposerMode: (mode: Exclude<ComposerMode, 'default'>) => void
+  onClearComposerMode: () => void
   onRespondToPermission: (requestId: string, optionId?: string, cancelled?: boolean) => void
   copy: CodeCopy
 }
@@ -60,6 +91,9 @@ export function AcpComposer({
   runtimeError,
   draft,
   attachments,
+  composerMode,
+  contextWindow,
+  pendingFollowUp,
   submitAction,
   textareaRef,
   attachmentInputRef,
@@ -71,10 +105,13 @@ export function AcpComposer({
   onRemoveAttachment,
   onSubmit,
   onInterrupt,
+  onDiscardPendingFollowUp,
   onToggleSpeechInput,
   onPasteAttachment,
   onAttachmentFiles,
   onChooseAttachmentFile,
+  onActivateComposerMode,
+  onClearComposerMode,
   onRespondToPermission,
   copy,
 }: AcpComposerProps) {
@@ -83,6 +120,7 @@ export function AcpComposer({
   const latestDraftRef = useRef(draft)
   const composerRef = useRef<HTMLElement | null>(null)
   const [focused, setFocused] = useState(false)
+  const [selectionStart, setSelectionStart] = useState(draft.length)
   const [activeCommandIndex, setActiveCommandIndex] = useState(0)
   const [openMenu, setOpenMenu] = useState<AcpComposerMenu>(null)
   const [modelPane, setModelPane] = useState<'model' | 'speed' | null>(null)
@@ -91,18 +129,26 @@ export function AcpComposer({
   const interrupting = submitAction === 'interrupt'
   const disabled = submitAction === 'disabled'
 
-  const commandMatch = draft.match(/^\/([^\s]*)$/)
-  const commandQuery = commandMatch ? (commandMatch[1] || '').toLowerCase() : null
+  const commandTrigger = useMemo(
+    () => findAcpCommandTrigger(draft, selectionStart),
+    [draft, selectionStart]
+  )
   const filteredCommands = useMemo(() => {
-    if (commandQuery === null) return []
+    if (!commandTrigger) return []
+    const query = commandTrigger.query.toLowerCase()
     return (session?.availableCommands || [])
-      .filter(command => command.name.toLowerCase().includes(commandQuery))
+      .filter(command => {
+        const name = command.name.toLowerCase()
+        if (commandTrigger.trigger === '$' && !name.startsWith('$')) return false
+        const searchableName = commandTrigger.trigger === '$' ? name.slice(1) : name
+        return searchableName.startsWith(query) || command.description.toLowerCase().includes(query)
+      })
       .slice(0, 12)
-  }, [commandQuery, session?.availableCommands])
+  }, [commandTrigger, session?.availableCommands])
   const showCommands = active && focused && filteredCommands.length > 0
   const selectedCommand = filteredCommands[activeCommandIndex] || filteredCommands[0] || null
 
-  useEffect(() => setActiveCommandIndex(0), [commandQuery, filteredCommands.length])
+  useEffect(() => setActiveCommandIndex(0), [commandTrigger?.query, commandTrigger?.trigger, filteredCommands.length])
 
   useEffect(() => {
     if (!openMenu) return undefined
@@ -116,13 +162,17 @@ export function AcpComposer({
   }, [openMenu])
 
   const insertCommand = (name: string) => {
-    const nextDraft = `/${name} `
+    if (!commandTrigger) return
+    const insertText = `/${name} `
+    const nextDraft = `${draft.slice(0, commandTrigger.start)}${insertText}${draft.slice(commandTrigger.end)}`
+    const nextCursor = commandTrigger.start + insertText.length
     setOpenMenu(null)
     latestDraftRef.current = nextDraft
     onDraftChange(nextDraft)
     window.requestAnimationFrame(() => {
       textareaRef.current?.focus({ preventScroll: true })
-      textareaRef.current?.setSelectionRange(nextDraft.length, nextDraft.length)
+      textareaRef.current?.setSelectionRange(nextCursor, nextCursor)
+      setSelectionStart(nextCursor)
     })
   }
 
@@ -131,6 +181,16 @@ export function AcpComposer({
       event.preventDefault()
       const direction = event.key === 'ArrowDown' ? 1 : -1
       setActiveCommandIndex(index => (index + direction + filteredCommands.length) % filteredCommands.length)
+      return
+    }
+    if (showCommands && event.key === 'Home') {
+      event.preventDefault()
+      setActiveCommandIndex(0)
+      return
+    }
+    if (showCommands && event.key === 'End') {
+      event.preventDefault()
+      setActiveCommandIndex(filteredCommands.length - 1)
       return
     }
     if (showCommands && (event.key === 'Enter' || event.key === 'Tab') && selectedCommand) {
@@ -172,13 +232,31 @@ export function AcpComposer({
   const usage = Number.isFinite(session?.usage?.totalTokens)
     ? `${Math.round(Number(session?.usage?.totalTokens) / 1000)}k tokens`
     : ''
+  const contextWindowTitle = contextWindow
+    ? `Context window: ${contextWindow.percentUsed}% used (${contextWindow.percentLeft}% left), ${formatContextTokens(contextWindow.usedTokens)} / ${formatContextTokens(contextWindow.limitTokens)} tokens used`
+    : ''
 
   return (
     <footer
       ref={composerRef}
-      className={`code-composer code-acp-composer ${openMenu ? 'menu-open' : ''} ${attachments.length > 0 ? 'has-attachments' : ''}`}
+      className={`code-composer code-acp-composer ${openMenu ? 'menu-open' : ''} ${attachments.length > 0 ? 'has-attachments' : ''} ${pendingFollowUp && active ? 'has-pending-followup' : ''}`}
       data-testid="code-acp-composer"
     >
+      {pendingFollowUp && active ? (
+        <div className="code-pending-followup" data-testid="code-acp-pending-followup">
+          {pendingFollowUp.messages.map(message => (
+            <div className="code-pending-followup-row" data-testid="code-acp-pending-followup-row" key={message.id}>
+              <span className="code-pending-followup-icon" aria-hidden="true"><ReplyGlyph /></span>
+              <p>{message.text || message.attachments?.map(attachment => attachment.name).join(', ')}</p>
+              <div className="code-pending-followup-actions">
+                <button type="button" className="icon" data-testid="code-acp-pending-followup-discard" aria-label={copy.discardQueuedMessage} onClick={() => onDiscardPendingFollowUp(message.id)}>
+                  <CloseGlyph />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
       {active ? permissions.map(permission => (
         <AcpPermissionCard key={permission.requestId} request={permission} onRespond={onRespondToPermission} copy={copy} />
       )) : null}
@@ -190,7 +268,7 @@ export function AcpComposer({
       ) : null}
       {showCommands ? (
         <div className="code-slash-menu code-composer-menu" data-testid="code-acp-command-menu" role="listbox" aria-label="ACP commands">
-          <div className="code-slash-menu-header">Agent commands</div>
+          <div className="code-slash-menu-header">{commandTrigger?.trigger === '$' ? 'Skills' : 'Agent commands'}</div>
           {filteredCommands.map((command, index) => (
             <button
               key={command.name}
@@ -222,15 +300,24 @@ export function AcpComposer({
         autoCapitalize="none"
         spellCheck={false}
         value={draft}
-        placeholder={active ? copy.askFollowUpChanges : copy.openAgentTerminalFirst}
+        placeholder={active
+          ? (composerMode === 'goal' ? copy.describeAgentGoal : composerMode === 'plan' ? copy.describePlanFirst : copy.askFollowUpChanges)
+          : copy.openAgentTerminalFirst}
         disabled={!active}
-        onFocus={() => {
+        onFocus={event => {
           setFocused(true)
+          setSelectionStart(event.currentTarget.selectionStart)
           setOpenMenu(null)
           setModelPane(null)
         }}
         onBlur={() => setFocused(false)}
-        onChange={event => onDraftChange(event.currentTarget.value)}
+        onClick={event => setSelectionStart(event.currentTarget.selectionStart)}
+        onKeyUp={event => setSelectionStart(event.currentTarget.selectionStart)}
+        onSelect={event => setSelectionStart(event.currentTarget.selectionStart)}
+        onChange={event => {
+          setSelectionStart(event.currentTarget.selectionStart)
+          onDraftChange(event.currentTarget.value)
+        }}
         onPaste={onPasteAttachment}
         onCompositionStart={() => { compositionActiveRef.current = true }}
         onCompositionEnd={event => {
@@ -282,15 +369,23 @@ export function AcpComposer({
                   <span>{copy.attachFile}</span>
                   <small>{copy.fileContext}</small>
                 </button>
-                {(session?.availableCommands || []).map(command => (
-                  <button key={command.name} type="button" role="menuitem" onClick={() => insertCommand(command.name)}>
-                    <span>/{command.name}</span>
-                    <small>{command.description || command.input?.hint || ''}</small>
-                  </button>
-                ))}
+                <button type="button" role="menuitem" data-testid="code-acp-composer-goal-mode" onClick={() => { setOpenMenu(null); onActivateComposerMode('goal') }}>
+                  <span>{copy.goalMode}</span>
+                  <small>{copy.setObjective}</small>
+                </button>
+                <button type="button" role="menuitem" data-testid="code-acp-composer-plan-mode" onClick={() => { setOpenMenu(null); onActivateComposerMode('plan') }}>
+                  <span>{copy.planMode}</span>
+                  <small>{copy.planFirst}</small>
+                </button>
               </div>
             ) : null}
           </div>
+          {composerMode !== 'default' ? (
+            <button type="button" className="code-composer-mode-chip" data-testid="code-acp-composer-mode-chip" aria-label={copy.clearComposerMode} onClick={onClearComposerMode}>
+              <span>{composerMode === 'goal' ? copy.goalMode : copy.planMode}</span>
+              <span aria-hidden="true"><CloseGlyph /></span>
+            </button>
+          ) : null}
           {session ? (
             <AcpModeControl
               session={session}
@@ -305,6 +400,16 @@ export function AcpComposer({
           ) : null}
         </div>
         <div className="code-composer-right-tools" data-testid="code-acp-composer-right-tools">
+          {contextWindow ? (
+            <div className="code-composer-context-window" data-testid="code-acp-context-window" tabIndex={0} role="img" aria-label={contextWindowTitle}>
+              <span className="code-context-window-ring" aria-hidden="true" style={{ '--context-percent': contextWindow.percentUsed } as CSSProperties} />
+              <div className="code-context-window-popover" role="tooltip">
+                <span>Context window:</span>
+                <strong>{contextWindow.percentUsed}% used ({contextWindow.percentLeft}% left)</strong>
+                <strong>{formatContextTokens(contextWindow.usedTokens)} / {formatContextTokens(contextWindow.limitTokens)} tokens used</strong>
+              </div>
+            </div>
+          ) : null}
           {usage ? <span className="code-acp-usage" title="ACP session token usage">{usage}</span> : null}
           {session ? (
             <AcpModelControl

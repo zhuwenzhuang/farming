@@ -34,8 +34,17 @@ export interface ComposerAttachment {
   size: number
   status: 'uploading' | 'ready' | 'error'
   previewUrl?: string
+  path?: string
   messageBlock?: string
   error?: string
+}
+
+export interface ComposerPromptAttachment {
+  kind: 'image'
+  path: string
+  name: string
+  type: string
+  size: number
 }
 
 export function appendDraftBlock(current: string, block: string) {
@@ -88,6 +97,26 @@ export function composerAttachmentMessageBlocks(attachments: ComposerAttachment[
 export function composerMessageWithAttachments(draft: string, attachments: ComposerAttachment[]) {
   const attachmentBlocks = composerAttachmentMessageBlocks(attachments)
   return appendDraftBlock(draft.trimEnd(), attachmentBlocks.join('\n\n')).trimEnd()
+}
+
+export function composerMessageForAcp(draft: string, attachments: ComposerAttachment[]) {
+  const fallbackBlocks = attachments
+    .filter(attachment => !attachment.path)
+    .map(attachment => attachment.messageBlock || '')
+    .filter(Boolean)
+  return appendDraftBlock(draft.trimEnd(), fallbackBlocks.join('\n\n')).trimEnd()
+}
+
+export function composerPromptAttachments(attachments: ComposerAttachment[]): ComposerPromptAttachment[] {
+  return attachments.flatMap(attachment => attachment.status === 'ready' && attachment.path
+    ? [{
+        kind: 'image' as const,
+        path: attachment.path,
+        name: attachment.name,
+        type: attachment.type,
+        size: attachment.size,
+      }]
+    : [])
 }
 
 export function readFileText(file: File) {

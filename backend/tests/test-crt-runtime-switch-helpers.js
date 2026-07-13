@@ -4,6 +4,7 @@ const {
   crtRuntimeView,
   canSwitchCrtAgentRuntime,
   isCrtRuntimeSwitchShortcut,
+  structuredComposerAction,
 } = require('../../frontend/skins/crt/app.js');
 
 assert.strictEqual(crtRuntimeView({ agentRuntimeMode: 'acp' }), 'chat');
@@ -27,25 +28,39 @@ assert.strictEqual(canSwitchCrtAgentRuntime({
 assert.strictEqual(canSwitchCrtAgentRuntime({ providerSessionProvider: 'opencode' }), false);
 
 assert.strictEqual(isCrtRuntimeSwitchShortcut({
-  key: 'M',
-  ctrlKey: true,
-  shiftKey: true,
+  key: 'µ',
+  code: 'KeyM',
+  ctrlKey: false,
+  shiftKey: false,
   metaKey: false,
-  altKey: false,
+  altKey: true,
 }), true);
 assert.strictEqual(isCrtRuntimeSwitchShortcut({
   key: 'm',
+  code: 'KeyM',
   ctrlKey: false,
-  shiftKey: true,
-  metaKey: true,
-  altKey: false,
-}), false);
+  shiftKey: false,
+  metaKey: false,
+  altKey: true,
+}), true);
 assert.strictEqual(isCrtRuntimeSwitchShortcut({
   key: 'm',
+  code: 'KeyM',
   ctrlKey: true,
   shiftKey: false,
   metaKey: false,
-  altKey: false,
+  altKey: true,
 }), false);
+
+assert.strictEqual(structuredComposerAction({
+  status: 'running',
+  agentRuntimeMode: 'acp',
+  acpState: 'working',
+}, 'queued follow-up'), 'send');
+assert.strictEqual(structuredComposerAction({
+  status: 'running',
+  agentRuntimeMode: 'acp',
+  acpState: 'working',
+}, ''), 'interrupt');
 
 console.log('CRT runtime switch helper tests passed');

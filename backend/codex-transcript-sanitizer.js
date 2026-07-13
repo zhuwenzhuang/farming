@@ -64,6 +64,7 @@ function stripCodexInternalContextBlocks(value) {
     'skills_instructions',
     'plugins_instructions',
     'recommended_plugins',
+    'oai-mem-citation',
     'permissions instructions',
     'turn_aborted',
     'system-reminder',

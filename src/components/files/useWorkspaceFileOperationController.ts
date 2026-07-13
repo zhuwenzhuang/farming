@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import {
   createWorkspaceFileOperation,
-  workspaceFileOperationSelectionEnd,
   workspaceFileOperationSubmitName,
   type WorkspaceFileOperationKind,
   type WorkspaceFileOperationState,
@@ -50,12 +49,6 @@ export function useWorkspaceFileOperationController({
   const fileOperationInputRef = useRef<HTMLInputElement | null>(null)
   const fileOperationNameRef = useRef('')
   const [fileOperation, setFileOperation] = useState<WorkspaceFileOperationState | null>(null)
-
-  const fileOperationFocusKey = useMemo(() => (
-    fileOperation
-      ? `${fileOperation.kind}:${fileOperation.item?.path ?? ''}:${fileOperation.parentPath}`
-      : ''
-  ), [fileOperation])
 
   const clearFileOperation = useCallback(() => {
     fileOperationActiveRef.current = false
@@ -168,39 +161,6 @@ export function useWorkspaceFileOperationController({
       document.removeEventListener('keydown', closeInlineOperationOnEscape, true)
     }
   }, [closeFileOperation, fileOperation])
-
-  useLayoutEffect(() => {
-    if (!fileOperation || fileOperation.kind === 'delete') return undefined
-    const selectionEnd = workspaceFileOperationSelectionEnd(fileOperation)
-    const selectInputName = () => {
-      const input = fileOperationInputRef.current
-      if (!input) return
-      input.focus({ preventScroll: true })
-      if (document.activeElement === input) input.setSelectionRange(0, selectionEnd)
-    }
-
-    selectInputName()
-    const frameId = window.requestAnimationFrame(() => {
-      selectInputName()
-    })
-    const immediateTimeoutId = window.setTimeout(selectInputName, 0)
-    const timeoutId = window.setTimeout(selectInputName, 40)
-    const retryTimeoutId = window.setTimeout(selectInputName, 120)
-    const lateTimeoutId = window.setTimeout(selectInputName, 260)
-    const finalTimeoutId = window.setTimeout(selectInputName, 420)
-    const slowerTimeoutId = window.setTimeout(selectInputName, 720)
-    const lastTimeoutId = window.setTimeout(selectInputName, 1200)
-    return () => {
-      window.cancelAnimationFrame(frameId)
-      window.clearTimeout(immediateTimeoutId)
-      window.clearTimeout(timeoutId)
-      window.clearTimeout(retryTimeoutId)
-      window.clearTimeout(lateTimeoutId)
-      window.clearTimeout(finalTimeoutId)
-      window.clearTimeout(slowerTimeoutId)
-      window.clearTimeout(lastTimeoutId)
-    }
-  }, [fileOperationFocusKey])
 
   return {
     fileOperation,
