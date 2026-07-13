@@ -562,7 +562,7 @@ function changedBoundaryLine(rows: ReviewDiffRow[], edge: 'first' | 'last', side
   return ordered.find(row => row[side]?.line)?.[side]?.line
 }
 
-function commonLinesBeforeHunk(hunks: ReviewDiffHunk[], index: number) {
+function embeddedCommonLinesBeforeHunk(hunks: ReviewDiffHunk[], index: number) {
   const currentRows = hunks[index]?.rows ?? []
   const previousRows = hunks[index - 1]?.rows ?? []
   const gaps = (['left', 'right'] as const).flatMap(side => {
@@ -574,28 +574,43 @@ function commonLinesBeforeHunk(hunks: ReviewDiffHunk[], index: number) {
   return gaps.length ? Math.min(...gaps) : 0
 }
 
+function commonLinesBeforeHunk(hunks: ReviewDiffHunk[], index: number) {
+  const current = hunks[index]
+  if (!current) return 0
+  const previous = hunks[index - 1]
+  const oldPreviousEnd = previous ? previous.oldStart + previous.oldLines - 1 : 0
+  const newPreviousEnd = previous ? previous.newStart + previous.newLines - 1 : 0
+  return Math.max(0, Math.min(
+    current.oldStart - oldPreviousEnd - 1,
+    current.newStart - newPreviousEnd - 1,
+  ))
+}
+
 function commonLinesAfterFile(file: ReviewFile) {
   const lastHunk = file.diff.hunks[file.diff.hunks.length - 1]
   const leftLines = file.diff.leftMeta?.lines
   const rightLines = file.diff.rightMeta?.lines
   if (!lastHunk || !Number.isInteger(leftLines) || !Number.isInteger(rightLines)) return 0
-  const lastLeft = changedBoundaryLine(lastHunk.rows, 'last', 'left')
-  const lastRight = changedBoundaryLine(lastHunk.rows, 'last', 'right')
-  if (!lastLeft || !lastRight) return 0
+  const lastLeft = lastHunk.oldStart + lastHunk.oldLines - 1
+  const lastRight = lastHunk.newStart + lastHunk.newLines - 1
   return Math.max(0, Math.min((leftLines ?? 0) - lastLeft, (rightLines ?? 0) - lastRight))
 }
 
 function contextGapKey(prefix: string, path: string, hunks: ReviewDiffHunk[], index: number) {
-  const previousRows = hunks[index - 1]?.rows ?? []
-  const currentRows = hunks[index]?.rows ?? []
-  const previous = ['left', 'right'].map(side => changedBoundaryLine(previousRows, 'last', side as 'left' | 'right') ?? 0).join(':')
-  const current = ['left', 'right'].map(side => changedBoundaryLine(currentRows, 'first', side as 'left' | 'right') ?? 0).join(':')
+  const previousHunk = hunks[index - 1]
+  const currentHunk = hunks[index]
+  const previous = previousHunk
+    ? `${previousHunk.oldStart + previousHunk.oldLines - 1}:${previousHunk.newStart + previousHunk.newLines - 1}`
+    : '0:0'
+  const current = currentHunk ? `${currentHunk.oldStart}:${currentHunk.newStart}` : '0:0'
   return `${prefix}:${path}:${previous}>${current}`
 }
 
 function bottomContextGapKey(prefix: string, file: ReviewFile) {
-  const lastRows = file.diff.hunks[file.diff.hunks.length - 1]?.rows ?? []
-  const previous = ['left', 'right'].map(side => changedBoundaryLine(lastRows, 'last', side as 'left' | 'right') ?? 0).join(':')
+  const lastHunk = file.diff.hunks[file.diff.hunks.length - 1]
+  const previous = lastHunk
+    ? `${lastHunk.oldStart + lastHunk.oldLines - 1}:${lastHunk.newStart + lastHunk.newLines - 1}`
+    : '0:0'
   return `${prefix}:${file.path}:${previous}>eof:${file.diff.leftMeta?.lines ?? 0}:${file.diff.rightMeta?.lines ?? 0}`
 }
 
@@ -615,18 +630,27 @@ function contextGapBeforeHunk(
   const outerContext = splitOuterContext(hunk?.rows ?? [])
   const previousOuterContext = previousHunk ? splitOuterContext(previousHunk.rows) : null
   const commonContext = [...(hunk?.commonContext ?? []), ...outerContext.leading]
-  const totalLines = commonLinesBeforeHunk(file.diff.hunks, hunkIndex)
+  const usesEmbeddedContext = Boolean(hunk?.commonContext?.length)
+  const totalLines = usesEmbeddedContext
+    ? embeddedCommonLinesBeforeHunk(file.diff.hunks, hunkIndex)
+    : commonLinesBeforeHunk(file.diff.hunks, hunkIndex)
   const key = contextGapKey(contextKeyPrefix, file.path, file.diff.hunks, hunkIndex)
   const expansion = contextGapExpansions[key] ?? emptyContextGapExpansion()
   const baseAboveRows = previousOuterContext?.trailing.slice(0, hunkIndex > 0 ? Math.min(totalLines, context) : 0) ?? []
   const baseBelowCount = Math.min(Math.max(0, totalLines - baseAboveRows.length), context)
   const baseBelowRows = baseBelowCount > 0 ? commonContext.slice(-baseBelowCount) : []
-  const hiddenLines = Math.max(0, totalLines - baseAboveRows.length - baseBelowRows.length - expansion.aboveRows.length - expansion.belowRows.length)
-  const previousRows = previousHunk?.rows ?? []
-  const previousLeft = changedBoundaryLine(previousRows, 'last', 'left') ?? 0
-  const previousRight = changedBoundaryLine(previousRows, 'last', 'right') ?? 0
-  const oldHiddenStart = previousLeft + baseAboveRows.length + expansion.aboveRows.length + 1
-  const newHiddenStart = previousRight + baseAboveRows.length + expansion.aboveRows.length + 1
+  const hiddenLines = Math.max(0, totalLines
+    - (usesEmbeddedContext ? baseAboveRows.length + baseBelowRows.length : 0)
+    - expansion.aboveRows.length
+    - expansion.belowRows.length)
+  const previousLeft = usesEmbeddedContext
+    ? changedBoundaryLine(previousHunk?.rows ?? [], 'last', 'left') ?? 0
+    : previousHunk ? previousHunk.oldStart + previousHunk.oldLines - 1 : 0
+  const previousRight = usesEmbeddedContext
+    ? changedBoundaryLine(previousHunk?.rows ?? [], 'last', 'right') ?? 0
+    : previousHunk ? previousHunk.newStart + previousHunk.newLines - 1 : 0
+  const oldHiddenStart = previousLeft + (usesEmbeddedContext ? baseAboveRows.length : 0) + expansion.aboveRows.length + 1
+  const newHiddenStart = previousRight + (usesEmbeddedContext ? baseAboveRows.length : 0) + expansion.aboveRows.length + 1
   const candidateRows = [...(previousOuterContext?.trailing ?? []), ...(hunk?.commonContext ?? []), ...outerContext.leading]
   return {
     availableRows: candidateRows.filter(row => {
@@ -661,11 +685,11 @@ function contextGapAfterFile(
   const expansion = contextGapExpansions[key] ?? emptyContextGapExpansion()
   const trailingRows = splitOuterContext(lastHunk.rows).trailing
   const baseAboveRows = trailingRows.slice(0, Math.min(totalLines, context))
-  const hiddenLines = Math.max(0, totalLines - baseAboveRows.length - expansion.aboveRows.length)
-  const previousLeft = changedBoundaryLine(lastHunk.rows, 'last', 'left') ?? 0
-  const previousRight = changedBoundaryLine(lastHunk.rows, 'last', 'right') ?? 0
-  const oldHiddenStart = previousLeft + baseAboveRows.length + expansion.aboveRows.length + 1
-  const newHiddenStart = previousRight + baseAboveRows.length + expansion.aboveRows.length + 1
+  const hiddenLines = Math.max(0, totalLines - expansion.aboveRows.length)
+  const previousLeft = lastHunk.oldStart + lastHunk.oldLines - 1
+  const previousRight = lastHunk.newStart + lastHunk.newLines - 1
+  const oldHiddenStart = previousLeft + expansion.aboveRows.length + 1
+  const newHiddenStart = previousRight + expansion.aboveRows.length + 1
   return {
     availableRows: trailingRows.filter(row => {
       const oldLine = row.left?.line

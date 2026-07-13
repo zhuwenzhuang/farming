@@ -875,7 +875,7 @@ test('matches Gerrit context controls at file boundaries and auto-expands tiny g
   await page.route('**/api/reviews/**', async route => {
     const request = route.request()
     const url = new URL(request.url())
-    const contextMatch = url.pathname.match(/\/git-range\/files\/(boundaries\.cpp|small\.cpp)\/context$/)
+    const contextMatch = url.pathname.match(/\/git-range\/files\/(boundaries\.cpp|offset\.cpp|small\.cpp)\/context$/)
     if (contextMatch) {
       const range = {
         lines: Number(url.searchParams.get('lines')),
@@ -892,9 +892,13 @@ test('matches Gerrit context controls at file boundaries and auto-expands tiny g
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
-          leftLines: range.path === 'boundaries.cpp' ? 100 : 44,
-          rightLines: range.path === 'boundaries.cpp' ? 100 : 44,
-          rows: Array.from({ length: range.lines }, (_, index) => common(range.oldStart + index)),
+          leftLines: range.path === 'offset.cpp' ? 839 : range.path === 'boundaries.cpp' ? 100 : 44,
+          rightLines: range.path === 'offset.cpp' ? 840 : range.path === 'boundaries.cpp' ? 100 : 44,
+          rows: Array.from({ length: range.lines }, (_, index) => ({
+            kind: 'context',
+            left: { line: range.oldStart + index, text: `context ${range.oldStart + index}` },
+            right: { line: range.newStart + index, text: `context ${range.newStart + index}` },
+          })),
         }),
       })
       return
@@ -943,12 +947,52 @@ test('matches Gerrit context controls at file boundaries and auto-expands tiny g
       })
       return
     }
+    if (url.pathname.endsWith('/git-range/files/offset.cpp/diff')) {
+      const paired = (oldLine: number, newLine: number) => ({
+        kind: 'context',
+        left: { line: oldLine, text: `context ${oldLine}` },
+        right: { line: newLine, text: `context ${newLine}` },
+      })
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          added: 2,
+          diff: {
+            hunks: [
+              {
+                header: '@@ -371,20 +371,21 @@', oldStart: 371, oldLines: 20, newStart: 371, newLines: 21,
+                rows: [
+                  ...Array.from({ length: 10 }, (_, index) => paired(371 + index, 371 + index)),
+                  { kind: 'added', right: { line: 381, text: 'inserted' } },
+                  ...Array.from({ length: 10 }, (_, index) => paired(381 + index, 382 + index)),
+                ],
+              },
+              {
+                header: '@@ -829,11 +830,11 @@', oldStart: 829, oldLines: 11, newStart: 830, newLines: 11,
+                rows: [
+                  ...Array.from({ length: 10 }, (_, index) => paired(829 + index, 830 + index)),
+                  { kind: 'changed', left: { line: 839, text: 'old' }, right: { line: 840, text: 'new' } },
+                ],
+              },
+            ],
+            leftMeta: { contentType: 'text/plain', lines: 839, name: 'offset.cpp' },
+            rightMeta: { contentType: 'text/plain', lines: 840, name: 'offset.cpp' },
+          },
+          diffLoaded: true,
+          kind: 'modified',
+          path: 'offset.cpp',
+          removed: 1,
+          status: 'M',
+        }),
+      })
+      return
+    }
     if (url.pathname.endsWith('/git-range')) {
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
           basePatchset: 'HEAD~1',
-          files: ['boundaries.cpp', 'small.cpp'].map(path => ({ added: 2, diff: { hunks: [] }, diffLoaded: false, kind: 'modified', path, removed: 2, status: 'M' })),
+          files: ['boundaries.cpp', 'small.cpp', 'offset.cpp'].map(path => ({ added: 2, diff: { hunks: [] }, diffLoaded: false, kind: 'modified', path, removed: 2, status: 'M' })),
           isGitRepo: true,
           patchset: 'HEAD',
           reviewId: 'git-range-context-boundaries',
@@ -1009,6 +1053,13 @@ test('matches Gerrit context controls at file boundaries and auto-expands tiny g
   await expect(smallDiff.getByText('context 22', { exact: true }).first()).toBeVisible()
   await expect(smallDiff.getByRole('group', { name: /hidden common lines/ })).toHaveCount(0)
   expect(contextRequests).toContainEqual({ lines: 3, newStart: 21, oldStart: 21, path: 'small.cpp' })
+
+  await review.locator('[data-file-path="offset.cpp"] .review-demo-file-select').click()
+  const offsetDiff = review.getByLabel('Diff for offset.cpp')
+  await offsetDiff.getByRole('button', { name: 'Show 10 lines above' }).click()
+  expect(contextRequests).toContainEqual({ lines: 10, newStart: 392, oldStart: 391, path: 'offset.cpp' })
+  await expect(offsetDiff.locator('code[data-review-line="391"][data-review-side="left"]')).toContainText('context 391')
+  await expect(offsetDiff.locator('code[data-review-line="392"][data-review-side="right"]')).toContainText('context 392')
 })
 
 test('does not silently fall back to working copy when a range URL is invalid', async ({ page }) => {

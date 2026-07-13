@@ -182,6 +182,7 @@ Comment id 的作用域是所属 patchset。Client model 应按 `patchset + id` 
 - `reviewFileRowModel()` 对齐 Gerrit 文件列表 reviewed cell：同一个 reviewed-file source 同时派生 `Reviewed` label 和 `MARK REVIEWED` / `MARK UNREVIEWED` switch，但 switch action 会声明 `visibility: "on-row-interaction"`，只有在 row hover、focus 或 expanded 状态下才应该视觉浮现。已阅行不能看起来像同时有两个常驻状态；
 - 展开文件行时必须显式渲染 diff status：loaded 行展示代码，`not-loaded` 行在 lazy request 期间展示 loading 或 error，`binary` 行展示 binary-file message，`too-expensive` 行说明 inline diff 不可用，不能静默渲染成空 diff；
 - 折叠的 common-line gap 对齐 Gerrit 的三段式上下文控件：每个 gap 独立保存展开状态；上方 action 只展开紧邻上一段可见代码的有限行，中间 action 展开整个 gap，下方 action 只展开紧邻下一段可见代码的有限行。展开一侧不能移动另一侧边界，剩余隐藏行数必须原位更新；
+- common-line 展开以 hunk 各自独立的 old/new range 为锚点，只通过单文件 context endpoint 请求用户选中的那段范围。不能用一侧推算另一侧，也不能通过增大全局 context 重新加载整份 diff。只有 range 请求成功后才提交 UI 展开状态，因此 gap 前发生新增时后续左右行不会错位，请求失败也不会抹掉当前控件；
 - `src/lib/review/preferences.ts` 将 Gerrit 的 `DiffPreferencesInfo` 映射为 Farming preferences，并显式处理 `context`、`ignore_whitespace` 和 `intraline_difference`；Farming 单独展开文件时始终标记为 reviewed，而展开全部仅改变展示状态；
 - `src/lib/review/snapshot.ts` 负责 source/range helper、稳定 request key、label，以及从 snapshot 到 review catalog/state 的转换；
 - metadata-only snapshot request key 有意忽略 `context` 和 `ignoreWhitespace`，因为 file-list metadata 与 diff 内容偏好无关；单文件 diff request key 和 patch-text request key 仍然包含这些偏好。Patch 下载应使用 `reviewSnapshotPatchRequestKey()`，不要复用 snapshot key，因为 patch text 会忽略 `metadataOnly` 但依赖 diff 展示偏好；
