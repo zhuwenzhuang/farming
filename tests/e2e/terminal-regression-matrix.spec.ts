@@ -118,6 +118,53 @@ async function cellForText(
   throw new Error(`Could not find terminal text ${text}: ${JSON.stringify(rows)}`)
 }
 
+async function dispatchTerminalModifierKey(
+  page: import('@playwright/test').Page,
+  type: 'keydown' | 'keyup',
+) {
+  await page.evaluate(({ eventType, isMac }) => {
+    const modifierActive = eventType === 'keydown'
+    window.dispatchEvent(new KeyboardEvent(eventType, {
+      bubbles: true,
+      key: isMac ? 'Meta' : 'Control',
+      metaKey: isMac && modifierActive,
+      ctrlKey: !isMac && modifierActive,
+    }))
+  }, { eventType: type, isMac: process.platform === 'darwin' })
+}
+
+async function dispatchTerminalModifierClick(
+  page: import('@playwright/test').Page,
+  agentId: string,
+  x: number,
+  y: number,
+) {
+  await page.evaluate(({ id, clientX, clientY, isMac }) => {
+    const host = document.querySelector(`.terminal-session-host[data-agent-id="${CSS.escape(id)}"]`)
+    if (!(host instanceof HTMLElement)) throw new Error(`Terminal host is missing for ${id}`)
+    host.dispatchEvent(new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX,
+      clientY,
+      metaKey: isMac,
+      ctrlKey: !isMac,
+    }))
+  }, { id: agentId, clientX: x, clientY: y, isMac: process.platform === 'darwin' })
+}
+
+async function hoverTerminalCell(
+  page: import('@playwright/test').Page,
+  x: number,
+  y: number,
+) {
+  // Moving within the cell first guarantees a fresh mousemove even when two
+  // consecutive fixtures render at the same viewport coordinates.
+  await page.mouse.move(x + 1, y + 1)
+  await page.mouse.move(x, y)
+}
+
 async function cellForExactRowText(
   page: import('@playwright/test').Page,
   agentId: string,
@@ -860,19 +907,18 @@ test.describe('terminal regression matrix', () => {
     })
 
     const url = 'https://example.test/path/to/review?from=matrix&to=main'
-    const urlOpenModifier = process.platform === 'darwin' ? 'Meta' : 'Control'
     const terminalFindShortcut = process.platform === 'darwin' ? 'Meta+F' : 'Control+F'
     await scenario('modifier-hovering a terminal URL exposes an open-target affordance', async () => {
       await writeTerminalFixture(page, bashAgentId, `${url}\r\n`)
       const cell = await cellForText(page, bashAgentId, 'example.test', 2)
-      await page.mouse.move(cell.x, cell.y)
+      await hoverTerminalCell(page, cell.x, cell.y)
       await expect.poll(async () => {
         return page.evaluate((id) => {
           const host = document.querySelector(`.terminal-session-host[data-agent-id="${CSS.escape(id)}"]`)
           return host instanceof HTMLElement ? host.classList.contains('terminal-open-target-hover') : false
         }, bashAgentId)
       }).toBe(false)
-      await page.keyboard.down(urlOpenModifier)
+      await dispatchTerminalModifierKey(page, 'keydown')
       await expect.poll(async () => {
         return page.evaluate((id) => {
           const host = document.querySelector(`.terminal-session-host[data-agent-id="${CSS.escape(id)}"]`)
@@ -889,7 +935,7 @@ test.describe('terminal regression matrix', () => {
         target: 'url',
         cursor: 'pointer',
       })
-      await page.keyboard.up(urlOpenModifier)
+      await dispatchTerminalModifierKey(page, 'keyup')
       await expect.poll(async () => {
         return page.evaluate((id) => {
           const host = document.querySelector(`.terminal-session-host[data-agent-id="${CSS.escape(id)}"]`)
@@ -905,9 +951,7 @@ test.describe('terminal regression matrix', () => {
       await expect.poll(async () => page.evaluate(() => {
         return (window as unknown as { __openedTerminalUrls?: string[] }).__openedTerminalUrls ?? []
       })).toHaveLength(0)
-      await page.keyboard.down(urlOpenModifier)
-      await page.mouse.click(cell.x, cell.y)
-      await page.keyboard.up(urlOpenModifier)
+      await dispatchTerminalModifierClick(page, bashAgentId, cell.x, cell.y)
       await expect.poll(async () => page.evaluate(() => {
         return (window as unknown as { __openedTerminalUrls?: string[] }).__openedTerminalUrls ?? []
       })).toContain(url)
@@ -976,7 +1020,7 @@ test.describe('terminal regression matrix', () => {
     await scenario('hovering a terminal path:line exposes a direct file open affordance', async () => {
       await writeTerminalFixture(page, bashAgentId, 'README.md:3:1 failed\r\n')
       const cell = await cellForText(page, bashAgentId, 'README.md', 2)
-      await page.mouse.move(cell.x, cell.y)
+      await hoverTerminalCell(page, cell.x, cell.y)
       await expect.poll(async () => {
         return page.evaluate((id) => {
           const host = document.querySelector(`.terminal-session-host[data-agent-id="${CSS.escape(id)}"]`)
@@ -1001,7 +1045,7 @@ test.describe('terminal regression matrix', () => {
         return window.__farmingTerminalTest?.getCellCenter(id, 30, row) ?? null
       }, { id: bashAgentId, row: cell.row })
       if (!blankCell) throw new Error('Terminal blank cell beside path fixture is missing')
-      await page.mouse.move(blankCell.x, blankCell.y)
+      await hoverTerminalCell(page, blankCell.x, blankCell.y)
       await expect.poll(async () => {
         return page.evaluate((id) => {
           const host = document.querySelector(`.terminal-session-host[data-agent-id="${CSS.escape(id)}"]`)
@@ -1042,7 +1086,7 @@ test.describe('terminal regression matrix', () => {
     await scenario('plain-clicking a unique terminal filename opens the workspace file', async () => {
       await writeTerminalFixture(page, bashAgentId, 'unique-only.log unique terminal filename\r\n')
       const cell = await cellForText(page, bashAgentId, 'unique-only.log', 2)
-      await page.mouse.move(cell.x, cell.y)
+      await hoverTerminalCell(page, cell.x, cell.y)
       await expect.poll(async () => {
         return page.evaluate((id) => {
           const host = document.querySelector(`.terminal-session-host[data-agent-id="${CSS.escape(id)}"]`)
@@ -1076,7 +1120,7 @@ test.describe('terminal regression matrix', () => {
     await scenario('hovering a missing terminal filename does not expose a file affordance', async () => {
       await writeTerminalFixture(page, bashAgentId, 'missing-file.txt missing terminal filename\r\n')
       const cell = await cellForText(page, bashAgentId, 'missing-file.txt', 2)
-      await page.mouse.move(cell.x, cell.y)
+      await hoverTerminalCell(page, cell.x, cell.y)
       await expect.poll(async () => {
         return page.evaluate((id) => {
           const host = document.querySelector(`.terminal-session-host[data-agent-id="${CSS.escape(id)}"]`)
@@ -1097,7 +1141,7 @@ test.describe('terminal regression matrix', () => {
     await scenario('hovering an ambiguous terminal filename does not expose a file affordance', async () => {
       await writeTerminalFixture(page, bashAgentId, 'duplicate.txt ambiguous terminal filename\r\n')
       const cell = await cellForText(page, bashAgentId, 'duplicate.txt', 2)
-      await page.mouse.move(cell.x, cell.y)
+      await hoverTerminalCell(page, cell.x, cell.y)
       await expect.poll(async () => {
         return page.evaluate((id) => {
           const host = document.querySelector(`.terminal-session-host[data-agent-id="${CSS.escape(id)}"]`)

@@ -1,6 +1,5 @@
 import path from 'node:path'
 import fs from 'node:fs'
-import os from 'node:os'
 import { execFileSync } from 'node:child_process'
 import type { Locator, Page } from '@playwright/test'
 import {
@@ -141,14 +140,6 @@ async function mockCodexSessions(page: Page, sessions: MockAgentSession[] = []) 
       body: JSON.stringify({ sessions: agentSessions }),
     })
   })
-}
-
-function formatWorkspaceForVisibleText(workspace: string) {
-  const home = os.homedir()
-  if (home && workspace.startsWith(`${home}${path.sep}`)) {
-    return `~/${path.relative(home, workspace)}`
-  }
-  return workspace
 }
 
 test.describe('display-backed agent flows', () => {
@@ -1458,8 +1449,8 @@ test.describe('display-backed agent flows', () => {
     const mainWorkspace = path.resolve('.tmp', 'farming-playwright-main')
     const childWorkspace = path.resolve('.tmp', 'farming-playwright-child')
     const deepCodexCwd = path.join(childWorkspace, 'deep', 'task')
-    const childWorkspaceDisplay = formatWorkspaceForVisibleText(childWorkspace)
-    const deepCodexCwdDisplay = formatWorkspaceForVisibleText(deepCodexCwd)
+    const childWorkspaceDisplay = path.join('.tmp', 'farming-playwright-child')
+    const deepCodexCwdDisplay = path.join(childWorkspaceDisplay, 'deep', 'task')
     fs.rmSync(mainWorkspace, { recursive: true, force: true })
     fs.rmSync(childWorkspace, { recursive: true, force: true })
     fs.mkdirSync(mainWorkspace, { recursive: true })
@@ -1816,7 +1807,8 @@ test.describe('display-backed agent flows', () => {
     await childStartedRow.click()
     await expect(childStartedRow).toHaveClass(/active/)
 
-    await page.getByTestId('code-project-list').focus()
+    await childStartedRow.focus()
+    await expect(childStartedRow).toBeFocused()
     await page.keyboard.press('ArrowUp')
     await expect(primaryRow).toHaveClass(/active/)
     await expect(primaryRow).toBeFocused()

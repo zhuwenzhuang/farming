@@ -194,6 +194,7 @@ test.describe('additional Farming Code user scenarios', () => {
     await scenario('agent picker keeps keyboard focus and wraps between options', async () => {
       await openNewAgentDialog(page)
       await expect(page.getByTestId('agent-list-status')).toBeHidden({ timeout: 30_000 })
+      await page.keyboard.press('Home')
       await expect(page.getByTestId('agent-option-codex')).toBeFocused()
       await page.keyboard.press('End')
       await expect(page.getByTestId('agent-option-zsh')).toBeFocused()
