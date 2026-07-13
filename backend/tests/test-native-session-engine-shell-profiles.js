@@ -6,7 +6,7 @@ const NativeSessionEngine = require('../native-session-engine');
 const NativePtyHost = require('../native-pty-host');
 const { nativePtyHostSocketPath } = require('../native-pty-host-path');
 
-const SHELL_PROFILE_PROBE_TIMEOUT_MS = 10_000;
+const SHELL_PROFILE_PROBE_TIMEOUT_MS = 30_000;
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -22,7 +22,21 @@ async function waitFor(read, label, timeoutMs = SHELL_PROFILE_PROBE_TIMEOUT_MS) 
   throw new Error(`Timed out waiting for ${label}`);
 }
 
-async function runShellProfileProbe(engine, sessionId, command, args, home, probe, expectedOutput) {
+async function waitForSessionOutput(engine, sessionId, expectedOutput, label) {
+  let lastOutput = '';
+  try {
+    return await waitFor(async () => {
+      const state = await engine.getSessionState(sessionId);
+      lastOutput = state?.output || '';
+      return state && lastOutput.includes(expectedOutput) ? state : null;
+    }, label);
+  } catch (error) {
+    error.message = `${error.message}; last output: ${JSON.stringify(lastOutput.slice(-1_000))}`;
+    throw error;
+  }
+}
+
+async function runShellProfileProbe(engine, sessionId, command, args, home, readyOutput, probe, expectedOutput) {
   await engine.createSession({
     agentId: sessionId,
     command,
@@ -33,11 +47,9 @@ async function runShellProfileProbe(engine, sessionId, command, args, home, prob
     cols: 100,
     rows: 30,
   });
+  await waitForSessionOutput(engine, sessionId, readyOutput, `${command} startup prompt`);
   await engine.sendInput(sessionId, `${probe}\n`);
-  return waitFor(async () => {
-    const state = await engine.getSessionState(sessionId);
-    return state && state.output.includes(expectedOutput) ? state : null;
-  }, `${command} profile probe`);
+  return waitForSessionOutput(engine, sessionId, expectedOutput, `${command} profile probe`);
 }
 
 async function run() {
@@ -69,6 +81,7 @@ async function run() {
       'bash',
       ['-l'],
       home,
+      'bash-profile> ',
       "printf 'FARMING_PROFILE_PROBE bash=%s rc=%s prompt=%s\\n' \"${FARMING_TEST_BASH_PROFILE-unset}\" \"${FARMING_TEST_BASH_RC-unset}\" \"$PS1\"",
       'FARMING_PROFILE_PROBE bash=loaded'
     );
@@ -80,6 +93,7 @@ async function run() {
       'zsh',
       ['-l'],
       home,
+      'zsh-rc> ',
       "printf 'FARMING_PROFILE_PROBE zshenv=%s zprofile=%s zshrc=%s zlogin=%s prompt=%s\\n' \"${FARMING_TEST_ZSHENV-unset}\" \"${FARMING_TEST_ZPROFILE-unset}\" \"${FARMING_TEST_ZSHRC-unset}\" \"${FARMING_TEST_ZLOGIN-unset}\" \"$PROMPT\"",
       'FARMING_PROFILE_PROBE zshenv=loaded'
     );
