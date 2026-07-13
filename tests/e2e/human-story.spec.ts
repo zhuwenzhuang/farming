@@ -626,9 +626,9 @@ test.describe('human Farming Agent story', () => {
     await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${bashAgentId}"]`)).toHaveClass(/active/)
 
     await openNewAgentDialog(page)
-    const zshAgentId = await startAgentFromOpenDialog(page, 'zsh', projectDir)
-    await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${zshAgentId}"]`)).toHaveClass(/active/)
-    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${zshAgentId}"]`)).toBeVisible()
+    const secondBashAgentId = await startAgentFromOpenDialog(page, 'bash', projectDir)
+    await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${secondBashAgentId}"]`)).toHaveClass(/active/)
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${secondBashAgentId}"]`)).toBeVisible()
     await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${bashAgentId}"]`)).not.toHaveClass(/active/)
   })
 
@@ -640,7 +640,7 @@ test.describe('human Farming Agent story', () => {
     await openNewAgentDialog(page)
     const bashAgentId = await startAgentFromOpenDialog(page, 'bash', projectDir)
     await openNewAgentDialog(page)
-    const zshAgentId = await startAgentFromOpenDialog(page, 'zsh', projectDir)
+    const secondBashAgentId = await startAgentFromOpenDialog(page, 'bash', projectDir)
     const beforeIds = new Set(await getAgentRowIds(page))
 
     await page.locator(`[data-testid="code-agent-row"][data-agent-id="${bashAgentId}"]`).click({ button: 'right' })
@@ -653,7 +653,7 @@ test.describe('human Farming Agent story', () => {
     if (!createdAgentId) throw new Error('Forked agent row is missing')
     await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${createdAgentId}"]`)).toHaveClass(/active/)
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${createdAgentId}"]`)).toBeVisible()
-    await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${zshAgentId}"]`)).not.toHaveClass(/active/)
+    await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${secondBashAgentId}"]`)).not.toHaveClass(/active/)
   })
 
   test('opens an existing project agent and completes a real file edit through the terminal', async ({ page, workspaceRoot }) => {

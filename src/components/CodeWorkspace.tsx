@@ -1023,7 +1023,9 @@ export function CodeWorkspace({
   const focusComposerTextarea = useCallback(() => {
     const focus = () => {
       if (document.querySelector('.code-composer-menu')) return
-      composerTextareaRef.current?.focus({ preventScroll: true })
+      const input = composerTextareaRef.current
+        ?? document.querySelector<HTMLElement>('[data-testid="code-composer-input"]')
+      input?.focus({ preventScroll: true })
     }
     scheduleFocusRetries(focus, { delays: [60] })
   }, [])

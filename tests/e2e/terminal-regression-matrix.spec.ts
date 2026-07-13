@@ -1671,7 +1671,7 @@ test.describe('terminal regression matrix', () => {
     })
 
     await scenario('mobile composer remains usable after terminal copy', async () => {
-      const composer = page.getByTestId('code-composer').locator('textarea')
+      const composer = page.getByTestId('code-composer-input')
       await composer.fill('echo MOBILE_AFTER_COPY')
       await page.getByTestId('code-composer-send').click()
       await expect.poll(async () => await visibleTerminalText(page, agentId)).toContain('MOBILE_AFTER_COPY')

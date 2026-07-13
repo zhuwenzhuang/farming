@@ -110,6 +110,7 @@ async function resetSettings(page: Page) {
         lastMainWorkspace: '~/.farming',
         workspaceHistory: [],
         mainPageSessionKeys: [],
+        defaultLaunchAgent: 'codex',
         appearance: 'light',
         language: 'en',
         codexApprovalMode: 'approve',

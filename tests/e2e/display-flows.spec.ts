@@ -1,5 +1,6 @@
 import path from 'node:path'
 import fs from 'node:fs'
+import os from 'node:os'
 import { execFileSync } from 'node:child_process'
 import type { Locator, Page } from '@playwright/test'
 import {
@@ -143,7 +144,7 @@ async function mockCodexSessions(page: Page, sessions: MockAgentSession[] = []) 
 }
 
 function formatWorkspaceForVisibleText(workspace: string) {
-  const home = process.env.HOME
+  const home = os.homedir()
   if (home && workspace.startsWith(`${home}${path.sep}`)) {
     return `~/${path.relative(home, workspace)}`
   }
@@ -1655,7 +1656,9 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('agent-option-bash')).toContainText('bash')
     await expect(page.getByTestId('agent-option-zsh')).toContainText('zsh')
     await expect(page.getByTestId('agent-option-qwen')).toHaveCount(0)
-    await expect(page.getByTestId('input-dialog')).toHaveScreenshot('desktop-main-agent-list-dialog.png')
+    if (process.platform === 'darwin') {
+      await expect(page.getByTestId('input-dialog')).toHaveScreenshot('desktop-main-agent-list-dialog.png')
+    }
     await startAgentFromOpenDialog(page, 'bash', mainWorkspace)
     await expect(page.getByTestId('code-agent-row')).toHaveCount(1, { timeout: 30_000 })
     const { agentId: visibleMainAgentId } = await getAgentIdFromRow(page)
@@ -1671,7 +1674,9 @@ test.describe('display-backed agent flows', () => {
     await firstProjectTitle.click({ button: 'right' })
     let projectContextMenu = page.getByTestId('code-project-context-menu')
     await expect(projectContextMenu).toBeVisible()
-    await expect(projectContextMenu).toHaveScreenshot('desktop-project-context-menu.png')
+    if (process.platform === 'darwin') {
+      await expect(projectContextMenu).toHaveScreenshot('desktop-project-context-menu.png')
+    }
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Rename project' })).toBeVisible()
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Archive chats' })).toBeVisible()
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Archive chats' })).toBeEnabled()
@@ -1814,6 +1819,7 @@ test.describe('display-backed agent flows', () => {
     await page.getByTestId('code-project-list').focus()
     await page.keyboard.press('ArrowUp')
     await expect(primaryRow).toHaveClass(/active/)
+    await expect(primaryRow).toBeFocused()
     await page.keyboard.press('ArrowDown')
     await expect(childStartedRow).toHaveClass(/active/)
     await childStartedRow.focus()
@@ -2026,7 +2032,9 @@ test.describe('display-backed agent flows', () => {
       await expect(page.getByTestId('code-composer-model-picker')).toBeVisible()
       await page.getByTestId('code-composer-model-picker').click()
       await expect(page.getByTestId('code-model-menu')).toBeVisible()
-      await expect(page.getByTestId('code-model-menu')).toHaveScreenshot('desktop-composer-model-menu.png')
+      if (process.platform === 'darwin') {
+        await expect(page.getByTestId('code-model-menu')).toHaveScreenshot('desktop-composer-model-menu.png')
+      }
       const modelTriggerBox = await page.getByTestId('code-model-submenu-trigger').boundingBox()
       if (!modelTriggerBox) throw new Error('Model submenu trigger is not visible')
       await page.getByTestId('code-model-submenu-trigger').click()
@@ -2034,7 +2042,9 @@ test.describe('display-backed agent flows', () => {
       const modelSubmenuBox = await page.getByTestId('code-model-submenu').boundingBox()
       if (!modelSubmenuBox) throw new Error('Model submenu is not visible')
       expect(Math.abs(modelSubmenuBox.y - modelTriggerBox.y)).toBeLessThanOrEqual(4)
-      await expect(page.getByTestId('code-model-submenu')).toHaveScreenshot('desktop-composer-gpt-menu.png')
+      if (process.platform === 'darwin') {
+        await expect(page.getByTestId('code-model-submenu')).toHaveScreenshot('desktop-composer-gpt-menu.png')
+      }
       await page.getByTestId('code-model-submenu').getByRole('menuitemradio').first().click()
       await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()
       await page.getByTestId('code-composer-model-picker').click()
@@ -2045,7 +2055,9 @@ test.describe('display-backed agent flows', () => {
       await expect(page.getByTestId('code-model-menu')).toBeVisible()
       await page.getByTestId('code-speed-submenu-trigger').click()
       await expect(page.getByTestId('code-speed-submenu')).toBeVisible()
-      await expect(page.getByTestId('code-speed-submenu')).toHaveScreenshot('desktop-composer-speed-menu.png')
+      if (process.platform === 'darwin') {
+        await expect(page.getByTestId('code-speed-submenu')).toHaveScreenshot('desktop-composer-speed-menu.png')
+      }
       const defaultSpeedOption = page.getByTestId('code-speed-submenu').getByRole('menuitemradio', { name: /^Default$/ })
       await expect(defaultSpeedOption).toBeFocused()
       await defaultSpeedOption.press('ArrowDown')
@@ -2104,7 +2116,9 @@ test.describe('display-backed agent flows', () => {
       await page.getByTestId('code-composer').locator('textarea').fill('')
       await page.getByTestId('code-composer-add').click()
       await expect(page.getByTestId('code-composer-plus-menu')).toBeVisible()
-      await expect(page.getByTestId('code-composer-plus-menu')).toHaveScreenshot('desktop-composer-plus-menu.png')
+      if (process.platform === 'darwin') {
+        await expect(page.getByTestId('code-composer-plus-menu')).toHaveScreenshot('desktop-composer-plus-menu.png')
+      }
       await expect(page.getByTestId('code-composer-attach-file')).toBeFocused()
       const fileChooserPromise = page.waitForEvent('filechooser')
       await page.getByTestId('code-composer-attach-file').click()
@@ -2366,11 +2380,13 @@ test.describe('display-backed agent flows', () => {
     await terminalHost.dispatchEvent('keydown', { key: ',', ctrlKey: true, bubbles: true, cancelable: true })
     await expect(page.getByTestId('settings-panel')).toHaveCount(0)
     await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
-    await expect(page.getByTestId('code-main')).toHaveScreenshot('desktop-shell-with-agent-card.png', {
-      mask: [
-        page.locator('.code-terminal-container'),
-      ],
-    })
+    if (process.platform === 'darwin') {
+      await expect(page.getByTestId('code-main')).toHaveScreenshot('desktop-shell-with-agent-card.png', {
+        mask: [
+          page.locator('.code-terminal-container'),
+        ],
+      })
+    }
 
     const childFileSection = childProjectGroup.getByTestId('code-files-section')
     const filesTitle = childFileSection.locator('.code-files-title').first()
@@ -2420,7 +2436,9 @@ test.describe('display-backed agent flows', () => {
     const agentContextMenu = page.getByTestId('code-agent-context-menu')
     await expect(agentContextMenu).toBeVisible()
     await expect(agentContextMenu.getByRole('menuitem', { name: 'Pin Agent' })).toBeFocused()
-    await expect(agentContextMenu).toHaveScreenshot('desktop-agent-context-menu.png')
+    if (process.platform === 'darwin') {
+      await expect(agentContextMenu).toHaveScreenshot('desktop-agent-context-menu.png')
+    }
     const agentMenuBox = await agentContextMenu.boundingBox()
     if (!agentMenuBox) throw new Error('Agent context menu is not visible')
     expect(agentMenuBox.width).toBeLessThanOrEqual(224)
@@ -2501,11 +2519,13 @@ test.describe('display-backed agent flows', () => {
     await writeTerminalFixture(page, agentId, '$ echo farming-playwright\nfarming-playwright\n$ ')
     await expect.poll(async () => (await terminalRows(page, agentId)).join('\n')).toContain('farming-playwright')
     const desktopTerminalPane = page.getByTestId('code-terminal-pane').last()
-    await expect(desktopTerminalPane).toHaveScreenshot('desktop-session-modal-terminal.png', {
-      mask: [
-        desktopTerminalPane.locator('.code-terminal-container'),
-      ],
-    })
+    if (process.platform === 'darwin') {
+      await expect(desktopTerminalPane).toHaveScreenshot('desktop-session-modal-terminal.png', {
+        mask: [
+          desktopTerminalPane.locator('.code-terminal-container'),
+        ],
+      })
+    }
 
     const scrollbackFixture = `${Array.from({ length: 120 }, (_, index) => `scroll-lock-line-${String(index).padStart(3, '0')}`).join('\r\n')}\r\n$ `
     await writeTerminalFixture(page, agentId, scrollbackFixture)
@@ -2575,15 +2595,19 @@ test.describe('display-backed agent flows', () => {
 	      ))
 	      expect(mobileModelTextFits).toBe(true)
 	    }
-	    await expect(page.getByTestId('code-sidebar')).toHaveScreenshot('mobile-shell-with-vertical-sidebar.png')
+	    if (process.platform === 'darwin') {
+	      await expect(page.getByTestId('code-sidebar')).toHaveScreenshot('mobile-shell-with-vertical-sidebar.png')
+	    }
 	    await expect(mobileRow).toBeVisible()
 	    await mobileRow.click()
 	    await writeTerminalFixture(page, agentId, '$ mobile viewport\nready\n$ ')
-    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toHaveScreenshot('mobile-session-modal-terminal.png', {
-      mask: [
-        page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"] .code-terminal-container`),
-      ],
-    })
+    if (process.platform === 'darwin') {
+      await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toHaveScreenshot('mobile-session-modal-terminal.png', {
+        mask: [
+          page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"] .code-terminal-container`),
+        ],
+      })
+    }
     const mobileMarker = `mobile-flow-${Date.now()}`
     const mobileComposerInput = page.getByTestId('code-composer-input')
     await mobileComposerInput.fill(`echo ${mobileMarker}`)

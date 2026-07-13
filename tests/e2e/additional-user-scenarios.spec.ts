@@ -31,6 +31,21 @@ async function selectAgentById(page: import('@playwright/test').Page, agentId: s
   await expect(row).toHaveClass(/active/)
 }
 
+async function openStableComposerMenu(
+  page: import('@playwright/test').Page,
+  trigger: import('@playwright/test').Locator,
+  menu: import('@playwright/test').Locator,
+) {
+  await expect(async () => {
+    if (!(await menu.isVisible())) await trigger.click()
+    await expect(menu).toBeVisible({ timeout: 1_000 })
+    await page.evaluate(() => new Promise<void>(resolve => {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
+    }))
+    await expect(menu).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 10_000 })
+}
+
 async function expectNoDocumentOverflow(page: import('@playwright/test').Page) {
   await expect.poll(async () => page.evaluate(() => ({
     scrollX: window.scrollX,
@@ -123,7 +138,7 @@ async function startMobileAgentFromOpenDialog(page: import('@playwright/test').P
 }
 
 async function terminalText(page: import('@playwright/test').Page, agentId: string) {
-  return (await terminalRows(page, agentId, 40)).join('\n')
+  return (await terminalRows(page, agentId, 100)).join('\n')
 }
 
 async function terminalTextWithoutWhitespace(page: import('@playwright/test').Page, agentId: string) {
@@ -427,9 +442,8 @@ test.describe('additional Farming Code user scenarios', () => {
     })
 
     await scenario('approval menu has exactly one selected mode and closes with Escape', async () => {
-      await page.getByTestId('code-composer-approval').click()
       const menu = page.getByTestId('code-approval-menu')
-      await expect(menu).toBeVisible()
+      await openStableComposerMenu(page, page.getByTestId('code-composer-approval'), menu)
       await expect(menu.locator('[role="menuitemradio"][aria-checked="true"]')).toHaveCount(1)
       await expectMenuFitsViewport(page, 'code-approval-menu')
       await page.keyboard.press('Escape')
@@ -437,9 +451,11 @@ test.describe('additional Farming Code user scenarios', () => {
     })
 
     await scenario('model picker opens nested model choices inside the viewport', async () => {
-      await page.getByTestId('code-composer-model-picker').click()
-      await expect(page.getByTestId('code-model-menu')).toBeVisible()
-      await expect(page.getByTestId('code-model-menu').locator('[role="menuitemradio"][aria-checked="true"]')).toHaveCount(1)
+      const modelsLoaded = page.waitForResponse(response => response.url().includes('/api/codex/models'))
+      const modelMenu = page.getByTestId('code-model-menu')
+      await openStableComposerMenu(page, page.getByTestId('code-composer-model-picker'), modelMenu)
+      await modelsLoaded
+      await expect(modelMenu.locator('[role="menuitemradio"][aria-checked="true"]')).toHaveCount(1)
       await page.getByTestId('code-model-submenu-trigger').click()
       await expect(page.getByTestId('code-model-submenu')).toBeVisible()
       await expectMenuFitsViewport(page, 'code-model-submenu')
@@ -649,7 +665,7 @@ test.describe('additional Farming Code user scenarios', () => {
 
     await scenario('mobile terminal accepts composer input after sidebar interaction', async () => {
       await hideMobileSidebar(page)
-      const textarea = page.getByTestId('code-composer').locator('textarea')
+      const textarea = page.getByTestId('code-composer-input')
       await textarea.fill('echo mobile-extra-scenario')
       const focusedComposerBox = await page.getByTestId('code-composer').evaluate(element => {
         const rect = (element as HTMLElement).getBoundingClientRect()
@@ -699,7 +715,7 @@ test.describe('additional Farming Code user scenarios', () => {
     })
 
     await scenario('mobile composer keeps mic access and shows a recording bar', async () => {
-      const textarea = page.getByTestId('code-composer').locator('textarea')
+      const textarea = page.getByTestId('code-composer-input')
       await textarea.fill('')
       await expect(page.getByTestId('code-composer-mic')).toBeVisible()
       await page.getByTestId('code-composer-mic').click()
@@ -727,13 +743,13 @@ test.describe('additional Farming Code user scenarios', () => {
         instance?.onend?.()
       })
       await expect(recording).toHaveCount(0)
-      await expect(textarea).toHaveValue('mobile voice')
+      await expect(textarea).toHaveText('mobile voice')
       await textarea.fill('')
       await expectNoDocumentOverflow(page)
     })
 
     await scenario('mobile mic falls back to native keyboard dictation without speech recognition support', async () => {
-      const textarea = page.getByTestId('code-composer').locator('textarea')
+      const textarea = page.getByTestId('code-composer-input')
       await textarea.fill('')
       await page.evaluate(() => {
         delete (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition
@@ -744,7 +760,7 @@ test.describe('additional Farming Code user scenarios', () => {
       await expect(recording).toHaveCount(0)
       await expect(page.getByTestId('code-composer-dictation-hint')).toBeVisible()
       await expect(textarea).toBeFocused()
-      await expect(textarea).toHaveValue('')
+      await expect(textarea).toHaveText('')
       await expectNoDocumentOverflow(page)
     })
 
@@ -754,8 +770,8 @@ test.describe('additional Farming Code user scenarios', () => {
       const codexAgentId = await startMobileAgentFromOpenDialog(page, 'codex', mobileWorkspace)
       await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${codexAgentId}"]`)).toBeVisible()
       const composer = page.getByTestId('code-composer')
-      const textarea = composer.locator('textarea')
-      await textarea.evaluate(element => (element as HTMLTextAreaElement).blur())
+      const textarea = page.getByTestId('code-composer-input')
+      await textarea.evaluate(element => (element as HTMLElement).blur())
       await expect(page.getByTestId('code-composer-model-picker')).toBeHidden()
       const collapsedComposerBox = await composer.evaluate(element => {
         const rect = (element as HTMLElement).getBoundingClientRect()
@@ -764,9 +780,11 @@ test.describe('additional Farming Code user scenarios', () => {
       expect(collapsedComposerBox.height).toBeLessThanOrEqual(72)
       await textarea.click()
       await expect(page.getByTestId('code-composer-model-picker')).toBeVisible()
+      const modelsLoaded = page.waitForResponse(response => response.url().includes('/api/codex/models'))
       await page.getByTestId('code-composer-model-picker').click()
       const modelMenu = page.getByTestId('code-model-menu')
       await expect(modelMenu).toBeVisible()
+      await modelsLoaded
       await expectMenuFitsViewport(page, 'code-model-menu')
       await page.getByTestId('code-model-submenu-trigger').click()
       await expect(page.getByTestId('code-model-submenu')).toBeVisible()
@@ -830,8 +848,8 @@ test.describe('additional Farming Code user scenarios', () => {
       await page.getByTestId('code-mobile-more').click()
       const menu = page.getByTestId('code-options-menu')
       await expect(menu).toBeVisible()
-      await expect(menu.getByRole('menuitem', { name: 'Chat' })).toBeVisible()
-      await expect(menu.getByRole('menuitem', { name: 'Terminal' })).toBeVisible()
+      await expect(menu.getByRole('menuitem', { name: 'Chat' })).toHaveCount(0)
+      await expect(menu.getByRole('menuitem', { name: 'Terminal' })).toHaveCount(0)
       await expect(menu.getByRole('menuitem', { name: 'Share page' })).toBeVisible()
       await expect(menu).not.toContainText('Settings')
       await expect(menu).not.toContainText('Language')

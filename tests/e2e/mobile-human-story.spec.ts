@@ -345,7 +345,7 @@ test.describe('mobile Farming Code user story', () => {
     await revealMobileSidebar(page)
     await openNewAgentDialog(page)
     const agentId = await startMobileAgentFromOpenDialog(page, 'bash', projectDir)
-    await expect(page.getByTestId('code-mobile-topbar')).toContainText('bash')
+    await expect(page.getByTestId('code-mobile-topbar')).toContainText(path.basename(projectDir))
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()
     await expectNoPageOverflow(page)
 
