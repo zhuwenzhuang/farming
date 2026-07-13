@@ -39,8 +39,8 @@ function run() {
     'stylesheet assets should carry the startup token'
   );
   assert(
-    withToken.includes('/farming/farming-2/favicon-v2.ico?token='),
-    'static product icons should carry the startup token'
+    withToken.includes('<link rel="icon" href="/farming/farming-2/favicon-v2.ico">'),
+    'public product icons should keep a stable token-free URL for installed web apps'
   );
   assert(
     withToken.includes('https://example.invalid/assets/remote.js'),
@@ -55,14 +55,22 @@ function run() {
   );
 
   const productIndex = fs.readFileSync(path.join(repoRoot, 'index.html'), 'utf8');
+  const serverSource = fs.readFileSync(path.join(repoRoot, 'backend/server.js'), 'utf8');
   const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'public/farming-2/site.webmanifest'), 'utf8'));
   const faviconHeader = fs.readFileSync(path.join(repoRoot, 'public/farming-2/favicon-v2.ico')).subarray(0, 4);
   assert(productIndex.includes('app-icon-v2-180.png'), 'iOS should use the versioned high-resolution touch icon');
   assert(productIndex.includes('favicon-v2-32.png'), 'browser tabs should use the versioned small-icon crop');
   assert(manifest.icons.some(icon => icon.src === 'app-icon-v2-maskable-512.png' && icon.purpose === 'maskable'), 'the PWA manifest should provide a mask-safe Android icon');
   assert.deepStrictEqual([...faviconHeader], [0, 0, 1, 0], 'the v2 favicon should be a binary ICO rather than base64 text');
+  assert(
+    serverSource.indexOf("app.use(routePath(BASE_PATH, '/farming-2'), express.static(publicProductAssetsDir")
+      < serverSource.indexOf('app.use(tokenAuth.middleware())'),
+    'public product assets should be mounted before token authentication for OS icon fetchers'
+  );
+  assert(serverSource.includes("'/apple-touch-icon.png'"), 'iOS should have a conventional root touch-icon route');
+  assert(serverSource.includes("routePath(BASE_PATH, '/apple-touch-icon.png')"), 'iOS should have a base-path touch-icon route');
 
-  console.log('✓ Tokenized entry page assets for first-load mobile browsers');
+  console.log('✓ Entry assets keep app code authenticated and installed-app icons publicly fetchable');
 }
 
 run();

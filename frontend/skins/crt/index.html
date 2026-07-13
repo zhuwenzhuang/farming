@@ -479,6 +479,34 @@
             overflow-y: auto;
             padding: 18px 22px;
             scrollbar-gutter: stable;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(12, 204, 104, 0.46) transparent;
+            outline: none;
+        }
+
+        .terminal.crt-structured-session::-webkit-scrollbar {
+            width: 12px;
+        }
+
+        .terminal.crt-structured-session::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .terminal.crt-structured-session::-webkit-scrollbar-thumb {
+            border: 4px solid transparent;
+            border-radius: 0;
+            background: rgba(12, 204, 104, 0.46);
+            background-clip: content-box;
+        }
+
+        .terminal.crt-structured-session:focus {
+            scrollbar-color: #55f59b transparent;
+        }
+
+        .terminal.crt-structured-session:focus::-webkit-scrollbar-thumb {
+            background: #55f59b;
+            background-clip: content-box;
+            box-shadow: 0 0 5px rgba(85, 245, 155, 0.38);
         }
 
         .crt-structured-transcript {
@@ -751,6 +779,16 @@
             grid-column: 1 / -1;
             color: #7d9b86;
             font-size: 11px;
+        }
+
+        .crt-structured-composer-status::after {
+            content: attr(data-scroll-hint);
+            margin-left: 16px;
+            color: #087a42;
+        }
+
+        .crt-structured-composer-status[data-scroll-active="true"]::after {
+            color: #55f59b;
         }
 
         .crt-structured-composer-status.error {
@@ -1359,7 +1397,7 @@
                         <span class="crt-command-shortcut" aria-hidden="true">[ALT+M]</span>
                     </div>
                     <button class="kill-btn" aria-label="Kill Agent, Ctrl+K" onclick="killCurrentAgent()">KILL [CTRL+K]</button>
-                    <button class="close-btn" aria-label="Close session, Ctrl+Escape" onclick="closeSession()">CLOSE [CTRL+ESC]</button>
+                    <button class="close-btn" aria-label="Close session, Escape" onclick="closeSession()">CLOSE [ESC]</button>
                 </div>
             </div>
             <div class="crt-runtime-switch-status" id="crt-runtime-switch-status" role="status" aria-live="polite" hidden>

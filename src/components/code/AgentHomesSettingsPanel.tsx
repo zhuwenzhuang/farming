@@ -39,6 +39,7 @@ type UpdateStatus = {
 
 interface AgentHomesSettingsPanelProps {
   open: boolean
+  activeAgentId?: string | null
   language: UiPreferences['language']
   uiPreferences: UiPreferences
   agentLaunchOptions: AgentLaunchOption[]
@@ -267,6 +268,7 @@ function nextHomeDraft(provider: string) {
 
 export function AgentHomesSettingsPanel({
   open,
+  activeAgentId = null,
   language,
   uiPreferences,
   agentLaunchOptions,
@@ -620,7 +622,9 @@ export function AgentHomesSettingsPanel({
                     type="button"
                     data-testid="code-settings-skin-crt"
                     aria-pressed="false"
-                    onClick={() => window.location.assign(appPath('/crt/'))}
+                    onClick={() => window.location.assign(
+                      `${appPath('/crt/')}${activeAgentId ? `?agent=${encodeURIComponent(activeAgentId)}` : ''}`,
+                    )}
                   >{copy.farmingCrt}</button>
                 </div>
               </div>

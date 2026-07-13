@@ -1,6 +1,7 @@
 import {
   Children,
   isValidElement,
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -8,6 +9,7 @@ import {
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type WheelEvent as ReactWheelEvent,
 } from 'react'
@@ -25,6 +27,7 @@ import { collectTerminalPathLinkMatches } from '@/lib/terminal-links'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from './copy'
+import { acpActivityKind, acpCompactPlanLabel, acpPlanProgress, type AcpActivityKind } from './acp/acp-activity-label'
 import { terminalTargetFilePath } from './workspace-file-view'
 import 'katex/dist/katex.min.css'
 
@@ -36,6 +39,10 @@ interface CodexTranscriptProcessItem {
   images?: CodexTranscriptUserImage[]
   files?: CodexTranscriptUserFile[]
   status?: string
+  kind?: string
+  completedSteps?: number
+  totalSteps?: number
+  currentStep?: string
 }
 
 interface CodexTranscriptUserImage {
@@ -76,6 +83,49 @@ interface CodexTranscript {
   turns: CodexTranscriptTurn[]
 }
 
+function completedTranscriptTurnUnchanged(
+  current: CodexTranscriptTurn,
+  next: CodexTranscriptTurn,
+) {
+  const currentLastItem = current.processItems[current.processItems.length - 1]
+  const nextLastItem = next.processItems[next.processItems.length - 1]
+  return current.status !== 'inProgress'
+    && next.status !== 'inProgress'
+    && current.userMessage === next.userMessage
+    && current.finalMessage === next.finalMessage
+    && current.startedAt === next.startedAt
+    && current.completedAt === next.completedAt
+    && current.durationMs === next.durationMs
+    && current.userImages?.length === next.userImages?.length
+    && current.userFiles?.length === next.userFiles?.length
+    && current.processItems.length === next.processItems.length
+    && currentLastItem?.id === nextLastItem?.id
+    && currentLastItem?.status === nextLastItem?.status
+    && currentLastItem?.title === nextLastItem?.title
+    && currentLastItem?.detail === nextLastItem?.detail
+  }
+
+function preserveCompletedTranscriptTurns(
+  current: CodexTranscript | null,
+  next: CodexTranscript | null,
+) {
+  if (!current || !next || current.sessionId !== next.sessionId) return next
+  const completedTurns = new Map(
+    current.turns
+      .filter(turn => turn.status !== 'inProgress')
+      .map(turn => [turn.id, turn]),
+  )
+  return {
+    ...next,
+    turns: next.turns.map(turn => {
+      const completedTurn = completedTurns.get(turn.id)
+      return completedTurn && completedTranscriptTurnUnchanged(completedTurn, turn)
+        ? completedTurn
+        : turn
+    }),
+  }
+}
+
 export interface CodexTranscriptPaneProps {
   agentId: string
   workspaceRoot?: string
@@ -113,12 +163,42 @@ function elapsedDurationLabel(startedAt: number | null | undefined) {
   return durationLabel(Math.max(0, Date.now() - timestamp))
 }
 
-function turnProcessLabel(turn: CodexTranscriptTurn, copy: CodeCopy) {
+function acpActivityLabel(turn: CodexTranscriptTurn, copy: CodeCopy) {
+  const labels: Record<AcpActivityKind, string> = {
+    thinking: copy.codexTranscriptThinking,
+    running: copy.codexTranscriptRunning,
+    reading: copy.codexTranscriptReading,
+    searching: copy.codexTranscriptSearching,
+    editing: copy.codexTranscriptEditing,
+    plan: copy.codexTranscriptPlanActive,
+    fetching: copy.codexTranscriptFetching,
+    tool: copy.codexTranscriptUsingTool,
+    processing: copy.codexTranscriptWorking,
+  }
+  return labels[acpActivityKind(turn.processItems)]
+}
+
+function acpPlanLabel(turn: CodexTranscriptTurn, copy: CodeCopy) {
+  const progress = acpPlanProgress(turn.processItems)
+  if (!progress) return ''
+  const currentStepLabel = acpCompactPlanLabel(turn.processItems)
+  if (currentStepLabel) return currentStepLabel
+  return progress.total <= 99
+    ? copy.codexTranscriptPlanProgress(progress.completed, progress.total)
+    : copy.codexTranscriptPlanActive
+}
+
+function turnProcessLabel(
+  turn: CodexTranscriptTurn,
+  copy: CodeCopy,
+  workingLabel = copy.codexTranscriptWorking,
+  planLabel = '',
+) {
   const duration = durationLabel(turn.durationMs)
   return duration
     ? copy.codexTranscriptWorkedFor(duration)
     : turn.status === 'inProgress'
-      ? copy.codexTranscriptWorking
+      ? planLabel || workingLabel
       : copy.codexTranscriptProcess
 }
 
@@ -505,6 +585,15 @@ function isTranscriptNearBottom(element: HTMLElement) {
   return transcriptBottomDistance(element) <= TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD
 }
 
+function hasTextSelectionWithin(element: HTMLElement) {
+  const selection = window.getSelection()
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false
+  return Boolean(
+    (selection.anchorNode && element.contains(selection.anchorNode))
+    || (selection.focusNode && element.contains(selection.focusNode)),
+  )
+}
+
 function planDetailItems(detail: string) {
   const lines = detail.split('\n').map(line => line.trim()).filter(Boolean)
   const parsed = lines.map(line => {
@@ -567,6 +656,8 @@ function processEntriesForTurn(items: CodexTranscriptProcessItem[]) {
 }
 
 function processGroupLabel(items: CodexTranscriptProcessItem[]) {
+  const failedCount = items.filter(item => ['failed', 'rejected', 'cancelled', 'canceled'].includes(String(item.status || '').toLowerCase())).length
+  if (failedCount > 0) return failedCount === 1 ? 'Action failed' : `${failedCount} actions failed`
   const counts = items.reduce<Record<string, number>>((acc, item) => {
     const type = item.type
     acc[type] = (acc[type] || 0) + 1
@@ -1013,6 +1104,7 @@ function CodexTranscriptTurnView({
   workspaceRoot,
   processOpen,
   groupProcessActions,
+  source,
   onToggleProcess,
 }: {
   turn: CodexTranscriptTurn
@@ -1021,6 +1113,7 @@ function CodexTranscriptTurnView({
   workspaceRoot?: string
   processOpen: boolean
   groupProcessActions: boolean
+  source: CodexTranscriptPaneProps['source']
   onToggleProcess: (turnId: string) => void
 }) {
   const hasProcess = turn.processItems.length > 0
@@ -1049,6 +1142,8 @@ function CodexTranscriptTurnView({
   const progressDuration = turn.status === 'inProgress'
     ? elapsedDurationLabel(turn.startedAt)
     : ''
+  const workingLabel = source === 'acp' ? acpActivityLabel(turn, copy) : copy.codexTranscriptWorking
+  const planLabel = source === 'acp' ? acpPlanLabel(turn, copy) : ''
   const handleCopyItem = useCallback((item: CodexTranscriptProcessItem) => {
     const text = [item.title, item.detail].filter(Boolean).join('\n\n')
     if (!text) return
@@ -1078,10 +1173,9 @@ function CodexTranscriptTurnView({
       return next
     })
   }, [])
-  // A running turn should remain a compact status row on touch screens. The
-  // user can still open it explicitly, but auto-expanding every live command
-  // consumes most of the mobile viewport while the agent is working.
-  const effectiveProcessOpen = processOpen || (!mobileTouch && turn.status === 'inProgress')
+  // Keep the process compact while the agent works. The short activity label
+  // carries the live state; full reasoning and tool details remain opt-in.
+  const effectiveProcessOpen = processOpen
   const markdownComponents = useMemo<Components>(() => ({
     a: ({ href, children, onClick, ...props }) => {
       const target = href ? transcriptFileTargetFromText(href, workspaceRoot) : null
@@ -1176,7 +1270,7 @@ function CodexTranscriptTurnView({
               toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, toggleProcessOpen)
             }}
           >
-            <span>{turnProcessLabel(turn, copy)}</span>
+            <span>{turnProcessLabel(turn, copy, workingLabel, planLabel)}</span>
             <ChevronRightGlyph className="code-codex-transcript-chevron" />
           </button>
           {effectiveProcessOpen ? (
@@ -1258,7 +1352,7 @@ function CodexTranscriptTurnView({
           ) : null}
           {turn.status === 'inProgress' ? (
             <span className="code-codex-transcript-progress">
-              {[copy.codexTranscriptWorking, progressDuration].filter(Boolean).join(' ')}
+              {[workingLabel, progressDuration].filter(Boolean).join(' ')}
             </span>
           ) : null}
         </div>
@@ -1266,6 +1360,8 @@ function CodexTranscriptTurnView({
     </article>
   )
 }
+
+const StableCodexTranscriptTurnView = memo(CodexTranscriptTurnView)
 
 export function CodexTranscriptPane({
   agentId,
@@ -1295,6 +1391,11 @@ export function CodexTranscriptPane({
   // saved/bottom position mid-drag).
   const userScrollGestureRef = useRef(false)
   const userScrollGestureTimerRef = useRef<number | null>(null)
+  // Live ACP updates must not move the viewport while the user is selecting
+  // text from an earlier message. Keep this separate from terminal selection:
+  // it is scoped to this structured Chat scroll surface only.
+  const textSelectionGestureRef = useRef(false)
+  const textSelectionHadRangeRef = useRef(false)
 
   useEffect(() => {
     setTranscript(null)
@@ -1304,6 +1405,8 @@ export function CodexTranscriptPane({
     setTurnLimit(INITIAL_TRANSCRIPT_TURN_LIMIT)
     setShowJumpToBottom(false)
     followBottomRef.current = true
+    textSelectionGestureRef.current = false
+    textSelectionHadRangeRef.current = false
     pendingPrependAnchorRef.current = null
   }, [agentId])
 
@@ -1313,6 +1416,44 @@ export function CodexTranscriptPane({
       userScrollGestureTimerRef.current = null
     }
   }, [])
+
+  useEffect(() => {
+    if (!active) return undefined
+
+    const updateSelectionState = () => {
+      const element = scrollRef.current
+      if (!element) return
+      if (hasTextSelectionWithin(element)) {
+        followBottomRef.current = false
+        textSelectionHadRangeRef.current = true
+        return
+      }
+      if (textSelectionGestureRef.current) return
+      if (!textSelectionHadRangeRef.current) return
+      textSelectionHadRangeRef.current = false
+      setShowJumpToBottom(
+        !isTranscriptNearBottom(element)
+        && element.scrollHeight > element.clientHeight + TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD,
+      )
+    }
+    const finishSelectionGesture = () => {
+      window.requestAnimationFrame(() => {
+        textSelectionGestureRef.current = false
+        updateSelectionState()
+      })
+    }
+
+    document.addEventListener('selectionchange', updateSelectionState)
+    document.addEventListener('pointerup', finishSelectionGesture)
+    document.addEventListener('pointercancel', finishSelectionGesture)
+    return () => {
+      document.removeEventListener('selectionchange', updateSelectionState)
+      document.removeEventListener('pointerup', finishSelectionGesture)
+      document.removeEventListener('pointercancel', finishSelectionGesture)
+      textSelectionGestureRef.current = false
+      textSelectionHadRangeRef.current = false
+    }
+  }, [active])
 
   useEffect(() => {
     if (!active) return undefined
@@ -1341,7 +1482,8 @@ export function CodexTranscriptPane({
         })
         .then(payload => {
           if (stopped) return
-          setTranscript(payload.transcript || null)
+          const nextTranscript = payload.transcript || null
+          setTranscript(current => preserveCompletedTranscriptTurns(current, nextTranscript))
           setError('')
           setLoading(false)
           setLoadingOlder(false)
@@ -1373,6 +1515,7 @@ export function CodexTranscriptPane({
     if (!active || !transcript?.available || turns.length === 0) return
     const element = scrollRef.current
     const nearBottom = element ? isTranscriptNearBottom(element) : followBottomRef.current
+    if (element && (textSelectionGestureRef.current || hasTextSelectionWithin(element))) return
     if (nearBottom) onReadLatest?.()
   }, [active, onReadLatest, transcript?.available, transcript?.updatedAt, turns.length])
 
@@ -1381,10 +1524,19 @@ export function CodexTranscriptPane({
     const element = scrollRef.current
     if (!element) return
     if (userScrollGestureRef.current) return
+    const hasTextSelection = hasTextSelectionWithin(element)
+    if (textSelectionGestureRef.current || hasTextSelection) {
+      if (hasTextSelection) {
+        followBottomRef.current = false
+        textSelectionHadRangeRef.current = true
+      }
+      return
+    }
     const pendingAnchor = pendingPrependAnchorRef.current
     if (pendingAnchor) {
       pendingPrependAnchorRef.current = null
       window.requestAnimationFrame(() => {
+        if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
         const nextTop = element.scrollHeight - pendingAnchor.scrollHeight + pendingAnchor.scrollTop
         element.scrollTop = Math.max(0, nextTop)
         transcriptScrollPositions.set(agentId, element.scrollTop)
@@ -1393,6 +1545,7 @@ export function CodexTranscriptPane({
     }
     if (followBottomRef.current) {
       window.requestAnimationFrame(() => {
+        if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
         element.scrollTop = element.scrollHeight
         transcriptScrollPositions.set(agentId, element.scrollTop)
         setShowJumpToBottom(false)
@@ -1403,6 +1556,7 @@ export function CodexTranscriptPane({
     const saved = transcriptScrollPositions.get(agentId)
     if (!saved || saved <= 0) return
     window.requestAnimationFrame(() => {
+      if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
       element.scrollTop = Math.min(saved, Math.max(0, element.scrollHeight - element.clientHeight))
     })
   }, [active, agentId, loading, onReadLatest, transcript?.available, transcript?.updatedAt, turns.length])
@@ -1480,6 +1634,11 @@ export function CodexTranscriptPane({
     const element = scrollRef.current
     if (!element) return
     transcriptScrollPositions.set(agentId, element.scrollTop)
+    if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) {
+      followBottomRef.current = false
+      textSelectionHadRangeRef.current = true
+      return
+    }
     const nearBottom = isTranscriptNearBottom(element)
     followBottomRef.current = nearBottom
     setShowJumpToBottom(!nearBottom && element.scrollHeight > element.clientHeight + TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD)
@@ -1494,6 +1653,19 @@ export function CodexTranscriptPane({
     if (!element || element.scrollTop > TRANSCRIPT_LOAD_MORE_THRESHOLD) return
     requestOlderTurns(element)
   }, [finishUserScrollGesture, markUserScrollGesture, requestOlderTurns])
+  const handleTranscriptPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || event.pointerType === 'touch') return
+    const target = event.target
+    if (
+      target instanceof Element
+      && target.closest('button, a, input, textarea, select, summary, [role="button"]')
+    ) {
+      return
+    }
+    // Pointer down starts before Selection becomes non-collapsed. Lock now so
+    // an ACP refresh cannot jump to the bottom during that first drag frame.
+    textSelectionGestureRef.current = true
+  }, [])
   const handleToggleProcess = useCallback((turnId: string) => {
     setOpenProcessTurnIds(current => {
       const next = new Set(current)
@@ -1506,6 +1678,7 @@ export function CodexTranscriptPane({
     const element = scrollRef.current
     if (!element) return
     followBottomRef.current = true
+    textSelectionHadRangeRef.current = false
     // This control is an explicit catch-up action. A smooth animation can be
     // interrupted by a transcript refresh and leave the reader above the
     // newest turn, so move the viewport synchronously instead.
@@ -1530,6 +1703,7 @@ export function CodexTranscriptPane({
           className="code-codex-transcript-scroll"
           data-testid="code-codex-transcript-scroll"
           ref={scrollRef}
+          onPointerDown={handleTranscriptPointerDown}
           onScroll={handleScroll}
           onWheel={handleWheel}
           onTouchStart={handleTouchStart}
@@ -1538,7 +1712,7 @@ export function CodexTranscriptPane({
           onTouchCancel={handleTouchEnd}
         >
           {turns.map(turn => (
-            <CodexTranscriptTurnView
+            <StableCodexTranscriptTurnView
               key={turn.id}
               turn={turn}
               copy={copy}
@@ -1546,6 +1720,7 @@ export function CodexTranscriptPane({
               workspaceRoot={workspaceRoot}
               processOpen={openProcessTurnIds.has(turn.id)}
               groupProcessActions={groupProcessActions}
+              source={source}
               onToggleProcess={handleToggleProcess}
             />
           ))}

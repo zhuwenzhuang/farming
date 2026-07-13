@@ -271,9 +271,25 @@ async function listWorkspacePathCompletions(partialPath, limit = 12) {
     });
 }
 
-app.get(['/favicon.ico', routePath(BASE_PATH, '/favicon.ico')], (_req, res) => {
-  res.status(204).end();
-});
+// iOS can fetch installed-web-app metadata outside the authenticated page
+// request, without preserving its cookie or token query. These files contain
+// only public product artwork and must remain available to that fetcher.
+const publicProductAssetsDir = path.join(staticAppDir, 'farming-2');
+app.use(routePath(BASE_PATH, '/farming-2'), express.static(publicProductAssetsDir, { index: false }));
+
+const sendPublicProductAsset = (filename) => (_req, res) => {
+  res.sendFile(path.join(publicProductAssetsDir, filename));
+};
+
+app.get(['/favicon.ico', routePath(BASE_PATH, '/favicon.ico')], sendPublicProductAsset('favicon-v2.ico'));
+app.get([
+  '/apple-touch-icon.png',
+  '/apple-touch-icon-precomposed.png',
+  '/apple-touch-icon-180x180.png',
+  routePath(BASE_PATH, '/apple-touch-icon.png'),
+  routePath(BASE_PATH, '/apple-touch-icon-precomposed.png'),
+  routePath(BASE_PATH, '/apple-touch-icon-180x180.png'),
+], sendPublicProductAsset('app-icon-v2-180.png'));
 
 app.get(routePath(BASE_PATH, '/j/:code'), (req, res) => {
   if (req.method === 'HEAD') {

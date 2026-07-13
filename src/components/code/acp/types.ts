@@ -43,6 +43,12 @@ export interface AcpSessionConfigBoolean extends AcpSessionConfigBase {
 export type AcpSessionConfigOption = AcpSessionConfigSelect | AcpSessionConfigBoolean
 
 export interface AcpSessionSnapshot {
+  provider?: string
+  agentInfo?: {
+    name?: string
+    title?: string
+    version?: string
+  } | null
   sessionId: string
   state: string
   error: string
@@ -55,9 +61,11 @@ export interface AcpSessionSnapshot {
   } | null
   configOptions: AcpSessionConfigOption[]
   usage?: {
-    totalTokens?: number
-    inputTokens?: number
-    outputTokens?: number
-    thoughtTokens?: number | null
+    used: number
+    size: number
+    cost?: {
+      amount: number
+      currency: string
+    } | null
   } | null
 }

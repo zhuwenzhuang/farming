@@ -43,6 +43,9 @@ assert.deepStrictEqual(transcript.turns[0].processItems.map(entry => entry.title
   'Progress updates', 'Reasoning', 'Run tests', 'Plan',
 ]);
 assert.strictEqual(transcript.turns[0].processItems[2].type, 'patch');
+assert.strictEqual(transcript.turns[0].processItems[3].completedSteps, 1);
+assert.strictEqual(transcript.turns[0].processItems[3].totalSteps, 1);
+assert.strictEqual(transcript.turns[0].processItems[3].currentStep, '');
 assert.match(transcript.turns[0].processItems[2].detail, /^Updated \/tmp\/a\.js/);
 assert.match(transcript.turns[0].processItems[2].detail, /Input\n[\s\S]*npm test/);
 assert.match(transcript.turns[0].processItems[2].detail, /File: \/tmp\/a\.js/);
@@ -99,5 +102,24 @@ const compactDiffTranscript = acpSessionTranscript({
 });
 assert.strictEqual(compactDiffTranscript.turns[0].processItems[0].type, 'patch');
 assert(compactDiffTranscript.turns[0].processItems[0].detail.length < 10_000, 'a small edit must not resend both full files');
+
+const activePlanTranscript = acpSessionTranscript({
+  state: 'working',
+  entries: [
+    { id: 'user-plan', type: 'message', role: 'user', content: [{ type: 'text', text: 'Implement it' }] },
+    {
+      id: 'plan-active',
+      type: 'plan',
+      plan: { entries: [
+        { content: 'Inspect code', status: 'completed' },
+        { content: 'Update parser', status: 'in_progress' },
+        { content: 'Run tests', status: 'pending' },
+      ] },
+    },
+  ],
+});
+assert.strictEqual(activePlanTranscript.turns[0].processItems[0].completedSteps, 1);
+assert.strictEqual(activePlanTranscript.turns[0].processItems[0].totalSteps, 3);
+assert.strictEqual(activePlanTranscript.turns[0].processItems[0].currentStep, 'Update parser');
 
 console.log('ACP transcript tests passed');

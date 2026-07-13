@@ -19,6 +19,15 @@ export interface CodeCopy {
   codexTranscriptWaiting: string
   codexTranscriptProcess: string
   codexTranscriptWorking: string
+  codexTranscriptThinking: string
+  codexTranscriptRunning: string
+  codexTranscriptReading: string
+  codexTranscriptSearching: string
+  codexTranscriptEditing: string
+  codexTranscriptPlanActive: string
+  codexTranscriptPlanProgress: (completed: number, total: number) => string
+  codexTranscriptFetching: string
+  codexTranscriptUsingTool: string
   codexTranscriptWorkedFor: (duration: string) => string
   codexTranscriptProcessCount: (count: number) => string
   codexTranscriptCopyDetails: string
@@ -114,6 +123,8 @@ export interface CodeCopy {
   stopAgentDescription: (title: string) => string
   permissionModeLabel: (value: string, fallback: string) => string
   permissionModeDescription: (value: string, fallback: string) => string
+  acpModeLabel: (value: string, fallback: string) => string
+  acpModeDescription: (value: string, fallback: string) => string
   reasoningOptionLabel: (value: string, fallback: string) => string
   serviceTierLabel: (value: string, fallback: string) => string
   serviceTierDescription: (value: string, fallback: string) => string
@@ -356,7 +367,16 @@ const EN_COPY: CodeCopy = {
   codexTranscriptEmpty: '',
   codexTranscriptWaiting: 'Codex is still working...',
   codexTranscriptProcess: 'Worked',
-  codexTranscriptWorking: 'Working',
+  codexTranscriptWorking: 'Processing',
+  codexTranscriptThinking: 'Thinking',
+  codexTranscriptRunning: 'Running',
+  codexTranscriptReading: 'Reading',
+  codexTranscriptSearching: 'Searching',
+  codexTranscriptEditing: 'Editing',
+  codexTranscriptPlanActive: 'On plan',
+  codexTranscriptPlanProgress: (completed, total) => `Plan ${completed}/${total}`,
+  codexTranscriptFetching: 'Fetching',
+  codexTranscriptUsingTool: 'Using tool',
   codexTranscriptWorkedFor: duration => `Worked for ${duration}`,
   codexTranscriptProcessCount: count => `${count} ${count === 1 ? 'event' : 'events'}`,
   codexTranscriptCopyDetails: 'Copy details',
@@ -459,6 +479,30 @@ const EN_COPY: CodeCopy = {
   stopAgentDescription: title => `Stop ${title} and close its terminal.`,
   permissionModeLabel: (_value, fallback) => fallback,
   permissionModeDescription: (_value, fallback) => fallback,
+  acpModeLabel: (value, fallback) => ({
+    'read-only': 'Read-only',
+    agent: 'Workspace',
+    'agent-full-access': 'Full access',
+    auto: 'Auto',
+    default: 'Manual',
+    acceptEdits: 'Accept edits',
+    plan: 'Plan',
+    dontAsk: "Don't ask",
+    bypassPermissions: 'Bypass permissions',
+    build: 'Build',
+  }[value] ?? fallback),
+  acpModeDescription: (value, fallback) => ({
+    'read-only': 'Read and analyze by default. File writes and commands that need more access require approval. Network access is off.',
+    agent: 'Read and write inside this workspace and run sandboxed commands. Network and out-of-workspace access require approval.',
+    'agent-full-access': 'Access files outside this workspace and use the network without approval prompts. Use only in a trusted environment.',
+    auto: 'Use the model classifier to approve or deny permission requests.',
+    default: 'Prompt before operations that require approval.',
+    acceptEdits: 'Approve file edits automatically; ask about other operations that need permission.',
+    plan: 'Plan and inspect without modifying files.',
+    dontAsk: 'Do not show permission prompts; deny operations that were not already allowed.',
+    bypassPermissions: 'Bypass permission checks. Use only in a trusted environment.',
+    build: 'Run tools according to the permissions configured for this Agent.',
+  }[value] ?? fallback),
   reasoningOptionLabel: (_value, fallback) => fallback,
   serviceTierLabel: (_value, fallback) => fallback,
   serviceTierDescription: (_value, fallback) => fallback,
@@ -701,7 +745,16 @@ const ZH_COPY: CodeCopy = {
   codexTranscriptEmpty: '',
   codexTranscriptWaiting: 'Codex 还在工作...',
   codexTranscriptProcess: '执行过程',
-  codexTranscriptWorking: '执行中',
+  codexTranscriptWorking: '处理中',
+  codexTranscriptThinking: '思考中',
+  codexTranscriptRunning: '运行命令中',
+  codexTranscriptReading: '读取文件中',
+  codexTranscriptSearching: '搜索中',
+  codexTranscriptEditing: '修改文件中',
+  codexTranscriptPlanActive: '执行计划中',
+  codexTranscriptPlanProgress: (completed, total) => `执行计划 ${completed}/${total}`,
+  codexTranscriptFetching: '获取信息中',
+  codexTranscriptUsingTool: '调用工具中',
   codexTranscriptWorkedFor: duration => `Worked for ${duration}`,
   codexTranscriptProcessCount: count => `${count} 个事件`,
   codexTranscriptCopyDetails: '复制详情',
@@ -825,6 +878,30 @@ const ZH_COPY: CodeCopy = {
     dontAsk: '新 Claude Code 会话在支持时尽量避免交互式批准',
     plan: '新 Claude Code 会话以计划权限模式启动',
     bypassPermissions: '新 Claude Code 会话绕过权限检查；仅用于可信沙箱',
+  }[value] ?? fallback),
+  acpModeLabel: (value, fallback) => ({
+    'read-only': '只读',
+    agent: '工作区',
+    'agent-full-access': '完全访问',
+    auto: '自动',
+    default: '手动批准',
+    acceptEdits: '接受编辑',
+    plan: '计划',
+    dontAsk: '不询问',
+    bypassPermissions: '绕过权限',
+    build: '执行',
+  }[value] ?? fallback),
+  acpModeDescription: (value, fallback) => ({
+    'read-only': '默认只读和分析；写文件或运行需要更高权限的命令时会请求批准，网络默认关闭',
+    agent: '可在当前工作区内读写文件并运行沙箱命令；使用网络或访问工作区外内容时会请求批准',
+    'agent-full-access': '可访问工作区外文件并使用网络，且不再请求批准；仅用于可信环境',
+    auto: '由模型分类器自动批准或拒绝权限请求',
+    default: '需要权限的操作会先请求批准',
+    acceptEdits: '自动批准文件编辑；其他需要权限的操作仍会询问',
+    plan: '只进行规划和检查，不修改文件',
+    dontAsk: '不弹出权限询问；未经预先允许的操作会直接拒绝',
+    bypassPermissions: '绕过权限检查；仅用于可信环境',
+    build: '按照该 Agent 已配置的权限执行工具',
   }[value] ?? fallback),
   reasoningOptionLabel: (value, fallback) => ({
     config: '使用配置',

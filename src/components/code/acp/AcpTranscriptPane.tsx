@@ -3,5 +3,5 @@ import { CodexTranscriptPane, type CodexTranscriptPaneProps } from '../CodexTran
 type AcpTranscriptPaneProps = Omit<CodexTranscriptPaneProps, 'source'>
 
 export function AcpTranscriptPane(props: AcpTranscriptPaneProps) {
-  return <CodexTranscriptPane {...props} source="acp" groupProcessActions={false} />
+  return <CodexTranscriptPane {...props} source="acp" groupProcessActions />
 }

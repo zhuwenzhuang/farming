@@ -31,7 +31,7 @@ function appendIndexHtmlAssetToken(html, token) {
   return String(html || '').replace(/\b(src|href)="([^"]+)"/g, (match, attr, url) => {
     if (!url || /(?:[?&])token=/.test(url)) return match;
     if (/^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith('//')) return match;
-    if (!/(?:^|\/)(assets|farming-2)\//.test(url)) return match;
+    if (!/(?:^|\/)assets\//.test(url)) return match;
 
     const hashIndex = url.indexOf('#');
     const urlWithoutHash = hashIndex >= 0 ? url.slice(0, hashIndex) : url;

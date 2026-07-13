@@ -24,8 +24,9 @@ Steps:
 
 2. Open the full URL in the phone browser.
 3. After the first successful visit, the browser stores the `farming_token` cookie.
-4. Tap the top-left menu button to open Projects / Agents.
-5. Select an existing agent or start a new `bash`, `zsh`, Codex, or Claude Code agent.
+4. To use Farming like an app on iPhone, open the page in a system browser and choose **Add to Home Screen**. The installed app icon and manifest are public branding assets; workspaces, sessions, and APIs still require the Farming token.
+5. Tap the top-left menu button to open Projects / Agents.
+6. Select an existing agent or start a new `bash`, `zsh`, Codex, or Claude Code agent.
 
 ## Layout
 

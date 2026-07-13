@@ -1025,7 +1025,9 @@ function run() {
       agentWorkPaneSource.includes('data-testid="code-permission-switching"') &&
       agentWorkPaneSource.includes("switchingKind === 'runtime' ? copy.runtimeModeRestarting : copy.permissionProfileRestarting") &&
       agentWorkPaneSource.includes('aria-busy={switching}') &&
-      transcriptPaneSource.includes("[copy.codexTranscriptWorking, progressDuration]") &&
+      transcriptPaneSource.includes("[workingLabel, progressDuration]") &&
+      transcriptPaneSource.includes('const effectiveProcessOpen = processOpen') &&
+      !transcriptPaneSource.includes("processOpen || (!mobileTouch && turn.status === 'inProgress')") &&
       transcriptPaneSource.includes('if (seconds <= 0) return') &&
       transcriptPaneSource.includes('role="status">{error}</div>') &&
       workspaceSource.includes('无法加载此会话的 Chat 历史。') &&
@@ -1132,7 +1134,13 @@ function run() {
       acpSessionHookSource.includes('/acp-session') &&
       acpSessionHookSource.includes("method: 'PATCH'") &&
       acpSessionControlsSource.includes('data-testid="code-acp-mode"') &&
-      acpSessionControlsSource.includes('className="code-composer-approval muted"') &&
+      acpSessionControlsSource.includes('className={`code-composer-approval ${modeColor(currentModeId)}`}') &&
+      acpSessionControlsSource.includes("modeId === 'read-only'") &&
+      acpSessionControlsSource.includes("modeId === 'agent-full-access'") &&
+      acpSessionControlsSource.includes("option.id === 'mode' || option.category === 'mode'") &&
+      acpSessionControlsSource.includes('usesConfigOption && modeConfig') &&
+      acpSessionControlsSource.includes("session.provider === 'qoder' && session.agentInfo?.version === '1.0.43'") &&
+      acpSessionControlsSource.includes('copy.acpModeDescription(mode.id, mode.description)') &&
       acpSessionControlsSource.includes('className="code-composer-model-picker"') &&
       acpSessionControlsSource.includes('code-model-picker-menu code-composer-menu') &&
       acpSessionControlsSource.includes('code-model-submenu code-composer-menu') &&
@@ -1143,7 +1151,8 @@ function run() {
       agentWorkPaneSource.includes('refreshSignal={agent.acpSessionUpdatedAt ? Date.parse(agent.acpSessionUpdatedAt) : 0}') &&
       transcriptPaneSource.includes("if (source !== 'acp') timer = window.setInterval(load, 3000)") &&
       acpTranscriptSource.includes("Omit<CodexTranscriptPaneProps, 'source'>") &&
-      acpTranscriptSource.includes('groupProcessActions={false}') &&
+      acpTranscriptSource.includes('groupProcessActions') &&
+      !acpTranscriptSource.includes('groupProcessActions={false}') &&
       workspaceSource.includes("activeAgent?.agentRuntimeMode === 'acp'") &&
       workspaceSource.includes('acpComposerStateKeyForAgent(activeAgent)') &&
       workspaceSource.includes('acpComposerStateAliasKeysForAgent(activeAgent)'),
@@ -1159,6 +1168,20 @@ function run() {
       workspaceSource.includes("? 'interrupt'") &&
       workspaceSource.includes('if (!activeAgent || !activeAgentCanInterrupt) return'),
     'Composer should show interrupt only for an active agent turn or a busy shell, not merely an idle running Codex/Claude process'
+  );
+  assert(
+    transcriptPaneSource.includes('function hasTextSelectionWithin(element: HTMLElement)') &&
+      transcriptPaneSource.includes('function preserveCompletedTranscriptTurns(') &&
+      transcriptPaneSource.includes('const textSelectionGestureRef = useRef(false)') &&
+      transcriptPaneSource.includes('const textSelectionHadRangeRef = useRef(false)') &&
+      transcriptPaneSource.includes('const StableCodexTranscriptTurnView = memo(CodexTranscriptTurnView)') &&
+      transcriptPaneSource.includes("document.addEventListener('selectionchange', updateSelectionState)") &&
+      transcriptPaneSource.includes('onPointerDown={handleTranscriptPointerDown}') &&
+      transcriptPaneSource.includes('setTranscript(current => preserveCompletedTranscriptTurns(current, nextTranscript))') &&
+      !transcriptPaneSource.includes('deferredTranscriptRef') &&
+      !terminalPaneSource.includes('textSelectionGestureRef') &&
+      !terminalComposerSource.includes('textSelectionGestureRef'),
+    'Chat transcript selection should pause live rendering without changing Terminal selection or composer behavior'
   );
 
   const keyboardSource = read('src/hooks/useKeyboard.ts');

@@ -13,10 +13,12 @@ function run() {
 
   assert(settings.includes('data-testid="code-settings-skin-code"'));
   assert(settings.includes('data-testid="code-settings-skin-crt"'));
-  assert(settings.includes("window.location.assign(appPath('/crt/'))"));
+  assert(settings.includes('activeAgentId?: string | null'));
+  assert(settings.includes("`${appPath('/crt/')}${activeAgentId ? `?agent=${encodeURIComponent(activeAgentId)}` : ''}`"));
   assert(settings.includes("farmingCrt: 'Farming CRT'"));
   assert(!settings.includes('interfaceSkinHint'));
   assert(crt.includes("RUNTIME_PATHS.path('/code/')"));
+  assert(crt.includes('openCrtAgentDeeplinkIfReady();'));
   assert.strictEqual(crtTheme.displayName, 'Farming CRT');
 
   console.log('Code and CRT skin switching assertions passed');

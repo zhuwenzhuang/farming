@@ -143,12 +143,17 @@ function processEntry(entry) {
     const detail = planDetail(entry.plan);
     if (!detail) return null;
     const items = Array.isArray(entry.plan?.entries) ? entry.plan.entries : [];
+    const completedSteps = items.filter(item => item.status === 'completed').length;
+    const currentStep = items.find(item => ['in_progress', 'running'].includes(String(item.status || '')));
     return {
       id: String(entry.id || ''),
       type: 'plan',
       title: 'Plan',
       detail,
       status: items.length > 0 && items.every(item => item.status === 'completed') ? 'completed' : 'running',
+      completedSteps,
+      totalSteps: items.length,
+      currentStep: String(currentStep?.content || currentStep?.title || ''),
     };
   }
   return null;

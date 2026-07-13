@@ -98,6 +98,9 @@ function run() {
   assert(indexHtml.includes('#crt-structured-send[data-action="interrupt"]'), 'CRT structured Send should retain a distinct interrupt command state');
   assert(crtApp.includes('structuredComposerCompositionEndAt'), 'CRT structured input should not submit the Enter used to confirm an IME composition');
   assert(crtApp.includes('navigateStructuredComposerHistory') && crtApp.includes('structuredComposerHistory'), 'CRT structured input should provide terminal-style draft history');
+  assert(indexHtml.includes('.terminal.crt-structured-session::-webkit-scrollbar-thumb') && indexHtml.includes('background-clip: content-box'), 'CRT structured Chat should expose only a narrow phosphor scroll indicator over a wider native hit target');
+  assert(crtApp.includes('focusStructuredTranscript') && crtApp.includes("status.dataset.scrollHint") && crtApp.includes("'[TAB] SCROLL'"), 'CRT structured Chat should disclose and enter keyboard scrolling only when the transcript overflows');
+  assert(crtApp.includes("event.key === 'ArrowUp' || event.key === 'ArrowDown'") && crtApp.includes('transcript.clientHeight * 0.85'), 'CRT structured Chat should scroll by viewport using universal arrow keys');
   assert(crtApp.includes('structuredComposerPendingFollowUps') && crtApp.includes('queueStructuredComposerFollowUp'), 'CRT ACP Composer should queue follow-up messages instead of treating a second Enter as interrupt');
   assert(crtApp.includes('structuredComposerRestoreFocusAfterInterrupt') && crtApp.includes('requestAnimationFrame(() => input.focus())'), 'CRT structured input should restore focus after an interrupt reaches a stable runtime state');
   assert(indexHtml.includes('id="crt-structured-attach"') && crtApp.includes('prepareStructuredAttachment'), 'CRT structured input should attach image and text context through the shared attachment format');
@@ -108,8 +111,9 @@ function run() {
   assert(indexHtml.includes('id="crt-runtime-toggle"') && indexHtml.includes('class="crt-runtime-glyph" aria-hidden="true">MSG</span>') && indexHtml.includes('class="crt-runtime-glyph" aria-hidden="true">TTY</span>'), 'CRT should expose retro MSG and TTY runtime controls');
   assert(crtApp.includes("body: JSON.stringify({ agentRuntimeMode: targetMode })"), 'CRT runtime controls should use the backend restart path');
   assert(crtApp.includes('isCrtRuntimeSwitchShortcut') && indexHtml.includes('class="crt-command-shortcut" aria-hidden="true">[ALT+M]</span>'), 'CRT should expose a visible non-terminal runtime switch shortcut');
-  assert(indexHtml.includes('class="kill-btn" aria-label="Kill Agent, Ctrl+K"') && indexHtml.includes('class="close-btn" aria-label="Close session, Ctrl+Escape"'), 'CRT Kill and Close should retain their original standalone button styles');
-  assert(indexHtml.includes('>KILL [CTRL+K]</button>') && indexHtml.includes('>CLOSE [CTRL+ESC]</button>'), 'CRT session actions should keep their original complete-button labels');
+  assert(indexHtml.includes('class="kill-btn" aria-label="Kill Agent, Ctrl+K"') && indexHtml.includes('class="close-btn" aria-label="Close session, Escape"'), 'CRT Kill and Close should retain their standalone button styles');
+  assert(indexHtml.includes('>KILL [CTRL+K]</button>') && indexHtml.includes('>CLOSE [ESC]</button>'), 'CRT session actions should show their primary keyboard labels');
+  assert(crtApp.includes('structuredSessionActive') && crtApp.includes('(e.ctrlKey || e.metaKey || !structuredComposerMenu)'), 'CRT structured sessions should close with Escape or Ctrl+Escape while preserving submenu back navigation');
   assert(indexHtml.includes('#farming-crt .session-header-actions > .kill-btn') && indexHtml.includes('height: 38px;') && indexHtml.includes('font-size: 16px;'), 'CRT session header controls should share one height and type size');
   assert(crtApp.includes("document.addEventListener('keydown', (event) => {") && crtApp.includes('}, true);'), 'CRT should capture the runtime shortcut before xterm sends it to the PTY');
   assert(crtApp.includes('[READ ONLY]') && terminalBridge.includes('disableStdin'), 'CRT should make exited terminal sessions explicitly read-only');
@@ -152,12 +156,16 @@ function run() {
   assert(crtApp.includes("data.type === 'session-preview'") && crtApp.includes('terminalPreviewSnapshots.set'), 'CRT should consume backend color preview snapshots');
   assert(monochromeCss.includes('font-family: var(--crt-terminal-font)'), 'CRT Agent previews should use the readable terminal font stack');
   assert(
-    monochromeCss.includes('#farming-crt #session-modal .modal-content') &&
-      monochromeCss.includes('#farming-crt #session-modal .crt-structured-composer') &&
-      monochromeCss.includes('#farming-crt:not(.no-crt) #session-modal .terminal') &&
-      monochromeCss.includes('#farming-crt #session-modal .terminal::before') &&
-      monochromeCss.includes('background: transparent;'),
-    'CRT session transcript and Composer should share the viewport scanline surface instead of painting a nested screen'
+    monochromeCss.includes('#farming-crt #session-modal {') &&
+      monochromeCss.includes('padding: 7px;') &&
+      monochromeCss.includes('background: #010805;') &&
+      monochromeCss.includes('#farming-crt #session-modal .modal-content') &&
+      monochromeCss.includes('width: 100%;') &&
+      monochromeCss.includes('height: 100%;') &&
+      monochromeCss.includes('max-width: none;') &&
+      monochromeCss.includes('max-height: none;') &&
+      monochromeCss.includes('border: 1px solid rgba(12, 204, 104, 0.3);'),
+    'CRT sessions should open as a full-screen surface inside a restrained physical screen aperture'
   );
   assert(monochromeCss.includes('button:not(.workspace-history-item)'), 'CRT dialog button styling should not hide recent workspace paths');
   assert(indexHtml.includes('.key-hint') && indexHtml.includes('background: #00ff00'), 'CRT numeric keys should retain their original phosphor fill');

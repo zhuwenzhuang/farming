@@ -16,6 +16,7 @@ import {
   AcpModelControl,
   type AcpComposerMenu,
 } from './AcpSessionControls'
+import { acpContextUsage } from './acp-usage'
 import { useAcpSession } from './useAcpSession'
 
 const COMPOSER_MIC_REGULAR_PATH = 'M8 10.9995C9.654 10.9995 11 9.65351 11 7.99951V3.99951C11 2.34551 9.654 0.999512 8 0.999512C6.346 0.999512 5 2.34551 5 3.99951V7.99951C5 9.65351 6.346 10.9995 8 10.9995ZM6 3.99951C6 2.89651 6.897 1.99951 8 1.99951C9.103 1.99951 10 2.89651 10 3.99951V7.99951C10 9.10251 9.103 9.99951 8 9.99951C6.897 9.99951 6 9.10251 6 7.99951V3.99951ZM13 7.49951V7.99951C13 10.5855 11.02 12.6935 8.5 12.9485V14.4995C8.5 14.7755 8.276 14.9995 8 14.9995C7.724 14.9995 7.5 14.7755 7.5 14.4995V12.9485C4.98 12.6935 3 10.5845 3 7.99951V7.49951C3 7.22351 3.224 6.99951 3.5 6.99951C3.776 6.99951 4 7.22351 4 7.49951V7.99951C4 10.2055 5.794 11.9995 8 11.9995C10.206 11.9995 12 10.2055 12 7.99951V7.49951C12 7.22351 12.224 6.99951 12.5 6.99951C12.776 6.99951 13 7.22351 13 7.49951Z'
@@ -229,11 +230,13 @@ export function AcpComposer({
     setOpenMenu(current => current === menu ? null : menu)
     setModelPane(null)
   }
-  const usage = Number.isFinite(session?.usage?.totalTokens)
-    ? `${Math.round(Number(session?.usage?.totalTokens) / 1000)}k tokens`
-    : ''
-  const contextWindowTitle = contextWindow
-    ? `Context window: ${contextWindow.percentUsed}% used (${contextWindow.percentLeft}% left), ${formatContextTokens(contextWindow.usedTokens)} / ${formatContextTokens(contextWindow.limitTokens)} tokens used`
+  const acpUsage = acpContextUsage(session?.usage)
+  const displayedContextWindow = acpUsage || contextWindow
+  const contextWindowTitle = displayedContextWindow
+    ? [
+      `Context window: ${displayedContextWindow.percentUsed}% used (${displayedContextWindow.percentLeft}% left), ${formatContextTokens(displayedContextWindow.usedTokens)} / ${formatContextTokens(displayedContextWindow.limitTokens)} tokens used`,
+      acpUsage?.costLabel ? `Session cost: ${acpUsage.costLabel}` : '',
+    ].filter(Boolean).join('. ')
     : ''
 
   return (
@@ -390,27 +393,32 @@ export function AcpComposer({
             <AcpModeControl
               session={session}
               updatingId={updatingId}
+              copy={copy}
               open={openMenu === 'mode'}
               onToggle={() => toggleMenu('mode')}
               onSetMode={modeId => {
                 setOpenMenu(null)
                 void setMode(modeId)
               }}
+              onSetConfigOption={(configId, value) => {
+                setOpenMenu(null)
+                void setConfigOption(configId, value)
+              }}
             />
           ) : null}
         </div>
         <div className="code-composer-right-tools" data-testid="code-acp-composer-right-tools">
-          {contextWindow ? (
+          {displayedContextWindow ? (
             <div className="code-composer-context-window" data-testid="code-acp-context-window" tabIndex={0} role="img" aria-label={contextWindowTitle}>
-              <span className="code-context-window-ring" aria-hidden="true" style={{ '--context-percent': contextWindow.percentUsed } as CSSProperties} />
+              <span className="code-context-window-ring" aria-hidden="true" style={{ '--context-percent': displayedContextWindow.percentUsed } as CSSProperties} />
               <div className="code-context-window-popover" role="tooltip">
                 <span>Context window:</span>
-                <strong>{contextWindow.percentUsed}% used ({contextWindow.percentLeft}% left)</strong>
-                <strong>{formatContextTokens(contextWindow.usedTokens)} / {formatContextTokens(contextWindow.limitTokens)} tokens used</strong>
+                <strong>{displayedContextWindow.percentUsed}% used ({displayedContextWindow.percentLeft}% left)</strong>
+                <strong>{formatContextTokens(displayedContextWindow.usedTokens)} / {formatContextTokens(displayedContextWindow.limitTokens)} tokens used</strong>
+                {acpUsage?.costLabel ? <strong>{acpUsage.costLabel}</strong> : null}
               </div>
             </div>
           ) : null}
-          {usage ? <span className="code-acp-usage" title="ACP session token usage">{usage}</span> : null}
           {session ? (
             <AcpModelControl
               session={session}

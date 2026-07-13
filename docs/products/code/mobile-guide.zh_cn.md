@@ -24,8 +24,9 @@ Farming 2 的手机端是一个随身远程工作台。它不追求把桌面 IDE
 
 2. 在手机浏览器里打开完整 URL。
 3. 第一次打开成功后，浏览器会保存 `farming_token` Cookie；之后刷新或重新打开页面，会自动回到同一个 Farming 服务。
-4. 点击左上角菜单按钮打开 Projects / Agents 抽屉。
-5. 选择已有 agent，或点击 `New Agent` 启动新的 `bash`、`zsh`、Codex 或 Claude Code。
+4. 如果希望像 App 一样使用，在系统浏览器中选择“添加到主屏幕”。安装所需的图标和 manifest 是公开的品牌静态资源；工作区、会话和 API 仍然需要 Farming Token。
+5. 点击左上角菜单按钮打开 Projects / Agents 抽屉。
+6. 选择已有 agent，或点击 `New Agent` 启动新的 `bash`、`zsh`、Codex 或 Claude Code。
 
 ## 手机端界面
 

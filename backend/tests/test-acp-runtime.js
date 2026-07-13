@@ -60,6 +60,12 @@ async function run() {
   assert.strictEqual(reduced.entries[1].content[0].text, 'one two');
   assert.strictEqual(reduced.entries[2].status, 'completed');
   state.apply({ sessionId: 's1', update: {
+    sessionUpdate: 'usage_update', used: 53_000, size: 200_000, cost: { amount: 0.045, currency: 'USD' },
+  } });
+  assert.deepStrictEqual(state.snapshot().usage, {
+    sessionUpdate: 'usage_update', used: 53_000, size: 200_000, cost: { amount: 0.045, currency: 'USD' },
+  });
+  state.apply({ sessionId: 's1', update: {
     sessionUpdate: 'plan_update',
     plan: { type: 'items', planId: 'plan-1', entries: [{ content: 'Finish', status: 'in_progress' }] },
   } });

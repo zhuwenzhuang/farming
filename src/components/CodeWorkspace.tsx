@@ -4248,6 +4248,7 @@ export function CodeWorkspace({
 
       <AgentHomesSettingsPanel
         open={settingsPanelOpen}
+        activeAgentId={activeView === 'projects' ? activeAgent?.id ?? null : null}
         language={uiPreferences.language}
         uiPreferences={uiPreferences}
         agentLaunchOptions={agentLaunchOptions}

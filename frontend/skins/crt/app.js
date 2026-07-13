@@ -30,6 +30,7 @@ let pendingMainAgentLaunch = false;
 let pendingAgentLaunchPrefill = null;
 let crtNavigationKey = '';
 let crtMainView = 'agents';
+let didApplyAgentDeeplink = false;
 let historyAgentSessions = [];
 let historyLoading = false;
 let historyError = '';
@@ -3263,6 +3264,24 @@ function selectAgent(index) {
   }
 }
 
+function requestedCrtAgentId(search = typeof window !== 'undefined' ? window.location.search : '') {
+  return new globalThis.URLSearchParams(search).get('agent') || '';
+}
+
+function openCrtAgentDeeplinkIfReady() {
+  if (didApplyAgentDeeplink || !state) return false;
+  didApplyAgentDeeplink = true;
+
+  const agentId = requestedCrtAgentId();
+  const agent = agentId
+    ? state.agents.find((candidate) => candidate.id === agentId && candidate.archived !== true)
+    : null;
+  if (!agent) return false;
+
+  openSession(agent.id);
+  return true;
+}
+
 function connect() {
   if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
@@ -3328,6 +3347,7 @@ function connect() {
         const sessionState = runtime.handleStateMessage(state);
         focusedAgentId = sessionState.focusedAgentId;
       }
+      openCrtAgentDeeplinkIfReady();
     } else if (data.type === 'agent-started') {
       selectCrtStartedAgent(data.agentId);
     } else if (data.type === 'session-preview') {
@@ -4246,6 +4266,31 @@ function resizeStructuredComposerInput(input) {
   const nextHeight = Math.min(input.scrollHeight, maxHeight);
   input.style.height = `${nextHeight}px`;
   input.style.overflowY = input.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  requestAnimationFrame(updateStructuredTranscriptScrollState);
+}
+
+function updateStructuredTranscriptScrollState() {
+  const container = document.getElementById('terminal-output');
+  const status = document.getElementById('crt-structured-composer-status');
+  if (!container || !status || !container.classList.contains('crt-structured-session')) return false;
+  const scrollable = container.scrollHeight > container.clientHeight + 2;
+  const active = scrollable && document.activeElement === container;
+  container.tabIndex = scrollable ? 0 : -1;
+  status.dataset.scrollActive = active ? 'true' : 'false';
+  status.dataset.scrollHint = !scrollable
+    ? ''
+    : active
+      ? '[↑/↓] SCROLL  [SHIFT+↑/↓] TOP/BOTTOM  [ENTER] LATEST  [ESC] INPUT'
+      : '[TAB] SCROLL';
+  return scrollable;
+}
+
+function focusStructuredTranscript() {
+  const container = document.getElementById('terminal-output');
+  if (!container || !updateStructuredTranscriptScrollState()) return false;
+  container.focus({ preventScroll: true });
+  updateStructuredTranscriptScrollState();
+  return true;
 }
 
 function setStructuredComposerActive(active) {
@@ -4269,6 +4314,8 @@ function setStructuredComposerActive(active) {
   }
   if (!active && statusNode) {
     statusNode.textContent = '';
+    delete statusNode.dataset.scrollActive;
+    delete statusNode.dataset.scrollHint;
     statusNode.classList.remove('error');
   }
 }
@@ -4520,6 +4567,7 @@ function renderStructuredTranscript(transcript, force = false) {
   container.replaceChildren(transcriptNode);
   structuredSessionRenderedAt = updatedAt;
   if (force || nearBottom) container.scrollTop = container.scrollHeight;
+  requestAnimationFrame(updateStructuredTranscriptScrollState);
 }
 
 async function refreshStructuredSession(agentId = focusedAgentId, force = false) {
@@ -4602,6 +4650,10 @@ function setupStructuredSessionComposer() {
     structuredComposerCompositionEndAt = Date.now();
   });
   input.addEventListener('keydown', (event) => {
+    if (event.key === 'Tab' && !event.shiftKey && !structuredComposerMenu && focusStructuredTranscript()) {
+      event.preventDefault();
+      return;
+    }
     if (event.key === 'Escape') {
       const agent = state && state.agents.find((candidate) => candidate.id === focusedAgentId);
       if (structuredComposerAction(agent, input.value) === 'interrupt') {
@@ -4694,6 +4746,36 @@ function setupStructuredSessionComposer() {
       backStructuredComposerMenu();
     }
   });
+  const transcript = document.getElementById('terminal-output');
+  if (transcript) {
+    transcript.addEventListener('focus', updateStructuredTranscriptScrollState);
+    transcript.addEventListener('blur', updateStructuredTranscriptScrollState);
+    transcript.addEventListener('scroll', updateStructuredTranscriptScrollState, { passive: true });
+    transcript.addEventListener('keydown', (event) => {
+      if (!transcript.classList.contains('crt-structured-session')) return;
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          transcript.scrollTop = event.key === 'ArrowUp' ? 0 : transcript.scrollHeight;
+        } else {
+          const direction = event.key === 'ArrowUp' ? -1 : 1;
+          transcript.scrollTop += direction * Math.max(40, transcript.clientHeight * 0.85);
+        }
+        updateStructuredTranscriptScrollState();
+        return;
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        transcript.scrollTop = transcript.scrollHeight;
+        input.focus();
+        return;
+      }
+      if (event.key === 'Escape' || event.key === 'Tab') {
+        event.preventDefault();
+        input.focus();
+      }
+    });
+  }
   composer.addEventListener('submit', (event) => {
     event.preventDefault();
     const agent = state && state.agents.find((candidate) => candidate.id === focusedAgentId);
@@ -5363,11 +5445,19 @@ if (typeof document !== 'undefined') {
     if (sessionActive) {
       const structuredInput = document.getElementById('crt-structured-input');
       const structuredInputFocused = structuredInput && document.activeElement === structuredInput;
+      const structuredSessionActive = document.getElementById('crt-structured-composer')?.classList.contains('active');
+      const structuredTranscriptFocused = document.activeElement === document.getElementById('terminal-output');
+      if (
+        structuredSessionActive
+        && e.key === 'Escape'
+        && (e.ctrlKey || e.metaKey || !structuredComposerMenu)
+        && !(!e.ctrlKey && !e.metaKey && structuredTranscriptFocused)
+      ) {
+        closeSession();
+        e.preventDefault();
+        return;
+      }
       if (structuredInputFocused) {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'Escape') {
-          closeSession();
-          e.preventDefault();
-        }
         return;
       }
       if (isCopyShortcut(e)) {
@@ -5550,6 +5640,7 @@ if (typeof module !== 'undefined' && module.exports) {
     needsMainAgent,
     getDefaultWorkspaceForDialog,
     resolveWorkspaceToStart,
+    requestedCrtAgentId,
     createSessionModalState,
     getSessionModalDomState
   };

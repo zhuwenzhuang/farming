@@ -1,10 +1,11 @@
-import { CheckGlyph, ChevronDownGlyph, ChevronRightGlyph } from '@/components/IconGlyphs'
+import { CheckGlyph, ChevronDownGlyph, ChevronRightGlyph, HandGlyph } from '@/components/IconGlyphs'
 import type { CodeCopy } from '../copy'
 import type {
   AcpSessionConfigBoolean,
   AcpSessionConfigOption,
   AcpSessionConfigSelect,
   AcpSessionConfigSelectOption,
+  AcpSessionMode,
   AcpSessionSnapshot,
 } from './types'
 
@@ -41,12 +42,54 @@ function compactModelLabel(label: string) {
   return compact || label
 }
 
-function ModeIcon() {
+function ModeIcon({ modeId }: { modeId: string }) {
+  if (modeId === 'read-only' || modeId === 'plan') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3.5 12s3.1-5 8.5-5 8.5 5 8.5 5-3.1 5-8.5 5-8.5-5-8.5-5Z" />
+        <circle cx="12" cy="12" r="2.4" />
+      </svg>
+    )
+  }
+
+  if (modeId === 'default') return <HandGlyph className="code-approval-hand-glyph" />
+
   return (
-    <svg className="filled" viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M6.6 1.2h2.8l.38 1.55c.36.13.7.32 1.01.56l1.51-.48 1.4 2.42-1.14 1.08c.03.22.04.44.04.67s-.01.45-.04.67l1.14 1.08-1.4 2.42-1.51-.48c-.31.24-.65.43-1.01.56L9.4 12.8H6.6l-.38-1.55a5.1 5.1 0 0 1-1.01-.56l-1.51.48-1.4-2.42 1.14-1.08A5 5 0 0 1 3.4 7c0-.23.01-.45.04-.67L2.3 5.25l1.4-2.42 1.51.48c.31-.24.65-.43 1.01-.56L6.6 1.2Zm1.4 3.3A2.5 2.5 0 1 0 8 9.5a2.5 2.5 0 0 0 0-5Z" />
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3.6 19 6v5.5c0 4.2-2.7 7.6-7 8.9-4.3-1.3-7-4.7-7-8.9V6l7-2.4Z" />
+      {modeId === 'agent-full-access' || modeId === 'bypassPermissions' ? (
+        <>
+          <path d="M12 8v5" />
+          <path d="M12 16.4h.01" />
+        </>
+      ) : modeId === 'dontAsk' ? (
+        <path d="M9.5 12h5" />
+      ) : ['agent', 'auto', 'acceptEdits', 'build'].includes(modeId) ? (
+        <path d="m9.5 12.4 1.8 1.6 3.5-4" />
+      ) : (
+        <circle cx="12" cy="12" r="2.4" />
+      )}
     </svg>
   )
+}
+
+function modeColor(modeId: string) {
+  if (['agent', 'auto', 'acceptEdits', 'build'].includes(modeId)) return 'blue'
+  if (['agent-full-access', 'bypassPermissions'].includes(modeId)) return 'orange'
+  return 'muted'
+}
+
+function sessionModeConfig(session: AcpSessionSnapshot) {
+  return session.configOptions.find((option): option is AcpSessionConfigSelect => (
+    option.type === 'select' && (option.id === 'mode' || option.category === 'mode')
+  ))
+}
+
+function supportedModes(session: AcpSessionSnapshot, modes: AcpSessionMode[]) {
+  if (session.provider === 'qoder' && session.agentInfo?.version === '1.0.43') {
+    return modes.filter(mode => mode.id !== 'plan')
+  }
+  return modes
 }
 
 function SpeedIcon() {
@@ -88,43 +131,58 @@ function SelectOptions({
 export function AcpModeControl({
   session,
   updatingId,
+  copy,
   open,
   onToggle,
   onSetMode,
+  onSetConfigOption,
 }: {
   session: AcpSessionSnapshot
   updatingId: string
+  copy: CodeCopy
   open: boolean
   onToggle: () => void
   onSetMode: (modeId: string) => void
+  onSetConfigOption: (configId: string, value: string) => void
 }) {
-  const modes = session.modes?.availableModes || []
+  const advertisedModes = session.modes?.availableModes || []
+  const modeConfig = sessionModeConfig(session)
+  const usesConfigOption = advertisedModes.length === 0 && Boolean(modeConfig)
+  const modes = supportedModes(session, advertisedModes.length > 0
+    ? advertisedModes
+    : modeConfig
+      ? selectOptions(modeConfig).map(mode => ({ id: mode.value, name: mode.name, description: mode.description }))
+      : [])
   if (modes.length === 0) return null
-  const currentModeId = session.currentModeId || session.modes?.currentModeId || ''
+  const currentModeId = session.currentModeId || session.modes?.currentModeId || modeConfig?.currentValue || ''
   const currentMode = modes.find(mode => mode.id === currentModeId) || modes[0]
+  const currentModeLabel = copy.acpModeLabel(currentMode?.id || currentModeId, currentMode?.name || currentModeId)
+  const currentModeDescription = currentMode?.description
+    ? copy.acpModeDescription(currentMode.id, currentMode.description)
+    : ''
 
   return (
     <div className="code-composer-menu-anchor">
       <button
         type="button"
-        className="code-composer-approval muted"
+        className={`code-composer-approval ${modeColor(currentModeId)}`}
         data-testid="code-acp-mode"
         data-acp-value={currentModeId}
-        aria-label="Agent mode"
+        aria-label={copy.agentPermissionMode}
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={Boolean(updatingId)}
         onClick={onToggle}
       >
-        <span className="code-tool-icon" aria-hidden="true"><ModeIcon /></span>
-        <span className="code-composer-approval-label">{currentMode?.name || currentModeId}</span>
+        <span className="code-tool-icon" aria-hidden="true"><ModeIcon modeId={currentModeId} /></span>
+        <span className="code-composer-approval-label">{currentModeLabel}</span>
         <span className="code-chevron" aria-hidden="true"><ChevronDownGlyph /></span>
       </button>
       {open ? (
         <div className="code-approval-menu code-composer-menu" role="menu" data-testid="code-acp-mode-menu">
           <div className="code-approval-menu-header">
-            <span>Mode</span>
-            {currentMode?.description ? <small>{currentMode.description}</small> : null}
+            <span>{copy.agentPermissionMode}</span>
+            {currentModeDescription ? <small>{currentModeDescription}</small> : null}
           </div>
           {modes.map(mode => (
             <button
@@ -133,12 +191,14 @@ export function AcpModeControl({
               className={`code-approval-option ${mode.id === currentModeId ? 'selected' : ''}`}
               role="menuitemradio"
               aria-checked={mode.id === currentModeId}
-              onClick={() => onSetMode(mode.id)}
+              onClick={() => usesConfigOption && modeConfig
+                ? onSetConfigOption(modeConfig.id, mode.id)
+                : onSetMode(mode.id)}
             >
-              <span className="code-approval-option-icon muted" aria-hidden="true"><ModeIcon /></span>
+              <span className={`code-approval-option-icon ${modeColor(mode.id)}`} aria-hidden="true"><ModeIcon modeId={mode.id} /></span>
               <span className="code-approval-option-copy">
-                <span>{mode.name}</span>
-                {mode.description ? <small>{mode.description}</small> : null}
+                <span>{copy.acpModeLabel(mode.id, mode.name)}</span>
+                {mode.description ? <small>{copy.acpModeDescription(mode.id, mode.description)}</small> : null}
               </span>
               {mode.id === currentModeId ? <span className="code-menu-check" aria-hidden="true"><CheckGlyph /></span> : null}
             </button>
