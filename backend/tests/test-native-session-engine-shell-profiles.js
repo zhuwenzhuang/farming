@@ -5,6 +5,7 @@ const path = require('path');
 const NativeSessionEngine = require('../native-session-engine');
 const NativePtyHost = require('../native-pty-host');
 const { nativePtyHostSocketPath } = require('../native-pty-host-path');
+const { resolveAgentExecutable } = require('../executable-discovery');
 
 const SHELL_PROFILE_PROBE_TIMEOUT_MS = 30_000;
 
@@ -28,6 +29,9 @@ async function waitForSessionOutput(engine, sessionId, expectedOutput, label) {
     return await waitFor(async () => {
       const state = await engine.getSessionState(sessionId);
       lastOutput = state?.output || '';
+      if (state?.status === 'exited') {
+        throw new Error(`${label} exited before producing expected output`);
+      }
       return state && lastOutput.includes(expectedOutput) ? state : null;
     }, label);
   } catch (error) {
@@ -75,10 +79,12 @@ async function run() {
   await host.start();
   const engine = new NativeSessionEngine({ configDir, socketPath });
   try {
+    const bashCommand = resolveAgentExecutable('bash');
+    assert.ok(bashCommand, 'bash is required for the native shell profile test');
     const bashState = await runShellProfileProbe(
       engine,
       'native-shell-bash-profile',
-      'bash',
+      bashCommand,
       ['-l'],
       home,
       'bash-profile> ',
@@ -87,17 +93,22 @@ async function run() {
     );
     assert.match(bashState.output, /FARMING_PROFILE_PROBE bash=loaded rc=unset prompt=bash-profile>/);
 
-    const zshState = await runShellProfileProbe(
-      engine,
-      'native-shell-zsh-profile',
-      'zsh',
-      ['-l'],
-      home,
-      'zsh-rc> ',
-      "printf 'FARMING_PROFILE_PROBE zshenv=%s zprofile=%s zshrc=%s zlogin=%s prompt=%s\\n' \"${FARMING_TEST_ZSHENV-unset}\" \"${FARMING_TEST_ZPROFILE-unset}\" \"${FARMING_TEST_ZSHRC-unset}\" \"${FARMING_TEST_ZLOGIN-unset}\" \"$PROMPT\"",
-      'FARMING_PROFILE_PROBE zshenv=loaded'
-    );
-    assert.match(zshState.output, /FARMING_PROFILE_PROBE zshenv=loaded zprofile=loaded zshrc=loaded zlogin=loaded prompt=zsh-rc>/);
+    const zshCommand = resolveAgentExecutable('zsh');
+    if (zshCommand) {
+      const zshState = await runShellProfileProbe(
+        engine,
+        'native-shell-zsh-profile',
+        zshCommand,
+        ['-l'],
+        home,
+        'zsh-rc> ',
+        "printf 'FARMING_PROFILE_PROBE zshenv=%s zprofile=%s zshrc=%s zlogin=%s prompt=%s\\n' \"${FARMING_TEST_ZSHENV-unset}\" \"${FARMING_TEST_ZPROFILE-unset}\" \"${FARMING_TEST_ZSHRC-unset}\" \"${FARMING_TEST_ZLOGIN-unset}\" \"$PROMPT\"",
+        'FARMING_PROFILE_PROBE zshenv=loaded'
+      );
+      assert.match(zshState.output, /FARMING_PROFILE_PROBE zshenv=loaded zprofile=loaded zshrc=loaded zlogin=loaded prompt=zsh-rc>/);
+    } else {
+      console.log('○ zsh profile probe skipped because zsh is not installed');
+    }
 
     console.log('✓ Native shell sessions load VS Code-style user startup profiles');
   } finally {
