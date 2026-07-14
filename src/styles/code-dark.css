@@ -1000,6 +1000,36 @@ body.code-mode[data-appearance='dark'] .code-codex-transcript-user-file {
   background: rgba(139, 148, 158, 0.12);
 }
 
+body.code-mode[data-appearance='dark'] .code-codex-transcript-resource-link > a,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-resource-link > span:not(.code-codex-transcript-user-file-meta),
+body.code-mode[data-appearance='dark'] .code-codex-transcript-subagent-turn .user {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-codex-transcript-terminal,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-subagent {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg-panel);
+}
+
+body.code-mode[data-appearance='dark'] .code-codex-transcript-terminal > header,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-terminal-meta,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-subagent > header,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-subagent-turn {
+  border-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-codex-transcript-terminal-copy:hover,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-terminal-copy:focus-visible {
+  background: rgba(139, 148, 158, 0.16);
+}
+
+body.code-mode[data-appearance='dark'] .code-codex-transcript-subagent-error {
+  border-color: rgba(248, 81, 73, 0.34);
+  background: rgba(248, 81, 73, 0.1);
+  color: #ff7b72;
+}
+
 body.code-mode[data-appearance='dark'] .code-codex-transcript-user-file-name {
   color: var(--code-dark-text);
 }
@@ -1180,6 +1210,40 @@ body.code-mode[data-appearance='dark'] .code-codex-transcript-result-summary .re
 body.code-mode[data-appearance='dark'] button.code-codex-transcript-result-summary:hover,
 body.code-mode[data-appearance='dark'] button.code-codex-transcript-result-summary:focus-visible {
   background: rgba(139, 148, 158, 0.18);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-codex-transcript-result-details {
+  border-color: var(--code-dark-border);
+  background: rgba(22, 27, 34, 0.96);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+}
+
+body.code-mode[data-appearance='dark'] .code-codex-transcript-result-file + .code-codex-transcript-result-file,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-result-diff,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-result-loading,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-result-error {
+  border-color: var(--code-dark-border-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-codex-transcript-result-file > summary {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-codex-transcript-result-file > summary:hover,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-result-review:hover,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-result-review:focus-visible {
+  background: rgba(139, 148, 158, 0.14);
+}
+
+body.code-mode[data-appearance='dark'] .code-codex-transcript-result-diff {
+  background: #0d1117;
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-codex-transcript-result-review {
+  border-color: var(--code-dark-border);
+  background: rgba(22, 27, 34, 0.9);
   color: var(--code-dark-text);
 }
 
@@ -1688,6 +1752,14 @@ body.code-mode[data-appearance='dark'] .code-context-window-ring {
 
 body.code-mode[data-appearance='dark'] .code-context-window-ring::after {
   background: var(--code-dark-bg-panel);
+}
+
+body.code-mode[data-appearance='dark'] .code-composer-context-window[data-level='warning'] .code-context-window-ring {
+  background: conic-gradient(#d29922 calc(var(--context-percent) * 1%), rgba(210, 153, 34, 0.25) 0);
+}
+
+body.code-mode[data-appearance='dark'] .code-composer-context-window[data-level='critical'] .code-context-window-ring {
+  background: conic-gradient(#f85149 calc(var(--context-percent) * 1%), rgba(248, 81, 73, 0.25) 0);
 }
 
 body.code-mode[data-appearance='dark'] .code-context-window-popover {

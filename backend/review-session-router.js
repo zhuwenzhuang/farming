@@ -22,6 +22,29 @@ function createReviewSessionRouter(service) {
         root: req.body?.root,
         ...(req.body?.modifiedWithinDays !== undefined ? { modifiedWithinDays: req.body.modifiedWithinDays } : {}),
         ...(req.body?.scope !== undefined ? { scope: req.body.scope } : {}),
+        ...(req.body?.paths !== undefined ? { paths: req.body.paths } : {}),
+      }));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post('/acp', async (req, res) => {
+    try {
+      res.status(201).json(await service.createFromAcp({
+        agentId: req.body?.agentId,
+        itemIds: req.body?.itemIds,
+      }));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post('/acp/preview', async (req, res) => {
+    try {
+      res.json(await service.previewFromAcp({
+        agentId: req.body?.agentId,
+        itemIds: req.body?.itemIds,
       }));
     } catch (error) {
       sendError(res, error);

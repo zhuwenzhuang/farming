@@ -35,9 +35,28 @@ let historyAgentSessions = [];
 let historyLoading = false;
 let historyError = '';
 let historyActionPendingKey = '';
-let pendingHistoryOpenAgentId = '';
+let pendingProviderSessionOpenAgentId = '';
 let historyPage = 0;
 let historyPageSize = 1;
+let searchQuery = '';
+let searchAgentSessions = [];
+let searchLoading = false;
+let searchError = '';
+let searchSelectionIndex = 0;
+let searchRequestSequence = 0;
+let searchDebounceTimer = null;
+let searchAbortController = null;
+let searchActionPendingKey = '';
+let billingSummary = null;
+let billingLoading = false;
+let billingError = '';
+let billingRequestSequence = 0;
+let billingAbortController = null;
+let billingRefreshTimer = null;
+let billingCanvasFrame = null;
+let billingMode = 'days';
+let billingSelectedDate = '';
+let billingDailyRenderSignature = '';
 let crtAgentPage = 0;
 let crtAgentPageSize = 1;
 let crtAgentPageColumns = 1;
@@ -84,6 +103,9 @@ const CRT_AGENT_CARD_MIN_WIDTH = 200;
 const CRT_AGENT_CARD_MIN_HEIGHT = 160;
 const CRT_AGENT_GRID_GAP = 15;
 const CRT_AGENT_GRID_PADDING = 20;
+const CRT_SEARCH_DEBOUNCE_MS = 180;
+const CRT_SEARCH_RESULT_LIMIT = 100;
+const CRT_BILLING_REFRESH_MS = 30_000;
 const CRT_AGENT_DISPLAY_NAMES = {
   qwen: 'Qwen Code',
   codex: 'Codex',
@@ -390,11 +412,73 @@ function buildCrtHistoryItems({ taskHistory = [], agents: agentRecords = [], ses
     .sort((left, right) => right.updatedAt - left.updatedAt);
 }
 
+function buildCrtSearchResults({ query = '', agents: agentRecords = [], sessions = [], mainAgentId = '', projectNames = {} } = {}) {
+  const normalizedQuery = String(query || '').trim().toLowerCase();
+  if (!normalizedQuery) return [];
+
+  const liveAgents = agentRecords.filter((agent) => (
+    agent
+    && agent.id !== mainAgentId
+    && agent.isMain !== true
+    && agent.archived !== true
+    && agent.status !== 'dead'
+    && agent.status !== 'stopped'
+  ));
+  const claimedSessionKeys = new Set(liveAgents.map((agent) => {
+    if (agent.providerSessionKey) return agent.providerSessionKey;
+    const resumed = crtResumedSessionFromSource(agent.source);
+    return resumed ? crtAgentSessionKey({
+      provider: resumed.provider,
+      id: resumed.sessionId,
+      providerHomeId: resumed.providerHomeId,
+    }) : '';
+  }).filter(Boolean));
+  const includesQuery = (values) => values.some((value) => (
+    String(value || '').toLowerCase().includes(normalizedQuery)
+  ));
+  const matchingAgents = liveAgents.filter((agent) => includesQuery([
+    getCrtAgentTitle(agent),
+    getCrtProjectName(agent, projectNames),
+    agent.projectWorkspace,
+    agent.cwd,
+    agent.task,
+    agent.command,
+    agent.providerSessionTitle,
+    agent.sessionTitle,
+  ])).map((agent) => ({
+    kind: 'agent',
+    searchKey: `agent:${agent.id}`,
+    agent,
+  }));
+  const matchingSessions = sessions.filter((session) => {
+    const key = crtAgentSessionKey(session);
+    if (!key || claimedSessionKeys.has(key)) return false;
+    const workspace = session.workspace || session.cwd || '';
+    return includesQuery([
+      session.title,
+      session.providerName,
+      session.provider,
+      workspace,
+      getCrtProjectName({ projectWorkspace: workspace }, projectNames),
+    ]);
+  }).map((session) => ({
+    kind: 'session',
+    searchKey: crtAgentSessionKey(session),
+    session,
+  }));
+
+  return [...matchingAgents, ...matchingSessions];
+}
+
 function getCrtNavigationScope() {
   const settingsModal = document.getElementById('settings-modal');
   if (settingsModal && settingsModal.classList.contains('active')) return settingsModal;
   const inputDialog = document.getElementById('input-dialog');
   if (inputDialog && inputDialog.classList.contains('active')) return inputDialog;
+  const billingArea = document.getElementById('billing-area');
+  if (billingArea && !billingArea.classList.contains('hidden')) return billingArea;
+  const searchArea = document.getElementById('search-area');
+  if (searchArea && !searchArea.classList.contains('hidden')) return searchArea;
   const historyArea = document.getElementById('history-area');
   if (historyArea && !historyArea.classList.contains('hidden')) return historyArea;
   return document.querySelector('.main-container');
@@ -2681,13 +2765,840 @@ function crtHistoryPrimaryAction(item) {
 }
 
 function setCrtMainView(view) {
-  crtMainView = view === 'history' ? 'history' : 'agents';
+  const previousView = crtMainView;
+  crtMainView = ['history', 'search', 'billing'].includes(view) ? view : 'agents';
   const mapArea = document.getElementById('map-area');
   const historyArea = document.getElementById('history-area');
+  const searchArea = document.getElementById('search-area');
+  const billingArea = document.getElementById('billing-area');
   const historySidebarItem = document.getElementById('history-sidebar-item');
-  if (mapArea) mapArea.classList.toggle('hidden', crtMainView === 'history');
+  const searchSidebarItem = document.getElementById('search-sidebar-item');
+  const billingSidebarItem = document.getElementById('billing-sidebar-item');
+  if (previousView === 'billing' && crtMainView !== 'billing') stopCrtBillingRefresh({ abort: true });
+  if (mapArea) mapArea.classList.toggle('hidden', crtMainView !== 'agents');
   if (historyArea) historyArea.classList.toggle('hidden', crtMainView !== 'history');
+  if (searchArea) searchArea.classList.toggle('hidden', crtMainView !== 'search');
+  if (billingArea) billingArea.classList.toggle('hidden', crtMainView !== 'billing');
   if (historySidebarItem) historySidebarItem.classList.toggle('active', crtMainView === 'history');
+  if (searchSidebarItem) searchSidebarItem.classList.toggle('active', crtMainView === 'search');
+  if (billingSidebarItem) billingSidebarItem.classList.toggle('active', crtMainView === 'billing');
+}
+
+function getCrtSearchResults() {
+  return buildCrtSearchResults({
+    query: searchQuery,
+    agents: state && Array.isArray(state.agents) ? state.agents : [],
+    sessions: searchAgentSessions,
+    mainAgentId: state && state.mainAgentId ? state.mainAgentId : '',
+    projectNames: globalSettings.projectNames,
+  });
+}
+
+function crtSearchResultTitle(result) {
+  if (result.kind === 'agent') return getCrtAgentTitle(result.agent);
+  return result.session.title || `${result.session.providerName || crtHistoryAgentName(result.session.provider)} Session`;
+}
+
+function crtSearchResultMeta(result) {
+  if (result.kind === 'agent') {
+    return [
+      `LIVE ${String(result.agent.status || 'running').toUpperCase()}`,
+      crtHistoryAgentName(result.agent.providerSessionProvider || result.agent.command || result.agent.engineName),
+      getCrtProjectName(result.agent),
+      formatWorkspaceForDisplay(result.agent.projectWorkspace || result.agent.cwd || ''),
+    ].filter(Boolean).join(' · ');
+  }
+  return [
+    result.session.archived === true ? 'ARCHIVED SESSION' : 'PROVIDER SESSION',
+    result.session.providerName || crtHistoryAgentName(result.session.provider),
+    formatWorkspaceForDisplay(result.session.workspace || result.session.cwd || ''),
+  ].filter(Boolean).join(' · ');
+}
+
+function renderCrtSearch() {
+  const list = document.getElementById('search-list');
+  const status = document.getElementById('search-status');
+  const resultStatus = document.getElementById('search-result-status');
+  if (!list || !status || !resultStatus) return;
+
+  const results = getCrtSearchResults();
+  searchSelectionIndex = results.length > 0
+    ? Math.max(0, Math.min(results.length - 1, searchSelectionIndex))
+    : 0;
+  list.replaceChildren();
+  status.classList.toggle('is-busy', searchLoading || Boolean(searchActionPendingKey));
+  status.classList.toggle('is-error', Boolean(searchError));
+  status.textContent = searchActionPendingKey
+    ? 'OPENING RECORD'
+    : searchError
+      ? 'INDEX ERROR'
+      : searchLoading
+        ? 'SCANNING INDEX'
+        : searchQuery
+          ? 'SCAN COMPLETE'
+          : 'STANDBY';
+  resultStatus.textContent = `${results.length} RECORD${results.length === 1 ? '' : 'S'}`;
+
+  if (!searchQuery) {
+    list.appendChild(createCrtHistoryMessage('search-message', 'ENTER A PROJECT, AGENT, OR SESSION QUERY.'));
+    return;
+  }
+  if (searchError && results.length === 0) {
+    list.appendChild(createCrtHistoryMessage('search-message is-error', searchError));
+    return;
+  }
+  if (results.length === 0 && searchLoading) {
+    list.appendChild(createCrtHistoryMessage('search-message', 'SCANNING PROVIDER SESSION INDEX...'));
+    return;
+  }
+  if (results.length === 0) {
+    list.appendChild(createCrtHistoryMessage('search-message', 'NO MATCHING RECORDS.'));
+    return;
+  }
+
+  results.forEach((result, index) => {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = `search-row${index === searchSelectionIndex ? ' is-selected' : ''}${searchActionPendingKey === result.searchKey ? ' is-pending' : ''}`;
+    row.dataset.searchIndex = String(index);
+    row.tabIndex = -1;
+    row.disabled = Boolean(searchActionPendingKey);
+
+    const recordIndex = document.createElement('span');
+    recordIndex.className = 'search-row-index';
+    recordIndex.textContent = String(index + 1).padStart(3, '0');
+    const copy = document.createElement('span');
+    copy.className = 'search-row-copy';
+    const title = document.createElement('strong');
+    title.className = 'search-row-title';
+    title.textContent = crtSearchResultTitle(result);
+    const meta = document.createElement('span');
+    meta.className = 'search-row-meta';
+    meta.textContent = crtSearchResultMeta(result);
+    copy.append(title, meta);
+    const action = document.createElement('span');
+    action.className = 'search-row-action';
+    action.textContent = result.kind === 'agent' ? 'Open' : 'Resume';
+    row.append(recordIndex, copy, action);
+    row.onclick = () => {
+      searchSelectionIndex = index;
+      activateCrtSearchResult(result);
+    };
+    list.appendChild(row);
+  });
+
+  if (crtMainView === 'search') {
+    const selected = list.querySelector('.search-row.is-selected');
+    if (selected && typeof selected.scrollIntoView === 'function') {
+      selected.scrollIntoView({ block: 'nearest' });
+    }
+  }
+}
+
+function resetCrtSearch() {
+  searchRequestSequence += 1;
+  if (searchDebounceTimer !== null) {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = null;
+  }
+  if (searchAbortController) {
+    searchAbortController.abort();
+    searchAbortController = null;
+  }
+  searchQuery = '';
+  searchAgentSessions = [];
+  searchLoading = false;
+  searchError = '';
+  searchSelectionIndex = 0;
+  searchActionPendingKey = '';
+  const input = document.getElementById('crt-search-input');
+  if (input) input.value = '';
+}
+
+async function loadCrtSearchAgentSessions(query, requestSequence) {
+  const controller = new window.AbortController();
+  searchAbortController = controller;
+  try {
+    const params = new window.URLSearchParams({
+      q: query,
+      limit: String(CRT_SEARCH_RESULT_LIMIT),
+      fresh: '1',
+    });
+    const response = await fetch(farmingApiPath(`/agent-sessions/search?${params.toString()}`), {
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(data && data.error ? data.error : `Search request failed (${response.status})`);
+    if (requestSequence !== searchRequestSequence) return;
+    searchAgentSessions = data && Array.isArray(data.sessions) ? data.sessions : [];
+    searchError = '';
+  } catch (error) {
+    if (controller.signal.aborted || requestSequence !== searchRequestSequence) return;
+    searchAgentSessions = [];
+    searchError = error instanceof Error ? error.message : 'Failed to search Agent sessions';
+  } finally {
+    if (requestSequence === searchRequestSequence) {
+      searchLoading = false;
+      searchAbortController = null;
+      renderCrtSearch();
+    }
+  }
+}
+
+function scheduleCrtSearch(query) {
+  searchQuery = String(query || '').trim();
+  searchSelectionIndex = 0;
+  searchAgentSessions = [];
+  searchError = '';
+  searchRequestSequence += 1;
+  const requestSequence = searchRequestSequence;
+  if (searchDebounceTimer !== null) clearTimeout(searchDebounceTimer);
+  if (searchAbortController) searchAbortController.abort();
+  searchDebounceTimer = null;
+  searchAbortController = null;
+  searchLoading = Boolean(searchQuery);
+  renderCrtSearch();
+  if (!searchQuery) return;
+
+  searchDebounceTimer = setTimeout(() => {
+    searchDebounceTimer = null;
+    void loadCrtSearchAgentSessions(searchQuery, requestSequence);
+  }, CRT_SEARCH_DEBOUNCE_MS);
+}
+
+function moveCrtSearchSelection(direction) {
+  const results = getCrtSearchResults();
+  if (!results.length) return false;
+  searchSelectionIndex = (searchSelectionIndex + direction + results.length) % results.length;
+  renderCrtSearch();
+  return true;
+}
+
+function activateCrtSearchResult(result = getCrtSearchResults()[searchSelectionIndex]) {
+  if (!result || searchActionPendingKey) return false;
+  if (result.kind === 'agent') {
+    const agentId = result.agent.id;
+    hideCrtSearch();
+    openSession(agentId);
+    return true;
+  }
+  void resumeCrtSearchSession(result.session, result.searchKey);
+  return true;
+}
+
+function showCrtSearch() {
+  clearCrtNavigationSelection();
+  resetCrtSearch();
+  setCrtMainView('search');
+  renderCrtSearch();
+  window.requestAnimationFrame(() => {
+    const input = document.getElementById('crt-search-input');
+    if (input) setCrtNavigationSelection(input);
+  });
+}
+
+function hideCrtSearch() {
+  resetCrtSearch();
+  clearCrtNavigationSelection();
+  setCrtMainView('agents');
+  renderState();
+}
+
+function setupCrtSearchControls() {
+  const input = document.getElementById('crt-search-input');
+  if (!input || input.dataset.bound === 'true') return;
+  input.dataset.bound = 'true';
+  input.addEventListener('input', () => scheduleCrtSearch(input.value));
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      moveCrtSearchSelection(event.key === 'ArrowDown' ? 1 : -1);
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (event.key === 'Enter') {
+      activateCrtSearchResult();
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (event.key === 'Escape') {
+      hideCrtSearch();
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  });
+}
+
+function formatCrtUsageValue(value) {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue) || numberValue < 0) return '--';
+  if (numberValue >= 1_000_000_000) {
+    const compact = numberValue / 1_000_000_000;
+    return `${compact >= 10 ? Math.round(compact) : Math.round(compact * 10) / 10}B`;
+  }
+  if (numberValue >= 1_000_000) {
+    const compact = numberValue / 1_000_000;
+    return `${compact >= 10 ? Math.round(compact) : Math.round(compact * 10) / 10}M`;
+  }
+  if (numberValue >= 1_000) {
+    const compact = numberValue / 1_000;
+    return `${compact >= 10 ? Math.round(compact) : Math.round(compact * 10) / 10}K`;
+  }
+  return String(numberValue < 10 ? Math.round(numberValue * 10) / 10 : Math.round(numberValue));
+}
+
+function formatCrtExactUsageValue(value) {
+  if (value === null || value === undefined || value === '') return '--';
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue) || numberValue < 0) return '--';
+  return Math.round(numberValue).toLocaleString('en-US');
+}
+
+function parseCrtBillingDate(dateValue) {
+  const parts = String(dateValue || '').split('-').map(Number);
+  if (parts.length !== 3 || parts.some(part => !Number.isFinite(part))) return null;
+  return new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0, 0);
+}
+
+function crtBillingDayLabel(dateValue) {
+  const date = parseCrtBillingDate(dateValue);
+  if (!date) return String(dateValue || 'SELECT A DAY');
+  const weekday = date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
+  return `${dateValue} · ${weekday}`;
+}
+
+function crtBillingDayPoint(dateValue = billingSelectedDate) {
+  const points = billingSummary && billingSummary.daily && Array.isArray(billingSummary.daily.points)
+    ? billingSummary.daily.points
+    : [];
+  return points.find(point => point && point.date === dateValue) || null;
+}
+
+function crtBillingHeatLevel(totalTokens, sortedActiveTotals) {
+  const total = Math.max(0, Number(totalTokens) || 0);
+  if (total <= 0) return 0;
+  const totals = Array.isArray(sortedActiveTotals) ? sortedActiveTotals : [];
+  if (totals.length <= 1) return 5;
+  let upperRank = 0;
+  while (upperRank < totals.length && totals[upperRank] <= total) upperRank += 1;
+  const percentile = upperRank / totals.length;
+  if (percentile > 0.98) return 5;
+  if (percentile > 0.90) return 4;
+  if (percentile > 0.75) return 3;
+  if (percentile > 0.50) return 2;
+  return 1;
+}
+
+function crtBillingHeatLabel(level) {
+  return ['INACTIVE', 'LOW ACTIVITY', 'ABOVE MEDIAN', 'TOP 25%', 'TOP 10%', 'TOP 2%'][level] || 'INACTIVE';
+}
+
+function renderCrtBillingSelectedDay() {
+  const daily = billingSummary && billingSummary.daily;
+  const point = crtBillingDayPoint();
+  const date = document.getElementById('billing-day-date');
+  const stateLabel = document.getElementById('billing-day-state');
+  const total = document.getElementById('billing-day-total');
+  const input = document.getElementById('billing-day-input');
+  const output = document.getElementById('billing-day-output');
+  const cacheRead = document.getElementById('billing-day-cache-read');
+  const cacheWrite = document.getElementById('billing-day-cache-write');
+  const providers = document.getElementById('billing-day-providers');
+  if (date) date.textContent = crtBillingDayLabel(point && point.date);
+  if (total) total.textContent = formatCrtExactUsageValue(point && point.totalTokens);
+  if (input) input.textContent = formatCrtExactUsageValue(point && point.inputTokens);
+  if (output) output.textContent = formatCrtExactUsageValue(point && point.outputTokens);
+  if (cacheRead) cacheRead.textContent = formatCrtExactUsageValue(point && point.cacheReadTokens);
+  if (cacheWrite) cacheWrite.textContent = formatCrtExactUsageValue(point && point.cacheWriteTokens);
+  if (providers) {
+    const providerTotals = point && point.providers ? Object.entries(point.providers) : [];
+    providers.textContent = providerTotals
+      .map(([provider, usage]) => `${provider.toUpperCase()} ${formatCrtExactUsageValue(usage && usage.totalTokens)}`)
+      .join(' · ') || '--';
+  }
+  if (stateLabel) {
+    const isToday = Boolean(daily && point && point.date === daily.endDate);
+    const notes = [isToday ? 'PARTIAL DAY' : 'COMPLETE DAY', 'INCL CACHE'];
+    if (daily && daily.partial) notes.push('PARTIAL SOURCE');
+    if (point && Number(point.unattributedTokens) > 0) {
+      notes.push(`${formatCrtUsageValue(point.unattributedTokens)} UNCLASSIFIED`);
+    }
+    stateLabel.textContent = point ? notes.join(' · ') : 'LOCAL HISTORY';
+  }
+  document.querySelectorAll('#billing-heatmap .billing-heat-cell').forEach((cell) => {
+    const selected = cell.dataset.date === billingSelectedDate;
+    cell.classList.toggle('selected', selected);
+    cell.setAttribute('aria-selected', selected ? 'true' : 'false');
+  });
+}
+
+function selectCrtBillingDay(dateValue, { focus = false } = {}) {
+  if (!crtBillingDayPoint(dateValue)) return false;
+  billingSelectedDate = dateValue;
+  renderCrtBillingSelectedDay();
+  if (focus) {
+    const cell = document.querySelector(`#billing-heatmap .billing-heat-cell[data-date="${dateValue}"]`);
+    if (cell) {
+      cell.focus({ preventScroll: true });
+      scrollCrtBillingSelectedDayIntoView();
+    }
+  }
+  return true;
+}
+
+function scrollCrtBillingSelectedDayIntoView() {
+  const scroll = document.getElementById('billing-heatmap-scroll');
+  const cell = billingSelectedDate
+    ? document.querySelector(`#billing-heatmap .billing-heat-cell[data-date="${billingSelectedDate}"]`)
+    : null;
+  if (!scroll || !cell) return;
+  const left = cell.offsetLeft;
+  const right = left + cell.offsetWidth;
+  if (left < scroll.scrollLeft) scroll.scrollLeft = left;
+  else if (right > scroll.scrollLeft + scroll.clientWidth) scroll.scrollLeft = right - scroll.clientWidth;
+}
+
+function selectCrtBillingDayByArrow(key) {
+  if (crtMainView !== 'billing' || billingMode !== 'days') return false;
+  const points = billingSummary && billingSummary.daily && Array.isArray(billingSummary.daily.points)
+    ? billingSummary.daily.points
+    : [];
+  if (points.length === 0) return false;
+  let index = points.findIndex(point => point.date === billingSelectedDate);
+  if (index < 0) index = points.length - 1;
+  const delta = key === 'ArrowLeft' ? -7 : key === 'ArrowRight' ? 7 : key === 'ArrowUp' ? -1 : 1;
+  const nextIndex = Math.max(0, Math.min(points.length - 1, index + delta));
+  return selectCrtBillingDay(points[nextIndex].date, { focus: true });
+}
+
+function renderCrtBillingDaily(summary = billingSummary) {
+  const daily = summary && summary.daily;
+  const points = daily && Array.isArray(daily.points) ? daily.points : [];
+  const totals = daily && daily.summary || {};
+  const setValue = (id, value) => {
+    const element = document.getElementById(id);
+    if (element) element.textContent = formatCrtUsageValue(value);
+  };
+  setValue('billing-today-total', totals.todayTokens);
+  setValue('billing-7d-total', totals.sevenDayTokens);
+  setValue('billing-30d-total', totals.thirtyDayTokens);
+  setValue('billing-period-total', totals.periodTokens);
+  const peak = document.getElementById('billing-peak-day');
+  if (peak) peak.textContent = totals.peakDate
+    ? `PEAK ${totals.peakDate.slice(5)} · ${formatCrtUsageValue(totals.peakTokens)}`
+    : 'PEAK --';
+  const range = document.getElementById('billing-daily-range');
+  if (range) {
+    const coverage = daily && Array.isArray(daily.coverage) ? daily.coverage : [];
+    const availableSources = coverage.filter(source => source && source.available !== false).length;
+    range.textContent = daily
+      ? `${daily.startDate} — ${daily.endDate} · ${String(daily.timeZone || 'LOCAL').toUpperCase()}${coverage.length ? ` · ${availableSources}/${coverage.length} SOURCES` : ''}`
+      : 'LOCAL TIME';
+  }
+
+  const heatmap = document.getElementById('billing-heatmap');
+  const months = document.getElementById('billing-heatmap-months');
+  if (!heatmap || !months) return;
+  const signature = points.map(point => `${point.date}:${point.totalTokens}`).join('|');
+  if (signature !== billingDailyRenderSignature) {
+    billingDailyRenderSignature = signature;
+    heatmap.replaceChildren();
+    months.replaceChildren();
+    const firstDate = parseCrtBillingDate(points[0] && points[0].date);
+    const padding = firstDate ? (firstDate.getDay() + 6) % 7 : 0;
+    const weekCount = Math.max(1, Math.ceil((padding + points.length) / 7));
+    heatmap.style.setProperty('--billing-week-count', String(weekCount));
+    months.style.setProperty('--billing-week-count', String(weekCount));
+    for (let index = 0; index < padding; index += 1) {
+      const spacer = document.createElement('span');
+      spacer.className = 'billing-heat-spacer';
+      heatmap.appendChild(spacer);
+    }
+    const activeTotals = points
+      .map(point => Math.max(0, Number(point.totalTokens) || 0))
+      .filter(Boolean)
+      .sort((left, right) => left - right);
+    let previousMonth = -1;
+    const monthColumns = new Set();
+    points.forEach((point, index) => {
+      const pointDate = parseCrtBillingDate(point.date);
+      const month = pointDate ? pointDate.getMonth() : -1;
+      const column = Math.floor((padding + index) / 7) + 1;
+      if (pointDate && month !== previousMonth && !monthColumns.has(column)) {
+        const label = document.createElement('span');
+        label.textContent = pointDate.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+        label.style.gridColumn = String(column);
+        months.appendChild(label);
+        monthColumns.add(column);
+      }
+      previousMonth = month;
+      const cell = document.createElement('button');
+      cell.type = 'button';
+      cell.className = 'billing-heat-cell';
+      cell.dataset.date = point.date;
+      const heatLevel = crtBillingHeatLevel(point.totalTokens, activeTotals);
+      const heatLabel = crtBillingHeatLabel(heatLevel);
+      cell.dataset.level = String(heatLevel);
+      cell.setAttribute('role', 'gridcell');
+      cell.setAttribute('aria-label', `${point.date}: ${formatCrtExactUsageValue(point.totalTokens)} tokens, ${heatLabel}`);
+      cell.setAttribute('aria-selected', 'false');
+      cell.tabIndex = -1;
+      cell.title = `${point.date} · ${formatCrtExactUsageValue(point.totalTokens)} tokens · ${heatLabel}`;
+      cell.addEventListener('click', () => selectCrtBillingDay(point.date));
+      heatmap.appendChild(cell);
+    });
+    if (!billingSelectedDate || !points.some(point => point.date === billingSelectedDate)) {
+      billingSelectedDate = daily && daily.endDate || points.at(-1)?.date || '';
+    }
+    window.requestAnimationFrame(() => {
+      scrollCrtBillingSelectedDayIntoView();
+    });
+  }
+  renderCrtBillingSelectedDay();
+}
+
+function setCrtBillingMode(mode) {
+  billingMode = mode === 'live' ? 'live' : 'days';
+  const daysView = document.getElementById('billing-days-view');
+  const liveView = document.getElementById('billing-live-view');
+  const daysTab = document.getElementById('billing-days-tab');
+  const liveTab = document.getElementById('billing-live-tab');
+  if (daysView) daysView.classList.toggle('hidden', billingMode !== 'days');
+  if (liveView) liveView.classList.toggle('hidden', billingMode !== 'live');
+  if (daysTab) {
+    daysTab.classList.toggle('active', billingMode === 'days');
+    daysTab.setAttribute('aria-selected', billingMode === 'days' ? 'true' : 'false');
+  }
+  if (liveTab) {
+    liveTab.classList.toggle('active', billingMode === 'live');
+    liveTab.setAttribute('aria-selected', billingMode === 'live' ? 'true' : 'false');
+  }
+  const status = document.getElementById('billing-status');
+  if (status && billingSummary && !billingLoading && !billingError) {
+    status.textContent = billingMode === 'days' ? 'HISTORY READY' : 'SIGNAL LOCKED';
+  }
+  if (billingMode === 'live') window.requestAnimationFrame(() => drawCrtBillingScope());
+}
+
+function formatCrtBillingWindow(windowMinutes) {
+  const minutes = Number(windowMinutes);
+  if (!Number.isFinite(minutes) || minutes <= 0) return 'WINDOW';
+  if (minutes % (7 * 24 * 60) === 0) return `${minutes / (7 * 24 * 60)}W`;
+  if (minutes % (24 * 60) === 0) return `${minutes / (24 * 60)}D`;
+  if (minutes % 60 === 0) return `${minutes / 60}H`;
+  return `${Math.round(minutes)}M`;
+}
+
+function formatCrtBillingReset(resetsAt, now = Date.now()) {
+  const timestamp = Number(resetsAt);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return 'RESET --';
+  const remainingMinutes = Math.max(0, Math.round((timestamp - now) / 60_000));
+  if (remainingMinutes >= 24 * 60) return `RESET ${Math.floor(remainingMinutes / (24 * 60))}D ${Math.floor((remainingMinutes % (24 * 60)) / 60)}H`;
+  if (remainingMinutes >= 60) return `RESET ${Math.floor(remainingMinutes / 60)}H ${remainingMinutes % 60}M`;
+  return `RESET ${remainingMinutes}M`;
+}
+
+function crtBillingCurrentRate(summary = billingSummary) {
+  const providers = summary && Array.isArray(summary.providers) ? summary.providers : [];
+  return providers.reduce((total, provider) => {
+    const rate = Number(provider && provider.tokenUsage && provider.tokenUsage.tokensPerMinute);
+    return total + (Number.isFinite(rate) ? Math.max(0, rate) : 0);
+  }, 0);
+}
+
+function appendCrtBillingMessage(container, text, isError = false) {
+  const message = document.createElement('div');
+  message.className = `billing-message${isError ? ' is-error' : ''}`;
+  message.textContent = text;
+  container.appendChild(message);
+}
+
+function renderCrtBillingQuota(summary = billingSummary) {
+  const container = document.getElementById('billing-quota-list');
+  if (!container) return;
+  container.replaceChildren();
+  const providers = summary && Array.isArray(summary.providers) ? summary.providers : [];
+  let rowCount = 0;
+
+  providers.forEach((provider) => {
+    const quota = provider && provider.quota;
+    if (!quota || quota.available === false) return;
+    [quota.primary, quota.secondary].filter(Boolean).forEach((limit) => {
+      const usedPercent = Math.max(0, Math.min(100, Number(limit.usedPercent) || 0));
+      const remainingPercent = Math.max(0, 100 - usedPercent);
+      const row = document.createElement('div');
+      row.className = `billing-quota-row${remainingPercent <= 25 ? ' is-warning' : ''}`;
+      const copy = document.createElement('div');
+      copy.className = 'billing-quota-copy';
+      const label = document.createElement('strong');
+      label.textContent = `${String(provider.providerName || provider.provider || 'PROVIDER').toUpperCase()} ${formatCrtBillingWindow(limit.windowMinutes)}`;
+      const reset = document.createElement('small');
+      reset.textContent = formatCrtBillingReset(limit.resetsAt);
+      copy.append(label, reset);
+      const track = document.createElement('div');
+      track.className = 'billing-quota-track';
+      track.setAttribute('role', 'meter');
+      track.setAttribute('aria-label', `${label.textContent} remaining`);
+      track.setAttribute('aria-valuemin', '0');
+      track.setAttribute('aria-valuemax', '100');
+      track.setAttribute('aria-valuenow', String(Math.round(remainingPercent)));
+      const fill = document.createElement('span');
+      fill.className = 'billing-quota-fill';
+      fill.style.width = `${remainingPercent}%`;
+      fill.title = `${Math.round(remainingPercent)}% remaining`;
+      track.appendChild(fill);
+      row.append(copy, track);
+      container.appendChild(row);
+      rowCount += 1;
+    });
+  });
+
+  if (rowCount === 0) appendCrtBillingMessage(container, 'NO QUOTA TELEMETRY. LOCAL TOKEN SIGNAL REMAINS AVAILABLE.');
+}
+
+function renderCrtBillingProviders(summary = billingSummary) {
+  const container = document.getElementById('billing-provider-list');
+  if (!container) return;
+  container.replaceChildren();
+  const providers = summary && Array.isArray(summary.providers) ? summary.providers : [];
+  if (providers.length === 0) {
+    appendCrtBillingMessage(container, 'NO PROVIDER CHANNELS.');
+    return;
+  }
+
+  providers.forEach((provider) => {
+    const row = document.createElement('div');
+    row.className = 'billing-provider-row';
+    const copy = document.createElement('div');
+    copy.className = 'billing-provider-copy';
+    const name = document.createElement('strong');
+    name.textContent = String(provider.providerName || provider.provider || 'PROVIDER').toUpperCase();
+    const source = document.createElement('small');
+    const usageAvailable = provider.tokenUsage && provider.tokenUsage.available !== false;
+    const authStatus = usageAvailable
+      ? (provider.auth && provider.auth.available ? provider.auth.status : 'LOCAL TELEMETRY')
+      : (provider.tokenUsage && provider.tokenUsage.reason || 'NO TOKEN TELEMETRY');
+    source.textContent = String(authStatus || 'AVAILABLE').toUpperCase();
+    source.title = provider.tokenUsage && provider.tokenUsage.source || '';
+    copy.append(name, source);
+    const rate = document.createElement('strong');
+    rate.className = 'billing-provider-rate';
+    rate.textContent = usageAvailable
+      ? `${formatCrtUsageValue(provider.tokenUsage && provider.tokenUsage.tokensPerMinute)} TOK/MIN`
+      : 'NO TOKEN DATA';
+    row.append(copy, rate);
+    container.appendChild(row);
+  });
+}
+
+function drawCrtBillingScope(summary = billingSummary) {
+  const canvas = document.getElementById('billing-scope');
+  if (!canvas || crtMainView !== 'billing') return;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return;
+  const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
+  const width = Math.max(1, Math.floor(rect.width * pixelRatio));
+  const height = Math.max(1, Math.floor(rect.height * pixelRatio));
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) return;
+  context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  context.clearRect(0, 0, rect.width, rect.height);
+
+  const timeline = summary && summary.timeline;
+  const points = timeline && Array.isArray(timeline.points) ? timeline.points : [];
+  const values = points.map(point => Math.max(0, Number(point.tokensPerMinute) || 0));
+  const providerNames = points.length > 0 ? Object.keys(points[0].providers || {}) : [];
+  const peak = Math.max(1, Number(timeline && timeline.peakTokensPerMinute) || 0, ...values);
+  const paddingX = 9;
+  const paddingY = 11;
+  const graphWidth = Math.max(1, rect.width - paddingX * 2);
+  const graphHeight = Math.max(1, rect.height - paddingY * 2);
+  const bucketMinutes = Math.max(1 / 60, Number(timeline && timeline.bucketMs) / 60_000 || 1);
+  const xAt = index => paddingX + (points.length <= 1 ? graphWidth : index / (points.length - 1) * graphWidth);
+  const yAt = value => paddingY + graphHeight - Math.max(0, Math.min(1, value / peak)) * graphHeight;
+
+  const strokeSeries = (series, color, lineWidth, dash = []) => {
+    if (!series.length) return;
+    context.save();
+    context.beginPath();
+    series.forEach((value, index) => {
+      const x = xAt(index);
+      const y = yAt(value);
+      if (index === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
+    });
+    context.strokeStyle = color;
+    context.lineWidth = lineWidth;
+    context.setLineDash(dash);
+    context.lineJoin = 'round';
+    context.lineCap = 'round';
+    context.stroke();
+    context.restore();
+  };
+
+  providerNames.forEach((provider, providerIndex) => {
+    const series = points.map(point => Math.max(0, Number(point.providers && point.providers[provider]) || 0) / bucketMinutes);
+    strokeSeries(series, providerIndex % 2 === 0 ? 'rgba(61, 190, 108, 0.46)' : 'rgba(129, 255, 168, 0.3)', 1, providerIndex % 2 === 0 ? [5, 4] : [2, 4]);
+  });
+
+  if (values.length > 0) {
+    context.save();
+    context.beginPath();
+    values.forEach((value, index) => {
+      const x = xAt(index);
+      const y = yAt(value);
+      if (index === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
+    });
+    context.lineTo(xAt(values.length - 1), paddingY + graphHeight);
+    context.lineTo(xAt(0), paddingY + graphHeight);
+    context.closePath();
+    const fill = context.createLinearGradient(0, paddingY, 0, paddingY + graphHeight);
+    fill.addColorStop(0, 'rgba(82, 255, 142, 0.17)');
+    fill.addColorStop(1, 'rgba(12, 204, 104, 0.01)');
+    context.fillStyle = fill;
+    context.fill();
+    context.restore();
+
+    context.save();
+    context.shadowColor = 'rgba(96, 255, 151, 0.92)';
+    context.shadowBlur = 9;
+    strokeSeries(values, 'rgba(116, 255, 167, 0.98)', 1.6);
+    context.restore();
+
+    const lastIndex = values.length - 1;
+    context.save();
+    context.beginPath();
+    context.arc(xAt(lastIndex), yAt(values[lastIndex]), 2.4, 0, Math.PI * 2);
+    context.fillStyle = 'rgba(175, 255, 202, 1)';
+    context.shadowColor = 'rgba(96, 255, 151, 1)';
+    context.shadowBlur = 12;
+    context.fill();
+    context.restore();
+  }
+}
+
+function renderCrtBilling() {
+  const status = document.getElementById('billing-status');
+  const refresh = document.getElementById('billing-refresh');
+  const empty = document.getElementById('billing-scope-empty');
+  const timeline = billingSummary && billingSummary.timeline;
+  const hasSignal = Boolean(timeline && Number(timeline.totalTokens) > 0);
+  if (status) {
+    status.classList.toggle('is-busy', billingLoading);
+    status.classList.toggle('is-error', Boolean(billingError));
+    status.textContent = billingError
+      ? 'TELEMETRY ERROR'
+      : billingLoading
+        ? (billingSummary ? 'REFRESHING' : 'SCANNING LOGS')
+        : billingSummary
+          ? (billingMode === 'days' ? 'HISTORY READY' : 'SIGNAL LOCKED')
+          : 'STANDBY';
+  }
+  if (refresh) refresh.disabled = billingLoading;
+
+  const currentRate = document.getElementById('billing-current-rate');
+  const windowTotal = document.getElementById('billing-window-total');
+  const peakRate = document.getElementById('billing-peak-rate');
+  const dutyCycle = document.getElementById('billing-duty-cycle');
+  const scopeScale = document.getElementById('billing-scope-scale');
+  if (currentRate) currentRate.textContent = formatCrtUsageValue(crtBillingCurrentRate());
+  if (windowTotal) windowTotal.textContent = formatCrtUsageValue(timeline && timeline.totalTokens);
+  if (peakRate) peakRate.textContent = formatCrtUsageValue(timeline && timeline.peakTokensPerMinute);
+  if (dutyCycle) dutyCycle.textContent = timeline ? `${timeline.activeBucketCount}/${timeline.bucketCount}` : '--';
+  if (scopeScale) scopeScale.textContent = `${formatCrtUsageValue(timeline && timeline.peakTokensPerMinute)} TOK/MIN PEAK`;
+  if (empty) {
+    empty.classList.toggle('hidden', hasSignal);
+    empty.textContent = billingError ? 'SIGNAL LOST' : billingLoading ? 'ACQUIRING SIGNAL' : 'NO TOKEN SIGNAL';
+  }
+  setCrtBillingMode(billingMode);
+  renderCrtBillingDaily();
+  renderCrtBillingQuota();
+  renderCrtBillingProviders();
+  if (billingCanvasFrame !== null) window.cancelAnimationFrame(billingCanvasFrame);
+  billingCanvasFrame = window.requestAnimationFrame(() => {
+    billingCanvasFrame = null;
+    drawCrtBillingScope();
+  });
+}
+
+async function loadCrtBilling({ fresh = false } = {}) {
+  billingRequestSequence += 1;
+  const requestSequence = billingRequestSequence;
+  if (billingAbortController) billingAbortController.abort();
+  const controller = new window.AbortController();
+  billingAbortController = controller;
+  billingLoading = true;
+  billingError = '';
+  renderCrtBilling();
+  try {
+    const response = await fetch(farmingApiPath(`/usage${fresh ? '?fresh=1' : ''}`), {
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data || !data.usage) throw new Error(data && data.error ? data.error : `Usage request failed (${response.status})`);
+    if (requestSequence !== billingRequestSequence) return;
+    billingSummary = data.usage;
+  } catch (error) {
+    if (controller.signal.aborted || requestSequence !== billingRequestSequence) return;
+    billingError = error instanceof Error ? error.message : 'Failed to load token telemetry';
+  } finally {
+    if (requestSequence === billingRequestSequence) {
+      billingLoading = false;
+      billingAbortController = null;
+      renderCrtBilling();
+    }
+  }
+}
+
+function stopCrtBillingRefresh({ abort = false } = {}) {
+  if (billingRefreshTimer !== null) {
+    clearInterval(billingRefreshTimer);
+    billingRefreshTimer = null;
+  }
+  if (abort && billingAbortController) {
+    billingRequestSequence += 1;
+    billingAbortController.abort();
+    billingAbortController = null;
+    billingLoading = false;
+  }
+}
+
+function startCrtBillingRefresh() {
+  stopCrtBillingRefresh();
+  billingRefreshTimer = setInterval(() => {
+    if (crtMainView === 'billing' && document.visibilityState !== 'hidden') void loadCrtBilling();
+  }, CRT_BILLING_REFRESH_MS);
+}
+
+function refreshCrtBilling() {
+  if (crtMainView !== 'billing' || billingLoading) return;
+  void loadCrtBilling({ fresh: true });
+}
+
+function showCrtBilling() {
+  clearCrtNavigationSelection();
+  billingMode = 'days';
+  setCrtMainView('billing');
+  renderCrtBilling();
+  startCrtBillingRefresh();
+  void loadCrtBilling({ fresh: true });
+  window.requestAnimationFrame(() => {
+    const refresh = document.getElementById('billing-refresh');
+    const daysTab = document.getElementById('billing-days-tab');
+    if (daysTab || refresh) setCrtNavigationSelection(daysTab || refresh);
+  });
+}
+
+function hideCrtBilling() {
+  clearCrtNavigationSelection();
+  setCrtMainView('agents');
+  renderState();
 }
 
 function getCrtHistoryItems() {
@@ -2860,33 +3771,55 @@ function hideHistory() {
   renderState();
 }
 
+async function requestCrtSessionResume(resumed, customTitle = '') {
+  const response = await fetch(farmingApiPath(`/agent-sessions/${encodeURIComponent(resumed.provider)}/${encodeURIComponent(resumed.sessionId)}/resume`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      unarchiveArchived: true,
+      providerHomeId: resumed.providerHomeId || 'default',
+      ...(customTitle ? { customTitle } : {})
+    })
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data || !data.agentId) {
+    throw new Error(data && data.error ? data.error : `Failed to resume session (${response.status})`);
+  }
+  return data.agentId;
+}
+
 async function resumeCrtHistorySession(resumed, customTitle, historyKey) {
   if (!resumed || historyActionPendingKey) return;
   historyActionPendingKey = historyKey;
   historyError = '';
   renderCrtHistory();
   try {
-    const response = await fetch(farmingApiPath(`/agent-sessions/${encodeURIComponent(resumed.provider)}/${encodeURIComponent(resumed.sessionId)}/resume`), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        unarchiveArchived: true,
-        providerHomeId: resumed.providerHomeId || 'default',
-        ...(customTitle ? { customTitle } : {})
-      })
-    });
-    const data = await response.json().catch(() => null);
-    if (!response.ok || !data || !data.agentId) {
-      throw new Error(data && data.error ? data.error : `Failed to resume session (${response.status})`);
-    }
-    pendingHistoryOpenAgentId = data.agentId;
+    pendingProviderSessionOpenAgentId = await requestCrtSessionResume(resumed, customTitle);
     historyActionPendingKey = '';
     hideHistory();
-    openPendingHistoryAgentIfReady();
+    openPendingProviderSessionAgentIfReady();
   } catch (error) {
     historyActionPendingKey = '';
     historyError = error instanceof Error ? error.message : 'Failed to resume session';
     renderCrtHistory();
+  }
+}
+
+async function resumeCrtSearchSession(session, searchKey) {
+  const resumed = crtHistoryItemResumeSession({ kind: 'session', session });
+  if (!resumed || searchActionPendingKey) return;
+  searchActionPendingKey = searchKey;
+  searchError = '';
+  renderCrtSearch();
+  try {
+    pendingProviderSessionOpenAgentId = await requestCrtSessionResume(resumed);
+    searchActionPendingKey = '';
+    hideCrtSearch();
+    openPendingProviderSessionAgentIfReady();
+  } catch (error) {
+    searchActionPendingKey = '';
+    searchError = error instanceof Error ? error.message : 'Failed to resume session';
+    renderCrtSearch();
   }
 }
 
@@ -2904,10 +3837,10 @@ async function restoreCrtArchivedAgent(agentId, openAfterRestore, historyKey) {
     const data = await response.json().catch(() => null);
     if (!response.ok) throw new Error(data && data.error ? data.error : `Failed to restore Agent (${response.status})`);
     crtNavigationKey = `agent:${agentId}`;
-    if (openAfterRestore) pendingHistoryOpenAgentId = agentId;
+    if (openAfterRestore) pendingProviderSessionOpenAgentId = agentId;
     historyActionPendingKey = '';
     hideHistory();
-    openPendingHistoryAgentIfReady();
+    openPendingProviderSessionAgentIfReady();
   } catch (error) {
     historyActionPendingKey = '';
     historyError = error instanceof Error ? error.message : 'Failed to restore Agent';
@@ -2945,12 +3878,12 @@ function activateCrtHistoryItem(item) {
   void resumeCrtHistorySession(resumed, '', item.historyKey);
 }
 
-function openPendingHistoryAgentIfReady() {
-  if (!pendingHistoryOpenAgentId || !state) return false;
-  const agent = state.agents.find((candidate) => candidate.id === pendingHistoryOpenAgentId);
+function openPendingProviderSessionAgentIfReady() {
+  if (!pendingProviderSessionOpenAgentId || !state) return false;
+  const agent = state.agents.find((candidate) => candidate.id === pendingProviderSessionOpenAgentId);
   if (!agent || agent.archived === true) return false;
-  const agentId = pendingHistoryOpenAgentId;
-  pendingHistoryOpenAgentId = '';
+  const agentId = pendingProviderSessionOpenAgentId;
+  pendingProviderSessionOpenAgentId = '';
   openSession(agentId);
   return true;
 }
@@ -3356,6 +4289,7 @@ function connect() {
       });
       const dashboardRendered = renderCrtDashboardIfNeeded();
       if (dashboardRendered && crtMainView === 'history') renderCrtHistory();
+      if (crtMainView === 'search') renderCrtSearch();
       generateKeyMap();
       checkMainAgentStatus();
 
@@ -3363,7 +4297,7 @@ function connect() {
         waitingForAgent = false;
         hideInputDialog();
       }
-      openPendingHistoryAgentIfReady();
+      openPendingProviderSessionAgentIfReady();
       openPendingRuntimeSwitchAgentIfReady();
       if (focusedAgentId) {
         const focusedAgent = state.agents.find((agent) => agent.id === focusedAgentId);
@@ -3446,6 +4380,7 @@ function connect() {
 
 function suspendCrtPageConnection() {
   document.body.classList.add('page-hidden');
+  stopCrtBillingRefresh({ abort: true });
   if (wsReconnectTimer) {
     clearTimeout(wsReconnectTimer);
     wsReconnectTimer = null;
@@ -3459,6 +4394,10 @@ function resumeCrtPageConnection() {
   if (document.visibilityState === 'hidden') return;
   document.body.classList.remove('page-hidden');
   connect();
+  if (crtMainView === 'billing') {
+    startCrtBillingRefresh();
+    void loadCrtBilling();
+  }
 }
 
 function checkMainAgentStatus() {
@@ -3792,7 +4731,7 @@ function hideInputDialog() {
   document.getElementById('agent-list').style.display = 'block';
   document.getElementById('workspace-input-container').style.display = 'none';
   document.getElementById('input-dialog').classList.remove('active');
-  document.getElementById('map-area').classList.toggle('hidden', crtMainView === 'history');
+  document.getElementById('map-area').classList.toggle('hidden', crtMainView !== 'agents');
   resetWorkspaceHistorySelection();
 }
 
@@ -5282,6 +6221,11 @@ function stopSessionViewPolling() {
 if (typeof document !== 'undefined') {
   window.addEventListener('resize', () => {
     if (crtMainView === 'history') renderCrtHistory();
+    if (crtMainView === 'search') renderCrtSearch();
+    if (crtMainView === 'billing') {
+      drawCrtBillingScope();
+      window.requestAnimationFrame(() => scrollCrtBillingSelectedDayIntoView());
+    }
     if (crtMainView === 'agents' && state) {
       if (crtAgentPageResizeFrame !== null) window.cancelAnimationFrame(crtAgentPageResizeFrame);
       crtAgentPageResizeFrame = window.requestAnimationFrame(() => {
@@ -5314,9 +6258,25 @@ if (typeof document !== 'undefined') {
     const workspaceInputFocused = document.activeElement === document.getElementById('workspace-input');
     const terminalFontSizeInputFocused = settingsActive
       && document.activeElement === document.getElementById('crt-terminal-font-size');
+    const searchInputFocused = crtMainView === 'search'
+      && document.activeElement === document.getElementById('crt-search-input');
     const navigationArrow = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key);
 
     if (terminalFontSizeInputFocused && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return;
+    if (searchInputFocused) return;
+
+    if (
+      crtMainView === 'billing'
+      && !sessionActive
+      && !e.ctrlKey
+      && !e.metaKey
+      && !e.altKey
+      && navigationArrow
+      && selectCrtBillingDayByArrow(e.key)
+    ) {
+      e.preventDefault();
+      return;
+    }
 
     if (
       crtMainView === 'history'
@@ -5475,6 +6435,42 @@ if (typeof document !== 'undefined') {
       }
     }
 
+    if (e.key === 'f' || e.key === 'F') {
+      if (!dialogActive && !sessionActive && !settingsActive) {
+        showCrtSearch();
+        e.preventDefault();
+        return;
+      }
+    }
+
+    if (e.key === '$' || (e.key === '4' && e.shiftKey)) {
+      if (!dialogActive && !sessionActive && !settingsActive) {
+        showCrtBilling();
+        e.preventDefault();
+        return;
+      }
+    }
+
+    if ((e.key === 'r' || e.key === 'R') && crtMainView === 'billing') {
+      if (!dialogActive && !sessionActive && !settingsActive) {
+        refreshCrtBilling();
+        e.preventDefault();
+        return;
+      }
+    }
+
+    if ((e.key === 'd' || e.key === 'D') && crtMainView === 'billing') {
+      setCrtBillingMode('days');
+      e.preventDefault();
+      return;
+    }
+
+    if ((e.key === 'l' || e.key === 'L') && crtMainView === 'billing') {
+      setCrtBillingMode('live');
+      e.preventDefault();
+      return;
+    }
+
     if (e.key === '0') {
       if (!dialogActive && !sessionActive && crtMainView === 'agents' && state && state.mainAgentId) {
         openSession(state.mainAgentId);
@@ -5580,6 +6576,18 @@ if (typeof document !== 'undefined') {
       return;
     }
 
+    if (e.key === 'Escape' && crtMainView === 'search') {
+      hideCrtSearch();
+      e.preventDefault();
+      return;
+    }
+
+    if (e.key === 'Escape' && crtMainView === 'billing') {
+      hideCrtBilling();
+      e.preventDefault();
+      return;
+    }
+
     if (e.key === 'Escape' && crtNavigationKey) {
       clearCrtNavigationSelection();
       e.preventDefault();
@@ -5640,6 +6648,7 @@ if (typeof document !== 'undefined') {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     buildCrtHistoryItems,
+    buildCrtSearchResults,
     calculateCrtAgentPageLayout,
     calculateCrtHistoryPageSize,
     crtHistoryAgentName,
@@ -5693,6 +6702,7 @@ if (typeof module !== 'undefined' && module.exports) {
   };
 } else {
   setupWorkspaceHistoryControls();
+  setupCrtSearchControls();
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') suspendCrtPageConnection();
     else resumeCrtPageConnection();

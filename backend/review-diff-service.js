@@ -292,6 +292,29 @@ function gitRangeReviewId(root, base, head) {
   return `git-range-${stableHash(`${reviewRootIdentity(root)}\n${base}\n${head}`).slice(0, 24)}`;
 }
 
+function parseComparisonCommits(value) {
+  return String(value || '').split('\x1e').map(record => record.trim()).filter(Boolean).map(record => {
+    const [id = '', parents = '', shortId = '', ...subjectParts] = record.split('\x1f');
+    const parent = parents.trim().split(/\s+/).filter(Boolean)[0];
+    const subject = subjectParts.join('\x1f').trim();
+    if (!/^[a-f0-9]{40,64}$/i.test(id) || !/^[a-f0-9]{40,64}$/i.test(parent || '')) return null;
+    return {
+      base: parent,
+      head: id,
+      id: `commit:${id}`,
+      label: `${shortId || id.slice(0, 8)} ${subject || 'Commit'}`.trim(),
+    };
+  }).filter(Boolean);
+}
+
+function parseComparisonBranches(value, currentBranch) {
+  return String(value || '').split('\n').map(line => line.trim()).filter(Boolean).map(line => {
+    const [name = '', id = ''] = line.split('\0');
+    if (!name || name === currentBranch || name.endsWith('/HEAD') || !/^[a-f0-9]{40,64}$/i.test(id)) return null;
+    return { id, name };
+  }).filter(Boolean);
+}
+
 function isSafeGitRevision(value) {
   return typeof value === 'string'
     && value.length > 0
@@ -592,6 +615,87 @@ class ReviewDiffService {
     const root = this.agentManager?.getAgentWorkspaceRoot?.(agentId);
     if (!root) throw new WorkspaceFileError('agent not found', 404);
     return root;
+  }
+
+  async git(root, args, options = {}) {
+    try {
+      return await this.fileService.execFile(this.fileService.gitPath, ['-C', root, ...args], {
+        cwd: root,
+        timeout: this.fileService.diffTimeoutMs,
+        maxBuffer: this.fileService.diffMaxBuffer,
+        ...options,
+      });
+    } catch (error) {
+      if (error?.code === 'ETIMEDOUT') throw new WorkspaceFileError('git comparison source request timed out', 504);
+      throw new WorkspaceFileError(error?.stderr || error?.message || 'git comparison sources could not be loaded', 500);
+    }
+  }
+
+  async getComparisonSources(agentId, options = {}) {
+    const root = this.resolveWorkspace(agentId, options.root);
+    const [{ stdout: headOutput }, { stdout: indexOutput }, branchResult, logResult, statusResult] = await Promise.all([
+      this.git(root, ['rev-parse', '--verify', 'HEAD']),
+      this.git(root, ['write-tree']),
+      this.git(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() => ({ stdout: '' })),
+      this.git(root, ['log', '-n', '12', '--format=%H%x1f%P%x1f%h%x1f%s%x1e', 'HEAD']),
+      Promise.all([
+        this.git(root, ['diff', '--name-only', '-z', '--']),
+        this.git(root, ['diff', '--cached', '--name-only', '-z', '--']),
+        this.git(root, ['ls-files', '--others', '--exclude-standard', '-z']),
+      ]),
+    ]);
+    const head = String(headOutput || '').trim();
+    const indexTree = String(indexOutput || '').trim();
+    if (!/^[a-f0-9]{40,64}$/i.test(head) || !/^[a-f0-9]{40,64}$/i.test(indexTree)) {
+      throw new WorkspaceFileError('git comparison sources are invalid', 500);
+    }
+    const currentBranch = String(branchResult.stdout || '').trim();
+    const [unstagedResult, stagedResult, untrackedResult] = statusResult;
+    const refsResult = await this.git(root, [
+      'for-each-ref',
+      '--count=20',
+      '--sort=-committerdate',
+      '--format=%(refname:short)%00%(objectname)',
+      'refs/heads',
+      'refs/remotes',
+    ]);
+    const branchRefs = parseComparisonBranches(refsResult.stdout, currentBranch);
+    const branches = [];
+    for (const branch of branchRefs) {
+      try {
+        const { stdout } = await this.git(root, ['merge-base', 'HEAD', branch.id]);
+        const base = String(stdout || '').trim();
+        if (!/^[a-f0-9]{40,64}$/i.test(base) || base === head) continue;
+        branches.push({
+          base,
+          head,
+          id: `branch:${branch.name}`,
+          label: branch.name,
+        });
+      } catch {
+        // Unrelated branch histories are not useful comparison sources.
+      }
+    }
+    return {
+      branches,
+      commits: parseComparisonCommits(logResult.stdout),
+      currentBranch: currentBranch || 'Detached HEAD',
+      root,
+      staged: {
+        available: Boolean(String(stagedResult.stdout || '')),
+        base: head,
+        head: indexTree,
+        id: 'staged',
+        label: 'Staged',
+      },
+      unstaged: {
+        available: Boolean(String(unstagedResult.stdout || '') || String(untrackedResult.stdout || '')),
+        base: indexTree,
+        head: 'now',
+        id: 'unstaged',
+        label: 'Unstaged',
+      },
+    };
   }
 
   async getWorkingCopyChanges(root, options, limit) {
@@ -1156,6 +1260,8 @@ module.exports = {
   normalizeWorkingCopyScope,
   patchDiffHeader,
   patchMetadata,
+  parseComparisonBranches,
+  parseComparisonCommits,
   parseNameStatus,
   parseNumstat,
   parseRawDiffMetadata,

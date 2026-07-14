@@ -52,23 +52,27 @@
 
 ## 3. Sidebar（菜单栏）
 
-桌面端侧栏菜单项统一使用大写标签：**TASK LIST**、**HISTORY**、**SKILLS**、**BILLING**（以及基础的 **NEW AGENT**、**SETTINGS**）。僵尸标记与治理在 Agents Layout / 后端规则层呈现，**不设独立「Zombies」侧栏菜单**。
+桌面端侧栏菜单项统一使用大写标签：**SEARCH**、**HISTORY**、**SKILLS**、**BILLING**（以及基础的 **NEW AGENT**、**SETTINGS**）。僵尸标记与治理在 Agents Layout / 后端规则层呈现，**不设独立「Zombies」侧栏菜单**。
 
 ### 3.1 菜单项
 
-每个菜单项对应一个全局快捷键（自上而下顺序：任务列表 → 历史 → Skills → Billing，上下为会话入口与设置）：
+每个菜单项对应一个全局快捷键（自上而下顺序：搜索 → 历史 → Skills → Billing，上下为会话入口与设置）：
 
 | 快捷键 | 功能 | 状态 |
 |--------|------|------|
 | N | New Agent | enabled |
-| L | Task List | enabled |
+| F | Search | enabled |
 | H | History | enabled |
 | K | Skills | enabled |
-| $ | Billing | enabled |
+| B | Billing | enabled |
 | S | Settings | enabled |
 
 - **enabled** 项可点击，hover 时背景变亮
 - **disabled** 项 `opacity: 0.5`，`cursor: not-allowed`，不可交互（当前无占位项）
+
+Search 取代原先的 Task List 位置，在 Agents Layout 区域打开占满高度的搜索视图；查询提示符持续保持焦点，并把当前项目 Agent 与共享后端搜索接口返回、且未被实时 Agent 占用的 provider session 结果合并展示。
+
+Billing 用占满高度的 token 遥测视图取代原占位入口。Days 是默认视图：最近 52 周的 processed-token 日热力图只对非零日期按第 50、75、90、98 分位划分，最亮一级专门留给最高约 2% 的日期，让长尾数据中的极高用量日保持醒目。Processed 总量包含 cache read，并合并所有已配置 Codex、Claude Home 与可读取的 OpenCode export；无法提供 Token 字段的 provider 会明确标出。视图同时配合今天、近 7 天、近 30 天、全周期、峰值日汇总以及精确的选中日拆分，方向键可移动日期选择。Live 作为二级视图继续显示最近 60 分钟的 Canvas 示波器、当前信号、积分、峰值速率和活跃时间桶。provider 通道和额度窗口保持可见，不虚构金额或后端拿不到的额度。按 `$` 打开 Billing，`D` 与 `L` 切换视图，`R` 刷新，Escape 返回 Agent 主页。
 
 ### 3.2 Main Agent 面板
 

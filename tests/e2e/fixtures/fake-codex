@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 printf 'Fake Codex 0.142.3 ready\n'
-printf 'Working (fake) · esc to interrupt · /stop to close\n'
+if [[ " $* " == *" resume "* ]]; then
+  # A resumed provider session opens at its idle prompt. Keep fresh-agent
+  # launches busy for the follow-up queue stories that intentionally exercise
+  # steering while a turn is active.
+  printf 'Codex · ~/workspace\n'
+else
+  printf 'Working (fake) · esc to interrupt · /stop to close\n'
+fi
 
 while IFS= read -r line; do
   printf 'received: %s\n' "$line"

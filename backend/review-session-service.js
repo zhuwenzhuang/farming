@@ -1,10 +1,14 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { createTwoFilesPatch, diffLines } = require('diff');
 const { OBJECT_ID_PATTERN, REVIEW_ID_PATTERN } = require('./review-session-store');
 const { filterWorkingCopyChangeItems, normalizeModifiedWithinDays, normalizeWorkingCopyScope } = require('./review-diff-service');
 
 const MAX_CAPTURE_FILES = 2000;
+const MAX_CAPTURE_PATHS = 256;
+const MAX_HISTORICAL_REVIEW_CHARS = 32 * 1024 * 1024;
+const MAX_HISTORICAL_PREVIEW_CHARS = 64 * 1024;
 
 class ReviewSessionError extends Error {
   constructor(message, statusCode = 400) {
@@ -30,6 +34,127 @@ function changedPathsFromNameStatus(value) {
   return [...new Set(paths)];
 }
 
+function normalizeCapturePaths(value) {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > MAX_CAPTURE_PATHS) {
+    throw new ReviewSessionError('review file paths are invalid');
+  }
+  if (value.some(candidate => typeof candidate !== 'string')) {
+    throw new ReviewSessionError('review file paths are invalid');
+  }
+  const paths = value.map(candidate => candidate.replace(/\\/g, '/').trim());
+  if (paths.some(candidate => (
+    !candidate
+    || candidate.length > 4096
+    || candidate.startsWith('/')
+    || candidate.includes('\0')
+    || candidate.split('/').some(segment => !segment || segment === '.' || segment === '..')
+  ))) {
+    throw new ReviewSessionError('review file paths are invalid');
+  }
+  return [...new Set(paths)];
+}
+
+function historicalSidePresence(kind) {
+  const normalized = String(kind || '').trim().toLowerCase();
+  return {
+    base: !['add', 'added', 'create', 'created'].includes(normalized),
+    head: !['delete', 'deleted', 'remove', 'removed'].includes(normalized),
+  };
+}
+
+function workspaceRelativeReviewPath(root, candidate) {
+  if (typeof candidate !== 'string' || !candidate.trim()) return '';
+  const raw = candidate.trim();
+  const normalized = raw.replace(/\\/g, '/');
+  let workspaceRoot = root;
+  try {
+    workspaceRoot = fs.realpathSync.native(root);
+  } catch {
+    // resolveRoot normally supplies an existing canonical workspace.
+  }
+  let absolute = path.isAbsolute(raw)
+    ? path.resolve(raw)
+    : path.resolve(workspaceRoot, normalized);
+  const missingSegments = [];
+  let existing = absolute;
+  while (!fs.existsSync(existing) && path.dirname(existing) !== existing) {
+    missingSegments.unshift(path.basename(existing));
+    existing = path.dirname(existing);
+  }
+  try {
+    absolute = path.join(fs.realpathSync.native(existing), ...missingSegments);
+  } catch {
+    // The normalized path below will reject anything outside the workspace.
+  }
+  const relative = path.relative(workspaceRoot, absolute).replace(/\\/g, '/');
+  if (relative.split('/').includes('.git')) return '';
+  try {
+    return normalizeCapturePaths([relative])?.[0] || '';
+  } catch {
+    return '';
+  }
+}
+
+function normalizeHistoricalReviewChanges(root, value, workspaceRoot = root) {
+  if (!Array.isArray(value)) throw new ReviewSessionError('ACP review changes are invalid');
+  const changesByPath = new Map();
+  let totalChars = 0;
+  for (const rawChange of value) {
+    if (!rawChange || typeof rawChange !== 'object') continue;
+    const displayPath = workspaceRelativeReviewPath(workspaceRoot, rawChange.path);
+    if (!displayPath) continue;
+    const absolutePath = path.resolve(workspaceRoot, displayPath);
+    const reviewPath = workspaceRelativeReviewPath(root, absolutePath);
+    if (!reviewPath) continue;
+    const oldText = rawChange.oldText == null ? '' : String(rawChange.oldText);
+    const newText = rawChange.newText == null ? '' : String(rawChange.newText);
+    totalChars += Buffer.byteLength(oldText, 'utf8') + Buffer.byteLength(newText, 'utf8');
+    if (totalChars > MAX_HISTORICAL_REVIEW_CHARS) {
+      throw new ReviewSessionError('ACP review content is too large', 413);
+    }
+    const presence = historicalSidePresence(rawChange.kind);
+    const current = changesByPath.get(reviewPath);
+    if (!current) {
+      changesByPath.set(reviewPath, {
+        basePresent: presence.base,
+        headPresent: presence.head,
+        newText,
+        oldText,
+        path: reviewPath,
+        ...(displayPath !== reviewPath ? { displayPath } : {}),
+      });
+      continue;
+    }
+    current.headPresent = presence.head;
+    current.newText = newText;
+  }
+  const changes = [...changesByPath.values()];
+  if (changes.length === 0) throw new ReviewSessionError('ACP review has no files inside this workspace');
+  if (changes.length > MAX_CAPTURE_PATHS) throw new ReviewSessionError('ACP review has too many files', 413);
+  return changes;
+}
+
+function historicalPreviewChange(change) {
+  const oldText = change.basePresent ? change.oldText : '';
+  const newText = change.headPresent ? change.newText : '';
+  const stats = diffLines(oldText, newText).reduce((result, part) => {
+    const count = Number(part.count || 0);
+    if (part.added) result.added += count;
+    if (part.removed) result.removed += count;
+    return result;
+  }, { added: 0, removed: 0 });
+  const patch = createTwoFilesPatch(change.path, change.path, oldText, newText, 'before', 'after', { context: 3 });
+  return {
+    ...stats,
+    diff: patch.length <= MAX_HISTORICAL_PREVIEW_CHARS
+      ? patch
+      : `${patch.slice(0, MAX_HISTORICAL_PREVIEW_CHARS)}\n\n[Diff detail truncated]`,
+    kind: !change.basePresent ? 'added' : !change.headPresent ? 'deleted' : 'updated',
+    path: change.displayPath || change.path,
+  };
+}
+
 function publicRevision(session, revision) {
   const previous = revision.previousTree;
   return {
@@ -42,6 +167,7 @@ function publicRevision(session, revision) {
     root: session.root,
     ...(session.scope ? { scope: session.scope } : {}),
     ...(session.modifiedWithinDays ? { modifiedWithinDays: session.modifiedWithinDays } : {}),
+    ...(session.paths ? { paths: session.paths } : {}),
   };
 }
 
@@ -51,6 +177,7 @@ class ReviewSessionService {
     this.sessionStore = sessionStore;
     this.reviewStateStore = reviewStateStore;
     this.resolveAgentRoot = options.resolveAgentRoot;
+    this.resolveAcpReviewChanges = options.resolveAcpReviewChanges;
   }
 
   async git(root, args, options = {}) {
@@ -130,6 +257,37 @@ class ReviewSessionService {
     return first;
   }
 
+  async writeHistoricalTree(root, changes, side, temporaryDir) {
+    const temporaryIndex = path.join(temporaryDir, `${side}.index`);
+    const contentFile = path.join(temporaryDir, `${side}.content`);
+    const env = { ...process.env, GIT_INDEX_FILE: temporaryIndex };
+    await this.git(root, ['read-tree', '--empty'], { env });
+    for (const change of changes) {
+      const present = side === 'base' ? change.basePresent : change.headPresent;
+      if (!present) continue;
+      fs.writeFileSync(contentFile, side === 'base' ? change.oldText : change.newText, 'utf8');
+      const { stdout: blobOutput } = await this.git(root, ['hash-object', '-w', contentFile]);
+      const blob = blobOutput.trim();
+      if (!OBJECT_ID_PATTERN.test(blob)) throw new ReviewSessionError('git did not produce a review blob', 500);
+      await this.git(root, ['update-index', '--add', '--cacheinfo', '100644', blob, change.path], { env });
+    }
+    const { stdout } = await this.git(root, ['write-tree'], { env });
+    const tree = stdout.trim();
+    if (!OBJECT_ID_PATTERN.test(tree)) throw new ReviewSessionError('git did not produce a review tree', 500);
+    return tree;
+  }
+
+  async captureHistoricalTrees(root, changes) {
+    const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-history-'));
+    try {
+      const base = await this.writeHistoricalTree(root, changes, 'base', temporaryDir);
+      const head = await this.writeHistoricalTree(root, changes, 'head', temporaryDir);
+      return { base, head };
+    } finally {
+      fs.rmSync(temporaryDir, { force: true, recursive: true });
+    }
+  }
+
   async keepRevision(root, reviewId, number, tree) {
     await this.git(root, ['update-ref', `refs/farming/reviews/${reviewId}/${number}`, tree]);
   }
@@ -140,6 +298,8 @@ class ReviewSessionService {
   }
 
   async capturePaths(root, options = {}) {
+    const requestedPaths = normalizeCapturePaths(options.paths);
+    if (requestedPaths !== undefined) return requestedPaths;
     const scope = normalizeWorkingCopyScope(options.scope);
     if (!scope) return undefined;
     const changes = await this.fileService.changes(root, { limit: MAX_CAPTURE_FILES });
@@ -151,17 +311,64 @@ class ReviewSessionService {
     return [...new Set(selected.flatMap(change => [change.previousPath, change.path]).filter(Boolean))];
   }
 
-  async create({ root: requestedRoot, agentId, base = 'HEAD', scope: requestedScope, modifiedWithinDays: requestedDays }) {
+  async create({ root: requestedRoot, agentId, base = 'HEAD', scope: requestedScope, modifiedWithinDays: requestedDays, paths: requestedPaths }) {
     const root = await this.resolveRoot(requestedRoot, agentId);
     const resolvedBase = await this.resolveBase(root, base);
     const scope = normalizeWorkingCopyScope(requestedScope);
+    const explicitPaths = normalizeCapturePaths(requestedPaths);
+    if (scope && explicitPaths !== undefined) throw new ReviewSessionError('review scope and file paths cannot be combined');
     const modifiedWithinDays = scope === 'untracked' ? normalizeModifiedWithinDays(requestedDays) : undefined;
-    const paths = await this.capturePaths(root, { scope, modifiedWithinDays });
+    const paths = await this.capturePaths(root, { scope, modifiedWithinDays, paths: explicitPaths });
     const tree = await this.captureStableTree(root, paths);
     const reviewId = this.sessionStore.newId();
     await this.keepRevision(root, reviewId, 1, tree);
-    const session = this.sessionStore.create({ base: resolvedBase, id: reviewId, root, tree, scope, modifiedWithinDays });
+    const session = this.sessionStore.create({ base: resolvedBase, id: reviewId, root, tree, scope, modifiedWithinDays, paths: explicitPaths });
     return publicRevision(session, session.revisions[0]);
+  }
+
+  async createFromAcp({ agentId, itemIds }) {
+    if (typeof this.resolveAcpReviewChanges !== 'function') {
+      throw new ReviewSessionError('ACP review capture is unavailable', 501);
+    }
+    const { changes, root } = await this.resolveAcpChanges(agentId, itemIds);
+    const { base, head } = await this.captureHistoricalTrees(root, changes);
+    if (base === head) throw new ReviewSessionError('ACP review contains no effective file changes');
+    const reviewId = this.sessionStore.newId();
+    await this.git(root, ['update-ref', `refs/farming/reviews/${reviewId}/base`, base]);
+    await this.keepRevision(root, reviewId, 1, head);
+    const paths = changes.map(change => change.path);
+    const session = this.sessionStore.create({ base, id: reviewId, root, tree: head, paths });
+    return publicRevision(session, session.revisions[0]);
+  }
+
+  async resolveAcpChanges(agentId, itemIds) {
+    const requestedWorkspace = typeof agentId === 'string' && agentId.trim()
+      ? this.resolveAgentRoot?.(agentId.trim())
+      : '';
+    let workspaceRoot;
+    try {
+      workspaceRoot = requestedWorkspace ? fs.realpathSync.native(path.resolve(requestedWorkspace)) : '';
+    } catch {
+      throw new ReviewSessionError('review agent workspace does not exist', 404);
+    }
+    const root = await this.resolveRoot(undefined, agentId);
+    let rawChanges;
+    try {
+      rawChanges = await this.resolveAcpReviewChanges(agentId, itemIds);
+    } catch (error) {
+      const message = String(error?.message || 'ACP review changes could not be loaded');
+      const status = message === 'Agent not found' || message === 'ACP tool call not found'
+        ? 404
+        : message.includes('invalid') ? 400 : 409;
+      throw new ReviewSessionError(message, status);
+    }
+    const changes = normalizeHistoricalReviewChanges(root, rawChanges, workspaceRoot || root);
+    return { changes, root };
+  }
+
+  async previewFromAcp({ agentId, itemIds }) {
+    const { changes } = await this.resolveAcpChanges(agentId, itemIds);
+    return { changes: changes.map(historicalPreviewChange) };
   }
 
   async refresh(reviewId) {
@@ -218,6 +425,8 @@ class ReviewSessionService {
 
 module.exports = {
   changedPathsFromNameStatus,
+  normalizeHistoricalReviewChanges,
+  normalizeCapturePaths,
   ReviewSessionError,
   ReviewSessionService,
 };

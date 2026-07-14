@@ -71,6 +71,8 @@ async function run() {
         workspace: '/repo',
         task: 'Inspect optimizer bugs',
         parentAgentId: 'agent-main',
+        agentRuntimeMode: 'acp',
+        acpHistoryMode: 'resume',
       }),
     });
 
@@ -81,6 +83,8 @@ async function run() {
     assert.strictEqual(calls[0].options.wantsMain, false);
     assert.strictEqual(calls[0].options.parentAgentId, 'agent-main');
     assert.strictEqual(calls[0].options.source, 'control-cli');
+    assert.strictEqual(calls[0].options.agentRuntimeMode, 'acp');
+    assert.strictEqual(calls[0].options.acpHistoryMode, 'resume');
 
     await new Promise((resolve) => setTimeout(resolve, 40));
     assert.deepStrictEqual(calls[1], {

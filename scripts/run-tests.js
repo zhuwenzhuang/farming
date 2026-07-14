@@ -21,6 +21,7 @@ const DEFAULT_TEST_CONCURRENCY = Math.min(4, Math.max(1, os.availableParallelism
 const MAX_TEST_CONCURRENCY = 16;
 const TEST_TIMEOUT_OVERRIDES_MS = new Map([
   ['test-native-session-engine-shell-profiles.js', 90_000],
+  ['test-review-comparison-matrix.js', 180_000],
   ['test-workspace-file-service.js', 90_000],
 ]);
 const testFiles = fs.readdirSync(testsDir)

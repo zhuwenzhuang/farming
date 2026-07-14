@@ -4,6 +4,8 @@ const os = require('os');
 const path = require('path');
 const {
   UsageMonitor,
+  buildDailyUsage,
+  buildUsageTimeline,
   collectClaudeUsage,
   collectCodexUsage,
   readClaudeAuthStatus,
@@ -13,13 +15,18 @@ const {
 async function run() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-usage-monitor-'));
   const codexHome = path.join(root, 'codex');
+  const secondCodexHome = path.join(root, 'codex-secondary');
   const claudeHome = path.join(root, 'claude');
+  const openCodeHome = path.join(root, 'opencode');
+  const qoderHome = path.join(root, 'qoder');
   const codexSessionDir = path.join(codexHome, 'sessions', '2026', '06', '28');
+  const secondCodexSessionDir = path.join(secondCodexHome, 'sessions', '2026', '06', '28');
   const claudeProjectDir = path.join(claudeHome, 'projects', '-repo-usage');
   const now = Date.parse('2026-06-28T12:00:00.000Z');
   const windowMs = 5 * 60 * 1000;
 
   fs.mkdirSync(codexSessionDir, { recursive: true });
+  fs.mkdirSync(secondCodexSessionDir, { recursive: true });
   fs.mkdirSync(claudeProjectDir, { recursive: true });
 
   fs.writeFileSync(path.join(codexSessionDir, 'rollout-usage.jsonl'), [
@@ -113,6 +120,18 @@ async function run() {
     }),
   ].join('\n'));
 
+  fs.writeFileSync(path.join(secondCodexSessionDir, 'rollout-secondary.jsonl'), JSON.stringify({
+    timestamp: '2026-06-28T11:40:00.000Z',
+    type: 'event_msg',
+    payload: {
+      type: 'token_count',
+      info: {
+        total_token_usage: { input_tokens: 40, output_tokens: 10, total_tokens: 50 },
+        last_token_usage: { input_tokens: 40, output_tokens: 10, total_tokens: 50 },
+      },
+    },
+  }));
+
   const codexUsage = await collectCodexUsage({ codexHome, now, windowMs });
   assert.strictEqual(codexUsage.quota.available, true);
   assert.strictEqual(codexUsage.quota.limitId, 'codex');
@@ -131,6 +150,44 @@ async function run() {
   assert.strictEqual(claudeUsage.quota.available, false);
   assert.strictEqual(claudeUsage.tokenUsage.totalTokens, 200);
   assert.strictEqual(claudeUsage.tokenUsage.tokensPerMinute, 40);
+
+  const timeline = buildUsageTimeline({
+    codex: codexUsage.tokenEvents,
+    claude: claudeUsage.tokenEvents,
+  }, { now, windowMs: 60 * 60 * 1000, bucketCount: 30 });
+  assert.strictEqual(timeline.points.length, 30);
+  assert.strictEqual(timeline.bucketMs, 2 * 60 * 1000);
+  assert.strictEqual(timeline.totalTokens, 21_798);
+  assert.strictEqual(timeline.averageTokensPerMinute, 363.3);
+  assert(timeline.peakTokensPerMinute > 0);
+  assert(timeline.activeBucketCount >= 2);
+  assert(timeline.points.some(point => point.providers.codex > 0));
+  assert(timeline.points.some(point => point.providers.claude > 0));
+
+  const localMidnight = new Date(now);
+  localMidnight.setHours(0, 0, 0, 0);
+  const daily = buildDailyUsage({
+    codex: [{
+      timestamp: localMidnight.getTime() - 60_000,
+      totalTokens: 120,
+      inputTokens: 70,
+      outputTokens: 20,
+      cacheReadTokens: 30,
+    }],
+    claude: [{
+      timestamp: localMidnight.getTime() + 60_000,
+      totalTokens: 200,
+      inputTokens: 100,
+      outputTokens: 50,
+      cacheReadTokens: 20,
+      cacheWriteTokens: 30,
+    }],
+  }, { now, days: 3 });
+  assert.strictEqual(daily.points.length, 3);
+  assert.strictEqual(daily.points[1].totalTokens, 120, 'token events before local midnight stay on the prior day');
+  assert.strictEqual(daily.points[2].totalTokens, 200, 'token events after local midnight stay on the current day');
+  assert.strictEqual(daily.points[2].providers.claude.totalTokens, 200);
+  assert.strictEqual(daily.summary.sevenDayTokens, 320);
 
   const calls = [];
   const commandRunner = async (command, args) => {
@@ -154,10 +211,56 @@ async function run() {
   assert.strictEqual(claudeAuth.loggedIn, true);
   assert.strictEqual(claudeAuth.authMethod, 'oauth_token');
 
+  const openCodeCommandRunner = async (args) => {
+    if (args[0] === 'session') {
+      return {
+        stdout: JSON.stringify([{
+          id: 'ses_usage_test',
+          created: now - 180_000,
+          updated: now - 60_000,
+        }]),
+      };
+    }
+    if (args[0] === 'export') {
+      return {
+        stdout: JSON.stringify({
+          messages: [{
+            info: {
+              role: 'assistant',
+              time: { completed: now - 60_000 },
+              tokens: {
+                total: 300,
+                input: 180,
+                output: 40,
+                reasoning: 10,
+                cache: { read: 60, write: 10 },
+              },
+            },
+          }],
+        }),
+      };
+    }
+    throw new Error(`Unexpected OpenCode command ${args.join(' ')}`);
+  };
+
   const monitor = new UsageMonitor({
     codexHome,
     claudeHome,
+    openCodeHome,
+    qoderHome,
     commandRunner,
+    openCodeCommandRunner,
+    getProviderHomes() {
+      return {
+        codex: [
+          { id: 'default', path: codexHome },
+          { id: 'secondary', path: secondCodexHome },
+        ],
+        claude: [{ id: 'default', path: claudeHome }],
+        opencode: [{ id: 'default', path: openCodeHome }],
+        qoder: [{ id: 'default', path: qoderHome }],
+      };
+    },
     windowMs,
     agentManager: {
       getAgentUsageSnapshots() {
@@ -179,9 +282,25 @@ async function run() {
     },
   });
   const summary = await monitor.getUsageSummary({ now });
-  assert.strictEqual(summary.providers.length, 2);
+  assert.strictEqual(summary.providers.length, 4);
+  assert.strictEqual(summary.timeline.points.length, 30);
+  assert.strictEqual(summary.timeline.windowMs, 60 * 60 * 1000);
+  assert.strictEqual(summary.timeline.totalTokens, 22_148);
+  assert.strictEqual(summary.daily.points.length, 52 * 7);
+  assert.strictEqual(summary.daily.summary.todayTokens, 22_148);
+  assert.strictEqual(summary.daily.points.at(-1).cacheReadTokens, 80);
+  assert.strictEqual(summary.daily.points.at(-1).cacheWriteTokens, 40);
+  assert.strictEqual(summary.daily.points.at(-1).providers.opencode.totalTokens, 300);
+  assert.strictEqual(summary.daily.coverage.find(entry => entry.provider === 'codex').homeCount, 2);
+  assert.strictEqual(summary.daily.coverage.find(entry => entry.provider === 'qoder').available, false);
+  assert.strictEqual(summary.providers.find(entry => entry.provider === 'opencode').tokenUsage.totalTokens, 300);
+  assert.strictEqual(summary.providers.find(entry => entry.provider === 'qoder').tokenUsage.available, false);
   assert.strictEqual(summary.agentUsage.estimatedTokensPerMinute, 2);
   assert.strictEqual(summary.systemStats.cpu, 12);
+  const cachedSummary = await monitor.getUsageSummary({ now: now + 1_000 });
+  assert.strictEqual(cachedSummary.daily, summary.daily, 'daily history should reuse its short heavy-scan cache');
+  const refreshedSummary = await monitor.getUsageSummary({ now: now + 2_000, fresh: true });
+  assert.notStrictEqual(refreshedSummary.daily, summary.daily, 'an explicit fresh read should rebuild daily history');
 
   for (const [, args] of calls) {
     assert(!args.includes('reset'), 'usage monitor must not call reset');
@@ -190,7 +309,7 @@ async function run() {
   }
 
   fs.rmSync(root, { recursive: true, force: true });
-  console.log('✓ Usage monitor reads Codex/Claude usage without quota resets');
+  console.log('✓ Usage monitor reads configured provider homes and truthful local token sources');
 }
 
 run().catch(error => {

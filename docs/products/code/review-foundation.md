@@ -38,6 +38,23 @@ The API is not a byte-for-byte clone of Gerrit's `/changes/...` routes. Farming 
 
 So the answer to "is Farming's API exactly Gerrit-compatible?" is no. The intended contract is stricter and narrower: the state machine, file identity model, reviewed primitive, and lazy diff loading are Gerrit-aligned; the route prefix and snapshot envelope are Farming-specific because local working copies and arbitrary commit ranges do not have Gerrit change numbers.
 
+## Comparison Sources And Review Workspace
+
+The comparison selector is semantic, not a display-only label. `GET /api/reviews/comparison-sources` resolves the selected workspace into real Git ranges:
+
+- **Unstaged** compares the current index tree with the working tree and includes untracked files;
+- **Staged** compares `HEAD` with the current index tree;
+- **Commit** compares a recent commit with its first parent;
+- **Branch** compares the current `HEAD` with the merge base of the selected local or remote branch;
+- **Last Turn** returns to the immutable ACP-triggered review revision and preserves its `reviewId` boundary.
+
+The generated index tree is a Git object created with `git write-tree`; it does not modify the user's index or working tree. Empty Unstaged or Staged sources remain visible but disabled so the UI states why there is nothing to select. Switching source creates a new snapshot identity and must not reuse reviewed paths or comments from another range.
+Branch choices that resolve to the current `HEAD` or do not share a merge base are omitted because they do not define a meaningful comparison range. Working-tree and index sources use change-summary labels instead of presenting uncommitted state as a commit message.
+
+An ACP **File Changes** review must be created from the referenced tool items, not by recapturing those paths from the current working tree. `POST /api/review-sessions/acp` resolves the ACP diff blocks on the backend and writes their exact `oldText` and `newText` into retained base/head Git trees. Later commits, edits, or deletions therefore cannot change a historical Last Turn review. Absolute paths inside the Agent workspace are normalized to workspace-relative paths; paths outside that workspace are omitted rather than exposing unrelated files.
+
+The review workspace uses a single Gerrit-style file-list-first layout. The ordered file rows are the navigation: each row carries its change summary, expands the inline diff in place, and exposes comments and reviewed actions without duplicating the same catalog in a side panel. The visual language follows Farming Code, while Gerrit's reviewed/comment lifecycle remains authoritative.
+
 ## CLI entrypoint
 
 Use `farming review <git-dir> <old-revision> <new-revision|now>` to open a standalone local review target without first creating an agent. `--branch <branch>` is optional; without it, the command uses the checked-out branch of the supplied Git directory. `HEAD` and its relatives are resolved against that branch before the URL is created, so the comparison does not drift if the branch advances later.

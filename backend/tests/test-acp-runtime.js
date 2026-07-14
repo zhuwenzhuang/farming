@@ -1,9 +1,16 @@
 const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
-const { AcpRuntime, autoPermissionResponse, codexAcpEnvironment, resolveAcpLaunch } = require('../acp-runtime');
+const { AcpRuntime, acpErrorKind, autoPermissionResponse, codexAcpEnvironment, resolveAcpLaunch } = require('../acp-runtime');
 const { AcpSessionState } = require('../acp-session-state');
 
 async function run() {
+  assert.strictEqual(acpErrorKind(new Error('401 Unauthorized: sign in required')), 'authentication');
+  assert.strictEqual(acpErrorKind(new Error('Input exceeds the context window')), 'context');
+  assert.strictEqual(acpErrorKind(new Error('429 rate limit exceeded')), 'rate-limit');
+  assert.strictEqual(acpErrorKind(new Error('socket connection timed out')), 'network');
+  assert.strictEqual(acpErrorKind(new Error('unexpected failure')), 'unknown');
   assert.strictEqual(resolveAcpLaunch('codex').version, '1.1.2');
   assert.strictEqual(resolveAcpLaunch('claude').version, '0.58.1');
   assert.deepStrictEqual(resolveAcpLaunch('opencode', { cwd: '/tmp/demo', executable: '/bin/opencode' }), {
@@ -70,9 +77,21 @@ async function run() {
     plan: { type: 'items', planId: 'plan-1', entries: [{ content: 'Finish', status: 'in_progress' }] },
   } });
   assert.strictEqual(state.snapshot().entries.find(entry => entry.type === 'plan').plan.entries[0].content, 'Finish');
+  state.apply({ sessionId: 's1', update: {
+    sessionUpdate: 'context_compaction', compactionId: 'compact-1', status: 'in_progress',
+  } });
+  state.apply({ sessionId: 's1', update: {
+    sessionUpdate: 'context_compaction_update', compactionId: 'compact-1', status: 'completed', summary: 'Kept parser findings',
+  } });
+  const explicitCompaction = state.snapshot().entries.find(entry => entry.id === 'compact-1');
+  assert.strictEqual(explicitCompaction.status, 'completed');
+  assert.strictEqual(explicitCompaction.summary, 'Kept parser findings');
   state.beginPrompt('limited');
   state.completePrompt('max_tokens');
   assert.strictEqual(state.snapshot().entries.at(-1).content[0].text, 'limited');
+  assert(Number.isFinite(state.snapshot().entries.at(-1).turnStartedAt));
+  assert(Number.isFinite(state.snapshot().entries.at(-1).turnCompletedAt));
+  assert(Number.isFinite(state.snapshot().entries.at(-1).turnDurationMs));
   const fullSlice = state.transcriptSlice({ maxTurns: 1 });
   assert.strictEqual(fullSlice.delta, false);
   assert.strictEqual(fullSlice.entries[0].role, 'user');
@@ -88,6 +107,15 @@ async function run() {
     state.transcriptSlice({ sinceRevision: deltaSlice.revision }).entries,
     [],
   );
+  const replacementState = new AcpSessionState({
+    provider: 'codex', sessionId: 's1', cwd: '/tmp', revisionBase: 12, resetBeforeRevision: 12,
+  });
+  replacementState.apply({ sessionId: 's1', update: {
+    sessionUpdate: 'user_message_chunk', messageId: 'replacement-user', content: { type: 'text', text: 'replacement' },
+  } });
+  const replacementSlice = replacementState.transcriptSlice({ sinceRevision: 12 });
+  assert.strictEqual(replacementSlice.delta, false);
+  assert.strictEqual(replacementSlice.entries[0].content[0].text, 'replacement');
   state.apply({ sessionId: 's1', update: {
     sessionUpdate: 'tool_call_update',
     toolCallId: 'large-log-entry',
@@ -125,6 +153,21 @@ async function run() {
   assert.strictEqual(heartbeatSnapshot.entries[0].internal, true);
   assert.strictEqual(heartbeatSnapshot.entries[0].content[0].text, '');
   assert.strictEqual(heartbeatSnapshot.entries[1].internal, true);
+  const structuredState = new AcpSessionState({ provider: 'codex', sessionId: 's4', cwd: '/tmp' });
+  structuredState.apply({ sessionId: 's4', update: {
+    sessionUpdate: 'agent_message_chunk',
+    messageId: 'compaction-1',
+    content: { type: 'text', text: '*Context compacted to fit the model\'s context window.*' },
+  } });
+  structuredState.apply({ sessionId: 's4', update: {
+    sessionUpdate: 'tool_call',
+    toolCallId: 'subagent-1',
+    title: 'Delegate review',
+    status: 'completed',
+    _meta: { subagent_session_info: { session_id: 'child-session', message_start_index: 1 } },
+  } });
+  assert.strictEqual(structuredState.snapshot().entries[0].type, 'compaction');
+  assert.strictEqual(structuredState.snapshot().entries[1]._meta.subagent_session_info.session_id, 'child-session');
 
   const fixture = path.join(__dirname, 'fixtures', 'fake-acp-agent.mjs');
   const runtime = new AcpRuntime({
@@ -169,6 +212,121 @@ async function run() {
     assert.deepStrictEqual(await runtime.deleteSession('agent-acp-new', 'old-session'), {
       deleted: true, sessionId: 'old-session',
     });
+
+    const clientServicesRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-protocol-'));
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-client-services',
+      provider: 'codex',
+      cwd: clientServicesRoot,
+      env: process.env,
+      approvalMode: 'full',
+    });
+    const waitingForInput = new Promise(resolve => {
+      const listener = event => {
+        if (event.agentId !== 'agent-acp-client-services' || event.state !== 'waiting-for-input') return;
+        runtime.off('agent-runtime', listener);
+        resolve(event);
+      };
+      runtime.on('agent-runtime', listener);
+    });
+    const clientServicesPrompt = runtime.prompt('agent-acp-client-services', 'exercise client services');
+    const inputEvent = await waitingForInput;
+    runtime.respondElicitation(
+      'agent-acp-client-services',
+      inputEvent.pendingElicitation.requestId,
+      'accept',
+      { confirmed: true },
+    );
+    assert.strictEqual((await clientServicesPrompt).stopReason, 'end_turn');
+    const clientServicesSession = runtime.getSession('agent-acp-client-services');
+    assert.match(clientServicesSession.entries.find(item => item.role === 'assistant').content[0].text, /filesystem-ok; terminal-ok; exit=0; confirmed=true/);
+    assert.match(runtime.getToolEntry('agent-acp-client-services', 'client-terminal-tool').content[0].terminal.output, /terminal-ok/);
+    const interactivePrompt = runtime.prompt('agent-acp-client-services', 'interactive terminal');
+    let interactiveTool;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      interactiveTool = runtime.getToolEntry('agent-acp-client-services', 'interactive-terminal-tool');
+      if (interactiveTool?.content?.[0]?.terminal?.output?.includes('name>')) break;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    assert.match(interactiveTool.content[0].terminal.output, /name>/);
+    runtime.inputTerminal('agent-acp-client-services', interactiveTool.content[0].terminalId, 'Farming\r');
+    assert.strictEqual((await interactivePrompt).stopReason, 'end_turn');
+    assert.match(
+      runtime.getSession('agent-acp-client-services').entries.filter(item => item.role === 'assistant').at(-1).content[0].text,
+      /hello Farming/,
+    );
+    assert.strictEqual((await runtime.prompt('agent-acp-client-services', 'subagent preview')).stopReason, 'end_turn');
+    const subagentTool = runtime.getToolEntry('agent-acp-client-services', 'subagent-tool');
+    assert.strictEqual(subagentTool._meta.subagent_session_info.session_id, 'acp-child-session');
+    const childSession = runtime.getSubagentTranscriptSession('agent-acp-client-services', 'acp-child-session', { maxTurns: 10 });
+    assert(childSession);
+    assert.strictEqual(childSession.state, 'idle');
+    assert.strictEqual(childSession.stopReason, 'end_turn');
+    assert.strictEqual(childSession.entries[0].content[0].text, 'Inspect the parser');
+    assert.strictEqual(childSession.entries.at(-1).content[0].text, 'The parser is consistent.');
+    const clientServicesBinding = runtime.bindings.get('agent-acp-client-services');
+    const clientServicesApprovalMode = clientServicesBinding.approvalMode;
+    clientServicesBinding.approvalMode = 'approve';
+    const childPermission = runtime.requestPermission(clientServicesBinding, {
+      sessionId: 'acp-child-session',
+      toolCall: { toolCallId: 'child-permission', title: 'Subagent command', kind: 'execute' },
+      options: [{ optionId: 'allow-child', name: 'Allow', kind: 'allow_once' }],
+    });
+    const childPermissionSnapshot = runtime.getSession('agent-acp-client-services').pendingPermissions[0];
+    assert.strictEqual(childPermissionSnapshot.origin, 'subagent');
+    assert.strictEqual(
+      runtime.getSubagentTranscriptSession('agent-acp-client-services', 'acp-child-session').state,
+      'waiting-for-permission',
+    );
+    runtime.respondPermission('agent-acp-client-services', childPermissionSnapshot.requestId, 'allow-child');
+    await childPermission;
+    clientServicesBinding.approvalMode = clientServicesApprovalMode;
+    await assert.rejects(
+      runtime.prompt('agent-acp-client-services', 'authentication error'),
+      /401 Unauthorized/,
+    );
+    const failedSession = runtime.getSession('agent-acp-client-services');
+    assert.strictEqual(failedSession.state, 'error');
+    assert.strictEqual(failedSession.stopReason, 'error');
+    assert.strictEqual(failedSession.errorKind, 'authentication');
+    assert.strictEqual(failedSession.entries.at(-1).type, 'error');
+    assert.strictEqual(failedSession.entries.at(-1).kind, 'authentication');
+    assert.match(failedSession.entries.at(-1).message, /401 Unauthorized: sign in required/);
+    assert.strictEqual(failedSession.entries.at(-1).status, 'failed');
+    assert.strictEqual(failedSession.authMethods[0].id, 'fake-login');
+    assert.deepStrictEqual(await runtime.authenticate('agent-acp-client-services', 'fake-login'), {
+      authenticated: true,
+      methodId: 'fake-login',
+    });
+    const authenticatedSession = runtime.getSession('agent-acp-client-services');
+    assert.strictEqual(authenticatedSession.state, 'idle');
+    assert.strictEqual(authenticatedSession.error, '');
+    assert.strictEqual(authenticatedSession.stopReason, '');
+    const bindingBeforeTerminalAuth = runtime.bindings.get('agent-acp-client-services');
+    const revisionBeforeTerminalAuth = bindingBeforeTerminalAuth.sessionState.revision;
+    const terminalAuthentication = await runtime.authenticate('agent-acp-client-services', 'fake-terminal-login');
+    assert.strictEqual(terminalAuthentication.authenticated, false);
+    let terminalAuthenticationSnapshot;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      terminalAuthenticationSnapshot = runtime.getSession('agent-acp-client-services').authTerminal;
+      if (terminalAuthenticationSnapshot?.terminal?.output?.includes('fake-login>')) break;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    assert.match(terminalAuthenticationSnapshot.terminal.output, /fake-login>/);
+    runtime.inputTerminal('agent-acp-client-services', terminalAuthentication.terminalId, 'approved\r');
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      if (runtime.bindings.get('agent-acp-client-services') !== bindingBeforeTerminalAuth
+        && runtime.getSession('agent-acp-client-services').state === 'idle') break;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    assert.notStrictEqual(runtime.bindings.get('agent-acp-client-services'), bindingBeforeTerminalAuth);
+    assert.strictEqual(runtime.getSession('agent-acp-client-services').state, 'idle');
+    const reloadedAfterTerminalAuth = runtime.getTranscriptSession('agent-acp-client-services', {
+      sinceRevision: revisionBeforeTerminalAuth,
+    });
+    assert.strictEqual(reloadedAfterTerminalAuth.delta, false);
+    assert.strictEqual(reloadedAfterTerminalAuth.entries[0].content[0].text, 'rich timeline');
+    fs.rmSync(clientServicesRoot, { recursive: true, force: true });
 
     const loaded = await runtime.prepareAgent({
       agentId: 'agent-acp-load',
@@ -239,8 +397,110 @@ async function run() {
     runtime.respondPermission('agent-acp-permission', pending[0].requestId, 'allow');
     assert.strictEqual(runtime.getSession('agent-acp-permission').state, 'waiting-for-permission');
     runtime.respondPermission('agent-acp-permission', pending[1].requestId, 'allow');
-    assert.strictEqual(runtime.getSession('agent-acp-permission').state, 'working');
+    assert.strictEqual(runtime.getSession('agent-acp-permission').state, 'idle');
+
+    const constrainedElicitation = runtime.requestElicitation(permissionBinding, {
+      sessionId: permissionBinding.sessionId,
+      mode: 'form',
+      message: 'Release settings',
+      requestedSchema: {
+        type: 'object',
+        required: ['tag', 'replicas', 'reviewers'],
+        properties: {
+          tag: { type: 'string', pattern: '^v\\d+$', minLength: 2, maxLength: 8 },
+          replicas: { type: 'integer', minimum: 1, maximum: 5 },
+          reviewers: { type: 'array', minItems: 1, maxItems: 2, items: { enum: ['a', 'b', 'c'] } },
+        },
+      },
+    });
+    const constrainedInput = runtime.getSession('agent-acp-permission').pendingElicitations[0];
+    assert.throws(
+      () => runtime.respondElicitation('agent-acp-permission', constrainedInput.requestId, 'accept', {
+        tag: 'latest', replicas: 0, reviewers: [],
+      }),
+      /invalid format|below the minimum|more selections/,
+    );
+    runtime.respondElicitation('agent-acp-permission', constrainedInput.requestId, 'accept', {
+      tag: 'v2', replicas: 2, reviewers: ['a'],
+    });
+    assert.deepStrictEqual(await constrainedElicitation, {
+      action: 'accept',
+      content: { tag: 'v2', replicas: 2, reviewers: ['a'] },
+    });
     await Promise.all([firstPermission, secondPermission]);
+
+    const formElicitation = runtime.requestElicitation(permissionBinding, {
+      sessionId: permissionBinding.sessionId,
+      mode: 'form',
+      message: 'Choose a release channel',
+      requestedSchema: {
+        type: 'object',
+        required: ['channel', 'confirmed'],
+        properties: {
+          channel: { type: 'string', enum: ['stable', 'beta'] },
+          confirmed: { type: 'boolean' },
+        },
+      },
+    });
+    const pendingInput = runtime.getSession('agent-acp-permission').pendingElicitations[0];
+    assert.strictEqual(runtime.getSession('agent-acp-permission').state, 'waiting-for-input');
+    assert.strictEqual(pendingInput.mode, 'form');
+    assert.throws(
+      () => runtime.respondElicitation('agent-acp-permission', pendingInput.requestId, 'accept', { channel: 'stable' }),
+      /required: confirmed/,
+    );
+    runtime.respondElicitation('agent-acp-permission', pendingInput.requestId, 'accept', {
+      channel: 'stable',
+      confirmed: true,
+    });
+    assert.deepStrictEqual(await formElicitation, {
+      action: 'accept',
+      content: { channel: 'stable', confirmed: true },
+    });
+    assert.strictEqual(runtime.getSession('agent-acp-permission').state, 'idle');
+
+    const requestScopedElicitation = runtime.requestElicitation(permissionBinding, {
+      requestId: 42,
+      mode: 'form',
+      message: 'Authenticate before opening a session',
+      requestedSchema: { type: 'object', properties: {} },
+    });
+    const requestScopedInput = runtime.getSession('agent-acp-permission').pendingElicitations[0];
+    assert.match(requestScopedInput.requestId, /^acp-elicitation-/);
+    assert.strictEqual(requestScopedInput.protocolRequestId, 42);
+    runtime.respondElicitation('agent-acp-permission', requestScopedInput.requestId, 'accept', {});
+    assert.deepStrictEqual(await requestScopedElicitation, { action: 'accept', content: {} });
+    assert.strictEqual(runtime.getSession('agent-acp-permission').state, 'idle');
+
+    const savedSessionId = permissionBinding.sessionId;
+    permissionBinding.sessionId = '';
+    permissionBinding.state = 'connecting';
+    const authElicitation = runtime.requestElicitation(permissionBinding, {
+      requestId: 'auth-request',
+      mode: 'form',
+      message: 'Authenticate',
+      requestedSchema: { type: 'object', properties: {} },
+    });
+    const authInput = runtime.getSession('agent-acp-permission').pendingElicitations[0];
+    runtime.respondElicitation('agent-acp-permission', authInput.requestId, 'decline');
+    assert.deepStrictEqual(await authElicitation, { action: 'decline' });
+    assert.strictEqual(runtime.getSession('agent-acp-permission').state, 'connecting');
+    permissionBinding.sessionId = savedSessionId;
+    permissionBinding.state = 'idle';
+
+    const urlElicitation = runtime.requestElicitation(permissionBinding, {
+      sessionId: permissionBinding.sessionId,
+      mode: 'url',
+      elicitationId: 'login-1',
+      message: 'Sign in',
+      url: 'https://example.com/login',
+    });
+    const pendingUrl = runtime.getSession('agent-acp-permission').pendingElicitations[0];
+    runtime.respondElicitation('agent-acp-permission', pendingUrl.requestId, 'accept');
+    assert.deepStrictEqual(await urlElicitation, { action: 'accept' });
+    assert.strictEqual(runtime.getSession('agent-acp-permission').activeElicitations[0].elicitationId, 'login-1');
+    runtime.completeElicitation(permissionBinding, { elicitationId: 'login-1' });
+    assert.strictEqual(runtime.getSession('agent-acp-permission').activeElicitations.length, 0);
 
     const cancelledPermission = runtime.requestPermission(permissionBinding, request);
     assert.strictEqual(runtime.getSession('agent-acp-permission').pendingPermissions.length, 1);

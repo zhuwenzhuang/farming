@@ -10,6 +10,7 @@ function run() {
   const indexHtmlPath = path.join(__dirname, '../../frontend/skins/crt/index.html');
   const effectsCssPath = path.join(__dirname, '../../frontend/skins/crt/styles/effects.css');
   const monochromeCssPath = path.join(__dirname, '../../frontend/skins/crt/styles/monochrome-green.css');
+  const billingCssPath = path.join(__dirname, '../../frontend/skins/crt/styles/billing.css');
   const departureFontPath = path.join(__dirname, '../../frontend/skins/crt/assets/fonts/departure-mono/DepartureMonoNerdFontMono-Regular.otf');
   const departureLicensePath = path.join(__dirname, '../../frontend/skins/crt/assets/fonts/departure-mono/LICENSE');
   const crtIconPath = path.join(__dirname, '../../frontend/skins/crt/assets/branding/farming-crt-icon.svg');
@@ -23,6 +24,7 @@ function run() {
   const indexHtml = fs.readFileSync(indexHtmlPath, 'utf8');
   const effectsCss = fs.readFileSync(effectsCssPath, 'utf8');
   const monochromeCss = fs.readFileSync(monochromeCssPath, 'utf8');
+  const billingCss = fs.readFileSync(billingCssPath, 'utf8');
   const crtIcon = fs.readFileSync(crtIconPath, 'utf8');
   const pkgConfig = fs.readFileSync(pkgConfigPath, 'utf8');
   const server = fs.readFileSync(serverPath, 'utf8');
@@ -138,6 +140,32 @@ function run() {
   assert(crtIcon.includes('<title>FARMING CRT</title>') && crtIcon.includes('>CRT</text>'), 'CRT page icon should expose the complete brand name and retain a visible CRT wordmark');
   assert(indexHtml.includes('styles/effects.css'), 'CRT entry should load its private effects stylesheet');
   assert(indexHtml.includes('styles/monochrome-green.css'), 'CRT entry should load its private Monochrome Green stylesheet');
+  assert(indexHtml.includes('styles/billing.css'), 'CRT entry should load its Billing telemetry stylesheet');
+  assert(
+    indexHtml.includes('id="billing-heatmap"')
+      && indexHtml.includes('id="billing-day-total"')
+      && indexHtml.includes('id="billing-scope"')
+      && indexHtml.includes('id="billing-quota-list"')
+      && indexHtml.includes('<span class="key">[$]</span> BILLING')
+      && crtApp.includes("e.key === '$'")
+      && crtApp.includes("e.key === '4' && e.shiftKey"),
+    'CRT Billing should expose daily history, exact day details, live trend, and quota telemetry surfaces',
+  );
+  assert(crtApp.includes("farmingApiPath(`/usage${fresh ? '?fresh=1' : ''}`)"), 'CRT Billing should load telemetry from the Farming usage API');
+  assert(
+    server.includes('if (fresh) usageMonitor.invalidateDailyCache()')
+      && server.includes("usageSummaryCache.get('summary', fresh ? { force: true } : {})"),
+    'the Farming usage API should support an explicit fresh live and daily Billing sample',
+  );
+  assert(
+    crtApp.includes('renderCrtBillingDaily')
+      && crtApp.includes('percentile > 0.98')
+      && indexHtml.includes('TOP 2%')
+      && crtApp.includes('drawCrtBillingScope')
+      && billingCss.includes('.billing-heat-cell')
+      && billingCss.includes('@keyframes crt-billing-sweep'),
+    'CRT Billing should render a daily heatmap and a phosphor live oscilloscope',
+  );
   assert(fs.existsSync(departureFontPath), 'CRT should bundle the Departure Mono font');
   assert(fs.readFileSync(departureLicensePath, 'utf8').includes('SIL OPEN FONT LICENSE Version 1.1'), 'CRT should retain the Departure Mono license');
   assert(monochromeCss.includes('font-family: "Departure Mono CRT"'), 'CRT should use Departure Mono for its interface');
@@ -182,9 +210,11 @@ function run() {
   assert(indexHtml.includes('id="system-ip"') && indexHtml.includes('id="system-time"'), 'CRT top bar should expose system identity and time');
   assert(indexHtml.includes('>IP: <span id="system-ip"') && indexHtml.includes('>TIME: <span id="system-time"') && indexHtml.includes('>UPTIME: <span id="uptime"'), 'CRT system identity labels should remain uppercase');
   assert(indexHtml.includes('AGENTS:') && indexHtml.includes('TOK/MIN:') && indexHtml.includes('id="tokens-per-minute"'), 'CRT top bar should expose uppercase Agent count and token rate');
-  for (const label of ['NEW AGENT', 'TASK LIST', 'HISTORY', 'SKILLS', 'BILLING', 'SETTINGS']) {
+  for (const label of ['NEW AGENT', 'SEARCH', 'HISTORY', 'SKILLS', 'BILLING', 'SETTINGS']) {
     assert(indexHtml.includes(`</span> ${label}`), `CRT sidebar label should be uppercase: ${label}`);
   }
+  assert(!indexHtml.includes('TASK LIST'), 'CRT Search should replace the disabled Task List placeholder');
+  assert(indexHtml.includes('styles/search.css'), 'CRT Search should keep its phosphor layout styles scoped to the CRT skin');
   assert(crtApp.includes('data.usageRate') && crtApp.includes('formatCrtTokenRate'), 'CRT should render the server token-rate estimate');
   assert(server.includes('agentManager.getAgentUsageSnapshots()') && server.includes('estimatedTokensPerMinute: usageSnapshot.estimatedTokensPerMinute'), 'System stats should publish the aggregate token-rate estimate');
   assert(indexHtml.indexOf('id="system-ip"') < indexHtml.indexOf('id="system-time"') && indexHtml.indexOf('id="system-time"') < indexHtml.indexOf('id="uptime"'), 'CRT IP and time should sit immediately before uptime');

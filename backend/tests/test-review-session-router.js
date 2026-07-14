@@ -18,6 +18,14 @@ async function run() {
       calls.push(['create', input]);
       return revision;
     },
+    async createFromAcp(input) {
+      calls.push(['createFromAcp', input]);
+      return revision;
+    },
+    async previewFromAcp(input) {
+      calls.push(['previewFromAcp', input]);
+      return { changes: [] };
+    },
     get(reviewId) {
       calls.push(['get', reviewId]);
       return { ...revision, revisions: [revision] };
@@ -54,6 +62,42 @@ async function run() {
       modifiedWithinDays: 3,
       root: undefined,
       scope: 'untracked',
+    }]);
+
+    const acp = await fetch(`${baseUrl}/api/review-sessions/acp`, {
+      body: JSON.stringify({ agentId: 'agent-1', itemIds: ['tool-1', 'tool-2'] }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    assert.strictEqual(acp.status, 201);
+    assert.deepStrictEqual(calls.at(-1), ['createFromAcp', {
+      agentId: 'agent-1',
+      itemIds: ['tool-1', 'tool-2'],
+    }]);
+
+    const preview = await fetch(`${baseUrl}/api/review-sessions/acp/preview`, {
+      body: JSON.stringify({ agentId: 'agent-1', itemIds: ['tool-1', 'tool-2'] }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    assert.strictEqual(preview.status, 200);
+    assert.deepStrictEqual(await preview.json(), { changes: [] });
+    assert.deepStrictEqual(calls.at(-1), ['previewFromAcp', {
+      agentId: 'agent-1',
+      itemIds: ['tool-1', 'tool-2'],
+    }]);
+
+    const selected = await fetch(`${baseUrl}/api/review-sessions`, {
+      body: JSON.stringify({ root: '/repo', base: 'HEAD', paths: ['src/a.ts', 'src/b.ts'] }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    assert.strictEqual(selected.status, 201);
+    assert.deepStrictEqual(calls.at(-1), ['create', {
+      agentId: undefined,
+      base: 'HEAD',
+      paths: ['src/a.ts', 'src/b.ts'],
+      root: '/repo',
     }]);
 
     const loaded = await fetch(`${baseUrl}/api/review-sessions/${revision.reviewId}`);

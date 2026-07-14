@@ -19,6 +19,7 @@ function payloadFor(rootDir, overrides = {}) {
     cliPath: path.join(rootDir, 'bin', 'farming'),
     nodePath: '/usr/bin/true',
     npmCommand: '/usr/bin/true',
+    npmPrefix: path.join(rootDir, 'npm-prefix'),
     serverPid: 0,
     configDir: rootDir,
     port: '6694',
@@ -35,6 +36,7 @@ async function run() {
   fs.writeFileSync(path.join(rootDir, 'bin', 'farming'), '#!/usr/bin/env node\n');
 
   assert.throws(() => validatePayload({}), /Invalid npm package name/);
+  assert.throws(() => validatePayload(payloadFor(rootDir, { npmPrefix: 'relative' })), /Invalid npm update npmPrefix/);
   await runNpmUpdate(payloadFor(rootDir));
   const succeeded = JSON.parse(fs.readFileSync(path.join(rootDir, 'farming-update.json'), 'utf8'));
   assert.strictEqual(succeeded.phase, 'succeeded');
@@ -54,12 +56,14 @@ async function run() {
   const rollbackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-rollback.'));
   const installedVersionFile = path.join(rollbackRoot, 'installed-version');
   const fakeNpm = path.join(rollbackRoot, 'fake-npm');
+  const npmArgumentsFile = path.join(rollbackRoot, 'npm-arguments');
   const fakeCli = path.join(rollbackRoot, 'fake-farming.js');
   fs.writeFileSync(fakeNpm, [
     '#!/usr/bin/env node',
     `const fs = require('fs');`,
     `const version = process.argv.find(value => value.startsWith('farming-code@')).split('@').pop();`,
     `fs.writeFileSync(${JSON.stringify(installedVersionFile)}, version);`,
+    `fs.appendFileSync(${JSON.stringify(npmArgumentsFile)}, JSON.stringify(process.argv.slice(2)) + '\\n');`,
     '',
   ].join('\n'), { mode: 0o755 });
   fs.writeFileSync(fakeCli, [
@@ -78,6 +82,11 @@ async function run() {
   assert.strictEqual(rolledBack.version, '2.2.5');
   assert.strictEqual(rolledBack.attemptedVersion, '2.3.0');
   assert.strictEqual(fs.readFileSync(installedVersionFile, 'utf8'), '2.2.5');
+  const npmCalls = fs.readFileSync(npmArgumentsFile, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.strictEqual(npmCalls.length, 2);
+  npmCalls.forEach(args => {
+    assert.deepStrictEqual(args.slice(0, 4), ['install', '--global', '--prefix', path.join(rollbackRoot, 'npm-prefix')]);
+  });
 
   console.log('✓ npm update helper preserves the old server on install failure and rolls back failed restarts');
 }

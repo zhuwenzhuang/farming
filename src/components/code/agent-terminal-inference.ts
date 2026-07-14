@@ -228,7 +228,7 @@ export function inferAgentTerminalState(agent: Agent | null | undefined): AgentT
   const jsonCliTurnActive = agent?.agentRuntimeMode === 'json'
     && agent.jsonCliState === 'working'
   const acpTurnActive = agent?.agentRuntimeMode === 'acp'
-    && ['working', 'waiting-for-permission', 'interrupting'].includes(agent.acpState || '')
+    && ['working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(agent.acpState || '')
   const structuredTurnActive = agent?.agentRuntimeMode === 'acp'
     ? acpTurnActive
     : appServerTurnActive || jsonCliTurnActive || turnActive

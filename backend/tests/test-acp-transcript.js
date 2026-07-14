@@ -1,5 +1,6 @@
 const assert = require('assert');
-const { acpSessionTranscript } = require('../acp-transcript');
+const { projectAcpTranscript: acpSessionTranscript } = require('../../src/components/code/acp/acp-entry-projection.ts');
+const { acpToolChanges, acpToolReviewChanges } = require('../acp-transcript');
 
 const transcript = acpSessionTranscript({
   sessionId: 'session-1',
@@ -43,6 +44,12 @@ assert.deepStrictEqual(transcript.turns[0].processItems.map(entry => entry.title
   'Progress update', 'Reasoning', 'Run tests', 'Plan',
 ]);
 assert.strictEqual(transcript.turns[0].processItems[2].type, 'patch');
+assert.deepStrictEqual(transcript.turns[0].processItems[2].changes, [{
+  added: 1,
+  kind: 'updated',
+  path: '/tmp/a.js',
+  removed: 1,
+}]);
 assert.strictEqual(transcript.turns[0].processItems[3].completedSteps, 1);
 assert.strictEqual(transcript.turns[0].processItems[3].totalSteps, 1);
 assert.strictEqual(transcript.turns[0].processItems[3].currentStep, '');
@@ -51,9 +58,58 @@ assert.match(transcript.turns[0].processItems[2].detail, /Input\n[\s\S]*npm test
 assert.match(transcript.turns[0].processItems[2].detail, /File: \/tmp\/a\.js/);
 assert.match(transcript.turns[0].processItems[2].detail, /-old/);
 assert.match(transcript.turns[0].processItems[2].detail, /\+new/);
-assert.match(transcript.turns[0].processItems[2].detail, /Terminal: terminal-1/);
+assert.deepStrictEqual(transcript.turns[0].processItems[2].terminalIds, ['terminal-1']);
+assert.doesNotMatch(transcript.turns[0].processItems[2].detail, /Terminal: terminal-1/);
 assert.match(transcript.turns[0].processItems[2].detail, /Output\nok/);
 assert.match(transcript.turns[0].processItems[2].detail, /Locations\n\/tmp\/a\.js:3/);
+
+const mirroredCommandOutput = acpSessionTranscript({
+  state: 'idle',
+  entries: [
+    { id: 'mirrored-user', type: 'message', role: 'user', content: [{ type: 'text', text: 'Count' }] },
+    {
+      id: 'mirrored-tool',
+      type: 'tool',
+      kind: 'execute',
+      title: 'printf',
+      status: 'completed',
+      rawInput: { command: 'printf "1\\n2\\n"' },
+      rawOutput: { stdout: '1\n2\n', stderr: '', interrupted: false },
+      content: [{
+        type: 'content',
+        content: {
+          type: 'text',
+          text: JSON.stringify({ stdout: '1\n2\n', stderr: '', interrupted: false }, null, 2),
+        },
+      }],
+    },
+    { id: 'mirrored-answer', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Done' }] },
+  ],
+});
+const mirroredDetail = mirroredCommandOutput.turns[0].processItems[0].detail;
+assert.match(mirroredDetail, /Input\n[\s\S]*printf/);
+assert.match(mirroredDetail, /Output\n1\n2/);
+assert.strictEqual((mirroredDetail.match(/"stdout"/g) || []).length, 0);
+assert.strictEqual((mirroredDetail.match(/Output\n/g) || []).length, 1);
+const exactChanges = acpToolChanges({
+  content: [{ type: 'diff', path: '/tmp/a.js', oldText: 'old', newText: 'new' }],
+});
+assert.deepStrictEqual(exactChanges.map(({ diff: _diff, ...change }) => change), [{
+  added: 1,
+  kind: 'updated',
+  path: '/tmp/a.js',
+  removed: 1,
+}]);
+assert.match(exactChanges[0].diff, /-old/);
+assert.match(exactChanges[0].diff, /\+new/);
+assert.deepStrictEqual(acpToolReviewChanges({
+  content: [{ type: 'diff', path: '/tmp/a.js', oldText: 'old', newText: 'new', _meta: { kind: 'update' } }],
+}), [{
+  kind: 'updated',
+  newText: 'new',
+  oldText: 'old',
+  path: '/tmp/a.js',
+}]);
 
 const orderedProgressTranscript = acpSessionTranscript({
   state: 'working',
@@ -185,6 +241,10 @@ assert.strictEqual(largeToolTranscript.turns[0].processItems[0].detailTruncated,
 assert(largeToolTranscript.turns[0].processItems[0].detail.length < 5_000);
 
 const limitedTranscript = acpSessionTranscript({
+  title: 'Limited run',
+  state: 'error',
+  error: 'Input exceeds the context window',
+  errorKind: 'context',
   stopReason: 'max_tokens',
   entries: [
     { id: 'user-limited', type: 'message', role: 'user', content: [{ type: 'text', text: 'Long task' }] },
@@ -192,7 +252,91 @@ const limitedTranscript = acpSessionTranscript({
   ],
 });
 assert.strictEqual(limitedTranscript.stopReason, 'max_tokens');
+assert.strictEqual(limitedTranscript.title, 'Limited run');
+assert.strictEqual(limitedTranscript.state, 'error');
+assert.strictEqual(limitedTranscript.error, 'Input exceeds the context window');
+assert.strictEqual(limitedTranscript.errorKind, 'context');
 assert.strictEqual(limitedTranscript.turns[0].status, 'interrupted');
+
+const authenticationErrorTranscript = acpSessionTranscript({
+  state: 'error',
+  error: '401 Unauthorized: sign in required',
+  errorKind: 'authentication',
+  stopReason: 'error',
+  entries: [
+    { id: 'user-auth', type: 'message', role: 'user', content: [{ type: 'text', text: 'Continue' }] },
+    { id: 'error-auth', type: 'error', kind: 'authentication', message: '401 Unauthorized: sign in required', status: 'failed' },
+  ],
+});
+assert.strictEqual(authenticationErrorTranscript.turns[0].status, 'interrupted');
+assert.deepStrictEqual(authenticationErrorTranscript.turns[0].processItems[0], {
+  id: 'error-auth',
+  type: 'error',
+  kind: 'authentication',
+  title: 'Authentication required',
+  detail: '401 Unauthorized: sign in required',
+  status: 'failed',
+});
+
+const structuredTranscript = acpSessionTranscript({
+  entries: [
+    {
+      id: 'user-structured',
+      type: 'message',
+      role: 'user',
+      turnStartedAt: 1783990800000,
+      turnCompletedAt: 1783990803250,
+      turnDurationMs: 3250,
+      content: [{ type: 'text', text: 'Delegate it' }],
+    },
+    { id: 'compaction-structured', type: 'compaction', status: 'completed' },
+    {
+      id: 'subagent-structured',
+      type: 'tool',
+      title: 'Review implementation',
+      status: 'completed',
+      _meta: { subagent_session_info: { session_id: 'child-session' } },
+    },
+  ],
+});
+assert.strictEqual(structuredTranscript.turns[0].startedAt, 1783990800000);
+assert.strictEqual(structuredTranscript.turns[0].completedAt, 1783990803250);
+assert.strictEqual(structuredTranscript.turns[0].durationMs, 3250);
+assert.deepStrictEqual(structuredTranscript.turns[0].processItems.map(item => item.type), ['compaction', 'subagent']);
+assert.match(structuredTranscript.turns[0].processItems[1].detail, /child-session/);
+assert.strictEqual(structuredTranscript.turns[0].processItems[1].subagentSessionId, 'child-session');
+
+const richContentTranscript = acpSessionTranscript({
+  entries: [
+    {
+      id: 'user-rich',
+      type: 'message',
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Inspect these resources' },
+        { type: 'resource_link', name: 'Guide', uri: 'file:///tmp/guide.md' },
+        { type: 'audio', mimeType: 'audio/wav', data: 'UklGRg==' },
+      ],
+    },
+    {
+      id: 'tool-rich',
+      type: 'tool',
+      title: 'Open resources',
+      status: 'completed',
+      content: [
+        { type: 'content', content: { type: 'image', mimeType: 'image/png', data: 'aGVsbG8=' } },
+        { type: 'content', content: { type: 'audio', mimeType: 'audio/mpeg', data: 'SUQz' } },
+        { type: 'content', content: { type: 'resource', resource: { name: 'Result', uri: 'file:///tmp/result.txt', text: 'result text' } } },
+      ],
+    },
+  ],
+});
+assert.strictEqual(richContentTranscript.turns[0].userFiles[0].name, 'Guide');
+assert.strictEqual(richContentTranscript.turns[0].userFiles[0].resourceKind, 'link');
+assert.match(richContentTranscript.turns[0].userAudios[0].url, /^data:audio\/wav;base64,/);
+assert.match(richContentTranscript.turns[0].processItems[0].images[0].url, /^data:image\/png;base64,/);
+assert.match(richContentTranscript.turns[0].processItems[0].audios[0].url, /^data:audio\/mpeg;base64,/);
+assert.strictEqual(richContentTranscript.turns[0].processItems[0].files[0].content, 'result text');
 
 const compactedTranscript = acpSessionTranscript({
   entries: [

@@ -55,7 +55,7 @@ import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import { isOverlayShortcutTarget, isTerminalShortcutTarget, isTextEditingShortcutTarget } from '@/hooks/useKeyboard'
 import { usePageVisibility } from '@/hooks/usePageVisibility'
 import { CodeMainArea } from './code/CodeMainArea'
-import { respondToAcpPermission, submitAcpDraft as submitAcpComposerDraft } from './code/acp/acp-composer-behavior'
+import { respondToAcpElicitation, respondToAcpPermission, submitAcpDraft as submitAcpComposerDraft } from './code/acp/acp-composer-behavior'
 import { acpComposerStateAliasKeysForAgent, acpComposerStateKeyForAgent } from './code/acp/acp-composer-state'
 import { MobileShareSheet } from './code/MobileShareSheet'
 import { CodeOverlays } from './code/CodeOverlays'
@@ -1570,6 +1570,11 @@ export function CodeWorkspace({
   const respondToActiveAcpPermission = useCallback((requestId: string, optionId?: string, cancelled?: boolean) => {
     if (!activeAgent) return
     void respondToAcpPermission(activeAgent.id, requestId, optionId, cancelled === true)
+  }, [activeAgent])
+
+  const respondToActiveAcpElicitation = useCallback((requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>) => {
+    if (!activeAgent) return
+    void respondToAcpElicitation(activeAgent.id, requestId, action, content)
   }, [activeAgent])
 
   const steerPendingFollowUp = useCallback((messageId: string) => {
@@ -4454,6 +4459,12 @@ export function CodeWorkspace({
             : activeAgent?.acpPendingPermission
               ? [activeAgent.acpPendingPermission]
               : [],
+          elicitations: activeAgent?.acpPendingElicitations?.length
+            ? activeAgent.acpPendingElicitations
+            : activeAgent?.acpPendingElicitation
+              ? [activeAgent.acpPendingElicitation]
+              : [],
+          activeElicitations: activeAgent?.acpActiveElicitations || [],
           speechSupported,
           speechListening,
           onDraftChange: handleDraftChange,
@@ -4471,6 +4482,7 @@ export function CodeWorkspace({
             updateActiveComposerState(state => ({ ...state, mode: 'default' }))
           },
           onRespondToPermission: respondToActiveAcpPermission,
+          onRespondToElicitation: respondToActiveAcpElicitation,
         }}
         composerProps={{
           active: Boolean(activeAgent) && !activeAgentPermissionSwitching,

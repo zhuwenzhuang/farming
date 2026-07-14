@@ -32,6 +32,16 @@ function createReviewDiffRouter(reviewDiffService, reviewSessionService) {
     res.send(patch);
   }
 
+  router.get('/comparison-sources', async (req, res) => {
+    try {
+      res.json(await reviewDiffService.getComparisonSources(req.query.agentId, {
+        ...(req.query.root !== undefined ? { root: req.query.root } : {}),
+      }));
+    } catch (error) {
+      sendWorkspaceError(res, error, 'review comparison sources could not be loaded', 'Review comparison source API error:');
+    }
+  });
+
   router.get('/working-copy/patch', async (req, res) => {
     try {
       const result = await reviewDiffService.getWorkingCopyPatch(req.query.agentId, {

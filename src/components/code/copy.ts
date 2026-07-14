@@ -35,6 +35,12 @@ export interface CodeCopy {
   codexTranscriptCopyAnswer: string
   codexTranscriptCopiedAnswer: string
   codexTranscriptReviewChanges: string
+  codexTranscriptShowChanges: string
+  codexTranscriptLoadingChanges: string
+  codexTranscriptKeepChange: string
+  codexTranscriptRevertChange: string
+  codexTranscriptChangeKept: string
+  codexTranscriptChangeReverted: string
   codexTranscriptShowMoreFiles: (count: number) => string
   codexGoalTitle: string
   codexGoalEmpty: string
@@ -385,6 +391,12 @@ const EN_COPY: CodeCopy = {
   codexTranscriptCopyAnswer: 'Copy answer',
   codexTranscriptCopiedAnswer: 'Copied answer',
   codexTranscriptReviewChanges: 'Review',
+  codexTranscriptShowChanges: 'Show file changes',
+  codexTranscriptLoadingChanges: 'Loading exact changes…',
+  codexTranscriptKeepChange: 'Keep',
+  codexTranscriptRevertChange: 'Revert',
+  codexTranscriptChangeKept: 'Kept',
+  codexTranscriptChangeReverted: 'Reverted',
   codexTranscriptShowMoreFiles: count => `Show ${count} more file${count === 1 ? '' : 's'}`,
   codexGoalTitle: 'Goal',
   codexGoalEmpty: 'No active goal',
@@ -764,6 +776,12 @@ const ZH_COPY: CodeCopy = {
   codexTranscriptCopyAnswer: '复制答复',
   codexTranscriptCopiedAnswer: '已复制答复',
   codexTranscriptReviewChanges: 'Review',
+  codexTranscriptShowChanges: '展开文件改动',
+  codexTranscriptLoadingChanges: '正在加载准确改动…',
+  codexTranscriptKeepChange: '保留',
+  codexTranscriptRevertChange: '撤销',
+  codexTranscriptChangeKept: '已保留',
+  codexTranscriptChangeReverted: '已撤销',
   codexTranscriptShowMoreFiles: count => `显示另外 ${count} 个文件`,
   codexGoalTitle: '目标',
   codexGoalEmpty: '没有活动目标',

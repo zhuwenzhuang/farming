@@ -18,6 +18,17 @@ async function fetchText(baseUrl, pathname) {
 async function run() {
   const calls = [];
   const service = {
+    async getComparisonSources(agentId, options) {
+      calls.push(['comparison-sources', agentId, options]);
+      return {
+        branches: [{ base: '1'.repeat(40), head: '2'.repeat(40), id: 'branch:main', label: 'main' }],
+        commits: [],
+        currentBranch: 'feature/review',
+        root: '/workspace',
+        staged: { available: true, base: '1'.repeat(40), head: '2'.repeat(40), id: 'staged', label: 'Staged' },
+        unstaged: { available: false, base: '2'.repeat(40), head: 'now', id: 'unstaged', label: 'Unstaged' },
+      };
+    },
     async getWorkingCopy(agentId, options) {
       calls.push(['working-copy', agentId, options]);
       return {
@@ -112,6 +123,11 @@ async function run() {
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
 
   try {
+    const comparisonSources = await fetchJson(baseUrl, '/api/reviews/comparison-sources?root=%2Fworkspace');
+    assert.strictEqual(comparisonSources.response.status, 200);
+    assert.strictEqual(comparisonSources.body.currentBranch, 'feature/review');
+    assert.deepStrictEqual(calls.at(-1), ['comparison-sources', undefined, { root: '/workspace' }]);
+
     const workingCopy = await fetchJson(baseUrl, '/api/reviews/working-copy?agentId=agent-1&limit=5&metadataOnly=1&context=25&ignoreWhitespace=ALL');
     assert.strictEqual(workingCopy.response.status, 200);
     assert.strictEqual(workingCopy.body.source, 'working-copy');

@@ -416,7 +416,7 @@ function childInvocation(env = process.env) {
   if (process.pkg) {
     return { command: '/bin/sh', args: ['-c', buildCleanEnvExecCommand(env, process.execPath, ['--'])] };
   }
-  return { command: process.execPath, args: [__filename] };
+  return { command: env.FARMING_NODE_BIN || process.execPath, args: [__filename] };
 }
 
 function ensureConfigDir(configDir) {
@@ -772,6 +772,7 @@ module.exports = {
   SERVER_MODE_ARG,
   NATIVE_PTY_HOST_ARG,
   buildCleanEnvExecCommand,
+  childInvocation,
   buildControlEnv,
   buildServerEnv,
   computeNodeHeapMb,

@@ -84,9 +84,9 @@ Farming 2 不试图替代完整本地 IDE。它提供的是监督 AI coding agen
 
 ## 安装
 
-Farming 2 默认推荐以平台 CLI 应用发布。Linux 和 macOS 都是一个名为 `farming` 的可执行程序；它内置 Farming server、前端资源和必要运行时代码，不要求用户先解包源码目录。
+Farming 2 主要通过 `farming-code` npm 包发布：`npm install --global farming-code` 后运行 `farming daemon`。平台 CLI 继续作为手动安装产物提供。
 
-App bundle 是目录式部署的备选形态：解压后通过根目录 `./farming` 脚本启动，包内包含 production dependencies。它直接使用目标机器的普通 Node.js 和 native runtime；Farming 不再携带或安装私有系统 C 库。
+标准 App bundle 是目录式部署的备选形态。单独发布的老 Linux x64 兼容 tar 是首次安装引导包：它提供 glibc 兼容层，把 Farming 安装到私有 npm prefix，之后进入普通 npm 更新链路。
 
 ### 前置条件
 
@@ -126,7 +126,7 @@ chmod +x farming
 - 自动按机器内存为 server 子进程设置 Node heap；不会把该限制传给子 agent
 - 单文件 CLI 适合 Linux 和 macOS；标准发布形态依赖目标系统提供兼容的 native runtime。GitHub Release 还会提供 `farming-<release>-linux-x64-legacy-glibc228.tar.gz`，面向 glibc 低于 2.28 的 Linux x64；它带有固定 runtime，安装器只在旧系统上启用。
 
-npm 是默认发布方式：`npm install --global farming-code` 后运行 `farming daemon`。npm 安装会从 registry 读取可用版本，在 **设置 → 更新** 中一键升级；旧服务会保持运行直到安装成功，新服务启动失败时会尝试恢复旧版本。源码 checkout 通过 Git 更新，单文件 CLI 手动替换。App bundle 仍可配置 Update URL，升级包按 OS/CPU 匹配并校验 checksum。该设置面板也用于管理各 provider 的 **Agent Homes**。
+npm 是默认发布方式。普通 npm 安装和通过老 Linux 兼容 tar 引导的安装都会从 registry 读取可用版本，在 **设置 → 更新** 中一键升级；旧服务会保持运行直到安装成功，新服务启动失败时会尝试恢复旧版本。源码 checkout 通过 Git 更新，单文件 CLI 手动替换。标准 App bundle 保留适用于目录部署的 checksum Update URL 链路。该设置面板也用于管理各 provider 的 **Agent Homes**。
 
 最简单的更新源是一个以 `/` 结尾的 HTTP(S) 目录 URL，目录里列出带平台标记的 `farming-<version>-<platform>-<arch>.tar.gz` app bundle，并为每个 bundle 提供相邻的 `<bundle>.sha256` 文件。Farming 会在解压前校验所选 bundle 的 SHA-256 与归档路径。
 
@@ -178,7 +178,7 @@ releases/2/manifest.json
 FARMING_CLI_TARGETS=node22-linux-x64 npm run release:cli
 ```
 
-macOS 和 Linux 单文件 CLI 产物都使用 `@yao-pkg/pkg` 的现代 Node runtime。Linux 单文件 CLI 在 CI 中验证 server 启动；Linux native PTY / agent 启动通过 app bundle 做完整 smoke。打包态 Darwin 会把 `node-pty` 的 `spawn-helper` 释放到 `~/.farming/runtime/node-pty/<platform-arch>/`。所有发布形态都依赖目标系统提供兼容的 native runtime。
+macOS 和 Linux 单文件 CLI 产物都使用 `@yao-pkg/pkg` 的现代 Node runtime。Linux 单文件 CLI 在 CI 中验证 server 启动；Linux native PTY / agent 启动通过 app bundle 做完整 smoke。老 Linux x64 兼容 tar 会初始化 `~/.farming/glibc228`、`~/.farming/npm` 和稳定入口 `~/.farming/bin/farming`；后续普通版本来自 npm，不再重复下载兼容 tar。
 
 `npm run release:cli` 使用 Vite 构建前端，再通过 `scripts/bundle-cli-runtime.js` 用 esbuild 将后端 runtime bundle/minify 为临时入口，最后按目标平台选择 `@yao-pkg/pkg` 或 legacy `pkg` 生成可执行文件。发布产物里不包含仓库的 `backend/`、`src/`、测试或脚本源码；服务端代码进入二进制，浏览器前端只包含构建后的 `dist/` 资源。`node-pty` native addon 和 `spawn-helper` 作为显式 assets 进入包，pkg 不执行 native build。
 
@@ -219,7 +219,7 @@ cd farming-2-linux-x64
 
 默认包内已经包含 production dependencies。无参数运行会直接准备运行环境、写入 `.farming-install-env` 并启动服务；启动日志会打印带 token 的浏览器 URL。
 
-Linux x64 的 glibc 低于 2.28 时，下载并按同样步骤解压 `farming-<release>-linux-x64-legacy-glibc228.tar.gz`。安装器会把包内 runtime 解压到 `~/.farming/glibc228`，仅用于该旧系统。
+Linux x64 的 glibc 低于 2.28 时，下载并按同样步骤解压 `farming-<release>-linux-x64-legacy-glibc228.tar.gz`。安装器会把 runtime 解压到 `~/.farming/glibc228`，把 Farming 安装到 `~/.farming/npm`，并创建 `~/.farming/bin/farming`。首次引导后请使用这个稳定入口；**设置 → 更新** 和手动 npm 更新都会继续使用该私有 prefix 与兼容 launcher。
 
 常用命令：
 

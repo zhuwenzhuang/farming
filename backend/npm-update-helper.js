@@ -67,6 +67,9 @@ function validatePayload(payload) {
   for (const key of ['stateFile', 'logPath', 'cliPath', 'configDir']) {
     if (!path.isAbsolute(String(payload[key] || ''))) throw new Error(`Invalid npm update ${key}`);
   }
+  if (payload.npmPrefix && !path.isAbsolute(String(payload.npmPrefix))) {
+    throw new Error('Invalid npm update npmPrefix');
+  }
   return payload;
 }
 
@@ -105,9 +108,10 @@ function commandEnvironment() {
 async function installPackage(payload, version) {
   const packageSpec = `${payload.packageName}@${version}`;
   appendLog(payload.logPath, `Installing ${packageSpec}`);
-  await runCommand(payload.npmCommand || 'npm', [
-    'install', '--global', packageSpec, '--no-audit', '--no-fund',
-  ], {
+  const args = ['install', '--global'];
+  if (payload.npmPrefix) args.push('--prefix', payload.npmPrefix);
+  args.push(packageSpec, '--no-audit', '--no-fund');
+  await runCommand(payload.npmCommand || 'npm', args, {
     env: commandEnvironment(),
     logPath: payload.logPath,
   });

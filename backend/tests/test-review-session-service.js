@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { promisify } = require('util');
-const { ReviewSessionService, changedPathsFromNameStatus } = require('../review-session-service');
+const { ReviewSessionService, changedPathsFromNameStatus, normalizeHistoricalReviewChanges } = require('../review-session-service');
 const { ReviewSessionStore } = require('../review-session-store');
 const { ReviewStateStore } = require('../review-state-store');
 
@@ -73,6 +73,72 @@ async function run() {
     assert.strictEqual(await git(repository, 'show', `${untracked.head}:a.txt`), 'a0');
     assert.strictEqual(await git(repository, 'show', `${untracked.head}:untracked.txt`), 'new');
     await assert.rejects(() => git(repository, 'show', `${untracked.head}:old-untracked.txt`));
+    const selected = await service.create({ base: 'HEAD', root: repository, paths: ['a.txt'] });
+    assert.deepStrictEqual(selected.paths, ['a.txt']);
+    assert.strictEqual(await git(repository, 'show', `${selected.head}:a.txt`), 'a1');
+    assert.strictEqual(await git(repository, 'show', `${selected.head}:b.txt`), 'b0');
+    await assert.rejects(() => service.create({ base: 'HEAD', root: repository, paths: ['../outside.txt'] }), /file paths are invalid/);
+
+    assert.deepStrictEqual(normalizeHistoricalReviewChanges(repository, [
+      { kind: 'updated', oldText: 'old-1', newText: 'middle', path: path.join(repository, 'history.txt') },
+      { kind: 'updated', oldText: 'middle', newText: 'new-1', path: 'history.txt' },
+      { kind: 'updated', oldText: 'private', newText: 'ignored', path: path.join(repository, '.git', 'info', 'exclude') },
+      { kind: 'updated', oldText: 'outside', newText: 'ignored', path: path.join(temporaryRoot, 'outside.txt') },
+    ]), [{
+      basePresent: true,
+      headPresent: true,
+      newText: 'new-1',
+      oldText: 'old-1',
+      path: 'history.txt',
+    }]);
+    const nestedWorkspace = path.join(repository, 'nested-workspace');
+    fs.mkdirSync(nestedWorkspace);
+    fs.writeFileSync(path.join(repository, 'sibling.txt'), 'outside workspace\n');
+    fs.symlinkSync(repository, path.join(nestedWorkspace, 'linked-repository'));
+    assert.deepStrictEqual(normalizeHistoricalReviewChanges(repository, [
+      { kind: 'updated', oldText: 'before\n', newText: 'after\n', path: path.join(nestedWorkspace, 'display.txt') },
+      { kind: 'updated', oldText: 'private\n', newText: 'ignored\n', path: path.join(repository, 'sibling.txt') },
+      { kind: 'updated', oldText: 'private\n', newText: 'ignored\n', path: 'linked-repository/sibling.txt' },
+    ], nestedWorkspace), [{
+      basePresent: true,
+      displayPath: 'display.txt',
+      headPresent: true,
+      newText: 'after\n',
+      oldText: 'before\n',
+      path: 'nested-workspace/display.txt',
+    }]);
+    const historicalService = new ReviewSessionService(fileService, sessionStore, stateStore, {
+      resolveAcpReviewChanges(agentId, itemIds) {
+        assert.strictEqual(agentId, 'agent-history');
+        assert.deepStrictEqual(itemIds, ['tool-1']);
+        return [
+          { kind: 'updated', oldText: 'historical old\n', newText: 'historical new\n', path: path.join(repository, 'a.txt') },
+          { kind: 'added', oldText: '', newText: 'created then\n', path: 'created.txt' },
+          { kind: 'deleted', oldText: 'deleted then\n', newText: '', path: 'deleted.txt' },
+          { kind: 'updated', oldText: 'outside\n', newText: 'outside now\n', path: path.join(temporaryRoot, 'outside.txt') },
+        ];
+      },
+      resolveAgentRoot: agentId => agentId === 'agent-history' ? repository : '',
+    });
+    const historical = await historicalService.createFromAcp({ agentId: 'agent-history', itemIds: ['tool-1'] });
+    assert.deepStrictEqual(historical.paths, ['a.txt', 'created.txt', 'deleted.txt']);
+    assert.strictEqual(await git(repository, 'show', `${historical.base}:a.txt`), 'historical old');
+    assert.strictEqual(await git(repository, 'show', `${historical.head}:a.txt`), 'historical new');
+    assert.strictEqual(await git(repository, 'show', `${historical.head}:created.txt`), 'created then');
+    await assert.rejects(() => git(repository, 'show', `${historical.base}:created.txt`));
+    assert.strictEqual(await git(repository, 'show', `${historical.base}:deleted.txt`), 'deleted then');
+    await assert.rejects(() => git(repository, 'show', `${historical.head}:deleted.txt`));
+    assert.strictEqual(await git(repository, 'rev-parse', `refs/farming/reviews/${historical.reviewId}/base`), historical.base);
+    assert.strictEqual(await git(repository, 'rev-parse', `refs/farming/reviews/${historical.reviewId}/1`), historical.head);
+    historicalService.assertRange(historical.reviewId, repository, historical.base, historical.head);
+    const historicalPreview = await historicalService.previewFromAcp({ agentId: 'agent-history', itemIds: ['tool-1'] });
+    assert.deepStrictEqual(historicalPreview.changes.map(({ diff: _diff, ...change }) => change), [
+      { added: 1, kind: 'updated', path: 'a.txt', removed: 1 },
+      { added: 1, kind: 'added', path: 'created.txt', removed: 0 },
+      { added: 0, kind: 'deleted', path: 'deleted.txt', removed: 1 },
+    ]);
+    assert.match(historicalPreview.changes[0].diff, /-historical old/);
+    assert.match(historicalPreview.changes[0].diff, /\+historical new/);
     const first = await service.create({ base: 'HEAD', root: repository });
 
     assert.strictEqual(first.base, base);

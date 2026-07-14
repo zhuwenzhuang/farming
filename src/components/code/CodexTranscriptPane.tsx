@@ -18,75 +18,36 @@ import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
-import { ArrowDownGlyph, CheckGlyph, ChevronRightGlyph, CopyGlyph } from '@/components/IconGlyphs'
+import { ArrowDownGlyph, CheckGlyph, ChevronRightGlyph, CloseGlyph, CopyGlyph, SearchGlyph } from '@/components/IconGlyphs'
 import { MermaidBlock } from '@/components/files/FileEditorMarkdownPreview'
 import { appPath } from '@/lib/base-path'
 import { iconForFilePath } from '@/lib/file-icons'
 import { normalizeGlobalWorkspaceFilePath } from '@/lib/global-workspace-files'
 import { collectTerminalPathLinkMatches } from '@/lib/terminal-links'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
+import { loadAcpReviewPreview } from '@/lib/review/api'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from './copy'
 import { acpActivityKind, acpCompactPlanLabel, acpPlanProgress, type AcpActivityKind } from './acp/acp-activity-label'
+import {
+  projectAcpTranscript,
+  type CodexTranscript,
+  type CodexTranscriptAudio,
+  type CodexTranscriptPatchChange,
+  type CodexTranscriptProcessItem,
+  type CodexTranscriptTerminal,
+  type CodexTranscriptTurn,
+  type CodexTranscriptUserFile,
+  type CodexTranscriptUserImage,
+} from './acp/acp-entry-projection'
 import { acpActionGroupLabel, isAcpProgressUpdate } from './acp/acp-progress-timeline'
 import { terminalTargetFilePath } from './workspace-file-view'
 import 'katex/dist/katex.min.css'
 
-interface CodexTranscriptProcessItem {
-  id: string
-  type: string
-  title: string
-  detail?: string
-  images?: CodexTranscriptUserImage[]
-  files?: CodexTranscriptUserFile[]
-  status?: string
-  kind?: string
-  completedSteps?: number
-  totalSteps?: number
-  currentStep?: string
-  detailTruncated?: boolean
-}
-
-interface CodexTranscriptUserImage {
-  id: string
-  url: string
-  alt?: string
-}
-
-interface CodexTranscriptUserFile {
-  id: string
-  name: string
-  content?: string
-  error?: string
-  truncated?: boolean
-}
-
-interface CodexTranscriptTurn {
-  id: string
-  userMessage: string
-  userImages?: CodexTranscriptUserImage[]
-  userFiles?: CodexTranscriptUserFile[]
-  finalMessage: string
-  startedAt: number | null
-  completedAt: number | null
-  durationMs: number | null
-  status: 'inProgress' | 'completed' | 'interrupted' | string
-  processItems: CodexTranscriptProcessItem[]
-}
-
-interface CodexTranscript {
-  available: boolean
-  reason?: string
-  sessionId: string
-  updatedAt?: string
-  source?: string
-  hasMoreBefore?: boolean
-  turnLimit?: number
-  revision?: number
-  delta?: boolean
-  replaceFromTurnId?: string
-  stopReason?: string
-  turns: CodexTranscriptTurn[]
+interface CodexTranscriptProcessPresentation {
+  detail: string
+  terminals?: CodexTranscriptTerminal[]
+  subagentTranscript?: CodexTranscript
 }
 
 function completedTranscriptTurnUnchanged(
@@ -103,6 +64,7 @@ function completedTranscriptTurnUnchanged(
     && current.completedAt === next.completedAt
     && current.durationMs === next.durationMs
     && current.userImages?.length === next.userImages?.length
+    && current.userAudios?.length === next.userAudios?.length
     && current.userFiles?.length === next.userFiles?.length
     && current.processItems.length === next.processItems.length
     && currentLastItem?.id === nextLastItem?.id
@@ -200,7 +162,10 @@ const TRANSCRIPT_LOAD_MORE_THRESHOLD = 72
 const TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD = 96
 
 function durationLabel(durationMs: number | null | undefined) {
-  if (!durationMs || !Number.isFinite(durationMs) || durationMs <= 0) return ''
+  // ACP does not carry historical turn timestamps. Farming only measures a
+  // turn while it is connected, so sub-second work should stay visually quiet
+  // instead of being rounded into the misleading "Worked for 0s" label.
+  if (!durationMs || !Number.isFinite(durationMs) || durationMs < 1_000) return ''
   const seconds = Math.round(durationMs / 1000)
   if (seconds <= 0) return ''
   if (seconds < 60) return `${seconds}s`
@@ -248,6 +213,10 @@ function turnProcessLabel(
   planLabel = '',
 ) {
   const duration = durationLabel(turn.durationMs)
+  const errorItem = turn.status === 'interrupted'
+    ? turn.processItems.find(item => item.type === 'error')
+    : undefined
+  if (errorItem?.title) return errorItem.title
   return duration
     ? copy.codexTranscriptWorkedFor(duration)
     : turn.status === 'inProgress'
@@ -522,12 +491,23 @@ function CodexTranscriptUserImages({ images }: { images: CodexTranscriptUserImag
 
 function userFileMeta(file: CodexTranscriptUserFile) {
   if (file.error) return file.error
+  if (file.resourceKind === 'link') return file.mimeType || 'Resource link'
   const content = file.content || ''
   const lineCount = content ? content.split('\n').length : 0
   const charCount = content.length
   const lineLabel = lineCount === 1 ? '1 line' : `${lineCount} lines`
   const charLabel = charCount === 1 ? '1 char' : `${charCount} chars`
   return `${lineLabel} · ${charLabel}${file.truncated ? ' · truncated' : ''}`
+}
+
+function safeResourceHref(uri?: string) {
+  if (!uri) return ''
+  try {
+    const parsed = new URL(uri)
+    return ['http:', 'https:'].includes(parsed.protocol) ? parsed.toString() : ''
+  } catch {
+    return ''
+  }
 }
 
 function CodexTranscriptUserFiles({ files }: { files: CodexTranscriptUserFile[] }) {
@@ -537,6 +517,18 @@ function CodexTranscriptUserFiles({ files }: { files: CodexTranscriptUserFile[] 
       {files.map(file => {
         const content = file.content || ''
         const hasContent = Boolean(content)
+        const resourceHref = file.resourceKind === 'link' ? safeResourceHref(file.uri) : ''
+        if (file.resourceKind === 'link') {
+          return (
+            <div key={file.id} className="code-codex-transcript-user-file code-codex-transcript-resource-link">
+              <TranscriptFileIcon filePath={file.name} />
+              {resourceHref ? (
+                <a href={resourceHref} target="_blank" rel="noreferrer" title={file.uri}>{file.name}</a>
+              ) : <span title={file.uri}>{file.name}</span>}
+              <span className="code-codex-transcript-user-file-meta">{userFileMeta(file)}</span>
+            </div>
+          )
+        }
         return (
           <details key={file.id} className={`code-codex-transcript-user-file ${file.error ? 'error' : ''}`}>
             <summary>
@@ -606,6 +598,224 @@ function CodexTranscriptProcessImages({ images }: { images: CodexTranscriptUserI
   )
 }
 
+function CodexTranscriptAudios({ audios }: { audios: CodexTranscriptAudio[] }) {
+  if (audios.length <= 0) return null
+  return (
+    <div className="code-codex-transcript-audios" data-testid="code-codex-transcript-audios">
+      {audios.map(audio => (
+        <figure key={audio.id}>
+          {audio.name ? <figcaption>{audio.name}</figcaption> : null}
+          <audio controls preload="metadata" src={audio.url}>
+            {audio.mimeType ? <source src={audio.url} type={audio.mimeType} /> : null}
+          </audio>
+        </figure>
+      ))}
+    </div>
+  )
+}
+
+function terminalStatusLabel(terminal: CodexTranscriptTerminal) {
+  const exit = terminal.terminal?.exitStatus
+  if (!exit) return terminal.terminal?.released ? 'Released' : 'Running'
+  if (exit.signal) return `Exited (${exit.signal})`
+  return `Exited ${exit.exitCode ?? ''}`.trim()
+}
+
+function terminalCommandLabel(terminal: CodexTranscriptTerminal) {
+  const command = String(terminal.terminal?.command || '').trim()
+  const args = Array.isArray(terminal.terminal?.args) ? terminal.terminal.args : []
+  return [command, ...args].filter(Boolean).join(' ') || terminal.terminalId
+}
+
+function terminalDurationLabel(durationMs?: number) {
+  if (!Number.isFinite(durationMs) || Number(durationMs) < 0) return ''
+  if (Number(durationMs) < 1_000) return `${Math.round(Number(durationMs))}ms`
+  return `${(Number(durationMs) / 1_000).toFixed(Number(durationMs) < 10_000 ? 1 : 0)}s`
+}
+
+function CodexTranscriptTerminals({
+  terminals,
+  onStop,
+  onInput,
+}: {
+  terminals: CodexTranscriptTerminal[]
+  onStop?: (terminalId: string) => Promise<void>
+  onInput?: (terminalId: string, input: string) => Promise<void>
+}) {
+  const [copiedTerminalId, setCopiedTerminalId] = useState('')
+  const [stoppingTerminalId, setStoppingTerminalId] = useState('')
+  const [stopError, setStopError] = useState('')
+  const [terminalInputs, setTerminalInputs] = useState<Record<string, string>>({})
+  const [inputError, setInputError] = useState('')
+  if (terminals.length <= 0) return null
+  return (
+    <div className="code-codex-transcript-terminals" data-testid="code-codex-transcript-terminals">
+      {terminals.map(terminal => {
+        const command = terminalCommandLabel(terminal)
+        const duration = terminalDurationLabel(terminal.terminal?.durationMs)
+        const output = terminal.terminal?.output || ''
+        return (
+          <section key={terminal.terminalId} className="code-codex-transcript-terminal">
+            <header>
+              <code title={command}>{command}</code>
+              <span>{terminalStatusLabel(terminal)}</span>
+              {!terminal.terminal?.exitStatus && !terminal.terminal?.released && onStop ? (
+                <button
+                  type="button"
+                  className="code-codex-transcript-terminal-stop"
+                  data-testid="code-acp-terminal-stop"
+                  aria-label="Stop command"
+                  title="Stop command"
+                  disabled={Boolean(stoppingTerminalId)}
+                  onClick={() => {
+                    setStoppingTerminalId(terminal.terminalId)
+                    setStopError('')
+                    void onStop(terminal.terminalId)
+                      .catch(error => setStopError(error instanceof Error ? error.message : 'Failed to stop command'))
+                      .finally(() => setStoppingTerminalId(''))
+                  }}
+                >
+                  {stoppingTerminalId === terminal.terminalId ? <span className="code-permission-switching-spinner" /> : <CloseGlyph />}
+                </button>
+              ) : null}
+              {output ? (
+                <button
+                  type="button"
+                  className="code-codex-transcript-terminal-copy"
+                  aria-label={copiedTerminalId === terminal.terminalId ? 'Copied terminal output' : 'Copy terminal output'}
+                  title={copiedTerminalId === terminal.terminalId ? 'Copied' : 'Copy output'}
+                  onClick={() => {
+                    void writeClipboardText(output).then(copied => {
+                      if (!copied) return
+                      setCopiedTerminalId(terminal.terminalId)
+                      window.setTimeout(() => setCopiedTerminalId(current => current === terminal.terminalId ? '' : current), 1200)
+                    })
+                  }}
+                >
+                  {copiedTerminalId === terminal.terminalId ? <CheckGlyph /> : <CopyGlyph />}
+                </button>
+              ) : null}
+            </header>
+            {(terminal.terminal?.cwd || duration || terminal.terminal?.truncated) ? (
+              <div className="code-codex-transcript-terminal-meta">
+                {terminal.terminal?.cwd ? <span title={terminal.terminal.cwd}>{terminal.terminal.cwd}</span> : null}
+                {duration ? <span>{duration}</span> : null}
+                {terminal.terminal?.truncated ? <span>Earlier output hidden</span> : null}
+              </div>
+            ) : null}
+            {output ? <pre>{output}</pre> : <div className="empty">No output yet</div>}
+            {terminal.terminal?.interactive && !terminal.terminal.exitStatus && !terminal.terminal.released && onInput ? (
+              <form
+                className="code-codex-transcript-terminal-input"
+                onSubmit={event => {
+                  event.preventDefault()
+                  const value = terminalInputs[terminal.terminalId] || ''
+                  if (!value) return
+                  setInputError('')
+                  void onInput(terminal.terminalId, `${value}\r`)
+                    .then(() => setTerminalInputs(current => ({ ...current, [terminal.terminalId]: '' })))
+                    .catch(error => setInputError(error instanceof Error ? error.message : 'Failed to send terminal input'))
+                }}
+              >
+                <input
+                  aria-label="Terminal input"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Type input and press Enter"
+                  value={terminalInputs[terminal.terminalId] || ''}
+                  onChange={event => setTerminalInputs(current => ({ ...current, [terminal.terminalId]: event.target.value }))}
+                  onKeyDown={event => {
+                    const sequence = event.ctrlKey && event.key.toLowerCase() === 'c'
+                      ? '\x03'
+                      : event.key === 'Tab'
+                        ? '\t'
+                        : event.key === 'Escape'
+                          ? '\x1b'
+                          : event.key === 'ArrowUp'
+                            ? '\x1b[A'
+                            : event.key === 'ArrowDown'
+                              ? '\x1b[B'
+                              : ''
+                    if (!sequence) return
+                    event.preventDefault()
+                    setInputError('')
+                    void onInput(terminal.terminalId, sequence)
+                      .catch(error => setInputError(error instanceof Error ? error.message : 'Failed to send terminal input'))
+                  }}
+                />
+                <button type="submit" disabled={!terminalInputs[terminal.terminalId]}>Send</button>
+              </form>
+            ) : null}
+            {stopError ? <div className="code-codex-transcript-terminal-error" role="alert">{stopError}</div> : null}
+            {inputError ? <div className="code-codex-transcript-terminal-error" role="alert">{inputError}</div> : null}
+          </section>
+        )
+      })}
+    </div>
+  )
+}
+
+function CodexTranscriptSubagentAction({ item }: { item: CodexTranscriptProcessItem }) {
+  const detail = String(item.detail || '').trim()
+  const changes = item.changes || []
+  const expandable = Boolean(detail || changes.length > 0)
+  const label = (
+    <>
+      <span>{item.title || 'Action'}</span>
+      {shouldShowStatus(item.status) ? <small>{item.status}</small> : null}
+    </>
+  )
+  if (!expandable) return <div className="code-codex-transcript-subagent-action static">{label}</div>
+  return (
+    <details className="code-codex-transcript-subagent-action" data-testid="code-codex-transcript-subagent-action">
+      <summary>{label}<ChevronRightGlyph /></summary>
+      {detail ? <div className="detail">{plainTextBlock(detail)}</div> : null}
+      {changes.length > 0 ? (
+        <div className="changes">
+          {changes.map((change, index) => (
+            <div key={`${change.path}-${index}`}>
+              <span title={change.path}>{change.path}</span>
+              <small>{change.added > 0 ? `+${change.added}` : ''}{change.removed > 0 ? ` -${change.removed}` : ''}</small>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </details>
+  )
+}
+
+function CodexTranscriptSubagentPreview({ transcript }: { transcript: CodexTranscript }) {
+  const active = ['working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(transcript.state || '')
+  const status = transcript.error ? 'Failed' : active ? 'Working' : 'Completed'
+  const actionCount = transcript.turns.reduce((count, turn) => count + turn.processItems.length, 0)
+  return (
+    <section className="code-codex-transcript-subagent" data-testid="code-codex-transcript-subagent">
+      <header>
+        <span>{transcript.title || 'Subagent'}</span>
+        <span className="code-codex-transcript-subagent-meta" title={transcript.sessionId}>
+          {transcript.turns.length} {transcript.turns.length === 1 ? 'turn' : 'turns'}
+          {actionCount > 0 ? ` · ${actionCount} ${actionCount === 1 ? 'action' : 'actions'}` : ''}
+        </span>
+        <span className={`code-codex-transcript-subagent-status ${transcript.error ? 'error' : active ? 'active' : ''}`}>{status}</span>
+      </header>
+      {transcript.error ? <div className="code-codex-transcript-subagent-error" role="status">{transcript.error}</div> : null}
+      <div className="code-codex-transcript-subagent-entries">
+        {transcript.turns.map(turn => (
+          <div className="code-codex-transcript-subagent-turn" key={turn.id}>
+            {turn.userMessage ? <div className="user">{plainTextBlock(turn.userMessage)}</div> : null}
+            {turn.processItems.length > 0 ? (
+              <div className="actions">{turn.processItems.map(item => <CodexTranscriptSubagentAction item={item} key={item.id} />)}</div>
+            ) : null}
+            {turn.finalMessage ? <div className="assistant">{plainTextBlock(turn.finalMessage)}</div> : null}
+          </div>
+        ))}
+        {transcript.turns.length === 0 ? <div className="empty">No subagent output received yet</div> : null}
+      </div>
+    </section>
+  )
+}
+
+
 function processItemClassName(item: CodexTranscriptProcessItem) {
   const type = item.type.replace(/[^a-z0-9_-]/gi, '').toLowerCase() || 'event'
   const status = (item.status || '').replace(/[^a-z0-9_-]/gi, '').toLowerCase()
@@ -668,6 +878,7 @@ function shouldRenderDetailAsProse(item: CodexTranscriptProcessItem) {
     'agent-message',
     'progress',
     'reasoning',
+    'thought',
     'hook',
     'warning',
     'error',
@@ -694,7 +905,7 @@ function processEntriesForTurn(items: CodexTranscriptProcessItem[]) {
   const entries: ProcessEntry[] = []
   let group: CodexTranscriptProcessItem[] = []
   const flushGroup = () => {
-    if (group.length > 0) entries.push({ kind: 'group', id: group.map(item => item.id).join(':'), items: group })
+    if (group.length > 0) entries.push({ kind: 'group', id: `group:${group.map(item => item.id).join(':')}`, items: group })
     group = []
   }
   for (const item of items) {
@@ -739,7 +950,18 @@ function processGroupLabel(items: CodexTranscriptProcessItem[]) {
 }
 
 function hasExpandableProcessItemContent(item: CodexTranscriptProcessItem, detail: string, planItems: ReturnType<typeof planDetailItems>) {
-  return Boolean(detail || planItems || (item.images || []).length > 0 || (item.files || []).length > 0)
+  return Boolean(
+    detail
+    || planItems
+    || (item.images || []).length > 0
+    || (item.audios || []).length > 0
+    || (item.files || []).length > 0
+    || (item.terminals || []).length > 0
+    || (item.terminalIds || []).length > 0
+    || item.detailTruncated === true
+    || Boolean(item.subagentSessionId)
+    || item.subagentTranscript,
+  )
 }
 
 function isPatchResultItem(item: CodexTranscriptProcessItem) {
@@ -800,8 +1022,13 @@ function workspaceRelativeTranscriptPath(filePath: string, workspaceRoot?: strin
   const normalizedPath = normalizeTranscriptPath(filePath)
   const normalizedRoot = normalizeTranscriptPath(workspaceRoot || '').replace(/\/+$/, '')
   if (!normalizedPath || !normalizedRoot) return normalizedPath
-  if (normalizedPath === normalizedRoot) return ''
-  if (normalizedPath.startsWith(`${normalizedRoot}/`)) return normalizedPath.slice(normalizedRoot.length + 1)
+  const rootAliases = [normalizedRoot]
+  if (normalizedRoot.startsWith('/private/')) rootAliases.push(normalizedRoot.slice('/private'.length))
+  if (normalizedRoot.startsWith('/var/') || normalizedRoot.startsWith('/tmp/')) rootAliases.push(`/private${normalizedRoot}`)
+  for (const root of rootAliases) {
+    if (normalizedPath === root) return ''
+    if (normalizedPath.startsWith(`${root}/`)) return normalizedPath.slice(root.length + 1)
+  }
   return normalizedPath
 }
 
@@ -811,15 +1038,6 @@ function patchRowDisplayPath(row: PatchResultRow, workspaceRoot?: string) {
 
 function hasPatchStats(row: PatchResultRow) {
   return !!(row.added || row.removed)
-}
-
-function patchStatNumber(value: string) {
-  const parsed = Number(String(value || '').replace(/[+-]/g, ''))
-  return Number.isFinite(parsed) ? parsed : 0
-}
-
-function patchStatTotal(row: PatchResultRow) {
-  return patchStatNumber(row.added) + patchStatNumber(row.removed)
 }
 
 function mergePatchRows(rows: PatchResultRow[], workspaceRoot?: string) {
@@ -836,19 +1054,27 @@ function mergePatchRows(rows: PatchResultRow[], workspaceRoot?: string) {
     }
     const existing = deduped[existingIndex]
     if (!existing) continue
-    if (
-      (!hasPatchStats(existing) && hasPatchStats(row))
-      || patchStatTotal(row) > patchStatTotal(existing)
-    ) {
+    if (hasPatchStats(row) || !hasPatchStats(existing)) {
       deduped[existingIndex] = { ...row, path: displayPath || row.path }
     }
   }
   return deduped
 }
 
+function patchRowsForChanges(changes: CodexTranscriptPatchChange[], workspaceRoot?: string) {
+  return mergePatchRows(changes.map(change => ({
+    kind: change.kind,
+    path: change.path,
+    added: change.added > 0 ? `+${change.added}` : '',
+    removed: change.removed > 0 ? `-${change.removed}` : '',
+  })), workspaceRoot)
+}
+
 function patchRowsForItems(items: CodexTranscriptProcessItem[], workspaceRoot?: string) {
   return mergePatchRows(
-    items.flatMap(item => patchResultLines(item).map(parsePatchResultLine)),
+    items.flatMap(item => item.changes?.length
+      ? patchRowsForChanges(item.changes)
+      : patchResultLines(item).map(parsePatchResultLine)),
     workspaceRoot,
   )
 }
@@ -861,6 +1087,14 @@ function patchResultTitle(fileCount: number, failed: boolean) {
 function patchResultSummary(fileCount: number, failed: boolean) {
   if (failed) return patchResultTitle(fileCount, failed)
   return fileCount === 1 ? '1 file changed' : `${fileCount} files changed`
+}
+
+function patchDiffLineClass(line: string) {
+  if (line.startsWith('+') && !line.startsWith('+++')) return 'added'
+  if (line.startsWith('-') && !line.startsWith('---')) return 'removed'
+  if (line.startsWith('@@')) return 'hunk'
+  if (line.startsWith('Index:') || line.startsWith('===')) return 'meta'
+  return ''
 }
 
 function fallbackCopyText(text: string) {
@@ -915,14 +1149,18 @@ async function writeClipboardText(text: string) {
 function CodexTranscriptSteerItem({ item }: { item: CodexTranscriptProcessItem }) {
   const text = (item.detail || item.title || '').trim()
   const images = item.images || []
+  const audios = item.audios || []
   const files = item.files || []
-  if (!text && images.length <= 0 && files.length <= 0) return null
+  const terminals = item.terminals || []
+  if (!text && images.length <= 0 && audios.length <= 0 && files.length <= 0 && terminals.length <= 0) return null
   return (
     <div className="code-codex-transcript-steer" data-testid="code-codex-transcript-steer">
       <div className="code-codex-transcript-user code-codex-transcript-steer-bubble">
         {text ? <div>{plainTextBlock(text)}</div> : null}
         <CodexTranscriptUserImages images={images} />
+        <CodexTranscriptAudios audios={audios} />
         <CodexTranscriptUserFiles files={files} />
+        <CodexTranscriptTerminals terminals={terminals} />
       </div>
     </div>
   )
@@ -935,6 +1173,8 @@ function CodexTranscriptProcessItemView({
   detailOpen,
   onToggle,
   onCopy,
+  onStopTerminal,
+  onInputTerminal,
 }: {
   item: CodexTranscriptProcessItem
   copy: CodeCopy
@@ -942,6 +1182,8 @@ function CodexTranscriptProcessItemView({
   detailOpen: boolean
   onToggle: (itemId: string) => void
   onCopy: (item: CodexTranscriptProcessItem) => void
+  onStopTerminal?: (itemId: string, terminalId: string) => Promise<void>
+  onInputTerminal?: (itemId: string, terminalId: string, input: string) => Promise<void>
 }) {
   if (isUserSteerProcessItem(item)) {
     return <CodexTranscriptSteerItem item={item} />
@@ -950,6 +1192,9 @@ function CodexTranscriptProcessItemView({
   const detail = item.detail && item.detail.trim() !== item.title.trim() ? item.detail : ''
   const hasDetail = !!detail
   const images = item.images || []
+  const audios = item.audios || []
+  const files = item.files || []
+  const terminals = item.terminals || []
   const planItems = item.type === 'plan' && detail ? planDetailItems(detail) : null
   const expandable = hasExpandableProcessItemContent(item, detail, planItems)
   const details = (
@@ -965,6 +1210,14 @@ function CodexTranscriptProcessItemView({
         </ul>
       ) : null}
       <CodexTranscriptProcessImages images={images} />
+      <CodexTranscriptAudios audios={audios} />
+      <CodexTranscriptUserFiles files={files} />
+      <CodexTranscriptTerminals
+        terminals={terminals}
+        onStop={onStopTerminal ? terminalId => onStopTerminal(item.id, terminalId) : undefined}
+        onInput={onInputTerminal ? (terminalId, input) => onInputTerminal(item.id, terminalId, input) : undefined}
+      />
+      {item.subagentTranscript ? <CodexTranscriptSubagentPreview transcript={item.subagentTranscript} /> : null}
       {!planItems && hasDetail && shouldRenderDetailAsProse(item) ? (
         <div className="code-codex-transcript-process-detail">{plainTextBlock(detail)}</div>
       ) : !planItems && hasDetail ? <pre>{detail}</pre> : null}
@@ -974,6 +1227,7 @@ function CodexTranscriptProcessItemView({
     <section
       className={processItemClassName(item)}
       data-testid="code-codex-transcript-process-item"
+      data-process-item-id={item.id}
       data-type={item.type}
       data-status={item.status || ''}
     >
@@ -1043,6 +1297,8 @@ function CodexTranscriptProcessGroupView({
   onToggleGroup,
   onToggleItem,
   onCopy,
+  onStopTerminal,
+  onInputTerminal,
 }: {
   groupId: string
   items: CodexTranscriptProcessItem[]
@@ -1054,6 +1310,8 @@ function CodexTranscriptProcessGroupView({
   onToggleGroup: (groupId: string) => void
   onToggleItem: (itemId: string) => void
   onCopy: (item: CodexTranscriptProcessItem) => void
+  onStopTerminal?: (itemId: string, terminalId: string) => Promise<void>
+  onInputTerminal?: (itemId: string, terminalId: string, input: string) => Promise<void>
 }) {
   const running = items.some(isProcessItemRunning)
   return (
@@ -1095,6 +1353,8 @@ function CodexTranscriptProcessGroupView({
               detailOpen={openProcessItemIds.has(item.id)}
               onToggle={onToggleItem}
               onCopy={onCopy}
+              onStopTerminal={onStopTerminal}
+              onInputTerminal={onInputTerminal}
             />
           ))}
         </div>
@@ -1106,22 +1366,109 @@ function CodexTranscriptProcessGroupView({
 function CodexTranscriptPatchResultCard({
   items,
   copy,
+  onLoadPatchChanges,
+  onCreateReview,
+  onDecidePatch,
+  source,
   workspaceRoot,
 }: {
   items: CodexTranscriptProcessItem[]
   copy: CodeCopy
+  onLoadPatchChanges?: (itemIds: string[]) => Promise<CodexTranscriptPatchChange[]>
+  onCreateReview?: (itemIds: string[]) => string
+  onDecidePatch?: (itemId: string, path: string, decision: 'keep' | 'revert') => Promise<{ action: string }>
+  source: CodexTranscriptPaneProps['source']
   workspaceRoot?: string
 }) {
-  const rows = patchRowsForItems(items, workspaceRoot)
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [detailedChanges, setDetailedChanges] = useState<CodexTranscriptPatchChange[] | null>(null)
+  const [detailError, setDetailError] = useState('')
+  const embeddedDecisions = useMemo(() => Object.fromEntries(items.flatMap(item => (
+    (item.changes || []).flatMap(change => {
+      if (!change.decision) return []
+      const displayPath = workspaceRelativeTranscriptPath(change.path, workspaceRoot) || change.path
+      return [[displayPath, change.decision] as const]
+    })
+  ))), [items, workspaceRoot])
+  const [patchDecisions, setPatchDecisions] = useState<Record<string, string>>(embeddedDecisions)
+  const [decidingPath, setDecidingPath] = useState('')
+  const [decisionErrors, setDecisionErrors] = useState<Record<string, string>>({})
+  useEffect(() => {
+    setPatchDecisions(current => ({ ...embeddedDecisions, ...current }))
+  }, [embeddedDecisions])
+  const embeddedRows = patchRowsForItems(items, workspaceRoot)
+  const detailedRows = detailedChanges ? patchRowsForChanges(detailedChanges, workspaceRoot) : []
+  const detailedRowsByPath = new Map(detailedRows.map(row => [row.path, row]))
+  const rows = detailedChanges
+    ? [
+        ...embeddedRows.map(row => detailedRowsByPath.get(row.path) || row),
+        ...detailedRows.filter(row => !embeddedRows.some(embedded => embedded.path === row.path)),
+      ]
+    : embeddedRows
   const failed = items.some(item => item.status === 'failed')
   const totalAdded = rows.reduce((sum, row) => sum + Number(row.added.replace('+', '') || 0), 0)
   const totalRemoved = rows.reduce((sum, row) => sum + Number(row.removed.replace('-', '') || 0), 0)
   const summary = patchResultSummary(rows.length, failed)
+  const embeddedChanges = items.flatMap(item => item.changes || [])
+  const detailedChangePaths = new Set((detailedChanges || []).map(change => change.path))
+  const availableChanges = detailedChanges
+    ? [
+        ...detailedChanges,
+        ...embeddedChanges.filter(change => !detailedChangePaths.has(
+          workspaceRelativeTranscriptPath(change.path, workspaceRoot) || change.path,
+        )),
+      ]
+    : embeddedChanges
+  const reviewPaths = source === 'acp'
+    ? rows.map(row => workspaceRelativeTranscriptPath(row.path, workspaceRoot))
+      .filter(path => path && !path.startsWith('/') && !path.split('/').includes('..'))
+    : []
+  const patchTargetForPath = useCallback((displayPath: string) => {
+    const matches = items.flatMap(item => (item.changes || [])
+      .filter(change => (workspaceRelativeTranscriptPath(change.path, workspaceRoot) || change.path) === displayPath)
+      .map(change => ({ itemId: item.id, path: change.path })))
+    return matches.length === 1 ? matches[0] : null
+  }, [items, workspaceRoot])
+  const decidePatch = useCallback((displayPath: string, decision: 'keep' | 'revert') => {
+    const target = patchTargetForPath(displayPath)
+    if (!target || !onDecidePatch || decidingPath) return
+    setDecidingPath(displayPath)
+    setDecisionErrors(current => ({ ...current, [displayPath]: '' }))
+    void onDecidePatch(target.itemId, target.path, decision)
+      .then(result => setPatchDecisions(current => ({ ...current, [displayPath]: result.action })))
+      .catch(error => setDecisionErrors(current => ({
+        ...current,
+        [displayPath]: error instanceof Error ? error.message : copy.codexTranscriptUnavailable,
+      })))
+      .finally(() => setDecidingPath(''))
+  }, [copy.codexTranscriptUnavailable, decidingPath, onDecidePatch, patchTargetForPath])
   const handleReview = useCallback(() => {
     if (!workspaceRoot) return
+    if (source === 'acp' && reviewPaths.length === 0) return
+    if (source === 'acp' && onCreateReview) {
+      window.open(onCreateReview(items.map(item => item.id)), '_blank', 'noopener,noreferrer')
+      return
+    }
     const params = new URLSearchParams({ root: workspaceRoot })
+    if (source === 'acp') {
+      reviewPaths.forEach(path => params.append('path', path))
+    }
     window.open(appPath(`/review?${params.toString()}`), '_blank', 'noopener,noreferrer')
-  }, [workspaceRoot])
+  }, [items, onCreateReview, reviewPaths, source, workspaceRoot])
+  const handleSummary = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (source !== 'acp') {
+      handleReview()
+      return
+    }
+    toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, () => {
+      setDetailOpen(current => !current)
+    })
+    if (detailOpen || detailedChanges || !onLoadPatchChanges) return
+    setDetailError('')
+    void onLoadPatchChanges(items.map(item => item.id))
+      .then(setDetailedChanges)
+      .catch(error => setDetailError(error instanceof Error ? error.message : copy.codexTranscriptUnavailable))
+  }, [copy.codexTranscriptUnavailable, detailOpen, detailedChanges, handleReview, items, onLoadPatchChanges, source])
   const summaryContent = (
     <>
       <span>{summary}</span>
@@ -1139,16 +1486,81 @@ function CodexTranscriptPatchResultCard({
           type="button"
           className="code-codex-transcript-result-summary"
           data-testid="code-codex-transcript-result-summary"
-          aria-label={`${summary}. ${copy.codexTranscriptReviewChanges}`}
-          onClick={handleReview}
+          aria-label={`${summary}. ${source === 'acp' ? copy.codexTranscriptShowChanges : copy.codexTranscriptReviewChanges}`}
+          aria-expanded={source === 'acp' ? detailOpen : undefined}
+          onClick={handleSummary}
         >
           {summaryContent}
+          {source === 'acp' ? <ChevronRightGlyph className="code-codex-transcript-result-chevron" /> : null}
         </button>
       ) : (
         <div className="code-codex-transcript-result-summary" aria-label={summary}>
           {summaryContent}
         </div>
       )}
+      {source === 'acp' && detailOpen ? (
+        <div className="code-codex-transcript-result-details" data-testid="code-codex-transcript-result-details">
+          <div className="code-codex-transcript-result-files">
+            {rows.map(row => {
+              const path = patchRowDisplayPath(row, workspaceRoot)
+              const changes = availableChanges.filter(change => (
+                (workspaceRelativeTranscriptPath(change.path, workspaceRoot) || change.path) === path
+              ))
+              const patchTarget = patchTargetForPath(path)
+              const decision = patchDecisions[path]
+              return (
+                <details className="code-codex-transcript-result-file" key={`${items[0]?.id || 'patch'}:${path}`}>
+                  <summary>
+                    <span className="code-codex-transcript-result-file-path">{path}</span>
+                    <span className="code-codex-transcript-result-file-stats">
+                      {row.added ? <span className="added">{row.added}</span> : null}
+                      {row.removed ? <span className="removed">{row.removed}</span> : null}
+                    </span>
+                  </summary>
+                  {changes.map((change, changeIndex) => change.diff ? (
+                    <pre className="code-codex-transcript-result-diff" key={`${path}:${changeIndex}`}>
+                      {change.diff.split('\n').map((line, lineIndex) => (
+                        <span className={patchDiffLineClass(line)} key={`${lineIndex}:${line}`}>{line}{'\n'}</span>
+                      ))}
+                    </pre>
+                  ) : null)}
+                  {patchTarget && onDecidePatch ? (
+                    <div className="code-codex-transcript-result-decision" data-testid="code-acp-patch-decision">
+                      {decision ? (
+                        <span>{decision === 'reverted' ? copy.codexTranscriptChangeReverted : copy.codexTranscriptChangeKept}</span>
+                      ) : (
+                        <>
+                          <button type="button" disabled={Boolean(decidingPath)} onClick={() => decidePatch(path, 'keep')}>
+                            {copy.codexTranscriptKeepChange}
+                          </button>
+                          <button type="button" className="revert" disabled={Boolean(decidingPath)} onClick={() => decidePatch(path, 'revert')}>
+                            {copy.codexTranscriptRevertChange}
+                          </button>
+                        </>
+                      )}
+                      {decisionErrors[path] ? <small role="alert">{decisionErrors[path]}</small> : null}
+                    </div>
+                  ) : null}
+                </details>
+              )
+            })}
+          </div>
+          {!detailedChanges && !detailError ? (
+            <div className="code-codex-transcript-result-loading">{copy.codexTranscriptLoadingChanges}</div>
+          ) : null}
+          {detailError ? <div className="code-codex-transcript-result-error">{detailError}</div> : null}
+          {source !== 'acp' || reviewPaths.length > 0 ? (
+            <button
+              type="button"
+              className="code-codex-transcript-result-review"
+              aria-label={`${copy.codexTranscriptReviewChanges}: ${reviewPaths.length} workspace ${reviewPaths.length === 1 ? 'file' : 'files'}`}
+              onClick={handleReview}
+            >
+              {copy.codexTranscriptReviewChanges}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -1163,6 +1575,12 @@ function CodexTranscriptTurnView({
   source,
   onToggleProcess,
   onLoadProcessItemDetail,
+  onLoadPatchChanges,
+  onCreatePatchReview,
+  onDecidePatch,
+  onStopTerminal,
+  onInputTerminal,
+  searchItemId,
 }: {
   turn: CodexTranscriptTurn
   copy: CodeCopy
@@ -1172,18 +1590,31 @@ function CodexTranscriptTurnView({
   groupProcessActions: boolean
   source: CodexTranscriptPaneProps['source']
   onToggleProcess: (turnId: string) => void
-  onLoadProcessItemDetail?: (itemId: string) => Promise<string>
+  onLoadProcessItemDetail?: (itemId: string) => Promise<CodexTranscriptProcessPresentation>
+  onLoadPatchChanges?: (itemIds: string[]) => Promise<CodexTranscriptPatchChange[]>
+  onCreatePatchReview?: (itemIds: string[]) => string
+  onDecidePatch?: (itemId: string, path: string, decision: 'keep' | 'revert') => Promise<{ action: string }>
+  onStopTerminal?: (terminalId: string) => Promise<void>
+  onInputTerminal?: (terminalId: string, input: string) => Promise<void>
+  searchItemId?: string
 }) {
-  const [loadedProcessDetails, setLoadedProcessDetails] = useState<Record<string, string>>({})
+  const [loadedProcessDetails, setLoadedProcessDetails] = useState<Record<string, CodexTranscriptProcessPresentation>>({})
   const loadingProcessDetailsRef = useRef<Set<string>>(new Set())
   const resolvedProcessItems = useMemo(() => turn.processItems.map(item => (
     Object.prototype.hasOwnProperty.call(loadedProcessDetails, item.id)
-      ? { ...item, detail: loadedProcessDetails[item.id], detailTruncated: false }
+      ? {
+          ...item,
+          detail: loadedProcessDetails[item.id]?.detail || '',
+          terminals: loadedProcessDetails[item.id]?.terminals,
+          subagentTranscript: loadedProcessDetails[item.id]?.subagentTranscript,
+          detailTruncated: false,
+        }
       : item
   )), [loadedProcessDetails, turn.processItems])
   const hasProcess = resolvedProcessItems.length > 0
   const patchResults = resolvedProcessItems.filter(isPatchResultItem)
   const userImages = turn.userImages || []
+  const userAudios = turn.userAudios || []
   const userFiles = turn.userFiles || []
   const [copiedItemId, setCopiedItemId] = useState('')
   const [answerCopied, setAnswerCopied] = useState(false)
@@ -1197,7 +1628,7 @@ function CodexTranscriptTurnView({
   const mobileTouch = isMobileTouchViewport()
   const answerMessage = useMemo(() => stripRawMemoryCitation(turn.finalMessage), [turn.finalMessage])
   const shouldShowWaiting = turn.status === 'inProgress' && !answerMessage && (
-    Boolean(turn.userMessage) || userImages.length > 0 || userFiles.length > 0 || hasProcess
+    Boolean(turn.userMessage) || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 || hasProcess
   )
   useEffect(() => {
     if (turn.status !== 'inProgress' || !turn.startedAt) return undefined
@@ -1212,24 +1643,55 @@ function CodexTranscriptTurnView({
     : { ...turn, processItems: resolvedProcessItems }
   const workingLabel = source === 'acp' ? acpActivityLabel(activityTurn, copy) : copy.codexTranscriptWorking
   const planLabel = source === 'acp' ? acpPlanLabel(activityTurn, copy) : ''
-  const loadFullProcessDetail = useCallback(async (item: CodexTranscriptProcessItem) => {
-    if (!item.detailTruncated || !onLoadProcessItemDetail) return item.detail || ''
-    if (Object.prototype.hasOwnProperty.call(loadedProcessDetails, item.id)) {
-      return loadedProcessDetails[item.id]
+  const loadFullProcessDetail = useCallback(async (item: CodexTranscriptProcessItem, force = false) => {
+    if ((!item.detailTruncated && !item.terminalIds?.length && !item.subagentSessionId) || !onLoadProcessItemDetail) {
+      return { detail: item.detail || '', terminals: item.terminals, subagentTranscript: item.subagentTranscript }
     }
-    if (loadingProcessDetailsRef.current.has(item.id)) return item.detail || ''
+    if (!force && Object.prototype.hasOwnProperty.call(loadedProcessDetails, item.id)) {
+      return loadedProcessDetails[item.id] || { detail: item.detail || '' }
+    }
+    if (loadingProcessDetailsRef.current.has(item.id)) return { detail: item.detail || '' }
     loadingProcessDetailsRef.current.add(item.id)
     try {
-      const detail = await onLoadProcessItemDetail(item.id)
-      setLoadedProcessDetails(current => ({ ...current, [item.id]: detail }))
-      return detail
+      const presentation = await onLoadProcessItemDetail(item.id)
+      setLoadedProcessDetails(current => ({ ...current, [item.id]: presentation }))
+      return presentation
     } finally {
       loadingProcessDetailsRef.current.delete(item.id)
     }
   }, [loadedProcessDetails, onLoadProcessItemDetail])
+  useEffect(() => {
+    if (!searchItemId) return
+    setOpenProcessItemIds(current => {
+      const next = new Set(current)
+      next.add(searchItemId)
+      for (const entry of processEntries) {
+        if (entry.kind === 'group' && entry.items.some(item => item.id === searchItemId)) next.add(entry.id)
+      }
+      return next
+    })
+    const item = resolvedProcessItems.find(candidate => candidate.id === searchItemId)
+    if (item?.detailTruncated || item?.terminalIds?.length || item?.subagentSessionId) {
+      void loadFullProcessDetail(item).catch(() => {})
+    }
+  }, [loadFullProcessDetail, processEntries, resolvedProcessItems, searchItemId])
+  useEffect(() => {
+    const liveTerminalItems = resolvedProcessItems.filter(item => (
+      item.terminalIds?.length
+      && isProcessItemRunning(item)
+      && openProcessItemIds.has(item.id)
+    ))
+    if (liveTerminalItems.length === 0) return undefined
+    const refresh = () => liveTerminalItems.forEach(item => {
+      void loadFullProcessDetail(item, true).catch(() => {})
+    })
+    refresh()
+    const timer = window.setInterval(refresh, 1_000)
+    return () => window.clearInterval(timer)
+  }, [loadFullProcessDetail, openProcessItemIds, resolvedProcessItems])
   const handleCopyItem = useCallback((item: CodexTranscriptProcessItem) => {
-    void loadFullProcessDetail(item).then(detail => {
-      const text = [item.title, detail].filter(Boolean).join('\n\n')
+    void loadFullProcessDetail(item).then(presentation => {
+      const text = [item.title, presentation.detail].filter(Boolean).join('\n\n')
       if (!text) return
       return writeClipboardText(text)
     }).then(copied => {
@@ -1254,7 +1716,9 @@ function CodexTranscriptTurnView({
     const opening = !openProcessItemIds.has(itemId)
     if (opening) {
       const item = resolvedProcessItems.find(candidate => candidate.id === itemId)
-      if (item?.detailTruncated) void loadFullProcessDetail(item).catch(() => {})
+      if (item?.detailTruncated || item?.terminalIds?.length || item?.subagentSessionId) {
+        void loadFullProcessDetail(item).catch(() => {})
+      }
     }
     setOpenProcessItemIds(current => {
       const next = new Set(current)
@@ -1263,6 +1727,18 @@ function CodexTranscriptTurnView({
       return next
     })
   }, [loadFullProcessDetail, openProcessItemIds, resolvedProcessItems])
+  const handleStopTerminal = useCallback(async (itemId: string, terminalId: string) => {
+    if (!onStopTerminal) return
+    await onStopTerminal(terminalId)
+    const item = resolvedProcessItems.find(candidate => candidate.id === itemId)
+    if (item) await loadFullProcessDetail(item, true)
+  }, [loadFullProcessDetail, onStopTerminal, resolvedProcessItems])
+  const handleInputTerminal = useCallback(async (itemId: string, terminalId: string, input: string) => {
+    if (!onInputTerminal) return
+    await onInputTerminal(terminalId, input)
+    const item = resolvedProcessItems.find(candidate => candidate.id === itemId)
+    if (item) await loadFullProcessDetail(item, true)
+  }, [loadFullProcessDetail, onInputTerminal, resolvedProcessItems])
   // Keep the process compact while the agent works. The short activity label
   // carries the live state; full reasoning and tool details remain opt-in.
   const effectiveProcessOpen = processOpen
@@ -1330,11 +1806,12 @@ function CodexTranscriptTurnView({
   }), [copy, onOpenFile, workspaceRoot])
 
   return (
-    <article className={`code-codex-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''}`}>
-      {turn.userMessage || userImages.length > 0 || userFiles.length > 0 ? (
+    <article className={`code-codex-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''}`} data-turn-id={turn.id}>
+      {turn.userMessage || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 ? (
         <div className="code-codex-transcript-user">
           {turn.userMessage ? <div>{plainTextBlock(turn.userMessage)}</div> : null}
           <CodexTranscriptUserImages images={userImages} />
+          <CodexTranscriptAudios audios={userAudios} />
           <CodexTranscriptUserFiles files={userFiles} />
         </div>
       ) : null}
@@ -1385,6 +1862,8 @@ function CodexTranscriptTurnView({
                       onToggleGroup={handleToggleProcessItem}
                       onToggleItem={handleToggleProcessItem}
                       onCopy={handleCopyItem}
+                      onStopTerminal={handleStopTerminal}
+                      onInputTerminal={handleInputTerminal}
                     />
                   )
                 }
@@ -1418,6 +1897,8 @@ function CodexTranscriptTurnView({
                     detailOpen={openProcessItemIds.has(entry.item.id)}
                     onToggle={handleToggleProcessItem}
                     onCopy={handleCopyItem}
+                    onStopTerminal={handleStopTerminal}
+                    onInputTerminal={handleInputTerminal}
                   />
                 )
               })}
@@ -1463,6 +1944,10 @@ function CodexTranscriptTurnView({
             <CodexTranscriptPatchResultCard
               items={patchResults}
               copy={copy}
+              onLoadPatchChanges={onLoadPatchChanges}
+              onCreateReview={onCreatePatchReview}
+              onDecidePatch={onDecidePatch}
+              source={source}
               workspaceRoot={workspaceRoot}
             />
           ) : null}
@@ -1500,6 +1985,11 @@ export function CodexTranscriptPane({
   const [turnLimit, setTurnLimit] = useState(() => initialTranscriptTurnLimit(source))
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchIndex, setSearchIndex] = useState(0)
+  const transcriptRootRef = useRef<HTMLDivElement | null>(null)
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const pendingPrependAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
   const followBottomRef = useRef(true)
@@ -1525,6 +2015,9 @@ export function CodexTranscriptPane({
     setOpenProcessTurnIds(new Set())
     setClosedLiveProcessTurnIds(new Set())
     setShowJumpToBottom(false)
+    setSearchOpen(false)
+    setSearchQuery('')
+    setSearchIndex(0)
     followBottomRef.current = true
     textSelectionGestureRef.current = false
     textSelectionHadRangeRef.current = false
@@ -1612,7 +2105,9 @@ export function CodexTranscriptPane({
         })
         .then(payload => {
           if (stopped) return
-          const nextTranscript = payload.transcript || null
+          const nextTranscript = source === 'acp' && payload.transcript
+            ? projectAcpTranscript(payload.transcript, { maxTurns: turnLimit })
+            : payload.transcript || null
           setTranscript(current => {
             const merged = source === 'acp'
               ? mergeAcpTranscript(current, nextTranscript)
@@ -1646,6 +2141,56 @@ export function CodexTranscriptPane({
   }, [active, agentId, copy.codexTranscriptUnavailable, refreshSignal, source, turnLimit])
 
   const turns = useMemo(() => transcript?.turns || [], [transcript])
+  const searchMatches = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase()
+    if (!query) return []
+    return turns.flatMap(turn => {
+      const matches: Array<{ turnId: string; itemId?: string }> = []
+      if ([turn.userMessage, turn.finalMessage].join('\n').toLocaleLowerCase().includes(query)) {
+        matches.push({ turnId: turn.id })
+      }
+      for (const item of turn.processItems) {
+        if ([item.title, item.detail || ''].join('\n').toLocaleLowerCase().includes(query)) {
+          matches.push({ turnId: turn.id, itemId: item.id })
+        }
+      }
+      return matches
+    })
+  }, [searchQuery, turns])
+
+  useEffect(() => {
+    if (!searchOpen) return
+    setTurnLimit(MAX_TRANSCRIPT_TURN_LIMIT)
+    window.requestAnimationFrame(() => searchInputRef.current?.focus({ preventScroll: true }))
+  }, [searchOpen])
+
+  useEffect(() => {
+    setSearchIndex(current => Math.min(current, Math.max(0, searchMatches.length - 1)))
+  }, [searchMatches.length])
+
+  useEffect(() => {
+    const root = transcriptRootRef.current
+    if (!root) return
+    root.querySelectorAll('.code-codex-transcript-turn.search-match').forEach(element => element.classList.remove('search-match'))
+    root.querySelectorAll('.code-codex-transcript-process-item.search-match').forEach(element => element.classList.remove('search-match'))
+    const match = searchMatches[searchIndex]
+    if (!searchOpen || !match) return
+    setOpenProcessTurnIds(current => new Set(current).add(match.turnId))
+    setClosedLiveProcessTurnIds(current => {
+      const next = new Set(current)
+      next.delete(match.turnId)
+      return next
+    })
+    window.requestAnimationFrame(() => {
+      const turn = root.querySelector(`[data-turn-id="${CSS.escape(match.turnId)}"]`)
+      const item = match.itemId
+        ? turn?.querySelector(`[data-process-item-id="${CSS.escape(match.itemId)}"]`)
+        : null
+      const element = item || turn
+      element?.classList.add('search-match')
+      element?.scrollIntoView({ block: 'center' })
+    })
+  }, [searchIndex, searchMatches, searchOpen])
 
   useEffect(() => {
     if (!active || !transcript?.available || turns.length === 0) return
@@ -1723,8 +2268,52 @@ export function CodexTranscriptPane({
     ))
     const payload = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(payload.error || copy.codexTranscriptUnavailable)
-    return String(payload.detail || '')
+    return {
+      detail: String(payload.detail || ''),
+      terminals: Array.isArray(payload.terminals) ? payload.terminals as CodexTranscriptTerminal[] : undefined,
+      subagentTranscript: payload.subagentSession && typeof payload.subagentSession === 'object'
+        ? projectAcpTranscript(payload.subagentSession, { maxTurns: 12 })
+        : undefined,
+    }
   }, [agentId, copy.codexTranscriptUnavailable])
+  const handleLoadPatchChanges = useCallback((itemIds: string[]) => (
+    loadAcpReviewPreview(agentId, itemIds)
+  ), [agentId])
+  const handleCreatePatchReview = useCallback((itemIds: string[]) => {
+    const params = new URLSearchParams({ agentId })
+    itemIds.forEach(itemId => params.append('acpItem', itemId))
+    return appPath(`/review?${params.toString()}`)
+  }, [agentId])
+  const handleDecidePatch = useCallback(async (itemId: string, path: string, decision: 'keep' | 'revert') => {
+    const response = await fetch(appPath(
+      `/api/agents/${encodeURIComponent(agentId)}/acp-patches/${encodeURIComponent(itemId)}/decision`,
+    ), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, decision }),
+    })
+    const payload = await response.json().catch(() => ({})) as { action?: string; error?: string }
+    if (!response.ok || !payload.action) throw new Error(payload.error || 'Failed to decide file change')
+    return { action: payload.action }
+  }, [agentId])
+  const handleStopTerminal = useCallback(async (terminalId: string) => {
+    const response = await fetch(appPath(
+      `/api/agents/${encodeURIComponent(agentId)}/acp-terminals/${encodeURIComponent(terminalId)}/kill`,
+    ), { method: 'POST' })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(payload.error || 'Failed to stop command')
+  }, [agentId])
+  const handleInputTerminal = useCallback(async (terminalId: string, input: string) => {
+    const response = await fetch(appPath(
+      `/api/agents/${encodeURIComponent(agentId)}/acp-terminals/${encodeURIComponent(terminalId)}/input`,
+    ), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input }),
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(payload.error || 'Failed to send terminal input')
+  }, [agentId])
   const requestOlderTurns = useCallback((element: HTMLDivElement) => {
     if (
       !transcript?.hasMoreBefore ||
@@ -1846,7 +2435,35 @@ export function CodexTranscriptPane({
   }, [agentId, onReadLatest])
 
   return (
-    <div className="code-codex-transcript" data-testid="code-codex-transcript">
+    <div className="code-codex-transcript" data-testid="code-codex-transcript" ref={transcriptRootRef}>
+      {source === 'acp' && transcript?.available ? (
+        <div className={`code-codex-transcript-search ${searchOpen ? 'open' : ''}`} data-testid="code-acp-transcript-search">
+          {searchOpen ? (
+            <>
+              <input
+                ref={searchInputRef}
+                type="search"
+                value={searchQuery}
+                aria-label="Search this chat"
+                placeholder="Search chat"
+                onChange={event => { setSearchQuery(event.target.value); setSearchIndex(0) }}
+                onKeyDown={event => {
+                  if (event.key === 'Escape') { setSearchOpen(false); setSearchQuery('') }
+                  if (event.key === 'Enter' && searchMatches.length > 0) {
+                    setSearchIndex(index => (index + (event.shiftKey ? -1 : 1) + searchMatches.length) % searchMatches.length)
+                  }
+                }}
+              />
+              <span>{searchMatches.length > 0 ? `${searchIndex + 1}/${searchMatches.length}` : '0/0'}</span>
+              <button type="button" aria-label="Previous match" disabled={searchMatches.length === 0} onClick={() => setSearchIndex(index => (index - 1 + searchMatches.length) % searchMatches.length)}>↑</button>
+              <button type="button" aria-label="Next match" disabled={searchMatches.length === 0} onClick={() => setSearchIndex(index => (index + 1) % searchMatches.length)}>↓</button>
+              <button type="button" aria-label="Close chat search" onClick={() => { setSearchOpen(false); setSearchQuery('') }}><CloseGlyph /></button>
+            </>
+          ) : (
+            <button type="button" aria-label="Search this chat" onClick={() => setSearchOpen(true)}><SearchGlyph /></button>
+          )}
+        </div>
+      ) : null}
       {loading ? (
         <div className="code-codex-transcript-state subtle">{copy.codexTranscriptSyncing}</div>
       ) : error ? (
@@ -1884,6 +2501,14 @@ export function CodexTranscriptPane({
                 source={source}
                 onToggleProcess={handleToggleProcess}
                 onLoadProcessItemDetail={source === 'acp' ? handleLoadProcessItemDetail : undefined}
+                onLoadPatchChanges={source === 'acp' ? handleLoadPatchChanges : undefined}
+                onCreatePatchReview={source === 'acp' ? handleCreatePatchReview : undefined}
+                onDecidePatch={source === 'acp' ? handleDecidePatch : undefined}
+                onStopTerminal={source === 'acp' ? handleStopTerminal : undefined}
+                onInputTerminal={source === 'acp' ? handleInputTerminal : undefined}
+                searchItemId={searchOpen && searchMatches[searchIndex]?.turnId === turn.id
+                  ? searchMatches[searchIndex]?.itemId
+                  : undefined}
               />
             )
           })}

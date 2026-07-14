@@ -1,22 +1,57 @@
 import { Readable, Writable } from 'node:stream';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   AgentSideConnection,
   PROTOCOL_VERSION,
   ndJsonStream,
 } from '@agentclientprotocol/sdk';
 
+if (process.argv.includes('--fake-terminal-login')) {
+  process.stdin.setEncoding('utf8');
+  process.stdout.write('fake-login> ');
+  await new Promise(resolve => process.stdin.once('data', value => {
+    process.stdout.write(`signed-in:${String(value).trim()}`);
+    resolve();
+  }));
+  process.exit(0);
+}
+
 let client;
 let sessionId = 'acp-new-session';
 
 class FakeAgent {
-  async initialize() {
+  async initialize(params) {
+    if (
+      params.clientCapabilities?.fs?.readTextFile !== true
+      || params.clientCapabilities?.fs?.writeTextFile !== true
+      || params.clientCapabilities?.terminal !== true
+      || params.clientCapabilities?.auth?.terminal !== true
+      || params.clientCapabilities?._meta?.terminal_output !== true
+      || !params.clientCapabilities?.elicitation?.form
+      || !params.clientCapabilities?.elicitation?.url
+    ) {
+      throw new Error('Farming did not advertise the expected ACP client capabilities');
+    }
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentCapabilities: {
         loadSession: true,
+        promptCapabilities: { image: true, audio: true, embeddedContext: true },
         sessionCapabilities: { list: {}, resume: {}, fork: {}, delete: {}, close: {} },
       },
-      authMethods: [],
+      authMethods: [{
+        id: 'fake-login',
+        name: 'Sign in to fake Agent',
+        description: 'Exercises the ACP agent-managed authentication flow.',
+        type: 'agent',
+      }, {
+        id: 'fake-terminal-login',
+        name: 'Sign in from terminal',
+        description: 'Exercises client terminal authentication.',
+        type: 'terminal',
+        args: ['--fake-terminal-login'],
+      }],
       agentInfo: { name: 'Farming fake ACP Agent', version: '1.0.0' },
     };
   }
@@ -27,6 +62,26 @@ class FakeAgent {
 
   async loadSession(params) {
     sessionId = params.sessionId;
+    if (sessionId === 'acp-new-session') {
+      const replay = [
+        ['user_message_chunk', 'history-rich-user', 'rich timeline'],
+        ['agent_message_chunk', 'history-rich-progress', 'I found the display boundary and am checking the typed ACP content.'],
+        ['agent_message_chunk', 'history-rich-answer', 'Rich ACP timeline complete.'],
+        ['user_message_chunk', 'history-subagent-user', 'subagent preview'],
+        ['agent_message_chunk', 'history-subagent-answer', 'Subagent inspection complete.'],
+      ];
+      for (const [sessionUpdate, messageId, text] of replay) {
+        await client.sessionUpdate({
+          sessionId,
+          update: {
+            sessionUpdate,
+            messageId,
+            content: { type: 'text', text },
+          },
+        });
+      }
+      return {};
+    }
     if (sessionId === 'delayed-history-session') {
       await client.sessionUpdate({
         sessionId,
@@ -101,6 +156,433 @@ class FakeAgent {
   }
 
   async prompt(params) {
+    const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
+    const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
+    if (promptText.includes('image attachment')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'image-attachment-answer',
+          content: { type: 'text', text: `Received ${imageCount} image.` },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('applied edit')) {
+      const files = promptText.includes('conflict')
+        ? ['decision-conflict.txt']
+        : ['decision-keep.txt', 'decision-revert.txt'];
+      const content = files.map(file => {
+        const target = path.join(process.cwd(), file);
+        const oldText = fs.readFileSync(target, 'utf8');
+        const newText = `after ${file}\n`;
+        fs.writeFileSync(target, newText);
+        return { type: 'diff', path: target, oldText, newText };
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: promptText.includes('conflict') ? 'decision-conflict-tool' : 'decision-tool',
+          title: 'Apply reviewed edits',
+          kind: 'edit',
+          status: 'completed',
+          content,
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: promptText.includes('conflict') ? 'decision-conflict-answer' : 'decision-answer',
+          content: { type: 'text', text: 'Applied edit complete.' },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('rich timeline')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'usage_update', used: 53_000, size: 200_000, cost: { amount: 0.045, currency: 'USD' } },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'available_commands_update',
+          availableCommands: [{ name: 'review', description: 'Review the current changes', input: { hint: 'optional focus' } }],
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'plan',
+          entries: [
+            { content: 'Inspect the source', priority: 'high', status: 'completed' },
+            { content: 'Apply the change', priority: 'medium', status: 'in_progress' },
+            { content: 'Verify the result', priority: 'medium', status: 'pending' },
+          ],
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'rich-progress-1',
+          content: { type: 'text', text: 'I found the display boundary and am checking the typed ACP content.' },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_thought_chunk',
+          messageId: 'rich-thought-1',
+          content: { type: 'text', text: 'The ordered stream must stay reversible.' },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'rich-read-tool',
+          title: 'Read ACP display fixtures',
+          kind: 'read',
+          status: 'completed',
+          locations: [{ path: path.join(process.cwd(), 'README.md'), line: 1 }],
+          rawInput: { path: 'README.md' },
+          content: [
+            { type: 'content', content: { type: 'text', text: 'Typed tool result' } },
+            { type: 'content', content: { type: 'resource_link', name: 'ACP reference', uri: 'https://agentclientprotocol.com/', mimeType: 'text/html' } },
+            { type: 'content', content: { type: 'resource', resource: { uri: 'file:///tmp/acp-note.txt', mimeType: 'text/plain', text: 'Embedded ACP note' } } },
+            { type: 'content', content: { type: 'image', mimeType: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=' } },
+            { type: 'content', content: { type: 'audio', mimeType: 'audio/wav', data: 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=' } },
+          ],
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'rich-edit-tool',
+          title: 'Edit display fixture',
+          kind: 'edit',
+          status: 'completed',
+          content: [{
+            type: 'diff',
+            path: path.join(process.cwd(), 'display-fixture.txt'),
+            oldText: 'before\n',
+            newText: 'after\n',
+          }],
+        },
+      });
+      const terminal = await client.createTerminal({
+        sessionId: params.sessionId,
+        command: process.execPath,
+        args: ['-e', "process.stdout.write('rich-terminal-output')"],
+        cwd: process.cwd(),
+      });
+      await terminal.waitForExit();
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'rich-terminal-tool',
+          title: 'Run verification command',
+          kind: 'execute',
+          status: 'completed',
+          content: [{ type: 'terminal', terminalId: terminal.id }],
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'plan',
+          entries: [
+            { content: 'Inspect the source', priority: 'high', status: 'completed' },
+            { content: 'Apply the change', priority: 'medium', status: 'completed' },
+            { content: 'Verify the result', priority: 'medium', status: 'completed' },
+          ],
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'rich-answer',
+          content: { type: 'text', text: 'Rich ACP timeline complete.' },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('live progress')) {
+      for (const [index, text] of ['Inspecting files', 'Editing display data', 'Running checks'].entries()) {
+        await client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: { sessionUpdate: 'agent_message_chunk', messageId: `live-progress-${index}`, content: { type: 'text', text } },
+        });
+        // Keep the turn active long enough for browser tests to exercise the
+        // real queued-follow-up controls instead of racing an instant fixture.
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'agent_message_chunk', messageId: 'live-answer', content: { type: 'text', text: 'Live progress complete.' } },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('usage warning')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'usage_update', used: 190_000, size: 200_000, cost: { amount: 0.125, currency: 'USD' } },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'agent_message_chunk', messageId: 'usage-warning-answer', content: { type: 'text', text: 'Usage warning published.' } },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('failed tool')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'tool_call', toolCallId: 'failed-tool', title: 'Run failing check', kind: 'execute', status: 'in_progress' },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'tool_call_update', toolCallId: 'failed-tool', status: 'failed', rawOutput: { exitCode: 1, stderr: 'fixture failed' } },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'agent_message_chunk', messageId: 'failed-answer', content: { type: 'text', text: 'The check failed; no files were changed.' } },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('unicode permission')) {
+      const permission = await client.requestPermission({
+        sessionId: params.sessionId,
+        toolCall: {
+          toolCallId: 'unicode-tool',
+          title: 'Connect to requested host',
+          kind: 'execute',
+          _meta: {
+            sandbox_authorization: {
+              command: 'curl https://xn--pple-43d.com',
+              network_hosts: ['xn--pple-43d.com'],
+              write_paths: [`${process.cwd()}/safe\u200Bpath`],
+              reason: 'Verify the external fixture',
+            },
+          },
+        },
+        options: [
+          { optionId: 'allow', name: 'Allow once', kind: 'allow_once' },
+          { optionId: 'allow_always', name: 'Always allow', kind: 'allow_always' },
+          { optionId: 'deny', name: 'Deny', kind: 'reject_once' },
+        ],
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'agent_message_chunk', messageId: 'unicode-answer', content: { type: 'text', text: `Unicode permission: ${permission.outcome.outcome}` } },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('subagent preview')) {
+      const childSessionId = 'acp-child-session';
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'subagent-tool',
+          title: 'Inspect with subagent',
+          kind: 'other',
+          status: 'in_progress',
+          _meta: { subagent_session_info: { session_id: childSessionId, message_start_index: 0 } },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: childSessionId,
+        update: { sessionUpdate: 'user_message_chunk', messageId: 'child-user', content: { type: 'text', text: 'Inspect the parser' } },
+      });
+      await client.sessionUpdate({
+        sessionId: childSessionId,
+        update: { sessionUpdate: 'agent_thought_chunk', messageId: 'child-thought', content: { type: 'text', text: 'Reading parser files' } },
+      });
+      await client.sessionUpdate({
+        sessionId: childSessionId,
+        update: {
+          sessionUpdate: 'plan',
+          entries: [
+            { content: 'Inspect parser state', status: 'completed', priority: 'high' },
+            { content: 'Verify parser output', status: 'in_progress', priority: 'medium' },
+          ],
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: childSessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'child-read-tool',
+          title: 'Read parser fixture',
+          kind: 'read',
+          status: 'completed',
+          content: [{ type: 'content', content: { type: 'text', text: 'Parser state is valid.' } }],
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: childSessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'child-edit-tool',
+          title: 'Edit parser fixture',
+          kind: 'edit',
+          status: 'completed',
+          content: [{ type: 'diff', path: 'parser-fixture.txt', oldText: 'old\n', newText: 'new\n' }],
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: childSessionId,
+        update: { sessionUpdate: 'agent_message_chunk', messageId: 'child-answer', content: { type: 'text', text: 'The parser is consistent.' } },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'subagent-tool',
+          status: 'completed',
+          _meta: { subagent_session_info: { session_id: childSessionId, message_start_index: 0, message_end_index: 2 } },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'agent_message_chunk', messageId: 'subagent-answer', content: { type: 'text', text: 'Subagent inspection complete.' } },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('client services')) {
+      const filePath = path.join(process.cwd(), 'acp-client-roundtrip.txt');
+      await client.writeTextFile({ sessionId: params.sessionId, path: filePath, content: 'filesystem-ok' });
+      const file = await client.readTextFile({ sessionId: params.sessionId, path: filePath });
+      const terminal = await client.createTerminal({
+        sessionId: params.sessionId,
+        command: process.execPath,
+        args: ['-e', "process.stdout.write('terminal-ok')"],
+        cwd: process.cwd(),
+      });
+      const exit = await terminal.waitForExit();
+      const output = await terminal.currentOutput();
+      const elicitation = await client.unstable_createElicitation({
+        sessionId: params.sessionId,
+        mode: 'form',
+        message: 'Confirm the protocol round trip',
+        requestedSchema: {
+          type: 'object',
+          required: ['confirmed'],
+          properties: { confirmed: { type: 'boolean', title: 'Confirmed' } },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'client-terminal-tool',
+          title: 'Run client terminal',
+          kind: 'execute',
+          status: 'completed',
+          content: [{ type: 'terminal', terminalId: terminal.id }],
+        },
+      });
+      await terminal.release();
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'client-services-answer',
+          content: {
+            type: 'text',
+            text: `${file.content}; ${output.output}; exit=${exit.exitCode}; confirmed=${elicitation.content?.confirmed === true}`,
+          },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('long terminal')) {
+      const terminal = await client.createTerminal({
+        sessionId: params.sessionId,
+        command: process.execPath,
+        args: ['-e', "process.stdout.write('long-terminal-ready\\n'); setInterval(() => {}, 1000)"],
+        cwd: process.cwd(),
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'long-terminal-tool',
+          title: 'Run long command',
+          kind: 'execute',
+          status: 'in_progress',
+          content: [{ type: 'terminal', terminalId: terminal.id }],
+        },
+      });
+      const exit = await terminal.waitForExit();
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'long-terminal-tool',
+          status: exit.signal ? 'cancelled' : 'completed',
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'long-terminal-answer',
+          content: { type: 'text', text: exit.signal ? 'Long command stopped.' : 'Long command completed.' },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('interactive terminal')) {
+      const terminal = await client.createTerminal({
+        sessionId: params.sessionId,
+        command: process.execPath,
+        args: ['-e', "process.stdin.setEncoding('utf8'); process.stdout.write('name> '); process.stdin.once('data', value => { process.stdout.write('hello ' + value.trim()); process.exit(0); })"],
+        cwd: process.cwd(),
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'interactive-terminal-tool',
+          title: 'Ask in terminal',
+          kind: 'execute',
+          status: 'in_progress',
+          content: [{ type: 'terminal', terminalId: terminal.id }],
+        },
+      });
+      const exit = await terminal.waitForExit();
+      const output = await terminal.currentOutput();
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'interactive-terminal-tool',
+          status: exit.exitCode === 0 ? 'completed' : 'failed',
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'interactive-terminal-answer',
+          content: { type: 'text', text: `Interactive terminal completed: ${output.output.trim()}` },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('authentication error')) {
+      const error = new Error('401 Unauthorized: sign in required');
+      error.code = 401;
+      throw error;
+    }
     const permission = await client.requestPermission({
       sessionId: params.sessionId,
       toolCall: { toolCallId: 'tool-1', title: 'Run fake command', kind: 'execute' },

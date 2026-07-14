@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type RefObject } from 'react'
 import { ArrowUpGlyph, CloseGlyph, PlusGlyph, ReplyGlyph } from '@/components/IconGlyphs'
-import type { AcpPendingPermission, AgentContextWindowUsage } from '@/types/agent'
+import type { AcpPendingElicitation, AcpPendingPermission, AgentContextWindowUsage } from '@/types/agent'
 import { ComposerAttachments, type ComposerAttachmentView } from '../ComposerAttachments'
 import type { ComposerHistoryDirection, ComposerHistoryNavigationInput } from '../composer-history'
 import {
@@ -11,6 +11,8 @@ import { findComposerCommandTrigger } from '../composer-slash-commands'
 import type { CodeCopy } from '../copy'
 import type { ComposerMode } from '../types'
 import { AcpPermissionCard } from './AcpPermissionCard'
+import { AcpElicitationCard } from './AcpElicitationCard'
+import { AcpAuthenticationCard } from './AcpAuthenticationCard'
 import {
   AcpModeControl,
   AcpModelControl,
@@ -68,6 +70,8 @@ export interface AcpComposerProps {
   textareaRef: RefObject<HTMLTextAreaElement | null>
   attachmentInputRef: RefObject<HTMLInputElement | null>
   permissions: AcpPendingPermission[]
+  elicitations: AcpPendingElicitation[]
+  activeElicitations: AcpPendingElicitation[]
   speechSupported: boolean
   speechListening: boolean
   onDraftChange: (value: string) => void
@@ -83,6 +87,7 @@ export interface AcpComposerProps {
   onActivateComposerMode: (mode: Exclude<ComposerMode, 'default'>) => void
   onClearComposerMode: () => void
   onRespondToPermission: (requestId: string, optionId?: string, cancelled?: boolean) => void
+  onRespondToElicitation: (requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>) => void
   copy: CodeCopy
 }
 
@@ -101,6 +106,8 @@ export function AcpComposer({
   textareaRef,
   attachmentInputRef,
   permissions,
+  elicitations,
+  activeElicitations,
   speechSupported,
   speechListening,
   onDraftChange,
@@ -116,6 +123,7 @@ export function AcpComposer({
   onActivateComposerMode,
   onClearComposerMode,
   onRespondToPermission,
+  onRespondToElicitation,
   copy,
 }: AcpComposerProps) {
   const compositionActiveRef = useRef(false)
@@ -127,7 +135,7 @@ export function AcpComposer({
   const [activeCommandIndex, setActiveCommandIndex] = useState(0)
   const [openMenu, setOpenMenu] = useState<AcpComposerMenu>(null)
   const [modelPane, setModelPane] = useState<'model' | 'speed' | null>(null)
-  const { session, error: sessionError, updatingId, setMode, setConfigOption } = useAcpSession(
+  const { session, error: sessionError, updatingId, authenticatingId, setMode, setConfigOption, authenticate } = useAcpSession(
     agentId,
     active,
     `${runtimeState}:${sessionUpdatedAt || ''}`,
@@ -238,12 +246,19 @@ export function AcpComposer({
   }
   const acpUsage = acpContextUsage(session?.usage)
   const displayedContextWindow = acpUsage || contextWindow
+  const contextUsageLevel = acpUsage?.level
+    || (displayedContextWindow && displayedContextWindow.percentUsed >= 100
+      ? 'critical'
+      : displayedContextWindow && displayedContextWindow.percentUsed >= 85 ? 'warning' : 'normal')
   const contextWindowTitle = displayedContextWindow
     ? [
       `Context window: ${displayedContextWindow.percentUsed}% used (${displayedContextWindow.percentLeft}% left), ${formatContextTokens(displayedContextWindow.usedTokens)} / ${formatContextTokens(displayedContextWindow.limitTokens)} tokens used`,
+      contextUsageLevel === 'critical' ? 'Context window is full' : contextUsageLevel === 'warning' ? 'Context window is nearly full' : '',
       acpUsage?.costLabel ? `Session cost: ${acpUsage.costLabel}` : '',
     ].filter(Boolean).join('. ')
     : ''
+  const authenticationRequired = session?.errorKind === 'authentication'
+    || /\b(?:auth(?:entication)?|login|sign[ -]?in|unauthorized|401)\b/i.test(runtimeError)
 
   return (
     <footer
@@ -269,10 +284,26 @@ export function AcpComposer({
       {active ? permissions.map(permission => (
         <AcpPermissionCard key={permission.requestId} request={permission} onRespond={onRespondToPermission} copy={copy} />
       )) : null}
-      {active && (runtimeError || sessionError) ? (
+      {active ? elicitations.map(elicitation => (
+        <AcpElicitationCard key={elicitation.requestId} request={elicitation} onRespond={onRespondToElicitation} />
+      )) : null}
+      {active ? activeElicitations.map(elicitation => (
+        <AcpElicitationCard key={`active-${elicitation.elicitationId || elicitation.requestId}`} request={elicitation} onRespond={onRespondToElicitation} />
+      )) : null}
+      {active && authenticationRequired ? (
+        <AcpAuthenticationCard
+          agentId={agentId}
+          methods={session?.authMethods || []}
+          authTerminal={session?.authTerminal || null}
+          agentName={session?.agentInfo?.title || session?.agentInfo?.name || ''}
+          authenticatingId={authenticatingId}
+          onAuthenticate={methodId => { void authenticate(methodId) }}
+        />
+      ) : null}
+      {active && sessionError ? (
         <section className="code-app-server-request code-app-server-notice" data-testid="code-acp-error" role="alert">
           <header><strong>ACP</strong><span>{runtimeState || 'error'}</span></header>
-          <p>{runtimeError || sessionError}</p>
+          <p>{sessionError}</p>
         </section>
       ) : null}
       {showCommands ? (
@@ -415,12 +446,14 @@ export function AcpComposer({
         </div>
         <div className="code-composer-right-tools" data-testid="code-acp-composer-right-tools">
           {displayedContextWindow ? (
-            <div className="code-composer-context-window" data-testid="code-acp-context-window" tabIndex={0} role="img" aria-label={contextWindowTitle}>
+            <div className="code-composer-context-window" data-testid="code-acp-context-window" data-level={contextUsageLevel} tabIndex={0} role="img" aria-label={contextWindowTitle}>
               <span className="code-context-window-ring" aria-hidden="true" style={{ '--context-percent': displayedContextWindow.percentUsed } as CSSProperties} />
               <div className="code-context-window-popover" role="tooltip">
                 <span>Context window:</span>
                 <strong>{displayedContextWindow.percentUsed}% used ({displayedContextWindow.percentLeft}% left)</strong>
                 <strong>{formatContextTokens(displayedContextWindow.usedTokens)} / {formatContextTokens(displayedContextWindow.limitTokens)} tokens used</strong>
+                {contextUsageLevel === 'critical' ? <strong className="warning">Context window is full</strong> : null}
+                {contextUsageLevel === 'warning' ? <strong className="warning">Context window is nearly full</strong> : null}
                 {acpUsage?.costLabel ? <strong>{acpUsage.costLabel}</strong> : null}
               </div>
             </div>

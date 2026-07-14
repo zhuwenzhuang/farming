@@ -84,11 +84,14 @@ export interface AcpPermissionOption {
   optionId: string
   name: string
   kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always' | string
+  _meta?: Record<string, unknown> | null
 }
 
 export interface AcpPendingPermission {
   requestId: string
   sessionId: string
+  origin?: 'agent' | 'subagent' | string
+  _meta?: Record<string, unknown> | null
   toolCall: {
     toolCallId: string
     title?: string | null
@@ -98,8 +101,60 @@ export interface AcpPendingPermission {
     locations?: unknown
     rawInput?: unknown
     rawOutput?: unknown
+    _meta?: Record<string, unknown> | null
   }
   options: AcpPermissionOption[]
+  securityWarnings?: Array<{
+    targetType: 'host' | 'path' | string
+    value: string
+    displayValue: string
+    characters: Array<{
+      character: string
+      codePoint: string
+      kind: 'bidi-control' | 'invisible' | 'confusable' | string
+      description: string
+    }>
+  }>
+}
+
+export interface AcpElicitationProperty {
+  type: string
+  title?: string | null
+  description?: string | null
+  default?: string | number | boolean | string[] | null
+  enum?: string[] | null
+  oneOf?: Array<{ const: string; title: string; description?: string | null }> | null
+  items?: {
+    type?: string
+    enum?: string[]
+    anyOf?: Array<{ const: string; title: string; description?: string | null }>
+  }
+  minimum?: number | null
+  maximum?: number | null
+  minLength?: number | null
+  maxLength?: number | null
+  minItems?: number | null
+  maxItems?: number | null
+  pattern?: string | null
+  format?: string | null
+}
+
+export interface AcpPendingElicitation {
+  requestId: string
+  sessionId?: string
+  protocolRequestId?: string | number | null
+  toolCallId?: string | null
+  mode: 'form' | 'url' | string
+  message: string
+  elicitationId?: string
+  url?: string
+  status?: string
+  requestedSchema?: {
+    title?: string | null
+    description?: string | null
+    properties?: Record<string, AcpElicitationProperty>
+    required?: string[] | null
+  }
 }
 
 export type CodexGoalStatus = 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete'
@@ -154,7 +209,11 @@ export interface Agent {
   acpStopReason?: string
   acpPendingPermission?: AcpPendingPermission | null
   acpPendingPermissions?: AcpPendingPermission[]
+  acpPendingElicitation?: AcpPendingElicitation | null
+  acpPendingElicitations?: AcpPendingElicitation[]
+  acpActiveElicitations?: AcpPendingElicitation[]
   acpSessionUpdatedAt?: string
+  acpSessionRevision?: number
   codexAppServerState?: string
   codexAppServerEndpoint?: string
   codexAppServerThreadId?: string
@@ -301,6 +360,29 @@ export interface UsageProviderSummary {
   tokenUsage: ProviderTokenUsage
 }
 
+export interface UsageTimelinePoint {
+  startedAt: number
+  endedAt: number
+  totalTokens: number
+  tokensPerMinute: number
+  providers: Record<string, number>
+}
+
+export interface UsageTimeline {
+  source: string
+  sampledAt: number
+  startAt: number
+  endAt: number
+  windowMs: number
+  bucketMs: number
+  bucketCount: number
+  totalTokens: number
+  averageTokensPerMinute: number
+  peakTokensPerMinute: number
+  activeBucketCount: number
+  points: UsageTimelinePoint[]
+}
+
 export interface AgentUsageSummary {
   windowMs: number
   sampledAt: number
@@ -321,6 +403,7 @@ export interface AgentUsageSummary {
 export interface UsageSummary {
   sampledAt: number
   windowMs: number
+  timeline: UsageTimeline
   providers: UsageProviderSummary[]
   agentUsage: AgentUsageSummary | null
   systemStats: SystemStats | null

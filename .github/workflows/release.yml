@@ -93,7 +93,7 @@ jobs:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
         run: node scripts/verify-linux-legacy-release.js "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64-legacy-glibc228.tar.gz"
 
-      - name: Smoke-test legacy Linux app bundle
+      - name: Smoke-test legacy Linux npm bootstrap and native PTY
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
           FARMING_SMOKE_PORT: "6696"

@@ -1204,6 +1204,8 @@
     </style>
     <link rel="stylesheet" href="styles/monochrome-green.css">
     <link rel="stylesheet" href="styles/history.css">
+    <link rel="stylesheet" href="styles/search.css">
+    <link rel="stylesheet" href="styles/billing.css">
 </head>
 <body id="farming-crt">
     <div class="crt-phosphor-noise" aria-hidden="true"></div>
@@ -1243,13 +1245,173 @@
             </div>
         </section>
 
+        <section class="search-area hidden" id="search-area" aria-label="Search">
+            <div class="search-header">
+                <h2>Search</h2>
+                <span class="search-status" id="search-status">STANDBY</span>
+            </div>
+            <label class="search-query" for="crt-search-input">
+                <span class="search-prompt" aria-hidden="true">QUERY&gt;</span>
+                <input
+                    id="crt-search-input"
+                    type="search"
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="none"
+                    spellcheck="false"
+                    enterkeyhint="search"
+                    placeholder="PROJECT / AGENT / SESSION"
+                    aria-label="Search projects, Agents, and sessions"
+                    data-crt-nav-key="search:input"
+                    data-crt-nav-default="true"
+                    tabindex="-1"
+                >
+                <span class="search-cursor" aria-hidden="true"></span>
+            </label>
+            <div class="search-list" id="search-list" aria-live="polite"></div>
+            <div class="search-footer">
+                <span>[↑↓] Select&nbsp;&nbsp; [Enter] Open / Resume&nbsp;&nbsp; [Esc] Back</span>
+                <span id="search-result-status">0 RECORDS</span>
+            </div>
+        </section>
+
+        <section class="billing-area hidden" id="billing-area" aria-label="Billing">
+            <div class="billing-header">
+                <h2>Billing</h2>
+                <div class="billing-header-actions">
+                    <div class="billing-view-switch" role="tablist" aria-label="Billing view">
+                        <button type="button" id="billing-days-tab" class="active" role="tab" aria-selected="true" data-crt-nav-key="billing:days" tabindex="-1" onclick="setCrtBillingMode('days')">[D] DAYS</button>
+                        <button type="button" id="billing-live-tab" role="tab" aria-selected="false" data-crt-nav-key="billing:live" tabindex="-1" onclick="setCrtBillingMode('live')">[L] LIVE</button>
+                    </div>
+                    <span class="billing-status" id="billing-status">STANDBY</span>
+                </div>
+            </div>
+            <div class="billing-body">
+                <div class="billing-view" id="billing-days-view">
+                    <div class="billing-summary" aria-label="Daily token usage summary">
+                        <div class="billing-meter">
+                            <span>TODAY</span>
+                            <strong id="billing-today-total">--</strong>
+                            <small>TOKENS · INCL CACHE · PARTIAL</small>
+                        </div>
+                        <div class="billing-meter">
+                            <span>7 DAYS</span>
+                            <strong id="billing-7d-total">--</strong>
+                            <small>TOKENS · INCL CACHE</small>
+                        </div>
+                        <div class="billing-meter">
+                            <span>30 DAYS</span>
+                            <strong id="billing-30d-total">--</strong>
+                            <small>TOKENS · INCL CACHE</small>
+                        </div>
+                        <div class="billing-meter">
+                            <span>52 WEEKS</span>
+                            <strong id="billing-period-total">--</strong>
+                            <small id="billing-peak-day">PEAK --</small>
+                        </div>
+                    </div>
+
+                    <section class="billing-panel billing-heatmap-panel" aria-label="Daily token history">
+                        <div class="billing-panel-heading">
+                            <h3>DAILY PROCESSED TOKENS // 52 WEEKS</h3>
+                            <span id="billing-daily-range">LOCAL TIME</span>
+                        </div>
+                        <div class="billing-heatmap-layout">
+                            <div class="billing-weekdays" aria-hidden="true"><span>MON</span><span></span><span>WED</span><span></span><span>FRI</span><span></span><span>SUN</span></div>
+                            <div class="billing-heatmap-scroll" id="billing-heatmap-scroll">
+                                <div class="billing-heatmap-months" id="billing-heatmap-months" aria-hidden="true"></div>
+                                <div class="billing-heatmap" id="billing-heatmap" role="grid" aria-label="Daily token totals"></div>
+                            </div>
+                        </div>
+                        <div class="billing-heatmap-legend" aria-hidden="true"><span>ACTIVE-DAY RANK</span><span>LOW</span><i data-level="1"></i><i data-level="2"></i><i data-level="3"></i><i data-level="4"></i><i data-level="5"></i><span>TOP 2%</span></div>
+                    </section>
+
+                    <section class="billing-panel billing-day-panel" aria-label="Selected day token details">
+                        <div class="billing-panel-heading">
+                            <h3 id="billing-day-date">SELECT A DAY</h3>
+                            <span id="billing-day-state">LOCAL HISTORY</span>
+                        </div>
+                        <div class="billing-day-details">
+                            <div class="billing-day-total"><small>TOTAL</small><strong id="billing-day-total">--</strong><span>TOKENS</span></div>
+                            <div class="billing-day-breakdown"><small>INPUT</small><strong id="billing-day-input">--</strong></div>
+                            <div class="billing-day-breakdown"><small>OUTPUT</small><strong id="billing-day-output">--</strong></div>
+                            <div class="billing-day-breakdown"><small>CACHE READ</small><strong id="billing-day-cache-read">--</strong></div>
+                            <div class="billing-day-breakdown"><small>CACHE WRITE</small><strong id="billing-day-cache-write">--</strong></div>
+                            <div class="billing-day-breakdown"><small>CHANNELS</small><strong id="billing-day-providers">--</strong></div>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="billing-view hidden" id="billing-live-view">
+                    <div class="billing-summary" aria-label="Live token usage summary">
+                        <div class="billing-meter">
+                            <span>SIGNAL</span>
+                            <strong id="billing-current-rate">--</strong>
+                            <small>TOK/MIN · 5M</small>
+                        </div>
+                        <div class="billing-meter">
+                            <span>INTEGRAL</span>
+                            <strong id="billing-window-total">--</strong>
+                            <small>TOKENS · 60M</small>
+                        </div>
+                        <div class="billing-meter">
+                            <span>PEAK</span>
+                            <strong id="billing-peak-rate">--</strong>
+                            <small>TOK/MIN · 60M</small>
+                        </div>
+                        <div class="billing-meter">
+                            <span>DUTY</span>
+                            <strong id="billing-duty-cycle">--</strong>
+                            <small>ACTIVE BINS</small>
+                        </div>
+                    </div>
+
+                    <section class="billing-scope-panel" aria-label="Token burn oscilloscope">
+                        <div class="billing-panel-heading">
+                            <h3>TOKEN BURN // 60 MINUTES</h3>
+                            <span id="billing-scope-scale">-- TOK/MIN PEAK</span>
+                        </div>
+                        <div class="billing-scope-screen">
+                            <canvas id="billing-scope" role="img" aria-label="Token burn rate over the last 60 minutes"></canvas>
+                            <div class="billing-scope-sweep" aria-hidden="true"></div>
+                            <div class="billing-scope-empty" id="billing-scope-empty">AWAITING SIGNAL</div>
+                        </div>
+                        <div class="billing-scope-axis" aria-hidden="true">
+                            <span>-60M</span><span>-30M</span><span>NOW</span>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="billing-lower-grid">
+                    <section class="billing-panel" aria-label="Quota windows">
+                        <div class="billing-panel-heading">
+                            <h3>QUOTA WINDOWS</h3>
+                            <span>LOCAL TELEMETRY</span>
+                        </div>
+                        <div class="billing-quota-list" id="billing-quota-list"></div>
+                    </section>
+                    <section class="billing-panel" aria-label="Provider channels">
+                        <div class="billing-panel-heading">
+                            <h3>CHANNELS</h3>
+                            <span>5 MINUTES</span>
+                        </div>
+                        <div class="billing-provider-list" id="billing-provider-list"></div>
+                    </section>
+                </div>
+            </div>
+            <div class="billing-footer">
+                <span>[D] Days&nbsp;&nbsp; [L] Live&nbsp;&nbsp; [R] Refresh&nbsp;&nbsp; [↑↓←→] Select Day&nbsp;&nbsp; [Esc] Back</span>
+                <button type="button" id="billing-refresh" data-crt-nav-key="billing:refresh" data-crt-nav-default="true" tabindex="-1" onclick="refreshCrtBilling()">REFRESH [R]</button>
+            </div>
+        </section>
+
         <div class="sidebar">
             <div class="sidebar-actions">
                 <div class="sidebar-item" role="button" tabindex="-1" data-crt-nav-key="sidebar:new-agent" onclick="showInputDialog()">
                     <span class="key">[N]</span> NEW AGENT
                 </div>
-                <div class="sidebar-item" style="opacity: 0.5; cursor: not-allowed;">
-                    <span class="key">[L]</span> TASK LIST
+                <div class="sidebar-item" id="search-sidebar-item" role="button" tabindex="-1" data-crt-nav-key="sidebar:search" onclick="showCrtSearch()">
+                    <span class="key">[F]</span> SEARCH
                 </div>
                 <div class="sidebar-item" id="history-sidebar-item" role="button" tabindex="-1" data-crt-nav-key="sidebar:history" onclick="showHistory()">
                     <span class="key">[H]</span> HISTORY
@@ -1257,7 +1419,7 @@
                 <div class="sidebar-item" style="opacity: 0.5; cursor: not-allowed;">
                     <span class="key">[K]</span> SKILLS
                 </div>
-                <div class="sidebar-item" style="opacity: 0.5; cursor: not-allowed;">
+                <div class="sidebar-item" id="billing-sidebar-item" role="button" tabindex="-1" data-crt-nav-key="sidebar:billing" onclick="showCrtBilling()">
                     <span class="key">[$]</span> BILLING
                 </div>
                 <div class="sidebar-item" role="button" tabindex="-1" data-crt-nav-key="sidebar:settings" onclick="showSettings()">

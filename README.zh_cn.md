@@ -80,7 +80,7 @@ Farming 2 当前有三种实际部署形态：
 | macOS 与 Linux | `npm install --global farming-code` | 默认路径，需要 Node.js 22+，并且系统 runtime 能加载 `node-pty`。 |
 | 不使用 npm 的环境 | GitHub Releases 平台 CLI | 手动安装，升级也需要手动替换。 |
 | 目录部署 | `farming-<version>-<platform>-<arch>.tar.gz` | 包含 production dependencies 和 launcher 脚本的 App Bundle，直接使用目标系统 runtime。 |
-| 老 Linux x64（glibc < 2.28） | `farming-<version>-linux-x64-legacy-glibc228.tar.gz` | GitHub Release 随附的兼容 App Bundle，包含固定校验的 glibc 2.28 runtime；仅在系统 runtime 过旧时启用，但目标机仍需有 Node.js 22 可执行文件。 |
+| 老 Linux x64（glibc < 2.28） | `farming-<version>-linux-x64-legacy-glibc228.tar.gz` | 带固定 glibc 2.28 runtime 的首次安装引导包。它把 Farming 安装到 `~/.farming/npm`；后续与普通 npm 安装一样一键更新。目标机仍需 Node.js 22 和 npm。 |
 | 自建老 Linux 包 | `farming-<version>-linux-x64-glibc217.tar.gz` | 独立构建的兼容包；基于 glibc 2.17 重新编译 `node-pty`，但仍要求目标机有可用的 Node.js runtime。 |
 
 如果要通过 Farming 启动 Codex 或 Claude Code，同一台机器上仍然需要提前安装并登录对应 CLI。Farming 托管的是这些 CLI session，不替代它们自己的安装和账号流程。
@@ -152,7 +152,7 @@ npm run release:app
 npm run release:app:legacy-linux
 ```
 
-它会生成 `farming-<version>-linux-x64-legacy-glibc228.tar.gz`。安装时 runtime 解压到 `~/.farming/glibc228`，且仅在旧 Linux 上启用；现代 Linux 和 macOS 包不受影响。
+它会生成 `farming-<version>-linux-x64-legacy-glibc228.tar.gz`。这是首次安装引导包：安装器把 runtime 解压到 `~/.farming/glibc228`，把包内 Farming 版本放入私有 prefix `~/.farming/npm`，并生成稳定入口 `~/.farming/bin/farming`。后续普通版本更新直接通过 npm 安装到同一 prefix，再用兼容 launcher 重启；不需要反复下载兼容 tar。
 
 如果只需要将 `node-pty` 编译到更低 ABI，仍可在干净的 Linux x64 构建环境中准备 glibc 2.17、Node.js 22+、GCC/G++、Make 和 Python 3，然后运行：
 
@@ -185,7 +185,7 @@ cd farming-<version>-linux-x64
 ./farming
 ```
 
-标准包的启动脚本直接使用目标机器的普通 Node.js 和 native runtime。glibc 低于 2.28 的 Linux x64 请改用 `-legacy-glibc228` 包；该兼容包只在需要时启用内置 runtime。
+标准包的启动脚本直接使用目标机器的普通 Node.js 和 native runtime。glibc 低于 2.28 的 Linux x64 请改用 `-legacy-glibc228` 包并执行一次 `./farming` 完成引导；之后使用 `~/.farming/bin/farming`。这个稳定入口保证 npm 更新、server 重启和 PTY 子进程都继续经过兼容 runtime。
 
 App bundle 常用命令：
 
@@ -245,7 +245,7 @@ provider session id 都作为这些记录上的元数据保存。主页面 Proje
 
 Native terminal session 由 Farming pty host 托管，通过从 `configDir` 派生的本地 socket 连接。默认保留 host 以支持 server 重启恢复；最后一个 live session 和 client 都消失后，host 会在短暂空闲宽限期后自退出。后续 terminal runtime 工作应面向 native pty host 和 xterm.js 链路。
 
-更新行为跟随安装方式：npm 安装读取 npm registry 的版本并在 **设置 → 更新** 提供一键升级；源码 checkout 通过 Git 更新；单文件 CLI 手动替换。App bundle 可以配置可信的 HTTP(S) 包目录或 manifest URL，升级器只会提供与当前 OS、CPU 架构匹配的 bundle，并在安装前校验 checksum。App bundle 的 Update URL 保存在 `~/.farming/settings.json` 的 `updateUrl` 字段中。
+更新行为跟随安装方式：普通 npm 安装和通过 `-legacy-glibc228.tar.gz` 引导的老 Linux 安装都读取 npm registry，并在 **设置 → 更新** 提供一键升级。更新先安装到原有 npm prefix，旧服务在安装期间继续运行；随后重启，新服务启动失败时回退。源码 checkout 通过 Git 更新，单文件 CLI 手动替换。标准 App bundle 仍作为目录部署路径，可使用保存在 `settings.updateUrl` 中的可信 HTTP(S) 包目录或 manifest URL。
 
 最简单的更新源是一个以 `/` 结尾的 HTTP(S) 目录 URL，目录里列出带平台标记的 `farming-<version>-<platform>-<arch>.tar.gz` app bundle，并为每个 bundle 提供相邻的 `<bundle>.sha256` 文件。Farming 会在解压前校验所选 bundle 的 SHA-256 与归档路径，再运行 installer。
 

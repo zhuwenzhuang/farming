@@ -31,11 +31,37 @@ export type ReviewSessionRevision = {
   reviewId: string
   root: string
   modifiedWithinDays?: number
+  paths?: string[]
   scope?: 'tracked' | 'untracked'
   unchanged?: boolean
 }
 
 export type ReviewSession = ReviewSessionRevision & { revisions: ReviewSessionRevision[] }
+
+export type AcpReviewPreviewChange = {
+  added: number
+  diff: string
+  kind: string
+  path: string
+  removed: number
+}
+
+export type ReviewComparisonSource = {
+  available?: boolean
+  base: string
+  head: string
+  id: string
+  label: string
+}
+
+export type ReviewComparisonSources = {
+  branches: ReviewComparisonSource[]
+  commits: ReviewComparisonSource[]
+  currentBranch: string
+  root: string
+  staged: ReviewComparisonSource & { available: boolean }
+  unstaged: ReviewComparisonSource & { available: boolean }
+}
 
 function revisionFilesPath(reviewId: string, patchset: string) {
   return appPath(`/api/reviews/${encodeURIComponent(reviewId)}/revisions/${encodeURIComponent(patchset)}/files`)
@@ -86,6 +112,16 @@ function isOptionalString(value: unknown) {
 
 function isNonEmptyString(value: unknown) {
   return typeof value === 'string' && value.length > 0
+}
+
+function isComparisonSource(value: unknown): value is ReviewComparisonSource {
+  if (!value || typeof value !== 'object') return false
+  const source = value as ReviewComparisonSource
+  return isNonEmptyString(source.id)
+    && isNonEmptyString(source.label)
+    && Boolean(normalizeReviewGitRevision(source.base))
+    && Boolean(normalizeReviewGitRevision(source.head))
+    && (source.available === undefined || typeof source.available === 'boolean')
 }
 
 function isReviewKey(value: unknown) {
@@ -186,6 +222,7 @@ function isReviewSessionRevision(value: unknown): value is ReviewSessionRevision
     && (revision.unchanged === undefined || typeof revision.unchanged === 'boolean')
     && (revision.scope === undefined || revision.scope === 'tracked' || revision.scope === 'untracked')
     && (revision.modifiedWithinDays === undefined || (Number.isInteger(revision.modifiedWithinDays) && revision.modifiedWithinDays >= 1))
+    && (revision.paths === undefined || (Array.isArray(revision.paths) && revision.paths.every(isReviewPath)))
 }
 
 async function readReviewSessionRevision(response: Response, fallback: string) {
@@ -199,7 +236,7 @@ async function readReviewSessionRevision(response: Response, fallback: string) {
 export async function createReviewSession(
   target: { agentId: string } | { root: string },
   base: string,
-  options: { modifiedWithinDays?: number; scope?: 'tracked' | 'untracked' } = {},
+  options: { modifiedWithinDays?: number; paths?: string[]; scope?: 'tracked' | 'untracked' } = {},
 ): Promise<ReviewSessionRevision> {
   const normalizedBase = normalizeReviewGitRevision(base)
   const targetValue = 'root' in target ? target.root : target.agentId
@@ -210,6 +247,53 @@ export async function createReviewSession(
     method: 'POST',
   })
   return readReviewSessionRevision(response, 'review capture failed')
+}
+
+export async function createAcpReviewSession(
+  agentId: string,
+  itemIds: string[],
+): Promise<ReviewSessionRevision> {
+  if (!agentId.trim() || itemIds.length === 0 || itemIds.some(itemId => !itemId.trim())) {
+    throw new ReviewApiError('ACP review capture target is invalid')
+  }
+  const response = await fetch(appPath('/api/review-sessions/acp'), {
+    body: JSON.stringify({ agentId, itemIds }),
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+  })
+  return readReviewSessionRevision(response, 'ACP review capture failed')
+}
+
+export async function loadAcpReviewPreview(
+  agentId: string,
+  itemIds: string[],
+): Promise<AcpReviewPreviewChange[]> {
+  if (!agentId.trim() || itemIds.length === 0 || itemIds.some(itemId => !itemId.trim())) {
+    throw new ReviewApiError('ACP review preview target is invalid')
+  }
+  const response = await fetch(appPath('/api/review-sessions/acp/preview'), {
+    body: JSON.stringify({ agentId, itemIds }),
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+  })
+  const value: unknown = await response.json().catch(() => null)
+  const changes = value && typeof value === 'object' ? (value as { changes?: unknown }).changes : null
+  if (
+    !response.ok
+    || !Array.isArray(changes)
+    || !changes.every(change => (
+      change
+      && typeof change === 'object'
+      && Number.isInteger((change as AcpReviewPreviewChange).added)
+      && (change as AcpReviewPreviewChange).added >= 0
+      && typeof (change as AcpReviewPreviewChange).diff === 'string'
+      && typeof (change as AcpReviewPreviewChange).kind === 'string'
+      && isReviewPath((change as AcpReviewPreviewChange).path)
+      && Number.isInteger((change as AcpReviewPreviewChange).removed)
+      && (change as AcpReviewPreviewChange).removed >= 0
+    ))
+  ) throw new ReviewApiError(errorMessageFromValue(value, 'ACP review preview failed'))
+  return changes as AcpReviewPreviewChange[]
 }
 
 export async function refreshReviewSession(reviewId: string): Promise<ReviewSessionRevision> {
@@ -229,6 +313,35 @@ export async function loadReviewSession(reviewId: string): Promise<ReviewSession
     || !(value as ReviewSession).revisions.every(isReviewSessionRevision)
   ) throw new ReviewApiError(errorMessageFromValue(value, 'review session request failed'))
   return value as ReviewSession
+}
+
+export async function loadReviewComparisonSources(
+  target: { agentId: string } | { root: string },
+): Promise<ReviewComparisonSources> {
+  const targetValue = 'root' in target ? target.root : target.agentId
+  if (!targetValue.trim()) throw new ReviewApiError('review comparison target is invalid')
+  const params = new URLSearchParams()
+  if ('root' in target) params.set('root', target.root)
+  else params.set('agentId', target.agentId)
+  const response = await fetch(`${appPath('/api/reviews/comparison-sources')}?${params.toString()}`)
+  const value: unknown = await response.json().catch(() => null)
+  if (!response.ok || !value || typeof value !== 'object') {
+    throw new ReviewApiError(errorMessageFromValue(value, 'review comparison sources could not be loaded'))
+  }
+  const sources = value as ReviewComparisonSources
+  if (
+    !isNonEmptyString(sources.currentBranch)
+    || !isNonEmptyString(sources.root)
+    || !isComparisonSource(sources.staged)
+    || typeof sources.staged.available !== 'boolean'
+    || !isComparisonSource(sources.unstaged)
+    || typeof sources.unstaged.available !== 'boolean'
+    || !Array.isArray(sources.commits)
+    || !sources.commits.every(isComparisonSource)
+    || !Array.isArray(sources.branches)
+    || !sources.branches.every(isComparisonSource)
+  ) throw new ReviewApiError('review comparison source response is invalid')
+  return sources
 }
 
 export function reviewRequestForSessionRevision(

@@ -12,7 +12,7 @@ import typescript from 'highlight.js/lib/languages/typescript'
 import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
 import {
-  ArrowRightGlyph,
+  CheckGlyph,
   ChevronDownGlyph,
   ChevronRightGlyph,
   CloseGlyph,
@@ -23,7 +23,7 @@ import {
 } from '@/components/IconGlyphs'
 import { completeReviewFileDiffLoad, failReviewFileDiffLoad } from '@/lib/review/effects'
 import { reviewFileRowModel, type ReviewFileRowAction, type ReviewFileRowModel } from '@/lib/review/file-list'
-import { reviewSnapshotRequestFromLocation } from '@/lib/review/route-target'
+import { acpReviewCaptureRequestFromSearch, reviewSnapshotRequestFromLocation } from '@/lib/review/route-target'
 import { createReviewStateFromSnapshot, reviewCatalogFromSnapshot, reviewCatalogWithFile, reviewCatalogWithUnmodifiedPaths, type ReviewComparison, type ReviewDiffSnapshotRequest } from '@/lib/review/snapshot'
 import {
   commentsForFilePaths,
@@ -47,7 +47,7 @@ import {
   type ReviewPreferences,
   type ReviewState,
 } from '@/lib/review/state'
-import { createReviewSession, deleteReviewComment, loadReviewComments, loadReviewDiffSnapshot, loadReviewFileContext, loadReviewFileDiff, loadReviewedPatchsetState, loadReviewSession, refreshReviewSession, reviewRequestForSessionRevision, ReviewApiError, REVIEW_DEMO_ID, saveReviewComment, saveReviewedFilesStatus, updateReviewCommentStatus, type ReviewContextRange, type ReviewSessionRevision } from '@/lib/review/api'
+import { createAcpReviewSession, createReviewSession, deleteReviewComment, loadReviewComments, loadReviewComparisonSources, loadReviewDiffSnapshot, loadReviewFileContext, loadReviewFileDiff, loadReviewedPatchsetState, loadReviewSession, refreshReviewSession, reviewRequestForSessionRevision, ReviewApiError, REVIEW_DEMO_ID, saveReviewComment, saveReviewedFilesStatus, updateReviewCommentStatus, type ReviewComparisonSource, type ReviewComparisonSources, type ReviewContextRange, type ReviewSessionRevision } from '@/lib/review/api'
 
 type DiffMode = ReviewDiffMode
 type IgnoreWhitespace = ReviewPreferences['ignoreWhitespace']
@@ -331,6 +331,11 @@ function createPageReviewState({
 function basename(path: string) {
   const segments = path.split('/')
   return segments[segments.length - 1] || path
+}
+
+function fileLanguageLabel(path: string) {
+  const extension = basename(path).split('.').pop()?.toUpperCase() || 'FILE'
+  return extension.length <= 4 ? extension : 'FILE'
 }
 
 function formatBytes(value: number) {
@@ -1011,21 +1016,37 @@ function commentRangeFromSelection(container: HTMLElement): { line: number; rang
 
 export function ReviewDemoPage() {
   const demoMode = typeof window !== 'undefined' && /\/review-demo\/?$/.test(window.location.pathname)
+  const [acpCaptureTarget] = useState(() => {
+    const search = typeof window === 'undefined' ? '' : window.location.search
+    return {
+      requested: new URLSearchParams(search).has('acpItem'),
+      route: acpReviewCaptureRequestFromSearch(search),
+    }
+  })
+  const acpCaptureRoute = acpCaptureTarget.route
   const [reviewRouteTarget] = useState(() => reviewSnapshotRequestFromLocation(typeof window === 'undefined' ? null : window.location))
-  const captureRouteRequest = !demoMode && reviewRouteTarget.request
+  const captureRouteRequest = !demoMode && !acpCaptureTarget.requested && reviewRouteTarget.request
     && (reviewRouteTarget.request.source === 'working-copy' || reviewRouteTarget.request.head === 'now')
     ? reviewRouteTarget.request
     : null
-  const [reviewRequestBase, setReviewRequestBase] = useState<ReviewDiffSnapshotRequest | null>(() => captureRouteRequest ? null : reviewRouteTarget.request)
+  const [reviewRequestBase, setReviewRequestBase] = useState<ReviewDiffSnapshotRequest | null>(() => (
+    captureRouteRequest || acpCaptureTarget.requested ? null : reviewRouteTarget.request
+  ))
   const [reviewSessionRevision, setReviewSessionRevision] = useState<ReviewSessionRevision | null>(null)
   const [reviewView, setReviewView] = useState<'final' | 'fixes'>('final')
-  const [capturePending, setCapturePending] = useState(Boolean(captureRouteRequest))
-  const routeTargetError = Boolean(reviewRouteTarget.error)
+  const [capturePending, setCapturePending] = useState(Boolean(captureRouteRequest || acpCaptureRoute))
+  const routeTargetError = acpCaptureTarget.requested
+    ? !acpCaptureRoute
+    : Boolean(reviewRouteTarget.error)
   const externalReview = !demoMode
   const workingCopy = reviewRequestBase?.source === 'working-copy'
   const gitRange = reviewRequestBase?.source === 'git-range'
   const [catalog, setCatalog] = useState<ReviewCatalog>(() => routeTargetError ? { [INVALID_REVIEW_PATCHSET]: [] } : initialReviewCatalog(reviewRequestBase, demoMode))
-  const [reviewLoadError, setReviewLoadError] = useState(reviewRouteTarget.error ?? '')
+  const [reviewLoadError, setReviewLoadError] = useState(
+    acpCaptureTarget.requested
+      ? acpCaptureRoute ? '' : 'ACP review target is invalid'
+      : (reviewRouteTarget.error ?? ''),
+  )
   const [reviewComparison, setReviewComparison] = useState<ReviewComparison | null>(null)
   const [reviewState, setReviewState] = useState<ReviewState>(() => {
     const initialCatalog = routeTargetError ? { [INVALID_REVIEW_PATCHSET]: [] } : initialReviewCatalog(reviewRequestBase, demoMode)
@@ -1049,13 +1070,25 @@ export function ReviewDemoPage() {
   const [reviewingPath, setReviewingPath] = useState('')
   const [contextLoadPaths, setContextLoadPaths] = useState<string[]>([])
   const [contextGapExpansions, setContextGapExpansions] = useState<Record<string, ContextGapExpansion>>({})
+  const [comparisonSources, setComparisonSources] = useState<ReviewComparisonSources | null>(null)
+  const [comparisonSourceError, setComparisonSourceError] = useState('')
+  const [comparisonSourcesPending, setComparisonSourcesPending] = useState(false)
+  const [comparisonSourceId, setComparisonSourceId] = useState(() => new URLSearchParams(window.location.search).get('comparison') || '')
+  const [showComparisonSources, setShowComparisonSources] = useState(false)
+  const comparisonSourceRef = useRef<HTMLDivElement>(null)
   const reviewId = externalReview ? reviewState.reviewId ?? '' : REVIEW_DEMO_ID
   const patchset = reviewState.patchRange.patchset
   const basePatch = reviewState.patchRange.basePatchset
   const patchsetState = reviewStateForPatchset(reviewState, patchset)
   const expandedPaths = new Set(patchsetState.expandedPaths)
   const diffMode = reviewState.diffMode
-  const reviewScope = reviewSessionRevision?.scope ?? (reviewRequestBase?.source === 'working-copy' ? reviewRequestBase.scope : undefined)
+  const reviewSessionActive = Boolean(
+    reviewSessionRevision
+    && reviewRequestBase?.source === 'git-range'
+    && reviewRequestBase.reviewId === reviewSessionRevision.reviewId
+    && reviewRequestBase.head === reviewSessionRevision.head
+  )
+  const reviewScope = reviewSessionActive ? reviewSessionRevision?.scope : (reviewRequestBase?.source === 'working-copy' ? reviewRequestBase.scope : undefined)
   const effectiveDiffMode: DiffMode = reviewScope === 'untracked' ? 'unified' : diffMode
   const diffPreferences = reviewState.preferences
   const reviewDiffRequest: ReviewDiffSnapshotRequest | null = reviewRequestBase
@@ -1063,7 +1096,7 @@ export function ReviewDemoPage() {
     : null
   const reviewDiffRequestRef = useRef(reviewDiffRequest)
   reviewDiffRequestRef.current = reviewDiffRequest
-  const displayedComparison: ReviewComparison | null = reviewSessionRevision
+  const displayedComparison: ReviewComparison | null = reviewSessionActive
     ? {
         ...(reviewComparison ?? { workingTree: true }),
         head: undefined,
@@ -1073,6 +1106,8 @@ export function ReviewDemoPage() {
   const commentTarget = reviewState.commentDraft
   const commentDraft = reviewState.commentDraft?.body ?? ''
   const files = catalog[patchset] ?? []
+  const totalAdded = files.reduce((total, file) => total + file.added, 0)
+  const totalRemoved = files.reduce((total, file) => total + file.removed, 0)
   const maxChangeSize = Math.max(1, ...files.map(file => file.added + file.removed))
   const applyReviewAction = (action: Parameters<typeof transitionReviewState>[1]) => {
     const transition = transitionReviewState(reviewStateRef.current, action, catalogRef.current)
@@ -1186,29 +1221,52 @@ export function ReviewDemoPage() {
   }, [])
 
   useEffect(() => {
-    if (!captureRouteRequest) return
+    if (!showComparisonSources) return
+    const close = (event: PointerEvent) => {
+      if (comparisonSourceRef.current?.contains(event.target as Node)) return
+      setShowComparisonSources(false)
+    }
+    document.addEventListener('pointerdown', close)
+    return () => document.removeEventListener('pointerdown', close)
+  }, [showComparisonSources])
+
+  useEffect(() => {
+    if (!captureRouteRequest && !acpCaptureRoute) return
     let active = true
     setCapturePending(true)
-    const target = 'root' in captureRouteRequest && typeof captureRouteRequest.root === 'string'
-      ? { root: captureRouteRequest.root }
-      : { agentId: captureRouteRequest.agentId }
-    const base = captureRouteRequest.source === 'git-range' ? captureRouteRequest.base : 'HEAD'
-    const captureOptions = captureRouteRequest.source === 'working-copy'
-      ? { modifiedWithinDays: captureRouteRequest.modifiedWithinDays, scope: captureRouteRequest.scope }
-      : undefined
-    void createReviewSession(target, base, captureOptions)
+    const capture = acpCaptureRoute
+      ? createAcpReviewSession(acpCaptureRoute.agentId, acpCaptureRoute.itemIds)
+      : (() => {
+          const request = captureRouteRequest!
+          const target = 'root' in request && typeof request.root === 'string'
+            ? { root: request.root }
+            : { agentId: request.agentId }
+          const base = request.source === 'git-range' ? request.base : 'HEAD'
+          const captureOptions = request.source === 'working-copy'
+            ? {
+                modifiedWithinDays: request.modifiedWithinDays,
+                paths: request.paths,
+                scope: request.scope,
+              }
+            : undefined
+          return createReviewSession(target, base, captureOptions)
+        })()
+    void capture
       .then(revision => {
         if (!active) return
         const request = reviewRequestForSessionRevision(revision, 'final')
         const params = new URLSearchParams(window.location.search)
         params.delete('agentId')
+        params.delete('acpItem')
         params.set('root', revision.root)
         params.set('base', request.base)
         params.set('head', request.head)
         params.set('reviewId', revision.reviewId)
+        params.set('comparison', 'last-turn')
         window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
         setReviewSessionRevision(revision)
         setReviewView('final')
+        setComparisonSourceId('last-turn')
         setReviewRequestBase(request)
         setReviewLoadError('')
       })
@@ -1218,23 +1276,24 @@ export function ReviewDemoPage() {
       })
       .finally(() => { if (active) setCapturePending(false) })
     return () => { active = false }
-  }, [captureRouteRequest])
+  }, [acpCaptureRoute, captureRouteRequest])
 
   useEffect(() => {
-    if (captureRouteRequest || reviewRequestBase?.source !== 'git-range' || !reviewRequestBase.reviewId) return
+    if (captureRouteRequest || acpCaptureRoute || reviewRequestBase?.source !== 'git-range' || !reviewRequestBase.reviewId) return
     let active = true
     void loadReviewSession(reviewRequestBase.reviewId)
       .then(session => {
         if (!active) return
         const revision = session.revisions.find(item => item.head === reviewRequestBase.head) ?? session
         setReviewSessionRevision(revision)
+        setComparisonSourceId(current => current || 'last-turn')
         setReviewView(reviewRequestBase.base === revision.fixesBase && revision.fixesBase !== revision.base ? 'fixes' : 'final')
       })
       .catch(() => {
         // The diff endpoint still reports a precise session/range error if this lookup fails.
       })
     return () => { active = false }
-  }, [captureRouteRequest, reviewRequestBase])
+  }, [acpCaptureRoute, captureRouteRequest, reviewRequestBase])
 
   useEffect(() => {
     if (!reviewRequestBase) return
@@ -1337,12 +1396,13 @@ export function ReviewDemoPage() {
   useEffect(() => {
     const updateReviewingPath = () => {
       let nextPath = ''
+      const stickyTop = document.querySelector<HTMLElement>('.review-demo-files-toolbar')?.getBoundingClientRect().bottom ?? 0
       for (const article of document.querySelectorAll<HTMLElement>('.review-demo-file-change.expanded[data-file-path]')) {
         const header = article.querySelector<HTMLElement>('.review-demo-file-change-header')
         if (!header) continue
         const articleRect = article.getBoundingClientRect()
         const headerRect = header.getBoundingClientRect()
-        if (headerRect.top <= 1 && articleRect.bottom > headerRect.bottom) {
+        if (headerRect.top <= stickyTop + 1 && articleRect.bottom > headerRect.bottom) {
           nextPath = article.dataset.filePath ?? ''
         }
       }
@@ -1506,9 +1566,54 @@ export function ReviewDemoPage() {
     params.set('base', request.base)
     params.set('head', request.head)
     params.set('reviewId', revision.reviewId)
+    params.set('comparison', 'last-turn')
     window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
     setReviewSessionRevision(revision)
     setReviewView(view)
+    setComparisonSourceId('last-turn')
+    setShowComparisonSources(false)
+    setReviewRequestBase(request)
+  }
+  const reviewWorkspaceTarget = (() => {
+    if (reviewRequestBase && 'root' in reviewRequestBase && reviewRequestBase.root) return { root: reviewRequestBase.root }
+    if (reviewRequestBase && 'agentId' in reviewRequestBase && reviewRequestBase.agentId) return { agentId: reviewRequestBase.agentId }
+    if (reviewSessionRevision) return { root: reviewSessionRevision.root }
+    return null
+  })()
+  const openComparisonSources = () => {
+    const nextOpen = !showComparisonSources
+    setShowComparisonSources(nextOpen)
+    if (!nextOpen || comparisonSources || comparisonSourcesPending || !reviewWorkspaceTarget) return
+    setComparisonSourcesPending(true)
+    setComparisonSourceError('')
+    void loadReviewComparisonSources(reviewWorkspaceTarget)
+      .then(setComparisonSources)
+      .catch(error => setComparisonSourceError(error instanceof Error ? error.message : 'Comparison sources could not be loaded'))
+      .finally(() => setComparisonSourcesPending(false))
+  }
+  const selectComparisonSource = (source: ReviewComparisonSource) => {
+    if (!comparisonSources) return
+    const request: ReviewDiffSnapshotRequest = {
+      base: source.base,
+      head: source.head,
+      metadataOnly: true,
+      root: comparisonSources.root,
+      source: 'git-range',
+    }
+    const params = new URLSearchParams(window.location.search)
+    params.delete('agentId')
+    params.delete('reviewId')
+    params.delete('path')
+    params.delete('scope')
+    params.delete('modifiedWithinDays')
+    params.set('root', comparisonSources.root)
+    params.set('base', source.base)
+    params.set('head', source.head)
+    params.set('comparison', source.id)
+    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
+    setComparisonSourceId(source.id)
+    setShowComparisonSources(false)
+    setReviewView('final')
     setReviewRequestBase(request)
   }
   const refreshCapturedReview = () => {
@@ -1528,6 +1633,31 @@ export function ReviewDemoPage() {
   }
   const workingCopyScope = reviewScope
   const filesLabel = workingCopyScope === 'tracked' ? 'Changes' : workingCopyScope === 'untracked' ? 'Untracked' : 'Files'
+  const selectedComparisonSource = comparisonSources
+    ? [comparisonSources.unstaged, comparisonSources.staged, ...comparisonSources.commits, ...comparisonSources.branches]
+      .find(source => source.id === comparisonSourceId)
+    : null
+  const comparisonSourceLabel = reviewSessionActive
+    ? 'Last Turn'
+    : selectedComparisonSource?.id.startsWith('commit:')
+      ? `Commit · ${selectedComparisonSource.label}`
+      : selectedComparisonSource?.id.startsWith('branch:')
+        ? `Branch · ${selectedComparisonSource.label}`
+        : selectedComparisonSource?.label
+          ?? (workingCopy ? 'Working copy' : gitRange ? 'Changes' : filesLabel)
+  const comparisonMessageTitle = comparisonSourceId === 'staged'
+    ? 'Staged changes'
+    : displayedComparison?.workingTree
+      ? 'Workspace changes'
+      : displayedComparison?.head?.message.split('\n')[0] || 'Commit details'
+  const comparisonMessageLabel = displayedComparison?.head
+    ? 'Commit message'
+    : comparisonSourceId === 'staged'
+      ? 'Index summary'
+      : 'Change summary'
+  const comparisonMessageFallback = comparisonSourceId === 'staged'
+    ? 'Staged changes are stored in the Git index and do not have a commit author or commit message yet.'
+    : 'Uncommitted workspace changes do not have a commit author or commit message yet.'
   const emptyReviewMessage = capturePending
     ? 'Capturing an immutable workspace revision…'
     : !reviewRequestBase
@@ -1546,22 +1676,56 @@ export function ReviewDemoPage() {
       <section className="review-demo-files" aria-label="Changed files">
         <header className="review-demo-files-toolbar">
           <div className="review-demo-patch-info">
-            <strong>{filesLabel}</strong>
-            <span className="review-demo-patch-static">{basePatch}</span>
-            <ArrowRightGlyph />
-            {externalReview ? <span className="review-demo-patch-static">{patchset}</span> : (
+            <div className="review-demo-source-control" ref={comparisonSourceRef}>
+              <button type="button" className="review-demo-source-trigger" aria-expanded={showComparisonSources} onClick={openComparisonSources}>
+                <strong>{comparisonSourceLabel}</strong><ChevronDownGlyph />
+              </button>
+              {showComparisonSources ? <div className="review-demo-source-menu" role="menu" aria-label="Compare changes from">
+                {comparisonSourcesPending ? <p>Loading comparisons…</p> : null}
+                {comparisonSourceError ? <p className="error">{comparisonSourceError}</p> : null}
+                {comparisonSources ? <>
+                  <button type="button" role="menuitemradio" aria-checked={comparisonSourceId === 'unstaged'} disabled={!comparisonSources.unstaged.available} onClick={() => selectComparisonSource(comparisonSources.unstaged)}>
+                    <span>Unstaged</span>{comparisonSourceId === 'unstaged' ? <CheckGlyph /> : null}
+                  </button>
+                  <button type="button" role="menuitemradio" aria-checked={comparisonSourceId === 'staged'} disabled={!comparisonSources.staged.available} onClick={() => selectComparisonSource(comparisonSources.staged)}>
+                    <span>Staged</span>{comparisonSourceId === 'staged' ? <CheckGlyph /> : null}
+                  </button>
+                  <details className="review-demo-source-submenu">
+                    <summary>Commit <ChevronRightGlyph /></summary>
+                    <div>{comparisonSources.commits.length ? comparisonSources.commits.map(source => (
+                      <button type="button" role="menuitemradio" aria-checked={comparisonSourceId === source.id} key={source.id} onClick={() => selectComparisonSource(source)}>
+                        <span>{source.label}</span>{comparisonSourceId === source.id ? <CheckGlyph /> : null}
+                      </button>
+                    )) : <p>No commits available</p>}</div>
+                  </details>
+                  <details className="review-demo-source-submenu">
+                    <summary>Branch <ChevronRightGlyph /></summary>
+                    <div>{comparisonSources.branches.length ? comparisonSources.branches.map(source => (
+                      <button type="button" role="menuitemradio" aria-checked={comparisonSourceId === source.id} key={source.id} onClick={() => selectComparisonSource(source)}>
+                        <span>{source.label}</span>{comparisonSourceId === source.id ? <CheckGlyph /> : null}
+                      </button>
+                    )) : <p>No other branches</p>}</div>
+                  </details>
+                  {reviewSessionRevision ? <button type="button" role="menuitemradio" aria-checked={reviewSessionActive} onClick={() => setSessionRequest(reviewSessionRevision, reviewView)}>
+                    <span>Last Turn</span>{reviewSessionActive ? <CheckGlyph /> : null}
+                  </button> : null}
+                </> : null}
+              </div> : null}
+            </div>
+            <span className="review-demo-total-stats"><b>+{totalAdded}</b><i>−{totalRemoved}</i></span>
+            {!externalReview ? <>
               <select aria-label="Patch set" value={patchset} onChange={event => selectPatchset(event.target.value)}>
                 <option value="Patchset 20">Patchset 20</option>
                 <option value="Patchset 19">Patchset 19</option>
               </select>
-            )}
-            {reviewSessionRevision ? <span className="review-demo-revision-label">Revision {reviewSessionRevision.number}</span> : null}
-            {!externalReview ? <button type="button" className="review-demo-commit" onClick={copyCommit} title="Copy commit">
-              {commitCopied ? 'Copied' : '34a15ae'}<CopyGlyph />
-            </button> : null}
+              <button type="button" className="review-demo-commit" onClick={copyCommit} title="Copy commit">
+                {commitCopied ? 'Copied' : '34a15ae'}<CopyGlyph />
+              </button>
+            </> : null}
+            {reviewSessionActive ? <span className="review-demo-revision-label">Revision {reviewSessionRevision?.number}</span> : null}
           </div>
           <div className="review-demo-files-actions">
-            {reviewSessionRevision ? <>
+            {reviewSessionActive && reviewSessionRevision ? <>
               {reviewSessionRevision.number > 1 ? <button type="button" className={reviewView === 'fixes' ? 'active' : ''} onClick={() => selectReviewView('fixes')}>FIXES SINCE REVIEW</button> : null}
               <button type="button" disabled={capturePending} onClick={refreshCapturedReview}>{capturePending ? 'CAPTURING…' : 'REFRESH'}</button>
               <span className="review-demo-toolbar-separator" />
@@ -1581,11 +1745,13 @@ export function ReviewDemoPage() {
           </div>
           {reviewStatusError || reviewCommentError ? <span className="review-demo-review-error" role="status">{reviewStatusError || reviewCommentError}</span> : null}
         </header>
+        <div className="review-demo-workspace">
+          <div className="review-demo-review-scroll">
         {externalReview && displayedComparison ? (
           <details className="review-demo-commit-message">
             <summary>
-              <span>Commit message</span>
-              <strong>{displayedComparison.workingTree ? 'Workspace changes' : displayedComparison.head?.message.split('\n')[0] || 'Commit details'}</strong>
+              <span>{comparisonMessageLabel}</span>
+              <strong>{comparisonMessageTitle}</strong>
               <ChevronRightGlyph />
             </summary>
             <div>
@@ -1599,7 +1765,7 @@ export function ReviewDemoPage() {
                 <>
                   <p><span>Based on</span><strong>{displayedComparison.base?.message.split('\n')[0] || basePatch}</strong></p>
                   {displayedComparison.base ? <p><span>Base author</span>{displayedComparison.base.authorName}{displayedComparison.base.authorEmail ? ` <${displayedComparison.base.authorEmail}>` : ''}</p> : null}
-                  <pre>Uncommitted workspace changes do not have a commit author or commit message yet.</pre>
+                  <pre>{comparisonMessageFallback}</pre>
                 </>
               )}
             </div>
@@ -1659,7 +1825,7 @@ export function ReviewDemoPage() {
                     className="review-demo-file-select"
                     onClick={() => toggleExpanded(file.path)}
                   >
-                    <span className="review-demo-file-status">{rowModel.changeLabel}</span>
+                    <span className="review-demo-file-status" title={rowModel.changeLabel}>{fileLanguageLabel(file.path)}</span>
                     <span className="review-demo-file-paths">
                       <span className="review-demo-file-name">{file.path}</span>
                       {file.previousPath ? <span className="review-demo-file-previous-path" title={`Previous path: ${file.previousPath}`}>{file.previousPath}</span> : null}
@@ -1718,6 +1884,8 @@ export function ReviewDemoPage() {
               </article>
             )
           })}
+        </div>
+          </div>
         </div>
       </section>
       {showPreferences ? (

@@ -27,6 +27,15 @@ function validRevision(value) {
     && (value.previousTree === undefined || OBJECT_ID_PATTERN.test(value.previousTree));
 }
 
+function validStoredPath(value) {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= 4096
+    && !value.startsWith('/')
+    && !value.includes('\0')
+    && value.split(/[\\/]/).every(segment => segment && segment !== '.' && segment !== '..');
+}
+
 function validSession(value) {
   return value
     && typeof value === 'object'
@@ -38,6 +47,11 @@ function validSession(value) {
     && typeof value.updatedAt === 'string'
     && (value.scope === undefined || value.scope === 'tracked' || value.scope === 'untracked')
     && (value.modifiedWithinDays === undefined || (Number.isInteger(value.modifiedWithinDays) && value.modifiedWithinDays >= 1 && value.modifiedWithinDays <= 3650))
+    && (value.paths === undefined || (
+      Array.isArray(value.paths)
+      && value.paths.length <= 256
+      && value.paths.every(validStoredPath)
+    ))
     && Array.isArray(value.revisions)
     && value.revisions.length > 0
     && value.revisions.every(validRevision);
@@ -82,7 +96,7 @@ class ReviewSessionStore {
     return session ? clone(session) : null;
   }
 
-  create({ id, root, base, tree, scope, modifiedWithinDays, createdAt = new Date().toISOString() }) {
+  create({ id, root, base, tree, scope, modifiedWithinDays, paths, createdAt = new Date().toISOString() }) {
     if (!REVIEW_ID_PATTERN.test(id) || !path.isAbsolute(root) || !OBJECT_ID_PATTERN.test(base) || !OBJECT_ID_PATTERN.test(tree)) {
       throw new TypeError('invalid review session');
     }
@@ -96,6 +110,7 @@ class ReviewSessionStore {
       root,
       ...(scope === 'tracked' || scope === 'untracked' ? { scope } : {}),
       ...(Number.isInteger(modifiedWithinDays) ? { modifiedWithinDays } : {}),
+      ...(Array.isArray(paths) ? { paths: [...paths] } : {}),
       updatedAt: createdAt,
     };
     state.sessions[id] = session;

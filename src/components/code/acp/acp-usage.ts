@@ -13,6 +13,7 @@ export interface AcpContextUsage {
   percentUsed: number
   percentLeft: number
   costLabel: string
+  level: 'normal' | 'warning' | 'critical'
 }
 
 export function acpContextUsage(usage?: AcpUsageUpdate | null): AcpContextUsage | null {
@@ -22,7 +23,8 @@ export function acpContextUsage(usage?: AcpUsageUpdate | null): AcpContextUsage 
     return null
   }
 
-  const percentUsed = Math.max(0, Math.min(100, Math.round((usedTokens / limitTokens) * 100)))
+  const ratio = usedTokens / limitTokens
+  const percentUsed = Math.max(0, Math.min(100, Math.round(ratio * 100)))
   const amount = Number(usage?.cost?.amount)
   const currency = String(usage?.cost?.currency || '').trim().toUpperCase()
   const costLabel = Number.isFinite(amount) && amount >= 0 && /^[A-Z]{3}$/.test(currency)
@@ -35,5 +37,6 @@ export function acpContextUsage(usage?: AcpUsageUpdate | null): AcpContextUsage 
     percentUsed,
     percentLeft: 100 - percentUsed,
     costLabel,
+    level: ratio >= 1 ? 'critical' : ratio >= 0.85 ? 'warning' : 'normal',
   }
 }

@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { ReviewDiffService, fileFromPatch, gitDiffPathspecArgs, gitRangeReviewId, metadataFile, normalizeReviewLimit, patchMetadata, parseNameStatus, parseNumstat, parseRawDiffMetadata, untrackedPatch, workingCopyPatchset, workingCopyReviewId } = require('../review-diff-service');
+const { ReviewDiffService, fileFromPatch, gitDiffPathspecArgs, gitRangeReviewId, metadataFile, normalizeReviewLimit, patchMetadata, parseComparisonBranches, parseComparisonCommits, parseNameStatus, parseNumstat, parseRawDiffMetadata, untrackedPatch, workingCopyPatchset, workingCopyReviewId } = require('../review-diff-service');
 
 function pathspecAfterDoubleDash(args) {
   const index = args.lastIndexOf('--');
@@ -30,6 +30,20 @@ async function run() {
   assert.strictEqual(normalizeReviewLimit(1.5), 200);
   assert.strictEqual(normalizeReviewLimit(Number.NaN), 200);
   assert.strictEqual(normalizeReviewLimit(999), 200);
+  assert.deepStrictEqual(parseComparisonCommits([
+    `${'1'.repeat(40)}\x1f${'2'.repeat(40)}\x1f1111111\x1fModern review workspace\x1e`,
+    `${'3'.repeat(40)}\x1f\x1f3333333\x1fRoot commit is not a single-commit range\x1e`,
+  ].join('')), [{
+    base: '2'.repeat(40),
+    head: '1'.repeat(40),
+    id: `commit:${'1'.repeat(40)}`,
+    label: '1111111 Modern review workspace',
+  }]);
+  assert.deepStrictEqual(parseComparisonBranches([
+    `main\0${'1'.repeat(40)}`,
+    `feature/review\0${'2'.repeat(40)}`,
+    `origin/HEAD\0${'3'.repeat(40)}`,
+  ].join('\n'), 'main'), [{ id: '2'.repeat(40), name: 'feature/review' }]);
 
   const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-scope-'));
   fs.writeFileSync(path.join(scopeRoot, 'recent.txt'), 'recent\n');

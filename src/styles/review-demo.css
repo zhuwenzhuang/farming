@@ -809,6 +809,206 @@
 
 .review-demo-preferences > footer button:last-child { color: #71777b; }
 
+/* Farming review workspace: keep Gerrit's review state, but present it with the
+   same calm hierarchy and spatial model as the Farming Code surface. */
+.review-demo-body {
+  background: #f7f7f5;
+  color: #262a27;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.review-demo-root,
+.review-demo-files { min-height: 100vh; background: #fbfbfa; }
+
+.review-demo-files-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  min-height: 62px;
+  padding: 10px 18px;
+  border-bottom: 1px solid rgba(41, 47, 43, 0.11);
+  background: rgba(251, 251, 250, 0.94);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(18px);
+}
+
+.review-demo-patch-info { gap: 10px; color: #646a65; }
+.review-demo-source-control { position: relative; }
+.review-demo-source-trigger {
+  min-height: 40px;
+  max-width: min(420px, 42vw);
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 14px;
+  border-radius: 13px !important;
+  background: #efefed !important;
+  color: #222623 !important;
+  cursor: pointer;
+}
+.review-demo-source-trigger:hover { background: #e8e8e5 !important; }
+.review-demo-source-trigger strong {
+  overflow: hidden;
+  color: inherit;
+  font-size: 15px;
+  font-weight: 590;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-demo-source-trigger svg { width: 16px; height: 16px; flex: none; fill: currentColor; }
+
+.review-demo-source-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 60;
+  width: min(350px, calc(100vw - 36px));
+  max-height: min(620px, calc(100vh - 90px));
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid rgba(38, 42, 39, 0.13);
+  border-radius: 16px;
+  background: rgba(255, 255, 254, 0.98);
+  box-shadow: 0 18px 48px rgba(32, 36, 33, 0.16), 0 3px 10px rgba(32, 36, 33, 0.07);
+}
+.review-demo-source-menu > button,
+.review-demo-source-submenu button {
+  width: 100%;
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px !important;
+  background: transparent;
+  color: #282c29;
+  cursor: pointer;
+  text-align: left;
+}
+.review-demo-source-menu > button:hover,
+.review-demo-source-submenu button:hover { background: #f1f1ef; }
+.review-demo-source-menu button:disabled { cursor: default; opacity: 0.38; }
+.review-demo-source-menu button > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-demo-source-menu button svg { width: 15px; height: 15px; fill: currentColor; }
+.review-demo-source-menu p { margin: 6px 10px; color: #737974; font-size: 12px; line-height: 1.45; }
+.review-demo-source-menu p.error { color: #a54e49; }
+.review-demo-source-submenu { border-radius: 10px; }
+.review-demo-source-submenu > summary {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  border-radius: 10px;
+  color: #282c29;
+  cursor: pointer;
+  list-style: none;
+}
+.review-demo-source-submenu > summary::-webkit-details-marker { display: none; }
+.review-demo-source-submenu > summary:hover { background: #f1f1ef; }
+.review-demo-source-submenu > summary svg { width: 15px; height: 15px; fill: currentColor; transition: transform 140ms ease; }
+.review-demo-source-submenu[open] > summary svg { transform: rotate(90deg); }
+.review-demo-source-submenu > div {
+  max-height: 260px;
+  overflow: auto;
+  margin: 2px 0 5px 10px;
+  padding-left: 5px;
+  border-left: 1px solid #e3e4e1;
+}
+
+.review-demo-total-stats {
+  display: inline-flex;
+  gap: 7px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.review-demo-total-stats b { color: #159447; font-weight: 520; }
+.review-demo-total-stats i { color: #d33c3c; font-style: normal; font-weight: 520; }
+.review-demo-revision-label { color: #7d827e; }
+
+.review-demo-files-actions { gap: 5px; color: #707671; font-size: 12px; }
+.review-demo-files-actions button {
+  min-height: 32px;
+  padding: 0 9px;
+  border-radius: 9px !important;
+  color: #5c625d;
+  font-size: 12px;
+  font-weight: 520;
+}
+.review-demo-files-actions button:hover,
+.review-demo-files-actions button.active { background: #eeeeeb; color: #252a26; }
+.review-demo-files-actions .review-demo-icon-action { width: 34px; min-height: 34px; border-radius: 10px !important; }
+.review-demo-files-actions .review-demo-icon-action.active { background: #e9e9e6; color: #2d332e; }
+.review-demo-toolbar-separator { height: 24px; background: #dedfdb; }
+
+.review-demo-workspace {
+  min-height: calc(100vh - 62px);
+}
+.review-demo-review-scroll {
+  min-width: 0;
+  min-height: calc(100vh - 62px);
+  background: #fff;
+}
+
+.review-demo-commit-message { border-top: 0; border-bottom: 1px solid #e7e8e5; }
+.review-demo-commit-message summary { min-height: 40px; padding-inline: 17px; }
+.review-demo-commit-message summary > span { color: #747a75; }
+.review-demo-commit-message > div { background: #fafaf8; }
+.review-demo-files-list { background: #fff; }
+.review-demo-file-change { border-bottom: 1px solid #e5e6e3; }
+.review-demo-file-change.expanded { background: #fff; }
+.review-demo-file-change-header { min-height: 46px; padding: 0 12px 0 14px; }
+.review-demo-file-select { grid-template-columns: 27px minmax(0, 1fr) 72px max-content; gap: 10px; }
+.review-demo-file-status {
+  width: 27px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: #f3ead0;
+  color: #c88a12;
+  font-size: 8px;
+  font-weight: 750;
+}
+.review-demo-file-change[data-change-kind='added'] .review-demo-file-status { background: #dff1e4; color: #268449; }
+.review-demo-file-change[data-change-kind='deleted'] .review-demo-file-status { background: #f6e1df; color: #b64b42; }
+.review-demo-file-name { color: #414642; font-size: 13px; font-weight: 520; }
+.review-demo-file-select:hover .review-demo-file-name { color: #171a18; text-decoration: none; }
+.review-demo-file-change.expanded > .review-demo-file-change-header { top: 62px; z-index: 15; background: rgba(255, 255, 254, 0.96); backdrop-filter: blur(12px); }
+.review-demo-file-change.reviewing > .review-demo-file-change-header { box-shadow: 0 5px 16px rgba(40, 45, 41, 0.08); }
+.review-demo-review-status button { color: #646b65; }
+.review-demo-review-status button:hover { color: #202522; text-decoration: none; }
+.review-demo-reviewed-label { color: #7a807b; }
+
+.review-demo-inline-diff { border-top-color: #e7e8e5; }
+.review-demo-diff-columns { min-height: 26px; align-items: center; border-bottom-color: #e7e8e5; background: #f5f5f3; color: #888d89; }
+.review-demo-diff-hunk,
+.review-demo-skipped-row { border-color: #e7e8e5; background: #f2f2f0; color: #787e79; }
+.review-demo-skipped-row:hover { background: #eaeae7; color: #333834; }
+.review-demo-diff-code { background: #fff; }
+.review-demo-diff-row > span { border-color: #eceeeb; background: #f8f8f6; color: #a0a5a1; }
+.review-demo-diff-row code { border-color: #eceeeb; color: #3d443f; }
+.review-demo-diff-row.added > :nth-child(3),
+.review-demo-diff-row.added > :nth-child(4),
+.review-demo-diff-row.changed > :nth-child(3),
+.review-demo-diff-row.changed > :nth-child(4),
+.review-demo-diff-row.unified.added > * { background: #e5f5e8; }
+.review-demo-diff-row.deleted > :nth-child(1),
+.review-demo-diff-row.deleted > :nth-child(2),
+.review-demo-diff-row.changed > :nth-child(1),
+.review-demo-diff-row.changed > :nth-child(2),
+.review-demo-diff-row.unified.deleted > * { background: #fbedeb; }
+.review-demo-diff-row.added .review-demo-intraline,
+.review-demo-diff-row.changed code:nth-child(4) .review-demo-intraline { background: #bfe8c7; }
+.review-demo-diff-row.deleted .review-demo-intraline,
+.review-demo-diff-row.changed code:nth-child(2) .review-demo-intraline { background: #f6c8c5; }
+
 @media (max-width: 740px) {
   .review-demo-files-toolbar { align-items: flex-start; flex-direction: column; gap: 7px; padding-block: 9px; }
   .review-demo-patch-info { width: 100%; overflow: hidden; }
@@ -827,4 +1027,7 @@
   .review-demo-preferences-form,
   .review-demo-preferences-form .checkbox-row { grid-template-columns: minmax(0, 1fr) 168px; column-gap: 14px; }
   .review-demo-preferences-form { padding-inline: 20px; }
+  .review-demo-source-trigger { max-width: 66vw; }
+  .review-demo-review-scroll { min-height: auto; }
+  .review-demo-file-change.expanded > .review-demo-file-change-header { top: 104px; }
 }

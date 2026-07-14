@@ -107,10 +107,10 @@ const updateService = new FarmingUpdateService({
   getUpdateUrl: () => configManager.getSettings().updateUrl || '',
 });
 const appServerApiBridge = new AppServerApiBridge();
-const usageMonitor = new UsageMonitor({ agentManager });
+const usageMonitor = new UsageMonitor({ agentManager, getProviderHomes: configuredProviderHomes });
 const codexContextWindowReader = new CodexContextWindowReader();
 const usageSummaryCache = new AsyncCache(() => usageMonitor.getUsageSummary(), {
-  ttlMs: 30_000,
+  ttlMs: 15_000,
   staleMs: 2 * 60_000,
 });
 const codexModelOptionsCache = new AsyncCache(() => listCodexModelOptions(), {
@@ -170,6 +170,7 @@ const reviewDiffService = new ReviewDiffService(agentManager, workspaceFileServi
 const reviewSessionStore = new ReviewSessionStore(configManager.farmingDir);
 const reviewSessionService = new ReviewSessionService(workspaceFileService, reviewSessionStore, reviewStateStore, {
   resolveAgentRoot: agentId => agentManager.getAgentWorkspaceRoot(agentId),
+  resolveAcpReviewChanges: (agentId, itemIds) => agentManager.getAcpReviewChanges(agentId, itemIds),
 });
 const workspaceDiscoveryCache = new AsyncCache((key) => {
   const request = JSON.parse(key);
@@ -650,7 +651,9 @@ app.get(routePath(BASE_PATH, '/api/claude/settings'), (req, res) => {
 
 app.get(routePath(BASE_PATH, '/api/usage'), async (req, res) => {
   try {
-    const usage = await usageSummaryCache.get('summary');
+    const fresh = req.query.fresh === '1';
+    if (fresh) usageMonitor.invalidateDailyCache();
+    const usage = await usageSummaryCache.get('summary', fresh ? { force: true } : {});
     res.json({ usage });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Failed to read usage information' });
@@ -1006,6 +1009,56 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-tool-details/:toolCallId'
   }
 });
 
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/kill'), (req, res) => {
+  try {
+    res.json(agentManager.killAcpTerminal(req.params.agentId, req.params.terminalId));
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to stop ACP terminal';
+    const status = message === 'Agent not found' || message === 'Unknown ACP terminal' ? 404 : 409;
+    res.status(status).json({ error: message });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/input'), express.json({ limit: '96kb' }), (req, res) => {
+  try {
+    res.json(agentManager.inputAcpTerminal(req.params.agentId, req.params.terminalId, req.body?.input));
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to write ACP terminal input';
+    const status = message === 'Agent not found' || message === 'Unknown ACP terminal' ? 404 : 409;
+    res.status(status).json({ error: message });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/resize'), express.json(), (req, res) => {
+  try {
+    res.json(agentManager.resizeAcpTerminal(
+      req.params.agentId,
+      req.params.terminalId,
+      req.body?.cols,
+      req.body?.rows,
+    ));
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to resize ACP terminal';
+    const status = message === 'Agent not found' || message === 'Unknown ACP terminal' ? 404 : 409;
+    res.status(status).json({ error: message });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-patches/:toolCallId/decision'), express.json({ limit: '16kb' }), async (req, res) => {
+  try {
+    res.json(await agentManager.decideAcpPatch(
+      req.params.agentId,
+      req.params.toolCallId,
+      req.body?.path,
+      req.body?.decision,
+    ));
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to decide ACP patch';
+    const status = Number(error?.statusCode) || (message === 'Agent not found' || message === 'ACP tool call not found' ? 404 : 409);
+    res.status(status).json({ error: message });
+  }
+});
+
 app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-sessions'), async (req, res) => {
   try {
     const result = await agentManager.listAcpSessions(req.params.agentId, {
@@ -1030,6 +1083,21 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-permission'), express.js
     res.json(result);
   } catch (error) {
     const message = error && error.message ? error.message : 'Failed to respond to ACP permission';
+    res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-elicitation'), express.json(), (req, res) => {
+  try {
+    const result = agentManager.respondToAcpElicitation(
+      req.params.agentId,
+      req.body?.requestId,
+      req.body?.action,
+      req.body?.content
+    );
+    res.json(result);
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to respond to ACP input request';
     res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
   }
 });

@@ -6,6 +6,19 @@ export type ReviewRouteTarget = {
   request: ReviewDiffSnapshotRequest | null
 }
 
+export type AcpReviewCaptureRoute = {
+  agentId: string
+  itemIds: string[]
+}
+
+export function acpReviewCaptureRequestFromSearch(search: string | URLSearchParams): AcpReviewCaptureRoute | null {
+  const params = typeof search === 'string' ? new URLSearchParams(search) : search
+  const agentId = params.get('agentId')?.trim() || ''
+  const itemIds = [...new Set(params.getAll('acpItem').map(value => value.trim()).filter(Boolean))]
+  if (!agentId || itemIds.length === 0 || itemIds.length > 256) return null
+  return { agentId, itemIds }
+}
+
 function parseIntegerOption(params: URLSearchParams, key: string, minimum: number) {
   const value = params.get(key)
   if (value === null || value.trim() === '') return undefined
@@ -39,12 +52,14 @@ function reviewSnapshotRequestOptions(params: URLSearchParams) {
   const metadataOnly = parseMetadataOnlyOption(params)
   const modifiedWithinDays = parseIntegerOption(params, 'modifiedWithinDays', 1)
   const scope = parseWorkingCopyScope(params)
+  const paths = params.getAll('path').map(value => value.trim()).filter(Boolean)
   return {
     ...(context !== undefined ? { context } : {}),
     ...(ignoreWhitespace ? { ignoreWhitespace } : {}),
     ...(limit !== undefined ? { limit } : {}),
     ...(metadataOnly === true ? { metadataOnly } : {}),
     ...(scope ? { scope } : {}),
+    ...(paths.length > 0 ? { paths } : {}),
     ...(scope === 'untracked' && modifiedWithinDays !== undefined ? { modifiedWithinDays } : {}),
   }
 }

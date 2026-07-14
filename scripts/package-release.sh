@@ -190,7 +190,14 @@ cat > "${APP_DIR}/farming" <<'EOF'
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
-export FARMING_INSTALL_DIR="${FARMING_INSTALL_DIR:-${DIR}}"
+MANAGED_NPM=0
+if grep -Eq '"updateMethod"[[:space:]]*:[[:space:]]*"npm"' "${DIR}/RELEASE.json" 2>/dev/null; then
+  MANAGED_NPM=1
+  export FARMING_NPM_PREFIX="${FARMING_NPM_PREFIX:-${HOME}/.farming/npm}"
+  export FARMING_INSTALL_DIR="${FARMING_NPM_PREFIX}/lib/node_modules/farming-code"
+else
+  export FARMING_INSTALL_DIR="${FARMING_INSTALL_DIR:-${DIR}}"
+fi
 export FARMING_INSTALL_CONFIG_FILE="${FARMING_INSTALL_CONFIG_FILE:-${DIR}/config/farming.install.env}"
 
 if [ -f "${DIR}/.farming-install-env" ]; then
@@ -199,11 +206,20 @@ if [ -f "${DIR}/.farming-install-env" ]; then
 fi
 
 if [ "$#" -eq 0 ]; then
-  if [ -d "${DIR}/node_modules" ]; then
+  if [ "${MANAGED_NPM}" = "1" ] && [ -d "${FARMING_INSTALL_DIR}/node_modules" ]; then
+    set -- daemon
+  elif [ -d "${FARMING_INSTALL_DIR}/node_modules" ]; then
     set -- start
   else
     set -- install
   fi
+fi
+
+if [ "${MANAGED_NPM}" = "1" ]; then
+  if [ "${1:-}" = "install" ] || [ ! -f "${FARMING_INSTALL_DIR}/package.json" ]; then
+    exec bash "${DIR}/scripts/install-release.sh" install
+  fi
+  exec "${FARMING_CLI_INSTALL_DIR:-${HOME}/.farming/bin}/farming" "$@"
 fi
 
 case "${1:-}" in
@@ -228,6 +244,7 @@ cat > "${APP_DIR}/RELEASE.json" <<EOF
 {
   "name": "farming",
   "type": "app-bundle",
+  "updateMethod": "$(if glibc_runtime_requested; then printf 'npm'; else printf 'app-bundle'; fi)",
   "releaseVersion": "${RELEASE_VERSION}",
   "packageVersion": "${PACKAGE_VERSION}",
   "gitSha": "${GIT_SHA}",

@@ -73,7 +73,7 @@ Farming uses these practical deployment shapes:
 | macOS and Linux | `npm install --global farming-code` | Default path. Requires Node.js 22 or newer and a system runtime that can load `node-pty`. |
 | Standalone use | platform CLI from GitHub Releases | Manual installation for environments that do not want npm; upgrades remain manual. |
 | Directory deployment | `farming-<version>-<platform>-<arch>.tar.gz` | App bundle with production dependencies and launcher scripts; it uses the target system runtime. |
-| Legacy Linux x64 (glibc < 2.28) | `farming-<version>-linux-x64-legacy-glibc228.tar.gz` | GitHub Release app bundle with a pinned glibc 2.28 runtime. The installer uses it only when the system runtime is older; a Node.js 22 executable is still required. |
+| Legacy Linux x64 (glibc < 2.28) | `farming-<version>-linux-x64-legacy-glibc228.tar.gz` | First-install bootstrap with a pinned glibc 2.28 runtime. It installs Farming under `~/.farming/npm`; later one-click updates use npm like the default installation. A Node.js 22 executable and npm are still required. |
 | Custom older Linux build | `farming-<version>-linux-x64-glibc217.tar.gz` | Separately built bundle that rebuilds `node-pty` against a glibc 2.17 baseline; it still needs a usable target Node.js runtime. |
 
 If you want Farming to launch Codex or Claude Code, install and log in to those CLIs on the same machine first. Farming hosts their CLI sessions; it does not replace their installation or account setup.
@@ -132,7 +132,7 @@ For Linux x64 systems whose glibc is older than 2.28, build the release asset th
 npm run release:app:legacy-linux
 ```
 
-The resulting `farming-<version>-linux-x64-legacy-glibc228.tar.gz` extracts its bundled runtime to `~/.farming/glibc228` and uses it only on older Linux. It does not affect modern Linux or macOS bundles.
+The resulting `farming-<version>-linux-x64-legacy-glibc228.tar.gz` is a bootstrap package. It extracts the runtime to `~/.farming/glibc228`, installs the bundled Farming release into the private prefix `~/.farming/npm`, and writes a stable compatibility launcher at `~/.farming/bin/farming`. Later updates install `farming-code` into that same prefix through npm, then restart with the compatibility launcher; the tarball is not downloaded again for ordinary application updates.
 
 For a separately built `node-pty` ABI baseline, run the following command inside a clean Linux x64 builder that has glibc 2.17, Node.js 22+, GCC/G++, Make, and Python 3:
 
@@ -170,7 +170,7 @@ cd farming-<version>-linux-x64
 ./farming
 ```
 
-The standard bundle uses the target machine's ordinary Node.js and native runtime. On a legacy Linux x64 host, download the `-legacy-glibc228.tar.gz` bundle instead; its launcher activates the bundled runtime only when required.
+The standard bundle uses the target machine's ordinary Node.js and native runtime. On a legacy Linux x64 host, download the `-legacy-glibc228.tar.gz` bundle instead and run `./farming` once. After bootstrap, use `~/.farming/bin/farming`; that stable launcher keeps npm updates, server restarts, and PTY child processes on the bundled compatibility runtime.
 
 ## Development
 
@@ -209,7 +209,7 @@ Common settings:
 
 Native terminal sessions are owned by a Farming pty host reached through a local socket derived from `configDir`. By default the host is preserved during server shutdown so a restarted Farming server can recover live terminals; after the last live session and client disappear, the host shuts itself down after a short idle grace period. Set `FARMING_NATIVE_PTY_HOST_PERSIST=0` to tie the host lifetime to the server process. Terminal work should target the native pty host and xterm.js path.
 
-Update behavior follows the installation method. npm installations read versions from the npm registry and provide one-click upgrades in **Settings → Updates**. Source checkouts update through Git, and standalone CLI artifacts are replaced manually. App-bundle installations can use a trusted HTTP(S) package directory or manifest URL; the updater only offers a bundle matching the current OS and CPU architecture and verifies its checksum before installation. The app-bundle Update URL is stored in `~/.farming/settings.json` as `updateUrl`.
+Update behavior follows the installation method. npm installations and legacy Linux installations bootstrapped from `-legacy-glibc228.tar.gz` read versions from the npm registry and provide one-click upgrades in **Settings → Updates**. They install into their existing npm prefix while the old service remains alive, then restart and roll back on startup failure. Source checkouts update through Git, and standalone CLI artifacts are replaced manually. Standard app-bundle installations remain a directory-deployment path and may use a trusted HTTP(S) package directory or manifest URL stored as `settings.updateUrl`.
 
 The simplest source is an HTTP(S) directory URL ending in `/` that lists platform-tagged `farming-<version>-<platform>-<arch>.tar.gz` app bundles and an adjacent `<bundle>.sha256` file for every bundle. Farming verifies the selected bundle's SHA-256 and archive layout before extraction, then runs its installer.
 

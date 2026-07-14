@@ -44,6 +44,10 @@ function contentText(content) {
     .join('');
 }
 
+function isContextCompactionText(content) {
+  return /^\*?Context compacted(?: to fit the model's context window)?\.?\*?$/i.test(contentText(content).trim());
+}
+
 function canMergeMessageIds(existing, incoming) {
   return !existing || !incoming || existing === incoming;
 }
@@ -62,6 +66,7 @@ class AcpSessionState {
     this.entries = [];
     this.updates = [];
     this.toolEntries = new Map();
+    this.compactionEntries = new Map();
     this.activePlanEntry = null;
     this.plan = null;
     this.usage = null;
@@ -72,7 +77,12 @@ class AcpSessionState {
     this.updatedAt = '';
     this.truncated = false;
     this.sequence = 0;
-    this.revision = 0;
+    this.revision = Number.isFinite(Number(options.revisionBase))
+      ? Math.max(0, Math.floor(Number(options.revisionBase)))
+      : 0;
+    this.resetBeforeRevision = Number.isFinite(Number(options.resetBeforeRevision))
+      ? Math.max(0, Math.floor(Number(options.resetBeforeRevision)))
+      : 0;
   }
 
   setSessionId(sessionId) {
@@ -107,6 +117,7 @@ class AcpSessionState {
       ? clone(prompt)
       : [{ type: 'text', text: String(prompt || '') }];
     this.activePlanEntry = null;
+    const startedAt = Date.now();
     return this.pushEntry({
       id: this.nextEntryId('user'),
       type: 'message',
@@ -114,6 +125,9 @@ class AcpSessionState {
       messageId: '',
       optimistic: true,
       content,
+      turnStartedAt: startedAt,
+      turnCompletedAt: null,
+      turnDurationMs: null,
     });
   }
 
@@ -121,7 +135,30 @@ class AcpSessionState {
     // Runtime completion changes the visible state of the last turn. Touch the
     // existing entry so delta readers can refresh that turn without inventing
     // a protocol entry boundary.
-    this.touchCurrentTurn();
+    const userEntry = this.entries.findLast(entry => entry?.type === 'message' && entry.role === 'user' && entry.turnStartedAt);
+    if (userEntry && !userEntry.turnCompletedAt) {
+      userEntry.turnCompletedAt = Date.now();
+      const startedAt = Number(userEntry.turnStartedAt);
+      const completedAt = Number(userEntry.turnCompletedAt);
+      userEntry.turnDurationMs = Number.isFinite(startedAt) && Number.isFinite(completedAt)
+        ? Math.max(0, completedAt - startedAt)
+        : null;
+      this.touchEntry(userEntry);
+    } else {
+      this.touchCurrentTurn();
+    }
+  }
+
+  recordError(message, kind = 'unknown') {
+    const text = String(message || '').trim();
+    if (!text) return null;
+    return this.pushEntry({
+      id: this.nextEntryId('error'),
+      type: 'error',
+      message: text,
+      kind: String(kind || 'unknown'),
+      status: 'failed',
+    });
   }
 
   finishHistoryReplay() {
@@ -155,6 +192,8 @@ class AcpSessionState {
       this.applyPlan(clone(update.plan));
     } else if (kind === 'plan_removed') {
       this.removePlan();
+    } else if (kind === 'context_compaction' || kind === 'context_compaction_update') {
+      this.applyCompaction(update);
     } else if (kind === 'usage_update') {
       this.usage = clone(update);
     } else if (kind === 'available_commands_update') {
@@ -175,6 +214,16 @@ class AcpSessionState {
     const type = kind === 'agent_thought_chunk' ? 'thought' : 'message';
     const messageId = String(update.messageId || '');
     const last = this.entries[this.entries.length - 1];
+
+    const compactionMeta = update?._meta?.context_compaction;
+    if (kind === 'agent_message_chunk' && (isContextCompactionText([update.content]) || compactionMeta)) {
+      this.applyCompaction({
+        compactionId: compactionMeta?.id || messageId,
+        status: compactionMeta?.status || 'completed',
+        summary: compactionMeta?.summary || '',
+      });
+      return;
+    }
 
     // Farming inserts the local prompt optimistically. ACP Agents may echo the
     // same prompt during live updates; attach its protocol id without rendering
@@ -228,11 +277,23 @@ class AcpSessionState {
       });
       this.toolEntries.set(id, entry);
     }
-    for (const field of ['title', 'kind', 'status', 'content', 'locations', 'rawInput', 'rawOutput']) {
+    for (const field of ['title', 'kind', 'status', 'content', 'locations', 'rawInput', 'rawOutput', '_meta']) {
       if (!isPatch || Object.prototype.hasOwnProperty.call(update, field)) {
         if (update[field] !== undefined) entry[field] = clone(update[field]);
       }
     }
+    this.touchEntry(entry);
+  }
+
+  applyCompaction(update) {
+    const id = String(update.compactionId || update.id || this.nextEntryId('compaction'));
+    let entry = this.compactionEntries.get(id);
+    if (!entry) {
+      entry = this.pushEntry({ id, type: 'compaction', status: 'in_progress', summary: '' });
+      this.compactionEntries.set(id, entry);
+    }
+    if (Object.prototype.hasOwnProperty.call(update, 'status')) entry.status = String(update.status || 'completed');
+    if (Object.prototype.hasOwnProperty.call(update, 'summary')) entry.summary = String(update.summary || '');
     this.touchEntry(entry);
   }
 
@@ -265,7 +326,10 @@ class AcpSessionState {
       ? Math.max(1, Math.floor(Number(options.maxTurns)))
       : 80;
     const requestedRevision = Number(options.sinceRevision);
-    const delta = Number.isFinite(requestedRevision) && requestedRevision >= 0;
+    const resetRequired = this.resetBeforeRevision > 0
+      && Number.isFinite(requestedRevision)
+      && requestedRevision <= this.resetBeforeRevision;
+    const delta = Number.isFinite(requestedRevision) && requestedRevision >= 0 && !resetRequired;
     let startIndex = 0;
 
     if (delta) {

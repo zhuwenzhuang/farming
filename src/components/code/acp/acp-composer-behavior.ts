@@ -79,3 +79,16 @@ export function respondToAcpPermission(
     body: JSON.stringify({ requestId, optionId, cancelled }),
   })
 }
+
+export function respondToAcpElicitation(
+  agentId: string,
+  requestId: string,
+  action: 'accept' | 'decline' | 'cancel',
+  content?: Record<string, string | number | boolean | string[]>,
+) {
+  return fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-elicitation`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requestId, action, content }),
+  })
+}

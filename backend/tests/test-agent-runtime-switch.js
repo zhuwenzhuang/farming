@@ -90,6 +90,36 @@ const AgentManager = require('../agent-manager');
   assert.strictEqual(started.options.agentRuntimeMode, 'acp');
   assert.strictEqual(acpResult.agentRuntimeMode, 'acp');
 
+  manager.agents.set('agent-live-acp-switch', {
+    id: 'agent-live-acp-switch',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: sessionId,
+    providerSessionTemporary: false,
+    providerHomeId: 'zwz',
+    providerHomePath: codexHome,
+    providerSessionTitle: 'Fresh ACP demo',
+    agentRuntimeMode: 'acp',
+    acpState: 'idle',
+    status: 'running',
+    output: '',
+  });
+  const originalGetAcpSession = manager.acpRuntime.getSession.bind(manager.acpRuntime);
+  const originalFindRuntimeSwitchSession = manager.findRuntimeSwitchSession.bind(manager);
+  manager.acpRuntime.getSession = () => ({ sessionId, state: 'idle' });
+  manager.findRuntimeSwitchSession = async () => null;
+  killed = '';
+  started = null;
+  const liveAcpResult = await manager.restartAgentRuntimeMode('agent-live-acp-switch', 'terminal');
+  assert.strictEqual(killed, 'agent-live-acp-switch');
+  assert.strictEqual(started.options.agentRuntimeMode, 'terminal');
+  assert.strictEqual(liveAcpResult.agentRuntimeMode, 'terminal');
+  manager.acpRuntime.getSession = originalGetAcpSession;
+  manager.findRuntimeSwitchSession = originalFindRuntimeSwitchSession;
+
   manager.agents.set('agent-app-server-switch', {
     id: 'agent-app-server-switch',
     command: 'codex',

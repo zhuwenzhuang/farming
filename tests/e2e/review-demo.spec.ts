@@ -1,4 +1,12 @@
+import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { expect, test } from '@playwright/test'
+
+function git(root: string, ...args: string[]) {
+  return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim()
+}
 
 test('keeps Gerrit-style review controls and independent inline diffs working', async ({ page }) => {
   await page.goto('/farming/review-demo')
@@ -1103,4 +1111,82 @@ test('restores an optimistic comment when the review API rejects it', async ({ p
   await page.getByRole('button', { name: 'SAVE COMMENT' }).click()
   await expect(review.getByText('Could not save comment: comment store unavailable', { exact: true })).toBeVisible()
   await expect(diagnoseDiff.getByText('This must not remain local only.', { exact: true })).toHaveCount(0)
+})
+
+test('switches every comparison source against a real Git repository', async ({ page }) => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-sources-'))
+  try {
+    git(temporaryRoot, 'init', '-b', 'main')
+    git(temporaryRoot, 'config', 'user.email', 'review-sources@example.com')
+    git(temporaryRoot, 'config', 'user.name', 'Review Sources')
+    git(temporaryRoot, 'config', 'core.hooksPath', '/dev/null')
+    fs.writeFileSync(path.join(temporaryRoot, 'alpha.txt'), 'alpha base\n')
+    git(temporaryRoot, 'add', '.')
+    git(temporaryRoot, 'commit', '-m', 'Source base')
+    fs.writeFileSync(path.join(temporaryRoot, 'alpha.txt'), 'alpha improved\n')
+    git(temporaryRoot, 'add', 'alpha.txt')
+    git(temporaryRoot, 'commit', '-m', 'Improve alpha')
+    fs.writeFileSync(path.join(temporaryRoot, 'beta.txt'), 'beta introduced\n')
+    git(temporaryRoot, 'add', 'beta.txt')
+    git(temporaryRoot, 'commit', '-m', 'Add beta')
+    const headShort = git(temporaryRoot, 'rev-parse', '--short', 'HEAD')
+    git(temporaryRoot, 'branch', 'comparison-baseline', 'HEAD~1')
+    fs.writeFileSync(path.join(temporaryRoot, 'alpha.txt'), 'alpha staged\n')
+    git(temporaryRoot, 'add', 'alpha.txt')
+    fs.writeFileSync(path.join(temporaryRoot, 'alpha.txt'), 'alpha unstaged\n')
+    fs.writeFileSync(path.join(temporaryRoot, 'loose.txt'), 'loose\n')
+
+    await page.goto(`/farming/review?root=${encodeURIComponent(temporaryRoot)}`)
+    const review = page.getByTestId('review-demo-page')
+    const sourceTrigger = review.locator('.review-demo-source-trigger')
+    await expect(sourceTrigger).toHaveText(/Last Turn/)
+    await expect(review.getByText('Change summary', { exact: true })).toBeVisible()
+    await expect(review.locator('[data-file-path="alpha.txt"]')).toBeVisible()
+    await expect(review.locator('[data-file-path="loose.txt"]')).toBeVisible()
+
+    await sourceTrigger.click()
+    await review.getByRole('menuitemradio', { name: 'Unstaged', exact: true }).click()
+    await expect(sourceTrigger).toHaveText(/Unstaged/)
+    await expect(review.getByText('Change summary', { exact: true })).toBeVisible()
+    await expect(review.locator('[data-file-path="alpha.txt"]')).toBeVisible()
+    await expect(review.locator('[data-file-path="loose.txt"]')).toBeVisible()
+
+    await sourceTrigger.click()
+    await review.getByRole('menuitemradio', { name: 'Staged', exact: true }).click()
+    await expect(sourceTrigger).toHaveText(/Staged/)
+    await expect(review.locator('[data-file-path="alpha.txt"]')).toBeVisible()
+    await expect(review.locator('[data-file-path="loose.txt"]')).toHaveCount(0)
+    await expect(review.getByText('Staged changes', { exact: true })).toBeVisible()
+    await expect(review.getByText('Index summary', { exact: true })).toBeVisible()
+    await expect(review.locator('.review-demo-navigator')).toHaveCount(0)
+
+    await sourceTrigger.click()
+    const commitSources = review.locator('details.review-demo-source-submenu').filter({ hasText: 'Commit' })
+    await commitSources.locator('summary').click()
+    await review.getByRole('menuitemradio', { name: `${headShort} Add beta`, exact: true }).click()
+    await expect(sourceTrigger).toHaveText(`Commit · ${headShort} Add beta`)
+    await expect(review.getByText('Commit message', { exact: true })).toBeVisible()
+    await expect(review.locator('[data-file-path="beta.txt"]')).toBeVisible()
+
+    await sourceTrigger.click()
+    const branchSources = review.locator('details.review-demo-source-submenu').filter({ hasText: 'Branch' })
+    await branchSources.locator('summary').click()
+    await review.getByRole('menuitemradio', { name: 'comparison-baseline', exact: true }).click()
+    await expect(sourceTrigger).toHaveText('Branch · comparison-baseline')
+    await expect(review.getByText('Commit message', { exact: true })).toBeVisible()
+    await expect(review.locator('[data-file-path="beta.txt"]')).toBeVisible()
+
+    await sourceTrigger.click()
+    await review.getByRole('menuitemradio', { name: 'Last Turn', exact: true }).click()
+    await expect(sourceTrigger).toHaveText(/Last Turn/)
+    await expect(review.getByText('Change summary', { exact: true })).toBeVisible()
+    expect(await review.locator('.review-demo-review-scroll').evaluate(element => (
+      element.getBoundingClientRect().height >= window.innerHeight - 62
+    ))).toBe(true)
+    expect(await review.locator('.review-demo-review-scroll').evaluate(element => (
+      element.getBoundingClientRect().width >= window.innerWidth - 1
+    ))).toBe(true)
+  } finally {
+    fs.rmSync(temporaryRoot, { force: true, recursive: true })
+  }
 })

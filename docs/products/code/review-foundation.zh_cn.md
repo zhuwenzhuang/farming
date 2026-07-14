@@ -38,6 +38,23 @@ API 不是 Gerrit `/changes/...` 路由的逐字节复刻。Farming 保留 Gerri
 
 所以如果问 “Farming 的 API 是否完全 Gerrit-compatible？”答案是否定的。目标契约更窄也更明确：状态机、文件身份模型、reviewed primitive、lazy diff loading 要和 Gerrit 对齐；route prefix 和 snapshot envelope 是 Farming 自己的，因为本地 working copy 和任意 commit range 没有 Gerrit change number。
 
+## 比较来源与审阅工作区
+
+比较来源选择器表达真实数据语义，不是只改一个展示标签。`GET /api/reviews/comparison-sources` 会把当前 workspace 解析成真实 Git range：
+
+- **Unstaged**：比较当前 index tree 与 working tree，并包含 untracked 文件；
+- **Staged**：比较 `HEAD` 与当前 index tree；
+- **Commit**：比较最近某个 commit 与它的第一个 parent；
+- **Branch**：比较当前 `HEAD` 与所选本地或远端 branch 的 merge base；
+- **Last Turn**：返回由 ACP 触发并已不可变捕获的 review revision，继续沿用它的 `reviewId` 边界。
+
+Index tree 通过 `git write-tree` 生成 Git object，不会修改用户的 index 或 working tree。Unstaged / Staged 为空时仍显示，但处于 disabled 状态，让用户能看懂为什么不能选择。切换比较来源会建立新的 snapshot identity，不能错误复用另一段 range 的 reviewed path 或 comment。
+与当前 `HEAD` 相同、或和当前历史没有共同 merge base 的 branch 不会进入候选列表，因为它们不能形成有意义的比较区间。Working tree 和 index 来源使用变更摘要语义，不会把尚未提交的状态误写成 commit message。
+
+ACP 的 **File Changes** 审阅必须来自所引用的 tool item，不能按那些路径重新捕获当前 working tree。`POST /api/review-sessions/acp` 会在后端解析 ACP diff block，并把当时精确的 `oldText` / `newText` 写成受引用保护的 base/head Git tree。因此之后发生 commit、再次编辑或删除，都不会改变历史 Last Turn 审阅。Agent workspace 内的绝对路径会归一化为 workspace-relative path；workspace 外的路径会被排除，避免把无关文件带进审阅。
+
+Review workspace 使用单栏 Gerrit-style file-list-first 布局。按顺序排列的文件行本身就是导航：每行展示变更摘要，就地展开 inline diff，并承载 comment 与 reviewed action，不再在右侧重复投影同一份文件目录。视觉语言跟随 Farming Code，但 reviewed/comment 生命周期仍以 Gerrit 语义为准。
+
 ## CLI 入口
 
 使用 `farming review <git-dir> <old-revision> <new-revision|now>` 可以直接打开一个本地 review target，不必先创建 agent。`--branch <branch>` 可选；未指定时使用所给 Git 目录当前 checkout 的分支。CLI 会先把 `HEAD` 及其相对 revision 按这个分支解析，再生成 URL，因此分支在页面打开后推进也不会改变这次比较。

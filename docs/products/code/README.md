@@ -93,7 +93,7 @@ farming daemon
 
 This path supports one-click updates from **Settings → Updates**. Platform-specific CLI executables remain available as manual-install artifacts.
 
-The app bundle is a directory-deployment alternative with a root `./farming` launcher and production dependencies. It uses the target machine's ordinary Node.js and native runtime; Farming does not bundle or install a private system C library.
+The standard app bundle is a directory-deployment alternative with a root `./farming` launcher and production dependencies. The separate legacy Linux x64 tarball is a first-install bootstrap: it supplies the glibc compatibility layer, installs Farming into a private npm prefix, and then uses the normal npm update path.
 
 ### Prerequisites
 
@@ -133,7 +133,7 @@ Defaults:
 - token auth: enabled; the first token is stored in `~/.farming/.session-token` and reused across restarts and upgrades
 - settings file: created automatically at first startup
 
-npm installations read published `farming-code` versions from the npm registry. Open **Settings → Updates** to install a selected newer version in one click; the old server remains alive until package installation succeeds, and Farming attempts to restore the previous version if the new server cannot start. Source checkouts update through Git and standalone CLI artifacts update manually. App-bundle installations keep the configurable Update URL in `~/.farming/settings.json`; their bundles are checksum-verified and matched to OS/CPU. The same Settings panel manages provider **Agent Homes**.
+npm installations and legacy Linux installations bootstrapped from the compatibility tarball read published `farming-code` versions from the npm registry. Open **Settings → Updates** to install a selected newer version in one click; the old server remains alive until package installation succeeds, and Farming attempts to restore the previous version if the new server cannot start. Source checkouts update through Git and standalone CLI artifacts update manually. Standard app-bundle installations retain the checksum-verified Update URL path for directory deployments. The same Settings panel manages provider **Agent Homes**.
 
 The simplest source is an HTTP(S) directory URL ending in `/` that lists platform-tagged `farming-<version>-<platform>-<arch>.tar.gz` app bundles and an adjacent `<bundle>.sha256` file for every bundle. Farming verifies the selected bundle's SHA-256 and archive layout before extraction.
 
@@ -186,7 +186,7 @@ Build an explicit target:
 FARMING_CLI_TARGETS=node22-linux-x64 npm run release:cli
 ```
 
-macOS and Linux single-file CLI artifacts use `@yao-pkg/pkg` with a modern Node runtime. The Linux single-file CLI is smoke-tested for server startup; Linux native PTY / agent startup is smoke-tested through the app bundle. Standard release forms rely on the target system runtime. GitHub Releases also publishes a Linux x64 legacy app bundle, `farming-<release>-linux-x64-legacy-glibc228.tar.gz`, for systems whose glibc is older than 2.28; it carries a pinned runtime that the installer activates only on those systems.
+macOS and Linux single-file CLI artifacts use `@yao-pkg/pkg` with a modern Node runtime. The Linux single-file CLI is smoke-tested for server startup; Linux native PTY / agent startup is smoke-tested through the app bundle. Standard release forms rely on the target system runtime. GitHub Releases also publishes `farming-<release>-linux-x64-legacy-glibc228.tar.gz` for systems whose glibc is older than 2.28. That tarball bootstraps `~/.farming/glibc228`, `~/.farming/npm`, and `~/.farming/bin/farming`; ordinary later releases come from npm rather than another compatibility tarball.
 
 The release script builds the frontend with Vite, bundles the backend runtime through esbuild, packages the executable, writes checksums and a manifest, and runs a basic `strings` scan to catch accidental source or debug markers.
 
@@ -219,7 +219,7 @@ cd farming-2-linux-x64
 
 With no arguments, the root launcher prepares the runtime, writes `.farming-install-env`, starts the service, and prints the token URL. If production dependencies are missing, it falls back to `./farming install`.
 
-For Linux x64 with glibc older than 2.28, download and unpack `farming-<release>-linux-x64-legacy-glibc228.tar.gz` using the same steps. Its installer extracts the bundled runtime to `~/.farming/glibc228` and uses it only for that legacy host.
+For Linux x64 with glibc older than 2.28, download and unpack `farming-<release>-linux-x64-legacy-glibc228.tar.gz` using the same steps. Its installer extracts the bundled runtime to `~/.farming/glibc228`, installs Farming under `~/.farming/npm`, and creates `~/.farming/bin/farming`. Use that stable launcher after bootstrap. **Settings → Updates** and manual npm updates keep using the private prefix and compatibility launcher.
 
 Common commands:
 

@@ -39,13 +39,17 @@ Desktop sidebar entries:
 | Key | Action | State |
 | --- | --- | --- |
 | N | NEW AGENT | enabled |
-| L | TASK LIST | enabled |
+| F | SEARCH | enabled |
 | H | HISTORY | enabled |
 | K | SKILLS | enabled |
 | $ | BILLING | enabled |
 | S | SETTINGS | enabled |
 
 Zombie cleanup does not get its own sidebar item. Zombie state appears on agent cards and in backend lifecycle rules.
+
+Search replaces the former Task List slot. It opens a full-height search view in the Agents Layout region, keeps the query prompt focused, and combines live project Agents with unclaimed provider-session matches from the shared backend search API.
+
+Billing replaces its former placeholder with a full-height token-telemetry view. Days is the default: a 52-week daily processed-token heatmap whose non-zero days are ranked at the 50th, 75th, 90th, and 98th percentiles, reserving the brightest level for the top two percent. Processed totals include cache reads and combine every configured Codex and Claude Home with available OpenCode exports; unavailable providers remain explicitly identified. Compact today, 7-day, 30-day, period, and peak meters accompany an exact selected-day breakdown. Arrow keys move the selected date. Live remains a secondary 60-minute Canvas oscilloscope with current signal, integral, peak rate, and active buckets. Provider channels and quota windows remain visible without inventing monetary costs or unavailable quota values. `$` opens Billing, `D` and `L` switch views, `R` refreshes it, and Escape returns to the Agent dashboard.
 
 ## Main Agent Panel
 

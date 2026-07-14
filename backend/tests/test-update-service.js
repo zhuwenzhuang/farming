@@ -669,6 +669,13 @@ async function run() {
   fs.mkdirSync(path.join(npmRoot, '.git'));
   assert.strictEqual(detectInstallMethod(npmRoot), 'source');
   fs.rmSync(path.join(npmRoot, '.git'), { recursive: true, force: true });
+  fs.writeFileSync(path.join(npmRoot, 'RELEASE.json'), JSON.stringify({
+    type: 'app-bundle',
+    updateMethod: 'npm',
+    releaseVersion: '2.2.5',
+  }));
+  assert.strictEqual(detectInstallMethod(npmRoot), 'npm');
+  fs.rmSync(path.join(npmRoot, 'RELEASE.json'));
   assert.strictEqual(npmPackageMetadataUrl('https://registry.npmjs.org/', 'farming-code'), 'https://registry.npmjs.org/farming-code');
   const npmMetadata = {
     'dist-tags': { latest: '2.3.0' },
@@ -703,14 +710,29 @@ async function run() {
   assert.strictEqual(npmStatus.current.type, 'npm');
   assert.strictEqual(npmStatus.latest.version, '2.3.0');
   assert.deepStrictEqual(npmStatus.versions.map(version => version.version), ['2.3.0', '2.2.6', '2.2.5']);
+  const previousNodeBin = process.env.FARMING_NODE_BIN;
+  const previousNpmCommand = process.env.FARMING_NPM_COMMAND;
+  const previousNpmPrefix = process.env.FARMING_NPM_PREFIX;
+  process.env.FARMING_NODE_BIN = '/opt/farming/runtime/bin/node';
+  process.env.FARMING_NPM_COMMAND = '/opt/farming/runtime/bin/npm';
+  process.env.FARMING_NPM_PREFIX = '/opt/farming/npm';
   const npmInstallState = await npmService.startInstall({ assetName: '2.2.6' });
+  if (previousNodeBin === undefined) delete process.env.FARMING_NODE_BIN;
+  else process.env.FARMING_NODE_BIN = previousNodeBin;
+  if (previousNpmCommand === undefined) delete process.env.FARMING_NPM_COMMAND;
+  else process.env.FARMING_NPM_COMMAND = previousNpmCommand;
+  if (previousNpmPrefix === undefined) delete process.env.FARMING_NPM_PREFIX;
+  else process.env.FARMING_NPM_PREFIX = previousNpmPrefix;
   assert.strictEqual(npmInstallState.phase, 'installing');
   assert.strictEqual(npmSpawned.length, 1);
-  assert.strictEqual(npmSpawned[0].command, process.execPath);
+  assert.strictEqual(npmSpawned[0].command, '/opt/farming/runtime/bin/node');
   const npmUpdatePayload = JSON.parse(npmSpawned[0].options.env.FARMING_NPM_UPDATE_PAYLOAD);
   assert.strictEqual(npmUpdatePayload.targetVersion, '2.2.6');
   assert.strictEqual(npmUpdatePayload.previousVersion, '2.2.5');
   assert.strictEqual(npmUpdatePayload.configDir, npmConfigDir);
+  assert.strictEqual(npmUpdatePayload.nodePath, '/opt/farming/runtime/bin/node');
+  assert.strictEqual(npmUpdatePayload.npmCommand, '/opt/farming/runtime/bin/npm');
+  assert.strictEqual(npmUpdatePayload.npmPrefix, '/opt/farming/npm');
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(npmConfigDir, 'farming-update.json'), 'utf8')).phase, 'installing');
   const sourceServiceWithNpmState = new FarmingUpdateService({
     rootDir: path.join(__dirname, '..', '..'),

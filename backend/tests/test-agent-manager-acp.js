@@ -54,6 +54,28 @@ async function run() {
       model_reasoning_effort: 'xhigh',
       service_tier: 'priority',
     });
+    const elicitationPromise = runtime.requestElicitation(binding, {
+      sessionId: binding.sessionId,
+      mode: 'form',
+      message: 'Confirm from manager state',
+      requestedSchema: {
+        type: 'object',
+        properties: { confirmed: { type: 'boolean' } },
+        required: ['confirmed'],
+      },
+    });
+    const waitingAgent = manager.getState().agents.find(agent => agent.id === agentId);
+    assert.strictEqual(waitingAgent.acpState, 'waiting-for-input');
+    assert.strictEqual(waitingAgent.acpPendingElicitation.message, 'Confirm from manager state');
+    assert.strictEqual(waitingAgent.acpPendingElicitations.length, 1);
+    manager.respondToAcpElicitation(
+      agentId,
+      waitingAgent.acpPendingElicitation.requestId,
+      'accept',
+      { confirmed: true },
+    );
+    assert.deepStrictEqual(await elicitationPromise, { action: 'accept', content: { confirmed: true } });
+    assert.strictEqual(manager.getState().agents.find(agent => agent.id === agentId).acpPendingElicitations.length, 0);
 
     const result = await manager.sendComposerMessage(agentId, 'manager prompt');
     assert.strictEqual(result.kind, 'acp');
@@ -71,9 +93,23 @@ async function run() {
     assert.strictEqual(imagePrompt.content[1].type, 'image');
     const listed = await manager.listAcpSessions(agentId);
     assert.strictEqual(listed.sessions.length, 1);
-    assert.strictEqual(manager.getAcpTranscript(agentId).turns[0].finalMessage, 'ACP reply');
+    const rawTranscript = manager.getAcpTranscript(agentId);
+    assert.strictEqual('turns' in rawTranscript, false, 'ACP Turn/Item projection belongs to the frontend');
+    assert.strictEqual(
+      rawTranscript.entries.find(item => item.role === 'assistant').content[0].text,
+      'ACP reply',
+    );
     assert.strictEqual((await manager.forkAcpSession(agentId)).sessionId, 'acp-fork-session');
     assert.strictEqual((await manager.setAcpSessionMode(agentId, 'plan')).modeId, 'plan');
+    const subagentResult = await manager.sendComposerMessage(agentId, 'subagent preview');
+    assert.strictEqual(subagentResult.stopReason, 'end_turn');
+    const subagentDetail = manager.getAcpToolDetail(agentId, 'subagent-tool');
+    assert.strictEqual(subagentDetail.subagentSession.sessionId, 'acp-child-session');
+    assert.strictEqual('turns' in subagentDetail.subagentSession, false);
+    assert.strictEqual(
+      subagentDetail.subagentSession.entries.filter(item => item.role === 'assistant').at(-1).content[0].text,
+      'The parser is consistent.',
+    );
     assert.strictEqual(nativeMetadataUpdateCount, 0, 'ACP sessions must not update native PTY metadata');
   } finally {
     await manager.dispose();
@@ -105,6 +141,96 @@ async function run() {
     });
   } finally {
     await recoveryManager.dispose();
+  }
+
+  let recoveredQoderExecutable = '';
+  const qoderRecoveryRuntime = new AcpRuntime({
+    resolveLaunch: (_provider, options) => {
+      recoveredQoderExecutable = options.executable;
+      return { command: process.execPath, args: [fixture], version: 'test' };
+    },
+  });
+  const qoderRecoveryManager = new AgentManager(config({
+    listAgentSessionRecords: () => [{
+      id: 'fsess-qoder-recovered',
+      runtimeAgentId: 'agent-qoder-recovered',
+      agentRuntimeMode: 'acp',
+      providerSessionProvider: 'qoder',
+      providerSessionId: 'existing-session',
+      cwd: process.cwd(),
+      status: 'running',
+    }],
+  }), { acpRuntime: qoderRecoveryRuntime });
+  try {
+    await qoderRecoveryManager.recoverAcpSessions();
+    assert.strictEqual(path.basename(recoveredQoderExecutable), 'qodercli');
+    assert.strictEqual(qoderRecoveryManager.agents.get('agent-qoder-recovered').agentRuntimeMode, 'acp');
+  } finally {
+    await qoderRecoveryManager.dispose();
+  }
+
+  const authoritativeRecord = {
+    id: 'fsess-acp-over-stale-pty',
+    runtimeAgentId: 'agent-acp-over-stale-pty',
+    agentRuntimeMode: 'acp',
+    providerSessionProvider: 'codex',
+    providerSessionId: 'existing-session',
+    command: 'codex resume existing-session',
+    cwd: process.cwd(),
+    category: 'coding',
+    status: 'running',
+  };
+  const recoveryWrites = [];
+  const stalePtyRuntime = new AcpRuntime({
+    resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
+  });
+  const stalePtyManager = new AgentManager(config({
+    listAgentSessionRecords: () => [{ ...authoritativeRecord }],
+    ensureAgentSessionRecord: agent => {
+      recoveryWrites.push(agent.agentRuntimeMode);
+      Object.assign(authoritativeRecord, {
+        runtimeAgentId: agent.id,
+        agentRuntimeMode: agent.agentRuntimeMode,
+        acpState: agent.acpState,
+      });
+      return authoritativeRecord.id;
+    },
+  }), { acpRuntime: stalePtyRuntime });
+  const killedRecoveredSessions = [];
+  stalePtyManager.engineBridge = {
+    async recoverSessions() {
+      return [{
+        engineName: 'native',
+        agentId: authoritativeRecord.runtimeAgentId,
+        metadata: {
+          agentId: authoritativeRecord.runtimeAgentId,
+          command: authoritativeRecord.command,
+          cwd: authoritativeRecord.cwd,
+          category: 'coding',
+          agentRuntimeMode: 'terminal',
+        },
+        state: { status: 'running', startedAt: Date.now() - 1_000 },
+      }];
+    },
+    async killSession(engineName, sessionId) {
+      killedRecoveredSessions.push({ engineName, sessionId });
+    },
+    getEngine() {
+      return null;
+    },
+    dispose() {},
+  };
+  try {
+    await stalePtyManager.recoverEngineSessions();
+    assert.deepStrictEqual(killedRecoveredSessions, [{
+      engineName: 'native',
+      sessionId: 'agent-acp-over-stale-pty',
+    }]);
+    assert.strictEqual(stalePtyManager.agents.get('agent-acp-over-stale-pty').agentRuntimeMode, 'acp');
+    assert(stalePtyRuntime.bindings.has('agent-acp-over-stale-pty'));
+    assert(!recoveryWrites.includes('terminal'), 'stale PTY recovery must not overwrite the persisted ACP mode');
+  } finally {
+    await stalePtyManager.dispose();
   }
   console.log('agent manager ACP tests passed');
 }

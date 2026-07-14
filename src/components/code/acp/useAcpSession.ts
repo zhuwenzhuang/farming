@@ -6,6 +6,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   const [session, setSession] = useState<AcpSessionSnapshot | null>(null)
   const [error, setError] = useState('')
   const [updatingId, setUpdatingId] = useState('')
+  const [authenticatingId, setAuthenticatingId] = useState('')
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     if (!agentId || !active) return
@@ -26,6 +27,12 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
     void refresh(controller.signal)
     return () => controller.abort()
   }, [refresh, runtimeState])
+
+  useEffect(() => {
+    if (!session?.authTerminal || !['running', 'completed'].includes(session.authTerminal.state)) return undefined
+    const timer = window.setInterval(() => { void refresh() }, 500)
+    return () => window.clearInterval(timer)
+  }, [refresh, session?.authTerminal?.state, session?.authTerminal?.terminalId])
 
   const patchSession = useCallback(async (id: string, patch: Record<string, unknown>) => {
     if (!agentId || updatingId) return false
@@ -69,5 +76,27 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
     [patchSession],
   )
 
-  return { session, error, updatingId, setMode, setConfigOption }
+  const authenticate = useCallback(async (methodId: string) => {
+    if (!agentId || authenticatingId) return false
+    setAuthenticatingId(methodId)
+    try {
+      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-session/authenticate`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ methodId }),
+      })
+      const body = await response.json().catch(() => null) as { error?: string } | null
+      if (!response.ok) throw new Error(body?.error || `Failed to authenticate ACP Agent (${response.status})`)
+      setError('')
+      await refresh()
+      return true
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'Failed to authenticate ACP Agent')
+      return false
+    } finally {
+      setAuthenticatingId('')
+    }
+  }, [agentId, authenticatingId, refresh])
+
+  return { session, error, updatingId, authenticatingId, setMode, setConfigOption, authenticate }
 }

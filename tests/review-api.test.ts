@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  createAcpReviewSession,
   createReviewSession,
   deleteReviewComment,
   loadGitRangeReviewFile,
+  loadAcpReviewPreview,
   loadReviewedFiles,
   loadReviewComments,
+  loadReviewComparisonSources,
   loadReviewDiffSnapshot,
   loadReviewFileContext,
   loadReviewFileDiff,
@@ -115,6 +118,30 @@ test('loads a direct-root git range without fabricating an agent id', async () =
   }
 })
 
+test('loads semantic comparison sources for the review workspace', async () => {
+  const previousFetch = globalThis.fetch
+  const calls: string[] = []
+  globalThis.fetch = async input => {
+    calls.push(String(input))
+    return jsonResponse({
+      branches: [{ base: '1'.repeat(40), head: '2'.repeat(40), id: 'branch:main', label: 'main' }],
+      commits: [{ base: '1'.repeat(40), head: '2'.repeat(40), id: `commit:${'2'.repeat(40)}`, label: '2222222 Review UI' }],
+      currentBranch: 'feature/review',
+      root: '/workspace/direct',
+      staged: { available: true, base: '1'.repeat(40), head: '2'.repeat(40), id: 'staged', label: 'Staged' },
+      unstaged: { available: false, base: '2'.repeat(40), head: 'now', id: 'unstaged', label: 'Unstaged' },
+    })
+  }
+  try {
+    const sources = await loadReviewComparisonSources({ root: '/workspace/direct' })
+    assert.equal(sources.currentBranch, 'feature/review')
+    assert.equal(sources.staged.available, true)
+    assert.deepEqual(calls, ['/api/reviews/comparison-sources?root=%2Fworkspace%2Fdirect'])
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})
+
 test('captures and refreshes immutable review session revisions', async () => {
   const previousFetch = globalThis.fetch
   const reviewId = `review-${'a'.repeat(32)}`
@@ -137,12 +164,19 @@ test('captures and refreshes immutable review session revisions', async () => {
   const calls: Array<{ body?: string; method?: string; url: string }> = []
   globalThis.fetch = async (input, init) => {
     calls.push({ body: init?.body as string | undefined, method: init?.method, url: String(input) })
+    if (String(input).endsWith('/acp/preview')) return jsonResponse({
+      changes: [{ added: 1, diff: '+new', kind: 'updated', path: 'src/a.ts', removed: 1 }],
+    })
     if (String(input).endsWith('/revisions')) return jsonResponse(second, 201)
     if (init?.method === 'POST') return jsonResponse(first, 201)
     return jsonResponse({ ...second, revisions: [first, second] })
   }
   try {
     assert.deepEqual(await createReviewSession({ root: '/workspace/direct' }, 'HEAD'), first)
+    assert.deepEqual(await createAcpReviewSession('agent-1', ['tool-1', 'tool-2']), first)
+    assert.deepEqual(await loadAcpReviewPreview('agent-1', ['tool-1', 'tool-2']), [
+      { added: 1, diff: '+new', kind: 'updated', path: 'src/a.ts', removed: 1 },
+    ])
     assert.deepEqual(await refreshReviewSession(reviewId), second)
     assert.equal((await loadReviewSession(reviewId)).revisions.length, 2)
     const fixesRequest = reviewRequestForSessionRevision(second, 'fixes')
@@ -157,9 +191,15 @@ test('captures and refreshes immutable review session revisions', async () => {
     assert.equal(reviewSnapshotUrl(fixesRequest), `/api/reviews/git-range?root=%2Fworkspace%2Fdirect&base=${first.head}&head=${second.head}&metadataOnly=1&reviewId=${reviewId}`)
     assert.deepEqual(calls.map(call => [call.url, call.method]), [
       ['/api/review-sessions', 'POST'],
+      ['/api/review-sessions/acp', 'POST'],
+      ['/api/review-sessions/acp/preview', 'POST'],
       [`/api/review-sessions/${reviewId}/revisions`, 'POST'],
       [`/api/review-sessions/${reviewId}`, undefined],
     ])
+    assert.deepEqual(JSON.parse(calls[2]?.body || '{}'), {
+      agentId: 'agent-1',
+      itemIds: ['tool-1', 'tool-2'],
+    })
   } finally {
     globalThis.fetch = previousFetch
   }

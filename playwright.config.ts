@@ -74,6 +74,7 @@ export default defineConfig({
       FARMING_BASE_PATH: '/farming',
       FARMING_DISABLE_AUTH: '1',
       FARMING_E2E_FAKE_EXECUTABLES: '1',
+      FARMING_E2E_FAKE_ACP_AGENT: '1',
       VITE_FARMING_BLAME_AUTHOR_URL_TEMPLATE: 'https://example.invalid/users/{author}',
       NODE_ENV: 'test',
     },

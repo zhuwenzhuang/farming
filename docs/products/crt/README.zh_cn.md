@@ -14,6 +14,10 @@ CRT 现有的可交互界面支持统一的方向键导航。方向键可以在 
 
 打开 New Agent 时，前端会绕过浏览器和代理缓存，后端对用户 shell 环境与可执行程序发现最多复用 3 秒；真正启动进程时使用同一份有界结果，超过窗口就重新解析。打开 History 采用相同规则：3 秒内的请求共享一次 provider session 扫描，结果超过窗口后则等待刷新完成，而不是返回供被动读取使用的 stale-while-refresh 快照。
 
+原先禁用的 Task List 位置现在是 Search。按 `[F] SEARCH` 会打开荧光查询终端：当前项目 Agent 在前端本地匹配，可恢复的 Codex、Claude Code、OpenCode 与 Qoder 记录则复用 Farming Code 的有界 Agent session 搜索接口。搜索范围包括标题、配置后的项目名和工作区路径；实时 Agent 排在 provider session 之前，已经被实时 Agent 占用的 session 会被去重。查询框保持键盘焦点时，上下方向键移动记录，Enter 打开或恢复当前记录，Escape 返回 Agent 主页。
+
+按 `[$] BILLING` 打开的是 CRT token 遥测控制台，而不是金额账单页。默认 Days 视图会归集所有已配置 Codex、Claude Agent Home，并读取经过 sanitize 的 OpenCode session export，绘制最近 52 周的贡献图式日热力图；每条事件按本地日期归集，跨午夜 session 会正确拆到不同日期。这里的总量是 provider 报告的 processed tokens，包含 cache read，不代表金额或额度消耗。顶部汇总今天、近 7 天、近 30 天、整个周期和峰值日；鼠标或方向键选中日期后，会展示当天精确总量、输入、输出、缓存读取、缓存写入和 provider 拆分，今天明确标记为未结束的 partial day。Codex 历史首次归集优先使用 ripgrep 做有界扫描；没有 ripgrep 时只读取有界文件尾，并把响应标为 partial，避免把不完整历史冒充精确值。OpenCode export 按 session 更新时间缓存。Qoder 本地 session 文件没有模型 Token 字段，因此界面会把它明确标为不可用，而不会用终端输出量估算。按 `[L] LIVE` 仍可查看最近 60 分钟、30 个时间桶的 Canvas 示波器、最近五分钟 provider 速率、额度窗口和重置时间。被动 LIVE 读取最多复用后端结果 15 秒并保留 stale-while-refresh 保护，较重的日汇总最多复用 5 分钟；打开 Billing 或按 `R` 会强制刷新两层数据，页面可见期间每 30 秒请求一次更新。没有额度遥测时会明确说明，但仍继续展示本机实际观察到的 token 活动。
+
 History 与 Farming Code 保持相同能力范围，不另建 CRT 专属归档模型。它合并 Farming 运行记录、已归档的实时 Agent 和未被主页占用的 provider session，并按相同会话身份去重。后端只为 Farming 明确支持的 Coding Agent 读写运行历史，shell 和未知命令不会进入 History；每一行都会同时标明 Coding Agent 名称和工作区。按 `H` 打开 History，上下方向键移动选择，Enter 执行主要的 Continue、Open 或 Resume 操作，Escape 返回 Agent 主页；已归档 Agent 还提供 Restore。每页数量会跟随列表可用高度调整，上下方向键越过页首页尾时连续翻页，左右方向键则整页切换。Continue 与 Resume 复用现有 New Agent 和 provider session 流程，CRT 不额外推断完成状态，也不增加 History 专属搜索和筛选。
 
 实时浏览器入口是 `<base-path>/crt/`。CRT 的入口、应用逻辑和效果文件独立放在 `frontend/skins/crt/`，只与其他皮肤共享 terminal/session bridge。从已打开 Agent 的 Farming Code 设置切换皮肤时，会把当前 Agent id 带到 CRT，并在共享后端状态到达后直接打开对应 CRT session；Agent id 不存在或已失效时则回到主页。所有效果限定在 `#farming-crt` 根节点内，并通过 CRT 专属的 `settings.crtSkinEffectsEnabled` 保存，因此调整 CRT 不会改变 Farming Code。

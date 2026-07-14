@@ -17,7 +17,7 @@ export type ReviewWorkspaceTarget =
   | { agentId?: never; root: string }
 
 export type ReviewDiffSnapshotRequest =
-  | (ReviewWorkspaceTarget & { context?: number; ignoreWhitespace?: ReviewPreferences['ignoreWhitespace']; limit?: number; metadataOnly?: boolean; modifiedWithinDays?: number; scope?: WorkingCopyReviewScope; source: 'working-copy' })
+  | (ReviewWorkspaceTarget & { context?: number; ignoreWhitespace?: ReviewPreferences['ignoreWhitespace']; limit?: number; metadataOnly?: boolean; modifiedWithinDays?: number; paths?: string[]; scope?: WorkingCopyReviewScope; source: 'working-copy' })
   | (ReviewWorkspaceTarget & { base: string; context?: number; head: string; ignoreWhitespace?: ReviewPreferences['ignoreWhitespace']; limit?: number; metadataOnly?: boolean; reviewId?: string; source: 'git-range' })
 
 export type GitRangeReviewDiffSnapshotRequest = Extract<ReviewDiffSnapshotRequest, { source: 'git-range' }>
@@ -251,6 +251,7 @@ function requestWorkspaceKey(request: ReviewDiffSnapshotRequest) {
 
 function requestWorkingCopyScopeKey(request: ReviewDiffSnapshotRequest) {
   if (request.source !== 'working-copy') return ''
+  if (!request.scope && request.modifiedWithinDays === undefined) return ''
   return `${request.scope ?? ''}:${request.modifiedWithinDays ?? ''}`
 }
 
@@ -259,14 +260,20 @@ export function reviewSnapshotRequestKey(request: ReviewDiffSnapshotRequest) {
   const metadataOnly = request.metadataOnly === true ? 'metadata' : 'full'
   const context = request.metadataOnly === true ? '' : requestContextKey(request.context)
   const ignoreWhitespace = request.metadataOnly === true ? 'NONE' : requestIgnoreWhitespaceKey(request.ignoreWhitespace)
-  if (request.source === 'working-copy') return ['working-copy', requestWorkspaceKey(request), requestWorkingCopyScopeKey(request), limit, metadataOnly, context, ignoreWhitespace].join('\0')
+  if (request.source === 'working-copy') {
+    const scope = requestWorkingCopyScopeKey(request)
+    return ['working-copy', requestWorkspaceKey(request), ...(scope ? [scope] : []), limit, metadataOnly, context, ignoreWhitespace].join('\0')
+  }
   return ['git-range', ...(request.reviewId ? [request.reviewId] : []), requestWorkspaceKey(request), normalizeReviewGitRevision(request.base) ?? '', normalizeReviewGitRevision(request.head) ?? '', limit, metadataOnly, context, ignoreWhitespace].join('\0')
 }
 
 export function reviewSnapshotFileRequestKey(request: ReviewDiffSnapshotRequest, path: string) {
   const context = requestContextKey(request.context)
   const ignoreWhitespace = requestIgnoreWhitespaceKey(request.ignoreWhitespace)
-  if (request.source === 'working-copy') return ['working-copy-file', requestWorkspaceKey(request), requestWorkingCopyScopeKey(request), path, context, ignoreWhitespace].join('\0')
+  if (request.source === 'working-copy') {
+    const scope = requestWorkingCopyScopeKey(request)
+    return ['working-copy-file', requestWorkspaceKey(request), ...(scope ? [scope] : []), path, context, ignoreWhitespace].join('\0')
+  }
   return ['git-range-file', ...(request.reviewId ? [request.reviewId] : []), requestWorkspaceKey(request), normalizeReviewGitRevision(request.base) ?? '', normalizeReviewGitRevision(request.head) ?? '', path, context, ignoreWhitespace].join('\0')
 }
 
@@ -274,7 +281,10 @@ export function reviewSnapshotPatchRequestKey(request: ReviewDiffSnapshotRequest
   const limit = requestLimitKey(request.limit)
   const context = requestContextKey(request.context)
   const ignoreWhitespace = requestIgnoreWhitespaceKey(request.ignoreWhitespace)
-  if (request.source === 'working-copy') return ['working-copy-patch', requestWorkspaceKey(request), requestWorkingCopyScopeKey(request), limit, context, ignoreWhitespace].join('\0')
+  if (request.source === 'working-copy') {
+    const scope = requestWorkingCopyScopeKey(request)
+    return ['working-copy-patch', requestWorkspaceKey(request), ...(scope ? [scope] : []), limit, context, ignoreWhitespace].join('\0')
+  }
   return ['git-range-patch', ...(request.reviewId ? [request.reviewId] : []), requestWorkspaceKey(request), normalizeReviewGitRevision(request.base) ?? '', normalizeReviewGitRevision(request.head) ?? '', limit, context, ignoreWhitespace].join('\0')
 }
 

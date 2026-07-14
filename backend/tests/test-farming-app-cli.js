@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const {
   buildCleanEnvExecCommand,
+  childInvocation,
   buildControlEnv,
   buildServerEnv,
   parseReviewArgs,
@@ -163,6 +164,13 @@ async function runTests() {
     assert(command.includes("'FARMING_CONFIG_DIR=/tmp/farming'\\''s config'"));
     assert(!command.includes('bad-key'));
     assert(command.endsWith("'/tmp/farming bin/farming' '--'"));
+  }
+
+  {
+    const invocation = childInvocation({ FARMING_NODE_BIN: '/opt/farming/runtime/bin/node' });
+    assert.strictEqual(invocation.command, '/opt/farming/runtime/bin/node');
+    assert.strictEqual(invocation.args.length, 1);
+    assert(invocation.args[0].endsWith('/backend/farming-app-cli.js'));
   }
 
   {

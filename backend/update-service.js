@@ -54,6 +54,7 @@ function compareVersions(left, right) {
 function detectInstallMethod(rootDir, options = {}) {
   if (options.packagedRuntime) return 'standalone-cli';
   const release = readJsonFile(path.join(rootDir, 'RELEASE.json')) || {};
+  if (release.updateMethod === 'npm') return 'npm';
   if (release.type) return String(release.type);
   if (fs.existsSync(path.join(rootDir, '.farming.pid')) || fs.existsSync(path.join(rootDir, '.farming-launcher.sh'))) {
     return 'app-bundle';
@@ -1061,6 +1062,7 @@ class FarmingUpdateService {
       logPath: this.updateLogFile,
     });
     const helperPath = path.join(__dirname, 'npm-update-helper.js');
+    const nodePath = process.env.FARMING_NODE_BIN || process.execPath;
     const payload = {
       packageName: this.npmPackageName,
       targetVersion: status.selected.version,
@@ -1069,8 +1071,9 @@ class FarmingUpdateService {
       stateFile: this.updateStateFile,
       logPath: this.updateLogFile,
       cliPath: path.join(this.rootDir, 'bin', 'farming'),
-      nodePath: process.execPath,
+      nodePath,
       npmCommand: process.env.FARMING_NPM_COMMAND || 'npm',
+      npmPrefix: process.env.FARMING_NPM_PREFIX || '',
       serverPid: process.pid,
       configDir: this.configDir,
       port: process.env.FARMING_PORT || process.env.PORT || '6694',
@@ -1078,7 +1081,7 @@ class FarmingUpdateService {
       serverHome: process.env.FARMING_SERVER_HOME || '',
       disableAuth: /^(1|true|yes|on)$/i.test(String(process.env.FARMING_DISABLE_AUTH || '')),
     };
-    const child = this.spawn(process.execPath, [helperPath], {
+    const child = this.spawn(nodePath, [helperPath], {
       detached: true,
       stdio: 'ignore',
       env: {

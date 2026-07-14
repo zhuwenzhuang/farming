@@ -187,7 +187,7 @@ The product CLI defaults to:
 
 The startup token is stored in `~/.farming/.session-token` and must be reused across restarts and upgrades unless `FARMING_TOKEN` explicitly overrides it. New token generation uses locale `auto`: Chinese time zones produce Chinese haiku-style tokens, Japanese time zones produce Japanese haiku-style tokens, and other time zones produce English passphrases.
 
-Update behavior is installation-aware. npm installations query the `farming-code` registry metadata and may update in one click: install the target package while the current server is alive, restart only after installation succeeds, persist progress under the config directory, and attempt a rollback if restart fails. Source checkouts update through Git and standalone CLI artifacts update manually. App-bundle installs may use a trusted HTTP(S) directory or manifest URL stored as `settings.updateUrl`; every bundle must match the runtime and provide a 64-character `sha256`. Standard bundles rely on the target system runtime. The separate `linux-x64-legacy-glibc228` bundle includes a pinned glibc 2.28 runtime and its installer activates it only on Linux x64 systems whose glibc is older than 2.28.
+Update behavior is installation-aware. npm installations query the `farming-code` registry metadata and may update in one click: install the target package while the current server is alive, restart only after installation succeeds, persist progress under the config directory, and attempt a rollback if restart fails. Source checkouts update through Git and standalone CLI artifacts update manually. Standard app-bundle installs may use a trusted HTTP(S) directory or manifest URL stored as `settings.updateUrl`; every bundle must match the runtime and provide a 64-character `sha256`. The separate `linux-x64-legacy-glibc228` tarball is a first-install bootstrap: it activates its pinned glibc 2.28 runtime only when needed, installs the bundled application under the private `~/.farming/npm` prefix, and writes a stable compatibility launcher. Subsequent application updates use the normal npm updater and the same prefix; only compatibility-runtime changes require another bootstrap package.
 
 ## Development Commands
 
@@ -233,7 +233,7 @@ npm run release:app:linux-compat  # explicit glibc 2.17 builder only
 npm run release:app:legacy-linux  # Linux x64 legacy glibc 2.28 runtime bundle
 ```
 
-The Linux `glibc217` ABI bundle is separate from the normal release workflow. Build it only inside a clean Linux x64 environment whose glibc is exactly 2.17 and which provides Node.js 22+, GCC/G++, Make, and Python 3. Its `node-pty` module is compiled from source and ABI-checked before packaging. The regular GitHub Release workflow additionally publishes `linux-x64-legacy-glibc228`: it embeds a pinned glibc 2.28 runtime to keep the full Node.js 22 app bundle usable on older Linux x64 hosts.
+The Linux `glibc217` ABI bundle is separate from the normal release workflow. Build it only inside a clean Linux x64 environment whose glibc is exactly 2.17 and which provides Node.js 22+, GCC/G++, Make, and Python 3. Its `node-pty` module is compiled from source and ABI-checked before packaging. The regular GitHub Release workflow additionally publishes `linux-x64-legacy-glibc228`: it embeds a pinned glibc 2.28 runtime, bootstraps a private npm-managed installation, and must smoke-test server startup plus a real native PTY agent through the compatibility launcher.
 
 Pre-release gate for public versions:
 

@@ -4,6 +4,7 @@ const path = require('path');
 
 const {
   buildCrtHistoryItems,
+  buildCrtSearchResults,
   calculateCrtAgentPageLayout,
   calculateCrtHistoryPageSize,
   crtHistoryAgentName,
@@ -51,6 +52,17 @@ function run() {
     crtSource.includes("fetch(farmingApiPath('/agent-sessions?limit=60&fresh=1'), { cache: 'no-store' })"),
     'Opening CRT History should request a bounded current backend session scan',
   );
+  assert(
+    crtSource.includes("farmingApiPath(`/agent-sessions/search?${params.toString()}`)")
+      && crtSource.includes("fresh: '1'")
+      && crtSource.includes("cache: 'no-store'"),
+    'CRT Search should reuse the bounded Farming Code Agent session search API',
+  );
+  assert(
+    crtSource.includes("e.key === 'f' || e.key === 'F'")
+      && crtSource.includes('showCrtSearch()'),
+    'CRT Search should be reachable from its F keyboard shortcut',
+  );
   assert.strictEqual(normalizeCrtTerminalFontSize(10), 10);
   assert.strictEqual(normalizeCrtTerminalFontSize(15.6), 16);
   assert.strictEqual(normalizeCrtTerminalFontSize(100), 20);
@@ -65,6 +77,32 @@ function run() {
   assert.strictEqual(crtHistoryAgentName('codex resume session-1'), 'Codex');
   assert.strictEqual(crtHistoryAgentName('qodercli'), 'Qoder');
   assert.strictEqual(crtHistoryAgentName('env QODER_HOME=/tmp/qoder /usr/local/bin/qodercli'), 'Qoder');
+  assert.deepStrictEqual(
+    buildCrtSearchResults({
+      query: 'green house',
+      mainAgentId: 'agent-main',
+      projectNames: { '/repo/farm': 'Green House' },
+      agents: [
+        { id: 'agent-main', isMain: true, command: 'codex', projectWorkspace: '/repo/farm' },
+        {
+          id: 'agent-live',
+          command: 'codex',
+          customTitle: 'Harvest Index',
+          projectWorkspace: '/repo/farm',
+          status: 'running',
+          providerSessionKey: 'agent-session:codex:session-live',
+        },
+        { id: 'agent-archived', command: 'claude', projectWorkspace: '/repo/farm', archived: true },
+      ],
+      sessions: [
+        { provider: 'codex', id: 'session-live', title: 'Claimed', workspace: '/repo/farm' },
+        { provider: 'claude', id: 'session-archive', title: 'Seed catalog', workspace: '/repo/farm' },
+        { provider: 'qoder', id: 'session-other', title: 'Unrelated', workspace: '/repo/other' },
+      ],
+    }).map((result) => `${result.kind}:${result.kind === 'agent' ? result.agent.id : result.session.id}`),
+    ['agent:agent-live', 'session:session-archive'],
+    'CRT Search should combine matching live Agents and unclaimed provider sessions while excluding Main and archived Agent records',
+  );
   assert.strictEqual(calculateCrtHistoryPageSize(680), 10);
   assert.strictEqual(calculateCrtHistoryPageSize(135), 1);
   assert.deepStrictEqual(

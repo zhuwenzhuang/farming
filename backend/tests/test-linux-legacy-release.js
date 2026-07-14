@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const assert = require('assert');
 const { execFileSync } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -17,10 +18,12 @@ function run() {
     fs.writeFileSync(path.join(bundleDir, 'scripts/install-release.sh'), '#!/bin/sh\n');
     fs.mkdirSync(runtimeDir, { recursive: true });
     fs.writeFileSync(path.join(runtimeDir, 'ld-2.28.so'), 'loader fixture');
+    fs.writeFileSync(path.join(runtimeDir, 'runtime-padding'), crypto.randomBytes(2 * 1024 * 1024));
     const runtimePath = path.join(bundleDir, 'vendor/glibc228-lib.tar.gz');
     execFileSync('tar', ['-czf', runtimePath, '-C', path.join(root, 'runtime'), 'lib']);
     fs.writeFileSync(path.join(bundleDir, 'RELEASE.json'), JSON.stringify({
       type: 'app-bundle',
+      updateMethod: 'npm',
       releaseVersion: '2.2.6',
       packageVersion: '2.2.6',
       dirty: false,
@@ -39,6 +42,16 @@ function run() {
     );
     assert(packageScript.includes('FARMING_GLIBC_RUNTIME_ROOT'));
     assert(packageScript.includes('--library-path'));
+    assert(packageScript.includes('"updateMethod": "$(if glibc_runtime_requested; then printf \'npm\''));
+    assert(packageScript.includes('set -- daemon'));
+    assert(packageScript.includes('FARMING_CLI_INSTALL_DIR'));
+    const installScript = fs.readFileSync(
+      path.join(process.cwd(), 'scripts/install-release.sh'),
+      'utf8',
+    );
+    assert(installScript.includes('FARMING_NPM_PREFIX'));
+    assert(installScript.includes('FARMING_NODE_BIN'));
+    assert(installScript.includes('write_managed_npm_launchers'));
     console.log('Legacy Linux release tests passed');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

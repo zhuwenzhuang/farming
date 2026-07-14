@@ -13,6 +13,7 @@ import {
   reviewFilesWithUnmodifiedPaths,
   reviewPatchRangeLabel,
   reviewSnapshotRequestFromLocation,
+  acpReviewCaptureRequestFromSearch,
   reviewSnapshotRequestFromSearch,
   reviewSnapshotLabel,
   reviewSnapshotIdentity,
@@ -314,9 +315,18 @@ test('derives stable labels and keys from review snapshot requests', () => {
 })
 
 test('derives review snapshot requests from route query parameters without page-specific fallback', () => {
+  assert.deepEqual(acpReviewCaptureRequestFromSearch('?agentId=agent-1&acpItem=tool-1&acpItem=tool-2&acpItem=tool-1'), {
+    agentId: 'agent-1',
+    itemIds: ['tool-1', 'tool-2'],
+  })
+  assert.equal(acpReviewCaptureRequestFromSearch('?agentId=agent-1'), null)
+  assert.equal(acpReviewCaptureRequestFromSearch('?acpItem=tool-1'), null)
   assert.deepEqual(reviewSnapshotRequestFromSearch(''), { request: null })
   assert.deepEqual(reviewSnapshotRequestFromSearch('?agentId=agent-1'), {
     request: { agentId: 'agent-1', source: 'working-copy' },
+  })
+  assert.deepEqual(reviewSnapshotRequestFromSearch('?root=%2Frepo&path=src%2Fa.ts&path=src%2Fb.ts'), {
+    request: { root: '/repo', paths: ['src/a.ts', 'src/b.ts'], source: 'working-copy' },
   })
   assert.deepEqual(reviewSnapshotRequestFromSearch('?root=%2Fworkspace%2Frepo&base=HEAD&head=now'), {
     request: { base: 'HEAD', head: 'now', root: '/workspace/repo', source: 'git-range' },
