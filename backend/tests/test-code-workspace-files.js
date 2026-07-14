@@ -988,6 +988,9 @@ function run() {
       serverSource.includes('return { agentId: existingAgent.id, reused: true }') &&
       serverSource.includes('wantsMain: resumeAsMain') &&
       serverSource.includes("source: shouldFork ? resumeSource.replace('-history:', '-history-fork:') : resumeSource") &&
+      resumeAgentSessionSource.includes("agentRuntimeMode: 'acp'") &&
+      resumeAgentSessionSource.includes("acpHistoryMode: 'load'") &&
+      serverSource.includes("agentRuntimeMode: options.agentRuntimeMode === 'acp' ? 'acp' : 'terminal'") &&
       mainPageSessionSource.includes("agent.status !== 'dead'") &&
       mainPageSessionSource.includes("agent.status !== 'stopped'") &&
       !resumeAgentSessionSource.includes("agent.status === 'dead' || agent.status === 'stopped'"),
@@ -1153,7 +1156,7 @@ function run() {
       agentWorkPaneSource.includes("['codex', 'claude', 'opencode', 'qoder'].includes") &&
       inputDialogSource.includes("['codex', 'claude', 'opencode', 'qoder'].includes(selectedAgent.name)") &&
       acpPermissionSource.includes('code-acp-permission-details') &&
-      agentWorkPaneSource.includes('refreshSignal={agent.acpSessionUpdatedAt ? Date.parse(agent.acpSessionUpdatedAt) : 0}') &&
+      agentWorkPaneSource.includes('refreshSignal={Number(agent.acpSessionRevision) || (agent.acpSessionUpdatedAt ? Date.parse(agent.acpSessionUpdatedAt) : 0)}') &&
       transcriptPaneSource.includes("if (source !== 'acp') timer = window.setInterval(load, 3000)") &&
       acpTranscriptSource.includes("Omit<CodexTranscriptPaneProps, 'source'>") &&
       acpTranscriptSource.includes('groupProcessActions') &&

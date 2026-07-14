@@ -158,7 +158,7 @@ function withSearchTimeout(promise, timeoutMs) {
 const qrShareTickets = new QrShareTicketStore({ ttlMs: SHARE_TICKET_TTL_MS });
 const reviewStateStore = new ReviewStateStore(configManager.farmingDir, {
   seedReviews: {
-    'review-demo-553987': {
+    'review-fixture-553987': {
       patchsets: {
         'Patchset 20': { reviewedPaths: ['clis/dataflow.py', 'clis/fetch_instance_log.py'], revision: 0 },
         'Patchset 19': { reviewedPaths: ['clis/fetch_instance_log.py'], revision: 0 },
@@ -499,7 +499,6 @@ app.get([
   routePath(BASE_PATH, '/code/'),
   routePath(BASE_PATH, '/error-preview'),
   routePath(BASE_PATH, '/review'),
-  routePath(BASE_PATH, '/review-demo'),
 ].filter(Boolean), (req, res) => {
   const indexPath = path.join(staticAppDir, 'index.html');
   fs.readFile(indexPath, 'utf8', (error, html) => {
@@ -657,6 +656,21 @@ app.get(routePath(BASE_PATH, '/api/usage'), async (req, res) => {
     res.json({ usage });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Failed to read usage information' });
+  }
+});
+
+app.get(routePath(BASE_PATH, '/api/usage/day'), async (req, res) => {
+  try {
+    const date = String(req.query.date || '').trim();
+    const detail = await usageMonitor.getUsageDay(date, { fresh: req.query.fresh === '1' });
+    res.json({ detail });
+  } catch (error) {
+    const invalidDate = error instanceof RangeError;
+    res.status(invalidDate ? 400 : 500).json({
+      error: invalidDate
+        ? error.message
+        : error.message || 'Failed to read usage day information',
+    });
   }
 });
 
@@ -1040,6 +1054,16 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-terminals/:terminalId/re
   } catch (error) {
     const message = error && error.message ? error.message : 'Failed to resize ACP terminal';
     const status = message === 'Agent not found' || message === 'Unknown ACP terminal' ? 404 : 409;
+    res.status(status).json({ error: message });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-subagents/:sessionId/cancel'), async (req, res) => {
+  try {
+    res.json(await agentManager.cancelAcpSubagent(req.params.agentId, req.params.sessionId));
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to stop ACP subagent';
+    const status = message === 'Agent not found' || message === 'ACP subagent session not found' ? 404 : 409;
     res.status(status).json({ error: message });
   }
 });
@@ -1551,6 +1575,8 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
         requiredCliVersion: normalizedProvider === 'codex' && session ? session.cliVersion : '',
         projectWorkspace: session ? (session.workspace || session.cwd || '') : '',
         source: shouldFork ? resumeSource.replace('-history:', '-history-fork:') : resumeSource,
+        agentRuntimeMode: options.agentRuntimeMode === 'acp' ? 'acp' : 'terminal',
+        acpHistoryMode: options.acpHistoryMode === 'resume' ? 'resume' : 'load',
         providerHomeId: resolvedProviderHomeId,
         providerHomePath: session ? (session.providerHomePath || '') : '',
         autoReadInitialAttention: options.autoReadInitialAttention === true,
@@ -1592,6 +1618,8 @@ async function startResumedAgentSession(req, res, provider, rawSessionId) {
     allowUnarchiveArchived,
     providerHomeId: req.body && typeof req.body.providerHomeId === 'string' ? req.body.providerHomeId : '',
     customTitle: req.body && typeof req.body.customTitle === 'string' ? req.body.customTitle : '',
+    agentRuntimeMode: req.body && req.body.agentRuntimeMode === 'acp' ? 'acp' : 'terminal',
+    acpHistoryMode: req.body && req.body.acpHistoryMode === 'resume' ? 'resume' : 'load',
   });
 
   if (result.error) {

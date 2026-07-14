@@ -57,6 +57,12 @@ let billingCanvasFrame = null;
 let billingMode = 'days';
 let billingSelectedDate = '';
 let billingDailyRenderSignature = '';
+let billingDayDetail = null;
+let billingDayDetailLoading = false;
+let billingDayDetailError = '';
+let billingDayDetailRequestSequence = 0;
+let billingDayDetailAbortController = null;
+const billingDayDetailCache = new Map();
 let crtAgentPage = 0;
 let crtAgentPageSize = 1;
 let crtAgentPageColumns = 1;
@@ -106,6 +112,7 @@ const CRT_AGENT_GRID_PADDING = 20;
 const CRT_SEARCH_DEBOUNCE_MS = 180;
 const CRT_SEARCH_RESULT_LIMIT = 100;
 const CRT_BILLING_REFRESH_MS = 30_000;
+const CRT_BILLING_DAY_DETAIL_CACHE_MS = 30_000;
 const CRT_AGENT_DISPLAY_NAMES = {
   qwen: 'Qwen Code',
   codex: 'Codex',
@@ -3076,23 +3083,115 @@ function crtBillingDayPoint(dateValue = billingSelectedDate) {
   return points.find(point => point && point.date === dateValue) || null;
 }
 
-function crtBillingHeatLevel(totalTokens, sortedActiveTotals) {
-  const total = Math.max(0, Number(totalTokens) || 0);
+function crtBillingLogPosition(value, minimum, maximum) {
+  const total = Math.max(0, Number(value) || 0);
   if (total <= 0) return 0;
-  const totals = Array.isArray(sortedActiveTotals) ? sortedActiveTotals : [];
-  if (totals.length <= 1) return 5;
-  let upperRank = 0;
-  while (upperRank < totals.length && totals[upperRank] <= total) upperRank += 1;
-  const percentile = upperRank / totals.length;
-  if (percentile > 0.98) return 5;
-  if (percentile > 0.90) return 4;
-  if (percentile > 0.75) return 3;
-  if (percentile > 0.50) return 2;
-  return 1;
+  if (total <= minimum || maximum <= minimum) return 2;
+  const position = (Math.log10(total) - Math.log10(minimum))
+    / (Math.log10(maximum) - Math.log10(minimum)) * 100;
+  return Math.max(2, Math.min(100, position));
 }
 
-function crtBillingHeatLabel(level) {
-  return ['INACTIVE', 'LOW ACTIVITY', 'ABOVE MEDIAN', 'TOP 25%', 'TOP 10%', 'TOP 2%'][level] || 'INACTIVE';
+function crtBillingLogGuideValues(minimum, maximum) {
+  const values = [];
+  const firstExponent = Math.ceil(Math.log10(Math.max(1, minimum)));
+  const lastExponent = Math.floor(Math.log10(Math.max(1, maximum)));
+  for (let exponent = firstExponent; exponent <= lastExponent; exponent += 1) {
+    const value = 10 ** exponent;
+    if (value > minimum && value < maximum) values.push(value);
+  }
+  const upperThird = 3 * (10 ** lastExponent);
+  if (upperThird > minimum && upperThird < maximum) values.push(upperThird);
+  return Array.from(new Set(values)).sort((left, right) => left - right);
+}
+
+function crtBillingHourlyPath(hours, valueForHour, maximum) {
+  const width = 600;
+  const height = 120;
+  const points = Array.isArray(hours) ? hours : [];
+  if (points.length === 0 || maximum <= 0) return '';
+  return points.map((hour, index) => {
+    const x = points.length === 1 ? 0 : index / (points.length - 1) * width;
+    const value = Math.max(0, Number(valueForHour(hour)) || 0);
+    const y = height - Math.min(1, value / maximum) * height;
+    return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
+  }).join(' ');
+}
+
+function renderCrtBillingDayInsight() {
+  const cachedEntry = billingDayDetailCache.get(billingSelectedDate);
+  const selectedDetail = billingDayDetail && billingDayDetail.date === billingSelectedDate
+    ? billingDayDetail
+    : cachedEntry && cachedEntry.detail || null;
+  const point = crtBillingDayPoint();
+  const hours = selectedDetail && Array.isArray(selectedDetail.hours) ? selectedDetail.hours : [];
+  const state = document.getElementById('billing-day-insight-state');
+  const totalPath = document.getElementById('billing-day-total-path');
+  const cachePath = document.getElementById('billing-day-cache-path');
+  const scale = document.getElementById('billing-day-curve-scale');
+  const maximumLabel = document.getElementById('billing-day-curve-max');
+  const shares = document.getElementById('billing-day-provider-shares');
+  const maximum = Math.max(0, ...hours.map(hour => Math.max(0, Number(hour && hour.totalTokens) || 0)));
+
+  if (totalPath) totalPath.setAttribute('d', crtBillingHourlyPath(hours, hour => hour.totalTokens, maximum));
+  if (cachePath) cachePath.setAttribute('d', crtBillingHourlyPath(
+    hours,
+    hour => (Number(hour.cacheReadTokens) || 0) + (Number(hour.cacheWriteTokens) || 0),
+    maximum,
+  ));
+  if (scale) scale.textContent = maximum > 0 ? `${formatCrtUsageValue(maximum)} TOK/H PEAK` : '-- TOK/H PEAK';
+  if (maximumLabel) maximumLabel.textContent = maximum > 0 ? formatCrtUsageValue(maximum) : '--';
+  if (state) {
+    state.classList.toggle('is-error', Boolean(billingDayDetailError));
+    state.textContent = billingDayDetailError
+      ? 'DAY SIGNAL LOST'
+      : billingDayDetailLoading && !selectedDetail
+        ? 'READING 24 HOURLY BINS'
+        : selectedDetail && maximum > 0
+          ? '24 HOURLY BINS READY'
+          : selectedDetail
+            ? 'NO HOURLY ACTIVITY'
+            : 'SELECTED DAY DETAIL';
+  }
+
+  if (!shares) return;
+  shares.replaceChildren();
+  const providerUsage = selectedDetail && selectedDetail.providers
+    ? selectedDetail.providers
+    : point && point.providers || {};
+  const providerRows = Object.entries(providerUsage)
+    .map(([provider, usage]) => ({ provider, total: Math.max(0, Number(usage && usage.totalTokens) || 0) }))
+    .filter(row => row.total > 0)
+    .sort((left, right) => right.total - left.total);
+  const providerTotal = providerRows.reduce((total, row) => total + row.total, 0);
+  if (providerRows.length === 0) {
+    const empty = document.createElement('span');
+    empty.className = 'billing-day-share-empty';
+    empty.textContent = billingDayDetailLoading ? 'READING AGENT TYPES' : 'NO ATTRIBUTED TOKEN DATA';
+    shares.appendChild(empty);
+    return;
+  }
+  providerRows.forEach(({ provider, total }) => {
+    const percentage = providerTotal > 0 ? total / providerTotal * 100 : 0;
+    const row = document.createElement('div');
+    row.className = 'billing-day-share-row';
+    const copy = document.createElement('div');
+    copy.className = 'billing-day-share-copy';
+    const name = document.createElement('span');
+    name.textContent = provider.toUpperCase();
+    const value = document.createElement('strong');
+    value.textContent = `${percentage.toFixed(1)}% · ${formatCrtExactUsageValue(total)}`;
+    copy.append(name, value);
+    const track = document.createElement('div');
+    track.className = 'billing-day-share-track';
+    track.setAttribute('aria-hidden', 'true');
+    const fill = document.createElement('span');
+    fill.style.width = `${percentage.toFixed(2)}%`;
+    track.appendChild(fill);
+    row.append(copy, track);
+    row.setAttribute('aria-label', `${provider}: ${percentage.toFixed(1)} percent, ${formatCrtExactUsageValue(total)} tokens`);
+    shares.appendChild(row);
+  });
 }
 
 function renderCrtBillingSelectedDay() {
@@ -3117,6 +3216,7 @@ function renderCrtBillingSelectedDay() {
     providers.textContent = providerTotals
       .map(([provider, usage]) => `${provider.toUpperCase()} ${formatCrtExactUsageValue(usage && usage.totalTokens)}`)
       .join(' · ') || '--';
+    providers.title = providers.textContent;
   }
   if (stateLabel) {
     const isToday = Boolean(daily && point && point.date === daily.endDate);
@@ -3127,19 +3227,23 @@ function renderCrtBillingSelectedDay() {
     }
     stateLabel.textContent = point ? notes.join(' · ') : 'LOCAL HISTORY';
   }
-  document.querySelectorAll('#billing-heatmap .billing-heat-cell').forEach((cell) => {
+  document.querySelectorAll('#billing-daily-bars .billing-daily-column').forEach((cell) => {
     const selected = cell.dataset.date === billingSelectedDate;
     cell.classList.toggle('selected', selected);
     cell.setAttribute('aria-selected', selected ? 'true' : 'false');
   });
+  renderCrtBillingDayInsight();
 }
 
 function selectCrtBillingDay(dateValue, { focus = false } = {}) {
   if (!crtBillingDayPoint(dateValue)) return false;
   billingSelectedDate = dateValue;
+  billingDayDetail = billingDayDetailCache.get(dateValue)?.detail || null;
+  billingDayDetailError = '';
   renderCrtBillingSelectedDay();
+  void loadCrtBillingDayDetail(dateValue);
   if (focus) {
-    const cell = document.querySelector(`#billing-heatmap .billing-heat-cell[data-date="${dateValue}"]`);
+    const cell = document.querySelector(`#billing-daily-bars .billing-daily-column[data-date="${dateValue}"]`);
     if (cell) {
       cell.focus({ preventScroll: true });
       scrollCrtBillingSelectedDayIntoView();
@@ -3148,10 +3252,63 @@ function selectCrtBillingDay(dateValue, { focus = false } = {}) {
   return true;
 }
 
+async function loadCrtBillingDayDetail(dateValue, { force = false } = {}) {
+  const date = String(dateValue || '').trim();
+  if (!crtBillingDayPoint(date)) return;
+  const cachedEntry = billingDayDetailCache.get(date);
+  const cached = cachedEntry && cachedEntry.detail;
+  const cacheFresh = cachedEntry && Date.now() - cachedEntry.fetchedAt <= CRT_BILLING_DAY_DETAIL_CACHE_MS;
+  if (cached && cacheFresh && !force) {
+    if (billingSelectedDate === date) {
+      billingDayDetail = cached;
+      billingDayDetailLoading = false;
+      billingDayDetailError = '';
+      renderCrtBillingDayInsight();
+    }
+    return;
+  }
+
+  billingDayDetailRequestSequence += 1;
+  const requestSequence = billingDayDetailRequestSequence;
+  if (billingDayDetailAbortController) billingDayDetailAbortController.abort();
+  const controller = new window.AbortController();
+  billingDayDetailAbortController = controller;
+  billingDayDetailLoading = true;
+  billingDayDetailError = '';
+  if (billingSelectedDate === date) {
+    billingDayDetail = null;
+    renderCrtBillingDayInsight();
+  }
+  try {
+    const response = await fetch(farmingApiPath(`/usage/day?date=${encodeURIComponent(date)}`), {
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data || !data.detail) {
+      throw new Error(data && data.error ? data.error : `Usage day request failed (${response.status})`);
+    }
+    if (requestSequence !== billingDayDetailRequestSequence) return;
+    billingDayDetailCache.set(date, { detail: data.detail, fetchedAt: Date.now() });
+    if (billingSelectedDate === date) billingDayDetail = data.detail;
+  } catch (error) {
+    if (controller.signal.aborted || requestSequence !== billingDayDetailRequestSequence) return;
+    if (billingSelectedDate === date) {
+      billingDayDetailError = error instanceof Error ? error.message : 'Failed to load selected day';
+    }
+  } finally {
+    if (requestSequence === billingDayDetailRequestSequence) {
+      billingDayDetailLoading = false;
+      billingDayDetailAbortController = null;
+      if (billingSelectedDate === date) renderCrtBillingDayInsight();
+    }
+  }
+}
+
 function scrollCrtBillingSelectedDayIntoView() {
-  const scroll = document.getElementById('billing-heatmap-scroll');
+  const scroll = document.getElementById('billing-daily-scroll');
   const cell = billingSelectedDate
-    ? document.querySelector(`#billing-heatmap .billing-heat-cell[data-date="${billingSelectedDate}"]`)
+    ? document.querySelector(`#billing-daily-bars .billing-daily-column[data-date="${billingSelectedDate}"]`)
     : null;
   if (!scroll || !cell) return;
   const left = cell.offsetLeft;
@@ -3168,7 +3325,7 @@ function selectCrtBillingDayByArrow(key) {
   if (points.length === 0) return false;
   let index = points.findIndex(point => point.date === billingSelectedDate);
   if (index < 0) index = points.length - 1;
-  const delta = key === 'ArrowLeft' ? -7 : key === 'ArrowRight' ? 7 : key === 'ArrowUp' ? -1 : 1;
+  const delta = key === 'ArrowLeft' ? -1 : key === 'ArrowRight' ? 1 : key === 'ArrowUp' ? -7 : 7;
   const nextIndex = Math.max(0, Math.min(points.length - 1, index + delta));
   return selectCrtBillingDay(points[nextIndex].date, { focus: true });
 }
@@ -3185,6 +3342,10 @@ function renderCrtBillingDaily(summary = billingSummary) {
   setValue('billing-7d-total', totals.sevenDayTokens);
   setValue('billing-30d-total', totals.thirtyDayTokens);
   setValue('billing-period-total', totals.periodTokens);
+  const activeDays = points.filter(point => Number(point && point.totalTokens) > 0).length;
+  const billionDays = points.filter(point => Number(point && point.totalTokens) >= 1_000_000_000).length;
+  setValue('billing-active-days', activeDays);
+  setValue('billing-billion-days', billionDays);
   const peak = document.getElementById('billing-peak-day');
   if (peak) peak.textContent = totals.peakDate
     ? `PEAK ${totals.peakDate.slice(5)} · ${formatCrtUsageValue(totals.peakTokens)}`
@@ -3198,57 +3359,110 @@ function renderCrtBillingDaily(summary = billingSummary) {
       : 'LOCAL TIME';
   }
 
-  const heatmap = document.getElementById('billing-heatmap');
-  const months = document.getElementById('billing-heatmap-months');
-  if (!heatmap || !months) return;
-  const signature = points.map(point => `${point.date}:${point.totalTokens}`).join('|');
+  const bars = document.getElementById('billing-daily-bars');
+  const xAxis = document.getElementById('billing-daily-x-axis');
+  const yAxis = document.getElementById('billing-y-axis');
+  const guides = document.getElementById('billing-log-guides');
+  const activity = document.getElementById('billing-activity-strip');
+  if (!bars || !xAxis || !yAxis || !guides || !activity) return;
+  const signature = points.map(point => [
+    point.date,
+    point.totalTokens,
+    point.cacheReadTokens,
+    point.cacheWriteTokens,
+  ].join(':')).join('|');
   if (signature !== billingDailyRenderSignature) {
     billingDailyRenderSignature = signature;
-    heatmap.replaceChildren();
-    months.replaceChildren();
-    const firstDate = parseCrtBillingDate(points[0] && points[0].date);
-    const padding = firstDate ? (firstDate.getDay() + 6) % 7 : 0;
-    const weekCount = Math.max(1, Math.ceil((padding + points.length) / 7));
-    heatmap.style.setProperty('--billing-week-count', String(weekCount));
-    months.style.setProperty('--billing-week-count', String(weekCount));
-    for (let index = 0; index < padding; index += 1) {
-      const spacer = document.createElement('span');
-      spacer.className = 'billing-heat-spacer';
-      heatmap.appendChild(spacer);
-    }
-    const activeTotals = points
-      .map(point => Math.max(0, Number(point.totalTokens) || 0))
-      .filter(Boolean)
-      .sort((left, right) => left - right);
-    let previousMonth = -1;
-    const monthColumns = new Set();
-    points.forEach((point, index) => {
-      const pointDate = parseCrtBillingDate(point.date);
-      const month = pointDate ? pointDate.getMonth() : -1;
-      const column = Math.floor((padding + index) / 7) + 1;
-      if (pointDate && month !== previousMonth && !monthColumns.has(column)) {
-        const label = document.createElement('span');
-        label.textContent = pointDate.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
-        label.style.gridColumn = String(column);
-        months.appendChild(label);
-        monthColumns.add(column);
-      }
-      previousMonth = month;
-      const cell = document.createElement('button');
-      cell.type = 'button';
-      cell.className = 'billing-heat-cell';
-      cell.dataset.date = point.date;
-      const heatLevel = crtBillingHeatLevel(point.totalTokens, activeTotals);
-      const heatLabel = crtBillingHeatLabel(heatLevel);
-      cell.dataset.level = String(heatLevel);
-      cell.setAttribute('role', 'gridcell');
-      cell.setAttribute('aria-label', `${point.date}: ${formatCrtExactUsageValue(point.totalTokens)} tokens, ${heatLabel}`);
-      cell.setAttribute('aria-selected', 'false');
-      cell.tabIndex = -1;
-      cell.title = `${point.date} · ${formatCrtExactUsageValue(point.totalTokens)} tokens · ${heatLabel}`;
-      cell.addEventListener('click', () => selectCrtBillingDay(point.date));
-      heatmap.appendChild(cell);
+    bars.replaceChildren();
+    xAxis.replaceChildren();
+    yAxis.replaceChildren();
+    guides.replaceChildren();
+    activity.replaceChildren();
+
+    const chartPoints = points.slice(-120);
+    const peakTokens = Math.max(1_000, ...chartPoints.map(point => Math.max(0, Number(point.totalTokens) || 0)));
+    const maximum = peakTokens * 1.08;
+    const minimum = Math.max(1, maximum / 1_000);
+    crtBillingLogGuideValues(minimum, maximum).forEach((value) => {
+      const position = crtBillingLogPosition(value, minimum, maximum);
+      const guide = document.createElement('div');
+      guide.className = 'billing-log-guide';
+      guide.style.bottom = `${position}%`;
+      guides.appendChild(guide);
+
+      const axisLabel = document.createElement('span');
+      axisLabel.className = 'billing-y-axis-label';
+      axisLabel.style.bottom = `${position}%`;
+      axisLabel.textContent = formatCrtUsageValue(value);
+      yAxis.appendChild(axisLabel);
     });
+    const floorLabel = document.createElement('span');
+    floorLabel.className = 'billing-y-axis-label is-floor';
+    floorLabel.style.bottom = '0';
+    floorLabel.textContent = `≤${formatCrtUsageValue(minimum)}`;
+    yAxis.appendChild(floorLabel);
+
+    bars.style.setProperty('--billing-chart-days', String(Math.max(1, chartPoints.length)));
+    xAxis.style.setProperty('--billing-chart-days', String(Math.max(1, chartPoints.length)));
+    chartPoints.forEach((point, index) => {
+      const pointDate = parseCrtBillingDate(point.date);
+      const axisTick = document.createElement('span');
+      const isFirst = index === 0;
+      const isLast = index === chartPoints.length - 1;
+      const isHalfMonth = pointDate && [1, 15].includes(pointDate.getDate());
+      if (pointDate && (isFirst || isLast || isHalfMonth)) {
+        const month = pointDate.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+        axisTick.textContent = `${month} ${String(pointDate.getDate()).padStart(2, '0')}`;
+        axisTick.className = `has-label${isLast ? ' is-end' : ''}`;
+      }
+      xAxis.appendChild(axisTick);
+
+      const total = Math.max(0, Number(point.totalTokens) || 0);
+      const cache = Math.min(total, Math.max(0, Number(point.cacheReadTokens) || 0)
+        + Math.max(0, Number(point.cacheWriteTokens) || 0));
+      const direct = Math.max(0, total - cache);
+      const column = document.createElement('button');
+      column.type = 'button';
+      column.className = 'billing-daily-column';
+      column.dataset.date = point.date;
+      column.dataset.billion = total >= 1_000_000_000 ? 'true' : 'false';
+      column.setAttribute('role', 'gridcell');
+      column.setAttribute('aria-label', `${point.date}: ${formatCrtExactUsageValue(total)} tokens, ${formatCrtExactUsageValue(cache)} cache tokens`);
+      column.setAttribute('aria-selected', 'false');
+      column.tabIndex = -1;
+      column.title = `${point.date} · ${formatCrtExactUsageValue(total)} total · ${formatCrtExactUsageValue(cache)} cache`;
+      column.addEventListener('click', () => selectCrtBillingDay(point.date));
+      if (total > 0) {
+        const bar = document.createElement('span');
+        bar.className = 'billing-daily-bar';
+        bar.style.height = `${crtBillingLogPosition(total, minimum, maximum)}%`;
+        if (direct > 0) {
+          const directSegment = document.createElement('span');
+          directSegment.className = 'billing-daily-direct';
+          directSegment.style.height = `${direct / total * 100}%`;
+          bar.appendChild(directSegment);
+        }
+        if (cache > 0) {
+          const cacheSegment = document.createElement('span');
+          cacheSegment.className = 'billing-daily-cache';
+          cacheSegment.style.height = `${cache / total * 100}%`;
+          bar.appendChild(cacheSegment);
+        }
+        column.appendChild(bar);
+      }
+      bars.appendChild(column);
+    });
+
+    activity.style.setProperty('--billing-activity-days', String(Math.max(1, points.length)));
+    activity.setAttribute('aria-label', `${points.length}-day activity: ${activeDays} active days, ${billionDays} days at or above one billion tokens`);
+    points.forEach((point) => {
+      const tick = document.createElement('span');
+      const total = Math.max(0, Number(point.totalTokens) || 0);
+      tick.className = `billing-activity-tick${total > 0 ? ' is-active' : ''}${total >= 1_000_000_000 ? ' is-billion' : ''}`;
+      tick.title = `${point.date} · ${formatCrtExactUsageValue(total)} tokens`;
+      activity.appendChild(tick);
+    });
+
     if (!billingSelectedDate || !points.some(point => point.date === billingSelectedDate)) {
       billingSelectedDate = daily && daily.endDate || points.at(-1)?.date || '';
     }
@@ -3534,6 +3748,10 @@ async function loadCrtBilling({ fresh = false } = {}) {
   billingAbortController = controller;
   billingLoading = true;
   billingError = '';
+  if (fresh) {
+    billingDayDetailCache.clear();
+    billingDayDetail = null;
+  }
   renderCrtBilling();
   try {
     const response = await fetch(farmingApiPath(`/usage${fresh ? '?fresh=1' : ''}`), {
@@ -3552,6 +3770,9 @@ async function loadCrtBilling({ fresh = false } = {}) {
       billingLoading = false;
       billingAbortController = null;
       renderCrtBilling();
+      if (!billingError && billingSelectedDate) {
+        void loadCrtBillingDayDetail(billingSelectedDate, { force: fresh });
+      }
     }
   }
 }
@@ -3566,6 +3787,12 @@ function stopCrtBillingRefresh({ abort = false } = {}) {
     billingAbortController.abort();
     billingAbortController = null;
     billingLoading = false;
+  }
+  if (abort && billingDayDetailAbortController) {
+    billingDayDetailRequestSequence += 1;
+    billingDayDetailAbortController.abort();
+    billingDayDetailAbortController = null;
+    billingDayDetailLoading = false;
   }
 }
 

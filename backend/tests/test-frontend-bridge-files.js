@@ -210,9 +210,10 @@ function run() {
   assert(indexHtml.includes('id="system-ip"') && indexHtml.includes('id="system-time"'), 'CRT top bar should expose system identity and time');
   assert(indexHtml.includes('>IP: <span id="system-ip"') && indexHtml.includes('>TIME: <span id="system-time"') && indexHtml.includes('>UPTIME: <span id="uptime"'), 'CRT system identity labels should remain uppercase');
   assert(indexHtml.includes('AGENTS:') && indexHtml.includes('TOK/MIN:') && indexHtml.includes('id="tokens-per-minute"'), 'CRT top bar should expose uppercase Agent count and token rate');
-  for (const label of ['NEW AGENT', 'SEARCH', 'HISTORY', 'SKILLS', 'BILLING', 'SETTINGS']) {
+  for (const label of ['NEW AGENT', 'SEARCH', 'HISTORY', 'EXTENSIONS', 'BILLING', 'SETTINGS']) {
     assert(indexHtml.includes(`</span> ${label}`), `CRT sidebar label should be uppercase: ${label}`);
   }
+  assert(indexHtml.includes('<span class="key">[E]</span> EXTENSIONS'), 'CRT Extensions should reserve the E shortcut');
   assert(!indexHtml.includes('TASK LIST'), 'CRT Search should replace the disabled Task List placeholder');
   assert(indexHtml.includes('styles/search.css'), 'CRT Search should keep its phosphor layout styles scoped to the CRT skin');
   assert(crtApp.includes('data.usageRate') && crtApp.includes('formatCrtTokenRate'), 'CRT should render the server token-rate estimate');

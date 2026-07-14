@@ -126,6 +126,41 @@
     gap: 8px;
 }
 
+#farming-crt .billing-daily-summary {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0;
+    border: 1px solid rgba(12, 204, 104, 0.28);
+    background: rgba(0, 20, 9, 0.58);
+}
+
+#farming-crt .billing-summary-item {
+    min-width: 0;
+    padding: 7px 9px 6px;
+    border-right: 1px solid rgba(12, 204, 104, 0.16);
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+#farming-crt .billing-summary-item:last-child {
+    border-right: 0;
+}
+
+#farming-crt .billing-summary-item span,
+#farming-crt .billing-summary-item small {
+    color: var(--crt-phosphor-muted);
+    font-size: 8px;
+    letter-spacing: 0.07em;
+}
+
+#farming-crt .billing-summary-item strong {
+    margin-left: auto;
+    color: var(--crt-phosphor-bright);
+    font-size: 17px;
+    font-weight: 400;
+    text-shadow: 0 0 8px rgba(12, 204, 104, 0.4);
+}
+
 #farming-crt .billing-meter,
 #farming-crt .billing-panel,
 #farming-crt .billing-scope-panel {
@@ -134,29 +169,49 @@
     box-shadow: inset 0 0 16px rgba(12, 204, 104, 0.035);
 }
 
-#farming-crt .billing-heatmap-panel {
-    min-height: 172px;
+#farming-crt .billing-daily-chart-panel {
+    min-height: 280px;
     padding: 10px 12px 9px;
 }
 
-#farming-crt .billing-heatmap-layout {
-    margin-top: 8px;
-    display: grid;
-    grid-template-columns: 28px minmax(0, 1fr);
-    gap: 7px;
-}
-
-#farming-crt .billing-weekdays {
-    margin-top: 18px;
-    display: grid;
-    grid-template-rows: repeat(7, 12px);
-    gap: 3px;
+#farming-crt .billing-daily-legend {
+    margin-top: 6px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 13px;
     color: var(--crt-phosphor-muted);
     font-size: 8px;
-    line-height: 12px;
+    letter-spacing: 0.06em;
 }
 
-#farming-crt .billing-heatmap-scroll {
+#farming-crt .billing-daily-legend span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+#farming-crt .billing-daily-legend i {
+    width: 9px;
+    height: 7px;
+    border: 1px solid rgba(96, 255, 151, 0.42);
+}
+
+#farming-crt .billing-daily-legend .is-cache {
+    background: rgba(39, 157, 83, 0.52);
+}
+
+#farming-crt .billing-daily-legend .is-direct {
+    background: rgba(166, 255, 195, 0.96);
+}
+
+#farming-crt .billing-daily-legend .is-billion {
+    height: 2px;
+    border: 0;
+    background: var(--crt-phosphor-bright);
+    box-shadow: 0 0 5px rgba(112, 255, 166, 0.8);
+}
+
+#farming-crt .billing-daily-scroll {
     min-width: 0;
     overflow-x: auto;
     overflow-y: hidden;
@@ -164,85 +219,247 @@
     scrollbar-color: var(--crt-border) transparent;
 }
 
-#farming-crt .billing-heatmap-months,
-#farming-crt .billing-heatmap {
-    min-width: 690px;
-    display: grid;
-    grid-template-columns: repeat(var(--billing-week-count, 53), minmax(9px, 1fr));
-    grid-auto-flow: column;
-    gap: 3px;
+#farming-crt .billing-daily-plot,
+#farming-crt .billing-daily-x-axis {
+    position: relative;
+    min-width: 760px;
 }
 
-#farming-crt .billing-heatmap-months {
-    height: 15px;
-    color: var(--crt-phosphor-muted);
-    font-size: 8px;
-    line-height: 12px;
-}
-
-#farming-crt .billing-heatmap-months span {
-    white-space: nowrap;
-}
-
-#farming-crt .billing-heatmap {
-    grid-template-rows: repeat(7, 12px);
-}
-
-#farming-crt .billing-heat-spacer,
-#farming-crt .billing-heat-cell,
-#farming-crt .billing-heatmap-legend i {
-    display: block;
-    min-width: 0;
-    height: 12px;
-    border: 1px solid rgba(12, 204, 104, 0.14);
-    background: rgba(8, 54, 27, 0.32);
-}
-
-#farming-crt .billing-heat-cell {
-    width: 100%;
-    padding: 0;
-    cursor: pointer;
-}
-
-#farming-crt .billing-heat-cell[data-level="1"],
-#farming-crt .billing-heatmap-legend i[data-level="1"] { background: rgba(12, 204, 104, 0.22); }
-#farming-crt .billing-heat-cell[data-level="2"],
-#farming-crt .billing-heatmap-legend i[data-level="2"] { background: rgba(23, 222, 116, 0.38); }
-#farming-crt .billing-heat-cell[data-level="3"],
-#farming-crt .billing-heatmap-legend i[data-level="3"] { background: rgba(61, 238, 139, 0.58); }
-#farming-crt .billing-heat-cell[data-level="4"],
-#farming-crt .billing-heatmap-legend i[data-level="4"] {
-    background: rgba(105, 247, 157, 0.78);
-}
-#farming-crt .billing-heat-cell[data-level="5"],
-#farming-crt .billing-heatmap-legend i[data-level="5"] {
-    border-color: rgba(202, 255, 219, 0.9);
-    background: rgba(202, 255, 219, 0.98);
-    box-shadow: 0 0 8px rgba(112, 255, 166, 0.72);
-}
-
-#farming-crt .billing-heat-cell:hover,
-#farming-crt .billing-heat-cell:focus-visible,
-#farming-crt .billing-heat-cell.selected {
-    border-color: var(--crt-phosphor-bright);
-    outline: 1px solid rgba(183, 255, 207, 0.94);
-    outline-offset: 1px;
-}
-
-#farming-crt .billing-heatmap-legend {
-    margin-top: 7px;
+#farming-crt .billing-axis-meta {
+    margin-top: 5px;
     display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 4px;
-    color: var(--crt-phosphor-muted);
-    font-size: 8px;
+    justify-content: space-between;
+    color: rgba(129, 255, 168, 0.5);
+    font-size: 7px;
     letter-spacing: 0.06em;
 }
 
-#farming-crt .billing-heatmap-legend i {
-    width: 12px;
-    min-width: 12px;
+#farming-crt .billing-daily-chart-frame {
+    margin-top: 3px;
+    display: grid;
+    grid-template-columns: 46px minmax(0, 1fr);
+    gap: 5px;
+}
+
+#farming-crt .billing-y-axis {
+    position: relative;
+    height: 178px;
+    border-right: 1px solid rgba(12, 204, 104, 0.34);
+    color: rgba(129, 255, 168, 0.68);
+    font-size: 7px;
+    letter-spacing: 0.03em;
+}
+
+#farming-crt .billing-y-axis-label {
+    position: absolute;
+    right: 6px;
+    transform: translateY(50%);
+    white-space: nowrap;
+}
+
+#farming-crt .billing-y-axis-label::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: calc(100% + 3px);
+    width: 4px;
+    border-top: 1px solid rgba(12, 204, 104, 0.52);
+}
+
+#farming-crt .billing-y-axis-label.is-floor {
+    color: rgba(129, 255, 168, 0.46);
+}
+
+#farming-crt .billing-daily-plot {
+    height: 178px;
+    border-bottom: 1px solid rgba(12, 204, 104, 0.25);
+    background: rgba(0, 8, 4, 0.55);
+}
+
+#farming-crt .billing-log-guides {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+#farming-crt .billing-log-guide {
+    position: absolute;
+    right: 0;
+    left: 0;
+    height: 1px;
+    border-top: 1px dashed rgba(12, 204, 104, 0.16);
+}
+
+#farming-crt .billing-log-guide span {
+    display: none;
+}
+
+#farming-crt .billing-daily-bars,
+#farming-crt .billing-daily-x-axis {
+    display: grid;
+    grid-template-columns: repeat(var(--billing-chart-days, 120), minmax(3px, 1fr));
+    gap: 2px;
+}
+
+#farming-crt .billing-daily-bars {
+    position: absolute;
+    inset: 0;
+    padding: 0 3px;
+}
+
+#farming-crt .billing-daily-column {
+    position: relative;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+#farming-crt .billing-daily-column::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    background: rgba(12, 204, 104, 0.09);
+}
+
+#farming-crt .billing-daily-bar {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    min-height: 2px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    overflow: visible;
+    border: 1px solid rgba(61, 238, 139, 0.3);
+    background: rgba(12, 204, 104, 0.12);
+}
+
+#farming-crt .billing-daily-bar span {
+    display: block;
+    min-height: 1px;
+}
+
+#farming-crt .billing-daily-cache {
+    order: 2;
+    background: rgba(39, 157, 83, 0.58);
+}
+
+#farming-crt .billing-daily-direct {
+    order: 1;
+    background: rgba(166, 255, 195, 0.94);
+    box-shadow: 0 0 4px rgba(112, 255, 166, 0.34);
+}
+
+#farming-crt .billing-daily-column[data-billion="true"] .billing-daily-bar::before {
+    content: "";
+    position: absolute;
+    top: -4px;
+    right: -1px;
+    left: -1px;
+    height: 2px;
+    background: var(--crt-phosphor-bright);
+    box-shadow: 0 0 7px rgba(112, 255, 166, 0.85);
+}
+
+#farming-crt .billing-daily-column:hover,
+#farming-crt .billing-daily-column:focus-visible,
+#farming-crt .billing-daily-column.selected {
+    outline: 1px solid rgba(183, 255, 207, 0.7);
+    outline-offset: 0;
+}
+
+#farming-crt .billing-daily-column.selected {
+    background: rgba(116, 255, 167, 0.08);
+}
+
+#farming-crt .billing-daily-column.selected::before {
+    content: "";
+    position: absolute;
+    z-index: 2;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    border-left: 1px dashed rgba(183, 255, 207, 0.72);
+    box-shadow: 0 0 4px rgba(112, 255, 166, 0.42);
+    pointer-events: none;
+}
+
+#farming-crt .billing-daily-x-axis {
+    min-height: 23px;
+    padding: 0 3px;
+    border-top: 1px solid rgba(12, 204, 104, 0.34);
+    color: var(--crt-phosphor-muted);
+    font-size: 7px;
+    line-height: 9px;
+}
+
+#farming-crt .billing-daily-x-axis span {
+    position: relative;
+    padding-top: 5px;
+    overflow: visible;
+    white-space: nowrap;
+}
+
+#farming-crt .billing-daily-x-axis span.has-label::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 4px;
+    border-left: 1px solid rgba(12, 204, 104, 0.52);
+}
+
+#farming-crt .billing-daily-x-axis span.is-end {
+    width: 34px;
+    transform: translateX(-30px);
+    text-align: right;
+}
+
+#farming-crt .billing-daily-x-axis span.is-end::before {
+    right: 0;
+    left: auto;
+}
+
+#farming-crt .billing-activity-row {
+    margin-top: 6px;
+    display: grid;
+    grid-template-columns: auto minmax(120px, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    color: var(--crt-phosphor-muted);
+    font-size: 7px;
+    letter-spacing: 0.05em;
+}
+
+#farming-crt .billing-activity-strip {
+    height: 8px;
+    display: grid;
+    grid-template-columns: repeat(var(--billing-activity-days, 364), minmax(1px, 1fr));
+    align-items: end;
+    gap: 1px;
+}
+
+#farming-crt .billing-activity-tick {
+    height: 2px;
+    background: rgba(12, 204, 104, 0.12);
+}
+
+#farming-crt .billing-activity-tick.is-active {
+    height: 5px;
+    background: rgba(61, 238, 139, 0.58);
+}
+
+#farming-crt .billing-activity-tick.is-billion {
+    height: 8px;
+    background: var(--crt-phosphor-bright);
+    box-shadow: 0 0 4px rgba(112, 255, 166, 0.62);
 }
 
 #farming-crt .billing-day-panel {
@@ -276,15 +493,190 @@
 #farming-crt .billing-day-details strong {
     overflow: hidden;
     color: var(--crt-phosphor-bright);
-    font-size: 13px;
+    font-size: 10px;
     font-weight: 400;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 #farming-crt .billing-day-total strong {
-    font-size: 20px;
+    font-size: 16px;
     text-shadow: 0 0 8px rgba(12, 204, 104, 0.36);
+}
+
+#farming-crt .billing-day-insights {
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid rgba(12, 204, 104, 0.2);
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+    gap: 14px;
+}
+
+#farming-crt .billing-day-curve-panel,
+#farming-crt .billing-day-share-panel {
+    min-width: 0;
+}
+
+#farming-crt .billing-day-share-panel {
+    padding-left: 14px;
+    border-left: 1px solid rgba(12, 204, 104, 0.16);
+}
+
+#farming-crt .billing-day-subheading,
+#farming-crt .billing-day-curve-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--crt-phosphor-muted);
+    font-size: 8px;
+    letter-spacing: 0.07em;
+}
+
+#farming-crt .billing-day-curve-frame {
+    height: 92px;
+    margin-top: 6px;
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 6px;
+}
+
+#farming-crt .billing-day-curve-y-axis {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: flex-end;
+    color: var(--crt-phosphor-muted);
+    font-size: 7px;
+    line-height: 1;
+}
+
+#farming-crt .billing-day-curve {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    border-left: 1px solid rgba(12, 204, 104, 0.23);
+    border-bottom: 1px solid rgba(12, 204, 104, 0.23);
+    background: rgba(0, 8, 4, 0.72);
+    filter: drop-shadow(0 0 3px rgba(61, 238, 139, 0.14));
+}
+
+#farming-crt .billing-day-curve-grid line {
+    stroke: rgba(12, 204, 104, 0.11);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+}
+
+#farming-crt .billing-day-curve-total,
+#farming-crt .billing-day-curve-cache {
+    fill: none;
+    vector-effect: non-scaling-stroke;
+    stroke-linecap: square;
+    stroke-linejoin: bevel;
+}
+
+#farming-crt .billing-day-curve-total {
+    stroke: var(--crt-phosphor-bright);
+    stroke-width: 1.8;
+    filter: drop-shadow(0 0 2px rgba(112, 255, 166, 0.72));
+}
+
+#farming-crt .billing-day-curve-cache {
+    stroke: rgba(238, 191, 77, 0.82);
+    stroke-width: 1.2;
+    stroke-dasharray: 4 3;
+}
+
+#farming-crt .billing-day-curve-x-axis {
+    margin: 4px 0 0 46px;
+    display: flex;
+    justify-content: space-between;
+    color: var(--crt-phosphor-muted);
+    font-size: 7px;
+}
+
+#farming-crt .billing-day-curve-footer {
+    margin: 6px 0 0 46px;
+}
+
+#farming-crt #billing-day-insight-state.is-error {
+    color: #ef6f6f;
+}
+
+#farming-crt .billing-day-curve-legend {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+#farming-crt .billing-day-curve-legend i {
+    width: 10px;
+    height: 1px;
+    display: inline-block;
+    background: var(--crt-phosphor-bright);
+    box-shadow: 0 0 3px rgba(112, 255, 166, 0.6);
+}
+
+#farming-crt .billing-day-curve-legend i.is-cache {
+    margin-left: 4px;
+    background: rgba(238, 191, 77, 0.82);
+    box-shadow: none;
+}
+
+#farming-crt .billing-day-provider-shares {
+    min-height: 112px;
+    margin-top: 9px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+#farming-crt .billing-day-share-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+#farming-crt .billing-day-share-copy {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 9px;
+    letter-spacing: 0.05em;
+}
+
+#farming-crt .billing-day-share-copy span {
+    color: var(--crt-phosphor);
+}
+
+#farming-crt .billing-day-share-copy strong {
+    overflow: hidden;
+    color: var(--crt-phosphor-bright);
+    font-size: 9px;
+    font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#farming-crt .billing-day-share-track {
+    height: 7px;
+    border: 1px solid rgba(12, 204, 104, 0.22);
+    background: rgba(0, 7, 3, 0.78);
+}
+
+#farming-crt .billing-day-share-track span {
+    display: block;
+    height: 100%;
+    background: repeating-linear-gradient(90deg, rgba(83, 244, 137, 0.88) 0 5px, rgba(83, 244, 137, 0.42) 5px 7px);
+    box-shadow: 0 0 6px rgba(83, 244, 137, 0.28);
+}
+
+#farming-crt .billing-day-share-empty {
+    color: var(--crt-phosphor-muted);
+    font-size: 9px;
+    letter-spacing: 0.06em;
 }
 
 #farming-crt .billing-meter {
@@ -534,6 +926,34 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+    #farming-crt .billing-daily-summary {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    #farming-crt .billing-summary-item:nth-child(3) {
+        border-right: 0;
+    }
+
+    #farming-crt .billing-summary-item:nth-child(-n+3) {
+        border-bottom: 1px solid rgba(12, 204, 104, 0.16);
+    }
+
+    #farming-crt .billing-daily-chart-panel {
+        min-height: 260px;
+    }
+
+    #farming-crt .billing-daily-plot {
+        height: 160px;
+    }
+
+    #farming-crt .billing-activity-row {
+        grid-template-columns: auto minmax(100px, 1fr);
+    }
+
+    #farming-crt .billing-activity-row #billing-daily-range {
+        display: none;
+    }
+
     #farming-crt .billing-lower-grid {
         grid-template-columns: 1fr;
     }
@@ -548,6 +968,17 @@
 
     #farming-crt .billing-day-details {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    #farming-crt .billing-day-insights {
+        grid-template-columns: 1fr;
+    }
+
+    #farming-crt .billing-day-share-panel {
+        padding-top: 9px;
+        padding-left: 0;
+        border-top: 1px solid rgba(12, 204, 104, 0.16);
+        border-left: 0;
     }
 
     #farming-crt .billing-day-total {

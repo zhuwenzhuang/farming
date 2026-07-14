@@ -516,8 +516,10 @@ class AcpRuntime extends EventEmitter {
   }
 
   requestElicitation(binding, request) {
-    if (request?.sessionId && String(request.sessionId) !== binding.sessionId) {
-      throw new Error('ACP elicitation does not match the active session');
+    const requestSessionId = String(request?.sessionId || binding.sessionId);
+    const isPrimarySession = requestSessionId === binding.sessionId;
+    if (!isPrimarySession && !binding.subagentStates.has(requestSessionId)) {
+      throw new Error('ACP elicitation does not match an active session');
     }
     if (!['form', 'url'].includes(String(request?.mode || ''))) {
       return { action: 'cancel' };
@@ -532,6 +534,7 @@ class AcpRuntime extends EventEmitter {
       ...cloned,
       ...(protocolRequestId !== undefined ? { protocolRequestId } : {}),
       requestId,
+      origin: isPrimarySession ? 'agent' : 'subagent',
     };
     binding.interactionOrigins.set(requestId, binding.state);
     binding.pendingElicitations.set(requestId, pending);
@@ -640,6 +643,42 @@ class AcpRuntime extends EventEmitter {
       this.emitRuntime(binding);
       throw runtimeError;
     }
+  }
+
+  async cancelSubagent(agentId, sessionId) {
+    const binding = this.requireBinding(agentId);
+    const targetSessionId = String(sessionId || '');
+    if (!targetSessionId || targetSessionId === binding.sessionId || !binding.subagentStates.has(targetSessionId)) {
+      throw new Error('ACP subagent session not found');
+    }
+    for (const [requestId, pending] of binding.pendingPermissions.entries()) {
+      if (String(pending?.sessionId || '') !== targetSessionId) continue;
+      binding.permissionResolvers.get(requestId)?.({ outcome: { outcome: 'cancelled' } });
+      binding.permissionResolvers.delete(requestId);
+      binding.pendingPermissions.delete(requestId);
+      binding.interactionOrigins.delete(requestId);
+    }
+    for (const [requestId, pending] of binding.pendingElicitations.entries()) {
+      if (String(pending?.sessionId || '') !== targetSessionId) continue;
+      binding.elicitationResolvers.get(requestId)?.({ action: 'cancel' });
+      binding.elicitationResolvers.delete(requestId);
+      binding.pendingElicitations.delete(requestId);
+      binding.interactionOrigins.delete(requestId);
+    }
+    for (const [elicitationId, active] of binding.activeElicitations.entries()) {
+      if (String(active?.sessionId || '') === targetSessionId) binding.activeElicitations.delete(elicitationId);
+    }
+    binding.state = interactiveRuntimeState(binding, binding.state);
+    this.emitRuntime(binding);
+    await withTimeout(
+      binding.connection.cancel({ sessionId: targetSessionId }),
+      this.cancelTimeoutMs,
+      'ACP subagent session/cancel'
+    );
+    binding.updatedAt = new Date().toISOString();
+    this.emitSession(binding);
+    this.emitRuntime(binding);
+    return { cancelled: true, sessionId: targetSessionId };
   }
 
   async listSessions(agentId, options = {}) {

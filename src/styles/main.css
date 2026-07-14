@@ -4390,6 +4390,40 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   white-space: pre-wrap;
 }
 
+.code-acp-embedded-terminal {
+  position: relative;
+  min-width: 0;
+  background: #161b22;
+}
+
+.code-acp-embedded-terminal-host {
+  height: 220px;
+  min-height: 160px;
+  padding: 8px 9px;
+  overflow: hidden;
+  background: #161b22;
+}
+
+.code-acp-embedded-terminal-host .xterm {
+  height: 100%;
+}
+
+.code-acp-embedded-terminal.readonly .xterm-helper-textarea {
+  pointer-events: none;
+}
+
+.code-visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: pre !important;
+  border: 0 !important;
+}
+
 .code-codex-transcript-terminal-input {
   display: flex;
   gap: 6px;
@@ -4560,6 +4594,76 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 .code-codex-transcript-subagent-status.error,
 .code-codex-transcript-subagent-error {
   color: #cf222e;
+}
+
+.code-codex-transcript-subagent-control {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.code-codex-transcript-subagent-control:hover,
+.code-codex-transcript-subagent-control:focus-visible {
+  background: rgba(31, 35, 40, 0.08);
+}
+
+.code-codex-transcript-subagent-control.stop {
+  color: #b4232d;
+}
+
+.code-codex-transcript-subagent-control:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.code-codex-transcript-subagent-control svg {
+  width: 13px;
+  height: 13px;
+}
+
+.code-codex-transcript-subagent-overlay {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgba(17, 24, 39, 0.38);
+}
+
+.code-codex-transcript-subagent-dialog {
+  display: grid;
+  width: min(920px, 100%);
+  max-height: min(760px, calc(100vh - 64px));
+  overflow: hidden;
+  border: 1px solid rgba(31, 35, 40, 0.15);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 24px 80px rgba(17, 24, 39, 0.2);
+}
+
+.code-codex-transcript-subagent-dialog > header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(31, 35, 40, 0.08);
+  color: #7b8178;
+  font-size: 12px;
+}
+
+.code-codex-transcript-subagent-dialog .code-codex-transcript-subagent-entries {
+  max-height: none;
+  overflow: auto;
 }
 
 .code-codex-transcript-subagent-error {

@@ -29,7 +29,7 @@ const testFiles = fs.readdirSync(testsDir)
   .filter(f => process.env.FARMING_INCLUDE_SERVER_TESTS === '1' || !serverBackedTests.has(f))
   .sort();
 const stateTestFiles = [
-  path.join(__dirname, '..', 'tests', 'review-demo-state.test.ts'),
+  path.join(__dirname, '..', 'tests', 'review-state.test.ts'),
 ].filter(fs.existsSync);
 
 const testRuns = [

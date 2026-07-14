@@ -3091,6 +3091,10 @@ export function CodeWorkspace({
         body: JSON.stringify({
           unarchiveArchived: true,
           providerHomeId,
+          ...(['codex', 'claude', 'opencode', 'qoder'].includes(provider) ? {
+            agentRuntimeMode: 'acp',
+            acpHistoryMode: 'load',
+          } : {}),
           ...(customTitle ? { customTitle } : {}),
         }),
       })

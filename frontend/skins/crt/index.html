@@ -1288,42 +1288,44 @@
             </div>
             <div class="billing-body">
                 <div class="billing-view" id="billing-days-view">
-                    <div class="billing-summary" aria-label="Daily token usage summary">
-                        <div class="billing-meter">
-                            <span>TODAY</span>
-                            <strong id="billing-today-total">--</strong>
-                            <small>TOKENS · INCL CACHE · PARTIAL</small>
-                        </div>
-                        <div class="billing-meter">
-                            <span>7 DAYS</span>
-                            <strong id="billing-7d-total">--</strong>
-                            <small>TOKENS · INCL CACHE</small>
-                        </div>
-                        <div class="billing-meter">
-                            <span>30 DAYS</span>
-                            <strong id="billing-30d-total">--</strong>
-                            <small>TOKENS · INCL CACHE</small>
-                        </div>
-                        <div class="billing-meter">
-                            <span>52 WEEKS</span>
-                            <strong id="billing-period-total">--</strong>
-                            <small id="billing-peak-day">PEAK --</small>
-                        </div>
+                    <div class="billing-summary billing-daily-summary" aria-label="Daily token usage summary">
+                        <div class="billing-summary-item"><span>TODAY</span><strong id="billing-today-total">--</strong><small>PARTIAL</small></div>
+                        <div class="billing-summary-item"><span>7D</span><strong id="billing-7d-total">--</strong></div>
+                        <div class="billing-summary-item"><span>30D</span><strong id="billing-30d-total">--</strong></div>
+                        <div class="billing-summary-item"><span>52W</span><strong id="billing-period-total">--</strong></div>
+                        <div class="billing-summary-item"><span>ACTIVE</span><strong id="billing-active-days">--</strong><small>DAYS</small></div>
+                        <div class="billing-summary-item"><span>1B+</span><strong id="billing-billion-days">--</strong><small>DAYS</small></div>
                     </div>
 
-                    <section class="billing-panel billing-heatmap-panel" aria-label="Daily token history">
+                    <section class="billing-panel billing-daily-chart-panel" aria-label="Daily processed token history">
                         <div class="billing-panel-heading">
-                            <h3>DAILY PROCESSED TOKENS // 52 WEEKS</h3>
-                            <span id="billing-daily-range">LOCAL TIME</span>
+                            <h3>DAILY PROCESSED TOKENS // 120 DAYS // LOG SCALE</h3>
+                            <span id="billing-peak-day">PEAK --</span>
                         </div>
-                        <div class="billing-heatmap-layout">
-                            <div class="billing-weekdays" aria-hidden="true"><span>MON</span><span></span><span>WED</span><span></span><span>FRI</span><span></span><span>SUN</span></div>
-                            <div class="billing-heatmap-scroll" id="billing-heatmap-scroll">
-                                <div class="billing-heatmap-months" id="billing-heatmap-months" aria-hidden="true"></div>
-                                <div class="billing-heatmap" id="billing-heatmap" role="grid" aria-label="Daily token totals"></div>
+                        <div class="billing-daily-legend" aria-hidden="true">
+                            <span><i class="is-cache"></i>CACHE</span>
+                            <span><i class="is-direct"></i>INPUT / OUTPUT / OTHER</span>
+                            <span><i class="is-billion"></i>1B+ DAY</span>
+                        </div>
+                        <div class="billing-axis-meta" aria-hidden="true">
+                            <span>Y: TOKENS / DAY [LOG10]</span>
+                            <span>X: LOCAL DATE</span>
+                        </div>
+                        <div class="billing-daily-chart-frame">
+                            <div class="billing-y-axis" id="billing-y-axis" aria-hidden="true"></div>
+                            <div class="billing-daily-scroll" id="billing-daily-scroll">
+                                <div class="billing-daily-plot">
+                                    <div class="billing-log-guides" id="billing-log-guides" aria-hidden="true"></div>
+                                    <div class="billing-daily-bars" id="billing-daily-bars" role="grid" aria-label="Daily token totals for the last 120 days on a logarithmic scale"></div>
+                                </div>
+                                <div class="billing-daily-x-axis" id="billing-daily-x-axis" aria-hidden="true"></div>
                             </div>
                         </div>
-                        <div class="billing-heatmap-legend" aria-hidden="true"><span>ACTIVE-DAY RANK</span><span>LOW</span><i data-level="1"></i><i data-level="2"></i><i data-level="3"></i><i data-level="4"></i><i data-level="5"></i><span>TOP 2%</span></div>
+                        <div class="billing-activity-row">
+                            <span>52W ACTIVITY</span>
+                            <div class="billing-activity-strip" id="billing-activity-strip" role="img" aria-label="52-week daily activity continuity"></div>
+                            <span id="billing-daily-range">LOCAL TIME</span>
+                        </div>
                     </section>
 
                     <section class="billing-panel billing-day-panel" aria-label="Selected day token details">
@@ -1338,6 +1340,49 @@
                             <div class="billing-day-breakdown"><small>CACHE READ</small><strong id="billing-day-cache-read">--</strong></div>
                             <div class="billing-day-breakdown"><small>CACHE WRITE</small><strong id="billing-day-cache-write">--</strong></div>
                             <div class="billing-day-breakdown"><small>CHANNELS</small><strong id="billing-day-providers">--</strong></div>
+                        </div>
+                        <div class="billing-day-insights">
+                            <div class="billing-day-curve-panel">
+                                <div class="billing-day-subheading">
+                                    <span>INTRADAY CURVE // 1H BINS</span>
+                                    <span id="billing-day-curve-scale">-- TOK/H PEAK</span>
+                                </div>
+                                <div class="billing-day-curve-frame">
+                                    <div class="billing-day-curve-y-axis" aria-hidden="true">
+                                        <span id="billing-day-curve-max">--</span>
+                                        <span>0</span>
+                                    </div>
+                                    <svg class="billing-day-curve" viewBox="0 0 600 120" preserveAspectRatio="none" role="img" aria-label="Selected day total and cache tokens by local hour">
+                                        <g class="billing-day-curve-grid" aria-hidden="true">
+                                            <line x1="0" y1="0" x2="600" y2="0"></line>
+                                            <line x1="0" y1="40" x2="600" y2="40"></line>
+                                            <line x1="0" y1="80" x2="600" y2="80"></line>
+                                            <line x1="0" y1="120" x2="600" y2="120"></line>
+                                            <line x1="0" y1="0" x2="0" y2="120"></line>
+                                            <line x1="156.5" y1="0" x2="156.5" y2="120"></line>
+                                            <line x1="313" y1="0" x2="313" y2="120"></line>
+                                            <line x1="469.5" y1="0" x2="469.5" y2="120"></line>
+                                            <line x1="600" y1="0" x2="600" y2="120"></line>
+                                        </g>
+                                        <path id="billing-day-cache-path" class="billing-day-curve-cache"></path>
+                                        <path id="billing-day-total-path" class="billing-day-curve-total"></path>
+                                    </svg>
+                                </div>
+                                <div class="billing-day-curve-x-axis" aria-hidden="true">
+                                    <span>00</span><span>06</span><span>12</span><span>18</span><span>23</span>
+                                </div>
+                                <div class="billing-day-curve-footer">
+                                    <span id="billing-day-insight-state">SELECTED DAY DETAIL</span>
+                                    <span class="billing-day-curve-legend"><i class="is-total"></i>TOTAL <i class="is-cache"></i>CACHE</span>
+                                </div>
+                            </div>
+                            <div class="billing-day-share-panel">
+                                <div class="billing-day-subheading">
+                                    <span>AGENT TYPE SHARE</span>
+                                    <span>PROCESSED TOKENS</span>
+                                </div>
+                                <div class="billing-day-provider-shares" id="billing-day-provider-shares" aria-live="polite"></div>
+                            </div>
                         </div>
                     </section>
                 </div>
@@ -1417,7 +1462,7 @@
                     <span class="key">[H]</span> HISTORY
                 </div>
                 <div class="sidebar-item" style="opacity: 0.5; cursor: not-allowed;">
-                    <span class="key">[K]</span> SKILLS
+                    <span class="key">[E]</span> EXTENSIONS
                 </div>
                 <div class="sidebar-item" id="billing-sidebar-item" role="button" tabindex="-1" data-crt-nav-key="sidebar:billing" onclick="showCrtBilling()">
                     <span class="key">[$]</span> BILLING

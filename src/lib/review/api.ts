@@ -18,7 +18,7 @@ export class ReviewApiError extends Error {
   }
 }
 
-export const REVIEW_DEMO_ID = 'review-demo-553987'
+export const REVIEW_FIXTURE_ID = 'review-fixture-553987'
 const MAX_REVIEW_KEY_LENGTH = 200
 
 export type ReviewSessionRevision = {

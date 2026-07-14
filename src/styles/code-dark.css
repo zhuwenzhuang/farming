@@ -1007,7 +1007,8 @@ body.code-mode[data-appearance='dark'] .code-codex-transcript-subagent-turn .use
 }
 
 body.code-mode[data-appearance='dark'] .code-codex-transcript-terminal,
-body.code-mode[data-appearance='dark'] .code-codex-transcript-subagent {
+body.code-mode[data-appearance='dark'] .code-codex-transcript-subagent,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-subagent-dialog {
   border-color: var(--code-dark-border);
   background: var(--code-dark-bg-panel);
 }
@@ -1015,12 +1016,18 @@ body.code-mode[data-appearance='dark'] .code-codex-transcript-subagent {
 body.code-mode[data-appearance='dark'] .code-codex-transcript-terminal > header,
 body.code-mode[data-appearance='dark'] .code-codex-transcript-terminal-meta,
 body.code-mode[data-appearance='dark'] .code-codex-transcript-subagent > header,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-subagent-dialog > header,
 body.code-mode[data-appearance='dark'] .code-codex-transcript-subagent-turn {
   border-color: var(--code-dark-border);
 }
 
 body.code-mode[data-appearance='dark'] .code-codex-transcript-terminal-copy:hover,
 body.code-mode[data-appearance='dark'] .code-codex-transcript-terminal-copy:focus-visible {
+  background: rgba(139, 148, 158, 0.16);
+}
+
+body.code-mode[data-appearance='dark'] .code-codex-transcript-subagent-control:hover,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-subagent-control:focus-visible {
   background: rgba(139, 148, 158, 0.16);
 }
 

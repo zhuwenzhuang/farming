@@ -75,7 +75,7 @@ export function AcpElicitationCard({ request, onRespond }: AcpElicitationCardPro
 
   return (
     <form className="code-app-server-request code-acp-elicitation" data-testid="code-acp-elicitation" data-status={request.status || 'pending'} onSubmit={submit}>
-      <header><strong>{title}</strong><span>{request.mode}</span></header>
+      <header><strong>{title}</strong><span>{request.origin === 'subagent' ? `Subagent · ${request.mode}` : request.mode}</span></header>
       <p>{request.message}</p>
       {request.requestedSchema?.description ? <small>{request.requestedSchema.description}</small> : null}
       {validationError ? <small className="code-acp-elicitation-error" role="alert">{validationError}</small> : null}

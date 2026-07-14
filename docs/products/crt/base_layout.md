@@ -41,7 +41,7 @@ Desktop sidebar entries:
 | N | NEW AGENT | enabled |
 | F | SEARCH | enabled |
 | H | HISTORY | enabled |
-| K | SKILLS | enabled |
+| E | EXTENSIONS | planned |
 | $ | BILLING | enabled |
 | S | SETTINGS | enabled |
 
@@ -49,7 +49,7 @@ Zombie cleanup does not get its own sidebar item. Zombie state appears on agent 
 
 Search replaces the former Task List slot. It opens a full-height search view in the Agents Layout region, keeps the query prompt focused, and combines live project Agents with unclaimed provider-session matches from the shared backend search API.
 
-Billing replaces its former placeholder with a full-height token-telemetry view. Days is the default: a 52-week daily processed-token heatmap whose non-zero days are ranked at the 50th, 75th, 90th, and 98th percentiles, reserving the brightest level for the top two percent. Processed totals include cache reads and combine every configured Codex and Claude Home with available OpenCode exports; unavailable providers remain explicitly identified. Compact today, 7-day, 30-day, period, and peak meters accompany an exact selected-day breakdown. Arrow keys move the selected date. Live remains a secondary 60-minute Canvas oscilloscope with current signal, integral, peak rate, and active buckets. Provider channels and quota windows remain visible without inventing monetary costs or unavailable quota values. `$` opens Billing, `D` and `L` switch views, `R` refreshes it, and Escape returns to the Agent dashboard.
+Billing replaces its former placeholder with a full-height token-telemetry view. Days is the default: a logarithmic 120-day processed-token bar chart stacks cache against non-cache volume, marks billion-token days, uses a fixed adaptive tokens-per-day Y axis plus a local-date X axis and selected-day cursor, and keeps a one-tick-per-day 52-week activity strip for long-range continuity. Processed totals include cache reads and combine every configured Codex and Claude Home with available OpenCode exports; unavailable providers remain explicitly identified. A compact line reports today, 7-day, 30-day, 52-week, active-day, billion-token-day, and peak values above the exact selected-day breakdown. The selected day also exposes a 24-bin local-hour total/cache curve and attributed provider shares without rescanning history on each selection. Left and Right move one day; Up and Down move one week. Live remains a secondary 60-minute Canvas oscilloscope with current signal, integral, peak rate, and active buckets. Provider channels and quota windows remain visible without inventing monetary costs or unavailable quota values. `$` opens Billing, `D` and `L` switch views, `R` refreshes it, and Escape returns to the Agent dashboard.
 
 ## Main Agent Panel
 

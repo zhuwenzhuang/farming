@@ -5,6 +5,7 @@ const path = require('path');
 const {
   UsageMonitor,
   buildDailyUsage,
+  buildUsageDayDetail,
   buildUsageTimeline,
   collectClaudeUsage,
   collectCodexUsage,
@@ -189,6 +190,40 @@ async function run() {
   assert.strictEqual(daily.points[2].providers.claude.totalTokens, 200);
   assert.strictEqual(daily.summary.sevenDayTokens, 320);
 
+  const detailDate = '2026-06-28';
+  const usageDay = buildUsageDayDetail({
+    codex: [{
+      timestamp: new Date(2026, 5, 28, 9, 15).getTime(),
+      totalTokens: 180,
+      inputTokens: 80,
+      outputTokens: 20,
+      cacheReadTokens: 80,
+    }],
+    claude: [{
+      timestamp: new Date(2026, 5, 28, 9, 45).getTime(),
+      totalTokens: 70,
+      inputTokens: 30,
+      outputTokens: 30,
+      cacheWriteTokens: 10,
+    }, {
+      timestamp: new Date(2026, 5, 28, 17, 5).getTime(),
+      totalTokens: 50,
+      inputTokens: 25,
+      outputTokens: 25,
+    }],
+  }, { date: detailDate });
+  assert.strictEqual(usageDay.date, detailDate);
+  assert.strictEqual(usageDay.hours.length, 24);
+  assert.strictEqual(usageDay.hours[9].totalTokens, 250);
+  assert.strictEqual(usageDay.hours[17].totalTokens, 50);
+  assert.strictEqual(usageDay.providers.codex.totalTokens, 180);
+  assert.strictEqual(usageDay.providers.claude.totalTokens, 120);
+  assert.strictEqual(usageDay.total.totalTokens, 300);
+  assert.throws(
+    () => buildUsageDayDetail({}, { date: '2026-02-30' }),
+    /valid local date/,
+  );
+
   const calls = [];
   const commandRunner = async (command, args) => {
     calls.push([command, args]);
@@ -242,6 +277,14 @@ async function run() {
     }
     throw new Error(`Unexpected OpenCode command ${args.join(' ')}`);
   };
+
+  const originalPath = process.env.PATH || '';
+  const shadowBin = path.join(root, 'shadow-bin');
+  const shadowRg = path.join(shadowBin, process.platform === 'win32' ? 'rg.cmd' : 'rg');
+  fs.mkdirSync(shadowBin, { recursive: true });
+  fs.writeFileSync(shadowRg, process.platform === 'win32' ? '@exit /b 0\r\n' : '#!/bin/sh\nexit 0\n');
+  if (process.platform !== 'win32') fs.chmodSync(shadowRg, 0o755);
+  process.env.PATH = `${shadowBin}${path.delimiter}${originalPath}`;
 
   const monitor = new UsageMonitor({
     codexHome,
@@ -297,10 +340,15 @@ async function run() {
   assert.strictEqual(summary.providers.find(entry => entry.provider === 'qoder').tokenUsage.available, false);
   assert.strictEqual(summary.agentUsage.estimatedTokensPerMinute, 2);
   assert.strictEqual(summary.systemStats.cpu, 12);
+  const selectedDay = await monitor.getUsageDay(summary.daily.endDate, { now });
+  assert.strictEqual(selectedDay.hours.length, 24);
+  assert.strictEqual(selectedDay.total.totalTokens, summary.daily.summary.todayTokens);
+  assert.strictEqual(selectedDay.providers.opencode.totalTokens, 300);
   const cachedSummary = await monitor.getUsageSummary({ now: now + 1_000 });
   assert.strictEqual(cachedSummary.daily, summary.daily, 'daily history should reuse its short heavy-scan cache');
   const refreshedSummary = await monitor.getUsageSummary({ now: now + 2_000, fresh: true });
   assert.notStrictEqual(refreshedSummary.daily, summary.daily, 'an explicit fresh read should rebuild daily history');
+  process.env.PATH = originalPath;
 
   for (const [, args] of calls) {
     assert(!args.includes('reset'), 'usage monitor must not call reset');

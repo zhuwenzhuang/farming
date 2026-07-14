@@ -40,7 +40,7 @@ Collapsed width is intentionally narrow. It contains:
 - New Agent;
 - Task List;
 - History;
-- Skills;
+- Extensions (planned);
 - Billing;
 - Settings.
 

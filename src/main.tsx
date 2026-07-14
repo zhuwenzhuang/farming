@@ -256,7 +256,7 @@ window.addEventListener('unhandledrejection', event => {
 })
 
 const normalizedPathname = window.location.pathname.replace(/\/+$/, '')
-const isReviewRoute = ['/review', '/review-demo']
+const isReviewRoute = ['/review']
   .map(path => appPath(path).replace(/\/+$/, ''))
   .includes(normalizedPathname)
 const root = createRoot(document.getElementById('root')!)
@@ -269,11 +269,11 @@ async function renderApplication() {
     return
   }
   if (isReviewRoute) {
-    const [{ ReviewDemoPage }] = await Promise.all([
-      import('./components/review-demo/ReviewDemoPage'),
-      import('./styles/review-demo.css'),
+    const [{ ReviewPage }] = await Promise.all([
+      import('./components/review/ReviewPage'),
+      import('./styles/review.css'),
     ])
-    root.render(<ApplicationErrorBoundary><ReviewDemoPage /></ApplicationErrorBoundary>)
+    root.render(<ApplicationErrorBoundary><ReviewPage /></ApplicationErrorBoundary>)
     return
   }
 

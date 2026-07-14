@@ -24,6 +24,7 @@ const OPENCODE_EXPORT_CONCURRENCY = 4;
 const OPENCODE_SESSION_LIMIT = 5000;
 const dailyFileEventCache = new Map();
 const openCodeSessionEventCache = new Map();
+let nativeRipgrepPathPromise = null;
 
 function numberOrNull(value) {
   const numberValue = Number(value);
@@ -497,6 +498,78 @@ async function readJsonlRecords(filePath) {
     .filter(Boolean);
 }
 
+async function isNativeExecutable(filePath) {
+  try {
+    const resolved = await fsp.realpath(filePath);
+    const stat = await fsp.stat(resolved);
+    if (!stat.isFile()) return false;
+    const handle = await fsp.open(resolved, 'r');
+    try {
+      const header = Buffer.alloc(2);
+      const { bytesRead } = await handle.read(header, 0, header.length, 0);
+      return bytesRead === header.length && header.toString('utf8') !== '#!';
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return false;
+  }
+}
+
+async function codexBundledRipgrepCandidates() {
+  let codexPackagePath;
+  try {
+    codexPackagePath = require.resolve('@openai/codex/package.json');
+  } catch {
+    return [];
+  }
+  const scopeDir = path.dirname(path.dirname(codexPackagePath));
+  let packages;
+  try {
+    packages = await fsp.readdir(scopeDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const executableName = process.platform === 'win32' ? 'rg.exe' : 'rg';
+  const candidates = [];
+  for (const entry of packages) {
+    if (!entry.isDirectory() || !entry.name.startsWith('codex-')) continue;
+    const vendorDir = path.join(scopeDir, entry.name, 'vendor');
+    let triples;
+    try {
+      triples = await fsp.readdir(vendorDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const triple of triples) {
+      if (!triple.isDirectory()) continue;
+      candidates.push(path.join(vendorDir, triple.name, 'codex-path', executableName));
+    }
+  }
+  return candidates;
+}
+
+async function resolveNativeRipgrepPath() {
+  if (process.env.FARMING_RG_BIN) return process.env.FARMING_RG_BIN;
+  if (nativeRipgrepPathPromise) return nativeRipgrepPathPromise;
+  nativeRipgrepPathPromise = (async () => {
+    const executableName = process.platform === 'win32' ? 'rg.exe' : 'rg';
+    const pathCandidates = String(process.env.PATH || '')
+      .split(path.delimiter)
+      .filter(Boolean)
+      .map(dir => path.join(dir, executableName));
+    const candidates = [
+      ...pathCandidates,
+      ...await codexBundledRipgrepCandidates(),
+    ];
+    for (const candidate of Array.from(new Set(candidates))) {
+      if (await isNativeExecutable(candidate)) return candidate;
+    }
+    return null;
+  })();
+  return nativeRipgrepPathPromise;
+}
+
 function localDateKey(timestamp) {
   const date = new Date(timestamp);
   if (!Number.isFinite(date.getTime())) return '';
@@ -563,6 +636,49 @@ function buildDailyUsage(providerEvents, options = {}) {
   };
 }
 
+function buildUsageDayDetail(providerEvents, options = {}) {
+  const date = String(options.date || '').trim();
+  const parts = date.split('-').map(Number);
+  const dateProbe = parts.length === 3
+    ? new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0, 0)
+    : null;
+  if (!dateProbe || localDateKey(dateProbe.getTime()) !== date) {
+    throw new RangeError('Usage day must be a valid local date in YYYY-MM-DD format.');
+  }
+
+  const providerNames = Object.keys(providerEvents || {});
+  const hours = Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    label: String(hour).padStart(2, '0'),
+    ...emptyTokenBreakdown(),
+  }));
+  const providers = Object.fromEntries(
+    providerNames.map(provider => [provider, emptyTokenBreakdown()]),
+  );
+  const total = emptyTokenBreakdown();
+
+  for (const provider of providerNames) {
+    for (const event of providerEvents[provider] || []) {
+      const timestamp = parseTimestampMs(event?.timestamp);
+      if (localDateKey(timestamp) !== date) continue;
+      const hour = new Date(timestamp).getHours();
+      if (!Number.isInteger(hour) || hour < 0 || hour > 23) continue;
+      addTokenBreakdown(hours[hour], event);
+      addTokenBreakdown(providers[provider], event);
+      addTokenBreakdown(total, event);
+    }
+  }
+
+  return {
+    source: 'local provider token events',
+    date,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'local',
+    total,
+    hours,
+    providers,
+  };
+}
+
 async function readDailyFileEvents(filePath, provider, minimumMtimeMs = 0) {
   const stat = await fsp.stat(filePath);
   if (stat.mtimeMs < minimumMtimeMs) return { events: [], mtimeMs: stat.mtimeMs };
@@ -611,8 +727,10 @@ async function collectCodexDailyEventsWithRipgrep(roots, options = {}) {
 
   const now = options.now ?? Date.now();
   const cutoffMs = options.cutoffMs ?? 0;
+  const ripgrepPath = options.ripgrepPath || await resolveNativeRipgrepPath();
+  if (!ripgrepPath) return null;
   return new Promise((resolve) => {
-    const child = spawn('rg', [
+    const child = spawn(ripgrepPath, [
       '-F',
       '"type":"token_count"',
       '--with-filename',
@@ -1113,6 +1231,14 @@ class UsageMonitor {
     return this.dailyCache.pending;
   }
 
+  async getUsageDay(date, options = {}) {
+    const history = await this.getDailyUsage({
+      now: options.now,
+      force: options.fresh === true,
+    });
+    return buildUsageDayDetail(history.providerEvents, { date });
+  }
+
   async getUsageSummary(options = {}) {
     const now = options.now ?? Date.now();
     const windowMs = options.windowMs ?? this.windowMs;
@@ -1217,6 +1343,7 @@ module.exports = {
   UsageMonitor,
   buildUsageTimeline,
   buildDailyUsage,
+  buildUsageDayDetail,
   collectDailyUsage,
   collectClaudeUsage,
   collectCodexUsage,

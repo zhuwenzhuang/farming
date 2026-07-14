@@ -9,41 +9,44 @@ function git(root: string, ...args: string[]) {
 }
 
 test('keeps Gerrit-style review controls and independent inline diffs working', async ({ page }) => {
-  await page.goto('/farming/review-demo')
+  await page.goto('/farming/review?fixture=1')
 
-  const review = page.getByTestId('review-demo-page')
-  await expect(review.getByText('Base', { exact: true })).toBeVisible()
+  const review = page.getByTestId('review-page')
+  await expect(review.getByRole('button', { name: 'Files', exact: true })).toBeVisible()
   await expect(review.getByLabel('Patch set', { exact: true })).toHaveValue('Patchset 20')
   await expect(review.getByRole('button', { name: 'DOWNLOAD' })).toHaveCount(0)
   await expect(review.getByRole('button', { name: 'EXPAND ALL' })).toBeVisible()
 
   const firstFile = review.locator('[data-file-path="clis/dataflow.py"]')
+  await expect(firstFile.locator('.review-file-status')).toHaveText('M')
+  await expect(firstFile.locator('.review-file-status')).not.toHaveText('PY')
+  await expect(review.locator('.review-files-toolbar')).toHaveCSS('position', 'relative')
   await expect(firstFile.getByText('Reviewed', { exact: true })).toBeVisible()
   const firstFileReviewedSwitch = firstFile.getByRole('switch', { name: 'Reviewed' })
   await expect(firstFileReviewedSwitch).toHaveAttribute('data-action-visibility', 'on-row-interaction')
   await expect(firstFileReviewedSwitch).toHaveCSS('opacity', '0')
-  await expect(firstFile.locator('.review-demo-file-stats .removed')).toHaveCSS('font-style', 'normal')
-  await expect(firstFile.locator('.review-demo-file-stats .added')).toHaveCSS('color', 'rgb(63, 145, 77)')
-  await expect(firstFile.locator('.review-demo-file-stats .removed')).toHaveCSS('color', 'rgb(200, 79, 79)')
-  const initialStatWeight = await firstFile.locator('.review-demo-file-stats .added').evaluate(element => getComputedStyle(element).fontWeight)
-  await expect(firstFile.locator('.review-demo-file-stats .removed')).toHaveCSS('font-weight', initialStatWeight)
+  await expect(firstFile.locator('.review-file-stats .removed')).toHaveCSS('font-style', 'normal')
+  await expect(firstFile.locator('.review-file-stats .added')).toHaveCSS('color', 'rgb(63, 145, 77)')
+  await expect(firstFile.locator('.review-file-stats .removed')).toHaveCSS('color', 'rgb(200, 79, 79)')
+  const initialStatWeight = await firstFile.locator('.review-file-stats .added').evaluate(element => getComputedStyle(element).fontWeight)
+  await expect(firstFile.locator('.review-file-stats .removed')).toHaveCSS('font-weight', initialStatWeight)
   const initialColumns = await firstFile.evaluate(element => {
-    const stats = element.querySelector('.review-demo-file-stats')?.getBoundingClientRect()
-    const action = element.querySelector('.review-demo-review-status button')?.getBoundingClientRect()
+    const stats = element.querySelector('.review-file-stats')?.getBoundingClientRect()
+    const action = element.querySelector('.review-review-status button')?.getBoundingClientRect()
     return { actionLeft: action?.left, statsLeft: stats?.left }
   })
   await firstFile.hover()
   await expect(firstFileReviewedSwitch).toHaveCSS('opacity', '1')
   await expect(firstFileReviewedSwitch).toContainText('MARK UNREVIEWED')
-  await firstFile.locator('.review-demo-file-select').click()
+  await firstFile.locator('.review-file-select').click()
   await expect(firstFileReviewedSwitch).toHaveAttribute('aria-checked', 'true')
   await firstFileReviewedSwitch.click()
   await expect(firstFile.getByText('Reviewed', { exact: true })).toHaveCount(0)
   await expect(firstFileReviewedSwitch).toHaveAttribute('aria-checked', 'false')
   await expect(firstFileReviewedSwitch).toContainText('MARK REVIEWED')
   const toggledColumns = await firstFile.evaluate(element => {
-    const stats = element.querySelector('.review-demo-file-stats')?.getBoundingClientRect()
-    const action = element.querySelector('.review-demo-review-status button')?.getBoundingClientRect()
+    const stats = element.querySelector('.review-file-stats')?.getBoundingClientRect()
+    const action = element.querySelector('.review-review-status button')?.getBoundingClientRect()
     return { actionLeft: action?.left, statsLeft: stats?.left }
   })
   expect(toggledColumns).toEqual(initialColumns)
@@ -54,7 +57,7 @@ test('keeps Gerrit-style review controls and independent inline diffs working', 
 
   await dataflowDiff.getByRole('button', { name: 'Show 10 lines below' }).click()
   await expect(dataflowDiff.getByRole('button', { name: 'Show all 109 common lines' })).toBeVisible()
-  const firstDiffRow = dataflowDiff.locator('.review-demo-diff-row').first()
+  const firstDiffRow = dataflowDiff.locator('.review-diff-row').first()
   await expect(firstDiffRow).toContainText('unchanged review context 82')
 
   await review.getByRole('button', { name: 'Diff preferences' }).click()
@@ -65,9 +68,9 @@ test('keeps Gerrit-style review controls and independent inline diffs working', 
 })
 
 test('keeps the current expanded file header and review action visible while scrolling its diff', async ({ page }) => {
-  await page.goto('/farming/review-demo')
+  await page.goto('/farming/review?fixture=1')
 
-  const review = page.getByTestId('review-demo-page')
+  const review = page.getByTestId('review-page')
   const diagnoseRow = review.locator('[data-file-path="clis/diagnose.py"]')
   const reviewSwitch = diagnoseRow.getByRole('switch', { name: 'Reviewed' })
   await expect(review.getByLabel('Diff for clis/diagnose.py')).toBeVisible()
@@ -75,23 +78,23 @@ test('keeps the current expanded file header and review action visible while scr
 
   await page.evaluate(() => { window.scrollTo(0, 223) })
   await expect(diagnoseRow).toHaveClass(/reviewing/)
-  await expect(diagnoseRow.locator('.review-demo-file-change-header')).toHaveCSS('position', 'sticky')
+  await expect(diagnoseRow.locator('.review-file-change-header')).toHaveCSS('position', 'sticky')
   await expect(reviewSwitch).toHaveCSS('opacity', '1')
 })
 
 test('shows both paths for a renamed file', async ({ page }) => {
-  await page.goto('/farming/review-demo')
+  await page.goto('/farming/review?fixture=1')
   const renamedFile = page.locator('[data-file-path="tests/review/change-set.spec.ts"]')
-  await expect(renamedFile.locator('.review-demo-file-name')).toHaveText('tests/review/change-set.spec.ts')
-  await expect(renamedFile.locator('.review-demo-file-previous-path')).toHaveText('tests/changes/change-summary.spec.ts')
+  await expect(renamedFile.locator('.review-file-name')).toHaveText('tests/review/change-set.spec.ts')
+  await expect(renamedFile.locator('.review-file-previous-path')).toHaveText('tests/changes/change-summary.spec.ts')
 })
 
 test('creates and persists a comment for a selected code range', async ({ page }) => {
-  await page.goto('/farming/review-demo')
-  const review = page.getByTestId('review-demo-page')
+  await page.goto('/farming/review?fixture=1')
+  const review = page.getByTestId('review-page')
   const file = review.locator('[data-file-path="clis/dataflow.py"]')
   await expect(file).toBeVisible()
-  if (!(await file.getAttribute('class'))?.includes('expanded')) await file.locator('.review-demo-file-select').click()
+  if (!(await file.getAttribute('class'))?.includes('expanded')) await file.locator('.review-file-select').click()
   const diff = review.getByLabel('Diff for clis/dataflow.py')
   await expect(diff).toBeVisible()
   const rightCells = diff.locator('code[data-review-side="right"][data-review-line]')
@@ -104,21 +107,21 @@ test('creates and persists a comment for a selected code range', async ({ page }
     range.setEnd(second, second.childNodes.length)
     selection?.removeAllRanges()
     selection?.addRange(range)
-    first.closest('.review-demo-diff-code')?.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    first.closest('.review-diff-code')?.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
   }, await rightCells.nth(1).elementHandle())
 
-  const editor = diff.locator('.review-demo-comment-editor')
+  const editor = diff.locator('.review-comment-editor')
   await expect(editor.locator('header')).toContainText(/Patchset lines \d+–\d+/)
   await editor.getByLabel('Review comment').fill('Review the selected range as one unit.')
   await editor.getByRole('button', { name: 'SAVE COMMENT' }).click()
   await expect(diff.getByText('Review the selected range as one unit.')).toBeVisible()
-  await expect(diff.locator('.review-demo-comment-thread header').filter({ hasText: /Patchset lines \d+–\d+/ })).toBeVisible()
+  await expect(diff.locator('.review-comment-thread header').filter({ hasText: /Patchset lines \d+–\d+/ })).toBeVisible()
 })
 
 test('persists reviewed files and diff preferences across a refresh', async ({ page }) => {
-  await page.goto('/farming/review-demo')
+  await page.goto('/farming/review?fixture=1')
 
-  const review = page.getByTestId('review-demo-page')
+  const review = page.getByTestId('review-page')
   const diagnoseRow = review.locator('[data-file-path="clis/diagnose.py"]')
   const diagnoseSwitch = diagnoseRow.getByRole('switch', { name: 'Reviewed' })
   await expect(diagnoseSwitch).toHaveAttribute('aria-checked', 'false')
@@ -142,9 +145,9 @@ test('persists reviewed files and diff preferences across a refresh', async ({ p
   await expect(diagnoseDiff.getByText('Discard this draft.', { exact: true })).toHaveCount(0)
 
   await diagnoseDiff.locator('code[data-review-line="130"][data-review-side="right"]').click()
-  const changedLine = diagnoseDiff.locator('.review-demo-diff-row.added:has(code[data-review-line="130"][data-review-side="right"])')
+  const changedLine = diagnoseDiff.locator('.review-diff-row.added:has(code[data-review-line="130"][data-review-side="right"])')
   const attachment = changedLine.locator('xpath=following-sibling::*[1]')
-  await expect(attachment).toHaveClass(/review-demo-line-attachment/)
+  await expect(attachment).toHaveClass(/review-line-attachment/)
   await attachment.getByLabel('Review comment').fill('Keep the base range explicit.')
   await attachment.getByRole('button', { name: 'SAVE COMMENT' }).click()
   await expect(attachment.getByText('Keep the base range explicit.', { exact: true })).toBeVisible()
@@ -161,9 +164,9 @@ test('persists reviewed files and diff preferences across a refresh', async ({ p
 })
 
 test('keeps existing toolbar controls reflected in the rendered review', async ({ page }) => {
-  await page.goto('/farming/review-demo')
+  await page.goto('/farming/review?fixture=1')
 
-  const review = page.getByTestId('review-demo-page')
+  const review = page.getByTestId('review-page')
   const diagnoseDiff = review.getByLabel('Diff for clis/diagnose.py')
 
   await review.getByRole('button', { name: '34a15ae' }).click()
@@ -182,13 +185,13 @@ test('keeps existing toolbar controls reflected in the rendered review', async (
 })
 
 test('applies whitespace presentation preferences to the rendered diff', async ({ page }) => {
-  await page.goto('/farming/review-demo')
+  await page.goto('/farming/review?fixture=1')
 
-  const review = page.getByTestId('review-demo-page')
+  const review = page.getByTestId('review-page')
   const diagnoseDiff = review.getByLabel('Diff for clis/diagnose.py')
   await diagnoseDiff.getByRole('button', { name: 'Show 10 lines below' }).click()
-  await expect(diagnoseDiff.locator('.review-demo-tab-marker')).toHaveCount(2)
-  await expect(diagnoseDiff.locator('.review-demo-trailing-whitespace')).toHaveCount(1)
+  await expect(diagnoseDiff.locator('.review-tab-marker')).toHaveCount(2)
+  await expect(diagnoseDiff.locator('.review-trailing-whitespace')).toHaveCount(1)
   await expect(diagnoseDiff.locator('code[data-review-line="139"]')).toHaveCount(2)
 
   await review.getByRole('button', { name: 'Diff preferences' }).click()
@@ -197,15 +200,15 @@ test('applies whitespace presentation preferences to the rendered diff', async (
   await page.getByLabel('Ignore Whitespace').selectOption('TRAILING')
   await page.getByRole('button', { name: 'SAVE' }).click()
 
-  await expect(diagnoseDiff.locator('.review-demo-tab-marker')).toHaveCount(0)
-  await expect(diagnoseDiff.locator('.review-demo-trailing-whitespace')).toHaveCount(0)
+  await expect(diagnoseDiff.locator('.review-tab-marker')).toHaveCount(0)
+  await expect(diagnoseDiff.locator('.review-trailing-whitespace')).toHaveCount(0)
   await expect(diagnoseDiff.locator('code[data-review-line="139"]')).toHaveCount(0)
 })
 
 test('renders the full selected common context instead of silently truncating it', async ({ page }) => {
-  await page.goto('/farming/review-demo')
+  await page.goto('/farming/review?fixture=1')
 
-  const review = page.getByTestId('review-demo-page')
+  const review = page.getByTestId('review-page')
   await review.getByRole('button', { name: 'Diff preferences' }).click()
   await page.getByLabel('Context', { exact: true }).selectOption('100')
   await page.getByRole('button', { name: 'SAVE' }).click()
@@ -216,13 +219,13 @@ test('renders the full selected common context instead of silently truncating it
 })
 
 test('marks a single opened file reviewed while expand-all does not mark every file', async ({ page }) => {
-  await page.goto('/farming/review-demo')
+  await page.goto('/farming/review?fixture=1')
 
-  const review = page.getByTestId('review-demo-page')
+  const review = page.getByTestId('review-page')
   const fetchLogview = review.locator('[data-file-path="clis/fetch_logview.py"]')
   const querySls = review.locator('[data-file-path="clis/query_sls.py"]')
 
-  await fetchLogview.locator('.review-demo-file-select').click()
+  await fetchLogview.locator('.review-file-select').click()
   await expect(fetchLogview.getByText('Reviewed', { exact: true })).toBeVisible()
 
   await review.getByRole('button', { name: 'EXPAND ALL' }).click()
@@ -230,16 +233,16 @@ test('marks a single opened file reviewed while expand-all does not mark every f
 })
 
 test('keeps files, review state, comments, and expanded diffs scoped to each patchset', async ({ page }) => {
-  await page.goto('/farming/review-demo')
+  await page.goto('/farming/review?fixture=1')
 
-  const review = page.getByTestId('review-demo-page')
+  const review = page.getByTestId('review-page')
   const patchsetSelect = review.getByLabel('Patch set', { exact: true })
   await patchsetSelect.selectOption('Patchset 19')
   await expect(patchsetSelect).toHaveValue('Patchset 19')
   await expect(review.locator('[data-file-path="clis/fetch_quota_snapshot.py"]')).toHaveCount(0)
 
   const dataflow19 = review.locator('[data-file-path="clis/dataflow.py"]')
-  await dataflow19.locator('.review-demo-file-select').click()
+  await dataflow19.locator('.review-file-select').click()
   await expect(review.getByLabel('Diff for clis/dataflow.py')).toBeVisible()
 
   const diagnose19 = review.locator('[data-file-path="clis/diagnose.py"]')
@@ -414,7 +417,7 @@ test('captures an agent working copy as an isolated immutable review session', a
   })
 
   await page.goto('/farming/review?agentId=fsess-demo')
-  const review = page.getByTestId('review-demo-page')
+  const review = page.getByTestId('review-page')
   const workingFile = review.locator('[data-file-path="src/review.cpp"]')
   const binaryFile = review.locator('[data-file-path="assets/logo.png"]')
   const hugeFile = review.locator('[data-file-path="src/huge.cpp"]')
@@ -423,23 +426,23 @@ test('captures an agent working copy as an isolated immutable review session', a
   await expect(review.getByRole('button', { name: 'FINAL CHANGE' })).toHaveCount(0)
   await expect(review.getByRole('button', { name: 'DOWNLOAD' })).toHaveCount(0)
   await expect(review.getByText('Workspace changes', { exact: true })).toBeVisible()
-  await review.locator('.review-demo-commit-message summary').click()
+  await review.locator('.review-commit-message summary').click()
   await expect(review.getByText('Uncommitted workspace changes do not have a commit author or commit message yet.', { exact: true })).toBeVisible()
   await expect(review.getByLabel('Patch set', { exact: true })).toHaveCount(0)
-  await expect(review.locator('.review-demo-patch-static').filter({ hasText: base })).toBeVisible()
+  await expect(review.getByRole('button', { name: 'Last Turn', exact: true })).toBeVisible()
   await expect(workingFile).toBeVisible()
   await expect(binaryFile).toContainText('512 B')
   await expect(review.locator('[data-file-path="clis/dataflow.py"]')).toHaveCount(0)
 
-  await workingFile.locator('.review-demo-file-select').click()
+  await workingFile.locator('.review-file-select').click()
   const workingDiff = review.getByLabel('Diff for src/review.cpp')
   await expect(workingDiff).toBeVisible()
-  await expect(workingDiff.locator('.review-demo-intraline')).toHaveCount(2)
+  await expect(workingDiff.locator('.review-intraline')).toHaveCount(2)
   await expect(workingDiff.getByText('No newline at end of left file.', { exact: true })).toBeVisible()
   await review.getByRole('button', { name: 'Diff preferences' }).click()
   await page.getByLabel('Intraline differences').uncheck()
   await page.getByRole('button', { name: 'SAVE' }).click()
-  await expect(workingDiff.locator('.review-demo-intraline')).toHaveCount(0)
+  await expect(workingDiff.locator('.review-intraline')).toHaveCount(0)
   expect(loadedFileDiff).toBe(true)
   const workingReviewedSwitch = workingFile.getByRole('switch', { name: 'Reviewed' })
   await expect(workingReviewedSwitch).toHaveAttribute('aria-checked', 'true')
@@ -448,11 +451,11 @@ test('captures an agent working copy as an isolated immutable review session', a
   await expect(workingReviewedSwitch).toHaveAttribute('aria-checked', 'false')
   await expect(workingFile.getByText('Reviewed', { exact: true })).toHaveCount(0)
 
-  await binaryFile.locator('.review-demo-file-select').click()
+  await binaryFile.locator('.review-file-select').click()
   await expect(review.getByLabel('Diff for assets/logo.png').getByText('Binary file changed', { exact: true })).toBeVisible()
-  await hugeFile.locator('.review-demo-file-select').click()
+  await hugeFile.locator('.review-file-select').click()
   await expect(review.getByLabel('Diff for src/huge.cpp').getByText('Diff too large to render', { exact: true })).toBeVisible()
-  await failFile.locator('.review-demo-file-select').click()
+  await failFile.locator('.review-file-select').click()
   await expect(review.getByLabel('Diff for src/fail.cpp').getByRole('alert')).toHaveText('Could not load diff: diff backend unavailable')
 
   await page.setViewportSize({ width: 390, height: 844 })
@@ -540,14 +543,14 @@ test('captures recent untracked files as an immutable single-column review', asy
   })
 
   await page.goto('/farming/review?agentId=fsess-demo&scope=untracked&modifiedWithinDays=3')
-  const review = page.getByTestId('review-demo-page')
-  await expect(review.getByText('Untracked', { exact: true })).toBeVisible()
+  const review = page.getByTestId('review-page')
+  await expect(review.getByRole('button', { name: 'Last Turn', exact: true })).toBeVisible()
   await expect(review.getByRole('button', { name: 'Side-by-side diff' })).toHaveCount(0)
   const row = review.locator(`[data-file-path="${filePath}"]`)
-  await row.locator('.review-demo-file-select').click()
+  await row.locator('.review-file-select').click()
   const diff = review.getByLabel(`Diff for ${filePath}`)
   await expect(diff).toHaveClass(/unified/)
-  await expect(diff.locator('.review-demo-diff-columns span')).toHaveCount(1)
+  await expect(diff.locator('.review-diff-columns span')).toHaveCount(1)
   await expect(diff.getByText('Review this file.', { exact: true })).toBeVisible()
 })
 
@@ -655,7 +658,7 @@ test('refreshes a review revision without losing inherited state or attaching ou
   })
 
   await page.goto('/farming/review?agentId=fsess-demo')
-  const review = page.getByTestId('review-demo-page')
+  const review = page.getByTestId('review-page')
   const row = review.locator(`[data-file-path="${path}"]`)
   await expect(review.getByText('Revision 1', { exact: true })).toBeVisible()
   await expect(row.getByText('Reviewed', { exact: true })).toBeVisible()
@@ -668,10 +671,10 @@ test('refreshes a review revision without losing inherited state or attaching ou
   await expect(row.getByRole('switch', { name: 'Reviewed' })).toHaveAttribute('aria-checked', 'false')
   expect(loadedFileDiff).toBe(false)
 
-  await row.locator('.review-demo-file-select').click()
+  await row.locator('.review-file-select').click()
   await expect(review.getByLabel(`Diff for ${path}`)).toBeVisible()
   await expect(review.getByText('Check the previous implementation.', { exact: true })).toBeVisible()
-  await expect(review.locator('.review-demo-outdated-comments')).toBeVisible()
+  await expect(review.locator('.review-outdated-comments')).toBeVisible()
   await expect(review.getByText('Outdated · Patchset line 4', { exact: true })).toBeVisible()
   expect(loadedFileDiff).toBe(true)
 })
@@ -825,20 +828,19 @@ test('uses the git-range endpoint when base and head are selected in the review 
   })
 
   await page.goto('/farming/review?agentId=fsess-demo&base=HEAD~3&head=HEAD')
-  const review = page.getByTestId('review-demo-page')
+  const review = page.getByTestId('review-page')
   const rangeFile = review.locator('[data-file-path="src/range.cpp"]')
-  await expect(review.getByText('HEAD~3', { exact: true })).toBeVisible()
-  await expect(review.getByText('HEAD', { exact: true })).toBeVisible()
+  await expect(review.getByRole('button', { name: 'Changes', exact: true })).toBeVisible()
   await expect(review.getByText('Working copy', { exact: true })).toHaveCount(0)
   await expect(review.getByLabel('Patch set', { exact: true })).toHaveCount(0)
   await expect(rangeFile).toBeVisible()
-  const commitMessage = review.locator('.review-demo-commit-message')
+  const commitMessage = review.locator('.review-commit-message')
   await expect(commitMessage.getByText('Make review context interactive', { exact: true })).toBeVisible()
   await commitMessage.locator('summary').click()
   await expect(commitMessage.getByText(/Review Author <reviewer@example.com>/)).toBeVisible()
   await expect(commitMessage.locator('pre')).toContainText('Keep the diff focused.')
 
-  await rangeFile.locator('.review-demo-file-select').click()
+  await rangeFile.locator('.review-file-select').click()
   const rangeDiff = review.getByLabel('Diff for src/range.cpp')
   await expect(rangeDiff).toContainText('return newRange;')
   expect(loadedRangeFileDiff).toBe(1)
@@ -1023,8 +1025,8 @@ test('matches Gerrit context controls at file boundaries and auto-expands tiny g
   })
 
   await page.goto('/farming/review?agentId=fsess-demo&base=HEAD~1&head=HEAD')
-  const review = page.getByTestId('review-demo-page')
-  await review.locator('[data-file-path="boundaries.cpp"] .review-demo-file-select').click()
+  const review = page.getByTestId('review-page')
+  await review.locator('[data-file-path="boundaries.cpp"] .review-file-select').click()
   const boundaryDiff = review.getByLabel('Diff for boundaries.cpp')
   const topGap = boundaryDiff.getByRole('group', { name: '19 hidden common lines', exact: true }).nth(0)
   const middleGap = boundaryDiff.getByRole('group', { name: '19 hidden common lines', exact: true }).nth(1)
@@ -1056,13 +1058,13 @@ test('matches Gerrit context controls at file boundaries and auto-expands tiny g
     { lines: 10, newStart: 81, oldStart: 81, path: 'boundaries.cpp' },
   ]))
 
-  await review.locator('[data-file-path="small.cpp"] .review-demo-file-select').click()
+  await review.locator('[data-file-path="small.cpp"] .review-file-select').click()
   const smallDiff = review.getByLabel('Diff for small.cpp')
   await expect(smallDiff.getByText('context 22', { exact: true }).first()).toBeVisible()
   await expect(smallDiff.getByRole('group', { name: /hidden common lines/ })).toHaveCount(0)
   expect(contextRequests).toContainEqual({ lines: 3, newStart: 21, oldStart: 21, path: 'small.cpp' })
 
-  await review.locator('[data-file-path="offset.cpp"] .review-demo-file-select').click()
+  await review.locator('[data-file-path="offset.cpp"] .review-file-select').click()
   const offsetDiff = review.getByLabel('Diff for offset.cpp')
   await offsetDiff.getByRole('button', { name: 'Show 10 lines above' }).click()
   expect(contextRequests).toContainEqual({ lines: 10, newStart: 392, oldStart: 391, path: 'offset.cpp' })
@@ -1082,9 +1084,9 @@ test('does not silently fall back to working copy when a range URL is invalid', 
   })
 
   await page.goto('/farming/review?agentId=fsess-demo&base=HEAD~3')
-  const review = page.getByTestId('review-demo-page')
+  const review = page.getByTestId('review-page')
   await expect(review.getByRole('alert')).toHaveText('Could not load review target: base and head revisions are invalid')
-  await expect(review.locator('[data-testid="review-demo-file-row"]')).toHaveCount(0)
+  await expect(review.locator('[data-testid="review-file-row"]')).toHaveCount(0)
   await expect(review.getByText('Working copy', { exact: true })).toHaveCount(0)
   await page.waitForTimeout(100)
   expect(reviewApiRequests).toBe(0)
@@ -1102,9 +1104,9 @@ test('restores an optimistic comment when the review API rejects it', async ({ p
       body: JSON.stringify({ error: 'comment store unavailable' }),
     })
   })
-  await page.goto('/farming/review-demo')
+  await page.goto('/farming/review?fixture=1')
 
-  const review = page.getByTestId('review-demo-page')
+  const review = page.getByTestId('review-page')
   const diagnoseDiff = review.getByLabel('Diff for clis/diagnose.py')
   await diagnoseDiff.locator('code[data-review-line="130"][data-review-side="right"]').click()
   await page.getByLabel('Review comment').fill('This must not remain local only.')
@@ -1137,8 +1139,8 @@ test('switches every comparison source against a real Git repository', async ({ 
     fs.writeFileSync(path.join(temporaryRoot, 'loose.txt'), 'loose\n')
 
     await page.goto(`/farming/review?root=${encodeURIComponent(temporaryRoot)}`)
-    const review = page.getByTestId('review-demo-page')
-    const sourceTrigger = review.locator('.review-demo-source-trigger')
+    const review = page.getByTestId('review-page')
+    const sourceTrigger = review.locator('.review-source-trigger')
     await expect(sourceTrigger).toHaveText(/Last Turn/)
     await expect(review.getByText('Change summary', { exact: true })).toBeVisible()
     await expect(review.locator('[data-file-path="alpha.txt"]')).toBeVisible()
@@ -1158,10 +1160,10 @@ test('switches every comparison source against a real Git repository', async ({ 
     await expect(review.locator('[data-file-path="loose.txt"]')).toHaveCount(0)
     await expect(review.getByText('Staged changes', { exact: true })).toBeVisible()
     await expect(review.getByText('Index summary', { exact: true })).toBeVisible()
-    await expect(review.locator('.review-demo-navigator')).toHaveCount(0)
+    await expect(review.locator('.review-navigator')).toHaveCount(0)
 
     await sourceTrigger.click()
-    const commitSources = review.locator('details.review-demo-source-submenu').filter({ hasText: 'Commit' })
+    const commitSources = review.locator('details.review-source-submenu').filter({ hasText: 'Commit' })
     await commitSources.locator('summary').click()
     await review.getByRole('menuitemradio', { name: `${headShort} Add beta`, exact: true }).click()
     await expect(sourceTrigger).toHaveText(`Commit · ${headShort} Add beta`)
@@ -1169,7 +1171,7 @@ test('switches every comparison source against a real Git repository', async ({ 
     await expect(review.locator('[data-file-path="beta.txt"]')).toBeVisible()
 
     await sourceTrigger.click()
-    const branchSources = review.locator('details.review-demo-source-submenu').filter({ hasText: 'Branch' })
+    const branchSources = review.locator('details.review-source-submenu').filter({ hasText: 'Branch' })
     await branchSources.locator('summary').click()
     await review.getByRole('menuitemradio', { name: 'comparison-baseline', exact: true }).click()
     await expect(sourceTrigger).toHaveText('Branch · comparison-baseline')
@@ -1180,12 +1182,9 @@ test('switches every comparison source against a real Git repository', async ({ 
     await review.getByRole('menuitemradio', { name: 'Last Turn', exact: true }).click()
     await expect(sourceTrigger).toHaveText(/Last Turn/)
     await expect(review.getByText('Change summary', { exact: true })).toBeVisible()
-    expect(await review.locator('.review-demo-review-scroll').evaluate(element => (
-      element.getBoundingClientRect().height >= window.innerHeight - 62
-    ))).toBe(true)
-    expect(await review.locator('.review-demo-review-scroll').evaluate(element => (
-      element.getBoundingClientRect().width >= window.innerWidth - 1
-    ))).toBe(true)
+    await expect(review.locator('.review-workspace')).toHaveCount(0)
+    await expect(review.locator('.review-review-scroll')).toHaveCount(0)
+    await expect(review.locator('[data-file-path="alpha.txt"]')).toBeVisible()
   } finally {
     fs.rmSync(temporaryRoot, { force: true, recursive: true })
   }

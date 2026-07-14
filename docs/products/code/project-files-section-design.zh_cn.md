@@ -41,7 +41,7 @@ Project
 
 `Changes` 是当前 Project 内的轻量 review 入口，属于 Files / editor 能力的一部分；它只汇总当前 workspace 的工作区改动，点击后把右侧主区域让给 Monaco diff。Farming 暂不做全局跨 Project review 工作台，也不把 patch 审阅塞进窄的 Agent / chat 栏。目录树自身继续轻量展示 git 工作区状态：文件行显示 `M`/`U` 等短状态，包含改动的父目录显示低饱和度状态点。
 
-独立的 `/review?agentId=...` 是读取所选 Agent 工作区的 working-copy review 页面；`/review?agentId=...&base=...&head=...` 使用同一个页面查看 Git commit range。它不接入主页面，提供接近 Gerrit 的多文件 diff、逐文件 `Reviewed` 状态和 diff 偏好，但不改变 `Files` / Monaco 的轻量 review 边界。Git diff 要保留字符级修改范围，并在任一侧文件末尾缺少换行时明确提示，避免内容看似相同的替换行无法解释。Patch 生成仍是后端能力；在下载和 final-change 选择器的产品场景明确之前，页面不展示这两个临时入口。持久化 review 状态以稳定的工作区身份和当前结构化 diff 版本为范围，不依赖短暂的 agent id。对于本地 working copy 没有服务端变更元数据支撑的 Rebase、Included In 等操作不展示。`/review-demo` 暂时保留为兼容别名，正式入口使用 `/review`。
+独立的 `/review?agentId=...` 是读取所选 Agent 工作区的 working-copy review 页面；`/review?agentId=...&base=...&head=...` 使用同一个页面查看 Git commit range。它不接入主页面，提供接近 Gerrit 的多文件 diff、逐文件 `Reviewed` 状态和 diff 偏好，但不改变 `Files` / Monaco 的轻量 review 边界。Git diff 要保留字符级修改范围，并在任一侧文件末尾缺少换行时明确提示，避免内容看似相同的替换行无法解释。Patch 生成仍是后端能力；在下载和 final-change 选择器的产品场景明确之前，页面不展示这两个临时入口。持久化 review 状态以稳定的工作区身份和当前结构化 diff 版本为范围，不依赖短暂的 agent id。对于本地 working copy 没有服务端变更元数据支撑的 Rebase、Included In 等操作不展示。`/review` 是唯一产品路由；确定性测试通过显式的 `fixture=1` 查询启用 fixture，不再使用独立的原型路由。
 
 目录树实现不应长期依赖手写递归列表。VS Code Explorer 的质感来自一整套 tree control 行为，而不只是文件 icon：可见行模型、展开/折叠状态、键盘焦点、选择态、虚拟滚动、懒加载、拖拽目标、重命名、git decoration、父目录上下文和 hover action 都需要统一处理。
 

@@ -53,7 +53,7 @@ Branch choices that resolve to the current `HEAD` or do not share a merge base a
 
 An ACP **File Changes** review must be created from the referenced tool items, not by recapturing those paths from the current working tree. `POST /api/review-sessions/acp` resolves the ACP diff blocks on the backend and writes their exact `oldText` and `newText` into retained base/head Git trees. Later commits, edits, or deletions therefore cannot change a historical Last Turn review. Absolute paths inside the Agent workspace are normalized to workspace-relative paths; paths outside that workspace are omitted rather than exposing unrelated files.
 
-The review workspace uses a single Gerrit-style file-list-first layout. The ordered file rows are the navigation: each row carries its change summary, expands the inline diff in place, and exposes comments and reviewed actions without duplicating the same catalog in a side panel. The visual language follows Farming Code, while Gerrit's reviewed/comment lifecycle remains authoritative.
+The review workspace uses a single Gerrit-style file-list-first layout. The ordered file rows are the navigation: each row carries its Git change status and change summary, expands the inline diff in place, and exposes comments and reviewed actions without duplicating the same catalog in a side panel. New comparison controls should reuse this existing review visual language instead of restyling file rows or replacing Git status with decorative file-type labels. Gerrit's reviewed/comment lifecycle remains authoritative.
 
 ## CLI entrypoint
 
@@ -65,7 +65,7 @@ The resulting URL uses `root=<canonical git root>` rather than an `agentId`. Bac
 
 ## Immutable Review Sessions
 
-The standalone `/review` route does not fall back to seeded demo data. A working-copy target, including `head=now`, is captured as an immutable review revision before its file list is shown. `/review-demo` remains a deterministic visual fixture and does not share the real route's data lifecycle. The review routes and the normal Farming application are separate lazy-loaded frontend bundles, including their CSS, so either surface can evolve without loading or applying the other's UI layer.
+The standalone `/review` route does not fall back to seeded fixture data. A working-copy target, including `head=now`, is captured as an immutable review revision before its file list is shown. Automated visual tests opt into deterministic fixture data with `/review?fixture=1`; that fixture does not share the real route's data lifecycle. The review route and the normal Farming application are separate lazy-loaded frontend bundles, including their CSS, so either surface can evolve without loading or applying the other's UI layer.
 
 Capture uses a temporary Git index: it reads `HEAD`, stages tracked and untracked workspace content into that temporary index, writes a tree, and repeats the capture. Farming accepts the revision only when both tree ids match, so an agent writing during capture produces an explicit retry instead of a mixed snapshot. The user's index and worktree are not modified. Captured trees are retained under `refs/farming/reviews/` and session metadata is stored in the Farming config directory.
 

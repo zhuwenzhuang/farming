@@ -84,7 +84,7 @@
 │[N] New Agent    │
 │[L] Task List    │
 │[H] History      │
-│[K] Skills       │
+│[E] Extensions   │
 │[$] Billing      │
 │[S] Settings     │
 └─────────────────┘

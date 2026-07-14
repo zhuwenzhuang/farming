@@ -32,6 +32,8 @@ const PACKAGED_NATIVE_HOST_ENV_KEYS = new Set([
   'FARMING_NATIVE_PTY_HOST_SOCKET',
   'FARMING_NATIVE_PTY_SCREEN_WORKERS',
   'FARMING_NODE_BIN',
+  'FARMING_NODE_LD',
+  'FARMING_NODE_LIBRARY_PATH',
   'FARMING_PACKAGED_RUNTIME',
   'FARMING_RUN_NATIVE_PTY_HOST',
   'HOME',
@@ -111,10 +113,23 @@ function hostConnectErrorMessage(error, spawned, logPath) {
 
 function nativeHostSpawnCommand(hostScript, env) {
   const nodeBin = env.FARMING_NODE_BIN || process.execPath;
+  const ldPath = env.FARMING_NODE_LD || '';
+  const libraryPath = env.FARMING_NODE_LIBRARY_PATH || '';
   const isPackagedRuntime = env.FARMING_PACKAGED_RUNTIME === '1';
   if (isPackagedRuntime) {
     env[PACKAGED_NATIVE_PTY_HOST_ENV] = '1';
-    return { command: nodeBin, args: [], env: packagedNativeHostEnv(env) };
+    const hostEnv = packagedNativeHostEnv(env);
+    const command = ldPath && libraryPath ? ldPath : nodeBin;
+    const args = ldPath && libraryPath
+      ? ['--library-path', libraryPath, nodeBin]
+      : [];
+    return { command, args, env: hostEnv };
+  }
+  if (ldPath && libraryPath) {
+    return {
+      command: ldPath,
+      args: ['--library-path', libraryPath, nodeBin, hostScript],
+    };
   }
   return {
     command: nodeBin,

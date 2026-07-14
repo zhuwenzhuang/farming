@@ -125,7 +125,7 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
     const dayTotal = index === 52 * 7 - 1
       ? 10_000
       : index === 300
-        ? 20_000_000
+        ? 2_000_000_000
         : index % 9 === 0 ? 240_000 + index * 1_000 : 0
     dailyCursor.setDate(dailyCursor.getDate() + 1)
     return {
@@ -145,9 +145,59 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   })
   const sumDays = (count: number) => dailyPoints.slice(-count).reduce((sum, point) => sum + point.totalTokens, 0)
   const peakDay = dailyPoints.reduce((peak, point) => point.totalTokens > peak.totalTokens ? point : peak, dailyPoints[0])
+  const activeDays = dailyPoints.filter(point => point.totalTokens > 0).length
+  const billionDays = dailyPoints.filter(point => point.totalTokens >= 1_000_000_000).length
+  const chartPoints = dailyPoints.slice(-120)
+  const xAxisLabelCount = chartPoints.filter((point, index) => {
+    const day = Number(point.date.slice(-2))
+    return index === 0 || index === chartPoints.length - 1 || day === 1 || day === 15
+  }).length
   const freshRequests: string[] = []
-  await page.route('**/api/usage*', async route => {
-    if (new URL(route.request().url()).searchParams.get('fresh') === '1') freshRequests.push(route.request().url())
+  const dayDetailRequests: string[] = []
+  await page.route(/\/api\/usage(?:\/day)?(?:\?|$)/, async route => {
+    const requestUrl = new URL(route.request().url())
+    if (requestUrl.pathname.endsWith('/api/usage/day')) {
+      const date = requestUrl.searchParams.get('date') || ''
+      dayDetailRequests.push(date)
+      const point = dailyPoints.find(candidate => candidate.date === date) || dailyPoints.at(-1)!
+      const hourlyWeights = new Map([[3, 0.08], [8, 0.17], [10, 0.25], [14, 0.12], [18, 0.28], [22, 0.10]])
+      const hours = Array.from({ length: 24 }, (_, hour) => {
+        const total = Math.round(point.totalTokens * (hourlyWeights.get(hour) || 0))
+        return {
+          hour,
+          label: String(hour).padStart(2, '0'),
+          totalTokens: total,
+          inputTokens: Math.round(total * 0.35),
+          outputTokens: Math.round(total * 0.15),
+          cacheReadTokens: Math.round(total * 0.45),
+          cacheWriteTokens: Math.round(total * 0.05),
+          unattributedTokens: 0,
+        }
+      })
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          detail: {
+            source: 'local provider token events',
+            date: point.date,
+            timeZone: 'Asia/Shanghai',
+            total: {
+              totalTokens: point.totalTokens,
+              inputTokens: point.inputTokens,
+              outputTokens: point.outputTokens,
+              cacheReadTokens: point.cacheReadTokens,
+              cacheWriteTokens: point.cacheWriteTokens,
+              unattributedTokens: 0,
+            },
+            hours,
+            providers: point.providers,
+          },
+        }),
+      })
+      return
+    }
+    if (requestUrl.searchParams.get('fresh') === '1') freshRequests.push(route.request().url())
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -248,15 +298,36 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   await expect(page.getByRole('heading', { name: 'Billing', exact: true })).toBeVisible()
   await expect(page.locator('#billing-status')).toHaveText('HISTORY READY')
   await expect(page.locator('#billing-today-total')).toHaveText('10K')
+  await expect(page.locator('#billing-active-days')).toHaveText(String(activeDays))
+  await expect(page.locator('#billing-billion-days')).toHaveText(String(billionDays))
   await expect(page.locator('#billing-day-total')).toHaveText('10,000')
+  await expect(page.locator('#billing-day-insight-state')).toHaveText('24 HOURLY BINS READY')
+  await expect(page.locator('#billing-day-total-path')).toHaveAttribute('d', /^M.+L/)
+  await expect(page.locator('#billing-day-cache-path')).toHaveAttribute('d', /^M.+L/)
+  await expect(page.locator('#billing-day-curve-scale')).toHaveText('2.8K TOK/H PEAK')
+  await expect(page.locator('#billing-day-provider-shares .billing-day-share-row')).toHaveCount(2)
+  await expect(page.locator('#billing-day-provider-shares')).toContainText('CODEX')
+  await expect(page.locator('#billing-day-provider-shares')).toContainText('80.0% · 8,000')
   await expect(page.locator('#billing-daily-range')).toContainText('3/4 SOURCES')
-  await expect(page.locator('#billing-heatmap .billing-heat-cell')).toHaveCount(52 * 7)
-  await expect(page.locator(`.billing-heat-cell[data-date="${dailyPoints[300].date}"]`)).toHaveAttribute('data-level', '5')
-  await expect(page.locator(`.billing-heat-cell[data-date="${dailyPoints[9].date}"]`)).not.toHaveAttribute('data-level', '5')
+  await expect(page.locator('#billing-daily-bars .billing-daily-column')).toHaveCount(120)
+  await expect(page.getByText('Y: TOKENS / DAY [LOG10]', { exact: true })).toBeVisible()
+  await expect(page.getByText('X: LOCAL DATE', { exact: true })).toBeVisible()
+  await expect(page.locator('#billing-y-axis .billing-y-axis-label')).toHaveCount(4)
+  await expect(page.locator('#billing-daily-x-axis .has-label')).toHaveCount(xAxisLabelCount)
+  await expect(page.locator('#billing-daily-bars .billing-daily-column.selected')).toHaveAttribute('data-date', dailyPoints.at(-1)!.date)
+  await expect(page.locator('#billing-activity-strip .billing-activity-tick')).toHaveCount(52 * 7)
+  await expect(page.locator(`.billing-daily-column[data-date="${dailyPoints[300].date}"]`)).toHaveAttribute('data-billion', 'true')
+  await expect(page.locator(`.billing-daily-column[data-date="${dailyPoints[300].date}"] .billing-daily-cache`)).toBeVisible()
+  await expect(page.locator(`.billing-daily-column[data-date="${dailyPoints[300].date}"] .billing-daily-direct`)).toBeVisible()
+  await page.locator(`.billing-daily-column[data-date="${dailyPoints[300].date}"]`).click()
+  await expect(page.locator('#billing-day-date')).toContainText(dailyPoints[300].date)
+  await expect.poll(() => dayDetailRequests.at(-1)).toBe(dailyPoints[300].date)
+  await expect(page.locator('#billing-day-total')).toHaveText('2,000,000,000')
+  await expect(page.locator('#billing-day-insight-state')).toHaveText('24 HOURLY BINS READY')
   await expect(page.getByText('CODEX 5H', { exact: true })).toBeVisible()
   await expect(page.getByText('CODEX 1W', { exact: true })).toBeVisible()
-  await expect(page.getByText('CLAUDE', { exact: true })).toBeVisible()
-  await expect(page.getByText('OPENCODE', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Provider channels').getByText('CLAUDE', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Provider channels').getByText('OPENCODE', { exact: true })).toBeVisible()
   await expect(page.getByText('NO TOKEN DATA', { exact: true })).toBeVisible()
   await expect.poll(() => freshRequests.length).toBeGreaterThan(0)
   await page.keyboard.press('l')

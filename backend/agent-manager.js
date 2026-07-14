@@ -2643,6 +2643,11 @@ class AgentManager extends EventEmitter {
     return this.acpRuntime.resizeTerminal(agentId, terminalId, cols, rows);
   }
 
+  cancelAcpSubagent(agentId, sessionId) {
+    this.getAcpSession(agentId);
+    return this.acpRuntime.cancelSubagent(agentId, sessionId);
+  }
+
   decideAcpPatch(agentId, toolCallId, requestedPath, decision) {
     this.getAcpSession(agentId);
     return this.acpRuntime.decidePatch(agentId, toolCallId, requestedPath, decision);

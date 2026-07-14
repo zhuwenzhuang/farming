@@ -27,19 +27,19 @@ Desktop TopBar shows all status items, including Attn. It should remain compact 
 The desktop sidebar is fixed-width, vertically stacked, and divided into menu entries and a Main Agent panel.
 
 ```text
-┌──────────────┐
-│ [N] New Agent│
-│ [L] Task List│
-│ [H] History  │
-│ [K] Skills   │
-│ [$] Billing  │
-│ [S] Settings │
-├──────────────┤
-│ MAIN AGENT[0]│
-│ ┌──────────┐ │
-│ │ preview  │ │
-│ └──────────┘ │
-└──────────────┘
+┌───────────────┐
+│ [N] New Agent │
+│ [L] Task List │
+│ [H] History   │
+│ [E] Extensions│
+│ [$] Billing   │
+│ [S] Settings  │
+├───────────────┤
+│ MAIN AGENT[0] │
+│ ┌──────────┐  │
+│ │ preview  │  │
+│ └──────────┘  │
+└───────────────┘
 ```
 
 Menu rows use compact CRT panel styling. Keyboard hints are visible, but keyboard actions should work even when the user does not click the sidebar.

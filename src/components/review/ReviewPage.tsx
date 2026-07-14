@@ -47,7 +47,7 @@ import {
   type ReviewPreferences,
   type ReviewState,
 } from '@/lib/review/state'
-import { createAcpReviewSession, createReviewSession, deleteReviewComment, loadReviewComments, loadReviewComparisonSources, loadReviewDiffSnapshot, loadReviewFileContext, loadReviewFileDiff, loadReviewedPatchsetState, loadReviewSession, refreshReviewSession, reviewRequestForSessionRevision, ReviewApiError, REVIEW_DEMO_ID, saveReviewComment, saveReviewedFilesStatus, updateReviewCommentStatus, type ReviewComparisonSource, type ReviewComparisonSources, type ReviewContextRange, type ReviewSessionRevision } from '@/lib/review/api'
+import { createAcpReviewSession, createReviewSession, deleteReviewComment, loadReviewComments, loadReviewComparisonSources, loadReviewDiffSnapshot, loadReviewFileContext, loadReviewFileDiff, loadReviewedPatchsetState, loadReviewSession, refreshReviewSession, reviewRequestForSessionRevision, ReviewApiError, REVIEW_FIXTURE_ID, saveReviewComment, saveReviewedFilesStatus, updateReviewCommentStatus, type ReviewComparisonSource, type ReviewComparisonSources, type ReviewContextRange, type ReviewSessionRevision } from '@/lib/review/api'
 
 type DiffMode = ReviewDiffMode
 type IgnoreWhitespace = ReviewPreferences['ignoreWhitespace']
@@ -252,7 +252,7 @@ const DEFAULT_REVIEWED_PATHS: Record<Patchset, string[]> = {
   'Patchset 19': ['clis/fetch_instance_log.py'],
 }
 const DEFAULT_DIFF_PREFERENCES: DiffPreferences = DEFAULT_REVIEW_PREFERENCES
-const DIFF_PREFERENCES_STORAGE_KEY = 'farming.review-demo.diff-preferences'
+const DIFF_PREFERENCES_STORAGE_KEY = 'farming.review.diff-preferences'
 
 hljs.registerLanguage('typescript', typescript)
 hljs.registerLanguage('python', python)
@@ -276,19 +276,19 @@ function readStoredDiffPreferences() {
   }
 }
 
-function initialReviewPatchset(request: ReviewDiffSnapshotRequest | null, demoMode = true) {
-  if (!request) return demoMode ? 'Patchset 20' : INVALID_REVIEW_PATCHSET
+function initialReviewPatchset(request: ReviewDiffSnapshotRequest | null, fixtureMode = true) {
+  if (!request) return fixtureMode ? 'Patchset 20' : INVALID_REVIEW_PATCHSET
   return request.source === 'git-range' ? request.head : WORKING_COPY_PATCHSET
 }
 
-function initialReviewBasePatchset(request: ReviewDiffSnapshotRequest | null, demoMode = true) {
-  if (!request) return demoMode ? 'Base' : 'Base'
+function initialReviewBasePatchset(request: ReviewDiffSnapshotRequest | null, fixtureMode = true) {
+  if (!request) return fixtureMode ? 'Base' : 'Base'
   return request.source === 'git-range' ? request.base : 'HEAD'
 }
 
-function initialReviewCatalog(request: ReviewDiffSnapshotRequest | null, demoMode = true): ReviewCatalog {
-  if (!request) return demoMode ? PATCHSET_FILES : { [INVALID_REVIEW_PATCHSET]: [] }
-  return { [initialReviewPatchset(request, demoMode)]: [] }
+function initialReviewCatalog(request: ReviewDiffSnapshotRequest | null, fixtureMode = true): ReviewCatalog {
+  if (!request) return fixtureMode ? PATCHSET_FILES : { [INVALID_REVIEW_PATCHSET]: [] }
+  return { [initialReviewPatchset(request, fixtureMode)]: [] }
 }
 
 function createPageReviewState({
@@ -333,11 +333,6 @@ function basename(path: string) {
   return segments[segments.length - 1] || path
 }
 
-function fileLanguageLabel(path: string) {
-  const extension = basename(path).split('.').pop()?.toUpperCase() || 'FILE'
-  return extension.length <= 4 ? extension : 'FILE'
-}
-
 function formatBytes(value: number) {
   const absolute = Math.abs(value)
   if (absolute < 1024) return `${value} B`
@@ -367,8 +362,8 @@ function ReviewStatus({
   onToggle: () => void
 }) {
   return (
-    <div className={`review-demo-review-status ${reviewed ? 'reviewed' : ''} ${pending ? 'pending' : ''}`}>
-      {reviewedLabel ? <span className="review-demo-reviewed-label">{reviewedLabel}</span> : null}
+    <div className={`review-review-status ${reviewed ? 'reviewed' : ''} ${pending ? 'pending' : ''}`}>
+      {reviewedLabel ? <span className="review-reviewed-label">{reviewedLabel}</span> : null}
       {action ? (
         <button
           type="button"
@@ -383,17 +378,17 @@ function ReviewStatus({
           {pending ? 'SAVING…' : action.label}
         </button>
       ) : (
-        <span className="review-demo-review-loading">Reviewed status loading</span>
+        <span className="review-review-loading">Reviewed status loading</span>
       )}
     </div>
   )
 }
 
 function ChangeBar({ file, maxChangeSize }: { file: ReviewFile; maxChangeSize: number }) {
-  if (file.binary) return <span className="review-demo-change-bar binary" aria-label="Binary file" />
+  if (file.binary) return <span className="review-change-bar binary" aria-label="Binary file" />
   const width = (value: number) => value === 0 ? 0 : Math.max(2, Math.round((value / maxChangeSize) * 72))
   return (
-    <span className="review-demo-change-bar" aria-label={`+${file.added} −${file.removed}`}>
+    <span className="review-change-bar" aria-label={`+${file.added} −${file.removed}`}>
       <i className="added" style={{ width: `${width(file.added)}px` }} />
       <i className="deleted" style={{ width: `${width(file.removed)}px` }} />
     </span>
@@ -406,12 +401,12 @@ function FileStats({ file }: { file: ReviewFile }) {
       ? file.sizeDelta
       : null
     return (
-      <span className="review-demo-file-stats binary">
+      <span className="review-file-stats binary">
         {sizeDelta === null ? 'Binary' : formatBytes(sizeDelta)}
       </span>
     )
   }
-  return <span className="review-demo-file-stats">{file.added ? <span className="added">+{file.added}</span> : null}{file.removed ? <span className="removed">−{file.removed}</span> : null}</span>
+  return <span className="review-file-stats">{file.added ? <span className="added">+{file.added}</span> : null}{file.removed ? <span className="removed">−{file.removed}</span> : null}</span>
 }
 
 export function diffLanguageForPath(path: string) {
@@ -453,9 +448,9 @@ function CodeCell({
   let html = activeIntraline?.length
     ? renderIntralineHtml(source, activeIntraline, language, preferences)
     : renderCodeHtml(source, language, preferences)
-  if (preferences.showTabs) html = html.replace(/\t/g, '<span class="review-demo-tab-marker">⇥</span>')
+  if (preferences.showTabs) html = html.replace(/\t/g, '<span class="review-tab-marker">⇥</span>')
   if (trailingWhitespace) {
-    html += `<span class="review-demo-trailing-whitespace">${trailingWhitespace.replace(/[ \t]/g, '·')}</span>`
+    html += `<span class="review-trailing-whitespace">${trailingWhitespace.replace(/[ \t]/g, '·')}</span>`
   }
   return <code {...commentAttributes} dangerouslySetInnerHTML={{ __html: html }} />
 }
@@ -475,7 +470,7 @@ function renderIntralineHtml(text: string, ranges: NonNullable<ReviewDiffCell['i
     const end = Math.max(start, Math.min(range.end, length))
     html += renderCodeHtml(sliceCodepoints(text, cursor, start), language, preferences)
     if (end > start) {
-      html += `<span class="review-demo-intraline">${renderCodeHtml(sliceCodepoints(text, start, end), language, preferences)}</span>`
+      html += `<span class="review-intraline">${renderCodeHtml(sliceCodepoints(text, start, end), language, preferences)}</span>`
     }
     cursor = end
   }
@@ -504,7 +499,7 @@ function UnifiedRow({
 }) {
   return (
     <>
-      <div className={`review-demo-diff-row unified ${kind}`}><span>{line ?? ''}</span><CodeCell intraline={intraline} language={language} line={line} side={side} text={text} preferences={preferences} /></div>
+      <div className={`review-diff-row unified ${kind}`}><span>{line ?? ''}</span><CodeCell intraline={intraline} language={language} line={line} side={side} text={text} preferences={preferences} /></div>
       {line ? renderAttachment?.(line, [side]) : null}
     </>
   )
@@ -540,7 +535,7 @@ function SplitRow({
   ]
   return (
     <>
-      <div className={`review-demo-diff-row ${kind}`}>
+      <div className={`review-diff-row ${kind}`}>
         <span>{leftLine ?? ''}</span><CodeCell intraline={leftIntraline} language={language} line={leftLine} side="left" text={leftText ?? ''} preferences={preferences} />
         <span>{rightLine ?? ''}</span><CodeCell intraline={rightIntraline} language={language} line={rightLine} side="right" text={rightText ?? ''} preferences={preferences} />
       </div>
@@ -725,16 +720,16 @@ function ContextGapControl({
   const showPartial = gap.hiddenLines > 10
   const disabled = Boolean(gap.expansion.pending)
   return (
-    <div className="review-demo-diff-hunk interactive" role="group" aria-label={`${gap.hiddenLines} hidden common lines`}>
+    <div className="review-diff-hunk interactive" role="group" aria-label={`${gap.hiddenLines} hidden common lines`}>
       <span>{gap.header}</span>
-      <span className="review-demo-context-controls">
+      <span className="review-context-controls">
         {showPartial && gap.location !== 'top' ? <button type="button" disabled={disabled} aria-label="Show 10 lines above" onClick={() => onExpand('above')}>+10↑</button> : null}
         {showPartial && gap.location !== 'top' ? <span aria-hidden="true">−</span> : null}
         <button type="button" disabled={disabled} aria-label={`Show all ${gap.hiddenLines} common lines`} onClick={() => onExpand('all')}>+{gap.hiddenLines} common {gap.hiddenLines === 1 ? 'line' : 'lines'}</button>
         {showPartial && gap.location !== 'bottom' ? <span aria-hidden="true">−</span> : null}
         {showPartial && gap.location !== 'bottom' ? <button type="button" disabled={disabled} aria-label="Show 10 lines below" onClick={() => onExpand('below')}>+10↓</button> : null}
       </span>
-      {gap.expansion.error ? <span className="review-demo-context-error" role="alert">{gap.expansion.error}</span> : null}
+      {gap.expansion.error ? <span className="review-context-error" role="alert">{gap.expansion.error}</span> : null}
     </div>
   )
 }
@@ -771,7 +766,7 @@ function DiffRows({
     const gapKey = contextGapKey(contextKeyPrefix, file.path, file.diff.hunks, hunkIndex)
     const currentContext = preferences.context
     const step = Math.min(10, skipped)
-    return <button type="button" key={key} className="review-demo-skipped-row" onClick={() => onExpandSkippedContext(gapKey, hunkIndex, Math.min(10000, currentContext + step))}>Show {step} more common lines ({skipped} hidden)</button>
+    return <button type="button" key={key} className="review-skipped-row" onClick={() => onExpandSkippedContext(gapKey, hunkIndex, Math.min(10000, currentContext + step))}>Show {step} more common lines ({skipped} hidden)</button>
   }
   const renderRows = (rows: ReviewDiffRow[], hunkIndex: number, section: 'change' | 'context') => {
     const visibleRows = preferences.ignoreWhitespace === 'NONE'
@@ -838,8 +833,8 @@ function DiffRows({
       {renderRows(gap.baseAboveRows, hunkIndex, 'context')}
       {renderRows(gap.expansion.aboveRows, hunkIndex, 'context')}
       {showControl ? <ContextGapControl gap={gap} onExpand={direction => expandGap(gap, direction)} /> : null}
-      {!showControl && gap.hiddenLines > 0 ? <div className="review-demo-diff-hunk interactive loading" role="status"><span>{gap.header}</span><span>Loading {gap.hiddenLines} common {gap.hiddenLines === 1 ? 'line' : 'lines'}…</span></div> : null}
-      {!showControl && gap.hiddenLines === 0 && !expanded && gap.location !== 'bottom' ? <div className={`review-demo-diff-hunk ${hunkIndex > 0 ? 'secondary' : ''}`}><span>{gap.header}</span></div> : null}
+      {!showControl && gap.hiddenLines > 0 ? <div className="review-diff-hunk interactive loading" role="status"><span>{gap.header}</span><span>Loading {gap.hiddenLines} common {gap.hiddenLines === 1 ? 'line' : 'lines'}…</span></div> : null}
+      {!showControl && gap.hiddenLines === 0 && !expanded && gap.location !== 'bottom' ? <div className={`review-diff-hunk ${hunkIndex > 0 ? 'secondary' : ''}`}><span>{gap.header}</span></div> : null}
       {renderRows(gap.expansion.belowRows, hunkIndex, 'context')}
       {renderRows(gap.baseBelowRows, hunkIndex, 'context')}
     </>
@@ -855,7 +850,7 @@ function DiffRows({
       ))}
       {bottomGap ? renderGap(bottomGap, file.diff.hunks.length) : null}
       {missingNewline.left || missingNewline.right ? (
-        <div className="review-demo-newline-warning" role="note">
+        <div className="review-newline-warning" role="note">
           {[
             missingNewline.left ? 'No newline at end of left file.' : '',
             missingNewline.right ? 'No newline at end of right file.' : '',
@@ -868,19 +863,19 @@ function DiffRows({
 
 function DiffStatusMessage({ row }: { row: ReviewFileRowModel }) {
   if (row.diffLoadError) {
-    return <div className="review-demo-diff-message error" role="alert">Could not load diff: {row.diffLoadError}</div>
+    return <div className="review-diff-message error" role="alert">Could not load diff: {row.diffLoadError}</div>
   }
   if (row.diffLoadPending) {
-    return <div className="review-demo-diff-message" role="status">Loading diff…</div>
+    return <div className="review-diff-message" role="status">Loading diff…</div>
   }
   if (row.diffStatus === 'binary') {
-    return <div className="review-demo-diff-message">Binary file changed</div>
+    return <div className="review-diff-message">Binary file changed</div>
   }
   if (row.diffStatus === 'too-expensive') {
-    return <div className="review-demo-diff-message">Diff too large to render</div>
+    return <div className="review-diff-message">Diff too large to render</div>
   }
   if (row.diffStatus === 'not-loaded') {
-    return <div className="review-demo-diff-message">Diff not loaded yet</div>
+    return <div className="review-diff-message">Diff not loaded yet</div>
   }
   return null
 }
@@ -907,7 +902,7 @@ function CommentEditor({
       : `${targetName} lines ${target.range.start_line}–${target.range.end_line}`
     : `${targetName} line ${target.line}`
   return (
-    <form className="review-demo-comment-editor" onSubmit={event => { event.preventDefault(); onSave() }}>
+    <form className="review-comment-editor" onSubmit={event => { event.preventDefault(); onSave() }}>
       <header>Comment on {targetLabel}</header>
       <textarea
         aria-label="Review comment"
@@ -954,10 +949,10 @@ function CommentThread({
       : `${targetName} lines ${comment.range.start_line}–${comment.range.end_line}`
     : `${targetName} line ${comment.line}`
   return (
-    <article className={`review-demo-comment-thread ${status}`}>
+    <article className={`review-comment-thread ${status}`}>
       <header>
         <span>{status === 'outdated' ? `Outdated · ${targetLabel}` : targetLabel}</span>
-        <span className="review-demo-comment-actions">
+        <span className="review-comment-actions">
           <button type="button" disabled={disabled} onClick={() => onStatusChange(status === 'resolved' ? 'open' : 'resolved')}>{status === 'resolved' ? 'REOPEN' : 'RESOLVE'}</button>
           <button type="button" aria-label={`Delete comment on line ${comment.line}`} disabled={disabled} onClick={onDelete}><CloseGlyph /></button>
         </span>
@@ -1014,8 +1009,8 @@ function commentRangeFromSelection(container: HTMLElement): { line: number; rang
   }
 }
 
-export function ReviewDemoPage() {
-  const demoMode = typeof window !== 'undefined' && /\/review-demo\/?$/.test(window.location.pathname)
+export function ReviewPage() {
+  const fixtureMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('fixture') === '1'
   const [acpCaptureTarget] = useState(() => {
     const search = typeof window === 'undefined' ? '' : window.location.search
     return {
@@ -1025,7 +1020,7 @@ export function ReviewDemoPage() {
   })
   const acpCaptureRoute = acpCaptureTarget.route
   const [reviewRouteTarget] = useState(() => reviewSnapshotRequestFromLocation(typeof window === 'undefined' ? null : window.location))
-  const captureRouteRequest = !demoMode && !acpCaptureTarget.requested && reviewRouteTarget.request
+  const captureRouteRequest = !fixtureMode && !acpCaptureTarget.requested && reviewRouteTarget.request
     && (reviewRouteTarget.request.source === 'working-copy' || reviewRouteTarget.request.head === 'now')
     ? reviewRouteTarget.request
     : null
@@ -1038,10 +1033,10 @@ export function ReviewDemoPage() {
   const routeTargetError = acpCaptureTarget.requested
     ? !acpCaptureRoute
     : Boolean(reviewRouteTarget.error)
-  const externalReview = !demoMode
+  const externalReview = !fixtureMode
   const workingCopy = reviewRequestBase?.source === 'working-copy'
   const gitRange = reviewRequestBase?.source === 'git-range'
-  const [catalog, setCatalog] = useState<ReviewCatalog>(() => routeTargetError ? { [INVALID_REVIEW_PATCHSET]: [] } : initialReviewCatalog(reviewRequestBase, demoMode))
+  const [catalog, setCatalog] = useState<ReviewCatalog>(() => routeTargetError ? { [INVALID_REVIEW_PATCHSET]: [] } : initialReviewCatalog(reviewRequestBase, fixtureMode))
   const [reviewLoadError, setReviewLoadError] = useState(
     acpCaptureTarget.requested
       ? acpCaptureRoute ? '' : 'ACP review target is invalid'
@@ -1049,14 +1044,14 @@ export function ReviewDemoPage() {
   )
   const [reviewComparison, setReviewComparison] = useState<ReviewComparison | null>(null)
   const [reviewState, setReviewState] = useState<ReviewState>(() => {
-    const initialCatalog = routeTargetError ? { [INVALID_REVIEW_PATCHSET]: [] } : initialReviewCatalog(reviewRequestBase, demoMode)
+    const initialCatalog = routeTargetError ? { [INVALID_REVIEW_PATCHSET]: [] } : initialReviewCatalog(reviewRequestBase, fixtureMode)
     return createPageReviewState({
-      basePatchset: routeTargetError ? 'Base' : initialReviewBasePatchset(reviewRequestBase, demoMode),
+      basePatchset: routeTargetError ? 'Base' : initialReviewBasePatchset(reviewRequestBase, fixtureMode),
       catalog: initialCatalog,
       comments: [],
-      initialPatchset: routeTargetError ? INVALID_REVIEW_PATCHSET : initialReviewPatchset(reviewRequestBase, demoMode),
+      initialPatchset: routeTargetError ? INVALID_REVIEW_PATCHSET : initialReviewPatchset(reviewRequestBase, fixtureMode),
       initiallyExpand: !externalReview,
-      reviewId: externalReview ? undefined : REVIEW_DEMO_ID,
+      reviewId: externalReview ? undefined : REVIEW_FIXTURE_ID,
     })
   })
   const reviewStateRef = useRef(reviewState)
@@ -1076,7 +1071,7 @@ export function ReviewDemoPage() {
   const [comparisonSourceId, setComparisonSourceId] = useState(() => new URLSearchParams(window.location.search).get('comparison') || '')
   const [showComparisonSources, setShowComparisonSources] = useState(false)
   const comparisonSourceRef = useRef<HTMLDivElement>(null)
-  const reviewId = externalReview ? reviewState.reviewId ?? '' : REVIEW_DEMO_ID
+  const reviewId = externalReview ? reviewState.reviewId ?? '' : REVIEW_FIXTURE_ID
   const patchset = reviewState.patchRange.patchset
   const basePatch = reviewState.patchRange.basePatchset
   const patchsetState = reviewStateForPatchset(reviewState, patchset)
@@ -1216,8 +1211,8 @@ export function ReviewDemoPage() {
   }
 
   useEffect(() => {
-    document.body.classList.add('review-demo-body')
-    return () => document.body.classList.remove('review-demo-body')
+    document.body.classList.add('review-body')
+    return () => document.body.classList.remove('review-body')
   }, [])
 
   useEffect(() => {
@@ -1396,13 +1391,12 @@ export function ReviewDemoPage() {
   useEffect(() => {
     const updateReviewingPath = () => {
       let nextPath = ''
-      const stickyTop = document.querySelector<HTMLElement>('.review-demo-files-toolbar')?.getBoundingClientRect().bottom ?? 0
-      for (const article of document.querySelectorAll<HTMLElement>('.review-demo-file-change.expanded[data-file-path]')) {
-        const header = article.querySelector<HTMLElement>('.review-demo-file-change-header')
+      for (const article of document.querySelectorAll<HTMLElement>('.review-file-change.expanded[data-file-path]')) {
+        const header = article.querySelector<HTMLElement>('.review-file-change-header')
         if (!header) continue
         const articleRect = article.getBoundingClientRect()
         const headerRect = header.getBoundingClientRect()
-        if (headerRect.top <= stickyTop + 1 && articleRect.bottom > headerRect.bottom) {
+        if (headerRect.top <= 1 && articleRect.bottom > headerRect.bottom) {
           nextPath = article.dataset.filePath ?? ''
         }
       }
@@ -1672,15 +1666,15 @@ export function ReviewDemoPage() {
   const reviewLoadLabel = routeTargetError ? 'Could not load review target' : gitRange ? 'Could not load git range' : 'Could not load working copy'
 
   return (
-    <main className="review-demo-root" data-testid="review-demo-page">
-      <section className="review-demo-files" aria-label="Changed files">
-        <header className="review-demo-files-toolbar">
-          <div className="review-demo-patch-info">
-            <div className="review-demo-source-control" ref={comparisonSourceRef}>
-              <button type="button" className="review-demo-source-trigger" aria-expanded={showComparisonSources} onClick={openComparisonSources}>
+    <main className="review-root" data-testid="review-page">
+      <section className="review-files" aria-label="Changed files">
+        <header className="review-files-toolbar">
+          <div className="review-patch-info">
+            <div className="review-source-control" ref={comparisonSourceRef}>
+              <button type="button" className="review-source-trigger" aria-expanded={showComparisonSources} onClick={openComparisonSources}>
                 <strong>{comparisonSourceLabel}</strong><ChevronDownGlyph />
               </button>
-              {showComparisonSources ? <div className="review-demo-source-menu" role="menu" aria-label="Compare changes from">
+              {showComparisonSources ? <div className="review-source-menu" role="menu" aria-label="Compare changes from">
                 {comparisonSourcesPending ? <p>Loading comparisons…</p> : null}
                 {comparisonSourceError ? <p className="error">{comparisonSourceError}</p> : null}
                 {comparisonSources ? <>
@@ -1690,7 +1684,7 @@ export function ReviewDemoPage() {
                   <button type="button" role="menuitemradio" aria-checked={comparisonSourceId === 'staged'} disabled={!comparisonSources.staged.available} onClick={() => selectComparisonSource(comparisonSources.staged)}>
                     <span>Staged</span>{comparisonSourceId === 'staged' ? <CheckGlyph /> : null}
                   </button>
-                  <details className="review-demo-source-submenu">
+                  <details className="review-source-submenu">
                     <summary>Commit <ChevronRightGlyph /></summary>
                     <div>{comparisonSources.commits.length ? comparisonSources.commits.map(source => (
                       <button type="button" role="menuitemradio" aria-checked={comparisonSourceId === source.id} key={source.id} onClick={() => selectComparisonSource(source)}>
@@ -1698,7 +1692,7 @@ export function ReviewDemoPage() {
                       </button>
                     )) : <p>No commits available</p>}</div>
                   </details>
-                  <details className="review-demo-source-submenu">
+                  <details className="review-source-submenu">
                     <summary>Branch <ChevronRightGlyph /></summary>
                     <div>{comparisonSources.branches.length ? comparisonSources.branches.map(source => (
                       <button type="button" role="menuitemradio" aria-checked={comparisonSourceId === source.id} key={source.id} onClick={() => selectComparisonSource(source)}>
@@ -1712,43 +1706,41 @@ export function ReviewDemoPage() {
                 </> : null}
               </div> : null}
             </div>
-            <span className="review-demo-total-stats"><b>+{totalAdded}</b><i>−{totalRemoved}</i></span>
+            <span className="review-total-stats"><b>+{totalAdded}</b><i>−{totalRemoved}</i></span>
             {!externalReview ? <>
               <select aria-label="Patch set" value={patchset} onChange={event => selectPatchset(event.target.value)}>
                 <option value="Patchset 20">Patchset 20</option>
                 <option value="Patchset 19">Patchset 19</option>
               </select>
-              <button type="button" className="review-demo-commit" onClick={copyCommit} title="Copy commit">
+              <button type="button" className="review-commit" onClick={copyCommit} title="Copy commit">
                 {commitCopied ? 'Copied' : '34a15ae'}<CopyGlyph />
               </button>
             </> : null}
-            {reviewSessionActive ? <span className="review-demo-revision-label">Revision {reviewSessionRevision?.number}</span> : null}
+            {reviewSessionActive ? <span className="review-revision-label">Revision {reviewSessionRevision?.number}</span> : null}
           </div>
-          <div className="review-demo-files-actions">
+          <div className="review-files-actions">
             {reviewSessionActive && reviewSessionRevision ? <>
               {reviewSessionRevision.number > 1 ? <button type="button" className={reviewView === 'fixes' ? 'active' : ''} onClick={() => selectReviewView('fixes')}>FIXES SINCE REVIEW</button> : null}
               <button type="button" disabled={capturePending} onClick={refreshCapturedReview}>{capturePending ? 'CAPTURING…' : 'REFRESH'}</button>
-              <span className="review-demo-toolbar-separator" />
+              <span className="review-toolbar-separator" />
             </> : null}
             <button type="button" onClick={() => applyReviewAction({
               expanded: !allVisibleExpanded,
               paths: files.map(file => file.path),
               type: 'set-all-files-expanded',
             })}>{allVisibleExpanded ? 'COLLAPSE ALL' : 'EXPAND ALL'}</button>
-            <span className="review-demo-toolbar-separator" />
+            <span className="review-toolbar-separator" />
             {reviewScope !== 'untracked' ? <>
               <span>Diff view:</span>
-              <button type="button" className={`review-demo-icon-action ${diffMode === 'split' ? 'active' : ''}`} aria-label="Side-by-side diff" title="Side-by-side diff" onClick={() => applyReviewAction({ mode: 'split', type: 'set-diff-mode' })}><DiffSplitGlyph /></button>
-              <button type="button" className={`review-demo-icon-action ${diffMode === 'unified' ? 'active' : ''}`} aria-label="Unified diff" title="Unified diff" onClick={() => applyReviewAction({ mode: 'unified', type: 'set-diff-mode' })}><DiffUnifiedGlyph /></button>
+              <button type="button" className={`review-icon-action ${diffMode === 'split' ? 'active' : ''}`} aria-label="Side-by-side diff" title="Side-by-side diff" onClick={() => applyReviewAction({ mode: 'split', type: 'set-diff-mode' })}><DiffSplitGlyph /></button>
+              <button type="button" className={`review-icon-action ${diffMode === 'unified' ? 'active' : ''}`} aria-label="Unified diff" title="Unified diff" onClick={() => applyReviewAction({ mode: 'unified', type: 'set-diff-mode' })}><DiffUnifiedGlyph /></button>
             </> : null}
-            <button type="button" className="review-demo-icon-action" aria-label="Diff preferences" title="Diff preferences" onClick={openPreferences}><SettingsGlyph /></button>
+            <button type="button" className="review-icon-action" aria-label="Diff preferences" title="Diff preferences" onClick={openPreferences}><SettingsGlyph /></button>
           </div>
-          {reviewStatusError || reviewCommentError ? <span className="review-demo-review-error" role="status">{reviewStatusError || reviewCommentError}</span> : null}
+          {reviewStatusError || reviewCommentError ? <span className="review-review-error" role="status">{reviewStatusError || reviewCommentError}</span> : null}
         </header>
-        <div className="review-demo-workspace">
-          <div className="review-demo-review-scroll">
         {externalReview && displayedComparison ? (
-          <details className="review-demo-commit-message">
+          <details className="review-commit-message">
             <summary>
               <span>{comparisonMessageLabel}</span>
               <strong>{comparisonMessageTitle}</strong>
@@ -1771,9 +1763,9 @@ export function ReviewDemoPage() {
             </div>
           </details>
         ) : null}
-        <div className="review-demo-files-list">
-          {reviewLoadError ? <p className="review-demo-working-copy-message" role="alert">{reviewLoadLabel}: {reviewLoadError}</p> : null}
-          {externalReview && !reviewLoadError && files.length === 0 ? <p className="review-demo-working-copy-message" role="status">{emptyReviewMessage}</p> : null}
+        <div className="review-files-list">
+          {reviewLoadError ? <p className="review-working-copy-message" role="alert">{reviewLoadLabel}: {reviewLoadError}</p> : null}
+          {externalReview && !reviewLoadError && files.length === 0 ? <p className="review-working-copy-message" role="status">{emptyReviewMessage}</p> : null}
           {files.map(file => {
             const rowModel = reviewFileRowModel(reviewState, file, { mutationPending: reviewMutationPending })
             const fileComments = commentsForFilePaths(reviewState, rowModel.commentPaths)
@@ -1794,7 +1786,7 @@ export function ReviewDemoPage() {
               })
               if (!activeTarget && lineComments.length === 0) return null
               return (
-                <div className="review-demo-line-attachment" data-review-comment-line={line}>
+                <div className="review-line-attachment" data-review-comment-line={line}>
                   {activeTarget ? (
                     <CommentEditor
                       disabled={commentMutationPending}
@@ -1818,17 +1810,17 @@ export function ReviewDemoPage() {
               )
             }
             return (
-              <article className={`review-demo-file-change ${rowModel.expanded ? 'expanded' : ''} ${reviewingPath === file.path ? 'reviewing' : ''}`} key={file.path} data-testid="review-demo-file-row" data-change-kind={file.kind} data-file-path={file.path}>
-                <header className="review-demo-file-change-header">
+              <article className={`review-file-change ${rowModel.expanded ? 'expanded' : ''} ${reviewingPath === file.path ? 'reviewing' : ''}`} key={file.path} data-testid="review-file-row" data-change-kind={file.kind} data-file-path={file.path}>
+                <header className="review-file-change-header">
                   <button
                     type="button"
-                    className="review-demo-file-select"
+                    className="review-file-select"
                     onClick={() => toggleExpanded(file.path)}
                   >
-                    <span className="review-demo-file-status" title={rowModel.changeLabel}>{fileLanguageLabel(file.path)}</span>
-                    <span className="review-demo-file-paths">
-                      <span className="review-demo-file-name">{file.path}</span>
-                      {file.previousPath ? <span className="review-demo-file-previous-path" title={`Previous path: ${file.previousPath}`}>{file.previousPath}</span> : null}
+                    <span className="review-file-status">{rowModel.changeLabel}</span>
+                    <span className="review-file-paths">
+                      <span className="review-file-name">{file.path}</span>
+                      {file.previousPath ? <span className="review-file-previous-path" title={`Previous path: ${file.previousPath}`}>{file.previousPath}</span> : null}
                     </span>
                     <ChangeBar file={file} maxChangeSize={maxChangeSize} />
                     <FileStats file={file} />
@@ -1837,11 +1829,11 @@ export function ReviewDemoPage() {
                     if (!rowModel.action) return
                     toggleReviewed(file.path, rowModel.action.nextReviewed)
                   }} />
-                  <button type="button" className="review-demo-file-expand" aria-label={rowModel.expanded ? 'Collapse file diff' : 'Expand file diff'} onClick={() => toggleExpanded(file.path)}>{rowModel.expanded ? <ChevronDownGlyph /> : <ChevronRightGlyph />}</button>
+                  <button type="button" className="review-file-expand" aria-label={rowModel.expanded ? 'Collapse file diff' : 'Expand file diff'} onClick={() => toggleExpanded(file.path)}>{rowModel.expanded ? <ChevronDownGlyph /> : <ChevronRightGlyph />}</button>
                 </header>
                 {rowModel.expanded ? (
-                  <section className={`review-demo-inline-diff ${effectiveDiffMode} ${diffPreferences.fitToScreen ? 'fit-to-screen' : ''}`} aria-label={`Diff for ${file.path}`}>
-                    {outdatedComments.length ? <div className="review-demo-outdated-comments">
+                  <section className={`review-inline-diff ${effectiveDiffMode} ${diffPreferences.fitToScreen ? 'fit-to-screen' : ''}`} aria-label={`Diff for ${file.path}`}>
+                    {outdatedComments.length ? <div className="review-outdated-comments">
                       {outdatedComments.map(comment => <CommentThread
                         comment={comment}
                         disabled={commentMutationPending}
@@ -1850,13 +1842,13 @@ export function ReviewDemoPage() {
                         onStatusChange={status => changeCommentStatus(comment, status)}
                       />)}
                     </div> : null}
-                    <div className="review-demo-diff-columns"><span>File</span>{effectiveDiffMode === 'split' ? <span>File</span> : null}</div>
+                    <div className="review-diff-columns"><span>File</span>{effectiveDiffMode === 'split' ? <span>File</span> : null}</div>
                     {rowModel.diffStatus !== 'loaded' || rowModel.diffLoadPending || rowModel.diffLoadError ? (
                       <DiffStatusMessage row={rowModel} />
                     ) : (
                       <>
                         <div
-                          className="review-demo-diff-code"
+                          className="review-diff-code"
                           style={{ fontSize: `${diffPreferences.fontSize}px`, tabSize: diffPreferences.tabSize, minWidth: diffPreferences.fitToScreen ? undefined : `${Math.round(diffPreferences.lineLength * diffPreferences.fontSize * 0.62)}px` }}
                           onClick={event => {
                             const selection = window.getSelection()
@@ -1885,14 +1877,12 @@ export function ReviewDemoPage() {
             )
           })}
         </div>
-          </div>
-        </div>
       </section>
       {showPreferences ? (
-        <div className="review-demo-preferences-backdrop" role="presentation" onMouseDown={() => setShowPreferences(false)}>
-          <section className="review-demo-preferences" role="dialog" aria-modal="true" aria-labelledby="review-demo-preferences-title" onMouseDown={event => event.stopPropagation()}>
-            <header><h2 id="review-demo-preferences-title">Diff Preferences</h2></header>
-            <div className="review-demo-preferences-form">
+        <div className="review-preferences-backdrop" role="presentation" onMouseDown={() => setShowPreferences(false)}>
+          <section className="review-preferences" role="dialog" aria-modal="true" aria-labelledby="review-preferences-title" onMouseDown={event => event.stopPropagation()}>
+            <header><h2 id="review-preferences-title">Diff Preferences</h2></header>
+            <div className="review-preferences-form">
               <label>Context<select aria-label="Context" value={draftPreferences.context} onChange={event => setDraftPreferences(current => ({ ...current, context: Number(event.target.value) }))}><option value={3}>3 lines</option><option value={10}>10 lines</option><option value={25}>25 lines</option><option value={100}>100 lines</option></select></label>
               <label className="checkbox-row">Fit to screen<input aria-label="Fit to screen" type="checkbox" checked={draftPreferences.fitToScreen} onChange={event => setDraftPreferences(current => ({ ...current, fitToScreen: event.target.checked }))} /></label>
               <label>Diff width<input aria-label="Diff width" type="number" autoComplete="off" data-form-type="other" min={40} max={240} value={draftPreferences.lineLength} onChange={event => setDraftPreferences(current => ({ ...current, lineLength: Number(event.target.value) || current.lineLength }))} /></label>

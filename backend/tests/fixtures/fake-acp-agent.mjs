@@ -19,6 +19,7 @@ if (process.argv.includes('--fake-terminal-login')) {
 
 let client;
 let sessionId = 'acp-new-session';
+const cancelledSessions = new Map();
 
 class FakeAgent {
   async initialize(params) {
@@ -330,6 +331,23 @@ class FakeAgent {
       });
       return { stopReason: 'end_turn' };
     }
+    if (promptText.includes('streaming thought')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'agent_thought_chunk', messageId: 'streaming-thought-1', content: { type: 'text', text: 'Comparing the likely causes' } },
+      });
+      await new Promise(resolve => setTimeout(resolve, 700));
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'agent_thought_chunk', messageId: 'streaming-thought-1', content: { type: 'text', text: ' and checking the strongest one.' } },
+      });
+      await new Promise(resolve => setTimeout(resolve, 700));
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'agent_message_chunk', messageId: 'streaming-thought-answer', content: { type: 'text', text: 'Streaming thought complete.' } },
+      });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('usage warning')) {
       await client.sessionUpdate({
         sessionId: params.sessionId,
@@ -381,6 +399,52 @@ class FakeAgent {
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'unicode-answer', content: { type: 'text', text: `Unicode permission: ${permission.outcome.outcome}` } },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('subagent elicitation')) {
+      const childSessionId = 'acp-input-child-session';
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'input-subagent-tool',
+          title: 'Clarify with subagent',
+          kind: 'other',
+          status: 'in_progress',
+          _meta: { subagent_session_info: { session_id: childSessionId, message_start_index: 0 } },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: childSessionId,
+        update: { sessionUpdate: 'user_message_chunk', messageId: 'input-child-user', content: { type: 'text', text: 'Confirm the child scope' } },
+      });
+      const elicitation = await client.unstable_createElicitation({
+        sessionId: childSessionId,
+        mode: 'form',
+        message: 'Confirm the subagent scope',
+        requestedSchema: {
+          type: 'object',
+          required: ['confirmed'],
+          properties: { confirmed: { type: 'boolean', title: 'Confirmed for subagent' } },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: childSessionId,
+        update: { sessionUpdate: 'agent_message_chunk', messageId: 'input-child-answer', content: { type: 'text', text: `Child confirmed: ${elicitation.content?.confirmed === true}` } },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'input-subagent-tool',
+          status: 'completed',
+          _meta: { subagent_session_info: { session_id: childSessionId, message_start_index: 0, message_end_index: 1 } },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'agent_message_chunk', messageId: 'input-subagent-answer', content: { type: 'text', text: 'Subagent input complete.' } },
       });
       return { stopReason: 'end_turn' };
     }
@@ -455,6 +519,44 @@ class FakeAgent {
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'subagent-answer', content: { type: 'text', text: 'Subagent inspection complete.' } },
       });
       return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('long subagent')) {
+      const childSessionId = 'acp-long-child-session';
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'long-subagent-tool',
+          title: 'Investigate with subagent',
+          kind: 'other',
+          status: 'in_progress',
+          _meta: { subagent_session_info: { session_id: childSessionId, message_start_index: 0 } },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: childSessionId,
+        update: { sessionUpdate: 'user_message_chunk', messageId: 'long-child-user', content: { type: 'text', text: 'Inspect the long-running task' } },
+      });
+      await client.sessionUpdate({
+        sessionId: childSessionId,
+        update: { sessionUpdate: 'agent_thought_chunk', messageId: 'long-child-thought', content: { type: 'text', text: 'Checking the first candidate' } },
+      });
+      await new Promise(resolve => cancelledSessions.set(childSessionId, resolve));
+      cancelledSessions.delete(childSessionId);
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'long-subagent-tool',
+          status: 'cancelled',
+          _meta: { subagent_session_info: { session_id: childSessionId, message_start_index: 0, message_end_index: 1 } },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: 'agent_message_chunk', messageId: 'long-subagent-answer', content: { type: 'text', text: 'Subagent stopped.' } },
+      });
+      return { stopReason: 'cancelled' };
     }
     if (promptText.includes('client services')) {
       const filePath = path.join(process.cwd(), 'acp-client-roundtrip.txt');
@@ -621,7 +723,9 @@ class FakeAgent {
     return { stopReason: 'end_turn' };
   }
 
-  async cancel() {}
+  async cancel(params) {
+    cancelledSessions.get(params?.sessionId)?.();
+  }
 }
 
 new AgentSideConnection(

@@ -203,6 +203,43 @@ async function runTests() {
   }
 
   {
+    const command = nativeHostSpawnCommand('/repo/backend/native-pty-host.js', {
+      FARMING_NODE_BIN: '/opt/node/bin/node',
+      FARMING_NODE_LD: '/opt/glibc/lib/ld-linux-x86-64.so.2',
+      FARMING_NODE_LIBRARY_PATH: '/opt/glibc/lib',
+    });
+
+    assert.strictEqual(command.command, '/opt/glibc/lib/ld-linux-x86-64.so.2');
+    assert.deepStrictEqual(command.args, [
+      '--library-path',
+      '/opt/glibc/lib',
+      '/opt/node/bin/node',
+      '/repo/backend/native-pty-host.js',
+    ]);
+  }
+
+  {
+    const env = {
+      FARMING_NODE_BIN: '/opt/node/bin/node',
+      FARMING_NODE_LD: '/opt/glibc/lib/ld-linux-x86-64.so.2',
+      FARMING_NODE_LIBRARY_PATH: '/opt/glibc/lib',
+      FARMING_PACKAGED_RUNTIME: '1',
+      FARMING_CONFIG_DIR: '/tmp/farming-config',
+    };
+    const command = nativeHostSpawnCommand('/snapshot/farming/backend/native-pty-host.js', env);
+
+    assert.strictEqual(command.command, '/opt/glibc/lib/ld-linux-x86-64.so.2');
+    assert.deepStrictEqual(command.args, [
+      '--library-path',
+      '/opt/glibc/lib',
+      '/opt/node/bin/node',
+    ]);
+    assert.strictEqual(command.env.FARMING_NODE_LD, '/opt/glibc/lib/ld-linux-x86-64.so.2');
+    assert.strictEqual(command.env.FARMING_NODE_LIBRARY_PATH, '/opt/glibc/lib');
+    assert.strictEqual(command.env.FARMING_RUN_NATIVE_PTY_HOST, '1');
+  }
+
+  {
     const command = buildNativeHostCleanEnvExecCommand({
       FARMING_RUN_NATIVE_PTY_HOST: '1',
       FARMING_CONFIG_DIR: "/tmp/native host's config",

@@ -53,7 +53,7 @@ Index tree 通过 `git write-tree` 生成 Git object，不会修改用户的 ind
 
 ACP 的 **File Changes** 审阅必须来自所引用的 tool item，不能按那些路径重新捕获当前 working tree。`POST /api/review-sessions/acp` 会在后端解析 ACP diff block，并把当时精确的 `oldText` / `newText` 写成受引用保护的 base/head Git tree。因此之后发生 commit、再次编辑或删除，都不会改变历史 Last Turn 审阅。Agent workspace 内的绝对路径会归一化为 workspace-relative path；workspace 外的路径会被排除，避免把无关文件带进审阅。
 
-Review workspace 使用单栏 Gerrit-style file-list-first 布局。按顺序排列的文件行本身就是导航：每行展示变更摘要，就地展开 inline diff，并承载 comment 与 reviewed action，不再在右侧重复投影同一份文件目录。视觉语言跟随 Farming Code，但 reviewed/comment 生命周期仍以 Gerrit 语义为准。
+Review workspace 使用单栏 Gerrit-style file-list-first 布局。按顺序排列的文件行本身就是导航：每行展示 Git 修改状态和变更摘要，就地展开 inline diff，并承载 comment 与 reviewed action，不再在右侧重复投影同一份文件目录。新增比较控件应复用现有 Review 视觉，不应重绘文件行，也不应用装饰性的文件类型标签替换 Git 修改状态；reviewed/comment 生命周期仍以 Gerrit 语义为准。
 
 ## CLI 入口
 
@@ -65,7 +65,7 @@ Review workspace 使用单栏 Gerrit-style file-list-first 布局。按顺序排
 
 ## 不可变 Review Session
 
-独立的 `/review` 路由不会回退到种子演示数据。Working-copy target（包括 `head=now`）会先被捕获成不可变 review revision，再显示文件列表。`/review-demo` 只保留确定性的视觉 fixture，不与真实路由共享数据生命周期。Review 路由与普通 Farming 应用使用相互独立的懒加载前端 bundle（包括 CSS），因此任一侧都不会加载或应用另一侧的 UI 层。
+独立的 `/review` 路由不会回退到种子 fixture 数据。Working-copy target（包括 `head=now`）会先被捕获成不可变 review revision，再显示文件列表。自动化视觉测试通过 `/review?fixture=1` 显式启用确定性 fixture，该 fixture 不与真实路由共享数据生命周期。Review 路由与普通 Farming 应用使用相互独立的懒加载前端 bundle（包括 CSS），因此任一侧都不会加载或应用另一侧的 UI 层。
 
 捕获使用临时 Git index：从 `HEAD` 读取基础树，把 tracked 和 untracked workspace 内容 stage 到临时 index，写出 tree，然后重复一次捕获。只有两次 tree id 一致时 Farming 才接受这个 revision；如果 agent 正在写文件，会明确要求重试，而不是生成混合快照。用户自己的 index 和 worktree 不会被修改。捕获的 tree 保存在 `refs/farming/reviews/` 下，session metadata 存在 Farming config 目录中。
 

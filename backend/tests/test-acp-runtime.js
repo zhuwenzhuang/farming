@@ -280,6 +280,54 @@ async function run() {
     );
     runtime.respondPermission('agent-acp-client-services', childPermissionSnapshot.requestId, 'allow-child');
     await childPermission;
+    const childElicitation = runtime.requestElicitation(clientServicesBinding, {
+      sessionId: 'acp-child-session',
+      mode: 'form',
+      message: 'Choose the subagent scope',
+      requestedSchema: {
+        type: 'object',
+        required: ['scope'],
+        properties: { scope: { type: 'string', enum: ['focused', 'full'] } },
+      },
+    });
+    const childElicitationSnapshot = runtime.getSession('agent-acp-client-services').pendingElicitations[0];
+    assert.strictEqual(childElicitationSnapshot.origin, 'subagent');
+    assert.strictEqual(childElicitationSnapshot.sessionId, 'acp-child-session');
+    assert.strictEqual(
+      runtime.getSubagentTranscriptSession('agent-acp-client-services', 'acp-child-session').state,
+      'waiting-for-input',
+    );
+    runtime.respondElicitation(
+      'agent-acp-client-services',
+      childElicitationSnapshot.requestId,
+      'accept',
+      { scope: 'focused' },
+    );
+    assert.deepStrictEqual(await childElicitation, { action: 'accept', content: { scope: 'focused' } });
+    assert.deepStrictEqual(
+      await runtime.cancelSubagent('agent-acp-client-services', 'acp-child-session'),
+      { cancelled: true, sessionId: 'acp-child-session' },
+    );
+    const longSubagentPrompt = runtime.prompt('agent-acp-client-services', 'long subagent');
+    let longSubagentTool;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      longSubagentTool = runtime.getToolEntry('agent-acp-client-services', 'long-subagent-tool');
+      if (longSubagentTool && runtime.getSubagentTranscriptSession(
+        'agent-acp-client-services',
+        'acp-long-child-session',
+      )) break;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    assert(longSubagentTool);
+    assert.strictEqual(
+      runtime.getSubagentTranscriptSession('agent-acp-client-services', 'acp-long-child-session').state,
+      'working',
+    );
+    assert.deepStrictEqual(
+      await runtime.cancelSubagent('agent-acp-client-services', 'acp-long-child-session'),
+      { cancelled: true, sessionId: 'acp-long-child-session' },
+    );
+    assert.strictEqual((await longSubagentPrompt).stopReason, 'cancelled');
     clientServicesBinding.approvalMode = clientServicesApprovalMode;
     await assert.rejects(
       runtime.prompt('agent-acp-client-services', 'authentication error'),

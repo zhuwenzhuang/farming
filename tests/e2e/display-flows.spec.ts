@@ -2029,7 +2029,8 @@ test.describe('display-backed agent flows', () => {
       await expect(page.getByTestId('code-model-submenu')).toBeVisible()
       const modelSubmenuBox = await page.getByTestId('code-model-submenu').boundingBox()
       if (!modelSubmenuBox) throw new Error('Model submenu is not visible')
-      expect(Math.abs(modelSubmenuBox.y - modelTriggerBox.y)).toBeLessThanOrEqual(4)
+      expect(Math.abs((modelSubmenuBox.y + modelSubmenuBox.height) - (modelTriggerBox.y + modelTriggerBox.height))).toBeLessThanOrEqual(4)
+      expect(modelSubmenuBox.y).toBeLessThan(modelTriggerBox.y)
       if (process.platform === 'darwin') {
         await expect(page.getByTestId('code-model-submenu')).toHaveScreenshot('desktop-composer-gpt-menu.png')
       }

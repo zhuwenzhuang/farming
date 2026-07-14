@@ -142,6 +142,7 @@ export interface AcpElicitationProperty {
 export interface AcpPendingElicitation {
   requestId: string
   sessionId?: string
+  origin?: 'agent' | 'subagent' | string
   protocolRequestId?: string | number | null
   toolCallId?: string | null
   mode: 'form' | 'url' | string
