@@ -708,14 +708,19 @@ async function run() {
   const npmStatus = await npmService.check({ force: true });
   assert.strictEqual(npmStatus.method, 'npm');
   assert.strictEqual(npmStatus.current.type, 'npm');
+  assert.strictEqual(npmStatus.current.installDir, npmRoot);
   assert.strictEqual(npmStatus.latest.version, '2.3.0');
   assert.deepStrictEqual(npmStatus.versions.map(version => version.version), ['2.3.0', '2.2.6', '2.2.5']);
   const previousNodeBin = process.env.FARMING_NODE_BIN;
   const previousNpmCommand = process.env.FARMING_NPM_COMMAND;
   const previousNpmPrefix = process.env.FARMING_NPM_PREFIX;
+  const previousNodeLd = process.env.FARMING_NODE_LD;
+  const previousNodeLibraryPath = process.env.FARMING_NODE_LIBRARY_PATH;
   process.env.FARMING_NODE_BIN = '/opt/farming/runtime/bin/node';
   process.env.FARMING_NPM_COMMAND = '/opt/farming/runtime/bin/npm';
   process.env.FARMING_NPM_PREFIX = '/opt/farming/npm';
+  process.env.FARMING_NODE_LD = '/opt/farming/glibc/lib/ld-linux-x86-64.so.2';
+  process.env.FARMING_NODE_LIBRARY_PATH = '/opt/farming/glibc/lib';
   const npmInstallState = await npmService.startInstall({ assetName: '2.2.6' });
   if (previousNodeBin === undefined) delete process.env.FARMING_NODE_BIN;
   else process.env.FARMING_NODE_BIN = previousNodeBin;
@@ -723,9 +728,20 @@ async function run() {
   else process.env.FARMING_NPM_COMMAND = previousNpmCommand;
   if (previousNpmPrefix === undefined) delete process.env.FARMING_NPM_PREFIX;
   else process.env.FARMING_NPM_PREFIX = previousNpmPrefix;
+  if (previousNodeLd === undefined) delete process.env.FARMING_NODE_LD;
+  else process.env.FARMING_NODE_LD = previousNodeLd;
+  if (previousNodeLibraryPath === undefined) delete process.env.FARMING_NODE_LIBRARY_PATH;
+  else process.env.FARMING_NODE_LIBRARY_PATH = previousNodeLibraryPath;
   assert.strictEqual(npmInstallState.phase, 'installing');
   assert.strictEqual(npmSpawned.length, 1);
-  assert.strictEqual(npmSpawned[0].command, '/opt/farming/runtime/bin/node');
+  assert.strictEqual(npmSpawned[0].command, '/opt/farming/glibc/lib/ld-linux-x86-64.so.2');
+  assert.deepStrictEqual(npmSpawned[0].args.slice(0, 3), [
+    '--library-path',
+    '/opt/farming/glibc/lib',
+    '/opt/farming/runtime/bin/node',
+  ]);
+  assert(npmSpawned[0].args[3].endsWith('/backend/npm-update-helper.js'));
+  assert.strictEqual(npmSpawned[0].options.cwd, npmConfigDir);
   const npmUpdatePayload = JSON.parse(npmSpawned[0].options.env.FARMING_NPM_UPDATE_PAYLOAD);
   assert.strictEqual(npmUpdatePayload.targetVersion, '2.2.6');
   assert.strictEqual(npmUpdatePayload.previousVersion, '2.2.5');

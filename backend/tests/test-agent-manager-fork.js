@@ -146,6 +146,27 @@ async function run() {
     assert.notStrictEqual(captured.at(-1).args[1], claudeSessionId);
     assert.deepStrictEqual(captured.at(-1).args.slice(2), ['--resume', claudeSessionId, '--fork-session']);
 
+    manager.agentShellEnvProvider = () => ({ PATH: binDir });
+    manager.agentShellEnvCache.clear();
+    const previousFakeExecutables = process.env.FARMING_E2E_FAKE_EXECUTABLES;
+    delete process.env.FARMING_E2E_FAKE_EXECUTABLES;
+    const agentCountBeforeMissingResume = manager.getState().agents.length;
+    const engineStartsBeforeMissingResume = captured.length;
+    const missingQoder = await new Promise(resolve => {
+      manager.startAgent(
+        'qodercli --resume 51d0e65d-1ba7-47b6-a0ff-99e053d26e37',
+        repo,
+        (agentId, error) => resolve({ agentId, error }),
+        { wantsMain: false, source: 'qoder-history:51d0e65d-1ba7-47b6-a0ff-99e053d26e37' }
+      );
+    });
+    if (previousFakeExecutables === undefined) delete process.env.FARMING_E2E_FAKE_EXECUTABLES;
+    else process.env.FARMING_E2E_FAKE_EXECUTABLES = previousFakeExecutables;
+    assert.strictEqual(missingQoder.agentId, null);
+    assert.match(missingQoder.error, /Qoder executable "qodercli" was not found/);
+    assert.strictEqual(manager.getState().agents.length, agentCountBeforeMissingResume);
+    assert.strictEqual(captured.length, engineStartsBeforeMissingResume);
+
     console.log('✓ AgentManager forks agents into same and new worktrees');
   } finally {
     if (previousCodexBin === undefined) {

@@ -3063,6 +3063,21 @@ function formatCrtExactUsageValue(value) {
   return Math.round(numberValue).toLocaleString('en-US');
 }
 
+function formatCrtCompactTotalValue(value) {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue) || numberValue < 0) return '--';
+  const units = [
+    [1_000_000_000, 'B'],
+    [1_000_000, 'M'],
+    [1_000, 'K'],
+  ];
+  const unit = units.find(([threshold]) => numberValue >= threshold);
+  if (!unit) return String(Math.round(numberValue));
+  const compact = numberValue / unit[0];
+  const precision = compact >= 100 ? 0 : compact >= 10 ? 1 : 2;
+  return `${Number(compact.toFixed(precision))}${unit[1]}`;
+}
+
 function parseCrtBillingDate(dateValue) {
   const parts = String(dateValue || '').split('-').map(Number);
   if (parts.length !== 3 || parts.some(part => !Number.isFinite(part))) return null;
@@ -3200,6 +3215,7 @@ function renderCrtBillingSelectedDay() {
   const date = document.getElementById('billing-day-date');
   const stateLabel = document.getElementById('billing-day-state');
   const total = document.getElementById('billing-day-total');
+  const compactTotal = document.getElementById('billing-day-total-compact');
   const input = document.getElementById('billing-day-input');
   const output = document.getElementById('billing-day-output');
   const cacheRead = document.getElementById('billing-day-cache-read');
@@ -3207,6 +3223,7 @@ function renderCrtBillingSelectedDay() {
   const providers = document.getElementById('billing-day-providers');
   if (date) date.textContent = crtBillingDayLabel(point && point.date);
   if (total) total.textContent = formatCrtExactUsageValue(point && point.totalTokens);
+  if (compactTotal) compactTotal.textContent = formatCrtCompactTotalValue(point && point.totalTokens);
   if (input) input.textContent = formatCrtExactUsageValue(point && point.inputTokens);
   if (output) output.textContent = formatCrtExactUsageValue(point && point.outputTokens);
   if (cacheRead) cacheRead.textContent = formatCrtExactUsageValue(point && point.cacheReadTokens);
@@ -4992,10 +5009,15 @@ function crtRuntimeView(agent) {
 }
 
 function canSwitchCrtAgentRuntime(agent) {
+  const freshCodexTerminal = agent
+    && agent.providerSessionProvider === 'codex'
+    && agent.agentRuntimeMode === 'terminal'
+    && agent.providerSessionTemporary === true
+    && agent.terminalInputReceived !== true;
   return Boolean(
     agent
     && ['codex', 'claude', 'opencode', 'qoder'].includes(agent.providerSessionProvider || '')
-    && agent.providerSessionTemporary !== true
+    && (agent.providerSessionTemporary !== true || freshCodexTerminal)
     && String(agent.providerSessionId || '').trim()
   );
 }
@@ -5738,6 +5760,38 @@ async function respondToStructuredPermission(requestId, optionId, cancelled) {
   }
 }
 
+function structuredTranscriptContentText(content) {
+  return (Array.isArray(content) ? content : [])
+    .filter((block) => block && block.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text)
+    .join('')
+    .trim();
+}
+
+function structuredTranscriptTurns(transcript) {
+  if (transcript && Array.isArray(transcript.turns)) return transcript.turns;
+  const entries = transcript && Array.isArray(transcript.entries) ? transcript.entries : [];
+  const turns = [];
+  let current = null;
+  entries.forEach((entry) => {
+    if (!entry || entry.internal === true || entry.type !== 'message') return;
+    const text = structuredTranscriptContentText(entry.content);
+    if (!text) return;
+    if (entry.role === 'user') {
+      current = { userMessage: text, finalMessage: '' };
+      turns.push(current);
+      return;
+    }
+    if (entry.role !== 'assistant') return;
+    if (!current) {
+      current = { userMessage: '', finalMessage: '' };
+      turns.push(current);
+    }
+    current.finalMessage = text;
+  });
+  return turns;
+}
+
 function renderStructuredTranscript(transcript, force = false) {
   const container = document.getElementById('terminal-output');
   if (!container) return;
@@ -5746,7 +5800,7 @@ function renderStructuredTranscript(transcript, force = false) {
   const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
   const transcriptNode = document.createElement('div');
   transcriptNode.className = 'crt-structured-transcript';
-  const turns = transcript && Array.isArray(transcript.turns) ? transcript.turns : [];
+  const turns = structuredTranscriptTurns(transcript);
 
   if (!turns.length) {
     const empty = document.createElement('div');
@@ -6898,6 +6952,7 @@ if (typeof module !== 'undefined' && module.exports) {
     formatSystemClock,
     formatCrtTokenRate,
     formatCrtHistoryAge,
+    formatCrtCompactTotalValue,
     getCrtHistoryPage,
     getCrtAgentPage,
     getCrtAgentVerticalPageTarget,
@@ -6913,6 +6968,7 @@ if (typeof module !== 'undefined' && module.exports) {
     canSwitchCrtAgentRuntime,
     isCrtRuntimeSwitchShortcut,
     structuredComposerAction,
+    structuredTranscriptTurns,
     getCrtBrandPaneKey,
     extractSessionLinks,
     formatSelectionStatus,

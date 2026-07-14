@@ -26,7 +26,7 @@ async function run() {
     getDangerouslySkipAgentPermissionsByDefault() {
       return false;
     }
-  });
+  }, { skipExecutablePreflight: true });
 
   manager.engineBridge.resolve = (command) => ({
     engineName: 'local',

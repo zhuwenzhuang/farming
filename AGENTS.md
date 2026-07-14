@@ -94,7 +94,7 @@ The backend owns lifecycle, auth, session routing, terminal IO, workspace file A
 
 Both browser skins default to xterm.js. The Ghostty web renderer remains available only as an explicit debug path via `localStorage.farmingTerminalEngine = 'ghostty'`, but new product work should target the xterm adapter first.
 
-For Codex, Claude Code, and OpenCode, Farming Code's structured Chat runtime uses ACP. The Chat / Terminal control restarts the Agent into ACP or the native PTY runtime and resumes the same provider session; it is not a view-only toggle. Legacy JSON CLI Chat remains a compatibility reader, while Codex App Server remains a separate experimental path.
+For Codex, Claude Code, OpenCode, and Qoder, Farming Code's structured Chat runtime uses ACP. The Chat / Terminal control restarts the Agent into ACP or the native PTY runtime and resumes the same provider session; it is not a view-only toggle. A newly opened Terminal that has not received user input may switch directly into a fresh ACP Chat before the provider has materialized its history record. Once Terminal input has occurred, keep the resumable-session guard so a missing history record can never silently discard a conversation. Legacy JSON CLI Chat remains a compatibility reader, while Codex App Server remains a separate experimental path.
 
 ACP history replay and live updates must reduce into the same ordered entry stream. Do not introduce a backend `Turn -> Item` reconstruction for ACP. User-facing result/process grouping is an ACP frontend attention projection: it must remain reversible, preserve entry order and tool details, and hide Codex internal heartbeat/context activity without deleting visible automation notifications.
 

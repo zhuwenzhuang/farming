@@ -19,6 +19,9 @@ if (process.argv.includes('--fake-terminal-login')) {
 
 let client;
 let sessionId = 'acp-new-session';
+let refreshedModelId = '';
+let activeModel = 'gpt-5.5';
+let activeEffort = 'high';
 const cancelledSessions = new Map();
 
 class FakeAgent {
@@ -58,7 +61,14 @@ class FakeAgent {
   }
 
   async newSession() {
-    return { sessionId };
+    return {
+      sessionId,
+      configOptions: [
+        { id: 'model', name: 'Model', type: 'select', currentValue: activeModel, options: [{ value: activeModel, name: activeModel }] },
+        { id: 'reasoning', name: 'Reasoning', type: 'select', currentValue: activeEffort, options: [{ value: activeEffort, name: activeEffort }] },
+        { id: 'fast-mode', name: 'Fast mode', type: 'boolean', currentValue: false },
+      ],
+    };
   }
 
   async loadSession(params) {
@@ -149,7 +159,41 @@ class FakeAgent {
   }
 
   async setSessionConfigOption(params) {
+    if (params.configId === 'model') {
+      activeModel = params.value;
+      if (activeModel === 'gpt-5.6-luna' && activeEffort === 'ultra') activeEffort = 'max';
+      const refreshedMatch = refreshedModelId.match(/^(.+)\[([^\]]+)]$/);
+      const refreshed = refreshedMatch?.[1] === params.value;
+      if (refreshed) activeEffort = refreshedMatch[2];
+      return {
+        configOptions: [
+          { id: 'model', name: 'Model', type: 'select', currentValue: activeModel, options: [{ value: activeModel, name: activeModel }] },
+          { id: 'reasoning', name: 'Reasoning', type: 'select', currentValue: activeEffort, options: [{ value: activeEffort, name: activeEffort }] },
+          ...(refreshed ? [{ id: 'fast-mode', name: 'Fast', type: 'boolean', currentValue: false }] : []),
+        ],
+      };
+    }
+    if (params.configId === 'reasoning') {
+      activeEffort = params.value;
+      return {
+        configOptions: [
+          { id: 'model', name: 'Model', type: 'select', currentValue: activeModel, options: [{ value: activeModel, name: activeModel }] },
+          { id: 'reasoning', name: 'Reasoning', type: 'select', currentValue: activeEffort, options: [{ value: activeEffort, name: activeEffort }] },
+        ],
+      };
+    }
     return { configOptions: [{ id: params.configId, type: 'boolean', currentValue: params.value }] };
+  }
+
+  async extMethod(method, params) {
+    if (method !== 'session/set_model') throw new Error(`Unsupported extension method: ${method}`);
+    refreshedModelId = params.modelId;
+    const match = refreshedModelId.match(/^(.+)\[([^\]]+)]$/);
+    if (match) {
+      activeModel = match[1];
+      activeEffort = match[2];
+    }
+    return {};
   }
 
   async authenticate() {

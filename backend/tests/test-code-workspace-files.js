@@ -230,7 +230,7 @@ function run() {
       workspaceSource.includes('disabled={permissionModeDisabled}') &&
       workspaceSource.includes('moveReplacementState(\n          permissionSwitchReplacement.originalAgentId') &&
       workspaceSource.includes('`acp:${permissionSwitchReplacement.originalAgentId}`') &&
-      workspaceSource.includes('previousActiveTerminalIdRef') &&
+      !workspaceSource.includes('previousActiveTerminalIdRef') &&
       agentManagerSource.includes('permissionRestartInFlight') &&
       agentManagerSource.includes('restartedFromAgentId: agentId') &&
       agentManagerSource.includes('restartedFromAgentIds: Array.from(new Set([') &&
@@ -745,7 +745,8 @@ function run() {
       workspaceSource.includes('data-testid="code-session-search-result"') &&
       workspaceSource.includes('data-testid="code-session-context-menu"') &&
       workspaceSource.includes('data-testid="code-session-history-card"') &&
-      workspaceSource.includes('const historyAgents = buildHistoryAgentItems(archivedRuns, archivedAgents, agentSessions)') &&
+	      workspaceSource.includes('const historyAgents = buildHistoryAgentItems(') &&
+	      workspaceSource.includes('hasQuery ? mergeHistoryAgentSessions(agentSessions, searchedSessions) : agentSessions') &&
       workspaceSource.includes('displayedHistoryAgents.map(item =>') &&
 	      workspaceSource.includes('const [usageCollapsed, setUsageCollapsed] = useState(true)') &&
 	      workspaceSource.includes('function providerLocalTokenRate(usageSummary: UsageSummary | null)') &&

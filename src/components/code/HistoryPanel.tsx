@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { agentTitle, formatRelativeAge } from '@/lib/format'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
@@ -28,8 +28,11 @@ interface HistoryPanelProps {
   onContinueRun: (entry: TaskHistoryEntry) => void
   onOpenArchivedAgent: (agentId: string) => void
   onRestoreArchivedAgent: (agentId: string) => void
+  searchAgentSessions: (query: string, signal: AbortSignal) => Promise<AgentSessionHistoryItem[]>
   copy: CodeCopy
 }
+
+const HISTORY_SEARCH_DEBOUNCE_MS = 150
 
 function normalizeHistoryProvider(provider?: string) {
   const value = String(provider || '').trim().toLowerCase()
@@ -204,6 +207,15 @@ export function buildHistoryAgentItems(
   ])
 }
 
+export function mergeHistoryAgentSessions(
+  loadedSessions: AgentSessionHistoryItem[],
+  searchedSessions: AgentSessionHistoryItem[]
+) {
+  const sessionsById = new Map(loadedSessions.map(session => [agentSessionId(session), session]))
+  searchedSessions.forEach(session => sessionsById.set(agentSessionId(session), session))
+  return Array.from(sessionsById.values())
+}
+
 function normalizeHistorySearchValue(value: unknown) {
   return String(value || '').normalize('NFKC').toLocaleLowerCase()
 }
@@ -247,13 +259,57 @@ export function HistoryPanel({
   onContinueRun,
   onOpenArchivedAgent,
   onRestoreArchivedAgent,
+  searchAgentSessions,
   copy,
 }: HistoryPanelProps) {
   const [query, setQuery] = useState('')
-  const historyAgents = buildHistoryAgentItems(archivedRuns, archivedAgents, agentSessions)
-  const displayedHistoryAgents = filterHistoryAgentItems(historyAgents, query)
+  const normalizedQuery = query.trim()
+  const hasQuery = Boolean(normalizedQuery)
+  const [searchState, setSearchState] = useState<{
+    query: string
+    sessions: AgentSessionHistoryItem[]
+    loading: boolean
+  }>({ query: '', sessions: [], loading: false })
+  const searchedSessions = searchState.query === normalizedQuery ? searchState.sessions : []
+  const historyAgents = buildHistoryAgentItems(
+    archivedRuns,
+    archivedAgents,
+    hasQuery ? mergeHistoryAgentSessions(agentSessions, searchedSessions) : agentSessions
+  )
+  const displayedHistoryAgents = filterHistoryAgentItems(historyAgents, normalizedQuery)
   const totalHistoryItems = historyAgents.length
-  const hasQuery = Boolean(query.trim())
+  const searchLoading = hasQuery && (
+    searchState.query !== normalizedQuery || searchState.loading
+  )
+
+  useEffect(() => {
+    if (!normalizedQuery) {
+      setSearchState({ query: '', sessions: [], loading: false })
+      return undefined
+    }
+
+    const controller = new AbortController()
+    setSearchState({ query: normalizedQuery, sessions: [], loading: true })
+    const timer = window.setTimeout(() => {
+      searchAgentSessions(normalizedQuery, controller.signal)
+        .then(sessions => {
+          if (!controller.signal.aborted) {
+            setSearchState({ query: normalizedQuery, sessions, loading: false })
+          }
+        })
+        .catch(error => {
+          if (error instanceof DOMException && error.name === 'AbortError') return
+          if (!controller.signal.aborted) {
+            setSearchState({ query: normalizedQuery, sessions: [], loading: false })
+          }
+        })
+    }, HISTORY_SEARCH_DEBOUNCE_MS)
+
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [normalizedQuery, searchAgentSessions])
 
   return (
     <div className="code-history-panel" data-testid="code-history-panel">
@@ -262,7 +318,9 @@ export function HistoryPanel({
         <div className="code-search-panel-input code-history-search" data-testid="code-history-search-box">
           <span className="code-search-panel-icon" aria-hidden="true"><SearchGlyph /></span>
           <input
-            type="search"
+            type="text"
+            role="searchbox"
+            inputMode="search"
             value={query}
             onChange={event => setQuery(event.currentTarget.value)}
             placeholder={copy.searchHistory}
@@ -281,6 +339,10 @@ export function HistoryPanel({
         <div className="code-empty-workspace">
           <h2>{copy.noHistoryYet}</h2>
           <p>{copy.noHistoryDescription}</p>
+        </div>
+      ) : hasQuery && searchLoading && displayedHistoryAgents.length === 0 ? (
+        <div className="code-empty-workspace" data-testid="code-history-search-loading">
+          <h2>{copy.searching}</h2>
         </div>
       ) : hasQuery && displayedHistoryAgents.length === 0 ? (
         <div className="code-empty-workspace" data-testid="code-empty-history-search">

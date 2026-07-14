@@ -184,6 +184,7 @@ async function run() {
       cwd: process.cwd(),
       env: process.env,
       approvalMode: 'full',
+      serviceTier: 'priority',
     });
     const connectingSession = runtime.getSession('agent-acp-new');
     assert.strictEqual(connectingSession.state, 'connecting');
@@ -191,6 +192,11 @@ async function run() {
     const prepared = await preparing;
     assert.strictEqual(prepared.sessionId, 'acp-new-session');
     assert.strictEqual(prepared.historyMode, 'new');
+    assert.strictEqual(
+      runtime.getSession('agent-acp-new').configOptions.find(option => option.id === 'fast-mode')?.currentValue,
+      true,
+      'the selected Fast launch profile should be applied through the negotiated ACP boolean option'
+    );
     const prompted = await runtime.prompt('agent-acp-new', 'hello ACP');
     assert.strictEqual(prompted.stopReason, 'end_turn');
     const session = runtime.getSession('agent-acp-new');
@@ -207,6 +213,26 @@ async function run() {
     assert.deepStrictEqual(await runtime.setSessionMode('agent-acp-new', 'plan'), {
       sessionId: 'acp-new-session', modeId: 'plan',
     });
+    const newAgentBinding = runtime.bindings.get('agent-acp-new');
+    newAgentBinding.configOptions = [
+      { id: 'model', name: 'Model', type: 'select', currentValue: 'gpt-5.5', options: [] },
+      { id: 'reasoning', name: 'Reasoning', type: 'select', currentValue: 'high', options: [] },
+    ];
+    const refreshedModel = await runtime.setSessionConfigOption('agent-acp-new', 'model', 'gpt-5.6-terra');
+    assert.strictEqual(refreshedModel.configOptions.find(option => option.id === 'fast-mode')?.currentValue, false);
+    const matrixProfile = await runtime.setSessionConfigOptions('agent-acp-new', [
+      { configId: 'model', value: 'gpt-5.6-luna' },
+      { configId: 'reasoning', value: 'medium' },
+    ]);
+    assert.strictEqual(matrixProfile.configOptions.find(option => option.id === 'model')?.currentValue, 'gpt-5.6-luna');
+    assert.strictEqual(matrixProfile.configOptions.find(option => option.id === 'reasoning')?.currentValue, 'medium');
+    await runtime.setSessionConfigOptions('agent-acp-new', [
+      { configId: 'model', value: 'gpt-5.6-sol' },
+      { configId: 'reasoning', value: 'ultra' },
+    ]);
+    const fallbackProfile = await runtime.setSessionConfigOption('agent-acp-new', 'model', 'gpt-5.6-luna');
+    assert.strictEqual(fallbackProfile.configOptions.find(option => option.id === 'reasoning')?.currentValue, 'max');
+    assert.strictEqual(fallbackProfile.configOptions.find(option => option.id === 'fast-mode')?.currentValue, false);
     const configured = await runtime.setSessionConfigOption('agent-acp-new', 'show-thinking', true);
     assert.strictEqual(configured.configOptions[0].currentValue, true);
     assert.deepStrictEqual(await runtime.deleteSession('agent-acp-new', 'old-session'), {

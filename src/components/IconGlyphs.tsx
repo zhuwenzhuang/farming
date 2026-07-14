@@ -136,7 +136,9 @@ export function ChatBubblesGlyph(props: IconGlyphProps) {
 export function ColorModeGlyph(props: IconGlyphProps) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
-      <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 13V2a6 6 0 1 1 0 12z" />
+      <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M8 2a6 6 0 0 0 0 12Z" fill="currentColor" opacity="0.38" />
+      <path d="M8 2v12" fill="none" stroke="currentColor" strokeWidth="1.25" />
     </svg>
   )
 }

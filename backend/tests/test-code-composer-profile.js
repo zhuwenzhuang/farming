@@ -1,8 +1,10 @@
 const assert = require('assert');
 const {
+  buildComposerControlState,
   effectiveClaudePermissionModeForSession,
   effectiveCodexApprovalModeForSession,
 } = require('../../src/components/code/composer-profile.ts');
+const { FALLBACK_CODEX_MODEL_OPTIONS } = require('../../src/components/code/model.ts');
 
 function run() {
   assert.strictEqual(
@@ -41,6 +43,24 @@ function run() {
     'bypassPermissions',
     'an active Claude session may show bypass only when its launch metadata proves it'
   );
+
+  const pendingCatalogState = buildComposerControlState({
+    agentKind: 'codex',
+    codexModel: 'gpt-5.6-sol',
+    codexReasoningEffort: 'ultra',
+    codexServiceTier: 'priority',
+    codexModelPreset: 'gpt-5.6-sol:ultra',
+    codexModelOptions: FALLBACK_CODEX_MODEL_OPTIONS,
+    codexApprovalMode: 'approve',
+    claudeModel: 'config',
+    claudeEffort: 'config',
+    claudeSettings: {},
+    claudePermissionMode: 'default',
+  });
+  assert.strictEqual(pendingCatalogState.currentModelLabel, '5.6-sol');
+  assert.strictEqual(pendingCatalogState.currentReasoningLabel, 'Ultra');
+  assert.strictEqual(pendingCatalogState.currentSpeedLabel, 'Fast');
+  assert.strictEqual(pendingCatalogState.currentModelOption.value, 'gpt-5.6-sol');
 
   console.log('test-code-composer-profile passed');
 }

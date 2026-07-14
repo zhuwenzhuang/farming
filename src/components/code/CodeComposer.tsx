@@ -53,6 +53,7 @@ import type {
   CodexServiceTierOption,
   ComposerMode,
 } from './types'
+import { ModelMatrixPicker, modelMatrixFamily } from './ModelMatrixPicker'
 import type {
   ComposerHistoryDirection,
   ComposerHistoryNavigationInput,
@@ -197,6 +198,8 @@ interface CodeComposerProps {
   onUpdateModel: (model: string) => void
   onUpdateReasoningEffort: (effort: string) => void
   onUpdateServiceTier: (tier: string) => void
+  onUpdateModelProfile: (model: string, effort: string) => void
+  onUpdateServiceTierInline: (tier: string) => void
   onToggleSpeechInput: () => void
   copy: CodeCopy
 }
@@ -266,6 +269,8 @@ export function CodeComposer({
   onUpdateModel,
   onUpdateReasoningEffort,
   onUpdateServiceTier,
+  onUpdateModelProfile,
+  onUpdateServiceTierInline,
   onToggleSpeechInput,
   copy,
 }: CodeComposerProps) {
@@ -273,6 +278,15 @@ export function CodeComposer({
   const showPermissionMode = active && capabilities.permissionMode
   const showModelPicker = active && capabilities.modelPicker
   const showServiceTierPicker = capabilities.serviceTier && currentServiceTierOptions.length > 0
+  const matrixModels = agentModelOptions.map(option => ({
+    value: option.value,
+    label: codexModelDisplayName(option, option.value),
+    reasoning: (option.reasoningLevels || []).map(reasoning => ({
+      value: reasoning.value,
+      label: copy.reasoningOptionLabel(reasoning.value, reasoning.label),
+    })),
+  }))
+  const hasModelMatrix = agentKind === 'codex' && Boolean(modelMatrixFamily(matrixModels, agentModel))
   const [mobileComposerViewport, setMobileComposerViewport] = useState(isMobileComposerViewport)
   const [recordingElapsedSeconds, setRecordingElapsedSeconds] = useState(0)
   const [textareaFocused, setTextareaFocused] = useState(false)
@@ -995,7 +1009,7 @@ export function CodeComposer({
               </button>
               {modelMenuOpen && (
                 <div
-                  className="code-model-picker-menu code-composer-menu"
+                  className={`code-model-picker-menu code-composer-menu ${hasModelMatrix ? 'has-matrix' : ''}`}
                   role="menu"
                   data-testid="code-model-menu"
                   ref={modelMenuRef}
@@ -1003,6 +1017,16 @@ export function CodeComposer({
                   onBlur={onComposerMenuBlur}
                   onMouseDown={event => event.preventDefault()}
                 >
+                  <ModelMatrixPicker
+                    models={matrixModels}
+                    currentModel={agentModel}
+                    currentReasoning={agentReasoningEffort}
+                    fastAvailable={showServiceTierPicker && currentServiceTierOptions.some(option => option.value === 'priority')}
+                    fast={agentServiceTier === 'priority'}
+                    onSelect={onUpdateModelProfile}
+                    onFastChange={value => onUpdateServiceTierInline(value ? 'priority' : 'default')}
+                    advanced={(
+                      <>
                   {currentReasoningOptions.length > 0 && (
                     <>
                       <div className="code-model-menu-header">{copy.reasoning}</div>
@@ -1104,6 +1128,9 @@ export function CodeComposer({
                       )}
                     </div>
                   )}
+                      </>
+                    )}
+                  />
                 </div>
               )}
             </div>

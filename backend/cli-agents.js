@@ -417,7 +417,7 @@ function resolveLaunchCommand(command, options = {}) {
     if (effort && effort !== 'config' && shouldApplyModelProfile && !hasCodexEffortOverride) {
       launchArgs.unshift('-c', `model_reasoning_effort="${effort}"`);
     }
-    if (codexServiceTier && codexServiceTier !== 'default' && codexServiceTier !== 'config' && shouldApplyModelProfile && !hasCodexServiceTierOverride) {
+    if (codexServiceTier && codexServiceTier !== 'config' && shouldApplyModelProfile && !hasCodexServiceTierOverride) {
       launchArgs.unshift('-c', `service_tier="${codexServiceTier}"`);
     }
   }

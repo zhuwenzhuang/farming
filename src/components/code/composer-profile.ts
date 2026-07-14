@@ -301,6 +301,36 @@ export function claudeReasoningOptionsWithCurrent(effort: string, settings: Clau
   ]
 }
 
+export function codexModelOptionsWithCurrent(
+  model: string,
+  effort: string,
+  serviceTier: string,
+  options: CodexModelOption[],
+) {
+  if (!model || options.some(option => option.value === model)) return options
+  const serviceTiers: CodexServiceTierOption[] = [
+    { value: 'default', label: 'Standard', description: 'Default speed' },
+  ]
+  if (serviceTier && serviceTier !== 'default') {
+    serviceTiers.push({
+      value: serviceTier,
+      label: serviceTier === 'priority' ? 'Fast' : serviceTier,
+    })
+  }
+  return [
+    ...options,
+    {
+      value: model,
+      label: codexModelDisplayName(undefined, model),
+      displayName: codexModelDisplayName(undefined, model),
+      defaultEffort: effort,
+      reasoningLevels: [{ value: effort, effort, label: effortLabel(effort) }],
+      serviceTiers,
+      source: 'pending-catalog',
+    },
+  ]
+}
+
 export function normalizeLaunchProfiles(settings: GlobalSettings): ComposerLaunchProfileState {
   const codexProfile = settings.agentLaunchProfiles?.codex ?? {}
   const mode = codexProfile.approvalMode ?? settings.codexApprovalMode
@@ -351,7 +381,9 @@ export function buildComposerControlState({
   const resolvedClaudeEffort = resolveClaudeEffort(claudeEffort, claudeSettings)
   const agentModelOptions = agentKind === 'claude'
     ? claudeModelOptionsWithCurrent(claudeModel, claudeSettings)
-    : codexModelOptions
+    : agentKind === 'codex'
+      ? codexModelOptionsWithCurrent(codexModel, codexReasoningEffort, codexServiceTier, codexModelOptions)
+      : codexModelOptions
   const agentModel = agentKind === 'claude' ? resolvedClaudeModel : codexModel
   const agentReasoningEffort = agentKind === 'claude' ? resolvedClaudeEffort : codexReasoningEffort
   const agentServiceTier = agentKind === 'claude' ? '' : codexServiceTier

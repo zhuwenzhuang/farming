@@ -328,6 +328,7 @@ class AgentManager extends EventEmitter {
     this.controlUrl = options.controlUrl || '';
     this.tokenFile = options.tokenFile || '';
     this.authDisabled = options.authDisabled === true;
+    this.skipExecutablePreflight = options.skipExecutablePreflight === true;
     this.cliBinDir = options.cliBinDir || path.join(__dirname, '..', 'bin');
     this.agentShellEnvProvider = typeof options.agentShellEnvProvider === 'function'
       ? options.agentShellEnvProvider
@@ -1041,6 +1042,7 @@ class AgentManager extends EventEmitter {
       providerSessionSource: metadata.providerSessionSource || '',
       providerSessionResolvedAt: metadata.providerSessionResolvedAt || null,
       providerSessionTitle: metadata.providerSessionTitle || '',
+      terminalInputReceived: metadata.terminalInputReceived === true,
       // Older persisted sessions predate App Server mode. Also, a Codex
       // App Server record without its isolated runtime home is not actually
       // attachable; recover it as terminal-owned CLI instead of leaving the
@@ -1227,6 +1229,7 @@ class AgentManager extends EventEmitter {
       providerSessionSource: agent.providerSessionSource || '',
       providerSessionResolvedAt: agent.providerSessionResolvedAt || null,
       providerSessionTitle: agent.providerSessionTitle || '',
+      terminalInputReceived: agent.terminalInputReceived === true,
       codexRuntimeMode: agent.codexRuntimeMode || '',
       agentRuntimeMode: agent.agentRuntimeMode || 'terminal',
       acpState: agent.acpState || '',
@@ -1881,6 +1884,7 @@ class AgentManager extends EventEmitter {
       providerSessionSource: agent.providerSessionSource,
       providerSessionResolvedAt: agent.providerSessionResolvedAt,
       providerSessionTitle: agent.providerSessionTitle,
+      terminalInputReceived: agent.terminalInputReceived === true,
       codexRuntimeMode: agent.codexRuntimeMode,
       agentRuntimeMode: agent.agentRuntimeMode || 'terminal',
       jsonCliState: agent.jsonCliState || '',
@@ -2005,7 +2009,8 @@ class AgentManager extends EventEmitter {
     const launchPathEnv = typeof userShellEnv?.PATH === 'string' && userShellEnv.PATH.trim()
       ? userShellEnv.PATH
       : (process.env.PATH || '');
-    let spawnProgram = resolveAgentExecutable(program, launchPathEnv) || program;
+    const resolvedExecutable = resolveAgentExecutable(program, launchPathEnv);
+    let spawnProgram = resolvedExecutable || program;
     if (path.basename(program) === 'codex') {
       const codexResolution = resolveCompatibleCodexExecutable(options.requiredCliVersion || '', launchPathEnv);
       if (!codexResolution.compatible) {
@@ -2013,6 +2018,24 @@ class AgentManager extends EventEmitter {
         return null;
       }
       spawnProgram = codexResolution.path || spawnProgram;
+    }
+    if (
+      launch.spec
+      && path.basename(program) === program
+      && !resolvedExecutable
+      && !this.skipExecutablePreflight
+      && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
+    ) {
+      const displayName = launch.spec.name === 'opencode'
+        ? 'OpenCode'
+        : launch.spec.name.charAt(0).toUpperCase() + launch.spec.name.slice(1);
+      if (callback) {
+        callback(
+          null,
+          `${displayName} executable "${program}" was not found in the user shell PATH. Install it or refresh the Agent list, then try again.`
+        );
+      }
+      return null;
     }
 
     const parentAgentId = typeof options.parentAgentId === 'string' ? options.parentAgentId : '';
@@ -2189,6 +2212,7 @@ class AgentManager extends EventEmitter {
       providerSessionSource: providerSessionPlan.source || '',
       providerSessionResolvedAt: providerSessionPlan.temporary === true ? null : Date.now(),
       providerSessionTitle: typeof options.providerSessionTitle === 'string' ? options.providerSessionTitle.trim().slice(0, 160) : '',
+      terminalInputReceived: false,
       codexRuntimeMode: providerSessionPlan.provider === 'codex'
         ? (useCodexAppServer ? 'app-server' : 'cli')
         : '',
@@ -2338,7 +2362,9 @@ class AgentManager extends EventEmitter {
           executable: spawnProgram,
           env: this.buildAgentEnv(agentId, agentRecord),
           cwd: workspace,
-          sessionId: agentRecord.providerSessionTemporary ? '' : agentRecord.providerSessionId,
+          sessionId: options.acpStartFresh === true || agentRecord.providerSessionTemporary
+            ? ''
+            : agentRecord.providerSessionId,
           historyMode: options.acpHistoryMode === 'resume' ? 'resume' : 'load',
           approvalMode: agentRecord.launchPermissionMode || 'approve',
           model: this.configManager && this.configManager.getCodexModel
@@ -2721,6 +2747,11 @@ class AgentManager extends EventEmitter {
     return this.acpRuntime.setSessionConfigOption(agentId, configId, value);
   }
 
+  setAcpSessionConfigOptions(agentId, changes) {
+    this.getAcpSession(agentId);
+    return this.acpRuntime.setSessionConfigOptions(agentId, changes);
+  }
+
   async setCodexAppServerGoal(agentId, patch = {}) {
     const agent = this.assertCodexAppServerGoalAgent(agentId);
     const objective = typeof patch.objective === 'string' ? patch.objective.trim().slice(0, 4000) : undefined;
@@ -2762,6 +2793,12 @@ class AgentManager extends EventEmitter {
 
     const engine = this.engineBridge.getEngine(agent.engineName);
     if (!engine) return;
+
+    if (agent.terminalInputReceived !== true) {
+      agent.terminalInputReceived = true;
+      this.ensurePersistentAgentSession(agent);
+      this.updateEngineProviderSessionMetadata(agent);
+    }
 
     for (let attempt = 0; ; attempt += 1) {
       try {
@@ -3158,7 +3195,14 @@ class AgentManager extends EventEmitter {
       return { error: `Agent does not support the ${nextMode.toUpperCase()} runtime` };
     }
     const sessionId = String(agent.providerSessionId || '').trim();
-    if (!isSafeProviderSessionId(sessionId)) {
+    const canStartFreshAcpSession = nextMode === 'acp'
+      && agent.agentRuntimeMode === 'terminal'
+      && agent.terminalInputReceived !== true
+      && (
+        agent.providerSessionTemporary === true
+        || ['codex-temporary', 'claude-session-id', 'qoder-session-id'].includes(agent.providerSessionSource || '')
+      );
+    if (!isSafeProviderSessionId(sessionId) && !canStartFreshAcpSession) {
       return { error: 'Runtime switching requires a resumable provider session. Send the first message and try again.' };
     }
     // A live ACP binding is the authoritative owner of a newly-created
@@ -3177,15 +3221,19 @@ class AgentManager extends EventEmitter {
       }
     }
     const previouslyVerifiedSession = String(agent.runtimeSwitchVerifiedSessionId || '') === sessionId;
-    if (!liveAcpSession && !previouslyVerifiedSession) {
+    let startsFreshAcpSession = canStartFreshAcpSession && !isSafeProviderSessionId(sessionId);
+    if (!startsFreshAcpSession && !liveAcpSession && !previouslyVerifiedSession) {
       const providerSession = await this.findRuntimeSwitchSession(agent);
       if (!providerSession) {
-        return { error: 'The saved Agent session is no longer available in the selected Agent Home.' };
+        if (canStartFreshAcpSession) startsFreshAcpSession = true;
+        else return { error: 'The saved Agent session is no longer available in the selected Agent Home.' };
       }
     }
-    const command = buildAgentSessionResumeCommand(provider, sessionId, {
-      cwd: agent.cwd || agent.projectWorkspace || '',
-    });
+    const command = startsFreshAcpSession
+      ? (agent.forkCommand || agent.command)
+      : buildAgentSessionResumeCommand(provider, sessionId, {
+          cwd: agent.cwd || agent.projectWorkspace || '',
+        });
     if (!command) return { error: 'Failed to build provider resume command' };
     const preserved = {
       pinned: agent.pinned === true,
@@ -3202,7 +3250,9 @@ class AgentManager extends EventEmitter {
       task: agent.task || agent.providerSessionTitle || '',
       workflowTemplate: agent.workflowTemplate || '',
       projectWorkspace: agent.projectWorkspace || agent.cwd || '',
-      source: resumedAgentSource(provider, sessionId, agent.providerHomeId || ''),
+      source: startsFreshAcpSession
+        ? 'ui-runtime-switch-fresh'
+        : resumedAgentSource(provider, sessionId, agent.providerHomeId || ''),
       providerHomeId: agent.providerHomeId || '',
       providerHomePath: agent.providerHomePath || '',
       providerSessionTitle: agent.providerSessionTitle || '',
@@ -3215,16 +3265,18 @@ class AgentManager extends EventEmitter {
       projectOrder: preserved.projectOrder,
       pinnedOrder: preserved.pinnedOrder,
       agentRuntimeMode: nextMode,
+      acpStartFresh: startsFreshAcpSession,
       codexRuntimeMode: 'cli',
       codexApprovalMode: agent.launchPermissionMode || undefined,
       jsonCliEvents: preserved.jsonCliEvents,
-      runtimeSwitchVerifiedSessionId: sessionId,
+      runtimeSwitchVerifiedSessionId: startsFreshAcpSession ? '' : sessionId,
     };
     const originalMode = agent.agentRuntimeMode || 'terminal';
     const originalOptions = {
       ...restartOptions,
       agentRuntimeMode: originalMode,
       codexRuntimeMode: agent.codexRuntimeMode || 'cli',
+      acpStartFresh: false,
     };
     const startReplacement = options => new Promise(resolve => {
       let settled = false;
@@ -3930,6 +3982,7 @@ class AgentManager extends EventEmitter {
       providerSessionSource: agent.providerSessionSource || '',
       providerSessionResolvedAt: agent.providerSessionResolvedAt || null,
       providerSessionTitle: agent.providerSessionTitle || '',
+      terminalInputReceived: agent.terminalInputReceived === true,
       codexRuntimeMode: agent.codexRuntimeMode || '',
       agentRuntimeMode: agent.agentRuntimeMode || 'terminal',
       acpState: agent.acpState || '',
@@ -4095,6 +4148,7 @@ class AgentManager extends EventEmitter {
         providerSessionSource: agent.providerSessionSource || '',
         providerSessionResolvedAt: agent.providerSessionResolvedAt || null,
         providerSessionTitle: agent.providerSessionTitle || '',
+        terminalInputReceived: agent.terminalInputReceived === true,
         codexRuntimeMode: agent.codexRuntimeMode || '',
         agentRuntimeMode: agent.agentRuntimeMode || 'terminal',
         jsonCliState: agent.jsonCliState || '',

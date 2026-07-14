@@ -170,6 +170,82 @@ const AgentManager = require('../agent-manager');
   assert.strictEqual(started.options.agentRuntimeMode, 'acp');
   assert.strictEqual(qoderAcpResult.agentRuntimeMode, 'acp');
 
+  manager.agents.set('agent-fresh-qoder-switch', {
+    id: 'agent-fresh-qoder-switch',
+    command: 'qodercli',
+    forkCommand: 'qodercli',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'qoder',
+    providerSessionId: 'd5fa82d7-cf26-4c62-9c35-00aabfcc032b',
+    providerSessionTemporary: false,
+    providerSessionSource: 'qoder-session-id',
+    providerHomeId: 'default',
+    providerHomePath: '/tmp/qoder-home',
+    agentRuntimeMode: 'terminal',
+    terminalInputReceived: false,
+    status: 'running',
+    output: '',
+  });
+  manager.findRuntimeSwitchSession = async () => null;
+  killed = '';
+  started = null;
+  const freshQoderAcpResult = await manager.restartAgentRuntimeMode('agent-fresh-qoder-switch', 'acp');
+  assert.strictEqual(killed, 'agent-fresh-qoder-switch');
+  assert.strictEqual(started.command, 'qodercli');
+  assert.strictEqual(started.options.acpStartFresh, true);
+  assert.strictEqual(started.options.source, 'ui-runtime-switch-fresh');
+  assert.strictEqual(freshQoderAcpResult.agentRuntimeMode, 'acp');
+
+  manager.agents.set('agent-fresh-codex-switch', {
+    id: 'agent-fresh-codex-switch',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: 'tmp_uuid_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    providerSessionTemporary: true,
+    providerSessionSource: 'codex-temporary',
+    providerHomeId: 'default',
+    providerHomePath: codexHome,
+    agentRuntimeMode: 'terminal',
+    terminalInputReceived: false,
+    status: 'running',
+    output: '',
+  });
+  killed = '';
+  started = null;
+  const freshCodexAcpResult = await manager.restartAgentRuntimeMode('agent-fresh-codex-switch', 'acp');
+  assert.strictEqual(killed, 'agent-fresh-codex-switch');
+  assert.strictEqual(started.command, 'codex');
+  assert.strictEqual(started.options.acpStartFresh, true);
+  assert.strictEqual(freshCodexAcpResult.agentRuntimeMode, 'acp');
+
+  manager.agents.set('agent-used-qoder-switch', {
+    id: 'agent-used-qoder-switch',
+    command: 'qodercli',
+    forkCommand: 'qodercli',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'qoder',
+    providerSessionId: 'e6fa82d7-cf26-4c62-9c35-00aabfcc032c',
+    providerSessionTemporary: false,
+    providerSessionSource: 'qoder-session-id',
+    providerHomeId: 'default',
+    providerHomePath: '/tmp/qoder-home',
+    agentRuntimeMode: 'terminal',
+    terminalInputReceived: true,
+    status: 'running',
+    output: '',
+  });
+  killed = '';
+  started = null;
+  const usedQoderResult = await manager.restartAgentRuntimeMode('agent-used-qoder-switch', 'acp');
+  assert.strictEqual(usedQoderResult.error, 'The saved Agent session is no longer available in the selected Agent Home.');
+  assert.strictEqual(killed, '');
+  assert.strictEqual(started, null);
+
   manager.agents.set('agent-stale', {
     id: 'agent-stale',
     cwd: '/tmp/project',

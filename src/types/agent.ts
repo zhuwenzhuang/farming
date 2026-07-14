@@ -200,6 +200,7 @@ export interface Agent {
   providerSessionSource?: string
   providerSessionResolvedAt?: number | null
   providerSessionTitle?: string
+  terminalInputReceived?: boolean
   codexRuntimeMode?: 'app-server' | 'cli' | string
   agentRuntimeMode?: 'terminal' | 'acp' | 'json' | string
   jsonCliState?: string

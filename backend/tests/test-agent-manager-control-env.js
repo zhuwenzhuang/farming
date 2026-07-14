@@ -40,6 +40,7 @@ async function run() {
     agentShellEnvProvider() {
       return { PATH: '/shell/bin' };
     },
+    skipExecutablePreflight: true,
   });
 
   manager.engineBridge.resolve = () => ({

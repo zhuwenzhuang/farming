@@ -2003,6 +2003,80 @@ body.code-mode[data-appearance='dark'] .code-speed-option-icon {
   color: var(--code-dark-text);
 }
 
+body.code-mode[data-appearance='dark'] .code-model-matrix-stage {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+body.code-mode[data-appearance='dark'] .code-model-matrix-shell[data-advanced='open'] .code-model-matrix-stage {
+  border-color: transparent;
+  background: transparent;
+}
+
+body.code-mode[data-appearance='dark'] .code-model-matrix-head,
+body.code-mode[data-appearance='dark'] .code-model-matrix-labels span,
+body.code-mode[data-appearance='dark'] .code-model-matrix-current,
+body.code-mode[data-appearance='dark'] .code-model-matrix-rocker {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-model-matrix-surface {
+  border-color: rgba(255, 255, 255, 0.04);
+  background:
+    radial-gradient(circle at 2px 2px, rgba(255, 255, 255, .045) 0 .7px, transparent .9px) 0 0 / 7px 7px,
+    linear-gradient(145deg, rgba(255, 255, 255, .035), transparent 42%),
+    #34373a;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .42), inset 0 -1px 0 rgba(255, 255, 255, .04);
+}
+
+body.code-mode[data-appearance='dark'] .code-model-matrix-cells button::before {
+  background: #70757a;
+}
+
+body.code-mode[data-appearance='dark'] .code-model-matrix-rocker-control {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: radial-gradient(circle at 2px 2px, rgba(255, 255, 255, .08) 0 1px, transparent 1.2px) 0 0 / 6px 6px, #242628;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08);
+}
+
+body.code-mode[data-appearance='dark'] .code-model-matrix-rocker-button:focus-visible .code-model-matrix-rocker-control {
+  box-shadow: inset 0 0 0 1px #282a2c, 0 0 0 2px #111315, 0 0 0 4px var(--rocker-accent);
+}
+
+body.code-mode[data-appearance='dark'] .code-model-matrix-fast:not(.is-active) {
+  border-color: rgba(255, 255, 255, .09);
+  background: rgba(255, 255, 255, .055);
+  color: var(--code-dark-text-muted);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+
+body.code-mode[data-appearance='dark'] .code-model-matrix-fast.is-active {
+  border-color: rgba(255, 199, 45, .48);
+  background: linear-gradient(145deg, #ffe783, #ffc126);
+  color: #674400;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .54), 0 0 10px rgba(255, 190, 25, .25);
+}
+
+body.code-mode[data-appearance='dark'] .code-model-matrix-fast.is-active small {
+  color: #744d00;
+}
+
+body.code-mode[data-appearance='dark'] .code-model-matrix-fast.is-disabled {
+  background: rgba(255, 255, 255, .04);
+}
+
+body.code-mode[data-appearance='dark'] .code-model-matrix-advanced-toggle {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-model-matrix-advanced-toggle:hover,
+body.code-mode[data-appearance='dark'] .code-model-matrix-advanced-toggle:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--code-dark-text);
+}
+
 body.code-mode[data-appearance='dark'] .code-model-option-copy small,
 body.code-mode[data-appearance='dark'] .code-approval-option-copy small,
 body.code-mode[data-appearance='dark'] .code-plus-menu small,
@@ -2435,6 +2509,27 @@ body.code-mode[data-appearance='dark'] .code-agent-home-path,
 body.code-mode[data-appearance='dark'] .code-agent-home-form p,
 body.code-mode[data-appearance='dark'] .code-agent-home-empty {
   color: #8b949e;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-row-copy strong,
+body.code-mode[data-appearance='dark'] .code-settings-update-url > span {
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-row-copy small,
+body.code-mode[data-appearance='dark'] .code-settings-search-timeout-row output,
+body.code-mode[data-appearance='dark'] .code-settings-update-status dt,
+body.code-mode[data-appearance='dark'] .code-settings-update-summary,
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-title span,
+body.code-mode[data-appearance='dark'] .code-settings-inline-choice > svg,
+body.code-mode[data-appearance='dark'] .code-settings-segmented button {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-section + .code-settings-section,
+body.code-mode[data-appearance='dark'] .code-settings-language-choice,
+body.code-mode[data-appearance='dark'] .code-settings-card > .code-settings-choice-row + .code-settings-choice-row {
+  border-color: var(--code-dark-border);
 }
 
 body.code-mode[data-appearance='dark'] .code-settings-choice-row,

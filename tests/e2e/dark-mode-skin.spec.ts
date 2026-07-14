@@ -61,6 +61,18 @@ async function expectReadableMutedDarkText(locator: import('@playwright/test').L
   expect(textLum, `${name} muted text should be readable in dark mode (${color})`).toBeGreaterThan(0.22)
 }
 
+async function expectReadableDarkGlyph(locator: import('@playwright/test').Locator, name: string) {
+  const paints = await locator.evaluate(element => {
+    const nodes = [element, ...element.querySelectorAll('*')]
+    return nodes.flatMap(node => {
+      const style = window.getComputedStyle(node)
+      return [style.fill, style.stroke].filter(value => value !== 'none' && value !== 'rgba(0, 0, 0, 0)')
+    })
+  })
+  const hasReadablePaint = paints.some(paint => relativeLuminance(colorNumbers(paint)) > 0.22)
+  expect(hasReadablePaint, `${name} should use a readable dark-mode paint (${paints.join(', ')})`).toBe(true)
+}
+
 async function expectDarkSeparator(locator: import('@playwright/test').Locator, name: string) {
   const borderTopColor = await locator.evaluate(element => window.getComputedStyle(element).borderTopColor)
   const borderLum = relativeLuminance(colorNumbers(borderTopColor))
@@ -161,8 +173,14 @@ test.describe('Farming Code dark skin', () => {
     await saveScreenshot(testInfo, 'desktop-shell.png', page)
 
     await page.getByTestId('code-sidebar-options').click()
-    await expect(page.getByTestId('code-settings-panel')).toBeVisible()
+    const settingsPanel = page.getByTestId('code-settings-panel')
+    await expect(settingsPanel).toBeVisible()
     await expectDarkSurface(page.locator('.code-settings-panel'), 'settings panel')
+    await expectReadableDarkText(settingsPanel.locator('.code-settings-row-copy strong').first(), 'settings row label')
+    await expectReadableMutedDarkText(settingsPanel.locator('.code-settings-search-timeout-row output'), 'search timeout value')
+    await expectReadableMutedDarkText(settingsPanel.locator('.code-agent-home-provider-title span').first(), 'agent home path')
+    await expectReadableDarkGlyph(settingsPanel.locator('.code-settings-inline-choice > svg').first(), 'appearance glyph')
+    await expectDarkSeparator(settingsPanel.locator('.code-settings-section + .code-settings-section').first(), 'settings section')
     await saveScreenshot(testInfo, 'options-menu.png', page.locator('.code-settings-panel'))
     await page.keyboard.press('Escape')
 

@@ -149,7 +149,7 @@ test.describe('display-backed agent flows', () => {
     await openFarming(page)
     const productMark = page.getByTestId('code-product-mark')
     await expect(productMark).toContainText('Farming Code')
-    await expect(productMark).toContainText('v2.2.6')
+    await expect(productMark).toContainText('v2.2.7')
     await expect(productMark).not.toContainText('DOGFOOD')
     await expect(productMark).not.toContainText('g25c4faf4')
     await expect(productMark).not.toContainText('dirty')
@@ -171,7 +171,7 @@ test.describe('display-backed agent flows', () => {
     const brandDialog = page.getByTestId('code-brand-dialog')
     await expect(brandDialog).toBeVisible()
     await expect(brandDialog.getByRole('heading', { name: 'Farming Code' })).toBeVisible()
-    await expect(brandDialog).toContainText('v2.2.6')
+    await expect(brandDialog).toContainText('v2.2.7')
     await expect(brandDialog).toContainText('Farming Code began with a simple idea')
     await expect(brandDialog.getByRole('link', { name: 'GitHub' })).toHaveAttribute('href', 'https://github.com/zhuwenzhuang/farming')
     await expect(brandDialog).not.toContainText('https://github.com/zhuwenzhuang/farming')
@@ -224,6 +224,90 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('agent-option-zsh')).toContainText('zsh')
     await expect(page.getByTestId('agent-option-qwen')).toHaveCount(0)
     await expect(page.getByTestId('agent-list-status')).toBeHidden()
+  })
+
+  test('keeps an in-progress Search query focused when the first agent loads', async ({ page, workspaceRoot }) => {
+    await mockCodexSessions(page)
+    await openFarming(page)
+    await expect(page.getByTestId('code-empty-workspace')).toBeVisible()
+
+    await page.getByTestId('code-nav-search').click()
+    const searchInput = page.getByTestId('code-search-box').locator('input')
+    await searchInput.fill('partially typed search')
+    await expect(searchInput).toBeFocused()
+
+    const agentId = await createControlAgent(page, 'bash', workspaceRoot)
+    await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('code-search-panel')).toBeVisible()
+    await expect(searchInput).toHaveValue('partially typed search')
+    await expect(searchInput).toBeFocused()
+  })
+
+  test('keeps an in-progress History query focused when the first agent loads', async ({ page, workspaceRoot }) => {
+    await mockCodexSessions(page)
+    await openFarming(page)
+    await expect(page.getByTestId('code-empty-workspace')).toBeVisible()
+
+    await page.getByTestId('code-nav-history').click()
+    const historyInput = page.getByTestId('code-history-search-box').locator('input')
+    await historyInput.fill('partially typed history')
+    await expect(historyInput).toBeFocused()
+
+    const agentId = await createControlAgent(page, 'bash', workspaceRoot)
+    await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('code-history-panel')).toBeVisible()
+    await expect(historyInput).toHaveValue('partially typed history')
+    await expect(historyInput).toBeFocused()
+  })
+
+  test('searches older provider History and renders one clear control', async ({ page, workspaceRoot }) => {
+    await mockCodexSessions(page)
+    let searchRequests = 0
+    await page.route(/\/farming\/api\/agent-sessions\/search\?.*$/, async route => {
+      searchRequests += 1
+      const query = new URL(route.request().url()).searchParams.get('q')
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          sessions: query === '上下游联动替代表测试'
+            ? [{
+                provider: 'codex',
+                providerName: 'Codex',
+                capabilities: ['resume'],
+                id: '019f0000-0000-7000-8000-000000000220',
+                title: '上下游联动替代表测试',
+                cwd: workspaceRoot,
+                workspace: workspaceRoot,
+                updatedAt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
+                createdAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
+                archived: false,
+                pinned: false,
+                unread: false,
+                projectless: false,
+                model: 'gpt-5.5',
+                effort: 'high',
+                source: 'codex',
+              }]
+            : [],
+        }),
+      })
+    })
+
+    await openFarming(page)
+    await page.getByTestId('code-nav-history').click()
+    const searchBox = page.getByTestId('code-history-search-box')
+    const historyInput = searchBox.locator('input')
+    await expect(historyInput).toHaveAttribute('type', 'text')
+    await expect(historyInput).toHaveAttribute('role', 'searchbox')
+    await expect(historyInput).toHaveAttribute('inputmode', 'search')
+    await historyInput.fill('上下游联动替代表测试')
+
+    await expect.poll(() => searchRequests).toBeGreaterThan(0)
+    await expect(page.getByTestId('code-session-history-card').filter({ hasText: '上下游联动替代表测试' })).toHaveCount(1)
+    await expect(searchBox.getByRole('button')).toHaveCount(1)
+    await expect(searchBox.getByRole('button', { name: 'Clear search' })).toBeVisible()
+    await searchBox.getByRole('button', { name: 'Clear search' }).click()
+    await expect(historyInput).toHaveValue('')
   })
 
   test('reopens the last closed editor tab with the VS Code shortcut', async ({ page, workspaceRoot }) => {

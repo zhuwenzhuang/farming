@@ -62,7 +62,8 @@ export function SearchPanel({
         <span className="code-search-panel-icon" aria-hidden="true"><SearchGlyph /></span>
         <input
           ref={inputRef}
-          type="search"
+          type="text"
+          role="searchbox"
           name="farming-workspace-search"
           inputMode="search"
           autoComplete="off"

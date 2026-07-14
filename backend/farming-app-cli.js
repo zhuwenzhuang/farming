@@ -15,6 +15,7 @@ const NATIVE_PTY_HOST_ARG = '--native-pty-host';
 const DEFAULT_PORT = '6694';
 const DEFAULT_BASE_PATH = '/farming';
 const DEFAULT_SERVER_START_TIMEOUT_MS = 30_000;
+const DEFAULT_SERVER_START_STABILITY_MS = 1_500;
 const SERVER_COMMANDS = new Set(['start', 'serve', 'daemon', 'stop', 'status', 'logs', 'url', 'help']);
 const CONTROL_COMMANDS = new Set(['skills', 'memory', 'report', 'list', 'spawn', 'output', 'send', 'kill']);
 const SERVER_BACKED_CONTROL_COMMANDS = new Set(['list', 'spawn', 'output', 'send', 'kill']);
@@ -416,7 +417,14 @@ function childInvocation(env = process.env) {
   if (process.pkg) {
     return { command: '/bin/sh', args: ['-c', buildCleanEnvExecCommand(env, process.execPath, ['--'])] };
   }
-  return { command: env.FARMING_NODE_BIN || process.execPath, args: [__filename] };
+  const nodePath = env.FARMING_NODE_BIN || process.execPath;
+  if (env.FARMING_NODE_LD && env.FARMING_NODE_LIBRARY_PATH) {
+    return {
+      command: env.FARMING_NODE_LD,
+      args: ['--library-path', env.FARMING_NODE_LIBRARY_PATH, nodePath, __filename],
+    };
+  }
+  return { command: nodePath, args: [__filename] };
 }
 
 function ensureConfigDir(configDir) {
@@ -498,6 +506,44 @@ function serverStartTimeoutMs(env) {
   const parsed = Number(env.FARMING_START_TIMEOUT_MS || env.FARMING_SERVER_START_TIMEOUT_MS);
   if (Number.isFinite(parsed) && parsed > 0) return parsed;
   return DEFAULT_SERVER_START_TIMEOUT_MS;
+}
+
+function serverStartStabilityMs(env) {
+  const parsed = Number(env.FARMING_START_STABILITY_MS || env.FARMING_SERVER_START_STABILITY_MS);
+  if (Number.isFinite(parsed) && parsed >= 0) return Math.min(parsed, 60_000);
+  return DEFAULT_SERVER_START_STABILITY_MS;
+}
+
+function waitForProcessStability(pid, durationMs = DEFAULT_SERVER_START_STABILITY_MS) {
+  const startedAt = Date.now();
+  return new Promise((resolve, reject) => {
+    const tick = () => {
+      if (!isRunning(pid)) {
+        reject(new Error('server process exited during startup stability check'));
+        return;
+      }
+      const remainingMs = durationMs - (Date.now() - startedAt);
+      if (remainingMs <= 0) {
+        resolve();
+        return;
+      }
+      setTimeout(tick, Math.min(100, remainingMs));
+    };
+    tick();
+  });
+}
+
+function cleanupFailedDaemonStart(configDir, childPid) {
+  if (isRunning(childPid)) {
+    try {
+      process.kill(childPid, 'SIGTERM');
+    } catch {
+      // The child may exit between the liveness check and the signal.
+    }
+  }
+  if (readPid(configDir) !== childPid) return;
+  fs.rmSync(pidFile(configDir), { force: true });
+  fs.rmSync(serverStateFile(configDir), { force: true });
 }
 
 function waitForServer(env, timeoutMs = serverStartTimeoutMs(env), childPid = 0) {
@@ -628,7 +674,10 @@ async function startDaemon(parsed) {
 
   try {
     await waitForServer(env, serverStartTimeoutMs(env), child.pid);
+    await waitForProcessStability(child.pid, serverStartStabilityMs(env));
+    await waitForServer(env, Math.min(serverStartTimeoutMs(env), 5_000), child.pid);
   } catch (error) {
+    cleanupFailedDaemonStart(configDir, child.pid);
     console.error(error.message);
     const logs = tailFile(logFile(configDir), 80);
     if (logs) console.error(logs);
@@ -773,6 +822,7 @@ module.exports = {
   NATIVE_PTY_HOST_ARG,
   buildCleanEnvExecCommand,
   childInvocation,
+  cleanupFailedDaemonStart,
   buildControlEnv,
   buildServerEnv,
   computeNodeHeapMb,
@@ -784,6 +834,7 @@ module.exports = {
   reviewUrl,
   readServerState,
   serverStartTimeoutMs,
+  serverStartStabilityMs,
   splitControlArgs,
   run,
   serverStateFile,

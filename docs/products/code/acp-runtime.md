@@ -34,6 +34,10 @@ The ACP composer preserves the ordinary message-box behavior that does not depen
 
 For Codex, Farming maps the selected launch profile into the ACP adapter's `CODEX_CONFIG` and `INITIAL_AGENT_MODE`. Switching between Terminal and Chat therefore preserves model, reasoning effort, service tier, and the matching initial permission mode instead of silently reverting to adapter defaults.
 
+Changing a Codex model in a live ACP session first lets the adapter choose a compatible reasoning fallback, then refreshes the adapter's model catalog and reapplies the standard config option. This keeps model-specific capabilities such as Fast mode truthful even when a long-lived session was opened before the provider or proxy refreshed its model metadata. Related model and reasoning changes can be applied as one profile update. For model families that expose Sol, Terra, and Luna variants, the composer presents one continuous draggable surface for variant and ordinary reasoning selection, a click-operated red Ultra rocker that automatically pulls down when enabled, and a separate `Fast OFF` / `Fast ON` speed button. **Advanced** morphs back to the exact step-by-step reasoning, model, and speed controls without resetting the selected profile. Controls update the Composer optimistically while the negotiated ACP request is pending, reconcile with the returned session snapshot, and roll back if the request fails. The Ultra and Fast positions remain stable while capabilities refresh; a control that the live session does not advertise stays visible, grey, and disabled instead of making the menu jump.
+
+The same controls also update a live native Codex Terminal instead of changing only its next launch profile. Farming stages the CLI's interactive `/model` selection and version-compatible `/fast` toggle before the next Composer message, then submits that message after the controls have been applied. New Terminals receive an explicit `service_tier="default"` when Standard is selected, so a Fast value in the user's Codex config cannot make the runtime disagree with Farming's control. The launch profile is persisted at the same time so a restarted Agent remains consistent. These PTY commands are never injected into ACP, legacy JSON, App Server, shell, Claude, OpenCode, Qoder, or other non-Codex Terminal sessions.
+
 ACP boundaries remain explicit:
 
 - ACP has no concurrent prompt/steer operation. A message entered during a running turn is queued and sent when the Agent returns to idle; the user may discard it before then. Interrupt remains available when the draft is empty.
@@ -46,7 +50,7 @@ ACP boundaries remain explicit:
 
 `full` permission mode selects an advertised allow option automatically. `ask` selects an advertised reject option. The normal approval mode exposes the full pending ACP permission request and waits for an explicit response through the backend API.
 
-ACP startup, initialization, history restoration, prompt, protocol, and adapter-exit failures are reported as runtime errors. Bounded control requests fail with actionable timeouts; a normal long-running prompt is not assigned an artificial wall-clock timeout. Farming does not silently replace a requested ACP Agent with Terminal or JSON CLI mode. Chat / Terminal switching is rejected while a turn is active. After the turn is idle, the switch stops the old process and starts the requested runtime; if that startup fails, Farming immediately resumes the same provider session in the original runtime and reports the failed switch.
+ACP startup, initialization, history restoration, prompt, protocol, and adapter-exit failures are reported as runtime errors. Bounded control requests fail with actionable timeouts; a normal long-running prompt is not assigned an artificial wall-clock timeout. Farming does not silently replace a requested ACP Agent with Terminal or JSON CLI mode. Chat / Terminal switching is rejected while a turn is active. A new Terminal with no user input may start a fresh ACP session when provider history has not been materialized yet; after Terminal input, the switch requires the saved session to remain discoverable. After the turn is idle, the switch stops the old process and starts the requested runtime; if that startup fails, Farming immediately resumes the same provider session in the original runtime and reports the failed switch.
 
 ## Backend API
 
@@ -54,6 +58,7 @@ ACP startup, initialization, history restoration, prompt, protocol, and adapter-
 - `GET /api/agents/:agentId/acp-transcript?maxTurns=N` returns a sanitized view projection of the canonical entry stream for the existing Chat UI. Live readers add `sinceRevision=R` to receive only the affected suffix.
 - `GET /api/agents/:agentId/acp-tool-details/:toolCallId` loads expandable tool detail and exact structured ACP patches on demand.
 - `GET /api/agents/:agentId/acp-sessions` calls ACP session listing for the live provider connection.
+- `PATCH /api/agents/:agentId/acp-session` changes one negotiated mode/config option, or accepts `configOptions` for an atomic model-and-reasoning profile change.
 - `POST /api/agents/:agentId/acp-permission` answers a pending permission request.
 - `POST /api/agents/:agentId/acp-terminals/:terminalId/input|resize|kill` controls an ACP client terminal.
 - `POST /api/agents/:agentId/acp-subagents/:sessionId/cancel` stops a known ACP child session without cancelling the parent session.

@@ -81,7 +81,13 @@ function run() {
   assert(indexHtml.includes('class="crt-scan-beam"'), 'CRT entry should render the lightweight scan beam');
   assert(indexHtml.includes('class="crt-phosphor-noise"'), 'CRT entry should render one shared procedural phosphor noise layer');
   assert(!indexHtml.includes('class="crt-scan-afterglow"'), 'CRT entry should not retain a separate cumulative afterglow layer');
-  assert(effectsCss.includes('animation: crt-scan-beam-cycle 6.8s linear infinite'), 'CRT beam should follow the quiet continuous reference cycle');
+  assert(
+    effectsCss.includes('animation: crt-scan-beam-cycle 8.6s linear infinite')
+      && effectsCss.includes('79%')
+      && effectsCss.includes('95%,')
+      && effectsCss.includes('translate3d(0, 100vh, 0)'),
+    'CRT beam should preserve its quiet sweep, fully drain the long tail, and pause before wrapping'
+  );
   assert(effectsCss.includes('height: 300px'), 'CRT scan should use the reference-shaped 300px phosphor trail');
   assert(effectsCss.includes('rgba(12, 204, 104, 0.04) 100%'), 'CRT scan trail should keep its peak at the low reference intensity');
   assert(!effectsCss.includes('.crt-scan-beam::after'), 'CRT scan should not add a separate attention-grabbing line head');

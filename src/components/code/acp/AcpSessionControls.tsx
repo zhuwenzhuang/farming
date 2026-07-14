@@ -8,6 +8,7 @@ import type {
   AcpSessionMode,
   AcpSessionSnapshot,
 } from './types'
+import { ModelMatrixPicker, modelMatrixFamily } from '../ModelMatrixPicker'
 
 export type AcpComposerMenu = 'commands' | 'mode' | 'model' | null
 
@@ -218,6 +219,8 @@ export function AcpModelControl({
   onToggle,
   onSetPane,
   onSetConfigOption,
+  onSetProfile,
+  onSetFast,
 }: {
   session: AcpSessionSnapshot
   updatingId: string
@@ -227,6 +230,8 @@ export function AcpModelControl({
   onToggle: () => void
   onSetPane: (pane: 'model' | 'speed' | null) => void
   onSetConfigOption: (configId: string, value: string | boolean) => void
+  onSetProfile: (modelId: string, modelValue: string, reasoningId: string, reasoningValue: string) => void
+  onSetFast: (configId: string, value: boolean) => void
 }) {
   const model = findSelectOption(session, /(^|[\s_-])model([\s_-]|$)/i)
   const reasoning = findSelectOption(session, /(reasoning|thought)/i)
@@ -240,6 +245,17 @@ export function AcpModelControl({
   ))
   const currentModel = currentSelectOption(model)
   const currentReasoning = currentSelectOption(reasoning)
+  const matrixModels = model && reasoning
+    ? selectOptions(model).map(candidate => ({
+      value: candidate.value,
+      label: candidate.name,
+      reasoning: selectOptions(reasoning).map(option => ({
+        value: option.value,
+        label: copy.reasoningOptionLabel(option.value, option.name),
+      })),
+    }))
+    : []
+  const hasMatrix = Boolean(modelMatrixFamily(matrixModels, model?.currentValue || ''))
   if (!model && !reasoning && !fastMode && extraOptions.length === 0) return null
   const disabled = Boolean(updatingId)
 
@@ -265,7 +281,22 @@ export function AcpModelControl({
         <span className="code-chevron" aria-hidden="true"><ChevronDownGlyph /></span>
       </button>
       {open ? (
-        <div className="code-model-picker-menu code-composer-menu" role="menu" data-testid="code-acp-model-menu">
+        <div className={`code-model-picker-menu code-composer-menu ${hasMatrix ? 'has-matrix' : ''}`} role="menu" data-testid="code-acp-model-menu">
+          <ModelMatrixPicker
+            models={matrixModels}
+            currentModel={model?.currentValue || ''}
+            currentReasoning={reasoning?.currentValue || ''}
+            fastAvailable={Boolean(fastMode)}
+            fast={fastMode?.currentValue === true}
+            disabled={disabled}
+            onSelect={(modelValue, reasoningValue) => {
+              if (model && reasoning) onSetProfile(model.id, modelValue, reasoning.id, reasoningValue)
+            }}
+            onFastChange={value => {
+              if (fastMode) onSetFast(fastMode.id, value)
+            }}
+            advanced={(
+              <>
           {reasoning ? (
             <>
               <div className="code-model-menu-header">{copy.reasoning}</div>
@@ -366,6 +397,9 @@ export function AcpModelControl({
               {option.currentValue ? <span className="code-menu-check" aria-hidden="true"><CheckGlyph /></span> : null}
             </button>
           ))}
+              </>
+            )}
+          />
         </div>
       ) : null}
     </div>

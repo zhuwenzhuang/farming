@@ -166,6 +166,7 @@ class FarmingSessionStore {
       providerSessionSource: typeof agent.providerSessionSource === 'string' ? agent.providerSessionSource : '',
       providerSessionResolvedAt: typeof agent.providerSessionResolvedAt === 'number' ? agent.providerSessionResolvedAt : null,
       providerSessionTitle: typeof agent.providerSessionTitle === 'string' ? agent.providerSessionTitle : '',
+      terminalInputReceived: agent.terminalInputReceived === true,
       codexRuntimeMode: typeof agent.codexRuntimeMode === 'string' ? agent.codexRuntimeMode : '',
       agentRuntimeMode: typeof agent.agentRuntimeMode === 'string' ? agent.agentRuntimeMode : 'terminal',
       acpState: typeof agent.acpState === 'string' ? agent.acpState : '',

@@ -157,7 +157,7 @@
 
 新的交互式 agent 默认由 `NativeSessionEngine` 托管，node-pty 进程运行在独立 native pty host 中，Farming 服务重启后通过本地 socket 重新挂回仍存活的 terminal。native pty host 默认会跨 Farming server 重启保留；当没有 live session 和 client 后会在空闲宽限期后退出。只有希望 host 跟随 server 一起退出时才设置 `FARMING_NATIVE_PTY_HOST_PERSIST=0`。`LocalSessionEngine` 仅保留为 `FARMING_SESSION_ENGINE=local` 调试路径；产品 runtime 工作应面向 native pty host。
 
-对于 Codex、Claude Code 和 OpenCode，Farming Code 的结构化 Chat runtime 使用 ACP。Chat / Terminal 控件会把 Agent 重启到 ACP 或 native PTY runtime，并恢复同一个 provider Session；它不是单纯切换画面。旧 JSON CLI Chat 只保留兼容读取，Codex App Server 继续作为独立实验路径。
+对于 Codex、Claude Code、OpenCode 和 Qoder，Farming Code 的结构化 Chat runtime 使用 ACP。Chat / Terminal 控件会把 Agent 重启到 ACP 或 native PTY runtime，并恢复同一个 provider Session；它不是单纯切换画面。刚打开且尚未收到用户输入的 Terminal，可以在 provider 还没落盘历史记录前直接切换成新的 ACP Chat；一旦 Terminal 已经收到输入，就必须保留可恢复 Session 校验，不能因历史缺失而静默丢掉对话。旧 JSON CLI Chat 只保留兼容读取，Codex App Server 继续作为独立实验路径。
 
 ACP 历史重放和实时更新必须归约到同一条有序 entry stream，不要在后端为 ACP 重建 `Turn -> Item` 模型。面向用户的结果/过程分组属于 ACP 前端的注意力投影：必须可逆、保留 entry 顺序与 tool 详情，并在不删除可见 automation 通知的前提下隐藏 Codex 内部 heartbeat/context 活动。
 

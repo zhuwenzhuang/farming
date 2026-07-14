@@ -23,6 +23,7 @@ const DEFAULT_CANCEL_TIMEOUT_MS = 15_000;
 const DEFAULT_HISTORY_REPLAY_MIN_WAIT_MS = 350;
 const DEFAULT_HISTORY_REPLAY_QUIET_MS = 150;
 const DEFAULT_HISTORY_REPLAY_MAX_WAIT_MS = 5_000;
+const CODEX_SET_SESSION_MODEL_METHOD = 'session/set_model';
 
 let sdkPromise;
 const runtimeRequire = createRequire(__filename);
@@ -386,6 +387,16 @@ class AcpRuntime extends EventEmitter {
       binding.configOptions = sessionResponse?.configOptions || [];
       binding.sessionState.currentModeId = String(binding.modes?.currentModeId || '');
       binding.sessionState.configOptions = JSON.parse(JSON.stringify(binding.configOptions));
+      if (provider === 'codex' && options.serviceTier && options.serviceTier !== 'config') {
+        const fastOption = binding.configOptions.find(option => (
+          option.type === 'boolean'
+          && /fast/i.test(`${option.id || ''} ${option.name || ''} ${option.category || ''}`)
+        ));
+        const fastEnabled = ['fast', 'priority'].includes(options.serviceTier);
+        if (fastOption && fastOption.currentValue !== fastEnabled) {
+          await this.applySessionConfigOption(binding, fastOption.id, fastEnabled, { emit: false });
+        }
+      }
       binding.state = 'idle';
       binding.updatedAt = new Date().toISOString();
       this.emitRuntime(binding);
@@ -857,6 +868,87 @@ class AcpRuntime extends EventEmitter {
 
   async setSessionConfigOption(agentId, configId, value) {
     const binding = this.requireBinding(agentId);
+    const option = binding.configOptions?.find(candidate => candidate.id === String(configId || ''));
+    if (
+      binding.provider === 'codex'
+      && option?.type === 'select'
+      && /(^|[\s_-])model([\s_-]|$)/i.test(`${option.id} ${option.name || ''} ${option.category || ''}`)
+    ) {
+      // Let the adapter choose a supported fallback effort from its current
+      // snapshot first. The refresh extension requires an explicit effort and
+      // would otherwise reject a valid model change (for example ultra -> a
+      // model that tops out at max).
+      await this.applySessionConfigOption(binding, configId, value, { emit: false });
+      const reasoning = binding.configOptions?.find(candidate => (
+        candidate.type === 'select'
+        && /(reasoning|thought)/i.test(`${candidate.id} ${candidate.name || ''} ${candidate.category || ''}`)
+      ));
+      if (typeof reasoning?.currentValue === 'string' && reasoning.currentValue) {
+        await this.refreshCodexSessionModel(binding, String(value ?? ''), reasoning.currentValue);
+        return this.applySessionConfigOption(binding, configId, value);
+      }
+      this.emitSession(binding);
+      return { sessionId: binding.sessionId, configOptions: binding.configOptions };
+    }
+    return this.applySessionConfigOption(binding, configId, value);
+  }
+
+  async setSessionConfigOptions(agentId, changes) {
+    const binding = this.requireBinding(agentId);
+    const normalized = Array.isArray(changes)
+      ? changes.filter(change => change && typeof change.configId === 'string' && Object.prototype.hasOwnProperty.call(change, 'value'))
+      : [];
+    if (normalized.length === 0) throw new Error('ACP config options are required');
+
+    const configById = new Map((binding.configOptions || []).map(option => [option.id, option]));
+    const modelChange = normalized.find(change => {
+      const option = configById.get(change.configId);
+      return option?.type === 'select'
+        && /(^|[\s_-])model([\s_-]|$)/i.test(`${option.id} ${option.name || ''} ${option.category || ''}`);
+    });
+    const reasoningChange = normalized.find(change => {
+      const option = configById.get(change.configId);
+      return option?.type === 'select'
+        && /(reasoning|thought)/i.test(`${option.id} ${option.name || ''} ${option.category || ''}`);
+    });
+
+    let response;
+    const handled = new Set();
+    if (binding.provider === 'codex' && modelChange && reasoningChange) {
+      await this.applySessionConfigOption(binding, modelChange.configId, modelChange.value, { emit: false });
+      await this.applySessionConfigOption(binding, reasoningChange.configId, reasoningChange.value, { emit: false });
+      const currentReasoning = binding.configOptions?.find(candidate => (
+        candidate.type === 'select'
+        && /(reasoning|thought)/i.test(`${candidate.id} ${candidate.name || ''} ${candidate.category || ''}`)
+      ));
+      await this.refreshCodexSessionModel(
+        binding,
+        String(modelChange.value ?? ''),
+        String(currentReasoning?.currentValue || reasoningChange.value || '')
+      );
+      response = await this.applySessionConfigOption(binding, modelChange.configId, modelChange.value);
+      handled.add(modelChange);
+      handled.add(reasoningChange);
+    }
+    for (const change of normalized) {
+      if (handled.has(change)) continue;
+      response = await this.setSessionConfigOption(agentId, change.configId, change.value);
+    }
+    return response;
+  }
+
+  async refreshCodexSessionModel(binding, model, effort) {
+    await withTimeout(
+      binding.connection.request(CODEX_SET_SESSION_MODEL_METHOD, {
+        sessionId: binding.sessionId,
+        modelId: `${model}[${effort}]`,
+      }),
+      this.requestTimeoutMs,
+      'Codex ACP session/set_model capability refresh'
+    );
+  }
+
+  async applySessionConfigOption(binding, configId, value, options = {}) {
     const request = typeof value === 'boolean'
       ? { sessionId: binding.sessionId, configId: String(configId || ''), type: 'boolean', value }
       : { sessionId: binding.sessionId, configId: String(configId || ''), value: String(value ?? '') };
@@ -867,7 +959,7 @@ class AcpRuntime extends EventEmitter {
     );
     binding.configOptions = response?.configOptions || binding.configOptions;
     binding.sessionState.configOptions = JSON.parse(JSON.stringify(binding.configOptions));
-    this.emitSession(binding);
+    if (options.emit !== false) this.emitSession(binding);
     return { sessionId: binding.sessionId, configOptions: binding.configOptions };
   }
 

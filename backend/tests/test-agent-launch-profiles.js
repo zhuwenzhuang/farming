@@ -56,6 +56,20 @@ function run() {
     'gpt-5.5',
   ]);
 
+  const codexStandardSpeed = resolveLaunchCommand('codex', {
+    codexModel: 'gpt-5.6-sol',
+    codexReasoningEffort: 'high',
+    codexServiceTier: 'default',
+  });
+  assert.deepStrictEqual(codexStandardSpeed.args, [
+    '-c',
+    'service_tier="default"',
+    '-c',
+    'model_reasoning_effort="high"',
+    '--model',
+    'gpt-5.6-sol',
+  ], 'Standard speed must override a Fast value inherited from the user config');
+
   const codexManualModel = resolveLaunchCommand('codex --model gpt-5.5', { codexModelPreset: 'gpt-5.5-pro:xhigh' });
   assert.deepStrictEqual(codexManualModel.args, ['--model', 'gpt-5.5']);
 

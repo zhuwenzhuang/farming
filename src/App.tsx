@@ -955,6 +955,9 @@ export function App() {
     const fallbackId = displayedAgents.find(agent => !agent.isMain && isOpenableAgent(agent))?.id
     if (!fallbackId) return
     didAutoOpenInitialTerminalRef.current = true
+    // Agent discovery synchronizes selection only. View navigation belongs to
+    // explicit open actions through activateTerminal so background refreshes
+    // cannot replace the user's current Search or History surface.
     setOpenTerminalIds([fallbackId])
     setActiveTerminalId(fallbackId)
   }, [displayedAgents, openTerminalIds.length, ws.mainAgentId])

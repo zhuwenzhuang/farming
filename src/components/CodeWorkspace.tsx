@@ -89,7 +89,11 @@ import {
   type ComposerAttachment,
   type ComposerPromptAttachment,
 } from './code/composer-message'
-import { terminalInputPartsForComposerMessage } from './code/composer-submit'
+import {
+  codexTerminalProfileInputSteps,
+  terminalInputPartsForComposerMessage,
+  type PendingCodexTerminalProfile,
+} from './code/composer-submit'
 import {
   addComposerHistoryEntry,
   canUseComposerHistoryNavigation,
@@ -152,6 +156,7 @@ import {
 } from './code/model'
 import {
   buildAgentListState,
+  historyAgentSessionsForSessions,
   isAgentListLiveAgent,
   unclaimedAgentSessions,
 } from './code/agent-list-state'
@@ -572,6 +577,8 @@ export function CodeWorkspace({
   const workspaceRef = useRef<HTMLDivElement>(null)
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
   const composerAttachmentsRef = useRef<ComposerAttachment[]>([])
+  const pendingCodexTerminalProfilesRef = useRef<Record<string, PendingCodexTerminalProfile>>({})
+  const codexTerminalProfileTimersRef = useRef<number[]>([])
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const plusMenuRef = useRef<HTMLDivElement>(null)
   const approvalMenuRef = useRef<HTMLDivElement>(null)
@@ -592,7 +599,6 @@ export function CodeWorkspace({
   const codexModelsLoadingRef = useRef(false)
   const resumeAgentSessionRef = useRef<(provider: string, sessionId: string, providerHomeId?: string) => void>(() => {})
   const activeTerminalIdRef = useRef<string | null>(activeTerminalId)
-  const previousActiveTerminalIdRef = useRef<string | null>(activeTerminalId)
   const workspaceFileCursorRequestRef = useRef(0)
   const workspaceFileDiffRequestRef = useRef(0)
   const workspaceFileRevealRequestRef = useRef(0)
@@ -631,6 +637,11 @@ export function CodeWorkspace({
   }, [])
   activeTerminalIdRef.current = activeTerminalId
   const copy = useMemo(() => codeCopyForLanguage(uiPreferences.language), [uiPreferences.language])
+
+  useEffect(() => () => {
+    codexTerminalProfileTimersRef.current.forEach(timer => window.clearTimeout(timer))
+    codexTerminalProfileTimersRef.current = []
+  }, [])
 
   useEffect(() => {
     saveSessionDisplayState({
@@ -1100,6 +1111,29 @@ export function CodeWorkspace({
       cancelled = true
     }
   }, [])
+  const fetchSearchedAgentSessions = useCallback(async (query: string, signal: AbortSignal) => {
+    const params = new URLSearchParams({
+      q: query,
+      limit: String(AGENT_SESSION_SEARCH_LIMIT),
+      fresh: '1',
+    })
+    const response = await fetch(appPath(`/api/agent-sessions/search?${params.toString()}`), {
+      signal,
+      cache: 'no-store',
+    })
+    if (!response.ok) throw new Error(`Failed to search Agent sessions: ${response.status}`)
+    const data = await response.json() as { sessions?: AgentSessionHistoryItem[] }
+    return Array.isArray(data.sessions) ? data.sessions : []
+  }, [])
+  const searchHistoryAgentSessions = useCallback(async (query: string, signal: AbortSignal) => {
+    const sessions = await fetchSearchedAgentSessions(query, signal)
+    const decoratedSessions = applySessionDisplayOverrides(sessions, agentSessionPinnedOverrides, {})
+    return historyAgentSessionsForSessions(
+      decoratedSessions,
+      mainPageSessionKeys,
+      agentListState.claimedAgentSessionKeys
+    )
+  }, [agentListState.claimedAgentSessionKeys, agentSessionPinnedOverrides, fetchSearchedAgentSessions, mainPageSessionKeys])
   const fetchAgentSessions = useCallback(async (options: { cursor?: string; limit?: number; fresh?: boolean } = {}) => {
     const params = new URLSearchParams({ limit: String(options.limit || AGENT_SESSION_PAGE_SIZE) })
     if (options.cursor) params.set('cursor', options.cursor)
@@ -1187,22 +1221,8 @@ export function CodeWorkspace({
     setSearchedAgentSessions([])
     setAgentSessionSearchLoading(true)
     const timer = window.setTimeout(() => {
-      const params = new URLSearchParams({
-        q: normalizedSearch,
-        limit: String(AGENT_SESSION_SEARCH_LIMIT),
-        fresh: '1',
-      })
-      fetch(appPath(`/api/agent-sessions/search?${params.toString()}`), {
-        signal: controller.signal,
-        cache: 'no-store',
-      })
-        .then(response => {
-          if (!response.ok) throw new Error(`Failed to search Agent sessions: ${response.status}`)
-          return response.json()
-        })
-        .then((data: { sessions?: AgentSessionHistoryItem[] }) => {
-          setSearchedAgentSessions(Array.isArray(data.sessions) ? data.sessions : [])
-        })
+      fetchSearchedAgentSessions(normalizedSearch, controller.signal)
+        .then(setSearchedAgentSessions)
         .catch(error => {
           if (error instanceof DOMException && error.name === 'AbortError') return
           setSearchedAgentSessions([])
@@ -1216,7 +1236,7 @@ export function CodeWorkspace({
       window.clearTimeout(timer)
       controller.abort()
     }
-  }, [activeView, hasSearchQuery, normalizedSearch, searchOpen])
+  }, [activeView, fetchSearchedAgentSessions, hasSearchQuery, normalizedSearch, searchOpen])
 
   const loadSlashCommands = useCallback((provider: string, workspace?: string) => {
     if (provider !== 'codex' && provider !== 'claude') {
@@ -1450,9 +1470,69 @@ export function CodeWorkspace({
     return result.value
   }, [activeAgent, activeComposerKey, activeComposerState.history, updateComposerStateForKey])
 
+  const queueCodexTerminalProfile = useCallback((
+    model: string,
+    effort: string,
+    tier: string,
+    changes: { applyModel?: boolean; applyFast?: boolean },
+  ) => {
+    if (
+      !activeAgent
+      || composerAgentKind !== 'codex'
+      || ['acp', 'json'].includes(activeAgent.agentRuntimeMode || '')
+      || activeAgent.codexRuntimeMode === 'app-server'
+    ) return
+    const modelIndex = codexModelOptions.findIndex(option => option.value === model)
+    const modelOption = codexModelOptions[modelIndex]
+    const reasoningLevels = modelOption?.reasoningLevels || []
+    const reasoningIndex = reasoningLevels.findIndex(option => option.value === effort)
+    if (modelIndex < 0 || reasoningIndex < 0) return
+    const previous = pendingCodexTerminalProfilesRef.current[activeAgent.id]
+    const fastAvailable = Boolean(modelOption?.serviceTiers?.some(option => option.value === 'priority'))
+    pendingCodexTerminalProfilesRef.current[activeAgent.id] = {
+      model,
+      effort,
+      modelIndex,
+      reasoningIndex,
+      reasoningCount: reasoningLevels.length,
+      fast: tier === 'priority',
+      fastAvailable,
+      applyModel: Boolean(changes.applyModel || previous?.applyModel),
+      applyFast: Boolean(changes.applyFast || previous?.applyFast),
+    }
+  }, [activeAgent, codexModelOptions, composerAgentKind])
+
+  const sendCodexTerminalProfileThenMessage = useCallback((
+    agent: Agent,
+    profile: PendingCodexTerminalProfile,
+    message: string,
+  ) => {
+    const steps = codexTerminalProfileInputSteps(profile, message)
+    const runStep = (index: number): boolean => {
+      const step = steps[index]
+      if (!step || !sendInput(step.input, agent.id)) return false
+      const next = steps[index + 1]
+      if (next) {
+        const timer = window.setTimeout(() => {
+          codexTerminalProfileTimersRef.current = codexTerminalProfileTimersRef.current.filter(id => id !== timer)
+          runStep(index + 1)
+        }, next.delayMs - step.delayMs)
+        codexTerminalProfileTimersRef.current.push(timer)
+      }
+      return true
+    }
+    if (!runStep(0)) return false
+    delete pendingCodexTerminalProfilesRef.current[agent.id]
+    return true
+  }, [sendInput])
+
   const sendComposerMessageToAgent = useCallback((agent: Agent, message: string, attachments: ComposerPromptAttachment[] = []) => {
     if (['acp', 'json'].includes(agent.agentRuntimeMode || '') || (agent.providerSessionProvider === 'codex' && agent.codexRuntimeMode === 'app-server')) {
       return sendComposerInput(message, agent.id, agent.agentRuntimeMode === 'acp' ? attachments : [])
+    }
+    if (agentKindForCommand(agent.command) === 'codex') {
+      const pendingProfile = pendingCodexTerminalProfilesRef.current[agent.id]
+      if (pendingProfile) return sendCodexTerminalProfileThenMessage(agent, pendingProfile, message)
     }
     if (
       agentKindForCommand(agent.command) === 'shell'
@@ -1462,7 +1542,7 @@ export function CodeWorkspace({
       return sendInput(`${message}\r`, agent.id)
     }
     return sendInput(terminalInputPartsForComposerMessage(message), agent.id)
-  }, [sendComposerInput, sendInput])
+  }, [sendCodexTerminalProfileThenMessage, sendComposerInput, sendInput])
 
   const setNativeCodexGoalFromComposer = useCallback(async (agent: Agent, objective: string) => {
     const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agent.id)}/codex-goal`), {
@@ -3339,7 +3419,30 @@ export function CodeWorkspace({
       reasoningEffort: nextEffort,
       serviceTier: nextServiceTier,
     })
-  }, [claudeEffort, closeActiveComposerMenus, codexModelOptions, codexReasoningEffort, codexServiceTier, composerAgentKind, focusComposerTextarea, persistAgentLaunchProfile])
+    queueCodexTerminalProfile(model, nextEffort, nextServiceTier, { applyModel: true })
+  }, [claudeEffort, closeActiveComposerMenus, codexModelOptions, codexReasoningEffort, codexServiceTier, composerAgentKind, focusComposerTextarea, persistAgentLaunchProfile, queueCodexTerminalProfile])
+
+  const updateAgentModelProfile = useCallback((model: string, effort: string) => {
+    if (composerAgentKind !== 'codex') return
+    const option = codexModelOptions.find(item => item.value === model)
+    if (!option) return
+    const nextEffort = option.reasoningLevels?.some(level => level.value === effort)
+      ? effort
+      : (option.defaultEffort || option.reasoningLevels?.[0]?.value || effort)
+    const nextServiceTier = option.serviceTiers?.some(tier => tier.value === codexServiceTier)
+      ? codexServiceTier
+      : 'default'
+    setCodexModel(model)
+    setCodexReasoningEffort(nextEffort)
+    setCodexServiceTier(nextServiceTier)
+    setCodexModelPreset(`${model}:${nextEffort}`)
+    persistAgentLaunchProfile('codex', {
+      model,
+      reasoningEffort: nextEffort,
+      serviceTier: nextServiceTier,
+    })
+    queueCodexTerminalProfile(model, nextEffort, nextServiceTier, { applyModel: true })
+  }, [codexModelOptions, codexServiceTier, composerAgentKind, persistAgentLaunchProfile, queueCodexTerminalProfile])
 
   const updateAgentReasoningEffort = useCallback((effort: string) => {
     if (composerAgentKind === 'claude') {
@@ -3363,7 +3466,8 @@ export function CodeWorkspace({
       reasoningEffort: effort,
       serviceTier: codexServiceTier,
     })
-  }, [claudeModel, closeActiveComposerMenus, codexModel, codexServiceTier, composerAgentKind, focusComposerTextarea, persistAgentLaunchProfile])
+    queueCodexTerminalProfile(codexModel, effort, codexServiceTier, { applyModel: true })
+  }, [claudeModel, closeActiveComposerMenus, codexModel, codexServiceTier, composerAgentKind, focusComposerTextarea, persistAgentLaunchProfile, queueCodexTerminalProfile])
 
   const updateAgentServiceTier = useCallback((tier: string) => {
     if (composerAgentKind === 'claude') return
@@ -3376,7 +3480,19 @@ export function CodeWorkspace({
       reasoningEffort: codexReasoningEffort,
       serviceTier: tier,
     })
-  }, [closeActiveComposerMenus, codexModel, codexReasoningEffort, composerAgentKind, focusComposerTextarea, persistAgentLaunchProfile])
+    queueCodexTerminalProfile(codexModel, codexReasoningEffort, tier, { applyFast: true })
+  }, [closeActiveComposerMenus, codexModel, codexReasoningEffort, composerAgentKind, focusComposerTextarea, persistAgentLaunchProfile, queueCodexTerminalProfile])
+
+  const updateAgentServiceTierInline = useCallback((tier: string) => {
+    if (composerAgentKind !== 'codex') return
+    setCodexServiceTier(tier)
+    persistAgentLaunchProfile('codex', {
+      model: codexModel,
+      reasoningEffort: codexReasoningEffort,
+      serviceTier: tier,
+    })
+    queueCodexTerminalProfile(codexModel, codexReasoningEffort, tier, { applyFast: true })
+  }, [codexModel, codexReasoningEffort, composerAgentKind, persistAgentLaunchProfile, queueCodexTerminalProfile])
 
   const toggleSpeechInput = useCallback(() => {
     if (speechListening) {
@@ -4223,19 +4339,6 @@ export function CodeWorkspace({
   }, [activeAgents, activeView, focusAgentRowNow, searchOpen, shouldSkipProjectFocusRestore])
 
   useEffect(() => {
-    const previousAgentId = previousActiveTerminalIdRef.current
-    previousActiveTerminalIdRef.current = activeTerminalId
-    if (!activeTerminalId || activeTerminalId === previousAgentId) return
-    if (
-      permissionSwitchReplacement?.originalAgentId === previousAgentId
-      && permissionSwitchReplacement.replacementAgentId === activeTerminalId
-    ) {
-      return
-    }
-    onWorkspaceViewChange('projects')
-  }, [activeTerminalId, onWorkspaceViewChange, permissionSwitchReplacement])
-
-  useEffect(() => {
     if (activeProjectWorkspace) {
       setLastProjectWorkspace(activeProjectWorkspace)
     }
@@ -4598,6 +4701,8 @@ export function CodeWorkspace({
           onUpdateModel: updateAgentModel,
           onUpdateReasoningEffort: updateAgentReasoningEffort,
           onUpdateServiceTier: updateAgentServiceTier,
+          onUpdateModelProfile: updateAgentModelProfile,
+          onUpdateServiceTierInline: updateAgentServiceTierInline,
           onToggleSpeechInput: toggleSpeechInput,
         }}
         onNewAgent={onNewAgent}
@@ -4620,6 +4725,7 @@ export function CodeWorkspace({
         onSearchKeyDown={handleSearchInputKeyDown}
         onCloseSearch={closeSearchView}
         onLoadMoreHistoryAgentSessions={loadMoreAgentSessions}
+        onSearchHistoryAgentSessions={searchHistoryAgentSessions}
         onResumeHistorySession={resumeAgentSession}
         onContinueArchivedRun={continueArchivedRun}
         onOpenArchivedAgent={openArchivedAgent}

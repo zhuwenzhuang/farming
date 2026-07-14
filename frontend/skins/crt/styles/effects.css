@@ -82,7 +82,7 @@
         rgba(12, 204, 104, 0.036) 80%,
         rgba(12, 204, 104, 0.04) 100%
     );
-    animation: crt-scan-beam-cycle 6.8s linear infinite;
+    animation: crt-scan-beam-cycle 8.6s linear infinite;
 }
 
 #farming-crt.no-crt .crt-phosphor-noise,
@@ -96,11 +96,19 @@
 }
 
 @keyframes crt-scan-beam-cycle {
-    from {
+    0% {
         transform: translate3d(0, -100%, 0);
     }
-    to {
+
+    /* Preserve the existing visible sweep speed. */
+    79% {
         transform: translate3d(0, calc(100vh - 100%), 0);
+    }
+
+    /* Let the full phosphor tail drain below the viewport before wrapping. */
+    95%,
+    100% {
+        transform: translate3d(0, 100vh, 0);
     }
 }
 

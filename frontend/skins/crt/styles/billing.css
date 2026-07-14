@@ -490,6 +490,12 @@
     letter-spacing: 0.07em;
 }
 
+#farming-crt .billing-day-total .billing-day-total-compact {
+    color: var(--crt-phosphor-bright);
+    font-size: inherit;
+    letter-spacing: inherit;
+}
+
 #farming-crt .billing-day-details strong {
     overflow: hidden;
     color: var(--crt-phosphor-bright);

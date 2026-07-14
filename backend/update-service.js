@@ -666,6 +666,16 @@ function releaseInstallDir(rootDir, env = process.env) {
   return path.join(os.homedir(), 'farming');
 }
 
+function nodeScriptInvocation(nodePath, scriptPath, env = process.env) {
+  if (env.FARMING_NODE_LD && env.FARMING_NODE_LIBRARY_PATH) {
+    return {
+      command: env.FARMING_NODE_LD,
+      args: ['--library-path', env.FARMING_NODE_LIBRARY_PATH, nodePath, scriptPath],
+    };
+  }
+  return { command: nodePath, args: [scriptPath] };
+}
+
 function npmPackageMetadataUrl(registryUrl, packageName) {
   const registry = String(registryUrl || DEFAULT_NPM_REGISTRY).replace(/\/+$/, '');
   return `${registry}/${encodeURIComponent(packageName).replace(/^%40/, '@')}`;
@@ -739,7 +749,7 @@ class FarmingUpdateService {
       compatibilityProfile: String(release.compatibilityProfile || ''),
       bundledGlibcRuntime: release.bundledGlibcRuntime === true,
       type: this.installMethod,
-      installDir: releaseInstallDir(this.rootDir),
+      installDir: this.installMethod === 'npm' ? this.rootDir : releaseInstallDir(this.rootDir),
     };
   }
 
@@ -1081,7 +1091,9 @@ class FarmingUpdateService {
       serverHome: process.env.FARMING_SERVER_HOME || '',
       disableAuth: /^(1|true|yes|on)$/i.test(String(process.env.FARMING_DISABLE_AUTH || '')),
     };
-    const child = this.spawn(nodePath, [helperPath], {
+    const helperInvocation = nodeScriptInvocation(nodePath, helperPath);
+    const child = this.spawn(helperInvocation.command, helperInvocation.args, {
+      cwd: this.configDir,
       detached: true,
       stdio: 'ignore',
       env: {

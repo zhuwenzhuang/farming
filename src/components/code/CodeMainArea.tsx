@@ -180,6 +180,7 @@ interface CodeMainAreaProps {
   onSearchKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void
   onCloseSearch: () => void
   onLoadMoreHistoryAgentSessions: () => void
+  onSearchHistoryAgentSessions: (query: string, signal: AbortSignal) => Promise<AgentSessionHistoryItem[]>
   onResumeHistorySession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onContinueArchivedRun: (entry: TaskHistoryEntry) => void
   onOpenArchivedAgent: (agentId: string) => void
@@ -249,6 +250,7 @@ export function CodeMainArea({
   onSearchKeyDown,
   onCloseSearch,
   onLoadMoreHistoryAgentSessions,
+  onSearchHistoryAgentSessions,
   onResumeHistorySession,
   onContinueArchivedRun,
   onOpenArchivedAgent,
@@ -361,6 +363,7 @@ export function CodeMainArea({
               onContinueRun={onContinueArchivedRun}
               onOpenArchivedAgent={onOpenArchivedAgent}
               onRestoreArchivedAgent={onRestoreArchivedAgent}
+              searchAgentSessions={onSearchHistoryAgentSessions}
               copy={copy}
             />
           ) : (

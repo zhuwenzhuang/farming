@@ -102,6 +102,8 @@ function startArguments(payload) {
 function commandEnvironment() {
   const env = { ...process.env };
   delete env.FARMING_NPM_UPDATE_PAYLOAD;
+  delete env.FARMING_RUN_SERVER;
+  delete env.FARMING_RUN_NATIVE_PTY_HOST;
   return env;
 }
 
@@ -112,6 +114,7 @@ async function installPackage(payload, version) {
   if (payload.npmPrefix) args.push('--prefix', payload.npmPrefix);
   args.push(packageSpec, '--no-audit', '--no-fund');
   await runCommand(payload.npmCommand || 'npm', args, {
+    cwd: payload.configDir,
     env: commandEnvironment(),
     logPath: payload.logPath,
   });
@@ -120,6 +123,7 @@ async function installPackage(payload, version) {
 async function startServer(payload, version = payload.targetVersion) {
   appendLog(payload.logPath, `Starting Farming ${version}`);
   await runCommand(payload.nodePath, startArguments(payload), {
+    cwd: payload.configDir,
     env: commandEnvironment(),
     logPath: payload.logPath,
   });

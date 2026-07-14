@@ -135,7 +135,7 @@ export function AcpComposer({
   const [activeCommandIndex, setActiveCommandIndex] = useState(0)
   const [openMenu, setOpenMenu] = useState<AcpComposerMenu>(null)
   const [modelPane, setModelPane] = useState<'model' | 'speed' | null>(null)
-  const { session, error: sessionError, updatingId, authenticatingId, setMode, setConfigOption, authenticate } = useAcpSession(
+  const { session, error: sessionError, updatingId, authenticatingId, setMode, setConfigOption, setConfigOptions, authenticate } = useAcpSession(
     agentId,
     active,
     `${runtimeState}:${sessionUpdatedAt || ''}`,
@@ -470,6 +470,15 @@ export function AcpComposer({
               onSetConfigOption={(configId, value) => {
                 setOpenMenu(null)
                 setModelPane(null)
+                void setConfigOption(configId, value)
+              }}
+              onSetProfile={(modelId, modelValue, reasoningId, reasoningValue) => {
+                void setConfigOptions([
+                  { configId: modelId, value: modelValue },
+                  { configId: reasoningId, value: reasoningValue },
+                ])
+              }}
+              onSetFast={(configId, value) => {
                 void setConfigOption(configId, value)
               }}
             />

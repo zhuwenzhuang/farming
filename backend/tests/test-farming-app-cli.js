@@ -6,6 +6,7 @@ const path = require('path');
 const {
   buildCleanEnvExecCommand,
   childInvocation,
+  cleanupFailedDaemonStart,
   buildControlEnv,
   buildServerEnv,
   parseReviewArgs,
@@ -13,9 +14,11 @@ const {
   resolveReviewTarget,
   reviewUrl,
   serverStartTimeoutMs,
+  serverStartStabilityMs,
   serverStateFile,
   splitControlArgs,
 } = require('../farming-app-cli');
+const storageLayout = require('../storage-layout');
 const {
   buildCleanEnvExecCommand: buildNativeHostCleanEnvExecCommand,
   nativeHostSpawnCommand,
@@ -114,6 +117,9 @@ async function runTests() {
     assert.strictEqual(serverStartTimeoutMs({ FARMING_START_TIMEOUT_MS: '45000' }), 45_000);
     assert.strictEqual(serverStartTimeoutMs({ FARMING_SERVER_START_TIMEOUT_MS: '12000' }), 12_000);
     assert.strictEqual(serverStartTimeoutMs({ FARMING_START_TIMEOUT_MS: 'nope' }), 30_000);
+    assert.strictEqual(serverStartStabilityMs({}), 1_500);
+    assert.strictEqual(serverStartStabilityMs({ FARMING_START_STABILITY_MS: '0' }), 0);
+    assert.strictEqual(serverStartStabilityMs({ FARMING_SERVER_START_STABILITY_MS: '2500' }), 2_500);
   }
 
   {
@@ -171,6 +177,31 @@ async function runTests() {
     assert.strictEqual(invocation.command, '/opt/farming/runtime/bin/node');
     assert.strictEqual(invocation.args.length, 1);
     assert(invocation.args[0].endsWith('/backend/farming-app-cli.js'));
+  }
+
+  {
+    const invocation = childInvocation({
+      FARMING_NODE_BIN: '/opt/farming/runtime/bin/node',
+      FARMING_NODE_LD: '/opt/farming/glibc/lib/ld-linux-x86-64.so.2',
+      FARMING_NODE_LIBRARY_PATH: '/opt/farming/glibc/lib',
+    });
+    assert.strictEqual(invocation.command, '/opt/farming/glibc/lib/ld-linux-x86-64.so.2');
+    assert.deepStrictEqual(invocation.args.slice(0, 3), [
+      '--library-path',
+      '/opt/farming/glibc/lib',
+      '/opt/farming/runtime/bin/node',
+    ]);
+    assert(invocation.args[3].endsWith('/backend/farming-app-cli.js'));
+  }
+
+  {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-failed-daemon.'));
+    const deadPid = 2_147_483_647;
+    fs.writeFileSync(storageLayout.serverPidFile(configDir), String(deadPid));
+    fs.writeFileSync(serverStateFile(configDir), JSON.stringify({ pid: deadPid }));
+    cleanupFailedDaemonStart(configDir, deadPid);
+    assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), false);
+    assert.strictEqual(fs.existsSync(serverStateFile(configDir)), false);
   }
 
   {

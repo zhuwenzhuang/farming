@@ -54,7 +54,7 @@ function session(overrides = {}) {
 }
 
 function run() {
-  const { buildHistoryAgentItems, filterHistoryAgentItems } = importTsModule('src/components/code/HistoryPanel.tsx');
+  const { buildHistoryAgentItems, filterHistoryAgentItems, mergeHistoryAgentSessions } = importTsModule('src/components/code/HistoryPanel.tsx');
   const claudeResumeId = 'd7450fc4-37bd-40b1-8523-02ce5b753082';
   const claudeSource = `claude-history:${claudeResumeId}`;
   const codexResumeId = '019f26d3-7485-76d0-8a64-f5cf5d690129';
@@ -147,6 +147,22 @@ function run() {
     filterHistoryAgentItems(searchableItems, '  ').length,
     searchableItems.length,
     'Blank History queries should preserve the complete list'
+  );
+
+  const mergedSessions = mergeHistoryAgentSessions(
+    [session({ id: 'loaded-session', title: 'Loaded session' })],
+    [
+      session({ id: 'loaded-session', title: 'Fresh loaded session' }),
+      session({ id: 'older-search-result', title: '上下游联动替代表测试' }),
+    ]
+  );
+  assert.deepStrictEqual(
+    mergedSessions.map(item => [item.id, item.title]),
+    [
+      ['loaded-session', 'Fresh loaded session'],
+      ['older-search-result', '上下游联动替代表测试'],
+    ],
+    'History should merge full search results beyond the loaded page without duplicating sessions'
   );
 
   console.log('test-code-history-dedupe passed');

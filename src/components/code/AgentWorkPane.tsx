@@ -70,8 +70,12 @@ export function AgentWorkPane({
   const jsonChat = agent.agentRuntimeMode === 'json'
   const acpChat = agent.agentRuntimeMode === 'acp'
   const chatMode = appServerChat || jsonChat || acpChat
+  const freshCodexTerminal = agent.providerSessionProvider === 'codex'
+    && agent.agentRuntimeMode === 'terminal'
+    && agent.providerSessionTemporary === true
+    && agent.terminalInputReceived !== true
   const canSwitchRuntime = ['codex', 'claude', 'opencode', 'qoder'].includes(agent.providerSessionProvider || '')
-    && agent.providerSessionTemporary !== true
+    && (agent.providerSessionTemporary !== true || freshCodexTerminal)
     && Boolean(agent.providerSessionId)
   const runtimeSwitchDisabled = switching || isAgentTurnActive(agent)
 

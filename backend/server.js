@@ -1168,6 +1168,10 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId/acp-session'), express.json
       res.json(await agentManager.setAcpSessionMode(req.params.agentId, req.body.modeId));
       return;
     }
+    if (Array.isArray(req.body?.configOptions)) {
+      res.json(await agentManager.setAcpSessionConfigOptions(req.params.agentId, req.body.configOptions));
+      return;
+    }
     if (typeof req.body?.configId === 'string' && Object.prototype.hasOwnProperty.call(req.body, 'value')) {
       res.json(await agentManager.setAcpSessionConfigOption(
         req.params.agentId,
@@ -1176,7 +1180,7 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId/acp-session'), express.json
       ));
       return;
     }
-    res.status(400).json({ error: 'ACP modeId or configId/value is required' });
+    res.status(400).json({ error: 'ACP modeId, configOptions, or configId/value is required' });
   } catch (error) {
     const message = error && error.message ? error.message : 'Failed to update ACP session';
     res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
