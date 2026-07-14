@@ -158,12 +158,41 @@ test('Codex model matrix responds locally, settles once, and morphs Advanced wit
   await target.click()
   await expect(target).toBeEnabled({ timeout: 2_000 })
 
+  const fill = page.locator('.code-model-matrix-fill')
+  await expect(fill).toHaveCSS('color', 'rgb(240, 161, 74)')
   const ultra = page.getByRole('button', { name: 'Ultra reasoning' })
   await ultra.click()
   await expect(ultra).toHaveAttribute('aria-pressed', 'true')
   await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-sol:ultra')
+  await expect(page.getByTestId('code-model-matrix-picker')).toHaveAttribute('data-ultra', 'on')
   await expect(page.locator('.code-model-matrix-current')).toHaveText('GPT-5.6-Sol · ultra')
+  await expect(fill).toHaveCSS('color', 'rgb(167, 117, 242)')
+  const ultraControl = page.locator('.code-model-matrix-rocker-control')
+  const ultraKnob = page.locator('.code-model-matrix-rocker-knob')
+  await expect(ultraControl).toHaveClass(/is-kicked/)
+  await expect(ultraKnob).toHaveClass(/is-kicked/)
+  const ultraMotion = await page.evaluate(() => {
+    const control = document.querySelector('.code-model-matrix-rocker-control')
+    const knob = document.querySelector('.code-model-matrix-rocker-knob')
+    const fillElement = document.querySelector('.code-model-matrix-fill')
+    const summarize = (element: Element | null) => element?.getAnimations().map(animation => ({
+      name: (animation as CSSAnimation).animationName,
+      delay: Number(animation.effect?.getTiming().delay || 0),
+      duration: Number(animation.effect?.getTiming().duration || 0),
+    })) || []
+    return {
+      control: summarize(control),
+      knob: summarize(knob),
+      fill: summarize(fillElement),
+      fillShadow: fillElement ? getComputedStyle(fillElement).boxShadow : '',
+    }
+  })
+  expect(ultraMotion.control).toContainEqual({ name: 'code-model-rocker-impact', delay: 300, duration: 210 })
+  expect(ultraMotion.knob).toContainEqual({ name: 'code-model-rocker-kick', delay: 300, duration: 210 })
+  expect(ultraMotion.fill).toContainEqual({ name: 'code-model-ultra-charge', delay: 0, duration: 620 })
+  expect(ultraMotion.fillShadow).toContain('18px')
   await expect(ultra).toBeEnabled({ timeout: 2_000 })
+  await expect(ultraControl).not.toHaveClass(/is-kicked/, { timeout: 1_500 })
 
   const fast = page.getByRole('button', { name: 'Fast mode' })
   await fast.click()

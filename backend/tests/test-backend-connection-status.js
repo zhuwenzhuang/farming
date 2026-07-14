@@ -30,11 +30,14 @@ function run() {
     pageVisibilitySource.includes("document.addEventListener('visibilitychange', updateVisibility)") &&
       pageVisibilitySource.includes("window.addEventListener('pagehide', updateVisibility)") &&
       pageVisibilitySource.includes("window.addEventListener('pageshow', updateVisibility)") &&
-      webSocketSource.includes('usePageVisibility') &&
-      webSocketSource.includes('if (!pageVisible)') &&
+      !webSocketSource.includes('usePageVisibility') &&
+      !webSocketSource.includes('isPageVisible') &&
+      !webSocketSource.includes('if (!pageVisible)') &&
+      webSocketSource.includes('Keep it alive in hidden tabs') &&
       webSocketSource.includes('let disposed = false') &&
+      webSocketSource.includes('if (disposed) return') &&
       webSocketSource.includes('if (disposed || wsRef.current !== ws) return'),
-    'WebSocket hook should disconnect hidden pages and guard cleanup-triggered reconnects'
+    'WebSocket hook should keep Chat live in hidden pages and guard cleanup-triggered reconnects'
   );
 
   assert(

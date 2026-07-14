@@ -2,7 +2,6 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Agent, SystemStats, TaskHistoryEntry } from '@/types/agent'
 import type { AppServerRequestResponseMessage, ClientMessage, ComposerInputAttachment, ComposerInputMessage, InputMessage, ServerMessage, StartAgentMessage, TerminalInputPart, WorkspaceFileEventMessage } from '@/types/messages'
 import { appWsUrl } from '@/lib/base-path'
-import { isPageVisible, usePageVisibility } from '@/hooks/usePageVisibility'
 
 const LAST_MESSAGE_STATE_THROTTLE_MS = 1000
 
@@ -28,7 +27,6 @@ function isInternalMainWorkspace(cwd?: string, parentAgentId?: string) {
 
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
-  const pageVisible = usePageVisibility()
   const [state, setState] = useState<WebSocketState>({
     agents: [],
     taskHistory: [],
@@ -171,14 +169,6 @@ export function useWebSocket() {
     let activeSocket: WebSocket | null = null
     let lastMessageStateUpdateAt = 0
 
-    if (!pageVisible) {
-      const existingSocket = wsRef.current
-      wsRef.current = null
-      existingSocket?.close()
-      setState(prev => prev.connected ? { ...prev, connected: false, error: null } : prev)
-      return () => {}
-    }
-
     function markBackendMessage(receivedAt = Date.now()) {
       if (receivedAt - lastMessageStateUpdateAt < LAST_MESSAGE_STATE_THROTTLE_MS) return
       lastMessageStateUpdateAt = receivedAt
@@ -186,7 +176,10 @@ export function useWebSocket() {
     }
 
     function connect() {
-      if (disposed || !isPageVisible()) return
+      // ACP transcript revisions and terminal output arrive on this socket.
+      // Keep it alive in hidden tabs so Chat keeps progressing and returning
+      // to the page does not manufacture a disconnected/reconnecting state.
+      if (disposed) return
       let wsUrl = appWsUrl()
       const queryToken = new URLSearchParams(location.search).get('token')
       // Attach token from cookie for mobile WS compatibility
@@ -320,7 +313,7 @@ export function useWebSocket() {
       }
       activeSocket?.close()
     }
-  }, [pageVisible])
+  }, [])
 
   return {
     ...state,

@@ -70,6 +70,28 @@ function MatrixRocker({
   onChange: (active: boolean) => void
 }) {
   const [kicking, setKicking] = useState(false)
+  const kickTimerRef = useRef<number | null>(null)
+
+  useEffect(() => () => {
+    if (kickTimerRef.current !== null) window.clearTimeout(kickTimerRef.current)
+  }, [])
+
+  function startLandingKick() {
+    if (kickTimerRef.current !== null) window.clearTimeout(kickTimerRef.current)
+    setKicking(true)
+    // Reduced-motion disables the CSS animation, so keep a timeout fallback
+    // that always clears the transient impact class.
+    kickTimerRef.current = window.setTimeout(() => {
+      kickTimerRef.current = null
+      setKicking(false)
+    }, 650)
+  }
+
+  function finishLandingKick() {
+    if (kickTimerRef.current !== null) window.clearTimeout(kickTimerRef.current)
+    kickTimerRef.current = null
+    setKicking(false)
+  }
 
   return (
     <div className={`code-model-matrix-rocker is-ultra ${active ? 'is-active' : ''} ${unavailable ? 'is-disabled' : ''}`}>
@@ -81,18 +103,18 @@ function MatrixRocker({
         aria-label="Ultra reasoning"
         aria-pressed={active}
         onClick={() => {
-          setKicking(true)
+          if (!active) startLandingKick()
           onChange(!active)
         }}
       >
-        <span className="code-model-matrix-rocker-control" aria-hidden="true">
+        <span className={`code-model-matrix-rocker-control ${kicking ? 'is-kicked' : ''}`} aria-hidden="true">
           <span className="code-model-matrix-rocker-slot">
             <span className="code-model-matrix-rocker-energy" />
           </span>
           <span className="code-model-matrix-rocker-knob-position">
             <span
               className={`code-model-matrix-rocker-knob ${kicking ? 'is-kicked' : ''}`}
-              onAnimationEnd={() => setKicking(false)}
+              onAnimationEnd={finishLandingKick}
             />
           </span>
         </span>
