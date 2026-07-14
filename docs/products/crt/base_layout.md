@@ -2,7 +2,7 @@
 
 > Chinese version: [base_layout.zh_cn.md](./base_layout.zh_cn.md)
 
-This document defines shared layout concepts, data model expectations, and visual rules for the CRT skin. Desktop and mobile variants are documented in [pc_layout.md](pc_layout.md) and [mobile_layout.md](mobile_layout.md).
+This document defines shared layout concepts, data model expectations, and visual rules for the CRT skin. The supported desktop rules are documented in [pc_layout.md](pc_layout.md); [mobile_layout.md](mobile_layout.md) remains a concept and is not a current product surface.
 
 ## Overall Layout
 

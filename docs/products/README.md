@@ -2,18 +2,23 @@
 
 > Chinese version: [README.zh_cn.md](./README.zh_cn.md)
 
-Farming 2 is one browser service with two live interfaces: Farming Code for focused coding and review, and Farming CRT for keyboard-first monitoring and control. Both interfaces use the same backend Agents, provider sessions, native PTY processes, history, workspace files, and settings.
+Farming 2 is an open-source, customizable browser workspace with two live interfaces: Farming Code for focused coding and review, and Farming CRT for keyboard-first monitoring and control. Both interfaces use the same backend Agents, provider sessions, native PTY processes, history, workspace files, and settings.
 
 This document is the canonical public capability map and is updated in place as the product improves. Historical changes remain in [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases).
 
+Install and start:
+
+```bash
+npm install --global farming-code@latest && farming daemon
+```
+
 ## The Product In One Minute
 
-1. Run `farming daemon` on a development machine where your coding CLIs already work.
-2. Open the authenticated browser URL from a desktop or phone.
-3. Start an Agent in a workspace, or resume an existing provider session from Search or History.
-4. Work in structured Chat when readability matters; open Terminal when exact CLI behavior matters.
-5. Read files, inspect changes, edit a small fix, or open Review without leaving the Agent context.
-6. Leave the page and return later. Agents stay on the host and live terminals can reconnect.
+1. Open the authenticated browser URL from a desktop or phone.
+2. Start an Agent in a workspace, or resume an existing provider session from Search or History.
+3. Work in structured Chat when readability matters; open Terminal when exact CLI behavior matters.
+4. Read files, inspect changes, edit a small fix, or open Review without leaving the Agent context.
+5. Leave the page and return later. Agents stay on the host and live terminals can reconnect.
 
 ![Start an Agent and choose a runtime](code/assets/03-start-agent-workspace.png)
 

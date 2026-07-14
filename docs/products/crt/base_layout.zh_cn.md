@@ -2,7 +2,7 @@
 
 > English version: [base_layout.md](./base_layout.md)
 
-本文档定义 CRT 皮肤跨平台通用的布局概念、数据模型和视觉规则。桌面端和移动端的平台特有设计分别见 `pc_layout.zh_cn.md` 和 `mobile_layout.zh_cn.md`。
+本文档定义 CRT 皮肤跨平台通用的布局概念、数据模型和视觉规则。当前支持的桌面规则见 `pc_layout.zh_cn.md`；`mobile_layout.zh_cn.md` 仍是概念设计，不属于当前产品界面。
 
 ---
 

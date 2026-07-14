@@ -2,18 +2,23 @@
 
 > English version: [README.md](./README.md)
 
-Farming 2 是一个浏览器服务，两套实时界面：Farming Code 用于聚焦编码和 Review，Farming CRT 用于键盘优先的监控与控制。两套界面共享同一批后端 Agent、Provider Session、原生 PTY 进程、History、Workspace Files 和设置。
+Farming 2 是一个开源、可自定义的浏览器工作台，提供两套实时界面：Farming Code 用于聚焦编码和 Review，Farming CRT 用于键盘优先的监控与控制。两套界面共享同一批后端 Agent、Provider Session、原生 PTY 进程、History、Workspace Files 和设置。
 
 本文是当前公开能力的标准总览，会随着产品改进直接更新。历史变化保留在 [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases) 中。
 
+安装并启动：
+
+```bash
+npm install --global farming-code@latest && farming daemon
+```
+
 ## 一分钟理解产品
 
-1. 在 Coding CLI 已经可以正常工作的开发机上运行 `farming daemon`。
-2. 用电脑或手机打开带鉴权的浏览器 URL。
-3. 在 Workspace 中启动 Agent，或者从 Search / History 恢复现有 Provider Session。
-4. 需要可读过程时用结构化 Chat，需要精确 CLI 行为时用 Terminal。
-5. 不离开当前 Agent 上下文，就能读文件、检查修改、做小范围编辑或进入 Review。
-6. 离开页面，稍后再回来。Agent 仍在开发机上运行，实时终端可以重新连接。
+1. 用电脑或手机打开带鉴权的浏览器 URL。
+2. 在 Workspace 中启动 Agent，或者从 Search / History 恢复现有 Provider Session。
+3. 需要可读过程时用结构化 Chat，需要精确 CLI 行为时用 Terminal。
+4. 不离开当前 Agent 上下文，就能读文件、检查修改、做小范围编辑或进入 Review。
+5. 离开页面，稍后再回来。Agent 仍在开发机上运行，实时终端可以重新连接。
 
 ![启动 Agent 并选择运行时](code/assets/03-start-agent-workspace.png)
 

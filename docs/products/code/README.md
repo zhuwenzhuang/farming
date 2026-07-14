@@ -12,7 +12,13 @@ For the complete cross-interface capability map, see the [Farming 2 product over
 
 ## Start A Real Task
 
-Run `farming daemon` on a machine where at least one supported coding CLI already works, open its authenticated URL, and choose **New Agent**.
+On a machine where at least one supported coding CLI already works, install and start Farming with one command:
+
+```bash
+npm install --global farming-code@latest && farming daemon
+```
+
+Open the authenticated URL and choose **New Agent**.
 
 ![Choose an Agent](assets/02-start-agent-picker.png)
 
@@ -129,14 +135,9 @@ The same service exposes:
 
 Both interfaces connect to the same backend sessions. If Code cannot start or render, its bounded diagnostic overlay leaves the live CRT surface visible behind it. See the [Farming CRT guide](../crt/README.md) for dashboard, Search, History, Billing, and keyboard workflows.
 
-## Install And Operate
+## Runtime Defaults And Operations
 
-The default installation requires Node.js 22 or newer:
-
-```bash
-npm install --global farming-code
-farming daemon
-```
+The default runtime requires Node.js 22 or newer.
 
 Farming defaults to port `6694`, base path `/farming`, config directory `~/.farming`, and token authentication. Useful commands:
 

@@ -9,9 +9,21 @@
 ![Node](https://img.shields.io/badge/node-%3E%3D22-339933?logo=nodedotjs&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-555)
 
-Farming is a browser workspace for supervising AI coding agents on a development machine. It keeps several live agents, structured conversations, real terminals, project files, review, history, and runtime controls in one place—without moving the repository or agent processes into the browser.
+Farming is an open-source, customizable browser workspace for supervising AI coding agents on a development machine. It keeps several live agents, structured conversations, real terminals, project files, review, history, and runtime controls in one place—without moving the repository or agent processes into the browser.
 
-Run Farming beside the coding CLIs you already use, then return to the same work from a desktop or phone. Closing the browser does not stop the agents; the native PTY host can also preserve live terminal sessions while the Farming server restarts.
+Run Farming on the development machine where your coding CLIs already work, then return to the same tasks from a desktop or phone. Closing the browser does not stop the agents; the native PTY host can also preserve live terminal sessions while the Farming server restarts.
+
+## Quick Start
+
+With Node.js 22 or newer and at least one supported coding CLI installed and signed in, install and start Farming in one command:
+
+```bash
+npm install --global farming-code@latest && farming daemon
+```
+
+Open the authenticated URL printed by the command, choose **New Agent**, select an Agent and workspace, and start in Chat or Terminal.
+
+![Farming Code workspace](./docs/products/code/assets/01-code-workspace.png)
 
 ## Two Interfaces, One Runtime
 
@@ -43,15 +55,12 @@ The complete current capability map and screenshot tour are in the [Farming 2 pr
 
 ## What You Can Do
 
-- Group live agents by project, pin important work, rename sessions, track unread activity, and archive or resume work.
+- Group live agents by project, pin or rename important work, track unread activity, search live and historical sessions, and archive or resume tasks.
 - Use structured ACP Chat for Codex, Claude Code, OpenCode, and Qoder. Plans, reasoning, tools, permission requests, embedded terminals, child sessions, attachments, queued follow-ups, and exact change summaries remain available without overwhelming the final answer.
-- Open a real PTY Terminal when exact CLI behavior matters. Chat / Terminal changes the actual runtime and safely resumes the same provider session when its identity is available.
-- Change supported live Codex model, reasoning, Fast, Ultra, and permission settings. Terminal changes are applied to the running workflow before the next message rather than being limited to a future launch profile.
-- Browse Project Files, Open Editors, search with ripgrep, edit with Monaco, preview Markdown and images, follow `path:line` links, inspect git changes, diffs, and blame.
-- Open tracked or untracked workspace changes in the initial Review surface, compare captured revisions, leave inline comments, and mark files reviewed. Deeper continuity across several review rounds is still evolving.
-- Search live Agents and the supported provider-session archive, then open, continue, restore, or resume the matching work.
+- Switch the same provider session between structured Chat and a real PTY Terminal. Supported Codex model, reasoning, Fast, Ultra, and permission changes reach the live workflow; a compatible Terminal applies them before the next message.
+- Browse, search, and lightly edit Project Files; inspect Git changes, Diff, and Blame; then open tracked or untracked changes in the initial Review surface with captured revisions, inline comments, and Reviewed state.
 - Observe CPU/MEM, token-rate, context, quota, provider usage, and CRT daily/live token telemetry when the provider exposes the required data.
-- Use Farming Code from desktop and mobile browsers, with layouts designed for the amount of attention available on each device.
+- Continue the same Farming Code task from desktop or phone without moving the Agent process away from the development host.
 
 ![Farming Code project files and blame](./docs/products/code/assets/04-files-editor-blame.png)
 
@@ -75,14 +84,7 @@ Farming discovers installed CLIs on the host. The richer structured runtime curr
 
 Farming hosts CLIs that already work on the same machine. It does not replace provider installation, login, or account configuration.
 
-## Quick Start
-
-Install Node.js 22 or newer, install and sign in to at least one supported coding CLI, then run:
-
-```bash
-npm install --global farming-code
-farming daemon
-```
+## Runtime Defaults And Daemon Commands
 
 Farming defaults to port `6694`, base path `/farming`, config directory `~/.farming`, and token authentication. The startup log prints a URL similar to:
 
@@ -90,7 +92,7 @@ Farming defaults to port `6694`, base path `/farming`, config directory `~/.farm
 http://development-host:6694/farming?token=<startup-token>
 ```
 
-Open it, choose **New Agent**, select an Agent and workspace, and start in Chat or Terminal. Useful daemon commands are:
+Useful daemon commands are:
 
 ```bash
 farming status
