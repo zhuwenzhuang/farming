@@ -9386,6 +9386,7 @@ button.code-history-card {
 }
 
 .code-model-matrix-stage {
+  position: relative;
   display: grid;
   grid-template-rows: 1fr;
   overflow: hidden;
@@ -9396,13 +9397,46 @@ button.code-history-card {
   transition: height 240ms var(--matrix-motion);
 }
 
+.code-model-matrix,
+.code-model-matrix-advanced {
+  position: absolute;
+  inset: 0 0 auto;
+  transition:
+    opacity 160ms ease,
+    transform 220ms var(--matrix-motion),
+    visibility 0s linear 220ms;
+  will-change: opacity, transform;
+}
+
+.code-model-matrix-shell[data-advanced='open'] .code-model-matrix,
+.code-model-matrix-shell[data-advanced='closed'] .code-model-matrix-advanced {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.code-model-matrix-shell[data-advanced='open'] .code-model-matrix {
+  transform: translateY(-3px) scale(.988);
+}
+
+.code-model-matrix-shell[data-advanced='closed'] .code-model-matrix-advanced {
+  transform: translateY(3px) scale(.988);
+}
+
+.code-model-matrix-shell[data-advanced='closed'] .code-model-matrix,
+.code-model-matrix-shell[data-advanced='open'] .code-model-matrix-advanced {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition-delay: 0s, 0s, 0s;
+}
+
 .code-model-matrix {
   display: grid;
   grid-template-columns: 34px minmax(180px, 1fr) 58px;
   grid-template-rows: 14px 76px 18px;
   column-gap: 4px;
   padding: 5px 6px 4px;
-  animation: code-model-matrix-reveal 180ms var(--matrix-motion) both;
 }
 
 .code-model-matrix-head {
@@ -9855,7 +9889,6 @@ button.code-history-card {
 .code-model-matrix-advanced {
   min-width: 0;
   padding: 6px;
-  animation: code-model-matrix-reveal 180ms ease both;
 }
 
 .code-composer-menu .code-model-matrix-advanced-toggle {

@@ -7,15 +7,33 @@ const path = require('node:path');
 const { chromium } = require('@playwright/test');
 
 const repoRoot = path.resolve(__dirname, '..');
-const demoRoot = path.join(os.tmpdir(), 'farming-product-demo');
-const workspaceDir = path.resolve(process.env.FARMING_SCREENSHOT_WORKSPACE || repoRoot);
+const screenshotTmpRoot = process.env.FARMING_SCREENSHOT_TMP_ROOT
+  || (process.platform === 'win32' ? os.tmpdir() : '/tmp');
+const demoRoot = path.join(screenshotTmpRoot, 'farming-product-demo');
+const customWorkspace = Boolean(process.env.FARMING_SCREENSHOT_WORKSPACE);
+const workspaceDir = path.resolve(process.env.FARMING_SCREENSHOT_WORKSPACE || path.join(demoRoot, 'workspaces', 'atlas-web'));
 const configDir = path.join(demoRoot, 'config');
 const homeDir = path.join(demoRoot, 'home');
 const screenshotDir = path.join(repoRoot, 'docs', 'products', 'code', 'assets');
+const crtScreenshotDir = path.join(repoRoot, 'docs', 'products', 'crt', 'assets');
 const basePath = '/farming';
 const localChromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const executablePath = process.env.FARMING_PLAYWRIGHT_CHROME_PATH
   || (fs.existsSync(localChromePath) ? localChromePath : undefined);
+const matrixReasoning = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+const matrixCatalog = ['sol', 'terra', 'luna'].map(variant => ({
+  value: `gpt-5.6-${variant}`,
+  model: `gpt-5.6-${variant}`,
+  label: `5.6-${variant.charAt(0).toUpperCase()}${variant.slice(1)}`,
+  displayName: `GPT-5.6-${variant.charAt(0).toUpperCase()}${variant.slice(1)}`,
+  defaultEffort: 'medium',
+  reasoningLevels: matrixReasoning.map(value => ({ value, effort: value, label: value === 'xhigh' ? 'Extra high' : `${value.charAt(0).toUpperCase()}${value.slice(1)}` })),
+  serviceTiers: [
+    { value: 'default', label: 'Standard', description: 'Default speed' },
+    { value: 'priority', label: 'Fast', description: 'Faster responses' },
+  ],
+  source: 'fixture',
+}));
 
 function run(command, args, options = {}) {
   execFileSync(command, args, {
@@ -61,9 +79,55 @@ function prepareRuntimeDirectories() {
   fs.mkdirSync(configDir, { recursive: true });
   fs.mkdirSync(homeDir, { recursive: true });
   fs.mkdirSync(screenshotDir, { recursive: true });
-  for (const entry of fs.readdirSync(screenshotDir)) {
-    if (/^\d{2}-.*\.(?:png|jpg|jpeg)$/i.test(entry)) {
-      fs.rmSync(path.join(screenshotDir, entry), { force: true });
+  fs.mkdirSync(crtScreenshotDir, { recursive: true });
+  if (!customWorkspace) {
+    fs.mkdirSync(path.join(workspaceDir, 'src', 'components'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'tests'), { recursive: true });
+    fs.writeFileSync(path.join(workspaceDir, 'README.md'), [
+      '# Atlas Web',
+      '',
+      'Anonymous demo workspace for Farming product screenshots.',
+      '',
+    ].join('\n'));
+    fs.writeFileSync(path.join(workspaceDir, 'src', 'components', 'Dashboard.tsx'), [
+      "type Metric = { label: string; value: string }",
+      '',
+      'export function Dashboard({ metrics }: { metrics: Metric[] }) {',
+      '  return (',
+      '    <section className="dashboard">',
+      '      <h1>System overview</h1>',
+      '      <div className="metric-grid">',
+      '        {metrics.map(metric => (',
+      '          <article key={metric.label}>',
+      '            <span>{metric.label}</span>',
+      '            <strong>{metric.value}</strong>',
+      '          </article>',
+      '        ))}',
+      '      </div>',
+      '    </section>',
+      '  )',
+      '}',
+      '',
+    ].join('\n'));
+    fs.writeFileSync(path.join(workspaceDir, 'tests', 'dashboard.spec.ts'), [
+      "import { test, expect } from '@playwright/test'",
+      '',
+      "test('renders the overview', async ({ page }) => {",
+      "  await page.goto('/dashboard')",
+      "  await expect(page.getByRole('heading', { name: 'System overview' })).toBeVisible()",
+      '})',
+      '',
+    ].join('\n'));
+    run('git', ['init', '-q'], { cwd: workspaceDir });
+    run('git', ['add', '.'], { cwd: workspaceDir });
+    run('git', ['-c', 'user.name=Alex Chen', '-c', 'user.email=alex@example.invalid', 'commit', '-qm', 'Create dashboard overview'], { cwd: workspaceDir });
+    fs.appendFileSync(path.join(workspaceDir, 'src', 'components', 'Dashboard.tsx'), '// TODO: add empty-state metrics\n');
+  }
+  for (const directory of [screenshotDir, crtScreenshotDir]) {
+    for (const entry of fs.readdirSync(directory)) {
+      if (/^\d{2}-.*\.(?:png|jpg|jpeg)$/i.test(entry)) {
+        fs.rmSync(path.join(directory, entry), { force: true });
+      }
     }
   }
 }
@@ -73,7 +137,7 @@ async function ensureApp(page) {
   await page.getByTestId('app-shell').waitFor({ state: 'visible', timeout: 30_000 });
   await page.addStyleTag({
     content: `
-      [data-testid="codex-usage-panel"] {
+      [data-testid="code-usage-panel"] {
         display: none !important;
       }
     `,
@@ -85,21 +149,22 @@ async function setDemoSettings(page, baseUrl) {
     data: {
       lastMainWorkspace: workspaceDir,
       workspaceHistory: [workspaceDir],
+      projectNames: { [workspaceDir]: 'Atlas Web' },
       appearance: 'light',
       language: 'en',
       defaultLaunchAgent: 'bash',
       codexApprovalMode: 'approve',
-      codexModel: 'gpt-5.5',
-      codexReasoningEffort: 'xhigh',
+      codexModel: 'gpt-5.6-terra',
+      codexReasoningEffort: 'medium',
       codexServiceTier: 'default',
-      codexModelPreset: 'gpt-5.5:xhigh',
+      codexModelPreset: 'gpt-5.6-terra:medium',
       agentLaunchProfiles: {
         codex: {
           approvalMode: 'approve',
-          model: 'gpt-5.5',
-          reasoningEffort: 'xhigh',
+          model: 'gpt-5.6-terra',
+          reasoningEffort: 'medium',
           serviceTier: 'default',
-          modelPreset: 'gpt-5.5:xhigh',
+          modelPreset: 'gpt-5.6-terra:medium',
         },
         claude: {
           permissionMode: 'default',
@@ -141,6 +206,22 @@ async function updateAgent(page, baseUrl, agentId, patch) {
   return response.json();
 }
 
+async function sendAgentInput(page, baseUrl, agentId, input) {
+  const response = await page.request.post(`${baseUrl}${basePath}/api/control/agents/${encodeURIComponent(agentId)}/input`, {
+    data: { input },
+  });
+  if (!response.ok()) {
+    throw new Error(`failed to send input to ${agentId}: ${response.status()} ${await response.text()}`);
+  }
+}
+
+async function waitForAgentOutput(page, baseUrl, agentId, expectedText) {
+  await page.waitForFunction(async ({ url, pathPrefix, id, expected }) => {
+    const response = await fetch(`${url}${pathPrefix}/api/control/agents/${encodeURIComponent(id)}/output?tail=12000`);
+    return response.ok && (await response.text()).includes(expected);
+  }, { url: baseUrl, pathPrefix: basePath, id: agentId, expected: expectedText }, { timeout: 20_000 });
+}
+
 async function writeTerminalFixture(page, agentId, text) {
   await page.waitForFunction(
     id => Boolean(window.__farmingTerminalTest?.getCellCenter(id, 0, 0)),
@@ -156,28 +237,33 @@ async function writeTerminalFixture(page, agentId, text) {
 }
 
 async function openSidebarOnMobile(page) {
-  const workspace = page.getByTestId('codex-workspace');
+  const workspace = page.getByTestId('code-workspace');
   const className = await workspace.getAttribute('class');
   if (className?.includes('sidebar-collapsed')) {
-    await page.getByTestId('codex-mobile-menu').click();
+    await page.getByTestId('code-mobile-menu').click();
   }
-  await page.getByTestId('codex-sidebar').waitFor({ state: 'visible', timeout: 10_000 });
+  await page.getByTestId('code-sidebar').waitFor({ state: 'visible', timeout: 10_000 });
 }
 
 async function openAgent(page, agentId) {
-  const terminal = page.locator(`[data-testid="codex-terminal-pane"][data-agent-id="${agentId}"]`);
-  if (await terminal.isVisible()) return;
+  const terminal = page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`);
+  const chat = page.getByTestId('code-acp-composer');
+  const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).first();
+  const rowClassName = await row.getAttribute('class').catch(() => '');
+  if (await terminal.isVisible() || (await chat.isVisible() && rowClassName?.includes('active'))) return;
 
-  const row = page.locator(`[data-testid="codex-agent-row"][data-agent-id="${agentId}"]`).first();
   if (!(await row.isVisible())) {
     await openSidebarOnMobile(page);
   }
   await row.evaluate(element => element.click());
-  await terminal.waitFor({ state: 'visible', timeout: 20_000 });
+  await page.waitForFunction(id => Boolean(
+    document.querySelector(`[data-testid="code-terminal-pane"][data-agent-id="${id}"]`)
+    || document.querySelector('[data-testid="code-acp-composer"]')
+  ), agentId, { timeout: 20_000 });
 }
 
 async function openFile(page, query) {
-  const filesSection = page.getByTestId('codex-files-section').first();
+  const filesSection = page.getByTestId('code-files-section').first();
   await filesSection.waitFor({ state: 'visible', timeout: 20_000 });
   const filesToggle = filesSection.getByRole('button', { name: /^Files$/ });
   if (await filesToggle.isVisible()) {
@@ -191,18 +277,18 @@ async function openFile(page, query) {
 }
 
 async function waitForFileTree(page) {
-  const filesSection = page.getByTestId('codex-files-section').first();
+  const filesSection = page.getByTestId('code-files-section').first();
   await filesSection.waitFor({ state: 'visible', timeout: 20_000 });
   const filesToggle = filesSection.getByRole('button', { name: /^Files$/ });
   if (await filesToggle.isVisible()) {
     const expanded = await filesToggle.getAttribute('aria-expanded');
     if (expanded === 'false') await filesToggle.click();
   }
-  await page.locator('.codex-file-tree-row').first().waitFor({ state: 'visible', timeout: 20_000 });
+  await page.locator('.code-file-tree-row').first().waitFor({ state: 'visible', timeout: 20_000 });
 }
 
 async function waitForEditorReady(page, expectedText = '') {
-  await page.getByTestId('codex-file-editor').waitFor({ state: 'visible', timeout: 20_000 });
+  await page.getByTestId('code-file-editor').waitFor({ state: 'visible', timeout: 20_000 });
   await page.locator('.monaco-editor .view-line').first().waitFor({ state: 'visible', timeout: 20_000 });
   if (expectedText) {
     await page.locator('.monaco-editor .view-line', { hasText: expectedText }).first().waitFor({ state: 'visible', timeout: 20_000 });
@@ -224,11 +310,191 @@ async function waitForStableUi(page, delayMs = 500) {
   if (delayMs > 0) await page.waitForTimeout(delayMs);
 }
 
-async function screenshot(page, fileName) {
+async function screenshot(page, fileName, directory = screenshotDir) {
   await waitForStableUi(page, 250);
+  if (directory === crtScreenshotDir) {
+    await page.evaluate(() => {
+      const replacements = {
+        'system-ip': 'demo.lan',
+        'cpu-usage': '24',
+        'mem-percentage': '38',
+        'system-time': '2026-07-14 09:41:00',
+        uptime: '12m 34s',
+      };
+      for (const [id, value] of Object.entries(replacements)) {
+        const node = document.getElementById(id);
+        if (node) node.textContent = value;
+      }
+    });
+  }
   await page.screenshot({
-    path: path.join(screenshotDir, fileName),
+    path: path.join(directory, fileName),
     fullPage: false,
+  });
+}
+
+function createUsageFixture() {
+  const now = Date.parse('2026-07-14T01:00:00.000Z');
+  const bucketMs = 2 * 60 * 1000;
+  const timelinePoints = Array.from({ length: 30 }, (_, index) => {
+    const totalTokens = index % 7 === 0 ? 24_000 + index * 800 : index % 3 === 0 ? 4_000 + index * 120 : 0;
+    return {
+      startedAt: now - 60 * 60 * 1000 + index * bucketMs,
+      endedAt: now - 60 * 60 * 1000 + (index + 1) * bucketMs,
+      totalTokens,
+      tokensPerMinute: totalTokens / 2,
+      providers: { codex: Math.round(totalTokens * 0.72), claude: Math.round(totalTokens * 0.2), opencode: Math.round(totalTokens * 0.08) },
+    };
+  });
+  const dailyCursor = new Date(now);
+  dailyCursor.setHours(12, 0, 0, 0);
+  dailyCursor.setDate(dailyCursor.getDate() - 52 * 7 + 1);
+  const dailyPoints = Array.from({ length: 52 * 7 }, (_, index) => {
+    const date = [dailyCursor.getFullYear(), String(dailyCursor.getMonth() + 1).padStart(2, '0'), String(dailyCursor.getDate()).padStart(2, '0')].join('-');
+    const totalTokens = index === 52 * 7 - 1
+      ? 486_000
+      : index === 302
+        ? 1_280_000_000
+        : index % 9 === 0 ? 180_000 + index * 1_600 : index % 17 === 0 ? 86_000 : 0;
+    dailyCursor.setDate(dailyCursor.getDate() + 1);
+    return {
+      date,
+      totalTokens,
+      inputTokens: Math.round(totalTokens * 0.35),
+      outputTokens: Math.round(totalTokens * 0.15),
+      cacheReadTokens: Math.round(totalTokens * 0.45),
+      cacheWriteTokens: Math.round(totalTokens * 0.05),
+      unattributedTokens: 0,
+      providers: {
+        codex: { totalTokens: Math.round(totalTokens * 0.72) },
+        claude: { totalTokens: Math.round(totalTokens * 0.2) },
+        opencode: { totalTokens: Math.round(totalTokens * 0.08) },
+      },
+    };
+  });
+  const sumDays = count => dailyPoints.slice(-count).reduce((sum, point) => sum + point.totalTokens, 0);
+  const peakDay = dailyPoints.reduce((peak, point) => point.totalTokens > peak.totalTokens ? point : peak, dailyPoints[0]);
+  const timelineTotal = timelinePoints.reduce((sum, point) => sum + point.totalTokens, 0);
+  return {
+    now,
+    dailyPoints,
+    usage: {
+      sampledAt: now,
+      windowMs: 5 * 60 * 1000,
+      timeline: {
+        source: 'local provider token events',
+        sampledAt: now,
+        startAt: now - 60 * 60 * 1000,
+        endAt: now,
+        windowMs: 60 * 60 * 1000,
+        bucketMs,
+        bucketCount: timelinePoints.length,
+        totalTokens: timelineTotal,
+        averageTokensPerMinute: timelineTotal / 60,
+        peakTokensPerMinute: Math.max(...timelinePoints.map(point => point.tokensPerMinute)),
+        activeBucketCount: timelinePoints.filter(point => point.totalTokens > 0).length,
+        points: timelinePoints,
+      },
+      daily: {
+        source: 'local provider token events',
+        sampledAt: now,
+        timeZone: 'Asia/Shanghai',
+        days: dailyPoints.length,
+        startDate: dailyPoints[0].date,
+        endDate: dailyPoints.at(-1).date,
+        partial: false,
+        coverage: [
+          { provider: 'codex', providerName: 'Codex', available: true, homeCount: 2 },
+          { provider: 'claude', providerName: 'Claude', available: true, homeCount: 1 },
+          { provider: 'opencode', providerName: 'OpenCode', available: true, homeCount: 1 },
+          { provider: 'qoder', providerName: 'Qoder', available: false, homeCount: 1, reason: 'Token history unavailable.' },
+        ],
+        summary: {
+          todayTokens: sumDays(1),
+          sevenDayTokens: sumDays(7),
+          thirtyDayTokens: sumDays(30),
+          periodTokens: sumDays(dailyPoints.length),
+          peakDate: peakDay.date,
+          peakTokens: peakDay.totalTokens,
+        },
+        points: dailyPoints,
+      },
+      providers: [
+        {
+          provider: 'codex',
+          providerName: 'Codex',
+          auth: { available: true, status: 'Connected', source: 'Codex session' },
+          quota: {
+            available: true,
+            source: 'Codex usage events',
+            primary: { usedPercent: 38, windowMinutes: 300, resetsAt: now + 90 * 60 * 1000 },
+            secondary: { usedPercent: 71, windowMinutes: 10080, resetsAt: now + 3 * 24 * 60 * 60 * 1000 },
+          },
+          tokenUsage: { totalTokens: 46_000, tokensPerMinute: 9_200, windowMs: 300_000, eventCount: 4, sampledAt: now, source: 'Codex usage events' },
+        },
+        {
+          provider: 'claude',
+          providerName: 'Claude',
+          auth: { available: true, status: 'Connected', source: 'Claude session' },
+          quota: { available: false, source: 'Claude session', reason: 'Quota unavailable' },
+          tokenUsage: { totalTokens: 7_000, tokensPerMinute: 1_400, windowMs: 300_000, eventCount: 2, sampledAt: now, source: 'Claude local usage' },
+        },
+        {
+          provider: 'opencode',
+          providerName: 'OpenCode',
+          auth: { available: true, status: 'Connected', source: 'OpenCode session' },
+          quota: { available: false, source: 'OpenCode session', reason: 'Quota unavailable' },
+          tokenUsage: { totalTokens: 2_800, tokensPerMinute: 560, windowMs: 300_000, eventCount: 2, sampledAt: now, source: 'OpenCode session export' },
+        },
+        {
+          provider: 'qoder',
+          providerName: 'Qoder',
+          auth: { available: true, status: 'Local sessions', source: 'Qoder sessions' },
+          quota: { available: false, source: 'Qoder sessions', reason: 'Quota unavailable' },
+          tokenUsage: { available: false, totalTokens: null, tokensPerMinute: null, windowMs: 300_000, eventCount: 0, sampledAt: now, source: 'Qoder sessions', reason: 'Token usage unavailable' },
+        },
+      ],
+      agentUsage: null,
+      systemStats: null,
+    },
+  };
+}
+
+async function installUsageRoutes(page, fixture) {
+  await page.route(/\/api\/usage(?:\/day)?(?:\?|$)/, async route => {
+    const requestUrl = new URL(route.request().url());
+    if (requestUrl.pathname.endsWith('/api/usage/day')) {
+      const date = requestUrl.searchParams.get('date') || fixture.dailyPoints.at(-1).date;
+      const point = fixture.dailyPoints.find(candidate => candidate.date === date) || fixture.dailyPoints.at(-1);
+      const hourlyWeights = new Map([[3, 0.08], [8, 0.17], [10, 0.25], [14, 0.12], [18, 0.28], [22, 0.10]]);
+      const hours = Array.from({ length: 24 }, (_, hour) => {
+        const totalTokens = Math.round(point.totalTokens * (hourlyWeights.get(hour) || 0));
+        return {
+          hour,
+          label: String(hour).padStart(2, '0'),
+          totalTokens,
+          inputTokens: Math.round(totalTokens * 0.35),
+          outputTokens: Math.round(totalTokens * 0.15),
+          cacheReadTokens: Math.round(totalTokens * 0.45),
+          cacheWriteTokens: Math.round(totalTokens * 0.05),
+          unattributedTokens: 0,
+        };
+      });
+      await route.fulfill({
+        json: {
+          detail: {
+            source: 'local provider token events',
+            date: point.date,
+            timeZone: 'Asia/Shanghai',
+            total: point,
+            hours,
+            providers: point.providers,
+          },
+        },
+      });
+      return;
+    }
+    await route.fulfill({ json: { usage: fixture.usage } });
   });
 }
 
@@ -240,24 +506,13 @@ async function showBlameFromEditorGutter(page) {
 }
 
 async function openNewAgentDialog(page) {
-  await page.getByTestId('codex-new-agent').click();
+  await page.getByTestId('code-new-agent').click();
   await page.getByTestId('input-dialog').waitFor({ state: 'visible', timeout: 20_000 });
 }
 
 async function closeNewAgentDialog(page) {
   await page.getByTestId('input-dialog-close').click();
   await page.getByTestId('input-dialog').waitFor({ state: 'hidden', timeout: 20_000 });
-}
-
-async function ensureMobile(page) {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByTestId('codex-mobile-topbar').waitFor({ state: 'visible', timeout: 20_000 });
-}
-
-async function fillComposer(page, value) {
-  const textarea = page.getByTestId('codex-composer').locator('textarea');
-  await textarea.waitFor({ state: 'visible', timeout: 20_000 });
-  await textarea.fill(value);
 }
 
 async function main() {
@@ -282,6 +537,7 @@ async function main() {
       FARMING_CONFIG_DIR: configDir,
       FARMING_DISABLE_AUTH: '1',
       FARMING_E2E_FAKE_EXECUTABLES: '1',
+      FARMING_E2E_FAKE_ACP_AGENT: '1',
       FARMING_ANONYMIZE_SHELL_PROMPT: '1',
       HOME: homeDir,
       NODE_ENV: 'test',
@@ -310,6 +566,9 @@ async function main() {
     });
     const page = await context.newPage();
 
+    await page.route(`**${basePath}/api/codex/models`, route => route.fulfill({
+      json: { catalog: matrixCatalog, source: 'fixture' },
+    }));
     await ensureApp(page);
     await setDemoSettings(page, baseUrl);
     await ensureApp(page);
@@ -317,27 +576,34 @@ async function main() {
     const codexAgentId = await startAgent(page, baseUrl, {
       command: 'codex',
       workspace: workspaceDir,
-      task: 'Audit Farming 2 release docs',
+      task: 'Review the dashboard implementation',
+      agentRuntimeMode: 'acp',
+    });
+    const terminalAgentId = await startAgent(page, baseUrl, {
+      command: 'codex',
+      workspace: workspaceDir,
+      task: 'Verify the release build',
+      agentRuntimeMode: 'terminal',
     });
     const claudeAgentId = await startAgent(page, baseUrl, {
       command: 'claude',
       workspace: workspaceDir,
-      task: 'Review mobile follow-up flow',
+      task: 'Review the responsive layout',
     });
     const shellAgentId = await startDemoAgent(page, baseUrl);
-    await updateAgent(page, baseUrl, codexAgentId, { customTitle: 'Release docs audit', pinned: true });
-    await updateAgent(page, baseUrl, claudeAgentId, { customTitle: 'Mobile QA review', unread: true });
-    await updateAgent(page, baseUrl, shellAgentId, { customTitle: 'Build smoke terminal' });
+    await updateAgent(page, baseUrl, codexAgentId, { customTitle: 'Dashboard review', pinned: true });
+    await updateAgent(page, baseUrl, terminalAgentId, { customTitle: 'Release verification' });
+    await updateAgent(page, baseUrl, claudeAgentId, { customTitle: 'Responsive QA', unread: true });
+    await updateAgent(page, baseUrl, shellAgentId, { customTitle: 'Build smoke' });
 
     await ensureApp(page);
-    await openAgent(page, codexAgentId);
-    await writeTerminalFixture(page, codexAgentId, [
-      '> Review release documentation and screenshot coverage',
+    await openAgent(page, terminalAgentId);
+    await writeTerminalFixture(page, terminalAgentId, [
+      '> Verify the dashboard release',
       '',
-      '- Ran npm run docs:product:screenshots',
-      '  - captured 10 product story frames',
-      '- Read README.md, README.zh_cn.md, docs/products/code/README.md',
-      '- Opened scripts/capture-product-screenshots.js:11 from terminal output',
+      '- Ran npm test',
+      '- Checked src/components/Dashboard.tsx:1',
+      '- Verified the responsive layout',
       '',
       'Working (42s - esc to interrupt) - 2 background terminals running - /ps to view',
       '',
@@ -346,7 +612,7 @@ async function main() {
     await openAgent(page, claudeAgentId);
     await writeTerminalFixture(page, claudeAgentId, [
       'Fake Claude Code ready',
-      'Reviewing mobile composer layout...',
+      'Reviewing responsive composer layout...',
       'Found: microphone button no longer overlaps text input',
       'Waiting for next instruction',
     ].join('\r\n'));
@@ -354,12 +620,11 @@ async function main() {
     await writeTerminalFixture(page, shellAgentId, [
       '$ farming status',
       'server: running on http://demo-linux.local:6694/farming',
-      'workspace: /workspaces/farming',
-      'agents: 3 active, 0 waiting',
+      'workspace: /workspaces/atlas-web',
+      'agents: 4 active, 0 waiting',
       '',
       '$ git status --short',
-      ' M README.md',
-      ' M scripts/capture-product-screenshots.js',
+      ' M src/components/Dashboard.tsx',
       '',
       '$ npm run check',
       'ok backend tests passed',
@@ -367,48 +632,209 @@ async function main() {
       'ok lint passed',
       '$',
     ].join('\r\n'));
+    await sendAgentInput(page, baseUrl, shellAgentId, 'stty -echo\r');
+    await page.waitForTimeout(150);
+    await sendAgentInput(page, baseUrl, shellAgentId, 'clear\r');
+    await page.waitForTimeout(150);
+    await sendAgentInput(page, baseUrl, shellAgentId, [
+      "printf '\\033[1;36mAtlas Web release console\\033[0m\\n'",
+      "printf 'tests: 145 passed\\ntypecheck: passed\\nproduction build: ready\\n'",
+      'git status --short',
+      'stty echo',
+    ].join('; ') + '\r');
+    await waitForAgentOutput(page, baseUrl, shellAgentId, 'production build: ready');
     await openAgent(page, codexAgentId);
+    const acpProfileResponse = await page.request.patch(`${baseUrl}${basePath}/api/agents/${encodeURIComponent(codexAgentId)}/acp-session`, {
+      data: {
+        configOptions: [
+          { configId: 'model', value: 'gpt-5.6-terra' },
+          { configId: 'reasoning', value: 'medium' },
+        ],
+      },
+    });
+    if (!acpProfileResponse.ok()) {
+      throw new Error(`failed to set screenshot ACP profile: ${acpProfileResponse.status()} ${await acpProfileResponse.text()}`);
+    }
+    const acpInput = page.getByTestId('code-acp-composer-input');
+    await acpInput.fill('Review the dashboard implementation, keep a rich timeline of the checks, and report what changed.');
+    await page.getByTestId('code-acp-composer-send').click();
+    await page.getByText('Rich ACP timeline complete.', { exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
 
     await waitForFileTree(page);
     await screenshot(page, '01-code-workspace.png');
 
+    const richTurn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'rich timeline' }).first();
+    await richTurn.getByTestId('code-codex-transcript-process-summary').click();
+    const processGroup = richTurn.getByTestId('code-codex-transcript-process-group').first();
+    await processGroup.getByTestId('code-codex-transcript-process-group-toggle').click();
+    await processGroup.getByText('Run verification command', { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
+    await screenshot(page, '11-code-agent-process.png');
+
     await openNewAgentDialog(page);
     await screenshot(page, '02-start-agent-picker.png');
+    await page.getByTestId('agent-option-codex').click();
+    await page.getByTestId('workspace-step').waitFor({ state: 'visible', timeout: 20_000 });
     await page.getByTestId('input-dialog').screenshot({
       path: path.join(screenshotDir, '03-start-agent-workspace.png'),
     });
     await closeNewAgentDialog(page);
 
     await openAgent(page, codexAgentId);
-    await fillComposer(page, 'Please tighten the install section and keep the screenshots anonymous.');
-    await fillComposer(page, '');
-
-    await openFile(page, 'scripts/capture-product-screenshots.js:1');
-    await waitForEditorReady(page, 'chromium');
+    await openFile(page, 'src/components/Dashboard.tsx:1');
+    await waitForEditorReady(page, 'Dashboard');
     await showBlameFromEditorGutter(page);
-    await page.locator('.codex-file-inline-blame').first().waitFor({ state: 'visible', timeout: 20_000 });
+    await page.locator('.code-file-inline-blame').first().waitFor({ state: 'visible', timeout: 20_000 });
     await waitForStableUi(page, 1000);
     await screenshot(page, '04-files-editor-blame.png');
 
-    await ensureMobile(page);
+    const mobileContext = await browser.newContext({
+      baseURL: baseUrl,
+      viewport: { width: 390, height: 844 },
+      deviceScaleFactor: 1,
+      hasTouch: true,
+      isMobile: true,
+    });
+    await mobileContext.addInitScript(() => {
+      window.__FARMING_E2E__ = true;
+    });
+    const mobilePage = await mobileContext.newPage();
+    await mobilePage.route(`**${basePath}/api/codex/models`, route => route.fulfill({
+      json: { catalog: matrixCatalog, source: 'fixture' },
+    }));
+    await ensureApp(mobilePage);
+    await mobilePage.getByTestId('code-mobile-topbar').waitFor({ state: 'visible', timeout: 20_000 });
+    await openAgent(mobilePage, codexAgentId);
+    await screenshot(mobilePage, '05-mobile-agent-chat.jpg');
+
+    await openSidebarOnMobile(mobilePage);
+    await mobilePage.getByTestId('code-sidebar').waitFor({ state: 'visible', timeout: 20_000 });
+    await screenshot(mobilePage, '06-mobile-files-sidebar.jpg');
+    await mobileContext.close();
+
+    await openAgent(page, terminalAgentId);
+    await page.getByTestId('code-composer-model-picker').click();
+    await page.getByTestId('code-model-matrix-picker').waitFor({ state: 'visible', timeout: 20_000 });
+    await screenshot(page, '07-live-model-controls.png');
+    await page.keyboard.press('Escape');
+    await page.getByTestId('code-model-matrix-picker').waitFor({ state: 'hidden', timeout: 20_000 });
+    await screenshot(page, '12-code-terminal-session.png');
+
+    await updateAgent(page, baseUrl, terminalAgentId, { archived: true });
+    await page.getByTestId('code-nav-history').click();
+    await page.getByTestId('code-history-panel').waitFor({ state: 'visible', timeout: 20_000 });
+    const historySearch = page.getByRole('searchbox', { name: 'Search history' });
+    await historySearch.fill('Release verification');
+    await page.getByTestId('code-archived-run-card').filter({ hasText: 'Release verification' }).waitFor({ state: 'visible', timeout: 20_000 });
+    await waitForStableUi(page, 400);
+    await screenshot(page, '08-history-search.png');
+
+    await page.getByTestId('code-nav-search').click();
+    await page.getByTestId('code-search-panel').waitFor({ state: 'visible', timeout: 20_000 });
+    const globalSearch = page.getByTestId('code-search-box').locator('input');
+    await globalSearch.fill('Atlas');
+    await page.getByTestId('code-search-result').first().waitFor({ state: 'visible', timeout: 20_000 });
+    await screenshot(page, '13-code-search.png');
+
+    await page.keyboard.press('Escape');
+    await page.getByTestId('code-sidebar-options').click();
+    await page.getByTestId('code-settings-panel').waitFor({ state: 'visible', timeout: 20_000 });
+    await screenshot(page, '14-code-settings.png');
+    await page.keyboard.press('Escape');
+
+    await page.request.post(`${baseUrl}${basePath}/api/settings`, { data: { appearance: 'dark' } });
+    await ensureApp(page);
     await openAgent(page, codexAgentId);
-    await writeTerminalFixture(page, codexAgentId, [
-      '> Mobile check-in',
-      '',
-      '- Remote agent still running',
-      '- Output readable on phone',
-      '- Composer clear of controls',
-      '',
-      'Working 2m14s - ready to steer',
-    ].join('\r\n'));
-    await fillComposer(page, 'Looks good. Please continue with the README cleanup.');
-    await screenshot(page, '05-mobile-agent-chat.jpg');
+    await screenshot(page, '09-dark-workspace.png');
 
-    await openSidebarOnMobile(page);
-    await page.getByTestId('codex-sidebar').waitFor({ state: 'visible', timeout: 20_000 });
-    await screenshot(page, '06-mobile-files-sidebar.jpg');
+    await page.goto(`${basePath}/review?fixture=1`, { waitUntil: 'networkidle' });
+    await page.getByTestId('review-page').waitFor({ state: 'visible', timeout: 30_000 });
+    await screenshot(page, '10-review-workflow.png');
 
-    console.log(`Product screenshots written to ${screenshotDir}`);
+    const usageFixture = createUsageFixture();
+    await installUsageRoutes(page, usageFixture);
+    await page.route(`**${basePath}/api/agent-sessions/search?**`, route => {
+      const query = new URL(route.request().url()).searchParams.get('q') || '';
+      return route.fulfill({
+        json: {
+          sessions: [{
+            provider: 'codex',
+            providerName: 'Codex',
+            providerHomeId: 'default',
+            id: '019f-atlas-archive',
+            title: 'Atlas migration archive',
+            workspace: workspaceDir,
+            updatedAt: '2026-07-13T16:00:00.000Z',
+          }],
+          total: 1,
+          query,
+        },
+      });
+    });
+
+    await page.goto(`${basePath}/crt/`, { waitUntil: 'networkidle' });
+    await page.locator('body#farming-crt').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.locator('.agent-block').first().waitFor({ state: 'visible', timeout: 30_000 });
+    await screenshot(page, '01-crt-dashboard.png', crtScreenshotDir);
+
+    await page.goto(`${basePath}/crt/?agent=${encodeURIComponent(codexAgentId)}`, { waitUntil: 'networkidle' });
+    await page.locator('#session-modal.active').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.locator('#crt-structured-composer.active').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.locator('#terminal-output .crt-structured-transcript').waitFor({ state: 'visible', timeout: 30_000 });
+    await screenshot(page, '02-crt-structured-chat.png', crtScreenshotDir);
+
+    await page.goto(`${basePath}/crt/?agent=${encodeURIComponent(shellAgentId)}`, { waitUntil: 'networkidle' });
+    await page.locator('#session-modal.active').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.locator('#terminal-output .xterm').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByText('production build: ready', { exact: false }).waitFor({ state: 'visible', timeout: 30_000 });
+    await screenshot(page, '03-crt-terminal.png', crtScreenshotDir);
+    await page.getByRole('button', { name: 'Close session, Ctrl+Escape', exact: true }).click();
+
+    await page.getByRole('button', { name: '[F] SEARCH', exact: true }).click();
+    const crtSearch = page.getByRole('searchbox', { name: 'Search projects, Agents, and sessions' });
+    await crtSearch.fill('Atlas');
+    await page.locator('.search-row').first().waitFor({ state: 'visible', timeout: 20_000 });
+    await screenshot(page, '04-crt-search.png', crtScreenshotDir);
+
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: '[H] HISTORY', exact: true }).click();
+    await page.locator('#history-area:not(.hidden)').waitFor({ state: 'visible', timeout: 20_000 });
+    await page.locator('.history-row').first().waitFor({ state: 'visible', timeout: 20_000 });
+    await screenshot(page, '05-crt-history.png', crtScreenshotDir);
+
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: '[$] BILLING', exact: true }).click();
+    await page.locator('#billing-status').filter({ hasText: 'HISTORY READY' }).waitFor({ state: 'visible', timeout: 30_000 });
+    await page.locator('#billing-day-insight-state').filter({ hasText: '24 HOURLY BINS READY' }).waitFor({ state: 'visible', timeout: 30_000 });
+    await screenshot(page, '06-crt-billing-days.png', crtScreenshotDir);
+    await page.getByRole('tab', { name: '[L] LIVE', exact: true }).click();
+    await page.locator('#billing-status').filter({ hasText: 'SIGNAL LOCKED' }).waitFor({ state: 'visible', timeout: 30_000 });
+    await screenshot(page, '07-crt-billing-live.png', crtScreenshotDir);
+
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: '[S] SETTINGS', exact: true }).click();
+    await page.locator('#settings-modal.active').waitFor({ state: 'visible', timeout: 20_000 });
+    await screenshot(page, '08-crt-settings.png', crtScreenshotDir);
+
+    const crtMobileContext = await browser.newContext({
+      baseURL: baseUrl,
+      viewport: { width: 390, height: 844 },
+      deviceScaleFactor: 1,
+      hasTouch: true,
+      isMobile: true,
+    });
+    await crtMobileContext.addInitScript(() => {
+      window.__FARMING_E2E__ = true;
+    });
+    const crtMobilePage = await crtMobileContext.newPage();
+    await installUsageRoutes(crtMobilePage, usageFixture);
+    await crtMobilePage.goto(`${basePath}/crt/`, { waitUntil: 'networkidle' });
+    await crtMobilePage.locator('body#farming-crt').waitFor({ state: 'visible', timeout: 30_000 });
+    await crtMobilePage.locator('.agent-block').first().waitFor({ state: 'visible', timeout: 30_000 });
+    await screenshot(crtMobilePage, '09-crt-mobile-dashboard.jpg', crtScreenshotDir);
+    await crtMobileContext.close();
+
+    console.log(`Farming Code screenshots written to ${screenshotDir}`);
+    console.log(`Farming CRT screenshots written to ${crtScreenshotDir}`);
   } finally {
     if (browser) await browser.close();
     serverProcess.kill('SIGTERM');

@@ -2,16 +2,16 @@
 
 > English version: [mobile-guide.md](./mobile-guide.md)
 
-Farming 2 的手机端是一个随身远程工作台。它不追求把桌面 IDE 塞进手机屏幕，而是让你离开电脑后仍然能回到同一台 Linux 开发机：看 agent 是否还在跑、查看 terminal 输出、发一句补充输入、打开项目文件、搜索关键位置，必要时看一眼 git blame。
+Farming 2 的手机端是一个随身远程工作台。它不追求把桌面 IDE 塞进手机屏幕，而是让你离开电脑后仍然能回到同一台 macOS 或 Linux 开发机：看 Agent 是否还在跑、阅读结构化 Chat 或 Terminal、发一句补充输入、打开项目文件、搜索关键位置，必要时看一眼 git blame。
 
-这一版手机端和桌面端都固定为白色系界面，不提供黑色系切换。
+手机端与桌面端使用同一套 Farming Code 浅色或深色外观。
 
 ## 一次性用起来
 
 前置条件：
 
-- Farming 2 已经部署在一台手机能访问到的 Linux 开发机上。
-- 这台 Linux 机器上已经能直接运行 `bash` / `zsh`。
+- Farming 2 已经部署在一台手机能访问到的 macOS 或 Linux 开发机上。
+- 这台机器上已经能直接运行 `bash` / `zsh`。
 - 如果要启动 Codex 或 Claude Code，这台机器上也已经安装并登录对应 CLI。
 
 使用步骤：
@@ -34,7 +34,7 @@ Farming 2 的手机端是一个随身远程工作台。它不追求把桌面 IDE
 
 - 顶部栏：显示当前 terminal、文件、Search 或 History，以及本地 / 远程连接状态。
 - 左侧抽屉：放 Projects、Agents、Files、Search、History 和系统状态。
-- 主工作区：一次只聚焦一个 terminal、文件编辑器、搜索页或历史页。
+- 主工作区：一次只聚焦一个 Chat、Terminal、文件编辑器、Review、搜索页或历史页。
 
 这种布局适合“短时间回到现场”：先看当前任务，再决定是否介入。手机端不会同时铺开多个 pane，也不会把所有 agent 输出一起堆在屏幕上。
 
@@ -50,9 +50,10 @@ Farming 2 的手机端是一个随身远程工作台。它不追求把桌面 IDE
 期望体验：
 
 - 页面刷新后仍能看到服务端正在运行的 agent。
-- terminal 内容来自 Linux 服务端，不依赖手机本地进程。
+- Chat 与 Terminal 内容来自 Farming 主机，不依赖手机本地进程。
 - 页面宽度不出现横向溢出；长 terminal 行在 terminal 内部处理。
 - Codex 运行过程默认只显示紧凑状态行，需要时再点开单步详情，避免连续展开占满屏幕。
+- 结构化 Chat 的 queued follow-up、中断、权限卡片与 Tool 详情在手机宽度下仍可触达。
 - 手机端使用系统键盘自带的听写，不额外显示网页语音按钮。
 
 ### 2. 轻量介入 terminal

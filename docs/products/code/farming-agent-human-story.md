@@ -1,104 +1,133 @@
-# Farming Agent Human Story
+# Farming Code Human-Like Acceptance Story
 
 > Chinese version: [farming-agent-human-story.zh_cn.md](./farming-agent-human-story.zh_cn.md)
 
-This document is the canonical human-like story for validating Farming as an Agent workspace. It focuses on the experience a user should be able to complete from a cold start, and then again after reopening the page.
+This is the canonical ordinary-user walk for validating Farming Code. It starts from a cold browser, follows one project through Chat, Terminal, Files, History, and refresh, and checks the behavior a user can actually see.
 
-## Story 1: Start From Zero
+## Story 1: Start Work In A Real Project
 
-Goal: use Farming to start a Main Agent and ask it to implement a tiny feature.
+Goal: create one project Agent without needing to understand Main Agent.
 
-1. Open `/farming/`.
-2. The first screen should offer `Start Main Agent` without asking for a Main Agent path.
-3. Choose `Codex`.
-4. The left sidebar should show one live Main Agent.
-5. Type a feature request in the composer, for example:
+1. Open the token URL at `/farming/`.
+2. Confirm the workspace is connected and **New Agent** is enabled.
+3. Choose Codex, Claude Code, OpenCode, Qoder, bash, or zsh.
+4. Select an existing workspace and start the Agent.
+5. Confirm the new row appears under that project and becomes active.
 
-   ```text
-   add greeting to app.js
-   ```
+Expected:
 
-6. If Codex is currently working, the message should appear as a queued follow-up instead of being sent directly.
-7. Click `Steer` to send queued follow-ups into the active agent terminal.
-8. The terminal should receive the message and continue streaming output.
+- the first-use path begins with **New Agent**, not a mandatory Main Agent setup;
+- coding Agent choices are enabled only when their executable/runtime is available;
+- the Agent starts in the selected workspace;
+- opening the same page again does not create a duplicate process.
 
-Expected behavior:
+## Story 2: Work In Structured Chat
 
-- The page opens with WebSocket connected and enabled agent choices.
-- The composer sends `\r` to the terminal when a message is actually dispatched.
-- When the agent is busy, messages queue in a visible pending follow-up card.
-- Clicking `Steer` flushes queued messages.
-- No duplicate agent should appear when reopening or re-clicking an already resumed session.
+Goal: ask a coding Agent to inspect and change a small feature while retaining evidence.
 
-## Story 2: Reopen And Continue
+1. Start a supported coding Agent in **Chat**.
+2. Send a request that requires reading a file and reporting what changed.
+3. Watch the current process disclosure while the turn runs.
+4. Expand one tool or file-change card, then collapse it again.
+5. Send a follow-up after completion.
 
-Goal: close or reload the browser and continue work without losing the active agent.
+Expected:
 
-1. Start a Codex agent.
-2. Send or queue a follow-up.
-3. Reload the page.
-4. The same agent row should still be present and selected.
-5. Type another follow-up.
+- user messages, process entries, tools, and results keep their ACP order;
+- the final result regains focus when the turn completes;
+- tool details and exact historical patches remain expandable;
+- internal heartbeat/context envelopes do not appear as user conversation;
+- a message sent during an active turn is visibly queued and automatically dispatched when idle, unless the user discards it;
+- IME composition, Enter/Shift+Enter, attachments, and draft history behave like an ordinary chat composer.
 
-Expected behavior:
+## Story 3: Change Runtime Settings Without Lying
 
-- The active agent survives browser reload as long as the Farming server is still running.
-- Composer controls remain enabled for the selected agent.
-- A busy Code-style agent still queues follow-ups until the user clicks `Steer`.
+Goal: change model or speed and know which runtime receives the change.
 
-## Story 3: Existing Project Development
+1. Open the model control for a compatible Codex session.
+2. Drag to another model/reasoning point.
+3. Toggle Fast or Ultra if the live capability advertises it.
+4. Open and close **Advanced**.
+5. Send the next message.
 
-Goal: open an existing project and complete a real terminal-backed edit.
+Expected:
 
-1. Start the Main Agent.
-2. Click `New Agent`.
-3. Choose `bash`.
-4. Pick an existing project directory.
-5. Run a small project edit command in the composer, for example appending a smoke line to `app.js`.
-6. Confirm the file changed.
+- the drag thumb finishes at the selected point and the profile label agrees;
+- opening Advanced preserves the same profile and the menu transition does not flash or jump;
+- an unavailable Fast or Ultra control remains grey and disabled;
+- ACP reconciles against the returned live Session snapshot;
+- native Codex Terminal applies compatible model/Fast changes before the next message, not only on a later launch.
 
-Expected behavior:
+## Story 4: Switch Chat And Terminal Safely
 
-- New project agents start in the chosen project directory.
-- Shell terminal output preserves the user's bash / zsh prompt while Farming shell integration emits invisible busy and cwd markers.
-- On macOS, built-in bash and zsh use VS Code-style login-shell startup; each shell sources its own profile and never inherits another shell's prompt variables.
-- `FARMING_SHELL_CONTROLLED_PROMPT=1` or `FARMING_ANONYMIZE_SHELL_PROMPT=1` may still use the compact controlled prompt for screenshots and privacy-sensitive runs.
-- ANSI color escape sequences are preserved so the terminal renderer can display prompt color.
+Goal: inspect exact CLI behavior without losing the conversation.
 
-## Story 4: Read Older Terminal Output
+1. With the Agent idle, switch from Chat to Terminal.
+2. Confirm the same provider Session resumes in a real PTY.
+3. Send terminal input and wait until the provider record is materialized.
+4. Switch back to Chat.
+5. Reload the browser.
 
-Goal: inspect earlier terminal output while an agent is still producing new text.
+Expected:
 
-1. Open a running agent terminal.
-2. Scroll upward to read older output.
-3. Let the agent print more output.
-4. Click the small down-arrow button only when ready to jump back to the latest output.
+- Chat / Terminal changes the actual runtime rather than hiding one view;
+- a fresh untouched Terminal may move directly into Chat;
+- after Terminal input, a missing resumable provider record blocks the switch with an actionable error;
+- a failed target runtime restores the original runtime;
+- the active Agent and its output survive browser refresh while the Farming host remains alive.
 
-Expected behavior:
+## Story 5: Verify The Work Outside Chat
 
-- New output must not force the viewport back to the bottom while the user is reading older lines.
-- A small jump-to-latest button appears when the terminal is no longer following output.
-- Clicking the button scrolls to the bottom and resumes following new output.
+Goal: inspect files, review changes, and recover the task later.
 
-## Automated Test
+1. Expand Files for the project.
+2. Search a `path:line`, open the file, and show Git blame.
+3. Open Changes or Review and inspect the exact diff.
+4. Archive the Agent.
+5. Search its title in History and restore it.
 
-The Playwright spec `tests/e2e/human-story.spec.ts` covers this story with a fake Codex binary:
+Expected:
 
-- `starts a Code-style agent, queues follow-ups while busy, and survives reopening the page`
-- `keeps terminal scroll anchored until the user jumps to latest output`
-- `opens an existing project agent and completes a real file edit through the terminal`
+- Files remains in the project scroll flow and does not create a nested project scrollbar;
+- file operations stay inside the workspace root;
+- blame, diff, and editor state remain stable while Agents continue producing output;
+- History search can find older provider sessions beyond the first loaded browser page;
+- ephemeral shell runtimes are destroyed on archive, while supported provider sessions keep truthful resume behavior.
 
-The Playwright server defaults `FARMING_CODEX_BIN` to `tests/e2e/fixtures/fake-codex`, so automated tests do not launch a real Codex session.
+## Story 6: Return From A Phone
 
-Run:
+Goal: check the same task away from the desktop.
+
+1. Open the token URL at a 390px mobile width.
+2. Open the project drawer and select the running Agent.
+3. Read the latest result and send a short follow-up.
+4. Open Files and inspect one location.
+5. Refresh and confirm the same Agent remains visible.
+
+Expected:
+
+- the page has no document-level horizontal overflow;
+- the drawer does not squeeze the focused Chat/Terminal area;
+- the composer remains reachable with the software keyboard open;
+- mobile does not add a separate web speech control when device dictation is available.
+
+## Automated Coverage
+
+The human walk is split across deterministic Playwright specs rather than one fragile end-to-end test:
+
+- `tests/e2e/acp-human-cases.spec.ts`: structured ACP Chat behavior;
+- `tests/e2e/model-matrix.spec.ts`: live ACP and Terminal model controls;
+- `tests/e2e/terminal-regression-matrix.spec.ts`: PTY input, scrolling, selection, and recovery;
+- `tests/e2e/additional-user-scenarios.spec.ts`: launch, files, History, and lifecycle flows;
+- `tests/e2e/iphone-mobile-layout.spec.ts` and `tests/e2e/mobile-human-story.spec.ts`: mobile layout and intervention;
+- `tests/e2e/review.spec.ts`: review data and interaction behavior.
+
+Run focused coverage during iteration, then broaden before release:
 
 ```bash
-npx playwright test tests/e2e/human-story.spec.ts
+npx playwright test tests/e2e/model-matrix.spec.ts --project=chromium
+npx playwright test tests/e2e/acp-human-cases.spec.ts --project=chromium
+npm run test:e2e:playwright
 ```
 
-## Issues Found While Walking The Story
-
-- `/farming/` can load static HTML while still feeling unusable if WebSocket is not connected; the story checks enabled agent choices, not just HTTP 200.
-- Recent Codex Desktop sessions were written by Codex `0.142.x`, while PATH could resolve an older global `codex` binary. Farming now records Codex session `cli_version`, prefers a compatible Codex executable, and returns a clear update error instead of launching an incompatible resume.
-- `codex resume` now includes the original session cwd via `-C <cwd>`, so workspace-specific resume and hooks behavior match the original project.
-- Resolving `bash` to `/bin/bash` used to bypass Farming shell integration. Shell detection now uses the executable basename, so absolute bash / zsh paths still get prompt-preserving busy and cwd markers.
+Fake coding executables provide deterministic CI coverage. Real Codex and Claude Code smoke tests remain explicit, low-volume, and isolated.

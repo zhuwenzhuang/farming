@@ -2,15 +2,15 @@
 
 > Chinese version: [mobile-guide.zh_cn.md](./mobile-guide.zh_cn.md)
 
-Farming 2 on mobile is a pocket-sized remote workbench. It is not trying to fit a full desktop IDE into a phone. It lets the user return to the same Linux-hosted workspace, check whether agents are still running, read terminal output, send a short input, open project files, search a key location, or inspect git blame.
+Farming 2 on mobile is a pocket-sized remote workbench. It is not trying to fit a full desktop IDE into a phone. It lets the user return to the same macOS- or Linux-hosted workspace, check whether Agents are still running, read structured Chat or Terminal output, send a short input, open project files, search a key location, or inspect git blame.
 
-The current mobile and desktop skins use a light appearance.
+Mobile follows the same light or dark Farming Code appearance as desktop.
 
 ## Quick Start
 
 Prerequisites:
 
-- Farming 2 is running on a Linux machine reachable from the phone.
+- Farming 2 is running on a macOS or Linux development machine reachable from the phone.
 - `bash` or `zsh` works on that machine.
 - Codex / Claude Code is installed and logged in if those agents will be launched.
 
@@ -34,7 +34,7 @@ Mobile has three primary regions:
 
 - top bar: connection state, current project / file, and main actions;
 - drawer: Projects, Agents, Files, Search, History, New Agent;
-- main area: one focused terminal, search result, or editor at a time.
+- main area: one focused Chat, Terminal, search result, Review, or editor at a time.
 
 The sidebar starts collapsed so the main content is not squeezed. The user can reopen it when switching projects or agents.
 
@@ -47,6 +47,7 @@ Expected:
 - The input area remains visible when the keyboard appears.
 - Long output should scroll inside the terminal experience without causing page-wide horizontal overflow.
 - Live Codex work stays collapsed to a compact status row by default; expand a step only when its detail is needed.
+- Structured Chat keeps queued follow-ups, interrupt, permission cards, and expandable tool details reachable at phone width.
 - Mobile uses the device keyboard's dictation instead of a separate web speech button.
 
 ## Files Workflow
@@ -81,7 +82,7 @@ Desktop is still better for:
 
 1. Open the token URL on a phone.
 2. Open the drawer and select a running agent.
-3. Read recent terminal output.
+3. Read the latest structured result or Terminal output.
 4. Send a short input.
 5. Expand the project Files section.
 6. Search `README.md:2`.

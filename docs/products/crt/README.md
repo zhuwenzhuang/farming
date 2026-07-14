@@ -2,49 +2,155 @@
 
 > Chinese version: [README.zh_cn.md](./README.zh_cn.md)
 
-CRT is Farming's retro terminal-style skin. It is a console-oriented way to observe and control CLI agents.
+Farming CRT is the keyboard-first control-room interface for Farming 2. It is not an old read-only skin or a lower-fidelity fallback: it controls the same live Agents, structured ACP sessions, native PTYs, Search, History, settings, and usage data as Farming Code.
 
-CRT is not lower-level than Farming Code, and it is not just discarded history. It is a different launch shape: lighter, more terminal-like, and more focused on monitoring and control. Farming Code is the current default coding workbench skin.
+![Farming CRT dashboard](assets/01-crt-dashboard.png)
 
-CRT keeps the original top status bar, agent layout, sidebar, scanline effects, and terminal-console interaction language. The status bar reports the active/total Agent count, a compact five-minute terminal-output token-rate estimate, the server system's primary IPv4 address, and local clock.
+Use CRT when several Agents are running, when terminal output is the main signal, or when direct keyboard control is faster than moving through a coding workspace. Use [Farming Code](../code/README.md) when files, editing, and multi-round Review need more room. Switching interfaces does not restart or duplicate Agents.
 
-The desktop sidebar carries a compact Farming CRT lockup above Main Agent. Its three terminal panes form an abstract `F`: the primary pane represents Main Agent, while the cyan and amber panes represent project Agents. Panes brighten only for live sessions and briefly pulse when their terminal preview actually changes; the one-time power-on motion respects reduced-motion preferences.
+For the complete shared capability map, see the [Farming 2 product overview](../README.md).
 
-Existing interactive CRT surfaces support directional keyboard navigation. Arrow keys move a reverse-video selection across Agent cards, Main Agent, available sidebar actions, New Agent choices, and Settings controls; Enter activates the selected control, while Escape closes the current overlay or clears the dashboard selection. The Agent grid uses stable control-room bays: one to four Agents occupy a reserved `2 x 2` matrix from the upper left, five or six use `3 x 2`, and seven to nine use `3 x 3`; larger sets page in groups of nine. Small viewports reduce the available rows or columns before allowing cards to fall below their readable minimum size. The visible CRT viewport remains a fixed page, never compresses or clips a partial card across the lower frame, and reveals `PAGE` only when more than one page is needed. Pressing Down past the last Agent row opens the next page while preserving the selected column; Up from the first row returns to the previous page in the same way. No extra paging keys are introduced, and the sidebar and Main Agent stay fixed. Other dashboard and New Agent boundaries continue to wrap spatially to the opposite edge nearest the same row or column. New Agent opens with the configured default launch Agent already selected, returning from its workspace step restores that selection, and a successfully created Agent becomes the dashboard's current keyboard selection. An opened terminal keeps plain Escape for the terminal application itself and retains `Ctrl+Escape` as the close shortcut.
+## The Dashboard Is A Live Control Room
 
-Opening New Agent bypasses browser and proxy caches, while the backend reuses user-shell executable discovery for at most three seconds. The actual launch uses the same bounded result and refreshes it once it is older than that window. Opening History follows the same rule: requests within three seconds share one provider-session scan, while an older result is refreshed before the response instead of returning the stale-while-refresh snapshot used for passive reads.
+Agent cards occupy stable bays instead of continuously resizing around activity. One to four Agents use a `2 × 2` matrix, five or six use `3 × 2`, and seven to nine use `3 × 3`; larger sets page in groups of nine. Small screens reduce available rows or columns before cards fall below a readable minimum.
 
-The former disabled Task List slot is now Search. `[F] SEARCH` opens a phosphor query console that matches current project Agents locally and reuses Farming Code's bounded Agent-session search API for resumable Codex, Claude Code, OpenCode, and Qoder records. Matching covers titles, configured project names, and workspace paths. Live Agents appear before provider sessions; sessions already claimed by a live Agent are removed. Up and Down move through records while the query keeps keyboard focus, Enter opens or resumes the selected record, and Escape returns to the Agent dashboard.
+Each card shows:
 
-`[$] BILLING` opens a CRT token-telemetry console rather than a monetary invoice screen. Its default Days view combines a logarithmic 120-day bar chart with a compact 52-week activity strip, using stacked cache and non-cache segments so both billion-token spikes and the source of the processed-token volume remain legible. A fixed Y axis names the tokens-per-day logarithmic scale and keeps its adaptive magnitude ticks visible while the plot scrolls; the X axis marks local dates at the range edges, month starts, and mid-month. The selected day gets a full-height plot cursor. The summary reports today, 7-day, 30-day, 52-week, active-day, billion-token-day, and peak values. Data comes from every configured Codex and Claude Agent Home plus sanitized OpenCode session exports. Tokens are assigned by each event's local date, so sessions that cross midnight are split correctly. Totals are provider-reported processed tokens and include cache reads; they are not monetary cost or rate-limit consumption. Selecting a bar with the pointer or arrow keys reveals its exact total together with a compact `K`/`M`/`B` reading, input, output, cache-read, and cache-write values, a 24-bin local-hour total/cache curve with explicit linear axes, and attributed Codex, Claude, and OpenCode shares. The selected-day request reuses the daily event cache instead of rescanning provider histories for every click. The current date is marked as a partial day. Ripgrep performs the bounded first Codex history pass when available; the fallback reads bounded file tails and marks the response partial instead of presenting incomplete history as exact. OpenCode exports are cached by session update time. Qoder remains visible as an unavailable source because its local session files do not expose model-token fields; Farming does not estimate them from terminal output. `[L] LIVE` retains the 60-minute, 30-bin Canvas oscilloscope, five-minute provider rates, quota windows, and reset gauges. Passive live reads reuse the backend result for up to 15 seconds with stale-while-refresh protection, while the heavier daily rollup is reused for up to five minutes. Opening Billing or pressing `R` forces both layers to refresh, and the visible screen requests an update every 30 seconds. Missing quota telemetry is stated explicitly while locally observed token activity remains visible.
+- the human rename, provider session title, terminal title, or friendly provider name;
+- running, waiting, unread, and optional heat state;
+- the configured project name;
+- a bottom-aligned ANSI-aware live terminal preview;
+- a stable numeric shortcut badge.
 
-History matches Farming Code's existing scope rather than introducing a separate CRT archive model. It combines Farming run records, archived live Agents, and unclaimed provider sessions with the same identity-based deduplication. The backend reads and writes run history only for coding Agents explicitly supported by Farming; shells and unknown commands never enter History. Each row identifies its Coding Agent alongside the workspace. `H` opens the History view, Up and Down move the selection, Enter performs the primary Continue, Open, or Resume action, and Escape returns to the Agent dashboard. Archived Agents additionally expose Restore. The page size follows the available list height; crossing a page boundary with Up or Down remains continuous, while Left and Right move one full page. Continue and Resume reuse the existing New Agent and provider-session flows; CRT does not infer extra completion states or add History-only search and filtering.
+The top bar reports active Agents, terminal-output token-rate estimate, CPU/MEM, host identity, local time, and uptime. The sidebar keeps New Agent, Search, History, Billing, Settings, and optional Main Agent supervision reachable without covering the grid.
 
-The live browser entry is `<base-path>/crt/`. Its entry, application code, and effects live under `frontend/skins/crt/`; only terminal and session bridges are shared with other browser skins. Switching from Farming Code Settings while an Agent is open carries that Agent id to CRT and opens the corresponding CRT session after the shared backend state arrives; a missing or stale Agent id falls back to the dashboard. CRT effects are scoped to the `#farming-crt` root and persisted through the CRT-only `settings.crtSkinEffectsEnabled` setting, so changing them cannot alter Farming Code.
+Arrow keys move the reverse-video selection, Enter opens it, and Escape backs out of the current console. At page boundaries, Up and Down continue naturally into the previous or next Agent page while preserving the column.
 
-The CRT browser entry uses a square terminal-computer mark with a bold `F` screen monogram and `CRT` wordmark as its dedicated favicon. The simplified small-size lockup keeps the full FARMING CRT identity recognizable at browser-tab size.
+## Open Structured Chat Without Leaving CRT
 
-Agent cards use their complete remaining body height to show the readable live terminal tail, bottom-aligned so newly emitted characters remain visible. Text keeps one uniform size and is clipped from the top when necessary; it is never compressed to fit the full terminal viewport. Their titles follow Farming Code's priority: user rename, provider session title, meaningful terminal title, then the friendly provider name. The same title is used by the opened session and stays on one ellipsized header line. Only Agents whose terminal state is currently working blink; recent activity alone does not trigger motion. Opened sessions use xterm.js, wait briefly for a dimension-matched backend screen, restore that complete serialized screen, and only then apply incremental output. This is required for full-screen TUIs such as Qoder and OpenCode; replaying an arbitrary tail of their ANSI stream is not a valid terminal state. The CRT product path requires xterm's WebGL renderer and WebGL2 instead of silently downgrading; the optional Ghostty renderer remains source-level debug infrastructure for non-strict bridge consumers. The Settings display section adjusts opened-terminal text from 10 to 20 px in 1 px steps; changes apply immediately and persist without a Save action, while Agent preview density remains unchanged. The New Agent workspace step shows recent workspaces immediately and keeps arrow-key selection. CRT interface chrome uses the OFL-licensed Departure Mono font, while terminal content and Agent previews use the shared mixed-language monospace stack so Latin and CJK glyph metrics remain readable. The screen surface uses a flat `#000d06` phosphor-tinted black shared by the dashboard and opened terminal, with no curved-screen distortion or edge vignette. A static three-pixel raster modulates the surface instead of drawing bright white lines. One compositor-only, 300-pixel phosphor trail crosses the complete CRT surface on a continuous 6.8-second cycle; its peak stays at four-percent opacity and it has no separate bright line head, so an opened terminal keeps the effect without losing readability. The noise texture remains static, while the broad trail makes its contrast change only slightly as it passes. Changed previews leave one event-driven afterimage that decays for about 0.6 seconds. Opened terminals preserve ANSI colors and prioritize xterm's native WebGL input and paint path: the framebuffer remains disposable and no CRT layer copies the full terminal canvas after character renders. Dynamic content persistence is intentionally omitted until it can be implemented without competing with input latency. Dynamic effects are disabled by reduced-motion preferences. Numeric shortcut badges retain a green phosphor fill with dark text and no extra outline. Dynamic Heat is disabled by default, so Agent cards keep uniform green borders and stable sizing; enabling it opts into activity-level classes. The session runtime is backend-owned and displayed as the built-in runtime rather than a selectable legacy remote engine.
+Codex, Claude Code, OpenCode, and Qoder ACP sessions open in a full-screen phosphor Chat surface rather than pretending to be PTY output.
 
-The opened-terminal text size defaults to 15 px and remains adjustable from 10 to 20 px.
+![Structured Chat in Farming CRT](assets/02-crt-structured-chat.png)
 
-Opened CRT terminals match Farming Code's desktop/mobile font sizes, compact padding, 5,000-line scrollback, and native xterm input path. xterm owns ordinary keyboard and IME composition events directly, avoiding a second hidden input and per-character layout reads. Agent previews render the backend terminal snapshot's ANSI foreground, background, and emphasis attributes without mounting an xterm instance per card. Unread Agent cards add a separated bright outer phosphor frame without changing the existing status border, layout, or heat state; opening the Agent advances the shared attention read cursor and removes that frame. UI Theme settings also provide a Farming Code entry that returns to `<base-path>/code/`.
+History replay and live entries keep their order. The transcript shows user and Agent messages, while the composer exposes provider commands, model or mode configuration, token usage, attachments, pasted images, permission requests, queued follow-ups, and interrupt where supported.
 
-Structured ACP, JSON CLI, and Codex App Server Agents do not masquerade as PTY terminals in CRT. Opening any session replaces the Agent grid with a full-screen CRT session surface, so the transcript or terminal and Composer retain a stable phosphor background without looking like a translucent screen nested over another screen. A narrow, unlit outer bezel and one muted aperture line define the physical screen edge without a glowing window frame, rounded mask, or corner vignette. The viewport-level scanline texture continues across that full-screen surface. The focused conversation refreshes at most once per second; only terminal runtimes mount xterm. Recovery errors disable the structured composer and are shown inline, while exited terminal sessions open as explicit read-only xterm views.
+Composer behavior is designed for terminal-oriented keyboard use:
 
-The structured composer starts directly with the draft and does not spend horizontal space on a redundant prompt label. It starts at two visible rows and grows with multiline text up to a bounded height before using an internal scrollbar. Enter sends, Shift+Enter inserts a line break, and Chinese IME confirmation is not mistaken for submission. At the end of the draft, Down moves into the control strip; Left and Right select a control, Enter or Down opens its options immediately below, Up and Down move through those options, and Escape returns one level toward the draft. When the transcript overflows, its native scrollbar is reduced to a narrow phosphor position mark with a transparent track and a wider invisible hit target. The status line then advertises `[TAB] SCROLL`: Tab focuses the transcript, Up and Down move by a viewport, Shift with either arrow jumps to the corresponding end, Enter returns to the latest message, and Escape returns to the draft. At the session root, Escape and Ctrl+Escape both close Chat, while a terminal keeps receiving its ordinary Escape key. Configuration uses progressive disclosure: its first level shows only categories and current values, and choosing one category reveals only that category's candidates in the bounded list. Native copy and paste stay inside the composer instead of being captured by the terminal. ACP sessions additionally expose their available slash commands, mode/model configuration, token usage, file or pasted-image context, permission requests, and the shared interrupt action without adding a second backend protocol.
+- Enter sends and Shift+Enter inserts a newline;
+- Chinese IME confirmation is not treated as submit;
+- Down moves from the draft into the control strip;
+- Left/Right choose a control and Enter opens its bounded options;
+- when the transcript overflows, Tab focuses it, arrows page it, and Enter returns to the latest message;
+- Escape returns one level or closes Chat at the session root.
 
-Codex, Claude Code, OpenCode, and Qoder sessions expose retro `MSG` and `TTY` runtime controls in the CRT session header for structured Chat and raw Terminal. Changing the view restarts the Agent into ACP or the native PTY runtime; it is not a local presentation toggle. Farming resumes a materialized provider session. If a newly opened Terminal has received no user input and its provider history does not exist yet, `MSG` starts a fresh ACP session instead; after any Terminal input, missing history remains an explicit error so the switch cannot silently discard work. The overlay remains visible with restart or error status while the replacement Agent is prepared, then follows the replacement Agent id automatically. The visible `[ALT+M]` header hint performs the same switch and is captured by physical `KeyM` before terminal input, so macOS Option-key text such as `µ` is never sent to the PTY.
+Only a focused terminal runtime mounts xterm. Structured sessions remain native structured sessions and keep recovery errors inline.
 
-Dashboard previews are monitoring summaries rather than interactive terminals. The CRT client coalesces changed cards into at most one visual batch per second and updates only the affected cards. While a terminal is open, dashboard DOM rendering is suspended, background preview snapshots are not sent to that client, and raw terminal streams are limited to the focused Agent. Closing the terminal requests one fresh state and preview set, then performs a single merged dashboard render.
+## Open A Real Terminal
 
-CRT follows Farming Code's page-visibility lifecycle: a hidden tab closes its WebSocket and cancels reconnect work while backend Agent and PTY processes keep running. Returning to the tab opens one new socket, restores the current state, and resynchronizes an open terminal before incremental output resumes.
+Terminal sessions open in a full-screen xterm.js surface with native keyboard, IME, ANSI color, scrollback, selection, copy, and full-screen TUI behavior.
 
-Extension management is planned but not implemented. The disabled `[E] EXTENSIONS` sidebar slot is reserved for a future shared extension surface covering installed capabilities such as Skills, MCP servers, and computer-use integrations. Until Farming has provider-neutral extension discovery and lifecycle management, CRT must keep this entry non-interactive and must not install or infer extensions independently.
+![Native Terminal in Farming CRT](assets/03-crt-terminal.png)
 
-## Documents
+The terminal first restores a dimension-matched backend screen and then applies incremental output. This matters for full-screen CLIs such as OpenCode and Qoder: replaying an arbitrary ANSI tail is not a valid terminal state.
 
-- [base_layout.md](base_layout.md) - shared layout model and visual rules.
-- [pc_layout.md](pc_layout.md) - desktop layout rules.
-- [mobile_layout.md](mobile_layout.md) - mobile layout rules.
-- [zombie-history-implementation.md](zombie-history-implementation.md) - zombie cleanup and history notes.
+Plain Escape remains available to the terminal application. Use `Ctrl+Escape` to close the CRT terminal, and `Ctrl+K` to kill the Agent. Opened terminals require the product xterm WebGL2 path rather than silently downgrading to a low-fidelity renderer.
+
+## Switch The Actual Runtime With MSG / TTY
+
+Compatible session headers expose `MSG` and `TTY`, with `Alt+M` as the visible shortcut. This changes the backend runtime, not just the presentation:
+
+- `MSG` restarts into ACP structured Chat;
+- `TTY` restarts into the native PTY CLI;
+- the provider session is resumed when its identity has materialized;
+- the overlay reports preparation, restart, and failure state, then follows the replacement Agent id.
+
+A fresh Terminal with no user input can move into a fresh Chat before provider history exists. Once Terminal input has occurred, a missing history identity remains a visible error so Farming never silently drops the conversation.
+
+## Search Live And Historical Work
+
+Press `F` or choose **[F] SEARCH**. The query console matches live Agent titles, configured project names, and workspace paths, then adds resumable Codex, Claude Code, OpenCode, and Qoder sessions from the shared provider archive.
+
+![Farming CRT Search](assets/04-crt-search.png)
+
+Live Agents appear first. Provider sessions already represented by a live Agent are removed. Up/Down moves through results while the query keeps focus; Enter opens or resumes the selection; Escape returns to the dashboard.
+
+## Continue, Restore, Or Resume From History
+
+Press `H` to open the same History scope used by Farming Code: Farming run records, archived supported coding Agents, and unclaimed provider sessions, deduplicated by identity.
+
+![Farming CRT History](assets/05-crt-history.png)
+
+Rows identify the coding Agent and workspace. The primary action is explicit—Continue, Open, Restore, or Resume—rather than inferred from presentation state. Up/Down keeps selection continuous across pages, Left/Right moves a full page, Enter acts, and Escape returns.
+
+Shells and unknown commands never become resumable provider history. Their archived process is destroyed instead of being presented as a recoverable coding session.
+
+## Read Daily And Live Token Telemetry
+
+**[$] BILLING** is an operational token console, not a monetary invoice.
+
+### Days
+
+The default view combines a logarithmic 120-day processed-token chart with a 52-week activity strip. Cache and direct tokens remain visually separate, so both quiet days and billion-token spikes stay legible.
+
+![CRT Billing Days](assets/06-crt-billing-days.png)
+
+Select a day to inspect its exact and compact total, input, output, cache read/write, 24 one-hour bins, and Codex/Claude/OpenCode shares. The current day is marked partial. Provider events are assigned by local date, including sessions that cross midnight.
+
+### Live
+
+Press `L` for a 60-minute token-rate oscilloscope, five-minute provider channels, quota windows, and reset timing.
+
+![CRT Billing Live](assets/07-crt-billing-live.png)
+
+Totals are provider-reported processed tokens and include cache reads. They are not cost or rate-limit consumption. Missing quota telemetry is stated explicitly. Qoder remains visible as unavailable when its local session files do not expose token fields; Farming does not estimate tokens from terminal output.
+
+## Tune CRT Without Changing Farming Code
+
+Settings provides the interface switch, CRT effects, optional Dynamic Heat, opened-terminal text size from 10–20 px, runtime information, and permission defaults.
+
+![Farming CRT Settings](assets/08-crt-settings.png)
+
+- CRT effects apply only under the CRT root and never leak into Farming Code.
+- The opened-terminal font size updates immediately; Agent preview density remains stable.
+- Dynamic Heat is off by default, keeping card sizing and color stable.
+- Reduced-motion preferences disable motion-dependent effects.
+- Choosing Farming Code returns to the shared Code session without restarting the Agent.
+
+The disabled **[E] EXTENSIONS** slot is reserved for a future provider-neutral extension surface. CRT does not infer or install extensions independently.
+
+## CRT On A Phone
+
+Small viewports preserve readable cards and a fixed page instead of clipping a partial terminal preview below the frame. The available grid shrinks, paging appears when required, and the sidebar remains directly actionable.
+
+<p align="center">
+  <img src="assets/09-crt-mobile-dashboard.jpg" alt="Farming CRT mobile dashboard" width="360">
+</p>
+
+Opening an Agent uses the full mobile viewport for Chat or Terminal. The backend session is the same one visible on desktop.
+
+## Live Rendering And Reconnection
+
+Dashboard previews are monitoring summaries, not interactive terminal canvases. The client batches changed cards at most once per second and updates only affected cards. While a session is open, background dashboard rendering and preview streams are suspended for that client; closing it requests one fresh merged state.
+
+When the browser tab is hidden, CRT closes its WebSocket and cancels reconnect work while backend Agents and PTYs continue. Returning opens one connection, restores dashboard state, and resynchronizes an open terminal before incremental output resumes.
+
+Unread cards use a separate phosphor frame without changing layout. Opening the Agent advances the same attention read cursor used by Farming Code.
+
+## Open CRT
+
+The live entry is:
+
+```text
+<base-path>/crt/
+```
+
+With the defaults, open `/farming/crt/`. Farming Code Settings can also switch interfaces and carry the currently focused Agent into CRT.
+
+## Detailed Design Documents
+
+- [Farming 2 product overview](../README.md)
+- [Shared CRT layout model](base_layout.md)
+- [Desktop layout rules](pc_layout.md)
+- [Mobile layout rules](mobile_layout.md)
+- [Zombie cleanup and History implementation](zombie-history-implementation.md)
+- [Repository README and installation](../../../README.md)

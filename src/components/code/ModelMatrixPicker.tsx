@@ -176,6 +176,8 @@ export function ModelMatrixPicker({
   const queuedDragSelectionRef = useRef<MatrixSelection | null>(null)
   const dragFrameRef = useRef<number | null>(null)
   const matrixStageRef = useRef<HTMLDivElement | null>(null)
+  const matrixPanelRef = useRef<HTMLDivElement | null>(null)
+  const advancedPanelRef = useRef<HTMLDivElement | null>(null)
   const previousStageHeightRef = useRef<number | null>(null)
   const stageAnimationFrameRef = useRef<number | null>(null)
   const stageAnimationTimerRef = useRef<number | null>(null)
@@ -217,19 +219,20 @@ export function ModelMatrixPicker({
 
   useLayoutEffect(() => {
     const stage = matrixStageRef.current
+    const activePanel = advancedOpen ? advancedPanelRef.current : matrixPanelRef.current
     const fromHeight = previousStageHeightRef.current
     previousStageHeightRef.current = null
-    if (!stage) return
+    if (!stage || !activePanel) return
 
     if (stageAnimationFrameRef.current !== null) window.cancelAnimationFrame(stageAnimationFrameRef.current)
     if (stageAnimationTimerRef.current !== null) window.clearTimeout(stageAnimationTimerRef.current)
     stageAnimationFrameRef.current = null
     stageAnimationTimerRef.current = null
 
-    stage.style.height = 'auto'
-    const toHeight = stage.getBoundingClientRect().height
+    const toHeight = activePanel.getBoundingClientRect().height
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (fromHeight === null || reducedMotion || Math.abs(fromHeight - toHeight) < 1) {
+      stage.style.height = `${toHeight}px`
       stage.style.overflow = advancedOpen ? 'visible' : 'hidden'
       return
     }
@@ -243,7 +246,7 @@ export function ModelMatrixPicker({
       stageAnimationFrameRef.current = null
     })
     stageAnimationTimerRef.current = window.setTimeout(() => {
-      stage.style.height = 'auto'
+      stage.style.height = `${toHeight}px`
       stage.style.overflow = advancedOpen ? 'visible' : 'hidden'
       stageAnimationTimerRef.current = null
     }, MATRIX_STAGE_TRANSITION_MS + 40)
@@ -400,12 +403,12 @@ export function ModelMatrixPicker({
       data-ultra={ultraActive ? 'on' : 'off'}
     >
       <div className="code-model-matrix-stage" ref={matrixStageRef}>
-        {advancedOpen ? (
-          <div className="code-model-matrix-advanced" data-testid="code-model-matrix-advanced">
-            {advanced}
-          </div>
-        ) : (
-          <div className="code-model-matrix">
+        <div
+          ref={matrixPanelRef}
+          className="code-model-matrix"
+          aria-hidden={advancedOpen}
+          inert={advancedOpen ? true : undefined}
+        >
             <div
               className="code-model-matrix-head"
               style={{ '--matrix-columns': visibleRow.reasoning.length } as CSSProperties}
@@ -515,8 +518,16 @@ export function ModelMatrixPicker({
                   ? `${controlModel.label} · ${controlReasoningLabel}`
                 : `${current.label} · ${currentReasoningLabel || reasoning[currentReasoningIndex]?.label}`}
             </span>
-          </div>
-        )}
+        </div>
+        <div
+          ref={advancedPanelRef}
+          className="code-model-matrix-advanced"
+          data-testid="code-model-matrix-advanced"
+          aria-hidden={!advancedOpen}
+          inert={advancedOpen ? undefined : true}
+        >
+          {advanced}
+        </div>
       </div>
       <button
         type="button"

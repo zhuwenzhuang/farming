@@ -1,326 +1,168 @@
-# Farming 2
+# Farming Code
 
 > Chinese version: [README.zh_cn.md](./README.zh_cn.md)
 
-A remote Codex / Claude Code workbench in the browser.
-
-Farming 2 runs on a development machine and brings Web Terminal, AI coding agents, project files, search, lightweight editing, git blame, and runtime status into one page. Commands and agents still run on the server. The browser is the place where the human returns to the work, observes progress, inspects files, and intervenes when needed.
-
-The default UI skin is **Farming Code**. The first public version uses a light appearance only.
-
-Open **Settings → Interface** to switch from Farming Code to **Farming CRT**. Both skins connect to the same backend Agents, so switching the interface does not restart or duplicate Agent processes. Farming CRT offers the matching return switch in its UI Theme settings.
+Farming Code is the default Farming 2 interface: a browser workbench for supervising AI coding agents on a development machine. It keeps the conversation, live terminal, project files, search, history, review, and runtime controls around one evolving task instead of scattering them across SSH, an IDE, and several agent windows.
 
 ![Farming Code workspace](assets/01-code-workspace.png)
 
-The workspace screenshot above shows the central product shape: a live Codex terminal, project files, usage signals, and follow-up controls in one remote browser page.
+The normal shape is deliberately quiet: project-scoped Agents on the left, the current task in the center, relevant file state nearby, and a composer that continues the same provider session.
 
-## Core Capabilities
+For the complete cross-interface capability map, see the [Farming 2 product overview](../README.md). This guide is updated in place so it always describes the current product rather than one release.
 
-- **Web Terminal**: start bash or zsh in the browser, backed by a real PTY on the target machine.
-- **Hosted Codex / Claude Code**: run CLI coding agents on the server and reconnect from desktop or mobile browsers. Stable Codex sessions can also use a structured Chat view backed by Codex local history, with raw Terminal still available as a fallback.
-- **Project Files**: browse the file tree, search names or content, open `path:line`, edit text files, and save.
-- **Git Blame**: inspect line ownership and commit dates without leaving the workbench.
-- **Runtime Status**: view token rate, CPU, memory, and output activity without a separate monitoring tab.
-- **Mobile Browser Access**: check agent state, switch sessions, start a simple agent, or send a short intervention from a phone.
-- **Optional Main Agent**: use a supervising agent when it is useful to start, observe, nudge, or summarize other agents.
+## Start A Real Task
 
-The backend also includes an experimental [ACP runtime](acp-runtime.md) for structured Codex, Claude Code, OpenCode, and Qoder sessions. Its Chat UI consumes the same ordered ACP entry stream for loaded history and live updates, while Terminal remains an isolated PTY runtime.
+Run `farming daemon` on a machine where at least one supported coding CLI already works, open its authenticated URL, and choose **New Agent**.
 
-## Agent State Inference
+![Choose an Agent](assets/02-start-agent-picker.png)
 
-Farming Code separates process lifecycle, agent kind, and active-turn state. A directly launched coding agent keeps the identity of its launch command, so ordinary answer text mentioning another provider cannot change its capabilities. A `bash` or `zsh` row can still enter Codex or Claude Code when the viewport contains strong TUI evidence.
+Farming detects available Agent executables instead of showing launch choices that cannot run. Select a recent or custom workspace, choose structured Chat or Terminal where both are supported, and start the task.
 
-The backend publishes one structured terminal status. It prefers provider-specific live controls: Codex and Claude interrupt affordances, the OpenCode running footer, and Qoder / Qwen loading rows with `esc to cancel`. A newer idle footer or prompt overrides stale `Working` or `Thinking` text, and permission selectors are treated as waiting for attention rather than computing. Shell sessions use Farming's start / finish markers, with a visible prompt as protection against stale busy state. Generic words such as `working`, `thinking`, `Claude`, or `Codex` in normal output are never sufficient on their own.
+![Choose workspace and runtime](assets/03-start-agent-workspace.png)
 
-The frontend uses that structured result for both the sidebar spinner and the composer interrupt action. Terminal titles are only supporting evidence for the provider they belong to; a spinner-like title from another CLI is not assumed to be Codex.
+Codex, Claude Code, OpenCode, and Qoder provide both structured ACP Chat and native Terminal. Qwen Code, Aider, GitHub Copilot CLI, Amazon Q, bash, and zsh use the terminal path when detected. Farming hosts those CLIs; it does not replace their installation or login.
 
-## Agent Row Identity
+## Read The Result First, Expand The Process When Needed
 
-Farming Code keeps the project list identity small:
+ACP history replay and live updates become one ordered entry stream. Farming Code projects that stream around human attention: the result stays prominent, while plans, reasoning, tools, permissions, child sessions, embedded terminals, and exact patches remain expandable and reversible.
 
-- Codex and Claude rows use their provider resume id, represented as `agent-session:<provider>:<id>`.
-- Bash and zsh rows use the runtime agent uuid assigned when the shell starts.
-- Archiving a bash or zsh row destroys that shell runtime directly and does not add it to History.
+![Expanded Agent process](assets/11-code-agent-process.png)
 
-New Claude sessions are launched with an explicit `--session-id` generated by Farming. New Codex terminal sessions do not expose a stable resume id until the first recordable rollout item is written, so Farming assigns a temporary `tmp_uuid...` provider id for the live row, keeps it out of History and `mainPageSessionKeys`, then replaces it with the real Codex rollout id once the local Codex metadata appears. Resumed sessions already know the id up front, and recovered runtime sessions read the provider-session metadata written by Farming.
+This is not a backend reconstruction into a different `Turn → Item` model. Expanding process groups preserves entry order and tool details. Codex internal heartbeat or context envelopes are sanitized without deleting visible automation notifications.
 
-Changing permissions restarts the running CLI with the selected launch flags. Farming resumes the same provider session when a stable id exists; if a new Codex has not produced one yet, it stops that temporary runtime and starts a fresh session. The pending replacement stays in place in the UI, and the current agent plus its Chat / Terminal view are preserved instead of falling through to another agent.
+While a turn is active, a follow-up can be queued visibly and sent when the Agent becomes idle. It can be removed before sending. When the composer is empty, the same action remains available as interrupt.
 
-## Agent Ordering
+## Use A Real Terminal When Exact CLI Behavior Matters
 
-Each live Agent keeps a persistent Project order. A newly created Agent appears at the front of its Project, and desktop users can drag Agents within either the same Project or the Pinned list. Pinned Agents leave the Project list and are appended to the persistent Pinned list; unpinning restores the Agent to its saved Project position. Farming also persists pin overrides for provider history sessions. Browser refreshes, permission restarts, and runtime recovery preserve this state.
+Terminal is a native PTY session rendered with xterm.js. ANSI output, full-screen TUIs, IME input, selection and copy, terminal search, scrollback, links, and CLI shortcuts stay on the terminal path.
 
-## Product Walkthrough
+![Native Agent Terminal](assets/12-code-terminal-session.png)
 
-### Start A New Agent
+The **Chat / Terminal** control changes the actual Agent runtime; it is not a view toggle. Farming restarts into ACP or PTY mode and resumes the same provider session when its identity exists. A fresh Terminal with no user input may move into a fresh Chat before the provider record has materialized. After Terminal input, missing resume identity is an explicit error so the conversation cannot be discarded silently.
 
-![Start New Agent](assets/02-start-agent-picker.png)
+The native PTY host is a separate process from the Farming server. Browsers can reconnect to live terminals, and a normal Farming server restart can recover them without launching duplicate Agents.
 
-Farming can launch Codex, Claude Code, bash, and zsh sessions from the browser. The commands still execute on the development machine.
+## Change The Live Model And Runtime Profile
 
-![Choose workspace](assets/03-start-agent-workspace.png)
+The composer shows controls reported by the active runtime. Compatible Codex model families can expose one compact surface for model variant and reasoning, a separate Ultra charge control, a clear Fast state, and the current approval mode.
 
-Recent workspaces and explicit workspace input make the launch path concrete: pick the repository, choose the agent type, then Farming opens the session in the same workbench.
+![Live Codex model controls](assets/07-live-model-controls.png)
 
-### Project Files And Editing
+- Drag or click the continuous matrix to choose model variant and ordinary reasoning level.
+- Click Ultra to trigger its charge-and-drop interaction; it is not a manually dragged vertical slider.
+- Use Fast as a distinct speed choice rather than a second copy of the Ultra control.
+- Unsupported Fast or Ultra remains in place, grey and disabled, so the control does not jump during capability refresh.
+- **Advanced** morphs to step-by-step selectors without resetting the active profile.
 
-![Project Files editor](assets/04-files-editor-blame.png)
+Models that do not expose the matrix-capable catalog open directly in the Advanced compatibility selectors. Choosing a compatible model family from the live catalog returns to the matrix without requiring a restart.
 
-Farming 2 is not meant to replace a full IDE. It focuses on common supervision actions: browse the repository tree, search files, open tabs, inspect source, use git blame, make a small edit, then return to the agent workflow.
+ACP sessions apply supported changes directly. A compatible native Terminal stages the new model, reasoning, Fast, or permission information and sends it into the current CLI workflow before the next user message. The control therefore affects the live session, not only a future launch profile.
 
-### Mobile
+## Keep Project Files Beside The Agent
 
-![Mobile agent chat](assets/05-mobile-agent-chat.jpg)
+Files are scoped to a concrete project Agent. The project sidebar contains Open Editors, a lazy file tree, path/line and content search, Git Changes, and Review. Main Agent rows do not pretend to own project files.
 
-![Mobile files sidebar](assets/06-mobile-files-sidebar.jpg)
+![Project file with inline blame](assets/04-files-editor-blame.png)
 
-The mobile layout is not a shrunken desktop. It keeps one agent terminal or file view in focus, and moves project navigation, agents, search, and files into a drawer. Mobile is best for checking progress, switching agents, starting a simple session, or sending one short input while away from the desk.
+The editor is a lightweight intervention surface:
 
-Large multi-file edits, long code reviews, and wide blame inspection are still better on desktop.
+- Monaco text editing with version checks;
+- Markdown and image preview;
+- file create, rename, move, and delete inside the workspace root;
+- git status, diff, and blame;
+- clickable `path:line` references from Chat and Terminal;
+- bounded file watching and ripgrep search where available.
 
-See [mobile guide](mobile-guide.md) for the phone workflow.
+It is intentionally not a full IDE replacement. The goal is to verify evidence or make a focused correction without leaving the task.
 
-See [acceptance dogfood plan](test/acceptance-dogfood-plan.md) for fake-agent, real-agent, long-running, and stress validation.
+## Review One Evolving Change
 
-## Installation
+Review is revision-aware. It keeps a file list, immutable comparisons, patchsets, inline comments, findings, and reviewed state tied to the relevant snapshot rather than treating each Agent turn as an unrelated change.
 
-Farming 2 is primarily distributed through the `farming-code` npm package:
+![Farming Review](assets/10-review-workflow.png)
+
+This supports the real multi-round loop: review a change, ask for a correction, compare the new revision, and concentrate on meaningful deltas. Working-copy and historical ACP changes can both feed the Review surface when the required revision evidence exists.
+
+## Find Live Work Or Resume Old Work
+
+Search matches project names, Agent titles, and workspace paths across current live work.
+
+![Live Agent Search](assets/13-code-search.png)
+
+History covers more than the left sidebar. It combines Farming run records, archived supported coding Agents, and unclaimed provider sessions from Codex, Claude Code, OpenCode, and Qoder, with identity-based deduplication.
+
+![Full History search](assets/08-history-search.png)
+
+Results preserve provider identity and workspace context. Depending on the record, the primary action can open, continue, restore, or resume. Shell processes are destroyed when archived and never masquerade as resumable provider sessions.
+
+## Configure The Service Without Leaving The Workspace
+
+Settings groups interface, language, search timeout, installation-aware updates, Agent permissions, and Agent Homes. Agent Homes let one Provider keep multiple identity/configuration roots while retaining a non-removable default home.
+
+![Farming Code Settings](assets/14-code-settings.png)
+
+Switching to Farming CRT carries the focused Agent when possible and does not restart the session. npm installations can check and install updates in place; source checkouts update through Git, and standalone artifacts remain manual.
+
+## Light, Dark, Desktop, And Mobile
+
+Light and dark appearance changes the workbench without changing Agent processes or session identity.
+
+![Dark Farming Code workspace](assets/09-dark-workspace.png)
+
+On a phone, Farming Code focuses one conversation, terminal, or file at a time and moves project navigation into a drawer. It is intended for checking progress, switching Agents, reading a result, or sending a short intervention—not for squeezing a multi-pane desktop IDE onto a narrow screen.
+
+<p align="center">
+  <img src="assets/05-mobile-agent-chat.jpg" alt="Mobile Agent Chat" width="320">
+  &nbsp;&nbsp;
+  <img src="assets/06-mobile-files-sidebar.jpg" alt="Mobile project drawer" width="320">
+</p>
+
+See the [mobile guide](mobile-guide.md) for the complete phone workflow.
+
+## Farming Code And Farming CRT
+
+The same service exposes:
+
+- `<base-path>/code/`: Farming Code;
+- `<base-path>/crt/`: Farming CRT;
+- `<base-path>/`: compatible Farming Code entry.
+
+Both interfaces connect to the same backend sessions. If Code cannot start or render, its bounded diagnostic overlay leaves the live CRT surface visible behind it. See the [Farming CRT guide](../crt/README.md) for dashboard, Search, History, Billing, and keyboard workflows.
+
+## Install And Operate
+
+The default installation requires Node.js 22 or newer:
 
 ```bash
 npm install --global farming-code
 farming daemon
 ```
 
-This path supports one-click updates from **Settings → Updates**. Platform-specific CLI executables remain available as manual-install artifacts.
-
-The standard app bundle is a directory-deployment alternative with a root `./farming` launcher and production dependencies. The separate legacy Linux x64 tarball is a first-install bootstrap: it supplies the glibc compatibility layer, installs Farming into a private npm prefix, and then uses the normal npm update path.
-
-### Prerequisites
-
-The target machine needs:
-
-- git
-- bash or zsh
-- Codex or Claude Code installed and logged in if you want to launch those agents
-
-Farming does not replace Codex / Claude Code installation or login. It hosts CLI sessions that already work on the server.
-
-### Start From A Platform CLI
-
-Download the matching artifact from [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases), or build it locally with `npm run release:cli`.
-
-Artifact names:
-
-```text
-farming_2_linux_amd64
-farming_2_linux_arm64
-farming_2_darwin_arm64
-```
-
-Run it on the target machine:
+Farming defaults to port `6694`, base path `/farming`, config directory `~/.farming`, and token authentication. Useful commands:
 
 ```bash
-cp ./farming_2_linux_amd64 farming
-chmod +x farming
-./farming daemon
+farming status
+farming url
+farming logs
+farming stop
 ```
 
-Defaults:
-
-- port: `6694`, with automatic upward probing when no explicit port is passed
-- browser path: `/farming`
-- config directory: `~/.farming`
-- token auth: enabled; the first token is stored in `~/.farming/.session-token` and reused across restarts and upgrades
-- settings file: created automatically at first startup
-
-npm installations and legacy Linux installations bootstrapped from the compatibility tarball read published `farming-code` versions from the npm registry. Open **Settings → Updates** to install a selected newer version in one click; the old server remains alive until package installation succeeds, and Farming attempts to restore the previous version if the new server cannot start. Source checkouts update through Git and standalone CLI artifacts update manually. Standard app-bundle installations retain the checksum-verified Update URL path for directory deployments. The same Settings panel manages provider **Agent Homes**.
-
-The simplest source is an HTTP(S) directory URL ending in `/` that lists platform-tagged `farming-<version>-<platform>-<arch>.tar.gz` app bundles and an adjacent `<bundle>.sha256` file for every bundle. Farming verifies the selected bundle's SHA-256 and archive layout before extraction.
-
-The startup log prints a browser URL:
-
-```text
-http://linux-host:6694/farming?token=<startup-token>
-```
-
-Open the full URL in a desktop or mobile browser. After the first successful visit, the browser stores the token cookie and reconnects automatically.
-
-Common commands:
+If an npm mirror still serves an older `latest`, compare it with the public registry, reinstall the current package, restart Farming, and hard-refresh the page:
 
 ```bash
-./farming status
-./farming logs
-./farming stop
-./farming start
-./farming url
+npm view farming-code version --registry=https://registry.npmjs.org/
+npm install --global farming-code@latest --registry=https://registry.npmjs.org/
+farming stop
+farming daemon
 ```
 
-To override defaults without writing a config file:
+The browser controls real processes and workspace files on the Farming host. Use a trusted machine and trusted network, with VPN, SSH tunnel, HTTPS reverse proxy, or equivalent access control when remote access crosses an untrusted boundary. See [SECURITY.md](../../../SECURITY.md).
 
-```bash
-./farming daemon --port 7788 --base-path /farming --config-dir ~/.farming
-```
+## More Product Documents
 
-When `--port` is explicit, Farming uses that port strictly. Automatic port probing only happens for the default startup path.
-
-### Build Platform CLIs
-
-Build for the current platform:
-
-```bash
-npm install
-npm run release:cli
-```
-
-Example output:
-
-```text
-releases/2/farming_2_darwin_arm64
-releases/2/farming_2_checksums.txt
-releases/2/manifest.json
-```
-
-Build an explicit target:
-
-```bash
-FARMING_CLI_TARGETS=node22-linux-x64 npm run release:cli
-```
-
-macOS and Linux single-file CLI artifacts use `@yao-pkg/pkg` with a modern Node runtime. The Linux single-file CLI is smoke-tested for server startup; Linux native PTY / agent startup is smoke-tested through the app bundle. Standard release forms rely on the target system runtime. GitHub Releases also publishes `farming-<release>-linux-x64-legacy-glibc228.tar.gz` for systems whose glibc is older than 2.28. That tarball bootstraps `~/.farming/glibc228`, `~/.farming/npm`, and `~/.farming/bin/farming`; ordinary later releases come from npm rather than another compatibility tarball.
-
-The release script builds the frontend with Vite, bundles the backend runtime through esbuild, packages the executable, writes checksums and a manifest, and runs a basic `strings` scan to catch accidental source or debug markers.
-
-Smoke-test a newly built CLI:
-
-```bash
-npm run release:cli:smoke -- releases/2/farming_2_linux_amd64
-```
-
-### Build The App Bundle
-
-```bash
-npm install
-npm run release:app
-```
-
-Output:
-
-```text
-releases/2/farming-2-linux-x64.tar.gz
-```
-
-### Install The App Bundle On Linux
-
-```bash
-tar -xzf farming-2-linux-x64.tar.gz
-cd farming-2-linux-x64
-./farming
-```
-
-With no arguments, the root launcher prepares the runtime, writes `.farming-install-env`, starts the service, and prints the token URL. If production dependencies are missing, it falls back to `./farming install`.
-
-For Linux x64 with glibc older than 2.28, download and unpack `farming-<release>-linux-x64-legacy-glibc228.tar.gz` using the same steps. Its installer extracts the bundled runtime to `~/.farming/glibc228`, installs Farming under `~/.farming/npm`, and creates `~/.farming/bin/farming`. Use that stable launcher after bootstrap. **Settings → Updates** and manual npm updates keep using the private prefix and compatibility launcher.
-
-Common commands:
-
-```bash
-./farming status
-./farming logs
-./farming stop
-./farming start
-./farming url
-```
-
-### Remote Source Deployment
-
-If the local checkout can SSH to the target Linux machine:
-
-```bash
-git clone <repo-url> farming
-cd farming
-npm install
-cp config/farming.deploy.env.example config/farming.deploy.env
-```
-
-Edit `config/farming.deploy.env`:
-
-```bash
-FARMING_REMOTE=user@linux-host
-FARMING_REMOTE_DIR=/home/user/farming
-FARMING_REMOTE_PORT=6694
-FARMING_REMOTE_BASE_PATH=/farming
-```
-
-Deploy:
-
-```bash
-npm run release:remote
-```
-
-This builds the frontend, creates an app bundle, uploads it, installs production dependencies, starts the service, and prints the token URL. This path is mainly for project maintainers and dogfood deployments.
-
-## First Use
-
-1. Open the token URL printed by the installer or daemon.
-2. Click `New Agent`.
-3. Choose `Codex`, `Claude Code`, `bash`, or `zsh`.
-4. Enter a workspace such as `/home/user/project`.
-5. Click `Start`.
-
-After the agent starts, the workbench shows the live terminal, agent list, Project Files entry, and runtime status.
-
-The same URL can be opened from desktop and mobile browsers as long as the device can reach the Farming host.
-
-## Configuration
-
-Most users do not need to write a config file before first use. The CLI creates `~/.farming/settings.json` automatically.
-
-Common user settings include:
-
-- `defaultLaunchAgent`
-- `agentLaunchProfiles.codex`
-- `agentLaunchProfiles.claude`
-- `workspaceHistory`
-- `mainPageSessionKeys`: real provider session keys kept on the main Projects page; `tmp_uuid...` live ids are excluded, sessions not listed here appear only in History, and server restart best-effort auto-resumes Codex / Claude entries while leaving shell sessions stopped
-- `dangerouslySkipAgentPermissionsByDefault`
-
-Remote source deployment can use `config/farming.deploy.env` for SSH target, remote directory, port, base path, and compatibility runtime settings. Real `.env` files are ignored by git.
-
-## Main Agent
-
-Main Agent is optional. Think of it as a coordinator inside the Farming 2 workbench.
-
-When several agents or related subtasks are running, Main Agent can help start new agents, observe output, continue sending inputs, and summarize progress. First-day users do not need to understand it. Farming 2 is useful as a remote terminal and Codex / Claude Code workbench before Main Agent becomes part of the workflow.
-
-## Architecture
-
-```text
-Browser workbench
-  React + Vite + Monaco Editor + terminal renderer
-        |
-        | HTTP / WebSocket
-        v
-Node.js server
-  Express + WebSocket + token auth + agent manager + workspace file service
-        |
-        | session engine
-        v
-Execution environment
-  bash / zsh / Codex / Claude Code
-```
-
-The backend serves the browser app, validates HTTP and WebSocket tokens, manages agent lifecycle, forwards terminal input/output, and exposes workspace file APIs.
-
-Farming Code uses xterm.js as the default browser terminal renderer. The older Ghostty web renderer remains as an explicit debug option via `localStorage.farmingTerminalEngine = 'ghostty'`.
-
-For stable Codex provider sessions, Farming can render a Chat view from Codex rollout history: user requests, final answers, collapsed work summaries, and file-change result cards. This view is a replay of Codex history rather than a replacement for terminal IO, so raw Terminal remains switchable for exact CLI behavior and live edge cases.
-
-The local session engine is based on `node-pty`. File search prefers system `rg` and falls back to npm `ripgrep` where available. Git diff and git blame reuse the target machine's `git`.
-
-## Security Notes
-
-Farming 2 generates a random startup token on first authenticated startup, stores it in `~/.farming/.session-token`, and reuses it across restarts and upgrades. The token protects HTTP and WebSocket access. `FARMING_TOKEN_LOCALE=auto` controls new token generation: Chinese haiku-style tokens in Chinese time zones, Japanese haiku-style tokens in Japanese time zones, and English passphrases elsewhere. It can also be set to `zh`, `ja`, or `en`.
-
-Farming 2 is intended for trusted development machines and trusted networks. Do not expose it directly to the public internet without an additional security layer.
-
-See [SECURITY.md](../../../SECURITY.md) for the reporting policy and deployment notes.
+- [Farming 2 product overview](../README.md)
+- [Mobile guide](mobile-guide.md)
+- [ACP runtime](acp-runtime.md)
+- [Review foundation](review-foundation.md)
+- [Human-like acceptance story](farming-agent-human-story.md)
+- [Acceptance and dogfood plan](test/acceptance-dogfood-plan.md)
