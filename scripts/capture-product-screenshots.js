@@ -122,6 +122,13 @@ function prepareRuntimeDirectories() {
     run('git', ['add', '.'], { cwd: workspaceDir });
     run('git', ['-c', 'user.name=Alex Chen', '-c', 'user.email=alex@example.invalid', 'commit', '-qm', 'Create dashboard overview'], { cwd: workspaceDir });
     fs.appendFileSync(path.join(workspaceDir, 'src', 'components', 'Dashboard.tsx'), '// TODO: add empty-state metrics\n');
+    fs.mkdirSync(path.join(workspaceDir, 'notes'), { recursive: true });
+    fs.writeFileSync(path.join(workspaceDir, 'notes', 'review-observations.md'), [
+      '# Review observations',
+      '',
+      '- Verify empty-state behavior before committing.',
+      '',
+    ].join('\n'));
   }
   for (const directory of [screenshotDir, crtScreenshotDir]) {
     for (const entry of fs.readdirSync(directory)) {
@@ -687,6 +694,15 @@ async function main() {
     await waitForStableUi(page, 1000);
     await screenshot(page, '04-files-editor-blame.png');
 
+    const changesSection = page.getByTestId('code-file-changes-section');
+    const trackedChangesToggle = changesSection.getByTestId('code-file-change-tracked-group').getByRole('button', { name: /Changes/ });
+    const untrackedChangesToggle = changesSection.getByTestId('code-file-change-untracked-group').getByRole('button', { name: /Untracked/ });
+    if (await trackedChangesToggle.getAttribute('aria-expanded') !== 'true') await trackedChangesToggle.click();
+    if (await untrackedChangesToggle.getAttribute('aria-expanded') !== 'true') await untrackedChangesToggle.click();
+    await screenshot(page, '10-review-workflow.png');
+    await trackedChangesToggle.click();
+    await untrackedChangesToggle.click();
+
     const mobileContext = await browser.newContext({
       baseURL: baseUrl,
       viewport: { width: 390, height: 844 },
@@ -745,10 +761,6 @@ async function main() {
     await ensureApp(page);
     await openAgent(page, codexAgentId);
     await screenshot(page, '09-dark-workspace.png');
-
-    await page.goto(`${basePath}/review?fixture=1`, { waitUntil: 'networkidle' });
-    await page.getByTestId('review-page').waitFor({ state: 'visible', timeout: 30_000 });
-    await screenshot(page, '10-review-workflow.png');
 
     const usageFixture = createUsageFixture();
     await installUsageRoutes(page, usageFixture);
@@ -814,24 +826,6 @@ async function main() {
     await page.getByRole('button', { name: '[S] SETTINGS', exact: true }).click();
     await page.locator('#settings-modal.active').waitFor({ state: 'visible', timeout: 20_000 });
     await screenshot(page, '08-crt-settings.png', crtScreenshotDir);
-
-    const crtMobileContext = await browser.newContext({
-      baseURL: baseUrl,
-      viewport: { width: 390, height: 844 },
-      deviceScaleFactor: 1,
-      hasTouch: true,
-      isMobile: true,
-    });
-    await crtMobileContext.addInitScript(() => {
-      window.__FARMING_E2E__ = true;
-    });
-    const crtMobilePage = await crtMobileContext.newPage();
-    await installUsageRoutes(crtMobilePage, usageFixture);
-    await crtMobilePage.goto(`${basePath}/crt/`, { waitUntil: 'networkidle' });
-    await crtMobilePage.locator('body#farming-crt').waitFor({ state: 'visible', timeout: 30_000 });
-    await crtMobilePage.locator('.agent-block').first().waitFor({ state: 'visible', timeout: 30_000 });
-    await screenshot(crtMobilePage, '09-crt-mobile-dashboard.jpg', crtScreenshotDir);
-    await crtMobileContext.close();
 
     console.log(`Farming Code screenshots written to ${screenshotDir}`);
     console.log(`Farming CRT screenshots written to ${crtScreenshotDir}`);

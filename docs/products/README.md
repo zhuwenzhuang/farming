@@ -25,7 +25,7 @@ Farming Code keeps the current task readable. The final response stays prominent
 
 ![Expanded Agent process in Farming Code](code/assets/11-code-agent-process.png)
 
-Use it for long follow-ups, project files, quick editing, git evidence, and multi-round review. The desktop layout keeps project context visible; the mobile layout focuses one surface at a time.
+Use it for long follow-ups, project files, quick editing, git evidence, and the initial workspace Review flow. The desktop layout keeps project context visible; the mobile layout focuses one surface at a time.
 
 ### Farming CRT: observe and control
 
@@ -45,11 +45,11 @@ Use it when several Agents are running, when keyboard control is faster than a w
 | Chat / Terminal | Runtime control in Agent composer | `MSG` / `TTY` control | Restarts the actual runtime and safely resumes identity |
 | Model and permissions | Live model matrix, Advanced controls, approval modes | Structured configuration menu | Capability-driven provider settings |
 | Project files | Tree, Open Editors, search, Monaco, preview, diff, blame | Open referenced files through shared links | Root-bounded workspace API and git service |
-| Review | Dedicated revision/file/diff workflow | Open the shared Review route | Revision-bound snapshots, findings, reviewed state |
+| Review | Initial tracked/untracked workspace review, captured revisions, comments | Open the shared Review route | Snapshot-bound files and reviewed state; multi-round continuity is evolving |
 | Search | Live Agents and provider archive | Query console with Open / Resume | One bounded provider-session search |
 | History | Searchable run and provider archive | Keyboard list with Continue / Restore / Resume | Identity-based deduplication and shared scope |
 | Usage | Compact usage/context/quota signals | Daily history and live oscilloscope | Provider-local telemetry with explicit unavailable states |
-| Mobile | Focused Chat, Terminal, Files, drawer | Compact paged dashboard and session view | Same authenticated service and sessions |
+| Mobile | Focused Chat, Terminal, Files, drawer | Not currently supported; use Farming Code | Same authenticated service and sessions |
 | Appearance | Light and dark | CRT effects, font size, Dynamic Heat | Interface choice persists without restarting Agents |
 
 ## Structured Work Without Losing Evidence
@@ -90,9 +90,9 @@ Project Files belong to a concrete project Agent. The sidebar provides a lazy tr
 
 ![Project file with inline blame](code/assets/04-files-editor-blame.png)
 
-Review treats the work as one evolving change. Compared revisions, file state, findings, comments, and reviewed state remain tied to the relevant snapshot. This makes a second review round answer “what meaningfully changed?” rather than presenting another unrelated Agent turn.
+The initial Review flow opens tracked and untracked workspace changes separately. It captures a revision, shows files and diffs, keeps comments and reviewed state with that snapshot, and can compare a later fix. Continuity for one set of findings across several review rounds is still being developed.
 
-![Revision-aware Review](code/assets/10-review-workflow.png)
+![Separate Review entry points for tracked and untracked workspace changes](code/assets/10-review-workflow.png)
 
 ## Search And History
 
@@ -121,12 +121,10 @@ These are processed-token telemetry views, not invoices. Cache reads are include
 
 The browser is a control surface, not the process owner. Hidden tabs suspend their WebSocket and reconnect work; backend Agents and PTYs continue. Returning opens one socket, restores current state, and resynchronizes the focused terminal before incremental output resumes.
 
-Farming Code mobile emphasizes one readable task surface and a drawer. Farming CRT mobile reduces the grid while preserving keyboard/action semantics and readable Agent cards.
+Farming Code mobile emphasizes one readable task surface and a drawer. Farming CRT is currently desktop-only; phones should use Farming Code.
 
 <p align="center">
   <img src="code/assets/05-mobile-agent-chat.jpg" alt="Farming Code mobile Chat" width="320">
-  &nbsp;&nbsp;
-  <img src="crt/assets/09-crt-mobile-dashboard.jpg" alt="Farming CRT mobile dashboard" width="320">
 </p>
 
 ## Runtime And Data Boundaries

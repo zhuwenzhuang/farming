@@ -6,7 +6,7 @@ Farming CRT is the keyboard-first control-room interface for Farming 2. It is no
 
 ![Farming CRT dashboard](assets/01-crt-dashboard.png)
 
-Use CRT when several Agents are running, when terminal output is the main signal, or when direct keyboard control is faster than moving through a coding workspace. Use [Farming Code](../code/README.md) when files, editing, and multi-round Review need more room. Switching interfaces does not restart or duplicate Agents.
+Use CRT when several Agents are running, when terminal output is the main signal, or when direct keyboard control is faster than moving through a coding workspace. Use [Farming Code](../code/README.md) for files, editing, workspace Review, and phone access. Switching interfaces does not restart or duplicate Agents.
 
 For the complete shared capability map, see the [Farming 2 product overview](../README.md).
 
@@ -118,15 +118,9 @@ Settings provides the interface switch, CRT effects, optional Dynamic Heat, open
 
 The disabled **[E] EXTENSIONS** slot is reserved for a future provider-neutral extension surface. CRT does not infer or install extensions independently.
 
-## CRT On A Phone
+## Phone Status
 
-Small viewports preserve readable cards and a fixed page instead of clipping a partial terminal preview below the frame. The available grid shrinks, paging appears when required, and the sidebar remains directly actionable.
-
-<p align="center">
-  <img src="assets/09-crt-mobile-dashboard.jpg" alt="Farming CRT mobile dashboard" width="360">
-</p>
-
-Opening an Agent uses the full mobile viewport for Chat or Terminal. The backend session is the same one visible on desktop.
+Farming CRT is currently supported as a desktop interface. Use Farming Code on a phone. The CRT mobile layout remains a concept and is not presented as a current product capability.
 
 ## Live Rendering And Reconnection
 

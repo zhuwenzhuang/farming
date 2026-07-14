@@ -75,13 +75,13 @@ Editor 是轻量介入 Surface：
 
 它不是完整 IDE 的替代品。目标是在不离开任务的情况下验证证据或做一个聚焦修正。
 
-## Review 同一个演进中的 Change
+## Review 工作区修改
 
-Review 具备 Revision 语义。File List、Immutable Comparison、Patchset、Inline Comment、Finding 和 Reviewed State 都绑定到相关 Snapshot，不会把每个 Agent Turn 当成互不相干的修改。
+Review 初版把已跟踪与未跟踪的工作区修改分开。它会捕获 Revision，提供 File / Diff 视图，并把 Inline Comment 和 Reviewed State 绑定到相关 Snapshot，也可以比较后续修复。
 
-![Farming Review](assets/10-review-workflow.png)
+![Files 中分开的已跟踪与未跟踪 Review 入口](assets/10-review-workflow.png)
 
-这支持真实多轮流程：Review 修改、要求修正、对比新 Revision，然后把注意力放在有意义的 Delta 上。只要 Revision 证据足够，Working Copy 和历史 ACP Change 都可以进入 Review Surface。
+只要 Revision 证据足够，Working Copy 和历史 ACP Change 都可以进入 Review Surface。跨多轮持续跟踪同一组 Finding 和证据，仍是正在完善的产品方向。
 
 ## 找到实时工作，或恢复旧工作
 

@@ -4,6 +4,8 @@
 
 This document describes CRT mobile layout for viewports up to `980px`. Shared layout rules are in [base_layout.md](base_layout.md).
 
+> Status: concept only. Farming CRT is currently supported on desktop; use Farming Code on a phone.
+
 ## Overall Structure
 
 ```text

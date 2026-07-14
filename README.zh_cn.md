@@ -19,7 +19,7 @@ Farming 2 在同一批 Agent 和 Session 上提供两套完整的浏览器界面
 
 ### Farming Code
 
-默认工作台，适合阅读对话、介入任务、编辑文件，以及持续 Review 同一个演进中的修改。
+默认工作台，适合阅读对话、介入任务、编辑文件和检查工作区修改。
 
 ![Farming Code 结构化 Chat](./docs/products/code/assets/11-code-agent-process.png)
 
@@ -48,14 +48,14 @@ Farming 2 在同一批 Agent 和 Session 上提供两套完整的浏览器界面
 - 需要原汁原味 CLI 行为时打开真实 PTY Terminal。Chat / Terminal 切换会改变实际运行时，并在身份可用时安全地恢复同一个 Provider Session。
 - 修改运行中 Codex 所支持的模型、思考强度、Fast、Ultra 和权限设置。Terminal 的修改会在下一条消息前作用到当前工作流，而不是只改未来的启动 Profile。
 - 浏览 Project Files 和 Open Editors，用 ripgrep 搜索、Monaco 轻量编辑、预览 Markdown/图片、跟随 `path:line` 链接，并检查 Git Changes、Diff 和 Blame。
-- 围绕同一个演进中的 Change 跨 Revision Review，让 Finding 与对比版本绑定，标记文件已审阅，并关注多轮之间真正有意义的变化。
+- 分别打开已跟踪或未跟踪的工作区修改，在 Review 初版中比较已捕获的 Revision、留下行内评论并标记文件已审阅。跨多轮持续跟踪同一组问题和证据的体验仍在完善。
 - 搜索实时 Agent 和受支持 Provider 的完整 Session 归档，然后打开、继续、恢复或 Resume 对应工作。
 - 在 Provider 提供所需数据时查看 CPU/MEM、Token Rate、Context、Quota、Provider 用量，以及 CRT 的按日/实时 Token 遥测。
-- 在电脑和手机浏览器中使用同一个服务；不同布局围绕不同设备上可用的注意力设计。
+- 在电脑和手机浏览器中使用 Farming Code；不同布局围绕不同设备上可用的注意力设计。
 
 ![Farming Code 项目文件与 Blame](./docs/products/code/assets/04-files-editor-blame.png)
 
-![Farming Review](./docs/products/code/assets/10-review-workflow.png)
+![Files 中分开的已跟踪与未跟踪 Review 入口](./docs/products/code/assets/10-review-workflow.png)
 
 ## 支持的 Agent 路径
 
@@ -109,9 +109,9 @@ farming stop
 
 <p align="center">
   <img src="./docs/products/code/assets/05-mobile-agent-chat.jpg" alt="Farming Code 手机界面" width="320">
-  &nbsp;&nbsp;
-  <img src="./docs/products/crt/assets/09-crt-mobile-dashboard.jpg" alt="Farming CRT 手机界面" width="320">
 </p>
+
+Farming CRT 当前只作为桌面界面使用。手机请使用 Farming Code；CRT 手机方案目前仍是概念设计，不属于已支持的产品能力。
 
 ## 安装与更新
 

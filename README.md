@@ -19,7 +19,7 @@ Farming 2 provides two complete browser interfaces over the same agents and sess
 
 ### Farming Code
 
-The default workbench for reading conversations, intervening in tasks, editing files, and reviewing an evolving change.
+The default workbench for reading conversations, intervening in tasks, editing files, and reviewing workspace changes.
 
 ![Farming Code structured Chat](./docs/products/code/assets/11-code-agent-process.png)
 
@@ -48,14 +48,14 @@ The complete current capability map and screenshot tour are in the [Farming 2 pr
 - Open a real PTY Terminal when exact CLI behavior matters. Chat / Terminal changes the actual runtime and safely resumes the same provider session when its identity is available.
 - Change supported live Codex model, reasoning, Fast, Ultra, and permission settings. Terminal changes are applied to the running workflow before the next message rather than being limited to a future launch profile.
 - Browse Project Files, Open Editors, search with ripgrep, edit with Monaco, preview Markdown and images, follow `path:line` links, inspect git changes, diffs, and blame.
-- Review one evolving change across revisions, keep findings tied to the compared revision, mark files reviewed, and inspect meaningful deltas instead of treating every Agent turn as a separate review.
+- Open tracked or untracked workspace changes in the initial Review surface, compare captured revisions, leave inline comments, and mark files reviewed. Deeper continuity across several review rounds is still evolving.
 - Search live Agents and the supported provider-session archive, then open, continue, restore, or resume the matching work.
 - Observe CPU/MEM, token-rate, context, quota, provider usage, and CRT daily/live token telemetry when the provider exposes the required data.
-- Use the same service from desktop and mobile browsers, with layouts designed for the amount of attention available on each device.
+- Use Farming Code from desktop and mobile browsers, with layouts designed for the amount of attention available on each device.
 
 ![Farming Code project files and blame](./docs/products/code/assets/04-files-editor-blame.png)
 
-![Farming Review](./docs/products/code/assets/10-review-workflow.png)
+![Separate Review entry points for tracked and untracked workspace changes](./docs/products/code/assets/10-review-workflow.png)
 
 ## Supported Agent Paths
 
@@ -109,9 +109,9 @@ Desktop keeps the project, conversation, files, and review close together. Mobil
 
 <p align="center">
   <img src="./docs/products/code/assets/05-mobile-agent-chat.jpg" alt="Farming Code on mobile" width="320">
-  &nbsp;&nbsp;
-  <img src="./docs/products/crt/assets/09-crt-mobile-dashboard.jpg" alt="Farming CRT on mobile" width="320">
 </p>
+
+Farming CRT is currently a desktop interface. Use Farming Code from a phone; CRT mobile concepts are not part of the supported product yet.
 
 ## Installation And Updates
 

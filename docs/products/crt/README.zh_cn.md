@@ -6,7 +6,7 @@ Farming CRT 是 Farming 2 的键盘优先控制室。它不是旧的只读皮肤
 
 ![Farming CRT 控制台](assets/01-crt-dashboard.png)
 
-多个 Agent 同时运行、终端输出是主要信号，或者直接键盘控制比 Coding Workspace 更快时，适合使用 CRT。Files、Editing 和多轮 Review 需要更多空间时使用 [Farming Code](../code/README.zh_cn.md)。切换界面不会重启或复制 Agent。
+多个 Agent 同时运行、终端输出是主要信号，或者直接键盘控制比 Coding Workspace 更快时，适合使用 CRT。Files、Editing、工作区 Review 和手机访问请使用 [Farming Code](../code/README.zh_cn.md)。切换界面不会重启或复制 Agent。
 
 共享能力的完整矩阵见 [Farming 2 产品总览](../README.zh_cn.md)。
 
@@ -118,15 +118,9 @@ Settings 提供 Interface Switch、CRT Effects、可选 Dynamic Heat、10–20 p
 
 禁用的 **[E] EXTENSIONS** 位置保留给未来 Provider Neutral Extension Surface。CRT 不会独立推断或安装 Extension。
 
-## 手机上的 CRT
+## 手机端状态
 
-小 Viewport 仍保留可读 Card 和固定 Page，不会把半张 Terminal Preview 截断在下边界。可用 Grid 会缩小，需要时出现 Paging，Sidebar 继续可以直接操作。
-
-<p align="center">
-  <img src="assets/09-crt-mobile-dashboard.jpg" alt="Farming CRT 移动控制台" width="360">
-</p>
-
-打开 Agent 后，Chat 或 Terminal 会使用完整 Mobile Viewport。后端 Session 与桌面看到的是同一个。
+Farming CRT 当前只作为桌面界面支持。手机请使用 Farming Code。CRT 移动布局仍是概念方案，不作为当前产品能力展示。
 
 ## 实时渲染与重连
 

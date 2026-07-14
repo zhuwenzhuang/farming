@@ -75,13 +75,13 @@ The editor is a lightweight intervention surface:
 
 It is intentionally not a full IDE replacement. The goal is to verify evidence or make a focused correction without leaving the task.
 
-## Review One Evolving Change
+## Review Workspace Changes
 
-Review is revision-aware. It keeps a file list, immutable comparisons, patchsets, inline comments, findings, and reviewed state tied to the relevant snapshot rather than treating each Agent turn as an unrelated change.
+The initial Review flow separates tracked and untracked workspace changes. It captures a revision, provides file and diff views, keeps inline comments and reviewed state with the relevant snapshot, and can compare a later fix.
 
-![Farming Review](assets/10-review-workflow.png)
+![Separate Review entry points for tracked and untracked workspace changes](assets/10-review-workflow.png)
 
-This supports the real multi-round loop: review a change, ask for a correction, compare the new revision, and concentrate on meaningful deltas. Working-copy and historical ACP changes can both feed the Review surface when the required revision evidence exists.
+Working-copy and historical ACP changes can feed the Review surface when the required revision evidence exists. Continuous tracking for the same findings and evidence across several review rounds remains an active product direction.
 
 ## Find Live Work Or Resume Old Work
 

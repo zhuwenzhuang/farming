@@ -4,6 +4,8 @@
 
 本文档描述 CRT 皮肤移动端（`max-width: 980px`）的平台特有布局。通用设计见 `base_layout.zh_cn.md`。
 
+> 状态：仅为概念设计。Farming CRT 当前只支持桌面使用，手机请使用 Farming Code。
+
 ---
 
 ## 1. 整体页面结构
