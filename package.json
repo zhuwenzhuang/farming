@@ -1,6 +1,6 @@
 {
   "name": "farming-code",
-  "version": "2.2.6",
+  "version": "2.2.7",
   "description": "Remote browser workspace for supervising AI coding agents",
   "main": "backend/server.js",
   "bin": {
