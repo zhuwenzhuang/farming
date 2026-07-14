@@ -142,11 +142,13 @@ function run() {
   assert(indexHtml.includes('styles/monochrome-green.css'), 'CRT entry should load its private Monochrome Green stylesheet');
   assert(indexHtml.includes('styles/billing.css'), 'CRT entry should load its Billing telemetry stylesheet');
   assert(
-    indexHtml.includes('id="billing-heatmap"')
+    indexHtml.includes('id="billing-daily-bars"')
+      && indexHtml.includes('id="billing-activity-strip"')
       && indexHtml.includes('id="billing-day-total"')
       && indexHtml.includes('id="billing-scope"')
       && indexHtml.includes('id="billing-quota-list"')
       && indexHtml.includes('<span class="key">[$]</span> BILLING')
+      && crtApp.includes('farmingApiPath(`/usage/day?date=${encodeURIComponent(date)}`)')
       && crtApp.includes("e.key === '$'")
       && crtApp.includes("e.key === '4' && e.shiftKey"),
     'CRT Billing should expose daily history, exact day details, live trend, and quota telemetry surfaces',
@@ -159,12 +161,13 @@ function run() {
   );
   assert(
     crtApp.includes('renderCrtBillingDaily')
-      && crtApp.includes('percentile > 0.98')
-      && indexHtml.includes('TOP 2%')
+      && crtApp.includes('crtBillingLogPosition')
+      && indexHtml.includes('1B+ DAY')
       && crtApp.includes('drawCrtBillingScope')
-      && billingCss.includes('.billing-heat-cell')
+      && billingCss.includes('.billing-daily-column')
+      && billingCss.includes('.billing-activity-tick')
       && billingCss.includes('@keyframes crt-billing-sweep'),
-    'CRT Billing should render a daily heatmap and a phosphor live oscilloscope',
+    'CRT Billing should render logarithmic daily history, an activity strip, and a phosphor live oscilloscope',
   );
   assert(fs.existsSync(departureFontPath), 'CRT should bundle the Departure Mono font');
   assert(fs.readFileSync(departureLicensePath, 'utf8').includes('SIL OPEN FONT LICENSE Version 1.1'), 'CRT should retain the Departure Mono license');

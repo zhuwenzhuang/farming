@@ -8,6 +8,11 @@ const {
 } = require('../acp/client-services');
 
 async function run() {
+  const packageJson = require('../../package.json');
+  assert(
+    packageJson.files.includes('backend/acp/'),
+    'the npm package must include ACP client service modules required at runtime',
+  );
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-client-'));
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-outside-'));
   const binding = {

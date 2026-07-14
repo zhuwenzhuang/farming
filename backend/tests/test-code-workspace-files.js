@@ -885,6 +885,7 @@ function run() {
       workspaceSource.includes('data-testid="code-composer-attachment"') &&
       workspaceSource.includes('onRemoveAttachment: removeComposerAttachment') &&
       workspaceSource.includes('attachments: [...state.attachments, initialAttachment]') &&
+      workspaceSource.includes('messageBlock: formatAttachedImage({ ...uploaded, name })') &&
       workspaceSource.includes('onPasteAttachment: handlePasteAttachment') &&
       workspaceSource.includes("fetch(composerAppPath('/api/attachments/image')") &&
       workspaceSource.includes('Image path: ${attachment.path}') &&

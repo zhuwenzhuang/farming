@@ -196,6 +196,7 @@ async function run() {
       return authoritativeRecord.id;
     },
   }), { acpRuntime: stalePtyRuntime });
+  await stalePtyManager.engineBridge.dispose();
   const killedRecoveredSessions = [];
   stalePtyManager.engineBridge = {
     async recoverSessions() {

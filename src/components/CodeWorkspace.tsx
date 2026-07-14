@@ -1278,12 +1278,12 @@ export function CodeWorkspace({
             attachment.id === id
               ? {
                 ...attachment,
-                name: uploaded.name || name,
+                name,
                 type: uploaded.type || attachment.type,
                 size: uploaded.size || attachment.size,
                 status: 'ready',
                 path: uploaded.path,
-                messageBlock: formatAttachedImage(uploaded),
+                messageBlock: formatAttachedImage({ ...uploaded, name }),
                 error: undefined,
               }
               : attachment

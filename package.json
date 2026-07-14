@@ -8,6 +8,7 @@
   },
   "files": [
     "backend/*.js",
+    "backend/acp/",
     "backend/data/",
     "bin/",
     "config/*.example",
