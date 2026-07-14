@@ -139,7 +139,7 @@ test.describe('ACP human-like browser matrix', () => {
       await resultSummary.click()
       await expect(richTurn.getByTestId('code-codex-transcript-result-details')).toBeVisible()
       await expect(richTurn.getByTestId('code-codex-transcript-result-details')).toContainText('display-fixture.txt')
-      await richTurn.locator('.code-codex-transcript-result-file').getByText('display-fixture.txt').click()
+      await richTurn.locator('.code-codex-transcript-result-file').getByText('display-fixture.txt', { exact: true }).click()
       await expect(richTurn.locator('.code-codex-transcript-result-diff')).toContainText('+after')
 
     })
