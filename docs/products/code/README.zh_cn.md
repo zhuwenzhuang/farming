@@ -26,6 +26,8 @@ Farming 2 运行在一台 Linux 开发机上，把 Web Terminal、AI coding agen
 
 后端还提供实验性的 [ACP runtime](acp-runtime.zh_cn.md)，用于 Codex、Claude Code、OpenCode 和 Qoder 的结构化 Session。Chat UI 对历史加载和实时更新消费同一条有序 ACP entry stream，Terminal 则继续保持为隔离的 PTY runtime。
 
+Review 的长期方向是[增量正确性证明式工作流](incremental-review-proof.zh_cn.md)：一个持续存在的 Review 跨越多个 revision 和 Agent，保留 Finding 与 Evidence，并把人的注意力放在尚未解决的风险和有意义的增量上，而不是每个 Agent turn 的文件列表。该文档描述产品方向和未来工作，不表示当前发布界面已经具备全部能力。
+
 ## Agent 状态推断
 
 Farming Code 把进程生命周期、Agent 类型和当前 turn 是否活跃分开判断。直接启动的 coding agent 会保留启动命令对应的类型，普通回答正文即使提到其他 provider，也不能改变它的能力；`bash` 或 `zsh` row 只有在 viewport 出现足够强的 TUI 证据时，才会切换成内层 Codex 或 Claude Code。
