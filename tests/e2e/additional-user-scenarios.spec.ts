@@ -14,6 +14,8 @@ import {
 
 type ScenarioRunner = (name: string, fn: () => Promise<void>) => Promise<void>
 
+const packageVersion = (JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as { version: string }).version
+
 async function createControlAgent(page: import('@playwright/test').Page, command: string, workspace: string) {
   const response = await page.request.post('/farming/api/control/agents', {
     data: { command, workspace },
@@ -350,7 +352,7 @@ test.describe('additional Farming Code user scenarios', () => {
     await scenario('product mark opens the restrained brand story and repository link', async () => {
       const productMark = page.getByTestId('code-product-mark')
       await expect(productMark).toContainText('Farming Code')
-      await expect(productMark).toContainText('v2.2.6')
+      await expect(productMark).toContainText(`v${packageVersion}`)
       await expect(productMark).not.toContainText('DOGFOOD')
       await expect(productMark).not.toContainText('UPGRADE')
       await expect(productMark).toHaveAttribute('title', 'Farming Code')

@@ -25,6 +25,8 @@ type MockAgentSession = {
   [key: string]: unknown
 }
 
+const packageVersion = (JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as { version: string }).version
+
 function activeFileTabName(page: Page) {
   return page.getByTestId('code-file-editor').getByRole('tab', { selected: true }).locator('.code-file-editor-tab-name')
 }
@@ -149,7 +151,7 @@ test.describe('display-backed agent flows', () => {
     await openFarming(page)
     const productMark = page.getByTestId('code-product-mark')
     await expect(productMark).toContainText('Farming Code')
-    await expect(productMark).toContainText('v2.2.7')
+    await expect(productMark).toContainText(`v${packageVersion}`)
     await expect(productMark).not.toContainText('DOGFOOD')
     await expect(productMark).not.toContainText('g25c4faf4')
     await expect(productMark).not.toContainText('dirty')
@@ -171,7 +173,7 @@ test.describe('display-backed agent flows', () => {
     const brandDialog = page.getByTestId('code-brand-dialog')
     await expect(brandDialog).toBeVisible()
     await expect(brandDialog.getByRole('heading', { name: 'Farming Code' })).toBeVisible()
-    await expect(brandDialog).toContainText('v2.2.7')
+    await expect(brandDialog).toContainText(`v${packageVersion}`)
     await expect(brandDialog).toContainText('Farming Code began with a simple idea')
     await expect(brandDialog.getByRole('link', { name: 'GitHub' })).toHaveAttribute('href', 'https://github.com/zhuwenzhuang/farming')
     await expect(brandDialog).not.toContainText('https://github.com/zhuwenzhuang/farming')

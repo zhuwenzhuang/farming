@@ -303,7 +303,7 @@ export function InputDialog({
     }
   }, [])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open || step !== 'agent-list' || !agentsLoaded || agentLoadFailed) return
     if (mustStartMain && !settingsLoaded) return
 
