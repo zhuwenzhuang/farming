@@ -26,6 +26,47 @@ async function sendAcpMessage(page: Page, text: string) {
 }
 
 test.describe('ACP human-like browser matrix', () => {
+  test('keeps a fresh OpenCode launch on ACP before the provider session id exists', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'opencode-acp-launch')
+    fs.mkdirSync(workspace, { recursive: true })
+    await page.route('**/farming/api/executables', route => route.fulfill({
+      json: {
+        agents: [
+          { name: 'codex', command: 'codex', description: 'Codex', category: 'coding', supported: true, interactive: true },
+          { name: 'opencode', command: 'opencode', description: 'OpenCode', category: 'coding', supported: true, interactive: true },
+          { name: 'bash', command: 'bash', description: 'Bash', category: 'other', supported: true, interactive: true },
+        ],
+      },
+    }))
+    await openFarming(page)
+    await expect.poll(async () => {
+      const response = await page.request.get('/farming/api/control/agents')
+      const body = await response.json() as { mainAgentId?: string | null }
+      return body.mainAgentId ?? ''
+    }, { timeout: 30_000 }).not.toBe('')
+
+    await page.getByTestId('code-new-agent').click()
+    await expect(page.getByTestId('input-dialog')).toBeVisible()
+    await expect(page.getByTestId('agent-list-status')).toBeHidden({ timeout: 30_000 })
+    await page.getByTestId('agent-option-opencode').click()
+    const runtime = page.getByTestId('codex-runtime-mode')
+    await runtime.getByRole('button', { name: /^Chat/ }).click()
+    await expect(runtime.getByRole('button', { name: /^Chat/ })).toHaveAttribute('aria-pressed', 'true')
+    await page.getByTestId('workspace-input').fill(workspace)
+    await page.getByTestId('workspace-start').click()
+
+    await expect(page.getByTestId('input-dialog')).toBeHidden({ timeout: 30_000 })
+    await expect(page.getByTestId('code-agent-chat-view')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('code-acp-composer')).toBeVisible()
+    const stateResponse = await page.request.get('/farming/api/control/agents')
+    const state = await stateResponse.json() as {
+      agents?: Array<{ command?: string; agentRuntimeMode?: string; providerSessionProvider?: string }>
+    }
+    const openCode = state.agents?.find(agent => agent.command === 'opencode')
+    expect(openCode?.agentRuntimeMode).toBe('acp')
+    expect(openCode?.providerSessionProvider).toBe('opencode')
+  })
+
   test('keeps 53 structured chat interactions coherent across live, history, security, and runtime switching', async ({ page, workspaceRoot }) => {
     test.setTimeout(150_000)
     const workspace = path.join(workspaceRoot, 'acp-human-cases')

@@ -115,6 +115,35 @@ async function run() {
     await manager.dispose();
   }
 
+  const openCodeRuntime = new AcpRuntime({
+    resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
+  });
+  const openCodeManager = new AgentManager(config(), {
+    acpRuntime: openCodeRuntime,
+    skipExecutablePreflight: true,
+  });
+  try {
+    const openCodeAgentId = await new Promise(resolve => {
+      openCodeManager.startAgent('opencode', process.cwd(), (id, error) => {
+        assert.ifError(error);
+        resolve(id);
+      }, {
+        agentRuntimeMode: 'acp',
+        providerHomeId: 'default',
+      });
+    });
+    assert(openCodeAgentId);
+    const openCodeAgent = openCodeManager.agents.get(openCodeAgentId);
+    assert.strictEqual(openCodeAgent.agentRuntimeMode, 'acp');
+    assert.strictEqual(openCodeAgent.providerSessionProvider, 'opencode');
+    assert.strictEqual(openCodeAgent.providerSessionId, 'acp-new-session');
+    assert.strictEqual(openCodeAgent.providerSessionSource, 'acp-new');
+    assert(openCodeRuntime.bindings.has(openCodeAgentId));
+    assert.strictEqual(openCodeAgent.engineStarted, false);
+  } finally {
+    await openCodeManager.dispose();
+  }
+
   const recoveryRuntime = new AcpRuntime({
     resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
   });

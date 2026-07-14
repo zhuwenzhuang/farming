@@ -2140,6 +2140,16 @@ class AgentManager extends EventEmitter {
         resolvedProviderHomeId = defaultCodexHome.id || 'default';
       }
     }
+    const requestedAgentRuntimeMode = ['json', 'acp'].includes(options.agentRuntimeMode)
+      ? options.agentRuntimeMode
+      : 'terminal';
+    // A fresh structured runtime does not need a provider CLI resume id yet:
+    // ACP/JSON creates the provider session and writes the resulting id back
+    // after connecting. OpenCode is the important case here because its
+    // terminal CLI does not accept a pre-generated id for a fresh session.
+    const structuredRuntimeProvider = ['json', 'acp'].includes(requestedAgentRuntimeMode)
+      ? homeProvider
+      : providerSessionPlan.provider;
     const requestedCodexRuntimeMode = options.codexRuntimeMode === 'app-server' || options.codexRuntimeMode === 'cli'
       ? options.codexRuntimeMode
       : (this.configManager && typeof this.configManager.getCodexRuntimeMode === 'function'
@@ -2154,15 +2164,12 @@ class AgentManager extends EventEmitter {
       // on the path they are designed to exercise.
       && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
       && normalizeCodexRuntimeMode(requestedCodexRuntimeMode) === 'app-server';
-    const requestedAgentRuntimeMode = ['json', 'acp'].includes(options.agentRuntimeMode)
-      ? options.agentRuntimeMode
-      : 'terminal';
     const useJsonCli = requestedAgentRuntimeMode === 'json'
-      && ['codex', 'opencode'].includes(providerSessionPlan.provider)
+      && ['codex', 'opencode'].includes(structuredRuntimeProvider)
       && !useCodexAppServer
       && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1';
     const useAcp = requestedAgentRuntimeMode === 'acp'
-      && ['codex', 'claude', 'opencode', 'qoder'].includes(providerSessionPlan.provider)
+      && ['codex', 'claude', 'opencode', 'qoder'].includes(structuredRuntimeProvider)
       && !useCodexAppServer
       && (
         process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
@@ -2203,7 +2210,7 @@ class AgentManager extends EventEmitter {
       task: typeof options.task === 'string' ? options.task : '',
       workflowTemplate: typeof options.workflowTemplate === 'string' ? options.workflowTemplate : '',
       source: typeof options.source === 'string' ? options.source : 'ui',
-      providerSessionProvider: providerSessionPlan.provider || '',
+      providerSessionProvider: useAcp || useJsonCli ? structuredRuntimeProvider : (providerSessionPlan.provider || ''),
       providerHomeId: resolvedProviderHomeId,
       providerHomePath,
       providerSessionId: providerSessionPlan.id || '',
@@ -2213,7 +2220,7 @@ class AgentManager extends EventEmitter {
       providerSessionResolvedAt: providerSessionPlan.temporary === true ? null : Date.now(),
       providerSessionTitle: typeof options.providerSessionTitle === 'string' ? options.providerSessionTitle.trim().slice(0, 160) : '',
       terminalInputReceived: false,
-      codexRuntimeMode: providerSessionPlan.provider === 'codex'
+      codexRuntimeMode: structuredRuntimeProvider === 'codex'
         ? (useCodexAppServer ? 'app-server' : 'cli')
         : '',
       agentRuntimeMode: useAcp ? 'acp' : (useJsonCli ? 'json' : 'terminal'),
@@ -2344,7 +2351,7 @@ class AgentManager extends EventEmitter {
       if (useJsonCli) {
         this.jsonCliRuntime.registerAgent({
           agentId,
-          provider: providerSessionPlan.provider,
+          provider: structuredRuntimeProvider,
           executable: spawnProgram,
           env: this.buildAgentEnv(agentId, agentRecord),
           cwd: workspace,
@@ -2358,7 +2365,7 @@ class AgentManager extends EventEmitter {
       if (useAcp) {
         const prepared = await this.acpRuntime.prepareAgent({
           agentId,
-          provider: providerSessionPlan.provider,
+          provider: structuredRuntimeProvider,
           executable: spawnProgram,
           env: this.buildAgentEnv(agentId, agentRecord),
           cwd: workspace,
@@ -2379,7 +2386,7 @@ class AgentManager extends EventEmitter {
         });
         agentRecord.providerSessionId = prepared.sessionId;
         agentRecord.providerSessionKey = this.providerSessionKey(
-          providerSessionPlan.provider,
+          structuredRuntimeProvider,
           prepared.sessionId,
           agentRecord.providerHomeId || 'default'
         );
