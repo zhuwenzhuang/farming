@@ -198,10 +198,12 @@ interface SessionRecord {
   terminalWriteQueue: Promise<void>
   terminalWriteResolvers: Set<(cancelled?: boolean) => boolean>
   snapshotCursor: TerminalCursorPosition | null
+  bootstrapRefreshSeq: number
   reconnectSnapshotSeq: number
   needsReconnectOutputSync: boolean
   pendingSnapshotReplay: boolean
   bootstrappingSnapshot: boolean
+  fixtureOverrideActive: boolean
   queuedOutput: Array<{ data: string; replace?: boolean; outputSeq?: number | null }>
   suspendRendering: boolean
   cachedSelection: string
@@ -427,10 +429,12 @@ async function fetchSessionBootstrapStateForCurrentTerminal(record: SessionRecor
 }
 
 async function refreshBootstrapOutput(record: SessionRecord) {
-  if (record.disposed || (!record.bootstrappingSnapshot && !record.pendingSnapshotReplay)) return
+  if (record.disposed || record.fixtureOverrideActive || (!record.bootstrappingSnapshot && !record.pendingSnapshotReplay)) return
+  const refreshSeq = ++record.bootstrapRefreshSeq
 
   try {
     const bootstrapState = await fetchSessionBootstrapStateForCurrentTerminal(record)
+    if (record.disposed || record.fixtureOverrideActive || record.bootstrapRefreshSeq !== refreshSeq) return
     if (isSequencedOutputCovered(bootstrapState.outputSeq, record.lastOutputSeq)) {
       return
     }
@@ -652,6 +656,7 @@ function isCurrentAttachment(record: SessionRecord, generation: number) {
 }
 
 function replayPendingSnapshot(record: SessionRecord, generation?: number) {
+  if (record.fixtureOverrideActive) return
   if (record.disposed || !record.pendingSnapshotReplay || !record.snapshotOutput) return
   if (generation !== undefined && !isCurrentAttachment(record, generation)) return
 
@@ -692,6 +697,7 @@ function resyncTerminalOutputAfterBackendReconnect(record: SessionRecord, genera
     record.disposed ||
     record.bootstrappingSnapshot ||
     record.pendingSnapshotReplay ||
+    record.fixtureOverrideActive ||
     !isCurrentAttachment(record, generation)
   ) {
     return
@@ -704,6 +710,7 @@ function resyncTerminalOutputAfterBackendReconnect(record: SessionRecord, genera
       if (
         record.disposed ||
         record.reconnectSnapshotSeq !== syncSeq ||
+        record.fixtureOverrideActive ||
         !isCurrentAttachment(record, generation) ||
         Date.now() < record.suppressOutputUntil
       ) {
@@ -730,10 +737,12 @@ function resyncTerminalOutputAfterBackendReconnect(record: SessionRecord, genera
 }
 
 function syncTerminalOutputFromSnapshot(record: SessionRecord, generation: number) {
+  if (record.fixtureOverrideActive) return
   fetchSessionBootstrapStateForCurrentTerminal(record)
     .then((bootstrapState) => {
       if (
         record.disposed ||
+        record.fixtureOverrideActive ||
         record.attachGeneration !== generation ||
         !bootstrapState.output
       ) {
@@ -781,6 +790,7 @@ function applyTerminalOutputEvent(record: SessionRecord, data: string, replace?:
   }
 
   if (replace) {
+    if (record.fixtureOverrideActive) return
     replaceTerminalOutput(record, data, () => scheduleImeOverlayUpdateIfActive(record))
     if (typeof outputSeq === 'number' && Number.isFinite(outputSeq)) {
       record.lastOutputSeq = outputSeq
@@ -1813,6 +1823,7 @@ function createTerminalContextMenuItem(
 
 function pasteTerminalClipboardText(record: SessionRecord, text: string) {
   if (!text || record.disposed || record.attachedMount === null) return false
+  record.fixtureOverrideActive = false
   scrollRecordToBottom(record, { allowClearUnread: true })
   record.lastTerminalDataAt = Date.now()
   record.inputCount += 1
@@ -2340,6 +2351,16 @@ function installTerminalTestApi() {
       const current = sessions.get(agentId)
       const record = current instanceof Promise ? await current : current
       if (!record || record.disposed) throw new Error(`Terminal session not found: ${agentId}`)
+      record.bootstrapRefreshSeq += 1
+      record.reconnectSnapshotSeq += 1
+      record.snapshotOutput = ''
+      record.snapshotOutputSeq = null
+      record.snapshotCursor = null
+      record.pendingSnapshotReplay = false
+      record.bootstrappingSnapshot = false
+      record.needsReconnectOutputSync = false
+      record.fixtureOverrideActive = true
+      record.queuedOutput = []
       record.suppressOutputUntil = Date.now() + 1500
       record.terminal.reset()
       record.terminal.viewportY = 0
@@ -2750,10 +2771,12 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     terminalWriteQueue: Promise.resolve(),
     terminalWriteResolvers: new Set(),
     snapshotCursor: null,
+    bootstrapRefreshSeq: 0,
     reconnectSnapshotSeq: 0,
     needsReconnectOutputSync: false,
     pendingSnapshotReplay: false,
     bootstrappingSnapshot: true,
+    fixtureOverrideActive: false,
     queuedOutput: [],
     suspendRendering: false,
     cachedSelection: '',
@@ -2776,6 +2799,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
 
   terminal.onData((data: string) => {
     if (record.disposed || record.attachedMount === null) return
+    record.fixtureOverrideActive = false
     record.lastTerminalDataAt = Date.now()
     record.inputCount += 1
     record.contextMenuSelection = ''

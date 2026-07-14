@@ -162,9 +162,9 @@ async function hoverTerminalCell(
   x: number,
   y: number,
 ) {
-  // Moving within the cell first guarantees a fresh mousemove even when two
-  // consecutive fixtures render at the same viewport coordinates.
-  await page.mouse.move(x + 1, y + 1)
+  // Leave the terminal cell first so xterm runs a fresh link hit-test even
+  // when consecutive fixtures render their targets at the same coordinates.
+  await page.mouse.move(0, 0)
   await page.mouse.move(x, y)
 }
 
