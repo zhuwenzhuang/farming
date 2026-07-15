@@ -4,6 +4,8 @@
 
 Farming 2 is an open-source, customizable browser workspace with two live interfaces: Farming Code for focused coding and review, and Farming CRT for keyboard-first monitoring and control. Both interfaces use the same backend Agents, provider sessions, native PTY processes, history, workspace files, and settings.
 
+Multiple Farming deployments can additionally be collected in [Farming Net](net/README.md), a separate token-protected directory. Enrolled targets accept target-bound, short-lived signed passes without joining runtimes or exposing their normal tokens to the portal.
+
 This document is the canonical public capability map and is updated in place as the product improves. Historical changes remain in [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases).
 
 Install and start:
@@ -145,6 +147,7 @@ Farming Code mobile emphasizes one readable task surface and a drawer. Farming C
 
 - [Farming Code product guide](code/README.md)
 - [Farming CRT product guide](crt/README.md)
+- [Farming Net deployment portal](net/README.md)
 - [Mobile guide](code/mobile-guide.md)
 - [ACP runtime](code/acp-runtime.md)
 - [Review foundation](code/review-foundation.md)

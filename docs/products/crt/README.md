@@ -19,8 +19,10 @@ Each card shows:
 - the human rename, provider session title, terminal title, or friendly provider name;
 - running, waiting, unread, and optional heat state;
 - the configured project name;
-- a bottom-aligned ANSI-aware live terminal preview;
+- a bottom-aligned ANSI-aware terminal tail, or a compact Chat trail with the latest visible user message, Agent reply, and active tool step;
 - a stable numeric shortcut badge.
+
+The dashboard is a live-work surface: archived, stopped, and dead Agent records do not retain grid bays or numeric shortcuts. Their run or provider history remains available through History when it is resumable.
 
 The top bar reports active Agents, terminal-output token-rate estimate, CPU/MEM, host identity, local time, and uptime. The sidebar keeps New Agent, Search, History, Billing, Settings, and optional Main Agent supervision reachable without covering the grid.
 
@@ -124,7 +126,7 @@ Farming CRT is currently supported as a desktop interface. Use Farming Code on a
 
 ## Live Rendering And Reconnection
 
-Dashboard previews are monitoring summaries, not interactive terminal canvases. The client batches changed cards at most once per second and updates only affected cards. While a session is open, background dashboard rendering and preview streams are suspended for that client; closing it requests one fresh merged state.
+Dashboard previews are monitoring summaries, not interactive session canvases. Terminal cards batch ANSI-aware snapshots at most once per second. Structured Chat cards read the backend-sanitized transcript and project only the latest visible turn and current activity; ACP revisions are throttled and update only the affected card instead of rebuilding the grid for every streamed chunk. While a session is open, background dashboard rendering and preview streams are suspended for that client; closing it requests one fresh merged state.
 
 When the browser tab is hidden, CRT closes its WebSocket and cancels reconnect work while backend Agents and PTYs continue. Returning opens one connection, restores dashboard state, and resynchronizes an open terminal before incremental output resumes.
 

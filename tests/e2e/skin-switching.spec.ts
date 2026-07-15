@@ -1,5 +1,16 @@
 import path from 'node:path'
+import type { Page } from '@playwright/test'
 import { expect, openFarming, openNewAgentDialog, startAgentFromOpenDialog, test } from './fixtures'
+
+async function createControlAgent(page: Page, command: string, workspace: string, agentRuntimeMode: 'terminal' | 'acp' = 'terminal') {
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command, workspace, agentRuntimeMode },
+  })
+  expect(response.ok()).toBeTruthy()
+  const payload = await response.json() as { agentId?: string }
+  expect(payload.agentId).toBeTruthy()
+  return payload.agentId as string
+}
 
 test('switches from Farming Code to the same Agent in Farming CRT', async ({ page, workspaceRoot }) => {
   await openFarming(page)
@@ -25,6 +36,49 @@ test('switches from Farming Code to the same Agent in Farming CRT', async ({ pag
   await page.getByRole('button', { name: '[S] SETTINGS', exact: true }).click()
   await expect(page.getByText('Farming CRT', { exact: true })).toBeVisible()
   await expect(page.getByText('Terminal', { exact: true })).toHaveCount(0)
+})
+
+test('previews structured Chat on CRT cards and removes killed Agents from the live grid', async ({ page, workspaceRoot }) => {
+  test.setTimeout(90_000)
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+
+  const chatAgentId = await createControlAgent(page, 'codex', workspaceRoot, 'acp')
+  const chatRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${chatAgentId}"]`)
+  await expect(chatRow).toBeVisible({ timeout: 30_000 })
+  await chatRow.click()
+  await expect(page.getByTestId('code-acp-composer')).toBeVisible()
+  await page.getByTestId('code-acp-composer-input').fill('rich timeline')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 20_000 })
+
+  await page.getByTestId('code-sidebar-options').click()
+  await page.getByTestId('code-settings-skin-crt').click()
+  await expect(page.locator('body')).toHaveAttribute('id', 'farming-crt')
+  await expect(page.locator('#session-modal')).toHaveClass(/active/)
+  await page.keyboard.press('Control+Escape')
+  await expect(page.locator('#session-modal')).not.toHaveClass(/active/)
+
+  const chatCard = page.locator(`#map-area .agent-block[data-agent-id="${chatAgentId}"]`)
+  const chatPreview = chatCard.locator('.agent-chat-preview')
+  await expect(chatCard).toBeVisible()
+  await expect(chatPreview).toHaveAttribute('data-preview-kind', 'chat')
+  await expect(chatPreview.locator('[data-preview-role="user"]')).toContainText('rich timeline')
+  await expect(chatPreview.locator('[data-preview-role="assistant"]')).toContainText('Rich ACP timeline complete.')
+  await expect(chatCard.getByText('No output yet...', { exact: true })).toHaveCount(0)
+
+  const killedAgentId = await createControlAgent(page, 'bash', workspaceRoot)
+  const killedCard = page.locator(`#map-area .agent-block[data-agent-id="${killedAgentId}"]`)
+  await expect(killedCard).toBeVisible({ timeout: 30_000 })
+  const killResponse = await page.request.delete(`/farming/api/control/agents/${killedAgentId}`)
+  expect(killResponse.ok()).toBeTruthy()
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/control/agents')
+    const body = await response.json() as { agents?: Array<{ id?: string; status?: string }> }
+    return body.agents?.some(agent => agent.id === killedAgentId) === true
+  }, { timeout: 20_000 }).toBe(false)
+  await expect(killedCard).toHaveCount(0)
 })
 
 test('searches live Agents and provider sessions from CRT search', async ({ page, workspaceRoot }) => {

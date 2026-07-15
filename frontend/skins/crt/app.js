@@ -71,6 +71,8 @@ let dashboardRenderDeferred = false;
 let lastCrtDashboardSignature = '';
 let crtPreviewRenderTimer = null;
 const pendingCrtPreviewRenders = new Map();
+const crtStructuredPreviewCache = new Map();
+const crtStructuredPreviewTimers = new Map();
 let sessionRuntime = null;
 let legacySessionPoller = null;
 let structuredSessionPoller = null;
@@ -105,6 +107,7 @@ const SESSION_INPUT_SETTINGS = {
 };
 const SESSION_LINK_LIMIT = 6;
 const CRT_PREVIEW_RENDER_INTERVAL_MS = 1000;
+const CRT_STRUCTURED_PREVIEW_REFRESH_MS = 240;
 const CRT_AGENT_CARD_MIN_WIDTH = 200;
 const CRT_AGENT_CARD_MIN_HEIGHT = 160;
 const CRT_AGENT_GRID_GAP = 15;
@@ -362,9 +365,7 @@ function crtHistorySessionDisplayKey(item) {
 function buildCrtHistoryItems({ taskHistory = [], agents: agentRecords = [], sessions = [], mainPageSessionKeys = [] } = {}) {
   const liveAgents = agentRecords.filter((agent) => (
     agent.isMain !== true
-    && agent.archived !== true
-    && agent.status !== 'dead'
-    && agent.status !== 'stopped'
+    && isCrtLiveAgent(agent)
   ));
   const claimedSessionKeys = new Set(liveAgents.map((agent) => (
     agent.providerSessionKey || (() => {
@@ -427,9 +428,7 @@ function buildCrtSearchResults({ query = '', agents: agentRecords = [], sessions
     agent
     && agent.id !== mainAgentId
     && agent.isMain !== true
-    && agent.archived !== true
-    && agent.status !== 'dead'
-    && agent.status !== 'stopped'
+    && isCrtLiveAgent(agent)
   ));
   const claimedSessionKeys = new Set(liveAgents.map((agent) => {
     if (agent.providerSessionKey) return agent.providerSessionKey;
@@ -1378,6 +1377,93 @@ function renderCrtTerminalSnapshot(container, snapshot) {
   return true;
 }
 
+function crtStructuredPreviewStatus(agent, cached) {
+  if (cached && cached.error && !cached.preview) return 'PREVIEW OFFLINE';
+  if ((!cached || !cached.preview) && (!cached || cached.loading)) return 'SYNCING';
+  const status = String(structuredRuntimeStatus(agent) || 'idle').toUpperCase().replaceAll('-', ' ');
+  if (status === 'WAITING FOR PERMISSION') return 'PERMISSION NEEDED';
+  if (status === 'WAITING FOR INPUT') return 'INPUT NEEDED';
+  return status;
+}
+
+function appendCrtStructuredPreviewLine(container, role, label, text) {
+  if (!text) return;
+  const line = document.createElement('div');
+  line.className = `agent-chat-preview-line ${role}`;
+  line.dataset.previewRole = role;
+  const roleLabel = document.createElement('span');
+  roleLabel.className = 'agent-chat-preview-role';
+  roleLabel.textContent = label;
+  const content = document.createElement('span');
+  content.className = 'agent-chat-preview-text';
+  content.textContent = text;
+  line.append(roleLabel, content);
+  container.appendChild(line);
+}
+
+function renderCrtStructuredPreview(output, agent) {
+  output.classList.add('structured-preview');
+  const cached = crtStructuredPreviewCache.get(agent.id) || null;
+  const preview = cached && cached.preview;
+  const runtimeStatus = String(structuredRuntimeStatus(agent) || '').toLowerCase();
+  const active = ['connecting', 'working', 'waiting-for-permission', 'waiting-for-input', 'interrupting']
+    .includes(runtimeStatus);
+  const panel = document.createElement('div');
+  panel.className = `agent-chat-preview${active ? ' active' : ''}`;
+  panel.dataset.previewKind = 'chat';
+
+  const meta = document.createElement('div');
+  meta.className = 'agent-chat-preview-meta';
+  const channel = document.createElement('span');
+  channel.textContent = `CHAT / ${structuredRuntimeKind(agent)}`;
+  const stateLabel = document.createElement('span');
+  stateLabel.className = 'agent-chat-preview-state';
+  const signal = document.createElement('i');
+  signal.setAttribute('aria-hidden', 'true');
+  const stateText = document.createElement('span');
+  stateText.textContent = crtStructuredPreviewStatus(agent, cached);
+  stateLabel.append(signal, stateText);
+  meta.append(channel, stateLabel);
+  panel.appendChild(meta);
+
+  if (preview) {
+    appendCrtStructuredPreviewLine(panel, 'user', 'YOU', preview.userText);
+    appendCrtStructuredPreviewLine(panel, 'assistant', 'AGENT', preview.assistantText);
+    if (active && preview.activityText && preview.activityText !== preview.assistantText) {
+      appendCrtStructuredPreviewLine(panel, 'activity', 'NOW', preview.activityText);
+    }
+  }
+
+  if (!panel.querySelector('.agent-chat-preview-line')) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-chat-preview-empty';
+    empty.textContent = cached && cached.error
+      ? 'Conversation preview unavailable'
+      : active ? 'Establishing conversation stream…' : 'Ready for the first message';
+    panel.appendChild(empty);
+  }
+
+  output.replaceChildren(panel);
+  scheduleCrtStructuredPreviewRefresh(agent);
+}
+
+function renderCrtAgentOutput(output, agent, { main = false } = {}) {
+  output.classList.remove('structured-preview');
+  if (isStructuredRuntimeAgent(agent)) {
+    renderCrtStructuredPreview(output, agent);
+    return;
+  }
+  const outputTail = document.createElement('div');
+  outputTail.className = 'agent-output-tail';
+  const cleanOutput = getAgentDisplayText(agent);
+  if (!renderCrtTerminalSnapshot(outputTail, agent.previewSnapshot)) {
+    outputTail.textContent = main
+      ? cleanOutput.slice(-150) || 'No output yet...'
+      : cleanOutput || 'No output yet...';
+  }
+  output.replaceChildren(outputTail);
+}
+
 function crtDashboardStateSignature(value) {
   if (!value || !Array.isArray(value.agents)) return '';
   return JSON.stringify([
@@ -1417,8 +1503,17 @@ function renderCrtDashboardIfNeeded(force = false) {
   return true;
 }
 
+function scheduleCrtRenderedStructuredPreviews() {
+  if (typeof document === 'undefined' || !state) return;
+  document.querySelectorAll('#map-area .agent-block[data-agent-id], #main-agent-block[data-agent-id]')
+    .forEach((block) => {
+      const agent = state.agents.find((candidate) => candidate.id === block.dataset.agentId);
+      if (agent) scheduleCrtStructuredPreviewRefresh(agent);
+    });
+}
+
 function updateCrtAgentPreviewCard(agent) {
-  if (typeof document === 'undefined' || !agent) return false;
+  if (typeof document === 'undefined' || !isCrtLiveAgent(agent)) return false;
   const block = Array.from(document.querySelectorAll('[data-agent-id]'))
     .find((candidate) => candidate.dataset.agentId === agent.id);
   if (!block) return false;
@@ -1441,15 +1536,7 @@ function updateCrtAgentPreviewCard(agent) {
     status.textContent = [agent.status, agent.activityLevel, projectName].filter(Boolean).join(' | ');
   }
 
-  const outputTail = document.createElement('div');
-  outputTail.className = 'agent-output-tail';
-  const cleanOutput = getAgentDisplayText(agent);
-  if (!renderCrtTerminalSnapshot(outputTail, agent.previewSnapshot)) {
-    outputTail.textContent = isMain
-      ? cleanOutput.slice(-150) || 'No output yet...'
-      : cleanOutput || 'No output yet...';
-  }
-  output.replaceChildren(outputTail);
+  renderCrtAgentOutput(output, agent, { main: isMain });
   lastCrtDashboardSignature = crtDashboardStateSignature(state);
   return true;
 }
@@ -1465,8 +1552,10 @@ function flushCrtPreviewCardRenders() {
   }
 
   pending.forEach(({ agent, previousSnapshot, previousText, previewChanged }) => {
-    if (!updateCrtAgentPreviewCard(agent)) {
-      if (agent.id !== state.mainAgentId && !isCrtAgentOnCurrentPage(agent.id)) {
+    const currentAgent = state && state.agents.find((candidate) => candidate.id === agent.id);
+    if (!isCrtLiveAgent(currentAgent)) return;
+    if (!updateCrtAgentPreviewCard(currentAgent)) {
+      if (currentAgent.id !== state.mainAgentId && !isCrtAgentOnCurrentPage(currentAgent.id)) {
         if (previewChanged) pulseCrtBrandForAgent(agent.id);
         return;
       }
@@ -1481,6 +1570,7 @@ function flushCrtPreviewCardRenders() {
 }
 
 function scheduleCrtPreviewCardRender(agent, previousSnapshot, previousText, previewChanged) {
+  if (!isCrtLiveAgent(agent)) return;
   const existing = pendingCrtPreviewRenders.get(agent.id);
   pendingCrtPreviewRenders.set(agent.id, {
     agent,
@@ -4140,7 +4230,7 @@ function needsMainAgent(currentState = state) {
   const mainAgent = currentState && currentState.mainAgentId
     ? currentState.agents.find((agent) => agent.id === currentState.mainAgentId)
     : null;
-  return !currentState || !currentState.mainAgentId || (mainAgent && mainAgent.status === 'dead');
+  return !currentState || !currentState.mainAgentId || !isCrtLiveAgent(mainAgent);
 }
 
 function getDefaultWorkspaceForDialog(asMainAgent) {
@@ -4481,7 +4571,7 @@ function openCrtAgentDeeplinkIfReady() {
 
   const agentId = requestedCrtAgentId();
   const agent = agentId
-    ? state.agents.find((candidate) => candidate.id === agentId && candidate.archived !== true)
+    ? state.agents.find((candidate) => candidate.id === agentId && isCrtLiveAgent(candidate))
     : null;
   if (!agent) return false;
 
@@ -4522,6 +4612,7 @@ function connect() {
     if (data.type === 'state') {
       const prevAgentCount = state ? state.agents.length : 0;
       state = data.state;
+      pruneCrtStructuredPreviews(state);
       const activeAgentIds = new Set(state.agents.map((agent) => agent.id));
       terminalPreviewSnapshots.forEach((_snapshot, agentId) => {
         if (!activeAgentIds.has(agentId)) terminalPreviewSnapshots.delete(agentId);
@@ -4532,6 +4623,7 @@ function connect() {
         }
       });
       const dashboardRendered = renderCrtDashboardIfNeeded();
+      scheduleCrtRenderedStructuredPreviews();
       if (dashboardRendered && crtMainView === 'history') renderCrtHistory();
       if (crtMainView === 'search') renderCrtSearch();
       generateKeyMap();
@@ -4651,7 +4743,7 @@ function checkMainAgentStatus() {
     ? state.agents.find(a => a.id === state.mainAgentId)
     : null;
 
-  if (!state.mainAgentId || (mainAgent && mainAgent.status === 'dead')) {
+  if (!state.mainAgentId || !isCrtLiveAgent(mainAgent)) {
     showInputDialog();
   }
 }
@@ -4729,9 +4821,25 @@ function updateSystemStats(stats, uptime, usageRate) {
   }
 }
 
+function isCrtLiveAgent(agent) {
+  return Boolean(
+    agent
+    && agent.archived !== true
+    && agent.status !== 'dead'
+    && agent.status !== 'stopped'
+  );
+}
+
+function getCrtLiveAgents(currentState = state) {
+  if (!currentState || !Array.isArray(currentState.agents)) return [];
+  return currentState.agents.filter(isCrtLiveAgent);
+}
+
 function getCrtRegularAgents(currentState = state) {
   if (!currentState || !Array.isArray(currentState.agents)) return [];
-  return currentState.agents.filter((agent) => agent.id !== currentState.mainAgentId);
+  return getCrtLiveAgents(currentState).filter((agent) => (
+    agent.id !== currentState.mainAgentId && agent.isMain !== true
+  ));
 }
 
 function updateCrtAgentPageStatus(pageState) {
@@ -4774,8 +4882,9 @@ function renderState() {
   lastCrtDashboardSignature = crtDashboardStateSignature(state);
 
   // 更新吊顶的 Agent 数量
-  const activeAgents = state.agents.filter(a => a.status === 'running').length;
-  const totalAgents = state.agents.length;
+  const visibleAgents = getCrtLiveAgents(state);
+  const activeAgents = visibleAgents.filter(a => a.status === 'running').length;
+  const totalAgents = visibleAgents.length;
   document.getElementById('active-agents').textContent = activeAgents;
   document.getElementById('total-agents').textContent = totalAgents;
   updateCrtBrandState(state);
@@ -4789,8 +4898,10 @@ function renderState() {
   agentBlocks.forEach(block => block.remove());
 
   mainAgentBlock.innerHTML = '';
+  mainAgentBlock.removeAttribute('data-agent-id');
+  mainAgentBlock.removeAttribute('data-crt-nav-key');
 
-  if (state.agents.length === 0) {
+  if (visibleAgents.length === 0) {
     emptyState.style.display = 'flex';
     mainAgentPanel.style.display = 'none';
     updateCrtAgentPageStatus(getCrtAgentPage([], 0, 1));
@@ -4823,7 +4934,7 @@ function renderState() {
   // 渲染 Main Agent 到右下角
   if (state.mainAgentId) {
     const mainAgent = state.agents.find(a => a.id === state.mainAgentId);
-    if (mainAgent) {
+    if (isCrtLiveAgent(mainAgent)) {
       mainAgentPanel.style.display = 'block';
       mainAgentBlock.dataset.crtNavKey = `agent:${mainAgent.id}`;
       mainAgentBlock.dataset.agentId = mainAgent.id;
@@ -4843,13 +4954,7 @@ function renderState() {
       const output = document.createElement('div');
       output.className = 'agent-output';
       output.style.height = '80px';
-      const cleanOutput = getAgentDisplayText(mainAgent);
-      const outputTail = document.createElement('div');
-      outputTail.className = 'agent-output-tail';
-      if (!renderCrtTerminalSnapshot(outputTail, mainAgent.previewSnapshot)) {
-        outputTail.textContent = cleanOutput.slice(-150) || 'No output yet...';
-      }
-      output.appendChild(outputTail);
+      renderCrtAgentOutput(output, mainAgent, { main: true });
       mainAgentBlock.appendChild(output);
 
       mainAgentBlock.onclick = () => openSession(mainAgent.id);
@@ -4893,13 +4998,7 @@ function renderState() {
 
     const output = document.createElement('div');
     output.className = 'agent-output';
-    const cleanOutput = getAgentDisplayText(agent);
-    const outputTail = document.createElement('div');
-    outputTail.className = 'agent-output-tail';
-    if (!renderCrtTerminalSnapshot(outputTail, agent.previewSnapshot)) {
-      outputTail.textContent = cleanOutput || 'No output yet...';
-    }
-    output.appendChild(outputTail);
+    renderCrtAgentOutput(output, agent);
     block.appendChild(output);
 
     block.onclick = () => openSession(agent.id);
@@ -4914,8 +5013,7 @@ function generateKeyMap() {
 
   keyMap = {};
   let keyIndex = 1;
-  state.agents.forEach((agent) => {
-    if (agent.id === state.mainAgentId) return; // 跳过 Main Agent
+  getCrtRegularAgents(state).forEach((agent) => {
     keyMap[keyIndex] = agent.id;
     keyIndex++;
   });
@@ -5790,6 +5888,174 @@ function structuredTranscriptTurns(transcript) {
     current.finalMessage = text;
   });
   return turns;
+}
+
+function normalizeCrtStructuredPreviewText(value, limit = 240) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (text.length <= limit) return text;
+  return `${text.slice(0, Math.max(1, limit - 1)).trimEnd()}…`;
+}
+
+function structuredTranscriptAttachmentLabel(content) {
+  const labels = (Array.isArray(content) ? content : []).flatMap((block) => {
+    const type = String(block && block.type || '').toLowerCase();
+    if (type.includes('image')) return ['Image attachment'];
+    if (type.includes('audio')) return ['Audio attachment'];
+    if (type.includes('file') || type.includes('resource')) return ['File attachment'];
+    return [];
+  });
+  return Array.from(new Set(labels)).join(' + ');
+}
+
+function structuredEntryActivityText(entry) {
+  if (!entry || entry.internal === true) return '';
+  if (entry.type === 'tool') {
+    const title = normalizeCrtStructuredPreviewText(entry.title || entry.kind || 'Tool activity', 160);
+    const status = normalizeCrtStructuredPreviewText(entry.status, 40).replaceAll('_', ' ');
+    return [title, status].filter(Boolean).join(' · ');
+  }
+  if (entry.type === 'thought') {
+    return normalizeCrtStructuredPreviewText(structuredTranscriptContentText(entry.content), 180);
+  }
+  if (entry.type === 'plan') {
+    const steps = Array.isArray(entry.entries) ? entry.entries : [];
+    const current = steps.find((step) => step && step.status === 'in_progress')
+      || [...steps].reverse().find((step) => step && step.status !== 'completed')
+      || steps.at(-1);
+    return normalizeCrtStructuredPreviewText(current && (current.content || current.title), 180);
+  }
+  return '';
+}
+
+function buildCrtStructuredPreview(transcript, agent = null) {
+  const entries = transcript && Array.isArray(transcript.entries)
+    ? transcript.entries.filter((entry) => entry && entry.internal !== true)
+    : [];
+  const turns = structuredTranscriptTurns(transcript);
+  const latestTurn = turns.at(-1) || null;
+  let userText = normalizeCrtStructuredPreviewText(latestTurn && latestTurn.userMessage);
+  let assistantText = normalizeCrtStructuredPreviewText(latestTurn && latestTurn.finalMessage);
+  let activityText = '';
+
+  if (entries.length > 0) {
+    const latestUserIndex = entries.findLastIndex((entry) => entry.type === 'message' && entry.role === 'user');
+    const latestUser = latestUserIndex >= 0 ? entries[latestUserIndex] : null;
+    if (latestUser) {
+      userText = normalizeCrtStructuredPreviewText(structuredTranscriptContentText(latestUser.content))
+        || structuredTranscriptAttachmentLabel(latestUser.content);
+    }
+    const turnEntries = latestUserIndex >= 0 ? entries.slice(latestUserIndex + 1) : entries;
+    const latestAssistant = [...turnEntries].reverse().find((entry) => (
+      entry.type === 'message' && entry.role === 'assistant'
+    ));
+    if (latestAssistant) {
+      assistantText = normalizeCrtStructuredPreviewText(structuredTranscriptContentText(latestAssistant.content))
+        || structuredTranscriptAttachmentLabel(latestAssistant.content);
+    }
+    activityText = [...turnEntries].reverse().map(structuredEntryActivityText).find(Boolean) || '';
+  } else if (latestTurn && Array.isArray(latestTurn.processItems)) {
+    const processItem = [...latestTurn.processItems].reverse().find(Boolean);
+    activityText = normalizeCrtStructuredPreviewText(
+      processItem && (processItem.detail || processItem.title),
+      180,
+    );
+  }
+
+  return {
+    userText,
+    assistantText,
+    activityText,
+    state: String(structuredRuntimeStatus(agent) || (transcript && transcript.state) || ''),
+  };
+}
+
+function crtStructuredPreviewRevision(agent) {
+  if (!agent || !isStructuredRuntimeAgent(agent)) return '';
+  return JSON.stringify([
+    structuredRuntimeKind(agent),
+    structuredRuntimeStatus(agent),
+    agent.acpSessionRevision || 0,
+    agent.acpSessionUpdatedAt || '',
+    agent.jsonCliTranscriptUpdatedAt || '',
+    agent.codexAppServerTurnId || '',
+    agent.lastActivity || 0,
+  ]);
+}
+
+function pruneCrtStructuredPreviews(currentState = state) {
+  const visibleIds = new Set(getCrtLiveAgents(currentState).map((agent) => agent.id));
+  crtStructuredPreviewCache.forEach((_value, agentId) => {
+    if (!visibleIds.has(agentId)) crtStructuredPreviewCache.delete(agentId);
+  });
+  crtStructuredPreviewTimers.forEach((timer, agentId) => {
+    if (visibleIds.has(agentId)) return;
+    clearTimeout(timer);
+    crtStructuredPreviewTimers.delete(agentId);
+  });
+}
+
+function scheduleCrtStructuredPreviewRefresh(agent) {
+  if (!isCrtLiveAgent(agent) || !isStructuredRuntimeAgent(agent)) return;
+  const revision = crtStructuredPreviewRevision(agent);
+  const cached = crtStructuredPreviewCache.get(agent.id);
+  if (cached && cached.revision === revision && (cached.loading || cached.ready)) return;
+  if (crtStructuredPreviewTimers.has(agent.id)) return;
+  const timer = setTimeout(() => {
+    crtStructuredPreviewTimers.delete(agent.id);
+    const currentAgent = state && state.agents.find((candidate) => candidate.id === agent.id);
+    if (isCrtLiveAgent(currentAgent) && isStructuredRuntimeAgent(currentAgent)) {
+      void refreshCrtStructuredPreview(currentAgent);
+    }
+  }, CRT_STRUCTURED_PREVIEW_REFRESH_MS);
+  crtStructuredPreviewTimers.set(agent.id, timer);
+}
+
+async function refreshCrtStructuredPreview(agent) {
+  const revision = crtStructuredPreviewRevision(agent);
+  const cached = crtStructuredPreviewCache.get(agent.id);
+  if (cached && cached.revision === revision && (cached.loading || cached.ready)) return;
+  crtStructuredPreviewCache.set(agent.id, {
+    revision,
+    loading: true,
+    ready: false,
+    preview: cached && cached.preview || null,
+    error: '',
+  });
+
+  try {
+    const endpoint = structuredTranscriptEndpoint(agent);
+    const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agent.id)}/${endpoint}?maxTurns=20`));
+    const body = await response.json().catch(() => null);
+    if (!response.ok || !body || !body.transcript) {
+      throw new Error(body && body.error ? body.error : `Conversation preview failed (${response.status})`);
+    }
+    const currentAgent = state && state.agents.find((candidate) => candidate.id === agent.id);
+    if (!isCrtLiveAgent(currentAgent) || crtStructuredPreviewRevision(currentAgent) !== revision) {
+      if (isCrtLiveAgent(currentAgent)) scheduleCrtStructuredPreviewRefresh(currentAgent);
+      return;
+    }
+    crtStructuredPreviewCache.set(agent.id, {
+      revision,
+      loading: false,
+      ready: true,
+      preview: buildCrtStructuredPreview(body.transcript, currentAgent),
+      error: '',
+    });
+    if (isCrtSessionOpen()) dashboardRenderDeferred = true;
+    else updateCrtAgentPreviewCard(currentAgent);
+  } catch (error) {
+    const currentAgent = state && state.agents.find((candidate) => candidate.id === agent.id);
+    if (!isCrtLiveAgent(currentAgent) || crtStructuredPreviewRevision(currentAgent) !== revision) return;
+    crtStructuredPreviewCache.set(agent.id, {
+      revision,
+      loading: false,
+      ready: true,
+      preview: cached && cached.preview || null,
+      error: error && error.message ? error.message : 'Conversation preview unavailable',
+    });
+    if (isCrtSessionOpen()) dashboardRenderDeferred = true;
+    else updateCrtAgentPreviewCard(currentAgent);
+  }
 }
 
 function renderStructuredTranscript(transcript, force = false) {
@@ -6930,6 +7196,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     buildCrtHistoryItems,
     buildCrtSearchResults,
+    buildCrtStructuredPreview,
     calculateCrtAgentPageLayout,
     calculateCrtHistoryPageSize,
     crtHistoryAgentName,
@@ -6956,6 +7223,8 @@ if (typeof module !== 'undefined' && module.exports) {
     getCrtHistoryPage,
     getCrtAgentPage,
     getCrtAgentVerticalPageTarget,
+    getCrtLiveAgents,
+    getCrtRegularAgents,
     getAgentDisplayText,
     getCrtPreviewCellStyle,
     getCrtAgentTitle,
@@ -6963,6 +7232,7 @@ if (typeof module !== 'undefined' && module.exports) {
     calculateTerminalInputBridgePosition,
     getCrtTerminalFontSize,
     isCrtAgentWorking,
+    isCrtLiveAgent,
     getCrtAgentReadPatch,
     crtRuntimeView,
     canSwitchCrtAgentRuntime,

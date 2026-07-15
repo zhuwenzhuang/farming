@@ -152,6 +152,7 @@ interface CodeComposerProps {
   agentModelOptions: CodexModelOption[]
   currentPermissionMode: string
   permissionModeDisabled: boolean
+  modelProfileDisabled: boolean
   currentPermissionLabel: string
   currentPermissionColor: PermissionModeColor
   permissionModeHint: string
@@ -223,6 +224,7 @@ export function CodeComposer({
   agentModelOptions,
   currentPermissionMode,
   permissionModeDisabled,
+  modelProfileDisabled,
   currentPermissionLabel,
   currentPermissionColor,
   permissionModeHint,
@@ -1023,6 +1025,7 @@ export function CodeComposer({
                     currentReasoning={agentReasoningEffort}
                     fastAvailable={showServiceTierPicker && currentServiceTierOptions.some(option => option.value === 'priority')}
                     fast={agentServiceTier === 'priority'}
+                    disabled={modelProfileDisabled}
                     onSelect={onUpdateModelProfile}
                     onFastChange={value => onUpdateServiceTierInline(value ? 'priority' : 'default')}
                     advanced={(
@@ -1037,6 +1040,7 @@ export function CodeComposer({
                           className={`code-model-option ${option.value === agentReasoningEffort ? 'selected' : ''}`}
                           role="menuitemradio"
                           aria-checked={option.value === agentReasoningEffort}
+                          disabled={modelProfileDisabled}
                           onClick={() => onUpdateReasoningEffort(option.value)}
                         >
                           <span className="code-model-option-copy">
@@ -1054,6 +1058,7 @@ export function CodeComposer({
                       className={`code-model-nested-trigger ${modelPickerPane === 'model' ? 'selected' : ''}`}
                       role="menuitem"
                       data-testid="code-model-submenu-trigger"
+                      disabled={modelProfileDisabled}
                       onClick={() => onSetModelPickerPane(modelPickerPane === 'model' ? null : 'model')}
                     >
                       <span>{currentModelLabel}</span>
@@ -1073,6 +1078,7 @@ export function CodeComposer({
                             className={`code-model-option ${option.value === agentModel ? 'selected' : ''}`}
                             role="menuitemradio"
                             aria-checked={option.value === agentModel}
+                            disabled={modelProfileDisabled}
                             onClick={() => onUpdateModel(option.value)}
                           >
                             <span className="code-model-option-copy">
@@ -1091,6 +1097,7 @@ export function CodeComposer({
                         className={`code-model-nested-trigger ${modelPickerPane === 'speed' ? 'selected' : ''}`}
                         role="menuitem"
                         data-testid="code-speed-submenu-trigger"
+                        disabled={modelProfileDisabled}
                         onClick={() => onSetModelPickerPane(modelPickerPane === 'speed' ? null : 'speed')}
                       >
                         <span>{copy.speed}</span>
@@ -1110,6 +1117,7 @@ export function CodeComposer({
                               className={`code-model-option ${option.value === agentServiceTier ? 'selected' : ''}`}
                               role="menuitemradio"
                               aria-checked={option.value === agentServiceTier}
+                              disabled={modelProfileDisabled}
                               onClick={() => onUpdateServiceTier(option.value)}
                             >
                               <span className="code-model-option-copy">

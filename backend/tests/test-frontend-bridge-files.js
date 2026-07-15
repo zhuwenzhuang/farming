@@ -241,7 +241,15 @@ function run() {
   assert(indexHtml.includes('.agent-block.working .agent-output'), 'CRT should blink only working agent previews');
   assert(!indexHtml.includes('.agent-block.hot .agent-output'), 'recent activity alone should not blink CRT previews');
   assert(crtApp.includes("outputTail.className = 'agent-output-tail'"), 'CRT cards should anchor live output at the bottom');
-  assert(crtApp.includes("outputTail.textContent = cleanOutput || 'No output yet...'"), 'CRT cards should expose all available live preview text');
+  assert(
+    crtApp.includes(": cleanOutput || 'No output yet...'"),
+    'CRT Terminal cards should expose all available live preview text',
+  );
+  assert(
+    crtApp.includes('renderCrtStructuredPreview(output, agent)')
+      && indexHtml.includes('.agent-chat-preview-line'),
+    'CRT Chat cards should render a distinct structured conversation preview',
+  );
   assert(indexHtml.includes('.agent-output-tail') && indexHtml.includes('bottom: 0'), 'CRT live tails should fill cards without compressing text');
   assert(!crtApp.includes('calculateCrtPreviewFontSize'), 'CRT cards should not compress text to fit a full snapshot');
   assert(crtApp.includes('getCrtAgentTitle'), 'CRT cards and sessions should use meaningful agent titles');

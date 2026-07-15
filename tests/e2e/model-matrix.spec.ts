@@ -118,6 +118,9 @@ test('Codex model matrix responds locally, settles once, and morphs Advanced wit
   await expect(menu).toBeVisible()
   await expect(menu.locator('.code-model-matrix')).toHaveCount(1)
   await expect(page.getByTestId('code-model-matrix-advanced')).toHaveCount(1)
+  const extraHighHeader = menu.locator('.code-model-matrix-head span').nth(3)
+  await expect(extraHighHeader).toHaveCSS('white-space', 'nowrap')
+  expect((await extraHighHeader.boundingBox())?.height ?? 99).toBeLessThan(12)
 
   const target = page.getByTestId('code-model-matrix-cell-sol-high')
   await target.click()
@@ -231,7 +234,7 @@ test('Codex model matrix responds locally, settles once, and morphs Advanced wit
   }
 })
 
-test('Terminal Codex uses the same live matrix in dark mode and queues profile changes locally', async ({ page, workspaceRoot }) => {
+test('Terminal Codex uses the live matrix and applies profile changes immediately', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'terminal-model-matrix')
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, 'README.md'), '# Terminal model matrix fixture\n')
@@ -239,6 +242,17 @@ test('Terminal Codex uses the same live matrix in dark mode and queues profile c
   await page.route('**/farming/api/codex/models', route => route.fulfill({
     json: { catalog: TERMINAL_MODEL_CATALOG, source: 'fixture' },
   }))
+  const terminalProfiles: MatrixState[] = []
+  await page.route(/\/farming\/api\/agents\/[^/]+\/codex-terminal-profile$/, async route => {
+    const body = route.request().postDataJSON() as { model: string; effort: string; serviceTier: string }
+    terminalProfiles.push({
+      model: body.model,
+      reasoning: body.effort,
+      fast: body.serviceTier === 'priority',
+    })
+    await new Promise(resolve => setTimeout(resolve, 350))
+    await route.fulfill({ json: { profile: body } })
+  })
   const settingsResponse = await page.request.post('/farming/api/settings', {
     data: {
       appearance: 'dark',
@@ -281,17 +295,75 @@ test('Terminal Codex uses the same live matrix in dark mode and queues profile c
 
   const target = page.getByTestId('code-model-matrix-cell-luna-max')
   await target.click()
-  await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-luna:max')
+  await expect(target).toBeDisabled()
   await expect(page.locator('.code-model-matrix-current')).toHaveText('5.6-Luna · max')
+  await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-luna:max')
+  await expect(target).toBeEnabled()
 
   const fast = page.getByRole('button', { name: 'Fast mode' })
   await fast.click()
+  await expect(fast).toBeDisabled()
   await expect(fast).toHaveAttribute('aria-pressed', 'true')
   await expect(picker.locator('.code-composer-speed-active')).toHaveCount(1)
+  await expect(fast).toBeEnabled()
+  expect(terminalProfiles).toEqual([
+    { model: 'gpt-5.6-luna', reasoning: 'max', fast: false },
+    { model: 'gpt-5.6-luna', reasoning: 'max', fast: true },
+  ])
 
   await page.getByTestId('code-model-matrix-advanced-toggle').click()
   await expect(page.getByTestId('code-model-matrix-advanced')).toHaveAttribute('aria-hidden', 'false')
   await page.getByTestId('code-model-matrix-advanced-toggle').click()
   await expect(menu.locator('.code-model-matrix')).toHaveAttribute('aria-hidden', 'false')
   await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-luna:max')
+})
+
+test('Terminal matrix explains unavailable Fast and Ultra without changing layout', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'terminal-model-matrix-limited')
+  fs.mkdirSync(workspace, { recursive: true })
+  const limitedCatalog = TERMINAL_MODEL_CATALOG.map(model => ({
+    ...model,
+    reasoningLevels: model.reasoningLevels.filter(reasoning => reasoning.value !== 'ultra'),
+    serviceTiers: model.serviceTiers.filter(tier => tier.value !== 'priority'),
+  }))
+  await page.route('**/farming/api/codex/models', route => route.fulfill({
+    json: { catalog: limitedCatalog, source: 'fixture' },
+  }))
+  await page.request.post('/farming/api/settings', {
+    data: {
+      codexModel: 'gpt-5.6-sol',
+      codexReasoningEffort: 'xhigh',
+      codexServiceTier: 'default',
+      agentLaunchProfiles: {
+        codex: {
+          model: 'gpt-5.6-sol',
+          reasoningEffort: 'xhigh',
+          serviceTier: 'default',
+        },
+      },
+    },
+  })
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace, agentRuntimeMode: 'terminal' },
+  })
+  const { agentId } = await response.json() as { agentId: string }
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await page.getByTestId('code-composer-model-picker').click()
+
+  const ultra = page.getByRole('button', { name: /Ultra reasoning unavailable/ })
+  const fast = page.getByRole('button', { name: /Fast mode unavailable/ })
+  await expect(ultra).toBeDisabled()
+  await expect(fast).toBeDisabled()
+  await expect(ultra.locator('xpath=..')).toHaveAttribute(
+    'title',
+    'Ultra is not offered for this model by the active Codex CLI.'
+  )
+  await expect(fast).toHaveAttribute(
+    'title',
+    'Fast is not offered for this model by the active Codex CLI.'
+  )
+  await expect(page.getByTestId('code-model-matrix-picker')).toHaveAttribute('data-ultra', 'off')
+  await expect(page.getByTestId('code-model-matrix-picker')).toHaveAttribute('data-fast', 'off')
 })

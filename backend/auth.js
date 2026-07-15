@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const fs = require('fs');
+const { FarmingNetPassVerifier, PASS_QUERY_PARAM } = require('./farming-net-pass');
 const { createPoeticToken, generatePoeticToken, getPoeticTokenEntropyBits } = require('./haiku-token');
 const storageLayout = require('./storage-layout');
 
@@ -24,6 +25,21 @@ function decodeCookieToken(token) {
   }
 }
 
+function normalizeCookieName(value) {
+  const cookieName = String(value || '').trim();
+  return /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(cookieName) ? cookieName : 'farming_token';
+}
+
+function normalizeCookiePath(value) {
+  const cookiePath = String(value || '/').trim();
+  if (!cookiePath.startsWith('/') || /[;\r\n]/.test(cookiePath)) return '/';
+  return cookiePath;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function readExistingTokenFile(tokenFile) {
   try {
     const token = fs.readFileSync(tokenFile, 'utf8').trim();
@@ -35,12 +51,17 @@ function readExistingTokenFile(tokenFile) {
 
 class TokenAuth {
   constructor(options = {}) {
-    this.disabled = options.disabled === true || isTruthyEnv(process.env.FARMING_DISABLE_AUTH);
+    const authEnv = options.env || process.env;
+    this.disabled = options.disabled === true || isTruthyEnv(authEnv.FARMING_DISABLE_AUTH);
     this.basePath = normalizeBasePath(options.basePath || '/');
     this.authStatusPath = this.basePath ? `${this.basePath}/api/auth/status` : '/api/auth/status';
+    this.cookieName = normalizeCookieName(options.cookieName);
+    this.cookiePath = normalizeCookiePath(options.cookiePath);
+    this.redirectQueryToken = options.redirectQueryToken === true;
     this.tokenFile = '';
     this.token = '';
     this.tokenInfo = null;
+    this.farmingNetPassVerifier = null;
 
     if (this.disabled) {
       return;
@@ -51,7 +72,15 @@ class TokenAuth {
       fs.mkdirSync(farmingDir, { recursive: true });
     }
     this.tokenFile = storageLayout.sessionTokenFile(farmingDir);
-    const configuredToken = String(options.token || process.env.FARMING_TOKEN || '').trim();
+    if (options.farmingNetPassVerifier !== false) {
+      this.farmingNetPassVerifier = options.farmingNetPassVerifier || new FarmingNetPassVerifier({
+        trustFile: options.farmingNetTrustFile || storageLayout.farmingNetTrustFile(farmingDir),
+      });
+    }
+    const configuredTokenSource = Object.prototype.hasOwnProperty.call(options, 'token')
+      ? options.token
+      : authEnv.FARMING_TOKEN;
+    const configuredToken = String(configuredTokenSource || '').trim();
     const existingToken = configuredToken ? '' : readExistingTokenFile(this.tokenFile);
     if (configuredToken) {
       this.token = configuredToken;
@@ -70,7 +99,7 @@ class TokenAuth {
         entropyBits: 0,
       };
     } else {
-      this.tokenInfo = createPoeticToken({ locale: options.tokenLocale, env: options.env, timeZone: options.timeZone });
+      this.tokenInfo = createPoeticToken({ locale: options.tokenLocale, env: authEnv, timeZone: options.timeZone });
       this.token = this.tokenInfo.token;
     }
     this.saveTokenFile();
@@ -97,6 +126,10 @@ class TokenAuth {
     return this.tokenInfo;
   }
 
+  getCookieName() {
+    return this.cookieName;
+  }
+
   verify(token) {
     if (this.disabled) return true;
     if (!token || !this.token) return false;
@@ -115,11 +148,30 @@ class TokenAuth {
     const queryToken = url.searchParams.get('token');
     if (queryToken) return queryToken;
 
+    return this.extractCookieToken(req);
+  }
+
+  extractCookieToken(req) {
     const cookies = req.headers.cookie || '';
-    const match = cookies.match(/(?:^|;\s*)farming_token=([^;]+)/);
+    const match = cookies.match(new RegExp(`(?:^|;\\s*)${escapeRegExp(this.cookieName)}=([^;]+)`));
     if (match) return decodeCookieToken(match[1]);
 
     return null;
+  }
+
+  setAuthenticatedCookie(res) {
+    res.setHeader('Set-Cookie',
+      `${this.cookieName}=${encodeCookieToken(this.token)}; Path=${this.cookiePath}; HttpOnly; SameSite=Lax`);
+  }
+
+  redirectWithoutQueryParameter(res, url, parameter) {
+    url.searchParams.delete(parameter);
+    const search = url.searchParams.toString();
+    res.writeHead(302, {
+      'Cache-Control': 'no-store',
+      Location: `${url.pathname}${search ? `?${search}` : ''}`,
+    });
+    res.end();
   }
 
   middleware() {
@@ -133,13 +185,34 @@ class TokenAuth {
         return next();
       }
 
+      const method = String(req.method || 'GET').toUpperCase();
+      if (['GET', 'HEAD'].includes(method) && url.searchParams.has(PASS_QUERY_PARAM)) {
+        const pass = url.searchParams.get(PASS_QUERY_PARAM);
+        const passResult = this.farmingNetPassVerifier
+          ? this.farmingNetPassVerifier.verify(pass)
+          : { valid: false };
+        if (passResult.valid) {
+          this.setAuthenticatedCookie(res);
+          this.redirectWithoutQueryParameter(res, url, PASS_QUERY_PARAM);
+          return;
+        }
+        const cookieToken = this.extractCookieToken(req);
+        if (cookieToken && this.verify(cookieToken)) {
+          this.redirectWithoutQueryParameter(res, url, PASS_QUERY_PARAM);
+          return;
+        }
+      }
+
       const token = this.extractToken(req);
 
       // URL has token query param -> validate, set cookie, redirect
       if (url.searchParams.has('token')) {
         if (token && this.verify(token)) {
-          res.setHeader('Set-Cookie',
-            `farming_token=${encodeCookieToken(this.token)}; Path=/; HttpOnly; SameSite=Lax`);
+          this.setAuthenticatedCookie(res);
+          if (this.redirectQueryToken && ['GET', 'HEAD'].includes(method)) {
+            this.redirectWithoutQueryParameter(res, url, 'token');
+            return;
+          }
           return next();
         }
       }

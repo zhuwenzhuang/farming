@@ -53,11 +53,21 @@ Switching interfaces does not restart or duplicate an Agent. If Farming Code can
 
 The complete current capability map and screenshot tour are in the [Farming 2 product overview](./docs/products/README.md). See the focused [Farming Code guide](./docs/products/code/README.md) and [Farming CRT guide](./docs/products/crt/README.md) for the full workflows.
 
+## Farming Net: One Portal For Deployments
+
+Farming Net is a separate, token-protected directory for the Farming instances you already run. Its cards can point to a Farming on the current device, a remote development host, an intranet address, or a tunnel. Enrolled targets accept short-lived signed passes, so users keep one portal login instead of a list of deployment URLs and target tokens.
+
+```bash
+FARMING_NET_PORT=6693 FARMING_NET_BASE_PATH=/farming-net npm run start:net
+```
+
+The portal keeps its token, signing identity, and private `instances.json` registry under `~/.farming-net/`. It does not proxy target traffic or store target tokens; each destination remains an independent Farming service and explicitly chooses whether to trust the portal. See the [Farming Net guide](./docs/products/net/README.md) for enrollment and the security boundary.
+
 ## What You Can Do
 
 - Group live agents by project, pin or rename important work, track unread activity, search live and historical sessions, and archive or resume tasks.
 - Use structured ACP Chat for Codex, Claude Code, OpenCode, and Qoder. Plans, reasoning, tools, permission requests, embedded terminals, child sessions, attachments, queued follow-ups, and exact change summaries remain available without overwhelming the final answer.
-- Switch the same provider session between structured Chat and a real PTY Terminal. Supported Codex model, reasoning, Fast, Ultra, and permission changes reach the live workflow; a compatible Terminal applies them before the next message.
+- Switch the same provider session between structured Chat and a real PTY Terminal. Supported Codex model, reasoning, Fast, Ultra, and permission changes reach the live workflow; a compatible Terminal applies model changes immediately and confirms the CLI state before accepting the next Composer message.
 - Browse, search, and lightly edit Project Files; inspect Git changes, Diff, and Blame; then open tracked or untracked changes in the initial Review surface with captured revisions, inline comments, and Reviewed state.
 - Observe CPU/MEM, token-rate, context, quota, provider usage, and CRT daily/live token telemetry when the provider exposes the required data.
 - Continue the same Farming Code task from desktop or phone without moving the Agent process away from the development host.
@@ -160,6 +170,7 @@ Token authentication protects HTTP and WebSocket traffic. `FARMING_DISABLE_AUTH=
 - [Farming 2 product overview and capability map](./docs/products/README.md)
 - [Farming Code guide](./docs/products/code/README.md)
 - [Farming CRT guide](./docs/products/crt/README.md)
+- [Farming Net deployment portal](./docs/products/net/README.md)
 - [Mobile guide](./docs/products/code/mobile-guide.md)
 - [ACP runtime](./docs/products/code/acp-runtime.md)
 - [Review foundation](./docs/products/code/review-foundation.md)

@@ -66,6 +66,30 @@ function updateLogFile(configDir) {
   return path.join(configDir, 'farming-update.log');
 }
 
+function farmingNetInstancesFile(configDir) {
+  return path.join(configDir, 'instances.json');
+}
+
+function farmingNetServerStateFile(configDir) {
+  return path.join(configDir, 'farming-net-server.json');
+}
+
+function farmingNetServerLogFile(configDir) {
+  return path.join(configDir, 'farming-net-server.log');
+}
+
+function farmingNetSigningPrivateKeyFile(configDir) {
+  return path.join(configDir, 'signing-private-key.pem');
+}
+
+function farmingNetSigningPublicKeyFile(configDir) {
+  return path.join(configDir, 'signing-public-key.pem');
+}
+
+function farmingNetTrustFile(configDir) {
+  return path.join(configDir, 'farming-net-trust.json');
+}
+
 function codexAppServerRuntimeDir(configDir) {
   return path.join(configDir, 'c');
 }
@@ -82,6 +106,12 @@ function codexAppServerAgentHome(configDir, agentId) {
 module.exports = {
   codexAppServerAgentHome,
   codexAppServerRuntimeDir,
+  farmingNetInstancesFile,
+  farmingNetServerLogFile,
+  farmingNetServerStateFile,
+  farmingNetSigningPrivateKeyFile,
+  farmingNetSigningPublicKeyFile,
+  farmingNetTrustFile,
   farmingConfigDir,
   historyDir,
   nativePtyHostLogFile,

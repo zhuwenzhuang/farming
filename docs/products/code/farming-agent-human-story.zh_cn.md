@@ -56,7 +56,7 @@
 - Advanced 保留同一 profile，菜单过渡不闪烁、不跳尺寸；
 - 不可用的 Fast 或 Ultra 保留为灰色禁用态；
 - ACP 用返回的 live Session snapshot 校准状态；
-- 原生 Codex Terminal 在下一条消息前应用兼容的 model/Fast 变化，不只是影响以后启动。
+- 原生 Codex Terminal 会立即应用兼容的 model/Fast 变化，并在下一条消息前确认结果，不只是影响以后启动。
 
 ## 故事 4：安全切换 Chat 与 Terminal
 

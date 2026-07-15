@@ -5,6 +5,7 @@ const path = require('path');
 const {
   buildCrtHistoryItems,
   buildCrtSearchResults,
+  buildCrtStructuredPreview,
   calculateCrtAgentPageLayout,
   calculateCrtHistoryPageSize,
   crtHistoryAgentName,
@@ -28,6 +29,9 @@ const {
   getCrtHistoryPage,
   getCrtAgentPage,
   getCrtAgentVerticalPageTarget,
+  getCrtLiveAgents,
+  getCrtRegularAgents,
+  isCrtLiveAgent,
   requestedCrtAgentId,
   createSessionModalState,
 } = require('../../frontend/skins/crt/app.js');
@@ -74,6 +78,49 @@ function run() {
   assert.strictEqual(formatCrtTokenRate(1200000), '~1.2M');
   assert.strictEqual(requestedCrtAgentId('?agent=agent-123'), 'agent-123');
   assert.strictEqual(requestedCrtAgentId('?view=agents'), '');
+  const liveDashboardState = {
+    mainAgentId: 'agent-main',
+    agents: [
+      { id: 'agent-main', status: 'running', isMain: true },
+      { id: 'agent-live', status: 'running' },
+      { id: 'agent-pending', status: 'pending' },
+      { id: 'agent-stopped', status: 'stopped' },
+      { id: 'agent-dead', status: 'dead' },
+      { id: 'agent-archived', status: 'running', archived: true },
+    ],
+  };
+  assert.strictEqual(isCrtLiveAgent(liveDashboardState.agents[1]), true);
+  assert.strictEqual(isCrtLiveAgent(liveDashboardState.agents[3]), false);
+  assert.deepStrictEqual(
+    getCrtLiveAgents(liveDashboardState).map((agent) => agent.id),
+    ['agent-main', 'agent-live', 'agent-pending'],
+    'CRT dashboard counts and renders only live Agent records',
+  );
+  assert.deepStrictEqual(
+    getCrtRegularAgents(liveDashboardState).map((agent) => agent.id),
+    ['agent-live', 'agent-pending'],
+    'stopped, dead, and archived Agent records should not occupy CRT dashboard bays',
+  );
+  assert.deepStrictEqual(
+    buildCrtStructuredPreview({
+      state: 'working',
+      entries: [
+        { type: 'message', role: 'user', internal: true, content: [{ type: 'text', text: 'hidden injected context' }] },
+        { type: 'message', role: 'assistant', internal: true, content: [{ type: 'text', text: 'hidden heartbeat' }] },
+        { type: 'message', role: 'user', content: [{ type: 'text', text: '  Explain the dashboard preview\nclearly.  ' }] },
+        { type: 'thought', content: [{ type: 'text', text: 'Comparing the live Agent cards' }] },
+        { type: 'tool', title: 'Inspect CRT layout', status: 'in_progress' },
+        { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'The preview now follows the latest conversation.' }] },
+      ],
+    }, { agentRuntimeMode: 'acp', acpState: 'working' }),
+    {
+      userText: 'Explain the dashboard preview clearly.',
+      assistantText: 'The preview now follows the latest conversation.',
+      activityText: 'Inspect CRT layout · in progress',
+      state: 'working',
+    },
+    'CRT Chat previews should keep the latest visible turn and activity while excluding internal ACP entries',
+  );
   assert.strictEqual(crtHistoryAgentName('codex resume session-1'), 'Codex');
   assert.strictEqual(crtHistoryAgentName('qodercli'), 'Qoder');
   assert.strictEqual(crtHistoryAgentName('env QODER_HOME=/tmp/qoder /usr/local/bin/qodercli'), 'Qoder');

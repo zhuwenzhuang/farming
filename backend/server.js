@@ -1222,6 +1222,25 @@ app.delete(routePath(BASE_PATH, '/api/agents/:agentId/codex-goal'), async (req, 
   }
 });
 
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/codex-terminal-profile'), express.json(), async (req, res) => {
+  try {
+    const profile = await agentManager.setCodexTerminalProfile(req.params.agentId, {
+      model: req.body?.model,
+      effort: req.body?.effort,
+      serviceTier: req.body?.serviceTier,
+    });
+    res.json({ profile });
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to update Codex Terminal profile';
+    const status = message === 'Agent not found'
+      ? 404
+      : /^A valid Codex /.test(message)
+        ? 400
+        : 409;
+    res.status(status).json({ error: message });
+  }
+});
+
 app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (req, res) => {
   const body = req.body || {};
   const updates = {};

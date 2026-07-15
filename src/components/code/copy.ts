@@ -157,6 +157,9 @@ export interface CodeCopy {
   permissionProfileRestarting: string
   permissionProfileApplying: string
   runtimeModeRestarting: string
+  terminalProfileApplying: string
+  terminalProfileApplied: string
+  terminalProfileFailed: (message: string) => string
   agentRestartTimedOut: string
   permissionRestartHint: string
   permissionAppServerHint: string
@@ -542,6 +545,9 @@ const EN_COPY: CodeCopy = {
   permissionProfileRestarting: 'Switching agent permissions…',
   permissionProfileApplying: 'Applying App Server permissions…',
   runtimeModeRestarting: 'Restarting Agent…',
+  terminalProfileApplying: 'Applying model to Codex Terminal…',
+  terminalProfileApplied: 'Codex Terminal model updated.',
+  terminalProfileFailed: message => `Codex Terminal model was not changed: ${message}`,
   agentRestartTimedOut: 'Agent restart timed out. The previous Agent remains available; try switching again.',
   permissionRestartHint: 'The running agent restarts to apply these permissions. If it has no resumable session id yet, a fresh session starts.',
   permissionAppServerHint: 'Applies to this App Server thread without restarting the Agent. New permissions take effect for subsequent turns.',
@@ -963,6 +969,9 @@ const ZH_COPY: CodeCopy = {
   permissionProfileRestarting: '正在切换 Agent 权限…',
   permissionProfileApplying: '正在应用 App Server 权限…',
   runtimeModeRestarting: '正在重启 Agent…',
+  terminalProfileApplying: '正在应用 Codex Terminal 模型…',
+  terminalProfileApplied: 'Codex Terminal 模型已更新。',
+  terminalProfileFailed: message => `Codex Terminal 模型未修改：${message}`,
   agentRestartTimedOut: 'Agent 重启超时。原 Agent 仍然可用，请重新切换。',
   permissionRestartHint: '运行中的 Agent 会重启以应用权限；如果还没有可 resume 的 Session ID，则启动一个新会话。',
   permissionAppServerHint: '直接应用到当前 App Server thread，不重启 Agent；新权限从后续 turn 生效。',

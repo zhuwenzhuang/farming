@@ -62,7 +62,7 @@ Composer 只展示当前 Runtime 报告支持的控制。兼容的 Codex Model F
 
 没有提供矩阵 Capability Catalog 的模型会直接打开 Advanced 兼容 Selector。从实时 Catalog 选择兼容模型家族后即可回到矩阵，不需要重启。
 
-ACP Session 会直接应用受支持的修改。兼容 Native Terminal 会把新模型、Reasoning、Fast 或权限信息暂存，并在下一条用户消息之前送入当前 CLI 工作流，所以它影响的是 Live Session，不只是未来 Launch Profile。
+ACP Session 会直接应用受支持的修改。兼容 Native Terminal 会立即通过当前 CLI 工作流应用模型、Reasoning 或 Fast 修改，并在允许下一条 Composer 消息发送前确认底部状态，所以它影响的是 Live Session，不只是未来 Launch Profile。
 
 ## 把 Project Files 放在 Agent 旁边
 

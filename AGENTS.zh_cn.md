@@ -12,6 +12,8 @@
 
 浏览器在同一个后端上提供两套实时 UI：`<base-path>/code/` 是 Farming Code，`<base-path>/crt/` 是原始 CRT UI，base path 根路径继续作为 Code 的兼容入口。两套 UI 观察和操作同一批后端 session；Code 启动或渲染失败时，应在有限的错误详情浮层后显露仍然实时运行的 CRT UI，不得重启或复制 Agent 进程。
 
+**Farming Net** 是一套独立、轻量的部署目录，使用自己的 Base Path、配置目录、Token、Cookie 和 Ed25519 签名身份。登记后的目标把绑定目标、短时、一次性的签名通行证兑换成自己正常使用的 Cookie；门户绝不能保存或暴露目标 Token。真实部署注册表属于私有运维配置，不得提交到仓库。
+
 ### 产品定位
 
 该产品本质上是一个 AI Agent UI，关心 AI Agent 用户（人类）的注意力，让用户在指挥 AI Agent 工作的过程中感到快乐，让用户成为更好的"监工"。
@@ -159,6 +161,8 @@
 
 对于 Codex、Claude Code、OpenCode 和 Qoder，Farming Code 的结构化 Chat runtime 使用 ACP。Chat / Terminal 控件会把 Agent 重启到 ACP 或 native PTY runtime，并恢复同一个 provider Session；它不是单纯切换画面。刚打开且尚未收到用户输入的 Terminal，可以在 provider 还没落盘历史记录前直接切换成新的 ACP Chat；一旦 Terminal 已经收到输入，就必须保留可恢复 Session 校验，不能因历史缺失而静默丢掉对话。旧 JSON CLI Chat 只保留兼容读取，Codex App Server 继续作为独立实验路径。
 
+实时 Codex Terminal 的模型修改必须跟随 CLI 实际渲染的 `/model` 与推理菜单，并在放行后续 Composer 输入前确认底部状态。不要用固定延时自动操作 TUI，也不要假设模型目录索引等同于可见菜单索引。当前 runtime 目录未宣告 Fast / Ultra 时，控件保持可见但禁用。
+
 ACP 历史重放和实时更新必须归约到同一条有序 entry stream，不要在后端为 ACP 重建 `Turn -> Item` 模型。面向用户的结果/过程分组属于 ACP 前端的注意力投影：必须可逆、保留 entry 顺序与 tool 详情，并在不删除可见 automation 通知的前提下隐藏 Codex 内部 heartbeat/context 活动。
 
 Agent 进程不能直接完整继承 Farming server 的 `process.env`。后端应先解析用户 shell 环境，再只叠加 agent 需要的服务端变量，例如模型凭据、代理、SSH auth 和证书路径，最后统一规范化 `TERM`、`COLORTERM`、`TERM_PROGRAM` 等 terminal 变量，并移除 `NO_COLOR`、非交互式 `cat` pager、动态库覆盖和 Node heap flag 等 server/runtime shim。新增启动路径必须复用这套 resolver，不能重新复制 `process.env`。
@@ -208,6 +212,7 @@ farming/
 │   │   │   ├── mobile_layout.zh_cn.md  # CRT 中文手机端布局说明
 │   │   │   ├── pc_layout.md            # CRT 英文桌面端布局说明
 │   │   │   └── pc_layout.zh_cn.md      # CRT 中文桌面端布局说明
+│   │   └── net/           # Farming Net 中英文部署门户说明
 ├── package.json           # Node.js 依赖配置
 ├── package-lock.json      # 依赖版本锁定
 ├── pkg.config.cjs         # 平台 CLI 应用打包配置（@yao-pkg/pkg + legacy pkg）
@@ -255,6 +260,10 @@ farming/
 │   │   - `farming start/daemon/status/stop/logs/url`
 │   │   - 默认端口 6694、base path `/farming`、配置目录 `~/.farming`
 │   │   - 同时转发 Main Agent 控制命令到 `farming-cli.js`
+│   │
+│   ├── farming-net-server.js # Farming Net 独立 HTTP/Token 服务
+│   ├── farming-net-registry.js # 私有部署注册表校验与浏览器安全投影
+│   ├── farming-net-pass.js # Farming Net 短时签名通行证与目标信任校验
 │   │
 │   ├── farming-cli.js     # Main Agent 控制 CLI 的参数解析与 HTTP 调用逻辑
 │   │   - 读取 FARMING_CONTROL_URL / FARMING_TOKEN_FILE
@@ -433,6 +442,7 @@ farming/
 │       └── display-flows.spec.ts-snapshots/ # Playwright 截图基线
 │
 ├── frontend/              # CRT 皮肤、共享浏览器 bridge 与 vendored 资源
+│   ├── farming-net/       # Farming Net 独立静态门户
 │   ├── skins/
 │   │   └── crt/           # 独立 CRT 入口、应用逻辑与效果文件
 │   ├── *.js               # 多皮肤共享的 terminal/session bridge
@@ -629,6 +639,13 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - **agentLaunchProfiles.claude.permissionMode / model / effort**：Claude 权限、模型和 effort；`config` 表示沿用 Claude 自己的配置
 - **codexApprovalMode / codexModel / codexReasoningEffort / codexServiceTier / codexModelPreset**：旧配置兼容字段，会与 `agentLaunchProfiles.codex` 自动镜像
 - **version**：配置文件版本
+
+**Farming Net 配置（默认 `~/.farming-net/`）：**
+
+- `.session-token`、签名密钥对、`instances.json` 和 `farming-net-server.json` 必须与主 Farming Runtime 隔离，且都属于私有运行时文件。
+- 浏览器可见的注册表只接受 HTTP(S) Endpoint，并移除 Credentials、Query 和 Fragment；不得通过注册表 API 暴露目标 Token。
+- 联邦通行证必须使用 Ed25519、精确匹配 Instance ID 的 Audience、不超过 60 秒的有效期，并拒绝重放。目标通过 `~/.farming/farming-net-trust.json` 主动登记门户，把有效通行证换成自己的 HttpOnly Cookie 后立刻重定向到干净 URL。
+- 端口、Host、Base Path、配置目录、固定 Token、通行证 TTL 和显式的本机无鉴权调试分别使用 `FARMING_NET_*` 环境变量。
 
 **Agent session state（sessions/）：**
 
@@ -963,6 +980,9 @@ npm install
 
 # 启动服务器
 npm start
+
+# 单独启动 Farming Net 部署门户
+FARMING_NET_PORT=6693 FARMING_NET_BASE_PATH=/farming-net npm run start:net
 
 # 服务器运行在 http://localhost:3000
 ```

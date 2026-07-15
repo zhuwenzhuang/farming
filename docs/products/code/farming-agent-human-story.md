@@ -56,7 +56,7 @@ Expected:
 - opening Advanced preserves the same profile and the menu transition does not flash or jump;
 - an unavailable Fast or Ultra control remains grey and disabled;
 - ACP reconciles against the returned live Session snapshot;
-- native Codex Terminal applies compatible model/Fast changes before the next message, not only on a later launch.
+- native Codex Terminal applies compatible model/Fast changes immediately and confirms them before the next message, not only on a later launch.
 
 ## Story 4: Switch Chat And Terminal Safely
 

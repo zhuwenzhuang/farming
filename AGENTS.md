@@ -12,6 +12,8 @@ The current public product line is **Farming 2**, whose default skin is **Farmin
 
 The browser serves Farming Code at `<base-path>/code/` and the original live CRT UI at `<base-path>/crt/`; the base-path root remains a compatible Code entry. Both UIs connect to the same backend sessions. Code startup and render failures should reveal the live CRT UI behind a bounded diagnostic overlay, without restarting or duplicating Agent processes.
 
+**Farming Net** is a separate, lightweight deployment directory. It runs with its own base path, config directory, token, cookie, and Ed25519 signing identity. Enrolled targets exchange a target-bound, short-lived, one-time signed pass for their own normal cookie; the portal must never store or expose target tokens. Real deployment registries are private operational configuration and must not be committed.
+
 Longer term, Farming explores a Main Agent workflow: a supervising agent can observe other agents, organize work, report progress, and reduce context switching for the human operator.
 
 ## Design Philosophy
@@ -96,6 +98,8 @@ Both browser skins default to xterm.js. The Ghostty web renderer remains availab
 
 For Codex, Claude Code, OpenCode, and Qoder, Farming Code's structured Chat runtime uses ACP. The Chat / Terminal control restarts the Agent into ACP or the native PTY runtime and resumes the same provider session; it is not a view-only toggle. A newly opened Terminal that has not received user input may switch directly into a fresh ACP Chat before the provider has materialized its history record. Once Terminal input has occurred, keep the resumable-session guard so a missing history record can never silently discard a conversation. Legacy JSON CLI Chat remains a compatibility reader, while Codex App Server remains a separate experimental path.
 
+Live Codex Terminal model changes must follow the CLI's rendered `/model` and reasoning menus and confirm the resulting footer before releasing later Composer input. Do not automate the TUI with fixed delays or assume catalog indexes match the visible menu. Fast / Ultra controls remain visible but disabled when the active runtime catalog does not advertise them.
+
 ACP history replay and live updates must reduce into the same ordered entry stream. Do not introduce a backend `Turn -> Item` reconstruction for ACP. User-facing result/process grouping is an ACP frontend attention projection: it must remain reversible, preserve entry order and tool details, and hide Codex internal heartbeat/context activity without deleting visible automation notifications.
 
 ## Repository Layout
@@ -123,6 +127,9 @@ farming/
 │   ├── workspace-file-service.js
 │   ├── workspace-file-router.js
 │   ├── farming-app-cli.js
+│   ├── farming-net-server.js
+│   ├── farming-net-registry.js
+│   ├── farming-net-pass.js
 │   ├── storage-layout.js
 │   └── tests/
 ├── src/
@@ -133,6 +140,7 @@ farming/
 │   ├── lib/
 │   └── styles/
 ├── frontend/
+│   ├── farming-net/       # Standalone token-protected deployment directory
 │   ├── skins/
 │   │   └── crt/            # Independent CRT entry, app, static effects, and bundled display font
 │   ├── *.js                # Shared browser terminal/session bridges
@@ -140,7 +148,8 @@ farming/
 ├── docs/
 │   └── products/
 │       ├── code/
-│       └── crt/
+│       ├── crt/
+│       └── net/
 ├── config/
 ├── scripts/
 ├── tests/e2e/
@@ -165,6 +174,8 @@ Farming stores runtime settings under `~/.farming/settings.json` by default. Bac
 - `crtSkinEffectsEnabled` (controls only the CRT skin's scanlines, mask, vignette, and infrequent scan beam; Farming Code must not read or apply it)
 - `crtDynamicHeatEnabled` (disabled by default; lets the CRT skin apply activity-level classes for dynamic Agent colors and sizing)
 - `crtTerminalFontSize` (the CRT opened-terminal text size in pixels, clamped to `10`–`20`; the default is `15`)
+
+Farming Net uses `~/.farming-net` by default and must remain isolated from the main Farming runtime. Its `.session-token`, signing key pair, `instances.json`, and `farming-net-server.json` are private runtime files. The browser-facing registry accepts only HTTP(S) endpoints and removes credentials, query strings, and fragments; target tokens must never be exposed through the registry API. Federated passes use Ed25519, an exact instance-id audience, a maximum 60-second lifetime, and replay rejection. Targets opt in through `~/.farming/farming-net-trust.json`, exchange a valid pass for their own HttpOnly cookie, and immediately redirect to a clean URL. Use the `FARMING_NET_*` environment variables for the portal's port, host, base path, config directory, token, pass TTL, and explicit local-only auth disable switch.
 
 Runtime session metadata lives under `~/.farming/sessions/`, not in `settings.json`. Farming assigns each persisted Agent record a stable `fsess_*` id used as the session metadata filename. The live native pty `agent-...` id is stored as runtime metadata, while Codex / Claude provider session ids are stored as external correlation fields. `sessions/index.json` owns the main Projects page provider-session membership; `settings.mainPageSessionKeys` remains only an API compatibility projection. Codex `tmp_uuid...` live ids must not enter this persisted main-page membership; provider sessions not listed there stay in History.
 
@@ -198,6 +209,12 @@ npm test
 npm run typecheck
 npm run lint
 npm run check
+```
+
+Standalone Farming Net development:
+
+```bash
+FARMING_NET_PORT=6693 FARMING_NET_BASE_PATH=/farming-net npm run start:net
 ```
 
 `npm test` uses four isolated worker processes by default. Set `FARMING_TEST_CONCURRENCY=1` for serial debugging, or choose a value from 1 to 16 when tuning CI capacity.

@@ -61,12 +61,14 @@ function MatrixRocker({
   active,
   disabled,
   unavailable,
+  unavailableReason,
   onChange,
 }: {
   label: string
   active: boolean
   disabled?: boolean
   unavailable?: boolean
+  unavailableReason?: string
   onChange: (active: boolean) => void
 }) {
   const [kicking, setKicking] = useState(false)
@@ -94,13 +96,16 @@ function MatrixRocker({
   }
 
   return (
-    <div className={`code-model-matrix-rocker is-ultra ${active ? 'is-active' : ''} ${unavailable ? 'is-disabled' : ''}`}>
+    <div
+      className={`code-model-matrix-rocker is-ultra ${active ? 'is-active' : ''} ${unavailable ? 'is-disabled' : ''}`}
+      title={unavailable ? unavailableReason : undefined}
+    >
       <span>{label}</span>
       <button
         type="button"
         className="code-model-matrix-rocker-button"
         disabled={disabled || unavailable}
-        aria-label="Ultra reasoning"
+        aria-label={unavailable && unavailableReason ? `Ultra reasoning unavailable: ${unavailableReason}` : 'Ultra reasoning'}
         aria-pressed={active}
         onClick={() => {
           if (!active) startLandingKick()
@@ -127,11 +132,13 @@ function FastBoost({
   active,
   available,
   disabled,
+  unavailableReason,
   onChange,
 }: {
   active: boolean
   available: boolean
   disabled?: boolean
+  unavailableReason?: string
   onChange: (active: boolean) => void
 }) {
   const [kicking, setKicking] = useState(false)
@@ -141,7 +148,8 @@ function FastBoost({
     <button
       type="button"
       className={`code-model-matrix-fast ${active ? 'is-active' : ''} ${unavailable ? 'is-disabled' : ''}`}
-      aria-label="Fast mode"
+      aria-label={unavailable && unavailableReason ? `Fast mode unavailable: ${unavailableReason}` : 'Fast mode'}
+      title={unavailable ? unavailableReason : undefined}
       aria-pressed={active}
       aria-disabled={interactionDisabled}
       disabled={interactionDisabled}
@@ -524,6 +532,7 @@ export function ModelMatrixPicker({
                 active={ultraActive}
                 disabled={disabled}
                 unavailable={!ultraOption}
+                unavailableReason="Ultra is not offered for this model by the active Codex CLI."
                 onChange={changeUltra}
               />
             </div>
@@ -531,6 +540,7 @@ export function ModelMatrixPicker({
               active={fastAvailable && visibleFast}
               available={fastAvailable}
               disabled={disabled}
+              unavailableReason="Fast is not offered for this model by the active Codex CLI."
               onChange={changeFast}
             />
             <span className="code-model-matrix-current" aria-live="polite">

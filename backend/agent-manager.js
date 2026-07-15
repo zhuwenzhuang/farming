@@ -19,6 +19,7 @@ const { CodexAppServerRuntime, normalizeCodexRuntimeMode } = require('./codex-ap
 const { JsonCliRuntime } = require('./json-cli-runtime');
 const { AcpRuntime } = require('./acp-runtime');
 const { acpToolChanges, acpToolDetail, acpToolReviewChanges } = require('./acp-transcript');
+const { applyCodexTerminalProfile } = require('./codex-terminal-profile');
 const { ensureCodexAppServerHome } = require('./codex-app-server-home');
 const {
   ensureAgentOrders,
@@ -2446,20 +2447,24 @@ class AgentManager extends EventEmitter {
     }
   }
   
-  async sendInput(agentId, input) {
+  async enqueueInputOperation(agentId, operation) {
     const previous = this.inputQueues.get(agentId) || Promise.resolve();
     const next = previous
       .catch(() => {})
-      .then(() => this.sendInputNow(agentId, input));
+      .then(operation);
 
     this.inputQueues.set(agentId, next);
     try {
-      await next;
+      return await next;
     } finally {
       if (this.inputQueues.get(agentId) === next) {
         this.inputQueues.delete(agentId);
       }
     }
+  }
+
+  async sendInput(agentId, input) {
+    return this.enqueueInputOperation(agentId, () => this.sendInputNow(agentId, input));
   }
 
   codexAppServerOptionsForAgent(agent, message = '') {
@@ -2495,19 +2500,38 @@ class AgentManager extends EventEmitter {
   }
 
   async sendComposerMessage(agentId, message) {
-    const previous = this.inputQueues.get(agentId) || Promise.resolve();
-    const next = previous
-      .catch(() => {})
-      .then(() => this.sendComposerMessageNow(agentId, message));
+    return this.enqueueInputOperation(agentId, () => this.sendComposerMessageNow(agentId, message));
+  }
 
-    this.inputQueues.set(agentId, next);
-    try {
-      return await next;
-    } finally {
-      if (this.inputQueues.get(agentId) === next) {
-        this.inputQueues.delete(agentId);
-      }
+  async setCodexTerminalProfile(agentId, profile) {
+    return this.enqueueInputOperation(agentId, () => this.setCodexTerminalProfileNow(agentId, profile));
+  }
+
+  async setCodexTerminalProfileNow(agentId, profile) {
+    const agent = this.agents.get(agentId);
+    if (!agent) throw new Error('Agent not found');
+    if (
+      agentProgramName(agent.command).toLowerCase() !== 'codex'
+      || isCodexAppServerAgent(agent)
+      || isJsonCliAgent(agent)
+      || isAcpAgent(agent)
+      || (agent.agentRuntimeMode || 'terminal') !== 'terminal'
+    ) {
+      throw new Error('This Agent is not using Codex Terminal');
     }
+    if (!isRunningAgentRuntimeStatus(agent.status)) {
+      throw new Error('Codex Terminal is not running');
+    }
+
+    return applyCodexTerminalProfile({
+      profile,
+      readPreview: async () => {
+        const view = await this.getAgentSessionView(agentId);
+        if (!view) throw new Error('Agent not found');
+        return view.previewText;
+      },
+      sendInput: input => this.sendInputNow(agentId, input),
+    });
   }
 
   async sendComposerMessageNow(agentId, message) {

@@ -55,6 +55,88 @@ function run() {
     configuredAuth.cleanup({ removeTokenFile: true });
     delete process.env.FARMING_TOKEN;
 
+    const netConfigDir = path.join(configDir, 'net');
+    const netAuth = new TokenAuth({
+      basePath: '/farming-net',
+      cookieName: 'farming_net_token',
+      cookiePath: '/farming-net',
+      farmingDir: netConfigDir,
+      redirectQueryToken: true,
+      token: 'private-net-token',
+    });
+    assert.strictEqual(netAuth.getCookieName(), 'farming_net_token');
+    let redirectStatus = 0;
+    let redirectHeaders = {};
+    let redirectEnded = false;
+    let redirectNextCalled = false;
+    netAuth.middleware()({
+      headers: { host: 'net.example' },
+      method: 'GET',
+      url: '/farming-net/?mode=compact&token=private-net-token',
+    }, {
+      end() {
+        redirectEnded = true;
+      },
+      setHeader(name, value) {
+        redirectHeaders[name] = value;
+      },
+      writeHead(status, headers = {}) {
+        redirectStatus = status;
+        redirectHeaders = { ...redirectHeaders, ...headers };
+      },
+    }, () => {
+      redirectNextCalled = true;
+    });
+    assert.strictEqual(redirectStatus, 302);
+    assert.strictEqual(redirectHeaders.Location, '/farming-net/?mode=compact');
+    assert.match(redirectHeaders['Set-Cookie'], /^farming_net_token=private-net-token; Path=\/farming-net;/);
+    assert.strictEqual(redirectEnded, true);
+    assert.strictEqual(redirectNextCalled, false);
+    assert.strictEqual(netAuth.verifyWebSocket({
+      headers: { cookie: 'farming_token=wrong; farming_net_token=private-net-token' },
+      url: '/farming-net/ws',
+    }), true);
+    netAuth.cleanup({ removeTokenFile: true });
+
+    const targetDir = path.join(configDir, 'federated-target');
+    const targetAuth = new TokenAuth({
+      basePath: '/farming',
+      farmingDir: targetDir,
+      farmingNetPassVerifier: {
+        verify(pass) {
+          return { valid: pass === 'single-use-pass' };
+        },
+      },
+      token: 'target-private-token',
+    });
+    let passStatus = 0;
+    let passHeaders = {};
+    let passEnded = false;
+    targetAuth.middleware()({
+      headers: { host: 'target.example' },
+      method: 'GET',
+      url: '/farming/?mode=compact&farming_net_pass=single-use-pass',
+    }, {
+      end() {
+        passEnded = true;
+      },
+      setHeader(name, value) {
+        passHeaders[name] = value;
+      },
+      writeHead(status, headers = {}) {
+        passStatus = status;
+        passHeaders = { ...passHeaders, ...headers };
+      },
+    }, () => {
+      assert.fail('a valid Farming Net pass should redirect before reaching the application');
+    });
+    assert.strictEqual(passStatus, 302);
+    assert.strictEqual(passHeaders.Location, '/farming/?mode=compact');
+    assert.strictEqual(passHeaders['Cache-Control'], 'no-store');
+    assert.match(passHeaders['Set-Cookie'], /^farming_token=target-private-token; Path=\//);
+    assert.strictEqual(passEnded, true);
+    targetAuth.cleanup({ removeTokenFile: true });
+
     process.env.FARMING_TOKEN_LOCALE = 'auto';
     const japaneseAuth = new TokenAuth({ basePath: '/farming', farmingDir: configDir, timeZone: 'Asia/Tokyo' });
     assert.strictEqual(japaneseAuth.getTokenInfo().style, 'zh-japan-haiku');

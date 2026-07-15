@@ -809,7 +809,8 @@ function run() {
       workspaceSource.includes('scheduleFocusRetries(focusCancelButton, { runNow: false, delays: [180] })') &&
       workspaceSource.includes('scheduleFocusRetries(focusFirstMenuButton, { delays: [0, 80, 180, 360] })') &&
       workspaceSource.includes('const composerHasAttachmentMessage = composerAttachmentMessageBlocks(composerAttachments).length > 0') &&
-      workspaceSource.includes("const composerSubmitAction = activeAgent && !composerAttachmentsUploading && (draft.trim() || composerHasAttachmentMessage)") &&
+      workspaceSource.includes('const composerSubmitAction = activeCodexTerminalProfileApplying') &&
+      workspaceSource.includes("activeAgent && !composerAttachmentsUploading && (draft.trim() || composerHasAttachmentMessage)") &&
       workspaceSource.includes('const interruptActiveAgent = useCallback') &&
       workspaceSource.includes('const sendComposerMessageToAgent = useCallback') &&
       workspaceSource.includes('terminalInputPartsForComposerMessage') &&

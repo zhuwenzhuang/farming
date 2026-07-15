@@ -69,7 +69,7 @@ CRT screen texture uses a flat phosphor-tinted black with static monochrome scan
 
 Session windows should use restrained CRT styling: thin borders, compact headers, and terminal-first focus. The terminal canvas should use small monospace type consistent with the global CRT density.
 
-Agent cards keep a uniform readable font and use their remaining body height for a bottom-aligned live terminal tail; excess content clips from the top and text must never be compressed. A card blinks only while the backend terminal state is working. Card and session headers use the Farming Code agent-title priority and remain on one ellipsized line.
+Agent cards keep a uniform readable font and use their remaining body height for either a bottom-aligned live terminal tail or a compact structured-Chat trail. The Chat trail shows the latest visible user prompt, Agent response, and current activity from the sanitized transcript without reconstructing or reordering ACP entries. Excess content clips instead of compressing text. Only live pending/running Agents occupy dashboard bays; stopped, dead, and archived records leave the live grid while resumable history stays in History. A terminal card blinks only while the backend terminal state is working; Chat uses a restrained activity signal. Card and session headers use the Farming Code agent-title priority and remain on one ellipsized line.
 
 ## Dialogs
 

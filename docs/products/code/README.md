@@ -62,7 +62,7 @@ The composer shows controls reported by the active runtime. Compatible Codex mod
 
 Models that do not expose the matrix-capable catalog open directly in the Advanced compatibility selectors. Choosing a compatible model family from the live catalog returns to the matrix without requiring a restart.
 
-ACP sessions apply supported changes directly. A compatible native Terminal stages the new model, reasoning, Fast, or permission information and sends it into the current CLI workflow before the next user message. The control therefore affects the live session, not only a future launch profile.
+ACP sessions apply supported changes directly. A compatible native Terminal applies model, reasoning, or Fast changes immediately through the current CLI workflow and confirms the resulting footer before another Composer message can be sent. The control therefore affects the live session, not only a future launch profile.
 
 ## Keep Project Files Beside The Agent
 

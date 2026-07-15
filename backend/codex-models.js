@@ -59,11 +59,13 @@ const FALLBACK_MODELS = [
 ];
 
 const EFFORT_LABELS = {
+  minimal: 'Minimal',
   low: 'Low',
   medium: 'Medium',
   high: 'High',
   xhigh: 'Extra High',
   max: 'Max',
+  ultra: 'Ultra',
 };
 
 const DEFAULT_SERVICE_TIER = {

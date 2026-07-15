@@ -12,6 +12,7 @@ function run() {
         supported_reasoning_levels: [
           { effort: 'high', description: 'Greater reasoning depth' },
           { effort: 'xhigh', description: 'Extra high reasoning depth' },
+          { effort: 'ultra', description: 'Highest reasoning depth' },
         ],
         service_tiers: [
           { id: 'priority', name: 'Fast', description: '1.5x speed' },
@@ -46,9 +47,10 @@ function run() {
   assert.strictEqual(catalog[0].serviceTiers[0].label, 'Standard');
   assert.strictEqual(catalog[0].serviceTiers[0].description, 'Default speed');
   assert.strictEqual(catalog[0].serviceTiers[1].label, 'Fast');
-  assert.deepStrictEqual(options.map(option => option.value), ['gpt-5.5:high', 'gpt-5.5:xhigh', 'gpt-5.4:medium']);
+  assert.deepStrictEqual(options.map(option => option.value), ['gpt-5.5:high', 'gpt-5.5:xhigh', 'gpt-5.5:ultra', 'gpt-5.4:medium']);
   assert.strictEqual(options[0].label, '5.5 High');
   assert.strictEqual(options[1].label, '5.5 Extra High');
+  assert.strictEqual(options[2].label, '5.5 Ultra');
   assert.strictEqual(options.some(option => JSON.stringify(option).includes('do not expose this')), false);
 
   console.log('✓ Codex model catalog is reduced to safe dynamic model and tier options');

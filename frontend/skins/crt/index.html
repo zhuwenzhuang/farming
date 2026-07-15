@@ -157,8 +157,139 @@
             white-space: pre;
         }
 
-        .agent-block.working .agent-output {
+        .agent-output.structured-preview {
+            color: inherit;
+        }
+
+        .agent-chat-preview {
+            position: absolute;
+            inset: 3px 0 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            gap: 5px;
+            min-height: 0;
+            padding: 0 4px 2px 12px;
+            overflow: hidden;
+        }
+
+        .agent-chat-preview::before {
+            content: '';
+            position: absolute;
+            top: 18px;
+            bottom: 5px;
+            left: 4px;
+            width: 1px;
+            background: linear-gradient(to bottom, transparent, currentColor 18%, currentColor 82%, transparent);
+            opacity: 0.32;
+        }
+
+        .agent-chat-preview-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            min-height: 11px;
+            font-size: 9px;
+            line-height: 1;
+            letter-spacing: 0.12em;
+            opacity: 0.62;
+            white-space: nowrap;
+        }
+
+        .agent-chat-preview-state {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            min-width: 0;
+        }
+
+        .agent-chat-preview-state i {
+            display: block;
+            width: 5px;
+            height: 5px;
+            flex: 0 0 auto;
+            border: 1px solid currentColor;
+            border-radius: 50%;
+        }
+
+        .agent-chat-preview.active .agent-chat-preview-state i {
+            background: currentColor;
+            box-shadow: 0 0 5px currentColor;
+            animation: crt-chat-signal 1.6s ease-in-out infinite;
+        }
+
+        .agent-chat-preview-line {
+            position: relative;
+            display: grid;
+            grid-template-columns: 40px minmax(0, 1fr);
+            gap: 6px;
+            min-width: 0;
+            font-size: 11px;
+            line-height: 1.28;
+        }
+
+        .agent-chat-preview-line::before {
+            content: '';
+            position: absolute;
+            top: 0.45em;
+            left: -10px;
+            width: 4px;
+            height: 4px;
+            border: 1px solid currentColor;
+            border-radius: 50%;
+            background: #0a0a0a;
+            box-shadow: 0 0 4px currentColor;
+        }
+
+        .agent-chat-preview-role {
+            padding-top: 1px;
+            font-size: 9px;
+            letter-spacing: 0.08em;
+            opacity: 0.56;
+        }
+
+        .agent-chat-preview-text {
+            min-width: 0;
+            overflow: hidden;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+            overflow-wrap: anywhere;
+        }
+
+        .agent-chat-preview-line.user .agent-chat-preview-text {
+            -webkit-line-clamp: 1;
+            opacity: 0.74;
+        }
+
+        .agent-chat-preview-line.assistant .agent-chat-preview-text {
+            text-shadow: 0 0 6px currentColor;
+        }
+
+        .agent-chat-preview-line.activity {
+            opacity: 0.72;
+        }
+
+        .agent-chat-preview-line.activity .agent-chat-preview-text {
+            -webkit-line-clamp: 1;
+            font-style: italic;
+        }
+
+        .agent-chat-preview-empty {
+            padding: 7px 0 3px;
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            opacity: 0.58;
+        }
+
+        .agent-block.working .agent-output:not(.structured-preview) {
             animation: blink 0.5s infinite;
+        }
+
+        @keyframes crt-chat-signal {
+            0%, 100% { opacity: 0.45; transform: scale(0.82); }
+            50% { opacity: 1; transform: scale(1); }
         }
 
         @keyframes blink {

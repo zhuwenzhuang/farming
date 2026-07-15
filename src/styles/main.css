@@ -1295,7 +1295,8 @@ body.code-resizing-sidebar {
   min-height: 32px;
   gap: 7px;
   padding: 6px 6px;
-  color: #424840;
+  /* 14px Agent labels need a lighter optical tone than the 13px file rows. */
+  color: #585e57;
   text-align: left;
   font-size: 14px;
   font-weight: 400;
@@ -9447,9 +9448,10 @@ button.code-history-card {
   grid-template-columns: repeat(var(--matrix-columns), minmax(0, 1fr));
   align-items: center;
   color: #777c82;
-  font-size: 9px;
+  font-size: 8px;
   line-height: 1;
   text-align: center;
+  white-space: nowrap;
 }
 
 .code-model-matrix-labels {

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#0d1712">
+    <meta name="description" content="A private index for deployed Farming workspaces.">
+    <link rel="icon" type="image/png" href="icon.png">
+    <link rel="stylesheet" href="app.css?v=font-spacing-1">
+    <script src="app.js?v=federated-pass-1" defer></script>
+    <title>Farming Net</title>
+  </head>
+  <body>
+    <div class="page-glow page-glow-one" aria-hidden="true"></div>
+    <div class="page-glow page-glow-two" aria-hidden="true"></div>
+
+    <div class="shell">
+      <header class="topbar">
+        <a class="brand" href="./" aria-label="Farming Net">
+          <img class="brand-icon" src="icon.png" alt="">
+          <span>Farming Net</span>
+        </a>
+        <div class="private-badge">
+          <span class="private-badge-dot" aria-hidden="true"></span>
+          <span data-copy="privateIndex">Private index</span>
+        </div>
+      </header>
+
+      <main>
+        <section class="hero" aria-labelledby="portal-title">
+          <p class="eyebrow" data-copy="eyebrow">YOUR FARMING NETWORK</p>
+          <h1 id="portal-title">Farming Net</h1>
+          <p id="portal-subtitle" class="subtitle" data-copy="defaultSubtitle">
+            All your deployed Farming workspaces, one click away.
+          </p>
+        </section>
+
+        <section class="toolbar" aria-label="Portal controls">
+          <label class="search-field" for="instance-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m21 21-4.35-4.35m2.35-5.15a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z"></path>
+            </svg>
+            <input
+              id="instance-search"
+              data-testid="net-search"
+              type="search"
+              autocomplete="off"
+              data-copy-placeholder="searchPlaceholder"
+              placeholder="Search environments"
+            >
+            <kbd>/</kbd>
+          </label>
+          <button class="refresh-button" data-testid="net-refresh" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5m-5 4a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"></path>
+            </svg>
+            <span data-copy="refresh">Refresh</span>
+          </button>
+        </section>
+
+        <section class="directory" aria-labelledby="directory-title">
+          <div class="directory-heading">
+            <h2 id="directory-title" data-copy="environments">Environments</h2>
+            <span id="instance-count" class="instance-count">—</span>
+          </div>
+
+          <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+          <div id="instance-grid" class="instance-grid" aria-live="polite" aria-busy="true"></div>
+
+          <div id="empty-state" class="empty-state" hidden>
+            <div class="empty-mark" aria-hidden="true">⌘</div>
+            <h3 data-copy="emptyTitle">No matching environment</h3>
+            <p data-copy="emptyBody">Try another name, owner, or platform.</p>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <span data-copy="footer">One portal token. Short-lived passes for enrolled Farms.</span>
+        <span class="footer-separator" aria-hidden="true"></span>
+        <span id="last-updated"></span>
+      </footer>
+    </div>
+  </body>
+</html>
