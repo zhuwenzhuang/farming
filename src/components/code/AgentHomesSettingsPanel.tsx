@@ -88,20 +88,19 @@ function panelCopy(language: UiPreferences['language']) {
       ? (seconds >= 60 ? `${seconds / 60} 分钟` : `${seconds} 秒`)
       : (seconds >= 60 ? `${seconds / 60} min` : `${seconds} sec`),
     updates: zh ? '更新' : 'Updates',
-    updateHint: zh
-      ? '更新方式会自动匹配当前安装来源；npm 安装可直接一键升级。'
-      : 'Updates follow the current installation source; npm installations support one-click upgrades.',
     updateUrl: zh ? '更新 URL' : 'Update URL',
     updateUrlPlaceholder: 'https://github.com/zhuwenzhuang/farming/releases/latest',
     updateUrlEmpty: zh ? '等待检查更新' : 'Waiting for update check',
     saveUpdateUrl: zh ? '保存更新 URL' : 'Save Update URL',
     refreshUpdates: zh ? '刷新' : 'Refresh',
-    upgradeNow: zh ? '立即更新' : 'Update Now',
+    updateAction: zh ? '更新' : 'Update',
+    updateToVersion: (version: string) => zh ? `更新到 ${version}` : `Update to ${version}`,
+    updating: zh ? '更新中…' : 'Updating…',
+    checkingUpdates: zh ? '正在检查更新…' : 'Checking for updates…',
     currentVersion: zh ? '当前版本' : 'Current',
     latestVersion: zh ? '最新版本' : 'Latest',
     targetVersion: zh ? '升级版本' : 'Target',
     updateSource: zh ? '更新源' : 'Update source',
-    updateMethod: zh ? '安装方式' : 'Install method',
     updateMethodLabel: (method: string) => ({
       npm: 'npm',
       'app-bundle': zh ? '兼容包' : 'App bundle',
@@ -109,7 +108,6 @@ function panelCopy(language: UiPreferences['language']) {
       source: zh ? '源码检出' : 'Source checkout',
       'standalone-cli': zh ? '单文件 CLI' : 'Standalone CLI',
     }[method] || method || '-'),
-    updateRuntime: zh ? '当前机器' : 'This machine',
     upToDate: zh ? '已是最新版本' : 'Up to date',
     updateAvailable: zh ? '有新版本可用' : 'Update available',
     updateNotInstallable: zh ? '当前更新不可安装' : 'Update is not installable',
@@ -270,6 +268,7 @@ export function AgentHomesSettingsPanel({
   const copy = useMemo(() => panelCopy(language), [language])
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
   const searchTimeoutSaveTimerRef = useRef<number | null>(null)
+  const upgradeTargetVersionRef = useRef('')
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false)
   const [updateUrl, setUpdateUrl] = useState('')
   const [searchTimeoutSeconds, setSearchTimeoutSeconds] = useState(15)
@@ -421,6 +420,8 @@ export function AgentHomesSettingsPanel({
 
     setUpdateChecking(true)
     setError('')
+    setNotice('')
+    upgradeTargetVersionRef.current = selectedVersion.version || selectedVersion.assetName || ''
     fetch(appPath('/api/update/install'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -438,9 +439,11 @@ export function AgentHomesSettingsPanel({
           state: data?.update?.state ?? current?.state,
           blockingAgents: data?.update?.blockingAgents ?? current?.blockingAgents,
         }))
-        setNotice(copy.updateInstalling)
       })
-      .catch(error => setError(error instanceof Error ? error.message : copy.saveFailed))
+      .catch(error => {
+        upgradeTargetVersionRef.current = ''
+        setError(error instanceof Error ? error.message : copy.saveFailed)
+      })
       .finally(() => setUpdateChecking(false))
   }, [copy, refreshUpdateStatus, selectedUpdateAsset, updateStatus])
 
@@ -511,30 +514,58 @@ export function AgentHomesSettingsPanel({
     return () => window.clearInterval(timer)
   }, [open, refreshUpdateStatus, updatePhase])
 
+  useEffect(() => {
+    if (!open || updatePhase !== 'succeeded' || !upgradeTargetVersionRef.current) return undefined
+    const installedVersion = updateStatus?.state?.version
+      || updateStatus?.current?.releaseVersion
+      || updateStatus?.current?.packageVersion
+      || ''
+    if (installedVersion !== upgradeTargetVersionRef.current) return undefined
+    upgradeTargetVersionRef.current = ''
+    window.location.reload()
+    return undefined
+  }, [open, updatePhase, updateStatus])
+
   if (!open) return null
 
   const providers = orderedProviders(homes, agentLaunchOptions)
   const updateVersions = updateStatus?.versions ?? []
   const selectedVersion = updateVersions.find(version => version.assetName === selectedUpdateAsset)
-  const updateBusy = updateChecking || updateSaving || ['downloading', 'extracting', 'installing', 'restarting', 'rolling-back'].includes(updatePhase)
+  const updateInstallBusy = ['downloading', 'extracting', 'installing', 'restarting', 'rolling-back'].includes(updatePhase)
+  const updateBusy = updateChecking || updateSaving || updateInstallBusy
   const updateMethod = updateStatus?.method || updateStatus?.current?.type || ''
   const updateMethodLabel = copy.updateMethodLabel(updateMethod)
   const bundleUpdate = updateMethod === 'app-bundle' || updateMethod === 'source-deploy'
-  const currentUpdateVersion = updateStatus?.current?.releaseVersion || updateStatus?.current?.packageVersion || '-'
+  const currentUpdateVersion = updateStatus?.current?.releaseVersion
+    || updateStatus?.current?.packageVersion
+    || updateStatus?.state?.previousVersion
+    || '-'
   const latestUpdateVersion = updateStatus?.latest?.version || '-'
-  const updateSummary = updatePhase === 'rolled-back'
-    ? copy.updateRolledBack
-    : updatePhase === 'failed' && updateStatus?.state?.error
-      ? updateStatus.state.error
-      : updatePhase === 'restarting'
-        ? copy.updateRestarting
-        : ['downloading', 'extracting', 'installing', 'rolling-back'].includes(updatePhase)
-          ? copy.updateInstalling
-          : updateStatus?.available
-            ? copy.updateAvailable
-            : updatePhase === 'succeeded'
-              ? copy.updateSucceeded
-              : updateStatus?.latest?.blockedReason || copy.upToDate
+  const targetUpdateVersion = selectedVersion?.version || updateStatus?.selected?.version || latestUpdateVersion
+  const showUpdateTransition = currentUpdateVersion !== '-'
+    && targetUpdateVersion !== '-'
+    && currentUpdateVersion !== targetUpdateVersion
+    && (updateStatus?.available === true || updateBusy)
+  const updateSummary = !updateStatus
+    ? copy.checkingUpdates
+    : updatePhase === 'rolled-back'
+      ? copy.updateRolledBack
+      : updatePhase === 'failed' && updateStatus?.state?.error
+        ? updateStatus.state.error
+        : updatePhase === 'restarting'
+          ? copy.updateRestarting
+          : ['downloading', 'extracting', 'installing', 'rolling-back'].includes(updatePhase)
+            ? copy.updateInstalling
+            : updateStatus.available
+              ? copy.updateAvailable
+              : updatePhase === 'succeeded'
+                ? copy.updateSucceeded
+                : updateStatus.latest?.blockedReason || copy.upToDate
+  const updateActionLabel = updateInstallBusy
+    ? copy.updating
+    : selectedVersion?.available && targetUpdateVersion !== '-'
+      ? copy.updateToVersion(targetUpdateVersion)
+      : copy.updateAction
   return (
     <div className="code-settings-panel-overlay" data-testid="code-settings-panel" onPointerDown={event => {
       if (event.target === event.currentTarget) onClose()
@@ -624,16 +655,42 @@ export function AgentHomesSettingsPanel({
               <div>
                 <h3>{copy.updates}</h3>
               </div>
-              {(updateChecking || updateSaving) && (
-                <span className="code-settings-status">{updateChecking ? copy.loading : copy.saving}</span>
-              )}
             </div>
-            <div className="code-settings-update-card">
-              <dl className="code-settings-update-status">
-                <div><dt>{copy.updateMethod}</dt><dd>{updateMethodLabel}</dd></div>
-                <div><dt>{copy.currentVersion}</dt><dd>{currentUpdateVersion}</dd></div>
-                <div><dt>{copy.latestVersion}</dt><dd>{latestUpdateVersion}</dd></div>
-              </dl>
+            <div className={`code-settings-update-card ${updateStatus?.available ? 'available' : ''}`} data-testid="code-settings-update-card">
+              <div className="code-settings-update-overview">
+                <div className="code-settings-update-versions" aria-label={`${copy.currentVersion} ${currentUpdateVersion}; ${copy.latestVersion} ${latestUpdateVersion}`}>
+                  <span>{currentUpdateVersion}</span>
+                  {showUpdateTransition && <>
+                    <span className="code-settings-update-arrow" aria-hidden="true">→</span>
+                    <strong>{targetUpdateVersion}</strong>
+                  </>}
+                </div>
+                <div
+                  className={`code-settings-update-summary ${updateStatus?.available ? 'available' : ''} ${updatePhase ? `phase-${updatePhase}` : ''}`}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {updateMethod && <><span>{updateMethodLabel}</span><span aria-hidden="true"> · </span></>}
+                  <span>{updateSummary}</span>
+                </div>
+              </div>
+              <div className="code-settings-update-actions">
+                <button
+                  type="button"
+                  className="code-settings-update-refresh"
+                  onClick={() => refreshUpdateStatus(true)}
+                  disabled={updateBusy}
+                  aria-label={copy.refreshUpdates}
+                  title={copy.refreshUpdates}
+                >↻</button>
+                <button
+                  type="button"
+                  className="primary"
+                  data-testid="code-settings-update-action"
+                  onClick={startUpgrade}
+                  disabled={updateBusy || !selectedVersion?.available}
+                >{updateActionLabel}</button>
+              </div>
               {bundleUpdate && <label className="code-settings-update-url">
                 <span>{copy.updateSource}</span>
                 <input
@@ -656,12 +713,8 @@ export function AgentHomesSettingsPanel({
                   disabled={updateBusy}
                 />
               </label>}
-              <div className="code-settings-update-actions">
-                {bundleUpdate && <button type="button" onClick={saveUpdateUrl} disabled={updateBusy} aria-label={copy.saveUpdateUrl} title={copy.saveUpdateUrl}><CheckGlyph /></button>}
-                <button type="button" onClick={() => refreshUpdateStatus(true)} disabled={updateBusy} aria-label={copy.refreshUpdates} title={copy.refreshUpdates}>↻</button>
-                <button type="button" className="primary" onClick={startUpgrade} disabled={updateBusy || !selectedVersion?.available} aria-label={copy.upgradeNow} title={copy.upgradeNow}>↑</button>
-              </div>
-              {updateVersions.length > 0 && <label className="code-settings-update-version">
+              {bundleUpdate && <button type="button" className="code-settings-update-save" onClick={saveUpdateUrl} disabled={updateBusy}>{copy.saveUpdateUrl}</button>}
+              {updateVersions.length > 1 && <label className="code-settings-update-version">
                 <select
                   value={selectedUpdateAsset}
                   aria-label={copy.targetVersion}
@@ -675,7 +728,6 @@ export function AgentHomesSettingsPanel({
                   ))}
                 </select>
               </label>}
-              <div className={`code-settings-update-summary ${updateStatus?.available ? 'available' : ''}`}>{updateSummary}</div>
             </div>
           </section>
 

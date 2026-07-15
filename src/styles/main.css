@@ -15111,6 +15111,10 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   padding: 12px;
 }
 
+.code-settings-update-card.available {
+  border-color: #c8ddce;
+}
+
 .code-settings-update-url,
 .code-settings-update-version {
   display: grid;
@@ -15958,12 +15962,41 @@ body.code-mode[data-appearance='dark'] .code-settings-inline-choice > span {
 
 .code-settings-update-card {
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px 8px;
-  padding: 10px 12px;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 12px;
+}
+
+.code-settings-update-overview {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.code-settings-update-versions {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  color: #303730;
+  font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 15px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.code-settings-update-versions strong {
+  color: #176d3b;
+  font-weight: 650;
+}
+
+.code-settings-update-arrow {
+  color: #8a9187;
+  font-family: -apple-system, system-ui, "SF Pro Text", "Segoe UI", sans-serif;
 }
 
 .code-settings-update-url {
-  grid-column: 1;
+  grid-column: 1 / -1;
   display: grid;
   gap: 5px;
 }
@@ -15977,36 +16010,34 @@ body.code-mode[data-appearance='dark'] .code-settings-inline-choice > span {
 
 .code-settings-update-actions {
   grid-column: 2;
-  align-self: end;
-  gap: 2px;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
-.code-settings-update-version {
+.code-settings-update-version,
+.code-settings-update-save {
   grid-column: 1 / -1;
 }
 
-.code-settings-update-status,
 .code-settings-update-summary {
-  grid-column: 1 / -1;
-}
-
-.code-settings-update-status {
-  padding-bottom: 2px;
-}
-
-.code-settings-update-status div {
-  grid-template-columns: 88px minmax(0, 1fr);
-}
-
-.code-settings-update-status dt,
-.code-settings-update-summary {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #747b72;
   font-size: 13px;
   line-height: 18px;
 }
 
-.code-settings-update-status dd {
-  font-size: 14px;
-  line-height: 20px;
+.code-settings-update-summary.available {
+  color: #176d3b;
+  font-weight: 500;
+}
+
+.code-settings-update-summary.phase-failed,
+.code-settings-update-summary.phase-rolled-back {
+  color: #b42318;
 }
 
 .code-settings-update-url input,
@@ -16031,7 +16062,78 @@ body.code-mode[data-appearance='dark'] .code-settings-inline-choice > span {
   box-shadow: none;
 }
 
-.code-settings-update-actions button.primary,
+.code-settings-update-actions button {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 10px;
+  border: 1px solid #dfe3dd;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #596158;
+  font-size: 13px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.code-settings-update-actions .code-settings-update-refresh {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+  font-size: 17px;
+}
+
+.code-settings-update-actions button.primary {
+  min-width: 88px;
+  padding-inline: 13px;
+  border-color: #176d3b;
+  background: #176d3b;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.code-settings-update-actions button:hover:not(:disabled),
+.code-settings-update-actions button:focus-visible {
+  border-color: #bdc3ba;
+  background: #f1f2ed;
+  color: #303730;
+  outline: none;
+}
+
+.code-settings-update-actions button.primary:hover:not(:disabled),
+.code-settings-update-actions button.primary:focus-visible {
+  border-color: #105c30;
+  background: #105c30;
+  color: #ffffff;
+}
+
+.code-settings-update-actions button:disabled {
+  border-color: #e2e4df;
+  background: #f3f4f1;
+  color: #a4aaa0;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.code-settings-update-save {
+  justify-self: start;
+  min-height: 30px;
+  padding: 4px 9px;
+  border: 1px solid #dfe3dd;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #596158;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.code-settings-update-save:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
 .code-agent-home-form-actions .primary {
   background: transparent;
   color: #4b4f55;
@@ -16129,7 +16231,6 @@ body.code-mode[data-appearance='dark'] .code-settings-inline-choice > span {
   height: 18px;
 }
 
-.code-settings-update-actions button,
 .code-agent-home-provider-header .code-agent-home-add {
   font-size: 18px;
 }
@@ -16165,6 +16266,65 @@ body.code-mode[data-appearance='dark'] .code-agent-home-provider {
 
 body.code-mode[data-appearance='dark'] .code-agent-home-provider-header {
   background: #21262d;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-card.available {
+  border-color: rgba(46, 160, 67, 0.52);
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-versions {
+  color: #e6edf3;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-versions strong,
+body.code-mode[data-appearance='dark'] .code-settings-update-summary.available {
+  color: #56d364;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-arrow,
+body.code-mode[data-appearance='dark'] .code-settings-update-summary {
+  color: #8b949e;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-summary.phase-failed,
+body.code-mode[data-appearance='dark'] .code-settings-update-summary.phase-rolled-back {
+  color: #ff7b72;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button,
+body.code-mode[data-appearance='dark'] .code-settings-update-save {
+  border-color: #30363d;
+  background: #21262d;
+  color: #c9d1d9;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button:focus-visible,
+body.code-mode[data-appearance='dark'] .code-settings-update-save:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-settings-update-save:focus-visible {
+  border-color: #484f58;
+  background: #30363d;
+  color: #f0f6fc;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button.primary {
+  border-color: #238636;
+  background: #238636;
+  color: #ffffff;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button.primary:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button.primary:focus-visible {
+  border-color: #2ea043;
+  background: #2ea043;
+  color: #ffffff;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button:disabled,
+body.code-mode[data-appearance='dark'] .code-settings-update-save:disabled {
+  border-color: #30363d;
+  background: #161b22;
+  color: #6e7681;
 }
 
 body.code-mode[data-appearance='dark'] .code-settings-update-url input,
