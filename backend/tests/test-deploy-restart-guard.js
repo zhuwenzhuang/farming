@@ -87,6 +87,35 @@ function run() {
     'deploy token inheritance should read the persisted session token without base64-encoding a trailing newline'
   );
 
+  assert(
+    deploySource.includes('REMOTE_GLIBC_ROOT="${FARMING_REMOTE_GLIBC_ROOT:-}"') &&
+      deploySource.includes('REMOTE_USE_GLIBC="${FARMING_REMOTE_USE_GLIBC:-${REMOTE_GLIBC_ROOT:+1}}"') &&
+      deploySource.includes('remote_uses_glibc()') &&
+      deploySource.includes('${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so --library-path ${REMOTE_GLIBC_ROOT}/lib') &&
+      deploySource.includes('export FARMING_NODE_LD=${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so') &&
+      deploySource.includes('export FARMING_NODE_LIBRARY_PATH=${REMOTE_GLIBC_ROOT}/lib'),
+    'deploy start should honor the configured glibc compatibility runtime for the server and native PTY host'
+  );
+
+  assert(
+    deploySource.includes('Farming server failed to become healthy on ${REMOTE}:${REMOTE_PORT}.') &&
+      deploySource.includes('200|401) exit 0 ;; esac') &&
+      deploySource.includes('--connect-timeout 1 --max-time 2') &&
+      deploySource.includes('if ! kill -0 ${started_pid} 2>/dev/null; then exit 1; fi;'),
+    'deploy start should fail when the new process exits or its authenticated endpoint never becomes reachable'
+  );
+
+  assert(
+    deploySource.includes('REMOTE_CONFIG_DIR="${FARMING_REMOTE_CONFIG_DIR:-}"') &&
+      deploySource.includes('server_config_dir_for_pid()') &&
+      deploySource.includes('write_server_control_metadata "${started_pid}"') &&
+      deploySource.includes('farming-server.pid') &&
+      deploySource.includes('farming-server.json') &&
+      deploySource.includes('control_config_dir="$(server_config_dir_for_pid "${pid}")"') &&
+      deploySource.includes('rm -f ${control_config_dir}/farming-server.pid ${control_config_dir}/farming-server.json'),
+    'deploy start and stop should keep CLI server control metadata aligned with the source deployment process'
+  );
+
   console.log('✓ deploy restart guard refuses unsafe restarts by default');
 }
 

@@ -41,6 +41,9 @@ REMOTE="$(resolve_remote)"
 REMOTE_DIR="${FARMING_REMOTE_DIR:-farming}"
 REMOTE_PORT="${FARMING_REMOTE_PORT:-6694}"
 REMOTE_BASE_PATH="${FARMING_REMOTE_BASE_PATH:-/farming}"
+REMOTE_CONFIG_DIR="${FARMING_REMOTE_CONFIG_DIR:-}"
+REMOTE_GLIBC_ROOT="${FARMING_REMOTE_GLIBC_ROOT:-}"
+REMOTE_USE_GLIBC="${FARMING_REMOTE_USE_GLIBC:-${REMOTE_GLIBC_ROOT:+1}}"
 
 PID_FILE="${REMOTE_DIR}/.farming.pid"
 LOG_FILE="${REMOTE_DIR}/farming.log"
@@ -60,11 +63,42 @@ ensure_remote_dir() {
 
 ensure_remote_prerequisites() {
   log "Checking remote prerequisites ..."
-  remote "command -v node >/dev/null && command -v npm >/dev/null && command -v git >/dev/null"
+  remote "command -v node >/dev/null && command -v npm >/dev/null && command -v git >/dev/null && command -v curl >/dev/null"
+  if remote_uses_glibc; then
+    if [ -z "${REMOTE_GLIBC_ROOT}" ]; then
+      echo "FARMING_REMOTE_GLIBC_ROOT is required when FARMING_REMOTE_USE_GLIBC is enabled." >&2
+      exit 1
+    fi
+    remote "test -x ${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so"
+  fi
+}
+
+remote_uses_glibc() {
+  [[ "${REMOTE_USE_GLIBC}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]
 }
 
 configured_token() {
   printf '%s' "${FARMING_REMOTE_TOKEN:-${FARMING_TOKEN:-}}"
+}
+
+server_config_dir_for_pid() {
+  local pid="$1"
+  remote "config_dir=\$(tr '\0' '\n' < /proc/${pid}/environ 2>/dev/null | \
+    sed -n 's/^FARMING_CONFIG_DIR=//p' | head -1); \
+    if [ -z \"\$config_dir\" ]; then config_dir=\"\$HOME/.farming\"; fi; \
+    printf '%s' \"\$config_dir\""
+}
+
+write_server_control_metadata() {
+  local pid="$1"
+  local config_dir
+  config_dir="$(server_config_dir_for_pid "${pid}")"
+  remote "mkdir -p ${config_dir}; \
+    printf '%s' '${pid}' > ${config_dir}/farming-server.pid; \
+    updated_at=\$(date -u +%Y-%m-%dT%H:%M:%S.000Z); \
+    printf '{\n  \"pid\": %s,\n  \"port\": %s,\n  \"basePath\": \"%s\",\n  \"configDir\": \"%s\",\n  \"updatedAt\": \"%s\"\n}\n' \
+      '${pid}' '${REMOTE_PORT}' '${REMOTE_BASE_PATH}' '${config_dir}' \"\$updated_at\" \
+      > ${config_dir}/farming-server.json"
 }
 
 arg_force_restart() {
@@ -602,8 +636,18 @@ cmd_start() {
   fi
 
   # Write launcher script on remote (login shell to inherit user PATH)
-  local exec_line
+  local config_line exec_line runtime_lines
+  config_line="unset FARMING_CONFIG_DIR"
+  if [ -n "${REMOTE_CONFIG_DIR}" ]; then
+    config_line="export FARMING_CONFIG_DIR=${REMOTE_CONFIG_DIR}"
+  fi
   exec_line="exec ${remote_node} backend/server.js"
+  runtime_lines="unset FARMING_NODE_LD FARMING_NODE_LIBRARY_PATH"
+  if remote_uses_glibc; then
+    exec_line="exec ${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so --library-path ${REMOTE_GLIBC_ROOT}/lib ${remote_node} backend/server.js"
+    runtime_lines="export FARMING_NODE_LD=${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so
+export FARMING_NODE_LIBRARY_PATH=${REMOTE_GLIBC_ROOT}/lib"
+  fi
 
   remote "printf '%s\n' \
     '#!/usr/bin/env bash' \
@@ -611,7 +655,9 @@ cmd_start() {
     'cd ${REMOTE_DIR}' \
     'export PORT=${REMOTE_PORT}' \
     'export FARMING_BASE_PATH=${REMOTE_BASE_PATH}' \
+    '${config_line}' \
     'export FARMING_NODE_BIN=${remote_node}' \
+    '${runtime_lines}' \
     'if [ \"\${FARMING_NODE_MAX_OLD_SPACE_SIZE:-auto}\" = \"auto\" ] || [ -z \"\${FARMING_NODE_MAX_OLD_SPACE_SIZE:-}\" ]; then' \
     '  export FARMING_NODE_MAX_OLD_SPACE_SIZE=\"\$(./scripts/compute-node-heap-mb.sh)\"' \
     'fi' \
@@ -626,8 +672,27 @@ cmd_start() {
 
   remote "nohup ${REMOTE_DIR}/.farming-launcher.sh > ${LOG_FILE} 2>&1 & echo \$! > ${PID_FILE}"
 
-  # Wait for server to start and print token URL
-  sleep 3
+  # Treat an early process exit or an unreachable HTTP endpoint as a failed
+  # deployment instead of printing a misleading success message.
+  local started_pid
+  started_pid=$(remote "cat ${PID_FILE}")
+  if ! remote "for _ in \$(seq 1 15); do \
+    if ! kill -0 ${started_pid} 2>/dev/null; then exit 1; fi; \
+    code=\$(curl -sS --connect-timeout 1 --max-time 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:${REMOTE_PORT}${REMOTE_BASE_PATH}/ 2>/dev/null || true); \
+    case \"\$code\" in 200|401) exit 0 ;; esac; \
+    sleep 1; \
+  done; \
+  exit 1"; then
+    echo "Farming server failed to become healthy on ${REMOTE}:${REMOTE_PORT}." >&2
+    remote "tail -30 ${LOG_FILE}" >&2 || true
+    return 1
+  fi
+
+  # Source deployments and the product CLI must agree on which process owns
+  # the configured server. Otherwise a later `farming status` or `stop` can
+  # act on stale control metadata left by an earlier daemon launch.
+  write_server_control_metadata "${started_pid}"
+
   log "Server started. Access URL:"
   echo ""
   remote "head -20 ${LOG_FILE}" 2>/dev/null || true
@@ -662,6 +727,8 @@ cmd_stop() {
 
   local pid
   pid=$(remote "cat ${PID_FILE}")
+  local control_config_dir
+  control_config_dir="$(server_config_dir_for_pid "${pid}")"
   log "Stopping server (PID ${pid}) ..."
 
   remote "kill ${pid} 2>/dev/null || true; \
@@ -670,6 +737,10 @@ cmd_stop() {
       sleep 0.2; \
     done; \
     if kill -0 ${pid} 2>/dev/null; then kill -9 ${pid} 2>/dev/null || true; fi; \
+    if test -f ${control_config_dir}/farming-server.pid && \
+      test \"\$(cat ${control_config_dir}/farming-server.pid)\" = '${pid}'; then \
+      rm -f ${control_config_dir}/farming-server.pid ${control_config_dir}/farming-server.json; \
+    fi; \
     rm -f ${PID_FILE}"
   log "Server stopped."
 }
@@ -712,6 +783,9 @@ Environment:
   FARMING_REMOTE_DIR=/path/to/farming
   FARMING_REMOTE_PORT=6694
   FARMING_REMOTE_BASE_PATH=/farming
+  FARMING_REMOTE_CONFIG_DIR=/path/to/config
+  FARMING_REMOTE_GLIBC_ROOT=/path/to/glibc228
+  FARMING_REMOTE_USE_GLIBC=1      # launch Node through ld-2.28.so
   FARMING_REMOTE_FORCE_RESTART=1   # bypass active-agent restart guard
 EOF
 }
