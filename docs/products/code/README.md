@@ -62,11 +62,11 @@ The composer shows controls reported by the active runtime. Compatible Codex mod
 
 Models that do not expose the matrix-capable catalog open directly in the Advanced compatibility selectors. Choosing a compatible model family from the live catalog returns to the matrix without requiring a restart.
 
-ACP sessions apply supported changes directly. A compatible native Terminal applies model, reasoning, or Fast changes immediately through the current CLI workflow and confirms the resulting footer before another Composer message can be sent. The control therefore affects the live session, not only a future launch profile.
+ACP sessions apply supported changes directly. A compatible native Terminal applies model, reasoning, or Fast changes immediately through the current CLI workflow and confirms the resulting footer before another Composer message can be sent. That footer is also the source of truth when an existing Terminal is selected, so its live profile cannot be replaced on screen by a newer launch default. Terminal runtimes without a verified live-profile adapter do not show a current-session model picker. The control therefore affects the live session, not only a future launch profile.
 
 ## Keep Project Files Beside The Agent
 
-Files are scoped to a concrete project Agent. The project sidebar contains Open Editors, a lazy file tree, path/line and content search, Git Changes, and Review. Main Agent rows do not pretend to own project files.
+Files are scoped to a concrete project Agent. The project sidebar contains Open Editors, a VS Code-derived Git History graph, a lazy file tree, path/line and content search, Git Changes, and Review. Main Agent rows do not pretend to own project files.
 
 ![Project file with inline blame](assets/04-files-editor-blame.png)
 
@@ -75,6 +75,7 @@ The editor is a lightweight intervention surface:
 - Monaco text editing with version checks;
 - Markdown and image preview;
 - file create, rename, move, and delete inside the workspace root;
+- a bounded commit graph with branches, tags, merge-parent selection, changed files, and commit Review;
 - git status, diff, and blame;
 - clickable `path:line` references from Chat and Terminal;
 - bounded file watching and ripgrep search where available.

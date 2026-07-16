@@ -499,12 +499,13 @@ export function ModelMatrixPicker({
               <span className="code-model-matrix-fill" data-variant={visibleRow.model.variant} aria-hidden="true" />
               <div className="code-model-matrix-cells">
                 {matrixRows.flatMap(({ model, reasoning: rowReasoning }, row) => rowReasoning.map((option, column) => {
-                  const selected = row === visibleSelection.row && column === visibleColumn
+                  const positioned = row === visibleSelection.row && column === visibleColumn
+                  const selected = positioned && !ultraActive
                   return (
                     <button
                       key={`${model.value}:${option.value}`}
                       type="button"
-                      className={selected ? 'selected' : ''}
+                      className={positioned ? 'selected' : ''}
                       role="radio"
                       data-matrix-cell
                       data-testid={`code-model-matrix-cell-${model.variant}-${option.value}`}

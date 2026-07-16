@@ -55,9 +55,9 @@ function sessionSnapshot(state: MatrixState) {
   }
 }
 
-async function createAcpAgent(page: Page, workspace: string) {
+async function createAcpAgent(page: Page, workspace: string, provider = 'codex') {
   const response = await page.request.post('/farming/api/control/agents', {
-    data: { command: 'codex', workspace, agentRuntimeMode: 'acp' },
+    data: { command: provider, workspace, agentRuntimeMode: 'acp' },
   })
   expect(response.ok()).toBeTruthy()
   const payload = await response.json() as { agentId?: string }
@@ -168,6 +168,7 @@ test('Codex model matrix responds locally, settles once, and morphs Advanced wit
   await expect(ultra).toHaveAttribute('aria-pressed', 'true')
   await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-sol:ultra')
   await expect(page.getByTestId('code-model-matrix-picker')).toHaveAttribute('data-ultra', 'on')
+  await expect(page.getByTestId('code-model-matrix-cell-sol-high')).toHaveAttribute('aria-checked', 'false')
   await expect(page.locator('.code-model-matrix-current')).toHaveText('GPT-5.6-Sol · ultra')
   await expect(fill).toHaveCSS('color', 'rgb(167, 117, 242)')
   const ultraControl = page.locator('.code-model-matrix-rocker-control')
@@ -228,11 +229,38 @@ test('Codex model matrix responds locally, settles once, and morphs Advanced wit
   await expect(page.getByTestId('code-model-matrix-advanced')).toHaveAttribute('aria-hidden', 'true')
   await expect(page.locator('.code-model-matrix-current')).toHaveText('GPT-5.6-Sol · ultra')
   await expect(fast).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByTestId('code-model-matrix-cell-sol-high')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('code-model-matrix-cell-sol-high')).toHaveAttribute('aria-checked', 'false')
   if (process.env.FARMING_CAPTURE_MODEL_MATRIX) {
     await page.screenshot({ path: process.env.FARMING_CAPTURE_MODEL_MATRIX })
   }
 })
+
+for (const provider of ['codex', 'claude', 'opencode', 'qoder']) {
+  test(`${provider} ACP exposes and updates its advertised profile controls`, async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, `acp-controls-${provider}`)
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createAcpAgent(page, workspace, provider)
+
+    await openFarming(page)
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    await expect(page.getByTestId('code-acp-composer')).toBeVisible()
+
+    const picker = page.getByTestId('code-acp-model-picker')
+    await expect(picker).toBeVisible()
+    await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.5:high')
+    await picker.click()
+
+    await expect(page.getByTestId('code-acp-model-menu')).toBeVisible()
+    await expect(page.getByTestId('code-acp-model-submenu-trigger')).toContainText('gpt-5.5')
+    await page.getByTestId('code-acp-speed-submenu-trigger').click()
+    await page.getByTestId('code-acp-speed-submenu').getByRole('menuitemradio').last().click()
+    await expect.poll(async () => {
+      const sessionResponse = await page.request.get(`/farming/api/agents/${agentId}/acp-session?includeEntries=0`)
+      const body = await sessionResponse.json() as { session?: ReturnType<typeof sessionSnapshot> }
+      return body.session?.configOptions.find(option => option.id === 'fast-mode')?.currentValue
+    }).toBe(true)
+  })
+}
 
 test('Terminal Codex uses the live matrix and applies profile changes immediately', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'terminal-model-matrix')
@@ -317,6 +345,148 @@ test('Terminal Codex uses the live matrix and applies profile changes immediatel
   await expect(menu.locator('.code-model-matrix')).toHaveAttribute('aria-hidden', 'false')
   await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-luna:max')
 })
+
+test('Terminal Codex expires its browser catalog and reports refresh failure without stale choices', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'terminal-model-catalog-expiry')
+  fs.mkdirSync(workspace, { recursive: true })
+  await page.addInitScript(() => {
+    const realNow = Date.now.bind(Date)
+    let offset = 0
+    Date.now = () => realNow() + offset
+    ;(window as typeof window & { __advanceCodexCatalogClock?: (ms: number) => void }).__advanceCodexCatalogClock = ms => {
+      offset += ms
+    }
+  })
+
+  let catalogRequests = 0
+  await page.route('**/farming/api/codex/models', route => {
+    catalogRequests += 1
+    if (catalogRequests === 1) {
+      return route.fulfill({ json: { catalog: TERMINAL_MODEL_CATALOG, source: 'fixture' } })
+    }
+    return route.fulfill({
+      status: 504,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: 'Codex model catalog timed out after 15000ms',
+        code: 'CODEX_MODELS_TIMEOUT',
+      }),
+    })
+  })
+
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace, agentRuntimeMode: 'terminal' },
+  })
+  const { agentId } = await response.json() as { agentId: string }
+  await page.request.post('/farming/api/settings', {
+    data: {
+      codexModel: 'gpt-5.6-terra',
+      codexReasoningEffort: 'medium',
+      codexServiceTier: 'default',
+      codexModelPreset: 'gpt-5.6-terra:medium',
+      agentLaunchProfiles: {
+        codex: {
+          model: 'gpt-5.6-terra',
+          reasoningEffort: 'medium',
+          serviceTier: 'default',
+          modelPreset: 'gpt-5.6-terra:medium',
+        },
+      },
+    },
+  })
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+
+  const picker = page.getByTestId('code-composer-model-picker')
+  await picker.click()
+  await expect(page.getByTestId('code-model-matrix-picker')).toBeVisible()
+  await picker.click()
+  await page.evaluate(() => {
+    ;(window as typeof window & { __advanceCodexCatalogClock?: (ms: number) => void })
+      .__advanceCodexCatalogClock?.(5 * 60_000 + 1)
+  })
+  await picker.click()
+
+  await expect(page.getByTestId('code-copy-toast')).toHaveText('Codex model catalog timed out after 15000ms')
+  await expect(page.getByTestId('code-model-matrix-picker')).toHaveCount(0)
+  expect(catalogRequests).toBe(2)
+})
+
+test('Terminal picker follows the active footer instead of the global launch profile', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'terminal-live-model-profile')
+  fs.mkdirSync(workspace, { recursive: true })
+  await page.route('**/farming/api/codex/models', route => route.fulfill({
+    json: { catalog: TERMINAL_MODEL_CATALOG, source: 'fixture' },
+  }))
+  const terminalProfiles: MatrixState[] = []
+  await page.route(/\/farming\/api\/agents\/[^/]+\/codex-terminal-profile$/, async route => {
+    const body = route.request().postDataJSON() as { model: string; effort: string; serviceTier: string }
+    terminalProfiles.push({
+      model: body.model,
+      reasoning: body.effort,
+      fast: body.serviceTier === 'priority',
+    })
+    await route.fulfill({ json: { profile: body } })
+  })
+  await page.request.post('/farming/api/settings', {
+    data: {
+      codexModel: 'gpt-5.5',
+      codexReasoningEffort: 'medium',
+      codexServiceTier: 'default',
+      codexModelPreset: 'gpt-5.5:medium',
+      agentLaunchProfiles: {
+        codex: {
+          model: 'gpt-5.5',
+          reasoningEffort: 'medium',
+          serviceTier: 'default',
+          modelPreset: 'gpt-5.5:medium',
+        },
+      },
+    },
+  })
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex --farming-fixture-live-profile', workspace, agentRuntimeMode: 'terminal' },
+  })
+  const { agentId } = await response.json() as { agentId: string }
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  const picker = page.getByTestId('code-composer-model-picker')
+  await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-sol:xhigh')
+  await expect(picker.locator('.code-composer-speed-active')).toHaveCount(1)
+  await picker.click()
+  await expect(page.getByTestId('code-model-matrix-picker')).toBeVisible()
+  await expect(page.getByTestId('code-model-matrix-cell-sol-xhigh')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByRole('button', { name: 'Fast mode' })).toHaveAttribute('aria-pressed', 'true')
+
+  await page.getByTestId('code-model-matrix-cell-sol-high').click()
+  await expect.poll(() => terminalProfiles).toEqual([
+    { model: 'gpt-5.6-sol', reasoning: 'high', fast: true },
+  ])
+})
+
+for (const { provider, command } of [
+  { provider: 'claude', command: 'claude' },
+  { provider: 'opencode', command: 'opencode' },
+  { provider: 'qoder', command: 'qodercli' },
+] as const) {
+  test(`Terminal ${provider} hides model controls because it has no live profile adapter`, async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, `terminal-model-capabilities-${provider}`)
+    fs.mkdirSync(workspace, { recursive: true })
+    const response = await page.request.post('/farming/api/control/agents', {
+      data: { command, workspace, agentRuntimeMode: 'terminal' },
+    })
+    expect(response.ok()).toBeTruthy()
+    const { agentId } = await response.json() as { agentId: string }
+
+    await openFarming(page)
+    const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+    await expect(row).toBeVisible()
+    await row.click()
+    await expect(page.locator('.code-composer')).toBeVisible()
+    await expect(page.getByTestId('code-composer-model-picker')).toHaveCount(0)
+  })
+}
 
 test('Terminal matrix explains unavailable Fast and Ultra without changing layout', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'terminal-model-matrix-limited')

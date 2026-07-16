@@ -45,7 +45,8 @@ async function run() {
     ], 'each composer input transaction should stay atomic in the per-agent queue');
 
     const profileCalls = [];
-    let profilePreview = '› Ask Codex\n\ngpt-5.5 xhigh · /tmp';
+    const profileInputReceivedStates = [];
+    let profilePreview = '• Service tier set to default\n\n› Ask Codex\n\ngpt-5.5 xhigh · /tmp';
     manager.engineBridge.getEngine = () => ({
       async getSessionState() {
         return {
@@ -57,6 +58,7 @@ async function run() {
       },
       async sendInput(agentId, input) {
         profileCalls.push({ agentId, input });
+        profileInputReceivedStates.push(manager.agents.get(agentId)?.terminalInputReceived === true);
         if (Array.isArray(input) && input[0]?.text === '/model') {
           profilePreview = [
             'Select Model and Effort',
@@ -70,7 +72,7 @@ async function run() {
             '  4. Extra high',
           ].join('\n');
         } else if (input === '4') {
-          profilePreview = 'Model changed to gpt-5.6-sol xhigh\n\ngpt-5.6-sol xhigh · /tmp';
+          profilePreview = '• Service tier set to default\n\n• Model changed to gpt-5.6-sol xhigh\n\ngpt-5.6-sol xhigh · /tmp';
         }
       },
     });
@@ -81,7 +83,10 @@ async function run() {
       engineName: 'local',
       status: 'running',
       agentRuntimeMode: 'terminal',
+      terminalInputReceived: false,
     });
+    const profilePreviews = [];
+    manager.onSessionPreview(preview => profilePreviews.push(preview));
 
     await Promise.all([
       manager.setCodexTerminalProfile('agent-profile', {
@@ -97,6 +102,51 @@ async function run() {
       '4',
       [{ type: 'paste', text: 'after profile' }, '\r'],
     ], 'later Terminal input should remain queued until Codex confirms the live model profile');
+    assert.deepStrictEqual(
+      profileInputReceivedStates,
+      [false, false, false, true],
+      'Farming-owned model menu input should keep a fresh Terminal eligible for ACP Chat while later user input marks it used'
+    );
+    assert.deepStrictEqual(
+      {
+        model: profilePreviews.at(-1)?.codexTerminalProfile?.model,
+        reasoningEffort: profilePreviews.at(-1)?.codexTerminalProfile?.reasoningEffort,
+        serviceTier: profilePreviews.at(-1)?.codexTerminalProfile?.serviceTier,
+      },
+      {
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'xhigh',
+        serviceTier: 'default',
+      },
+      'a confirmed Terminal profile should be published immediately instead of waiting for another PTY preview'
+    );
+
+    manager.agents.set('agent-focus-protocol', {
+      id: 'agent-focus-protocol',
+      command: 'codex',
+      cwd: '/tmp',
+      engineName: 'local',
+      status: 'running',
+      agentRuntimeMode: 'terminal',
+      terminalInputReceived: false,
+    });
+    await manager.sendInput('agent-focus-protocol', '\x1b[I');
+    await manager.sendInput('agent-focus-protocol', '\x1b[O');
+    await manager.sendInput('agent-focus-protocol', '\x1b[>0;276;0c');
+    await manager.sendInput('agent-focus-protocol', '\x1b[A');
+    await manager.sendInput('agent-focus-protocol', 'draft text');
+    await manager.sendInput('agent-focus-protocol', '\x1b[200~line one\nline two\x1b[201~');
+    assert.strictEqual(
+      manager.agents.get('agent-focus-protocol').terminalInputReceived,
+      false,
+      'terminal protocol traffic, navigation, and unsubmitted draft text should keep a fresh Terminal switchable'
+    );
+    await manager.sendInput('agent-focus-protocol', '\r');
+    assert.strictEqual(
+      manager.agents.get('agent-focus-protocol').terminalInputReceived,
+      true,
+      'submitting Terminal input should mark the session used until a resumable provider session is available'
+    );
 
     let unavailableCalls = 0;
     let updateCount = 0;

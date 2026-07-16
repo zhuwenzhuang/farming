@@ -65,6 +65,15 @@ The CRT skin bundles one font file under `frontend/skins/crt/fonts/`:
 
 The corresponding license texts are stored beside the font files.
 
+## Adapted Source Code
+
+Farming's Git history swimlane transform and graph-row renderer adapt the
+Visual Studio Code SCM history graph from Microsoft Visual Studio Code commit
+`0217c2f1a0defc7fdbfb4feba74e71e366de6822`. The adapted files retain the
+Microsoft copyright and MIT license header. Visual Studio Code is licensed
+under the MIT License:
+https://github.com/microsoft/vscode/blob/0217c2f1a0defc7fdbfb4feba74e71e366de6822/LICENSE.txt
+
 ## Bundled Data
 
 Farming includes a generated Chinese poetic token word list at

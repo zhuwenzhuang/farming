@@ -67,6 +67,9 @@ function completedTranscriptTurnUnchanged(
     && current.userImages?.length === next.userImages?.length
     && current.userAudios?.length === next.userAudios?.length
     && current.userFiles?.length === next.userFiles?.length
+    && current.resultImages?.length === next.resultImages?.length
+    && current.resultAudios?.length === next.resultAudios?.length
+    && current.resultFiles?.length === next.resultFiles?.length
     && current.processItems.length === next.processItems.length
     && currentLastItem?.id === nextLastItem?.id
     && currentLastItem?.status === nextLastItem?.status
@@ -140,6 +143,8 @@ export interface CodexTranscriptPaneProps {
   active: boolean
   source?: 'acp' | 'app-server' | 'json-cli' | 'legacy-jsonl'
   refreshSignal?: number
+  runtimeState?: string
+  expectHistory?: boolean
   onOpenWorkspaceFilePath?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onAvailabilityChange?: (state: { loading: boolean; hasContent: boolean; available: boolean }) => void
   onReadLatest?: () => void
@@ -291,6 +296,7 @@ const TRANSCRIPT_FILE_EXTENSIONS = new Set([
   'sql',
   'md',
   'mdx',
+  'pdf',
   'txt',
   'xml',
   'html',
@@ -599,6 +605,23 @@ function CodexTranscriptProcessImages({ images }: { images: CodexTranscriptUserI
   )
 }
 
+function CodexTranscriptResultImages({ images }: { images: CodexTranscriptUserImage[] }) {
+  if (images.length <= 0) return null
+  return (
+    <div className="code-codex-transcript-result-images" data-testid="code-codex-transcript-result-images">
+      {images.map(image => (
+        <img
+          key={image.id}
+          src={image.url}
+          alt={image.alt || 'Generated image'}
+          loading="lazy"
+          decoding="async"
+        />
+      ))}
+    </div>
+  )
+}
+
 function CodexTranscriptAudios({ audios }: { audios: CodexTranscriptAudio[] }) {
   if (audios.length <= 0) return null
   return (
@@ -777,6 +800,7 @@ function CodexTranscriptSubagentPreview({
           {turn.processItems.length > 0 ? (
             <div className="actions">{turn.processItems.map(item => <CodexTranscriptSubagentAction item={item} key={item.id} />)}</div>
           ) : null}
+          <CodexTranscriptResultImages images={turn.resultImages || []} />
           {turn.finalMessage ? <div className="assistant">{plainTextBlock(turn.finalMessage)}</div> : null}
         </div>
       ))}
@@ -1668,6 +1692,9 @@ function CodexTranscriptTurnView({
   const userImages = turn.userImages || []
   const userAudios = turn.userAudios || []
   const userFiles = turn.userFiles || []
+  const resultImages = turn.resultImages || []
+  const resultAudios = turn.resultAudios || []
+  const resultFiles = turn.resultFiles || []
   const [copiedItemId, setCopiedItemId] = useState('')
   const [answerCopied, setAnswerCopied] = useState(false)
   const [openProcessItemIds, setOpenProcessItemIds] = useState<Set<string>>(() => new Set())
@@ -1989,20 +2016,25 @@ function CodexTranscriptTurnView({
         </div>
       ) : null}
 
-      {answerMessage ? (
+      {answerMessage || resultImages.length > 0 || resultAudios.length > 0 || resultFiles.length > 0 ? (
         <div className="code-codex-transcript-answer">
-          <div className="code-codex-transcript-assistant code-markdown-preview">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm, remarkMath]}
-              rehypePlugins={[rehypeKatex, rehypeHighlight]}
-              components={markdownComponents}
-              skipHtml
-              urlTransform={codexTranscriptUrlTransform}
-            >
-              {answerMessage}
-            </ReactMarkdown>
-          </div>
-          <div className="code-codex-transcript-answer-actions">
+          {answerMessage ? (
+            <div className="code-codex-transcript-assistant code-markdown-preview">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                components={markdownComponents}
+                skipHtml
+                urlTransform={codexTranscriptUrlTransform}
+              >
+                {answerMessage}
+              </ReactMarkdown>
+            </div>
+          ) : null}
+          <CodexTranscriptResultImages images={resultImages} />
+          <CodexTranscriptAudios audios={resultAudios} />
+          <CodexTranscriptUserFiles files={resultFiles} />
+          {answerMessage ? <div className="code-codex-transcript-answer-actions">
             <button
               type="button"
               className={`code-codex-transcript-answer-action ${answerCopied ? 'copied' : ''}`}
@@ -2014,7 +2046,7 @@ function CodexTranscriptTurnView({
             >
               {answerCopied ? <CheckGlyph /> : <CopyGlyph />}
             </button>
-          </div>
+          </div> : null}
         </div>
       ) : shouldShowWaiting ? (
         <div className="code-codex-transcript-placeholder">{copy.codexTranscriptWaiting}</div>
@@ -2052,6 +2084,8 @@ export function CodexTranscriptPane({
   active,
   source = 'legacy-jsonl',
   refreshSignal = 0,
+  runtimeState = '',
+  expectHistory = false,
   onOpenWorkspaceFilePath,
   onAvailabilityChange,
   onReadLatest,
@@ -2086,6 +2120,11 @@ export function CodexTranscriptPane({
   // it is scoped to this structured Chat scroll surface only.
   const textSelectionGestureRef = useRef(false)
   const textSelectionHadRangeRef = useRef(false)
+  const openWorkspaceFilePathRef = useRef(onOpenWorkspaceFilePath)
+
+  useLayoutEffect(() => {
+    openWorkspaceFilePathRef.current = onOpenWorkspaceFilePath
+  }, [onOpenWorkspaceFilePath])
 
   useEffect(() => {
     setTranscript(null)
@@ -2223,6 +2262,10 @@ export function CodexTranscriptPane({
   }, [active, agentId, copy.codexTranscriptUnavailable, refreshSignal, source, turnLimit])
 
   const turns = useMemo(() => transcript?.turns || [], [transcript])
+  const awaitingAcpHistory = source === 'acp'
+    && !error
+    && turns.length === 0
+    && (runtimeState === 'connecting' || expectHistory)
   const searchMatches = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase()
     if (!query) return []
@@ -2339,11 +2382,11 @@ export function CodexTranscriptPane({
   }, [loading, onAvailabilityChange, transcript?.available, turns.length])
 
   const handleOpenFile = useCallback((filePath: string, target?: WorkspaceFileOpenTarget) => (
-    onOpenWorkspaceFilePath?.(agentId, filePath, {
+    openWorkspaceFilePathRef.current?.(agentId, filePath, {
       ...target,
       suppressSearchOnMiss: true,
     })
-  ), [agentId, onOpenWorkspaceFilePath])
+  ), [agentId])
   const handleLoadProcessItemDetail = useCallback(async (itemId: string) => {
     const response = await fetch(appPath(
       `/api/agents/${encodeURIComponent(agentId)}/acp-tool-details/${encodeURIComponent(itemId)}`,
@@ -2564,7 +2607,7 @@ export function CodexTranscriptPane({
           )}
         </div>
       ) : null}
-      {loading ? (
+      {loading || awaitingAcpHistory ? (
         <div className="code-codex-transcript-state subtle">{copy.codexTranscriptSyncing}</div>
       ) : error ? (
         <div className="code-codex-transcript-state" role="status">{error}</div>

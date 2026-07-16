@@ -119,7 +119,7 @@ export function useWebSocket() {
   }, [sendMessage])
 
   const focusAgent = useCallback((agentId: string) => {
-    return sendMessage({ type: 'focus-agent', agentId })
+    return sendMessage({ type: 'focus-agent', agentId, refreshState: true })
   }, [sendMessage])
 
   const resizeAgent = useCallback((agentId: string, cols: number, rows: number) => {
@@ -258,6 +258,7 @@ export function useWebSocket() {
                         previewRows: msg.preview.rows,
                         previewSnapshot: msg.preview.previewSnapshot ?? null,
                         terminalStatus: msg.preview.terminalStatus ?? agent.terminalStatus ?? null,
+                        codexTerminalProfile: msg.preview.codexTerminalProfile ?? agent.codexTerminalProfile ?? null,
                       }
                     : agent
                 )),

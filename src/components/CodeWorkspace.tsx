@@ -120,6 +120,7 @@ import {
   normalizeClaudeModel,
   normalizeClaudeSettingsSummary,
   normalizeLaunchProfiles,
+  resolveCodexComposerProfile,
   type ClaudeSettingsSummary,
 } from './code/composer-profile'
 import type {
@@ -140,7 +141,6 @@ import type {
 } from './code/types'
 import type { UiPreferences } from '@/lib/ui-preferences'
 import {
-  FALLBACK_CODEX_MODEL_OPTIONS,
   MAIN_AGENT_PROJECT_ID,
   agentSessionId,
   agentSessionWorkspace,
@@ -319,7 +319,9 @@ interface TerminalFollowState {
 
 const DEFAULT_SIDEBAR_WIDTH = 296
 const MIN_SIDEBAR_WIDTH = 220
-const MAX_SIDEBAR_WIDTH = 520
+const MAX_SIDEBAR_WIDTH = 840
+const MIN_MAIN_PANE_WIDTH = 360
+const CODEX_MODEL_CATALOG_TTL_MS = 5 * 60_000
 const COLLAPSED_SIDEBAR_WIDTH = 52
 const SIDEBAR_DRAG_COLLAPSE_WIDTH = 172
 const DESKTOP_AUTO_COLLAPSE_WIDTH = 900
@@ -530,11 +532,11 @@ export function CodeWorkspace({
   const [agentLaunchOptions, setAgentLaunchOptions] = useState<AgentLaunchOption[]>([])
   const [mainPageSessionKeys, setMainPageSessionKeys] = useState<Set<string>>(() => new Set())
   const [codexApprovalMode, setCodexApprovalMode] = useState<CodexApprovalMode>('approve')
-  const [codexModelPreset, setCodexModelPreset] = useState<CodexModelPreset>('gpt-5.5:xhigh')
+  const [, setCodexModelPreset] = useState<CodexModelPreset>('gpt-5.5:xhigh')
   const [codexModel, setCodexModel] = useState('gpt-5.5')
   const [codexReasoningEffort, setCodexReasoningEffort] = useState('xhigh')
   const [codexServiceTier, setCodexServiceTier] = useState('default')
-  const [codexModelOptions, setCodexModelOptions] = useState<CodexModelOption[]>(FALLBACK_CODEX_MODEL_OPTIONS)
+  const [codexModelOptions, setCodexModelOptions] = useState<CodexModelOption[]>([])
   const [codexTerminalProfileApplyingAgentIds, setCodexTerminalProfileApplyingAgentIds] = useState<Set<string>>(() => new Set())
   const [claudePermissionMode, setClaudePermissionMode] = useState<ClaudePermissionMode>('default')
   const [claudeModel, setClaudeModel] = useState('config')
@@ -599,7 +601,7 @@ export function CodeWorkspace({
   const contextMenuUserNavigatedRef = useRef(false)
   const contextMenuFocusIndexRef = useRef(0)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
-  const codexModelsLoadedRef = useRef(false)
+  const codexModelsLoadedAtRef = useRef(0)
   const codexModelsLoadingRef = useRef(false)
   const resumeAgentSessionRef = useRef<(provider: string, sessionId: string, providerHomeId?: string) => void>(() => {})
   const activeTerminalIdRef = useRef<string | null>(activeTerminalId)
@@ -815,6 +817,25 @@ export function CodeWorkspace({
     activeAgent?.launchPermissionMode,
     claudePermissionMode,
   ), [activeAgent, claudePermissionMode, composerAgentKind])
+  const displayedCodexProfile = useMemo(() => resolveCodexComposerProfile(
+    activeAgent?.codexTerminalProfile,
+    {
+      model: codexModel,
+      reasoningEffort: codexReasoningEffort,
+      serviceTier: codexServiceTier,
+    },
+  ), [
+    activeAgent?.codexTerminalProfile?.model,
+    activeAgent?.codexTerminalProfile?.reasoningEffort,
+    activeAgent?.codexTerminalProfile?.serviceTier,
+    codexModel,
+    codexReasoningEffort,
+    codexServiceTier,
+  ])
+  const displayedCodexModel = displayedCodexProfile.model
+  const displayedCodexReasoningEffort = displayedCodexProfile.reasoningEffort
+  const displayedCodexServiceTier = displayedCodexProfile.serviceTier
+  const displayedCodexModelPreset = `${displayedCodexModel}:${displayedCodexReasoningEffort}`
   const activeAgentCanInterrupt = useMemo(
     () => activeAgentTurnActive || (
       Boolean(activeAgent)
@@ -969,10 +990,10 @@ export function CodeWorkspace({
   ])
   const composerControlState = useMemo(() => buildComposerControlState({
     agentKind: composerAgentKind,
-    codexModel,
-    codexReasoningEffort,
-    codexServiceTier,
-    codexModelPreset,
+    codexModel: displayedCodexModel,
+    codexReasoningEffort: displayedCodexReasoningEffort,
+    codexServiceTier: displayedCodexServiceTier,
+    codexModelPreset: displayedCodexModelPreset,
     codexModelOptions,
     codexApprovalMode: displayedCodexApprovalMode,
     claudeModel,
@@ -985,11 +1006,11 @@ export function CodeWorkspace({
     claudeSettings,
     displayedClaudePermissionMode,
     displayedCodexApprovalMode,
-    codexModel,
+    displayedCodexModel,
     codexModelOptions,
-    codexModelPreset,
-    codexReasoningEffort,
-    codexServiceTier,
+    displayedCodexModelPreset,
+    displayedCodexReasoningEffort,
+    displayedCodexServiceTier,
     composerAgentKind,
   ])
   const {
@@ -1076,21 +1097,45 @@ export function CodeWorkspace({
     }
   }, [applyLaunchSettings])
   const loadCodexModels = useCallback(() => {
-    if (codexModelsLoadedRef.current || codexModelsLoadingRef.current) {
+    const catalogAgeMs = Date.now() - codexModelsLoadedAtRef.current
+    if (
+      codexModelsLoadingRef.current
+      || (codexModelsLoadedAtRef.current > 0 && catalogAgeMs <= CODEX_MODEL_CATALOG_TTL_MS)
+    ) {
       return () => {}
     }
 
     let cancelled = false
     codexModelsLoadingRef.current = true
     fetch(appPath('/api/codex/models'))
-      .then(response => response.json())
+      .then(async response => {
+        const data = await response.json().catch(() => ({})) as {
+          catalog?: CodexModelOption[]
+          models?: LegacyCodexModelOption[]
+          error?: string
+        }
+        if (!response.ok) {
+          throw new Error(data.error || `Failed to load Codex model catalog (${response.status})`)
+        }
+        return data
+      })
       .then((data: { catalog?: CodexModelOption[]; models?: LegacyCodexModelOption[] }) => {
         if (cancelled) return
         const options = normalizeModelCatalog(data)
-        codexModelsLoadedRef.current = true
-        if (options.length > 0) setCodexModelOptions(options)
+        if (options.length === 0) throw new Error('Codex model catalog did not contain any visible models')
+        codexModelsLoadedAtRef.current = Date.now()
+        setCodexModelOptions(options)
       })
-      .catch(() => {})
+      .catch(error => {
+        if (cancelled) return
+        codexModelsLoadedAtRef.current = 0
+        setCodexModelOptions([])
+        setCopyNotice({
+          id: Date.now(),
+          kind: 'error',
+          message: error instanceof Error ? error.message : 'Failed to load Codex model catalog',
+        })
+      })
       .finally(() => {
         codexModelsLoadingRef.current = false
       })
@@ -2065,14 +2110,20 @@ export function CodeWorkspace({
   }, [closeSearchView, moveSearchSelection, openSelectedSearchTarget])
 
   const updateSidebarWidth = useCallback((clientX: number) => {
-    const workspaceLeft = workspaceRef.current?.getBoundingClientRect().left ?? 0
+    const workspaceRect = workspaceRef.current?.getBoundingClientRect()
+    const workspaceLeft = workspaceRect?.left ?? 0
     const rawWidth = clientX - workspaceLeft
     if (rawWidth <= SIDEBAR_DRAG_COLLAPSE_WIDTH) {
       collapseSidebar()
       return
     }
 
-    const nextWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, rawWidth))
+    const availableWidth = workspaceRect?.width ?? window.innerWidth
+    const maxWidth = Math.max(
+      MIN_SIDEBAR_WIDTH,
+      Math.min(MAX_SIDEBAR_WIDTH, availableWidth - MIN_MAIN_PANE_WIDTH),
+    )
+    const nextWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(maxWidth, rawWidth))
     expandSidebar()
     setSidebarWidth(nextWidth)
   }, [collapseSidebar, expandSidebar])
@@ -3389,11 +3440,11 @@ export function CodeWorkspace({
     const option = codexModelOptions.find(item => item.value === model)
     const reasoningLevels = option?.reasoningLevels ?? []
     const serviceTiers = option?.serviceTiers ?? []
-    const nextEffort = reasoningLevels.some(level => level.value === codexReasoningEffort)
-      ? codexReasoningEffort
-      : (option?.defaultEffort || reasoningLevels[0]?.value || codexReasoningEffort)
-    const nextServiceTier = serviceTiers.some(tier => tier.value === codexServiceTier)
-      ? codexServiceTier
+    const nextEffort = reasoningLevels.some(level => level.value === displayedCodexReasoningEffort)
+      ? displayedCodexReasoningEffort
+      : (option?.defaultEffort || reasoningLevels[0]?.value || displayedCodexReasoningEffort)
+    const nextServiceTier = serviceTiers.some(tier => tier.value === displayedCodexServiceTier)
+      ? displayedCodexServiceTier
       : 'default'
 
     closeActiveComposerMenus()
@@ -3405,7 +3456,7 @@ export function CodeWorkspace({
       return
     }
     commitCodexProfile(model, nextEffort, nextServiceTier)
-  }, [activeAgent, applyCodexTerminalProfile, claudeEffort, closeActiveComposerMenus, codexModelOptions, codexReasoningEffort, codexServiceTier, commitCodexProfile, composerAgentKind, focusComposerTextarea, persistAgentLaunchProfile])
+  }, [activeAgent, applyCodexTerminalProfile, claudeEffort, closeActiveComposerMenus, codexModelOptions, displayedCodexReasoningEffort, displayedCodexServiceTier, commitCodexProfile, composerAgentKind, focusComposerTextarea, persistAgentLaunchProfile])
 
   const updateAgentModelProfile = useCallback((model: string, effort: string) => {
     if (composerAgentKind !== 'codex') return
@@ -3414,8 +3465,8 @@ export function CodeWorkspace({
     const nextEffort = option.reasoningLevels?.some(level => level.value === effort)
       ? effort
       : (option.defaultEffort || option.reasoningLevels?.[0]?.value || effort)
-    const nextServiceTier = option.serviceTiers?.some(tier => tier.value === codexServiceTier)
-      ? codexServiceTier
+    const nextServiceTier = option.serviceTiers?.some(tier => tier.value === displayedCodexServiceTier)
+      ? displayedCodexServiceTier
       : 'default'
     if (activeAgent && isCodexTerminalAgent(activeAgent)) {
       void applyCodexTerminalProfile(activeAgent, model, nextEffort, nextServiceTier).then(applied => {
@@ -3424,7 +3475,7 @@ export function CodeWorkspace({
       return
     }
     commitCodexProfile(model, nextEffort, nextServiceTier)
-  }, [activeAgent, applyCodexTerminalProfile, codexModelOptions, codexServiceTier, commitCodexProfile, composerAgentKind])
+  }, [activeAgent, applyCodexTerminalProfile, codexModelOptions, displayedCodexServiceTier, commitCodexProfile, composerAgentKind])
 
   const updateAgentReasoningEffort = useCallback((effort: string) => {
     if (composerAgentKind === 'claude') {
@@ -3442,13 +3493,13 @@ export function CodeWorkspace({
     closeActiveComposerMenus()
     focusComposerTextarea()
     if (activeAgent && isCodexTerminalAgent(activeAgent)) {
-      void applyCodexTerminalProfile(activeAgent, codexModel, effort, codexServiceTier).then(applied => {
-        if (applied) commitCodexProfile(codexModel, effort, codexServiceTier)
+      void applyCodexTerminalProfile(activeAgent, displayedCodexModel, effort, displayedCodexServiceTier).then(applied => {
+        if (applied) commitCodexProfile(displayedCodexModel, effort, displayedCodexServiceTier)
       })
       return
     }
-    commitCodexProfile(codexModel, effort, codexServiceTier)
-  }, [activeAgent, applyCodexTerminalProfile, claudeModel, closeActiveComposerMenus, codexModel, codexServiceTier, commitCodexProfile, composerAgentKind, focusComposerTextarea, persistAgentLaunchProfile])
+    commitCodexProfile(displayedCodexModel, effort, displayedCodexServiceTier)
+  }, [activeAgent, applyCodexTerminalProfile, claudeModel, closeActiveComposerMenus, displayedCodexModel, displayedCodexServiceTier, commitCodexProfile, composerAgentKind, focusComposerTextarea, persistAgentLaunchProfile])
 
   const updateAgentServiceTier = useCallback((tier: string) => {
     if (composerAgentKind === 'claude') return
@@ -3456,24 +3507,24 @@ export function CodeWorkspace({
     closeActiveComposerMenus()
     focusComposerTextarea()
     if (activeAgent && isCodexTerminalAgent(activeAgent)) {
-      void applyCodexTerminalProfile(activeAgent, codexModel, codexReasoningEffort, tier).then(applied => {
-        if (applied) commitCodexProfile(codexModel, codexReasoningEffort, tier)
+      void applyCodexTerminalProfile(activeAgent, displayedCodexModel, displayedCodexReasoningEffort, tier).then(applied => {
+        if (applied) commitCodexProfile(displayedCodexModel, displayedCodexReasoningEffort, tier)
       })
       return
     }
-    commitCodexProfile(codexModel, codexReasoningEffort, tier)
-  }, [activeAgent, applyCodexTerminalProfile, closeActiveComposerMenus, codexModel, codexReasoningEffort, commitCodexProfile, composerAgentKind, focusComposerTextarea])
+    commitCodexProfile(displayedCodexModel, displayedCodexReasoningEffort, tier)
+  }, [activeAgent, applyCodexTerminalProfile, closeActiveComposerMenus, displayedCodexModel, displayedCodexReasoningEffort, commitCodexProfile, composerAgentKind, focusComposerTextarea])
 
   const updateAgentServiceTierInline = useCallback((tier: string) => {
     if (composerAgentKind !== 'codex') return
     if (activeAgent && isCodexTerminalAgent(activeAgent)) {
-      void applyCodexTerminalProfile(activeAgent, codexModel, codexReasoningEffort, tier).then(applied => {
-        if (applied) commitCodexProfile(codexModel, codexReasoningEffort, tier)
+      void applyCodexTerminalProfile(activeAgent, displayedCodexModel, displayedCodexReasoningEffort, tier).then(applied => {
+        if (applied) commitCodexProfile(displayedCodexModel, displayedCodexReasoningEffort, tier)
       })
       return
     }
-    commitCodexProfile(codexModel, codexReasoningEffort, tier)
-  }, [activeAgent, applyCodexTerminalProfile, codexModel, codexReasoningEffort, commitCodexProfile, composerAgentKind])
+    commitCodexProfile(displayedCodexModel, displayedCodexReasoningEffort, tier)
+  }, [activeAgent, applyCodexTerminalProfile, displayedCodexModel, displayedCodexReasoningEffort, commitCodexProfile, composerAgentKind])
 
   const toggleSpeechInput = useCallback(() => {
     if (speechListening) {
@@ -4432,6 +4483,12 @@ export function CodeWorkspace({
       <div
         className="code-sidebar-resizer"
         data-testid="code-sidebar-resizer"
+        role="separator"
+        aria-label={copy.resizeNavigation}
+        aria-orientation="vertical"
+        aria-valuemin={MIN_SIDEBAR_WIDTH}
+        aria-valuemax={MAX_SIDEBAR_WIDTH}
+        aria-valuenow={sidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : sidebarWidth}
         onPointerDown={beginSidebarResize}
       />
 

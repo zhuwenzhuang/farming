@@ -494,6 +494,28 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(thought.getByTestId('code-codex-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
   })
 
+  test('keeps a phase-marked rich answer visible after a trailing thought and renders encoded Mermaid source', async ({ page, workspaceRoot }) => {
+    test.setTimeout(60_000)
+    const workspace = path.join(workspaceRoot, 'acp-phase-aware-mermaid')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+
+    await sendAcpMessage(page, 'phase-aware mermaid')
+    const turn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'phase-aware mermaid' }).last()
+    const answer = turn.locator('.code-codex-transcript-answer')
+    await expect(answer).toContainText('Phase-aware rich answer.', { timeout: 15_000 })
+    await expect(turn.getByTestId('code-codex-transcript-process-summary')).toHaveAttribute('aria-expanded', 'false')
+    await expect(answer.locator('.code-markdown-mermaid')).toBeVisible({ timeout: 15_000 })
+    await expect(answer.locator('.code-markdown-mermaid.error')).toHaveCount(0)
+    const diagram = answer.locator('.code-markdown-mermaid-canvas > svg')
+    await expect(diagram).toBeVisible()
+    const diagramId = await diagram.getAttribute('id')
+    await page.waitForTimeout(2_500)
+    await expect(diagram).toHaveAttribute('id', diagramId || '')
+  })
+
   test('opens and stops a live ACP subagent without leaving the parent chat', async ({ page, workspaceRoot }) => {
     test.setTimeout(60_000)
     const workspace = path.join(workspaceRoot, 'acp-long-subagent')

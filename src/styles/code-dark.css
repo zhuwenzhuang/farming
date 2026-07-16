@@ -545,6 +545,90 @@ body.code-mode[data-appearance='dark'] .code-file-change-group-toggle {
   color: var(--code-dark-text-soft);
 }
 
+body.code-mode[data-appearance='dark'] .code-git-history-section {
+  --code-git-history-node-bg: var(--code-dark-bg);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-header,
+body.code-mode[data-appearance='dark'] .code-git-history-subject,
+body.code-mode[data-appearance='dark'] .code-git-history-change,
+body.code-mode[data-appearance='dark'] .code-git-history-parent-select select {
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-header {
+  background: var(--code-dark-bg);
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-entry.selected,
+body.code-mode[data-appearance='dark'] .code-git-history-commit:hover,
+body.code-mode[data-appearance='dark'] .code-git-history-commit:focus-visible,
+body.code-mode[data-appearance='dark'] button.code-git-history-change:hover,
+body.code-mode[data-appearance='dark'] button.code-git-history-change:focus-visible,
+body.code-mode[data-appearance='dark'] .code-git-history-refresh:hover,
+body.code-mode[data-appearance='dark'] .code-git-history-refresh:focus-visible {
+  background: var(--code-dark-bg-hover);
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-meta,
+body.code-mode[data-appearance='dark'] .code-git-history-change-previous,
+body.code-mode[data-appearance='dark'] .code-git-history-change-summary,
+body.code-mode[data-appearance='dark'] .code-git-history-root-label,
+body.code-mode[data-appearance='dark'] .code-git-history-status,
+body.code-mode[data-appearance='dark'] .code-git-history-reference-more {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-branch,
+body.code-mode[data-appearance='dark'] .code-git-history-scope,
+body.code-mode[data-appearance='dark'] .code-git-history-parent-select select {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-message {
+  border-left-color: var(--code-dark-border-strong);
+  background: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-message-label {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-message-body {
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-reference,
+body.code-mode[data-appearance='dark'] .code-git-history-branch,
+body.code-mode[data-appearance='dark'] .code-git-history-scope {
+  color: #8faed8;
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-reference.tag {
+  color: #d2b47c;
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-reference.remote-branch {
+  color: #69c5bd;
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-review,
+body.code-mode[data-appearance='dark'] .code-git-history-load-more {
+  color: #8faed8;
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-review:hover,
+body.code-mode[data-appearance='dark'] .code-git-history-review:focus-visible {
+  background: var(--code-dark-bg-hover);
+  color: #b7cff0;
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-status.error {
+  color: var(--code-dark-danger);
+}
+
 body.code-mode[data-appearance='dark'] .code-file-change-review {
   color: #8faed8;
 }
@@ -990,7 +1074,8 @@ body.code-mode[data-appearance='dark'] .code-codex-transcript-user {
 }
 
 body.code-mode[data-appearance='dark'] .code-codex-transcript-user-images img,
-body.code-mode[data-appearance='dark'] .code-codex-transcript-process-images img {
+body.code-mode[data-appearance='dark'] .code-codex-transcript-process-images img,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-result-images img {
   border-color: var(--code-dark-border);
   background: var(--code-dark-bg-panel);
 }

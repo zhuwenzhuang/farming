@@ -24,6 +24,7 @@ import remarkMath from 'remark-math'
 import { parse as parseYaml } from 'yaml'
 import 'katex/dist/katex.min.css'
 import { rawWorkspaceFileUrl } from '@/lib/workspace-files'
+import { decodeMermaidCharacterReferences } from '@/lib/mermaid-source'
 import { workspaceEditorBasename } from '@/lib/workspace-editor-model'
 import type { OpenWorkspaceFile, WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from '../code/copy'
@@ -494,12 +495,13 @@ async function copyTextToClipboard(text: string) {
 export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy }) {
   const reactId = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const appearance = useMermaidAppearance()
-  const renderId = useMemo(() => `farming-mermaid-${reactId}-${hashMermaidSource(source)}-${appearance}`, [appearance, reactId, source])
+  const renderSource = useMemo(() => decodeMermaidCharacterReferences(source), [source])
+  const renderId = useMemo(() => `farming-mermaid-${reactId}-${hashMermaidSource(renderSource)}-${appearance}`, [appearance, reactId, renderSource])
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; baseX: number; baseY: number } | null>(null)
   const didPanRef = useRef(false)
-  const [renderState, setRenderState] = useState<MermaidRenderState>({ status: source.trim() ? 'loading' : 'empty' })
+  const [renderState, setRenderState] = useState<MermaidRenderState>({ status: renderSource.trim() ? 'loading' : 'empty' })
   const [zoom, setZoom] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [panMode, setPanMode] = useState(false)
@@ -508,7 +510,7 @@ export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy 
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
-    if (!source.trim()) {
+    if (!renderSource.trim()) {
       setRenderState({ status: 'empty' })
       return
     }
@@ -523,10 +525,10 @@ export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy 
           theme: 'base',
           themeVariables: mermaidThemeVariables(appearance),
         })
-        return mermaid.parse(source).then(() => mermaid)
+        return mermaid.parse(renderSource).then(() => mermaid)
       })
       .then(mermaid => {
-        return mermaid.render(renderId, source)
+        return mermaid.render(renderId, renderSource)
       })
       .then(({ svg: nextSvg, bindFunctions }) => {
         if (!disposed) setRenderState({ status: 'ready', svg: nextSvg, bindFunctions })
@@ -543,7 +545,7 @@ export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy 
     return () => {
       disposed = true
     }
-  }, [appearance, copy.mermaidRenderFailed, renderId, source])
+  }, [appearance, copy.mermaidRenderFailed, renderId, renderSource])
 
   useEffect(() => {
     setZoom(1)
@@ -551,7 +553,7 @@ export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy 
     setPanMode(false)
     setIsFullscreen(false)
     setCopied(false)
-  }, [appearance, source])
+  }, [appearance, renderSource])
 
   useEffect(() => {
     if (!isFullscreen) return
@@ -679,7 +681,7 @@ export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy 
   }, [renderState.status, setNextZoom, zoom])
 
   const handleCopySource = useCallback(() => {
-    copyTextToClipboard(source)
+    copyTextToClipboard(renderSource)
       .then(() => {
         setCopied(true)
         window.setTimeout(() => setCopied(false), 1200)
@@ -687,12 +689,12 @@ export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy 
       .catch(() => {
         setCopied(false)
       })
-  }, [source])
+  }, [renderSource])
 
-  if (!source.trim() || renderState.status === 'empty') {
+  if (!renderSource.trim() || renderState.status === 'empty') {
     return (
       <pre className="code-markdown-mermaid-fallback">
-        <code className="language-mermaid">{source}</code>
+        <code className="language-mermaid">{renderSource}</code>
       </pre>
     )
   }
@@ -703,7 +705,7 @@ export function MermaidBlock({ source, copy }: { source: string; copy: CodeCopy 
         <figcaption className="code-markdown-mermaid-error-title">{copy.mermaidRenderFailed}</figcaption>
         <pre className="code-markdown-mermaid-error-message">{renderState.message}</pre>
         <pre className="code-markdown-mermaid-fallback">
-          <code className="language-mermaid">{source}</code>
+          <code className="language-mermaid">{renderSource}</code>
         </pre>
       </figure>
     )

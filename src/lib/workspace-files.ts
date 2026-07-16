@@ -31,6 +31,7 @@ export interface WorkspaceFile {
   binary?: boolean
   preview?: (
     | { kind: 'image'; mediaType: string }
+    | { kind: 'pdf'; mediaType: string }
     | { kind: 'binary'; mediaType: string }
     | { kind: 'large-text'; mediaType: string; truncated?: boolean }
   )
@@ -104,6 +105,50 @@ export interface WorkspaceFileChange {
 
 export interface WorkspaceFileChanges {
   items: WorkspaceFileChange[]
+  truncated: boolean
+}
+
+export interface WorkspaceGitHistoryReference {
+  id: string
+  name: string
+  category: 'head' | 'local-branch' | 'remote-branch' | 'tag' | 'reference'
+}
+
+export interface WorkspaceGitHistoryItem {
+  id: string
+  displayId: string
+  parentIds: string[]
+  subject: string
+  message: string
+  author: string
+  authorEmail: string
+  timestamp?: number
+  references: WorkspaceGitHistoryReference[]
+}
+
+export interface WorkspaceGitHistory {
+  isGitRepo: boolean
+  branch: string
+  head: string
+  scope: 'current' | 'all'
+  items: WorkspaceGitHistoryItem[]
+  hasMore: boolean
+  nextSkip: number | null
+}
+
+export interface WorkspaceGitHistoryChange {
+  path: string
+  previousPath?: string
+  status: 'modified' | 'added' | 'deleted' | 'renamed' | 'copied' | 'type-changed'
+  statusLabel: string
+}
+
+export interface WorkspaceGitHistoryChanges {
+  commit: string
+  comparisonBase: string
+  parent: string | null
+  parentIds: string[]
+  items: WorkspaceGitHistoryChange[]
   truncated: boolean
 }
 
@@ -294,6 +339,29 @@ export async function fetchWorkspaceChanges(agentId: string, options: { limit?: 
   if (options.limit) params.set('limit', String(options.limit))
   const response = await fetch(appPath(`/api/files/changes?${params.toString()}`), { signal: options.signal })
   const body = await readJson<{ changes: WorkspaceFileChanges }>(response)
+  return body.changes
+}
+
+export async function fetchWorkspaceGitHistory(agentId: string, options: { limit?: number; skip?: number; scope?: WorkspaceGitHistory['scope']; signal?: AbortSignal } = {}) {
+  const params = new URLSearchParams({ agentId })
+  if (options.limit) params.set('limit', String(options.limit))
+  if (options.skip) params.set('skip', String(options.skip))
+  if (options.scope) params.set('scope', options.scope)
+  const response = await fetch(appPath(`/api/files/history?${params.toString()}`), { signal: options.signal })
+  const body = await readJson<{ history: WorkspaceGitHistory }>(response)
+  return body.history
+}
+
+export async function fetchWorkspaceGitHistoryChanges(
+  agentId: string,
+  commit: string,
+  options: { parent?: string; limit?: number; signal?: AbortSignal } = {},
+) {
+  const params = new URLSearchParams({ agentId, commit })
+  if (options.parent) params.set('parent', options.parent)
+  if (options.limit) params.set('limit', String(options.limit))
+  const response = await fetch(appPath(`/api/files/history/changes?${params.toString()}`), { signal: options.signal })
+  const body = await readJson<{ changes: WorkspaceGitHistoryChanges }>(response)
   return body.changes
 }
 

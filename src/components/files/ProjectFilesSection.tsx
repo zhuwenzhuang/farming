@@ -14,6 +14,7 @@ import { FileChangesSection } from './FileChangesSection'
 import { FileSectionBody } from './FileSectionBody'
 import { FileSectionHeader } from './FileSectionHeader'
 import { FileSectionOverlays } from './FileSectionOverlays'
+import { GitHistorySection } from './GitHistorySection'
 import {
   OpenEditorsSection,
   OPEN_EDITOR_ROW_HEIGHT,
@@ -475,6 +476,13 @@ export function ProjectFilesSection({
                 projectId={projectId}
                 onOpenChange={openFileChange}
                 onToggleCollapsed={toggleChangesCollapsed}
+              />
+            )}
+            {!readOnly && (
+              <GitHistorySection
+                agentId={agentId}
+                copy={copy}
+                projectId={projectId}
               />
             )}
             <FileSectionBody {...viewModel.sectionBody} />

@@ -22,6 +22,7 @@ export function FileEditorPreviewPanel({
     ? { kind: 'image' as const, mediaType: 'image/svg+xml' }
     : null
   const imagePreview = filePreview?.kind === 'image' ? filePreview : sourceImagePreview
+  const pdfPreview = filePreview?.kind === 'pdf' ? filePreview : null
   const binaryPreview = filePreview?.kind === 'binary' ? filePreview : null
 
   if (imagePreview) {
@@ -42,6 +43,25 @@ export function FileEditorPreviewPanel({
             draggable={false}
           />
         </div>
+      </section>
+    )
+  }
+
+  if (pdfPreview) {
+    return (
+      <section
+        className="code-file-preview-panel"
+        data-testid="code-file-preview-panel"
+        role="tabpanel"
+        aria-labelledby={activeTabDomId}
+        tabIndex={-1}
+      >
+        <iframe
+          className="code-file-pdf-preview"
+          data-testid="code-file-pdf-preview"
+          src={rawWorkspaceFileUrl(openFile.agentId, openFile.file.path, openFile.file.sha1)}
+          title={copy.previewFor(openFile.file.path)}
+        />
       </section>
     )
   }

@@ -68,7 +68,7 @@ FARMING_NET_PORT=6693 FARMING_NET_BASE_PATH=/farming-net npm run start:net
 - 按项目组织实时 Agent，置顶或重命名重点工作、查看未读状态、搜索实时与历史 Session，并归档或恢复任务。
 - Codex、Claude Code、OpenCode 和 Qoder 使用结构化 ACP Chat。计划、推理、工具调用、权限请求、内嵌终端、子 Session、附件、排队追问和精确修改摘要都可以保留，但不会淹没最终答案。
 - 在结构化 Chat 与真实 PTY Terminal 之间切换同一个 Provider Session。支持的 Codex 模型、思考强度、Fast、Ultra 和权限修改会作用到实时工作流；兼容 Terminal 会立即应用模型修改，并在接受下一条 Composer 消息前确认 CLI 的真实状态。
-- 浏览、搜索并轻量编辑 Project Files，检查 Git Changes、Diff 和 Blame，再把已跟踪或未跟踪的修改分别送入带 Revision、行内评论和 Reviewed 状态的 Review 初版。
+- 浏览、搜索并轻量编辑 Project Files，通过复用 VS Code 图算法的 Git History 查看提交树与变更文件，检查 Git Changes、Diff 和 Blame，再把 Commit 或 Working Copy 修改送入带 Revision、行内评论和 Reviewed 状态的 Review。
 - 在 Provider 提供所需数据时查看 CPU/MEM、Token Rate、Context、Quota、Provider 用量，以及 CRT 的按日/实时 Token 遥测。
 - 从电脑或手机继续同一个 Farming Code 任务，Agent 进程始终留在开发机上。
 

@@ -8,7 +8,7 @@ This document describes how the Project Files section should fit into Farming Co
 
 Files is a project-level section. It belongs beside concrete project agents, not beside Main Agent. The purpose is to let the human inspect and lightly edit files while supervising an agent.
 
-Inside an expanded project, the sidebar order is the concrete agent row first, optional Open Editors second, and Files third. Open Editors is a separate section, not a child of Files. It appears only after the user has opened at least one file and is collapsed by default.
+Inside an expanded project, the sidebar order is the concrete agent row first, optional Open Editors second, and Files last. Open Editors is a separate section, not a child of Files. It appears only after the user has opened at least one file and is collapsed by default. Git History lives inside the expanded Files section beside working-copy Changes and defaults to collapsed.
 
 Files should feel close to a lightweight VS Code Explorer:
 
@@ -22,9 +22,17 @@ Files should feel close to a lightweight VS Code Explorer:
 
 ## Scroll Model
 
-The Files section should expand into the outer project scroll flow. It should not create a second nested scrollbar inside the project sidebar. When many rows are visible, the whole project list scrolls as one surface.
+The Files section, including Git History, should expand into the outer project scroll flow. It should not create a second nested scrollbar inside the project sidebar. When many rows are visible, the whole project list scrolls as one surface.
 
 Long trees may use a lightweight sticky ancestor overlay and subtle shadow to show parent context, but that overlay must not change the scroll model.
+
+## Git History Graph
+
+Git History is a project-scoped SCM graph inside Files for understanding committed history, not another global history page. It sits after working-copy Changes so uncommitted and committed Git state share one predictable place. The default view follows `git log --first-parent HEAD`: it shows the current branch as a simple linear history, keeps merge commits, and does not expand every commit from merged branches. Users can switch to All branches when they need the full local-branch, remote-branch, and tag graph. Each view loads 50 commits at a time, and more rows load only after an explicit request.
+
+The graph topology and SVG row geometry are adapted from the MIT-licensed VS Code SCM history implementation at pinned commit `0217c2f1a0defc7fdbfb4feba74e71e366de6822`; the exact source and license are recorded in `THIRD_PARTY_NOTICES.md`. Farming keeps that mature lane-transition algorithm and supplies only a small adapter from bounded `git log` data into the VS Code-style view model. It must not grow a second hand-written graph algorithm in parallel.
+
+Clicking a commit expands its changed files in place. The row keeps the one-line subject compact; when a commit has a message body, the expanded area shows that body before the file summary. Merge commits expose a parent selector so the user can inspect the change against either parent. Root commits compare against Git's empty tree. The VS Code-derived output lanes continue through the expanded change area instead of being replaced by a decorative border. A compact Review action sits beside the changed-file count, while changed-file rows reuse the existing `/review?agentId=...&base=...&head=...` surface with an optional `path`; the history section does not implement another diff viewer.
 
 ## Tree Behavior
 
@@ -50,6 +58,8 @@ Current implementation boundaries:
 - `react-arborist` owns tree mechanics such as virtualization, focus, selection, and expand/collapse.
 - `useWorkspaceFiles` and `/api/files/*` are the Farming file adapter for lazy directories, file events, git state, text IO, and conflict checks.
 - `ProjectFilesSection` is the composition shell for the project sidebar section; row rendering, search results, sticky context, tree mechanics, file operations, and context-menu behavior live in focused components or controllers.
+- `GitHistorySection` owns lazy history loading, bounded pagination, commit expansion, merge-parent selection, and routing into Review.
+- `git-history-graph.ts` adapts the pinned VS Code SCM lane algorithm, while `GitHistoryGraph` hosts the adapted SVG row renderer.
 - `FileSectionBody` owns the expanded Files body: status rows, search results, tree view, and the named view models passed into that body.
 - `FileSectionOverlays` owns Files floating UI such as the file context menu and file-operation dialog.
 - `useWorkspaceFileSectionController` owns Files/Open Editors collapse state, agent-change cleanup, reveal requests, search-focus requests, and tree refresh scheduling for the expanded section.
@@ -63,14 +73,18 @@ Current implementation boundaries:
 - `FileEditorOverlays` owns editor floating UI composition, including `FileEditorContextMenu`, `FileEditorTabContextMenu`, `FileEditorSaveConfirmDialog`, and blame status toasts; `FileEditorPane` keeps only the action handlers and state transitions that affect Monaco or open-file state.
 - `FileEditorBlameDetail` and `FileEditorBlameToast` own blame detail/status presentation; `FileEditorPane` still owns blame loading, capability checks, and visible-range overlay placement.
 - `FileEditorMarkdownPreview` owns rendered Markdown source previews in the editor pane.
-- `FileEditorPreviewPanel` owns image/binary preview rendering, and `FileEditorInlineBlameLayer` owns inline blame annotation rows.
+- `FileEditorPreviewPanel` owns image, PDF, and binary preview rendering, and `FileEditorInlineBlameLayer` owns inline blame annotation rows. Absolute local PDF links from Chat resolve through the workspace-file boundary and open in this pane instead of becoming browser routes.
 
 ## Visual Rules
 
 - Files header is at the same project-content level as agent rows.
 - Open Editors is at the same project-content level as Files and sits between the agent row and Files.
 - Open Editors is absent when no file has been opened, then defaults to collapsed when the first file opens.
-- Files owns the search box and directory tree only; it should not contain the Open Editors list.
+- Git History sits inside expanded Files after working-copy Changes, defaults to collapsed, and appears only for concrete project agents with writable workspace access.
+- Git History rows expose commit subjects, short object ids, author/time metadata, branch/tag decorations, and accessible expand state without turning the section into a dense SCM toolbar.
+- Git History defaults to the current branch's first-parent history; All branches is an explicit alternate graph view.
+- A commit's subject stays in the row, while any additional commit-message body appears in its expanded details.
+- Files owns the search box, working-copy Changes, committed Git History, and directory tree; it should not contain the Open Editors list.
 - Changes is a project-scoped lightweight review entry inside the Files/editor boundary. It summarizes the current workspace changes and opens review targets in the main editor pane.
 - The standalone `/review?agentId=...` surface is a working-copy reviewer for the selected agent's workspace. `/review?agentId=...&base=...&head=...` uses the same surface for a Git commit range. It is intentionally separate from the main workspace: it provides a Gerrit-like multi-file diff, per-file Reviewed state, and diff preferences without changing the Files / Monaco review boundary. Git-backed diffs retain character-level edit ranges and explicitly warn when either side has no newline at end of file, so visually identical replacement lines still have an explainable change. Patch generation remains a backend capability, but the provisional download and final-change selectors are not exposed while their product roles are still unclear. Its persisted review state is scoped by stable workspace identity plus the current structured-diff revision, never by the transient agent id. Controls that require server-side change metadata (for example rebase or included-in) are not shown for a local working copy. `/review` is the only product route; deterministic tests use the explicit `fixture=1` query instead of a separate prototype route.
 - The header is clickable and collapsible.
@@ -102,7 +116,7 @@ The right pane is a lightweight editor surface:
 
 - Monaco for text files;
 - in-editor Markdown preview toggled from Markdown source files;
-- preview for image and binary files;
+- preview for image, PDF, and binary files;
 - readonly mode for oversized files;
 - tabs with mature `tablist` semantics;
 - transient preview tabs for mouse clicks in the Explorer tree; search results, `path:line`, keyboard Enter, and review/diff opens create pinned tabs, and editing pins a transient tab;
@@ -134,7 +148,7 @@ The backend remains intentionally thin:
 - read / save with version checks;
 - create / rename / delete / move;
 - search through `rg` where available;
-- git status / diff / blame / line changes through `git`;
+- bounded git history, commit changes, status, diff, blame, and line changes through `git`;
 - optional bounded watcher events.
 
 Farming should reuse mature tools instead of building a full custom IDE backend.
@@ -145,6 +159,7 @@ Large workspaces should stay usable through bounded operations:
 
 - file reads and writes keep size caps;
 - directory trees load lazily by directory;
+- history defaults to 50 commits per page with a hard page cap, lazy commit-change loading, and a bounded frontend detail cache;
 - search and git operations use limits, timeouts, or truncation instead of unbounded output;
 - live terminal output is streamed in bounded chunks and coalesced before WebSocket fanout;
 - exited terminal sessions release screen workers and remove session state after the final output is flushed;

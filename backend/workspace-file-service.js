@@ -18,6 +18,10 @@ const DEFAULT_SEARCH_TIMEOUT_MS = 3000;
 const DEFAULT_BLAME_TIMEOUT_MS = 5000;
 const DEFAULT_DIFF_TIMEOUT_MS = 5000;
 const DEFAULT_DIFF_MAX_BUFFER = 1024 * 1024;
+const DEFAULT_GIT_HISTORY_LIMIT = 50;
+const MAX_GIT_HISTORY_LIMIT = 100;
+const DEFAULT_GIT_HISTORY_TIMEOUT_MS = 5000;
+const DEFAULT_GIT_HISTORY_MAX_BUFFER = 8 * 1024 * 1024;
 const DEFAULT_WATCH_DEPTH = 1;
 const SEARCH_FILE_LIST_MAX_BUFFER = 16 * 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8192;
@@ -389,6 +393,7 @@ function sha1(buffer) {
 
 function previewForPath(filePath, options = {}) {
   const extension = path.extname(filePath).toLowerCase();
+  if (extension === '.pdf') return { kind: 'pdf', mediaType: 'application/pdf' };
   if (!options.includeTextImages && TEXT_IMAGE_PREVIEW_EXTENSIONS.has(extension)) return null;
   const mediaType = IMAGE_PREVIEW_MEDIA_TYPES.get(extension);
   return mediaType ? { kind: 'image', mediaType } : null;
@@ -507,6 +512,132 @@ function gitStatusReviewRank(kind) {
   if (kind === 'renamed') return 4;
   if (kind === 'untracked') return 5;
   return 6;
+}
+
+function normalizeGitHistoryLimit(value) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) return DEFAULT_GIT_HISTORY_LIMIT;
+  return Math.min(parsed, MAX_GIT_HISTORY_LIMIT);
+}
+
+function normalizeGitHistorySkip(value) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) return 0;
+  return Math.min(parsed, 1_000_000);
+}
+
+function normalizeGitObjectId(value, fieldName = 'commit') {
+  const normalized = String(value || '').trim();
+  if (!/^[0-9a-f]{40,64}$/i.test(normalized)) {
+    throw new WorkspaceFileError(`${fieldName} must be a full git object id`, 400);
+  }
+  return normalized.toLowerCase();
+}
+
+function gitEmptyTreeObjectId(objectFormat) {
+  const algorithm = objectFormat === 'sha256' ? 'sha256' : 'sha1';
+  return crypto.createHash(algorithm).update(Buffer.from('tree 0\0')).digest('hex');
+}
+
+function gitHistoryReference(value) {
+  let id = String(value || '').trim();
+  if (!id) return null;
+  if (id.startsWith('tag: ')) id = id.slice(5);
+  if (id === 'HEAD') return { id, name: id, category: 'head' };
+  if (id.startsWith('refs/heads/')) {
+    return { id, name: id.slice('refs/heads/'.length), category: 'local-branch' };
+  }
+  if (id.startsWith('refs/remotes/')) {
+    if (/\/HEAD$/.test(id)) return null;
+    return { id, name: id.slice('refs/remotes/'.length), category: 'remote-branch' };
+  }
+  if (id.startsWith('refs/tags/')) {
+    return { id, name: id.slice('refs/tags/'.length), category: 'tag' };
+  }
+  return { id, name: id.replace(/^refs\//, ''), category: 'reference' };
+}
+
+function parseGitHistoryReferences(value) {
+  const references = [];
+  const seen = new Set();
+  const add = candidate => {
+    const reference = gitHistoryReference(candidate);
+    if (!reference || seen.has(reference.id)) return;
+    seen.add(reference.id);
+    references.push(reference);
+  };
+
+  String(value || '').split(', ').forEach(decoration => {
+    const arrowIndex = decoration.indexOf(' -> ');
+    if (arrowIndex === -1) {
+      add(decoration);
+      return;
+    }
+    add(decoration.slice(0, arrowIndex));
+    add(decoration.slice(arrowIndex + 4));
+  });
+  return references;
+}
+
+function parseGitHistoryLog(stdout) {
+  const fields = String(stdout || '').split('\0');
+  const items = [];
+  for (let index = 0; index + 7 < fields.length; index += 8) {
+    const id = fields[index];
+    if (!id) continue;
+    const timestamp = Date.parse(fields[index + 4]);
+    items.push({
+      id,
+      displayId: id.slice(0, 8),
+      parentIds: fields[index + 1].split(' ').filter(Boolean),
+      author: fields[index + 2],
+      authorEmail: fields[index + 3],
+      timestamp: Number.isFinite(timestamp) ? timestamp : undefined,
+      subject: fields[index + 5],
+      message: String(fields[index + 6] || '').trimEnd(),
+      references: parseGitHistoryReferences(fields[index + 7]),
+    });
+  }
+  return items;
+}
+
+function gitHistoryChangeKind(statusCode) {
+  if (statusCode.startsWith('A')) return 'added';
+  if (statusCode.startsWith('D')) return 'deleted';
+  if (statusCode.startsWith('R')) return 'renamed';
+  if (statusCode.startsWith('C')) return 'copied';
+  if (statusCode.startsWith('T')) return 'type-changed';
+  return 'modified';
+}
+
+function gitHistoryChangeLabel(kind) {
+  if (kind === 'added') return 'A';
+  if (kind === 'deleted') return 'D';
+  if (kind === 'renamed') return 'R';
+  if (kind === 'copied') return 'C';
+  if (kind === 'type-changed') return 'T';
+  return 'M';
+}
+
+function parseGitHistoryChanges(stdout) {
+  const fields = String(stdout || '').split('\0');
+  const items = [];
+  for (let index = 0; index < fields.length;) {
+    const statusCode = fields[index++];
+    if (!statusCode) continue;
+    const kind = gitHistoryChangeKind(statusCode);
+    if (kind === 'renamed' || kind === 'copied') {
+      const previousPath = fields[index++] || '';
+      const filePath = fields[index++] || '';
+      if (!filePath) continue;
+      items.push({ path: filePath, previousPath, status: kind, statusLabel: gitHistoryChangeLabel(kind) });
+      continue;
+    }
+    const filePath = fields[index++] || '';
+    if (!filePath) continue;
+    items.push({ path: filePath, status: kind, statusLabel: gitHistoryChangeLabel(kind) });
+  }
+  return items;
 }
 
 async function workspaceEntryTypeForGitChange(root, filePath) {
@@ -978,6 +1109,8 @@ class WorkspaceFileService {
     this.blameTimeoutMs = options.blameTimeoutMs ?? DEFAULT_BLAME_TIMEOUT_MS;
     this.diffTimeoutMs = options.diffTimeoutMs ?? DEFAULT_DIFF_TIMEOUT_MS;
     this.diffMaxBuffer = options.diffMaxBuffer ?? DEFAULT_DIFF_MAX_BUFFER;
+    this.gitHistoryTimeoutMs = options.gitHistoryTimeoutMs ?? DEFAULT_GIT_HISTORY_TIMEOUT_MS;
+    this.gitHistoryMaxBuffer = options.gitHistoryMaxBuffer ?? DEFAULT_GIT_HISTORY_MAX_BUFFER;
     const bundledRipgrepPath = resolveBundledRipgrepPath();
     this.rgPath = options.rgPath || process.env.FARMING_RG_BIN || bundledRipgrepPath || 'rg';
     this.rgFallbackPath = options.rgFallbackPath ?? (this.rgPath === 'rg' ? bundledRipgrepPath : 'rg');
@@ -1716,6 +1849,156 @@ class WorkspaceFileService {
       return String(stdout || '').trim();
     } catch {
       return '';
+    }
+  }
+
+  async gitHistory(workspaceRoot, options = {}) {
+    const root = await this.resolveRoot(workspaceRoot);
+    const limit = normalizeGitHistoryLimit(options.limit);
+    const skip = normalizeGitHistorySkip(options.skip);
+    const scope = options.scope === 'all' ? 'all' : 'current';
+    let branch = '';
+    try {
+      branch = await this.gitBranch(root);
+      await this.execFile(this.gitPath, ['-C', root, 'rev-parse', '--is-inside-work-tree'], {
+        timeout: 1500,
+        maxBuffer: 64 * 1024,
+      });
+    } catch (error) {
+      if (error.code === 'ENOENT') throw new WorkspaceFileError('git is not installed', 501);
+      if (error.stderr && /not a git repository/i.test(String(error.stderr))) {
+        return { isGitRepo: false, branch: '', head: '', scope, items: [], hasMore: false, nextSkip: null };
+      }
+      throw new WorkspaceFileError(error.stderr || 'git history failed', 500);
+    }
+
+    let head = '';
+    try {
+      const result = await this.execFile(this.gitPath, ['-C', root, 'rev-parse', '--verify', 'HEAD'], {
+        timeout: 1500,
+        maxBuffer: 64 * 1024,
+      });
+      head = String(result.stdout || '').trim();
+    } catch (error) {
+      if (error.stderr && /(needed a single revision|unknown revision|bad revision|ambiguous argument)/i.test(String(error.stderr))) {
+        return { isGitRepo: true, branch, head: '', scope, items: [], hasMore: false, nextSkip: null };
+      }
+      throw new WorkspaceFileError(error.stderr || 'git history failed', 500);
+    }
+
+    try {
+      const revisionArgs = scope === 'all'
+        ? ['HEAD', '--branches', '--tags', '--remotes']
+        : ['--first-parent', 'HEAD'];
+      const { stdout } = await this.execFile(this.gitPath, [
+        '-C', root,
+        'log',
+        '-z',
+        '--date-order',
+        '--decorate=full',
+        '--format=%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%B%x00%D',
+        `--max-count=${limit + 1}`,
+        `--skip=${skip}`,
+        ...revisionArgs,
+      ], {
+        timeout: this.gitHistoryTimeoutMs,
+        maxBuffer: this.gitHistoryMaxBuffer,
+      });
+      const parsed = parseGitHistoryLog(stdout);
+      const hasMore = parsed.length > limit;
+      const items = parsed.slice(0, limit);
+      return {
+        isGitRepo: true,
+        branch,
+        head,
+        scope,
+        items,
+        hasMore,
+        nextSkip: hasMore ? skip + items.length : null,
+      };
+    } catch (error) {
+      if (error.code === 'ENOENT') throw new WorkspaceFileError('git is not installed', 501);
+      if (error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM') {
+        throw new WorkspaceFileError('git history timed out', 504);
+      }
+      if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+        throw new WorkspaceFileError('git history output is too large', 413);
+      }
+      if (error.stderr && /not a git repository/i.test(String(error.stderr))) {
+        return { isGitRepo: false, branch: '', head: '', scope, items: [], hasMore: false, nextSkip: null };
+      }
+      throw new WorkspaceFileError(error.stderr || 'git history failed', 500);
+    }
+  }
+
+  async gitHistoryChanges(workspaceRoot, commitValue, parentValue, options = {}) {
+    const root = await this.resolveRoot(workspaceRoot);
+    const commit = normalizeGitObjectId(commitValue);
+    const requestedParent = parentValue ? normalizeGitObjectId(parentValue, 'parent') : '';
+    const limit = Math.max(1, Math.min(2000, Number(options.limit) || DEFAULT_GIT_CHANGES_LIMIT));
+
+    try {
+      const { stdout: parentOutput } = await this.execFile(this.gitPath, [
+        '-C', root, 'rev-list', '--parents', '-n', '1', commit,
+      ], {
+        timeout: this.gitHistoryTimeoutMs,
+        maxBuffer: 64 * 1024,
+      });
+      const revision = String(parentOutput || '').trim().split(/\s+/).filter(Boolean);
+      if (!revision.length || revision[0].toLowerCase() !== commit) {
+        throw new WorkspaceFileError('commit was not found', 404);
+      }
+      const parentIds = revision.slice(1).map(value => value.toLowerCase());
+      if (requestedParent && !parentIds.includes(requestedParent)) {
+        throw new WorkspaceFileError('parent is not a parent of commit', 400);
+      }
+      const parent = requestedParent || parentIds[0] || '';
+      let comparisonBase = parent;
+      if (!comparisonBase) {
+        let objectFormat = 'sha1';
+        try {
+          const result = await this.execFile(this.gitPath, ['-C', root, 'rev-parse', '--show-object-format'], {
+            timeout: 1500,
+            maxBuffer: 64 * 1024,
+          });
+          objectFormat = String(result.stdout || '').trim();
+        } catch {
+          // Git versions without --show-object-format use SHA-1 repositories.
+        }
+        comparisonBase = gitEmptyTreeObjectId(objectFormat);
+      }
+      const args = parent
+        ? ['-C', root, 'diff', '--name-status', '-z', '-M', parent, commit, '--']
+        : ['-C', root, 'diff-tree', '--root', '--no-commit-id', '--name-status', '-r', '-z', '-M', commit];
+      const { stdout } = await this.execFile(this.gitPath, args, {
+        timeout: this.gitHistoryTimeoutMs,
+        maxBuffer: this.gitHistoryMaxBuffer,
+      });
+      const allItems = parseGitHistoryChanges(stdout);
+      return {
+        commit,
+        comparisonBase,
+        parent: parent || null,
+        parentIds,
+        items: allItems.slice(0, limit),
+        truncated: allItems.length > limit,
+      };
+    } catch (error) {
+      if (error instanceof WorkspaceFileError) throw error;
+      if (error.code === 'ENOENT') throw new WorkspaceFileError('git is not installed', 501);
+      if (error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM') {
+        throw new WorkspaceFileError('git commit changes timed out', 504);
+      }
+      if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+        throw new WorkspaceFileError('git commit changes output is too large', 413);
+      }
+      if (error.stderr && /(bad object|unknown revision|ambiguous argument|not a valid object name)/i.test(String(error.stderr))) {
+        throw new WorkspaceFileError('commit was not found', 404);
+      }
+      if (error.stderr && /not a git repository/i.test(String(error.stderr))) {
+        throw new WorkspaceFileError('workspace is not a git repository', 409);
+      }
+      throw new WorkspaceFileError(error.stderr || 'git commit changes failed', 500);
     }
   }
 
@@ -2762,4 +3045,9 @@ module.exports = {
   parseUnifiedDiffHunks,
   selectUnifiedDiffHunk,
   resolveCommandRunnerNodePath,
+  normalizeGitHistoryLimit,
+  normalizeGitHistorySkip,
+  parseGitHistoryChanges,
+  parseGitHistoryLog,
+  parseGitHistoryReferences,
 };

@@ -147,6 +147,58 @@ assert.deepStrictEqual(
   ['Progress update', 'Edit source'],
 );
 
+const phaseAwareTranscript = acpSessionTranscript({
+  state: 'idle',
+  entries: [
+    { id: 'phase-user', type: 'message', role: 'user', content: [{ type: 'text', text: 'Explain it' }] },
+    {
+      id: 'phase-commentary', type: 'message', role: 'assistant',
+      _meta: { codex: { phase: 'commentary' } },
+      content: [{ type: 'text', text: 'Checking the protocol evidence.' }],
+    },
+    {
+      id: 'phase-final', type: 'message', role: 'assistant',
+      _meta: { codex: { phase: 'final_answer' } },
+      content: [{ type: 'text', text: 'Visible rich final answer.' }],
+    },
+    { id: 'phase-trailing-thought', type: 'thought', role: 'assistant', content: [{ type: 'text', text: 'Trailing replay thought' }] },
+  ],
+});
+assert.strictEqual(phaseAwareTranscript.turns[0].finalMessage, 'Visible rich final answer.');
+assert.deepStrictEqual(
+  phaseAwareTranscript.turns[0].processItems.map(entry => [entry.type, entry.detail]),
+  [
+    ['progress', 'Checking the protocol evidence.'],
+    ['thought', 'Trailing replay thought'],
+  ],
+  'an explicit final answer must remain visible even when replay emits a later thought entry',
+);
+
+const interruptedCommentaryTranscript = acpSessionTranscript({
+  state: 'idle',
+  entries: [
+    { id: 'interrupted-user-1', type: 'message', role: 'user', content: [{ type: 'text', text: 'Start investigating' }] },
+    {
+      id: 'interrupted-commentary', type: 'message', role: 'assistant',
+      _meta: { codex: { phase: 'commentary' } },
+      content: [{ type: 'text', text: 'I will inspect the failing path first.' }],
+    },
+    { id: 'interrupted-user-2', type: 'message', role: 'user', content: [{ type: 'text', text: 'One more symptom' }] },
+    {
+      id: 'interrupted-final', type: 'message', role: 'assistant',
+      _meta: { codex: { phase: 'final_answer' } },
+      content: [{ type: 'text', text: 'Fixed both symptoms.' }],
+    },
+  ],
+});
+assert.strictEqual(interruptedCommentaryTranscript.turns[0].finalMessage, '');
+assert.deepStrictEqual(
+  interruptedCommentaryTranscript.turns[0].processItems.map(entry => entry.detail),
+  ['I will inspect the failing path first.'],
+  'explicit Codex commentary must stay under Worked when the turn is interrupted before a final answer',
+);
+assert.strictEqual(interruptedCommentaryTranscript.turns[1].finalMessage, 'Fixed both symptoms.');
+
 const liveTailProgressTranscript = acpSessionTranscript({
   state: 'working',
   entries: [
@@ -337,6 +389,62 @@ assert.match(richContentTranscript.turns[0].userAudios[0].url, /^data:audio\/wav
 assert.match(richContentTranscript.turns[0].processItems[0].images[0].url, /^data:image\/png;base64,/);
 assert.match(richContentTranscript.turns[0].processItems[0].audios[0].url, /^data:audio\/mpeg;base64,/);
 assert.strictEqual(richContentTranscript.turns[0].processItems[0].files[0].content, 'result text');
+
+const rawMcpMediaTranscript = acpSessionTranscript({
+  entries: [
+    { id: 'user-mcp-media', type: 'message', role: 'user', content: [{ type: 'text', text: 'Inspect the browser' }] },
+    {
+      id: 'tool-mcp-media',
+      type: 'tool',
+      kind: 'execute',
+      title: 'mcp.computer-use.get_app_state',
+      status: 'completed',
+      rawInput: { server: 'computer-use', tool: 'get_app_state' },
+      rawOutput: {
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: '<app_specific_instructions>internal browser instructions</app_specific_instructions>\n<app_state>Visible browser state</app_state>',
+            },
+            { type: 'image', mimeType: 'image/jpeg', data: 'aGVsbG8=' },
+          ],
+        },
+        error: null,
+      },
+    },
+  ],
+});
+const rawMcpMediaItem = rawMcpMediaTranscript.turns[0].processItems[0];
+assert.match(rawMcpMediaItem.images[0].url, /^data:image\/jpeg;base64,/);
+assert.match(rawMcpMediaItem.detail, /Visible browser state/);
+assert.doesNotMatch(rawMcpMediaItem.detail, /internal browser instructions/);
+assert.doesNotMatch(rawMcpMediaItem.detail, /aGVsbG8=/);
+
+const generatedMediaTranscript = acpSessionTranscript({
+  entries: [
+    { id: 'user-generate', type: 'message', role: 'user', content: [{ type: 'text', text: 'Draw it' }] },
+    {
+      id: 'ig_generated-result',
+      type: 'tool',
+      title: 'Image generation',
+      status: 'in_progress',
+      content: [
+        { type: 'content', content: { type: 'text', text: 'Revised prompt' } },
+        { type: 'content', content: { type: 'image', mimeType: 'image/png', data: 'aGVsbG8=' } },
+      ],
+      rawOutput: {
+        status: 'generating',
+        revisedPrompt: 'Revised prompt',
+        result: 'aGVsbG8=',
+        savedPath: '/tmp/generated_images/ig_generated-result.png',
+      },
+    },
+  ],
+});
+assert.match(generatedMediaTranscript.turns[0].resultImages[0].url, /^data:image\/png;base64,/);
+assert.strictEqual(generatedMediaTranscript.turns[0].processItems[0].images, undefined);
+assert.strictEqual(generatedMediaTranscript.turns[0].finalMessage, '');
 
 const compactedTranscript = acpSessionTranscript({
   entries: [

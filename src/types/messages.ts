@@ -1,4 +1,4 @@
-import type { AgentTerminalStatus, AppState, SystemStats, TerminalPreviewSnapshot } from './agent'
+import type { AgentTerminalStatus, AppState, CodexTerminalProfile, SystemStats, TerminalPreviewSnapshot } from './agent'
 
 // ---- Client → Server messages ----
 
@@ -60,6 +60,7 @@ export type TerminalInputPart = string | PasteInputPart
 export interface FocusAgentMessage {
   type: 'focus-agent'
   agentId: string
+  refreshState?: boolean
 }
 
 export interface ResizeAgentMessage {
@@ -150,6 +151,7 @@ export interface SessionPreviewMessage {
     rows: number
     previewSnapshot?: TerminalPreviewSnapshot | null
     terminalStatus?: AgentTerminalStatus | null
+    codexTerminalProfile?: CodexTerminalProfile | null
   }
 }
 

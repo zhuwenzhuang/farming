@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 printf 'Fake Codex 0.142.3 ready\n'
-if [[ " $* " == *" resume "* ]]; then
+if [[ " $* " == *" --farming-fixture-live-profile "* ]]; then
+  printf 'gpt-5.6-sol xhigh fast · ~/workspace\n'
+elif [[ " $* " == *" resume "* ]]; then
   # A resumed provider session opens at its idle prompt. Keep fresh-agent
   # launches busy for the follow-up queue stories that intentionally exercise
   # steering while a turn is active.

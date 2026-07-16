@@ -108,8 +108,8 @@ function run() {
   ]);
   assert.deepStrictEqual(
     repeatedTitleItems.map(item => item.historyKey),
-    ['agent-session:codex:session-new'],
-    'History should collapse duplicate provider sessions with the same title and workspace'
+    ['agent-session:codex:session-new', 'agent-session:codex:session-old'],
+    'History must keep distinct provider session ids even when title and workspace are identical'
   );
   assert.strictEqual(
     items.filter(item => item.kind === 'run' && item.entry.source === claudeSource).length,

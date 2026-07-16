@@ -13,11 +13,19 @@ const AgentManager = require('../agent-manager');
     getTaskHistory: () => [],
   });
   const sessionId = '019f5577-59c5-7572-bb21-56b487be14d4';
-  fs.writeFileSync(path.join(sessionsDir, `rollout-${sessionId}.jsonl`), `${JSON.stringify({
-    timestamp: '2026-07-12T08:00:00.000Z',
-    type: 'session_meta',
-    payload: { id: sessionId, cwd: '/repo/project', source: 'cli' },
-  })}\n`);
+  fs.writeFileSync(path.join(sessionsDir, `rollout-${sessionId}.jsonl`), [
+    JSON.stringify({
+      timestamp: '2026-07-12T08:00:00.000Z',
+      type: 'session_meta',
+      payload: { id: sessionId, cwd: '/repo/project', source: 'cli' },
+    }),
+    JSON.stringify({
+      timestamp: '2026-07-12T08:01:00.000Z',
+      type: 'turn_context',
+      payload: { turn_id: 'turn-1', cwd: '/repo/project', model: 'gpt-5.6-sol', effort: 'xhigh' },
+    }),
+    '',
+  ].join('\n'));
   manager.agents.set('agent-old', {
     id: 'agent-old',
     command: 'codex',
@@ -63,6 +71,10 @@ const AgentManager = require('../agent-manager');
   assert.strictEqual(started.options.source.includes(`home:zwz:${sessionId}`), true);
   assert.strictEqual(started.options.providerHomeId, 'zwz');
   assert.strictEqual(started.options.providerHomePath, codexHome);
+  assert.strictEqual(started.options.preserveProviderSessionProfile, true);
+  assert.strictEqual(Object.hasOwn(started.options, 'codexModel'), false);
+  assert.strictEqual(Object.hasOwn(started.options, 'codexReasoningEffort'), false);
+  assert.strictEqual(Object.hasOwn(started.options, 'codexServiceTier'), false);
   assert.deepStrictEqual(started.options.jsonCliEvents, [{ type: 'turn.started', turn_id: 'turn-old' }]);
   assert.strictEqual(result.restartedAgentId, 'agent-new');
   assert.strictEqual(result.agentRuntimeMode, 'json');

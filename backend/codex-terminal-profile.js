@@ -15,6 +15,37 @@ function normalizedReasoning(value) {
   return normalized;
 }
 
+function stripAnsi(value) {
+  return String(value || '').replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+}
+
+function codexServiceTierConfirmations(outputText) {
+  const text = stripAnsi(outputText).replace(/\r/g, '\n');
+  return Array.from(text.matchAll(/(?:^|\n)\s*[•●]\s+Service tier set to\s+(priority|default)\b/gi))
+    .map(match => ({
+      serviceTier: normalizedValue(match[1]) === 'priority' ? 'priority' : 'default',
+      fast: normalizedValue(match[1]) === 'priority',
+    }));
+}
+
+function newCodexServiceTierConfirmation(previousOutput, currentOutput) {
+  const previous = stripAnsi(previousOutput);
+  const current = stripAnsi(currentOutput);
+  const previousConfirmations = codexServiceTierConfirmations(previous);
+  const currentConfirmations = codexServiceTierConfirmations(current);
+  if (current.startsWith(previous)) {
+    return codexServiceTierConfirmations(current.slice(previous.length)).at(-1) || null;
+  }
+  if (currentConfirmations.length > previousConfirmations.length) {
+    return currentConfirmations.at(-1) || null;
+  }
+  const previousLast = previousConfirmations.at(-1) || null;
+  const currentLast = currentConfirmations.at(-1) || null;
+  if (!currentLast) return null;
+  if (!previousLast || currentLast.serviceTier !== previousLast.serviceTier) return currentLast;
+  return null;
+}
+
 function terminalCommand(command) {
   return [{ type: 'paste', text: command }, '\r'];
 }
@@ -89,10 +120,26 @@ function codexTerminalProfileFromPreview(previewText) {
   ));
   const match = matches[matches.length - 1];
   if (!match) return null;
+  const confirmedTier = codexServiceTierConfirmations(text).at(-1) || null;
   return {
     model: normalizedValue(match[1]),
     effort: normalizedReasoning(match[2]),
-    fast: Boolean(match[3]),
+    fast: match[3] ? true : (confirmedTier ? confirmedTier.fast : null),
+  };
+}
+
+function codexTerminalProfileFromOutput(outputText) {
+  const text = stripAnsi(outputText).replace(/\r/g, '\n');
+  const matches = Array.from(text.matchAll(
+    /(?:^|\n)\s*[•●]\s+Model changed to\s+([A-Za-z0-9][A-Za-z0-9._:/-]*-[A-Za-z0-9._-]+)\s+(minimal|low|medium|high|xhigh|extra\s+high|max|ultra)\b/gi
+  ));
+  const match = matches.at(-1);
+  if (!match) return null;
+  const confirmedTier = codexServiceTierConfirmations(text).at(-1) || null;
+  return {
+    model: normalizedValue(match[1]),
+    effort: normalizedReasoning(match[2]),
+    fast: confirmedTier ? confirmedTier.fast : null,
   };
 }
 
@@ -139,6 +186,7 @@ function validateTargetProfile(profile) {
 async function applyCodexTerminalProfile({
   profile,
   readPreview,
+  readOutput,
   sendInput,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
@@ -242,17 +290,50 @@ async function applyCodexTerminalProfile({
     if (!current) current = codexTerminalProfileFromPreview(String(await readPreview() || ''));
     if (!current) throw new Error('Codex Terminal stopped reporting its active model');
     if (current.fast !== wantsFast) {
-      await sendInput(terminalCommand('/fast'));
-      const fastApplied = await waitForPreview(
-        readPreview,
-        text => profileMatches(codexTerminalProfileFromPreview(text), target, { includeFast: true }),
-        {
-          ...waitOptions,
-          timeoutMessage: `Codex did not ${wantsFast ? 'enable' : 'disable'} Fast mode`,
+      if (typeof readOutput === 'function') {
+        let previousOutput = String(await readOutput() || '');
+        const toggleFastAndConfirm = async () => {
+          await sendInput(terminalCommand('/fast'));
+          const confirmation = await waitForPreview(
+            readOutput,
+            output => {
+              const explicit = newCodexServiceTierConfirmation(previousOutput, output);
+              if (explicit) return explicit;
+              const renderedProfile = codexTerminalProfileFromPreview(stripAnsi(output));
+              if (profileMatches(renderedProfile, target, { includeFast: true })) {
+                return { serviceTier: wantsFast ? 'priority' : 'default', fast: wantsFast };
+              }
+              return null;
+            },
+            {
+              ...waitOptions,
+              timeoutMessage: `Codex did not confirm its Fast mode service tier`,
+            }
+          );
+          previousOutput = confirmation.preview;
+          return confirmation.result;
+        };
+        let confirmed = await toggleFastAndConfirm();
+        if (confirmed.fast !== wantsFast) {
+          confirmed = await toggleFastAndConfirm();
         }
-      );
-      preview = fastApplied.preview;
-      current = codexTerminalProfileFromPreview(preview);
+        if (confirmed.fast !== wantsFast) {
+          throw new Error(`Codex did not ${wantsFast ? 'enable' : 'disable'} Fast mode`);
+        }
+        current = { ...current, fast: confirmed.fast };
+      } else {
+        await sendInput(terminalCommand('/fast'));
+        const fastApplied = await waitForPreview(
+          readPreview,
+          text => profileMatches(codexTerminalProfileFromPreview(text), target, { includeFast: true }),
+          {
+            ...waitOptions,
+            timeoutMessage: `Codex did not ${wantsFast ? 'enable' : 'disable'} Fast mode`,
+          }
+        );
+        preview = fastApplied.preview;
+        current = codexTerminalProfileFromPreview(preview);
+      }
     }
 
     return {
@@ -277,12 +358,15 @@ module.exports = {
   DEFAULT_POLL_INTERVAL_MS,
   DEFAULT_TIMEOUT_MS,
   applyCodexTerminalProfile,
+  codexServiceTierConfirmations,
+  codexTerminalProfileFromOutput,
   codexAdvancedReasoningMenuOptions,
   codexModelMenuOptions,
   codexReasoningMenuOptions,
   codexTerminalProfileFromPreview,
   modelSelectionInput,
   moreReasoningSelectionInput,
+  newCodexServiceTierConfirmation,
   normalizedReasoning,
   reasoningSelectionInput,
   terminalCommand,

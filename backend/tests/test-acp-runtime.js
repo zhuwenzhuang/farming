@@ -13,6 +13,20 @@ async function run() {
   assert.strictEqual(acpErrorKind(new Error('unexpected failure')), 'unknown');
   assert.strictEqual(resolveAcpLaunch('codex').version, '1.1.2');
   assert.strictEqual(resolveAcpLaunch('claude').version, '0.58.1');
+  const compatibleCodexLaunch = resolveAcpLaunch('codex', {
+    runtimeEnv: {
+      FARMING_NODE_BIN: '/opt/farming/node',
+      FARMING_NODE_LD: '/opt/farming/lib/ld-2.28.so',
+      FARMING_NODE_LIBRARY_PATH: '/opt/farming/lib',
+    },
+  });
+  assert.strictEqual(compatibleCodexLaunch.command, '/opt/farming/lib/ld-2.28.so');
+  assert.deepStrictEqual(compatibleCodexLaunch.args.slice(0, 3), [
+    '--library-path',
+    '/opt/farming/lib',
+    '/opt/farming/node',
+  ]);
+  assert.match(compatibleCodexLaunch.args[3], /codex-acp\/dist\/index\.js$/);
   assert.deepStrictEqual(resolveAcpLaunch('opencode', { cwd: '/tmp/demo', executable: '/bin/opencode' }), {
     command: '/bin/opencode',
     args: ['acp', '--cwd', '/tmp/demo'],
@@ -29,11 +43,13 @@ async function run() {
   const codexEnv = codexAcpEnvironment({
     env: { KEEP: 'yes', CODEX_CONFIG: '{"existing":true}' },
     approvalMode: 'full',
+    executable: '/opt/codex/bin/codex',
     model: 'gpt-5.5',
     reasoningEffort: 'xhigh',
     serviceTier: 'priority',
   });
   assert.strictEqual(codexEnv.KEEP, 'yes');
+  assert.strictEqual(codexEnv.CODEX_PATH, '/opt/codex/bin/codex');
   assert.strictEqual(codexEnv.INITIAL_AGENT_MODE, 'agent-full-access');
   assert.deepStrictEqual(JSON.parse(codexEnv.CODEX_CONFIG), {
     existing: true,
@@ -140,6 +156,102 @@ async function run() {
     },
   } });
   assert.strictEqual(sanitizedState.snapshot().entries[1].content[0].text, 'answer');
+  const historyImageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-history-image-'));
+  const historyImagePath = path.join(historyImageDir, 'screen.png');
+  const historyImageData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
+  fs.writeFileSync(historyImagePath, Buffer.from(historyImageData, 'base64'));
+  try {
+    const historyImageState = new AcpSessionState({ provider: 'codex', sessionId: 'history-image', cwd: '/tmp' });
+    historyImageState.apply({ sessionId: 'history-image', update: {
+      sessionUpdate: 'user_message_chunk',
+      messageId: 'history-image-user',
+      content: {
+        type: 'text',
+        text: `# Files mentioned by the user:\n\n## screen.png: ${historyImagePath}\n\n## My request for Codex:\n请检查截图\n[@screen.png](file://${historyImagePath})[@image](${historyImagePath})`,
+      },
+    } });
+    assert.strictEqual(historyImageState.hasCodexHistoryImageReferences(), true);
+    assert.strictEqual(await historyImageState.hydrateCodexHistoryAttachments(), 1);
+    const historyImageEntry = historyImageState.snapshot().entries[0];
+    assert.strictEqual(historyImageEntry.content[0].text, '请检查截图');
+    assert.deepStrictEqual(historyImageEntry.content[1], {
+      type: 'image', mimeType: 'image/png', data: historyImageData,
+    });
+
+    const missingImagePath = path.join(historyImageDir, 'removed.png');
+    const fallbackImageState = new AcpSessionState({ provider: 'codex', sessionId: 'fallback-image', cwd: '/tmp' });
+    fallbackImageState.apply({ sessionId: 'fallback-image', update: {
+      sessionUpdate: 'user_message_chunk',
+      content: { type: 'text', text: `看旧截图\n[@image](${missingImagePath})` },
+    } });
+    assert.strictEqual(await fallbackImageState.hydrateCodexHistoryAttachments({
+      imageDataByPath: new Map([[missingImagePath, `data:image/png;base64,${historyImageData}`]]),
+    }), 1);
+    assert.strictEqual(fallbackImageState.snapshot().entries[0].content[0].text, '看旧截图');
+    assert.strictEqual(fallbackImageState.snapshot().entries[0].content[1].data, historyImageData);
+  } finally {
+    fs.rmSync(historyImageDir, { recursive: true, force: true });
+  }
+  const phasedState = new AcpSessionState({ provider: 'codex', sessionId: 'phased', cwd: '/tmp' });
+  phasedState.apply({ sessionId: 'phased', update: {
+    sessionUpdate: 'agent_message_chunk',
+    content: { type: 'text', text: 'working' },
+    _meta: { codex: { phase: 'commentary' } },
+  } });
+  phasedState.apply({ sessionId: 'phased', update: {
+    sessionUpdate: 'agent_message_chunk',
+    content: { type: 'text', text: 'final answer' },
+    _meta: { codex: { phase: 'final_answer' } },
+  } });
+  const phasedEntries = phasedState.snapshot().entries;
+  assert.strictEqual(phasedEntries.length, 2, 'phase boundaries must not merge when history chunks omit message ids');
+  assert.strictEqual(phasedEntries[0]._meta.codex.phase, 'commentary');
+  assert.strictEqual(phasedEntries[1]._meta.codex.phase, 'final_answer');
+  const mirroredFinalState = new AcpSessionState({ provider: 'codex', sessionId: 'mirrored-final', cwd: '/tmp' });
+  mirroredFinalState.apply({ sessionId: 'mirrored-final', update: {
+    sessionUpdate: 'agent_message_chunk',
+    content: { type: 'text', text: 'Visible final answer.' },
+    _meta: { codex: { phase: 'final_answer' } },
+  } });
+  mirroredFinalState.apply({ sessionId: 'mirrored-final', update: {
+    sessionUpdate: 'agent_message_chunk',
+    messageId: 'app-server-final',
+    content: { type: 'text', text: [
+      'Visible final answer.',
+      '<oai-mem-citation>',
+      '<citation_entries>MEMORY.md:1-2|note=[source]</citation_entries>',
+      '<rollout_ids></rollout_ids>',
+      '</oai-mem-citation>',
+    ].join('\n') },
+    _meta: { codex: { phase: 'final_answer' } },
+  } });
+  const mirroredFinalEntries = mirroredFinalState.snapshot().entries;
+  assert.strictEqual(mirroredFinalEntries.length, 1);
+  assert.strictEqual(
+    mirroredFinalEntries[0].content.map(item => item.text || '').join(''),
+    'Visible final answer.',
+    'App Server and JSONL fallback mirrors should not repeat the same sanitized final answer'
+  );
+  const handoffCompactionState = new AcpSessionState({ provider: 'codex', sessionId: 'handoff-compaction', cwd: '/tmp' });
+  handoffCompactionState.apply({ sessionId: 'handoff-compaction', update: {
+    sessionUpdate: 'agent_message_chunk',
+    content: { type: 'text', text: '## Handoff Summary: Internal replay state\n\n### Suggested next steps\nDo not render this as an answer.' },
+    _meta: { codex: { phase: 'final_answer' } },
+  } });
+  const handoffEntries = handoffCompactionState.snapshot().entries;
+  assert.strictEqual(handoffEntries.length, 1);
+  assert.strictEqual(handoffEntries[0].type, 'compaction');
+  assert.strictEqual(handoffEntries[0].summary, '');
+  const headingHandoffCompactionState = new AcpSessionState({ provider: 'codex', sessionId: 'heading-handoff-compaction', cwd: '/tmp' });
+  headingHandoffCompactionState.apply({ sessionId: 'heading-handoff-compaction', update: {
+    sessionUpdate: 'agent_message_chunk',
+    content: { type: 'text', text: '## Handoff Summary\n\n### Goal / User Intent\nDo not render this as an answer.' },
+    _meta: { codex: { phase: 'final_answer' } },
+  } });
+  const headingHandoffEntries = headingHandoffCompactionState.snapshot().entries;
+  assert.strictEqual(headingHandoffEntries.length, 1);
+  assert.strictEqual(headingHandoffEntries[0].type, 'compaction');
+  assert.strictEqual(headingHandoffEntries[0].summary, '');
   const heartbeatState = new AcpSessionState({ provider: 'codex', sessionId: 's3', cwd: '/tmp' });
   heartbeatState.apply({ sessionId: 's3', update: {
     sessionUpdate: 'user_message_chunk',
@@ -402,6 +514,7 @@ async function run() {
     assert.strictEqual(reloadedAfterTerminalAuth.entries[0].content[0].text, 'rich timeline');
     fs.rmSync(clientServicesRoot, { recursive: true, force: true });
 
+    const loadEventStart = emittedSessions.length;
     const loaded = await runtime.prepareAgent({
       agentId: 'agent-acp-load',
       provider: 'opencode',
@@ -415,7 +528,13 @@ async function run() {
     assert.strictEqual(history.entries.length, 2);
     assert.strictEqual(history.entries[0].content[0].text, 'historical question');
     assert.strictEqual(history.entries[1].content[0].text, 'historical answer');
+    assert.strictEqual(
+      emittedSessions.slice(loadEventStart).filter(event => event.agentId === 'agent-acp-load').length,
+      1,
+      'history replay should publish one settled transcript invalidation instead of one event per entry',
+    );
 
+    const delayedLoadEventStart = emittedSessions.length;
     const delayedHistory = await runtime.prepareAgent({
       agentId: 'agent-acp-qoder-load',
       provider: 'qoder',
@@ -428,6 +547,11 @@ async function run() {
     const qoderHistory = runtime.getSession('agent-acp-qoder-load');
     assert.strictEqual(qoderHistory.entries.length, 2);
     assert.strictEqual(qoderHistory.entries[1].content[0].text, 'delayed historical answer');
+    assert.strictEqual(
+      emittedSessions.slice(delayedLoadEventStart).filter(event => event.agentId === 'agent-acp-qoder-load').length,
+      1,
+      'delayed history replay should also publish only its settled snapshot',
+    );
 
     await runtime.prepareAgent({
       agentId: 'agent-acp-permission',

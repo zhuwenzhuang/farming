@@ -17,6 +17,8 @@ const {
   getCrtAgentTitle,
   getCrtProjectName,
   getCrtPreviewCellStyle,
+  getCrtTerminalSnapshotRows,
+  crtStructuredPreviewMessageLines,
   calculateTerminalInputBridgePosition,
   getCrtTerminalFontSize,
   normalizeCrtTerminalFontSize,
@@ -114,12 +116,58 @@ function run() {
       ],
     }, { agentRuntimeMode: 'acp', acpState: 'working' }),
     {
+      messageLines: [
+        { role: 'user', label: 'YOU', text: 'Explain the dashboard preview clearly.' },
+        { role: 'assistant', label: 'AGENT', text: 'The preview now follows the latest conversation.' },
+      ],
       userText: 'Explain the dashboard preview clearly.',
       assistantText: 'The preview now follows the latest conversation.',
       activityText: 'Inspect CRT layout · in progress',
       state: 'working',
     },
     'CRT Chat previews should keep the latest visible turn and activity while excluding internal ACP entries',
+  );
+  assert.deepStrictEqual(
+    crtStructuredPreviewMessageLines({
+      entries: [
+        { type: 'message', role: 'user', content: [{ type: 'text', text: 'First question' }] },
+        { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'First answer' }] },
+        { type: 'message', role: 'assistant', internal: true, content: [{ type: 'text', text: 'hidden heartbeat' }] },
+        { type: 'message', role: 'user', content: [{ type: 'text', text: 'Follow up' }] },
+        { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Intermediate progress' }] },
+        { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Second answer' }] },
+        { type: 'message', role: 'user', content: [{ type: 'text', text: 'Latest question' }] },
+        { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Latest answer' }] },
+      ],
+    }),
+    [
+      { role: 'user', label: 'YOU', text: 'First question' },
+      { role: 'assistant', label: 'AGENT', text: 'First answer' },
+      { role: 'user', label: 'YOU', text: 'Follow up' },
+      { role: 'assistant', label: 'AGENT', text: 'Second answer' },
+      { role: 'user', label: 'YOU', text: 'Latest question' },
+      { role: 'assistant', label: 'AGENT', text: 'Latest answer' },
+    ],
+    'CRT Chat cards should preserve the bounded ordered recent visible conversation without internal entries',
+  );
+  const terminalSnapshot = {
+    cells: [
+      [{ char: 'A', width: 1, fg: 2, bg: -1, attributes: 0 }],
+      [{ char: ' ', width: 1, fg: -1, bg: -1, attributes: 0 }],
+      [{ char: ' ', width: 1, fg: -1, bg: -1, attributes: 0 }],
+    ],
+    cursorVisible: false,
+    cursorY: 2,
+  };
+  assert.deepStrictEqual(
+    getCrtTerminalSnapshotRows(terminalSnapshot),
+    terminalSnapshot.cells.slice(0, 1),
+    'CRT Terminal cards should remove unused trailing screen rows',
+  );
+  assert.deepStrictEqual(
+    getCrtTerminalSnapshotRows({ ...terminalSnapshot, cursorVisible: true, cursorY: 1 }),
+    terminalSnapshot.cells.slice(0, 2),
+    'CRT Terminal cards should retain an otherwise blank visible cursor row',
   );
   assert.strictEqual(crtHistoryAgentName('codex resume session-1'), 'Codex');
   assert.strictEqual(crtHistoryAgentName('qodercli'), 'Qoder');

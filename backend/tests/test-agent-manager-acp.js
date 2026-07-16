@@ -144,6 +144,56 @@ async function run() {
     await openCodeManager.dispose();
   }
 
+  const providerRuntime = new AcpRuntime({
+    resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
+  });
+  const providerManager = new AgentManager(config(), {
+    acpRuntime: providerRuntime,
+    skipExecutablePreflight: true,
+  });
+  try {
+    for (const { provider, command } of [
+      { provider: 'codex', command: 'codex' },
+      { provider: 'claude', command: 'claude' },
+      { provider: 'opencode', command: 'opencode' },
+      { provider: 'qoder', command: 'qoder' },
+    ]) {
+      const providerAgentId = await new Promise(resolve => {
+        providerManager.startAgent(command, process.cwd(), (id, error) => {
+          assert.ifError(error);
+          resolve(id);
+        }, {
+          agentRuntimeMode: 'acp',
+          codexServiceTier: 'default',
+        });
+      });
+      assert(providerAgentId, `${provider} ACP should start`);
+      const providerAgent = providerManager.agents.get(providerAgentId);
+      assert.strictEqual(providerAgent.providerSessionProvider, provider);
+      assert.strictEqual(providerAgent.agentRuntimeMode, 'acp');
+      assert.strictEqual(
+        providerAgent.providerSessionSource,
+        'acp-new',
+        `${provider} fresh ACP Chat should create a provider session instead of loading a generated CLI id`,
+      );
+      const providerSession = providerManager.getAcpSession(providerAgentId);
+      assert.deepStrictEqual(
+        providerSession.configOptions.map(option => option.id),
+        ['model', 'reasoning', 'fast-mode'],
+        `${provider} ACP should expose the provider-advertised profile controls`,
+      );
+      await providerManager.setAcpSessionConfigOption(providerAgentId, 'fast-mode', true);
+      assert.strictEqual(
+        providerManager.getAcpSession(providerAgentId).configOptions
+          .find(option => option.id === 'fast-mode')?.currentValue,
+        true,
+        `${provider} ACP Fast should update through the shared runtime path`,
+      );
+    }
+  } finally {
+    await providerManager.dispose();
+  }
+
   const recoveryRuntime = new AcpRuntime({
     resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
   });
@@ -163,11 +213,11 @@ async function run() {
     const recoveredBinding = recoveryRuntime.bindings.get('agent-acp-recovered');
     assert(recoveredBinding);
     assert.strictEqual(recoveredBinding.env.INITIAL_AGENT_MODE, 'agent-full-access');
-    assert.deepStrictEqual(JSON.parse(recoveredBinding.env.CODEX_CONFIG), {
-      model: 'gpt-5.5',
-      model_reasoning_effort: 'xhigh',
-      service_tier: 'priority',
-    });
+    assert.strictEqual(
+      recoveredBinding.env.CODEX_CONFIG,
+      undefined,
+      'ACP recovery must let Codex resolve its Home config instead of applying Farming launch defaults',
+    );
   } finally {
     await recoveryManager.dispose();
   }

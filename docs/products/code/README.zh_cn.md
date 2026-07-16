@@ -62,11 +62,11 @@ Composer 只展示当前 Runtime 报告支持的控制。兼容的 Codex Model F
 
 没有提供矩阵 Capability Catalog 的模型会直接打开 Advanced 兼容 Selector。从实时 Catalog 选择兼容模型家族后即可回到矩阵，不需要重启。
 
-ACP Session 会直接应用受支持的修改。兼容 Native Terminal 会立即通过当前 CLI 工作流应用模型、Reasoning 或 Fast 修改，并在允许下一条 Composer 消息发送前确认底部状态，所以它影响的是 Live Session，不只是未来 Launch Profile。
+ACP Session 会直接应用受支持的修改。兼容 Native Terminal 会立即通过当前 CLI 工作流应用模型、Reasoning 或 Fast 修改，并在允许下一条 Composer 消息发送前确认底部状态。选择已有 Terminal 时，这个底部状态也是界面的真实来源，不会再被较新的启动默认值覆盖；没有经过验证的 Live Profile Adapter 的 Terminal Runtime 不展示当前 Session 模型选择器。所以它影响的是 Live Session，不只是未来 Launch Profile。
 
 ## 把 Project Files 放在 Agent 旁边
 
-Files 绑定具体 Project Agent。项目侧栏包含 Open Editors、Lazy File Tree、Path/Line 与内容搜索、Git Changes 和 Review。Main Agent Row 不会伪装成拥有 Project Files。
+Files 绑定具体 Project Agent。项目侧栏包含 Open Editors、复用 VS Code 图算法的 Git History、Lazy File Tree、Path/Line 与内容搜索、Git Changes 和 Review。Main Agent Row 不会伪装成拥有 Project Files。
 
 ![Project File 与行内 Blame](assets/04-files-editor-blame.png)
 
@@ -75,6 +75,7 @@ Editor 是轻量介入 Surface：
 - 带版本检查的 Monaco 文本编辑；
 - Markdown 与图片 Preview；
 - Workspace Root 内的创建、重命名、移动和删除；
+- 有边界的 Commit Graph、Branch/Tag、Merge Parent 选择、变更文件与 Commit Review；
 - Git Status、Diff 和 Blame；
 - 从 Chat / Terminal 点击 `path:line` 引用；
 - 有边界的 File Watch，以及可用时的 ripgrep Search。
@@ -165,5 +166,6 @@ farming daemon
 - [移动端指南](mobile-guide.zh_cn.md)
 - [ACP 运行时](acp-runtime.zh_cn.md)
 - [Review 基础](review-foundation.zh_cn.md)
+- [增量正确性证明式 Review（产品方向）](incremental-review-proof.zh_cn.md)
 - [拟人化验收故事](farming-agent-human-story.zh_cn.md)
 - [验收与 Dogfood 计划](test/acceptance-dogfood-plan.zh_cn.md)

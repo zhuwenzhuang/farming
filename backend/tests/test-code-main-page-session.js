@@ -183,6 +183,8 @@ async function run() {
       mainPageSessionSource.includes('AUTO_RESUME_AGENT_SESSION_PROVIDERS.has(normalized)') &&
       serverSource.includes('function autoResumeMainPageAgentSessions()') &&
       serverSource.includes('await agentManager.whenRecovered()') &&
+      serverSource.includes('const knownSessionByKey = new Map(knownSessions.map(session => [') &&
+      serverSource.includes('knownSessionByKey.get(mainPageAgentSessionKey(') &&
       serverSource.includes('findActiveAgentClaimingSession(agentManager.getState().agents') &&
       mainPageSessionSource.includes("agent.providerSessionKey === sessionKey") &&
       serverSource.includes('claimed: true') &&

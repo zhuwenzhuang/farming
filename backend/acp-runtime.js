@@ -6,6 +6,7 @@ const { Readable, Writable } = require('stream');
 const { createRequire } = require('module');
 const packageJson = require('../package.json');
 const { AcpSessionState } = require('./acp-session-state');
+const { readCodexHistoryImageData } = require('./codex-transcript');
 const { AcpClientFileSystem, AcpClientTerminalManager } = require('./acp/client-services');
 const { permissionSecurityWarnings } = require('./acp/permission-security');
 const { rejectPatch } = require('./acp/patch-decisions');
@@ -44,19 +45,39 @@ function adapterEntry(packageName) {
   return entry;
 }
 
+function nodeAdapterLaunch(entry, env = process.env) {
+  const runtimeEnv = env && typeof env === 'object' ? env : process.env;
+  const nodeBin = runtimeEnv.FARMING_NODE_BIN || process.execPath;
+  const ldPath = runtimeEnv.FARMING_NODE_LD || '';
+  const libraryPath = runtimeEnv.FARMING_NODE_LIBRARY_PATH || '';
+  if (ldPath && libraryPath) {
+    return {
+      command: ldPath,
+      args: ['--library-path', libraryPath, nodeBin, entry],
+    };
+  }
+  return { command: nodeBin, args: [entry] };
+}
+
 function resolveAcpLaunch(provider, options = {}) {
   const normalized = String(provider || '').trim().toLowerCase();
   if (normalized === 'codex') {
+    const launch = nodeAdapterLaunch(
+      adapterEntry('@agentclientprotocol/codex-acp'),
+      options.runtimeEnv || process.env,
+    );
     return {
-      command: process.execPath,
-      args: [adapterEntry('@agentclientprotocol/codex-acp')],
+      ...launch,
       version: ADAPTER_VERSIONS.codex,
     };
   }
   if (normalized === 'claude') {
+    const launch = nodeAdapterLaunch(
+      adapterEntry('@agentclientprotocol/claude-agent-acp'),
+      options.runtimeEnv || process.env,
+    );
     return {
-      command: process.execPath,
-      args: [adapterEntry('@agentclientprotocol/claude-agent-acp')],
+      ...launch,
       version: ADAPTER_VERSIONS.claude,
     };
   }
@@ -79,6 +100,7 @@ function resolveAcpLaunch(provider, options = {}) {
 
 function codexAcpEnvironment(options = {}) {
   const env = { ...(options.env || process.env) };
+  if (options.executable && !env.CODEX_PATH) env.CODEX_PATH = options.executable;
   let config = {};
   if (env.CODEX_CONFIG) {
     try {
@@ -278,6 +300,7 @@ class AcpRuntime extends EventEmitter {
       subagentStates: new Map(),
       interactionOrigins: new Map(),
       promptActive: false,
+      historyReplayActive: false,
       sessionState: null,
       authTerminal: null,
       patchDecisions: new Map(),
@@ -347,13 +370,29 @@ class AcpRuntime extends EventEmitter {
             revisionBase,
             resetBeforeRevision: revisionBase,
           });
-          sessionResponse = await withTimeout(
-            connection.loadSession(sessionRequest),
-            this.sessionSetupTimeoutMs,
-            'ACP session/load'
-          );
-          if (provider === 'qoder') await this.waitForHistoryReplay(binding);
+          binding.historyReplayActive = true;
+          try {
+            sessionResponse = await withTimeout(
+              connection.loadSession(sessionRequest),
+              this.sessionSetupTimeoutMs,
+              'ACP session/load'
+            );
+            if (provider === 'qoder') await this.waitForHistoryReplay(binding);
+          } finally {
+            binding.historyReplayActive = false;
+          }
           binding.sessionState.finishHistoryReplay();
+          if (provider === 'codex' && binding.sessionState.hasCodexHistoryImageReferences()) {
+            let imageDataByPath = new Map();
+            try {
+              imageDataByPath = await readCodexHistoryImageData(requestedSessionId, {
+                codexHome: binding.env.CODEX_HOME,
+              });
+            } catch {
+              // Local history images can still be restored from their adapter paths.
+            }
+            await binding.sessionState.hydrateCodexHistoryAttachments({ imageDataByPath });
+          }
           historyMode = 'load';
         } else if (capabilities.sessionCapabilities?.resume) {
           binding.sessionId = requestedSessionId;
@@ -473,7 +512,11 @@ class AcpRuntime extends EventEmitter {
             if (parentTool) binding.sessionState.touchEntry(parentTool);
           }
           binding.updatedAt = new Date().toISOString();
-          this.emitSession(binding);
+          // A loaded history can contain hundreds of ordered updates. Applying
+          // them one by one is necessary, but broadcasting every replay step
+          // makes clients repeatedly abort/refetch and remount rich content.
+          // prepareAgent emits one complete snapshot after the replay settles.
+          if (!binding.historyReplayActive) this.emitSession(binding);
         }
       },
       requestPermission: request => this.requestPermission(binding, request),

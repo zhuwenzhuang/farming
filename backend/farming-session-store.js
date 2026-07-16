@@ -184,6 +184,7 @@ class FarmingSessionStore {
       category: typeof agent.category === 'string' ? agent.category : '',
       task: typeof agent.task === 'string' ? agent.task : '',
       workflowTemplate: typeof agent.workflowTemplate === 'string' ? agent.workflowTemplate : '',
+      wantsMain: agent.wantsMain === true,
       pinned: agent.pinned === true,
       projectOrder: typeof agent.projectOrder === 'number' && Number.isFinite(agent.projectOrder) ? agent.projectOrder : null,
       pinnedOrder: typeof agent.pinnedOrder === 'number' && Number.isFinite(agent.pinnedOrder) ? agent.pinnedOrder : null,

@@ -1,5 +1,23 @@
+const fsp = require('fs/promises');
+const path = require('path');
+const { fileURLToPath } = require('url');
+
 const MAX_ACP_UPDATES = 2_000;
 const MAX_ACP_UPDATE_LOG_VALUE_CHARS = 32 * 1024;
+const MAX_CODEX_HISTORY_IMAGES_PER_MESSAGE = 6;
+const MAX_CODEX_HISTORY_IMAGE_BYTES = 5 * 1024 * 1024;
+const CODEX_HISTORY_IMAGE_MIME_BY_EXT = Object.freeze({
+  '.gif': 'image/gif',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+});
+const {
+  codexHistoryImageTargets,
+  visibleUserMessageText,
+} = require('./codex-transcript');
 const {
   isCodexInjectedContextMessage,
   stripCodexInternalContextBlocks,
@@ -44,12 +62,76 @@ function contentText(content) {
     .join('');
 }
 
+function localPathFromHistoryImageTarget(value) {
+  const target = String(value || '').trim();
+  if (!target || target.includes('\0') || /^data:/i.test(target)) return '';
+  if (/^file:\/\//i.test(target)) {
+    try {
+      return fileURLToPath(target);
+    } catch {
+      return '';
+    }
+  }
+  return path.isAbsolute(target) ? target : '';
+}
+
+function imageBlockFromDataUrl(value) {
+  const match = String(value || '').match(/^data:(image\/(?:gif|jpe?g|png|svg\+xml|webp));base64,([a-z0-9+/=]+)$/i);
+  if (!match) return null;
+  const data = match[2];
+  if (!data || Math.ceil(data.length * 3 / 4) > MAX_CODEX_HISTORY_IMAGE_BYTES) return null;
+  return { type: 'image', mimeType: match[1].toLowerCase(), data };
+}
+
+async function imageBlockFromLocalPath(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  const mimeType = CODEX_HISTORY_IMAGE_MIME_BY_EXT[ext];
+  if (!mimeType) return null;
+  try {
+    const stat = await fsp.stat(filePath);
+    if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_CODEX_HISTORY_IMAGE_BYTES) return null;
+    return { type: 'image', mimeType, data: (await fsp.readFile(filePath)).toString('base64') };
+  } catch {
+    return null;
+  }
+}
+
 function isContextCompactionText(content) {
-  return /^\*?Context compacted(?: to fit the model's context window)?\.?\*?$/i.test(contentText(content).trim());
+  const text = contentText(content).trim();
+  return /^\*?Context compacted(?: to fit the model's context window)?\.?\*?$/i.test(text)
+    || /^(?:#{1,3}\s*)?Handoff Summary(?:[ \t]*:|[ \t]*(?:\r?\n|$))/i.test(text)
+    || /^Another language model started to solve this problem and produced a summary\b/i.test(text);
 }
 
 function canMergeMessageIds(existing, incoming) {
   return !existing || !incoming || existing === incoming;
+}
+
+function codexMessagePhase(meta) {
+  return String(meta?.codex?.phase || '');
+}
+
+function canMergeMessageChunks(existing, update) {
+  if (!canMergeMessageIds(existing?.messageId, String(update?.messageId || ''))) return false;
+  // Codex ACP history can omit message ids while still preserving the original
+  // commentary/final-answer boundary in metadata. Never merge across that
+  // boundary or the frontend loses the only authoritative answer signal.
+  return codexMessagePhase(existing?._meta) === codexMessagePhase(update?._meta);
+}
+
+function isCodexMirroredAssistantMessage(provider, existing, update, role, type) {
+  if (provider !== 'codex' || role !== 'assistant' || type !== 'message') return false;
+  if (!existing || existing.type !== type || existing.role !== role) return false;
+  if (codexMessagePhase(existing._meta) !== codexMessagePhase(update?._meta)) return false;
+  const existingId = String(existing.messageId || '');
+  const incomingId = String(update?.messageId || '');
+  // The App Server thread item has an id while the JSONL response-item
+  // fallback does not. If both have ids, keep them as distinct protocol
+  // messages even when their visible text happens to match.
+  if (existingId && incomingId) return false;
+  const existingText = stripCodexInternalContextBlocks(contentText(existing.content));
+  const incomingText = stripCodexInternalContextBlocks(contentText([update?.content]));
+  return Boolean(existingText) && existingText === incomingText;
 }
 
 class AcpSessionState {
@@ -165,6 +247,44 @@ class AcpSessionState {
     // History replay uses the same reducer as live updates; nothing to close.
   }
 
+  hasCodexHistoryImageReferences() {
+    return this.provider === 'codex' && this.entries.some(entry => (
+      entry?.type === 'message'
+      && entry.role === 'user'
+      && codexHistoryImageTargets(contentText(entry.content)).length > 0
+    ));
+  }
+
+  async hydrateCodexHistoryAttachments(options = {}) {
+    if (this.provider !== 'codex') return 0;
+    const imageDataByPath = options.imageDataByPath instanceof Map ? options.imageDataByPath : new Map();
+    let hydrated = 0;
+    for (const entry of this.entries) {
+      if (entry?.type !== 'message' || entry.role !== 'user') continue;
+      const existingImages = (entry.content || []).filter(content => content?.type === 'image');
+      const remaining = MAX_CODEX_HISTORY_IMAGES_PER_MESSAGE - existingImages.length;
+      if (remaining <= 0) continue;
+      const targets = codexHistoryImageTargets(contentText(entry.content));
+      const seenPaths = new Set();
+      const blocks = [];
+      for (const target of targets) {
+        const filePath = localPathFromHistoryImageTarget(target);
+        if (!filePath || seenPaths.has(filePath)) continue;
+        seenPaths.add(filePath);
+        const fallback = imageDataByPath.get(filePath);
+        const block = await imageBlockFromLocalPath(filePath) || imageBlockFromDataUrl(fallback);
+        if (!block) continue;
+        blocks.push(block);
+        if (blocks.length >= remaining) break;
+      }
+      if (blocks.length === 0) continue;
+      entry.content.push(...blocks);
+      this.touchEntry(entry);
+      hydrated += blocks.length;
+    }
+    return hydrated;
+  }
+
   apply(notification) {
     if (!notification || notification.sessionId !== this.sessionId) return false;
     const update = notification.update;
@@ -243,9 +363,15 @@ class AcpSessionState {
     if (
       last?.type === type
       && last.role === role
-      && canMergeMessageIds(last.messageId, messageId)
+      && canMergeMessageChunks(last, update)
     ) {
+      const mirroredAssistantMessage = isCodexMirroredAssistantMessage(this.provider, last, update, role, type);
       if (!last.messageId) last.messageId = messageId;
+      if (!last._meta && update._meta) last._meta = clone(update._meta);
+      if (mirroredAssistantMessage) {
+        this.touchEntry(last);
+        return;
+      }
       appendContent(last.content, update.content);
       this.touchEntry(last);
       return;
@@ -258,6 +384,7 @@ class AcpSessionState {
       role,
       messageId,
       content: [],
+      ...(update._meta ? { _meta: clone(update._meta) } : {}),
     });
     appendContent(this.entries[this.entries.length - 1].content, update.content);
   }
@@ -397,8 +524,19 @@ class AcpSessionState {
       }
       entry.internal = internalSegment;
       if (!['message', 'thought'].includes(entry.type)) continue;
+      const renderedAttachmentKinds = [];
+      if (
+        entry.type === 'message'
+        && entry.role === 'user'
+        && ((entry.content || []).some(content => content?.type === 'image') || codexHistoryImageTargets(contentText(entry.content)).length > 0)
+      ) {
+        renderedAttachmentKinds.push('image');
+      }
       for (const content of entry.content || []) {
-        if (content.type === 'text') content.text = stripCodexInternalContextBlocks(content.text);
+        if (content.type !== 'text') continue;
+        content.text = entry.type === 'message' && entry.role === 'user' && entry.internal !== true
+          ? visibleUserMessageText(content.text, { renderedAttachmentKinds })
+          : stripCodexInternalContextBlocks(content.text);
       }
     }
     return entries;

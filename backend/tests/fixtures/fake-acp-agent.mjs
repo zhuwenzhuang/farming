@@ -24,6 +24,14 @@ let activeModel = 'gpt-5.5';
 let activeEffort = 'high';
 const cancelledSessions = new Map();
 
+function sessionConfigOptions() {
+  return [
+    { id: 'model', name: 'Model', type: 'select', currentValue: activeModel, options: [{ value: activeModel, name: activeModel }] },
+    { id: 'reasoning', name: 'Reasoning', type: 'select', currentValue: activeEffort, options: [{ value: activeEffort, name: activeEffort }] },
+    { id: 'fast-mode', name: 'Fast mode', type: 'boolean', currentValue: false },
+  ];
+}
+
 class FakeAgent {
   async initialize(params) {
     if (
@@ -63,11 +71,7 @@ class FakeAgent {
   async newSession() {
     return {
       sessionId,
-      configOptions: [
-        { id: 'model', name: 'Model', type: 'select', currentValue: activeModel, options: [{ value: activeModel, name: activeModel }] },
-        { id: 'reasoning', name: 'Reasoning', type: 'select', currentValue: activeEffort, options: [{ value: activeEffort, name: activeEffort }] },
-        { id: 'fast-mode', name: 'Fast mode', type: 'boolean', currentValue: false },
-      ],
+      configOptions: sessionConfigOptions(),
     };
   }
 
@@ -91,7 +95,7 @@ class FakeAgent {
           },
         });
       }
-      return {};
+      return { configOptions: sessionConfigOptions() };
     }
     if (sessionId === 'delayed-history-session') {
       await client.sessionUpdate({
@@ -112,7 +116,7 @@ class FakeAgent {
           },
         });
       }, 120);
-      return {};
+      return { configOptions: sessionConfigOptions() };
     }
     await client.sessionUpdate({
       sessionId,
@@ -130,12 +134,12 @@ class FakeAgent {
         content: { type: 'text', text: 'historical answer' },
       },
     });
-    return {};
+    return { configOptions: sessionConfigOptions() };
   }
 
   async resumeSession(params) {
     sessionId = params.sessionId;
-    return {};
+    return { configOptions: sessionConfigOptions() };
   }
 
   async listSessions() {
@@ -203,6 +207,38 @@ class FakeAgent {
   async prompt(params) {
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
     const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
+    if (promptText.includes('phase-aware mermaid')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'phase-aware-commentary',
+          content: { type: 'text', text: 'Checking the final-answer phase.' },
+          _meta: { codex: { phase: 'commentary' } },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'phase-aware-final',
+          content: {
+            type: 'text',
+            text: 'Phase-aware rich answer.\n\n```mermaid\nsequenceDiagram\n    participant G as Git\n    participant R as Repository\n    G->>R: Register .git/worktrees/&lt;id&gt;\n```',
+          },
+          _meta: { codex: { phase: 'final_answer' } },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_thought_chunk',
+          messageId: 'phase-aware-trailing-thought',
+          content: { type: 'text', text: 'Trailing replay thought.' },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('image attachment')) {
       await client.sessionUpdate({
         sessionId: params.sessionId,

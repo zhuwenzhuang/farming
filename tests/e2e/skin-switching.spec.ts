@@ -38,6 +38,143 @@ test('switches from Farming Code to the same Agent in Farming CRT', async ({ pag
   await expect(page.getByText('Terminal', { exact: true })).toHaveCount(0)
 })
 
+test('keeps every session command reachable through a Terminal to MSG keyboard flow', async ({ page, workspaceRoot }) => {
+  test.setTimeout(90_000)
+  await openFarming(page)
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/control/agents')
+    const payload = await response.json() as { mainAgentId?: string }
+    return payload.mainAgentId || ''
+  }, { timeout: 30_000 }).not.toBe('')
+  const initialChatAgentId = await createControlAgent(page, 'codex', workspaceRoot, 'acp')
+  const fallbackAgentId = await createControlAgent(page, 'bash', workspaceRoot)
+
+  await page.goto('/farming/crt/', { waitUntil: 'networkidle' })
+  await expect(page.locator('body')).toHaveAttribute('id', 'farming-crt')
+  const initialChatCard = page.locator(`#map-area .agent-block[data-agent-id="${initialChatAgentId}"]`)
+  await expect(initialChatCard).toBeVisible({ timeout: 30_000 })
+
+  // From this point onward the scenario uses only keyboard input.
+  await page.keyboard.press('1')
+  await expect(page.locator('#session-modal')).toHaveClass(/active/)
+  await expect(page.locator('#crt-structured-input')).toBeFocused()
+
+  const terminalSwitchResponsePromise = page.waitForResponse(response => (
+    response.request().method() === 'PATCH'
+    && response.url().includes(`/api/agents/${initialChatAgentId}`)
+  ))
+  await page.keyboard.press('Alt+M')
+  const terminalSwitchResponse = await terminalSwitchResponsePromise
+  const terminalSwitchPayload = await terminalSwitchResponse.json() as { error?: string, restartedAgentId?: string }
+  expect(terminalSwitchResponse.ok(), terminalSwitchPayload.error || 'Terminal runtime switch request failed').toBeTruthy()
+  const terminalAgentId = terminalSwitchPayload.restartedAgentId || initialChatAgentId
+  await expect(page.getByRole('button', { name: 'Close session, Ctrl+Escape', exact: true })).toBeVisible({ timeout: 30_000 })
+
+  const switchResponsePromise = page.waitForResponse(response => (
+    response.request().method() === 'PATCH'
+    && response.url().includes(`/api/agents/${terminalAgentId}`)
+  ))
+  await page.keyboard.press('Alt+M')
+  const switchResponse = await switchResponsePromise
+  const switchPayload = await switchResponse.json() as { error?: string, restartedAgentId?: string }
+  expect(switchResponse.ok(), switchPayload.error || 'Runtime switch request failed').toBeTruthy()
+  const chatAgentId = switchPayload.restartedAgentId || terminalAgentId
+  const chatInput = page.locator('#crt-structured-input')
+  await expect(chatInput).toBeVisible({ timeout: 30_000 })
+  await expect(chatInput).toBeFocused()
+  await expect(page.getByRole('button', { name: 'Close session, Escape', exact: true })).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#session-modal')).not.toHaveClass(/active/)
+  const chatCard = page.locator(`#map-area .agent-block[data-agent-id="${chatAgentId}"]`)
+  await expect(chatCard).toBeFocused()
+
+  await page.keyboard.press('Enter')
+  await expect(chatInput).toBeFocused()
+  await page.keyboard.press('Control+Escape')
+  await expect(page.locator('#session-modal')).not.toHaveClass(/active/)
+  await expect(chatCard).toBeFocused()
+
+  await page.keyboard.press('Enter')
+  await expect(chatInput).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.locator('.crt-structured-tool:focus')).toHaveCount(1)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#session-modal')).toHaveClass(/active/)
+  await expect(chatInput).toBeFocused()
+
+  await page.keyboard.press('Control+K')
+  await expect(page.locator('#session-modal')).not.toHaveClass(/active/)
+  await expect(chatCard).toHaveCount(0, { timeout: 30_000 })
+  const fallbackCard = page.locator(`#map-area .agent-block[data-agent-id="${fallbackAgentId}"]`)
+  await expect(fallbackCard).toBeFocused()
+
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#session-modal')).toHaveClass(/active/)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#session-modal')).toHaveClass(/active/)
+  await page.keyboard.press('Control+Escape')
+  await expect(page.locator('#session-modal')).not.toHaveClass(/active/)
+  await expect(fallbackCard).toBeFocused()
+})
+
+test('round-trips every CRT top-level surface with keyboard-only navigation', async ({ page, workspaceRoot }) => {
+  await openFarming(page)
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/control/agents')
+    const payload = await response.json() as { mainAgentId?: string }
+    return payload.mainAgentId || ''
+  }, { timeout: 30_000 }).not.toBe('')
+  const agentId = await createControlAgent(page, 'bash', workspaceRoot)
+
+  await page.goto('/farming/crt/', { waitUntil: 'networkidle' })
+  const agentCard = page.locator(`#map-area .agent-block[data-agent-id="${agentId}"]`)
+  await expect(agentCard).toBeVisible({ timeout: 30_000 })
+
+  await page.keyboard.press('n')
+  await expect(page.locator('#input-dialog')).toHaveClass(/active/)
+  await page.keyboard.press('3')
+  await expect(page.locator('#workspace-input')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#workspace-input-container')).toBeHidden()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#input-dialog')).not.toHaveClass(/active/)
+
+  await page.keyboard.press('s')
+  await expect(page.locator('#settings-modal')).toHaveClass(/active/)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#settings-modal')).not.toHaveClass(/active/)
+
+  await page.keyboard.press('f')
+  const searchInput = page.locator('#crt-search-input')
+  await expect(searchInput).toBeFocused()
+  await page.keyboard.type('bash')
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#search-area')).toHaveClass(/hidden/)
+
+  await page.keyboard.press('h')
+  await expect(page.locator('#history-area')).not.toHaveClass(/hidden/)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#history-area')).toHaveClass(/hidden/)
+
+  await page.keyboard.press('Shift+4')
+  await expect(page.locator('#billing-area')).not.toHaveClass(/hidden/)
+  await page.keyboard.press('l')
+  await expect(page.locator('#billing-live-view')).not.toHaveClass(/hidden/)
+  await page.keyboard.press('d')
+  await expect(page.locator('#billing-days-view')).not.toHaveClass(/hidden/)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#billing-area')).toHaveClass(/hidden/)
+
+  await page.keyboard.press('1')
+  await expect(page.locator('#session-modal')).toHaveClass(/active/)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#session-modal')).toHaveClass(/active/)
+  await page.keyboard.press('Control+Escape')
+  await expect(page.locator('#session-modal')).not.toHaveClass(/active/)
+  await expect(agentCard).toBeFocused()
+})
+
 test('previews structured Chat on CRT cards and removes killed Agents from the live grid', async ({ page, workspaceRoot }) => {
   test.setTimeout(90_000)
   await openFarming(page)
@@ -66,6 +203,18 @@ test('previews structured Chat on CRT cards and removes killed Agents from the l
   await expect(chatPreview).toHaveAttribute('data-preview-kind', 'chat')
   await expect(chatPreview.locator('[data-preview-role="user"]')).toContainText('rich timeline')
   await expect(chatPreview.locator('[data-preview-role="assistant"]')).toContainText('Rich ACP timeline complete.')
+  const previewLayout = await chatPreview.evaluate((element) => {
+    const trail = element.querySelector<HTMLElement>('.agent-chat-preview-trail')
+    const text = element.querySelector<HTMLElement>('.agent-chat-preview-text')
+    const trailStyle = trail ? getComputedStyle(trail) : null
+    const textStyle = text ? getComputedStyle(text) : null
+    return {
+      overflow: trailStyle?.overflowY || '',
+      lineClamp: textStyle?.webkitLineClamp || '',
+    }
+  })
+  expect(previewLayout.overflow).toBe('hidden')
+  expect(['', 'none']).toContain(previewLayout.lineClamp)
   await expect(chatCard.getByText('No output yet...', { exact: true })).toHaveCount(0)
 
   const killedAgentId = await createControlAgent(page, 'bash', workspaceRoot)

@@ -121,7 +121,9 @@ function run() {
       markdownPreviewSource.includes('data-language={language || undefined}') &&
       markdownPreviewSource.includes("import('mermaid')") &&
       markdownPreviewSource.includes('language-mermaid') &&
-      markdownPreviewSource.includes('mermaid.parse(source)') &&
+      markdownPreviewSource.includes("decodeMermaidCharacterReferences(source)") &&
+      markdownPreviewSource.includes('mermaid.parse(renderSource)') &&
+      markdownPreviewSource.includes('mermaid.render(renderId, renderSource)') &&
       markdownPreviewSource.includes('useMermaidAppearance') &&
       markdownPreviewSource.includes('code-markdown-mermaid-toolbar') &&
       markdownPreviewSource.includes('handleWheel') &&

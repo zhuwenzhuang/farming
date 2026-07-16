@@ -19,7 +19,7 @@ Each card shows:
 - the human rename, provider session title, terminal title, or friendly provider name;
 - running, waiting, unread, and optional heat state;
 - the configured project name;
-- a bottom-aligned ANSI-aware terminal tail, or a compact Chat trail with the latest visible user message, Agent reply, and active tool step;
+- a bottom-aligned ANSI-aware terminal tail with unused trailing screen rows removed, or a compact ordered Chat trail with up to eight recent visible messages and the active tool step; each card naturally clips only the oldest overflow when its current grid size is smaller;
 - a stable numeric shortcut badge.
 
 The dashboard is a live-work surface: archived, stopped, and dead Agent records do not retain grid bays or numeric shortcuts. Their run or provider history remains available through History when it is resumable.
@@ -67,6 +67,22 @@ Compatible session headers expose `MSG` and `TTY`, with `Alt+M` as the visible s
 - the overlay reports preparation, restart, and failure state, then follows the replacement Agent id.
 
 A fresh Terminal with no user input can move into a fresh Chat before provider history exists. Once Terminal input has occurred, a missing history identity remains a visible error so Farming never silently drops the conversation.
+
+## Keyboard State Contract
+
+CRT session keys follow one priority order, independent of the element that currently owns focus:
+
+| Session state | Key | Resulting state |
+| --- | --- | --- |
+| Terminal or Chat, any focus owner | `Ctrl+K` | Kill the current Agent, close the session, and select an adjacent live Agent when one exists. |
+| Terminal or Chat, any focus owner | `Ctrl+Escape` | Close the session without killing it and restore focus to the same Agent card. |
+| Terminal | `Escape` | Stay in the session and forward Escape to the terminal application. |
+| Idle Chat input | `Escape` | Close the session and restore the Agent card. |
+| Working Chat input with no draft | `Escape` | Interrupt the active turn and remain in Chat. |
+| Chat transcript, toolbar, or open menu | `Escape` | Move one local step back toward the Chat input; do not close the session. |
+| Switchable Terminal or Chat, any focus owner | `Alt+M` | Restart into the other runtime and follow the replacement Agent while preserving the provider session. |
+
+Global kill, close, and runtime-switch commands are resolved before Terminal IME or Chat input routing. Local Escape actions are resolved before the idle-Chat close action. Opening a session records its Agent-card selection, so closing returns to a keyboard-reachable dashboard state; killing selects a surviving neighbor or falls back to the normal empty-dashboard flow.
 
 ## Search Live And Historical Work
 
@@ -126,7 +142,7 @@ Farming CRT is currently supported as a desktop interface. Use Farming Code on a
 
 ## Live Rendering And Reconnection
 
-Dashboard previews are monitoring summaries, not interactive session canvases. Terminal cards batch ANSI-aware snapshots at most once per second. Structured Chat cards read the backend-sanitized transcript and project only the latest visible turn and current activity; ACP revisions are throttled and update only the affected card instead of rebuilding the grid for every streamed chunk. While a session is open, background dashboard rendering and preview streams are suspended for that client; closing it requests one fresh merged state.
+Dashboard previews are monitoring summaries, not interactive session canvases. Terminal cards batch ANSI-aware snapshots at most once per second and trim unused rows after the last painted or visible-cursor row before bottom-aligning the preview. Structured Chat cards read the backend-sanitized transcript, reduce each user turn to the same final Agent reply shown by the opened Chat, and preserve the order of up to eight recent visible messages plus current activity. The Chat trail keeps messages at their natural wrapped height inside the card's fixed viewport and clips only the oldest top overflow, so any card size reveals as much recent context as it can without message-count or language-specific layout thresholds. ACP revisions are throttled and update only the affected card instead of rebuilding the grid for every streamed chunk. While a session is open, background dashboard rendering and preview streams are suspended for that client; closing it requests one fresh merged state.
 
 When the browser tab is hidden, CRT closes its WebSocket and cancels reconnect work while backend Agents and PTYs continue. Returning opens one connection, restores dashboard state, and resynchronizes an open terminal before incremental output resumes.
 

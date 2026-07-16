@@ -25,6 +25,61 @@ function quoteCommandArg(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
+function tomlStringAssignment(line, key) {
+  const match = String(line || '').match(new RegExp(`^\\s*${key}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*"|'[^']*')\\s*(?:#.*)?$`));
+  if (!match) return '';
+  const literal = match[1];
+  if (literal.startsWith('"')) {
+    try {
+      return JSON.parse(literal).trim();
+    } catch {
+      return '';
+    }
+  }
+  return literal.slice(1, -1).trim();
+}
+
+function codexProfileNameForSection(section) {
+  const match = String(section || '').trim().match(/^profiles\.(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))$/);
+  return match ? (match[1] || match[2] || match[3] || '') : '';
+}
+
+function resolveCodexResumeModelProvider(codexHome) {
+  const home = normalizePathValue(codexHome)
+    || normalizePathValue(process.env.CODEX_HOME)
+    || path.join(os.homedir(), '.codex');
+  let config = '';
+  try {
+    config = fs.readFileSync(path.join(home, 'config.toml'), 'utf8');
+  } catch {
+    return 'openai';
+  }
+
+  let section = '';
+  let activeProfile = '';
+  let topLevelProvider = '';
+  const profileProviders = new Map();
+  for (const line of config.split(/\r?\n/)) {
+    const sectionMatch = line.match(/^\s*\[([^\]]+)]\s*(?:#.*)?$/);
+    if (sectionMatch) {
+      section = sectionMatch[1].trim();
+      continue;
+    }
+    if (!section) {
+      activeProfile = tomlStringAssignment(line, 'profile') || activeProfile;
+      topLevelProvider = tomlStringAssignment(line, 'model_provider') || topLevelProvider;
+      continue;
+    }
+    const profileName = codexProfileNameForSection(section);
+    if (profileName) {
+      const provider = tomlStringAssignment(line, 'model_provider');
+      if (provider) profileProviders.set(profileName, provider);
+    }
+  }
+
+  return (activeProfile && profileProviders.get(activeProfile)) || topLevelProvider || 'openai';
+}
+
 function normalizePathValue(value) {
   if (typeof value !== 'string') return '';
   const trimmed = value.trim();
@@ -752,8 +807,12 @@ function buildAgentSessionResumeCommand(provider, sessionId, options = {}) {
 
   if (normalizedProvider === 'codex') {
     const cwd = normalizePathValue(options.cwd);
+    const modelProvider = String(options.modelProvider || '').trim();
+    const providerArgs = modelProvider
+      ? ` -c ${quoteCommandArg(`model_provider=${JSON.stringify(modelProvider)}`)}`
+      : '';
     const cwdArgs = cwd ? ` -C ${quoteCommandArg(cwd)}` : '';
-    return `codex ${options.fork === true ? 'fork' : 'resume'}${cwdArgs} ${normalizedSessionId}`;
+    return `codex ${options.fork === true ? 'fork' : 'resume'}${providerArgs}${cwdArgs} ${normalizedSessionId}`;
   }
 
   if (normalizedProvider === 'claude') {
@@ -884,5 +943,6 @@ module.exports = {
   listQoderSessions,
   normalizeProvider,
   paginateAgentSessions,
+  resolveCodexResumeModelProvider,
   searchAgentSessions,
 };

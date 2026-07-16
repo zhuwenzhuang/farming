@@ -222,10 +222,22 @@ export function mergeSlashCommands(commands: SlashCommandOption[]) {
 
 export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapabilities {
   const kind = inferAgentTerminalState(agent).kind
+  const runtimeMode = agent?.agentRuntimeMode || 'terminal'
   const composer = kind === 'codex'
-    ? { ...CODING_AGENT_COMPOSER_CAPABILITIES, serviceTier: true }
+    ? {
+        ...CODING_AGENT_COMPOSER_CAPABILITIES,
+        modelPicker: runtimeMode === 'terminal' || agent?.codexRuntimeMode === 'app-server',
+        reasoningEffort: runtimeMode === 'terminal' || agent?.codexRuntimeMode === 'app-server',
+        serviceTier: runtimeMode === 'terminal' || agent?.codexRuntimeMode === 'app-server',
+      }
     : kind === 'claude'
-      ? { ...CODING_AGENT_COMPOSER_CAPABILITIES }
+      ? {
+          ...CODING_AGENT_COMPOSER_CAPABILITIES,
+          // Claude Terminal currently has no verified live-profile adapter.
+          // ACP renders provider-advertised config options in AcpComposer.
+          modelPicker: false,
+          reasoningEffort: false,
+        }
       : { ...BASIC_COMPOSER_CAPABILITIES }
 
   return {

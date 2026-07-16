@@ -125,7 +125,13 @@ function run() {
   assert(indexHtml.includes('class="kill-btn" aria-label="Kill Agent, Ctrl+K"') && indexHtml.includes('class="close-btn" aria-label="Close session, Ctrl+Escape"'), 'CRT Kill and Close should retain their standalone button styles');
   assert(indexHtml.includes('>KILL [CTRL+K]</button>') && indexHtml.includes('>CLOSE [CTRL+ESC]</button>'), 'CRT session actions should default to the Terminal keyboard labels');
   assert(crtApp.includes('function updateCrtSessionCloseControl(agent)') && crtApp.includes("chat ? 'CLOSE [ESC]' : 'CLOSE [CTRL+ESC]'"), 'CRT should show Escape for Chat and Ctrl+Escape for Terminal');
-  assert(crtApp.includes('structuredSessionActive') && crtApp.includes('(e.ctrlKey || e.metaKey || !structuredComposerMenu)'), 'CRT structured sessions should close with Escape or Ctrl+Escape while preserving submenu back navigation');
+  assert(
+    crtApp.includes('function resolveCrtSessionKeyboardCommand')
+      && crtApp.includes('function hasCrtStructuredLocalEscapeAction')
+      && crtApp.includes("if (sessionCommand === 'kill') killCurrentAgent()")
+      && crtApp.includes('e.stopPropagation()'),
+    'CRT session commands should remain focus-independent while local Chat Escape transitions keep priority'
+  );
   assert(indexHtml.includes('#farming-crt .session-header-actions > .kill-btn') && indexHtml.includes('height: 38px;') && indexHtml.includes('font-size: 16px;'), 'CRT session header controls should share one height and type size');
   assert(crtApp.includes("document.addEventListener('keydown', (event) => {") && crtApp.includes('}, true);'), 'CRT should capture the runtime shortcut before xterm sends it to the PTY');
   assert(crtApp.includes('[READ ONLY]') && terminalBridge.includes('disableStdin'), 'CRT should make exited terminal sessions explicitly read-only');

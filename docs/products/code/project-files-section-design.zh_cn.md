@@ -17,18 +17,22 @@ Project
   具体 Agent 行
   Open Editors（有打开文件时才出现，默认折叠）
   Files
+    Changes
+    Git History（默认折叠）
+    文件树
 
 右侧主区域
   Terminal 或 Monaco Editor
 ```
 
-也就是说，文件能力不做独立全局页面，也不做三栏复杂 IDE 布局。Project 展开后先展示具体 agent 行；如果用户打开过文件，再在 agent 与 `Files` 之间展示独立的 `Open Editors` section。`Open Editors` 不属于 `Files`，没有打开文件时不渲染，出现后默认折叠。Main Agent 是调度入口，不单独挂载 Files。
+也就是说，文件能力不做独立全局页面，也不做三栏复杂 IDE 布局。Project 展开后先展示具体 agent 行；如果用户打开过文件，再展示独立的 `Open Editors` section；最后是 `Files`。`Git History` 收在展开的 `Files` 内，位于 Working Copy `Changes` 之后，与文件树共享同一个 Git / 文件上下文。Main Agent 是调度入口，不单独挂载这些 Project 能力。
 
 这里的“轻量”指功能边界轻，不代表页面展示要像临时列表。Files 的视觉应模仿 VS Code Explorer 的可扫描密度：紧凑树、稳定图标槽、active 左侧条、dirty 状态点、编辑区 tab strip；颜色、圆角和留白则继续贴合现有 Code-style 工作台。
 
 用户在 Project 里可以：
 
 - 点 Agent：右侧显示该 Agent 的 terminal
+- 点 Git History：按需加载当前 Project 的提交树、分支和 Tag；点 Commit 后查看相对所选 Parent 的变更文件并进入 Review
 - 点 Files：展开当前 Project 的目录树
 - 点 Open Editors：展开当前 Project 已打开文件列表，并快速切回文件
 - 点文件：右侧从 terminal 切到 Monaco editor；图片和普通二进制切到只读 preview，过大文本文件在只读 Monaco 中展示文件开头内容
@@ -42,6 +46,10 @@ Project
 `Changes` 是当前 Project 内的轻量 review 入口，属于 Files / editor 能力的一部分；它只汇总当前 workspace 的工作区改动，点击后把右侧主区域让给 Monaco diff。Farming 暂不做全局跨 Project review 工作台，也不把 patch 审阅塞进窄的 Agent / chat 栏。目录树自身继续轻量展示 git 工作区状态：文件行显示 `M`/`U` 等短状态，包含改动的父目录显示低饱和度状态点。
 
 独立的 `/review?agentId=...` 是读取所选 Agent 工作区的 working-copy review 页面；`/review?agentId=...&base=...&head=...` 使用同一个页面查看 Git commit range。它不接入主页面，提供接近 Gerrit 的多文件 diff、逐文件 `Reviewed` 状态和 diff 偏好，但不改变 `Files` / Monaco 的轻量 review 边界。Git diff 要保留字符级修改范围，并在任一侧文件末尾缺少换行时明确提示，避免内容看似相同的替换行无法解释。Patch 生成仍是后端能力；在下载和 final-change 选择器的产品场景明确之前，页面不展示这两个临时入口。持久化 review 状态以稳定的工作区身份和当前结构化 diff 版本为范围，不依赖短暂的 agent id。对于本地 working copy 没有服务端变更元数据支撑的 Rebase、Included In 等操作不展示。`/review` 是唯一产品路由；确定性测试通过显式的 `fixture=1` 查询启用 fixture，不再使用独立的原型路由。
+
+`Git History` 是 `Files` 内理解 Project 已提交历史的 SCM Graph，不是另一套全局 History。它放在 Working Copy `Changes` 之后，让未提交与已提交状态都从 Files 进入。默认视图遵循 `git log --first-parent HEAD`：展示当前分支的简单线性历史，保留 Merge Commit，但不展开被合入分支的每一个内部提交；需要完整关系时，用户可显式切到“所有分支”，再查看本地分支、远端分支和 Tag 的完整 Graph。每个视图每页加载 50 个 Commit，只有用户点击 `Load more` 才继续分页。列表保持一行 Commit Subject；如果 Commit Message 还有正文，点击 Commit 后会在文件统计前展示正文。Merge Commit 可切换 Parent；Root Commit 与 Git empty tree 比较。展开区继续绘制 VS Code 输出 lanes，不再用一条灰色装饰边替代图线。轻量 Review 操作与变更文件数量放在同一行，变更文件直接复用现有 `/review?agentId=...&base=...&head=...` 页面，文件入口额外携带 `path`，不再实现一套 Diff Viewer。
+
+图拓扑和 SVG 行几何直接改编自 MIT License 的 VS Code SCM History，固定来源 Commit 为 `0217c2f1a0defc7fdbfb4feba74e71e366de6822`，完整来源和 License 记录在 `THIRD_PARTY_NOTICES.md`。Farming 只负责把有边界的 `git log` 结果适配成 VS Code View Model，以及接入现有视觉和 Review；后续不能并行维护第二套手写图算法。
 
 目录树实现不应长期依赖手写递归列表。VS Code Explorer 的质感来自一整套 tree control 行为，而不只是文件 icon：可见行模型、展开/折叠状态、键盘焦点、选择态、虚拟滚动、懒加载、拖拽目标、重命名、git decoration、父目录上下文和 hover action 都需要统一处理。
 
@@ -90,6 +98,8 @@ Farming row renderer
 - `useWorkspaceFiles` / `/api/files/*`：Farming 文件 adapter，负责懒加载目录、watch 事件、git 状态、文本读写和冲突校验。
 - `src/lib/file-icons.ts`：Material Icon Theme manifest adapter，负责文件类型和目录类型 icon 解析。
 - `ProjectFilesSection`：Project 左栏里的 Files 组装层，负责把 Open Editors、Files header、搜索结果、目录树、sticky context、菜单和操作浮层接入同一个外层滚动流。
+- `GitHistorySection`：负责 History 的懒加载、有界分页、Commit 展开、Merge Parent 选择和 Review 路由。
+- `git-history-graph.ts` / `GitHistoryGraph`：分别承载固定版本的 VS Code SCM lane 算法适配与 SVG row renderer。
 - `FileSectionBody`：Files 展开后的 body 视图层，负责状态行、搜索结果、目录树视图以及传入 body 的命名 view model。
 - `FileSectionOverlays`：Files 浮层视图层，负责文件 context menu 和文件操作弹层。
 - `useWorkspaceFileSectionController`：Files / Open Editors section 状态层，负责折叠状态、Agent 切换清理、reveal request、search focus request 和展开时的 tree refresh 调度。
@@ -104,7 +114,7 @@ Farming row renderer
 - `FileEditorOverlays`：editor 浮层组合层，负责组合 `FileEditorContextMenu`、`FileEditorTabContextMenu`、`FileEditorSaveConfirmDialog` 和 blame 状态提示；`FileEditorPane` 只保留会影响 Monaco 或 open-file 状态的 action handler。
 - `FileEditorBlameDetail` / `FileEditorBlameToast`：blame 详情和状态提示视图层；`FileEditorPane` 仍负责 blame 加载、能力探测和 visible-range overlay 定位。
 - `FileEditorMarkdownPreview`：Markdown 源文件在 editor 主区域里的渲染 preview，不改变文件 tab、保存和 diff 语义。
-- `FileEditorPreviewPanel` / `FileEditorInlineBlameLayer`：preview 和 inline blame annotation 视图层，分别负责图片/二进制 preview 以及可点击 blame 行渲染。
+- `FileEditorPreviewPanel` / `FileEditorInlineBlameLayer`：preview 和 inline blame annotation 视图层，分别负责图片、PDF、二进制 preview 以及可点击 blame 行渲染。Chat 中的绝对本地 PDF 链接必须先经过 workspace file 边界校验，并在此处打开，不能退化成浏览器路由。
 
 ---
 
@@ -206,9 +216,12 @@ Files
 - 关闭 dirty tab 后，轻量 hot-exit 缓存里的草稿仍应同步给左侧 Explorer decoration；重新打开文件会恢复草稿，保存干净后清除该 decoration
 - 包含未提交改动的父目录显示低饱和度状态点，避免把整棵树染成强提醒
 - 父目录只有 descendant 状态时不改变目录名颜色或字重；右侧状态点承担提示，避免深层目录被一串橙色父节点淹没
-- Project 展开内容的顺序是具体 Agent 行、可选 `Open Editors`、`Files`；`Open Editors` 是和 Files 同级的独立 section，不塞进 Files 内部
+- Project 展开内容的顺序是具体 Agent 行、可选 `Open Editors`、`Files`；`Git History` 位于 Files 内的 Working Copy `Changes` 之后
 - `Open Editors` 只有在当前 Project 至少打开一个文件后才出现，出现时默认折叠；展开后显示打开文件列表，点击条目切回对应文件
-- `Files` 只承载搜索/跳转入口和目录树，不承载打开文件列表
+- `Git History` 默认折叠，只对具有可写 Workspace 的具体 Project Agent 展示；行内展示 Commit Subject、短 OID、作者/时间和 Branch/Tag Decoration
+- `Git History` 默认展示当前分支的 First-parent 线性历史；“所有分支”是用户显式切换的完整 Graph 视图
+- Commit Subject 保留在列表行；Commit Message 的额外正文在展开详情中展示
+- `Files` 承载搜索/跳转入口、Working Copy `Changes`、`Git History` 和目录树，不承载打开文件列表
 - Files 是 Project 展开内容下的独立 section，和 Agent 行处于同一层级缩进；Files 标题和树用 section 自身缩进表达 project 内部层级，桌面和窄屏都避免靠负 margin 补偿导致“FILES 像跳出 Project / 比 Project 更靠左”
 - Files section 标题可点击折叠/展开；折叠后只保留一行 section header，隐藏搜索、目录树、菜单和操作浮层，避免文件列表长期占据注意力
 - Main Agent 不展示对应 Files；只有 Project 下存在具体非 Main agent 时，才在该 Project 展开区展示 Files
@@ -271,7 +284,7 @@ Files
 
 - Monaco editor
 - Markdown 源文件可在同一 editor tab 内切换源码 / 渲染预览
-- 图片 / 二进制只读 preview；大文本用只读 Monaco 展示文件开头内容
+- 图片 / PDF / 二进制只读 preview；大文本用只读 Monaco 展示文件开头内容
 - VS Code 风格 tab strip
 - 轻量多文件 tabs：打开过的文件保留 tab，可切换、关闭，并保留各自 dirty / external changed 状态；从目录树鼠标单击打开的是 transient preview tab，再单击另一个干净文件会复用该 tab；搜索结果、`path:line`、键盘 Enter、diff/review 打开是正式 tab；编辑后 transient tab 固定为正式 tab；tab strip 支持键盘切换和关闭，active tab 应自动滚入可见区域；editor 区域支持 `Ctrl/Cmd+PageUp` / `Ctrl/Cmd+PageDown` 切换 tab、`Ctrl/Cmd+W` 关闭当前 tab
 - editor tab 使用成熟 tablist 语义：只有 active tab 进入正常 Tab 顺序，左右方向键切换；tab 通过 `aria-controls` 关联 Monaco `tabpanel`，避免视觉 tab strip 和 DOM 语义脱节
@@ -311,6 +324,8 @@ Files
 | 删除文件/目录 | `DELETE /api/files/entry` |
 | 移动文件/目录 | `POST /api/files/move` |
 | 搜索 | `GET /api/files/search?agentId=...&q=...` |
+| Git 历史 | `GET /api/files/history?agentId=...&limit=...&skip=...` |
+| Commit 变更 | `GET /api/files/history/changes?agentId=...&commit=...&parent=...` |
 | blame | `GET /api/files/blame?agentId=...&path=...` |
 | 行级变化 | `GET /api/files/line-changes?agentId=...&path=...&lineNumber=...&mode=working\|previous` |
 | 文件变化 | WebSocket `watch-workspace-files` / `workspace-file-event` |
@@ -339,6 +354,7 @@ Files
 
 - 文件读写保留大小上限。
 - 目录树按目录懒加载，不一次性展开整棵仓库。
+- Git History 每页默认 50 个 Commit，并设置硬上限；Commit 变更按点击懒加载，前端详情缓存保持有界。
 - 搜索、diff、blame 等 git / rg 操作使用 limit、timeout 或截断结果，避免无界输出。
 - terminal 实时输出按有界块读取，并在 WebSocket fanout 前做短窗口合并。
 - terminal session 退出前先 flush 最后一段输出，随后释放 screen worker 并清理 session 状态。

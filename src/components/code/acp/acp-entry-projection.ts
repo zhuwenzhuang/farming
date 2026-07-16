@@ -82,6 +82,9 @@ export interface CodexTranscriptTurn {
   userImages?: CodexTranscriptUserImage[]
   userFiles?: CodexTranscriptUserFile[]
   userAudios?: CodexTranscriptAudio[]
+  resultImages?: CodexTranscriptUserImage[]
+  resultFiles?: CodexTranscriptUserFile[]
+  resultAudios?: CodexTranscriptAudio[]
   finalMessage: string
   startedAt: number | null
   completedAt: number | null
@@ -113,10 +116,13 @@ export interface CodexTranscript {
 
 interface MutableTurn extends CodexTranscriptTurn {
   internal: boolean
-  assistantMessages: Array<{ text: string; processItemId: string }>
+  assistantMessages: Array<{ text: string; processItemId: string; phase: string }>
   userImages: CodexTranscriptUserImage[]
   userFiles: CodexTranscriptUserFile[]
   userAudios: CodexTranscriptAudio[]
+  resultImages: CodexTranscriptUserImage[]
+  resultFiles: CodexTranscriptUserFile[]
+  resultAudios: CodexTranscriptAudio[]
 }
 
 function record(value: unknown): AcpRecord {
@@ -146,6 +152,10 @@ function visibleAssistantText(text: string) {
   return text
     .replace(/\s*\*?Context compacted(?: to fit the model's context window)?\.\*?\s*/gi, '')
     .trim()
+}
+
+function codexMessagePhase(entry: AcpRecord) {
+  return stringValue(record(record(entry._meta).codex).phase).trim().toLowerCase()
 }
 
 function diffBlocks(content: unknown) {
@@ -230,8 +240,34 @@ function toolContentText(content: unknown) {
     }
     if (block.type === 'diff') return renderedDiffText(block)
     if (block.type === 'text') return stringValue(block.text)
+    if (block.type === 'image' || block.type === 'audio') return ''
+    if (block.type === 'resource_link') return [block.name, block.uri].map(stringValue).filter(Boolean).join(' — ')
+    if (block.type === 'resource') return jsonText(block.resource)
     return jsonText(block)
   }).filter(Boolean).join('\n\n').trim()
+}
+
+function rawToolResultContent(entry: AcpRecord) {
+  const output = record(entry.rawOutput)
+  const result = record(output.result)
+  if (Array.isArray(result.content)) return result.content
+  if (Array.isArray(output.content)) return output.content
+  return []
+}
+
+function sanitizeToolResultText(text: string) {
+  return text
+    .replace(/<app_specific_instructions>[\s\S]*?<\/app_specific_instructions>\s*/gi, '')
+    .trim()
+}
+
+function uniqueByUrl<T extends { url: string }>(items: T[]) {
+  const seen = new Set<string>()
+  return items.filter(item => {
+    if (!item.url || seen.has(item.url)) return false
+    seen.add(item.url)
+    return true
+  })
 }
 
 function contentImages(content: unknown, prefix: string): CodexTranscriptUserImage[] {
@@ -305,6 +341,12 @@ function toolOutputText(entry: AcpRecord) {
     if (outputRecord.interrupted === true) sections.push('Interrupted')
     if (sections.length > 0) return sections.join('\n\n')
   }
+  const rawContent = rawToolResultContent(entry)
+  if (rawContent.length > 0) {
+    const content = sanitizeToolResultText(toolContentText(rawContent))
+    const error = record(output).error
+    return [content, error ? `Error\n${jsonText(error)}` : ''].filter(Boolean).join('\n\n')
+  }
   return jsonText(output).trim()
 }
 
@@ -374,10 +416,12 @@ function processEntry(entry: AcpRecord): CodexTranscriptProcessItem | null {
     const richContent = list(entry.content).map(record)
       .filter(block => block.type === 'content' && block.content)
       .map(block => block.content)
+    const rawContent = rawToolResultContent(entry)
+    const mediaContent = [...richContent, ...rawContent]
     const prefix = stringValue(entry.id) || 'tool'
-    const images = contentImages(richContent, prefix)
-    const audios = contentAudios(richContent, prefix)
-    const files = contentFiles(richContent, prefix)
+    const images = uniqueByUrl(contentImages(mediaContent, prefix))
+    const audios = uniqueByUrl(contentAudios(mediaContent, prefix))
+    const files = contentFiles(mediaContent, prefix)
     const patchSummary = patchSummaryText(entry.content)
     const changes = patchChanges(entry.content, record(record(entry._meta).farming_patch_decisions))
     const inline = boundedInlineDetail([patchSummary, detailForTool(entry)].filter(Boolean).join('\n\n'))
@@ -420,9 +464,21 @@ function processEntry(entry: AcpRecord): CodexTranscriptProcessItem | null {
   return null
 }
 
+function isGeneratedMediaTool(entry: AcpRecord) {
+  if (entry.type !== 'tool') return false
+  const title = stringValue(entry.title).trim().toLowerCase()
+  const id = stringValue(entry.id).trim().toLowerCase()
+  const output = record(entry.rawOutput)
+  return id.startsWith('ig_')
+    || title === 'image generation'
+    || title === 'audio generation'
+    || Boolean(stringValue(output.savedPath).includes('/generated_images/'))
+}
+
 function emptyTurn(id: string, internal: boolean): MutableTurn {
   return {
-    id, internal, userMessage: '', userImages: [], userFiles: [], userAudios: [], finalMessage: '',
+    id, internal, userMessage: '', userImages: [], userFiles: [], userAudios: [],
+    resultImages: [], resultFiles: [], resultAudios: [], finalMessage: '',
     startedAt: null, completedAt: null, durationMs: null, status: 'completed', processItems: [], assistantMessages: [],
   }
 }
@@ -433,7 +489,8 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): Code
   const lastProcess = turn.processItems[turn.processItems.length - 1]
   if (turn.internal && lastAssistant?.text) {
     turn.finalMessage = lastAssistant.text
-  } else if (!keepTailAsProgress && lastAssistant?.text && lastAssistant.processItemId
+  } else if (!turn.finalMessage && !keepTailAsProgress && lastAssistant?.text && lastAssistant.processItemId
+    && lastAssistant.phase !== 'commentary'
     && lastProcess?.id === lastAssistant.processItemId
     && (lastProcess.images || []).length === 0 && (lastProcess.audios || []).length === 0 && (lastProcess.files || []).length === 0) {
     turn.finalMessage = lastAssistant.text
@@ -442,7 +499,9 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): Code
   const { internal, assistantMessages, ...finished } = turn
   if (internal) finished.processItems = []
   return finished.userMessage || finished.finalMessage || finished.userImages.length > 0
-    || finished.userAudios.length > 0 || finished.userFiles.length > 0 || finished.processItems.length > 0
+    || finished.userAudios.length > 0 || finished.userFiles.length > 0
+    || finished.resultImages.length > 0 || finished.resultAudios.length > 0 || finished.resultFiles.length > 0
+    || finished.processItems.length > 0
     ? finished
     : null
 }
@@ -482,12 +541,17 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     }
     if (entry.type === 'message' && entry.role === 'assistant') {
       const text = visibleAssistantText(contentText(entry.content))
+      const phase = codexMessagePhase(entry)
       const prefix = stringValue(entry.id) || 'assistant'
       const images = contentImages(entry.content, prefix)
       const audios = contentAudios(entry.content, prefix)
       const files = contentFiles(entry.content, prefix)
+      if (phase === 'final_answer' && text) {
+        current.finalMessage = text
+        continue
+      }
       const processItemId = text ? `acp-progress-${stringValue(entry.id) || String(++sequence)}` : ''
-      current.assistantMessages.push({ text, processItemId })
+      current.assistantMessages.push({ text, processItemId, phase })
       if (!current.internal && (text || images.length > 0 || audios.length > 0 || files.length > 0)) {
         current.processItems.push({
           id: processItemId, type: 'progress', title: 'Progress update', detail: text, status: 'completed',
@@ -498,7 +562,14 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     }
     if (current.internal || entry.internal === true) continue
     const process = processEntry(entry)
-    if (process) current.processItems.push(process)
+    if (process && isGeneratedMediaTool(entry)) {
+      current.resultImages = uniqueByUrl([...current.resultImages, ...(process.images || [])])
+      current.resultAudios = uniqueByUrl([...current.resultAudios, ...(process.audios || [])])
+      current.resultFiles.push(...(process.files || []))
+      current.processItems.push({ ...process, images: undefined, audios: undefined, files: undefined })
+    } else if (process) {
+      current.processItems.push(process)
+    }
   }
   flush(activeSession)
 

@@ -11,24 +11,6 @@ import type {
 export const MAIN_AGENT_PROJECT_ID = '__farming_main_agent__'
 export const CHATS_PROJECT_ID = '__agent_chats__'
 
-export const FALLBACK_CODEX_MODEL_OPTIONS: CodexModelOption[] = [
-  {
-    value: 'gpt-5.5',
-    label: '5.5',
-    defaultEffort: 'xhigh',
-    reasoningLevels: [
-      { value: 'low', effort: 'low', label: 'Low' },
-      { value: 'medium', effort: 'medium', label: 'Medium' },
-      { value: 'high', effort: 'high', label: 'High' },
-      { value: 'xhigh', effort: 'xhigh', label: 'Extra High' },
-    ],
-    serviceTiers: [
-      { value: 'default', label: 'Standard', description: 'Default speed' },
-    ],
-    source: 'fallback',
-  },
-]
-
 export function workspaceTargetId(target: SearchTarget) {
   if (target.kind === 'agent-session') return `${target.kind}:${target.provider}:${target.id}`
   return `${target.kind}:${target.id}`
@@ -114,8 +96,7 @@ export function normalizeModelCatalog(data: { catalog?: CodexModelOption[]; mode
   const legacyOptions = Array.isArray(data.models)
     ? data.models.filter(option => option && typeof option.value === 'string' && typeof option.label === 'string')
     : []
-  const converted = legacyModelOptionsToCatalog(legacyOptions)
-  return converted.length > 0 ? converted : FALLBACK_CODEX_MODEL_OPTIONS
+  return legacyModelOptionsToCatalog(legacyOptions)
 }
 
 export function agentSessionId(session: Pick<AgentSessionHistoryItem, 'provider' | 'id' | 'providerHomeId'>) {

@@ -6,8 +6,12 @@ const path = require('path');
 const { promisify } = require('util');
 const SystemMonitor = require('./system-monitor');
 const SessionEngineBridge = require('./session-engine-bridge');
-const { isSupportedHistoryAgent, resolveLaunchCommand } = require('./cli-agents');
-const { buildAgentSessionResumeCommand, findAgentSession } = require('./agent-session-history');
+const { isSupportedHistoryAgent, parseCommand, resolveLaunchCommand } = require('./cli-agents');
+const {
+  buildAgentSessionResumeCommand,
+  findAgentSession,
+  resolveCodexResumeModelProvider,
+} = require('./agent-session-history');
 const { listCodexSessions } = require('./codex-session-history');
 const { buildAgentProviderSessionPlan, sessionFromExactResumeSource } = require('./agent-provider-session');
 const { resolveAgentExecutable, resolveCompatibleCodexExecutable } = require('./executable-discovery');
@@ -19,7 +23,11 @@ const { CodexAppServerRuntime, normalizeCodexRuntimeMode } = require('./codex-ap
 const { JsonCliRuntime } = require('./json-cli-runtime');
 const { AcpRuntime } = require('./acp-runtime');
 const { acpToolChanges, acpToolDetail, acpToolReviewChanges } = require('./acp-transcript');
-const { applyCodexTerminalProfile } = require('./codex-terminal-profile');
+const {
+  applyCodexTerminalProfile,
+  codexTerminalProfileFromOutput,
+  codexTerminalProfileFromPreview,
+} = require('./codex-terminal-profile');
 const { ensureCodexAppServerHome } = require('./codex-app-server-home');
 const {
   ensureAgentOrders,
@@ -73,6 +81,18 @@ function hasResumeArg(args) {
     : false;
 }
 
+function codexCommandContinuesSession(command) {
+  const parts = parseCommand(command);
+  return path.basename(parts[0] || '') === 'codex'
+    && parts.slice(1).some(arg => arg === 'resume' || arg === 'fork');
+}
+
+function preserveCodexSessionProfileOptions() {
+  return {
+    preserveProviderSessionProfile: true,
+  };
+}
+
 function isSameOrDescendantPath(root, target) {
   const relative = path.relative(root, target);
   return relative === '' || Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
@@ -122,6 +142,50 @@ function isShellProgram(command) {
 
 function isEphemeralShellAgent(agent) {
   return agent && isShellProgram(agent.forkCommand || agent.command || '');
+}
+
+function hasSubmittedTerminalInput(input) {
+  const parts = Array.isArray(input) ? input : [input];
+  return parts.some(part => {
+    // Composer paste parts carry draft text separately from the trailing Enter.
+    // Newlines inside that draft must not independently materialize a session.
+    if (part && typeof part === 'object' && part.type === 'paste') return false;
+    const text = String(part || '');
+    // xterm wraps native paste payloads so embedded newlines remain draft text.
+    // Remove complete bracketed-paste spans before looking for a submission.
+    const withoutBracketedPaste = text.replace(/\x1b\[200~[\s\S]*?\x1b\[201~/g, '');
+    return /[\r\n]/.test(withoutBracketedPaste);
+  });
+}
+
+function activeCodexTerminalProfile(agent, previewText) {
+  if (!agent) return null;
+  const provider = agent.providerSessionProvider
+    || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
+  if (
+    provider !== 'codex'
+    || isCodexAppServerAgent(agent)
+    || isJsonCliAgent(agent)
+    || isAcpAgent(agent)
+    || (agent.agentRuntimeMode || 'terminal') !== 'terminal'
+  ) {
+    return null;
+  }
+
+  const outputProfile = codexTerminalProfileFromOutput(agent.output || '');
+  const parsed = outputProfile || codexTerminalProfileFromPreview(previewText);
+  if (!parsed) return agent.codexTerminalProfile || null;
+  const previousServiceTier = agent.codexTerminalProfile?.serviceTier;
+  const profile = {
+    model: parsed.model,
+    reasoningEffort: parsed.effort,
+    serviceTier: typeof parsed.fast === 'boolean'
+      ? (parsed.fast ? 'priority' : 'default')
+      : (previousServiceTier || 'default'),
+    source: outputProfile ? 'terminal-output' : 'terminal-footer',
+  };
+  agent.codexTerminalProfile = profile;
+  return profile;
 }
 
 function terminalRuntimeStatus(agentStatus) {
@@ -199,6 +263,9 @@ function hasAgentOutputAfterAttentionBaseline(agent) {
 
 function shouldRecoverEngineSession(metadata) {
   if (!metadata) return false;
+  // Main Agent shells are a product session, not an ephemeral scratch shell.
+  // Keep them attached to the persistent native PTY host across server restarts.
+  if (metadata.wantsMain === true) return true;
   if (metadata.category === 'shell') return false;
   return !isShellProgram(metadata.forkCommand || metadata.command || '');
 }
@@ -594,6 +661,7 @@ class AgentManager extends EventEmitter {
           cols: agent.previewCols || 80,
           rows: agent.previewRows || 30,
           previewSnapshot: agent.previewSnapshot,
+          codexTerminalProfile: activeCodexTerminalProfile(agent, agent.previewText),
           terminalStatus: deriveAgentTerminalStatus(agent, {
             previewText: agent.previewText,
             title: agent.sessionTitle || '',
@@ -843,21 +911,43 @@ class AgentManager extends EventEmitter {
 
   async recoverAcpSessions() {
     if (!this.acpRuntime || !this.configManager || typeof this.configManager.listAgentSessionRecords !== 'function') return;
-    for (const record of this.configManager.listAgentSessionRecords()) {
-      if (!record || record.archived === true || record.agentRuntimeMode !== 'acp') continue;
+    const mainPageOrder = new Map(this.getMainPageSessionKeys().map((key, index) => [key, index]));
+    const records = this.configManager.listAgentSessionRecords()
+      .filter(record => record && record.archived !== true && record.agentRuntimeMode === 'acp')
+      .sort((left, right) => {
+        const leftOrder = mainPageOrder.get(left.providerSessionKey);
+        const rightOrder = mainPageOrder.get(right.providerSessionKey);
+        return (leftOrder ?? Number.MAX_SAFE_INTEGER) - (rightOrder ?? Number.MAX_SAFE_INTEGER);
+      });
+
+    // Materialize every recoverable row before loading any transcript. Large
+    // Codex histories can take tens of seconds each; creating rows one by one
+    // after every await temporarily leaves later main-page sessions invisible
+    // in both Projects and History.
+    for (const record of records) {
       const agentId = String(record.runtimeAgentId || '').trim();
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
       const sessionId = String(record.providerSessionId || '').trim();
       if (!agentId || !sessionId || !['codex', 'claude', 'opencode', 'qoder'].includes(provider)) continue;
-      let agent = this.agents.get(agentId);
+      const agent = this.agents.get(agentId);
       if (!agent) {
-        agent = this.recoveredAgentRecord(agentId, record.engine || 'native', record, { status: 'running' });
-        ensureAgentOrders(agent, Array.from(this.agents.values()));
-        agent.persistentSessionId = record.id || '';
-        agent.engineStarted = false;
-        this.agents.set(agentId, agent);
+        const recoveredAgent = this.recoveredAgentRecord(agentId, record.engine || 'native', record, { status: 'running' });
+        ensureAgentOrders(recoveredAgent, Array.from(this.agents.values()));
+        recoveredAgent.persistentSessionId = record.id || '';
+        recoveredAgent.engineStarted = false;
+        recoveredAgent.acpState = 'connecting';
+        this.agents.set(agentId, recoveredAgent);
         this.lastActivity.set(agentId, Date.now());
       }
+    }
+    this.emit('update');
+
+    for (const record of records) {
+      const agentId = String(record.runtimeAgentId || '').trim();
+      const provider = String(record.providerSessionProvider || record.provider || '').trim();
+      const sessionId = String(record.providerSessionId || '').trim();
+      const agent = this.agents.get(agentId);
+      if (!agent || !sessionId || !['codex', 'claude', 'opencode', 'qoder'].includes(provider)) continue;
       try {
         const executableName = provider === 'qoder' ? 'qodercli' : provider;
         const executable = resolveAgentExecutable(executableName) || executableName;
@@ -875,15 +965,11 @@ class AgentManager extends EventEmitter {
           sessionId,
           historyMode: 'load',
           approvalMode,
-          model: this.configManager.getCodexModel
-            ? this.configManager.getCodexModel()
-            : '',
-          reasoningEffort: this.configManager.getCodexReasoningEffort
-            ? this.configManager.getCodexReasoningEffort()
-            : '',
-          serviceTier: this.configManager.getCodexServiceTier
-            ? this.configManager.getCodexServiceTier()
-            : '',
+          // Let Codex resolve its selected Home config and existing session
+          // state instead of applying today's Farming launch defaults.
+          model: 'config',
+          reasoningEffort: 'config',
+          serviceTier: 'config',
         });
         agent.providerSessionId = prepared.sessionId;
         agent.providerSessionTemporary = false;
@@ -1961,6 +2047,29 @@ class AgentManager extends EventEmitter {
         && this.configManager
         && this.configManager.getDangerouslySkipAgentPermissionsByDefault()
       );
+    const preserveProviderSessionProfile = options.preserveProviderSessionProfile === true
+      || codexCommandContinuesSession(command);
+    const codexModel = preserveProviderSessionProfile
+      ? 'config'
+      : (typeof options.codexModel === 'string'
+        ? options.codexModel
+        : (this.configManager && this.configManager.getCodexModel
+          ? this.configManager.getCodexModel()
+          : 'gpt-5.5'));
+    const codexReasoningEffort = preserveProviderSessionProfile
+      ? 'config'
+      : (typeof options.codexReasoningEffort === 'string'
+        ? options.codexReasoningEffort
+        : (this.configManager && this.configManager.getCodexReasoningEffort
+          ? this.configManager.getCodexReasoningEffort()
+          : 'xhigh'));
+    const codexServiceTier = preserveProviderSessionProfile
+      ? 'config'
+      : (typeof options.codexServiceTier === 'string'
+        ? options.codexServiceTier
+        : (this.configManager && this.configManager.getCodexServiceTier
+          ? this.configManager.getCodexServiceTier()
+          : 'default'));
     const launch = resolveLaunchCommand(command, {
       dangerouslySkipPermissions,
       agentLaunchProfiles: this.configManager && this.configManager.getAgentLaunchProfiles
@@ -1975,15 +2084,9 @@ class AgentManager extends EventEmitter {
       codexModelPreset: this.configManager && this.configManager.getCodexModelPreset
         ? this.configManager.getCodexModelPreset()
         : 'gpt-5.5:xhigh',
-      codexModel: this.configManager && this.configManager.getCodexModel
-        ? this.configManager.getCodexModel()
-        : 'gpt-5.5',
-      codexReasoningEffort: this.configManager && this.configManager.getCodexReasoningEffort
-        ? this.configManager.getCodexReasoningEffort()
-        : 'xhigh',
-      codexServiceTier: this.configManager && this.configManager.getCodexServiceTier
-        ? this.configManager.getCodexServiceTier()
-        : 'default',
+      codexModel,
+      codexReasoningEffort,
+      codexServiceTier,
       mainAgentSystemPrompt: wantsMain ? renderMainAgentBootstrap() : '',
     });
     const program = launch.program;
@@ -2176,6 +2279,8 @@ class AgentManager extends EventEmitter {
         process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
         || process.env.FARMING_E2E_FAKE_ACP_AGENT === '1'
       );
+    const acpGeneratedFreshSession = useAcp
+      && ['claude-session-id', 'qoder-session-id'].includes(providerSessionPlan.source);
     let codexAppServerHomePath = '';
     if (useCodexAppServer) {
       try {
@@ -2316,15 +2421,9 @@ class AgentManager extends EventEmitter {
                 ? this.configManager.getCodexApprovalMode()
                 : 'approve'
             ),
-            model: this.configManager && this.configManager.getCodexModel
-              ? this.configManager.getCodexModel()
-              : 'gpt-5.5',
-            reasoningEffort: this.configManager && this.configManager.getCodexReasoningEffort
-              ? this.configManager.getCodexReasoningEffort()
-              : 'xhigh',
-            serviceTier: this.configManager && this.configManager.getCodexServiceTier
-              ? this.configManager.getCodexServiceTier()
-              : 'default',
+            model: codexModel,
+            reasoningEffort: codexReasoningEffort,
+            serviceTier: codexServiceTier,
             developerInstructions: wantsMain ? renderMainAgentBootstrap() : '',
           });
           agentRecord.providerSessionId = prepared.threadId;
@@ -2370,20 +2469,14 @@ class AgentManager extends EventEmitter {
           executable: spawnProgram,
           env: this.buildAgentEnv(agentId, agentRecord),
           cwd: workspace,
-          sessionId: options.acpStartFresh === true || agentRecord.providerSessionTemporary
+          sessionId: options.acpStartFresh === true || agentRecord.providerSessionTemporary || acpGeneratedFreshSession
             ? ''
             : agentRecord.providerSessionId,
           historyMode: options.acpHistoryMode === 'resume' ? 'resume' : 'load',
           approvalMode: agentRecord.launchPermissionMode || 'approve',
-          model: this.configManager && this.configManager.getCodexModel
-            ? this.configManager.getCodexModel()
-            : '',
-          reasoningEffort: this.configManager && this.configManager.getCodexReasoningEffort
-            ? this.configManager.getCodexReasoningEffort()
-            : '',
-          serviceTier: this.configManager && this.configManager.getCodexServiceTier
-            ? this.configManager.getCodexServiceTier()
-            : '',
+          model: codexModel,
+          reasoningEffort: codexReasoningEffort,
+          serviceTier: codexServiceTier,
         });
         agentRecord.providerSessionId = prepared.sessionId;
         agentRecord.providerSessionKey = this.providerSessionKey(
@@ -2523,15 +2616,49 @@ class AgentManager extends EventEmitter {
       throw new Error('Codex Terminal is not running');
     }
 
-    return applyCodexTerminalProfile({
+    const applied = await applyCodexTerminalProfile({
       profile,
       readPreview: async () => {
         const view = await this.getAgentSessionView(agentId);
         if (!view) throw new Error('Agent not found');
         return view.previewText;
       },
-      sendInput: input => this.sendInputNow(agentId, input),
+      readOutput: async () => String(await this.getAgentSessionText(agentId) || ''),
+      // `/model` and `/fast` are Farming-owned control traffic. They must not
+      // make a fresh Terminal look user-authored, because that would remove
+      // the safe fresh-session path into ACP Chat before the provider has
+      // materialized a resumable history record.
+      sendInput: input => this.sendInputNow(agentId, input, { markUserInput: false }),
     });
+    agent.codexTerminalProfile = {
+      model: applied.model,
+      reasoningEffort: applied.effort,
+      serviceTier: applied.serviceTier,
+      source: 'terminal-command',
+    };
+
+    // The HTTP response confirms the terminal has already reached this profile.
+    // Publish that confirmation immediately instead of waiting for a later PTY
+    // preview tick; otherwise the browser's bounded optimistic state can expire
+    // and briefly fall back to the pre-command footer.
+    const view = await this.getAgentSessionView(agentId);
+    if (view) {
+      agent.previewText = view.previewText || agent.previewText || '';
+      agent.previewSnapshot = view.previewSnapshot || agent.previewSnapshot || null;
+      agent.previewCols = view.previewCols || agent.previewCols || 80;
+      agent.previewRows = view.previewRows || agent.previewRows || 30;
+      this.emit('session-preview-update', {
+        agentId,
+        previewText: agent.previewText,
+        cols: agent.previewCols,
+        rows: agent.previewRows,
+        previewSnapshot: agent.previewSnapshot,
+        codexTerminalProfile: agent.codexTerminalProfile,
+        terminalStatus: view.terminalStatus,
+      });
+    }
+    this.emit('update');
+    return applied;
   }
 
   async sendComposerMessageNow(agentId, message) {
@@ -2815,7 +2942,7 @@ class AgentManager extends EventEmitter {
     return null;
   }
 
-  async sendInputNow(agentId, input) {
+  async sendInputNow(agentId, input, { markUserInput = true } = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) return;
     // The observer PTY is optional telemetry for App Server Agents. Its
@@ -2825,7 +2952,7 @@ class AgentManager extends EventEmitter {
     const engine = this.engineBridge.getEngine(agent.engineName);
     if (!engine) return;
 
-    if (agent.terminalInputReceived !== true) {
+    if (markUserInput && hasSubmittedTerminalInput(input) && agent.terminalInputReceived !== true) {
       agent.terminalInputReceived = true;
       this.ensurePersistentAgentSession(agent);
       this.updateEngineProviderSessionMetadata(agent);
@@ -3264,6 +3391,9 @@ class AgentManager extends EventEmitter {
       ? (agent.forkCommand || agent.command)
       : buildAgentSessionResumeCommand(provider, sessionId, {
           cwd: agent.cwd || agent.projectWorkspace || '',
+          modelProvider: provider === 'codex'
+            ? resolveCodexResumeModelProvider(agent.providerHomePath)
+            : '',
         });
     if (!command) return { error: 'Failed to build provider resume command' };
     const preserved = {
@@ -3301,6 +3431,9 @@ class AgentManager extends EventEmitter {
       codexApprovalMode: agent.launchPermissionMode || undefined,
       jsonCliEvents: preserved.jsonCliEvents,
       runtimeSwitchVerifiedSessionId: startsFreshAcpSession ? '' : sessionId,
+      ...(provider === 'codex' && !startsFreshAcpSession
+        ? preserveCodexSessionProfileOptions()
+        : {}),
     };
     const originalMode = agent.agentRuntimeMode || 'terminal';
     const originalOptions = {
@@ -3426,11 +3559,13 @@ class AgentManager extends EventEmitter {
     if (!hasResumableSession && !startsFreshCodexSession) {
       return { error: 'Permission changes require a resumable provider session. Try again after the session id is available.' };
     }
-
     const command = startsFreshCodexSession
       ? 'codex'
       : buildAgentSessionResumeCommand(provider, sessionId, {
         cwd: agent.cwd || agent.projectWorkspace || '',
+        modelProvider: provider === 'codex'
+          ? resolveCodexResumeModelProvider(agent.providerHomePath)
+          : '',
       });
     if (!command) {
       return { error: 'Failed to build provider resume command' };
@@ -3459,6 +3594,9 @@ class AgentManager extends EventEmitter {
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
       ...(provider === 'codex' ? { codexApprovalMode: nextMode } : { claudePermissionMode: nextMode }),
+      ...(provider === 'codex' && hasResumableSession
+        ? preserveCodexSessionProfileOptions()
+        : {}),
     };
     const preserved = {
       pinned: agent.pinned === true,
@@ -3739,6 +3877,9 @@ class AgentManager extends EventEmitter {
       ? buildAgentSessionResumeCommand(resumedSession.provider, resumedSession.sessionId, {
         fork: true,
         cwd: targetWorkspace,
+        modelProvider: resumedSession.provider === 'codex'
+          ? resolveCodexResumeModelProvider(agent.providerHomePath)
+          : '',
       })
       : (agent.forkCommand || agent.command);
 
@@ -3765,6 +3906,9 @@ class AgentManager extends EventEmitter {
         source: mode === 'new-worktree' ? 'ui-fork-new-worktree' : 'ui-fork-same-worktree',
         providerHomeId: agent.providerHomeId || (resumedSession && resumedSession.providerHomeId) || '',
         providerHomePath: agent.providerHomePath || '',
+        ...(resumedSession?.provider === 'codex'
+          ? preserveCodexSessionProfileOptions()
+          : {}),
       });
     });
   }
@@ -4061,6 +4205,7 @@ class AgentManager extends EventEmitter {
       output: (sessionState && typeof sessionState.output === 'string') ? sessionState.output : fallbackOutput,
       renderOutput: (sessionState && typeof sessionState.renderOutput === 'string') ? sessionState.renderOutput : fallbackOutput,
       previewText,
+      codexTerminalProfile: activeCodexTerminalProfile(agent, previewText),
       previewSnapshot: (sessionState && sessionState.previewSnapshot) || agent.previewSnapshot || null,
       previewCols: (sessionState && Number.isFinite(sessionState.previewCols) && sessionState.previewCols > 0)
         ? sessionState.previewCols
@@ -4152,6 +4297,7 @@ class AgentManager extends EventEmitter {
         projectWorkspace: agent.projectWorkspace || '',
         output: agent.output.slice(-2000),
         previewText: agent.previewText || '',
+        codexTerminalProfile: activeCodexTerminalProfile(agent, agent.previewText || ''),
         previewCols: agent.previewCols || 80,
         previewRows: agent.previewRows || 30,
         sessionTitle: agent.sessionTitle || '',
@@ -4325,6 +4471,7 @@ class AgentManager extends EventEmitter {
         cols: agent.previewCols || 80,
         rows: agent.previewRows || 30,
         previewSnapshot: agent.previewSnapshot || null,
+        codexTerminalProfile: activeCodexTerminalProfile(agent, agent.previewText || ''),
         terminalStatus: deriveAgentTerminalStatus(agent, {
           previewText: agent.previewText || '',
           title: agent.sessionTitle || '',

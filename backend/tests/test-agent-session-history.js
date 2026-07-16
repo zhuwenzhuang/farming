@@ -14,6 +14,7 @@ const {
   listOpenCodeSessions,
   listQoderSessions,
   paginateAgentSessions,
+  resolveCodexResumeModelProvider,
   searchAgentSessions,
 } = require('../agent-session-history');
 
@@ -352,6 +353,10 @@ async function run() {
     buildAgentSessionResumeCommand('codex', codexId, { cwd: '/repo/codex with space' }),
     `codex resume -C '/repo/codex with space' ${codexId}`
   );
+  assert.strictEqual(
+    buildAgentSessionResumeCommand('codex', codexId, { modelProvider: 'current-provider', cwd: '/repo/codex with space' }),
+    `codex resume -c 'model_provider="current-provider"' -C '/repo/codex with space' ${codexId}`
+  );
   assert.strictEqual(buildAgentSessionResumeCommand('codex', codexId, { fork: true }), `codex fork ${codexId}`);
   assert.strictEqual(
     buildAgentSessionResumeCommand('codex', codexId, { fork: true, cwd: '/repo/codex with space' }),
@@ -365,6 +370,23 @@ async function run() {
   assert.strictEqual(buildAgentSessionResumeCommand('opencode', openCodeId, { fork: true }), `opencode --session ${openCodeId} --fork`);
   assert.strictEqual(buildAgentSessionResumeCommand('codex', 'tmp_uuid_11111111-2222-4333-8444-555555555555'), '');
   assert.strictEqual(buildAgentSessionResumeCommand('unknown', claudeId), '');
+
+  const missingConfigHome = path.join(root, 'missing-codex-config');
+  assert.strictEqual(resolveCodexResumeModelProvider(missingConfigHome), 'openai');
+  const configuredCodexHome = path.join(root, 'configured-codex-home');
+  fs.mkdirSync(configuredCodexHome, { recursive: true });
+  fs.writeFileSync(path.join(configuredCodexHome, 'config.toml'), [
+    'profile = "work"',
+    'model_provider = "top-level"',
+    '',
+    '[profiles.work]',
+    'model_provider = "profile-provider"',
+    '',
+    '[model_providers.profile-provider]',
+    'name = "Profile provider"',
+    '',
+  ].join('\n'));
+  assert.strictEqual(resolveCodexResumeModelProvider(configuredCodexHome), 'profile-provider');
 
   const pagedSessions = [
     { provider: 'codex', providerHomeId: 'default', id: 'page-3', updatedAt: '2026-06-28T12:03:00.000Z' },

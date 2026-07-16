@@ -1,9 +1,12 @@
 const assert = require('assert');
 const {
   applyCodexTerminalProfile,
+  codexServiceTierConfirmations,
+  codexTerminalProfileFromOutput,
   codexTerminalProfileFromPreview,
   modelSelectionInput,
   reasoningSelectionInput,
+  newCodexServiceTierConfirmation,
 } = require('../codex-terminal-profile');
 
 const IDLE_55 = [
@@ -42,6 +45,38 @@ async function run() {
   assert.deepStrictEqual(
     codexTerminalProfileFromPreview('gpt-5.6-sol xhigh fast · ~/git/farming'),
     { model: 'gpt-5.6-sol', effort: 'xhigh', fast: true }
+  );
+  assert.deepStrictEqual(
+    codexTerminalProfileFromOutput([
+      '• Model changed to gpt-5.6-sol xhigh',
+      '• Service tier set to priority',
+      'gpt-5.5 xhigh · stale simplified preview',
+    ].join('\n')),
+    { model: 'gpt-5.6-sol', effort: 'xhigh', fast: true },
+    'explicit PTY confirmations should outrank a stale simplified footer'
+  );
+  assert.deepStrictEqual(
+    codexTerminalProfileFromPreview('• Service tier set to priority\n\ngpt-5.6-sol xhigh · ~/git/farming'),
+    { model: 'gpt-5.6-sol', effort: 'xhigh', fast: true },
+    'newer Codex versions confirm Fast separately instead of adding it to the footer'
+  );
+  assert.deepStrictEqual(
+    codexTerminalProfileFromPreview('gpt-5.6-sol xhigh · ~/git/farming'),
+    { model: 'gpt-5.6-sol', effort: 'xhigh', fast: null },
+    'a footer without a Fast marker must not overwrite a previously confirmed tier'
+  );
+  assert.deepStrictEqual(codexServiceTierConfirmations(
+    '• Service tier set to priority\n• Service tier set to default'
+  ), [
+    { serviceTier: 'priority', fast: true },
+    { serviceTier: 'default', fast: false },
+  ]);
+  assert.deepStrictEqual(
+    newCodexServiceTierConfirmation(
+      '• Service tier set to default',
+      '• Service tier set to default\n• Service tier set to priority'
+    ),
+    { serviceTier: 'priority', fast: true }
   );
   assert.strictEqual(modelSelectionInput(MODEL_MENU, 'gpt-5.6-sol'), '8');
   assert.strictEqual(reasoningSelectionInput(REASONING_MENU, 'xhigh'), '4');
@@ -106,6 +141,34 @@ async function run() {
     model: 'gpt-5.6-sol',
     effort: 'ultra',
     serviceTier: 'priority',
+  });
+
+  let modernOutput = 'booted';
+  let modernToggleCount = 0;
+  const modernInputs = [];
+  const modernApplied = await applyCodexTerminalProfile({
+    profile: { model: 'gpt-5.6-sol', effort: 'xhigh', serviceTier: 'default' },
+    readPreview: async () => 'gpt-5.6-sol xhigh · /workspace',
+    readOutput: async () => modernOutput,
+    sendInput: async input => {
+      modernInputs.push(input);
+      modernToggleCount += 1;
+      modernOutput += modernToggleCount === 1
+        ? '\n• Service tier set to priority'
+        : '\n• Service tier set to default';
+    },
+    sleep: async () => {},
+    pollIntervalMs: 0,
+    timeoutMs: 1000,
+  });
+  assert.deepStrictEqual(modernInputs, [
+    [{ type: 'paste', text: '/fast' }, '\r'],
+    [{ type: 'paste', text: '/fast' }, '\r'],
+  ], 'an unknown modern CLI tier should toggle at most twice until the requested tier is confirmed');
+  assert.deepStrictEqual(modernApplied, {
+    model: 'gpt-5.6-sol',
+    effort: 'xhigh',
+    serviceTier: 'default',
   });
 
   await assert.rejects(

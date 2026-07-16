@@ -4,6 +4,9 @@ const {
   crtRuntimeView,
   canSwitchCrtAgentRuntime,
   isCrtRuntimeSwitchShortcut,
+  hasCrtStructuredLocalEscapeAction,
+  resolveCrtSessionKeyboardCommand,
+  getCrtAgentRemovalFallback,
   structuredComposerAction,
   structuredTranscriptTurns,
   formatCrtCompactTotalValue,
@@ -72,6 +75,94 @@ assert.strictEqual(isCrtRuntimeSwitchShortcut({
   metaKey: false,
   altKey: true,
 }), false);
+
+const sessionShortcutCases = [
+  {
+    name: 'Terminal Ctrl+K kills regardless of focus ownership',
+    event: { key: 'k', ctrlKey: true },
+    context: { structuredSessionActive: false },
+    expected: 'kill',
+  },
+  {
+    name: 'Chat Meta+K kills while the composer owns focus',
+    event: { key: 'K', metaKey: true },
+    context: { structuredSessionActive: true, structuredInputFocused: true, structuredComposerMenuOpen: true },
+    expected: 'kill',
+  },
+  {
+    name: 'Ctrl+Escape closes Chat even while an IME is composing',
+    event: { key: 'Escape', ctrlKey: true, isComposing: true },
+    context: { structuredSessionActive: true, composing: true, structuredTranscriptFocused: true },
+    expected: 'close',
+  },
+  {
+    name: 'plain Escape closes an idle Chat input',
+    event: { key: 'Escape' },
+    context: { structuredSessionActive: true },
+    expected: 'close',
+  },
+  {
+    name: 'plain Escape remains local while Chat can interrupt',
+    event: { key: 'Escape' },
+    context: { structuredSessionActive: true, structuredInputFocused: true, structuredInterruptFocused: true },
+    expected: '',
+  },
+  {
+    name: 'plain Escape remains local while Chat is composing text',
+    event: { key: 'Escape', isComposing: true },
+    context: { structuredSessionActive: true },
+    expected: '',
+  },
+  {
+    name: 'plain Escape is always forwarded to Terminal',
+    event: { key: 'Escape' },
+    context: { structuredSessionActive: false },
+    expected: '',
+  },
+  {
+    name: 'unmodified K is not destructive',
+    event: { key: 'k' },
+    context: { structuredSessionActive: true },
+    expected: '',
+  },
+];
+sessionShortcutCases.forEach(({ name, event, context, expected }) => {
+  assert.strictEqual(resolveCrtSessionKeyboardCommand(event, context), expected, name);
+});
+
+[
+  { structuredTranscriptFocused: true },
+  { structuredToolFocused: true },
+  { structuredMenuItemFocused: true },
+  { structuredInputFocused: true, structuredInterruptFocused: true },
+  { structuredInputFocused: true, structuredComposerMenuOpen: true },
+].forEach((context) => {
+  assert.strictEqual(hasCrtStructuredLocalEscapeAction(context), true);
+  assert.strictEqual(resolveCrtSessionKeyboardCommand(
+    { key: 'Escape' },
+    { structuredSessionActive: true, ...context },
+  ), '');
+});
+assert.strictEqual(hasCrtStructuredLocalEscapeAction({
+  structuredComposerMenuOpen: true,
+}), false, 'an open Chat menu without a focused local owner must not swallow Escape');
+
+assert.strictEqual(getCrtAgentRemovalFallback({
+  agents: [
+    { id: 'before', status: 'running' },
+    { id: 'removed', status: 'running' },
+    { id: 'after', status: 'running' },
+  ],
+}, 'removed'), 'after');
+assert.strictEqual(getCrtAgentRemovalFallback({
+  agents: [
+    { id: 'before', status: 'running' },
+    { id: 'removed', status: 'running' },
+  ],
+}, 'removed'), 'before');
+assert.strictEqual(getCrtAgentRemovalFallback({
+  agents: [{ id: 'removed', status: 'running' }],
+}, 'removed'), '');
 
 assert.strictEqual(structuredComposerAction({
   status: 'running',

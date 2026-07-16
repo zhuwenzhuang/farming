@@ -1352,10 +1352,32 @@ function getCrtPreviewCellStyle(cell) {
   };
 }
 
+function getCrtTerminalSnapshotRows(snapshot) {
+  if (!snapshot || !Array.isArray(snapshot.cells)) return [];
+  let lastMeaningfulRow = -1;
+  snapshot.cells.forEach((cells, rowIndex) => {
+    if (!Array.isArray(cells)) return;
+    const meaningful = cells.some((cell) => {
+      if (!cell || cell.width === 0) return false;
+      const attributes = cell.attributes || 0;
+      const hasBackground = Number.isFinite(cell.bg) && cell.bg >= 0;
+      return String(cell.char || '').trim() !== '' || hasBackground || Boolean(attributes & 0x10);
+    });
+    if (meaningful) lastMeaningfulRow = rowIndex;
+  });
+  const cursorRow = snapshot.cursorVisible === true && Number.isInteger(snapshot.cursorY)
+    ? Math.min(snapshot.cells.length - 1, Math.max(0, snapshot.cursorY))
+    : -1;
+  const lastVisibleRow = Math.max(lastMeaningfulRow, cursorRow);
+  return lastVisibleRow >= 0 ? snapshot.cells.slice(0, lastVisibleRow + 1) : [];
+}
+
 function renderCrtTerminalSnapshot(container, snapshot) {
-  if (!container || !snapshot || !Array.isArray(snapshot.cells)) return false;
+  if (!container) return false;
+  const rows = getCrtTerminalSnapshotRows(snapshot);
+  if (rows.length === 0) return false;
   container.classList.add('terminal-snapshot');
-  snapshot.cells.forEach((cells) => {
+  rows.forEach((cells) => {
     const row = document.createElement('div');
     row.className = 'terminal-snapshot-row';
     let currentSpan = null;
@@ -1426,21 +1448,32 @@ function renderCrtStructuredPreview(output, agent) {
   meta.append(channel, stateLabel);
   panel.appendChild(meta);
 
+  const trail = document.createElement('div');
+  trail.className = 'agent-chat-preview-trail';
+  panel.appendChild(trail);
+
   if (preview) {
-    appendCrtStructuredPreviewLine(panel, 'user', 'YOU', preview.userText);
-    appendCrtStructuredPreviewLine(panel, 'assistant', 'AGENT', preview.assistantText);
+    const messageLines = Array.isArray(preview.messageLines) && preview.messageLines.length > 0
+      ? preview.messageLines
+      : [
+        { role: 'user', label: 'YOU', text: preview.userText },
+        { role: 'assistant', label: 'AGENT', text: preview.assistantText },
+      ];
+    messageLines.forEach((line) => {
+      appendCrtStructuredPreviewLine(trail, line.role, line.label, line.text);
+    });
     if (active && preview.activityText && preview.activityText !== preview.assistantText) {
-      appendCrtStructuredPreviewLine(panel, 'activity', 'NOW', preview.activityText);
+      appendCrtStructuredPreviewLine(trail, 'activity', 'NOW', preview.activityText);
     }
   }
 
-  if (!panel.querySelector('.agent-chat-preview-line')) {
+  if (!trail.querySelector('.agent-chat-preview-line')) {
     const empty = document.createElement('div');
     empty.className = 'agent-chat-preview-empty';
     empty.textContent = cached && cached.error
       ? 'Conversation preview unavailable'
       : active ? 'Establishing conversation stream…' : 'Ready for the first message';
-    panel.appendChild(empty);
+    trail.appendChild(empty);
   }
 
   output.replaceChildren(panel);
@@ -4842,6 +4875,15 @@ function getCrtRegularAgents(currentState = state) {
   ));
 }
 
+function getCrtAgentRemovalFallback(currentState, removedAgentId) {
+  const liveAgents = getCrtLiveAgents(currentState);
+  const removedIndex = liveAgents.findIndex((agent) => agent.id === removedAgentId);
+  const remaining = liveAgents.filter((agent) => agent.id !== removedAgentId);
+  if (!remaining.length) return '';
+  if (removedIndex < 0) return remaining[0].id;
+  return remaining[Math.min(removedIndex, remaining.length - 1)].id;
+}
+
 function updateCrtAgentPageStatus(pageState) {
   const item = document.getElementById('agent-page-item');
   const status = document.getElementById('agent-page-status');
@@ -5129,6 +5171,43 @@ function isCrtRuntimeSwitchShortcut(event) {
     && !event.metaKey
     && (event.code === 'KeyM' || String(event.key || '').toLowerCase() === 'm')
   );
+}
+
+function hasCrtStructuredLocalEscapeAction(context = {}) {
+  return Boolean(
+    context.structuredTranscriptFocused
+    || context.structuredToolFocused
+    || context.structuredMenuItemFocused
+    || context.structuredInterruptFocused
+    || (context.structuredInputFocused && context.structuredComposerMenuOpen)
+  );
+}
+
+function resolveCrtSessionKeyboardCommand(event, context = {}) {
+  if (!event) return '';
+  const key = String(event.key || '').toLowerCase();
+  const primaryModifier = Boolean(event.ctrlKey || event.metaKey);
+
+  // Session-wide commands must remain reachable from every focus owner,
+  // including the hidden Terminal IME bridge and every structured Chat control.
+  if (primaryModifier && key === 'k') return 'kill';
+  if (primaryModifier && key === 'escape') return 'close';
+
+  // Plain Escape closes an idle Chat only when a more local transition does
+  // not own it. Terminal keeps plain Escape for the running TUI.
+  if (
+    context.structuredSessionActive === true
+    && key === 'escape'
+    && !event.altKey
+    && !event.shiftKey
+    && event.isComposing !== true
+    && context.composing !== true
+    && !hasCrtStructuredLocalEscapeAction(context)
+  ) {
+    return 'close';
+  }
+
+  return '';
 }
 
 function setCrtRuntimeSwitchStatus(message = '', error = false) {
@@ -5907,6 +5986,37 @@ function structuredTranscriptAttachmentLabel(content) {
   return Array.from(new Set(labels)).join(' + ');
 }
 
+function crtStructuredPreviewMessageLines(transcript, limit = 8) {
+  const maxLines = Math.max(1, Number(limit) || 8);
+  const turnLines = structuredTranscriptTurns(transcript).flatMap((turn) => [
+    turn && turn.userMessage
+      ? { role: 'user', label: 'YOU', text: normalizeCrtStructuredPreviewText(turn.userMessage) }
+      : null,
+    turn && turn.finalMessage
+      ? { role: 'assistant', label: 'AGENT', text: normalizeCrtStructuredPreviewText(turn.finalMessage) }
+      : null,
+  ]).filter(Boolean);
+  if (turnLines.length > 0) return turnLines.slice(-maxLines);
+
+  const entries = transcript && Array.isArray(transcript.entries)
+    ? transcript.entries
+      .filter((entry) => (
+        entry
+        && entry.internal !== true
+        && entry.type === 'message'
+        && (entry.role === 'user' || entry.role === 'assistant')
+      ))
+      .map((entry) => ({
+        role: entry.role,
+        label: entry.role === 'user' ? 'YOU' : 'AGENT',
+        text: normalizeCrtStructuredPreviewText(structuredTranscriptContentText(entry.content))
+          || structuredTranscriptAttachmentLabel(entry.content),
+      }))
+      .filter((line) => line.text)
+    : [];
+  return entries.slice(-maxLines);
+}
+
 function structuredEntryActivityText(entry) {
   if (!entry || entry.internal === true) return '';
   if (entry.type === 'tool') {
@@ -5933,6 +6043,7 @@ function buildCrtStructuredPreview(transcript, agent = null) {
     : [];
   const turns = structuredTranscriptTurns(transcript);
   const latestTurn = turns.at(-1) || null;
+  const messageLines = crtStructuredPreviewMessageLines(transcript);
   let userText = normalizeCrtStructuredPreviewText(latestTurn && latestTurn.userMessage);
   let assistantText = normalizeCrtStructuredPreviewText(latestTurn && latestTurn.finalMessage);
   let activityText = '';
@@ -5962,6 +6073,7 @@ function buildCrtStructuredPreview(transcript, agent = null) {
   }
 
   return {
+    messageLines,
     userText,
     assistantText,
     activityText,
@@ -6392,6 +6504,7 @@ async function openSession(agentId) {
 
   const agent = state.agents.find(a => a.id === agentId);
   if (!agent) return;
+  crtNavigationKey = `agent:${agentId}`;
   void markCrtAgentReadIfNeeded(agent);
 
   const sessionModal = document.getElementById('session-modal');
@@ -6645,14 +6758,19 @@ function closeSession() {
     if (crtMainView === 'history') renderCrtHistory();
     generateKeyMap();
   }
+  restoreCrtNavigationSelection();
 }
 
 function killCurrentAgent() {
   if (!focusedAgentId) return;
 
+  const killedAgentId = focusedAgentId;
+  const fallbackAgentId = getCrtAgentRemovalFallback(state, killedAgentId);
+  crtNavigationKey = fallbackAgentId ? `agent:${fallbackAgentId}` : '';
+
   const sessionClient = getSessionClient();
   if (sessionClient) {
-    sessionClient.killAgent(focusedAgentId);
+    sessionClient.killAgent(killedAgentId);
   }
 
   closeSession();
@@ -7037,14 +7155,28 @@ if (typeof document !== 'undefined') {
       const structuredInputFocused = structuredInput && document.activeElement === structuredInput;
       const structuredSessionActive = document.getElementById('crt-structured-composer')?.classList.contains('active');
       const structuredTranscriptFocused = document.activeElement === document.getElementById('terminal-output');
-      if (
-        structuredSessionActive
-        && e.key === 'Escape'
-        && (e.ctrlKey || e.metaKey || !structuredComposerMenu)
-        && !(!e.ctrlKey && !e.metaKey && structuredTranscriptFocused)
-      ) {
-        closeSession();
+      const structuredToolFocused = Boolean(document.activeElement?.closest?.('.crt-structured-tool'));
+      const structuredMenuItemFocused = Boolean(document.activeElement?.closest?.('.crt-structured-menu-item'));
+      const focusedAgent = state && state.agents.find((candidate) => candidate.id === focusedAgentId);
+      const structuredInterruptFocused = Boolean(
+        structuredInputFocused
+        && structuredComposerAction(focusedAgent, structuredInput.value) === 'interrupt'
+      );
+      const sessionCommand = resolveCrtSessionKeyboardCommand(e, {
+        structuredSessionActive,
+        composing: terminalInputComposing,
+        structuredInputFocused,
+        structuredTranscriptFocused,
+        structuredToolFocused,
+        structuredMenuItemFocused,
+        structuredInterruptFocused,
+        structuredComposerMenuOpen: Boolean(structuredComposerMenu),
+      });
+      if (sessionCommand) {
         e.preventDefault();
+        e.stopPropagation();
+        if (sessionCommand === 'kill') killCurrentAgent();
+        else closeSession();
         return;
       }
       if (structuredInputFocused) {
@@ -7076,16 +7208,6 @@ if (typeof document !== 'undefined') {
         if (SESSION_INPUT_SETTINGS.imeEnabled) {
           e.preventDefault();
         }
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Escape') {
-        closeSession();
-        e.preventDefault();
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
-        killCurrentAgent();
-        e.preventDefault();
         return;
       }
       if (!SESSION_INPUT_SETTINGS.imeEnabled) {
@@ -7225,8 +7347,10 @@ if (typeof module !== 'undefined' && module.exports) {
     getCrtAgentVerticalPageTarget,
     getCrtLiveAgents,
     getCrtRegularAgents,
+    getCrtAgentRemovalFallback,
     getAgentDisplayText,
     getCrtPreviewCellStyle,
+    getCrtTerminalSnapshotRows,
     getCrtAgentTitle,
     getCrtProjectName,
     calculateTerminalInputBridgePosition,
@@ -7237,8 +7361,11 @@ if (typeof module !== 'undefined' && module.exports) {
     crtRuntimeView,
     canSwitchCrtAgentRuntime,
     isCrtRuntimeSwitchShortcut,
+    hasCrtStructuredLocalEscapeAction,
+    resolveCrtSessionKeyboardCommand,
     structuredComposerAction,
     structuredTranscriptTurns,
+    crtStructuredPreviewMessageLines,
     getCrtBrandPaneKey,
     extractSessionLinks,
     formatSelectionStatus,

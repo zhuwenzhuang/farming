@@ -99,6 +99,7 @@ function run() {
     providerSessionId: 'tmp_uuid_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
     providerSessionTemporary: true,
     terminalInputReceived: true,
+    wantsMain: true,
     engineName: 'native',
     projectOrder: 4096,
     pinnedOrder: 2048,
@@ -108,6 +109,7 @@ function run() {
   assert.strictEqual(temporaryRecord.projectOrder, 4096);
   assert.strictEqual(temporaryRecord.pinnedOrder, 2048);
   assert.strictEqual(temporaryRecord.terminalInputReceived, true);
+  assert.strictEqual(temporaryRecord.wantsMain, true);
   const resolvedRecordId = store.ensureRecordForAgent({
     id: 'agent-temp-codex',
     persistentSessionId: tempRecordId,

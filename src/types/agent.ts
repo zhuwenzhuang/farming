@@ -80,6 +80,13 @@ export interface CodexAppServerNotice {
   receivedAt: string
 }
 
+export interface CodexTerminalProfile {
+  model: string
+  reasoningEffort: string
+  serviceTier: 'default' | 'priority' | string
+  source: 'terminal-footer' | string
+}
+
 export interface AcpPermissionOption {
   optionId: string
   name: string
@@ -184,6 +191,7 @@ export interface Agent {
   previewSnapshot?: TerminalPreviewSnapshot | null
   previewCols?: number
   previewRows?: number
+  codexTerminalProfile?: CodexTerminalProfile | null
   sessionTitle?: string
   customTitle?: string
   parentAgentId?: string

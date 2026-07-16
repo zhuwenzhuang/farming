@@ -1,62 +1,15 @@
 const { execFile } = require('child_process');
 
-const FALLBACK_MODELS = [
-  {
-    slug: 'gpt-5.5',
-    display_name: 'GPT-5.5',
-    description: 'Frontier model for complex coding, research, and real-world work.',
-    default_reasoning_level: 'medium',
-    supported_reasoning_levels: [
-      { effort: 'low', description: 'Fast responses with lighter reasoning' },
-      { effort: 'medium', description: 'Balances speed and reasoning depth for everyday tasks' },
-      { effort: 'high', description: 'Greater reasoning depth for complex problems' },
-      { effort: 'xhigh', description: 'Extra high reasoning depth for complex problems' },
-    ],
-    service_tiers: [
-      { id: 'priority', name: 'Fast', description: '1.5x speed, increased usage' },
-    ],
-    visibility: 'list',
-  },
-  {
-    slug: 'gpt-5.4',
-    display_name: 'GPT-5.4',
-    description: 'Strong model for everyday coding.',
-    default_reasoning_level: 'medium',
-    supported_reasoning_levels: [
-      { effort: 'low', description: 'Fast responses with lighter reasoning' },
-      { effort: 'medium', description: 'Balances speed and reasoning depth for everyday tasks' },
-      { effort: 'high', description: 'Greater reasoning depth for complex problems' },
-      { effort: 'xhigh', description: 'Extra high reasoning depth for complex problems' },
-    ],
-    service_tiers: [
-      { id: 'priority', name: 'Fast', description: '1.5x speed, increased usage' },
-    ],
-    visibility: 'list',
-  },
-  {
-    slug: 'gpt-5.4-mini',
-    display_name: 'GPT-5.4 Mini',
-    description: 'Small, fast, and cost-efficient model for simpler coding tasks.',
-    default_reasoning_level: 'medium',
-    supported_reasoning_levels: [
-      { effort: 'low', description: 'Fast responses with lighter reasoning' },
-      { effort: 'medium', description: 'Balances speed and reasoning depth for everyday tasks' },
-      { effort: 'high', description: 'Greater reasoning depth for complex problems' },
-    ],
-    visibility: 'list',
-  },
-  {
-    slug: 'gpt-5.3-codex-spark',
-    display_name: 'GPT-5.3 Codex Spark',
-    description: 'Ultra-fast coding model.',
-    default_reasoning_level: 'medium',
-    supported_reasoning_levels: [
-      { effort: 'low', description: 'Fast responses with lighter reasoning' },
-      { effort: 'medium', description: 'Balances speed and reasoning depth for everyday tasks' },
-    ],
-    visibility: 'list',
-  },
-];
+const DEFAULT_CODEX_MODELS_TIMEOUT_MS = 15_000;
+
+class CodexModelCatalogError extends Error {
+  constructor(code, message, cause = null) {
+    super(message);
+    this.name = 'CodexModelCatalogError';
+    this.code = code;
+    if (cause) this.cause = cause;
+  }
+}
 
 const EFFORT_LABELS = {
   minimal: 'Minimal',
@@ -184,46 +137,88 @@ function buildModelOptions(models, source = 'codex') {
 
 function listCodexModelOptions(options = {}) {
   const codexBin = options.codexBin || process.env.FARMING_CODEX_BIN || 'codex';
-  const timeout = options.timeout || 3000;
+  const timeout = Number.isFinite(options.timeout)
+    ? Math.max(1, options.timeout)
+    : DEFAULT_CODEX_MODELS_TIMEOUT_MS;
+  const runExecFile = options.execFile || execFile;
 
-  return new Promise((resolve) => {
-    const fallback = () => resolve({
-      models: buildModelOptions(FALLBACK_MODELS, 'fallback'),
-      catalog: buildModelCatalog(FALLBACK_MODELS, 'fallback'),
-      source: 'fallback',
-    });
-
+  return new Promise((resolve, reject) => {
     try {
-      execFile(codexBin, ['debug', 'models'], {
+      runExecFile(codexBin, ['debug', 'models'], {
         timeout,
         maxBuffer: 20 * 1024 * 1024,
-      }, (error, stdout) => {
-        if (!error && stdout) {
-          try {
-            const models = catalogModelsFromJson(stdout);
-            const modelOptions = buildModelOptions(models, 'codex');
-            if (modelOptions.length > 0) {
-              resolve({
-                models: modelOptions,
-                catalog: buildModelCatalog(models, 'codex'),
-                source: 'codex',
-              });
-              return;
-            }
-          } catch {
-            // fall through to fallback catalog
+      }, (error, stdout, stderr) => {
+        if (error) {
+          const timedOut = error.code === 'ETIMEDOUT' || error.killed === true;
+          if (timedOut) {
+            reject(new CodexModelCatalogError(
+              'CODEX_MODELS_TIMEOUT',
+              `Codex model catalog timed out after ${timeout}ms`,
+              error
+            ));
+            return;
           }
+
+          const detail = String(stderr || error.message || '').trim().split(/\r?\n/, 1)[0];
+          reject(new CodexModelCatalogError(
+            'CODEX_MODELS_COMMAND_FAILED',
+            detail
+              ? `Codex model catalog command failed: ${detail}`
+              : 'Codex model catalog command failed',
+            error
+          ));
+          return;
         }
 
-        fallback();
+        if (!String(stdout || '').trim()) {
+          reject(new CodexModelCatalogError(
+            'CODEX_MODELS_EMPTY_OUTPUT',
+            'Codex model catalog command returned no output'
+          ));
+          return;
+        }
+
+        let models;
+        try {
+          models = catalogModelsFromJson(stdout);
+        } catch (error) {
+          reject(new CodexModelCatalogError(
+            'CODEX_MODELS_INVALID_JSON',
+            'Codex model catalog returned invalid JSON',
+            error
+          ));
+          return;
+        }
+
+        const modelOptions = buildModelOptions(models, 'codex');
+        const catalog = buildModelCatalog(models, 'codex');
+        if (modelOptions.length === 0 || catalog.length === 0) {
+          reject(new CodexModelCatalogError(
+            'CODEX_MODELS_EMPTY_CATALOG',
+            'Codex model catalog did not contain any visible models'
+          ));
+          return;
+        }
+
+        resolve({
+          models: modelOptions,
+          catalog,
+          source: 'codex',
+        });
       });
-    } catch {
-      fallback();
+    } catch (error) {
+      reject(new CodexModelCatalogError(
+        'CODEX_MODELS_COMMAND_FAILED',
+        `Failed to start Codex model catalog command: ${error.message || error}`,
+        error
+      ));
     }
   });
 }
 
 module.exports = {
+  CodexModelCatalogError,
+  DEFAULT_CODEX_MODELS_TIMEOUT_MS,
   buildModelCatalog,
   buildModelOptions,
   catalogModelsFromJson,

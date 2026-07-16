@@ -119,6 +119,7 @@ async function run() {
     fs.writeFileSync(path.join(workspace, '.DS_Store'), 'ignored metadata\n');
     fs.writeFileSync(path.join(workspace, 'server.log'), 'ignored log\n');
     fs.writeFileSync(path.join(workspace, 'binary.bin'), Buffer.from([0, 1, 2, 3, 0]));
+    fs.writeFileSync(path.join(workspace, 'preview.pdf'), Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n'));
     fs.writeFileSync(path.join(workspace, 'large.log'), `${'large text line\n'.repeat(3000)}`);
     fs.writeFileSync(path.join(workspace, 'preview.png'), Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgF/2l2fLwAAAABJRU5ErkJggg==',
@@ -244,6 +245,16 @@ async function run() {
     assert.strictEqual(imagePreview.preview.mediaType, 'image/png');
     assert(Buffer.isBuffer(imagePreview.buffer));
     assert(imagePreview.buffer.length > 0);
+    const pdfFile = await service.readFile(workspace, 'preview.pdf');
+    assert.strictEqual(pdfFile.path, 'preview.pdf');
+    assert.strictEqual(pdfFile.content, '');
+    assert.strictEqual(pdfFile.binary, true);
+    assert.strictEqual(pdfFile.preview.kind, 'pdf');
+    assert.strictEqual(pdfFile.preview.mediaType, 'application/pdf');
+    const pdfPreview = await service.readPreviewFile(workspace, 'preview.pdf');
+    assert.strictEqual(pdfPreview.preview.kind, 'pdf');
+    assert.strictEqual(pdfPreview.preview.mediaType, 'application/pdf');
+    assert(pdfPreview.buffer.toString('utf8').startsWith('%PDF-1.4'));
     const svgFile = await service.readFile(workspace, 'icon.svg');
     assert.strictEqual(svgFile.path, 'icon.svg');
     assert(svgFile.content.includes('<svg'));

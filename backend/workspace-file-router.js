@@ -368,6 +368,41 @@ function createWorkspaceFileRouter(agentManager, fileService) {
     }
   });
 
+  router.get('/history', async (req, res) => {
+    try {
+      if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {
+        throw new WorkspaceFileError('global files do not support git history', 403);
+      }
+      const root = resolveWorkspaceRoot(agentManager, req.query.agentId);
+      const history = await fileService.gitHistory(root, {
+        limit: req.query.limit,
+        skip: req.query.skip,
+        scope: req.query.scope,
+      });
+      res.json({ root, history });
+    } catch (error) {
+      sendWorkspaceFileError(res, error);
+    }
+  });
+
+  router.get('/history/changes', async (req, res) => {
+    try {
+      if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {
+        throw new WorkspaceFileError('global files do not support git history', 403);
+      }
+      const root = resolveWorkspaceRoot(agentManager, req.query.agentId);
+      const changes = await fileService.gitHistoryChanges(
+        root,
+        req.query.commit,
+        req.query.parent,
+        { limit: req.query.limit }
+      );
+      res.json({ root, changes });
+    } catch (error) {
+      sendWorkspaceFileError(res, error);
+    }
+  });
+
   router.get('/line-changes', async (req, res) => {
     try {
       if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {

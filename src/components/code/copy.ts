@@ -66,6 +66,7 @@ export interface CodeCopy {
   noMatchingProjectsOrAgents: string
   openNavigation: string
   closeNavigation: string
+  resizeNavigation: string
   openOptions: string
   openSettings: string
   agentActions: string
@@ -212,6 +213,20 @@ export interface CodeCopy {
   untrackedChanges: string
   reviewChanges: string
   refreshChanges: string
+  gitHistory: string
+  gitHistoryEmpty: string
+  gitHistoryNotRepository: string
+  gitHistoryLoadMore: string
+  gitHistoryView: string
+  gitHistoryCurrentBranch: string
+  gitHistoryAllBranches: string
+  gitHistoryCommitMessage: string
+  gitHistoryParent: string
+  gitHistoryRootCommit: string
+  gitHistoryReviewCommit: string
+  gitHistoryCommitChanges: (count: number) => string
+  gitHistoryNoChanges: string
+  gitHistoryChangesTruncated: string
   searchOrPathLine: string
   searchFilesOrJump: string
   openEditors: string
@@ -432,6 +447,7 @@ const EN_COPY: CodeCopy = {
   noMatchingProjectsOrAgents: 'No matching projects or agents.',
   openNavigation: 'Open navigation',
   closeNavigation: 'Close navigation',
+  resizeNavigation: 'Resize navigation',
   openOptions: 'Open options',
   openSettings: 'Settings',
   agentActions: 'Agent actions',
@@ -600,6 +616,20 @@ const EN_COPY: CodeCopy = {
   untrackedChanges: 'Untracked',
   reviewChanges: 'Review',
   refreshChanges: 'Refresh changes',
+  gitHistory: 'History',
+  gitHistoryEmpty: 'No commits yet',
+  gitHistoryNotRepository: 'This project is not a Git repository',
+  gitHistoryLoadMore: 'Load more',
+  gitHistoryView: 'History view',
+  gitHistoryCurrentBranch: 'Current branch',
+  gitHistoryAllBranches: 'All branches',
+  gitHistoryCommitMessage: 'Message',
+  gitHistoryParent: 'Compare with parent',
+  gitHistoryRootCommit: 'Root commit',
+  gitHistoryReviewCommit: 'Review commit',
+  gitHistoryCommitChanges: count => `${count} file${count === 1 ? '' : 's'} changed`,
+  gitHistoryNoChanges: 'No file changes',
+  gitHistoryChangesTruncated: 'More changed files were omitted',
   searchOrPathLine: 'Search or path:line',
   searchFilesOrJump: 'Search files or jump to path line',
   openEditors: 'OPEN EDITORS',
@@ -820,6 +850,7 @@ const ZH_COPY: CodeCopy = {
   noMatchingProjectsOrAgents: '没有匹配的项目或 Agent。',
   openNavigation: '打开导航',
   closeNavigation: '关闭导航',
+  resizeNavigation: '调整导航宽度',
   openOptions: '打开选项',
   openSettings: '设置',
   agentActions: 'Agent 操作',
@@ -1024,6 +1055,20 @@ const ZH_COPY: CodeCopy = {
   untrackedChanges: '未跟踪',
   reviewChanges: 'Review',
   refreshChanges: '刷新变更',
+  gitHistory: '历史',
+  gitHistoryEmpty: '还没有提交',
+  gitHistoryNotRepository: '当前项目不是 Git 仓库',
+  gitHistoryLoadMore: '加载更多',
+  gitHistoryView: '历史视图',
+  gitHistoryCurrentBranch: '当前分支',
+  gitHistoryAllBranches: '所有分支',
+  gitHistoryCommitMessage: '提交说明',
+  gitHistoryParent: '与父提交比较',
+  gitHistoryRootCommit: '根提交',
+  gitHistoryReviewCommit: 'Review 提交',
+  gitHistoryCommitChanges: count => `${count} 个文件有变化`,
+  gitHistoryNoChanges: '没有文件变化',
+  gitHistoryChangesTruncated: '还有部分变更文件未展示',
   searchOrPathLine: '搜索或路径:行号',
   searchFilesOrJump: '搜索文件或跳转到路径行号',
   openEditors: '打开的编辑器',

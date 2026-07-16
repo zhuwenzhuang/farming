@@ -92,6 +92,12 @@ function run() {
   );
 
   assert(
+    webSocketSource.includes("sendMessage({ type: 'focus-agent', agentId, refreshState: true })") &&
+      messagesSource.includes('refreshState?: boolean'),
+    'focusing an Agent should refresh its backend-derived Terminal profile instead of keeping launch defaults from an early recovery snapshot'
+  );
+
+  assert(
     workspaceSource.includes('useWorkspaceNavigationHistory()') &&
       workspaceSource.includes('recordWorkspaceNavigationAgent(activeTerminalId)') &&
       workspaceSource.includes('recordWorkspaceNavigationFile({') &&
@@ -1025,6 +1031,8 @@ function run() {
       agentWorkPaneSource.includes('CodexAppServerTranscriptPane') &&
       agentWorkPaneSource.includes('JsonCliTranscriptPane') &&
       agentWorkPaneSource.includes('AcpTranscriptPane') &&
+      agentWorkPaneSource.includes("runtimeState={agent.acpState || ''}") &&
+      agentWorkPaneSource.includes("expectHistory={(agent.source || '').startsWith('codex-history:')}") &&
       agentWorkPaneSource.includes('AgentTerminalPane') &&
       agentWorkPaneSource.includes('const appServerChat = isCodexAppServerAgent(agent)') &&
       agentWorkPaneSource.includes("const jsonChat = agent.agentRuntimeMode === 'json'") &&
@@ -1041,6 +1049,9 @@ function run() {
       !transcriptPaneSource.includes("processOpen || (!mobileTouch && turn.status === 'inProgress')") &&
       transcriptPaneSource.includes('if (seconds <= 0) return') &&
       transcriptPaneSource.includes('role="status">{error}</div>') &&
+      transcriptPaneSource.includes('&& !error') &&
+      transcriptPaneSource.includes("runtimeState === 'connecting' || expectHistory") &&
+      transcriptPaneSource.includes('loading || awaitingAcpHistory') &&
       workspaceSource.includes('无法加载此会话的 Chat 历史。') &&
       !workspaceSource.includes('codexTranscriptGoalProgress') &&
       agentWorkPaneSource.includes('data-testid="code-agent-terminal-view"') &&
@@ -1438,6 +1449,8 @@ function run() {
 
   assert(
     workspaceSource.includes('const DEFAULT_SIDEBAR_WIDTH = 296') &&
+      workspaceSource.includes('const MAX_SIDEBAR_WIDTH = 840') &&
+      workspaceSource.includes('const MIN_MAIN_PANE_WIDTH = 360') &&
       workspaceSource.includes('const COLLAPSED_SIDEBAR_WIDTH = 52') &&
       workspaceSource.includes('const DESKTOP_AUTO_COLLAPSE_WIDTH = 900') &&
       workspaceSource.includes('const sidebarAutoCollapsedRef = useRef(sidebarCollapsed)') &&

@@ -1054,9 +1054,9 @@ function run() {
 	      designSource.includes('轻量 hot-exit 缓存里的草稿仍应同步给左侧 Explorer decoration') &&
 	      designSource.includes('decoration slot') &&
 	      designSource.includes('父目录名称保持低饱和提示色') &&
-	      designSource.includes('Project 展开内容的顺序是具体 Agent 行、可选 `Open Editors`、`Files`') &&
+	      designSource.includes('Project 展开内容的顺序是具体 Agent 行、可选 `Open Editors`、`Files`；`Git History` 位于 Files 内的 Working Copy `Changes` 之后') &&
 	      designSource.includes('`Open Editors` 只有在当前 Project 至少打开一个文件后才出现，出现时默认折叠') &&
-	      designSource.includes('`Files` 只承载搜索/跳转入口和目录树，不承载打开文件列表') &&
+	      designSource.includes('`Files` 承载搜索/跳转入口、Working Copy `Changes`、`Git History` 和目录树，不承载打开文件列表') &&
 	      designSource.includes('独立 section，和 Agent 行处于同一层级缩进') &&
 	      designSource.includes('Files section 标题可点击折叠/展开') &&
 	      designSource.includes('Main Agent 不展示对应 Files') &&

@@ -26,7 +26,7 @@ function run() {
     useWebSocket.indexOf('const resizeAgent = useCallback')
   );
   assert(
-    codeFocusAgent.includes("sendMessage({ type: 'focus-agent', agentId })") &&
+    codeFocusAgent.includes("sendMessage({ type: 'focus-agent', agentId") &&
       !codeFocusAgent.includes('streamScope') &&
       !codeFocusAgent.includes('previewScope'),
     'Farming Code should retain the default all-stream subscription behavior'

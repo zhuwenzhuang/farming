@@ -24,6 +24,7 @@ const {
   listAgentSessions,
   normalizeProvider,
   paginateAgentSessions,
+  resolveCodexResumeModelProvider,
   searchAgentSessions,
 } = require('./agent-session-history');
 const {
@@ -115,7 +116,7 @@ const usageSummaryCache = new AsyncCache(() => usageMonitor.getUsageSummary(), {
 });
 const codexModelOptionsCache = new AsyncCache(() => listCodexModelOptions(), {
   ttlMs: 5 * 60_000,
-  staleMs: 30 * 60_000,
+  staleMs: 5 * 60_000,
 });
 function configuredProviderHomes() {
   const settings = configManager.getSettings();
@@ -640,8 +641,16 @@ app.post(
 );
 
 app.get(routePath(BASE_PATH, '/api/codex/models'), async (req, res) => {
-  const catalog = await codexModelOptionsCache.get('catalog');
-  res.json(catalog);
+  try {
+    const catalog = await codexModelOptionsCache.get('catalog');
+    res.json(catalog);
+  } catch (error) {
+    const timedOut = error && error.code === 'CODEX_MODELS_TIMEOUT';
+    res.status(timedOut ? 504 : 502).json({
+      error: error && error.message ? error.message : 'Failed to load Codex model catalog',
+      code: error && error.code ? error.code : 'CODEX_MODELS_FAILED',
+    });
+  }
 });
 
 app.get(routePath(BASE_PATH, '/api/claude/settings'), (req, res) => {
@@ -1570,6 +1579,9 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
     const command = buildAgentSessionResumeCommand(normalizedProvider, sessionId, {
       fork: shouldFork,
       cwd: workingDirectory,
+      modelProvider: normalizedProvider === 'codex'
+        ? resolveCodexResumeModelProvider(session ? session.providerHomePath : '')
+        : '',
     });
 
     if (!command) {
@@ -1603,6 +1615,7 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
         providerHomeId: resolvedProviderHomeId,
         providerHomePath: session ? (session.providerHomePath || '') : '',
         autoReadInitialAttention: options.autoReadInitialAttention === true,
+        preserveProviderSessionProfile: normalizedProvider === 'codex',
       });
       Promise.resolve(startResult).catch((error) => {
         resolve({ error: error.message || 'failed to resume agent session', status: 500 });
@@ -1672,10 +1685,29 @@ async function autoResumeMainPageAgentSessions() {
   const sessions = mainPageAgentSessionsToAutoResume(configManager.getSettings());
   if (sessions.length === 0) return;
 
+  let knownSessions;
+  try {
+    knownSessions = await agentSessionsCache.get(
+      JSON.stringify(configManager.getSettings().agentHomes || {}),
+      { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS }
+    );
+  } catch (error) {
+    console.warn('Failed to load Agent session catalog for auto-resume:', error && (error.message || error));
+    return;
+  }
+  const knownSessionByKey = new Map(knownSessions.map(session => [
+    mainPageAgentSessionKey(session.provider, session.id, session.providerHomeId || 'default'),
+    session,
+  ]));
+
   let resumedCount = 0;
   for (const session of sessions) {
     try {
-      const sessionDetails = await findAgentSession(session.provider, session.sessionId, { limit: 200, providerHomeId: session.providerHomeId || 'default', providerHomes: configuredProviderHomes() });
+      const sessionDetails = knownSessionByKey.get(mainPageAgentSessionKey(
+        session.provider,
+        session.sessionId,
+        session.providerHomeId || 'default'
+      ));
       if (!sessionDetails) {
         console.warn('Dropping stale main-page session from auto-resume:', session.provider, session.sessionId);
         forgetMainPageAgentSession(session.provider, session.sessionId, session.providerHomeId || 'default');

@@ -49,6 +49,16 @@ function heartbeatAssistantMessage(value) {
   return heartbeat.message || '';
 }
 
+function stripCodexAppDirectives(value) {
+  // These directives are private transport hints consumed by the Codex app.
+  // Farming does not implement their native cards, so rendering them as
+  // Markdown leaks protocol syntax and local paths into otherwise clean Chat.
+  return String(value || '').replace(
+    /::(?:code-comment|created-thread|git-(?:stage|commit|create-branch|push|create-pr))\{[^\r\n]*\}/gi,
+    '',
+  );
+}
+
 function stripCodexInternalContextBlocks(value) {
   let text = normalizeCodexTranscriptText(value);
   if (!text) return '';
@@ -82,6 +92,7 @@ function stripCodexInternalContextBlocks(value) {
   });
 
   text = text.replace(/(^|\n)\s*# AGENTS\.md instructions for[^\n]*\n[\s\S]*?<\/INSTRUCTIONS>\s*(?=\n|$)/gi, '$1');
+  text = stripCodexAppDirectives(text);
 
   return text
     .replace(/[ \t]+\n/g, '\n')
@@ -99,5 +110,6 @@ module.exports = {
   heartbeatUserMessage,
   isCodexInjectedContextMessage,
   parseHeartbeatEnvelope,
+  stripCodexAppDirectives,
   stripCodexInternalContextBlocks,
 };

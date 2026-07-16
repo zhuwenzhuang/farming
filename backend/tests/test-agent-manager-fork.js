@@ -121,16 +121,46 @@ async function run() {
 
     const codexSessionId = '22222222-3333-4444-8555-666666666666';
     const codexHome = path.join(tmpRoot, '.codex-work');
+    const codexSessionsDir = path.join(codexHome, 'sessions', '2026', '07', '15');
+    fs.mkdirSync(codexSessionsDir, { recursive: true });
+    fs.writeFileSync(path.join(codexSessionsDir, `rollout-${codexSessionId}.jsonl`), [
+      JSON.stringify({
+        timestamp: '2026-07-15T07:00:00.000Z',
+        type: 'session_meta',
+        payload: { id: codexSessionId, cwd: '/repo/project', source: 'cli' },
+      }),
+      JSON.stringify({
+        timestamp: '2026-07-15T07:01:00.000Z',
+        type: 'turn_context',
+        payload: { turn_id: 'turn-1', cwd: '/repo/project', model: 'gpt-5.6-sol', effort: 'xhigh' },
+      }),
+      '',
+    ].join('\n'));
     const resumedCodexId = await startAgent(manager, `codex resume ${codexSessionId}`, repo, {
       wantsMain: false,
       source: `codex-history:home:work:${codexSessionId}`,
       providerHomeId: 'work',
       providerHomePath: codexHome,
     });
+    const resumedCodexMetadata = await manager.findRuntimeSwitchSession(manager.agents.get(resumedCodexId));
+    assert.strictEqual(resumedCodexMetadata?.model, 'gpt-5.6-sol');
+    assert.strictEqual(resumedCodexMetadata?.effort, 'xhigh');
+    const resumedCodexLaunch = captured.at(-1);
+    assert(!resumedCodexLaunch.args.includes('--model'));
+    assert(!resumedCodexLaunch.args.some(arg => /^(?:model|model_reasoning_effort|service_tier)=/.test(arg)));
     const resumedCodexFork = await manager.forkAgent(resumedCodexId, 'same-worktree');
     assert.strictEqual(resumedCodexFork.error, undefined);
     assert.strictEqual(captured.at(-1).command, expectedCodexCommand);
-    assert.deepStrictEqual(captured.at(-1).args.slice(-4), ['fork', '-C', repo, codexSessionId]);
+    assert.deepStrictEqual(captured.at(-1).args.slice(-6), [
+      'fork',
+      '-c',
+      'model_provider="openai"',
+      '-C',
+      repo,
+      codexSessionId,
+    ]);
+    assert(!captured.at(-1).args.includes('--model'));
+    assert(!captured.at(-1).args.some(arg => /^(?:model|model_reasoning_effort|service_tier)=/.test(arg)));
     assert.strictEqual(captured.at(-1).env.CODEX_HOME, codexHome);
     assert.strictEqual(manager.getState().agents.find(agent => agent.id === resumedCodexFork.agentId).providerHomeId, 'work');
 

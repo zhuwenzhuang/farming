@@ -68,7 +68,7 @@ The portal keeps its token, signing identity, and private `instances.json` regis
 - Group live agents by project, pin or rename important work, track unread activity, search live and historical sessions, and archive or resume tasks.
 - Use structured ACP Chat for Codex, Claude Code, OpenCode, and Qoder. Plans, reasoning, tools, permission requests, embedded terminals, child sessions, attachments, queued follow-ups, and exact change summaries remain available without overwhelming the final answer.
 - Switch the same provider session between structured Chat and a real PTY Terminal. Supported Codex model, reasoning, Fast, Ultra, and permission changes reach the live workflow; a compatible Terminal applies model changes immediately and confirms the CLI state before accepting the next Composer message.
-- Browse, search, and lightly edit Project Files; inspect Git changes, Diff, and Blame; then open tracked or untracked changes in the initial Review surface with captured revisions, inline comments, and Reviewed state.
+- Browse, search, and lightly edit Project Files; inspect a VS Code-derived Git history graph, changed files, Git changes, Diff, and Blame; then open commits or working-copy changes in Review with captured revisions, inline comments, and Reviewed state.
 - Observe CPU/MEM, token-rate, context, quota, provider usage, and CRT daily/live token telemetry when the provider exposes the required data.
 - Continue the same Farming Code task from desktop or phone without moving the Agent process away from the development host.
 

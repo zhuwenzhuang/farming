@@ -129,6 +129,12 @@ async function run() {
       const branch = await fetchJson(baseUrl, '/api/files/branch?agentId=agent-main');
       assert.strictEqual(branch.response.status, 200);
       assert.strictEqual(branch.body.branch, '');
+      const nonRepositoryHistory = await fetchJson(baseUrl, '/api/files/history?agentId=agent-main');
+      assert.strictEqual(nonRepositoryHistory.response.status, 200);
+      assert.strictEqual(nonRepositoryHistory.body.history.isGitRepo, false);
+      assert.deepStrictEqual(nonRepositoryHistory.body.history.items, []);
+      const globalHistory = await fetchJson(baseUrl, `/api/files/history?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}`);
+      assert.strictEqual(globalHistory.response.status, 403);
 
       const read = await fetchJson(baseUrl, '/api/files/file?agentId=agent-main&path=README.md');
       assert.strictEqual(read.response.status, 200);
@@ -213,6 +219,25 @@ async function run() {
         execFileSync('git', ['config', 'user.name', 'Farming Test'], { cwd: projectWorkspace });
         execFileSync('git', ['add', 'README.md'], { cwd: projectWorkspace });
         execFileSync('git', ['commit', '-m', 'readme'], { cwd: projectWorkspace, stdio: 'ignore' });
+        const readmeCommit = String(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: projectWorkspace, encoding: 'utf8' })).trim();
+
+        const history = await fetchJson(baseUrl, '/api/files/history?agentId=agent-main&limit=1');
+        assert.strictEqual(history.response.status, 200);
+        assert.strictEqual(history.body.history.isGitRepo, true);
+        assert.strictEqual(history.body.history.head, readmeCommit);
+        assert.strictEqual(history.body.history.scope, 'current');
+        assert.strictEqual(history.body.history.items[0].subject, 'readme');
+        assert.strictEqual(history.body.history.items[0].message, 'readme');
+        const allHistory = await fetchJson(baseUrl, '/api/files/history?agentId=agent-main&limit=1&scope=all');
+        assert.strictEqual(allHistory.response.status, 200);
+        assert.strictEqual(allHistory.body.history.scope, 'all');
+        const historyChanges = await fetchJson(baseUrl, `/api/files/history/changes?agentId=agent-main&commit=${readmeCommit}`);
+        assert.strictEqual(historyChanges.response.status, 200);
+        assert.strictEqual(historyChanges.body.changes.parent, null);
+        assert.strictEqual(historyChanges.body.changes.comparisonBase.length, 40);
+        assert(historyChanges.body.changes.items.some(item => item.path === 'README.md' && item.status === 'added'));
+        const invalidHistoryChanges = await fetchJson(baseUrl, '/api/files/history/changes?agentId=agent-main&commit=HEAD');
+        assert.strictEqual(invalidHistoryChanges.response.status, 400);
 
         const blame = await fetchJson(baseUrl, '/api/files/blame?agentId=agent-main&path=README.md');
         assert.strictEqual(blame.response.status, 200);

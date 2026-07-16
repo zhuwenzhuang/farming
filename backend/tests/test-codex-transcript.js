@@ -6,6 +6,7 @@ const {
   DEFAULT_MAX_TURNS,
   buildTranscriptFromLines,
   dropLeadingPartialTurn,
+  readCodexHistoryImageData,
   readCodexTranscript,
   stripUserMessagePrefix,
   textFromContent,
@@ -473,6 +474,26 @@ function referenceServerNotificationMethods() {
   assert(citation);
   assert(citation.detail.includes('MEMORY.md:47-84'));
   assert(citation.detail.includes('019f26d3-7485-76d0-8a64-f5cf5d690129'));
+}
+
+{
+  const turns = buildTranscriptFromLines([
+    event('user_message', { turn_id: 'turn-directives', message: '提交完成了吗？' }),
+    event('agent_message', {
+      turn_id: 'turn-directives',
+      message: [
+        '已提交：804e8876 Improve in-app update settings',
+        '',
+        '::git-stage{cwd="/Users/example/farming"} ::git-commit{cwd="/Users/example/farming"}',
+        '::code-comment{title="Nested detail" body="Keep {value} private" file="/Users/example/farming/src/App.tsx"}',
+      ].join('\n'),
+      phase: 'final_answer',
+    }),
+  ]);
+
+  assert.strictEqual(turns.length, 1);
+  assert.strictEqual(turns[0].finalMessage, '已提交：804e8876 Improve in-app update settings');
+  assert(!turns[0].finalMessage.includes('::git-'));
 }
 
 {
@@ -2355,6 +2376,23 @@ async function runAsyncTests() {
     assert.strictEqual(limitedTranscript.turns[0].userMessage, '第二轮问题');
     assert.strictEqual(limitedTranscript.hasMoreBefore, true);
     assert.strictEqual(limitedTranscript.turnLimit, 1);
+
+    const imageSessionId = '019f0000-0000-7000-8000-000000000778';
+    const imageSessionPath = path.join(sessionDir, `rollout-${imageSessionId}.jsonl`);
+    const imagePath = path.join(tmpDir, 'expired-screen.png');
+    const imageData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
+    fs.writeFileSync(imageSessionPath, line('response_item', {
+      type: 'message',
+      role: 'user',
+      content: [
+        { type: 'input_text', text: `# Files mentioned by the user:\n\n## expired-screen.png: ${imagePath}\n\n## My request for Codex:\n查看截图` },
+        { type: 'input_text', text: `<image name=[Image #1] path="${imagePath}">` },
+        { type: 'input_image', image_url: `data:image/png;base64,${imageData}` },
+        { type: 'input_text', text: '</image>' },
+      ],
+    }));
+    const historyImages = await readCodexHistoryImageData(imageSessionId, { codexHome: tmpDir });
+    assert.strictEqual(historyImages.get(imagePath), `data:image/png;base64,${imageData}`);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

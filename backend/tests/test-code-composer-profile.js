@@ -3,8 +3,9 @@ const {
   buildComposerControlState,
   effectiveClaudePermissionModeForSession,
   effectiveCodexApprovalModeForSession,
+  resolveCodexComposerProfile,
 } = require('../../src/components/code/composer-profile.ts');
-const { FALLBACK_CODEX_MODEL_OPTIONS } = require('../../src/components/code/model.ts');
+const { normalizeModelCatalog } = require('../../src/components/code/model.ts');
 
 function run() {
   assert.strictEqual(
@@ -50,7 +51,7 @@ function run() {
     codexReasoningEffort: 'ultra',
     codexServiceTier: 'priority',
     codexModelPreset: 'gpt-5.6-sol:ultra',
-    codexModelOptions: FALLBACK_CODEX_MODEL_OPTIONS,
+    codexModelOptions: [],
     codexApprovalMode: 'approve',
     claudeModel: 'config',
     claudeEffort: 'config',
@@ -61,6 +62,28 @@ function run() {
   assert.strictEqual(pendingCatalogState.currentReasoningLabel, 'Ultra');
   assert.strictEqual(pendingCatalogState.currentSpeedLabel, 'Fast');
   assert.strictEqual(pendingCatalogState.currentModelOption.value, 'gpt-5.6-sol');
+  assert.deepStrictEqual(
+    normalizeModelCatalog({}),
+    [],
+    'a missing backend catalog must not turn into a static frontend fallback'
+  );
+
+  assert.deepStrictEqual(
+    resolveCodexComposerProfile(
+      { model: 'gpt-5.6-sol', reasoningEffort: 'xhigh', serviceTier: 'priority' },
+      { model: 'gpt-5.5', reasoningEffort: 'xhigh', serviceTier: 'default' },
+    ),
+    { model: 'gpt-5.6-sol', reasoningEffort: 'xhigh', serviceTier: 'priority' },
+    'a backend-confirmed Terminal footer profile should override the saved launch defaults'
+  );
+  assert.deepStrictEqual(
+    resolveCodexComposerProfile(
+      null,
+      { model: 'gpt-5.5', reasoningEffort: 'xhigh', serviceTier: 'default' },
+    ),
+    { model: 'gpt-5.5', reasoningEffort: 'xhigh', serviceTier: 'default' },
+    'the composer should use launch defaults only when no live Terminal profile exists'
+  );
 
   console.log('test-code-composer-profile passed');
 }

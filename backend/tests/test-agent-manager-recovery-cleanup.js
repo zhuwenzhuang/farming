@@ -70,6 +70,19 @@ async function run() {
         },
         {
           engineName: 'native',
+          agentId: 'main-bash',
+          metadata: {
+            agentId: 'main-bash',
+            command: 'bash',
+            cwd: '/main',
+            category: 'other',
+            source: 'ui',
+            wantsMain: true,
+          },
+          state: { status: 'running', startedAt: 2000 },
+        },
+        {
+          engineName: 'native',
           agentId: 'untracked-bash',
           metadata: {
             agentId: 'untracked-bash',
@@ -115,6 +128,9 @@ async function run() {
       manager.getState().agents.find(agent => agent.id === 'recovered-codex').launchPermissionMode,
       'full'
     );
+    assert(manager.agents.has('main-bash'), 'Main Agent shell sessions should be restored');
+    assert.strictEqual(manager.mainAgentId, 'main-bash');
+    assert.strictEqual(manager.getState().agents.find(agent => agent.id === 'main-bash').isMain, true);
     assert.strictEqual(manager.agents.has('untracked-bash'), false, 'shell sessions should not be restored');
     assert.strictEqual(manager.agents.has('untracked-shell-category'), false, 'shell-category sessions should not be restored');
     assert.deepStrictEqual(
@@ -129,7 +145,7 @@ async function run() {
     await manager.dispose({ preserveTerminalHost: true });
   }
 
-  console.log('✓ Agent manager kills unrecovered shell sessions during native recovery');
+  console.log('✓ Agent manager restores the Main Agent shell and kills unrecovered scratch shells');
 }
 
 run().catch(error => {

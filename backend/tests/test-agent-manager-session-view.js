@@ -14,6 +14,13 @@ async function run() {
   try {
     manager.engineBridge.getEngine = () => ({
       async getSessionState(agentId) {
+        if (agentId === 'terminal-codex') {
+          return {
+            output: 'terminal codex output',
+            previewText: 'gpt-5.6-sol xhigh fast · /tmp/codex',
+            startedAt: 124,
+          };
+        }
         if (agentId !== 'local-agent') return null;
         return {
           output: 'local output',
@@ -45,6 +52,44 @@ async function run() {
     assert.strictEqual(localView.output, 'local output');
     assert.strictEqual(localView.previewText, 'local preview');
     assert.strictEqual(localView.startedAt, 123);
+
+    manager.agents.set('terminal-codex', {
+      id: 'terminal-codex',
+      command: 'codex',
+      cwd: '/tmp/codex',
+      output: 'terminal codex output',
+      previewText: 'gpt-5.6-sol xhigh fast · /tmp/codex',
+      engineName: 'local',
+      status: 'running',
+      agentRuntimeMode: 'terminal',
+      providerSessionProvider: 'codex',
+      startedAt: 124,
+    });
+    manager.lastActivity.set('terminal-codex', Date.now());
+
+    const terminalCodexView = await manager.getAgentSessionView('terminal-codex');
+    assert.deepStrictEqual(terminalCodexView.codexTerminalProfile, {
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'xhigh',
+      serviceTier: 'priority',
+      source: 'terminal-footer',
+    });
+    assert.deepStrictEqual(
+      manager.getState().agents.find(agent => agent.id === 'terminal-codex').codexTerminalProfile,
+      terminalCodexView.codexTerminalProfile,
+      'initial state should expose the same live Terminal profile as the session view'
+    );
+    assert.deepStrictEqual(
+      manager.getPreviewPayloads().find(preview => preview.agentId === 'terminal-codex').codexTerminalProfile,
+      terminalCodexView.codexTerminalProfile,
+      'preview hydration should carry the live Terminal profile'
+    );
+    manager.agents.get('terminal-codex').previewText = 'Select Model and Effort\n  1. gpt-5.5\n  2. gpt-5.6-sol';
+    assert.deepStrictEqual(
+      manager.getState().agents.find(agent => agent.id === 'terminal-codex').codexTerminalProfile,
+      terminalCodexView.codexTerminalProfile,
+      'a transient Terminal menu should keep the last confirmed profile instead of flashing the launch default'
+    );
 
     const missingView = await manager.getAgentSessionView('missing-agent');
     assert.strictEqual(missingView, null);

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+printf 'Fake Qoder ready\n'
+
+while IFS= read -r line; do
+  printf 'received: %s\n' "$line"
+  printf 'Qoder message handled\n'
+done

@@ -71,6 +71,9 @@ Do not maintain public conversation logs. Ordinary Q&A, temporary debugging, and
 - Keep agent processes isolated.
 - Use asynchronous IO for server paths.
 - Cache heavy filesystem / CLI scans with stale-while-refresh behavior where the codebase already does so.
+- For every non-trivial feature, derive a minimal state-transition model from the known business requirements before implementation. Identify the authoritative state owner and define each transition's trigger, guard, effect, failure result, and retry / cancellation / concurrency / recovery semantics.
+- Treat correctness as both safety and liveness. Safety means unintended bad states are unreachable and every transition preserves the required invariants. Liveness means that, under explicitly stated external assumptions, every transient state has a bounded success, failure, cancellation, timeout, or recovery path and the intended good state is eventually reachable.
+- Simplify state machines before adding abstraction: merge behaviorally equivalent states, remove business-meaningless intermediate states, keep one source of truth, and reject illegal transitions at the boundary. After correctness is established, evaluate whether the design is easy to prove, cohesive, loosely coupled, hard to misuse through its API, and clear to operate through the UI.
 - Add or update tests in proportion to risk.
 - Preserve visual style when fixing behavior unless the user explicitly asks for a visual change.
 - Do not add, remove, or rewrite visible product copy without a clear product reason.
@@ -276,6 +279,8 @@ Pre-release gate for public versions:
 - Browser and visual flows live in `tests/e2e/`.
 - Use fake coding agents for deterministic CI-style checks.
 - Real Codex / Claude smoke tests must be explicit, low-volume, and isolated.
+- Derive feature tests from the state-transition model, not only from happy-path outputs. Cover legal transitions, risky illegal sequences, safety invariants, and bounded progress or recovery from pending states, including concurrency, reordering, retries, cancellation, disconnects, and restarts where relevant.
+- Treat tests, logs, code inspection, and browser observations as revision-bound evidence for stated safety and liveness obligations; a green test suite alone is not a complete correctness proof.
 - Critical desktop and mobile visual states should be covered by Playwright screenshots where practical.
 - Main Projects page membership for Codex / Claude history sessions is covered by `backend/tests/test-code-main-page-session.js`; update it when changing `mainPageSessionKeys` behavior.
 

@@ -197,6 +197,16 @@
             white-space: nowrap;
         }
 
+        .agent-chat-preview-trail {
+            display: flex;
+            flex: 0 1 auto;
+            flex-direction: column;
+            justify-content: flex-end;
+            gap: 5px;
+            min-height: 0;
+            overflow: hidden;
+        }
+
         .agent-chat-preview-state {
             display: inline-flex;
             align-items: center;
@@ -224,6 +234,7 @@
             display: grid;
             grid-template-columns: 40px minmax(0, 1fr);
             gap: 6px;
+            flex: 0 0 auto;
             min-width: 0;
             font-size: 11px;
             line-height: 1.28;
@@ -252,14 +263,10 @@
         .agent-chat-preview-text {
             min-width: 0;
             overflow: hidden;
-            display: -webkit-box;
-            -webkit-box-orient: vertical;
-            -webkit-line-clamp: 2;
             overflow-wrap: anywhere;
         }
 
         .agent-chat-preview-line.user .agent-chat-preview-text {
-            -webkit-line-clamp: 1;
             opacity: 0.74;
         }
 
@@ -272,6 +279,8 @@
         }
 
         .agent-chat-preview-line.activity .agent-chat-preview-text {
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
             -webkit-line-clamp: 1;
             font-style: italic;
         }

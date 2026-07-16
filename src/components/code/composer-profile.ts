@@ -7,7 +7,6 @@ import type {
   GlobalSettings,
 } from './types'
 import {
-  FALLBACK_CODEX_MODEL_OPTIONS,
   codexModelDisplayName,
   effortLabel,
   splitModelPreset,
@@ -39,6 +38,12 @@ export interface ComposerLaunchProfileState {
   claudePermissionMode: ClaudePermissionMode
   claudeModel: string
   claudeEffort: string
+}
+
+export interface CodexComposerProfile {
+  model: string
+  reasoningEffort: string
+  serviceTier: string
 }
 
 export interface ComposerControlState {
@@ -352,6 +357,18 @@ export function normalizeLaunchProfiles(settings: GlobalSettings): ComposerLaunc
   }
 }
 
+export function resolveCodexComposerProfile(
+  liveProfile: CodexComposerProfile | null | undefined,
+  fallback: CodexComposerProfile,
+): CodexComposerProfile {
+  if (!liveProfile?.model || !liveProfile.reasoningEffort) return fallback
+  return {
+    model: liveProfile.model,
+    reasoningEffort: liveProfile.reasoningEffort,
+    serviceTier: liveProfile.serviceTier || 'default',
+  }
+}
+
 export function buildComposerControlState({
   agentKind,
   codexModel,
@@ -395,7 +412,9 @@ export function buildComposerControlState({
     ? claudeReasoningOptionsWithCurrent(agentReasoningEffort, claudeSettings)
     : (currentModelOption?.reasoningLevels?.length
       ? currentModelOption.reasoningLevels
-      : FALLBACK_CODEX_MODEL_OPTIONS[0]?.reasoningLevels ?? [])
+      : agentReasoningEffort
+        ? [{ value: agentReasoningEffort, effort: agentReasoningEffort, label: effortLabel(agentReasoningEffort) }]
+        : [])
   const currentServiceTierOptions = agentKind === 'claude'
     ? []
     : currentModelOption?.serviceTiers?.length

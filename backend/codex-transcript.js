@@ -2,6 +2,7 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const os = require('os');
 const path = require('path');
+const { fileURLToPath } = require('url');
 const { findCodexRolloutFile } = require('./codex-rollout-follower');
 const {
   heartbeatAssistantMessage,
@@ -20,6 +21,7 @@ const MAX_USER_IMAGE_URL_LENGTH = 5 * 1024 * 1024;
 const MAX_LOCAL_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_USER_FILES_PER_TURN = 6;
 const MAX_USER_FILE_CONTENT_CHARS = 50_000;
+const CODEX_HISTORY_IMAGE_LINK_PATTERN = /\[@(?:image|[^\]]+\.(?:gif|jpe?g|png|svg|webp))\]\(([^)\n]+)\)/gi;
 
 const LOCAL_IMAGE_MIME_BY_EXT = {
   '.gif': 'image/gif',
@@ -290,6 +292,81 @@ function stripRenderedComposerAttachmentBlocks(value, renderedKinds) {
     .trim();
 }
 
+function codexHistoryImageTargets(value) {
+  const text = String(value || '');
+  const targets = [];
+  let match;
+  CODEX_HISTORY_IMAGE_LINK_PATTERN.lastIndex = 0;
+  while ((match = CODEX_HISTORY_IMAGE_LINK_PATTERN.exec(text))) {
+    const target = String(match[1] || '').trim();
+    if (!target || targets.includes(target)) continue;
+    targets.push(target);
+    if (targets.length >= MAX_USER_IMAGES_PER_TURN) break;
+  }
+  return targets;
+}
+
+function localImagePathFromTarget(value) {
+  const target = String(value || '').trim();
+  if (!target || target.includes('\0') || /^data:/i.test(target)) return '';
+  if (/^file:\/\//i.test(target)) {
+    try {
+      return fileURLToPath(target);
+    } catch {
+      return '';
+    }
+  }
+  return path.isAbsolute(target) ? target : '';
+}
+
+function localImagePathsFromUserContent(content) {
+  const paths = [];
+  const append = (value) => {
+    const filePath = localImagePathFromTarget(value);
+    if (!filePath || !LOCAL_IMAGE_MIME_BY_EXT[path.extname(filePath).toLowerCase()] || paths.includes(filePath)) return;
+    paths.push(filePath);
+  };
+  for (const part of Array.isArray(content) ? content : []) {
+    if (!part || typeof part !== 'object') continue;
+    if (['local_image', 'localImage'].includes(part.type)) append(part.path || part.file || part.url);
+    const text = typeof part.text === 'string' ? part.text : '';
+    for (const match of text.matchAll(/<image\b[^>]*\bpath=(['"])(.*?)\1/gi)) append(match[2]);
+    for (const match of text.matchAll(/^##\s+[^\n:]+:\s*(.+)$/gim)) append(match[1]);
+  }
+  return paths.slice(0, MAX_USER_IMAGES_PER_TURN);
+}
+
+function dataImageUrlsFromUserContent(content) {
+  const urls = [];
+  for (const part of Array.isArray(content) ? content : []) {
+    if (!part || typeof part !== 'object' || !['input_image', 'inputImage', 'image'].includes(part.type)) continue;
+    const value = String(part.image_url || part.imageUrl || part.url || part.data || '');
+    if (!/^data:image\/(?:gif|jpe?g|png|svg\+xml|webp);base64,/i.test(value)) continue;
+    if (value.length > MAX_USER_IMAGE_URL_LENGTH || urls.includes(value)) continue;
+    urls.push(value);
+    if (urls.length >= MAX_USER_IMAGES_PER_TURN) break;
+  }
+  return urls;
+}
+
+function appendHistoryImageDataFromContent(imageDataByPath, content) {
+  const paths = localImagePathsFromUserContent(content);
+  const urls = dataImageUrlsFromUserContent(content);
+  for (let index = 0; index < Math.min(paths.length, urls.length); index += 1) {
+    if (!imageDataByPath.has(paths[index])) imageDataByPath.set(paths[index], urls[index]);
+  }
+}
+
+function stripRenderedCodexHistoryAttachmentLinks(value, renderedKinds) {
+  const text = normalizeText(value);
+  if (!text || !renderedKinds.has('image')) return text;
+  CODEX_HISTORY_IMAGE_LINK_PATTERN.lastIndex = 0;
+  return text
+    .replace(CODEX_HISTORY_IMAGE_LINK_PATTERN, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function visibleUserMessageText(value, options = {}) {
   const rawText = stripUserMessagePrefix(value);
   const heartbeatMessage = heartbeatUserMessage(rawText);
@@ -297,7 +374,10 @@ function visibleUserMessageText(value, options = {}) {
   const text = stripCodexInternalContextBlocks(rawText);
   if (isInjectedContextMessage(text)) return '';
   const renderedKinds = renderedAttachmentKindSet(options);
-  return stripRenderedComposerAttachmentBlocks(stripRenderedAttachmentTagBlocks(text, renderedKinds), renderedKinds);
+  return stripRenderedCodexHistoryAttachmentLinks(
+    stripRenderedComposerAttachmentBlocks(stripRenderedAttachmentTagBlocks(text, renderedKinds), renderedKinds),
+    renderedKinds,
+  );
 }
 
 function renderedAttachmentKindsForTurn(turn) {
@@ -2323,6 +2403,36 @@ async function readCodexTranscript(sessionId, options = {}) {
   };
 }
 
+async function readCodexHistoryImageData(sessionId, options = {}) {
+  const normalizedSessionId = String(sessionId || '').trim();
+  if (!normalizedSessionId) return new Map();
+  const filePath = findCodexRolloutFile(normalizedSessionId, {
+    codexHome: options.codexHome || path.join(os.homedir(), '.codex'),
+  });
+  if (!filePath) return new Map();
+  const tail = await readTailLines(filePath, options.maxReadBytes);
+  const imageDataByPath = new Map();
+  for (const line of tail.lines) {
+    if (!line.trim()) continue;
+    try {
+      const event = JSON.parse(line);
+      const { type: eventType, payload } = normalizeEventEnvelope(event);
+      if (!payload) continue;
+      if (eventType === 'response_item' && payload.type === 'message' && payload.role === 'user') {
+        appendHistoryImageDataFromContent(imageDataByPath, payload.content);
+        continue;
+      }
+      if (['item/started', 'item/completed', 'item.started', 'item.completed'].includes(eventType)) {
+        const item = payload.item;
+        if (turnItemType(item) === 'usermessage') appendHistoryImageDataFromContent(imageDataByPath, item?.content);
+      }
+    } catch {
+      // Ignore malformed or partial tail records; history replay remains usable without image recovery.
+    }
+  }
+  return imageDataByPath;
+}
+
 function buildTranscriptFromEvents(events, options = {}) {
   const lines = Array.isArray(events)
     ? events.filter(event => event && typeof event === 'object').map(event => JSON.stringify(event))
@@ -2334,8 +2444,11 @@ module.exports = {
   DEFAULT_MAX_TURNS,
   buildTranscriptFromEvents,
   buildTranscriptFromLines,
+  codexHistoryImageTargets,
   dropLeadingPartialTurn,
+  readCodexHistoryImageData,
   readCodexTranscript,
   stripUserMessagePrefix,
   textFromContent,
+  visibleUserMessageText,
 };

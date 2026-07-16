@@ -132,7 +132,7 @@ export function AgentWorkPane({
           onPointerDown={activateChatView}
         >
           {acpChat ? (
-            <AcpTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} refreshSignal={Number(agent.acpSessionRevision) || (agent.acpSessionUpdatedAt ? Date.parse(agent.acpSessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
+            <AcpTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} runtimeState={agent.acpState || ''} expectHistory={(agent.source || '').startsWith('codex-history:')} refreshSignal={Number(agent.acpSessionRevision) || (agent.acpSessionUpdatedAt ? Date.parse(agent.acpSessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
           ) : appServerChat ? (
             <CodexAppServerTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
           ) : (

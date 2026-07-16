@@ -133,16 +133,6 @@ function shouldReplaceHistoryItem(current: HistoryAgentItem, candidate: HistoryA
   return historyItemDisplayPriority(candidate) > historyItemDisplayPriority(current)
 }
 
-function historySessionDisplayKey(item: HistoryAgentItem) {
-  if (item.kind !== 'session') return ''
-  const title = String(item.session.title || '').trim().toLocaleLowerCase()
-  const workspace = String(formatAgentSessionWorkspace(item.session) || '').trim().toLocaleLowerCase()
-  const provider = normalizeHistoryProvider(item.session.provider)
-  const home = String(item.session.providerHomeId || 'default').trim().toLocaleLowerCase()
-  // Empty/provider-default titles are not meaningful enough to collapse.
-  return title.length > 4 && workspace ? `${provider}:${home}:${workspace}:${title}` : ''
-}
-
 export function dedupeHistoryAgentItems(items: HistoryAgentItem[]) {
   const retainedItems: HistoryAgentItem[] = []
   const resumableItems = new Map<string, HistoryAgentItem>()
@@ -160,24 +150,10 @@ export function dedupeHistoryAgentItems(items: HistoryAgentItem[]) {
     }
   })
 
-  const exactDedupe = [
+  return [
     ...retainedItems,
     ...resumableItems.values(),
-  ]
-  const visualSessions = new Map<string, HistoryAgentItem>()
-  return exactDedupe.filter(item => {
-    const displayKey = historySessionDisplayKey(item)
-    if (!displayKey) return true
-    const current = visualSessions.get(displayKey)
-    if (!current || shouldReplaceHistoryItem(current, item)) {
-      visualSessions.set(displayKey, item)
-      return true
-    }
-    return false
-  }).filter(item => {
-    const displayKey = historySessionDisplayKey(item)
-    return !displayKey || visualSessions.get(displayKey) === item
-  }).sort((a, b) => b.updatedAt - a.updatedAt)
+  ].sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
 export function buildHistoryAgentItems(
