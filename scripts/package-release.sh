@@ -227,14 +227,19 @@ case "${1:-}" in
     exec bash "${DIR}/scripts/install-release.sh" "$@"
     ;;
   *)
+    node_bin="$(type -P node || true)"
+    if [ -z "${node_bin}" ]; then
+      echo "Node.js 22 or newer is required." >&2
+      exit 1
+    fi
     if [ "${FARMING_USE_GLIBC_RUNTIME:-auto}" != "0" ] && [ "$(uname -s)" = Linux ]; then
       version="$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{print $2}' || true)"
       loader="${FARMING_GLIBC_RUNTIME_ROOT:-${HOME}/.farming/glibc228}/lib/ld-2.28.so"
       if [ -n "${version}" ] && [ "$(printf '%s\n%s\n' "2.28" "${version}" | sort -V | head -1)" = "${version}" ] && [ "${version}" != "2.28" ] && [ -x "${loader}" ]; then
-        exec "${loader}" --library-path "$(dirname "${loader}")" node "${DIR}/bin/farming" "$@"
+        exec "${loader}" --library-path "$(dirname "${loader}")" "${node_bin}" "${DIR}/bin/farming" "$@"
       fi
     fi
-    exec node "${DIR}/bin/farming" "$@"
+    exec "${node_bin}" "${DIR}/bin/farming" "$@"
     ;;
 esac
 EOF

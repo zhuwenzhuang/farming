@@ -369,6 +369,9 @@ async function runTests() {
     assert(packageReleaseSource.includes('cp "${PROJECT_ROOT}/package-lock.json"'));
     assert(packageReleaseSource.includes('linux-x64-legacy-glibc228'));
     assert(packageReleaseSource.includes('"bundledGlibcRuntime"'));
+    assert(packageReleaseSource.includes('node_bin="$(type -P node || true)"'));
+    assert(packageReleaseSource.includes('"${node_bin}" "${DIR}/bin/farming"'));
+    assert(!packageReleaseSource.includes('"$(dirname "${loader}")" node "${DIR}/bin/farming"'));
   }
 
   {
