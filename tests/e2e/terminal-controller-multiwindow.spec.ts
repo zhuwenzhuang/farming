@@ -75,7 +75,7 @@ async function waitForTerminalSettled(
       window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null
     ), agentId)
     if (
-      diagnostics?.geometryStatus === 'owner'
+      diagnostics?.controllerStatus === 'owner'
       && diagnostics.checkpointRequestInFlight === false
       && diagnostics.replayTargetRevision === null
       && diagnostics.replayInProgress === false
@@ -91,10 +91,10 @@ async function ensureTerminalOwner(
   agentId: string,
 ) {
   const host = terminalHost(page, agentId)
-  if (await host.getAttribute('data-geometry-status') !== 'owner') {
-    await host.locator('.terminal-geometry-takeover').click()
+  if (await host.getAttribute('data-controller-status') !== 'owner') {
+    await host.locator('.terminal-controller-takeover').click()
   }
-  await expect(host).toHaveAttribute('data-geometry-status', 'owner')
+  await expect(host).toHaveAttribute('data-controller-status', 'owner')
   await waitForTerminalSettled(page, agentId)
 }
 
@@ -146,29 +146,25 @@ async function expectRendererFlowControlProgress(
   agentId: string,
   marker: string,
 ) {
-  const script = [
-    'let i=0',
-    'const timer=setInterval(()=>{',
-    "if(i++<40){process.stdout.write('x'.repeat(5000));return}",
-    'clearInterval(timer)',
-    `process.stdout.write(${JSON.stringify(`\n${marker}\n`)})`,
-    '},2)',
-  ].join(';')
-  const response = await page.request.post(`/farming/api/control/agents/${agentId}/input`, {
-    data: { input: `node -e ${JSON.stringify(script)}\n` },
-  })
-  expect(response.ok()).toBeTruthy()
+  const command = `for i in {1..80}; do printf '%05000d' 0; done; printf '\\n${marker}\\n'`
+  const input = page.locator(
+    `.terminal-session-host[data-agent-id="${agentId}"] .xterm-helper-textarea, `
+    + '#terminal-output .xterm-helper-textarea',
+  ).first()
+  await input.focus()
+  await page.keyboard.insertText(command)
+  await input.press('Enter')
   await expect.poll(async () => (
     (await sessionState(page, agentId)).renderOutput || ''
   ), { timeout: 20_000 }).toContain(marker)
 }
 
-test('one browser owns PTY geometry and interactive takeover is fenced across windows', async ({
+test('one browser owns PTY controller and interactive takeover is fenced across windows', async ({
   page,
   context,
   workspaceRoot,
 }) => {
-  const workspace = path.join(workspaceRoot, 'terminal-geometry-multiwindow')
+  const workspace = path.join(workspaceRoot, 'terminal-controller-multiwindow')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createControlAgent(page, workspace)
 
@@ -185,15 +181,15 @@ test('one browser owns PTY geometry and interactive takeover is fenced across wi
     await openPage(observerPage)
     await selectAgent(observerPage, agentId)
     await expect(terminalHost(observerPage, agentId))
-      .toHaveAttribute('data-geometry-status', 'observer')
+      .toHaveAttribute('data-controller-status', 'observer')
 
     await observerPage.reload({ waitUntil: 'domcontentloaded' })
     await expect(observerPage.getByTestId('app-shell')).toBeVisible()
     await selectAgent(observerPage, agentId)
     await expect(terminalHost(observerPage, agentId))
-      .toHaveAttribute('data-geometry-status', 'observer')
+      .toHaveAttribute('data-controller-status', 'observer')
     await expect(terminalHost(page, agentId))
-      .toHaveAttribute('data-geometry-status', 'owner')
+      .toHaveAttribute('data-controller-status', 'owner')
 
     const beforeObserverResize = await waitForStableSessionRevision(page, agentId)
     await observerPage.evaluate((id) => {
@@ -211,20 +207,20 @@ test('one browser owns PTY geometry and interactive takeover is fenced across wi
     const afterObserverInput = await waitForStableSessionRevision(page, agentId)
     expect(afterObserverInput.renderOutput || '').not.toContain(observerBlockedMarker)
     await expect(terminalHost(observerPage, agentId))
-      .toHaveAttribute('data-geometry-status', 'observer')
+      .toHaveAttribute('data-controller-status', 'observer')
 
     await terminalHost(observerPage, agentId).click({ position: { x: 20, y: 20 } })
     await observerPage.waitForTimeout(100)
     await expect(terminalHost(observerPage, agentId))
-      .toHaveAttribute('data-geometry-status', 'observer')
+      .toHaveAttribute('data-controller-status', 'observer')
     await terminalHost(observerPage, agentId)
-      .locator('.terminal-geometry-takeover')
+      .locator('.terminal-controller-takeover')
       .click()
     await expect(terminalHost(observerPage, agentId))
-      .toHaveAttribute('data-geometry-status', 'owner')
+      .toHaveAttribute('data-controller-status', 'owner')
     await waitForTerminalSettled(observerPage, agentId)
     await expect(terminalHost(page, agentId))
-      .toHaveAttribute('data-geometry-status', 'observer')
+      .toHaveAttribute('data-controller-status', 'observer')
 
     const beforeOwnerResize = await waitForStableSessionRevision(page, agentId)
     const takeoverDiagnostics = await observerPage.evaluate(id => (
@@ -255,10 +251,10 @@ test('one browser owns PTY geometry and interactive takeover is fenced across wi
 
     await observerPage.close()
     await terminalHost(page, agentId)
-      .locator('.terminal-geometry-takeover')
+      .locator('.terminal-controller-takeover')
       .click()
     await expect(terminalHost(page, agentId))
-      .toHaveAttribute('data-geometry-status', 'owner')
+      .toHaveAttribute('data-controller-status', 'owner')
     await waitForTerminalSettled(page, agentId)
     await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
     const reacquiredState = await waitForStableSessionRevision(page, agentId)
@@ -286,12 +282,66 @@ test('one browser owns PTY geometry and interactive takeover is fenced across wi
   }
 })
 
+test('three browser windows serialize explicit controller takeovers without stale input', async ({
+  page,
+  context,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'terminal-controller-three-windows')
+  fs.mkdirSync(workspace, { recursive: true })
+  const resultFile = path.join(workspace, 'third-owner.txt')
+  const agentId = await createControlAgent(page, workspace)
+
+  await openPage(page)
+  await selectAgent(page, agentId)
+  await ensureTerminalOwner(page, agentId)
+  const secondPage = await context.newPage()
+  const thirdPage = await context.newPage()
+  for (const candidate of [secondPage, thirdPage]) {
+    await candidate.addInitScript(() => { window.__FARMING_E2E__ = true })
+  }
+  try {
+    await openPage(secondPage)
+    await selectAgent(secondPage, agentId)
+    await openPage(thirdPage)
+    await selectAgent(thirdPage, agentId)
+    await expect(terminalHost(secondPage, agentId)).toHaveAttribute('data-controller-status', 'observer')
+    await expect(terminalHost(thirdPage, agentId)).toHaveAttribute('data-controller-status', 'observer')
+
+    await terminalHost(secondPage, agentId).locator('.terminal-controller-takeover').click()
+    await expect(terminalHost(secondPage, agentId)).toHaveAttribute('data-controller-status', 'owner')
+    await expect(terminalHost(page, agentId)).toHaveAttribute('data-controller-status', 'observer')
+    await expect(terminalHost(thirdPage, agentId)).toHaveAttribute('data-controller-status', 'observer')
+
+    await terminalHost(thirdPage, agentId).locator('.terminal-controller-takeover').click()
+    await expect(terminalHost(thirdPage, agentId)).toHaveAttribute('data-controller-status', 'owner')
+    await waitForTerminalSettled(thirdPage, agentId)
+    await expect(terminalHost(page, agentId)).toHaveAttribute('data-controller-status', 'observer')
+    await expect(terminalHost(secondPage, agentId)).toHaveAttribute('data-controller-status', 'observer')
+
+    const staleMarker = `STALE_SECOND_${Date.now()}`
+    await terminalHost(secondPage, agentId).locator('.xterm-helper-textarea').focus()
+    await secondPage.keyboard.insertText(staleMarker)
+    await secondPage.waitForTimeout(150)
+    expect((await sessionState(page, agentId)).renderOutput || '').not.toContain(staleMarker)
+
+    const input = terminalHost(thirdPage, agentId).locator('.xterm-helper-textarea')
+    await input.focus()
+    await thirdPage.keyboard.insertText(`printf 'third-owner\\n' > ${JSON.stringify(resultFile)}`)
+    await input.press('Enter')
+    await expectFileText(resultFile, 'third-owner\n')
+  } finally {
+    await secondPage.close()
+    await thirdPage.close()
+  }
+})
+
 test('Code and CRT share one explicit terminal controller without stealing on observation', async ({
   page,
   context,
   workspaceRoot,
 }) => {
-  const workspace = path.join(workspaceRoot, 'terminal-geometry-cross-skin')
+  const workspace = path.join(workspaceRoot, 'terminal-controller-cross-skin')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createControlAgent(page, workspace)
 
@@ -324,15 +374,15 @@ test('Code and CRT share one explicit terminal controller without stealing on ob
     await crtPage.locator('#terminal-output').click({ position: { x: 20, y: 20 } })
     await crtPage.waitForTimeout(100)
     await expect(takeover).toBeVisible()
-    await expect(terminalHost(page, agentId)).toHaveAttribute('data-geometry-status', 'owner')
+    await expect(terminalHost(page, agentId)).toHaveAttribute('data-controller-status', 'owner')
 
     await takeover.click()
     await expect(takeover).toBeHidden()
-    await expect(terminalHost(page, agentId)).toHaveAttribute('data-geometry-status', 'observer')
+    await expect(terminalHost(page, agentId)).toHaveAttribute('data-controller-status', 'observer')
     await expectRendererFlowControlProgress(crtPage, agentId, `CRT_FLOW_${Date.now()}`)
 
-    await terminalHost(page, agentId).locator('.terminal-geometry-takeover').click()
-    await expect(terminalHost(page, agentId)).toHaveAttribute('data-geometry-status', 'owner')
+    await terminalHost(page, agentId).locator('.terminal-controller-takeover').click()
+    await expect(terminalHost(page, agentId)).toHaveAttribute('data-controller-status', 'owner')
     await expect(takeover).toBeVisible()
   } finally {
     await crtPage.close()
@@ -373,7 +423,7 @@ test('IME and Unicode input commit exactly once for the owner and never leak fro
     await openPage(observerPage)
     await selectAgent(observerPage, agentId)
     await expect(terminalHost(observerPage, agentId))
-      .toHaveAttribute('data-geometry-status', 'observer')
+      .toHaveAttribute('data-controller-status', 'observer')
     await dispatchComposition(
       observerPage,
       `.terminal-session-host[data-agent-id="${agentId}"] .xterm-helper-textarea`,
@@ -381,7 +431,7 @@ test('IME and Unicode input commit exactly once for the owner and never leak fro
     )
     await observerPage.waitForTimeout(300)
     expect(fs.existsSync(codeObserverFile)).toBe(false)
-    await expect(terminalHost(observerPage, agentId).locator('.terminal-geometry-takeover'))
+    await expect(terminalHost(observerPage, agentId).locator('.terminal-controller-takeover'))
       .toBeFocused()
 
     await crtPage.goto(`/farming/crt/?agent=${agentId}`, { waitUntil: 'domcontentloaded' })
@@ -390,7 +440,7 @@ test('IME and Unicode input commit exactly once for the owner and never leak fro
     await expect(takeover).toBeVisible({ timeout: 30_000 })
     await takeover.click()
     await expect(takeover).toBeHidden()
-    await expect(terminalHost(page, agentId)).toHaveAttribute('data-geometry-status', 'observer')
+    await expect(terminalHost(page, agentId)).toHaveAttribute('data-controller-status', 'observer')
     await expect(crtPage.locator('.crt-terminal-sync-status')).toBeHidden({ timeout: 15_000 })
 
     const crtInput = crtPage.locator('#terminal-output .xterm-helper-textarea')

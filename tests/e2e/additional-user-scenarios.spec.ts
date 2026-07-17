@@ -637,7 +637,7 @@ test.describe('additional Farming Code user scenarios', () => {
       await expectMenuFitsViewport(page, 'code-project-context-menu')
       const contextButtonBox = await contextButton.boundingBox()
       const contextMenuBox = await contextMenu.boundingBox()
-      if (!contextButtonBox || !contextMenuBox) throw new Error('Expected mobile project context menu geometry')
+      if (!contextButtonBox || !contextMenuBox) throw new Error('Expected mobile project context menu controller')
       expect(contextMenuBox.y).toBeGreaterThanOrEqual(contextButtonBox.y + contextButtonBox.height - 2)
       expect(Math.abs((contextMenuBox.x + contextMenuBox.width) - (contextButtonBox.x + contextButtonBox.width))).toBeLessThanOrEqual(2)
       await page.keyboard.press('Escape')
@@ -650,7 +650,7 @@ test.describe('additional Farming Code user scenarios', () => {
       await expectMenuFitsViewport(page, 'code-project-new-agent-menu')
       const launchButtonBox = await launchButton.boundingBox()
       const launchMenuBox = await menu.boundingBox()
-      if (!launchButtonBox || !launchMenuBox) throw new Error('Expected mobile project launch menu geometry')
+      if (!launchButtonBox || !launchMenuBox) throw new Error('Expected mobile project launch menu controller')
       expect(launchMenuBox.y).toBeGreaterThanOrEqual(launchButtonBox.y + launchButtonBox.height - 2)
       expect(Math.abs((launchMenuBox.x + launchMenuBox.width) - (launchButtonBox.x + launchButtonBox.width))).toBeLessThanOrEqual(2)
       await expect.poll(async () => menu.locator('button').evaluateAll(buttons => {

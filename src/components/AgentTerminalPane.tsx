@@ -5,7 +5,6 @@ import { usePooledTerminal } from '@/hooks/usePooledTerminal'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { TerminalPathOpenTarget, TerminalSearchDirection, TerminalSearchResult } from '@/lib/terminal-session-pool'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
-import { sessionBootstrapStateFromPayload } from '@/lib/terminal-bootstrap'
 import type { CodeCopy } from './code/copy'
 import {
   ArrowDownGlyph,
@@ -138,18 +137,6 @@ export function AgentTerminalPane({
   const [terminalSearchResult, setTerminalSearchResult] = useState<TerminalSearchResult | null>(null)
   const [terminalError, setTerminalError] = useState<string | null>(null)
   const appServerWaitingForFirstMessage = agent.codexCliObserverDeferred === true
-  const bootstrapState = sessionBootstrapStateFromPayload({
-    session: {
-      runtimeEpoch: agent.runtimeEpoch,
-      output: agent.output,
-      renderOutput: agent.renderOutput,
-      outputSeq: agent.outputSeq,
-      stateRevision: agent.stateRevision,
-      previewSnapshot: agent.previewSnapshot,
-      previewCols: agent.previewCols,
-      previewRows: agent.previewRows,
-    },
-  })
   const handleFollowOutputChange = useCallback((state: TerminalFollowState) => {
     setFollowOutputStateKnown(true)
     setFollowOutputState(state)
@@ -183,7 +170,6 @@ export function AgentTerminalPane({
     onPathResolve: onResolvePath,
     onReady: handleTerminalReady,
     onError: handleTerminalError,
-    bootstrapState,
   })
 
   useEffect(() => {

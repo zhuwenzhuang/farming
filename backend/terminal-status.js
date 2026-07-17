@@ -350,7 +350,27 @@ function deriveTerminalStatus(options = {}) {
   return status;
 }
 
+function terminalInputReady(options = {}) {
+  const status = deriveTerminalStatus(options);
+  if (status.activity !== 'idle') return false;
+
+  const previewText = typeof options.previewText === 'string' ? options.previewText : '';
+  if (status.kind === 'codex') {
+    const text = stripTerminalControlSequences(previewText).replace(/\r/g, '').toLowerCase();
+    return lastCodexIdleFooterIndex(text) >= 0 || codexBlockedIndex(text) >= 0;
+  }
+  if (status.kind === 'claude') {
+    const text = stripTerminalControlSequences(previewText).replace(/\r/g, '');
+    return /(?:^|\n)\s*❯(?:\s|$)/u.test(text);
+  }
+  if (status.kind === 'shell') {
+    return options.terminalBusy === false || terminalTextLooksIdleShellPrompt(previewText);
+  }
+  return Boolean(stripTerminalControlSequences(previewText).trim());
+}
+
 module.exports = {
   deriveTerminalStatus,
+  terminalInputReady,
   terminalTextLooksIdleShellPrompt,
 };

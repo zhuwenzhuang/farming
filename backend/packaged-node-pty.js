@@ -15,8 +15,27 @@ function packagedNodePtyTargetDir() {
 function copyIfExists(source, target, mode) {
   if (!fs.existsSync(source)) return false;
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.copyFileSync(source, target);
-  if (mode !== undefined) fs.chmodSync(target, mode);
+  let unchanged = false;
+  try {
+    const sourceStat = fs.statSync(source);
+    const targetStat = fs.statSync(target);
+    unchanged = sourceStat.size === targetStat.size
+      && fs.readFileSync(source).equals(fs.readFileSync(target));
+  } catch {
+    unchanged = false;
+  }
+  if (!unchanged) {
+    const temporary = `${target}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
+    try {
+      fs.copyFileSync(source, temporary, fs.constants.COPYFILE_EXCL);
+      if (mode !== undefined) fs.chmodSync(temporary, mode);
+      fs.renameSync(temporary, target);
+    } finally {
+      fs.rmSync(temporary, { force: true });
+    }
+  } else if (mode !== undefined) {
+    fs.chmodSync(target, mode);
+  }
   return true;
 }
 
@@ -75,5 +94,6 @@ function loadNodePty() {
 
 module.exports = loadNodePty();
 module.exports.copyPackagedSpawnHelper = copyPackagedSpawnHelper;
+module.exports.copyIfExists = copyIfExists;
 module.exports.preparePackagedNodePtyRuntime = preparePackagedNodePtyRuntime;
 module.exports.isPackagedRuntime = isPackagedRuntime;

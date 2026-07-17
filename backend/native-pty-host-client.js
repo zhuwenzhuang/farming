@@ -24,8 +24,8 @@ const PACKAGED_NATIVE_PTY_HOST_ENV = 'FARMING_RUN_NATIVE_PTY_HOST';
 const RECONNECT_RETRYABLE_METHODS = new Set([
   'ping',
   'createSession',
-  'claimSessionGeometry',
-  'renewSessionGeometry',
+  'claimSessionController',
+  'renewSessionController',
   'resizeSession',
   'killSession',
   'getSessionAttachCheckpoint',
@@ -184,6 +184,7 @@ class NativePtyHostClient extends EventEmitter {
     this.connectedHostInfo = null;
     this.runtimeRotationInfo = null;
     this.socket = null;
+    this.socketGeneration = 0;
     this.buffer = '';
     this.nextRequestId = 1;
     this.pending = new Map();
@@ -595,20 +596,24 @@ class NativePtyHostClient extends EventEmitter {
     if (this.socket && this.socket !== socket) {
       this.socket.destroy();
     }
+    const generation = this.socketGeneration + 1;
+    this.socketGeneration = generation;
     this.socket = socket;
     this.buffer = '';
 
-    socket.on('data', chunk => this.handleData(chunk));
-    socket.on('close', () => this.handleDisconnect(socket));
+    socket.on('data', chunk => this.handleData(chunk, socket, generation));
+    socket.on('close', () => this.handleDisconnect(socket, generation));
     socket.on('error', error => {
+      if (this.socket !== socket || this.socketGeneration !== generation) return;
       this.emit('host-error', error);
     });
   }
 
-  handleDisconnect(socket) {
+  handleDisconnect(socket, generation = this.socketGeneration) {
     if (socket && this.socket && this.socket !== socket) {
       return;
     }
+    if (generation !== this.socketGeneration) return;
     this.socket = null;
     this.buffer = '';
     this.connectedHostInfo = null;
@@ -636,7 +641,8 @@ class NativePtyHostClient extends EventEmitter {
     }
   }
 
-  handleData(chunk) {
+  handleData(chunk, socket = this.socket, generation = this.socketGeneration) {
+    if (!socket || socket !== this.socket || generation !== this.socketGeneration) return;
     this.buffer += chunk.toString('utf8');
     let newline = this.buffer.indexOf('\n');
     while (newline >= 0) {

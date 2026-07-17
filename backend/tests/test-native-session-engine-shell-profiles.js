@@ -52,7 +52,21 @@ async function runShellProfileProbe(engine, sessionId, command, args, home, read
     rows: 30,
   });
   await waitForSessionOutput(engine, sessionId, readyOutput, `${command} startup prompt`);
-  await engine.sendInput(sessionId, `${probe}\n`);
+  const state = await engine.getSessionState(sessionId);
+  const ownerKey = `shell-profile-owner-${sessionId}`;
+  const owner = await engine.claimSessionController(sessionId, {
+    ownerKey,
+    claimId: `shell-profile-claim-${sessionId}`,
+    expectedRuntimeEpoch: state.runtimeEpoch,
+  });
+  const terminalControl = {
+    ownerKey,
+    leaseId: owner.leaseId,
+    fence: owner.fence,
+    expectedRuntimeEpoch: state.runtimeEpoch,
+  };
+  await engine.activateSessionRenderer(sessionId, terminalControl);
+  await engine.sendInput(sessionId, `${probe}\n`, { terminalControl });
   return waitForSessionOutput(engine, sessionId, expectedOutput, `${command} profile probe`);
 }
 

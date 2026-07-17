@@ -21,6 +21,7 @@ function createTerminalReducerFlowControl(options = {}) {
   return {
     pendingBytes: 0,
     unacknowledgedRendererChars: 0,
+    rendererDebt: [],
     paused: false,
     reducerBlocked: false,
     rendererBlocked: false,
@@ -44,6 +45,9 @@ function ensureTerminalReducerFlowControl(session, options = {}) {
   }
   if (!session.reducerFlowControl || typeof session.reducerFlowControl !== 'object') {
     session.reducerFlowControl = createTerminalReducerFlowControl(options);
+  }
+  if (!Array.isArray(session.reducerFlowControl.rendererDebt)) {
+    session.reducerFlowControl.rendererDebt = [];
   }
   return session.reducerFlowControl;
 }
@@ -91,8 +95,14 @@ function acknowledgeTerminalReducerData(control, process, bytes) {
   return reconcileTerminalFlowControl(control, process);
 }
 
-function enqueueTerminalRendererData(control, process, charCount) {
+function enqueueTerminalRendererData(control, process, charCount, outputSeq) {
   const chars = Math.max(0, Math.floor(Number(charCount) || 0));
+  if (chars > 0 && Number.isFinite(outputSeq)) {
+    control.rendererDebt.push({
+      outputSeq: Math.max(0, Math.floor(outputSeq)),
+      charCount: chars,
+    });
+  }
   control.unacknowledgedRendererChars += chars;
   if (
     !control.rendererBlocked &&
@@ -105,6 +115,14 @@ function enqueueTerminalRendererData(control, process, charCount) {
 
 function acknowledgeTerminalRendererData(control, process, charCount) {
   const chars = Math.max(0, Math.floor(Number(charCount) || 0));
+  let remaining = chars;
+  while (remaining > 0 && control.rendererDebt.length > 0) {
+    const debt = control.rendererDebt[0];
+    const consumed = Math.min(remaining, debt.charCount);
+    debt.charCount -= consumed;
+    remaining -= consumed;
+    if (debt.charCount === 0) control.rendererDebt.shift();
+  }
   control.unacknowledgedRendererChars = Math.max(
     0,
     control.unacknowledgedRendererChars - chars,
@@ -118,8 +136,33 @@ function acknowledgeTerminalRendererData(control, process, charCount) {
   return reconcileTerminalFlowControl(control, process);
 }
 
+function acknowledgeTerminalRendererCheckpoint(control, process, outputSeq) {
+  const appliedOutputSeq = Math.max(0, Math.floor(Number(outputSeq) || 0));
+  let coveredChars = 0;
+  control.rendererDebt = control.rendererDebt.filter((debt) => {
+    if (debt.outputSeq > appliedOutputSeq) return true;
+    coveredChars += debt.charCount;
+    return false;
+  });
+  control.unacknowledgedRendererChars = Math.max(
+    0,
+    control.unacknowledgedRendererChars - coveredChars,
+  );
+  if (
+    control.rendererBlocked &&
+    control.unacknowledgedRendererChars < control.rendererLowWatermarkChars
+  ) {
+    control.rendererBlocked = false;
+  }
+  return {
+    coveredChars,
+    error: reconcileTerminalFlowControl(control, process),
+  };
+}
+
 function resetTerminalRendererFlowControl(control, process) {
   control.unacknowledgedRendererChars = 0;
+  control.rendererDebt = [];
   control.rendererBlocked = false;
   return reconcileTerminalFlowControl(control, process);
 }
@@ -127,6 +170,7 @@ function resetTerminalRendererFlowControl(control, process) {
 function resetTerminalReducerFlowControl(control, process) {
   control.pendingBytes = 0;
   control.unacknowledgedRendererChars = 0;
+  control.rendererDebt = [];
   control.reducerBlocked = false;
   control.rendererBlocked = false;
   return reconcileTerminalFlowControl(control, process);
@@ -139,6 +183,7 @@ module.exports = {
   DEFAULT_RENDERER_HIGH_WATERMARK_CHARS,
   DEFAULT_RENDERER_LOW_WATERMARK_CHARS,
   acknowledgeTerminalReducerData,
+  acknowledgeTerminalRendererCheckpoint,
   acknowledgeTerminalRendererData,
   createTerminalReducerFlowControl,
   ensureTerminalReducerFlowControl,

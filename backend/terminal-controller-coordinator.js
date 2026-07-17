@@ -1,11 +1,14 @@
 const crypto = require('crypto');
-const { DEFAULT_GEOMETRY_LEASE_TTL_MS } = require('./terminal-geometry-control');
+const {
+  DEFAULT_CONTROLLER_LEASE_TTL_MS,
+  MAX_CONTROLLER_LEASE_TTL_MS,
+} = require('./terminal-controller-lease');
 
-class TerminalGeometryCoordinator {
+class TerminalControllerCoordinator {
   constructor(options = {}) {
     this.agentManager = options.agentManager;
     this.serverInstanceId = options.serverInstanceId || crypto.randomUUID();
-    this.leaseTtlMs = options.leaseTtlMs || DEFAULT_GEOMETRY_LEASE_TTL_MS;
+    this.leaseTtlMs = options.leaseTtlMs || DEFAULT_CONTROLLER_LEASE_TTL_MS;
     this.owners = new Map();
     this.queues = new Map();
     this.claims = new Map();
@@ -44,7 +47,7 @@ class TerminalGeometryCoordinator {
     return this.enqueue(agentId, async () => {
       const owner = this.owners.get(agentId);
       if (owner !== expectedOwner || owner.expiresAt > Date.now()) return;
-      await this.agentManager.releaseAgentSessionGeometry(agentId, {
+      await this.agentManager.releaseAgentSessionController(agentId, {
         ownerKey: owner.ownerKey,
         leaseId: owner.leaseId,
         fence: owner.fence,
@@ -113,9 +116,132 @@ class TerminalGeometryCoordinator {
       && owner.fence === fence;
   }
 
+  terminalControlForOwner(owner, ttlMs = this.leaseTtlMs) {
+    return {
+      ownerKey: owner.ownerKey,
+      leaseId: owner.leaseId,
+      fence: owner.fence,
+      expectedRuntimeEpoch: owner.claimedRuntimeEpoch,
+      ttlMs,
+    };
+  }
+
+  authorizeHttpMutation(agentId, controller) {
+    const owner = this.owners.get(agentId);
+    if (!owner) {
+      return this.agentManager.agentRequiresTerminalController?.(agentId) === true
+        ? { allowed: false, reason: 'unowned' }
+        : { allowed: true, terminalControl: null };
+    }
+    if (
+      !controller ||
+      owner.attachmentId !== controller.attachmentId ||
+      owner.leaseId !== controller.leaseId ||
+      owner.fence !== controller.fence ||
+      owner.claimedRuntimeEpoch !== controller.expectedRuntimeEpoch
+    ) {
+      return { allowed: false, reason: 'terminal-controlled-by-another-window' };
+    }
+    return {
+      allowed: true,
+      terminalControl: this.terminalControlForOwner(owner),
+    };
+  }
+
+  runOwnedMutation(agentId, controller, operation) {
+    return this.enqueue(agentId, async () => {
+      const owner = this.owners.get(agentId);
+      if (!owner) return { status: 'rejected', reason: 'unowned' };
+      if (
+        !controller ||
+        owner.attachmentId !== controller.attachmentId ||
+        owner.leaseId !== controller.leaseId ||
+        owner.fence !== controller.fence ||
+        owner.claimedRuntimeEpoch !== controller.expectedRuntimeEpoch
+      ) {
+        return { status: 'rejected', reason: 'terminal-controlled-by-another-window' };
+      }
+      // A profile mutation can legitimately span several rendered Codex menus.
+      // Keep the already-admitted lease alive while this queue entry pins the
+      // owner, so the host cannot expire the fence halfway through the picker
+      // and reject the best-effort Escape cleanup. Takeovers and ordinary
+      // mutations remain queued behind the complete operation.
+      const operationTtlMs = MAX_CONTROLLER_LEASE_TTL_MS;
+      let renewalInFlight = null;
+      let renewalFailure = null;
+      const renewPinnedOwner = async () => {
+        if (renewalInFlight) return renewalInFlight;
+        renewalInFlight = (async () => {
+          const current = this.owners.get(agentId);
+          if (current !== owner) throw new Error('Terminal control changed during the owned operation');
+          const result = await this.agentManager.renewAgentSessionController(agentId, {
+            ...this.terminalControlForOwner(owner, operationTtlMs),
+            ttlMs: operationTtlMs,
+          });
+          if (!result || result.status !== 'owner') {
+            throw new Error(`Terminal control could not be pinned: ${result?.reason || 'renew-failed'}`);
+          }
+          owner.expiresAt = result.expiresAt;
+          this.scheduleLeaseExpiryCheck();
+        })().catch(error => {
+          renewalFailure = error;
+          throw error;
+        }).finally(() => {
+          renewalInFlight = null;
+        });
+        return renewalInFlight;
+      };
+
+      await renewPinnedOwner();
+      const keepAliveIntervalMs = Math.max(1000, Math.floor(operationTtlMs / 3));
+      const keepAlive = setInterval(() => {
+        void renewPinnedOwner().catch(() => {});
+      }, keepAliveIntervalMs);
+      keepAlive.unref?.();
+      try {
+        const value = await operation({
+          terminalControl: this.terminalControlForOwner(owner, operationTtlMs),
+          expectedRuntimeEpoch: owner.claimedRuntimeEpoch,
+        });
+        if (renewalInFlight) await renewalInFlight;
+        if (renewalFailure) throw renewalFailure;
+        return { status: 'committed', value };
+      } finally {
+        clearInterval(keepAlive);
+      }
+    });
+  }
+
+  runSystemMutation(agentId, operation, options = {}) {
+    return this.enqueue(agentId, async () => {
+      const owner = this.owners.get(agentId);
+      if (owner && options.allowWhileControlled !== true) {
+        return { status: 'rejected', reason: 'terminal-controlled-by-browser' };
+      }
+      const expectedRuntimeEpoch = owner
+        ? owner.claimedRuntimeEpoch
+        : (typeof options.expectedRuntimeEpoch === 'string' ? options.expectedRuntimeEpoch : '');
+      if (!expectedRuntimeEpoch) {
+        return { status: 'rejected', reason: 'runtime-not-ready' };
+      }
+      if (
+        owner &&
+        typeof options.expectedRuntimeEpoch === 'string' &&
+        options.expectedRuntimeEpoch &&
+        options.expectedRuntimeEpoch !== owner.claimedRuntimeEpoch
+      ) {
+        return { status: 'rejected', reason: 'runtime-epoch-mismatch' };
+      }
+      const terminalControl = owner
+        ? this.terminalControlForOwner(owner)
+        : { kind: 'system', expectedRuntimeEpoch };
+      return operation({ terminalControl, expectedRuntimeEpoch });
+    });
+  }
+
   async retireOwner(agentId, owner, reason) {
     if (!owner || this.owners.get(agentId) !== owner) return;
-    await this.agentManager.releaseAgentSessionGeometry(agentId, {
+    await this.agentManager.releaseAgentSessionController(agentId, {
       ownerKey: owner.ownerKey,
       leaseId: owner.leaseId,
       fence: owner.fence,
@@ -172,7 +298,7 @@ class TerminalGeometryCoordinator {
       }
 
       const ownerKey = this.ownerKey(ws, attachmentId);
-      const result = await this.agentManager.claimAgentSessionGeometry(agentId, {
+      const result = await this.agentManager.claimAgentSessionController(agentId, {
         ownerKey,
         claimId,
         ttlMs: this.leaseTtlMs,
@@ -228,7 +354,7 @@ class TerminalGeometryCoordinator {
         }
         return;
       }
-      const result = await this.agentManager.renewAgentSessionGeometry(agentId, {
+      const result = await this.agentManager.renewAgentSessionController(agentId, {
         ownerKey: owner.ownerKey,
         leaseId: owner.leaseId,
         fence: owner.fence,
@@ -295,7 +421,7 @@ class TerminalGeometryCoordinator {
     return this.enqueue(agentId, async () => {
       const owner = this.owners.get(agentId);
       if (!this.isCurrentOwner(owner, ws, attachmentId, data.leaseId, data.fence)) return;
-      await this.agentManager.releaseAgentSessionGeometry(agentId, {
+      await this.agentManager.releaseAgentSessionController(agentId, {
         ownerKey: owner.ownerKey,
         leaseId: owner.leaseId,
         fence: owner.fence,
@@ -416,13 +542,7 @@ class TerminalGeometryCoordinator {
 
       try {
         const result = await this.agentManager.sendInput(agentId, inputParts, {
-          terminalControl: {
-            ownerKey: owner.ownerKey,
-            leaseId: owner.leaseId,
-            fence: owner.fence,
-            expectedRuntimeEpoch: data.expectedRuntimeEpoch,
-            ttlMs: this.leaseTtlMs,
-          },
+          terminalControl: this.terminalControlForOwner(owner),
         });
         if (result?.status === 'input-rejected') {
           await this.retireOwner(agentId, owner, result.reason || 'input-rejected');
@@ -439,6 +559,56 @@ class TerminalGeometryCoordinator {
           message: `Terminal input failed and was not retried: ${
             error instanceof Error ? error.message : 'transport error'
           }`,
+        });
+      }
+    });
+  }
+
+  interrupt(ws, data) {
+    const agentId = typeof data.agentId === 'string' ? data.agentId : '';
+    if (!agentId) return Promise.resolve();
+
+    return this.enqueue(agentId, async () => {
+      const owner = this.owners.get(agentId);
+      if (!owner) {
+        if (this.agentManager.agentRequiresTerminalController?.(agentId) === true) {
+          this.sendState(ws, {
+            agentId,
+            attachmentId: data.attachmentId,
+            status: 'rejected',
+            reason: 'unowned',
+          });
+          return;
+        }
+        await this.agentManager.interruptAgent(agentId);
+        return;
+      }
+      if (!this.isCurrentOwner(owner, ws, data.attachmentId, data.leaseId, data.fence)) {
+        this.sendState(ws, this.publicOwnerState(owner, 'observer', {
+          attachmentId: data.attachmentId,
+          reason: 'stale-lease',
+        }));
+        return;
+      }
+      if (!data.expectedRuntimeEpoch || data.expectedRuntimeEpoch !== owner.claimedRuntimeEpoch) {
+        this.sendState(ws, {
+          agentId,
+          attachmentId: owner.attachmentId,
+          status: 'rejected',
+          reason: 'runtime-epoch-mismatch',
+        });
+        return;
+      }
+      const result = await this.agentManager.interruptAgent(agentId, {
+        terminalControl: this.terminalControlForOwner(owner),
+      });
+      if (result?.status === 'input-rejected') {
+        await this.retireOwner(agentId, owner, result.reason || 'interrupt-rejected');
+        this.sendState(ws, {
+          agentId,
+          attachmentId: owner.attachmentId,
+          status: 'rejected',
+          reason: result.reason || 'interrupt-rejected',
         });
       }
     });
@@ -548,6 +718,60 @@ class TerminalGeometryCoordinator {
     });
   }
 
+  checkpointApplied(ws, data) {
+    const agentId = typeof data.agentId === 'string' ? data.agentId : '';
+    const attachmentId = typeof data.attachmentId === 'string' ? data.attachmentId : '';
+    const outputSeq = Math.floor(Number(data.outputSeq));
+    const stateRevision = Math.floor(Number(data.stateRevision));
+    if (
+      !agentId ||
+      !attachmentId ||
+      !Number.isFinite(outputSeq) ||
+      !Number.isFinite(stateRevision) ||
+      outputSeq < 0 ||
+      stateRevision < 0
+    ) return Promise.resolve();
+
+    return this.enqueue(agentId, async () => {
+      const owner = this.owners.get(agentId);
+      if (!this.isCurrentOwner(owner, ws, attachmentId, data.leaseId, data.fence)) {
+        if (owner) {
+          this.sendState(ws, this.publicOwnerState(owner, 'observer', {
+            attachmentId,
+            reason: 'stale-lease',
+          }));
+        }
+        return;
+      }
+      const result = await this.agentManager.acknowledgeAgentSessionCheckpoint(
+        agentId,
+        outputSeq,
+        stateRevision,
+        {
+          ownerKey: owner.ownerKey,
+          leaseId: owner.leaseId,
+          fence: owner.fence,
+          expectedRuntimeEpoch: data.expectedRuntimeEpoch,
+          ttlMs: this.leaseTtlMs,
+        },
+      );
+      if (!result || result.status !== 'checkpoint-applied-accepted') {
+        await this.retireOwner(agentId, owner, result?.reason || 'checkpoint-applied-failed');
+        this.sendState(ws, {
+          agentId,
+          attachmentId,
+          claimId: owner.claimId,
+          status: result?.reason === 'stale-lease' || result?.reason === 'unowned'
+            ? 'observer'
+            : 'rejected',
+          reason: result?.reason || 'checkpoint-applied-failed',
+        });
+        return;
+      }
+      owner.expiresAt = result.expiresAt ?? owner.expiresAt;
+    });
+  }
+
   releaseAllForSocket(ws) {
     const releases = [];
     for (const owner of this.owners.values()) {
@@ -567,4 +791,4 @@ class TerminalGeometryCoordinator {
   }
 }
 
-module.exports = TerminalGeometryCoordinator;
+module.exports = TerminalControllerCoordinator;

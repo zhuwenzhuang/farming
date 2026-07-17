@@ -1,7 +1,7 @@
 const assert = require('assert');
 const NativePtyHost = require('../native-pty-host');
 const NativePtyHostClient = require('../native-pty-host-client');
-const { createTerminalGeometryControl } = require('../terminal-geometry-control');
+const { createTerminalControllerLease } = require('../terminal-controller-lease');
 const {
   createTerminalReducerFlowControl,
 } = require('../terminal-reducer-flow-control');
@@ -45,7 +45,7 @@ function session(id, overrides = {}) {
     stateProofAvailable: true,
     reducerFlowControl: createTerminalReducerFlowControl(),
     reducerCommitQueue: Promise.resolve(),
-    geometryControl: createTerminalGeometryControl(),
+    controllerLease: createTerminalControllerLease(),
     renderOutput: `${id}\r\n`,
     previewText: id,
     previewCols: 80,
@@ -63,6 +63,8 @@ function hostHarness() {
   host.clients = new Set();
   host.sessionMutationQueues = new Map();
   host.activeControllerMutations = new Set();
+  host.controllerRegistrationQueue = Promise.resolve();
+  host.controllerHandoff = null;
   host.activeControllerClient = null;
   host.activeControllerIdentity = null;
   host.rotationPreparation = null;
@@ -89,9 +91,9 @@ function hostHarness() {
   return host;
 }
 
-function registerController(host, id = 'controller-test', generation = 1) {
+async function registerController(host, id = 'controller-test', generation = 1) {
   const client = {};
-  host.registerController(client, { id, generation });
+  await host.registerController(client, { id, generation });
   return client;
 }
 
@@ -160,7 +162,7 @@ async function testSerializeFailureFailsClosedAndResumesOldHost() {
 
 async function testConcurrentCreateIsIncludedOrRejectedByBarrier() {
   const host = hostHarness();
-  const controller = registerController(host, 'controller-create', 8);
+  const controller = await registerController(host, 'controller-create', 8);
   const createGate = deferred();
   const createStarted = deferred();
   const created = session('created-before-cut');
@@ -199,7 +201,7 @@ async function testConcurrentCreateIsIncludedOrRejectedByBarrier() {
 
 async function testExitDuringCutIsNotSerialized() {
   const host = hostHarness();
-  const controller = registerController(host, 'controller-exit', 9);
+  const controller = await registerController(host, 'controller-exit', 9);
   const reducerGate = deferred();
   const current = session('exited-during-cut', {
     reducerCommitQueue: reducerGate.promise,
@@ -223,9 +225,9 @@ async function testExitDuringCutIsNotSerialized() {
   );
 }
 
-function testWrongPreparationTokenCannotShutdown() {
+async function testWrongPreparationTokenCannotShutdown() {
   const host = hostHarness();
-  const controller = registerController(host, 'controller-token', 10);
+  const controller = await registerController(host, 'controller-token', 10);
   host.sessions.set('token-session', session('token-session'));
   host.rotationPreparation = {
     token: 'correct-token',
@@ -250,7 +252,7 @@ async function run() {
   await testSerializeFailureFailsClosedAndResumesOldHost();
   await testConcurrentCreateIsIncludedOrRejectedByBarrier();
   await testExitDuringCutIsNotSerialized();
-  testWrongPreparationTokenCannotShutdown();
+  await testWrongPreparationTokenCannotShutdown();
   console.log('native PTY rotation transaction tests passed');
 }
 

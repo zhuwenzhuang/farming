@@ -14,6 +14,7 @@ RELEASE_DIR="${FARMING_RELEASE_DIR:-${PROJECT_ROOT}/releases/${RELEASE_VERSION}}
 CHECKSUM_FILE="${RELEASE_DIR}/farming_${RELEASE_VERSION}_checksums.txt"
 MANIFEST_FILE="${RELEASE_DIR}/manifest.json"
 ASSET_MANIFEST_TMP="$(mktemp /tmp/farming-cli-assets.XXXXXX)"
+PKG_LOGS=()
 BUNDLE_ENTRY="${PROJECT_ROOT}/backend/farming-app-cli.pkg.js"
 BUNDLE_WORKER="${PROJECT_ROOT}/backend/terminal-screen-worker-thread.pkg.js"
 GIT_SHA="$(cd "${PROJECT_ROOT}" && git rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)"
@@ -104,6 +105,9 @@ BUNDLE_CLI_RUNTIME="${PROJECT_ROOT}/scripts/bundle-cli-runtime.js"
 
 cleanup() {
   rm -f "${BUNDLE_ENTRY}" "${BUNDLE_WORKER}" "${ASSET_MANIFEST_TMP}"
+  if [ "${#PKG_LOGS[@]}" -gt 0 ]; then
+    rm -f "${PKG_LOGS[@]}"
+  fi
 }
 trap cleanup EXIT
 
@@ -149,6 +153,8 @@ for target in "${TARGET_ARRAY[@]}"; do
   extension="$(asset_extension_for_target "${target}")"
   asset_file="farming_${RELEASE_VERSION}_${artifact}${extension}"
   out_bin="${RELEASE_DIR}/${asset_file}"
+  pkg_log="$(mktemp /tmp/farming-cli-pkg.XXXXXX)"
+  PKG_LOGS+=("${pkg_log}")
 
   log "Packaging ${target} -> ${out_bin} ..."
   rm -f "${out_bin}"
@@ -163,11 +169,22 @@ for target in "${TARGET_ARRAY[@]}"; do
       --no-native-build \
       --compress GZip \
       -o "${out_bin}" \
-      backend/farming-app-cli.pkg.js >&2
+      backend/farming-app-cli.pkg.js 2>&1 | tee "${pkg_log}" >&2
   )
+
+  if grep -Eq 'Failed to generate V8 bytecode.*Use --fallback-to-source|UNEXPECTED-20: no source or bytecode' "${pkg_log}"; then
+    echo "pkg did not embed executable JavaScript for ${target}; refusing to publish a broken CLI." >&2
+    exit 1
+  fi
 
   chmod +x "${out_bin}"
   check_release_binary "${out_bin}"
+  if [ "${target}" = "${DEFAULT_TARGET}" ]; then
+    if ! "${out_bin}" --help >/dev/null 2>&1; then
+      echo "Packaged CLI failed its native startup self-check: ${out_bin}" >&2
+      exit 1
+    fi
+  fi
   sha256="$(sha256_value "${out_bin}")"
   printf '%s  %s\n' "${sha256}" "${asset_file}" >> "${CHECKSUM_FILE}"
   printf '%s\t%s\t%s\t%s\n' "${target}" "${artifact}" "${asset_file}" "${sha256}" >> "${ASSET_MANIFEST_TMP}"

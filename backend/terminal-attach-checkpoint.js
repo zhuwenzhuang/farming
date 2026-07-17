@@ -11,6 +11,9 @@ function finitePositiveInteger(value) {
 }
 
 async function captureTerminalAttachCheckpoint(session, options = {}) {
+  if (session?.finalCheckpoint) {
+    return { ...session.finalCheckpoint };
+  }
   if (
     !session
     || !session.screenWorker
@@ -31,6 +34,7 @@ async function captureTerminalAttachCheckpoint(session, options = {}) {
   const currentStateRevision = finiteNonNegativeInteger(session.stateRevision);
   const cols = finitePositiveInteger(state?.cols);
   const rows = finitePositiveInteger(state?.rows);
+  const requireCurrentCut = options.requireCurrentCut === true;
 
   if (
     !state
@@ -42,6 +46,8 @@ async function captureTerminalAttachCheckpoint(session, options = {}) {
     || stateRevision < outputSeq
     || outputSeq > currentOutputSeq
     || stateRevision > currentStateRevision
+    || (requireCurrentCut && outputSeq !== currentOutputSeq)
+    || (requireCurrentCut && stateRevision !== currentStateRevision)
     || cols === null
     || rows === null
     || typeof state.renderOutput !== 'string'

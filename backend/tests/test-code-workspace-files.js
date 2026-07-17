@@ -974,13 +974,13 @@ function run() {
       serverSource.includes('IMAGE_ATTACHMENT_RETENTION_MS') &&
       serverSource.includes('cleanupExpiredImageAttachments') &&
       serverSource.includes('IMAGE_ATTACHMENT_FILENAME_RE') &&
-      serverSource.includes('agentManager.interruptAgent(data.agentId)') &&
+      serverSource.includes('terminalControllerCoordinator.interrupt(ws, data)') &&
       serverSource.includes("const { inputPartsFromMessage } = require('./input-parts')") &&
       inputPartsSource.includes('function inputPartsFromMessage(data)') &&
       inputPartsSource.includes('Array.isArray(data && data.inputParts)') &&
       inputPartsSource.includes("part.type === 'paste'") &&
       serverSource.includes('if (inputParts.length === 0) return') &&
-      serverSource.includes('await terminalGeometryCoordinator.input(ws, {') &&
+      serverSource.includes('await terminalControllerCoordinator.input(ws, {') &&
       serverSource.includes("message: 'Terminal input requires an active fenced terminal attachment'") &&
       !serverSource.includes('const INPUT_PART_DELAY_MS = 24') &&
       !serverSource.includes('for (let index = 0; index < inputParts.length; index += 1)') &&
@@ -1108,7 +1108,8 @@ function run() {
   );
 
   assert(
-    webSocketSource.includes("sendMessage({ type: 'interrupt-agent', agentId })") &&
+    webSocketSource.includes("type: 'interrupt-agent',") &&
+      webSocketSource.includes('...(controller || {})') &&
       webSocketSource.includes('interruptAgent,') &&
     messagesSource.includes("type: 'interrupt-agent'") &&
       messagesSource.includes('inputParts?: TerminalInputPart[]') &&

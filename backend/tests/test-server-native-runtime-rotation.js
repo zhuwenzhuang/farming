@@ -169,7 +169,21 @@ async function run() {
         source: 'runtime-rotation-test',
       },
     });
-    await oldEngine.sendInput(agentId, `${beforeMarker}\n`);
+    const initialState = await oldEngine.getSessionState(agentId);
+    const ownerKey = 'runtime-rotation-test-owner';
+    const owner = await oldEngine.claimSessionController(agentId, {
+      ownerKey,
+      claimId: 'runtime-rotation-test-claim',
+      expectedRuntimeEpoch: initialState.runtimeEpoch,
+    });
+    const terminalControl = {
+      ownerKey,
+      leaseId: owner.leaseId,
+      fence: owner.fence,
+      expectedRuntimeEpoch: initialState.runtimeEpoch,
+    };
+    await oldEngine.activateSessionRenderer(agentId, terminalControl);
+    await oldEngine.sendInput(agentId, `${beforeMarker}\n`, { terminalControl });
     const oldState = await waitFor(async () => {
       const state = await oldEngine.getSessionState(agentId);
       return String(state?.output || '').includes(beforeMarker) ? state : null;

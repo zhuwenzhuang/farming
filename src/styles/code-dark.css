@@ -881,7 +881,7 @@ body.code-mode[data-appearance='dark'] .terminal-session-host .xterm-viewport {
   color-scheme: dark;
 }
 
-body.code-mode[data-appearance='dark'] .terminal-geometry-status {
+body.code-mode[data-appearance='dark'] .terminal-controller-status {
   border-color: rgba(255, 255, 255, 0.16);
   background: rgba(31, 31, 31, 0.94);
   color: #b8b8b8;

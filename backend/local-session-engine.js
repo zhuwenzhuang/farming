@@ -15,21 +15,23 @@ const {
 } = require('./native-pty-controller-generation');
 const storageLayout = require('./storage-layout');
 const {
-  beginTerminalGeometryResize,
-  claimTerminalGeometry,
-  commitTerminalGeometryResize,
-  createTerminalGeometryControl,
-  expireTerminalGeometryIfNeeded,
-  rejectTerminalGeometryResize,
-  releaseTerminalGeometry,
-  renewTerminalGeometry,
-  validateTerminalGeometryClear,
-  validateTerminalGeometryInput,
-  validateTerminalGeometryOutputAck,
-  validateTerminalGeometryRendererReady,
-} = require('./terminal-geometry-control');
+  beginTerminalControllerResize,
+  claimTerminalController,
+  commitTerminalControllerResize,
+  createTerminalControllerLease,
+  expireTerminalControllerIfNeeded,
+  rejectTerminalControllerResize,
+  releaseTerminalController,
+  renewTerminalController,
+  validateTerminalControllerClear,
+  validateTerminalControllerCheckpointApplied,
+  validateTerminalControllerInput,
+  validateTerminalControllerOutputAck,
+  validateTerminalControllerRendererReady,
+} = require('./terminal-controller-lease');
 const {
   acknowledgeTerminalReducerData,
+  acknowledgeTerminalRendererCheckpoint,
   acknowledgeTerminalRendererData,
   createTerminalReducerFlowControl,
   ensureTerminalReducerFlowControl,
@@ -42,6 +44,10 @@ const {
 const {
   captureTerminalAttachCheckpoint,
 } = require('./terminal-attach-checkpoint');
+const {
+  acceptTerminalExitData,
+  waitForTerminalExitDataQuiescence,
+} = require('./terminal-exit-quiescence');
 
 const CONTROLLED_BASH_PROMPT = [
   '\\[\\e[90m\\]│\\[\\e[0m\\] ',
@@ -233,7 +239,7 @@ class LocalSessionEngine extends SessionEngine {
       stateProofAvailable: true,
       reducerFlowControl: createTerminalReducerFlowControl(),
       reducerCommitQueue: Promise.resolve(),
-      geometryControl: createTerminalGeometryControl(),
+      controllerLease: createTerminalControllerLease(),
       renderOutput: '',
       previewText: '',
       previewSnapshot: null,
@@ -260,7 +266,7 @@ class LocalSessionEngine extends SessionEngine {
 
     session.screenWorker.on('preview', ({ previewText, title, cols, rows, previewSnapshot }) => {
       const current = this.sessions.get(session.id);
-      if (!current) return;
+      if (current !== session) return;
 
       current.previewText = previewText || '';
       current.previewSnapshot = previewSnapshot || null;
@@ -271,7 +277,8 @@ class LocalSessionEngine extends SessionEngine {
         current.title = title;
         this.emit('session-title', {
           sessionId: current.id,
-          title: current.title
+          title: current.title,
+          runtimeEpoch: current.runtimeEpoch,
         });
       }
 
@@ -281,6 +288,7 @@ class LocalSessionEngine extends SessionEngine {
         cols: current.previewCols,
         rows: current.previewRows,
         previewSnapshot: current.previewSnapshot,
+        runtimeEpoch: current.runtimeEpoch,
       });
     });
 
@@ -294,55 +302,14 @@ class LocalSessionEngine extends SessionEngine {
       status: session.status,
       startedAt: session.startedAt,
       runtimeEpoch: session.runtimeEpoch,
+      outputSeq: session.outputSeq,
       stateRevision: session.stateRevision
     });
 
-    ptyProcess.onData(data => this.handleSessionData(session.id, data));
+    ptyProcess.onData(data => this.handleSessionData(session.id, data, session));
 
     ptyProcess.onExit(({ code }) => {
-      const current = this.sessions.get(session.id);
-      if (!current) return;
-
-      current.screenWorker.getState().catch(() => ({
-        renderOutput: current.renderOutput,
-        previewText: current.previewText,
-        previewSnapshot: current.previewSnapshot,
-        title: current.title
-      })).then((screenState) => {
-        const latest = this.sessions.get(session.id);
-        if (!latest) return;
-
-        latest.status = 'exited';
-        latest.exitedAt = Date.now();
-        resetTerminalReducerFlowControl(
-          ensureTerminalReducerFlowControl(latest),
-          latest.process,
-        );
-        latest.renderOutput = screenState.renderOutput || latest.renderOutput;
-        latest.previewText = screenState.previewText || latest.previewText || latest.output.slice(-2000);
-        latest.previewSnapshot = screenState.previewSnapshot || latest.previewSnapshot;
-        latest.previewCols = screenState.cols || latest.previewCols;
-        latest.previewRows = screenState.rows || latest.previewRows;
-        latest.title = screenState.title || latest.title;
-        if (latest.screenWorker) {
-          latest.screenWorker.dispose().catch(() => {});
-          latest.screenWorker = null;
-        }
-        cleanupShellBusyIntegration(latest.shellBusyIntegration);
-
-        this.emit('session-exited', {
-          sessionId: latest.id,
-          code,
-          exitedAt: latest.exitedAt
-        });
-        this.emit('session-preview', {
-          sessionId: latest.id,
-          previewText: latest.previewText,
-          cols: latest.previewCols,
-          rows: latest.previewRows,
-          previewSnapshot: latest.previewSnapshot,
-        });
-      });
+      void this.handleSessionExit(session, code);
     });
 
     return {
@@ -351,9 +318,79 @@ class LocalSessionEngine extends SessionEngine {
     };
   }
 
-  handleSessionData(sessionId, rawData) {
+  handleSessionExit(session, code) {
+    if (this.sessions.get(session.id) !== session || session.status === 'exited') {
+      return Promise.resolve();
+    }
+    if (session.exitFinalizationPromise) return session.exitFinalizationPromise;
+    const finalization = this.finalizeSessionExit(session, code);
+    session.exitFinalizationPromise = finalization;
+    return finalization;
+  }
+
+  async finalizeSessionExit(session, code) {
+    const quiesced = await waitForTerminalExitDataQuiescence(session, {
+      flushMs: this.terminalExitDataFlushMs,
+      isCurrent: () => this.sessions.get(session.id) === session,
+    });
+    if (!quiesced) return;
+    await Promise.resolve(session.reducerCommitQueue).catch(() => {});
+    if (this.sessions.get(session.id) !== session) return;
+    const finalCheckpoint = await captureTerminalAttachCheckpoint(session, { requireCurrentCut: true });
+    if (this.sessions.get(session.id) !== session) return;
+
+    session.status = 'exited';
+    session.exitedAt = Date.now();
+    resetTerminalReducerFlowControl(
+      ensureTerminalReducerFlowControl(session),
+      session.process,
+    );
+    if (finalCheckpoint) {
+      session.finalCheckpoint = Object.freeze({ ...finalCheckpoint });
+      session.renderOutput = finalCheckpoint.renderOutput;
+      session.previewText = finalCheckpoint.previewText;
+      session.previewSnapshot = finalCheckpoint.previewSnapshot;
+      session.previewCols = finalCheckpoint.cols;
+      session.previewRows = finalCheckpoint.rows;
+      session.title = finalCheckpoint.title || session.title;
+    } else {
+      this.failSessionScreenState(session, new Error('Unable to capture the exact final Terminal checkpoint'));
+    }
+    if (session.screenWorker) {
+      await session.screenWorker.dispose().catch(() => {});
+      session.screenWorker = null;
+    }
+    cleanupShellBusyIntegration(session.shellBusyIntegration);
+
+    this.emit('session-exited', {
+      sessionId: session.id,
+      code,
+      exitedAt: session.exitedAt,
+      runtimeEpoch: session.runtimeEpoch,
+      outputSeq: session.outputSeq,
+      stateRevision: session.stateRevision,
+      stateProofAvailable: session.stateProofAvailable !== false,
+    });
+    if (finalCheckpoint) {
+      this.emit('session-preview', {
+        sessionId: session.id,
+        previewText: session.previewText,
+        cols: session.previewCols,
+        rows: session.previewRows,
+        previewSnapshot: session.previewSnapshot,
+        runtimeEpoch: session.runtimeEpoch,
+      });
+    }
+  }
+
+  handleSessionData(sessionId, rawData, expectedSession = null) {
     const current = this.sessions.get(sessionId);
-    if (!current || current.stateProofAvailable === false) return;
+    if (!current || (expectedSession && current !== expectedSession) || current.stateProofAvailable === false) return;
+    if (!acceptTerminalExitData(current)) {
+      current.finalCheckpoint = null;
+      this.failSessionScreenState(current, new Error('PTY emitted data after its final checkpoint cut'));
+      return;
+    }
 
     const busyState = parseShellBusyMarkers(
       rawData,
@@ -394,6 +431,7 @@ class LocalSessionEngine extends SessionEngine {
         shellLastCommandDurationMs: current.shellLastCommandDurationMs,
         statusMarkerSeen: busyState.statusMarkerSeen,
         busyMarkerSeen: busyState.busyMarkerSeen,
+        runtimeEpoch: current.runtimeEpoch,
       });
     }
 
@@ -421,6 +459,7 @@ class LocalSessionEngine extends SessionEngine {
       this.emit('session-title', {
         sessionId: current.id,
         title: current.title,
+        runtimeEpoch: current.runtimeEpoch,
       });
     }
 
@@ -428,7 +467,7 @@ class LocalSessionEngine extends SessionEngine {
     current.reducerCommitQueue = current.reducerCommitQueue.then(() => commit).then(() => {
       const latest = this.sessions.get(current.id);
       if (latest !== current || latest.stateProofAvailable === false) return;
-      const rendererFlowError = this.trackSessionRendererData(latest, data);
+      const rendererFlowError = this.trackSessionRendererData(latest, data, outputSeq);
       if (rendererFlowError) {
         this.failSessionScreenState(latest, rendererFlowError);
         return;
@@ -452,19 +491,21 @@ class LocalSessionEngine extends SessionEngine {
       this.emit('session-activity', {
         sessionId: latest.id,
         lastActivityAt: latest.lastActivityAt,
+        runtimeEpoch: latest.runtimeEpoch,
       });
     }).catch(error => this.failSessionScreenState(current, error));
   }
 
   failSessionScreenState(session, error) {
     const current = this.sessions.get(session.id);
-    if (!current || current.stateProofAvailable === false) return;
+    if (current !== session || current.stateProofAvailable === false) return;
     current.stateProofAvailable = false;
     const message = error instanceof Error ? error.message : String(error || 'unknown reducer failure');
     this.emit('session-error', {
       sessionId: current.id,
       error: `Terminal state reducer failed: ${message}`,
-      fatal: true
+      fatal: true,
+      runtimeEpoch: current.runtimeEpoch,
     });
     try {
       current.process?.kill();
@@ -473,58 +514,58 @@ class LocalSessionEngine extends SessionEngine {
     }
   }
 
-  trackSessionRendererData(session, data) {
-    const expired = expireTerminalGeometryIfNeeded(session);
+  trackSessionRendererData(session, data, outputSeq) {
+    const expired = expireTerminalControllerIfNeeded(session);
     const hasOwner = Boolean(
-      session.geometryControl?.ownerKey &&
-      session.geometryControl?.leaseId &&
-      session.geometryControl.expiresAt > Date.now()
+      session.controllerLease?.ownerKey &&
+      session.controllerLease?.leaseId &&
+      session.controllerLease.expiresAt > Date.now()
     );
     if (expired || !hasOwner) {
       const control = ensureTerminalReducerFlowControl(session);
       const resetError = resetTerminalRendererFlowControl(control, session.process);
       return resetError || setTerminalExternalFlowControlBlocked(control, session.process, false);
     }
-    if (session.geometryControl.rendererReadyFence !== session.geometryControl.fence) {
+    if (session.controllerLease.rendererReadyFence !== session.controllerLease.fence) {
       return null;
     }
     return enqueueTerminalRendererData(
       ensureTerminalReducerFlowControl(session),
       session.process,
       String(data || '').length,
+      outputSeq,
     );
   }
 
   async sendInput(sessionId, input, options = {}) {
     const session = this.sessions.get(sessionId);
-    if (!session || !session.process) {
+    if (!session || !session.process || session.status === 'exited' || session.exitFinalizing === true) {
       throw new Error('Session not available');
     }
 
-    if (options.terminalControl) {
-      const controlState = validateTerminalGeometryInput(session, options.terminalControl);
-      if (controlState.status !== 'input-accepted') return controlState;
-    }
+    const controlState = validateTerminalControllerInput(session, options.terminalControl || {});
+    if (controlState.status !== 'input-accepted') return controlState;
     session.process.write(terminalInputToPtyString(input));
     session.lastActivityAt = Date.now();
     this.emit('session-activity', {
       sessionId,
-      lastActivityAt: session.lastActivityAt
+      lastActivityAt: session.lastActivityAt,
+      runtimeEpoch: session.runtimeEpoch,
     });
     return { sent: true };
   }
 
-  async interruptSession(sessionId, input = '\x03') {
-    return this.sendInput(sessionId, input);
+  async interruptSession(sessionId, input = '\x03', options = {}) {
+    return this.sendInput(sessionId, input, options);
   }
 
-  async claimSessionGeometry(sessionId, geometry) {
+  async claimSessionController(sessionId, controller) {
     const session = this.sessions.get(sessionId);
-    if (!session || session.status === 'exited') {
+    if (!session || session.status === 'exited' || session.exitFinalizing === true) {
       return { status: 'rejected', reason: 'session-unavailable' };
     }
-    const previousLeaseId = session.geometryControl?.leaseId || '';
-    const result = claimTerminalGeometry(session, geometry);
+    const previousLeaseId = session.controllerLease?.leaseId || '';
+    const result = claimTerminalController(session, controller);
     if (result.status === 'owner' && result.leaseId !== previousLeaseId) {
       const flowError = setTerminalExternalFlowControlBlocked(
         ensureTerminalReducerFlowControl(session),
@@ -536,14 +577,14 @@ class LocalSessionEngine extends SessionEngine {
     return result;
   }
 
-  async activateSessionRenderer(sessionId, geometry) {
+  async activateSessionRenderer(sessionId, controller) {
     const session = this.sessions.get(sessionId);
-    if (!session || session.status === 'exited') {
+    if (!session || session.status === 'exited' || session.exitFinalizing === true) {
       return { status: 'renderer-ready-rejected', reason: 'session-unavailable' };
     }
-    const controlState = validateTerminalGeometryRendererReady(session, geometry);
+    const controlState = validateTerminalControllerRendererReady(session, controller);
     if (controlState.status !== 'renderer-ready-accepted') return controlState;
-    if (session.geometryControl.rendererReadyFence === geometry.fence) {
+    if (session.controllerLease.rendererReadyFence === controller.fence) {
       return { ...controlState, status: 'renderer-ready-accepted', duplicate: true };
     }
     const flowControl = ensureTerminalReducerFlowControl(session);
@@ -552,10 +593,10 @@ class LocalSessionEngine extends SessionEngine {
       this.failSessionScreenState(session, resetError);
       return { ...controlState, status: 'renderer-ready-rejected', reason: 'flow-control-failed' };
     }
-    session.geometryControl.rendererReadyFence = geometry.fence;
+    session.controllerLease.rendererReadyFence = controller.fence;
     const resumeError = setTerminalExternalFlowControlBlocked(flowControl, session.process, false);
     if (resumeError) {
-      session.geometryControl.rendererReadyFence = 0;
+      session.controllerLease.rendererReadyFence = 0;
       this.failSessionScreenState(session, resumeError);
       return { ...controlState, status: 'renderer-ready-rejected', reason: 'flow-control-failed' };
     }
@@ -564,24 +605,25 @@ class LocalSessionEngine extends SessionEngine {
 
   async getSessionAttachCheckpoint(sessionId) {
     const session = this.sessions.get(sessionId);
-    if (!session || session.status === 'exited') return null;
-    return captureTerminalAttachCheckpoint(session);
+    if (!session) return null;
+    const checkpoint = await captureTerminalAttachCheckpoint(session);
+    return this.sessions.get(sessionId) === session ? checkpoint : null;
   }
 
-  async renewSessionGeometry(sessionId, geometry) {
+  async renewSessionController(sessionId, controller) {
     const session = this.sessions.get(sessionId);
-    if (!session || session.status === 'exited') {
+    if (!session || session.status === 'exited' || session.exitFinalizing === true) {
       return { status: 'rejected', reason: 'session-unavailable' };
     }
-    return renewTerminalGeometry(session, geometry);
+    return renewTerminalController(session, controller);
   }
 
-  async releaseSessionGeometry(sessionId, geometry) {
+  async releaseSessionController(sessionId, controller) {
     const session = this.sessions.get(sessionId);
     if (!session || session.status === 'exited') {
       return { status: 'unowned', reason: 'session-unavailable' };
     }
-    const result = releaseTerminalGeometry(session, geometry);
+    const result = releaseTerminalController(session, controller);
     if (result.status === 'unowned') {
       const flowControl = ensureTerminalReducerFlowControl(session);
       const flowError = resetTerminalRendererFlowControl(flowControl, session.process)
@@ -591,12 +633,12 @@ class LocalSessionEngine extends SessionEngine {
     return result;
   }
 
-  async acknowledgeSessionOutput(sessionId, charCount, geometry) {
+  async acknowledgeSessionOutput(sessionId, charCount, controller) {
     const session = this.sessions.get(sessionId);
     if (!session || session.status === 'exited') {
       return { status: 'output-ack-rejected', reason: 'session-unavailable' };
     }
-    const controlState = validateTerminalGeometryOutputAck(session, geometry);
+    const controlState = validateTerminalControllerOutputAck(session, controller);
     if (controlState.status !== 'output-ack-accepted') return controlState;
     const flowError = acknowledgeTerminalRendererData(
       ensureTerminalReducerFlowControl(session),
@@ -617,16 +659,47 @@ class LocalSessionEngine extends SessionEngine {
     };
   }
 
-  async resizeSession(sessionId, cols, rows, geometry) {
+  async acknowledgeSessionCheckpoint(sessionId, outputSeq, stateRevision, controller) {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.status === 'exited') {
+      return { status: 'checkpoint-applied-rejected', reason: 'session-unavailable' };
+    }
+    const controlState = validateTerminalControllerCheckpointApplied(session, controller);
+    if (controlState.status !== 'checkpoint-applied-accepted') return controlState;
+    const appliedOutputSeq = Math.floor(Number(outputSeq));
+    const appliedStateRevision = Math.floor(Number(stateRevision));
+    if (
+      !Number.isFinite(appliedOutputSeq) ||
+      !Number.isFinite(appliedStateRevision) ||
+      appliedOutputSeq < 0 ||
+      appliedStateRevision < 0 ||
+      appliedOutputSeq > session.outputSeq ||
+      appliedStateRevision > session.stateRevision
+    ) {
+      return { ...controlState, status: 'checkpoint-applied-rejected', reason: 'invalid-checkpoint-cut' };
+    }
+    const result = acknowledgeTerminalRendererCheckpoint(
+      ensureTerminalReducerFlowControl(session),
+      session.process,
+      appliedOutputSeq,
+    );
+    if (result.error) {
+      this.failSessionScreenState(session, result.error);
+      return { ...controlState, status: 'checkpoint-applied-rejected', reason: 'flow-control-failed' };
+    }
+    return { ...controlState, outputSeq: appliedOutputSeq, stateRevision: appliedStateRevision };
+  }
+
+  async resizeSession(sessionId, cols, rows, controller) {
     const session = this.sessions.get(sessionId);
     if (!session || !session.process || !session.process.resize) {
       return { status: 'resize-rejected', reason: 'session-unavailable', resized: false };
     }
-    if (session.status === 'exited') {
+    if (session.status === 'exited' || session.exitFinalizing === true) {
       return { status: 'resize-rejected', reason: 'session-unavailable', resized: false };
     }
 
-    const resize = beginTerminalGeometryResize(session, geometry);
+    const resize = beginTerminalControllerResize(session, controller);
     if (!resize.accepted) {
       return {
         ...resize.result,
@@ -634,7 +707,10 @@ class LocalSessionEngine extends SessionEngine {
       };
     }
     if (cols === session.previewCols && rows === session.previewRows) {
-      return commitTerminalGeometryResize(session, resize.requestSeq, {
+      if (this.sessions.get(sessionId) !== session) {
+        return { status: 'resize-rejected', reason: 'session-replaced', resized: false };
+      }
+      return commitTerminalControllerResize(session, resize.requestSeq, {
         resized: true,
         unchanged: true,
       }, resize.token);
@@ -646,7 +722,7 @@ class LocalSessionEngine extends SessionEngine {
       if (error && String(error.message || '').includes('EBADF')) {
         session.status = 'exited';
         session.exitedAt = session.exitedAt || Date.now();
-        return rejectTerminalGeometryResize(
+        return rejectTerminalControllerResize(
           session,
           resize.requestSeq,
           'session-unavailable',
@@ -654,9 +730,12 @@ class LocalSessionEngine extends SessionEngine {
           resize.token,
         );
       }
-      return rejectTerminalGeometryResize(session, resize.requestSeq, 'pty-resize-failed', {
+      return rejectTerminalControllerResize(session, resize.requestSeq, 'pty-resize-failed', {
         error: error instanceof Error ? error.message : String(error || 'unknown PTY resize failure'),
       }, resize.token);
+    }
+    if (this.sessions.get(sessionId) !== session) {
+      return { status: 'resize-rejected', reason: 'session-replaced', resized: false };
     }
     session.stateRevision += 1;
     const stateRevision = session.stateRevision;
@@ -665,7 +744,10 @@ class LocalSessionEngine extends SessionEngine {
     session.previewCols = cols || session.previewCols;
     session.previewRows = rows || session.previewRows;
     if (!session.screenWorker) {
-      return commitTerminalGeometryResize(session, resize.requestSeq, {
+      if (this.sessions.get(sessionId) !== session) {
+        return { status: 'resize-rejected', reason: 'session-replaced', resized: false };
+      }
+      return commitTerminalControllerResize(session, resize.requestSeq, {
         resized: true,
         unchanged: false,
       }, resize.token);
@@ -673,6 +755,9 @@ class LocalSessionEngine extends SessionEngine {
 
     const reducerCommit = session.screenWorker.resize(cols, rows, stateRevision);
     const publishedCommit = session.reducerCommitQueue.then(() => reducerCommit).then((screenState) => {
+      if (this.sessions.get(sessionId) !== session) {
+        throw new Error('Terminal session was replaced during resize');
+      }
       if (
         screenState.runtimeEpoch !== runtimeEpoch ||
         screenState.outputSeq !== outputSeq ||
@@ -691,7 +776,8 @@ class LocalSessionEngine extends SessionEngine {
         session.title = screenState.title;
         this.emit('session-title', {
           sessionId,
-          title: session.title
+          title: session.title,
+          runtimeEpoch: session.runtimeEpoch,
         });
       }
       this.emit('session-transition', {
@@ -712,7 +798,7 @@ class LocalSessionEngine extends SessionEngine {
     try {
       await publishedCommit;
     } catch {
-      return rejectTerminalGeometryResize(
+      return rejectTerminalControllerResize(
         session,
         resize.requestSeq,
         'screen-reducer-failed',
@@ -720,7 +806,10 @@ class LocalSessionEngine extends SessionEngine {
         resize.token,
       );
     }
-    return commitTerminalGeometryResize(session, resize.requestSeq, {
+    if (this.sessions.get(sessionId) !== session) {
+      return { status: 'resize-rejected', reason: 'session-replaced', resized: false };
+    }
+    return commitTerminalControllerResize(session, resize.requestSeq, {
       resized: true,
       unchanged: false,
       runtimeEpoch,
@@ -731,16 +820,14 @@ class LocalSessionEngine extends SessionEngine {
     }, resize.token);
   }
 
-  async clearBuffer(sessionId, geometry = null) {
+  async clearBuffer(sessionId, controller = null) {
     const session = this.sessions.get(sessionId);
-    if (!session) {
+    if (!session || session.status === 'exited' || session.exitFinalizing === true) {
       return { cleared: false };
     }
-    if (geometry) {
-      const controlState = validateTerminalGeometryClear(session, geometry);
-      if (controlState.status !== 'clear-accepted') {
-        return { cleared: false, ...controlState };
-      }
+    const controlState = validateTerminalControllerClear(session, controller || {});
+    if (controlState.status !== 'clear-accepted') {
+      return { cleared: false, ...controlState };
     }
 
     session.output = '';
@@ -764,6 +851,9 @@ class LocalSessionEngine extends SessionEngine {
     if (session.screenWorker) {
       const reducerCommit = session.screenWorker.clear(stateRevision, outputSeq);
       const publishedCommit = session.reducerCommitQueue.then(() => reducerCommit).then((screenState) => {
+        if (this.sessions.get(sessionId) !== session) {
+          throw new Error('Terminal session was replaced during clear');
+        }
         if (
           screenState.runtimeEpoch !== runtimeEpoch ||
           screenState.outputSeq !== outputSeq ||
@@ -779,7 +869,7 @@ class LocalSessionEngine extends SessionEngine {
         exactState = screenState;
         if (screenState.title && screenState.title !== session.title) {
           session.title = screenState.title;
-          this.emit('session-title', { sessionId, title: session.title });
+          this.emit('session-title', { sessionId, title: session.title, runtimeEpoch: session.runtimeEpoch });
         }
         this.emit('session-transition', {
           sessionId,
@@ -802,17 +892,20 @@ class LocalSessionEngine extends SessionEngine {
         return { cleared: false };
       }
     }
+    if (this.sessions.get(sessionId) !== session) return { cleared: false, reason: 'session-replaced' };
     this.emit('session-preview', {
       sessionId,
       previewText: session.previewText,
       cols: session.previewCols,
       rows: session.previewRows,
       previewSnapshot: session.previewSnapshot,
-      title: session.title
+      title: session.title,
+      runtimeEpoch: session.runtimeEpoch,
     });
     this.emit('session-activity', {
       sessionId,
-      lastActivityAt: session.lastActivityAt
+      lastActivityAt: session.lastActivityAt,
+      runtimeEpoch: session.runtimeEpoch,
     });
     return {
       cleared: true,
@@ -821,7 +914,7 @@ class LocalSessionEngine extends SessionEngine {
       stateRevision: exactState.stateRevision,
       cols: exactState.cols,
       rows: exactState.rows,
-      expiresAt: session.geometryControl?.expiresAt || 0,
+      expiresAt: session.controllerLease?.expiresAt || 0,
     };
   }
 
@@ -837,7 +930,7 @@ class LocalSessionEngine extends SessionEngine {
 
     const killTimer = setTimeout(() => {
       const latest = this.sessions.get(sessionId);
-      if (!latest || latest.status === 'exited' || !latest.process) {
+      if (latest !== session || latest.status === 'exited' || !latest.process) {
         return;
       }
       latest.process.kill('SIGKILL');
@@ -854,9 +947,11 @@ class LocalSessionEngine extends SessionEngine {
     const fallbackPreviewCols = session.previewCols;
     const fallbackPreviewRows = session.previewRows;
     const fallbackTitle = session.title;
-    const checkpoint = await captureTerminalAttachCheckpoint(session);
+    const stateProofAvailable = session.stateProofAvailable !== false;
+    const checkpoint = stateProofAvailable ? await captureTerminalAttachCheckpoint(session) : null;
+    if (this.sessions.get(sessionId) !== session) return null;
     const title = checkpoint ? checkpoint.title : fallbackTitle;
-    const previewText = checkpoint ? checkpoint.previewText : fallbackPreviewText;
+    const previewText = checkpoint ? checkpoint.previewText : (stateProofAvailable ? fallbackPreviewText : '');
 
     return {
       sessionId: session.id,
@@ -865,9 +960,10 @@ class LocalSessionEngine extends SessionEngine {
       output: snapshotOutput,
       outputSeq: checkpoint?.outputSeq ?? null,
       stateRevision: checkpoint?.stateRevision ?? null,
-      renderOutput: checkpoint ? checkpoint.renderOutput : snapshotOutput,
+      stateProofAvailable,
+      renderOutput: checkpoint ? checkpoint.renderOutput : (stateProofAvailable ? snapshotOutput : ''),
       previewText,
-      previewSnapshot: checkpoint ? checkpoint.previewSnapshot : fallbackPreviewSnapshot,
+      previewSnapshot: checkpoint ? checkpoint.previewSnapshot : (stateProofAvailable ? fallbackPreviewSnapshot : null),
       previewCols: checkpoint ? checkpoint.cols : fallbackPreviewCols,
       previewRows: checkpoint ? checkpoint.rows : fallbackPreviewRows,
       title,
@@ -908,6 +1004,7 @@ class LocalSessionEngine extends SessionEngine {
     const screenState = session.screenWorker
       ? await session.screenWorker.getState({ includeRenderOutput: false }).catch(() => null)
       : null;
+    if (this.sessions.get(sessionId) !== session) return '';
     return (screenState && screenState.previewText) || session.previewText;
   }
 

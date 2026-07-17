@@ -770,7 +770,7 @@ test.describe('display-backed agent flows', () => {
 
     await page.getByTestId('code-file-editor-back').click()
     await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
-    const reviewUrl = 'https://code.example.test/team/project/codereview/new?from=codex/example-review&to=main'
+    const reviewUrl = 'https://code.example.test/maxcompute/odps_src/codereview/28643213'
     await page.evaluate(() => {
       ;(window as any).__originalOpenForTerminalUrlTest = window.open
       ;(window as any).__openedTerminalUrls = []
@@ -784,7 +784,7 @@ test.describe('display-backed agent flows', () => {
       const reviewRows = await terminalRows(page, childAgentId)
       for (let rowIndex = 0; rowIndex < reviewRows.length; rowIndex += 1) {
         const row = reviewRows[rowIndex] || ''
-        for (const fragment of ['https://', 'code.example.test', 'codereview/new', 'to=main']) {
+        for (const fragment of ['https://', 'code.example.test', 'odps_src', 'codereview/28643213']) {
           const col = row.indexOf(fragment)
           if (col < 0) continue
           const parsed = await page.evaluate(({ id, x, y }) => {
@@ -810,6 +810,17 @@ test.describe('display-backed agent flows', () => {
       throw new Error('Terminal URL fixture cell is missing')
     }
     await page.waitForTimeout(300)
+    await page.mouse.move(reviewUrlCell.x, reviewUrlCell.y)
+    await expect.poll(async () => page.evaluate(({ agentId, url }) => {
+      const host = document.querySelector(`.terminal-session-host[data-agent-id="${agentId}"]`)
+      if (!host) return false
+      return Array.from(host.querySelectorAll<HTMLElement>('.xterm-rows span')).some(span => {
+        const text = span.textContent || ''
+        return text.includes('code.example.test') &&
+          url.includes(text) &&
+          getComputedStyle(span).textDecorationLine.includes('underline')
+      })
+    }, { agentId: childAgentId, url: reviewUrl })).toBe(true)
     await page.mouse.click(reviewUrlCell.x, reviewUrlCell.y)
     await expect.poll(async () => page.evaluate(() => (window as any).__openedTerminalUrls ?? [])).toHaveLength(0)
     await modifierClick(page, reviewUrlCell.x, reviewUrlCell.y)

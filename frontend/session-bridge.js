@@ -41,61 +41,72 @@
         });
       },
 
-      interruptAgent(agentId) {
+      interruptAgent(agentId, controller) {
         return send({
           type: 'interrupt-agent',
           agentId,
+          ...(controller || {}),
         });
       },
 
-      claimTerminalGeometry(agentId, geometry) {
+      claimTerminalController(agentId, controller) {
         return send({
           type: 'terminal-controller-claim',
           agentId,
-          ...geometry,
+          ...controller,
         });
       },
 
-      renewTerminalGeometry(agentId, geometry) {
+      renewTerminalController(agentId, controller) {
         return send({
           type: 'terminal-controller-renew',
           agentId,
-          ...geometry,
+          ...controller,
         });
       },
 
-      releaseTerminalGeometry(agentId, geometry) {
+      releaseTerminalController(agentId, controller) {
         return send({
           type: 'terminal-controller-release',
           agentId,
-          ...geometry,
+          ...controller,
         });
       },
 
-      activateTerminalRenderer(agentId, geometry) {
+      activateTerminalRenderer(agentId, controller) {
         return send({
           type: 'terminal-renderer-ready',
           agentId,
-          ...geometry,
+          ...controller,
         });
       },
 
-      acknowledgeTerminalOutput(agentId, charCount, geometry) {
+      acknowledgeTerminalOutput(agentId, charCount, controller) {
         return send({
           type: 'terminal-output-ack',
           agentId,
           charCount,
-          ...geometry,
+          ...controller,
         });
       },
 
-      resizeAgent(agentId, cols, rows, geometry) {
+      acknowledgeTerminalCheckpoint(agentId, outputSeq, stateRevision, controller) {
+        return send({
+          type: 'terminal-checkpoint-applied',
+          agentId,
+          outputSeq,
+          stateRevision,
+          ...controller,
+        });
+      },
+
+      resizeAgent(agentId, cols, rows, controller) {
         return send({
           type: 'resize-agent',
           agentId,
           cols,
           rows,
-          ...geometry,
+          ...controller,
         });
       },
 

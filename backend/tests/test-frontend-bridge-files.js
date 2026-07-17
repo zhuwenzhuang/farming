@@ -57,11 +57,12 @@ function run() {
       sessionBridge.includes('...terminalControl') &&
       crtApp.includes('queueCrtTerminalInput(input)') &&
       crtApp.includes('sendTerminalInput(data)') &&
-      crtApp.includes('while (true)'),
+      crtApp.includes('function crtTerminalRendererAcceptsInput') &&
+      !crtApp.includes('pendingTakeoverInput'),
     'CRT terminal input should use the active fence and direct ordered WebSocket delivery'
   );
   assert(
-    sessionBridge.includes('acknowledgeTerminalOutput(agentId, charCount, geometry)') &&
+    sessionBridge.includes('acknowledgeTerminalOutput(agentId, charCount, controller)') &&
       sessionBridge.includes("type: 'terminal-output-ack'") &&
       crtApp.includes('acknowledgeCrtRenderedTerminalOutput(event.data.length, event.runtimeEpoch)') &&
       crtApp.includes('CRT_TERMINAL_OUTPUT_ACK_CHARS = 5000'),
@@ -166,7 +167,7 @@ function run() {
   assert(effectsCss.includes('#farming-crt.page-hidden .crt-scan-beam'), 'CRT should pause the scan beam while its page is hidden');
   assert(crtApp.includes("document.addEventListener('visibilitychange'") && crtApp.includes("window.addEventListener('pagehide'"), 'CRT should observe page visibility lifecycle events');
   assert(crtApp.includes('suspendCrtPageConnection') && crtApp.includes('wsReconnectTimer'), 'CRT should close hidden-page sockets and cancel reconnect work');
-  assert(crtApp.includes('resumeCrtPageConnection') && crtApp.includes("claimCrtTerminalGeometry('passive')"), 'CRT should reconnect and reacquire a fenced terminal checkpoint when visible again');
+  assert(crtApp.includes('resumeCrtPageConnection') && crtApp.includes("claimCrtTerminalController('passive')"), 'CRT should reconnect and reacquire a fenced terminal checkpoint when visible again');
   assert(!effectsCss.includes('repeating-linear-gradient(\n            to right'), 'Monochrome Green should not use an RGB aperture mask');
   assert(indexHtml.includes('id="farming-crt"'), 'CRT effects should be scoped to the CRT skin root');
   assert(indexHtml.includes('rel="icon" type="image/svg+xml" href="assets/branding/farming-crt-icon.svg"'), 'CRT should use its terminal-computer brand mark as the page icon');
@@ -200,7 +201,7 @@ function run() {
   assert(
     crtApp.includes('renderCrtBillingDaily')
       && crtApp.includes('crtBillingHeatLevel')
-      && indexHtml.includes('1B+ DAY')
+      && indexHtml.includes('id="billing-billion-days"')
       && crtApp.includes('drawCrtBillingScope')
       && billingCss.includes('.billing-calendar-day')
       && billingCss.includes('.billing-day-hour-cell')
@@ -220,11 +221,14 @@ function run() {
     'CRT terminal density should default to Farming Code while keeping the configured size bounded'
   );
   assert(crtApp.includes('TERMINAL_SCROLLBACK = 5000'), 'CRT terminal scrollback should match Farming Code');
-  assert(crtApp.includes('imeEnabled: false'), 'CRT should use xterm native input like Farming Code');
-  assert(crtApp.includes("if (!SESSION_INPUT_SETTINGS.imeEnabled) {\n        return;\n      }"), 'CRT native input should not also route terminal keys through the legacy document handler');
-  assert(crtApp.includes("querySelector('.xterm-screen')") && crtApp.includes('activeBuffer.cursorX'), 'CRT should retain its fallback IME positioning implementation');
-  assert(!crtApp.includes('terminal.onCursorMove(syncTerminalInputBridgePosition)'), 'CRT typing must not force input-bridge layout on every cursor echo');
-  assert(crtApp.includes('}, 0)\n  };\n  terminalInputPendingTexts.push(pending);'), 'CRT printable fallback should not add a fixed per-character delay');
+  assert(
+    !crtApp.includes('SESSION_INPUT_SETTINGS') &&
+      !crtApp.includes('setupTerminalInputBridge') &&
+      !crtApp.includes('schedulePrintableInput') &&
+      !crtApp.includes('terminalInputPendingTexts') &&
+      crtApp.includes('terminal.onData((data) => {'),
+    'CRT should use only xterm native input and IME handling',
+  );
   assert(crtApp.includes("RUNTIME_PATHS.path('/code/')"), 'CRT UI Theme settings should provide a Farming Code return path');
   assert(crtApp.includes("displayName: 'Farming Code'"), 'CRT UI Theme settings should show Farming Code');
   assert(crtApp.includes('renderCrtTerminalSnapshot(outputTail, agent.previewSnapshot)'), 'CRT previews should preserve terminal snapshot colors');
@@ -265,10 +269,12 @@ function run() {
   assert(crtApp.includes('formatSystemClock'), 'CRT should format the server system clock');
   assert(
     crtApp.includes('function installCrtTerminalCheckpoint')
+      && crtApp.includes('function performCrtTerminalCheckpointInstall')
       && crtApp.includes('terminal.resize(sessionView.previewCols, sessionView.previewRows)')
-      && crtApp.includes('terminal.write(sessionView.renderOutput, () =>')
+      && crtApp.includes('terminal.write(sessionView.renderOutput, finishInstall)')
+      && crtApp.includes('replication.checkpointInstallSeq !== installSeq')
       && !crtApp.includes('candidate.previewCols === terminal.cols'),
-    'CRT should install the authoritative opaque checkpoint at its exact logical dimensions'
+    'CRT should serialize authoritative checkpoint writes at their exact logical dimensions'
   );
   assert(!crtApp.includes("`${getCrtAgentTitle(agent)} (${agent.id})`"), 'CRT session titles should not expose internal Agent ids');
   assert(indexHtml.includes('.crt-checkbox:checked::before'), 'CRT settings should use terminal-style checkboxes');

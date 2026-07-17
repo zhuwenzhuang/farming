@@ -81,9 +81,26 @@ function formatNativePtyRuntimeEpoch(generation, id = crypto.randomUUID()) {
   return `farming-runtime-v1:${String(normalized).padStart(20, '0')}:${id}`;
 }
 
+function nativePtyRuntimeEpochGeneration(runtimeEpoch) {
+  const match = /^farming-runtime-v1:(\d{20}):/.exec(String(runtimeEpoch || ''));
+  if (!match) return null;
+  const generation = Number(match[1]);
+  return Number.isSafeInteger(generation) && generation > 0 ? generation : null;
+}
+
+function compareNativePtyRuntimeEpochs(left, right) {
+  if (left === right) return 0;
+  const leftGeneration = nativePtyRuntimeEpochGeneration(left);
+  const rightGeneration = nativePtyRuntimeEpochGeneration(right);
+  if (leftGeneration === null || rightGeneration === null || leftGeneration === rightGeneration) return null;
+  return leftGeneration < rightGeneration ? -1 : 1;
+}
+
 module.exports = {
   allocateNativePtyControllerGeneration,
   allocateNativePtyRuntimeGeneration,
+  compareNativePtyRuntimeEpochs,
   formatNativePtyRuntimeEpoch,
+  nativePtyRuntimeEpochGeneration,
   positiveGeneration,
 };

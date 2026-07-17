@@ -349,6 +349,18 @@ async function run() {
   assert.strictEqual(cachedLiveDay, liveDay, 'current-day reads should reuse the five-second live cache');
   const refreshedLiveDay = await monitor.getUsageDay(summary.daily.endDate, { now: now + 5_000, live: true });
   assert.notStrictEqual(refreshedLiveDay, liveDay, 'current-day reads should refresh after the live cache expires');
+  monitor.liveDayCache = {
+    date: summary.daily.endDate,
+    value: null,
+    fetchedAt: 0,
+    pending: Promise.reject(new Error('transient live scan failure')),
+  };
+  const recoveredLiveDay = await monitor.getUsageDay(summary.daily.endDate, { now: now + 10_000, live: true });
+  assert.strictEqual(
+    recoveredLiveDay.total.totalTokens,
+    summary.daily.summary.todayTokens,
+    'a failed live scan should fall back to the successful daily-history snapshot',
+  );
   const historicalDay = await monitor.getUsageDay(summary.daily.endDate, { now: now + 5_000, live: false });
   assert.notStrictEqual(historicalDay, refreshedLiveDay, 'non-live reads should stay on the heavy daily-history cache');
   const cachedSummary = await monitor.getUsageSummary({ now: now + 1_000 });

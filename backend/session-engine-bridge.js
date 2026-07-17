@@ -63,44 +63,52 @@ class SessionEngineBridge extends EventEmitter {
     return engine.sendInput(sessionId, input, options);
   }
 
-  async claimSessionGeometry(engineName, sessionId, geometry) {
+  async claimSessionController(engineName, sessionId, controller) {
     const engine = this.getEngine(engineName);
-    if (!engine || !engine.claimSessionGeometry) return { status: 'rejected', reason: 'unsupported-engine' };
-    return engine.claimSessionGeometry(sessionId, geometry);
+    if (!engine || !engine.claimSessionController) return { status: 'rejected', reason: 'unsupported-engine' };
+    return engine.claimSessionController(sessionId, controller);
   }
 
-  async activateSessionRenderer(engineName, sessionId, geometry) {
+  async activateSessionRenderer(engineName, sessionId, controller) {
     const engine = this.getEngine(engineName);
     if (!engine || !engine.activateSessionRenderer) {
       return { status: 'renderer-ready-rejected', reason: 'unsupported-engine' };
     }
-    return engine.activateSessionRenderer(sessionId, geometry);
+    return engine.activateSessionRenderer(sessionId, controller);
   }
 
-  async renewSessionGeometry(engineName, sessionId, geometry) {
+  async renewSessionController(engineName, sessionId, controller) {
     const engine = this.getEngine(engineName);
-    if (!engine || !engine.renewSessionGeometry) return { status: 'rejected', reason: 'unsupported-engine' };
-    return engine.renewSessionGeometry(sessionId, geometry);
+    if (!engine || !engine.renewSessionController) return { status: 'rejected', reason: 'unsupported-engine' };
+    return engine.renewSessionController(sessionId, controller);
   }
 
-  async releaseSessionGeometry(engineName, sessionId, geometry) {
+  async releaseSessionController(engineName, sessionId, controller) {
     const engine = this.getEngine(engineName);
-    if (!engine || !engine.releaseSessionGeometry) return { status: 'unowned', reason: 'unsupported-engine' };
-    return engine.releaseSessionGeometry(sessionId, geometry);
+    if (!engine || !engine.releaseSessionController) return { status: 'unowned', reason: 'unsupported-engine' };
+    return engine.releaseSessionController(sessionId, controller);
   }
 
-  async acknowledgeSessionOutput(engineName, sessionId, charCount, geometry) {
+  async acknowledgeSessionOutput(engineName, sessionId, charCount, controller) {
     const engine = this.getEngine(engineName);
     if (!engine || !engine.acknowledgeSessionOutput) {
       return { status: 'output-ack-rejected', reason: 'unsupported-engine' };
     }
-    return engine.acknowledgeSessionOutput(sessionId, charCount, geometry);
+    return engine.acknowledgeSessionOutput(sessionId, charCount, controller);
   }
 
-  async resizeSession(engineName, sessionId, cols, rows, geometry) {
+  async acknowledgeSessionCheckpoint(engineName, sessionId, outputSeq, stateRevision, controller) {
+    const engine = this.getEngine(engineName);
+    if (!engine || !engine.acknowledgeSessionCheckpoint) {
+      return { status: 'checkpoint-applied-rejected', reason: 'unsupported-engine' };
+    }
+    return engine.acknowledgeSessionCheckpoint(sessionId, outputSeq, stateRevision, controller);
+  }
+
+  async resizeSession(engineName, sessionId, cols, rows, controller) {
     const engine = this.getEngine(engineName);
     if (!engine || !engine.resizeSession) return;
-    return engine.resizeSession(sessionId, cols, rows, geometry);
+    return engine.resizeSession(sessionId, cols, rows, controller);
   }
 
   async clearBuffer(engineName, sessionId) {

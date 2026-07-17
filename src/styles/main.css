@@ -13216,7 +13216,7 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
   background: #ffffff;
 }
 
-.terminal-geometry-status {
+.terminal-controller-status {
   position: absolute;
   z-index: 8;
   top: 8px;
@@ -13234,7 +13234,7 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
   user-select: none;
 }
 
-.terminal-geometry-takeover {
+.terminal-controller-takeover {
   flex: none;
   padding: 2px 7px;
   border: 1px solid rgba(31, 35, 40, 0.22);
@@ -13245,11 +13245,11 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
   cursor: pointer;
 }
 
-.terminal-geometry-takeover:hover {
+.terminal-controller-takeover:hover {
   background: #f6f8fa;
 }
 
-.terminal-geometry-takeover:focus-visible {
+.terminal-controller-takeover:focus-visible {
   outline: 2px solid #0969da;
   outline-offset: 1px;
 }

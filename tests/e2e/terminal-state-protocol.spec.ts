@@ -26,7 +26,7 @@ async function selectControlAgent(page: import('@playwright/test').Page, agentId
   await expect(row).toBeVisible({ timeout: 30_000 })
   await row.click()
   await expect(page.locator(`.terminal-session-host[data-agent-id="${agentId}"]`))
-    .toHaveAttribute('data-geometry-status', 'owner', { timeout: 15_000 })
+    .toHaveAttribute('data-controller-status', 'owner', { timeout: 15_000 })
   await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
   await waitForProtocolIdle(page, agentId)
 }
@@ -141,7 +141,7 @@ test.describe('terminal state protocol', () => {
     const agentId = await createControlAgent(page, workspace)
     await openTerminalTestPage(page)
     await selectControlAgent(page, agentId)
-    await expect(terminalHost(page, agentId)).toHaveAttribute('data-geometry-status', 'owner')
+    await expect(terminalHost(page, agentId)).toHaveAttribute('data-controller-status', 'owner')
   })
 
   test('resuming a stale visible fixture installs one latest checkpoint instead of replaying history', async ({ page, workspaceRoot }) => {
@@ -267,6 +267,9 @@ test.describe('terminal state protocol', () => {
     await openTerminalTestPage(page)
     await selectControlAgent(page, agentId)
     const initial = await terminalState(page, agentId)
+    await page.evaluate(id => {
+      window.__farmingTerminalTest?.setCheckpointAckSuppressed(id, true)
+    }, agentId)
     const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
     const checkpoints = [
       checkpoint(
@@ -356,6 +359,46 @@ test.describe('terminal state protocol', () => {
     ), agentId)).toBe(initial.stateRevision + 4)
     await expect.poll(() => visibleText(page, agentId)).toContain('REVISION_GAP_REPAIRED')
     expect(await visibleText(page, agentId)).not.toContain('REVISION_GAP_POISON')
+  })
+
+  test('Code commits a live transition only after the xterm write callback', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'terminal-render-commit-callback')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createControlAgent(page, workspace)
+    await openTerminalTestPage(page)
+    await selectControlAgent(page, agentId)
+    const initial = await terminalState(page, agentId)
+    const marker = `RENDER_COMMITTED_${Date.now()}`
+
+    const duringSameTask = await page.evaluate(({ id, epoch, outputSeq, stateRevision, text }) => {
+      void window.__farmingTerminalTest?.streamSequenced(
+        id,
+        text,
+        outputSeq + 1,
+        epoch,
+        stateRevision + 1,
+      )
+      return {
+        outputSeq: window.__farmingTerminalTest?.getLastOutputSeq(id) ?? null,
+        stateRevision: window.__farmingTerminalTest?.getStateRevision(id) ?? null,
+      }
+    }, {
+      id: agentId,
+      epoch: initial.runtimeEpoch,
+      outputSeq: initial.outputSeq,
+      stateRevision: initial.stateRevision,
+      text: `${'x'.repeat(6_000)}\r\n${marker}\r\n`,
+    })
+
+    expect(duringSameTask).toEqual({
+      outputSeq: initial.outputSeq,
+      stateRevision: initial.stateRevision,
+    })
+    await expect.poll(() => terminalState(page, agentId)).toMatchObject({
+      outputSeq: initial.outputSeq + 1,
+      stateRevision: initial.stateRevision + 1,
+    })
+    await expect.poll(() => visibleText(page, agentId)).toContain(marker)
   })
 
   test('stale same-epoch checkpoint keeps chasing the required revision', async ({ page, workspaceRoot }) => {
@@ -467,7 +510,7 @@ test.describe('terminal state protocol', () => {
     expect(requests).toBe(4)
     await page.waitForTimeout(2_000)
     expect(requests).toBe(4)
-    await expect(terminalHost(page, agentId).locator('.terminal-geometry-status-text'))
+    await expect(terminalHost(page, agentId).locator('.terminal-controller-status-text'))
       .toContainText('Terminal synchronization failed')
     expect(await visibleText(page, agentId)).not.toContain('GAP_MUST_NOT_RENDER')
   })
@@ -543,6 +586,22 @@ test.describe('terminal state protocol', () => {
       .toContain('EPOCH_C_LATEST')
     expect(await visibleText(page, agentId)).not.toContain('EPOCH_B_STALE')
 
+    await expect.poll(() => page.evaluate(id => (
+      window.__farmingTerminalTest?.getBufferDiagnostics(id) as unknown as {
+        checkpointHalted?: boolean
+        controllerRecoveryFailureCount?: number
+      } | null
+    ), agentId), { timeout: 10_000 }).toMatchObject({
+      checkpointHalted: true,
+      controllerRecoveryFailureCount: 4,
+    })
+    expect(requests).toBeLessThanOrEqual(5)
+    const requestsAfterControllerHalt = requests
+    await page.waitForTimeout(500)
+    expect(requests).toBe(requestsAfterControllerHalt)
+    await expect(terminalHost(page, agentId).locator('.terminal-controller-status-text'))
+      .toContainText('Terminal synchronization failed')
+
     const requestsBeforeRetiredPoison = requests
     await page.evaluate(async ({ id, epoch }) => {
       await window.__farmingTerminalTest?.streamSequenced(
@@ -559,6 +618,87 @@ test.describe('terminal state protocol', () => {
     expect(await page.evaluate(id => (
       window.__farmingTerminalTest?.getRuntimeEpoch(id)
     ), agentId)).toBe(epochC)
+  })
+
+  test('CRT halts a repeated controller/checkpoint epoch contradiction', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'crt-controller-checkpoint-contradiction')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createControlAgent(page, workspace)
+    await page.goto(`/farming/crt/?agent=${encodeURIComponent(agentId)}`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await expect(page.locator('#session-modal')).toHaveClass(/active/, { timeout: 30_000 })
+    await expect(page.locator('#terminal-output .xterm')).toBeVisible({ timeout: 15_000 })
+    await expect(page.locator('.crt-terminal-sync-status')).toBeHidden({ timeout: 15_000 })
+    const initial = await page.evaluate(() => (
+      (window as typeof window & {
+        __farmingCrtTerminalTest?: {
+          getState: () => {
+            runtimeEpoch: string
+            outputSeq: number
+            stateRevision: number
+            cols: number
+            rows: number
+          } | null
+        }
+      }).__farmingCrtTerminalTest?.getState() || null
+    ))
+    expect(initial?.runtimeEpoch).toBeTruthy()
+    const replacementEpoch = nextEpoch(initial!.runtimeEpoch, 1)
+    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
+    let requests = 0
+    await page.route(routePattern, async (route) => {
+      requests += 1
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(checkpoint(
+          replacementEpoch,
+          initial!.outputSeq + 1,
+          initial!.stateRevision + 1,
+          initial!.cols,
+          initial!.rows,
+          'CRT_REPLACEMENT_CHECKPOINT',
+        )),
+      })
+    })
+
+    await page.evaluate(({ epoch, outputSeq, stateRevision }) => {
+      const api = (window as typeof window & {
+        __farmingCrtTerminalTest?: {
+          streamSequenced: (
+            data: string,
+            outputSeq: number,
+            runtimeEpoch: string,
+            stateRevision: number,
+          ) => boolean
+        }
+      }).__farmingCrtTerminalTest
+      api?.streamSequenced('CRT_EPOCH_CHANGE\r\n', outputSeq + 1, epoch, stateRevision + 1)
+    }, {
+      epoch: replacementEpoch,
+      outputSeq: initial!.outputSeq,
+      stateRevision: initial!.stateRevision,
+    })
+
+    await expect.poll(() => page.evaluate(() => (
+      (window as typeof window & {
+        __farmingCrtTerminalTest?: {
+          getState: () => {
+            checkpointHalted?: boolean
+            controllerRecoveryFailureCount?: number
+          } | null
+        }
+      }).__farmingCrtTerminalTest?.getState() || null
+    )), { timeout: 10_000 }).toMatchObject({
+      checkpointHalted: true,
+      controllerRecoveryFailureCount: 4,
+    })
+    expect(requests).toBeLessThanOrEqual(4)
+    const requestsAfterHalt = requests
+    await page.waitForTimeout(500)
+    expect(requests).toBe(requestsAfterHalt)
+    await expect(page.locator('.crt-terminal-sync-status-text'))
+      .toContainText('CONTROLLER AND CHECKPOINT RUNTIME DISAGREED REPEATEDLY')
   })
 
   test('1013 backpressure close reconnects through an authoritative checkpoint', async ({ page, workspaceRoot }) => {
@@ -604,7 +744,7 @@ test.describe('terminal state protocol', () => {
     expect(text.split(marker).length - 1).toBe(1)
 
     await expect(terminalHost(page, agentId))
-      .toHaveAttribute('data-geometry-status', 'owner', { timeout: 10_000 })
+      .toHaveAttribute('data-controller-status', 'owner', { timeout: 10_000 })
     const authoritative = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
       .then(response => response.json()) as {
         session?: { runtimeEpoch?: string; stateRevision?: number }

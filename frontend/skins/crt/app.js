@@ -101,18 +101,9 @@ let structuredComposerRestoreFocusAfterInterrupt = false;
 let runtimeSwitchPending = false;
 let pendingRuntimeSwitchAgentId = '';
 let runtimeSwitchRequestSequence = 0;
-let terminalInputBridge = null;
-let terminalInputComposing = false;
-let terminalInputLastBackspaceAt = 0;
-let terminalInputLastDeleteAt = 0;
-let terminalInputPendingTexts = [];
 let crtTerminalReplication = null;
 const terminalPreviewSnapshots = new Map();
 const crtBrandPulseTimers = new Map();
-const SESSION_INPUT_SETTINGS = {
-  // xterm's native textarea is the same low-latency input path used by Farming Code.
-  imeEnabled: false
-};
 const SESSION_LINK_LIMIT = 6;
 const CRT_PREVIEW_RENDER_INTERVAL_MS = 1000;
 const CRT_STRUCTURED_PREVIEW_REFRESH_MS = 240;
@@ -127,15 +118,14 @@ const CRT_BILLING_LIVE_DAY_REFRESH_MS = 5_000;
 const CRT_BILLING_DAY_DETAIL_CACHE_MS = 30_000;
 const CRT_BILLING_TOTAL_ANIMATION_MS = 900;
 const CRT_BILLING_DAY_DETAIL_RETRY_MS = 750;
+const CRT_BILLING_DAY_DETAIL_MAX_RETRIES = 4;
 const CRT_TERMINAL_CHECKPOINT_RETRY_MS = 500;
 const CRT_TERMINAL_MAX_IDENTICAL_CHECKPOINT_INVARIANT_FAILURES = 4;
-const CRT_TERMINAL_GEOMETRY_RENEW_MS = 10_000;
-const CRT_TERMINAL_GEOMETRY_CLAIM_TIMEOUT_MS = 8_000;
+const CRT_TERMINAL_CONTROLLER_RENEW_MS = 10_000;
+const CRT_TERMINAL_CONTROLLER_CLAIM_TIMEOUT_MS = 8_000;
 const CRT_TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5_000;
 const CRT_TERMINAL_MAX_QUEUED_TRANSITIONS = 512;
 const CRT_TERMINAL_MAX_QUEUED_BYTES = 1024 * 1024;
-const CRT_TERMINAL_MAX_PENDING_INPUTS = 256;
-const CRT_TERMINAL_MAX_PENDING_INPUT_BYTES = 256 * 1024;
 const CRT_TERMINAL_OUTPUT_ACK_CHARS = 5000;
 const CRT_RUNTIME_EPOCH_PATTERN = /^farming-runtime-v1:(\d{20}):/;
 
@@ -706,72 +696,14 @@ function disposeTerminal() {
   fitAddon = null;
 }
 
-function destroyTerminalInputBridge() {
-  if (terminalInputBridge) {
-    terminalInputBridge.remove();
-    terminalInputBridge = null;
-  }
-  clearPendingPrintableInput();
-  terminalInputComposing = false;
-  document.body.removeAttribute('data-ime-input-focused');
-  document.body.removeAttribute('data-ime-composing');
-}
-
-function clearPendingPrintableInput() {
-  terminalInputPendingTexts.forEach((pending) => {
-    clearTimeout(pending.timeoutId);
-  });
-  terminalInputPendingTexts = [];
-}
-
-function resetTerminalInputBridgeValue() {
-  if (!terminalInputBridge) return;
-  terminalInputBridge.value = ' ';
-  terminalInputBridge.setSelectionRange(1, 1);
-}
-
-function schedulePrintableInput(text) {
-  const pending = {
-    text,
-    timeoutId: setTimeout(() => {
-      if (!terminalInputComposing) {
-        sendTerminalInput(text);
-        resetTerminalInputBridgeValue();
-      }
-      terminalInputPendingTexts = terminalInputPendingTexts.filter((item) => item !== pending);
-    }, 0)
-  };
-  terminalInputPendingTexts.push(pending);
-}
-
-function focusTerminalInputBridge() {
-  if (!SESSION_INPUT_SETTINGS.imeEnabled) return;
-  if (!terminalInputBridge) return;
-  if (isOverlayBlockingTerminalInput()) return;
-  syncTerminalInputBridgePosition();
-  terminalInputBridge.focus();
-  resetTerminalInputBridgeValue();
-}
-
-function isOverlayBlockingTerminalInput() {
-  const inputDialog = document.getElementById('input-dialog');
-  if (inputDialog && inputDialog.classList.contains('active')) {
-    return true;
-  }
-
-  const settingsModal = document.getElementById('settings-modal');
-  if (settingsModal && settingsModal.classList.contains('active')) {
-    return true;
-  }
-
-  return false;
-}
-
 function focusSessionTerminal() {
+  if (crtTerminalReplication && !crtTerminalRendererAcceptsInput(crtTerminalReplication)) {
+    crtTerminalReplication.focusAfterClaim = true;
+    return;
+  }
   if (terminal && typeof terminal.focus === 'function') {
     terminal.focus();
   }
-  focusTerminalInputBridge();
 }
 
 function getDocumentSelectionText() {
@@ -936,7 +868,12 @@ async function pasteTerminalText(text) {
     return false;
   }
 
-  sendTerminalInput(text.replace(/\r\n/g, '\n'));
+  const normalized = text.replace(/\r\n/g, '\n');
+  if (terminal && typeof terminal.paste === 'function') {
+    terminal.paste(normalized);
+  } else {
+    sendTerminalInput(normalized);
+  }
   focusSessionTerminal();
   return true;
 }
@@ -955,34 +892,6 @@ async function pasteFromClipboard() {
   }
 }
 
-function routeSessionKey(event) {
-  if (!focusedAgentId || terminalInputComposing || isBrowserShortcut(event)) {
-    return false;
-  }
-
-  if (event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1 && event.key !== 'Enter') {
-    const controlChar = getControlChar(event.key);
-    if (controlChar) {
-      sendTerminalInput(controlChar);
-      return true;
-    }
-  }
-
-  const sequence = getTerminalSequenceForKey(event);
-  if (sequence) {
-    sendTerminalInput(sequence);
-    return true;
-  }
-
-  return false;
-}
-
-function getControlChar(key) {
-  const lower = key.toLowerCase();
-  if (!/^[a-z]$/.test(lower)) return null;
-  return String.fromCharCode(lower.charCodeAt(0) - 96);
-}
-
 function getSessionClient() {
   if (!window.FarmingSessionBridge || !window.FarmingSessionBridge.createClient) {
     return null;
@@ -996,291 +905,6 @@ function getSessionClient() {
   }
 
   return sessionClient;
-}
-
-function getTerminalSequenceForKey(event) {
-  const { key, shiftKey, altKey, ctrlKey, metaKey } = event;
-
-  if (metaKey) return null;
-
-  if (altKey && !ctrlKey) {
-    if (key === 'ArrowLeft') return '\x1bb';
-    if (key === 'ArrowRight') return '\x1bf';
-    if (key === 'Backspace') return '\x17';
-  }
-
-  switch (key) {
-    case 'Enter':
-      return '\r';
-    case 'Backspace':
-      return '\x7f';
-    case 'Tab':
-      return shiftKey ? '\x1b[Z' : '\t';
-    case 'Delete':
-      return '\x1b[3~';
-    case 'ArrowUp':
-      return '\x1b[A';
-    case 'ArrowDown':
-      return '\x1b[B';
-    case 'ArrowRight':
-      return '\x1b[C';
-    case 'ArrowLeft':
-      return '\x1b[D';
-    case 'Home':
-      return '\x1b[H';
-    case 'End':
-      return '\x1b[F';
-    case 'PageUp':
-      return '\x1b[5~';
-    case 'PageDown':
-      return '\x1b[6~';
-    default:
-      return null;
-  }
-}
-
-function setupTerminalInputBridge() {
-  destroyTerminalInputBridge();
-
-  if (!SESSION_INPUT_SETTINGS.imeEnabled) {
-    return;
-  }
-
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.setAttribute('autocomplete', 'off');
-  input.setAttribute('autocorrect', 'off');
-  input.setAttribute('autocapitalize', 'off');
-  input.setAttribute('spellcheck', 'false');
-  input.setAttribute('inputmode', 'text');
-  input.setAttribute('aria-hidden', 'true');
-  input.style.position = 'absolute';
-  input.style.top = '0';
-  input.style.left = '0';
-  input.style.width = '200px';
-  input.style.height = '24px';
-  input.style.opacity = '0.01';
-  input.style.background = 'transparent';
-  input.style.color = 'transparent';
-  input.style.caretColor = 'transparent';
-  input.style.border = 'none';
-  input.style.outline = 'none';
-  input.style.fontSize = `${getCrtTerminalFontSize()}px`;
-  input.style.fontFamily = TERMINAL_FONT_FAMILY;
-  input.style.pointerEvents = 'none';
-  input.style.zIndex = '2';
-
-  input.addEventListener('compositionstart', () => {
-    syncTerminalInputBridgePosition();
-    clearPendingPrintableInput();
-    terminalInputComposing = true;
-    document.body.setAttribute('data-ime-composing', 'true');
-  });
-
-  input.addEventListener('compositionend', (event) => {
-    terminalInputComposing = false;
-    document.body.removeAttribute('data-ime-composing');
-    clearPendingPrintableInput();
-    if (event.data) {
-      sendTerminalInput(event.data);
-    }
-    resetTerminalInputBridgeValue();
-  });
-
-  input.addEventListener('compositionupdate', syncTerminalInputBridgePosition);
-
-  input.addEventListener('beforeinput', (event) => {
-    if (terminalInputComposing) {
-      return;
-    }
-
-    const inputEvent = event;
-    if (inputEvent.inputType === 'insertText' && inputEvent.data) {
-      clearPendingPrintableInput();
-      event.preventDefault();
-      sendTerminalInput(inputEvent.data);
-      resetTerminalInputBridgeValue();
-    }
-  });
-
-  input.addEventListener('input', (event) => {
-    if (terminalInputComposing) {
-      return;
-    }
-
-    const inputEvent = event;
-    if (inputEvent.inputType === 'deleteContentBackward') {
-      clearPendingPrintableInput();
-      const now = Date.now();
-      if (now - terminalInputLastBackspaceAt > 50) {
-        sendTerminalInput('\x7f');
-      }
-      terminalInputLastBackspaceAt = now;
-      requestAnimationFrame(() => {
-        if (document.activeElement === input) {
-          resetTerminalInputBridgeValue();
-        }
-      });
-      return;
-    }
-
-    if (inputEvent.inputType === 'deleteContentForward') {
-      clearPendingPrintableInput();
-      const now = Date.now();
-      if (now - terminalInputLastDeleteAt > 50) {
-        sendTerminalInput('\x1b[3~');
-      }
-      terminalInputLastDeleteAt = now;
-      requestAnimationFrame(() => {
-        if (document.activeElement === input) {
-          resetTerminalInputBridgeValue();
-        }
-      });
-      return;
-    }
-
-    clearPendingPrintableInput();
-    resetTerminalInputBridgeValue();
-  });
-
-  input.addEventListener('keydown', (event) => {
-    if (event.defaultPrevented) {
-      return;
-    }
-
-    if (isOverlayBlockingTerminalInput()) {
-      return;
-    }
-
-    if (isBrowserShortcut(event)) {
-      return;
-    }
-
-    if ((event.ctrlKey || event.metaKey) && event.key === 'Escape') {
-      return;
-    }
-
-    if ((event.ctrlKey || event.metaKey) && (event.key === 'k' || event.key === 'K')) {
-      return;
-    }
-
-    if (terminalInputComposing) {
-      return;
-    }
-
-    if (['Enter', 'Tab', 'Escape'].includes(event.key)) {
-      event.preventDefault();
-    }
-
-    if (event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1 && event.key !== 'Enter') {
-      clearPendingPrintableInput();
-      const controlChar = getControlChar(event.key);
-      if (controlChar) {
-        event.preventDefault();
-        sendTerminalInput(controlChar);
-        resetTerminalInputBridgeValue();
-      }
-      return;
-    }
-
-    if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1) {
-      schedulePrintableInput(event.key);
-      return;
-    }
-
-    if (event.key === 'Backspace') {
-      clearPendingPrintableInput();
-      terminalInputLastBackspaceAt = Date.now();
-      sendTerminalInput('\x7f');
-      requestAnimationFrame(() => {
-        if (document.activeElement === input) {
-          resetTerminalInputBridgeValue();
-        }
-      });
-      return;
-    }
-
-    const sequence = getTerminalSequenceForKey(event);
-    if (!sequence) {
-      return;
-    }
-
-    if (event.key === 'Delete') {
-      terminalInputLastDeleteAt = Date.now();
-    }
-
-    event.preventDefault();
-    sendTerminalInput(sequence);
-    if (event.key !== 'Tab') {
-      resetTerminalInputBridgeValue();
-    }
-  });
-
-  input.addEventListener('focus', () => {
-    document.body.setAttribute('data-ime-input-focused', 'true');
-    requestAnimationFrame(() => {
-      if (document.activeElement === input) {
-        resetTerminalInputBridgeValue();
-      }
-    });
-  });
-
-  input.addEventListener('blur', () => {
-    document.body.removeAttribute('data-ime-input-focused');
-    setTimeout(() => {
-      const sessionActive = document.getElementById('session-modal')?.classList.contains('active');
-      if (!sessionActive || terminalInputComposing || !terminalInputBridge || isOverlayBlockingTerminalInput()) {
-        return;
-      }
-      focusTerminalInputBridge();
-    }, 0);
-  });
-
-  const sessionModal = document.getElementById('session-modal');
-  if (sessionModal) {
-    sessionModal.appendChild(input);
-  } else {
-    document.body.appendChild(input);
-  }
-  terminalInputBridge = input;
-  syncTerminalInputBridgePosition();
-}
-
-function calculateTerminalInputBridgePosition(cursor, dimensions, screenRect, parentRect) {
-  if (!cursor || !dimensions || !screenRect || !parentRect) return null;
-  if (dimensions.cols <= 0 || dimensions.rows <= 0) return null;
-
-  const cellWidth = screenRect.width / dimensions.cols;
-  const cellHeight = screenRect.height / dimensions.rows;
-  return {
-    left: Math.max(0, screenRect.left - parentRect.left + cursor.x * cellWidth),
-    top: Math.max(0, screenRect.top - parentRect.top + cursor.y * cellHeight),
-    height: Math.max(getCrtTerminalFontSize() + 2, cellHeight)
-  };
-}
-
-function syncTerminalInputBridgePosition() {
-  if (!terminalInputBridge || !terminal) return;
-  const sessionModal = document.getElementById('session-modal');
-  const terminalElement = terminal.element;
-  const screen = terminalElement && terminalElement.querySelector
-    ? terminalElement.querySelector('.xterm-screen')
-    : null;
-  const activeBuffer = terminal.buffer && terminal.buffer.active;
-  if (!sessionModal || !(screen instanceof HTMLElement) || !activeBuffer) return;
-
-  const position = calculateTerminalInputBridgePosition(
-    { x: activeBuffer.cursorX, y: activeBuffer.cursorY },
-    { cols: terminal.cols, rows: terminal.rows },
-    screen.getBoundingClientRect(),
-    sessionModal.getBoundingClientRect()
-  );
-  if (!position) return;
-
-  terminalInputBridge.style.left = `${position.left}px`;
-  terminalInputBridge.style.top = `${position.top}px`;
-  terminalInputBridge.style.height = `${position.height}px`;
-  terminalInputBridge.style.lineHeight = `${position.height}px`;
 }
 
 function normalizeCrtTerminalFontSize(value) {
@@ -2480,7 +2104,7 @@ function createCrtTerminalReplication(agentId) {
     attachmentId: crtRandomId(),
     claimId: '',
     claimInFlight: false,
-    geometryStatus: 'claiming',
+    controllerStatus: 'claiming',
     leaseId: '',
     fence: null,
     rendererReadyFence: null,
@@ -2493,8 +2117,6 @@ function createCrtTerminalReplication(agentId) {
     applyingLocalResize: false,
     renewTimer: null,
     claimTimer: null,
-    pendingTakeoverInput: [],
-    pendingTakeoverInputBytes: 0,
     inputError: '',
     focusAfterClaim: false,
     pendingOutputAckChars: 0,
@@ -2507,9 +2129,14 @@ function createCrtTerminalReplication(agentId) {
     replaying: false,
     checkpointInFlight: false,
     checkpointSeq: 0,
+    checkpointInstallSeq: 0,
+    checkpointInstallInProgress: false,
+    pendingCheckpointInstall: null,
     checkpointFailureCount: 0,
     checkpointInvariantFailureSignature: '',
     checkpointInvariantFailureCount: 0,
+    controllerRecoveryFailureSignature: '',
+    controllerRecoveryFailureCount: 0,
     checkpointHalted: false,
     checkpointError: '',
     checkpointRetryTimer: null,
@@ -2518,6 +2145,66 @@ function createCrtTerminalReplication(agentId) {
     queuedTransitions: [],
     queuedBytes: 0,
     disposed: false
+  };
+}
+
+function installCrtTerminalTestApi() {
+  if (
+    typeof window === 'undefined' ||
+    !window.__FARMING_E2E__ ||
+    window.__farmingCrtTerminalTest
+  ) return;
+  window.__farmingCrtTerminalTest = {
+    getState() {
+      const replication = crtTerminalReplication;
+      if (!replication || replication.disposed) return null;
+      return {
+        runtimeEpoch: replication.runtimeEpoch,
+        outputSeq: replication.outputSeq,
+        stateRevision: replication.stateRevision,
+        cols: terminal?.cols || 0,
+        rows: terminal?.rows || 0,
+        replaying: replication.replaying,
+        writeInProgress: replication.writeInProgress,
+        checkpointInFlight: replication.checkpointInFlight,
+        checkpointInstallInProgress: replication.checkpointInstallInProgress,
+        checkpointHalted: replication.checkpointHalted,
+        controllerRecoveryFailureSignature: replication.controllerRecoveryFailureSignature,
+        controllerRecoveryFailureCount: replication.controllerRecoveryFailureCount
+      };
+    },
+    getRows() {
+      const buffer = terminal && terminal.buffer && terminal.buffer.active;
+      if (!buffer || typeof buffer.getLine !== 'function') return [];
+      const rows = [];
+      for (let index = 0; index < buffer.length; index += 1) {
+        rows.push(buffer.getLine(index)?.translateToString(true) || '');
+      }
+      return rows;
+    },
+    streamSequenced(data, outputSeq, runtimeEpoch, stateRevision) {
+      const replication = crtTerminalReplication;
+      if (!replication || replication.disposed) return false;
+      handleCrtTerminalStream({
+        agentId: replication.agentId,
+        kind: 'output',
+        data: String(data || ''),
+        outputSeq,
+        runtimeEpoch,
+        stateRevision
+      });
+      return true;
+    },
+    replaceStream(stream) {
+      const replication = crtTerminalReplication;
+      if (!replication || replication.disposed || !stream) return false;
+      handleCrtTerminalStream({
+        ...stream,
+        agentId: replication.agentId,
+        replace: true
+      });
+      return true;
+    }
   };
 }
 
@@ -2541,7 +2228,7 @@ function getCrtTerminalSyncStatusElement() {
       if (!event.isTrusted) return;
       event.preventDefault();
       event.stopPropagation();
-      claimCrtTerminalGeometry('interactive');
+      claimCrtTerminalController('interactive');
     });
     element.append(text, takeover);
     container.appendChild(element);
@@ -2549,7 +2236,7 @@ function getCrtTerminalSyncStatusElement() {
   return element;
 }
 
-function renderCrtTerminalGeometryStatus() {
+function renderCrtTerminalControllerStatus() {
   if (!crtTerminalReplication) return;
   const element = getCrtTerminalSyncStatusElement();
   if (!element) return;
@@ -2561,24 +2248,24 @@ function renderCrtTerminalGeometryStatus() {
     ? `TERMINAL INPUT FAILED · ${crtTerminalReplication.inputError}`
     : crtTerminalReplication.replaying || crtTerminalReplication.checkpointInFlight
       || (
-        crtTerminalReplication.geometryStatus === 'owner'
+        crtTerminalReplication.controllerStatus === 'owner'
         && crtTerminalReplication.rendererReadyFence !== crtTerminalReplication.fence
       )
     ? 'SYNCING TERMINAL…'
-    : crtTerminalReplication.geometryStatus === 'claiming'
+    : crtTerminalReplication.controllerStatus === 'claiming'
       ? 'SYNCING TERMINAL…'
-      : crtTerminalReplication.geometryStatus === 'observer'
+      : crtTerminalReplication.controllerStatus === 'observer'
       ? 'TERMINAL CONTROLLED BY ANOTHER WINDOW'
       : '';
   if (text) text.textContent = statusText;
-  if (takeover) takeover.hidden = crtTerminalReplication.geometryStatus !== 'observer';
+  if (takeover) takeover.hidden = crtTerminalReplication.controllerStatus !== 'observer';
   element.hidden = !statusText;
 }
 
-function setCrtTerminalGeometryStatus(status) {
+function setCrtTerminalControllerStatus(status) {
   if (!crtTerminalReplication) return;
-  crtTerminalReplication.geometryStatus = status;
-  renderCrtTerminalGeometryStatus();
+  crtTerminalReplication.controllerStatus = status;
+  renderCrtTerminalControllerStatus();
 }
 
 function clearCrtTerminalReplicationTimers(replication = crtTerminalReplication) {
@@ -2605,7 +2292,7 @@ function disposeCrtTerminalReplication({ release = true } = {}) {
   const replication = crtTerminalReplication;
   if (!replication) return;
   if (release && replication.leaseId && Number.isFinite(replication.fence)) {
-    getSessionClient()?.releaseTerminalGeometry(replication.agentId, {
+    getSessionClient()?.releaseTerminalController(replication.agentId, {
       attachmentId: replication.attachmentId,
       leaseId: replication.leaseId,
       fence: replication.fence
@@ -2638,7 +2325,7 @@ function crtTerminalBeginBarrier(runtimeEpoch, stateRevision) {
     replication.replayTargetRevision = Math.max(replication.replayTargetRevision || 0, stateRevision);
   }
   replication.replaying = true;
-  renderCrtTerminalGeometryStatus();
+  renderCrtTerminalControllerStatus();
   return true;
 }
 
@@ -2678,6 +2365,48 @@ function resetCrtTerminalCheckpointInvariantFailures(replication = crtTerminalRe
   replication.checkpointError = '';
 }
 
+function resetCrtTerminalControllerRecoveryFailures(replication = crtTerminalReplication) {
+  if (!replication) return;
+  replication.controllerRecoveryFailureSignature = '';
+  replication.controllerRecoveryFailureCount = 0;
+}
+
+function prepareCrtTerminalControllerRecovery(replication, message) {
+  if (
+    !replication ||
+    replication.disposed ||
+    replication.checkpointHalted ||
+    replication.checkpointInFlight ||
+    replication.checkpointInstallInProgress ||
+    replication.replaying
+  ) return false;
+  const signature = `${message.status}:${message.reason || 'unknown'}:${replication.runtimeEpoch || 'unknown'}`;
+  if (replication.controllerRecoveryFailureSignature === signature) {
+    replication.controllerRecoveryFailureCount += 1;
+  } else {
+    replication.controllerRecoveryFailureSignature = signature;
+    replication.controllerRecoveryFailureCount = 1;
+  }
+  if (
+    replication.controllerRecoveryFailureCount
+    >= CRT_TERMINAL_MAX_IDENTICAL_CHECKPOINT_INVARIANT_FAILURES
+  ) {
+    replication.checkpointHalted = true;
+    replication.checkpointError = 'CONTROLLER AND CHECKPOINT RUNTIME DISAGREED REPEATEDLY; RECONNECT TO RETRY';
+    if (replication.checkpointRetryTimer) {
+      clearTimeout(replication.checkpointRetryTimer);
+      replication.checkpointRetryTimer = null;
+    }
+    if (replication.checkpointAbortController) {
+      replication.checkpointAbortController.abort();
+      replication.checkpointAbortController = null;
+    }
+    renderCrtTerminalControllerStatus();
+    return false;
+  }
+  return true;
+}
+
 function retryCrtTerminalCheckpointAfterFailure(minimumDelay = 0, invariant = null) {
   const replication = crtTerminalReplication;
   if (!replication || replication.disposed) return;
@@ -2699,21 +2428,21 @@ function retryCrtTerminalCheckpointAfterFailure(minimumDelay = 0, invariant = nu
         clearTimeout(replication.checkpointRetryTimer);
         replication.checkpointRetryTimer = null;
       }
-      renderCrtTerminalGeometryStatus();
+      renderCrtTerminalControllerStatus();
       return;
     }
   }
   scheduleCrtTerminalCheckpointRetry(minimumDelay);
 }
 
-function cancelCrtTerminalGeometryClaimTimeout(replication = crtTerminalReplication) {
+function cancelCrtTerminalControllerClaimTimeout(replication = crtTerminalReplication) {
   if (!replication || !replication.claimTimer) return;
   clearTimeout(replication.claimTimer);
   replication.claimTimer = null;
 }
 
-function sendCrtTerminalGeometryClaim(replication, mode, claimId) {
-  return Boolean(getSessionClient()?.claimTerminalGeometry(replication.agentId, {
+function sendCrtTerminalControllerClaim(replication, mode, claimId) {
+  return Boolean(getSessionClient()?.claimTerminalController(replication.agentId, {
     attachmentId: replication.attachmentId,
     claimId,
     mode,
@@ -2721,8 +2450,8 @@ function sendCrtTerminalGeometryClaim(replication, mode, claimId) {
   }));
 }
 
-function scheduleCrtTerminalGeometryClaimTimeout(replication, claimId) {
-  cancelCrtTerminalGeometryClaimTimeout(replication);
+function scheduleCrtTerminalControllerClaimTimeout(replication, claimId) {
+  cancelCrtTerminalControllerClaimTimeout(replication);
   replication.claimTimer = setTimeout(() => {
     replication.claimTimer = null;
     if (
@@ -2734,23 +2463,23 @@ function scheduleCrtTerminalGeometryClaimTimeout(replication, claimId) {
     ) return;
     replication.claimInFlight = false;
     reportCrtTerminalInputError('TERMINAL CONTROL REQUEST TIMED OUT; RETRY TAKE CONTROL');
-    setCrtTerminalGeometryStatus('observer');
-  }, CRT_TERMINAL_GEOMETRY_CLAIM_TIMEOUT_MS);
+    setCrtTerminalControllerStatus('observer');
+  }, CRT_TERMINAL_CONTROLLER_CLAIM_TIMEOUT_MS);
 }
 
-function scheduleCrtTerminalGeometryRenew() {
+function scheduleCrtTerminalControllerRenew() {
   const replication = crtTerminalReplication;
   if (!replication) return;
   if (replication.renewTimer) clearTimeout(replication.renewTimer);
   if (
-    replication.geometryStatus !== 'owner' ||
+    replication.controllerStatus !== 'owner' ||
     !replication.leaseId ||
     !Number.isFinite(replication.fence)
   ) return;
   replication.renewTimer = setTimeout(() => {
     if (!crtTerminalReplication || crtTerminalReplication !== replication || replication.disposed) return;
     replication.renewTimer = null;
-    const delivered = getSessionClient()?.renewTerminalGeometry(replication.agentId, {
+    const delivered = getSessionClient()?.renewTerminalController(replication.agentId, {
       attachmentId: replication.attachmentId,
       leaseId: replication.leaseId,
       fence: replication.fence
@@ -2759,11 +2488,11 @@ function scheduleCrtTerminalGeometryRenew() {
       replication.leaseId = '';
       replication.fence = null;
       replication.rendererReadyFence = null;
-      setCrtTerminalGeometryStatus('claiming');
+      setCrtTerminalControllerStatus('claiming');
       return;
     }
-    scheduleCrtTerminalGeometryRenew();
-  }, CRT_TERMINAL_GEOMETRY_RENEW_MS);
+    scheduleCrtTerminalControllerRenew();
+  }, CRT_TERMINAL_CONTROLLER_RENEW_MS);
 }
 
 function activateCrtTerminalRenderer() {
@@ -2771,7 +2500,7 @@ function activateCrtTerminalRenderer() {
   if (
     !replication ||
     replication.disposed ||
-    replication.geometryStatus !== 'owner' ||
+    replication.controllerStatus !== 'owner' ||
     !replication.leaseId ||
     !Number.isFinite(replication.fence) ||
     replication.rendererReadyFence === replication.fence ||
@@ -2791,41 +2520,41 @@ function activateCrtTerminalRenderer() {
     }
   ));
   if (delivered) replication.rendererReadyFence = replication.fence;
-  renderCrtTerminalGeometryStatus();
+  renderCrtTerminalControllerStatus();
   return delivered;
 }
 
-function claimCrtTerminalGeometry(mode = 'passive') {
+function claimCrtTerminalController(mode = 'passive') {
   const replication = crtTerminalReplication;
   if (!replication || replication.disposed || document.visibilityState === 'hidden') return false;
-  if (replication.geometryStatus === 'owner') {
-    scheduleCrtTerminalGeometryRenew();
+  if (replication.controllerStatus === 'owner') {
+    scheduleCrtTerminalControllerRenew();
     return true;
   }
   if (replication.claimInFlight) return false;
   if (mode === 'interactive') replication.focusAfterClaim = true;
   replication.claimId = crtRandomId();
   replication.claimInFlight = true;
-  setCrtTerminalGeometryStatus('claiming');
-  const delivered = sendCrtTerminalGeometryClaim(replication, mode, replication.claimId);
+  setCrtTerminalControllerStatus('claiming');
+  const delivered = sendCrtTerminalControllerClaim(replication, mode, replication.claimId);
   if (!delivered) {
     replication.claimInFlight = false;
   } else {
-    scheduleCrtTerminalGeometryClaimTimeout(replication, replication.claimId);
+    scheduleCrtTerminalControllerClaimTimeout(replication, replication.claimId);
   }
   return delivered;
 }
 
-function releaseCrtTerminalGeometry() {
+function releaseCrtTerminalController() {
   const replication = crtTerminalReplication;
   if (!replication) return;
   if (replication.renewTimer) {
     clearTimeout(replication.renewTimer);
     replication.renewTimer = null;
   }
-  cancelCrtTerminalGeometryClaimTimeout(replication);
+  cancelCrtTerminalControllerClaimTimeout(replication);
   if (replication.leaseId && Number.isFinite(replication.fence)) {
-    getSessionClient()?.releaseTerminalGeometry(replication.agentId, {
+    getSessionClient()?.releaseTerminalController(replication.agentId, {
       attachmentId: replication.attachmentId,
       leaseId: replication.leaseId,
       fence: replication.fence
@@ -2842,8 +2571,7 @@ function releaseCrtTerminalGeometry() {
   replication.claimInFlight = false;
   replication.focusAfterClaim = false;
   replication.pendingOutputAckChars = 0;
-  discardCrtPendingTerminalInput(replication);
-  setCrtTerminalGeometryStatus('claiming');
+  setCrtTerminalControllerStatus('claiming');
 }
 
 function reportCrtTerminalInputError(message) {
@@ -2851,7 +2579,21 @@ function reportCrtTerminalInputError(message) {
   if (!replication) return;
   replication.inputError = String(message || 'UNKNOWN ERROR');
   console.error(`Terminal input failed: ${replication.inputError}`);
-  renderCrtTerminalGeometryStatus();
+  renderCrtTerminalControllerStatus();
+}
+
+function crtTerminalRendererAcceptsInput(replication = crtTerminalReplication) {
+  return Boolean(replication)
+    && !replication.disposed
+    && replication.controllerStatus === 'owner'
+    && Boolean(replication.leaseId)
+    && Number.isFinite(replication.fence)
+    && replication.rendererReadyFence === replication.fence
+    && Boolean(replication.runtimeEpoch)
+    && !replication.replaying
+    && !replication.checkpointInFlight
+    && !replication.checkpointHalted
+    && !crtTerminalTargetPending();
 }
 
 function queueCrtTerminalInput(input) {
@@ -2859,103 +2601,40 @@ function queueCrtTerminalInput(input) {
   if (!replication || replication.disposed) return false;
   const text = String(input || '');
   if (!text) return false;
-  const ownsController = replication.geometryStatus === 'owner'
-    && Boolean(replication.leaseId)
-    && Number.isFinite(replication.fence);
-  if (!ownsController && replication.geometryStatus !== 'claiming') {
+  if (replication.controllerStatus !== 'owner') {
     reportCrtTerminalInputError('TAKE CONTROL BEFORE TYPING');
-    getCrtTerminalSyncStatusElement()
-      ?.querySelector('.crt-terminal-takeover')
-      ?.focus();
+    if (replication.controllerStatus === 'observer') {
+      getCrtTerminalSyncStatusElement()
+        ?.querySelector('.crt-terminal-takeover')
+        ?.focus();
+    }
     return false;
   }
-  if (!replication.runtimeEpoch) {
+  if (!crtTerminalRendererAcceptsInput(replication)) {
     reportCrtTerminalInputError('TERMINAL IS SYNCING; INPUT NOT SENT');
     return false;
   }
-  // A checkpoint barrier proves the display cut but does not revoke the
-  // fenced controller. Mirror the Code skin: retain bounded, epoch-bound raw
-  // input and release it exactly once after the checkpoint is installed.
-  const bytes = crtTerminalByteLength(text);
-  if (
-    replication.pendingTakeoverInput.length >= CRT_TERMINAL_MAX_PENDING_INPUTS ||
-    replication.pendingTakeoverInputBytes + bytes > CRT_TERMINAL_MAX_PENDING_INPUT_BYTES
-  ) {
-    reportCrtTerminalInputError('INPUT QUEUE FULL');
+  const delivered = Boolean(getSessionClient()?.sendTerminalInput(
+    replication.agentId,
+    text,
+    {
+      attachmentId: replication.attachmentId,
+      leaseId: replication.leaseId,
+      fence: replication.fence,
+      expectedRuntimeEpoch: replication.runtimeEpoch
+    }
+  ));
+  if (!delivered) {
+    reportCrtTerminalInputError('DISCONNECTED; INPUT NOT SENT');
+    replication.leaseId = '';
+    replication.fence = null;
+    replication.rendererReadyFence = null;
+    setCrtTerminalControllerStatus('claiming');
     return false;
   }
   replication.inputError = '';
-  replication.pendingTakeoverInput.push({
-    input: text,
-    bytes,
-    runtimeEpoch: replication.runtimeEpoch
-  });
-  replication.pendingTakeoverInputBytes += bytes;
-  flushCrtTerminalInputQueue();
+  renderCrtTerminalControllerStatus();
   return true;
-}
-
-function flushCrtTerminalInputQueue() {
-  const replication = crtTerminalReplication;
-  if (
-    !replication ||
-    replication.disposed ||
-    replication.geometryStatus !== 'owner' ||
-    !replication.leaseId ||
-    !Number.isFinite(replication.fence) ||
-    replication.rendererReadyFence !== replication.fence ||
-    !replication.runtimeEpoch ||
-    replication.replaying ||
-    replication.checkpointInFlight
-  ) {
-    return;
-  }
-  while (true) {
-    const next = replication.pendingTakeoverInput[0];
-    if (!next) return;
-    if (next.runtimeEpoch && next.runtimeEpoch !== replication.runtimeEpoch) {
-      replication.pendingTakeoverInput.shift();
-      replication.pendingTakeoverInputBytes = Math.max(
-        0,
-        replication.pendingTakeoverInputBytes - next.bytes
-      );
-      reportCrtTerminalInputError('TERMINAL RESTARTED BEFORE INPUT WAS SENT');
-      continue;
-    }
-    const delivered = Boolean(getSessionClient()?.sendTerminalInput(
-      replication.agentId,
-      next.input,
-      {
-        attachmentId: replication.attachmentId,
-        leaseId: replication.leaseId,
-        fence: replication.fence,
-        expectedRuntimeEpoch: replication.runtimeEpoch
-      }
-    ));
-    if (!delivered) {
-      discardCrtPendingTerminalInput(replication, 'DISCONNECTED; UNSENT INPUT DISCARDED');
-      replication.leaseId = '';
-      replication.fence = null;
-      replication.rendererReadyFence = null;
-      setCrtTerminalGeometryStatus('claiming');
-      return;
-    }
-    replication.pendingTakeoverInput.shift();
-    replication.pendingTakeoverInputBytes = Math.max(
-      0,
-      replication.pendingTakeoverInputBytes - next.bytes
-    );
-    replication.inputError = '';
-    renderCrtTerminalGeometryStatus();
-  }
-}
-
-function discardCrtPendingTerminalInput(replication = crtTerminalReplication, message = '') {
-  if (!replication) return;
-  if (replication.pendingTakeoverInput.length === 0) return;
-  replication.pendingTakeoverInput = [];
-  replication.pendingTakeoverInputBytes = 0;
-  if (message) reportCrtTerminalInputError(message);
 }
 
 function queueCrtTerminalTransition(event) {
@@ -2997,6 +2676,20 @@ function flushCrtTerminalTransitions() {
     replication.queuedBytes - crtTerminalByteLength(next.data)
   );
   applyCrtTerminalTransition(next);
+}
+
+function removeCrtCheckpointCoveredTransitions(replication, sessionView) {
+  replication.queuedTransitions = replication.queuedTransitions.filter((event) => {
+    if (!event || !event.runtimeEpoch) return true;
+    if (event.runtimeEpoch === sessionView.runtimeEpoch) {
+      return !Number.isFinite(event.stateRevision) || event.stateRevision > sessionView.stateRevision;
+    }
+    return compareCrtRuntimeEpochs(event.runtimeEpoch, sessionView.runtimeEpoch) !== -1;
+  });
+  replication.queuedBytes = replication.queuedTransitions.reduce(
+    (total, event) => total + crtTerminalByteLength(event.data),
+    0
+  );
 }
 
 function applyCrtTerminalTransition(event) {
@@ -3057,7 +2750,6 @@ function applyCrtTerminalTransition(event) {
     refreshSessionTerminalUi({ preserveSearchIndex: true });
     flushCrtTerminalTransitions();
     activateCrtTerminalRenderer();
-    flushCrtTerminalInputQueue();
     return;
   }
 
@@ -3074,11 +2766,11 @@ function applyCrtTerminalTransition(event) {
       terminal.clearSelection?.();
     }
     replication.writeInProgress = false;
+    if (drainCrtTerminalCheckpointInstall(replication)) return;
     refreshSessionTerminalUi({ preserveSearchIndex: true });
     flushCrtTerminalTransitions();
     if (!replication.writeInProgress && replication.queuedTransitions.length === 0) {
       activateCrtTerminalRenderer();
-      flushCrtTerminalInputQueue();
     }
   });
 }
@@ -3088,7 +2780,7 @@ function acknowledgeCrtRenderedTerminalOutput(charCount, runtimeEpoch) {
   if (
     !replication ||
     replication.disposed ||
-    replication.geometryStatus !== 'owner' ||
+    replication.controllerStatus !== 'owner' ||
     !replication.leaseId ||
     !Number.isFinite(replication.fence) ||
     replication.rendererReadyFence !== replication.fence ||
@@ -3114,10 +2806,120 @@ function acknowledgeCrtRenderedTerminalOutput(charCount, runtimeEpoch) {
     replication.leaseId = '';
     replication.fence = null;
     replication.rendererReadyFence = null;
-    setCrtTerminalGeometryStatus('claiming');
+    setCrtTerminalControllerStatus('claiming');
     return;
   }
   replication.pendingOutputAckChars -= acknowledgedChars;
+}
+
+function acknowledgeCrtRenderedTerminalCheckpoint(replication, sessionView) {
+  if (
+    !replication ||
+    replication.disposed ||
+    replication.controllerStatus !== 'owner' ||
+    !replication.leaseId ||
+    !Number.isFinite(replication.fence) ||
+    replication.rendererReadyFence !== replication.fence ||
+    !sessionView.runtimeEpoch ||
+    sessionView.runtimeEpoch !== replication.runtimeEpoch
+  ) return false;
+  const delivered = Boolean(getSessionClient()?.acknowledgeTerminalCheckpoint(
+    replication.agentId,
+    sessionView.outputSeq,
+    sessionView.stateRevision,
+    {
+      attachmentId: replication.attachmentId,
+      leaseId: replication.leaseId,
+      fence: replication.fence,
+      expectedRuntimeEpoch: sessionView.runtimeEpoch
+    }
+  ));
+  if (delivered) replication.pendingOutputAckChars = 0;
+  return delivered;
+}
+
+function performCrtTerminalCheckpointInstall(replication, sessionView, installSeq) {
+  if (
+    !crtTerminalReplication ||
+    crtTerminalReplication !== replication ||
+    !terminal ||
+    replication.disposed
+  ) return false;
+  replication.checkpointInstallInProgress = true;
+  replication.replaying = true;
+  removeCrtCheckpointCoveredTransitions(replication, sessionView);
+  terminal.resize(sessionView.previewCols, sessionView.previewRows);
+  terminal.reset();
+  const finishInstall = () => {
+    if (!crtTerminalReplication || crtTerminalReplication !== replication || replication.disposed) return;
+    replication.checkpointInstallInProgress = false;
+    if (replication.checkpointInstallSeq !== installSeq) {
+      drainCrtTerminalCheckpointInstall(replication);
+      return;
+    }
+    const previousRuntimeEpoch = replication.runtimeEpoch;
+    replication.runtimeEpoch = sessionView.runtimeEpoch;
+    replication.outputSeq = sessionView.outputSeq;
+    replication.stateRevision = sessionView.stateRevision;
+    acknowledgeCrtRenderedTerminalCheckpoint(replication, sessionView);
+    if (previousRuntimeEpoch && previousRuntimeEpoch !== sessionView.runtimeEpoch) {
+      replication.retiredRuntimeEpochs.add(previousRuntimeEpoch);
+      while (replication.retiredRuntimeEpochs.size > 32) {
+        const oldest = replication.retiredRuntimeEpochs.values().next().value;
+        if (!oldest) break;
+        replication.retiredRuntimeEpochs.delete(oldest);
+      }
+    }
+    refreshSessionTerminalUi({ preserveSearchIndex: true });
+    const runtime = getSessionRuntime();
+    if (runtime) {
+      runtime.markHydrated(sessionView.renderOutput.length);
+      syncSessionRuntimeState();
+    }
+    if (crtTerminalTargetPending()) {
+      retryCrtTerminalCheckpointAfterFailure(0, {
+        signature: `behind:${replication.runtimeEpoch}:${replication.stateRevision}:${replication.replayTargetEpoch}:${replication.replayTargetRevision}`,
+        message: 'STALE CHECKPOINT REPEATED; RECONNECT TO RETRY'
+      });
+      return;
+    }
+    replication.replaying = false;
+    replication.replayTargetEpoch = '';
+    replication.replayTargetRevision = null;
+    replication.checkpointFailureCount = 0;
+    resetCrtTerminalCheckpointInvariantFailures(replication);
+    renderCrtTerminalControllerStatus();
+    flushCrtTerminalTransitions();
+    activateCrtTerminalRenderer();
+    if (replication.controllerStatus === 'owner' && replication.focusAfterClaim) {
+      replication.focusAfterClaim = false;
+      requestAnimationFrame(() => focusSessionTerminal());
+    }
+    if (replication.controllerStatus === 'owner') {
+      requestAnimationFrame(() => sendSessionResize(replication.agentId));
+    } else if (replication.controllerStatus === 'claiming') {
+      claimCrtTerminalController('passive');
+    }
+  };
+  if (sessionView.renderOutput) {
+    terminal.write(sessionView.renderOutput, finishInstall);
+  } else {
+    finishInstall();
+  }
+  return true;
+}
+
+function drainCrtTerminalCheckpointInstall(replication = crtTerminalReplication) {
+  if (
+    !replication ||
+    replication.disposed ||
+    replication.checkpointInstallInProgress ||
+    replication.writeInProgress ||
+    !replication.pendingCheckpointInstall
+  ) return false;
+  const pending = replication.pendingCheckpointInstall;
+  replication.pendingCheckpointInstall = null;
+  return performCrtTerminalCheckpointInstall(replication, pending.sessionView, pending.installSeq);
 }
 
 function installCrtTerminalCheckpoint(sessionView) {
@@ -3166,57 +2968,11 @@ function installCrtTerminalCheckpoint(sessionView) {
     });
     return false;
   }
+  const installSeq = replication.checkpointInstallSeq + 1;
+  replication.checkpointInstallSeq = installSeq;
+  replication.pendingCheckpointInstall = { sessionView, installSeq };
   replication.replaying = true;
-  replication.queuedTransitions = [];
-  replication.queuedBytes = 0;
-  terminal.resize(sessionView.previewCols, sessionView.previewRows);
-  terminal.reset();
-  terminal.write(sessionView.renderOutput, () => {
-    if (!crtTerminalReplication || crtTerminalReplication !== replication || replication.disposed) return;
-    const previousRuntimeEpoch = replication.runtimeEpoch;
-    replication.runtimeEpoch = sessionView.runtimeEpoch;
-    replication.outputSeq = sessionView.outputSeq;
-    replication.stateRevision = sessionView.stateRevision;
-    if (previousRuntimeEpoch && previousRuntimeEpoch !== sessionView.runtimeEpoch) {
-      replication.retiredRuntimeEpochs.add(previousRuntimeEpoch);
-      while (replication.retiredRuntimeEpochs.size > 32) {
-        const oldest = replication.retiredRuntimeEpochs.values().next().value;
-        if (!oldest) break;
-        replication.retiredRuntimeEpochs.delete(oldest);
-      }
-    }
-    replication.replaying = false;
-    refreshSessionTerminalUi({ preserveSearchIndex: true });
-    const runtime = getSessionRuntime();
-    if (runtime) {
-      runtime.markHydrated(sessionView.renderOutput.length);
-      syncSessionRuntimeState();
-    }
-    if (crtTerminalTargetPending()) {
-      retryCrtTerminalCheckpointAfterFailure(0, {
-        signature: `behind:${replication.runtimeEpoch}:${replication.stateRevision}:${replication.replayTargetEpoch}:${replication.replayTargetRevision}`,
-        message: 'STALE CHECKPOINT REPEATED; RECONNECT TO RETRY'
-      });
-      return;
-    }
-    replication.replayTargetEpoch = '';
-    replication.replayTargetRevision = null;
-    replication.checkpointFailureCount = 0;
-    resetCrtTerminalCheckpointInvariantFailures(replication);
-    renderCrtTerminalGeometryStatus();
-    flushCrtTerminalTransitions();
-    activateCrtTerminalRenderer();
-    flushCrtTerminalInputQueue();
-    if (replication.geometryStatus === 'owner' && replication.focusAfterClaim) {
-      replication.focusAfterClaim = false;
-      requestAnimationFrame(() => focusSessionTerminal());
-    }
-    if (replication.geometryStatus === 'owner') {
-      requestAnimationFrame(() => sendSessionResize(replication.agentId));
-    } else if (replication.geometryStatus === 'claiming') {
-      claimCrtTerminalGeometry('passive');
-    }
-  });
+  drainCrtTerminalCheckpointInstall(replication);
   return true;
 }
 
@@ -3245,6 +3001,7 @@ function handleCrtTerminalStream(stream) {
         rows: chunk.rows
       }));
     }
+    flushCrtTerminalTransitions();
     return;
   }
   const chunks = Array.isArray(stream.chunks) ? stream.chunks : [stream];
@@ -3259,7 +3016,7 @@ function handleCrtTerminalStream(stream) {
   }));
 }
 
-function handleCrtTerminalGeometry(message) {
+function handleCrtTerminalController(message) {
   const replication = crtTerminalReplication;
   if (
     !replication ||
@@ -3270,11 +3027,12 @@ function handleCrtTerminalGeometry(message) {
   if (message.claimId && message.claimId !== replication.claimId) return;
   if (message.claimId === replication.claimId) {
     replication.claimInFlight = false;
-    cancelCrtTerminalGeometryClaimTimeout(replication);
+    cancelCrtTerminalControllerClaimTimeout(replication);
   }
 
   if (message.status === 'owner') {
-    const sameLease = replication.geometryStatus === 'owner'
+    resetCrtTerminalControllerRecoveryFailures(replication);
+    const sameLease = replication.controllerStatus === 'owner'
       && replication.leaseId === message.leaseId
       && replication.fence === message.fence;
     replication.leaseId = message.leaseId || '';
@@ -3289,24 +3047,22 @@ function handleCrtTerminalGeometry(message) {
       replication.lastResizeRows = null;
     }
     if (!sameLease) replication.pendingOutputAckChars = 0;
-    setCrtTerminalGeometryStatus('owner');
-    scheduleCrtTerminalGeometryRenew();
+    setCrtTerminalControllerStatus('owner');
+    scheduleCrtTerminalControllerRenew();
     if (!sameLease) {
       if (!replication.replaying && !replication.checkpointInFlight) {
         activateCrtTerminalRenderer();
-        flushCrtTerminalInputQueue();
         requestAnimationFrame(() => sendSessionResize(replication.agentId));
       }
     } else if (!replication.replaying && !replication.checkpointInFlight) {
       activateCrtTerminalRenderer();
-      flushCrtTerminalInputQueue();
     }
     return;
   }
 
   if (message.status === 'resize-committed') {
     if (
-      replication.geometryStatus !== 'owner' ||
+      replication.controllerStatus !== 'owner' ||
       replication.leaseId !== message.leaseId ||
       replication.fence !== message.fence
     ) return;
@@ -3332,9 +3088,8 @@ function handleCrtTerminalGeometry(message) {
   replication.lastResizeCols = null;
   replication.lastResizeRows = null;
   replication.pendingOutputAckChars = 0;
-  discardCrtPendingTerminalInput(replication, 'CONTROL LOST; UNSENT INPUT DISCARDED');
   replication.focusAfterClaim = false;
-  setCrtTerminalGeometryStatus(
+  setCrtTerminalControllerStatus(
     message.status === 'observer' || message.status === 'revoked' ? 'observer' : 'claiming'
   );
   const shouldRecoverController = (
@@ -3343,7 +3098,7 @@ function handleCrtTerminalGeometry(message) {
     message.status === 'unowned' ||
     message.status === 'resize-rejected'
   ) && document.visibilityState !== 'hidden';
-  if (shouldRecoverController) {
+  if (shouldRecoverController && prepareCrtTerminalControllerRecovery(replication, message)) {
     crtTerminalBeginBarrier(replication.runtimeEpoch, replication.stateRevision);
     void refreshSessionView(true, replication.agentId, getCurrentSessionToken());
   }
@@ -3591,11 +3346,9 @@ function applyCrtTerminalFontSize(value) {
   if (input) input.value = String(fontSize);
   if (output) output.textContent = `${fontSize} px`;
   if (terminal && terminal.options) terminal.options.fontSize = fontSize;
-  if (terminalInputBridge) terminalInputBridge.style.fontSize = `${fontSize}px`;
   if (terminal && fitAddon && focusedAgentId && typeof requestAnimationFrame === 'function') {
     requestAnimationFrame(() => {
       if (!terminal || !fitAddon || !focusedAgentId) return;
-      syncTerminalInputBridgePosition();
       sendSessionResize();
     });
   }
@@ -4298,10 +4051,22 @@ function updateCrtBillingTotalDisplay(value, { date = '', live = false } = {}) {
   billingTotalAnimationFrame = window.requestAnimationFrame(step);
 }
 
+const CRT_BILLING_OVERRANGE_BASE = 1_000_000_000;
+
+function crtBillingOverrangeTier(value) {
+  const total = Math.max(0, Number(value) || 0);
+  if (total < CRT_BILLING_OVERRANGE_BASE) return 0;
+  return Math.min(4, Math.floor(Math.log2(total / CRT_BILLING_OVERRANGE_BASE)) + 1);
+}
+
+function crtBillingOverrangeLabel(tier) {
+  return tier > 0 ? `${2 ** (tier - 1)}B+ OVERRANGE` : '';
+}
+
 function crtBillingHeatThresholds(values) {
   const activeValues = (Array.isArray(values) ? values : [])
     .map(value => Math.max(0, Number(value) || 0))
-    .filter(value => value > 0)
+    .filter(value => value > 0 && value < CRT_BILLING_OVERRANGE_BASE)
     .sort((left, right) => left - right);
   if (activeValues.length === 0) return [];
   return [0.2, 0.4, 0.6, 0.8].map(quantile => (
@@ -4314,6 +4079,12 @@ function crtBillingHeatLevel(value, thresholds) {
   if (total <= 0) return 0;
   const bands = Array.isArray(thresholds) ? thresholds : [];
   return Math.max(1, Math.min(5, 1 + bands.filter(threshold => total > threshold).length));
+}
+
+function crtBillingDayDetailHasHourlyActivity(detail) {
+  return Boolean(detail && Array.isArray(detail.hours) && detail.hours.some(hour => (
+    Math.max(0, Number(hour && hour.totalTokens) || 0) > 0
+  )));
 }
 
 function crtBillingHourlyPath(hours, valueForHour, maximum) {
@@ -4401,10 +4172,12 @@ function renderCrtBillingDayInsight() {
         const total = Math.max(0, Number(hour && hour.totalTokens) || 0);
         const cache = Math.max(0, (Number(hour && hour.cacheReadTokens) || 0) + (Number(hour && hour.cacheWriteTokens) || 0));
         const hourValue = Number.isFinite(Number(hour && hour.hour)) ? Number(hour.hour) : index;
+        const overrangeTier = crtBillingOverrangeTier(total);
         const cell = document.createElement('button');
         cell.type = 'button';
         cell.className = 'billing-day-hour-cell';
-        cell.dataset.level = String(crtBillingHeatLevel(total, heatThresholds));
+        cell.dataset.level = overrangeTier ? 'overrange' : String(crtBillingHeatLevel(total, heatThresholds));
+        if (overrangeTier) cell.dataset.overrange = String(overrangeTier);
         cell.dataset.hour = String(hourValue);
         cell.setAttribute('role', 'gridcell');
         cell.setAttribute('aria-label', `${String(hourValue).padStart(2, '0')}:00 to ${String(hourValue + 1).padStart(2, '0')}:00, ${formatCrtExactUsageValue(total)} total tokens, ${formatCrtExactUsageValue(cache)} cache tokens`);
@@ -4427,16 +4200,18 @@ function renderCrtBillingDayInsight() {
     }
   }
   if (state) {
-    state.classList.toggle('is-error', Boolean(billingDayDetailError));
-    state.textContent = billingDayDetailError
-      ? 'DAY SIGNAL LOST'
-      : billingDayDetailLoading && !selectedDetail
-        ? 'READING 24 HOURLY BINS'
-        : selectedDetail && maximum > 0
-          ? '24 HOURLY BINS READY'
-          : selectedDetail
-            ? 'NO HOURLY ACTIVITY'
-            : 'SELECTED DAY DETAIL';
+    state.classList.toggle('is-error', Boolean(billingDayDetailError && !selectedDetail));
+    state.textContent = billingDayDetailError && selectedDetail
+      ? '24 HOURLY BINS READY · STALE'
+      : billingDayDetailError
+        ? 'DAY SIGNAL LOST'
+        : billingDayDetailLoading && !selectedDetail
+          ? 'READING 24 HOURLY BINS'
+          : selectedDetail && maximum > 0
+            ? '24 HOURLY BINS READY'
+            : selectedDetail
+              ? 'NO HOURLY ACTIVITY'
+              : 'SELECTED DAY DETAIL';
   }
 
   if (!shares) return;
@@ -4479,15 +4254,16 @@ function renderCrtBillingDayInsight() {
   });
 }
 
-function renderCrtBillingSelectedDay() {
+function renderCrtBillingSelectedDay({ preferSummary = false } = {}) {
   const daily = billingSummary && billingSummary.daily;
   const point = crtBillingDayPoint();
   const cachedEntry = billingDayDetailCache.get(billingSelectedDate);
   const selectedDetail = billingDayDetail && billingDayDetail.date === billingSelectedDate
     ? billingDayDetail
     : cachedEntry && cachedEntry.detail || null;
-  const displayPoint = selectedDetail && selectedDetail.total || point;
-  const displayProviders = selectedDetail && selectedDetail.providers || point && point.providers;
+  const displayDetail = preferSummary ? null : selectedDetail;
+  const displayPoint = displayDetail && displayDetail.total || point;
+  const displayProviders = displayDetail && displayDetail.providers || point && point.providers;
   const isToday = crtBillingSelectedDayIsCurrent(point);
   const date = document.getElementById('billing-day-date');
   const stateLabel = document.getElementById('billing-day-state');
@@ -4531,10 +4307,9 @@ function selectCrtBillingDay(dateValue, { focus = false } = {}) {
   billingSelectedDate = dateValue;
   billingSelectedHour = null;
   const isToday = crtBillingSelectedDayIsCurrent(crtBillingDayPoint(dateValue));
-  if (isToday) billingDayDetailCache.delete(dateValue);
-  billingDayDetail = isToday ? null : billingDayDetailCache.get(dateValue)?.detail || null;
+  billingDayDetail = billingDayDetailCache.get(dateValue)?.detail || null;
   billingDayDetailError = '';
-  renderCrtBillingSelectedDay();
+  renderCrtBillingSelectedDay({ preferSummary: isToday });
   void loadCrtBillingDayDetail(dateValue, { force: isToday, live: isToday });
   if (focus) {
     const cell = document.querySelector(`#billing-calendar-grid .billing-calendar-day[data-date="${dateValue}"]`);
@@ -4556,6 +4331,7 @@ function cancelCrtBillingDayDetailRetry() {
 async function loadCrtBillingDayDetail(dateValue, { force = false, live = false, retryCount = 0 } = {}) {
   const date = String(dateValue || '').trim();
   if (!crtBillingDayPoint(date)) return;
+  if (retryCount === 0) cancelCrtBillingDayDetailRetry();
   const cachedEntry = billingDayDetailCache.get(date);
   const cached = cachedEntry && cachedEntry.detail;
   const cacheMaxAge = live ? CRT_BILLING_LIVE_DAY_REFRESH_MS : CRT_BILLING_DAY_DETAIL_CACHE_MS;
@@ -4577,8 +4353,8 @@ async function loadCrtBillingDayDetail(dateValue, { force = false, live = false,
   billingDayDetailAbortController = controller;
   billingDayDetailLoading = true;
   billingDayDetailError = '';
-  if (billingSelectedDate === date && !cached) {
-    billingDayDetail = null;
+  if (billingSelectedDate === date) {
+    if (!cached) billingDayDetail = null;
     renderCrtBillingDayInsight();
   }
   let shouldRetry = false;
@@ -4592,12 +4368,21 @@ async function loadCrtBillingDayDetail(dateValue, { force = false, live = false,
       throw new Error(data && data.error ? data.error : `Usage day request failed (${response.status})`);
     }
     if (requestSequence !== billingDayDetailRequestSequence) return;
+    const previousDetail = cached || (billingDayDetail && billingDayDetail.date === date ? billingDayDetail : null);
+    const nextTotal = Math.max(0, Number(data.detail.total && data.detail.total.totalTokens) || 0);
+    if (
+      nextTotal > 0
+      && crtBillingDayDetailHasHourlyActivity(previousDetail)
+      && !crtBillingDayDetailHasHourlyActivity(data.detail)
+    ) {
+      throw new Error('Usage day response omitted previously available hourly bins');
+    }
     billingDayDetailCache.set(date, { detail: data.detail, fetchedAt: Date.now() });
     if (billingSelectedDate === date) billingDayDetail = data.detail;
     if (live) renderCrtBillingDaily();
   } catch (error) {
     if (controller.signal.aborted || requestSequence !== billingDayDetailRequestSequence) return;
-    if (billingSelectedDate === date && retryCount < 1) {
+    if (billingSelectedDate === date && retryCount < CRT_BILLING_DAY_DETAIL_MAX_RETRIES) {
       shouldRetry = true;
     } else if (billingSelectedDate === date) {
       billingDayDetailError = error instanceof Error ? error.message : 'Failed to load selected day';
@@ -4608,6 +4393,7 @@ async function loadCrtBillingDayDetail(dateValue, { force = false, live = false,
       if (shouldRetry) {
         billingDayDetailLoading = true;
         cancelCrtBillingDayDetailRetry();
+        const retryDelay = CRT_BILLING_DAY_DETAIL_RETRY_MS * (2 ** retryCount);
         billingDayDetailRetryTimer = setTimeout(() => {
           billingDayDetailRetryTimer = null;
           if (billingSelectedDate !== date || crtMainView !== 'billing') {
@@ -4615,7 +4401,7 @@ async function loadCrtBillingDayDetail(dateValue, { force = false, live = false,
             return;
           }
           void loadCrtBillingDayDetail(date, { force: true, live, retryCount: retryCount + 1 });
-        }, CRT_BILLING_DAY_DETAIL_RETRY_MS);
+        }, retryDelay);
       } else {
         billingDayDetailLoading = false;
       }
@@ -4728,17 +4514,19 @@ function renderCrtBillingDaily(summary = billingSummary) {
       const total = Math.max(0, Number(point.totalTokens) || 0);
       const cache = Math.min(total, Math.max(0, Number(point.cacheReadTokens) || 0)
         + Math.max(0, Number(point.cacheWriteTokens) || 0));
+      const overrangeTier = crtBillingOverrangeTier(total);
+      const overrangeLabel = crtBillingOverrangeLabel(overrangeTier);
       const day = document.createElement('button');
       day.type = 'button';
       day.className = 'billing-calendar-day';
       day.dataset.date = point.date;
-      day.dataset.level = String(crtBillingHeatLevel(total, heatThresholds));
-      day.dataset.billion = total >= 1_000_000_000 ? 'true' : 'false';
+      day.dataset.level = overrangeTier ? 'overrange' : String(crtBillingHeatLevel(total, heatThresholds));
+      if (overrangeTier) day.dataset.overrange = String(overrangeTier);
       day.setAttribute('role', 'gridcell');
-      day.setAttribute('aria-label', `${point.date}: ${formatCrtExactUsageValue(total)} tokens, ${formatCrtExactUsageValue(cache)} cache tokens`);
+      day.setAttribute('aria-label', `${point.date}: ${formatCrtExactUsageValue(total)} tokens, ${formatCrtExactUsageValue(cache)} cache tokens${overrangeLabel ? `, ${overrangeLabel}` : ''}`);
       day.setAttribute('aria-selected', 'false');
       day.tabIndex = -1;
-      day.title = `${point.date} · ${formatCrtExactUsageValue(total)} total · ${formatCrtExactUsageValue(cache)} cache`;
+      day.title = `${point.date} · ${formatCrtExactUsageValue(total)} total · ${formatCrtExactUsageValue(cache)} cache${overrangeLabel ? ` · ${overrangeLabel}` : ''}`;
       day.addEventListener('click', () => selectCrtBillingDay(point.date));
       calendar.appendChild(day);
     });
@@ -5041,10 +4829,6 @@ async function loadCrtBilling({ fresh = false } = {}) {
   billingAbortController = controller;
   billingLoading = true;
   billingError = '';
-  if (fresh) {
-    billingDayDetailCache.clear();
-    billingDayDetail = null;
-  }
   renderCrtBilling();
   try {
     const response = await fetch(farmingApiPath(`/usage${fresh ? '?fresh=1' : ''}`), {
@@ -5811,6 +5595,7 @@ function connect() {
     if (activeAgentId && terminal) {
       if (crtTerminalReplication) {
         resetCrtTerminalCheckpointInvariantFailures(crtTerminalReplication);
+        resetCrtTerminalControllerRecoveryFailures(crtTerminalReplication);
         crtTerminalReplication.leaseId = '';
         crtTerminalReplication.fence = null;
         crtTerminalReplication.rendererReadyFence = null;
@@ -5819,14 +5604,10 @@ function connect() {
         crtTerminalReplication.pendingResize = null;
         crtTerminalReplication.lastResizeCols = null;
         crtTerminalReplication.lastResizeRows = null;
-        discardCrtPendingTerminalInput(
-          crtTerminalReplication,
-          'RECONNECTED; UNSENT INPUT DISCARDED'
-        );
         crtTerminalReplication.claimInFlight = false;
-        setCrtTerminalGeometryStatus('claiming');
+        setCrtTerminalControllerStatus('claiming');
         void refreshSessionView(true, activeAgentId, getCurrentSessionToken());
-        claimCrtTerminalGeometry('passive');
+        claimCrtTerminalController('passive');
       }
     }
     loadAgents();
@@ -5919,7 +5700,7 @@ function connect() {
         }
       }
     } else if (data.type === 'terminal-controller') {
-      handleCrtTerminalGeometry(data);
+      handleCrtTerminalController(data);
     } else if (data.type === 'system-stats') {
       updateSystemStats(data.stats, data.uptime, data.usageRate);
     } else if (data.type === 'error') {
@@ -5941,11 +5722,7 @@ function connect() {
       crtTerminalReplication.pendingResize = null;
       crtTerminalReplication.lastResizeCols = null;
       crtTerminalReplication.lastResizeRows = null;
-      discardCrtPendingTerminalInput(
-        crtTerminalReplication,
-        'DISCONNECTED; UNSENT INPUT DISCARDED'
-      );
-      setCrtTerminalGeometryStatus('claiming');
+      setCrtTerminalControllerStatus('claiming');
       crtTerminalBeginBarrier(
         crtTerminalReplication.runtimeEpoch,
         crtTerminalReplication.stateRevision
@@ -5967,7 +5744,7 @@ function connect() {
 
 function suspendCrtPageConnection() {
   document.body.classList.add('page-hidden');
-  releaseCrtTerminalGeometry();
+  releaseCrtTerminalController();
   stopCrtBillingRefresh({ abort: true });
   if (wsReconnectTimer) {
     clearTimeout(wsReconnectTimer);
@@ -7739,7 +7516,6 @@ function teardownSessionSurface() {
   stopStructuredSessionPolling();
   disposeCrtTerminalReplication();
   disposeTerminal();
-  destroyTerminalInputBridge();
   setStructuredComposerActive(false);
   document.getElementById('terminal-output')?.classList.remove('crt-structured-session');
   if (SESSION_MODAL_BRIDGE && SESSION_MODAL_BRIDGE.resetTerminalShell) {
@@ -7868,7 +7644,7 @@ async function openSession(agentId) {
         isSessionActive: () => runtime ? runtime.isCurrentSession(agentId, sessionToken) : focusedAgentId === agentId,
         afterFit: () => {
           if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) return;
-          claimCrtTerminalGeometry('passive');
+          claimCrtTerminalController('passive');
         }
         })
       : null;
@@ -7906,8 +7682,6 @@ async function openSession(agentId) {
     runtime.setLastOutputLength(mountedTerminal ? mountedTerminal.outputLength : (runtime.prepareInitialOutput(agent.output)).length);
     syncSessionRuntimeState();
   }
-  setupTerminalInputBridge();
-
   if (!mountedTerminal) {
     terminal.loadAddon(fitAddon);
     terminal.onData((data) => {
@@ -7954,7 +7728,7 @@ async function openSession(agentId) {
         terminal.write(initialOutput);
       }
       refreshSessionTerminalUi();
-      claimCrtTerminalGeometry('passive');
+      claimCrtTerminalController('passive');
       terminal.scrollToBottom();
       focusSessionTerminal();
     });
@@ -7975,7 +7749,7 @@ async function openSession(agentId) {
   // Display attachment is independent from controller ownership. Hydrate one
   // authoritative reducer cut before the controller can flush raw input.
   await refreshSessionView(true, agentId, sessionToken);
-  claimCrtTerminalGeometry('passive');
+  claimCrtTerminalController('passive');
   if (!crtTerminalReplication && shouldPollSessionView(modalState.sessionSource)) {
     startSessionViewPolling(agentId, sessionToken);
   }
@@ -8049,7 +7823,7 @@ function sendSessionResize(agentId = focusedAgentId, requestedDimensions = null)
     !fitAddon ||
     !replication ||
     replication.agentId !== agentId ||
-    replication.geometryStatus !== 'owner' ||
+    replication.controllerStatus !== 'owner' ||
     replication.replaying ||
     !replication.leaseId ||
     !Number.isFinite(replication.fence) ||
@@ -8106,7 +7880,7 @@ function sendSessionResize(agentId = focusedAgentId, requestedDimensions = null)
     replication.leaseId = '';
     replication.fence = null;
     replication.rendererReadyFence = null;
-    setCrtTerminalGeometryStatus('claiming');
+    setCrtTerminalControllerStatus('claiming');
     crtTerminalBeginBarrier(replication.runtimeEpoch, replication.stateRevision);
     void refreshSessionView(true, replication.agentId, getCurrentSessionToken());
   }
@@ -8126,7 +7900,7 @@ async function refreshSessionView(forceReplace = false, expectedAgentId = focuse
   const checkpointSeq = replication.checkpointSeq + 1;
   replication.checkpointSeq = checkpointSeq;
   replication.checkpointInFlight = true;
-  renderCrtTerminalGeometryStatus();
+  renderCrtTerminalControllerStatus();
   const checkpointAbortController = new globalThis.AbortController();
   replication.checkpointAbortController = checkpointAbortController;
   const checkpointTimeout = setTimeout(() => {
@@ -8159,9 +7933,8 @@ async function refreshSessionView(forceReplace = false, expectedAgentId = focuse
     if (crtTerminalReplication === replication && replication.checkpointSeq === checkpointSeq) {
       replication.checkpointInFlight = false;
       replication.checkpointAbortController = null;
-      renderCrtTerminalGeometryStatus();
+      renderCrtTerminalControllerStatus();
       activateCrtTerminalRenderer();
-      flushCrtTerminalInputQueue();
     }
   }
 }
@@ -8200,7 +7973,6 @@ if (typeof document !== 'undefined') {
     }
     if (!terminal || !fitAddon || !focusedAgentId) return;
 
-    syncTerminalInputBridgePosition();
     sendSessionResize();
   });
 
@@ -8466,7 +8238,7 @@ if (typeof document !== 'undefined') {
       );
       const sessionCommand = resolveCrtSessionKeyboardCommand(e, {
         structuredSessionActive,
-        composing: terminalInputComposing,
+        composing: e.isComposing,
         structuredInputFocused,
         structuredTranscriptFocused,
         structuredToolFocused,
@@ -8504,38 +8276,6 @@ if (typeof document !== 'undefined') {
         return;
       }
       if (isBrowserShortcut(e)) {
-        return;
-      }
-      if (e.isComposing || terminalInputComposing) {
-        if (SESSION_INPUT_SETTINGS.imeEnabled) {
-          e.preventDefault();
-        }
-        return;
-      }
-      if (!SESSION_INPUT_SETTINGS.imeEnabled) {
-        return;
-      }
-      if (
-        SESSION_INPUT_SETTINGS.imeEnabled &&
-        !e.ctrlKey &&
-        !e.metaKey &&
-        !e.altKey &&
-        e.key.length === 1 &&
-        document.activeElement !== terminalInputBridge
-      ) {
-        e.preventDefault();
-        schedulePrintableInput(e.key);
-        focusTerminalInputBridge();
-        return;
-      }
-      if (routeSessionKey(e)) {
-        e.preventDefault();
-        focusTerminalInputBridge();
-        return;
-      }
-      if (!e.ctrlKey && !e.metaKey && e.key === 'Escape') {
-        sendTerminalInput('\x1b');
-        e.preventDefault();
         return;
       }
       return;
@@ -8633,7 +8373,6 @@ if (typeof module !== 'undefined' && module.exports) {
     isBrowserShortcut,
     isCopyShortcut,
     isPasteShortcut,
-    getTerminalSequenceForKey,
     shouldUseLiveSessionText,
     shouldPollSessionView,
     deriveSessionTextPatch,
@@ -8655,7 +8394,6 @@ if (typeof module !== 'undefined' && module.exports) {
     getCrtTerminalSnapshotRows,
     getCrtAgentTitle,
     getCrtProjectName,
-    calculateTerminalInputBridgePosition,
     getCrtTerminalFontSize,
     isCrtAgentWorking,
     isCrtLiveAgent,
@@ -8683,6 +8421,7 @@ if (typeof module !== 'undefined' && module.exports) {
     getSessionModalDomState
   };
 } else {
+  installCrtTerminalTestApi();
   setupWorkspaceHistoryControls();
   setupCrtSearchControls();
   document.addEventListener('visibilitychange', () => {

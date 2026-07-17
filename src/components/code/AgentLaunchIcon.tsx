@@ -1,5 +1,5 @@
 import type { SVGProps } from 'react'
-import { agentIconAssets, type AgentIconVariant } from '@/assets/agent-icons'
+import { agentIconAssets, inlineAgentIconMarkup, type AgentIconVariant } from '@/assets/agent-icons'
 
 interface AgentLaunchIconProps extends SVGProps<SVGSVGElement> {
   name: string
@@ -27,13 +27,13 @@ export function AgentLaunchIcon({ name, variant = 'color', className = '', ...pr
   if (normalized === 'qoder') {
     const monochrome = variant === 'monochrome'
     return (
-      <svg className={classes} width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false" {...props}>
+      <svg className={classes} width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
         {monochrome ? (
-          <image href={agentIconAssets.qoder.monochrome} width="24" height="24" />
+          <g fillRule="evenodd" dangerouslySetInnerHTML={{ __html: inlineAgentIconMarkup.qoder.monochrome }} />
         ) : (
           <>
-            <image className="agent-launch-icon-theme-light" href={agentIconAssets.qoder.color} width="24" height="24" />
-            <image className="agent-launch-icon-theme-dark" href={agentIconAssets.qoder.dark} width="24" height="24" />
+            <g className="agent-launch-icon-theme-light" dangerouslySetInnerHTML={{ __html: inlineAgentIconMarkup.qoder.color }} />
+            <g className="agent-launch-icon-theme-dark" fill="#F1ECEC" dangerouslySetInnerHTML={{ __html: inlineAgentIconMarkup.qoder.dark }} />
           </>
         )}
       </svg>
@@ -58,15 +58,14 @@ export function AgentLaunchIcon({ name, variant = 'color', className = '', ...pr
   if (normalized === 'zsh') {
     const monochrome = variant === 'monochrome'
     const viewBox = variant === 'color' ? '215 220 400 400' : '0 0 24 24'
-    const sourceSize = variant === 'color' ? 816 : 24
     return (
-      <svg className={classes} width="16" height="16" viewBox={viewBox} fill="none" aria-hidden="true" focusable="false" {...props}>
+      <svg className={classes} width="16" height="16" viewBox={viewBox} fill={monochrome ? 'currentColor' : 'none'} aria-hidden="true" focusable="false" {...props}>
         {monochrome ? (
-          <image href={agentIconAssets.zsh.monochrome} width={sourceSize} height={sourceSize} />
+          <g dangerouslySetInnerHTML={{ __html: inlineAgentIconMarkup.zsh.monochrome }} />
         ) : (
           <>
-            <image className="agent-launch-icon-theme-light" href={agentIconAssets.zsh.color} width={sourceSize} height={sourceSize} />
-            <image className="agent-launch-icon-theme-dark" href={agentIconAssets.zsh.dark} width={sourceSize} height={sourceSize} />
+            <g className="agent-launch-icon-theme-light" dangerouslySetInnerHTML={{ __html: inlineAgentIconMarkup.zsh.color }} />
+            <g className="agent-launch-icon-theme-dark" dangerouslySetInnerHTML={{ __html: inlineAgentIconMarkup.zsh.dark }} />
           </>
         )}
       </svg>

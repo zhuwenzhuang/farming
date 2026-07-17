@@ -348,11 +348,15 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   dailyCursor.setDate(dailyCursor.getDate() - 52 * 7 + 1)
   const dailyPoints = Array.from({ length: 52 * 7 }, (_, index) => {
     const date = [dailyCursor.getFullYear(), String(dailyCursor.getMonth() + 1).padStart(2, '0'), String(dailyCursor.getDate()).padStart(2, '0')].join('-')
+    const overrangeTotals = new Map([
+      [297, 1_200_000_000],
+      [298, 4_800_000_000],
+      [299, 8_200_000_000],
+      [300, 2_000_000_000],
+    ])
     const dayTotal = index === 52 * 7 - 1
       ? 10_000
-      : index === 300
-        ? 2_000_000_000
-        : index % 9 === 0 ? 240_000 + index * 1_000 : 0
+      : overrangeTotals.get(index) ?? (index % 9 === 0 ? 240_000 + index * 1_000 : 0)
     dailyCursor.setDate(dailyCursor.getDate() + 1)
     return {
       date,
@@ -380,6 +384,7 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   const dayDetailRequests: string[] = []
   let currentDayLiveRequests = 0
   let allowCurrentDayIncrease = false
+  let omitCurrentDayHourlyBinsOnce = false
   let historicalTransientFailures = 0
   await page.route(/\/api\/usage(?:\/day)?(?:\?|$)/, async route => {
     const requestUrl = new URL(route.request().url())
@@ -399,6 +404,11 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
         return
       }
       const detailTotal = isCurrentDayLive && allowCurrentDayIncrease ? 16_000 : point.totalTokens
+      const omitHourlyBins = isCurrentDayLive && omitCurrentDayHourlyBinsOnce
+      if (omitHourlyBins) {
+        omitCurrentDayHourlyBinsOnce = false
+        await new Promise(resolve => setTimeout(resolve, 1_200))
+      }
       const hourlyWeights = new Map([[3, 0.08], [8, 0.17], [10, 0.25], [14, 0.12], [18, 0.28], [22, 0.10]])
       const hours = Array.from({ length: 24 }, (_, hour) => {
         const total = Math.round(detailTotal * (hourlyWeights.get(hour) || 0))
@@ -413,6 +423,7 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
           unattributedTokens: 0,
         }
       })
+      const responseHours = omitHourlyBins ? [] : hours
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -429,7 +440,7 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
               cacheWriteTokens: Math.round(detailTotal * 0.05),
               unattributedTokens: 0,
             },
-            hours,
+            hours: responseHours,
             providers: {
               codex: { totalTokens: Math.round(detailTotal * 0.8) },
               claude: { totalTokens: Math.round(detailTotal * 0.2) },
@@ -543,7 +554,7 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   await expect(page.locator('#billing-today-total')).toHaveText('10K')
   await expect(page.locator('#billing-active-days')).toHaveText(String(activeDays))
   await expect(page.locator('#billing-billion-days')).toHaveText(String(billionDays))
-  await expect(page.getByText('EMPTY', { exact: true })).toBeVisible()
+  await expect(page.getByText('RELATIVE', { exact: true })).toBeVisible()
   const heatLegendColors = await page.locator('.billing-heat-scale i').evaluateAll(cells => (
     cells.map(cell => getComputedStyle(cell).backgroundColor)
   ))
@@ -590,10 +601,19 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   ))).toBeGreaterThanOrEqual(4)
   await expect(page.locator('#billing-calendar-months span')).toHaveCount(calendarWeekCount)
   await expect(page.locator('#billing-calendar-grid .billing-calendar-day.selected')).toHaveAttribute('data-date', dailyPoints.at(-1)!.date)
-  await expect(page.locator(`.billing-calendar-day[data-date="${dailyPoints[300].date}"]`)).toHaveAttribute('data-billion', 'true')
-  await expect(page.locator(`.billing-calendar-day[data-date="${dailyPoints[300].date}"]`)).toHaveAttribute('data-level', '5')
+  for (const [pointIndex, tier] of [[297, 1], [300, 2], [298, 3], [299, 4]] as const) {
+    const overrangeDay = page.locator(`.billing-calendar-day[data-date="${dailyPoints[pointIndex].date}"]`)
+    await expect(overrangeDay).toHaveAttribute('data-level', 'overrange')
+    await expect(overrangeDay).toHaveAttribute('data-overrange', String(tier))
+  }
+  await expect(page.locator('.billing-overrange-scale i')).toHaveCount(4)
+  const overrangeLegendStyles = await page.locator('.billing-overrange-scale i').evaluateAll(cells => cells.map(cell => ({
+    background: getComputedStyle(cell).backgroundColor,
+    symbol: getComputedStyle(cell, '::after').content,
+  })))
+  expect(new Set(overrangeLegendStyles.map(style => style.background)).size).toBe(4)
+  expect(overrangeLegendStyles.map(style => style.symbol)).toEqual(['"•"', '"○"', '"◇"', '"✦"'])
   const liveRequestBaseline = currentDayLiveRequests
-  allowCurrentDayIncrease = true
   const observedIntermediateTotal = page.locator('#billing-day-total-meter').evaluate((meter) => new Promise<boolean>((resolve) => {
     const readDisplayed = () => Number((meter as HTMLElement).dataset.displayedTotal)
     const observer = new MutationObserver(() => {
@@ -609,7 +629,12 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
       resolve(false)
     }, 8_000)
   }))
+  omitCurrentDayHourlyBinsOnce = true
+  allowCurrentDayIncrease = true
   await expect.poll(() => currentDayLiveRequests, { timeout: 8_000 }).toBeGreaterThan(liveRequestBaseline)
+  await expect(page.locator('#billing-day-insight-state')).toHaveText('24 HOURLY BINS READY')
+  await expect(page.locator('#billing-day-total-path')).toHaveAttribute('d', /^M.+L/)
+  await expect(page.getByText('DAY SIGNAL LOST', { exact: true })).toHaveCount(0)
   expect(await observedIntermediateTotal).toBe(true)
   await expect(page.locator('#billing-day-total')).toHaveText('16,000')
   await expect(page.locator('#billing-day-total-compact')).toHaveText('16K')

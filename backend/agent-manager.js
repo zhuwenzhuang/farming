@@ -13,6 +13,7 @@ const {
   resolveCodexResumeModelProvider,
 } = require('./agent-session-history');
 const { listCodexSessions } = require('./codex-session-history');
+const { unarchiveCodexSession } = require('./codex-session-archive');
 const { buildAgentProviderSessionPlan, sessionFromExactResumeSource } = require('./agent-provider-session');
 const { resolveAgentExecutable, resolveCompatibleCodexExecutable } = require('./executable-discovery');
 const { ensureMainAgentSkillFiles, renderMainAgentBootstrap } = require('./main-agent-skills');
@@ -43,6 +44,7 @@ const {
 } = require('./agent-env');
 const { inspectGitWorktree, isLinkedWorktreeOf } = require('./git-worktree-info');
 const { deserializeTerminalState } = require('./terminal-state-serialization');
+const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation');
 
 const SESSION_OUTPUT_LIMIT = 10000;
 const AGENT_USAGE_RATE_WINDOW_MS = 5 * 60 * 1000;
@@ -75,6 +77,89 @@ const execFileAsync = promisify(execFile);
 function trimSessionOutput(output) {
   const text = typeof output === 'string' ? output : '';
   return text.length > SESSION_OUTPUT_LIMIT ? text.slice(-SESSION_OUTPUT_LIMIT) : text;
+}
+
+function terminalStateUpdateDisposition(agent, runtimeEpoch, outputSeq, stateRevision) {
+  const currentEpoch = typeof agent.runtimeEpoch === 'string' ? agent.runtimeEpoch : '';
+  const nextEpoch = typeof runtimeEpoch === 'string' ? runtimeEpoch : '';
+  if (currentEpoch && nextEpoch && currentEpoch !== nextEpoch) {
+    const relation = compareNativePtyRuntimeEpochs(nextEpoch, currentEpoch);
+    return relation === 1 ? 'new-epoch' : 'stale';
+  }
+  if (currentEpoch && !nextEpoch) return 'unversioned';
+  if (!currentEpoch || !nextEpoch) return 'current';
+
+  const currentRevision = Number(agent.stateRevision);
+  const nextRevision = Number(stateRevision);
+  if (Number.isFinite(currentRevision) && Number.isFinite(nextRevision)) {
+    if (nextRevision < currentRevision) return 'stale';
+    if (nextRevision === currentRevision) {
+      const currentOutputSeq = Number(agent.lastOutputSeq);
+      const nextOutputSeq = Number(outputSeq);
+      return Number.isFinite(nextOutputSeq)
+        && Number.isFinite(currentOutputSeq)
+        && nextOutputSeq === currentOutputSeq
+        ? 'duplicate'
+        : 'stale';
+    }
+  }
+  const currentOutputSeq = Number(agent.lastOutputSeq);
+  const nextOutputSeq = Number(outputSeq);
+  if (Number.isFinite(currentOutputSeq) && Number.isFinite(nextOutputSeq) && nextOutputSeq < currentOutputSeq) {
+    return 'stale';
+  }
+  return 'current';
+}
+
+function terminalRuntimeEventMatches(agent, runtimeEpoch) {
+  const currentEpoch = typeof agent?.runtimeEpoch === 'string' ? agent.runtimeEpoch : '';
+  if (!currentEpoch) return true;
+  return typeof runtimeEpoch === 'string' && runtimeEpoch === currentEpoch;
+}
+
+function setPendingTerminalStartSyncCut(agent, runtimeEpoch, outputSeq, stateRevision) {
+  if (
+    typeof runtimeEpoch !== 'string' || !runtimeEpoch ||
+    !Number.isFinite(outputSeq) ||
+    !Number.isFinite(stateRevision)
+  ) {
+    delete agent.pendingTerminalStartSyncCut;
+    return;
+  }
+  agent.pendingTerminalStartSyncCut = {
+    runtimeEpoch,
+    outputSeq,
+    stateRevision,
+  };
+}
+
+function consumesPendingTerminalStartSyncCut(agent, runtimeEpoch, outputSeq, stateRevision) {
+  const pending = agent?.pendingTerminalStartSyncCut;
+  return Boolean(
+    pending &&
+    pending.runtimeEpoch === runtimeEpoch &&
+    pending.outputSeq === outputSeq &&
+    pending.stateRevision === stateRevision &&
+    agent.runtimeEpoch === runtimeEpoch &&
+    agent.lastOutputSeq === outputSeq &&
+    agent.stateRevision === stateRevision
+  );
+}
+
+function clearPendingTerminalStartSyncCut(agent) {
+  if (agent) delete agent.pendingTerminalStartSyncCut;
+}
+
+function applyTerminalStateCursor(agent, runtimeEpoch, outputSeq, stateRevision, disposition) {
+  if (disposition === 'stale' || disposition === 'duplicate' || disposition === 'unversioned') return false;
+  if (disposition === 'new-epoch') {
+    agent.lastOutputSeq = 0;
+    agent.stateRevision = 0;
+  }
+  if (typeof runtimeEpoch === 'string' && runtimeEpoch) agent.runtimeEpoch = runtimeEpoch;
+  if (Number.isFinite(outputSeq)) agent.lastOutputSeq = outputSeq;
+  if (Number.isFinite(stateRevision)) agent.stateRevision = stateRevision;
+  return true;
 }
 
 function hasResumeArg(args) {
@@ -464,6 +549,7 @@ class AgentManager extends EventEmitter {
     this.agentWorktreeResolveGeneration = new Map();
     this.permissionRestartInFlight = new Map();
     this.runtimeRestartInFlight = new Map();
+    this.codexSessionUnarchiveInFlight = new Map();
     this.permissionRestartSuppressedAgentIds = new Set();
     this.codexAppServerRuntime = options.codexAppServerRuntime || new CodexAppServerRuntime();
     this.jsonCliRuntime = options.jsonCliRuntime || new JsonCliRuntime();
@@ -478,6 +564,7 @@ class AgentManager extends EventEmitter {
           }
         : undefined
     );
+    this.unarchiveCodexSession = options.unarchiveCodexSession || unarchiveCodexSession;
     this.heartbeatInterval = null;
     this.disposed = false;
     this.systemMonitor = new SystemMonitor();
@@ -612,16 +699,19 @@ class AgentManager extends EventEmitter {
       status,
       startedAt,
       runtimeEpoch,
+      outputSeq,
       stateRevision,
     }) => {
         const agent = this.agents.get(sessionId);
         if (!agent) return;
 
+        const disposition = terminalStateUpdateDisposition(agent, runtimeEpoch, outputSeq, stateRevision);
+        if (!applyTerminalStateCursor(agent, runtimeEpoch, outputSeq, stateRevision, disposition)) return;
+        setPendingTerminalStartSyncCut(agent, runtimeEpoch, outputSeq, stateRevision);
+
         agent.engineStarted = true;
         agent.engineStatus = status || 'running';
         agent.startedAt = startedAt || Date.now();
-        agent.runtimeEpoch = typeof runtimeEpoch === 'string' ? runtimeEpoch : '';
-        agent.stateRevision = Number.isFinite(stateRevision) ? stateRevision : 0;
         this.observeAgentAttentionState(sessionId);
         this.observeAgentStateChange(sessionId, { force: true });
         this.emit('update');
@@ -638,19 +728,13 @@ class AgentManager extends EventEmitter {
         const agent = this.agents.get(sessionId);
         if (!agent) return;
 
+        const disposition = terminalStateUpdateDisposition(agent, runtimeEpoch, outputSeq, stateRevision);
+        if (!applyTerminalStateCursor(agent, runtimeEpoch, outputSeq, stateRevision, disposition)) return;
+        clearPendingTerminalStartSyncCut(agent);
+
         this.reviveAgentRuntime(agent);
         agent.output = trimSessionOutput(agent.output + data);
         agent.lastEngineOutputAt = Date.now();
-        if (typeof runtimeEpoch === 'string' && runtimeEpoch) {
-          agent.runtimeEpoch = runtimeEpoch;
-        }
-        if (Number.isFinite(outputSeq)) {
-          agent.lastOutputSeq = outputSeq;
-        }
-        if (Number.isFinite(stateRevision)) {
-          agent.stateRevision = stateRevision;
-        }
-
         this.lastActivity.set(sessionId, Date.now());
 
         // Track output events for rate calculation
@@ -692,6 +776,9 @@ class AgentManager extends EventEmitter {
     }) => {
       const agent = this.agents.get(sessionId);
       if (!agent) return;
+      const disposition = terminalStateUpdateDisposition(agent, runtimeEpoch, outputSeq, stateRevision);
+      if (!applyTerminalStateCursor(agent, runtimeEpoch, outputSeq, stateRevision, disposition)) return;
+      clearPendingTerminalStartSyncCut(agent);
       this.reviveAgentRuntime(agent);
       if (kind === 'clear') {
         agent.output = '';
@@ -699,9 +786,6 @@ class AgentManager extends EventEmitter {
         agent.previewSnapshot = null;
         this.outputEvents.delete(sessionId);
       }
-      if (typeof runtimeEpoch === 'string' && runtimeEpoch) agent.runtimeEpoch = runtimeEpoch;
-      if (Number.isFinite(outputSeq)) agent.lastOutputSeq = outputSeq;
-      if (Number.isFinite(stateRevision)) agent.stateRevision = stateRevision;
       if (Number.isFinite(cols) && cols > 0) agent.previewCols = cols;
       if (Number.isFinite(rows) && rows > 0) agent.previewRows = rows;
       this.lastActivity.set(sessionId, Date.now());
@@ -736,18 +820,22 @@ class AgentManager extends EventEmitter {
         const agent = this.agents.get(sessionId);
         if (!agent) return;
 
+        const hydratesStartedCut = consumesPendingTerminalStartSyncCut(
+          agent,
+          runtimeEpoch,
+          outputSeq,
+          stateRevision,
+        );
+        const disposition = terminalStateUpdateDisposition(agent, runtimeEpoch, outputSeq, stateRevision);
+        if (
+          !hydratesStartedCut &&
+          !applyTerminalStateCursor(agent, runtimeEpoch, outputSeq, stateRevision, disposition)
+        ) return;
+        clearPendingTerminalStartSyncCut(agent);
+
         this.reviveAgentRuntime(agent);
         agent.output = trimSessionOutput(typeof textOutput === 'string' ? textOutput : output);
         agent.previewText = agent.output.slice(-2000);
-        if (typeof runtimeEpoch === 'string' && runtimeEpoch) {
-          agent.runtimeEpoch = runtimeEpoch;
-        }
-        if (Number.isFinite(outputSeq)) {
-          agent.lastOutputSeq = outputSeq;
-        }
-        if (Number.isFinite(stateRevision)) {
-          agent.stateRevision = stateRevision;
-        }
         this.lastActivity.set(sessionId, Date.now());
 
         if (replaceLive) {
@@ -780,11 +868,10 @@ class AgentManager extends EventEmitter {
         this.emit('update');
       });
 
-    this.engineBridge.on('session-preview', ({ sessionId, previewText, cols, rows, previewSnapshot, title }) => {
+    this.engineBridge.on('session-preview', ({ sessionId, previewText, cols, rows, previewSnapshot, title, runtimeEpoch }) => {
         const agent = this.agents.get(sessionId);
-        if (!agent) return;
+        if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
 
-        const revived = this.reviveAgentRuntime(agent);
         const titleChanged = typeof title === 'string'
           ? this.updateAgentSessionTitle(agent, title)
           : false;
@@ -811,14 +898,14 @@ class AgentManager extends EventEmitter {
         });
         this.observeAgentAttentionState(sessionId);
         this.observeAgentStateChange(sessionId);
-        if (titleChanged || revived) {
+        if (titleChanged) {
           this.emit('update');
         }
       });
 
-    this.engineBridge.on('session-title', ({ sessionId, title }) => {
+    this.engineBridge.on('session-title', ({ sessionId, title, runtimeEpoch }) => {
         const agent = this.agents.get(sessionId);
-        if (!agent) return;
+        if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
 
         if (this.updateAgentSessionTitle(agent, title)) {
           this.observeAgentAttentionState(sessionId);
@@ -827,14 +914,13 @@ class AgentManager extends EventEmitter {
         }
       });
 
-    this.engineBridge.on('session-activity', ({ sessionId, lastActivityAt }) => {
+    this.engineBridge.on('session-activity', ({ sessionId, lastActivityAt, runtimeEpoch }) => {
         const agent = this.agents.get(sessionId);
-        const revived = agent ? this.reviveAgentRuntime(agent) : false;
+        if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
         this.lastActivity.set(sessionId, lastActivityAt || Date.now());
         this.observeAgentAttentionState(sessionId);
         this.observeAgentStateChange(sessionId);
         this.emitActivityUpdate(sessionId, lastActivityAt || Date.now());
-        if (revived) this.emit('update');
       });
 
     this.engineBridge.on('session-busy-state', (payload = {}) => {
@@ -852,9 +938,10 @@ class AgentManager extends EventEmitter {
           shellLastCommandDurationMs,
           statusMarkerSeen,
           busyMarkerSeen,
+          runtimeEpoch,
         } = payload;
         const agent = this.agents.get(sessionId);
-        if (!agent) return;
+        if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
         const previousShellCwd = agent.shellCwd || '';
 
         const previousState = JSON.stringify({
@@ -933,9 +1020,10 @@ class AgentManager extends EventEmitter {
         this.emit('update');
       });
 
-    this.engineBridge.on('session-exited', ({ sessionId, code, exitedAt }) => {
+    this.engineBridge.on('session-exited', ({ sessionId, code, exitedAt, runtimeEpoch }) => {
         const agent = this.agents.get(sessionId);
-        if (!agent) return;
+        if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
+        clearPendingTerminalStartSyncCut(agent);
         if (this.permissionRestartSuppressedAgentIds.has(sessionId)) return;
 
         // A fresh App Server thread deliberately has no CLI/PTy observer until
@@ -977,9 +1065,9 @@ class AgentManager extends EventEmitter {
         this.emit('update');
       });
 
-    this.engineBridge.on('session-error', ({ sessionId, error, fatal = true }) => {
+    this.engineBridge.on('session-error', ({ sessionId, error, fatal = true, runtimeEpoch }) => {
         const agent = this.agents.get(sessionId);
-        if (!agent) return;
+        if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
         if (this.permissionRestartSuppressedAgentIds.has(sessionId)) return;
 
         if (fatal === false) {
@@ -3117,11 +3205,14 @@ class AgentManager extends EventEmitter {
     return this.enqueueInputOperation(agentId, () => this.sendComposerMessageNow(agentId, message));
   }
 
-  async setCodexTerminalProfile(agentId, profile) {
-    return this.enqueueInputOperation(agentId, () => this.setCodexTerminalProfileNow(agentId, profile));
+  async setCodexTerminalProfile(agentId, profile, options = {}) {
+    return this.enqueueInputOperation(
+      agentId,
+      () => this.setCodexTerminalProfileNow(agentId, profile, options),
+    );
   }
 
-  async setCodexTerminalProfileNow(agentId, profile) {
+  async setCodexTerminalProfileNow(agentId, profile, options = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) throw new Error('Agent not found');
     if (
@@ -3152,7 +3243,15 @@ class AgentManager extends EventEmitter {
       // make a fresh Terminal look user-authored, because that would remove
       // the safe fresh-session path into ACP Chat before the provider has
       // materialized a resumable history record.
-      sendInput: input => this.sendInputNow(agentId, input, { markUserInput: false }),
+      sendInput: async input => {
+        const result = await this.sendInputNow(agentId, input, {
+          markUserInput: false,
+          terminalControl: options.terminalControl || null,
+        });
+        if (result?.status === 'input-rejected') {
+          throw new Error(`Terminal control lost: ${result.reason || 'input-rejected'}`);
+        }
+      },
     });
     agent.codexTerminalProfile = {
       model: applied.model,
@@ -3517,7 +3616,7 @@ class AgentManager extends EventEmitter {
     this.emit('update');
   }
 
-  async interruptAgent(agentId) {
+  async interruptAgent(agentId, options = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) return;
 
@@ -3557,9 +3656,9 @@ class AgentManager extends EventEmitter {
 
       const input = interruptInputForAgent(agent);
       if (engine.interruptSession) {
-        await engine.interruptSession(agentId, input);
+        return await engine.interruptSession(agentId, input, options);
       } else {
-        await engine.sendInput(agentId, input);
+        return await engine.sendInput(agentId, input, options);
       }
     } catch (error) {
       console.error('Failed to interrupt agent:', error);
@@ -3569,16 +3668,22 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  async claimAgentSessionGeometry(agentId, geometry) {
+  agentRequiresTerminalController(agentId) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return false;
+    return !isCodexAppServerAgent(agent) && !isJsonCliAgent(agent) && !isAcpAgent(agent);
+  }
+
+  async claimAgentSessionController(agentId, controller) {
     const agent = this.agents.get(agentId);
     if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
       return { status: 'rejected', reason: 'unsupported-session' };
     }
     try {
-      return await this.engineBridge.claimSessionGeometry(agent.engineName, agentId, geometry);
+      return await this.engineBridge.claimSessionController(agent.engineName, agentId, controller);
     } catch (error) {
-      console.error('Failed to claim agent session geometry:', error);
-      return { status: 'rejected', reason: 'geometry-control-failed' };
+      console.error('Failed to claim agent session controller:', error);
+      return { status: 'rejected', reason: 'controller-lease-failed' };
     }
   }
 
@@ -3595,46 +3700,46 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  async activateAgentSessionRenderer(agentId, geometry) {
+  async activateAgentSessionRenderer(agentId, controller) {
     const agent = this.agents.get(agentId);
     if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
       return { status: 'renderer-ready-rejected', reason: 'unsupported-session' };
     }
     try {
-      return await this.engineBridge.activateSessionRenderer(agent.engineName, agentId, geometry);
+      return await this.engineBridge.activateSessionRenderer(agent.engineName, agentId, controller);
     } catch (error) {
       console.error('Failed to activate agent terminal renderer:', error);
       return { status: 'renderer-ready-rejected', reason: 'flow-control-failed' };
     }
   }
 
-  async renewAgentSessionGeometry(agentId, geometry) {
+  async renewAgentSessionController(agentId, controller) {
     const agent = this.agents.get(agentId);
     if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
       return { status: 'rejected', reason: 'unsupported-session' };
     }
     try {
-      return await this.engineBridge.renewSessionGeometry(agent.engineName, agentId, geometry);
+      return await this.engineBridge.renewSessionController(agent.engineName, agentId, controller);
     } catch (error) {
-      console.error('Failed to renew agent session geometry:', error);
-      return { status: 'rejected', reason: 'geometry-control-failed' };
+      console.error('Failed to renew agent session controller:', error);
+      return { status: 'rejected', reason: 'controller-lease-failed' };
     }
   }
 
-  async releaseAgentSessionGeometry(agentId, geometry) {
+  async releaseAgentSessionController(agentId, controller) {
     const agent = this.agents.get(agentId);
     if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
       return { status: 'unowned', reason: 'unsupported-session' };
     }
     try {
-      return await this.engineBridge.releaseSessionGeometry(agent.engineName, agentId, geometry);
+      return await this.engineBridge.releaseSessionController(agent.engineName, agentId, controller);
     } catch (error) {
-      console.error('Failed to release agent session geometry:', error);
-      return { status: 'unowned', reason: 'geometry-control-failed' };
+      console.error('Failed to release agent session controller:', error);
+      return { status: 'unowned', reason: 'controller-lease-failed' };
     }
   }
 
-  async acknowledgeAgentSessionOutput(agentId, charCount, geometry) {
+  async acknowledgeAgentSessionOutput(agentId, charCount, controller) {
     const agent = this.agents.get(agentId);
     if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
       return { status: 'output-ack-rejected', reason: 'unsupported-session' };
@@ -3644,7 +3749,7 @@ class AgentManager extends EventEmitter {
         agent.engineName,
         agentId,
         charCount,
-        geometry,
+        controller,
       );
     } catch (error) {
       console.error('Failed to acknowledge agent session output:', error);
@@ -3652,7 +3757,26 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  async resizeAgentSession(agentId, cols, rows, geometry) {
+  async acknowledgeAgentSessionCheckpoint(agentId, outputSeq, stateRevision, controller) {
+    const agent = this.agents.get(agentId);
+    if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
+      return { status: 'checkpoint-applied-rejected', reason: 'unsupported-session' };
+    }
+    try {
+      return await this.engineBridge.acknowledgeSessionCheckpoint(
+        agent.engineName,
+        agentId,
+        outputSeq,
+        stateRevision,
+        controller,
+      );
+    } catch (error) {
+      console.error('Failed to acknowledge agent session checkpoint:', error);
+      return { status: 'checkpoint-applied-rejected', reason: 'flow-control-failed' };
+    }
+  }
+
+  async resizeAgentSession(agentId, cols, rows, controller) {
     const agent = this.agents.get(agentId);
     if (!agent) return { status: 'resize-rejected', reason: 'session-unavailable', resized: false };
     if (isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
@@ -3676,7 +3800,7 @@ class AgentManager extends EventEmitter {
         return { status: 'resize-rejected', reason: 'unsupported-engine', resized: false };
       }
 
-      const result = await engine.resizeSession(agentId, nextCols, nextRows, geometry);
+      const result = await engine.resizeSession(agentId, nextCols, nextRows, controller);
       if (result && result.resized === false && result.reason === 'session-unavailable') {
         this.markAgentSessionDead(agentId, 'Session not available');
       }
@@ -3690,7 +3814,7 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  async clearAgentSessionBuffer(agentId, geometry = null) {
+  async clearAgentSessionBuffer(agentId, controller = null) {
     const agent = this.agents.get(agentId);
     if (!agent) return { cleared: false };
     if (isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) return { cleared: false };
@@ -3698,7 +3822,7 @@ class AgentManager extends EventEmitter {
     try {
       const engine = this.engineBridge.getEngine(agent.engineName);
       if (!engine || !engine.clearBuffer) return { cleared: false };
-      const result = await engine.clearBuffer(agentId, geometry);
+      const result = await engine.clearBuffer(agentId, controller);
       if (result && result.cleared === false) {
         if (result.reason === 'session-unavailable') {
           this.markAgentSessionDead(agentId, 'Session not available');
@@ -4481,8 +4605,21 @@ class AgentManager extends EventEmitter {
     if (!agent) {
       return { error: 'Agent not found' };
     }
+    if (!['same-worktree', 'new-worktree'].includes(mode)) {
+      return { error: 'Unsupported fork mode' };
+    }
 
     const sourceWorkspace = effectiveAgentWorkspaceRoot(agent);
+    const resumedSession = agent.providerSessionProvider
+      && agent.providerSessionId
+      && agent.providerSessionTemporary !== true
+      ? { provider: agent.providerSessionProvider, providerHomeId: agent.providerHomeId || 'default', sessionId: agent.providerSessionId }
+      : resumedSessionFromSource(agent.source);
+    if (resumedSession?.provider === 'codex') {
+      const availability = await this.ensureCodexSessionAvailableForFork(agent, resumedSession, sourceWorkspace);
+      if (availability?.error) return availability;
+    }
+
     let targetWorkspace = sourceWorkspace;
     if (mode === 'new-worktree') {
       try {
@@ -4490,15 +4627,8 @@ class AgentManager extends EventEmitter {
       } catch (error) {
         return { error: error.message || 'Failed to create git worktree' };
       }
-    } else if (mode !== 'same-worktree') {
-      return { error: 'Unsupported fork mode' };
     }
 
-    const resumedSession = agent.providerSessionProvider
-      && agent.providerSessionId
-      && agent.providerSessionTemporary !== true
-      ? { provider: agent.providerSessionProvider, providerHomeId: agent.providerHomeId || 'default', sessionId: agent.providerSessionId }
-      : resumedSessionFromSource(agent.source);
     const forkCommand = resumedSession
       ? buildAgentSessionResumeCommand(resumedSession.provider, resumedSession.sessionId, {
         fork: true,
@@ -4537,6 +4667,55 @@ class AgentManager extends EventEmitter {
           : {}),
       });
     });
+  }
+
+  async ensureCodexSessionAvailableForFork(agent, resumedSession, sourceWorkspace) {
+    const providerHomeId = agent.providerHomeId || resumedSession.providerHomeId || 'default';
+    const providerHomePath = agent.providerHomePath || '';
+    const sessionId = resumedSession.sessionId;
+    const unarchiveKey = `${providerHomePath || providerHomeId}:${sessionId}`;
+    const inFlight = this.codexSessionUnarchiveInFlight.get(unarchiveKey);
+    if (inFlight) return inFlight;
+
+    const unarchivePromise = (async () => {
+      let session;
+      try {
+        session = await findAgentSession('codex', sessionId, {
+          limit: 1000,
+          providerLimit: 1000,
+          scanLimit: 5000,
+          providerHomeId,
+          providerHomes: providerHomePath
+            ? { codex: [{ id: providerHomeId, path: providerHomePath }] }
+            : undefined,
+        });
+      } catch (error) {
+        return {
+          error: `Failed to inspect Codex session before forking: ${error && (error.message || error)}`,
+        };
+      }
+      if (!session || session.archived !== true) return null;
+
+      const result = await this.unarchiveCodexSession(sessionId, {
+        ...session,
+        // Fork is an action on the live Farming Agent. Its current workspace is
+        // authoritative even when the older provider history cwd no longer exists.
+        cwd: sourceWorkspace || session.cwd || session.workspace,
+        providerHomePath: session.providerHomePath || providerHomePath,
+      });
+      if (!result?.error) return null;
+      return {
+        error: `Codex session ${sessionId} is archived and could not be unarchived before forking: ${result.error}`,
+      };
+    })();
+    this.codexSessionUnarchiveInFlight.set(unarchiveKey, unarchivePromise);
+    try {
+      return await unarchivePromise;
+    } finally {
+      if (this.codexSessionUnarchiveInFlight.get(unarchiveKey) === unarchivePromise) {
+        this.codexSessionUnarchiveInFlight.delete(unarchiveKey);
+      }
+    }
   }
 
   recordTaskHistory(agent, options = {}) {
@@ -4940,6 +5119,9 @@ class AgentManager extends EventEmitter {
         previewRows: agent.previewRows || 30,
         sessionTitle: agent.sessionTitle || '',
         sessionSource: this.getEngineSessionSource(agent.engineName),
+        runtimeEpoch: agent.runtimeEpoch || '',
+        outputSeq: finiteNumberOrNull(agent.lastOutputSeq),
+        stateRevision: finiteNumberOrNull(agent.stateRevision),
         status: agent.status,
         terminalBusy,
         terminalStatus,

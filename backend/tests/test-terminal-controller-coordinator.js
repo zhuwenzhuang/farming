@@ -1,17 +1,17 @@
 const assert = require('assert');
-const TerminalGeometryCoordinator = require('../terminal-geometry-coordinator');
+const TerminalControllerCoordinator = require('../terminal-controller-coordinator');
 const {
-  beginTerminalGeometryResize,
-  claimTerminalGeometry,
-  commitTerminalGeometryResize,
-  createTerminalGeometryControl,
-  releaseTerminalGeometry,
-  renewTerminalGeometry,
-  validateTerminalGeometryClear,
-  validateTerminalGeometryInput,
-  validateTerminalGeometryOutputAck,
-  validateTerminalGeometryRendererReady,
-} = require('../terminal-geometry-control');
+  beginTerminalControllerResize,
+  claimTerminalController,
+  commitTerminalControllerResize,
+  createTerminalControllerLease,
+  releaseTerminalController,
+  renewTerminalController,
+  validateTerminalControllerClear,
+  validateTerminalControllerInput,
+  validateTerminalControllerOutputAck,
+  validateTerminalControllerRendererReady,
+} = require('../terminal-controller-lease');
 function createSocket(connectionId) {
   return {
     connectionId,
@@ -35,25 +35,28 @@ async function testControllerDoesNotReadDisplayCheckpoint() {
     stateRevision: 3,
     previewCols: 80,
     previewRows: 24,
-    geometryControl: createTerminalGeometryControl(),
+    controllerLease: createTerminalControllerLease(),
   };
   let checkpointReadCount = 0;
   const manager = {
-    async claimAgentSessionGeometry(_agentId, options) {
-      return claimTerminalGeometry(session, options);
+    agentRequiresTerminalController() {
+      return true;
+    },
+    async claimAgentSessionController(_agentId, options) {
+      return claimTerminalController(session, options);
     },
     async getAgentSessionAttachCheckpoint() {
       checkpointReadCount += 1;
-      throw new Error('geometry coordination must not read display checkpoints');
+      throw new Error('controller coordination must not read display checkpoints');
     },
-    async renewAgentSessionGeometry(_agentId, options) {
-      return renewTerminalGeometry(session, options);
+    async renewAgentSessionController(_agentId, options) {
+      return renewTerminalController(session, options);
     },
-    async releaseAgentSessionGeometry(_agentId, options) {
-      return releaseTerminalGeometry(session, options);
+    async releaseAgentSessionController(_agentId, options) {
+      return releaseTerminalController(session, options);
     },
   };
-  const coordinator = new TerminalGeometryCoordinator({
+  const coordinator = new TerminalControllerCoordinator({
     agentManager: manager,
     serverInstanceId: 'server-race',
     leaseTtlMs: 30000,
@@ -116,17 +119,17 @@ async function testLeaseExpiryReleasesController() {
     stateRevision: 0,
     previewCols: 80,
     previewRows: 24,
-    geometryControl: createTerminalGeometryControl(),
+    controllerLease: createTerminalControllerLease(),
   };
   const manager = {
-    async claimAgentSessionGeometry(_agentId, options) {
-      return claimTerminalGeometry(current, options);
+    async claimAgentSessionController(_agentId, options) {
+      return claimTerminalController(current, options);
     },
-    async releaseAgentSessionGeometry(_agentId, options) {
-      return releaseTerminalGeometry(current, options);
+    async releaseAgentSessionController(_agentId, options) {
+      return releaseTerminalController(current, options);
     },
   };
-  const coordinator = new TerminalGeometryCoordinator({
+  const coordinator = new TerminalControllerCoordinator({
     agentManager: manager,
     serverInstanceId: 'server-expiry',
     send(ws, message) {
@@ -142,29 +145,43 @@ async function testLeaseExpiryReleasesController() {
     expectedRuntimeEpoch: current.runtimeEpoch,
   });
   const owner = coordinator.owners.get('agent-expiry');
+  const displayCutBeforeExpiry = {
+    runtimeEpoch: current.runtimeEpoch,
+    outputSeq: current.outputSeq,
+    stateRevision: current.stateRevision,
+    previewCols: current.previewCols,
+    previewRows: current.previewRows,
+  };
   owner.expiresAt = Date.now() - 1;
-  current.geometryControl.expiresAt = owner.expiresAt;
+  current.controllerLease.expiresAt = owner.expiresAt;
   await coordinator.expireOwner('agent-expiry', owner);
   assert.strictEqual(coordinator.owners.has('agent-expiry'), false);
-  assert.strictEqual(current.geometryControl.ownerKey, '');
+  assert.strictEqual(current.controllerLease.ownerKey, '');
   assert.strictEqual(lastMessage(socket).status, 'expired');
   assert.strictEqual(lastMessage(socket).reason, 'lease-expired');
+  assert.deepStrictEqual({
+    runtimeEpoch: current.runtimeEpoch,
+    outputSeq: current.outputSeq,
+    stateRevision: current.stateRevision,
+    previewCols: current.previewCols,
+    previewRows: current.previewRows,
+  }, displayCutBeforeExpiry, 'lease expiry timers must never create or commit display state');
 }
 
 async function testLeaseExpirySchedulerRespectsRenewedDeadline() {
   const current = {
     runtimeEpoch: 'epoch-scheduler',
-    geometryControl: createTerminalGeometryControl(),
+    controllerLease: createTerminalControllerLease(),
   };
   const manager = {
-    async claimAgentSessionGeometry(_agentId, options) {
-      return claimTerminalGeometry(current, options);
+    async claimAgentSessionController(_agentId, options) {
+      return claimTerminalController(current, options);
     },
-    async releaseAgentSessionGeometry(_agentId, options) {
-      return releaseTerminalGeometry(current, options);
+    async releaseAgentSessionController(_agentId, options) {
+      return releaseTerminalController(current, options);
     },
   };
-  const coordinator = new TerminalGeometryCoordinator({
+  const coordinator = new TerminalControllerCoordinator({
     agentManager: manager,
     serverInstanceId: 'server-scheduler',
     send(ws, message) {
@@ -181,12 +198,12 @@ async function testLeaseExpirySchedulerRespectsRenewedDeadline() {
   });
   const owner = coordinator.owners.get('agent-scheduler');
   owner.expiresAt = Date.now() + 30;
-  current.geometryControl.expiresAt = owner.expiresAt;
+  current.controllerLease.expiresAt = owner.expiresAt;
   coordinator.scheduleLeaseExpiryCheck();
 
   await delay(15);
   owner.expiresAt = Date.now() + 80;
-  current.geometryControl.expiresAt = owner.expiresAt;
+  current.controllerLease.expiresAt = owner.expiresAt;
   coordinator.scheduleLeaseExpiryCheck();
   await delay(35);
   assert.strictEqual(
@@ -199,6 +216,82 @@ async function testLeaseExpirySchedulerRespectsRenewedDeadline() {
   assert.strictEqual(lastMessage(socket).reason, 'lease-expired');
 }
 
+async function testOwnedMutationSerializesInteractiveTakeover() {
+  const session = {
+    runtimeEpoch: 'epoch-owned-operation',
+    controllerLease: createTerminalControllerLease(),
+  };
+  const manager = {
+    async claimAgentSessionController(_agentId, options) {
+      return claimTerminalController(session, options);
+    },
+    async renewAgentSessionController(_agentId, options) {
+      return renewTerminalController(session, options);
+    },
+    async releaseAgentSessionController(_agentId, options) {
+      return releaseTerminalController(session, options);
+    },
+  };
+  const coordinator = new TerminalControllerCoordinator({
+    agentManager: manager,
+    serverInstanceId: 'server-owned-operation',
+    send(ws, message) {
+      ws.messages.push(message);
+    },
+  });
+  const first = createSocket('socket-owned-first');
+  const second = createSocket('socket-owned-second');
+  await coordinator.claim(first, {
+    agentId: 'agent-owned-operation',
+    attachmentId: 'attachment-owned-first',
+    claimId: 'claim-owned-first',
+    mode: 'interactive',
+    expectedRuntimeEpoch: session.runtimeEpoch,
+  });
+  const firstOwner = lastMessage(first);
+  let finishOperation;
+  const operationGate = new Promise(resolve => { finishOperation = resolve; });
+  let operationControl = null;
+  const operation = coordinator.runOwnedMutation(
+    'agent-owned-operation',
+    {
+      attachmentId: firstOwner.attachmentId,
+      leaseId: firstOwner.leaseId,
+      fence: firstOwner.fence,
+      expectedRuntimeEpoch: session.runtimeEpoch,
+    },
+    async ({ terminalControl }) => {
+      operationControl = terminalControl;
+      await operationGate;
+      return 'profile-applied';
+    },
+  );
+  await delay(0);
+  let takeoverSettled = false;
+  const takeover = coordinator.claim(second, {
+    agentId: 'agent-owned-operation',
+    attachmentId: 'attachment-owned-second',
+    claimId: 'claim-owned-second',
+    mode: 'interactive',
+    expectedRuntimeEpoch: session.runtimeEpoch,
+  }).finally(() => { takeoverSettled = true; });
+  await delay(0);
+  assert.strictEqual(takeoverSettled, false, 'takeover must wait for the whole owned mutation');
+  assert.strictEqual(coordinator.owners.get('agent-owned-operation').ws, first);
+  assert.deepStrictEqual(operationControl, {
+    ownerKey: session.controllerLease.ownerKey,
+    leaseId: firstOwner.leaseId,
+    fence: firstOwner.fence,
+    expectedRuntimeEpoch: session.runtimeEpoch,
+    ttlMs: 60000,
+  });
+  finishOperation();
+  assert.deepStrictEqual(await operation, { status: 'committed', value: 'profile-applied' });
+  await takeover;
+  assert.strictEqual(lastMessage(first).status, 'revoked');
+  assert.strictEqual(lastMessage(second).status, 'owner');
+}
+
 async function run() {
   const session = {
     runtimeEpoch: 'epoch-a',
@@ -206,44 +299,55 @@ async function run() {
     stateRevision: 6,
     previewCols: 80,
     previewRows: 24,
-    geometryControl: createTerminalGeometryControl(),
+    controllerLease: createTerminalControllerLease(),
   };
   const inputWrites = [];
+  let interruptCount = 0;
   let clearCount = 0;
   let acknowledgedChars = 0;
+  let acknowledgedCheckpoint = null;
   const manager = {
-    async claimAgentSessionGeometry(_agentId, options) {
-      return claimTerminalGeometry(session, options);
+    agentRequiresTerminalController() {
+      return true;
     },
-    async renewAgentSessionGeometry(_agentId, options) {
-      return renewTerminalGeometry(session, options);
+    async claimAgentSessionController(_agentId, options) {
+      return claimTerminalController(session, options);
     },
-    async releaseAgentSessionGeometry(_agentId, options) {
-      return releaseTerminalGeometry(session, options);
+    async renewAgentSessionController(_agentId, options) {
+      return renewTerminalController(session, options);
+    },
+    async releaseAgentSessionController(_agentId, options) {
+      return releaseTerminalController(session, options);
     },
     async activateAgentSessionRenderer(_agentId, options) {
-      const controlState = validateTerminalGeometryRendererReady(session, options);
+      const controlState = validateTerminalControllerRendererReady(session, options);
       if (controlState.status === 'renderer-ready-accepted') {
-        session.geometryControl.rendererReadyFence = options.fence;
+        session.controllerLease.rendererReadyFence = options.fence;
       }
       return controlState;
     },
     async resizeAgentSession(_agentId, cols, rows, options) {
-      const begun = beginTerminalGeometryResize(session, options);
+      const begun = beginTerminalControllerResize(session, options);
       if (!begun.accepted) return begun.result;
       session.previewCols = cols;
       session.previewRows = rows;
       session.stateRevision += 1;
-      return commitTerminalGeometryResize(session, begun.requestSeq);
+      return commitTerminalControllerResize(session, begun.requestSeq);
     },
     async sendInput(_agentId, input, options) {
-      const controlState = validateTerminalGeometryInput(session, options.terminalControl);
+      const controlState = validateTerminalControllerInput(session, options.terminalControl);
       if (controlState.status !== 'input-accepted') return controlState;
       inputWrites.push(input);
       return { sent: true };
     },
-    async clearAgentSessionBuffer(_agentId, geometry) {
-      const controlState = validateTerminalGeometryClear(session, geometry);
+    async interruptAgent(_agentId, options = {}) {
+      const controlState = validateTerminalControllerInput(session, options.terminalControl);
+      if (controlState.status !== 'input-accepted') return controlState;
+      interruptCount += 1;
+      return { sent: true };
+    },
+    async clearAgentSessionBuffer(_agentId, controller) {
+      const controlState = validateTerminalControllerClear(session, controller);
       if (controlState.status !== 'clear-accepted') {
         return { cleared: false, ...controlState };
       }
@@ -256,17 +360,25 @@ async function run() {
         stateRevision: session.stateRevision,
         cols: session.previewCols,
         rows: session.previewRows,
-        expiresAt: session.geometryControl.expiresAt,
+        expiresAt: session.controllerLease.expiresAt,
       };
     },
-    async acknowledgeAgentSessionOutput(_agentId, charCount, geometry) {
-      const controlState = validateTerminalGeometryOutputAck(session, geometry);
+    async acknowledgeAgentSessionOutput(_agentId, charCount, controller) {
+      const controlState = validateTerminalControllerOutputAck(session, controller);
       if (controlState.status !== 'output-ack-accepted') return controlState;
       acknowledgedChars += charCount;
       return controlState;
     },
+    async acknowledgeAgentSessionCheckpoint(_agentId, outputSeq, stateRevision, controller) {
+      const controlState = validateTerminalControllerOutputAck(session, controller);
+      if (controlState.status !== 'output-ack-accepted') {
+        return { ...controlState, status: 'checkpoint-applied-rejected' };
+      }
+      acknowledgedCheckpoint = { outputSeq, stateRevision };
+      return { ...controlState, status: 'checkpoint-applied-accepted' };
+    },
   };
-  const coordinator = new TerminalGeometryCoordinator({
+  const coordinator = new TerminalControllerCoordinator({
     agentManager: manager,
     serverInstanceId: 'server-a',
     leaseTtlMs: 30000,
@@ -319,6 +431,28 @@ async function run() {
   assert.ok(secondOwner.fence > firstOwner.fence);
   assert.strictEqual(lastMessage(first).status, 'revoked');
   assert.strictEqual(lastMessage(first).reason, 'interactive-takeover');
+  assert.strictEqual(
+    coordinator.authorizeHttpMutation('agent-a', null).allowed,
+    false,
+    'HTTP Terminal mutations must not bypass the browser owner',
+  );
+  assert.strictEqual(
+    coordinator.authorizeHttpMutation('agent-a', {
+      attachmentId: 'attachment-b',
+      leaseId: secondOwner.leaseId,
+      fence: secondOwner.fence,
+      expectedRuntimeEpoch: 'epoch-a',
+    }).allowed,
+    true,
+  );
+  let rejectedSystemMutationRan = false;
+  const rejectedSystemMutation = await coordinator.runSystemMutation('agent-a', async () => {
+    rejectedSystemMutationRan = true;
+    return { sent: true };
+  }, { expectedRuntimeEpoch: 'epoch-a' });
+  assert.strictEqual(rejectedSystemMutation.status, 'rejected');
+  assert.strictEqual(rejectedSystemMutation.reason, 'terminal-controlled-by-browser');
+  assert.strictEqual(rejectedSystemMutationRan, false);
 
   await coordinator.claim(first, {
     agentId: 'agent-a',
@@ -367,6 +501,11 @@ async function run() {
   assert.strictEqual(lastMessage(second).reason, 'renderer-not-ready');
   assert.strictEqual(inputWrites.length, 0, 'input must wait for the replay commit boundary');
   assert.strictEqual(coordinator.owners.has('agent-a'), false);
+  assert.deepStrictEqual(
+    coordinator.authorizeHttpMutation('agent-a', null),
+    { allowed: false, reason: 'unowned' },
+    'an unowned Terminal must be claimed before an HTTP mutation',
+  );
 
   await coordinator.claim(second, {
     agentId: 'agent-a',
@@ -386,12 +525,45 @@ async function run() {
     fence: secondOwner.fence,
     expectedRuntimeEpoch: 'epoch-a',
   });
-  assert.strictEqual(session.geometryControl.rendererReadyFence, secondOwner.fence);
+  assert.strictEqual(session.controllerLease.rendererReadyFence, secondOwner.fence);
   assert.strictEqual(
     second.messages.length,
     secondMessagesBeforeRendererReady,
     'successful renderer readiness remains an ordered transport barrier without a second ACK',
   );
+
+  await coordinator.checkpointApplied(second, {
+    agentId: 'agent-a',
+    attachmentId: 'attachment-b',
+    leaseId: secondOwner.leaseId,
+    fence: secondOwner.fence,
+    expectedRuntimeEpoch: 'epoch-a',
+    outputSeq: session.outputSeq,
+    stateRevision: session.stateRevision,
+  });
+  assert.deepStrictEqual(acknowledgedCheckpoint, {
+    outputSeq: session.outputSeq,
+    stateRevision: session.stateRevision,
+  });
+
+  await coordinator.interrupt(first, {
+    agentId: 'agent-a',
+    attachmentId: 'attachment-a',
+    leaseId: firstOwner.leaseId,
+    fence: firstOwner.fence,
+    expectedRuntimeEpoch: 'epoch-a',
+  });
+  assert.strictEqual(lastMessage(first).status, 'observer');
+  assert.strictEqual(interruptCount, 0, 'a revoked browser must not interrupt the PTY');
+
+  await coordinator.interrupt(second, {
+    agentId: 'agent-a',
+    attachmentId: 'attachment-b',
+    leaseId: secondOwner.leaseId,
+    fence: secondOwner.fence,
+    expectedRuntimeEpoch: 'epoch-a',
+  });
+  assert.strictEqual(interruptCount, 1, 'only the current controller may interrupt the PTY');
 
   const secondMessagesBeforeInput = second.messages.length;
   await coordinator.input(second, {
@@ -511,6 +683,16 @@ async function run() {
   assert.strictEqual(lastMessage(second).status, 'unowned');
   assert.strictEqual(lastMessage(second).reason, 'socket-closed');
   assert.strictEqual(coordinator.owners.has('agent-a'), false);
+  let systemControl = null;
+  const systemMutation = await coordinator.runSystemMutation('agent-a', async (context) => {
+    systemControl = context.terminalControl;
+    return { sent: true };
+  }, { expectedRuntimeEpoch: 'epoch-a' });
+  assert.deepStrictEqual(systemMutation, { sent: true });
+  assert.deepStrictEqual(systemControl, {
+    kind: 'system',
+    expectedRuntimeEpoch: 'epoch-a',
+  });
 
   await coordinator.resize(second, {
     agentId: 'agent-a',
@@ -529,8 +711,9 @@ async function run() {
   await testControllerDoesNotReadDisplayCheckpoint();
   await testLeaseExpiryReleasesController();
   await testLeaseExpirySchedulerRespectsRenewedDeadline();
+  await testOwnedMutationSerializesInteractiveTakeover();
 
-  console.log('terminal geometry coordinator tests passed');
+  console.log('terminal controller coordinator tests passed');
 }
 
 run().catch((error) => {

@@ -19,6 +19,26 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function claimRenderer(engine, sessionId, claimId) {
+  const state = await engine.getSessionState(sessionId);
+  const ownerKey = `test-owner-${claimId}`;
+  const owner = await engine.claimSessionController(sessionId, {
+    ownerKey,
+    claimId,
+    expectedRuntimeEpoch: state.runtimeEpoch,
+  });
+  assert.strictEqual(owner.status, 'owner');
+  const terminalControl = {
+    ownerKey,
+    leaseId: owner.leaseId,
+    fence: owner.fence,
+    expectedRuntimeEpoch: state.runtimeEpoch,
+  };
+  const ready = await engine.activateSessionRenderer(sessionId, terminalControl);
+  assert.strictEqual(ready.status, 'renderer-ready-accepted');
+  return terminalControl;
+}
+
 async function waitFor(fn, label) {
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
@@ -347,6 +367,31 @@ async function run() {
     fs.rmSync(configDir, { recursive: true, force: true });
   }
 
+  const staleDataClient = new NativePtyHostClient({ configDir: fs.mkdtempSync(path.join(os.tmpdir(), 'farming-native-stale-data-client-')) });
+  try {
+    const socket = () => Object.assign(new EventEmitter(), {
+      destroyed: false,
+      destroy() { this.destroyed = true; },
+    });
+    const oldSocket = socket();
+    const newSocket = socket();
+    const events = [];
+    staleDataClient.on('session-output', event => events.push(event));
+    staleDataClient.attachSocket(oldSocket);
+    staleDataClient.attachSocket(newSocket);
+
+    oldSocket.emit('data', Buffer.from(`${JSON.stringify({ event: 'session-output', payload: { data: 'stale' } })}\n`));
+    assert.deepStrictEqual(events, [], 'late data from a replaced native host socket must be ignored');
+    assert.strictEqual(staleDataClient.buffer, '', 'late data must not enter the current socket frame buffer');
+
+    newSocket.emit('data', Buffer.from(`${JSON.stringify({ event: 'session-output', payload: { data: 'current' } })}\n`));
+    assert.deepStrictEqual(events, [{ data: 'current' }], 'the current native host socket must continue delivering events');
+  } finally {
+    const configDir = staleDataClient.configDir;
+    staleDataClient.disconnect();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+
   const retrying = makeFlakyRequestClient('write-error', { status: 'running' });
   try {
     const result = await retrying.client.request('getSessionState', { sessionId: 'retry-session' });
@@ -612,7 +657,16 @@ async function run() {
       metadata: { command: 'bash', cwd: process.cwd() },
     });
     await waitFor(() => fs.existsSync(persistentSocketPath), 'persistent native pty socket');
-    await persistentEngine.sendInput('persistent-native-smoke', "printf 'persistent-host-alive\\n'\n");
+    const persistentControl = await claimRenderer(
+      persistentEngine,
+      'persistent-native-smoke',
+      'persistent',
+    );
+    await persistentEngine.sendInput(
+      'persistent-native-smoke',
+      "printf 'persistent-host-alive\\n'\n",
+      { terminalControl: persistentControl },
+    );
     await waitFor(async () => {
       const current = await persistentEngine.getSessionState('persistent-native-smoke');
       return current && current.output.includes('persistent-host-alive') ? current : null;
@@ -668,9 +722,11 @@ async function run() {
     });
 
     await delay(300);
+    let terminalControl = await claimRenderer(engine, 'native-smoke', 'native');
     await engine.sendInput(
       'native-smoke',
-      "printf 'TERM=%s COLORTERM=%s NO_COLOR=%s\\n' \"$TERM\" \"$COLORTERM\" \"${NO_COLOR-unset}\"\nprintf '\\033[31mred\\033[0m\\n'\n"
+      "printf 'TERM=%s COLORTERM=%s NO_COLOR=%s\\n' \"$TERM\" \"$COLORTERM\" \"${NO_COLOR-unset}\"\nprintf '\\033[31mred\\033[0m\\n'\n",
+      { terminalControl },
     );
 
     const state = await waitFor(async () => {
@@ -692,7 +748,7 @@ async function run() {
     assert.strictEqual(state.terminalStatus.cwd, process.cwd());
     assert.strictEqual(typeof state.terminalStatus.busy, 'boolean');
 
-    const clearResult = await engine.clearBuffer('native-smoke');
+    const clearResult = await engine.clearBuffer('native-smoke', terminalControl);
     assert.strictEqual(clearResult.cleared, true, 'native session clear should report success');
     const clearedState = await waitFor(async () => {
       const current = await engine.getSessionState('native-smoke');
@@ -706,7 +762,11 @@ async function run() {
     assert.strictEqual(clearedState.output.includes('TERM=xterm-256color'), false, clearedState.output);
     assert.strictEqual(clearedState.renderOutput.includes('TERM=xterm-256color'), false, clearedState.renderOutput);
 
-    await engine.sendInput('native-smoke', "printf 'AFTER_CLEAR\\n'\n");
+    await engine.sendInput(
+      'native-smoke',
+      "printf 'AFTER_CLEAR\\n'\n",
+      { terminalControl },
+    );
     const afterClearState = await waitFor(async () => {
       const current = await engine.getSessionState('native-smoke');
       return current && current.output.includes('AFTER_CLEAR') ? current : null;
@@ -729,7 +789,11 @@ async function run() {
       'serialized replay must respect the authoritative clear-buffer state'
     );
     await assert.rejects(
-      () => engine.sendInput('native-smoke', "printf 'MUST_NOT_RUN_DURING_ROTATION\\n'\n"),
+      () => engine.sendInput(
+        'native-smoke',
+        "printf 'MUST_NOT_RUN_DURING_ROTATION\\n'\n",
+        { terminalControl },
+      ),
       /frozen for runtime rotation/,
       'input must be rejected after the exact serialization cut'
     );
@@ -739,7 +803,7 @@ async function run() {
       'resize must be rejected after the exact serialization cut'
     );
     await assert.rejects(
-      () => engine.clearBuffer('native-smoke'),
+      () => engine.clearBuffer('native-smoke', terminalControl),
       /frozen for runtime rotation/,
       'clear must be rejected after the exact serialization cut'
     );
@@ -790,7 +854,12 @@ async function run() {
     assert(revivedState.renderOutput.includes('AFTER_CLEAR'), revivedState.renderOutput);
     assert.strictEqual(revivedState.renderOutput.includes('TERM=xterm-256color'), false);
 
-    await engine.sendInput('native-smoke', "printf 'REVIVED_SHELL_LIVE\\n'\n");
+    terminalControl = await claimRenderer(engine, 'native-smoke', 'revived');
+    await engine.sendInput(
+      'native-smoke',
+      "printf 'REVIVED_SHELL_LIVE\\n'\n",
+      { terminalControl },
+    );
     await waitFor(async () => {
       const current = await engine.getSessionState('native-smoke');
       return current && current.output.includes('REVIVED_SHELL_LIVE') ? current : null;

@@ -19,7 +19,6 @@ const {
   getCrtPreviewCellStyle,
   getCrtTerminalSnapshotRows,
   crtStructuredPreviewMessageLines,
-  calculateTerminalInputBridgePosition,
   getCrtTerminalFontSize,
   normalizeCrtTerminalFontSize,
   isCrtAgentWorking,
@@ -394,15 +393,6 @@ function run() {
       textDecoration: 'underline',
       opacity: '',
     },
-  );
-  assert.deepStrictEqual(
-    calculateTerminalInputBridgePosition(
-      { x: 10, y: 5 },
-      { cols: 80, rows: 20 },
-      { left: 100, top: 200, width: 800, height: 400 },
-      { left: 10, top: 20 },
-    ),
-    { left: 190, top: 280, height: 20 },
   );
   assert.strictEqual(getCrtTerminalFontSize(), 15);
   assert.deepStrictEqual(

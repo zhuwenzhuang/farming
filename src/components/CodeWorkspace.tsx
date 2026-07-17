@@ -63,6 +63,7 @@ import {
   type WorkspaceFileSearchMatch,
 } from '@/lib/workspace-files'
 import {
+  getTerminalControllerCredentials,
   sendTerminalSessionInput,
   type TerminalPathOpenTarget,
 } from '@/lib/terminal-session-pool'
@@ -1593,7 +1594,12 @@ export function CodeWorkspace({
       const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agent.id)}/codex-terminal-profile`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, effort, serviceTier }),
+        body: JSON.stringify({
+          model,
+          effort,
+          serviceTier,
+          controller: getTerminalControllerCredentials(agent.id),
+        }),
       })
       const data = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(data.error || `Failed to update Codex Terminal (${response.status})`)

@@ -1,7 +1,7 @@
 const assert = require('assert');
 const NativePtyHost = require('../native-pty-host');
 const LocalSessionEngine = require('../local-session-engine');
-const { createTerminalGeometryControl } = require('../terminal-geometry-control');
+const { createTerminalControllerLease } = require('../terminal-controller-lease');
 const { createTerminalReducerFlowControl } = require('../terminal-reducer-flow-control');
 
 function deferred() {
@@ -53,7 +53,7 @@ function createSession(id, commits) {
       rendererLowWatermarkChars: 4,
     }),
     reducerCommitQueue: Promise.resolve(),
-    geometryControl: createTerminalGeometryControl(),
+    controllerLease: createTerminalControllerLease(),
     previewCols: 80,
     previewRows: 24,
     title: '',
@@ -96,38 +96,50 @@ function createEngine(EngineClass, session) {
 }
 
 async function claim(engine, session, client) {
-  const geometry = {
+  const controller = {
     ownerKey: `owner-${session.id}`,
     claimId: `claim-${session.id}`,
     expectedRuntimeEpoch: session.runtimeEpoch,
   };
   return client
-    ? engine.claimSessionGeometry(session.id, geometry, client)
-    : engine.claimSessionGeometry(session.id, geometry);
+    ? engine.claimSessionController(session.id, controller, client)
+    : engine.claimSessionController(session.id, controller);
 }
 
 async function acknowledge(engine, session, owner, client, charCount) {
-  const geometry = {
+  const controller = {
     ownerKey: owner.ownerKey,
     leaseId: owner.leaseId,
     fence: owner.fence,
     expectedRuntimeEpoch: session.runtimeEpoch,
   };
   return client
-    ? engine.acknowledgeSessionOutput(session.id, charCount, geometry, client)
-    : engine.acknowledgeSessionOutput(session.id, charCount, geometry);
+    ? engine.acknowledgeSessionOutput(session.id, charCount, controller, client)
+    : engine.acknowledgeSessionOutput(session.id, charCount, controller);
 }
 
 async function activateRenderer(engine, session, owner, client) {
-  const geometry = {
+  const controller = {
     ownerKey: owner.ownerKey,
     leaseId: owner.leaseId,
     fence: owner.fence,
     expectedRuntimeEpoch: session.runtimeEpoch,
   };
   return client
-    ? engine.activateSessionRenderer(session.id, geometry, client)
-    : engine.activateSessionRenderer(session.id, geometry);
+    ? engine.activateSessionRenderer(session.id, controller, client)
+    : engine.activateSessionRenderer(session.id, controller);
+}
+
+async function acknowledgeCheckpoint(engine, session, owner, client, outputSeq, stateRevision) {
+  const controller = {
+    ownerKey: owner.ownerKey,
+    leaseId: owner.leaseId,
+    fence: owner.fence,
+    expectedRuntimeEpoch: session.runtimeEpoch,
+  };
+  return client
+    ? engine.acknowledgeSessionCheckpoint(session.id, outputSeq, stateRevision, controller, client)
+    : engine.acknowledgeSessionCheckpoint(session.id, outputSeq, stateRevision, controller);
 }
 
 async function runOrderedFlowCase(label, EngineClass) {
@@ -236,14 +248,14 @@ async function runTakeoverRecoveryCase(label, EngineClass) {
   assert.strictEqual(session.reducerFlowControl.rendererBlocked, true);
   assert.strictEqual(session.process.pauseCount, 1);
 
-  const secondGeometry = {
+  const secondController = {
     ownerKey: `replacement-${session.id}`,
     claimId: `replacement-claim-${session.id}`,
     expectedRuntimeEpoch: session.runtimeEpoch,
   };
   const secondOwner = await (client
-    ? engine.claimSessionGeometry(session.id, secondGeometry, client)
-    : engine.claimSessionGeometry(session.id, secondGeometry));
+    ? engine.claimSessionController(session.id, secondController, client)
+    : engine.claimSessionController(session.id, secondController));
   assert.strictEqual(secondOwner.status, 'owner');
   assert(secondOwner.fence > firstOwner.fence);
   assert.strictEqual(
@@ -273,6 +285,51 @@ async function runTakeoverRecoveryCase(label, EngineClass) {
   assert.strictEqual(staleAck.reason, 'stale-lease');
 }
 
+async function runCheckpointDebtCase(label, EngineClass) {
+  const commits = [];
+  const session = createSession(`checkpoint-${label}`, commits);
+  const { engine, client } = createEngine(EngineClass, session);
+  const owner = await claim(engine, session, client);
+  await activateRenderer(engine, session, owner, client);
+  session.process.pauseCount = 0;
+  session.process.resumeCount = 0;
+
+  engine.handleSessionData(session.id, '123456');
+  engine.handleSessionData(session.id, 'abcdef');
+  commits[0].resolve();
+  commits[1].resolve();
+  await tick();
+  await tick();
+  assert.deepStrictEqual(session.reducerFlowControl.rendererDebt, [
+    { outputSeq: 1, charCount: 6 },
+    { outputSeq: 2, charCount: 6 },
+  ]);
+  assert.strictEqual(session.reducerFlowControl.rendererBlocked, true);
+
+  const applied = await acknowledgeCheckpoint(engine, session, owner, client, 2, 2);
+  assert.strictEqual(applied.status, 'checkpoint-applied-accepted');
+  assert.strictEqual(session.reducerFlowControl.unacknowledgedRendererChars, 0);
+  assert.deepStrictEqual(session.reducerFlowControl.rendererDebt, []);
+  assert.strictEqual(session.process.resumeCount, 1, `${label}: replay must release covered debt`);
+
+  engine.handleSessionData(session.id, 'ghijkl');
+  commits[2].resolve();
+  await tick();
+  await tick();
+  assert.deepStrictEqual(session.reducerFlowControl.rendererDebt, [
+    { outputSeq: 3, charCount: 6 },
+  ]);
+  const staleApplied = await acknowledgeCheckpoint(engine, session, owner, client, 2, 2);
+  assert.strictEqual(staleApplied.status, 'checkpoint-applied-accepted');
+  assert.strictEqual(
+    session.reducerFlowControl.unacknowledgedRendererChars,
+    6,
+    `${label}: checkpoint must not erase output produced after its cut`,
+  );
+  await acknowledge(engine, session, owner, client, 6);
+  assert.strictEqual(session.reducerFlowControl.unacknowledgedRendererChars, 0);
+}
+
 async function run() {
   for (const [label, EngineClass] of [
     ['native', NativePtyHost],
@@ -280,6 +337,7 @@ async function run() {
   ]) {
     await runOrderedFlowCase(label, EngineClass);
     await runTakeoverRecoveryCase(label, EngineClass);
+    await runCheckpointDebtCase(label, EngineClass);
     await runReducerFailureCase(label, EngineClass);
   }
   console.log('terminal output flow-control integration tests passed');

@@ -3,8 +3,10 @@ const EventEmitter = require('events');
 const TerminalScreenWorker = require('../terminal-screen-worker');
 
 class FakeWorker extends EventEmitter {
-  constructor(_workerFile, options = {}) {
+  constructor(workerFile, options = {}) {
     super();
+    this.workerFile = workerFile;
+    this.eval = options.eval === true;
     this.workerData = options.workerData || {};
     this.messages = [];
     this.terminated = false;
@@ -171,6 +173,19 @@ async function run() {
   });
   assert.strictEqual(hanging.pendingRequests.size, 0, 'late worker responses should not recreate pending state');
   await withKeepAlive(hanging.dispose());
+
+  const unobservedFailure = new TerminalScreenWorker({
+    WorkerClass: FakeWorker,
+    requestTimeoutMs: 50,
+    mode: 'hang',
+  });
+  const unobservedPending = unobservedFailure.getState();
+  assert.doesNotThrow(
+    () => unobservedFailure.worker.emit('exit', 1),
+    'an idle pool worker failure must reject its pending readiness check without an unhandled EventEmitter error',
+  );
+  await assert.rejects(() => unobservedPending, /exited unexpectedly/);
+  await withKeepAlive(unobservedFailure.dispose());
 
   const exiting = new TerminalScreenWorker({
     WorkerClass: FakeWorker,

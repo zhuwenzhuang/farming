@@ -41,6 +41,7 @@ async function run() {
     manager.engineBridge.router.engines.local.emit('session-busy-state', {
       sessionId: 'cursor-agent',
       terminalBusy: true,
+      runtimeEpoch: 'cursor-epoch',
     });
     let agent = manager.agents.get('cursor-agent');
     assert.strictEqual(agent.attentionSeq, 0, 'starting work should only establish/advance the active baseline');
@@ -54,6 +55,7 @@ async function run() {
     manager.engineBridge.router.engines.local.emit('session-busy-state', {
       sessionId: 'cursor-agent',
       terminalBusy: false,
+      runtimeEpoch: 'cursor-epoch',
     });
     agent = manager.agents.get('cursor-agent');
     assert.strictEqual(agent.attentionSeq, 1, 'finishing observed work should create an attention event');
@@ -81,6 +83,7 @@ async function run() {
     manager.engineBridge.router.engines.local.emit('session-busy-state', {
       sessionId: 'cursor-agent',
       terminalBusy: true,
+      runtimeEpoch: 'cursor-epoch',
     });
     manager.engineBridge.router.engines.local.emit('session-output', {
       sessionId: 'cursor-agent',
@@ -96,6 +99,7 @@ async function run() {
     manager.engineBridge.router.engines.local.emit('session-busy-state', {
       sessionId: 'cursor-agent',
       terminalBusy: false,
+      runtimeEpoch: 'cursor-epoch',
     });
     assert.strictEqual(
       manager.agents.get('cursor-agent').unread,
@@ -106,6 +110,7 @@ async function run() {
     manager.engineBridge.router.engines.local.emit('session-busy-state', {
       sessionId: 'cursor-agent',
       terminalBusy: true,
+      runtimeEpoch: 'cursor-epoch',
     });
     manager.engineBridge.router.engines.local.emit('session-output', {
       sessionId: 'cursor-agent',
@@ -116,6 +121,7 @@ async function run() {
     manager.engineBridge.router.engines.local.emit('session-busy-state', {
       sessionId: 'cursor-agent',
       terminalBusy: false,
+      runtimeEpoch: 'cursor-epoch',
     });
     assert.strictEqual(
       manager.agents.get('cursor-agent').unread,

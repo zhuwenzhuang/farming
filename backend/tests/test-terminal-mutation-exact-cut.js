@@ -3,9 +3,9 @@ const NativePtyHost = require('../native-pty-host');
 const LocalSessionEngine = require('../local-session-engine');
 const { coalesceSessionStream } = require('../session-stream-protocol');
 const {
-  claimTerminalGeometry,
-  createTerminalGeometryControl,
-} = require('../terminal-geometry-control');
+  claimTerminalController,
+  createTerminalControllerLease,
+} = require('../terminal-controller-lease');
 
 function deferred() {
   let resolve;
@@ -35,7 +35,7 @@ function makeSession(id, screenWorker) {
     lastActivityAt: Date.now(),
     stateProofAvailable: true,
     reducerCommitQueue: Promise.resolve(),
-    geometryControl: createTerminalGeometryControl(),
+    controllerLease: createTerminalControllerLease(),
     process: {
       resize(cols, rows) {
         resizeCalls.push({ cols, rows });
@@ -87,17 +87,17 @@ async function verifyResizeExactCut(kind) {
     : createLocalHarness(session);
   const ownerKey = 'owner-a';
   const lease = await (kind === 'native'
-    ? harness.claimSessionGeometry(session.id, {
+    ? harness.claimSessionController(session.id, {
         ownerKey,
         claimId: 'claim-a',
         expectedRuntimeEpoch: session.runtimeEpoch,
       }, client)
-    : claimTerminalGeometry(session, {
+    : claimTerminalController(session, {
         ownerKey,
         claimId: 'claim-a',
         expectedRuntimeEpoch: session.runtimeEpoch,
       }));
-  session.geometryControl.rendererReadyFence = lease.fence;
+  session.controllerLease.rendererReadyFence = lease.fence;
 
   const pending = kind === 'native'
     ? harness.resizeSession(session.id, 120, 40, {
@@ -151,11 +151,30 @@ async function verifyClearExactCut(kind) {
       return clearResult.promise;
     },
   });
-  const { harness, events } = kind === 'native'
+  const { harness, events, client } = kind === 'native'
     ? createNativeHarness(session)
     : createLocalHarness(session);
+  const ownerKey = 'clear-owner';
+  const lease = kind === 'native'
+    ? await harness.claimSessionController(session.id, {
+        ownerKey,
+        claimId: 'clear-claim',
+        expectedRuntimeEpoch: session.runtimeEpoch,
+      }, client)
+    : claimTerminalController(session, {
+        ownerKey,
+        claimId: 'clear-claim',
+        expectedRuntimeEpoch: session.runtimeEpoch,
+      });
+  session.controllerLease.rendererReadyFence = lease.fence;
+  const terminalControl = {
+    ownerKey,
+    leaseId: lease.leaseId,
+    fence: lease.fence,
+    expectedRuntimeEpoch: session.runtimeEpoch,
+  };
 
-  const pending = harness.clearBuffer(session.id);
+  const pending = harness.clearBuffer(session.id, terminalControl);
   outputAfterMutation(session);
   clearResult.resolve({
     runtimeEpoch: session.runtimeEpoch,
@@ -187,7 +206,7 @@ async function verifyClearExactCut(kind) {
     stateRevision: 2,
     cols: 80,
     rows: 24,
-    expiresAt: 0,
+    expiresAt: session.controllerLease.expiresAt,
   });
 
   const coalesced = coalesceSessionStream(

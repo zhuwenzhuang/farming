@@ -24,6 +24,17 @@ async function createBashAgent(page: Page, workspace: string) {
   return data.agentId as string
 }
 
+async function sessionView(page: Page, agentId: string) {
+  const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
+  expect(response.ok()).toBeTruthy()
+  const body = await response.json() as {
+    session?: {
+      renderOutput?: string
+    }
+  }
+  return body.session || {}
+}
+
 async function prepareBrowserPage(page: Page) {
   await page.addInitScript(() => {
     window.__FARMING_E2E__ = true
@@ -53,25 +64,23 @@ async function openCodeTerminal(page: Page, agentId: string) {
 
 async function waitForCodeOwner(page: Page, agentId: string) {
   await expect(codeTerminalHost(page, agentId))
-    .toHaveAttribute('data-geometry-status', 'owner', { timeout: 15_000 })
+    .toHaveAttribute('data-controller-status', 'owner', { timeout: 15_000 })
   await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
   await page.waitForFunction(id => {
     const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics(id) as unknown as {
-      geometryStatus?: string
+      controllerStatus?: string
       checkpointRequestInFlight?: boolean
       replayTargetRevision?: number | null
       replayInProgress?: boolean
       bootstrappingSnapshot?: boolean
       pendingSnapshotReplay?: boolean
-      pendingInputCount?: number
     } | null
-    return diagnostics?.geometryStatus === 'owner'
+    return diagnostics?.controllerStatus === 'owner'
       && diagnostics.checkpointRequestInFlight === false
       && diagnostics.replayTargetRevision === null
       && diagnostics.replayInProgress === false
       && diagnostics.bootstrappingSnapshot === false
       && diagnostics.pendingSnapshotReplay === false
-      && diagnostics.pendingInputCount === 0
   }, agentId)
 }
 
@@ -239,7 +248,7 @@ test('CRT owner reload restores its checkpoint with a new attachment and keeps a
     expect(firstAttachmentId).toBeTruthy()
     await crtPage.waitForTimeout(3_000)
     // Display attachment owns one explicit checkpoint request; controller
-    // geometry claims never hydrate terminal output.
+    // controller claims never hydrate terminal output.
     expect(checkpointRequests).toBe(1)
 
     const historyCommand = `printf '${historyMarker}\\n'`
@@ -269,6 +278,248 @@ test('CRT owner reload restores its checkpoint with a new attachment and keeps a
     await expect.poll(() => inputs.slice(reloadInputStart).map(frame => frame.input).join(''))
       .toContain(`${reloadCommand}\r`)
     await expectFileText(afterReloadFile, 'reload-input-ok\n')
+  } finally {
+    await crtPage.close()
+  }
+})
+
+test('CRT hidden-page disconnect resumes from one authoritative latest checkpoint', async ({
+  page,
+  context,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'crt-hidden-checkpoint-resume')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createBashAgent(page, workspace)
+  await prepareBrowserPage(page)
+  await openCodeTerminal(page, agentId)
+
+  const crtPage = await context.newPage()
+  await crtPage.addInitScript(() => { window.__FARMING_E2E__ = true })
+  try {
+    await crtPage.goto(`/farming/crt/?agent=${encodeURIComponent(agentId)}`, { waitUntil: 'domcontentloaded' })
+    await expect(crtPage.locator('#session-modal')).toHaveClass(/active/, { timeout: 30_000 })
+    const takeover = crtPage.locator('.crt-terminal-takeover')
+    await expect(takeover).toBeVisible({ timeout: 15_000 })
+    await takeover.click()
+    await expect(takeover).toBeHidden({ timeout: 15_000 })
+
+    await crtPage.evaluate(() => {
+      (window as typeof window & { suspendCrtPageConnection?: () => void }).suspendCrtPageConnection?.()
+    })
+    await expect(crtPage.locator('body')).toHaveClass(/page-hidden/)
+    const marker = `CRT_RESUMED_LATEST_${Date.now()}`
+    const response = await page.request.post(`/farming/api/control/agents/${agentId}/input`, {
+      data: { input: `printf '${marker}\\n'\n` },
+    })
+    expect(response.ok()).toBeTruthy()
+    await expect.poll(async () => (
+      (await sessionView(page, agentId)).renderOutput || ''
+    ), { timeout: 10_000 }).toContain(marker)
+
+    await crtPage.evaluate(() => {
+      (window as typeof window & { resumeCrtPageConnection?: () => void }).resumeCrtPageConnection?.()
+    })
+    await expect(crtPage.locator('body')).not.toHaveClass(/page-hidden/)
+    await expect.poll(() => crtPage.evaluate(() => (
+      ((window as typeof window & {
+        __farmingCrtTerminalTest?: { getRows: () => string[] }
+      }).__farmingCrtTerminalTest?.getRows() || []).join('\n')
+    )), { timeout: 20_000 }).toContain(marker)
+    await expect(crtPage.locator('.crt-terminal-sync-status')).toBeHidden({ timeout: 15_000 })
+  } finally {
+    await crtPage.close()
+  }
+})
+
+test('CRT commits a live transition only after the xterm write callback', async ({
+  page,
+  context,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'crt-render-commit-callback')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createBashAgent(page, workspace)
+  const crtPage = await context.newPage()
+  await prepareBrowserPage(crtPage)
+
+  try {
+    await openCrtTerminal(crtPage, agentId)
+    await waitForCrtOwner(crtPage)
+    const initial = await crtPage.evaluate(() => (
+      (window as typeof window & {
+        __farmingCrtTerminalTest?: {
+          getState: () => { runtimeEpoch: string; outputSeq: number; stateRevision: number } | null
+        }
+      }).__farmingCrtTerminalTest?.getState() || null
+    ))
+    expect(initial?.runtimeEpoch).toBeTruthy()
+    expect(initial?.outputSeq).toBeGreaterThanOrEqual(0)
+    expect(initial?.stateRevision).toBeGreaterThanOrEqual(0)
+    const marker = `CRT_RENDER_COMMITTED_${Date.now()}`
+
+    const duringSameTask = await crtPage.evaluate(({ text, outputSeq, runtimeEpoch, stateRevision }) => {
+      const api = (window as typeof window & {
+        __farmingCrtTerminalTest?: {
+          getState: () => { outputSeq: number; stateRevision: number } | null
+          streamSequenced: (
+            data: string,
+            outputSeq: number,
+            runtimeEpoch: string,
+            stateRevision: number,
+          ) => boolean
+        }
+      }).__farmingCrtTerminalTest
+      const accepted = api?.streamSequenced(
+        text,
+        outputSeq + 1,
+        runtimeEpoch,
+        stateRevision + 1,
+      ) || false
+      return { accepted, state: api?.getState() || null }
+    }, {
+      text: `${'x'.repeat(6_000)}\r\n${marker}\r\n`,
+      outputSeq: initial!.outputSeq,
+      runtimeEpoch: initial!.runtimeEpoch,
+      stateRevision: initial!.stateRevision,
+    })
+
+    expect(duringSameTask).toEqual({
+      accepted: true,
+      state: {
+        ...duringSameTask.state,
+        outputSeq: initial!.outputSeq,
+        stateRevision: initial!.stateRevision,
+      },
+    })
+    await expect.poll(() => crtPage.evaluate(() => (
+      (window as typeof window & {
+        __farmingCrtTerminalTest?: {
+          getState: () => { outputSeq: number; stateRevision: number } | null
+        }
+      }).__farmingCrtTerminalTest?.getState() || null
+    ))).toMatchObject({
+      outputSeq: initial!.outputSeq + 1,
+      stateRevision: initial!.stateRevision + 1,
+    })
+    await expect.poll(() => crtPage.evaluate(() => (
+      ((window as typeof window & {
+        __farmingCrtTerminalTest?: { getRows: () => string[] }
+      }).__farmingCrtTerminalTest?.getRows() || []).join('\n')
+    ))).toContain(marker)
+  } finally {
+    await crtPage.close()
+  }
+})
+
+test('CRT preserves checkpoint-uncovered live transitions and flushes empty checkpoint chunks', async ({
+  page,
+  context,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'crt-checkpoint-live-race')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createBashAgent(page, workspace)
+  const crtPage = await context.newPage()
+  await prepareBrowserPage(crtPage)
+
+  try {
+    await openCrtTerminal(crtPage, agentId)
+    await waitForCrtOwner(crtPage)
+    type CrtState = {
+      runtimeEpoch: string
+      outputSeq: number
+      stateRevision: number
+      cols: number
+      rows: number
+    }
+    type CrtTestApi = {
+      getState: () => CrtState | null
+      getRows: () => string[]
+      streamSequenced: (
+        data: string,
+        outputSeq: number,
+        runtimeEpoch: string,
+        stateRevision: number,
+      ) => boolean
+      replaceStream: (stream: Record<string, unknown>) => boolean
+    }
+    const initial = await crtPage.evaluate(() => (
+      (window as typeof window & { __farmingCrtTerminalTest?: CrtTestApi })
+        .__farmingCrtTerminalTest?.getState() || null
+    ))
+    expect(initial?.runtimeEpoch).toBeTruthy()
+    const queuedMarker = `CRT_QUEUED_AFTER_CHECKPOINT_${Date.now()}`
+
+    const accepted = await crtPage.evaluate(({ state, marker }) => {
+      const api = (window as typeof window & { __farmingCrtTerminalTest?: CrtTestApi })
+        .__farmingCrtTerminalTest
+      if (!api) return false
+      const first = api.streamSequenced(
+        'LIVE_BEFORE_CHECKPOINT\r\n',
+        state.outputSeq + 1,
+        state.runtimeEpoch,
+        state.stateRevision + 1,
+      )
+      const queued = api.streamSequenced(
+        `${marker}\r\n`,
+        state.outputSeq + 2,
+        state.runtimeEpoch,
+        state.stateRevision + 2,
+      )
+      const checkpoint = api.replaceStream({
+        runtimeEpoch: state.runtimeEpoch,
+        outputSeq: state.outputSeq + 1,
+        stateRevision: state.stateRevision + 1,
+        cols: state.cols,
+        rows: state.rows,
+        data: 'CHECKPOINT_COVERS_FIRST\r\n',
+      })
+      return first && queued && checkpoint
+    }, { state: initial!, marker: queuedMarker })
+    expect(accepted).toBe(true)
+    await expect.poll(() => crtPage.evaluate(() => (
+      (window as typeof window & { __farmingCrtTerminalTest?: CrtTestApi })
+        .__farmingCrtTerminalTest?.getState() || null
+    ))).toMatchObject({
+      outputSeq: initial!.outputSeq + 2,
+      stateRevision: initial!.stateRevision + 2,
+    })
+    await expect.poll(() => crtPage.evaluate(() => (
+      ((window as typeof window & { __farmingCrtTerminalTest?: CrtTestApi })
+        .__farmingCrtTerminalTest?.getRows() || []).join('\n')
+    ))).toContain(queuedMarker)
+
+    const emptyChunkMarker = `CRT_EMPTY_CHECKPOINT_CHUNK_${Date.now()}`
+    expect(await crtPage.evaluate(({ state, marker }) => {
+      const api = (window as typeof window & { __farmingCrtTerminalTest?: CrtTestApi })
+        .__farmingCrtTerminalTest
+      return api?.replaceStream({
+        runtimeEpoch: state.runtimeEpoch,
+        outputSeq: state.outputSeq + 2,
+        stateRevision: state.stateRevision + 2,
+        cols: state.cols,
+        rows: state.rows,
+        data: '',
+        chunks: [{
+          kind: 'output',
+          data: `${marker}\r\n`,
+          outputSeq: state.outputSeq + 3,
+          stateRevision: state.stateRevision + 3,
+        }],
+      }) || false
+    }, { state: initial!, marker: emptyChunkMarker })).toBe(true)
+    await expect.poll(() => crtPage.evaluate(() => (
+      (window as typeof window & { __farmingCrtTerminalTest?: CrtTestApi })
+        .__farmingCrtTerminalTest?.getState() || null
+    ))).toMatchObject({
+      outputSeq: initial!.outputSeq + 3,
+      stateRevision: initial!.stateRevision + 3,
+    })
+    await expect.poll(() => crtPage.evaluate(() => (
+      ((window as typeof window & { __farmingCrtTerminalTest?: CrtTestApi })
+        .__farmingCrtTerminalTest?.getRows() || []).join('\n')
+    ))).toContain(emptyChunkMarker)
   } finally {
     await crtPage.close()
   }
@@ -329,8 +580,8 @@ test('closing the CRT owner lets the Code observer explicitly take over and writ
     await waitForCrtOwner(crtPage)
     await openCodeTerminal(codePage, agentId)
     const host = codeTerminalHost(codePage, agentId)
-    await expect(host).toHaveAttribute('data-geometry-status', 'observer', { timeout: 15_000 })
-    const takeover = host.locator('.terminal-geometry-takeover')
+    await expect(host).toHaveAttribute('data-controller-status', 'observer', { timeout: 15_000 })
+    const takeover = host.locator('.terminal-controller-takeover')
     await expect(takeover).toBeVisible()
 
     await crtPage.close()

@@ -6,4 +6,4 @@ Brand SVGs are grouped by Agent and visual treatment:
 - `dark/`: theme-specific artwork whose neutral parts remain visible on dark backgrounds.
 - `monochrome/`: artwork driven by `currentColor`, suitable for contextual or theme-aware UI.
 
-`claude.svg` and `claude-code.svg` are intentionally separate assets. Codex retains only monochrome artwork. OpenCode, Qoder, and Zsh select their dark assets automatically in dark mode. `AgentLaunchIcon` uses color artwork by default where available, including the Claude Code mark for the `claude` CLI; callers can request `variant="monochrome"` for a restrained contextual treatment.
+`claude.svg` and `claude-code.svg` are intentionally separate assets. Codex retains only monochrome artwork. OpenCode, Qoder, and Zsh select their dark assets automatically in dark mode. Qoder and Zsh SVGs are compiled into the application and rendered inline so opening an Agent menu never waits on a nested image request. `AgentLaunchIcon` uses color artwork by default where available, including the Claude Code mark for the `claude` CLI; callers can request `variant="monochrome"` for a restrained contextual treatment.

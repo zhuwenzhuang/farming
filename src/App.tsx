@@ -14,7 +14,11 @@ import {
   normalizeUiLanguage,
   type UiPreferences,
 } from '@/lib/ui-preferences'
-import { destroyTerminalSession, pruneTerminalSessions } from '@/lib/terminal-session-pool'
+import {
+  destroyTerminalSession,
+  getTerminalControllerCredentials,
+  pruneTerminalSessions,
+} from '@/lib/terminal-session-pool'
 import { appPath } from '@/lib/base-path'
 import type { Agent, AgentContextWindowUsage, UsageSummary } from '@/types/agent'
 import { loadCodeWorkspaceViewState, saveCodeWorkspaceViewState } from '@/components/code/workspace-view-state'
@@ -601,6 +605,10 @@ export function App() {
     closeTerminal(agentId)
   }, [ws, closeTerminal])
 
+  const handleInterruptAgent = useCallback((agentId: string) => {
+    ws.interruptAgent(agentId, getTerminalControllerCredentials(agentId))
+  }, [ws])
+
   const handleRestartMainAgent = useCallback((command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => {
     if (pendingMainRestartRef.current) return
     hiddenMainStartRequestedRef.current = true
@@ -1060,7 +1068,7 @@ export function App() {
         onRestartMainAgent={handleRestartMainAgent}
         onWorkspaceViewChange={setActiveWorkspaceView}
         onKill={handleKill}
-        onInterruptAgent={ws.interruptAgent}
+        onInterruptAgent={handleInterruptAgent}
         sendComposerInput={ws.sendComposerInput}
         respondToAppServerRequest={ws.respondToAppServerRequest}
         onSessionOutput={ws.onSessionOutput}

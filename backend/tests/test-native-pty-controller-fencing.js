@@ -7,9 +7,9 @@ const {
   allocateNativePtyControllerGeneration,
 } = require('../native-pty-controller-generation');
 const {
-  claimTerminalGeometry,
-  createTerminalGeometryControl,
-} = require('../terminal-geometry-control');
+  claimTerminalController,
+  createTerminalControllerLease,
+} = require('../terminal-controller-lease');
 const {
   createTerminalReducerFlowControl,
   setTerminalExternalFlowControlBlocked,
@@ -36,6 +36,8 @@ async function run() {
   host.sessions = new Map();
   host.sessionMutationQueues = new Map();
   host.activeControllerMutations = new Set();
+  host.controllerRegistrationQueue = Promise.resolve();
+  host.controllerHandoff = null;
   host.rotationPreparation = null;
   host.activeControllerClient = null;
   host.activeControllerIdentity = null;
@@ -45,7 +47,7 @@ async function run() {
     stateRevision: 0,
     previewCols: 80,
     previewRows: 24,
-    geometryControl: createTerminalGeometryControl(),
+    controllerLease: createTerminalControllerLease(),
     reducerFlowControl: createTerminalReducerFlowControl(),
     process: {
       pauseCount: 0,
@@ -57,25 +59,25 @@ async function run() {
   host.sessions.set('agent-a', session);
   const oldClient = client();
   const newClient = client();
-  host.registerController(oldClient, { id: 'controller-a', generation: 10 });
-  const oldLease = claimTerminalGeometry(session, {
+  await host.registerController(oldClient, { id: 'controller-a', generation: 10 });
+  const oldLease = claimTerminalController(session, {
     ownerKey: 'old-owner',
     claimId: 'old-claim',
     expectedRuntimeEpoch: 'epoch-a',
   });
   assert.strictEqual(oldLease.status, 'owner');
 
-  assert.throws(
+  await assert.rejects(
     () => host.registerController(client(), { id: 'controller-stale', generation: 9 }),
     /Stale native pty controller/,
   );
-  assert.throws(
+  await assert.rejects(
     () => host.registerController(client(), { id: 'controller-collision', generation: 10 }),
     /Stale native pty controller/,
   );
 
-  host.registerController(newClient, { id: 'controller-b', generation: 11 });
-  assert.strictEqual(session.geometryControl.ownerKey, '');
+  await host.registerController(newClient, { id: 'controller-b', generation: 11 });
+  assert.strictEqual(session.controllerLease.ownerKey, '');
   assert.throws(() => host.assertActiveController(oldClient), /active controller/);
   assert.doesNotThrow(() => host.assertActiveController(newClient));
 
@@ -110,20 +112,27 @@ async function run() {
     return 'old-complete';
   });
   await oldMutationStarted;
-  host.registerController(newClient, { id: 'controller-b', generation: 13 });
+  let handoffSettled = false;
+  const handoff = host.registerController(newClient, { id: 'controller-b', generation: 13 })
+    .finally(() => { handoffSettled = true; });
+  await Promise.resolve();
+  assert.strictEqual(handoffSettled, false, 'registration must wait for admitted old mutations');
+  await assert.rejects(
+    () => host.enqueueControllerMutation('agent-a', oldClient, () => 'late-old'),
+    /handoff is in progress/,
+  );
+  releaseOldMutation();
+  assert.strictEqual(await oldMutation, 'old-complete');
+  await handoff;
   let newMutationRan = false;
   const newMutation = host.enqueueControllerMutation('agent-a', newClient, () => {
     newMutationRan = true;
     return 'new-complete';
   });
-  await Promise.resolve();
-  assert.strictEqual(newMutationRan, false, 'same-session mutations must remain ordered across takeover');
-  releaseOldMutation();
-  assert.strictEqual(await oldMutation, 'old-complete');
   assert.strictEqual(await newMutation, 'new-complete');
   assert.strictEqual(newMutationRan, true);
 
-  const disconnectLease = claimTerminalGeometry(session, {
+  const disconnectLease = claimTerminalController(session, {
     ownerKey: 'disconnect-owner',
     claimId: 'disconnect-claim',
     expectedRuntimeEpoch: session.runtimeEpoch,
@@ -137,7 +146,7 @@ async function run() {
   host.clients = new Set([newClient]);
   host.scheduleIdleExitIfUnused = () => {};
   host.removeClient(newClient);
-  assert.strictEqual(session.geometryControl.ownerKey, '');
+  assert.strictEqual(session.controllerLease.ownerKey, '');
   assert.strictEqual(session.reducerFlowControl.externalBlocked, false);
   assert.strictEqual(session.process.resumeCount, 1, 'controller disconnect must release external PTY pause');
 

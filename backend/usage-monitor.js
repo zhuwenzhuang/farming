@@ -1239,6 +1239,21 @@ class UsageMonitor {
     const now = options.now ?? Date.now();
     if (options.live === true && String(date || '').trim() === localDateKey(now)) {
       const liveDate = String(date).trim();
+      const dailyFallback = this.dailyCache.value?.providerEvents
+        ? buildUsageDayDetail(this.dailyCache.value.providerEvents, { date: liveDate })
+        : null;
+      const cachedFallback = this.liveDayCache.date === liveDate
+        ? this.liveDayCache.value
+        : null;
+      const fallback = cachedFallback || dailyFallback;
+      const recoverWithFallback = error => {
+        if (!fallback) throw error;
+        if (this.liveDayCache.date === liveDate) {
+          this.liveDayCache.value = fallback;
+          this.liveDayCache.fetchedAt = now;
+        }
+        return fallback;
+      };
       if (
         options.fresh !== true
         && this.liveDayCache.date === liveDate
@@ -1248,7 +1263,7 @@ class UsageMonitor {
         return this.liveDayCache.value;
       }
       if (this.liveDayCache.pending && this.liveDayCache.date === liveDate) {
-        return this.liveDayCache.pending;
+        return this.liveDayCache.pending.catch(recoverWithFallback);
       }
       this.liveDayCache.date = liveDate;
       const pending = collectUsageHistory({
@@ -1271,7 +1286,7 @@ class UsageMonitor {
         if (this.liveDayCache.pending === pending) this.liveDayCache.pending = null;
       });
       this.liveDayCache.pending = pending;
-      return pending;
+      return pending.catch(recoverWithFallback);
     }
     const history = await this.getDailyUsage({
       now,

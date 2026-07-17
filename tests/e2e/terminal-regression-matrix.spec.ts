@@ -539,7 +539,7 @@ test.describe('terminal regression matrix', () => {
         .toContain('[agent@example-host /srv/example/projects/matrix]')
     })
 
-    await scenario('bootstrap checkpoint requests stay bounded after geometry ownership settles', async () => {
+    await scenario('bootstrap checkpoint requests stay bounded after controller ownership settles', async () => {
       try {
         await page.waitForFunction(
           id => Boolean(window.__farmingTerminalTest?.isReady(id)),
@@ -711,11 +711,11 @@ test.describe('terminal regression matrix', () => {
       expect(hasWrappedPromptFragments(text)).toBe(false)
     })
 
-    await scenario('backend reconnect reacquires geometry ownership without duplicate resize', async () => {
+    await scenario('backend reconnect reacquires controller ownership without duplicate resize', async () => {
       const beforeCount = await page.evaluate((id) => window.__farmingTerminalTest?.getResizeNotificationCount(id) ?? 0, bashAgentId)
       await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
       await expect(page.locator(activeTerminalHostSelector(bashAgentId)))
-        .toHaveAttribute('data-geometry-status', 'owner')
+        .toHaveAttribute('data-controller-status', 'owner')
       const result = await page.evaluate((id) => ({
         resizeCount: window.__farmingTerminalTest?.getResizeNotificationCount(id) ?? 0,
         diagnostics: window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null,
@@ -732,6 +732,19 @@ test.describe('terminal regression matrix', () => {
       await selectAgent(page, reconnectOutputAgentId)
       const reconnectSessionViewRoute = new RegExp(`/farming/api/agents/${reconnectOutputAgentId}/session-view$`)
       let sessionViewRequests = 0
+      const checkpointNetworkEvents: string[] = []
+      const recordCheckpointResponse = (response: import('@playwright/test').Response) => {
+        if (reconnectSessionViewRoute.test(response.url())) {
+          checkpointNetworkEvents.push(`response:${response.status()}`)
+        }
+      }
+      const recordCheckpointFailure = (request: import('@playwright/test').Request) => {
+        if (reconnectSessionViewRoute.test(request.url())) {
+          checkpointNetworkEvents.push(`failed:${request.failure()?.errorText || 'unknown'}`)
+        }
+      }
+      page.on('response', recordCheckpointResponse)
+      page.on('requestfailed', recordCheckpointFailure)
       const handler = async (route: import('@playwright/test').Route) => {
         sessionViewRequests += 1
         await route.continue()
@@ -759,9 +772,28 @@ test.describe('terminal regression matrix', () => {
         sessionViewRequests = 0
         await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
         await page.evaluate(() => window.dispatchEvent(new Event('pageshow')))
-        await expect.poll(async () => await visibleTerminalText(page, reconnectOutputAgentId)).toContain('MISSED_RECONNECT_OUTPUT')
+        try {
+          await expect.poll(async () => await visibleTerminalText(page, reconnectOutputAgentId))
+            .toContain('MISSED_RECONNECT_OUTPUT')
+        } catch (error) {
+          const diagnostics = await terminalDiagnostics(page, reconnectOutputAgentId)
+          const authoritative = await (
+            await page.request.get(`/farming/api/agents/${reconnectOutputAgentId}/session-view`)
+          ).json()
+          throw new Error(
+            `${error instanceof Error ? error.message : String(error)}\n`
+            + `Reconnect diagnostics: ${JSON.stringify({
+              diagnostics,
+              authoritative,
+              sessionViewRequests,
+              checkpointNetworkEvents,
+            })}`,
+          )
+        }
         expect(sessionViewRequests).toBeLessThanOrEqual(2)
       } finally {
+        page.off('response', recordCheckpointResponse)
+        page.off('requestfailed', recordCheckpointFailure)
         await page.unroute(reconnectSessionViewRoute, handler)
         await selectAgent(page, bashAgentId)
       }

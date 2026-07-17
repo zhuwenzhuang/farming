@@ -123,6 +123,50 @@ function run() {
   assert.strictEqual(supersedingCheckpoint.stateRevision, 3);
   assert.strictEqual(supersedingCheckpoint.chunks, undefined);
 
+  const staleCheckpoint = coalesceSessionStream(afterResize, {
+    agentId: 'agent-1',
+    data: 'stale-checkpoint',
+    replace: true,
+    runtimeEpoch: 'epoch-a',
+    outputSeq: 1,
+    stateRevision: 1,
+    cols: 80,
+    rows: 24,
+  });
+  assert.strictEqual(staleCheckpoint.data, 'stale-checkpoint');
+  assert.strictEqual(staleCheckpoint.replace, true);
+  assert.deepStrictEqual(
+    staleCheckpoint.chunks.map(chunk => ({
+      kind: chunk.kind,
+      outputSeq: chunk.outputSeq,
+      stateRevision: chunk.stateRevision,
+    })),
+    [
+      { kind: 'output', outputSeq: 2, stateRevision: 2 },
+      { kind: 'resize', outputSeq: 2, stateRevision: 3 },
+      { kind: 'clear', outputSeq: 2, stateRevision: 4 },
+    ],
+    'a late stale checkpoint must preserve every already queued transition it does not cover',
+  );
+
+  const newerCheckpointThenStaleCheckpoint = coalesceSessionStream(checkpointThenDelta, {
+    agentId: 'agent-1',
+    data: 'older-checkpoint',
+    replace: true,
+    runtimeEpoch: 'epoch-a',
+    outputSeq: 7,
+    stateRevision: 10,
+    cols: 100,
+    rows: 30,
+  });
+  assert.strictEqual(
+    newerCheckpointThenStaleCheckpoint.data,
+    'serialized-checkpoint',
+    'a stale checkpoint must not replace a newer checkpoint already queued for delivery',
+  );
+  assert.strictEqual(newerCheckpointThenStaleCheckpoint.stateRevision, 11);
+  assert.strictEqual(newerCheckpointThenStaleCheckpoint.chunks[0].stateRevision, 12);
+
   const newEpoch = coalesceSessionStream(second, {
     agentId: 'agent-1',
     data: 'epoch-b-first',

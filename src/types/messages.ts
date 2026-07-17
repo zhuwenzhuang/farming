@@ -140,10 +140,22 @@ export interface TerminalOutputAckMessage {
   charCount: number
 }
 
+export interface TerminalCheckpointAppliedMessage {
+  type: 'terminal-checkpoint-applied'
+  agentId: string
+  attachmentId: string
+  leaseId: string
+  fence: number
+  expectedRuntimeEpoch: string
+  outputSeq: number
+  stateRevision: number
+}
+
 export type TerminalControllerClientMessage =
   | OwnedTerminalInputMessage
   | ClearTerminalMessage
   | TerminalOutputAckMessage
+  | TerminalCheckpointAppliedMessage
   | ResizeAgentMessage
   | TerminalControllerClaimMessage
   | TerminalControllerRenewMessage
@@ -158,6 +170,10 @@ export interface KillAgentMessage {
 export interface InterruptAgentMessage {
   type: 'interrupt-agent'
   agentId: string
+  attachmentId?: string
+  leaseId?: string
+  fence?: number
+  expectedRuntimeEpoch?: string
 }
 
 export interface RestartMainAgentMessage {

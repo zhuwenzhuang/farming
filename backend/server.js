@@ -5,8 +5,6 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
-const { execFile } = require('child_process');
-const { promisify } = require('util');
 const { URLSearchParams, pathToFileURL } = require('url');
 const AgentManager = require('./agent-manager');
 const ConfigManager = require('./config-manager');
@@ -17,6 +15,7 @@ const { listAvailableAgents, resolveCompatibleCodexExecutable } = require('./exe
 const { readClaudeSettingsSummary } = require('./claude-settings');
 const { listCodexModelOptions } = require('./codex-models');
 const { listCodexSessions } = require('./codex-session-history');
+const { unarchiveCodexSession } = require('./codex-session-archive');
 const {
   buildAgentSessionResumeCommand,
   findAgentSession,
@@ -66,9 +65,7 @@ const {
   coalesceSessionStream,
   deliverSessionStreamToClients,
 } = require('./session-stream-protocol');
-const TerminalGeometryCoordinator = require('./terminal-geometry-coordinator');
-
-const execFileAsync = promisify(execFile);
+const TerminalControllerCoordinator = require('./terminal-controller-coordinator');
 
 const BASE_PATH = normalizeBasePath(process.env.FARMING_BASE_PATH || '/');
 const PORT = process.env.PORT || 3000;
@@ -102,7 +99,7 @@ const agentManager = new AgentManager(configManager, {
   authDisabled: !authEnabled,
   cliBinDir: resolveCliBinDir(),
 });
-const terminalGeometryCoordinator = new TerminalGeometryCoordinator({ agentManager });
+const terminalControllerCoordinator = new TerminalControllerCoordinator({ agentManager });
 const themeManager = new ThemeManager({ configDir: configManager.farmingDir });
 const workspaceFileService = new WorkspaceFileService();
 const updateService = new FarmingUpdateService({
@@ -503,6 +500,9 @@ if (process.env.NODE_ENV === 'test' && process.env.FARMING_E2E_FAKE_EXECUTABLES 
 
 app.use(routePath(BASE_PATH, '/api/control'), createControlRouter(agentManager, {
   notifyUpdate: broadcastState,
+  terminalMutationCoordinator: terminalControllerCoordinator,
+  allowConcurrentTestControl: process.env.NODE_ENV === 'test'
+    && process.env.FARMING_E2E_FAKE_EXECUTABLES === '1',
 }));
 
 app.use(routePath(BASE_PATH, '/api/app-server'), createAppServerApiRouter({
@@ -1252,12 +1252,20 @@ app.delete(routePath(BASE_PATH, '/api/agents/:agentId/codex-goal'), async (req, 
 
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/codex-terminal-profile'), express.json(), async (req, res) => {
   try {
-    const profile = await agentManager.setCodexTerminalProfile(req.params.agentId, {
-      model: req.body?.model,
-      effort: req.body?.effort,
-      serviceTier: req.body?.serviceTier,
-    });
-    res.json({ profile });
+    const result = await terminalControllerCoordinator.runOwnedMutation(
+      req.params.agentId,
+      req.body?.controller,
+      async ({ terminalControl }) => agentManager.setCodexTerminalProfile(req.params.agentId, {
+        model: req.body?.model,
+        effort: req.body?.effort,
+        serviceTier: req.body?.serviceTier,
+      }, { terminalControl }),
+    );
+    if (result.status !== 'committed') {
+      res.status(409).json({ error: 'Take control of the Terminal before changing its profile' });
+      return;
+    }
+    res.json({ profile: result.value });
   } catch (error) {
     const message = error && error.message ? error.message : 'Failed to update Codex Terminal profile';
     const status = message === 'Agent not found'
@@ -1481,38 +1489,6 @@ function forgetMainPageAgentSession(provider, sessionId, providerHomeId = '') {
   configManager.updateSettings({
     mainPageSessionKeys: currentKeys.filter(key => key !== sessionKey),
   });
-}
-
-async function unarchiveCodexSession(sessionId, session = {}) {
-  const codexResolution = resolveCompatibleCodexExecutable(session.cliVersion || '');
-  if (!codexResolution.compatible) {
-    return {
-      error: codexResolution.error || 'Codex CLI is not compatible with this session',
-      status: 400,
-    };
-  }
-
-  try {
-    await execFileAsync(codexResolution.path || 'codex', ['unarchive', sessionId], {
-      cwd: session.cwd || session.workspace || os.homedir(),
-      env: session.providerHomePath
-        ? { ...process.env, CODEX_HOME: session.providerHomePath }
-        : process.env,
-      timeout: 30_000,
-      maxBuffer: 1024 * 1024,
-    });
-    return { unarchived: true };
-  } catch (error) {
-    const message = [
-      error && error.stdout ? String(error.stdout).trim() : '',
-      error && error.stderr ? String(error.stderr).trim() : '',
-      error && error.message ? String(error.message).trim() : '',
-    ].filter(Boolean).join('\n') || 'failed to unarchive Codex session';
-    return {
-      error: message,
-      status: 409,
-    };
-  }
 }
 
 async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
@@ -1865,7 +1841,7 @@ wss.on('connection', (ws, req) => {
   
   ws.on('close', () => {
     clearWorkspaceFileWatch(ws);
-    void terminalGeometryCoordinator.releaseAllForSocket(ws);
+    void terminalControllerCoordinator.releaseAllForSocket(ws);
     console.log('Client disconnected');
   });
   
@@ -1933,7 +1909,7 @@ async function sendInputMessage(ws, data) {
     }));
     return;
   }
-  await terminalGeometryCoordinator.input(ws, {
+  await terminalControllerCoordinator.input(ws, {
     ...data,
     agentId: targetAgentId,
   }, inputParts);
@@ -2073,7 +2049,7 @@ function handleMessage(ws, data) {
 
     case 'interrupt-agent':
       if (data.agentId) {
-        agentManager.interruptAgent(data.agentId);
+        void terminalControllerCoordinator.interrupt(ws, data);
       }
       break;
       
@@ -2092,32 +2068,36 @@ function handleMessage(ws, data) {
 
     case 'resize-agent':
       if (data.agentId && Number.isFinite(data.cols) && Number.isFinite(data.rows)) {
-        void terminalGeometryCoordinator.resize(ws, data);
+        void terminalControllerCoordinator.resize(ws, data);
       }
       break;
 
     case 'clear-terminal':
-      void terminalGeometryCoordinator.clear(ws, data);
+      void terminalControllerCoordinator.clear(ws, data);
       break;
 
     case 'terminal-output-ack':
-      void terminalGeometryCoordinator.acknowledgeOutput(ws, data);
+      void terminalControllerCoordinator.acknowledgeOutput(ws, data);
+      break;
+
+    case 'terminal-checkpoint-applied':
+      void terminalControllerCoordinator.checkpointApplied(ws, data);
       break;
 
     case 'terminal-controller-claim':
-      void terminalGeometryCoordinator.claim(ws, data);
+      void terminalControllerCoordinator.claim(ws, data);
       break;
 
     case 'terminal-controller-renew':
-      void terminalGeometryCoordinator.renew(ws, data);
+      void terminalControllerCoordinator.renew(ws, data);
       break;
 
     case 'terminal-renderer-ready':
-      void terminalGeometryCoordinator.rendererReady(ws, data);
+      void terminalControllerCoordinator.rendererReady(ws, data);
       break;
 
     case 'terminal-controller-release':
-      void terminalGeometryCoordinator.release(ws, data);
+      void terminalControllerCoordinator.release(ws, data);
       break;
 
     case 'watch-workspace-files':

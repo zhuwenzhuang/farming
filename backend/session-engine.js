@@ -9,7 +9,7 @@ class SessionEngine extends EventEmitter {
     throw new Error('sendInput() must be implemented by subclasses');
   }
 
-  async interruptSession(_sessionId, _input) {
+  async interruptSession(_sessionId, _input, _options = {}) {
     throw new Error('interruptSession() must be implemented by subclasses');
   }
 
@@ -17,11 +17,15 @@ class SessionEngine extends EventEmitter {
     throw new Error('resizeSession() must be implemented by subclasses');
   }
 
-  async acknowledgeSessionOutput(_sessionId, _charCount, _geometry) {
+  async acknowledgeSessionOutput(_sessionId, _charCount, _controller) {
     throw new Error('acknowledgeSessionOutput() must be implemented by subclasses');
   }
 
-  async activateSessionRenderer(_sessionId, _geometry) {
+  async acknowledgeSessionCheckpoint(_sessionId, _outputSeq, _stateRevision, _controller) {
+    throw new Error('acknowledgeSessionCheckpoint() must be implemented by subclasses');
+  }
+
+  async activateSessionRenderer(_sessionId, _controller) {
     throw new Error('activateSessionRenderer() must be implemented by subclasses');
   }
 

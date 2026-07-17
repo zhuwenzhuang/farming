@@ -31,7 +31,7 @@ async function openCodeOwner(page: Page, agentId: string) {
   await expect(codeAgentRow(page, agentId)).toBeVisible({ timeout: 30_000 })
   await codeAgentRow(page, agentId).click()
   await expect(codeTerminalHost(page, agentId))
-    .toHaveAttribute('data-geometry-status', 'owner', { timeout: 15_000 })
+    .toHaveAttribute('data-controller-status', 'owner', { timeout: 15_000 })
   await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
 }
 
@@ -104,7 +104,7 @@ test('a healthy CRT takeover releases renderer backpressure left by a stalled Co
     await takeover.click()
     await expect(takeover).toBeHidden({ timeout: 15_000 })
     await expect(codeTerminalHost(page, agentId))
-      .toHaveAttribute('data-geometry-status', 'observer', { timeout: 15_000 })
+      .toHaveAttribute('data-controller-status', 'observer', { timeout: 15_000 })
     await expect.poll(async () => (
       (await sessionView(page, agentId)).renderOutput || ''
     ), { timeout: 15_000 }).toContain(marker)

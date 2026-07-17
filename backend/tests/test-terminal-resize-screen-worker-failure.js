@@ -1,10 +1,14 @@
 const assert = require('assert');
 const NativePtyHost = require('../native-pty-host');
 const LocalSessionEngine = require('../local-session-engine');
-const { createTerminalGeometryControl } = require('../terminal-geometry-control');
+const {
+  claimTerminalController,
+  createTerminalControllerLease,
+} = require('../terminal-controller-lease');
 
 function makeSession(id) {
   const resizeCalls = [];
+  const killCalls = [];
   return {
     session: {
       id,
@@ -14,12 +18,15 @@ function makeSession(id) {
       runtimeEpoch: `${id}-epoch`,
       stateProofAvailable: true,
       reducerCommitQueue: Promise.resolve(),
-      geometryControl: createTerminalGeometryControl(),
+      controllerLease: createTerminalControllerLease(),
       process: {
         pause() {},
         resume() {},
         resize(cols, rows) {
           resizeCalls.push({ cols, rows });
+        },
+        kill() {
+          killCalls.push(true);
         },
       },
       screenWorker: {
@@ -35,6 +42,7 @@ function makeSession(id) {
       title: 'old title',
     },
     resizeCalls,
+    killCalls,
   };
 }
 
@@ -50,12 +58,12 @@ async function runNativeResizeCase() {
   host.activeControllerClient = client;
   host.activeControllerIdentity = { id: 'test-controller', startedAt: 1 };
   client.controllerId = 'test-controller';
-  const lease = await host.claimSessionGeometry(session.id, {
+  const lease = await host.claimSessionController(session.id, {
     ownerKey: 'test-owner',
     claimId: 'test-claim',
     expectedRuntimeEpoch: session.runtimeEpoch,
   }, client);
-  session.geometryControl.rendererReadyFence = lease.fence;
+  session.controllerLease.rendererReadyFence = lease.fence;
 
   const result = await host.resizeSession(session.id, 120.8, 40.2, {
     ownerKey: 'test-owner',
@@ -77,6 +85,7 @@ async function runNativeResizeCase() {
     sessionId: session.id,
     error: 'Terminal state reducer failed: screen worker resize failed',
     fatal: true,
+    runtimeEpoch: session.runtimeEpoch,
   });
   assert.strictEqual(session.stateProofAvailable, false);
 }
@@ -89,12 +98,12 @@ async function runLocalResizeCase() {
   engine.emit = (event, payload) => {
     events.push({ event, payload });
   };
-  const lease = await engine.claimSessionGeometry(session.id, {
+  const lease = await engine.claimSessionController(session.id, {
     ownerKey: 'test-owner',
     claimId: 'test-claim',
     expectedRuntimeEpoch: session.runtimeEpoch,
   });
-  session.geometryControl.rendererReadyFence = lease.fence;
+  session.controllerLease.rendererReadyFence = lease.fence;
 
   const result = await engine.resizeSession(session.id, 121, 41, {
     ownerKey: 'test-owner',
@@ -116,6 +125,7 @@ async function runLocalResizeCase() {
     sessionId: session.id,
     error: 'Terminal state reducer failed: screen worker resize failed',
     fatal: true,
+    runtimeEpoch: session.runtimeEpoch,
   });
   assert.strictEqual(session.stateProofAvailable, false);
 
@@ -125,10 +135,55 @@ async function runLocalResizeCase() {
   );
 }
 
+async function runClearFailureCase(kind) {
+  const target = kind === 'native'
+    ? Object.create(NativePtyHost.prototype)
+    : Object.create(LocalSessionEngine.prototype);
+  const events = [];
+  const { session, killCalls } = makeSession(`${kind}-clear`);
+  session.screenWorker.clear = async () => {
+    throw new Error('screen worker clear failed');
+  };
+  target.sessions = new Map([[session.id, session]]);
+  if (kind === 'native') {
+    target.emitSessionEvent = (event, payload) => events.push({ event, payload });
+  } else {
+    target.emit = (event, payload) => events.push({ event, payload });
+  }
+
+  const ownerKey = `${kind}-clear-owner`;
+  const lease = claimTerminalController(session, {
+    ownerKey,
+    claimId: `${kind}-clear-claim`,
+    expectedRuntimeEpoch: session.runtimeEpoch,
+  });
+  session.controllerLease.rendererReadyFence = lease.fence;
+  const result = await target.clearBuffer(session.id, {
+    ownerKey,
+    leaseId: lease.leaseId,
+    fence: lease.fence,
+    expectedRuntimeEpoch: session.runtimeEpoch,
+  });
+  assert.deepStrictEqual(result, { cleared: false });
+  assert.strictEqual(session.stateProofAvailable, false);
+  assert.strictEqual(killCalls.length, 1, 'a failed clear reducer must stop the unprovable PTY runtime');
+  assert.deepStrictEqual(events, [{
+    event: 'session-error',
+    payload: {
+      sessionId: session.id,
+      error: 'Terminal state reducer failed: screen worker clear failed',
+      fatal: true,
+      runtimeEpoch: session.runtimeEpoch,
+    },
+  }]);
+}
+
 async function run() {
   await runNativeResizeCase();
   await runLocalResizeCase();
-  console.log('✓ Terminal resize survives screen worker resize failures');
+  await runClearFailureCase('native');
+  await runClearFailureCase('local');
+  console.log('✓ Terminal resize and clear fail closed on screen reducer failures');
 }
 
 run().catch((error) => {

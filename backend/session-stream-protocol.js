@@ -57,11 +57,41 @@ function normalizeSessionStream(stream) {
 
 function coalesceSessionStream(existingStream, incomingStream) {
   const incoming = normalizeSessionStream(incomingStream);
-  if (!existingStream || incoming.replace) {
+  if (!existingStream) {
     return incoming;
   }
 
   const existing = normalizeSessionStream(existingStream);
+  if (incoming.replace) {
+    if (
+      !existing.runtimeEpoch ||
+      !incoming.runtimeEpoch ||
+      existing.runtimeEpoch !== incoming.runtimeEpoch
+    ) {
+      return incoming;
+    }
+    const existingRevision = finiteNumber(existing.stateRevision);
+    const incomingRevision = finiteNumber(incoming.stateRevision);
+    if (
+      existing.replace &&
+      existingRevision !== undefined &&
+      incomingRevision !== undefined &&
+      existingRevision > incomingRevision
+    ) {
+      return existing;
+    }
+    if (incomingRevision === undefined) return incoming;
+    const uncoveredChunks = (existing.chunks || []).filter(chunk => (
+      chunk.runtimeEpoch === incoming.runtimeEpoch &&
+      Number.isFinite(chunk.stateRevision) &&
+      chunk.stateRevision > incomingRevision
+    ));
+    return {
+      ...incoming,
+      chunks: uncoveredChunks.length > 0 ? uncoveredChunks : undefined,
+    };
+  }
+
   if (
     !existing.runtimeEpoch ||
     !incoming.runtimeEpoch ||

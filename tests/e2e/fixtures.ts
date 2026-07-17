@@ -72,7 +72,7 @@ declare global {
           requestSeq: number
           ackRevision: number | null
         } | null
-        geometryStatus: string
+        controllerStatus: string
       } | null
       getHostDiagnostics: () => Array<{
         agentId: string

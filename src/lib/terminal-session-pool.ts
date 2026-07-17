@@ -84,9 +84,9 @@ import { createBrowserUuid } from '@/lib/browser-random-id'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
 import {
-  sendTerminalGeometryMessage,
-  subscribeTerminalGeometry,
-} from '@/lib/terminal-geometry-client'
+  sendTerminalControllerMessage,
+  subscribeTerminalController,
+} from '@/lib/terminal-controller-client'
 import type { TerminalControllerMessage, TerminalInputPart } from '@/types/messages'
 import { compareTerminalRuntimeEpochs } from '@/lib/terminal-runtime-epoch'
 
@@ -111,19 +111,11 @@ const CHECKPOINT_RETRY_DELAY_MS = 500
 const MAX_IDENTICAL_CHECKPOINT_INVARIANT_FAILURES = 4
 const MAX_QUEUED_TRANSITIONS = 512
 const MAX_QUEUED_TRANSITION_BYTES = 1024 * 1024
-const MAX_PENDING_TERMINAL_INPUTS = 256
-const MAX_PENDING_TERMINAL_INPUT_BYTES = 256 * 1024
-const TERMINAL_GEOMETRY_RENEW_INTERVAL_MS = 10000
-const TERMINAL_GEOMETRY_CLAIM_TIMEOUT_MS = 8000
+const TERMINAL_CONTROLLER_RENEW_INTERVAL_MS = 10000
+const TERMINAL_CONTROLLER_CLAIM_TIMEOUT_MS = 8000
 const TERMINAL_OUTPUT_ACK_CHARS = 5000
 
-type TerminalGeometryStatus = 'detached' | 'claiming' | 'owner' | 'observer' | 'suspended'
-
-type PendingTerminalInput = {
-  input: string | TerminalInputPart[]
-  bytes: number
-  runtimeEpoch: string
-}
+type TerminalControllerStatus = 'detached' | 'claiming' | 'owner' | 'observer' | 'suspended'
 
 type TerminalViewportRestoreState = {
   viewportY: number
@@ -186,29 +178,28 @@ interface SessionRecord {
   selectionChangeDisposable: (() => void) | null
   imeOverlayDisposables: Array<() => void>
   resizeObserver: ResizeObserver | null
-  unsubscribeGeometry: (() => void) | null
-  geometryStatusEl: HTMLDivElement
-  geometryStatusTextEl: HTMLSpanElement
-  geometryTakeoverButton: HTMLButtonElement
-  geometryTakeoverHandler: ((event: MouseEvent) => void) | null
-  geometryAttachmentId: string
-  geometryClaimId: string
-  geometryClaimInFlight: boolean
-  geometryFocusAfterClaim: boolean
-  geometryStatus: TerminalGeometryStatus
-  geometryLeaseId: string
-  geometryFence: number | null
+  unsubscribeController: (() => void) | null
+  controllerStatusEl: HTMLDivElement
+  controllerStatusTextEl: HTMLSpanElement
+  controllerTakeoverButton: HTMLButtonElement
+  controllerTakeoverHandler: ((event: MouseEvent) => void) | null
+  controllerAttachmentId: string
+  controllerClaimId: string
+  controllerClaimInFlight: boolean
+  controllerFocusAfterClaim: boolean
+  controllerStatus: TerminalControllerStatus
+  controllerLeaseId: string
+  controllerFence: number | null
   rendererReadyFence: number | null
-  geometryExpiresAt: number
-  geometryResizeRequestSeq: number
-  geometryRenewTimer: number | null
-  geometryClaimTimer: number | null
+  controllerExpiresAt: number
+  controllerResizeRequestSeq: number
+  controllerRenewTimer: number | null
+  controllerClaimTimer: number | null
   applyingLocalResize: boolean
   parkedViewportState: TerminalViewportRestoreState | null
   pendingOutputAckChars: number
   suppressOutputAckForTest: boolean
-  pendingTakeoverInput: PendingTerminalInput[]
-  pendingTakeoverInputBytes: number
+  suppressCheckpointAckForTest: boolean
   inputDisabled: boolean
   errorHandler: ((error: Error) => void) | null
   scrollChangeDisposable: (() => void) | null
@@ -275,13 +266,17 @@ interface SessionRecord {
   checkpointFailureCount: number
   checkpointInvariantFailureSignature: string
   checkpointInvariantFailureCount: number
+  controllerRecoveryFailureSignature: string
+  controllerRecoveryFailureCount: number
   checkpointHalted: boolean
   checkpointRequestInFlight: boolean
   checkpointRequestGeneration: number | null
   checkpointRequestSeq: number | null
   checkpointRequestStartedAt: number
   checkpointLastResult: string
+  checkpointLastInvalidation: string
   checkpointFetchCount: number
+  checkpointInstallSeq: number
   bootstrapRequestControllers: Set<AbortController>
   needsReconnectOutputSync: boolean
   pageOutputSuspended: boolean
@@ -385,6 +380,7 @@ declare global {
       getResizeNotificationCount: (agentId: string) => number
       notifyResizeForTest: (agentId: string, cols: number, rows: number) => number
       setOutputAckSuppressed: (agentId: string, suppressed: boolean) => boolean
+      setCheckpointAckSuppressed: (agentId: string, suppressed: boolean) => boolean
       getLastOutputSeq: (agentId: string) => number | null
       getRuntimeEpoch: (agentId: string) => string
       getStateRevision: (agentId: string) => number | null
@@ -403,9 +399,12 @@ declare global {
         replayTargetEpoch: string
         replayTargetRevision: number | null
         checkpointRequestInFlight: boolean
+        checkpointHalted?: boolean
+        controllerRecoveryFailureSignature?: string
+        controllerRecoveryFailureCount?: number
         replayInProgress: boolean
         bootstrappingSnapshot: boolean
-        geometryStatus: TerminalGeometryStatus
+        controllerStatus: TerminalControllerStatus
       } | null
       getHostDiagnostics: () => Array<{
         agentId: string
@@ -441,11 +440,13 @@ function findSessionRecordForHost(hostEl: HTMLDivElement) {
   return null
 }
 
-function invalidateTerminalCheckpointRequest(record: SessionRecord) {
+function invalidateTerminalCheckpointRequest(record: SessionRecord, reason = 'unspecified') {
   // Fence every old response and actively release browser HTTP connections.
   // The sequence remains authoritative even if a browser delivers an aborted
   // response callback after the attachment has changed.
   record.reconnectSnapshotSeq += 1
+  record.checkpointInstallSeq += 1
+  record.checkpointLastInvalidation = reason
   record.bootstrapRequestControllers.forEach(controller => controller.abort())
   record.bootstrapRequestControllers.clear()
   record.checkpointRequestInFlight = false
@@ -463,7 +464,7 @@ function parkTerminalSessionRecord(record: SessionRecord) {
     preserveUnreadOutputUntilJump: record.preserveUnreadOutputUntilJump,
   }
   invalidateTerminalCheckpointRequest(record)
-  releaseTerminalGeometry(record, 'detached')
+  releaseTerminalController(record, 'detached')
   record.followOutputHandler = null
   record.pathOpenHandler = null
   record.pathResolveHandler = null
@@ -798,6 +799,46 @@ function resetTerminalCheckpointInvariantFailures(record: SessionRecord) {
   record.checkpointHalted = false
 }
 
+function resetTerminalControllerRecoveryFailures(record: SessionRecord) {
+  record.controllerRecoveryFailureSignature = ''
+  record.controllerRecoveryFailureCount = 0
+}
+
+function prepareTerminalControllerRecovery(
+  record: SessionRecord,
+  message: TerminalControllerMessage,
+) {
+  if (
+    record.checkpointHalted ||
+    record.checkpointRequestInFlight ||
+    record.replayInProgress ||
+    record.bootstrappingSnapshot ||
+    record.pendingSnapshotReplay
+  ) {
+    return false
+  }
+  const signature = `${message.status}:${message.reason || 'unknown'}:${record.runtimeEpoch || 'unknown'}`
+  if (record.controllerRecoveryFailureSignature === signature) {
+    record.controllerRecoveryFailureCount += 1
+  } else {
+    record.controllerRecoveryFailureSignature = signature
+    record.controllerRecoveryFailureCount = 1
+  }
+  if (record.controllerRecoveryFailureCount >= MAX_IDENTICAL_CHECKPOINT_INVARIANT_FAILURES) {
+    record.checkpointHalted = true
+    cancelTerminalCheckpointRetry(record)
+    invalidateTerminalCheckpointRequest(record)
+    record.checkpointLastResult = `halted:controller:${signature}`
+    reportTerminalInputError(
+      record,
+      'Terminal synchronization stopped because the controller and checkpoint runtime kept disagreeing; reconnect to retry',
+    )
+    setTerminalControllerStatus(record, record.controllerStatus)
+    return false
+  }
+  return true
+}
+
 function rejectTerminalCheckpointInvariant(
   record: SessionRecord,
   generation: number,
@@ -822,7 +863,7 @@ function rejectTerminalCheckpointInvariant(
     cancelTerminalCheckpointRetry(record)
     record.checkpointLastResult = `halted:${signature}`
     reportTerminalInputError(record, message)
-    setTerminalGeometryStatus(record, record.geometryStatus)
+    setTerminalControllerStatus(record, record.controllerStatus)
     return false
   }
   scheduleTerminalCheckpointRetry(record, generation)
@@ -1029,23 +1070,22 @@ function finishTerminalCheckpointBarrier(record: SessionRecord, generation: numb
   record.checkpointFailureCount = 0
   resetTerminalCheckpointInvariantFailures(record)
   activateTerminalRenderer(record)
-  flushTerminalInputQueue(record)
-  if (record.geometryStatus === 'owner' && record.geometryFocusAfterClaim) {
-    record.geometryFocusAfterClaim = false
+  if (record.controllerStatus === 'owner' && record.controllerFocusAfterClaim) {
+    record.controllerFocusAfterClaim = false
     requestAnimationFrame(() => {
       if (!isCurrentAttachment(record, generation) || record.disposed) return
       focusAttachedTerminalInput(record)
     })
   }
-  if (record.resizeAfterReplay && record.geometryStatus === 'owner') {
+  if (record.resizeAfterReplay && record.controllerStatus === 'owner') {
     record.resizeAfterReplay = false
     requestAnimationFrame(() => {
       if (!isCurrentAttachment(record, generation) || record.disposed) return
       syncTerminalSize(record)
     })
   }
-  if (record.geometryStatus === 'claiming' && !record.pageOutputSuspended) {
-    claimTerminalGeometry(record, 'passive')
+  if (record.controllerStatus === 'claiming' && !record.pageOutputSuspended) {
+    claimTerminalController(record, 'passive')
   }
   notifyTerminalAttachReady(record, generation)
 }
@@ -1064,6 +1104,7 @@ function installTerminalCheckpoint(
   ) {
     return false
   }
+
   if (!isValidTerminalCheckpoint(state)) {
     rejectTerminalCheckpointInvariant(
       record,
@@ -1099,6 +1140,9 @@ function installTerminalCheckpoint(
     return false
   }
 
+  const checkpointInstallSeq = record.checkpointInstallSeq + 1
+  record.checkpointInstallSeq = checkpointInstallSeq
+
   const viewportState = record.parkedViewportState ? {
     ...record.parkedViewportState,
     hasUnreadOutput: record.parkedViewportState.hasUnreadOutput || record.hasUnreadOutput,
@@ -1129,7 +1173,11 @@ function installTerminalCheckpoint(
     record.terminal.resize(state.cols, state.rows)
   }
   replaceTerminalOutput(record, state.output, () => {
-    if (record.disposed || !isCurrentAttachment(record, generation)) return
+    if (
+      record.disposed
+      || !isCurrentAttachment(record, generation)
+      || record.checkpointInstallSeq !== checkpointInstallSeq
+    ) return
     const previousRuntimeEpoch = record.runtimeEpoch
     const epochChanged = Boolean(previousRuntimeEpoch && previousRuntimeEpoch !== state.runtimeEpoch)
     const targetEpochBeforeInstall = record.replayTargetEpoch
@@ -1158,6 +1206,12 @@ function installTerminalCheckpoint(
       }
     }
     removeCoveredQueuedTransitions(record, state.runtimeEpoch, state.stateRevision!)
+    acknowledgeRenderedTerminalCheckpoint(
+      record,
+      state.outputSeq!,
+      state.stateRevision!,
+      state.runtimeEpoch,
+    )
     record.followOutput = viewportState.following
     record.hasUnreadOutput = viewportState.hasUnreadOutput
     record.preserveUnreadOutputUntilJump = viewportState.preserveUnreadOutputUntilJump
@@ -1241,6 +1295,12 @@ function replayTerminalCheckpoint(record: SessionRecord, generation: number) {
         record.stateRevision !== null &&
         bootstrapState.stateRevision === record.stateRevision
       ) {
+        acknowledgeRenderedTerminalCheckpoint(
+          record,
+          bootstrapState.outputSeq!,
+          bootstrapState.stateRevision,
+          bootstrapState.runtimeEpoch,
+        )
         finishTerminalCheckpointBarrier(record, generation)
         return
       }
@@ -1264,7 +1324,7 @@ function replayTerminalCheckpoint(record: SessionRecord, generation: number) {
 
 function recoverTerminalCheckpointAfterStreamGap(record: SessionRecord) {
   // Display recovery is independent from the controller lease. Even while a
-  // geometry claim is in flight, a gap or epoch change must fetch the
+  // controller claim is in flight, a gap or epoch change must fetch the
   // authoritative /session-view checkpoint immediately.
   if (record.checkpointHalted) return
   cancelTerminalCheckpointRetry(record)
@@ -1294,7 +1354,7 @@ function applyTerminalOutputEvent(
   ) return
   if (replace) {
     if (record.fixtureOverrideActive || record.pageOutputSuspended) return
-    invalidateTerminalCheckpointRequest(record)
+    invalidateTerminalCheckpointRequest(record, 'replace-transition')
     installTerminalCheckpoint(record, {
       runtimeEpoch,
       output: data,
@@ -1354,7 +1414,6 @@ function applyTerminalOutputEvent(
     scheduleImeOverlayUpdateIfActive(record)
     flushQueuedTerminalOutput(record)
     activateTerminalRenderer(record)
-    flushTerminalInputQueue(record)
     notifyTerminalAttachReady(record, record.attachGeneration)
     return
   }
@@ -1379,7 +1438,6 @@ function applyTerminalOutputEvent(
       flushQueuedTerminalOutput(record)
       if (!record.liveWriteInProgress && record.queuedOutput.length === 0) {
         activateTerminalRenderer(record)
-        flushTerminalInputQueue(record)
         notifyTerminalAttachReady(record, record.attachGeneration)
       }
       if (
@@ -1705,6 +1763,10 @@ function focusTerminalInputWhenReady(
 ) {
   if (!isCurrentAttachment(record, generation)) return
   if (!shouldAllowTerminalAutoFocus(record.hostEl)) return
+  if (!terminalRendererAcceptsInput(record)) {
+    record.controllerFocusAfterClaim = true
+    return
+  }
   const focusedTextarea = focusAttachedTerminalInput(record)
   if (focusedTextarea || attemptsRemaining <= 0) {
     return
@@ -1715,11 +1777,11 @@ function focusTerminalInputWhenReady(
   })
 }
 
-function setTerminalGeometryStatus(record: SessionRecord, status: TerminalGeometryStatus) {
-  record.geometryStatus = status
-  record.hostEl.dataset.geometryStatus = status
+function setTerminalControllerStatus(record: SessionRecord, status: TerminalControllerStatus) {
+  record.controllerStatus = status
+  record.hostEl.dataset.controllerStatus = status
   const controllerPending = status === 'owner' && (
-    record.rendererReadyFence !== record.geometryFence ||
+    record.rendererReadyFence !== record.controllerFence ||
     record.replayInProgress ||
     record.bootstrappingSnapshot ||
     record.pendingSnapshotReplay
@@ -1731,91 +1793,91 @@ function setTerminalGeometryStatus(record: SessionRecord, status: TerminalGeomet
     : status === 'observer'
       ? 'Terminal is controlled by another window.'
       : ''
-  record.geometryStatusTextEl.textContent = statusText
-  record.geometryTakeoverButton.hidden = status !== 'observer'
-  record.geometryStatusEl.hidden = !statusText
+  record.controllerStatusTextEl.textContent = statusText
+  record.controllerTakeoverButton.hidden = status !== 'observer'
+  record.controllerStatusEl.hidden = !statusText
 }
 
-function cancelTerminalGeometryRenew(record: SessionRecord) {
-  if (record.geometryRenewTimer !== null) {
-    window.clearTimeout(record.geometryRenewTimer)
-    record.geometryRenewTimer = null
+function cancelTerminalControllerRenew(record: SessionRecord) {
+  if (record.controllerRenewTimer !== null) {
+    window.clearTimeout(record.controllerRenewTimer)
+    record.controllerRenewTimer = null
   }
 }
 
-function cancelTerminalGeometryClaimTimeout(record: SessionRecord) {
-  if (record.geometryClaimTimer === null) return
-  window.clearTimeout(record.geometryClaimTimer)
-  record.geometryClaimTimer = null
+function cancelTerminalControllerClaimTimeout(record: SessionRecord) {
+  if (record.controllerClaimTimer === null) return
+  window.clearTimeout(record.controllerClaimTimer)
+  record.controllerClaimTimer = null
 }
 
-function scheduleTerminalGeometryClaimTimeout(
+function scheduleTerminalControllerClaimTimeout(
   record: SessionRecord,
   claimId: string,
 ) {
-  cancelTerminalGeometryClaimTimeout(record)
-  record.geometryClaimTimer = window.setTimeout(() => {
-    record.geometryClaimTimer = null
+  cancelTerminalControllerClaimTimeout(record)
+  record.controllerClaimTimer = window.setTimeout(() => {
+    record.controllerClaimTimer = null
     if (
       record.disposed
       || record.pageOutputSuspended
       || !isTerminalSessionAttached(record)
-      || !record.geometryClaimInFlight
-      || record.geometryClaimId !== claimId
+      || !record.controllerClaimInFlight
+      || record.controllerClaimId !== claimId
     ) {
       return
     }
-    record.geometryClaimInFlight = false
+    record.controllerClaimInFlight = false
     reportTerminalInputError(record, 'Terminal control request timed out; retry Take control')
-    setTerminalGeometryStatus(record, 'observer')
-  }, TERMINAL_GEOMETRY_CLAIM_TIMEOUT_MS)
+    setTerminalControllerStatus(record, 'observer')
+  }, TERMINAL_CONTROLLER_CLAIM_TIMEOUT_MS)
 }
 
-function scheduleTerminalGeometryRenew(record: SessionRecord) {
-  cancelTerminalGeometryRenew(record)
+function scheduleTerminalControllerRenew(record: SessionRecord) {
+  cancelTerminalControllerRenew(record)
   if (
     record.disposed ||
-    record.geometryStatus !== 'owner' ||
-    !record.geometryLeaseId ||
-    record.geometryFence === null
+    record.controllerStatus !== 'owner' ||
+    !record.controllerLeaseId ||
+    record.controllerFence === null
   ) {
     return
   }
-  record.geometryRenewTimer = window.setTimeout(() => {
-    record.geometryRenewTimer = null
+  record.controllerRenewTimer = window.setTimeout(() => {
+    record.controllerRenewTimer = null
     if (
       record.disposed ||
-      record.geometryStatus !== 'owner' ||
-      !record.geometryLeaseId ||
-      record.geometryFence === null
+      record.controllerStatus !== 'owner' ||
+      !record.controllerLeaseId ||
+      record.controllerFence === null
     ) {
       return
     }
-    const delivered = sendTerminalGeometryMessage({
+    const delivered = sendTerminalControllerMessage({
       type: 'terminal-controller-renew',
       agentId: record.agentId,
-      attachmentId: record.geometryAttachmentId,
-      leaseId: record.geometryLeaseId,
-      fence: record.geometryFence,
+      attachmentId: record.controllerAttachmentId,
+      leaseId: record.controllerLeaseId,
+      fence: record.controllerFence,
     })
     if (!delivered) {
-      setTerminalGeometryStatus(record, 'claiming')
-      record.geometryLeaseId = ''
-      record.geometryFence = null
+      setTerminalControllerStatus(record, 'claiming')
+      record.controllerLeaseId = ''
+      record.controllerFence = null
       record.rendererReadyFence = null
       return
     }
-    scheduleTerminalGeometryRenew(record)
-  }, TERMINAL_GEOMETRY_RENEW_INTERVAL_MS)
+    scheduleTerminalControllerRenew(record)
+  }, TERMINAL_CONTROLLER_RENEW_INTERVAL_MS)
 }
 
 function activateTerminalRenderer(record: SessionRecord) {
   if (
     record.disposed ||
-    record.geometryStatus !== 'owner' ||
-    !record.geometryLeaseId ||
-    record.geometryFence === null ||
-    record.rendererReadyFence === record.geometryFence ||
+    record.controllerStatus !== 'owner' ||
+    !record.controllerLeaseId ||
+    record.controllerFence === null ||
+    record.rendererReadyFence === record.controllerFence ||
     !record.runtimeEpoch ||
     record.replayInProgress ||
     record.bootstrappingSnapshot ||
@@ -1823,35 +1885,35 @@ function activateTerminalRenderer(record: SessionRecord) {
     record.liveWriteInProgress ||
     record.queuedOutput.length > 0
   ) return false
-  const delivered = sendTerminalGeometryMessage({
+  const delivered = sendTerminalControllerMessage({
     type: 'terminal-renderer-ready',
     agentId: record.agentId,
-    attachmentId: record.geometryAttachmentId,
-    leaseId: record.geometryLeaseId,
-    fence: record.geometryFence,
+    attachmentId: record.controllerAttachmentId,
+    leaseId: record.controllerLeaseId,
+    fence: record.controllerFence,
     expectedRuntimeEpoch: record.runtimeEpoch,
   })
-  if (delivered) record.rendererReadyFence = record.geometryFence
-  setTerminalGeometryStatus(record, record.geometryStatus)
+  if (delivered) record.rendererReadyFence = record.controllerFence
+  setTerminalControllerStatus(record, record.controllerStatus)
   return delivered
 }
 
-function sendTerminalGeometryClaim(
+function sendTerminalControllerClaim(
   record: SessionRecord,
   mode: 'passive' | 'interactive',
   claimId: string,
 ) {
-  return sendTerminalGeometryMessage({
+  return sendTerminalControllerMessage({
     type: 'terminal-controller-claim',
     agentId: record.agentId,
-    attachmentId: record.geometryAttachmentId,
+    attachmentId: record.controllerAttachmentId,
     claimId,
     mode,
     expectedRuntimeEpoch: record.runtimeEpoch || undefined,
   })
 }
 
-function claimTerminalGeometry(record: SessionRecord, mode: 'passive' | 'interactive') {
+function claimTerminalController(record: SessionRecord, mode: 'passive' | 'interactive') {
   if (
     record.disposed ||
     record.pageOutputSuspended ||
@@ -1859,185 +1921,132 @@ function claimTerminalGeometry(record: SessionRecord, mode: 'passive' | 'interac
   ) {
     return false
   }
-  if (record.geometryStatus === 'owner') {
-    scheduleTerminalGeometryRenew(record)
+  if (record.controllerStatus === 'owner') {
+    scheduleTerminalControllerRenew(record)
     return true
   }
-  if (record.geometryClaimInFlight) return false
-  if (mode === 'interactive') record.geometryFocusAfterClaim = true
-  record.geometryClaimId = createBrowserUuid()
-  record.geometryClaimInFlight = true
-  setTerminalGeometryStatus(record, 'claiming')
-  const delivered = sendTerminalGeometryClaim(record, mode, record.geometryClaimId)
+  if (record.controllerClaimInFlight) return false
+  if (mode === 'interactive') record.controllerFocusAfterClaim = true
+  record.controllerClaimId = createBrowserUuid()
+  record.controllerClaimInFlight = true
+  setTerminalControllerStatus(record, 'claiming')
+  const delivered = sendTerminalControllerClaim(record, mode, record.controllerClaimId)
   if (!delivered) {
-    record.geometryClaimInFlight = false
-    cancelTerminalGeometryClaimTimeout(record)
+    record.controllerClaimInFlight = false
+    cancelTerminalControllerClaimTimeout(record)
   } else {
-    scheduleTerminalGeometryClaimTimeout(record, record.geometryClaimId)
+    scheduleTerminalControllerClaimTimeout(record, record.controllerClaimId)
   }
   return delivered
-}
-
-function terminalInputBytes(input: string | TerminalInputPart[]) {
-  const text = Array.isArray(input)
-    ? input.map(part => typeof part === 'string' ? part : part.text).join('')
-    : input
-  return new TextEncoder().encode(text).byteLength
 }
 
 function reportTerminalInputError(record: SessionRecord, message: string) {
   record.errorHandler?.(new Error(message))
 }
 
+function terminalRendererAcceptsInput(record: SessionRecord) {
+  return record.controllerStatus === 'owner'
+    && Boolean(record.controllerLeaseId)
+    && record.controllerFence !== null
+    && record.rendererReadyFence === record.controllerFence
+    && Boolean(record.runtimeEpoch)
+    && !record.replayInProgress
+    && !record.bootstrappingSnapshot
+    && !record.pendingSnapshotReplay
+    && !record.needsReconnectOutputSync
+    && !record.checkpointRequestInFlight
+    && !record.checkpointHalted
+}
+
 function queueTerminalInput(record: SessionRecord, input: string | TerminalInputPart[]) {
   if (record.disposed || record.attachedMount === null || record.inputDisabled) return false
-  const ownsGeometry = record.geometryStatus === 'owner'
-    && Boolean(record.geometryLeaseId)
-    && record.geometryFence !== null
-  if (!ownsGeometry && record.geometryStatus !== 'claiming') {
+  if (record.controllerStatus !== 'owner') {
     reportTerminalInputError(record, 'Terminal is controlled by another window; use Take control before typing')
-    record.geometryTakeoverButton.focus()
+    if (record.controllerStatus === 'observer') record.controllerTakeoverButton.focus()
     return false
   }
-  if (!record.runtimeEpoch) {
-    reportTerminalInputError(record, 'Terminal runtime is not ready; input was not sent')
+  if (!terminalRendererAcceptsInput(record)) {
+    reportTerminalInputError(record, 'Terminal is synchronizing; input was not sent')
     return false
   }
-  // A checkpoint barrier proves display state; it does not make the fenced
-  // controller lose input authority. Keep unsent input bounded and epoch-bound,
-  // then send it once after the barrier. Reconnect and epoch changes discard it.
-  const bytes = terminalInputBytes(input)
-  if (
-    record.pendingTakeoverInput.length >= MAX_PENDING_TERMINAL_INPUTS ||
-    record.pendingTakeoverInputBytes + bytes > MAX_PENDING_TERMINAL_INPUT_BYTES
-  ) {
-    reportTerminalInputError(record, 'Terminal input queue is full; input was not sent')
-    return false
-  }
-  record.pendingTakeoverInput.push({
-    input,
-    bytes,
-    runtimeEpoch: record.runtimeEpoch,
+  const delivered = sendTerminalControllerMessage({
+    type: 'input',
+    agentId: record.agentId,
+    attachmentId: record.controllerAttachmentId,
+    leaseId: record.controllerLeaseId,
+    fence: record.controllerFence!,
+    expectedRuntimeEpoch: record.runtimeEpoch,
+    ...(Array.isArray(input) ? { inputParts: input } : { input }),
   })
-  record.pendingTakeoverInputBytes += bytes
-  flushTerminalInputQueue(record)
+  if (!delivered) {
+    reportTerminalInputError(record, 'Terminal disconnected; input was not sent')
+    record.controllerLeaseId = ''
+    record.controllerFence = null
+    record.rendererReadyFence = null
+    setTerminalControllerStatus(record, 'claiming')
+    return false
+  }
+  record.fixtureOverrideActive = false
+  record.inputCount += 1
+  record.contextMenuSelection = ''
+  record.lastNonEmptySelection = ''
   return true
 }
 
-function flushTerminalInputQueue(record: SessionRecord) {
-  if (
-    record.disposed ||
-    record.attachedMount === null ||
-    record.geometryStatus !== 'owner' ||
-    !record.geometryLeaseId ||
-    record.geometryFence === null ||
-    record.rendererReadyFence !== record.geometryFence ||
-    !record.runtimeEpoch ||
-    record.replayInProgress ||
-    record.bootstrappingSnapshot ||
-    record.pendingSnapshotReplay
-  ) {
-    return
-  }
-
-  while (true) {
-    const next = record.pendingTakeoverInput[0]
-    if (!next) return
-    if (next.runtimeEpoch && next.runtimeEpoch !== record.runtimeEpoch) {
-      record.pendingTakeoverInput.shift()
-      record.pendingTakeoverInputBytes = Math.max(0, record.pendingTakeoverInputBytes - next.bytes)
-      reportTerminalInputError(record, 'Terminal restarted before queued input could be sent')
-      continue
-    }
-
-    const delivered = sendTerminalGeometryMessage({
-      type: 'input',
-      agentId: record.agentId,
-      attachmentId: record.geometryAttachmentId,
-      leaseId: record.geometryLeaseId,
-      fence: record.geometryFence,
-      expectedRuntimeEpoch: record.runtimeEpoch,
-      ...(Array.isArray(next.input) ? { inputParts: next.input } : { input: next.input }),
-    })
-    if (!delivered) {
-      discardPendingTerminalInput(record, 'Terminal disconnected; unsent input was discarded')
-      record.geometryLeaseId = ''
-      record.geometryFence = null
-      record.rendererReadyFence = null
-      setTerminalGeometryStatus(record, 'claiming')
-      return
-    }
-    record.pendingTakeoverInput.shift()
-    record.pendingTakeoverInputBytes = Math.max(0, record.pendingTakeoverInputBytes - next.bytes)
-    record.fixtureOverrideActive = false
-    record.inputCount += 1
-    record.contextMenuSelection = ''
-    record.lastNonEmptySelection = ''
-  }
-}
-
-function discardPendingTerminalInput(record: SessionRecord, message?: string) {
-  if (record.pendingTakeoverInput.length === 0) return
-  record.pendingTakeoverInput = []
-  record.pendingTakeoverInputBytes = 0
-  if (message) reportTerminalInputError(record, message)
-}
-
-function releaseTerminalGeometry(record: SessionRecord, nextStatus: 'detached' | 'suspended') {
-  cancelTerminalGeometryRenew(record)
-  cancelTerminalGeometryClaimTimeout(record)
-  if (record.geometryLeaseId && record.geometryFence !== null) {
-    sendTerminalGeometryMessage({
+function releaseTerminalController(record: SessionRecord, nextStatus: 'detached' | 'suspended') {
+  cancelTerminalControllerRenew(record)
+  cancelTerminalControllerClaimTimeout(record)
+  if (record.controllerLeaseId && record.controllerFence !== null) {
+    sendTerminalControllerMessage({
       type: 'terminal-controller-release',
       agentId: record.agentId,
-      attachmentId: record.geometryAttachmentId,
-      leaseId: record.geometryLeaseId,
-      fence: record.geometryFence,
+      attachmentId: record.controllerAttachmentId,
+      leaseId: record.controllerLeaseId,
+      fence: record.controllerFence,
     })
   }
-  record.geometryLeaseId = ''
-  record.geometryFence = null
+  record.controllerLeaseId = ''
+  record.controllerFence = null
   record.rendererReadyFence = null
-  record.geometryExpiresAt = 0
-  record.geometryResizeRequestSeq = 0
-  record.geometryClaimInFlight = false
-  record.geometryFocusAfterClaim = false
+  record.controllerExpiresAt = 0
+  record.controllerResizeRequestSeq = 0
+  record.controllerClaimInFlight = false
+  record.controllerFocusAfterClaim = false
   record.pendingOutputAckChars = 0
-  discardPendingTerminalInput(record)
-  setTerminalGeometryStatus(record, nextStatus)
+  setTerminalControllerStatus(record, nextStatus)
 }
 
-function handleTerminalGeometryState(record: SessionRecord, message: TerminalControllerMessage) {
+function handleTerminalControllerState(record: SessionRecord, message: TerminalControllerMessage) {
   if (
     record.disposed ||
     message.agentId !== record.agentId ||
-    message.attachmentId !== record.geometryAttachmentId
+    message.attachmentId !== record.controllerAttachmentId
   ) {
     return
   }
-  if (message.claimId && message.claimId !== record.geometryClaimId) return
-  if (message.claimId === record.geometryClaimId) {
-    record.geometryClaimInFlight = false
-    cancelTerminalGeometryClaimTimeout(record)
+  if (message.claimId && message.claimId !== record.controllerClaimId) return
+  if (message.claimId === record.controllerClaimId) {
+    record.controllerClaimInFlight = false
+    cancelTerminalControllerClaimTimeout(record)
   }
 
   if (message.status === 'owner') {
-    const sameLease = record.geometryStatus === 'owner'
-      && record.geometryLeaseId === message.leaseId
-      && record.geometryFence === message.fence
-    record.geometryLeaseId = message.leaseId || ''
-    record.geometryFence = typeof message.fence === 'number' ? message.fence : null
+    resetTerminalControllerRecoveryFailures(record)
+    const sameLease = record.controllerStatus === 'owner'
+      && record.controllerLeaseId === message.leaseId
+      && record.controllerFence === message.fence
+    record.controllerLeaseId = message.leaseId || ''
+    record.controllerFence = typeof message.fence === 'number' ? message.fence : null
     if (!sameLease) record.rendererReadyFence = null
-    record.geometryExpiresAt = typeof message.expiresAt === 'number' ? message.expiresAt : 0
-    record.geometryResizeRequestSeq = sameLease ? record.geometryResizeRequestSeq : 0
+    record.controllerExpiresAt = typeof message.expiresAt === 'number' ? message.expiresAt : 0
+    record.controllerResizeRequestSeq = sameLease ? record.controllerResizeRequestSeq : 0
     if (!sameLease) record.pendingOutputAckChars = 0
-    setTerminalGeometryStatus(record, 'owner')
-    scheduleTerminalGeometryRenew(record)
+    setTerminalControllerStatus(record, 'owner')
+    scheduleTerminalControllerRenew(record)
     if (!sameLease) {
       record.resizeAfterReplay = true
       if (!record.bootstrappingSnapshot && !record.pendingSnapshotReplay && !record.replayInProgress) {
         activateTerminalRenderer(record)
-        flushTerminalInputQueue(record)
         record.resizeAfterReplay = false
         requestAnimationFrame(() => {
           if (!record.disposed && isCurrentAttachment(record, record.attachGeneration)) {
@@ -2047,58 +2056,51 @@ function handleTerminalGeometryState(record: SessionRecord, message: TerminalCon
       }
     } else if (!record.bootstrappingSnapshot && !record.pendingSnapshotReplay && !record.replayInProgress) {
       activateTerminalRenderer(record)
-      flushTerminalInputQueue(record)
     }
     return
   }
 
   if (message.status === 'resize-committed') {
     if (
-      record.geometryStatus !== 'owner' ||
-      record.geometryLeaseId !== message.leaseId ||
-      record.geometryFence !== message.fence
+      record.controllerStatus !== 'owner' ||
+      record.controllerLeaseId !== message.leaseId ||
+      record.controllerFence !== message.fence
     ) {
       return
     }
-    record.geometryExpiresAt = typeof message.expiresAt === 'number'
+    record.controllerExpiresAt = typeof message.expiresAt === 'number'
       ? message.expiresAt
-      : record.geometryExpiresAt
+      : record.controllerExpiresAt
     return
   }
 
-  cancelTerminalGeometryRenew(record)
-  record.geometryLeaseId = ''
-  record.geometryFence = null
+  cancelTerminalControllerRenew(record)
+  record.controllerLeaseId = ''
+  record.controllerFence = null
   record.rendererReadyFence = null
-  record.geometryExpiresAt = 0
-  record.geometryResizeRequestSeq = 0
+  record.controllerExpiresAt = 0
+  record.controllerResizeRequestSeq = 0
   record.pendingOutputAckChars = 0
   record.resizeAfterReplay = false
-  setTerminalGeometryStatus(
+  setTerminalControllerStatus(
     record,
     record.pageOutputSuspended ? 'suspended' : message.status === 'observer' || message.status === 'revoked'
       ? 'observer'
       : 'claiming',
   )
-  if (record.geometryStatus === 'observer') {
-    discardPendingTerminalInput(
-      record,
-      'Another window controls this terminal; input entered while reconnecting was not sent',
-    )
-  }
   const shouldRecoverController = (
     message.status === 'rejected' ||
     message.status === 'expired' ||
     message.status === 'unowned' ||
     message.status === 'resize-rejected'
   ) && !record.pageOutputSuspended && isTerminalSessionAttached(record)
-  if (shouldRecoverController) {
+  if (shouldRecoverController && prepareTerminalControllerRecovery(record, message)) {
     beginTerminalCheckpointBarrier(record, record.stateRevision, record.runtimeEpoch)
-    invalidateTerminalCheckpointRequest(record)
+    invalidateTerminalCheckpointRequest(record, 'controller-recovery')
     cancelTerminalCheckpointRetry(record)
     replayTerminalCheckpoint(record, record.attachGeneration)
   }
-  if (record.geometryStatus !== 'owner') record.geometryFocusAfterClaim = false
+  if (record.controllerStatus !== 'owner') record.controllerFocusAfterClaim = false
 }
 
 function acknowledgeRenderedTerminalOutput(
@@ -2107,10 +2109,10 @@ function acknowledgeRenderedTerminalOutput(
   runtimeEpoch: string,
 ) {
   if (
-    record.geometryStatus !== 'owner' ||
-    !record.geometryLeaseId ||
-    record.geometryFence === null ||
-    record.rendererReadyFence !== record.geometryFence ||
+    record.controllerStatus !== 'owner' ||
+    !record.controllerLeaseId ||
+    record.controllerFence === null ||
+    record.rendererReadyFence !== record.controllerFence ||
     !runtimeEpoch ||
     runtimeEpoch !== record.runtimeEpoch
   ) {
@@ -2121,53 +2123,82 @@ function acknowledgeRenderedTerminalOutput(
   const acknowledgedChars = record.pendingOutputAckChars
     - (record.pendingOutputAckChars % TERMINAL_OUTPUT_ACK_CHARS)
   if (acknowledgedChars <= 0) return
-  const delivered = sendTerminalGeometryMessage({
+  const delivered = sendTerminalControllerMessage({
     type: 'terminal-output-ack',
     agentId: record.agentId,
-    attachmentId: record.geometryAttachmentId,
-    leaseId: record.geometryLeaseId,
-    fence: record.geometryFence,
+    attachmentId: record.controllerAttachmentId,
+    leaseId: record.controllerLeaseId,
+    fence: record.controllerFence,
     expectedRuntimeEpoch: runtimeEpoch,
     charCount: acknowledgedChars,
   })
   if (!delivered) {
     record.pendingOutputAckChars = 0
-    record.geometryLeaseId = ''
-    record.geometryFence = null
+    record.controllerLeaseId = ''
+    record.controllerFence = null
     record.rendererReadyFence = null
-    setTerminalGeometryStatus(record, 'claiming')
+    setTerminalControllerStatus(record, 'claiming')
     return
   }
   record.pendingOutputAckChars -= acknowledgedChars
 }
 
-function requestTerminalGeometryResize(record: SessionRecord, cols: number, rows: number) {
+function acknowledgeRenderedTerminalCheckpoint(
+  record: SessionRecord,
+  outputSeq: number,
+  stateRevision: number,
+  runtimeEpoch: string,
+) {
+  if (record.suppressCheckpointAckForTest) return true
   if (
-    record.geometryStatus !== 'owner' ||
-    !record.geometryLeaseId ||
-    record.geometryFence === null ||
-    record.rendererReadyFence !== record.geometryFence ||
+    record.controllerStatus !== 'owner' ||
+    !record.controllerLeaseId ||
+    record.controllerFence === null ||
+    record.rendererReadyFence !== record.controllerFence ||
+    !runtimeEpoch ||
+    runtimeEpoch !== record.runtimeEpoch
+  ) return false
+  const delivered = sendTerminalControllerMessage({
+    type: 'terminal-checkpoint-applied',
+    agentId: record.agentId,
+    attachmentId: record.controllerAttachmentId,
+    leaseId: record.controllerLeaseId,
+    fence: record.controllerFence,
+    expectedRuntimeEpoch: runtimeEpoch,
+    outputSeq,
+    stateRevision,
+  })
+  if (delivered) record.pendingOutputAckChars = 0
+  return delivered
+}
+
+function requestTerminalControllerResize(record: SessionRecord, cols: number, rows: number) {
+  if (
+    record.controllerStatus !== 'owner' ||
+    !record.controllerLeaseId ||
+    record.controllerFence === null ||
+    record.rendererReadyFence !== record.controllerFence ||
     !record.runtimeEpoch
   ) {
     return false
   }
-  const requestSeq = record.geometryResizeRequestSeq + 1
-  record.geometryResizeRequestSeq = requestSeq
-  const delivered = sendTerminalGeometryMessage({
+  const requestSeq = record.controllerResizeRequestSeq + 1
+  record.controllerResizeRequestSeq = requestSeq
+  const delivered = sendTerminalControllerMessage({
     type: 'resize-agent',
     agentId: record.agentId,
-    attachmentId: record.geometryAttachmentId,
-    leaseId: record.geometryLeaseId,
-    fence: record.geometryFence,
+    attachmentId: record.controllerAttachmentId,
+    leaseId: record.controllerLeaseId,
+    fence: record.controllerFence,
     requestSeq,
     expectedRuntimeEpoch: record.runtimeEpoch,
     cols,
     rows,
   })
   if (!delivered) {
-    setTerminalGeometryStatus(record, 'claiming')
-    record.geometryLeaseId = ''
-    record.geometryFence = null
+    setTerminalControllerStatus(record, 'claiming')
+    record.controllerLeaseId = ''
+    record.controllerFence = null
     record.rendererReadyFence = null
     beginTerminalCheckpointBarrier(record, record.stateRevision, record.runtimeEpoch)
     replayTerminalCheckpoint(record, record.attachGeneration)
@@ -2179,7 +2210,7 @@ function syncTerminalSize(
   record: SessionRecord,
   options: { force?: boolean } = {},
 ) {
-  if (record.geometryStatus !== 'owner') return
+  if (record.controllerStatus !== 'owner') return
   try {
     const dimensions = proposeTerminalResizeDimensions(record.hostEl, record.fitAddon)
     if (!dimensions) return
@@ -2205,7 +2236,7 @@ function notifyTerminalResize(
 ) {
   if (
     !isTerminalSessionAttached(record) ||
-    record.geometryStatus !== 'owner' ||
+    record.controllerStatus !== 'owner' ||
     record.replayInProgress ||
     record.bootstrappingSnapshot
   ) return
@@ -2219,7 +2250,7 @@ function notifyTerminalResize(
         record.applyingLocalResize = false
       }
     }
-    const delivered = requestTerminalGeometryResize(record, nextCols, nextRows)
+    const delivered = requestTerminalControllerResize(record, nextCols, nextRows)
     return delivered
   }, options)
 }
@@ -2230,7 +2261,7 @@ function resyncTerminalSizeAfterBackendReconnect(record: SessionRecord) {
   if (record.disposed || record.pageOutputSuspended) return
   if (!record.attachedMount || record.hostEl.parentElement !== record.attachedMount) return
   record.resizeAfterReplay = true
-  invalidateTerminalCheckpointRequest(record)
+  invalidateTerminalCheckpointRequest(record, 'backend-reconnect')
   cancelTerminalCheckpointRetry(record)
   beginTerminalCheckpointBarrier(record, record.stateRevision, record.runtimeEpoch)
   replayTerminalCheckpoint(record, record.attachGeneration)
@@ -2242,7 +2273,7 @@ function resyncTerminalAfterPageResume(record: SessionRecord) {
   if (record.disposed || record.pageOutputSuspended) return
   if (!record.attachedMount || record.hostEl.parentElement !== record.attachedMount) return
   record.resizeAfterReplay = true
-  invalidateTerminalCheckpointRequest(record)
+  invalidateTerminalCheckpointRequest(record, 'page-resume')
   cancelTerminalCheckpointRetry(record)
   beginTerminalCheckpointBarrier(record, record.stateRevision, record.runtimeEpoch)
   replayTerminalCheckpoint(record, record.attachGeneration)
@@ -2524,7 +2555,12 @@ function installTerminalLinkProvider(record: SessionRecord) {
             text: match.text,
             decorations: {
               pointerCursor: pathDirectOpen,
-              underline: pathDirectOpen,
+              // xterm snapshots the initial decoration state before invoking
+              // link.hover, then installs the live decoration setters. Keep
+              // URLs underlined in that initial state so the first hover is
+              // visibly recognized; the modifier still gates activation and
+              // the pointer cursor.
+              underline: pathDirectOpen || match.kind === 'url',
             },
             activate: (event: MouseEvent) => {
               if (event.button !== 0) return
@@ -2564,7 +2600,7 @@ function installTerminalLinkProvider(record: SessionRecord) {
               }
               setTerminalLinkDecorations(link, {
                 pointerCursor: pathDirectOpen,
-                underline: pathDirectOpen,
+                underline: pathDirectOpen || match.kind === 'url',
               })
               clearTerminalOpenTargetState(record)
             },
@@ -3007,9 +3043,9 @@ function pasteTerminalClipboardText(record: SessionRecord, text: string) {
 function clearTerminalBuffer(record: SessionRecord) {
   if (record.disposed || record.attachedMount === null) return
   if (
-    record.geometryStatus !== 'owner' ||
-    !record.geometryLeaseId ||
-    record.geometryFence === null ||
+    record.controllerStatus !== 'owner' ||
+    !record.controllerLeaseId ||
+    record.controllerFence === null ||
     !record.runtimeEpoch ||
     record.replayInProgress ||
     record.bootstrappingSnapshot ||
@@ -3023,12 +3059,12 @@ function clearTerminalBuffer(record: SessionRecord) {
   record.lastNonEmptySelection = ''
   record.terminal.clearSearch?.()
   setFollowOutputState(record, true, false, { allowClearUnread: true })
-  const delivered = sendTerminalGeometryMessage({
+  const delivered = sendTerminalControllerMessage({
     type: 'clear-terminal',
     agentId: record.agentId,
-    attachmentId: record.geometryAttachmentId,
-    leaseId: record.geometryLeaseId,
-    fence: record.geometryFence,
+    attachmentId: record.controllerAttachmentId,
+    leaseId: record.controllerLeaseId,
+    fence: record.controllerFence,
     expectedRuntimeEpoch: record.runtimeEpoch,
   })
   if (!delivered) {
@@ -3851,6 +3887,12 @@ function installTerminalTestApi() {
       current.suppressOutputAckForTest = suppressed === true
       return true
     },
+    setCheckpointAckSuppressed(agentId: string, suppressed: boolean) {
+      const current = sessions.get(agentId)
+      if (!current || current instanceof Promise || current.disposed) return false
+      current.suppressCheckpointAckForTest = suppressed === true
+      return true
+    },
     getLastOutputSeq(agentId: string) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return null
@@ -3894,11 +3936,14 @@ function installTerminalTestApi() {
           ? Math.max(0, Date.now() - current.checkpointRequestStartedAt)
           : 0,
         checkpointLastResult: current.checkpointLastResult,
+        checkpointLastInvalidation: current.checkpointLastInvalidation,
         checkpointFetchCount: current.checkpointFetchCount,
         checkpointFailureCount: current.checkpointFailureCount,
         checkpointInvariantFailureSignature: current.checkpointInvariantFailureSignature,
         checkpointInvariantFailureCount: current.checkpointInvariantFailureCount,
         checkpointHalted: current.checkpointHalted,
+        controllerRecoveryFailureSignature: current.controllerRecoveryFailureSignature,
+        controllerRecoveryFailureCount: current.controllerRecoveryFailureCount,
         checkpointRetryScheduled: current.checkpointRetryTimer !== null,
         replayInProgress: current.replayInProgress,
         bootstrappingSnapshot: current.bootstrappingSnapshot,
@@ -3915,9 +3960,7 @@ function installTerminalTestApi() {
         pageOutputSuspended: current.pageOutputSuspended,
         suppressOutputForMs: Math.max(0, current.suppressOutputUntil - Date.now()),
         needsReconnectOutputSync: current.needsReconnectOutputSync,
-        geometryStatus: current.geometryStatus,
-        pendingInputCount: current.pendingTakeoverInput.length,
-        pendingInputBytes: current.pendingTakeoverInputBytes,
+        controllerStatus: current.controllerStatus,
       }
     },
     async scrollToLine(agentId: string, line: number) {
@@ -3999,20 +4042,20 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
   hostEl.style.height = '100%'
   hostEl.style.position = 'relative'
   hostEl.style.overflow = 'hidden'
-  const geometryStatusEl = document.createElement('div')
-  geometryStatusEl.className = 'terminal-geometry-status'
-  geometryStatusEl.setAttribute('role', 'status')
-  geometryStatusEl.setAttribute('aria-live', 'polite')
-  geometryStatusEl.hidden = true
-  const geometryStatusTextEl = document.createElement('span')
-  geometryStatusTextEl.className = 'terminal-geometry-status-text'
-  const geometryTakeoverButton = document.createElement('button')
-  geometryTakeoverButton.type = 'button'
-  geometryTakeoverButton.className = 'terminal-geometry-takeover'
-  geometryTakeoverButton.textContent = 'Take control'
-  geometryTakeoverButton.hidden = true
-  geometryStatusEl.append(geometryStatusTextEl, geometryTakeoverButton)
-  hostEl.appendChild(geometryStatusEl)
+  const controllerStatusEl = document.createElement('div')
+  controllerStatusEl.className = 'terminal-controller-status'
+  controllerStatusEl.setAttribute('role', 'status')
+  controllerStatusEl.setAttribute('aria-live', 'polite')
+  controllerStatusEl.hidden = true
+  const controllerStatusTextEl = document.createElement('span')
+  controllerStatusTextEl.className = 'terminal-controller-status-text'
+  const controllerTakeoverButton = document.createElement('button')
+  controllerTakeoverButton.type = 'button'
+  controllerTakeoverButton.className = 'terminal-controller-takeover'
+  controllerTakeoverButton.textContent = 'Take control'
+  controllerTakeoverButton.hidden = true
+  controllerStatusEl.append(controllerStatusTextEl, controllerTakeoverButton)
+  hostEl.appendChild(controllerStatusEl)
 
   const { terminal, fitAddon } = result
   terminal.loadAddon(fitAddon)
@@ -4031,29 +4074,28 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     selectionChangeDisposable: null,
     imeOverlayDisposables: [],
     resizeObserver: null,
-    unsubscribeGeometry: null,
-    geometryStatusEl,
-    geometryStatusTextEl,
-    geometryTakeoverButton,
-    geometryTakeoverHandler: null,
-    geometryAttachmentId: createBrowserUuid(),
-    geometryClaimId: '',
-    geometryClaimInFlight: false,
-    geometryFocusAfterClaim: false,
-    geometryStatus: document.visibilityState === 'hidden' ? 'suspended' : 'claiming',
-    geometryLeaseId: '',
-    geometryFence: null,
+    unsubscribeController: null,
+    controllerStatusEl,
+    controllerStatusTextEl,
+    controllerTakeoverButton,
+    controllerTakeoverHandler: null,
+    controllerAttachmentId: createBrowserUuid(),
+    controllerClaimId: '',
+    controllerClaimInFlight: false,
+    controllerFocusAfterClaim: false,
+    controllerStatus: document.visibilityState === 'hidden' ? 'suspended' : 'claiming',
+    controllerLeaseId: '',
+    controllerFence: null,
     rendererReadyFence: null,
-    geometryExpiresAt: 0,
-    geometryResizeRequestSeq: 0,
-    geometryRenewTimer: null,
-    geometryClaimTimer: null,
+    controllerExpiresAt: 0,
+    controllerResizeRequestSeq: 0,
+    controllerRenewTimer: null,
+    controllerClaimTimer: null,
     applyingLocalResize: false,
     parkedViewportState: null,
     pendingOutputAckChars: 0,
     suppressOutputAckForTest: false,
-    pendingTakeoverInput: [],
-    pendingTakeoverInputBytes: 0,
+    suppressCheckpointAckForTest: false,
     inputDisabled: Boolean(options.inputDisabled),
     errorHandler: options.onError ?? null,
     scrollChangeDisposable: null,
@@ -4120,13 +4162,17 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     checkpointFailureCount: 0,
     checkpointInvariantFailureSignature: '',
     checkpointInvariantFailureCount: 0,
+    controllerRecoveryFailureSignature: '',
+    controllerRecoveryFailureCount: 0,
     checkpointHalted: false,
     checkpointRequestInFlight: false,
     checkpointRequestGeneration: null,
     checkpointRequestSeq: null,
     checkpointRequestStartedAt: 0,
     checkpointLastResult: 'never',
+    checkpointLastInvalidation: '',
     checkpointFetchCount: 0,
+    checkpointInstallSeq: 0,
     bootstrapRequestControllers: new Set(),
     needsReconnectOutputSync: false,
     pageOutputSuspended: document.visibilityState === 'hidden',
@@ -4162,18 +4208,18 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
 
   terminal.onResize(({ cols, rows }: { cols: number; rows: number }) => {
     if (record.applyingLocalResize) return
-    if (record.geometryStatus !== 'owner' || record.replayInProgress || record.bootstrappingSnapshot) return
+    if (record.controllerStatus !== 'owner' || record.replayInProgress || record.bootstrappingSnapshot) return
     notifyTerminalResize(record, cols, rows)
   })
 
-  const geometryTakeoverHandler = (event: MouseEvent) => {
+  const controllerTakeoverHandler = (event: MouseEvent) => {
     if (!event.isTrusted) return
     event.preventDefault()
     event.stopPropagation()
-    claimTerminalGeometry(record, 'interactive')
+    claimTerminalController(record, 'interactive')
   }
-  geometryTakeoverButton.addEventListener('click', geometryTakeoverHandler)
-  record.geometryTakeoverHandler = geometryTakeoverHandler
+  controllerTakeoverButton.addEventListener('click', controllerTakeoverHandler)
+  record.controllerTakeoverHandler = controllerTakeoverHandler
 
   installTerminalContextMenu(record, agentId)
   terminal.open(hostEl)
@@ -4210,15 +4256,15 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     : null
   const backendConnectedHandler = () => {
     resetTerminalCheckpointInvariantFailures(record)
-    cancelTerminalGeometryRenew(record)
-    record.geometryLeaseId = ''
-    record.geometryFence = null
-    record.geometryResizeRequestSeq = 0
-    discardPendingTerminalInput(record, 'Terminal reconnected; unsent input was discarded')
-    record.geometryClaimInFlight = false
-    setTerminalGeometryStatus(record, 'claiming')
+    resetTerminalControllerRecoveryFailures(record)
+    cancelTerminalControllerRenew(record)
+    record.controllerLeaseId = ''
+    record.controllerFence = null
+    record.controllerResizeRequestSeq = 0
+    record.controllerClaimInFlight = false
+    setTerminalControllerStatus(record, 'claiming')
     resyncTerminalSizeAfterBackendReconnect(record)
-    claimTerminalGeometry(record, 'passive')
+    claimTerminalController(record, 'passive')
   }
   window.addEventListener('farming:backend-connected', backendConnectedHandler)
   record.backendConnectedHandler = backendConnectedHandler
@@ -4226,14 +4272,15 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     const suspended = event.type === 'pagehide' || document.visibilityState === 'hidden'
     record.pageOutputSuspended = suspended
     if (suspended) {
-      releaseTerminalGeometry(record, 'suspended')
+      releaseTerminalController(record, 'suspended')
       record.needsReconnectOutputSync = true
       return
     }
     resetTerminalCheckpointInvariantFailures(record)
-    setTerminalGeometryStatus(record, 'claiming')
+    resetTerminalControllerRecoveryFailures(record)
+    setTerminalControllerStatus(record, 'claiming')
     resyncTerminalAfterPageResume(record)
-    claimTerminalGeometry(record, 'passive')
+    claimTerminalController(record, 'passive')
   }
   document.addEventListener('visibilitychange', pageLifecycleHandler)
   window.addEventListener('pagehide', pageLifecycleHandler)
@@ -4640,9 +4687,9 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     )
   })
   record.unsubscribeOutput = unsubscribeOutput
-  record.unsubscribeGeometry = subscribeTerminalGeometry(
-    record.geometryAttachmentId,
-    message => handleTerminalGeometryState(record, message),
+  record.unsubscribeController = subscribeTerminalController(
+    record.controllerAttachmentId,
+    message => handleTerminalControllerState(record, message),
   )
 
   installTerminalTestApi()
@@ -4747,7 +4794,7 @@ export async function attachTerminalSession(agentId: string, options: AttachOpti
   record.attachReadyHandler = options.onReady ?? null
   record.attachReadyGeneration = generation
   record.attachReadyNotified = false
-  invalidateTerminalCheckpointRequest(record)
+  invalidateTerminalCheckpointRequest(record, 'attach')
   cancelTerminalCheckpointRetry(record)
   appendHost(record, options.mountEl)
   if (record.parkedViewportState) {
@@ -4756,8 +4803,8 @@ export async function attachTerminalSession(agentId: string, options: AttachOpti
     record.preserveUnreadOutputUntilJump = record.preserveUnreadOutputUntilJump
       || record.parkedViewportState.preserveUnreadOutputUntilJump
   }
-  setTerminalGeometryStatus(record, 'claiming')
-  claimTerminalGeometry(record, 'passive')
+  setTerminalControllerStatus(record, 'claiming')
+  claimTerminalController(record, 'passive')
   repairTerminalAfterAttach(record)
   record.errorHandler = options.onError ?? null
   record.inputDisabled = Boolean(options.inputDisabled)
@@ -4817,6 +4864,25 @@ export function sendTerminalSessionInput(agentId: string, input: string | Termin
   return queueTerminalInput(current, input)
 }
 
+export function getTerminalControllerCredentials(agentId: string) {
+  const current = sessions.get(agentId)
+  if (
+    !current ||
+    current instanceof Promise ||
+    current.disposed ||
+    current.controllerStatus !== 'owner' ||
+    !current.controllerLeaseId ||
+    current.controllerFence === null ||
+    !current.runtimeEpoch
+  ) return null
+  return {
+    attachmentId: current.controllerAttachmentId,
+    leaseId: current.controllerLeaseId,
+    fence: current.controllerFence,
+    expectedRuntimeEpoch: current.runtimeEpoch,
+  }
+}
+
 export async function getTerminalSelection(agentId: string) {
   const current = sessions.get(agentId)
   if (!current) return ''
@@ -4865,15 +4931,15 @@ export async function destroyTerminalSession(agentId: string) {
 
   const record = await current
   if (record.disposed) return
-  releaseTerminalGeometry(record, 'detached')
+  releaseTerminalController(record, 'detached')
   record.disposed = true
   clearPendingTerminalOutput(record)
   flushPendingTerminalWrites(record)
 
   record.unsubscribeOutput?.()
-  record.unsubscribeGeometry?.()
-  cancelTerminalGeometryRenew(record)
-  cancelTerminalGeometryClaimTimeout(record)
+  record.unsubscribeController?.()
+  cancelTerminalControllerRenew(record)
+  cancelTerminalControllerClaimTimeout(record)
   record.selectionChangeDisposable?.()
   record.scrollChangeDisposable?.()
   if (record.backendConnectedHandler) {
@@ -4884,8 +4950,8 @@ export async function destroyTerminalSession(agentId: string) {
     window.removeEventListener('pagehide', record.pageLifecycleHandler)
     window.removeEventListener('pageshow', record.pageLifecycleHandler)
   }
-  if (record.geometryTakeoverHandler) {
-    record.geometryTakeoverButton.removeEventListener('click', record.geometryTakeoverHandler)
+  if (record.controllerTakeoverHandler) {
+    record.controllerTakeoverButton.removeEventListener('click', record.controllerTakeoverHandler)
   }
   if (record.checkpointRetryTimer !== null) {
     window.clearTimeout(record.checkpointRetryTimer)

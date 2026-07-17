@@ -341,7 +341,6 @@ export async function createXtermTerminalInstance(options?: {
     drawBoldTextInBrightColors: false,
     fontFamily: DEFAULT_FONT_FAMILY,
     fontSize,
-    ignoreBracketedPasteMode: true,
     lineHeight: 1.18,
     linkHandler: {
       allowNonHttpProtocols: false,

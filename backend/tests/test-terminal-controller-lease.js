@@ -1,18 +1,18 @@
 const assert = require('assert');
 const {
-  beginTerminalGeometryResize,
-  claimTerminalGeometry,
-  commitTerminalGeometryResize,
-  createTerminalGeometryControl,
-  invalidateTerminalGeometry,
-  rejectTerminalGeometryResize,
-  releaseTerminalGeometry,
-  renewTerminalGeometry,
-  validateTerminalGeometryClear,
-  validateTerminalGeometryInput,
-  validateTerminalGeometryOutputAck,
-  validateTerminalGeometryRendererReady,
-} = require('../terminal-geometry-control');
+  beginTerminalControllerResize,
+  claimTerminalController,
+  commitTerminalControllerResize,
+  createTerminalControllerLease,
+  invalidateTerminalController,
+  rejectTerminalControllerResize,
+  releaseTerminalController,
+  renewTerminalController,
+  validateTerminalControllerClear,
+  validateTerminalControllerInput,
+  validateTerminalControllerOutputAck,
+  validateTerminalControllerRendererReady,
+} = require('../terminal-controller-lease');
 
 function session() {
   return {
@@ -21,13 +21,38 @@ function session() {
     outputSeq: 5,
     previewCols: 80,
     previewRows: 24,
-    geometryControl: createTerminalGeometryControl(),
+    controllerLease: createTerminalControllerLease(),
   };
 }
 
 function run() {
+  const systemSession = session();
+  const systemInput = validateTerminalControllerInput(systemSession, {
+    kind: 'system',
+    expectedRuntimeEpoch: 'epoch-a',
+  });
+  assert.strictEqual(systemInput.status, 'input-accepted');
+  assert.strictEqual(systemInput.system, true);
+  const wrongSystemEpoch = validateTerminalControllerClear(systemSession, {
+    kind: 'system',
+    expectedRuntimeEpoch: 'epoch-old',
+  });
+  assert.strictEqual(wrongSystemEpoch.status, 'clear-rejected');
+  assert.strictEqual(wrongSystemEpoch.reason, 'runtime-epoch-mismatch');
+  claimTerminalController(systemSession, {
+    ownerKey: 'server-system-test:socket:attachment',
+    claimId: 'browser-owner',
+    expectedRuntimeEpoch: 'epoch-a',
+  });
+  const controlledSystemInput = validateTerminalControllerInput(systemSession, {
+    kind: 'system',
+    expectedRuntimeEpoch: 'epoch-a',
+  });
+  assert.strictEqual(controlledSystemInput.status, 'input-rejected');
+  assert.strictEqual(controlledSystemInput.reason, 'terminal-controlled-by-browser');
+
   const current = session();
-  const first = claimTerminalGeometry(current, {
+  const first = claimTerminalController(current, {
     ownerKey: 'server-a:socket-a:attachment-a',
     claimId: 'claim-a',
     expectedRuntimeEpoch: 'epoch-a',
@@ -36,7 +61,7 @@ function run() {
   assert.strictEqual(first.fence, 1);
   assert.ok(first.leaseId);
 
-  const renewed = renewTerminalGeometry(current, {
+  const renewed = renewTerminalController(current, {
     ownerKey: first.ownerKey,
     leaseId: first.leaseId,
     fence: first.fence,
@@ -45,7 +70,7 @@ function run() {
   assert.strictEqual(renewed.status, 'owner');
   assert.strictEqual(renewed.fence, first.fence);
 
-  const inputBeforeRendererReady = validateTerminalGeometryInput(current, {
+  const inputBeforeRendererReady = validateTerminalControllerInput(current, {
     ownerKey: first.ownerKey,
     leaseId: first.leaseId,
     fence: first.fence,
@@ -54,7 +79,7 @@ function run() {
   assert.strictEqual(inputBeforeRendererReady.status, 'input-rejected');
   assert.strictEqual(inputBeforeRendererReady.reason, 'renderer-not-ready');
 
-  const resizeBeforeRendererReady = beginTerminalGeometryResize(current, {
+  const resizeBeforeRendererReady = beginTerminalControllerResize(current, {
     ownerKey: first.ownerKey,
     leaseId: first.leaseId,
     fence: first.fence,
@@ -64,16 +89,16 @@ function run() {
   assert.strictEqual(resizeBeforeRendererReady.accepted, false);
   assert.strictEqual(resizeBeforeRendererReady.result.reason, 'renderer-not-ready');
 
-  const rendererReady = validateTerminalGeometryRendererReady(current, {
+  const rendererReady = validateTerminalControllerRendererReady(current, {
     ownerKey: first.ownerKey,
     leaseId: first.leaseId,
     fence: first.fence,
     expectedRuntimeEpoch: 'epoch-a',
   });
   assert.strictEqual(rendererReady.status, 'renderer-ready-accepted');
-  current.geometryControl.rendererReadyFence = first.fence;
+  current.controllerLease.rendererReadyFence = first.fence;
 
-  const staleResize = beginTerminalGeometryResize(current, {
+  const staleResize = beginTerminalControllerResize(current, {
     ownerKey: 'stale-owner',
     leaseId: first.leaseId,
     fence: first.fence,
@@ -83,7 +108,7 @@ function run() {
   assert.strictEqual(staleResize.accepted, false);
   assert.strictEqual(staleResize.result.reason, 'stale-lease');
 
-  const resize = beginTerminalGeometryResize(current, {
+  const resize = beginTerminalControllerResize(current, {
     ownerKey: first.ownerKey,
     leaseId: first.leaseId,
     fence: first.fence,
@@ -94,14 +119,14 @@ function run() {
   current.previewCols = 120;
   current.previewRows = 40;
   current.stateRevision += 1;
-  const ack = commitTerminalGeometryResize(current, resize.requestSeq, { resized: true });
+  const ack = commitTerminalControllerResize(current, resize.requestSeq, { resized: true });
   assert.strictEqual(ack.status, 'resize-committed');
   assert.strictEqual('stateRevision' in ack, false);
   assert.strictEqual('outputSeq' in ack, false);
   assert.strictEqual('cols' in ack, false);
   assert.strictEqual('rows' in ack, false);
 
-  const duplicate = beginTerminalGeometryResize(current, {
+  const duplicate = beginTerminalControllerResize(current, {
     ownerKey: first.ownerKey,
     leaseId: first.leaseId,
     fence: first.fence,
@@ -111,7 +136,7 @@ function run() {
   assert.strictEqual(duplicate.duplicate, true);
   assert.strictEqual('stateRevision' in duplicate.result, false);
 
-  const gap = beginTerminalGeometryResize(current, {
+  const gap = beginTerminalControllerResize(current, {
     ownerKey: first.ownerKey,
     leaseId: first.leaseId,
     fence: first.fence,
@@ -121,7 +146,7 @@ function run() {
   assert.strictEqual(gap.accepted, false);
   assert.strictEqual(gap.result.reason, 'request-sequence-gap');
 
-  const failed = beginTerminalGeometryResize(current, {
+  const failed = beginTerminalControllerResize(current, {
     ownerKey: first.ownerKey,
     leaseId: first.leaseId,
     fence: first.fence,
@@ -129,9 +154,9 @@ function run() {
     requestSeq: 2,
   });
   assert.strictEqual(failed.accepted, true);
-  const failedAck = rejectTerminalGeometryResize(current, 2, 'pty-resize-failed');
+  const failedAck = rejectTerminalControllerResize(current, 2, 'pty-resize-failed');
   assert.strictEqual(failedAck.status, 'resize-rejected');
-  const failedRetry = beginTerminalGeometryResize(current, {
+  const failedRetry = beginTerminalControllerResize(current, {
     ownerKey: first.ownerKey,
     leaseId: first.leaseId,
     fence: first.fence,
@@ -141,7 +166,7 @@ function run() {
   assert.strictEqual(failedRetry.duplicate, true);
   assert.strictEqual(failedRetry.result.reason, 'pty-resize-failed');
 
-  const firstInput = validateTerminalGeometryInput(current, {
+  const firstInput = validateTerminalControllerInput(current, {
     ownerKey: first.ownerKey,
     leaseId: first.leaseId,
     fence: first.fence,
@@ -149,7 +174,7 @@ function run() {
   });
   assert.strictEqual(firstInput.status, 'input-accepted');
 
-  const staleInput = validateTerminalGeometryInput(current, {
+  const staleInput = validateTerminalControllerInput(current, {
     ownerKey: 'stale-owner',
     leaseId: first.leaseId,
     fence: first.fence,
@@ -158,14 +183,14 @@ function run() {
   assert.strictEqual(staleInput.status, 'input-rejected');
   assert.strictEqual(staleInput.reason, 'stale-lease');
 
-  const clear = validateTerminalGeometryClear(current, {
+  const clear = validateTerminalControllerClear(current, {
     ownerKey: first.ownerKey,
     leaseId: first.leaseId,
     fence: first.fence,
     expectedRuntimeEpoch: 'epoch-a',
   });
   assert.strictEqual(clear.status, 'clear-accepted');
-  const outputAck = validateTerminalGeometryOutputAck(current, {
+  const outputAck = validateTerminalControllerOutputAck(current, {
     ownerKey: first.ownerKey,
     leaseId: first.leaseId,
     fence: first.fence,
@@ -173,7 +198,7 @@ function run() {
   });
   assert.strictEqual(outputAck.status, 'output-ack-accepted');
 
-  const staleClear = validateTerminalGeometryClear(current, {
+  const staleClear = validateTerminalControllerClear(current, {
     ownerKey: 'stale-owner',
     leaseId: first.leaseId,
     fence: first.fence,
@@ -182,16 +207,16 @@ function run() {
   assert.strictEqual(staleClear.status, 'clear-rejected');
   assert.strictEqual(staleClear.reason, 'stale-lease');
 
-  const secondOwner = claimTerminalGeometry(current, {
+  const secondOwner = claimTerminalController(current, {
     ownerKey: 'server-a:socket-b:attachment-b',
     claimId: 'claim-b',
     expectedRuntimeEpoch: 'epoch-a',
   });
   assert.strictEqual(secondOwner.fence, 2);
   assert.notStrictEqual(secondOwner.leaseId, first.leaseId);
-  current.geometryControl.rendererReadyFence = secondOwner.fence;
+  current.controllerLease.rendererReadyFence = secondOwner.fence;
 
-  const secondInput = validateTerminalGeometryInput(current, {
+  const secondInput = validateTerminalControllerInput(current, {
     ownerKey: secondOwner.ownerKey,
     leaseId: secondOwner.leaseId,
     fence: secondOwner.fence,
@@ -199,7 +224,7 @@ function run() {
   });
   assert.strictEqual(secondInput.status, 'input-accepted');
 
-  const oldFence = beginTerminalGeometryResize(current, {
+  const oldFence = beginTerminalControllerResize(current, {
     ownerKey: first.ownerKey,
     leaseId: first.leaseId,
     fence: first.fence,
@@ -209,7 +234,7 @@ function run() {
   assert.strictEqual(oldFence.accepted, false);
   assert.strictEqual(oldFence.result.reason, 'stale-lease');
 
-  const secondResize = beginTerminalGeometryResize(current, {
+  const secondResize = beginTerminalControllerResize(current, {
     ownerKey: secondOwner.ownerKey,
     leaseId: secondOwner.leaseId,
     fence: secondOwner.fence,
@@ -217,12 +242,12 @@ function run() {
     requestSeq: 1,
   });
   assert.strictEqual(secondResize.accepted, true);
-  const thirdOwner = claimTerminalGeometry(current, {
+  const thirdOwner = claimTerminalController(current, {
     ownerKey: 'server-b:socket-c:attachment-c',
     claimId: 'claim-c',
     expectedRuntimeEpoch: 'epoch-a',
   });
-  const lateCommit = commitTerminalGeometryResize(
+  const lateCommit = commitTerminalControllerResize(
     current,
     secondResize.requestSeq,
     { resized: true },
@@ -230,10 +255,10 @@ function run() {
   );
   assert.strictEqual(lateCommit.status, 'resize-rejected');
   assert.strictEqual(lateCommit.reason, 'controller-replaced');
-  assert.strictEqual(current.geometryControl.ownerKey, thirdOwner.ownerKey);
-  assert.strictEqual(current.geometryControl.lastResizeAck, null);
+  assert.strictEqual(current.controllerLease.ownerKey, thirdOwner.ownerKey);
+  assert.strictEqual(current.controllerLease.lastResizeAck, null);
 
-  const wrongEpoch = beginTerminalGeometryResize(current, {
+  const wrongEpoch = beginTerminalControllerResize(current, {
     ownerKey: thirdOwner.ownerKey,
     leaseId: thirdOwner.leaseId,
     fence: thirdOwner.fence,
@@ -243,7 +268,7 @@ function run() {
   assert.strictEqual(wrongEpoch.accepted, false);
   assert.strictEqual(wrongEpoch.result.reason, 'runtime-epoch-mismatch');
 
-  const wrongInputEpoch = validateTerminalGeometryInput(current, {
+  const wrongInputEpoch = validateTerminalControllerInput(current, {
     ownerKey: thirdOwner.ownerKey,
     leaseId: thirdOwner.leaseId,
     fence: thirdOwner.fence,
@@ -252,7 +277,7 @@ function run() {
   assert.strictEqual(wrongInputEpoch.status, 'input-rejected');
   assert.strictEqual(wrongInputEpoch.reason, 'runtime-epoch-mismatch');
 
-  const wrongClearEpoch = validateTerminalGeometryClear(current, {
+  const wrongClearEpoch = validateTerminalControllerClear(current, {
     ownerKey: thirdOwner.ownerKey,
     leaseId: thirdOwner.leaseId,
     fence: thirdOwner.fence,
@@ -261,18 +286,18 @@ function run() {
   assert.strictEqual(wrongClearEpoch.status, 'clear-rejected');
   assert.strictEqual(wrongClearEpoch.reason, 'runtime-epoch-mismatch');
 
-  const released = releaseTerminalGeometry(current, {
+  const released = releaseTerminalController(current, {
     ownerKey: thirdOwner.ownerKey,
     leaseId: thirdOwner.leaseId,
     fence: thirdOwner.fence,
   });
   assert.strictEqual(released.status, 'unowned');
 
-  const invalidated = invalidateTerminalGeometry(current, 'controller-replaced');
+  const invalidated = invalidateTerminalController(current, 'controller-replaced');
   assert.strictEqual(invalidated.fence, 5);
   assert.strictEqual(invalidated.reason, 'controller-replaced');
 
-  console.log('terminal geometry control tests passed');
+  console.log('terminal controller lease tests passed');
 }
 
 run();

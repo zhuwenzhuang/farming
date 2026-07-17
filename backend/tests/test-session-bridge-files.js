@@ -50,14 +50,19 @@ function run() {
     'CRT should send terminal input only with the active fencing proof'
   );
   assert(
-    sessionBridge.includes('acknowledgeTerminalOutput(agentId, charCount, geometry)') &&
+    sessionBridge.includes('acknowledgeTerminalOutput(agentId, charCount, controller)') &&
       sessionBridge.includes("type: 'terminal-output-ack'") &&
       server.includes("case 'terminal-output-ack':") &&
-      server.includes('terminalGeometryCoordinator.acknowledgeOutput(ws, data)'),
+      server.includes('terminalControllerCoordinator.acknowledgeOutput(ws, data)'),
     'terminal renderer acknowledgements should use the fenced owner path'
   );
   assert(sessionBridge.includes('sendComposerMessage') && sessionBridge.includes("type: 'composer-input'"), 'CRT should route structured Agent messages through the Composer API');
-  assert(sessionBridge.includes('interruptAgent') && sessionBridge.includes("type: 'interrupt-agent'"), 'CRT structured Composer should expose the shared Agent interrupt path');
+  assert(
+    sessionBridge.includes('interruptAgent(agentId, controller)')
+      && sessionBridge.includes("type: 'interrupt-agent'")
+      && sessionBridge.includes('...(controller || {})'),
+    'CRT structured Composer should expose the shared Agent interrupt path without bypassing a live terminal controller',
+  );
   assert(
     app.includes('if (activeTerminalId !== agentId)') &&
       app.includes('ws.focusAgent(agentId)') &&
@@ -67,6 +72,11 @@ function run() {
       terminalPane.includes('const readCut = getReadCutNow()') &&
       terminalPane.includes('onReadLatest?.(agent.id, readCut)'),
     'Code should advance the read cursor only after the renderer exposes the latest authoritative output cut'
+  );
+  assert(
+    !terminalPane.includes('sessionBootstrapStateFromPayload') &&
+      !terminalPane.includes('bootstrapState,'),
+    'Code must fetch the authoritative /session-view checkpoint instead of treating truncated Agent list output as serialized terminal state',
   );
   assert(
     !server.includes('markUnreadForBackgroundOutput(stream.agentId)'),

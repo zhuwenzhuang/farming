@@ -116,7 +116,7 @@ class TerminalScreenWorker extends EventEmitter {
       reject(failure);
     });
     this.pendingRequests.clear();
-    if (shouldEmit) {
+    if (shouldEmit && this.listenerCount('error') > 0) {
       this.emit('error', failure);
     }
   }

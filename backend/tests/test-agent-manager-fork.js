@@ -11,6 +11,7 @@ async function run() {
   const repo = path.join(tmpRoot, 'repo');
   const nonGit = path.join(tmpRoot, 'plain');
   const binDir = path.join(tmpRoot, 'bin');
+  const commandLog = path.join(tmpRoot, 'codex-commands.jsonl');
   fs.mkdirSync(repo, { recursive: true });
   fs.mkdirSync(nonGit, { recursive: true });
   fs.mkdirSync(binDir, { recursive: true });
@@ -22,8 +23,10 @@ async function run() {
   execFileSync('git', ['-C', repo, '-c', 'user.name=Farming Test', '-c', 'user.email=farming@example.test', 'commit', '-m', 'init'], { stdio: 'ignore' });
   const previousPath = process.env.PATH;
   const previousCodexBin = process.env.FARMING_CODEX_BIN;
+  const previousCommandLog = process.env.FARMING_TEST_COMMAND_LOG;
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ''}`;
   process.env.FARMING_CODEX_BIN = path.join(binDir, 'codex');
+  process.env.FARMING_TEST_COMMAND_LOG = commandLog;
 
   const captured = [];
   const manager = new AgentManager({
@@ -128,7 +131,7 @@ async function run() {
 
     const codexSessionId = '22222222-3333-4444-8555-666666666666';
     const codexHome = path.join(tmpRoot, '.codex-work');
-    const codexSessionsDir = path.join(codexHome, 'sessions', '2026', '07', '15');
+    const codexSessionsDir = path.join(codexHome, 'archived_sessions');
     fs.mkdirSync(codexSessionsDir, { recursive: true });
     fs.writeFileSync(path.join(codexSessionsDir, `rollout-${codexSessionId}.jsonl`), [
       JSON.stringify({
@@ -152,6 +155,7 @@ async function run() {
     const resumedCodexMetadata = await manager.findRuntimeSwitchSession(manager.agents.get(resumedCodexId));
     assert.strictEqual(resumedCodexMetadata?.model, 'gpt-5.6-sol');
     assert.strictEqual(resumedCodexMetadata?.effort, 'xhigh');
+    assert.strictEqual(resumedCodexMetadata?.archived, true);
     const resumedCodexLaunch = captured.at(-1);
     assert(!resumedCodexLaunch.args.includes('--model'));
     assert(!resumedCodexLaunch.args.some(arg => /^(?:model|model_reasoning_effort|service_tier)=/.test(arg)));
@@ -171,6 +175,45 @@ async function run() {
     assert(!captured.at(-1).args.some(arg => /^(?:model|model_reasoning_effort|service_tier)=/.test(arg)));
     assert.strictEqual(captured.at(-1).env.CODEX_HOME, codexHome);
     assert.strictEqual(manager.getState().agents.find(agent => agent.id === resumedCodexFork.agentId).providerHomeId, 'work');
+    const unarchiveCommands = fs.readFileSync(commandLog, 'utf8')
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map(line => JSON.parse(line));
+    assert.deepStrictEqual(unarchiveCommands, [{
+      args: ['unarchive', codexSessionId],
+      codexHome,
+    }]);
+
+    const originalUnarchiveCodexSession = manager.unarchiveCodexSession;
+    let releaseConcurrentUnarchive;
+    let concurrentUnarchiveCalls = 0;
+    manager.unarchiveCodexSession = async () => {
+      concurrentUnarchiveCalls += 1;
+      await new Promise(resolve => { releaseConcurrentUnarchive = resolve; });
+      return { unarchived: true };
+    };
+    const concurrentForkOne = manager.forkAgent(resumedCodexId, 'same-worktree');
+    await waitFor(() => concurrentUnarchiveCalls === 1 && releaseConcurrentUnarchive);
+    const concurrentForkTwo = manager.forkAgent(resumedCodexId, 'same-worktree');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(concurrentUnarchiveCalls, 1, 'concurrent forks should share one Codex unarchive transition');
+    releaseConcurrentUnarchive();
+    const concurrentForkResults = await Promise.all([concurrentForkOne, concurrentForkTwo]);
+    assert(concurrentForkResults.every(result => !result.error));
+
+    manager.unarchiveCodexSession = async () => ({ error: 'simulated unarchive failure' });
+    const worktreesBeforeFailedFork = execFileSync('git', ['-C', repo, 'worktree', 'list', '--porcelain'], { encoding: 'utf8' });
+    const engineStartsBeforeFailedFork = captured.length;
+    const failedArchivedFork = await manager.forkAgent(resumedCodexId, 'new-worktree');
+    assert.match(failedArchivedFork.error, /could not be unarchived before forking: simulated unarchive failure/);
+    assert.strictEqual(captured.length, engineStartsBeforeFailedFork, 'failed unarchive must not start a fork Agent');
+    assert.strictEqual(
+      execFileSync('git', ['-C', repo, 'worktree', 'list', '--porcelain'], { encoding: 'utf8' }),
+      worktreesBeforeFailedFork,
+      'failed unarchive must not leave a fork worktree behind'
+    );
+    manager.unarchiveCodexSession = originalUnarchiveCodexSession;
 
     const claudeSessionId = '11111111-2222-4333-8444-555555555555';
     const resumedClaudeId = await startAgent(manager, `claude --resume ${claudeSessionId}`, repo, {
@@ -212,6 +255,11 @@ async function run() {
     } else {
       process.env.FARMING_CODEX_BIN = previousCodexBin;
     }
+    if (previousCommandLog === undefined) {
+      delete process.env.FARMING_TEST_COMMAND_LOG;
+    } else {
+      process.env.FARMING_TEST_COMMAND_LOG = previousCommandLog;
+    }
     process.env.PATH = previousPath;
     clearInterval(manager.heartbeatInterval);
     manager.engineBridge.dispose();
@@ -221,8 +269,15 @@ async function run() {
 
 function writeFakeExecutable(filePath, versionOutput) {
   fs.writeFileSync(filePath, `#!/usr/bin/env node
+const fs = require('fs');
 if (process.argv.includes('--version')) {
   process.stdout.write(${JSON.stringify(versionOutput)});
+}
+if (process.argv[2] === 'unarchive' && process.env.FARMING_TEST_COMMAND_LOG) {
+  fs.appendFileSync(process.env.FARMING_TEST_COMMAND_LOG, JSON.stringify({
+    args: process.argv.slice(2),
+    codexHome: process.env.CODEX_HOME || '',
+  }) + '\\n');
 }
 `);
   fs.chmodSync(filePath, 0o755);

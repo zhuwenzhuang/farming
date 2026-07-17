@@ -2,6 +2,7 @@ const SessionEngine = require('./session-engine');
 const NativePtyHostClient = require('./native-pty-host-client');
 const { normalizeShellSessionOptions } = require('./local-session-engine');
 const { cleanupShellBusyIntegration } = require('./shell-busy-integration');
+const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation');
 
 function isRecoverableConnectError(error) {
   const code = error && error.code;
@@ -11,6 +12,18 @@ function isRecoverableConnectError(error) {
 function nativeSessionId(entry, fallback = '') {
   if (!entry || typeof entry !== 'object') return fallback || '';
   return entry.sessionId || entry.agentId || entry.metadata?.agentId || fallback || '';
+}
+
+function recoveredRuntimeEpoch(entry) {
+  if (!entry || typeof entry !== 'object') return '';
+  if (typeof entry.runtimeEpoch === 'string' && entry.runtimeEpoch) return entry.runtimeEpoch;
+  return typeof entry.state?.runtimeEpoch === 'string' ? entry.state.runtimeEpoch : '';
+}
+
+function shouldAdvanceRuntimeEpoch(currentEpoch, nextEpoch) {
+  if (!nextEpoch) return false;
+  if (!currentEpoch || currentEpoch === nextEpoch) return true;
+  return compareNativePtyRuntimeEpochs(nextEpoch, currentEpoch) === 1;
 }
 
 class NativeSessionEngine extends SessionEngine {
@@ -23,7 +36,10 @@ class NativeSessionEngine extends SessionEngine {
     });
     this.preserveHostOnDispose = options.preserveHostOnDispose === true;
     this.activeSessionIds = new Set();
-    this.reconcilingHostDisconnect = false;
+    this.activeSessionEpochs = new Map();
+    this.hostDisconnectGeneration = 0;
+    this.reconciledHostDisconnectGeneration = 0;
+    this.hostDisconnectReconcilePromise = null;
     this.bindClientEvents();
   }
 
@@ -46,6 +62,7 @@ class NativeSessionEngine extends SessionEngine {
       });
     });
     this.client.on('host-disconnect', () => {
+      this.hostDisconnectGeneration += 1;
       this.reconcileHostDisconnect().catch(error => {
         const message = error && error.message ? error.message : 'Native pty host disconnected';
         this.failActiveSessions(message);
@@ -64,43 +81,68 @@ class NativeSessionEngine extends SessionEngine {
     const sessionId = nativeSessionId(payload);
     if (!sessionId) return;
     if (eventName === 'session-started') {
-      this.activeSessionIds.add(sessionId);
+      const runtimeEpoch = typeof payload.runtimeEpoch === 'string' ? payload.runtimeEpoch : '';
+      const currentEpoch = this.activeSessionEpochs.get(sessionId) || '';
+      if (shouldAdvanceRuntimeEpoch(currentEpoch, runtimeEpoch)) {
+        this.activeSessionIds.add(sessionId);
+        this.activeSessionEpochs.set(sessionId, runtimeEpoch);
+      } else if (!currentEpoch && !runtimeEpoch) {
+        this.activeSessionIds.add(sessionId);
+      }
     } else if (eventName === 'session-exited') {
+      const currentEpoch = this.activeSessionEpochs.get(sessionId) || '';
+      const exitedEpoch = typeof payload.runtimeEpoch === 'string' ? payload.runtimeEpoch : '';
+      if (currentEpoch ? exitedEpoch !== currentEpoch : Boolean(exitedEpoch)) return;
       this.activeSessionIds.delete(sessionId);
+      this.activeSessionEpochs.delete(sessionId);
     }
   }
 
   async reconcileHostDisconnect() {
-    if (this.reconcilingHostDisconnect) return;
-    const expectedSessionIds = [...this.activeSessionIds];
-    if (expectedSessionIds.length === 0) return;
-
-    this.reconcilingHostDisconnect = true;
-    try {
-      const recovered = await this.recoverSessions({ startHost: true });
-      const recoveredIds = new Set((recovered || [])
-        .map(entry => nativeSessionId(entry))
-        .filter(Boolean));
-
-      for (const sessionId of expectedSessionIds) {
-        if (recoveredIds.has(sessionId)) continue;
-        this.activeSessionIds.delete(sessionId);
-        this.emit('session-error', {
+    if (this.hostDisconnectReconcilePromise) return this.hostDisconnectReconcilePromise;
+    this.hostDisconnectReconcilePromise = (async () => {
+      while (this.reconciledHostDisconnectGeneration < this.hostDisconnectGeneration) {
+        const generation = this.hostDisconnectGeneration;
+        const expectedSessions = [...this.activeSessionIds].map(sessionId => ({
           sessionId,
-          error: 'Native pty host disconnected; terminal session is no longer recoverable',
-          fatal: true,
-        });
+          runtimeEpoch: this.activeSessionEpochs.get(sessionId) || '',
+        }));
+        if (expectedSessions.length > 0) {
+          const recovered = await this.recoverSessions({ startHost: true });
+          const recoveredIds = new Set((recovered || [])
+            .map(entry => nativeSessionId(entry))
+            .filter(Boolean));
+
+          for (const expected of expectedSessions) {
+            if (recoveredIds.has(expected.sessionId)) continue;
+            this.activeSessionIds.delete(expected.sessionId);
+            this.activeSessionEpochs.delete(expected.sessionId);
+            this.emit('session-error', {
+              sessionId: expected.sessionId,
+              runtimeEpoch: expected.runtimeEpoch,
+              error: 'Native pty host disconnected; terminal session is no longer recoverable',
+              fatal: true,
+            });
+          }
+        }
+        this.reconciledHostDisconnectGeneration = generation;
       }
+    })();
+    try {
+      await this.hostDisconnectReconcilePromise;
     } finally {
-      this.reconcilingHostDisconnect = false;
+      this.hostDisconnectReconcilePromise = null;
     }
   }
 
   failActiveSessions(message) {
     for (const sessionId of [...this.activeSessionIds]) {
       this.activeSessionIds.delete(sessionId);
+      const runtimeEpoch = this.activeSessionEpochs.get(sessionId) || '';
+      this.activeSessionEpochs.delete(sessionId);
       this.emit('session-error', {
         sessionId,
+        runtimeEpoch,
         error: message,
         fatal: true,
       });
@@ -140,46 +182,57 @@ class NativeSessionEngine extends SessionEngine {
     });
   }
 
-  async interruptSession(sessionId, input = '\x03') {
-    return this.sendInput(sessionId, input);
+  async interruptSession(sessionId, input = '\x03', options = {}) {
+    return this.sendInput(sessionId, input, options);
   }
 
-  async claimSessionGeometry(sessionId, geometry) {
-    return this.client.request('claimSessionGeometry', { sessionId, geometry });
+  async claimSessionController(sessionId, controller) {
+    return this.client.request('claimSessionController', { sessionId, controller });
   }
 
-  async activateSessionRenderer(sessionId, geometry) {
-    return this.client.request('activateSessionRenderer', { sessionId, geometry }, {
+  async activateSessionRenderer(sessionId, controller) {
+    return this.client.request('activateSessionRenderer', { sessionId, controller }, {
       retryOnDisconnect: false,
     });
   }
 
-  async renewSessionGeometry(sessionId, geometry) {
-    return this.client.request('renewSessionGeometry', { sessionId, geometry });
+  async renewSessionController(sessionId, controller) {
+    return this.client.request('renewSessionController', { sessionId, controller });
   }
 
-  async releaseSessionGeometry(sessionId, geometry) {
-    return this.client.request('releaseSessionGeometry', { sessionId, geometry }, {
+  async releaseSessionController(sessionId, controller) {
+    return this.client.request('releaseSessionController', { sessionId, controller }, {
       retryOnDisconnect: false,
     });
   }
 
-  async acknowledgeSessionOutput(sessionId, charCount, geometry) {
+  async acknowledgeSessionOutput(sessionId, charCount, controller) {
     return this.client.request('acknowledgeSessionOutput', {
       sessionId,
       charCount,
-      geometry,
+      controller,
     }, {
       retryOnDisconnect: false,
     });
   }
 
-  async resizeSession(sessionId, cols, rows, geometry) {
-    return this.client.request('resizeSession', { sessionId, cols, rows, geometry });
+  async acknowledgeSessionCheckpoint(sessionId, outputSeq, stateRevision, controller) {
+    return this.client.request('acknowledgeSessionCheckpoint', {
+      sessionId,
+      outputSeq,
+      stateRevision,
+      controller,
+    }, {
+      retryOnDisconnect: false,
+    });
   }
 
-  async clearBuffer(sessionId, geometry = null) {
-    return this.client.request('clearBuffer', { sessionId, geometry }, {
+  async resizeSession(sessionId, cols, rows, controller) {
+    return this.client.request('resizeSession', { sessionId, cols, rows, controller });
+  }
+
+  async clearBuffer(sessionId, controller = null) {
+    return this.client.request('clearBuffer', { sessionId, controller }, {
       retryOnDisconnect: false,
     });
   }
@@ -187,6 +240,7 @@ class NativeSessionEngine extends SessionEngine {
   async killSession(sessionId) {
     const result = await this.client.request('killSession', { sessionId });
     this.activeSessionIds.delete(sessionId);
+    this.activeSessionEpochs.delete(sessionId);
     return result;
   }
 
@@ -216,7 +270,13 @@ class NativeSessionEngine extends SessionEngine {
       const recovered = await this.client.request('recoverSessions', {}, { startHost });
       for (const entry of recovered || []) {
         const sessionId = nativeSessionId(entry);
-        if (sessionId) this.activeSessionIds.add(sessionId);
+        if (!sessionId) continue;
+        this.activeSessionIds.add(sessionId);
+        const runtimeEpoch = recoveredRuntimeEpoch(entry);
+        const currentEpoch = this.activeSessionEpochs.get(sessionId) || '';
+        if (shouldAdvanceRuntimeEpoch(currentEpoch, runtimeEpoch)) {
+          this.activeSessionEpochs.set(sessionId, runtimeEpoch);
+        }
       }
       return recovered;
     } catch (error) {
@@ -240,6 +300,7 @@ class NativeSessionEngine extends SessionEngine {
       preserveHost: options.preserveHost === true || this.preserveHostOnDispose,
     });
     this.activeSessionIds.clear();
+    this.activeSessionEpochs.clear();
   }
 }
 
