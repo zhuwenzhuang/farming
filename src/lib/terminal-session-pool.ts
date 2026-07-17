@@ -340,6 +340,7 @@ declare global {
       getLastOutputSeq: (agentId: string) => number | null
       getRuntimeEpoch: (agentId: string) => string
       getStateRevision: (agentId: string) => number | null
+      setCheckpointAckSuppressed: (agentId: string, suppressed: boolean) => boolean
       getBufferDiagnostics: (agentId: string) => {
         engine?: string
         renderer?: 'pending' | 'webgl' | 'failed'
@@ -353,6 +354,10 @@ declare global {
         bufferLength?: number
         queuedTransitions: number
         queuedBytes: number
+        replayTargetEpoch: string
+        replayTargetRevision: number | null
+        checkpointHalted: boolean
+        checkpointFailureCount: number
         checkpointRequestInFlight: boolean
         replayInProgress: boolean
         bootstrappingSnapshot: boolean
@@ -982,8 +987,9 @@ function installTerminalCheckpoint(
     record.terminal.rows === state.rows
   ) {
     const viewportState = terminalViewportStateForRestore(record)
-    record.needsReconnectOutputSync = !TERMINAL_REPLAY.commitCheckpoint(record.replayState, checkpoint)
-    record.bootstrappingSnapshot = record.needsReconnectOutputSync
+    TERMINAL_REPLAY.commitCheckpoint(record.replayState, checkpoint)
+    record.needsReconnectOutputSync = false
+    record.bootstrappingSnapshot = false
     restoreTerminalViewportFromAnchor(record, viewportState)
     flushQueuedTerminalOutput(record)
     finishTerminalReplay(record, generation)
@@ -1016,13 +1022,14 @@ function installTerminalCheckpoint(
       record.reconnectSnapshotSeq !== installSeq
     ) return
 
-    record.needsReconnectOutputSync = !TERMINAL_REPLAY.commitCheckpoint(record.replayState, checkpoint)
+    TERMINAL_REPLAY.commitCheckpoint(record.replayState, checkpoint)
     record.followOutput = viewportState.following
     record.hasUnreadOutput = viewportState.hasUnreadOutput
     record.preserveUnreadOutputUntilJump = viewportState.preserveUnreadOutputUntilJump
     restoreTerminalViewportFromAnchor(record, viewportState)
     record.replayInProgress = false
-    record.bootstrappingSnapshot = record.needsReconnectOutputSync
+    record.needsReconnectOutputSync = false
+    record.bootstrappingSnapshot = false
     scheduleImeOverlayUpdateIfActive(record)
     flushQueuedTerminalOutput(record)
     finishTerminalReplay(record, generation)
@@ -3344,6 +3351,10 @@ function installTerminalTestApi() {
       if (!current || current instanceof Promise || current.disposed) return null
       return current.replayState.stateRevision
     },
+    setCheckpointAckSuppressed(agentId: string) {
+      const current = sessions.get(agentId)
+      return Boolean(current && !(current instanceof Promise) && !current.disposed)
+    },
     getBufferDiagnostics(agentId: string) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return null
@@ -3364,6 +3375,10 @@ function installTerminalTestApi() {
         bufferLength: typeof buffer?.length === 'number' ? buffer.length : undefined,
         queuedTransitions: current.replayState.queuedTransitions.length,
         queuedBytes: current.replayState.queuedBytes,
+        replayTargetEpoch: current.replayState.replayTargetEpoch,
+        replayTargetRevision: current.replayState.replayTargetRevision,
+        checkpointHalted: current.replayState.halted,
+        checkpointFailureCount: current.replayState.failureCount,
         checkpointRequestInFlight: current.checkpointRequestInFlight,
         replayInProgress: current.replayInProgress,
         bootstrappingSnapshot: current.bootstrappingSnapshot,

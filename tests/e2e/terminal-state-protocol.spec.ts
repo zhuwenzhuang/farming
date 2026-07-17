@@ -583,9 +583,9 @@ test.describe('terminal state protocol', () => {
         checkpointHalted?: boolean
       } | null
     )?.checkpointHalted === true, agentId), { timeout: 10_000 }).toBe(true)
-    expect(requests).toBe(4)
+    expect(requests).toBe(3)
     await page.waitForTimeout(2_000)
-    expect(requests).toBe(4)
+    expect(requests).toBe(3)
     await expect(page.getByTestId('code-terminal-status-card')).toBeVisible()
     expect(await visibleText(page, agentId)).not.toContain('GAP_MUST_NOT_RENDER')
   })

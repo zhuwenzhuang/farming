@@ -186,13 +186,15 @@ assert.deepStrictEqual(structuredTranscriptTurns({
     { type: 'message', role: 'assistant', internal: true, content: [{ type: 'text', text: 'hidden' }] },
     { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Second answer' }] },
   ],
-}), [{
-  userMessage: 'First request',
-  finalMessage: 'First answer',
-}, {
-  userMessage: 'Second request',
-  finalMessage: 'Second answer',
-}]);
+	}), [{
+	  id: 'user-0',
+	  userMessage: 'First request',
+	  finalMessage: 'First answer',
+	}, {
+	  id: 'user-1',
+	  userMessage: 'Second request',
+	  finalMessage: 'Second answer',
+	}]);
 
 assert.deepStrictEqual(structuredTranscriptTurns({
   turns: [{ userMessage: 'Legacy request', finalMessage: 'Legacy answer' }],

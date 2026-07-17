@@ -177,6 +177,29 @@
     return { action: 'reject', signature, message };
   }
 
+  function queuedTransitionsCoverTarget(state, checkpoint) {
+    if (
+      checkpoint.runtimeEpoch !== state.replayTargetEpoch
+      || !Number.isFinite(state.replayTargetRevision)
+    ) return false;
+
+    let outputSeq = checkpoint.outputSeq;
+    let stateRevision = checkpoint.stateRevision;
+    for (const event of state.queuedTransitions) {
+      if (!isTransitionValid(event) || event.runtimeEpoch !== checkpoint.runtimeEpoch) return false;
+      if (event.stateRevision <= stateRevision) continue;
+      const outputAdvance = event.kind === 'output' ? 1 : 0;
+      if (
+        event.stateRevision !== stateRevision + 1
+        || event.outputSeq !== outputSeq + outputAdvance
+      ) return false;
+      outputSeq = event.outputSeq;
+      stateRevision = event.stateRevision;
+      if (stateRevision >= state.replayTargetRevision) return true;
+    }
+    return false;
+  }
+
   function evaluateCheckpoint(state, checkpoint) {
     if (!isCheckpointValid(checkpoint)) {
       return checkpointInvariant('invalid-checkpoint', 'Terminal replay returned an invalid screen state');
@@ -202,7 +225,10 @@
 
     if (state.replayTargetEpoch && Number.isFinite(state.replayTargetRevision)) {
       if (checkpoint.runtimeEpoch === state.replayTargetEpoch) {
-        if (checkpoint.stateRevision < state.replayTargetRevision) {
+        if (
+          checkpoint.stateRevision < state.replayTargetRevision
+          && !queuedTransitionsCoverTarget(state, checkpoint)
+        ) {
           return checkpointInvariant(
             `behind-target:${checkpoint.runtimeEpoch}:${checkpoint.stateRevision}:${state.replayTargetRevision}`,
             'Terminal replay did not reach the latest observed screen state',
@@ -258,6 +284,9 @@
     removeCheckpointCoveredTransitions(state, checkpoint);
     clearFailures(state);
     state.recovering = isReplayTargetPending(state);
+    if (state.recovering && queuedTransitionsCoverTarget(state, checkpoint)) {
+      state.recovering = false;
+    }
     if (!state.recovering) {
       state.replayTargetEpoch = '';
       state.replayTargetRevision = null;

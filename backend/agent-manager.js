@@ -743,7 +743,6 @@ class AgentManager extends EventEmitter {
         this.outputEvents.set(sessionId, events.filter(e => e.timestamp > cutoff));
 
         this.observeAgentAttentionState(sessionId);
-        this.observeAgentStateChange(sessionId);
         const sessionSource = this.getEngineSessionSource(engineName);
         const stream = {
           agentId: sessionId,
@@ -800,7 +799,6 @@ class AgentManager extends EventEmitter {
         rows,
       });
       this.observeAgentAttentionState(sessionId);
-      this.observeAgentStateChange(sessionId);
       this.emit('update');
     });
 
@@ -863,7 +861,6 @@ class AgentManager extends EventEmitter {
           this.emit('session-stream', stream);
         }
         this.observeAgentAttentionState(sessionId);
-        this.observeAgentStateChange(sessionId);
         this.emit('update');
       });
 
@@ -896,7 +893,6 @@ class AgentManager extends EventEmitter {
           }),
         });
         this.observeAgentAttentionState(sessionId);
-        this.observeAgentStateChange(sessionId);
         if (titleChanged) {
           this.emit('update');
         }
@@ -908,7 +904,6 @@ class AgentManager extends EventEmitter {
 
         if (this.updateAgentSessionTitle(agent, title)) {
           this.observeAgentAttentionState(sessionId);
-          this.observeAgentStateChange(sessionId);
           this.emit('update');
         }
       });
@@ -918,7 +913,6 @@ class AgentManager extends EventEmitter {
         if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
         this.lastActivity.set(sessionId, lastActivityAt || Date.now());
         this.observeAgentAttentionState(sessionId);
-        this.observeAgentStateChange(sessionId);
         this.emitActivityUpdate(sessionId, lastActivityAt || Date.now());
       });
 
@@ -1015,7 +1009,6 @@ class AgentManager extends EventEmitter {
           void this.refreshAgentWorktree(sessionId, agent.shellCwd);
         }
         this.observeAgentAttentionState(sessionId);
-        this.observeAgentStateChange(sessionId);
         this.emit('update');
       });
 
@@ -3687,13 +3680,16 @@ class AgentManager extends EventEmitter {
     if (!engine) return;
 
     try {
+      const submittedUserInput = markUserInput && hasSubmittedTerminalInput(input);
       const result = await engine.sendInput(agentId, input, { expectedRuntimeEpoch });
-      if (markUserInput && hasSubmittedTerminalInput(input) && agent.terminalInputReceived !== true) {
+      if (submittedUserInput && agent.terminalInputReceived !== true) {
         agent.terminalInputReceived = true;
         this.ensurePersistentAgentSession(agent);
         this.updateEngineProviderSessionMetadata(agent);
       }
-      this.observeAgentStateChange(agentId, { force: true });
+      if (submittedUserInput) {
+        this.observeAgentStateChange(agentId, { force: true });
+      }
       return result;
     } catch (error) {
       console.error('Failed to send input:', error);

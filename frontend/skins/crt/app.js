@@ -2245,6 +2245,7 @@ function installCrtTerminalTestApi() {
         cols: terminal?.cols || 0,
         rows: terminal?.rows || 0,
         replaying: replication.replayState.recovering,
+        checkpointHalted: replication.replayState.halted,
         writeInProgress: replication.writeInProgress,
         checkpointInFlight: replication.checkpointInFlight,
         checkpointInstallInProgress: replication.installInProgress,

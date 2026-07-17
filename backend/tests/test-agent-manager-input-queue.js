@@ -170,6 +170,11 @@ async function run() {
       agentRuntimeMode: 'terminal',
       terminalInputReceived: false,
     });
+    const originalObserveAgentStateChange = manager.observeAgentStateChange.bind(manager);
+    const observedStateChanges = [];
+    manager.observeAgentStateChange = (agentId, options) => {
+      observedStateChanges.push({ agentId, options });
+    };
     await manager.sendInput('agent-focus-protocol', '\x1b[I');
     await manager.sendInput('agent-focus-protocol', '\x1b[O');
     await manager.sendInput('agent-focus-protocol', '\x1b[>0;276;0c');
@@ -181,12 +186,124 @@ async function run() {
       false,
       'terminal protocol traffic, navigation, and unsubmitted draft text should keep a fresh Terminal switchable'
     );
+    assert.deepStrictEqual(
+      observedStateChanges,
+      [],
+      'terminal protocol traffic, navigation, and unsubmitted draft text should not trigger provider session observation'
+    );
     await manager.sendInput('agent-focus-protocol', '\r');
     assert.strictEqual(
       manager.agents.get('agent-focus-protocol').terminalInputReceived,
       true,
       'submitting Terminal input should mark the session used until a resumable provider session is available'
     );
+    assert.deepStrictEqual(
+      observedStateChanges,
+      [{ agentId: 'agent-focus-protocol', options: { force: true } }],
+      'submitting Terminal input should trigger provider session observation once'
+    );
+    manager.observeAgentStateChange = originalObserveAgentStateChange;
+
+    manager.agents.set('agent-display-events', {
+      id: 'agent-display-events',
+      command: 'claude --resume claude-session',
+      cwd: '/tmp',
+      output: '',
+      engineName: 'local',
+      status: 'running',
+      providerSessionProvider: 'claude',
+      providerSessionId: 'claude-session',
+      providerSessionTitle: '',
+      runtimeEpoch: 'epoch-display',
+      lastOutputSeq: 0,
+      stateRevision: 0,
+    });
+    const displayEventStateChanges = [];
+    const worktreeRefreshes = [];
+    manager.observeAgentStateChange = (agentId, options) => {
+      displayEventStateChanges.push({ agentId, options });
+    };
+    const originalRefreshAgentWorktree = manager.refreshAgentWorktree.bind(manager);
+    manager.refreshAgentWorktree = async (agentId, workspace) => {
+      worktreeRefreshes.push({ agentId, workspace });
+      return false;
+    };
+    manager.engineBridge.emit('session-output', {
+      sessionId: 'agent-display-events',
+      data: 'streamed output',
+      engineName: 'local',
+      runtimeEpoch: 'epoch-display',
+      outputSeq: 1,
+      stateRevision: 1,
+    });
+    manager.engineBridge.emit('session-transition', {
+      sessionId: 'agent-display-events',
+      engineName: 'local',
+      kind: 'resize',
+      runtimeEpoch: 'epoch-display',
+      outputSeq: 1,
+      stateRevision: 2,
+      cols: 100,
+      rows: 30,
+    });
+    manager.engineBridge.emit('session-sync', {
+      sessionId: 'agent-display-events',
+      output: 'synced screen',
+      engineName: 'local',
+      runtimeEpoch: 'epoch-display',
+      outputSeq: 2,
+      stateRevision: 3,
+    });
+    manager.engineBridge.emit('session-preview', {
+      sessionId: 'agent-display-events',
+      previewText: 'preview text',
+      cols: 100,
+      rows: 30,
+      title: 'display title',
+      runtimeEpoch: 'epoch-display',
+    });
+    manager.engineBridge.emit('session-title', {
+      sessionId: 'agent-display-events',
+      title: 'new display title',
+      runtimeEpoch: 'epoch-display',
+    });
+    manager.engineBridge.emit('session-activity', {
+      sessionId: 'agent-display-events',
+      lastActivityAt: Date.now(),
+      runtimeEpoch: 'epoch-display',
+    });
+    manager.engineBridge.emit('session-busy-state', {
+      sessionId: 'agent-display-events',
+      terminalBusy: true,
+      cwd: '/tmp/display-events',
+      runtimeEpoch: 'epoch-display',
+    });
+    assert.deepStrictEqual(
+      displayEventStateChanges,
+      [],
+      'terminal display, activity, and shell status events should not scan provider session history'
+    );
+    assert.deepStrictEqual(
+      worktreeRefreshes,
+      [{ agentId: 'agent-display-events', workspace: '/tmp/display-events' }],
+      'cwd changes may refresh worktree metadata without triggering provider session scans'
+    );
+
+    manager.engineBridge.emit('session-started', {
+      sessionId: 'agent-display-events',
+      status: 'running',
+      startedAt: Date.now(),
+      runtimeEpoch: 'epoch-display',
+      outputSeq: 2,
+      stateRevision: 4,
+    });
+    assert.deepStrictEqual(
+      displayEventStateChanges,
+      [{ agentId: 'agent-display-events', options: { force: true } }],
+      'session identity tracking should still run for structural session start events'
+    );
+    manager.observeAgentStateChange = originalObserveAgentStateChange;
+    manager.refreshAgentWorktree = originalRefreshAgentWorktree;
 
     const readDeltas = [];
     let fullStateUpdates = 0;

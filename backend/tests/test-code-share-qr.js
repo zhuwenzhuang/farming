@@ -17,7 +17,8 @@ function run() {
 
   assert(packageSource.includes('"qrcode-generator"'), 'QR rendering should use the mature qrcode-generator matrix library');
   assert(shareButtonSource.includes("import type qrcode from 'qrcode-generator'"));
-  assert(shareButtonSource.includes("type WorkspaceShareTarget } from '@/lib/workspace-share-target'"));
+  assert(shareButtonSource.includes("workspaceShareTargetWithCurrentReadingAnchor"));
+  assert(shareButtonSource.includes("type WorkspaceShareTarget"));
   assert(shareButtonSource.includes('shareTarget?: WorkspaceShareTarget | null'));
   assert(shareButtonSource.includes('const shareTargetSignature = workspaceShareTargetKey(shareTarget)'));
   assert(shareButtonSource.includes('function preloadQrCodeFactory'));
@@ -27,7 +28,8 @@ function run() {
   assert(shareButtonSource.includes('if (!open || pinned) return'), 'only an open, unpinned popover should schedule hover close');
   assert(shareButtonSource.includes('POPOVER_WIDTH = 264'), 'share popover placement should match the compact larger QR width');
   assert(shareButtonSource.includes("fetch(appPath('/api/share/qr-ticket')"));
-  assert(shareButtonSource.includes('JSON.stringify(shareTarget ? { target: shareTarget } : {})'));
+  assert(shareButtonSource.includes('const target = workspaceShareTargetWithCurrentReadingAnchor(shareTarget)'));
+  assert(shareButtonSource.includes('JSON.stringify(target ? { target } : {})'));
   assert(shareButtonSource.includes("method: 'DELETE'"));
   assert(shareButtonSource.includes('writeTerminalClipboardText(current.longUrl)'));
   assert(shareButtonSource.includes('ticket.shortUrl'), 'QR matrix should encode the short URL');
