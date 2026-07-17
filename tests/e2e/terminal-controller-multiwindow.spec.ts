@@ -76,6 +76,8 @@ async function waitForTerminalSettled(
     ), agentId)
     if (
       diagnostics?.controllerStatus === 'owner'
+      && diagnostics.controllerFence !== null
+      && diagnostics.rendererReadyFence === diagnostics.controllerFence
       && diagnostics.checkpointRequestInFlight === false
       && diagnostics.replayTargetRevision === null
       && diagnostics.replayInProgress === false
@@ -84,6 +86,30 @@ async function waitForTerminalSettled(
     await page.waitForTimeout(100)
   }
   throw new Error(`terminal did not settle: ${JSON.stringify(diagnostics)}`)
+}
+
+async function waitForCommittedTerminalGeometry(
+  page: import('@playwright/test').Page,
+  agentId: string,
+) {
+  let stableSamples = 0
+  let previous = ''
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const state = await sessionState(page, agentId)
+    const diagnostics = await page.evaluate(id => (
+      window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null
+    ), agentId)
+    const signature = diagnostics
+      && state.previewCols === diagnostics.cols
+      && state.previewRows === diagnostics.rows
+      ? `${diagnostics.cols}x${diagnostics.rows}:${state.stateRevision}`
+      : ''
+    stableSamples = signature && signature === previous ? stableSamples + 1 : 0
+    if (stableSamples >= 2) return
+    previous = signature
+    await page.waitForTimeout(100)
+  }
+  throw new Error('terminal geometry did not reach a stable committed size')
 }
 
 async function ensureTerminalOwner(
@@ -97,6 +123,67 @@ async function ensureTerminalOwner(
   await expect(host).toHaveAttribute('data-controller-status', 'owner')
   await waitForTerminalSettled(page, agentId)
 }
+
+test('rapid browser geometry changes commit only the first and latest terminal size', async ({
+  page,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'terminal-controller-resize-coalescing')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createControlAgent(page, workspace)
+
+  await openPage(page)
+  await selectAgent(page, agentId)
+  await ensureTerminalOwner(page, agentId)
+  await expect.poll(async () => terminalHost(page, agentId).locator('.terminal-controller-status').evaluate(element => ({
+    display: getComputedStyle(element).display,
+    width: element.getBoundingClientRect().width,
+    height: element.getBoundingClientRect().height,
+  }))).toEqual({ display: 'none', width: 0, height: 0 })
+  await waitForCommittedTerminalGeometry(page, agentId)
+  const before = await page.evaluate(id => (
+    window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null
+  ), agentId)
+  expect(before).not.toBeNull()
+
+  const finalGeometry = await page.evaluate(({ id, cols, rows }) => {
+    const api = window.__farmingTerminalTest
+    if (!api) throw new Error('terminal test API unavailable')
+    for (let index = 0; index < 40; index += 1) {
+      const fraction = (index + 1) / 40
+      api.notifyResizeForTest(
+        id,
+        Math.max(40, Math.round(cols - 20 + (20 * fraction))),
+        Math.max(10, Math.round(rows - 4 + (4 * fraction))),
+      )
+    }
+    return { cols, rows }
+  }, { id: agentId, cols: before!.cols, rows: before!.rows })
+
+  await expect.poll(async () => {
+    const state = await sessionState(page, agentId)
+    const diagnostics = await page.evaluate(id => (
+      window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null
+    ), agentId)
+    return {
+      cols: state.previewCols,
+      rows: state.previewRows,
+      resizeInFlight: diagnostics?.controllerResizeRequestInFlight,
+      pendingResize: diagnostics?.controllerPendingResize,
+    }
+  }).toEqual({
+    ...finalGeometry,
+    resizeInFlight: false,
+    pendingResize: null,
+  })
+
+  const after = await page.evaluate(id => (
+    window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null
+  ), agentId)
+  const sentResizeCount = (after?.controllerResizeRequestSeq || 0) - (before?.controllerResizeRequestSeq || 0)
+  expect(sentResizeCount).toBeGreaterThanOrEqual(1)
+  expect(sentResizeCount).toBeLessThanOrEqual(2)
+})
 
 async function dispatchComposition(
   page: import('@playwright/test').Page,
@@ -219,31 +306,36 @@ test('one browser owns PTY controller and interactive takeover is fenced across 
     await expect(terminalHost(observerPage, agentId))
       .toHaveAttribute('data-controller-status', 'owner')
     await waitForTerminalSettled(observerPage, agentId)
+    await expect(terminalHost(observerPage, agentId).locator('.xterm-helper-textarea')).toBeFocused()
     await expect(terminalHost(page, agentId))
       .toHaveAttribute('data-controller-status', 'observer')
 
-    const beforeOwnerResize = await waitForStableSessionRevision(page, agentId)
+    const beforeTakeoverResize = await sessionState(page, agentId)
     const takeoverDiagnostics = await observerPage.evaluate(id => (
       window.__farmingTerminalTest?.getBufferDiagnostics(id)
     ), agentId)
-    const takeoverCols = (takeoverDiagnostics?.cols || 80) + 7
-    const takeoverRows = (takeoverDiagnostics?.rows || 30) + 5
-    await observerPage.evaluate(({ id, cols, rows }) => {
-      window.__farmingTerminalTest?.notifyResizeForTest(id, cols, rows)
-    }, { id: agentId, cols: takeoverCols, rows: takeoverRows })
-    await expect.poll(async () => (
-      (await sessionState(page, agentId)).stateRevision || 0
-    )).toBeGreaterThan(beforeOwnerResize.stateRevision || 0)
-    const afterOwnerResize = await waitForStableSessionRevision(page, agentId)
-    const ownerDiagnostics = await observerPage.evaluate(id => (
-      window.__farmingTerminalTest?.getBufferDiagnostics(id)
-    ), agentId)
-    expect(afterOwnerResize.previewCols).toBe(ownerDiagnostics?.cols)
-    expect(afterOwnerResize.previewRows).toBe(ownerDiagnostics?.rows)
+    await observerPage.setViewportSize({ width: 1240, height: 780 })
+    await expect.poll(async () => {
+      const state = await sessionState(page, agentId)
+      const diagnostics = await observerPage.evaluate(id => (
+        window.__farmingTerminalTest?.getBufferDiagnostics(id)
+      ), agentId)
+      return {
+        revisionAdvanced: (state.stateRevision || 0) > (beforeTakeoverResize.stateRevision || 0),
+        dimensionsChanged: Boolean(diagnostics && (
+          diagnostics.cols !== takeoverDiagnostics?.cols
+          || diagnostics.rows !== takeoverDiagnostics?.rows
+        )),
+        committed: Boolean(
+          diagnostics
+          && state.previewCols === diagnostics.cols
+          && state.previewRows === diagnostics.rows
+        ),
+      }
+    }).toEqual({ revisionAdvanced: true, dimensionsChanged: true, committed: true })
+    const afterOwnerResize = await sessionState(page, agentId)
 
-    await page.evaluate((id) => {
-      window.__farmingTerminalTest?.notifyResizeForTest(id, 111, 35)
-    }, agentId)
+    await page.setViewportSize({ width: 1320, height: 820 })
     await page.waitForTimeout(150)
     const afterRevokedResize = await sessionState(page, agentId)
     expect(afterRevokedResize.previewCols).toBe(afterOwnerResize.previewCols)
@@ -256,27 +348,28 @@ test('one browser owns PTY controller and interactive takeover is fenced across 
     await expect(terminalHost(page, agentId))
       .toHaveAttribute('data-controller-status', 'owner')
     await waitForTerminalSettled(page, agentId)
+    await expect(terminalHost(page, agentId).locator('.xterm-helper-textarea')).toBeFocused()
     await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
-    const reacquiredState = await waitForStableSessionRevision(page, agentId)
+    await waitForCommittedTerminalGeometry(page, agentId)
+    const reacquiredState = await sessionState(page, agentId)
     const reacquiredDiagnostics = await page.evaluate(id => (
       window.__farmingTerminalTest?.getBufferDiagnostics(id)
     ), agentId)
-    await page.evaluate(({ id, cols, rows }) => {
-      window.__farmingTerminalTest?.notifyResizeForTest(id, cols, rows)
-    }, {
-      id: agentId,
-      cols: (reacquiredDiagnostics?.cols || 80) + 5,
-      rows: (reacquiredDiagnostics?.rows || 30) + 3,
-    })
-    await expect.poll(async () => (
-      (await sessionState(page, agentId)).stateRevision || 0
-    )).toBeGreaterThan(reacquiredState.stateRevision || 0)
-    const finalState = await waitForStableSessionRevision(page, agentId)
-    const finalDiagnostics = await page.evaluate(id => (
-      window.__farmingTerminalTest?.getBufferDiagnostics(id)
-    ), agentId)
-    expect(finalState.previewCols).toBe(finalDiagnostics?.cols)
-    expect(finalState.previewRows).toBe(finalDiagnostics?.rows)
+    await page.setViewportSize({ width: 1160, height: 740 })
+    await expect.poll(async () => {
+      const state = await sessionState(page, agentId)
+      const diagnostics = await page.evaluate(id => (
+        window.__farmingTerminalTest?.getBufferDiagnostics(id)
+      ), agentId)
+      return Boolean(
+        diagnostics
+        && state.stateRevision > (reacquiredState.stateRevision || 0)
+        && diagnostics.cols !== reacquiredDiagnostics?.cols
+        && state.previewCols === diagnostics.cols
+        && state.previewRows === diagnostics.rows
+      )
+    }).toBe(true)
+    await waitForCommittedTerminalGeometry(page, agentId)
   } finally {
     if (!observerPage.isClosed()) await observerPage.close()
   }
@@ -378,7 +471,20 @@ test('Code and CRT share one explicit terminal controller without stealing on ob
 
     await takeover.click()
     await expect(takeover).toBeHidden()
+    await expect(crtPage.locator('.crt-terminal-sync-status')).toBeHidden()
     await expect(terminalHost(page, agentId)).toHaveAttribute('data-controller-status', 'observer')
+    await expect(crtPage.locator('#terminal-output .xterm-helper-textarea')).toBeFocused()
+    const beforeInvalidResize = await sessionState(page, agentId)
+    const beforeInvalidLocalSize = await crtPage.evaluate(() => window.__farmingCrtTerminalTest?.getState())
+    await crtPage.evaluate(() => window.__farmingCrtTerminalTest?.notifyResizeForTest(20, 5))
+    await crtPage.waitForTimeout(150)
+    const afterInvalidResize = await sessionState(page, agentId)
+    const afterInvalidLocalSize = await crtPage.evaluate(() => window.__farmingCrtTerminalTest?.getState())
+    expect(afterInvalidResize.previewCols).toBe(beforeInvalidResize.previewCols)
+    expect(afterInvalidResize.previewRows).toBe(beforeInvalidResize.previewRows)
+    expect(afterInvalidLocalSize?.cols).toBe(beforeInvalidLocalSize?.cols)
+    expect(afterInvalidLocalSize?.rows).toBe(beforeInvalidLocalSize?.rows)
+    expect(afterInvalidLocalSize?.controllerStatus).toBe('owner')
     await expectRendererFlowControlProgress(crtPage, agentId, `CRT_FLOW_${Date.now()}`)
 
     await terminalHost(page, agentId).locator('.terminal-controller-takeover').click()
@@ -444,7 +550,7 @@ test('IME and Unicode input commit exactly once for the owner and never leak fro
     await expect(crtPage.locator('.crt-terminal-sync-status')).toBeHidden({ timeout: 15_000 })
 
     const crtInput = crtPage.locator('#terminal-output .xterm-helper-textarea')
-    await crtInput.focus()
+    await expect(crtInput).toBeFocused()
     await crtPage.keyboard.insertText(
       `printf '终端输入\\n' >> ${JSON.stringify(crtOwnerFile)}`,
     )

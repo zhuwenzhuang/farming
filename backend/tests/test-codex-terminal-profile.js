@@ -175,6 +175,86 @@ async function run() {
     /not idle/
   );
 
+  let pickerOpened = false;
+  const deadlineInputs = [];
+  const deadlineStartedAt = Date.now();
+  await assert.rejects(
+    applyCodexTerminalProfile({
+      profile: { model: 'gpt-5.6-sol', effort: 'xhigh', serviceTier: 'default' },
+      readPreview: async () => {
+        if (!pickerOpened) return IDLE_55;
+        return new Promise(() => {});
+      },
+      sendInput: async input => {
+        deadlineInputs.push(input);
+        if (Array.isArray(input) && input[0]?.text === '/model') pickerOpened = true;
+      },
+      timeoutMs: 80,
+      pollIntervalMs: 1,
+    }),
+    /Codex did not open its model menu/,
+  );
+  assert(Date.now() - deadlineStartedAt < 500, 'all picker stages must share one hard deadline');
+  assert.deepStrictEqual(deadlineInputs, [
+    [{ type: 'paste', text: '/model' }, '\r'],
+    '\x1b',
+  ], 'a timed-out picker gets one bounded Escape cleanup before returning');
+
+  const uncertainOpenInputs = [];
+  await assert.rejects(
+    applyCodexTerminalProfile({
+      profile: { model: 'gpt-5.6-sol', effort: 'xhigh', serviceTier: 'default' },
+      readPreview: async () => IDLE_55,
+      sendInput: async input => {
+        uncertainOpenInputs.push(input);
+        if (Array.isArray(input) && input[0]?.text === '/model') {
+          throw new Error('transport reply lost after PTY write');
+        }
+      },
+      timeoutMs: 1000,
+    }),
+    /transport reply lost after PTY write/,
+  );
+  assert.deepStrictEqual(uncertainOpenInputs, [
+    [{ type: 'paste', text: '/model' }, '\r'],
+    '\x1b',
+  ], 'an uncertain /model write must still close the possibly opened picker');
+
+  let uncertainAdvancedPreview = IDLE_55;
+  const uncertainAdvancedInputs = [];
+  await assert.rejects(
+    applyCodexTerminalProfile({
+      profile: { model: 'gpt-5.6-sol', effort: 'ultra', serviceTier: 'default' },
+      readPreview: async () => uncertainAdvancedPreview,
+      sendInput: async input => {
+        uncertainAdvancedInputs.push(input);
+        if (Array.isArray(input) && input[0]?.text === '/model') uncertainAdvancedPreview = MODEL_MENU;
+        else if (input === '8') uncertainAdvancedPreview = REASONING_MENU;
+        else if (input === '5') {
+          uncertainAdvancedPreview = ADVANCED_REASONING_MENU;
+          throw new Error('advanced menu reply lost after PTY write');
+        }
+      },
+      sleep: async () => {},
+      pollIntervalMs: 0,
+      timeoutMs: 1000,
+    }),
+    /advanced menu reply lost after PTY write/,
+  );
+  assert.deepStrictEqual(uncertainAdvancedInputs.slice(-2), ['\x1b', '\x1b'],
+    'an uncertain advanced-menu write must close both anticipated picker levels');
+
+  const abortController = new globalThis.AbortController();
+  const abortedProfile = applyCodexTerminalProfile({
+    profile: { model: 'gpt-5.6-sol', effort: 'xhigh', serviceTier: 'default' },
+    readPreview: async () => new Promise(() => {}),
+    sendInput: async () => {},
+    timeoutMs: 1000,
+    signal: abortController.signal,
+  });
+  abortController.abort(new Error('profile canceled by test'));
+  await assert.rejects(abortedProfile, /profile canceled by test/);
+
   console.log('test-codex-terminal-profile passed');
 }
 

@@ -1,8 +1,56 @@
-const DEFAULT_TIMEOUT_MS = 8_000;
+// One deadline covers the complete picker transaction, including best-effort
+// Escape cleanup. Individual menu steps must not each restart this budget.
+const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
+const MAX_CLEANUP_RESERVE_MS = 1_000;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function abortError(signal, fallbackMessage) {
+  const reason = signal?.reason;
+  if (reason instanceof Error) return reason;
+  const error = new Error(typeof reason === 'string' && reason ? reason : fallbackMessage);
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfAborted(signal, fallbackMessage = 'Codex Terminal profile update was canceled') {
+  if (signal?.aborted) throw abortError(signal, fallbackMessage);
+}
+
+function withDeadline(value, options = {}) {
+  const deadline = Number(options.deadline);
+  const signal = options.signal;
+  const timeoutMessage = options.timeoutMessage || 'Timed out applying the Codex Terminal profile';
+  throwIfAborted(signal);
+  if (!Number.isFinite(deadline)) return Promise.resolve(value);
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) return Promise.reject(new Error(timeoutMessage));
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      callback(result);
+    };
+    const onAbort = () => finish(reject, abortError(signal, 'Codex Terminal profile update was canceled'));
+    const timer = setTimeout(() => finish(reject, new Error(timeoutMessage)), remainingMs);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve(value).then(
+      result => finish(resolve, result),
+      error => finish(reject, error),
+    );
+  });
+}
+
+function callWithDeadline(operation, options = {}) {
+  throwIfAborted(options.signal);
+  return withDeadline(Promise.resolve().then(operation), options);
 }
 
 function normalizedValue(value) {
@@ -159,14 +207,25 @@ async function waitForPreview(readPreview, predicate, options = {}) {
     ? options.pollIntervalMs
     : DEFAULT_POLL_INTERVAL_MS;
   const sleepFn = typeof options.sleep === 'function' ? options.sleep : sleep;
-  const deadline = Date.now() + timeoutMs;
+  const deadline = Number.isFinite(options.deadline) ? options.deadline : Date.now() + timeoutMs;
 
   for (;;) {
-    const preview = String(await readPreview() || '');
+    const preview = String(await callWithDeadline(readPreview, {
+      deadline,
+      signal: options.signal,
+      timeoutMessage: options.timeoutMessage || 'Timed out waiting for Codex Terminal',
+    }) || '');
     const result = predicate(preview);
     if (result) return { preview, result };
     if (Date.now() >= deadline) throw new Error(options.timeoutMessage || 'Timed out waiting for Codex Terminal');
-    await sleepFn(pollIntervalMs);
+    await callWithDeadline(
+      () => sleepFn(Math.min(pollIntervalMs, Math.max(0, deadline - Date.now()))),
+      {
+        deadline,
+        signal: options.signal,
+        timeoutMessage: options.timeoutMessage || 'Timed out waiting for Codex Terminal',
+      },
+    );
   }
 }
 
@@ -191,10 +250,28 @@ async function applyCodexTerminalProfile({
   timeoutMs = DEFAULT_TIMEOUT_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   sleep: sleepFn,
+  signal,
 }) {
   const target = validateTargetProfile(profile);
-  const waitOptions = { timeoutMs, pollIntervalMs, sleep: sleepFn };
-  let preview = String(await readPreview() || '');
+  const totalTimeoutMs = Math.max(1, Number.isFinite(timeoutMs) ? timeoutMs : DEFAULT_TIMEOUT_MS);
+  const totalDeadline = Date.now() + totalTimeoutMs;
+  const cleanupReserveMs = Math.min(
+    MAX_CLEANUP_RESERVE_MS,
+    Math.max(1, Math.floor(totalTimeoutMs / 10)),
+  );
+  const operationDeadline = Math.max(Date.now(), totalDeadline - cleanupReserveMs);
+  const waitOptions = {
+    deadline: operationDeadline,
+    pollIntervalMs,
+    sleep: sleepFn,
+    signal,
+  };
+  const runStep = (operation, timeoutMessage) => callWithDeadline(operation, {
+    deadline: operationDeadline,
+    signal,
+    timeoutMessage,
+  });
+  let preview = String(await runStep(readPreview, 'Timed out reading the Codex Terminal') || '');
   let current = codexTerminalProfileFromPreview(preview);
   if (!current) {
     throw new Error('Codex Terminal is not idle; wait for its composer before changing the model');
@@ -210,8 +287,14 @@ async function applyCodexTerminalProfile({
   let pickerDepth = 0;
   try {
     if (!profileMatches(current, target)) {
-      await sendInput(terminalCommand('/model'));
+      // Sending into a TUI is an uncertain commit: the PTY may receive the
+      // command even if the transport reply is lost. Anticipate the menu
+      // depth before the write so bounded cleanup always sends enough Escape.
       pickerDepth = 1;
+      await runStep(
+        () => sendInput(terminalCommand('/model')),
+        'Timed out opening the Codex model menu',
+      );
       const modelMenu = await waitForPreview(
         readPreview,
         text => {
@@ -227,7 +310,10 @@ async function applyCodexTerminalProfile({
       if (!modelInput) {
         throw new Error(`Model ${target.model} is not available in this Codex CLI`);
       }
-      await sendInput(modelInput);
+      await runStep(
+        () => sendInput(modelInput),
+        `Timed out selecting model ${target.model}`,
+      );
 
       const reasoningStep = await waitForPreview(
         readPreview,
@@ -248,8 +334,11 @@ async function applyCodexTerminalProfile({
         if (!reasoningInput) {
           const moreInput = moreReasoningSelectionInput(reasoningStep.preview);
           if (moreInput) {
-            await sendInput(moreInput);
             pickerDepth = 2;
+            await runStep(
+              () => sendInput(moreInput),
+              `Timed out opening advanced reasoning for ${target.model}`,
+            );
             const advancedStep = await waitForPreview(
               readPreview,
               text => {
@@ -267,7 +356,10 @@ async function applyCodexTerminalProfile({
         if (!reasoningInput) {
           throw new Error(`Reasoning effort ${target.effort} is not available for ${target.model}`);
         }
-        await sendInput(reasoningInput);
+        await runStep(
+          () => sendInput(reasoningInput),
+          `Timed out selecting ${target.effort} reasoning for ${target.model}`,
+        );
         const applied = await waitForPreview(
           readPreview,
           text => profileMatches(codexTerminalProfileFromPreview(text), target),
@@ -287,13 +379,24 @@ async function applyCodexTerminalProfile({
     }
 
     const wantsFast = target.serviceTier === 'priority';
-    if (!current) current = codexTerminalProfileFromPreview(String(await readPreview() || ''));
+    if (!current) {
+      current = codexTerminalProfileFromPreview(String(await runStep(
+        readPreview,
+        'Timed out reading the active Codex model',
+      ) || ''));
+    }
     if (!current) throw new Error('Codex Terminal stopped reporting its active model');
     if (current.fast !== wantsFast) {
       const fastCommand = `/fast ${wantsFast ? 'on' : 'off'}`;
       if (typeof readOutput === 'function') {
-        const previousOutput = String(await readOutput() || '');
-        await sendInput(terminalCommand(fastCommand));
+        const previousOutput = String(await runStep(
+          readOutput,
+          'Timed out reading Codex Terminal output',
+        ) || '');
+        await runStep(
+          () => sendInput(terminalCommand(fastCommand)),
+          `Timed out sending ${fastCommand}`,
+        );
         const confirmation = await waitForPreview(
           readOutput,
           output => {
@@ -316,7 +419,10 @@ async function applyCodexTerminalProfile({
         }
         current = { ...current, fast: confirmed.fast };
       } else {
-        await sendInput(terminalCommand(fastCommand));
+        await runStep(
+          () => sendInput(terminalCommand(fastCommand)),
+          `Timed out sending ${fastCommand}`,
+        );
         const fastApplied = await waitForPreview(
           readPreview,
           text => profileMatches(codexTerminalProfileFromPreview(text), target, { includeFast: true }),
@@ -338,7 +444,12 @@ async function applyCodexTerminalProfile({
   } catch (error) {
     while (pickerDepth > 0) {
       try {
-        await sendInput('\x1b');
+        await callWithDeadline(() => sendInput('\x1b'), {
+          deadline: totalDeadline,
+          // A client disconnect still cancels the transaction, but once a
+          // picker was opened we use the reserved bounded window to close it.
+          timeoutMessage: 'Timed out closing the Codex Terminal menu',
+        });
       } catch {
         break;
       }

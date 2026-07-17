@@ -848,6 +848,7 @@ async function collectOpenCodeDailyEvents(homePaths, options = {}) {
   const sessions = [];
   const seenSessionIds = new Set();
   let successfulHomes = 0;
+  let successfulExports = 0;
   let partial = false;
   let reason = '';
 
@@ -881,6 +882,7 @@ async function collectOpenCodeDailyEvents(homePaths, options = {}) {
       const cacheKey = `${session.openCodeHome}:${session.id}`;
       const cached = openCodeSessionEventCache.get(cacheKey);
       if (cached?.updatedAt === session.updatedAt) {
+        successfulExports += 1;
         events.push(...cached.events);
         continue;
       }
@@ -891,6 +893,7 @@ async function collectOpenCodeDailyEvents(homePaths, options = {}) {
         );
         const exported = JSON.parse(String(result?.stdout || '{}'));
         const sessionEvents = openCodeTokenEventsFromExport(exported, { cutoffMs, now });
+        successfulExports += 1;
         openCodeSessionEventCache.set(cacheKey, { updatedAt: session.updatedAt, events: sessionEvents });
         events.push(...sessionEvents);
       } catch (error) {
@@ -907,9 +910,11 @@ async function collectOpenCodeDailyEvents(homePaths, options = {}) {
   return {
     events,
     partial,
-    available: successfulHomes > 0,
+    available: successfulHomes === homePaths.length
+      && (sessions.length === 0 || successfulExports === sessions.length),
     reason,
     sessionCount: sessions.length,
+    exportCount: successfulExports,
   };
 }
 
@@ -981,6 +986,8 @@ async function collectUsageHistory(options = {}) {
       available: openCode.available,
       homeCount: openCodeHomes.length,
       sessionCount: openCode.sessionCount,
+      exportCount: openCode.exportCount,
+      partial: openCode.partial,
       source: 'opencode session export',
       ...(openCode.reason ? { reason: openCode.reason } : {}),
     },
@@ -1328,6 +1335,7 @@ class UsageMonitor {
       claude: claudeUsage.tokenEvents,
       opencode: openCodeUsage.tokenEvents,
     }, { now, windowMs: historyWindowMs });
+    const openCodeCoverage = history.coverage.find(entry => entry.provider === 'opencode');
     const qoderCoverage = history.coverage.find(entry => entry.provider === 'qoder');
 
     return {
@@ -1353,13 +1361,25 @@ class UsageMonitor {
         {
           provider: 'opencode',
           providerName: 'OpenCode',
-          auth: { available: true, status: 'Local session export', source: 'opencode session export' },
+          auth: {
+            available: openCodeCoverage?.available === true,
+            status: openCodeCoverage?.available === true
+              ? 'Local session export'
+              : openCodeCoverage?.reason || 'OpenCode unavailable',
+            source: 'opencode session export',
+          },
           quota: {
             available: false,
             source: 'opencode session export',
             reason: 'OpenCode session exports do not expose quota remaining.',
           },
-          tokenUsage: openCodeUsage.tokenUsage,
+          tokenUsage: openCodeCoverage?.available === true
+            ? openCodeUsage.tokenUsage
+            : {
+                ...openCodeUsage.tokenUsage,
+                available: false,
+                reason: openCodeCoverage?.reason || 'OpenCode token usage is unavailable.',
+              },
         },
         {
           provider: 'qoder',

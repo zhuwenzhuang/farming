@@ -587,7 +587,7 @@ function run() {
       terminalPoolSource.includes('function resetTransientTerminalUi(record: SessionRecord)') &&
       terminalPoolSource.includes('record.terminal.clearTerminalSelection?.()') &&
       terminalPoolSource.includes('function repairTerminalAfterAttach(record: SessionRecord)') &&
-      terminalPoolSource.includes('function invalidateTerminalCheckpointRequest(record: SessionRecord)') &&
+      terminalPoolSource.includes('function invalidateTerminalCheckpointRequest(record: SessionRecord') &&
       terminalPoolSource.includes('record.reconnectSnapshotSeq += 1') &&
       terminalPoolSource.includes('invalidateTerminalCheckpointRequest(record)') &&
       terminalPoolSource.includes('record.terminal.reattach?.()') &&

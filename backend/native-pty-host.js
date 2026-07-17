@@ -75,6 +75,7 @@ const DEFAULT_IDLE_EXIT_MS = 60000;
 const DEFAULT_CLIENT_MAX_BUFFERED_BYTES = 16 * 1024 * 1024;
 const DEFAULT_CLIENT_MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 const HOST_RUNTIME_IDENTITY = nativePtyHostRuntimeIdentity();
+const CONTROLLER_MUTATION_ADMISSION = Symbol('controllerMutationAdmission');
 const TERMINAL_HISTORY_RESTORED_MESSAGE = '\r\n\x1b[7m History restored \x1b[0m\r\n';
 
 function trimOutput(output) {
@@ -195,7 +196,7 @@ class NativePtyHost {
   }
 
   handleConnection(socket) {
-    const client = { socket, buffer: '' };
+    const client = { socket, buffer: '', disconnected: false };
     this.hasAcceptedClient = true;
     this.cancelIdleExit();
     this.clients.add(client);
@@ -205,23 +206,55 @@ class NativePtyHost {
   }
 
   removeClient(client) {
+    if (!client || client.disconnected === true) return Promise.resolve();
+    client.disconnected = true;
     this.clients.delete(client);
-    if (this.activeControllerClient === client) {
-      if (this.controllerHandoff?.fromClient === client) {
-        this.scheduleIdleExitIfUnused();
-        return;
-      }
-      this.activeControllerClient = null;
-      for (const session of this.sessions.values()) {
-        invalidateTerminalController(session, 'controller-disconnected');
-        const flowControl = ensureTerminalReducerFlowControl(session);
-        const resetError = resetTerminalRendererFlowControl(flowControl, session.process);
-        const unblockError = setTerminalExternalFlowControlBlocked(flowControl, session.process, false);
-        const flowError = resetError || unblockError;
-        if (flowError) this.failSessionScreenState(session, flowError);
-      }
+    let retirement = Promise.resolve();
+    if (
+      this.activeControllerClient === client
+      || this.controllerHandoff?.fromClient === client
+      || this.controllerHandoff?.toClient === client
+    ) {
+      retirement = this.controllerRegistrationQueue
+        .catch(() => {})
+        .then(() => this.retireControllerClient(client));
+      this.controllerRegistrationQueue = retirement;
     }
     this.scheduleIdleExitIfUnused();
+    return retirement;
+  }
+
+  async retireControllerClient(client) {
+    if (this.activeControllerClient !== client) return;
+    const handoff = {
+      fromClient: client,
+      fromIdentity: this.activeControllerIdentity,
+      toClient: null,
+      toIdentity: null,
+    };
+    this.controllerHandoff = handoff;
+    try {
+      // A disconnect closes admission immediately, but an operation that was
+      // already admitted owns its linearization point until it completes.
+      // Revoke the browser leases only after that exact set has drained.
+      await Promise.allSettled([...this.activeControllerMutations]);
+      if (this.activeControllerClient !== client) return;
+      this.activeControllerClient = null;
+      this.resetControllerSessions('controller-disconnected');
+    } finally {
+      if (this.controllerHandoff === handoff) this.controllerHandoff = null;
+    }
+  }
+
+  resetControllerSessions(reason) {
+    for (const session of this.sessions.values()) {
+      invalidateTerminalController(session, reason);
+      const flowControl = ensureTerminalReducerFlowControl(session);
+      const resetError = resetTerminalRendererFlowControl(flowControl, session.process);
+      const unblockError = setTerminalExternalFlowControlBlocked(flowControl, session.process, false);
+      const flowError = resetError || unblockError;
+      if (flowError) this.failSessionScreenState(session, flowError);
+    }
   }
 
   hasLiveSessions() {
@@ -336,53 +369,53 @@ class NativePtyHost {
         return this.enqueueControllerMutation(
           params.sessionId,
           client,
-          () => this.resizeSession(params.sessionId, params.cols, params.rows, params.controller || {}, client),
+          admission => this.resizeSession(params.sessionId, params.cols, params.rows, params.controller || {}, admission),
         );
       case 'claimSessionController':
         return this.enqueueControllerMutation(
           params.sessionId,
           client,
-          () => this.claimSessionController(params.sessionId, params.controller || {}, client),
+          admission => this.claimSessionController(params.sessionId, params.controller || {}, admission),
         );
       case 'activateSessionRenderer':
         return this.enqueueControllerMutation(
           params.sessionId,
           client,
-          () => this.activateSessionRenderer(params.sessionId, params.controller || {}, client),
+          admission => this.activateSessionRenderer(params.sessionId, params.controller || {}, admission),
         );
       case 'renewSessionController':
         return this.enqueueControllerMutation(
           params.sessionId,
           client,
-          () => this.renewSessionController(params.sessionId, params.controller || {}, client),
+          admission => this.renewSessionController(params.sessionId, params.controller || {}, admission),
         );
       case 'releaseSessionController':
         return this.enqueueControllerMutation(
           params.sessionId,
           client,
-          () => this.releaseSessionController(params.sessionId, params.controller || {}, client),
+          admission => this.releaseSessionController(params.sessionId, params.controller || {}, admission),
         );
       case 'acknowledgeSessionOutput':
         return this.enqueueControllerMutation(
           params.sessionId,
           client,
-          () => this.acknowledgeSessionOutput(
+          admission => this.acknowledgeSessionOutput(
             params.sessionId,
             params.charCount,
             params.controller || {},
-            client,
+            admission,
           ),
         );
       case 'acknowledgeSessionCheckpoint':
         return this.enqueueControllerMutation(
           params.sessionId,
           client,
-          () => this.acknowledgeSessionCheckpoint(
+          admission => this.acknowledgeSessionCheckpoint(
             params.sessionId,
             params.outputSeq,
             params.stateRevision,
             params.controller || {},
-            client,
+            admission,
           ),
         );
       case 'clearBuffer':
@@ -441,6 +474,12 @@ class NativePtyHost {
     } catch (error) {
       return Promise.reject(error);
     }
+    const admission = Object.freeze({
+      [CONTROLLER_MUTATION_ADMISSION]: true,
+      client,
+      controllerId: client.controllerId,
+      controllerGeneration: client.controllerGeneration,
+    });
     const key = typeof sessionId === 'string' && sessionId ? sessionId : '__host__';
     const previous = this.sessionMutationQueues.get(key) || Promise.resolve();
     const next = previous
@@ -449,7 +488,7 @@ class NativePtyHost {
         if (this.rotationPreparation) {
           throw new Error('Native pty host is frozen for runtime rotation');
         }
-        return operation();
+        return operation(admission);
       });
     this.activeControllerMutations.add(next);
     this.sessionMutationQueues.set(key, next);
@@ -499,6 +538,9 @@ class NativePtyHost {
   }
 
   registerController(client, rawIdentity) {
+    if (!client || client.disconnected === true) {
+      throw new Error('Native pty controller client is disconnected');
+    }
     const identity = {
       id: typeof rawIdentity.id === 'string' ? rawIdentity.id : '',
       generation: Math.floor(Number(rawIdentity.generation)),
@@ -541,15 +583,12 @@ class NativePtyHost {
           }
         }
 
+        if (client.disconnected === true) {
+          throw new Error('Native pty controller client is disconnected');
+        }
+
         if (replacesController) {
-          for (const session of this.sessions.values()) {
-            invalidateTerminalController(session, 'controller-replaced');
-            const flowControl = ensureTerminalReducerFlowControl(session);
-            const resetError = resetTerminalRendererFlowControl(flowControl, session.process);
-            const unblockError = setTerminalExternalFlowControlBlocked(flowControl, session.process, false);
-            const flowError = resetError || unblockError;
-            if (flowError) this.failSessionScreenState(session, flowError);
-          }
+          this.resetControllerSessions('controller-replaced');
         }
         this.activeControllerIdentity = identity;
         this.activeControllerClient = client;
@@ -566,8 +605,10 @@ class NativePtyHost {
   }
 
   assertActiveController(client) {
+    if (client?.[CONTROLLER_MUTATION_ADMISSION] === true) return;
     if (
       !client ||
+      client.disconnected === true ||
       client !== this.activeControllerClient ||
       !this.activeControllerIdentity ||
       client.controllerId !== this.activeControllerIdentity.id ||

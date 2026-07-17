@@ -216,7 +216,7 @@ async function testLeaseExpirySchedulerRespectsRenewedDeadline() {
   assert.strictEqual(lastMessage(socket).reason, 'lease-expired');
 }
 
-async function testOwnedMutationSerializesInteractiveTakeover() {
+async function testOwnedMutationRejectsLateInteractiveTakeover() {
   const session = {
     runtimeEpoch: 'epoch-owned-operation',
     controllerLease: createTerminalControllerLease(),
@@ -276,7 +276,9 @@ async function testOwnedMutationSerializesInteractiveTakeover() {
     expectedRuntimeEpoch: session.runtimeEpoch,
   }).finally(() => { takeoverSettled = true; });
   await delay(0);
-  assert.strictEqual(takeoverSettled, false, 'takeover must wait for the whole owned mutation');
+  assert.strictEqual(takeoverSettled, true, 'takeover must receive an immediate bounded response');
+  assert.strictEqual(lastMessage(second).status, 'observer');
+  assert.strictEqual(lastMessage(second).reason, 'operation-in-progress');
   assert.strictEqual(coordinator.owners.get('agent-owned-operation').ws, first);
   assert.deepStrictEqual(operationControl, {
     ownerKey: session.controllerLease.ownerKey,
@@ -288,8 +290,141 @@ async function testOwnedMutationSerializesInteractiveTakeover() {
   finishOperation();
   assert.deepStrictEqual(await operation, { status: 'committed', value: 'profile-applied' });
   await takeover;
+  assert.strictEqual(coordinator.owners.get('agent-owned-operation').ws, first);
+  await coordinator.claim(second, {
+    agentId: 'agent-owned-operation',
+    attachmentId: 'attachment-owned-second',
+    claimId: 'claim-owned-second',
+    mode: 'interactive',
+    expectedRuntimeEpoch: session.runtimeEpoch,
+  });
   assert.strictEqual(lastMessage(first).status, 'revoked');
   assert.strictEqual(lastMessage(second).status, 'owner');
+}
+
+async function testOwnedMutationHasOneHardDeadline() {
+  const session = {
+    runtimeEpoch: 'epoch-owned-timeout',
+    controllerLease: createTerminalControllerLease(),
+  };
+  const manager = {
+    async claimAgentSessionController(_agentId, options) {
+      return claimTerminalController(session, options);
+    },
+    async renewAgentSessionController(_agentId, options) {
+      return renewTerminalController(session, options);
+    },
+    async releaseAgentSessionController(_agentId, options) {
+      return releaseTerminalController(session, options);
+    },
+  };
+  const coordinator = new TerminalControllerCoordinator({
+    agentManager: manager,
+    serverInstanceId: 'server-owned-timeout',
+    ownedMutationTimeoutMs: 30,
+    send(ws, message) {
+      ws.messages.push(message);
+    },
+  });
+  const socket = createSocket('socket-owned-timeout');
+  await coordinator.claim(socket, {
+    agentId: 'agent-owned-timeout',
+    attachmentId: 'attachment-owned-timeout',
+    claimId: 'claim-owned-timeout',
+    mode: 'interactive',
+    expectedRuntimeEpoch: session.runtimeEpoch,
+  });
+  const owner = lastMessage(socket);
+  let observedDeadline = 0;
+  await assert.rejects(
+    () => coordinator.runOwnedMutation(
+      'agent-owned-timeout',
+      {
+        attachmentId: owner.attachmentId,
+        leaseId: owner.leaseId,
+        fence: owner.fence,
+        expectedRuntimeEpoch: session.runtimeEpoch,
+      },
+      async ({ signal, deadline }) => {
+        observedDeadline = deadline;
+        await new Promise((resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      },
+    ),
+    /Timed out applying the Terminal profile/,
+  );
+  assert(observedDeadline > 0);
+  assert.strictEqual(coordinator.ownedOperations.has('agent-owned-timeout'), false);
+  assert.strictEqual(coordinator.owners.get('agent-owned-timeout').ws, socket);
+}
+
+async function testOwnedMutationCancellationStartsAtAdmission() {
+  const session = {
+    runtimeEpoch: 'epoch-owned-queued-cancel',
+    controllerLease: createTerminalControllerLease(),
+  };
+  let renewCalls = 0;
+  const manager = {
+    async claimAgentSessionController(_agentId, options) {
+      return claimTerminalController(session, options);
+    },
+    async renewAgentSessionController(_agentId, options) {
+      renewCalls += 1;
+      return renewTerminalController(session, options);
+    },
+    async releaseAgentSessionController(_agentId, options) {
+      return releaseTerminalController(session, options);
+    },
+  };
+  const coordinator = new TerminalControllerCoordinator({
+    agentManager: manager,
+    serverInstanceId: 'server-owned-queued-cancel',
+    send(ws, message) {
+      ws.messages.push(message);
+    },
+  });
+  const socket = createSocket('socket-owned-queued-cancel');
+  const agentId = 'agent-owned-queued-cancel';
+  await coordinator.claim(socket, {
+    agentId,
+    attachmentId: 'attachment-owned-queued-cancel',
+    claimId: 'claim-owned-queued-cancel',
+    mode: 'interactive',
+    expectedRuntimeEpoch: session.runtimeEpoch,
+  });
+  const owner = lastMessage(socket);
+  let releaseQueueHead;
+  const queueHead = coordinator.enqueue(agentId, () => new Promise(resolve => {
+    releaseQueueHead = resolve;
+  }));
+  await delay(0);
+  const caller = new globalThis.AbortController();
+  let operationStarted = false;
+  const operation = coordinator.runOwnedMutation(
+    agentId,
+    {
+      attachmentId: owner.attachmentId,
+      leaseId: owner.leaseId,
+      fence: owner.fence,
+      expectedRuntimeEpoch: session.runtimeEpoch,
+    },
+    async () => {
+      operationStarted = true;
+      return 'must-not-run';
+    },
+    { signal: caller.signal, timeoutMs: 1000 },
+  );
+  caller.abort(new Error('request disconnected while queued'));
+  await assert.rejects(() => operation, /request disconnected while queued/);
+  assert.strictEqual(coordinator.ownedOperations.has(agentId), false);
+  assert.strictEqual(operationStarted, false);
+  assert.strictEqual(renewCalls, 0);
+  releaseQueueHead();
+  await queueHead;
+  await delay(0);
+  assert.strictEqual(operationStarted, false, 'a canceled queued operation must never start later');
+  assert.strictEqual(renewCalls, 0, 'a canceled queued operation must never renew the lease later');
 }
 
 async function run() {
@@ -711,7 +846,9 @@ async function run() {
   await testControllerDoesNotReadDisplayCheckpoint();
   await testLeaseExpiryReleasesController();
   await testLeaseExpirySchedulerRespectsRenewedDeadline();
-  await testOwnedMutationSerializesInteractiveTakeover();
+  await testOwnedMutationRejectsLateInteractiveTakeover();
+  await testOwnedMutationHasOneHardDeadline();
+  await testOwnedMutationCancellationStartsAtAdmission();
 
   console.log('terminal controller coordinator tests passed');
 }

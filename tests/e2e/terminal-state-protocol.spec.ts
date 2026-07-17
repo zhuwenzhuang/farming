@@ -361,6 +361,79 @@ test.describe('terminal state protocol', () => {
     expect(await visibleText(page, agentId)).not.toContain('REVISION_GAP_POISON')
   })
 
+  test('a held checkpoint composes with the next contiguous live transition', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'terminal-held-checkpoint-composition')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createControlAgent(page, workspace)
+    await openTerminalTestPage(page)
+    await selectControlAgent(page, agentId)
+    const initial = await terminalState(page, agentId)
+    await page.evaluate(id => {
+      window.__farmingTerminalTest?.setCheckpointAckSuppressed(id, true)
+    }, agentId)
+
+    const checkpointOutputSeq = initial.outputSeq + 2
+    const checkpointStateRevision = initial.stateRevision + 2
+    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
+    let observeRequest!: () => void
+    let releaseCheckpoint!: () => void
+    const requestObserved = new Promise<void>(resolve => { observeRequest = resolve })
+    const checkpointReleased = new Promise<void>(resolve => { releaseCheckpoint = resolve })
+    const handler = async (route: import('@playwright/test').Route) => {
+      observeRequest()
+      await checkpointReleased
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(checkpoint(
+          initial.runtimeEpoch,
+          checkpointOutputSeq,
+          checkpointStateRevision,
+          initial.cols,
+          initial.rows,
+          'HELD_CHECKPOINT',
+        )),
+      })
+    }
+    await page.route(routePattern, handler)
+
+    try {
+      await page.evaluate(async ({ id, epoch, outputSeq, stateRevision }) => {
+        await window.__farmingTerminalTest?.streamSequenced(
+          id,
+          'HELD_CHECKPOINT_GAP_POISON\r\n',
+          outputSeq + 2,
+          epoch,
+          stateRevision + 2,
+        )
+      }, { id: agentId, epoch: initial.runtimeEpoch, ...initial })
+      await requestObserved
+      await page.evaluate(async ({ id, epoch, outputSeq, stateRevision }) => {
+        await window.__farmingTerminalTest?.writeSequenced(
+          id,
+          'CONTIGUOUS_AFTER_HELD_CHECKPOINT\r\n',
+          outputSeq + 3,
+          epoch,
+          stateRevision + 3,
+        )
+      }, { id: agentId, epoch: initial.runtimeEpoch, ...initial })
+      releaseCheckpoint()
+
+      await expect.poll(() => terminalState(page, agentId)).toMatchObject({
+        outputSeq: initial.outputSeq + 3,
+        stateRevision: initial.stateRevision + 3,
+      })
+      const output = await visibleText(page, agentId)
+      expect(output).toContain('HELD_CHECKPOINT')
+      expect(output).toContain('CONTIGUOUS_AFTER_HELD_CHECKPOINT')
+      expect(output.indexOf('HELD_CHECKPOINT'))
+        .toBeLessThan(output.indexOf('CONTIGUOUS_AFTER_HELD_CHECKPOINT'))
+      expect(output).not.toContain('HELD_CHECKPOINT_GAP_POISON')
+    } finally {
+      releaseCheckpoint()
+      await page.unroute(routePattern, handler)
+    }
+  })
+
   test('Code commits a live transition only after the xterm write callback', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'terminal-render-commit-callback')
     fs.mkdirSync(workspace, { recursive: true })
@@ -699,6 +772,119 @@ test.describe('terminal state protocol', () => {
     expect(requests).toBe(requestsAfterHalt)
     await expect(page.locator('.crt-terminal-sync-status-text'))
       .toContainText('CONTROLLER AND CHECKPOINT RUNTIME DISAGREED REPEATEDLY')
+  })
+
+  test('CRT rejects a controller lease granted after pagehide', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'crt-late-hidden-controller')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createControlAgent(page, workspace)
+    await page.goto(`/farming/crt/?agent=${encodeURIComponent(agentId)}`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await expect(page.locator('#session-modal')).toHaveClass(/active/, { timeout: 30_000 })
+    await expect(page.locator('#terminal-output .xterm')).toBeVisible({ timeout: 15_000 })
+    await expect(page.locator('.crt-terminal-sync-status')).toBeHidden({ timeout: 15_000 })
+
+    await page.evaluate(() => window.dispatchEvent(new Event('pagehide')))
+    await page.evaluate(() => {
+      const api = (window as typeof window & {
+        __farmingCrtTerminalTest?: {
+          deliverController: (message: Record<string, unknown>) => boolean
+        }
+      }).__farmingCrtTerminalTest
+      api?.deliverController({
+        status: 'owner',
+        leaseId: 'late-hidden-lease',
+        fence: 999,
+        expiresAt: Date.now() + 30_000,
+      })
+    })
+    await expect.poll(() => page.evaluate(() => (
+      (window as typeof window & {
+        __farmingCrtTerminalTest?: {
+          getState: () => {
+            controllerStatus?: string
+            leaseId?: string
+            fence?: number | null
+          } | null
+        }
+      }).__farmingCrtTerminalTest?.getState() || null
+    ))).toMatchObject({
+      controllerStatus: 'claiming',
+      leaseId: '',
+      fence: null,
+    })
+
+    await page.evaluate(() => window.dispatchEvent(new Event('pageshow')))
+    await expect.poll(() => page.evaluate(() => (
+      (window as typeof window & {
+        __farmingCrtTerminalTest?: {
+          getState: () => { controllerStatus?: string } | null
+        }
+      }).__farmingCrtTerminalTest?.getState()?.controllerStatus || ''
+    )), { timeout: 10_000 }).toBe('owner')
+  })
+
+  test('parked terminal fetches one checkpoint after a real websocket disconnect', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'parked-real-reconnect')
+    fs.mkdirSync(workspace, { recursive: true })
+    const parkedAgentId = await createControlAgent(page, workspace)
+    const activeAgentId = await createControlAgent(page, workspace)
+    await openTerminalTestPage(page)
+    await selectControlAgent(page, parkedAgentId)
+    await selectControlAgent(page, activeAgentId)
+
+    const routePattern = new RegExp(`/farming/api/agents/${parkedAgentId}/session-view$`)
+    let checkpointRequests = 0
+    const handler = async (route: import('@playwright/test').Route) => {
+      checkpointRequests += 1
+      await route.continue()
+    }
+    await page.route(routePattern, handler)
+    try {
+      await page.evaluate(() => {
+        const state = window as typeof window & {
+          __parkedReconnectDisconnected?: boolean
+          __parkedReconnectConnected?: boolean
+        }
+        state.__parkedReconnectDisconnected = false
+        state.__parkedReconnectConnected = false
+        window.addEventListener('farming:backend-disconnected', () => {
+          state.__parkedReconnectDisconnected = true
+        }, { once: true })
+        window.addEventListener('farming:backend-connected', () => {
+          state.__parkedReconnectConnected = true
+        }, { once: true })
+      })
+      const closeResponse = await page.request.post('/farming/api/control/e2e/close-websockets')
+      expect(closeResponse.ok()).toBeTruthy()
+      await page.waitForFunction(() => (
+        (window as typeof window & { __parkedReconnectDisconnected?: boolean })
+          .__parkedReconnectDisconnected === true
+      ))
+
+      const marker = `PARKED_REAL_RECONNECT_${Date.now()}`
+      const inputResponse = await page.request.post(`/farming/api/control/agents/${parkedAgentId}/input`, {
+        data: { input: `printf "${marker}\\n"\r` },
+      })
+      expect(inputResponse.ok()).toBeTruthy()
+      await expect.poll(async () => {
+        const response = await page.request.get(`/farming/api/agents/${parkedAgentId}/session-view`)
+        const payload = await response.json() as { session?: { renderOutput?: string } }
+        return payload.session?.renderOutput || ''
+      }).toContain(marker)
+      await page.waitForFunction(() => (
+        (window as typeof window & { __parkedReconnectConnected?: boolean })
+          .__parkedReconnectConnected === true
+      ), undefined, { timeout: 10_000 })
+      expect(checkpointRequests).toBe(0)
+
+      await selectControlAgent(page, parkedAgentId)
+      await expect.poll(() => visibleText(page, parkedAgentId), { timeout: 10_000 }).toContain(marker)
+      expect(checkpointRequests).toBe(1)
+    } finally {
+      await page.unroute(routePattern, handler)
+    }
   })
 
   test('1013 backpressure close reconnects through an authoritative checkpoint', async ({ page, workspaceRoot }) => {

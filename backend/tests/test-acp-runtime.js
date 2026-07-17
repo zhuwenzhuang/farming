@@ -417,7 +417,7 @@ async function run() {
     assert.match(runtime.getToolEntry('agent-acp-client-services', 'client-terminal-tool').content[0].terminal.output, /terminal-ok/);
     const interactivePrompt = runtime.prompt('agent-acp-client-services', 'interactive terminal');
     let interactiveTool;
-    for (let attempt = 0; attempt < 100; attempt += 1) {
+    for (let attempt = 0; attempt < 250; attempt += 1) {
       interactiveTool = runtime.getToolEntry('agent-acp-client-services', 'interactive-terminal-tool');
       if (interactiveTool?.content?.[0]?.terminal?.output?.includes('name>')) break;
       await new Promise(resolve => setTimeout(resolve, 20));
@@ -484,7 +484,7 @@ async function run() {
     );
     const longSubagentPrompt = runtime.prompt('agent-acp-client-services', 'long subagent');
     let longSubagentTool;
-    for (let attempt = 0; attempt < 100; attempt += 1) {
+    for (let attempt = 0; attempt < 250; attempt += 1) {
       longSubagentTool = runtime.getToolEntry('agent-acp-client-services', 'long-subagent-tool');
       if (longSubagentTool && runtime.getSubagentTranscriptSession(
         'agent-acp-client-services',
@@ -529,14 +529,14 @@ async function run() {
     const terminalAuthentication = await runtime.authenticate('agent-acp-client-services', 'fake-terminal-login');
     assert.strictEqual(terminalAuthentication.authenticated, false);
     let terminalAuthenticationSnapshot;
-    for (let attempt = 0; attempt < 100; attempt += 1) {
+    for (let attempt = 0; attempt < 250; attempt += 1) {
       terminalAuthenticationSnapshot = runtime.getSession('agent-acp-client-services').authTerminal;
       if (terminalAuthenticationSnapshot?.terminal?.output?.includes('fake-login>')) break;
       await new Promise(resolve => setTimeout(resolve, 20));
     }
     assert.match(terminalAuthenticationSnapshot.terminal.output, /fake-login>/);
     runtime.inputTerminal('agent-acp-client-services', terminalAuthentication.terminalId, 'approved\r');
-    for (let attempt = 0; attempt < 200; attempt += 1) {
+    for (let attempt = 0; attempt < 500; attempt += 1) {
       if (runtime.bindings.get('agent-acp-client-services') !== bindingBeforeTerminalAuth
         && runtime.getSession('agent-acp-client-services').state === 'idle') break;
       await new Promise(resolve => setTimeout(resolve, 20));

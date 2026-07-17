@@ -1251,15 +1251,27 @@ app.delete(routePath(BASE_PATH, '/api/agents/:agentId/codex-goal'), async (req, 
 });
 
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/codex-terminal-profile'), express.json(), async (req, res) => {
+  const requestAbort = new globalThis.AbortController();
+  const abortRequest = () => requestAbort.abort(new Error('Terminal profile request was canceled'));
+  const abortClosedResponse = () => {
+    if (!res.writableEnded) abortRequest();
+  };
+  req.once('aborted', abortRequest);
+  res.once('close', abortClosedResponse);
   try {
     const result = await terminalControllerCoordinator.runOwnedMutation(
       req.params.agentId,
       req.body?.controller,
-      async ({ terminalControl }) => agentManager.setCodexTerminalProfile(req.params.agentId, {
+      async ({ terminalControl, signal, deadline }) => agentManager.setCodexTerminalProfile(req.params.agentId, {
         model: req.body?.model,
         effort: req.body?.effort,
         serviceTier: req.body?.serviceTier,
-      }, { terminalControl }),
+      }, {
+        terminalControl,
+        signal,
+        timeoutMs: Math.max(1, deadline - Date.now() - 1_000),
+      }),
+      { signal: requestAbort.signal },
     );
     if (result.status !== 'committed') {
       res.status(409).json({ error: 'Take control of the Terminal before changing its profile' });
@@ -1273,7 +1285,10 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/codex-terminal-profile'), ex
       : /^A valid Codex /.test(message)
         ? 400
         : 409;
-    res.status(status).json({ error: message });
+    if (!res.headersSent && !res.destroyed) res.status(status).json({ error: message });
+  } finally {
+    req.off('aborted', abortRequest);
+    res.off('close', abortClosedResponse);
   }
 });
 

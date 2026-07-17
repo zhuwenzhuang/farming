@@ -1,6 +1,7 @@
 const { createTwoFilesPatch, diffLines } = require('diff');
 
 const MAX_RENDERED_DIFF_CHARS = 64 * 1024;
+const MAX_INLINE_TOOL_DETAIL_CHARS = 4 * 1024;
 
 function diffBlocks(content) {
   return (Array.isArray(content) ? content : [])
@@ -162,8 +163,112 @@ function detailForTool(entry) {
   return sections.join('\n\n');
 }
 
+function transcriptMediaBlocks(entry) {
+  const direct = Array.isArray(entry?.content) ? entry.content : [];
+  const output = entry?.rawOutput && typeof entry.rawOutput === 'object' ? entry.rawOutput : {};
+  const result = output?.result && typeof output.result === 'object' ? output.result : {};
+  const raw = Array.isArray(result.content)
+    ? result.content
+    : (Array.isArray(output.content) ? output.content : []);
+  const blocks = [...direct, ...raw].flatMap(block => {
+    if (!block || typeof block !== 'object') return [];
+    if (block.type === 'terminal') return [{ type: 'terminal', terminalId: String(block.terminalId || '') }];
+    if (['image', 'audio', 'resource_link'].includes(block.type)) return [JSON.parse(JSON.stringify(block))];
+    if (block.type === 'resource') {
+      const resource = block.resource && typeof block.resource === 'object' ? block.resource : {};
+      return [{
+        type: 'resource',
+        resource: {
+          name: resource.name,
+          uri: resource.uri,
+          mimeType: resource.mimeType,
+        },
+      }];
+    }
+    if (block.type !== 'content' || !block.content || typeof block.content !== 'object') return [];
+    const content = block.content;
+    if (['image', 'audio', 'resource_link'].includes(content.type)) {
+      return [{ type: 'content', content: JSON.parse(JSON.stringify(content)) }];
+    }
+    if (content.type === 'resource') {
+      const resource = content.resource && typeof content.resource === 'object' ? content.resource : {};
+      return [{
+        type: 'content',
+        content: {
+          type: 'resource',
+          resource: {
+            name: resource.name,
+            uri: resource.uri,
+            mimeType: resource.mimeType,
+          },
+        },
+      }];
+    }
+    return [];
+  });
+  const seenTerminals = new Set();
+  return blocks.filter(block => {
+    if (block.type !== 'terminal') return true;
+    if (!block.terminalId || seenTerminals.has(block.terminalId)) return false;
+    seenTerminals.add(block.terminalId);
+    return true;
+  });
+}
+
+function generatedMediaTool(entry) {
+  const title = String(entry?.title || '').trim().toLowerCase();
+  const id = String(entry?.id || '').trim().toLowerCase();
+  const output = entry?.rawOutput && typeof entry.rawOutput === 'object' ? entry.rawOutput : {};
+  return id.startsWith('ig_')
+    || title === 'image generation'
+    || title === 'audio generation'
+    || String(output.savedPath || '').includes('/generated_images/');
+}
+
+function acpTranscriptToolEntry(entry) {
+  if (!entry || entry.type !== 'tool') return entry;
+  const detail = detailForTool(entry);
+  const changes = patchChanges(entry.content).map(change => ({
+    path: change.path,
+    kind: change.kind,
+    added: change.added,
+    removed: change.removed,
+    ...(entry?._meta?.farming_patch_decisions?.[change.path]
+      ? { decision: entry._meta.farming_patch_decisions[change.path] }
+      : {}),
+  }));
+  const patchSummary = diffBlocks(entry.content)
+    .map(block => `${diffAction(block)} ${String(block.path || '').trim()}`)
+    .join('\n');
+  const meta = {};
+  if (entry?._meta?.subagent_session_info) {
+    meta.subagent_session_info = JSON.parse(JSON.stringify(entry._meta.subagent_session_info));
+  }
+  if (entry?._meta?.farming_patch_decisions) {
+    meta.farming_patch_decisions = JSON.parse(JSON.stringify(entry._meta.farming_patch_decisions));
+  }
+  return {
+    id: String(entry.id || ''),
+    type: 'tool',
+    title: String(entry.title || ''),
+    kind: String(entry.kind || 'other'),
+    status: String(entry.status || ''),
+    content: transcriptMediaBlocks(entry),
+    ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
+    transcriptDetail: detail.length <= MAX_INLINE_TOOL_DETAIL_CHARS
+      ? detail
+      : `${detail.slice(0, MAX_INLINE_TOOL_DETAIL_CHARS)}\n\n[Open to load full detail]`,
+    transcriptDetailTruncated: detail.length > MAX_INLINE_TOOL_DETAIL_CHARS,
+    transcriptPatchSummary: patchSummary,
+    transcriptChanges: changes,
+    generatedMedia: generatedMediaTool(entry),
+    internal: entry.internal === true,
+  };
+}
+
 module.exports = {
   acpToolChanges: entry => patchChanges(entry?.content, { includeDiff: true }),
   acpToolDetail: detailForTool,
   acpToolReviewChanges: entry => patchReviewChanges(entry?.content),
+  acpTranscriptToolEntry,
 };

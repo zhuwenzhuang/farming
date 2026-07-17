@@ -1,6 +1,6 @@
 const assert = require('assert');
 const { projectAcpTranscript: acpSessionTranscript } = require('../../src/components/code/acp/acp-entry-projection.ts');
-const { acpToolChanges, acpToolReviewChanges } = require('../acp-transcript');
+const { acpToolChanges, acpToolReviewChanges, acpTranscriptToolEntry } = require('../acp-transcript');
 
 const transcript = acpSessionTranscript({
   sessionId: 'session-1',
@@ -110,6 +110,21 @@ assert.deepStrictEqual(acpToolReviewChanges({
   oldText: 'old',
   path: '/tmp/a.js',
 }]);
+
+const compactTool = acpTranscriptToolEntry({
+  id: 'large-tool',
+  type: 'tool',
+  kind: 'execute',
+  title: 'Large command',
+  status: 'completed',
+  rawInput: { command: 'generate output' },
+  rawOutput: { stdout: 'x'.repeat(128 * 1024) },
+  content: [{ type: 'diff', path: '/tmp/large.js', oldText: 'old', newText: 'new' }],
+});
+assert.strictEqual(compactTool.transcriptDetailTruncated, true);
+assert.strictEqual(compactTool.transcriptChanges[0].path, '/tmp/large.js');
+assert(JSON.stringify(compactTool).length < 8 * 1024, 'the transcript envelope must not carry full tool output');
+assert.strictEqual(Object.prototype.hasOwnProperty.call(compactTool, 'rawOutput'), false);
 
 const orderedProgressTranscript = acpSessionTranscript({
   state: 'working',

@@ -22,6 +22,10 @@ function sessionsDir(configDir) {
   return path.join(configDir, 'sessions');
 }
 
+function acpCheckpointsDir(configDir) {
+  return path.join(sessionsDir(configDir), 'acp-checkpoints');
+}
+
 function historyDir(configDir) {
   return path.join(configDir, 'history');
 }
@@ -120,6 +124,7 @@ function codexAppServerAgentHome(configDir, agentId) {
 }
 
 module.exports = {
+  acpCheckpointsDir,
   codexAppServerAgentHome,
   codexAppServerRuntimeDir,
   farmingNetInstancesFile,

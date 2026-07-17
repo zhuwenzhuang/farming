@@ -391,16 +391,18 @@ export interface ProviderAuthStatus {
 }
 
 export interface ProviderTokenUsage {
+  available: boolean
   windowMs: number
   source: string
-  totalTokens: number
-  tokensPerMinute: number
+  reason?: string
+  totalTokens: number | null
+  tokensPerMinute: number | null
   eventCount: number
   sampledAt: number
 }
 
 export interface UsageProviderSummary {
-  provider: 'codex' | 'claude'
+  provider: 'codex' | 'claude' | 'opencode' | 'qoder'
   providerName: string
   auth: ProviderAuthStatus
   quota: ProviderQuota
@@ -430,6 +432,39 @@ export interface UsageTimeline {
   points: UsageTimelinePoint[]
 }
 
+export interface UsageDailyTokenBreakdown {
+  totalTokens: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  unattributedTokens: number
+}
+
+export interface UsageDailyPoint extends UsageDailyTokenBreakdown {
+  date: string
+  providers: Record<string, UsageDailyTokenBreakdown>
+}
+
+export interface UsageDailyHistory {
+  source: string
+  sampledAt: number
+  timeZone: string
+  days: number
+  startDate: string
+  endDate: string
+  partial?: boolean
+  summary: {
+    todayTokens: number
+    sevenDayTokens: number
+    thirtyDayTokens: number
+    periodTokens: number
+    peakDate: string
+    peakTokens: number
+  }
+  points: UsageDailyPoint[]
+}
+
 export interface AgentUsageSummary {
   windowMs: number
   sampledAt: number
@@ -451,6 +486,7 @@ export interface UsageSummary {
   sampledAt: number
   windowMs: number
   timeline: UsageTimeline
+  daily?: UsageDailyHistory | null
   providers: UsageProviderSummary[]
   agentUsage: AgentUsageSummary | null
   systemStats: SystemStats | null

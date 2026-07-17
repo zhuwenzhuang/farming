@@ -4,6 +4,38 @@ const {
   MAX_CONTROLLER_LEASE_TTL_MS,
 } = require('./terminal-controller-lease');
 
+const DEFAULT_OWNED_MUTATION_TIMEOUT_MS = 32_000;
+
+function abortReason(signal, fallbackMessage) {
+  if (signal?.reason instanceof Error) return signal.reason;
+  return new Error(typeof signal?.reason === 'string' && signal.reason
+    ? signal.reason
+    : fallbackMessage);
+}
+
+function waitForOwnedOperation(value, { signal, deadline, timeoutMessage }) {
+  if (signal?.aborted) return Promise.reject(abortReason(signal, timeoutMessage));
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) return Promise.reject(new Error(timeoutMessage));
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      callback(result);
+    };
+    const onAbort = () => finish(reject, abortReason(signal, timeoutMessage));
+    const timer = setTimeout(() => finish(reject, new Error(timeoutMessage)), remainingMs);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve(value).then(
+      result => finish(resolve, result),
+      error => finish(reject, error),
+    );
+  });
+}
+
 class TerminalControllerCoordinator {
   constructor(options = {}) {
     this.agentManager = options.agentManager;
@@ -12,6 +44,10 @@ class TerminalControllerCoordinator {
     this.owners = new Map();
     this.queues = new Map();
     this.claims = new Map();
+    this.ownedOperations = new Map();
+    this.ownedMutationTimeoutMs = Number.isFinite(options.ownedMutationTimeoutMs)
+      ? Math.max(1, options.ownedMutationTimeoutMs)
+      : DEFAULT_OWNED_MUTATION_TIMEOUT_MS;
     this.leaseExpiryTimer = null;
     this.send = options.send || ((ws, message) => {
       if (ws && ws.readyState === 1) {
@@ -148,8 +184,36 @@ class TerminalControllerCoordinator {
     };
   }
 
-  runOwnedMutation(agentId, controller, operation) {
-    return this.enqueue(agentId, async () => {
+  runOwnedMutation(agentId, controller, operation, options = {}) {
+    if (this.ownedOperations.has(agentId)) {
+      return Promise.resolve({ status: 'rejected', reason: 'operation-in-progress' });
+    }
+    const timeoutMs = Number.isFinite(options.timeoutMs)
+      ? Math.max(1, options.timeoutMs)
+      : this.ownedMutationTimeoutMs;
+    const deadline = Date.now() + timeoutMs;
+    const abortController = new globalThis.AbortController();
+    const abortForTimeout = () => abortController.abort(
+      new Error('Timed out applying the Terminal profile'),
+    );
+    const timeout = setTimeout(abortForTimeout, timeoutMs);
+    timeout.unref?.();
+    const abortFromCaller = () => abortController.abort(
+      abortReason(options.signal, 'Terminal profile request was canceled'),
+    );
+    const aborted = new Promise((resolve, reject) => {
+      abortController.signal.addEventListener('abort', () => {
+        reject(abortReason(abortController.signal, 'Terminal profile request was canceled'));
+      }, { once: true });
+    });
+    options.signal?.addEventListener('abort', abortFromCaller, { once: true });
+    if (options.signal?.aborted) abortFromCaller();
+    const operationMarker = { controller, deadline, abortController };
+    this.ownedOperations.set(agentId, operationMarker);
+    const queued = this.enqueue(agentId, async () => {
+      if (abortController.signal.aborted || Date.now() >= deadline) {
+        throw abortReason(abortController.signal, 'Timed out applying the Terminal profile');
+      }
       const owner = this.owners.get(agentId);
       if (!owner) return { status: 'rejected', reason: 'unowned' };
       if (
@@ -192,22 +256,46 @@ class TerminalControllerCoordinator {
         return renewalInFlight;
       };
 
-      await renewPinnedOwner();
-      const keepAliveIntervalMs = Math.max(1000, Math.floor(operationTtlMs / 3));
-      const keepAlive = setInterval(() => {
-        void renewPinnedOwner().catch(() => {});
-      }, keepAliveIntervalMs);
-      keepAlive.unref?.();
+      let keepAlive = null;
       try {
-        const value = await operation({
+        await waitForOwnedOperation(renewPinnedOwner(), {
+          signal: abortController.signal,
+          deadline,
+          timeoutMessage: 'Timed out pinning Terminal control',
+        });
+        const keepAliveIntervalMs = Math.max(1000, Math.floor(operationTtlMs / 3));
+        keepAlive = setInterval(() => {
+          void renewPinnedOwner().catch(() => {});
+        }, keepAliveIntervalMs);
+        keepAlive.unref?.();
+        const value = await waitForOwnedOperation(operation({
           terminalControl: this.terminalControlForOwner(owner, operationTtlMs),
           expectedRuntimeEpoch: owner.claimedRuntimeEpoch,
+          signal: abortController.signal,
+          deadline,
+        }), {
+          signal: abortController.signal,
+          deadline,
+          timeoutMessage: 'Timed out applying the Terminal profile',
         });
-        if (renewalInFlight) await renewalInFlight;
+        if (renewalInFlight) {
+          await waitForOwnedOperation(renewalInFlight, {
+            signal: abortController.signal,
+            deadline,
+            timeoutMessage: 'Timed out renewing Terminal control',
+          });
+        }
         if (renewalFailure) throw renewalFailure;
         return { status: 'committed', value };
       } finally {
-        clearInterval(keepAlive);
+        if (keepAlive) clearInterval(keepAlive);
+      }
+    });
+    return Promise.race([queued, aborted]).finally(() => {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener('abort', abortFromCaller);
+      if (this.ownedOperations.get(agentId) === operationMarker) {
+        this.ownedOperations.delete(agentId);
       }
     });
   }
@@ -257,6 +345,28 @@ class TerminalControllerCoordinator {
     const claimId = typeof data.claimId === 'string' ? data.claimId : '';
     const mode = data.mode === 'interactive' ? 'interactive' : 'passive';
     if (!agentId || !attachmentId || !claimId) return Promise.resolve();
+
+    if (this.ownedOperations.has(agentId)) {
+      const existing = this.owners.get(agentId);
+      if (existing && existing.ws === ws && existing.attachmentId === attachmentId) {
+        this.sendState(ws, this.publicOwnerState(existing, 'owner', { claimId }));
+      } else if (existing) {
+        this.sendState(ws, this.publicOwnerState(existing, 'observer', {
+          attachmentId,
+          claimId,
+          reason: 'operation-in-progress',
+        }));
+      } else {
+        this.sendState(ws, {
+          agentId,
+          attachmentId,
+          claimId,
+          status: 'unowned',
+          reason: 'operation-in-progress',
+        });
+      }
+      return Promise.resolve();
+    }
 
     return this.enqueue(agentId, async () => {
       const existing = this.owners.get(agentId);

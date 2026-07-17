@@ -127,6 +127,8 @@ const CRT_TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5_000;
 const CRT_TERMINAL_MAX_QUEUED_TRANSITIONS = 512;
 const CRT_TERMINAL_MAX_QUEUED_BYTES = 1024 * 1024;
 const CRT_TERMINAL_OUTPUT_ACK_CHARS = 5000;
+const CRT_TERMINAL_MIN_COLS = 40;
+const CRT_TERMINAL_MIN_ROWS = 10;
 const CRT_RUNTIME_EPOCH_PATTERN = /^farming-runtime-v1:(\d{20}):/;
 
 function crtRuntimeEpochGeneration(runtimeEpoch) {
@@ -505,6 +507,8 @@ function buildCrtSearchResults({ query = '', agents: agentRecords = [], sessions
 }
 
 function getCrtNavigationScope() {
+  const sessionModal = document.getElementById('session-modal');
+  if (sessionModal && sessionModal.classList.contains('active')) return sessionModal;
   const settingsModal = document.getElementById('settings-modal');
   if (settingsModal && settingsModal.classList.contains('active')) return settingsModal;
   const inputDialog = document.getElementById('input-dialog');
@@ -2105,6 +2109,7 @@ function createCrtTerminalReplication(agentId) {
     claimId: '',
     claimInFlight: false,
     controllerStatus: 'claiming',
+    controllerReason: '',
     leaseId: '',
     fence: null,
     rendererReadyFence: null,
@@ -2169,6 +2174,10 @@ function installCrtTerminalTestApi() {
         checkpointInFlight: replication.checkpointInFlight,
         checkpointInstallInProgress: replication.checkpointInstallInProgress,
         checkpointHalted: replication.checkpointHalted,
+        controllerStatus: replication.controllerStatus,
+        leaseId: replication.leaseId,
+        fence: replication.fence,
+        claimInFlight: replication.claimInFlight,
         controllerRecoveryFailureSignature: replication.controllerRecoveryFailureSignature,
         controllerRecoveryFailureCount: replication.controllerRecoveryFailureCount
       };
@@ -2181,6 +2190,9 @@ function installCrtTerminalTestApi() {
         rows.push(buffer.getLine(index)?.translateToString(true) || '');
       }
       return rows;
+    },
+    notifyResizeForTest(cols, rows) {
+      sendSessionResize(focusedAgentId, { cols, rows });
     },
     streamSequenced(data, outputSeq, runtimeEpoch, stateRevision) {
       const replication = crtTerminalReplication;
@@ -2202,6 +2214,17 @@ function installCrtTerminalTestApi() {
         ...stream,
         agentId: replication.agentId,
         replace: true
+      });
+      return true;
+    },
+    deliverController(message) {
+      const replication = crtTerminalReplication;
+      if (!replication || replication.disposed || !message) return false;
+      handleCrtTerminalController({
+        ...message,
+        agentId: replication.agentId,
+        attachmentId: replication.attachmentId,
+        claimId: message.claimId === undefined ? replication.claimId : message.claimId
       });
       return true;
     }
@@ -2254,17 +2277,20 @@ function renderCrtTerminalControllerStatus() {
     ? 'SYNCING TERMINAL…'
     : crtTerminalReplication.controllerStatus === 'claiming'
       ? 'SYNCING TERMINAL…'
-      : crtTerminalReplication.controllerStatus === 'observer'
-      ? 'TERMINAL CONTROLLED BY ANOTHER WINDOW'
+    : crtTerminalReplication.controllerStatus === 'observer'
+      ? crtTerminalReplication.controllerReason === 'operation-in-progress'
+        ? 'ANOTHER WINDOW IS FINISHING A TERMINAL OPERATION · RETRY TAKE CONTROL WHEN IT COMPLETES'
+        : 'TERMINAL CONTROLLED BY ANOTHER WINDOW'
       : '';
   if (text) text.textContent = statusText;
   if (takeover) takeover.hidden = crtTerminalReplication.controllerStatus !== 'observer';
   element.hidden = !statusText;
 }
 
-function setCrtTerminalControllerStatus(status) {
+function setCrtTerminalControllerStatus(status, reason = '') {
   if (!crtTerminalReplication) return;
   crtTerminalReplication.controllerStatus = status;
+  crtTerminalReplication.controllerReason = status === 'observer' ? reason : '';
   renderCrtTerminalControllerStatus();
 }
 
@@ -2519,7 +2545,16 @@ function activateCrtTerminalRenderer() {
       expectedRuntimeEpoch: replication.runtimeEpoch
     }
   ));
-  if (delivered) replication.rendererReadyFence = replication.fence;
+  if (delivered) {
+    replication.rendererReadyFence = replication.fence;
+    if (replication.focusAfterClaim) {
+      replication.focusAfterClaim = false;
+      requestAnimationFrame(() => {
+        if (!crtTerminalReplication || crtTerminalReplication !== replication || replication.disposed) return;
+        focusSessionTerminal();
+      });
+    }
+  }
   renderCrtTerminalControllerStatus();
   return delivered;
 }
@@ -3030,6 +3065,21 @@ function handleCrtTerminalController(message) {
     cancelCrtTerminalControllerClaimTimeout(replication);
   }
 
+  if (
+    message.status === 'owner'
+    && (
+      document.visibilityState === 'hidden'
+      || document.body.classList.contains('page-hidden')
+    )
+  ) {
+    // A controller claim may complete after pagehide. Do not let a hidden CRT
+    // attachment retain that late lease; the visible resume path claims anew.
+    replication.leaseId = message.leaseId || '';
+    replication.fence = Number.isFinite(message.fence) ? message.fence : null;
+    releaseCrtTerminalController();
+    return;
+  }
+
   if (message.status === 'owner') {
     resetCrtTerminalControllerRecoveryFailures(replication);
     const sameLease = replication.controllerStatus === 'owner'
@@ -3047,6 +3097,10 @@ function handleCrtTerminalController(message) {
       replication.lastResizeRows = null;
     }
     if (!sameLease) replication.pendingOutputAckChars = 0;
+    // Errors caused solely by typing as an observer or while a previous
+    // renderer fence was closed are no longer current after a successful
+    // controller grant. Keep checkpoint errors, which describe display proof.
+    replication.inputError = '';
     setCrtTerminalControllerStatus('owner');
     scheduleCrtTerminalControllerRenew();
     if (!sameLease) {
@@ -3090,7 +3144,8 @@ function handleCrtTerminalController(message) {
   replication.pendingOutputAckChars = 0;
   replication.focusAfterClaim = false;
   setCrtTerminalControllerStatus(
-    message.status === 'observer' || message.status === 'revoked' ? 'observer' : 'claiming'
+    message.status === 'observer' || message.status === 'revoked' ? 'observer' : 'claiming',
+    message.reason || ''
   );
   const shouldRecoverController = (
     message.status === 'rejected' ||
@@ -7835,35 +7890,39 @@ function sendSessionResize(agentId = focusedAgentId, requestedDimensions = null)
       ? fitAddon.proposeDimensions()
       : null
   );
+  const normalizedDimensions = dimensions && {
+    cols: Math.floor(Number(dimensions.cols)),
+    rows: Math.floor(Number(dimensions.rows))
+  };
   if (
-    !dimensions ||
-    !Number.isFinite(dimensions.cols) ||
-    !Number.isFinite(dimensions.rows) ||
-    dimensions.cols < 1 ||
-    dimensions.rows < 1 ||
+    !normalizedDimensions ||
+    !Number.isFinite(normalizedDimensions.cols) ||
+    !Number.isFinite(normalizedDimensions.rows) ||
+    normalizedDimensions.cols < CRT_TERMINAL_MIN_COLS ||
+    normalizedDimensions.rows < CRT_TERMINAL_MIN_ROWS ||
     (
-      dimensions.cols === replication.lastResizeCols &&
-      dimensions.rows === replication.lastResizeRows
+      normalizedDimensions.cols === replication.lastResizeCols &&
+      normalizedDimensions.rows === replication.lastResizeRows
     )
   ) return;
   const sessionClient = getSessionClient();
   if (!sessionClient) return;
-  if (terminal.cols !== dimensions.cols || terminal.rows !== dimensions.rows) {
+  if (terminal.cols !== normalizedDimensions.cols || terminal.rows !== normalizedDimensions.rows) {
     replication.applyingLocalResize = true;
     try {
-      terminal.resize(dimensions.cols, dimensions.rows);
+      terminal.resize(normalizedDimensions.cols, normalizedDimensions.rows);
     } finally {
       replication.applyingLocalResize = false;
     }
   }
   if (replication.resizeRequestInFlight) {
-    replication.pendingResize = { cols: dimensions.cols, rows: dimensions.rows };
+    replication.pendingResize = normalizedDimensions;
     return;
   }
   const requestSeq = replication.resizeRequestSeq + 1;
   replication.resizeRequestSeq = requestSeq;
   replication.resizeRequestInFlight = true;
-  const delivered = sessionClient.resizeAgent(agentId, dimensions.cols, dimensions.rows, {
+  const delivered = sessionClient.resizeAgent(agentId, normalizedDimensions.cols, normalizedDimensions.rows, {
     attachmentId: replication.attachmentId,
     leaseId: replication.leaseId,
     fence: replication.fence,
@@ -7871,8 +7930,8 @@ function sendSessionResize(agentId = focusedAgentId, requestedDimensions = null)
     expectedRuntimeEpoch: replication.runtimeEpoch
   });
   if (delivered) {
-    replication.lastResizeCols = dimensions.cols;
-    replication.lastResizeRows = dimensions.rows;
+    replication.lastResizeCols = normalizedDimensions.cols;
+    replication.lastResizeRows = normalizedDimensions.rows;
   }
   if (!delivered) {
     replication.resizeRequestInFlight = false;

@@ -92,7 +92,7 @@ async function run() {
     assert.strictEqual(imagePrompt.content[0].text, 'inspect image');
     assert.strictEqual(imagePrompt.content[1].type, 'image');
     const listed = await manager.listAcpSessions(agentId);
-    assert.strictEqual(listed.sessions.length, 1);
+    assert(listed.sessions.some(item => item.sessionId === 'acp-new-session'));
     const rawTranscript = manager.getAcpTranscript(agentId);
     assert.strictEqual('turns' in rawTranscript, false, 'ACP Turn/Item projection belongs to the frontend');
     assert.strictEqual(

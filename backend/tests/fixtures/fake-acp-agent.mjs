@@ -143,7 +143,18 @@ class FakeAgent {
   }
 
   async listSessions() {
-    return { sessions: [{ sessionId, cwd: process.cwd(), title: 'Fake history' }] };
+    const sessions = [{ sessionId, cwd: process.cwd(), title: 'Fake history', updatedAt: '2020-01-01T00:00:00.000Z' }];
+    if (sessionId !== 'existing-session') {
+      sessions.push({
+        sessionId: 'existing-session',
+        cwd: process.cwd(),
+        title: 'Existing fake history',
+        updatedAt: '2020-01-01T00:00:00.000Z',
+      });
+    }
+    return {
+      sessions,
+    };
   }
 
   async unstable_forkSession() {

@@ -168,13 +168,14 @@ Linux 目标每轮都要记录：
 
 覆盖：
 - Codex / Claude quota 摘要。
+- 最近一小时和最近 52 周逐日的紧凑 token 热力图，并检查每个格子悬停时显示精确 token 数。
 - tok/min、CPU、MEM、折叠和展开。
 - 读取失败、无数据、真实 agent 高输出。
 
 验收不变量：
 - usage 默认折叠，折叠行仍显示关键速率和机器状态。
 - 不执行 reset。
-- 无法读取 quota 时要降级为明确的 unavailable 状态。
+- 没有可用 token 遥测的 Provider 整块不展示；没有真实 quota 数据时不展示 unavailable 占位行。
 
 ### 8. 移动端和远程访问
 
@@ -253,10 +254,10 @@ Linux 目标每轮都要记录：
   "findings": [
     {
       "severity": "P2",
-      "title": "Usage quota is unavailable while token rate is visible",
+      "title": "没有 token 遥测的 Provider 仍被展示",
       "steps": ["Start real Codex", "Send one-line prompt", "Open usage row"],
-      "expected": "Quota unavailable state is explicit",
-      "actual": "Quota field is blank",
+      "expected": "省略该 Provider 和 unavailable quota 占位",
+      "actual": "仍展示了 unavailable 和零值行",
       "evidence": ["screenshots/usage.png", "server.log"]
     }
   ],

@@ -12,6 +12,187 @@ async function createControlAgent(page: Page, command: string, workspace: string
   return payload.agentId as string
 }
 
+test('shows the quota reset countdown in the collapsed Code Usage summary', async ({ page }) => {
+  await page.route(/\/api\/usage(?:\?|$)/, async route => {
+    const sampledAt = Date.now()
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        usage: {
+          sampledAt,
+          windowMs: 5 * 60 * 1000,
+          providers: [{
+            provider: 'codex',
+            providerName: 'Codex',
+            auth: { available: true, status: 'Logged in using ChatGPT', source: 'codex login status' },
+            quota: {
+              available: true,
+              source: 'codex token_count events',
+              primary: null,
+              secondary: {
+                usedPercent: 76,
+                windowMinutes: 7 * 24 * 60,
+                resetsAt: sampledAt + ((2 * 24 + 3) * 60 + 10) * 60_000,
+              },
+            },
+            tokenUsage: {
+              available: true,
+              totalTokens: 46_000,
+              tokensPerMinute: 120,
+              windowMs: 5 * 60 * 1000,
+              eventCount: 4,
+              sampledAt,
+              source: 'codex cumulative token_count deltas',
+            },
+          }],
+          agentUsage: null,
+          systemStats: null,
+        },
+      }),
+    })
+  })
+
+  await openFarming(page)
+
+  await expect(page.getByTestId('code-usage-summary')).toHaveText('Codex · Weekly 24% · reset 2d 3h')
+})
+
+test('keeps Code Usage to real token sources and renders a compact activity heatmap', async ({ page }) => {
+  const sampledAt = Date.now()
+  const bucketMs = 2 * 60 * 1000
+  const points = Array.from({ length: 30 }, (_, index) => {
+    const totalTokens = index === 24 ? 9_000 : index % 7 === 0 ? 2_000 : 0
+    return {
+      startedAt: sampledAt - (30 - index) * bucketMs,
+      endedAt: sampledAt - (29 - index) * bucketMs,
+      totalTokens,
+      tokensPerMinute: totalTokens / 2,
+      providers: { codex: totalTokens },
+    }
+  })
+  const dailyCursor = new Date(sampledAt)
+  dailyCursor.setHours(12, 0, 0, 0)
+  dailyCursor.setDate(dailyCursor.getDate() - 52 * 7 + 1)
+  const dailyPoints = Array.from({ length: 52 * 7 }, (_, index) => {
+    const date = [
+      dailyCursor.getFullYear(),
+      String(dailyCursor.getMonth() + 1).padStart(2, '0'),
+      String(dailyCursor.getDate()).padStart(2, '0'),
+    ].join('-')
+    const totalTokens = index === 350 ? 1_234_567 : index % 5 === 0 ? index * 1_000 : 0
+    dailyCursor.setDate(dailyCursor.getDate() + 1)
+    return { date, totalTokens, providers: { codex: { totalTokens } } }
+  })
+  const peakDailyPoint = dailyPoints[350]!
+
+  await page.route(/\/api\/usage(?:\?|$)/, async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        usage: {
+          sampledAt,
+          windowMs: 5 * 60 * 1000,
+          timeline: {
+            source: 'local provider token events',
+            sampledAt,
+            startAt: sampledAt - 60 * 60 * 1000,
+            endAt: sampledAt,
+            windowMs: 60 * 60 * 1000,
+            bucketMs,
+            bucketCount: points.length,
+            totalTokens: points.reduce((sum, point) => sum + point.totalTokens, 0),
+            averageTokensPerMinute: 300,
+            peakTokensPerMinute: 4_500,
+            activeBucketCount: points.filter(point => point.totalTokens > 0).length,
+            points,
+          },
+          daily: {
+            source: 'local provider token events',
+            sampledAt,
+            timeZone: 'Asia/Shanghai',
+            days: dailyPoints.length,
+            startDate: dailyPoints[0]!.date,
+            endDate: dailyPoints.at(-1)!.date,
+            summary: {
+              todayTokens: dailyPoints.at(-1)!.totalTokens,
+              sevenDayTokens: 0,
+              thirtyDayTokens: 0,
+              periodTokens: dailyPoints.reduce((sum, point) => sum + point.totalTokens, 0),
+              peakDate: peakDailyPoint.date,
+              peakTokens: peakDailyPoint.totalTokens,
+            },
+            points: dailyPoints,
+          },
+          providers: [
+            {
+              provider: 'codex',
+              providerName: 'Codex',
+              auth: { available: true, status: 'Logged in using ChatGPT', source: 'codex login status' },
+              quota: { available: false, source: 'codex token_count events', reason: 'No recent quota event.' },
+              tokenUsage: { available: true, totalTokens: 11_000, tokensPerMinute: 2_200, windowMs: 300_000, eventCount: 2, sampledAt, source: 'codex token_count events' },
+            },
+            {
+              provider: 'claude',
+              providerName: 'Claude',
+              auth: { available: false, status: 'Command not found', source: 'claude auth status --json' },
+              quota: { available: false, source: 'claude auth status', reason: 'Quota unavailable' },
+              tokenUsage: { available: true, totalTokens: 0, tokensPerMinute: 0, windowMs: 300_000, eventCount: 0, sampledAt, source: 'local Claude usage fields' },
+            },
+            {
+              provider: 'opencode',
+              providerName: 'OpenCode',
+              auth: { available: false, status: 'Command not found', source: 'opencode session export' },
+              quota: { available: false, source: 'opencode session export', reason: 'Quota unavailable' },
+              tokenUsage: { available: false, totalTokens: 0, tokensPerMinute: 0, windowMs: 300_000, eventCount: 0, sampledAt, source: 'opencode session export', reason: 'Command not found' },
+            },
+            {
+              provider: 'qoder',
+              providerName: 'Qoder',
+              auth: { available: true, status: 'Local sessions', source: 'Qoder session files' },
+              quota: { available: false, source: 'Qoder session files', reason: 'Quota unavailable' },
+              tokenUsage: { available: false, totalTokens: null, tokensPerMinute: null, windowMs: 300_000, eventCount: 0, sampledAt, source: 'Qoder session files', reason: 'Qoder session files do not expose model token usage.' },
+            },
+          ],
+          agentUsage: null,
+          systemStats: null,
+        },
+      }),
+    })
+  })
+
+  await openFarming(page)
+  await page.getByTestId('code-usage-toggle').click()
+
+  const panel = page.getByTestId('code-usage-panel')
+  await expect(page.getByTestId('code-usage-summary')).toHaveText('5m rate · activity')
+  await expect(panel.getByText('Codex', { exact: true })).toBeVisible()
+  await expect(panel.getByText('Claude', { exact: true })).toHaveCount(0)
+  await expect(panel.getByText('OpenCode', { exact: true })).toHaveCount(0)
+  await expect(panel.getByText('Qoder', { exact: true })).toHaveCount(0)
+  await expect(panel.getByText('unavailable', { exact: true })).toHaveCount(0)
+  await expect(panel.getByText('Total local tokens', { exact: true })).toHaveCount(0)
+
+  const heatmap = panel.getByTestId('code-usage-heatmap')
+  await expect(heatmap).toBeVisible()
+  await expect(heatmap.locator('.code-usage-heatmap-cell')).toHaveCount(30)
+  await expect(heatmap.locator(".code-usage-heatmap-cell[data-level='5']")).toHaveCount(1)
+
+  const peakHourCell = heatmap.locator(`[data-start="${points[24]!.startedAt}"]`)
+  await expect(peakHourCell).toHaveAttribute('title', /9,000 tokens/)
+  await peakHourCell.hover()
+  await expect(panel.getByTestId('code-usage-activity-readout')).toContainText('9,000 tokens')
+
+  const dailyHeatmap = panel.getByTestId('code-usage-daily-heatmap')
+  await expect(dailyHeatmap).toBeVisible()
+  await expect(dailyHeatmap.locator('.code-usage-daily-heatmap-cell')).toHaveCount(52 * 7)
+  const peakDayCell = dailyHeatmap.locator(`[data-date="${peakDailyPoint.date}"]`)
+  await expect(peakDayCell).toHaveAttribute('title', `${peakDailyPoint.date} · 1,234,567 tokens`)
+  await peakDayCell.hover()
+  await expect(panel.getByTestId('code-usage-activity-readout')).toHaveText(`${peakDailyPoint.date} · 1,234,567 tokens`)
+})
+
 test('switches from Farming Code to the same Agent in Farming CRT', async ({ page, workspaceRoot }) => {
   await openFarming(page)
   await openNewAgentDialog(page)

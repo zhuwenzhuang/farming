@@ -114,6 +114,39 @@ async function run() {
       'stopped',
       'final derived lifecycle metadata must not revive an exited runtime',
     );
+
+    const proofFailureEpoch = 'farming-runtime-v1:00000000000000000004:proof-failure';
+    manager.agents.set('proof-failure-agent', {
+      id: 'proof-failure-agent',
+      command: 'bash',
+      cwd: '/tmp',
+      output: 'terminal output before exit',
+      previewText: '',
+      engineName: 'local',
+      status: 'running',
+      validated: true,
+    });
+    manager.engineBridge.router.engines.local.emit('session-started', {
+      sessionId: 'proof-failure-agent',
+      status: 'running',
+      runtimeEpoch: proofFailureEpoch,
+      outputSeq: 0,
+      stateRevision: 0,
+    });
+    manager.engineBridge.router.engines.local.emit('session-exited', {
+      sessionId: 'proof-failure-agent',
+      code: 1,
+      exitedAt: Date.now(),
+      runtimeEpoch: proofFailureEpoch,
+      outputSeq: 1,
+      stateRevision: 1,
+      stateProofAvailable: false,
+    });
+    const proofFailureAgent = manager.agents.get('proof-failure-agent');
+    assert.strictEqual(proofFailureAgent.status, 'dead');
+    assert.strictEqual(proofFailureAgent.engineStatus, 'dead');
+    assert.match(proofFailureAgent.output, /without an authoritative final checkpoint/);
+
     streams.length = 0;
     updateCount = 0;
     const resizeCalls = [];

@@ -353,6 +353,7 @@ const MOBILE_PROJECT_CONTEXT_MENU_HEIGHT = 122
 const AGENT_SESSION_PAGE_SIZE = 60
 const AGENT_SESSION_SEARCH_LIMIT = 1000
 const AGENT_SESSION_SEARCH_DEBOUNCE_MS = 150
+const CODEX_TERMINAL_PROFILE_REQUEST_TIMEOUT_MS = 35_000
 
 
 function shouldUseNativeMobileDictation() {
@@ -576,6 +577,7 @@ export function CodeWorkspace({
   const [searchedAgentSessions, setSearchedAgentSessions] = useState<AgentSessionHistoryItem[]>([])
   const [agentSessionSearchLoading, setAgentSessionSearchLoading] = useState(false)
   const agentSessionsLoadingRef = useRef(false)
+  const agentSessionsRefreshInFlightRef = useRef<Promise<void> | null>(null)
   const agentSessionLoadedCountRef = useRef(AGENT_SESSION_PAGE_SIZE)
   const [agentSessionPinnedOverrides, setAgentSessionPinnedOverrides] = useState<Record<string, boolean>>(
     () => loadSessionDisplayState().pinnedOverrides
@@ -1275,13 +1277,21 @@ export function CodeWorkspace({
     }
   }, [fetchAgentSessions])
   const refreshAgentSessions = useCallback(() => {
-    fetchAgentSessions({ limit: agentSessionLoadedCountRef.current, fresh: true })
+    if (agentSessionsRefreshInFlightRef.current) return agentSessionsRefreshInFlightRef.current
+    const refresh = fetchAgentSessions({ limit: agentSessionLoadedCountRef.current, fresh: true })
       .then(page => {
         setAgentSessions(page.sessions)
         setAgentSessionNextCursor(page.nextCursor)
         setAgentSessionsHasMore(page.hasMore)
       })
       .catch(() => setAgentSessions([]))
+      .finally(() => {
+        if (agentSessionsRefreshInFlightRef.current === refresh) {
+          agentSessionsRefreshInFlightRef.current = null
+        }
+      })
+    agentSessionsRefreshInFlightRef.current = refresh
+    return refresh
   }, [fetchAgentSessions])
   const loadMoreAgentSessions = useCallback(() => {
     if (!agentSessionsHasMore || !agentSessionNextCursor || agentSessionsLoadingRef.current) return
@@ -1590,10 +1600,18 @@ export function CodeWorkspace({
     })
     setCodexTerminalProfileApplyingAgentIds(current => new Set(current).add(agent.id))
     setCopyNotice({ id: Date.now(), kind: 'success', message: copy.terminalProfileApplying })
+    const requestController = new AbortController()
+    const requestTimeout = window.setTimeout(() => {
+      requestController.abort(new DOMException(
+        'Timed out applying the Codex Terminal profile',
+        'TimeoutError',
+      ))
+    }, CODEX_TERMINAL_PROFILE_REQUEST_TIMEOUT_MS)
     try {
       const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agent.id)}/codex-terminal-profile`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: requestController.signal,
         body: JSON.stringify({
           model,
           effort,
@@ -1615,6 +1633,7 @@ export function CodeWorkspace({
       setCopyNotice({ id: Date.now(), kind: 'error', message: copy.terminalProfileFailed(message) })
       return false
     } finally {
+      window.clearTimeout(requestTimeout)
       codexTerminalProfileRequestAgentIdsRef.current.delete(agent.id)
       setCodexTerminalProfileApplyingAgentIds(current => {
         const next = new Set(current)
@@ -1955,6 +1974,7 @@ export function CodeWorkspace({
   }, [removeMainPageAgentSessions])
 
   useEffect(() => {
+    let discoveredSession = false
     activeAgents.forEach(agent => {
       if (agent.providerSessionTemporary === true) return
       const sessionHandle = agent.providerSessionKey || resumedAgentSessionIdFromSource(agent.source)
@@ -1963,8 +1983,9 @@ export function CodeWorkspace({
       if (trackedMainPageAgentKeysRef.current.has(trackingKey)) return
       trackedMainPageAgentKeysRef.current.add(trackingKey)
       updateMainPageSessionKeys(previous => [...previous, sessionHandle])
-      refreshAgentSessions()
+      discoveredSession = true
     })
+    if (discoveredSession) refreshAgentSessions()
   }, [activeAgents, refreshAgentSessions, updateMainPageSessionKeys])
 
   useEffect(() => {

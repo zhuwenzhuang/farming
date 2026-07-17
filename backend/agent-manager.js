@@ -23,7 +23,7 @@ const { deriveTerminalStatus } = require('./terminal-status');
 const { CodexAppServerRuntime, normalizeCodexRuntimeMode } = require('./codex-app-server-runtime');
 const { JsonCliRuntime } = require('./json-cli-runtime');
 const { AcpRuntime } = require('./acp-runtime');
-const { acpToolChanges, acpToolDetail, acpToolReviewChanges } = require('./acp-transcript');
+const { acpToolChanges, acpToolDetail, acpToolReviewChanges, acpTranscriptToolEntry } = require('./acp-transcript');
 const {
   applyCodexTerminalProfile,
   codexTerminalProfileFromOutput,
@@ -553,8 +553,9 @@ class AgentManager extends EventEmitter {
     this.permissionRestartSuppressedAgentIds = new Set();
     this.codexAppServerRuntime = options.codexAppServerRuntime || new CodexAppServerRuntime();
     this.jsonCliRuntime = options.jsonCliRuntime || new JsonCliRuntime();
-    this.acpRuntime = options.acpRuntime || new AcpRuntime(
-      process.env.FARMING_E2E_FAKE_ACP_AGENT === '1'
+    this.acpRuntime = options.acpRuntime || new AcpRuntime({
+      ...(this.configManager?.farmingDir ? { configDir: this.configManager.farmingDir } : {}),
+      ...(process.env.FARMING_E2E_FAKE_ACP_AGENT === '1'
         ? {
             resolveLaunch: () => ({
               command: process.execPath,
@@ -562,8 +563,8 @@ class AgentManager extends EventEmitter {
               version: 'e2e',
             }),
           }
-        : undefined
-    );
+        : {}),
+    });
     this.unarchiveCodexSession = options.unarchiveCodexSession || unarchiveCodexSession;
     this.heartbeatInterval = null;
     this.disposed = false;
@@ -1020,7 +1021,13 @@ class AgentManager extends EventEmitter {
         this.emit('update');
       });
 
-    this.engineBridge.on('session-exited', ({ sessionId, code, exitedAt, runtimeEpoch }) => {
+    this.engineBridge.on('session-exited', ({
+      sessionId,
+      code,
+      exitedAt,
+      runtimeEpoch,
+      stateProofAvailable,
+    }) => {
         const agent = this.agents.get(sessionId);
         if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
         clearPendingTerminalStartSyncCut(agent);
@@ -1031,6 +1038,23 @@ class AgentManager extends EventEmitter {
         // cleanup can still report an old/missing session id while that gap is
         // open; it is not an exit of the App Server Agent.
         if (isCodexAppServerAgent(agent)) return;
+
+        if (stateProofAvailable === false) {
+          this.stopCodexProviderSessionResolver(sessionId);
+          this.stopProviderSessionTitleResolver(sessionId);
+          agent.status = 'dead';
+          agent.engineStatus = 'dead';
+          agent.terminalBusy = false;
+          agent.exitedAt = exitedAt || Date.now();
+          const proofError = 'Terminal exited without an authoritative final checkpoint';
+          if (!String(agent.output || '').includes(proofError)) {
+            agent.output = trimSessionOutput(`${agent.output || ''}\n${proofError}`);
+          }
+          this.observeAgentAttentionState(sessionId);
+          this.observeAgentStateChange(sessionId, { force: true });
+          this.emit('update');
+          return;
+        }
 
         if (!agent.validated) {
           this.stopCodexProviderSessionResolver(sessionId);
@@ -1109,8 +1133,34 @@ class AgentManager extends EventEmitter {
         await this.killRecoveredEngineSession(entry, engineMetadata, agentId);
         continue;
       }
+      const persistedProvider = String(persisted?.providerSessionProvider || persisted?.provider || '').trim();
       const metadata = persisted ? {
         ...engineMetadata,
+        // The native host owns the live PTY/reducer state, but the Farming
+        // session record owns stable product identity. Legacy hosts can omit
+        // these fields during recovery; projecting that incomplete metadata
+        // even briefly makes Chat/Terminal switching disappear until a later
+        // provider resolver update happens to repair it.
+        source: persisted.source || engineMetadata.source,
+        projectWorkspace: persisted.projectWorkspace || engineMetadata.projectWorkspace,
+        provider: persistedProvider || engineMetadata.provider,
+        providerSessionProvider: persistedProvider || engineMetadata.providerSessionProvider,
+        providerHomeId: persisted.providerHomeId || engineMetadata.providerHomeId,
+        providerHomePath: persisted.providerHomePath || engineMetadata.providerHomePath,
+        providerSessionId: persisted.providerSessionId || engineMetadata.providerSessionId,
+        providerSessionKey: persisted.providerSessionKey || engineMetadata.providerSessionKey,
+        providerSessionTemporary: Object.prototype.hasOwnProperty.call(persisted, 'providerSessionTemporary')
+          ? persisted.providerSessionTemporary === true
+          : engineMetadata.providerSessionTemporary,
+        providerSessionSource: persisted.providerSessionSource || engineMetadata.providerSessionSource,
+        providerSessionResolvedAt: persisted.providerSessionResolvedAt || engineMetadata.providerSessionResolvedAt,
+        providerSessionTitle: persisted.providerSessionTitle || engineMetadata.providerSessionTitle,
+        providerSessionWorkspace: persisted.providerSessionWorkspace || engineMetadata.providerSessionWorkspace,
+        terminalInputReceived: Object.prototype.hasOwnProperty.call(persisted, 'terminalInputReceived')
+          ? persisted.terminalInputReceived === true
+          : engineMetadata.terminalInputReceived,
+        codexRuntimeMode: persisted.codexRuntimeMode || engineMetadata.codexRuntimeMode,
+        agentRuntimeMode: persisted.agentRuntimeMode || engineMetadata.agentRuntimeMode,
         pinned: persisted.pinned === true,
         projectOrder: finiteOrder(persisted.projectOrder) ?? finiteOrder(engineMetadata.projectOrder),
         pinnedOrder: finiteOrder(persisted.pinnedOrder) ?? finiteOrder(engineMetadata.pinnedOrder),
@@ -1422,7 +1472,8 @@ class AgentManager extends EventEmitter {
           env: this.buildAgentEnv(agentId, agent),
           cwd: agent.cwd,
           sessionId,
-          historyMode: 'load',
+          historyMode: 'checkpoint',
+          providerHomeId: agent.providerHomeId || record.providerHomeId || 'default',
           approvalMode,
           // Let Codex resolve its selected Home config and existing session
           // state instead of applying today's Farming launch defaults.
@@ -2497,7 +2548,7 @@ class AgentManager extends EventEmitter {
     if (this.jsonCliRuntime) {
       for (const agentId of this.agents.keys()) this.jsonCliRuntime.unregisterAgent(agentId);
     }
-    if (this.acpRuntime && typeof this.acpRuntime.dispose === 'function') this.acpRuntime.dispose();
+    if (this.acpRuntime && typeof this.acpRuntime.dispose === 'function') await this.acpRuntime.dispose();
     if (this.engineBridge && typeof this.engineBridge.dispose === 'function') {
       await this.engineBridge.dispose({
         preserveHost: options.preserveTerminalHost === true,
@@ -3066,7 +3117,10 @@ class AgentManager extends EventEmitter {
           sessionId: options.acpStartFresh === true || agentRecord.providerSessionTemporary || acpGeneratedFreshSession
             ? ''
             : agentRecord.providerSessionId,
-          historyMode: options.acpHistoryMode === 'resume' ? 'resume' : 'load',
+          historyMode: options.acpHistoryMode === 'resume'
+            ? 'resume'
+            : (options.acpHistoryMode === 'load' ? 'load' : 'checkpoint'),
+          providerHomeId: agentRecord.providerHomeId || 'default',
           approvalMode: agentRecord.launchPermissionMode || 'approve',
           model: codexModel,
           reasoningEffort: codexReasoningEffort,
@@ -3233,6 +3287,8 @@ class AgentManager extends EventEmitter {
 
     const applied = await applyCodexTerminalProfile({
       profile,
+      timeoutMs: options.timeoutMs,
+      signal: options.signal,
       readPreview: async () => {
         const view = await this.getAgentSessionView(agentId);
         if (!view) throw new Error('Agent not found');
@@ -3264,7 +3320,9 @@ class AgentManager extends EventEmitter {
     // Publish that confirmation immediately instead of waiting for a later PTY
     // preview tick; otherwise the browser's bounded optimistic state can expire
     // and briefly fall back to the pre-command footer.
-    const view = await this.getAgentSessionView(agentId);
+    const view = options.signal?.aborted
+      ? null
+      : await this.getAgentSessionView(agentId);
     if (view) {
       agent.previewText = view.previewText || agent.previewText || '';
       agent.previewSnapshot = view.previewSnapshot || agent.previewSnapshot || null;
@@ -3411,7 +3469,11 @@ class AgentManager extends EventEmitter {
     const agent = this.agents.get(agentId);
     if (!agent) throw new Error('Agent not found');
     if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
-    return this.acpRuntime.getTranscriptSession(agentId, options);
+    const transcript = this.acpRuntime.getTranscriptSession(agentId, options);
+    return {
+      ...transcript,
+      entries: transcript.entries.map(entry => entry?.type === 'tool' ? acpTranscriptToolEntry(entry) : entry),
+    };
   }
 
   getAcpToolDetail(agentId, toolCallId) {

@@ -116,6 +116,7 @@ async function sendCrtCommand(page: Page, command: string) {
   const input = page.locator('#terminal-output .xterm-helper-textarea')
   await input.focus()
   await page.keyboard.insertText(command)
+  await expect(input).toBeFocused()
   await input.press('Enter')
 }
 

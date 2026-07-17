@@ -171,6 +171,41 @@ class AcpSessionState {
     this.sessionId = String(sessionId || this.sessionId);
   }
 
+  static fromCheckpoint(checkpoint, options = {}) {
+    if (!checkpoint || checkpoint.version !== 1 || !Array.isArray(checkpoint.entries)) return null;
+    const state = new AcpSessionState({
+      provider: options.provider || checkpoint.provider,
+      sessionId: options.sessionId || checkpoint.sessionId,
+      cwd: options.cwd || checkpoint.cwd,
+      maxUpdates: options.maxUpdates,
+      revisionBase: checkpoint.revision,
+      resetBeforeRevision: checkpoint.resetBeforeRevision,
+    });
+    state.entries = clone(checkpoint.entries);
+    state.toolEntries.clear();
+    state.compactionEntries.clear();
+    let maximumRevision = 0;
+    for (const entry of state.entries) {
+      maximumRevision = Math.max(maximumRevision, Number(entry?._revision || 0));
+      if (entry?.type === 'tool' && entry.id) state.toolEntries.set(String(entry.id), entry);
+      if (entry?.type === 'compaction' && entry.id) state.compactionEntries.set(String(entry.id), entry);
+    }
+    state.revision = Math.max(state.revision, maximumRevision);
+    state.sequence = Math.max(0, Math.floor(Number(checkpoint.sequence || 0)));
+    state.activePlanEntry = checkpoint.activePlanEntryId
+      ? state.entries.find(entry => entry?.id === checkpoint.activePlanEntryId) || null
+      : null;
+    state.plan = clone(checkpoint.plan ?? state.activePlanEntry?.plan ?? null);
+    state.usage = clone(checkpoint.usage ?? null);
+    state.availableCommands = clone(checkpoint.availableCommands || []);
+    state.currentModeId = String(checkpoint.currentModeId || '');
+    state.configOptions = clone(checkpoint.configOptions || []);
+    state.title = String(checkpoint.title || '');
+    state.updatedAt = String(checkpoint.updatedAt || '');
+    state.truncated = checkpoint.truncated === true;
+    return state;
+  }
+
   nextEntryId(prefix) {
     return `${prefix}-${++this.sequence}`;
   }
@@ -453,9 +488,10 @@ class AcpSessionState {
       ? Math.max(1, Math.floor(Number(options.maxTurns)))
       : 80;
     const requestedRevision = Number(options.sinceRevision);
-    const resetRequired = this.resetBeforeRevision > 0
-      && Number.isFinite(requestedRevision)
-      && requestedRevision <= this.resetBeforeRevision;
+    const resetRequired = Number.isFinite(requestedRevision) && (
+      requestedRevision > this.revision
+      || (this.resetBeforeRevision > 0 && requestedRevision <= this.resetBeforeRevision)
+    );
     const delta = Number.isFinite(requestedRevision) && requestedRevision >= 0 && !resetRequired;
     let startIndex = 0;
 
@@ -576,6 +612,28 @@ class AcpSessionState {
     };
     if (options.includeUpdates === true) snapshot.updates = clone(this.updates);
     return snapshot;
+  }
+
+  exportCheckpoint() {
+    return {
+      version: 1,
+      provider: this.provider,
+      sessionId: this.sessionId,
+      cwd: this.cwd,
+      sequence: this.sequence,
+      revision: this.revision,
+      resetBeforeRevision: this.resetBeforeRevision,
+      entries: clone(this.entries),
+      activePlanEntryId: this.activePlanEntry?.id || '',
+      plan: clone(this.plan),
+      usage: clone(this.usage),
+      availableCommands: clone(this.availableCommands),
+      currentModeId: this.currentModeId,
+      configOptions: clone(this.configOptions),
+      title: this.title,
+      updatedAt: this.updatedAt,
+      truncated: this.truncated,
+    };
   }
 }
 

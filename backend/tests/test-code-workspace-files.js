@@ -660,6 +660,9 @@ function run() {
       !workspaceSource.includes('pendingMainPageLaunchForAgent') &&
       !workspaceSource.includes('resolvePendingMainPageLaunches') &&
       workspaceSource.includes('trackedMainPageAgentKeysRef') &&
+      workspaceSource.includes('let discoveredSession = false') &&
+      workspaceSource.includes('if (discoveredSession) refreshAgentSessions()') &&
+      workspaceSource.includes('agentSessionsRefreshInFlightRef') &&
       workspaceSource.includes('agent.providerSessionTemporary === true') &&
       workspaceSource.includes('agent.providerSessionKey || resumedAgentSessionIdFromSource(agent.source)') &&
       workspaceSource.includes('refreshAgentSessions') &&
@@ -768,22 +771,33 @@ function run() {
 	      workspaceSource.includes('function formatQuotaRemaining(limit: ProviderQuotaLimit)') &&
 	      workspaceSource.includes('function formatQuotaLimitValue(limit: ProviderQuotaLimit)') &&
 	      workspaceSource.includes('function formatQuotaLimitTitle(source: string, limit: ProviderQuotaLimit)') &&
+	      workspaceSource.includes('function formatQuotaReset(resetsAt: number | null | undefined, now: number)') &&
+	      workspaceSource.includes("if (remainingMinutes === 0) return 'reset now'") &&
 	      workspaceSource.includes('function providerHasTokenBurn(provider: UsageProviderSummary)') &&
+	      workspaceSource.includes('function providerHasUsableTokenInfo(provider: UsageProviderSummary)') &&
+	      workspaceSource.includes('provider.tokenUsage.available === false') &&
 	      workspaceSource.includes('provider.tokenUsage.tokensPerMinute') &&
 	      workspaceSource.includes('function dynamicQuotaProvider(usageSummary: UsageSummary | null)') &&
-	      workspaceSource.includes('function formatDynamicQuotaSummary(usageSummary: UsageSummary | null)') &&
+	      workspaceSource.includes('function formatDynamicQuotaSummary(usageSummary: UsageSummary | null, now: number)') &&
+	      workspaceSource.includes('const reset = formatQuotaReset(item.limit.resetsAt, now)') &&
 	      workspaceSource.includes("return `${Math.round(remainingPercent)}% left`") &&
 	      workspaceSource.includes('if (localTokenRate !== null) parts.push(formatTokenRate(localTokenRate))') &&
 	      workspaceSource.includes('if (systemStats) parts.push(`CPU ${systemStats.cpu}% / MEM ${systemStats.memory.percentage}%`)') &&
 	      workspaceSource.includes('const localTokenRate = providerLocalTokenRate(usageSummary)') &&
 	      workspaceSource.includes('Sum of local token usage reported by providers.') &&
 	      workspaceSource.includes('Total local tokens') &&
+	      workspaceSource.includes('function UsageActivityHeatmaps({ usageSummary }') &&
+	      workspaceSource.includes('function DailyUsageHeatmap({') &&
+	      workspaceSource.includes('data-testid="code-usage-heatmap"') &&
+	      workspaceSource.includes('data-testid="code-usage-daily-heatmap"') &&
+	      workspaceSource.includes('data-testid="code-usage-activity-readout"') &&
+	      !workspaceSource.includes('<strong>unavailable</strong>') &&
 	      !workspaceSource.includes('function agentOutputRateFromState') &&
 	      !workspaceSource.includes('Agent output') &&
 	      workspaceSource.includes('data-testid="code-usage-toggle"') &&
       workspaceSource.includes('data-testid="code-usage-summary"') &&
       workspaceSource.includes("title=\"Provider local token usage refreshes periodically.\"") &&
-      workspaceSource.includes("collapsed ? collapsedSummary : '5m'") &&
+      workspaceSource.includes("collapsed ? collapsedSummary : '5m rate · activity'") &&
       workspaceSource.includes('data-testid="code-session-show-more"') &&
       workspaceSource.includes('data-testid="code-session-show-less"') &&
       workspaceSource.includes('onToggleProjectSessions(project.id)') &&

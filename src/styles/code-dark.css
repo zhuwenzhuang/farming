@@ -377,6 +377,39 @@ body.code-mode[data-appearance='dark'] .code-search-panel .code-empty-workspace 
   color: var(--code-dark-text-muted);
 }
 
+body.code-mode[data-appearance='dark'] .code-usage-heatmap-cell {
+  background: rgba(88, 166, 255, 0.08);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-heatmap-cell[data-level='1'] {
+  background: rgba(88, 166, 255, 0.24);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-heatmap-cell[data-level='2'] {
+  background: rgba(88, 166, 255, 0.42);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-heatmap-cell[data-level='3'] {
+  background: rgba(88, 166, 255, 0.64);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-heatmap-cell[data-level='4'] {
+  background: rgba(88, 166, 255, 0.72);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-heatmap-cell[data-level='5'] {
+  background: rgba(88, 166, 255, 0.94);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-heatmap-cell:hover {
+  outline-color: rgba(121, 186, 255, 0.7);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-activity-heading,
+body.code-mode[data-appearance='dark'] .code-usage-activity-readout {
+  color: var(--code-dark-text-muted);
+}
+
 body.code-mode[data-appearance='dark'] .code-search-result {
   background: var(--code-dark-bg-panel);
   border-color: var(--code-dark-border);

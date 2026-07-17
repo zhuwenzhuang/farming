@@ -113,7 +113,7 @@ Cover Files expansion, lazy loading, search, `path:line`, text / image / binary 
 
 ### 7. Usage And System Status
 
-Cover Codex / Claude usage summaries, token rate, CPU, memory, collapsed state, no-data state, and read failures. Never run reset actions.
+Cover truthful local provider usage summaries, the compact one-hour and 52-week daily token heatmaps, exact token readouts on cell hover, token rate, CPU, memory, collapsed state, no-data state, and read failures. Providers without usable token telemetry and quota fields without real quota data must be omitted instead of rendered as unavailable placeholders. Never run reset actions.
 
 ### 8. Mobile
 
@@ -146,10 +146,10 @@ Each story writes a `report.json`:
   "findings": [
     {
       "severity": "P2",
-      "title": "Usage quota unavailable while token rate is visible",
+      "title": "Provider without token telemetry is still visible",
       "steps": ["Start real Codex", "Send one-line prompt", "Open usage row"],
-      "expected": "Quota unavailable state is explicit",
-      "actual": "Quota field is blank",
+      "expected": "The provider and unavailable quota placeholders are omitted",
+      "actual": "The provider is rendered with unavailable and zero-value rows",
       "evidence": ["screenshots/usage.png", "server.log"]
     }
   ],

@@ -13,7 +13,15 @@ import {
   SettingsGlyph,
   SearchGlyph,
 } from '@/components/IconGlyphs'
-import type { Agent, ProviderQuotaLimit, SystemStats, UsageProviderSummary, UsageSummary } from '@/types/agent'
+import type {
+  Agent,
+  ProviderQuotaLimit,
+  SystemStats,
+  UsageDailyPoint,
+  UsageProviderSummary,
+  UsageSummary,
+  UsageTimelinePoint,
+} from '@/types/agent'
 import {
   fetchWorkspaceGitWorktrees,
   type WorkspaceFileDeleteResult,
@@ -672,6 +680,7 @@ export function CodeSidebar({
               <UsagePanel
                 collapsed={usageCollapsed}
                 mainAgent={mainAgent}
+                now={now}
                 usageSummary={usageSummary}
                 systemStats={systemStats}
                 onToggleCollapsed={() => setUsageCollapsed(collapsed => !collapsed)}
@@ -741,7 +750,25 @@ function formatQuotaLimitTitle(source: string, limit: ProviderQuotaLimit) {
   return parts.filter(Boolean).join(' / ')
 }
 
+function formatQuotaReset(resetsAt: number | null | undefined, now: number) {
+  const timestamp = Number(resetsAt)
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return null
+  const remainingMinutes = Math.max(0, Math.round((timestamp - now) / 60_000))
+  if (remainingMinutes === 0) return 'reset now'
+  if (remainingMinutes >= 24 * 60) {
+    return `reset ${Math.floor(remainingMinutes / (24 * 60))}d ${Math.floor((remainingMinutes % (24 * 60)) / 60)}h`
+  }
+  if (remainingMinutes >= 60) {
+    return `reset ${Math.floor(remainingMinutes / 60)}h ${remainingMinutes % 60}m`
+  }
+  return `reset ${remainingMinutes}m`
+}
+
 function formatCompactNumber(value: number) {
+  if (value >= 1_000_000_000) {
+    const compact = value / 1_000_000_000
+    return `${compact >= 10 ? Math.round(compact) : Math.round(compact * 10) / 10}B`
+  }
   if (value >= 1_000_000) {
     const compact = value / 1_000_000
     return `${compact >= 10 ? Math.round(compact) : Math.round(compact * 10) / 10}M`
@@ -767,9 +794,23 @@ function formatAuthStatus(provider: UsageProviderSummary) {
   return status || 'available'
 }
 
+function providerHasUsableTokenInfo(provider: UsageProviderSummary) {
+  if (provider.tokenUsage.available === false) return false
+  const eventCount = Number(provider.tokenUsage.eventCount)
+  const totalTokens = Number(provider.tokenUsage.totalTokens)
+  const hasObservedTokens = (Number.isFinite(eventCount) && eventCount > 0)
+    || (Number.isFinite(totalTokens) && totalTokens > 0)
+  return provider.auth.available || hasObservedTokens
+}
+
+function visibleUsageProviders(usageSummary: UsageSummary | null) {
+  return usageSummary?.providers.filter(providerHasUsableTokenInfo) ?? []
+}
+
 function providerLocalTokenRate(usageSummary: UsageSummary | null) {
-  if (!usageSummary?.providers.length) return null
-  return usageSummary.providers.reduce((sum, provider) => {
+  const providers = visibleUsageProviders(usageSummary)
+  if (!providers.length) return null
+  return providers.reduce((sum, provider) => {
     const rate = Number(provider.tokenUsage.tokensPerMinute)
     return sum + (Number.isFinite(rate) ? rate : 0)
   }, 0)
@@ -813,8 +854,9 @@ function providerHasTokenBurn(provider: UsageProviderSummary) {
 }
 
 function dynamicQuotaProvider(usageSummary: UsageSummary | null) {
-  if (!usageSummary?.providers.length) return null
-  const candidates = usageSummary.providers
+  const providers = visibleUsageProviders(usageSummary)
+  if (!providers.length) return null
+  const candidates = providers
     .filter(provider => providerHasTokenBurn(provider) && provider.quota.available)
     .map(provider => {
       const limits = providerQuotaLimits(provider)
@@ -844,14 +886,16 @@ function dynamicQuotaProvider(usageSummary: UsageSummary | null) {
   })[0] ?? null
 }
 
-function formatDynamicQuotaSummary(usageSummary: UsageSummary | null) {
+function formatDynamicQuotaSummary(usageSummary: UsageSummary | null, now: number) {
   const candidate = dynamicQuotaProvider(usageSummary)
   if (!candidate) return null
 
-  const parts = [
-    candidate.provider.providerName,
-    ...candidate.limits.map(item => `${item.label} ${Math.round(item.remaining ?? 0)}%`),
-  ]
+  const parts = [candidate.provider.providerName]
+  candidate.limits.forEach(item => {
+    parts.push(`${item.label} ${Math.round(item.remaining ?? 0)}%`)
+    const reset = formatQuotaReset(item.limit.resetsAt, now)
+    if (reset) parts.push(reset)
+  })
   return parts.join(' · ')
 }
 
@@ -866,8 +910,9 @@ function formatDefaultCollapsedUsageSummary(usageSummary: UsageSummary | null, s
 function formatCollapsedUsageSummary(
   usageSummary: UsageSummary | null,
   systemStats: SystemStats | null,
+  now: number,
 ) {
-  const dynamicSummary = formatDynamicQuotaSummary(usageSummary)
+  const dynamicSummary = formatDynamicQuotaSummary(usageSummary, now)
   if (dynamicSummary) {
     return dynamicSummary
   }
@@ -881,9 +926,203 @@ function formatMainAgentStatus(agent: Agent) {
   return agent.status
 }
 
+function formatHeatmapTime(timestamp: number) {
+  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatExactTokenCount(value: number) {
+  return Math.round(value).toLocaleString('en-US')
+}
+
+function usageHeatThresholds(values: number[]) {
+  const activeValues = values
+    .map(value => Math.max(0, Number(value) || 0))
+    .filter(value => value > 0)
+    .sort((left, right) => left - right)
+  if (!activeValues.length) return []
+  return [0.2, 0.4, 0.6, 0.8].map(quantile => (
+    activeValues[Math.min(activeValues.length - 1, Math.ceil(activeValues.length * quantile) - 1)]!
+  ))
+}
+
+function usageHeatLevel(value: number, thresholds: number[]) {
+  const total = Math.max(0, Number(value) || 0)
+  if (total <= 0) return 0
+  return Math.max(1, Math.min(5, 1 + thresholds.filter(threshold => total > threshold).length))
+}
+
+function validUsageTimelinePoints(usageSummary: UsageSummary) {
+  const timeline = usageSummary.timeline
+  const points = Array.isArray(timeline?.points) ? timeline.points : []
+  const hasValidPoints = points.length > 0 && points.every((point, index) => (
+    Number.isFinite(Number(point.startedAt))
+    && Number.isFinite(Number(point.endedAt))
+    && Number(point.endedAt) > Number(point.startedAt)
+    && Number.isFinite(Number(point.totalTokens))
+    && Number(point.totalTokens) >= 0
+    && (index === 0 || Number(point.startedAt) >= Number(points[index - 1]!.startedAt))
+  ))
+  return hasValidPoints ? points : null
+}
+
+function parseUsageDate(dateValue: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateValue)
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(year, month - 1, day, 12, 0, 0, 0)
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null
+  return date
+}
+
+function validUsageDailyPoints(usageSummary: UsageSummary) {
+  const points = Array.isArray(usageSummary.daily?.points) ? usageSummary.daily.points : []
+  const hasValidPoints = points.length > 0 && points.every((point, index) => (
+    Boolean(parseUsageDate(point.date))
+    && Number.isFinite(Number(point.totalTokens))
+    && Number(point.totalTokens) >= 0
+    && (index === 0 || point.date > points[index - 1]!.date)
+  ))
+  return hasValidPoints ? points.slice(-(52 * 7)) : null
+}
+
+type UsageHeatmapInspection = {
+  label: string
+  tokens: number
+}
+
+function TokenUsageHeatmap({
+  usageSummary,
+  points,
+  onInspect,
+}: {
+  usageSummary: UsageSummary
+  points: UsageTimelinePoint[]
+  onInspect: (inspection: UsageHeatmapInspection) => void
+}) {
+  const timeline = usageSummary.timeline
+
+  const total = points.reduce((sum, point) => sum + Number(point.totalTokens), 0)
+  const windowLabel = formatUsageWindow(Number(timeline.windowMs) / 60_000).toLowerCase()
+  const thresholds = usageHeatThresholds(points.map(point => point.totalTokens))
+
+  return (
+    <div
+      className="code-usage-heatmap"
+      data-testid="code-usage-heatmap"
+      role="img"
+      aria-label={`Token activity over the last ${windowLabel}, ${formatCompactNumber(total)} tokens`}
+      title={`Local token activity · last ${windowLabel}`}
+    >
+      {points.map((point, index) => {
+        const tokens = Number(point.totalTokens)
+        const label = `${formatHeatmapTime(point.startedAt)}–${formatHeatmapTime(point.endedAt)}`
+        const title = `${label} · ${formatExactTokenCount(tokens)} tokens`
+        return (
+          <span
+            key={`${point.startedAt}-${index}`}
+            className="code-usage-heatmap-cell"
+            data-level={usageHeatLevel(tokens, thresholds)}
+            data-start={point.startedAt}
+            title={title}
+            aria-label={title}
+            onMouseEnter={() => onInspect({ label, tokens })}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+function DailyUsageHeatmap({
+  points,
+  onInspect,
+}: {
+  points: UsageDailyPoint[]
+  onInspect: (inspection: UsageHeatmapInspection) => void
+}) {
+  const firstDate = parseUsageDate(points[0]!.date)!
+  const leadingDays = (firstDate.getDay() + 6) % 7
+  const weekCount = Math.max(1, Math.ceil((leadingDays + points.length) / 7))
+  const trailingDays = weekCount * 7 - leadingDays - points.length
+  const thresholds = usageHeatThresholds(points.map(point => point.totalTokens))
+  const activeDays = points.filter(point => point.totalTokens > 0).length
+
+  return (
+    <>
+      <div className="code-usage-activity-heading">
+        <span>52w · daily</span>
+        <span>{activeDays} active days</span>
+      </div>
+      <div
+        className="code-usage-daily-heatmap"
+        data-testid="code-usage-daily-heatmap"
+        role="img"
+        aria-label={`Daily token activity over 52 weeks, ${activeDays} active days`}
+        style={{ gridTemplateColumns: `repeat(${weekCount}, minmax(2px, 1fr))` }}
+      >
+        {Array.from({ length: leadingDays }, (_, index) => (
+          <span key={`leading-${index}`} className="code-usage-daily-spacer" aria-hidden="true" />
+        ))}
+        {points.map(point => {
+          const tokens = Number(point.totalTokens)
+          const title = `${point.date} · ${formatExactTokenCount(tokens)} tokens`
+          return (
+            <span
+              key={point.date}
+              className="code-usage-heatmap-cell code-usage-daily-heatmap-cell"
+              data-date={point.date}
+              data-level={usageHeatLevel(tokens, thresholds)}
+              title={title}
+              aria-label={title}
+              onMouseEnter={() => onInspect({ label: point.date, tokens })}
+            />
+          )
+        })}
+        {Array.from({ length: trailingDays }, (_, index) => (
+          <span key={`trailing-${index}`} className="code-usage-daily-spacer" aria-hidden="true" />
+        ))}
+      </div>
+    </>
+  )
+}
+
+function UsageActivityHeatmaps({ usageSummary }: { usageSummary: UsageSummary }) {
+  const hourlyPoints = validUsageTimelinePoints(usageSummary)
+  const dailyPoints = validUsageDailyPoints(usageSummary)
+  const [inspection, setInspection] = useState<UsageHeatmapInspection | null>(null)
+  if (!hourlyPoints && !dailyPoints) return null
+
+  const hourlyTotal = hourlyPoints?.reduce((sum, point) => sum + point.totalTokens, 0) ?? 0
+  const dailyTotal = dailyPoints?.reduce((sum, point) => sum + point.totalTokens, 0) ?? 0
+  const readout = inspection
+    ? `${inspection.label} · ${formatExactTokenCount(inspection.tokens)} tokens`
+    : `${hourlyPoints ? `1h ${formatCompactNumber(hourlyTotal)}` : ''}${hourlyPoints && dailyPoints ? ' · ' : ''}${dailyPoints ? `52w ${formatCompactNumber(dailyTotal)}` : ''}`
+
+  return (
+    <div className="code-usage-activity" onMouseLeave={() => setInspection(null)}>
+      {hourlyPoints && (
+        <>
+          <div className="code-usage-activity-heading">
+            <span>1h · activity</span>
+            <span>{formatUsageWindow(usageSummary.timeline.bucketMs / 60_000).toLowerCase()} buckets</span>
+          </div>
+          <TokenUsageHeatmap usageSummary={usageSummary} points={hourlyPoints} onInspect={setInspection} />
+        </>
+      )}
+      {dailyPoints && <DailyUsageHeatmap points={dailyPoints} onInspect={setInspection} />}
+      <div className="code-usage-activity-readout" data-testid="code-usage-activity-readout" title={readout}>
+        {readout}
+      </div>
+    </div>
+  )
+}
+
 function UsagePanel({
   collapsed,
   mainAgent,
+  now,
   usageSummary,
   systemStats,
   onToggleCollapsed,
@@ -892,14 +1131,16 @@ function UsagePanel({
 }: {
   collapsed: boolean
   mainAgent: Agent | null
+  now: number
   usageSummary: UsageSummary | null
   systemStats: SystemStats | null
   onToggleCollapsed: () => void
   onOpenMainAgent: () => void
   onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => void
 }) {
+  const providers = visibleUsageProviders(usageSummary)
   const localTokenRate = providerLocalTokenRate(usageSummary)
-  const collapsedSummary = formatCollapsedUsageSummary(usageSummary, systemStats)
+  const collapsedSummary = formatCollapsedUsageSummary(usageSummary, systemStats, now)
   const [restartMenuOpen, setRestartMenuOpen] = useState(false)
 
   return (
@@ -919,13 +1160,18 @@ function UsagePanel({
           <span>Usage</span>
         </span>
         <span className="code-usage-header-meta">
-          <span className="code-usage-summary" data-testid="code-usage-summary">
-            {collapsed ? collapsedSummary : '5m'}
+          <span
+            className="code-usage-summary"
+            data-testid="code-usage-summary"
+            title={collapsed ? collapsedSummary : '5-minute rate · hourly and daily activity'}
+          >
+            {collapsed ? collapsedSummary : '5m rate · activity'}
           </span>
         </span>
       </button>
       {!collapsed && (
         <>
+          {providers.length > 0 && usageSummary?.timeline && <UsageActivityHeatmaps usageSummary={usageSummary} />}
           {mainAgent && (
             <div className="code-usage-main-agent-block">
               <div
@@ -979,10 +1225,10 @@ function UsagePanel({
               )}
             </div>
           )}
-          {usageSummary?.providers.map(provider => (
+          {providers.map(provider => (
             <ProviderUsage key={provider.provider} provider={provider} />
           ))}
-          {localTokenRate !== null && (
+          {providers.length > 1 && localTokenRate !== null && (
             <div className="code-usage-row" title="Sum of local token usage reported by providers.">
               <span>Total local tokens</span>
               <strong>{formatTokenRate(localTokenRate)}</strong>
@@ -1017,7 +1263,7 @@ function ProviderUsage({
         <span>{provider.providerName}</span>
         <strong title={provider.auth?.status}>{formatAuthStatus(provider)}</strong>
       </div>
-      {provider.quota.available ? (
+      {provider.quota.available && (
         <>
           {primary && (
             <div className="code-usage-row code-usage-subrow" title={formatQuotaLimitTitle(quotaTitle, primary)}>
@@ -1032,11 +1278,6 @@ function ProviderUsage({
             </div>
           )}
         </>
-      ) : (
-        <div className="code-usage-row code-usage-subrow muted" title={quotaTitle}>
-          <span>Quota</span>
-          <strong>unavailable</strong>
-        </div>
       )}
       <div className="code-usage-row code-usage-subrow" title={provider.tokenUsage.source}>
         <span>Local tokens</span>

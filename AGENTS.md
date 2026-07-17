@@ -111,6 +111,8 @@ Live Codex Terminal model changes must follow the CLI's rendered `/model` and re
 
 ACP history replay and live updates must reduce into the same ordered entry stream. Do not introduce a backend `Turn -> Item` reconstruction for ACP. User-facing result/process grouping is an ACP frontend attention projection: it must remain reversible, preserve entry order and tool details, and hide Codex internal heartbeat/context activity without deleting visible automation notifications.
 
+ACP recovery may skip full `session/load` only from an exact, atomically committed Farming reducer checkpoint whose provider, Agent Home, session, workspace, and provider freshness still match. Fence the checkpoint dirty before a prompt; missing, dirty, stale, corrupt, or unverifiable state must visibly remain on the bounded load/repair path. Transcript pages carry compact ordered tool envelopes, while exact raw tool detail remains backend-owned and lazy-loaded by tool-call id.
+
 ## Repository Layout
 
 ```text

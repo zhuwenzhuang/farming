@@ -3662,6 +3662,100 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   border-top: 0;
 }
 
+.code-usage-activity {
+  padding: 0 0 5px;
+}
+
+.code-usage-activity-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 3px 0 2px;
+  color: #858c82;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.code-usage-heatmap {
+  display: flex;
+  gap: 2px;
+  padding: 1px 0 2px;
+}
+
+.code-usage-heatmap-cell {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 2px;
+  height: 6px;
+  border-radius: 1px;
+  background: rgba(76, 105, 69, 0.08);
+}
+
+.code-usage-heatmap-cell:hover {
+  z-index: 1;
+  outline: 1px solid rgba(43, 107, 34, 0.56);
+  outline-offset: 1px;
+}
+
+.code-usage-heatmap-cell[data-level='1'] {
+  background: rgba(76, 128, 67, 0.24);
+}
+
+.code-usage-heatmap-cell[data-level='2'] {
+  background: rgba(67, 126, 57, 0.42);
+}
+
+.code-usage-heatmap-cell[data-level='3'] {
+  background: rgba(55, 119, 45, 0.64);
+}
+
+.code-usage-heatmap-cell[data-level='4'] {
+  background: rgba(43, 107, 34, 0.72);
+}
+
+.code-usage-heatmap-cell[data-level='5'] {
+  background: rgba(34, 91, 28, 0.94);
+}
+
+.code-usage-daily-heatmap {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: repeat(7, 4px);
+  grid-auto-flow: column;
+  gap: 1px;
+  padding: 1px 0 2px;
+}
+
+.code-usage-daily-heatmap-cell,
+.code-usage-daily-spacer {
+  min-width: 0;
+  height: 4px;
+}
+
+.code-usage-daily-heatmap-cell {
+  width: 100%;
+  border-radius: 0.75px;
+}
+
+.code-usage-activity-readout {
+  min-width: 0;
+  min-height: 13px;
+  margin-top: 2px;
+  overflow: hidden;
+  color: #747c72;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  line-height: 13px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .code-usage-row span,
 .code-usage-row strong,
 .code-usage-header span {
@@ -4169,12 +4263,12 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   align-items: center;
   gap: 2px;
   padding: 2px;
-  border: 1px solid rgba(31, 35, 40, 0.045);
+  border: 1px solid rgba(31, 35, 40, 0.08);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.68);
   box-shadow: 0 8px 22px rgba(31, 35, 40, 0.035);
   backdrop-filter: blur(14px);
-  opacity: 0.54;
+  opacity: 0.82;
   transition: opacity 120ms ease, background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
 
@@ -4197,7 +4291,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   color: #6e7781;
   padding: 0;
   cursor: pointer;
-  opacity: 0.72;
+  opacity: 0.86;
   transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
 }
 
@@ -4219,7 +4313,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 .code-terminal-mode-toggle button.active {
   color: #24292f;
   background: rgba(31, 35, 40, 0.055);
-  opacity: 0.9;
+  opacity: 1;
 }
 
 .code-codex-transcript {
@@ -13234,6 +13328,15 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
   user-select: none;
 }
 
+.terminal-controller-status[hidden] {
+  display: none;
+}
+
+.code-agent-work-pane.runtime-switchable .terminal-controller-status {
+  right: 92px;
+  max-width: min(420px, calc(100% - 102px));
+}
+
 .terminal-controller-takeover {
   flex: none;
   padding: 2px 7px;
@@ -15489,6 +15592,11 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
      second, redundant toolbar. */
   body.code-mode.code-mobile-touch .code-terminal-mode-toggle {
     display: none;
+  }
+
+  body.code-mode.code-mobile-touch .code-agent-work-pane.runtime-switchable .terminal-controller-status {
+    right: 10px;
+    max-width: min(420px, calc(100% - 20px));
   }
 
   body.code-mode.code-mobile-touch .code-model-submenu .code-model-option,

@@ -188,11 +188,14 @@ interface SessionRecord {
   controllerClaimInFlight: boolean
   controllerFocusAfterClaim: boolean
   controllerStatus: TerminalControllerStatus
+  controllerReason: string
   controllerLeaseId: string
   controllerFence: number | null
   rendererReadyFence: number | null
   controllerExpiresAt: number
   controllerResizeRequestSeq: number
+  controllerResizeRequestInFlight: boolean
+  controllerPendingResize: { cols: number; rows: number } | null
   controllerRenewTimer: number | null
   controllerClaimTimer: number | null
   applyingLocalResize: boolean
@@ -320,6 +323,7 @@ interface SessionRecord {
 }
 
 const sessions = new Map<string, Promise<SessionRecord> | SessionRecord>()
+let terminalFocusRevision = 0
 const TOUCH_SCROLL_ACTIVATION_PX = 6
 const TOUCH_LONG_PRESS_MS = 520
 const TOUCH_MOMENTUM_MIN_VELOCITY = 0.025
@@ -405,6 +409,9 @@ declare global {
         replayInProgress: boolean
         bootstrappingSnapshot: boolean
         controllerStatus: TerminalControllerStatus
+        controllerResizeRequestSeq?: number
+        controllerResizeRequestInFlight?: boolean
+        controllerPendingResize?: { cols: number; rows: number } | null
       } | null
       getHostDiagnostics: () => Array<{
         agentId: string
@@ -556,7 +563,20 @@ function focusTerminalInput(hostEl: HTMLDivElement, terminal: FarmingTerminal) {
 
 function focusAttachedTerminalInput(record: SessionRecord) {
   if (record.disposed || record.attachedMount === null) return false
+  terminalFocusRevision += 1
   return focusTerminalInput(record.hostEl, record.terminal)
+}
+
+function mayRestoreTerminalFocusAfterAsyncMenu(
+  record: SessionRecord,
+  menu: HTMLElement,
+  focusRevision: number,
+) {
+  if (record.disposed || record.attachedMount === null || terminalFocusRevision !== focusRevision) return false
+  const activeElement = document.activeElement
+  return activeElement === document.body
+    || menu.contains(activeElement)
+    || record.hostEl.contains(activeElement)
 }
 
 function shouldAllowTerminalAutoFocus(hostEl: HTMLDivElement) {
@@ -1081,7 +1101,10 @@ function finishTerminalCheckpointBarrier(record: SessionRecord, generation: numb
     record.resizeAfterReplay = false
     requestAnimationFrame(() => {
       if (!isCurrentAttachment(record, generation) || record.disposed) return
-      syncTerminalSize(record)
+      // The terminal may already have been fitted locally while the renderer
+      // barrier was closed. Commit that exact geometry under the new fence
+      // even when another layout callback now proposes the same dimensions.
+      syncTerminalSize(record, { force: true })
     })
   }
   if (record.controllerStatus === 'claiming' && !record.pageOutputSuspended) {
@@ -1777,8 +1800,13 @@ function focusTerminalInputWhenReady(
   })
 }
 
-function setTerminalControllerStatus(record: SessionRecord, status: TerminalControllerStatus) {
+function setTerminalControllerStatus(
+  record: SessionRecord,
+  status: TerminalControllerStatus,
+  reason = '',
+) {
   record.controllerStatus = status
+  record.controllerReason = status === 'observer' ? reason : ''
   record.hostEl.dataset.controllerStatus = status
   const controllerPending = status === 'owner' && (
     record.rendererReadyFence !== record.controllerFence ||
@@ -1791,7 +1819,9 @@ function setTerminalControllerStatus(record: SessionRecord, status: TerminalCont
     : status === 'claiming' || controllerPending
     ? 'Syncing terminal…'
     : status === 'observer'
-      ? 'Terminal is controlled by another window.'
+      ? record.controllerReason === 'operation-in-progress'
+        ? 'Another window is finishing a Terminal operation. Retry Take control when it completes.'
+        : 'Terminal is controlled by another window.'
       : ''
   record.controllerStatusTextEl.textContent = statusText
   record.controllerTakeoverButton.hidden = status !== 'observer'
@@ -1893,7 +1923,28 @@ function activateTerminalRenderer(record: SessionRecord) {
     fence: record.controllerFence,
     expectedRuntimeEpoch: record.runtimeEpoch,
   })
-  if (delivered) record.rendererReadyFence = record.controllerFence
+  if (delivered) {
+    record.rendererReadyFence = record.controllerFence
+    if (record.controllerFocusAfterClaim) {
+      record.controllerFocusAfterClaim = false
+      const generation = record.attachGeneration
+      requestAnimationFrame(() => {
+        if (!isCurrentAttachment(record, generation) || record.disposed) return
+        focusAttachedTerminalInput(record)
+      })
+    }
+    if (record.resizeAfterReplay) {
+      record.resizeAfterReplay = false
+      const generation = record.attachGeneration
+      requestAnimationFrame(() => {
+        if (!isCurrentAttachment(record, generation) || record.disposed) return
+        // Opening the renderer barrier is the first point at which a resize
+        // can be committed under this fence. The xterm instance may already
+        // fit the DOM, so this lease-scoped synchronization must be forced.
+        syncTerminalSize(record, { force: true })
+      })
+    }
+  }
   setTerminalControllerStatus(record, record.controllerStatus)
   return delivered
 }
@@ -2010,6 +2061,8 @@ function releaseTerminalController(record: SessionRecord, nextStatus: 'detached'
   record.rendererReadyFence = null
   record.controllerExpiresAt = 0
   record.controllerResizeRequestSeq = 0
+  record.controllerResizeRequestInFlight = false
+  record.controllerPendingResize = null
   record.controllerClaimInFlight = false
   record.controllerFocusAfterClaim = false
   record.pendingOutputAckChars = 0
@@ -2030,6 +2083,16 @@ function handleTerminalControllerState(record: SessionRecord, message: TerminalC
     cancelTerminalControllerClaimTimeout(record)
   }
 
+  if (message.status === 'owner' && record.pageOutputSuspended) {
+    // A claim can cross pagehide: the release ran before the backend granted
+    // the lease, so it had no lease id/fence to revoke. Retire that late grant
+    // immediately; a hidden attachment must never become the controller.
+    record.controllerLeaseId = message.leaseId || ''
+    record.controllerFence = typeof message.fence === 'number' ? message.fence : null
+    releaseTerminalController(record, 'suspended')
+    return
+  }
+
   if (message.status === 'owner') {
     resetTerminalControllerRecoveryFailures(record)
     const sameLease = record.controllerStatus === 'owner'
@@ -2040,19 +2103,20 @@ function handleTerminalControllerState(record: SessionRecord, message: TerminalC
     if (!sameLease) record.rendererReadyFence = null
     record.controllerExpiresAt = typeof message.expiresAt === 'number' ? message.expiresAt : 0
     record.controllerResizeRequestSeq = sameLease ? record.controllerResizeRequestSeq : 0
-    if (!sameLease) record.pendingOutputAckChars = 0
+    if (!sameLease) {
+      record.controllerResizeRequestInFlight = false
+      record.controllerPendingResize = null
+      record.pendingOutputAckChars = 0
+      // Resize deduplication is lease-scoped. A size delivered by a previous
+      // controller is not evidence that the current fence committed it.
+      resetTerminalResizeTracker(record)
+    }
     setTerminalControllerStatus(record, 'owner')
     scheduleTerminalControllerRenew(record)
     if (!sameLease) {
       record.resizeAfterReplay = true
       if (!record.bootstrappingSnapshot && !record.pendingSnapshotReplay && !record.replayInProgress) {
         activateTerminalRenderer(record)
-        record.resizeAfterReplay = false
-        requestAnimationFrame(() => {
-          if (!record.disposed && isCurrentAttachment(record, record.attachGeneration)) {
-            syncTerminalSize(record)
-          }
-        })
       }
     } else if (!record.bootstrappingSnapshot && !record.pendingSnapshotReplay && !record.replayInProgress) {
       activateTerminalRenderer(record)
@@ -2071,6 +2135,14 @@ function handleTerminalControllerState(record: SessionRecord, message: TerminalC
     record.controllerExpiresAt = typeof message.expiresAt === 'number'
       ? message.expiresAt
       : record.controllerExpiresAt
+    if (message.requestSeq === record.controllerResizeRequestSeq) {
+      record.controllerResizeRequestInFlight = false
+      const pendingResize = record.controllerPendingResize
+      record.controllerPendingResize = null
+      if (pendingResize) {
+        requestTerminalControllerResize(record, pendingResize.cols, pendingResize.rows)
+      }
+    }
     return
   }
 
@@ -2080,6 +2152,8 @@ function handleTerminalControllerState(record: SessionRecord, message: TerminalC
   record.rendererReadyFence = null
   record.controllerExpiresAt = 0
   record.controllerResizeRequestSeq = 0
+  record.controllerResizeRequestInFlight = false
+  record.controllerPendingResize = null
   record.pendingOutputAckChars = 0
   record.resizeAfterReplay = false
   setTerminalControllerStatus(
@@ -2087,6 +2161,7 @@ function handleTerminalControllerState(record: SessionRecord, message: TerminalC
     record.pageOutputSuspended ? 'suspended' : message.status === 'observer' || message.status === 'revoked'
       ? 'observer'
       : 'claiming',
+    message.reason || '',
   )
   const shouldRecoverController = (
     message.status === 'rejected' ||
@@ -2182,8 +2257,13 @@ function requestTerminalControllerResize(record: SessionRecord, cols: number, ro
   ) {
     return false
   }
+  if (record.controllerResizeRequestInFlight) {
+    record.controllerPendingResize = { cols, rows }
+    return true
+  }
   const requestSeq = record.controllerResizeRequestSeq + 1
   record.controllerResizeRequestSeq = requestSeq
+  record.controllerResizeRequestInFlight = true
   const delivered = sendTerminalControllerMessage({
     type: 'resize-agent',
     agentId: record.agentId,
@@ -2196,6 +2276,8 @@ function requestTerminalControllerResize(record: SessionRecord, cols: number, ro
     rows,
   })
   if (!delivered) {
+    record.controllerResizeRequestInFlight = false
+    record.controllerPendingResize = null
     setTerminalControllerStatus(record, 'claiming')
     record.controllerLeaseId = ''
     record.controllerFence = null
@@ -3085,20 +3167,24 @@ function showTerminalContextMenu(record: SessionRecord, event: MouseEvent, selec
   menu.style.top = `${position.y}px`
 
   const copyButton = createTerminalContextMenuItem(terminalContextMenuLabel('copy'), () => {
+    const focusRevision = terminalFocusRevision
     writeTerminalClipboardText(selection).finally(() => {
+      const restoreFocus = mayRestoreTerminalFocusAfterAsyncMenu(record, menu, focusRevision)
       hideTerminalContextMenu(record)
-      if (!isMobileViewport()) {
+      if (!isMobileViewport() && restoreFocus) {
         focusAttachedTerminalInput(record)
       }
     })
   }, { disabled: !selection })
 
   const pasteButton = createTerminalContextMenuItem(terminalContextMenuLabel('paste'), () => {
+    const focusRevision = terminalFocusRevision
     void readTerminalClipboardText().then(text => {
       pasteTerminalClipboardText(record, text)
     }).finally(() => {
+      const restoreFocus = mayRestoreTerminalFocusAfterAsyncMenu(record, menu, focusRevision)
       hideTerminalContextMenu(record)
-      if (!isMobileViewport()) {
+      if (!isMobileViewport() && restoreFocus) {
         focusAttachedTerminalInput(record)
       }
     })
@@ -3961,6 +4047,13 @@ function installTerminalTestApi() {
         suppressOutputForMs: Math.max(0, current.suppressOutputUntil - Date.now()),
         needsReconnectOutputSync: current.needsReconnectOutputSync,
         controllerStatus: current.controllerStatus,
+        controllerFence: current.controllerFence,
+        rendererReadyFence: current.rendererReadyFence,
+        controllerResizeRequestSeq: current.controllerResizeRequestSeq,
+        controllerResizeRequestInFlight: current.controllerResizeRequestInFlight,
+        controllerPendingResize: current.controllerPendingResize,
+        lastNotifiedResize: current.lastNotifiedResize,
+        resizeNotificationCount: current.resizeNotificationCount,
       }
     },
     async scrollToLine(agentId: string, line: number) {
@@ -4084,11 +4177,14 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     controllerClaimInFlight: false,
     controllerFocusAfterClaim: false,
     controllerStatus: document.visibilityState === 'hidden' ? 'suspended' : 'claiming',
+    controllerReason: '',
     controllerLeaseId: '',
     controllerFence: null,
     rendererReadyFence: null,
     controllerExpiresAt: 0,
     controllerResizeRequestSeq: 0,
+    controllerResizeRequestInFlight: false,
+    controllerPendingResize: null,
     controllerRenewTimer: null,
     controllerClaimTimer: null,
     applyingLocalResize: false,
@@ -4261,6 +4357,8 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     record.controllerLeaseId = ''
     record.controllerFence = null
     record.controllerResizeRequestSeq = 0
+    record.controllerResizeRequestInFlight = false
+    record.controllerPendingResize = null
     record.controllerClaimInFlight = false
     setTerminalControllerStatus(record, 'claiming')
     resyncTerminalSizeAfterBackendReconnect(record)
@@ -4734,7 +4832,18 @@ function notifyTerminalAttachReady(record: SessionRecord, generation: number) {
     record.stateRevision === null
   ) return false
   record.attachReadyNotified = true
+  const revealedLatestParkedOutput = Boolean(
+    record.parkedViewportState?.following
+    && isTerminalAtBottom(record),
+  )
   record.parkedViewportState = null
+  if (revealedLatestParkedOutput) {
+    // The attachment is ready only after its authoritative cut has committed
+    // to xterm. If the user left this terminal following and the resumed view
+    // now shows the bottom, the previously parked output has actually become
+    // visible and no longer needs a synthetic "jump to latest" gesture.
+    setFollowOutputState(record, true, false, { allowClearUnread: true })
+  }
   record.attachReadyHandler?.()
   return true
 }

@@ -258,6 +258,32 @@ function activeTerminalHostSelector(agentId: string) {
   return `[data-testid="code-terminal-pane"][data-agent-id="${agentId}"].active .terminal-session-host[data-agent-id="${agentId}"]`
 }
 
+async function sendActiveTerminalCommand(
+  page: import('@playwright/test').Page,
+  agentId: string,
+  command: string,
+) {
+  const host = page.locator(activeTerminalHostSelector(agentId))
+  await expect(host).toHaveAttribute('data-controller-status', 'owner', { timeout: 15_000 })
+  await page.waitForFunction(
+    id => Boolean(window.__farmingTerminalTest?.isReady(id)),
+    agentId,
+    { timeout: 15_000 },
+  )
+  const previousInputCount = await page.evaluate(
+    id => window.__farmingTerminalTest?.getInputCount(id) || 0,
+    agentId,
+  )
+  const input = host.locator('.xterm-helper-textarea')
+  await input.focus()
+  await page.keyboard.insertText(command)
+  await input.press('Enter')
+  await expect.poll(() => page.evaluate(
+    id => window.__farmingTerminalTest?.getInputCount(id) || 0,
+    agentId,
+  )).toBeGreaterThan(previousInputCount)
+}
+
 async function dispatchTouchDrag(
   page: import('@playwright/test').Page,
   from: { x: number; y: number },
@@ -524,8 +550,6 @@ test.describe('terminal regression matrix', () => {
 
     const bashAgentId = await createControlAgent(page, 'bash', projectDir)
     const reconnectOutputAgentId = await createControlAgent(page, 'bash', projectDir)
-    const parkedReconnectAgentId = await createControlAgent(page, 'bash', projectDir)
-    const staleReconnectAgentId = await createControlAgent(page, 'bash', projectDir)
     const codexAgentId = await createControlAgent(page, 'codex', projectDir)
     const secondCodexAgentId = await createControlAgent(page, 'codex', projectDir)
 
@@ -615,11 +639,6 @@ test.describe('terminal regression matrix', () => {
         bootstrapReconnectAgentId,
         { timeout: 15_000 },
       )
-      const inputResponse = await page.request.post(
-        `/farming/api/control/agents/${bootstrapReconnectAgentId}/input`,
-        { data: { input: 'printf "BOOTSTRAP_RECONNECT_OUTPUT\\n"\r' } },
-      )
-      expect(inputResponse.ok()).toBe(true)
       await expect.poll(async () => await visibleTerminalText(page, bootstrapReconnectAgentId), { timeout: 15_000 })
         .toContain('BOOTSTRAP_RECONNECT_OUTPUT')
       await selectAgent(page, bashAgentId)
@@ -648,11 +667,6 @@ test.describe('terminal regression matrix', () => {
         delayedCheckpointAgentId,
         { timeout: 15_000 },
       )
-      const inputResponse = await page.request.post(
-        `/farming/api/control/agents/${delayedCheckpointAgentId}/input`,
-        { data: { input: 'printf "DELAYED_CHECKPOINT_RECOVERED\\n"\r' } },
-      )
-      expect(inputResponse.ok()).toBe(true)
       await expect.poll(async () => await visibleTerminalText(page, delayedCheckpointAgentId), { timeout: 15_000 })
         .toContain('DELAYED_CHECKPOINT_RECOVERED')
       expect(delayedCheckpointCalls).toBeGreaterThan(callsBeforeGap)
@@ -728,201 +742,17 @@ test.describe('terminal regression matrix', () => {
       expect(sessionView.session?.previewRows).toBe(result.diagnostics?.rows)
     })
 
-    await scenario('backend reconnect repairs missed terminal output from the attach checkpoint', async () => {
-      await selectAgent(page, reconnectOutputAgentId)
-      const reconnectSessionViewRoute = new RegExp(`/farming/api/agents/${reconnectOutputAgentId}/session-view$`)
-      let sessionViewRequests = 0
-      const checkpointNetworkEvents: string[] = []
-      const recordCheckpointResponse = (response: import('@playwright/test').Response) => {
-        if (reconnectSessionViewRoute.test(response.url())) {
-          checkpointNetworkEvents.push(`response:${response.status()}`)
-        }
-      }
-      const recordCheckpointFailure = (request: import('@playwright/test').Request) => {
-        if (reconnectSessionViewRoute.test(request.url())) {
-          checkpointNetworkEvents.push(`failed:${request.failure()?.errorText || 'unknown'}`)
-        }
-      }
-      page.on('response', recordCheckpointResponse)
-      page.on('requestfailed', recordCheckpointFailure)
-      const handler = async (route: import('@playwright/test').Route) => {
-        sessionViewRequests += 1
-        await route.continue()
-      }
-      await page.route(reconnectSessionViewRoute, handler)
-      try {
-        await page.evaluate(() => window.dispatchEvent(new Event('pagehide')))
-        const inputResponse = await page.request.post(
-          `/farming/api/control/agents/${reconnectOutputAgentId}/input`,
-          { data: { input: 'printf "MISSED_RECONNECT_OUTPUT\\n"\r' } },
-        )
-        expect(inputResponse.ok()).toBe(true)
-        // Prove the output belongs to the suspended interval before resuming.
-        // Without this cut the test can race the PTY and accidentally exercise
-        // ordinary live delivery instead of checkpoint recovery.
-        await expect.poll(async () => {
-          const response = await page.request.get(
-            `/farming/api/agents/${reconnectOutputAgentId}/session-view`,
-          )
-          const payload = await response.json() as {
-            session?: { renderOutput?: string; output?: string }
-          }
-          return payload.session?.renderOutput || payload.session?.output || ''
-        }).toContain('MISSED_RECONNECT_OUTPUT')
-        sessionViewRequests = 0
-        await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
-        await page.evaluate(() => window.dispatchEvent(new Event('pageshow')))
-        try {
-          await expect.poll(async () => await visibleTerminalText(page, reconnectOutputAgentId))
-            .toContain('MISSED_RECONNECT_OUTPUT')
-        } catch (error) {
-          const diagnostics = await terminalDiagnostics(page, reconnectOutputAgentId)
-          const authoritative = await (
-            await page.request.get(`/farming/api/agents/${reconnectOutputAgentId}/session-view`)
-          ).json()
-          throw new Error(
-            `${error instanceof Error ? error.message : String(error)}\n`
-            + `Reconnect diagnostics: ${JSON.stringify({
-              diagnostics,
-              authoritative,
-              sessionViewRequests,
-              checkpointNetworkEvents,
-            })}`,
-          )
-        }
-        expect(sessionViewRequests).toBeLessThanOrEqual(2)
-      } finally {
-        page.off('response', recordCheckpointResponse)
-        page.off('requestfailed', recordCheckpointFailure)
-        await page.unroute(reconnectSessionViewRoute, handler)
-        await selectAgent(page, bashAgentId)
-      }
-    })
-
-    await scenario('parked terminal repairs missed reconnect output when attached again', async () => {
-      await selectAgent(page, parkedReconnectAgentId)
-      await expect(page.locator(`[data-agent-id="${parkedReconnectAgentId}"] .xterm`)).toBeVisible({ timeout: 15_000 })
-      await selectAgent(page, bashAgentId)
-      const parkedSessionViewRoute = new RegExp(`/farming/api/agents/${parkedReconnectAgentId}/session-view$`)
-      let sessionViewRequests = 0
-      const handler = async (route: import('@playwright/test').Route) => {
-        sessionViewRequests += 1
-        await route.continue()
-      }
-      await page.route(parkedSessionViewRoute, handler)
-      try {
-        const inputResponse = await page.request.post(
-          `/farming/api/control/agents/${parkedReconnectAgentId}/input`,
-          { data: { input: 'printf "PARKED_RECONNECT_OUTPUT\\n"\r' } },
-        )
-        expect(inputResponse.ok()).toBe(true)
-        await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
-        await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).not.toContain('PARKED_RECONNECT_OUTPUT')
-        await selectAgent(page, parkedReconnectAgentId)
-        await expect.poll(async () => await visibleTerminalText(page, parkedReconnectAgentId)).toContain('PARKED_RECONNECT_OUTPUT')
-        expect(sessionViewRequests).toBe(0)
-      } finally {
-        await page.unroute(parkedSessionViewRoute, handler)
-        await selectAgent(page, bashAgentId)
-      }
-    })
-
-    await scenario('delayed reconnect checkpoint composes with the next live delta without losing output', async () => {
-      await selectAgent(page, staleReconnectAgentId)
-      const staleOutput = [
-        '[agent@example-host /srv/example/projects/matrix]',
-        '$ stale reconnect',
-        'STALE_RECONNECT_SNAPSHOT',
-        '$  ',
-      ].join('\n')
-      const staleSessionViewRoute = new RegExp(`/farming/api/agents/${staleReconnectAgentId}/session-view$`)
-      let staleSessionViewRequests = 0
-      let staleCheckpoint: {
-        runtimeEpoch: string
-        outputSeq: number
-        stateRevision: number
-      } | null = null
-      const handler = async (route: import('@playwright/test').Route) => {
-        staleSessionViewRequests += 1
-        const session = await authoritativeCheckpoint(route, staleOutput, 100)
-        staleCheckpoint = {
-          runtimeEpoch: String(session.runtimeEpoch || ''),
-          outputSeq: Number(session.outputSeq) || 0,
-          stateRevision: Number(session.stateRevision) || 0,
-        }
-        await new Promise(resolve => setTimeout(resolve, 2000))
-        await route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify({
-            session,
-          }),
-        })
-      }
-      await page.route(staleSessionViewRoute, handler)
-      try {
-        const initial = await page.evaluate((id) => ({
-          runtimeEpoch: window.__farmingTerminalTest?.getRuntimeEpoch(id) ?? '',
-          outputSeq: window.__farmingTerminalTest?.getLastOutputSeq(id) ?? 0,
-          stateRevision: window.__farmingTerminalTest?.getStateRevision(id) ?? 0,
-        }), staleReconnectAgentId)
-        await page.evaluate(async ({ id, runtimeEpoch, outputSeq, stateRevision }) => {
-          await window.__farmingTerminalTest?.streamSequenced(
-            id,
-            'STALE_RECONNECT_GAP\r\n',
-            outputSeq + 2,
-            runtimeEpoch,
-            stateRevision + 2,
-          )
-        }, { id: staleReconnectAgentId, ...initial })
-        await expect.poll(() => staleSessionViewRequests, { timeout: 5000 }).toBeGreaterThan(0)
-        await expect.poll(() => staleCheckpoint).not.toBeNull()
-        const checkpoint = staleCheckpoint
-        if (!checkpoint) throw new Error('Stale reconnect checkpoint was not captured')
-        await page.evaluate(async ({ id, epoch, outputSeq, stateRevision }) => {
-          await window.__farmingTerminalTest?.writeSequenced(
-            id,
-            'NEWER_LIVE_OUTPUT\r\n',
-            outputSeq,
-            epoch,
-            stateRevision,
-          )
-        }, {
-          id: staleReconnectAgentId,
-          epoch: checkpoint.runtimeEpoch,
-          outputSeq: checkpoint.outputSeq + 1,
-          stateRevision: checkpoint.stateRevision + 1,
-        })
-        await expect.poll(async () => page.evaluate((id) => (
-          window.__farmingTerminalTest?.getLastOutputSeq(id) ?? null
-        ), staleReconnectAgentId)).toBe(checkpoint.outputSeq + 1)
-        await expect.poll(async () => await visibleTerminalText(page, staleReconnectAgentId)).toContain('NEWER_LIVE_OUTPUT')
-        await page.waitForTimeout(2200)
-        const composedOutput = await visibleTerminalText(page, staleReconnectAgentId)
-        expect(composedOutput).toContain('STALE_RECONNECT_SNAPSHOT')
-        expect(composedOutput).toContain('NEWER_LIVE_OUTPUT')
-        expect(composedOutput.indexOf('STALE_RECONNECT_SNAPSHOT'))
-          .toBeLessThan(composedOutput.indexOf('NEWER_LIVE_OUTPUT'))
-      } finally {
-        await page.unroute(staleSessionViewRoute, handler)
-        await selectAgent(page, bashAgentId)
-      }
-    })
-
     await scenario('long output creates scrollback without moving the whole page', async () => {
       await page.evaluate(async id => {
         await window.__farmingTerminalTest?.scrollToBottom(id)
       }, bashAgentId)
       await expect.poll(async () => (await terminalViewport(page, bashAgentId)).following).toBe(true)
       const before = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))
-      const inputResponse = await page.request.post(
-        `/farming/api/control/agents/${bashAgentId}/input`,
-        {
-          data: {
-            input: 'i=0; while [ "$i" -lt 180 ]; do printf "matrix-line-%03d\\n" "$i"; i=$((i + 1)); done\r',
-          },
-        },
+      await sendActiveTerminalCommand(
+        page,
+        bashAgentId,
+        'i=0; while [ "$i" -lt 180 ]; do printf "matrix-line-%03d\\n" "$i"; i=$((i + 1)); done',
       )
-      expect(inputResponse.ok()).toBe(true)
       await expect.poll(async () => {
         const [visibleText, diagnostics, outputResponse] = await Promise.all([
           visibleTerminalText(page, bashAgentId),
@@ -946,21 +776,21 @@ test.describe('terminal regression matrix', () => {
     })
 
     await scenario('user scroll position stays anchored while older output is being read', async () => {
+      await sendActiveTerminalCommand(
+        page,
+        bashAgentId,
+        'sleep 2; printf "matrix-new-background-output\\n"',
+      )
+      const outputSeqBefore = await page.evaluate(
+        id => window.__farmingTerminalTest?.getLastOutputSeq(id) ?? 0,
+        bashAgentId,
+      )
       await page.evaluate(async ({ id }) => {
         await window.__farmingTerminalTest?.scrollToLine(id, 30)
       }, { id: bashAgentId })
       const scrolled = await terminalViewport(page, bashAgentId)
       expect(scrolled.following).toBe(false)
       expect(scrolled.viewportY).toBeGreaterThan(0)
-      const outputSeqBefore = await page.evaluate(
-        id => window.__farmingTerminalTest?.getLastOutputSeq(id) ?? 0,
-        bashAgentId,
-      )
-      const inputResponse = await page.request.post(
-        `/farming/api/control/agents/${bashAgentId}/input`,
-        { data: { input: 'printf "matrix-new-background-output\\n"\r' } },
-      )
-      expect(inputResponse.ok()).toBe(true)
       await expect.poll(async () => {
         const response = await page.request.get(`/farming/api/control/agents/${bashAgentId}/output?tail=2000`)
         return response.ok() ? (await response.text()).includes('matrix-new-background-output') : false
@@ -1008,11 +838,7 @@ test.describe('terminal regression matrix', () => {
     })
 
     await scenario('new live output remains readable after returning to bottom', async () => {
-      const inputResponse = await page.request.post(
-        `/farming/api/control/agents/${bashAgentId}/input`,
-        { data: { input: 'printf "matrix-after-bottom-output\\n"\r' } },
-      )
-      expect(inputResponse.ok()).toBe(true)
+      await sendActiveTerminalCommand(page, bashAgentId, 'printf "matrix-after-bottom-output\\n"')
       await expect.poll(async () => {
         const response = await page.request.get(`/farming/api/control/agents/${bashAgentId}/output?tail=2000`)
         return response.ok() ? await response.text() : ''
@@ -1164,7 +990,7 @@ test.describe('terminal regression matrix', () => {
       await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText()))
         .toContain('MATRIX_CONTEXT_MENU_PASTE_OK')
       const inputCountBeforePaste = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId)
-      await terminalHost(page, bashAgentId).click({
+      await page.locator(activeTerminalHostSelector(bashAgentId)).click({
         button: 'right',
         position: { x: 240, y: 48 },
       })
@@ -1195,11 +1021,11 @@ test.describe('terminal regression matrix', () => {
     })
 
     await scenario('context menu select all selects terminal scrollback text', async () => {
-      const inputResponse = await page.request.post(
-        `/farming/api/control/agents/${bashAgentId}/input`,
-        { data: { input: 'printf "matrix-select-all-one\\nmatrix-select-all-two\\n"\r' } },
+      await sendActiveTerminalCommand(
+        page,
+        bashAgentId,
+        'printf "matrix-select-all-one\\nmatrix-select-all-two\\n"',
       )
-      expect(inputResponse.ok()).toBe(true)
       await expect.poll(async () => await visibleTerminalText(page, bashAgentId))
         .toContain('matrix-select-all-two')
       const cell = await cellForText(page, bashAgentId, 'matrix-select-all-two', 4)
@@ -1225,22 +1051,14 @@ test.describe('terminal regression matrix', () => {
         const response = await page.request.get(`/farming/api/control/agents/${bashAgentId}/output?tail=4000`)
         return response.ok() ? await response.text() : ''
       }).not.toContain('matrix-select-all-one')
-      const inputResponse = await page.request.post(
-        `/farming/api/control/agents/${bashAgentId}/input`,
-        { data: { input: 'printf "matrix-clear-after\\n"\r' } },
-      )
-      expect(inputResponse.ok()).toBe(true)
+      await sendActiveTerminalCommand(page, bashAgentId, 'printf "matrix-clear-after\\n"')
       await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('matrix-clear-after')
     })
 
     if (process.platform === 'darwin') {
       await scenario('Cmd+K clears visible and backend terminal scrollback on macOS', async () => {
         await selectAgent(page, bashAgentId)
-        const beforeInputResponse = await page.request.post(
-          `/farming/api/control/agents/${bashAgentId}/input`,
-          { data: { input: 'printf "matrix-cmd-k-clear-before\\n"\r' } },
-        )
-        expect(beforeInputResponse.ok()).toBe(true)
+        await sendActiveTerminalCommand(page, bashAgentId, 'printf "matrix-cmd-k-clear-before\\n"')
         await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('matrix-cmd-k-clear-before')
         const cell = await cellForText(page, bashAgentId, 'matrix-cmd-k-clear-before', 4)
         await page.mouse.click(cell.x, cell.y)
@@ -1251,11 +1069,7 @@ test.describe('terminal regression matrix', () => {
           const response = await page.request.get(`/farming/api/control/agents/${bashAgentId}/output?tail=4000`)
           return response.ok() ? await response.text() : ''
         }).not.toContain('matrix-cmd-k-clear-before')
-        const afterInputResponse = await page.request.post(
-          `/farming/api/control/agents/${bashAgentId}/input`,
-          { data: { input: 'printf "matrix-cmd-k-clear-after\\n"\r' } },
-        )
-        expect(afterInputResponse.ok()).toBe(true)
+        await sendActiveTerminalCommand(page, bashAgentId, 'printf "matrix-cmd-k-clear-after\\n"')
         await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('matrix-cmd-k-clear-after')
       })
     }
@@ -1641,11 +1455,23 @@ test.describe('terminal regression matrix', () => {
 
       await scenario('background output to a parked following terminal clears unread once latest output is visible', async () => {
         await selectAgent(page, bashAgentId)
+        await page.evaluate(async id => window.__farmingTerminalTest?.resumeLive(id), bashAgentId)
+        await page.waitForFunction(
+          id => Boolean(window.__farmingTerminalTest?.isReady(id)),
+          bashAgentId,
+          { timeout: 15_000 },
+        )
         await page.evaluate(async (id) => {
           await window.__farmingTerminalTest?.scrollToBottom(id)
         }, bashAgentId)
         expect((await terminalViewport(page, bashAgentId)).following).toBe(true)
         expect((await terminalViewport(page, bashAgentId)).hasUnreadOutput).toBe(false)
+
+        await sendActiveTerminalCommand(
+          page,
+          bashAgentId,
+          'sleep 2; printf "PARKED_FOLLOWING_UNREAD_OUTPUT\\n"',
+        )
 
         await selectAgent(page, codexAgentId)
         await expect.poll(async () => {
@@ -1655,10 +1481,12 @@ test.describe('terminal regression matrix', () => {
             ? { parked: bashHost.inParkingLot, attached: bashHost.recordAttached }
             : null
         }).toEqual({ parked: true, attached: false })
-        await writeTerminalRaw(page, bashAgentId, 'PARKED_FOLLOWING_UNREAD_OUTPUT\r\n')
-        const parkedViewport = await terminalViewport(page, bashAgentId)
-        expect(parkedViewport.following).toBe(false)
-        expect(parkedViewport.hasUnreadOutput).toBe(true)
+        await expect.poll(async () => {
+          const response = await page.request.get(`/farming/api/control/agents/${bashAgentId}/output?tail=2000`)
+          return response.ok() ? await response.text() : ''
+        }, { timeout: 10_000 }).toContain('PARKED_FOLLOWING_UNREAD_OUTPUT')
+        await expect.poll(async () => await terminalViewport(page, bashAgentId))
+          .toEqual(expect.objectContaining({ following: false, hasUnreadOutput: true }))
 
         await selectAgent(page, bashAgentId)
         await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('PARKED_FOLLOWING_UNREAD_OUTPUT')
@@ -1901,6 +1729,11 @@ test.describe('terminal regression matrix', () => {
       await expect(page.getByTestId('code-terminal-context-menu')).toBeVisible()
       await page.getByTestId('code-terminal-context-menu').getByRole('menuitem', { name: /Copy|复制/ }).click()
       await selectAgent(page, codexAgentId)
+      // Establish the focus invariant before completing the old clipboard
+      // promise. This scenario proves that the late callback cannot steal
+      // focus; Agent-switch autofocus is covered independently.
+      await page.locator(`${activeTerminalHostSelector(codexAgentId)} textarea`).focus()
+      await expectActiveTerminalFocus(page, codexAgentId)
       await page.evaluate(() => {
         const target = window as unknown as { __resolveClipboardWrite?: () => void }
         target.__resolveClipboardWrite?.()
@@ -1919,7 +1752,9 @@ test.describe('terminal regression matrix', () => {
       await scenario('shared workspace keeps all live agents in one project group', async () => {
         const project = page.getByTestId('code-project-group').filter({ hasText: 'matrix-project' })
         await expect(project).toHaveCount(1)
-        await expect(project.locator('[data-testid="code-agent-row"], [data-testid="code-project-agent-compact"], [data-testid="code-pinned-agent-compact"]')).toHaveCount(9)
+        const showMore = project.getByTestId('code-agent-show-more')
+        if (await showMore.isVisible().catch(() => false)) await showMore.click()
+        await expect(project.locator('[data-testid="code-agent-row"], [data-testid="code-project-agent-compact"], [data-testid="code-pinned-agent-compact"]')).toHaveCount(8)
       })
 
     await scenario('active agent row returns from Open Editors back to its terminal', async () => {
@@ -2057,6 +1892,127 @@ test.describe('terminal regression matrix', () => {
         await page.unroute(sessionViewRoute, handler)
       }
     } finally {
+      await cleanupControlAgents(page.request)
+    }
+  })
+
+  test('page resume installs the real authoritative checkpoint after missing live output', async ({ page, workspaceRoot }) => {
+    const projectDir = path.join(workspaceRoot, 'real-page-resume-terminal')
+    fs.mkdirSync(projectDir, { recursive: true })
+    await cleanupControlAgents(page.request)
+    const agentId = await createControlAgent(page, 'bash', projectDir)
+
+    try {
+      await openFarming(page)
+      await selectAgent(page, agentId)
+      await page.waitForFunction(
+        id => Boolean(window.__farmingTerminalTest?.isReady(id)),
+        agentId,
+        { timeout: 15_000 },
+      )
+      const checkpointFetchCountBefore = Number(
+        (await terminalDiagnostics(page, agentId))?.checkpointFetchCount || 0,
+      )
+
+      await page.evaluate(() => window.dispatchEvent(new Event('pagehide')))
+      await expect.poll(async () => (
+        await terminalDiagnostics(page, agentId)
+      )?.controllerStatus).toBe('suspended')
+
+      let inputAccepted = false
+      for (let attempt = 0; attempt < 20 && !inputAccepted; attempt += 1) {
+        const response = await page.request.post(
+          `/farming/api/control/agents/${agentId}/input`,
+          { data: { input: 'printf "REAL_MISSED_RESUME_OUTPUT\\n"\r' } },
+        )
+        inputAccepted = response.ok()
+        if (!inputAccepted) await page.waitForTimeout(50)
+      }
+      expect(inputAccepted).toBe(true)
+
+      await expect.poll(async () => {
+        const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
+        const payload = await response.json() as { session?: { renderOutput?: string } }
+        return payload.session?.renderOutput || ''
+      }).toContain('REAL_MISSED_RESUME_OUTPUT')
+
+      await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
+      await page.evaluate(() => window.dispatchEvent(new Event('pageshow')))
+      await expect.poll(async () => await visibleTerminalText(page, agentId), { timeout: 15_000 })
+        .toContain('REAL_MISSED_RESUME_OUTPUT')
+
+      const diagnostics = await terminalDiagnostics(page, agentId)
+      expect(Number(diagnostics?.checkpointFetchCount || 0) - checkpointFetchCountBefore)
+        .toBeLessThanOrEqual(2)
+      expect(diagnostics?.needsReconnectOutputSync).toBe(false)
+      expect(diagnostics?.checkpointRequestInFlight).toBe(false)
+    } finally {
+      await cleanupControlAgents(page.request)
+    }
+  })
+
+  test('page resume restarts an aborted initial checkpoint without manual reattach', async ({ page, workspaceRoot }) => {
+    const projectDir = path.join(workspaceRoot, 'aborted-bootstrap-resume-terminal')
+    fs.mkdirSync(projectDir, { recursive: true })
+    await cleanupControlAgents(page.request)
+    const agentId = await createControlAgent(page, 'bash', projectDir)
+    const sessionViewRoute = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
+    let requestCount = 0
+    let observeFirstRequest!: () => void
+    let releaseFirstRequest!: () => void
+    const firstRequestObserved = new Promise<void>(resolve => { observeFirstRequest = resolve })
+    const firstRequestRelease = new Promise<void>(resolve => { releaseFirstRequest = resolve })
+    const handler = async (route: import('@playwright/test').Route) => {
+      requestCount += 1
+      if (requestCount === 1) {
+        observeFirstRequest()
+        await firstRequestRelease
+        await route.abort('aborted')
+        return
+      }
+      await route.continue()
+    }
+    await page.route(sessionViewRoute, handler)
+
+    try {
+      await openFarming(page)
+      const selecting = selectAgent(page, agentId)
+      await firstRequestObserved
+      await page.evaluate(() => window.dispatchEvent(new Event('pagehide')))
+      await expect.poll(async () => (
+        await terminalDiagnostics(page, agentId)
+      )?.controllerStatus).toBe('suspended')
+      releaseFirstRequest()
+
+      let inputAccepted = false
+      for (let attempt = 0; attempt < 20 && !inputAccepted; attempt += 1) {
+        const response = await page.request.post(
+          `/farming/api/control/agents/${agentId}/input`,
+          { data: { input: 'printf "ABORTED_BOOTSTRAP_RESUME_OUTPUT\\n"\r' } },
+        )
+        inputAccepted = response.ok()
+        if (!inputAccepted) await page.waitForTimeout(50)
+      }
+      expect(inputAccepted).toBe(true)
+      await expect.poll(async () => {
+        const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
+        const payload = await response.json() as { session?: { renderOutput?: string } }
+        return payload.session?.renderOutput || ''
+      }).toContain('ABORTED_BOOTSTRAP_RESUME_OUTPUT')
+
+      await page.evaluate(() => window.dispatchEvent(new Event('pageshow')))
+      await selecting
+      await page.waitForFunction(
+        id => Boolean(window.__farmingTerminalTest?.isReady(id)),
+        agentId,
+        { timeout: 15_000 },
+      )
+      await expect.poll(async () => await visibleTerminalText(page, agentId), { timeout: 15_000 })
+        .toContain('ABORTED_BOOTSTRAP_RESUME_OUTPUT')
+      expect(requestCount).toBe(2)
+    } finally {
+      releaseFirstRequest()
+      await page.unroute(sessionViewRoute, handler)
       await cleanupControlAgents(page.request)
     }
   })

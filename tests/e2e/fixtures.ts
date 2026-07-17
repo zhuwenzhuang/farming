@@ -3,7 +3,13 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-export const PLAYWRIGHT_WORKSPACE_ROOT = path.join(os.tmpdir(), `farming-playwright-workspaces-${process.pid}`)
+// macOS exposes the same temporary directory through both /var and /private/var.
+// Start with the canonical root so persisted project identities and live Agent
+// workspaces cannot diverge only because one backend path passed through realpath.
+export const PLAYWRIGHT_WORKSPACE_ROOT = path.join(
+  fs.realpathSync(os.tmpdir()),
+  `farming-playwright-workspaces-${process.pid}`,
+)
 
 function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -73,6 +79,11 @@ declare global {
           ackRevision: number | null
         } | null
         controllerStatus: string
+        controllerFence?: number | null
+        rendererReadyFence?: number | null
+        controllerResizeRequestSeq?: number
+        lastNotifiedResize?: { cols: number; rows: number } | null
+        resizeNotificationCount?: number
       } | null
       getHostDiagnostics: () => Array<{
         agentId: string
@@ -278,7 +289,14 @@ export async function getAgentIdFromRow(page: Page) {
 export async function writeTerminalFixture(page: Page, agentId: string, text: string) {
   try {
     await page.waitForFunction(
-      (id) => Boolean(window.__farmingTerminalTest?.isReady(id) && window.__farmingTerminalTest?.getCellCenter(id, 0, 0)),
+      (id) => {
+        const api = window.__farmingTerminalTest
+        const fixtureAlreadyOwnsDisplay = api?.getBufferDiagnostics(id)?.fixtureOverrideActive === true
+        return Boolean(
+          (api?.isReady(id) || fixtureAlreadyOwnsDisplay)
+          && api?.getCellCenter(id, 0, 0),
+        )
+      },
       agentId,
       { timeout: 15_000 }
     )
@@ -303,7 +321,13 @@ export async function writeTerminalFixture(page: Page, agentId: string, text: st
 export async function writeTerminalRaw(page: Page, agentId: string, text: string) {
   try {
     await page.waitForFunction(
-      (id) => Boolean(window.__farmingTerminalTest?.isReady(id)),
+      (id) => {
+        const api = window.__farmingTerminalTest
+        return Boolean(
+          api?.isReady(id)
+          || api?.getBufferDiagnostics(id)?.fixtureOverrideActive === true,
+        )
+      },
       agentId,
       { timeout: 15_000 }
     )

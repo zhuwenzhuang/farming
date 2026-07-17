@@ -50,6 +50,21 @@ function configManager() {
     listAgentSessionRecords() {
       return [{
         runtimeAgentId: 'recovered-codex',
+        source: 'ui',
+        projectWorkspace: '/repo',
+        provider: 'codex',
+        providerHomeId: 'default',
+        providerHomePath: '/home/test/.codex',
+        providerSessionId: '11111111-1111-4111-8111-111111111111',
+        providerSessionKey: 'agent-session:codex:11111111-1111-4111-8111-111111111111',
+        providerSessionTemporary: false,
+        providerSessionSource: 'codex-rollout',
+        providerSessionResolvedAt: 1234,
+        providerSessionTitle: 'Recovered Codex session',
+        providerSessionWorkspace: '/repo',
+        terminalInputReceived: true,
+        codexRuntimeMode: 'cli',
+        agentRuntimeMode: 'terminal',
         pinned: true,
         projectOrder: 4096,
         pinnedOrder: 2048,
@@ -133,6 +148,14 @@ async function run() {
     assert.strictEqual(manager.agents.get('recovered-codex').pinned, true);
     assert.strictEqual(manager.agents.get('recovered-codex').projectOrder, 4096);
     assert.strictEqual(manager.agents.get('recovered-codex').pinnedOrder, 2048);
+    assert.strictEqual(manager.agents.get('recovered-codex').providerSessionProvider, 'codex');
+    assert.strictEqual(
+      manager.agents.get('recovered-codex').providerSessionId,
+      '11111111-1111-4111-8111-111111111111',
+      'the first recovered projection must retain the persisted provider identity even when a legacy host omits it'
+    );
+    assert.strictEqual(manager.agents.get('recovered-codex').providerSessionTemporary, false);
+    assert.strictEqual(manager.agents.get('recovered-codex').terminalInputReceived, true);
     assert.strictEqual(
       manager.getState().agents.find(agent => agent.id === 'recovered-codex').launchPermissionMode,
       'full'

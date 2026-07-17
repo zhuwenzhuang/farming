@@ -337,12 +337,65 @@ async function run() {
   assert.strictEqual(summary.daily.coverage.find(entry => entry.provider === 'codex').homeCount, 2);
   assert.strictEqual(summary.daily.coverage.find(entry => entry.provider === 'qoder').available, false);
   assert.strictEqual(summary.providers.find(entry => entry.provider === 'opencode').tokenUsage.totalTokens, 300);
+  assert.strictEqual(summary.providers.find(entry => entry.provider === 'opencode').tokenUsage.available, true);
+  assert.strictEqual(summary.providers.find(entry => entry.provider === 'opencode').auth.available, true);
   assert.strictEqual(summary.providers.find(entry => entry.provider === 'qoder').tokenUsage.available, false);
   assert.strictEqual(summary.agentUsage.estimatedTokensPerMinute, 2);
   assert.strictEqual(summary.systemStats.cpu, 12);
   const selectedDay = await monitor.getUsageDay(summary.daily.endDate, { now });
   assert.strictEqual(selectedDay.hours.length, 24);
   assert.strictEqual(selectedDay.total.totalTokens, summary.daily.summary.todayTokens);
+
+  const unavailableOpenCodeMonitor = new UsageMonitor({
+    codexHome,
+    claudeHome,
+    openCodeHome,
+    qoderHome,
+    commandRunner,
+    async openCodeCommandRunner() {
+      const error = new Error('Command not found');
+      error.code = 'ENOENT';
+      throw error;
+    },
+    windowMs,
+  });
+  const unavailableOpenCodeSummary = await unavailableOpenCodeMonitor.getUsageSummary({ now });
+  const unavailableOpenCode = unavailableOpenCodeSummary.providers.find(entry => entry.provider === 'opencode');
+  assert.strictEqual(unavailableOpenCode.auth.available, false);
+  assert.strictEqual(unavailableOpenCode.tokenUsage.available, false);
+
+  const failedExportOpenCodeMonitor = new UsageMonitor({
+    codexHome,
+    claudeHome,
+    openCodeHome,
+    qoderHome,
+    commandRunner,
+    async openCodeCommandRunner(args) {
+      if (args[0] === 'session') {
+        return {
+          stdout: JSON.stringify([{
+            id: 'ses_export_failure_truthfulness',
+            created: now - 180_000,
+            updated: now - 60_001,
+          }]),
+        };
+      }
+      const error = new Error('OpenCode export failed after listing the session');
+      error.code = 'EIO';
+      throw error;
+    },
+    windowMs,
+  });
+  const failedExportSummary = await failedExportOpenCodeMonitor.getUsageSummary({ now });
+  const failedExportProvider = failedExportSummary.providers.find(entry => entry.provider === 'opencode');
+  assert.strictEqual(failedExportProvider.auth.available, false,
+    'listing sessions without exporting every listed session is not exact coverage');
+  assert.strictEqual(failedExportProvider.tokenUsage.available, false,
+    'partial export coverage must not be rendered as an exact zero token rate');
+  const failedExportCoverage = failedExportSummary.daily.coverage.find(entry => entry.provider === 'opencode');
+  assert.strictEqual(failedExportCoverage.partial, true);
+  assert.strictEqual(failedExportCoverage.sessionCount, 1);
+  assert.strictEqual(failedExportCoverage.exportCount, 0);
   assert.strictEqual(selectedDay.providers.opencode.totalTokens, 300);
   const liveDay = await monitor.getUsageDay(summary.daily.endDate, { now, live: true });
   const cachedLiveDay = await monitor.getUsageDay(summary.daily.endDate, { now: now + 1_000, live: true });

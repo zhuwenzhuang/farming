@@ -334,6 +334,15 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(page.getByText('Confirm the protocol round trip', { exact: true })).toHaveCount(0)
     })
     const modeToggle = page.getByTestId('code-terminal-mode-toggle')
+    await test.step('42b keep Chat and Terminal switch icons visibly rendered', async () => {
+      await expect(modeToggle).toBeVisible()
+      for (const name of ['Chat', 'Terminal']) {
+        const icon = modeToggle.getByRole('button', { name }).locator('svg')
+        await expect(icon).toBeVisible()
+        await expect(icon).toHaveCSS('fill', /rgb\(/)
+      }
+      await expect(modeToggle).toHaveCSS('opacity', '0.82')
+    })
     await test.step('43 classify a runtime failure without hiding the transcript', async () => {
       await sendAcpMessage(page, 'authentication error')
       const errorTurn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'authentication error' })

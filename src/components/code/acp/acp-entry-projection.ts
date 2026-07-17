@@ -422,9 +422,19 @@ function processEntry(entry: AcpRecord): CodexTranscriptProcessItem | null {
     const images = uniqueByUrl(contentImages(mediaContent, prefix))
     const audios = uniqueByUrl(contentAudios(mediaContent, prefix))
     const files = contentFiles(mediaContent, prefix)
-    const patchSummary = patchSummaryText(entry.content)
-    const changes = patchChanges(entry.content, record(record(entry._meta).farming_patch_decisions))
-    const inline = boundedInlineDetail([patchSummary, detailForTool(entry)].filter(Boolean).join('\n\n'))
+    const patchSummary = stringValue(entry.transcriptPatchSummary) || patchSummaryText(entry.content)
+    const changes = Array.isArray(entry.transcriptChanges)
+      ? entry.transcriptChanges.map(record).map(change => ({
+        path: stringValue(change.path),
+        kind: stringValue(change.kind),
+        added: Number(change.added || 0),
+        removed: Number(change.removed || 0),
+        ...(stringValue(change.decision) ? { decision: stringValue(change.decision) } : {}),
+      }))
+      : patchChanges(entry.content, record(record(entry._meta).farming_patch_decisions))
+    const inline = typeof entry.transcriptDetail === 'string'
+      ? { detail: entry.transcriptDetail, detailTruncated: entry.transcriptDetailTruncated === true }
+      : boundedInlineDetail([patchSummary, detailForTool(entry)].filter(Boolean).join('\n\n'))
     const subagentSessionId = stringValue(subagent.session_id)
     return {
       id: stringValue(entry.id),
@@ -466,6 +476,7 @@ function processEntry(entry: AcpRecord): CodexTranscriptProcessItem | null {
 
 function isGeneratedMediaTool(entry: AcpRecord) {
   if (entry.type !== 'tool') return false
+  if (entry.generatedMedia === true) return true
   const title = stringValue(entry.title).trim().toLowerCase()
   const id = stringValue(entry.id).trim().toLowerCase()
   const output = record(entry.rawOutput)
