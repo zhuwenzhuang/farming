@@ -14,6 +14,8 @@ interface WorkspaceDirectoryTree {
   gitStatusPending?: boolean
 }
 
+const WORKSPACE_FILE_REQUEST_TIMEOUT_MS = 15_000
+
 function normalizeDirectoryPath(directoryPath: string) {
   return directoryPath.replace(/^\/+|\/+$/g, '')
 }
@@ -43,8 +45,14 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
 
     let request: Promise<WorkspaceDirectoryTree | null> | null = null
     request = (async () => {
+      const abortController = new AbortController()
+      let timedOut = false
+      const timeoutId = window.setTimeout(() => {
+        timedOut = true
+        abortController.abort()
+      }, WORKSPACE_FILE_REQUEST_TIMEOUT_MS)
       try {
-        const tree = await fetchWorkspaceTree(agentId, normalizedPath)
+        const tree = await fetchWorkspaceTree(agentId, normalizedPath, { signal: abortController.signal })
         if (generationRef.current !== generation) return null
         setDirectories(previous => ({
           ...previous,
@@ -70,11 +78,14 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
           [normalizedPath]: {
             items: previous[normalizedPath]?.items ?? [],
             loading: false,
-            error: error instanceof Error ? error.message : 'Failed to load directory',
+            error: timedOut
+              ? 'File refresh timed out'
+              : error instanceof Error ? error.message : 'Failed to load directory',
           },
         }))
         return null
       } finally {
+        window.clearTimeout(timeoutId)
         if (request && inFlightDirectoryLoadsRef.current.get(normalizedPath) === request) {
           inFlightDirectoryLoadsRef.current.delete(normalizedPath)
         }

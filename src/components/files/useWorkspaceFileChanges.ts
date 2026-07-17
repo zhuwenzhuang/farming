@@ -10,6 +10,7 @@ import {
 } from '@/lib/workspace-files'
 
 const WORKSPACE_CHANGES_LIMIT = 200
+const WORKSPACE_CHANGES_TIMEOUT_MS = 15_000
 
 interface WorkspaceFileChangesState {
   error: string | null
@@ -28,7 +29,7 @@ const EMPTY_CHANGES_STATE: WorkspaceFileChangesState = {
 }
 
 export interface WorkspaceFileChangesController extends WorkspaceFileChangesState {
-  refreshChanges: () => Promise<void>
+  refreshChanges: () => Promise<boolean>
 }
 
 export function useWorkspaceFileChanges(
@@ -46,11 +47,16 @@ export function useWorkspaceFileChanges(
       abortRef.current?.abort()
       requestIdRef.current += 1
       setState(EMPTY_CHANGES_STATE)
-      return Promise.resolve()
+      return Promise.resolve(true)
     }
 
     abortRef.current?.abort()
     const abortController = new AbortController()
+    let timedOut = false
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true
+      abortController.abort()
+    }, WORKSPACE_CHANGES_TIMEOUT_MS)
     abortRef.current = abortController
     const requestId = requestIdRef.current + 1
     requestIdRef.current = requestId
@@ -64,7 +70,7 @@ export function useWorkspaceFileChanges(
       limit: WORKSPACE_CHANGES_LIMIT,
       signal: abortController.signal,
     }).then(changes => {
-      if (requestIdRef.current !== requestId) return
+      if (requestIdRef.current !== requestId) return false
       setState({
         error: null,
         items: changes.items,
@@ -72,15 +78,19 @@ export function useWorkspaceFileChanges(
         loading: false,
         truncated: changes.truncated,
       })
+      return true
     }).catch(error => {
-      if (abortController.signal.aborted || requestIdRef.current !== requestId) return
+      if ((!timedOut && abortController.signal.aborted) || requestIdRef.current !== requestId) return false
       setState(current => ({
         ...current,
-        error: error instanceof Error ? error.message : 'Failed to refresh changes',
+        error: timedOut
+          ? 'File refresh timed out'
+          : error instanceof Error ? error.message : 'Failed to refresh changes',
         loaded: true,
         loading: false,
       }))
-    })
+      return false
+    }).finally(() => window.clearTimeout(timeoutId))
   }, [agentId])
 
   useEffect(() => {

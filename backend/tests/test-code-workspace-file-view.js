@@ -51,6 +51,9 @@ function run() {
 
   assert.strictEqual(relativePathInsideWorkspace('/repo/project/src/App.tsx', '/repo/project'), 'src/App.tsx');
   assert.strictEqual(relativePathInsideWorkspace('/repo/project', '/repo/project/'), '');
+  assert.strictEqual(relativePathInsideWorkspace('/tmp/project/src/App.tsx', '/private/tmp/project'), 'src/App.tsx');
+  assert.strictEqual(relativePathInsideWorkspace('/private/var/project/src/App.tsx', '/var/project'), 'src/App.tsx');
+  assert.strictEqual(relativePathInsideWorkspace('/other/project/src/App.tsx', '/private/other/project'), null);
   assert.strictEqual(relativePathInsideWorkspace('/repo/other/App.tsx', '/repo/project'), null);
 
   assert.strictEqual(terminalTargetFilePath('./src/App.tsx', '/repo/project'), 'src/App.tsx');

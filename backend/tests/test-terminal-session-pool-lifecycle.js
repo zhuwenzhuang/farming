@@ -39,7 +39,7 @@ assert(
 
 assert(
   poolSource.includes('function clearPendingTerminalOutput(record: SessionRecord)') &&
-    poolSource.includes('record.queuedOutput = []') &&
+    poolSource.includes('TERMINAL_REPLAY.clearQueuedTransitions(record.replayState)') &&
     poolSource.includes('record.bootstrappingSnapshot = false') &&
     poolSource.includes('record.pendingSnapshotReplay = false'),
   'destroyTerminalSession should drop pending bootstrap/replay output for disposed terminal sessions'

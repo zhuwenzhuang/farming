@@ -2,9 +2,29 @@ const assert = require('assert');
 const {
   coalesceSessionStream,
   normalizeSessionStream,
+  shouldBroadcastSessionStreamImmediately,
 } = require('../session-stream-protocol');
 
 function run() {
+  assert.strictEqual(shouldBroadcastSessionStreamImmediately({
+    pendingCount: 0,
+    lastBroadcastAt: 1_000,
+    now: 1_100,
+    intervalMs: 33,
+  }), true, 'the first output after an idle period should bypass the trailing batch delay');
+  assert.strictEqual(shouldBroadcastSessionStreamImmediately({
+    pendingCount: 0,
+    lastBroadcastAt: 1_000,
+    now: 1_020,
+    intervalMs: 33,
+  }), false, 'continuous output should remain frame-rate bounded');
+  assert.strictEqual(shouldBroadcastSessionStreamImmediately({
+    pendingCount: 1,
+    lastBroadcastAt: 1_000,
+    now: 1_100,
+    intervalMs: 33,
+  }), false, 'queued transitions must stay ordered in the existing batch');
+
   const first = normalizeSessionStream({
     agentId: 'agent-1',
     data: 'one',

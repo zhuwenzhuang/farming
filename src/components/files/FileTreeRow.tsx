@@ -35,7 +35,7 @@ interface FileTreeRowProps {
   onOpenFileContextMenu: (x: number, y: number, item: FileExplorerNode | null) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
   onRememberFileOperationName: (name: string) => void
-  onSetDirectoryOpen: (path: string, open: boolean) => void
+  onToggleDirectory: (path: string) => boolean
   onSubmitFileOperation: () => Promise<void>
   onUpdateFileOperationName: (name: string) => void
 }
@@ -59,7 +59,7 @@ export function FileTreeRow({
   onOpenFileContextMenu,
   onOpenFilePath,
   onRememberFileOperationName,
-  onSetDirectoryOpen,
+  onToggleDirectory,
   onSubmitFileOperation,
 }: FileTreeRowProps) {
   const item = node.data
@@ -96,7 +96,7 @@ export function FileTreeRow({
     onFocusFileTreeTarget,
     onOpenFileContextMenu,
     onOpenFilePath,
-    onSetDirectoryOpen,
+    onToggleDirectory,
   })
 
   return (

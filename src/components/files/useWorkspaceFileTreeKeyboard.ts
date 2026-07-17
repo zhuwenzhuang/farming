@@ -28,7 +28,9 @@ interface UseWorkspaceFileTreeKeyboardOptions {
   focusFileTreeTarget: (item: WorkspaceFileTreeNode | null) => void
   openFileContextMenu: (x: number, y: number, item: WorkspaceFileTreeNode | null) => void
   openFilePath: (filePath: string) => void | Promise<void>
+  setDirectoryOpen: (path: string, open: boolean) => void
   startFileOperation: (kind: WorkspaceFileOperationKind, item?: WorkspaceFileTreeNode | null) => void
+  toggleDirectoryOpen: (path: string) => boolean
 }
 
 export function useWorkspaceFileTreeKeyboard({
@@ -44,7 +46,9 @@ export function useWorkspaceFileTreeKeyboard({
   focusFileTreeTarget,
   openFileContextMenu,
   openFilePath,
+  setDirectoryOpen,
   startFileOperation,
+  toggleDirectoryOpen,
 }: UseWorkspaceFileTreeKeyboardOptions) {
   const projectScroller = useCallback(() => (
     treeViewportRef.current?.closest<HTMLElement>('.code-project-list') ?? null
@@ -59,8 +63,12 @@ export function useWorkspaceFileTreeKeyboard({
     return workspaceFileTreePageJumpSize(viewportHeight, rowHeight)
   }, [projectScroller, treeViewportRef])
 
-  const openDirectoryNode = useCallback((node: NodeApi<WorkspaceFileTreeNode>) => {
+  const openDirectoryNode = useCallback((
+    node: NodeApi<WorkspaceFileTreeNode>,
+    updateDesiredState = true,
+  ) => {
     preserveWorkspaceFileScrollPosition(projectScroller())
+    if (updateDesiredState) setDirectoryOpen(node.data.path, true)
     node.open()
     lastFocusedFilePathRef.current = node.data.path
     focusFileTreeTarget(node.data)
@@ -68,13 +76,16 @@ export function useWorkspaceFileTreeKeyboard({
     focusFileTreeTarget,
     lastFocusedFilePathRef,
     projectScroller,
+    setDirectoryOpen,
   ])
 
   const closeDirectoryNode = useCallback((
     filePath: string,
     node: NodeApi<WorkspaceFileTreeNode> | null | undefined,
+    updateDesiredState = true,
   ) => {
     preserveWorkspaceFileScrollPosition(projectScroller())
+    if (updateDesiredState) setDirectoryOpen(filePath, false)
     if (node) {
       node.close()
     } else {
@@ -91,6 +102,7 @@ export function useWorkspaceFileTreeKeyboard({
     focusFileTreeTarget,
     lastFocusedFilePathRef,
     projectScroller,
+    setDirectoryOpen,
     treeRef,
   ])
 
@@ -257,16 +269,18 @@ export function useWorkspaceFileTreeKeyboard({
     event.preventDefault()
     event.stopPropagation()
 
-    const activationIntent = workspaceFileTreeActivationIntent({
-      nodeType: node.data.type,
-      nodeOpen: node.isOpen,
-    })
+    const activationIntent = node.data.type === 'directory'
+      ? (toggleDirectoryOpen(node.data.path) ? 'open-directory' : 'close-directory')
+      : workspaceFileTreeActivationIntent({
+        nodeType: node.data.type,
+        nodeOpen: node.isOpen,
+      })
     if (activationIntent === 'close-directory') {
-      closeDirectoryNode(node.data.path, node)
+      closeDirectoryNode(node.data.path, node, false)
       return
     }
     if (activationIntent === 'open-directory') {
-      openDirectoryNode(node)
+      openDirectoryNode(node, false)
       return
     }
     if (activationIntent === 'open-file') {
@@ -287,6 +301,7 @@ export function useWorkspaceFileTreeKeyboard({
     openFilePath,
     pageJumpSize,
     startFileOperation,
+    toggleDirectoryOpen,
     treeRef,
     treeViewportRef,
   ])

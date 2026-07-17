@@ -64,6 +64,7 @@ const {
 const {
   coalesceSessionStream,
   deliverSessionStreamToClients,
+  shouldBroadcastSessionStreamImmediately,
 } = require('./session-stream-protocol');
 
 const BASE_PATH = normalizeBasePath(process.env.FARMING_BASE_PATH || '/');
@@ -369,11 +370,13 @@ function shareTargetQueryFromBody(body) {
   const agentId = shareTargetString(target.agentId, 160);
   const absolutePath = shareTargetString(target.absolutePath, 2048);
   const projectLabel = shareTargetString(target.projectLabel, 160);
+  const readingAnchor = shareTargetString(target.readingAnchor, 1800);
   if (!kind || kind === 'agent' && !agentId || kind !== 'agent' && !absolutePath && !agentId && !projectLabel) return '';
 
   const params = new URLSearchParams();
   params.set('ftarget', kind);
   if (agentId) params.set('agent', agentId);
+  if (kind === 'agent' && readingAnchor && /^[A-Za-z0-9_-]+$/.test(readingAnchor)) params.set('fra', readingAnchor);
   if (absolutePath) params.set('path', absolutePath);
   if (projectLabel) params.set('project', projectLabel);
 
@@ -1332,6 +1335,7 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
     delete flagPatch.archived;
   }
 
+  let flagUpdateRequiresState = false;
   if (Object.keys(flagPatch).length > 0) {
     const result = agentManager.updateAgentFlags(req.params.agentId, flagPatch);
     if (result.error) {
@@ -1341,6 +1345,7 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
     }
     Object.assign(updates, result);
     delete updates.agentId;
+    flagUpdateRequiresState = result.requiresState === true;
   }
 
   if (typeof body.launchPermissionMode === 'string') {
@@ -1374,7 +1379,9 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
     return;
   }
 
-  scheduleBroadcastState();
+  if (flagUpdateRequiresState || typeof body.task === 'string' || typeof body.customTitle === 'string' || typeof body.launchPermissionMode === 'string' || typeof body.agentRuntimeMode === 'string') {
+    scheduleBroadcastState();
+  }
   res.json({ agentId: req.params.agentId, ...updates });
 });
 
@@ -1762,7 +1769,7 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), (req, res) => {
     success: true,
     settings: configManager.getSettings()
   });
-  broadcastState();
+  scheduleBroadcastState();
 });
 
 app.post(routePath(BASE_PATH, '/api/themes/:themeId/set'), express.json(), (req, res) => {
@@ -2169,22 +2176,38 @@ function sendState(ws) {
   });
 }
 
+function previewForClient(preview, client) {
+  if (!preview || !client || client.focusedAgentId !== preview.agentId || !preview.previewSnapshot) {
+    return preview;
+  }
+  // The active terminal is hydrated from its authoritative session-view and
+  // receives live session-output. Sending its sidebar snapshot again adds a
+  // large, unrelated React update to every keystroke in a full-screen TUI.
+  return {
+    ...preview,
+    previewSnapshot: null,
+  };
+}
+
 function sendPreview(ws, preview) {
   ws.send(JSON.stringify({
     type: 'session-preview',
-    preview,
+    preview: previewForClient(preview, ws),
   }));
 }
 
 const STATE_BROADCAST_INTERVAL_MS = 120;
 const PREVIEW_BROADCAST_INTERVAL_MS = 500;
 const SESSION_STREAM_BROADCAST_INTERVAL_MS = 33;
+const AGENT_ACTIVITY_BROADCAST_DELAY_MS = SESSION_STREAM_BROADCAST_INTERVAL_MS;
 const MAX_SESSION_STREAM_CLIENT_BUFFERED_AMOUNT = 4 * 1024 * 1024;
 let stateBroadcastTimer = null;
 let lastStateBroadcastAt = 0;
 const pendingPreviewBroadcasts = new Map();
+const pendingAgentActivityBroadcasts = new Map();
 const pendingSessionStreams = new Map();
 let sessionStreamBroadcastTimer = null;
+let lastSessionStreamBroadcastAt = 0;
 let shutdownStarted = false;
 
 function broadcastState() {
@@ -2218,16 +2241,11 @@ function scheduleBroadcastState() {
 }
 
 function broadcastSessionPreview(preview) {
-  const message = JSON.stringify({
-    type: 'session-preview',
-    preview,
-  });
-
   wss.clients.forEach((client) => {
     const previewAllowed = client.previewScope !== 'none'
       && (client.previewScope !== 'focused' || client.focusedAgentId === preview.agentId);
     if (client.readyState === WebSocket.OPEN && previewAllowed) {
-      client.send(message);
+      sendPreview(client, preview);
     }
   });
 }
@@ -2286,6 +2304,51 @@ agentManager.on('provider-session-updated', () => {
   scheduleBroadcastState();
 });
 
+function broadcastAgentActivity(activity) {
+  const message = JSON.stringify({
+    type: 'agent-activity',
+    activity,
+  });
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  });
+}
+
+function scheduleAgentActivityBroadcast(activity) {
+  if (!activity || !activity.agentId) return;
+  const agentId = activity.agentId;
+  const existing = pendingAgentActivityBroadcasts.get(agentId);
+  if (existing) {
+    existing.activity = activity;
+    return;
+  }
+  const entry = {
+    activity,
+    timer: setTimeout(() => {
+      pendingAgentActivityBroadcasts.delete(agentId);
+      broadcastAgentActivity(entry.activity);
+    }, AGENT_ACTIVITY_BROADCAST_DELAY_MS),
+  };
+  entry.timer.unref?.();
+  pendingAgentActivityBroadcasts.set(agentId, entry);
+}
+
+agentManager.onAgentActivity(scheduleAgentActivityBroadcast);
+
+function broadcastAgentRead(read) {
+  if (!read || !read.agentId) return;
+  const message = JSON.stringify({ type: 'agent-read', read });
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  });
+}
+
+agentManager.on('agent-read', broadcastAgentRead);
+
 function sessionStreamKey(stream) {
   return `${stream.agentId || ''}\0${stream.sessionSource || ''}`;
 }
@@ -2306,11 +2369,23 @@ function flushSessionStreams() {
   sessionStreamBroadcastTimer = null;
   const streams = Array.from(pendingSessionStreams.values());
   pendingSessionStreams.clear();
+  if (streams.length > 0) lastSessionStreamBroadcastAt = Date.now();
   streams.forEach(broadcastSessionStream);
 }
 
 function scheduleSessionStreamBroadcast(stream) {
   if (!stream || !stream.agentId) return;
+  const now = Date.now();
+  if (shouldBroadcastSessionStreamImmediately({
+    pendingCount: pendingSessionStreams.size,
+    lastBroadcastAt: lastSessionStreamBroadcastAt,
+    now,
+    intervalMs: SESSION_STREAM_BROADCAST_INTERVAL_MS,
+  })) {
+    lastSessionStreamBroadcastAt = now;
+    broadcastSessionStream(coalesceSessionStream(null, stream));
+    return;
+  }
   const key = sessionStreamKey(stream);
   const existing = pendingSessionStreams.get(key);
   pendingSessionStreams.set(key, coalesceSessionStream(existing, stream));
@@ -2332,6 +2407,10 @@ function clearBroadcastTimers() {
     }
   }
   pendingPreviewBroadcasts.clear();
+  for (const entry of pendingAgentActivityBroadcasts.values()) {
+    if (entry && entry.timer) clearTimeout(entry.timer);
+  }
+  pendingAgentActivityBroadcasts.clear();
   if (sessionStreamBroadcastTimer) {
     clearTimeout(sessionStreamBroadcastTimer);
     sessionStreamBroadcastTimer = null;

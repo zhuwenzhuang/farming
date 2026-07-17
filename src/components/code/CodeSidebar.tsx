@@ -199,6 +199,7 @@ interface CodeSidebarProps {
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveWorkspaceEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
   onDeleteWorkspaceEntries: (agentId: string, deletions: WorkspaceFileDeleteResult[]) => void
+  onRefreshProjectOpenFiles: (filesId: string, workspaceRoot: string) => Promise<boolean>
   onOpenOptionsMenu: (event: ReactMouseEvent<HTMLElement>) => void
   copy: CodeCopy
 }
@@ -258,6 +259,7 @@ export function CodeSidebar({
   onCloseOpenWorkspaceFile,
   onMoveWorkspaceEntries,
   onDeleteWorkspaceEntries,
+  onRefreshProjectOpenFiles,
   onOpenOptionsMenu,
   copy,
 }: CodeSidebarProps) {
@@ -585,6 +587,7 @@ export function CodeSidebar({
                     onCloseOpenFile={onCloseOpenWorkspaceFile}
                     onMoveEntries={onMoveWorkspaceEntries}
                     onDeleteEntries={onDeleteWorkspaceEntries}
+                    onRefreshOpenFiles={onRefreshProjectOpenFiles}
                     readOnly
                     copy={copy}
                   />
@@ -598,6 +601,7 @@ export function CodeSidebar({
             key={project.id}
             project={project}
             collapsed={collapsedProjectIds.has(project.id) && !normalizedSearch}
+            forceAgentsExpanded={Boolean(normalizedSearch)}
             compactAgents={agentCompressionActive}
             activeTerminalId={activeTerminalId}
             selectedSearchAgentId={selectedSearchAgentId}
@@ -633,6 +637,7 @@ export function CodeSidebar({
             onCloseOpenWorkspaceFile={onCloseOpenWorkspaceFile}
             onMoveWorkspaceEntries={onMoveWorkspaceEntries}
             onDeleteWorkspaceEntries={onDeleteWorkspaceEntries}
+            onRefreshProjectOpenFiles={onRefreshProjectOpenFiles}
             copy={copy}
           />
         ))}
@@ -1868,6 +1873,7 @@ function agentWorktreeList(worktree: Agent['gitWorktree']): WorkspaceGitWorktree
 interface ProjectSectionProps {
   project: ProjectGroup
   collapsed: boolean
+  forceAgentsExpanded: boolean
   compactAgents: boolean
   activeTerminalId: string | null
   selectedSearchAgentId: string | null
@@ -1903,12 +1909,14 @@ interface ProjectSectionProps {
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveWorkspaceEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
   onDeleteWorkspaceEntries: (agentId: string, deletions: WorkspaceFileDeleteResult[]) => void
+  onRefreshProjectOpenFiles: (filesId: string, workspaceRoot: string) => Promise<boolean>
   copy: CodeCopy
 }
 
 function ProjectSection({
   project,
   collapsed,
+  forceAgentsExpanded,
   compactAgents,
   activeTerminalId,
   selectedSearchAgentId,
@@ -1944,6 +1952,7 @@ function ProjectSection({
   onCloseOpenWorkspaceFile,
   onMoveWorkspaceEntries,
   onDeleteWorkspaceEntries,
+  onRefreshProjectOpenFiles,
   copy,
 }: ProjectSectionProps) {
   const projectGroupRef = useRef<HTMLElement | null>(null)
@@ -1958,6 +1967,7 @@ function ProjectSection({
     agentWorktreeList(project.gitWorktree)
   ))
   const [projectAgentsExpanded, setProjectAgentsExpanded] = useState(false)
+  const [projectAgentsCollapsed, setProjectAgentsCollapsed] = useState(false)
   const [projectFilesExpanded, setProjectFilesExpanded] = useState(false)
   const [agentDrag, setAgentDrag] = useState<{
     agentId: string
@@ -2003,6 +2013,8 @@ function ProjectSection({
       selectedSearchAgentId,
     ])
   const hiddenProjectAgentCount = Math.max(0, sortedAgents.length - visibleProjectAgents.length)
+  const agentListCollapsed = projectAgentsCollapsed && !forceAgentsExpanded
+  const projectAgentListCount = sortedAgents.length + visibleAgentSessions.length + (project.hiddenAgentSessionCount ?? 0)
 
   useEffect(() => {
     if (projectSourceAgentId !== nextProjectSourceAgentId) {
@@ -2306,116 +2318,141 @@ function ProjectSection({
           {showAgentsSection && (
             <div ref={agentsSectionRef} className="code-agents-section" data-testid="code-agents-section" data-project-id={project.id}>
               <div className="code-agent-list">
-                {compactProjectAgents ? (
-                  <ProjectAgentCompactStrip
-                    agents={sortedAgents}
-                    activeTerminalId={activeTerminalId}
-                    selectedSearchAgentId={selectedSearchAgentId}
-                    claimedAgentSessionKeyByAgentId={claimedAgentSessionKeyByAgentId}
-                    now={now}
-                    onOpenAgent={onOpenAgent}
-                    onOpenAgentContextMenu={onOpenAgentContextMenu}
-                    onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
-                    onShowPreview={onShowAgentPreview}
-                    onHidePreview={onHideAgentPreview}
-                  />
-                ) : (
-                  visibleProjectAgents.map(agent => {
-                    const shortcutHint = keyboardShortcutsEnabled ? agentShortcutKeys.get(agent.id) : undefined
-                    return (
-                      <AgentRow
-                        key={agentRowKey({ kind: 'agent', agent, claimedSessionKey: claimedAgentSessionKeyByAgentId.get(agent.id) })}
-                        agent={agent}
-                        shortcutHint={shortcutHint}
-                        active={agent.id === activeTerminalId}
-                        searchSelected={agent.id === selectedSearchAgentId}
+                {!agentListCollapsed && (
+                  <>
+                    {compactProjectAgents ? (
+                      <ProjectAgentCompactStrip
+                        agents={sortedAgents}
+                        activeTerminalId={activeTerminalId}
+                        selectedSearchAgentId={selectedSearchAgentId}
+                        claimedAgentSessionKeyByAgentId={claimedAgentSessionKeyByAgentId}
                         now={now}
                         onOpenAgent={onOpenAgent}
-                        onUpdateAgentFlags={onUpdateAgentFlags}
-                        reorderable
-                        dragging={agentDrag?.agentId === agent.id}
-                        dropPosition={agentDrag?.targetAgentId === agent.id ? agentDrag.position : undefined}
-                        onAgentDragStart={beginAgentDrag}
-                        onAgentDragEnd={finishAgentDrag}
-                        onAgentDragOver={updateAgentDropTarget}
-                        onAgentDrop={dropAgent}
                         onOpenAgentContextMenu={onOpenAgentContextMenu}
                         onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
                         onShowPreview={onShowAgentPreview}
                         onHidePreview={onHideAgentPreview}
+                      />
+                    ) : (
+                      visibleProjectAgents.map(agent => {
+                        const shortcutHint = keyboardShortcutsEnabled ? agentShortcutKeys.get(agent.id) : undefined
+                        return (
+                          <AgentRow
+                            key={agentRowKey({ kind: 'agent', agent, claimedSessionKey: claimedAgentSessionKeyByAgentId.get(agent.id) })}
+                            agent={agent}
+                            shortcutHint={shortcutHint}
+                            active={agent.id === activeTerminalId}
+                            searchSelected={agent.id === selectedSearchAgentId}
+                            now={now}
+                            onOpenAgent={onOpenAgent}
+                            onUpdateAgentFlags={onUpdateAgentFlags}
+                            reorderable
+                            dragging={agentDrag?.agentId === agent.id}
+                            dropPosition={agentDrag?.targetAgentId === agent.id ? agentDrag.position : undefined}
+                            onAgentDragStart={beginAgentDrag}
+                            onAgentDragEnd={finishAgentDrag}
+                            onAgentDragOver={updateAgentDropTarget}
+                            onAgentDrop={dropAgent}
+                            onOpenAgentContextMenu={onOpenAgentContextMenu}
+                            onOpenAgentKeyboardMenu={onOpenAgentKeyboardMenu}
+                            onShowPreview={onShowAgentPreview}
+                            onHidePreview={onHideAgentPreview}
+                            copy={copy}
+                          />
+                        )
+                      })
+                    )}
+                    {!compactProjectAgents && hiddenProjectAgentCount > 0 && (
+                      <button
+                        type="button"
+                        className={`code-agent-row code-session-show-more ${agentDrag?.targetAgentId === PROJECT_AGENT_DROP_END ? 'drop-after' : ''}`}
+                        data-testid="code-agent-show-more"
+                        onClick={() => setProjectAgentsExpanded(true)}
+                        onDragOver={updateProjectEndDropTarget}
+                        onDrop={dropAgentAtProjectEnd}
+                      >
+                        <span className="code-agent-row-copy">
+                          <span className="code-agent-name">{copy.showMore}</span>
+                        </span>
+                        <span className="code-agent-row-trailing">
+                          <span className="code-agent-age">{hiddenProjectAgentCount}</span>
+                        </span>
+                      </button>
+                    )}
+                    {!compactProjectAgents && projectAgentsExpanded && sortedAgents.length > PROJECT_AGENT_VISIBLE_LIMIT && (
+                      <button
+                        type="button"
+                        className="code-agent-row code-session-show-more"
+                        data-testid="code-agent-show-less"
+                        onClick={() => setProjectAgentsExpanded(false)}
+                      >
+                        <span className="code-agent-row-copy">
+                          <span className="code-agent-name">{copy.showLess}</span>
+                        </span>
+                      </button>
+                    )}
+                    {visibleAgentSessions.map(session => (
+                      <AgentRow
+                        key={agentRowKey({ kind: 'history', session })}
+                        session={session}
+                        searchSelected={agentSessionId(session) === selectedSearchSessionHandle}
+                        now={now}
+                        onResume={onResumeAgentSession}
+                        onOpenSessionContextMenu={onOpenAgentSessionContextMenu}
+                        onOpenSessionKeyboardMenu={onOpenAgentSessionKeyboardMenu}
+                        onShowPreview={onShowAgentPreview}
+                        onHidePreview={onHideAgentPreview}
                         copy={copy}
                       />
-                    )
-                  })
+                    ))}
+                    {(project.hiddenAgentSessionCount ?? 0) > 0 && (
+                      <button
+                        type="button"
+                        className="code-agent-row code-session-show-more"
+                        data-testid="code-session-show-more"
+                        onClick={() => onToggleProjectSessions(project.id)}
+                      >
+                        <span className="code-agent-row-copy">
+                          <span className="code-agent-name">{copy.showMore}</span>
+                        </span>
+                        <span className="code-agent-row-trailing">
+                          <span className="code-agent-age">{project.hiddenAgentSessionCount}</span>
+                        </span>
+                      </button>
+                    )}
+                    {project.agentSessionsExpanded && project.agentSessions.length > DEFAULT_PROJECT_SESSION_LIMIT && (
+                      <button
+                        type="button"
+                        className="code-agent-row code-session-show-more"
+                        data-testid="code-session-show-less"
+                        onClick={() => onToggleProjectSessions(project.id)}
+                      >
+                        <span className="code-agent-row-copy">
+                          <span className="code-agent-name">{copy.showLess}</span>
+                        </span>
+                      </button>
+                    )}
+                  </>
                 )}
-                {!compactProjectAgents && hiddenProjectAgentCount > 0 && (
+                {!forceAgentsExpanded && (
                   <button
                     type="button"
-                    className={`code-agent-row code-session-show-more ${agentDrag?.targetAgentId === PROJECT_AGENT_DROP_END ? 'drop-after' : ''}`}
-                    data-testid="code-agent-show-more"
-                    onClick={() => setProjectAgentsExpanded(true)}
-                    onDragOver={updateProjectEndDropTarget}
-                    onDrop={dropAgentAtProjectEnd}
+                    className="code-agent-row code-session-show-more code-agent-list-toggle"
+                    data-testid="code-agent-list-toggle"
+                    data-collapsed={agentListCollapsed ? 'true' : 'false'}
+                    aria-expanded={!agentListCollapsed}
+                    onClick={() => setProjectAgentsCollapsed(collapsed => !collapsed)}
                   >
                     <span className="code-agent-row-copy">
-                      <span className="code-agent-name">{copy.showMore}</span>
+                      <span className="code-agent-name">
+                        {agentListCollapsed ? copy.showAgents : copy.collapseAgents}
+                      </span>
                     </span>
-                    <span className="code-agent-row-trailing">
-                      <span className="code-agent-age">{hiddenProjectAgentCount}</span>
-                    </span>
-                  </button>
-                )}
-                {!compactProjectAgents && projectAgentsExpanded && sortedAgents.length > PROJECT_AGENT_VISIBLE_LIMIT && (
-                  <button
-                    type="button"
-                    className="code-agent-row code-session-show-more"
-                    data-testid="code-agent-show-less"
-                    onClick={() => setProjectAgentsExpanded(false)}
-                  >
-                    <span className="code-agent-row-copy">
-                      <span className="code-agent-name">{copy.showLess}</span>
-                    </span>
-                  </button>
-                )}
-                {visibleAgentSessions.map(session => (
-                  <AgentRow
-                    key={agentRowKey({ kind: 'history', session })}
-                    session={session}
-                    searchSelected={agentSessionId(session) === selectedSearchSessionHandle}
-                    now={now}
-                    onResume={onResumeAgentSession}
-                    onOpenSessionContextMenu={onOpenAgentSessionContextMenu}
-                    onOpenSessionKeyboardMenu={onOpenAgentSessionKeyboardMenu}
-                    onShowPreview={onShowAgentPreview}
-                    onHidePreview={onHideAgentPreview}
-                    copy={copy}
-                  />
-                ))}
-                {(project.hiddenAgentSessionCount ?? 0) > 0 && (
-                  <button
-                    type="button"
-                    className="code-agent-row code-session-show-more"
-                    data-testid="code-session-show-more"
-                    onClick={() => onToggleProjectSessions(project.id)}
-                  >
-                    <span className="code-agent-row-copy">
-                      <span className="code-agent-name">{copy.showMore}</span>
-                    </span>
-                    <span className="code-agent-row-trailing">
-                      <span className="code-agent-age">{project.hiddenAgentSessionCount}</span>
-                    </span>
-                  </button>
-                )}
-                {project.agentSessionsExpanded && project.agentSessions.length > DEFAULT_PROJECT_SESSION_LIMIT && (
-                  <button
-                    type="button"
-                    className="code-agent-row code-session-show-more"
-                    data-testid="code-session-show-less"
-                    onClick={() => onToggleProjectSessions(project.id)}
-                  >
-                    <span className="code-agent-row-copy">
-                      <span className="code-agent-name">{copy.showLess}</span>
-                    </span>
+                    {agentListCollapsed && (
+                      <span className="code-agent-row-trailing">
+                        <span className="code-agent-list-count">{projectAgentListCount}</span>
+                      </span>
+                    )}
                   </button>
                 )}
               </div>
@@ -2449,6 +2486,7 @@ function ProjectSection({
                 onStartAgent={onStartAgent}
                 onMoveEntries={onMoveWorkspaceEntries}
                 onDeleteEntries={onDeleteWorkspaceEntries}
+                onRefreshOpenFiles={onRefreshProjectOpenFiles}
                 onFilesCollapsedChange={handleFilesCollapsedChange}
                 copy={copy}
               />

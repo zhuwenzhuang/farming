@@ -1,8 +1,14 @@
 import type { WorkspaceFileOpenTarget } from './workspace-open-files'
 import type { WorkspaceFileEntry } from './workspace-files'
+import {
+  encodeReadingAnchorForKey,
+  readingAnchorAgentKey,
+  readingAnchorFileKey,
+  readReadingAnchor,
+} from './reading-anchor'
 
 export type WorkspaceShareTarget =
-  | { kind: 'agent'; agentId: string }
+  | { kind: 'agent'; agentId: string; readingSurface?: 'chat' | 'terminal'; readingAnchor?: string }
   | { kind: 'folder'; agentId?: string; folderPath: string; absolutePath?: string; projectLabel?: string }
   | {
     kind: 'file'
@@ -28,7 +34,12 @@ export interface ResolvedWorkspaceSharePath {
 }
 
 const MAX_ABSOLUTE_SHARE_QUERY_LENGTH = 1800
-const SHARE_LOCATION_PARAM_NAMES = ['ftarget', 'agent', 'project', 'folder', 'file', 'path', 'view', 'line', 'column', 'endColumn']
+const SHARE_LOCATION_PARAM_NAMES = ['ftarget', 'agent', 'project', 'folder', 'file', 'path', 'view', 'line', 'column', 'endColumn', 'fra']
+
+function readingAnchorValue(value: string | undefined) {
+  const anchor = String(value || '').trim()
+  return anchor.length <= 1800 && /^[A-Za-z0-9_-]+$/.test(anchor) ? anchor : ''
+}
 
 function normalizePath(value: string) {
   const normalized = String(value || '').trim().replace(/\\/g, '/').replace(/\/+/g, '/')
@@ -108,7 +119,7 @@ function setPositiveInteger(params: URLSearchParams, name: string, value: number
 
 export function workspaceShareTargetKey(target: WorkspaceShareTarget | null | undefined) {
   if (!target) return ''
-  if (target.kind === 'agent') return `agent:${target.agentId}`
+  if (target.kind === 'agent') return `agent:${target.agentId}:${target.readingAnchor || ''}`
   if (target.kind === 'folder') return `folder:${target.absolutePath || `${target.agentId || ''}:${target.folderPath}`}`
   return [
     'file',
@@ -128,6 +139,8 @@ export function workspaceShareTargetSearchParams(target: WorkspaceShareTarget | 
   if (target.kind === 'agent') {
     if (!target.agentId) return new URLSearchParams()
     params.set('agent', target.agentId)
+    const anchor = readingAnchorValue(target.readingAnchor)
+    if (anchor) params.set('fra', anchor)
     return params
   }
 
@@ -165,7 +178,8 @@ export function workspaceShareTargetFromSearch(search: string) {
 
   if (kind === 'agent') {
     if (!agentId) return null
-    return { kind, agentId } satisfies WorkspaceShareTarget
+    const readingAnchor = readingAnchorValue(params.get('fra') || '')
+    return { kind, agentId, ...(readingAnchor ? { readingAnchor } : {}) } satisfies WorkspaceShareTarget
   }
 
   if (kind === 'folder') {
@@ -195,6 +209,31 @@ export function workspaceShareTargetFromSearch(search: string) {
   }
 
   return null
+}
+
+export function workspaceShareTargetWithCurrentReadingAnchor(target: WorkspaceShareTarget | null | undefined) {
+  if (!target) return target
+  if (target.kind === 'agent') {
+    if (!target.readingSurface) return target
+    const readingAnchor = encodeReadingAnchorForKey(readingAnchorAgentKey(target.agentId, target.readingSurface))
+    return readingAnchor ? { ...target, readingAnchor } : target
+  }
+  if (target.kind !== 'file') return target
+
+  const normalizedPath = normalizePath(target.filePath).replace(/^\/+/, '')
+  const normalizedAbsolutePath = normalizePath(target.absolutePath || '')
+  const workspace = normalizedAbsolutePath.endsWith(`/${normalizedPath}`)
+    ? normalizedAbsolutePath.slice(0, -(normalizedPath.length + 1)) || '/'
+    : target.agentId ? `agent:${target.agentId}` : ''
+  if (!workspace) return target
+  const anchor = readReadingAnchor(readingAnchorFileKey(workspace, target.filePath))
+  if (anchor?.surface !== 'file' || anchor.resource.kind !== 'file') return target
+  return {
+    ...target,
+    lineNumber: anchor.position.value,
+    ...(anchor.position.column ? { column: anchor.position.column } : {}),
+    endColumn: undefined,
+  }
 }
 
 export function workspaceFileOpenTargetFromShareTarget(target: WorkspaceShareTarget): WorkspaceFileOpenTarget | undefined {

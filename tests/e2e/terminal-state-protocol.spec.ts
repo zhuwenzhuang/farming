@@ -236,6 +236,7 @@ test.describe('terminal state protocol', () => {
       .toBeGreaterThan(0)
     await page.evaluate(async id => window.__farmingTerminalTest?.scrollToLine(id, 30), agentId)
     await expect.poll(async () => (await terminalViewport(page, agentId)).following).toBe(false)
+    const readingRowsBeforeSwitch = await terminalRows(page, agentId, 4)
 
     const input = await page.request.post(`/farming/api/control/agents/${agentId}/input`, {
       data: { input: 'printf "JUMP_READ_COMPLETED\\n"\r' },
@@ -255,6 +256,7 @@ test.describe('terminal state protocol', () => {
     await expect(row).toHaveClass(/unread/)
     await selectControlAgent(page, agentId)
     await expect(row).toHaveClass(/unread/)
+    await expect.poll(() => terminalRows(page, agentId, 4)).toEqual(readingRowsBeforeSwitch)
     await expect(page.getByTestId('code-terminal-jump-bottom')).toBeVisible()
     await page.getByTestId('code-terminal-jump-bottom').click()
     await expect.poll(async () => (await terminalViewport(page, agentId)).following).toBe(true)

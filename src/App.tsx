@@ -700,6 +700,21 @@ export function App() {
   }, [notifyError])
 
   const handleUpdateAgentFlags = useCallback(async (agentId: string, flags: AgentFlagPatch) => {
+    const isReadCursorUpdate = flags.unread === false
+      && Object.keys(flags).every((key) => (
+        key === 'unread'
+        || key === 'readAttentionSeq'
+        || key === 'readOutputEpoch'
+        || key === 'readOutputSeq'
+      ))
+
+    // A runtime switch deletes the old Agent before its background read receipt
+    // can finish. The replacement owns later receipts, so avoid surfacing a
+    // stale 404 or racing the destructive switch with an irrelevant PATCH.
+    if (isReadCursorUpdate && permissionSwitchRequestRef.current === agentId) {
+      return true
+    }
+
     const permissionMode = typeof flags.launchPermissionMode === 'string'
       ? flags.launchPermissionMode
       : ''

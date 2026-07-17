@@ -4,6 +4,7 @@ const path = require('path');
 const {
   isBrowserShortcut,
   isCopyShortcut,
+  isCrtNativeTerminalPasteTarget,
   isPasteShortcut,
 } = require('../../frontend/skins/crt/app.js');
 
@@ -39,6 +40,11 @@ function run() {
   assert.strictEqual(isCopyShortcut(makeEvent({ key: 'c', ctrlKey: true })), true);
   assert.strictEqual(isPasteShortcut(makeEvent({ key: 'v', ctrlKey: true })), true);
   assert.strictEqual(isBrowserShortcut(makeEvent({ key: 'a' })), false);
+  assert.strictEqual(isCrtNativeTerminalPasteTarget({
+    closest: selector => selector === '#terminal-output .xterm' ? {} : null,
+  }), true);
+  assert.strictEqual(isCrtNativeTerminalPasteTarget({ closest: () => null }), false);
+  assert.strictEqual(isCrtNativeTerminalPasteTarget(null), false);
 
   const sessionModalSource = fs.readFileSync(
     path.join(__dirname, '../../src/components/SessionModal.tsx'),
@@ -91,6 +97,10 @@ function run() {
   );
   const terminalResizeSource = fs.readFileSync(
     path.join(__dirname, '../../src/lib/terminal-resize.ts'),
+    'utf8'
+  );
+  const terminalReplaySource = fs.readFileSync(
+    path.join(__dirname, '../../frontend/terminal-replay.js'),
     'utf8'
   );
   const terminalAttachmentSource = fs.readFileSync(
@@ -205,7 +215,7 @@ function run() {
       terminalPoolSource.includes('return await fetchSessionBootstrapState(record.agentId, controller.signal)') &&
       !terminalPoolSource.includes('BOOTSTRAP_DIMENSION_RETRY_COUNT') &&
       terminalBootstrapSource.includes('parseSessionDimensions') &&
-      terminalPoolSource.includes('record.terminal.resize(state.cols, state.rows)') &&
+      terminalPoolSource.includes('record.terminal.resize?.(state.cols!, state.rows!)') &&
       !terminalPoolSource.includes('pendingResizeCheckpoint') &&
       !terminalPoolSource.includes('output: state.textOutput'),
     'terminal bootstrap replay should install checkpoint bytes and dimensions as one authoritative reducer cut without coupling replay to a pending resize'
@@ -255,30 +265,31 @@ function run() {
       terminalPoolSource.includes("from '@/lib/terminal-output'") &&
       terminalPoolSource.includes('replaceTerminalOutput(record, state.output,') &&
       terminalPoolSource.includes('record.replayInProgress = true') &&
-      terminalPoolSource.includes('record.checkpointInstallSeq !== checkpointInstallSeq') &&
-      crtAppSource.includes('replication.checkpointInstallSeq !== installSeq') &&
-      crtAppSource.includes('replication.checkpointInstallInProgress') &&
+      terminalPoolSource.includes('record.reconnectSnapshotSeq !== installSeq') &&
+      crtAppSource.includes('replication.installSeq !== installSeq') &&
+      crtAppSource.includes('replication.installInProgress') &&
       crtAppSource.includes('drainCrtTerminalCheckpointInstall(replication)'),
     'terminal checkpoint installs should serialize xterm writes and fence superseded callbacks'
   );
   assert(
       terminalPoolSource.includes('bootstrappingSnapshot') &&
-      terminalPoolSource.includes('queuedOutput') &&
+      terminalPoolSource.includes('replayState: TERMINAL_REPLAY.createState()') &&
       terminalPoolSource.includes('function flushQueuedTerminalOutput') &&
       terminalPoolSource.includes('function queueTerminalTransition') &&
-      terminalPoolSource.includes('MAX_QUEUED_TRANSITIONS') &&
-      terminalPoolSource.includes('MAX_QUEUED_TRANSITION_BYTES') &&
+      terminalPoolSource.includes('TERMINAL_REPLAY.queueTransition(record.replayState, event)') &&
+      terminalPoolSource.includes('TERMINAL_REPLAY.takeQueuedTransition(record.replayState)') &&
       terminalPoolSource.includes('function handleTerminalStreamOutput') &&
       terminalPoolSource.includes("document.visibilityState === 'hidden'") &&
       terminalPoolSource.includes('record.pageOutputSuspended') &&
       terminalPoolSource.includes('snapshotStateRevision') &&
       terminalPoolSource.includes('snapshotRuntimeEpoch') &&
-      terminalPoolSource.includes('stateRevision !== record.stateRevision + 1') &&
-      terminalPoolSource.includes('replayTerminalCheckpoint(record, record.attachGeneration)') &&
-      terminalPoolSource.includes('function removeCoveredQueuedTransitions') &&
-      terminalPoolSource.includes('isSequencedOutputCovered(event.stateRevision, stateRevision)') &&
-      terminalBootstrapSource.includes('export function isSequencedOutputCovered') &&
-      terminalPoolSource.includes("from '@/lib/terminal-bootstrap'") &&
+      terminalPoolSource.includes('TERMINAL_REPLAY.classifyTransition(record.replayState, event)') &&
+      terminalPoolSource.includes('TERMINAL_REPLAY.commitTransition(record.replayState, event)') &&
+      terminalPoolSource.includes('requestTerminalReplay(record)') &&
+      terminalReplaySource.includes('const DEFAULT_MAX_QUEUED_TRANSITIONS = 512') &&
+      terminalReplaySource.includes('const DEFAULT_MAX_QUEUED_BYTES = 1024 * 1024') &&
+      terminalReplaySource.includes('event.stateRevision !== state.stateRevision + 1') &&
+      terminalReplaySource.includes('function removeCheckpointCoveredTransitions') &&
       !terminalPoolSource.includes('snapshotOutput.includes(event.data)') &&
       terminalPoolSource.includes('flushQueuedTerminalOutput(record)'),
     'terminal session pool should bound live transitions behind replay and reduce only contiguous state revisions'
@@ -506,12 +517,19 @@ function run() {
       terminalResizeSource.includes('const hostRect = hostEl.getBoundingClientRect()') &&
       terminalResizeSource.includes('if (hostRect.width <= 0 || hostRect.height <= 0) return null') &&
       terminalResizeSource.includes('export function notifyTerminalResizeTracker') &&
-      terminalResizeSource.includes('tracker.lastNotifiedResize.cols === next.cols') &&
-      terminalResizeSource.includes('const delivered = onResize(next.cols, next.rows)') &&
-      terminalResizeSource.includes('if (delivered === false) return false') &&
-      terminalResizeSource.includes('tracker.resizeNotificationCount += 1') &&
+      terminalResizeSource.includes('export function shouldDebounceTerminalResize') &&
+      terminalResizeSource.includes('export function queueTerminalResizeDelivery') &&
+      terminalResizeSource.includes('export function acknowledgeTerminalResizeDelivery') &&
+      terminalResizeSource.includes('export function resetTerminalResizeDeliveryTracker') &&
       terminalResizeSource.includes('export function resetTerminalResizeTracker') &&
       terminalPoolSource.includes("from '@/lib/terminal-resize'") &&
+      terminalPoolSource.includes('TERMINAL_RESIZE_SETTLE_MS = 250') &&
+      terminalPoolSource.includes('TERMINAL_RESIZE_DELIVERY_TIMEOUT_MS = 1500') &&
+      terminalPoolSource.includes('function scheduleTerminalFitResize') &&
+      !terminalResizeSource.includes('normalBufferLength') &&
+      !terminalPoolSource.includes('getNormalBufferLength') &&
+      terminalPoolSource.includes('function deliverTerminalResize') &&
+      terminalPoolSource.includes('queueTerminalResizeDelivery(record, cols, rows') &&
       terminalPoolSource.includes('function notifyTerminalResize') &&
       !terminalPoolSource.includes('function requestTerminalControllerResize') &&
       !terminalPoolSource.includes('pendingResizeCheckpoint') &&
@@ -522,22 +540,22 @@ function run() {
       terminalPoolSource.includes('notifyTerminalResizeTracker(record, cols, rows, (nextCols, nextRows) =>') &&
       terminalPoolSource.includes('notifyResizeForTest(agentId: string, cols: number, rows: number)') &&
       terminalPoolSource.includes('function resyncTerminalSizeAfterBackendReconnect') &&
-      terminalPoolSource.includes('function replayTerminalCheckpoint') &&
+      terminalPoolSource.includes('requestTerminalReplay(record, record.attachGeneration)') &&
       terminalPoolSource.includes('needsReconnectOutputSync') &&
       terminalPoolSource.includes('record.needsReconnectOutputSync = true') &&
       terminalPoolSource.includes('record.needsReconnectOutputSync = false') &&
       terminalPoolSource.includes('function notifyTerminalAttachReady') &&
       terminalPoolSource.includes('record.liveWriteInProgress ||') &&
-      terminalPoolSource.includes('record.queuedOutput.length > 0 ||') &&
+      terminalPoolSource.includes('record.replayState.queuedTransitions.length > 0 ||') &&
       !terminalPoolSource.includes('attemptsRemaining = 40') &&
       terminalPoolSource.includes('fetchSessionBootstrapState(record.agentId, controller.signal)') &&
       terminalPoolSource.includes('const controller = new AbortController()') &&
       terminalPoolSource.includes('TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5000') &&
       terminalPoolSource.includes('record.bootstrapRequestControllers.forEach(controller => controller.abort())') &&
-      terminalPoolSource.includes('function isValidTerminalCheckpoint') &&
-      terminalPoolSource.includes('bootstrapState.stateRevision === record.stateRevision') &&
-      terminalPoolSource.includes('installTerminalCheckpoint(record, bootstrapState, generation)') &&
+      terminalPoolSource.includes('TERMINAL_REPLAY.evaluateCheckpoint(record.replayState, checkpoint)') &&
+      terminalPoolSource.includes('installTerminalCheckpoint(record, state, generation)') &&
       terminalPoolSource.includes('resetTerminalResizeTracker(record)') &&
+      terminalPoolSource.includes('resetTerminalResizeDelivery(record)') &&
       terminalPoolSource.includes("window.addEventListener('farming:backend-connected', backendConnectedHandler)") &&
       terminalPoolSource.includes("window.removeEventListener('farming:backend-connected', record.backendConnectedHandler)") &&
       terminalPoolSource.includes("document.addEventListener('visibilitychange', pageLifecycleHandler)") &&
@@ -547,7 +565,7 @@ function run() {
       terminalPoolSource.includes('notifyTerminalResize(record, dimensions.cols, dimensions.rows, options)') &&
       terminalPoolSource.includes('notifyTerminalResize(record, cols, rows)') &&
       webSocketSource.includes("window.dispatchEvent(new Event('farming:backend-connected'))"),
-    'terminal session pool should send direct geometry updates while display recovery remains on the independent authoritative checkpoint path'
+    'terminal session pool should coalesce browser geometry, keep one delivery in flight, and recover display from an independent authoritative checkpoint'
   );
   assert(
     terminalPoolSource.includes('hostEl.dataset.agentId = agentId'),
@@ -589,7 +607,7 @@ function run() {
       !terminalPoolSource.includes('Terminal is synchronizing; input was not sent') &&
       !terminalPoolSource.includes('subscribeTerminalInput') &&
       !terminalPoolSource.includes('handleTerminalInputState(record, message)'),
-    'terminal session pool should use direct VS Code-style shared input'
+    'terminal session pool should use direct shared raw input'
   );
   const codeInputBody = terminalPoolSource.slice(
     terminalPoolSource.indexOf('function queueTerminalInput'),
@@ -597,7 +615,7 @@ function run() {
   );
   const crtInputBody = crtAppSource.slice(
     crtAppSource.indexOf('function queueCrtTerminalInput'),
-    crtAppSource.indexOf('function queueCrtTerminalTransition')
+    crtAppSource.indexOf('function requestCrtTerminalReplay')
   );
   assert(
     codeInputBody.includes("type: 'input'") &&
@@ -624,12 +642,10 @@ function run() {
     'terminal IME composition text should use normal Codex text color instead of terminal green'
   );
   assert(
-      terminalPoolSource.includes("record.hostEl.classList.toggle('terminal-renderer-cursor-suppressed'") &&
-        mainCssSource.includes('.terminal-session-host.terminal-renderer-cursor-suppressed .xterm .xterm-cursor') &&
-        mainCssSource.includes('background-color: transparent !important') &&
-        mainCssSource.includes('opacity: 1 !important') &&
-        mainCssSource.includes('contain: layout paint size'),
-    'xterm terminal hosts should isolate paint and suppress cursor paint without hiding the cursor cell text for coding-agent TUIs'
+      xtermSource.includes("import { WebglAddon } from '@xterm/addon-webgl'") &&
+        xtermSource.includes("cursorInactiveStyle: 'none'") &&
+        terminalPoolSource.includes('if (isXtermTerminal(record.terminal)) return false'),
+    'xterm WebGL should own cursor paint and hide its inactive cursor without DOM renderer overrides'
   );
   assert(
     terminalPoolSource.includes('if (sessions.get(agentId) !== record) return'),
@@ -720,7 +736,7 @@ function run() {
   );
   assert(
     terminalPoolSource.includes('writeSequenced') &&
-      terminalPoolSource.includes('stateRevision ?? ((record.stateRevision ?? 0) + 1)') &&
+      terminalPoolSource.includes('stateRevision ?? ((record.replayState.stateRevision ?? 0) + 1)') &&
       terminalPoolSource.includes('applyTerminalOutputEvent(') &&
       terminalPoolSource.includes('streamSequenced') &&
       terminalPoolSource.includes('handleTerminalStreamOutput('),

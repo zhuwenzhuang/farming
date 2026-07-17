@@ -9,9 +9,8 @@ interface UseWorkspaceFileTreeControllerOptions {
   openDirectoryPaths: ReadonlySet<string>
   treeData: WorkspaceFileTreeNode[]
   hydrateCompactDirectoryChains: (directoryPath: string) => Promise<unknown>
-  finishRestoringOpenDirectoryPaths: () => void
+  isDirectoryOpen: (path: string) => boolean
   setDirectoryOpen: (path: string, open: boolean) => void
-  syncOpenDirectoryPaths: (openPaths: Set<string>) => void
 }
 
 export function useWorkspaceFileTreeController({
@@ -20,9 +19,8 @@ export function useWorkspaceFileTreeController({
   openDirectoryPaths,
   treeData,
   hydrateCompactDirectoryChains,
-  finishRestoringOpenDirectoryPaths,
+  isDirectoryOpen,
   setDirectoryOpen,
-  syncOpenDirectoryPaths,
 }: UseWorkspaceFileTreeControllerOptions) {
   const treeRef = useRef<TreeApi<WorkspaceFileTreeNode> | undefined>(undefined)
   const treeViewportRef = useRef<HTMLDivElement | null>(null)
@@ -31,19 +29,6 @@ export function useWorkspaceFileTreeController({
   const appliedManualClosuresRef = useRef(new Set<string>())
 
   const treeHeight = Math.max(rowHeight, visibleTreeRowCount * rowHeight)
-
-  const syncTreeStateFromArborist = useCallback(() => {
-    const tree = treeRef.current
-    if (!tree) return
-
-    const nextOpenPaths = new Set<string>()
-    tree.visibleNodes.forEach(node => {
-      if (node.data.type === 'directory' && node.isOpen) {
-        nextOpenPaths.add(node.data.path)
-      }
-    })
-    syncOpenDirectoryPaths(nextOpenPaths)
-  }, [syncOpenDirectoryPaths])
 
   const openTreePaths = useCallback((paths: readonly string[]) => {
     if (paths.length === 0) return false
@@ -61,18 +46,14 @@ export function useWorkspaceFileTreeController({
   }, [])
 
   const refreshTreeLayout = useCallback((preserveOpenPaths: readonly string[] = []) => {
-    const redrawTree = (syncOpenState = false) => {
+    const redrawTree = () => {
       openTreePaths(preserveOpenPaths)
       treeRef.current?.redrawList()
-      if (syncOpenState) {
-        openTreePaths(preserveOpenPaths)
-        syncTreeStateFromArborist()
-      }
     }
     redrawTree()
-    window.requestAnimationFrame(() => redrawTree(true))
-    window.setTimeout(() => redrawTree(true), 80)
-  }, [openTreePaths, syncTreeStateFromArborist])
+    window.requestAnimationFrame(redrawTree)
+    window.setTimeout(redrawTree, 80)
+  }, [openTreePaths])
 
   const setTreePathOpen = useCallback((path: string, open: boolean) => {
     if (open) {
@@ -84,6 +65,12 @@ export function useWorkspaceFileTreeController({
     }
     setDirectoryOpen(path, open)
   }, [setDirectoryOpen])
+
+  const toggleTreePathOpen = useCallback((path: string) => {
+    const nextOpen = !isDirectoryOpen(path)
+    setTreePathOpen(path, nextOpen)
+    return nextOpen
+  }, [isDirectoryOpen, setTreePathOpen])
 
   useEffect(() => {
     manuallyClosedPathsRef.current.forEach(path => {
@@ -104,9 +91,6 @@ export function useWorkspaceFileTreeController({
       if (openTreePaths(pathsToOpen)) {
         treeRef.current?.redrawList()
       }
-      if (pathsToOpen.every(path => Boolean(treeRef.current?.get(path)))) {
-        finishRestoringOpenDirectoryPaths()
-      }
     }
     reconcileTreeOpenState()
     const frameId = window.requestAnimationFrame(reconcileTreeOpenState)
@@ -117,7 +101,7 @@ export function useWorkspaceFileTreeController({
       window.clearTimeout(timeoutId)
       window.clearTimeout(lateTimeoutId)
     }
-  }, [finishRestoringOpenDirectoryPaths, openDirectoryPaths, openTreePaths, treeData])
+  }, [openDirectoryPaths, openTreePaths, treeData])
 
   const renderFileTreeRow = useCallback(({ attrs, innerRef, children }: RowRendererProps<WorkspaceFileTreeNode>) => {
     const { style, className, ...rowAttrs } = attrs
@@ -137,25 +121,12 @@ export function useWorkspaceFileTreeController({
   const handleTreeToggle = useCallback((path: string) => {
     preserveWorkspaceFileScrollPosition(treeViewportRef.current?.closest<HTMLElement>('.code-project-list'))
 
-    let lastObservedOpen: boolean | null = null
-    const syncObservedToggle = () => {
-      const nextOpen = manuallyClosedPathsRef.current.has(path)
-        ? false
-        : Boolean(treeRef.current?.get(path)?.isOpen)
-      if (lastObservedOpen === nextOpen) return
-      lastObservedOpen = nextOpen
-      setDirectoryOpen(path, nextOpen)
-      if (nextOpen) {
-        void hydrateCompactDirectoryChains(path).finally(refreshTreeLayout)
-      } else {
-        refreshTreeLayout()
-      }
+    if (isDirectoryOpen(path)) {
+      void hydrateCompactDirectoryChains(path).finally(() => refreshTreeLayout([path]))
+    } else {
+      refreshTreeLayout()
     }
-
-    syncObservedToggle()
-    window.requestAnimationFrame(syncObservedToggle)
-    window.setTimeout(syncObservedToggle, 80)
-  }, [hydrateCompactDirectoryChains, refreshTreeLayout, setDirectoryOpen])
+  }, [hydrateCompactDirectoryChains, isDirectoryOpen, refreshTreeLayout])
 
   const rememberFocusedTreeNode = useCallback((node: { data: WorkspaceFileTreeNode } | null | undefined) => {
     if (!node) return
@@ -179,5 +150,6 @@ export function useWorkspaceFileTreeController({
     rememberSelectedTreeNodes,
     renderFileTreeRow,
     setTreePathOpen,
+    toggleTreePathOpen,
   }
 }

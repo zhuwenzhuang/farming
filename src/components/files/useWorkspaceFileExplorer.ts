@@ -3,7 +3,6 @@ import { useWorkspaceFiles } from '@/hooks/useWorkspaceFiles'
 import {
   buildWorkspaceFileTreeNodes,
   countVisibleWorkspaceTreeRows,
-  findWorkspaceFileTreeNode,
   type WorkspaceFileTreeNode,
 } from '@/lib/workspace-file-tree'
 import {
@@ -12,13 +11,15 @@ import {
 } from '@/components/code/workspace-view-state'
 
 const COMPACT_DIRECTORY_PRELOAD_MAX_DEPTH = 12
+const WORKSPACE_DIRECTORY_REFRESH_CONCURRENCY = 6
 
-function sameStringSet(left: ReadonlySet<string>, right: ReadonlySet<string>) {
-  if (left.size !== right.size) return false
-  for (const value of left) {
-    if (!right.has(value)) return false
-  }
-  return true
+function parentDirectoryPath(directoryPath: string) {
+  const separatorIndex = directoryPath.lastIndexOf('/')
+  return separatorIndex < 0 ? '' : directoryPath.slice(0, separatorIndex)
+}
+
+function directoryPathDepth(directoryPath: string) {
+  return directoryPath.split('/').filter(Boolean).length
 }
 
 export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = agentId) {
@@ -31,8 +32,8 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
   const [openDirectoryPaths, setOpenDirectoryPaths] = useState<Set<string>>(() => new Set(
     loadCodeProjectFilesViewState(normalizedWorkspaceKey).openDirectoryPaths ?? []
   ))
+  const openDirectoryPathsRef = useRef(openDirectoryPaths)
   const openDirectoryWorkspaceKeyRef = useRef(normalizedWorkspaceKey)
-  const restoringOpenDirectoryPathsRef = useRef(openDirectoryPaths.size > 0)
   const compactDirectoryHydrationRef = useRef(new Map<string, Promise<void>>())
   const restoredDirectoryHydrationKeyRef = useRef('')
 
@@ -43,50 +44,35 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
     Math.max(1, countVisibleWorkspaceTreeRows(treeData, openDirectoryPaths))
   ), [openDirectoryPaths, treeData])
 
-  const syncOpenDirectoryPaths = useCallback((nextOpenPaths: ReadonlySet<string>) => {
-    setOpenDirectoryPaths(current => {
-      const next = new Set(nextOpenPaths)
-      if (restoringOpenDirectoryPathsRef.current) {
-        current.forEach(directoryPath => next.add(directoryPath))
-      } else {
-        current.forEach(directoryPath => {
-          if (!findWorkspaceFileTreeNode(treeData, directoryPath)) next.add(directoryPath)
-        })
-      }
-      return sameStringSet(current, next) ? current : next
-    })
-  }, [treeData])
-
-  const finishRestoringOpenDirectoryPaths = useCallback(() => {
-    restoringOpenDirectoryPathsRef.current = false
-  }, [])
-
   const setDirectoryOpen = useCallback((directoryPath: string, open: boolean) => {
-    setOpenDirectoryPaths(current => {
-      const alreadyOpen = current.has(directoryPath)
-      if (alreadyOpen === open) return current
-      const next = new Set(current)
-      if (open) {
-        next.add(directoryPath)
-      } else {
-        next.delete(directoryPath)
-      }
-      return next
-    })
+    const current = openDirectoryPathsRef.current
+    if (current.has(directoryPath) === open) return
+    const next = new Set(current)
+    if (open) {
+      next.add(directoryPath)
+    } else {
+      next.delete(directoryPath)
+    }
+    openDirectoryPathsRef.current = next
+    setOpenDirectoryPaths(next)
   }, [])
+
+  const isDirectoryOpen = useCallback((directoryPath: string) => (
+    openDirectoryPathsRef.current.has(directoryPath)
+  ), [])
 
   const openDirectoriesInLayout = useCallback((directoryPaths: string[]) => {
     if (directoryPaths.length === 0) return
-    setOpenDirectoryPaths(current => {
-      let changed = false
-      const next = new Set(current)
-      directoryPaths.forEach(directoryPath => {
-        if (!directoryPath || next.has(directoryPath)) return
-        next.add(directoryPath)
-        changed = true
-      })
-      return changed ? next : current
+    const next = new Set(openDirectoryPathsRef.current)
+    let changed = false
+    directoryPaths.forEach(directoryPath => {
+      if (!directoryPath || next.has(directoryPath)) return
+      next.add(directoryPath)
+      changed = true
     })
+    if (!changed) return
+    openDirectoryPathsRef.current = next
+    setOpenDirectoryPaths(next)
   }, [])
 
   const loadRootDirectory = useCallback(() => (
@@ -104,9 +90,78 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
   }, [directories])
 
   const refreshDirectories = useCallback((directoryPaths: Array<string | null | undefined>) => {
-    Array.from(new Set(directoryPaths.map(path => path ?? ''))).forEach(directoryPath => {
-      loadDirectory(directoryPath)
+    const requestedPaths = new Set<string>([''])
+    directoryPaths.forEach(candidatePath => {
+      let directoryPath = String(candidatePath ?? '').replace(/^\/+|\/+$/g, '')
+      requestedPaths.add(directoryPath)
+      while (directoryPath) {
+        directoryPath = parentDirectoryPath(directoryPath)
+        requestedPaths.add(directoryPath)
+      }
     })
+    const sortedPaths = Array.from(requestedPaths).sort((left, right) => (
+      directoryPathDepth(left) - directoryPathDepth(right) || left.localeCompare(right)
+    ))
+
+    return (async () => {
+      const refreshedDirectories = new Map<string, Awaited<ReturnType<typeof loadDirectory>>>()
+      const staleDirectoryPaths = new Set<string>()
+      let successful = true
+      let index = 0
+
+      while (index < sortedPaths.length) {
+        const depth = directoryPathDepth(sortedPaths[index]!)
+        const sameDepthPaths: string[] = []
+        while (index < sortedPaths.length && directoryPathDepth(sortedPaths[index]!) === depth) {
+          sameDepthPaths.push(sortedPaths[index]!)
+          index += 1
+        }
+
+        const pathsToLoad = sameDepthPaths.filter(directoryPath => {
+          if (!directoryPath) return true
+          if (Array.from(staleDirectoryPaths).some(stalePath => (
+            directoryPath === stalePath || directoryPath.startsWith(`${stalePath}/`)
+          ))) return false
+
+          const parentPath = parentDirectoryPath(directoryPath)
+          const parentDirectory = refreshedDirectories.get(parentPath)
+          if (parentDirectory === null) {
+            successful = false
+            return false
+          }
+          if (parentDirectory && !parentDirectory.items.some(item => (
+            item.type === 'directory' && item.path === directoryPath
+          ))) {
+            staleDirectoryPaths.add(directoryPath)
+            return false
+          }
+          return true
+        })
+
+        let nextPathIndex = 0
+        const workers = Array.from({ length: Math.min(WORKSPACE_DIRECTORY_REFRESH_CONCURRENCY, pathsToLoad.length) }, async () => {
+          while (nextPathIndex < pathsToLoad.length) {
+            const directoryPath = pathsToLoad[nextPathIndex]!
+            nextPathIndex += 1
+            const result = await loadDirectory(directoryPath)
+            refreshedDirectories.set(directoryPath, result)
+            if (!result) successful = false
+          }
+        })
+        await Promise.all(workers)
+      }
+
+      if (staleDirectoryPaths.size > 0) {
+        const stalePaths = Array.from(staleDirectoryPaths)
+        const next = new Set(Array.from(openDirectoryPathsRef.current).filter(directoryPath => (
+          !stalePaths.some(stalePath => directoryPath === stalePath || directoryPath.startsWith(`${stalePath}/`))
+        )))
+        openDirectoryPathsRef.current = next
+        setOpenDirectoryPaths(next)
+      }
+
+      return successful
+    })()
   }, [loadDirectory])
 
   const hydrateCompactDirectoryChains = useCallback((directoryPath: string) => {
@@ -149,8 +204,9 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
     openDirectoryWorkspaceKeyRef.current = normalizedWorkspaceKey
     restoredDirectoryHydrationKeyRef.current = ''
     const restoredPaths = loadCodeProjectFilesViewState(normalizedWorkspaceKey).openDirectoryPaths ?? []
-    restoringOpenDirectoryPathsRef.current = restoredPaths.length > 0
-    setOpenDirectoryPaths(new Set(restoredPaths))
+    const next = new Set(restoredPaths)
+    openDirectoryPathsRef.current = next
+    setOpenDirectoryPaths(next)
   }, [normalizedWorkspaceKey])
 
   useEffect(() => {
@@ -173,14 +229,14 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
     loadMissingDirectories,
     refreshDirectories,
     hydrateCompactDirectoryChains,
-    syncOpenDirectoryPaths,
-    finishRestoringOpenDirectoryPaths,
+    isDirectoryOpen,
     setDirectoryOpen,
     openDirectoriesInLayout,
   }), [
     directories,
     ensureDirectoryLoaded,
     hydrateCompactDirectoryChains,
+    isDirectoryOpen,
     isDirectoryLoaded,
     loadMissingDirectories,
     loadRootDirectory,
@@ -188,8 +244,6 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
     openDirectoryPaths,
     refreshDirectories,
     setDirectoryOpen,
-    syncOpenDirectoryPaths,
-    finishRestoringOpenDirectoryPaths,
     treeData,
     visibleTreeRowCount,
   ])

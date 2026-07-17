@@ -28,7 +28,12 @@ function run() {
     xtermSource.includes("adapted.__farmingTerminalEngine = 'xterm'") &&
       xtermSource.includes('new Terminal({') &&
       xtermSource.includes("import { ClipboardAddon } from '@xterm/addon-clipboard'") &&
+      xtermSource.includes("import { WebglAddon } from '@xterm/addon-webgl'") &&
       xtermSource.includes('new ClipboardAddon(undefined, createTerminalClipboardProvider())') &&
+      xtermSource.includes('const webglAddon = new WebglAddon()') &&
+      xtermSource.includes('adapted.onRendererFailure = (handler) =>') &&
+      xtermSource.includes("rendererType = 'webgl'") &&
+      !xtermSource.includes('falling back to the DOM renderer') &&
       xtermSource.includes('adapted.reattach = () =>') &&
       xtermSource.includes('terminal: decorateXtermTerminal(terminal, searchAddon)') &&
       xtermSource.includes('adapted.forceRedraw = () =>') &&
@@ -40,6 +45,7 @@ function run() {
       xtermSource.includes('linkHandler:') &&
       xtermSource.includes('allowNonHttpProtocols: false') &&
       xtermSource.includes('minimumContrastRatio: 4.5') &&
+      xtermSource.includes("cursorInactiveStyle: 'none'") &&
       xtermSource.includes("cursorStyle: 'block'") &&
       xtermSource.includes('scrollback: 5000') &&
       xtermSource.includes('new FitAddon()'),
@@ -56,10 +62,11 @@ function run() {
   );
 
   assert(
-    packageJson.dependencies['@xterm/xterm'] &&
+      packageJson.dependencies['@xterm/xterm'] &&
       packageJson.dependencies['@xterm/addon-fit'] &&
-      packageJson.dependencies['@xterm/addon-clipboard'],
-    'runtime dependencies should include xterm.js, the fit addon, and the standard xterm clipboard addon'
+      packageJson.dependencies['@xterm/addon-clipboard'] &&
+      packageJson.dependencies['@xterm/addon-webgl'],
+    'runtime dependencies should include xterm.js and its required product-path addons'
   );
 
   assert(

@@ -110,9 +110,11 @@ function run() {
 	      workspaceSource.includes('ProjectFilesSection') &&
 	      workspaceSource.includes('FileEditorPane') &&
 	      workspaceSource.includes('function loadFileEditorPane') &&
+	      workspaceSource.includes('function preloadFileEditorPane') &&
 	      workspaceSource.includes('function FileEditorFallback') &&
 	      workspaceSource.includes('data-testid="code-file-editor-fallback-textarea"') &&
-	      workspaceSource.includes('fallback={') &&
+	      workspaceSource.includes('ReadyFileEditorPane ? (') &&
+	      !workspaceSource.includes('lazy(() => loadFileEditorPane())') &&
 	      workspaceSource.includes('<FileEditorFallback') &&
 	      workspaceSource.includes('openFile={openWorkspaceFile}') &&
 	      workspaceSource.includes('onChangeDraft={onChangeWorkspaceFileDraft}') &&
@@ -556,18 +558,17 @@ function run() {
       fileFocusHookSource.includes("if (shouldFocusTree) focusWithoutScrolling(row.closest<HTMLElement>('[role=\"tree\"]'))") &&
       fileFocusHookSource.includes('scrollFileTreeToPath(visibleTargetPath, true, openTargetDirectory)') &&
 	      fileFocusHookSource.includes('treeRef.current?.open(directoryPath)') &&
-				      fileTreeControllerHookSource.includes('if (nextOpen) {') &&
+				      fileTreeControllerHookSource.includes('if (isDirectoryOpen(path)) {') &&
 				      !fileSectionSource.includes('if (nextOpen) {') &&
-			      fileTreeControllerHookSource.includes('void hydrateCompactDirectoryChains(path).finally(refreshTreeLayout)') &&
-			      fileTreeControllerHookSource.includes('window.requestAnimationFrame(syncObservedToggle)') &&
-			      fileTreeControllerHookSource.includes('window.setTimeout(syncObservedToggle, 80)') &&
+			      fileTreeControllerHookSource.includes('void hydrateCompactDirectoryChains(path).finally(() => refreshTreeLayout([path]))') &&
+			      !fileTreeControllerHookSource.includes('syncObservedToggle') &&
 			      !fileTreeRowInteractionsSource.includes('onHydrateCompactDirectoryChains') &&
 		      fileTreeKeyboardHookSource.includes('const openDirectoryNode = useCallback') &&
 		      fileTreeKeyboardHookSource.includes('const closeDirectoryNode = useCallback') &&
 		      fileTreeKeyboardHookSource.includes('preserveWorkspaceFileScrollPosition(projectScroller())') &&
 		      !fileTreeKeyboardHookSource.includes('hydrateCompactDirectoryChains(node.data.path).finally(refreshTreeLayout)') &&
-		      !fileTreeKeyboardHookSource.includes('setDirectoryOpen(node.data.path, true)') &&
-		      !fileTreeKeyboardHookSource.includes('setDirectoryOpen(filePath, false)') &&
+			      fileTreeKeyboardHookSource.includes('setDirectoryOpen(node.data.path, true)') &&
+			      fileTreeKeyboardHookSource.includes('setDirectoryOpen(filePath, false)') &&
 	      fileTreeKeyboardHookSource.includes('shouldCancelPendingWorkspaceFileTreeFocus(event.key)') &&
 		      fileTreeKeyboardHookSource.includes('workspaceFileTreeKeyboardTargetPath({') &&
 		      fileTreeKeyboardHookSource.includes('shouldCloseWorkspaceFileTreeDirectory({') &&
@@ -641,7 +642,7 @@ function run() {
       explorerHookSource.includes('countVisibleWorkspaceTreeRows(treeData, openDirectoryPaths)') &&
 	      fileTreeControllerHookSource.includes('const treeHeight = Math.max(rowHeight, visibleTreeRowCount * rowHeight)') &&
 	      !fileSectionSource.includes('const treeHeight = Math.max(FILE_ROW_HEIGHT, visibleTreeRowCount * FILE_ROW_HEIGHT)') &&
-	      fileTreeControllerHookSource.includes('const syncTreeStateFromArborist = useCallback') &&
+		      !fileTreeControllerHookSource.includes('syncTreeStateFromArborist') &&
 	      !fileSectionSource.includes('const syncTreeStateFromArborist = useCallback') &&
 	      fileTreeViewSource.includes('data-visible-row-count={visibleTreeRowCount}') &&
 	      fileTreeViewSource.includes('style={{ height: treeHeight }}') &&
@@ -662,18 +663,22 @@ function run() {
 		      fileViewModelSource.includes("return 'open-file'") &&
 		      !fileTreeRowInteractionsSource.includes('const plainClick = !event.metaKey && !event.ctrlKey && !event.shiftKey') &&
 	      fileTreeRowInteractionsSource.includes('onCancelPendingFileFocus()') &&
-	      fileTreeRowInteractionsSource.includes('const nextOpen = !node.isOpen') &&
-		      fileTreeRowInteractionsSource.includes('onSetDirectoryOpen(item.path, nextOpen)') &&
+		      fileTreeRowInteractionsSource.includes('const nextOpen = onToggleDirectory(item.path)') &&
+			      !fileTreeRowInteractionsSource.includes('const nextOpen = !node.isOpen') &&
 		      !fileTreeRowInteractionsSource.includes('onHydrateCompactDirectoryChains') &&
 		      !fileTreeRowInteractionsSource.includes('onRefreshTreeLayout') &&
 		      fileTreeControllerHookSource.includes('const refreshTreeLayout = useCallback((preserveOpenPaths: readonly string[] = []) =>') &&
 		      fileTreeControllerHookSource.includes('const setTreePathOpen = useCallback((path: string, open: boolean) =>') &&
-		      fileSectionSource.includes('onSetDirectoryOpen: setTreePathOpen') &&
-		      fileTreeViewSource.includes('onSetDirectoryOpen={onSetDirectoryOpen}') &&
+			      explorerHookSource.includes('const openDirectoryPathsRef = useRef(openDirectoryPaths)') &&
+			      explorerHookSource.includes('openDirectoryPathsRef.current = next') &&
+			      fileTreeControllerHookSource.includes('const toggleTreePathOpen = useCallback((path: string) =>') &&
+			      fileTreeControllerHookSource.includes('const nextOpen = !isDirectoryOpen(path)') &&
+			      fileSectionSource.includes('onToggleDirectory: toggleTreePathOpen') &&
+			      fileTreeViewSource.includes('onToggleDirectory={onToggleDirectory}') &&
 		      fileTreeControllerHookSource.includes('openTreePaths(preserveOpenPaths)') &&
 		      fileTreeControllerHookSource.includes('const pathsToOpen = Array.from(openDirectoryPaths)') &&
 		      fileTreeControllerHookSource.includes('const reconcileTreeOpenState = () =>') &&
-		      fileTreeControllerHookSource.includes('syncTreeStateFromArborist()') &&
+			      !fileTreeControllerHookSource.includes('syncOpenDirectoryPaths') &&
 	      !fileSectionSource.includes('const refreshTreeLayout = useCallback') &&
       fileFocusHookSource.includes('function revealRowInProjectScroller') &&
       fileFocusHookSource.includes("row.closest<HTMLElement>('.code-project-list')") &&
@@ -705,7 +710,7 @@ function run() {
 			      fileTreeKeyboardHookSource.includes('openDirectoryNode(node)') &&
 			      fileTreeKeyboardHookSource.includes('node.open()') &&
 			      !fileTreeKeyboardHookSource.includes('hydrateCompactDirectoryChains(node.data.path).finally(refreshTreeLayout)') &&
-			      !fileTreeKeyboardHookSource.includes('setDirectoryOpen(node.data.path, true)') &&
+			      fileTreeKeyboardHookSource.includes('setDirectoryOpen(node.data.path, true)') &&
 			      fileTreeRowInteractionsSource.includes('node.open()') &&
 			      fileTreeRowInteractionsSource.includes('node.close()') &&
 	      fileTreeKeyboardHookSource.includes('firstChild.select()') &&
@@ -713,7 +718,7 @@ function run() {
 		      fileTreeKeyboardHookSource.includes('closeDirectoryNode(node.data.path, node)') &&
 		      fileTreeKeyboardHookSource.includes('treeRef.current?.close(filePath)') &&
 		      fileTreeKeyboardHookSource.includes('node.close()') &&
-		      !fileTreeKeyboardHookSource.includes('setDirectoryOpen(filePath, false)') &&
+			      fileTreeKeyboardHookSource.includes('setDirectoryOpen(filePath, false)') &&
 		      fileTreeKeyboardHookSource.includes('parent.select()') &&
       fileTreeKeyboardHookSource.includes('firstChild.focus()') &&
       fileTreeRowInteractionsSource.includes('onFocusFileTreeTarget(item)') &&
@@ -723,14 +728,14 @@ function run() {
 	      fileTreeKeyboardHookSource.includes('const closeSelectedOpenDirectory = (event: KeyboardEvent) =>') &&
 		      fileTreeKeyboardHookSource.includes('closeDirectoryNode(filePath, node)') &&
 		      !fileTreeKeyboardHookSource.includes('node.toggle()') &&
-		      !fileTreeKeyboardHookSource.includes('setDirectoryOpen(node.data.path, nextOpen)') &&
+		      fileTreeKeyboardHookSource.includes('toggleDirectoryOpen(node.data.path)') &&
 	      fileTreeKeyboardHookSource.includes("window.addEventListener('keydown', closeSelectedOpenDirectory, true)") &&
       fileTreeKeyboardHookSource.includes("window.removeEventListener('keydown', closeSelectedOpenDirectory, true)") &&
       !fileSectionSource.includes('const closeSelectedOpenDirectory = (event: KeyboardEvent) =>') &&
       fileTreeViewSource.includes('onKeyDownCapture={handleTreeKeyDownCapture}') &&
       !fileSectionSource.includes('onKeyDownCapture={handleTreeKeyDownCapture}') &&
 	      fileTreeControllerHookSource.includes('const handleTreeToggle = useCallback') &&
-	      fileTreeControllerHookSource.includes('const syncObservedToggle = () =>') &&
+		      !fileTreeControllerHookSource.includes('const syncObservedToggle = () =>') &&
 	      !fileSectionSource.includes('const handleTreeToggle = useCallback') &&
 	      fileTreeViewSource.includes('onToggle={onToggleTreeNode}') &&
 	      !fileSectionSource.includes('onToggle={handleTreeToggle}') &&
@@ -844,7 +849,7 @@ function run() {
       !fileSectionSource.includes('collapseFileTree') &&
       !fileSectionSource.includes('aria-label="New file"') &&
       fileSectionHeaderSource.includes('data-testid="code-files-refresh"') &&
-      fileSectionHeaderSource.includes('aria-label={copy.refresh}') &&
+      fileSectionHeaderSource.includes('aria-label={refreshLabel}') &&
       !fileSectionSource.includes('aria-label="Collapse folders"') &&
       !fileSectionSource.includes('MAX_STICKY_ANCESTORS') &&
 	      fileTreeViewSource.includes('disableDrag') &&
@@ -1573,10 +1578,28 @@ function run() {
       !workspaceSource.includes('onWatchWorkspaceFiles={onWatchWorkspaceFiles}') &&
       !fileSectionSource.includes('onWatchWorkspaceFiles') &&
       fileSectionSource.includes('const refreshProjectFiles = useCallback(() =>') &&
-      fileSectionSource.includes("refreshDirectories(loadedDirectoryPaths.length > 0 ? loadedDirectoryPaths : [''])") &&
+      fileSectionSource.includes("setFilesRefreshStatus('refreshing')") &&
+      fileSectionSource.includes("setFilesRefreshStatus(refreshed ? 'success' : 'error')") &&
+      fileSectionSource.includes('filesRefreshInFlightRef.current') &&
+      fileSectionSource.includes("const loadedDirectoryPaths = ['', ...openDirectoryPaths]") &&
+      fileSectionSource.includes('refreshDirectories(loadedDirectoryPaths)') &&
+      fileSectionSource.includes('onRefreshOpenFiles(agentId, projectWorkspace)') &&
       fileSectionSource.includes('fileChanges.refreshChanges()') &&
-      fileSectionSource.includes('onRefreshFiles={refreshProjectFiles}'),
-    'Project Files should expose an explicit tree plus Changes refresh without subscribing to incomplete workspace watchers'
+      fileSectionSource.includes('refreshing={filesRefreshStatus === \'refreshing\'}') &&
+      fileSectionSource.includes('onRefreshFiles={refreshProjectFiles}') &&
+      fileSectionHeaderSource.includes('data-refresh-status={refreshStatus}') &&
+      fileSectionHeaderSource.includes("disabled={refreshStatus === 'refreshing'}") &&
+      fileChangesSectionSource.includes('data-testid="code-file-changes-tracked-count"') &&
+      fileChangesSectionSource.includes('data-testid="code-file-changes-untracked-count"') &&
+      fileChangesSectionSource.includes("const countRefreshState = countsRefreshing ? 'refreshing' : changes.error ? 'stale' : 'refreshed'") &&
+      codeCopySource.includes("filesRefreshed: 'Files refreshed'") &&
+      codeCopySource.includes("filesRefreshed: '文件已刷新'") &&
+      workspaceSource.includes('onRefreshProjectOpenFiles={refreshProjectOpenFiles}') &&
+      workspaceSource.includes('onRefreshOpenFiles={onRefreshProjectOpenFiles}') &&
+      explorerHookSource.includes('WORKSPACE_DIRECTORY_REFRESH_CONCURRENCY = 6') &&
+      explorerHookSource.includes('staleDirectoryPaths.add(directoryPath)') &&
+      hookSource.includes('WORKSPACE_FILE_REQUEST_TIMEOUT_MS = 15_000'),
+    'Project Files refresh should expose bounded button feedback and re-present real Changes counts without subscribing to incomplete workspace watchers'
   );
 
 	  assert(

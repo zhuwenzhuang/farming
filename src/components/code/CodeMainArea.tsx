@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type RefObject, type SyntheticEvent as ReactSyntheticEvent } from 'react'
+import { useCallback, useEffect, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type RefObject, type SyntheticEvent as ReactSyntheticEvent } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import type { OpenWorkspaceFile, WorkspaceOpenFileTarget } from '@/lib/workspace-open-files'
@@ -22,6 +22,11 @@ type TerminalFollowState = {
 }
 
 const FILE_EDITOR_CHUNK_RECOVERY_KEY = 'farming.code.fileEditor.chunk-recovery'
+type FileEditorPaneComponent = typeof import('../files/FileEditorPane')['FileEditorPane']
+type LoadedFileEditorPane = { default: FileEditorPaneComponent }
+
+let fileEditorPaneLoadPromise: Promise<LoadedFileEditorPane> | null = null
+let loadedFileEditorPane: FileEditorPaneComponent | null = null
 
 function reloadAfterFileEditorChunkLoadFailure() {
   if (typeof window === 'undefined') return false
@@ -35,21 +40,40 @@ function reloadAfterFileEditorChunkLoadFailure() {
   }
 }
 
+function loadFileEditorPaneModule() {
+  if (!fileEditorPaneLoadPromise) {
+    fileEditorPaneLoadPromise = Promise.all([
+      import('../files/FileEditorPane'),
+      import('@/lib/workspace-editor-monaco').then(editorMonaco => {
+        void editorMonaco.preloadWorkspaceEditorMonaco()
+      }),
+    ]).then(([module]) => {
+      try {
+        window.sessionStorage.removeItem(FILE_EDITOR_CHUNK_RECOVERY_KEY)
+      } catch {
+        // The editor is available even when session storage is unavailable.
+      }
+      loadedFileEditorPane = module.FileEditorPane
+      return { default: loadedFileEditorPane }
+    })
+  }
+  return fileEditorPaneLoadPromise
+}
+
+function preloadFileEditorPane(onLoad: (component: FileEditorPaneComponent) => void) {
+  void loadFileEditorPaneModule().then(module => {
+    onLoad(module.default)
+  }).catch(() => {
+    // Opening a file owns the existing bounded reload path for chunk failures.
+  })
+}
+
 function loadFileEditorPane() {
-  return import('../files/FileEditorPane').then(module => {
-    try {
-      window.sessionStorage.removeItem(FILE_EDITOR_CHUNK_RECOVERY_KEY)
-    } catch {
-      // The editor is available even when session storage is unavailable.
-    }
-    return { default: module.FileEditorPane }
-  }).catch(error => {
+  return loadFileEditorPaneModule().catch(error => {
     if (reloadAfterFileEditorChunkLoadFailure()) return new Promise<never>(() => {})
     throw error
   })
 }
-
-const FileEditorPane = lazy(() => loadFileEditorPane())
 
 function basename(filePath: string) {
   return filePath.split('/').filter(Boolean).pop() || filePath
@@ -270,6 +294,34 @@ export function CodeMainArea({
 }: CodeMainAreaProps) {
   const [terminalComposerCollapsed, setTerminalComposerCollapsed] = useState(false)
   const [composerCollapseSupported, setComposerCollapseSupported] = useState(false)
+  const [fileEditorPane, setFileEditorPane] = useState<FileEditorPaneComponent | null>(() => loadedFileEditorPane)
+  const [fileEditorPaneLoadError, setFileEditorPaneLoadError] = useState<unknown>(null)
+  const ReadyFileEditorPane = fileEditorPane ?? loadedFileEditorPane
+  const fileEditorRequested = showFileEditor && openWorkspaceFile !== null
+
+  useEffect(() => {
+    let active = true
+    preloadFileEditorPane(component => {
+      if (active) setFileEditorPane(() => component)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!fileEditorRequested || ReadyFileEditorPane) return undefined
+    let active = true
+    void loadFileEditorPane().then(module => {
+      if (active) setFileEditorPane(() => module.default)
+    }).catch(error => {
+      if (active) setFileEditorPaneLoadError(error)
+    })
+    return () => {
+      active = false
+    }
+  }, [ReadyFileEditorPane, fileEditorRequested])
+
   const loadMoreHistoryNearEnd = useCallback((element: HTMLElement) => {
     if (!canLoadMoreHistoryAgentSessions) return
     const remaining = element.scrollHeight - element.scrollTop - element.clientHeight
@@ -321,6 +373,8 @@ export function CodeMainArea({
     }
   }, [])
 
+  if (fileEditorPaneLoadError) throw fileEditorPaneLoadError
+
   return (
     <main
       className="code-main"
@@ -369,8 +423,8 @@ export function CodeMainArea({
           )}
         </section>
       ) : showFileEditor && openWorkspaceFile ? (
-        <Suspense fallback={<FileEditorFallback openFile={openWorkspaceFile} onChangeDraft={onChangeWorkspaceFileDraft} copy={copy} />}>
-          <FileEditorPane
+        ReadyFileEditorPane ? (
+          <ReadyFileEditorPane
             openFile={openWorkspaceFile}
             openFiles={openWorkspaceFiles}
             onChangeDraft={onChangeWorkspaceFileDraft}
@@ -388,7 +442,9 @@ export function CodeMainArea({
             onBackToAgent={onBackToAgentFromFile}
             copy={copy}
           />
-        </Suspense>
+        ) : (
+          <FileEditorFallback openFile={openWorkspaceFile} onChangeDraft={onChangeWorkspaceFileDraft} copy={copy} />
+        )
       ) : (
         <>
           <div

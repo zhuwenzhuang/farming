@@ -73,6 +73,12 @@ async function run() {
           ].join('\n');
         } else if (input === '4') {
           profilePreview = '• Service tier set to default\n\n• Model changed to gpt-5.6-sol xhigh\n\ngpt-5.6-sol xhigh · /tmp';
+        } else if (Array.isArray(input) && input[0]?.text === '/fast on') {
+          // Leave the confirmation pending. The next user input must be
+          // accepted after the complete direct command, without waiting for
+          // this output to arrive.
+        } else if (Array.isArray(input) && input[0]?.text === 'after profile') {
+          profilePreview += '\n• Fast mode is on.';
         }
       },
     });
@@ -92,7 +98,7 @@ async function run() {
       manager.setCodexTerminalProfile('agent-profile', {
         model: 'gpt-5.6-sol',
         effort: 'xhigh',
-        serviceTier: 'default',
+        serviceTier: 'priority',
       }),
       manager.sendInput('agent-profile', [{ type: 'paste', text: 'after profile' }, '\r']),
     ]);
@@ -100,11 +106,12 @@ async function run() {
       [{ type: 'paste', text: '/model' }, '\r'],
       '8',
       '4',
+      [{ type: 'paste', text: '/fast on' }, '\r'],
       [{ type: 'paste', text: 'after profile' }, '\r'],
-    ], 'later Terminal input should remain queued until Codex confirms the live model profile');
+    ], 'later Terminal input should wait for model menus but not for direct Fast confirmation');
     assert.deepStrictEqual(
       profileInputReceivedStates,
-      [false, false, false, false],
+      [false, false, false, false, false],
       'Farming-owned model menu input should keep a fresh Terminal eligible for ACP Chat, and user input should be marked only after the PTY accepts it'
     );
     assert.strictEqual(
@@ -121,10 +128,38 @@ async function run() {
       {
         model: 'gpt-5.6-sol',
         reasoningEffort: 'xhigh',
-        serviceTier: 'default',
+        serviceTier: 'priority',
       },
       'a confirmed Terminal profile should be published immediately instead of waiting for another PTY preview'
     );
+
+    const profileUpdateOrder = [];
+    let finishFirstProfile;
+    manager.setCodexTerminalProfileNow = async (agentId, profile, options) => {
+      profileUpdateOrder.push(`start:${profile.model}`);
+      options.onInputSafe();
+      if (profile.model === 'first') {
+        await new Promise(resolve => {
+          finishFirstProfile = resolve;
+        });
+      }
+      profileUpdateOrder.push(`finish:${profile.model}`);
+      return profile;
+    };
+    const firstProfile = manager.setCodexTerminalProfile('agent-profile', { model: 'first' });
+    const secondProfile = manager.setCodexTerminalProfile('agent-profile', { model: 'second' });
+    await sleep(0);
+    assert.deepStrictEqual(profileUpdateOrder, [
+      'start:first',
+    ], 'a second profile transaction must not start while the first confirmation is pending');
+    finishFirstProfile();
+    await Promise.all([firstProfile, secondProfile]);
+    assert.deepStrictEqual(profileUpdateOrder, [
+      'start:first',
+      'finish:first',
+      'start:second',
+      'finish:second',
+    ], 'profile transactions should remain serialized even after ordinary input is released');
 
     manager.agents.set('agent-focus-protocol', {
       id: 'agent-focus-protocol',
@@ -152,6 +187,43 @@ async function run() {
       true,
       'submitting Terminal input should mark the session used until a resumable provider session is available'
     );
+
+    const readDeltas = [];
+    let fullStateUpdates = 0;
+    manager.on('agent-read', update => readDeltas.push(update));
+    manager.onUpdate(() => {
+      fullStateUpdates += 1;
+    });
+    manager.agents.set('agent-read-delta', {
+      id: 'agent-read-delta',
+      command: 'bash',
+      cwd: '/tmp',
+      engineName: 'local',
+      status: 'running',
+      attentionSeq: 3,
+      readAttentionSeq: 2,
+      unread: true,
+      runtimeEpoch: 'epoch-read',
+      lastOutputSeq: 9,
+      readOutputEpoch: 'epoch-read',
+      readOutputSeq: 8,
+    });
+    const readResult = manager.updateAgentFlags('agent-read-delta', {
+      unread: false,
+      readOutputEpoch: 'epoch-read',
+      readOutputSeq: 9,
+    });
+    assert.strictEqual(readResult.changed, true, 'advancing a read cursor should report a real state change');
+    assert.strictEqual(readResult.requiresState, false, 'a read cursor does not require a full Agent-list replacement');
+    assert.strictEqual(fullStateUpdates, 0, 'a read cursor should publish a narrow delta instead of a full state update');
+    assert.deepStrictEqual(readDeltas, [{
+      agentId: 'agent-read-delta',
+      unread: false,
+      attentionSeq: 3,
+      readAttentionSeq: 3,
+      readOutputEpoch: 'epoch-read',
+      readOutputSeq: 9,
+    }], 'a read cursor should publish the exact lightweight Agent delta');
 
     let unavailableCalls = 0;
     let updateCount = 0;

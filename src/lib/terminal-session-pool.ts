@@ -45,9 +45,14 @@ import {
 import type { TerminalFollowState } from '@/lib/terminal-viewport'
 import {
   MIN_TERMINAL_RESIZE_ROWS,
+  acknowledgeTerminalResizeDelivery,
+  expireTerminalResizeDelivery,
   notifyTerminalResizeTracker,
   proposeTerminalResizeDimensions,
+  queueTerminalResizeDelivery,
+  resetTerminalResizeDeliveryTracker,
   resetTerminalResizeTracker,
+  shouldDebounceTerminalResize,
 } from '@/lib/terminal-resize'
 import {
   flushPendingTerminalWrites,
@@ -80,6 +85,14 @@ import {
 } from '@/lib/terminal-bootstrap'
 import type { SessionBootstrapState, SessionDataPayload } from '@/lib/terminal-bootstrap'
 import { appPath } from '@/lib/base-path'
+import {
+  clearReadingAnchor,
+  readingAnchorAgentKey,
+  readReadingAnchor,
+  saveReadingAnchor,
+  terminalReadingAnchorFingerprint,
+  type ReadingAnchor,
+} from '@/lib/reading-anchor'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
 import { sendTerminalSessionMessage } from '@/lib/terminal-session-client'
@@ -102,6 +115,8 @@ type TerminalOutputHandler = (
 type TerminalTransitionKind = 'output' | 'resize' | 'clear'
 
 const TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5000
+const TERMINAL_RESIZE_SETTLE_MS = 250
+const TERMINAL_RESIZE_DELIVERY_TIMEOUT_MS = 1500
 const TERMINAL_REPLAY = FarmingTerminalReplay
 type TerminalViewportRestoreState = {
   viewportY: number
@@ -109,6 +124,7 @@ type TerminalViewportRestoreState = {
   following: boolean
   hasUnreadOutput: boolean
   preserveUnreadOutputUntilJump: boolean
+  readingAnchor: Extract<ReadingAnchor, { surface: 'terminal' }> | null
 }
 
 interface AttachOptions {
@@ -168,6 +184,7 @@ interface SessionRecord {
   parkedViewportState: TerminalViewportRestoreState | null
   inputDisabled: boolean
   errorHandler: ((error: Error) => void) | null
+  rendererFailureDisposable: (() => void) | null
   scrollChangeDisposable: (() => void) | null
   backendConnectedHandler: (() => void) | null
   clickHandler: ((event: MouseEvent) => void) | null
@@ -203,6 +220,11 @@ interface SessionRecord {
   touchInteraction: TerminalTouchInteraction | null
   lastNotifiedResize: { cols: number; rows: number } | null
   resizeNotificationCount: number
+  resizeRequestInFlight: { cols: number; rows: number } | null
+  pendingResizeRequest: { cols: number; rows: number } | null
+  resizeDeliveryTimeout: number | null
+  pendingFitResize: { cols: number; rows: number } | null
+  fitResizeTimer: number | null
   followOutputHandler: ((state: TerminalFollowState) => void) | null
   pathOpenHandler: ((agentId: string, target: TerminalPathOpenTarget) => void) | null
   pathResolveHandler: ((agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null) | null
@@ -320,6 +342,7 @@ declare global {
       getStateRevision: (agentId: string) => number | null
       getBufferDiagnostics: (agentId: string) => {
         engine?: string
+        renderer?: 'pending' | 'webgl' | 'failed'
         cols: number
         rows: number
         viewportY: number
@@ -333,6 +356,8 @@ declare global {
         checkpointRequestInFlight: boolean
         replayInProgress: boolean
         bootstrappingSnapshot: boolean
+        pendingFitResize?: { cols: number; rows: number } | null
+        fitResizeTimerPending?: boolean
       } | null
       getHostDiagnostics: () => Array<{
         agentId: string
@@ -376,6 +401,53 @@ function invalidateTerminalCheckpointRequest(record: SessionRecord) {
   record.checkpointRequestInFlight = false
 }
 
+function clearTerminalResizeDeliveryTimeout(record: SessionRecord) {
+  if (record.resizeDeliveryTimeout === null) return
+  window.clearTimeout(record.resizeDeliveryTimeout)
+  record.resizeDeliveryTimeout = null
+}
+
+function clearPendingTerminalFitResize(record: SessionRecord) {
+  if (record.fitResizeTimer !== null) {
+    window.clearTimeout(record.fitResizeTimer)
+    record.fitResizeTimer = null
+  }
+  record.pendingFitResize = null
+}
+
+function scheduleTerminalFitResize(
+  record: SessionRecord,
+  dimensions: { cols: number; rows: number },
+) {
+  if (record.fitResizeTimer !== null) {
+    window.clearTimeout(record.fitResizeTimer)
+  }
+  record.pendingFitResize = dimensions
+  record.fitResizeTimer = window.setTimeout(() => {
+    record.fitResizeTimer = null
+    const next = record.pendingFitResize
+    record.pendingFitResize = null
+    if (!next || record.disposed) return
+    notifyTerminalResize(record, next.cols, next.rows)
+  }, TERMINAL_RESIZE_SETTLE_MS)
+}
+
+function resetTerminalResizeDelivery(record: SessionRecord) {
+  clearPendingTerminalFitResize(record)
+  clearTerminalResizeDeliveryTimeout(record)
+  resetTerminalResizeDeliveryTracker(record)
+}
+
+function scheduleTerminalResizeDeliveryTimeout(record: SessionRecord) {
+  clearTerminalResizeDeliveryTimeout(record)
+  record.resizeDeliveryTimeout = window.setTimeout(() => {
+    record.resizeDeliveryTimeout = null
+    const next = expireTerminalResizeDelivery(record)
+    if (!next || record.disposed) return
+    deliverTerminalResize(record, next.cols, next.rows)
+  }, TERMINAL_RESIZE_DELIVERY_TIMEOUT_MS)
+}
+
 function parkTerminalSessionRecord(record: SessionRecord) {
   if (record.disposed) return
   record.parkedViewportState = {
@@ -384,8 +456,10 @@ function parkTerminalSessionRecord(record: SessionRecord) {
     following: record.followOutput,
     hasUnreadOutput: record.hasUnreadOutput,
     preserveUnreadOutputUntilJump: record.preserveUnreadOutputUntilJump,
+    readingAnchor: captureTerminalReadingAnchor(record),
   }
   invalidateTerminalCheckpointRequest(record)
+  resetTerminalResizeDelivery(record)
   record.followOutputHandler = null
   record.pathOpenHandler = null
   record.pathResolveHandler = null
@@ -820,12 +894,61 @@ function finishTerminalReplay(record: SessionRecord, generation: number) {
   }
 
   record.bootstrappingSnapshot = false
+  resetTerminalResizeDelivery(record)
   requestAnimationFrame(() => {
     if (!isCurrentAttachment(record, generation) || record.disposed) return
     record.hostEl.classList.remove('terminal-checkpoint-installing')
     syncTerminalSize(record, { force: true })
     notifyTerminalAttachReady(record, generation)
   })
+}
+
+function terminalViewportStateForRestore(record: SessionRecord): TerminalViewportRestoreState {
+  if (record.parkedViewportState) {
+    return {
+      ...record.parkedViewportState,
+      hasUnreadOutput: record.parkedViewportState.hasUnreadOutput || record.hasUnreadOutput,
+      preserveUnreadOutputUntilJump:
+        record.parkedViewportState.preserveUnreadOutputUntilJump
+        || record.preserveUnreadOutputUntilJump,
+    }
+  }
+  const persistedAnchor = readReadingAnchor(readingAnchorAgentKey(record.agentId, 'terminal'))
+  const readingAnchor = persistedAnchor?.surface === 'terminal'
+    ? persistedAnchor
+    : captureTerminalReadingAnchor(record)
+  return {
+    viewportY: getTerminalViewportY(record.terminal),
+    scrollbackLength: getTerminalScrollbackLength(record.terminal),
+    following: readingAnchor ? false : record.followOutput,
+    hasUnreadOutput: record.hasUnreadOutput,
+    preserveUnreadOutputUntilJump: record.preserveUnreadOutputUntilJump,
+    readingAnchor,
+  }
+}
+
+function restoreTerminalViewportFromAnchor(record: SessionRecord, viewportState: TerminalViewportRestoreState) {
+  record.followOutput = viewportState.following
+  record.hasUnreadOutput = viewportState.hasUnreadOutput
+  record.preserveUnreadOutputUntilJump = viewportState.preserveUnreadOutputUntilJump
+  if (viewportState.following) {
+    restoreViewportAfterLayout(
+      record,
+      viewportState.viewportY,
+      viewportState.scrollbackLength,
+      true,
+      viewportState.hasUnreadOutput,
+    )
+    return
+  }
+  if (viewportState.readingAnchor && restoreTerminalReadingAnchor(record, viewportState.readingAnchor)) {
+    return
+  }
+  // A terminal screen is bounded. Once the logical-line fingerprint has been
+  // evicted or rewritten, an old absolute scrollback row is misleading; read
+  // the current tail instead.
+  clearReadingAnchor(readingAnchorAgentKey(record.agentId, 'terminal'))
+  scrollRecordToBottom(record, { allowClearUnread: true })
 }
 
 function installTerminalCheckpoint(
@@ -858,8 +981,10 @@ function installTerminalCheckpoint(
     record.terminal.cols === state.cols &&
     record.terminal.rows === state.rows
   ) {
+    const viewportState = terminalViewportStateForRestore(record)
     record.needsReconnectOutputSync = !TERMINAL_REPLAY.commitCheckpoint(record.replayState, checkpoint)
     record.bootstrappingSnapshot = record.needsReconnectOutputSync
+    restoreTerminalViewportFromAnchor(record, viewportState)
     flushQueuedTerminalOutput(record)
     finishTerminalReplay(record, generation)
     return true
@@ -867,19 +992,7 @@ function installTerminalCheckpoint(
 
   const installSeq = record.reconnectSnapshotSeq + 1
   record.reconnectSnapshotSeq = installSeq
-  const viewportState = record.parkedViewportState ? {
-    ...record.parkedViewportState,
-    hasUnreadOutput: record.parkedViewportState.hasUnreadOutput || record.hasUnreadOutput,
-    preserveUnreadOutputUntilJump:
-      record.parkedViewportState.preserveUnreadOutputUntilJump
-      || record.preserveUnreadOutputUntilJump,
-  } : {
-    viewportY: getTerminalViewportY(record.terminal),
-    scrollbackLength: getTerminalScrollbackLength(record.terminal),
-    following: record.followOutput,
-    hasUnreadOutput: record.hasUnreadOutput,
-    preserveUnreadOutputUntilJump: record.preserveUnreadOutputUntilJump,
-  }
+  const viewportState = terminalViewportStateForRestore(record)
 
   record.replayInProgress = true
   record.bootstrappingSnapshot = true
@@ -907,13 +1020,7 @@ function installTerminalCheckpoint(
     record.followOutput = viewportState.following
     record.hasUnreadOutput = viewportState.hasUnreadOutput
     record.preserveUnreadOutputUntilJump = viewportState.preserveUnreadOutputUntilJump
-    restoreViewportAfterLayout(
-      record,
-      viewportState.viewportY,
-      viewportState.scrollbackLength,
-      viewportState.following,
-      viewportState.hasUnreadOutput,
-    )
+    restoreTerminalViewportFromAnchor(record, viewportState)
     record.replayInProgress = false
     record.bootstrappingSnapshot = record.needsReconnectOutputSync
     scheduleImeOverlayUpdateIfActive(record)
@@ -1012,13 +1119,27 @@ function applyTerminalOutputEvent(
   }
 
   if (kind === 'resize') {
-    record.applyingLocalResize = true
-    try {
-      record.terminal.resize?.(Math.floor(cols!), Math.floor(rows!))
-    } finally {
-      record.applyingLocalResize = false
+    const nextCols = Math.floor(cols!)
+    const nextRows = Math.floor(rows!)
+    const delivery = acknowledgeTerminalResizeDelivery(record, nextCols, nextRows)
+    if (delivery.matched) clearTerminalResizeDeliveryTimeout(record)
+    // Commit every ordered resize, but do not repaint an older echoed size over
+    // a newer geometry that this browser has already fitted locally.
+    if (
+      !delivery.preserveLocalGeometry &&
+      (record.terminal.cols !== nextCols || record.terminal.rows !== nextRows)
+    ) {
+      record.applyingLocalResize = true
+      try {
+        record.terminal.resize?.(nextCols, nextRows)
+      } finally {
+        record.applyingLocalResize = false
+      }
     }
     TERMINAL_REPLAY.commitTransition(record.replayState, event)
+    if (delivery.next) {
+      deliverTerminalResize(record, delivery.next.cols, delivery.next.rows)
+    }
     scheduleImeOverlayUpdateIfActive(record)
     flushQueuedTerminalOutput(record)
     notifyTerminalAttachReady(record, record.attachGeneration)
@@ -1442,18 +1563,55 @@ function syncTerminalSize(
   try {
     const dimensions = proposeTerminalResizeDimensions(record.hostEl, record.fitAddon)
     if (!dimensions) return
+    const current = {
+      cols: record.terminal.cols || dimensions.cols,
+      rows: record.terminal.rows || dimensions.rows,
+    }
     if (
-      options.force !== true &&
-      record.terminal.cols === dimensions.cols &&
-      record.terminal.rows === dimensions.rows
+      current.cols === dimensions.cols &&
+      current.rows === dimensions.rows
     ) {
+      clearPendingTerminalFitResize(record)
       return
     }
 
+    if (shouldDebounceTerminalResize(
+      current,
+      dimensions,
+      options,
+    )) {
+      scheduleTerminalFitResize(record, dimensions)
+      return
+    }
+
+    clearPendingTerminalFitResize(record)
     notifyTerminalResize(record, dimensions.cols, dimensions.rows, options)
   } catch {
     // ignore transient hidden / zero-size states
   }
+}
+
+function deliverTerminalResize(record: SessionRecord, cols: number, rows: number) {
+  if (
+    !isTerminalSessionAttached(record) ||
+    record.replayInProgress ||
+    record.bootstrappingSnapshot ||
+    record.pageOutputSuspended
+  ) return false
+
+  const hadInFlightResize = record.resizeRequestInFlight !== null
+  const delivered = queueTerminalResizeDelivery(record, cols, rows, (nextCols, nextRows) => (
+    sendTerminalSessionMessage({
+      type: 'resize-agent',
+      agentId: record.agentId,
+      cols: nextCols,
+      rows: nextRows,
+    })
+  ))
+  if (delivered && !hadInFlightResize && record.resizeRequestInFlight) {
+    scheduleTerminalResizeDeliveryTimeout(record)
+  }
+  return delivered
 }
 
 function notifyTerminalResize(
@@ -1477,17 +1635,13 @@ function notifyTerminalResize(
         record.applyingLocalResize = false
       }
     }
-    return sendTerminalSessionMessage({
-      type: 'resize-agent',
-      agentId: record.agentId,
-      cols: nextCols,
-      rows: nextRows,
-    })
+    return deliverTerminalResize(record, nextCols, nextRows)
   }, options)
 }
 
 function resyncTerminalSizeAfterBackendReconnect(record: SessionRecord) {
   resetTerminalResizeTracker(record)
+  resetTerminalResizeDelivery(record)
   TERMINAL_REPLAY.resetRecovery(record.replayState)
   TERMINAL_REPLAY.beginRecovery(record.replayState)
   record.needsReconnectOutputSync = true
@@ -1499,6 +1653,7 @@ function resyncTerminalSizeAfterBackendReconnect(record: SessionRecord) {
 
 function resyncTerminalAfterPageResume(record: SessionRecord) {
   resetTerminalResizeTracker(record)
+  resetTerminalResizeDelivery(record)
   TERMINAL_REPLAY.resetRecovery(record.replayState)
   TERMINAL_REPLAY.beginRecovery(record.replayState)
   record.needsReconnectOutputSync = true
@@ -1913,6 +2068,97 @@ function readLogicalTerminalLineAtBufferRow(record: SessionRecord, bufferRow: nu
     cols,
     buffer,
   }
+}
+
+const TERMINAL_READING_ANCHOR_LINE_COUNT = 3
+
+function captureTerminalReadingAnchor(record: SessionRecord): Extract<ReadingAnchor, { surface: 'terminal' }> | null {
+  const key = readingAnchorAgentKey(record.agentId, 'terminal')
+  if (record.followOutput) {
+    clearReadingAnchor(key)
+    return null
+  }
+  const visibleBufferRow = getTerminalVisibleBufferBase(record.terminal)
+  const firstLine = readLogicalTerminalLineAtBufferRow(record, visibleBufferRow)
+  if (!firstLine) return null
+
+  const lines: string[] = []
+  let nextRow = firstLine.startRow
+  for (let index = 0; index < TERMINAL_READING_ANCHOR_LINE_COUNT; index += 1) {
+    const line = readLogicalTerminalLineAtBufferRow(record, nextRow)
+    if (!line) break
+    lines.push(line.text)
+    nextRow = line.endRow + 1
+  }
+  if (lines.length === 0) return null
+
+  const anchor: Extract<ReadingAnchor, { surface: 'terminal' }> = {
+    version: 1,
+    surface: 'terminal',
+    resource: { kind: 'agent', id: record.agentId },
+    locator: {
+      kind: 'terminal-lines',
+      id: terminalReadingAnchorFingerprint(lines),
+      lineCount: lines.length,
+    },
+    position: {
+      unit: 'row',
+      value: Math.max(0, visibleBufferRow - firstLine.startRow),
+    },
+  }
+  saveReadingAnchor(anchor)
+  return anchor
+}
+
+function restoreTerminalReadingAnchor(
+  record: SessionRecord,
+  anchor: Extract<ReadingAnchor, { surface: 'terminal' }>,
+) {
+  const buffer = record.terminal.buffer?.active
+  if (!buffer || typeof buffer.getLine !== 'function') return false
+
+  const lastBufferRow = Math.max(
+    0,
+    getTerminalScrollbackLength(record.terminal) + Math.max(1, record.terminal.rows || 1),
+  )
+  const lineCount = Math.max(1, anchor.locator.lineCount || 1)
+  let closestMatch: TerminalLogicalLine | null = null
+  let closestDistance = Number.POSITIVE_INFINITY
+  for (let bufferRow = 0; bufferRow <= lastBufferRow;) {
+    const firstLine = readLogicalTerminalLineAtBufferRow(record, bufferRow)
+    if (!firstLine) {
+      bufferRow += 1
+      continue
+    }
+    const lines = [firstLine.text]
+    let nextRow = firstLine.endRow + 1
+    for (let index = 1; index < lineCount; index += 1) {
+      const line = readLogicalTerminalLineAtBufferRow(record, nextRow)
+      if (!line) break
+      lines.push(line.text)
+      nextRow = line.endRow + 1
+    }
+    if (
+      lines.length === lineCount
+      && terminalReadingAnchorFingerprint(lines) === anchor.locator.id
+    ) {
+      const distance = Math.abs(firstLine.startRow - getTerminalVisibleBufferBase(record.terminal))
+      if (distance < closestDistance) {
+        closestMatch = firstLine
+        closestDistance = distance
+      }
+    }
+    bufferRow = Math.max(bufferRow + 1, firstLine.endRow + 1)
+  }
+  if (!closestMatch) return false
+
+  const targetRow = Math.min(
+    closestMatch.endRow,
+    closestMatch.startRow + Math.max(0, anchor.position.value),
+  )
+  scrollRecordToLine(record, targetRow)
+  setFollowOutputState(record, false, record.hasUnreadOutput)
+  return true
 }
 
 function readLogicalTerminalLineAtCell(record: SessionRecord, cell: { col: number; row: number }) {
@@ -3107,6 +3353,7 @@ function installTerminalTestApi() {
       } | undefined
       return {
         engine: current.terminal.__farmingTerminalEngine,
+        renderer: current.terminal.getRendererType?.(),
         cols: current.terminal.cols || 0,
         rows: current.terminal.rows || 0,
         viewportY: getTerminalViewportY(current.terminal),
@@ -3135,6 +3382,11 @@ function installTerminalTestApi() {
         needsReconnectOutputSync: current.needsReconnectOutputSync,
         lastNotifiedResize: current.lastNotifiedResize,
         resizeNotificationCount: current.resizeNotificationCount,
+        resizeRequestInFlight: current.resizeRequestInFlight,
+        pendingResizeRequest: current.pendingResizeRequest,
+        resizeDeliveryTimeoutPending: current.resizeDeliveryTimeout !== null,
+        pendingFitResize: current.pendingFitResize,
+        fitResizeTimerPending: current.fitResizeTimer !== null,
       }
     },
     async scrollToLine(agentId: string, line: number) {
@@ -3237,6 +3489,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     parkedViewportState: null,
     inputDisabled: Boolean(options.inputDisabled),
     errorHandler: options.onError ?? null,
+    rendererFailureDisposable: null,
     scrollChangeDisposable: null,
     backendConnectedHandler: null,
     clickHandler: null,
@@ -3272,6 +3525,11 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     touchInteraction: null,
     lastNotifiedResize: null,
     resizeNotificationCount: 0,
+    resizeRequestInFlight: null,
+    pendingResizeRequest: null,
+    resizeDeliveryTimeout: null,
+    pendingFitResize: null,
+    fitResizeTimer: null,
     followOutputHandler: options.onFollowOutputChange ?? null,
     pathOpenHandler: options.onPathOpen ?? null,
     pathResolveHandler: options.onPathResolve ?? null,
@@ -3330,6 +3588,18 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
   })
 
   installTerminalContextMenu(record, agentId)
+  const rendererFailureSubscription = terminal.onRendererFailure?.((error) => {
+    if (record.disposed) return
+    record.inputDisabled = true
+    resetTerminalResizeDelivery(record)
+    record.errorHandler?.(error)
+    void destroyTerminalSession(record.agentId).catch((destroyError) => {
+      console.error('Failed to dispose terminal after renderer failure:', destroyError)
+    })
+  })
+  record.rendererFailureDisposable = rendererFailureSubscription
+    ? () => rendererFailureSubscription.dispose()
+    : null
   terminal.open(hostEl)
   installTerminalLinkProvider(record)
   terminal.syncAppearanceTheme?.()
@@ -3352,6 +3622,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     : null
   const scrollSubscription = terminal.onScroll?.(() => {
     scheduleFollowStateFromViewport(record)
+    captureTerminalReadingAnchor(record)
   })
   const renderSubscription = terminal.onRender?.(() => {
     scheduleFollowStateFromViewport(record)
@@ -3369,6 +3640,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     const suspended = event.type === 'pagehide' || document.visibilityState === 'hidden'
     record.pageOutputSuspended = suspended
     if (suspended) {
+      resetTerminalResizeDelivery(record)
       record.needsReconnectOutputSync = true
       return
     }
@@ -3722,6 +3994,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     if (event instanceof WheelEvent && event.deltaY < 0) {
       setFollowOutputState(record, false, record.hasUnreadOutput)
     }
+    captureTerminalReadingAnchor(record)
     scheduleFollowStateFromViewport(record, { allowClearUnread: true })
     window.setTimeout(() => scheduleFollowStateFromViewport(record, { allowClearUnread: true }), 80)
   }
@@ -3865,7 +4138,7 @@ function fitAndFocus(record: SessionRecord, options: Pick<AttachOptions, 'autoFo
 
   requestAnimationFrame(() => {
     if (!isCurrentAttachment(record, generation)) return
-    syncTerminalSize(record)
+    syncTerminalSize(record, { force: true })
     restoreViewportAfterLayout(record, previousViewportY, previousScrollbackLength, wasFollowing, hadUnreadOutput)
     scheduleTerminalRepaint(record)
     if (options.autoFocus && !isMobileViewport() && shouldAllowTerminalAutoFocus(record.hostEl)) {
@@ -3873,7 +4146,7 @@ function fitAndFocus(record: SessionRecord, options: Pick<AttachOptions, 'autoFo
     }
     requestAnimationFrame(() => {
       if (!isCurrentAttachment(record, generation)) return
-      syncTerminalSize(record)
+      syncTerminalSize(record, { force: true })
       restoreViewportAfterLayout(record, previousViewportY, previousScrollbackLength, wasFollowing, hadUnreadOutput)
       scheduleTerminalRepaint(record)
       finishTerminalAttachBootstrap(record, generation)
@@ -4010,10 +4283,12 @@ export async function destroyTerminalSession(agentId: string) {
   if (record.disposed) return
   record.disposed = true
   invalidateTerminalCheckpointRequest(record)
+  resetTerminalResizeDelivery(record)
   clearPendingTerminalOutput(record)
   flushPendingTerminalWrites(record)
 
   record.unsubscribeOutput?.()
+  record.rendererFailureDisposable?.()
   record.selectionChangeDisposable?.()
   record.scrollChangeDisposable?.()
   if (record.backendConnectedHandler) {

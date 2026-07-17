@@ -39,6 +39,7 @@ declare global {
       getCursor: (agentId: string) => { x: number; y: number; visible?: boolean } | null
       getBufferDiagnostics: (agentId: string) => {
         engine?: string
+        renderer?: 'pending' | 'webgl' | 'failed'
         cols: number
         rows: number
         viewportY: number
@@ -74,6 +75,8 @@ declare global {
         needsReconnectOutputSync?: boolean
         lastNotifiedResize?: { cols: number; rows: number } | null
         resizeNotificationCount?: number
+        pendingFitResize?: { cols: number; rows: number } | null
+        fitResizeTimerPending?: boolean
       } | null
       getHostDiagnostics: () => Array<{
         agentId: string

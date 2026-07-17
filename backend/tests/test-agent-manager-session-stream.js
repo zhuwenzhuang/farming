@@ -26,12 +26,16 @@ async function run() {
     });
 
     const streams = [];
+    const activityUpdates = [];
     let updateCount = 0;
     manager.onSessionStream((stream) => {
       streams.push(stream);
     });
     manager.onUpdate(() => {
       updateCount += 1;
+    });
+    manager.onAgentActivity((activity) => {
+      activityUpdates.push(activity);
     });
 
     manager.agents.set('started-sync-agent', {
@@ -148,6 +152,7 @@ async function run() {
     assert.match(proofFailureAgent.output, /without an authoritative final checkpoint/);
 
     streams.length = 0;
+    activityUpdates.length = 0;
     updateCount = 0;
     const resizeCalls = [];
     manager.engineBridge.router.engines.local.resizeSession = async (agentId, cols, rows) => {
@@ -165,17 +170,22 @@ async function run() {
       sessionId: 'local-agent',
       lastActivityAt: 1000,
     });
-    assert.strictEqual(updateCount, 1);
+    assert.strictEqual(updateCount, 0);
+    assert.strictEqual(activityUpdates.length, 1);
+    assert.strictEqual(activityUpdates[0].agentId, 'local-agent');
+    assert.strictEqual(activityUpdates[0].lastActivity, 1000);
     manager.engineBridge.router.engines.local.emit('session-activity', {
       sessionId: 'local-agent',
       lastActivityAt: 1200,
     });
-    assert.strictEqual(updateCount, 1);
+    assert.strictEqual(updateCount, 0);
+    assert.strictEqual(activityUpdates.length, 1);
     manager.engineBridge.router.engines.local.emit('session-activity', {
       sessionId: 'local-agent',
       lastActivityAt: 2100,
     });
-    assert.strictEqual(updateCount, 2);
+    assert.strictEqual(updateCount, 0);
+    assert.strictEqual(activityUpdates.length, 2);
     manager.engineBridge.router.engines.local.emit('session-sync', {
       sessionId: 'local-agent',
       output: 'rewritten stream',
@@ -186,7 +196,7 @@ async function run() {
       terminalBusy: true,
     });
     assert.strictEqual(manager.agents.get('local-agent').terminalBusy, true);
-    assert.strictEqual(updateCount, 4);
+    assert.strictEqual(updateCount, 2);
     manager.agents.get('local-agent').command = 'bash';
     manager.engineBridge.router.engines.local.emit('session-preview', {
       sessionId: 'local-agent',
@@ -214,7 +224,7 @@ async function run() {
       manager.getState().agents.find(agent => agent.id === 'local-agent').shellCommand,
       'git status --short'
     );
-    assert.strictEqual(updateCount, 6);
+    assert.strictEqual(updateCount, 4);
     manager.engineBridge.router.engines.local.emit('session-busy-state', {
       sessionId: 'local-agent',
       terminalBusy: false,
@@ -238,7 +248,7 @@ async function run() {
       manager.getState().agents.find(agent => agent.id === 'local-agent').terminalStatus.lastCommandDurationMs,
       1000
     );
-    assert.strictEqual(updateCount, 7);
+    assert.strictEqual(updateCount, 5);
     manager.engineBridge.router.engines.local.emit('session-error', {
       sessionId: 'local-agent',
       error: 'temporary local engine warning',

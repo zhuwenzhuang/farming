@@ -242,17 +242,17 @@ async function readJson<T>(response: Response): Promise<T> {
   return body as T
 }
 
-export async function fetchWorkspaceTree(agentId: string, directoryPath = '') {
+export async function fetchWorkspaceTree(agentId: string, directoryPath = '', options: { signal?: AbortSignal } = {}) {
   const params = new URLSearchParams({ agentId })
   if (directoryPath) params.set('path', directoryPath)
-  const response = await fetch(appPath(`/api/files/tree?${params.toString()}`))
+  const response = await fetch(appPath(`/api/files/tree?${params.toString()}`), { signal: options.signal })
   const body = await readJson<{ tree: { path: string; items: WorkspaceFileEntry[]; gitStatusPending?: boolean } }>(response)
   return body.tree
 }
 
-export async function fetchWorkspaceFile(agentId: string, filePath: string) {
+export async function fetchWorkspaceFile(agentId: string, filePath: string, options: { signal?: AbortSignal } = {}) {
   const params = new URLSearchParams({ agentId, path: filePath })
-  const response = await fetch(appPath(`/api/files/file?${params.toString()}`))
+  const response = await fetch(appPath(`/api/files/file?${params.toString()}`), { signal: options.signal })
   const body = await readJson<{ file: WorkspaceFile }>(response)
   return body.file
 }

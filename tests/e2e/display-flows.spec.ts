@@ -344,6 +344,38 @@ test.describe('display-backed agent flows', () => {
     await expect(activeFileTabName(page)).toHaveText('one.txt')
   })
 
+  test('does not select file tree labels when they are double-clicked', async ({ page, workspaceRoot }) => {
+    await mockCodexSessions(page)
+    const projectDir = path.join(workspaceRoot, 'file-tree-selection')
+    fs.mkdirSync(path.join(projectDir, 'folder'), { recursive: true })
+    fs.writeFileSync(path.join(projectDir, 'one.txt'), 'one\n')
+    fs.writeFileSync(path.join(projectDir, 'folder', 'nested.txt'), 'nested\n')
+    const agentId = await createControlAgent(page, 'bash', projectDir)
+
+    await openFarming(page)
+    const project = page.getByTestId('code-project-group').filter({
+      has: page.locator(`[data-agent-id="${agentId}"]`),
+    })
+    await expect(project).toBeVisible({ timeout: 30_000 })
+    const filesSection = project.getByTestId('code-files-section')
+    const filesTitle = filesSection.locator('.code-files-title').first()
+    if (await filesTitle.getAttribute('aria-expanded') !== 'true') {
+      await filesTitle.click()
+    }
+
+    const directoryRow = filesSection.locator('[data-testid="code-file-row"][data-file-path="folder"]')
+    await expect(directoryRow).toBeVisible()
+    await page.evaluate(() => window.getSelection()?.removeAllRanges())
+    await directoryRow.locator('.code-file-name').dblclick({ position: { x: 5, y: 5 } })
+    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('')
+
+    const fileRow = filesSection.locator('[data-testid="code-file-row"][data-file-path="one.txt"]')
+    await page.evaluate(() => window.getSelection()?.removeAllRanges())
+    await fileRow.locator('.code-file-name').dblclick({ position: { x: 5, y: 5 } })
+    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('')
+    await expect(activeFileTabName(page)).toHaveText('one.txt')
+  })
+
   test('opens project changes into the editor diff surface', async ({ page, workspaceRoot }) => {
     await mockCodexSessions(page)
     const projectDir = path.join(workspaceRoot, 'project-changes')
@@ -358,6 +390,8 @@ test.describe('display-backed agent flows', () => {
     fs.writeFileSync(changedFilePath, 'before\nafter\n')
     fs.mkdirSync(path.join(projectDir, 'scratch'), { recursive: true })
     fs.writeFileSync(path.join(projectDir, 'scratch/scratch.log'), 'temporary\n')
+    fs.mkdirSync(path.join(projectDir, 'delete-dir'), { recursive: true })
+    fs.writeFileSync(path.join(projectDir, 'delete-dir/original.txt'), 'original\n')
     const playbackDir = path.join(projectDir, 'demo-app/packages/viewer/playback_json')
     fs.mkdirSync(playbackDir, { recursive: true })
     execFileSync('git', ['init'], { cwd: playbackDir, stdio: 'ignore' })
@@ -423,8 +457,39 @@ test.describe('display-backed agent flows', () => {
     fs.writeFileSync(path.join(projectDir, 'watched-later.txt'), 'created after Files opened\n')
     await page.waitForTimeout(500)
     await expect(untrackedGroup.getByTestId('code-file-change-row').filter({ hasText: 'watched-later.txt' })).toHaveCount(0)
-    await filesSection.getByTestId('code-files-refresh').click()
+    const filesRefreshButton = filesSection.getByTestId('code-files-refresh')
+    const trackedCount = trackedGroup.getByTestId('code-file-changes-tracked-count')
+    const untrackedCount = untrackedGroup.getByTestId('code-file-changes-untracked-count')
+    await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'idle')
+    await filesRefreshButton.click()
+    await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'refreshing')
+    await expect(filesRefreshButton).toBeDisabled()
+    await expect(filesRefreshButton).toHaveAccessibleName('Refreshing files…')
+    await expect(trackedCount).toHaveAttribute('data-refresh-state', 'refreshing')
+    await expect(untrackedCount).toHaveAttribute('data-refresh-state', 'refreshing')
     await expect(untrackedGroup.getByTestId('code-file-change-row').filter({ hasText: 'watched-later.txt' })).toBeVisible({ timeout: 30_000 })
+    await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'success')
+    await expect(filesRefreshButton).toBeEnabled()
+    await expect(filesRefreshButton).toHaveAccessibleName('Files refreshed')
+    await expect(trackedCount).toHaveAttribute('data-refresh-state', 'refreshed')
+    await expect(untrackedCount).toHaveAttribute('data-refresh-state', 'refreshed')
+    await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'idle', { timeout: 3_000 })
+    await page.route('**/api/files/changes?**', async route => {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Changes temporarily unavailable' }),
+      })
+    }, { times: 1 })
+    await filesRefreshButton.click()
+    await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'refreshing')
+    await expect(trackedCount).toHaveAttribute('data-refresh-state', 'refreshing')
+    await expect(untrackedCount).toHaveAttribute('data-refresh-state', 'refreshing')
+    await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'error')
+    await expect(filesRefreshButton).toBeEnabled()
+    await expect(filesRefreshButton).toHaveAccessibleName('Files refresh failed')
+    await expect(trackedCount).toHaveAttribute('data-refresh-state', 'stale')
+    await expect(untrackedCount).toHaveAttribute('data-refresh-state', 'stale')
     const compactDirectory = untrackedGroup.getByTestId('code-file-change-directory-row').filter({ hasText: 'demo-app/packages/viewer' })
     await expect(compactDirectory).toBeVisible()
     await compactDirectory.click()
@@ -441,6 +506,38 @@ test.describe('display-backed agent flows', () => {
     await untrackedRow.click()
     await expect(activeFileTabName(page)).toHaveText('scratch.log')
     await expect(page.getByTestId('code-file-diff-view')).toHaveCount(0)
+    await expect.poll(async () => page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? '')).toBe('temporary\n')
+
+    fs.writeFileSync(path.join(projectDir, 'scratch/scratch.log'), 'external clean refresh\n')
+    await filesRefreshButton.click()
+    await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'success')
+    await expect.poll(async () => page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? '')).toBe('external clean refresh\n')
+    await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'idle', { timeout: 3_000 })
+
+    await page.evaluate(() => window.__farmingFileEditorTest?.insertText('local draft'))
+    await expect.poll(async () => page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? '')).toContain('local draft')
+    fs.writeFileSync(path.join(projectDir, 'scratch/scratch.log'), 'external conflicting refresh\n')
+    await filesRefreshButton.click()
+    await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'success')
+    await expect.poll(async () => page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? '')).toContain('local draft')
+    await expect(page.getByTestId('code-file-editor').getByTitle('Changed on disk')).toBeVisible()
+    await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'idle', { timeout: 3_000 })
+
+    const deleteDirectoryRow = filesSection.locator('[data-testid="code-file-row"][data-file-path="delete-dir"]')
+    await expect(deleteDirectoryRow).toBeVisible()
+    await deleteDirectoryRow.click()
+    const addedDeepFileRow = filesSection.locator('[data-testid="code-file-row"][data-file-path="delete-dir/added-later.txt"]')
+    fs.writeFileSync(path.join(projectDir, 'delete-dir/added-later.txt'), 'added later\n')
+    await expect(addedDeepFileRow).toHaveCount(0)
+    await filesRefreshButton.click()
+    await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'success')
+    await expect(addedDeepFileRow).toBeVisible()
+    await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'idle', { timeout: 3_000 })
+
+    fs.rmSync(path.join(projectDir, 'delete-dir'), { recursive: true, force: true })
+    await filesRefreshButton.click()
+    await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'success')
+    await expect(deleteDirectoryRow).toHaveCount(0)
   })
 
   test('keeps project agents expanded even when files crowd the sidebar', async ({ page, workspaceRoot }) => {
@@ -454,13 +551,39 @@ test.describe('display-backed agent flows', () => {
     }
 
     await openFarming(page)
-    const projectGroup = page.getByTestId('code-project-group').filter({ has: page.locator(`[data-agent-id="${agentIds[0]}"]`) })
+    const projectGroupWithAgent = page.getByTestId('code-project-group').filter({ has: page.locator(`[data-agent-id="${agentIds[0]}"]`) })
+    await expect(projectGroupWithAgent).toBeVisible({ timeout: 30_000 })
+    const projectId = await projectGroupWithAgent.getByTestId('code-project-title').getAttribute('data-project-id')
+    expect(projectId).toBeTruthy()
+    const projectGroup = page.getByTestId('code-project-group').filter({
+      has: page.locator(`[data-testid="code-project-title"][data-project-id="${projectId}"]`),
+    })
     await expect(projectGroup).toBeVisible({ timeout: 30_000 })
     await expect(projectGroup.getByTestId('code-project-agent-strip')).toHaveCount(0)
     await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(5)
     const showMoreAgents = projectGroup.getByTestId('code-agent-show-more')
+    const agentListToggle = projectGroup.getByTestId('code-agent-list-toggle')
     await expect(showMoreAgents).toBeVisible()
     await expect(showMoreAgents.locator('.code-agent-age')).toHaveText('1')
+    await expect(agentListToggle).toHaveText('Collapse agents')
+    await expect(agentListToggle).toHaveAttribute('data-collapsed', 'false')
+    const showMoreBox = await showMoreAgents.boundingBox()
+    const agentListToggleBox = await agentListToggle.boundingBox()
+    expect(showMoreBox).not.toBeNull()
+    expect(agentListToggleBox).not.toBeNull()
+    expect(agentListToggleBox!.y).toBeGreaterThan(showMoreBox!.y)
+    await agentListToggle.click()
+    await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(0)
+    await expect(showMoreAgents).toHaveCount(0)
+    await expect(agentListToggle.locator('.code-agent-name')).toHaveText('Show agents')
+    await expect(agentListToggle.locator('.code-agent-list-count')).toHaveText('6')
+    await expect(agentListToggle).toHaveAttribute('data-collapsed', 'true')
+    await expect(agentListToggle).toBeFocused()
+    await expect(projectGroup.locator('.code-files-title').first()).toBeVisible()
+    await agentListToggle.click()
+    await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(5)
+    await expect(showMoreAgents).toBeVisible()
+    await expect(agentListToggle).toBeFocused()
     await showMoreAgents.click()
     await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(6)
     await expect(projectGroup.getByTestId('code-agent-show-less')).toBeVisible()
@@ -818,16 +941,10 @@ test.describe('display-backed agent flows', () => {
     }
     await page.waitForTimeout(300)
     await page.mouse.move(reviewUrlCell.x, reviewUrlCell.y)
-    await expect.poll(async () => page.evaluate(({ agentId, url }) => {
-      const host = document.querySelector(`.terminal-session-host[data-agent-id="${agentId}"]`)
-      if (!host) return false
-      return Array.from(host.querySelectorAll<HTMLElement>('.xterm-rows span')).some(span => {
-        const text = span.textContent || ''
-        return text.includes('code.example.test') &&
-          url.includes(text) &&
-          getComputedStyle(span).textDecorationLine.includes('underline')
-      })
-    }, { agentId: childAgentId, url: reviewUrl })).toBe(true)
+    await expect.poll(() => page.evaluate(
+      id => window.__farmingTerminalTest?.getBufferDiagnostics(id)?.renderer,
+      childAgentId,
+    )).toBe('webgl')
     await page.mouse.click(reviewUrlCell.x, reviewUrlCell.y)
     await expect.poll(async () => page.evaluate(() => (window as any).__openedTerminalUrls ?? [])).toHaveLength(0)
     await modifierClick(page, reviewUrlCell.x, reviewUrlCell.y)
@@ -852,6 +969,12 @@ test.describe('display-backed agent flows', () => {
     await requestDedupeRow.click()
     await expect(requestDedupeRow).toHaveAttribute('aria-expanded', 'true')
     await expect(childFiles.locator('[data-testid="code-file-row"][data-file-path="request-dedupe/first.txt"]')).toBeVisible()
+    await requestDedupeRow.evaluate(row => {
+      const directoryRow = row as HTMLElement
+      directoryRow.click()
+      directoryRow.click()
+    })
+    await expect(requestDedupeRow).toHaveAttribute('aria-expanded', 'true')
     await page.waitForTimeout(100)
     expect(fileTreeRequests.filter(requestPath => requestPath === 'request-dedupe')).toHaveLength(1)
     await fileSearchInput.fill('poem')

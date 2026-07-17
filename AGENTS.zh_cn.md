@@ -91,6 +91,7 @@
 - **先设计状态转换**：非平凡功能在实现前，应从已知业务需求推导最小状态机，确定权威状态所有者，并明确每条转换的触发条件、guard、effect、失败结果，以及重试、取消、并发和恢复语义
 - **同时证明安全性和活性**：安全性要求非预期坏状态不可达、每条转换保持关键不变量；活性要求在明确的外部假设下，每个暂态都有成功、失败、取消、超时或恢复出口，期望的好状态最终可达
 - **正确后再评价设计品味**：先合并等价状态、删除无业务意义的中间态、保持单一事实源并拒绝非法转换；正确性成立后，再检查是否易于证明、高内聚低耦合、接口难以误用，以及 UI 是否清楚表达状态、动作和恢复路径
+- **测试能力决定受支持路径**：持续测试预算有限。除非一条 Fallback 能与主路径按同一验收标准持续运行，否则不要把它加入产品状态机。未经持续覆盖的 Fallback 不是韧性，而是未受支持行为；优先保留一条明确路径，并让失败有界且可见。同一受支持实现内部可以恢复和重试，但不能因此选择第二套实现；诊断用替代实现必须手动启用，并处于产品支持契约之外。确实需要替代路径时，要么让它取代主路径，要么先投入同等级持续测试能力再发布。
 
 ### 3. 测试覆盖原则
 
@@ -109,7 +110,7 @@
 - **用户输入验证**：所有用户输入必须验证（如 Main Agent 命令验证）
 - **错误消息友好**：错误消息要清晰，告诉用户如何修正
 - **错误日志记录**：后端错误记录到 `server.log`
-- **优雅降级**：错误发生时不影响其他功能
+- **有边界地失败**：可选能力只有在备用路径也能持续测试时才允许降级；Terminal 等核心路径应显式报错，不能切到未经持续覆盖的 Fallback
 
 ### 5. 安全原则
 
@@ -166,11 +167,13 @@
 
 Terminal 展示恢复使用带 checkpoint 的状态机协议。native pty host 中的 headless xterm 是唯一权威归约器：每次 PTY 运行都有唯一 epoch；Output Transition 同时推进 `outputSeq` 和 `stateRevision`，Clear / Resize 只推进 `stateRevision`。序列化 checkpoint 必须携带该归约器实际提交的 epoch、序号、screen 与尺寸。WebSocket 合并不能抹掉单个 Transition 的索引。浏览器只允许在当前 epoch 上应用下一条连续 Transition；重复消息直接忽略，序号缺口、epoch 变化、页面隐藏恢复或断线重连都必须先安装权威 `/session-view` checkpoint，再继续归约 live output。禁止轮询 `/session-view`；Transport Failure 使用 Backoff 重试，重复响应持续违反同一 Checkpoint 不变量时必须停止并显式报错。已知落后于 Replay Target 的 Checkpoint 不得进入可见画面；安装完整 Checkpoint 时应抑制 xterm 的增量绘制，恢复过程一次显示最新 Screen，而不是重播历史。PTY 退出时必须等待 250 ms 尾部数据静默窗口、Drain Reducer，并保存精确 Final Checkpoint；若最终切面缺失或不精确，必须显式报告致命状态证明失败，不能把 Raw Output 伪装成权威 Screen。
 
-Terminal Input 保持直接的 Raw PTY Stream：不要增加逐输入 ACK、去重、自动重放，也不要在 xterm `onData` 外增加按时间猜测的 Textarea Fallback。多个 Code / CRT Viewer 共享同一份权威 Display，并且都可以输入；AgentManager 的输入队列按服务端到达顺序串行写入 PTY。浏览器侧不再存在 Controller Lease、Takeover UI、Renderer ACK 协议，也暂不展示 Viewer 数量。传输结果不确定时不得自动重放 Input。Geometry 只表示 Display Dimensions（`cols` 与 `rows`）：浏览器先本地 Resize，后端最多保留一个 In-flight Resize 和一个 Latest Pending Size。只有 Reducer Backlog 可以通过 High / Low Watermark 暂停 PTY；慢浏览器应由 WebSocket Backpressure 单独隔离，不能冻结共享 PTY。Native PTY Host 的 Controller Generation 仍作为服务端进程切换边界：先关闭旧 Admission，Drain 已经接收的 Mutation，再发布新 Server Generation；它不是浏览器 Ownership。
+Terminal Input 保持直接的 Raw PTY Stream：不要增加逐输入 ACK、去重、自动重放，也不要在 xterm `onData` 外增加按时间猜测的 Textarea Fallback。多个 Code / CRT Viewer 共享同一份权威 Display，并且都可以输入；AgentManager 的输入队列按服务端到达顺序串行写入 PTY。浏览器侧不再存在 Controller Lease、Takeover UI、Renderer ACK 协议，也暂不展示 Viewer 数量。传输结果不确定时不得自动重放 Input。Geometry 只表示 Display Dimensions（`cols` 与 `rows`）。所有由浏览器 Layout 触发的 Geometry 变化都必须以完整 `cols + rows` 为单位做尾部合并，使一次持续窗口拖动不会反复触发 xterm Reflow 和全屏 TUI 重画。不能再按 Renderer Buffer 类型或 Output 长度分支这套行为，因为 TUI Alternate Screen 会让这种分类失真。显式 Attach、Recovery 与 Force Fit 仍然立即执行。后端最多保留一个 In-flight Resize 和一个 Latest Pending Size。只有 Reducer Backlog 可以通过 High / Low Watermark 暂停 PTY；慢浏览器应由 WebSocket Backpressure 单独隔离，不能冻结共享 PTY。Native PTY Host 的 Controller Generation 仍作为服务端进程切换边界：先关闭旧 Admission，Drain 已经接收的 Mutation，再发布新 Server Generation；它不是浏览器 Ownership。
+
+Code 与 CRT 的产品 Terminal 统一使用 xterm.js WebGL Renderer，并且只支持这一条渲染路径。WebGL 初始化失败或不可恢复的 Context Loss 必须显式停止并报错，不能在 Live Terminal 中静默切换到 DOM Renderer。Ghostty Web 只作为显式 Debug Renderer 存在，不是产品 Fallback。
 
 对于 Codex、Claude Code、OpenCode 和 Qoder，Farming Code 的结构化 Chat runtime 使用 ACP。Chat / Terminal 控件会把 Agent 重启到 ACP 或 native PTY runtime，并恢复同一个 provider Session；它不是单纯切换画面。刚打开且尚未收到用户输入的 Terminal，可以在 provider 还没落盘历史记录前直接切换成新的 ACP Chat；一旦 Terminal 已经收到输入，就必须保留可恢复 Session 校验，不能因历史缺失而静默丢掉对话。旧 JSON CLI Chat 只保留兼容读取，Codex App Server 继续作为独立实验路径。
 
-实时 Codex Terminal 的模型修改必须跟随 CLI 实际渲染的 `/model` 与推理菜单，并在放行后续 Composer 输入前确认底部状态。不要用固定延时自动操作 TUI，也不要假设模型目录索引等同于可见菜单索引。当前 runtime 目录未宣告 Fast / Ultra 时，控件保持可见但禁用。
+实时 Codex Terminal 的模型修改必须跟随 CLI 实际渲染的 `/model` 与推理菜单，并在放行后续 Composer 输入前确认底部状态。不要用固定延时自动操作 TUI，也不要假设模型目录索引等同于可见菜单索引。`/fast on|off` 是非交互命令：完整输入被 PTY 接受后立即放行后续 Terminal 输入，确认过程在输入队列之外继续。当前 runtime 目录未宣告 Fast / Ultra 时，控件保持可见但禁用。
 
 ACP 历史重放和实时更新必须归约到同一条有序 entry stream，不要在后端为 ACP 重建 `Turn -> Item` 模型。面向用户的结果/过程分组属于 ACP 前端的注意力投影：必须可逆、保留 entry 顺序与 tool 详情，并在不删除可见 automation 通知的前提下隐藏 Codex 内部 heartbeat/context 活动。
 
@@ -618,6 +621,8 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - 从干净 worktree 开始。创建新 release tag 前必须同时更新 `package.json` 和 `package-lock.json` 版本号；不得移动或复用已有 `vX.Y.Z` tag。
 - 先跑快速源码检查：`npm test`、`npm run typecheck`、`npm run lint` 和 `FARMING_BASE_PATH=/farming npm run build`。
 - 对本次改动涉及的 UI 面跑聚焦 Playwright；迭代中优先小而快的浏览器检查，只有变更面足够大时再扩大验证。
+- 每个 Release Candidate 在聚焦的确定性浏览器检查通过后，都必须运行一次 `npm run test:pre-release:codex-ui`。这个真实 Codex 跨皮肤复合 Case 是发布阻断项，必须保存与 Revision 绑定的结果和 Artifact；具体见 `docs/products/code/real-codex-release-case.zh_cn.md`。
+- 每个 Release Candidate 都必须运行一次 `npm run test:pre-release:terminal-input`。这个确定性的 Loopback Gate 会切换已有 Agent、通过 xterm 连续输入和删除、拒绝由切换触发的完整 `state` Payload、要求已聚焦 Terminal 的 Preview 保持紧凑，并将按键到 PTY Output 的 p95 限制在 250 ms 以内。保存与 Revision 绑定的结果；失败时保留 Trace。远端 Dogfood 仍须单独做真人式 Smoke，不能用网络基准替代它。
 - 为发布新增或更新 `release-notes/vX.Y.Z.md`。package 版本号、Git tag 和 release note 文件名必须严格一致；GitHub Release 正文应来自这个文件，而不是 workflow 里的泛化内联文案。
 - Release workflow 还会发布 `farming-code@X.Y.Z` 到 npm。首个公开包尚不能配置 Trusted Publishing，先用只用于自动化发布的仓库 secret `NPM_TOKEN` 引导一次；首包存在后，在 npm 配置本仓库与 `.github/workflows/release.yml` 的 Trusted Publisher，删除 token secret，后续由 GitHub OIDC 带 provenance 发布。不得复用 npm 版本或已有 Git tag。
 - push GitHub 前必须扫描完整待推送 diff，检查 secret、私网 host、token、个人机器路径、公司内部环境名、内部供应商/工具名。公开 release note 和文档不得出现私有部署机器或本地安全工具名称；这些信息只能留在已忽略的本地文件或私有交接说明中。
@@ -740,8 +745,8 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - **react-arborist** - Project Files section 的虚拟化 Explorer tree 行为层
 - **material-icon-theme** - Project Files section 的文件类型 icon manifest 与精选 SVG 资产
 - **Monaco Editor** - Project Files section 的代码编辑器
-- **xterm.js** - Farming Code 与 CRT 两个浏览器皮肤的默认 terminal renderer
-- **ghostty-web** - 保留为显式调试 renderer，可通过 `localStorage.farmingTerminalEngine = 'ghostty'` 切换
+- **xterm.js + WebGL** - Farming Code 与 CRT 唯一受支持的产品 Terminal Renderer；初始化或 Context 恢复失败时显式报错，不切换到 DOM
+- **ghostty-web** - 保留为显式调试 renderer，可通过 `localStorage.farmingTerminalEngine = 'ghostty'` 切换，但不作为产品 Fallback
 - **Ghostty vendor 资源** - 调试 renderer 的 JS/WASM 固定到 `frontend/vendor/ghostty-web/`，运行时不再依赖 `node_modules` 暴露静态文件
 - **reference 目录仅用于参考** - 不作为生产运行时依赖，也不作为部署前提
 
@@ -1040,6 +1045,7 @@ E2E 覆盖要求：
 - `test:e2e` 默认运行 Playwright 展示效果 E2E：构建前端、启动临时本地服务、使用临时 `FARMING_CONFIG_DIR`、关闭本地测试认证，并通过真实 React 页面、WebSocket、native pty session 和 xterm.js terminal 验证桌面/移动端操作流程。
 - `test:e2e:playwright:update` 只在 UI 展示确实变更后运行，用于更新 `tests/e2e/*-snapshots/` 中的截图基线。
 - Playwright E2E 会设置 `FARMING_E2E_FAKE_EXECUTABLES=1` 固定命令补全列表，默认使用 `tests/e2e/fixtures/fake-codex` 作为 `FARMING_CODEX_BIN`，并把 `tests/e2e/fixtures/` 放入 `PATH` 以使用 fake `claude`，避免自动化测试启动真实 Codex/Claude；实际 shell agent 启动仍走真实 `bash` session。
+- 真实 Codex 跨皮肤发布门禁位于 `tests/e2e/internal/real-codex-release-case.spec.ts`；它必须与默认 Fake Agent Suite 隔离，并保持唯一、有序的状态链，不能增加自动 Fallback 分支。
 - `test:e2e:local` 必须使用临时 `FARMING_CONFIG_DIR`，验证桌面端通过 UI 启动 `codex`、错误 workspace 会报错且不进入历史记录，以及手机视口通过底部输入框向 `bash` 发送命令。
 - `test:e2e:remote` 默认连接远端 Farming 实例 `/farming?token=...`，验证远端 coding agent 启动和手机视口输入链路。
 - `test:e2e:workspaces:*` 专门固定 Main/New Agent workspace 规则：Main 默认填 `~/.farming` 或 `lastMainWorkspace`，不展示 recent；New Agent 合并 recent + 快速扫描候选，去重并过滤 Farming 内部目录。

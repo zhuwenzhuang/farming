@@ -2,6 +2,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { ClipboardAddon } from '@xterm/addon-clipboard'
 import { SearchAddon, type ISearchResultChangeEvent } from '@xterm/addon-search'
+import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 
 import { createTerminalClipboardProvider } from '@/lib/terminal-clipboard'
@@ -15,6 +16,8 @@ import type { TerminalSearchOptions } from '@/lib/terminal-search'
 
 export type XtermBackedTerminal = GhosttyTerminal & {
   __farmingTerminalEngine: 'xterm'
+  getRendererType: () => 'pending' | 'webgl' | 'failed'
+  onRendererFailure: (handler: (error: Error) => void) => { dispose: () => void }
   getVisibleBufferBase: () => number
   getCellMetrics: () => { width: number; height: number } | undefined
   getScreenElement: () => HTMLElement | null
@@ -203,16 +206,64 @@ function xtermSearchDecorations() {
 
 function decorateXtermTerminal(terminal: Terminal, searchAddon: SearchAddon): XtermBackedTerminal {
   const adapted = terminal as unknown as XtermBackedTerminal
+  const nativeOpen = terminal.open.bind(terminal)
+  const nativeDispose = terminal.dispose.bind(terminal)
   const nativeScrollToLine = terminal.scrollToLine.bind(terminal)
   const nativeScrollToBottom = terminal.scrollToBottom.bind(terminal)
+  const rendererFailureHandlers = new Set<(error: Error) => void>()
   let lastSearchResult: ISearchResultChangeEvent | null = null
   let lastSearchOptionsKey = ''
+  let rendererType: 'pending' | 'webgl' | 'failed' = 'pending'
+  let rendererFailure: Error | null = null
+  let contextLossSubscription: { dispose: () => void } | null = null
+
+  const failRenderer = (error: Error) => {
+    if (rendererType === 'failed') return
+    rendererType = 'failed'
+    rendererFailure = error
+    rendererFailureHandlers.forEach(handler => handler(error))
+  }
 
   searchAddon.onDidChangeResults(result => {
     lastSearchResult = result
   })
 
   adapted.__farmingTerminalEngine = 'xterm'
+  adapted.getRendererType = () => rendererType
+  adapted.onRendererFailure = (handler) => {
+    rendererFailureHandlers.add(handler)
+    if (rendererFailure) handler(rendererFailure)
+    return { dispose: () => rendererFailureHandlers.delete(handler) }
+  }
+  adapted.open = (element) => {
+    nativeOpen(element)
+    const webglAddon = new WebglAddon()
+    try {
+      terminal.loadAddon(webglAddon)
+    } catch (cause) {
+      try {
+        webglAddon.dispose()
+      } catch {
+        // The partially activated addon may already have disposed itself.
+      }
+      const detail = cause instanceof Error ? `: ${cause.message}` : ''
+      const error = new Error(`Terminal WebGL renderer failed to initialize${detail}`)
+      rendererType = 'failed'
+      rendererFailure = error
+      terminal.dispose()
+      throw error
+    }
+    rendererType = 'webgl'
+    contextLossSubscription = webglAddon.onContextLoss(() => {
+      failRenderer(new Error('Terminal WebGL context was lost; reopen the terminal to retry.'))
+    })
+  }
+  adapted.dispose = () => {
+    contextLossSubscription?.dispose()
+    contextLossSubscription = null
+    rendererFailureHandlers.clear()
+    nativeDispose()
+  }
   adapted.getScrollbackLength = () => Math.max(0, terminal.buffer.active.baseY)
   adapted.getVisibleBufferBase = () => getXtermViewportTopLine(terminal)
   adapted.getCellMetrics = () => getXtermCellMetrics(terminal)
@@ -306,7 +357,7 @@ function decorateXtermTerminal(terminal: Terminal, searchAddon: SearchAddon): Xt
     getCursor: () => ({
       x: terminal.buffer.active.cursorX,
       y: terminal.buffer.active.cursorY,
-      visible: true,
+      visible: terminal.textarea ? document.activeElement === terminal.textarea : true,
     }),
   }
 
@@ -337,6 +388,7 @@ export async function createXtermTerminalInstance(options?: {
     cols: 80,
     convertEol: true,
     cursorBlink: false,
+    cursorInactiveStyle: 'none',
     cursorStyle: 'block',
     drawBoldTextInBrightColors: false,
     fontFamily: DEFAULT_FONT_FAMILY,

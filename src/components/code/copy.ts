@@ -192,6 +192,8 @@ export interface CodeCopy {
   unread: string
   showMore: string
   showLess: string
+  showAgents: string
+  collapseAgents: string
   latest: string
   upgrade: string
   updating: string
@@ -280,6 +282,10 @@ export interface CodeCopy {
   renameEntry: (name: string) => string
   newFile: string
   newFolder: string
+  refreshFiles: string
+  refreshingFiles: string
+  filesRefreshed: string
+  filesRefreshFailed: string
   refresh: string
   rename: string
   copyRelativePath: string
@@ -606,6 +612,8 @@ const EN_COPY: CodeCopy = {
   unread: 'Unread',
   showMore: 'Show more',
   showLess: 'Show less',
+  showAgents: 'Show agents',
+  collapseAgents: 'Collapse agents',
   latest: 'Latest',
   upgrade: 'UPGRADE',
   updating: 'UPDATING',
@@ -694,6 +702,10 @@ const EN_COPY: CodeCopy = {
   renameEntry: name => `Rename ${name}`,
   newFile: 'New File',
   newFolder: 'New Folder',
+  refreshFiles: 'Refresh files',
+  refreshingFiles: 'Refreshing files…',
+  filesRefreshed: 'Files refreshed',
+  filesRefreshFailed: 'Files refresh failed',
   refresh: 'Refresh',
   rename: 'Rename',
   copyRelativePath: 'Copy Relative Path',
@@ -1056,6 +1068,8 @@ const ZH_COPY: CodeCopy = {
   unread: '未读',
   showMore: '显示更多',
   showLess: '收起',
+  showAgents: '展开 Agent',
+  collapseAgents: '收起 Agent',
   latest: '最新',
   upgrade: '升级',
   updating: '更新中',
@@ -1144,6 +1158,10 @@ const ZH_COPY: CodeCopy = {
   renameEntry: name => `重命名 ${name}`,
   newFile: '新建文件',
   newFolder: '新建文件夹',
+  refreshFiles: '刷新文件',
+  refreshingFiles: '正在刷新文件…',
+  filesRefreshed: '文件已刷新',
+  filesRefreshFailed: '文件刷新失败',
   refresh: '刷新',
   rename: '重命名',
   copyRelativePath: '复制相对路径',

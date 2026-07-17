@@ -8,7 +8,7 @@ This document describes how the Project Files section should fit into Farming Co
 
 Files is a project-level section. It belongs beside concrete project agents, not beside Main Agent. The purpose is to let the human inspect and lightly edit files while supervising an agent.
 
-Inside an expanded project, the sidebar order is the concrete agent row first, optional Open Editors second, and Files last. Open Editors is a separate section, not a child of Files. It appears only after the user has opened at least one file and is collapsed by default. Git History lives inside the expanded Files section beside working-copy Changes and defaults to collapsed.
+Inside an expanded project, the sidebar order is the concrete agent row first, optional Open Editors second, and Files last. The Agent list has its own collapse control after its pagination controls; collapsing it keeps a compact restore row while leaving Files available, and an active search temporarily reveals the matching Agent rows. Open Editors is a separate section, not a child of Files. It appears only after the user has opened at least one file and is collapsed by default. Git History lives inside the expanded Files section beside working-copy Changes and defaults to collapsed.
 
 Files should feel close to a lightweight VS Code Explorer:
 
@@ -63,9 +63,11 @@ The current implementation uses `react-arborist`, which is reasonable for the fi
 
 Directly copying VS Code workbench sources is not recommended because the explorer is deeply coupled to the VS Code platform.
 
+Farming follows the same state boundary as VS Code's tree model: each pointer or keyboard toggle synchronously commits one transition to the workspace-scoped open-directory set before any asynchronous child loading starts. `react-arborist` projects that desired state and reports view changes, but its `onToggle` callback must not read a just-dispatched `node.isOpen` value and write it back as authoritative state. Rapid clicks are not debounced or coalesced; every accepted click must flip the model exactly once, and a late directory load must not reopen a directory the user closed afterward.
+
 Current implementation boundaries:
 
-- `react-arborist` owns tree mechanics such as virtualization, focus, selection, and expand/collapse.
+- `react-arborist` owns view mechanics such as virtualization, focus, selection, and rendering the projected expand/collapse state; the workspace-scoped open-directory set is authoritative.
 - `useWorkspaceFiles` and `/api/files/*` are the Farming file adapter for lazy directories, file events, git state, text IO, and conflict checks.
 - `ProjectFilesSection` is the composition shell for the project sidebar section; row rendering, search results, sticky context, tree mechanics, file operations, and context-menu behavior live in focused components or controllers.
 - `GitHistorySection` owns lazy history loading, bounded pagination, commit expansion, merge-parent selection, and routing into Review.
@@ -73,7 +75,7 @@ Current implementation boundaries:
 - `FileSectionBody` owns the expanded Files body: status rows, search results, tree view, and the named view models passed into that body.
 - `FileSectionOverlays` owns Files floating UI such as the file context menu and file-operation dialog.
 - `useWorkspaceFileSectionController` owns Files/Open Editors collapse state, Files-identity cleanup, reveal requests, search-focus requests, and tree refresh scheduling for the expanded section.
-- `useWorkspaceFileTreeController` owns tree refs, row-frame rendering, layout refresh, open-state synchronization, and last-focused path tracking.
+- `useWorkspaceFileTreeController` owns tree refs, row-frame rendering, layout refresh, desired-open-state projection, and last-focused path tracking.
 - `FileTreeView` owns the tree viewport, sticky context, Arborist `Tree` wiring, and `FileTreeRow` node renderer.
 - `FileTreeRow` owns single-row rendering and decoration slots, while `useWorkspaceFileMenuController` and `useWorkspaceFileOperationController` own file-management interaction state.
 - `FileEditorPane` remains the Monaco composition shell for the active file, save/reload/conflict flow, and blame integration.
@@ -160,7 +162,7 @@ The backend remains intentionally thin:
 - create / rename / delete / move;
 - search through `rg` where available;
 - bounded git history, commit changes, status, diff, blame, and line changes through `git`;
-- explicit refresh of every loaded directory plus working-copy Changes from the stable Project Files id. The frontend does not subscribe to workspace watcher events until recursive coverage and bounded delivery are both correct.
+- explicit refresh of the root, expanded directories, working-copy Changes, and currently open files from the stable Project Files id. The frontend does not subscribe to workspace watcher events until recursive coverage and bounded delivery are both correct.
 
 Farming should reuse mature tools instead of building a full custom IDE backend.
 
@@ -170,9 +172,13 @@ Large workspaces should stay usable through bounded operations:
 
 - file reads and writes keep size caps;
 - directory trees load lazily by directory;
+- after the Code workspace first renders, it starts one shared non-blocking preload of the dynamic file-editor module, Monaco core, and common syntax tokenizers; opening a file reuses that promise, while language workers remain demand-loaded and a background preload failure never reloads the page on its own;
 - history defaults to 50 commits per page with a hard page cap, lazy commit-change loading, and a bounded frontend detail cache;
 - working-copy status returns complete records already captured plus `truncated: true` when a large untracked set exceeds the Git output buffer; it must never turn that condition into a false clean workspace;
-- file refresh is user-triggered and bounded to directories already loaded in the explorer, plus one working-copy status request;
+- file refresh is user-triggered: Git status and browser file requests time out, expanded directories refresh parent-first with at most six concurrent requests, and open files revalidate with at most four concurrent reads;
+- a directory removed outside Farming is a successful refresh result: its refreshed parent removes it from the tree and stale descendant requests are skipped;
+- refreshed clean editors adopt the latest file contents, while dirty editors preserve their draft and become visibly `externalChanged` when the backend SHA changes;
+- while that refresh is in flight, the Files action shows a pending state and the Changes / Untracked counts vacate their previous values; successful counts visibly re-enter only after the real requests settle, success feedback is brief, and failure remains retryable and visible;
 - search and git operations use limits, timeouts, or truncation instead of unbounded output;
 - live terminal output is streamed in bounded chunks and coalesced before WebSocket fanout;
 - exited terminal sessions release screen workers and remove session state after the final output is flushed;

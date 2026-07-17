@@ -43,6 +43,18 @@ function run() {
   );
   assert(sessionBridge.includes('resize-agent'), 'session bridge should handle resize requests');
   assert(
+    server.includes('function previewForClient(preview, client)') &&
+      server.includes('client.focusedAgentId !== preview.agentId') &&
+      server.includes('previewSnapshot: null'),
+    'the focused terminal must not receive a redundant full preview snapshot alongside its live output stream',
+  );
+  assert(
+    server.includes("agentManager.on('agent-read', broadcastAgentRead);") &&
+      server.includes("type: 'agent-read'") &&
+      useWebSocket.includes("case 'agent-read':"),
+    'read-cursor changes should travel as a small Agent delta instead of replacing the full Agent list',
+  );
+  assert(
     sessionBridge.includes('sendTerminalInput(agentId, input)') &&
       sessionBridge.includes("type: 'input'") &&
       !sessionBridge.includes('terminalControl') &&

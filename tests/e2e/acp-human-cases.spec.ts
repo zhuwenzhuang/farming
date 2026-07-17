@@ -305,6 +305,8 @@ test.describe('ACP human-like browser matrix', () => {
     })
     await test.step('38 queue and discard a follow-up during active work', async () => {
       await sendAcpMessage(page, 'live progress')
+      const activeLiveTurn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'live progress' }).last()
+      await expect(activeLiveTurn.getByText('Inspecting files', { exact: true })).toBeVisible({ timeout: 5_000 })
       await page.getByTestId('code-acp-composer-input').fill('queued follow-up')
       await page.getByTestId('code-acp-composer-send').click()
       await expect(page.getByTestId('code-acp-pending-followup')).toContainText('queued follow-up')
@@ -393,16 +395,29 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(longTurn).toContainText('long-terminal-ready')
     })
     await test.step('49 restart from Chat into Terminal with the same provider session', async () => {
-      const switchResponsePromise = page.waitForResponse(response => (
-        response.request().method() === 'PATCH'
-        && response.url().includes(`/api/agents/${agentId}`)
-      ))
+      const stateResponse = await page.request.get('/farming/api/control/agents')
+      const state = await stateResponse.json() as { agents?: Array<{ id?: string }> }
+      expect(state.agents?.some(agent => agent.id === agentId)).toBeTruthy()
+      const switchResponsePromise = page.waitForResponse((response) => {
+        if (response.request().method() !== 'PATCH'
+          || !response.url().includes(`/api/agents/${agentId}`)) {
+          return false
+        }
+        try {
+          const payload = response.request().postDataJSON() as { agentRuntimeMode?: string }
+          return payload.agentRuntimeMode === 'terminal'
+        } catch {
+          return false
+        }
+      })
       await modeToggle.getByRole('button', { name: 'Terminal' }).click()
       await expect(page.getByTestId('code-permission-switching')).toBeVisible()
       const switchResponse = await switchResponsePromise
-      const switchPayload = await switchResponse.json() as { error?: string, agentRuntimeMode?: string }
+      const switchPayload = await switchResponse.json() as { error?: string, agentRuntimeMode?: string, restartedAgentId?: string }
       expect(switchResponse.ok(), switchPayload.error || 'Runtime switch request failed').toBeTruthy()
       expect(switchPayload.agentRuntimeMode).toBe('terminal')
+      expect(switchPayload.restartedAgentId).toBeTruthy()
+      agentId = switchPayload.restartedAgentId || agentId
       await expect(page.getByTestId('code-agent-terminal-view')).toBeVisible({ timeout: 30_000 })
       await expect(page.getByTestId('code-composer-input')).toBeVisible()
       await expect(page.getByTestId('code-acp-composer')).toHaveCount(0)
@@ -640,9 +655,9 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(restoredRevert.getByTestId('code-acp-patch-decision')).toContainText('Reverted')
 
     await sendAcpMessage(page, 'conflict applied edit')
-    await expect(page.getByText('Applied edit complete.', { exact: true }).last()).toBeVisible({ timeout: 15_000 })
-    fs.writeFileSync(path.join(workspace, 'decision-conflict.txt'), 'newer human change\n')
     const conflictTurn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'conflict applied edit' }).last()
+    await expect(conflictTurn.getByText('Applied edit complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
+    fs.writeFileSync(path.join(workspace, 'decision-conflict.txt'), 'newer human change\n')
     await conflictTurn.getByTestId('code-codex-transcript-result-summary').click()
     const conflictFile = conflictTurn.locator('.code-codex-transcript-result-file').filter({ hasText: 'decision-conflict.txt' })
     await conflictFile.locator('summary').click()

@@ -49,15 +49,18 @@ import {
   workspaceShareProjectLabel,
   workspaceFileOpenTargetFromShareTarget,
   workspaceFolderPreviewFilePath,
+  workspaceShareTargetWithCurrentReadingAnchor,
   workspaceShareTargetFromSearch,
   type WorkspaceShareTarget,
 } from '@/lib/workspace-share-target'
+import { importSharedReadingAnchor } from '@/lib/reading-anchor'
 import { isIOSLikeTouchViewport, isMobileTouchViewport } from '@/lib/responsive-mode'
 import { buildWorkspaceHistory } from '@/lib/workspace-options'
 import {
   fetchWorkspaceFile,
   fetchWorkspaceTree,
   searchWorkspaceFiles,
+  type WorkspaceFile,
   type WorkspaceFileDeleteResult,
   type WorkspaceFileMove,
   type WorkspaceFileSearchMatch,
@@ -347,12 +350,37 @@ const COLLAPSED_SIDEBAR_WIDTH = 52
 const SIDEBAR_DRAG_COLLAPSE_WIDTH = 172
 const DESKTOP_AUTO_COLLAPSE_WIDTH = 900
 const TERMINAL_PATH_SEARCH_LIMIT = 12
+const OPEN_FILE_REFRESH_CONCURRENCY = 4
+const OPEN_FILE_REFRESH_TIMEOUT_MS = 15_000
 const MOBILE_PROJECT_CONTEXT_MENU_WIDTH = 214
 const MOBILE_PROJECT_CONTEXT_MENU_HEIGHT = 122
 const AGENT_SESSION_PAGE_SIZE = 60
 const AGENT_SESSION_SEARCH_LIMIT = 1000
 const AGENT_SESSION_SEARCH_DEBOUNCE_MS = 150
 const CODEX_TERMINAL_PROFILE_REQUEST_TIMEOUT_MS = 35_000
+
+async function refreshOpenWorkspaceFileReads(agentId: string, filePaths: readonly string[]) {
+  const files: WorkspaceFile[] = []
+  let successful = true
+  let nextIndex = 0
+  const workers = Array.from({ length: Math.min(OPEN_FILE_REFRESH_CONCURRENCY, filePaths.length) }, async () => {
+    while (nextIndex < filePaths.length) {
+      const filePath = filePaths[nextIndex]!
+      nextIndex += 1
+      const abortController = new AbortController()
+      const timeoutId = window.setTimeout(() => abortController.abort(), OPEN_FILE_REFRESH_TIMEOUT_MS)
+      try {
+        files.push(await fetchWorkspaceFile(agentId, filePath, { signal: abortController.signal }))
+      } catch {
+        successful = false
+      } finally {
+        window.clearTimeout(timeoutId)
+      }
+    }
+  })
+  await Promise.all(workers)
+  return { files, successful }
+}
 
 
 function shouldUseNativeMobileDictation() {
@@ -524,6 +552,10 @@ export function CodeWorkspace({
     onDiscardAttachment: revokeComposerAttachmentPreview,
   })
   const pendingFollowUpAutoFlushRef = useRef<Record<string, string>>({})
+  // This is only a local admission fence. ACP's runtime state remains
+  // authoritative, but the first prompt must not leave a click-sized window
+  // in which a second prompt is sent before its `working` update arrives.
+  const acpPromptStartFencesRef = useRef<Record<string, number>>({})
   const [, setTerminalFollowStates] = useState<Record<string, TerminalFollowState>>({})
   const [mainPaneMode, setMainPaneMode] = useState<MainPaneMode>('terminal')
   const [initialWorkspaceSurface] = useState<CodeWorkspaceSurface | undefined>(() => (
@@ -544,6 +576,15 @@ export function CodeWorkspace({
   } = useWorkspaceNavigationHistory()
   const openWorkspaceFile = workspaceOpenFiles.activeFile
   const openWorkspaceFiles = workspaceOpenFiles.files
+  const refreshProjectOpenFiles = useCallback(async (filesId: string, workspaceRoot: string) => {
+    const filePaths = Array.from(new Set(workspaceOpenFiles.files
+      .filter(file => file.workspaceRoot === workspaceRoot)
+      .map(file => file.file.path)))
+    if (filePaths.length === 0) return true
+    const result = await refreshOpenWorkspaceFileReads(filesId, filePaths)
+    workspaceOpenFiles.refreshFromReads(workspaceRoot, result.files)
+    return result.successful
+  }, [workspaceOpenFiles])
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchSelectionIndex, setSearchSelectionIndex] = useState(0)
@@ -553,6 +594,7 @@ export function CodeWorkspace({
   const projectWorkspacesRef = useRef<string[]>([])
   const projectWorkspacesMutationRef = useRef(0)
   const projectWorkspacesSaveChainRef = useRef<Promise<void>>(Promise.resolve())
+  const projectWorkspaceAutoMountAttemptsRef = useRef<Set<string>>(new Set())
   const [projectNames, setProjectNames] = useState<Record<string, string>>({})
   const [agentLaunchOptions, setAgentLaunchOptions] = useState<AgentLaunchOption[]>([])
   const [mainPageSessionKeys, setMainPageSessionKeys] = useState<Set<string>>(() => new Set())
@@ -910,9 +952,13 @@ export function CodeWorkspace({
   const composerAttachments = activeComposerState.attachments
   const composerMode = activeComposerState.mode
   const { plusMenuOpen, approvalMenuOpen, modelMenuOpen, modelPickerPane } = activeComposerState.ui
+  const activeAcpPromptStartFenced = Boolean(
+    activeAgent?.agentRuntimeMode === 'acp'
+    && acpPromptStartFencesRef.current[activeAgent.id] !== undefined
+  )
   const activeAgentTurnActive = useMemo(
-    () => isAgentTurnActive(activeAgent),
-    [activeAgent]
+    () => activeAcpPromptStartFenced || isAgentTurnActive(activeAgent),
+    [activeAcpPromptStartFenced, activeAgent]
   )
   const activeAgentTerminalState = useMemo(
     () => inferAgentTerminalState(activeAgent),
@@ -1089,9 +1135,15 @@ export function CodeWorkspace({
       }
     }
     if (activeTerminalId && workspaceNavigationAgentIds.has(activeTerminalId)) {
+      const agent = activeAgents.find(candidate => candidate.id === activeTerminalId)
       return {
         kind: 'agent',
         agentId: activeTerminalId,
+        readingSurface: agent?.agentRuntimeMode === 'acp'
+          || agent?.agentRuntimeMode === 'json'
+          || agent?.codexRuntimeMode === 'app-server'
+          ? 'chat'
+          : 'terminal',
       }
     }
     return null
@@ -1816,16 +1868,23 @@ export function CodeWorkspace({
 
   const submitAcpDraft = useCallback((submittedDraft?: string) => {
     const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft
+    const promptStartFenced = Boolean(
+      activeAgent?.agentRuntimeMode === 'acp'
+      && acpPromptStartFencesRef.current[activeAgent.id] !== undefined
+    )
     const submitted = submitAcpComposerDraft({
       agent: activeAgent,
       composerKey: activeComposerKey,
       draft: latestDraft,
       attachments: composerAttachments,
       composerMode,
-      turnActive: activeAgentTurnActive,
+      turnActive: activeAgentTurnActive || promptStartFenced,
       sendMessage: sendComposerMessageToAgent,
       updateComposerState: updateComposerStateForKey,
     })
+    if (submitted && activeAgent?.agentRuntimeMode === 'acp' && !activeAgentTurnActive && !promptStartFenced) {
+      acpPromptStartFencesRef.current[activeAgent.id] = Number(activeAgent.acpSessionRevision) || 0
+    }
     if (submitted) focusComposerTextarea()
   }, [activeAgent, activeAgentTurnActive, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
 
@@ -1883,6 +1942,29 @@ export function CodeWorkspace({
   }, [activeAgent, activeComposerKey, focusComposerTextarea, updateComposerStateForKey])
 
   useEffect(() => {
+    const activeAgentIds = new Set(activeAgents.map(agent => agent.id))
+    Object.keys(acpPromptStartFencesRef.current).forEach((agentId) => {
+      if (!activeAgentIds.has(agentId)) delete acpPromptStartFencesRef.current[agentId]
+    })
+    activeAgents.forEach((agent) => {
+      const revisionBeforePrompt = acpPromptStartFencesRef.current[agent.id]
+      if (revisionBeforePrompt === undefined) return
+      const promptStateConfirmed = isAgentTurnActive(agent)
+        || (Number(agent.acpSessionRevision) || 0) > revisionBeforePrompt
+      if (
+        agent.agentRuntimeMode !== 'acp'
+        || promptStateConfirmed
+        || agent.acpState === 'error'
+        || agent.archived
+        || agent.status === 'dead'
+        || agent.status === 'stopped'
+      ) {
+        delete acpPromptStartFencesRef.current[agent.id]
+      }
+    })
+  }, [activeAgents])
+
+  useEffect(() => {
     const pendingFlushes: Array<{
       agent: Agent
       composerKey: string
@@ -1900,6 +1982,7 @@ export function CodeWorkspace({
         return
       }
       if (agent.archived || agent.status === 'dead' || agent.status === 'stopped') return
+      if (agent.agentRuntimeMode === 'acp' && acpPromptStartFencesRef.current[agent.id] !== undefined) return
       if (agent.agentRuntimeMode === 'acp' ? isAgentTurnActive(agent) : isCodexAgentWorking(agent)) {
         delete pendingFollowUpAutoFlushRef.current[composerKey]
         return
@@ -2230,8 +2313,12 @@ export function CodeWorkspace({
     const missing = projectListProjects
       .filter(project => !project.hasMain && Boolean(project.workspace))
       .map(project => project.workspace)
-      .filter(workspace => !previous.includes(workspace))
+      .filter(workspace => (
+        !previous.includes(workspace)
+        && !projectWorkspaceAutoMountAttemptsRef.current.has(workspace)
+      ))
     if (missing.length === 0) return
+    missing.forEach(workspace => projectWorkspaceAutoMountAttemptsRef.current.add(workspace))
     persistProjectWorkspaces([...missing, ...previous], previous)
   }, [persistProjectWorkspaces, projectListProjects, projectWorkspacesLoaded])
 
@@ -2907,6 +2994,7 @@ export function CodeWorkspace({
   }, [focusWorkspaceFilesSearch, openProjectFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
 
   const restoreWorkspaceShareTarget = useCallback(async (target: WorkspaceShareTarget) => {
+    importSharedReadingAnchor(target.kind === 'agent' ? target.readingAnchor : undefined)
     if (target.kind === 'agent') {
       if (!workspaceNavigationAgentIds.has(target.agentId)) return false
       setAgentMenu(null)
@@ -3542,10 +3630,11 @@ export function CodeWorkspace({
   const shareCurrentView = useCallback(async () => {
     setOptionsMenu(null)
     try {
+      const target = workspaceShareTargetWithCurrentReadingAnchor(shareTarget)
       const response = await fetch(appPath('/api/share/qr-ticket'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(shareTarget ? { target: shareTarget } : {}),
+        body: JSON.stringify(target ? { target } : {}),
       })
       const body = await response.json().catch(() => null) as { longUrl?: string; shortUrl?: string; error?: string } | null
       if (!response.ok || (!body?.longUrl && !body?.shortUrl)) {
@@ -4767,6 +4856,7 @@ export function CodeWorkspace({
         onCloseOpenWorkspaceFile={closeOpenWorkspaceFile}
         onMoveWorkspaceEntries={handleWorkspaceFileMove}
         onDeleteWorkspaceEntries={handleWorkspaceFileDelete}
+        onRefreshProjectOpenFiles={refreshProjectOpenFiles}
         onOpenOptionsMenu={openSettingsFromSidebar}
         copy={copy}
       />

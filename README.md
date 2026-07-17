@@ -155,7 +155,7 @@ Development host
   repositories, shells, Codex, Claude Code, OpenCode, Qoder, ...
 ```
 
-The backend owns lifecycle, authentication, session routing, workspace boundaries, history, and configuration. Interactive terminal sessions use a separate native PTY host by default, allowing browser and server reconnection without replacing the live process. The browser terminal renderer defaults to xterm.js; the Ghostty web adapter remains an explicit debug path.
+The backend owns lifecycle, authentication, session routing, workspace boundaries, history, and configuration. Interactive terminal sessions use a separate native PTY host by default, allowing browser and server reconnection without replacing the live process. The browser terminal renderer defaults to xterm.js WebGL as its single supported product path; the Ghostty web adapter remains an explicit debug path, not a runtime fallback.
 
 Runtime settings live in `~/.farming/settings.json`. Farming session metadata, the project membership index, archived runs, theme settings, update state, logs, and the startup token use separate files under `~/.farming/`. External provider histories remain read-only integrations.
 

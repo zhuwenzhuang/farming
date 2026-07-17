@@ -27,6 +27,23 @@ declare global {
 const NARROW_EDITOR_MEDIA = '(max-width: 980px)'
 const CODEX_LIGHT_MONACO_THEME = 'farming-code-light'
 const CODEX_DARK_MONACO_THEME = 'farming-code-dark'
+const WORKSPACE_EDITOR_PRELOAD_LANGUAGE_IDS = [
+  'typescript',
+  'javascript',
+  'json',
+  'css',
+  'html',
+  'markdown',
+  'python',
+  'shell',
+  'java',
+  'cpp',
+  'csharp',
+  'go',
+  'rust',
+  'sql',
+  'yaml',
+] as const
 const WORKSPACE_EDITOR_CONTEXT_MENU_IGNORE_SELECTOR = [
   '.code-editor-context-menu',
   '.code-file-tab-context-menu',
@@ -38,6 +55,7 @@ const WORKSPACE_EDITOR_CONTEXT_MENU_IGNORE_SELECTOR = [
 let monacoEnvironmentConfigured = false
 let monacoLanguageMetadata: WorkspaceEditorLanguageMetadata[] | null = null
 let codexMonacoThemesDefined = false
+let workspaceEditorPreloadPromise: Promise<void> | null = null
 
 export function configureWorkspaceEditorMonacoEnvironment() {
   if (monacoEnvironmentConfigured) return
@@ -51,6 +69,18 @@ export function configureWorkspaceEditorMonacoEnvironment() {
       return new EditorWorker()
     },
   }
+}
+
+export function preloadWorkspaceEditorMonaco() {
+  configureWorkspaceEditorMonacoEnvironment()
+  if (!workspaceEditorPreloadPromise) {
+    workspaceEditorPreloadPromise = Promise.allSettled(
+      WORKSPACE_EDITOR_PRELOAD_LANGUAGE_IDS.map(languageId => (
+        monaco.editor.colorize('', languageId, { tabSize: 2 })
+      )),
+    ).then(() => undefined)
+  }
+  return workspaceEditorPreloadPromise
 }
 
 function defineCodexMonacoThemes() {

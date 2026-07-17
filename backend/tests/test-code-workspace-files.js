@@ -82,6 +82,10 @@ function run() {
   const webSocketSource = read('src/hooks/useWebSocket.ts');
   const messagesSource = read('src/types/messages.ts');
   const resumeAgentSessionSource = workspaceSource.match(/const resumeAgentSession = useCallback[\s\S]*?resumeAgentSessionRef\.current = resumeAgentSession/)?.[0] || '';
+  const settingsUpdateRouteSource = serverSource.slice(
+    serverSource.indexOf("app.post(routePath(BASE_PATH, '/api/settings')"),
+    serverSource.indexOf("app.post(routePath(BASE_PATH, '/api/themes/:themeId/set')"),
+  );
 
   assert(
     appSource.includes('<CodeWorkspace') &&
@@ -92,9 +96,17 @@ function run() {
   );
 
   assert(
-    webSocketSource.includes("sendMessage({ type: 'focus-agent', agentId, refreshState: true })") &&
+    settingsUpdateRouteSource.includes('scheduleBroadcastState();') &&
+      !settingsUpdateRouteSource.includes('broadcastState();'),
+    'rapid settings writes should be bounded by the shared state broadcast scheduler',
+  );
+
+  assert(
+    webSocketSource.includes("sendMessage({ type: 'focus-agent', agentId })") &&
+      !webSocketSource.includes("sendMessage({ type: 'focus-agent', agentId, refreshState: true })") &&
+      webSocketSource.includes('codexTerminalProfile: msg.preview.codexTerminalProfile') &&
       messagesSource.includes('refreshState?: boolean'),
-    'focusing an Agent should refresh its backend-derived Terminal profile instead of keeping launch defaults from an early recovery snapshot'
+    'focusing an Agent should not reload global state; live Terminal profile changes arrive through the focused preview stream'
   );
 
   assert(
@@ -702,6 +714,8 @@ function run() {
       workspaceSource.includes('projectListProjectsForAgents(') &&
       workspaceSource.includes('openWorkspaceFiles,\n      visibleAgents,') &&
       workspaceSource.includes('project.hasOpenFile') &&
+      workspaceSource.includes('projectWorkspaceAutoMountAttemptsRef') &&
+      workspaceSource.includes('!projectWorkspaceAutoMountAttemptsRef.current.has(workspace)') &&
       workspaceSource.includes("const filesWorkspaceId = project.workspace ? projectFilesWorkspaceId(project.workspace) : ''") &&
       !workspaceSource.includes('fileAgentId') &&
       workspaceSource.includes('code-project-worktree') &&

@@ -2,7 +2,11 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import type qrcode from 'qrcode-generator'
 import { appPath } from '@/lib/base-path'
 import { writeTerminalClipboardText } from '@/lib/terminal-clipboard'
-import { workspaceShareTargetKey, type WorkspaceShareTarget } from '@/lib/workspace-share-target'
+import {
+  workspaceShareTargetKey,
+  workspaceShareTargetWithCurrentReadingAnchor,
+  type WorkspaceShareTarget,
+} from '@/lib/workspace-share-target'
 import type { CodeCopy } from './copy'
 
 const CLOSE_DWELL_MS = 140
@@ -250,10 +254,11 @@ export function ShareQrButton({
     setLoading(true)
     setError('')
     try {
+      const target = workspaceShareTargetWithCurrentReadingAnchor(shareTarget)
       const response = await fetch(appPath('/api/share/qr-ticket'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(shareTarget ? { target: shareTarget } : {}),
+        body: JSON.stringify(target ? { target } : {}),
       })
       const body = await response.json() as ShareTicket | { error?: string }
       if (!response.ok || !('shortUrl' in body)) {

@@ -1566,6 +1566,11 @@ body.code-resizing-sidebar {
   color: #343a34;
 }
 
+.code-agent-list-toggle {
+  min-height: 26px;
+  padding-block: 3px;
+}
+
 .code-agent-row-copy {
   min-width: 0;
   display: flex;
@@ -1891,6 +1896,7 @@ body.code-resizing-sidebar {
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, transform 80ms ease;
 }
 
 .code-files-refresh:hover,
@@ -1898,6 +1904,43 @@ body.code-resizing-sidebar {
   background: rgba(31, 35, 40, 0.05);
   color: #30372f;
   outline: 0;
+}
+
+.code-files-refresh:active:not(:disabled) {
+  transform: scale(0.88);
+}
+
+.code-files-refresh:disabled {
+  cursor: progress;
+}
+
+.code-files-refresh-glyph {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: center;
+}
+
+.code-files-refresh-glyph svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+.code-files-refresh[data-refresh-status='refreshing'] .code-files-refresh-glyph {
+  animation: code-file-change-refresh-spin 0.8s linear infinite;
+}
+
+.code-files-refresh[data-refresh-status='success'] {
+  background: rgba(45, 164, 78, 0.12);
+  color: #1a7f37;
+}
+
+.code-files-refresh[data-refresh-status='error'] {
+  background: rgba(207, 34, 46, 0.1);
+  color: #b4232d;
 }
 
 .code-file-section-chevron {
@@ -2544,10 +2587,58 @@ button.code-git-history-change:focus-visible {
 }
 
 .code-file-changes-count {
+  min-width: 3ch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
   color: #7b8078;
   font-size: 13px;
   font-weight: 600;
   line-height: 1;
+}
+
+.code-file-changes-count.refreshed {
+  animation: code-file-changes-count-arrive 240ms ease-out both;
+}
+
+.code-file-changes-count.stale {
+  opacity: 0.5;
+}
+
+.code-file-changes-count-loader {
+  display: inline-block;
+  letter-spacing: 1px;
+  animation: code-file-changes-count-pulse 700ms ease-in-out infinite alternate;
+}
+
+@keyframes code-file-changes-count-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes code-file-changes-count-pulse {
+  from {
+    opacity: 0.3;
+  }
+
+  to {
+    opacity: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .code-files-refresh[data-refresh-status='refreshing'] .code-files-refresh-glyph,
+  .code-file-changes-count.refreshed,
+  .code-file-changes-count-loader {
+    animation: none;
+  }
 }
 
 .code-file-change-group {
@@ -3099,6 +3190,8 @@ body.code-mode .code-file-change-group-toggle {
   outline: 0 !important;
   text-align: left;
   position: relative;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .code-file-row::before {
@@ -3373,6 +3466,8 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   font: inherit;
   outline: 0;
   box-shadow: 0 0 0 1px rgba(82, 99, 135, 0.14);
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .code-file-operation-shell {

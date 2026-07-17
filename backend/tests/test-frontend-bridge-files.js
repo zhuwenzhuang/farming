@@ -272,7 +272,7 @@ function run() {
       && crtApp.includes('function performCrtTerminalCheckpointInstall')
       && crtApp.includes('terminal.resize(sessionView.previewCols, sessionView.previewRows)')
       && crtApp.includes('terminal.write(sessionView.renderOutput, finishInstall)')
-      && crtApp.includes('replication.checkpointInstallSeq !== installSeq')
+      && crtApp.includes('replication.installSeq !== installSeq')
       && !crtApp.includes('candidate.previewCols === terminal.cols'),
     'CRT should serialize authoritative checkpoint writes at their exact logical dimensions'
   );

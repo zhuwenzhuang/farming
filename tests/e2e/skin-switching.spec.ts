@@ -790,10 +790,22 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   await expect(page.locator('.billing-overrange-scale i')).toHaveCount(4)
   const overrangeLegendStyles = await page.locator('.billing-overrange-scale i').evaluateAll(cells => cells.map(cell => ({
     background: getComputedStyle(cell).backgroundColor,
-    symbol: getComputedStyle(cell, '::after').content,
+    symbol: {
+      content: getComputedStyle(cell, '::after').content,
+      width: getComputedStyle(cell, '::after').width,
+      height: getComputedStyle(cell, '::after').height,
+      borderRadius: getComputedStyle(cell, '::after').borderRadius,
+      clipPath: getComputedStyle(cell, '::after').clipPath,
+      transform: getComputedStyle(cell, '::after').transform,
+    },
   })))
   expect(new Set(overrangeLegendStyles.map(style => style.background)).size).toBe(4)
-  expect(overrangeLegendStyles.map(style => style.symbol)).toEqual(['"•"', '"○"', '"◇"', '"✦"'])
+  expect(overrangeLegendStyles.map(style => style.symbol.content)).toEqual(['""', '""', '""', '""'])
+  expect(overrangeLegendStyles.map(style => style.symbol.width)).toEqual(['3px', '6px', '5px', '8px'])
+  expect(overrangeLegendStyles.map(style => style.symbol.height)).toEqual(['3px', '6px', '5px', '8px'])
+  expect(overrangeLegendStyles.slice(0, 2).map(style => style.symbol.borderRadius)).toEqual(['50%', '50%'])
+  expect(overrangeLegendStyles[2].symbol.transform).not.toBe(overrangeLegendStyles[1].symbol.transform)
+  expect(overrangeLegendStyles[3].symbol.clipPath).not.toBe('none')
   const liveRequestBaseline = currentDayLiveRequests
   const observedIntermediateTotal = page.locator('#billing-day-total-meter').evaluate((meter) => new Promise<boolean>((resolve) => {
     const readDisplayed = () => Number((meter as HTMLElement).dataset.displayedTotal)

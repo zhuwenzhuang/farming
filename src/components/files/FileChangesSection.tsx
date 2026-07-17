@@ -18,6 +18,7 @@ interface FileChangesSectionProps {
   collapsed: boolean
   copy: CodeCopy
   projectId: string
+  refreshing: boolean
   onOpenChange: (change: WorkspaceFileChange) => void
   onToggleCollapsed: () => void
 }
@@ -284,6 +285,7 @@ export function FileChangesSection({
   collapsed,
   copy,
   projectId,
+  refreshing,
   onOpenChange,
   onToggleCollapsed,
 }: FileChangesSectionProps) {
@@ -293,6 +295,8 @@ export function FileChangesSection({
   const untrackedChanges = useMemo(() => changes.items.filter(change => change.gitStatus === 'untracked'), [changes.items])
   const trackedTree = useMemo(() => buildChangeTree(trackedChanges, 'tracked'), [trackedChanges])
   const untrackedTree = useMemo(() => buildChangeTree(untrackedChanges, 'untracked'), [untrackedChanges])
+  const countsRefreshing = refreshing || changes.loading
+  const countRefreshState = countsRefreshing ? 'refreshing' : changes.error ? 'stale' : 'refreshed'
   if (changes.items.length === 0 && !changes.error) return null
 
   const toggleCollapsed = () => {
@@ -323,7 +327,13 @@ export function FileChangesSection({
   }
 
   return (
-    <div className="code-file-changes-section" data-testid="code-file-changes-section" data-project-id={projectId} aria-label={copy.changedFiles}>
+    <div
+      className="code-file-changes-section"
+      data-testid="code-file-changes-section"
+      data-project-id={projectId}
+      aria-label={copy.changedFiles}
+      aria-busy={countsRefreshing}
+    >
       {trackedChanges.length > 0 && (
         <div className={`code-file-change-group tracked ${collapsed ? 'collapsed' : ''}`} data-testid="code-file-change-tracked-group">
           <div className="code-file-change-group-header">
@@ -337,7 +347,17 @@ export function FileChangesSection({
                 {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
               </span>
               <span>{copy.changes}</span>
-              <span className="code-file-changes-count">{trackedChanges.length}</span>
+              <span
+                className={`code-file-changes-count ${countRefreshState}`}
+                data-testid="code-file-changes-tracked-count"
+                data-refresh-state={countRefreshState}
+                aria-label={countsRefreshing ? copy.refreshingFiles : undefined}
+                title={changes.error ?? undefined}
+              >
+                {countsRefreshing
+                  ? <span className="code-file-changes-count-loader" aria-hidden="true">···</span>
+                  : trackedChanges.length}
+              </span>
             </button>
             <button type="button" className="code-file-change-review" onClick={() => openReview('tracked')}>
               {copy.reviewChanges}
@@ -369,7 +389,17 @@ export function FileChangesSection({
                 {untrackedCollapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
               </span>
               <span>{copy.untrackedChanges}</span>
-              <span className="code-file-changes-count">{untrackedChanges.length}{changes.truncated ? '+' : ''}</span>
+              <span
+                className={`code-file-changes-count ${countRefreshState}`}
+                data-testid="code-file-changes-untracked-count"
+                data-refresh-state={countRefreshState}
+                aria-label={countsRefreshing ? copy.refreshingFiles : undefined}
+                title={changes.error ?? undefined}
+              >
+                {countsRefreshing
+                  ? <span className="code-file-changes-count-loader" aria-hidden="true">···</span>
+                  : <>{untrackedChanges.length}{changes.truncated ? '+' : ''}</>}
+              </span>
             </button>
             <button type="button" className="code-file-change-review" onClick={() => openReview('untracked')}>
               {copy.reviewChanges}

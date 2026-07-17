@@ -155,7 +155,7 @@ Development host
   repositories, shells, Codex, Claude Code, OpenCode, Qoder, ...
 ```
 
-后端负责生命周期、鉴权、Session 路由、Workspace 边界、History 和配置。交互式 Terminal 默认由独立的原生 PTY Host 持有，因此浏览器和 Server 可以重新连接，而不需要替换实际进程。xterm.js 是产品默认终端渲染器；Ghostty Web Adapter 只保留为显式调试路径。
+后端负责生命周期、鉴权、Session 路由、Workspace 边界、History 和配置。交互式 Terminal 默认由独立的原生 PTY Host 持有，因此浏览器和 Server 可以重新连接，而不需要替换实际进程。xterm.js WebGL 是唯一受支持的产品 Terminal Renderer；Ghostty Web Adapter 只保留为显式调试路径，不作为运行时 Fallback。
 
 运行时设置存放在 `~/.farming/settings.json`。Farming Session 元数据、项目成员索引、归档运行、主题设置、更新状态、日志和启动 Token 使用 `~/.farming/` 下彼此独立的文件。外部 Provider History 仍然只读。
 

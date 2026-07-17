@@ -18,6 +18,12 @@ import {
   workspaceEditorModelForOpenFile,
   workspaceEditorViewportMedia,
 } from '@/lib/workspace-editor-monaco'
+import {
+  clearReadingAnchor,
+  readingAnchorFileKey,
+  readReadingAnchor,
+  saveReadingAnchor,
+} from '@/lib/reading-anchor'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
 import { useFileEditorTestBridge } from './useFileEditorTestBridge'
@@ -54,6 +60,7 @@ export function useFileEditorMonacoController({
   const syncedModelVersionRef = useRef(new Map<string, string>())
   const changeSubscriptionRef = useRef<monaco.IDisposable | null>(null)
   const cursorSubscriptionRef = useRef<monaco.IDisposable | null>(null)
+  const scrollSubscriptionRef = useRef<monaco.IDisposable | null>(null)
   const contextMenuSubscriptionRef = useRef<monaco.IDisposable | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const onChangeDraftRef = useRef(onChangeDraft)
@@ -62,6 +69,7 @@ export function useFileEditorMonacoController({
   const onSaveShortcutRef = useRef(onSaveShortcut)
   const openFileAgentIdRef = useRef(openFile.agentId)
   const openFilePathRef = useRef(openFile.file.path)
+  const openFileWorkspaceRootRef = useRef(openFile.workspaceRoot)
   const wordWrapEnabledRef = useRef(wordWrapEnabled)
   const editorLabelRef = useRef(editorLabel)
   const lastCursorRequestRef = useRef<number | null>(null)
@@ -75,6 +83,7 @@ export function useFileEditorMonacoController({
   onSaveShortcutRef.current = onSaveShortcut
   openFileAgentIdRef.current = openFile.agentId
   openFilePathRef.current = openFile.file.path
+  openFileWorkspaceRootRef.current = openFile.workspaceRoot
   wordWrapEnabledRef.current = wordWrapEnabled
   editorLabelRef.current = editorLabel
 
@@ -104,6 +113,27 @@ export function useFileEditorMonacoController({
     editor.setPosition({ lineNumber, column: 1 })
     editor.revealLineInCenter(lineNumber)
     if (options.focusEditor !== false) editor.focus()
+  }, [])
+
+  const saveEditorReadingAnchor = useCallback((editor: monaco.editor.IStandaloneCodeEditor | null) => {
+    if (!editor) return
+    const range = editor.getVisibleRanges()[0]
+    const lineNumber = range?.startLineNumber
+    if (!lineNumber || lineNumber < 1) return
+    const position = editor.getPosition()
+    const workspace = openFileWorkspaceRootRef.current || `agent:${openFileAgentIdRef.current}`
+    const path = openFilePathRef.current
+    saveReadingAnchor({
+      version: 1,
+      surface: 'file',
+      resource: { kind: 'file', workspace, path },
+      locator: { kind: 'file-line', id: path },
+      position: {
+        unit: 'line-column',
+        value: lineNumber,
+        ...(position?.column ? { column: position.column } : {}),
+      },
+    })
   }, [])
 
   useFileEditorTestBridge({
@@ -142,6 +172,7 @@ export function useFileEditorMonacoController({
     })
     cursorSubscriptionRef.current = editor.onDidChangeCursorPosition(event => {
       updateCursorPosition(editor)
+      saveEditorReadingAnchor(editor)
       if (suppressNavigationCursorRef.current > 0) return
       if (event.reason !== monaco.editor.CursorChangeReason.Explicit) return
       if (event.source === 'api') return
@@ -154,6 +185,9 @@ export function useFileEditorMonacoController({
         column: event.position.column,
         endColumn: selection?.endColumn,
       })
+    })
+    scrollSubscriptionRef.current = editor.onDidScrollChange(() => {
+      saveEditorReadingAnchor(editor)
     })
     registerWorkspaceEditorCommands(editor, {
       getAgentId: () => openFileAgentIdRef.current,
@@ -179,6 +213,7 @@ export function useFileEditorMonacoController({
       if (activeModelId) {
         editorViewStatesRef.current.set(activeModelId, editor.saveViewState())
       }
+      saveEditorReadingAnchor(editor)
       resizeObserverRef.current?.disconnect()
       resizeObserverRef.current = null
       appearanceObserver.disconnect()
@@ -192,6 +227,8 @@ export function useFileEditorMonacoController({
       }
       cursorSubscriptionRef.current?.dispose()
       cursorSubscriptionRef.current = null
+      scrollSubscriptionRef.current?.dispose()
+      scrollSubscriptionRef.current = null
       changeSubscriptionRef.current?.dispose()
       changeSubscriptionRef.current = null
       editor.dispose()
@@ -200,7 +237,7 @@ export function useFileEditorMonacoController({
       editorRef.current = null
       activeEditorModelKeyRef.current = null
     }
-  }, [onOpenContextMenuRef, updateCursorPosition])
+  }, [onOpenContextMenuRef, saveEditorReadingAnchor, updateCursorPosition])
 
   useEffect(() => {
     const editor = editorRef.current
@@ -232,6 +269,19 @@ export function useFileEditorMonacoController({
       const viewState = editorViewStatesRef.current.get(nextModelKey)
       if (viewState) {
         editor.restoreViewState(viewState)
+      } else {
+        const workspace = openFile.workspaceRoot || `agent:${openFile.agentId}`
+        const key = readingAnchorFileKey(workspace, openFile.file.path)
+        const anchor = readReadingAnchor(key)
+        if (
+          anchor?.surface === 'file'
+          && anchor.resource.kind === 'file'
+          && anchor.position.value <= model.getLineCount()
+        ) {
+          editor.revealLineInCenter(anchor.position.value)
+        } else if (anchor) {
+          clearReadingAnchor(key)
+        }
       }
       activeEditorModelKeyRef.current = nextModelKey
     }

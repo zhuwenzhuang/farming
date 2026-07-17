@@ -25,10 +25,30 @@ export function relativePathInsideWorkspace(absolutePath: string, workspaceRoot:
   const normalizedPath = normalizeTerminalPathText(absolutePath).replace(/\/+$/, '')
   const normalizedRoot = normalizeWorkspaceRootText(workspaceRoot)
   if (!normalizedPath || !normalizedRoot) return null
-  if (normalizedPath === normalizedRoot) return ''
-  const rootPrefix = `${normalizedRoot}/`
-  if (!normalizedPath.startsWith(rootPrefix)) return null
-  return normalizedPath.slice(rootPrefix.length)
+  const rootAliases = [normalizedRoot]
+  if (
+    normalizedRoot === '/private/tmp' ||
+    normalizedRoot.startsWith('/private/tmp/') ||
+    normalizedRoot === '/private/var' ||
+    normalizedRoot.startsWith('/private/var/')
+  ) {
+    rootAliases.push(normalizedRoot.slice('/private'.length))
+  } else if (
+    normalizedRoot === '/tmp' ||
+    normalizedRoot.startsWith('/tmp/') ||
+    normalizedRoot === '/var' ||
+    normalizedRoot.startsWith('/var/')
+  ) {
+    rootAliases.push(`/private${normalizedRoot}`)
+  }
+  for (const root of rootAliases) {
+    if (normalizedPath === root) return ''
+    const rootPrefix = `${root}/`
+    if (normalizedPath.startsWith(rootPrefix)) {
+      return normalizedPath.slice(rootPrefix.length)
+    }
+  }
+  return null
 }
 
 export function terminalTargetFilePath(targetPath: string, workspaceRoot: string) {

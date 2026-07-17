@@ -35,7 +35,7 @@ export interface FileTreeViewProps {
   onOpenFileContextMenu: (x: number, y: number, item: FileExplorerNode | null) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
   onRememberFileOperationName: (name: string) => void
-  onSetDirectoryOpen: (path: string, open: boolean) => void
+  onToggleDirectory: (path: string) => boolean
   onSubmitFileOperation: () => Promise<void>
   onToggleTreeNode: (path: string) => void
   onTreeFocus: (node: { data: FileExplorerNode } | null | undefined) => void
@@ -70,7 +70,7 @@ export function FileTreeView({
   onOpenFileContextMenu,
   onOpenFilePath,
   onRememberFileOperationName,
-  onSetDirectoryOpen,
+  onToggleDirectory,
   onSubmitFileOperation,
   onToggleTreeNode,
   onTreeFocus,
@@ -106,11 +106,11 @@ export function FileTreeView({
       onOpenFileContextMenu={onOpenFileContextMenu}
       onOpenFilePath={onOpenFilePath}
       onRememberFileOperationName={onRememberFileOperationName}
-      onSetDirectoryOpen={onSetDirectoryOpen}
+      onToggleDirectory={onToggleDirectory}
       onSubmitFileOperation={onSubmitFileOperation}
       onUpdateFileOperationName={onUpdateFileOperationName}
     />
-  ), [activeFilePath, agentId, copy, editorDirtyFilePaths, editorExternalChangedFilePaths, fileOperation, fileOperationInputRef, lastFocusedFilePathRef, locatedFilePath, onCancelPendingFileFocus, onCloseFileOperation, onFocusFileTreeTarget, onOpenFileContextMenu, onOpenFilePath, onRememberFileOperationName, onSetDirectoryOpen, onSubmitFileOperation, onUpdateFileOperationName, openFilePendingPath, treeViewportRef])
+  ), [activeFilePath, agentId, copy, editorDirtyFilePaths, editorExternalChangedFilePaths, fileOperation, fileOperationInputRef, lastFocusedFilePathRef, locatedFilePath, onCancelPendingFileFocus, onCloseFileOperation, onFocusFileTreeTarget, onOpenFileContextMenu, onOpenFilePath, onRememberFileOperationName, onSubmitFileOperation, onToggleDirectory, onUpdateFileOperationName, openFilePendingPath, treeViewportRef])
 
   return (
     <div

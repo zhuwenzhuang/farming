@@ -265,6 +265,32 @@ export function refreshOpenWorkspaceFileFromRead(openFile: OpenWorkspaceFile, fi
   }
 }
 
+export function refreshWorkspaceOpenFilesFromReads(
+  state: WorkspaceOpenFilesState,
+  workspaceRoot: string,
+  files: readonly WorkspaceFile[]
+): WorkspaceOpenFilesState {
+  if (files.length === 0) return state
+  const fileByPath = new Map(files.map(file => [file.path, file]))
+  const refreshedByOpenFile = new Map<OpenWorkspaceFile, OpenWorkspaceFile>()
+  const refreshedFiles = state.files.map(openFile => {
+    if (openFile.workspaceRoot !== workspaceRoot) return openFile
+    const file = fileByPath.get(openFile.file.path)
+    if (!file) return openFile
+    const refreshedFile = refreshOpenWorkspaceFileFromRead(openFile, file)
+    refreshedByOpenFile.set(openFile, refreshedFile)
+    return refreshedFile
+  })
+  const activeFile = state.activeFile
+    ? refreshedByOpenFile.get(state.activeFile) ?? state.activeFile
+    : null
+  return {
+    activeFile,
+    files: refreshedFiles,
+    closedFileCache: state.closedFileCache,
+  }
+}
+
 export function createWorkspaceOpenFile(
   agentId: string,
   file: WorkspaceFile,

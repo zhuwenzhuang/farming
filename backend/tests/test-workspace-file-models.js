@@ -102,6 +102,7 @@ const {
 const {
   deletedWorkspaceDiffPlaceholderFile,
   openWorkspaceFileFromRead,
+  refreshWorkspaceOpenFilesFromReads,
   selectWorkspaceOpenFile,
   shouldRefreshWorkspaceChangesAfterDirtyStateChange,
   shouldOpenMissingWorkspaceFileAsDiff,
@@ -292,6 +293,47 @@ function run() {
   assert.strictEqual(selectedThroughWorkspace.activeFile.sourceAgentId, 'agent-new');
   assert.strictEqual(selectedThroughWorkspace.files.length, 1);
   assert.strictEqual(selectedThroughWorkspace.files[0].agentId, stableFilesId);
+
+  const cleanOpenFile = {
+    ...workingCopy({
+      agentId: stableFilesId,
+      workspaceRoot: '/repo',
+      file: workspaceFile('src/Clean.tsx', { content: 'old clean\n', sha1: 'clean-old' }),
+    }),
+    draft: 'old clean\n',
+  };
+  const dirtyOpenFile = {
+    ...workingCopy({
+      agentId: stableFilesId,
+      workspaceRoot: '/repo',
+      file: workspaceFile('src/Dirty.tsx', { content: 'old dirty\n', sha1: 'dirty-old' }),
+      dirty: true,
+    }),
+    draft: 'local draft\n',
+  };
+  const otherWorkspaceOpenFile = {
+    ...workingCopy({
+      agentId: stableFilesId,
+      workspaceRoot: '/other-repo',
+      file: workspaceFile('src/Clean.tsx', { content: 'other workspace\n', sha1: 'other-workspace' }),
+    }),
+    draft: 'other workspace\n',
+  };
+  const refreshedOpenFiles = refreshWorkspaceOpenFilesFromReads({
+    activeFile: dirtyOpenFile,
+    files: [cleanOpenFile, dirtyOpenFile, otherWorkspaceOpenFile],
+    closedFileCache: new Map(),
+  }, '/repo', [
+    workspaceFile('src/Clean.tsx', { content: 'new clean\n', sha1: 'clean-new' }),
+    workspaceFile('src/Dirty.tsx', { content: 'new dirty\n', sha1: 'dirty-new' }),
+  ]);
+  assert.strictEqual(refreshedOpenFiles.activeFile.file.path, 'src/Dirty.tsx');
+  assert.strictEqual(refreshedOpenFiles.files[0].draft, 'new clean\n');
+  assert.strictEqual(refreshedOpenFiles.files[0].dirty, false);
+  assert.strictEqual(refreshedOpenFiles.files[1].draft, 'local draft\n');
+  assert.strictEqual(refreshedOpenFiles.files[1].dirty, true);
+  assert.strictEqual(refreshedOpenFiles.files[1].externalChanged, true);
+  assert.strictEqual(refreshedOpenFiles.files[2], otherWorkspaceOpenFile);
 
   assert.strictEqual(workspaceWorkingCopyState(workingCopy()), 'saved');
   assert.strictEqual(workspaceWorkingCopyState(workingCopy({ dirty: true })), 'dirty');

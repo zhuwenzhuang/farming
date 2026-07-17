@@ -5,6 +5,7 @@ const path = require('path');
 
 const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-playwright-config-'));
 const fixtureBinDir = path.join(__dirname, '..', 'tests', 'e2e', 'fixtures');
+const useRealCodex = process.env.FARMING_E2E_REAL_CODEX === '1';
 fs.writeFileSync(path.join(configDir, 'server.json'), `${JSON.stringify({
   pid: process.pid,
   port: process.env.PORT || process.env.FARMING_PLAYWRIGHT_PORT || '4173',
@@ -14,9 +15,11 @@ process.env.PORT = process.env.PORT || process.env.FARMING_PLAYWRIGHT_PORT || '4
 process.env.FARMING_BASE_PATH = process.env.FARMING_BASE_PATH || '/farming';
 process.env.FARMING_CONFIG_DIR = process.env.FARMING_CONFIG_DIR || configDir;
 process.env.FARMING_DISABLE_AUTH = process.env.FARMING_DISABLE_AUTH || '1';
-process.env.FARMING_E2E_FAKE_EXECUTABLES = process.env.FARMING_E2E_FAKE_EXECUTABLES || '1';
-process.env.FARMING_CODEX_BIN = process.env.FARMING_CODEX_BIN || path.join(fixtureBinDir, 'fake-codex');
-process.env.PATH = `${fixtureBinDir}${path.delimiter}${process.env.PATH || ''}`;
+if (!useRealCodex) {
+  process.env.FARMING_E2E_FAKE_EXECUTABLES = process.env.FARMING_E2E_FAKE_EXECUTABLES || '1';
+  process.env.FARMING_CODEX_BIN = process.env.FARMING_CODEX_BIN || path.join(fixtureBinDir, 'fake-codex');
+  process.env.PATH = `${fixtureBinDir}${path.delimiter}${process.env.PATH || ''}`;
+}
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 
 const { server, shutdownServer } = require('../backend/server');

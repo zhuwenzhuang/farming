@@ -539,6 +539,7 @@ class AgentManager extends EventEmitter {
     this.pendingResizeByAgent = new Map();
     this.resizeDrains = new Map();
     this.inputQueues = new Map();
+    this.codexTerminalProfileQueues = new Map();
     this.codexSessionResolveInFlight = new Map();
     this.codexSessionResolveLastAttemptAt = new Map();
     this.providerSessionTitleResolveInFlight = new Map();
@@ -1963,7 +1964,7 @@ class AgentManager extends EventEmitter {
     };
   }
 
-  markAgentReadCursor(agentId, readAttentionSeq) {
+  markAgentReadCursor(agentId, readAttentionSeq, options = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) {
       return { error: 'Agent not found' };
@@ -1982,7 +1983,7 @@ class AgentManager extends EventEmitter {
     if (changed) {
       this.ensurePersistentAgentSession(agent);
       this.updateEngineProviderSessionMetadata(agent);
-      this.emit('update');
+      if (options.emitUpdate !== false) this.emit('update');
     }
     return {
       agentId,
@@ -2298,7 +2299,18 @@ class AgentManager extends EventEmitter {
     }
 
     this.lastActivityUpdate.set(sessionId, now);
-    this.emit('update');
+    const agent = this.agents.get(sessionId);
+    if (!agent) return;
+    const isMain = this.isMainAgentRecord(sessionId, agent);
+    const lastActivity = this.lastActivity.get(sessionId) || now;
+    this.emit('agent-activity', {
+      agentId: sessionId,
+      lastActivity,
+      activityLevel: isMain ? 'warm' : this.calculateActivityLevel(lastActivity, now),
+      attentionScore: isMain ? 0 : this.calculateAttentionScore(sessionId, now),
+      isZombie: isMain ? false : this.isZombie(sessionId, now),
+      usageRate: this.calculateAgentUsageRate(sessionId, { now }),
+    });
   }
 
   updateAgentSessionTitle(agent, title) {
@@ -2541,6 +2553,7 @@ class AgentManager extends EventEmitter {
     this.pendingResizeByAgent.clear();
     this.resizeDrains.clear();
     this.inputQueues.clear();
+    this.codexTerminalProfileQueues.clear();
     if (this.codexAppServerRuntime && typeof this.codexAppServerRuntime.dispose === 'function') {
       this.codexAppServerRuntime.dispose();
     }
@@ -3218,6 +3231,32 @@ class AgentManager extends EventEmitter {
     }
   }
 
+  async enqueueInputOperationUntilReleased(agentId, operation) {
+    const previous = this.inputQueues.get(agentId) || Promise.resolve();
+    let released = false;
+    let resolveReleased;
+    const releasedPromise = new Promise(resolve => {
+      resolveReleased = resolve;
+    });
+    const release = () => {
+      if (released) return;
+      released = true;
+      resolveReleased();
+    };
+
+    const ready = previous.catch(() => {});
+    const completion = ready.then(() => operation(release));
+    completion.catch(() => release());
+    const boundary = ready.then(() => releasedPromise);
+    this.inputQueues.set(agentId, boundary);
+    boundary.then(() => {
+      if (this.inputQueues.get(agentId) === boundary) {
+        this.inputQueues.delete(agentId);
+      }
+    });
+    return completion;
+  }
+
   async sendInput(agentId, input, options = {}) {
     return this.enqueueInputOperation(agentId, () => this.sendInputNow(agentId, input, options));
   }
@@ -3259,10 +3298,25 @@ class AgentManager extends EventEmitter {
   }
 
   async setCodexTerminalProfile(agentId, profile, options = {}) {
-    return this.enqueueInputOperation(
+    const previous = this.codexTerminalProfileQueues.get(agentId) || Promise.resolve();
+    const start = () => this.enqueueInputOperationUntilReleased(
       agentId,
-      () => this.setCodexTerminalProfileNow(agentId, profile, options),
+      releaseInput => this.setCodexTerminalProfileNow(agentId, profile, {
+        ...options,
+        onInputSafe: releaseInput,
+      }),
     );
+    const next = this.codexTerminalProfileQueues.has(agentId)
+      ? previous.catch(() => {}).then(start)
+      : start();
+    this.codexTerminalProfileQueues.set(agentId, next);
+    try {
+      return await next;
+    } finally {
+      if (this.codexTerminalProfileQueues.get(agentId) === next) {
+        this.codexTerminalProfileQueues.delete(agentId);
+      }
+    }
   }
 
   async setCodexTerminalProfileNow(agentId, profile, options = {}) {
@@ -3288,6 +3342,7 @@ class AgentManager extends EventEmitter {
       profile,
       timeoutMs: options.timeoutMs,
       signal: options.signal,
+      onInputSafe: options.onInputSafe,
       readPreview: async () => {
         const view = await this.getAgentSessionView(agentId);
         if (!view) throw new Error('Agent not found');
@@ -3852,11 +3907,12 @@ class AgentManager extends EventEmitter {
     }
 
     const updates = {};
-    let directUpdateChanged = false;
+    let structuralUpdateChanged = false;
+    let readUpdateChanged = false;
     if (typeof flags.pinned === 'boolean') {
       const wasPinned = agent.pinned === true;
       agent.pinned = flags.pinned;
-      directUpdateChanged = directUpdateChanged || wasPinned !== agent.pinned;
+      structuralUpdateChanged = structuralUpdateChanged || wasPinned !== agent.pinned;
       updates.pinned = agent.pinned;
       if (!wasPinned && agent.pinned) {
         agent.pinnedOrder = nextPinnedOrder(Array.from(this.agents.values()));
@@ -3873,25 +3929,27 @@ class AgentManager extends EventEmitter {
       if (result.error) return result;
       updates.readOutputEpoch = result.readOutputEpoch;
       updates.readOutputSeq = result.readOutputSeq;
-      directUpdateChanged = directUpdateChanged || result.changed;
+      readUpdateChanged = readUpdateChanged || result.changed;
     }
 
     if (typeof flags.unread === 'boolean') {
       const result = flags.unread
         ? this.markAgentUnreadCursor(agentId)
-        : this.markAgentReadCursor(agentId);
+        : this.markAgentReadCursor(agentId, undefined, { emitUpdate: false });
       if (result.error) return result;
       updates.unread = result.unread;
       updates.attentionSeq = result.attentionSeq;
       updates.readAttentionSeq = result.readAttentionSeq;
+      readUpdateChanged = readUpdateChanged || result.changed === true;
     }
 
     if (typeof flags.readAttentionSeq === 'number' && Number.isFinite(flags.readAttentionSeq)) {
-      const result = this.markAgentReadCursor(agentId, flags.readAttentionSeq);
+      const result = this.markAgentReadCursor(agentId, flags.readAttentionSeq, { emitUpdate: false });
       if (result.error) return result;
       updates.unread = result.unread;
       updates.attentionSeq = result.attentionSeq;
       updates.readAttentionSeq = result.readAttentionSeq;
+      readUpdateChanged = readUpdateChanged || result.changed === true;
     }
 
     if (flags.archived === true) {
@@ -3902,7 +3960,7 @@ class AgentManager extends EventEmitter {
     }
 
     if (flags.archived === false) {
-      directUpdateChanged = directUpdateChanged || agent.archived === true || agent.archivedAt !== null;
+      structuralUpdateChanged = structuralUpdateChanged || agent.archived === true || agent.archivedAt !== null;
       agent.archived = false;
       agent.archivedAt = null;
       updates.archived = agent.archived;
@@ -3916,8 +3974,24 @@ class AgentManager extends EventEmitter {
       this.ensurePersistentAgentSession(agent);
       this.updateEngineProviderSessionMetadata(agent);
     }
-    if (directUpdateChanged) this.emit('update');
-    return { agentId, ...updates };
+    if (structuralUpdateChanged) {
+      this.emit('update');
+    } else if (readUpdateChanged) {
+      this.emit('agent-read', {
+        agentId,
+        unread: agent.unread === true,
+        attentionSeq: finiteNonNegativeInteger(agent.attentionSeq),
+        readAttentionSeq: finiteNonNegativeInteger(agent.readAttentionSeq),
+        readOutputEpoch: typeof agent.readOutputEpoch === 'string' ? agent.readOutputEpoch : '',
+        readOutputSeq: finiteNumberOrNull(agent.readOutputSeq),
+      });
+    }
+    return {
+      agentId,
+      ...updates,
+      changed: structuralUpdateChanged || readUpdateChanged,
+      requiresState: structuralUpdateChanged,
+    };
   }
 
   reorderProjectAgent(agentId, { beforeAgentId = '', afterAgentId = '' } = {}) {
@@ -5251,6 +5325,10 @@ class AgentManager extends EventEmitter {
   
   onUpdate(callback) {
     this.on('update', callback);
+  }
+
+  onAgentActivity(callback) {
+    this.on('agent-activity', callback);
   }
 
   onSessionStream(callback) {

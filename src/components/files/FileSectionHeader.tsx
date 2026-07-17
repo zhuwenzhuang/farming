@@ -1,5 +1,5 @@
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react'
-import { ChevronDownGlyph, ChevronRightGlyph } from '@/components/IconGlyphs'
+import { CheckGlyph, ChevronDownGlyph, ChevronRightGlyph, ErrorGlyph } from '@/components/IconGlyphs'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { CodeCopy } from '../code/copy'
 
@@ -11,9 +11,12 @@ export interface FileSectionHeaderSearch {
   query: string
 }
 
+export type FileSectionRefreshStatus = 'idle' | 'refreshing' | 'success' | 'error'
+
 interface FileSectionHeaderProps {
   copy: CodeCopy
   filesCollapsed: boolean
+  refreshStatus: FileSectionRefreshStatus
   search: FileSectionHeaderSearch
   onCancelPendingFileFocus: () => void
   onFileSearchKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void
@@ -25,6 +28,7 @@ interface FileSectionHeaderProps {
 export function FileSectionHeader({
   copy,
   filesCollapsed,
+  refreshStatus,
   search,
   onCancelPendingFileFocus,
   onFileSearchKeyDown,
@@ -32,6 +36,14 @@ export function FileSectionHeader({
   onRefreshFiles,
   onToggleFilesCollapsed,
 }: FileSectionHeaderProps) {
+  const refreshLabel = refreshStatus === 'refreshing'
+    ? copy.refreshingFiles
+    : refreshStatus === 'success'
+      ? copy.filesRefreshed
+      : refreshStatus === 'error'
+        ? copy.filesRefreshFailed
+        : copy.refreshFiles
+
   return (
     <div className={`code-files-header ${filesCollapsed ? 'collapsed' : ''}`}>
       <div className="code-files-heading">
@@ -50,12 +62,24 @@ export function FileSectionHeader({
           type="button"
           className="code-files-refresh"
           data-testid="code-files-refresh"
-          title={copy.refresh}
-          aria-label={copy.refresh}
+          data-refresh-status={refreshStatus}
+          title={refreshLabel}
+          aria-label={refreshLabel}
+          aria-busy={refreshStatus === 'refreshing'}
+          disabled={refreshStatus === 'refreshing'}
           onClick={onRefreshFiles}
         >
-          ↻
+          <span className="code-files-refresh-glyph" aria-hidden="true">
+            {refreshStatus === 'success'
+              ? <CheckGlyph />
+              : refreshStatus === 'error'
+                ? <ErrorGlyph />
+                : '↻'}
+          </span>
         </button>
+        <span className="code-visually-hidden" role="status" aria-live="polite">
+          {refreshStatus === 'idle' ? '' : refreshLabel}
+        </span>
       </div>
       {!filesCollapsed && (
         <label className="code-file-search-box">

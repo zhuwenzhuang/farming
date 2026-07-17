@@ -52,6 +52,12 @@ Terminal recovery follows the same checkpoint-and-replay principle as a persiste
 
 See [Terminal State Protocol](terminal-state-protocol.md) for `/session-view`, multi-window control, flow control, and recovery guarantees.
 
+## Continue Reading After Switching Agents
+
+Reading location is a versioned, skin-neutral browser anchor rather than a saved scrollbar value. Chat stores the stable turn (and process item when applicable) plus the relative point inside it. Terminal stores a fingerprint of adjacent logical lines plus the row inside that logical line. Monaco stores the workspace-relative file and its first visible line/column.
+
+Code and CRT use the same per-tab anchor protocol. A shared Agent URL may carry a compact anchor without exposing terminal text; the receiver resolves it against its own live transcript or terminal. Resolution never guesses: if a Chat turn or terminal line fingerprint is no longer in the bounded history, the view opens at the latest output. If a file line no longer exists, the editor uses its ordinary open behavior.
+
 ## Change The Live Model And Runtime Profile
 
 The composer shows controls reported by the active runtime. Compatible Codex model families can expose one compact surface for model variant and reasoning, a separate Ultra charge control, a clear Fast state, and the current approval mode.
@@ -174,3 +180,4 @@ The browser controls real processes and workspace files on the Farming host. Use
 - [Review foundation](review-foundation.md)
 - [Human-like acceptance story](farming-agent-human-story.md)
 - [Acceptance and dogfood plan](test/acceptance-dogfood-plan.md)
+- [Real Codex cross-skin release case](real-codex-release-case.md)

@@ -71,6 +71,12 @@ async function run() {
     { serviceTier: 'priority', fast: true },
     { serviceTier: 'default', fast: false },
   ]);
+  assert.deepStrictEqual(codexServiceTierConfirmations(
+    '• Fast mode is on.\n• Fast mode is off.'
+  ), [
+    { serviceTier: 'priority', fast: true },
+    { serviceTier: 'default', fast: false },
+  ], 'current Codex Fast confirmations should release the Terminal input queue');
   assert.deepStrictEqual(
     newCodexServiceTierConfirmation(
       '• Service tier set to default',
@@ -151,7 +157,7 @@ async function run() {
     readOutput: async () => modernOutput,
     sendInput: async input => {
       modernInputs.push(input);
-      modernOutput += '\n• Service tier set to default';
+      modernOutput += '\n• Fast mode is off.';
     },
     sleep: async () => {},
     pollIntervalMs: 0,

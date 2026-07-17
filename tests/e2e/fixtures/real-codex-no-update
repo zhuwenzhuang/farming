@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -z "${FARMING_REAL_CODEX_BIN:-}" ]]; then
+  echo 'FARMING_REAL_CODEX_BIN is required for the real Codex release case.' >&2
+  exit 64
+fi
+
+exec "$FARMING_REAL_CODEX_BIN" "$@" -c check_for_update_on_startup=false

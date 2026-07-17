@@ -779,6 +779,24 @@ async function run() {
         service.execFile = originalChangesExecFile;
       }
 
+      service.execFile = async (command, args, options) => {
+        if (command === service.gitPath && args.includes('status') && args.includes('--untracked-files=all')) {
+          assert.strictEqual(options.timeout, service.gitStatusTimeoutMs);
+          const error = new Error('git status timed out');
+          error.code = 'ETIMEDOUT';
+          throw error;
+        }
+        return originalChangesExecFile(command, args, options);
+      };
+      try {
+        await assert.rejects(
+          service.changes(workspace),
+          error => error instanceof WorkspaceFileError && error.statusCode === 504 && error.message === 'git status timed out'
+        );
+      } finally {
+        service.execFile = originalChangesExecFile;
+      }
+
       const renamedDiff = await service.diff(workspace, 'src/Renamed.ts');
       assert.strictEqual(renamedDiff.isGitRepo, true);
       assert.strictEqual(renamedDiff.path, 'src/Renamed.ts');

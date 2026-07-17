@@ -4,6 +4,7 @@ import fs from 'node:fs'
 const port = Number(process.env.FARMING_PLAYWRIGHT_PORT || 4173)
 const baseURL = `http://127.0.0.1:${port}`
 const includeInternalTests = process.env.FARMING_PLAYWRIGHT_INTERNAL === '1'
+const useRealCodex = process.env.FARMING_E2E_REAL_CODEX === '1'
 const localChromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const executablePath = process.env.FARMING_PLAYWRIGHT_CHROME_PATH
   || (fs.existsSync(localChromePath) ? localChromePath : undefined)
@@ -17,6 +18,18 @@ const chromiumLaunchOptions = {
     '--proxy-server=direct://',
     '--proxy-bypass-list=*',
   ],
+}
+const playwrightServerEnv = {
+  ...process.env,
+  PORT: String(port),
+  FARMING_BASE_PATH: '/farming',
+  FARMING_DISABLE_AUTH: '1',
+  FARMING_NATIVE_PTY_HOST_PERSIST: '0',
+  FARMING_E2E_REAL_CODEX: useRealCodex ? '1' : '0',
+  FARMING_E2E_FAKE_EXECUTABLES: useRealCodex ? '0' : '1',
+  FARMING_E2E_FAKE_ACP_AGENT: useRealCodex ? '0' : '1',
+  VITE_FARMING_BLAME_AUTHOR_URL_TEMPLATE: 'https://example.invalid/users/{author}',
+  NODE_ENV: 'test',
 }
 
 export default defineConfig({
@@ -68,16 +81,6 @@ export default defineConfig({
     url: `${baseURL}/farming/`,
     reuseExistingServer: false,
     timeout: 90_000,
-    env: {
-      ...process.env,
-      PORT: String(port),
-      FARMING_BASE_PATH: '/farming',
-      FARMING_DISABLE_AUTH: '1',
-      FARMING_NATIVE_PTY_HOST_PERSIST: '0',
-      FARMING_E2E_FAKE_EXECUTABLES: '1',
-      FARMING_E2E_FAKE_ACP_AGENT: '1',
-      VITE_FARMING_BLAME_AUTHOR_URL_TEMPLATE: 'https://example.invalid/users/{author}',
-      NODE_ENV: 'test',
-    },
+    env: playwrightServerEnv,
   },
 })

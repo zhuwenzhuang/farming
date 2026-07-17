@@ -264,7 +264,7 @@ async function sendActiveTerminalCommand(
   command: string,
 ) {
   const host = page.locator(activeTerminalHostSelector(agentId))
-  await expect(host).toHaveAttribute('data-controller-status', 'owner', { timeout: 15_000 })
+  await expect(host).toBeVisible({ timeout: 15_000 })
   await page.waitForFunction(
     id => Boolean(window.__farmingTerminalTest?.isReady(id)),
     agentId,
@@ -553,17 +553,22 @@ test.describe('terminal regression matrix', () => {
     const codexAgentId = await createControlAgent(page, 'codex', projectDir)
     const secondCodexAgentId = await createControlAgent(page, 'codex', projectDir)
 
-    await scenario('xterm is the default renderer for recovered sessions', async () => {
+    await scenario('recovered sessions use the required WebGL renderer', async () => {
       await selectAgent(page, recoveringAgentId)
       await expect(page.locator(`[data-agent-id="${recoveringAgentId}"] .xterm`)).toBeVisible({ timeout: 20_000 })
-      await expect(page.locator(`[data-agent-id="${recoveringAgentId}"] canvas`)).toHaveCount(0)
+      await expect.poll(() => page.evaluate(
+        id => window.__farmingTerminalTest?.getBufferDiagnostics(id)?.renderer,
+        recoveringAgentId,
+      )).toBe('webgl')
+      await expect.poll(() => page.locator(`[data-agent-id="${recoveringAgentId}"] canvas`).count())
+        .toBeGreaterThan(0)
       await forceHttpCheckpointFallback(page, recoveringAgentId, 'RECOVERY_CHECKPOINT_GAP\r\n')
       await expect.poll(() => sessionViewCalls, { timeout: 15_000 }).toBeGreaterThan(0)
       await expect.poll(() => visibleTerminalText(page, recoveringAgentId), { timeout: 15_000 })
         .toContain('[agent@example-host /srv/example/projects/matrix]')
     })
 
-    await scenario('bootstrap checkpoint requests stay bounded after controller ownership settles', async () => {
+    await scenario('bootstrap checkpoint requests stay bounded after recovery settles', async () => {
       try {
         await page.waitForFunction(
           id => Boolean(window.__farmingTerminalTest?.isReady(id)),
@@ -725,11 +730,21 @@ test.describe('terminal regression matrix', () => {
       expect(hasWrappedPromptFragments(text)).toBe(false)
     })
 
-    await scenario('backend reconnect reacquires controller ownership without duplicate resize', async () => {
+    await scenario('backend reconnect restores an exact terminal cut without duplicate resize', async () => {
       const beforeCount = await page.evaluate((id) => window.__farmingTerminalTest?.getResizeNotificationCount(id) ?? 0, bashAgentId)
       await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
-      await expect(page.locator(activeTerminalHostSelector(bashAgentId)))
-        .toHaveAttribute('data-controller-status', 'owner')
+      await expect.poll(() => page.evaluate((id) => {
+        const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics(id) as unknown as {
+          needsReconnectOutputSync?: boolean
+          resizeRequestInFlight?: { cols: number; rows: number } | null
+          pendingResizeRequest?: { cols: number; rows: number } | null
+        } | null
+        return {
+          recovering: diagnostics?.needsReconnectOutputSync ?? true,
+          inFlight: diagnostics?.resizeRequestInFlight ?? null,
+          pending: diagnostics?.pendingResizeRequest ?? null,
+        }
+      }, bashAgentId)).toEqual({ recovering: false, inFlight: null, pending: null })
       const result = await page.evaluate((id) => ({
         resizeCount: window.__farmingTerminalTest?.getResizeNotificationCount(id) ?? 0,
         diagnostics: window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null,
@@ -1413,8 +1428,6 @@ test.describe('terminal regression matrix', () => {
                 return rect.width > 0 && rect.height > 0
               }) as HTMLElement[]
               const host = visibleHosts[0] ?? null
-              const cursor = host?.querySelector('.xterm-cursor') ?? null
-              const cursorStyle = cursor instanceof HTMLElement ? getComputedStyle(cursor) : null
               return {
                 visibleCount: visibleHosts.length,
                 agentId: host?.dataset.agentId || '',
@@ -1422,12 +1435,8 @@ test.describe('terminal regression matrix', () => {
                 hostCountInMount: host?.parentElement?.querySelectorAll('.terminal-session-host').length ?? 0,
                 xtermRootCount: host?.querySelectorAll(':scope > .xterm').length ?? 0,
                 nestedXtermCount: host?.querySelectorAll('.xterm .xterm').length ?? 0,
+                renderer: window.__farmingTerminalTest?.getBufferDiagnostics(id)?.renderer ?? '',
                 cursorSuppressed: host?.classList.contains('terminal-renderer-cursor-suppressed') ?? false,
-                cursorPaintSuppressed: !cursorStyle || (
-                  cursorStyle.opacity === '0' &&
-                  cursorStyle.backgroundColor === 'rgba(0, 0, 0, 0)' &&
-                  cursorStyle.outlineColor === 'rgba(0, 0, 0, 0)'
-                ),
                 activeRowId: document.querySelector('[data-testid="code-agent-row"].active, [data-testid="code-project-agent-compact"].active, [data-testid="code-pinned-agent-compact"].active')?.getAttribute('data-agent-id') || '',
                 activePaneId: document.querySelector('[data-testid="code-terminal-pane"].active')?.getAttribute('data-agent-id') || '',
                 expectedAgentId: id,
@@ -1440,8 +1449,8 @@ test.describe('terminal regression matrix', () => {
             hostCountInMount: 1,
             xtermRootCount: 1,
             nestedXtermCount: 0,
+            renderer: 'webgl',
             cursorSuppressed: false,
-            cursorPaintSuppressed: false,
             activeRowId: targetAgentId,
             activePaneId: targetAgentId,
             expectedAgentId: targetAgentId,
@@ -1581,25 +1590,25 @@ test.describe('terminal regression matrix', () => {
       await composer.focus()
       await expect(composer).toBeFocused()
       await expect.poll(async () => {
-        return page.evaluate(() => {
+        return page.evaluate((id) => {
           const host = Array.from(document.querySelectorAll('.terminal-session-host')).find(element => {
             if (!(element instanceof HTMLElement)) return false
             if (element.closest('#terminal-session-parking-lot')) return false
             const rect = element.getBoundingClientRect()
             return rect.width > 0 && rect.height > 0
           })
-          const cursor = host?.querySelector('.xterm-cursor')
-          const style = cursor instanceof HTMLElement ? getComputedStyle(cursor) : null
           return {
             activeInComposer: Boolean(document.activeElement?.closest?.('.code-composer')),
-            opacity: style?.opacity ?? '',
-            outlineColor: style?.outlineColor ?? '',
+            renderer: window.__farmingTerminalTest?.getBufferDiagnostics(id)?.renderer ?? '',
+            cursorVisible: window.__farmingTerminalTest?.getCursor(id)?.visible ?? true,
+            domCursorCount: host?.querySelectorAll('.xterm-cursor').length ?? 0,
           }
-        })
+        }, bashAgentId)
       }).toEqual({
         activeInComposer: true,
-        opacity: '0',
-        outlineColor: 'rgba(0, 0, 0, 0)',
+        renderer: 'webgl',
+        cursorVisible: false,
+        domCursorCount: 0,
       })
     })
 
@@ -2162,9 +2171,14 @@ test.describe('terminal regression matrix', () => {
     await installClipboardProbe(page)
     await selectAgent(page, agentId)
 
-    await scenario('xterm mobile surface is present without Ghostty canvas', async () => {
+    await scenario('mobile terminal uses the required WebGL renderer', async () => {
       await expect(page.locator(`[data-agent-id="${agentId}"] .xterm`)).toBeVisible()
-      await expect(page.locator(`[data-agent-id="${agentId}"] canvas`)).toHaveCount(0)
+      await expect.poll(() => page.evaluate(
+        id => window.__farmingTerminalTest?.getBufferDiagnostics(id)?.renderer,
+        agentId,
+      )).toBe('webgl')
+      await expect.poll(() => page.locator(`[data-agent-id="${agentId}"] canvas`).count())
+        .toBeGreaterThan(0)
     })
 
     await scenario('mobile prompt starts at the top of the terminal viewport', async () => {

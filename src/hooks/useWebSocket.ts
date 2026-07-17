@@ -122,7 +122,7 @@ export function useWebSocket() {
   }, [sendMessage])
 
   const focusAgent = useCallback((agentId: string) => {
-    return sendMessage({ type: 'focus-agent', agentId, refreshState: true })
+    return sendMessage({ type: 'focus-agent', agentId })
   }, [sendMessage])
 
   const killAgent = useCallback((agentId: string) => {
@@ -317,6 +317,26 @@ export function useWebSocket() {
               }
               break
             }
+            case 'agent-activity':
+              setState(prev => ({
+                ...prev,
+                agents: prev.agents.map(agent => (
+                  agent.id === msg.activity.agentId
+                    ? { ...agent, ...msg.activity, id: agent.id }
+                    : agent
+                )),
+              }))
+              break
+            case 'agent-read':
+              setState(prev => ({
+                ...prev,
+                agents: prev.agents.map(agent => (
+                  agent.id === msg.read.agentId
+                    ? { ...agent, ...msg.read, id: agent.id }
+                    : agent
+                )),
+              }))
+              break
             case 'workspace-file-watch':
               break
             case 'workspace-file-event':

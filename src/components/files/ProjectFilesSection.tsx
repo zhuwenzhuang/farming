@@ -12,7 +12,7 @@ import type { AgentLaunchOption } from '../code/agent-launch-options'
 import type { CodeCopy } from '../code/copy'
 import { FileChangesSection } from './FileChangesSection'
 import { FileSectionBody } from './FileSectionBody'
-import { FileSectionHeader } from './FileSectionHeader'
+import { FileSectionHeader, type FileSectionRefreshStatus } from './FileSectionHeader'
 import { FileSectionOverlays } from './FileSectionOverlays'
 import { GitHistorySection } from './GitHistorySection'
 import {
@@ -37,6 +37,8 @@ import { useWorkspaceFileTreeController } from './useWorkspaceFileTreeController
 import { useWorkspaceFileTreeKeyboard } from './useWorkspaceFileTreeKeyboard'
 
 const FILE_ROW_HEIGHT = 24
+const FILES_REFRESH_MINIMUM_PENDING_MS = 350
+const FILES_REFRESH_SUCCESS_VISIBLE_MS = 1400
 const EMPTY_FILE_PATHS = new Set<string>()
 
 interface ProjectFilesSectionProps {
@@ -57,6 +59,7 @@ interface ProjectFilesSectionProps {
   onStartAgent?: (command: string, workspace: string, options?: { projectWorkspace?: string }) => void
   onMoveEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
   onDeleteEntries: (agentId: string, deletions: WorkspaceFileDeleteResult[]) => void
+  onRefreshOpenFiles?: (filesId: string, workspaceRoot: string) => Promise<boolean>
   onFilesCollapsedChange?: (collapsed: boolean) => void
   readOnly?: boolean
   copy: CodeCopy
@@ -106,6 +109,7 @@ export function ProjectFilesSection({
   onStartAgent,
   onMoveEntries,
   onDeleteEntries,
+  onRefreshOpenFiles,
   onFilesCollapsedChange,
   readOnly = false,
   copy,
@@ -121,8 +125,7 @@ export function ProjectFilesSection({
     loadMissingDirectories,
     refreshDirectories,
     hydrateCompactDirectoryChains,
-    finishRestoringOpenDirectoryPaths,
-    syncOpenDirectoryPaths,
+    isDirectoryOpen,
     setDirectoryOpen,
     openDirectoriesInLayout,
   } = useWorkspaceFileExplorer(agentId, projectId)
@@ -131,6 +134,10 @@ export function ProjectFilesSection({
   const fileSearchInputRef = useRef<HTMLInputElement | null>(null)
   const fileSearchResultsRef = useRef<HTMLDivElement | null>(null)
   const lastAutoRevealedActivePathRef = useRef<string | null>(null)
+  const filesRefreshInFlightRef = useRef(false)
+  const filesRefreshRequestRef = useRef(0)
+  const filesRefreshResetTimerRef = useRef<number | null>(null)
+  const [filesRefreshStatus, setFilesRefreshStatus] = useState<FileSectionRefreshStatus>('idle')
   const fileSearch = useWorkspaceFileSearch(agentId)
   const fileSearchListboxId = `code-file-search-results-${safeDomIdPart(projectId)}`
 
@@ -145,15 +152,15 @@ export function ProjectFilesSection({
     rememberSelectedTreeNodes,
     renderFileTreeRow,
     setTreePathOpen,
+    toggleTreePathOpen,
   } = useWorkspaceFileTreeController({
     rowHeight: FILE_ROW_HEIGHT,
     visibleTreeRowCount,
     openDirectoryPaths,
     treeData,
     hydrateCompactDirectoryChains,
-    finishRestoringOpenDirectoryPaths,
+    isDirectoryOpen,
     setDirectoryOpen,
-    syncOpenDirectoryPaths,
   })
 
   const {
@@ -197,12 +204,65 @@ export function ProjectFilesSection({
   const [changesCollapsed, setChangesCollapsed] = useState(true)
 
   const refreshProjectFiles = useCallback(() => {
+    if (filesRefreshInFlightRef.current) return
+    filesRefreshInFlightRef.current = true
+    const requestId = filesRefreshRequestRef.current + 1
+    filesRefreshRequestRef.current = requestId
+    if (filesRefreshResetTimerRef.current !== null) {
+      window.clearTimeout(filesRefreshResetTimerRef.current)
+      filesRefreshResetTimerRef.current = null
+    }
+    setFilesRefreshStatus('refreshing')
     setOpenFileError(null)
-    const loadedDirectoryPaths = Object.keys(directories)
-    void fileChanges.refreshChanges().then(() => {
-      refreshDirectories(loadedDirectoryPaths.length > 0 ? loadedDirectoryPaths : [''])
+    const loadedDirectoryPaths = ['', ...openDirectoryPaths]
+    const minimumPending = new Promise<void>(resolve => {
+      window.setTimeout(resolve, FILES_REFRESH_MINIMUM_PENDING_MS)
     })
-  }, [directories, fileChanges.refreshChanges, refreshDirectories, setOpenFileError])
+    void (async () => {
+      let refreshed = false
+      try {
+        const changesRefreshed = await fileChanges.refreshChanges()
+        const [directoriesRefreshed, openFilesRefreshed] = await Promise.all([
+          refreshDirectories(loadedDirectoryPaths),
+          agentId && onRefreshOpenFiles
+            ? onRefreshOpenFiles(agentId, projectWorkspace)
+            : Promise.resolve(true),
+        ])
+        await minimumPending
+        refreshed = changesRefreshed && directoriesRefreshed && openFilesRefreshed
+      } catch {
+        await minimumPending
+      }
+
+      if (filesRefreshRequestRef.current !== requestId) return
+      filesRefreshInFlightRef.current = false
+      setFilesRefreshStatus(refreshed ? 'success' : 'error')
+      if (!refreshed) return
+      filesRefreshResetTimerRef.current = window.setTimeout(() => {
+        if (filesRefreshRequestRef.current === requestId) {
+          setFilesRefreshStatus('idle')
+        }
+        filesRefreshResetTimerRef.current = null
+      }, FILES_REFRESH_SUCCESS_VISIBLE_MS)
+    })()
+  }, [agentId, fileChanges.refreshChanges, onRefreshOpenFiles, openDirectoryPaths, projectWorkspace, refreshDirectories, setOpenFileError])
+
+  useEffect(() => {
+    filesRefreshRequestRef.current += 1
+    filesRefreshInFlightRef.current = false
+    if (filesRefreshResetTimerRef.current !== null) {
+      window.clearTimeout(filesRefreshResetTimerRef.current)
+      filesRefreshResetTimerRef.current = null
+    }
+    setFilesRefreshStatus('idle')
+  }, [agentId, projectId])
+
+  useEffect(() => () => {
+    filesRefreshRequestRef.current += 1
+    if (filesRefreshResetTimerRef.current !== null) {
+      window.clearTimeout(filesRefreshResetTimerRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     setChangesCollapsed(true)
@@ -383,7 +443,9 @@ export function ProjectFilesSection({
     focusFileTreeTarget,
     openFileContextMenu,
     openFilePath,
+    setDirectoryOpen: setTreePathOpen,
     startFileOperation: startFileMenuOperation,
+    toggleDirectoryOpen: toggleTreePathOpen,
   })
 
   const viewModel = useProjectFilesSectionViewModel({
@@ -442,7 +504,7 @@ export function ProjectFilesSection({
     onSearchQueryChange: updateFileSearchQuery,
     onSelectOpenFile,
     onSelectSearchMatchIndex: fileSearch.selectMatchIndex,
-    onSetDirectoryOpen: setTreePathOpen,
+    onToggleDirectory: toggleTreePathOpen,
     onStartAgentFromFileMenu: startAgentFromFileMenu,
     onStartFileMenuOperation: startFileMenuOperation,
     onSubmitFileOperation: submitFileOperation,
@@ -471,7 +533,11 @@ export function ProjectFilesSection({
         data-project-id={projectId}
         style={filesSectionStyle}
       >
-        <FileSectionHeader {...viewModel.sectionHeader} onRefreshFiles={refreshProjectFiles} />
+        <FileSectionHeader
+          {...viewModel.sectionHeader}
+          refreshStatus={filesRefreshStatus}
+          onRefreshFiles={refreshProjectFiles}
+        />
         {!filesCollapsed && (
           <>
             {!readOnly && (
@@ -482,6 +548,7 @@ export function ProjectFilesSection({
                 collapsed={changesCollapsed}
                 copy={copy}
                 projectId={projectId}
+                refreshing={filesRefreshStatus === 'refreshing'}
                 onOpenChange={openFileChange}
                 onToggleCollapsed={toggleChangesCollapsed}
               />

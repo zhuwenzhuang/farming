@@ -120,6 +120,7 @@ const CRT_BILLING_TOTAL_ANIMATION_MS = 900;
 const CRT_BILLING_DAY_DETAIL_RETRY_MS = 750;
 const CRT_BILLING_DAY_DETAIL_MAX_RETRIES = 4;
 const CRT_TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5_000;
+const CRT_TERMINAL_RESIZE_SETTLE_MS = 250;
 const CRT_TERMINAL_MIN_COLS = 40;
 const CRT_TERMINAL_MIN_ROWS = 10;
 const CRT_AGENT_DISPLAY_NAMES = {
@@ -853,6 +854,14 @@ async function pasteTerminalText(text) {
   }
   focusSessionTerminal();
   return true;
+}
+
+function isCrtNativeTerminalPasteTarget(target) {
+  return Boolean(
+    target &&
+    typeof target.closest === 'function' &&
+    target.closest('#terminal-output .xterm')
+  );
 }
 
 async function pasteFromClipboard() {
@@ -1620,6 +1629,150 @@ function buildTerminalLineProjection(line) {
   return { text, offsetToCell };
 }
 
+const CRT_READING_ANCHOR_LINE_COUNT = 3;
+
+function crtReadingAnchorApi() {
+  return window.FarmingReadingAnchors || null;
+}
+
+function crtTerminalVisibleBufferBase(currentTerminal) {
+  if (!currentTerminal) return 0;
+  if (typeof currentTerminal.getVisibleBufferBase === 'function') {
+    return Math.max(0, Number(currentTerminal.getVisibleBufferBase()) || 0);
+  }
+  return Math.max(0, Number(currentTerminal.buffer && currentTerminal.buffer.active && currentTerminal.buffer.active.viewportY) || 0);
+}
+
+function crtLogicalTerminalLineAtRow(currentTerminal, row) {
+  const buffer = currentTerminal && currentTerminal.buffer && currentTerminal.buffer.active;
+  if (!buffer || typeof buffer.getLine !== 'function' || !Number.isFinite(row) || row < 0) return null;
+  let startRow = row;
+  while (startRow > 0 && buffer.getLine(startRow)?.isWrapped) startRow -= 1;
+  let endRow = row;
+  while (buffer.getLine(endRow + 1)?.isWrapped) endRow += 1;
+  const lines = [];
+  for (let index = startRow; index <= endRow; index += 1) {
+    lines.push(buildTerminalLineProjection(buffer.getLine(index)).text.trimEnd());
+  }
+  return { startRow, endRow, text: lines.join('') };
+}
+
+function saveCrtTerminalReadingAnchor(agentId, currentTerminal = terminal) {
+  const api = crtReadingAnchorApi();
+  if (!api || !agentId || !currentTerminal) return;
+  const key = api.agentKey(agentId, 'terminal');
+  const buffer = currentTerminal.buffer && currentTerminal.buffer.active;
+  const base = crtTerminalVisibleBufferBase(currentTerminal);
+  const maxRow = Math.max(0, Number(buffer && buffer.length) || 0);
+  if (!buffer || base >= maxRow - Math.max(1, Number(currentTerminal.rows) || 1)) {
+    api.remove(key);
+    return;
+  }
+  const firstLine = crtLogicalTerminalLineAtRow(currentTerminal, base);
+  if (!firstLine) return;
+  const lines = [];
+  let row = firstLine.startRow;
+  for (let index = 0; index < CRT_READING_ANCHOR_LINE_COUNT; index += 1) {
+    const line = crtLogicalTerminalLineAtRow(currentTerminal, row);
+    if (!line) break;
+    lines.push(line.text);
+    row = line.endRow + 1;
+  }
+  if (!lines.length) return;
+  api.save({
+    version: 1,
+    surface: 'terminal',
+    resource: { kind: 'agent', id: agentId },
+    locator: { kind: 'terminal-lines', id: api.fingerprint(lines), lineCount: lines.length },
+    position: { unit: 'row', value: Math.max(0, base - firstLine.startRow) },
+  });
+}
+
+function restoreCrtTerminalReadingAnchor(agentId, currentTerminal = terminal) {
+  const api = crtReadingAnchorApi();
+  if (!api || !agentId || !currentTerminal) return false;
+  const key = api.agentKey(agentId, 'terminal');
+  const anchor = api.read(key);
+  if (!anchor || anchor.surface !== 'terminal') return false;
+  const buffer = currentTerminal.buffer && currentTerminal.buffer.active;
+  const lineCount = Math.max(1, Number(anchor.locator && anchor.locator.lineCount) || 1);
+  const lastRow = Math.max(0, Number(buffer && buffer.length) || 0);
+  let closest = null;
+  let closestDistance = Number.POSITIVE_INFINITY;
+  for (let row = 0; row <= lastRow;) {
+    const firstLine = crtLogicalTerminalLineAtRow(currentTerminal, row);
+    if (!firstLine) {
+      row += 1;
+      continue;
+    }
+    const lines = [firstLine.text];
+    let nextRow = firstLine.endRow + 1;
+    for (let index = 1; index < lineCount; index += 1) {
+      const line = crtLogicalTerminalLineAtRow(currentTerminal, nextRow);
+      if (!line) break;
+      lines.push(line.text);
+      nextRow = line.endRow + 1;
+    }
+    if (lines.length === lineCount && api.fingerprint(lines) === anchor.locator.id) {
+      const distance = Math.abs(firstLine.startRow - crtTerminalVisibleBufferBase(currentTerminal));
+      if (distance < closestDistance) {
+        closest = firstLine;
+        closestDistance = distance;
+      }
+    }
+    row = Math.max(row + 1, firstLine.endRow + 1);
+  }
+  if (!closest || typeof currentTerminal.scrollToLine !== 'function') {
+    api.remove(key);
+    currentTerminal.scrollToBottom?.();
+    return false;
+  }
+  currentTerminal.scrollToLine(Math.min(closest.endRow, closest.startRow + Math.max(0, Number(anchor.position.value) || 0)));
+  return true;
+}
+
+function saveCrtStructuredReadingAnchor(agentId) {
+  const api = crtReadingAnchorApi();
+  const container = document.getElementById('terminal-output');
+  if (!api || !agentId || !container) return;
+  const key = api.agentKey(agentId, 'chat');
+  if (container.scrollHeight - container.scrollTop - container.clientHeight < 80) {
+    api.remove(key);
+    return;
+  }
+  const containerRect = container.getBoundingClientRect();
+  const turn = Array.from(container.querySelectorAll('[data-reading-anchor-id]'))
+    .find((candidate) => candidate.getBoundingClientRect().bottom > containerRect.top);
+  if (!turn) return;
+  const turnRect = turn.getBoundingClientRect();
+  api.save({
+    version: 1,
+    surface: 'chat',
+    resource: { kind: 'agent', id: agentId },
+    locator: { kind: 'message', id: turn.dataset.readingAnchorId },
+    position: { unit: 'fraction', value: Math.max(0, Math.min(1, (containerRect.top - turnRect.top) / Math.max(1, turnRect.height))) },
+  });
+}
+
+function restoreCrtStructuredReadingAnchor(agentId) {
+  const api = crtReadingAnchorApi();
+  const container = document.getElementById('terminal-output');
+  if (!api || !agentId || !container) return false;
+  const key = api.agentKey(agentId, 'chat');
+  const anchor = api.read(key);
+  if (!anchor || anchor.surface !== 'chat') return false;
+  const target = container.querySelector(`[data-reading-anchor-id="${CSS.escape(anchor.locator.id)}"]`);
+  if (!target) {
+    api.remove(key);
+    container.scrollTop = container.scrollHeight;
+    return false;
+  }
+  const containerRect = container.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  container.scrollTop += targetRect.top + targetRect.height * anchor.position.value - containerRect.top;
+  return true;
+}
+
 function collectWrappedLinkContext(buffer, row) {
   if (!buffer || typeof buffer.getLine !== 'function') {
     return null;
@@ -2059,6 +2212,8 @@ function createCrtTerminalReplication(agentId) {
     agentId,
     lastResizeCols: null,
     lastResizeRows: null,
+    pendingFitResize: null,
+    fitResizeTimer: null,
     applyingLocalResize: false,
     replayState: TERMINAL_REPLAY.createState(),
     checkpointInFlight: false,
@@ -2092,7 +2247,9 @@ function installCrtTerminalTestApi() {
         replaying: replication.replayState.recovering,
         writeInProgress: replication.writeInProgress,
         checkpointInFlight: replication.checkpointInFlight,
-        checkpointInstallInProgress: replication.installInProgress
+        checkpointInstallInProgress: replication.installInProgress,
+        pendingFitResize: replication.pendingFitResize,
+        fitResizeTimerPending: replication.fitResizeTimer !== null
       };
     },
     getRows() {
@@ -2137,6 +2294,9 @@ function disposeCrtTerminalReplication() {
   const replication = crtTerminalReplication;
   if (!replication) return;
   replication.disposed = true;
+  if (replication.fitResizeTimer) clearTimeout(replication.fitResizeTimer);
+  replication.fitResizeTimer = null;
+  replication.pendingFitResize = null;
   if (replication.checkpointRetryTimer) clearTimeout(replication.checkpointRetryTimer);
   replication.checkpointRetryTimer = null;
   replication.checkpointAbortController?.abort();
@@ -4934,6 +5094,7 @@ function requestedCrtAgentId(search = typeof window !== 'undefined' ? window.loc
 function openCrtAgentDeeplinkIfReady() {
   if (didApplyAgentDeeplink || !state) return false;
   didApplyAgentDeeplink = true;
+  crtReadingAnchorApi()?.importFromSearch(window.location.search);
 
   const agentId = requestedCrtAgentId();
   const agent = agentId
@@ -4968,6 +5129,7 @@ function connect() {
     });
     if (activeAgentId && terminal) {
       if (crtTerminalReplication) {
+        clearPendingCrtTerminalFitResize(crtTerminalReplication);
         crtTerminalReplication.lastResizeCols = null;
         crtTerminalReplication.lastResizeRows = null;
         if (crtTerminalReplication.checkpointRetryTimer) {
@@ -5068,6 +5230,13 @@ function connect() {
           setSessionOutputLength(getSessionOutputLength() + patch.nextLengthDelta);
         }
       }
+    } else if (data.type === 'agent-activity') {
+      const activity = data.activity;
+      const agent = activity && state && state.agents.find((candidate) => candidate.id === activity.agentId);
+      if (agent) {
+        Object.assign(agent, activity);
+        renderCrtDashboardIfNeeded();
+      }
     } else if (data.type === 'system-stats') {
       updateSystemStats(data.stats, data.uptime, data.usageRate);
     } else if (data.type === 'error') {
@@ -5081,6 +5250,7 @@ function connect() {
     ws = null;
     console.log('Disconnected from server');
     if (crtTerminalReplication) {
+      clearPendingCrtTerminalFitResize(crtTerminalReplication);
       crtTerminalReplication.lastResizeCols = null;
       crtTerminalReplication.lastResizeRows = null;
       crtTerminalReplication.checkpointSeq += 1;
@@ -6352,13 +6522,13 @@ function structuredTranscriptTurns(transcript) {
     const text = structuredTranscriptContentText(entry.content);
     if (!text) return;
     if (entry.role === 'user') {
-      current = { userMessage: text, finalMessage: '' };
+      current = { id: entry.id || `user-${turns.length}`, userMessage: text, finalMessage: '' };
       turns.push(current);
       return;
     }
     if (entry.role !== 'assistant') return;
     if (!current) {
-      current = { userMessage: '', finalMessage: '' };
+      current = { id: entry.id || `assistant-${turns.length}`, userMessage: '', finalMessage: '' };
       turns.push(current);
     }
     current.finalMessage = text;
@@ -6573,6 +6743,7 @@ function renderStructuredTranscript(transcript, force = false) {
   const updatedAt = String(transcript && transcript.updatedAt || '');
   if (!force && updatedAt && updatedAt === structuredSessionRenderedAt) return;
   const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+  if (!nearBottom && focusedAgentId) saveCrtStructuredReadingAnchor(focusedAgentId);
   const transcriptNode = document.createElement('div');
   transcriptNode.className = 'crt-structured-transcript';
   const turns = structuredTranscriptTurns(transcript);
@@ -6586,6 +6757,7 @@ function renderStructuredTranscript(transcript, force = false) {
     turns.forEach((turn) => {
       const section = document.createElement('section');
       section.className = 'crt-structured-turn';
+      section.dataset.readingAnchorId = String(turn.id || `${turn.userMessage || ''}\n${turn.finalMessage || ''}`.slice(0, 160));
       if (turn.userMessage) {
         const user = document.createElement('p');
         user.className = 'crt-structured-message user';
@@ -6604,7 +6776,10 @@ function renderStructuredTranscript(transcript, force = false) {
 
   container.replaceChildren(transcriptNode);
   structuredSessionRenderedAt = updatedAt;
-  if (force || nearBottom) container.scrollTop = container.scrollHeight;
+  if (!focusedAgentId || !restoreCrtStructuredReadingAnchor(focusedAgentId)) {
+    if (force || nearBottom) container.scrollTop = container.scrollHeight;
+  }
+  container.onscroll = () => saveCrtStructuredReadingAnchor(focusedAgentId);
   requestAnimationFrame(updateStructuredTranscriptScrollState);
 }
 
@@ -7043,6 +7218,9 @@ async function openSession(agentId) {
       updateSessionSelectionStatus();
     });
   }
+  if (terminal && typeof terminal.onScroll === 'function') {
+    terminal.onScroll(() => saveCrtTerminalReadingAnchor(agentId, terminal));
+  }
   if (runtime) {
     runtime.setLastOutputLength(mountedTerminal ? mountedTerminal.outputLength : (runtime.prepareInitialOutput(agent.output)).length);
     syncSessionRuntimeState();
@@ -7113,6 +7291,7 @@ async function openSession(agentId) {
 
   // Hydrate one authoritative reducer cut before reducing live transitions.
   await refreshSessionView(true, agentId, sessionToken);
+  restoreCrtTerminalReadingAnchor(agentId, terminal);
   sendSessionResize(agentId);
   if (!crtTerminalReplication && shouldPollSessionView(modalState.sessionSource)) {
     startSessionViewPolling(agentId, sessionToken);
@@ -7120,6 +7299,10 @@ async function openSession(agentId) {
 }
 
 function closeSession() {
+  if (focusedAgentId) {
+    if (terminal) saveCrtTerminalReadingAnchor(focusedAgentId, terminal);
+    else saveCrtStructuredReadingAnchor(focusedAgentId);
+  }
   resetCrtRuntimeSwitchState();
   const runtime = getSessionRuntime();
   if (runtime) {
@@ -7179,6 +7362,63 @@ function sendTerminalInput(input) {
   queueCrtTerminalInput(input);
 }
 
+function clearPendingCrtTerminalFitResize(replication) {
+  if (!replication) return;
+  if (replication.fitResizeTimer) clearTimeout(replication.fitResizeTimer);
+  replication.fitResizeTimer = null;
+  replication.pendingFitResize = null;
+}
+
+function commitCrtTerminalResize(agentId, normalizedDimensions) {
+  const replication = crtTerminalReplication;
+  if (
+    !agentId ||
+    !terminal ||
+    !replication ||
+    replication.disposed ||
+    replication.agentId !== agentId ||
+    replication.replayState.recovering ||
+    (
+      normalizedDimensions.cols === replication.lastResizeCols &&
+      normalizedDimensions.rows === replication.lastResizeRows
+    )
+  ) return;
+  if (terminal.cols !== normalizedDimensions.cols || terminal.rows !== normalizedDimensions.rows) {
+    replication.applyingLocalResize = true;
+    try {
+      terminal.resize(normalizedDimensions.cols, normalizedDimensions.rows);
+    } finally {
+      replication.applyingLocalResize = false;
+    }
+  }
+  const delivered = getSessionClient()?.resizeAgent(
+    agentId,
+    normalizedDimensions.cols,
+    normalizedDimensions.rows
+  );
+  if (delivered) {
+    replication.lastResizeCols = normalizedDimensions.cols;
+    replication.lastResizeRows = normalizedDimensions.rows;
+  }
+}
+
+function scheduleCrtTerminalFitResize(replication, agentId, normalizedDimensions) {
+  if (replication.fitResizeTimer) clearTimeout(replication.fitResizeTimer);
+  replication.pendingFitResize = normalizedDimensions;
+  replication.fitResizeTimer = setTimeout(() => {
+    replication.fitResizeTimer = null;
+    const next = replication.pendingFitResize;
+    replication.pendingFitResize = null;
+    if (
+      !next ||
+      replication.disposed ||
+      crtTerminalReplication !== replication ||
+      replication.agentId !== agentId
+    ) return;
+    commitCrtTerminalResize(agentId, next);
+  }, CRT_TERMINAL_RESIZE_SETTLE_MS);
+}
+
 function sendSessionResize(agentId = focusedAgentId, requestedDimensions = null) {
   const replication = crtTerminalReplication;
   if (
@@ -7203,29 +7443,21 @@ function sendSessionResize(agentId = focusedAgentId, requestedDimensions = null)
     !Number.isFinite(normalizedDimensions.cols) ||
     !Number.isFinite(normalizedDimensions.rows) ||
     normalizedDimensions.cols < CRT_TERMINAL_MIN_COLS ||
-    normalizedDimensions.rows < CRT_TERMINAL_MIN_ROWS ||
-    (
+    normalizedDimensions.rows < CRT_TERMINAL_MIN_ROWS
+  ) return;
+  if (!requestedDimensions) {
+    if (
       normalizedDimensions.cols === replication.lastResizeCols &&
       normalizedDimensions.rows === replication.lastResizeRows
-    )
-  ) return;
-  if (terminal.cols !== normalizedDimensions.cols || terminal.rows !== normalizedDimensions.rows) {
-    replication.applyingLocalResize = true;
-    try {
-      terminal.resize(normalizedDimensions.cols, normalizedDimensions.rows);
-    } finally {
-      replication.applyingLocalResize = false;
+    ) {
+      clearPendingCrtTerminalFitResize(replication);
+      return;
     }
+    scheduleCrtTerminalFitResize(replication, agentId, normalizedDimensions);
+    return;
   }
-  const delivered = getSessionClient()?.resizeAgent(
-    agentId,
-    normalizedDimensions.cols,
-    normalizedDimensions.rows
-  );
-  if (delivered) {
-    replication.lastResizeCols = normalizedDimensions.cols;
-    replication.lastResizeRows = normalizedDimensions.rows;
-  }
+  clearPendingCrtTerminalFitResize(replication);
+  commitCrtTerminalResize(agentId, normalizedDimensions);
 }
 
 async function refreshSessionView(_forceReplace = false, expectedAgentId = focusedAgentId, expectedSessionToken = getCurrentSessionToken()) {
@@ -7695,6 +7927,12 @@ if (typeof document !== 'undefined') {
       return;
     }
 
+    // xterm owns paste events targeting its textarea. Calling terminal.paste()
+    // here as well would submit the same clipboard text twice.
+    if (isCrtNativeTerminalPasteTarget(e.target)) {
+      return;
+    }
+
     const pastedText = e.clipboardData && e.clipboardData.getData
       ? e.clipboardData.getData('text/plain')
       : '';
@@ -7704,7 +7942,9 @@ if (typeof document !== 'undefined') {
     }
 
     e.preventDefault();
-    pasteTerminalText(pastedText);
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    void pasteTerminalText(pastedText);
   }, true);
 
 }
@@ -7725,6 +7965,7 @@ if (typeof module !== 'undefined' && module.exports) {
     findDirectionalNavigationIndex,
     isBrowserShortcut,
     isCopyShortcut,
+    isCrtNativeTerminalPasteTarget,
     isPasteShortcut,
     shouldUseLiveSessionText,
     shouldPollSessionView,

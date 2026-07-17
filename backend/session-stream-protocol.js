@@ -138,6 +138,14 @@ function coalesceSessionStream(existingStream, incomingStream) {
   };
 }
 
+function shouldBroadcastSessionStreamImmediately(options = {}) {
+  const pendingCount = Number.isFinite(options.pendingCount) ? options.pendingCount : 0;
+  const lastBroadcastAt = Number.isFinite(options.lastBroadcastAt) ? options.lastBroadcastAt : 0;
+  const now = Number.isFinite(options.now) ? options.now : Date.now();
+  const intervalMs = Number.isFinite(options.intervalMs) ? Math.max(0, options.intervalMs) : 0;
+  return pendingCount === 0 && (lastBroadcastAt === 0 || now - lastBroadcastAt >= intervalMs);
+}
+
 function deliverSessionStreamToClients(clients, stream, options = {}) {
   const openState = options.openState ?? 1;
   const maxBufferedAmount = Number.isFinite(options.maxBufferedAmount)
@@ -173,4 +181,5 @@ module.exports = {
   coalesceSessionStream,
   deliverSessionStreamToClients,
   normalizeSessionStream,
+  shouldBroadcastSessionStreamImmediately,
 };

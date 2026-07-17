@@ -1,3 +1,4 @@
+import '../frontend/reading-anchor.js'
 import { Component, type CSSProperties, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { appPath } from './lib/base-path'

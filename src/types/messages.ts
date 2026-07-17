@@ -1,4 +1,4 @@
-import type { AgentTerminalStatus, AppState, CodexTerminalProfile, SystemStats, TerminalPreviewSnapshot } from './agent'
+import type { Agent, AgentTerminalStatus, AppState, CodexTerminalProfile, SystemStats, TerminalPreviewSnapshot } from './agent'
 
 // ---- Client → Server messages ----
 
@@ -166,6 +166,20 @@ export interface SystemStatsMessage {
   uptime: number
 }
 
+export interface AgentActivityMessage {
+  type: 'agent-activity'
+  activity: Pick<Agent, 'lastActivity' | 'activityLevel' | 'attentionScore' | 'isZombie' | 'usageRate'> & {
+    agentId: string
+  }
+}
+
+export interface AgentReadMessage {
+  type: 'agent-read'
+  read: Pick<Agent, 'unread' | 'attentionSeq' | 'readAttentionSeq' | 'readOutputEpoch' | 'readOutputSeq'> & {
+    agentId: string
+  }
+}
+
 export interface SessionPreviewMessage {
   type: 'session-preview'
   preview: {
@@ -202,5 +216,7 @@ export type ServerMessage =
   | SessionOutputMessage
   | SessionPreviewMessage
   | SystemStatsMessage
+  | AgentActivityMessage
+  | AgentReadMessage
   | WorkspaceFileWatchMessage
   | WorkspaceFileEventMessage

@@ -23,6 +23,12 @@ import { MermaidBlock } from '@/components/files/FileEditorMarkdownPreview'
 import { appPath } from '@/lib/base-path'
 import { iconForFilePath } from '@/lib/file-icons'
 import { normalizeGlobalWorkspaceFilePath } from '@/lib/global-workspace-files'
+import {
+  clearReadingAnchor,
+  readingAnchorAgentKey,
+  readReadingAnchor,
+  saveReadingAnchor,
+} from '@/lib/reading-anchor'
 import { collectTerminalPathLinkMatches } from '@/lib/terminal-links'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import { loadAcpReviewPreview } from '@/lib/review/api'
@@ -152,7 +158,62 @@ export interface CodexTranscriptPaneProps {
   copy: CodeCopy
 }
 
-const transcriptScrollPositions = new Map<string, number>()
+type TranscriptAnchorRestoreResult = 'none' | 'restored' | 'expired'
+
+function saveTranscriptReadingAnchor(agentId: string, element: HTMLDivElement) {
+  if (isTranscriptNearBottom(element)) {
+    clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
+    return
+  }
+  const scrollerRect = element.getBoundingClientRect()
+  const turns = Array.from(element.querySelectorAll<HTMLElement>('[data-turn-id]'))
+  const turn = turns.find(candidate => candidate.getBoundingClientRect().bottom > scrollerRect.top)
+  if (!turn) return
+  const processItem = Array.from(turn.querySelectorAll<HTMLElement>('[data-process-item-id]'))
+    .find(candidate => candidate.getBoundingClientRect().bottom > scrollerRect.top)
+  const target = processItem || turn
+  const targetRect = target.getBoundingClientRect()
+  const fraction = targetRect.height > 0
+    ? Math.max(0, Math.min(1, (scrollerRect.top - targetRect.top) / targetRect.height))
+    : 0
+  const turnId = turn.dataset.turnId
+  if (!turnId) return
+  saveReadingAnchor({
+    version: 1,
+    surface: 'chat',
+    resource: { kind: 'agent', id: agentId },
+    locator: {
+      kind: 'message',
+      id: turnId,
+      ...(processItem?.dataset.processItemId ? { childId: processItem.dataset.processItemId } : {}),
+    },
+    position: { unit: 'fraction', value: fraction },
+  })
+}
+
+function restoreTranscriptReadingAnchor(agentId: string, element: HTMLDivElement): TranscriptAnchorRestoreResult {
+  const key = readingAnchorAgentKey(agentId, 'chat')
+  const anchor = readReadingAnchor(key)
+  if (!anchor) return 'none'
+  if (anchor.surface !== 'chat' || anchor.resource.kind !== 'agent') {
+    clearReadingAnchor(key)
+    return 'expired'
+  }
+  const turn = element.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(anchor.locator.id)}"]`)
+  if (!turn) {
+    clearReadingAnchor(key)
+    return 'expired'
+  }
+  const processItem = anchor.locator.childId
+    ? turn.querySelector<HTMLElement>(`[data-process-item-id="${CSS.escape(anchor.locator.childId)}"]`)
+    : null
+  const target = processItem || turn
+  const targetRect = target.getBoundingClientRect()
+  const scrollerRect = element.getBoundingClientRect()
+  const targetOffset = targetRect.height * anchor.position.value
+  element.scrollTop += targetRect.top + targetOffset - scrollerRect.top
+  return 'restored'
+}
 const INITIAL_TRANSCRIPT_TURN_LIMIT = 80
 const TRANSCRIPT_TURN_PAGE_SIZE = 80
 const INITIAL_ACP_TRANSCRIPT_TURN_LIMIT = 20
@@ -2139,7 +2200,7 @@ export function CodexTranscriptPane({
     setSearchOpen(false)
     setSearchQuery('')
     setSearchIndex(0)
-    followBottomRef.current = true
+    followBottomRef.current = !readReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
     textSelectionGestureRef.current = false
     textSelectionHadRangeRef.current = false
     pendingPrependAnchorRef.current = null
@@ -2345,7 +2406,7 @@ export function CodexTranscriptPane({
         if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
         const nextTop = element.scrollHeight - pendingAnchor.scrollHeight + pendingAnchor.scrollTop
         element.scrollTop = Math.max(0, nextTop)
-        transcriptScrollPositions.set(agentId, element.scrollTop)
+        saveTranscriptReadingAnchor(agentId, element)
       })
       return
     }
@@ -2353,24 +2414,30 @@ export function CodexTranscriptPane({
       window.requestAnimationFrame(() => {
         if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
         element.scrollTop = element.scrollHeight
-        transcriptScrollPositions.set(agentId, element.scrollTop)
+        clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
         setShowJumpToBottom(false)
         if (active) onReadLatest?.()
       })
       return
     }
-    const saved = transcriptScrollPositions.get(agentId)
-    if (!saved || saved <= 0) return
     window.requestAnimationFrame(() => {
       if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
-      element.scrollTop = Math.min(saved, Math.max(0, element.scrollHeight - element.clientHeight))
+      const restored = restoreTranscriptReadingAnchor(agentId, element)
+      if (restored !== 'expired') return
+      // The desired message is outside the bounded transcript window. Do not
+      // fetch or guess at older history on a passive Agent switch: viewing a
+      // stale anchor always converges to the current tail.
+      followBottomRef.current = true
+      element.scrollTop = element.scrollHeight
+      setShowJumpToBottom(false)
+      if (active) onReadLatest?.()
     })
   }, [active, agentId, loading, onReadLatest, transcript?.available, transcript?.updatedAt, turns.length])
 
   useEffect(() => () => {
     const element = scrollRef.current
     if (!element) return
-    transcriptScrollPositions.set(agentId, element.scrollTop)
+    saveTranscriptReadingAnchor(agentId, element)
   }, [agentId])
 
   useEffect(() => {
@@ -2512,14 +2579,15 @@ export function CodexTranscriptPane({
   const handleScroll = useCallback(() => {
     const element = scrollRef.current
     if (!element) return
-    transcriptScrollPositions.set(agentId, element.scrollTop)
     if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) {
       followBottomRef.current = false
       textSelectionHadRangeRef.current = true
+      saveTranscriptReadingAnchor(agentId, element)
       return
     }
     const nearBottom = isTranscriptNearBottom(element)
     followBottomRef.current = nearBottom
+    saveTranscriptReadingAnchor(agentId, element)
     setShowJumpToBottom(!nearBottom && element.scrollHeight > element.clientHeight + TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD)
     if (active && nearBottom) onReadLatest?.()
     if (element.scrollTop <= TRANSCRIPT_LOAD_MORE_THRESHOLD) requestOlderTurns(element)
@@ -2572,7 +2640,7 @@ export function CodexTranscriptPane({
     // interrupted by a transcript refresh and leave the reader above the
     // newest turn, so move the viewport synchronously instead.
     element.scrollTop = element.scrollHeight
-    transcriptScrollPositions.set(agentId, element.scrollHeight)
+    clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
     setShowJumpToBottom(false)
     onReadLatest?.()
   }, [agentId, onReadLatest])

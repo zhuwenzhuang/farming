@@ -69,11 +69,17 @@ function stripAnsi(value) {
 
 function codexServiceTierConfirmations(outputText) {
   const text = stripAnsi(outputText).replace(/\r/g, '\n');
-  return Array.from(text.matchAll(/(?:^|\n)\s*[•●]\s+Service tier set to\s+(priority|default)\b/gi))
-    .map(match => ({
-      serviceTier: normalizedValue(match[1]) === 'priority' ? 'priority' : 'default',
-      fast: normalizedValue(match[1]) === 'priority',
-    }));
+  return Array.from(text.matchAll(
+    /(?:^|\n)\s*[•●]\s+(?:Service tier set to\s+(priority|default)\b|Fast mode is\s+(on|off)\b)/gi
+  )).map(match => {
+    const fast = match[1]
+      ? normalizedValue(match[1]) === 'priority'
+      : normalizedValue(match[2]) === 'on';
+    return {
+      serviceTier: fast ? 'priority' : 'default',
+      fast,
+    };
+  });
 }
 
 function newCodexServiceTierConfirmation(previousOutput, currentOutput) {
@@ -247,6 +253,7 @@ async function applyCodexTerminalProfile({
   readPreview,
   readOutput,
   sendInput,
+  onInputSafe,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   sleep: sleepFn,
@@ -271,6 +278,12 @@ async function applyCodexTerminalProfile({
     signal,
     timeoutMessage,
   });
+  let inputSafe = false;
+  const markInputSafe = () => {
+    if (inputSafe) return;
+    inputSafe = true;
+    if (typeof onInputSafe === 'function') onInputSafe();
+  };
   let preview = String(await runStep(readPreview, 'Timed out reading the Codex Terminal') || '');
   let current = codexTerminalProfileFromPreview(preview);
   if (!current) {
@@ -397,6 +410,10 @@ async function applyCodexTerminalProfile({
           () => sendInput(terminalCommand(fastCommand)),
           `Timed out sending ${fastCommand}`,
         );
+        // `/fast on|off` is one non-interactive slash command. Once its full
+        // input has been accepted, later Terminal input cannot leak into a
+        // picker and may proceed while confirmation is observed separately.
+        markInputSafe();
         const confirmation = await waitForPreview(
           readOutput,
           output => {
@@ -423,6 +440,7 @@ async function applyCodexTerminalProfile({
           () => sendInput(terminalCommand(fastCommand)),
           `Timed out sending ${fastCommand}`,
         );
+        markInputSafe();
         const fastApplied = await waitForPreview(
           readPreview,
           text => profileMatches(codexTerminalProfileFromPreview(text), target, { includeFast: true }),
@@ -435,6 +453,8 @@ async function applyCodexTerminalProfile({
         current = codexTerminalProfileFromPreview(preview);
       }
     }
+
+    markInputSafe();
 
     return {
       model: current.model,

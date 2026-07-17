@@ -24,6 +24,8 @@ export type TerminalLinkProvider = ILinkProvider
 
 export type FarmingTerminal = GhosttyTerminal & {
   __farmingTerminalEngine?: TerminalEngineName
+  getRendererType?: () => 'pending' | 'webgl' | 'failed'
+  onRendererFailure?: (handler: (error: Error) => void) => { dispose: () => void }
   getVisibleBufferBase?: () => number
   getCellMetrics?: () => { width: number; height: number } | undefined
   getScreenElement?: () => HTMLElement | null

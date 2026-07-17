@@ -14,6 +14,7 @@ const DEFAULT_SEARCH_LIMIT = 100;
 const DEFAULT_GIT_CHANGES_LIMIT = 500;
 const DEFAULT_GIT_STATUS_CACHE_TTL_MS = 30000;
 const DEFAULT_GIT_STATUS_INLINE_TIMEOUT_MS = 80;
+const DEFAULT_GIT_STATUS_TIMEOUT_MS = 15000;
 const DEFAULT_SEARCH_TIMEOUT_MS = 3000;
 const DEFAULT_BLAME_TIMEOUT_MS = 5000;
 const DEFAULT_DIFF_TIMEOUT_MS = 5000;
@@ -1119,6 +1120,7 @@ class WorkspaceFileService {
     this.gitPath = options.gitPath || 'git';
     this.gitStatusCacheTtlMs = options.gitStatusCacheTtlMs ?? DEFAULT_GIT_STATUS_CACHE_TTL_MS;
     this.gitStatusInlineTimeoutMs = options.gitStatusInlineTimeoutMs ?? DEFAULT_GIT_STATUS_INLINE_TIMEOUT_MS;
+    this.gitStatusTimeoutMs = options.gitStatusTimeoutMs ?? DEFAULT_GIT_STATUS_TIMEOUT_MS;
     this.gitStatusCache = new Map();
     this.watchers = new Map();
     this.watchOptions = options.watchOptions || {};
@@ -1721,7 +1723,7 @@ class WorkspaceFileService {
         `--untracked-files=${untrackedFiles}`,
         '--ignored=no',
         ...gitStatusExcludePathspecArgs(),
-      ], { cwd: root });
+      ], { cwd: root, timeout: options.timeoutMs ?? this.gitStatusTimeoutMs });
       return parseGitStatus(stdout);
     } catch (error) {
       if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' && options.allowPartial === true) {
@@ -1738,6 +1740,9 @@ class WorkspaceFileService {
           throw new WorkspaceFileError('git is not installed', 501);
         }
         return new Map();
+      }
+      if (error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM') {
+        throw new WorkspaceFileError('git status timed out', 504);
       }
       if (error.stderr && /not a git repository/i.test(error.stderr)) return new Map();
       if (options.throwOnError === true) {

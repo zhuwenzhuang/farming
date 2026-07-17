@@ -21,7 +21,7 @@ interface UseFileTreeRowInteractionsOptions {
   onFocusFileTreeTarget: (item: WorkspaceFileTreeNode | null) => void
   onOpenFileContextMenu: (x: number, y: number, item: WorkspaceFileTreeNode | null) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
-  onSetDirectoryOpen: (path: string, open: boolean) => void
+  onToggleDirectory: (path: string) => boolean
 }
 
 export function useFileTreeRowInteractions({
@@ -34,7 +34,7 @@ export function useFileTreeRowInteractions({
   onFocusFileTreeTarget,
   onOpenFileContextMenu,
   onOpenFilePath,
-  onSetDirectoryOpen,
+  onToggleDirectory,
 }: UseFileTreeRowInteractionsOptions) {
   const focusTree = useCallback(() => {
     focusWithoutScrolling(treeViewportRef.current?.querySelector<HTMLElement>('[role="tree"]'))
@@ -76,8 +76,7 @@ export function useFileTreeRowInteractions({
     if (clickIntent === 'toggle-directory') {
       event.preventDefault()
       event.stopPropagation()
-      const nextOpen = !node.isOpen
-      onSetDirectoryOpen(item.path, nextOpen)
+      const nextOpen = onToggleDirectory(item.path)
       node.select()
       node.focus()
       focusTree()
@@ -113,7 +112,7 @@ export function useFileTreeRowInteractions({
     onCancelPendingFileFocus,
     onFocusFileTreeTarget,
     onOpenFilePath,
-    onSetDirectoryOpen,
+    onToggleDirectory,
     treeViewportRef,
   ])
 
