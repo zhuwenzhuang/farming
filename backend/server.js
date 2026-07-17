@@ -62,6 +62,11 @@ const {
   rewriteIndexHtmlForBasePath,
   appendIndexHtmlAssetToken,
 } = require('./index-html');
+const {
+  coalesceSessionStream,
+  deliverSessionStreamToClients,
+} = require('./session-stream-protocol');
+const TerminalGeometryCoordinator = require('./terminal-geometry-coordinator');
 
 const execFileAsync = promisify(execFile);
 
@@ -97,6 +102,7 @@ const agentManager = new AgentManager(configManager, {
   authDisabled: !authEnabled,
   cliBinDir: resolveCliBinDir(),
 });
+const terminalGeometryCoordinator = new TerminalGeometryCoordinator({ agentManager });
 const themeManager = new ThemeManager({ configDir: configManager.farmingDir });
 const workspaceFileService = new WorkspaceFileService();
 const updateService = new FarmingUpdateService({
@@ -485,6 +491,16 @@ app.use(routePath(BASE_PATH, '/api/review-sessions'), createReviewSessionRouter(
 app.use(routePath(BASE_PATH, '/api/reviews'), createReviewDiffRouter(reviewDiffService, reviewSessionService));
 app.use(routePath(BASE_PATH, '/api/reviews'), createReviewStateRouter(reviewStateStore));
 
+if (process.env.NODE_ENV === 'test' && process.env.FARMING_E2E_FAKE_EXECUTABLES === '1') {
+  app.post(routePath(BASE_PATH, '/api/control/e2e/close-websockets'), express.json(), (_req, res) => {
+    const clients = [...wss.clients].filter(client => client.readyState === WebSocket.OPEN);
+    res.json({ closing: clients.length, code: 1013 });
+    setImmediate(() => {
+      clients.forEach(client => client.close(1013, 'terminal stream backpressure test'));
+    });
+  });
+}
+
 app.use(routePath(BASE_PATH, '/api/control'), createControlRouter(agentManager, {
   notifyUpdate: broadcastState,
 }));
@@ -671,7 +687,10 @@ app.get(routePath(BASE_PATH, '/api/usage'), async (req, res) => {
 app.get(routePath(BASE_PATH, '/api/usage/day'), async (req, res) => {
   try {
     const date = String(req.query.date || '').trim();
-    const detail = await usageMonitor.getUsageDay(date, { fresh: req.query.fresh === '1' });
+    const detail = await usageMonitor.getUsageDay(date, {
+      fresh: req.query.fresh === '1',
+      live: req.query.live === '1',
+    });
     res.json({ detail });
   } catch (error) {
     const invalidDate = error instanceof RangeError;
@@ -1281,6 +1300,15 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
   if (typeof body.readAttentionSeq === 'number' && Number.isFinite(body.readAttentionSeq)) {
     flagPatch.readAttentionSeq = body.readAttentionSeq;
   }
+  if (
+    typeof body.readOutputEpoch === 'string'
+    && body.readOutputEpoch
+    && typeof body.readOutputSeq === 'number'
+    && Number.isFinite(body.readOutputSeq)
+  ) {
+    flagPatch.readOutputEpoch = body.readOutputEpoch;
+    flagPatch.readOutputSeq = body.readOutputSeq;
+  }
 
   if (flagPatch.archived === true) {
     const result = await agentManager.archiveAgent(req.params.agentId);
@@ -1332,7 +1360,7 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
   }
 
   if (Object.keys(updates).length === 0) {
-    res.status(400).json({ error: 'customTitle, task, pinned, unread, archived, readAttentionSeq, launchPermissionMode, or agentRuntimeMode is required' });
+    res.status(400).json({ error: 'customTitle, task, pinned, unread, archived, readAttentionSeq, readOutputEpoch/readOutputSeq, launchPermissionMode, or agentRuntimeMode is required' });
     return;
   }
 
@@ -1824,6 +1852,7 @@ wss.on('connection', (ws, req) => {
   }
 
   console.log('Client connected');
+  ws.connectionId = crypto.randomUUID();
 
   ws.on('message', (message) => {
     try {
@@ -1836,6 +1865,7 @@ wss.on('connection', (ws, req) => {
   
   ws.on('close', () => {
     clearWorkspaceFileWatch(ws);
+    void terminalGeometryCoordinator.releaseAllForSocket(ws);
     console.log('Client disconnected');
   });
   
@@ -1891,7 +1921,22 @@ async function sendInputMessage(ws, data) {
 
   const inputParts = inputPartsFromMessage(data);
   if (inputParts.length === 0) return;
-  await agentManager.sendInput(targetAgentId, inputParts);
+  if (
+    typeof data.attachmentId !== 'string' ||
+    typeof data.leaseId !== 'string' ||
+    !Number.isFinite(data.fence) ||
+    typeof data.expectedRuntimeEpoch !== 'string'
+  ) {
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Terminal input requires an active fenced terminal attachment',
+    }));
+    return;
+  }
+  await terminalGeometryCoordinator.input(ws, {
+    ...data,
+    agentId: targetAgentId,
+  }, inputParts);
 }
 
 async function sendComposerInputMessage(ws, data) {
@@ -1923,6 +1968,19 @@ async function sendComposerInputMessage(ws, data) {
     }
   }
   if (!targetAgentId || content.length === 0) return;
+  const targetAgent = agentManager.getState().agents.find(agent => agent.id === targetAgentId);
+  const structuredRuntime = targetAgent && (
+    targetAgent.agentRuntimeMode === 'acp' ||
+    targetAgent.agentRuntimeMode === 'json' ||
+    (targetAgent.providerSessionProvider === 'codex' && targetAgent.codexRuntimeMode === 'app-server')
+  );
+  if (!structuredRuntime) {
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: 'Terminal Composer input requires the active terminal owner',
+    }));
+    return;
+  }
   try {
     await agentManager.sendComposerMessage(targetAgentId, content);
   } catch (error) {
@@ -2034,8 +2092,32 @@ function handleMessage(ws, data) {
 
     case 'resize-agent':
       if (data.agentId && Number.isFinite(data.cols) && Number.isFinite(data.rows)) {
-        agentManager.resizeAgentSession(data.agentId, data.cols, data.rows);
+        void terminalGeometryCoordinator.resize(ws, data);
       }
+      break;
+
+    case 'clear-terminal':
+      void terminalGeometryCoordinator.clear(ws, data);
+      break;
+
+    case 'terminal-output-ack':
+      void terminalGeometryCoordinator.acknowledgeOutput(ws, data);
+      break;
+
+    case 'terminal-controller-claim':
+      void terminalGeometryCoordinator.claim(ws, data);
+      break;
+
+    case 'terminal-controller-renew':
+      void terminalGeometryCoordinator.renew(ws, data);
+      break;
+
+    case 'terminal-renderer-ready':
+      void terminalGeometryCoordinator.rendererReady(ws, data);
+      break;
+
+    case 'terminal-controller-release':
+      void terminalGeometryCoordinator.release(ws, data);
       break;
 
     case 'watch-workspace-files':
@@ -2274,13 +2356,10 @@ function broadcastSessionStream(stream) {
     type: 'session-output',
     stream
   });
-
-  wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      if (client.streamScope === 'focused' && client.focusedAgentId !== stream.agentId) return;
-      if (client.bufferedAmount > MAX_SESSION_STREAM_CLIENT_BUFFERED_AMOUNT) return;
-      client.send(message);
-    }
+  deliverSessionStreamToClients(wss.clients, stream, {
+    openState: WebSocket.OPEN,
+    maxBufferedAmount: MAX_SESSION_STREAM_CLIENT_BUFFERED_AMOUNT,
+    message,
   });
 }
 
@@ -2295,24 +2374,7 @@ function scheduleSessionStreamBroadcast(stream) {
   if (!stream || !stream.agentId) return;
   const key = sessionStreamKey(stream);
   const existing = pendingSessionStreams.get(key);
-  const data = typeof stream.data === 'string' ? stream.data : String(stream.data || '');
-  const outputSeq = Number.isFinite(stream.outputSeq) ? stream.outputSeq : undefined;
-
-  if (existing) {
-    pendingSessionStreams.set(key, {
-      ...stream,
-      data: stream.replace === true ? data : `${existing.data || ''}${data}`,
-      replace: existing.replace || stream.replace === true,
-      outputSeq: outputSeq ?? existing.outputSeq,
-    });
-  } else {
-    pendingSessionStreams.set(key, {
-      ...stream,
-      data,
-      replace: stream.replace === true,
-      outputSeq,
-    });
-  }
+  pendingSessionStreams.set(key, coalesceSessionStream(existing, stream));
 
   if (!sessionStreamBroadcastTimer) {
     sessionStreamBroadcastTimer = setTimeout(flushSessionStreams, SESSION_STREAM_BROADCAST_INTERVAL_MS);

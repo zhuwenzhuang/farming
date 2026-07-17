@@ -14,7 +14,13 @@ import {
   SearchGlyph,
 } from '@/components/IconGlyphs'
 import type { Agent, ProviderQuotaLimit, SystemStats, UsageProviderSummary, UsageSummary } from '@/types/agent'
-import type { WorkspaceFileDeleteResult, WorkspaceFileMove } from '@/lib/workspace-files'
+import {
+  fetchWorkspaceGitWorktrees,
+  type WorkspaceFileDeleteResult,
+  type WorkspaceFileMove,
+  type WorkspaceGitWorktree,
+  type WorkspaceGitWorktrees,
+} from '@/lib/workspace-files'
 import { appPath } from '@/lib/base-path'
 import { agentDisplayName, agentTitle, formatRelativeAge } from '@/lib/format'
 import {
@@ -97,6 +103,17 @@ function FocusModeGlyph() {
   )
 }
 
+function BranchGlyph() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="4" cy="3" r="1.5" />
+      <circle cx="4" cy="13" r="1.5" />
+      <circle cx="12" cy="5" r="1.5" />
+      <path d="M4 4.5v7M5.5 8h2.25A4.25 4.25 0 0 0 12 3.75" />
+    </svg>
+  )
+}
+
 function compactProductVersion(version: string) {
   const normalized = version.trim().replace(/^v/i, '')
   if (!normalized) return ''
@@ -157,6 +174,7 @@ interface CodeSidebarProps {
   onProjectListKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
   onToggleProject: (projectId: string) => void
   onToggleProjectSessions: (projectId: string) => void
+  onMountProject: (workspace: string) => void
   onOpenProjectContextMenu: (event: ReactMouseEvent<HTMLElement>, projectId: string) => void
   onOpenProjectKeyboardMenu: (event: ReactKeyboardEvent<HTMLElement>, projectId: string) => void
   onOpenAgent: (agentId: string) => void
@@ -215,6 +233,7 @@ export function CodeSidebar({
   onProjectListKeyDown,
   onToggleProject,
   onToggleProjectSessions,
+  onMountProject,
   onOpenProjectContextMenu,
   onOpenProjectKeyboardMenu,
   onOpenAgent,
@@ -342,6 +361,8 @@ export function CodeSidebar({
     project.agents.some(agent => !agent.pinned || !agent.isMain)
     || project.agentSessions.some(session => !session.pinned)
     || (project.hiddenAgentSessionCount ?? 0) > 0
+    || project.hasOpenFile
+    || Boolean(project.workspace)
   ))
   const sidebarRailItems = displayedProjects.flatMap<SidebarRailItem>(project => [
     ...project.agents
@@ -583,6 +604,7 @@ export function CodeSidebar({
             fileSearchFocusRequest={fileSearchFocusRequest}
             onToggleProject={onToggleProject}
             onToggleProjectSessions={onToggleProjectSessions}
+            onMountProject={onMountProject}
             onNewAgent={onNewAgent}
             onStartAgent={onStartAgent}
             onOpenProjectContextMenu={onOpenProjectContextMenu}
@@ -1455,6 +1477,152 @@ function PinnedSection({
   )
 }
 
+interface ProjectWorktreePopoverProps {
+  agentId: string
+  anchorRef: RefObject<HTMLButtonElement | null>
+  copy: CodeCopy
+  fallback: WorkspaceGitWorktrees
+  point: { x: number; y: number }
+  onClose: () => void
+  onMountProject: (workspace: string) => void
+}
+
+function worktreeDisplayName(item: WorkspaceGitWorktree, copy: CodeCopy) {
+  if (item.branch) return item.branch
+  if (item.detached) return `${copy.worktreeDetached}@${item.head.slice(0, 7)}`
+  return item.bare ? 'bare' : item.head.slice(0, 7)
+}
+
+export function ProjectWorktreePopover({
+  agentId,
+  anchorRef,
+  copy,
+  fallback,
+  point,
+  onClose,
+  onMountProject,
+}: ProjectWorktreePopoverProps) {
+  const popoverRef = useRef<HTMLDivElement | null>(null)
+  const requestControllerRef = useRef<AbortController | null>(null)
+  const [worktrees, setWorktrees] = useState(fallback)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const loadWorktrees = useCallback(() => {
+    requestControllerRef.current?.abort()
+    const controller = new AbortController()
+    requestControllerRef.current = controller
+    setLoading(true)
+    setError('')
+    void fetchWorkspaceGitWorktrees(agentId, { signal: controller.signal })
+      .then(result => {
+        if (!controller.signal.aborted) setWorktrees(result)
+      })
+      .catch(loadError => {
+        if (controller.signal.aborted || loadError?.name === 'AbortError') return
+        setError(copy.worktreeLoadFailed)
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+  }, [agentId, copy.worktreeLoadFailed])
+
+  useEffect(() => {
+    loadWorktrees()
+    return () => requestControllerRef.current?.abort()
+  }, [loadWorktrees])
+
+  useEffect(() => {
+    const closeOnPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      if (target && (popoverRef.current?.contains(target) || anchorRef.current?.contains(target))) return
+      onClose()
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      onClose()
+      anchorRef.current?.focus()
+    }
+    window.addEventListener('pointerdown', closeOnPointerDown, true)
+    window.addEventListener('keydown', closeOnEscape, true)
+    return () => {
+      window.removeEventListener('pointerdown', closeOnPointerDown, true)
+      window.removeEventListener('keydown', closeOnEscape, true)
+    }
+  }, [anchorRef, onClose])
+
+  return (
+    <div
+      ref={popoverRef}
+      className="code-worktree-popover"
+      data-testid="code-project-worktree-menu"
+      role="dialog"
+      aria-label={copy.worktrees}
+      style={{ left: point.x, top: point.y }}
+    >
+      <div className="code-worktree-popover-header">
+        <span>{copy.worktrees}</span>
+        <span className="code-worktree-popover-count">{worktrees.items.length}</span>
+        <button
+          type="button"
+          className={loading ? 'loading' : ''}
+          disabled={loading}
+          onClick={loadWorktrees}
+        >
+          {copy.refresh}
+        </button>
+      </div>
+      {error && <div className="code-worktree-popover-status error">{error}</div>}
+      {!error && !worktrees.isGitRepo && (
+        <div className="code-worktree-popover-status">{copy.gitHistoryNotRepository}</div>
+      )}
+      <div className="code-worktree-list">
+        {worktrees.items.map(item => (
+          <button
+            type="button"
+            key={item.workspace}
+            className={`code-worktree-row ${item.current ? 'current' : ''}`}
+            data-current={item.current ? 'true' : undefined}
+            data-main={item.main ? 'true' : undefined}
+            title={item.workspace}
+            onClick={() => {
+              onMountProject(item.workspace)
+              onClose()
+            }}
+          >
+            <span className="code-worktree-row-marker" aria-hidden="true" />
+            <span className="code-worktree-row-content">
+              <span className="code-worktree-row-heading">
+                <strong>{worktreeDisplayName(item, copy)}</strong>
+                <span className="code-worktree-row-badges">
+                  {item.current && <span>{copy.worktreeCurrent}</span>}
+                  {item.main && <span>{copy.worktreeMain}</span>}
+                  {item.locked && <span title={item.lockReason}>{copy.worktreeLocked}</span>}
+                  {item.prunable && <span title={item.pruneReason}>{copy.worktreePrunable}</span>}
+                </span>
+                {item.head && <code>{item.head.slice(0, 7)}</code>}
+              </span>
+              <span className="code-worktree-row-path">{item.workspace}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function agentWorktreeList(worktree: Agent['gitWorktree']): WorkspaceGitWorktrees | null {
+  if (!worktree?.workspace) return null
+  return {
+    isGitRepo: true,
+    commonDir: worktree.commonDir,
+    currentWorkspace: worktree.workspace,
+    mainWorkspace: worktree.mainWorkspace,
+    items: Array.isArray(worktree.worktrees) ? worktree.worktrees : [],
+  }
+}
+
 interface ProjectSectionProps {
   project: ProjectGroup
   collapsed: boolean
@@ -1473,6 +1641,7 @@ interface ProjectSectionProps {
   fileSearchFocusRequest: { agentId: string; requestId: number; query?: string } | null
   onToggleProject: (projectId: string) => void
   onToggleProjectSessions: (projectId: string) => void
+  onMountProject: (workspace: string) => void
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
   onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string }) => void
   onOpenProjectContextMenu: (event: ReactMouseEvent<HTMLElement>, projectId: string) => void
@@ -1513,6 +1682,7 @@ function ProjectSection({
   fileSearchFocusRequest,
   onToggleProject,
   onToggleProjectSessions,
+  onMountProject,
   onNewAgent,
   onStartAgent,
   onOpenProjectContextMenu,
@@ -1539,7 +1709,12 @@ function ProjectSection({
   const agentsSectionRef = useRef<HTMLDivElement | null>(null)
   const launchButtonRef = useRef<HTMLButtonElement | null>(null)
   const launchMenuRef = useRef<HTMLDivElement | null>(null)
+  const worktreeButtonRef = useRef<HTMLButtonElement | null>(null)
   const [launchMenu, setLaunchMenu] = useState<{ x: number; y: number } | null>(null)
+  const [worktreeMenu, setWorktreeMenu] = useState<{ x: number; y: number } | null>(null)
+  const [repositoryWorktrees, setRepositoryWorktrees] = useState<WorkspaceGitWorktrees | null>(() => (
+    agentWorktreeList(project.gitWorktree)
+  ))
   const [projectAgentsExpanded, setProjectAgentsExpanded] = useState(false)
   const [projectFilesExpanded, setProjectFilesExpanded] = useState(false)
   const [agentDrag, setAgentDrag] = useState<{
@@ -1553,9 +1728,14 @@ function ProjectSection({
   const nextProjectFileAgentId = stableProjectFileAgentId(projectFileAgentId, project.agents)
   const projectFileAgent = project.agents.find(agent => (
     !agent.isMain && agent.id === nextProjectFileAgentId
-  )) ?? null
-  const showProjectFiles = project.id !== MAIN_AGENT_PROJECT_ID && projectFileAgent !== null
-  const projectFileAgentIds = new Set(project.agents.filter(agent => !agent.isMain).map(agent => agent.id))
+  )) ?? project.fileAgent ?? null
+  const effectiveProjectFileAgentId = projectFileAgent?.id || project.fileAgentId || ''
+  const showProjectFiles = project.id !== MAIN_AGENT_PROJECT_ID && Boolean(effectiveProjectFileAgentId)
+  const projectFileAgentIds = new Set([
+    ...project.agents.filter(agent => !agent.isMain).map(agent => agent.id),
+    ...(project.fileAgent && !project.fileAgent.isMain ? [project.fileAgent.id] : []),
+    ...(project.fileAgentId ? [project.fileAgentId] : []),
+  ])
   const openFileBelongsToProject = useCallback((file: OpenWorkspaceFile) => (
     projectFileAgentIds.has(file.agentId) || file.workspaceRoot === project.id
   ), [project.id, projectFileAgentIds])
@@ -1587,6 +1767,20 @@ function ProjectSection({
       setProjectFileAgentId(nextProjectFileAgentId)
     }
   }, [nextProjectFileAgentId, projectFileAgentId])
+
+  useEffect(() => {
+    const agentWorktrees = agentWorktreeList(project.gitWorktree)
+    if (agentWorktrees) setRepositoryWorktrees(agentWorktrees)
+  }, [project.gitWorktree])
+
+  useEffect(() => {
+    if (!effectiveProjectFileAgentId) return
+    const controller = new AbortController()
+    void fetchWorkspaceGitWorktrees(effectiveProjectFileAgentId, { signal: controller.signal })
+      .then(setRepositoryWorktrees)
+      .catch(() => {})
+    return () => controller.abort()
+  }, [effectiveProjectFileAgentId])
 
   const handleFilesCollapsedChange = useCallback((filesCollapsed: boolean) => {
     setProjectFilesExpanded(!filesCollapsed)
@@ -1734,25 +1928,63 @@ function ProjectSection({
     setLaunchMenu(null)
     onStartAgent(command, project.workspace)
   }
+  const currentWorktree = repositoryWorktrees?.items.find(item => item.current)
+  const hasRepositoryWorktrees = Boolean(repositoryWorktrees?.isGitRepo && currentWorktree)
+  const currentWorktreeName = hasRepositoryWorktrees && currentWorktree
+    ? currentWorktree.branch || `detached@${currentWorktree.head.slice(0, 7)}`
+    : ''
+  const repositoryWorktreeCount = repositoryWorktrees?.items.length || 0
+  const openWorktreeMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    const menuWidth = Math.min(440, Math.max(320, window.innerWidth - 24))
+    const menuHeight = Math.min(420, Math.max(132, (repositoryWorktrees?.items.length || 2) * 58 + 54))
+    const point = isMobileTouchViewport()
+      ? mobileActionMenuPoint(rect, menuHeight, undefined, menuWidth)
+      : outwardContextMenuPoint(rect, menuHeight, undefined, menuWidth)
+    setWorktreeMenu(point)
+  }
 
   return (
     <section ref={projectGroupRef} className="code-project-group" data-testid="code-project-group">
       <div ref={projectRowRef} className="code-project-row">
-        <button
-          type="button"
-          className="code-project-title"
-          data-testid="code-project-title"
-          data-project-id={project.id}
-          aria-expanded={!collapsed}
-          onClick={() => onToggleProject(project.id)}
-          onContextMenu={event => onOpenProjectContextMenu(event, project.id)}
-          onKeyDown={event => onOpenProjectKeyboardMenu(event, project.id)}
-        >
-          <span className={`code-folder-icon ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
-            {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
-          </span>
-          <span>{project.name}</span>
-        </button>
+        <span className="code-project-title-content">
+          <button
+            type="button"
+            className="code-project-title"
+            data-testid="code-project-title"
+            data-project-id={project.id}
+            aria-expanded={!collapsed}
+            onClick={() => onToggleProject(project.id)}
+            onContextMenu={event => onOpenProjectContextMenu(event, project.id)}
+            onKeyDown={event => onOpenProjectKeyboardMenu(event, project.id)}
+          >
+            <span className={`code-folder-icon ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
+              {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
+            </span>
+            <span className="code-project-title-name">{project.name}</span>
+          </button>
+          {currentWorktreeName && repositoryWorktrees && (
+            <button
+              ref={worktreeButtonRef}
+              type="button"
+              className="code-project-worktree"
+              data-testid="code-project-worktree"
+              title={`${currentWorktreeName} · ${repositoryWorktreeCount} ${copy.worktrees.toLocaleLowerCase()} · ${copy.showWorktrees}`}
+              aria-label={`${currentWorktreeName} · ${repositoryWorktreeCount} ${copy.worktrees}`}
+              aria-haspopup="dialog"
+              aria-expanded={worktreeMenu ? true : undefined}
+              onClick={openWorktreeMenu}
+            >
+              <span className="code-project-worktree-icon" aria-hidden="true"><BranchGlyph /></span>
+              <span className="code-project-worktree-name">{currentWorktreeName}</span>
+              {repositoryWorktreeCount > 1 && (
+                <span className="code-project-worktree-count" aria-hidden="true">{repositoryWorktreeCount}</span>
+              )}
+            </button>
+          )}
+        </span>
         <span className="code-project-title-actions" aria-hidden={false}>
           <button
             type="button"
@@ -1799,6 +2031,18 @@ function ProjectSection({
               </button>
             ))}
           </div>,
+          document.body
+        )}
+        {worktreeMenu && repositoryWorktrees && typeof document !== 'undefined' && createPortal(
+          <ProjectWorktreePopover
+            agentId={effectiveProjectFileAgentId}
+            anchorRef={worktreeButtonRef}
+            copy={copy}
+            fallback={repositoryWorktrees}
+            point={worktreeMenu}
+            onClose={() => setWorktreeMenu(null)}
+            onMountProject={onMountProject}
+          />,
           document.body
         )}
       </div>
@@ -1922,12 +2166,12 @@ function ProjectSection({
               </div>
             </div>
           )}
-          {showProjectFiles && projectFileAgent && (
+          {showProjectFiles && (
             <Suspense fallback={null}>
               <ProjectFilesSection
                 projectId={project.id}
                 projectWorkspace={project.workspace}
-                agentId={projectFileAgent.id}
+                agentId={effectiveProjectFileAgentId}
                 agentLaunchOptions={agentLaunchOptions}
                 activeFilePath={activeProjectFile?.file.path}
                 openFiles={projectOpenWorkspaceFiles

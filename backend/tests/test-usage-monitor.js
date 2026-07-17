@@ -344,6 +344,13 @@ async function run() {
   assert.strictEqual(selectedDay.hours.length, 24);
   assert.strictEqual(selectedDay.total.totalTokens, summary.daily.summary.todayTokens);
   assert.strictEqual(selectedDay.providers.opencode.totalTokens, 300);
+  const liveDay = await monitor.getUsageDay(summary.daily.endDate, { now, live: true });
+  const cachedLiveDay = await monitor.getUsageDay(summary.daily.endDate, { now: now + 1_000, live: true });
+  assert.strictEqual(cachedLiveDay, liveDay, 'current-day reads should reuse the five-second live cache');
+  const refreshedLiveDay = await monitor.getUsageDay(summary.daily.endDate, { now: now + 5_000, live: true });
+  assert.notStrictEqual(refreshedLiveDay, liveDay, 'current-day reads should refresh after the live cache expires');
+  const historicalDay = await monitor.getUsageDay(summary.daily.endDate, { now: now + 5_000, live: false });
+  assert.notStrictEqual(historicalDay, refreshedLiveDay, 'non-live reads should stay on the heavy daily-history cache');
   const cachedSummary = await monitor.getUsageSummary({ now: now + 1_000 });
   assert.strictEqual(cachedSummary.daily, summary.daily, 'daily history should reuse its short heavy-scan cache');
   const refreshedSummary = await monitor.getUsageSummary({ now: now + 2_000, fresh: true });

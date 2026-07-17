@@ -73,6 +73,7 @@ export default defineConfig({
       PORT: String(port),
       FARMING_BASE_PATH: '/farming',
       FARMING_DISABLE_AUTH: '1',
+      FARMING_NATIVE_PTY_HOST_PERSIST: '0',
       FARMING_E2E_FAKE_EXECUTABLES: '1',
       FARMING_E2E_FAKE_ACP_AGENT: '1',
       VITE_FARMING_BLAME_AUTHOR_URL_TEMPLATE: 'https://example.invalid/users/{author}',

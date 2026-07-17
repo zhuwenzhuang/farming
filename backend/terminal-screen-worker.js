@@ -6,6 +6,7 @@ const { Worker } = require('worker_threads');
 const APPEND_FLUSH_INTERVAL_MS = 16;
 const MAX_PENDING_APPEND_BYTES = 128 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
+const DEFAULT_STATE_REQUEST_HARD_TIMEOUT_MS = 5000;
 const PACKAGED_WORKER_FILE = 'terminal-screen-worker-thread.pkg.js';
 const SOURCE_WORKER_FILE = 'terminal-screen-worker-thread.js';
 
@@ -28,11 +29,17 @@ class TerminalScreenWorker extends EventEmitter {
     super();
     this.nextRequestId = 1;
     this.pendingRequests = new Map();
-    this.pendingAppendData = '';
+    this.pendingAppendEntries = [];
+    this.pendingAppendBytes = 0;
+    this.pendingAppendWaiters = [];
     this.appendFlushTimer = null;
+    this.stateRequestInFlight = null;
     this.requestTimeoutMs = Number.isFinite(options.requestTimeoutMs)
       ? Math.max(1, Math.floor(options.requestTimeoutMs))
       : DEFAULT_REQUEST_TIMEOUT_MS;
+    this.stateRequestHardTimeoutMs = Number.isFinite(options.stateRequestHardTimeoutMs)
+      ? Math.max(1, Math.floor(options.stateRequestHardTimeoutMs))
+      : Math.min(this.requestTimeoutMs, DEFAULT_STATE_REQUEST_HARD_TIMEOUT_MS);
     this.failed = false;
     this.disposed = false;
     const workerFile = resolveWorkerFile();
@@ -40,6 +47,7 @@ class TerminalScreenWorker extends EventEmitter {
     const workerData = { ...options };
     delete workerData.WorkerClass;
     delete workerData.requestTimeoutMs;
+    delete workerData.stateRequestHardTimeoutMs;
     this.worker = new WorkerClass(path.join(__dirname, workerFile), {
       workerData,
     });
@@ -79,7 +87,7 @@ class TerminalScreenWorker extends EventEmitter {
     });
 
     this.worker.on('error', (error) => {
-      this.emit('error', error);
+      this.handleWorkerFailure(error);
     });
 
     this.worker.on('exit', (code) => {
@@ -87,26 +95,34 @@ class TerminalScreenWorker extends EventEmitter {
         return;
       }
 
-      const error = new Error(`Terminal screen worker exited unexpectedly with code ${code}`);
-      this.failed = true;
-      this.pendingRequests.forEach(({ reject, timer }) => {
-        clearTimeout(timer);
-        reject(error);
-      });
-      this.pendingRequests.clear();
-      this.emit('error', error);
+      this.handleWorkerFailure(new Error(`Terminal screen worker exited unexpectedly with code ${code}`));
     });
   }
 
-  handlePostMessageFailure(error) {
+  handleWorkerFailure(error) {
     if (this.disposed) return;
+    const failure = error instanceof Error ? error : new Error(String(error));
+    const shouldEmit = !this.failed;
     this.failed = true;
     if (this.appendFlushTimer) {
       clearTimeout(this.appendFlushTimer);
       this.appendFlushTimer = null;
     }
-    this.pendingAppendData = '';
-    this.emit('error', error instanceof Error ? error : new Error(String(error)));
+    this.pendingAppendEntries = [];
+    this.pendingAppendBytes = 0;
+    this.pendingAppendWaiters.splice(0).forEach(({ reject }) => reject(failure));
+    this.pendingRequests.forEach(({ reject, timer }) => {
+      clearTimeout(timer);
+      reject(failure);
+    });
+    this.pendingRequests.clear();
+    if (shouldEmit) {
+      this.emit('error', failure);
+    }
+  }
+
+  handlePostMessageFailure(error) {
+    this.handleWorkerFailure(error);
   }
 
   postWorkerMessage(message, options = {}) {
@@ -125,20 +141,24 @@ class TerminalScreenWorker extends EventEmitter {
       clearTimeout(this.appendFlushTimer);
       this.appendFlushTimer = null;
     }
-    if (this.disposed || this.failed || !this.pendingAppendData) {
-      this.pendingAppendData = '';
+    if (this.disposed || this.failed || this.pendingAppendEntries.length === 0) {
+      this.pendingAppendEntries = [];
+      this.pendingAppendBytes = 0;
       return;
     }
 
-    const data = this.pendingAppendData;
-    this.pendingAppendData = '';
-    this.postWorkerMessage({
-      type: 'append',
-      data,
-    });
+    const entries = this.pendingAppendEntries;
+    const waiters = this.pendingAppendWaiters;
+    this.pendingAppendEntries = [];
+    this.pendingAppendBytes = 0;
+    this.pendingAppendWaiters = [];
+    this.request('append', { entries }, { flushAppend: false }).then(
+      state => waiters.forEach(({ resolve }) => resolve(state)),
+      error => waiters.forEach(({ reject }) => reject(error)),
+    );
   }
 
-  request(type, payload = {}) {
+  request(type, payload = {}, options = {}) {
     if (this.disposed) {
       return Promise.reject(new Error('Terminal screen worker is disposed'));
     }
@@ -146,7 +166,9 @@ class TerminalScreenWorker extends EventEmitter {
       return Promise.reject(new Error('Terminal screen worker is not available'));
     }
 
-    this.flushAppend();
+    if (options.flushAppend !== false) {
+      this.flushAppend();
+    }
     if (this.failed) {
       return Promise.reject(new Error('Terminal screen worker is not available'));
     }
@@ -154,12 +176,15 @@ class TerminalScreenWorker extends EventEmitter {
     this.nextRequestId += 1;
 
     return new Promise((resolve, reject) => {
+      const requestTimeoutMs = Number.isFinite(options.timeoutMs)
+        ? Math.max(1, Math.floor(options.timeoutMs))
+        : this.requestTimeoutMs;
       const timer = setTimeout(() => {
         this.pendingRequests.delete(requestId);
         const error = new Error(`Terminal screen worker request timed out: ${type}`);
         error.code = 'ETIMEDOUT';
         reject(error);
-      }, this.requestTimeoutMs);
+      }, requestTimeoutMs);
       if (typeof timer.unref === 'function') timer.unref();
 
       this.pendingRequests.set(requestId, { resolve, reject, timer });
@@ -172,56 +197,108 @@ class TerminalScreenWorker extends EventEmitter {
       } catch (error) {
         this.pendingRequests.delete(requestId);
         clearTimeout(timer);
-        this.failed = true;
+        this.handlePostMessageFailure(error);
         reject(error);
       }
     });
   }
 
-  append(data) {
+  append(data, stateRevision, outputSeq = null) {
     if (this.disposed || this.failed) {
-      return;
+      return Promise.reject(new Error('Terminal screen worker is not available'));
     }
 
     const text = String(data || '');
     if (!text) return;
+    if (!Number.isFinite(stateRevision)) {
+      this.handlePostMessageFailure(new Error('Terminal screen append requires a finite state revision'));
+      return Promise.reject(new Error('Terminal screen append requires a finite state revision'));
+    }
 
     if (
-      this.pendingAppendData &&
-      byteLength(this.pendingAppendData) + byteLength(text) > MAX_PENDING_APPEND_BYTES
+      this.pendingAppendEntries.length > 0 &&
+      this.pendingAppendBytes + byteLength(text) > MAX_PENDING_APPEND_BYTES
     ) {
       this.flushAppend();
     }
 
-    if (byteLength(text) > MAX_PENDING_APPEND_BYTES) {
-      this.postWorkerMessage({
-        type: 'append',
-        data: text,
-      });
-      return;
-    }
-
-    this.pendingAppendData += text;
-    if (this.appendFlushTimer) {
-      return;
-    }
-
-    this.appendFlushTimer = setTimeout(() => {
-      this.flushAppend();
-    }, APPEND_FLUSH_INTERVAL_MS);
+    return new Promise((resolve, reject) => {
+      this.pendingAppendEntries.push({ data: text, stateRevision, outputSeq });
+      this.pendingAppendBytes += byteLength(text);
+      this.pendingAppendWaiters.push({ resolve, reject });
+      if (byteLength(text) > MAX_PENDING_APPEND_BYTES) {
+        this.flushAppend();
+        return;
+      }
+      if (this.appendFlushTimer) return;
+      this.appendFlushTimer = setTimeout(() => {
+        this.flushAppend();
+      }, APPEND_FLUSH_INTERVAL_MS);
+    });
   }
 
-  resize(cols, rows) {
-    return this.request('resize', { cols, rows });
+  resize(cols, rows, stateRevision) {
+    return this.request('resize', { cols, rows, stateRevision });
   }
 
-  clear() {
-    return this.request('clear');
+  setRuntimeEpoch(runtimeEpoch, cols, rows) {
+    return this.request('set-runtime-epoch', { runtimeEpoch, cols, rows });
+  }
+
+  clear(stateRevision, outputSeq = null) {
+    return this.request('clear', { stateRevision, outputSeq });
   }
 
   getState(options = {}) {
-    return this.request('get-state', {
-      includeRenderOutput: options.includeRenderOutput !== false,
+    if (!this.stateRequestInFlight) {
+      const request = this.request('get-state', {
+        // A full checkpoint can satisfy callers that only need metadata too,
+        // while the reverse would make coalescing unsafe.
+        includeRenderOutput: true,
+      }, {
+        // Caller deadlines are deliberately softer than this shared deadline.
+        // A timed-out caller may stop waiting, but the single-flight itself
+        // must never poison every later checkpoint for the generic 30s worker
+        // request timeout. Crossing this hard deadline means the authoritative
+        // reducer can no longer prove progress, so fail it closed.
+        timeoutMs: this.stateRequestHardTimeoutMs,
+      });
+      const sharedRequest = request.catch((error) => {
+        if (error && error.code === 'ETIMEDOUT') {
+          this.handleWorkerFailure(error);
+        }
+        throw error;
+      }).finally(() => {
+        if (this.stateRequestInFlight === sharedRequest) {
+          this.stateRequestInFlight = null;
+        }
+      });
+      this.stateRequestInFlight = sharedRequest;
+    }
+
+    const sharedRequest = this.stateRequestInFlight;
+    const timeoutMs = Number.isFinite(options.timeoutMs)
+      ? Math.max(1, Math.floor(options.timeoutMs))
+      : null;
+    if (timeoutMs === null) return sharedRequest;
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const error = new Error('Terminal screen worker request timed out: get-state');
+        error.code = 'ETIMEDOUT';
+        reject(error);
+      }, timeoutMs);
+      if (typeof timer.unref === 'function') timer.unref();
+      sharedRequest.then(
+        (state) => {
+          clearTimeout(timer);
+          resolve(state);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
     });
   }
 
@@ -239,7 +316,11 @@ class TerminalScreenWorker extends EventEmitter {
       clearTimeout(this.appendFlushTimer);
       this.appendFlushTimer = null;
     }
-    this.pendingAppendData = '';
+    this.pendingAppendEntries = [];
+    this.pendingAppendBytes = 0;
+    this.pendingAppendWaiters.splice(0).forEach(({ reject }) => {
+      reject(new Error('Terminal screen worker is disposed'));
+    });
     this.disposed = true;
     this.pendingRequests.forEach(({ reject, timer }) => {
       clearTimeout(timer);
@@ -253,3 +334,4 @@ class TerminalScreenWorker extends EventEmitter {
 module.exports = TerminalScreenWorker;
 module.exports.resolveWorkerFile = resolveWorkerFile;
 module.exports.DEFAULT_REQUEST_TIMEOUT_MS = DEFAULT_REQUEST_TIMEOUT_MS;
+module.exports.DEFAULT_STATE_REQUEST_HARD_TIMEOUT_MS = DEFAULT_STATE_REQUEST_HARD_TIMEOUT_MS;

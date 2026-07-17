@@ -126,9 +126,6 @@ function run() {
   assert.strictEqual(terminalContainer.onmouseup, null);
   assert.strictEqual(terminalContainer.ontouchstart, null);
 
-  let refreshCalls = 0;
-  let lastRefreshArgs = null;
-  let clearedPoller = null;
   const runtime = sessionModalBridge.createRuntime({
     deriveSessionStreamPatch(stream, focusedAgentId, sessionSource) {
       if (stream.agentId !== focusedAgentId || sessionSource !== 'live-text') {
@@ -138,17 +135,6 @@ function run() {
         text: stream.data,
         nextLengthDelta: stream.data.length
       };
-    },
-    refreshSessionView(forceReplace, agentId, sessionToken) {
-      refreshCalls += 1;
-      lastRefreshArgs = { forceReplace, agentId, sessionToken };
-    },
-    schedulePoll(handler) {
-      handler();
-      return { id: 'poller-1' };
-    },
-    clearPoll(poller) {
-      clearedPoller = poller;
     },
     onPollerChange() {}
   });
@@ -223,15 +209,11 @@ function run() {
   assert.strictEqual(modal.classList.contains('active'), true);
   assert.strictEqual(bodyClassList.contains('session-open'), true);
 
-  runtime.startPolling({ agentId: 'agent-1', sessionToken: runtime.getSessionToken() });
-  assert.strictEqual(refreshCalls, 1);
-  assert.deepStrictEqual(lastRefreshArgs, {
-    forceReplace: false,
-    agentId: 'agent-1',
-    sessionToken: runtime.getSessionToken()
-  });
+  assert.strictEqual(
+    runtime.startPolling({ agentId: 'agent-1', sessionToken: runtime.getSessionToken() }),
+    null
+  );
   runtime.stopPolling();
-  assert.deepStrictEqual(clearedPoller, { id: 'poller-1' });
 
   runtime.deactivate();
   assert.strictEqual(runtime.getFocusedAgentId(), null);

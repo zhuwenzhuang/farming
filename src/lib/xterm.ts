@@ -204,6 +204,7 @@ function xtermSearchDecorations() {
 function decorateXtermTerminal(terminal: Terminal, searchAddon: SearchAddon): XtermBackedTerminal {
   const adapted = terminal as unknown as XtermBackedTerminal
   const nativeScrollToLine = terminal.scrollToLine.bind(terminal)
+  const nativeScrollToBottom = terminal.scrollToBottom.bind(terminal)
   let lastSearchResult: ISearchResultChangeEvent | null = null
   let lastSearchOptionsKey = ''
 
@@ -298,7 +299,7 @@ function decorateXtermTerminal(terminal: Terminal, searchAddon: SearchAddon): Xt
   }
   adapted.scrollToBottom = () => {
     const topLine = Math.max(0, terminal.buffer.active.baseY)
-    nativeScrollToLine(topLine)
+    nativeScrollToBottom()
     syncXtermViewportTopLine(terminal, topLine)
   }
   adapted.wasmTerm = {

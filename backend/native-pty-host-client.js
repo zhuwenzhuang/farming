@@ -1,24 +1,38 @@
 const EventEmitter = require('events');
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const net = require('net');
 const path = require('path');
 const { nativePtyHostSocketPath } = require('./native-pty-host-path');
+const {
+  nativePtyHostRuntimeIdentity,
+  nativePtyHostRuntimeIdentityMatches,
+  normalizeNativePtyHostRuntimeIdentity,
+} = require('./native-pty-host-identity');
+const {
+  allocateNativePtyControllerGeneration,
+  positiveGeneration,
+} = require('./native-pty-controller-generation');
 const storageLayout = require('./storage-layout');
 
 const DEFAULT_CONNECT_RETRIES = 300;
 const DEFAULT_CONNECT_RETRY_MS = 50;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
+const DEFAULT_HOST_ROTATION_TIMEOUT_MS = 10000;
 const PACKAGED_NATIVE_PTY_HOST_ENV = 'FARMING_RUN_NATIVE_PTY_HOST';
 const RECONNECT_RETRYABLE_METHODS = new Set([
   'ping',
   'createSession',
+  'claimSessionGeometry',
+  'renewSessionGeometry',
   'resizeSession',
-  'clearBuffer',
   'killSession',
+  'getSessionAttachCheckpoint',
   'getSessionState',
   'getSessionPreview',
   'recoverSessions',
+  'serializeTerminalState',
   'updateSessionMetadata',
 ]);
 const PACKAGED_NATIVE_HOST_ENV_KEYS = new Set([
@@ -111,6 +125,13 @@ function hostConnectErrorMessage(error, spawned, logPath) {
   return `Native PTY host is not reachable${code}.${logHint}`;
 }
 
+function runtimeIdentityLabel(value) {
+  const identity = normalizeNativePtyHostRuntimeIdentity(value);
+  if (!identity) return 'legacy/unknown';
+  const version = identity.version ? `v${identity.version} ` : '';
+  return `${version}protocol ${identity.protocolVersion} build ${identity.buildId.slice(0, 12)}`;
+}
+
 function nativeHostSpawnCommand(hostScript, env) {
   const nodeBin = env.FARMING_NODE_BIN || process.execPath;
   const ldPath = env.FARMING_NODE_LD || '';
@@ -148,6 +169,20 @@ class NativePtyHostClient extends EventEmitter {
     this.connectRetryMs = options.connectRetryMs || DEFAULT_CONNECT_RETRY_MS;
     this.requestTimeoutMs = options.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS;
     this.hostLogPath = options.hostLogPath || this.defaultHostLogPath();
+    this.expectedRuntimeIdentity = options.expectedRuntimeIdentity || nativePtyHostRuntimeIdentity();
+    this.controllerIdentity = options.controllerIdentity
+      ? {
+        id: String(options.controllerIdentity.id || ''),
+        generation: positiveGeneration(options.controllerIdentity.generation),
+      }
+      : {
+        id: crypto.randomUUID(),
+        generation: 0,
+      };
+    this.controllerIdentityReady = null;
+    this.hostRotationTimeoutMs = options.hostRotationTimeoutMs || DEFAULT_HOST_ROTATION_TIMEOUT_MS;
+    this.connectedHostInfo = null;
+    this.runtimeRotationInfo = null;
     this.socket = null;
     this.buffer = '';
     this.nextRequestId = 1;
@@ -281,8 +316,11 @@ class NativePtyHostClient extends EventEmitter {
   }
 
   async connectWithRetries(options = {}) {
+    await this.ensureControllerIdentity();
     const allowHostStart = options.startHost !== false;
     let spawned = false;
+    let rotatedMismatchedHost = false;
+    let pendingRotationInfo = null;
     let lastError = null;
 
     for (let attempt = 0; attempt < this.connectRetries; attempt += 1) {
@@ -291,14 +329,51 @@ class NativePtyHostClient extends EventEmitter {
       }
       try {
         await this.connectOnce();
-        await this.request('ping', {}, { ensureConnected: false, timeoutMs: 3000 });
+        const hostInfo = await this.request('ping', {}, { ensureConnected: false, timeoutMs: 3000 });
+        if (!nativePtyHostRuntimeIdentityMatches(this.expectedRuntimeIdentity, hostInfo?.runtimeIdentity)) {
+          if (rotatedMismatchedHost) {
+            const error = new Error(
+              `Native PTY host runtime still mismatches after rotation: expected ` +
+              `${runtimeIdentityLabel(this.expectedRuntimeIdentity)}, got ${runtimeIdentityLabel(hostInfo?.runtimeIdentity)}`
+            );
+            error.code = 'FARMING_NATIVE_HOST_RUNTIME_MISMATCH';
+            throw error;
+          }
+          const serializedTerminalState = await this.rotateMismatchedHost(hostInfo);
+          pendingRotationInfo = {
+            rotatedAt: Date.now(),
+            previous: normalizeNativePtyHostRuntimeIdentity(hostInfo?.runtimeIdentity),
+            current: normalizeNativePtyHostRuntimeIdentity(this.expectedRuntimeIdentity),
+            previousPid: Number(hostInfo?.pid) || null,
+            serializedTerminalState: typeof serializedTerminalState === 'string'
+              ? serializedTerminalState
+              : '',
+          };
+          rotatedMismatchedHost = true;
+          spawned = true;
+          continue;
+        }
+        await this.requestOnce('registerController', {
+          identity: this.controllerIdentity,
+        }, {
+          ensureConnected: false,
+          retryOnDisconnect: false,
+          timeoutMs: 3000,
+        });
+        this.connectedHostInfo = hostInfo || null;
+        if (pendingRotationInfo) {
+          this.runtimeRotationInfo = pendingRotationInfo;
+        }
         return;
       } catch (error) {
         lastError = error;
+        if (error && error.code === 'FARMING_NATIVE_HOST_RUNTIME_MISMATCH') {
+          throw error;
+        }
         if (this.hostStartError) {
           lastError = this.hostStartError;
         }
-        if (!allowHostStart && isConnectRetryable(error)) {
+        if (!allowHostStart && !rotatedMismatchedHost && isConnectRetryable(error)) {
           throw error;
         }
         if (allowHostStart && !spawned && isConnectRetryable(error)) {
@@ -330,6 +405,192 @@ class NativePtyHostClient extends EventEmitter {
     throw lastError || new Error('Failed to connect to native pty host');
   }
 
+  async ensureControllerIdentity() {
+    if (this.controllerIdentity.generation > 0) {
+      return this.controllerIdentity;
+    }
+    if (!this.controllerIdentityReady) {
+      const configRoot = this.configDir || path.dirname(this.socketPath);
+      this.controllerIdentityReady = allocateNativePtyControllerGeneration(configRoot)
+        .then((generation) => {
+          this.controllerIdentity.generation = generation;
+          return this.controllerIdentity;
+        })
+        .catch((error) => {
+          this.controllerIdentityReady = null;
+          throw error;
+        });
+    }
+    return this.controllerIdentityReady;
+  }
+
+  async waitForHostRelease() {
+    const deadline = Date.now() + this.hostRotationTimeoutMs;
+    if (process.platform === 'win32') {
+      await delay(Math.min(250, this.hostRotationTimeoutMs));
+      return;
+    }
+    while (Date.now() < deadline) {
+      const childReleased = !this.hostChild ||
+        this.hostChild.exitCode !== null ||
+        this.hostChild.signalCode !== null;
+      if (!fs.existsSync(this.socketPath) && childReleased) return;
+      await delay(50);
+    }
+    const error = new Error('Timed out waiting for the previous native PTY host to stop');
+    error.code = 'FARMING_NATIVE_HOST_RUNTIME_MISMATCH';
+    throw error;
+  }
+
+  async resumePreparedHostRotation(preparationToken = '') {
+    if (!this.socket || this.socket.destroyed) {
+      await this.connectOnce();
+      await this.requestOnce('registerController', {
+        identity: this.controllerIdentity,
+      }, {
+        ensureConnected: false,
+        retryOnDisconnect: false,
+        timeoutMs: 1000,
+      });
+    }
+    return this.requestOnce('resumeTerminalState', {
+      preparationToken,
+    }, {
+      ensureConnected: false,
+      retryOnDisconnect: false,
+      timeoutMs: 1000,
+    });
+  }
+
+  async rotateMismatchedHost(hostInfo) {
+    const expected = runtimeIdentityLabel(this.expectedRuntimeIdentity);
+    const actual = runtimeIdentityLabel(hostInfo && hostInfo.runtimeIdentity);
+    console.warn(`Rotating native PTY host runtime: expected ${expected}, connected to ${actual}`);
+    this.emit('host-runtime-mismatch', {
+      expected: this.expectedRuntimeIdentity,
+      actual: hostInfo && hostInfo.runtimeIdentity || null,
+      pid: Number(hostInfo && hostInfo.pid) || null,
+    });
+
+    await this.requestOnce('registerController', {
+      identity: this.controllerIdentity,
+    }, {
+      ensureConnected: false,
+      retryOnDisconnect: false,
+      timeoutMs: 3000,
+    });
+
+    let serializedTerminalState = '';
+    let preparationToken = '';
+    try {
+      const preparation = await this.requestOnce('serializeTerminalState', {}, {
+        ensureConnected: false,
+        retryOnDisconnect: false,
+        timeoutMs: Math.min(5000, this.hostRotationTimeoutMs),
+      });
+      if (
+        preparation &&
+        typeof preparation === 'object' &&
+        typeof preparation.preparationToken === 'string' &&
+        preparation.preparationToken &&
+        typeof preparation.serializedTerminalState === 'string'
+      ) {
+        preparationToken = preparation.preparationToken;
+        serializedTerminalState = preparation.serializedTerminalState;
+      } else if (typeof preparation === 'string') {
+        const recovered = await this.requestOnce('recoverSessions', {}, {
+          ensureConnected: false,
+          retryOnDisconnect: false,
+          timeoutMs: Math.min(3000, this.hostRotationTimeoutMs),
+        });
+        if (Array.isArray(recovered) && recovered.length === 0) {
+          serializedTerminalState = preparation;
+        } else {
+          throw new Error('The old native PTY host cannot commit a transactional terminal checkpoint');
+        }
+      } else {
+        throw new Error('The native PTY host returned an invalid rotation checkpoint');
+      }
+    } catch (error) {
+      await this.resumePreparedHostRotation(preparationToken).catch(() => {});
+      const recovered = await this.requestOnce('recoverSessions', {}, {
+        ensureConnected: false,
+        retryOnDisconnect: false,
+        timeoutMs: Math.min(3000, this.hostRotationTimeoutMs),
+      }).catch(() => null);
+      if (Array.isArray(recovered) && recovered.length === 0) {
+        serializedTerminalState = '';
+        preparationToken = '';
+      } else {
+        const mismatchError = new Error(
+          `Cannot rotate incompatible native PTY host (${actual}) without a committed terminal checkpoint`
+        );
+        mismatchError.code = 'FARMING_NATIVE_HOST_RUNTIME_MISMATCH';
+        mismatchError.cause = error;
+        throw mismatchError;
+      }
+    }
+
+    const socket = this.socket;
+    if (socket) this.suppressedDisconnectSockets.add(socket);
+    let shutdownUncertain = false;
+    try {
+      await this.requestOnce('shutdownHost', {
+        controller: this.controllerIdentity,
+        preparationToken,
+      }, {
+        ensureConnected: false,
+        retryOnDisconnect: false,
+        timeoutMs: Math.min(5000, this.hostRotationTimeoutMs),
+      });
+    } catch (error) {
+      if (!isConnectRetryable(error)) {
+        await this.resumePreparedHostRotation(preparationToken).catch(() => {});
+        const mismatchError = new Error(
+          `Cannot rotate incompatible native PTY host (${actual}); stop the old host and restart Farming`
+        );
+        mismatchError.code = 'FARMING_NATIVE_HOST_RUNTIME_MISMATCH';
+        mismatchError.cause = error;
+        throw mismatchError;
+      }
+      shutdownUncertain = true;
+    } finally {
+      if (this.socket === socket) {
+        this.socket = null;
+        this.buffer = '';
+      }
+      if (socket && !socket.destroyed) socket.destroy();
+      this.connectedHostInfo = null;
+    }
+
+    try {
+      await this.waitForHostRelease();
+    } catch (error) {
+      if (shutdownUncertain) {
+        try {
+          await this.resumePreparedHostRotation(preparationToken);
+        } catch {
+          // The old host may have exited after the release timeout. Do not
+          // start a second host until the socket and child are actually gone.
+        }
+      }
+      const mismatchError = new Error(
+        `Cannot confirm shutdown of incompatible native PTY host (${actual}); restart Farming after the old host exits`
+      );
+      mismatchError.code = 'FARMING_NATIVE_HOST_RUNTIME_MISMATCH';
+      mismatchError.cause = error;
+      throw mismatchError;
+    }
+    this.spawnHost();
+    return serializedTerminalState;
+  }
+
+  consumeRuntimeRotation() {
+    const rotation = this.runtimeRotationInfo;
+    this.runtimeRotationInfo = null;
+    return rotation;
+  }
+
   attachSocket(socket) {
     if (this.socket && this.socket !== socket) {
       this.socket.destroy();
@@ -350,6 +611,7 @@ class NativePtyHostClient extends EventEmitter {
     }
     this.socket = null;
     this.buffer = '';
+    this.connectedHostInfo = null;
     if (this.disposed) return;
     const error = new Error('Native pty host disconnected');
     error.code = 'ECONNRESET';

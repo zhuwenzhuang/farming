@@ -84,6 +84,29 @@ test('keeps every session command reachable through a Terminal to MSG keyboard f
   await expect(chatInput).toBeFocused()
   await expect(page.getByRole('button', { name: 'Close session, Escape', exact: true })).toBeVisible()
 
+  await page.keyboard.press('ArrowDown')
+  await expect(page.locator('#crt-structured-attach')).toBeFocused()
+  await page.keyboard.press('ArrowLeft')
+  await expect(page.locator('#crt-structured-config')).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  const configItems = page.locator('#crt-structured-composer-menu .crt-structured-menu-item')
+  await expect(configItems.first()).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  const selectedConfigLabel = await configItems.nth(1).innerText()
+  await page.evaluate(() => {
+    const rerender = (window as typeof window & { renderStructuredSessionControls?: () => void })
+      .renderStructuredSessionControls
+    if (!rerender) throw new Error('CRT structured controls renderer is unavailable')
+    rerender()
+  })
+  await expect(page.locator('#crt-structured-composer-menu .crt-structured-menu-item:focus')).toContainText(selectedConfigLabel)
+  await page.keyboard.press('ArrowDown')
+  await expect(page.locator('#crt-structured-composer-menu .crt-structured-menu-item:focus')).not.toContainText(selectedConfigLabel)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#crt-structured-config')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(chatInput).toBeFocused()
+
   await page.keyboard.press('Escape')
   await expect(page.locator('#session-modal')).not.toHaveClass(/active/)
   const chatCard = page.locator(`#map-area .agent-block[data-agent-id="${chatAgentId}"]`)
@@ -350,22 +373,35 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   const peakDay = dailyPoints.reduce((peak, point) => point.totalTokens > peak.totalTokens ? point : peak, dailyPoints[0])
   const activeDays = dailyPoints.filter(point => point.totalTokens > 0).length
   const billionDays = dailyPoints.filter(point => point.totalTokens >= 1_000_000_000).length
-  const chartPoints = dailyPoints.slice(-120)
-  const xAxisLabelCount = chartPoints.filter((point, index) => {
-    const day = Number(point.date.slice(-2))
-    return index === 0 || index === chartPoints.length - 1 || day === 1 || day === 15
-  }).length
+  const calendarStartDate = new Date(`${dailyPoints[0].date}T12:00:00`)
+  const calendarLeadingDays = (calendarStartDate.getDay() + 6) % 7
+  const calendarWeekCount = Math.ceil((calendarLeadingDays + dailyPoints.length) / 7)
   const freshRequests: string[] = []
   const dayDetailRequests: string[] = []
+  let currentDayLiveRequests = 0
+  let allowCurrentDayIncrease = false
+  let historicalTransientFailures = 0
   await page.route(/\/api\/usage(?:\/day)?(?:\?|$)/, async route => {
     const requestUrl = new URL(route.request().url())
     if (requestUrl.pathname.endsWith('/api/usage/day')) {
       const date = requestUrl.searchParams.get('date') || ''
       dayDetailRequests.push(date)
       const point = dailyPoints.find(candidate => candidate.date === date) || dailyPoints.at(-1)!
+      const isCurrentDayLive = requestUrl.searchParams.get('live') === '1' && date === dailyPoints.at(-1)?.date
+      if (isCurrentDayLive) currentDayLiveRequests += 1
+      if (date === dailyPoints[300].date && historicalTransientFailures === 0) {
+        historicalTransientFailures += 1
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Transient history read failure' }),
+        })
+        return
+      }
+      const detailTotal = isCurrentDayLive && allowCurrentDayIncrease ? 16_000 : point.totalTokens
       const hourlyWeights = new Map([[3, 0.08], [8, 0.17], [10, 0.25], [14, 0.12], [18, 0.28], [22, 0.10]])
       const hours = Array.from({ length: 24 }, (_, hour) => {
-        const total = Math.round(point.totalTokens * (hourlyWeights.get(hour) || 0))
+        const total = Math.round(detailTotal * (hourlyWeights.get(hour) || 0))
         return {
           hour,
           label: String(hour).padStart(2, '0'),
@@ -386,15 +422,19 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
             date: point.date,
             timeZone: 'Asia/Shanghai',
             total: {
-              totalTokens: point.totalTokens,
-              inputTokens: point.inputTokens,
-              outputTokens: point.outputTokens,
-              cacheReadTokens: point.cacheReadTokens,
-              cacheWriteTokens: point.cacheWriteTokens,
+              totalTokens: detailTotal,
+              inputTokens: Math.round(detailTotal * 0.35),
+              outputTokens: Math.round(detailTotal * 0.15),
+              cacheReadTokens: Math.round(detailTotal * 0.45),
+              cacheWriteTokens: Math.round(detailTotal * 0.05),
               unattributedTokens: 0,
             },
             hours,
-            providers: point.providers,
+            providers: {
+              codex: { totalTokens: Math.round(detailTotal * 0.8) },
+              claude: { totalTokens: Math.round(detailTotal * 0.2) },
+              opencode: { totalTokens: 0 },
+            },
           },
         }),
       })
@@ -503,32 +543,107 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   await expect(page.locator('#billing-today-total')).toHaveText('10K')
   await expect(page.locator('#billing-active-days')).toHaveText(String(activeDays))
   await expect(page.locator('#billing-billion-days')).toHaveText(String(billionDays))
+  await expect(page.getByText('EMPTY', { exact: true })).toBeVisible()
+  const heatLegendColors = await page.locator('.billing-heat-scale i').evaluateAll(cells => (
+    cells.map(cell => getComputedStyle(cell).backgroundColor)
+  ))
+  expect(new Set(heatLegendColors).size).toBe(6)
   await expect(page.locator('#billing-day-total')).toHaveText('10,000')
   await expect(page.locator('#billing-day-total-compact')).toHaveText('10K')
+  await expect(page.locator('#billing-day-total-meter')).toHaveClass(/is-live/)
+  await expect(page.locator('#billing-day-state')).toContainText('LIVE 5S')
+  const totalLayout = await page.locator('#billing-day-total-meter').evaluate((meter) => {
+    const exact = meter.querySelector<HTMLElement>('#billing-day-total')!.getBoundingClientRect()
+    const compact = meter.querySelector<HTMLElement>('#billing-day-total-compact')!.getBoundingClientRect()
+    return {
+      exactRight: exact.right,
+      compactLeft: compact.left,
+      compactFontSize: Number.parseFloat(getComputedStyle(meter.querySelector<HTMLElement>('#billing-day-total-compact')!).fontSize),
+    }
+  })
+  expect(totalLayout.compactLeft).toBeGreaterThan(totalLayout.exactRight)
+  expect(totalLayout.compactFontSize).toBeGreaterThanOrEqual(20)
   await expect(page.locator('#billing-day-insight-state')).toHaveText('24 HOURLY BINS READY')
   await expect(page.locator('#billing-day-total-path')).toHaveAttribute('d', /^M.+L/)
   await expect(page.locator('#billing-day-cache-path')).toHaveAttribute('d', /^M.+L/)
   await expect(page.locator('#billing-day-curve-scale')).toHaveText('2.8K TOK/H PEAK')
+  await expect(page.locator('#billing-day-hour-strip .billing-day-hour-cell')).toHaveCount(24)
+  await expect(page.locator('#billing-day-hour-strip .billing-day-hour-cell.selected')).toHaveAttribute('data-hour', '18')
+  await expect(page.locator('#billing-day-hour-readout')).toHaveText('[18:00—19:00]  TOTAL 2.8K  //  CACHE 1.4K  //  50.0% CACHE')
+  await expect(page.locator('#billing-day-hour-readout')).toHaveAttribute('title', '18:00—19:00 · 2,800 total tokens · 1,400 cache tokens')
+  await expect(page.locator('.billing-day-hour-axis span')).toHaveCount(9)
+  await expect(page.getByText('24:00', { exact: true })).toBeVisible()
+  const hourTen = page.locator('#billing-day-hour-strip .billing-day-hour-cell[data-hour="10"]')
+  await hourTen.click()
+  await expect(page.locator('#billing-day-hour-readout')).toHaveText('[10:00—11:00]  TOTAL 2.5K  //  CACHE 1.3K  //  50.0% CACHE')
+  await hourTen.press('ArrowRight')
+  await expect(page.locator('#billing-day-hour-strip .billing-day-hour-cell.selected')).toHaveAttribute('data-hour', '11')
+  await expect(page.locator('#billing-day-hour-readout')).toHaveText('[11:00—12:00]  TOTAL 0  //  CACHE 0  //  NO ACTIVITY')
+  await expect(page.locator('#billing-day-date')).toContainText(dailyPoints.at(-1)!.date)
   await expect(page.locator('#billing-day-provider-shares .billing-day-share-row')).toHaveCount(2)
   await expect(page.locator('#billing-day-provider-shares')).toContainText('CODEX')
   await expect(page.locator('#billing-day-provider-shares')).toContainText('80.0% · 8,000')
   await expect(page.locator('#billing-daily-range')).toContainText('3/4 SOURCES')
-  await expect(page.locator('#billing-daily-bars .billing-daily-column')).toHaveCount(120)
-  await expect(page.getByText('Y: TOKENS / DAY [LOG10]', { exact: true })).toBeVisible()
-  await expect(page.getByText('X: LOCAL DATE', { exact: true })).toBeVisible()
-  await expect(page.locator('#billing-y-axis .billing-y-axis-label')).toHaveCount(4)
-  await expect(page.locator('#billing-daily-x-axis .has-label')).toHaveCount(xAxisLabelCount)
-  await expect(page.locator('#billing-daily-bars .billing-daily-column.selected')).toHaveAttribute('data-date', dailyPoints.at(-1)!.date)
-  await expect(page.locator('#billing-activity-strip .billing-activity-tick')).toHaveCount(52 * 7)
-  await expect(page.locator(`.billing-daily-column[data-date="${dailyPoints[300].date}"]`)).toHaveAttribute('data-billion', 'true')
-  await expect(page.locator(`.billing-daily-column[data-date="${dailyPoints[300].date}"] .billing-daily-cache`)).toBeVisible()
-  await expect(page.locator(`.billing-daily-column[data-date="${dailyPoints[300].date}"] .billing-daily-direct`)).toBeVisible()
-  await page.locator(`.billing-daily-column[data-date="${dailyPoints[300].date}"]`).click()
+  await expect(page.locator('#billing-calendar-grid .billing-calendar-day')).toHaveCount(52 * 7)
+  await expect.poll(() => page.locator('#billing-calendar-grid .billing-calendar-day').evaluateAll(days => (
+    new Set(days.map(day => day.getAttribute('data-level'))).size
+  ))).toBeGreaterThanOrEqual(4)
+  await expect(page.locator('#billing-calendar-months span')).toHaveCount(calendarWeekCount)
+  await expect(page.locator('#billing-calendar-grid .billing-calendar-day.selected')).toHaveAttribute('data-date', dailyPoints.at(-1)!.date)
+  await expect(page.locator(`.billing-calendar-day[data-date="${dailyPoints[300].date}"]`)).toHaveAttribute('data-billion', 'true')
+  await expect(page.locator(`.billing-calendar-day[data-date="${dailyPoints[300].date}"]`)).toHaveAttribute('data-level', '5')
+  const liveRequestBaseline = currentDayLiveRequests
+  allowCurrentDayIncrease = true
+  const observedIntermediateTotal = page.locator('#billing-day-total-meter').evaluate((meter) => new Promise<boolean>((resolve) => {
+    const readDisplayed = () => Number((meter as HTMLElement).dataset.displayedTotal)
+    const observer = new MutationObserver(() => {
+      const value = readDisplayed()
+      if (value > 10_000 && value < 16_000) {
+        observer.disconnect()
+        resolve(true)
+      }
+    })
+    observer.observe(meter, { attributes: true, attributeFilter: ['data-displayed-total'] })
+    window.setTimeout(() => {
+      observer.disconnect()
+      resolve(false)
+    }, 8_000)
+  }))
+  await expect.poll(() => currentDayLiveRequests, { timeout: 8_000 }).toBeGreaterThan(liveRequestBaseline)
+  expect(await observedIntermediateTotal).toBe(true)
+  await expect(page.locator('#billing-day-total')).toHaveText('16,000')
+  await expect(page.locator('#billing-day-total-compact')).toHaveText('16K')
+  await page.locator(`.billing-calendar-day[data-date="${dailyPoints[300].date}"]`).click()
   await expect(page.locator('#billing-day-date')).toContainText(dailyPoints[300].date)
   await expect.poll(() => dayDetailRequests.at(-1)).toBe(dailyPoints[300].date)
+  await expect.poll(() => dayDetailRequests.filter(date => date === dailyPoints[300].date).length).toBe(2)
+  expect(historicalTransientFailures).toBe(1)
   await expect(page.locator('#billing-day-total')).toHaveText('2,000,000,000')
   await expect(page.locator('#billing-day-total-compact')).toHaveText('2B')
+  await expect(page.locator('#billing-day-total-meter')).not.toHaveClass(/is-live/)
   await expect(page.locator('#billing-day-insight-state')).toHaveText('24 HOURLY BINS READY')
+  const observedTodayReselectionGap = page.locator('#billing-day-total-meter').evaluate((meter) => new Promise<boolean>((resolve) => {
+    const observer = new MutationObserver(() => {
+      const value = Number((meter as HTMLElement).dataset.displayedTotal)
+      if (value > 10_000 && value < 16_000) {
+        observer.disconnect()
+        resolve(true)
+      }
+    })
+    observer.observe(meter, { attributes: true, attributeFilter: ['data-displayed-total'] })
+    window.setTimeout(() => {
+      observer.disconnect()
+      resolve(false)
+    }, 4_000)
+  }))
+  const todayReselectionRequestBaseline = currentDayLiveRequests
+  await page.locator(`.billing-calendar-day[data-date="${dailyPoints.at(-1)!.date}"]`).click()
+  await expect.poll(() => currentDayLiveRequests).toBeGreaterThan(todayReselectionRequestBaseline)
+  expect(await observedTodayReselectionGap).toBe(true)
+  await expect(page.locator('#billing-day-input')).toHaveText('5,600')
+  await expect(page.locator('#billing-day-output')).toHaveText('2,400')
+  await expect(page.locator('#billing-day-cache-read')).toHaveText('7,200')
+  await expect(page.locator('#billing-day-cache-write')).toHaveText('800')
   await expect(page.getByText('CODEX 5H', { exact: true })).toBeVisible()
   await expect(page.getByText('CODEX 1W', { exact: true })).toBeVisible()
   await expect(page.getByLabel('Provider channels').getByText('CLAUDE', { exact: true })).toBeVisible()

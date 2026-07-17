@@ -23,11 +23,12 @@
         });
       },
 
-      sendInput(agentId, input) {
+      sendTerminalInput(agentId, input, terminalControl) {
         return send({
           type: 'input',
           agentId,
           input,
+          ...terminalControl,
         });
       },
 
@@ -47,12 +48,54 @@
         });
       },
 
-      resizeAgent(agentId, cols, rows) {
+      claimTerminalGeometry(agentId, geometry) {
+        return send({
+          type: 'terminal-controller-claim',
+          agentId,
+          ...geometry,
+        });
+      },
+
+      renewTerminalGeometry(agentId, geometry) {
+        return send({
+          type: 'terminal-controller-renew',
+          agentId,
+          ...geometry,
+        });
+      },
+
+      releaseTerminalGeometry(agentId, geometry) {
+        return send({
+          type: 'terminal-controller-release',
+          agentId,
+          ...geometry,
+        });
+      },
+
+      activateTerminalRenderer(agentId, geometry) {
+        return send({
+          type: 'terminal-renderer-ready',
+          agentId,
+          ...geometry,
+        });
+      },
+
+      acknowledgeTerminalOutput(agentId, charCount, geometry) {
+        return send({
+          type: 'terminal-output-ack',
+          agentId,
+          charCount,
+          ...geometry,
+        });
+      },
+
+      resizeAgent(agentId, cols, rows, geometry) {
         return send({
           type: 'resize-agent',
           agentId,
           cols,
           rows,
+          ...geometry,
         });
       },
 
@@ -63,11 +106,13 @@
         });
       },
 
-      async getSessionView(agentId) {
+      async getSessionView(agentId, options = {}) {
         const path = global.FarmingRuntimePaths
           ? global.FarmingRuntimePaths.apiPath(`/agents/${agentId}/session-view`)
           : `/api/agents/${agentId}/session-view`;
-        const response = await fetchImpl(path);
+        const response = await fetchImpl(path, {
+          ...(options.signal ? { signal: options.signal } : {}),
+        });
         if (!response.ok) {
           throw new Error(`Failed to load session view: ${response.status}`);
         }

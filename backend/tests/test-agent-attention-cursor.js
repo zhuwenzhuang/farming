@@ -73,11 +73,60 @@ async function run() {
     const staleReadResult = manager.updateAgentFlags('cursor-agent', { readAttentionSeq: 0 });
     assert.strictEqual(staleReadResult.readAttentionSeq, 1, 'read cursors must not move backwards');
     assert.strictEqual(manager.agents.get('cursor-agent').unread, false);
+    const updatesBeforeNoopRead = updateCount;
+    manager.updateAgentFlags('cursor-agent', { unread: false });
+    assert.strictEqual(updateCount, updatesBeforeNoopRead, 'an idempotent read must not rebroadcast unchanged state');
+
+    agent.runtimeEpoch = 'cursor-epoch';
+    manager.engineBridge.router.engines.local.emit('session-busy-state', {
+      sessionId: 'cursor-agent',
+      terminalBusy: true,
+    });
+    manager.engineBridge.router.engines.local.emit('session-output', {
+      sessionId: 'cursor-agent',
+      data: 'visible before completion\n',
+      runtimeEpoch: 'cursor-epoch',
+      outputSeq: 8,
+    });
+    manager.updateAgentFlags('cursor-agent', {
+      unread: false,
+      readOutputEpoch: 'cursor-epoch',
+      readOutputSeq: 8,
+    });
+    manager.engineBridge.router.engines.local.emit('session-busy-state', {
+      sessionId: 'cursor-agent',
+      terminalBusy: false,
+    });
+    assert.strictEqual(
+      manager.agents.get('cursor-agent').unread,
+      false,
+      'a completion event derived from an already visible output cut must stay read',
+    );
+
+    manager.engineBridge.router.engines.local.emit('session-busy-state', {
+      sessionId: 'cursor-agent',
+      terminalBusy: true,
+    });
+    manager.engineBridge.router.engines.local.emit('session-output', {
+      sessionId: 'cursor-agent',
+      data: 'new output after the read cut\n',
+      runtimeEpoch: 'cursor-epoch',
+      outputSeq: 9,
+    });
+    manager.engineBridge.router.engines.local.emit('session-busy-state', {
+      sessionId: 'cursor-agent',
+      terminalBusy: false,
+    });
+    assert.strictEqual(
+      manager.agents.get('cursor-agent').unread,
+      true,
+      'output after the acknowledged cut must still create unread attention',
+    );
 
     manager.setAgentUnread('cursor-agent', true);
     agent = manager.agents.get('cursor-agent');
-    assert.strictEqual(agent.attentionSeq, 1);
-    assert.strictEqual(agent.readAttentionSeq, 0);
+    assert.strictEqual(agent.attentionSeq, 3);
+    assert.strictEqual(agent.readAttentionSeq, 2);
     assert.strictEqual(agent.unread, true, 'manual unread should move the read cursor behind the latest attention event');
 
     manager.agents.set('recovered-agent', {

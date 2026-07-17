@@ -911,6 +911,12 @@ class AcpRuntime extends EventEmitter {
 
   async setSessionConfigOption(agentId, configId, value) {
     const binding = this.requireBinding(agentId);
+    return this.enqueueSessionConfigMutation(binding, () => (
+      this.setSessionConfigOptionNow(binding, configId, value)
+    ));
+  }
+
+  async setSessionConfigOptionNow(binding, configId, value) {
     const option = binding.configOptions?.find(candidate => candidate.id === String(configId || ''));
     if (
       binding.provider === 'codex'
@@ -928,7 +934,7 @@ class AcpRuntime extends EventEmitter {
       ));
       if (typeof reasoning?.currentValue === 'string' && reasoning.currentValue) {
         await this.refreshCodexSessionModel(binding, String(value ?? ''), reasoning.currentValue);
-        return this.applySessionConfigOption(binding, configId, value);
+        return this.applySessionConfigOption(binding, configId, value, { force: true });
       }
       this.emitSession(binding);
       return { sessionId: binding.sessionId, configOptions: binding.configOptions };
@@ -938,6 +944,12 @@ class AcpRuntime extends EventEmitter {
 
   async setSessionConfigOptions(agentId, changes) {
     const binding = this.requireBinding(agentId);
+    return this.enqueueSessionConfigMutation(binding, () => (
+      this.setSessionConfigOptionsNow(binding, changes)
+    ));
+  }
+
+  async setSessionConfigOptionsNow(binding, changes) {
     const normalized = Array.isArray(changes)
       ? changes.filter(change => change && typeof change.configId === 'string' && Object.prototype.hasOwnProperty.call(change, 'value'))
       : [];
@@ -969,15 +981,26 @@ class AcpRuntime extends EventEmitter {
         String(modelChange.value ?? ''),
         String(currentReasoning?.currentValue || reasoningChange.value || '')
       );
-      response = await this.applySessionConfigOption(binding, modelChange.configId, modelChange.value);
+      response = await this.applySessionConfigOption(binding, modelChange.configId, modelChange.value, { force: true });
       handled.add(modelChange);
       handled.add(reasoningChange);
     }
     for (const change of normalized) {
       if (handled.has(change)) continue;
-      response = await this.setSessionConfigOption(agentId, change.configId, change.value);
+      response = await this.setSessionConfigOptionNow(binding, change.configId, change.value);
     }
     return response;
+  }
+
+  async enqueueSessionConfigMutation(binding, operation) {
+    const previous = binding.configMutationTail || Promise.resolve();
+    const pending = previous.catch(() => {}).then(operation);
+    binding.configMutationTail = pending;
+    try {
+      return await pending;
+    } finally {
+      if (binding.configMutationTail === pending) binding.configMutationTail = null;
+    }
   }
 
   async refreshCodexSessionModel(binding, model, effort) {
@@ -992,15 +1015,29 @@ class AcpRuntime extends EventEmitter {
   }
 
   async applySessionConfigOption(binding, configId, value, options = {}) {
+    const normalizedConfigId = String(configId || '');
+    const currentOption = binding.configOptions?.find(candidate => candidate.id === normalizedConfigId);
+    if (options.force !== true && currentOption?.currentValue === value) {
+      if (options.emit !== false) this.emitSession(binding);
+      return { sessionId: binding.sessionId, configOptions: binding.configOptions };
+    }
     const request = typeof value === 'boolean'
-      ? { sessionId: binding.sessionId, configId: String(configId || ''), type: 'boolean', value }
-      : { sessionId: binding.sessionId, configId: String(configId || ''), value: String(value ?? '') };
-    const response = await withTimeout(
-      binding.connection.setSessionConfigOption(request),
-      this.requestTimeoutMs,
-      'ACP session/set_config_option'
-    );
-    binding.configOptions = response?.configOptions || binding.configOptions;
+      ? { sessionId: binding.sessionId, configId: normalizedConfigId, type: 'boolean', value }
+      : { sessionId: binding.sessionId, configId: normalizedConfigId, value: String(value ?? '') };
+    let response;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      response = await withTimeout(
+        binding.connection.setSessionConfigOption(request),
+        this.requestTimeoutMs,
+        'ACP session/set_config_option'
+      );
+      binding.configOptions = response?.configOptions || binding.configOptions;
+      const confirmed = binding.configOptions?.find(candidate => candidate.id === normalizedConfigId);
+      if (confirmed?.currentValue === request.value) break;
+      if (attempt === 1) {
+        throw new Error(`ACP Agent did not confirm config option ${normalizedConfigId}`);
+      }
+    }
     binding.sessionState.configOptions = JSON.parse(JSON.stringify(binding.configOptions));
     if (options.emit !== false) this.emitSession(binding);
     return { sessionId: binding.sessionId, configOptions: binding.configOptions };

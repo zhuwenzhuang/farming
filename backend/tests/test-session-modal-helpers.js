@@ -18,7 +18,7 @@ function run() {
   assert.strictEqual(shouldUseLiveSessionText({ sessionSource: 'live-text' }), true);
   assert.strictEqual(shouldUseLiveSessionText({ sessionSource: 'buffer' }), false);
   assert.strictEqual(shouldUseLiveSessionText(null), false);
-  assert.strictEqual(shouldPollSessionView('live-text'), true);
+  assert.strictEqual(shouldPollSessionView('live-text'), false);
   assert.strictEqual(shouldPollSessionView('buffer'), false);
 
   assert.deepStrictEqual(
@@ -177,12 +177,14 @@ function run() {
       sessionSource: 'live-text',
       output: 'remote output',
       renderOutput: 'rendered screen',
+      runtimeEpoch: '',
       outputSeq: 42,
-    previewCols: 120,
-    previewRows: 36,
-    previewText: 'remote preview',
-    previewSnapshot: null,
-    isMain: false,
+      stateRevision: null,
+      previewCols: 120,
+      previewRows: 36,
+      previewText: 'remote preview',
+      previewSnapshot: null,
+      isMain: false,
       activityLevel: 'cold',
       lastActivity: null,
       startedAt: null,
@@ -245,7 +247,7 @@ function run() {
   assert.strictEqual(modalState.sessionSource, 'live-text');
   assert.strictEqual(modalState.title, 'Claude Code');
 
-  console.log('✓ Session modal helpers handle live-text routing and text patching');
+  console.log('✓ Session modal helpers use one-shot checkpoints and ordered stream patches');
 }
 
 run();

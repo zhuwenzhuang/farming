@@ -304,10 +304,40 @@ body.code-mode[data-appearance='dark'] .code-project-agent-compact-unread {
   border-color: var(--code-dark-bg-soft);
 }
 
+body.code-mode[data-appearance='dark'] .code-project-worktree {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-project-worktree:hover,
+body.code-mode[data-appearance='dark'] .code-project-worktree:focus-visible {
+  background: rgba(139, 148, 158, 0.12);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-worktree-popover {
+  border-color: var(--code-dark-border);
+  background: rgba(22, 27, 34, 0.98);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-worktree-popover-header {
+  border-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-worktree-row-heading strong {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-worktree-row:hover,
+body.code-mode[data-appearance='dark'] .code-worktree-row:focus-visible,
+body.code-mode[data-appearance='dark'] .code-worktree-row.current {
+  background: rgba(88, 166, 255, 0.12);
+}
+
 body.code-mode[data-appearance='dark'] .code-agent-name,
 body.code-mode[data-appearance='dark'] .code-file-name,
 body.code-mode[data-appearance='dark'] .code-open-editor-name,
-body.code-mode[data-appearance='dark'] .code-project-title span:last-child,
+body.code-mode[data-appearance='dark'] .code-project-title-name,
 body.code-mode[data-appearance='dark'] .code-product-mark-main,
 body.code-mode[data-appearance='dark'] .code-usage-row strong,
 body.code-mode[data-appearance='dark'] .code-terminal-title,
@@ -580,11 +610,27 @@ body.code-mode[data-appearance='dark'] .code-git-history-reference-more {
   color: var(--code-dark-text-muted);
 }
 
-body.code-mode[data-appearance='dark'] .code-git-history-branch,
-body.code-mode[data-appearance='dark'] .code-git-history-scope,
 body.code-mode[data-appearance='dark'] .code-git-history-parent-select select {
   border-color: var(--code-dark-border);
   background: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-scope:hover,
+body.code-mode[data-appearance='dark'] .code-git-history-scope:focus-visible,
+body.code-mode[data-appearance='dark'] .code-git-history-scope[aria-expanded='true'] {
+  background: var(--code-dark-bg-hover);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-scope-menu {
+  border-color: var(--code-dark-border);
+  background: rgba(22, 27, 34, 0.98);
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-git-history-scope-menu button:hover,
+body.code-mode[data-appearance='dark'] .code-git-history-scope-menu button:focus-visible {
+  background: var(--code-dark-bg-hover);
 }
 
 body.code-mode[data-appearance='dark'] .code-git-history-message {
@@ -833,6 +879,12 @@ body.code-mode[data-appearance='dark'] .terminal-session-host .xterm-viewport {
   background: var(--code-dark-bg) !important;
   color: var(--code-dark-text);
   color-scheme: dark;
+}
+
+body.code-mode[data-appearance='dark'] .terminal-geometry-status {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(31, 31, 31, 0.94);
+  color: #b8b8b8;
 }
 
 body.code-mode[data-appearance='dark'] .code-terminal-pane {

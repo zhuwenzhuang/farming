@@ -41,6 +41,38 @@ declare global {
         bufferViewportY?: number
         bufferBaseY?: number
         bufferLength?: number
+        queuedTransitions: number
+        queuedBytes: number
+        replayTargetEpoch: string
+        replayTargetRevision: number | null
+        checkpointRequestInFlight: boolean
+        checkpointRequestGeneration?: number | null
+        checkpointRequestSeq?: number | null
+        checkpointRequestAgeMs?: number
+        checkpointLastResult?: string
+        checkpointFetchCount?: number
+        checkpointFailureCount?: number
+        checkpointRetryScheduled?: boolean
+        replayInProgress?: boolean
+        bootstrappingSnapshot?: boolean
+        pendingSnapshotReplay?: boolean
+        runtimeEpoch?: string
+        reconnectSnapshotSeq?: number
+        bootstrapRefreshSeq?: number
+        attachGeneration?: number
+        currentAttachment?: boolean
+        attachedMount?: boolean
+        fixtureOverrideActive?: boolean
+        pageOutputSuspended?: boolean
+        suppressOutputForMs?: number
+        needsReconnectOutputSync?: boolean
+        pendingResizeCheckpoint?: {
+          cols: number
+          rows: number
+          requestSeq: number
+          ackRevision: number | null
+        } | null
+        geometryStatus: string
       } | null
       getHostDiagnostics: () => Array<{
         agentId: string
@@ -54,8 +86,14 @@ declare global {
       getCanvasInkPixelCount: (agentId: string) => number
       scrollToLine: (agentId: string, line: number) => Promise<void>
       writeFixture: (agentId: string, text: string) => Promise<void>
+      resumeLive: (agentId: string) => Promise<void>
       writeRaw: (agentId: string, text: string) => Promise<void>
-      writeSequenced: (agentId: string, text: string, outputSeq: number) => Promise<void>
+      writeSequenced: (agentId: string, text: string, outputSeq: number, runtimeEpoch?: string, stateRevision?: number) => Promise<void>
+      streamSequenced: (agentId: string, text: string, outputSeq: number, runtimeEpoch?: string, stateRevision?: number) => Promise<void>
+      getLastOutputSeq: (agentId: string) => number | null
+      getRuntimeEpoch: (agentId: string) => string
+      getStateRevision: (agentId: string) => number | null
+      setOutputAckSuppressed: (agentId: string, suppressed: boolean) => boolean
       writeRawAndSampleViewport: (agentId: string, text: string) => Promise<{
         before: number
         during: number
@@ -109,6 +147,7 @@ async function resetSettings(page: Page) {
       data: {
         lastMainWorkspace: '~/.farming',
         workspaceHistory: [],
+        projectWorkspaces: [],
         mainPageSessionKeys: [],
         defaultLaunchAgent: 'codex',
         appearance: 'light',
@@ -162,7 +201,7 @@ export const test = base.extend<{ workspaceRoot: string }>({
 export { expect }
 
 export async function openFarming(page: Page) {
-  await page.goto('/farming/', { waitUntil: 'networkidle' })
+  await page.goto('/farming/', { waitUntil: 'domcontentloaded' })
   await expect(page.getByTestId('app-shell')).toBeVisible()
 }
 
@@ -237,11 +276,22 @@ export async function getAgentIdFromRow(page: Page) {
 }
 
 export async function writeTerminalFixture(page: Page, agentId: string, text: string) {
-  await page.waitForFunction(
-    (id) => Boolean(window.__farmingTerminalTest?.isReady(id) && window.__farmingTerminalTest?.getCellCenter(id, 0, 0)),
-    agentId,
-    { timeout: 15_000 }
-  )
+  try {
+    await page.waitForFunction(
+      (id) => Boolean(window.__farmingTerminalTest?.isReady(id) && window.__farmingTerminalTest?.getCellCenter(id, 0, 0)),
+      agentId,
+      { timeout: 15_000 }
+    )
+  } catch (error) {
+    const diagnostics = await page.evaluate(
+      id => window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null,
+      agentId,
+    )
+    throw new Error(
+      `Terminal ${agentId} was not ready for fixture output: ${JSON.stringify(diagnostics)}`,
+      { cause: error },
+    )
+  }
   await page.evaluate(
     async ({ id, fixture }) => {
       await window.__farmingTerminalTest?.writeFixture(id, fixture)
@@ -251,11 +301,33 @@ export async function writeTerminalFixture(page: Page, agentId: string, text: st
 }
 
 export async function writeTerminalRaw(page: Page, agentId: string, text: string) {
-  await page.waitForFunction(
-    (id) => Boolean(window.__farmingTerminalTest?.isReady(id)),
-    agentId,
-    { timeout: 15_000 }
-  )
+  try {
+    await page.waitForFunction(
+      (id) => Boolean(window.__farmingTerminalTest?.isReady(id)),
+      agentId,
+      { timeout: 15_000 }
+    )
+  } catch (error) {
+    const diagnostics = await page.evaluate(
+      id => window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null,
+      agentId,
+    )
+    const checkpointProbe = await page.request
+      .get(`/farming/api/agents/${agentId}/session-view`, { timeout: 2_000 })
+      .then(async response => ({
+        ok: response.ok(),
+        status: response.status(),
+        body: await response.json().catch(() => null),
+      }))
+      .catch(probeError => ({
+        error: probeError instanceof Error ? probeError.message : String(probeError),
+      }))
+    throw new Error(
+      `Terminal ${agentId} did not become ready: ${JSON.stringify(diagnostics)}; `
+      + `checkpointProbe=${JSON.stringify(checkpointProbe)}`,
+      { cause: error },
+    )
+  }
   await page.evaluate(
     async ({ id, fixture }) => {
       await window.__farmingTerminalTest?.writeRaw(id, fixture)

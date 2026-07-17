@@ -141,6 +141,7 @@ class TerminalScreenState {
     this.renderOutput = '';
     this.previewText = '';
     this.previewSnapshot = null;
+    this.previewDirty = false;
     this.renderOutputDirty = true;
     this.pendingWrite = Promise.resolve();
 
@@ -156,6 +157,7 @@ class TerminalScreenState {
     this.previewSnapshot = this.includePreviewSnapshot
       ? collectViewportSnapshot(this.terminal)
       : null;
+    this.previewDirty = false;
     this.renderOutputDirty = true;
   }
 
@@ -185,8 +187,12 @@ class TerminalScreenState {
       () =>
         new Promise((resolve) => {
           this.terminal.write(data, () => {
-            this.refreshPreview();
-            resolve(this.getState({ includeRenderOutput: false }));
+            this.previewDirty = true;
+            this.renderOutputDirty = true;
+            resolve(this.getState({
+              includeRenderOutput: false,
+              refreshPreview: false,
+            }));
           });
         }),
     );
@@ -215,6 +221,9 @@ class TerminalScreenState {
 
   getState(options = {}) {
     const includeRenderOutput = options.includeRenderOutput !== false;
+    if (options.refreshPreview !== false && this.previewDirty) {
+      this.refreshPreview();
+    }
     if (includeRenderOutput && this.renderOutputDirty) {
       this.refreshRenderOutput();
     }

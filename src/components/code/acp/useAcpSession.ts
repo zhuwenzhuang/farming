@@ -2,27 +2,50 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { appPath } from '@/lib/base-path'
 import type { AcpSessionSnapshot } from './types'
 
-function optimisticConfigSession(
-  session: AcpSessionSnapshot | null,
-  patch: Record<string, unknown>,
-) {
-  if (!session) return session
+type AcpConfigChange = {
+  configId: string
+  value: string | boolean
+}
+
+function configChangesFromPatch(patch: Record<string, unknown>): AcpConfigChange[] {
   const changes = Array.isArray(patch.configOptions)
     ? patch.configOptions
     : typeof patch.configId === 'string' && (typeof patch.value === 'string' || typeof patch.value === 'boolean')
       ? [{ configId: patch.configId, value: patch.value }]
       : []
-  if (changes.length === 0) return session
-  const values = new Map(changes.flatMap(change => (
+  return changes.flatMap(change => (
     change
     && typeof change === 'object'
     && 'configId' in change
     && typeof change.configId === 'string'
     && 'value' in change
     && (typeof change.value === 'string' || typeof change.value === 'boolean')
-      ? [[change.configId, change.value] as const]
+      ? [{ configId: change.configId, value: change.value }]
       : []
+  ))
+}
+
+function configChangesConfirmed(
+  configOptions: AcpSessionSnapshot['configOptions'] | undefined,
+  changes: AcpConfigChange[],
+) {
+  if (changes.length === 0) return true
+  if (!configOptions) return false
+  return changes.every(change => configOptions.some(option => (
+    option.id === change.configId
+    && typeof option.currentValue === typeof change.value
+    && option.currentValue === change.value
   )))
+}
+
+function optimisticConfigSession(
+  session: AcpSessionSnapshot | null,
+  patch: Record<string, unknown>,
+) {
+  if (!session) return session
+  const changes = configChangesFromPatch(patch)
+  if (changes.length === 0) return session
+  const values = new Map(changes.map(change => [change.configId, change.value] as const))
   if (values.size === 0) return session
   return {
     ...session,
@@ -40,6 +63,11 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   const [updatingId, setUpdatingId] = useState('')
   const [authenticatingId, setAuthenticatingId] = useState('')
   const sessionRef = useRef<AcpSessionSnapshot | null>(null)
+  const scopeRef = useRef({ agentId, active })
+  const mutationRef = useRef<{ agentId: string; id: string; sequence: number } | null>(null)
+  const mutationSequenceRef = useRef(0)
+
+  scopeRef.current = { agentId, active }
 
   useEffect(() => {
     sessionRef.current = session
@@ -47,10 +75,18 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     if (!agentId || !active) return
+    const requestAgentId = agentId
+    const requestMutationSequence = mutationSequenceRef.current
     try {
       const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-session?includeEntries=0`), { signal })
       const body = await response.json().catch(() => null) as { session?: AcpSessionSnapshot; error?: string } | null
       if (!response.ok || !body?.session) throw new Error(body?.error || `Failed to read ACP session (${response.status})`)
+      if (
+        scopeRef.current.agentId !== requestAgentId
+        || !scopeRef.current.active
+        || mutationRef.current
+        || mutationSequenceRef.current !== requestMutationSequence
+      ) return
       sessionRef.current = body.session
       setSession(body.session)
       setError('')
@@ -58,6 +94,12 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
       if (nextError instanceof DOMException && nextError.name === 'AbortError') return
       setError(nextError instanceof Error ? nextError.message : 'Failed to read ACP session')
     }
+  }, [active, agentId])
+
+  useEffect(() => {
+    mutationSequenceRef.current += 1
+    mutationRef.current = null
+    setUpdatingId('')
   }, [active, agentId])
 
   useEffect(() => {
@@ -73,9 +115,13 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   }, [refresh, session?.authTerminal?.state, session?.authTerminal?.terminalId])
 
   const patchSession = useCallback(async (id: string, patch: Record<string, unknown>) => {
-    if (!agentId || updatingId) return false
+    if (!agentId || mutationRef.current) return false
+    const requestAgentId = agentId
+    const sequence = ++mutationSequenceRef.current
+    mutationRef.current = { agentId: requestAgentId, id, sequence }
     const rollbackSession = sessionRef.current
     const optimisticSession = optimisticConfigSession(rollbackSession, patch)
+    const configChanges = configChangesFromPatch(patch)
     if (optimisticSession !== rollbackSession) {
       sessionRef.current = optimisticSession
       setSession(optimisticSession)
@@ -93,6 +139,12 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
         error?: string
       } | null
       if (!response.ok) throw new Error(body?.error || `Failed to update ACP session (${response.status})`)
+      if (!configChangesConfirmed(body?.configOptions, configChanges)) {
+        throw new Error('ACP Agent did not confirm the requested configuration')
+      }
+      if (scopeRef.current.agentId !== requestAgentId || mutationRef.current?.sequence !== sequence) {
+        return false
+      }
       setSession(current => {
         const next = current ? {
           ...current,
@@ -108,16 +160,25 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
       setError('')
       return true
     } catch (nextError) {
-      if (rollbackSession) {
+      if (
+        rollbackSession
+        && scopeRef.current.agentId === requestAgentId
+        && mutationRef.current?.sequence === sequence
+      ) {
         sessionRef.current = rollbackSession
         setSession(rollbackSession)
       }
-      setError(nextError instanceof Error ? nextError.message : 'Failed to update ACP session')
+      if (scopeRef.current.agentId === requestAgentId) {
+        setError(nextError instanceof Error ? nextError.message : 'Failed to update ACP session')
+      }
       return false
     } finally {
-      setUpdatingId('')
+      if (mutationRef.current?.sequence === sequence) {
+        mutationRef.current = null
+        setUpdatingId('')
+      }
     }
-  }, [agentId, updatingId])
+  }, [agentId])
 
   const setMode = useCallback(
     (modeId: string) => patchSession('mode', { modeId }),

@@ -1,7 +1,6 @@
 import { useCallback } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { Agent } from '@/types/agent'
-import type { TerminalInputPart } from '@/types/messages'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import { AgentTerminalPane } from '../AgentTerminalPane'
@@ -24,14 +23,12 @@ interface AgentWorkPaneProps {
   switchingKind: 'permission' | 'runtime' | null
   focusSignal: number
   onActivate: (agentId: string, options?: { focusTerminal?: boolean }) => void
-  sendInput: (input: string | TerminalInputPart[], agentId?: string) => boolean
-  resizeAgent: (agentId: string, cols: number, rows: number) => boolean
-  onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null) => void) => () => void
+  onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   onOpenPath?: (agentId: string, target: TerminalPathOpenTarget) => void
   onResolvePath?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
   onOpenWorkspaceFilePath?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onFollowOutputChange?: (agentId: string, state: TerminalFollowState) => void
-  onReadLatest?: (agentId: string) => void
+  onReadLatest?: (agentId: string, readCut?: { runtimeEpoch: string; outputSeq: number } | null) => void
   onRuntimeModeChange?: (agentId: string, mode: 'terminal' | 'acp') => void
   copy: CodeCopy
 }
@@ -55,8 +52,6 @@ export function AgentWorkPane({
   switchingKind,
   focusSignal,
   onActivate,
-  sendInput,
-  resizeAgent,
   onSessionOutput,
   onOpenPath,
   onResolvePath,
@@ -115,8 +110,7 @@ export function AgentWorkPane({
             onOpenPath={onOpenPath}
             onResolvePath={onResolvePath}
             onFollowOutputChange={onFollowOutputChange}
-            sendInput={sendInput}
-            resizeAgent={resizeAgent}
+            onReadLatest={onReadLatest}
             onSessionOutput={onSessionOutput}
             focusSignal={focusSignal}
             copy={copy}

@@ -58,6 +58,22 @@ function nativePtyHostLogFile(configDir) {
   return path.join(configDir, 'native-pty-host.log');
 }
 
+function nativePtyControllerGenerationFile(configDir) {
+  return path.join(configDir, 'native-pty-controller-generation');
+}
+
+function nativePtyControllerGenerationLockDir(configDir) {
+  return path.join(configDir, '.native-pty-controller-generation.lock');
+}
+
+function nativePtyRuntimeGenerationFile(configDir) {
+  return path.join(configDir, 'native-pty-runtime-generation');
+}
+
+function nativePtyRuntimeGenerationLockDir(configDir) {
+  return path.join(configDir, '.native-pty-runtime-generation.lock');
+}
+
 function updateStateFile(configDir) {
   return path.join(configDir, 'farming-update.json');
 }
@@ -114,7 +130,11 @@ module.exports = {
   farmingNetTrustFile,
   farmingConfigDir,
   historyDir,
+  nativePtyControllerGenerationFile,
+  nativePtyControllerGenerationLockDir,
   nativePtyHostLogFile,
+  nativePtyRuntimeGenerationFile,
+  nativePtyRuntimeGenerationLockDir,
   runHistoryFile,
   reviewSessionsFile,
   reviewStateFile,

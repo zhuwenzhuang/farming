@@ -290,39 +290,33 @@ async function applyCodexTerminalProfile({
     if (!current) current = codexTerminalProfileFromPreview(String(await readPreview() || ''));
     if (!current) throw new Error('Codex Terminal stopped reporting its active model');
     if (current.fast !== wantsFast) {
+      const fastCommand = `/fast ${wantsFast ? 'on' : 'off'}`;
       if (typeof readOutput === 'function') {
-        let previousOutput = String(await readOutput() || '');
-        const toggleFastAndConfirm = async () => {
-          await sendInput(terminalCommand('/fast'));
-          const confirmation = await waitForPreview(
-            readOutput,
-            output => {
-              const explicit = newCodexServiceTierConfirmation(previousOutput, output);
-              if (explicit) return explicit;
-              const renderedProfile = codexTerminalProfileFromPreview(stripAnsi(output));
-              if (profileMatches(renderedProfile, target, { includeFast: true })) {
-                return { serviceTier: wantsFast ? 'priority' : 'default', fast: wantsFast };
-              }
-              return null;
-            },
-            {
-              ...waitOptions,
-              timeoutMessage: `Codex did not confirm its Fast mode service tier`,
+        const previousOutput = String(await readOutput() || '');
+        await sendInput(terminalCommand(fastCommand));
+        const confirmation = await waitForPreview(
+          readOutput,
+          output => {
+            const explicit = newCodexServiceTierConfirmation(previousOutput, output);
+            if (explicit) return explicit;
+            const renderedProfile = codexTerminalProfileFromPreview(stripAnsi(output));
+            if (profileMatches(renderedProfile, target, { includeFast: true })) {
+              return { serviceTier: wantsFast ? 'priority' : 'default', fast: wantsFast };
             }
-          );
-          previousOutput = confirmation.preview;
-          return confirmation.result;
-        };
-        let confirmed = await toggleFastAndConfirm();
-        if (confirmed.fast !== wantsFast) {
-          confirmed = await toggleFastAndConfirm();
-        }
+            return null;
+          },
+          {
+            ...waitOptions,
+            timeoutMessage: `Codex did not confirm its Fast mode service tier`,
+          }
+        );
+        const confirmed = confirmation.result;
         if (confirmed.fast !== wantsFast) {
           throw new Error(`Codex did not ${wantsFast ? 'enable' : 'disable'} Fast mode`);
         }
         current = { ...current, fast: confirmed.fast };
       } else {
-        await sendInput(terminalCommand('/fast'));
+        await sendInput(terminalCommand(fastCommand));
         const fastApplied = await waitForPreview(
           readPreview,
           text => profileMatches(codexTerminalProfileFromPreview(text), target, { includeFast: true }),

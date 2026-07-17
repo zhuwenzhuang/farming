@@ -2,13 +2,25 @@ const express = require('express');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { inspectGitWorktree } = require('./git-worktree-info');
 const { WorkspaceFileError } = require('./workspace-file-service');
 
 const GLOBAL_WORKSPACE_FILES_AGENT_ID = '__farming_global_files__';
 const GLOBAL_WORKSPACE_FILES_ROOT = '/';
+const PROJECT_FILES_AGENT_PREFIX = '__farming_project__:';
 
 function isGlobalWorkspaceFilesAgentId(agentId) {
   return agentId === GLOBAL_WORKSPACE_FILES_AGENT_ID;
+}
+
+function projectWorkspaceFromFilesAgentId(agentId) {
+  const value = String(agentId || '');
+  if (!value.startsWith(PROJECT_FILES_AGENT_PREFIX)) return '';
+  try {
+    return decodeURIComponent(value.slice(PROJECT_FILES_AGENT_PREFIX.length)).trim();
+  } catch {
+    return '';
+  }
 }
 
 function normalizeAbsolutePath(value) {
@@ -51,6 +63,7 @@ function collectCandidateAllowedRoots(agentManager) {
   for (const agent of state.agents || []) {
     roots.push(agent && agent.projectWorkspace);
     roots.push(agent && agent.cwd);
+    roots.push(agent && agent.gitWorktree && agent.gitWorktree.workspace);
   }
   for (const entry of state.taskHistory || []) {
     roots.push(entry && entry.projectWorkspace);
@@ -63,6 +76,7 @@ function collectCandidateAllowedRoots(agentManager) {
     : null;
   if (settings) {
     roots.push(...(Array.isArray(settings.workspaceHistory) ? settings.workspaceHistory : []));
+    roots.push(...(Array.isArray(settings.projectWorkspaces) ? settings.projectWorkspaces : []));
   }
   return roots;
 }
@@ -164,6 +178,15 @@ function resolveWorkspaceRoot(agentManager, agentId) {
 
   if (isGlobalWorkspaceFilesAgentId(agentId)) {
     return GLOBAL_WORKSPACE_FILES_ROOT;
+  }
+
+  const projectWorkspace = normalizeAbsolutePath(projectWorkspaceFromFilesAgentId(agentId));
+  if (projectWorkspace) {
+    const settings = agentManager?.configManager?.getSettings?.() || {};
+    const configured = (Array.isArray(settings.projectWorkspaces) ? settings.projectWorkspaces : [])
+      .map(normalizeAbsolutePath);
+    if (configured.includes(projectWorkspace)) return projectWorkspace;
+    throw new WorkspaceFileError('project not found', 404);
   }
 
   if (agentManager && typeof agentManager.getAgentWorkspaceRoot === 'function') {
@@ -368,6 +391,36 @@ function createWorkspaceFileRouter(agentManager, fileService) {
     }
   });
 
+  router.get('/worktrees', async (req, res) => {
+    try {
+      if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {
+        throw new WorkspaceFileError('global files do not support git worktrees', 403);
+      }
+      const root = resolveWorkspaceRoot(agentManager, req.query.agentId);
+      const info = await inspectGitWorktree(root, { cacheMs: 0 });
+      res.json({
+        root,
+        worktrees: info
+          ? {
+            isGitRepo: true,
+            commonDir: info.commonDir,
+            currentWorkspace: info.workspace,
+            mainWorkspace: info.mainWorkspace,
+            items: info.worktrees,
+          }
+          : {
+            isGitRepo: false,
+            commonDir: '',
+            currentWorkspace: root,
+            mainWorkspace: '',
+            items: [],
+          },
+      });
+    } catch (error) {
+      sendWorkspaceFileError(res, error);
+    }
+  });
+
   router.get('/history', async (req, res) => {
     try {
       if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {
@@ -457,10 +510,12 @@ function createWorkspaceFileRouter(agentManager, fileService) {
 module.exports = {
   GLOBAL_WORKSPACE_FILES_AGENT_ID,
   GLOBAL_WORKSPACE_FILES_ROOT,
+  PROJECT_FILES_AGENT_PREFIX,
   assertGlobalWorkspacePathAllowed,
   createWorkspaceFileRouter,
   globalWorkspaceAllowedRoots,
   isGlobalWorkspaceFilesAgentId,
+  projectWorkspaceFromFilesAgentId,
   resolveWorkspaceRoot,
   sendWorkspaceFileError,
 };

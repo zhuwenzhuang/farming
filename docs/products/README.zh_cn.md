@@ -115,7 +115,7 @@ Shell 和未知命令不会变成可 Resume 的 Provider Session 或 Provider Hi
 
 Farming Code 保持紧凑的用量信号。CRT Billing 把本地 Provider 数据扩展成两套运行视图：
 
-- **Days**：120 天对数 Processed Token 历史、52 周 Activity、精确 Selected Day Total、小时 Total/Cache Curve 和 Provider Share。
+- **Days**：高对比度的 52 周每日 Activity Calendar、右侧醒目的 Selected Day 缩写 Total、每 5 秒刷新并以跳动数字追赶新总量的当天读数、与 Total/Cache 阶梯波形对齐的 24 格本地小时坐标带，以及 Provider Share。
 - **Live**：60 分钟 Token Rate 示波器、5 分钟 Provider Channel、Quota Window 和 Reset Time。
 
 ![CRT 按日 Token 历史](crt/assets/06-crt-billing-days.png)

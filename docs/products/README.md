@@ -115,7 +115,7 @@ Shells and unknown commands do not become resumable provider sessions or provide
 
 Farming Code keeps usage signals compact. CRT Billing expands local provider data into two operational views:
 
-- **Days**: 120-day logarithmic processed-token history, 52-week activity, exact selected-day totals, hourly total/cache curve, and provider shares.
+- **Days**: a high-contrast 52-week daily activity calendar, exact selected-day totals with a prominent compact value at the right, a five-second current-day refresh whose digits catch up to new totals, a 24-cell local-hour coordinate strip aligned with a total/cache step trace, and provider shares.
 - **Live**: 60-minute token-rate oscilloscope, five-minute provider channels, quota windows, and reset timing.
 
 ![CRT daily token history](crt/assets/06-crt-billing-days.png)

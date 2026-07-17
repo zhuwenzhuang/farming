@@ -162,7 +162,11 @@
 └─────────────────────────────────────────────────┘
 ```
 
-新的交互式 agent 默认由 `NativeSessionEngine` 托管，node-pty 进程运行在独立 native pty host 中，Farming 服务重启后通过本地 socket 重新挂回仍存活的 terminal。native pty host 默认会跨 Farming server 重启保留；当没有 live session 和 client 后会在空闲宽限期后退出。只有希望 host 跟随 server 一起退出时才设置 `FARMING_NATIVE_PTY_HOST_PERSIST=0`。`LocalSessionEngine` 仅保留为 `FARMING_SESSION_ENGINE=local` 调试路径；产品 runtime 工作应面向 native pty host。
+新的交互式 agent 默认由 `NativeSessionEngine` 托管，node-pty 进程运行在独立 native pty host 中，Farming 服务重启后通过本地 socket 重新挂回仍存活的 terminal。同一代码版本内，native pty host 默认会跨 Farming server 重启保留；当没有 live session 和 client 后会在空闲宽限期后退出。server 与 host 连接时必须交换 runtime 代码指纹；应用升级或指纹不一致时执行 Transactional Controlled Rotation：阻止新 Mutation，Drain 并 Freeze Reducer 的精确状态切面，序列化所有仍为 Live 的 Terminal，只有携带匹配 Preparation Token 才能关闭旧 Host，并在新 PTY Epoch 中恢复序列化 Screen。序列化失败必须恢复旧 Host 并终止轮换；Host 意外崩溃属于进程丢失，不能伪装成成功恢复。只有希望 host 跟随每次 server 关闭一起退出时才设置 `FARMING_NATIVE_PTY_HOST_PERSIST=0`。`LocalSessionEngine` 仅保留为 `FARMING_SESSION_ENGINE=local` 调试路径；产品 runtime 工作应面向 native pty host。
+
+Terminal 展示恢复使用带 checkpoint 的状态机协议。native pty host 中的 headless xterm 是唯一权威归约器：每次 PTY 运行都有唯一 epoch；Output Transition 同时推进 `outputSeq` 和 `stateRevision`，Clear / Resize 只推进 `stateRevision`。序列化 checkpoint 必须携带该归约器实际提交的 epoch、序号、screen 与尺寸。WebSocket 合并不能抹掉单个 Transition 的索引。浏览器只允许在当前 epoch 上应用下一条连续 Transition；重复消息直接忽略，序号缺口、epoch 变化、页面隐藏恢复或断线重连都必须先安装权威 `/session-view` checkpoint，再继续归约 live output。禁止轮询 `/session-view`；Transport Failure 使用 Backoff 重试，重复响应持续违反同一 Checkpoint 不变量时必须停止并显式报错。
+
+Terminal Input 保持直接的 Raw PTY Stream：不要增加逐输入 ACK、去重、自动重放，也不要在 xterm `onData` 外增加按时间猜测的 Textarea Fallback。多个 Code / CRT Viewer 共享同一份权威 Display，但同一时刻只有一个显式 Terminal Controller Lease。Geometry 只表示 Display Dimensions（`cols` 与 `rows`），不能作为 Ownership 的别名。Controller Lease 绑定不可变的 Runtime Epoch、Lease ID 与 Fence。Takeover 必须对用户可见并推进 Fence；旧 Lease 的 Input、Resize、Clear 和 Output ACK 必须被拒绝。Controller 回包不得携带或推进 Display Revision、Output Sequence、Dimensions 或 Checkpoint。Renderer Output ACK 只能在 xterm Write Callback 后发送，并驱动 PTY High / Low Watermark Flow Control。健康 Viewer Takeover 必须清除旧 Renderer Debt，不能让一个慢窗口冻结共享 PTY。Timer 可以令 Lease 过期或续租，也可以令 Request 失败，但绝不能创建或提交 Display State。
 
 对于 Codex、Claude Code、OpenCode 和 Qoder，Farming Code 的结构化 Chat runtime 使用 ACP。Chat / Terminal 控件会把 Agent 重启到 ACP 或 native PTY runtime，并恢复同一个 provider Session；它不是单纯切换画面。刚打开且尚未收到用户输入的 Terminal，可以在 provider 还没落盘历史记录前直接切换成新的 ACP Chat；一旦 Terminal 已经收到输入，就必须保留可恢复 Session 校验，不能因历史缺失而静默丢掉对话。旧 JSON CLI Chat 只保留兼容读取，Codex App Server 继续作为独立实验路径。
 
@@ -631,6 +635,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - **workspace**：Farming 内部默认工作空间（固定为 `~/.farming`）
 - **lastMainWorkspace**：Main Agent 上次启动使用的工作空间；缺省时 UI 默认填 `~/.farming`
 - **workspaceHistory**：New Agent 最近使用的工作空间历史，最多保留 5 条，供启动对话框下拉和方向键选择；不存在的目录不得进入历史记录，手动填错路径必须通过错误提示反馈给用户；不得包含 Farming 内部目录（如 `~/.farming`）
+- **projectWorkspaces**：Projects 主页面的持久 workspace 成员清单；Agent、文件、恢复的 Project 会话和 Git worktree 入口都写入同一种 Project 身份，只有 Remove Project 才删除
 - **theme**：UI 主题名称（默认：terminal）
 - **heartbeatInterval**：心跳检测和系统监控间隔（单位：毫秒，默认：1000）
 - **dangerouslySkipAgentPermissionsByDefault**：是否默认让支持的 coding agent（如 Codex、Claude、OpenCode、Qoder、Qwen、Aider、GitHub Copilot CLI、Amazon Q）使用各自最激进的权限绕过启动 flag
@@ -802,7 +807,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
   
 - ✅ **前端基础**
   - Code-style Web 工作台（New Agent / Projects / Search / History / Search 主区域结果面板 / History 可从最近 workspace 启动 agent / `Ctrl/Cmd+数字` 从 terminal 区域切换 session / `Cmd+[`、`Cmd+]` 切换已打开 terminal / `Ctrl/Cmd+B` 折叠或展开侧栏 / `Escape` 返回 Projects / 搜索键盘打开 / Project 折叠 / Agent 列表键盘导航 / Project 与 Agent 行右键菜单 / terminal-first 快捷键作用域 / 可拖拽左侧栏 / 主区只显示一个 active terminal / 极简 terminal chrome / composer 能力栏）
-- Project 下 Files section 与 Monaco 编辑器：仅具体非 Main agent 挂载 Files；`react-arborist` 虚拟化 Explorer 树、Material Icon Theme 文件类型映射、轻量多文件 tabs、目录树懒加载、打开文本文件、图片/二进制/大文本只读预览、保存、新建/重命名/删除、内容搜索、`path:line` 跳转、gutter 右键行级 git blame、editor 正文右键菜单、外部变更提示，右侧主区域可在 terminal/editor 间切换；多 Project 文件监听互不覆盖
+- Project 下 Files section 与 Monaco 编辑器：普通 Project 以持久 workspace 身份挂载 Files，即使没有 live Agent 也保留；Main Agent 不挂载 Files。`react-arborist` 虚拟化 Explorer 树、Material Icon Theme 文件类型映射、轻量多文件 tabs、目录树懒加载、打开文本文件、图片/二进制/大文本只读预览、保存、新建/重命名/删除、内容搜索、`path:line` 跳转、gutter 右键行级 git blame、editor 正文右键菜单、外部变更提示，右侧主区域可在 terminal/editor 间切换；多 Project 文件监听互不覆盖
   - Agent terminal 输出支持点击 `path:line` 打开 Project 文件，也支持点击 `http(s)` URL 在新标签页打开；URL/path hit-test 必须处理 xterm 软换行
   - New Agent 默认沿用当前/最后活跃项目 workspace；Project 下直接新建 Agent，并预填对应 workspace；Main Agent 的 `.farming` 身份目录在 UI 中折叠回真实项目目录
   - 指定 Project 新建 Agent、关闭 terminal pane、终止 Agent 等低频操作收敛到左侧右键菜单；New Agent 会保留当前/最后活跃项目 workspace

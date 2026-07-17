@@ -108,11 +108,11 @@ Shells and unknown commands never become resumable provider history. Their archi
 
 ### Days
 
-The default view combines a logarithmic 120-day processed-token chart with a 52-week activity strip. Cache and direct tokens remain visually separate, so both quiet days and billion-token spikes stay legible.
+The default view uses a compact 52-week calendar heatmap. Empty days remain dark and hollow while five ranked spectral bands move from indigo through cyan, green, and amber to hot red. The bands are derived from non-zero days in the visible 52-week range, so differences between active days remain visible instead of collapsing into one high band; exact token counts remain available in tooltips.
 
 ![CRT Billing Days](assets/06-crt-billing-days.png)
 
-Select a day to inspect its exact and compact total, input, output, cache read/write, 24 one-hour bins, and Codex/Claude/OpenCode shares. The current day is marked partial. Provider events are assigned by local date, including sessions that cross midnight.
+Select a day to inspect its exact total, a prominent compact total positioned at its right, input, output, cache read/write, and Codex/Claude/OpenCode shares. For the current day, the server keeps a bounded five-second live cache; selecting today forces a fresh detail read, and the Today summary plus Total, Input, Output, Cache Read/Write, and intraday peak counters advance through newly observed positive gaps. Historical values stay static. Historical detail transport failures receive one bounded retry before the visible `DAY SIGNAL LOST` state. The intraday step trace treats each value as an explicit one-hour interval and aligns it with 24 selectable cells, a readable `00:00`–`24:00` instrument scale, and a persistent compact total/cache readout whose tooltip retains exact values. The current day is marked partial. Provider events are assigned by local date, including sessions that cross midnight.
 
 ### Live
 

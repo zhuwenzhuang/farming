@@ -125,7 +125,8 @@ function run() {
 
   assert(
     agentManagerSource.includes('if (workspace && !sessionWorkspace) return false') &&
-      agentManagerSource.includes('if (workspace && workspace !== sessionWorkspace) return false') &&
+      agentManagerSource.includes('const exact = candidates.find(session =>') &&
+      agentManagerSource.includes('isLinkedWorktreeOf(workspace, sessionWorkspace)') &&
       agentManagerSource.includes('observeAgentStateChange(sessionId') &&
       agentManagerSource.includes('attemptCodexProviderSessionResolution(agentId') &&
       !agentManagerSource.includes('startCodexProviderSessionResolver') &&
@@ -692,8 +693,11 @@ function run() {
       workspaceSource.includes('const visibleLiveAgents = agentListState.liveAgents') &&
       workspaceSource.includes('claimedAgentSessionKeyByAgentId={agentListState.claimedAgentSessionKeyByAgentId}') &&
       !workspaceSource.includes('visibleProjectAgentSessions') &&
-      workspaceSource.includes('projectListProjectsForAgents(visibleLiveAgents, sidebarAgentSessions, projectNames)') &&
-      workspaceSource.includes('projectListProjectsForAgents(visibleLiveAgents, searchableAgentSessions, projectNames)') &&
+      workspaceSource.includes('projectListProjectsForAgents(') &&
+      workspaceSource.includes('openWorkspaceFiles,\n      visibleAgents,') &&
+      workspaceSource.includes('project.hasOpenFile') &&
+      workspaceSource.includes('project.fileAgent ?? null') &&
+      workspaceSource.includes('code-project-worktree') &&
       workspaceSource.includes('limitProjectAgentSessions(\n    projectListProjects') &&
       workspaceSource.includes('historyAgentSessions') &&
       workspaceSource.includes('historyAgentSessionsForSessions(sessions, mainPageSessionKeys, claimedAgentSessionKeys)') &&
@@ -733,20 +737,23 @@ function run() {
 	      workspaceSource.includes('lastActive: agent.lastActivity || agent.startedAt || 0') &&
       workspaceSource.includes('const terminalState = inferAgentTerminalState(agent)') &&
       workspaceSource.includes('const turnActive = terminalState.turnActive') &&
-      workspaceSource.includes('statusIndicatorVisible: shouldShowAgentStatusIndicator(agent.status, turnActive)') &&
-      workspaceSource.includes('const markAgentReadIfNeeded = useCallback') &&
-      workspaceSource.includes('onUpdateAgentFlags(agentId, { readAttentionSeq: attentionSeq })') &&
-      workspaceSource.includes('const [terminalFollowStates, setTerminalFollowStates] = useState<Record<string, TerminalFollowState>>({})') &&
-      workspaceSource.includes('const handleTerminalFollowOutputChange = useCallback') &&
-      workspaceSource.includes('state.following && !state.hasUnreadOutput') &&
-      workspaceSource.includes('const handleDraftChange = useCallback') &&
+	      workspaceSource.includes('statusIndicatorVisible: shouldShowAgentStatusIndicator(agent.status, turnActive)') &&
+	      workspaceSource.includes('const markAgentReadIfNeeded = useCallback') &&
+	      workspaceSource.includes('markAgentReadIfNeeded(agentId, true, readCut)') &&
+	      workspaceSource.includes('readOutputEpoch: readCut.runtimeEpoch') &&
+	      workspaceSource.includes('readOutputSeq: readCut.outputSeq') &&
+	      workspaceSource.includes('const handleTerminalFollowOutputChange = useCallback') &&
+	      terminalPaneSource.includes('const [followOutputState, setFollowOutputState] = useState({') &&
+	      terminalPaneSource.includes('!followOutputState.following') &&
+	      terminalPaneSource.includes('followOutputState.hasUnreadOutput') &&
+	      terminalPaneSource.includes('const readCut = getReadCutNow()') &&
+	      terminalPaneSource.includes('onReadLatest?.(agent.id, readCut)') &&
+	      workspaceSource.includes('const handleDraftChange = useCallback') &&
       workspaceSource.includes('onDraftChange: handleDraftChange') &&
-      workspaceSource.includes('onTerminalFollowOutputChange={handleTerminalFollowOutputChange}') &&
-      workspaceSource.includes('onAgentReadLatest={markAgentReadIfNeeded}') &&
-      workspaceSource.includes('terminalFollowingLatest = state ? state.following && !state.hasUnreadOutput : false') &&
-      workspaceSource.includes('markAgentReadIfNeeded(agentId)') &&
-	      (workspaceSource.match(/markAgentReadIfNeeded\(/g) || []).length === 2 &&
-	      workspaceSource.includes("agentId === activeTerminalId") &&
+	      workspaceSource.includes('onTerminalFollowOutputChange={handleTerminalFollowOutputChange}') &&
+	      workspaceSource.includes('onAgentReadLatest={markAgentReadLatest}') &&
+	      (workspaceSource.match(/markAgentReadIfNeeded\(/g) || []).length === 1 &&
+		      terminalPaneSource.includes('!active') &&
 	      workspaceSource.includes("mainPaneMode === 'terminal'") &&
       workspaceSource.includes('data-testid="code-session-search-result"') &&
       workspaceSource.includes('data-testid="code-session-context-menu"') &&
@@ -822,8 +829,8 @@ function run() {
       workspaceSource.includes('terminalInputPartsForComposerMessage') &&
       workspaceSource.includes("agentKindForCommand(agent.command) === 'shell'") &&
       workspaceSource.includes("capabilitiesForAgent(agent).kind === 'shell'") &&
-      workspaceSource.includes("return sendInput(`${message}\\r`, agent.id)") &&
-      workspaceSource.includes('return sendInput(terminalInputPartsForComposerMessage(message), agent.id)') &&
+      workspaceSource.includes("return sendTerminalSessionInput(agent.id, `${message}\\r`)") &&
+      workspaceSource.includes('return sendTerminalSessionInput(agent.id, terminalInputPartsForComposerMessage(message))') &&
       workspaceSource.includes('let submitted = true') &&
       workspaceSource.includes('if (!submitted) return') &&
       !workspaceSource.includes("window.setTimeout(() => sendInput('\\r', agent.id), 80)") &&
@@ -973,7 +980,8 @@ function run() {
       inputPartsSource.includes('Array.isArray(data && data.inputParts)') &&
       inputPartsSource.includes("part.type === 'paste'") &&
       serverSource.includes('if (inputParts.length === 0) return') &&
-      serverSource.includes('await agentManager.sendInput(targetAgentId, inputParts)') &&
+      serverSource.includes('await terminalGeometryCoordinator.input(ws, {') &&
+      serverSource.includes("message: 'Terminal input requires an active fenced terminal attachment'") &&
       !serverSource.includes('const INPUT_PART_DELAY_MS = 24') &&
       !serverSource.includes('for (let index = 0; index < inputParts.length; index += 1)') &&
       serverSource.includes('await agentManager.killAgent(currentMain.id)') &&
@@ -1014,7 +1022,7 @@ function run() {
       !terminalPaneSource.includes('code-terminal-maximize') &&
       !terminalPaneSource.includes('onToggleMaximize') &&
       !terminalPaneSource.includes('onClosePane') &&
-      terminalPaneSource.includes('resizeAgent(agent.id, cols, rows)') &&
+      !terminalPaneSource.includes('resizeAgent') &&
       terminalPaneSource.includes("const clickedTerminalSurface = target instanceof Element && target.closest('.xterm')") &&
       terminalPaneSource.includes("if (!active) onActivate(agent.id, { focusTerminal: false })") &&
       terminalPaneSource.includes('isPrimaryFindShortcut') &&
@@ -1034,6 +1042,7 @@ function run() {
       agentWorkPaneSource.includes("runtimeState={agent.acpState || ''}") &&
       agentWorkPaneSource.includes("expectHistory={(agent.source || '').startsWith('codex-history:')}") &&
       agentWorkPaneSource.includes('AgentTerminalPane') &&
+      !agentWorkPaneSource.includes('resizeAgent') &&
       agentWorkPaneSource.includes('const appServerChat = isCodexAppServerAgent(agent)') &&
       agentWorkPaneSource.includes("const jsonChat = agent.agentRuntimeMode === 'json'") &&
       agentWorkPaneSource.includes("const acpChat = agent.agentRuntimeMode === 'acp'") &&

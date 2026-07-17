@@ -1439,31 +1439,26 @@
 
                     <section class="billing-panel billing-daily-chart-panel" aria-label="Daily processed token history">
                         <div class="billing-panel-heading">
-                            <h3>DAILY PROCESSED TOKENS // 120 DAYS // LOG SCALE</h3>
+                            <h3>TOKEN ACTIVITY // 52 WEEKS</h3>
                             <span id="billing-peak-day">PEAK --</span>
                         </div>
                         <div class="billing-daily-legend" aria-hidden="true">
-                            <span><i class="is-cache"></i>CACHE</span>
-                            <span><i class="is-direct"></i>INPUT / OUTPUT / OTHER</span>
+                            <span>EMPTY</span>
+                            <span class="billing-heat-scale"><i data-level="0"></i><i data-level="1"></i><i data-level="2"></i><i data-level="3"></i><i data-level="4"></i><i data-level="5"></i></span>
+                            <span>MORE</span>
                             <span><i class="is-billion"></i>1B+ DAY</span>
                         </div>
-                        <div class="billing-axis-meta" aria-hidden="true">
-                            <span>Y: TOKENS / DAY [LOG10]</span>
-                            <span>X: LOCAL DATE</span>
-                        </div>
-                        <div class="billing-daily-chart-frame">
-                            <div class="billing-y-axis" id="billing-y-axis" aria-hidden="true"></div>
+                        <div class="billing-calendar-frame">
+                            <div class="billing-calendar-weekdays" aria-hidden="true">
+                                <span>MON</span><span></span><span>WED</span><span></span><span>FRI</span><span></span><span>SUN</span>
+                            </div>
                             <div class="billing-daily-scroll" id="billing-daily-scroll">
-                                <div class="billing-daily-plot">
-                                    <div class="billing-log-guides" id="billing-log-guides" aria-hidden="true"></div>
-                                    <div class="billing-daily-bars" id="billing-daily-bars" role="grid" aria-label="Daily token totals for the last 120 days on a logarithmic scale"></div>
-                                </div>
-                                <div class="billing-daily-x-axis" id="billing-daily-x-axis" aria-hidden="true"></div>
+                                <div class="billing-calendar-months" id="billing-calendar-months" aria-hidden="true"></div>
+                                <div class="billing-calendar-grid" id="billing-calendar-grid" role="grid" aria-label="Daily token activity for the last 52 weeks"></div>
                             </div>
                         </div>
-                        <div class="billing-activity-row">
-                            <span>52W ACTIVITY</span>
-                            <div class="billing-activity-strip" id="billing-activity-strip" role="img" aria-label="52-week daily activity continuity"></div>
+                        <div class="billing-calendar-footer">
+                            <span>[ARROWS] SELECT DAY</span>
                             <span id="billing-daily-range">LOCAL TIME</span>
                         </div>
                     </section>
@@ -1474,7 +1469,13 @@
                             <span id="billing-day-state">LOCAL HISTORY</span>
                         </div>
                         <div class="billing-day-details">
-                            <div class="billing-day-total"><small>TOTAL</small><strong id="billing-day-total">--</strong><span><span class="billing-day-total-compact" id="billing-day-total-compact">--</span> TOKENS</span></div>
+                            <div class="billing-day-total" id="billing-day-total-meter">
+                                <small>TOTAL</small>
+                                <div class="billing-day-total-values">
+                                    <strong id="billing-day-total">--</strong>
+                                    <span class="billing-day-total-compact-wrap"><span class="billing-day-total-compact" id="billing-day-total-compact">--</span><em>TOKENS</em></span>
+                                </div>
+                            </div>
                             <div class="billing-day-breakdown"><small>INPUT</small><strong id="billing-day-input">--</strong></div>
                             <div class="billing-day-breakdown"><small>OUTPUT</small><strong id="billing-day-output">--</strong></div>
                             <div class="billing-day-breakdown"><small>CACHE READ</small><strong id="billing-day-cache-read">--</strong></div>
@@ -1508,9 +1509,11 @@
                                         <path id="billing-day-total-path" class="billing-day-curve-total"></path>
                                     </svg>
                                 </div>
-                                <div class="billing-day-curve-x-axis" aria-hidden="true">
-                                    <span>00</span><span>06</span><span>12</span><span>18</span><span>23</span>
+                                <div class="billing-day-hour-strip" id="billing-day-hour-strip" role="grid" aria-label="Selected day token usage by local hour"></div>
+                                <div class="billing-day-hour-axis" aria-hidden="true">
+                                    <span>00:00</span><span>03:00</span><span>06:00</span><span>09:00</span><span>12:00</span><span>15:00</span><span>18:00</span><span>21:00</span><span>24:00</span>
                                 </div>
+                                <div class="billing-day-hour-readout" id="billing-day-hour-readout">SELECT AN HOUR</div>
                                 <div class="billing-day-curve-footer">
                                     <span id="billing-day-insight-state">SELECTED DAY DETAIL</span>
                                     <span class="billing-day-curve-legend"><i class="is-total"></i>TOTAL <i class="is-cache"></i>CACHE</span>

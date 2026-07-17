@@ -474,7 +474,45 @@
 }
 
 #farming-crt #session-modal .terminal {
+    position: relative;
     background: var(--crt-background);
+}
+
+#farming-crt .crt-terminal-sync-status {
+    position: absolute;
+    z-index: 8;
+    top: 8px;
+    right: 10px;
+    max-width: calc(100% - 20px);
+    padding: 3px 7px;
+    border: 1px solid rgba(12, 204, 104, 0.42);
+    background: rgba(0, 18, 9, 0.92);
+    color: var(--crt-phosphor-dim);
+    font-size: 10px;
+    line-height: 1.4;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#farming-crt .crt-terminal-sync-status[hidden] {
+    display: none;
+}
+
+#farming-crt .crt-terminal-takeover {
+    flex: none;
+    padding: 2px 6px;
+    border: 1px solid rgba(12, 204, 104, 0.62);
+    background: rgba(0, 18, 9, 0.96);
+    color: var(--crt-phosphor-bright);
+    font: inherit;
+    cursor: pointer;
+}
+
+#farming-crt .crt-terminal-takeover:hover,
+#farming-crt .crt-terminal-takeover:focus-visible {
+    background: rgba(12, 204, 104, 0.16);
+    outline: none;
 }
 
 #farming-crt .terminal canvas {

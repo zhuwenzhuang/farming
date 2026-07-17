@@ -88,6 +88,7 @@ test('Codex model matrix responds locally, settles once, and morphs Advanced wit
   fs.writeFileSync(path.join(workspace, 'README.md'), '# Model matrix fixture\n')
   const agentId = await createAcpAgent(page, workspace)
   let state: MatrixState = { model: 'gpt-5.6-terra', reasoning: 'medium', fast: false }
+  let fastPatchCount = 0
 
   await page.route(/\/farming\/api\/agents\/[^/]+\/acp-session(?:\?includeEntries=0)?$/, async route => {
     if (route.request().method() === 'GET') {
@@ -98,6 +99,14 @@ test('Codex model matrix responds locally, settles once, and morphs Advanced wit
       await route.continue()
       return
     }
+    const requestBody = route.request().postDataJSON() as {
+      configId?: string
+      configOptions?: Array<{ configId?: string }>
+    }
+    if (
+      requestBody.configId === 'fast-mode'
+      || requestBody.configOptions?.some(change => change.configId === 'fast-mode')
+    ) fastPatchCount += 1
     const nextState = requestedState(route, state)
     await new Promise(resolve => setTimeout(resolve, 700))
     state = nextState
@@ -199,11 +208,16 @@ test('Codex model matrix responds locally, settles once, and morphs Advanced wit
   await expect(ultraControl).not.toHaveClass(/is-kicked/, { timeout: 1_500 })
 
   const fast = page.getByRole('button', { name: 'Fast mode' })
-  await fast.click()
+  const fastPatchCountBeforeClick = fastPatchCount
+  await fast.evaluate(button => {
+    ;(button as HTMLButtonElement).click()
+    ;(button as HTMLButtonElement).click()
+  })
   await expect(fast).toHaveAttribute('aria-pressed', 'true')
   await expect(fast).toContainText('ON')
   await expect(picker.locator('.code-composer-speed-active')).toHaveCount(1)
   await expect(fast).toBeEnabled({ timeout: 2_000 })
+  expect(fastPatchCount - fastPatchCountBeforeClick).toBe(1)
 
   const matrixBox = await menu.boundingBox()
   expect(matrixBox?.width).toBeCloseTo(350, 0)
@@ -301,7 +315,7 @@ test('Terminal Codex uses the live matrix and applies profile changes immediatel
   })
   expect(settingsResponse.ok()).toBeTruthy()
   const agentResponse = await page.request.post('/farming/api/control/agents', {
-    data: { command: 'codex', workspace, agentRuntimeMode: 'terminal' },
+    data: { command: 'codex --farming-fixture-idle-profile', workspace, agentRuntimeMode: 'terminal' },
   })
   expect(agentResponse.ok()).toBeTruthy()
   const agentPayload = await agentResponse.json() as { agentId?: string }
@@ -344,6 +358,36 @@ test('Terminal Codex uses the live matrix and applies profile changes immediatel
   await page.getByTestId('code-model-matrix-advanced-toggle').click()
   await expect(menu.locator('.code-model-matrix')).toHaveAttribute('aria-hidden', 'false')
   await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-luna:max')
+})
+
+test('Terminal Codex keeps live profile controls disabled while a turn is active', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'terminal-model-matrix-busy')
+  fs.mkdirSync(workspace, { recursive: true })
+  await page.route('**/farming/api/codex/models', route => route.fulfill({
+    json: { catalog: TERMINAL_MODEL_CATALOG, source: 'fixture' },
+  }))
+  await page.request.post('/farming/api/settings', {
+    data: {
+      codexModel: 'gpt-5.6-sol',
+      codexReasoningEffort: 'high',
+      codexServiceTier: 'default',
+      codexModelPreset: 'gpt-5.6-sol:high',
+    },
+  })
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace, agentRuntimeMode: 'terminal' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const payload = await response.json() as { agentId?: string }
+  expect(payload.agentId).toBeTruthy()
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${payload.agentId}"]`).click()
+  const picker = page.getByTestId('code-composer-model-picker')
+  await picker.click()
+  const fast = page.getByRole('button', { name: 'Fast mode' })
+  await expect(fast).toBeDisabled()
+  await expect(page.getByTestId('code-model-matrix-cell-sol-high')).toBeDisabled()
 })
 
 test('Terminal Codex expires its browser catalog and reports refresh failure without stale choices', async ({ page, workspaceRoot }) => {

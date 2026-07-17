@@ -1,7 +1,11 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Agent, SystemStats, TaskHistoryEntry } from '@/types/agent'
-import type { AppServerRequestResponseMessage, ClientMessage, ComposerInputAttachment, ComposerInputMessage, InputMessage, ServerMessage, StartAgentMessage, TerminalInputPart, WorkspaceFileEventMessage } from '@/types/messages'
+import type { AppServerRequestResponseMessage, ClientMessage, ComposerInputAttachment, ComposerInputMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
 import { appWsUrl } from '@/lib/base-path'
+import {
+  publishTerminalGeometry,
+  setTerminalGeometryTransport,
+} from '@/lib/terminal-geometry-client'
 
 const LAST_MESSAGE_STATE_THROTTLE_MS = 1000
 
@@ -43,7 +47,16 @@ export function useWebSocket() {
   })
 
   // Session output callback — components can subscribe
-  const outputListenersRef = useRef<Map<string, (data: string, replace?: boolean, outputSeq?: number | null) => void>>(new Map())
+  const outputListenersRef = useRef<Map<string, (
+    data: string,
+    replace?: boolean,
+    outputSeq?: number | null,
+    runtimeEpoch?: string,
+    stateRevision?: number | null,
+    cols?: number,
+    rows?: number,
+    kind?: 'output' | 'resize' | 'clear',
+  ) => void>>(new Map())
   const workspaceFileListenersRef = useRef<Map<string, Set<(event: WorkspaceFileEventMessage['event']) => void>>>(new Map())
 
   const sendMessage = useCallback((msg: ClientMessage) => {
@@ -84,13 +97,6 @@ export function useWebSocket() {
     return sendMessage(msg)
   }, [sendMessage])
 
-  const sendInput = useCallback((input: string | TerminalInputPart[], agentId?: string) => {
-    const message: InputMessage = Array.isArray(input)
-      ? { type: 'input', inputParts: input, agentId }
-      : { type: 'input', input, agentId }
-    return sendMessage(message)
-  }, [sendMessage])
-
   const sendComposerInput = useCallback((message: string, agentId?: string, attachments: ComposerInputAttachment[] = []) => {
     const input: ComposerInputMessage = {
       type: 'composer-input',
@@ -122,10 +128,6 @@ export function useWebSocket() {
     return sendMessage({ type: 'focus-agent', agentId, refreshState: true })
   }, [sendMessage])
 
-  const resizeAgent = useCallback((agentId: string, cols: number, rows: number) => {
-    return sendMessage({ type: 'resize-agent', agentId, cols, rows })
-  }, [sendMessage])
-
   const killAgent = useCallback((agentId: string) => {
     return sendMessage({ type: 'kill-agent', agentId })
   }, [sendMessage])
@@ -138,7 +140,16 @@ export function useWebSocket() {
     return sendMessage({ type: 'restart-main-agent', command })
   }, [sendMessage])
 
-  const onSessionOutput = useCallback((agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null) => void) => {
+  const onSessionOutput = useCallback((agentId: string, handler: (
+    data: string,
+    replace?: boolean,
+    outputSeq?: number | null,
+    runtimeEpoch?: string,
+    stateRevision?: number | null,
+    cols?: number,
+    rows?: number,
+    kind?: 'output' | 'resize' | 'clear',
+  ) => void) => {
     outputListenersRef.current.set(agentId, handler)
     return () => { outputListenersRef.current.delete(agentId) }
   }, [])
@@ -161,6 +172,11 @@ export function useWebSocket() {
         sendMessage({ type: 'unwatch-workspace-files', agentId })
       }
     }
+  }, [sendMessage])
+
+  useEffect(() => {
+    setTerminalGeometryTransport(message => sendMessage(message))
+    return () => setTerminalGeometryTransport(null)
   }, [sendMessage])
 
   useEffect(() => {
@@ -266,9 +282,47 @@ export function useWebSocket() {
               break
             case 'session-output': {
               const listener = outputListenersRef.current.get(msg.stream.agentId)
-              if (listener) listener(msg.stream.data, msg.stream.replace, msg.stream.outputSeq)
+              if (listener && msg.stream.replace === true) {
+                listener(
+                  msg.stream.data,
+                  true,
+                  msg.stream.outputSeq,
+                  msg.stream.runtimeEpoch,
+                  msg.stream.stateRevision,
+                  msg.stream.cols,
+                  msg.stream.rows,
+                )
+              }
+              if (listener && Array.isArray(msg.stream.chunks)) {
+                msg.stream.chunks.forEach(chunk => {
+                  listener(
+                    chunk.data,
+                    false,
+                    chunk.outputSeq,
+                    chunk.runtimeEpoch,
+                    chunk.stateRevision,
+                    chunk.cols,
+                    chunk.rows,
+                    chunk.kind,
+                  )
+                })
+              } else if (listener && msg.stream.replace !== true) {
+                listener(
+                  msg.stream.data,
+                  msg.stream.replace,
+                  msg.stream.outputSeq,
+                  msg.stream.runtimeEpoch,
+                  msg.stream.stateRevision,
+                  msg.stream.cols,
+                  msg.stream.rows,
+                  msg.stream.kind,
+                )
+              }
               break
             }
+            case 'terminal-controller':
+              publishTerminalGeometry(msg)
+              break
             case 'workspace-file-watch':
               break
             case 'workspace-file-event':
@@ -296,6 +350,9 @@ export function useWebSocket() {
           error: event.code === 4001 ? 'Farming token expired or is invalid' : prev.error,
           errorId: event.code === 4001 ? prev.errorId + 1 : prev.errorId,
         }))
+        window.dispatchEvent(new CustomEvent('farming:backend-disconnected', {
+          detail: { code: event.code, reason: event.reason },
+        }))
         reconnectTimer = setTimeout(connect, 1000)
       }
 
@@ -319,11 +376,9 @@ export function useWebSocket() {
   return {
     ...state,
     startAgent,
-    sendInput,
     sendComposerInput,
     respondToAppServerRequest,
     focusAgent,
-    resizeAgent,
     killAgent,
     interruptAgent,
     restartMainAgent,

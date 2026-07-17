@@ -52,6 +52,21 @@ function run() {
       sessionBridge.includes('...(attachments.length > 0 ? { attachments } : {})'),
     'structured runtimes should preserve native ACP prompt attachments through the session bridge'
   );
+  assert(
+    sessionBridge.includes('sendTerminalInput(agentId, input, terminalControl)') &&
+      sessionBridge.includes('...terminalControl') &&
+      crtApp.includes('queueCrtTerminalInput(input)') &&
+      crtApp.includes('sendTerminalInput(data)') &&
+      crtApp.includes('while (true)'),
+    'CRT terminal input should use the active fence and direct ordered WebSocket delivery'
+  );
+  assert(
+    sessionBridge.includes('acknowledgeTerminalOutput(agentId, charCount, geometry)') &&
+      sessionBridge.includes("type: 'terminal-output-ack'") &&
+      crtApp.includes('acknowledgeCrtRenderedTerminalOutput(event.data.length, event.runtimeEpoch)') &&
+      crtApp.includes('CRT_TERMINAL_OUTPUT_ACK_CHARS = 5000'),
+    'CRT should acknowledge output only after the terminal renderer commits it'
+  );
   assert(runtimePaths.includes("path('/ws')"), 'CRT runtime should connect to the base-path WebSocket');
   assert(
     indexHtml.indexOf('runtime-paths.js') < indexHtml.indexOf('terminal-bridge.js'),
@@ -100,6 +115,12 @@ function run() {
   assert(!indexHtml.includes('crt-structured-input-prompt') && !indexHtml.includes('MESSAGE&gt;'), 'CRT structured input should not spend horizontal space on a redundant prompt label');
   assert(indexHtml.includes('id="crt-structured-input" rows="2"') && crtApp.includes('resizeStructuredComposerInput'), 'CRT structured input should grow to show multiline drafts');
   assert(crtApp.includes('focusStructuredComposerToolbarButton') && crtApp.includes('focusStructuredComposerMenuButton'), 'CRT structured Composer should support layered keyboard navigation from the draft into inline controls');
+  assert(
+    crtApp.includes('captureStructuredComposerMenuFocus')
+      && crtApp.includes('restoreStructuredComposerMenuFocus')
+      && crtApp.includes('button.dataset.menuKey = menuKey'),
+    'CRT structured Composer should preserve the keyboard-selected menu item when Agent refreshes rebuild the controls'
+  );
   assert(crtApp.includes('structuredComposerConfigId') && crtApp.includes('structuredConfigValueLabel'), 'CRT structured config should reveal categories before their individual values');
   assert(crtApp.includes('structuredVisibleConfigOptions') && crtApp.includes("String(option && option.id || '').toLowerCase() !== 'mode'"), 'CRT structured config should not repeat the ACP mode control');
   assert(crtApp.includes('backStructuredComposerMenu'), 'CRT structured config should return one keyboard level at a time');
@@ -145,7 +166,7 @@ function run() {
   assert(effectsCss.includes('#farming-crt.page-hidden .crt-scan-beam'), 'CRT should pause the scan beam while its page is hidden');
   assert(crtApp.includes("document.addEventListener('visibilitychange'") && crtApp.includes("window.addEventListener('pagehide'"), 'CRT should observe page visibility lifecycle events');
   assert(crtApp.includes('suspendCrtPageConnection') && crtApp.includes('wsReconnectTimer'), 'CRT should close hidden-page sockets and cancel reconnect work');
-  assert(crtApp.includes('resumeCrtPageConnection') && crtApp.includes('refreshSessionView(true, activeAgentId'), 'CRT should reconnect and resync the focused terminal when visible again');
+  assert(crtApp.includes('resumeCrtPageConnection') && crtApp.includes("claimCrtTerminalGeometry('passive')"), 'CRT should reconnect and reacquire a fenced terminal checkpoint when visible again');
   assert(!effectsCss.includes('repeating-linear-gradient(\n            to right'), 'Monochrome Green should not use an RGB aperture mask');
   assert(indexHtml.includes('id="farming-crt"'), 'CRT effects should be scoped to the CRT skin root');
   assert(indexHtml.includes('rel="icon" type="image/svg+xml" href="assets/branding/farming-crt-icon.svg"'), 'CRT should use its terminal-computer brand mark as the page icon');
@@ -154,13 +175,18 @@ function run() {
   assert(indexHtml.includes('styles/monochrome-green.css'), 'CRT entry should load its private Monochrome Green stylesheet');
   assert(indexHtml.includes('styles/billing.css'), 'CRT entry should load its Billing telemetry stylesheet');
   assert(
-    indexHtml.includes('id="billing-daily-bars"')
-      && indexHtml.includes('id="billing-activity-strip"')
+    indexHtml.includes('id="billing-calendar-grid"')
+      && indexHtml.includes('id="billing-calendar-months"')
       && indexHtml.includes('id="billing-day-total"')
+      && indexHtml.includes('id="billing-day-total-compact"')
+      && indexHtml.includes('id="billing-day-hour-strip"')
       && indexHtml.includes('id="billing-scope"')
       && indexHtml.includes('id="billing-quota-list"')
       && indexHtml.includes('<span class="key">[$]</span> BILLING')
-      && crtApp.includes('farmingApiPath(`/usage/day?date=${encodeURIComponent(date)}`)')
+      && crtApp.includes('/usage/day?date=')
+      && crtApp.includes("live ? '&live=1' : ''")
+      && crtApp.includes('CRT_BILLING_LIVE_DAY_REFRESH_MS = 5_000')
+      && crtApp.includes('updateCrtBillingTotalDisplay')
       && crtApp.includes("e.key === '$'")
       && crtApp.includes("e.key === '4' && e.shiftKey"),
     'CRT Billing should expose daily history, exact day details, live trend, and quota telemetry surfaces',
@@ -173,13 +199,13 @@ function run() {
   );
   assert(
     crtApp.includes('renderCrtBillingDaily')
-      && crtApp.includes('crtBillingLogPosition')
+      && crtApp.includes('crtBillingHeatLevel')
       && indexHtml.includes('1B+ DAY')
       && crtApp.includes('drawCrtBillingScope')
-      && billingCss.includes('.billing-daily-column')
-      && billingCss.includes('.billing-activity-tick')
+      && billingCss.includes('.billing-calendar-day')
+      && billingCss.includes('.billing-day-hour-cell')
       && billingCss.includes('@keyframes crt-billing-sweep'),
-    'CRT Billing should render logarithmic daily history, an activity strip, and a phosphor live oscilloscope',
+    'CRT Billing should render a 52-week daily heatmap, selectable hourly coordinates, and a phosphor live oscilloscope',
   );
   assert(fs.existsSync(departureFontPath), 'CRT should bundle the Departure Mono font');
   assert(fs.readFileSync(departureLicensePath, 'utf8').includes('SIL OPEN FONT LICENSE Version 1.1'), 'CRT should retain the Departure Mono license');
@@ -237,7 +263,13 @@ function run() {
   assert(indexHtml.includes('id="dynamic-heat"'), 'CRT settings should expose the dynamic heat toggle');
   assert(crtApp.includes("globalSettings.crtDynamicHeatEnabled === true ? agent.activityLevel : ''"), 'CRT heat classes should be opt-in');
   assert(crtApp.includes('formatSystemClock'), 'CRT should format the server system clock');
-  assert(crtApp.includes('candidate.previewCols === terminal.cols'), 'CRT should wait for a dimension-matched terminal snapshot');
+  assert(
+    crtApp.includes('function installCrtTerminalCheckpoint')
+      && crtApp.includes('terminal.resize(sessionView.previewCols, sessionView.previewRows)')
+      && crtApp.includes('terminal.write(sessionView.renderOutput, () =>')
+      && !crtApp.includes('candidate.previewCols === terminal.cols'),
+    'CRT should install the authoritative opaque checkpoint at its exact logical dimensions'
+  );
   assert(!crtApp.includes("`${getCrtAgentTitle(agent)} (${agent.id})`"), 'CRT session titles should not expose internal Agent ids');
   assert(indexHtml.includes('.crt-checkbox:checked::before'), 'CRT settings should use terminal-style checkboxes');
   assert(indexHtml.includes('content: "[✓]"'), 'CRT checked state should use a retro check mark');

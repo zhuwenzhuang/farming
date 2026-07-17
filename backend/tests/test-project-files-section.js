@@ -213,8 +213,8 @@ function run() {
 	      workspaceSource.includes('stableProjectFileAgentId(null, project.agents)') &&
 	      workspaceSource.includes('const nextProjectFileAgentId = stableProjectFileAgentId(projectFileAgentId, project.agents)') &&
 	      workspaceSource.includes('agent.id === nextProjectFileAgentId') &&
-	      workspaceSource.includes('const showProjectFiles = project.id !== MAIN_AGENT_PROJECT_ID && projectFileAgent !== null') &&
-	      workspaceSource.includes('{showProjectFiles && projectFileAgent && (') &&
+	      workspaceSource.includes('const showProjectFiles = project.id !== MAIN_AGENT_PROJECT_ID && Boolean(effectiveProjectFileAgentId)') &&
+	      workspaceSource.includes('{showProjectFiles && (') &&
 	      workspaceSource.includes('revealRequest={fileRevealRequest && projectFileAgentIds.has(fileRevealRequest.agentId) ? fileRevealRequest : undefined}') &&
 	      workspaceSource.includes('focusSearchRequest={fileSearchFocusRequest && projectFileAgentIds.has(fileSearchFocusRequest.agentId) ? fileSearchFocusRequest : undefined}') &&
 	      workspaceSource.includes('editorDirtyFilePaths={projectEditorDirtyFilePaths}') &&

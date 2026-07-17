@@ -1,6 +1,3 @@
-export const TERMINAL_INPUT_FALLBACK_DELAY_MS = 80
-export const TERMINAL_INPUT_FALLBACK_SUPPRESSION_MS = 120
-
 export interface TerminalTextInputTarget {
   paste?: (text: string) => void
   input?: (text: string, fromPaste?: boolean) => void
@@ -36,23 +33,4 @@ export function pasteTerminalText(destination: TerminalPasteDestination, text: s
   }
   destination.inputHandler(text)
   return true
-}
-
-export function isXtermHelperTextareaTarget(target: EventTarget | null): target is HTMLTextAreaElement {
-  return target instanceof HTMLTextAreaElement && target.classList.contains('xterm-helper-textarea')
-}
-
-export function shouldUseTerminalInputFallback(options: {
-  isXterm: boolean
-  imeComposing: boolean
-  text?: string
-  terminal: TerminalTextInputTarget
-}) {
-  if (options.imeComposing || typeof options.terminal.input !== 'function') return false
-  if (!options.isXterm) return true
-  return Boolean(options.text && /[^\x00-\x7F]/.test(options.text))
-}
-
-export function shouldSuppressTerminalInputFallback(lastTerminalDataAt: number, inputEventAt: number) {
-  return Math.abs(lastTerminalDataAt - inputEventAt) < TERMINAL_INPUT_FALLBACK_SUPPRESSION_MS
 }

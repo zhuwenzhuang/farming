@@ -22,8 +22,8 @@
       };
     }
 
-    function shouldPollSessionView(sessionSource) {
-      return sessionSource === 'live-text';
+    function shouldPollSessionView(_sessionSource) {
+      return false;
     }
 
     function getDomState(documentRef) {
@@ -96,7 +96,7 @@
             return;
           }
 
-          if (fitAddon && fitAddon.fit) {
+          if (fitAddon && fitAddon.fit && options.authoritativeGeometry !== true) {
             fitAddon.fit();
           }
 
@@ -284,15 +284,8 @@
 
         startPolling(context = {}) {
           this.stopPolling();
-          if (!options.schedulePoll || !options.refreshSessionView) {
-            return null;
-          }
-
-          poller = options.schedulePoll(() => {
-            options.refreshSessionView(false, context.agentId, context.sessionToken);
-          });
-          syncPoller();
-          return poller;
+          void context;
+          return null;
         },
 
         stopPolling() {

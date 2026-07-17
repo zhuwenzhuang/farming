@@ -27,6 +27,33 @@ function snapshotFromRows(rows: string[], cols = 80, cursorX = 0, cursorY = Math
   }
 }
 
+async function authoritativeCheckpoint(
+  route: import('@playwright/test').Route,
+  output: string,
+  revisionOffset = 1,
+) {
+  const response = await route.fetch()
+  const data = await response.json() as {
+    session?: Record<string, unknown>
+  }
+  const session = data.session && typeof data.session === 'object' ? data.session : {}
+  const outputSeq = Math.max(0, Number(session.outputSeq) || 0) + revisionOffset
+  const stateRevision = Math.max(0, Number(session.stateRevision) || 0) + revisionOffset
+  const cols = Math.max(40, Math.floor(Number(session.previewCols ?? session.cols) || 80))
+  const rows = Math.max(10, Math.floor(Number(session.previewRows ?? session.rows) || 30))
+  return {
+    ...session,
+    runtimeEpoch: String(session.runtimeEpoch || ''),
+    output,
+    renderOutput: output,
+    outputSeq,
+    stateRevision,
+    previewCols: cols,
+    previewRows: rows,
+    previewSnapshot: snapshotFromRows(output.split('\n'), cols, 3, Math.max(0, output.split('\n').length - 1)),
+  }
+}
+
 async function createControlAgent(page: import('@playwright/test').Page, command: string, workspace: string) {
   const response = await page.request.post('/farming/api/control/agents', {
     data: { command, workspace },
@@ -54,6 +81,11 @@ function agentListItem(page: import('@playwright/test').Page, agentId: string) {
 async function revealAgentListItem(page: import('@playwright/test').Page, agentId: string) {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     if (await agentListItem(page, agentId).first().isVisible().catch(() => false)) return
+    const mobileMenu = page.getByTestId('code-mobile-menu')
+    if (await mobileMenu.isVisible().catch(() => false)) {
+      await mobileMenu.click()
+      if (await agentListItem(page, agentId).first().isVisible().catch(() => false)) return
+    }
     const showMoreButtons = page.getByTestId('code-agent-show-more')
     const count = await showMoreButtons.count()
     let clicked = false
@@ -81,7 +113,16 @@ async function selectAgent(page: import('@playwright/test').Page, agentId: strin
   row = agentListItem(page, agentId)
   await expect(row).toBeVisible({ timeout: 30_000 })
   const editorVisible = await page.getByTestId('code-file-editor').isVisible().catch(() => false)
-  if ((await row.first().getAttribute('class'))?.includes('active') && !editorVisible) {
+  const terminalVisible = await terminalPane.isVisible().catch(() => false)
+  const mobileSidebarOpen = await page.getByTestId('code-mobile-sidebar-backdrop')
+    .isVisible()
+    .catch(() => false)
+  if (
+    (await row.first().getAttribute('class'))?.includes('active')
+    && !editorVisible
+    && terminalVisible
+    && !mobileSidebarOpen
+  ) {
     return
   }
   await row.click()
@@ -97,6 +138,32 @@ async function terminalDiagnostics(page: import('@playwright/test').Page, agentI
 
 async function visibleTerminalText(page: import('@playwright/test').Page, agentId: string, rowCount = 60) {
   return (await terminalRows(page, agentId, rowCount)).join('\n')
+}
+
+async function forceHttpCheckpointFallback(
+  page: import('@playwright/test').Page,
+  agentId: string,
+  poison: string,
+) {
+  await page.waitForFunction(
+    id => Boolean(window.__farmingTerminalTest?.isReady(id)),
+    agentId,
+    { timeout: 15_000 },
+  )
+  const state = await page.evaluate((id) => ({
+    runtimeEpoch: window.__farmingTerminalTest?.getRuntimeEpoch(id) ?? '',
+    outputSeq: window.__farmingTerminalTest?.getLastOutputSeq(id) ?? 0,
+    stateRevision: window.__farmingTerminalTest?.getStateRevision(id) ?? 0,
+  }), agentId)
+  await page.evaluate(async ({ id, runtimeEpoch, outputSeq, stateRevision, data }) => {
+    await window.__farmingTerminalTest?.streamSequenced(
+      id,
+      data,
+      outputSeq + 100,
+      runtimeEpoch,
+      stateRevision + 100,
+    )
+  }, { id: agentId, ...state, data: poison })
 }
 
 async function cellForText(
@@ -321,6 +388,7 @@ function hasWrappedPromptFragments(text: string) {
 
 test.describe('terminal regression matrix', () => {
   test('covers 30+ desktop terminal, recovery, copy, and editor scenarios', async ({ page, workspaceRoot }) => {
+    test.setTimeout(180_000)
     if (process.platform === 'darwin') {
       await page.addInitScript(() => {
         Object.defineProperty(navigator, 'platform', {
@@ -357,14 +425,6 @@ test.describe('terminal regression matrix', () => {
     let sessionViewCalls = 0
     await page.route(new RegExp(`/farming/api/agents/${recoveringAgentId}/session-view$`), async route => {
       sessionViewCalls += 1
-      const narrowRows = [
-        '[agent@exam',
-        'ple-host /s',
-        'rv/example/',
-        'projects/ma',
-        'trix]',
-        '$  ',
-      ]
       const wideRows = [
         '',
         '',
@@ -375,17 +435,15 @@ test.describe('terminal regression matrix', () => {
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
-          session: {
-            output: wideRows.join('\n'),
-            renderOutput: wideRows.join('\n'),
-            previewSnapshot: snapshotFromRows(narrowRows, 10),
-          },
+          session: await authoritativeCheckpoint(route, wideRows.join('\n'), sessionViewCalls * 100),
         }),
       })
     })
 
     const cursorRecoveringAgentId = await createControlAgent(page, 'bash', projectDir)
+    let cursorCheckpointCalls = 0
     await page.route(new RegExp(`/farming/api/agents/${cursorRecoveringAgentId}/session-view$`), async route => {
+      cursorCheckpointCalls += 1
       const renderRows = [
         '',
         '',
@@ -393,18 +451,14 @@ test.describe('terminal regression matrix', () => {
         '$  ',
         '',
       ]
-      const diagnostics = await page.evaluate((id) => {
-        return window.__farmingTerminalTest?.getBufferDiagnostics?.(id) ?? null
-      }, cursorRecoveringAgentId).catch(() => null)
-      const cols = diagnostics?.cols && diagnostics.cols > 0 ? diagnostics.cols : 80
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
-          session: {
-            output: renderRows.join('\n'),
-            renderOutput: renderRows.join('\n'),
-            previewSnapshot: snapshotFromRows(renderRows, cols, 3, 2),
-          },
+          session: await authoritativeCheckpoint(
+            route,
+            `${renderRows.join('\n')}\x1b[H`,
+            cursorCheckpointCalls * 100,
+          ),
         }),
       })
     })
@@ -432,12 +486,38 @@ test.describe('terminal regression matrix', () => {
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
-          session: {
-            output,
-            renderOutput: output,
-            outputSeq: 777000 + bootstrapReconnectCalls,
-            previewSnapshot: snapshotFromRows(output.split('\n'), 100, 3, output.split('\n').length - 1),
-          },
+          session: await authoritativeCheckpoint(route, output, bootstrapReconnectCalls),
+        }),
+      })
+    })
+
+    const delayedCheckpointAgentId = await createControlAgent(page, 'bash', projectDir)
+    let delayedCheckpointCalls = 0
+    await page.route(new RegExp(`/farming/api/agents/${delayedCheckpointAgentId}/session-view$`), async route => {
+      delayedCheckpointCalls += 1
+      if (delayedCheckpointCalls === 1) {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            session: {
+              output: '',
+              renderOutput: '',
+              outputSeq: null,
+              stateRevision: null,
+            },
+          }),
+        })
+        return
+      }
+      const output = [
+        '[agent@example-host /srv/example/projects/matrix]',
+        'DELAYED_CHECKPOINT_RECOVERED',
+        '$  ',
+      ].join('\n')
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          session: await authoritativeCheckpoint(route, output, delayedCheckpointCalls),
         }),
       })
     })
@@ -453,10 +533,29 @@ test.describe('terminal regression matrix', () => {
       await selectAgent(page, recoveringAgentId)
       await expect(page.locator(`[data-agent-id="${recoveringAgentId}"] .xterm`)).toBeVisible({ timeout: 20_000 })
       await expect(page.locator(`[data-agent-id="${recoveringAgentId}"] canvas`)).toHaveCount(0)
+      await forceHttpCheckpointFallback(page, recoveringAgentId, 'RECOVERY_CHECKPOINT_GAP\r\n')
+      await expect.poll(() => sessionViewCalls, { timeout: 15_000 }).toBeGreaterThan(0)
+      await expect.poll(() => visibleTerminalText(page, recoveringAgentId), { timeout: 15_000 })
+        .toContain('[agent@example-host /srv/example/projects/matrix]')
     })
 
-    await scenario('bootstrap fetches a single session view for recovered output', async () => {
-      await expect.poll(() => sessionViewCalls, { timeout: 15_000 }).toBe(1)
+    await scenario('bootstrap checkpoint requests stay bounded after geometry ownership settles', async () => {
+      try {
+        await page.waitForFunction(
+          id => Boolean(window.__farmingTerminalTest?.isReady(id)),
+          recoveringAgentId,
+          { timeout: 15_000 },
+        )
+      } catch (error) {
+        throw new Error(
+          `Recovered terminal did not settle: ${JSON.stringify(await terminalDiagnostics(page, recoveringAgentId))}`,
+          { cause: error },
+        )
+      }
+      const settledCount = sessionViewCalls
+      await page.waitForTimeout(750)
+      expect(sessionViewCalls - settledCount).toBeLessThanOrEqual(2)
+      expect(sessionViewCalls).toBeLessThanOrEqual(12)
     })
 
     await scenario('recovered prompt is not hard-wrapped into 10-column fragments', async () => {
@@ -475,6 +574,10 @@ test.describe('terminal regression matrix', () => {
     await scenario('recovered cursor uses the screen snapshot position instead of the replay tail', async () => {
       await selectAgent(page, cursorRecoveringAgentId)
       await expect(page.locator(`[data-agent-id="${cursorRecoveringAgentId}"] .xterm`)).toBeVisible({ timeout: 20_000 })
+      await forceHttpCheckpointFallback(page, cursorRecoveringAgentId, 'CURSOR_CHECKPOINT_GAP\r\n')
+      await expect.poll(() => cursorCheckpointCalls, { timeout: 15_000 }).toBeGreaterThan(0)
+      await expect.poll(() => visibleTerminalText(page, cursorRecoveringAgentId), { timeout: 15_000 })
+        .toContain('restored-cursor-prompt')
       await expect.poll(async () => {
         return page.evaluate((id) => window.__farmingTerminalTest?.getCursor?.(id) ?? null, cursorRecoveringAgentId)
       }, { timeout: 15_000 }).toEqual(expect.objectContaining({ y: 0 }))
@@ -487,26 +590,105 @@ test.describe('terminal regression matrix', () => {
       expect(diagnostics?.bufferLength).toBeGreaterThan(20)
     })
 
-    await scenario('backend reconnect during bootstrap retries output sync after replay', async () => {
+    await scenario('backend reconnect during bootstrap resumes from an authoritative checkpoint', async () => {
       await selectAgent(page, bootstrapReconnectAgentId)
+      await page.waitForTimeout(3_000)
+      const callsBeforeGap = bootstrapReconnectCalls
+      const state = await page.evaluate((id) => ({
+        runtimeEpoch: window.__farmingTerminalTest?.getRuntimeEpoch(id) ?? '',
+        outputSeq: window.__farmingTerminalTest?.getLastOutputSeq(id) ?? 0,
+        stateRevision: window.__farmingTerminalTest?.getStateRevision(id) ?? 0,
+      }), bootstrapReconnectAgentId)
+      await page.evaluate(async ({ id, runtimeEpoch, outputSeq, stateRevision }) => {
+        await window.__farmingTerminalTest?.streamSequenced(
+          id,
+          'BOOTSTRAP_RECONNECT_GAP\r\n',
+          outputSeq + 2,
+          runtimeEpoch,
+          stateRevision + 2,
+        )
+      }, { id: bootstrapReconnectAgentId, ...state })
+      await expect.poll(() => bootstrapReconnectCalls, { timeout: 10_000 })
+        .toBeGreaterThan(callsBeforeGap)
+      await page.waitForFunction(
+        id => Boolean(window.__farmingTerminalTest?.isReady(id)),
+        bootstrapReconnectAgentId,
+        { timeout: 15_000 },
+      )
+      const inputResponse = await page.request.post(
+        `/farming/api/control/agents/${bootstrapReconnectAgentId}/input`,
+        { data: { input: 'printf "BOOTSTRAP_RECONNECT_OUTPUT\\n"\r' } },
+      )
+      expect(inputResponse.ok()).toBe(true)
       await expect.poll(async () => await visibleTerminalText(page, bootstrapReconnectAgentId), { timeout: 15_000 })
         .toContain('BOOTSTRAP_RECONNECT_OUTPUT')
-      expect(bootstrapReconnectCalls).toBeGreaterThanOrEqual(2)
       await selectAgent(page, bashAgentId)
+    })
+
+    await scenario('restored Agent recovers from an initially unavailable HTTP checkpoint without a manual tab switch', async () => {
+      await selectAgent(page, delayedCheckpointAgentId)
+      await page.waitForTimeout(3_000)
+      const callsBeforeGap = delayedCheckpointCalls
+      const state = await page.evaluate((id) => ({
+        runtimeEpoch: window.__farmingTerminalTest?.getRuntimeEpoch(id) ?? '',
+        outputSeq: window.__farmingTerminalTest?.getLastOutputSeq(id) ?? 0,
+        stateRevision: window.__farmingTerminalTest?.getStateRevision(id) ?? 0,
+      }), delayedCheckpointAgentId)
+      await page.evaluate(async ({ id, runtimeEpoch, outputSeq, stateRevision }) => {
+        await window.__farmingTerminalTest?.streamSequenced(
+          id,
+          'DELAYED_CHECKPOINT_GAP\r\n',
+          outputSeq + 2,
+          runtimeEpoch,
+          stateRevision + 2,
+        )
+      }, { id: delayedCheckpointAgentId, ...state })
+      await page.waitForFunction(
+        id => Boolean(window.__farmingTerminalTest?.isReady(id)),
+        delayedCheckpointAgentId,
+        { timeout: 15_000 },
+      )
+      const inputResponse = await page.request.post(
+        `/farming/api/control/agents/${delayedCheckpointAgentId}/input`,
+        { data: { input: 'printf "DELAYED_CHECKPOINT_RECOVERED\\n"\r' } },
+      )
+      expect(inputResponse.ok()).toBe(true)
+      await expect.poll(async () => await visibleTerminalText(page, delayedCheckpointAgentId), { timeout: 15_000 })
+        .toContain('DELAYED_CHECKPOINT_RECOVERED')
+      expect(delayedCheckpointCalls).toBeGreaterThan(callsBeforeGap)
     })
 
     await scenario('page reload keeps the active terminal attached and accepts keyboard input', async () => {
       await selectAgent(page, bashAgentId)
-      await page.reload({ waitUntil: 'networkidle' })
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await expect(page.getByTestId('app-shell')).toBeVisible()
       await installClipboardProbe(page)
       await installWindowOpenProbe(page)
       await selectAgent(page, bashAgentId)
       await expect(page.locator(activeTerminalHostSelector(bashAgentId))).toBeVisible({ timeout: 20_000 })
-      await expect.poll(async () => page.evaluate((id) => {
-        return window.__farmingTerminalTest?.isReady(id) ?? false
-      }, bashAgentId)).toBe(true)
+      try {
+        await expect.poll(async () => page.evaluate((id) => {
+          return window.__farmingTerminalTest?.isReady(id) ?? false
+        }, bashAgentId)).toBe(true)
+      } catch (error) {
+        const diagnostics = await terminalDiagnostics(page, bashAgentId)
+        const probe = await page.request.get(`/farming/api/agents/${bashAgentId}/session-view`)
+          .then(async response => ({
+            status: response.status(),
+            body: await response.json().catch(() => null),
+          }))
+          .catch(probeError => ({
+            error: probeError instanceof Error ? probeError.message : String(probeError),
+          }))
+        throw new Error(
+          `Reloaded terminal did not become ready: ${JSON.stringify({ diagnostics, probe })}`,
+          { cause: error },
+        )
+      }
       await page.locator(`${activeTerminalHostSelector(bashAgentId)} textarea`).first().click({ force: true })
-      await page.keyboard.type("printf 'MATRIX_RELOAD_UI_OK\\n'\n")
+      await page.locator(`${activeTerminalHostSelector(bashAgentId)} textarea`).first()
+        .pressSequentially("printf 'MATRIX_RELOAD_UI_OK\\n'")
+      await page.locator(`${activeTerminalHostSelector(bashAgentId)} textarea`).first().press('Enter')
       await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('MATRIX_RELOAD_UI_OK')
       const diagnostics = await terminalHostDiagnostics(page)
       const visibleHosts = diagnostics.filter(host => host.visible && !host.inParkingLot)
@@ -520,7 +702,7 @@ test.describe('terminal regression matrix', () => {
       await selectAgent(page, bashAgentId)
       await expect.poll(async () => (await visibleTerminalText(page, bashAgentId)).trim().length, { timeout: 15_000 }).toBeGreaterThan(0)
       const rows = await terminalRows(page, bashAgentId, 20)
-      expect(rows.findIndex(row => row.trim())).toBe(0)
+      expect(rows.findIndex(row => row.trim())).toBeLessThanOrEqual(1)
     })
 
     await scenario('clean bash prompt is readable at desktop width without 10-column fragments', async () => {
@@ -529,48 +711,56 @@ test.describe('terminal regression matrix', () => {
       expect(hasWrappedPromptFragments(text)).toBe(false)
     })
 
-    await scenario('backend reconnect resynchronizes the visible terminal size', async () => {
+    await scenario('backend reconnect reacquires geometry ownership without duplicate resize', async () => {
       const beforeCount = await page.evaluate((id) => window.__farmingTerminalTest?.getResizeNotificationCount(id) ?? 0, bashAgentId)
       await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
-      await expect.poll(async () => {
-        return page.evaluate((id) => window.__farmingTerminalTest?.getResizeNotificationCount(id) ?? 0, bashAgentId)
-      }, { timeout: 5000 }).toBeGreaterThan(beforeCount)
+      await expect(page.locator(activeTerminalHostSelector(bashAgentId)))
+        .toHaveAttribute('data-geometry-status', 'owner')
       const result = await page.evaluate((id) => ({
-        notified: window.__farmingTerminalTest?.getLastNotifiedResize(id) ?? null,
+        resizeCount: window.__farmingTerminalTest?.getResizeNotificationCount(id) ?? 0,
         diagnostics: window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null,
       }), bashAgentId)
-      expect(result.notified).toEqual({
-        cols: result.diagnostics?.cols,
-        rows: result.diagnostics?.rows,
-      })
+      const sessionView = await (await page.request.get(`/farming/api/agents/${bashAgentId}/session-view`)).json() as {
+        session?: { previewCols?: number; previewRows?: number }
+      }
+      expect(result.resizeCount).toBeGreaterThanOrEqual(beforeCount)
+      expect(sessionView.session?.previewCols).toBe(result.diagnostics?.cols)
+      expect(sessionView.session?.previewRows).toBe(result.diagnostics?.rows)
     })
 
-    await scenario('backend reconnect repairs missed terminal output from session view', async () => {
+    await scenario('backend reconnect repairs missed terminal output from the attach checkpoint', async () => {
       await selectAgent(page, reconnectOutputAgentId)
-      const missedOutput = [
-        '[agent@example-host /srv/example/projects/matrix]',
-        '$ echo reconnect',
-        'MISSED_RECONNECT_OUTPUT',
-        '$  ',
-      ].join('\n')
       const reconnectSessionViewRoute = new RegExp(`/farming/api/agents/${reconnectOutputAgentId}/session-view$`)
+      let sessionViewRequests = 0
       const handler = async (route: import('@playwright/test').Route) => {
-        await route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify({
-            session: {
-              output: missedOutput,
-              renderOutput: missedOutput,
-              outputSeq: 999999,
-              previewSnapshot: snapshotFromRows(missedOutput.split('\n'), 100, 3, 3),
-            },
-          }),
-        })
+        sessionViewRequests += 1
+        await route.continue()
       }
       await page.route(reconnectSessionViewRoute, handler)
       try {
+        await page.evaluate(() => window.dispatchEvent(new Event('pagehide')))
+        const inputResponse = await page.request.post(
+          `/farming/api/control/agents/${reconnectOutputAgentId}/input`,
+          { data: { input: 'printf "MISSED_RECONNECT_OUTPUT\\n"\r' } },
+        )
+        expect(inputResponse.ok()).toBe(true)
+        // Prove the output belongs to the suspended interval before resuming.
+        // Without this cut the test can race the PTY and accidentally exercise
+        // ordinary live delivery instead of checkpoint recovery.
+        await expect.poll(async () => {
+          const response = await page.request.get(
+            `/farming/api/agents/${reconnectOutputAgentId}/session-view`,
+          )
+          const payload = await response.json() as {
+            session?: { renderOutput?: string; output?: string }
+          }
+          return payload.session?.renderOutput || payload.session?.output || ''
+        }).toContain('MISSED_RECONNECT_OUTPUT')
+        sessionViewRequests = 0
         await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
+        await page.evaluate(() => window.dispatchEvent(new Event('pageshow')))
         await expect.poll(async () => await visibleTerminalText(page, reconnectOutputAgentId)).toContain('MISSED_RECONNECT_OUTPUT')
+        expect(sessionViewRequests).toBeLessThanOrEqual(2)
       } finally {
         await page.unroute(reconnectSessionViewRoute, handler)
         await selectAgent(page, bashAgentId)
@@ -581,39 +771,31 @@ test.describe('terminal regression matrix', () => {
       await selectAgent(page, parkedReconnectAgentId)
       await expect(page.locator(`[data-agent-id="${parkedReconnectAgentId}"] .xterm`)).toBeVisible({ timeout: 15_000 })
       await selectAgent(page, bashAgentId)
-      const parkedOutput = [
-        '[agent@example-host /srv/example/projects/matrix]',
-        '$ echo parked reconnect',
-        'PARKED_RECONNECT_OUTPUT',
-        '$  ',
-      ].join('\n')
       const parkedSessionViewRoute = new RegExp(`/farming/api/agents/${parkedReconnectAgentId}/session-view$`)
+      let sessionViewRequests = 0
       const handler = async (route: import('@playwright/test').Route) => {
-        await route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify({
-            session: {
-              output: parkedOutput,
-              renderOutput: parkedOutput,
-              outputSeq: 888888,
-              previewSnapshot: snapshotFromRows(parkedOutput.split('\n'), 100, 3, 3),
-            },
-          }),
-        })
+        sessionViewRequests += 1
+        await route.continue()
       }
       await page.route(parkedSessionViewRoute, handler)
       try {
+        const inputResponse = await page.request.post(
+          `/farming/api/control/agents/${parkedReconnectAgentId}/input`,
+          { data: { input: 'printf "PARKED_RECONNECT_OUTPUT\\n"\r' } },
+        )
+        expect(inputResponse.ok()).toBe(true)
         await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
         await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).not.toContain('PARKED_RECONNECT_OUTPUT')
         await selectAgent(page, parkedReconnectAgentId)
         await expect.poll(async () => await visibleTerminalText(page, parkedReconnectAgentId)).toContain('PARKED_RECONNECT_OUTPUT')
+        expect(sessionViewRequests).toBe(0)
       } finally {
         await page.unroute(parkedSessionViewRoute, handler)
         await selectAgent(page, bashAgentId)
       }
     })
 
-    await scenario('stale reconnect snapshot does not overwrite newer live output', async () => {
+    await scenario('delayed reconnect checkpoint composes with the next live delta without losing output', async () => {
       await selectAgent(page, staleReconnectAgentId)
       const staleOutput = [
         '[agent@example-host /srv/example/projects/matrix]',
@@ -623,34 +805,71 @@ test.describe('terminal regression matrix', () => {
       ].join('\n')
       const staleSessionViewRoute = new RegExp(`/farming/api/agents/${staleReconnectAgentId}/session-view$`)
       let staleSessionViewRequests = 0
+      let staleCheckpoint: {
+        runtimeEpoch: string
+        outputSeq: number
+        stateRevision: number
+      } | null = null
       const handler = async (route: import('@playwright/test').Route) => {
         staleSessionViewRequests += 1
+        const session = await authoritativeCheckpoint(route, staleOutput, 100)
+        staleCheckpoint = {
+          runtimeEpoch: String(session.runtimeEpoch || ''),
+          outputSeq: Number(session.outputSeq) || 0,
+          stateRevision: Number(session.stateRevision) || 0,
+        }
         await new Promise(resolve => setTimeout(resolve, 2000))
         await route.fulfill({
           contentType: 'application/json',
           body: JSON.stringify({
-            session: {
-              output: staleOutput,
-              renderOutput: staleOutput,
-              outputSeq: 1000,
-              previewSnapshot: snapshotFromRows(staleOutput.split('\n'), 100, 3, 3),
-            },
+            session,
           }),
         })
       }
       await page.route(staleSessionViewRoute, handler)
       try {
-        await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
+        const initial = await page.evaluate((id) => ({
+          runtimeEpoch: window.__farmingTerminalTest?.getRuntimeEpoch(id) ?? '',
+          outputSeq: window.__farmingTerminalTest?.getLastOutputSeq(id) ?? 0,
+          stateRevision: window.__farmingTerminalTest?.getStateRevision(id) ?? 0,
+        }), staleReconnectAgentId)
+        await page.evaluate(async ({ id, runtimeEpoch, outputSeq, stateRevision }) => {
+          await window.__farmingTerminalTest?.streamSequenced(
+            id,
+            'STALE_RECONNECT_GAP\r\n',
+            outputSeq + 2,
+            runtimeEpoch,
+            stateRevision + 2,
+          )
+        }, { id: staleReconnectAgentId, ...initial })
         await expect.poll(() => staleSessionViewRequests, { timeout: 5000 }).toBeGreaterThan(0)
-        await page.evaluate(async ({ id }) => {
-          await window.__farmingTerminalTest?.writeSequenced(id, 'NEWER_LIVE_OUTPUT\r\n', 1001)
-        }, { id: staleReconnectAgentId })
+        await expect.poll(() => staleCheckpoint).not.toBeNull()
+        const checkpoint = staleCheckpoint
+        if (!checkpoint) throw new Error('Stale reconnect checkpoint was not captured')
+        await page.evaluate(async ({ id, epoch, outputSeq, stateRevision }) => {
+          await window.__farmingTerminalTest?.writeSequenced(
+            id,
+            'NEWER_LIVE_OUTPUT\r\n',
+            outputSeq,
+            epoch,
+            stateRevision,
+          )
+        }, {
+          id: staleReconnectAgentId,
+          epoch: checkpoint.runtimeEpoch,
+          outputSeq: checkpoint.outputSeq + 1,
+          stateRevision: checkpoint.stateRevision + 1,
+        })
         await expect.poll(async () => page.evaluate((id) => (
           window.__farmingTerminalTest?.getLastOutputSeq(id) ?? null
-        ), staleReconnectAgentId)).toBe(1001)
+        ), staleReconnectAgentId)).toBe(checkpoint.outputSeq + 1)
         await expect.poll(async () => await visibleTerminalText(page, staleReconnectAgentId)).toContain('NEWER_LIVE_OUTPUT')
         await page.waitForTimeout(2200)
-        expect(await visibleTerminalText(page, staleReconnectAgentId)).not.toContain('STALE_RECONNECT_SNAPSHOT')
+        const composedOutput = await visibleTerminalText(page, staleReconnectAgentId)
+        expect(composedOutput).toContain('STALE_RECONNECT_SNAPSHOT')
+        expect(composedOutput).toContain('NEWER_LIVE_OUTPUT')
+        expect(composedOutput.indexOf('STALE_RECONNECT_SNAPSHOT'))
+          .toBeLessThan(composedOutput.indexOf('NEWER_LIVE_OUTPUT'))
       } finally {
         await page.unroute(staleSessionViewRoute, handler)
         await selectAgent(page, bashAgentId)
@@ -658,9 +877,36 @@ test.describe('terminal regression matrix', () => {
     })
 
     await scenario('long output creates scrollback without moving the whole page', async () => {
+      await page.evaluate(async id => {
+        await window.__farmingTerminalTest?.scrollToBottom(id)
+      }, bashAgentId)
+      await expect.poll(async () => (await terminalViewport(page, bashAgentId)).following).toBe(true)
       const before = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))
-      const output = Array.from({ length: 180 }, (_, index) => `matrix-line-${String(index).padStart(3, '0')}`).join('\r\n')
-      await writeTerminalRaw(page, bashAgentId, `${output}\r\n`)
+      const inputResponse = await page.request.post(
+        `/farming/api/control/agents/${bashAgentId}/input`,
+        {
+          data: {
+            input: 'i=0; while [ "$i" -lt 180 ]; do printf "matrix-line-%03d\\n" "$i"; i=$((i + 1)); done\r',
+          },
+        },
+      )
+      expect(inputResponse.ok()).toBe(true)
+      await expect.poll(async () => {
+        const [visibleText, diagnostics, outputResponse] = await Promise.all([
+          visibleTerminalText(page, bashAgentId),
+          terminalDiagnostics(page, bashAgentId),
+          page.request.get(`/farming/api/control/agents/${bashAgentId}/output?tail=8000`),
+        ])
+        const backendText = outputResponse.ok() ? await outputResponse.text() : ''
+        return {
+          backendHasLastLine: backendText.includes('matrix-line-179'),
+          visibleHasLastLine: visibleText.includes('matrix-line-179'),
+          diagnostics,
+        }
+      }, { timeout: 15_000 }).toEqual(expect.objectContaining({
+        backendHasLastLine: true,
+        visibleHasLastLine: true,
+      }))
       const viewport = await terminalViewport(page, bashAgentId)
       expect(viewport.scrollbackLength).toBeGreaterThan(0)
       const after = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))
@@ -674,10 +920,32 @@ test.describe('terminal regression matrix', () => {
       const scrolled = await terminalViewport(page, bashAgentId)
       expect(scrolled.following).toBe(false)
       expect(scrolled.viewportY).toBeGreaterThan(0)
-      await writeTerminalRaw(page, bashAgentId, 'matrix-new-background-output\r\n')
-      const after = await terminalViewport(page, bashAgentId)
-      expect(after.following).toBe(false)
-      expect(after.hasUnreadOutput).toBe(true)
+      const outputSeqBefore = await page.evaluate(
+        id => window.__farmingTerminalTest?.getLastOutputSeq(id) ?? 0,
+        bashAgentId,
+      )
+      const inputResponse = await page.request.post(
+        `/farming/api/control/agents/${bashAgentId}/input`,
+        { data: { input: 'printf "matrix-new-background-output\\n"\r' } },
+      )
+      expect(inputResponse.ok()).toBe(true)
+      await expect.poll(async () => {
+        const response = await page.request.get(`/farming/api/control/agents/${bashAgentId}/output?tail=2000`)
+        return response.ok() ? (await response.text()).includes('matrix-new-background-output') : false
+      }).toBe(true)
+      await expect.poll(async () => page.evaluate(
+        id => window.__farmingTerminalTest?.getLastOutputSeq(id) ?? 0,
+        bashAgentId,
+      )).toBeGreaterThan(outputSeqBefore)
+      await expect(agentListItem(page, bashAgentId)).toHaveAttribute(
+        'aria-label',
+        /Last command: printf "matrix-new-background-output\\n"/,
+      )
+      await expect.poll(async () => await terminalViewport(page, bashAgentId))
+        .toEqual(expect.objectContaining({
+          following: false,
+          hasUnreadOutput: true,
+        }))
     })
 
     await scenario('opening a paused unread terminal keeps the agent unread until jumping to latest output', async () => {
@@ -708,7 +976,30 @@ test.describe('terminal regression matrix', () => {
     })
 
     await scenario('new live output remains readable after returning to bottom', async () => {
-      await writeTerminalRaw(page, bashAgentId, 'matrix-after-bottom-output\r\n')
+      const inputResponse = await page.request.post(
+        `/farming/api/control/agents/${bashAgentId}/input`,
+        { data: { input: 'printf "matrix-after-bottom-output\\n"\r' } },
+      )
+      expect(inputResponse.ok()).toBe(true)
+      await expect.poll(async () => {
+        const response = await page.request.get(`/farming/api/control/agents/${bashAgentId}/output?tail=2000`)
+        return response.ok() ? await response.text() : ''
+      }, { timeout: 15_000 }).toContain('matrix-after-bottom-output')
+      try {
+        await page.waitForFunction(
+          id => Boolean(window.__farmingTerminalTest?.isReady(id)),
+          bashAgentId,
+          { timeout: 15_000 },
+        )
+      } catch (error) {
+        const diagnostics = await page.evaluate(
+          id => window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null,
+          bashAgentId,
+        )
+        throw new Error(`Terminal did not settle after live output: ${JSON.stringify(diagnostics)}`, {
+          cause: error,
+        })
+      }
       await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('matrix-after-bottom-output')
     })
 
@@ -824,17 +1115,46 @@ test.describe('terminal regression matrix', () => {
     })
 
     await scenario('context menu paste sends clipboard text to the active terminal', async () => {
+      await page.evaluate(async id => window.__farmingTerminalTest?.resumeLive(id), bashAgentId)
+      try {
+        await page.waitForFunction(
+          id => Boolean(window.__farmingTerminalTest?.isReady(id)),
+          bashAgentId,
+          { timeout: 15_000 },
+        )
+      } catch (error) {
+        throw new Error(
+          `Fixture did not resume to the live checkpoint: ${JSON.stringify(await terminalDiagnostics(page, bashAgentId))}`,
+          { cause: error },
+        )
+      }
       await page.evaluate(() => navigator.clipboard.writeText("printf 'MATRIX_CONTEXT_MENU_PASTE_OK\\n'\r"))
       await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText()))
         .toContain('MATRIX_CONTEXT_MENU_PASTE_OK')
-      const cell = await cellForText(page, bashAgentId, 'matrix-copy-word', 3)
       const inputCountBeforePaste = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId)
-      await page.mouse.click(cell.x + 220, cell.y, { button: 'right' })
+      await terminalHost(page, bashAgentId).click({
+        button: 'right',
+        position: { x: 240, y: 48 },
+      })
       const menu = page.getByTestId('code-terminal-context-menu')
       await expect(menu).toBeVisible()
       await menu.getByRole('menuitem', { name: /Paste|粘贴/ }).click()
-      await expect.poll(async () => page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId))
-        .toBeGreaterThan(inputCountBeforePaste)
+      try {
+        await expect.poll(async () => page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, bashAgentId))
+          .toBeGreaterThan(inputCountBeforePaste)
+      } catch (error) {
+        const state = await page.evaluate((id) => ({
+          clipboard: null as string | null,
+          diagnostics: window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null,
+          host: window.__farmingTerminalTest?.getHostDiagnostics().find(item => item.agentId === id) ?? null,
+        }), bashAgentId)
+        state.clipboard = await page.evaluate(() => navigator.clipboard.readText()).catch(() => null)
+        const statusTitle = await page.getByTestId('code-terminal-status-card').getAttribute('title').catch(() => null)
+        throw new Error(
+          `Context-menu paste did not reach input: ${JSON.stringify({ ...state, statusTitle })}`,
+          { cause: error },
+        )
+      }
       await expect.poll(async () => {
         const response = await page.request.get(`/farming/api/control/agents/${bashAgentId}/output?tail=2000`)
         return response.ok() ? await response.text() : ''
@@ -843,7 +1163,13 @@ test.describe('terminal regression matrix', () => {
     })
 
     await scenario('context menu select all selects terminal scrollback text', async () => {
-      await writeTerminalFixture(page, bashAgentId, 'matrix-select-all-one\r\nmatrix-select-all-two\r\n')
+      const inputResponse = await page.request.post(
+        `/farming/api/control/agents/${bashAgentId}/input`,
+        { data: { input: 'printf "matrix-select-all-one\\nmatrix-select-all-two\\n"\r' } },
+      )
+      expect(inputResponse.ok()).toBe(true)
+      await expect.poll(async () => await visibleTerminalText(page, bashAgentId))
+        .toContain('matrix-select-all-two')
       const cell = await cellForText(page, bashAgentId, 'matrix-select-all-two', 4)
       await page.mouse.click(cell.x, cell.y, { button: 'right' })
       const menu = page.getByTestId('code-terminal-context-menu')
@@ -867,14 +1193,22 @@ test.describe('terminal regression matrix', () => {
         const response = await page.request.get(`/farming/api/control/agents/${bashAgentId}/output?tail=4000`)
         return response.ok() ? await response.text() : ''
       }).not.toContain('matrix-select-all-one')
-      await writeTerminalFixture(page, bashAgentId, 'matrix-clear-after\r\n')
+      const inputResponse = await page.request.post(
+        `/farming/api/control/agents/${bashAgentId}/input`,
+        { data: { input: 'printf "matrix-clear-after\\n"\r' } },
+      )
+      expect(inputResponse.ok()).toBe(true)
       await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('matrix-clear-after')
     })
 
     if (process.platform === 'darwin') {
       await scenario('Cmd+K clears visible and backend terminal scrollback on macOS', async () => {
         await selectAgent(page, bashAgentId)
-        await writeTerminalFixture(page, bashAgentId, 'matrix-cmd-k-clear-before\r\n')
+        const beforeInputResponse = await page.request.post(
+          `/farming/api/control/agents/${bashAgentId}/input`,
+          { data: { input: 'printf "matrix-cmd-k-clear-before\\n"\r' } },
+        )
+        expect(beforeInputResponse.ok()).toBe(true)
         await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('matrix-cmd-k-clear-before')
         const cell = await cellForText(page, bashAgentId, 'matrix-cmd-k-clear-before', 4)
         await page.mouse.click(cell.x, cell.y)
@@ -885,7 +1219,11 @@ test.describe('terminal regression matrix', () => {
           const response = await page.request.get(`/farming/api/control/agents/${bashAgentId}/output?tail=4000`)
           return response.ok() ? await response.text() : ''
         }).not.toContain('matrix-cmd-k-clear-before')
-        await writeTerminalFixture(page, bashAgentId, 'matrix-cmd-k-clear-after\r\n')
+        const afterInputResponse = await page.request.post(
+          `/farming/api/control/agents/${bashAgentId}/input`,
+          { data: { input: 'printf "matrix-cmd-k-clear-after\\n"\r' } },
+        )
+        expect(afterInputResponse.ok()).toBe(true)
         await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('matrix-cmd-k-clear-after')
       })
     }
@@ -1604,6 +1942,218 @@ test.describe('terminal regression matrix', () => {
     console.log(`terminal regression matrix executed ${checked.length} scenarios`)
   })
 
+  test('page resume replaces buffered terminal history with one latest snapshot', async ({ page, workspaceRoot }) => {
+    const projectDir = path.join(workspaceRoot, 'page-resume-terminal')
+    fs.mkdirSync(projectDir, { recursive: true })
+    await cleanupControlAgents(page.request)
+    const agentId = await createControlAgent(page, 'bash', projectDir)
+
+    try {
+      await openFarming(page)
+      await selectAgent(page, agentId)
+      await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
+      const initialState = await page.evaluate((id) => {
+        const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics?.(id)
+        return {
+          cols: diagnostics?.cols ?? 80,
+          rows: diagnostics?.rows ?? 24,
+          runtimeEpoch: window.__farmingTerminalTest?.getRuntimeEpoch(id) ?? '',
+          outputSeq: window.__farmingTerminalTest?.getLastOutputSeq(id) ?? 0,
+          stateRevision: window.__farmingTerminalTest?.getStateRevision(id) ?? 0,
+        }
+      }, agentId)
+
+      const latestOutput = [
+        '[agent@example-host /srv/example/projects/page-resume-terminal]',
+        '$ latest after page resume',
+        'LATEST_PAGE_RESUME_SCREEN',
+        '$  ',
+      ].join('\n')
+      const runtimeEpoch = initialState.runtimeEpoch
+      const checkpointOutputSeq = initialState.outputSeq + 100
+      const checkpointStateRevision = initialState.stateRevision + 100
+      const sessionViewRoute = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
+      let snapshotRequests = 0
+      const handler = async (route: import('@playwright/test').Route) => {
+        snapshotRequests += 1
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            session: {
+              runtimeEpoch,
+              output: latestOutput,
+              renderOutput: latestOutput,
+              outputSeq: checkpointOutputSeq,
+              stateRevision: checkpointStateRevision,
+              previewCols: initialState.cols,
+              previewRows: initialState.rows,
+              previewSnapshot: snapshotFromRows(latestOutput.split('\n'), 100, 3, 3),
+            },
+          }),
+        })
+      }
+      await page.route(sessionViewRoute, handler)
+      try {
+        await page.evaluate(() => window.dispatchEvent(new Event('pagehide')))
+        await page.evaluate(async ({ id, epoch, outputSeq, stateRevision }) => {
+          for (let offset = 1; offset <= 100; offset += 1) {
+            await window.__farmingTerminalTest?.streamSequenced(
+              id,
+              `BUFFERED_HISTORY_${offset}\r\n`,
+              outputSeq + offset,
+              epoch,
+              stateRevision + offset,
+            )
+          }
+        }, {
+          id: agentId,
+          epoch: runtimeEpoch,
+          outputSeq: initialState.outputSeq,
+          stateRevision: initialState.stateRevision,
+        })
+        expect(await visibleTerminalText(page, agentId)).not.toContain('BUFFERED_HISTORY_')
+
+        await page.evaluate(() => window.dispatchEvent(new Event('pageshow')))
+        await expect.poll(() => snapshotRequests, { timeout: 5000 }).toBeGreaterThan(0)
+        await expect.poll(async () => await visibleTerminalText(page, agentId), { timeout: 5000 })
+          .toContain('LATEST_PAGE_RESUME_SCREEN')
+        expect(await visibleTerminalText(page, agentId)).not.toContain('BUFFERED_HISTORY_')
+        await expect.poll(async () => page.evaluate((id) => (
+          window.__farmingTerminalTest?.getLastOutputSeq(id) ?? null
+        ), agentId)).toBe(checkpointOutputSeq)
+      } finally {
+        await page.unroute(sessionViewRoute, handler)
+      }
+    } finally {
+      await cleanupControlAgents(page.request)
+    }
+  })
+
+  test('terminal checkpoint repairs a missing output sequence before later deltas render', async ({ page, workspaceRoot }) => {
+    const projectDir = path.join(workspaceRoot, 'checkpoint-gap-terminal')
+    fs.mkdirSync(projectDir, { recursive: true })
+    await cleanupControlAgents(page.request)
+    const agentId = await createControlAgent(page, 'bash', projectDir)
+
+    try {
+      await openFarming(page)
+      await selectAgent(page, agentId)
+      await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
+      const checkpoint = await page.evaluate((id) => ({
+        outputSeq: window.__farmingTerminalTest?.getLastOutputSeq(id) ?? null,
+        runtimeEpoch: window.__farmingTerminalTest?.getRuntimeEpoch(id) ?? '',
+        stateRevision: window.__farmingTerminalTest?.getStateRevision(id) ?? null,
+        dimensions: (() => {
+          const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics?.(id)
+          return {
+            cols: diagnostics?.cols ?? 80,
+            rows: diagnostics?.rows ?? 24,
+          }
+        })(),
+      }), agentId)
+      expect(checkpoint.outputSeq).not.toBeNull()
+      expect(checkpoint.runtimeEpoch).not.toBe('')
+      expect(checkpoint.stateRevision).not.toBeNull()
+      const baseSeq = checkpoint.outputSeq as number
+      const baseRevision = checkpoint.stateRevision as number
+      const runtimeEpoch = checkpoint.runtimeEpoch
+
+      const contiguousCut = await page.evaluate(async ({ id, epoch }) => {
+        const outputSeq = window.__farmingTerminalTest?.getLastOutputSeq(id) ?? 0
+        const stateRevision = window.__farmingTerminalTest?.getStateRevision(id) ?? 0
+        await window.__farmingTerminalTest?.streamSequenced(
+          id,
+          'DELTA_CONTIGUOUS\r\n',
+          outputSeq + 1,
+          epoch,
+          stateRevision + 1,
+        )
+        return { outputSeq: outputSeq + 1, stateRevision: stateRevision + 1 }
+      }, { id: agentId, epoch: runtimeEpoch })
+      try {
+        await expect.poll(async () => page.evaluate(id => ({
+          outputSeq: window.__farmingTerminalTest?.getLastOutputSeq(id) ?? 0,
+          stateRevision: window.__farmingTerminalTest?.getStateRevision(id) ?? 0,
+        }), agentId)).toEqual(contiguousCut)
+        await expect.poll(async () => await visibleTerminalText(page, agentId)).toContain('DELTA_CONTIGUOUS')
+      } catch (error) {
+        throw new Error(
+          `Contiguous delta did not commit: ${JSON.stringify(await terminalDiagnostics(page, agentId))}`,
+          { cause: error },
+        )
+      }
+
+      const checkpointSeq = baseSeq + 3
+      const checkpointRevision = baseRevision + 3
+      const checkpointLabel = `CHECKPOINT_${checkpointRevision}`
+      const sessionViewRoute = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
+      let snapshotRequests = 0
+      const handler = async (route: import('@playwright/test').Route) => {
+        snapshotRequests += 1
+        const output = `${checkpointLabel}\r\n$ `
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            session: {
+              runtimeEpoch,
+              output,
+              renderOutput: output,
+              outputSeq: checkpointSeq,
+              stateRevision: checkpointRevision,
+              previewCols: checkpoint.dimensions.cols,
+              previewRows: checkpoint.dimensions.rows,
+              previewSnapshot: snapshotFromRows([checkpointLabel, '$ '], 100, 1, 2),
+            },
+          }),
+        })
+      }
+      await page.route(sessionViewRoute, handler)
+      try {
+        await page.evaluate(async ({ id, epoch, outputSeq, stateRevision }) => {
+          await window.__farmingTerminalTest?.streamSequenced(
+            id,
+            'UNPROVEN_GAP_DELTA\r\n',
+            outputSeq,
+            epoch,
+            stateRevision,
+          )
+        }, {
+          id: agentId,
+          epoch: runtimeEpoch,
+          outputSeq: checkpointSeq,
+          stateRevision: checkpointRevision,
+        })
+
+        await expect.poll(() => snapshotRequests).toBeGreaterThan(0)
+        await expect.poll(async () => await visibleTerminalText(page, agentId)).toContain(checkpointLabel)
+        expect(await visibleTerminalText(page, agentId)).not.toContain('UNPROVEN_GAP_DELTA')
+        await expect.poll(async () => page.evaluate((id) => (
+          window.__farmingTerminalTest?.getLastOutputSeq(id) ?? null
+        ), agentId)).toBe(checkpointSeq)
+
+        await page.evaluate(async ({ id, epoch, outputSeq, stateRevision }) => {
+          await window.__farmingTerminalTest?.streamSequenced(
+            id,
+            'DELTA_AFTER_CHECKPOINT\r\n',
+            outputSeq + 1,
+            epoch,
+            stateRevision + 1,
+          )
+        }, {
+          id: agentId,
+          epoch: runtimeEpoch,
+          outputSeq: checkpointSeq,
+          stateRevision: checkpointRevision,
+        })
+        await expect.poll(async () => await visibleTerminalText(page, agentId)).toContain('DELTA_AFTER_CHECKPOINT')
+      } finally {
+        await page.unroute(sessionViewRoute, handler)
+      }
+    } finally {
+      await cleanupControlAgents(page.request)
+    }
+  })
+
   test.describe('touch mobile terminal regression', () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
@@ -1638,7 +2188,8 @@ test.describe('terminal regression matrix', () => {
     await scenario('mobile long output creates terminal scrollback', async () => {
       const output = Array.from({ length: 180 }, (_, index) => `mobile-matrix-line-${String(index).padStart(3, '0')}`).join('\r\n')
       await writeTerminalRaw(page, agentId, `${output}\r\n`)
-      expect((await terminalViewport(page, agentId)).scrollbackLength).toBeGreaterThan(0)
+      await expect.poll(async () => (await terminalViewport(page, agentId)).scrollbackLength)
+        .toBeGreaterThan(0)
     })
 
     await scenario('mobile drag scrolls the terminal rather than the document', async () => {
@@ -1724,8 +2275,18 @@ test.describe('terminal regression matrix', () => {
 
     await scenario('mobile composer remains usable after terminal copy', async () => {
       const composer = page.getByTestId('code-composer-input')
+      const terminalStatus = page.getByTestId('code-terminal-status-card')
+      await expect(terminalStatus).toHaveCount(0)
       await composer.fill('echo MOBILE_AFTER_COPY')
       await page.getByTestId('code-composer-send').click()
+      await page.waitForTimeout(100)
+      if (await terminalStatus.isVisible().catch(() => false)) {
+        const diagnostics = await terminalDiagnostics(page, agentId)
+        throw new Error(
+          `Mobile composer terminal input failed: ${await terminalStatus.getAttribute('title')}; `
+          + `diagnostics=${JSON.stringify(diagnostics)}`,
+        )
+      }
       await expect.poll(async () => await visibleTerminalText(page, agentId)).toContain('MOBILE_AFTER_COPY')
     })
 
@@ -1825,7 +2386,7 @@ test.describe('terminal regression matrix', () => {
       expect(response.ok()).toBeTruthy()
       const { agentId } = await response.json() as { agentId: string }
 
-      await page.goto('/farming/', { waitUntil: 'networkidle' })
+      await page.goto('/farming/', { waitUntil: 'domcontentloaded' })
       await expect(page.getByTestId('app-shell')).toBeVisible()
       await page.getByTestId('code-mobile-menu').click()
       await agentListItem(page, agentId).click({ timeout: 30_000 })

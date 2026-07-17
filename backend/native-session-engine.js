@@ -31,6 +31,7 @@ class NativeSessionEngine extends SessionEngine {
     [
       'session-started',
       'session-output',
+      'session-transition',
       'session-sync',
       'session-preview',
       'session-title',
@@ -128,20 +129,59 @@ class NativeSessionEngine extends SessionEngine {
     return result;
   }
 
-  async sendInput(sessionId, input) {
-    return this.client.request('sendInput', { sessionId, input });
+  async sendInput(sessionId, input, options = {}) {
+    const terminalControl = options.terminalControl || null;
+    return this.client.request('sendInput', {
+      sessionId,
+      input,
+      terminalControl,
+    }, {
+      retryOnDisconnect: false,
+    });
   }
 
   async interruptSession(sessionId, input = '\x03') {
     return this.sendInput(sessionId, input);
   }
 
-  async resizeSession(sessionId, cols, rows) {
-    return this.client.request('resizeSession', { sessionId, cols, rows });
+  async claimSessionGeometry(sessionId, geometry) {
+    return this.client.request('claimSessionGeometry', { sessionId, geometry });
   }
 
-  async clearBuffer(sessionId) {
-    return this.client.request('clearBuffer', { sessionId });
+  async activateSessionRenderer(sessionId, geometry) {
+    return this.client.request('activateSessionRenderer', { sessionId, geometry }, {
+      retryOnDisconnect: false,
+    });
+  }
+
+  async renewSessionGeometry(sessionId, geometry) {
+    return this.client.request('renewSessionGeometry', { sessionId, geometry });
+  }
+
+  async releaseSessionGeometry(sessionId, geometry) {
+    return this.client.request('releaseSessionGeometry', { sessionId, geometry }, {
+      retryOnDisconnect: false,
+    });
+  }
+
+  async acknowledgeSessionOutput(sessionId, charCount, geometry) {
+    return this.client.request('acknowledgeSessionOutput', {
+      sessionId,
+      charCount,
+      geometry,
+    }, {
+      retryOnDisconnect: false,
+    });
+  }
+
+  async resizeSession(sessionId, cols, rows, geometry) {
+    return this.client.request('resizeSession', { sessionId, cols, rows, geometry });
+  }
+
+  async clearBuffer(sessionId, geometry = null) {
+    return this.client.request('clearBuffer', { sessionId, geometry }, {
+      retryOnDisconnect: false,
+    });
   }
 
   async killSession(sessionId) {
@@ -152,6 +192,10 @@ class NativeSessionEngine extends SessionEngine {
 
   async getSessionState(sessionId) {
     return this.client.request('getSessionState', { sessionId });
+  }
+
+  async getSessionAttachCheckpoint(sessionId) {
+    return this.client.request('getSessionAttachCheckpoint', { sessionId });
   }
 
   async getSessionPreview(sessionId) {
@@ -183,6 +227,12 @@ class NativeSessionEngine extends SessionEngine {
 
   async updateSessionMetadata(sessionId, patch) {
     return this.client.request('updateSessionMetadata', { sessionId, patch });
+  }
+
+  consumeRuntimeRotation() {
+    return typeof this.client.consumeRuntimeRotation === 'function'
+      ? this.client.consumeRuntimeRotation()
+      : null;
   }
 
   dispose(options = {}) {

@@ -10,7 +10,7 @@ class SessionEngineRouter {
       : process.env.FARMING_NATIVE_PTY_HOST_PERSIST !== '0';
     this.engines = {
       native: new NativeSessionEngine({ configDir, preserveHostOnDispose: preserveNativeHost }),
-      local: new LocalSessionEngine()
+      local: new LocalSessionEngine({ configDir })
     };
     this.overrideEngineName = process.env.FARMING_SESSION_ENGINE || '';
     this.defaultEngineName = options.defaultEngineName || this.overrideEngineName || 'native';

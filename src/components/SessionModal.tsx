@@ -4,6 +4,7 @@ import type { Agent } from '@/types/agent'
 import { ArrowDownGlyph, ArrowUpGlyph } from '@/components/IconGlyphs'
 import { agentTitle } from '@/lib/format'
 import { usePooledTerminal } from '@/hooks/usePooledTerminal'
+import { sendTerminalSessionInput } from '@/lib/terminal-session-pool'
 import { applyThemeAppearance } from '@/lib/theme'
 import {
   isBrowserShortcut,
@@ -15,9 +16,7 @@ interface SessionModalProps {
   agent: Agent | null
   onClose: () => void
   onKill: (agentId: string) => void
-  sendInput: (input: string, agentId?: string) => void
-  resizeAgent: (agentId: string, cols: number, rows: number) => boolean
-  onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null) => void) => () => void
+  onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
 }
 
 function canUseClipboardWrite() {
@@ -108,8 +107,6 @@ export function SessionModal({
   agent,
   onClose,
   onKill,
-  sendInput,
-  resizeAgent,
   onSessionOutput,
 }: SessionModalProps) {
   const terminalContainerRef = useRef<HTMLDivElement>(null)
@@ -130,16 +127,9 @@ export function SessionModal({
 
   const handleTerminalInput = useCallback((data: string) => {
     if (agentIdRef.current) {
-      sendInput(data, agentIdRef.current)
+      sendTerminalSessionInput(agentIdRef.current, data)
     }
-  }, [sendInput])
-
-  const handleTerminalResize = useCallback((cols: number, rows: number) => {
-    if (agentIdRef.current) {
-      return resizeAgent(agentIdRef.current, cols, rows)
-    }
-    return false
-  }, [resizeAgent])
+  }, [])
 
   const handleTerminalReady = useCallback(() => {
     terminalReadyRef.current = true
@@ -153,8 +143,6 @@ export function SessionModal({
   const { focus, getSelection, getSelectionNow } = usePooledTerminal({
     agentId: agent?.id ?? null,
     containerRef: terminalContainerRef,
-    onInput: handleTerminalInput,
-    onResize: handleTerminalResize,
     onSessionOutput,
     suppressRendererCursor: shouldSuppressRendererCursorForAgent(agent?.command),
     onReady: handleTerminalReady,
@@ -236,7 +224,7 @@ export function SessionModal({
       }
       if (e.ctrlKey && !e.metaKey) {
         e.preventDefault()
-        sendInput('\x03', agentIdRef.current)
+        sendTerminalSessionInput(agentIdRef.current, '\x03')
         return
       }
       return
@@ -250,7 +238,7 @@ export function SessionModal({
       e.preventDefault()
       navigator.clipboard?.readText().then(text => {
         if (text && agentIdRef.current) {
-          sendInput(text.replace(/\r\n/g, '\n'), agentIdRef.current)
+          sendTerminalSessionInput(agentIdRef.current, text.replace(/\r\n/g, '\n'))
           focus()
         }
       }).catch(() => {})
@@ -261,7 +249,7 @@ export function SessionModal({
     if (isBrowserShortcut(e)) return
 
     // Everything else: let the terminal handle it natively.
-  }, [onClose, onKill, sendInput, focus, getSelectionNow])
+  }, [onClose, onKill, focus, getSelectionNow])
 
   useEffect(() => {
     if (!agent) return
@@ -347,13 +335,13 @@ export function SessionModal({
     if (!contextMenu?.canPaste || !agentIdRef.current) return
     navigator.clipboard?.readText().then((text) => {
       if (!text || !agentIdRef.current) return
-      sendInput(text.replace(/\r\n/g, '\n'), agentIdRef.current)
+      sendTerminalSessionInput(agentIdRef.current, text.replace(/\r\n/g, '\n'))
       focus()
     }).catch(() => {}).finally(() => {
       setContextMenu(null)
       focus()
     })
-  }, [contextMenu, sendInput, focus])
+  }, [contextMenu, focus])
 
   if (!agent) return null
 

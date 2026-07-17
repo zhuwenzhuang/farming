@@ -41,6 +41,8 @@ const {
   normalizeInteractiveTerminalEnv,
   resolveUserShellEnvSync,
 } = require('./agent-env');
+const { inspectGitWorktree, isLinkedWorktreeOf } = require('./git-worktree-info');
+const { deserializeTerminalState } = require('./terminal-state-serialization');
 
 const SESSION_OUTPUT_LIMIT = 10000;
 const AGENT_USAGE_RATE_WINDOW_MS = 5 * 60 * 1000;
@@ -335,6 +337,46 @@ function normalizePathValue(value) {
   return trimmed.replace(/[\\/]+$/, '');
 }
 
+function effectiveAgentWorkspaceRoot(agent) {
+  if (agent && agent.gitWorktree && agent.gitWorktree.workspace) {
+    return agent.gitWorktree.workspace;
+  }
+  return agent && (agent.projectWorkspace || agent.cwd) || '';
+}
+
+function publicAgentGitWorktree(agent) {
+  const worktree = agent && agent.gitWorktree;
+  if (!worktree || !worktree.workspace) return null;
+  return {
+    workspace: worktree.workspace,
+    commonDir: worktree.commonDir || '',
+    mainWorkspace: worktree.mainWorkspace || '',
+    linked: worktree.linked === true,
+    branch: worktree.branch || '',
+    head: worktree.head || '',
+    detached: worktree.detached === true,
+    locked: worktree.locked === true,
+    lockReason: worktree.lockReason || '',
+    prunable: worktree.prunable === true,
+    pruneReason: worktree.pruneReason || '',
+    worktrees: Array.isArray(worktree.worktrees)
+      ? worktree.worktrees.map(item => ({
+        workspace: item.workspace || '',
+        head: item.head || '',
+        branch: item.branch || '',
+        bare: item.bare === true,
+        detached: item.detached === true,
+        locked: item.locked === true,
+        lockReason: item.lockReason || '',
+        prunable: item.prunable === true,
+        pruneReason: item.pruneReason || '',
+        current: item.current === true,
+        main: item.main === true,
+      }))
+      : [],
+  };
+}
+
 function timestampMs(value) {
   const parsed = Date.parse(value || '');
   return Number.isFinite(parsed) ? parsed : 0;
@@ -419,6 +461,7 @@ class AgentManager extends EventEmitter {
     this.codexSessionResolveLastAttemptAt = new Map();
     this.providerSessionTitleResolveInFlight = new Map();
     this.providerSessionTitleResolveLastAttemptAt = new Map();
+    this.agentWorktreeResolveGeneration = new Map();
     this.permissionRestartInFlight = new Map();
     this.runtimeRestartInFlight = new Map();
     this.permissionRestartSuppressedAgentIds = new Set();
@@ -564,27 +607,48 @@ class AgentManager extends EventEmitter {
   }
 
   bindEngineEvents() {
-    this.engineBridge.on('session-started', ({ sessionId, status, startedAt }) => {
+    this.engineBridge.on('session-started', ({
+      sessionId,
+      status,
+      startedAt,
+      runtimeEpoch,
+      stateRevision,
+    }) => {
         const agent = this.agents.get(sessionId);
         if (!agent) return;
 
         agent.engineStarted = true;
         agent.engineStatus = status || 'running';
         agent.startedAt = startedAt || Date.now();
+        agent.runtimeEpoch = typeof runtimeEpoch === 'string' ? runtimeEpoch : '';
+        agent.stateRevision = Number.isFinite(stateRevision) ? stateRevision : 0;
         this.observeAgentAttentionState(sessionId);
         this.observeAgentStateChange(sessionId, { force: true });
         this.emit('update');
       });
 
-    this.engineBridge.on('session-output', ({ sessionId, data, engineName, outputSeq }) => {
+    this.engineBridge.on('session-output', ({
+      sessionId,
+      data,
+      engineName,
+      runtimeEpoch,
+      outputSeq,
+      stateRevision,
+    }) => {
         const agent = this.agents.get(sessionId);
         if (!agent) return;
 
         this.reviveAgentRuntime(agent);
         agent.output = trimSessionOutput(agent.output + data);
         agent.lastEngineOutputAt = Date.now();
+        if (typeof runtimeEpoch === 'string' && runtimeEpoch) {
+          agent.runtimeEpoch = runtimeEpoch;
+        }
         if (Number.isFinite(outputSeq)) {
           agent.lastOutputSeq = outputSeq;
+        }
+        if (Number.isFinite(stateRevision)) {
+          agent.stateRevision = stateRevision;
         }
 
         this.lastActivity.set(sessionId, Date.now());
@@ -606,18 +670,83 @@ class AgentManager extends EventEmitter {
         if (Number.isFinite(outputSeq)) {
           stream.outputSeq = outputSeq;
         }
+        if (Number.isFinite(stateRevision)) {
+          stream.stateRevision = stateRevision;
+        }
+        if (typeof runtimeEpoch === 'string' && runtimeEpoch) {
+          stream.runtimeEpoch = runtimeEpoch;
+        }
         this.emit('session-stream', stream);
       });
 
-    this.engineBridge.on('session-sync', ({ sessionId, output, engineName, replaceLive = true, outputSeq }) => {
+    this.engineBridge.on('session-transition', ({
+      sessionId,
+      engineName,
+      kind,
+      data = '',
+      runtimeEpoch,
+      outputSeq,
+      stateRevision,
+      cols,
+      rows,
+    }) => {
+      const agent = this.agents.get(sessionId);
+      if (!agent) return;
+      this.reviveAgentRuntime(agent);
+      if (kind === 'clear') {
+        agent.output = '';
+        agent.previewText = '';
+        agent.previewSnapshot = null;
+        this.outputEvents.delete(sessionId);
+      }
+      if (typeof runtimeEpoch === 'string' && runtimeEpoch) agent.runtimeEpoch = runtimeEpoch;
+      if (Number.isFinite(outputSeq)) agent.lastOutputSeq = outputSeq;
+      if (Number.isFinite(stateRevision)) agent.stateRevision = stateRevision;
+      if (Number.isFinite(cols) && cols > 0) agent.previewCols = cols;
+      if (Number.isFinite(rows) && rows > 0) agent.previewRows = rows;
+      this.lastActivity.set(sessionId, Date.now());
+      this.emit('session-stream', {
+        agentId: sessionId,
+        sessionSource: this.getEngineSessionSource(engineName),
+        kind,
+        data,
+        runtimeEpoch,
+        outputSeq,
+        stateRevision,
+        cols,
+        rows,
+      });
+      this.observeAgentAttentionState(sessionId);
+      this.observeAgentStateChange(sessionId);
+      this.emit('update');
+    });
+
+    this.engineBridge.on('session-sync', ({
+      sessionId,
+      output,
+      engineName,
+      replaceLive = true,
+      runtimeEpoch,
+      outputSeq,
+      stateRevision,
+      textOutput,
+      cols,
+      rows,
+    }) => {
         const agent = this.agents.get(sessionId);
         if (!agent) return;
 
         this.reviveAgentRuntime(agent);
-        agent.output = trimSessionOutput(output);
+        agent.output = trimSessionOutput(typeof textOutput === 'string' ? textOutput : output);
         agent.previewText = agent.output.slice(-2000);
+        if (typeof runtimeEpoch === 'string' && runtimeEpoch) {
+          agent.runtimeEpoch = runtimeEpoch;
+        }
         if (Number.isFinite(outputSeq)) {
           agent.lastOutputSeq = outputSeq;
+        }
+        if (Number.isFinite(stateRevision)) {
+          agent.stateRevision = stateRevision;
         }
         this.lastActivity.set(sessionId, Date.now());
 
@@ -625,12 +754,24 @@ class AgentManager extends EventEmitter {
           const sessionSource = this.getEngineSessionSource(engineName);
           const stream = {
             agentId: sessionId,
-            data: agent.output,
+            data: output,
             sessionSource,
             replace: true,
           };
           if (Number.isFinite(outputSeq)) {
             stream.outputSeq = outputSeq;
+          }
+          if (Number.isFinite(stateRevision)) {
+            stream.stateRevision = stateRevision;
+          }
+          if (typeof runtimeEpoch === 'string' && runtimeEpoch) {
+            stream.runtimeEpoch = runtimeEpoch;
+          }
+          if (Number.isFinite(cols) && cols > 0) {
+            stream.cols = cols;
+          }
+          if (Number.isFinite(rows) && rows > 0) {
+            stream.rows = rows;
           }
           this.emit('session-stream', stream);
         }
@@ -714,6 +855,7 @@ class AgentManager extends EventEmitter {
         } = payload;
         const agent = this.agents.get(sessionId);
         if (!agent) return;
+        const previousShellCwd = agent.shellCwd || '';
 
         const previousState = JSON.stringify({
           terminalBusy: agent.terminalBusy,
@@ -783,6 +925,9 @@ class AgentManager extends EventEmitter {
           shellBusyMarkerSeen: agent.shellBusyMarkerSeen === true,
         });
         if (previousState === nextState) return;
+        if (agent.shellCwd && agent.shellCwd !== previousShellCwd) {
+          void this.refreshAgentWorktree(sessionId, agent.shellCwd);
+        }
         this.observeAgentAttentionState(sessionId);
         this.observeAgentStateChange(sessionId);
         this.emit('update');
@@ -893,6 +1038,7 @@ class AgentManager extends EventEmitter {
       agentRecord.lastObservedTurnActive = this.isAgentAttentionTurnActive(agentRecord);
       this.ensurePersistentAgentSession(agentRecord);
       this.agents.set(agentId, agentRecord);
+      void this.refreshAgentWorktree(agentId);
       this.lastActivity.set(agentId, state.lastActivityAt || metadata.lastActivityAt || Date.now());
       if (agentRecord.wantsMain && !this.mainAgentId) {
         this.mainAgentId = agentId;
@@ -905,8 +1051,232 @@ class AgentManager extends EventEmitter {
       this.emit('update');
     }
 
+    const runtimeRotations = this.engineBridge && typeof this.engineBridge.consumeRuntimeRotations === 'function'
+      ? this.engineBridge.consumeRuntimeRotations()
+      : [];
+    if (runtimeRotations.length > 0) {
+      await this.restoreTerminalSessionsAfterRuntimeRotation(persistedRecords, runtimeRotations);
+    }
+
     await this.recoverCodexAppServerSessions();
     await this.recoverAcpSessions();
+  }
+
+  async restoreTerminalSessionsAfterRuntimeRotation(records, rotations) {
+    const mainPageOrder = new Map(this.getMainPageSessionKeys().map((key, index) => [key, index]));
+    const liveProviderSessions = new Set(
+      [...this.agents.values()]
+        .filter(agent => agent?.providerSessionProvider && agent?.providerSessionId)
+        .map(agent => this.providerSessionKey(
+          agent.providerSessionProvider,
+          agent.providerSessionId,
+          agent.providerHomeId || 'default'
+        ))
+        .filter(Boolean)
+    );
+    const recordList = Array.isArray(records) ? records : [];
+    const recordByRuntimeAgentId = new Map(recordList
+      .filter(record => record && typeof record.runtimeAgentId === 'string' && record.runtimeAgentId)
+      .map(record => [record.runtimeAgentId, record]));
+    const serializedStates = [];
+    for (const rotation of Array.isArray(rotations) ? rotations : []) {
+      if (!rotation || typeof rotation.serializedTerminalState !== 'string' || !rotation.serializedTerminalState) continue;
+      try {
+        serializedStates.push(...deserializeTerminalState(rotation.serializedTerminalState));
+      } catch (error) {
+        console.warn(
+          'Ignoring invalid serialized terminal state after native PTY runtime rotation:',
+          error && (error.message || error)
+        );
+      }
+    }
+    const serializedByRuntimeAgentId = new Map(serializedStates.map(state => [state.id, state]));
+    const candidateKeys = new Set();
+    const fallbackCandidates = recordList
+      .filter(record => {
+        if (!record || record.archived === true) return false;
+        if ((record.agentRuntimeMode || 'terminal') !== 'terminal') return false;
+        if (record.codexRuntimeMode === 'app-server') return false;
+        const provider = String(record.providerSessionProvider || record.provider || '').trim();
+        if (!['codex', 'claude', 'opencode', 'qoder'].includes(provider)) return false;
+        if (!isSafeProviderSessionId(record.providerSessionId)) return false;
+        const sessionKey = record.providerSessionKey || this.providerSessionKey(
+          provider,
+          record.providerSessionId,
+          record.providerHomeId || 'default'
+        );
+        if (!sessionKey || liveProviderSessions.has(sessionKey)) return false;
+        if (record.wantsMain === true) return !this.mainAgentId;
+        return mainPageOrder.has(sessionKey);
+      })
+      .sort((left, right) => {
+        if (left.wantsMain === true && right.wantsMain !== true) return -1;
+        if (right.wantsMain === true && left.wantsMain !== true) return 1;
+        const leftProvider = String(left.providerSessionProvider || left.provider || '').trim();
+        const rightProvider = String(right.providerSessionProvider || right.provider || '').trim();
+        const leftKey = left.providerSessionKey || this.providerSessionKey(
+          leftProvider,
+          left.providerSessionId,
+          left.providerHomeId || 'default'
+        );
+        const rightKey = right.providerSessionKey || this.providerSessionKey(
+          rightProvider,
+          right.providerSessionId,
+          right.providerHomeId || 'default'
+        );
+        const orderDelta = (mainPageOrder.get(leftKey) ?? Number.MAX_SAFE_INTEGER) -
+          (mainPageOrder.get(rightKey) ?? Number.MAX_SAFE_INTEGER);
+        if (orderDelta !== 0) return orderDelta;
+        return (Number(right.updatedAt) || 0) - (Number(left.updatedAt) || 0);
+      })
+      .filter(record => {
+        const provider = String(record.providerSessionProvider || record.provider || '').trim();
+        const sessionKey = record.providerSessionKey || this.providerSessionKey(
+          provider,
+          record.providerSessionId,
+          record.providerHomeId || 'default'
+        );
+        if (candidateKeys.has(sessionKey)) return false;
+        candidateKeys.add(sessionKey);
+        return true;
+      });
+    const candidates = serializedByRuntimeAgentId.size > 0
+      ? [...serializedByRuntimeAgentId.values()]
+        .map(serializedState => ({
+          ...(serializedState.metadata || {}),
+          ...(recordByRuntimeAgentId.get(serializedState.id) || {}),
+          runtimeAgentId: serializedState.id,
+          serializedState,
+        }))
+        .filter(record => {
+          if (!record || record.archived === true) return false;
+          if ((record.agentRuntimeMode || 'terminal') !== 'terminal') return false;
+          return record.codexRuntimeMode !== 'app-server';
+        })
+        .sort((left, right) => {
+          if (left.wantsMain === true && right.wantsMain !== true) return -1;
+          if (right.wantsMain === true && left.wantsMain !== true) return 1;
+          return (Number(right.updatedAt) || 0) - (Number(left.updatedAt) || 0);
+        })
+      : fallbackCandidates;
+
+    if (candidates.length > 0) {
+      const rotationSummary = (Array.isArray(rotations) ? rotations : []).map(rotation => {
+        const { serializedTerminalState, ...rest } = rotation || {};
+        return {
+          ...rest,
+          serializedTerminalStateBytes: typeof serializedTerminalState === 'string'
+            ? Buffer.byteLength(serializedTerminalState, 'utf8')
+            : 0,
+        };
+      });
+      console.warn(
+        `Restoring ${candidates.length} Terminal session(s) after native PTY runtime rotation`,
+        rotationSummary
+      );
+    }
+
+    let changed = false;
+    for (const record of candidates) {
+      if (record.wantsMain === true && this.mainAgentId) continue;
+      const provider = String(record.providerSessionProvider || record.provider || '').trim();
+      const sessionId = record.providerSessionId;
+      const sessionKey = record.providerSessionKey || this.providerSessionKey(
+        provider,
+        sessionId,
+        record.providerHomeId || 'default'
+      );
+      if (sessionKey && liveProviderSessions.has(sessionKey)) continue;
+      const canResumeProvider = ['codex', 'claude', 'opencode', 'qoder'].includes(provider)
+        && isSafeProviderSessionId(sessionId);
+      const command = canResumeProvider
+        ? buildAgentSessionResumeCommand(provider, sessionId, {
+            cwd: record.cwd || record.projectWorkspace || '',
+            modelProvider: provider === 'codex'
+              ? resolveCodexResumeModelProvider(record.providerHomePath)
+              : '',
+          })
+        : (
+            record.forkCommand ||
+            record.command ||
+            record.serializedState?.processLaunchConfig?.command ||
+            ''
+          );
+      if (!command) continue;
+
+      const options = {
+        wantsMain: record.wantsMain === true,
+        skipRecoveryWait: true,
+        task: record.task || record.providerSessionTitle || '',
+        workflowTemplate: record.workflowTemplate || '',
+        projectWorkspace: record.projectWorkspace || record.cwd || '',
+        source: canResumeProvider
+          ? resumedAgentSource(provider, sessionId, record.providerHomeId || 'default')
+          : (record.source || 'terminal-revive'),
+        providerHomeId: record.providerHomeId || '',
+        providerHomePath: record.providerHomePath || '',
+        providerSessionTitle: record.providerSessionTitle || '',
+        restartedFromAgentId: record.restartedFromAgentId || '',
+        restartedFromAgentIds: Array.isArray(record.restartedFromAgentIds)
+          ? record.restartedFromAgentIds
+          : [],
+        projectOrder: finiteOrder(record.projectOrder),
+        pinnedOrder: finiteOrder(record.pinnedOrder),
+        customTitle: record.customTitle || '',
+        persistentSessionId: record.id || '',
+        runtimeAgentId: record.runtimeAgentId || '',
+        reviveTerminalState: record.serializedState || null,
+        ...(provider === 'codex'
+          ? {
+              codexApprovalMode: record.launchPermissionMode || undefined,
+              ...preserveCodexSessionProfileOptions(),
+            }
+          : {}),
+        ...(provider === 'claude'
+          ? { claudePermissionMode: record.launchPermissionMode || undefined }
+          : {}),
+      };
+
+      let restartedAgentId = null;
+      try {
+        restartedAgentId = await this.startAgent(
+          command,
+          record.cwd || record.projectWorkspace || null,
+          null,
+          options
+        );
+      } catch (error) {
+        console.warn(
+          `Failed to restore Terminal session ${record.runtimeAgentId || sessionId} after native PTY runtime rotation:`,
+          error && (error.message || error)
+        );
+        continue;
+      }
+      const replacement = restartedAgentId ? this.agents.get(restartedAgentId) : null;
+      if (!replacement) {
+        console.warn(
+          `Failed to restore Terminal session ${record.runtimeAgentId || sessionId} after native PTY runtime rotation`
+        );
+        continue;
+      }
+
+      replacement.pinned = record.pinned === true;
+      replacement.projectOrder = finiteOrder(record.projectOrder);
+      replacement.pinnedOrder = finiteOrder(record.pinnedOrder);
+      replacement.customTitle = record.customTitle || replacement.customTitle || '';
+      replacement.terminalInputReceived = record.terminalInputReceived === true;
+      replacement.attentionSeq = finiteNonNegativeInteger(record.attentionSeq);
+      replacement.readAttentionSeq = finiteNonNegativeInteger(record.readAttentionSeq);
+      replacement.attentionUpdatedAt = finiteNumberOrNull(record.attentionUpdatedAt);
+      replacement.readAttentionAt = finiteNumberOrNull(record.readAttentionAt);
+      replacement.attentionReason = record.attentionReason || '';
+      replacement.attentionOutputSeq = finiteNumberOrNull(record.attentionOutputSeq);
+      replacement.unread = agentAttentionUnread(replacement);
+      this.ensurePersistentAgentSession(replacement);
+      if (sessionKey) liveProviderSessions.add(sessionKey);
+      changed = true;
+    }
+    if (changed) this.emit('update');
   }
 
   async recoverAcpSessions() {
@@ -937,6 +1307,7 @@ class AgentManager extends EventEmitter {
         recoveredAgent.engineStarted = false;
         recoveredAgent.acpState = 'connecting';
         this.agents.set(agentId, recoveredAgent);
+        void this.refreshAgentWorktree(agentId);
         this.lastActivity.set(agentId, Date.now());
       }
     }
@@ -1034,6 +1405,7 @@ class AgentManager extends EventEmitter {
         agent.persistentSessionId = record.id || '';
         agent.engineStarted = false;
         this.agents.set(agentId, agent);
+        void this.refreshAgentWorktree(agentId);
         this.lastActivity.set(agentId, Date.now());
       }
       try {
@@ -1048,7 +1420,7 @@ class AgentManager extends EventEmitter {
           executable,
           env: this.buildAgentEnv(agentId, agent),
           cwd: agent.cwd,
-          workspaceRoot: agent.projectWorkspace || agent.cwd,
+          workspaceRoot: effectiveAgentWorkspaceRoot(agent),
           approvalMode: agent.launchPermissionMode || 'approve',
         });
         agent.codexAppServerThreadId = binding.threadId;
@@ -1129,6 +1501,7 @@ class AgentManager extends EventEmitter {
       providerSessionSource: metadata.providerSessionSource || '',
       providerSessionResolvedAt: metadata.providerSessionResolvedAt || null,
       providerSessionTitle: metadata.providerSessionTitle || '',
+      providerSessionWorkspace: metadata.providerSessionWorkspace || '',
       terminalInputReceived: metadata.terminalInputReceived === true,
       // Older persisted sessions predate App Server mode. Also, a Codex
       // App Server record without its isolated runtime home is not actually
@@ -1182,7 +1555,10 @@ class AgentManager extends EventEmitter {
       attentionUpdatedAt: finiteNumberOrNull(metadata.attentionUpdatedAt),
       readAttentionAt: finiteNumberOrNull(metadata.readAttentionAt),
       attentionReason: metadata.attentionReason || '',
+      attentionOutputEpoch: metadata.attentionOutputEpoch || '',
       attentionOutputSeq: finiteNumberOrNull(metadata.attentionOutputSeq),
+      readOutputEpoch: metadata.readOutputEpoch || '',
+      readOutputSeq: finiteNumberOrNull(metadata.readOutputSeq),
       unread: finiteNonNegativeInteger(metadata.attentionSeq) > finiteNonNegativeInteger(metadata.readAttentionSeq),
       archived: false,
       archivedAt: null,
@@ -1191,6 +1567,8 @@ class AgentManager extends EventEmitter {
       engineStarted: true,
       engineStatus: state.status || 'running',
       startedAt: state.startedAt || metadata.startedAt || Date.now(),
+      runtimeEpoch: typeof state.runtimeEpoch === 'string' ? state.runtimeEpoch : '',
+      stateRevision: finiteNumberOrNull(state.stateRevision),
       lastEngineOutputAt: Date.now(),
       lastOutputSeq: finiteNumberOrNull(state.outputSeq),
       attentionRequiresNewOutput: true,
@@ -1341,7 +1719,10 @@ class AgentManager extends EventEmitter {
       attentionUpdatedAt: finiteNumberOrNull(agent.attentionUpdatedAt),
       readAttentionAt: finiteNumberOrNull(agent.readAttentionAt),
       attentionReason: agent.attentionReason || '',
+      attentionOutputEpoch: agent.attentionOutputEpoch || '',
       attentionOutputSeq: finiteNumberOrNull(agent.attentionOutputSeq),
+      readOutputEpoch: agent.readOutputEpoch || '',
+      readOutputSeq: finiteNumberOrNull(agent.readOutputSeq),
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
     })).catch((error) => {
@@ -1420,8 +1801,16 @@ class AgentManager extends EventEmitter {
     agent.attentionSeq = nextSeq;
     agent.attentionUpdatedAt = now;
     agent.attentionReason = reason;
+    agent.attentionOutputEpoch = typeof agent.runtimeEpoch === 'string' ? agent.runtimeEpoch : '';
     agent.attentionOutputSeq = Number.isFinite(agent.lastOutputSeq) ? agent.lastOutputSeq : null;
-    if (agent.attentionAutoReadNext === true) {
+    const attentionOutputAlreadyRead = Boolean(
+      agent.attentionOutputEpoch
+      && agent.attentionOutputEpoch === agent.readOutputEpoch
+      && agent.attentionOutputSeq !== null
+      && Number.isFinite(agent.readOutputSeq)
+      && agent.attentionOutputSeq <= agent.readOutputSeq
+    );
+    if (agent.attentionAutoReadNext === true || attentionOutputAlreadyRead) {
       agent.attentionAutoReadNext = false;
       agent.readAttentionSeq = nextSeq;
       agent.readAttentionAt = now;
@@ -1464,6 +1853,48 @@ class AgentManager extends EventEmitter {
       attentionSeq,
       readAttentionSeq: agent.readAttentionSeq,
       unread: agent.unread,
+      changed,
+    };
+  }
+
+  markAgentReadOutputCut(agentId, runtimeEpoch, outputSeq) {
+    const agent = this.agents.get(agentId);
+    if (!agent) {
+      return { error: 'Agent not found' };
+    }
+
+    const currentRuntimeEpoch = typeof agent.runtimeEpoch === 'string' ? agent.runtimeEpoch : '';
+    const requestedRuntimeEpoch = typeof runtimeEpoch === 'string' ? runtimeEpoch : '';
+    const currentOutputSeq = finiteNumberOrNull(agent.lastOutputSeq);
+    if (
+      !currentRuntimeEpoch
+      || requestedRuntimeEpoch !== currentRuntimeEpoch
+      || currentOutputSeq === null
+      || !Number.isFinite(outputSeq)
+    ) {
+      return {
+        agentId,
+        readOutputEpoch: typeof agent.readOutputEpoch === 'string' ? agent.readOutputEpoch : '',
+        readOutputSeq: finiteNumberOrNull(agent.readOutputSeq),
+        changed: false,
+      };
+    }
+
+    const requestedOutputSeq = Math.max(0, Math.floor(outputSeq));
+    const nextOutputSeq = Math.min(currentOutputSeq, requestedOutputSeq);
+    const previousOutputSeq = agent.readOutputEpoch === currentRuntimeEpoch
+      ? finiteNumberOrNull(agent.readOutputSeq)
+      : null;
+    const readOutputSeq = previousOutputSeq === null
+      ? nextOutputSeq
+      : Math.max(previousOutputSeq, nextOutputSeq);
+    const changed = agent.readOutputEpoch !== currentRuntimeEpoch || previousOutputSeq !== readOutputSeq;
+    agent.readOutputEpoch = currentRuntimeEpoch;
+    agent.readOutputSeq = readOutputSeq;
+    return {
+      agentId,
+      readOutputEpoch: agent.readOutputEpoch,
+      readOutputSeq: agent.readOutputSeq,
       changed,
     };
   }
@@ -1535,6 +1966,7 @@ class AgentManager extends EventEmitter {
           sessionId: session.id,
           source: 'codex-rollout',
           title: session.title || '',
+          workspace: session.workspace || session.cwd || '',
         });
       })
       .catch(() => false)
@@ -1613,9 +2045,45 @@ class AgentManager extends EventEmitter {
     return attempt;
   }
 
+  async refreshAgentWorktree(agentId, workspaceCandidate = '') {
+    const agent = this.agents.get(agentId);
+    if (!agent || agent.isMain || agent.wantsMain) return false;
+    const candidate = normalizePathValue(
+      workspaceCandidate
+      || agent.providerSessionWorkspace
+      || agent.shellCwd
+      || agent.projectWorkspace
+      || agent.cwd
+    );
+    if (!candidate) return false;
+
+    const generation = (this.agentWorktreeResolveGeneration.get(agentId) || 0) + 1;
+    this.agentWorktreeResolveGeneration.set(agentId, generation);
+    const baseWorkspace = normalizePathValue(agent.projectWorkspace || agent.cwd);
+    const [info, baseInfo] = await Promise.all([
+      inspectGitWorktree(candidate),
+      inspectGitWorktree(baseWorkspace),
+    ]);
+    if (this.agentWorktreeResolveGeneration.get(agentId) !== generation) return false;
+
+    const current = this.agents.get(agentId);
+    if (!current) return false;
+    const nextWorktree = info
+      && baseInfo
+      && info.commonDir === baseInfo.commonDir
+      ? info
+      : null;
+    const previousProjection = JSON.stringify(publicAgentGitWorktree(current));
+    current.gitWorktree = nextWorktree;
+    const nextProjection = JSON.stringify(publicAgentGitWorktree(current));
+    if (previousProjection === nextProjection) return false;
+    this.emit('update');
+    return true;
+  }
+
   async findCodexSessionForTemporaryAgent(agent) {
     const sessions = await listCodexSessions({ codexHome: agent.providerHomePath || undefined, limit: 100, scanLimit: 1000 });
-    const workspace = normalizePathValue(agent.projectWorkspace || agent.cwd);
+    const workspace = normalizePathValue(effectiveAgentWorkspaceRoot(agent));
     const startedAt = Number(agent.startedAt) || 0;
     const claimedSessionIds = this.currentProviderSessionIds('codex', agent.id, agent.providerHomeId || 'default');
     const candidates = sessions
@@ -1623,7 +2091,6 @@ class AgentManager extends EventEmitter {
         if (!session || !session.id || claimedSessionIds.has(session.id)) return false;
         const sessionWorkspace = normalizePathValue(session.workspace || session.cwd);
         if (workspace && !sessionWorkspace) return false;
-        if (workspace && workspace !== sessionWorkspace) return false;
         const sessionTime = timestampMs(session.createdAt || session.updatedAt);
         if (!sessionTime || !startedAt) return true;
         return sessionTime >= startedAt - CODEX_PROVIDER_SESSION_MATCH_GRACE_MS;
@@ -1637,10 +2104,21 @@ class AgentManager extends EventEmitter {
         return bTime - aTime;
       });
 
-    return candidates[0] || null;
+    const exact = candidates.find(session => (
+      !workspace || workspace === normalizePathValue(session.workspace || session.cwd)
+    ));
+    if (exact) return exact;
+    if (!workspace) return candidates[0] || null;
+
+    for (const session of candidates.slice(0, 12)) {
+      const sessionWorkspace = normalizePathValue(session.workspace || session.cwd);
+      if (!sessionWorkspace) continue;
+      if (await isLinkedWorktreeOf(workspace, sessionWorkspace)) return session;
+    }
+    return null;
   }
 
-  resolveProviderSession(agentId, { provider, sessionId, source, title }) {
+  resolveProviderSession(agentId, { provider, sessionId, source, title, workspace }) {
     const agent = this.agents.get(agentId);
     if (!agent || !provider || !sessionId || isTemporaryProviderSessionId(sessionId)) return false;
 
@@ -1652,6 +2130,9 @@ class AgentManager extends EventEmitter {
     agent.providerSessionTemporary = false;
     agent.providerSessionSource = source || agent.providerSessionSource || '';
     agent.providerSessionResolvedAt = Date.now();
+    if (typeof workspace === 'string' && workspace.trim()) {
+      agent.providerSessionWorkspace = normalizePathValue(workspace);
+    }
     if (providerSessionTitle) {
       agent.providerSessionTitle = providerSessionTitle;
     }
@@ -1669,6 +2150,7 @@ class AgentManager extends EventEmitter {
       temporary: false,
     });
     this.emit('update');
+    void this.refreshAgentWorktree(agentId, agent.providerSessionWorkspace);
     return true;
   }
 
@@ -1775,7 +2257,7 @@ class AgentManager extends EventEmitter {
     env.FARMING_IS_MAIN_AGENT = agent.wantsMain ? '1' : '0';
     env.FARMING_SKILLS_COMMAND = 'farming skills';
     env.FARMING_MAIN_WORKSPACE = agent.mainWorkspace || '';
-    env.FARMING_PROJECT_WORKSPACE = agent.projectWorkspace || '';
+    env.FARMING_PROJECT_WORKSPACE = effectiveAgentWorkspaceRoot(agent);
 
     if (agent.parentAgentId) {
       env.FARMING_PARENT_AGENT_ID = agent.parentAgentId;
@@ -1916,6 +2398,7 @@ class AgentManager extends EventEmitter {
     this.codexSessionResolveLastAttemptAt.clear();
     this.providerSessionTitleResolveInFlight.clear();
     this.providerSessionTitleResolveLastAttemptAt.clear();
+    this.agentWorktreeResolveGeneration.clear();
     this.permissionRestartInFlight.clear();
     this.runtimeRestartInFlight.clear();
     this.permissionRestartSuppressedAgentIds.clear();
@@ -1954,6 +2437,7 @@ class AgentManager extends EventEmitter {
       forkCommand: agent.forkCommand,
       cwd: agent.cwd,
       projectWorkspace: agent.projectWorkspace || '',
+      gitWorktree: publicAgentGitWorktree(agent),
       mainWorkspace: agent.mainWorkspace || '',
       wantsMain: agent.wantsMain === true,
       category: agent.category,
@@ -1971,6 +2455,7 @@ class AgentManager extends EventEmitter {
       providerSessionSource: agent.providerSessionSource,
       providerSessionResolvedAt: agent.providerSessionResolvedAt,
       providerSessionTitle: agent.providerSessionTitle,
+      providerSessionWorkspace: agent.providerSessionWorkspace || '',
       terminalInputReceived: agent.terminalInputReceived === true,
       codexRuntimeMode: agent.codexRuntimeMode,
       agentRuntimeMode: agent.agentRuntimeMode || 'terminal',
@@ -2010,7 +2495,10 @@ class AgentManager extends EventEmitter {
       attentionUpdatedAt: agent.attentionUpdatedAt,
       readAttentionAt: agent.readAttentionAt,
       attentionReason: agent.attentionReason,
+      attentionOutputEpoch: agent.attentionOutputEpoch,
       attentionOutputSeq: agent.attentionOutputSeq,
+      readOutputEpoch: agent.readOutputEpoch,
+      readOutputSeq: agent.readOutputSeq,
     };
   }
 
@@ -2023,11 +2511,12 @@ class AgentManager extends EventEmitter {
       env: this.buildAgentEnv(agent.id, agent),
       category: launch.category,
       metadata: this.engineSessionMetadata(agent),
+      reviveState: launch.reviveState || null,
     });
   }
 
   async startAgent(command, customWorkspace, callback, options = {}) {
-    if (options.wantsMain !== false) {
+    if (options.wantsMain !== false && options.skipRecoveryWait !== true) {
       await this.whenRecovered();
     }
 
@@ -2209,7 +2698,19 @@ class AgentManager extends EventEmitter {
       return null;
     }
     
-    const agentId = `agent-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const requestedRuntimeAgentId = typeof options.runtimeAgentId === 'string'
+      ? options.runtimeAgentId.trim()
+      : '';
+    if (requestedRuntimeAgentId && !/^agent-[A-Za-z0-9_-]+$/.test(requestedRuntimeAgentId)) {
+      if (callback) callback(null, 'Invalid runtime Agent id');
+      return null;
+    }
+    if (requestedRuntimeAgentId && this.agents.has(requestedRuntimeAgentId)) {
+      if (callback) callback(null, `Runtime Agent id is already active: ${requestedRuntimeAgentId}`);
+      return null;
+    }
+    const agentId = requestedRuntimeAgentId ||
+      `agent-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const homeProvider = providerSessionPlan.provider || agentHomeProviderForProgram(program);
     const providerHomeId = typeof options.providerHomeId === 'string' && options.providerHomeId.trim()
       ? options.providerHomeId.trim()
@@ -2325,6 +2826,7 @@ class AgentManager extends EventEmitter {
       providerSessionSource: providerSessionPlan.source || '',
       providerSessionResolvedAt: providerSessionPlan.temporary === true ? null : Date.now(),
       providerSessionTitle: typeof options.providerSessionTitle === 'string' ? options.providerSessionTitle.trim().slice(0, 160) : '',
+      providerSessionWorkspace: '',
       terminalInputReceived: false,
       codexRuntimeMode: structuredRuntimeProvider === 'codex'
         ? (useCodexAppServer ? 'app-server' : 'cli')
@@ -2362,7 +2864,7 @@ class AgentManager extends EventEmitter {
       runtimeSwitchVerifiedSessionId: typeof options.runtimeSwitchVerifiedSessionId === 'string'
         ? options.runtimeSwitchVerifiedSessionId
         : '',
-      persistentSessionId: '',
+      persistentSessionId: typeof options.persistentSessionId === 'string' ? options.persistentSessionId : '',
       customTitle: typeof options.customTitle === 'string' ? options.customTitle.trim().slice(0, 80) : '',
       terminalBusy: null,
       shellCwd: '',
@@ -2382,7 +2884,10 @@ class AgentManager extends EventEmitter {
       attentionUpdatedAt: null,
       readAttentionAt: null,
       attentionReason: '',
+      attentionOutputEpoch: '',
       attentionOutputSeq: null,
+      readOutputEpoch: '',
+      readOutputSeq: null,
       unread: false,
       archived: false,
       archivedAt: null,
@@ -2399,6 +2904,7 @@ class AgentManager extends EventEmitter {
 
     ensureAgentOrders(agentRecord, Array.from(this.agents.values()));
     this.agents.set(agentId, agentRecord);
+    void this.refreshAgentWorktree(agentId);
 
     this.lastActivity.set(agentId, Date.now());
 
@@ -2498,6 +3004,7 @@ class AgentManager extends EventEmitter {
           args,
           cwd: workspace,
           category: resolution.spec ? resolution.spec.category : 'shell',
+          reviveState: options.reviveTerminalState || null,
         };
         await this.createAgentEngineSession(agentRecord, resolution.engine, engineLaunch);
       }
@@ -2519,6 +3026,20 @@ class AgentManager extends EventEmitter {
       return agentId;
     } catch (error) {
       console.error('Failed to start agent:', error);
+      if (options.restoreRuntimeAgentIdOnFailure && agentRecord.persistentSessionId) {
+        const failedAgentId = agentRecord.id;
+        try {
+          agentRecord.id = options.restoreRuntimeAgentIdOnFailure;
+          this.ensurePersistentAgentSession(agentRecord);
+        } catch (rollbackError) {
+          console.error(
+            'Failed to roll back persisted Agent runtime id after restart failure:',
+            rollbackError && (rollbackError.message || rollbackError)
+          );
+        } finally {
+          agentRecord.id = failedAgentId;
+        }
+      }
       this.agents.delete(agentId);
       this.lastActivity.delete(agentId);
       this.lastActivityUpdate.delete(agentId);
@@ -2556,8 +3077,8 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  async sendInput(agentId, input) {
-    return this.enqueueInputOperation(agentId, () => this.sendInputNow(agentId, input));
+  async sendInput(agentId, input, options = {}) {
+    return this.enqueueInputOperation(agentId, () => this.sendInputNow(agentId, input, options));
   }
 
   codexAppServerOptionsForAgent(agent, message = '') {
@@ -2572,7 +3093,7 @@ class AgentManager extends EventEmitter {
       executable: codexResolution.path || resolveAgentExecutable(agent.command) || agent.command,
       env: this.buildAgentEnv(agent.id, agent),
       cwd: agent.cwd,
-      workspaceRoot: agent.projectWorkspace || agent.cwd,
+      workspaceRoot: effectiveAgentWorkspaceRoot(agent),
       threadId: agent.codexAppServerThreadId || agent.providerSessionId || '',
       approvalMode: agent.launchPermissionMode || (
         this.configManager && this.configManager.getCodexApprovalMode
@@ -2615,6 +3136,9 @@ class AgentManager extends EventEmitter {
     if (!isRunningAgentRuntimeStatus(agent.status)) {
       throw new Error('Codex Terminal is not running');
     }
+    if (this.isAgentAttentionTurnActive(agent)) {
+      throw new Error('Wait for the active Codex Terminal turn to finish before changing its model');
+    }
 
     const applied = await applyCodexTerminalProfile({
       profile,
@@ -2624,7 +3148,7 @@ class AgentManager extends EventEmitter {
         return view.previewText;
       },
       readOutput: async () => String(await this.getAgentSessionText(agentId) || ''),
-      // `/model` and `/fast` are Farming-owned control traffic. They must not
+      // `/model` and `/fast on|off` are Farming-owned control traffic. They must not
       // make a fresh Terminal look user-authored, because that would remove
       // the safe fresh-session path into ACP Chat before the provider has
       // materialized a resumable history record.
@@ -2942,7 +3466,7 @@ class AgentManager extends EventEmitter {
     return null;
   }
 
-  async sendInputNow(agentId, input, { markUserInput = true } = {}) {
+  async sendInputNow(agentId, input, { markUserInput = true, terminalControl = null } = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) return;
     // The observer PTY is optional telemetry for App Server Agents. Its
@@ -2952,18 +3476,19 @@ class AgentManager extends EventEmitter {
     const engine = this.engineBridge.getEngine(agent.engineName);
     if (!engine) return;
 
-    if (markUserInput && hasSubmittedTerminalInput(input) && agent.terminalInputReceived !== true) {
-      agent.terminalInputReceived = true;
-      this.ensurePersistentAgentSession(agent);
-      this.updateEngineProviderSessionMetadata(agent);
-    }
-
     for (let attempt = 0; ; attempt += 1) {
       try {
-        await engine.sendInput(agentId, input);
+        const result = await engine.sendInput(agentId, input, { terminalControl });
+        if (result && result.status === 'input-rejected') return result;
+        if (markUserInput && hasSubmittedTerminalInput(input) && agent.terminalInputReceived !== true) {
+          agent.terminalInputReceived = true;
+          this.ensurePersistentAgentSession(agent);
+          this.updateEngineProviderSessionMetadata(agent);
+        }
         this.observeAgentStateChange(agentId, { force: true });
-        return;
+        return result;
       } catch (error) {
+        if (terminalControl) throw error;
         const delay = INPUT_SESSION_RETRY_DELAYS_MS[attempt];
         if (!isSessionNotAvailableError(error) || delay === undefined) {
           console.error('Failed to send input:', error);
@@ -3044,10 +3569,95 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  async resizeAgentSession(agentId, cols, rows) {
+  async claimAgentSessionGeometry(agentId, geometry) {
     const agent = this.agents.get(agentId);
-    if (!agent) return;
-    if (isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) return;
+    if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
+      return { status: 'rejected', reason: 'unsupported-session' };
+    }
+    try {
+      return await this.engineBridge.claimSessionGeometry(agent.engineName, agentId, geometry);
+    } catch (error) {
+      console.error('Failed to claim agent session geometry:', error);
+      return { status: 'rejected', reason: 'geometry-control-failed' };
+    }
+  }
+
+  async getAgentSessionAttachCheckpoint(agentId) {
+    const agent = this.agents.get(agentId);
+    if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
+      return null;
+    }
+    try {
+      return await this.engineBridge.getSessionAttachCheckpoint(agent.engineName, agentId);
+    } catch (error) {
+      console.error('Failed to read agent terminal attach checkpoint:', error);
+      return null;
+    }
+  }
+
+  async activateAgentSessionRenderer(agentId, geometry) {
+    const agent = this.agents.get(agentId);
+    if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
+      return { status: 'renderer-ready-rejected', reason: 'unsupported-session' };
+    }
+    try {
+      return await this.engineBridge.activateSessionRenderer(agent.engineName, agentId, geometry);
+    } catch (error) {
+      console.error('Failed to activate agent terminal renderer:', error);
+      return { status: 'renderer-ready-rejected', reason: 'flow-control-failed' };
+    }
+  }
+
+  async renewAgentSessionGeometry(agentId, geometry) {
+    const agent = this.agents.get(agentId);
+    if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
+      return { status: 'rejected', reason: 'unsupported-session' };
+    }
+    try {
+      return await this.engineBridge.renewSessionGeometry(agent.engineName, agentId, geometry);
+    } catch (error) {
+      console.error('Failed to renew agent session geometry:', error);
+      return { status: 'rejected', reason: 'geometry-control-failed' };
+    }
+  }
+
+  async releaseAgentSessionGeometry(agentId, geometry) {
+    const agent = this.agents.get(agentId);
+    if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
+      return { status: 'unowned', reason: 'unsupported-session' };
+    }
+    try {
+      return await this.engineBridge.releaseSessionGeometry(agent.engineName, agentId, geometry);
+    } catch (error) {
+      console.error('Failed to release agent session geometry:', error);
+      return { status: 'unowned', reason: 'geometry-control-failed' };
+    }
+  }
+
+  async acknowledgeAgentSessionOutput(agentId, charCount, geometry) {
+    const agent = this.agents.get(agentId);
+    if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
+      return { status: 'output-ack-rejected', reason: 'unsupported-session' };
+    }
+    try {
+      return await this.engineBridge.acknowledgeSessionOutput(
+        agent.engineName,
+        agentId,
+        charCount,
+        geometry,
+      );
+    } catch (error) {
+      console.error('Failed to acknowledge agent session output:', error);
+      return { status: 'output-ack-rejected', reason: 'flow-control-failed' };
+    }
+  }
+
+  async resizeAgentSession(agentId, cols, rows, geometry) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return { status: 'resize-rejected', reason: 'session-unavailable', resized: false };
+    if (isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
+      return { status: 'resize-rejected', reason: 'unsupported-session', resized: false };
+    }
 
     const nextCols = Math.floor(Number(cols));
     const nextRows = Math.floor(Number(rows));
@@ -3057,30 +3667,30 @@ class AgentManager extends EventEmitter {
       nextCols < MIN_TERMINAL_RESIZE_COLS ||
       nextRows < MIN_TERMINAL_RESIZE_ROWS
     ) {
-      return;
+      return { status: 'resize-rejected', reason: 'invalid-dimensions', resized: false };
     }
 
     try {
-      const previousSize = this.lastResizeByAgent.get(agentId);
-      if (previousSize && previousSize.cols === nextCols && previousSize.rows === nextRows) {
-        return;
-      }
-
       const engine = this.engineBridge.getEngine(agent.engineName);
-      if (!engine || !engine.resizeSession) return;
-
-      const result = await engine.resizeSession(agentId, nextCols, nextRows);
-      if (result && result.resized === false) {
-        this.markAgentSessionDead(agentId, 'Session not available');
-        return;
+      if (!engine || !engine.resizeSession) {
+        return { status: 'resize-rejected', reason: 'unsupported-engine', resized: false };
       }
-      this.lastResizeByAgent.set(agentId, { cols: nextCols, rows: nextRows });
+
+      const result = await engine.resizeSession(agentId, nextCols, nextRows, geometry);
+      if (result && result.resized === false && result.reason === 'session-unavailable') {
+        this.markAgentSessionDead(agentId, 'Session not available');
+      }
+      if (result && result.status === 'resize-committed') {
+        this.lastResizeByAgent.set(agentId, { cols: nextCols, rows: nextRows });
+      }
+      return result;
     } catch (error) {
       console.error('Failed to resize agent session:', error);
+      return { status: 'resize-rejected', reason: 'resize-failed', resized: false };
     }
   }
 
-  async clearAgentSessionBuffer(agentId) {
+  async clearAgentSessionBuffer(agentId, geometry = null) {
     const agent = this.agents.get(agentId);
     if (!agent) return { cleared: false };
     if (isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) return { cleared: false };
@@ -3088,18 +3698,16 @@ class AgentManager extends EventEmitter {
     try {
       const engine = this.engineBridge.getEngine(agent.engineName);
       if (!engine || !engine.clearBuffer) return { cleared: false };
-      const result = await engine.clearBuffer(agentId);
+      const result = await engine.clearBuffer(agentId, geometry);
       if (result && result.cleared === false) {
-        this.markAgentSessionDead(agentId, 'Session not available');
+        if (result.reason === 'session-unavailable') {
+          this.markAgentSessionDead(agentId, 'Session not available');
+        }
         return result;
       }
-      agent.output = '';
-      agent.previewText = '';
-      agent.previewSnapshot = null;
-      this.outputEvents.delete(agentId);
-      this.lastActivity.set(agentId, Date.now());
-      this.observeAgentStateChange(agentId, { force: true });
-      this.emit('update');
+      // The ordered clear transition is the single metadata writer. Output
+      // committed immediately after clear must not be erased by this RPC
+      // response path racing the transition stream.
       return result || { cleared: true };
     } catch (error) {
       console.error('Failed to clear agent session buffer:', error);
@@ -3141,14 +3749,28 @@ class AgentManager extends EventEmitter {
     }
 
     const updates = {};
+    let directUpdateChanged = false;
     if (typeof flags.pinned === 'boolean') {
       const wasPinned = agent.pinned === true;
       agent.pinned = flags.pinned;
+      directUpdateChanged = directUpdateChanged || wasPinned !== agent.pinned;
       updates.pinned = agent.pinned;
       if (!wasPinned && agent.pinned) {
         agent.pinnedOrder = nextPinnedOrder(Array.from(this.agents.values()));
       }
       updates.pinnedOrder = finiteOrder(agent.pinnedOrder);
+    }
+
+    if (
+      typeof flags.readOutputEpoch === 'string'
+      && typeof flags.readOutputSeq === 'number'
+      && Number.isFinite(flags.readOutputSeq)
+    ) {
+      const result = this.markAgentReadOutputCut(agentId, flags.readOutputEpoch, flags.readOutputSeq);
+      if (result.error) return result;
+      updates.readOutputEpoch = result.readOutputEpoch;
+      updates.readOutputSeq = result.readOutputSeq;
+      directUpdateChanged = directUpdateChanged || result.changed;
     }
 
     if (typeof flags.unread === 'boolean') {
@@ -3177,17 +3799,21 @@ class AgentManager extends EventEmitter {
     }
 
     if (flags.archived === false) {
+      directUpdateChanged = directUpdateChanged || agent.archived === true || agent.archivedAt !== null;
       agent.archived = false;
       agent.archivedAt = null;
       updates.archived = agent.archived;
       updates.archivedAt = agent.archivedAt;
     }
 
-    if (typeof flags.pinned === 'boolean') {
+    if (
+      typeof flags.pinned === 'boolean'
+      || (typeof flags.readOutputEpoch === 'string' && typeof flags.readOutputSeq === 'number')
+    ) {
       this.ensurePersistentAgentSession(agent);
       this.updateEngineProviderSessionMetadata(agent);
     }
-    this.emit('update');
+    if (directUpdateChanged) this.emit('update');
     return { agentId, ...updates };
   }
 
@@ -3390,7 +4016,7 @@ class AgentManager extends EventEmitter {
     const command = startsFreshAcpSession
       ? (agent.forkCommand || agent.command)
       : buildAgentSessionResumeCommand(provider, sessionId, {
-          cwd: agent.cwd || agent.projectWorkspace || '',
+          cwd: effectiveAgentWorkspaceRoot(agent),
           modelProvider: provider === 'codex'
             ? resolveCodexResumeModelProvider(agent.providerHomePath)
             : '',
@@ -3410,7 +4036,7 @@ class AgentManager extends EventEmitter {
       wantsMain: agent.wantsMain === true,
       task: agent.task || agent.providerSessionTitle || '',
       workflowTemplate: agent.workflowTemplate || '',
-      projectWorkspace: agent.projectWorkspace || agent.cwd || '',
+      projectWorkspace: effectiveAgentWorkspaceRoot(agent),
       source: startsFreshAcpSession
         ? 'ui-runtime-switch-fresh'
         : resumedAgentSource(provider, sessionId, agent.providerHomeId || ''),
@@ -3452,7 +4078,7 @@ class AgentManager extends EventEmitter {
       try {
         const started = this.startAgent(
           command,
-          agent.cwd || agent.projectWorkspace || null,
+          effectiveAgentWorkspaceRoot(agent) || null,
           (restartedAgentId, error) => finish(restartedAgentId, error),
           options
         );
@@ -3562,7 +4188,7 @@ class AgentManager extends EventEmitter {
     const command = startsFreshCodexSession
       ? 'codex'
       : buildAgentSessionResumeCommand(provider, sessionId, {
-        cwd: agent.cwd || agent.projectWorkspace || '',
+        cwd: effectiveAgentWorkspaceRoot(agent),
         modelProvider: provider === 'codex'
           ? resolveCodexResumeModelProvider(agent.providerHomePath)
           : '',
@@ -3576,7 +4202,7 @@ class AgentManager extends EventEmitter {
       task: agent.task || agent.providerSessionTitle || '',
       workflowTemplate: agent.workflowTemplate || '',
       requiredCliVersion: provider === 'codex' ? (agent.requiredCliVersion || '') : '',
-      projectWorkspace: agent.projectWorkspace || agent.cwd || '',
+      projectWorkspace: effectiveAgentWorkspaceRoot(agent),
       source: startsFreshCodexSession
         ? 'ui'
         : (resumedSessionFromSource(agent.source)
@@ -3620,7 +4246,7 @@ class AgentManager extends EventEmitter {
     }
 
     return new Promise((resolve) => {
-      const startResult = this.startAgent(command, agent.cwd || agent.projectWorkspace || null, (restartedAgentId, error) => {
+      const startResult = this.startAgent(command, effectiveAgentWorkspaceRoot(agent) || null, (restartedAgentId, error) => {
         if (error) {
           this.emit('update');
           resolve({ error });
@@ -3770,7 +4396,7 @@ class AgentManager extends EventEmitter {
     const resolvedWorkspace = path.resolve(workspace);
     return Array.from(this.agents.values()).filter(agent => {
       if (!agent || agent.isMain) return false;
-      const agentWorkspace = this.expandWorkspacePath(agent.projectWorkspace || agent.cwd || '');
+      const agentWorkspace = this.expandWorkspacePath(effectiveAgentWorkspaceRoot(agent));
       if (!agentWorkspace) return false;
       return path.resolve(agentWorkspace) === resolvedWorkspace;
     });
@@ -3856,7 +4482,7 @@ class AgentManager extends EventEmitter {
       return { error: 'Agent not found' };
     }
 
-    const sourceWorkspace = agent.projectWorkspace || agent.cwd;
+    const sourceWorkspace = effectiveAgentWorkspaceRoot(agent);
     let targetWorkspace = sourceWorkspace;
     if (mode === 'new-worktree') {
       try {
@@ -3926,7 +4552,7 @@ class AgentManager extends EventEmitter {
       agentId: agent.id,
       command: agent.command || '',
       cwd: agent.cwd || '',
-      projectWorkspace: agent.projectWorkspace || agent.cwd || '',
+      projectWorkspace: effectiveAgentWorkspaceRoot(agent),
       title: agent.customTitle || agent.sessionTitle || agent.task || '',
       customTitle: agent.customTitle || '',
       task: agent.task || '',
@@ -4041,7 +4667,7 @@ class AgentManager extends EventEmitter {
       return null;
     }
 
-    return agent.projectWorkspace || agent.cwd;
+    return effectiveAgentWorkspaceRoot(agent);
   }
 
   getAgentProviderSession(agentId) {
@@ -4133,6 +4759,7 @@ class AgentManager extends EventEmitter {
       engineName: agent.engineName || '',
       cwd: agent.cwd,
       projectWorkspace: agent.projectWorkspace || '',
+      gitWorktree: publicAgentGitWorktree(agent),
       status: sessionState && sessionState.status === 'exited'
         ? agent.status
         : (isLiveEngineSessionState(sessionState) ? 'running' : agent.status),
@@ -4157,6 +4784,7 @@ class AgentManager extends EventEmitter {
       providerSessionSource: agent.providerSessionSource || '',
       providerSessionResolvedAt: agent.providerSessionResolvedAt || null,
       providerSessionTitle: agent.providerSessionTitle || '',
+      providerSessionWorkspace: agent.providerSessionWorkspace || '',
       terminalInputReceived: agent.terminalInputReceived === true,
       codexRuntimeMode: agent.codexRuntimeMode || '',
       agentRuntimeMode: agent.agentRuntimeMode || 'terminal',
@@ -4188,12 +4816,21 @@ class AgentManager extends EventEmitter {
       attentionUpdatedAt: finiteNumberOrNull(agent.attentionUpdatedAt),
       readAttentionAt: finiteNumberOrNull(agent.readAttentionAt),
       attentionReason: agent.attentionReason || '',
+      attentionOutputEpoch: agent.attentionOutputEpoch || '',
       attentionOutputSeq: finiteNumberOrNull(agent.attentionOutputSeq),
+      readOutputEpoch: agent.readOutputEpoch || '',
+      readOutputSeq: finiteNumberOrNull(agent.readOutputSeq),
       unread: agentAttentionUnread(agent),
       archived: agent.archived === true,
       archivedAt: agent.archivedAt || null,
       sessionSource: this.getEngineSessionSource(agent.engineName),
+      runtimeEpoch: sessionState && typeof sessionState.runtimeEpoch === 'string'
+        ? sessionState.runtimeEpoch
+        : (agent.runtimeEpoch || ''),
       outputSeq: sessionState && Number.isFinite(sessionState.outputSeq) ? sessionState.outputSeq : null,
+      stateRevision: sessionState && Number.isFinite(sessionState.stateRevision)
+        ? sessionState.stateRevision
+        : null,
       isMain,
       activityLevel: isMain ? 'warm' : this.calculateActivityLevel(lastActivity, now),
       lastActivity,
@@ -4295,6 +4932,7 @@ class AgentManager extends EventEmitter {
         engineName: agent.engineName || '',
         cwd: agent.cwd,
         projectWorkspace: agent.projectWorkspace || '',
+        gitWorktree: publicAgentGitWorktree(agent),
         output: agent.output.slice(-2000),
         previewText: agent.previewText || '',
         codexTerminalProfile: activeCodexTerminalProfile(agent, agent.previewText || ''),
@@ -4325,6 +4963,7 @@ class AgentManager extends EventEmitter {
         providerSessionSource: agent.providerSessionSource || '',
         providerSessionResolvedAt: agent.providerSessionResolvedAt || null,
         providerSessionTitle: agent.providerSessionTitle || '',
+        providerSessionWorkspace: agent.providerSessionWorkspace || '',
         terminalInputReceived: agent.terminalInputReceived === true,
         codexRuntimeMode: agent.codexRuntimeMode || '',
         agentRuntimeMode: agent.agentRuntimeMode || 'terminal',
@@ -4365,11 +5004,14 @@ class AgentManager extends EventEmitter {
         attentionUpdatedAt: finiteNumberOrNull(agent.attentionUpdatedAt),
         readAttentionAt: finiteNumberOrNull(agent.readAttentionAt),
         attentionReason: agent.attentionReason || '',
+        attentionOutputEpoch: agent.attentionOutputEpoch || '',
         attentionOutputSeq: finiteNumberOrNull(agent.attentionOutputSeq),
+        readOutputEpoch: agent.readOutputEpoch || '',
+        readOutputSeq: finiteNumberOrNull(agent.readOutputSeq),
         unread: agentAttentionUnread(agent),
         archived: agent.archived === true,
         archivedAt: agent.archivedAt || null,
-        canForkNewWorktree: this.canCreateForkWorktree(agent.projectWorkspace || agent.cwd || ''),
+        canForkNewWorktree: this.canCreateForkWorktree(effectiveAgentWorkspaceRoot(agent)),
         startedAt: agent.startedAt || null,
         exitedAt: agent.exitedAt || null,
         // Main agent is exempt from activity/attention/zombie scoring

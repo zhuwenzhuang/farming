@@ -8,6 +8,7 @@ const { execFileSync } = require('child_process');
 const { WorkspaceFileService } = require('../workspace-file-service');
 const {
   GLOBAL_WORKSPACE_FILES_AGENT_ID,
+  PROJECT_FILES_AGENT_PREFIX,
   createWorkspaceFileRouter,
 } = require('../workspace-file-router');
 
@@ -62,6 +63,7 @@ async function run() {
   const projectWorkspace = path.join(tmpRoot, 'project');
   const mainWorkspace = path.join(projectWorkspace, '.farming');
   const externalWorkspace = path.join(tmpRoot, 'external-workspace');
+  const projectWorkspaces = [projectWorkspace];
   const service = new WorkspaceFileService({ maxFileSize: 64, maxWriteSize: 1024 * 32 });
 
   try {
@@ -85,7 +87,7 @@ async function run() {
     const agentManager = {
       configManager: {
         getSettings() {
-          return { workspaceHistory: [externalWorkspace] };
+          return { workspaceHistory: [externalWorkspace], projectWorkspaces };
         },
       },
       getAgentWorkspaceRoot(agentId) {
@@ -129,12 +131,18 @@ async function run() {
       const branch = await fetchJson(baseUrl, '/api/files/branch?agentId=agent-main');
       assert.strictEqual(branch.response.status, 200);
       assert.strictEqual(branch.body.branch, '');
+      const nonRepositoryWorktrees = await fetchJson(baseUrl, '/api/files/worktrees?agentId=agent-main');
+      assert.strictEqual(nonRepositoryWorktrees.response.status, 200);
+      assert.strictEqual(nonRepositoryWorktrees.body.worktrees.isGitRepo, false);
+      assert.deepStrictEqual(nonRepositoryWorktrees.body.worktrees.items, []);
       const nonRepositoryHistory = await fetchJson(baseUrl, '/api/files/history?agentId=agent-main');
       assert.strictEqual(nonRepositoryHistory.response.status, 200);
       assert.strictEqual(nonRepositoryHistory.body.history.isGitRepo, false);
       assert.deepStrictEqual(nonRepositoryHistory.body.history.items, []);
       const globalHistory = await fetchJson(baseUrl, `/api/files/history?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}`);
       assert.strictEqual(globalHistory.response.status, 403);
+      const globalWorktrees = await fetchJson(baseUrl, `/api/files/worktrees?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}`);
+      assert.strictEqual(globalWorktrees.response.status, 403);
 
       const read = await fetchJson(baseUrl, '/api/files/file?agentId=agent-main&path=README.md');
       assert.strictEqual(read.response.status, 200);
@@ -220,6 +228,11 @@ async function run() {
         execFileSync('git', ['add', 'README.md'], { cwd: projectWorkspace });
         execFileSync('git', ['commit', '-m', 'readme'], { cwd: projectWorkspace, stdio: 'ignore' });
         const readmeCommit = String(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: projectWorkspace, encoding: 'utf8' })).trim();
+        const linkedWorkspace = path.join(tmpRoot, 'project-topic');
+        execFileSync('git', ['worktree', 'add', '-b', 'topic', linkedWorkspace], { cwd: projectWorkspace, stdio: 'ignore' });
+        projectWorkspaces.push(linkedWorkspace);
+        const canonicalProjectWorkspace = fs.realpathSync(projectWorkspace);
+        const canonicalLinkedWorkspace = fs.realpathSync(linkedWorkspace);
 
         const history = await fetchJson(baseUrl, '/api/files/history?agentId=agent-main&limit=1');
         assert.strictEqual(history.response.status, 200);
@@ -228,6 +241,20 @@ async function run() {
         assert.strictEqual(history.body.history.scope, 'current');
         assert.strictEqual(history.body.history.items[0].subject, 'readme');
         assert.strictEqual(history.body.history.items[0].message, 'readme');
+        const worktrees = await fetchJson(baseUrl, '/api/files/worktrees?agentId=agent-main');
+        assert.strictEqual(worktrees.response.status, 200);
+        assert.strictEqual(worktrees.body.worktrees.isGitRepo, true);
+        assert.strictEqual(worktrees.body.worktrees.items.length, 2);
+        assert.strictEqual(worktrees.body.worktrees.items.find(item => item.main).workspace, canonicalProjectWorkspace);
+        assert.strictEqual(worktrees.body.worktrees.items.find(item => item.current).workspace, canonicalProjectWorkspace);
+        const linkedProjectAgentId = `${PROJECT_FILES_AGENT_PREFIX}${encodeURIComponent(linkedWorkspace)}`;
+        const linkedTree = await fetchJson(baseUrl, `/api/files/tree?agentId=${encodeURIComponent(linkedProjectAgentId)}`);
+        assert.strictEqual(linkedTree.response.status, 200);
+        assert(linkedTree.body.tree.items.some(item => item.path === 'README.md'));
+        const linkedWorktrees = await fetchJson(baseUrl, `/api/files/worktrees?agentId=${encodeURIComponent(linkedProjectAgentId)}`);
+        assert.strictEqual(linkedWorktrees.response.status, 200);
+        assert.strictEqual(linkedWorktrees.body.worktrees.currentWorkspace, canonicalLinkedWorkspace);
+        assert.strictEqual(linkedWorktrees.body.worktrees.items.find(item => item.current).branch, 'topic');
         const allHistory = await fetchJson(baseUrl, '/api/files/history?agentId=agent-main&limit=1&scope=all');
         assert.strictEqual(allHistory.response.status, 200);
         assert.strictEqual(allHistory.body.history.scope, 'all');

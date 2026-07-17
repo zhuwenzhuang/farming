@@ -2,8 +2,10 @@ import type { TerminalPreviewSnapshot } from '@/types/agent'
 
 export interface SessionDataPayload {
   session?: {
+    runtimeEpoch?: string
     output?: string
     outputSeq?: number | null
+    stateRevision?: number | null
     renderOutput?: string
     previewSnapshot?: TerminalPreviewSnapshot | null
     previewCols?: number | null
@@ -12,7 +14,9 @@ export interface SessionDataPayload {
     rows?: number | null
   } | string
   output?: string
+  runtimeEpoch?: string
   outputSeq?: number | null
+  stateRevision?: number | null
   renderOutput?: string
   previewSnapshot?: TerminalPreviewSnapshot | null
   previewCols?: number | null
@@ -29,10 +33,12 @@ export interface TerminalCursorPosition {
 }
 
 export interface SessionBootstrapState {
+  runtimeEpoch: string
   output: string
   textOutput: string
   cursor: TerminalCursorPosition | null
   outputSeq: number | null
+  stateRevision: number | null
   cols: number | null
   rows: number | null
 }
@@ -56,6 +62,21 @@ export function parseSessionOutputSeq(data: SessionDataPayload) {
     : data.outputSeq
   const seq = Number(raw)
   return Number.isFinite(seq) && seq >= 0 ? seq : null
+}
+
+export function parseSessionRuntimeEpoch(data: SessionDataPayload) {
+  const raw = data.session && typeof data.session === 'object'
+    ? data.session.runtimeEpoch
+    : data.runtimeEpoch
+  return typeof raw === 'string' ? raw : ''
+}
+
+export function parseSessionStateRevision(data: SessionDataPayload) {
+  const raw = data.session && typeof data.session === 'object'
+    ? data.session.stateRevision
+    : data.stateRevision
+  const revision = Number(raw)
+  return Number.isFinite(revision) && revision >= 0 ? revision : null
 }
 
 export function trimLeadingBlankBootstrapRows(output: string) {
@@ -166,26 +187,20 @@ export function shiftSnapshotCursor(cursor: TerminalCursorPosition | null, remov
 }
 
 export function sessionBootstrapStateFromPayload(data: SessionDataPayload): SessionBootstrapState {
-  const snapshot = parseSessionSnapshot(data)
   const rawOutput = parseSessionOutput(data)
   const rawTextOutput = data.session && typeof data.session === 'object'
     ? data.session.output ?? ''
     : data.output ?? ''
-  const trimmedOutput = trimLeadingBlankBootstrapRows(rawOutput)
-  const trimmedTextOutput = trimLeadingBlankBootstrapRows(rawTextOutput)
-  const snapshotOutput = sessionSnapshotToBootstrapText(snapshot)
   const dimensions = parseSessionDimensions(data)
-  const removedLeadingRows = trimmedOutput
-    ? countLeadingBlankBootstrapRows(rawOutput)
-    : countLeadingBlankSnapshotRows(snapshot)
-  const cursor = !trimmedOutput || bootstrapCursorMatchesOutput(trimmedOutput, snapshotOutput)
-    ? shiftSnapshotCursor(snapshotCursorPosition(snapshot), removedLeadingRows)
-    : null
   return {
-    output: trimmedOutput || snapshotOutput,
-    textOutput: trimmedTextOutput,
-    cursor,
+    runtimeEpoch: parseSessionRuntimeEpoch(data),
+    // A checkpoint is opaque serialized xterm state. Trimming rows, rebuilding
+    // it from text, or moving the cursor would invalidate its revision proof.
+    output: rawOutput,
+    textOutput: rawTextOutput,
+    cursor: null,
     outputSeq: parseSessionOutputSeq(data),
+    stateRevision: parseSessionStateRevision(data),
     cols: dimensions.cols,
     rows: dimensions.rows,
   }

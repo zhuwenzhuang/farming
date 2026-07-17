@@ -26,6 +26,8 @@ type AgentFlagPatch = Partial<{
   archived: boolean
   launchPermissionMode: string
   readAttentionSeq: number
+  readOutputEpoch: string
+  readOutputSeq: number
   agentRuntimeMode: 'terminal' | 'acp' | 'json'
 }>
 type StartAgentExtras = {
@@ -63,8 +65,9 @@ const PERMISSION_SWITCH_REPLACEMENT_HARD_TIMEOUT_MS = 60_000
 const AGENT_SWITCH_REQUEST_TIMEOUT_MS = 45_000
 const AGENT_SWITCH_OVERLAY_TIMEOUT_MS = 60_000
 
-function projectWorkspaceForAgent(agent: { cwd: string; projectWorkspace?: string; isMain?: boolean } | null | undefined) {
+function projectWorkspaceForAgent(agent: Pick<Agent, 'cwd' | 'projectWorkspace' | 'gitWorktree'> | null | undefined) {
   if (!agent) return undefined
+  if (agent.gitWorktree?.workspace) return agent.gitWorktree.workspace
   if (agent.projectWorkspace) return agent.projectWorkspace
   return agent.cwd
 }
@@ -1058,10 +1061,8 @@ export function App() {
         onWorkspaceViewChange={setActiveWorkspaceView}
         onKill={handleKill}
         onInterruptAgent={ws.interruptAgent}
-        sendInput={ws.sendInput}
         sendComposerInput={ws.sendComposerInput}
         respondToAppServerRequest={ws.respondToAppServerRequest}
-        resizeAgent={ws.resizeAgent}
         onSessionOutput={ws.onSessionOutput}
         onUpdateUiPreferences={updateUiPreferences}
       />

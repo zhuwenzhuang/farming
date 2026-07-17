@@ -9,6 +9,39 @@ const {
 const { terminalInputToPtyString } = require('./input-parts');
 const { deriveTerminalStatus } = require('./terminal-status');
 const { normalizeInteractiveTerminalEnv } = require('./agent-env');
+const {
+  allocateNativePtyRuntimeGeneration,
+  formatNativePtyRuntimeEpoch,
+} = require('./native-pty-controller-generation');
+const storageLayout = require('./storage-layout');
+const {
+  beginTerminalGeometryResize,
+  claimTerminalGeometry,
+  commitTerminalGeometryResize,
+  createTerminalGeometryControl,
+  expireTerminalGeometryIfNeeded,
+  rejectTerminalGeometryResize,
+  releaseTerminalGeometry,
+  renewTerminalGeometry,
+  validateTerminalGeometryClear,
+  validateTerminalGeometryInput,
+  validateTerminalGeometryOutputAck,
+  validateTerminalGeometryRendererReady,
+} = require('./terminal-geometry-control');
+const {
+  acknowledgeTerminalReducerData,
+  acknowledgeTerminalRendererData,
+  createTerminalReducerFlowControl,
+  ensureTerminalReducerFlowControl,
+  enqueueTerminalReducerData,
+  enqueueTerminalRendererData,
+  resetTerminalReducerFlowControl,
+  resetTerminalRendererFlowControl,
+  setTerminalExternalFlowControlBlocked,
+} = require('./terminal-reducer-flow-control');
+const {
+  captureTerminalAttachCheckpoint,
+} = require('./terminal-attach-checkpoint');
 
 const CONTROLLED_BASH_PROMPT = [
   '\\[\\e[90m\\]│\\[\\e[0m\\] ',
@@ -145,8 +178,9 @@ function normalizeShellSessionOptions(options) {
 }
 
 class LocalSessionEngine extends SessionEngine {
-  constructor() {
+  constructor(options = {}) {
     super();
+    this.configDir = options.configDir || storageLayout.farmingConfigDir();
     this.sessions = new Map();
     this.screenWorkerPool = new TerminalScreenWorkerPool({
       size: 3,
@@ -162,9 +196,13 @@ class LocalSessionEngine extends SessionEngine {
     const normalized = normalizeShellSessionOptions(options);
     const previewCols = normalized.cols || 80;
     const previewRows = normalized.rows || 30;
+    const runtimeGeneration = await allocateNativePtyRuntimeGeneration(this.configDir);
+    const runtimeEpoch = formatNativePtyRuntimeEpoch(runtimeGeneration);
     const screenWorker = await this.screenWorkerPool.acquire({
       cols: previewCols,
       rows: previewRows,
+      runtimeEpoch,
+      runtimeGeneration,
     });
 
     let ptyProcess;
@@ -190,6 +228,12 @@ class LocalSessionEngine extends SessionEngine {
       process: ptyProcess,
       output: '',
       outputSeq: 0,
+      stateRevision: 0,
+      runtimeEpoch,
+      stateProofAvailable: true,
+      reducerFlowControl: createTerminalReducerFlowControl(),
+      reducerCommitQueue: Promise.resolve(),
+      geometryControl: createTerminalGeometryControl(),
       renderOutput: '',
       previewText: '',
       previewSnapshot: null,
@@ -241,106 +285,19 @@ class LocalSessionEngine extends SessionEngine {
     });
 
     session.screenWorker.on('error', (error) => {
-      this.emit('session-error', {
-        sessionId: session.id,
-        error: `Failed to update terminal screen state: ${error.message}`,
-        fatal: false
-      });
+      this.failSessionScreenState(session, error);
     });
 
     this.sessions.set(session.id, session);
     this.emit('session-started', {
       sessionId: session.id,
       status: session.status,
-      startedAt: session.startedAt
+      startedAt: session.startedAt,
+      runtimeEpoch: session.runtimeEpoch,
+      stateRevision: session.stateRevision
     });
 
-    ptyProcess.onData((data) => {
-      const current = this.sessions.get(session.id);
-      if (!current) return;
-
-      const busyState = parseShellBusyMarkers(data, current.terminalBusy, current.shellBusyMarkerPending);
-      current.shellBusyMarkerPending = busyState.pending;
-      if (busyState.markerSeen) {
-        const markerAt = Date.now();
-        current.terminalBusy = busyState.terminalBusy;
-        if (busyState.cwd) {
-          current.shellCwd = busyState.cwd;
-        }
-        if (busyState.exitCodeSeen) {
-          current.shellLastExitCode = busyState.lastExitCode;
-        }
-        if (busyState.shellEvent) {
-          current.shellLastEvent = busyState.shellEvent;
-        }
-        if (busyState.shellEvent === 'start') {
-          current.shellCommandStartedAt = markerAt;
-        }
-        if (busyState.commandTextSeen) {
-          current.shellCommand = busyState.shellCommand || '';
-        }
-        if (busyState.shellEvent === 'finish') {
-          const commandStartedAt = current.shellCommandStartedAt;
-          if (current.shellCommand) {
-            current.shellLastCommand = current.shellCommand;
-          }
-          if (typeof commandStartedAt === 'number') {
-            current.shellLastCommandStartedAt = commandStartedAt;
-            current.shellLastCommandFinishedAt = markerAt;
-            current.shellLastCommandDurationMs = Math.max(0, markerAt - commandStartedAt);
-          }
-          current.shellCommand = '';
-          current.shellCommandStartedAt = null;
-        }
-        this.emit('session-busy-state', {
-          sessionId: current.id,
-          terminalBusy: current.terminalBusy,
-          cwd: current.shellCwd || current.cwd,
-          lastExitCode: current.shellLastExitCode,
-          shellEvent: current.shellLastEvent,
-          shellCommand: current.shellCommand,
-          shellLastCommand: current.shellLastCommand,
-          shellCommandStartedAt: current.shellCommandStartedAt,
-          shellLastCommandStartedAt: current.shellLastCommandStartedAt,
-          shellLastCommandFinishedAt: current.shellLastCommandFinishedAt,
-          shellLastCommandDurationMs: current.shellLastCommandDurationMs,
-          statusMarkerSeen: busyState.statusMarkerSeen,
-          busyMarkerSeen: busyState.busyMarkerSeen,
-        });
-      }
-
-      data = busyState.data;
-      if (!data) return;
-
-      current.outputSeq += 1;
-      current.output += data;
-      current.lastActivityAt = Date.now();
-
-      if (current.output.length > 10000) {
-        current.output = current.output.slice(-10000);
-      }
-
-      const fallbackTitle = extractLatestTerminalTitle(data);
-      if (fallbackTitle && fallbackTitle !== current.title) {
-        current.title = fallbackTitle;
-        this.emit('session-title', {
-          sessionId: current.id,
-          title: current.title
-        });
-      }
-
-      this.emit('session-output', {
-        sessionId: current.id,
-        data,
-        outputSeq: current.outputSeq
-      });
-      this.emit('session-activity', {
-        sessionId: current.id,
-        lastActivityAt: current.lastActivityAt
-      });
-
-      current.screenWorker.append(data);
-    });
+    ptyProcess.onData(data => this.handleSessionData(session.id, data));
 
     ptyProcess.onExit(({ code }) => {
       const current = this.sessions.get(session.id);
@@ -357,6 +314,10 @@ class LocalSessionEngine extends SessionEngine {
 
         latest.status = 'exited';
         latest.exitedAt = Date.now();
+        resetTerminalReducerFlowControl(
+          ensureTerminalReducerFlowControl(latest),
+          latest.process,
+        );
         latest.renderOutput = screenState.renderOutput || latest.renderOutput;
         latest.previewText = screenState.previewText || latest.previewText || latest.output.slice(-2000);
         latest.previewSnapshot = screenState.previewSnapshot || latest.previewSnapshot;
@@ -390,31 +351,293 @@ class LocalSessionEngine extends SessionEngine {
     };
   }
 
-  async sendInput(sessionId, input) {
+  handleSessionData(sessionId, rawData) {
+    const current = this.sessions.get(sessionId);
+    if (!current || current.stateProofAvailable === false) return;
+
+    const busyState = parseShellBusyMarkers(
+      rawData,
+      current.terminalBusy,
+      current.shellBusyMarkerPending,
+    );
+    current.shellBusyMarkerPending = busyState.pending;
+    if (busyState.markerSeen) {
+      const markerAt = Date.now();
+      current.terminalBusy = busyState.terminalBusy;
+      if (busyState.cwd) current.shellCwd = busyState.cwd;
+      if (busyState.exitCodeSeen) current.shellLastExitCode = busyState.lastExitCode;
+      if (busyState.shellEvent) current.shellLastEvent = busyState.shellEvent;
+      if (busyState.shellEvent === 'start') current.shellCommandStartedAt = markerAt;
+      if (busyState.commandTextSeen) current.shellCommand = busyState.shellCommand || '';
+      if (busyState.shellEvent === 'finish') {
+        const commandStartedAt = current.shellCommandStartedAt;
+        if (current.shellCommand) current.shellLastCommand = current.shellCommand;
+        if (typeof commandStartedAt === 'number') {
+          current.shellLastCommandStartedAt = commandStartedAt;
+          current.shellLastCommandFinishedAt = markerAt;
+          current.shellLastCommandDurationMs = Math.max(0, markerAt - commandStartedAt);
+        }
+        current.shellCommand = '';
+        current.shellCommandStartedAt = null;
+      }
+      this.emit('session-busy-state', {
+        sessionId: current.id,
+        terminalBusy: current.terminalBusy,
+        cwd: current.shellCwd || current.cwd,
+        lastExitCode: current.shellLastExitCode,
+        shellEvent: current.shellLastEvent,
+        shellCommand: current.shellCommand,
+        shellLastCommand: current.shellLastCommand,
+        shellCommandStartedAt: current.shellCommandStartedAt,
+        shellLastCommandStartedAt: current.shellLastCommandStartedAt,
+        shellLastCommandFinishedAt: current.shellLastCommandFinishedAt,
+        shellLastCommandDurationMs: current.shellLastCommandDurationMs,
+        statusMarkerSeen: busyState.statusMarkerSeen,
+        busyMarkerSeen: busyState.busyMarkerSeen,
+      });
+    }
+
+    const data = busyState.data;
+    if (!data) return;
+    const reducerDelivery = enqueueTerminalReducerData(
+      ensureTerminalReducerFlowControl(current),
+      current.process,
+      data,
+    );
+    if (reducerDelivery.error) {
+      this.failSessionScreenState(current, reducerDelivery.error);
+      return;
+    }
+    current.outputSeq += 1;
+    current.stateRevision += 1;
+    const outputSeq = current.outputSeq;
+    const stateRevision = current.stateRevision;
+    current.output = `${current.output}${data}`.slice(-10000);
+    current.lastActivityAt = Date.now();
+
+    const fallbackTitle = extractLatestTerminalTitle(data);
+    if (fallbackTitle && fallbackTitle !== current.title) {
+      current.title = fallbackTitle;
+      this.emit('session-title', {
+        sessionId: current.id,
+        title: current.title,
+      });
+    }
+
+    const commit = current.screenWorker.append(data, stateRevision, outputSeq);
+    current.reducerCommitQueue = current.reducerCommitQueue.then(() => commit).then(() => {
+      const latest = this.sessions.get(current.id);
+      if (latest !== current || latest.stateProofAvailable === false) return;
+      const rendererFlowError = this.trackSessionRendererData(latest, data);
+      if (rendererFlowError) {
+        this.failSessionScreenState(latest, rendererFlowError);
+        return;
+      }
+      const flowError = acknowledgeTerminalReducerData(
+        ensureTerminalReducerFlowControl(latest),
+        latest.process,
+        reducerDelivery.bytes,
+      );
+      if (flowError) {
+        this.failSessionScreenState(latest, flowError);
+        return;
+      }
+      this.emit('session-output', {
+        sessionId: latest.id,
+        data,
+        runtimeEpoch: latest.runtimeEpoch,
+        outputSeq,
+        stateRevision,
+      });
+      this.emit('session-activity', {
+        sessionId: latest.id,
+        lastActivityAt: latest.lastActivityAt,
+      });
+    }).catch(error => this.failSessionScreenState(current, error));
+  }
+
+  failSessionScreenState(session, error) {
+    const current = this.sessions.get(session.id);
+    if (!current || current.stateProofAvailable === false) return;
+    current.stateProofAvailable = false;
+    const message = error instanceof Error ? error.message : String(error || 'unknown reducer failure');
+    this.emit('session-error', {
+      sessionId: current.id,
+      error: `Terminal state reducer failed: ${message}`,
+      fatal: true
+    });
+    try {
+      current.process?.kill();
+    } catch {
+      // The runtime cannot continue safely without its authoritative reducer.
+    }
+  }
+
+  trackSessionRendererData(session, data) {
+    const expired = expireTerminalGeometryIfNeeded(session);
+    const hasOwner = Boolean(
+      session.geometryControl?.ownerKey &&
+      session.geometryControl?.leaseId &&
+      session.geometryControl.expiresAt > Date.now()
+    );
+    if (expired || !hasOwner) {
+      const control = ensureTerminalReducerFlowControl(session);
+      const resetError = resetTerminalRendererFlowControl(control, session.process);
+      return resetError || setTerminalExternalFlowControlBlocked(control, session.process, false);
+    }
+    if (session.geometryControl.rendererReadyFence !== session.geometryControl.fence) {
+      return null;
+    }
+    return enqueueTerminalRendererData(
+      ensureTerminalReducerFlowControl(session),
+      session.process,
+      String(data || '').length,
+    );
+  }
+
+  async sendInput(sessionId, input, options = {}) {
     const session = this.sessions.get(sessionId);
     if (!session || !session.process) {
       throw new Error('Session not available');
     }
 
+    if (options.terminalControl) {
+      const controlState = validateTerminalGeometryInput(session, options.terminalControl);
+      if (controlState.status !== 'input-accepted') return controlState;
+    }
     session.process.write(terminalInputToPtyString(input));
     session.lastActivityAt = Date.now();
     this.emit('session-activity', {
       sessionId,
       lastActivityAt: session.lastActivityAt
     });
+    return { sent: true };
   }
 
   async interruptSession(sessionId, input = '\x03') {
     return this.sendInput(sessionId, input);
   }
 
-  async resizeSession(sessionId, cols, rows) {
+  async claimSessionGeometry(sessionId, geometry) {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.status === 'exited') {
+      return { status: 'rejected', reason: 'session-unavailable' };
+    }
+    const previousLeaseId = session.geometryControl?.leaseId || '';
+    const result = claimTerminalGeometry(session, geometry);
+    if (result.status === 'owner' && result.leaseId !== previousLeaseId) {
+      const flowError = setTerminalExternalFlowControlBlocked(
+        ensureTerminalReducerFlowControl(session),
+        session.process,
+        true,
+      );
+      if (flowError) this.failSessionScreenState(session, flowError);
+    }
+    return result;
+  }
+
+  async activateSessionRenderer(sessionId, geometry) {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.status === 'exited') {
+      return { status: 'renderer-ready-rejected', reason: 'session-unavailable' };
+    }
+    const controlState = validateTerminalGeometryRendererReady(session, geometry);
+    if (controlState.status !== 'renderer-ready-accepted') return controlState;
+    if (session.geometryControl.rendererReadyFence === geometry.fence) {
+      return { ...controlState, status: 'renderer-ready-accepted', duplicate: true };
+    }
+    const flowControl = ensureTerminalReducerFlowControl(session);
+    const resetError = resetTerminalRendererFlowControl(flowControl, session.process);
+    if (resetError) {
+      this.failSessionScreenState(session, resetError);
+      return { ...controlState, status: 'renderer-ready-rejected', reason: 'flow-control-failed' };
+    }
+    session.geometryControl.rendererReadyFence = geometry.fence;
+    const resumeError = setTerminalExternalFlowControlBlocked(flowControl, session.process, false);
+    if (resumeError) {
+      session.geometryControl.rendererReadyFence = 0;
+      this.failSessionScreenState(session, resumeError);
+      return { ...controlState, status: 'renderer-ready-rejected', reason: 'flow-control-failed' };
+    }
+    return { ...controlState, status: 'renderer-ready-accepted' };
+  }
+
+  async getSessionAttachCheckpoint(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.status === 'exited') return null;
+    return captureTerminalAttachCheckpoint(session);
+  }
+
+  async renewSessionGeometry(sessionId, geometry) {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.status === 'exited') {
+      return { status: 'rejected', reason: 'session-unavailable' };
+    }
+    return renewTerminalGeometry(session, geometry);
+  }
+
+  async releaseSessionGeometry(sessionId, geometry) {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.status === 'exited') {
+      return { status: 'unowned', reason: 'session-unavailable' };
+    }
+    const result = releaseTerminalGeometry(session, geometry);
+    if (result.status === 'unowned') {
+      const flowControl = ensureTerminalReducerFlowControl(session);
+      const flowError = resetTerminalRendererFlowControl(flowControl, session.process)
+        || setTerminalExternalFlowControlBlocked(flowControl, session.process, false);
+      if (flowError) this.failSessionScreenState(session, flowError);
+    }
+    return result;
+  }
+
+  async acknowledgeSessionOutput(sessionId, charCount, geometry) {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.status === 'exited') {
+      return { status: 'output-ack-rejected', reason: 'session-unavailable' };
+    }
+    const controlState = validateTerminalGeometryOutputAck(session, geometry);
+    if (controlState.status !== 'output-ack-accepted') return controlState;
+    const flowError = acknowledgeTerminalRendererData(
+      ensureTerminalReducerFlowControl(session),
+      session.process,
+      charCount,
+    );
+    if (flowError) {
+      this.failSessionScreenState(session, flowError);
+      return {
+        ...controlState,
+        status: 'output-ack-rejected',
+        reason: 'flow-control-failed',
+      };
+    }
+    return {
+      ...controlState,
+      acknowledged: Math.max(0, Math.floor(Number(charCount) || 0)),
+    };
+  }
+
+  async resizeSession(sessionId, cols, rows, geometry) {
     const session = this.sessions.get(sessionId);
     if (!session || !session.process || !session.process.resize) {
-      return { resized: false };
+      return { status: 'resize-rejected', reason: 'session-unavailable', resized: false };
     }
     if (session.status === 'exited') {
-      return { resized: false };
+      return { status: 'resize-rejected', reason: 'session-unavailable', resized: false };
+    }
+
+    const resize = beginTerminalGeometryResize(session, geometry);
+    if (!resize.accepted) {
+      return {
+        ...resize.result,
+        resized: resize.duplicate === true || resize.result?.status === 'resize-committed',
+      };
+    }
+    if (cols === session.previewCols && rows === session.previewRows) {
+      return commitTerminalGeometryResize(session, resize.requestSeq, {
+        resized: true,
+        unchanged: true,
+      }, resize.token);
     }
 
     try {
@@ -423,21 +646,45 @@ class LocalSessionEngine extends SessionEngine {
       if (error && String(error.message || '').includes('EBADF')) {
         session.status = 'exited';
         session.exitedAt = session.exitedAt || Date.now();
-        return { resized: false };
+        return rejectTerminalGeometryResize(
+          session,
+          resize.requestSeq,
+          'session-unavailable',
+          {},
+          resize.token,
+        );
       }
-      throw error;
+      return rejectTerminalGeometryResize(session, resize.requestSeq, 'pty-resize-failed', {
+        error: error instanceof Error ? error.message : String(error || 'unknown PTY resize failure'),
+      }, resize.token);
     }
+    session.stateRevision += 1;
+    const stateRevision = session.stateRevision;
+    const outputSeq = session.outputSeq;
+    const runtimeEpoch = session.runtimeEpoch;
     session.previewCols = cols || session.previewCols;
     session.previewRows = rows || session.previewRows;
     if (!session.screenWorker) {
-      return { resized: true, cols: session.previewCols, rows: session.previewRows };
+      return commitTerminalGeometryResize(session, resize.requestSeq, {
+        resized: true,
+        unchanged: false,
+      }, resize.token);
     }
 
-    try {
-      const screenState = await session.screenWorker.resize(cols, rows);
+    const reducerCommit = session.screenWorker.resize(cols, rows, stateRevision);
+    const publishedCommit = session.reducerCommitQueue.then(() => reducerCommit).then((screenState) => {
+      if (
+        screenState.runtimeEpoch !== runtimeEpoch ||
+        screenState.outputSeq !== outputSeq ||
+        screenState.stateRevision !== stateRevision
+      ) {
+        throw new Error('Terminal screen resize returned a non-authoritative state cut');
+      }
       session.previewText = screenState.previewText || '';
       session.previewSnapshot = screenState.previewSnapshot || session.previewSnapshot;
-      session.renderOutput = screenState.renderOutput || session.renderOutput;
+      session.renderOutput = typeof screenState.renderOutput === 'string'
+        ? screenState.renderOutput
+        : session.renderOutput;
       session.previewCols = screenState.cols || cols || session.previewCols;
       session.previewRows = screenState.rows || rows || session.previewRows;
       if (screenState.title && screenState.title !== session.title) {
@@ -447,59 +694,114 @@ class LocalSessionEngine extends SessionEngine {
           title: session.title
         });
       }
-    } catch (error) {
-      this.emit('session-error', {
+      this.emit('session-transition', {
         sessionId,
-        error: `Failed to resize terminal screen state: ${error.message}`,
-        fatal: false
+        kind: 'resize',
+        data: '',
+        runtimeEpoch: screenState.runtimeEpoch,
+        outputSeq: screenState.outputSeq,
+        stateRevision: screenState.stateRevision,
+        cols: screenState.cols,
+        rows: screenState.rows
       });
+      return screenState;
+    });
+    session.reducerCommitQueue = publishedCommit.catch(error => {
+      this.failSessionScreenState(session, error);
+    });
+    try {
+      await publishedCommit;
+    } catch {
+      return rejectTerminalGeometryResize(
+        session,
+        resize.requestSeq,
+        'screen-reducer-failed',
+        {},
+        resize.token,
+      );
     }
-    return { resized: true, cols: session.previewCols, rows: session.previewRows };
+    return commitTerminalGeometryResize(session, resize.requestSeq, {
+      resized: true,
+      unchanged: false,
+      runtimeEpoch,
+      outputSeq,
+      stateRevision,
+      cols,
+      rows,
+    }, resize.token);
   }
 
-  async clearBuffer(sessionId) {
+  async clearBuffer(sessionId, geometry = null) {
     const session = this.sessions.get(sessionId);
     if (!session) {
       return { cleared: false };
     }
+    if (geometry) {
+      const controlState = validateTerminalGeometryClear(session, geometry);
+      if (controlState.status !== 'clear-accepted') {
+        return { cleared: false, ...controlState };
+      }
+    }
 
     session.output = '';
-    session.outputSeq = (session.outputSeq || 0) + 1;
+    session.stateRevision += 1;
+    const stateRevision = session.stateRevision;
+    const outputSeq = session.outputSeq;
+    const runtimeEpoch = session.runtimeEpoch;
     session.renderOutput = '';
     session.previewText = '';
     session.previewSnapshot = null;
     session.lastActivityAt = Date.now();
 
+    let exactState = {
+      renderOutput: '',
+      runtimeEpoch,
+      outputSeq,
+      stateRevision,
+      cols: session.previewCols,
+      rows: session.previewRows,
+    };
     if (session.screenWorker) {
-      try {
-        const screenState = await session.screenWorker.clear();
-        session.renderOutput = screenState.renderOutput || '';
+      const reducerCommit = session.screenWorker.clear(stateRevision, outputSeq);
+      const publishedCommit = session.reducerCommitQueue.then(() => reducerCommit).then((screenState) => {
+        if (
+          screenState.runtimeEpoch !== runtimeEpoch ||
+          screenState.outputSeq !== outputSeq ||
+          screenState.stateRevision !== stateRevision
+        ) {
+          throw new Error('Terminal screen clear returned a non-authoritative state cut');
+        }
+        session.renderOutput = typeof screenState.renderOutput === 'string' ? screenState.renderOutput : '';
         session.previewText = screenState.previewText || '';
         session.previewSnapshot = screenState.previewSnapshot || null;
         session.previewCols = screenState.cols || session.previewCols;
         session.previewRows = screenState.rows || session.previewRows;
+        exactState = screenState;
         if (screenState.title && screenState.title !== session.title) {
           session.title = screenState.title;
-          this.emit('session-title', {
-            sessionId,
-            title: session.title
-          });
+          this.emit('session-title', { sessionId, title: session.title });
         }
-      } catch (error) {
-        this.emit('session-error', {
+        this.emit('session-transition', {
           sessionId,
-          error: `Failed to clear terminal screen state: ${error.message}`,
-          fatal: false
+          kind: 'clear',
+          data: '\x1b[2J\x1b[3J\x1b[H',
+          runtimeEpoch: screenState.runtimeEpoch,
+          outputSeq: screenState.outputSeq,
+          stateRevision: screenState.stateRevision,
+          cols: screenState.cols,
+          rows: screenState.rows
         });
+        return screenState;
+      });
+      session.reducerCommitQueue = publishedCommit.catch(error => {
+        this.failSessionScreenState(session, error);
+      });
+      try {
+        await publishedCommit;
+      } catch {
+        return { cleared: false };
       }
     }
-
-    this.emit('session-sync', {
-      sessionId,
-      output: session.renderOutput || session.output,
-      outputSeq: session.outputSeq,
-      replaceLive: true
-    });
     this.emit('session-preview', {
       sessionId,
       previewText: session.previewText,
@@ -512,7 +814,15 @@ class LocalSessionEngine extends SessionEngine {
       sessionId,
       lastActivityAt: session.lastActivityAt
     });
-    return { cleared: true, outputSeq: session.outputSeq };
+    return {
+      cleared: true,
+      runtimeEpoch: exactState.runtimeEpoch,
+      outputSeq: exactState.outputSeq,
+      stateRevision: exactState.stateRevision,
+      cols: exactState.cols,
+      rows: exactState.rows,
+      expiresAt: session.geometryControl?.expiresAt || 0,
+    };
   }
 
   async killSession(sessionId) {
@@ -538,23 +848,28 @@ class LocalSessionEngine extends SessionEngine {
   async getSessionState(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
-    const screenState = session.screenWorker
-      ? await session.screenWorker.getState().catch(() => null)
-      : null;
-
-    const title = (screenState && screenState.title) || session.title;
-    const previewText = (screenState && screenState.previewText) || session.previewText;
+    const snapshotOutput = session.output;
+    const fallbackPreviewText = session.previewText;
+    const fallbackPreviewSnapshot = session.previewSnapshot;
+    const fallbackPreviewCols = session.previewCols;
+    const fallbackPreviewRows = session.previewRows;
+    const fallbackTitle = session.title;
+    const checkpoint = await captureTerminalAttachCheckpoint(session);
+    const title = checkpoint ? checkpoint.title : fallbackTitle;
+    const previewText = checkpoint ? checkpoint.previewText : fallbackPreviewText;
 
     return {
       sessionId: session.id,
       status: session.status,
-      output: session.output,
-      outputSeq: session.outputSeq || 0,
-      renderOutput: (screenState && screenState.renderOutput) || session.renderOutput,
+      runtimeEpoch: session.runtimeEpoch,
+      output: snapshotOutput,
+      outputSeq: checkpoint?.outputSeq ?? null,
+      stateRevision: checkpoint?.stateRevision ?? null,
+      renderOutput: checkpoint ? checkpoint.renderOutput : snapshotOutput,
       previewText,
-      previewSnapshot: (screenState && screenState.previewSnapshot) || session.previewSnapshot,
-      previewCols: (screenState && screenState.cols) || session.previewCols,
-      previewRows: (screenState && screenState.rows) || session.previewRows,
+      previewSnapshot: checkpoint ? checkpoint.previewSnapshot : fallbackPreviewSnapshot,
+      previewCols: checkpoint ? checkpoint.cols : fallbackPreviewCols,
+      previewRows: checkpoint ? checkpoint.rows : fallbackPreviewRows,
       title,
       lastActivityAt: session.lastActivityAt,
       startedAt: session.startedAt,

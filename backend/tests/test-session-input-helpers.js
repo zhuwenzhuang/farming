@@ -7,7 +7,6 @@ const {
   isPasteShortcut,
   getTerminalSequenceForKey,
 } = require('../../frontend/skins/crt/app.js');
-const { importTsModule } = require('./helpers/import-ts-module');
 
 function makeEvent(overrides = {}) {
   return {
@@ -21,51 +20,6 @@ function makeEvent(overrides = {}) {
 }
 
 function run() {
-  const {
-    shouldUseTerminalInputFallback,
-  } = importTsModule('src/lib/terminal-input.ts');
-
-  assert.strictEqual(
-    shouldUseTerminalInputFallback({
-      isXterm: true,
-      imeComposing: false,
-      text: 'hello',
-      terminal: { input() {} },
-    }),
-    false,
-    'xterm residual input fallback should not duplicate ordinary ASCII typing'
-  );
-  assert.strictEqual(
-    shouldUseTerminalInputFallback({
-      isXterm: true,
-      imeComposing: false,
-      text: '中文',
-      terminal: { input() {} },
-    }),
-    true,
-    'xterm residual input fallback should rescue committed IME/non-ASCII text'
-  );
-  assert.strictEqual(
-    shouldUseTerminalInputFallback({
-      isXterm: true,
-      imeComposing: true,
-      text: '中文',
-      terminal: { input() {} },
-    }),
-    false,
-    'terminal input fallback should not fire while IME composition is active'
-  );
-  assert.strictEqual(
-    shouldUseTerminalInputFallback({
-      isXterm: false,
-      imeComposing: false,
-      text: 'hello',
-      terminal: { input() {} },
-    }),
-    true,
-    'non-xterm fallback should continue to handle residual textarea input'
-  );
-
   assert.strictEqual(getTerminalSequenceForKey(makeEvent({ key: 'Enter' })), '\r');
   assert.strictEqual(getTerminalSequenceForKey(makeEvent({ key: 'ArrowUp' })), '\x1b[A');
   assert.strictEqual(getTerminalSequenceForKey(makeEvent({ key: 'Tab', shiftKey: true })), '\x1b[Z');
@@ -186,6 +140,10 @@ function run() {
     path.join(__dirname, '../../tests/e2e/terminal-regression-matrix.spec.ts'),
     'utf8'
   );
+  const crtAppSource = fs.readFileSync(
+    path.join(__dirname, '../../frontend/skins/crt/app.js'),
+    'utf8'
+  );
   assert(
     mainCssSource.includes('min-width: 148px') &&
       mainCssSource.includes('max-width: min(210px, calc(100vw - 32px))') &&
@@ -250,11 +208,14 @@ function run() {
   );
   assert(
     terminalPoolSource.includes('fetchSessionBootstrapStateForCurrentTerminal') &&
-      terminalPoolSource.includes('bootstrapDimensionsMatchTerminal') &&
-      terminalPoolSource.includes('BOOTSTRAP_DIMENSION_RETRY_COUNT') &&
+      terminalPoolSource.includes("The reducer's checkpoint dimensions are part of the authoritative cut") &&
+      terminalPoolSource.includes('return await fetchSessionBootstrapState(record.agentId, controller.signal)') &&
+      !terminalPoolSource.includes('BOOTSTRAP_DIMENSION_RETRY_COUNT') &&
       terminalBootstrapSource.includes('parseSessionDimensions') &&
-      terminalBootstrapSource.includes('textOutput: trimmedTextOutput'),
-    'terminal bootstrap replay should verify backend snapshot dimensions before replacing the frontend xterm buffer'
+      terminalPoolSource.includes('record.terminal.resize(state.cols, state.rows)') &&
+      !terminalPoolSource.includes('pendingResizeCheckpoint') &&
+      !terminalPoolSource.includes('output: state.textOutput'),
+    'terminal bootstrap replay should install checkpoint bytes and dimensions as one authoritative reducer cut without coupling replay to a pending resize'
   );
   assert(
     terminalPoolSource.includes('function selectTerminalCellRange') &&
@@ -299,32 +260,41 @@ function run() {
       terminalPoolSource.includes('if (record.suspendRendering)') &&
       terminalOutputSource.includes('export function replaceTerminalOutput') &&
       terminalPoolSource.includes("from '@/lib/terminal-output'") &&
-      terminalPoolSource.includes('replaceTerminalOutput(record, output,') &&
-      terminalPoolSource.includes('replaceTerminalOutput(record, data'),
+      terminalPoolSource.includes('replaceTerminalOutput(record, state.output,') &&
+      terminalPoolSource.includes('record.replayInProgress = true'),
     'terminal session pool should restore snapshots and large output without visibly replaying every renderer frame'
   );
   assert(
       terminalPoolSource.includes('bootstrappingSnapshot') &&
       terminalPoolSource.includes('queuedOutput') &&
       terminalPoolSource.includes('function flushQueuedTerminalOutput') &&
-      terminalPoolSource.includes('record.queuedOutput.push({ data, replace, outputSeq })') &&
-      terminalPoolSource.includes('snapshotOutputSeq') &&
-      terminalPoolSource.includes('function dropQueuedBootstrapEventsCoveredBySnapshot') &&
-      terminalPoolSource.includes('isSequencedOutputCovered(event.outputSeq, checkpointSeq)') &&
+      terminalPoolSource.includes('function queueTerminalTransition') &&
+      terminalPoolSource.includes('MAX_QUEUED_TRANSITIONS') &&
+      terminalPoolSource.includes('MAX_QUEUED_TRANSITION_BYTES') &&
+      terminalPoolSource.includes('function handleTerminalStreamOutput') &&
+      terminalPoolSource.includes("document.visibilityState === 'hidden'") &&
+      terminalPoolSource.includes('record.pageOutputSuspended') &&
+      terminalPoolSource.includes('snapshotStateRevision') &&
+      terminalPoolSource.includes('snapshotRuntimeEpoch') &&
+      terminalPoolSource.includes('stateRevision !== record.stateRevision + 1') &&
+      terminalPoolSource.includes('replayTerminalCheckpoint(record, record.attachGeneration)') &&
+      terminalPoolSource.includes('function removeCoveredQueuedTransitions') &&
+      terminalPoolSource.includes('isSequencedOutputCovered(event.stateRevision, stateRevision)') &&
       terminalBootstrapSource.includes('export function isSequencedOutputCovered') &&
       terminalPoolSource.includes("from '@/lib/terminal-bootstrap'") &&
       !terminalPoolSource.includes('snapshotOutput.includes(event.data)') &&
       terminalPoolSource.includes('flushQueuedTerminalOutput(record)'),
-    'terminal session pool should buffer live stream chunks until bootstrap snapshot replay is finished and drop chunks covered by the snapshot sequence'
+    'terminal session pool should bound live transitions behind replay and reduce only contiguous state revisions'
   );
   assert(
-    terminalBootstrapSource.includes('export function trimLeadingBlankBootstrapRows(output: string)') &&
-      terminalBootstrapSource.includes('output: trimmedOutput || snapshotOutput') &&
-      terminalBootstrapSource.includes('export function bootstrapCursorMatchesOutput(output: string, snapshotOutput: string)') &&
-      terminalBootstrapSource.includes('const cursor = !trimmedOutput || bootstrapCursorMatchesOutput(trimmedOutput, snapshotOutput)') &&
+    terminalBootstrapSource.includes('A checkpoint is opaque serialized xterm state') &&
+      terminalBootstrapSource.includes('output: rawOutput') &&
+      terminalBootstrapSource.includes('textOutput: rawTextOutput') &&
+      terminalBootstrapSource.includes('cursor: null') &&
+      terminalBootstrapSource.includes('stateRevision: parseSessionStateRevision(data)') &&
       terminalPoolSource.includes('return sessionBootstrapStateFromPayload(data)') &&
-      !terminalPoolSource.includes('return sessionSnapshotToBootstrapText(parseSessionSnapshot(data)) || parseSessionOutput(data)'),
-    'terminal bootstrap helper should prefer trimmed raw render output and only restore snapshot cursors from a matching coordinate space'
+      !terminalPoolSource.includes('output: state.textOutput'),
+    'terminal bootstrap helper should install opaque serialized checkpoint bytes without text reconstruction'
   );
   const repaintBody = terminalOutputSource.slice(
     terminalOutputSource.indexOf('export function scheduleTerminalRepaint'),
@@ -386,12 +356,20 @@ function run() {
       terminalPoolSource.includes("from '@/lib/terminal-input'") &&
       terminalPoolSource.includes('function pasteTerminalClipboardText(record: SessionRecord, text: string)') &&
       terminalPoolSource.includes('scrollRecordToBottom(record, { allowClearUnread: true })') &&
-      terminalPoolSource.includes('function scheduleTerminalOutputSnapshotSync(record: SessionRecord)') &&
-      terminalPoolSource.includes('[120, 400, 1000].forEach') &&
-      terminalPoolSource.includes('syncTerminalOutputFromSnapshot(record, generation)') &&
-      terminalPoolSource.includes('scheduleTerminalOutputSnapshotSync(record)') &&
+      !terminalPoolSource.includes('function scheduleTerminalOutputSnapshotSync(record: SessionRecord)') &&
+      !terminalPoolSource.includes('[120, 400, 1000].forEach') &&
       terminalPoolSource.includes('record.inputCount += 1') &&
-      terminalPoolSource.includes('record.inputHandler(text)') &&
+      terminalPoolSource.includes('queueTerminalInput(record, text)') &&
+      terminalPoolSource.includes('while (true)') &&
+      terminalPoolSource.includes("type: 'input'") &&
+      terminalPoolSource.includes('expectedRuntimeEpoch: record.runtimeEpoch') &&
+      terminalPoolSource.includes('record.pendingTakeoverInput.shift()') &&
+      terminalPoolSource.includes('record.replayInProgress ||') &&
+      terminalPoolSource.includes('record.pendingSnapshotReplay') &&
+      !terminalPoolSource.includes("reportTerminalInputError(record, 'Terminal is synchronizing; input was not sent')") &&
+      terminalPoolSource.includes('Terminal disconnected; unsent input was discarded') &&
+      !terminalPoolSource.includes('inputId: next.inputId') &&
+      !terminalPoolSource.includes('inputSeq') &&
       terminalPoolSource.includes("window.addEventListener('paste', pasteHandler, true)") &&
       terminalPoolSource.includes("hostEl.addEventListener('paste', pasteHandler, true)") &&
       terminalPoolSource.includes('shouldBlockDetachedTerminalPaste(record.hostEl, event, isAttached)') &&
@@ -408,11 +386,16 @@ function run() {
     terminalPoolSource.includes("function terminalContextMenuLabel(action: 'copy' | 'paste' | 'selectAll' | 'clear')") &&
       terminalPoolSource.includes("terminalContextMenuLabel('paste')") &&
       terminalPoolSource.includes("terminalContextMenuLabel('selectAll')") &&
-      terminalPoolSource.includes("terminalContextMenuLabel('clear')") &&
+    terminalPoolSource.includes("terminalContextMenuLabel('clear')") &&
       terminalPoolSource.includes('function selectTerminalBuffer(record: SessionRecord)') &&
       terminalPoolSource.includes('function clearTerminalBuffer(record: SessionRecord)') &&
-      terminalPoolSource.includes("appPath(`/api/control/agents/${encodeURIComponent(record.agentId)}/clear`)") &&
-      terminalPoolSource.includes('record.terminal.clearBuffer()') &&
+      terminalPoolSource.includes("type: 'clear-terminal'") &&
+      terminalPoolSource.includes('leaseId: record.geometryLeaseId') &&
+      terminalPoolSource.includes('fence: record.geometryFence') &&
+      terminalPoolSource.includes('expectedRuntimeEpoch: record.runtimeEpoch') &&
+      terminalPoolSource.includes('Terminal disconnected; clear was not sent') &&
+      !terminalPoolSource.includes("appPath(`/api/control/agents/${encodeURIComponent(record.agentId)}/clear`)") &&
+      !terminalPoolSource.includes('record.terminal.clearBuffer()') &&
       terminalPoolSource.includes('record.terminal.select(0, 0, selectionLength') &&
       terminalPoolSource.includes('const selection = selectTerminalBuffer(record)') &&
       terminalPoolSource.includes('function isTerminalClearShortcut(event: KeyboardEvent)') &&
@@ -432,6 +415,26 @@ function run() {
   assert(
     !terminalPoolSource.includes('record.terminal.input(text, true)\n    scheduleTerminalOutputSnapshotSync(record)'),
     'terminal context-menu paste should not use xterm.input because it can leave bracketed-paste control fragments in the buffer'
+  );
+  assert(
+    terminalPoolSource.includes("geometryTakeoverButton.textContent = 'Take control'") &&
+      terminalPoolSource.includes("geometryTakeoverButton.addEventListener('click', geometryTakeoverHandler)") &&
+      terminalPoolSource.includes("claimTerminalGeometry(record, 'interactive')") &&
+      terminalPoolSource.includes('use Take control before typing') &&
+      !terminalPoolSource.includes("hostEl.addEventListener('pointerdown', geometryInteractionHandler") &&
+      !terminalPoolSource.includes("hostEl.addEventListener('keydown', geometryInteractionHandler") &&
+      crtAppSource.includes("takeover.textContent = 'TAKE CONTROL'") &&
+      crtAppSource.includes("takeover.addEventListener('click'") &&
+      crtAppSource.includes("claimCrtTerminalGeometry('interactive')") &&
+      !crtAppSource.includes('terminalContainer.onpointerdown ='),
+    'Code and CRT should require an explicit takeover button instead of stealing terminal control from observer interaction'
+  );
+  assert(
+    terminalPoolSource.includes('TERMINAL_OUTPUT_ACK_CHARS = 5000') &&
+      terminalPoolSource.includes('acknowledgeRenderedTerminalOutput(record, data.length, runtimeEpoch)') &&
+      terminalPoolSource.includes("type: 'terminal-output-ack'") &&
+      terminalPoolSource.includes('record.pendingOutputAckChars -= acknowledgedChars'),
+    'Farming Code should acknowledge output only from the xterm write callback and batch acknowledgements'
   );
   assert(
     xtermSource.includes('ignoreBracketedPasteMode: true'),
@@ -499,33 +502,13 @@ function run() {
     'xterm mobile terminals should estimate flick velocity over a short gesture window, preserve momentum, spring at the edge, and clean up interrupted gestures'
   );
   assert(
-    terminalPoolSource.includes("hostEl.addEventListener('keydown', inputFallbackKeydownHandler, false)") &&
-    terminalPoolSource.includes("hostEl.addEventListener('input', inputFallbackHandler, false)") &&
-      terminalPoolSource.includes('if (isXtermTerminal(terminal)) return') &&
-      terminalInputSource.includes('export function isXtermHelperTextareaTarget') &&
-      terminalInputSource.includes("target.classList.contains('xterm-helper-textarea')") &&
-      terminalInputSource.includes('export function shouldUseTerminalInputFallback') &&
-      !terminalInputSource.includes('return !options.isXterm && !options.imeComposing') &&
-      terminalInputSource.includes("if (options.imeComposing || typeof options.terminal.input !== 'function') return false") &&
-      terminalInputSource.includes('if (!options.isXterm) return true') &&
-      terminalInputSource.includes("Boolean(options.text && /[^\\x00-\\x7F]/.test(options.text))") &&
-      terminalInputSource.includes('export function shouldSuppressTerminalInputFallback') &&
-      terminalInputSource.includes('TERMINAL_INPUT_FALLBACK_DELAY_MS = 80') &&
-      terminalInputSource.includes('TERMINAL_INPUT_FALLBACK_SUPPRESSION_MS = 120') &&
-      terminalPoolSource.includes('isXtermHelperTextareaTarget(event.target)') &&
-      terminalPoolSource.includes('shouldUseTerminalInputFallback({') &&
-      terminalPoolSource.includes('text: target.value') &&
-      terminalPoolSource.includes('window.setTimeout(() =>') &&
-      terminalPoolSource.includes('}, TERMINAL_INPUT_FALLBACK_DELAY_MS)') &&
-      terminalPoolSource.includes('lastTerminalDataAt') &&
-      terminalPoolSource.includes('record.lastTerminalDataAt = Date.now()') &&
-      terminalPoolSource.includes('const inputEventAt = Date.now()') &&
-      terminalPoolSource.includes('shouldSuppressTerminalInputFallback(record.lastTerminalDataAt, inputEventAt)') &&
-      terminalPoolSource.includes('terminalInput(value, true)') &&
-      terminalPoolSource.includes('window.clearTimeout(record.inputFallbackTimer)') &&
-      terminalPoolSource.includes("record.hostEl.removeEventListener('keydown', record.inputFallbackKeydownHandler, false)") &&
-      terminalPoolSource.includes("record.hostEl.removeEventListener('input', record.inputFallbackHandler, false)"),
-    'terminal session pool should debounce residual helper textarea input through terminal.input without per-character duplication'
+    terminalPoolSource.includes('terminal.onData((data: string) => {') &&
+      terminalPoolSource.includes('queueTerminalInput(record, data)') &&
+      !terminalPoolSource.includes('inputFallbackHandler') &&
+      !terminalPoolSource.includes('inputFallbackTimer') &&
+      !terminalInputSource.includes('TERMINAL_INPUT_FALLBACK_DELAY_MS') &&
+      !terminalInputSource.includes('shouldUseTerminalInputFallback'),
+    'terminal input should use the renderer onData contract without timing-based textarea replay'
   );
   assert(
     terminalPoolSource.includes('readTerminalFontSize') &&
@@ -547,27 +530,43 @@ function run() {
       terminalResizeSource.includes('export function resetTerminalResizeTracker') &&
       terminalPoolSource.includes("from '@/lib/terminal-resize'") &&
       terminalPoolSource.includes('function notifyTerminalResize') &&
-      terminalPoolSource.includes('if (!isTerminalSessionAttached(record)) return') &&
-      terminalPoolSource.includes('notifyTerminalResizeTracker(record, cols, rows, onResize, options)') &&
+      terminalPoolSource.includes('function requestTerminalGeometryResize') &&
+      terminalPoolSource.includes("record.geometryStatus !== 'owner'") &&
+      !terminalPoolSource.includes('pendingResizeCheckpoint') &&
+      terminalPoolSource.includes("type: 'resize-agent'") &&
+      terminalPoolSource.includes('leaseId: record.geometryLeaseId') &&
+      terminalPoolSource.includes('fence: record.geometryFence') &&
+      terminalPoolSource.includes('requestSeq') &&
+      terminalPoolSource.includes('expectedRuntimeEpoch: record.runtimeEpoch') &&
+      terminalPoolSource.includes('notifyTerminalResizeTracker(record, cols, rows, (nextCols, nextRows) =>') &&
       terminalPoolSource.includes('notifyResizeForTest(agentId: string, cols: number, rows: number)') &&
       terminalPoolSource.includes('function resyncTerminalSizeAfterBackendReconnect') &&
-      terminalPoolSource.includes('function resyncTerminalOutputAfterBackendReconnect') &&
+      terminalPoolSource.includes('function replayTerminalCheckpoint') &&
       terminalPoolSource.includes('needsReconnectOutputSync') &&
       terminalPoolSource.includes('record.needsReconnectOutputSync = true') &&
       terminalPoolSource.includes('record.needsReconnectOutputSync = false') &&
-      terminalPoolSource.includes('function scheduleReconnectOutputSync') &&
-      terminalPoolSource.includes('scheduleReconnectOutputSync(record, generation)') &&
-      terminalPoolSource.includes('fetchSessionBootstrapState(record.agentId)') &&
-      terminalPoolSource.includes('bootstrapState.outputSeq === null') &&
-      terminalPoolSource.includes('isSequencedOutputCovered(bootstrapState.outputSeq, record.lastOutputSeq)') &&
-      terminalPoolSource.includes('replaceTerminalOutput(record, bootstrapState.output') &&
+      terminalPoolSource.includes('function notifyTerminalAttachReady') &&
+      terminalPoolSource.includes('record.liveWriteInProgress ||') &&
+      terminalPoolSource.includes('record.queuedOutput.length > 0 ||') &&
+      !terminalPoolSource.includes('attemptsRemaining = 40') &&
+      terminalPoolSource.includes('fetchSessionBootstrapState(record.agentId, controller.signal)') &&
+      terminalPoolSource.includes('const controller = new AbortController()') &&
+      terminalPoolSource.includes('TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5000') &&
+      terminalPoolSource.includes('record.bootstrapRequestControllers.forEach(controller => controller.abort())') &&
+      terminalPoolSource.includes('function isValidTerminalCheckpoint') &&
+      terminalPoolSource.includes('bootstrapState.stateRevision === record.stateRevision') &&
+      terminalPoolSource.includes('installTerminalCheckpoint(record, bootstrapState, generation)') &&
       terminalPoolSource.includes('resetTerminalResizeTracker(record)') &&
       terminalPoolSource.includes("window.addEventListener('farming:backend-connected', backendConnectedHandler)") &&
       terminalPoolSource.includes("window.removeEventListener('farming:backend-connected', record.backendConnectedHandler)") &&
-      terminalPoolSource.includes('notifyTerminalResize(record, dimensions.cols, dimensions.rows, onResize, options)') &&
+      terminalPoolSource.includes("document.addEventListener('visibilitychange', pageLifecycleHandler)") &&
+      terminalPoolSource.includes("window.addEventListener('pagehide', pageLifecycleHandler)") &&
+      terminalPoolSource.includes("window.addEventListener('pageshow', pageLifecycleHandler)") &&
+      terminalPoolSource.includes("document.removeEventListener('visibilitychange', record.pageLifecycleHandler)") &&
+      terminalPoolSource.includes('notifyTerminalResize(record, dimensions.cols, dimensions.rows, options)') &&
       terminalPoolSource.includes('notifyTerminalResize(record, cols, rows)') &&
       webSocketSource.includes("window.dispatchEvent(new Event('farming:backend-connected'))"),
-    'terminal session pool should not resize native sessions from hidden, unstable, duplicate, or stale reconnect measurements'
+    'terminal session pool should resize only through an owned fenced lease while display recovery remains on the independent authoritative checkpoint path'
   );
   assert(
     terminalPoolSource.includes('hostEl.dataset.agentId = agentId'),
@@ -585,6 +584,9 @@ function run() {
       terminalPoolSource.includes('function resetTransientTerminalUi(record: SessionRecord)') &&
       terminalPoolSource.includes('record.terminal.clearTerminalSelection?.()') &&
       terminalPoolSource.includes('function repairTerminalAfterAttach(record: SessionRecord)') &&
+      terminalPoolSource.includes('function invalidateTerminalCheckpointRequest(record: SessionRecord)') &&
+      terminalPoolSource.includes('record.reconnectSnapshotSeq += 1') &&
+      terminalPoolSource.includes('invalidateTerminalCheckpointRequest(record)') &&
       terminalPoolSource.includes('record.terminal.reattach?.()') &&
       terminalPoolSource.includes('record.terminal.forceRedraw?.()') &&
       terminalPoolSource.includes('const generation = beginTerminalAttachment(record)') &&
@@ -596,17 +598,59 @@ function run() {
     'terminal session attach/detach should be scoped to the owning mount and repair xterm renderer state after reparenting'
   );
   assert(
-    terminalPoolSource.includes('inputHandler: options.onInput') &&
-      terminalPoolSource.includes('if (record.disposed || record.attachedMount === null) return') &&
-      terminalPoolSource.includes('record.inputHandler(data)') &&
-      terminalPoolSource.includes('record.inputHandler = options.onInput'),
-    'terminal session pool should update input handlers without recreating the ghostty session and gate terminal input to the attached owner'
+    terminalPoolSource.includes('inputDisabled: Boolean(options.inputDisabled)') &&
+      terminalPoolSource.includes('if (!record.inputDisabled) queueTerminalInput(record, data)') &&
+      terminalPoolSource.includes('record.inputDisabled = Boolean(options.inputDisabled)') &&
+      terminalPoolSource.includes("record.geometryStatus !== 'claiming'") &&
+      terminalPoolSource.includes("if (record.geometryStatus === 'observer')") &&
+      terminalPoolSource.includes('input entered while reconnecting was not sent') &&
+      terminalPoolSource.includes('leaseId: record.geometryLeaseId') &&
+      terminalPoolSource.includes('fence: record.geometryFence') &&
+      !terminalPoolSource.includes('subscribeTerminalInput') &&
+      !terminalPoolSource.includes('handleTerminalInputState(record, message)'),
+    'terminal session pool should use direct VS Code-style input behind the Farming ownership fence'
+  );
+  const codeInputFlushBody = terminalPoolSource.slice(
+    terminalPoolSource.indexOf('function flushTerminalInputQueue'),
+    terminalPoolSource.indexOf('function discardPendingTerminalInput')
+  );
+  const codeGeometryStateBody = terminalPoolSource.slice(
+    terminalPoolSource.indexOf('function handleTerminalGeometryState'),
+    terminalPoolSource.indexOf('function acknowledgeRenderedTerminalOutput')
+  );
+  const crtInputFlushBody = crtAppSource.slice(
+    crtAppSource.indexOf('function flushCrtTerminalInputQueue'),
+    crtAppSource.indexOf('function discardCrtPendingTerminalInput')
+  );
+  const crtGeometryStateBody = crtAppSource.slice(
+    crtAppSource.indexOf('function handleCrtTerminalGeometry'),
+    crtAppSource.indexOf('function deriveSessionStreamPatch')
+  );
+  assert(
+    codeInputFlushBody.includes('record.replayInProgress ||') &&
+      codeInputFlushBody.includes('record.bootstrappingSnapshot ||') &&
+      codeInputFlushBody.includes('record.pendingSnapshotReplay') &&
+      !codeGeometryStateBody.includes('checkpointPending') &&
+      codeGeometryStateBody.includes('shouldRecoverController') &&
+      codeGeometryStateBody.includes('beginTerminalCheckpointBarrier') &&
+      codeGeometryStateBody.includes('replayTerminalCheckpoint') &&
+      crtInputFlushBody.includes('replication.replaying ||') &&
+      crtInputFlushBody.includes('replication.checkpointInFlight') &&
+      !crtGeometryStateBody.includes('checkpointPending') &&
+      crtGeometryStateBody.includes('shouldRecoverController') &&
+      crtGeometryStateBody.includes('crtTerminalBeginBarrier') &&
+      crtGeometryStateBody.includes('refreshSessionView(true') &&
+      !crtGeometryStateBody.includes('scheduleCrtTerminalCheckpointRetry'),
+    'Code and CRT must block raw input during replay and recover rejected controllers through an authoritative checkpoint'
   );
   assert(
     pooledTerminalHookSource.includes('const latestHandlersRef = useRef') &&
-      pooledTerminalHookSource.includes('latestHandlersRef.current.onInput(data)') &&
-      !pooledTerminalHookSource.includes('}, [agentId, containerRef, onInput, onResize, onSessionOutput'),
-    'pooled terminal hook should keep ghostty mounted across callback identity changes'
+      pooledTerminalHookSource.includes('inputDisabled = false') &&
+      pooledTerminalHookSource.includes('inputDisabled,') &&
+      !pooledTerminalHookSource.includes('onInput:') &&
+      !pooledTerminalHookSource.includes('onResize') &&
+      !pooledTerminalHookSource.includes('resizeAgent'),
+    'pooled terminal hook should keep the terminal mounted without exposing an unfenced input callback'
   );
   assert(
     mainCssSource.includes('.terminal-session-host textarea.terminal-ime-input.terminal-ime-composing') &&
@@ -681,11 +725,10 @@ function run() {
       terminalViewportSource.includes('record.preserveUnreadOutputUntilJump = true') &&
       terminalOutputSource.includes('markTerminalOutputUnreadUntilJump(record)') &&
       terminalPoolSource.includes('allowClearUnread: true') &&
-      terminalPoolSource.includes('setFollowOutputState(record, atBottom, atBottom ? false : record.hasUnreadOutput, {\n      allowClearUnread: atBottom,') &&
+      terminalPoolSource.includes('allowClearUnread: atBottom && options.allowClearUnread === true') &&
       terminalPoolSource.includes('if (record.disposed || !isTerminalSessionAttached(record)) return') &&
       terminalOutputSource.includes('export function restoreViewportAfterLayout') &&
-      terminalOutputSource.includes('scrollRecordToBottom(record, { allowClearUnread: true })') &&
-      terminalOutputSource.includes('setFollowOutputState(record, true, false, { allowClearUnread: true })') &&
+      terminalOutputSource.includes('allowClearUnread: !record.preserveUnreadOutputUntilJump') &&
       terminalPoolSource.includes('restoreViewportAfterLayout(record, previousViewportY, previousScrollbackLength, wasFollowing, hadUnreadOutput)') &&
       terminalPoolSource.includes('previousViewportY') &&
       terminalPoolSource.includes('previousScrollbackLength') &&
@@ -712,7 +755,10 @@ function run() {
   );
   assert(
     terminalPoolSource.includes('writeSequenced') &&
-      terminalPoolSource.includes('applyTerminalOutputEvent(record, text, false, outputSeq)'),
+      terminalPoolSource.includes('stateRevision ?? ((record.stateRevision ?? 0) + 1)') &&
+      terminalPoolSource.includes('applyTerminalOutputEvent(') &&
+      terminalPoolSource.includes('streamSequenced') &&
+      terminalPoolSource.includes('handleTerminalStreamOutput('),
     'terminal regression tests should exercise reconnect/live-output races through the sequenced output state path'
   );
   assert(
@@ -814,6 +860,23 @@ function run() {
   );
 
   const serverSource = fs.readFileSync(path.join(__dirname, '../../backend/server.js'), 'utf8');
+  const streamProtocolSource = fs.readFileSync(
+    path.join(__dirname, '../../backend/session-stream-protocol.js'),
+    'utf8'
+  );
+  assert(
+    serverSource.includes('coalesceSessionStream(existing, stream)') &&
+      streamProtocolSource.includes('outputSeq === undefined || stateRevision === undefined') &&
+      streamProtocolSource.includes("kind: transitionKind(stream.kind)") &&
+      streamProtocolSource.includes('stateRevision,') &&
+      streamProtocolSource.includes('cols: finiteNumber(stream.cols)') &&
+      streamProtocolSource.includes('...(existing.chunks || [])') &&
+      webSocketSource.includes('Array.isArray(msg.stream.chunks)') &&
+      webSocketSource.includes('msg.stream.chunks.forEach(chunk =>') &&
+      webSocketSource.includes('chunk.stateRevision') &&
+      webSocketSource.includes('chunk.kind'),
+    'terminal stream batching should preserve each epoch and log index so clients can prove contiguous state evolution'
+  );
   assert(
     serverSource.includes('const PREVIEW_BROADCAST_INTERVAL_MS = 500') &&
       serverSource.includes('function schedulePreviewBroadcast(preview)') &&

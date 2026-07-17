@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDownGlyph, ChevronRightGlyph, ExternalLinkGlyph } from '@/components/IconGlyphs'
+import { createPortal } from 'react-dom'
+import { CheckGlyph, ChevronDownGlyph, ChevronRightGlyph, ExternalLinkGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { toGitHistoryItemViewModelArray } from '@/lib/git-history-graph'
 import { iconForFilePath } from '@/lib/file-icons'
@@ -61,9 +62,12 @@ export function GitHistorySection({ agentId, copy, projectId }: GitHistorySectio
   const [selectedChanges, setSelectedChanges] = useState<WorkspaceGitHistoryChanges | null>(null)
   const [changesLoading, setChangesLoading] = useState(false)
   const [changesError, setChangesError] = useState('')
+  const [scopeMenu, setScopeMenu] = useState<{ x: number; y: number } | null>(null)
   const historyRequestRef = useRef<AbortController | null>(null)
   const changesRequestRef = useRef<AbortController | null>(null)
   const changesCacheRef = useRef(new Map<string, WorkspaceGitHistoryChanges>())
+  const scopeButtonRef = useRef<HTMLButtonElement | null>(null)
+  const scopeMenuRef = useRef<HTMLDivElement | null>(null)
 
   const resetSelection = useCallback(() => {
     changesRequestRef.current?.abort()
@@ -73,6 +77,7 @@ export function GitHistorySection({ agentId, copy, projectId }: GitHistorySectio
     setSelectedChanges(null)
     setChangesLoading(false)
     setChangesError('')
+    setScopeMenu(null)
   }, [])
 
   useEffect(() => {
@@ -96,6 +101,27 @@ export function GitHistorySection({ agentId, copy, projectId }: GitHistorySectio
       changesRequestRef.current?.abort()
     }
   }, [agentId, projectId])
+
+  useEffect(() => {
+    if (!scopeMenu) return
+    const closeOnPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      if (target && (scopeButtonRef.current?.contains(target) || scopeMenuRef.current?.contains(target))) return
+      setScopeMenu(null)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      setScopeMenu(null)
+      scopeButtonRef.current?.focus()
+    }
+    window.addEventListener('pointerdown', closeOnPointerDown, true)
+    window.addEventListener('keydown', closeOnEscape, true)
+    return () => {
+      window.removeEventListener('pointerdown', closeOnPointerDown, true)
+      window.removeEventListener('keydown', closeOnEscape, true)
+    }
+  }, [scopeMenu])
 
   const loadHistoryPage = useCallback(async (
     skip: number,
@@ -186,12 +212,29 @@ export function GitHistorySection({ agentId, copy, projectId }: GitHistorySectio
   }
 
   const changeHistoryScope = (scope: WorkspaceGitHistory['scope']) => {
+    setScopeMenu(null)
     if (scope === historyScope) return
     setHistoryScope(scope)
     setHistory(null)
     changesCacheRef.current.clear()
     resetSelection()
     void loadHistoryPage(0, true, scope)
+  }
+
+  const toggleScopeMenu = () => {
+    setScopeMenu(current => {
+      if (current) return null
+      const rect = scopeButtonRef.current?.getBoundingClientRect()
+      if (!rect) return null
+      const menuWidth = 132
+      const menuHeight = 66
+      return {
+        x: Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.right - menuWidth)),
+        y: rect.bottom + menuHeight + 8 <= window.innerHeight
+          ? rect.bottom + 3
+          : Math.max(8, rect.top - menuHeight - 3),
+      }
+    })
   }
 
   const selectCommit = (commit: WorkspaceGitHistoryItem) => {
@@ -243,18 +286,49 @@ export function GitHistorySection({ agentId, copy, projectId }: GitHistorySectio
         </button>
         {!collapsed && (
           <>
-            <select
+            <button
+              ref={scopeButtonRef}
+              type="button"
               className="code-git-history-scope"
               aria-label={copy.gitHistoryView}
               title={copy.gitHistoryView}
-              value={historyScope}
+              aria-haspopup="menu"
+              aria-expanded={scopeMenu ? true : undefined}
               disabled={historyLoading}
-              onChange={event => changeHistoryScope(event.target.value as WorkspaceGitHistory['scope'])}
+              onClick={toggleScopeMenu}
             >
-              <option value="current">{copy.gitHistoryCurrentBranch}</option>
-              <option value="all">{copy.gitHistoryAllBranches}</option>
-            </select>
-            {history?.branch && <span className="code-git-history-branch" title={history.branch}>{history.branch}</span>}
+              <span>{historyScope === 'current' ? copy.gitHistoryCurrentScope : copy.gitHistoryAllScope}</span>
+              <ChevronDownGlyph aria-hidden="true" />
+            </button>
+            {scopeMenu && typeof document !== 'undefined' && createPortal(
+              <div
+                ref={scopeMenuRef}
+                className="code-git-history-scope-menu"
+                data-testid="code-git-history-scope-menu"
+                role="menu"
+                aria-label={copy.gitHistoryView}
+                style={{ left: scopeMenu.x, top: scopeMenu.y }}
+              >
+                {([
+                  ['current', copy.gitHistoryCurrentBranch],
+                  ['all', copy.gitHistoryAllBranches],
+                ] as const).map(([scope, label]) => (
+                  <button
+                    key={scope}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={historyScope === scope}
+                    onClick={() => changeHistoryScope(scope)}
+                  >
+                    <span className="code-git-history-scope-check" aria-hidden="true">
+                      {historyScope === scope && <CheckGlyph />}
+                    </span>
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>,
+              document.body,
+            )}
             <button
               type="button"
               className={`code-git-history-refresh ${historyLoading ? 'loading' : ''}`}
@@ -283,8 +357,10 @@ export function GitHistorySection({ agentId, copy, projectId }: GitHistorySectio
             const selected = selectedCommitId === commit.id
             const timestamp = commitTimestamp(commit.timestamp)
             const messageBody = commitMessageBody(commit)
-            const branchReferences = commit.references.filter(reference => reference.category !== 'head')
-            const visibleReferences = branchReferences.length > 0 ? branchReferences : commit.references
+            const visibleReferences = commit.references.filter(reference => (
+              reference.category !== 'head'
+              && !(historyScope === 'current' && history?.branch && reference.name === history.branch)
+            ))
             return (
               <div
                 key={commit.id}
@@ -302,24 +378,26 @@ export function GitHistorySection({ agentId, copy, projectId }: GitHistorySectio
                   <GitHistoryGraph viewModel={viewModel} />
                   <span className="code-git-history-commit-content">
                     <span className="code-git-history-subject">{commit.subject || commit.displayId}</span>
-                    <span className="code-git-history-meta">
-                      <span className="code-git-history-hash">{commit.displayId}</span>
-                      {commit.author && <span>{commit.author}</span>}
-                      {timestamp && commit.timestamp !== undefined && (
-                        <time dateTime={new Date(commit.timestamp).toISOString()}>{timestamp}</time>
+                    <span className="code-git-history-footer">
+                      <span className="code-git-history-meta">
+                        <span className="code-git-history-hash">{commit.displayId}</span>
+                        {commit.author && <span>{commit.author}</span>}
+                        {timestamp && commit.timestamp !== undefined && (
+                          <time dateTime={new Date(commit.timestamp).toISOString()}>{timestamp}</time>
+                        )}
+                      </span>
+                      {visibleReferences.length > 0 && (
+                        <span className="code-git-history-references" aria-label={visibleReferences.map(reference => reference.name).join(', ')}>
+                          {visibleReferences.slice(0, 1).map(reference => (
+                            <span key={reference.id} className={`code-git-history-reference ${reference.category}`} title={reference.name}>
+                              {reference.name}
+                            </span>
+                          ))}
+                          {visibleReferences.length > 1 && <span className="code-git-history-reference-more">+{visibleReferences.length - 1}</span>}
+                        </span>
                       )}
                     </span>
                   </span>
-                  {visibleReferences.length > 0 && (
-                    <span className="code-git-history-references" aria-label={visibleReferences.map(reference => reference.name).join(', ')}>
-                      {visibleReferences.slice(0, 2).map(reference => (
-                        <span key={reference.id} className={`code-git-history-reference ${reference.category}`} title={reference.name}>
-                          {reference.name}
-                        </span>
-                      ))}
-                      {visibleReferences.length > 2 && <span className="code-git-history-reference-more">+{visibleReferences.length - 2}</span>}
-                    </span>
-                  )}
                 </button>
 
                 {selected && (

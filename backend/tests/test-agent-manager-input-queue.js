@@ -104,8 +104,13 @@ async function run() {
     ], 'later Terminal input should remain queued until Codex confirms the live model profile');
     assert.deepStrictEqual(
       profileInputReceivedStates,
-      [false, false, false, true],
-      'Farming-owned model menu input should keep a fresh Terminal eligible for ACP Chat while later user input marks it used'
+      [false, false, false, false],
+      'Farming-owned model menu input should keep a fresh Terminal eligible for ACP Chat, and user input should be marked only after the PTY accepts it'
+    );
+    assert.strictEqual(
+      manager.agents.get('agent-profile').terminalInputReceived,
+      true,
+      'accepted user input after the profile change should mark the Terminal used'
     );
     assert.deepStrictEqual(
       {

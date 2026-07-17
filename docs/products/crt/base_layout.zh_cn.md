@@ -72,7 +72,7 @@
 
 Search 取代原先的 Task List 位置，在 Agents Layout 区域打开占满高度的搜索视图；查询提示符持续保持焦点，并把当前项目 Agent 与共享后端搜索接口返回、且未被实时 Agent 占用的 provider session 结果合并展示。
 
-Billing 用占满高度的 token 遥测视图取代原占位入口。Days 是默认视图：最近 120 天的 processed-token 日柱使用对数高度、堆叠区分 cache 与非 cache，并标出 B 级日期；图表使用固定的每日 Token 自适应 Y 轴、本地日期 X 轴和选中日定位线，一条每天一个刻度的 52 周活跃带负责呈现长期连续性。Processed 总量包含 cache read，并合并所有已配置 Codex、Claude Home 与可读取的 OpenCode export；无法提供 Token 字段的 provider 会明确标出。顶部紧凑汇总今天、近 7 天、近 30 天、52 周、活跃日、B 级日期和峰值日，下方保留精确的选中日拆分、24 个本地小时的 total/cache 曲线和 provider 归属占比；切换选中日时复用日事件缓存，不重新扫描历史。左右键按天移动，上下键按周移动。Live 作为二级视图继续显示最近 60 分钟的 Canvas 示波器、当前信号、积分、峰值速率和活跃时间桶。provider 通道和额度窗口保持可见，不虚构金额或后端拿不到的额度。按 `$` 打开 Billing，`D` 与 `L` 切换视图，`R` 刷新，Escape 返回 Agent 主页。
+Billing 用占满高度的 token 遥测视图取代原占位入口。Days 是默认视图：紧凑的 52 周日历热力图使用从靛蓝到高热红的五档相对热度光谱，并为零值保留明确的空状态、标出 B 级日期，让每一天都可直接选择，同时不再为每天占用一整根全高竖柱。分档依据当前可见范围内的非零日期计算，让活跃日期之间的差异保持清晰，Tooltip 则保留精确数值。Processed 总量包含 cache read，并合并所有已配置 Codex、Claude Home 与可读取的 OpenCode export；无法提供 Token 字段的 provider 会明确标出。顶部紧凑汇总今天、近 7 天、近 30 天、52 周、活跃日、B 级日期和峰值日。选择当天会通过服务端有界的 5 秒缓存强制读取一次最新明细；Today 汇总、所选日期的 Total、Input、Output、Cache Read/Write 和日内峰值计数器只对正向差值做补齐动画，历史数值保持静态。历史明细传输失败会进行一次有界重试，持续失败才进入可见终态错误。下方还保留 24 个本地小时的 total/cache 阶梯波形、与 `00:00`–`24:00` 仪表标尺对齐的 24 格可选择小时带、带精确 Tooltip 的常驻紧凑读数，以及 provider 归属占比；切换选中日时复用日事件缓存，不重新扫描历史。左右键按天移动，上下键按周移动。Live 作为二级视图继续显示最近 60 分钟的 Canvas 示波器、当前信号、积分、峰值速率和活跃时间桶。provider 通道和额度窗口保持可见，不虚构金额或后端拿不到的额度。按 `$` 打开 Billing，`D` 与 `L` 切换视图，`R` 刷新，Escape 返回 Agent 主页。
 
 ### 3.2 Main Agent 面板
 

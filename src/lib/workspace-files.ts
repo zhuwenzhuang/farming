@@ -108,6 +108,28 @@ export interface WorkspaceFileChanges {
   truncated: boolean
 }
 
+export interface WorkspaceGitWorktree {
+  workspace: string
+  head: string
+  branch: string
+  bare: boolean
+  detached: boolean
+  locked: boolean
+  lockReason: string
+  prunable: boolean
+  pruneReason: string
+  current: boolean
+  main: boolean
+}
+
+export interface WorkspaceGitWorktrees {
+  isGitRepo: boolean
+  commonDir: string
+  currentWorkspace: string
+  mainWorkspace: string
+  items: WorkspaceGitWorktree[]
+}
+
 export interface WorkspaceGitHistoryReference {
   id: string
   name: string
@@ -340,6 +362,13 @@ export async function fetchWorkspaceChanges(agentId: string, options: { limit?: 
   const response = await fetch(appPath(`/api/files/changes?${params.toString()}`), { signal: options.signal })
   const body = await readJson<{ changes: WorkspaceFileChanges }>(response)
   return body.changes
+}
+
+export async function fetchWorkspaceGitWorktrees(agentId: string, options: { signal?: AbortSignal } = {}) {
+  const params = new URLSearchParams({ agentId })
+  const response = await fetch(appPath(`/api/files/worktrees?${params.toString()}`), { signal: options.signal })
+  const body = await readJson<{ worktrees: WorkspaceGitWorktrees }>(response)
+  return body.worktrees
 }
 
 export async function fetchWorkspaceGitHistory(agentId: string, options: { limit?: number; skip?: number; scope?: WorkspaceGitHistory['scope']; signal?: AbortSignal } = {}) {

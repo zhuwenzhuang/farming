@@ -1,6 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type RefObject, type SyntheticEvent as ReactSyntheticEvent } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
-import type { TerminalInputPart } from '@/types/messages'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import type { OpenWorkspaceFile, WorkspaceOpenFileTarget } from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
@@ -169,11 +168,12 @@ interface CodeMainAreaProps {
   onOpenTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => void
   onResolveTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
   onTerminalFollowOutputChange: (agentId: string, state: TerminalFollowState) => void
-  onAgentReadLatest: (agentId: string) => void
+  onAgentReadLatest: (
+    agentId: string,
+    readCut?: { runtimeEpoch: string; outputSeq: number } | null,
+  ) => void
   onRuntimeModeChange: (agentId: string, mode: 'terminal' | 'acp') => void
-  sendInput: (input: string | TerminalInputPart[], agentId?: string) => boolean
-  resizeAgent: (agentId: string, cols: number, rows: number) => boolean
-  onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null) => void) => () => void
+  onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   onOpenSearchAgent: (agentId: string) => void
   onOpenSearchSession: (session: AgentSessionHistoryItem) => void
   onSearchQueryChange: (value: string) => void
@@ -241,8 +241,6 @@ export function CodeMainArea({
   onTerminalFollowOutputChange,
   onAgentReadLatest,
   onRuntimeModeChange,
-  sendInput,
-  resizeAgent,
   onSessionOutput,
   onOpenSearchAgent,
   onOpenSearchSession,
@@ -418,8 +416,6 @@ export function CodeMainArea({
                   onFollowOutputChange={onTerminalFollowOutputChange}
                   onReadLatest={onAgentReadLatest}
                   onRuntimeModeChange={onRuntimeModeChange}
-                  sendInput={sendInput}
-                  resizeAgent={resizeAgent}
                   onSessionOutput={onSessionOutput}
                   focusSignal={terminalFocusRequest?.agentId === agent.id ? terminalFocusRequest.nonce : 0}
                   copy={copy}

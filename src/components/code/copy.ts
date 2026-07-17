@@ -120,6 +120,7 @@ export interface CodeCopy {
   archiveChat: string
   archiveChats: string
   archiveProject: string
+  removeProject: string
   deleteWorktree: string
   deleteWorktreeQuestion: string
   deleteWorktreeDirtyDescription: (count: number) => string
@@ -213,11 +214,21 @@ export interface CodeCopy {
   untrackedChanges: string
   reviewChanges: string
   refreshChanges: string
+  worktrees: string
+  showWorktrees: string
+  worktreeCurrent: string
+  worktreeMain: string
+  worktreeDetached: string
+  worktreeLocked: string
+  worktreePrunable: string
+  worktreeLoadFailed: string
   gitHistory: string
   gitHistoryEmpty: string
   gitHistoryNotRepository: string
   gitHistoryLoadMore: string
   gitHistoryView: string
+  gitHistoryCurrentScope: string
+  gitHistoryAllScope: string
   gitHistoryCurrentBranch: string
   gitHistoryAllBranches: string
   gitHistoryCommitMessage: string
@@ -501,6 +512,7 @@ const EN_COPY: CodeCopy = {
   archiveChat: 'Archive',
   archiveChats: 'Archive chats',
   archiveProject: 'Archive Project',
+  removeProject: 'Remove Project',
   deleteWorktree: 'Delete Worktree',
   deleteWorktreeQuestion: 'Delete Worktree?',
   deleteWorktreeDirtyDescription: count => `${count} uncommitted or untracked file${count === 1 ? '' : 's'} will be deleted with this worktree.`,
@@ -616,11 +628,21 @@ const EN_COPY: CodeCopy = {
   untrackedChanges: 'Untracked',
   reviewChanges: 'Review',
   refreshChanges: 'Refresh changes',
+  worktrees: 'Worktrees',
+  showWorktrees: 'Show repository worktrees',
+  worktreeCurrent: 'current',
+  worktreeMain: 'main',
+  worktreeDetached: 'detached',
+  worktreeLocked: 'locked',
+  worktreePrunable: 'prunable',
+  worktreeLoadFailed: 'Unable to load repository worktrees',
   gitHistory: 'History',
   gitHistoryEmpty: 'No commits yet',
   gitHistoryNotRepository: 'This project is not a Git repository',
   gitHistoryLoadMore: 'Load more',
   gitHistoryView: 'History view',
+  gitHistoryCurrentScope: 'Current',
+  gitHistoryAllScope: 'All',
   gitHistoryCurrentBranch: 'Current branch',
   gitHistoryAllBranches: 'All branches',
   gitHistoryCommitMessage: 'Message',
@@ -904,6 +926,7 @@ const ZH_COPY: CodeCopy = {
   archiveChat: '归档',
   archiveChats: '归档会话',
   archiveProject: '归档项目',
+  removeProject: '移除项目',
   deleteWorktree: '删除 worktree',
   deleteWorktreeQuestion: '删除 worktree？',
   deleteWorktreeDirtyDescription: count => `这个 worktree 里还有 ${count} 个未提交或未跟踪文件，强删会连同目录一起删除。`,
@@ -1055,11 +1078,21 @@ const ZH_COPY: CodeCopy = {
   untrackedChanges: '未跟踪',
   reviewChanges: 'Review',
   refreshChanges: '刷新变更',
+  worktrees: '工作树',
+  showWorktrees: '查看仓库工作树',
+  worktreeCurrent: '当前',
+  worktreeMain: '主工作树',
+  worktreeDetached: '游离',
+  worktreeLocked: '已锁定',
+  worktreePrunable: '可清理',
+  worktreeLoadFailed: '无法加载仓库工作树',
   gitHistory: '历史',
   gitHistoryEmpty: '还没有提交',
   gitHistoryNotRepository: '当前项目不是 Git 仓库',
   gitHistoryLoadMore: '加载更多',
   gitHistoryView: '历史视图',
+  gitHistoryCurrentScope: '当前',
+  gitHistoryAllScope: '全部',
   gitHistoryCurrentBranch: '当前分支',
   gitHistoryAllBranches: '所有分支',
   gitHistoryCommitMessage: '提交说明',

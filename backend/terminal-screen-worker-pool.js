@@ -1,6 +1,8 @@
 const TerminalScreenWorker = require('./terminal-screen-worker');
 
 const DEFAULT_POOL_SIZE = 3;
+const DEFAULT_RETRY_DELAY_MS = 250;
+const MAX_RETRY_DELAY_MS = 5000;
 
 function normalizePoolSize(value) {
   const parsed = Number(value);
@@ -21,6 +23,11 @@ class TerminalScreenWorkerPool {
     this.waiters = [];
     this.readyWaiters = [];
     this.pendingStarts = 0;
+    this.consecutiveStartFailures = 0;
+    this.retryDelayMs = Number.isFinite(options.retryDelayMs)
+      ? Math.max(0, Number(options.retryDelayMs))
+      : DEFAULT_RETRY_DELAY_MS;
+    this.retryTimer = null;
     this.disposed = false;
 
     this.ensureCapacity();
@@ -32,6 +39,7 @@ class TerminalScreenWorkerPool {
       idle: this.idle.length,
       pendingStarts: this.pendingStarts,
       waiters: this.waiters.length,
+      consecutiveStartFailures: this.consecutiveStartFailures,
     };
   }
 
@@ -60,7 +68,7 @@ class TerminalScreenWorkerPool {
     const worker = this.idle.shift();
     if (worker) {
       this.ensureCapacity();
-      return this.prepareWorker(worker, options);
+      return this.prepareCheckedWorker(worker, options);
     }
 
     return new Promise((resolve, reject) => {
@@ -70,7 +78,7 @@ class TerminalScreenWorkerPool {
   }
 
   ensureCapacity() {
-    if (this.disposed || this.size <= 0) {
+    if (this.disposed || this.size <= 0 || this.retryTimer) {
       return;
     }
 
@@ -82,9 +90,11 @@ class TerminalScreenWorkerPool {
 
   startWorker() {
     this.pendingStarts += 1;
+    let failed = false;
     this.createReadyWorker()
       .then((worker) => {
         this.pendingStarts -= 1;
+        this.consecutiveStartFailures = 0;
         if (this.disposed) {
           worker.dispose().catch(() => {});
           return;
@@ -92,16 +102,39 @@ class TerminalScreenWorkerPool {
         this.deliverWorker(worker);
       })
       .catch((error) => {
+        failed = true;
         this.pendingStarts -= 1;
+        this.consecutiveStartFailures += 1;
         const waiter = this.waiters.shift();
         if (waiter) {
           waiter.reject(error);
         }
+        if (this.pendingStarts === 0 && this.idle.length < this.size) {
+          const readyWaiters = this.readyWaiters.splice(0);
+          readyWaiters.forEach(({ reject }) => reject(error));
+        }
       })
       .finally(() => {
         this.notifyReadyWaiters();
-        this.ensureCapacity();
+        if (failed) {
+          this.scheduleCapacityRetry();
+        } else {
+          this.ensureCapacity();
+        }
       });
+  }
+
+  scheduleCapacityRetry() {
+    if (this.disposed || this.size <= 0 || this.retryTimer) return;
+    const delayMs = Math.min(
+      MAX_RETRY_DELAY_MS,
+      this.retryDelayMs * Math.max(1, 2 ** Math.min(this.consecutiveStartFailures - 1, 5)),
+    );
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.ensureCapacity();
+    }, delayMs);
+    this.retryTimer.unref?.();
   }
 
   async createReadyWorker() {
@@ -122,10 +155,26 @@ class TerminalScreenWorkerPool {
   async prepareWorker(worker, options = {}) {
     const cols = Number(options.cols || this.workerOptions.cols || 80);
     const rows = Number(options.rows || this.workerOptions.rows || 30);
-    if (Number.isFinite(cols) && cols > 0 && Number.isFinite(rows) && rows > 0) {
-      await worker.resize(cols, rows);
+    if (typeof options.runtimeEpoch === 'string') {
+      await worker.setRuntimeEpoch(options.runtimeEpoch, cols, rows);
+    } else if (Number.isFinite(cols) && cols > 0 && Number.isFinite(rows) && rows > 0) {
+      await worker.resize(cols, rows, 1);
     }
     return worker;
+  }
+
+  async prepareCheckedWorker(worker, options = {}) {
+    try {
+      return await this.prepareWorker(worker, options);
+    } catch (error) {
+      try {
+        await worker.dispose();
+      } catch {
+        // best effort
+      }
+      this.ensureCapacity();
+      throw error;
+    }
   }
 
   deliverWorker(worker) {
@@ -136,7 +185,7 @@ class TerminalScreenWorkerPool {
       return;
     }
 
-    this.prepareWorker(worker, waiter.options).then(waiter.resolve, waiter.reject);
+    this.prepareCheckedWorker(worker, waiter.options).then(waiter.resolve, waiter.reject);
   }
 
   notifyReadyWaiters() {
@@ -153,6 +202,10 @@ class TerminalScreenWorkerPool {
     }
 
     this.disposed = true;
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
     const error = new Error('Terminal screen worker pool is disposed');
     this.waiters.splice(0).forEach(({ reject }) => reject(error));
     this.readyWaiters.splice(0).forEach(({ reject }) => reject(error));

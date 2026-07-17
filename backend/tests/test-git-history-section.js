@@ -33,6 +33,9 @@ function run() {
   assert(section.includes('copy.reviewChanges'));
   assert(section.includes('gitHistoryCurrentBranch'));
   assert(section.includes('gitHistoryAllBranches'));
+  assert(section.includes('data-testid="code-git-history-scope-menu"'));
+  assert(section.includes('role="menuitemradio"'));
+  assert(!section.includes('<select\n              className="code-git-history-scope"'));
   assert(section.includes('commitMessageBody(commit)'));
   assert(section.includes('code-git-history-message-body'));
   assert(section.includes('<ExternalLinkGlyph />'));

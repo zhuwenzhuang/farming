@@ -3,10 +3,17 @@ const EventEmitter = require('events');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const LocalSessionEngine = require('../local-session-engine');
 const NativePtyHost = require('../native-pty-host');
 const NativePtyHostClient = require('../native-pty-host-client');
 const NativeSessionEngine = require('../native-session-engine');
 const { nativePtyHostSocketPath } = require('../native-pty-host-path');
+const {
+  nativePtyHostRuntimeIdentity,
+  nativePtyHostRuntimeIdentityMatches,
+  normalizeNativePtyHostRuntimeIdentity,
+} = require('../native-pty-host-identity');
+const { deserializeTerminalState } = require('../terminal-state-serialization');
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -119,6 +126,193 @@ function makeFlakyRequestClient(mode, result) {
 }
 
 async function run() {
+  const expectedRuntimeIdentity = nativePtyHostRuntimeIdentity();
+  assert.strictEqual(expectedRuntimeIdentity.protocolVersion, 8);
+  assert.match(expectedRuntimeIdentity.buildId, /^[a-f0-9]{64}$/);
+  assert.strictEqual(
+    nativePtyHostRuntimeIdentityMatches(expectedRuntimeIdentity, {
+      ...expectedRuntimeIdentity,
+      buildId: expectedRuntimeIdentity.buildId.toUpperCase(),
+    }),
+    true,
+    'native PTY runtime identities should normalize equivalent hashes'
+  );
+  assert.strictEqual(
+    normalizeNativePtyHostRuntimeIdentity({ protocolVersion: 2, buildId: 'invalid' }),
+    null,
+    'malformed native PTY runtime identities must fail closed'
+  );
+
+  const rotatingClient = new NativePtyHostClient({
+    configDir: fs.mkdtempSync(path.join(os.tmpdir(), 'farming-native-runtime-identity-')),
+    expectedRuntimeIdentity,
+    connectRetries: 4,
+    connectRetryMs: 1,
+  });
+  const mismatchedRuntimeIdentity = {
+    ...expectedRuntimeIdentity,
+    buildId: expectedRuntimeIdentity.buildId.replace(/^./, expectedRuntimeIdentity.buildId[0] === '0' ? '1' : '0'),
+    version: 'older-test-runtime',
+  };
+  let connectAttempts = 0;
+  let rotations = 0;
+  rotatingClient.connectOnce = async () => {
+    connectAttempts += 1;
+    if (connectAttempts === 2) {
+      const error = new Error('new native PTY host socket is not ready yet');
+      error.code = 'ENOENT';
+      throw error;
+    }
+    rotatingClient.socket = {
+      destroyed: false,
+      destroy() {
+        this.destroyed = true;
+      },
+    };
+  };
+  rotatingClient.request = async (method) => {
+    assert.strictEqual(method, 'ping');
+    return {
+      ok: true,
+      pid: 12345,
+      runtimeIdentity: connectAttempts === 1
+        ? mismatchedRuntimeIdentity
+      : expectedRuntimeIdentity,
+    };
+  };
+  rotatingClient.requestOnce = async (method, params) => {
+    assert.strictEqual(method, 'registerController');
+    assert.strictEqual(params.identity.id, rotatingClient.controllerIdentity.id);
+    return { registered: true, controllerId: params.identity.id };
+  };
+  rotatingClient.rotateMismatchedHost = async (hostInfo) => {
+    rotations += 1;
+    assert.strictEqual(hostInfo.runtimeIdentity, mismatchedRuntimeIdentity);
+    rotatingClient.socket = null;
+    return '{"version":1,"state":[]}';
+  };
+  try {
+    await rotatingClient.connectWithRetries({ startHost: false });
+    assert.strictEqual(rotations, 1, 'an incompatible native PTY host should rotate exactly once');
+    assert.strictEqual(connectAttempts, 3, 'recovery must wait for the replacement host socket');
+    assert.deepStrictEqual(rotatingClient.connectedHostInfo.runtimeIdentity, expectedRuntimeIdentity);
+    const runtimeRotation = rotatingClient.consumeRuntimeRotation();
+    assert.strictEqual(typeof runtimeRotation.rotatedAt, 'number');
+    assert.deepStrictEqual(runtimeRotation, {
+      rotatedAt: runtimeRotation.rotatedAt,
+      previous: mismatchedRuntimeIdentity,
+      current: expectedRuntimeIdentity,
+      previousPid: 12345,
+      serializedTerminalState: '{"version":1,"state":[]}',
+    });
+    assert.strictEqual(rotatingClient.consumeRuntimeRotation(), null, 'runtime rotation is a one-shot recovery signal');
+  } finally {
+    const configDir = rotatingClient.configDir;
+    rotatingClient.disconnect();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+
+  for (const [label, EngineClass] of [
+    ['native PTY host', NativePtyHost],
+    ['local session engine', LocalSessionEngine],
+  ]) {
+    const engine = Object.create(EngineClass.prototype);
+    engine.sessions = new Map();
+    let resolveScreenState;
+    const session = {
+      id: `atomic-cut-${label}`,
+      command: 'bash',
+      cwd: process.cwd(),
+      status: 'running',
+      output: 'screen at sequence 7',
+      outputSeq: 7,
+      stateRevision: 7,
+      runtimeEpoch: `epoch-${label}`,
+      stateProofAvailable: true,
+      renderOutput: '',
+      previewText: '',
+      previewSnapshot: null,
+      previewCols: 80,
+      previewRows: 24,
+      title: '',
+      terminalBusy: false,
+      screenWorker: {
+        getState: () => new Promise(resolve => {
+          resolveScreenState = resolve;
+        }),
+      },
+    };
+    engine.sessions.set(session.id, session);
+
+    const snapshotPromise = engine.getSessionState(session.id);
+    session.output = 'screen at sequence 7 plus unseen sequence 8';
+    session.outputSeq = 8;
+    resolveScreenState({
+      runtimeEpoch: `epoch-${label}`,
+      outputSeq: 7,
+      stateRevision: 7,
+      renderOutput: 'screen at sequence 7',
+      previewText: 'screen at sequence 7',
+      previewSnapshot: null,
+      cols: 80,
+      rows: 24,
+      title: '',
+    });
+    const snapshot = await snapshotPromise;
+    assert.strictEqual(snapshot.outputSeq, 7, `${label} snapshot sequence must be captured before awaiting the screen worker`);
+    assert.strictEqual(snapshot.stateRevision, 7, `${label} checkpoint revision must match the captured reducer cut`);
+    assert.strictEqual(snapshot.output, 'screen at sequence 7', `${label} raw output must use the same sequence cut`);
+    assert.strictEqual(snapshot.renderOutput, 'screen at sequence 7', `${label} render output must match the captured sequence cut`);
+
+    for (const mismatch of [
+      { runtimeEpoch: 'wrong-epoch', outputSeq: 7, stateRevision: 7 },
+      { runtimeEpoch: `epoch-${label}`, outputSeq: 7, stateRevision: 6 },
+    ]) {
+      session.output = 'raw fail-closed state';
+      session.outputSeq = 8;
+      session.stateRevision = 8;
+      session.screenWorker.getState = async () => ({
+        ...mismatch,
+        renderOutput: 'unproven worker state',
+        previewText: 'unproven preview',
+        previewSnapshot: { cells: [] },
+        cols: 120,
+        rows: 40,
+        title: 'unproven title',
+      });
+      const rejectedCheckpoint = await engine.getSessionState(session.id);
+      assert.strictEqual(rejectedCheckpoint.outputSeq, null, `${label} must reject a checkpoint with a mismatched cut`);
+      assert.strictEqual(rejectedCheckpoint.stateRevision, null, `${label} must not publish a revision for an unproven checkpoint`);
+      assert.strictEqual(rejectedCheckpoint.renderOutput, 'raw fail-closed state');
+      assert.notStrictEqual(rejectedCheckpoint.previewText, 'unproven preview');
+      assert.notStrictEqual(rejectedCheckpoint.title, 'unproven title');
+    }
+
+    session.screenWorker.getState = async () => ({
+      runtimeEpoch: `epoch-${label}`,
+      outputSeq: 6,
+      stateRevision: 7,
+      renderOutput: 'older exact worker cut',
+      previewText: 'older exact preview',
+      previewSnapshot: null,
+      cols: 80,
+      rows: 24,
+      title: '',
+    });
+    const olderCheckpoint = await engine.getSessionState(session.id);
+    assert.strictEqual(olderCheckpoint.outputSeq, 6, `${label} must accept an exact committed cut behind the raw head`);
+    assert.strictEqual(olderCheckpoint.stateRevision, 7);
+    assert.strictEqual(olderCheckpoint.renderOutput, 'older exact worker cut');
+
+    session.screenWorker.getState = async () => {
+      throw new Error('simulated reducer snapshot failure');
+    };
+    const failedCheckpoint = await engine.getSessionState(session.id);
+    assert.strictEqual(failedCheckpoint.outputSeq, null);
+    assert.strictEqual(failedCheckpoint.stateRevision, null);
+    assert.strictEqual(failedCheckpoint.renderOutput, 'raw fail-closed state');
+  }
+
   const staleCloseClient = new NativePtyHostClient({ configDir: fs.mkdtempSync(path.join(os.tmpdir(), 'farming-native-stale-client-')) });
   try {
     let hostDisconnects = 0;
@@ -481,7 +675,12 @@ async function run() {
 
     const state = await waitFor(async () => {
       const current = await engine.getSessionState('native-smoke');
-      return current && current.output.includes('\u001b[31mred\u001b[0m') ? current : null;
+      return current
+        && current.output.includes('\u001b[31mred\u001b[0m')
+        && current.outputSeq !== null
+        && current.stateRevision !== null
+        ? current
+        : null;
     }, 'native pty output');
 
     assert(state.output.includes('TERM=xterm-256color'), state.output);
@@ -497,8 +696,13 @@ async function run() {
     assert.strictEqual(clearResult.cleared, true, 'native session clear should report success');
     const clearedState = await waitFor(async () => {
       const current = await engine.getSessionState('native-smoke');
-      return current && current.outputSeq > state.outputSeq ? current : null;
+      return current
+        && current.stateRevision !== null
+        && current.stateRevision > state.stateRevision
+        ? current
+        : null;
     }, 'native pty clear');
+    assert.strictEqual(clearedState.outputSeq, state.outputSeq, 'clear changes terminal state but is not PTY output');
     assert.strictEqual(clearedState.output.includes('TERM=xterm-256color'), false, clearedState.output);
     assert.strictEqual(clearedState.renderOutput.includes('TERM=xterm-256color'), false, clearedState.renderOutput);
 
@@ -509,6 +713,88 @@ async function run() {
     }, 'native pty output after clear');
     assert(afterClearState.output.includes('AFTER_CLEAR'), afterClearState.output);
     assert.strictEqual(afterClearState.output.includes('TERM=xterm-256color'), false, afterClearState.output);
+
+    const {
+      preparationToken,
+      serializedTerminalState,
+    } = await host.serializeTerminalState();
+    assert(preparationToken, 'controlled rotation should return a preparation token');
+    const reviveStates = deserializeTerminalState(serializedTerminalState);
+    const reviveState = reviveStates.find(entry => entry.id === 'native-smoke');
+    assert(reviveState, 'native PTY host should serialize every live terminal before controlled rotation');
+    assert(reviveState.replayEvent.events[0].data.includes('AFTER_CLEAR'));
+    assert.strictEqual(
+      reviveState.replayEvent.events[0].data.includes('TERM=xterm-256color'),
+      false,
+      'serialized replay must respect the authoritative clear-buffer state'
+    );
+    await assert.rejects(
+      () => engine.sendInput('native-smoke', "printf 'MUST_NOT_RUN_DURING_ROTATION\\n'\n"),
+      /frozen for runtime rotation/,
+      'input must be rejected after the exact serialization cut'
+    );
+    await assert.rejects(
+      () => engine.resizeSession('native-smoke', 90, 30, {}),
+      /frozen for runtime rotation/,
+      'resize must be rejected after the exact serialization cut'
+    );
+    await assert.rejects(
+      () => engine.clearBuffer('native-smoke'),
+      /frozen for runtime rotation/,
+      'clear must be rejected after the exact serialization cut'
+    );
+
+    const previousRuntimeEpoch = afterClearState.runtimeEpoch;
+    assert.deepStrictEqual(
+      host.resumeTerminalState(null, preparationToken),
+      { resumed: 1 },
+      'aborting a prepared rotation should unfreeze the original PTY'
+    );
+    await engine.killSession('native-smoke');
+    await waitFor(async () => {
+      const current = await host.getSessionState('native-smoke');
+      return current && current.status === 'exited' ? current : null;
+    }, 'old native pty exit before revive');
+
+    let revivedSync = null;
+    const onRevivedSync = payload => {
+      if (payload?.sessionId === 'native-smoke' && payload.revived === true) {
+        revivedSync = payload;
+      }
+    };
+    engine.on('session-sync', onRevivedSync);
+    await engine.createSession({
+      agentId: 'native-smoke',
+      command: 'bash',
+      args: [],
+      cwd: process.cwd(),
+      env: process.env,
+      category: 'other',
+      metadata: { command: 'bash', cwd: process.cwd() },
+      reviveState,
+    });
+    engine.off('session-sync', onRevivedSync);
+
+    const revivedState = await waitFor(async () => {
+      const current = await engine.getSessionState('native-smoke');
+      return current
+        && current.runtimeEpoch !== previousRuntimeEpoch
+        && current.renderOutput.includes('History restored')
+        ? current
+        : null;
+    }, 'revived native pty history');
+    assert(revivedSync, 'revive should publish one authoritative replacement checkpoint');
+    assert.strictEqual(revivedSync.runtimeEpoch, revivedState.runtimeEpoch);
+    assert.strictEqual(revivedSync.outputSeq, 1, 'revived history starts a new runtime output sequence');
+    assert.strictEqual(revivedSync.stateRevision, 1, 'revived history starts a new runtime state revision');
+    assert(revivedState.renderOutput.includes('AFTER_CLEAR'), revivedState.renderOutput);
+    assert.strictEqual(revivedState.renderOutput.includes('TERM=xterm-256color'), false);
+
+    await engine.sendInput('native-smoke', "printf 'REVIVED_SHELL_LIVE\\n'\n");
+    await waitFor(async () => {
+      const current = await engine.getSessionState('native-smoke');
+      return current && current.output.includes('REVIVED_SHELL_LIVE') ? current : null;
+    }, 'revived native pty input');
 
     engine.dispose();
 

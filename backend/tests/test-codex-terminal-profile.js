@@ -118,7 +118,7 @@ async function run() {
     else if (input === '8') stage = 'opening-reasoning';
     else if (input === '5') stage = 'opening-advanced-reasoning';
     else if (input === '2') stage = 'applying-model';
-    else if (Array.isArray(input) && input[0]?.text === '/fast') stage = 'applying-fast';
+    else if (Array.isArray(input) && input[0]?.text === '/fast on') stage = 'applying-fast';
   };
 
   const applied = await applyCodexTerminalProfile({
@@ -135,7 +135,7 @@ async function run() {
     '8',
     '5',
     '2',
-    [{ type: 'paste', text: '/fast' }, '\r'],
+    [{ type: 'paste', text: '/fast on' }, '\r'],
   ], 'profile changes should wait for each rendered Codex picker instead of relying on fixed delays');
   assert.deepStrictEqual(applied, {
     model: 'gpt-5.6-sol',
@@ -144,7 +144,6 @@ async function run() {
   });
 
   let modernOutput = 'booted';
-  let modernToggleCount = 0;
   const modernInputs = [];
   const modernApplied = await applyCodexTerminalProfile({
     profile: { model: 'gpt-5.6-sol', effort: 'xhigh', serviceTier: 'default' },
@@ -152,19 +151,15 @@ async function run() {
     readOutput: async () => modernOutput,
     sendInput: async input => {
       modernInputs.push(input);
-      modernToggleCount += 1;
-      modernOutput += modernToggleCount === 1
-        ? '\n• Service tier set to priority'
-        : '\n• Service tier set to default';
+      modernOutput += '\n• Service tier set to default';
     },
     sleep: async () => {},
     pollIntervalMs: 0,
     timeoutMs: 1000,
   });
   assert.deepStrictEqual(modernInputs, [
-    [{ type: 'paste', text: '/fast' }, '\r'],
-    [{ type: 'paste', text: '/fast' }, '\r'],
-  ], 'an unknown modern CLI tier should toggle at most twice until the requested tier is confirmed');
+    [{ type: 'paste', text: '/fast off' }, '\r'],
+  ], 'an unknown modern CLI tier should receive one idempotent target command');
   assert.deepStrictEqual(modernApplied, {
     model: 'gpt-5.6-sol',
     effort: 'xhigh',

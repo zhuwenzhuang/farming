@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 printf 'Fake Codex 0.142.3 ready\n'
-if [[ " $* " == *" --farming-fixture-live-profile "* ]]; then
+if [[ " $* " == *" --farming-fixture-idle-profile "* ]]; then
+  printf 'gpt-5.6-terra medium · ~/workspace\n'
+elif [[ " $* " == *" --farming-fixture-live-profile "* ]]; then
   printf 'gpt-5.6-sol xhigh fast · ~/workspace\n'
 elif [[ " $* " == *" resume "* ]]; then
   # A resumed provider session opens at its idle prompt. Keep fresh-agent

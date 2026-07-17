@@ -86,6 +86,54 @@ function run() {
   ], [], new Set()).find(project => project.workspace === '/repo');
   assert.deepStrictEqual(orderedProject.agents.map(item => item.id), ['newer', 'older']);
 
+  const stoppedWorktreeAgent = agent({
+    id: 'worktree-agent',
+    status: 'stopped',
+    archived: true,
+    gitWorktree: {
+      workspace: '/repo-topic',
+      commonDir: '/repo/.git',
+      mainWorkspace: '/repo',
+      linked: true,
+      branch: 'topic',
+      head: 'abcdef0123456789',
+      detached: false,
+      locked: false,
+      prunable: false,
+    },
+  });
+  const openOnlyProjects = projectListProjectsForAgents(
+    [],
+    [],
+    {},
+    [openFile('worktree-agent', 'src/topic.ts', { workspaceRoot: '/repo-topic' })],
+    [stoppedWorktreeAgent],
+  );
+  assert.strictEqual(openOnlyProjects.length, 1);
+  assert.strictEqual(openOnlyProjects[0].workspace, '/repo-topic');
+  assert.strictEqual(openOnlyProjects[0].agents.length, 0);
+  assert.strictEqual(openOnlyProjects[0].hasOpenFile, true);
+  assert.strictEqual(openOnlyProjects[0].fileAgent.id, 'worktree-agent');
+  assert.strictEqual(openOnlyProjects[0].gitWorktree.branch, 'topic');
+  const persistedEmptyProjects = projectListProjectsForAgents(
+    [],
+    [],
+    {},
+    [],
+    [stoppedWorktreeAgent],
+    ['/repo-topic'],
+  );
+  assert.strictEqual(persistedEmptyProjects.length, 1);
+  assert.strictEqual(persistedEmptyProjects[0].workspace, '/repo-topic');
+  assert.strictEqual(persistedEmptyProjects[0].agents.length, 0);
+  assert.strictEqual(persistedEmptyProjects[0].hasOpenFile, undefined);
+  assert(persistedEmptyProjects[0].fileAgentId.startsWith('__farming_project__:'));
+  assert.deepStrictEqual(
+    displayedProjectsForSearch(openOnlyProjects, 'repo-topic', new Set()).map(project => project.workspace),
+    ['/repo-topic'],
+  );
+  assert.deepStrictEqual(displayedProjectsForSearch(openOnlyProjects, 'missing', new Set()), []);
+
   const searchSourceProjects = projectListProjectsForAgents(
     [
       agent({

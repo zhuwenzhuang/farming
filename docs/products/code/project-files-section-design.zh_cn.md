@@ -29,6 +29,14 @@ Project
 
 这里的“轻量”指功能边界轻，不代表页面展示要像临时列表。Files 的视觉应模仿 VS Code Explorer 的可扫描密度：紧凑树、稳定图标槽、active 左侧条、dirty 状态点、编辑区 tab strip；颜色、圆角和留白则继续贴合现有 Code-style 工作台。
 
+### Project 与 Git Worktree
+
+Farming 只有一种 Project：持久挂载在 Farming 中的 workspace。启动 Agent、打开 workspace 文件、恢复 Project 会话，或点击仓库 worktree 清单中的一行，都会把对应 workspace 写入同一个 `projectWorkspaces` 清单。最后一个 Agent 消失或最后一个编辑器关闭后，Project 只会变空，不会自动卸载；Remove Project 是唯一卸载动作，并且只在 Project 已没有 Agent、Project 会话和打开编辑器时启用。
+
+Git worktree 仍作为普通 Project 展示，不增加新的顶层仓库分组。Farming 通过 `git worktree list --porcelain -z` 和共享 Git common directory 识别仓库。在 Project 名称下方放一行低干扰入口，点击后展示同仓库完整 worktree 清单：当前/主 worktree、分支或 detached 状态、短 HEAD、路径，以及 locked/prunable 状态。点击任意行，就把该 worktree 挂载成另一个普通 Project。
+
+状态权威边界保持简单：Git 决定仓库和 worktree 身份，`settings.projectWorkspaces` 决定 Project 成员关系。即使没有 Agent，后端 Files 与 Git API 也接受经过校验的 Project workspace 身份，因此空 Project 仍保留 Files、Changes、History 和编辑能力。Git 探测失败时不自行猜测关系；Agent 的异步探测继续使用 generation guard，旧结果不能覆盖新的 workspace 观测。
+
 用户在 Project 里可以：
 
 - 点 Agent：右侧显示该 Agent 的 terminal
@@ -218,13 +226,14 @@ Files
 - 父目录只有 descendant 状态时不改变目录名颜色或字重；右侧状态点承担提示，避免深层目录被一串橙色父节点淹没
 - Project 展开内容的顺序是具体 Agent 行、可选 `Open Editors`、`Files`；`Git History` 位于 Files 内的 Working Copy `Changes` 之后
 - `Open Editors` 只有在当前 Project 至少打开一个文件后才出现，出现时默认折叠；展开后显示打开文件列表，点击条目切回对应文件
-- `Git History` 默认折叠，只对具有可写 Workspace 的具体 Project Agent 展示；行内展示 Commit Subject、短 OID、作者/时间和 Branch/Tag Decoration
+- `Git History` 默认折叠，只要 Project workspace 可访问就展示；行内展示 Commit Subject、短 OID、作者/时间和 Branch/Tag Decoration
+- `Git History` 标题与 Working Copy `Changes`、文件树使用一致的水平缩进
 - `Git History` 默认展示当前分支的 First-parent 线性历史；“所有分支”是用户显式切换的完整 Graph 视图
 - Commit Subject 保留在列表行；Commit Message 的额外正文在展开详情中展示
 - `Files` 承载搜索/跳转入口、Working Copy `Changes`、`Git History` 和目录树，不承载打开文件列表
 - Files 是 Project 展开内容下的独立 section，和 Agent 行处于同一层级缩进；Files 标题和树用 section 自身缩进表达 project 内部层级，桌面和窄屏都避免靠负 margin 补偿导致“FILES 像跳出 Project / 比 Project 更靠左”
 - Files section 标题可点击折叠/展开；折叠后只保留一行 section header，隐藏搜索、目录树、菜单和操作浮层，避免文件列表长期占据注意力
-- Main Agent 不展示对应 Files；只有 Project 下存在具体非 Main agent 时，才在该 Project 展开区展示 Files
+- Main Agent 不展示对应 Files；普通 Project 即使暂时没有 Agent 或打开文件，也通过持久 Project workspace 身份展示 Files
 - 窄侧栏下 Files header 使用两行布局：标题一行、搜索/跳转入口一行；搜索图标可隐藏，但 `path:line` 搜索入口必须保持可输入宽度
 - Project 文件列表使用外层侧栏的单一滚动流和稳定 lazy-load；深层展开时 `Files` section 必须完整平铺，不在内部再出现第二个滚动条
 - Project 左栏不启用内部滚动窗口；被展开的文件行就是完整内容，不能用固定高度窗口把一部分文件藏在 section 内部。深层滚动时允许用 zero-height overlay 的 sticky ancestor stack 展示当前父目录上下文，浅阴影只表达“上方还有被滚走的父目录”，不改变滚动模型

@@ -46,7 +46,9 @@ assert(
 );
 
 assert(
-  poolSource.includes('const unsubscribeOutput = options.onSessionOutput(agentId, (data, replace, outputSeq) => {\n    if (record.disposed) {\n      return\n    }'),
+  poolSource.includes('const unsubscribeOutput = options.onSessionOutput(agentId, (') &&
+    poolSource.includes('stateRevision,') &&
+    poolSource.includes('if (record.disposed) return\n    handleTerminalStreamOutput('),
   'terminal session output subscription should ignore output after the session is disposed'
 );
 

@@ -72,6 +72,7 @@ interface CodeOverlaysProps {
   onArchiveSession: () => void
   onCopySessionWorkingDirectory: () => void
   onArchiveProject: () => void
+  onRemoveProject: () => void
   onCloseRenameDialog: () => void
   onRenameDialogTitleChange: (title: string) => void
   onSubmitRenameDialog: () => void
@@ -112,6 +113,7 @@ export function CodeOverlays({
   onArchiveSession,
   onCopySessionWorkingDirectory,
   onArchiveProject,
+  onRemoveProject,
   onCloseRenameDialog,
   onRenameDialogTitleChange,
   onSubmitRenameDialog,
@@ -229,6 +231,21 @@ export function CodeOverlays({
       icon: 'archive',
       disabled: !canArchiveProject,
       onSelect: onArchiveProject,
+    },
+    {
+      type: 'item',
+      id: 'remove-project',
+      label: copy.removeProject,
+      hidden: !contextMenuProject?.workspace || contextMenuProject.hasMain,
+      disabled: Boolean(
+        contextMenuProject
+        && (
+          contextMenuProject.agents.length > 0
+          || contextMenuProject.agentSessions.length > 0
+          || contextMenuProject.hasOpenFile
+        )
+      ),
+      onSelect: onRemoveProject,
     },
   ])
 

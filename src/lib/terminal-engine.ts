@@ -41,6 +41,7 @@ export type FarmingTerminal = GhosttyTerminal & {
   ) => { found: boolean; resultIndex?: number; resultCount?: number }
   clearSearch?: () => void
   refresh?: (start: number, end: number) => void
+  resize?: (cols: number, rows: number) => void
   attachCustomKeyEventHandler?: (handler: (event: KeyboardEvent) => boolean) => void
   onRender?: (handler: () => void) => { dispose: () => void }
   registerLinkProvider?: (linkProvider: TerminalLinkProvider) => { dispose: () => void }

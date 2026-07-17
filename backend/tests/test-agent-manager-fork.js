@@ -87,6 +87,13 @@ async function run() {
     assert.strictEqual(captured.at(-1).cwd, newWorktree.workspace);
     const worktreeList = execFileSync('git', ['-C', repo, 'worktree', 'list', '--porcelain'], { encoding: 'utf8' });
     assert(worktreeList.includes(newWorktree.workspace), 'git should know about the created worktree');
+    const newWorktreeAgent = await waitFor(() => {
+      const current = manager.getState().agents.find(agent => agent.id === newWorktree.agentId);
+      return current?.gitWorktree?.workspace === newWorktree.workspace ? current : null;
+    });
+    assert.strictEqual(newWorktreeAgent.gitWorktree.linked, true);
+    assert.strictEqual(newWorktreeAgent.gitWorktree.mainWorkspace, fs.realpathSync(repo));
+    assert.strictEqual(manager.getAgentWorkspaceRoot(newWorktree.agentId), newWorktree.workspace);
 
     const cleanWorktree = await manager.forkAgent(sourceId, 'new-worktree');
     assert.strictEqual(cleanWorktree.error, undefined);
@@ -151,14 +158,15 @@ async function run() {
     const resumedCodexFork = await manager.forkAgent(resumedCodexId, 'same-worktree');
     assert.strictEqual(resumedCodexFork.error, undefined);
     assert.strictEqual(captured.at(-1).command, expectedCodexCommand);
-    assert.deepStrictEqual(captured.at(-1).args.slice(-6), [
+    const resumedCodexForkArgs = captured.at(-1).args.slice(-6);
+    assert.deepStrictEqual(resumedCodexForkArgs.slice(0, 4), [
       'fork',
       '-c',
       'model_provider="openai"',
       '-C',
-      repo,
-      codexSessionId,
     ]);
+    assert.strictEqual(fs.realpathSync(resumedCodexForkArgs[4]), fs.realpathSync(repo));
+    assert.strictEqual(resumedCodexForkArgs[5], codexSessionId);
     assert(!captured.at(-1).args.includes('--model'));
     assert(!captured.at(-1).args.some(arg => /^(?:model|model_reasoning_effort|service_tier)=/.test(arg)));
     assert.strictEqual(captured.at(-1).env.CODEX_HOME, codexHome);
@@ -230,6 +238,16 @@ function startAgent(manager, command, workspace, options) {
       resolve(agentId);
     }, options);
   });
+}
+
+async function waitFor(read, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = read();
+    if (value) return value;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  throw new Error('Timed out waiting for condition');
 }
 
 run().catch((error) => {

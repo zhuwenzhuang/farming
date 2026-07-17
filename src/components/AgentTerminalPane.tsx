@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { Agent } from '@/types/agent'
-import type { TerminalInputPart } from '@/types/messages'
 import { usePooledTerminal } from '@/hooks/usePooledTerminal'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { TerminalPathOpenTarget, TerminalSearchDirection, TerminalSearchResult } from '@/lib/terminal-session-pool'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
+import { sessionBootstrapStateFromPayload } from '@/lib/terminal-bootstrap'
 import type { CodeCopy } from './code/copy'
 import {
   ArrowDownGlyph,
@@ -21,12 +21,14 @@ interface AgentTerminalPaneProps {
   active: boolean
   focusSignal: number
   onActivate: (agentId: string, options?: { focusTerminal?: boolean }) => void
-  sendInput: (input: string | TerminalInputPart[], agentId?: string) => boolean
-  resizeAgent: (agentId: string, cols: number, rows: number) => boolean
-  onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null) => void) => () => void
+  onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   onOpenPath?: (agentId: string, target: TerminalPathOpenTarget) => void
   onResolvePath?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
   onFollowOutputChange?: (agentId: string, state: TerminalFollowState) => void
+  onReadLatest?: (
+    agentId: string,
+    readCut?: { runtimeEpoch: string; outputSeq: number } | null,
+  ) => void
   copy: CodeCopy
 }
 
@@ -115,12 +117,11 @@ export function AgentTerminalPane({
   active,
   focusSignal,
   onActivate,
-  sendInput,
-  resizeAgent,
   onSessionOutput,
   onOpenPath,
   onResolvePath,
   onFollowOutputChange,
+  onReadLatest,
   copy,
 }: AgentTerminalPaneProps) {
   const terminalPaneRef = useRef<HTMLElement>(null)
@@ -130,23 +131,27 @@ export function AgentTerminalPane({
     following: true,
     hasUnreadOutput: false,
   })
+  const [followOutputStateKnown, setFollowOutputStateKnown] = useState(false)
   const [terminalSearchOpen, setTerminalSearchOpen] = useState(false)
   const [terminalSearchQuery, setTerminalSearchQuery] = useState('')
   const [terminalSearchOptions, setTerminalSearchOptions] = useState<TerminalSearchOptions>({})
   const [terminalSearchResult, setTerminalSearchResult] = useState<TerminalSearchResult | null>(null)
   const [terminalError, setTerminalError] = useState<string | null>(null)
   const appServerWaitingForFirstMessage = agent.codexCliObserverDeferred === true
-
-  const handleTerminalInput = useCallback((data: string) => {
-    if (appServerWaitingForFirstMessage) return
-    sendInput(data, agent.id)
-  }, [agent.id, appServerWaitingForFirstMessage, sendInput])
-
-  const handleTerminalResize = useCallback((cols: number, rows: number) => {
-    return resizeAgent(agent.id, cols, rows)
-  }, [agent.id, resizeAgent])
-
+  const bootstrapState = sessionBootstrapStateFromPayload({
+    session: {
+      runtimeEpoch: agent.runtimeEpoch,
+      output: agent.output,
+      renderOutput: agent.renderOutput,
+      outputSeq: agent.outputSeq,
+      stateRevision: agent.stateRevision,
+      previewSnapshot: agent.previewSnapshot,
+      previewCols: agent.previewCols,
+      previewRows: agent.previewRows,
+    },
+  })
   const handleFollowOutputChange = useCallback((state: TerminalFollowState) => {
+    setFollowOutputStateKnown(true)
     setFollowOutputState(state)
     onFollowOutputChange?.(agent.id, state)
   }, [agent.id, onFollowOutputChange])
@@ -159,19 +164,60 @@ export function AgentTerminalPane({
     setTerminalError(error.message || copy.terminalSessionUnavailable)
   }, [copy.terminalSessionUnavailable])
 
-  const { focus, refreshLayout, getSelectionNow, scrollToBottom, search, clearSearch } = usePooledTerminal({
+  const {
+    focus,
+    refreshLayout,
+    getSelectionNow,
+    getReadCutNow,
+    scrollToBottom,
+    search,
+    clearSearch,
+  } = usePooledTerminal({
     agentId: agent.id,
     containerRef: terminalContainerRef,
-    onInput: handleTerminalInput,
-    onResize: handleTerminalResize,
     onSessionOutput,
+    inputDisabled: appServerWaitingForFirstMessage,
     suppressRendererCursor: shouldSuppressRendererCursorForAgent(agent.command),
     onFollowOutputChange: handleFollowOutputChange,
     onPathOpen: onOpenPath,
     onPathResolve: onResolvePath,
     onReady: handleTerminalReady,
     onError: handleTerminalError,
+    bootstrapState,
   })
+
+  useEffect(() => {
+    if (
+      !active
+      || !followOutputStateKnown
+      || agent.unread !== true
+      || !followOutputState.following
+      || followOutputState.hasUnreadOutput
+    ) return
+    const readCut = getReadCutNow()
+    if (!readCut) return
+    const attentionOutputEpoch = agent.attentionOutputEpoch || ''
+    const attentionOutputSeq = Number(agent.attentionOutputSeq)
+    if (
+      attentionOutputEpoch
+      && (
+        attentionOutputEpoch !== readCut.runtimeEpoch
+        || (Number.isFinite(attentionOutputSeq) && attentionOutputSeq > readCut.outputSeq)
+      )
+    ) return
+    onReadLatest?.(agent.id, readCut)
+  }, [
+    active,
+    agent.attentionOutputEpoch,
+    agent.attentionOutputSeq,
+    agent.id,
+    agent.unread,
+    followOutputState.following,
+    followOutputState.hasUnreadOutput,
+    followOutputStateKnown,
+    getReadCutNow,
+    onReadLatest,
+  ])
 
   const refreshVisibleTerminalLayout = useCallback((autoFocus = false) => {
     window.requestAnimationFrame(() => {
@@ -328,9 +374,10 @@ export function AgentTerminalPane({
 
   const jumpToLatestOutput = useCallback(() => {
     scrollToBottom()
+    onReadLatest?.(agent.id, getReadCutNow())
     if (isMobileViewport()) return
     focus()
-  }, [focus, scrollToBottom])
+  }, [agent.id, focus, getReadCutNow, onReadLatest, scrollToBottom])
 
   const retryTerminalAttach = useCallback(() => {
     setTerminalError(null)

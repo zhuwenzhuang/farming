@@ -72,6 +72,7 @@ const PERSISTED_SETTING_KEYS = new Set([
   'workspace',
   'lastMainWorkspace',
   'workspaceHistory',
+  'projectWorkspaces',
   'projectNames',
   'theme',
   'appearance',
@@ -196,6 +197,31 @@ class ConfigManager {
     return result.slice(0, 5);
   }
 
+  normalizeProjectWorkspaces(projects) {
+    const entries = Array.isArray(projects) ? projects : [];
+    const result = [];
+    const seen = new Set();
+
+    for (const entry of entries) {
+      const expanded = this.expandWorkspacePath(entry);
+      if (!expanded) continue;
+      const resolved = path.resolve(expanded);
+      if (resolved === path.parse(resolved).root || this.isInternalWorkspace(resolved)) continue;
+      let canonical;
+      try {
+        canonical = fs.realpathSync(resolved);
+        if (!fs.statSync(canonical).isDirectory()) continue;
+      } catch {
+        continue;
+      }
+      if (seen.has(canonical)) continue;
+      seen.add(canonical);
+      result.push(canonical);
+    }
+
+    return result.slice(0, 200);
+  }
+
   normalizeMainPageSessionKeys(keys) {
     const entries = Array.isArray(keys) ? keys : [];
     const result = [];
@@ -260,6 +286,7 @@ class ConfigManager {
         workspace: this.farmingDir,
         lastMainWorkspace: this.farmingDir,
         workspaceHistory: [],
+        projectWorkspaces: [],
         projectNames: {},
         theme: 'terminal',
         appearance: 'light',
@@ -294,6 +321,7 @@ class ConfigManager {
       workspace: this.farmingDir,
       lastMainWorkspace: this.farmingDir,
       workspaceHistory: [],
+      projectWorkspaces: [],
       projectNames: {},
       theme: 'terminal',
       appearance: 'light',
@@ -342,6 +370,7 @@ class ConfigManager {
     this.settings.workspace = this.farmingDir;
     this.settings.lastMainWorkspace = this.normalizeMainWorkspace(this.settings.lastMainWorkspace, this.farmingDir);
     this.settings.workspaceHistory = this.normalizeWorkspaceHistory(this.settings.workspaceHistory);
+    this.settings.projectWorkspaces = this.normalizeProjectWorkspaces(this.settings.projectWorkspaces);
     this.settings.projectNames = this.normalizeProjectNames(this.settings.projectNames);
     this.settings.agentHomes = this.normalizeAgentHomes(this.settings.agentHomes);
     if (this.settings.updateUrl === LEGACY_DEFAULT_UPDATE_URL || this.settings.updateUrl === API_DEFAULT_UPDATE_URL) {
@@ -783,6 +812,7 @@ class ConfigManager {
     };
     this.settings.lastMainWorkspace = this.normalizeMainWorkspace(this.settings.lastMainWorkspace, previousMainWorkspace);
     this.settings.workspaceHistory = this.normalizeWorkspaceHistory(this.settings.workspaceHistory);
+    this.settings.projectWorkspaces = this.normalizeProjectWorkspaces(this.settings.projectWorkspaces);
     this.settings.projectNames = this.normalizeProjectNames(this.settings.projectNames);
     this.settings.agentHomes = this.normalizeAgentHomes(this.settings.agentHomes);
     this.settings.updateUrl = this.normalizeUpdateUrl(this.settings.updateUrl);

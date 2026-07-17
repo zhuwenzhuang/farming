@@ -13,6 +13,10 @@ export interface ProjectGroup {
   hasMain: boolean
   hasProjectAgent: boolean
   hasAgentSession: boolean
+  fileAgent?: Agent | null
+  fileAgentId?: string
+  hasOpenFile?: boolean
+  gitWorktree?: Agent['gitWorktree']
   hiddenAgentSessionCount?: number
   agentSessionsExpanded?: boolean
 }
@@ -24,6 +28,7 @@ export type SearchTarget =
 export interface WorkspaceHistorySettings {
   lastMainWorkspace?: string
   workspaceHistory?: string[]
+  projectWorkspaces?: string[]
   projectNames?: Record<string, string>
   mainPageSessionKeys?: string[]
 }

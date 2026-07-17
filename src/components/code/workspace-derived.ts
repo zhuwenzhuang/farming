@@ -1,9 +1,12 @@
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { agentTitle } from '@/lib/format'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
+import { projectFilesAgentId } from '@/lib/project-workspaces'
 import {
   agentSessionId,
   groupAgentsByProject,
+  projectNameForWorkspace,
+  projectWorkspaceForAgent,
 } from './model'
 import { limitProjectAgentSessions } from './session-display'
 import type { AgentSessionHistoryItem, ProjectGroup, SearchTarget } from './types'
@@ -31,9 +34,77 @@ export function projectWorkspaceForHistoryRun(entry: Pick<TaskHistoryEntry, 'cwd
 export function projectListProjectsForAgents(
   agents: Agent[],
   sessions: AgentSessionHistoryItem[],
-  projectNames: Record<string, string> = {}
+  projectNames: Record<string, string> = {},
+  openFiles: readonly OpenWorkspaceFile[] = [],
+  allAgents: readonly Agent[] = agents,
+  projectWorkspaces: readonly string[] = [],
 ) {
-  return groupAgentsByProject(agents, sessions).map(project => {
+  const projects = groupAgentsByProject(agents, sessions)
+  const projectsByWorkspace = new Map(projects.map(project => [project.workspace, project]))
+
+  openFiles.forEach(file => {
+    const fileAgent = allAgents.find(agent => agent.id === file.agentId)
+      ?? (file.sourceAgentId ? allAgents.find(agent => agent.id === file.sourceAgentId) : undefined)
+    const workspace = file.workspaceRoot
+      || (fileAgent ? projectWorkspaceForAgent(fileAgent) : '')
+    if (!workspace || workspace === '/') return
+
+    const existing = projectsByWorkspace.get(workspace)
+    if (existing) {
+      existing.hasOpenFile = true
+      if (!existing.fileAgentId) existing.fileAgentId = file.agentId
+      if (!existing.fileAgent && fileAgent && !fileAgent.isMain) {
+        existing.fileAgent = fileAgent
+        existing.fileAgentId = fileAgent.id
+      }
+      if (!existing.gitWorktree && fileAgent?.gitWorktree?.workspace) existing.gitWorktree = fileAgent.gitWorktree
+      return
+    }
+
+    const project: ProjectGroup = {
+      id: workspace,
+      name: projectNameForWorkspace(workspace),
+      workspace,
+      agents: [],
+      agentSessions: [],
+      hasMain: false,
+      hasProjectAgent: false,
+      hasAgentSession: false,
+      hasOpenFile: true,
+      fileAgent: fileAgent && !fileAgent.isMain ? fileAgent : null,
+      fileAgentId: fileAgent && !fileAgent.isMain ? fileAgent.id : file.agentId,
+      gitWorktree: fileAgent?.gitWorktree ?? null,
+    }
+    projects.push(project)
+    projectsByWorkspace.set(workspace, project)
+  })
+
+  projectWorkspaces.forEach(workspace => {
+    if (!workspace || workspace === '/') return
+    const existing = projectsByWorkspace.get(workspace)
+    if (existing) {
+      if (!existing.fileAgentId) existing.fileAgentId = projectFilesAgentId(workspace)
+      return
+    }
+
+    const project: ProjectGroup = {
+      id: workspace,
+      name: projectNameForWorkspace(workspace),
+      workspace,
+      agents: [],
+      agentSessions: [],
+      hasMain: false,
+      hasProjectAgent: false,
+      hasAgentSession: false,
+      fileAgent: null,
+      fileAgentId: projectFilesAgentId(workspace),
+      gitWorktree: null,
+    }
+    projects.push(project)
+    projectsByWorkspace.set(workspace, project)
+  })
+
+  return projects.map(project => {
     const customName = project.workspace ? projectNames[project.workspace]?.trim() : ''
     return customName && !project.hasMain
       ? { ...project, name: customName }
@@ -69,7 +140,9 @@ export function displayedProjectsForSearch(
           || session.title.toLowerCase().includes(normalizedSearch)
         ))
 
-      return filteredAgents.length > 0 || filteredAgentSessions.length > 0
+      return filteredAgents.length > 0
+        || filteredAgentSessions.length > 0
+        || (Boolean(project.workspace) && projectMatches)
         ? { ...project, agents: filteredAgents, agentSessions: filteredAgentSessions }
         : null
     })

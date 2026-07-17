@@ -48,6 +48,10 @@ The **Chat / Terminal** control changes the actual Agent runtime; it is not a vi
 
 The native PTY host is a separate process from the Farming server. Browsers can reconnect to live terminals, and a normal Farming server restart can recover them without launching duplicate Agents.
 
+Terminal recovery follows the same checkpoint-and-replay principle as a persistent VS Code terminal. A headless xterm in the PTY host continuously reduces output into the authoritative terminal state. Each runtime has an epoch and monotonic output index; a reconnect or page resume installs one serialized checkpoint at an exact index, then applies only contiguous later chunks. Missing chunks or a changed runtime epoch trigger another checkpoint instead of displaying an unprovable mixed state.
+
+See [Terminal State Protocol](terminal-state-protocol.md) for `/session-view`, multi-window control, flow control, and recovery guarantees.
+
 ## Change The Live Model And Runtime Profile
 
 The composer shows controls reported by the active runtime. Compatible Codex model families can expose one compact surface for model variant and reasoning, a separate Ultra charge control, a clear Fast state, and the current approval mode.

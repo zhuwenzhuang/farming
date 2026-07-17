@@ -8,8 +8,14 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from 'react'
-import type { Agent, AgentContextWindowUsage, SystemStats, TaskHistoryEntry, UsageSummary } from '@/types/agent'
-import type { TerminalInputPart } from '@/types/messages'
+import type {
+  Agent,
+  AgentContextWindowUsage,
+  CodexTerminalProfile,
+  SystemStats,
+  TaskHistoryEntry,
+  UsageSummary,
+} from '@/types/agent'
 import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { agentTitle } from '@/lib/format'
@@ -19,6 +25,11 @@ import {
   isGlobalWorkspaceFilesAgentId,
   normalizeGlobalWorkspaceFilePath,
 } from '@/lib/global-workspace-files'
+import {
+  isProjectFilesAgentId,
+  normalizeProjectWorkspaces,
+  projectWorkspaceFromFilesAgentId,
+} from '@/lib/project-workspaces'
 import {
   shouldRevealSelectedWorkspaceOpenFile,
   workspaceOpenFileRequestForTarget,
@@ -51,7 +62,10 @@ import {
   type WorkspaceFileMove,
   type WorkspaceFileSearchMatch,
 } from '@/lib/workspace-files'
-import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
+import {
+  sendTerminalSessionInput,
+  type TerminalPathOpenTarget,
+} from '@/lib/terminal-session-pool'
 import { isOverlayShortcutTarget, isTerminalShortcutTarget, isTextEditingShortcutTarget } from '@/hooks/useKeyboard'
 import { usePageVisibility } from '@/hooks/usePageVisibility'
 import { CodeMainArea } from './code/CodeMainArea'
@@ -271,6 +285,11 @@ export interface AgentFlagUpdateResult {
   error?: string
 }
 
+interface TerminalReadCut {
+  runtimeEpoch: string
+  outputSeq: number
+}
+
 type AgentFlagUpdateResponse = AgentFlagUpdateResult | boolean | void
 
 interface CodeWorkspaceProps {
@@ -296,7 +315,11 @@ interface CodeWorkspaceProps {
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null, customTitle?: string) => void
   onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string }) => void
   onRenameAgent: (agentId: string, title: string) => void
-  onUpdateAgentFlags: (agentId: string, flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived' | 'launchPermissionMode' | 'readAttentionSeq'>> & { agentRuntimeMode?: 'terminal' | 'acp' | 'json' }) => AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>
+  onUpdateAgentFlags: (
+    agentId: string,
+    flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived' | 'launchPermissionMode' | 'readAttentionSeq'>>
+      & { agentRuntimeMode?: 'terminal' | 'acp' | 'json'; readOutputEpoch?: string; readOutputSeq?: number },
+  ) => AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>
   onOpenArchivedAgent: (agentId: string) => void
   onForkAgent: (agentId: string, mode: 'same-worktree' | 'new-worktree') => void
   onDeleteForkWorktreeProject: (workspace: string, options?: { force?: boolean }) => Promise<DeleteForkWorktreeProjectResult>
@@ -304,11 +327,9 @@ interface CodeWorkspaceProps {
   onWorkspaceViewChange: (view: WorkspaceView) => void
   onKill: (agentId: string) => void
   onInterruptAgent: (agentId: string) => void
-  sendInput: (input: string | TerminalInputPart[], agentId?: string) => boolean
   sendComposerInput: (message: string, agentId?: string, attachments?: ComposerPromptAttachment[]) => boolean
   respondToAppServerRequest: (agentId: string, requestId: string, result?: unknown, options?: { reject?: boolean; reason?: string }) => boolean
-  resizeAgent: (agentId: string, cols: number, rows: number) => boolean
-  onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null) => void) => () => void
+  onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   onUpdateUiPreferences: (patch: Partial<UiPreferences>) => void
 }
 
@@ -327,7 +348,7 @@ const SIDEBAR_DRAG_COLLAPSE_WIDTH = 172
 const DESKTOP_AUTO_COLLAPSE_WIDTH = 900
 const TERMINAL_PATH_SEARCH_LIMIT = 12
 const MOBILE_PROJECT_CONTEXT_MENU_WIDTH = 214
-const MOBILE_PROJECT_CONTEXT_MENU_HEIGHT = 86
+const MOBILE_PROJECT_CONTEXT_MENU_HEIGHT = 122
 const AGENT_SESSION_PAGE_SIZE = 60
 const AGENT_SESSION_SEARCH_LIMIT = 1000
 const AGENT_SESSION_SEARCH_DEBOUNCE_MS = 150
@@ -486,10 +507,8 @@ export function CodeWorkspace({
   onWorkspaceViewChange,
   onKill,
   onInterruptAgent,
-  sendInput,
   sendComposerInput,
   respondToAppServerRequest,
-  resizeAgent,
   onSessionOutput,
   onUpdateUiPreferences,
 }: CodeWorkspaceProps) {
@@ -504,7 +523,7 @@ export function CodeWorkspace({
     onDiscardAttachment: revokeComposerAttachmentPreview,
   })
   const pendingFollowUpAutoFlushRef = useRef<Record<string, string>>({})
-  const [terminalFollowStates, setTerminalFollowStates] = useState<Record<string, TerminalFollowState>>({})
+  const [, setTerminalFollowStates] = useState<Record<string, TerminalFollowState>>({})
   const [mainPaneMode, setMainPaneMode] = useState<MainPaneMode>('terminal')
   const [initialWorkspaceSurface] = useState<CodeWorkspaceSurface | undefined>(() => (
     loadCodeWorkspaceViewState().surface
@@ -528,6 +547,11 @@ export function CodeWorkspace({
   const [searchQuery, setSearchQuery] = useState('')
   const [searchSelectionIndex, setSearchSelectionIndex] = useState(0)
   const [, setWorkspaceHistory] = useState<string[]>([])
+  const [projectWorkspaces, setProjectWorkspaces] = useState<string[]>([])
+  const [projectWorkspacesLoaded, setProjectWorkspacesLoaded] = useState(false)
+  const projectWorkspacesRef = useRef<string[]>([])
+  const projectWorkspacesMutationRef = useRef(0)
+  const projectWorkspacesSaveChainRef = useRef<Promise<void>>(Promise.resolve())
   const [projectNames, setProjectNames] = useState<Record<string, string>>({})
   const [agentLaunchOptions, setAgentLaunchOptions] = useState<AgentLaunchOption[]>([])
   const [mainPageSessionKeys, setMainPageSessionKeys] = useState<Set<string>>(() => new Set())
@@ -538,6 +562,8 @@ export function CodeWorkspace({
   const [codexServiceTier, setCodexServiceTier] = useState('default')
   const [codexModelOptions, setCodexModelOptions] = useState<CodexModelOption[]>([])
   const [codexTerminalProfileApplyingAgentIds, setCodexTerminalProfileApplyingAgentIds] = useState<Set<string>>(() => new Set())
+  const [pendingCodexTerminalProfiles, setPendingCodexTerminalProfiles] = useState<Map<string, CodexTerminalProfile>>(() => new Map())
+  const codexTerminalProfileRequestAgentIdsRef = useRef(new Set<string>())
   const [claudePermissionMode, setClaudePermissionMode] = useState<ClaudePermissionMode>('default')
   const [claudeModel, setClaudeModel] = useState('config')
   const [claudeEffort, setClaudeEffort] = useState('config')
@@ -705,8 +731,15 @@ export function CodeWorkspace({
     return unclaimedAgentSessions(Array.from(sessionsById.values()), agentListState.claimedAgentSessionKeys)
   }, [agentListState.claimedAgentSessionKeys, searchedAgentSessions, unclaimedSearchableAgentSessions])
   const projectListProjects = useMemo(
-    () => projectListProjectsForAgents(visibleLiveAgents, sidebarAgentSessions, projectNames),
-    [projectNames, sidebarAgentSessions, visibleLiveAgents]
+    () => projectListProjectsForAgents(
+      visibleLiveAgents,
+      sidebarAgentSessions,
+      projectNames,
+      openWorkspaceFiles,
+      visibleAgents,
+      projectWorkspaces,
+    ),
+    [openWorkspaceFiles, projectNames, projectWorkspaces, sidebarAgentSessions, visibleAgents, visibleLiveAgents]
   )
   const projects = useMemo(() => limitProjectAgentSessions(
     projectListProjects,
@@ -714,8 +747,15 @@ export function CodeWorkspace({
     false
   ), [expandedSessionProjectIds, projectListProjects])
   const searchableProjects = useMemo(
-    () => projectListProjectsForAgents(visibleLiveAgents, searchableAgentSessions, projectNames),
-    [projectNames, searchableAgentSessions, visibleLiveAgents]
+    () => projectListProjectsForAgents(
+      visibleLiveAgents,
+      searchableAgentSessions,
+      projectNames,
+      openWorkspaceFiles,
+      visibleAgents,
+      projectWorkspaces,
+    ),
+    [openWorkspaceFiles, projectNames, projectWorkspaces, searchableAgentSessions, visibleAgents, visibleLiveAgents]
   )
   const normalizedSearch = searchQuery.trim().toLowerCase()
   const hasSearchQuery = normalizedSearch.length > 0
@@ -729,7 +769,9 @@ export function CodeWorkspace({
       searchedAgentIds
     )
   }, [activeView, expandedSessionProjectIds, hasSearchQuery, normalizedSearch, projects, searchableProjects, searchedAgentIds, searchedAgentSessionIds, searchOpen])
-  const hasProjectListItems = projects.some(project => project.agents.length > 0 || project.agentSessions.length > 0)
+  const hasProjectListItems = projects.some(project => (
+    Boolean(project.workspace)
+  ))
   const searchResultProjects = useMemo(
     () => hasSearchQuery ? displayedProjects : [],
     [displayedProjects, hasSearchQuery]
@@ -817,14 +859,20 @@ export function CodeWorkspace({
     activeAgent?.launchPermissionMode,
     claudePermissionMode,
   ), [activeAgent, claudePermissionMode, composerAgentKind])
+  const pendingCodexTerminalProfile = activeAgent
+    ? pendingCodexTerminalProfiles.get(activeAgent.id) || null
+    : null
   const displayedCodexProfile = useMemo(() => resolveCodexComposerProfile(
-    activeAgent?.codexTerminalProfile,
+    pendingCodexTerminalProfile || activeAgent?.codexTerminalProfile,
     {
       model: codexModel,
       reasoningEffort: codexReasoningEffort,
       serviceTier: codexServiceTier,
     },
   ), [
+    pendingCodexTerminalProfile?.model,
+    pendingCodexTerminalProfile?.reasoningEffort,
+    pendingCodexTerminalProfile?.serviceTier,
     activeAgent?.codexTerminalProfile?.model,
     activeAgent?.codexTerminalProfile?.reasoningEffort,
     activeAgent?.codexTerminalProfile?.serviceTier,
@@ -1087,6 +1135,8 @@ export function CodeWorkspace({
         if (loadMutationVersion === mainPageSessionKeysMutationRef.current) {
           setMainPageSessionKeys(new Set(normalizeMainPageSessionKeys(settings.mainPageSessionKeys ?? [])))
         }
+        setProjectWorkspaces(normalizeProjectWorkspaces(settings.projectWorkspaces))
+        setProjectWorkspacesLoaded(true)
         setProjectNames(normalizeProjectNames(settings.projectNames))
         applyLaunchSettings(settings)
       })
@@ -1455,17 +1505,33 @@ export function CodeWorkspace({
     focusComposerTextarea()
   }, [focusComposerTextarea, updateActiveComposerState])
 
-  const markAgentReadIfNeeded = useCallback((agentId: string) => {
+  const markAgentReadIfNeeded = useCallback((
+    agentId: string,
+    force = false,
+    readCut: TerminalReadCut | null = null,
+  ) => {
     const agent = activeAgents.find(candidate => candidate.id === agentId)
     if (!agent) return
     const attentionSeq = Number.isFinite(agent.attentionSeq) ? Math.max(0, Number(agent.attentionSeq)) : 0
     const readAttentionSeq = Number.isFinite(agent.readAttentionSeq) ? Math.max(0, Number(agent.readAttentionSeq)) : 0
-    if (attentionSeq > readAttentionSeq) {
-      onUpdateAgentFlags(agentId, { readAttentionSeq: attentionSeq })
-    } else if (agent.unread) {
-      onUpdateAgentFlags(agentId, { unread: false })
-    }
+    if (!force && attentionSeq <= readAttentionSeq && !agent.unread) return
+    // `unread: false` means "read through the backend's current authoritative
+    // attention cursor", so an explicit jump is safe even if this projection
+    // is one websocket update behind.
+    onUpdateAgentFlags(agentId, {
+      unread: false,
+      ...(readCut
+        ? {
+          readOutputEpoch: readCut.runtimeEpoch,
+          readOutputSeq: readCut.outputSeq,
+        }
+        : {}),
+    })
   }, [activeAgents, onUpdateAgentFlags])
+
+  const markAgentReadLatest = useCallback((agentId: string, readCut: TerminalReadCut | null = null) => {
+    markAgentReadIfNeeded(agentId, true, readCut)
+  }, [markAgentReadIfNeeded])
 
   const handleTerminalFollowOutputChange = useCallback((agentId: string, state: TerminalFollowState) => {
     setTerminalFollowStates(current => {
@@ -1473,25 +1539,7 @@ export function CodeWorkspace({
       if (previous?.following === state.following && previous?.hasUnreadOutput === state.hasUnreadOutput) return current
       return { ...current, [agentId]: state }
     })
-    if (
-      agentId === activeTerminalId
-      && activeView === 'projects'
-      && mainPaneMode === 'terminal'
-      && state.following
-      && !state.hasUnreadOutput
-    ) {
-      markAgentReadIfNeeded(agentId)
-    }
-  }, [activeTerminalId, activeView, mainPaneMode, markAgentReadIfNeeded])
-
-  useEffect(() => {
-    if (!activeTerminalId || activeView !== 'projects' || mainPaneMode !== 'terminal') return
-    const state = terminalFollowStates[activeTerminalId]
-    const terminalFollowingLatest = state ? state.following && !state.hasUnreadOutput : false
-    if (terminalFollowingLatest) {
-      markAgentReadIfNeeded(activeTerminalId)
-    }
-  }, [activeTerminalId, activeView, mainPaneMode, markAgentReadIfNeeded, terminalFollowStates])
+  }, [])
 
   const handleDraftChange = useCallback((value: string) => {
     updateActiveComposerState(state => ({
@@ -1526,6 +1574,19 @@ export function CodeWorkspace({
     serviceTier: string,
   ) => {
     if (!isCodexTerminalAgent(agent)) return true
+    if (codexTerminalProfileRequestAgentIdsRef.current.has(agent.id)) return false
+    codexTerminalProfileRequestAgentIdsRef.current.add(agent.id)
+    const pendingProfile: CodexTerminalProfile = {
+      model,
+      reasoningEffort: effort,
+      serviceTier,
+      source: 'pending-terminal-command',
+    }
+    setPendingCodexTerminalProfiles(current => {
+      const next = new Map(current)
+      next.set(agent.id, pendingProfile)
+      return next
+    })
     setCodexTerminalProfileApplyingAgentIds(current => new Set(current).add(agent.id))
     setCopyNotice({ id: Date.now(), kind: 'success', message: copy.terminalProfileApplying })
     try {
@@ -1539,10 +1600,16 @@ export function CodeWorkspace({
       setCopyNotice({ id: Date.now(), kind: 'success', message: copy.terminalProfileApplied })
       return true
     } catch (error) {
+      setPendingCodexTerminalProfiles(current => {
+        const next = new Map(current)
+        next.delete(agent.id)
+        return next
+      })
       const message = error instanceof Error ? error.message : 'Failed to update Codex Terminal'
       setCopyNotice({ id: Date.now(), kind: 'error', message: copy.terminalProfileFailed(message) })
       return false
     } finally {
+      codexTerminalProfileRequestAgentIdsRef.current.delete(agent.id)
       setCodexTerminalProfileApplyingAgentIds(current => {
         const next = new Set(current)
         next.delete(agent.id)
@@ -1550,6 +1617,26 @@ export function CodeWorkspace({
       })
     }
   }, [copy.terminalProfileApplied, copy.terminalProfileApplying, copy.terminalProfileFailed])
+
+  useEffect(() => {
+    if (pendingCodexTerminalProfiles.size === 0) return
+    setPendingCodexTerminalProfiles(current => {
+      let next: Map<string, CodexTerminalProfile> | null = null
+      for (const [agentId, pending] of current) {
+        const live = activeAgents.find(agent => agent.id === agentId)?.codexTerminalProfile
+        if (!live) continue
+        if (
+          live.model === pending.model
+          && live.reasoningEffort === pending.reasoningEffort
+          && live.serviceTier === pending.serviceTier
+        ) {
+          if (!next) next = new Map(current)
+          next.delete(agentId)
+        }
+      }
+      return next || current
+    })
+  }, [activeAgents, pendingCodexTerminalProfiles.size])
 
   const sendComposerMessageToAgent = useCallback((agent: Agent, message: string, attachments: ComposerPromptAttachment[] = []) => {
     if (['acp', 'json'].includes(agent.agentRuntimeMode || '') || (agent.providerSessionProvider === 'codex' && agent.codexRuntimeMode === 'app-server')) {
@@ -1560,10 +1647,10 @@ export function CodeWorkspace({
       || capabilitiesForAgent(agent).kind === 'shell'
       || isPlainTextComposerAgentCommand(agent.command)
     ) {
-      return sendInput(`${message}\r`, agent.id)
+      return sendTerminalSessionInput(agent.id, `${message}\r`)
     }
-    return sendInput(terminalInputPartsForComposerMessage(message), agent.id)
-  }, [sendComposerInput, sendInput])
+    return sendTerminalSessionInput(agent.id, terminalInputPartsForComposerMessage(message))
+  }, [sendComposerInput])
 
   const setNativeCodexGoalFromComposer = useCallback(async (agent: Agent, objective: string) => {
     const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agent.id)}/codex-goal`), {
@@ -1994,6 +2081,65 @@ export function CodeWorkspace({
     })
   }, [])
 
+  useEffect(() => {
+    projectWorkspacesRef.current = projectWorkspaces
+  }, [projectWorkspaces])
+
+  const persistProjectWorkspaces = useCallback((nextProjects: string[], rollbackProjects: string[]) => {
+    const normalized = normalizeProjectWorkspaces(nextProjects)
+    const mutationId = projectWorkspacesMutationRef.current += 1
+    projectWorkspacesRef.current = normalized
+    setProjectWorkspaces(normalized)
+    projectWorkspacesSaveChainRef.current = projectWorkspacesSaveChainRef.current
+      .catch(() => {})
+      .then(async () => {
+        const response = await fetch(appPath('/api/settings'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectWorkspaces: normalized }),
+        })
+        if (!response.ok) throw new Error(`settings request failed (${response.status})`)
+        const data = await response.json() as { settings?: GlobalSettings }
+        if (mutationId !== projectWorkspacesMutationRef.current) return
+        const saved = normalizeProjectWorkspaces(data.settings?.projectWorkspaces)
+        projectWorkspacesRef.current = saved
+        setProjectWorkspaces(saved)
+      })
+      .catch(() => {
+        if (mutationId !== projectWorkspacesMutationRef.current) return
+        const rollback = normalizeProjectWorkspaces(rollbackProjects)
+        projectWorkspacesRef.current = rollback
+        setProjectWorkspaces(rollback)
+        setCopyNotice({ id: Date.now(), kind: 'error', message: copy.copyFailed })
+      })
+  }, [copy.copyFailed])
+
+  const mountProject = useCallback((workspace: string) => {
+    const normalizedWorkspace = workspace.trim().replace(/[\\/]+$/, '')
+    if (!normalizedWorkspace) return
+    const previous = projectWorkspacesRef.current
+    if (!previous.includes(normalizedWorkspace)) {
+      persistProjectWorkspaces([normalizedWorkspace, ...previous], previous)
+    }
+    setCollapsedProjectIds(current => {
+      if (!current.has(normalizedWorkspace)) return current
+      const next = new Set(current)
+      next.delete(normalizedWorkspace)
+      return next
+    })
+  }, [persistProjectWorkspaces])
+
+  useEffect(() => {
+    if (!projectWorkspacesLoaded) return
+    const previous = projectWorkspacesRef.current
+    const missing = projectListProjects
+      .filter(project => !project.hasMain && Boolean(project.workspace))
+      .map(project => project.workspace)
+      .filter(workspace => !previous.includes(workspace))
+    if (missing.length === 0) return
+    persistProjectWorkspaces([...missing, ...previous], previous)
+  }, [persistProjectWorkspaces, projectListProjects, projectWorkspacesLoaded])
+
   const toggleProjectSessions = useCallback((projectId: string) => {
     setExpandedSessionProjectIds(previous => {
       const next = new Set(previous)
@@ -2254,13 +2400,17 @@ export function CodeWorkspace({
 
   const openProjectFile = useCallback((agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => {
     const globalFile = isGlobalWorkspaceFilesAgentId(agentId)
-    const sourceAgentId = target?.sourceAgentId ?? (globalFile ? activeTerminalIdRef.current ?? undefined : agentId)
-    const agent = activeAgents.find(candidate => candidate.id === (globalFile ? sourceAgentId : agentId))
+    const projectWorkspace = projectWorkspaceFromFilesAgentId(agentId)
+    const virtualFile = globalFile || Boolean(projectWorkspace)
+    const sourceAgentId = target?.sourceAgentId ?? (virtualFile ? activeTerminalIdRef.current ?? undefined : agentId)
+    const agent = activeAgents.find(candidate => candidate.id === (virtualFile ? sourceAgentId : agentId))
     const workspaceRoot = globalFile
       ? GLOBAL_WORKSPACE_FILES_ROOT
+      : projectWorkspace
+        ? projectWorkspace
       : agent && !agent.isMain ? projectWorkspaceForAgent(agent) : undefined
-    if (!globalFile && agent) {
-      const projectId = agent.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent)
+    if (!globalFile && (projectWorkspace || agent)) {
+      const projectId = projectWorkspace || (agent?.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent!))
       setCollapsedProjectIds(previous => {
         if (!previous.has(projectId)) return previous
         const next = new Set(previous)
@@ -2384,8 +2534,9 @@ export function CodeWorkspace({
 
   const focusWorkspaceFilesSearch = useCallback((agentId: string, query?: string) => {
     const agent = activeAgents.find(candidate => candidate.id === agentId)
-    if (!isGlobalWorkspaceFilesAgentId(agentId) && agent) {
-      const projectId = agent.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent)
+    const projectWorkspace = projectWorkspaceFromFilesAgentId(agentId)
+    if (!isGlobalWorkspaceFilesAgentId(agentId) && (projectWorkspace || agent)) {
+      const projectId = projectWorkspace || (agent?.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent!))
       setCollapsedProjectIds(previous => {
         if (!previous.has(projectId)) return previous
         const next = new Set(previous)
@@ -2409,8 +2560,9 @@ export function CodeWorkspace({
 
   const revealWorkspaceFileInExplorer = useCallback((agentId: string, filePath: string, kind: 'directory' | 'file') => {
     const agent = activeAgents.find(candidate => candidate.id === agentId)
-    if (!isGlobalWorkspaceFilesAgentId(agentId) && agent) {
-      const projectId = agent.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent)
+    const projectWorkspace = projectWorkspaceFromFilesAgentId(agentId)
+    if (!isGlobalWorkspaceFilesAgentId(agentId) && (projectWorkspace || agent)) {
+      const projectId = projectWorkspace || (agent?.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent!))
       setCollapsedProjectIds(previous => {
         if (!previous.has(projectId)) return previous
         const next = new Set(previous)
@@ -2530,13 +2682,17 @@ export function CodeWorkspace({
 
   const selectOpenWorkspaceFile = useCallback((agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
     const globalFile = isGlobalWorkspaceFilesAgentId(agentId)
-    const sourceAgentId = target?.sourceAgentId ?? (globalFile ? activeTerminalIdRef.current ?? undefined : agentId)
-    const agent = activeAgents.find(candidate => candidate.id === (globalFile ? sourceAgentId : agentId))
+    const projectWorkspace = projectWorkspaceFromFilesAgentId(agentId)
+    const virtualFile = globalFile || Boolean(projectWorkspace)
+    const sourceAgentId = target?.sourceAgentId ?? (virtualFile ? activeTerminalIdRef.current ?? undefined : agentId)
+    const agent = activeAgents.find(candidate => candidate.id === (virtualFile ? sourceAgentId : agentId))
     const workspaceRoot = globalFile
       ? GLOBAL_WORKSPACE_FILES_ROOT
+      : projectWorkspace
+        ? projectWorkspace
       : agent && !agent.isMain ? projectWorkspaceForAgent(agent) : undefined
-    if (!globalFile && agent) {
-      const projectId = agent.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent)
+    if (!globalFile && (projectWorkspace || agent)) {
+      const projectId = projectWorkspace || (agent?.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent!))
       setCollapsedProjectIds(previous => {
         if (!previous.has(projectId)) return previous
         const next = new Set(previous)
@@ -2824,7 +2980,10 @@ export function CodeWorkspace({
   const reopenLastClosedWorkspaceFile = useCallback(() => {
     const nextState = workspaceOpenFiles.reopenLastClosed(file => activeAgents.some(agent => (
       agent.id === file.agentId && !agent.isMain
-    )) || isGlobalWorkspaceFilesAgentId(file.agentId))
+    )) || isGlobalWorkspaceFilesAgentId(file.agentId) || (
+      isProjectFilesAgentId(file.agentId)
+      && projectWorkspaces.includes(projectWorkspaceFromFilesAgentId(file.agentId))
+    ))
     const nextFile = nextState?.activeFile
     if (!nextFile) return false
 
@@ -2843,7 +3002,7 @@ export function CodeWorkspace({
     }
     closeSidebarForMobile()
     return true
-  }, [activeAgents, clearSearch, closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange, workspaceOpenFiles])
+  }, [activeAgents, clearSearch, closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange, projectWorkspaces, workspaceOpenFiles])
 
   const updateOpenWorkspaceFile = useCallback((nextFile: OpenWorkspaceFile) => {
     workspaceOpenFiles.update(nextFile)
@@ -2915,7 +3074,7 @@ export function CodeWorkspace({
     const rect = event.currentTarget.getBoundingClientRect()
     const estimatedHeight = isMobileTouchViewport()
       ? MOBILE_PROJECT_CONTEXT_MENU_HEIGHT
-      : estimateContextMenuHeight(2)
+      : estimateContextMenuHeight(3)
     const point = isMobileTouchViewport()
       ? mobileActionMenuPoint(rect, estimatedHeight, undefined, MOBILE_PROJECT_CONTEXT_MENU_WIDTH)
       : outwardContextMenuPoint(rect, estimatedHeight)
@@ -2937,7 +3096,7 @@ export function CodeWorkspace({
     const rect = event.currentTarget.getBoundingClientRect()
     const estimatedHeight = isMobileTouchViewport()
       ? MOBILE_PROJECT_CONTEXT_MENU_HEIGHT
-      : estimateContextMenuHeight(2)
+      : estimateContextMenuHeight(3)
     const point = isMobileTouchViewport()
       ? mobileActionMenuPoint(rect, estimatedHeight, undefined, MOBILE_PROJECT_CONTEXT_MENU_WIDTH)
       : outwardContextMenuPoint(rect, estimatedHeight)
@@ -3631,6 +3790,24 @@ export function CodeWorkspace({
     restoreProjectListFocusRef.current = 'list'
   }, [mainPageAgentSessions, contextMenuProject, onUpdateAgentFlags, removeMainPageAgentSessions])
 
+  const removeContextProject = useCallback(() => {
+    if (
+      !contextMenuProject
+      || contextMenuProject.hasMain
+      || contextMenuProject.agents.length > 0
+      || contextMenuProject.agentSessions.length > 0
+      || contextMenuProject.hasOpenFile
+    ) return
+    const previous = projectWorkspacesRef.current
+    persistProjectWorkspaces(
+      previous.filter(workspace => workspace !== contextMenuProject.workspace),
+      previous,
+    )
+    setProjectMenu(null)
+    setOptionsMenu(null)
+    restoreProjectListFocusRef.current = 'list'
+  }, [contextMenuProject, persistProjectWorkspaces])
+
   const closeDeleteWorktreeDialog = useCallback(() => {
     const projectId = deleteWorktreeDialog?.projectId
     setDeleteWorktreeDialog(null)
@@ -4198,6 +4375,8 @@ export function CodeWorkspace({
         if (cancelled) return
         const settings = data.settings ?? {}
         setWorkspaceHistory(buildWorkspaceHistory(settings.lastMainWorkspace, settings.workspaceHistory ?? []))
+        setProjectWorkspaces(normalizeProjectWorkspaces(settings.projectWorkspaces))
+        setProjectWorkspacesLoaded(true)
         setProjectNames(normalizeProjectNames(settings.projectNames))
         if (loadMutationVersion === mainPageSessionKeysMutationRef.current) {
           setMainPageSessionKeys(new Set(normalizeMainPageSessionKeys(settings.mainPageSessionKeys ?? [])))
@@ -4442,6 +4621,7 @@ export function CodeWorkspace({
         onProjectListKeyDown={handleProjectListKeyDown}
         onToggleProject={toggleProject}
         onToggleProjectSessions={toggleProjectSessions}
+        onMountProject={mountProject}
         onOpenProjectContextMenu={openProjectContextMenu}
         onOpenProjectKeyboardMenu={openProjectKeyboardMenu}
         onOpenAgent={openTerminalFromSidebar}
@@ -4648,7 +4828,11 @@ export function CodeWorkspace({
           agentModelOptions: activeAgentModelOptions,
           currentPermissionMode,
           permissionModeDisabled: Boolean(permissionSwitchingAgentId),
-          modelProfileDisabled: activeCodexTerminalProfileApplying,
+          modelProfileDisabled: activeCodexTerminalProfileApplying || Boolean(
+            activeAgent
+            && isCodexTerminalAgent(activeAgent)
+            && activeAgent.terminalStatus?.activity === 'busy'
+          ),
           currentPermissionLabel,
           currentPermissionColor,
           permissionModeHint: activeAgent?.codexRuntimeMode === 'app-server'
@@ -4749,10 +4933,8 @@ export function CodeWorkspace({
         onOpenTerminalPath={openTerminalPathTarget}
         onResolveTerminalPath={resolveTerminalPathTarget}
         onTerminalFollowOutputChange={handleTerminalFollowOutputChange}
-        onAgentReadLatest={markAgentReadIfNeeded}
+        onAgentReadLatest={markAgentReadLatest}
         onRuntimeModeChange={updateAgentRuntimeMode}
-        sendInput={sendInput}
-        resizeAgent={resizeAgent}
         onSessionOutput={onSessionOutput}
         onOpenSearchAgent={openTerminalFromWorkspace}
         onOpenSearchSession={session => {
@@ -4830,6 +5012,7 @@ export function CodeWorkspace({
           })
         }}
         onArchiveProject={archiveContextProject}
+        onRemoveProject={removeContextProject}
         onCloseRenameDialog={closeRenameDialog}
         onRenameDialogTitleChange={title => setRenameDialog(current => current
           ? { ...current, title }

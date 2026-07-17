@@ -32,8 +32,9 @@ async function run() {
       updateCount += 1;
     });
     const resizeCalls = [];
-    manager.engineBridge.router.engines.local.resizeSession = async (agentId, cols, rows) => {
-      resizeCalls.push({ agentId, cols, rows });
+    manager.engineBridge.router.engines.local.resizeSession = async (agentId, cols, rows, geometry) => {
+      resizeCalls.push({ agentId, cols, rows, geometry });
+      return { status: 'resize-committed', resized: true };
     };
 
     manager.engineBridge.router.engines.local.emit('session-output', {
@@ -136,6 +137,34 @@ async function run() {
     ]);
     assert.strictEqual(manager.agents.get('local-agent').output, 'rewritten stream');
     assert.strictEqual(manager.agents.get('local-agent').status, 'running');
+
+    manager.engineBridge.router.engines.local.clearBuffer = async () => {
+      manager.engineBridge.router.engines.local.emit('session-transition', {
+        sessionId: 'local-agent',
+        kind: 'clear',
+        data: '\x1b[2J\x1b[3J\x1b[H',
+        runtimeEpoch: 'epoch-a',
+        outputSeq: 1,
+        stateRevision: 2,
+        cols: 80,
+        rows: 24,
+      });
+      manager.engineBridge.router.engines.local.emit('session-output', {
+        sessionId: 'local-agent',
+        data: 'output after clear',
+        runtimeEpoch: 'epoch-a',
+        outputSeq: 2,
+        stateRevision: 3,
+      });
+      return { cleared: true };
+    };
+    await manager.clearAgentSessionBuffer('local-agent');
+    assert.strictEqual(
+      manager.agents.get('local-agent').output,
+      'output after clear',
+      'the clear RPC response must not erase output committed after the ordered clear transition',
+    );
+    assert.deepStrictEqual(streams.slice(-2).map(stream => stream.kind || 'output'), ['clear', 'output']);
     manager.engineBridge.router.engines.local.emit('session-busy-state', {
       sessionId: 'local-agent',
       terminalBusy: true,
@@ -151,18 +180,14 @@ async function run() {
     assert.strictEqual(typeof manager.agents.get('local-agent').exitedAt, 'number');
     await manager.resizeAgentSession('local-agent', 10, 5);
     assert.deepStrictEqual(resizeCalls, []);
-    await manager.resizeAgentSession('local-agent', 125.8, 41.2);
-    assert.deepStrictEqual(resizeCalls, [{ agentId: 'local-agent', cols: 125, rows: 41 }]);
-    await manager.resizeAgentSession('local-agent', 125, 41);
-    assert.deepStrictEqual(
-      resizeCalls,
-      [{ agentId: 'local-agent', cols: 125, rows: 41 }],
-      'duplicate terminal resize events should not hit the session engine'
-    );
-    await manager.resizeAgentSession('local-agent', 126, 41);
+    const geometry = { leaseId: 'lease', fence: 1, requestSeq: 1 };
+    await manager.resizeAgentSession('local-agent', 125.8, 41.2, geometry);
+    await manager.resizeAgentSession('local-agent', 125, 41, { ...geometry, requestSeq: 2 });
+    await manager.resizeAgentSession('local-agent', 126, 41, { ...geometry, requestSeq: 3 });
     assert.deepStrictEqual(resizeCalls, [
-      { agentId: 'local-agent', cols: 125, rows: 41 },
-      { agentId: 'local-agent', cols: 126, rows: 41 },
+      { agentId: 'local-agent', cols: 125, rows: 41, geometry },
+      { agentId: 'local-agent', cols: 125, rows: 41, geometry: { ...geometry, requestSeq: 2 } },
+      { agentId: 'local-agent', cols: 126, rows: 41, geometry: { ...geometry, requestSeq: 3 } },
     ]);
 
     manager.agents.set('missing-resize-agent', {
@@ -175,8 +200,12 @@ async function run() {
       status: 'running',
       terminalBusy: true,
     });
-    manager.engineBridge.router.engines.local.resizeSession = async () => ({ resized: false });
-    await manager.resizeAgentSession('missing-resize-agent', 120, 40);
+    manager.engineBridge.router.engines.local.resizeSession = async () => ({
+      status: 'resize-rejected',
+      reason: 'session-unavailable',
+      resized: false,
+    });
+    await manager.resizeAgentSession('missing-resize-agent', 120, 40, geometry);
     const missingResizeAgent = manager.agents.get('missing-resize-agent');
     assert.strictEqual(missingResizeAgent.status, 'dead');
     assert.strictEqual(missingResizeAgent.engineStatus, 'dead');
@@ -186,7 +215,7 @@ async function run() {
     assert.strictEqual(SESSION_OUTPUT_LIMIT, 10000);
     assert.strictEqual(trimSessionOutput('x'.repeat(10050)).length, 10000);
 
-    console.log('✓ AgentManager emits append and replace session stream events');
+    console.log('✓ AgentManager emits checkpoint and ordered terminal transition streams');
   } finally {
     clearInterval(manager.heartbeatInterval);
     manager.engineBridge.dispose();

@@ -347,6 +347,42 @@ async function run() {
     assert.strictEqual(fallbackProfile.configOptions.find(option => option.id === 'fast-mode')?.currentValue, false);
     const configured = await runtime.setSessionConfigOption('agent-acp-new', 'show-thinking', true);
     assert.strictEqual(configured.configOptions[0].currentValue, true);
+    let serializedFastValue = false;
+    let serializedFastCalls = 0;
+    let concurrentFastCalls = 0;
+    let maxConcurrentFastCalls = 0;
+    newAgentBinding.configOptions = [
+      { id: 'fast-mode', name: 'Fast', type: 'boolean', currentValue: serializedFastValue },
+    ];
+    newAgentBinding.connection.setSessionConfigOption = async params => {
+      serializedFastCalls += 1;
+      concurrentFastCalls += 1;
+      maxConcurrentFastCalls = Math.max(maxConcurrentFastCalls, concurrentFastCalls);
+      await new Promise(resolve => setTimeout(resolve, 15));
+      serializedFastValue = params.value;
+      concurrentFastCalls -= 1;
+      return {
+        configOptions: [
+          { id: 'fast-mode', name: 'Fast', type: 'boolean', currentValue: serializedFastValue },
+        ],
+      };
+    };
+    const duplicateFastResults = await Promise.all([
+      runtime.setSessionConfigOption('agent-acp-new', 'fast-mode', true),
+      runtime.setSessionConfigOption('agent-acp-new', 'fast-mode', true),
+    ]);
+    assert.strictEqual(serializedFastCalls, 1, 'duplicate ACP target values should collapse after serialization');
+    assert.strictEqual(maxConcurrentFastCalls, 1, 'ACP config updates must be single-flight per session');
+    assert(duplicateFastResults.every(result => (
+      result.configOptions.find(option => option.id === 'fast-mode')?.currentValue === true
+    )));
+    await Promise.all([
+      runtime.setSessionConfigOption('agent-acp-new', 'fast-mode', false),
+      runtime.setSessionConfigOption('agent-acp-new', 'fast-mode', true),
+    ]);
+    assert.strictEqual(serializedFastCalls, 3, 'different queued target values should apply in order');
+    assert.strictEqual(maxConcurrentFastCalls, 1);
+    assert.strictEqual(serializedFastValue, true);
     assert.deepStrictEqual(await runtime.deleteSession('agent-acp-new', 'old-session'), {
       deleted: true, sessionId: 'old-session',
     });

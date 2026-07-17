@@ -53,15 +53,23 @@ let billingError = '';
 let billingRequestSequence = 0;
 let billingAbortController = null;
 let billingRefreshTimer = null;
+let billingLiveDayRefreshTimer = null;
 let billingCanvasFrame = null;
 let billingMode = 'days';
 let billingSelectedDate = '';
+let billingSelectedHour = null;
 let billingDailyRenderSignature = '';
 let billingDayDetail = null;
 let billingDayDetailLoading = false;
 let billingDayDetailError = '';
 let billingDayDetailRequestSequence = 0;
 let billingDayDetailAbortController = null;
+let billingDayDetailRetryTimer = null;
+let billingDisplayedTotalDate = '';
+let billingDisplayedTotalValue = null;
+let billingTotalAnimationFrame = null;
+let billingTotalAnimationTarget = null;
+const billingAnimatedMetrics = new Map();
 const billingDayDetailCache = new Map();
 let crtAgentPage = 0;
 let crtAgentPageSize = 1;
@@ -74,7 +82,6 @@ const pendingCrtPreviewRenders = new Map();
 const crtStructuredPreviewCache = new Map();
 const crtStructuredPreviewTimers = new Map();
 let sessionRuntime = null;
-let legacySessionPoller = null;
 let structuredSessionPoller = null;
 let structuredSessionLoading = false;
 let structuredSessionRenderedAt = '';
@@ -99,6 +106,7 @@ let terminalInputComposing = false;
 let terminalInputLastBackspaceAt = 0;
 let terminalInputLastDeleteAt = 0;
 let terminalInputPendingTexts = [];
+let crtTerminalReplication = null;
 const terminalPreviewSnapshots = new Map();
 const crtBrandPulseTimers = new Map();
 const SESSION_INPUT_SETTINGS = {
@@ -115,7 +123,37 @@ const CRT_AGENT_GRID_PADDING = 20;
 const CRT_SEARCH_DEBOUNCE_MS = 180;
 const CRT_SEARCH_RESULT_LIMIT = 100;
 const CRT_BILLING_REFRESH_MS = 30_000;
+const CRT_BILLING_LIVE_DAY_REFRESH_MS = 5_000;
 const CRT_BILLING_DAY_DETAIL_CACHE_MS = 30_000;
+const CRT_BILLING_TOTAL_ANIMATION_MS = 900;
+const CRT_BILLING_DAY_DETAIL_RETRY_MS = 750;
+const CRT_TERMINAL_CHECKPOINT_RETRY_MS = 500;
+const CRT_TERMINAL_MAX_IDENTICAL_CHECKPOINT_INVARIANT_FAILURES = 4;
+const CRT_TERMINAL_GEOMETRY_RENEW_MS = 10_000;
+const CRT_TERMINAL_GEOMETRY_CLAIM_TIMEOUT_MS = 8_000;
+const CRT_TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5_000;
+const CRT_TERMINAL_MAX_QUEUED_TRANSITIONS = 512;
+const CRT_TERMINAL_MAX_QUEUED_BYTES = 1024 * 1024;
+const CRT_TERMINAL_MAX_PENDING_INPUTS = 256;
+const CRT_TERMINAL_MAX_PENDING_INPUT_BYTES = 256 * 1024;
+const CRT_TERMINAL_OUTPUT_ACK_CHARS = 5000;
+const CRT_RUNTIME_EPOCH_PATTERN = /^farming-runtime-v1:(\d{20}):/;
+
+function crtRuntimeEpochGeneration(runtimeEpoch) {
+  const match = CRT_RUNTIME_EPOCH_PATTERN.exec(String(runtimeEpoch || ''));
+  if (!match) return null;
+  const generation = Number(match[1]);
+  return Number.isSafeInteger(generation) && generation > 0 ? generation : null;
+}
+
+function compareCrtRuntimeEpochs(left, right) {
+  if (left === right) return 0;
+  const leftGeneration = crtRuntimeEpochGeneration(left);
+  const rightGeneration = crtRuntimeEpochGeneration(right);
+  if (leftGeneration === null || rightGeneration === null) return null;
+  if (leftGeneration === rightGeneration) return null;
+  return leftGeneration < rightGeneration ? -1 : 1;
+}
 const CRT_AGENT_DISPLAY_NAMES = {
   qwen: 'Qwen Code',
   codex: 'Codex',
@@ -2390,7 +2428,9 @@ function normalizeSessionViewPayload(payload, fallbackAgent = null) {
     sessionSource: session.sessionSource || (fallbackAgent && fallbackAgent.sessionSource) || 'buffer',
     output: typeof session.output === 'string' ? session.output : ((fallbackAgent && fallbackAgent.output) || ''),
     renderOutput: typeof session.renderOutput === 'string' ? session.renderOutput : '',
+    runtimeEpoch: typeof session.runtimeEpoch === 'string' ? session.runtimeEpoch : '',
     outputSeq: Number.isFinite(session.outputSeq) ? session.outputSeq : null,
+    stateRevision: Number.isFinite(session.stateRevision) ? session.stateRevision : null,
     previewCols: Number.isFinite(session.previewCols) ? session.previewCols : null,
     previewRows: Number.isFinite(session.previewRows) ? session.previewRows : null,
     previewText: typeof session.previewText === 'string' ? session.previewText : ((fallbackAgent && fallbackAgent.previewText) || ''),
@@ -2405,23 +2445,908 @@ function normalizeSessionViewPayload(payload, fallbackAgent = null) {
   };
 }
 
-function applySessionReplayCursorVisibility(text, sessionView, agent) {
-  if (!text) return text;
-  if (/\x1b\[\?25[hl]/.test(text)) return text;
+function crtRandomId() {
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  if (!globalThis.crypto || typeof globalThis.crypto.getRandomValues !== 'function') {
+    throw new Error('Secure browser randomness is unavailable; terminal control cannot start');
+  }
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, value => value.toString(16).padStart(2, '0'));
+  return [
+    hex.slice(0, 4).join(''),
+    hex.slice(4, 6).join(''),
+    hex.slice(6, 8).join(''),
+    hex.slice(8, 10).join(''),
+    hex.slice(10).join('')
+  ].join('-');
+}
 
-  const snapshotVisibility = sessionView
-    && sessionView.previewSnapshot
-    && sessionView.previewSnapshot.cursorVisible;
-  if (typeof snapshotVisibility === 'boolean') {
-    return `${text}\x1b[?25${snapshotVisibility ? 'h' : 'l'}`;
+function crtTerminalByteLength(value) {
+  const text = String(value || '');
+  if (typeof globalThis.TextEncoder === 'function') {
+    return new globalThis.TextEncoder().encode(text).byteLength;
+  }
+  return encodeURIComponent(text).replace(/%[0-9A-F]{2}/gi, 'x').length;
+}
+
+function createCrtTerminalReplication(agentId) {
+  return {
+    agentId,
+    attachmentId: crtRandomId(),
+    claimId: '',
+    claimInFlight: false,
+    geometryStatus: 'claiming',
+    leaseId: '',
+    fence: null,
+    rendererReadyFence: null,
+    expiresAt: 0,
+    resizeRequestSeq: 0,
+    resizeRequestInFlight: false,
+    pendingResize: null,
+    lastResizeCols: null,
+    lastResizeRows: null,
+    applyingLocalResize: false,
+    renewTimer: null,
+    claimTimer: null,
+    pendingTakeoverInput: [],
+    pendingTakeoverInputBytes: 0,
+    inputError: '',
+    focusAfterClaim: false,
+    pendingOutputAckChars: 0,
+    runtimeEpoch: '',
+    outputSeq: null,
+    stateRevision: null,
+    replayTargetEpoch: '',
+    replayTargetRevision: null,
+    retiredRuntimeEpochs: new Set(),
+    replaying: false,
+    checkpointInFlight: false,
+    checkpointSeq: 0,
+    checkpointFailureCount: 0,
+    checkpointInvariantFailureSignature: '',
+    checkpointInvariantFailureCount: 0,
+    checkpointHalted: false,
+    checkpointError: '',
+    checkpointRetryTimer: null,
+    checkpointAbortController: null,
+    writeInProgress: false,
+    queuedTransitions: [],
+    queuedBytes: 0,
+    disposed: false
+  };
+}
+
+function getCrtTerminalSyncStatusElement() {
+  const container = document.getElementById('terminal-output');
+  if (!container) return null;
+  let element = container.querySelector('.crt-terminal-sync-status');
+  if (!element) {
+    element = document.createElement('div');
+    element.className = 'crt-terminal-sync-status';
+    element.setAttribute('role', 'status');
+    element.setAttribute('aria-live', 'polite');
+    const text = document.createElement('span');
+    text.className = 'crt-terminal-sync-status-text';
+    const takeover = document.createElement('button');
+    takeover.type = 'button';
+    takeover.className = 'crt-terminal-takeover';
+    takeover.textContent = 'TAKE CONTROL';
+    takeover.hidden = true;
+    takeover.addEventListener('click', (event) => {
+      if (!event.isTrusted) return;
+      event.preventDefault();
+      event.stopPropagation();
+      claimCrtTerminalGeometry('interactive');
+    });
+    element.append(text, takeover);
+    container.appendChild(element);
+  }
+  return element;
+}
+
+function renderCrtTerminalGeometryStatus() {
+  if (!crtTerminalReplication) return;
+  const element = getCrtTerminalSyncStatusElement();
+  if (!element) return;
+  const text = element.querySelector('.crt-terminal-sync-status-text');
+  const takeover = element.querySelector('.crt-terminal-takeover');
+  const statusText = crtTerminalReplication.checkpointError
+    ? `TERMINAL SYNC FAILED · ${crtTerminalReplication.checkpointError}`
+    : crtTerminalReplication.inputError
+    ? `TERMINAL INPUT FAILED · ${crtTerminalReplication.inputError}`
+    : crtTerminalReplication.replaying || crtTerminalReplication.checkpointInFlight
+      || (
+        crtTerminalReplication.geometryStatus === 'owner'
+        && crtTerminalReplication.rendererReadyFence !== crtTerminalReplication.fence
+      )
+    ? 'SYNCING TERMINAL…'
+    : crtTerminalReplication.geometryStatus === 'claiming'
+      ? 'SYNCING TERMINAL…'
+      : crtTerminalReplication.geometryStatus === 'observer'
+      ? 'TERMINAL CONTROLLED BY ANOTHER WINDOW'
+      : '';
+  if (text) text.textContent = statusText;
+  if (takeover) takeover.hidden = crtTerminalReplication.geometryStatus !== 'observer';
+  element.hidden = !statusText;
+}
+
+function setCrtTerminalGeometryStatus(status) {
+  if (!crtTerminalReplication) return;
+  crtTerminalReplication.geometryStatus = status;
+  renderCrtTerminalGeometryStatus();
+}
+
+function clearCrtTerminalReplicationTimers(replication = crtTerminalReplication) {
+  if (!replication) return;
+  if (replication.renewTimer) {
+    clearTimeout(replication.renewTimer);
+    replication.renewTimer = null;
+  }
+  if (replication.claimTimer) {
+    clearTimeout(replication.claimTimer);
+    replication.claimTimer = null;
+  }
+  if (replication.checkpointRetryTimer) {
+    clearTimeout(replication.checkpointRetryTimer);
+    replication.checkpointRetryTimer = null;
+  }
+  if (replication.checkpointAbortController) {
+    replication.checkpointAbortController.abort();
+    replication.checkpointAbortController = null;
+  }
+}
+
+function disposeCrtTerminalReplication({ release = true } = {}) {
+  const replication = crtTerminalReplication;
+  if (!replication) return;
+  if (release && replication.leaseId && Number.isFinite(replication.fence)) {
+    getSessionClient()?.releaseTerminalGeometry(replication.agentId, {
+      attachmentId: replication.attachmentId,
+      leaseId: replication.leaseId,
+      fence: replication.fence
+    });
+  }
+  replication.disposed = true;
+  clearCrtTerminalReplicationTimers(replication);
+  crtTerminalReplication = null;
+}
+
+function crtTerminalBeginBarrier(runtimeEpoch, stateRevision) {
+  const replication = crtTerminalReplication;
+  if (!replication || replication.disposed) return false;
+  if (runtimeEpoch && replication.retiredRuntimeEpochs.has(runtimeEpoch)) return false;
+  if (runtimeEpoch && replication.replayTargetEpoch && runtimeEpoch !== replication.replayTargetEpoch) {
+    const relation = compareCrtRuntimeEpochs(runtimeEpoch, replication.replayTargetEpoch);
+    if (relation === -1) return false;
+    if (
+      relation === null &&
+      runtimeEpoch === replication.runtimeEpoch &&
+      replication.replayTargetEpoch !== replication.runtimeEpoch
+    ) return false;
+  } else if (runtimeEpoch && replication.runtimeEpoch && runtimeEpoch !== replication.runtimeEpoch) {
+    if (compareCrtRuntimeEpochs(runtimeEpoch, replication.runtimeEpoch) === -1) return false;
+  }
+  if (runtimeEpoch && runtimeEpoch !== replication.replayTargetEpoch) {
+    replication.replayTargetEpoch = runtimeEpoch;
+    replication.replayTargetRevision = Number.isFinite(stateRevision) ? stateRevision : null;
+  } else if (Number.isFinite(stateRevision)) {
+    replication.replayTargetRevision = Math.max(replication.replayTargetRevision || 0, stateRevision);
+  }
+  replication.replaying = true;
+  renderCrtTerminalGeometryStatus();
+  return true;
+}
+
+function crtTerminalTargetPending() {
+  const replication = crtTerminalReplication;
+  if (!replication || replication.replayTargetRevision === null) return false;
+  return Boolean(replication.replayTargetEpoch && replication.runtimeEpoch !== replication.replayTargetEpoch)
+    || replication.stateRevision === null
+    || replication.stateRevision < replication.replayTargetRevision;
+}
+
+function scheduleCrtTerminalCheckpointRetry(minimumDelay = 0) {
+  const replication = crtTerminalReplication;
+  if (
+    !replication ||
+    replication.disposed ||
+    replication.checkpointHalted ||
+    replication.checkpointRetryTimer
+  ) return;
+  const delay = Math.max(
+    minimumDelay,
+    Math.min(5000, CRT_TERMINAL_CHECKPOINT_RETRY_MS * Math.max(1, replication.checkpointFailureCount))
+  );
+  replication.checkpointRetryTimer = setTimeout(() => {
+    if (!crtTerminalReplication || crtTerminalReplication !== replication || replication.disposed) return;
+    replication.checkpointRetryTimer = null;
+    if (replication.checkpointInFlight) return;
+    void refreshSessionView(true, replication.agentId, getCurrentSessionToken());
+  }, delay);
+}
+
+function resetCrtTerminalCheckpointInvariantFailures(replication = crtTerminalReplication) {
+  if (!replication) return;
+  replication.checkpointInvariantFailureSignature = '';
+  replication.checkpointInvariantFailureCount = 0;
+  replication.checkpointHalted = false;
+  replication.checkpointError = '';
+}
+
+function retryCrtTerminalCheckpointAfterFailure(minimumDelay = 0, invariant = null) {
+  const replication = crtTerminalReplication;
+  if (!replication || replication.disposed) return;
+  replication.checkpointFailureCount += 1;
+  if (invariant && invariant.signature) {
+    if (replication.checkpointInvariantFailureSignature === invariant.signature) {
+      replication.checkpointInvariantFailureCount += 1;
+    } else {
+      replication.checkpointInvariantFailureSignature = invariant.signature;
+      replication.checkpointInvariantFailureCount = 1;
+    }
+    if (
+      replication.checkpointInvariantFailureCount
+      >= CRT_TERMINAL_MAX_IDENTICAL_CHECKPOINT_INVARIANT_FAILURES
+    ) {
+      replication.checkpointHalted = true;
+      replication.checkpointError = invariant.message || 'RECONNECT TO RETRY';
+      if (replication.checkpointRetryTimer) {
+        clearTimeout(replication.checkpointRetryTimer);
+        replication.checkpointRetryTimer = null;
+      }
+      renderCrtTerminalGeometryStatus();
+      return;
+    }
+  }
+  scheduleCrtTerminalCheckpointRetry(minimumDelay);
+}
+
+function cancelCrtTerminalGeometryClaimTimeout(replication = crtTerminalReplication) {
+  if (!replication || !replication.claimTimer) return;
+  clearTimeout(replication.claimTimer);
+  replication.claimTimer = null;
+}
+
+function sendCrtTerminalGeometryClaim(replication, mode, claimId) {
+  return Boolean(getSessionClient()?.claimTerminalGeometry(replication.agentId, {
+    attachmentId: replication.attachmentId,
+    claimId,
+    mode,
+    ...(replication.runtimeEpoch ? { expectedRuntimeEpoch: replication.runtimeEpoch } : {})
+  }));
+}
+
+function scheduleCrtTerminalGeometryClaimTimeout(replication, claimId) {
+  cancelCrtTerminalGeometryClaimTimeout(replication);
+  replication.claimTimer = setTimeout(() => {
+    replication.claimTimer = null;
+    if (
+      !crtTerminalReplication ||
+      crtTerminalReplication !== replication ||
+      replication.disposed ||
+      !replication.claimInFlight ||
+      replication.claimId !== claimId
+    ) return;
+    replication.claimInFlight = false;
+    reportCrtTerminalInputError('TERMINAL CONTROL REQUEST TIMED OUT; RETRY TAKE CONTROL');
+    setCrtTerminalGeometryStatus('observer');
+  }, CRT_TERMINAL_GEOMETRY_CLAIM_TIMEOUT_MS);
+}
+
+function scheduleCrtTerminalGeometryRenew() {
+  const replication = crtTerminalReplication;
+  if (!replication) return;
+  if (replication.renewTimer) clearTimeout(replication.renewTimer);
+  if (
+    replication.geometryStatus !== 'owner' ||
+    !replication.leaseId ||
+    !Number.isFinite(replication.fence)
+  ) return;
+  replication.renewTimer = setTimeout(() => {
+    if (!crtTerminalReplication || crtTerminalReplication !== replication || replication.disposed) return;
+    replication.renewTimer = null;
+    const delivered = getSessionClient()?.renewTerminalGeometry(replication.agentId, {
+      attachmentId: replication.attachmentId,
+      leaseId: replication.leaseId,
+      fence: replication.fence
+    });
+    if (!delivered) {
+      replication.leaseId = '';
+      replication.fence = null;
+      replication.rendererReadyFence = null;
+      setCrtTerminalGeometryStatus('claiming');
+      return;
+    }
+    scheduleCrtTerminalGeometryRenew();
+  }, CRT_TERMINAL_GEOMETRY_RENEW_MS);
+}
+
+function activateCrtTerminalRenderer() {
+  const replication = crtTerminalReplication;
+  if (
+    !replication ||
+    replication.disposed ||
+    replication.geometryStatus !== 'owner' ||
+    !replication.leaseId ||
+    !Number.isFinite(replication.fence) ||
+    replication.rendererReadyFence === replication.fence ||
+    !replication.runtimeEpoch ||
+    replication.replaying ||
+    replication.checkpointInFlight ||
+    replication.writeInProgress ||
+    replication.queuedTransitions.length > 0
+  ) return false;
+  const delivered = Boolean(getSessionClient()?.activateTerminalRenderer(
+    replication.agentId,
+    {
+      attachmentId: replication.attachmentId,
+      leaseId: replication.leaseId,
+      fence: replication.fence,
+      expectedRuntimeEpoch: replication.runtimeEpoch
+    }
+  ));
+  if (delivered) replication.rendererReadyFence = replication.fence;
+  renderCrtTerminalGeometryStatus();
+  return delivered;
+}
+
+function claimCrtTerminalGeometry(mode = 'passive') {
+  const replication = crtTerminalReplication;
+  if (!replication || replication.disposed || document.visibilityState === 'hidden') return false;
+  if (replication.geometryStatus === 'owner') {
+    scheduleCrtTerminalGeometryRenew();
+    return true;
+  }
+  if (replication.claimInFlight) return false;
+  if (mode === 'interactive') replication.focusAfterClaim = true;
+  replication.claimId = crtRandomId();
+  replication.claimInFlight = true;
+  setCrtTerminalGeometryStatus('claiming');
+  const delivered = sendCrtTerminalGeometryClaim(replication, mode, replication.claimId);
+  if (!delivered) {
+    replication.claimInFlight = false;
+  } else {
+    scheduleCrtTerminalGeometryClaimTimeout(replication, replication.claimId);
+  }
+  return delivered;
+}
+
+function releaseCrtTerminalGeometry() {
+  const replication = crtTerminalReplication;
+  if (!replication) return;
+  if (replication.renewTimer) {
+    clearTimeout(replication.renewTimer);
+    replication.renewTimer = null;
+  }
+  cancelCrtTerminalGeometryClaimTimeout(replication);
+  if (replication.leaseId && Number.isFinite(replication.fence)) {
+    getSessionClient()?.releaseTerminalGeometry(replication.agentId, {
+      attachmentId: replication.attachmentId,
+      leaseId: replication.leaseId,
+      fence: replication.fence
+    });
+  }
+  replication.leaseId = '';
+  replication.fence = null;
+  replication.rendererReadyFence = null;
+  replication.resizeRequestSeq = 0;
+  replication.resizeRequestInFlight = false;
+  replication.pendingResize = null;
+  replication.lastResizeCols = null;
+  replication.lastResizeRows = null;
+  replication.claimInFlight = false;
+  replication.focusAfterClaim = false;
+  replication.pendingOutputAckChars = 0;
+  discardCrtPendingTerminalInput(replication);
+  setCrtTerminalGeometryStatus('claiming');
+}
+
+function reportCrtTerminalInputError(message) {
+  const replication = crtTerminalReplication;
+  if (!replication) return;
+  replication.inputError = String(message || 'UNKNOWN ERROR');
+  console.error(`Terminal input failed: ${replication.inputError}`);
+  renderCrtTerminalGeometryStatus();
+}
+
+function queueCrtTerminalInput(input) {
+  const replication = crtTerminalReplication;
+  if (!replication || replication.disposed) return false;
+  const text = String(input || '');
+  if (!text) return false;
+  const ownsController = replication.geometryStatus === 'owner'
+    && Boolean(replication.leaseId)
+    && Number.isFinite(replication.fence);
+  if (!ownsController && replication.geometryStatus !== 'claiming') {
+    reportCrtTerminalInputError('TAKE CONTROL BEFORE TYPING');
+    getCrtTerminalSyncStatusElement()
+      ?.querySelector('.crt-terminal-takeover')
+      ?.focus();
+    return false;
+  }
+  if (!replication.runtimeEpoch) {
+    reportCrtTerminalInputError('TERMINAL IS SYNCING; INPUT NOT SENT');
+    return false;
+  }
+  // A checkpoint barrier proves the display cut but does not revoke the
+  // fenced controller. Mirror the Code skin: retain bounded, epoch-bound raw
+  // input and release it exactly once after the checkpoint is installed.
+  const bytes = crtTerminalByteLength(text);
+  if (
+    replication.pendingTakeoverInput.length >= CRT_TERMINAL_MAX_PENDING_INPUTS ||
+    replication.pendingTakeoverInputBytes + bytes > CRT_TERMINAL_MAX_PENDING_INPUT_BYTES
+  ) {
+    reportCrtTerminalInputError('INPUT QUEUE FULL');
+    return false;
+  }
+  replication.inputError = '';
+  replication.pendingTakeoverInput.push({
+    input: text,
+    bytes,
+    runtimeEpoch: replication.runtimeEpoch
+  });
+  replication.pendingTakeoverInputBytes += bytes;
+  flushCrtTerminalInputQueue();
+  return true;
+}
+
+function flushCrtTerminalInputQueue() {
+  const replication = crtTerminalReplication;
+  if (
+    !replication ||
+    replication.disposed ||
+    replication.geometryStatus !== 'owner' ||
+    !replication.leaseId ||
+    !Number.isFinite(replication.fence) ||
+    replication.rendererReadyFence !== replication.fence ||
+    !replication.runtimeEpoch ||
+    replication.replaying ||
+    replication.checkpointInFlight
+  ) {
+    return;
+  }
+  while (true) {
+    const next = replication.pendingTakeoverInput[0];
+    if (!next) return;
+    if (next.runtimeEpoch && next.runtimeEpoch !== replication.runtimeEpoch) {
+      replication.pendingTakeoverInput.shift();
+      replication.pendingTakeoverInputBytes = Math.max(
+        0,
+        replication.pendingTakeoverInputBytes - next.bytes
+      );
+      reportCrtTerminalInputError('TERMINAL RESTARTED BEFORE INPUT WAS SENT');
+      continue;
+    }
+    const delivered = Boolean(getSessionClient()?.sendTerminalInput(
+      replication.agentId,
+      next.input,
+      {
+        attachmentId: replication.attachmentId,
+        leaseId: replication.leaseId,
+        fence: replication.fence,
+        expectedRuntimeEpoch: replication.runtimeEpoch
+      }
+    ));
+    if (!delivered) {
+      discardCrtPendingTerminalInput(replication, 'DISCONNECTED; UNSENT INPUT DISCARDED');
+      replication.leaseId = '';
+      replication.fence = null;
+      replication.rendererReadyFence = null;
+      setCrtTerminalGeometryStatus('claiming');
+      return;
+    }
+    replication.pendingTakeoverInput.shift();
+    replication.pendingTakeoverInputBytes = Math.max(
+      0,
+      replication.pendingTakeoverInputBytes - next.bytes
+    );
+    replication.inputError = '';
+    renderCrtTerminalGeometryStatus();
+  }
+}
+
+function discardCrtPendingTerminalInput(replication = crtTerminalReplication, message = '') {
+  if (!replication) return;
+  if (replication.pendingTakeoverInput.length === 0) return;
+  replication.pendingTakeoverInput = [];
+  replication.pendingTakeoverInputBytes = 0;
+  if (message) reportCrtTerminalInputError(message);
+}
+
+function queueCrtTerminalTransition(event) {
+  const replication = crtTerminalReplication;
+  if (!replication) return;
+  const bytes = crtTerminalByteLength(event.data);
+  if (
+    replication.queuedTransitions.length >= CRT_TERMINAL_MAX_QUEUED_TRANSITIONS ||
+    replication.queuedBytes + bytes > CRT_TERMINAL_MAX_QUEUED_BYTES
+  ) {
+    replication.queuedTransitions = [];
+    replication.queuedBytes = 0;
+    crtTerminalBeginBarrier(event.runtimeEpoch, event.stateRevision);
+    recoverCrtTerminalCheckpointAfterStreamGap();
+    return;
+  }
+  replication.queuedTransitions.push(event);
+  replication.queuedBytes += bytes;
+}
+
+function recoverCrtTerminalCheckpointAfterStreamGap() {
+  const replication = crtTerminalReplication;
+  if (!replication || replication.disposed || replication.checkpointHalted) return;
+  if (replication.checkpointRetryTimer) {
+    clearTimeout(replication.checkpointRetryTimer);
+    replication.checkpointRetryTimer = null;
+  }
+  if (replication.checkpointInFlight) return;
+  void refreshSessionView(true, replication.agentId, getCurrentSessionToken());
+}
+
+function flushCrtTerminalTransitions() {
+  const replication = crtTerminalReplication;
+  if (!replication || replication.replaying || replication.writeInProgress) return;
+  const next = replication.queuedTransitions.shift();
+  if (!next) return;
+  replication.queuedBytes = Math.max(
+    0,
+    replication.queuedBytes - crtTerminalByteLength(next.data)
+  );
+  applyCrtTerminalTransition(next);
+}
+
+function applyCrtTerminalTransition(event) {
+  const replication = crtTerminalReplication;
+  if (!replication || !terminal || replication.disposed) return;
+  if (
+    !event.runtimeEpoch ||
+    !Number.isFinite(event.outputSeq) ||
+    !Number.isFinite(event.stateRevision)
+  ) {
+    crtTerminalBeginBarrier(event.runtimeEpoch, event.stateRevision);
+    recoverCrtTerminalCheckpointAfterStreamGap();
+    return;
+  }
+  if (
+    replication.retiredRuntimeEpochs.has(event.runtimeEpoch) ||
+    (
+      replication.runtimeEpoch &&
+      compareCrtRuntimeEpochs(event.runtimeEpoch, replication.runtimeEpoch) === -1
+    )
+  ) return;
+  if (replication.replaying) {
+    if (crtTerminalBeginBarrier(event.runtimeEpoch, event.stateRevision)) {
+      recoverCrtTerminalCheckpointAfterStreamGap();
+    }
+    return;
+  }
+  if (replication.writeInProgress) {
+    queueCrtTerminalTransition(event);
+    return;
+  }
+  if (event.runtimeEpoch !== replication.runtimeEpoch) {
+    crtTerminalBeginBarrier(event.runtimeEpoch, event.stateRevision);
+    recoverCrtTerminalCheckpointAfterStreamGap();
+    return;
+  }
+  if (
+    replication.stateRevision !== null &&
+    event.stateRevision <= replication.stateRevision
+  ) return;
+  if (
+    replication.stateRevision === null ||
+    replication.outputSeq === null ||
+    event.stateRevision !== replication.stateRevision + 1 ||
+    event.outputSeq !== replication.outputSeq + (event.kind === 'resize' || event.kind === 'clear' ? 0 : 1) ||
+    (event.kind === 'resize' && (!Number.isFinite(event.cols) || !Number.isFinite(event.rows)))
+  ) {
+    crtTerminalBeginBarrier(event.runtimeEpoch, event.stateRevision);
+    recoverCrtTerminalCheckpointAfterStreamGap();
+    return;
   }
 
-  // Compatibility for a live native PTY host started before cursor visibility
-  // was added to snapshots. Claude's TUI paints its own input cursor and hides
-  // the hardware cursor, so its replay must not expose xterm's default cursor.
-  return crtCommandProgram(agent && agent.command) === 'claude'
-    ? `${text}\x1b[?25l`
-    : text;
+  if (event.kind === 'resize') {
+    terminal.resize(Math.floor(event.cols), Math.floor(event.rows));
+    replication.runtimeEpoch = event.runtimeEpoch;
+    replication.outputSeq = event.outputSeq;
+    replication.stateRevision = event.stateRevision;
+    refreshSessionTerminalUi({ preserveSearchIndex: true });
+    flushCrtTerminalTransitions();
+    activateCrtTerminalRenderer();
+    flushCrtTerminalInputQueue();
+    return;
+  }
+
+  replication.writeInProgress = true;
+  const transitionData = event.kind === 'clear' ? '\x1b[2J\x1b[3J\x1b[H' : event.data;
+  terminal.write(transitionData, () => {
+    if (!crtTerminalReplication || crtTerminalReplication !== replication || replication.disposed) return;
+    replication.runtimeEpoch = event.runtimeEpoch;
+    replication.outputSeq = event.outputSeq;
+    replication.stateRevision = event.stateRevision;
+    if (event.kind !== 'clear') {
+      acknowledgeCrtRenderedTerminalOutput(event.data.length, event.runtimeEpoch);
+    } else {
+      terminal.clearSelection?.();
+    }
+    replication.writeInProgress = false;
+    refreshSessionTerminalUi({ preserveSearchIndex: true });
+    flushCrtTerminalTransitions();
+    if (!replication.writeInProgress && replication.queuedTransitions.length === 0) {
+      activateCrtTerminalRenderer();
+      flushCrtTerminalInputQueue();
+    }
+  });
+}
+
+function acknowledgeCrtRenderedTerminalOutput(charCount, runtimeEpoch) {
+  const replication = crtTerminalReplication;
+  if (
+    !replication ||
+    replication.disposed ||
+    replication.geometryStatus !== 'owner' ||
+    !replication.leaseId ||
+    !Number.isFinite(replication.fence) ||
+    replication.rendererReadyFence !== replication.fence ||
+    !runtimeEpoch ||
+    runtimeEpoch !== replication.runtimeEpoch
+  ) return;
+  replication.pendingOutputAckChars += Math.max(0, Math.floor(Number(charCount) || 0));
+  const acknowledgedChars = replication.pendingOutputAckChars
+    - (replication.pendingOutputAckChars % CRT_TERMINAL_OUTPUT_ACK_CHARS);
+  if (acknowledgedChars <= 0) return;
+  const delivered = Boolean(getSessionClient()?.acknowledgeTerminalOutput(
+    replication.agentId,
+    acknowledgedChars,
+    {
+      attachmentId: replication.attachmentId,
+      leaseId: replication.leaseId,
+      fence: replication.fence,
+      expectedRuntimeEpoch: runtimeEpoch
+    }
+  ));
+  if (!delivered) {
+    replication.pendingOutputAckChars = 0;
+    replication.leaseId = '';
+    replication.fence = null;
+    replication.rendererReadyFence = null;
+    setCrtTerminalGeometryStatus('claiming');
+    return;
+  }
+  replication.pendingOutputAckChars -= acknowledgedChars;
+}
+
+function installCrtTerminalCheckpoint(sessionView) {
+  const replication = crtTerminalReplication;
+  if (!replication || !terminal || replication.disposed) return false;
+  if (
+    !sessionView.runtimeEpoch ||
+    !Number.isFinite(sessionView.outputSeq) ||
+    !Number.isFinite(sessionView.stateRevision) ||
+    !Number.isFinite(sessionView.previewCols) ||
+    !Number.isFinite(sessionView.previewRows)
+  ) {
+    retryCrtTerminalCheckpointAfterFailure(0, {
+      signature: `invalid-shape:${sessionView.runtimeEpoch}:${sessionView.outputSeq}:${sessionView.stateRevision}:${sessionView.previewCols}:${sessionView.previewRows}`,
+      message: 'INVALID CHECKPOINT; RECONNECT TO RETRY'
+    });
+    return false;
+  }
+  if (
+    replication.retiredRuntimeEpochs.has(sessionView.runtimeEpoch) ||
+    (
+      replication.runtimeEpoch &&
+      compareCrtRuntimeEpochs(sessionView.runtimeEpoch, replication.runtimeEpoch) === -1
+    )
+  ) {
+    return false;
+  }
+  if (
+    replication.runtimeEpoch === sessionView.runtimeEpoch &&
+    replication.stateRevision !== null &&
+    sessionView.stateRevision < replication.stateRevision
+  ) {
+    retryCrtTerminalCheckpointAfterFailure(0, {
+      signature: `regression:${sessionView.runtimeEpoch}:${sessionView.stateRevision}:${replication.stateRevision}`,
+      message: 'CHECKPOINT REGRESSED; RECONNECT TO RETRY'
+    });
+    return false;
+  }
+  if (
+    replication.replayTargetEpoch &&
+    replication.replayTargetEpoch !== sessionView.runtimeEpoch
+  ) {
+    retryCrtTerminalCheckpointAfterFailure(0, {
+      signature: `epoch-mismatch:${sessionView.runtimeEpoch}:${replication.replayTargetEpoch}`,
+      message: 'CHECKPOINT EPOCH MISMATCH; RECONNECT TO RETRY'
+    });
+    return false;
+  }
+  replication.replaying = true;
+  replication.queuedTransitions = [];
+  replication.queuedBytes = 0;
+  terminal.resize(sessionView.previewCols, sessionView.previewRows);
+  terminal.reset();
+  terminal.write(sessionView.renderOutput, () => {
+    if (!crtTerminalReplication || crtTerminalReplication !== replication || replication.disposed) return;
+    const previousRuntimeEpoch = replication.runtimeEpoch;
+    replication.runtimeEpoch = sessionView.runtimeEpoch;
+    replication.outputSeq = sessionView.outputSeq;
+    replication.stateRevision = sessionView.stateRevision;
+    if (previousRuntimeEpoch && previousRuntimeEpoch !== sessionView.runtimeEpoch) {
+      replication.retiredRuntimeEpochs.add(previousRuntimeEpoch);
+      while (replication.retiredRuntimeEpochs.size > 32) {
+        const oldest = replication.retiredRuntimeEpochs.values().next().value;
+        if (!oldest) break;
+        replication.retiredRuntimeEpochs.delete(oldest);
+      }
+    }
+    replication.replaying = false;
+    refreshSessionTerminalUi({ preserveSearchIndex: true });
+    const runtime = getSessionRuntime();
+    if (runtime) {
+      runtime.markHydrated(sessionView.renderOutput.length);
+      syncSessionRuntimeState();
+    }
+    if (crtTerminalTargetPending()) {
+      retryCrtTerminalCheckpointAfterFailure(0, {
+        signature: `behind:${replication.runtimeEpoch}:${replication.stateRevision}:${replication.replayTargetEpoch}:${replication.replayTargetRevision}`,
+        message: 'STALE CHECKPOINT REPEATED; RECONNECT TO RETRY'
+      });
+      return;
+    }
+    replication.replayTargetEpoch = '';
+    replication.replayTargetRevision = null;
+    replication.checkpointFailureCount = 0;
+    resetCrtTerminalCheckpointInvariantFailures(replication);
+    renderCrtTerminalGeometryStatus();
+    flushCrtTerminalTransitions();
+    activateCrtTerminalRenderer();
+    flushCrtTerminalInputQueue();
+    if (replication.geometryStatus === 'owner' && replication.focusAfterClaim) {
+      replication.focusAfterClaim = false;
+      requestAnimationFrame(() => focusSessionTerminal());
+    }
+    if (replication.geometryStatus === 'owner') {
+      requestAnimationFrame(() => sendSessionResize(replication.agentId));
+    } else if (replication.geometryStatus === 'claiming') {
+      claimCrtTerminalGeometry('passive');
+    }
+  });
+  return true;
+}
+
+function handleCrtTerminalStream(stream) {
+  const replication = crtTerminalReplication;
+  if (!replication || !stream || stream.agentId !== replication.agentId) return;
+  if (stream.replace === true) {
+    replication.checkpointSeq += 1;
+    replication.checkpointInFlight = false;
+    installCrtTerminalCheckpoint({
+      runtimeEpoch: stream.runtimeEpoch,
+      outputSeq: stream.outputSeq,
+      stateRevision: stream.stateRevision,
+      previewCols: stream.cols,
+      previewRows: stream.rows,
+      renderOutput: typeof stream.data === 'string' ? stream.data : ''
+    });
+    if (Array.isArray(stream.chunks)) {
+      stream.chunks.forEach(chunk => queueCrtTerminalTransition({
+        kind: chunk.kind || 'output',
+        data: typeof chunk.data === 'string' ? chunk.data : '',
+        runtimeEpoch: chunk.runtimeEpoch || stream.runtimeEpoch,
+        outputSeq: chunk.outputSeq,
+        stateRevision: chunk.stateRevision,
+        cols: chunk.cols,
+        rows: chunk.rows
+      }));
+    }
+    return;
+  }
+  const chunks = Array.isArray(stream.chunks) ? stream.chunks : [stream];
+  chunks.forEach(chunk => applyCrtTerminalTransition({
+    kind: chunk.kind || 'output',
+    data: typeof chunk.data === 'string' ? chunk.data : '',
+    runtimeEpoch: chunk.runtimeEpoch || stream.runtimeEpoch,
+    outputSeq: chunk.outputSeq,
+    stateRevision: chunk.stateRevision,
+    cols: chunk.cols,
+    rows: chunk.rows
+  }));
+}
+
+function handleCrtTerminalGeometry(message) {
+  const replication = crtTerminalReplication;
+  if (
+    !replication ||
+    !message ||
+    message.agentId !== replication.agentId ||
+    message.attachmentId !== replication.attachmentId
+  ) return;
+  if (message.claimId && message.claimId !== replication.claimId) return;
+  if (message.claimId === replication.claimId) {
+    replication.claimInFlight = false;
+    cancelCrtTerminalGeometryClaimTimeout(replication);
+  }
+
+  if (message.status === 'owner') {
+    const sameLease = replication.geometryStatus === 'owner'
+      && replication.leaseId === message.leaseId
+      && replication.fence === message.fence;
+    replication.leaseId = message.leaseId || '';
+    replication.fence = Number.isFinite(message.fence) ? message.fence : null;
+    if (!sameLease) replication.rendererReadyFence = null;
+    replication.expiresAt = Number.isFinite(message.expiresAt) ? message.expiresAt : 0;
+    replication.resizeRequestSeq = sameLease ? replication.resizeRequestSeq : 0;
+    if (!sameLease) {
+      replication.resizeRequestInFlight = false;
+      replication.pendingResize = null;
+      replication.lastResizeCols = null;
+      replication.lastResizeRows = null;
+    }
+    if (!sameLease) replication.pendingOutputAckChars = 0;
+    setCrtTerminalGeometryStatus('owner');
+    scheduleCrtTerminalGeometryRenew();
+    if (!sameLease) {
+      if (!replication.replaying && !replication.checkpointInFlight) {
+        activateCrtTerminalRenderer();
+        flushCrtTerminalInputQueue();
+        requestAnimationFrame(() => sendSessionResize(replication.agentId));
+      }
+    } else if (!replication.replaying && !replication.checkpointInFlight) {
+      activateCrtTerminalRenderer();
+      flushCrtTerminalInputQueue();
+    }
+    return;
+  }
+
+  if (message.status === 'resize-committed') {
+    if (
+      replication.geometryStatus !== 'owner' ||
+      replication.leaseId !== message.leaseId ||
+      replication.fence !== message.fence
+    ) return;
+    if (message.requestSeq === replication.resizeRequestSeq) {
+      replication.resizeRequestInFlight = false;
+      const pendingResize = replication.pendingResize;
+      replication.pendingResize = null;
+      if (pendingResize) sendSessionResize(replication.agentId, pendingResize);
+    }
+    return;
+  }
+
+  if (replication.renewTimer) {
+    clearTimeout(replication.renewTimer);
+    replication.renewTimer = null;
+  }
+  replication.leaseId = '';
+  replication.fence = null;
+  replication.rendererReadyFence = null;
+  replication.resizeRequestSeq = 0;
+  replication.resizeRequestInFlight = false;
+  replication.pendingResize = null;
+  replication.lastResizeCols = null;
+  replication.lastResizeRows = null;
+  replication.pendingOutputAckChars = 0;
+  discardCrtPendingTerminalInput(replication, 'CONTROL LOST; UNSENT INPUT DISCARDED');
+  replication.focusAfterClaim = false;
+  setCrtTerminalGeometryStatus(
+    message.status === 'observer' || message.status === 'revoked' ? 'observer' : 'claiming'
+  );
+  const shouldRecoverController = (
+    message.status === 'rejected' ||
+    message.status === 'expired' ||
+    message.status === 'unowned' ||
+    message.status === 'resize-rejected'
+  ) && document.visibilityState !== 'hidden';
+  if (shouldRecoverController) {
+    crtTerminalBeginBarrier(replication.runtimeEpoch, replication.stateRevision);
+    void refreshSessionView(true, replication.agentId, getCurrentSessionToken());
+  }
 }
 
 function deriveSessionStreamPatch(stream, currentFocusedAgentId, currentSessionSource) {
@@ -2458,7 +3383,7 @@ function shouldPollSessionView(sessionSource) {
   if (SESSION_MODAL_BRIDGE && SESSION_MODAL_BRIDGE.shouldPollSessionView) {
     return SESSION_MODAL_BRIDGE.shouldPollSessionView(sessionSource);
   }
-  return sessionSource === 'live-text';
+  return false;
 }
 
 function getSessionModalDomState(documentRef) {
@@ -2477,8 +3402,6 @@ function getSessionRuntime() {
     sessionRuntime = SESSION_MODAL_BRIDGE.createRuntime({
       deriveSessionStreamPatch,
       refreshSessionView,
-      schedulePoll: (handler) => setInterval(handler, 350),
-      clearPoll: (poller) => clearInterval(poller)
     });
   }
 
@@ -2505,11 +3428,6 @@ function getSessionOutputLength() {
 function getCurrentSessionToken() {
   const runtime = getSessionRuntime();
   return runtime ? runtime.getSessionToken() : 0;
-}
-
-function isAwaitingInitialSessionSync() {
-  const runtime = getSessionRuntime();
-  return runtime ? runtime.isAwaitingInitialSync() : false;
 }
 
 function setSessionOutputLength(length) {
@@ -2677,7 +3595,6 @@ function applyCrtTerminalFontSize(value) {
   if (terminal && fitAddon && focusedAgentId && typeof requestAnimationFrame === 'function') {
     requestAnimationFrame(() => {
       if (!terminal || !fitAddon || !focusedAgentId) return;
-      fitAddon.fit();
       syncTerminalInputBridgePosition();
       sendSessionResize();
     });
@@ -3187,6 +4104,7 @@ function formatCrtExactUsageValue(value) {
 }
 
 function formatCrtCompactTotalValue(value) {
+  if (value === null || value === undefined || value === '') return '--';
   const numberValue = Number(value);
   if (!Number.isFinite(numberValue) || numberValue < 0) return '--';
   const units = [
@@ -3221,26 +4139,181 @@ function crtBillingDayPoint(dateValue = billingSelectedDate) {
   return points.find(point => point && point.date === dateValue) || null;
 }
 
-function crtBillingLogPosition(value, minimum, maximum) {
-  const total = Math.max(0, Number(value) || 0);
-  if (total <= 0) return 0;
-  if (total <= minimum || maximum <= minimum) return 2;
-  const position = (Math.log10(total) - Math.log10(minimum))
-    / (Math.log10(maximum) - Math.log10(minimum)) * 100;
-  return Math.max(2, Math.min(100, position));
+function crtBillingSelectedDayIsCurrent(point = crtBillingDayPoint()) {
+  const daily = billingSummary && billingSummary.daily;
+  return Boolean(daily && point && point.date === daily.endDate);
 }
 
-function crtBillingLogGuideValues(minimum, maximum) {
-  const values = [];
-  const firstExponent = Math.ceil(Math.log10(Math.max(1, minimum)));
-  const lastExponent = Math.floor(Math.log10(Math.max(1, maximum)));
-  for (let exponent = firstExponent; exponent <= lastExponent; exponent += 1) {
-    const value = 10 ** exponent;
-    if (value > minimum && value < maximum) values.push(value);
+function cancelCrtBillingTotalAnimation() {
+  if (billingTotalAnimationFrame !== null) {
+    window.cancelAnimationFrame(billingTotalAnimationFrame);
+    billingTotalAnimationFrame = null;
   }
-  const upperThird = 3 * (10 ** lastExponent);
-  if (upperThird > minimum && upperThird < maximum) values.push(upperThird);
-  return Array.from(new Set(values)).sort((left, right) => left - right);
+  billingTotalAnimationTarget = null;
+}
+
+function cancelCrtBillingMetricAnimations() {
+  billingAnimatedMetrics.forEach((metric) => {
+    if (metric.frame !== null) window.cancelAnimationFrame(metric.frame);
+  });
+  billingAnimatedMetrics.clear();
+}
+
+function updateCrtBillingAnimatedMetric(key, value, {
+  date = '',
+  live = false,
+  write,
+} = {}) {
+  const target = Number(value);
+  const existing = billingAnimatedMetrics.get(key);
+  if (!Number.isFinite(target) || target < 0 || typeof write !== 'function') {
+    if (existing && existing.frame !== null) window.cancelAnimationFrame(existing.frame);
+    billingAnimatedMetrics.delete(key);
+    write?.(null, null);
+    return;
+  }
+
+  const roundedTarget = Math.round(target);
+  if (existing && existing.frame !== null && existing.target === roundedTarget && existing.date === date) {
+    existing.write = write;
+    return;
+  }
+  if (existing && existing.frame !== null) window.cancelAnimationFrame(existing.frame);
+  const shouldSnap = !live
+    || !existing
+    || existing.date !== date
+    || !Number.isFinite(existing.value)
+    || roundedTarget <= existing.value;
+  if (shouldSnap) {
+    const metric = { date, value: roundedTarget, target: roundedTarget, frame: null, write };
+    billingAnimatedMetrics.set(key, metric);
+    write(roundedTarget, roundedTarget);
+    return;
+  }
+
+  const metric = {
+    date,
+    value: existing.value,
+    target: roundedTarget,
+    frame: null,
+    write,
+  };
+  billingAnimatedMetrics.set(key, metric);
+  const startValue = existing.value;
+  const startedAt = window.performance.now();
+  const step = (now) => {
+    const current = billingAnimatedMetrics.get(key);
+    if (current !== metric) return;
+    const progress = Math.min(1, Math.max(0, (now - startedAt) / CRT_BILLING_TOTAL_ANIMATION_MS));
+    const steppedProgress = Math.min(1, Math.floor(progress * 18) / 18);
+    const easedProgress = 1 - ((1 - steppedProgress) ** 3);
+    metric.value = Math.round(startValue + (roundedTarget - startValue) * easedProgress);
+    metric.write(metric.value, roundedTarget);
+    if (progress < 1) {
+      metric.frame = window.requestAnimationFrame(step);
+      return;
+    }
+    metric.value = roundedTarget;
+    metric.frame = null;
+    metric.write(roundedTarget, roundedTarget);
+  };
+  metric.frame = window.requestAnimationFrame(step);
+}
+
+function updateCrtBillingExactMetric(id, value, { date = '', live = false } = {}) {
+  const element = document.getElementById(id);
+  if (!element) return;
+  updateCrtBillingAnimatedMetric(id, value, {
+    date,
+    live,
+    write: (displayed, target) => {
+      element.textContent = formatCrtExactUsageValue(displayed);
+      element.dataset.displayedValue = displayed === null ? '' : String(displayed);
+      element.dataset.targetValue = target === null ? '' : String(target);
+    },
+  });
+}
+
+function writeCrtBillingTotalDisplay(value, target, { live = false } = {}) {
+  const total = document.getElementById('billing-day-total');
+  const compact = document.getElementById('billing-day-total-compact');
+  const meter = document.getElementById('billing-day-total-meter');
+  const numericValue = Number.isFinite(Number(value)) ? Math.max(0, Math.round(Number(value))) : null;
+  const numericTarget = Number.isFinite(Number(target)) ? Math.max(0, Math.round(Number(target))) : null;
+  if (total) total.textContent = formatCrtExactUsageValue(numericValue);
+  if (compact) compact.textContent = formatCrtCompactTotalValue(numericValue);
+  if (meter) {
+    meter.classList.toggle('is-live', live);
+    meter.dataset.displayedTotal = numericValue === null ? '' : String(numericValue);
+    meter.dataset.targetTotal = numericTarget === null ? '' : String(numericTarget);
+    meter.setAttribute('aria-label', numericTarget === null
+      ? 'Total tokens unavailable'
+      : `${formatCrtExactUsageValue(numericTarget)} total tokens${live ? ', live refresh every 5 seconds' : ''}`);
+  }
+}
+
+function updateCrtBillingTotalDisplay(value, { date = '', live = false } = {}) {
+  const target = Number(value);
+  if (!Number.isFinite(target) || target < 0) {
+    cancelCrtBillingTotalAnimation();
+    billingDisplayedTotalDate = date;
+    billingDisplayedTotalValue = null;
+    writeCrtBillingTotalDisplay(null, null, { live });
+    return;
+  }
+
+  const roundedTarget = Math.round(target);
+  const shouldSnap = !live
+    || billingDisplayedTotalDate !== date
+    || !Number.isFinite(billingDisplayedTotalValue)
+    || roundedTarget <= billingDisplayedTotalValue;
+  if (shouldSnap) {
+    cancelCrtBillingTotalAnimation();
+    billingDisplayedTotalDate = date;
+    billingDisplayedTotalValue = roundedTarget;
+    writeCrtBillingTotalDisplay(roundedTarget, roundedTarget, { live });
+    return;
+  }
+  if (billingTotalAnimationFrame !== null && billingTotalAnimationTarget === roundedTarget) return;
+
+  cancelCrtBillingTotalAnimation();
+  const startValue = billingDisplayedTotalValue;
+  const startedAt = window.performance.now();
+  billingTotalAnimationTarget = roundedTarget;
+  const step = (now) => {
+    const progress = Math.min(1, Math.max(0, (now - startedAt) / CRT_BILLING_TOTAL_ANIMATION_MS));
+    const steppedProgress = Math.min(1, Math.floor(progress * 18) / 18);
+    const easedProgress = 1 - ((1 - steppedProgress) ** 3);
+    billingDisplayedTotalValue = Math.round(startValue + (roundedTarget - startValue) * easedProgress);
+    writeCrtBillingTotalDisplay(billingDisplayedTotalValue, roundedTarget, { live: true });
+    if (progress < 1) {
+      billingTotalAnimationFrame = window.requestAnimationFrame(step);
+      return;
+    }
+    billingDisplayedTotalValue = roundedTarget;
+    billingTotalAnimationFrame = null;
+    billingTotalAnimationTarget = null;
+    writeCrtBillingTotalDisplay(roundedTarget, roundedTarget, { live: true });
+  };
+  billingTotalAnimationFrame = window.requestAnimationFrame(step);
+}
+
+function crtBillingHeatThresholds(values) {
+  const activeValues = (Array.isArray(values) ? values : [])
+    .map(value => Math.max(0, Number(value) || 0))
+    .filter(value => value > 0)
+    .sort((left, right) => left - right);
+  if (activeValues.length === 0) return [];
+  return [0.2, 0.4, 0.6, 0.8].map(quantile => (
+    activeValues[Math.min(activeValues.length - 1, Math.ceil(activeValues.length * quantile) - 1)]
+  ));
+}
+
+function crtBillingHeatLevel(value, thresholds) {
+  const total = Math.max(0, Number(value) || 0);
+  if (total <= 0) return 0;
+  const bands = Array.isArray(thresholds) ? thresholds : [];
+  return Math.max(1, Math.min(5, 1 + bands.filter(threshold => total > threshold).length));
 }
 
 function crtBillingHourlyPath(hours, valueForHour, maximum) {
@@ -3249,10 +4322,11 @@ function crtBillingHourlyPath(hours, valueForHour, maximum) {
   const points = Array.isArray(hours) ? hours : [];
   if (points.length === 0 || maximum <= 0) return '';
   return points.map((hour, index) => {
-    const x = points.length === 1 ? 0 : index / (points.length - 1) * width;
+    const startX = index / points.length * width;
+    const endX = (index + 1) / points.length * width;
     const value = Math.max(0, Number(valueForHour(hour)) || 0);
     const y = height - Math.min(1, value / maximum) * height;
-    return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
+    return `${index === 0 ? 'M' : 'L'}${startX.toFixed(1)} ${y.toFixed(1)} L${endX.toFixed(1)} ${y.toFixed(1)}`;
   }).join(' ');
 }
 
@@ -3268,6 +4342,8 @@ function renderCrtBillingDayInsight() {
   const cachePath = document.getElementById('billing-day-cache-path');
   const scale = document.getElementById('billing-day-curve-scale');
   const maximumLabel = document.getElementById('billing-day-curve-max');
+  const hourStrip = document.getElementById('billing-day-hour-strip');
+  const hourReadout = document.getElementById('billing-day-hour-readout');
   const shares = document.getElementById('billing-day-provider-shares');
   const maximum = Math.max(0, ...hours.map(hour => Math.max(0, Number(hour && hour.totalTokens) || 0)));
 
@@ -3277,8 +4353,79 @@ function renderCrtBillingDayInsight() {
     hour => (Number(hour.cacheReadTokens) || 0) + (Number(hour.cacheWriteTokens) || 0),
     maximum,
   ));
-  if (scale) scale.textContent = maximum > 0 ? `${formatCrtUsageValue(maximum)} TOK/H PEAK` : '-- TOK/H PEAK';
-  if (maximumLabel) maximumLabel.textContent = maximum > 0 ? formatCrtUsageValue(maximum) : '--';
+  const isToday = crtBillingSelectedDayIsCurrent(point);
+  updateCrtBillingAnimatedMetric('billing-day-curve-scale', maximum > 0 ? maximum : null, {
+    date: point && point.date || '',
+    live: isToday,
+    write: displayed => {
+      if (scale) scale.textContent = displayed === null ? '-- TOK/H PEAK' : `${formatCrtUsageValue(displayed)} TOK/H PEAK`;
+    },
+  });
+  updateCrtBillingAnimatedMetric('billing-day-curve-max', maximum > 0 ? maximum : null, {
+    date: point && point.date || '',
+    live: isToday,
+    write: displayed => {
+      if (maximumLabel) maximumLabel.textContent = displayed === null ? '--' : formatCrtUsageValue(displayed);
+    },
+  });
+  if (hourStrip) {
+    hourStrip.replaceChildren();
+    if (hours.length > 0) {
+      const heatThresholds = crtBillingHeatThresholds(hours.map(hour => hour && hour.totalTokens));
+      if (!Number.isInteger(billingSelectedHour) || billingSelectedHour < 0 || billingSelectedHour >= hours.length) {
+        billingSelectedHour = hours.reduce((peakIndex, hour, index) => (
+          Number(hour && hour.totalTokens) > Number(hours[peakIndex] && hours[peakIndex].totalTokens) ? index : peakIndex
+        ), 0);
+      }
+      const selectHour = (index, { focus = false } = {}) => {
+        billingSelectedHour = index;
+        hourStrip.querySelectorAll('.billing-day-hour-cell').forEach((cell, cellIndex) => {
+          const selected = cellIndex === index;
+          cell.classList.toggle('selected', selected);
+          cell.setAttribute('aria-selected', selected ? 'true' : 'false');
+          cell.tabIndex = selected ? 0 : -1;
+        });
+        const hour = hours[index] || {};
+        const hourValue = Number.isFinite(Number(hour.hour)) ? Number(hour.hour) : index;
+        const total = Math.max(0, Number(hour.totalTokens) || 0);
+        const cache = Math.max(0, (Number(hour.cacheReadTokens) || 0) + (Number(hour.cacheWriteTokens) || 0));
+        if (hourReadout) {
+          const endHour = hourValue + 1;
+          const cacheShare = total > 0 ? `${(cache / total * 100).toFixed(1)}% CACHE` : 'NO ACTIVITY';
+          hourReadout.textContent = `[${String(hourValue).padStart(2, '0')}:00—${String(endHour).padStart(2, '0')}:00]  TOTAL ${formatCrtUsageValue(total)}  //  CACHE ${formatCrtUsageValue(cache)}  //  ${cacheShare}`;
+          hourReadout.title = `${String(hourValue).padStart(2, '0')}:00—${String(endHour).padStart(2, '0')}:00 · ${formatCrtExactUsageValue(total)} total tokens · ${formatCrtExactUsageValue(cache)} cache tokens`;
+        }
+        if (focus) hourStrip.children[index]?.focus();
+      };
+      hours.forEach((hour, index) => {
+        const total = Math.max(0, Number(hour && hour.totalTokens) || 0);
+        const cache = Math.max(0, (Number(hour && hour.cacheReadTokens) || 0) + (Number(hour && hour.cacheWriteTokens) || 0));
+        const hourValue = Number.isFinite(Number(hour && hour.hour)) ? Number(hour.hour) : index;
+        const cell = document.createElement('button');
+        cell.type = 'button';
+        cell.className = 'billing-day-hour-cell';
+        cell.dataset.level = String(crtBillingHeatLevel(total, heatThresholds));
+        cell.dataset.hour = String(hourValue);
+        cell.setAttribute('role', 'gridcell');
+        cell.setAttribute('aria-label', `${String(hourValue).padStart(2, '0')}:00 to ${String(hourValue + 1).padStart(2, '0')}:00, ${formatCrtExactUsageValue(total)} total tokens, ${formatCrtExactUsageValue(cache)} cache tokens`);
+        cell.tabIndex = index === billingSelectedHour ? 0 : -1;
+        cell.addEventListener('click', () => selectHour(index));
+        cell.addEventListener('mouseenter', () => selectHour(index));
+        cell.addEventListener('focus', () => selectHour(index));
+        cell.addEventListener('keydown', (event) => {
+          if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          selectHour(Math.max(0, Math.min(hours.length - 1, index + (event.key === 'ArrowLeft' ? -1 : 1))), { focus: true });
+        });
+        hourStrip.appendChild(cell);
+      });
+      selectHour(billingSelectedHour);
+    } else if (hourReadout) {
+      hourReadout.textContent = billingDayDetailLoading ? 'READING HOURLY COORDINATES' : 'NO HOURLY ACTIVITY';
+      hourReadout.removeAttribute('title');
+    }
+  }
   if (state) {
     state.classList.toggle('is-error', Boolean(billingDayDetailError));
     state.textContent = billingDayDetailError
@@ -3335,39 +4482,42 @@ function renderCrtBillingDayInsight() {
 function renderCrtBillingSelectedDay() {
   const daily = billingSummary && billingSummary.daily;
   const point = crtBillingDayPoint();
+  const cachedEntry = billingDayDetailCache.get(billingSelectedDate);
+  const selectedDetail = billingDayDetail && billingDayDetail.date === billingSelectedDate
+    ? billingDayDetail
+    : cachedEntry && cachedEntry.detail || null;
+  const displayPoint = selectedDetail && selectedDetail.total || point;
+  const displayProviders = selectedDetail && selectedDetail.providers || point && point.providers;
+  const isToday = crtBillingSelectedDayIsCurrent(point);
   const date = document.getElementById('billing-day-date');
   const stateLabel = document.getElementById('billing-day-state');
-  const total = document.getElementById('billing-day-total');
-  const compactTotal = document.getElementById('billing-day-total-compact');
-  const input = document.getElementById('billing-day-input');
-  const output = document.getElementById('billing-day-output');
-  const cacheRead = document.getElementById('billing-day-cache-read');
-  const cacheWrite = document.getElementById('billing-day-cache-write');
   const providers = document.getElementById('billing-day-providers');
   if (date) date.textContent = crtBillingDayLabel(point && point.date);
-  if (total) total.textContent = formatCrtExactUsageValue(point && point.totalTokens);
-  if (compactTotal) compactTotal.textContent = formatCrtCompactTotalValue(point && point.totalTokens);
-  if (input) input.textContent = formatCrtExactUsageValue(point && point.inputTokens);
-  if (output) output.textContent = formatCrtExactUsageValue(point && point.outputTokens);
-  if (cacheRead) cacheRead.textContent = formatCrtExactUsageValue(point && point.cacheReadTokens);
-  if (cacheWrite) cacheWrite.textContent = formatCrtExactUsageValue(point && point.cacheWriteTokens);
+  updateCrtBillingTotalDisplay(displayPoint && displayPoint.totalTokens, {
+    date: point && point.date || '',
+    live: isToday,
+  });
+  const selectedDate = point && point.date || '';
+  updateCrtBillingExactMetric('billing-day-input', displayPoint && displayPoint.inputTokens, { date: selectedDate, live: isToday });
+  updateCrtBillingExactMetric('billing-day-output', displayPoint && displayPoint.outputTokens, { date: selectedDate, live: isToday });
+  updateCrtBillingExactMetric('billing-day-cache-read', displayPoint && displayPoint.cacheReadTokens, { date: selectedDate, live: isToday });
+  updateCrtBillingExactMetric('billing-day-cache-write', displayPoint && displayPoint.cacheWriteTokens, { date: selectedDate, live: isToday });
   if (providers) {
-    const providerTotals = point && point.providers ? Object.entries(point.providers) : [];
+    const providerTotals = displayProviders ? Object.entries(displayProviders) : [];
     providers.textContent = providerTotals
       .map(([provider, usage]) => `${provider.toUpperCase()} ${formatCrtExactUsageValue(usage && usage.totalTokens)}`)
       .join(' · ') || '--';
     providers.title = providers.textContent;
   }
   if (stateLabel) {
-    const isToday = Boolean(daily && point && point.date === daily.endDate);
-    const notes = [isToday ? 'PARTIAL DAY' : 'COMPLETE DAY', 'INCL CACHE'];
+    const notes = isToday ? ['LIVE 5S', 'PARTIAL DAY', 'INCL CACHE'] : ['COMPLETE DAY', 'INCL CACHE'];
     if (daily && daily.partial) notes.push('PARTIAL SOURCE');
     if (point && Number(point.unattributedTokens) > 0) {
       notes.push(`${formatCrtUsageValue(point.unattributedTokens)} UNCLASSIFIED`);
     }
     stateLabel.textContent = point ? notes.join(' · ') : 'LOCAL HISTORY';
   }
-  document.querySelectorAll('#billing-daily-bars .billing-daily-column').forEach((cell) => {
+  document.querySelectorAll('#billing-calendar-grid .billing-calendar-day').forEach((cell) => {
     const selected = cell.dataset.date === billingSelectedDate;
     cell.classList.toggle('selected', selected);
     cell.setAttribute('aria-selected', selected ? 'true' : 'false');
@@ -3377,13 +4527,17 @@ function renderCrtBillingSelectedDay() {
 
 function selectCrtBillingDay(dateValue, { focus = false } = {}) {
   if (!crtBillingDayPoint(dateValue)) return false;
+  cancelCrtBillingDayDetailRetry();
   billingSelectedDate = dateValue;
-  billingDayDetail = billingDayDetailCache.get(dateValue)?.detail || null;
+  billingSelectedHour = null;
+  const isToday = crtBillingSelectedDayIsCurrent(crtBillingDayPoint(dateValue));
+  if (isToday) billingDayDetailCache.delete(dateValue);
+  billingDayDetail = isToday ? null : billingDayDetailCache.get(dateValue)?.detail || null;
   billingDayDetailError = '';
   renderCrtBillingSelectedDay();
-  void loadCrtBillingDayDetail(dateValue);
+  void loadCrtBillingDayDetail(dateValue, { force: isToday, live: isToday });
   if (focus) {
-    const cell = document.querySelector(`#billing-daily-bars .billing-daily-column[data-date="${dateValue}"]`);
+    const cell = document.querySelector(`#billing-calendar-grid .billing-calendar-day[data-date="${dateValue}"]`);
     if (cell) {
       cell.focus({ preventScroll: true });
       scrollCrtBillingSelectedDayIntoView();
@@ -3392,18 +4546,26 @@ function selectCrtBillingDay(dateValue, { focus = false } = {}) {
   return true;
 }
 
-async function loadCrtBillingDayDetail(dateValue, { force = false } = {}) {
+function cancelCrtBillingDayDetailRetry() {
+  if (billingDayDetailRetryTimer !== null) {
+    clearTimeout(billingDayDetailRetryTimer);
+    billingDayDetailRetryTimer = null;
+  }
+}
+
+async function loadCrtBillingDayDetail(dateValue, { force = false, live = false, retryCount = 0 } = {}) {
   const date = String(dateValue || '').trim();
   if (!crtBillingDayPoint(date)) return;
   const cachedEntry = billingDayDetailCache.get(date);
   const cached = cachedEntry && cachedEntry.detail;
-  const cacheFresh = cachedEntry && Date.now() - cachedEntry.fetchedAt <= CRT_BILLING_DAY_DETAIL_CACHE_MS;
+  const cacheMaxAge = live ? CRT_BILLING_LIVE_DAY_REFRESH_MS : CRT_BILLING_DAY_DETAIL_CACHE_MS;
+  const cacheFresh = cachedEntry && Date.now() - cachedEntry.fetchedAt <= cacheMaxAge;
   if (cached && cacheFresh && !force) {
     if (billingSelectedDate === date) {
       billingDayDetail = cached;
       billingDayDetailLoading = false;
       billingDayDetailError = '';
-      renderCrtBillingDayInsight();
+      renderCrtBillingSelectedDay();
     }
     return;
   }
@@ -3415,12 +4577,13 @@ async function loadCrtBillingDayDetail(dateValue, { force = false } = {}) {
   billingDayDetailAbortController = controller;
   billingDayDetailLoading = true;
   billingDayDetailError = '';
-  if (billingSelectedDate === date) {
+  if (billingSelectedDate === date && !cached) {
     billingDayDetail = null;
     renderCrtBillingDayInsight();
   }
+  let shouldRetry = false;
   try {
-    const response = await fetch(farmingApiPath(`/usage/day?date=${encodeURIComponent(date)}`), {
+    const response = await fetch(farmingApiPath(`/usage/day?date=${encodeURIComponent(date)}${live ? '&live=1' : ''}`), {
       signal: controller.signal,
       cache: 'no-store',
     });
@@ -3431,16 +4594,32 @@ async function loadCrtBillingDayDetail(dateValue, { force = false } = {}) {
     if (requestSequence !== billingDayDetailRequestSequence) return;
     billingDayDetailCache.set(date, { detail: data.detail, fetchedAt: Date.now() });
     if (billingSelectedDate === date) billingDayDetail = data.detail;
+    if (live) renderCrtBillingDaily();
   } catch (error) {
     if (controller.signal.aborted || requestSequence !== billingDayDetailRequestSequence) return;
-    if (billingSelectedDate === date) {
+    if (billingSelectedDate === date && retryCount < 1) {
+      shouldRetry = true;
+    } else if (billingSelectedDate === date) {
       billingDayDetailError = error instanceof Error ? error.message : 'Failed to load selected day';
     }
   } finally {
     if (requestSequence === billingDayDetailRequestSequence) {
-      billingDayDetailLoading = false;
       billingDayDetailAbortController = null;
-      if (billingSelectedDate === date) renderCrtBillingDayInsight();
+      if (shouldRetry) {
+        billingDayDetailLoading = true;
+        cancelCrtBillingDayDetailRetry();
+        billingDayDetailRetryTimer = setTimeout(() => {
+          billingDayDetailRetryTimer = null;
+          if (billingSelectedDate !== date || crtMainView !== 'billing') {
+            billingDayDetailLoading = false;
+            return;
+          }
+          void loadCrtBillingDayDetail(date, { force: true, live, retryCount: retryCount + 1 });
+        }, CRT_BILLING_DAY_DETAIL_RETRY_MS);
+      } else {
+        billingDayDetailLoading = false;
+      }
+      if (billingSelectedDate === date) renderCrtBillingSelectedDay();
     }
   }
 }
@@ -3448,7 +4627,7 @@ async function loadCrtBillingDayDetail(dateValue, { force = false } = {}) {
 function scrollCrtBillingSelectedDayIntoView() {
   const scroll = document.getElementById('billing-daily-scroll');
   const cell = billingSelectedDate
-    ? document.querySelector(`#billing-daily-bars .billing-daily-column[data-date="${billingSelectedDate}"]`)
+    ? document.querySelector(`#billing-calendar-grid .billing-calendar-day[data-date="${billingSelectedDate}"]`)
     : null;
   if (!scroll || !cell) return;
   const left = cell.offsetLeft;
@@ -3478,7 +4657,19 @@ function renderCrtBillingDaily(summary = billingSummary) {
     const element = document.getElementById(id);
     if (element) element.textContent = formatCrtUsageValue(value);
   };
-  setValue('billing-today-total', totals.todayTokens);
+  const todayDetail = daily && billingDayDetailCache.get(daily.endDate)?.detail;
+  const todayTokens = todayDetail && todayDetail.total ? todayDetail.total.totalTokens : totals.todayTokens;
+  updateCrtBillingAnimatedMetric('billing-today-total', todayTokens, {
+    date: daily && daily.endDate || '',
+    live: true,
+    write: (displayed, target) => {
+      const element = document.getElementById('billing-today-total');
+      if (!element) return;
+      element.textContent = formatCrtUsageValue(displayed);
+      element.dataset.displayedValue = displayed === null ? '' : String(displayed);
+      element.dataset.targetValue = target === null ? '' : String(target);
+    },
+  });
   setValue('billing-7d-total', totals.sevenDayTokens);
   setValue('billing-30d-total', totals.thirtyDayTokens);
   setValue('billing-period-total', totals.periodTokens);
@@ -3499,12 +4690,9 @@ function renderCrtBillingDaily(summary = billingSummary) {
       : 'LOCAL TIME';
   }
 
-  const bars = document.getElementById('billing-daily-bars');
-  const xAxis = document.getElementById('billing-daily-x-axis');
-  const yAxis = document.getElementById('billing-y-axis');
-  const guides = document.getElementById('billing-log-guides');
-  const activity = document.getElementById('billing-activity-strip');
-  if (!bars || !xAxis || !yAxis || !guides || !activity) return;
+  const calendar = document.getElementById('billing-calendar-grid');
+  const months = document.getElementById('billing-calendar-months');
+  if (!calendar || !months) return;
   const signature = points.map(point => [
     point.date,
     point.totalTokens,
@@ -3513,95 +4701,60 @@ function renderCrtBillingDaily(summary = billingSummary) {
   ].join(':')).join('|');
   if (signature !== billingDailyRenderSignature) {
     billingDailyRenderSignature = signature;
-    bars.replaceChildren();
-    xAxis.replaceChildren();
-    yAxis.replaceChildren();
-    guides.replaceChildren();
-    activity.replaceChildren();
+    calendar.replaceChildren();
+    months.replaceChildren();
 
-    const chartPoints = points.slice(-120);
-    const peakTokens = Math.max(1_000, ...chartPoints.map(point => Math.max(0, Number(point.totalTokens) || 0)));
-    const maximum = peakTokens * 1.08;
-    const minimum = Math.max(1, maximum / 1_000);
-    crtBillingLogGuideValues(minimum, maximum).forEach((value) => {
-      const position = crtBillingLogPosition(value, minimum, maximum);
-      const guide = document.createElement('div');
-      guide.className = 'billing-log-guide';
-      guide.style.bottom = `${position}%`;
-      guides.appendChild(guide);
-
-      const axisLabel = document.createElement('span');
-      axisLabel.className = 'billing-y-axis-label';
-      axisLabel.style.bottom = `${position}%`;
-      axisLabel.textContent = formatCrtUsageValue(value);
-      yAxis.appendChild(axisLabel);
+    const chartPoints = points.slice(-(52 * 7));
+    const heatThresholds = crtBillingHeatThresholds(chartPoints.map(point => point && point.totalTokens));
+    const firstDate = parseCrtBillingDate(chartPoints[0] && chartPoints[0].date);
+    const leadingDays = firstDate ? (firstDate.getDay() + 6) % 7 : 0;
+    const weekCount = Math.max(1, Math.ceil((leadingDays + chartPoints.length) / 7));
+    calendar.style.setProperty('--billing-calendar-weeks', String(weekCount));
+    months.style.setProperty('--billing-calendar-weeks', String(weekCount));
+    Array.from({ length: leadingDays }).forEach(() => {
+      const spacer = document.createElement('span');
+      spacer.className = 'billing-calendar-spacer';
+      spacer.setAttribute('aria-hidden', 'true');
+      calendar.appendChild(spacer);
     });
-    const floorLabel = document.createElement('span');
-    floorLabel.className = 'billing-y-axis-label is-floor';
-    floorLabel.style.bottom = '0';
-    floorLabel.textContent = `≤${formatCrtUsageValue(minimum)}`;
-    yAxis.appendChild(floorLabel);
 
-    bars.style.setProperty('--billing-chart-days', String(Math.max(1, chartPoints.length)));
-    xAxis.style.setProperty('--billing-chart-days', String(Math.max(1, chartPoints.length)));
+    const monthLabels = Array.from({ length: weekCount }, () => '');
     chartPoints.forEach((point, index) => {
       const pointDate = parseCrtBillingDate(point.date);
-      const axisTick = document.createElement('span');
-      const isFirst = index === 0;
-      const isLast = index === chartPoints.length - 1;
-      const isHalfMonth = pointDate && [1, 15].includes(pointDate.getDate());
-      if (pointDate && (isFirst || isLast || isHalfMonth)) {
-        const month = pointDate.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
-        axisTick.textContent = `${month} ${String(pointDate.getDate()).padStart(2, '0')}`;
-        axisTick.className = `has-label${isLast ? ' is-end' : ''}`;
+      const weekIndex = Math.floor((leadingDays + index) / 7);
+      if (pointDate && (index === 0 || pointDate.getDate() === 1) && !monthLabels[weekIndex]) {
+        monthLabels[weekIndex] = pointDate.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
       }
-      xAxis.appendChild(axisTick);
-
       const total = Math.max(0, Number(point.totalTokens) || 0);
       const cache = Math.min(total, Math.max(0, Number(point.cacheReadTokens) || 0)
         + Math.max(0, Number(point.cacheWriteTokens) || 0));
-      const direct = Math.max(0, total - cache);
-      const column = document.createElement('button');
-      column.type = 'button';
-      column.className = 'billing-daily-column';
-      column.dataset.date = point.date;
-      column.dataset.billion = total >= 1_000_000_000 ? 'true' : 'false';
-      column.setAttribute('role', 'gridcell');
-      column.setAttribute('aria-label', `${point.date}: ${formatCrtExactUsageValue(total)} tokens, ${formatCrtExactUsageValue(cache)} cache tokens`);
-      column.setAttribute('aria-selected', 'false');
-      column.tabIndex = -1;
-      column.title = `${point.date} · ${formatCrtExactUsageValue(total)} total · ${formatCrtExactUsageValue(cache)} cache`;
-      column.addEventListener('click', () => selectCrtBillingDay(point.date));
-      if (total > 0) {
-        const bar = document.createElement('span');
-        bar.className = 'billing-daily-bar';
-        bar.style.height = `${crtBillingLogPosition(total, minimum, maximum)}%`;
-        if (direct > 0) {
-          const directSegment = document.createElement('span');
-          directSegment.className = 'billing-daily-direct';
-          directSegment.style.height = `${direct / total * 100}%`;
-          bar.appendChild(directSegment);
-        }
-        if (cache > 0) {
-          const cacheSegment = document.createElement('span');
-          cacheSegment.className = 'billing-daily-cache';
-          cacheSegment.style.height = `${cache / total * 100}%`;
-          bar.appendChild(cacheSegment);
-        }
-        column.appendChild(bar);
-      }
-      bars.appendChild(column);
+      const day = document.createElement('button');
+      day.type = 'button';
+      day.className = 'billing-calendar-day';
+      day.dataset.date = point.date;
+      day.dataset.level = String(crtBillingHeatLevel(total, heatThresholds));
+      day.dataset.billion = total >= 1_000_000_000 ? 'true' : 'false';
+      day.setAttribute('role', 'gridcell');
+      day.setAttribute('aria-label', `${point.date}: ${formatCrtExactUsageValue(total)} tokens, ${formatCrtExactUsageValue(cache)} cache tokens`);
+      day.setAttribute('aria-selected', 'false');
+      day.tabIndex = -1;
+      day.title = `${point.date} · ${formatCrtExactUsageValue(total)} total · ${formatCrtExactUsageValue(cache)} cache`;
+      day.addEventListener('click', () => selectCrtBillingDay(point.date));
+      calendar.appendChild(day);
     });
-
-    activity.style.setProperty('--billing-activity-days', String(Math.max(1, points.length)));
-    activity.setAttribute('aria-label', `${points.length}-day activity: ${activeDays} active days, ${billionDays} days at or above one billion tokens`);
-    points.forEach((point) => {
-      const tick = document.createElement('span');
-      const total = Math.max(0, Number(point.totalTokens) || 0);
-      tick.className = `billing-activity-tick${total > 0 ? ' is-active' : ''}${total >= 1_000_000_000 ? ' is-billion' : ''}`;
-      tick.title = `${point.date} · ${formatCrtExactUsageValue(total)} tokens`;
-      activity.appendChild(tick);
+    const trailingDays = weekCount * 7 - leadingDays - chartPoints.length;
+    Array.from({ length: trailingDays }).forEach(() => {
+      const spacer = document.createElement('span');
+      spacer.className = 'billing-calendar-spacer';
+      spacer.setAttribute('aria-hidden', 'true');
+      calendar.appendChild(spacer);
     });
+    monthLabels.forEach((label) => {
+      const month = document.createElement('span');
+      month.textContent = label;
+      months.appendChild(month);
+    });
+    calendar.setAttribute('aria-label', `${chartPoints.length}-day token activity: ${activeDays} active days, ${billionDays} days at or above one billion tokens`);
 
     if (!billingSelectedDate || !points.some(point => point.date === billingSelectedDate)) {
       billingSelectedDate = daily && daily.endDate || points.at(-1)?.date || '';
@@ -3911,7 +5064,10 @@ async function loadCrtBilling({ fresh = false } = {}) {
       billingAbortController = null;
       renderCrtBilling();
       if (!billingError && billingSelectedDate) {
-        void loadCrtBillingDayDetail(billingSelectedDate, { force: fresh });
+        void loadCrtBillingDayDetail(billingSelectedDate, {
+          force: fresh,
+          live: crtBillingSelectedDayIsCurrent(),
+        });
       }
     }
   }
@@ -3921,6 +5077,10 @@ function stopCrtBillingRefresh({ abort = false } = {}) {
   if (billingRefreshTimer !== null) {
     clearInterval(billingRefreshTimer);
     billingRefreshTimer = null;
+  }
+  if (billingLiveDayRefreshTimer !== null) {
+    clearInterval(billingLiveDayRefreshTimer);
+    billingLiveDayRefreshTimer = null;
   }
   if (abort && billingAbortController) {
     billingRequestSequence += 1;
@@ -3934,6 +5094,11 @@ function stopCrtBillingRefresh({ abort = false } = {}) {
     billingDayDetailAbortController = null;
     billingDayDetailLoading = false;
   }
+  if (abort) {
+    cancelCrtBillingDayDetailRetry();
+    cancelCrtBillingTotalAnimation();
+    cancelCrtBillingMetricAnimations();
+  }
 }
 
 function startCrtBillingRefresh() {
@@ -3941,6 +5106,16 @@ function startCrtBillingRefresh() {
   billingRefreshTimer = setInterval(() => {
     if (crtMainView === 'billing' && document.visibilityState !== 'hidden') void loadCrtBilling();
   }, CRT_BILLING_REFRESH_MS);
+  billingLiveDayRefreshTimer = setInterval(() => {
+    if (
+      crtMainView !== 'billing'
+      || billingMode !== 'days'
+      || document.visibilityState === 'hidden'
+      || billingDayDetailLoading
+      || !crtBillingSelectedDayIsCurrent()
+    ) return;
+    void loadCrtBillingDayDetail(billingSelectedDate, { force: true, live: true });
+  }, CRT_BILLING_LIVE_DAY_REFRESH_MS);
 }
 
 function refreshCrtBilling() {
@@ -4634,7 +5809,25 @@ function connect() {
       previewScope: activeAgentId ? 'none' : 'all',
     });
     if (activeAgentId && terminal) {
-      void refreshSessionView(true, activeAgentId, getCurrentSessionToken());
+      if (crtTerminalReplication) {
+        resetCrtTerminalCheckpointInvariantFailures(crtTerminalReplication);
+        crtTerminalReplication.leaseId = '';
+        crtTerminalReplication.fence = null;
+        crtTerminalReplication.rendererReadyFence = null;
+        crtTerminalReplication.resizeRequestSeq = 0;
+        crtTerminalReplication.resizeRequestInFlight = false;
+        crtTerminalReplication.pendingResize = null;
+        crtTerminalReplication.lastResizeCols = null;
+        crtTerminalReplication.lastResizeRows = null;
+        discardCrtPendingTerminalInput(
+          crtTerminalReplication,
+          'RECONNECTED; UNSENT INPUT DISCARDED'
+        );
+        crtTerminalReplication.claimInFlight = false;
+        setCrtTerminalGeometryStatus('claiming');
+        void refreshSessionView(true, activeAgentId, getCurrentSessionToken());
+        claimCrtTerminalGeometry('passive');
+      }
     }
     loadAgents();
   };
@@ -4703,6 +5896,10 @@ function connect() {
         }
       }
     } else if (data.type === 'session-output') {
+      if (crtTerminalReplication) {
+        handleCrtTerminalStream(data.stream);
+        return;
+      }
       const runtime = getSessionRuntime();
       const sessionToken = runtime ? runtime.getSessionToken() : 0;
       const runtimeResult = runtime ? runtime.handleStreamMessage(data.stream) : null;
@@ -4721,6 +5918,8 @@ function connect() {
           setSessionOutputLength(getSessionOutputLength() + patch.nextLengthDelta);
         }
       }
+    } else if (data.type === 'terminal-controller') {
+      handleCrtTerminalGeometry(data);
     } else if (data.type === 'system-stats') {
       updateSystemStats(data.stats, data.uptime, data.usageRate);
     } else if (data.type === 'error') {
@@ -4733,6 +5932,25 @@ function connect() {
     if (ws !== socket) return;
     ws = null;
     console.log('Disconnected from server');
+    if (crtTerminalReplication) {
+      crtTerminalReplication.leaseId = '';
+      crtTerminalReplication.fence = null;
+      crtTerminalReplication.rendererReadyFence = null;
+      crtTerminalReplication.resizeRequestSeq = 0;
+      crtTerminalReplication.resizeRequestInFlight = false;
+      crtTerminalReplication.pendingResize = null;
+      crtTerminalReplication.lastResizeCols = null;
+      crtTerminalReplication.lastResizeRows = null;
+      discardCrtPendingTerminalInput(
+        crtTerminalReplication,
+        'DISCONNECTED; UNSENT INPUT DISCARDED'
+      );
+      setCrtTerminalGeometryStatus('claiming');
+      crtTerminalBeginBarrier(
+        crtTerminalReplication.runtimeEpoch,
+        crtTerminalReplication.stateRevision
+      );
+    }
     if (typeof document === 'undefined' || document.visibilityState !== 'hidden') {
       wsReconnectTimer = setTimeout(() => {
         wsReconnectTimer = null;
@@ -4749,6 +5967,7 @@ function connect() {
 
 function suspendCrtPageConnection() {
   document.body.classList.add('page-hidden');
+  releaseCrtTerminalGeometry();
   stopCrtBillingRefresh({ abort: true });
   if (wsReconnectTimer) {
     clearTimeout(wsReconnectTimer);
@@ -5472,6 +6691,37 @@ function focusStructuredComposerMenuButton(current, offset = 0) {
   return true;
 }
 
+function structuredComposerMenuPath() {
+  return `${structuredComposerMenu}:${structuredComposerConfigId}`;
+}
+
+function captureStructuredComposerMenuFocus(menu) {
+  const focused = document.activeElement && document.activeElement.closest
+    ? document.activeElement.closest('.crt-structured-menu-item')
+    : null;
+  if (!focused || !menu.contains(focused)) return null;
+  const buttons = structuredComposerMenuButtons();
+  return {
+    path: structuredComposerMenuPath(),
+    key: focused.dataset.menuKey || '',
+    index: buttons.indexOf(focused)
+  };
+}
+
+function restoreStructuredComposerMenuFocus(snapshot) {
+  if (!snapshot || snapshot.path !== structuredComposerMenuPath()) return false;
+  const buttons = structuredComposerMenuButtons();
+  if (!buttons.length) return false;
+  const matching = snapshot.key
+    ? buttons.find((button) => button.dataset.menuKey === snapshot.key)
+    : null;
+  const fallbackIndex = Math.min(Math.max(snapshot.index, 0), buttons.length - 1);
+  const target = matching || buttons[fallbackIndex];
+  target.focus();
+  target.scrollIntoView({ block: 'nearest' });
+  return true;
+}
+
 function closeStructuredComposerMenu({ restoreFocus = true } = {}) {
   structuredComposerMenu = '';
   structuredComposerConfigId = '';
@@ -5511,10 +6761,11 @@ async function patchStructuredAcpSession(patch) {
   if (opener && !opener.hidden && !opener.disabled) opener.focus();
 }
 
-function structuredMenuButton(label, description, active, onClick) {
+function structuredMenuButton(label, description, active, onClick, menuKey = '') {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = `crt-structured-menu-item${active ? ' active' : ''}`;
+  button.dataset.menuKey = menuKey;
   const title = document.createElement('span');
   title.textContent = label;
   button.appendChild(title);
@@ -5530,6 +6781,7 @@ function structuredMenuButton(label, description, active, onClick) {
 function renderStructuredComposerMenu() {
   const menu = document.getElementById('crt-structured-composer-menu');
   if (!menu) return;
+  const retainedFocus = captureStructuredComposerMenuFocus(menu);
   menu.replaceChildren();
   const session = structuredSessionSnapshot;
   if (!structuredComposerMenu || !session) {
@@ -5566,7 +6818,7 @@ function renderStructuredComposerMenu() {
           renderStructuredSessionControls();
           updateStructuredComposerState(state && state.agents.find((agent) => agent.id === focusedAgentId));
           input.focus();
-        }));
+        }, `command:${command.name}`));
       });
   } else if (structuredComposerMenu === 'mode') {
     const modes = session.modes && Array.isArray(session.modes.availableModes) ? session.modes.availableModes : [];
@@ -5574,7 +6826,7 @@ function renderStructuredComposerMenu() {
     modes.forEach((mode) => {
       items.appendChild(structuredMenuButton(mode.name || mode.id, mode.description || '', mode.id === current, () => {
         void patchStructuredAcpSession({ modeId: mode.id }).catch(showStructuredComposerError);
-      }));
+      }, `mode:${mode.id}`));
     });
   } else if (!selectedConfig) {
     structuredVisibleConfigOptions(session).forEach((option) => {
@@ -5586,20 +6838,21 @@ function renderStructuredComposerMenu() {
           structuredComposerConfigId = option.id;
           structuredComposerMenuFocusPending = true;
           renderStructuredSessionControls();
-        }
+        },
+        `config:${option.id}`
       ));
     });
   } else if (selectedConfig.type === 'boolean') {
     [false, true].forEach((value) => {
       items.appendChild(structuredMenuButton(value ? 'ON' : 'OFF', selectedConfig.description || '', selectedConfig.currentValue === value, () => {
         void patchStructuredAcpSession({ configId: selectedConfig.id, value }).catch(showStructuredComposerError);
-      }));
+      }, `boolean:${value}`));
     });
   } else {
     structuredSelectOptions(selectedConfig).forEach((candidate) => {
       items.appendChild(structuredMenuButton(candidate.name || candidate.value, candidate.description || '', candidate.value === selectedConfig.currentValue, () => {
         void patchStructuredAcpSession({ configId: selectedConfig.id, value: candidate.value }).catch(showStructuredComposerError);
-      }));
+      }, `option:${candidate.value}`));
     });
   }
 
@@ -5608,6 +6861,8 @@ function renderStructuredComposerMenu() {
   if (structuredComposerMenuFocusPending) {
     structuredComposerMenuFocusPending = false;
     window.requestAnimationFrame(() => focusStructuredComposerMenuButton(null, 0));
+  } else {
+    restoreStructuredComposerMenuFocus(retainedFocus);
   }
 }
 
@@ -6482,6 +7737,7 @@ async function openStructuredSession(agent, sessionToken) {
 function teardownSessionSurface() {
   stopSessionViewPolling();
   stopStructuredSessionPolling();
+  disposeCrtTerminalReplication();
   disposeTerminal();
   destroyTerminalInputBridge();
   setStructuredComposerActive(false);
@@ -6586,10 +7842,13 @@ async function openSession(agentId) {
   }
 
   disposeTerminal();
+  disposeCrtTerminalReplication({ release: false });
+  crtTerminalReplication = createCrtTerminalReplication(agentId);
   let mountedTerminal = null;
   try {
     mountedTerminal = SESSION_MODAL_BRIDGE && SESSION_MODAL_BRIDGE.mountTerminal
       ? SESSION_MODAL_BRIDGE.mountTerminal(document, terminalBundle, {
+        authoritativeGeometry: true,
         initialOutput: shouldUseLiveSessionText(agent)
           ? (runtime ? runtime.prepareInitialOutput(agent.output) : agent.output)
           : '',
@@ -6599,18 +7858,17 @@ async function openSession(agentId) {
           sendTerminalInput(data);
         },
         onResize: (cols, rows) => {
+          void cols;
+          void rows;
           if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) return;
-          if (!focusedAgentId) return;
-          const sessionClient = getSessionClient();
-          if (!sessionClient) return;
-          sessionClient.resizeAgent(focusedAgentId, cols, rows);
+          sendSessionResize(agentId);
         },
         hasSelection: hasAnySelection,
         focusTerminal: focusSessionTerminal,
         isSessionActive: () => runtime ? runtime.isCurrentSession(agentId, sessionToken) : focusedAgentId === agentId,
         afterFit: () => {
           if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) return;
-          sendSessionResize(agentId);
+          claimCrtTerminalGeometry('passive');
         }
         })
       : null;
@@ -6658,11 +7916,11 @@ async function openSession(agentId) {
       sendTerminalInput(data);
     });
     terminal.onResize(({ cols, rows }) => {
+      void cols;
+      void rows;
       if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) return;
-      if (!focusedAgentId) return;
-      const sessionClient = getSessionClient();
-      if (!sessionClient) return;
-      sessionClient.resizeAgent(focusedAgentId, cols, rows);
+      if (crtTerminalReplication?.applyingLocalResize) return;
+      sendSessionResize(agentId, { cols, rows });
     });
 
     terminalContainer.innerHTML = '';
@@ -6691,13 +7949,12 @@ async function openSession(agentId) {
       if (!terminal || !fitAddon) return;
       if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) return;
       if (!runtime && focusedAgentId !== agentId) return;
-      fitAddon.fit();
       const initialOutput = runtime ? runtime.prepareInitialOutput(agent.output) : agent.output;
       if (initialOutput) {
         terminal.write(initialOutput);
       }
       refreshSessionTerminalUi();
-      sendSessionResize(agentId);
+      claimCrtTerminalGeometry('passive');
       terminal.scrollToBottom();
       focusSessionTerminal();
     });
@@ -6715,8 +7972,11 @@ async function openSession(agentId) {
     showCrtWebglFailure(error);
   }
 
+  // Display attachment is independent from controller ownership. Hydrate one
+  // authoritative reducer cut before the controller can flush raw input.
   await refreshSessionView(true, agentId, sessionToken);
-  if (shouldPollSessionView(modalState.sessionSource)) {
+  claimCrtTerminalGeometry('passive');
+  if (!crtTerminalReplication && shouldPollSessionView(modalState.sessionSource)) {
     startSessionViewPolling(agentId, sessionToken);
   }
 }
@@ -6778,43 +8038,111 @@ function killCurrentAgent() {
 
 function sendTerminalInput(input) {
   if (!focusedAgentId) return;
-
-  const sessionClient = getSessionClient();
-  if (sessionClient) {
-    sessionClient.sendInput(focusedAgentId, input);
-  }
+  queueCrtTerminalInput(input);
 }
 
-function sendSessionResize(agentId = focusedAgentId) {
-  if (!agentId || !terminal) return;
-  if (!Number.isFinite(terminal.cols) || !Number.isFinite(terminal.rows)) return;
+function sendSessionResize(agentId = focusedAgentId, requestedDimensions = null) {
+  const replication = crtTerminalReplication;
+  if (
+    !agentId ||
+    !terminal ||
+    !fitAddon ||
+    !replication ||
+    replication.agentId !== agentId ||
+    replication.geometryStatus !== 'owner' ||
+    replication.replaying ||
+    !replication.leaseId ||
+    !Number.isFinite(replication.fence) ||
+    replication.rendererReadyFence !== replication.fence ||
+    !replication.runtimeEpoch
+  ) return;
+  const dimensions = requestedDimensions || (
+    typeof fitAddon.proposeDimensions === 'function'
+      ? fitAddon.proposeDimensions()
+      : null
+  );
+  if (
+    !dimensions ||
+    !Number.isFinite(dimensions.cols) ||
+    !Number.isFinite(dimensions.rows) ||
+    dimensions.cols < 1 ||
+    dimensions.rows < 1 ||
+    (
+      dimensions.cols === replication.lastResizeCols &&
+      dimensions.rows === replication.lastResizeRows
+    )
+  ) return;
   const sessionClient = getSessionClient();
   if (!sessionClient) return;
-  sessionClient.resizeAgent(agentId, terminal.cols, terminal.rows);
+  if (terminal.cols !== dimensions.cols || terminal.rows !== dimensions.rows) {
+    replication.applyingLocalResize = true;
+    try {
+      terminal.resize(dimensions.cols, dimensions.rows);
+    } finally {
+      replication.applyingLocalResize = false;
+    }
+  }
+  if (replication.resizeRequestInFlight) {
+    replication.pendingResize = { cols: dimensions.cols, rows: dimensions.rows };
+    return;
+  }
+  const requestSeq = replication.resizeRequestSeq + 1;
+  replication.resizeRequestSeq = requestSeq;
+  replication.resizeRequestInFlight = true;
+  const delivered = sessionClient.resizeAgent(agentId, dimensions.cols, dimensions.rows, {
+    attachmentId: replication.attachmentId,
+    leaseId: replication.leaseId,
+    fence: replication.fence,
+    requestSeq,
+    expectedRuntimeEpoch: replication.runtimeEpoch
+  });
+  if (delivered) {
+    replication.lastResizeCols = dimensions.cols;
+    replication.lastResizeRows = dimensions.rows;
+  }
+  if (!delivered) {
+    replication.resizeRequestInFlight = false;
+    replication.pendingResize = null;
+    replication.leaseId = '';
+    replication.fence = null;
+    replication.rendererReadyFence = null;
+    setCrtTerminalGeometryStatus('claiming');
+    crtTerminalBeginBarrier(replication.runtimeEpoch, replication.stateRevision);
+    void refreshSessionView(true, replication.agentId, getCurrentSessionToken());
+  }
 }
 
 async function refreshSessionView(forceReplace = false, expectedAgentId = focusedAgentId, expectedSessionToken = getCurrentSessionToken()) {
   if (!expectedAgentId || !terminal) return;
 
   const runtime = getSessionRuntime();
+  const replication = crtTerminalReplication;
+  if (
+    !replication ||
+    replication.agentId !== expectedAgentId ||
+    replication.checkpointInFlight ||
+    replication.checkpointHalted
+  ) return;
+  const checkpointSeq = replication.checkpointSeq + 1;
+  replication.checkpointSeq = checkpointSeq;
+  replication.checkpointInFlight = true;
+  renderCrtTerminalGeometryStatus();
+  const checkpointAbortController = new globalThis.AbortController();
+  replication.checkpointAbortController = checkpointAbortController;
+  const checkpointTimeout = setTimeout(() => {
+    checkpointAbortController.abort();
+  }, CRT_TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS);
   try {
     const sessionClient = getSessionClient();
     if (!sessionClient) return;
-    let payload = null;
-    const retryDelays = forceReplace ? [0, 60, 140] : [0];
-    for (const delay of retryDelays) {
-      if (delay > 0) {
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-      payload = await sessionClient.getSessionView(expectedAgentId);
-      const candidate = normalizeSessionViewPayload(payload);
-      const dimensionsMatch = !Number.isFinite(candidate.previewCols)
-        || !Number.isFinite(candidate.previewRows)
-        || (candidate.previewCols === terminal.cols && candidate.previewRows === terminal.rows);
-      if (dimensionsMatch) {
-        break;
-      }
-    }
+    const payload = await sessionClient.getSessionView(expectedAgentId, {
+      signal: checkpointAbortController.signal
+    });
+    if (
+      !crtTerminalReplication ||
+      crtTerminalReplication !== replication ||
+      replication.checkpointSeq !== checkpointSeq
+    ) return;
     if (runtime && !runtime.isCurrentSession(expectedAgentId, expectedSessionToken)) {
       return;
     }
@@ -6822,39 +8150,18 @@ async function refreshSessionView(forceReplace = false, expectedAgentId = focuse
       ? state.agents.find((agent) => agent.id === expectedAgentId)
       : null;
     const sessionView = normalizeSessionViewPayload(payload, currentAgent);
-    const sessionText = sessionView.renderOutput || sessionView.output;
-    const patch = deriveSessionTextPatch(sessionText, getSessionOutputLength(), forceReplace);
-
-    if (patch.mode === 'replace') {
-      replaceTerminalOutput(
-        terminal,
-        applySessionReplayCursorVisibility(patch.text, sessionView, currentAgent),
-      );
-      refreshSessionTerminalUi({ preserveSearchIndex: true });
-      if (runtime) {
-        runtime.markHydrated(patch.nextLength);
-        syncSessionRuntimeState();
-      }
-      return;
-    }
-
-    if (patch.mode === 'append') {
-      terminal.write(patch.text);
-      refreshSessionTerminalUi({ preserveSearchIndex: true });
-      if (runtime) {
-        if (isAwaitingInitialSessionSync()) {
-          runtime.markHydrated(patch.nextLength);
-        } else {
-          runtime.setLastOutputLength(patch.nextLength);
-        }
-        syncSessionRuntimeState();
-      }
-    }
+    installCrtTerminalCheckpoint(sessionView);
   } catch (error) {
     console.error('Failed to refresh session view:', error);
-    if (runtime && runtime.isCurrentSession(expectedAgentId, expectedSessionToken) && runtime.isAwaitingInitialSync()) {
-      runtime.markHydrated(getSessionOutputLength());
-      syncSessionRuntimeState();
+    retryCrtTerminalCheckpointAfterFailure(forceReplace ? CRT_TERMINAL_CHECKPOINT_RETRY_MS : 1000);
+  } finally {
+    clearTimeout(checkpointTimeout);
+    if (crtTerminalReplication === replication && replication.checkpointSeq === checkpointSeq) {
+      replication.checkpointInFlight = false;
+      replication.checkpointAbortController = null;
+      renderCrtTerminalGeometryStatus();
+      activateCrtTerminalRenderer();
+      flushCrtTerminalInputQueue();
     }
   }
 }
@@ -6863,12 +8170,9 @@ function startSessionViewPolling(agentId = focusedAgentId, sessionToken = getCur
   const runtime = getSessionRuntime();
   if (runtime) {
     runtime.startPolling({ agentId, sessionToken });
-    return;
+    return null;
   }
-  stopSessionViewPolling();
-  legacySessionPoller = setInterval(() => {
-    refreshSessionView(false, agentId, sessionToken);
-  }, 350);
+  return null;
 }
 
 function stopSessionViewPolling() {
@@ -6876,10 +8180,6 @@ function stopSessionViewPolling() {
   if (runtime) {
     runtime.stopPolling();
     return;
-  }
-  if (legacySessionPoller) {
-    clearInterval(legacySessionPoller);
-    legacySessionPoller = null;
   }
 }
 
@@ -6900,7 +8200,6 @@ if (typeof document !== 'undefined') {
     }
     if (!terminal || !fitAddon || !focusedAgentId) return;
 
-    fitAddon.fit();
     syncTerminalInputBridgePosition();
     sendSessionResize();
   });
@@ -6926,9 +8225,12 @@ if (typeof document !== 'undefined') {
     const searchInputFocused = crtMainView === 'search'
       && document.activeElement === document.getElementById('crt-search-input');
     const navigationArrow = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key);
+    const billingHourCellFocused = crtMainView === 'billing'
+      && document.activeElement?.classList?.contains('billing-day-hour-cell');
 
     if (terminalFontSizeInputFocused && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return;
     if (searchInputFocused) return;
+    if (billingHourCellFocused && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return;
 
     if (
       crtMainView === 'billing'

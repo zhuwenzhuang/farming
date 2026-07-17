@@ -65,6 +65,35 @@ export interface AgentTerminalStatus {
   source: 'terminal-text' | 'shell-busy-marker' | 'shell-status-marker' | 'shell-prompt-fallback'
 }
 
+export interface AgentGitWorktree {
+  workspace: string
+  commonDir: string
+  mainWorkspace: string
+  linked: boolean
+  branch: string
+  head: string
+  detached: boolean
+  locked: boolean
+  lockReason: string
+  prunable: boolean
+  pruneReason: string
+  worktrees: AgentGitWorktreeItem[]
+}
+
+export interface AgentGitWorktreeItem {
+  workspace: string
+  head: string
+  branch: string
+  bare: boolean
+  detached: boolean
+  locked: boolean
+  lockReason: string
+  prunable: boolean
+  pruneReason: string
+  current: boolean
+  main: boolean
+}
+
 export interface CodexAppServerPendingRequest {
   id: string
   method: string
@@ -185,8 +214,13 @@ export interface Agent {
   engineName?: string
   cwd: string
   projectWorkspace?: string
+  gitWorktree?: AgentGitWorktree | null
   launchPermissionMode?: string
   output: string
+  renderOutput?: string
+  runtimeEpoch?: string
+  outputSeq?: number | null
+  stateRevision?: number | null
   previewText?: string
   previewSnapshot?: TerminalPreviewSnapshot | null
   previewCols?: number
@@ -247,7 +281,10 @@ export interface Agent {
   attentionUpdatedAt?: number | null
   readAttentionAt?: number | null
   attentionReason?: string
+  attentionOutputEpoch?: string
   attentionOutputSeq?: number | null
+  readOutputEpoch?: string
+  readOutputSeq?: number | null
   archived?: boolean
   archivedAt?: number | null
   canForkNewWorktree?: boolean

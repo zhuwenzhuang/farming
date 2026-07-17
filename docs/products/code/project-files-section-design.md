@@ -20,6 +20,14 @@ Files should feel close to a lightweight VS Code Explorer:
 - smooth scrolling;
 - parent context when scrolling deeply.
 
+## Projects And Git Worktrees
+
+There is only one Project kind: a persisted workspace mounted in Farming. Starting an Agent, opening a workspace file, restoring a Project session, or clicking a row in a repository's worktree list all add that workspace to the same `projectWorkspaces` list. Losing the last Agent or closing the last editor makes the Project empty but never removes it; Remove Project is the only unmount transition, and it is enabled after the Project has no Agent, Project session, or open editor.
+
+A Git worktree is still presented as an ordinary Project, not as a separate top-level repository family. Farming derives repository identity from `git worktree list --porcelain -z` and the shared Git common directory. A quiet line below the Project name opens the complete repository worktree list. Each row exposes current/main identity, branch or detached state, short HEAD, path, and locked/prunable state; clicking a row mounts that worktree as another ordinary Project.
+
+Git owns repository and worktree identity, while `settings.projectWorkspaces` owns Project membership. Backend Files and Git APIs accept a validated Project workspace identity even when no Agent exists, so empty Projects retain Files, Changes, History, and editor access. A stale or failed Git inspection never invents a repository relationship, and every asynchronous Agent inspection remains generation-guarded.
+
 ## Scroll Model
 
 The Files section, including Git History, should expand into the outer project scroll flow. It should not create a second nested scrollbar inside the project sidebar. When many rows are visible, the whole project list scrolls as one surface.
@@ -80,7 +88,8 @@ Current implementation boundaries:
 - Files header is at the same project-content level as agent rows.
 - Open Editors is at the same project-content level as Files and sits between the agent row and Files.
 - Open Editors is absent when no file has been opened, then defaults to collapsed when the first file opens.
-- Git History sits inside expanded Files after working-copy Changes, defaults to collapsed, and appears only for concrete project agents with writable workspace access.
+- Git History sits inside expanded Files after working-copy Changes, defaults to collapsed, and appears only when the Project has a backing workspace access context.
+- Git History uses the same horizontal header inset as working-copy Changes and the file tree.
 - Git History rows expose commit subjects, short object ids, author/time metadata, branch/tag decorations, and accessible expand state without turning the section into a dense SCM toolbar.
 - Git History defaults to the current branch's first-parent history; All branches is an explicit alternate graph view.
 - A commit's subject stays in the row, while any additional commit-message body appears in its expanded details.

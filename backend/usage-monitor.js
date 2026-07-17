@@ -13,6 +13,7 @@ const USAGE_TIMELINE_WINDOW_MS = 60 * 60 * 1000;
 const USAGE_TIMELINE_BUCKET_COUNT = 30;
 const USAGE_DAILY_DAYS = 52 * 7;
 const USAGE_DAILY_CACHE_MS = 5 * 60 * 1000;
+const USAGE_LIVE_DAY_CACHE_MS = 5 * 1000;
 const JSONL_FILE_LIMIT = 60;
 const JSONL_SCAN_LIMIT = 2000;
 const DAILY_JSONL_FILE_LIMIT = 5000;
@@ -1195,10 +1196,13 @@ class UsageMonitor {
     this.dailyDays = options.dailyDays ?? USAGE_DAILY_DAYS;
     this.dailyCacheMs = options.dailyCacheMs ?? USAGE_DAILY_CACHE_MS;
     this.dailyCache = { value: null, fetchedAt: 0, pending: null };
+    this.liveDayCacheMs = options.liveDayCacheMs ?? USAGE_LIVE_DAY_CACHE_MS;
+    this.liveDayCache = { date: '', value: null, fetchedAt: 0, pending: null };
   }
 
   invalidateDailyCache() {
     this.dailyCache.fetchedAt = 0;
+    this.liveDayCache.fetchedAt = 0;
   }
 
   getDailyUsage(options = {}) {
@@ -1232,8 +1236,45 @@ class UsageMonitor {
   }
 
   async getUsageDay(date, options = {}) {
+    const now = options.now ?? Date.now();
+    if (options.live === true && String(date || '').trim() === localDateKey(now)) {
+      const liveDate = String(date).trim();
+      if (
+        options.fresh !== true
+        && this.liveDayCache.date === liveDate
+        && this.liveDayCache.value
+        && now - this.liveDayCache.fetchedAt < this.liveDayCacheMs
+      ) {
+        return this.liveDayCache.value;
+      }
+      if (this.liveDayCache.pending && this.liveDayCache.date === liveDate) {
+        return this.liveDayCache.pending;
+      }
+      this.liveDayCache.date = liveDate;
+      const pending = collectUsageHistory({
+        codexHome: this.codexHome,
+        claudeHome: this.claudeHome,
+        openCodeHome: this.openCodeHome,
+        qoderHome: this.qoderHome,
+        providerHomes: this.getProviderHomes ? this.getProviderHomes() : undefined,
+        openCodeCommandRunner: this.openCodeCommandRunner,
+        now,
+        days: 1,
+      }).then(history => {
+        const detail = buildUsageDayDetail(history.providerEvents, { date: liveDate });
+        if (this.liveDayCache.date === liveDate) {
+          this.liveDayCache.value = detail;
+          this.liveDayCache.fetchedAt = now;
+        }
+        return detail;
+      }).finally(() => {
+        if (this.liveDayCache.pending === pending) this.liveDayCache.pending = null;
+      });
+      this.liveDayCache.pending = pending;
+      return pending;
+    }
     const history = await this.getDailyUsage({
-      now: options.now,
+      now,
       force: options.fresh === true,
     });
     return buildUsageDayDetail(history.providerEvents, { date });
@@ -1340,6 +1381,7 @@ module.exports = {
   USAGE_TIMELINE_BUCKET_COUNT,
   USAGE_DAILY_DAYS,
   USAGE_DAILY_CACHE_MS,
+  USAGE_LIVE_DAY_CACHE_MS,
   UsageMonitor,
   buildUsageTimeline,
   buildDailyUsage,

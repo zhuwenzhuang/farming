@@ -16,6 +16,9 @@ class SessionEngineBridge extends EventEmitter {
       engine.on('session-output', (payload) => {
         this.emit('session-output', { engineName, ...payload });
       });
+      engine.on('session-transition', (payload) => {
+        this.emit('session-transition', { engineName, ...payload });
+      });
       engine.on('session-sync', (payload) => {
         this.emit('session-sync', { engineName, ...payload });
       });
@@ -54,16 +57,50 @@ class SessionEngineBridge extends EventEmitter {
     return resolution;
   }
 
-  async sendInput(engineName, sessionId, input) {
+  async sendInput(engineName, sessionId, input, options = {}) {
     const engine = this.getEngine(engineName);
     if (!engine) return;
-    return engine.sendInput(sessionId, input);
+    return engine.sendInput(sessionId, input, options);
   }
 
-  async resizeSession(engineName, sessionId, cols, rows) {
+  async claimSessionGeometry(engineName, sessionId, geometry) {
+    const engine = this.getEngine(engineName);
+    if (!engine || !engine.claimSessionGeometry) return { status: 'rejected', reason: 'unsupported-engine' };
+    return engine.claimSessionGeometry(sessionId, geometry);
+  }
+
+  async activateSessionRenderer(engineName, sessionId, geometry) {
+    const engine = this.getEngine(engineName);
+    if (!engine || !engine.activateSessionRenderer) {
+      return { status: 'renderer-ready-rejected', reason: 'unsupported-engine' };
+    }
+    return engine.activateSessionRenderer(sessionId, geometry);
+  }
+
+  async renewSessionGeometry(engineName, sessionId, geometry) {
+    const engine = this.getEngine(engineName);
+    if (!engine || !engine.renewSessionGeometry) return { status: 'rejected', reason: 'unsupported-engine' };
+    return engine.renewSessionGeometry(sessionId, geometry);
+  }
+
+  async releaseSessionGeometry(engineName, sessionId, geometry) {
+    const engine = this.getEngine(engineName);
+    if (!engine || !engine.releaseSessionGeometry) return { status: 'unowned', reason: 'unsupported-engine' };
+    return engine.releaseSessionGeometry(sessionId, geometry);
+  }
+
+  async acknowledgeSessionOutput(engineName, sessionId, charCount, geometry) {
+    const engine = this.getEngine(engineName);
+    if (!engine || !engine.acknowledgeSessionOutput) {
+      return { status: 'output-ack-rejected', reason: 'unsupported-engine' };
+    }
+    return engine.acknowledgeSessionOutput(sessionId, charCount, geometry);
+  }
+
+  async resizeSession(engineName, sessionId, cols, rows, geometry) {
     const engine = this.getEngine(engineName);
     if (!engine || !engine.resizeSession) return;
-    return engine.resizeSession(sessionId, cols, rows);
+    return engine.resizeSession(sessionId, cols, rows, geometry);
   }
 
   async clearBuffer(engineName, sessionId) {
@@ -84,6 +121,12 @@ class SessionEngineBridge extends EventEmitter {
     return engine.getSessionState(sessionId);
   }
 
+  async getSessionAttachCheckpoint(engineName, sessionId) {
+    const engine = this.getEngine(engineName);
+    if (!engine || !engine.getSessionAttachCheckpoint) return null;
+    return engine.getSessionAttachCheckpoint(sessionId);
+  }
+
   async getSessionPreview(engineName, sessionId) {
     const engine = this.getEngine(engineName);
     if (!engine) return '';
@@ -100,6 +143,16 @@ class SessionEngineBridge extends EventEmitter {
       }
     }
     return recovered;
+  }
+
+  consumeRuntimeRotations() {
+    const rotations = [];
+    for (const [engineName, engine] of Object.entries(this.router.engines)) {
+      if (!engine || typeof engine.consumeRuntimeRotation !== 'function') continue;
+      const rotation = engine.consumeRuntimeRotation();
+      if (rotation) rotations.push({ engineName, ...rotation });
+    }
+    return rotations;
   }
 
   dispose(options = {}) {

@@ -166,6 +166,7 @@ class FarmingSessionStore {
       providerSessionSource: typeof agent.providerSessionSource === 'string' ? agent.providerSessionSource : '',
       providerSessionResolvedAt: typeof agent.providerSessionResolvedAt === 'number' ? agent.providerSessionResolvedAt : null,
       providerSessionTitle: typeof agent.providerSessionTitle === 'string' ? agent.providerSessionTitle : '',
+      providerSessionWorkspace: typeof agent.providerSessionWorkspace === 'string' ? agent.providerSessionWorkspace : '',
       terminalInputReceived: agent.terminalInputReceived === true,
       codexRuntimeMode: typeof agent.codexRuntimeMode === 'string' ? agent.codexRuntimeMode : '',
       agentRuntimeMode: typeof agent.agentRuntimeMode === 'string' ? agent.agentRuntimeMode : 'terminal',
@@ -196,6 +197,7 @@ class FarmingSessionStore {
       attentionOutputSeq: typeof agent.attentionOutputSeq === 'number' ? agent.attentionOutputSeq : null,
       archived: agent.archived === true,
       archivedAt: typeof agent.archivedAt === 'number' ? agent.archivedAt : null,
+      customTitle: typeof agent.customTitle === 'string' ? agent.customTitle : '',
       title: typeof agent.customTitle === 'string' && agent.customTitle
         ? agent.customTitle
         : (typeof agent.providerSessionTitle === 'string' && agent.providerSessionTitle
