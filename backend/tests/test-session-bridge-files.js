@@ -43,25 +43,25 @@ function run() {
   );
   assert(sessionBridge.includes('resize-agent'), 'session bridge should handle resize requests');
   assert(
-    sessionBridge.includes('sendTerminalInput(agentId, input, terminalControl)') &&
+    sessionBridge.includes('sendTerminalInput(agentId, input)') &&
       sessionBridge.includes("type: 'input'") &&
-      sessionBridge.includes('...terminalControl') &&
-      !sessionBridge.includes('sendInput(agentId, input)'),
-    'CRT should send terminal input only with the active fencing proof'
+      !sessionBridge.includes('terminalControl') &&
+      !sessionBridge.includes('leaseId') &&
+      !sessionBridge.includes('fence'),
+    'CRT should send direct shared terminal input without browser ownership metadata'
   );
   assert(
-    sessionBridge.includes('acknowledgeTerminalOutput(agentId, charCount, controller)') &&
-      sessionBridge.includes("type: 'terminal-output-ack'") &&
-      server.includes("case 'terminal-output-ack':") &&
-      server.includes('terminalControllerCoordinator.acknowledgeOutput(ws, data)'),
-    'terminal renderer acknowledgements should use the fenced owner path'
+    !sessionBridge.includes('acknowledgeTerminalOutput') &&
+      !sessionBridge.includes("type: 'terminal-output-ack'") &&
+      !server.includes("case 'terminal-output-ack':"),
+    'a slow browser renderer must not control shared PTY output flow'
   );
   assert(sessionBridge.includes('sendComposerMessage') && sessionBridge.includes("type: 'composer-input'"), 'CRT should route structured Agent messages through the Composer API');
   assert(
-    sessionBridge.includes('interruptAgent(agentId, controller)')
+    sessionBridge.includes('interruptAgent(agentId)')
       && sessionBridge.includes("type: 'interrupt-agent'")
-      && sessionBridge.includes('...(controller || {})'),
-    'CRT structured Composer should expose the shared Agent interrupt path without bypassing a live terminal controller',
+      && !sessionBridge.includes('...(controller || {})'),
+    'CRT structured Composer should use the shared direct Agent interrupt path',
   );
   assert(
     app.includes('if (activeTerminalId !== agentId)') &&

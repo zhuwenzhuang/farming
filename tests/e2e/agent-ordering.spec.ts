@@ -114,11 +114,19 @@ test('keeps persistent project and pinned Agent order', async ({ page, workspace
   expect(expandedIds[expandedIds.length - 1]).toBe(firstAgentId)
 })
 
-test('keeps a project file tree stable while its transport Agent changes', async ({ page, workspaceRoot }) => {
+test('keeps Project Files on workspace identity while its source Agent changes', async ({ page, workspaceRoot }) => {
   const projectDir = path.join(workspaceRoot, 'stable-project-files')
   fs.mkdirSync(projectDir, { recursive: true })
   fs.writeFileSync(path.join(projectDir, 'one.txt'), 'one\n')
   fs.writeFileSync(path.join(projectDir, 'two.txt'), 'two\n')
+  const filesRequestIds: string[] = []
+  page.on('request', request => {
+    const url = new URL(request.url())
+    if (!url.pathname.startsWith('/farming/api/files/')) return
+    const filesId = url.searchParams.get('agentId')
+    if (filesId) filesRequestIds.push(filesId)
+  })
+  const expectedFilesId = `__farming_project__:${encodeURIComponent(projectDir)}`
 
   await openFarming(page)
   const firstAgentId = await createControlAgent(page, projectDir)
@@ -137,6 +145,7 @@ test('keeps a project file tree stable while its transport Agent changes', async
   const oneRow = page.locator('[data-testid="code-file-row"][data-file-path="one.txt"]')
   const twoRow = page.locator('[data-testid="code-file-row"][data-file-path="two.txt"]')
   await expect(oneRow).toBeVisible()
+  await expect.poll(() => [...new Set(filesRequestIds)]).toEqual([expectedFilesId])
 
   let oneRowBox: Awaited<ReturnType<typeof oneRow.boundingBox>> = null
   await expect.poll(async () => {
@@ -160,4 +169,7 @@ test('keeps a project file tree stable while its transport Agent changes', async
   await expect(twoRow).toBeVisible()
   await twoRow.click()
   await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('two.txt')
+  await expect.poll(() => [...new Set(filesRequestIds)]).toEqual([expectedFilesId])
+  await page.getByTestId('code-file-editor-back').click()
+  await expect(project.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)).toHaveClass(/active/)
 })

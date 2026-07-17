@@ -751,6 +751,28 @@ async function run() {
       assert.strictEqual(changeByPath.get('src/Renamed.ts')?.gitStatus, 'renamed');
       assert.strictEqual(changeByPath.get('src/Renamed.ts')?.gitStatusLabel, 'R');
       assert.strictEqual(changeByPath.get('src/Renamed.ts')?.previousPath, 'src/RenameMe.ts');
+
+      const originalChangesExecFile = service.execFile.bind(service);
+      service.execFile = async (command, args, options) => {
+        if (command === service.gitPath && args.includes('status') && args.includes('--untracked-files=all')) {
+          const error = new Error('stdout maxBuffer length exceeded');
+          error.code = 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER';
+          error.stdout = ' M src/App.tsx\0?? scratch/nested.log\0?? incomplete';
+          throw error;
+        }
+        return originalChangesExecFile(command, args, options);
+      };
+      try {
+        const truncatedChanges = await service.changes(workspace);
+        assert.strictEqual(truncatedChanges.truncated, true);
+        assert.deepStrictEqual(
+          truncatedChanges.items.map(item => item.path).sort(),
+          ['scratch/nested.log', 'src/App.tsx']
+        );
+      } finally {
+        service.execFile = originalChangesExecFile;
+      }
+
       const renamedDiff = await service.diff(workspace, 'src/Renamed.ts');
       assert.strictEqual(renamedDiff.isGitRepo, true);
       assert.strictEqual(renamedDiff.path, 'src/Renamed.ts');

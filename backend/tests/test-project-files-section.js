@@ -137,12 +137,12 @@ function run() {
 	      workspaceSource.includes('workspaceFileSearchFocusRequestRef') &&
 	      workspaceSource.includes('fileRevealRequest') &&
 	      workspaceSource.includes('fileSearchFocusRequest') &&
-	      workspaceSource.includes('projectFileSearchAgent') &&
-	      workspaceSource.includes('projectFileSearchAgentForShortcutTarget') &&
-	      workspaceSource.includes('return activeAgents.find(agent => !agent.isMain) ?? null') &&
+	      workspaceSource.includes('projectFileSearchId') &&
+	      workspaceSource.includes('projectFileSearchIdForShortcutTarget') &&
+	      workspaceSource.includes('return firstProjectAgent ? projectFilesWorkspaceId(projectWorkspaceForAgent(firstProjectAgent)) : null') &&
 	      workspaceSource.includes("event.key.toLowerCase() === 'p'") &&
 	      workspaceSource.includes('isNativeTextEditingShortcutTarget(target)') &&
-	      workspaceSource.includes('focusWorkspaceFilesSearch(targetProjectFileSearchAgent.id)') &&
+	      workspaceSource.includes('focusWorkspaceFilesSearch(targetProjectFileSearchId)') &&
 	      workspaceSource.includes("window.addEventListener('keydown', handleKeyDown, true)") &&
 	      workspaceSource.includes('revealWorkspaceFileInExplorer') &&
 	      workspaceSource.includes('setSidebarCollapsed(false)') &&
@@ -158,10 +158,10 @@ function run() {
 	      !workspaceSource.includes('workspaceFileDiffRequestForTarget') &&
 	      !workspaceSource.includes('workspaceFileDiffOnlyForTarget') &&
 	      workspaceSource.includes('workspaceFileDiffRequestRef') &&
-	      workspaceSource.includes('workspaceOpenFiles.openFromRead(agentId, file, openRequest)') &&
-	      workspaceSource.includes('workspaceOpenFiles.select(agentId, filePath, openRequest)') &&
+	      workspaceSource.includes('workspaceOpenFiles.openFromRead(identity.filesId, file, openRequest)') &&
+	      workspaceSource.includes('workspaceOpenFiles.select(identity.filesId, filePath, openRequest)') &&
 	      workspaceSource.includes('workspaceOpenFiles.close(targets)') &&
-	      workspaceSource.includes('workspaceOpenFiles.reopenLastClosed(file => activeAgents.some(agent => (') &&
+	      workspaceSource.includes('workspaceOpenFiles.reopenLastClosed(file => workspaceNavigationFileIds.has(file.agentId))') &&
 	      workspaceSource.includes('workspaceOpenFiles.update(nextFile)') &&
 	      workspaceSource.includes('workspaceOpenFiles.updateDraft(nextDraft)') &&
 	      workspaceSource.includes('workspaceOpenFiles.move(agentId, moves)') &&
@@ -210,16 +210,22 @@ function run() {
 	      workspaceSource.includes('projectEditorDirtyFilePaths') &&
 	      workspaceSource.includes('projectEditorExternalChangedFilePaths') &&
 	      operationSource.includes('const nextCache = new Map<string, T>()') &&
-	      workspaceSource.includes('stableProjectFileAgentId(null, project.agents)') &&
-	      workspaceSource.includes('const nextProjectFileAgentId = stableProjectFileAgentId(projectFileAgentId, project.agents)') &&
-	      workspaceSource.includes('agent.id === nextProjectFileAgentId') &&
-	      workspaceSource.includes('const showProjectFiles = project.id !== MAIN_AGENT_PROJECT_ID && Boolean(effectiveProjectFileAgentId)') &&
+	      workspaceSource.includes('stableProjectSourceAgentId(null, project.agents)') &&
+	      workspaceSource.includes('const nextProjectSourceAgentId = stableProjectSourceAgentId(projectSourceAgentId, project.agents)') &&
+	      workspaceSource.includes('agent.id === nextProjectSourceAgentId') &&
+	      workspaceSource.includes("const filesWorkspaceId = project.workspace ? projectFilesWorkspaceId(project.workspace) : ''") &&
+	      workspaceSource.includes('const showProjectFiles = project.id !== MAIN_AGENT_PROJECT_ID && Boolean(filesWorkspaceId)') &&
+	      !workspaceSource.includes('effectiveProjectFileAgentId') &&
 	      workspaceSource.includes('{showProjectFiles && (') &&
-	      workspaceSource.includes('revealRequest={fileRevealRequest && projectFileAgentIds.has(fileRevealRequest.agentId) ? fileRevealRequest : undefined}') &&
-	      workspaceSource.includes('focusSearchRequest={fileSearchFocusRequest && projectFileAgentIds.has(fileSearchFocusRequest.agentId) ? fileSearchFocusRequest : undefined}') &&
+	      workspaceSource.includes('revealRequest={fileRevealRequest && projectFileContextIds.has(fileRevealRequest.agentId) ? fileRevealRequest : undefined}') &&
+	      workspaceSource.includes('focusSearchRequest={fileSearchFocusRequest && projectFileContextIds.has(fileSearchFocusRequest.agentId) ? fileSearchFocusRequest : undefined}') &&
 	      workspaceSource.includes('editorDirtyFilePaths={projectEditorDirtyFilePaths}') &&
 	      workspaceSource.includes('editorExternalChangedFilePaths={projectEditorExternalChangedFilePaths}') &&
 	      fileSectionSource.includes('useWorkspaceFileExplorer(agentId, projectId)') &&
+	      fileSectionSource.includes("rootDirectoryLoaded: Boolean(directories[''] && !directories[''].loading)") &&
+	      hookSource.includes('}, [agentId, workspaceKey])') &&
+	      editorTabsComponentSource.includes('{openFile.sourceAgentId && (') &&
+	      !editorTabsComponentSource.includes('openFile.sourceAgentId ?? openFile.agentId') &&
 	      !fileTreeViewSource.includes('key={agentId}') &&
 	      workspaceSource.includes('className="code-project-expanded"') &&
 	      !workspaceSource.includes('recentEditorSaveRef') &&
@@ -236,18 +242,18 @@ function run() {
 	      workspaceSource.includes('function terminalTargetFilePath') &&
 	      workspaceSource.includes('function relativePathInsideWorkspace') &&
 	      workspaceSource.includes('workspaceHomeRoot(workspaceRoot)') &&
-	      workspaceSource.includes('activeAgents.find(candidate => candidate.id === agentId)') &&
-	      workspaceSource.includes('terminalTargetFilePath(target.path, agent ? projectWorkspaceForAgent(agent) : \'\')') &&
+	      workspaceSource.includes('const identity = resolveWorkspaceFileIdentity(agentId, agentId)') &&
+	      workspaceSource.includes("terminalTargetFilePath(target.path, identity.workspaceRoot ?? '')") &&
 	      workspaceSource.includes('fetchWorkspaceFile') &&
 	      workspaceSource.includes('fetchWorkspaceTree') &&
 	      workspaceSource.includes('searchWorkspaceFiles') &&
 	      workspaceSource.includes('TERMINAL_PATH_SEARCH_LIMIT') &&
 	      workspaceSource.includes('uniqueTerminalPathSearchMatches(results.matches)') &&
 	      workspaceSource.includes('const openResolvedFile = async (resolvedPath: string, resolvedTarget = openTarget)') &&
-	      workspaceSource.includes("revealWorkspaceFileInExplorer(agentId, resolvedPath, 'directory')") &&
+	      workspaceSource.includes("revealWorkspaceFileInExplorer(identity.filesId, resolvedPath, 'directory')") &&
 	      workspaceSource.includes("match.entryType === 'directory'") &&
-	      workspaceSource.includes('openProjectFile(agentId, file, resolvedTarget)') &&
-	      workspaceSource.includes('focusWorkspaceFilesSearch(agentId, filePath)') &&
+	      workspaceSource.includes('openProjectFile(identity.filesId, file, resolvedTarget)') &&
+	      workspaceSource.includes('focusWorkspaceFilesSearch(identity.filesId, filePath)') &&
 	      !workspaceSource.includes('focusWorkspaceFilesSearch(agentId, `${filePath}${lineSuffix}`)') &&
 	      workspaceSource.includes('onBackToAgentFromFile={backToAgentFromFile}') &&
 	      workspaceSource.includes('onOpenTerminalPath={openTerminalPathTarget}'),
@@ -1560,8 +1566,13 @@ function run() {
       webSocketSource.includes("sendMessage({ type: 'unwatch-workspace-files', agentId })") &&
       webSocketSource.includes('workspaceFileListenersRef.current.forEach((listeners, agentId)') &&
       webSocketSource.includes("ws.send(JSON.stringify({ type: 'watch-workspace-files', agentId }))") &&
-      webSocketSource.includes('workspaceFileListenersRef.current.get(msg.event.agentId)'),
-    'useWebSocket should keep workspace file listeners scoped by agent so multiple Project Files sections can watch in parallel'
+      webSocketSource.includes('workspaceFileListenersRef.current.get(msg.event.agentId)') &&
+      appSource.includes('onWatchWorkspaceFiles={ws.watchWorkspaceFiles}') &&
+      workspaceSource.includes('onWatchWorkspaceFiles={onWatchWorkspaceFiles}') &&
+      fileSectionSource.includes('onWatchWorkspaceFiles(agentId, event =>') &&
+      fileSectionSource.includes('fileChanges.refreshChanges()') &&
+      fileSectionSource.includes('refreshDirectories(Array.from(directoriesToRefresh))'),
+    'expanded Project Files sections should consume workspace events and coalesce tree plus Changes refreshes'
   );
 
 	  assert(
@@ -1615,8 +1626,9 @@ function run() {
     serverSource.includes('workspaceFileUnsubscribes') &&
       serverSource.includes('new Map()') &&
       serverSource.includes('clearWorkspaceFileWatch(ws, data.agentId)') &&
+      serverSource.includes('resolveWorkspaceRoot(agentManager, data.agentId)') &&
       serverSource.includes('ws.workspaceFileUnsubscribes.set(data.agentId, unsubscribe)'),
-    'server should keep workspace file watchers per agent instead of one watcher per WebSocket'
+    'server should keep workspace file watchers per stable Files id instead of one watcher per WebSocket'
   );
 
   assert(

@@ -72,6 +72,8 @@ ACP sessions apply supported changes directly. A compatible native Terminal appl
 
 Files are scoped to a concrete project Agent. The project sidebar contains Open Editors, a VS Code-derived Git History graph, a lazy file tree, path/line and content search, Git Changes, and Review. Main Agent rows do not pretend to own project files.
 
+Agent rows progressively use available sidebar width without changing their compact height: the narrow projection keeps the title and essential state, a roomier row adds provider and relative activity time, and a wide row adds command or runtime profile detail. Title text is clipped by the actual row width instead of a fixed character count.
+
 ![Project file with inline blame](assets/04-files-editor-blame.png)
 
 The editor is a lightweight intervention surface:

@@ -26,7 +26,9 @@ There is only one Project kind: a persisted workspace mounted in Farming. Starti
 
 A Git worktree is still presented as an ordinary Project, not as a separate top-level repository family. Farming derives repository identity from `git worktree list --porcelain -z` and the shared Git common directory. A quiet line below the Project name opens the complete repository worktree list. Each row exposes current/main identity, branch or detached state, short HEAD, path, and locked/prunable state; clicking a row mounts that worktree as another ordinary Project.
 
-Git owns repository and worktree identity, while `settings.projectWorkspaces` owns Project membership. Backend Files and Git APIs accept a validated Project workspace identity even when no Agent exists, so empty Projects retain Files, Changes, History, and editor access. A stale or failed Git inspection never invents a repository relationship, and every asynchronous Agent inspection remains generation-guarded.
+Git owns repository and worktree identity, while `settings.projectWorkspaces` owns Project membership. Backend Files and Git APIs accept a validated Project workspace identity even when no Agent exists, so empty Projects retain Files, Changes, History, and editor access. The browser derives one deterministic Files id from that workspace; the compatibility `/api/files/*` field is still named `agentId`, but its Project value must never switch to a live `agent-*` id when Agents hydrate, reorder, or disappear. `sourceAgentId` is a separate, optional association used only to return from an editor to a still-live Agent. During the bounded create/persist race, an exact matching live non-main Agent may authorize the workspace id, but it does not become the file identity and cannot authorize a descendant or unrelated path. A stale or failed Git inspection never invents a repository relationship, and every asynchronous Agent inspection remains generation-guarded.
+
+The directory-load state machine is `absent -> loading -> loaded | error`. Changing either the Files id or workspace invalidates the previous generation and must return every pending directory to `absent`; an expanded Files section then starts a new load. A response from an old generation may not commit data, and it may not leave a visible `loading` placeholder that suppresses retry. Agent-only changes do not trigger a Files identity transition.
 
 ## Scroll Model
 
@@ -70,7 +72,7 @@ Current implementation boundaries:
 - `git-history-graph.ts` adapts the pinned VS Code SCM lane algorithm, while `GitHistoryGraph` hosts the adapted SVG row renderer.
 - `FileSectionBody` owns the expanded Files body: status rows, search results, tree view, and the named view models passed into that body.
 - `FileSectionOverlays` owns Files floating UI such as the file context menu and file-operation dialog.
-- `useWorkspaceFileSectionController` owns Files/Open Editors collapse state, agent-change cleanup, reveal requests, search-focus requests, and tree refresh scheduling for the expanded section.
+- `useWorkspaceFileSectionController` owns Files/Open Editors collapse state, Files-identity cleanup, reveal requests, search-focus requests, and tree refresh scheduling for the expanded section.
 - `useWorkspaceFileTreeController` owns tree refs, row-frame rendering, layout refresh, open-state synchronization, and last-focused path tracking.
 - `FileTreeView` owns the tree viewport, sticky context, Arborist `Tree` wiring, and `FileTreeRow` node renderer.
 - `FileTreeRow` owns single-row rendering and decoration slots, while `useWorkspaceFileMenuController` and `useWorkspaceFileOperationController` own file-management interaction state.
@@ -102,7 +104,7 @@ Current implementation boundaries:
 - File rows use single-line truncation.
 - Native `title` should expose the full relative path.
 - Active file uses a subtle background and a thin left marker.
-- Open file identity is `workspaceRoot + path`; two agents pointing at the same workspace path share one working copy and editor tab while preserving the latest source agent for returning to the terminal.
+- Open file identity is `workspaceRoot + path`; two agents pointing at the same workspace path share one working copy and editor tab. The optional source Agent is stored separately, and the return control appears only while that association is valid.
 - Dirty and externally changed files should update both editor tabs and tree decoration.
 - Single-child directory chains should be compacted into one visible directory row, for example `tmp/ata2/assets`, to avoid over-indenting a path that carries no branching information.
 - Expanding a directory should hydrate compactable single-child chains below its immediate children in the same interaction, so a click on `src` can reveal stable rows such as `main/java` without first showing `main` and then morphing after a second click.
@@ -158,7 +160,7 @@ The backend remains intentionally thin:
 - create / rename / delete / move;
 - search through `rg` where available;
 - bounded git history, commit changes, status, diff, blame, and line changes through `git`;
-- optional bounded watcher events.
+- bounded watcher events keyed by the stable Project Files id; an expanded Files section coalesces events before refreshing loaded directories and working-copy Changes.
 
 Farming should reuse mature tools instead of building a full custom IDE backend.
 
@@ -169,6 +171,7 @@ Large workspaces should stay usable through bounded operations:
 - file reads and writes keep size caps;
 - directory trees load lazily by directory;
 - history defaults to 50 commits per page with a hard page cap, lazy commit-change loading, and a bounded frontend detail cache;
+- working-copy status returns complete records already captured plus `truncated: true` when a large untracked set exceeds the Git output buffer; it must never turn that condition into a false clean workspace;
 - search and git operations use limits, timeouts, or truncation instead of unbounded output;
 - live terminal output is streamed in bounded chunks and coalesced before WebSocket fanout;
 - exited terminal sessions release screen workers and remove session state after the final output is flushed;

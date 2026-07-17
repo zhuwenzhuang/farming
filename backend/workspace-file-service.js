@@ -1724,8 +1724,25 @@ class WorkspaceFileService {
       ], { cwd: root });
       return parseGitStatus(stdout);
     } catch (error) {
-      if (error.code === 'ENOENT') return new Map();
+      if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' && options.allowPartial === true) {
+        const partialOutput = String(error.stdout || '');
+        const lastCompleteRecord = partialOutput.lastIndexOf('\0');
+        const statusByPath = parseGitStatus(lastCompleteRecord >= 0
+          ? partialOutput.slice(0, lastCompleteRecord + 1)
+          : '');
+        statusByPath.truncated = true;
+        return statusByPath;
+      }
+      if (error.code === 'ENOENT') {
+        if (options.throwOnError === true) {
+          throw new WorkspaceFileError('git is not installed', 501);
+        }
+        return new Map();
+      }
       if (error.stderr && /not a git repository/i.test(error.stderr)) return new Map();
+      if (options.throwOnError === true) {
+        throw new WorkspaceFileError(error.stderr || 'git status failed', 500);
+      }
       return new Map();
     }
   }
@@ -2005,7 +2022,11 @@ class WorkspaceFileService {
   async changes(workspaceRoot, options = {}) {
     const root = await this.resolveRoot(workspaceRoot);
     const limit = Math.max(1, Math.min(2000, Number(options.limit) || DEFAULT_GIT_CHANGES_LIMIT));
-    const gitStatusByPath = await this.loadGitStatusByPath(root, { untrackedFiles: 'all' });
+    const gitStatusByPath = await this.loadGitStatusByPath(root, {
+      allowPartial: true,
+      throwOnError: true,
+      untrackedFiles: 'all',
+    });
     const allItems = await Promise.all(Array.from(gitStatusByPath.entries())
       .map(async ([filePath, status]) => ({
         path: filePath,
@@ -2023,7 +2044,7 @@ class WorkspaceFileService {
 
     return {
       items: allItems.slice(0, limit),
-      truncated: allItems.length > limit,
+      truncated: gitStatusByPath.truncated === true || allItems.length > limit,
     };
   }
 

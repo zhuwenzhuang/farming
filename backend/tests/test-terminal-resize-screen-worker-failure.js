@@ -1,10 +1,6 @@
 const assert = require('assert');
 const NativePtyHost = require('../native-pty-host');
 const LocalSessionEngine = require('../local-session-engine');
-const {
-  claimTerminalController,
-  createTerminalControllerLease,
-} = require('../terminal-controller-lease');
 
 function makeSession(id) {
   const resizeCalls = [];
@@ -18,7 +14,6 @@ function makeSession(id) {
       runtimeEpoch: `${id}-epoch`,
       stateProofAvailable: true,
       reducerCommitQueue: Promise.resolve(),
-      controllerLease: createTerminalControllerLease(),
       process: {
         pause() {},
         resume() {},
@@ -54,24 +49,7 @@ async function runNativeResizeCase() {
   host.emitSessionEvent = (event, payload) => {
     events.push({ event, payload });
   };
-  const client = {};
-  host.activeControllerClient = client;
-  host.activeControllerIdentity = { id: 'test-controller', startedAt: 1 };
-  client.controllerId = 'test-controller';
-  const lease = await host.claimSessionController(session.id, {
-    ownerKey: 'test-owner',
-    claimId: 'test-claim',
-    expectedRuntimeEpoch: session.runtimeEpoch,
-  }, client);
-  session.controllerLease.rendererReadyFence = lease.fence;
-
-  const result = await host.resizeSession(session.id, 120.8, 40.2, {
-    ownerKey: 'test-owner',
-    leaseId: lease.leaseId,
-    fence: lease.fence,
-    requestSeq: 1,
-    expectedRuntimeEpoch: session.runtimeEpoch,
-  }, client);
+  const result = await host.resizeSession(session.id, 120.8, 40.2);
 
   assert.deepStrictEqual(resizeCalls, [{ cols: 120, rows: 40 }]);
   assert.strictEqual(result.status, 'resize-rejected');
@@ -98,20 +76,7 @@ async function runLocalResizeCase() {
   engine.emit = (event, payload) => {
     events.push({ event, payload });
   };
-  const lease = await engine.claimSessionController(session.id, {
-    ownerKey: 'test-owner',
-    claimId: 'test-claim',
-    expectedRuntimeEpoch: session.runtimeEpoch,
-  });
-  session.controllerLease.rendererReadyFence = lease.fence;
-
-  const result = await engine.resizeSession(session.id, 121, 41, {
-    ownerKey: 'test-owner',
-    leaseId: lease.leaseId,
-    fence: lease.fence,
-    requestSeq: 1,
-    expectedRuntimeEpoch: session.runtimeEpoch,
-  });
+  const result = await engine.resizeSession(session.id, 121, 41);
 
   assert.deepStrictEqual(resizeCalls, [{ cols: 121, rows: 41 }]);
   assert.strictEqual(result.status, 'resize-rejected');
@@ -151,19 +116,9 @@ async function runClearFailureCase(kind) {
     target.emit = (event, payload) => events.push({ event, payload });
   }
 
-  const ownerKey = `${kind}-clear-owner`;
-  const lease = claimTerminalController(session, {
-    ownerKey,
-    claimId: `${kind}-clear-claim`,
-    expectedRuntimeEpoch: session.runtimeEpoch,
-  });
-  session.controllerLease.rendererReadyFence = lease.fence;
-  const result = await target.clearBuffer(session.id, {
-    ownerKey,
-    leaseId: lease.leaseId,
-    fence: lease.fence,
-    expectedRuntimeEpoch: session.runtimeEpoch,
-  });
+  const result = kind === 'native'
+    ? await target.clearBuffer(session.id, session.runtimeEpoch)
+    : await target.clearBuffer(session.id, { expectedRuntimeEpoch: session.runtimeEpoch });
   assert.deepStrictEqual(result, { cleared: false });
   assert.strictEqual(session.stateProofAvailable, false);
   assert.strictEqual(killCalls.length, 1, 'a failed clear reducer must stop the unprovable PTY runtime');

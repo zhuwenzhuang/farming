@@ -103,8 +103,10 @@ function run() {
       workspaceSource.includes('recordWorkspaceNavigationFile({') &&
       workspaceSource.includes('recordWorkspaceNavigationFileCursor') &&
       workspaceSource.includes('beginWorkspaceNavigation(direction)') &&
-      workspaceSource.includes('pruneWorkspaceNavigationEntries(entry => workspaceNavigationAgentIds.has(entry.agentId))') &&
-      workspaceSource.includes('if (!workspaceNavigationAgentIds.has(entry.agentId)) return false') &&
+      workspaceSource.includes('const workspaceNavigationFileIds = useMemo(() => {') &&
+      workspaceSource.includes("entry.kind === 'agent'") &&
+      workspaceSource.includes(': workspaceNavigationFileIds.has(entry.agentId)') &&
+      workspaceSource.includes("} else if (!workspaceNavigationFileIds.has(entry.agentId)) {") &&
       workspaceSource.includes('} catch {\n      return false\n    }\n  }, [\n    clearSearch,\n    closeSidebarForMobile,') &&
       !workspaceSource.includes('focusWorkspaceFilesSearch(entry.agentId, entry.filePath)') &&
       workspaceSource.includes('restoreWorkspaceNavigationEntry(currentEntry)') &&
@@ -114,6 +116,7 @@ function run() {
       workspaceNavigationSource.includes('WORKSPACE_NAVIGATION_MAX_ENTRIES = 50') &&
       workspaceNavigationSource.includes("kind: 'agent'") &&
       workspaceNavigationSource.includes("kind: 'file'") &&
+      workspaceNavigationSource.includes('sourceAgentId?: string') &&
       workspaceNavigationSource.includes('shouldReplaceWorkspaceNavigationEntry') &&
       workspaceNavigationSource.includes('WORKSPACE_NAVIGATION_CURSOR_SETTLE_MS') &&
       workspaceNavigationSource.includes("event.key === '-' || event.key === '_' || event.code === 'Minus'") &&
@@ -408,7 +411,7 @@ function run() {
       workspaceSource.includes('const restoreWorkspaceShareTarget = useCallback') &&
       workspaceSource.includes('workspaceFileOpenTargetFromShareTarget(target)') &&
       workspaceSource.includes("target.kind === 'folder'") &&
-      workspaceSource.includes("revealWorkspaceFileInExplorer(resolvedPath.agentId, resolvedPath.filePath, 'directory')") &&
+      workspaceSource.includes("revealWorkspaceFileInExplorer(identity.filesId, resolvedPath.filePath, 'directory')") &&
       workspaceSource.includes('resolveWorkspaceSharePath(') &&
       workspaceSource.includes('clearWorkspaceShareTargetSearch(window.location.search)') &&
       workspaceSource.includes('copy.sharedLocationUnavailable(sharedPath)') &&
@@ -699,7 +702,8 @@ function run() {
       workspaceSource.includes('projectListProjectsForAgents(') &&
       workspaceSource.includes('openWorkspaceFiles,\n      visibleAgents,') &&
       workspaceSource.includes('project.hasOpenFile') &&
-      workspaceSource.includes('project.fileAgent ?? null') &&
+      workspaceSource.includes("const filesWorkspaceId = project.workspace ? projectFilesWorkspaceId(project.workspace) : ''") &&
+      !workspaceSource.includes('fileAgentId') &&
       workspaceSource.includes('code-project-worktree') &&
       workspaceSource.includes('limitProjectAgentSessions(\n    projectListProjects') &&
       workspaceSource.includes('historyAgentSessions') &&
@@ -988,14 +992,14 @@ function run() {
       serverSource.includes('IMAGE_ATTACHMENT_RETENTION_MS') &&
       serverSource.includes('cleanupExpiredImageAttachments') &&
       serverSource.includes('IMAGE_ATTACHMENT_FILENAME_RE') &&
-      serverSource.includes('terminalControllerCoordinator.interrupt(ws, data)') &&
+      serverSource.includes('void agentManager.interruptAgent(data.agentId)') &&
       serverSource.includes("const { inputPartsFromMessage } = require('./input-parts')") &&
       inputPartsSource.includes('function inputPartsFromMessage(data)') &&
       inputPartsSource.includes('Array.isArray(data && data.inputParts)') &&
       inputPartsSource.includes("part.type === 'paste'") &&
       serverSource.includes('if (inputParts.length === 0) return') &&
-      serverSource.includes('await terminalControllerCoordinator.input(ws, {') &&
-      serverSource.includes("message: 'Terminal input requires an active fenced terminal attachment'") &&
+      serverSource.includes('await agentManager.sendInput(targetAgentId, inputParts)') &&
+      !serverSource.includes('terminalControllerCoordinator') &&
       !serverSource.includes('const INPUT_PART_DELAY_MS = 24') &&
       !serverSource.includes('for (let index = 0; index < inputParts.length; index += 1)') &&
       serverSource.includes('await agentManager.killAgent(currentMain.id)') &&
@@ -1122,8 +1126,8 @@ function run() {
   );
 
   assert(
-    webSocketSource.includes("type: 'interrupt-agent',") &&
-      webSocketSource.includes('...(controller || {})') &&
+    webSocketSource.includes("type: 'interrupt-agent', agentId") &&
+      !webSocketSource.includes('...(controller || {})') &&
       webSocketSource.includes('interruptAgent,') &&
     messagesSource.includes("type: 'interrupt-agent'") &&
       messagesSource.includes('inputParts?: TerminalInputPart[]') &&

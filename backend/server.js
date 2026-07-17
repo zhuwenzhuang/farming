@@ -35,7 +35,7 @@ const {
 const { discoverAgentWorkspaces } = require('./workspace-discovery');
 const { createControlRouter } = require('./control-api');
 const { WorkspaceFileService, WorkspaceFileError } = require('./workspace-file-service');
-const { createWorkspaceFileRouter } = require('./workspace-file-router');
+const { createWorkspaceFileRouter, resolveWorkspaceRoot } = require('./workspace-file-router');
 const { UsageMonitor } = require('./usage-monitor');
 const { CodexContextWindowReader } = require('./codex-context-window');
 const { DEFAULT_MAX_TURNS: DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS, readCodexTranscript } = require('./codex-transcript');
@@ -65,7 +65,6 @@ const {
   coalesceSessionStream,
   deliverSessionStreamToClients,
 } = require('./session-stream-protocol');
-const TerminalControllerCoordinator = require('./terminal-controller-coordinator');
 
 const BASE_PATH = normalizeBasePath(process.env.FARMING_BASE_PATH || '/');
 const PORT = process.env.PORT || 3000;
@@ -99,7 +98,6 @@ const agentManager = new AgentManager(configManager, {
   authDisabled: !authEnabled,
   cliBinDir: resolveCliBinDir(),
 });
-const terminalControllerCoordinator = new TerminalControllerCoordinator({ agentManager });
 const themeManager = new ThemeManager({ configDir: configManager.farmingDir });
 const workspaceFileService = new WorkspaceFileService();
 const updateService = new FarmingUpdateService({
@@ -500,7 +498,6 @@ if (process.env.NODE_ENV === 'test' && process.env.FARMING_E2E_FAKE_EXECUTABLES 
 
 app.use(routePath(BASE_PATH, '/api/control'), createControlRouter(agentManager, {
   notifyUpdate: broadcastState,
-  terminalMutationCoordinator: terminalControllerCoordinator,
   allowConcurrentTestControl: process.env.NODE_ENV === 'test'
     && process.env.FARMING_E2E_FAKE_EXECUTABLES === '1',
 }));
@@ -1259,25 +1256,15 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/codex-terminal-profile'), ex
   req.once('aborted', abortRequest);
   res.once('close', abortClosedResponse);
   try {
-    const result = await terminalControllerCoordinator.runOwnedMutation(
-      req.params.agentId,
-      req.body?.controller,
-      async ({ terminalControl, signal, deadline }) => agentManager.setCodexTerminalProfile(req.params.agentId, {
-        model: req.body?.model,
-        effort: req.body?.effort,
-        serviceTier: req.body?.serviceTier,
-      }, {
-        terminalControl,
-        signal,
-        timeoutMs: Math.max(1, deadline - Date.now() - 1_000),
-      }),
-      { signal: requestAbort.signal },
-    );
-    if (result.status !== 'committed') {
-      res.status(409).json({ error: 'Take control of the Terminal before changing its profile' });
-      return;
-    }
-    res.json({ profile: result.value });
+    const profile = await agentManager.setCodexTerminalProfile(req.params.agentId, {
+      model: req.body?.model,
+      effort: req.body?.effort,
+      serviceTier: req.body?.serviceTier,
+    }, {
+      signal: requestAbort.signal,
+      timeoutMs: 44_000,
+    });
+    res.json({ profile });
   } catch (error) {
     const message = error && error.message ? error.message : 'Failed to update Codex Terminal profile';
     const status = message === 'Agent not found'
@@ -1856,7 +1843,6 @@ wss.on('connection', (ws, req) => {
   
   ws.on('close', () => {
     clearWorkspaceFileWatch(ws);
-    void terminalControllerCoordinator.releaseAllForSocket(ws);
     console.log('Client disconnected');
   });
   
@@ -1912,22 +1898,7 @@ async function sendInputMessage(ws, data) {
 
   const inputParts = inputPartsFromMessage(data);
   if (inputParts.length === 0) return;
-  if (
-    typeof data.attachmentId !== 'string' ||
-    typeof data.leaseId !== 'string' ||
-    !Number.isFinite(data.fence) ||
-    typeof data.expectedRuntimeEpoch !== 'string'
-  ) {
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: 'Terminal input requires an active fenced terminal attachment',
-    }));
-    return;
-  }
-  await terminalControllerCoordinator.input(ws, {
-    ...data,
-    agentId: targetAgentId,
-  }, inputParts);
+  await agentManager.sendInput(targetAgentId, inputParts);
 }
 
 async function sendComposerInputMessage(ws, data) {
@@ -2064,7 +2035,7 @@ function handleMessage(ws, data) {
 
     case 'interrupt-agent':
       if (data.agentId) {
-        void terminalControllerCoordinator.interrupt(ws, data);
+        void agentManager.interruptAgent(data.agentId);
       }
       break;
       
@@ -2083,36 +2054,12 @@ function handleMessage(ws, data) {
 
     case 'resize-agent':
       if (data.agentId && Number.isFinite(data.cols) && Number.isFinite(data.rows)) {
-        void terminalControllerCoordinator.resize(ws, data);
+        agentManager.requestAgentSessionResize(data.agentId, data.cols, data.rows);
       }
       break;
 
     case 'clear-terminal':
-      void terminalControllerCoordinator.clear(ws, data);
-      break;
-
-    case 'terminal-output-ack':
-      void terminalControllerCoordinator.acknowledgeOutput(ws, data);
-      break;
-
-    case 'terminal-checkpoint-applied':
-      void terminalControllerCoordinator.checkpointApplied(ws, data);
-      break;
-
-    case 'terminal-controller-claim':
-      void terminalControllerCoordinator.claim(ws, data);
-      break;
-
-    case 'terminal-controller-renew':
-      void terminalControllerCoordinator.renew(ws, data);
-      break;
-
-    case 'terminal-renderer-ready':
-      void terminalControllerCoordinator.rendererReady(ws, data);
-      break;
-
-    case 'terminal-controller-release':
-      void terminalControllerCoordinator.release(ws, data);
+      if (data.agentId) void agentManager.clearAgentSessionBuffer(data.agentId);
       break;
 
     case 'watch-workspace-files':
@@ -2182,10 +2129,7 @@ async function watchWorkspaceFiles(ws, data) {
       return;
     }
 
-    const root = agentManager.getAgentWorkspaceRoot(data.agentId);
-    if (!root) {
-      throw new WorkspaceFileError('agent not found', 404);
-    }
+    const root = resolveWorkspaceRoot(agentManager, data.agentId);
 
     const unsubscribe = await workspaceFileService.subscribe(root, (event) => {
       if (ws.readyState !== WebSocket.OPEN) return;

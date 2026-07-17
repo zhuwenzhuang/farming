@@ -2,10 +2,6 @@ const assert = require('assert');
 const NativePtyHost = require('../native-pty-host');
 const LocalSessionEngine = require('../local-session-engine');
 const { coalesceSessionStream } = require('../session-stream-protocol');
-const {
-  claimTerminalController,
-  createTerminalControllerLease,
-} = require('../terminal-controller-lease');
 
 function deferred() {
   let resolve;
@@ -35,7 +31,6 @@ function makeSession(id, screenWorker) {
     lastActivityAt: Date.now(),
     stateProofAvailable: true,
     reducerCommitQueue: Promise.resolve(),
-    controllerLease: createTerminalControllerLease(),
     process: {
       resize(cols, rows) {
         resizeCalls.push({ cols, rows });
@@ -82,38 +77,10 @@ async function verifyResizeExactCut(kind) {
       return resizeResult.promise;
     },
   });
-  const { harness, events, client } = kind === 'native'
+  const { harness, events } = kind === 'native'
     ? createNativeHarness(session)
     : createLocalHarness(session);
-  const ownerKey = 'owner-a';
-  const lease = await (kind === 'native'
-    ? harness.claimSessionController(session.id, {
-        ownerKey,
-        claimId: 'claim-a',
-        expectedRuntimeEpoch: session.runtimeEpoch,
-      }, client)
-    : claimTerminalController(session, {
-        ownerKey,
-        claimId: 'claim-a',
-        expectedRuntimeEpoch: session.runtimeEpoch,
-      }));
-  session.controllerLease.rendererReadyFence = lease.fence;
-
-  const pending = kind === 'native'
-    ? harness.resizeSession(session.id, 120, 40, {
-        ownerKey,
-        leaseId: lease.leaseId,
-        fence: lease.fence,
-        requestSeq: 1,
-        expectedRuntimeEpoch: session.runtimeEpoch,
-      }, client)
-    : harness.resizeSession(session.id, 120, 40, {
-        ownerKey,
-        leaseId: lease.leaseId,
-        fence: lease.fence,
-        requestSeq: 1,
-        expectedRuntimeEpoch: session.runtimeEpoch,
-      });
+  const pending = harness.resizeSession(session.id, 120, 40);
 
   outputAfterMutation(session);
   resizeResult.resolve({
@@ -151,30 +118,12 @@ async function verifyClearExactCut(kind) {
       return clearResult.promise;
     },
   });
-  const { harness, events, client } = kind === 'native'
+  const { harness, events } = kind === 'native'
     ? createNativeHarness(session)
     : createLocalHarness(session);
-  const ownerKey = 'clear-owner';
-  const lease = kind === 'native'
-    ? await harness.claimSessionController(session.id, {
-        ownerKey,
-        claimId: 'clear-claim',
-        expectedRuntimeEpoch: session.runtimeEpoch,
-      }, client)
-    : claimTerminalController(session, {
-        ownerKey,
-        claimId: 'clear-claim',
-        expectedRuntimeEpoch: session.runtimeEpoch,
-      });
-  session.controllerLease.rendererReadyFence = lease.fence;
-  const terminalControl = {
-    ownerKey,
-    leaseId: lease.leaseId,
-    fence: lease.fence,
-    expectedRuntimeEpoch: session.runtimeEpoch,
-  };
-
-  const pending = harness.clearBuffer(session.id, terminalControl);
+  const pending = kind === 'native'
+    ? harness.clearBuffer(session.id, session.runtimeEpoch)
+    : harness.clearBuffer(session.id, { expectedRuntimeEpoch: session.runtimeEpoch });
   outputAfterMutation(session);
   clearResult.resolve({
     runtimeEpoch: session.runtimeEpoch,
@@ -206,7 +155,6 @@ async function verifyClearExactCut(kind) {
     stateRevision: 2,
     cols: 80,
     rows: 24,
-    expiresAt: session.controllerLease.expiresAt,
   });
 
   const coalesced = coalesceSessionStream(

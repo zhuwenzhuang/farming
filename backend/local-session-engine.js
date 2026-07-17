@@ -15,31 +15,11 @@ const {
 } = require('./native-pty-controller-generation');
 const storageLayout = require('./storage-layout');
 const {
-  beginTerminalControllerResize,
-  claimTerminalController,
-  commitTerminalControllerResize,
-  createTerminalControllerLease,
-  expireTerminalControllerIfNeeded,
-  rejectTerminalControllerResize,
-  releaseTerminalController,
-  renewTerminalController,
-  validateTerminalControllerClear,
-  validateTerminalControllerCheckpointApplied,
-  validateTerminalControllerInput,
-  validateTerminalControllerOutputAck,
-  validateTerminalControllerRendererReady,
-} = require('./terminal-controller-lease');
-const {
   acknowledgeTerminalReducerData,
-  acknowledgeTerminalRendererCheckpoint,
-  acknowledgeTerminalRendererData,
   createTerminalReducerFlowControl,
   ensureTerminalReducerFlowControl,
   enqueueTerminalReducerData,
-  enqueueTerminalRendererData,
   resetTerminalReducerFlowControl,
-  resetTerminalRendererFlowControl,
-  setTerminalExternalFlowControlBlocked,
 } = require('./terminal-reducer-flow-control');
 const {
   captureTerminalAttachCheckpoint,
@@ -239,7 +219,6 @@ class LocalSessionEngine extends SessionEngine {
       stateProofAvailable: true,
       reducerFlowControl: createTerminalReducerFlowControl(),
       reducerCommitQueue: Promise.resolve(),
-      controllerLease: createTerminalControllerLease(),
       renderOutput: '',
       previewText: '',
       previewSnapshot: null,
@@ -467,11 +446,6 @@ class LocalSessionEngine extends SessionEngine {
     current.reducerCommitQueue = current.reducerCommitQueue.then(() => commit).then(() => {
       const latest = this.sessions.get(current.id);
       if (latest !== current || latest.stateProofAvailable === false) return;
-      const rendererFlowError = this.trackSessionRendererData(latest, data, outputSeq);
-      if (rendererFlowError) {
-        this.failSessionScreenState(latest, rendererFlowError);
-        return;
-      }
       const flowError = acknowledgeTerminalReducerData(
         ensureTerminalReducerFlowControl(latest),
         latest.process,
@@ -514,37 +488,15 @@ class LocalSessionEngine extends SessionEngine {
     }
   }
 
-  trackSessionRendererData(session, data, outputSeq) {
-    const expired = expireTerminalControllerIfNeeded(session);
-    const hasOwner = Boolean(
-      session.controllerLease?.ownerKey &&
-      session.controllerLease?.leaseId &&
-      session.controllerLease.expiresAt > Date.now()
-    );
-    if (expired || !hasOwner) {
-      const control = ensureTerminalReducerFlowControl(session);
-      const resetError = resetTerminalRendererFlowControl(control, session.process);
-      return resetError || setTerminalExternalFlowControlBlocked(control, session.process, false);
-    }
-    if (session.controllerLease.rendererReadyFence !== session.controllerLease.fence) {
-      return null;
-    }
-    return enqueueTerminalRendererData(
-      ensureTerminalReducerFlowControl(session),
-      session.process,
-      String(data || '').length,
-      outputSeq,
-    );
-  }
-
   async sendInput(sessionId, input, options = {}) {
     const session = this.sessions.get(sessionId);
     if (!session || !session.process || session.status === 'exited' || session.exitFinalizing === true) {
       throw new Error('Session not available');
     }
 
-    const controlState = validateTerminalControllerInput(session, options.terminalControl || {});
-    if (controlState.status !== 'input-accepted') return controlState;
+    if (options.expectedRuntimeEpoch && options.expectedRuntimeEpoch !== session.runtimeEpoch) {
+      return { status: 'input-rejected', reason: 'runtime-epoch-mismatch' };
+    }
     session.process.write(terminalInputToPtyString(input));
     session.lastActivityAt = Date.now();
     this.emit('session-activity', {
@@ -559,50 +511,6 @@ class LocalSessionEngine extends SessionEngine {
     return this.sendInput(sessionId, input, options);
   }
 
-  async claimSessionController(sessionId, controller) {
-    const session = this.sessions.get(sessionId);
-    if (!session || session.status === 'exited' || session.exitFinalizing === true) {
-      return { status: 'rejected', reason: 'session-unavailable' };
-    }
-    const previousLeaseId = session.controllerLease?.leaseId || '';
-    const result = claimTerminalController(session, controller);
-    if (result.status === 'owner' && result.leaseId !== previousLeaseId) {
-      const flowError = setTerminalExternalFlowControlBlocked(
-        ensureTerminalReducerFlowControl(session),
-        session.process,
-        true,
-      );
-      if (flowError) this.failSessionScreenState(session, flowError);
-    }
-    return result;
-  }
-
-  async activateSessionRenderer(sessionId, controller) {
-    const session = this.sessions.get(sessionId);
-    if (!session || session.status === 'exited' || session.exitFinalizing === true) {
-      return { status: 'renderer-ready-rejected', reason: 'session-unavailable' };
-    }
-    const controlState = validateTerminalControllerRendererReady(session, controller);
-    if (controlState.status !== 'renderer-ready-accepted') return controlState;
-    if (session.controllerLease.rendererReadyFence === controller.fence) {
-      return { ...controlState, status: 'renderer-ready-accepted', duplicate: true };
-    }
-    const flowControl = ensureTerminalReducerFlowControl(session);
-    const resetError = resetTerminalRendererFlowControl(flowControl, session.process);
-    if (resetError) {
-      this.failSessionScreenState(session, resetError);
-      return { ...controlState, status: 'renderer-ready-rejected', reason: 'flow-control-failed' };
-    }
-    session.controllerLease.rendererReadyFence = controller.fence;
-    const resumeError = setTerminalExternalFlowControlBlocked(flowControl, session.process, false);
-    if (resumeError) {
-      session.controllerLease.rendererReadyFence = 0;
-      this.failSessionScreenState(session, resumeError);
-      return { ...controlState, status: 'renderer-ready-rejected', reason: 'flow-control-failed' };
-    }
-    return { ...controlState, status: 'renderer-ready-accepted' };
-  }
-
   async getSessionAttachCheckpoint(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
@@ -610,87 +518,7 @@ class LocalSessionEngine extends SessionEngine {
     return this.sessions.get(sessionId) === session ? checkpoint : null;
   }
 
-  async renewSessionController(sessionId, controller) {
-    const session = this.sessions.get(sessionId);
-    if (!session || session.status === 'exited' || session.exitFinalizing === true) {
-      return { status: 'rejected', reason: 'session-unavailable' };
-    }
-    return renewTerminalController(session, controller);
-  }
-
-  async releaseSessionController(sessionId, controller) {
-    const session = this.sessions.get(sessionId);
-    if (!session || session.status === 'exited') {
-      return { status: 'unowned', reason: 'session-unavailable' };
-    }
-    const result = releaseTerminalController(session, controller);
-    if (result.status === 'unowned') {
-      const flowControl = ensureTerminalReducerFlowControl(session);
-      const flowError = resetTerminalRendererFlowControl(flowControl, session.process)
-        || setTerminalExternalFlowControlBlocked(flowControl, session.process, false);
-      if (flowError) this.failSessionScreenState(session, flowError);
-    }
-    return result;
-  }
-
-  async acknowledgeSessionOutput(sessionId, charCount, controller) {
-    const session = this.sessions.get(sessionId);
-    if (!session || session.status === 'exited') {
-      return { status: 'output-ack-rejected', reason: 'session-unavailable' };
-    }
-    const controlState = validateTerminalControllerOutputAck(session, controller);
-    if (controlState.status !== 'output-ack-accepted') return controlState;
-    const flowError = acknowledgeTerminalRendererData(
-      ensureTerminalReducerFlowControl(session),
-      session.process,
-      charCount,
-    );
-    if (flowError) {
-      this.failSessionScreenState(session, flowError);
-      return {
-        ...controlState,
-        status: 'output-ack-rejected',
-        reason: 'flow-control-failed',
-      };
-    }
-    return {
-      ...controlState,
-      acknowledged: Math.max(0, Math.floor(Number(charCount) || 0)),
-    };
-  }
-
-  async acknowledgeSessionCheckpoint(sessionId, outputSeq, stateRevision, controller) {
-    const session = this.sessions.get(sessionId);
-    if (!session || session.status === 'exited') {
-      return { status: 'checkpoint-applied-rejected', reason: 'session-unavailable' };
-    }
-    const controlState = validateTerminalControllerCheckpointApplied(session, controller);
-    if (controlState.status !== 'checkpoint-applied-accepted') return controlState;
-    const appliedOutputSeq = Math.floor(Number(outputSeq));
-    const appliedStateRevision = Math.floor(Number(stateRevision));
-    if (
-      !Number.isFinite(appliedOutputSeq) ||
-      !Number.isFinite(appliedStateRevision) ||
-      appliedOutputSeq < 0 ||
-      appliedStateRevision < 0 ||
-      appliedOutputSeq > session.outputSeq ||
-      appliedStateRevision > session.stateRevision
-    ) {
-      return { ...controlState, status: 'checkpoint-applied-rejected', reason: 'invalid-checkpoint-cut' };
-    }
-    const result = acknowledgeTerminalRendererCheckpoint(
-      ensureTerminalReducerFlowControl(session),
-      session.process,
-      appliedOutputSeq,
-    );
-    if (result.error) {
-      this.failSessionScreenState(session, result.error);
-      return { ...controlState, status: 'checkpoint-applied-rejected', reason: 'flow-control-failed' };
-    }
-    return { ...controlState, outputSeq: appliedOutputSeq, stateRevision: appliedStateRevision };
-  }
-
-  async resizeSession(sessionId, cols, rows, controller) {
+  async resizeSession(sessionId, cols, rows) {
     const session = this.sessions.get(sessionId);
     if (!session || !session.process || !session.process.resize) {
       return { status: 'resize-rejected', reason: 'session-unavailable', resized: false };
@@ -699,21 +527,15 @@ class LocalSessionEngine extends SessionEngine {
       return { status: 'resize-rejected', reason: 'session-unavailable', resized: false };
     }
 
-    const resize = beginTerminalControllerResize(session, controller);
-    if (!resize.accepted) {
-      return {
-        ...resize.result,
-        resized: resize.duplicate === true || resize.result?.status === 'resize-committed',
-      };
-    }
     if (cols === session.previewCols && rows === session.previewRows) {
       if (this.sessions.get(sessionId) !== session) {
         return { status: 'resize-rejected', reason: 'session-replaced', resized: false };
       }
-      return commitTerminalControllerResize(session, resize.requestSeq, {
+      return {
+        status: 'resize-committed',
         resized: true,
         unchanged: true,
-      }, resize.token);
+      };
     }
 
     try {
@@ -722,17 +544,14 @@ class LocalSessionEngine extends SessionEngine {
       if (error && String(error.message || '').includes('EBADF')) {
         session.status = 'exited';
         session.exitedAt = session.exitedAt || Date.now();
-        return rejectTerminalControllerResize(
-          session,
-          resize.requestSeq,
-          'session-unavailable',
-          {},
-          resize.token,
-        );
+        return { status: 'resize-rejected', reason: 'session-unavailable', resized: false };
       }
-      return rejectTerminalControllerResize(session, resize.requestSeq, 'pty-resize-failed', {
+      return {
+        status: 'resize-rejected',
+        reason: 'pty-resize-failed',
+        resized: false,
         error: error instanceof Error ? error.message : String(error || 'unknown PTY resize failure'),
-      }, resize.token);
+      };
     }
     if (this.sessions.get(sessionId) !== session) {
       return { status: 'resize-rejected', reason: 'session-replaced', resized: false };
@@ -747,10 +566,11 @@ class LocalSessionEngine extends SessionEngine {
       if (this.sessions.get(sessionId) !== session) {
         return { status: 'resize-rejected', reason: 'session-replaced', resized: false };
       }
-      return commitTerminalControllerResize(session, resize.requestSeq, {
+      return {
+        status: 'resize-committed',
         resized: true,
         unchanged: false,
-      }, resize.token);
+      };
     }
 
     const reducerCommit = session.screenWorker.resize(cols, rows, stateRevision);
@@ -798,18 +618,13 @@ class LocalSessionEngine extends SessionEngine {
     try {
       await publishedCommit;
     } catch {
-      return rejectTerminalControllerResize(
-        session,
-        resize.requestSeq,
-        'screen-reducer-failed',
-        {},
-        resize.token,
-      );
+      return { status: 'resize-rejected', reason: 'screen-reducer-failed', resized: false };
     }
     if (this.sessions.get(sessionId) !== session) {
       return { status: 'resize-rejected', reason: 'session-replaced', resized: false };
     }
-    return commitTerminalControllerResize(session, resize.requestSeq, {
+    return {
+      status: 'resize-committed',
       resized: true,
       unchanged: false,
       runtimeEpoch,
@@ -817,17 +632,16 @@ class LocalSessionEngine extends SessionEngine {
       stateRevision,
       cols,
       rows,
-    }, resize.token);
+    };
   }
 
-  async clearBuffer(sessionId, controller = null) {
+  async clearBuffer(sessionId, options = {}) {
     const session = this.sessions.get(sessionId);
     if (!session || session.status === 'exited' || session.exitFinalizing === true) {
       return { cleared: false };
     }
-    const controlState = validateTerminalControllerClear(session, controller || {});
-    if (controlState.status !== 'clear-accepted') {
-      return { cleared: false, ...controlState };
+    if (options.expectedRuntimeEpoch && options.expectedRuntimeEpoch !== session.runtimeEpoch) {
+      return { cleared: false, reason: 'runtime-epoch-mismatch' };
     }
 
     session.output = '';
@@ -914,7 +728,6 @@ class LocalSessionEngine extends SessionEngine {
       stateRevision: exactState.stateRevision,
       cols: exactState.cols,
       rows: exactState.rows,
-      expiresAt: session.controllerLease?.expiresAt || 0,
     };
   }
 

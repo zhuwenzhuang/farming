@@ -63,12 +63,15 @@ async function run() {
   const projectWorkspace = path.join(tmpRoot, 'project');
   const mainWorkspace = path.join(projectWorkspace, '.farming');
   const externalWorkspace = path.join(tmpRoot, 'external-workspace');
+  const liveProjectWorkspace = path.join(tmpRoot, 'live-project');
   const projectWorkspaces = [projectWorkspace];
   const service = new WorkspaceFileService({ maxFileSize: 64, maxWriteSize: 1024 * 32 });
 
   try {
     fs.mkdirSync(mainWorkspace, { recursive: true });
     fs.mkdirSync(externalWorkspace, { recursive: true });
+    fs.mkdirSync(liveProjectWorkspace, { recursive: true });
+    fs.writeFileSync(path.join(liveProjectWorkspace, 'live.txt'), 'live project\n');
     fs.writeFileSync(path.join(externalWorkspace, 'reference.md'), 'external router reference\n');
     fs.symlinkSync(externalWorkspace, path.join(projectWorkspace, 'reference-link'));
     fs.writeFileSync(path.join(projectWorkspace, 'README.md'), 'hello farming\n');
@@ -97,7 +100,8 @@ async function run() {
       getState() {
         return {
           agents: [
-            { id: 'agent-main', cwd: mainWorkspace, projectWorkspace },
+            { id: 'agent-main', cwd: mainWorkspace, projectWorkspace, isMain: true },
+            { id: 'agent-live', cwd: liveProjectWorkspace, projectWorkspace: liveProjectWorkspace, isMain: false },
           ],
         };
       },
@@ -114,6 +118,16 @@ async function run() {
       const tree = await fetchJson(baseUrl, '/api/files/tree?agentId=agent-main');
       assert.strictEqual(tree.response.status, 200);
       assert(tree.body.tree.items.some(item => item.path === 'README.md'));
+      const configuredProjectId = `${PROJECT_FILES_AGENT_PREFIX}${encodeURIComponent(projectWorkspace)}`;
+      const configuredProjectTree = await fetchJson(baseUrl, `/api/files/tree?agentId=${encodeURIComponent(configuredProjectId)}`);
+      assert.strictEqual(configuredProjectTree.response.status, 200);
+      const liveProjectId = `${PROJECT_FILES_AGENT_PREFIX}${encodeURIComponent(liveProjectWorkspace)}`;
+      const liveProjectTree = await fetchJson(baseUrl, `/api/files/tree?agentId=${encodeURIComponent(liveProjectId)}`);
+      assert.strictEqual(liveProjectTree.response.status, 200);
+      assert(liveProjectTree.body.tree.items.some(item => item.path === 'live.txt'));
+      const unrelatedProjectId = `${PROJECT_FILES_AGENT_PREFIX}${encodeURIComponent(path.join(liveProjectWorkspace, 'nested'))}`;
+      const unrelatedProjectTree = await fetchJson(baseUrl, `/api/files/tree?agentId=${encodeURIComponent(unrelatedProjectId)}`);
+      assert.strictEqual(unrelatedProjectTree.response.status, 404);
       const referenceLink = tree.body.tree.items.find(item => item.path === 'reference-link');
       assert.strictEqual(referenceLink.type, 'directory');
       assert.strictEqual(referenceLink.symbolicLink, true);

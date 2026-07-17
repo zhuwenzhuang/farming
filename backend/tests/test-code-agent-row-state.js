@@ -93,6 +93,7 @@ function run() {
       title: live.title,
       rowTitle: live.rowTitle,
       commandTitle: live.commandTitle,
+      detailLabel: live.detailLabel,
       lifecycleStatus: live.lifecycleStatus,
       turnActive: live.turnActive,
       statusIndicatorVisible: live.statusIndicatorVisible,
@@ -100,12 +101,15 @@ function run() {
       unread: live.unread,
       forkedToNewWorktree: live.forkedToNewWorktree,
       requiresResume: live.requiresResume,
+      ageLabel: live.ageLabel,
+      ageVisible: live.ageVisible,
     },
     {
       kind: 'agent',
       title: '值值Debugger',
       rowTitle: '值值Debugger · Running 2m: git status --short · /repo',
       commandTitle: 'Running 2m: git status --short',
+      detailLabel: 'Running 2m: git status --short',
       lifecycleStatus: 'running',
       turnActive: true,
       statusIndicatorVisible: true,
@@ -113,6 +117,8 @@ function run() {
       unread: true,
       forkedToNewWorktree: true,
       requiresResume: false,
+      ageLabel: '2d',
+      ageVisible: false,
     },
     'live agent row state should centralize title, lifecycle, turn activity, user flags, and fork marker'
   );
@@ -139,6 +145,9 @@ function run() {
     'Last command: npm test (12s, exit 1)',
     'idle shell rows should expose the most recent command in row tooltips'
   );
+  assert.strictEqual(lastCommandState.detailLabel, 'Last command: npm test (12s, exit 1)');
+  assert.strictEqual(lastCommandState.ageLabel, '2d');
+  assert.strictEqual(lastCommandState.ageVisible, true);
 
   assert.strictEqual(isNewWorktreeForkAgent(agent({ source: 'ui-fork-same-worktree', parentAgentId: 'parent-1' })), false);
   assert.strictEqual(isNewWorktreeForkAgent(agent({ source: 'ui-fork-new-worktree', parentAgentId: '' })), false);
@@ -178,6 +187,9 @@ function run() {
       statusIndicatorVisible: resumeRequired.statusIndicatorVisible,
       scheduled: resumeRequired.scheduled,
       scheduleTitle: resumeRequired.scheduleTitle,
+      detailLabel: resumeRequired.detailLabel,
+      ageLabel: resumeRequired.ageLabel,
+      ageVisible: resumeRequired.ageVisible,
     },
     {
       kind: 'history',
@@ -188,6 +200,9 @@ function run() {
       statusIndicatorVisible: false,
       scheduled: true,
       scheduleTitle: 'Every day',
+      detailLabel: 'Codex',
+      ageLabel: '2d',
+      ageVisible: true,
     },
     'agent row state should treat resume as an activation state, not a separate row concept'
   );

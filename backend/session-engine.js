@@ -17,18 +17,6 @@ class SessionEngine extends EventEmitter {
     throw new Error('resizeSession() must be implemented by subclasses');
   }
 
-  async acknowledgeSessionOutput(_sessionId, _charCount, _controller) {
-    throw new Error('acknowledgeSessionOutput() must be implemented by subclasses');
-  }
-
-  async acknowledgeSessionCheckpoint(_sessionId, _outputSeq, _stateRevision, _controller) {
-    throw new Error('acknowledgeSessionCheckpoint() must be implemented by subclasses');
-  }
-
-  async activateSessionRenderer(_sessionId, _controller) {
-    throw new Error('activateSessionRenderer() must be implemented by subclasses');
-  }
-
   async clearBuffer(_sessionId) {
     throw new Error('clearBuffer() must be implemented by subclasses');
   }

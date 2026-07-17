@@ -1,3 +1,4 @@
+import '../../frontend/terminal-replay.js'
 import {
   DEFAULT_FONT_FAMILY,
   DEFAULT_FONT_SIZE,
@@ -75,20 +76,14 @@ import {
   shouldHandleTerminalPasteEvent,
 } from '@/lib/terminal-input'
 import {
-  isSequencedOutputCovered,
   sessionBootstrapStateFromPayload,
 } from '@/lib/terminal-bootstrap'
-import type { SessionBootstrapState, SessionDataPayload, TerminalCursorPosition } from '@/lib/terminal-bootstrap'
+import type { SessionBootstrapState, SessionDataPayload } from '@/lib/terminal-bootstrap'
 import { appPath } from '@/lib/base-path'
-import { createBrowserUuid } from '@/lib/browser-random-id'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
-import {
-  sendTerminalControllerMessage,
-  subscribeTerminalController,
-} from '@/lib/terminal-controller-client'
-import type { TerminalControllerMessage, TerminalInputPart } from '@/types/messages'
-import { compareTerminalRuntimeEpochs } from '@/lib/terminal-runtime-epoch'
+import { sendTerminalSessionMessage } from '@/lib/terminal-session-client'
+import type { TerminalInputPart } from '@/types/messages'
 
 export type { TerminalPathOpenTarget } from '@/lib/terminal-links'
 export { normalizeTerminalSelection } from '@/lib/terminal-selection'
@@ -107,16 +102,7 @@ type TerminalOutputHandler = (
 type TerminalTransitionKind = 'output' | 'resize' | 'clear'
 
 const TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5000
-const CHECKPOINT_RETRY_DELAY_MS = 500
-const MAX_IDENTICAL_CHECKPOINT_INVARIANT_FAILURES = 4
-const MAX_QUEUED_TRANSITIONS = 512
-const MAX_QUEUED_TRANSITION_BYTES = 1024 * 1024
-const TERMINAL_CONTROLLER_RENEW_INTERVAL_MS = 10000
-const TERMINAL_CONTROLLER_CLAIM_TIMEOUT_MS = 8000
-const TERMINAL_OUTPUT_ACK_CHARS = 5000
-
-type TerminalControllerStatus = 'detached' | 'claiming' | 'owner' | 'observer' | 'suspended'
-
+const TERMINAL_REPLAY = FarmingTerminalReplay
 type TerminalViewportRestoreState = {
   viewportY: number
   scrollbackLength: number
@@ -178,31 +164,8 @@ interface SessionRecord {
   selectionChangeDisposable: (() => void) | null
   imeOverlayDisposables: Array<() => void>
   resizeObserver: ResizeObserver | null
-  unsubscribeController: (() => void) | null
-  controllerStatusEl: HTMLDivElement
-  controllerStatusTextEl: HTMLSpanElement
-  controllerTakeoverButton: HTMLButtonElement
-  controllerTakeoverHandler: ((event: MouseEvent) => void) | null
-  controllerAttachmentId: string
-  controllerClaimId: string
-  controllerClaimInFlight: boolean
-  controllerFocusAfterClaim: boolean
-  controllerStatus: TerminalControllerStatus
-  controllerReason: string
-  controllerLeaseId: string
-  controllerFence: number | null
-  rendererReadyFence: number | null
-  controllerExpiresAt: number
-  controllerResizeRequestSeq: number
-  controllerResizeRequestInFlight: boolean
-  controllerPendingResize: { cols: number; rows: number } | null
-  controllerRenewTimer: number | null
-  controllerClaimTimer: number | null
   applyingLocalResize: boolean
   parkedViewportState: TerminalViewportRestoreState | null
-  pendingOutputAckChars: number
-  suppressOutputAckForTest: boolean
-  suppressCheckpointAckForTest: boolean
   inputDisabled: boolean
   errorHandler: ((error: Error) => void) | null
   scrollChangeDisposable: (() => void) | null
@@ -251,35 +214,15 @@ interface SessionRecord {
   snapshotStateRevision: number | null
   snapshotCols: number | null
   snapshotRows: number | null
-  runtimeEpoch: string
-  lastOutputSeq: number | null
-  stateRevision: number | null
-  replayTargetEpoch: string
-  replayTargetRevision: number | null
-  retiredRuntimeEpochs: Set<string>
-  resizeAfterReplay: boolean
+  replayState: TerminalReplayState
   replayInProgress: boolean
   liveWriteInProgress: boolean
   terminalWriteQueue: Promise<void>
   terminalWriteResolvers: Set<(cancelled?: boolean) => boolean>
-  snapshotCursor: TerminalCursorPosition | null
   bootstrapRefreshSeq: number
   reconnectSnapshotSeq: number
-  checkpointRetryTimer: number | null
-  checkpointFailureCount: number
-  checkpointInvariantFailureSignature: string
-  checkpointInvariantFailureCount: number
-  controllerRecoveryFailureSignature: string
-  controllerRecoveryFailureCount: number
-  checkpointHalted: boolean
   checkpointRequestInFlight: boolean
-  checkpointRequestGeneration: number | null
-  checkpointRequestSeq: number | null
-  checkpointRequestStartedAt: number
-  checkpointLastResult: string
-  checkpointLastInvalidation: string
-  checkpointFetchCount: number
-  checkpointInstallSeq: number
+  checkpointRetryTimer: number | null
   bootstrapRequestControllers: Set<AbortController>
   needsReconnectOutputSync: boolean
   pageOutputSuspended: boolean
@@ -287,17 +230,6 @@ interface SessionRecord {
   pendingSnapshotReplay: boolean
   bootstrappingSnapshot: boolean
   fixtureOverrideActive: boolean
-  queuedOutput: Array<{
-    kind?: TerminalTransitionKind
-    data: string
-    replace?: boolean
-    outputSeq?: number | null
-    runtimeEpoch?: string
-    stateRevision?: number | null
-    cols?: number
-    rows?: number
-  }>
-  queuedOutputBytes: number
   suspendRendering: boolean
   cachedSelection: string
   lastNonEmptySelection: string
@@ -383,8 +315,6 @@ declare global {
       getLastNotifiedResize: (agentId: string) => { cols: number; rows: number } | null
       getResizeNotificationCount: (agentId: string) => number
       notifyResizeForTest: (agentId: string, cols: number, rows: number) => number
-      setOutputAckSuppressed: (agentId: string, suppressed: boolean) => boolean
-      setCheckpointAckSuppressed: (agentId: string, suppressed: boolean) => boolean
       getLastOutputSeq: (agentId: string) => number | null
       getRuntimeEpoch: (agentId: string) => string
       getStateRevision: (agentId: string) => number | null
@@ -400,18 +330,9 @@ declare global {
         bufferLength?: number
         queuedTransitions: number
         queuedBytes: number
-        replayTargetEpoch: string
-        replayTargetRevision: number | null
         checkpointRequestInFlight: boolean
-        checkpointHalted?: boolean
-        controllerRecoveryFailureSignature?: string
-        controllerRecoveryFailureCount?: number
         replayInProgress: boolean
         bootstrappingSnapshot: boolean
-        controllerStatus: TerminalControllerStatus
-        controllerResizeRequestSeq?: number
-        controllerResizeRequestInFlight?: boolean
-        controllerPendingResize?: { cols: number; rows: number } | null
       } | null
       getHostDiagnostics: () => Array<{
         agentId: string
@@ -447,18 +368,12 @@ function findSessionRecordForHost(hostEl: HTMLDivElement) {
   return null
 }
 
-function invalidateTerminalCheckpointRequest(record: SessionRecord, reason = 'unspecified') {
-  // Fence every old response and actively release browser HTTP connections.
-  // The sequence remains authoritative even if a browser delivers an aborted
-  // response callback after the attachment has changed.
+function invalidateTerminalCheckpointRequest(record: SessionRecord) {
   record.reconnectSnapshotSeq += 1
-  record.checkpointInstallSeq += 1
-  record.checkpointLastInvalidation = reason
+  clearTerminalCheckpointRetry(record)
   record.bootstrapRequestControllers.forEach(controller => controller.abort())
   record.bootstrapRequestControllers.clear()
   record.checkpointRequestInFlight = false
-  record.checkpointRequestGeneration = null
-  record.checkpointRequestSeq = null
 }
 
 function parkTerminalSessionRecord(record: SessionRecord) {
@@ -471,7 +386,6 @@ function parkTerminalSessionRecord(record: SessionRecord) {
     preserveUnreadOutputUntilJump: record.preserveUnreadOutputUntilJump,
   }
   invalidateTerminalCheckpointRequest(record)
-  releaseTerminalController(record, 'detached')
   record.followOutputHandler = null
   record.pathOpenHandler = null
   record.pathResolveHandler = null
@@ -532,7 +446,7 @@ async function fetchSessionBootstrapStateForCurrentTerminal(record: SessionRecor
   )
   try {
     // The reducer's checkpoint dimensions are part of the authoritative cut.
-    // Install that cut first; the active controller submits any desired resize
+    // Install that cut first; the visible browser submits its latest geometry
     // only after the checkpoint barrier has completed.
     return await fetchSessionBootstrapState(record.agentId, controller.signal)
   } finally {
@@ -761,21 +675,23 @@ function isCurrentAttachment(record: SessionRecord, generation: number) {
   return isCurrentTerminalAttachment(record, generation)
 }
 
-function replayPendingSnapshot(record: SessionRecord, generation?: number) {
-  if (record.fixtureOverrideActive) return
-  if (record.disposed || !record.pendingSnapshotReplay) return
-  if (generation !== undefined && !isCurrentAttachment(record, generation)) return
+function replayPendingSnapshot(record: SessionRecord, generation = record.attachGeneration) {
+  if (
+    record.fixtureOverrideActive ||
+    record.disposed ||
+    !record.pendingSnapshotReplay ||
+    !isCurrentAttachment(record, generation)
+  ) return
 
   record.pendingSnapshotReplay = false
-  record.snapshotCursor = null
   if (
     !record.snapshotRuntimeEpoch ||
     record.snapshotOutputSeq === null ||
-    record.snapshotStateRevision === null
+    record.snapshotStateRevision === null ||
+    record.snapshotCols === null ||
+    record.snapshotRows === null
   ) {
-    record.needsReconnectOutputSync = true
-    record.bootstrappingSnapshot = true
-    if (generation !== undefined) replayTerminalCheckpoint(record, generation)
+    requestTerminalReplay(record, generation)
     return
   }
   installTerminalCheckpoint(record, {
@@ -787,140 +703,21 @@ function replayPendingSnapshot(record: SessionRecord, generation?: number) {
     stateRevision: record.snapshotStateRevision,
     cols: record.snapshotCols,
     rows: record.snapshotRows,
-  }, generation ?? record.attachGeneration)
-}
-
-function scheduleTerminalCheckpointRetry(
-  record: SessionRecord,
-  generation: number,
-  minimumDelayMs = 0,
-) {
-  if (
-    record.disposed ||
-    record.checkpointHalted ||
-    record.pageOutputSuspended ||
-    !isCurrentAttachment(record, generation) ||
-    record.checkpointRetryTimer !== null
-  ) {
-    return
-  }
-  record.checkpointRetryTimer = window.setTimeout(() => {
-    record.checkpointRetryTimer = null
-    replayTerminalCheckpoint(record, generation)
-  }, Math.max(
-    minimumDelayMs,
-    Math.min(5000, CHECKPOINT_RETRY_DELAY_MS * Math.max(1, record.checkpointFailureCount)),
-  ))
-}
-
-function resetTerminalCheckpointInvariantFailures(record: SessionRecord) {
-  record.checkpointInvariantFailureSignature = ''
-  record.checkpointInvariantFailureCount = 0
-  record.checkpointHalted = false
-}
-
-function resetTerminalControllerRecoveryFailures(record: SessionRecord) {
-  record.controllerRecoveryFailureSignature = ''
-  record.controllerRecoveryFailureCount = 0
-}
-
-function prepareTerminalControllerRecovery(
-  record: SessionRecord,
-  message: TerminalControllerMessage,
-) {
-  if (
-    record.checkpointHalted ||
-    record.checkpointRequestInFlight ||
-    record.replayInProgress ||
-    record.bootstrappingSnapshot ||
-    record.pendingSnapshotReplay
-  ) {
-    return false
-  }
-  const signature = `${message.status}:${message.reason || 'unknown'}:${record.runtimeEpoch || 'unknown'}`
-  if (record.controllerRecoveryFailureSignature === signature) {
-    record.controllerRecoveryFailureCount += 1
-  } else {
-    record.controllerRecoveryFailureSignature = signature
-    record.controllerRecoveryFailureCount = 1
-  }
-  if (record.controllerRecoveryFailureCount >= MAX_IDENTICAL_CHECKPOINT_INVARIANT_FAILURES) {
-    record.checkpointHalted = true
-    cancelTerminalCheckpointRetry(record)
-    invalidateTerminalCheckpointRequest(record)
-    record.checkpointLastResult = `halted:controller:${signature}`
-    reportTerminalInputError(
-      record,
-      'Terminal synchronization stopped because the controller and checkpoint runtime kept disagreeing; reconnect to retry',
-    )
-    setTerminalControllerStatus(record, record.controllerStatus)
-    return false
-  }
-  return true
-}
-
-function rejectTerminalCheckpointInvariant(
-  record: SessionRecord,
-  generation: number,
-  signature: string,
-  message: string,
-) {
-  if (record.checkpointInvariantFailureSignature === signature) {
-    record.checkpointInvariantFailureCount += 1
-  } else {
-    record.checkpointInvariantFailureSignature = signature
-    record.checkpointInvariantFailureCount = 1
-  }
-  record.checkpointFailureCount += 1
-  record.checkpointLastResult = `invalid:${signature}:${record.checkpointInvariantFailureCount}`
-  beginTerminalCheckpointBarrier(
-    record,
-    record.replayTargetRevision,
-    record.replayTargetEpoch || record.runtimeEpoch,
-  )
-  if (record.checkpointInvariantFailureCount >= MAX_IDENTICAL_CHECKPOINT_INVARIANT_FAILURES) {
-    record.checkpointHalted = true
-    cancelTerminalCheckpointRetry(record)
-    record.checkpointLastResult = `halted:${signature}`
-    reportTerminalInputError(record, message)
-    setTerminalControllerStatus(record, record.controllerStatus)
-    return false
-  }
-  scheduleTerminalCheckpointRetry(record, generation)
-  return true
-}
-
-function cancelTerminalCheckpointRetry(record: SessionRecord) {
-  if (record.checkpointRetryTimer === null) return
-  window.clearTimeout(record.checkpointRetryTimer)
-  record.checkpointRetryTimer = null
-}
-
-function isValidTerminalCheckpoint(state: SessionBootstrapState) {
-  return Boolean(state.runtimeEpoch)
-    && state.outputSeq !== null
-    && state.stateRevision !== null
-    && state.cols !== null
-    && state.rows !== null
+  }, generation)
 }
 
 function seedTerminalCheckpoint(record: SessionRecord, state?: SessionBootstrapState) {
-  if (!state || !isValidTerminalCheckpoint(state) || record.fixtureOverrideActive) return false
-  const installedRevision = state.runtimeEpoch === record.runtimeEpoch
-    ? record.stateRevision
-    : null
-  const stagedRevision = state.runtimeEpoch === record.snapshotRuntimeEpoch
-    ? record.snapshotStateRevision
-    : null
+  if (!state || record.fixtureOverrideActive) return false
+  const checkpoint = terminalReplayCheckpoint(state)
+  if (TERMINAL_REPLAY.evaluateCheckpoint(record.replayState, checkpoint).action !== 'install') return false
   if (
-    (installedRevision !== null && installedRevision >= state.stateRevision!)
-    || (stagedRevision !== null && stagedRevision >= state.stateRevision!)
-  ) {
-    return false
-  }
+    state.runtimeEpoch === record.snapshotRuntimeEpoch &&
+    record.snapshotStateRevision !== null &&
+    state.stateRevision! <= record.snapshotStateRevision
+  ) return false
+
   record.snapshotOutput = state.output
   record.snapshotRuntimeEpoch = state.runtimeEpoch
-  record.snapshotCursor = state.cursor
   record.snapshotOutputSeq = state.outputSeq
   record.snapshotStateRevision = state.stateRevision
   record.snapshotCols = state.cols
@@ -931,186 +728,104 @@ function seedTerminalCheckpoint(record: SessionRecord, state?: SessionBootstrapS
   return true
 }
 
-function advanceTerminalReplayTarget(
-  record: SessionRecord,
-  runtimeEpoch: string,
-  stateRevision?: number | null,
-) {
-  if (runtimeEpoch && record.retiredRuntimeEpochs.has(runtimeEpoch)) return false
-  if (runtimeEpoch && record.replayTargetEpoch && runtimeEpoch !== record.replayTargetEpoch) {
-    const relation = compareTerminalRuntimeEpochs(runtimeEpoch, record.replayTargetEpoch)
-    if (relation === -1) return false
-    if (
-      relation === null &&
-      runtimeEpoch === record.runtimeEpoch &&
-      record.replayTargetEpoch !== record.runtimeEpoch
-    ) {
-      return false
-    }
-  } else if (runtimeEpoch && record.runtimeEpoch && runtimeEpoch !== record.runtimeEpoch) {
-    const relation = compareTerminalRuntimeEpochs(runtimeEpoch, record.runtimeEpoch)
-    if (relation === -1) return false
+function terminalReplayCheckpoint(state: SessionBootstrapState): TerminalReplayCheckpoint {
+  return {
+    runtimeEpoch: state.runtimeEpoch,
+    outputSeq: state.outputSeq!,
+    stateRevision: state.stateRevision!,
+    cols: state.cols!,
+    rows: state.rows!,
   }
-  if (typeof stateRevision !== 'number' || !Number.isFinite(stateRevision)) return
-  if (runtimeEpoch && runtimeEpoch !== record.replayTargetEpoch) {
-    record.replayTargetEpoch = runtimeEpoch
-    record.replayTargetRevision = stateRevision
-    return true
-  }
-  record.replayTargetRevision = Math.max(record.replayTargetRevision ?? 0, stateRevision)
-  return true
-}
-
-function beginTerminalCheckpointBarrier(
-  record: SessionRecord,
-  targetRevision?: number | null,
-  targetEpoch = record.runtimeEpoch,
-) {
-  if (targetEpoch && advanceTerminalReplayTarget(record, targetEpoch, targetRevision) === false) {
-    return false
-  }
-  record.needsReconnectOutputSync = true
-  record.bootstrappingSnapshot = true
-  if (!targetEpoch) advanceTerminalReplayTarget(record, targetEpoch, targetRevision)
-  return true
-}
-
-function queuedTransitionBytes(data: string) {
-  return new TextEncoder().encode(data).byteLength
 }
 
 function queueTerminalTransition(
   record: SessionRecord,
-  event: SessionRecord['queuedOutput'][number],
+  event: TerminalReplayTransition,
 ) {
-  if (event.runtimeEpoch && record.retiredRuntimeEpochs.has(event.runtimeEpoch)) return
-  // Once a checkpoint barrier exists, every observed transition advances the
-  // authoritative recovery watermark. This is independent from whether the
-  // bounded local queue can retain that transition: an overflow may discard
-  // queued bytes, but it must never forget the newest reducer revision that
-  // the replacement checkpoint has to cover.
-  if (
-    record.replayTargetRevision !== null ||
-    record.needsReconnectOutputSync ||
-    record.bootstrappingSnapshot ||
-    record.pendingSnapshotReplay
-  ) {
-    advanceTerminalReplayTarget(
-      record,
-      event.runtimeEpoch || record.runtimeEpoch,
-      event.stateRevision,
-    )
+  const result = TERMINAL_REPLAY.queueTransition(record.replayState, event)
+  if (!result.queued) {
+    record.needsReconnectOutputSync = true
+    record.bootstrappingSnapshot = true
+    requestTerminalReplay(record, record.attachGeneration)
   }
-  const bytes = queuedTransitionBytes(event.data)
-  if (
-    record.queuedOutput.length >= MAX_QUEUED_TRANSITIONS ||
-    record.queuedOutputBytes + bytes > MAX_QUEUED_TRANSITION_BYTES
-  ) {
-    // The checkpoint is authoritative and will cover discarded transitions.
-    // Keep only the required revision watermark so recovery stays bounded.
-    record.queuedOutput = []
-    record.queuedOutputBytes = 0
-    beginTerminalCheckpointBarrier(
-      record,
-      event.stateRevision,
-      event.runtimeEpoch || record.runtimeEpoch,
-    )
-    recoverTerminalCheckpointAfterStreamGap(record)
-    return
-  }
-  record.queuedOutput.push(event)
-  record.queuedOutputBytes += bytes
 }
 
-function removeCoveredQueuedTransitions(
+function clearTerminalCheckpointRetry(record: SessionRecord) {
+  if (record.checkpointRetryTimer === null) return
+  window.clearTimeout(record.checkpointRetryTimer)
+  record.checkpointRetryTimer = null
+}
+
+function scheduleTerminalCheckpointRetry(
   record: SessionRecord,
-  runtimeEpoch: string,
-  stateRevision: number,
+  delay: number,
+  generation = record.attachGeneration,
 ) {
-  record.queuedOutput = record.queuedOutput.filter(event => (
-    event.runtimeEpoch !== runtimeEpoch ||
-    !isSequencedOutputCovered(event.stateRevision, stateRevision)
-  ))
-  record.queuedOutputBytes = record.queuedOutput.reduce(
-    (total, event) => total + queuedTransitionBytes(event.data),
-    0,
-  )
+  if (record.disposed || record.replayState.halted || record.checkpointRetryTimer !== null) return
+  record.checkpointRetryTimer = window.setTimeout(() => {
+    record.checkpointRetryTimer = null
+    if (record.disposed || !isCurrentAttachment(record, generation)) return
+    requestTerminalReplay(record, generation)
+  }, delay)
 }
 
-function finishTerminalCheckpointBarrier(record: SessionRecord, generation: number) {
-  const targetPending = record.replayTargetRevision !== null
-    && (
-      Boolean(record.replayTargetEpoch && record.runtimeEpoch !== record.replayTargetEpoch) ||
-      record.stateRevision === null ||
-      record.stateRevision < record.replayTargetRevision
-    )
-  const firstQueuedTransition = record.queuedOutput[0]
-  const queuedTransitionCanAdvance = Boolean(
-    firstQueuedTransition
-    && !firstQueuedTransition.replace
-    && firstQueuedTransition.runtimeEpoch === record.runtimeEpoch
-    && record.stateRevision !== null
-    && firstQueuedTransition.stateRevision === record.stateRevision + 1
-    && record.lastOutputSeq !== null
-    && firstQueuedTransition.outputSeq === record.lastOutputSeq
-      + (firstQueuedTransition.kind === 'resize' || firstQueuedTransition.kind === 'clear' ? 0 : 1),
-  )
-  if (targetPending && !queuedTransitionCanAdvance) {
-    // Keep the barrier closed when the checkpoint is still behind a known
-    // gap. Flushing that same non-contiguous event would immediately open a
-    // new HTTP request and spin forever against a stale checkpoint.
-    rejectTerminalCheckpointInvariant(
-      record,
-      generation,
-      `behind:${record.runtimeEpoch}:${record.stateRevision ?? 'null'}:${record.replayTargetEpoch}:${record.replayTargetRevision ?? 'null'}`,
-      'Terminal synchronization stopped because the server returned the same stale checkpoint repeatedly; reconnect to retry',
-    )
+function retryTerminalReplayAfterFailure(
+  record: SessionRecord,
+  failure: TerminalReplayFailure,
+  generation: number,
+) {
+  record.checkpointRequestInFlight = false
+  record.needsReconnectOutputSync = true
+  record.bootstrappingSnapshot = true
+  if (failure.halted) {
+    stopTerminalReplay(record, failure.message)
     return
   }
+  scheduleTerminalCheckpointRetry(record, failure.delay, generation)
+}
+
+function stopTerminalReplay(record: SessionRecord, message: string) {
+  clearTerminalCheckpointRetry(record)
+  record.checkpointRequestInFlight = false
+  record.replayInProgress = false
   record.bootstrappingSnapshot = false
-  flushQueuedTerminalOutput(record)
-  if (record.liveWriteInProgress || record.queuedOutput.length > 0) {
-    // Queued contiguous deltas become committed only from xterm's write
-    // callback. Re-evaluate the recovery watermark after that reducer commit,
-    // not while the terminal still exposes the checkpoint cut.
+  record.pendingSnapshotReplay = false
+  TERMINAL_REPLAY.clearQueuedTransitions(record.replayState)
+  record.hostEl.classList.add('terminal-checkpoint-installing')
+  reportTerminalSyncError(record, message)
+}
+
+function finishTerminalReplay(record: SessionRecord, generation: number) {
+  if (
+    record.disposed ||
+    !isCurrentAttachment(record, generation) ||
+    record.replayInProgress ||
+    record.checkpointRequestInFlight ||
+    record.pendingSnapshotReplay ||
+    record.liveWriteInProgress
+  ) return
+
+  if (record.replayState.queuedTransitions.length > 0) {
+    flushQueuedTerminalOutput(record)
+    if (
+      record.replayState.queuedTransitions.length > 0 ||
+      record.liveWriteInProgress ||
+      record.checkpointRequestInFlight
+    ) return
+  }
+
+  if (record.needsReconnectOutputSync || TERMINAL_REPLAY.isReplayTargetPending(record.replayState)) {
+    requestTerminalReplay(record, generation)
     return
   }
-  if (targetPending) {
-    rejectTerminalCheckpointInvariant(
-      record,
-      generation,
-      `behind:${record.runtimeEpoch}:${record.stateRevision ?? 'null'}:${record.replayTargetEpoch}:${record.replayTargetRevision ?? 'null'}`,
-      'Terminal synchronization stopped because the server returned the same stale checkpoint repeatedly; reconnect to retry',
-    )
-    return
-  }
-  record.replayTargetEpoch = ''
-  record.replayTargetRevision = null
-  record.needsReconnectOutputSync = false
-  record.checkpointFailureCount = 0
-  resetTerminalCheckpointInvariantFailures(record)
-  activateTerminalRenderer(record)
-  if (record.controllerStatus === 'owner' && record.controllerFocusAfterClaim) {
-    record.controllerFocusAfterClaim = false
-    requestAnimationFrame(() => {
-      if (!isCurrentAttachment(record, generation) || record.disposed) return
-      focusAttachedTerminalInput(record)
-    })
-  }
-  if (record.resizeAfterReplay && record.controllerStatus === 'owner') {
-    record.resizeAfterReplay = false
-    requestAnimationFrame(() => {
-      if (!isCurrentAttachment(record, generation) || record.disposed) return
-      // The terminal may already have been fitted locally while the renderer
-      // barrier was closed. Commit that exact geometry under the new fence
-      // even when another layout callback now proposes the same dimensions.
-      syncTerminalSize(record, { force: true })
-    })
-  }
-  if (record.controllerStatus === 'claiming' && !record.pageOutputSuspended) {
-    claimTerminalController(record, 'passive')
-  }
-  notifyTerminalAttachReady(record, generation)
+
+  record.bootstrappingSnapshot = false
+  requestAnimationFrame(() => {
+    if (!isCurrentAttachment(record, generation) || record.disposed) return
+    record.hostEl.classList.remove('terminal-checkpoint-installing')
+    syncTerminalSize(record, { force: true })
+    notifyTerminalAttachReady(record, generation)
+  })
 }
 
 function installTerminalCheckpoint(
@@ -1119,53 +834,39 @@ function installTerminalCheckpoint(
   generation: number,
 ) {
   if (
-    record.retiredRuntimeEpochs.has(state.runtimeEpoch) ||
-    (
-      record.runtimeEpoch &&
-      compareTerminalRuntimeEpochs(state.runtimeEpoch, record.runtimeEpoch) === -1
-    )
-  ) {
-    return false
-  }
+    record.disposed ||
+    !isCurrentAttachment(record, generation)
+  ) return false
 
-  if (!isValidTerminalCheckpoint(state)) {
-    rejectTerminalCheckpointInvariant(
+  record.checkpointRequestInFlight = false
+  const checkpoint = terminalReplayCheckpoint(state)
+  const decision = TERMINAL_REPLAY.evaluateCheckpoint(record.replayState, checkpoint)
+  if (decision.action === 'reject') {
+    retryTerminalReplayAfterFailure(
       record,
+      TERMINAL_REPLAY.recordInvariantFailure(
+        record.replayState,
+        decision.signature || 'invalid-checkpoint',
+        decision.message || 'Terminal replay returned an invalid screen state',
+      ),
       generation,
-      `invalid-shape:${state.runtimeEpoch}:${state.outputSeq}:${state.stateRevision}:${state.cols}:${state.rows}`,
-      'Terminal synchronization stopped because the server returned an invalid checkpoint; reconnect to retry',
     )
     return false
   }
   if (
-    state.runtimeEpoch === record.runtimeEpoch &&
-    record.stateRevision !== null &&
-    state.stateRevision! < record.stateRevision
+    decision.action === 'current' &&
+    record.terminal.cols === state.cols &&
+    record.terminal.rows === state.rows
   ) {
-    rejectTerminalCheckpointInvariant(
-      record,
-      generation,
-      `regression:${state.runtimeEpoch}:${state.stateRevision}:${record.stateRevision}`,
-      'Terminal synchronization stopped because the server checkpoint regressed; reconnect to retry',
-    )
-    return false
-  }
-  if (
-    record.replayTargetEpoch &&
-    state.runtimeEpoch !== record.replayTargetEpoch
-  ) {
-    rejectTerminalCheckpointInvariant(
-      record,
-      generation,
-      `epoch-mismatch:${state.runtimeEpoch}:${record.replayTargetEpoch}`,
-      'Terminal synchronization stopped because the server checkpoint epoch did not match the required runtime; reconnect to retry',
-    )
-    return false
+    record.needsReconnectOutputSync = !TERMINAL_REPLAY.commitCheckpoint(record.replayState, checkpoint)
+    record.bootstrappingSnapshot = record.needsReconnectOutputSync
+    flushQueuedTerminalOutput(record)
+    finishTerminalReplay(record, generation)
+    return true
   }
 
-  const checkpointInstallSeq = record.checkpointInstallSeq + 1
-  record.checkpointInstallSeq = checkpointInstallSeq
-
+  const installSeq = record.reconnectSnapshotSeq + 1
+  record.reconnectSnapshotSeq = installSeq
   const viewportState = record.parkedViewportState ? {
     ...record.parkedViewportState,
     hasUnreadOutput: record.parkedViewportState.hasUnreadOutput || record.hasUnreadOutput,
@@ -1179,62 +880,30 @@ function installTerminalCheckpoint(
     hasUnreadOutput: record.hasUnreadOutput,
     preserveUnreadOutputUntilJump: record.preserveUnreadOutputUntilJump,
   }
-  record.checkpointRequestInFlight = false
+
   record.replayInProgress = true
   record.bootstrappingSnapshot = true
+  record.hostEl.classList.add('terminal-checkpoint-installing')
   if (
-    state.cols !== null &&
-    state.rows !== null &&
-    (record.terminal.cols !== state.cols || record.terminal.rows !== state.rows)
+    record.terminal.cols !== state.cols ||
+    record.terminal.rows !== state.rows
   ) {
-    if (typeof record.terminal.resize !== 'function') {
-      record.replayInProgress = false
-      record.checkpointFailureCount += 1
-      scheduleTerminalCheckpointRetry(record, generation)
-      return false
+    record.applyingLocalResize = true
+    try {
+      record.terminal.resize?.(state.cols!, state.rows!)
+    } finally {
+      record.applyingLocalResize = false
     }
-    record.terminal.resize(state.cols, state.rows)
   }
+
   replaceTerminalOutput(record, state.output, () => {
     if (
-      record.disposed
-      || !isCurrentAttachment(record, generation)
-      || record.checkpointInstallSeq !== checkpointInstallSeq
+      record.disposed ||
+      !isCurrentAttachment(record, generation) ||
+      record.reconnectSnapshotSeq !== installSeq
     ) return
-    const previousRuntimeEpoch = record.runtimeEpoch
-    const epochChanged = Boolean(previousRuntimeEpoch && previousRuntimeEpoch !== state.runtimeEpoch)
-    const targetEpochBeforeInstall = record.replayTargetEpoch
-    const targetRevisionBeforeInstall = record.replayTargetRevision
-    record.runtimeEpoch = state.runtimeEpoch
-    record.lastOutputSeq = state.outputSeq
-    record.stateRevision = state.stateRevision
-    if (epochChanged) {
-      record.retiredRuntimeEpochs.add(previousRuntimeEpoch)
-      while (record.retiredRuntimeEpochs.size > 32) {
-        const oldest = record.retiredRuntimeEpochs.values().next().value
-        if (!oldest) break
-        record.retiredRuntimeEpochs.delete(oldest)
-      }
-      record.queuedOutput = record.queuedOutput.filter(event => event.runtimeEpoch === state.runtimeEpoch)
-      record.queuedOutputBytes = record.queuedOutput.reduce(
-        (total, event) => total + queuedTransitionBytes(event.data),
-        0,
-      )
-      if (targetEpochBeforeInstall && targetEpochBeforeInstall !== state.runtimeEpoch) {
-        record.replayTargetEpoch = targetEpochBeforeInstall
-        record.replayTargetRevision = targetRevisionBeforeInstall
-      } else {
-        record.replayTargetEpoch = ''
-        record.replayTargetRevision = null
-      }
-    }
-    removeCoveredQueuedTransitions(record, state.runtimeEpoch, state.stateRevision!)
-    acknowledgeRenderedTerminalCheckpoint(
-      record,
-      state.outputSeq!,
-      state.stateRevision!,
-      state.runtimeEpoch,
-    )
+
+    record.needsReconnectOutputSync = !TERMINAL_REPLAY.commitCheckpoint(record.replayState, checkpoint)
     record.followOutput = viewportState.following
     record.hasUnreadOutput = viewportState.hasUnreadOutput
     record.preserveUnreadOutputUntilJump = viewportState.preserveUnreadOutputUntilJump
@@ -1246,112 +915,54 @@ function installTerminalCheckpoint(
       viewportState.hasUnreadOutput,
     )
     record.replayInProgress = false
+    record.bootstrappingSnapshot = record.needsReconnectOutputSync
     scheduleImeOverlayUpdateIfActive(record)
-    finishTerminalCheckpointBarrier(record, generation)
+    flushQueuedTerminalOutput(record)
+    finishTerminalReplay(record, generation)
   })
   return true
 }
 
-function replayTerminalCheckpoint(record: SessionRecord, generation: number) {
+function requestTerminalReplay(record: SessionRecord, generation = record.attachGeneration) {
   if (
     record.disposed ||
-    record.pendingSnapshotReplay ||
     record.fixtureOverrideActive ||
     record.pageOutputSuspended ||
-    record.checkpointHalted ||
     record.checkpointRequestInFlight ||
+    record.checkpointRetryTimer !== null ||
+    record.replayInProgress ||
+    record.replayState.halted ||
     !isCurrentAttachment(record, generation)
-  ) {
-    return
-  }
-  if (record.checkpointRetryTimer !== null) {
-    // Reconnect and stream-gap signals may identify the same missing
-    // checkpoint. Preserve the existing backoff instead of starting another
-    // HTTP request for the same recovery barrier.
-    return
-  }
+  ) return
 
-  const syncSeq = record.reconnectSnapshotSeq + 1
-  record.reconnectSnapshotSeq = syncSeq
+  TERMINAL_REPLAY.beginRecovery(record.replayState)
+  const requestSeq = record.reconnectSnapshotSeq + 1
+  record.reconnectSnapshotSeq = requestSeq
   record.checkpointRequestInFlight = true
-  record.checkpointRequestGeneration = generation
-  record.checkpointRequestSeq = syncSeq
-  record.checkpointRequestStartedAt = Date.now()
-  record.checkpointLastResult = 'fetching'
-  record.checkpointFetchCount += 1
   record.bootstrappingSnapshot = true
+  record.needsReconnectOutputSync = true
   fetchSessionBootstrapStateForCurrentTerminal(record)
-    .then((bootstrapState) => {
-      const discardedBecause = record.disposed
-        ? 'disposed'
-        : record.reconnectSnapshotSeq !== syncSeq
-          ? `superseded:${record.reconnectSnapshotSeq}`
-          : record.fixtureOverrideActive
-            ? 'fixture-override'
-            : record.pageOutputSuspended
-              ? 'page-suspended'
-              : !isCurrentAttachment(record, generation)
-                ? `stale-attachment:${record.attachGeneration}`
-                : Date.now() < record.suppressOutputUntil
-                  ? `output-suppressed:${record.suppressOutputUntil}`
-                  : ''
-      if (discardedBecause) {
-        record.checkpointLastResult = `discarded:${discardedBecause}`
-        if (!record.disposed && record.reconnectSnapshotSeq === syncSeq) {
-          record.checkpointRequestInFlight = false
-          record.checkpointRequestGeneration = null
-          record.checkpointRequestSeq = null
-          if (!record.pageOutputSuspended) {
-            record.checkpointFailureCount += 1
-            scheduleTerminalCheckpointRetry(record, generation)
-          }
-        }
-        return
-      }
-      record.checkpointRequestInFlight = false
-      record.checkpointRequestGeneration = null
-      record.checkpointRequestSeq = null
-      record.checkpointLastResult = 'received'
+    .then((state) => {
       if (
-        bootstrapState.runtimeEpoch === record.runtimeEpoch &&
-        bootstrapState.stateRevision !== null &&
-        record.stateRevision !== null &&
-        bootstrapState.stateRevision === record.stateRevision
-      ) {
-        acknowledgeRenderedTerminalCheckpoint(
-          record,
-          bootstrapState.outputSeq!,
-          bootstrapState.stateRevision,
-          bootstrapState.runtimeEpoch,
-        )
-        finishTerminalCheckpointBarrier(record, generation)
-        return
-      }
-      installTerminalCheckpoint(record, bootstrapState, generation)
+        record.disposed ||
+        record.reconnectSnapshotSeq !== requestSeq ||
+        record.pageOutputSuspended ||
+        !isCurrentAttachment(record, generation)
+      ) return
+      record.checkpointRequestInFlight = false
+      installTerminalCheckpoint(record, state, generation)
     })
     .catch((error) => {
-      if (record.disposed || record.reconnectSnapshotSeq !== syncSeq) return
-      record.checkpointRequestInFlight = false
-      record.checkpointRequestGeneration = null
-      record.checkpointRequestSeq = null
-      record.checkpointLastResult = `failed:${error instanceof Error ? error.message : String(error)}`
-      record.checkpointFailureCount += 1
-      beginTerminalCheckpointBarrier(
+      if (record.disposed || record.reconnectSnapshotSeq !== requestSeq) return
+      retryTerminalReplayAfterFailure(
         record,
-        record.replayTargetRevision,
-        record.replayTargetEpoch || record.runtimeEpoch,
+        TERMINAL_REPLAY.recordTransportFailure(record.replayState),
+        generation,
       )
-      scheduleTerminalCheckpointRetry(record, generation)
+      if (error instanceof Error && error.name !== 'AbortError') {
+        console.warn('Terminal replay request failed; retrying:', error)
+      }
     })
-}
-
-function recoverTerminalCheckpointAfterStreamGap(record: SessionRecord) {
-  // Display recovery is independent from the controller lease. Even while a
-  // controller claim is in flight, a gap or epoch change must fetch the
-  // authoritative /session-view checkpoint immediately.
-  if (record.checkpointHalted) return
-  cancelTerminalCheckpointRetry(record)
-  replayTerminalCheckpoint(record, record.attachGeneration)
 }
 
 function applyTerminalOutputEvent(
@@ -1365,115 +976,79 @@ function applyTerminalOutputEvent(
   rows?: number,
   kind: TerminalTransitionKind = 'output',
 ) {
-  if (
-    runtimeEpoch &&
-    (
-      record.retiredRuntimeEpochs.has(runtimeEpoch) ||
-      (
-        record.runtimeEpoch &&
-        compareTerminalRuntimeEpochs(runtimeEpoch, record.runtimeEpoch) === -1
-      )
-    )
-  ) return
   if (replace) {
     if (record.fixtureOverrideActive || record.pageOutputSuspended) return
-    invalidateTerminalCheckpointRequest(record, 'replace-transition')
+    invalidateTerminalCheckpointRequest(record)
     installTerminalCheckpoint(record, {
       runtimeEpoch,
       output: data,
       textOutput: '',
       cursor: null,
-      outputSeq: typeof outputSeq === 'number' && Number.isFinite(outputSeq) ? outputSeq : null,
-      stateRevision: typeof stateRevision === 'number' && Number.isFinite(stateRevision)
-        ? stateRevision
-        : null,
-      cols: typeof cols === 'number' && Number.isFinite(cols) ? cols : null,
-      rows: typeof rows === 'number' && Number.isFinite(rows) ? rows : null,
+      outputSeq: Number.isFinite(outputSeq) ? outputSeq! : null,
+      stateRevision: Number.isFinite(stateRevision) ? stateRevision! : null,
+      cols: Number.isFinite(cols) ? cols! : null,
+      rows: Number.isFinite(rows) ? rows! : null,
     }, record.attachGeneration)
     return
   }
 
-  const validRevision = typeof stateRevision === 'number' && Number.isFinite(stateRevision)
-  const validOutputSeq = typeof outputSeq === 'number' && Number.isFinite(outputSeq)
-  if (!runtimeEpoch || !validRevision || !validOutputSeq) {
-    beginTerminalCheckpointBarrier(
-      record,
-      validRevision ? stateRevision : null,
-      runtimeEpoch || record.runtimeEpoch,
-    )
-    recoverTerminalCheckpointAfterStreamGap(record)
-    return
+  const event: TerminalReplayTransition = {
+    kind,
+    data,
+    outputSeq,
+    runtimeEpoch,
+    stateRevision,
+    cols,
+    rows,
   }
-
-  if (runtimeEpoch !== record.runtimeEpoch) {
-    queueTerminalTransition(record, { kind, data, replace, outputSeq, runtimeEpoch, stateRevision, cols, rows })
-    beginTerminalCheckpointBarrier(record, stateRevision, runtimeEpoch)
-    recoverTerminalCheckpointAfterStreamGap(record)
-    return
-  }
-  if (isSequencedOutputCovered(stateRevision, record.stateRevision)) return
-  if (
-    record.stateRevision === null ||
-    stateRevision !== record.stateRevision + 1 ||
-    record.lastOutputSeq === null ||
-    outputSeq !== record.lastOutputSeq + (kind === 'output' ? 1 : 0) ||
-    (kind === 'resize' && (!Number.isFinite(cols) || !Number.isFinite(rows)))
-  ) {
-    queueTerminalTransition(record, { kind, data, replace, outputSeq, runtimeEpoch, stateRevision, cols, rows })
-    beginTerminalCheckpointBarrier(record, stateRevision, runtimeEpoch)
-    recoverTerminalCheckpointAfterStreamGap(record)
+  const decision = TERMINAL_REPLAY.classifyTransition(record.replayState, event)
+  if (decision.action === 'drop') return
+  if (decision.action === 'recover') {
+    queueTerminalTransition(record, event)
+    record.needsReconnectOutputSync = true
+    record.bootstrappingSnapshot = true
+    requestTerminalReplay(record)
     return
   }
 
   if (kind === 'resize') {
-    if (typeof record.terminal.resize !== 'function') {
-      beginTerminalCheckpointBarrier(record, stateRevision, runtimeEpoch)
-      recoverTerminalCheckpointAfterStreamGap(record)
-      return
+    record.applyingLocalResize = true
+    try {
+      record.terminal.resize?.(Math.floor(cols!), Math.floor(rows!))
+    } finally {
+      record.applyingLocalResize = false
     }
-    record.terminal.resize(Math.floor(cols!), Math.floor(rows!))
-    record.lastOutputSeq = outputSeq
-    record.stateRevision = stateRevision
+    TERMINAL_REPLAY.commitTransition(record.replayState, event)
     scheduleImeOverlayUpdateIfActive(record)
     flushQueuedTerminalOutput(record)
-    activateTerminalRenderer(record)
     notifyTerminalAttachReady(record, record.attachGeneration)
     return
   }
 
   const transitionData = kind === 'clear' ? '\x1b[2J\x1b[3J\x1b[H' : data
-  if (transitionData) {
-    record.liveWriteInProgress = true
-    writeTerminalOutput(record, transitionData, () => {
-      if (record.disposed) return
-      record.lastOutputSeq = outputSeq
-      record.stateRevision = stateRevision
-      if (kind === 'output') acknowledgeRenderedTerminalOutput(record, data.length, runtimeEpoch)
-      if (kind === 'clear') record.terminal.clearTerminalSelection?.()
-      record.liveWriteInProgress = false
-      if (record.followOutput && !record.hasUnreadOutput) {
-        // Re-emit the unchanged viewport state at the committed output cut.
-        // The UI uses this frontier to acknowledge a late attention event only
-        // after the corresponding terminal bytes are actually visible.
-        emitFollowOutputState(record)
-      }
-      scheduleImeOverlayUpdateIfActive(record)
-      flushQueuedTerminalOutput(record)
-      if (!record.liveWriteInProgress && record.queuedOutput.length === 0) {
-        activateTerminalRenderer(record)
-        notifyTerminalAttachReady(record, record.attachGeneration)
-      }
-      if (
-        record.needsReconnectOutputSync
-        && !record.bootstrappingSnapshot
-        && !record.pendingSnapshotReplay
-        && !record.liveWriteInProgress
-        && record.queuedOutput.length === 0
-      ) {
-        finishTerminalCheckpointBarrier(record, record.attachGeneration)
-      }
-    }, { isOutputObserved: () => isTerminalSessionAttached(record) })
+  if (!transitionData) {
+    TERMINAL_REPLAY.commitTransition(record.replayState, event)
+    flushQueuedTerminalOutput(record)
+    return
   }
+
+  record.liveWriteInProgress = true
+  writeTerminalOutput(record, transitionData, () => {
+    if (record.disposed) return
+    TERMINAL_REPLAY.commitTransition(record.replayState, event)
+    if (kind === 'clear') record.terminal.clearTerminalSelection?.()
+    record.liveWriteInProgress = false
+    if (record.followOutput && !record.hasUnreadOutput) {
+      emitFollowOutputState(record)
+    }
+    scheduleImeOverlayUpdateIfActive(record)
+    flushQueuedTerminalOutput(record)
+    if (record.hostEl.classList.contains('terminal-checkpoint-installing')) {
+      finishTerminalReplay(record, record.attachGeneration)
+    } else {
+      notifyTerminalAttachReady(record, record.attachGeneration)
+    }
+  }, { isOutputObserved: () => isTerminalSessionAttached(record) })
 }
 
 function handleTerminalStreamOutput(
@@ -1490,27 +1065,46 @@ function handleTerminalStreamOutput(
   if (record.disposed || Date.now() < record.suppressOutputUntil) return
 
   if (record.pageOutputSuspended || document.visibilityState === 'hidden') {
-    // Do not render or buffer an unbounded hidden-page transcript, but retain
-    // the highest exact reducer watermark. The resume checkpoint must cover
-    // every transition observed while suspended before live reduction can
-    // continue.
-    advanceTerminalReplayTarget(
-      record,
-      runtimeEpoch || record.runtimeEpoch,
-      typeof stateRevision === 'number' && Number.isFinite(stateRevision)
-        ? stateRevision
-        : null,
-    )
+    TERMINAL_REPLAY.clearQueuedTransitions(record.replayState)
+    TERMINAL_REPLAY.beginRecovery(record.replayState, {
+      kind,
+      data,
+      outputSeq,
+      runtimeEpoch,
+      stateRevision,
+      cols,
+      rows,
+    })
     record.needsReconnectOutputSync = true
     return
   }
 
-  if (record.bootstrappingSnapshot || record.pendingSnapshotReplay || record.liveWriteInProgress) {
+  const recoveryActive = record.needsReconnectOutputSync
+    || record.bootstrappingSnapshot
+    || record.pendingSnapshotReplay
+    || record.replayInProgress
+    || record.checkpointRequestInFlight
+    || record.replayState.recovering
+
+  if (record.liveWriteInProgress && !recoveryActive) {
+    queueTerminalTransition(record, {
+      kind,
+      data,
+      outputSeq,
+      runtimeEpoch,
+      stateRevision,
+      cols,
+      rows,
+    })
+    return
+  }
+
+  if (recoveryActive) {
     if (replace) {
       applyTerminalOutputEvent(
         record,
         data,
-        replace,
+        true,
         outputSeq,
         runtimeEpoch,
         stateRevision,
@@ -1520,11 +1114,31 @@ function handleTerminalStreamOutput(
       )
       return
     }
-    queueTerminalTransition(record, { kind, data, replace, outputSeq, runtimeEpoch, stateRevision, cols, rows })
+    queueTerminalTransition(record, {
+      kind,
+      data,
+      outputSeq,
+      runtimeEpoch,
+      stateRevision,
+      cols,
+      rows,
+    })
+    record.bootstrappingSnapshot = true
+    requestTerminalReplay(record)
     return
   }
 
-  applyTerminalOutputEvent(record, data, replace, outputSeq, runtimeEpoch, stateRevision, cols, rows, kind)
+  applyTerminalOutputEvent(
+    record,
+    data,
+    replace,
+    outputSeq,
+    runtimeEpoch,
+    stateRevision,
+    cols,
+    rows,
+    kind,
+  )
 }
 
 function flushQueuedTerminalOutput(record: SessionRecord) {
@@ -1532,23 +1146,23 @@ function flushQueuedTerminalOutput(record: SessionRecord) {
     record.disposed ||
     record.bootstrappingSnapshot ||
     record.pendingSnapshotReplay ||
+    record.replayInProgress ||
+    record.checkpointRequestInFlight ||
     record.liveWriteInProgress
   ) return
+
   while (
     !record.bootstrappingSnapshot &&
-    !record.pendingSnapshotReplay &&
+    !record.replayInProgress &&
+    !record.checkpointRequestInFlight &&
     !record.liveWriteInProgress
   ) {
-    const event = record.queuedOutput.shift()
+    const event = TERMINAL_REPLAY.takeQueuedTransition(record.replayState)
     if (!event) break
-    record.queuedOutputBytes = Math.max(
-      0,
-      record.queuedOutputBytes - queuedTransitionBytes(event.data),
-    )
     applyTerminalOutputEvent(
       record,
       event.data,
-      event.replace,
+      false,
       event.outputSeq,
       event.runtimeEpoch,
       event.stateRevision,
@@ -1558,7 +1172,6 @@ function flushQueuedTerminalOutput(record: SessionRecord) {
     )
   }
 }
-
 function getTerminalCellMetrics(record: SessionRecord) {
   return record.terminal.getCellMetrics?.() ?? record.terminal.renderer?.getMetrics?.()
 }
@@ -1584,7 +1197,7 @@ function updateFollowStateFromViewport(
 }
 
 function clearPendingTerminalOutput(record: SessionRecord) {
-  record.queuedOutput = []
+  TERMINAL_REPLAY.clearQueuedTransitions(record.replayState)
   record.bootstrappingSnapshot = false
   record.pendingSnapshotReplay = false
 }
@@ -1786,8 +1399,11 @@ function focusTerminalInputWhenReady(
 ) {
   if (!isCurrentAttachment(record, generation)) return
   if (!shouldAllowTerminalAutoFocus(record.hostEl)) return
-  if (!terminalRendererAcceptsInput(record)) {
-    record.controllerFocusAfterClaim = true
+  if (record.replayInProgress || record.bootstrappingSnapshot || record.pendingSnapshotReplay) {
+    if (attemptsRemaining <= 0) return
+    requestAnimationFrame(() => {
+      focusTerminalInputWhenReady(record, generation, attemptsRemaining - 1)
+    })
     return
   }
   const focusedTextarea = focusAttachedTerminalInput(record)
@@ -1800,243 +1416,18 @@ function focusTerminalInputWhenReady(
   })
 }
 
-function setTerminalControllerStatus(
-  record: SessionRecord,
-  status: TerminalControllerStatus,
-  reason = '',
-) {
-  record.controllerStatus = status
-  record.controllerReason = status === 'observer' ? reason : ''
-  record.hostEl.dataset.controllerStatus = status
-  const controllerPending = status === 'owner' && (
-    record.rendererReadyFence !== record.controllerFence ||
-    record.replayInProgress ||
-    record.bootstrappingSnapshot ||
-    record.pendingSnapshotReplay
-  )
-  const statusText = record.checkpointHalted
-    ? 'Terminal synchronization failed. Reconnect to retry.'
-    : status === 'claiming' || controllerPending
-    ? 'Syncing terminal…'
-    : status === 'observer'
-      ? record.controllerReason === 'operation-in-progress'
-        ? 'Another window is finishing a Terminal operation. Retry Take control when it completes.'
-        : 'Terminal is controlled by another window.'
-      : ''
-  record.controllerStatusTextEl.textContent = statusText
-  record.controllerTakeoverButton.hidden = status !== 'observer'
-  record.controllerStatusEl.hidden = !statusText
-}
-
-function cancelTerminalControllerRenew(record: SessionRecord) {
-  if (record.controllerRenewTimer !== null) {
-    window.clearTimeout(record.controllerRenewTimer)
-    record.controllerRenewTimer = null
-  }
-}
-
-function cancelTerminalControllerClaimTimeout(record: SessionRecord) {
-  if (record.controllerClaimTimer === null) return
-  window.clearTimeout(record.controllerClaimTimer)
-  record.controllerClaimTimer = null
-}
-
-function scheduleTerminalControllerClaimTimeout(
-  record: SessionRecord,
-  claimId: string,
-) {
-  cancelTerminalControllerClaimTimeout(record)
-  record.controllerClaimTimer = window.setTimeout(() => {
-    record.controllerClaimTimer = null
-    if (
-      record.disposed
-      || record.pageOutputSuspended
-      || !isTerminalSessionAttached(record)
-      || !record.controllerClaimInFlight
-      || record.controllerClaimId !== claimId
-    ) {
-      return
-    }
-    record.controllerClaimInFlight = false
-    reportTerminalInputError(record, 'Terminal control request timed out; retry Take control')
-    setTerminalControllerStatus(record, 'observer')
-  }, TERMINAL_CONTROLLER_CLAIM_TIMEOUT_MS)
-}
-
-function scheduleTerminalControllerRenew(record: SessionRecord) {
-  cancelTerminalControllerRenew(record)
-  if (
-    record.disposed ||
-    record.controllerStatus !== 'owner' ||
-    !record.controllerLeaseId ||
-    record.controllerFence === null
-  ) {
-    return
-  }
-  record.controllerRenewTimer = window.setTimeout(() => {
-    record.controllerRenewTimer = null
-    if (
-      record.disposed ||
-      record.controllerStatus !== 'owner' ||
-      !record.controllerLeaseId ||
-      record.controllerFence === null
-    ) {
-      return
-    }
-    const delivered = sendTerminalControllerMessage({
-      type: 'terminal-controller-renew',
-      agentId: record.agentId,
-      attachmentId: record.controllerAttachmentId,
-      leaseId: record.controllerLeaseId,
-      fence: record.controllerFence,
-    })
-    if (!delivered) {
-      setTerminalControllerStatus(record, 'claiming')
-      record.controllerLeaseId = ''
-      record.controllerFence = null
-      record.rendererReadyFence = null
-      return
-    }
-    scheduleTerminalControllerRenew(record)
-  }, TERMINAL_CONTROLLER_RENEW_INTERVAL_MS)
-}
-
-function activateTerminalRenderer(record: SessionRecord) {
-  if (
-    record.disposed ||
-    record.controllerStatus !== 'owner' ||
-    !record.controllerLeaseId ||
-    record.controllerFence === null ||
-    record.rendererReadyFence === record.controllerFence ||
-    !record.runtimeEpoch ||
-    record.replayInProgress ||
-    record.bootstrappingSnapshot ||
-    record.pendingSnapshotReplay ||
-    record.liveWriteInProgress ||
-    record.queuedOutput.length > 0
-  ) return false
-  const delivered = sendTerminalControllerMessage({
-    type: 'terminal-renderer-ready',
-    agentId: record.agentId,
-    attachmentId: record.controllerAttachmentId,
-    leaseId: record.controllerLeaseId,
-    fence: record.controllerFence,
-    expectedRuntimeEpoch: record.runtimeEpoch,
-  })
-  if (delivered) {
-    record.rendererReadyFence = record.controllerFence
-    if (record.controllerFocusAfterClaim) {
-      record.controllerFocusAfterClaim = false
-      const generation = record.attachGeneration
-      requestAnimationFrame(() => {
-        if (!isCurrentAttachment(record, generation) || record.disposed) return
-        focusAttachedTerminalInput(record)
-      })
-    }
-    if (record.resizeAfterReplay) {
-      record.resizeAfterReplay = false
-      const generation = record.attachGeneration
-      requestAnimationFrame(() => {
-        if (!isCurrentAttachment(record, generation) || record.disposed) return
-        // Opening the renderer barrier is the first point at which a resize
-        // can be committed under this fence. The xterm instance may already
-        // fit the DOM, so this lease-scoped synchronization must be forced.
-        syncTerminalSize(record, { force: true })
-      })
-    }
-  }
-  setTerminalControllerStatus(record, record.controllerStatus)
-  return delivered
-}
-
-function sendTerminalControllerClaim(
-  record: SessionRecord,
-  mode: 'passive' | 'interactive',
-  claimId: string,
-) {
-  return sendTerminalControllerMessage({
-    type: 'terminal-controller-claim',
-    agentId: record.agentId,
-    attachmentId: record.controllerAttachmentId,
-    claimId,
-    mode,
-    expectedRuntimeEpoch: record.runtimeEpoch || undefined,
-  })
-}
-
-function claimTerminalController(record: SessionRecord, mode: 'passive' | 'interactive') {
-  if (
-    record.disposed ||
-    record.pageOutputSuspended ||
-    !isTerminalSessionAttached(record)
-  ) {
-    return false
-  }
-  if (record.controllerStatus === 'owner') {
-    scheduleTerminalControllerRenew(record)
-    return true
-  }
-  if (record.controllerClaimInFlight) return false
-  if (mode === 'interactive') record.controllerFocusAfterClaim = true
-  record.controllerClaimId = createBrowserUuid()
-  record.controllerClaimInFlight = true
-  setTerminalControllerStatus(record, 'claiming')
-  const delivered = sendTerminalControllerClaim(record, mode, record.controllerClaimId)
-  if (!delivered) {
-    record.controllerClaimInFlight = false
-    cancelTerminalControllerClaimTimeout(record)
-  } else {
-    scheduleTerminalControllerClaimTimeout(record, record.controllerClaimId)
-  }
-  return delivered
-}
-
-function reportTerminalInputError(record: SessionRecord, message: string) {
+function reportTerminalSyncError(record: SessionRecord, message: string) {
   record.errorHandler?.(new Error(message))
-}
-
-function terminalRendererAcceptsInput(record: SessionRecord) {
-  return record.controllerStatus === 'owner'
-    && Boolean(record.controllerLeaseId)
-    && record.controllerFence !== null
-    && record.rendererReadyFence === record.controllerFence
-    && Boolean(record.runtimeEpoch)
-    && !record.replayInProgress
-    && !record.bootstrappingSnapshot
-    && !record.pendingSnapshotReplay
-    && !record.needsReconnectOutputSync
-    && !record.checkpointRequestInFlight
-    && !record.checkpointHalted
 }
 
 function queueTerminalInput(record: SessionRecord, input: string | TerminalInputPart[]) {
   if (record.disposed || record.attachedMount === null || record.inputDisabled) return false
-  if (record.controllerStatus !== 'owner') {
-    reportTerminalInputError(record, 'Terminal is controlled by another window; use Take control before typing')
-    if (record.controllerStatus === 'observer') record.controllerTakeoverButton.focus()
-    return false
-  }
-  if (!terminalRendererAcceptsInput(record)) {
-    reportTerminalInputError(record, 'Terminal is synchronizing; input was not sent')
-    return false
-  }
-  const delivered = sendTerminalControllerMessage({
+  const delivered = sendTerminalSessionMessage({
     type: 'input',
     agentId: record.agentId,
-    attachmentId: record.controllerAttachmentId,
-    leaseId: record.controllerLeaseId,
-    fence: record.controllerFence!,
-    expectedRuntimeEpoch: record.runtimeEpoch,
     ...(Array.isArray(input) ? { inputParts: input } : { input }),
   })
-  if (!delivered) {
-    reportTerminalInputError(record, 'Terminal disconnected; input was not sent')
-    record.controllerLeaseId = ''
-    record.controllerFence = null
-    record.rendererReadyFence = null
-    setTerminalControllerStatus(record, 'claiming')
-    return false
-  }
+  if (!delivered) return false
   record.fixtureOverrideActive = false
   record.inputCount += 1
   record.contextMenuSelection = ''
@@ -2044,255 +1435,10 @@ function queueTerminalInput(record: SessionRecord, input: string | TerminalInput
   return true
 }
 
-function releaseTerminalController(record: SessionRecord, nextStatus: 'detached' | 'suspended') {
-  cancelTerminalControllerRenew(record)
-  cancelTerminalControllerClaimTimeout(record)
-  if (record.controllerLeaseId && record.controllerFence !== null) {
-    sendTerminalControllerMessage({
-      type: 'terminal-controller-release',
-      agentId: record.agentId,
-      attachmentId: record.controllerAttachmentId,
-      leaseId: record.controllerLeaseId,
-      fence: record.controllerFence,
-    })
-  }
-  record.controllerLeaseId = ''
-  record.controllerFence = null
-  record.rendererReadyFence = null
-  record.controllerExpiresAt = 0
-  record.controllerResizeRequestSeq = 0
-  record.controllerResizeRequestInFlight = false
-  record.controllerPendingResize = null
-  record.controllerClaimInFlight = false
-  record.controllerFocusAfterClaim = false
-  record.pendingOutputAckChars = 0
-  setTerminalControllerStatus(record, nextStatus)
-}
-
-function handleTerminalControllerState(record: SessionRecord, message: TerminalControllerMessage) {
-  if (
-    record.disposed ||
-    message.agentId !== record.agentId ||
-    message.attachmentId !== record.controllerAttachmentId
-  ) {
-    return
-  }
-  if (message.claimId && message.claimId !== record.controllerClaimId) return
-  if (message.claimId === record.controllerClaimId) {
-    record.controllerClaimInFlight = false
-    cancelTerminalControllerClaimTimeout(record)
-  }
-
-  if (message.status === 'owner' && record.pageOutputSuspended) {
-    // A claim can cross pagehide: the release ran before the backend granted
-    // the lease, so it had no lease id/fence to revoke. Retire that late grant
-    // immediately; a hidden attachment must never become the controller.
-    record.controllerLeaseId = message.leaseId || ''
-    record.controllerFence = typeof message.fence === 'number' ? message.fence : null
-    releaseTerminalController(record, 'suspended')
-    return
-  }
-
-  if (message.status === 'owner') {
-    resetTerminalControllerRecoveryFailures(record)
-    const sameLease = record.controllerStatus === 'owner'
-      && record.controllerLeaseId === message.leaseId
-      && record.controllerFence === message.fence
-    record.controllerLeaseId = message.leaseId || ''
-    record.controllerFence = typeof message.fence === 'number' ? message.fence : null
-    if (!sameLease) record.rendererReadyFence = null
-    record.controllerExpiresAt = typeof message.expiresAt === 'number' ? message.expiresAt : 0
-    record.controllerResizeRequestSeq = sameLease ? record.controllerResizeRequestSeq : 0
-    if (!sameLease) {
-      record.controllerResizeRequestInFlight = false
-      record.controllerPendingResize = null
-      record.pendingOutputAckChars = 0
-      // Resize deduplication is lease-scoped. A size delivered by a previous
-      // controller is not evidence that the current fence committed it.
-      resetTerminalResizeTracker(record)
-    }
-    setTerminalControllerStatus(record, 'owner')
-    scheduleTerminalControllerRenew(record)
-    if (!sameLease) {
-      record.resizeAfterReplay = true
-      if (!record.bootstrappingSnapshot && !record.pendingSnapshotReplay && !record.replayInProgress) {
-        activateTerminalRenderer(record)
-      }
-    } else if (!record.bootstrappingSnapshot && !record.pendingSnapshotReplay && !record.replayInProgress) {
-      activateTerminalRenderer(record)
-    }
-    return
-  }
-
-  if (message.status === 'resize-committed') {
-    if (
-      record.controllerStatus !== 'owner' ||
-      record.controllerLeaseId !== message.leaseId ||
-      record.controllerFence !== message.fence
-    ) {
-      return
-    }
-    record.controllerExpiresAt = typeof message.expiresAt === 'number'
-      ? message.expiresAt
-      : record.controllerExpiresAt
-    if (message.requestSeq === record.controllerResizeRequestSeq) {
-      record.controllerResizeRequestInFlight = false
-      const pendingResize = record.controllerPendingResize
-      record.controllerPendingResize = null
-      if (pendingResize) {
-        requestTerminalControllerResize(record, pendingResize.cols, pendingResize.rows)
-      }
-    }
-    return
-  }
-
-  cancelTerminalControllerRenew(record)
-  record.controllerLeaseId = ''
-  record.controllerFence = null
-  record.rendererReadyFence = null
-  record.controllerExpiresAt = 0
-  record.controllerResizeRequestSeq = 0
-  record.controllerResizeRequestInFlight = false
-  record.controllerPendingResize = null
-  record.pendingOutputAckChars = 0
-  record.resizeAfterReplay = false
-  setTerminalControllerStatus(
-    record,
-    record.pageOutputSuspended ? 'suspended' : message.status === 'observer' || message.status === 'revoked'
-      ? 'observer'
-      : 'claiming',
-    message.reason || '',
-  )
-  const shouldRecoverController = (
-    message.status === 'rejected' ||
-    message.status === 'expired' ||
-    message.status === 'unowned' ||
-    message.status === 'resize-rejected'
-  ) && !record.pageOutputSuspended && isTerminalSessionAttached(record)
-  if (shouldRecoverController && prepareTerminalControllerRecovery(record, message)) {
-    beginTerminalCheckpointBarrier(record, record.stateRevision, record.runtimeEpoch)
-    invalidateTerminalCheckpointRequest(record, 'controller-recovery')
-    cancelTerminalCheckpointRetry(record)
-    replayTerminalCheckpoint(record, record.attachGeneration)
-  }
-  if (record.controllerStatus !== 'owner') record.controllerFocusAfterClaim = false
-}
-
-function acknowledgeRenderedTerminalOutput(
-  record: SessionRecord,
-  charCount: number,
-  runtimeEpoch: string,
-) {
-  if (
-    record.controllerStatus !== 'owner' ||
-    !record.controllerLeaseId ||
-    record.controllerFence === null ||
-    record.rendererReadyFence !== record.controllerFence ||
-    !runtimeEpoch ||
-    runtimeEpoch !== record.runtimeEpoch
-  ) {
-    return
-  }
-  if (record.suppressOutputAckForTest) return
-  record.pendingOutputAckChars += Math.max(0, Math.floor(charCount))
-  const acknowledgedChars = record.pendingOutputAckChars
-    - (record.pendingOutputAckChars % TERMINAL_OUTPUT_ACK_CHARS)
-  if (acknowledgedChars <= 0) return
-  const delivered = sendTerminalControllerMessage({
-    type: 'terminal-output-ack',
-    agentId: record.agentId,
-    attachmentId: record.controllerAttachmentId,
-    leaseId: record.controllerLeaseId,
-    fence: record.controllerFence,
-    expectedRuntimeEpoch: runtimeEpoch,
-    charCount: acknowledgedChars,
-  })
-  if (!delivered) {
-    record.pendingOutputAckChars = 0
-    record.controllerLeaseId = ''
-    record.controllerFence = null
-    record.rendererReadyFence = null
-    setTerminalControllerStatus(record, 'claiming')
-    return
-  }
-  record.pendingOutputAckChars -= acknowledgedChars
-}
-
-function acknowledgeRenderedTerminalCheckpoint(
-  record: SessionRecord,
-  outputSeq: number,
-  stateRevision: number,
-  runtimeEpoch: string,
-) {
-  if (record.suppressCheckpointAckForTest) return true
-  if (
-    record.controllerStatus !== 'owner' ||
-    !record.controllerLeaseId ||
-    record.controllerFence === null ||
-    record.rendererReadyFence !== record.controllerFence ||
-    !runtimeEpoch ||
-    runtimeEpoch !== record.runtimeEpoch
-  ) return false
-  const delivered = sendTerminalControllerMessage({
-    type: 'terminal-checkpoint-applied',
-    agentId: record.agentId,
-    attachmentId: record.controllerAttachmentId,
-    leaseId: record.controllerLeaseId,
-    fence: record.controllerFence,
-    expectedRuntimeEpoch: runtimeEpoch,
-    outputSeq,
-    stateRevision,
-  })
-  if (delivered) record.pendingOutputAckChars = 0
-  return delivered
-}
-
-function requestTerminalControllerResize(record: SessionRecord, cols: number, rows: number) {
-  if (
-    record.controllerStatus !== 'owner' ||
-    !record.controllerLeaseId ||
-    record.controllerFence === null ||
-    record.rendererReadyFence !== record.controllerFence ||
-    !record.runtimeEpoch
-  ) {
-    return false
-  }
-  if (record.controllerResizeRequestInFlight) {
-    record.controllerPendingResize = { cols, rows }
-    return true
-  }
-  const requestSeq = record.controllerResizeRequestSeq + 1
-  record.controllerResizeRequestSeq = requestSeq
-  record.controllerResizeRequestInFlight = true
-  const delivered = sendTerminalControllerMessage({
-    type: 'resize-agent',
-    agentId: record.agentId,
-    attachmentId: record.controllerAttachmentId,
-    leaseId: record.controllerLeaseId,
-    fence: record.controllerFence,
-    requestSeq,
-    expectedRuntimeEpoch: record.runtimeEpoch,
-    cols,
-    rows,
-  })
-  if (!delivered) {
-    record.controllerResizeRequestInFlight = false
-    record.controllerPendingResize = null
-    setTerminalControllerStatus(record, 'claiming')
-    record.controllerLeaseId = ''
-    record.controllerFence = null
-    record.rendererReadyFence = null
-    beginTerminalCheckpointBarrier(record, record.stateRevision, record.runtimeEpoch)
-    replayTerminalCheckpoint(record, record.attachGeneration)
-  }
-  return delivered
-}
-
 function syncTerminalSize(
   record: SessionRecord,
   options: { force?: boolean } = {},
 ) {
-  if (record.controllerStatus !== 'owner') return
   try {
     const dimensions = proposeTerminalResizeDimensions(record.hostEl, record.fitAddon)
     if (!dimensions) return
@@ -2318,7 +1464,6 @@ function notifyTerminalResize(
 ) {
   if (
     !isTerminalSessionAttached(record) ||
-    record.controllerStatus !== 'owner' ||
     record.replayInProgress ||
     record.bootstrappingSnapshot
   ) return
@@ -2332,33 +1477,35 @@ function notifyTerminalResize(
         record.applyingLocalResize = false
       }
     }
-    const delivered = requestTerminalControllerResize(record, nextCols, nextRows)
-    return delivered
+    return sendTerminalSessionMessage({
+      type: 'resize-agent',
+      agentId: record.agentId,
+      cols: nextCols,
+      rows: nextRows,
+    })
   }, options)
 }
 
 function resyncTerminalSizeAfterBackendReconnect(record: SessionRecord) {
   resetTerminalResizeTracker(record)
+  TERMINAL_REPLAY.resetRecovery(record.replayState)
+  TERMINAL_REPLAY.beginRecovery(record.replayState)
   record.needsReconnectOutputSync = true
   if (record.disposed || record.pageOutputSuspended) return
   if (!record.attachedMount || record.hostEl.parentElement !== record.attachedMount) return
-  record.resizeAfterReplay = true
-  invalidateTerminalCheckpointRequest(record, 'backend-reconnect')
-  cancelTerminalCheckpointRetry(record)
-  beginTerminalCheckpointBarrier(record, record.stateRevision, record.runtimeEpoch)
-  replayTerminalCheckpoint(record, record.attachGeneration)
+  invalidateTerminalCheckpointRequest(record)
+  requestTerminalReplay(record, record.attachGeneration)
 }
 
 function resyncTerminalAfterPageResume(record: SessionRecord) {
   resetTerminalResizeTracker(record)
+  TERMINAL_REPLAY.resetRecovery(record.replayState)
+  TERMINAL_REPLAY.beginRecovery(record.replayState)
   record.needsReconnectOutputSync = true
   if (record.disposed || record.pageOutputSuspended) return
   if (!record.attachedMount || record.hostEl.parentElement !== record.attachedMount) return
-  record.resizeAfterReplay = true
-  invalidateTerminalCheckpointRequest(record, 'page-resume')
-  cancelTerminalCheckpointRetry(record)
-  beginTerminalCheckpointBarrier(record, record.stateRevision, record.runtimeEpoch)
-  replayTerminalCheckpoint(record, record.attachGeneration)
+  invalidateTerminalCheckpointRequest(record)
+  requestTerminalReplay(record, record.attachGeneration)
 }
 
 type TerminalBuffer = NonNullable<NonNullable<FarmingTerminal['buffer']>['active']>
@@ -3124,35 +2271,15 @@ function pasteTerminalClipboardText(record: SessionRecord, text: string) {
 
 function clearTerminalBuffer(record: SessionRecord) {
   if (record.disposed || record.attachedMount === null) return
-  if (
-    record.controllerStatus !== 'owner' ||
-    !record.controllerLeaseId ||
-    record.controllerFence === null ||
-    !record.runtimeEpoch ||
-    record.replayInProgress ||
-    record.bootstrappingSnapshot ||
-    record.pendingSnapshotReplay
-  ) {
-    reportTerminalInputError(record, 'Take control of the terminal before clearing it')
-    return
-  }
   clearTerminalSelectionState(record)
   record.contextMenuSelection = ''
   record.lastNonEmptySelection = ''
   record.terminal.clearSearch?.()
   setFollowOutputState(record, true, false, { allowClearUnread: true })
-  const delivered = sendTerminalControllerMessage({
+  sendTerminalSessionMessage({
     type: 'clear-terminal',
     agentId: record.agentId,
-    attachmentId: record.controllerAttachmentId,
-    leaseId: record.controllerLeaseId,
-    fence: record.controllerFence,
-    expectedRuntimeEpoch: record.runtimeEpoch,
   })
-  if (!delivered) {
-    reportTerminalInputError(record, 'Terminal disconnected; clear was not sent')
-    return
-  }
 }
 
 function showTerminalContextMenu(record: SessionRecord, event: MouseEvent, selection: string) {
@@ -3659,30 +2786,19 @@ function installTerminalTestApi() {
       if (!record || record.disposed) throw new Error(`Terminal session not found: ${agentId}`)
       record.bootstrapRefreshSeq += 1
       invalidateTerminalCheckpointRequest(record)
-      cancelTerminalCheckpointRetry(record)
-      record.checkpointFailureCount = 0
       record.snapshotOutput = ''
       record.snapshotRuntimeEpoch = ''
       record.snapshotOutputSeq = null
       record.snapshotStateRevision = null
       record.snapshotCols = null
       record.snapshotRows = null
-      record.runtimeEpoch = ''
-      record.lastOutputSeq = null
-      record.stateRevision = null
-      record.replayTargetEpoch = ''
-      record.replayTargetRevision = null
-      record.retiredRuntimeEpochs.clear()
-      record.resizeAfterReplay = false
+      TERMINAL_REPLAY.resetRecovery(record.replayState, { keepCursor: false })
       record.replayInProgress = false
       record.liveWriteInProgress = false
-      record.snapshotCursor = null
       record.pendingSnapshotReplay = false
       record.bootstrappingSnapshot = false
       record.needsReconnectOutputSync = false
       record.fixtureOverrideActive = true
-      record.queuedOutput = []
-      record.queuedOutputBytes = 0
       record.suppressOutputUntil = Date.now() + 1500
       record.terminal.reset()
       record.terminal.viewportY = 0
@@ -3701,10 +2817,10 @@ function installTerminalTestApi() {
       record.fixtureOverrideActive = false
       record.suppressOutputUntil = 0
       invalidateTerminalCheckpointRequest(record)
-      cancelTerminalCheckpointRetry(record)
-      record.checkpointFailureCount = 0
-      beginTerminalCheckpointBarrier(record, null, record.runtimeEpoch)
-      replayTerminalCheckpoint(record, record.attachGeneration)
+      TERMINAL_REPLAY.resetRecovery(record.replayState)
+      TERMINAL_REPLAY.beginRecovery(record.replayState)
+      record.needsReconnectOutputSync = true
+      requestTerminalReplay(record, record.attachGeneration)
     },
     getSelection(agentId: string) {
       return getTerminalSelectionNow(agentId)
@@ -3889,7 +3005,7 @@ function installTerminalTestApi() {
         false,
         outputSeq,
         runtimeEpoch,
-        stateRevision ?? ((record.stateRevision ?? 0) + 1),
+        stateRevision ?? ((record.replayState.stateRevision ?? 0) + 1),
       )
       await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     },
@@ -3909,7 +3025,7 @@ function installTerminalTestApi() {
         false,
         outputSeq,
         runtimeEpoch,
-        stateRevision ?? ((record.stateRevision ?? 0) + 1),
+        stateRevision ?? ((record.replayState.stateRevision ?? 0) + 1),
       )
     },
     async writeRawAndSampleViewport(agentId: string, text: string) {
@@ -3967,32 +3083,20 @@ function installTerminalTestApi() {
       notifyTerminalResize(current, cols, rows)
       return current.resizeNotificationCount
     },
-    setOutputAckSuppressed(agentId: string, suppressed: boolean) {
-      const current = sessions.get(agentId)
-      if (!current || current instanceof Promise || current.disposed) return false
-      current.suppressOutputAckForTest = suppressed === true
-      return true
-    },
-    setCheckpointAckSuppressed(agentId: string, suppressed: boolean) {
-      const current = sessions.get(agentId)
-      if (!current || current instanceof Promise || current.disposed) return false
-      current.suppressCheckpointAckForTest = suppressed === true
-      return true
-    },
     getLastOutputSeq(agentId: string) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return null
-      return current.lastOutputSeq
+      return current.replayState.outputSeq
     },
     getRuntimeEpoch(agentId: string) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return ''
-      return current.runtimeEpoch
+      return current.replayState.runtimeEpoch
     },
     getStateRevision(agentId: string) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return null
-      return current.stateRevision
+      return current.replayState.stateRevision
     },
     getBufferDiagnostics(agentId: string) {
       const current = sessions.get(agentId)
@@ -4011,32 +3115,15 @@ function installTerminalTestApi() {
         bufferViewportY: typeof buffer?.viewportY === 'number' ? buffer.viewportY : undefined,
         bufferBaseY: typeof buffer?.baseY === 'number' ? buffer.baseY : undefined,
         bufferLength: typeof buffer?.length === 'number' ? buffer.length : undefined,
-        queuedTransitions: current.queuedOutput.length,
-        queuedBytes: current.queuedOutputBytes,
-        replayTargetEpoch: current.replayTargetEpoch,
-        replayTargetRevision: current.replayTargetRevision,
+        queuedTransitions: current.replayState.queuedTransitions.length,
+        queuedBytes: current.replayState.queuedBytes,
         checkpointRequestInFlight: current.checkpointRequestInFlight,
-        checkpointRequestGeneration: current.checkpointRequestGeneration,
-        checkpointRequestSeq: current.checkpointRequestSeq,
-        checkpointRequestAgeMs: current.checkpointRequestStartedAt > 0
-          ? Math.max(0, Date.now() - current.checkpointRequestStartedAt)
-          : 0,
-        checkpointLastResult: current.checkpointLastResult,
-        checkpointLastInvalidation: current.checkpointLastInvalidation,
-        checkpointFetchCount: current.checkpointFetchCount,
-        checkpointFailureCount: current.checkpointFailureCount,
-        checkpointInvariantFailureSignature: current.checkpointInvariantFailureSignature,
-        checkpointInvariantFailureCount: current.checkpointInvariantFailureCount,
-        checkpointHalted: current.checkpointHalted,
-        controllerRecoveryFailureSignature: current.controllerRecoveryFailureSignature,
-        controllerRecoveryFailureCount: current.controllerRecoveryFailureCount,
-        checkpointRetryScheduled: current.checkpointRetryTimer !== null,
         replayInProgress: current.replayInProgress,
         bootstrappingSnapshot: current.bootstrappingSnapshot,
         pendingSnapshotReplay: current.pendingSnapshotReplay,
-        runtimeEpoch: current.runtimeEpoch,
-        stateRevision: current.stateRevision,
-        lastOutputSeq: current.lastOutputSeq,
+        runtimeEpoch: current.replayState.runtimeEpoch,
+        stateRevision: current.replayState.stateRevision,
+        lastOutputSeq: current.replayState.outputSeq,
         reconnectSnapshotSeq: current.reconnectSnapshotSeq,
         bootstrapRefreshSeq: current.bootstrapRefreshSeq,
         attachGeneration: current.attachGeneration,
@@ -4046,12 +3133,6 @@ function installTerminalTestApi() {
         pageOutputSuspended: current.pageOutputSuspended,
         suppressOutputForMs: Math.max(0, current.suppressOutputUntil - Date.now()),
         needsReconnectOutputSync: current.needsReconnectOutputSync,
-        controllerStatus: current.controllerStatus,
-        controllerFence: current.controllerFence,
-        rendererReadyFence: current.rendererReadyFence,
-        controllerResizeRequestSeq: current.controllerResizeRequestSeq,
-        controllerResizeRequestInFlight: current.controllerResizeRequestInFlight,
-        controllerPendingResize: current.controllerPendingResize,
         lastNotifiedResize: current.lastNotifiedResize,
         resizeNotificationCount: current.resizeNotificationCount,
       }
@@ -4135,21 +3216,6 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
   hostEl.style.height = '100%'
   hostEl.style.position = 'relative'
   hostEl.style.overflow = 'hidden'
-  const controllerStatusEl = document.createElement('div')
-  controllerStatusEl.className = 'terminal-controller-status'
-  controllerStatusEl.setAttribute('role', 'status')
-  controllerStatusEl.setAttribute('aria-live', 'polite')
-  controllerStatusEl.hidden = true
-  const controllerStatusTextEl = document.createElement('span')
-  controllerStatusTextEl.className = 'terminal-controller-status-text'
-  const controllerTakeoverButton = document.createElement('button')
-  controllerTakeoverButton.type = 'button'
-  controllerTakeoverButton.className = 'terminal-controller-takeover'
-  controllerTakeoverButton.textContent = 'Take control'
-  controllerTakeoverButton.hidden = true
-  controllerStatusEl.append(controllerStatusTextEl, controllerTakeoverButton)
-  hostEl.appendChild(controllerStatusEl)
-
   const { terminal, fitAddon } = result
   terminal.loadAddon(fitAddon)
 
@@ -4167,31 +3233,8 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     selectionChangeDisposable: null,
     imeOverlayDisposables: [],
     resizeObserver: null,
-    unsubscribeController: null,
-    controllerStatusEl,
-    controllerStatusTextEl,
-    controllerTakeoverButton,
-    controllerTakeoverHandler: null,
-    controllerAttachmentId: createBrowserUuid(),
-    controllerClaimId: '',
-    controllerClaimInFlight: false,
-    controllerFocusAfterClaim: false,
-    controllerStatus: document.visibilityState === 'hidden' ? 'suspended' : 'claiming',
-    controllerReason: '',
-    controllerLeaseId: '',
-    controllerFence: null,
-    rendererReadyFence: null,
-    controllerExpiresAt: 0,
-    controllerResizeRequestSeq: 0,
-    controllerResizeRequestInFlight: false,
-    controllerPendingResize: null,
-    controllerRenewTimer: null,
-    controllerClaimTimer: null,
     applyingLocalResize: false,
     parkedViewportState: null,
-    pendingOutputAckChars: 0,
-    suppressOutputAckForTest: false,
-    suppressCheckpointAckForTest: false,
     inputDisabled: Boolean(options.inputDisabled),
     errorHandler: options.onError ?? null,
     scrollChangeDisposable: null,
@@ -4240,35 +3283,15 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     snapshotStateRevision: null,
     snapshotCols: null,
     snapshotRows: null,
-    runtimeEpoch: '',
-    lastOutputSeq: null,
-    stateRevision: null,
-    replayTargetEpoch: '',
-    replayTargetRevision: null,
-    retiredRuntimeEpochs: new Set(),
-    resizeAfterReplay: false,
+    replayState: TERMINAL_REPLAY.createState(),
     replayInProgress: false,
     liveWriteInProgress: false,
     terminalWriteQueue: Promise.resolve(),
     terminalWriteResolvers: new Set(),
-    snapshotCursor: null,
     bootstrapRefreshSeq: 0,
     reconnectSnapshotSeq: 0,
-    checkpointRetryTimer: null,
-    checkpointFailureCount: 0,
-    checkpointInvariantFailureSignature: '',
-    checkpointInvariantFailureCount: 0,
-    controllerRecoveryFailureSignature: '',
-    controllerRecoveryFailureCount: 0,
-    checkpointHalted: false,
     checkpointRequestInFlight: false,
-    checkpointRequestGeneration: null,
-    checkpointRequestSeq: null,
-    checkpointRequestStartedAt: 0,
-    checkpointLastResult: 'never',
-    checkpointLastInvalidation: '',
-    checkpointFetchCount: 0,
-    checkpointInstallSeq: 0,
+    checkpointRetryTimer: null,
     bootstrapRequestControllers: new Set(),
     needsReconnectOutputSync: false,
     pageOutputSuspended: document.visibilityState === 'hidden',
@@ -4276,8 +3299,6 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     pendingSnapshotReplay: false,
     bootstrappingSnapshot: true,
     fixtureOverrideActive: false,
-    queuedOutput: [],
-    queuedOutputBytes: 0,
     suspendRendering: false,
     cachedSelection: '',
     lastNonEmptySelection: '',
@@ -4304,18 +3325,9 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
 
   terminal.onResize(({ cols, rows }: { cols: number; rows: number }) => {
     if (record.applyingLocalResize) return
-    if (record.controllerStatus !== 'owner' || record.replayInProgress || record.bootstrappingSnapshot) return
+    if (record.replayInProgress || record.bootstrappingSnapshot) return
     notifyTerminalResize(record, cols, rows)
   })
-
-  const controllerTakeoverHandler = (event: MouseEvent) => {
-    if (!event.isTrusted) return
-    event.preventDefault()
-    event.stopPropagation()
-    claimTerminalController(record, 'interactive')
-  }
-  controllerTakeoverButton.addEventListener('click', controllerTakeoverHandler)
-  record.controllerTakeoverHandler = controllerTakeoverHandler
 
   installTerminalContextMenu(record, agentId)
   terminal.open(hostEl)
@@ -4350,35 +3362,17 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
         renderSubscription?.dispose()
       }
     : null
-  const backendConnectedHandler = () => {
-    resetTerminalCheckpointInvariantFailures(record)
-    resetTerminalControllerRecoveryFailures(record)
-    cancelTerminalControllerRenew(record)
-    record.controllerLeaseId = ''
-    record.controllerFence = null
-    record.controllerResizeRequestSeq = 0
-    record.controllerResizeRequestInFlight = false
-    record.controllerPendingResize = null
-    record.controllerClaimInFlight = false
-    setTerminalControllerStatus(record, 'claiming')
-    resyncTerminalSizeAfterBackendReconnect(record)
-    claimTerminalController(record, 'passive')
-  }
+  const backendConnectedHandler = () => resyncTerminalSizeAfterBackendReconnect(record)
   window.addEventListener('farming:backend-connected', backendConnectedHandler)
   record.backendConnectedHandler = backendConnectedHandler
   const pageLifecycleHandler = (event: Event) => {
     const suspended = event.type === 'pagehide' || document.visibilityState === 'hidden'
     record.pageOutputSuspended = suspended
     if (suspended) {
-      releaseTerminalController(record, 'suspended')
       record.needsReconnectOutputSync = true
       return
     }
-    resetTerminalCheckpointInvariantFailures(record)
-    resetTerminalControllerRecoveryFailures(record)
-    setTerminalControllerStatus(record, 'claiming')
     resyncTerminalAfterPageResume(record)
-    claimTerminalController(record, 'passive')
   }
   document.addEventListener('visibilitychange', pageLifecycleHandler)
   window.addEventListener('pagehide', pageLifecycleHandler)
@@ -4785,11 +3779,6 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     )
   })
   record.unsubscribeOutput = unsubscribeOutput
-  record.unsubscribeController = subscribeTerminalController(
-    record.controllerAttachmentId,
-    message => handleTerminalControllerState(record, message),
-  )
-
   installTerminalTestApi()
 
   return record
@@ -4826,10 +3815,10 @@ function notifyTerminalAttachReady(record: SessionRecord, generation: number) {
     record.needsReconnectOutputSync ||
     record.replayInProgress ||
     record.liveWriteInProgress ||
-    record.queuedOutput.length > 0 ||
-    !record.runtimeEpoch ||
-    record.lastOutputSeq === null ||
-    record.stateRevision === null
+    record.replayState.queuedTransitions.length > 0 ||
+    !record.replayState.runtimeEpoch ||
+    record.replayState.outputSeq === null ||
+    record.replayState.stateRevision === null
   ) return false
   record.attachReadyNotified = true
   const revealedLatestParkedOutput = Boolean(
@@ -4864,8 +3853,8 @@ function finishTerminalAttachBootstrap(record: SessionRecord, generation: number
   }
   if (notifyTerminalAttachReady(record, generation)) return
   if (record.replayInProgress || record.checkpointRequestInFlight) return
-  beginTerminalCheckpointBarrier(record, record.stateRevision, record.runtimeEpoch)
-  recoverTerminalCheckpointAfterStreamGap(record)
+  record.needsReconnectOutputSync = true
+  requestTerminalReplay(record, generation)
 }
 
 function fitAndFocus(record: SessionRecord, options: Pick<AttachOptions, 'autoFocus' | 'onReady'>, generation: number) {
@@ -4903,8 +3892,9 @@ export async function attachTerminalSession(agentId: string, options: AttachOpti
   record.attachReadyHandler = options.onReady ?? null
   record.attachReadyGeneration = generation
   record.attachReadyNotified = false
-  invalidateTerminalCheckpointRequest(record, 'attach')
-  cancelTerminalCheckpointRetry(record)
+  invalidateTerminalCheckpointRequest(record)
+  TERMINAL_REPLAY.resetRecovery(record.replayState)
+  TERMINAL_REPLAY.beginRecovery(record.replayState)
   appendHost(record, options.mountEl)
   if (record.parkedViewportState) {
     record.followOutput = record.parkedViewportState.following
@@ -4912,8 +3902,6 @@ export async function attachTerminalSession(agentId: string, options: AttachOpti
     record.preserveUnreadOutputUntilJump = record.preserveUnreadOutputUntilJump
       || record.parkedViewportState.preserveUnreadOutputUntilJump
   }
-  setTerminalControllerStatus(record, 'claiming')
-  claimTerminalController(record, 'passive')
   repairTerminalAfterAttach(record)
   record.errorHandler = options.onError ?? null
   record.inputDisabled = Boolean(options.inputDisabled)
@@ -4940,7 +3928,6 @@ export async function updateTerminalSessionBootstrapState(
     return false
   }
   invalidateTerminalCheckpointRequest(record)
-  cancelTerminalCheckpointRetry(record)
   const seeded = seedTerminalCheckpoint(record, state)
   if (!seeded && !record.pendingSnapshotReplay) return false
   if (isTerminalSessionAttached(record)) {
@@ -4973,25 +3960,6 @@ export function sendTerminalSessionInput(agentId: string, input: string | Termin
   return queueTerminalInput(current, input)
 }
 
-export function getTerminalControllerCredentials(agentId: string) {
-  const current = sessions.get(agentId)
-  if (
-    !current ||
-    current instanceof Promise ||
-    current.disposed ||
-    current.controllerStatus !== 'owner' ||
-    !current.controllerLeaseId ||
-    current.controllerFence === null ||
-    !current.runtimeEpoch
-  ) return null
-  return {
-    attachmentId: current.controllerAttachmentId,
-    leaseId: current.controllerLeaseId,
-    fence: current.controllerFence,
-    expectedRuntimeEpoch: current.runtimeEpoch,
-  }
-}
-
 export async function getTerminalSelection(agentId: string) {
   const current = sessions.get(agentId)
   if (!current) return ''
@@ -5022,14 +3990,14 @@ export function getTerminalSessionReadCut(agentId: string) {
     !current
     || current instanceof Promise
     || current.disposed
-    || !current.runtimeEpoch
-    || current.lastOutputSeq === null
+    || !current.replayState.runtimeEpoch
+    || current.replayState.outputSeq === null
   ) {
     return null
   }
   return {
-    runtimeEpoch: current.runtimeEpoch,
-    outputSeq: current.lastOutputSeq,
+    runtimeEpoch: current.replayState.runtimeEpoch,
+    outputSeq: current.replayState.outputSeq,
   }
 }
 
@@ -5040,15 +4008,12 @@ export async function destroyTerminalSession(agentId: string) {
 
   const record = await current
   if (record.disposed) return
-  releaseTerminalController(record, 'detached')
   record.disposed = true
+  invalidateTerminalCheckpointRequest(record)
   clearPendingTerminalOutput(record)
   flushPendingTerminalWrites(record)
 
   record.unsubscribeOutput?.()
-  record.unsubscribeController?.()
-  cancelTerminalControllerRenew(record)
-  cancelTerminalControllerClaimTimeout(record)
   record.selectionChangeDisposable?.()
   record.scrollChangeDisposable?.()
   if (record.backendConnectedHandler) {
@@ -5058,13 +4023,6 @@ export async function destroyTerminalSession(agentId: string) {
     document.removeEventListener('visibilitychange', record.pageLifecycleHandler)
     window.removeEventListener('pagehide', record.pageLifecycleHandler)
     window.removeEventListener('pageshow', record.pageLifecycleHandler)
-  }
-  if (record.controllerTakeoverHandler) {
-    record.controllerTakeoverButton.removeEventListener('click', record.controllerTakeoverHandler)
-  }
-  if (record.checkpointRetryTimer !== null) {
-    window.clearTimeout(record.checkpointRetryTimer)
-    record.checkpointRetryTimer = null
   }
   record.imeOverlayDisposables.forEach(dispose => dispose())
   record.resizeObserver?.disconnect()

@@ -26,7 +26,7 @@ async function selectControlAgent(page: import('@playwright/test').Page, agentId
   await expect(row).toBeVisible({ timeout: 30_000 })
   await row.click()
   await expect(page.locator(`.terminal-session-host[data-agent-id="${agentId}"]`))
-    .toHaveAttribute('data-controller-status', 'owner', { timeout: 15_000 })
+    .toBeVisible({ timeout: 15_000 })
   await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
   await waitForProtocolIdle(page, agentId)
 }
@@ -129,7 +129,7 @@ async function visibleText(page: import('@playwright/test').Page, agentId: strin
 }
 
 test.describe('terminal state protocol', () => {
-  test('terminal control starts on LAN HTTP where crypto.randomUUID is unavailable', async ({ page, workspaceRoot }) => {
+  test('terminal starts on LAN HTTP where crypto.randomUUID is unavailable', async ({ page, workspaceRoot }) => {
     await page.addInitScript(() => {
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
         configurable: true,
@@ -141,7 +141,8 @@ test.describe('terminal state protocol', () => {
     const agentId = await createControlAgent(page, workspace)
     await openTerminalTestPage(page)
     await selectControlAgent(page, agentId)
-    await expect(terminalHost(page, agentId)).toHaveAttribute('data-controller-status', 'owner')
+    await expect(terminalHost(page, agentId)).toBeVisible()
+    await expect(terminalHost(page, agentId).locator('.terminal-controller-status')).toHaveCount(0)
   })
 
   test('resuming a stale visible fixture installs one latest checkpoint instead of replaying history', async ({ page, workspaceRoot }) => {
@@ -583,8 +584,7 @@ test.describe('terminal state protocol', () => {
     expect(requests).toBe(4)
     await page.waitForTimeout(2_000)
     expect(requests).toBe(4)
-    await expect(terminalHost(page, agentId).locator('.terminal-controller-status-text'))
-      .toContainText('Terminal synchronization failed')
+    await expect(page.getByTestId('code-terminal-status-card')).toBeVisible()
     expect(await visibleText(page, agentId)).not.toContain('GAP_MUST_NOT_RENDER')
   })
 
@@ -662,18 +662,17 @@ test.describe('terminal state protocol', () => {
     await expect.poll(() => page.evaluate(id => (
       window.__farmingTerminalTest?.getBufferDiagnostics(id) as unknown as {
         checkpointHalted?: boolean
-        controllerRecoveryFailureCount?: number
+        replayTargetRevision?: number | null
       } | null
     ), agentId), { timeout: 10_000 }).toMatchObject({
-      checkpointHalted: true,
-      controllerRecoveryFailureCount: 4,
+      checkpointHalted: false,
+      replayTargetRevision: null,
     })
-    expect(requests).toBeLessThanOrEqual(5)
-    const requestsAfterControllerHalt = requests
+    expect(requests).toBeLessThanOrEqual(3)
+    const requestsAfterRecovery = requests
     await page.waitForTimeout(500)
-    expect(requests).toBe(requestsAfterControllerHalt)
-    await expect(terminalHost(page, agentId).locator('.terminal-controller-status-text'))
-      .toContainText('Terminal synchronization failed')
+    expect(requests).toBe(requestsAfterRecovery)
+    await expect(page.getByTestId('code-terminal-status-card')).toHaveCount(0)
 
     const requestsBeforeRetiredPoison = requests
     await page.evaluate(async ({ id, epoch }) => {
@@ -693,8 +692,8 @@ test.describe('terminal state protocol', () => {
     ), agentId)).toBe(epochC)
   })
 
-  test('CRT halts a repeated controller/checkpoint epoch contradiction', async ({ page, workspaceRoot }) => {
-    const workspace = path.join(workspaceRoot, 'crt-controller-checkpoint-contradiction')
+  test('CRT installs an authoritative replacement epoch without ownership negotiation', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'crt-replacement-checkpoint')
     fs.mkdirSync(workspace, { recursive: true })
     const agentId = await createControlAgent(page, workspace)
     await page.goto(`/farming/crt/?agent=${encodeURIComponent(agentId)}`, {
@@ -757,72 +756,27 @@ test.describe('terminal state protocol', () => {
       (window as typeof window & {
         __farmingCrtTerminalTest?: {
           getState: () => {
+            runtimeEpoch?: string
+            stateRevision?: number
             checkpointHalted?: boolean
-            controllerRecoveryFailureCount?: number
           } | null
         }
       }).__farmingCrtTerminalTest?.getState() || null
     )), { timeout: 10_000 }).toMatchObject({
-      checkpointHalted: true,
-      controllerRecoveryFailureCount: 4,
+      runtimeEpoch: replacementEpoch,
+      stateRevision: initial!.stateRevision + 1,
+      checkpointHalted: false,
     })
-    expect(requests).toBeLessThanOrEqual(4)
-    const requestsAfterHalt = requests
+    expect(requests).toBeLessThanOrEqual(2)
+    const requestsAfterRecovery = requests
     await page.waitForTimeout(500)
-    expect(requests).toBe(requestsAfterHalt)
-    await expect(page.locator('.crt-terminal-sync-status-text'))
-      .toContainText('CONTROLLER AND CHECKPOINT RUNTIME DISAGREED REPEATEDLY')
-  })
-
-  test('CRT rejects a controller lease granted after pagehide', async ({ page, workspaceRoot }) => {
-    const workspace = path.join(workspaceRoot, 'crt-late-hidden-controller')
-    fs.mkdirSync(workspace, { recursive: true })
-    const agentId = await createControlAgent(page, workspace)
-    await page.goto(`/farming/crt/?agent=${encodeURIComponent(agentId)}`, {
-      waitUntil: 'domcontentloaded',
-    })
-    await expect(page.locator('#session-modal')).toHaveClass(/active/, { timeout: 30_000 })
-    await expect(page.locator('#terminal-output .xterm')).toBeVisible({ timeout: 15_000 })
-    await expect(page.locator('.crt-terminal-sync-status')).toBeHidden({ timeout: 15_000 })
-
-    await page.evaluate(() => window.dispatchEvent(new Event('pagehide')))
-    await page.evaluate(() => {
-      const api = (window as typeof window & {
-        __farmingCrtTerminalTest?: {
-          deliverController: (message: Record<string, unknown>) => boolean
-        }
-      }).__farmingCrtTerminalTest
-      api?.deliverController({
-        status: 'owner',
-        leaseId: 'late-hidden-lease',
-        fence: 999,
-        expiresAt: Date.now() + 30_000,
-      })
-    })
+    expect(requests).toBe(requestsAfterRecovery)
+    await expect(page.locator('.crt-terminal-sync-status')).toBeHidden()
     await expect.poll(() => page.evaluate(() => (
       (window as typeof window & {
-        __farmingCrtTerminalTest?: {
-          getState: () => {
-            controllerStatus?: string
-            leaseId?: string
-            fence?: number | null
-          } | null
-        }
-      }).__farmingCrtTerminalTest?.getState() || null
-    ))).toMatchObject({
-      controllerStatus: 'claiming',
-      leaseId: '',
-      fence: null,
-    })
-
-    await page.evaluate(() => window.dispatchEvent(new Event('pageshow')))
-    await expect.poll(() => page.evaluate(() => (
-      (window as typeof window & {
-        __farmingCrtTerminalTest?: {
-          getState: () => { controllerStatus?: string } | null
-        }
-      }).__farmingCrtTerminalTest?.getState()?.controllerStatus || ''
-    )), { timeout: 10_000 }).toBe('owner')
+        __farmingCrtTerminalTest?: { getRows: () => string[] }
+      }).__farmingCrtTerminalTest?.getRows().join('\n') || ''
+    ))).toContain('CRT_REPLACEMENT_CHECKPOINT')
   })
 
   test('parked terminal fetches one checkpoint after a real websocket disconnect', async ({ page, workspaceRoot }) => {
@@ -929,8 +883,7 @@ test.describe('terminal state protocol', () => {
     const text = await visibleText(page, agentId)
     expect(text.split(marker).length - 1).toBe(1)
 
-    await expect(terminalHost(page, agentId))
-      .toHaveAttribute('data-controller-status', 'owner', { timeout: 10_000 })
+    await expect(terminalHost(page, agentId)).toBeVisible({ timeout: 10_000 })
     const authoritative = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
       .then(response => response.json()) as {
         session?: { runtimeEpoch?: string; stateRevision?: number }

@@ -7,17 +7,17 @@ const { WorkspaceFileError } = require('./workspace-file-service');
 
 const GLOBAL_WORKSPACE_FILES_AGENT_ID = '__farming_global_files__';
 const GLOBAL_WORKSPACE_FILES_ROOT = '/';
-const PROJECT_FILES_AGENT_PREFIX = '__farming_project__:';
+const PROJECT_FILES_WORKSPACE_PREFIX = '__farming_project__:';
 
 function isGlobalWorkspaceFilesAgentId(agentId) {
   return agentId === GLOBAL_WORKSPACE_FILES_AGENT_ID;
 }
 
-function projectWorkspaceFromFilesAgentId(agentId) {
-  const value = String(agentId || '');
-  if (!value.startsWith(PROJECT_FILES_AGENT_PREFIX)) return '';
+function projectWorkspaceFromFilesId(filesId) {
+  const value = String(filesId || '');
+  if (!value.startsWith(PROJECT_FILES_WORKSPACE_PREFIX)) return '';
   try {
-    return decodeURIComponent(value.slice(PROJECT_FILES_AGENT_PREFIX.length)).trim();
+    return decodeURIComponent(value.slice(PROJECT_FILES_WORKSPACE_PREFIX.length)).trim();
   } catch {
     return '';
   }
@@ -180,12 +180,27 @@ function resolveWorkspaceRoot(agentManager, agentId) {
     return GLOBAL_WORKSPACE_FILES_ROOT;
   }
 
-  const projectWorkspace = normalizeAbsolutePath(projectWorkspaceFromFilesAgentId(agentId));
+  const projectWorkspace = normalizeAbsolutePath(projectWorkspaceFromFilesId(agentId));
   if (projectWorkspace) {
     const settings = agentManager?.configManager?.getSettings?.() || {};
     const configured = (Array.isArray(settings.projectWorkspaces) ? settings.projectWorkspaces : [])
       .map(normalizeAbsolutePath);
     if (configured.includes(projectWorkspace)) return projectWorkspace;
+
+    // A newly created Agent can reach the browser before projectWorkspaces is
+    // persisted. Accept only an exact live non-main workspace during that
+    // bounded race; the Agent authorizes access but never becomes file identity.
+    const state = agentManager && typeof agentManager.getState === 'function'
+      ? agentManager.getState()
+      : { agents: [] };
+    const backedByLiveAgent = (state.agents || []).some(candidate => {
+      if (!candidate || candidate.isMain) return false;
+      const liveWorkspace = normalizeAbsolutePath(
+        candidate.projectWorkspace || candidate.gitWorktree?.workspace || candidate.cwd
+      );
+      return liveWorkspace === projectWorkspace;
+    });
+    if (backedByLiveAgent) return projectWorkspace;
     throw new WorkspaceFileError('project not found', 404);
   }
 
@@ -510,12 +525,14 @@ function createWorkspaceFileRouter(agentManager, fileService) {
 module.exports = {
   GLOBAL_WORKSPACE_FILES_AGENT_ID,
   GLOBAL_WORKSPACE_FILES_ROOT,
-  PROJECT_FILES_AGENT_PREFIX,
+  PROJECT_FILES_WORKSPACE_PREFIX,
+  PROJECT_FILES_AGENT_PREFIX: PROJECT_FILES_WORKSPACE_PREFIX,
   assertGlobalWorkspacePathAllowed,
   createWorkspaceFileRouter,
   globalWorkspaceAllowedRoots,
   isGlobalWorkspaceFilesAgentId,
-  projectWorkspaceFromFilesAgentId,
+  projectWorkspaceFromFilesId,
+  projectWorkspaceFromFilesAgentId: projectWorkspaceFromFilesId,
   resolveWorkspaceRoot,
   sendWorkspaceFileError,
 };

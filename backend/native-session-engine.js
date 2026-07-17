@@ -172,11 +172,10 @@ class NativeSessionEngine extends SessionEngine {
   }
 
   async sendInput(sessionId, input, options = {}) {
-    const terminalControl = options.terminalControl || null;
     return this.client.request('sendInput', {
       sessionId,
       input,
-      terminalControl,
+      expectedRuntimeEpoch: options.expectedRuntimeEpoch || '',
     }, {
       retryOnDisconnect: false,
     });
@@ -186,53 +185,15 @@ class NativeSessionEngine extends SessionEngine {
     return this.sendInput(sessionId, input, options);
   }
 
-  async claimSessionController(sessionId, controller) {
-    return this.client.request('claimSessionController', { sessionId, controller });
+  async resizeSession(sessionId, cols, rows) {
+    return this.client.request('resizeSession', { sessionId, cols, rows });
   }
 
-  async activateSessionRenderer(sessionId, controller) {
-    return this.client.request('activateSessionRenderer', { sessionId, controller }, {
-      retryOnDisconnect: false,
-    });
-  }
-
-  async renewSessionController(sessionId, controller) {
-    return this.client.request('renewSessionController', { sessionId, controller });
-  }
-
-  async releaseSessionController(sessionId, controller) {
-    return this.client.request('releaseSessionController', { sessionId, controller }, {
-      retryOnDisconnect: false,
-    });
-  }
-
-  async acknowledgeSessionOutput(sessionId, charCount, controller) {
-    return this.client.request('acknowledgeSessionOutput', {
+  async clearBuffer(sessionId, options = {}) {
+    return this.client.request('clearBuffer', {
       sessionId,
-      charCount,
-      controller,
+      expectedRuntimeEpoch: options.expectedRuntimeEpoch || '',
     }, {
-      retryOnDisconnect: false,
-    });
-  }
-
-  async acknowledgeSessionCheckpoint(sessionId, outputSeq, stateRevision, controller) {
-    return this.client.request('acknowledgeSessionCheckpoint', {
-      sessionId,
-      outputSeq,
-      stateRevision,
-      controller,
-    }, {
-      retryOnDisconnect: false,
-    });
-  }
-
-  async resizeSession(sessionId, cols, rows, controller) {
-    return this.client.request('resizeSession', { sessionId, cols, rows, controller });
-  }
-
-  async clearBuffer(sessionId, controller = null) {
-    return this.client.request('clearBuffer', { sessionId, controller }, {
       retryOnDisconnect: false,
     });
   }

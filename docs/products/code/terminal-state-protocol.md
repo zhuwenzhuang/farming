@@ -2,110 +2,48 @@
 
 [简体中文](terminal-state-protocol.zh_cn.md)
 
-Farming Terminal follows the persistent-terminal model used by VS Code: a PTY process produces an ordered byte stream, a headless terminal reducer owns the authoritative display state, and browser renderers are replaceable views of that state. Farming adds an explicit controller lease because the same terminal may be open in several browser windows or skins.
+Farming follows VS Code's persistent-terminal model:
 
-## Authoritative State
+1. A PTY produces an ordered byte stream.
+2. A headless xterm instance in the PTY host reduces that stream and can serialize the current screen.
+3. A browser attach or reconnect receives one replay containing the serialized screen and its exact dimensions.
+4. Live output continues only after xterm's replay write callback completes.
 
-For one live PTY runtime, display and control are two independent state machines.
-The authoritative display state is:
+## Replay State
+
+A replay carries:
 
 ```text
 (runtimeEpoch, stateRevision, outputSeq, screen, cols, rows)
 ```
 
-- `runtimeEpoch` identifies one concrete PTY process lifetime.
-- `outputSeq` advances once for each committed PTY output transition.
-- `stateRevision` advances for every committed display transition. Output advances both `outputSeq` and `stateRevision`; clear and resize advance only `stateRevision`.
-- `screen`, `cols`, and `rows` come from the PTY host's headless xterm reducer.
+The epoch identifies one PTY lifetime. The revision and output sequence let Farming discard live messages already covered by the replay and detect a missing message. They are transport cursors, not a second business state machine.
 
-The controller lease is separate:
+`GET /api/agents/:agentId/session-view` returns the current replay. It is read when a browser first attaches, reconnects, resumes from a hidden page, or detects a stream gap. It is not polled.
 
-```text
-(claimedRuntimeEpoch, leaseId, fence, expiresAt, rendererReadyFence)
-```
+Code and CRT use the same browser protocol implementation in `frontend/terminal-replay.js` for epoch ordering, contiguous-transition checks, replay targets, queue bounds, checkpoint validation, and retry policy. Each skin only adapts fetch and xterm/DOM operations; it does not implement a second replay state machine. Transport failures retry with bounded backoff. If the same checkpoint invariant fails repeatedly, recovery stops and reports a visible error instead of looping.
 
-`leaseId` and `fence` invalidate input, resize, clear, and output acknowledgements from an older browser controller. `claimedRuntimeEpoch` is immutable for the lease: a PTY epoch change invalidates the lease instead of silently migrating it. Controller replies never carry or advance display revisions, output sequences, dimensions, or checkpoints.
+During a full replay, xterm is hidden until its write callback completes. A user returning after a long absence therefore sees the latest screen once instead of watching historical output paint from top to bottom.
 
-The PTY host publishes an output transition only after the reducer has committed that exact transition. A checkpoint is valid only when its epoch, sequences, screen, and dimensions describe the same committed cut.
+## Input And Resize
 
-## `/session-view`
+Input is xterm's raw `onData` stream and is written directly to the PTY. Farming does not add input acknowledgements, deduplication, automatic replay, controller leases, or takeover UI. Several Code or CRT views may write to the same PTY; the server serializes writes in arrival order.
 
-`GET /api/agents/:agentId/session-view` returns the current authoritative view of a session. It is a checkpoint API, not an event log and not a second terminal emulator.
+Resize is also shared. Browsers send their current dimensions and the server coalesces pending resize work so the latest received size wins. A browser applies a committed remote resize without sending it back again.
 
-A browser uses it when it first attaches, reconnects, returns from suspension, observes a sequence gap or queue overflow, or changes runtime epoch. It installs the checkpoint once, discards covered queued transitions, then accepts only contiguous later transitions from the same epoch. It does not poll `/session-view`; normal resize and clear do not fetch a checkpoint.
+## Backpressure And Recovery
 
-This is why resuming after a long absence does not replay old output second by second. The browser jumps to one proved current screen and continues from its exact sequence boundary.
+The PTY host publishes output only after the headless reducer has committed it. Reducer backlog may pause PTY reads. Slow browser WebSockets are isolated from one another; there is no browser renderer-debt protocol.
 
-Normal live display changes share one ordered transition log:
-
-| Transition | `stateRevision` | `outputSeq` | Payload |
-| --- | --- | --- | --- |
-| output | +1 | +1 | PTY bytes |
-| resize | +1 | unchanged | `cols`, `rows` |
-| clear | +1 | unchanged | clear operation |
-
-The active renderer resizes its local xterm immediately and then submits the fenced PTY resize, matching VS Code's live-resize order. Other viewers apply the committed resize transition. A rejection recovers from an authoritative checkpoint; it never turns a resize timer into a display commit.
-
-## Input And Multiple Viewers
-
-Terminal input remains a raw PTY byte stream, as in VS Code. Farming does not add per-keystroke or per-input ACK, deduplication, or automatic replay.
-
-The browser uses xterm's `onData` event as the single input source, including IME commits and paste. There is no timing-based textarea fallback that can duplicate text while a checkpoint or takeover is pending. Input produced while a controller claim or renderer commit is pending is retained in a bounded, epoch-bound queue and is sent once only after the controller is ready; an epoch change discards it visibly.
-
-Only one visible attachment owns the controller lease at a time. Code and CRT observers remain read-only until the user presses **Take control**. Input, resize, clear, and renderer output ACKs carry the lease id, fence, and expected runtime epoch; stale operations are rejected.
-
-An ambiguous transport disconnect does not automatically resend terminal input because replaying an uncertain command can execute it twice. Display recovery is checkpointed; input delivery is direct and fail-visible.
-
-## Output Flow Control
-
-The PTY host separately tracks:
-
-- bytes waiting for the authoritative reducer; and
-- characters delivered to the owning browser renderer but not yet acknowledged.
-
-The browser acknowledges output only after xterm's write callback. The host pauses the PTY above the high watermark and resumes below the low watermark. A controller takeover clears the previous owner's renderer debt, so one stalled or closed window cannot keep the shared PTY paused.
-
-## Recovery Boundaries
-
-| Event | Process identity | Display recovery |
-| --- | --- | --- |
-| Browser reconnect, reload, or hidden-page resume | Same PTY, same epoch | Install `/session-view`, then contiguous live output |
-| Farming server restart with the compatible PTY host still alive | Same PTY, same epoch | Reattach to the host and checkpoint |
-| Controlled incompatible PTY host rotation during an upgrade | New PTY, new epoch | Freeze mutations, drain reducer work, prepare a token-bound serialized checkpoint, stop the old host, start a new process, restore the serialized screen, and show `History restored` |
-| Unexpected PTY host crash | Old PTY is lost | Report terminal loss; do not claim that the old process or uncommitted input survived |
-
-Controlled rotation is transactional. New mutations are blocked during preparation, sessions that exit before the cut are excluded, serialization failure resumes the old host and aborts rotation, and shutdown requires the matching preparation token.
-
-## Safety And Liveness
-
-Safety obligations:
-
-- a browser never combines transitions from different epochs;
-- a duplicate or stale transition never mutates the display;
-- a gap never advances the display without a checkpoint;
-- every checkpoint corresponds to one reducer-committed cut;
-- resize and clear occupy the same ordered revision space as output;
-- an old controller cannot input, resize, clear, or acknowledge output after takeover;
-- a controller lease never crosses a PTY runtime epoch;
-- failed controlled rotation never deliberately destroys uncheckpointed live PTYs.
-
-Liveness obligations:
-
-- transport failures retry checkpoints with bounded backoff, while four identical responses that violate the same checkpoint invariant stop automatic retry and fail visibly until an explicit reconnect;
-- reducer or renderer backlog pauses rather than drops PTY output;
-- a healthy controller takeover releases stale renderer backpressure;
-- every controlled rotation either commits to a new host or resumes the old host;
-- unexpected process loss terminates visibly instead of leaving a permanently pending state.
-
-Timers do not prove display correctness. The lease expiry scheduler and browser renew watchdog exist only for controller liveness; request deadlines only fail requests; batching and layout timers only affect performance. No timer creates a revision, accepts a gap, completes replay, or confirms renderer output.
+A compatible Farming server restart reattaches to the existing native PTY host. An incompatible host rotation serializes the screen before replacement. An unexpected PTY-host crash is reported as process loss and is never presented as a successful replay.
 
 ## VS Code Reference
 
-The terminology and recovery split follow VS Code's persistent terminal implementation:
+The corresponding VS Code mechanisms are:
 
-- [`basePty.ts`](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminal/common/basePty.ts): process replay, `OverrideDimensions`, tracked renderer commits, and replay completion.
-- [`localPty.ts`](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminal/electron-browser/localPty.ts): blocks input, resize, and output ACK while replay is active.
-- [`ptyService.ts`](https://github.com/microsoft/vscode/blob/main/src/vs/platform/terminal/node/ptyService.ts): persistent terminal serialization, live resize ordering, process revival, and the `History restored` boundary.
-- [`terminalInstance.ts`](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminal/browser/terminalInstance.ts): local xterm resize followed by PTY dimension update.
+- `basePty.ts`: applies replay dimensions and waits for each tracked xterm write.
+- `ptyService.ts`: owns the headless xterm serializer and persistent process replay.
+- `terminalInstance.ts`: acknowledges live output after xterm parses it.
+- `terminalResizeDebouncer.ts`: coalesces resize work.
 
-Farming's browser controller lease is an additional boundary required by its multi-window, multi-skin product model; it does not change the raw PTY input semantics.
+Farming uses the same replay boundary while retaining its HTTP/WebSocket transport.

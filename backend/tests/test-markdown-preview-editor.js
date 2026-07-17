@@ -145,10 +145,10 @@ function run() {
       codeMainAreaSource.includes('onOpenFilePath={onOpenWorkspaceFilePath}') &&
       workspaceSource.includes('onOpenWorkspaceFilePath={openWorkspaceFilePath}') &&
       workspaceSource.includes('const openWorkspaceFilePath = useCallback(async (agentId: string, filePath: string') &&
-      (workspaceSource.includes('if (selectOpenWorkspaceFile(agentId, filePath, target)) return') || workspaceSource.includes('if (selectOpenWorkspaceFile(fileAgentId, resolvedFilePath, resolvedTarget)) return')) &&
-      workspaceSource.includes('await fetchWorkspaceTree(agentId, filePath)') &&
-      (workspaceSource.includes("revealWorkspaceFileInExplorer(agentId, filePath, 'directory')") || workspaceSource.includes("revealWorkspaceFileInExplorer(fileAgentId, resolvedFilePath, 'directory')")) &&
-      workspaceSource.includes('focusWorkspaceFilesSearch(agentId, filePath)') &&
+      workspaceSource.includes('if (selectOpenWorkspaceFile(filesId, resolvedFilePath, resolvedTarget)) return') &&
+      workspaceSource.includes('await fetchWorkspaceTree(filesId, resolvedFilePath)') &&
+      workspaceSource.includes("revealWorkspaceFileInExplorer(filesId, resolvedFilePath, 'directory')") &&
+      workspaceSource.includes('focusWorkspaceFilesSearch(filesId, resolvedFilePath)') &&
       markdownPreviewSource.includes('data-testid="code-file-markdown-preview"'),
     'Editor surface should render Markdown as preview by default, expose explicit split source/preview without scroll sync, and support GFM, math, front matter, heading anchors, stable renderers that avoid Mermaid remount flicker, code labels/highlighting, themed Mermaid controls/errors, safe HTML skipping, raw workspace images, and app-routed workspace links including relative directory links'
   );

@@ -12,7 +12,9 @@ function run() {
   assert(component.includes('agent-task'), 'AgentCard should render task summary');
   assert(component.includes('child-badge'), 'AgentCard should render child badge for parentAgentId');
   assert(format.includes('customTitle'), 'agentTitle should allow a user-provided custom title');
-  assert(format.includes('if (customTitle) return truncateTitle(customTitle)'), 'agentTitle should prefer custom titles before agent titles');
+  assert(format.includes('if (customTitle) return customTitle'), 'agent title resolution should prefer custom titles before agent titles');
+  assert(format.includes('return truncateTitle(resolveAgentTitle(agent))'), 'compact agentTitle consumers should keep a bounded label');
+  assert(format.includes('export function agentRowTitle'), 'Agent rows should have a wider source title for CSS-owned truncation');
   assert(format.includes("if (agent.isMain) return 'Main Agent'"), 'agentTitle should use a clear Main Agent label');
   assert(format.includes('meaningfulSessionTitle(agent.sessionTitle, agent)'), 'agentTitle should use agent-updated session titles');
   assert(format.includes('return agentDisplayName(agent.command)'), 'agentTitle should fall back to the agent display name');

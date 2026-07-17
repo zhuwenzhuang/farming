@@ -293,7 +293,7 @@ export function FileChangesSection({
   const untrackedChanges = useMemo(() => changes.items.filter(change => change.gitStatus === 'untracked'), [changes.items])
   const trackedTree = useMemo(() => buildChangeTree(trackedChanges, 'tracked'), [trackedChanges])
   const untrackedTree = useMemo(() => buildChangeTree(untrackedChanges, 'untracked'), [untrackedChanges])
-  if (changes.items.length === 0) return null
+  if (changes.items.length === 0 && !changes.error) return null
 
   const toggleCollapsed = () => {
     if (collapsed) changes.refreshChanges()

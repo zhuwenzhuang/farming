@@ -1917,7 +1917,7 @@ test.describe('terminal regression matrix', () => {
       await page.evaluate(() => window.dispatchEvent(new Event('pagehide')))
       await expect.poll(async () => (
         await terminalDiagnostics(page, agentId)
-      )?.controllerStatus).toBe('suspended')
+      )?.pageOutputSuspended).toBe(true)
 
       let inputAccepted = false
       for (let attempt = 0; attempt < 20 && !inputAccepted; attempt += 1) {
@@ -1981,7 +1981,7 @@ test.describe('terminal regression matrix', () => {
       await page.evaluate(() => window.dispatchEvent(new Event('pagehide')))
       await expect.poll(async () => (
         await terminalDiagnostics(page, agentId)
-      )?.controllerStatus).toBe('suspended')
+      )?.pageOutputSuspended).toBe(true)
       releaseFirstRequest()
 
       let inputAccepted = false

@@ -188,8 +188,8 @@ async function run() {
     const missingSessionAgent = manager.agents.get('agent-missing-session');
     assert.strictEqual(
       unavailableCalls,
-      7,
-      'session-not-available input should retry the configured short delays before declaring the terminal dead'
+      1,
+      'ambiguous terminal input failure must not replay input before declaring the terminal dead'
     );
     assert.strictEqual(missingSessionAgent.status, 'dead');
     assert.strictEqual(missingSessionAgent.engineStatus, 'dead');
@@ -197,7 +197,7 @@ async function run() {
     assert.match(missingSessionAgent.output, /Session not available/);
     assert.strictEqual(typeof missingSessionAgent.exitedAt, 'number');
     assert.strictEqual(updateCount, 1, 'marking a missing terminal session dead should notify the UI once');
-    assert.strictEqual(consoleErrors.length, 1, 'the exhausted missing-session input should still be logged once');
+    assert.strictEqual(consoleErrors.length, 1, 'the missing-session input failure should be logged once');
 
     console.log('test-agent-manager-input-queue passed');
   } finally {

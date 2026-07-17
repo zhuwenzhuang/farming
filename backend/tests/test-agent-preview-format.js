@@ -7,6 +7,7 @@ const { importTsModule } = require('./helpers/import-ts-module');
     extractMeaningfulPreview,
     extractTerminalSnapshotPreview,
     agentDisplayName,
+    agentRowTitle,
     agentTitle,
   } = importTsModule('src/lib/format.ts');
 
@@ -64,6 +65,14 @@ const { importTsModule } = require('./helpers/import-ts-module');
     '带读一下精读 AbstractOptimizer.op…',
     'decorated generic Claude terminal titles should not hide the original resumed chat title'
   );
+  assert.strictEqual(
+    agentRowTitle({ command: 'claude', source: 'claude-history:8d8f', task: '带读一下精读 AbstractOptimizer.optimize', sessionTitle: '＊ Claude Code' }),
+    '带读一下精读 AbstractOptimizer.optimize',
+    'Agent rows should retain enough source title for CSS to reveal more text as the sidebar widens'
+  );
+  const boundedRowTitle = agentRowTitle({ command: 'codex', customTitle: 'x'.repeat(240) });
+  assert.strictEqual(boundedRowTitle.length, 160, 'Agent row source titles should remain bounded');
+  assert.ok(boundedRowTitle.endsWith('…'));
   assert.strictEqual(
     agentTitle({ command: 'codex', cwd: '/repo/sql-insight', sessionTitle: '⠙ mc_skills' }),
     'mc_skills',

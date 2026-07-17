@@ -23,12 +23,11 @@
         });
       },
 
-      sendTerminalInput(agentId, input, terminalControl) {
+      sendTerminalInput(agentId, input) {
         return send({
           type: 'input',
           agentId,
           input,
-          ...terminalControl,
         });
       },
 
@@ -41,72 +40,26 @@
         });
       },
 
-      interruptAgent(agentId, controller) {
+      interruptAgent(agentId) {
         return send({
           type: 'interrupt-agent',
           agentId,
-          ...(controller || {}),
         });
       },
 
-      claimTerminalController(agentId, controller) {
-        return send({
-          type: 'terminal-controller-claim',
-          agentId,
-          ...controller,
-        });
-      },
-
-      renewTerminalController(agentId, controller) {
-        return send({
-          type: 'terminal-controller-renew',
-          agentId,
-          ...controller,
-        });
-      },
-
-      releaseTerminalController(agentId, controller) {
-        return send({
-          type: 'terminal-controller-release',
-          agentId,
-          ...controller,
-        });
-      },
-
-      activateTerminalRenderer(agentId, controller) {
-        return send({
-          type: 'terminal-renderer-ready',
-          agentId,
-          ...controller,
-        });
-      },
-
-      acknowledgeTerminalOutput(agentId, charCount, controller) {
-        return send({
-          type: 'terminal-output-ack',
-          agentId,
-          charCount,
-          ...controller,
-        });
-      },
-
-      acknowledgeTerminalCheckpoint(agentId, outputSeq, stateRevision, controller) {
-        return send({
-          type: 'terminal-checkpoint-applied',
-          agentId,
-          outputSeq,
-          stateRevision,
-          ...controller,
-        });
-      },
-
-      resizeAgent(agentId, cols, rows, controller) {
+      resizeAgent(agentId, cols, rows) {
         return send({
           type: 'resize-agent',
           agentId,
           cols,
           rows,
-          ...controller,
+        });
+      },
+
+      clearTerminal(agentId) {
+        return send({
+          type: 'clear-terminal',
+          agentId,
         });
       },
 

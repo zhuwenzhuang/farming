@@ -24,18 +24,6 @@ export interface InputMessage {
   input?: string
   inputParts?: TerminalInputPart[]
   agentId?: string
-  attachmentId?: string
-  leaseId?: string
-  fence?: number
-  expectedRuntimeEpoch?: string
-}
-
-export interface OwnedTerminalInputMessage extends InputMessage {
-  agentId: string
-  attachmentId: string
-  leaseId: string
-  fence: number
-  expectedRuntimeEpoch: string
 }
 
 export interface ComposerInputMessage {
@@ -78,89 +66,19 @@ export interface FocusAgentMessage {
 export interface ResizeAgentMessage {
   type: 'resize-agent'
   agentId: string
-  attachmentId: string
-  leaseId: string
-  fence: number
-  requestSeq: number
-  expectedRuntimeEpoch: string
   cols: number
   rows: number
-}
-
-export interface TerminalControllerClaimMessage {
-  type: 'terminal-controller-claim'
-  agentId: string
-  attachmentId: string
-  claimId: string
-  mode: 'passive' | 'interactive'
-  expectedRuntimeEpoch?: string
-}
-
-export interface TerminalControllerRenewMessage {
-  type: 'terminal-controller-renew'
-  agentId: string
-  attachmentId: string
-  leaseId: string
-  fence: number
-}
-
-export interface TerminalControllerReleaseMessage {
-  type: 'terminal-controller-release'
-  agentId: string
-  attachmentId: string
-  leaseId: string
-  fence: number
-}
-
-export interface TerminalRendererReadyMessage {
-  type: 'terminal-renderer-ready'
-  agentId: string
-  attachmentId: string
-  leaseId: string
-  fence: number
-  expectedRuntimeEpoch: string
 }
 
 export interface ClearTerminalMessage {
   type: 'clear-terminal'
   agentId: string
-  attachmentId: string
-  leaseId: string
-  fence: number
-  expectedRuntimeEpoch: string
 }
 
-export interface TerminalOutputAckMessage {
-  type: 'terminal-output-ack'
-  agentId: string
-  attachmentId: string
-  leaseId: string
-  fence: number
-  expectedRuntimeEpoch: string
-  charCount: number
-}
-
-export interface TerminalCheckpointAppliedMessage {
-  type: 'terminal-checkpoint-applied'
-  agentId: string
-  attachmentId: string
-  leaseId: string
-  fence: number
-  expectedRuntimeEpoch: string
-  outputSeq: number
-  stateRevision: number
-}
-
-export type TerminalControllerClientMessage =
-  | OwnedTerminalInputMessage
+export type TerminalSessionClientMessage =
+  | InputMessage
   | ClearTerminalMessage
-  | TerminalOutputAckMessage
-  | TerminalCheckpointAppliedMessage
   | ResizeAgentMessage
-  | TerminalControllerClaimMessage
-  | TerminalControllerRenewMessage
-  | TerminalControllerReleaseMessage
-  | TerminalRendererReadyMessage
 
 export interface KillAgentMessage {
   type: 'kill-agent'
@@ -170,10 +88,6 @@ export interface KillAgentMessage {
 export interface InterruptAgentMessage {
   type: 'interrupt-agent'
   agentId: string
-  attachmentId?: string
-  leaseId?: string
-  fence?: number
-  expectedRuntimeEpoch?: string
 }
 
 export interface RestartMainAgentMessage {
@@ -197,7 +111,7 @@ export type ClientMessage =
   | ComposerInputMessage
   | AppServerRequestResponseMessage
   | FocusAgentMessage
-  | TerminalControllerClientMessage
+  | TerminalSessionClientMessage
   | KillAgentMessage
   | InterruptAgentMessage
   | RestartMainAgentMessage
@@ -246,30 +160,6 @@ export interface SessionOutputMessage {
   }
 }
 
-export interface TerminalControllerMessage {
-  type: 'terminal-controller'
-  agentId: string
-  attachmentId: string
-  claimId?: string
-  status:
-    | 'owner'
-    | 'observer'
-    | 'revoked'
-    | 'expired'
-    | 'unowned'
-    | 'rejected'
-    | 'resize-committed'
-    | 'resize-rejected'
-  leaseId?: string
-  fence?: number
-  expiresAt?: number
-  requestSeq?: number
-  reason?: string
-  renewed?: boolean
-  unchanged?: boolean
-  duplicate?: boolean
-}
-
 export interface SystemStatsMessage {
   type: 'system-stats'
   stats: SystemStats
@@ -310,7 +200,6 @@ export type ServerMessage =
   | ErrorMessage
   | AgentStartedMessage
   | SessionOutputMessage
-  | TerminalControllerMessage
   | SessionPreviewMessage
   | SystemStatsMessage
   | WorkspaceFileWatchMessage

@@ -1,7 +1,6 @@
 const assert = require('assert');
 const LocalSessionEngine = require('../local-session-engine');
 const NativePtyHost = require('../native-pty-host');
-const { createTerminalControllerLease } = require('../terminal-controller-lease');
 const { createTerminalReducerFlowControl } = require('../terminal-reducer-flow-control');
 
 function createSession(id) {
@@ -33,7 +32,6 @@ function createSession(id) {
     previewRows: 24,
     title: '',
     terminalBusy: false,
-    controllerLease: createTerminalControllerLease(),
     reducerFlowControl: createTerminalReducerFlowControl(),
     reducerCommitQueue: Promise.resolve(),
     process: { kill() {}, pause() {}, resume() {}, write() {} },
@@ -84,9 +82,7 @@ async function runCase(label, EngineClass) {
   assert.strictEqual(state.outputSeq, 2);
   assert.strictEqual(state.stateRevision, 3);
   assert.strictEqual(state.renderOutput, 'final rendered screen');
-  const clear = client
-    ? await engine.clearBuffer(session.id, null, client)
-    : await engine.clearBuffer(session.id);
+  const clear = await engine.clearBuffer(session.id);
   assert.strictEqual(clear.cleared, false);
 }
 

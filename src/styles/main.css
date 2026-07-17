@@ -91,6 +91,8 @@ body.code-mode input {
   min-width: 0;
   height: 100%;
   box-sizing: border-box;
+  container-name: code-sidebar;
+  container-type: inline-size;
   background: #f7f7f6;
   border-right: 0;
   display: flex;
@@ -1717,6 +1719,11 @@ body.code-resizing-sidebar {
   white-space: nowrap;
 }
 
+.code-agent-relative-age,
+.code-agent-meta {
+  display: none;
+}
+
 .code-agent-name,
 .code-agent-meta,
 .code-terminal-title {
@@ -1732,6 +1739,48 @@ body.code-resizing-sidebar {
 .code-agent-meta {
   color: #7b8078;
   font-size: 12px;
+}
+
+/*
+ * Agent rows have one authoritative data model and three width projections:
+ * compact keeps the existing title-only row; roomy adds provider + recency;
+ * wide also exposes command/runtime detail without increasing row height.
+ */
+@container code-sidebar (min-width: 360px) {
+  .code-agent-row.has-provider:not(.code-session-show-more) {
+    grid-template-columns: 17px minmax(0, 1fr) auto;
+  }
+
+  .code-agent-row-provider-icon {
+    width: 17px;
+    height: 17px;
+    display: inline-grid;
+    place-items: center;
+    color: #596159;
+  }
+
+  .code-agent-row-provider-icon .agent-launch-icon {
+    width: 17px;
+    height: 17px;
+    display: block;
+  }
+
+  .code-agent-relative-age {
+    display: inline;
+  }
+}
+
+@container code-sidebar (min-width: 640px) {
+  .code-agent-row-copy.has-details {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(160px, 0.72fr);
+    align-items: center;
+    gap: 14px;
+  }
+
+  .code-agent-row-copy.has-details .code-agent-meta {
+    display: block;
+  }
 }
 
 .code-agents-section,
@@ -13310,53 +13359,6 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
   background: #ffffff;
 }
 
-.terminal-controller-status {
-  position: absolute;
-  z-index: 8;
-  top: 8px;
-  right: 10px;
-  max-width: min(420px, calc(100% - 20px));
-  padding: 4px 8px;
-  border: 1px solid rgba(31, 35, 40, 0.16);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.94);
-  color: #59636e;
-  font: 11px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  user-select: none;
-}
-
-.terminal-controller-status[hidden] {
-  display: none;
-}
-
-.code-agent-work-pane.runtime-switchable .terminal-controller-status {
-  right: 92px;
-  max-width: min(420px, calc(100% - 102px));
-}
-
-.terminal-controller-takeover {
-  flex: none;
-  padding: 2px 7px;
-  border: 1px solid rgba(31, 35, 40, 0.22);
-  border-radius: 4px;
-  background: #ffffff;
-  color: #24292f;
-  font: inherit;
-  cursor: pointer;
-}
-
-.terminal-controller-takeover:hover {
-  background: #f6f8fa;
-}
-
-.terminal-controller-takeover:focus-visible {
-  outline: 2px solid #0969da;
-  outline-offset: 1px;
-}
-
 .terminal-session-host .xterm {
   box-sizing: border-box;
   width: 100%;
@@ -13365,6 +13367,10 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
   background: #ffffff;
   color: #24292f;
   text-shadow: none;
+}
+
+.terminal-session-host.terminal-checkpoint-installing .xterm {
+  visibility: hidden;
 }
 
 .terminal-session-host .xterm-screen,
@@ -15592,11 +15598,6 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
      second, redundant toolbar. */
   body.code-mode.code-mobile-touch .code-terminal-mode-toggle {
     display: none;
-  }
-
-  body.code-mode.code-mobile-touch .code-agent-work-pane.runtime-switchable .terminal-controller-status {
-    right: 10px;
-    max-width: min(420px, calc(100% - 20px));
   }
 
   body.code-mode.code-mobile-touch .code-model-submenu .code-model-option,

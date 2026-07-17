@@ -101,6 +101,8 @@ const {
 } = require('../../src/lib/workspace-editor-tabs.ts');
 const {
   deletedWorkspaceDiffPlaceholderFile,
+  openWorkspaceFileFromRead,
+  selectWorkspaceOpenFile,
   shouldRefreshWorkspaceChangesAfterDirtyStateChange,
   shouldOpenMissingWorkspaceFileAsDiff,
   shouldRevealSelectedWorkspaceOpenFile,
@@ -111,6 +113,7 @@ const {
   workspaceOpenFileDirtyStateForAgent,
   workspaceOpenFileRequestForTarget,
 } = require('../../src/lib/workspace-open-files.ts');
+const { projectFilesWorkspaceId } = require('../../src/lib/project-workspaces.ts');
 const {
   fuzzyPathTextRanges,
   fuzzyTextRanges,
@@ -262,6 +265,32 @@ function run() {
   );
   assert.strictEqual(workspaceWorkingCopyKey(workingCopy()), 'src/App.tsx');
   assert.strictEqual(workspaceWorkingCopyKey(workingCopy({ workspaceRoot: '/repo' })), '/repo/src/App.tsx');
+
+  const openedFromLegacyAgent = openWorkspaceFileFromRead({
+    activeFile: null,
+    files: [],
+    closedFileCache: new Map(),
+  }, 'agent-old', {
+    ...workspaceFile('src/App.tsx'),
+    content: 'source\n',
+    binary: false,
+  }, {
+    workspaceRoot: '/repo',
+    sourceAgentId: 'agent-old',
+  });
+  const stableFilesId = projectFilesWorkspaceId('/repo');
+  const selectedThroughWorkspace = selectWorkspaceOpenFile(
+    openedFromLegacyAgent,
+    stableFilesId,
+    'src/App.tsx',
+    { workspaceRoot: '/repo', sourceAgentId: 'agent-new' },
+  );
+  assert(selectedThroughWorkspace);
+  assert.strictEqual(selectedThroughWorkspace.activeFile.agentId, stableFilesId);
+  assert.strictEqual(selectedThroughWorkspace.activeFile.workspaceRoot, '/repo');
+  assert.strictEqual(selectedThroughWorkspace.activeFile.sourceAgentId, 'agent-new');
+  assert.strictEqual(selectedThroughWorkspace.files.length, 1);
+  assert.strictEqual(selectedThroughWorkspace.files[0].agentId, stableFilesId);
 
   assert.strictEqual(workspaceWorkingCopyState(workingCopy()), 'saved');
   assert.strictEqual(workspaceWorkingCopyState(workingCopy({ dirty: true })), 'dirty');

@@ -104,23 +104,16 @@ function waitForTerminalInputReadiness(agentManager, agentId, options = {}) {
 function createControlRouter(agentManager, options = {}) {
   const router = express.Router();
   const notifyUpdate = typeof options.notifyUpdate === 'function' ? options.notifyUpdate : () => {};
-  const terminalMutationCoordinator = options.terminalMutationCoordinator || null;
-  const allowConcurrentTestControl = options.allowConcurrentTestControl === true;
   const initialInputTimeoutMs = Number.isFinite(options.initialInputTimeoutMs)
     ? Math.max(1, options.initialInputTimeoutMs)
     : DEFAULT_INITIAL_INPUT_TIMEOUT_MS;
 
-  async function runTerminalSystemMutation(agentId, expectedRuntimeEpoch, operation) {
-    if (!terminalMutationCoordinator) {
-      return operation({
-        terminalControl: { kind: 'system', expectedRuntimeEpoch },
-        expectedRuntimeEpoch,
-      });
+  async function runTerminalMutation(agentId, expectedRuntimeEpoch, operation) {
+    const current = findAgent(agentManager.getState(), agentId);
+    if (!current || current.runtimeEpoch !== expectedRuntimeEpoch) {
+      return { status: 'rejected', reason: 'runtime-epoch-mismatch' };
     }
-    return terminalMutationCoordinator.runSystemMutation(agentId, operation, {
-      expectedRuntimeEpoch,
-      allowWhileControlled: allowConcurrentTestControl,
-    });
+    return operation({ expectedRuntimeEpoch });
   }
 
   router.use(express.json({ limit: '1mb' }));
@@ -187,10 +180,10 @@ function createControlRouter(agentManager, options = {}) {
           expectedRuntimeEpoch: started.runtimeEpoch,
           timeoutMs: initialInputTimeoutMs,
         });
-        const result = await runTerminalSystemMutation(
+        const result = await runTerminalMutation(
           agentId,
           readiness.expectedRuntimeEpoch,
-          async ({ terminalControl }) => {
+          async ({ expectedRuntimeEpoch }) => {
             const current = findAgent(agentManager.getState(), agentId);
             if (
               !current ||
@@ -203,7 +196,7 @@ function createControlRouter(agentManager, options = {}) {
               return { status: 'rejected', reason: 'startup-state-changed' };
             }
             return agentManager.sendInput(agentId, ensureTrailingNewline(initialInput), {
-              terminalControl,
+              expectedRuntimeEpoch,
             });
           },
         );
@@ -242,7 +235,7 @@ function createControlRouter(agentManager, options = {}) {
       return;
     }
 
-    if (agentManager.agentRequiresTerminalController?.(agentId) === false) {
+    if (agentManager.agentSupportsTerminalInput?.(agentId) === false) {
       res.status(409).json({ error: 'raw input is only available for Terminal Agents' });
       return;
     }
@@ -254,8 +247,8 @@ function createControlRouter(agentManager, options = {}) {
       return;
     }
     const input = typeof req.body.input === 'string' ? req.body.input : '';
-    const result = await runTerminalSystemMutation(agentId, expectedRuntimeEpoch, ({ terminalControl }) => (
-      agentManager.sendInput(agentId, input, { terminalControl })
+    const result = await runTerminalMutation(agentId, expectedRuntimeEpoch, ({ expectedRuntimeEpoch: epoch }) => (
+      agentManager.sendInput(agentId, input, { expectedRuntimeEpoch: epoch })
     ));
     if (!result || result.status === 'rejected' || result.status === 'input-rejected') {
       res.status(409).json({ error: result?.reason || 'terminal input rejected' });
@@ -273,7 +266,7 @@ function createControlRouter(agentManager, options = {}) {
       return;
     }
 
-    if (agentManager.agentRequiresTerminalController?.(agentId) === false) {
+    if (agentManager.agentSupportsTerminalInput?.(agentId) === false) {
       res.status(409).json({ error: 'clear is only available for Terminal Agents' });
       return;
     }
@@ -284,8 +277,8 @@ function createControlRouter(agentManager, options = {}) {
       res.status(409).json({ error: 'terminal runtime is not ready' });
       return;
     }
-    const result = await runTerminalSystemMutation(agentId, expectedRuntimeEpoch, ({ terminalControl }) => (
-      agentManager.clearAgentSessionBuffer(agentId, terminalControl)
+    const result = await runTerminalMutation(agentId, expectedRuntimeEpoch, ({ expectedRuntimeEpoch: epoch }) => (
+      agentManager.clearAgentSessionBuffer(agentId, { expectedRuntimeEpoch: epoch })
     ));
     if (!result || result.status === 'rejected' || result.cleared === false) {
       res.status(409).json({ error: result?.reason || result?.error || 'terminal clear rejected' });

@@ -126,6 +126,33 @@ assert.strictEqual(compactTool.transcriptChanges[0].path, '/tmp/large.js');
 assert(JSON.stringify(compactTool).length < 8 * 1024, 'the transcript envelope must not carry full tool output');
 assert.strictEqual(Object.prototype.hasOwnProperty.call(compactTool, 'rawOutput'), false);
 
+const embeddedResourceText = 'Embedded ACP note';
+const oversizedResourceText = 'resource detail '.repeat(8 * 1024);
+const compactResourceTool = acpTranscriptToolEntry({
+  id: 'resource-tool',
+  type: 'tool',
+  kind: 'read',
+  title: 'Read embedded resources',
+  status: 'completed',
+  content: [
+    {
+      type: 'resource',
+      resource: { name: 'acp-note.txt', uri: 'file:///acp-note.txt', mimeType: 'text/plain', text: embeddedResourceText },
+    },
+    {
+      type: 'content',
+      content: {
+        type: 'resource',
+        resource: { name: 'large.txt', uri: 'file:///large.txt', mimeType: 'text/plain', text: oversizedResourceText },
+      },
+    },
+  ],
+});
+assert.strictEqual(compactResourceTool.content[0].resource.text, embeddedResourceText);
+assert.strictEqual(compactResourceTool.content[1].content.resource.text.length, 4 * 1024);
+assert.strictEqual(compactResourceTool.content[1].content.resource.textTruncated, true);
+assert(!JSON.stringify(compactResourceTool).includes(oversizedResourceText), 'the transcript envelope must not carry full resource text');
+
 const orderedProgressTranscript = acpSessionTranscript({
   state: 'working',
   entries: [

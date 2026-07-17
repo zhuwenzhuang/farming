@@ -22,6 +22,7 @@ import type {
   UsageSummary,
   UsageTimelinePoint,
 } from '@/types/agent'
+import type { WorkspaceFileEventMessage } from '@/types/messages'
 import {
   fetchWorkspaceGitWorktrees,
   type WorkspaceFileDeleteResult,
@@ -59,7 +60,8 @@ import { BrandAboutDialog } from './BrandAboutDialog'
 import { mobileActionMenuPoint, outwardContextMenuPoint } from './menu-position'
 import { ShareQrButton } from './ShareQrButton'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
-import { stableProjectFileAgentId } from './workspace-derived'
+import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
+import { stableProjectSourceAgentId } from './workspace-derived'
 
 declare const __FARMING_PACKAGE_VERSION__: string
 
@@ -198,6 +200,7 @@ interface CodeSidebarProps {
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveWorkspaceEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
   onDeleteWorkspaceEntries: (agentId: string, deletions: WorkspaceFileDeleteResult[]) => void
+  onWatchWorkspaceFiles: (agentId: string, handler: (event: WorkspaceFileEventMessage['event']) => void) => () => void
   onOpenOptionsMenu: (event: ReactMouseEvent<HTMLElement>) => void
   copy: CodeCopy
 }
@@ -257,6 +260,7 @@ export function CodeSidebar({
   onCloseOpenWorkspaceFile,
   onMoveWorkspaceEntries,
   onDeleteWorkspaceEntries,
+  onWatchWorkspaceFiles,
   onOpenOptionsMenu,
   copy,
 }: CodeSidebarProps) {
@@ -632,6 +636,7 @@ export function CodeSidebar({
             onCloseOpenWorkspaceFile={onCloseOpenWorkspaceFile}
             onMoveWorkspaceEntries={onMoveWorkspaceEntries}
             onDeleteWorkspaceEntries={onDeleteWorkspaceEntries}
+            onWatchWorkspaceFiles={onWatchWorkspaceFiles}
             copy={copy}
           />
         ))}
@@ -1902,6 +1907,7 @@ interface ProjectSectionProps {
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveWorkspaceEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
   onDeleteWorkspaceEntries: (agentId: string, deletions: WorkspaceFileDeleteResult[]) => void
+  onWatchWorkspaceFiles: (agentId: string, handler: (event: WorkspaceFileEventMessage['event']) => void) => () => void
   copy: CodeCopy
 }
 
@@ -1943,6 +1949,7 @@ function ProjectSection({
   onCloseOpenWorkspaceFile,
   onMoveWorkspaceEntries,
   onDeleteWorkspaceEntries,
+  onWatchWorkspaceFiles,
   copy,
 }: ProjectSectionProps) {
   const projectGroupRef = useRef<HTMLElement | null>(null)
@@ -1963,23 +1970,23 @@ function ProjectSection({
     targetAgentId: string
     position: 'before' | 'after'
   } | null>(null)
-  const [projectFileAgentId, setProjectFileAgentId] = useState<string | null>(() => (
-    stableProjectFileAgentId(null, project.agents)
+  const [projectSourceAgentId, setProjectSourceAgentId] = useState<string | null>(() => (
+    stableProjectSourceAgentId(null, project.agents)
   ))
-  const nextProjectFileAgentId = stableProjectFileAgentId(projectFileAgentId, project.agents)
-  const projectFileAgent = project.agents.find(agent => (
-    !agent.isMain && agent.id === nextProjectFileAgentId
-  )) ?? project.fileAgent ?? null
-  const effectiveProjectFileAgentId = projectFileAgent?.id || project.fileAgentId || ''
-  const showProjectFiles = project.id !== MAIN_AGENT_PROJECT_ID && Boolean(effectiveProjectFileAgentId)
-  const projectFileAgentIds = new Set([
+  const nextProjectSourceAgentId = stableProjectSourceAgentId(projectSourceAgentId, project.agents)
+  const projectSourceAgent = project.agents.find(agent => (
+    !agent.isMain && agent.id === nextProjectSourceAgentId
+  )) ?? null
+  const filesWorkspaceId = project.workspace ? projectFilesWorkspaceId(project.workspace) : ''
+  const showProjectFiles = project.id !== MAIN_AGENT_PROJECT_ID && Boolean(filesWorkspaceId)
+  const projectFileContextIds = new Set([
+    filesWorkspaceId,
     ...project.agents.filter(agent => !agent.isMain).map(agent => agent.id),
-    ...(project.fileAgent && !project.fileAgent.isMain ? [project.fileAgent.id] : []),
-    ...(project.fileAgentId ? [project.fileAgentId] : []),
+    ...(projectSourceAgent && !projectSourceAgent.isMain ? [projectSourceAgent.id] : []),
   ])
-  const openFileBelongsToProject = useCallback((file: OpenWorkspaceFile) => (
-    projectFileAgentIds.has(file.agentId) || file.workspaceRoot === project.id
-  ), [project.id, projectFileAgentIds])
+  const openFileBelongsToProject = (file: OpenWorkspaceFile) => (
+    file.workspaceRoot === project.workspace || projectFileContextIds.has(file.agentId)
+  )
   const activeProjectFile = openWorkspaceFile && openFileBelongsToProject(openWorkspaceFile)
     ? openWorkspaceFile
     : null
@@ -2004,10 +2011,10 @@ function ProjectSection({
   const hiddenProjectAgentCount = Math.max(0, sortedAgents.length - visibleProjectAgents.length)
 
   useEffect(() => {
-    if (projectFileAgentId !== nextProjectFileAgentId) {
-      setProjectFileAgentId(nextProjectFileAgentId)
+    if (projectSourceAgentId !== nextProjectSourceAgentId) {
+      setProjectSourceAgentId(nextProjectSourceAgentId)
     }
-  }, [nextProjectFileAgentId, projectFileAgentId])
+  }, [nextProjectSourceAgentId, projectSourceAgentId])
 
   useEffect(() => {
     const agentWorktrees = agentWorktreeList(project.gitWorktree)
@@ -2015,13 +2022,26 @@ function ProjectSection({
   }, [project.gitWorktree])
 
   useEffect(() => {
-    if (!effectiveProjectFileAgentId) return
+    if (!filesWorkspaceId) return
     const controller = new AbortController()
-    void fetchWorkspaceGitWorktrees(effectiveProjectFileAgentId, { signal: controller.signal })
+    void fetchWorkspaceGitWorktrees(filesWorkspaceId, { signal: controller.signal })
       .then(setRepositoryWorktrees)
       .catch(() => {})
     return () => controller.abort()
-  }, [effectiveProjectFileAgentId])
+  }, [filesWorkspaceId])
+
+  const withProjectSourceAgent = useCallback((target?: WorkspaceFileOpenTarget) => {
+    if (!projectSourceAgent?.id || target?.sourceAgentId) return target
+    return { ...target, sourceAgentId: projectSourceAgent.id }
+  }, [projectSourceAgent?.id])
+
+  const openProjectWorkspaceFile = useCallback((filesId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => {
+    onOpenProjectFile(filesId, file, withProjectSourceAgent(target))
+  }, [onOpenProjectFile, withProjectSourceAgent])
+
+  const selectOpenProjectWorkspaceFile = useCallback((filesId: string, filePath: string, target?: WorkspaceFileOpenTarget) => (
+    onSelectOpenWorkspaceFile(filesId, filePath, withProjectSourceAgent(target))
+  ), [onSelectOpenWorkspaceFile, withProjectSourceAgent])
 
   const handleFilesCollapsedChange = useCallback((filesCollapsed: boolean) => {
     setProjectFilesExpanded(!filesCollapsed)
@@ -2276,7 +2296,7 @@ function ProjectSection({
         )}
         {worktreeMenu && repositoryWorktrees && typeof document !== 'undefined' && createPortal(
           <ProjectWorktreePopover
-            agentId={effectiveProjectFileAgentId}
+            agentId={filesWorkspaceId}
             anchorRef={worktreeButtonRef}
             copy={copy}
             fallback={repositoryWorktrees}
@@ -2412,7 +2432,7 @@ function ProjectSection({
               <ProjectFilesSection
                 projectId={project.id}
                 projectWorkspace={project.workspace}
-                agentId={effectiveProjectFileAgentId}
+                agentId={filesWorkspaceId}
                 agentLaunchOptions={agentLaunchOptions}
                 activeFilePath={activeProjectFile?.file.path}
                 openFiles={projectOpenWorkspaceFiles
@@ -2424,17 +2444,18 @@ function ProjectSection({
                     dirty: file.dirty,
                     externalChanged: file.externalChanged,
                   }))}
-                revealRequest={fileRevealRequest && projectFileAgentIds.has(fileRevealRequest.agentId) ? fileRevealRequest : undefined}
-                focusSearchRequest={fileSearchFocusRequest && projectFileAgentIds.has(fileSearchFocusRequest.agentId) ? fileSearchFocusRequest : undefined}
+                revealRequest={fileRevealRequest && projectFileContextIds.has(fileRevealRequest.agentId) ? fileRevealRequest : undefined}
+                focusSearchRequest={fileSearchFocusRequest && projectFileContextIds.has(fileSearchFocusRequest.agentId) ? fileSearchFocusRequest : undefined}
                 editorDirtyFilePaths={projectEditorDirtyFilePaths}
                 editorExternalChangedFilePaths={projectEditorExternalChangedFilePaths}
-                onOpenFile={onOpenProjectFile}
-                onSelectOpenFile={onSelectOpenWorkspaceFile}
+                onOpenFile={openProjectWorkspaceFile}
+                onSelectOpenFile={selectOpenProjectWorkspaceFile}
                 onCloseOpenFile={onCloseOpenWorkspaceFile}
                 onNewAgent={onNewAgent}
                 onStartAgent={onStartAgent}
                 onMoveEntries={onMoveWorkspaceEntries}
                 onDeleteEntries={onDeleteWorkspaceEntries}
+                onWatchWorkspaceFiles={onWatchWorkspaceFiles}
                 onFilesCollapsedChange={handleFilesCollapsedChange}
                 copy={copy}
               />
@@ -2707,7 +2728,7 @@ function AgentRow({
   return (
     <div
       tabIndex={0}
-      className={`code-agent-row ${requiresResume ? 'requires-resume' : ''} ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.pinned ? 'pinned' : ''} ${rowState.unread ? 'unread' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
+      className={`code-agent-row ${providerIcon ? 'has-provider' : ''} ${requiresResume ? 'requires-resume' : ''} ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.pinned ? 'pinned' : ''} ${rowState.unread ? 'unread' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
       draggable={reorderable || undefined}
       data-testid={rowTestId}
       data-agent-id={agent?.id}
@@ -2769,8 +2790,17 @@ function AgentRow({
           <AgentLaunchIcon name={providerIcon} variant="color" />
         </span>
       )}
-      <span className="code-agent-row-copy">
+      <span className={`code-agent-row-copy ${rowState.detailLabel ? 'has-details' : ''}`}>
         <span className="code-agent-name">{rowState.title}</span>
+        {rowState.detailLabel && (
+          <span
+            className="code-agent-meta"
+            data-testid="code-agent-row-detail"
+            title={rowState.detailLabel}
+          >
+            {rowState.detailLabel}
+          </span>
+        )}
       </span>
       <span className="code-agent-row-trailing">
         {rowState.statusIndicatorVisible && (
@@ -2799,6 +2829,15 @@ function AgentRow({
           />
         )}
         {rowState.unread && <span className="code-agent-unread" title={copy.unread} />}
+        {rowState.ageVisible && (
+          <span
+            className="code-agent-age code-agent-relative-age"
+            data-testid="code-agent-row-age"
+            title={rowState.ageTitle}
+          >
+            {rowState.ageLabel}
+          </span>
+        )}
         {agent && (
           <span className="code-agent-row-actions" aria-hidden={false}>
             <button

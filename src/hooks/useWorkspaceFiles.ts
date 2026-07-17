@@ -111,7 +111,7 @@ export function useWorkspaceFiles(agentId: string | null, workspaceKey = agentId
   useEffect(() => {
     setDirectories({})
     directoriesRef.current = {}
-  }, [workspaceKey])
+  }, [agentId, workspaceKey])
 
   useEffect(() => () => {
     inFlightDirectoryLoadsRef.current.clear()

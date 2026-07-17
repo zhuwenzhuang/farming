@@ -16,6 +16,7 @@ import type {
   TaskHistoryEntry,
   UsageSummary,
 } from '@/types/agent'
+import type { WorkspaceFileEventMessage } from '@/types/messages'
 import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { agentTitle } from '@/lib/format'
@@ -26,9 +27,9 @@ import {
   normalizeGlobalWorkspaceFilePath,
 } from '@/lib/global-workspace-files'
 import {
-  isProjectFilesAgentId,
   normalizeProjectWorkspaces,
-  projectWorkspaceFromFilesAgentId,
+  projectFilesWorkspaceId,
+  projectWorkspaceFromFilesId,
 } from '@/lib/project-workspaces'
 import {
   shouldRevealSelectedWorkspaceOpenFile,
@@ -63,7 +64,6 @@ import {
   type WorkspaceFileSearchMatch,
 } from '@/lib/workspace-files'
 import {
-  getTerminalControllerCredentials,
   sendTerminalSessionInput,
   type TerminalPathOpenTarget,
 } from '@/lib/terminal-session-pool'
@@ -331,6 +331,7 @@ interface CodeWorkspaceProps {
   sendComposerInput: (message: string, agentId?: string, attachments?: ComposerPromptAttachment[]) => boolean
   respondToAppServerRequest: (agentId: string, requestId: string, result?: unknown, options?: { reject?: boolean; reason?: string }) => boolean
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
+  onWatchWorkspaceFiles: (agentId: string, handler: (event: WorkspaceFileEventMessage['event']) => void) => () => void
   onUpdateUiPreferences: (patch: Partial<UiPreferences>) => void
 }
 
@@ -512,6 +513,7 @@ export function CodeWorkspace({
   sendComposerInput,
   respondToAppServerRequest,
   onSessionOutput,
+  onWatchWorkspaceFiles,
   onUpdateUiPreferences,
 }: CodeWorkspaceProps) {
   const pageVisible = usePageVisibility()
@@ -693,10 +695,78 @@ export function CodeWorkspace({
     if (hiddenMainAgent) ids.add(hiddenMainAgent.id)
     return ids
   }, [activeAgents, hiddenMainAgent])
+  const workspaceNavigationFileIds = useMemo(() => {
+    const ids = new Set<string>([GLOBAL_WORKSPACE_FILES_AGENT_ID])
+    projectWorkspaces.forEach(workspace => ids.add(projectFilesWorkspaceId(workspace)))
+    activeAgents.forEach(agent => ids.add(projectFilesWorkspaceId(projectWorkspaceForAgent(agent))))
+    workspaceNavigationAgentIds.forEach(agentId => ids.add(agentId))
+    return ids
+  }, [activeAgents, projectWorkspaces, workspaceNavigationAgentIds])
 
   useEffect(() => {
-    pruneWorkspaceNavigationEntries(entry => workspaceNavigationAgentIds.has(entry.agentId))
-  }, [pruneWorkspaceNavigationEntries, workspaceNavigationAgentIds])
+    pruneWorkspaceNavigationEntries(entry => (
+      entry.kind === 'agent'
+        ? workspaceNavigationAgentIds.has(entry.agentId)
+        : workspaceNavigationFileIds.has(entry.agentId)
+    ))
+  }, [pruneWorkspaceNavigationEntries, workspaceNavigationAgentIds, workspaceNavigationFileIds])
+
+  const resolveWorkspaceFileIdentity = useCallback((candidateId: string, requestedSourceAgentId?: string) => {
+    const sourceCandidates = hiddenMainAgent ? [...activeAgents, hiddenMainAgent] : activeAgents
+    if (isGlobalWorkspaceFilesAgentId(candidateId)) {
+      const sourceAgent = sourceCandidates.find(agent => agent.id === requestedSourceAgentId)
+      return {
+        filesId: GLOBAL_WORKSPACE_FILES_AGENT_ID,
+        workspaceRoot: GLOBAL_WORKSPACE_FILES_ROOT,
+        sourceAgentId: sourceAgent?.id,
+        sourceAgent,
+      }
+    }
+
+    const projectWorkspace = projectWorkspaceFromFilesId(candidateId)
+    if (projectWorkspace) {
+      const sourceAgent = activeAgents.find(agent => (
+        agent.id === requestedSourceAgentId
+        && projectFilesWorkspaceId(projectWorkspaceForAgent(agent)) === projectFilesWorkspaceId(projectWorkspace)
+      ))
+      return {
+        filesId: projectFilesWorkspaceId(projectWorkspace),
+        workspaceRoot: projectWorkspace,
+        sourceAgentId: sourceAgent?.id,
+        sourceAgent,
+      }
+    }
+
+    const candidateAgent = sourceCandidates.find(agent => agent.id === candidateId)
+    if (candidateAgent && !candidateAgent.isMain) {
+      const workspaceRoot = projectWorkspaceForAgent(candidateAgent)
+      const requestedSourceAgent = activeAgents.find(agent => (
+        agent.id === requestedSourceAgentId
+        && projectFilesWorkspaceId(projectWorkspaceForAgent(agent)) === projectFilesWorkspaceId(workspaceRoot)
+      ))
+      const sourceAgent = requestedSourceAgent ?? candidateAgent
+      return {
+        filesId: projectFilesWorkspaceId(workspaceRoot),
+        workspaceRoot,
+        sourceAgentId: sourceAgent.id,
+        sourceAgent,
+      }
+    }
+
+    return {
+      filesId: candidateId,
+      workspaceRoot: candidateAgent ? projectWorkspaceForAgent(candidateAgent) : undefined,
+      sourceAgentId: candidateAgent?.id,
+      sourceAgent: candidateAgent,
+    }
+  }, [activeAgents, hiddenMainAgent])
+
+  useEffect(() => {
+    if (!openWorkspaceFile?.sourceAgentId) return
+    const identity = resolveWorkspaceFileIdentity(openWorkspaceFile.agentId, openWorkspaceFile.sourceAgentId)
+    if (identity.sourceAgentId) return
+    workspaceOpenFiles.update({ ...openWorkspaceFile, sourceAgentId: undefined })
+  }, [openWorkspaceFile, resolveWorkspaceFileIdentity, workspaceOpenFiles])
 
   const decoratedAgentSessions = useMemo(
     () => applySessionDisplayOverrides(agentSessions, agentSessionPinnedOverrides, {}),
@@ -919,6 +989,7 @@ export function CodeWorkspace({
       lineNumber: openWorkspaceFile.cursor?.lineNumber,
       column: openWorkspaceFile.cursor?.column,
       endColumn: openWorkspaceFile.cursor?.endColumn,
+      sourceAgentId: openWorkspaceFile.sourceAgentId,
     })
   }, [
     activeView,
@@ -930,6 +1001,7 @@ export function CodeWorkspace({
     openWorkspaceFile?.cursor?.requestId,
     openWorkspaceFile?.diffRequestId,
     openWorkspaceFile?.file.path,
+    openWorkspaceFile?.sourceAgentId,
     recordWorkspaceNavigationFile,
   ])
   const composerHasAttachmentMessage = composerAttachmentMessageBlocks(composerAttachments).length > 0
@@ -971,31 +1043,31 @@ export function CodeWorkspace({
     ? agentSessionId(selectedSearchTarget)
     : null
   const activeProjectWorkspace = activeAgent ? projectWorkspaceForAgent(activeAgent) : undefined
-  const projectFileSearchAgent = useMemo(() => {
-    if (openWorkspaceFile) {
-      return activeAgents.find(agent => agent.id === openWorkspaceFile.agentId && !agent.isMain) ?? null
+  const projectFileSearchId = useMemo(() => {
+    if (openWorkspaceFile && !isGlobalWorkspaceFilesAgentId(openWorkspaceFile.agentId)) {
+      return openWorkspaceFile.agentId
     }
-    if (activeAgent && !activeAgent.isMain) return activeAgent
-    if (activeProjectWorkspace) {
-      const workspaceAgent = activeAgents.find(agent => !agent.isMain && projectWorkspaceForAgent(agent) === activeProjectWorkspace)
-      if (workspaceAgent) return workspaceAgent
+    if (activeAgent && !activeAgent.isMain) {
+      return projectFilesWorkspaceId(projectWorkspaceForAgent(activeAgent))
     }
-    return activeAgents.find(agent => !agent.isMain) ?? null
+    if (activeProjectWorkspace) return projectFilesWorkspaceId(activeProjectWorkspace)
+    const firstProjectAgent = activeAgents.find(agent => !agent.isMain)
+    return firstProjectAgent ? projectFilesWorkspaceId(projectWorkspaceForAgent(firstProjectAgent)) : null
   }, [activeAgent, activeAgents, activeProjectWorkspace, openWorkspaceFile])
-  const projectFileSearchAgentForShortcutTarget = useCallback((target: EventTarget | null) => {
+  const projectFileSearchIdForShortcutTarget = useCallback((target: EventTarget | null) => {
     if (!(target instanceof Element)) return null
     const rowAgentId = target.closest<HTMLElement>('[data-testid="code-agent-row"][data-agent-id], [data-testid="code-project-agent-compact"][data-agent-id], [data-testid="code-pinned-agent-compact"][data-agent-id], [data-testid="code-agent-rail-item"][data-agent-id]')?.dataset.agentId
     if (rowAgentId) {
       const rowAgent = activeAgents.find(agent => agent.id === rowAgentId && !agent.isMain)
-      if (rowAgent) return rowAgent
+      if (rowAgent) return projectFilesWorkspaceId(projectWorkspaceForAgent(rowAgent))
     }
 
     const projectGroup = target.closest<HTMLElement>('[data-testid="code-project-group"]')
     const projectId = projectGroup
       ?.querySelector<HTMLElement>('[data-testid="code-project-title"][data-project-id]')
       ?.dataset.projectId
-    if (!projectId) return null
-    return activeAgents.find(agent => !agent.isMain && projectWorkspaceForAgent(agent) === projectId) ?? null
+    if (!projectId || projectId === MAIN_AGENT_PROJECT_ID) return null
+    return projectFilesWorkspaceId(projectId)
   }, [activeAgents])
   const agentCreationWorkspace = activeAgent?.isMain
     ? lastProjectWorkspace ?? projects[0]?.workspace
@@ -1095,7 +1167,7 @@ export function CodeWorkspace({
     ? `${mobileHeaderWorkspace} · ${browserHost}`
     : browserHost
   const mobileBackAgentId = showFileEditor && openWorkspaceFile
-    ? openWorkspaceFile.sourceAgentId ?? openWorkspaceFile.agentId
+    ? openWorkspaceFile.sourceAgentId
     : null
   const showMobileBackButton = Boolean(mobileBackAgentId)
   const autoSizeComposerTextarea = useCallback(() => {
@@ -1616,7 +1688,6 @@ export function CodeWorkspace({
           model,
           effort,
           serviceTier,
-          controller: getTerminalControllerCredentials(agent.id),
         }),
       })
       const data = await response.json().catch(() => ({})) as { error?: string }
@@ -2426,18 +2497,13 @@ export function CodeWorkspace({
   ), [])
 
   const openProjectFile = useCallback((agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => {
-    const globalFile = isGlobalWorkspaceFilesAgentId(agentId)
-    const projectWorkspace = projectWorkspaceFromFilesAgentId(agentId)
-    const virtualFile = globalFile || Boolean(projectWorkspace)
-    const sourceAgentId = target?.sourceAgentId ?? (virtualFile ? activeTerminalIdRef.current ?? undefined : agentId)
-    const agent = activeAgents.find(candidate => candidate.id === (virtualFile ? sourceAgentId : agentId))
-    const workspaceRoot = globalFile
-      ? GLOBAL_WORKSPACE_FILES_ROOT
-      : projectWorkspace
-        ? projectWorkspace
-      : agent && !agent.isMain ? projectWorkspaceForAgent(agent) : undefined
-    if (!globalFile && (projectWorkspace || agent)) {
-      const projectId = projectWorkspace || (agent?.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent!))
+    const identity = resolveWorkspaceFileIdentity(agentId, target?.sourceAgentId)
+    const globalFile = isGlobalWorkspaceFilesAgentId(identity.filesId)
+    const projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
+    if (!globalFile && (projectWorkspace || identity.sourceAgent)) {
+      const projectId = projectWorkspace || (identity.sourceAgent?.isMain
+        ? MAIN_AGENT_PROJECT_ID
+        : projectWorkspaceForAgent(identity.sourceAgent!))
       setCollapsedProjectIds(previous => {
         if (!previous.has(projectId)) return previous
         const next = new Set(previous)
@@ -2454,29 +2520,26 @@ export function CodeWorkspace({
     setMainPaneMode('editor')
     const openRequest = {
       ...createWorkspaceOpenFileRequest(target),
-      workspaceRoot,
-      sourceAgentId,
+      workspaceRoot: identity.workspaceRoot,
+      sourceAgentId: identity.sourceAgentId,
     }
-    workspaceOpenFiles.openFromRead(agentId, file, openRequest)
+    workspaceOpenFiles.openFromRead(identity.filesId, file, openRequest)
     if (shouldRevealSelectedWorkspaceOpenFile(target)) {
       setFileRevealRequest({
-        agentId,
+        agentId: identity.filesId,
         path: file.path,
         kind: 'file',
         requestId: workspaceFileRevealRequestRef.current += 1,
       })
     }
-    if (agent && sourceAgentId) {
-      onOpenTerminal(sourceAgentId, { focusTerminal: false })
+    if (identity.sourceAgent && identity.sourceAgentId) {
+      onOpenTerminal(identity.sourceAgentId, { focusTerminal: false })
     }
     closeSidebarForMobile()
-  }, [activeAgents, clearSearch, closeSidebarForMobile, createWorkspaceOpenFileRequest, onOpenTerminal, onWorkspaceViewChange, workspaceOpenFiles])
+  }, [clearSearch, closeSidebarForMobile, createWorkspaceOpenFileRequest, onOpenTerminal, onWorkspaceViewChange, resolveWorkspaceFileIdentity, workspaceOpenFiles])
 
   useEffect(() => {
     if (workspaceSurfaceRestoredRef.current || workspaceSurfaceRestoreStartedRef.current) return
-    if (activeAgents.length === 0) return
-    workspaceSurfaceRestoreStartedRef.current = true
-
     const surface = initialWorkspaceSurface
     if (!surface) {
       workspaceSurfaceRestoredRef.current = true
@@ -2484,6 +2547,8 @@ export function CodeWorkspace({
     }
 
     if (surface.kind === 'agent') {
+      if (activeAgents.length === 0) return
+      workspaceSurfaceRestoreStartedRef.current = true
       const targetAgent = activeAgents.find(agent => agent.id === surface.agentId)
         ?? activeAgents.find(agent => Boolean(surface.providerSessionKey) && agent.providerSessionKey === surface.providerSessionKey)
         ?? activeAgents.find(agent => Boolean(surface.workspace) && projectWorkspaceForAgent(agent) === surface.workspace)
@@ -2496,24 +2561,40 @@ export function CodeWorkspace({
       return
     }
 
-    const targetAgentId = surface.workspace === GLOBAL_WORKSPACE_FILES_ROOT
+    if (!projectWorkspacesLoaded) return
+    workspaceSurfaceRestoreStartedRef.current = true
+    const sourceAgent = activeAgents.find(agent => (
+      agent.id === surface.sourceAgentId
+      && (
+        surface.workspace === GLOBAL_WORKSPACE_FILES_ROOT
+        || projectFilesWorkspaceId(projectWorkspaceForAgent(agent)) === projectFilesWorkspaceId(surface.workspace)
+      )
+    ))
+      ?? activeAgents.find(agent => (
+        projectFilesWorkspaceId(projectWorkspaceForAgent(agent)) === projectFilesWorkspaceId(surface.workspace)
+      ))
+    const filesId = surface.workspace === GLOBAL_WORKSPACE_FILES_ROOT
       ? GLOBAL_WORKSPACE_FILES_AGENT_ID
-      : activeAgents.find(agent => projectWorkspaceForAgent(agent) === surface.workspace)?.id
-    if (!targetAgentId) {
+      : projectFilesWorkspaceId(surface.workspace)
+    const projectAvailable = surface.workspace === GLOBAL_WORKSPACE_FILES_ROOT
+      || projectWorkspaces.some(workspace => projectFilesWorkspaceId(workspace) === filesId)
+      || Boolean(sourceAgent)
+    if (!projectAvailable) {
       saveCodeWorkspaceViewState({ surface: undefined })
       workspaceSurfaceRestoredRef.current = true
       return
     }
+    const identity = resolveWorkspaceFileIdentity(filesId, sourceAgent?.id)
 
-    void fetchWorkspaceFile(targetAgentId, surface.filePath)
+    void fetchWorkspaceFile(identity.filesId, surface.filePath)
       .then(file => {
-        openProjectFile(targetAgentId, file, {
+        openProjectFile(identity.filesId, file, {
           view: surface.view ?? 'editor',
           lineNumber: surface.lineNumber,
           column: surface.column,
           endColumn: surface.endColumn,
           revealInTree: true,
-          sourceAgentId: surface.sourceAgentId,
+          sourceAgentId: identity.sourceAgentId,
         })
       })
       .catch(() => {
@@ -2522,7 +2603,7 @@ export function CodeWorkspace({
       .finally(() => {
         workspaceSurfaceRestoredRef.current = true
       })
-  }, [activeAgents, initialWorkspaceSurface, openProjectFile, openTerminalFromWorkspace])
+  }, [activeAgents, initialWorkspaceSurface, openProjectFile, openTerminalFromWorkspace, projectWorkspaces, projectWorkspacesLoaded, resolveWorkspaceFileIdentity])
 
   useEffect(() => {
     if (!workspaceSurfaceRestoredRef.current || activeView !== 'projects') return
@@ -2560,10 +2641,12 @@ export function CodeWorkspace({
   }, [activeAgents, activeTerminalId, activeView, mainPaneMode, openWorkspaceFile])
 
   const focusWorkspaceFilesSearch = useCallback((agentId: string, query?: string) => {
-    const agent = activeAgents.find(candidate => candidate.id === agentId)
-    const projectWorkspace = projectWorkspaceFromFilesAgentId(agentId)
-    if (!isGlobalWorkspaceFilesAgentId(agentId) && (projectWorkspace || agent)) {
-      const projectId = projectWorkspace || (agent?.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent!))
+    const identity = resolveWorkspaceFileIdentity(agentId)
+    const projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
+    if (!isGlobalWorkspaceFilesAgentId(identity.filesId) && (projectWorkspace || identity.sourceAgent)) {
+      const projectId = projectWorkspace || (identity.sourceAgent?.isMain
+        ? MAIN_AGENT_PROJECT_ID
+        : projectWorkspaceForAgent(identity.sourceAgent!))
       setCollapsedProjectIds(previous => {
         if (!previous.has(projectId)) return previous
         const next = new Set(previous)
@@ -2579,17 +2662,19 @@ export function CodeWorkspace({
     expandSidebar()
     onWorkspaceViewChange('projects')
     setFileSearchFocusRequest({
-      agentId,
+      agentId: identity.filesId,
       ...(query ? { query } : {}),
       requestId: workspaceFileSearchFocusRequestRef.current += 1,
     })
-  }, [activeAgents, clearSearch, expandSidebar, onWorkspaceViewChange])
+  }, [clearSearch, expandSidebar, onWorkspaceViewChange, resolveWorkspaceFileIdentity])
 
   const revealWorkspaceFileInExplorer = useCallback((agentId: string, filePath: string, kind: 'directory' | 'file') => {
-    const agent = activeAgents.find(candidate => candidate.id === agentId)
-    const projectWorkspace = projectWorkspaceFromFilesAgentId(agentId)
-    if (!isGlobalWorkspaceFilesAgentId(agentId) && (projectWorkspace || agent)) {
-      const projectId = projectWorkspace || (agent?.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent!))
+    const identity = resolveWorkspaceFileIdentity(agentId)
+    const projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
+    if (!isGlobalWorkspaceFilesAgentId(identity.filesId) && (projectWorkspace || identity.sourceAgent)) {
+      const projectId = projectWorkspace || (identity.sourceAgent?.isMain
+        ? MAIN_AGENT_PROJECT_ID
+        : projectWorkspaceForAgent(identity.sourceAgent!))
       setCollapsedProjectIds(previous => {
         if (!previous.has(projectId)) return previous
         const next = new Set(previous)
@@ -2605,20 +2690,20 @@ export function CodeWorkspace({
     expandSidebar()
     onWorkspaceViewChange('projects')
     setFileRevealRequest({
-      agentId,
+      agentId: identity.filesId,
       path: filePath,
       kind,
       requestId: workspaceFileRevealRequestRef.current += 1,
     })
-  }, [activeAgents, clearSearch, expandSidebar, onWorkspaceViewChange])
+  }, [clearSearch, expandSidebar, onWorkspaceViewChange, resolveWorkspaceFileIdentity])
 
   const resolveTerminalPathTarget = useCallback(async (agentId: string, target: TerminalPathOpenTarget) => {
-    const agent = activeAgents.find(candidate => candidate.id === agentId)
-    const filePath = terminalTargetFilePath(target.path, agent ? projectWorkspaceForAgent(agent) : '')
+    const identity = resolveWorkspaceFileIdentity(agentId, agentId)
+    const filePath = terminalTargetFilePath(target.path, identity.workspaceRoot ?? '')
     if (!filePath) return null
 
     try {
-      const results = await searchWorkspaceFiles(agentId, filePath, { limit: TERMINAL_PATH_SEARCH_LIMIT })
+      const results = await searchWorkspaceFiles(identity.filesId, filePath, { limit: TERMINAL_PATH_SEARCH_LIMIT })
       const pathMatches = uniqueTerminalPathSearchMatches(results.matches)
       const exactPathMatch = pathMatches.find(match => match.path === filePath)
       const resolvedPath = exactPathMatch?.path ?? (pathMatches.length === 1 ? pathMatches[0]?.path : '')
@@ -2626,26 +2711,30 @@ export function CodeWorkspace({
     } catch {
       return null
     }
-  }, [activeAgents])
+  }, [resolveWorkspaceFileIdentity])
 
   const openTerminalPathTarget = useCallback((agentId: string, target: TerminalPathOpenTarget) => {
-    const agent = activeAgents.find(candidate => candidate.id === agentId)
-    const filePath = terminalTargetFilePath(target.path, agent ? projectWorkspaceForAgent(agent) : '')
+    const identity = resolveWorkspaceFileIdentity(agentId, agentId)
+    const filePath = terminalTargetFilePath(target.path, identity.workspaceRoot ?? '')
     if (!filePath) return
 
     const requestId = terminalPathOpenRequestRef.current + 1
     terminalPathOpenRequestRef.current = requestId
-    const openTarget = openTargetForTerminalPath(target)
+    const requestedOpenTarget = openTargetForTerminalPath(target)
+    const openTarget: WorkspaceFileOpenTarget = {
+      ...(requestedOpenTarget ?? {}),
+      sourceAgentId: identity.sourceAgentId,
+    }
 
     const openResolvedFile = async (resolvedPath: string, resolvedTarget = openTarget) => {
-      const file = await fetchWorkspaceFile(agentId, resolvedPath)
+      const file = await fetchWorkspaceFile(identity.filesId, resolvedPath)
       if (terminalPathOpenRequestRef.current !== requestId) return
-      openProjectFile(agentId, file, resolvedTarget)
+      openProjectFile(identity.filesId, file, resolvedTarget)
     }
 
     const revealResolvedDirectory = (resolvedPath: string) => {
       if (terminalPathOpenRequestRef.current !== requestId) return
-      revealWorkspaceFileInExplorer(agentId, resolvedPath, 'directory')
+      revealWorkspaceFileInExplorer(identity.filesId, resolvedPath, 'directory')
     }
 
     const openResolvedPathMatch = async (match: WorkspaceFileSearchMatch) => {
@@ -2658,12 +2747,12 @@ export function CodeWorkspace({
 
     const revealSearch = () => {
       if (terminalPathOpenRequestRef.current !== requestId) return
-      focusWorkspaceFilesSearch(agentId, filePath)
+      focusWorkspaceFilesSearch(identity.filesId, filePath)
     }
 
     void (async () => {
       try {
-        await fetchWorkspaceTree(agentId, filePath)
+        await fetchWorkspaceTree(identity.filesId, filePath)
         revealResolvedDirectory(filePath)
         return
       } catch {
@@ -2678,7 +2767,7 @@ export function CodeWorkspace({
       }
 
       try {
-        const results = await searchWorkspaceFiles(agentId, filePath, { limit: TERMINAL_PATH_SEARCH_LIMIT })
+        const results = await searchWorkspaceFiles(identity.filesId, filePath, { limit: TERMINAL_PATH_SEARCH_LIMIT })
         if (terminalPathOpenRequestRef.current !== requestId) return
         const pathMatches = uniqueTerminalPathSearchMatches(results.matches)
         if (pathMatches.length === 1) {
@@ -2692,11 +2781,12 @@ export function CodeWorkspace({
         if (pathMatches.length === 0 && fileMatches.length === 1) {
           const match = fileMatches[0]
           if (!match) return
-          await openResolvedFile(match.path, openTarget ?? (match.kind === 'content' ? {
+          await openResolvedFile(match.path, !requestedOpenTarget && match.kind === 'content' ? {
             lineNumber: match.lineNumber,
             column: match.ranges[0] ? match.ranges[0].start + 1 : undefined,
             endColumn: match.ranges[0] ? Math.max(match.ranges[0].start + 1, match.ranges[0].end + 1) : undefined,
-          } : undefined))
+            sourceAgentId: identity.sourceAgentId,
+          } : openTarget)
           return
         }
       } catch {
@@ -2705,21 +2795,16 @@ export function CodeWorkspace({
 
       revealSearch()
     })()
-  }, [activeAgents, focusWorkspaceFilesSearch, openProjectFile, revealWorkspaceFileInExplorer])
+  }, [focusWorkspaceFilesSearch, openProjectFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer])
 
   const selectOpenWorkspaceFile = useCallback((agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
-    const globalFile = isGlobalWorkspaceFilesAgentId(agentId)
-    const projectWorkspace = projectWorkspaceFromFilesAgentId(agentId)
-    const virtualFile = globalFile || Boolean(projectWorkspace)
-    const sourceAgentId = target?.sourceAgentId ?? (virtualFile ? activeTerminalIdRef.current ?? undefined : agentId)
-    const agent = activeAgents.find(candidate => candidate.id === (virtualFile ? sourceAgentId : agentId))
-    const workspaceRoot = globalFile
-      ? GLOBAL_WORKSPACE_FILES_ROOT
-      : projectWorkspace
-        ? projectWorkspace
-      : agent && !agent.isMain ? projectWorkspaceForAgent(agent) : undefined
-    if (!globalFile && (projectWorkspace || agent)) {
-      const projectId = projectWorkspace || (agent?.isMain ? MAIN_AGENT_PROJECT_ID : projectWorkspaceForAgent(agent!))
+    const identity = resolveWorkspaceFileIdentity(agentId, target?.sourceAgentId)
+    const globalFile = isGlobalWorkspaceFilesAgentId(identity.filesId)
+    const projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
+    if (!globalFile && (projectWorkspace || identity.sourceAgent)) {
+      const projectId = projectWorkspace || (identity.sourceAgent?.isMain
+        ? MAIN_AGENT_PROJECT_ID
+        : projectWorkspaceForAgent(identity.sourceAgent!))
       setCollapsedProjectIds(previous => {
         if (!previous.has(projectId)) return previous
         const next = new Set(previous)
@@ -2728,18 +2813,18 @@ export function CodeWorkspace({
       })
     }
     const requestedKey = workspaceOpenFileTargetKey({
-      agentId,
-      workspaceRoot,
+      agentId: identity.filesId,
+      workspaceRoot: identity.workspaceRoot,
       filePath,
     })
     const hasOpenFile = openWorkspaceFiles.some(file => workspaceOpenFileKey(file) === requestedKey)
     if (!hasOpenFile) return false
     const openRequest = {
       ...createWorkspaceOpenFileRequest(target),
-      workspaceRoot,
-      sourceAgentId,
+      workspaceRoot: identity.workspaceRoot,
+      sourceAgentId: identity.sourceAgentId,
     }
-    if (!workspaceOpenFiles.select(agentId, filePath, openRequest)) return false
+    if (!workspaceOpenFiles.select(identity.filesId, filePath, openRequest)) return false
     setAgentMenu(null)
     setProjectMenu(null)
     setAgentSessionMenu(null)
@@ -2749,45 +2834,52 @@ export function CodeWorkspace({
     setMainPaneMode('editor')
     if (shouldRevealSelectedWorkspaceOpenFile(target)) {
       setFileRevealRequest({
-        agentId,
+        agentId: identity.filesId,
         path: filePath,
         kind: 'file',
         requestId: workspaceFileRevealRequestRef.current += 1,
       })
     }
-    if (agent && sourceAgentId) {
-      onOpenTerminal(sourceAgentId, { focusTerminal: false })
+    if (identity.sourceAgent && identity.sourceAgentId) {
+      onOpenTerminal(identity.sourceAgentId, { focusTerminal: false })
     }
     closeSidebarForMobile()
     return true
-  }, [activeAgents, clearSearch, closeSidebarForMobile, createWorkspaceOpenFileRequest, onOpenTerminal, onWorkspaceViewChange, openWorkspaceFiles, workspaceOpenFiles])
+  }, [clearSearch, closeSidebarForMobile, createWorkspaceOpenFileRequest, onOpenTerminal, onWorkspaceViewChange, openWorkspaceFiles, resolveWorkspaceFileIdentity, workspaceOpenFiles])
 
   const openWorkspaceFilePath = useCallback(async (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
-    const fileAgentId = target?.globalRoot ? GLOBAL_WORKSPACE_FILES_AGENT_ID : agentId
+    const requestedFilesId = target?.globalRoot ? GLOBAL_WORKSPACE_FILES_AGENT_ID : agentId
+    const identity = resolveWorkspaceFileIdentity(
+      requestedFilesId,
+      target?.sourceAgentId ?? (target?.globalRoot ? agentId : undefined),
+    )
+    const filesId = identity.filesId
     const resolvedFilePath = target?.globalRoot ? normalizeGlobalWorkspaceFilePath(filePath) : filePath
-    const resolvedTarget = target?.globalRoot
-      ? { ...target, sourceAgentId: target.sourceAgentId ?? agentId }
-      : target
-    if (selectOpenWorkspaceFile(fileAgentId, resolvedFilePath, resolvedTarget)) return
+    const resolvedTarget = target
+      ? { ...target, sourceAgentId: identity.sourceAgentId }
+      : identity.sourceAgentId
+        ? { sourceAgentId: identity.sourceAgentId }
+        : undefined
+    if (selectOpenWorkspaceFile(filesId, resolvedFilePath, resolvedTarget)) return
     const openResolvedFile = async (resolvedPath: string, fileTarget = resolvedTarget) => {
-      const file = await fetchWorkspaceFile(fileAgentId, resolvedPath)
-      openProjectFile(fileAgentId, file, fileTarget)
+      const file = await fetchWorkspaceFile(filesId, resolvedPath)
+      openProjectFile(filesId, file, fileTarget)
     }
     try {
       await openResolvedFile(resolvedFilePath, resolvedTarget)
     } catch {
       try {
-        await fetchWorkspaceTree(fileAgentId, resolvedFilePath)
-        revealWorkspaceFileInExplorer(fileAgentId, resolvedFilePath, 'directory')
+        await fetchWorkspaceTree(filesId, resolvedFilePath)
+        revealWorkspaceFileInExplorer(filesId, resolvedFilePath, 'directory')
       } catch {
         try {
-          const results = await searchWorkspaceFiles(fileAgentId, resolvedFilePath, { limit: TERMINAL_PATH_SEARCH_LIMIT })
+          const results = await searchWorkspaceFiles(filesId, resolvedFilePath, { limit: TERMINAL_PATH_SEARCH_LIMIT })
           const pathMatches = uniqueTerminalPathSearchMatches(results.matches)
           const fileMatches = uniqueTerminalFileSearchMatches(results.matches)
           if (pathMatches.length === 1) {
             const match = pathMatches[0]
             if (match?.entryType === 'directory') {
-              revealWorkspaceFileInExplorer(fileAgentId, match.path, 'directory')
+              revealWorkspaceFileInExplorer(filesId, match.path, 'directory')
               return
             }
             if (match?.path) {
@@ -2798,11 +2890,12 @@ export function CodeWorkspace({
           if (pathMatches.length === 0 && fileMatches.length === 1) {
             const match = fileMatches[0]
             if (match?.path) {
-              await openResolvedFile(match.path, resolvedTarget ?? (match.kind === 'content' ? {
+              await openResolvedFile(match.path, !target && match.kind === 'content' ? {
                 lineNumber: match.lineNumber,
                 column: match.ranges[0] ? match.ranges[0].start + 1 : undefined,
                 endColumn: match.ranges[0] ? Math.max(match.ranges[0].start + 1, match.ranges[0].end + 1) : undefined,
-              } : undefined))
+                sourceAgentId: identity.sourceAgentId,
+              } : resolvedTarget)
               return
             }
           }
@@ -2810,11 +2903,11 @@ export function CodeWorkspace({
           // Fall through to a visible Files search when resolution fails.
         }
         if (!resolvedTarget?.suppressSearchOnMiss) {
-          focusWorkspaceFilesSearch(fileAgentId, resolvedFilePath)
+          focusWorkspaceFilesSearch(filesId, resolvedFilePath)
         }
       }
     }
-  }, [focusWorkspaceFilesSearch, openProjectFile, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
+  }, [focusWorkspaceFilesSearch, openProjectFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
 
   const restoreWorkspaceShareTarget = useCallback(async (target: WorkspaceShareTarget) => {
     if (target.kind === 'agent') {
@@ -2833,35 +2926,45 @@ export function CodeWorkspace({
 
     const resolvedPath = resolveWorkspaceSharePath(
       target,
-      activeAgents
-        .filter(agent => !agent.isMain)
-        .map(agent => ({ agentId: agent.id, workspace: projectWorkspaceForAgent(agent) })),
+      [
+        ...activeAgents
+          .filter(agent => !agent.isMain)
+          .map(agent => ({ agentId: agent.id, workspace: projectWorkspaceForAgent(agent) })),
+        ...projectWorkspaces.map(workspace => ({
+          agentId: projectFilesWorkspaceId(workspace),
+          workspace,
+        })),
+      ],
       GLOBAL_WORKSPACE_FILES_AGENT_ID,
     )
     if (!resolvedPath) return false
+    const identity = resolveWorkspaceFileIdentity(resolvedPath.agentId, resolvedPath.agentId)
 
     if (target.kind === 'folder') {
       try {
-        const tree = await fetchWorkspaceTree(resolvedPath.agentId, resolvedPath.filePath)
+        const tree = await fetchWorkspaceTree(identity.filesId, resolvedPath.filePath)
         const previewFilePath = workspaceFolderPreviewFilePath(tree.items)
         if (previewFilePath) {
-          const file = await fetchWorkspaceFile(resolvedPath.agentId, previewFilePath)
-          openProjectFile(resolvedPath.agentId, file)
+          const file = await fetchWorkspaceFile(identity.filesId, previewFilePath)
+          openProjectFile(identity.filesId, file, { sourceAgentId: identity.sourceAgentId })
           return true
         }
-        revealWorkspaceFileInExplorer(resolvedPath.agentId, resolvedPath.filePath, 'directory')
+        revealWorkspaceFileInExplorer(identity.filesId, resolvedPath.filePath, 'directory')
         return true
       } catch {
         return false
       }
     }
 
-    const openTarget = workspaceFileOpenTargetFromShareTarget(target)
-    if (selectOpenWorkspaceFile(resolvedPath.agentId, resolvedPath.filePath, openTarget)) return true
+    const openTarget = {
+      ...workspaceFileOpenTargetFromShareTarget(target),
+      sourceAgentId: identity.sourceAgentId,
+    }
+    if (selectOpenWorkspaceFile(identity.filesId, resolvedPath.filePath, openTarget)) return true
 
     try {
-      const file = await fetchWorkspaceFile(resolvedPath.agentId, resolvedPath.filePath)
-      openProjectFile(resolvedPath.agentId, file, openTarget)
+      const file = await fetchWorkspaceFile(identity.filesId, resolvedPath.filePath)
+      openProjectFile(identity.filesId, file, openTarget)
       return true
     } catch {
       return false
@@ -2873,7 +2976,9 @@ export function CodeWorkspace({
     onOpenTerminal,
     onWorkspaceViewChange,
     openProjectFile,
+    projectWorkspaces,
     revealWorkspaceFileInExplorer,
+    resolveWorkspaceFileIdentity,
     selectOpenWorkspaceFile,
     workspaceNavigationAgentIds,
   ])
@@ -2928,7 +3033,11 @@ export function CodeWorkspace({
   }, [clearWorkspaceShareLocation, copy.sharedLocationUnavailable, pendingShareTarget, shareTargetRestoreTick])
 
   const restoreWorkspaceNavigationEntry = useCallback(async (entry: WorkspaceNavigationEntry) => {
-    if (!workspaceNavigationAgentIds.has(entry.agentId)) return false
+    if (entry.kind === 'agent') {
+      if (!workspaceNavigationAgentIds.has(entry.agentId)) return false
+    } else if (!workspaceNavigationFileIds.has(entry.agentId)) {
+      return false
+    }
 
     setAgentMenu(null)
     setProjectMenu(null)
@@ -2949,13 +3058,15 @@ export function CodeWorkspace({
       lineNumber: entry.lineNumber,
       column: entry.column,
       endColumn: entry.endColumn,
+      sourceAgentId: entry.sourceAgentId,
     }
+    const identity = resolveWorkspaceFileIdentity(entry.agentId, entry.sourceAgentId)
 
-    if (selectOpenWorkspaceFile(entry.agentId, entry.filePath, target)) return true
+    if (selectOpenWorkspaceFile(identity.filesId, entry.filePath, target)) return true
 
     try {
-      const file = await fetchWorkspaceFile(entry.agentId, entry.filePath)
-      openProjectFile(entry.agentId, file, target)
+      const file = await fetchWorkspaceFile(identity.filesId, entry.filePath)
+      openProjectFile(identity.filesId, file, target)
       return true
     } catch {
       return false
@@ -2966,8 +3077,10 @@ export function CodeWorkspace({
     onOpenTerminal,
     onWorkspaceViewChange,
     openProjectFile,
+    resolveWorkspaceFileIdentity,
     selectOpenWorkspaceFile,
     workspaceNavigationAgentIds,
+    workspaceNavigationFileIds,
   ])
 
   const navigateWorkspaceHistory = useCallback((direction: -1 | 1) => {
@@ -3005,12 +3118,7 @@ export function CodeWorkspace({
   }, [closeOpenWorkspaceFiles])
 
   const reopenLastClosedWorkspaceFile = useCallback(() => {
-    const nextState = workspaceOpenFiles.reopenLastClosed(file => activeAgents.some(agent => (
-      agent.id === file.agentId && !agent.isMain
-    )) || isGlobalWorkspaceFilesAgentId(file.agentId) || (
-      isProjectFilesAgentId(file.agentId)
-      && projectWorkspaces.includes(projectWorkspaceFromFilesAgentId(file.agentId))
-    ))
+    const nextState = workspaceOpenFiles.reopenLastClosed(file => workspaceNavigationFileIds.has(file.agentId))
     const nextFile = nextState?.activeFile
     if (!nextFile) return false
 
@@ -3021,15 +3129,13 @@ export function CodeWorkspace({
     clearSearch()
     onWorkspaceViewChange('projects')
     setMainPaneMode('editor')
-    const sourceAgentId = isGlobalWorkspaceFilesAgentId(nextFile.agentId)
-      ? nextFile.sourceAgentId
-      : nextFile.agentId
+    const sourceAgentId = nextFile.sourceAgentId
     if (sourceAgentId && activeAgents.some(agent => agent.id === sourceAgentId)) {
       onOpenTerminal(sourceAgentId, { focusTerminal: false })
     }
     closeSidebarForMobile()
     return true
-  }, [activeAgents, clearSearch, closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange, projectWorkspaces, workspaceOpenFiles])
+  }, [activeAgents, clearSearch, closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange, workspaceNavigationFileIds, workspaceOpenFiles])
 
   const updateOpenWorkspaceFile = useCallback((nextFile: OpenWorkspaceFile) => {
     workspaceOpenFiles.update(nextFile)
@@ -4098,10 +4204,10 @@ export function CodeWorkspace({
         && !isNativeTextEditingShortcutTarget(target)
         && !isTerminalShortcutTarget(target)
       ) {
-        const targetProjectFileSearchAgent = projectFileSearchAgentForShortcutTarget(target) ?? projectFileSearchAgent
-        if (!targetProjectFileSearchAgent) return
+        const targetProjectFileSearchId = projectFileSearchIdForShortcutTarget(target) ?? projectFileSearchId
+        if (!targetProjectFileSearchId) return
         event.preventDefault()
-        focusWorkspaceFilesSearch(targetProjectFileSearchAgent.id)
+        focusWorkspaceFilesSearch(targetProjectFileSearchId)
         return
       }
 
@@ -4173,7 +4279,7 @@ export function CodeWorkspace({
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [activeView, agentMenu, approvalMenuOpen, closeActiveComposerMenus, closeDeleteWorktreeDialog, closeKillDialog, closeRenameDialog, agentSessionMenu, deleteWorktreeDialog, dialogOpen, focusAgentRow, focusAgentSessionRow, focusComposerTextarea, focusProjectTitle, focusWorkspaceFilesSearch, handleContextMenuNavigation, killDialog, keyboardShortcutsEnabled, modelMenuOpen, navigateWorkspaceHistory, optionsMenu, plusMenuOpen, projectFileSearchAgent, projectFileSearchAgentForShortcutTarget, projectMenu, renameDialog, reopenLastClosedWorkspaceFile, clearSearch, onWorkspaceViewChange, openSearch, toggleSidebar])
+  }, [activeView, agentMenu, approvalMenuOpen, closeActiveComposerMenus, closeDeleteWorktreeDialog, closeKillDialog, closeRenameDialog, agentSessionMenu, deleteWorktreeDialog, dialogOpen, focusAgentRow, focusAgentSessionRow, focusComposerTextarea, focusProjectTitle, focusWorkspaceFilesSearch, handleContextMenuNavigation, killDialog, keyboardShortcutsEnabled, modelMenuOpen, navigateWorkspaceHistory, optionsMenu, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, projectMenu, renameDialog, reopenLastClosedWorkspaceFile, clearSearch, onWorkspaceViewChange, openSearch, toggleSidebar])
 
   useEffect(() => {
     if (!renameDialog) return
@@ -4664,6 +4770,7 @@ export function CodeWorkspace({
         onCloseOpenWorkspaceFile={closeOpenWorkspaceFile}
         onMoveWorkspaceEntries={handleWorkspaceFileMove}
         onDeleteWorkspaceEntries={handleWorkspaceFileDelete}
+        onWatchWorkspaceFiles={onWatchWorkspaceFiles}
         onOpenOptionsMenu={openSettingsFromSidebar}
         copy={copy}
       />

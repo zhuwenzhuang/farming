@@ -1,7 +1,7 @@
 import type { Agent } from '@/types/agent'
-import { agentTitle } from '@/lib/format'
+import { agentDisplayName, agentRowTitle, formatRelativeAge } from '@/lib/format'
 import { inferAgentTerminalState } from './capabilities'
-import { agentSessionId } from './model'
+import { agentSessionId, agentSessionUpdatedAt } from './model'
 import type { AgentSessionHistoryItem } from './types'
 
 export type AgentRowBacking =
@@ -13,6 +13,7 @@ export interface AgentRowDisplayState {
   title: string
   rowTitle: string
   commandTitle: string
+  detailLabel: string
   lifecycleStatus?: Agent['status']
   turnActive: boolean
   statusIndicatorVisible: boolean
@@ -22,6 +23,9 @@ export interface AgentRowDisplayState {
   requiresResume: boolean
   scheduled: boolean
   scheduleTitle: string
+  ageLabel: string
+  ageVisible: boolean
+  ageTitle?: string
 }
 
 export type AgentRowKeyBacking =
@@ -44,6 +48,17 @@ function shouldShowAgentStatusIndicator(status: Agent['status'], turnActive: boo
 function compactCommand(command: string) {
   const text = command.replace(/\s+/g, ' ').trim()
   return text.length > 160 ? `${text.slice(0, 157)}...` : text
+}
+
+function timestampTitle(timestamp: number | null | undefined) {
+  return timestamp ? new Date(timestamp).toLocaleString() : undefined
+}
+
+function compactMetadata(parts: Array<string | null | undefined>) {
+  return parts
+    .map(part => typeof part === 'string' ? part.trim() : '')
+    .filter(Boolean)
+    .join(' · ')
 }
 
 function finiteTimestamp(value: unknown) {
@@ -90,15 +105,25 @@ function agentCommandTitle(agent: Agent, turnActive: boolean, now: number) {
 }
 
 function agentRowStateFromAgent(agent: Agent, now: number): AgentRowDisplayState {
+  const ageTimestamp = agent.lastActivity ?? agent.startedAt
   const terminalState = inferAgentTerminalState(agent)
   const turnActive = terminalState.turnActive
-  const title = agentTitle(agent)
+  const title = agentRowTitle(agent)
   const commandTitle = agentCommandTitle(agent, turnActive, now)
+  const providerLabel = agentDisplayName(agent.providerSessionProvider || agent.command)
+  const profileLabel = compactMetadata([
+    providerLabel,
+    agent.codexTerminalProfile?.model,
+    agent.codexTerminalProfile?.reasoningEffort,
+  ])
+  const detailLabel = commandTitle || (profileLabel.toLowerCase() === title.toLowerCase() ? '' : profileLabel)
+  const ageLabel = formatRelativeAge(ageTimestamp, now)
   return {
     kind: 'agent',
     title,
     rowTitle: [title, commandTitle, agent.cwd].filter(Boolean).join(' · '),
     commandTitle,
+    detailLabel,
     lifecycleStatus: agent.status,
     turnActive,
     statusIndicatorVisible: shouldShowAgentStatusIndicator(agent.status, turnActive),
@@ -108,20 +133,32 @@ function agentRowStateFromAgent(agent: Agent, now: number): AgentRowDisplayState
     requiresResume: false,
     scheduled: false,
     scheduleTitle: '',
+    ageLabel,
+    ageVisible: !turnActive && Boolean(ageLabel),
+    ageTitle: timestampTitle(ageTimestamp),
   }
 }
 
 function agentRowStateFromHistory(
   session: AgentSessionHistoryItem,
-  fallbackTitle: string
+  fallbackTitle: string,
+  now: number
 ): AgentRowDisplayState {
+  const updatedAt = agentSessionUpdatedAt(session)
   const scheduleTitle = session.schedule?.label || session.schedule?.name || session.schedule?.rrule || ''
+  const detailLabel = compactMetadata([
+    session.providerName || agentDisplayName(session.provider),
+    session.model,
+    session.effort,
+  ])
+  const ageLabel = formatRelativeAge(updatedAt, now)
 
   return {
     kind: 'history',
     title: session.title || fallbackTitle,
     rowTitle: [session.title || fallbackTitle, session.cwd || session.workspace].filter(Boolean).join(' · '),
     commandTitle: '',
+    detailLabel,
     turnActive: false,
     statusIndicatorVisible: false,
     pinned: session.pinned === true,
@@ -130,10 +167,13 @@ function agentRowStateFromHistory(
     requiresResume: true,
     scheduled: Boolean(session.schedule),
     scheduleTitle,
+    ageLabel,
+    ageVisible: Boolean(ageLabel),
+    ageTitle: timestampTitle(updatedAt),
   }
 }
 
 export function buildAgentRowDisplayState(backing: AgentRowBacking, now = Date.now()): AgentRowDisplayState {
   if (backing.kind === 'agent') return agentRowStateFromAgent(backing.agent, now)
-  return agentRowStateFromHistory(backing.session, backing.fallbackTitle)
+  return agentRowStateFromHistory(backing.session, backing.fallbackTitle, now)
 }

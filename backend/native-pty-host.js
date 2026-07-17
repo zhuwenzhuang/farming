@@ -27,31 +27,11 @@ const {
   formatNativePtyRuntimeEpoch,
 } = require('./native-pty-controller-generation');
 const {
-  beginTerminalControllerResize,
-  claimTerminalController,
-  commitTerminalControllerResize,
-  createTerminalControllerLease,
-  expireTerminalControllerIfNeeded,
-  invalidateTerminalController,
-  rejectTerminalControllerResize,
-  releaseTerminalController,
-  renewTerminalController,
-  validateTerminalControllerClear,
-  validateTerminalControllerCheckpointApplied,
-  validateTerminalControllerInput,
-  validateTerminalControllerOutputAck,
-  validateTerminalControllerRendererReady,
-} = require('./terminal-controller-lease');
-const {
   acknowledgeTerminalReducerData,
-  acknowledgeTerminalRendererCheckpoint,
-  acknowledgeTerminalRendererData,
   createTerminalReducerFlowControl,
   ensureTerminalReducerFlowControl,
   enqueueTerminalReducerData,
-  enqueueTerminalRendererData,
   resetTerminalReducerFlowControl,
-  resetTerminalRendererFlowControl,
   setTerminalExternalFlowControlBlocked,
 } = require('./terminal-reducer-flow-control');
 const {
@@ -236,24 +216,12 @@ class NativePtyHost {
     try {
       // A disconnect closes admission immediately, but an operation that was
       // already admitted owns its linearization point until it completes.
-      // Revoke the browser leases only after that exact set has drained.
+      // Retire the server client only after that exact set has drained.
       await Promise.allSettled([...this.activeControllerMutations]);
       if (this.activeControllerClient !== client) return;
       this.activeControllerClient = null;
-      this.resetControllerSessions('controller-disconnected');
     } finally {
       if (this.controllerHandoff === handoff) this.controllerHandoff = null;
-    }
-  }
-
-  resetControllerSessions(reason) {
-    for (const session of this.sessions.values()) {
-      invalidateTerminalController(session, reason);
-      const flowControl = ensureTerminalReducerFlowControl(session);
-      const resetError = resetTerminalRendererFlowControl(flowControl, session.process);
-      const unblockError = setTerminalExternalFlowControlBlocked(flowControl, session.process, false);
-      const flowError = resetError || unblockError;
-      if (flowError) this.failSessionScreenState(session, flowError);
     }
   }
 
@@ -363,66 +331,19 @@ class NativePtyHost {
         return this.enqueueControllerMutation(
           params.sessionId,
           client,
-          () => this.sendInput(params.sessionId, params.input, params.terminalControl || null),
+          () => this.sendInput(params.sessionId, params.input, params.expectedRuntimeEpoch || ''),
         );
       case 'resizeSession':
         return this.enqueueControllerMutation(
           params.sessionId,
           client,
-          admission => this.resizeSession(params.sessionId, params.cols, params.rows, params.controller || {}, admission),
-        );
-      case 'claimSessionController':
-        return this.enqueueControllerMutation(
-          params.sessionId,
-          client,
-          admission => this.claimSessionController(params.sessionId, params.controller || {}, admission),
-        );
-      case 'activateSessionRenderer':
-        return this.enqueueControllerMutation(
-          params.sessionId,
-          client,
-          admission => this.activateSessionRenderer(params.sessionId, params.controller || {}, admission),
-        );
-      case 'renewSessionController':
-        return this.enqueueControllerMutation(
-          params.sessionId,
-          client,
-          admission => this.renewSessionController(params.sessionId, params.controller || {}, admission),
-        );
-      case 'releaseSessionController':
-        return this.enqueueControllerMutation(
-          params.sessionId,
-          client,
-          admission => this.releaseSessionController(params.sessionId, params.controller || {}, admission),
-        );
-      case 'acknowledgeSessionOutput':
-        return this.enqueueControllerMutation(
-          params.sessionId,
-          client,
-          admission => this.acknowledgeSessionOutput(
-            params.sessionId,
-            params.charCount,
-            params.controller || {},
-            admission,
-          ),
-        );
-      case 'acknowledgeSessionCheckpoint':
-        return this.enqueueControllerMutation(
-          params.sessionId,
-          client,
-          admission => this.acknowledgeSessionCheckpoint(
-            params.sessionId,
-            params.outputSeq,
-            params.stateRevision,
-            params.controller || {},
-            admission,
-          ),
+          () => this.resizeSession(params.sessionId, params.cols, params.rows),
         );
       case 'clearBuffer':
         return this.enqueueControllerMutation(
           params.sessionId,
           client,
-          () => this.clearBuffer(params.sessionId, params.controller || null),
+          () => this.clearBuffer(params.sessionId, params.expectedRuntimeEpoch || ''),
         );
       case 'killSession':
         return this.enqueueControllerMutation(
@@ -587,9 +508,6 @@ class NativePtyHost {
           throw new Error('Native pty controller client is disconnected');
         }
 
-        if (replacesController) {
-          this.resetControllerSessions('controller-replaced');
-        }
         this.activeControllerIdentity = identity;
         this.activeControllerClient = client;
         client.controllerId = identity.id;
@@ -708,7 +626,6 @@ class NativePtyHost {
       stateProofAvailable: true,
       reducerFlowControl: createTerminalReducerFlowControl(),
       reducerCommitQueue: Promise.resolve(),
-      controllerLease: createTerminalControllerLease(),
       renderOutput: restoredScreenState?.renderOutput || restoredOutput,
       previewText: restoredScreenState?.previewText || restoredOutput,
       previewSnapshot: restoredScreenState?.previewSnapshot || null,
@@ -928,11 +845,6 @@ class NativePtyHost {
       current.reducerCommitQueue = current.reducerCommitQueue.then(() => commit).then(() => {
         const latest = this.sessions.get(sessionId);
         if (latest !== current || latest.stateProofAvailable === false) return;
-        const rendererFlowError = this.trackSessionRendererData(latest, data, outputSeq);
-        if (rendererFlowError) {
-          this.failSessionScreenState(latest, rendererFlowError);
-          return;
-        }
         const flowError = acknowledgeTerminalReducerData(
           ensureTerminalReducerFlowControl(latest),
           latest.process,
@@ -956,29 +868,6 @@ class NativePtyHost {
         });
       }).catch(error => this.failSessionScreenState(current, error));
     }
-  }
-
-  trackSessionRendererData(session, data, outputSeq) {
-    const expired = expireTerminalControllerIfNeeded(session);
-    const hasOwner = Boolean(
-      session.controllerLease?.ownerKey &&
-      session.controllerLease?.leaseId &&
-      session.controllerLease.expiresAt > Date.now()
-    );
-    if (expired || !hasOwner) {
-      const control = ensureTerminalReducerFlowControl(session);
-      const resetError = resetTerminalRendererFlowControl(control, session.process);
-      return resetError || setTerminalExternalFlowControlBlocked(control, session.process, false);
-    }
-    if (session.controllerLease.rendererReadyFence !== session.controllerLease.fence) {
-      return null;
-    }
-    return enqueueTerminalRendererData(
-      ensureTerminalReducerFlowControl(session),
-      session.process,
-      String(data || '').length,
-      outputSeq,
-    );
   }
 
   handleSessionExit(sessionId, code, expectedSession = null) {
@@ -1051,7 +940,7 @@ class NativePtyHost {
     this.scheduleIdleExitIfUnused();
   }
 
-  async sendInput(sessionId, input, terminalControl = null) {
+  async sendInput(sessionId, input, expectedRuntimeEpoch = '') {
     const session = this.sessions.get(sessionId);
     if (!session || !session.process || session.status === 'exited' || session.exitFinalizing === true) {
       throw new Error('Session not available');
@@ -1059,8 +948,9 @@ class NativePtyHost {
     if (session.rotationFrozen === true) {
       throw new Error('Terminal session is frozen for native PTY host rotation');
     }
-    const controlState = validateTerminalControllerInput(session, terminalControl || {});
-    if (controlState.status !== 'input-accepted') return controlState;
+    if (expectedRuntimeEpoch && expectedRuntimeEpoch !== session.runtimeEpoch) {
+      return { status: 'input-rejected', reason: 'runtime-epoch-mismatch' };
+    }
     session.process.write(terminalInputToPtyString(input));
     session.lastActivityAt = Date.now();
     this.emitSessionEvent('session-activity', {
@@ -1071,52 +961,6 @@ class NativePtyHost {
     return { sent: true };
   }
 
-  async claimSessionController(sessionId, controller, client) {
-    this.assertActiveController(client);
-    const session = this.sessions.get(sessionId);
-    if (!session || session.status === 'exited' || session.exitFinalizing === true) {
-      return { status: 'rejected', reason: 'session-unavailable' };
-    }
-    const previousLeaseId = session.controllerLease?.leaseId || '';
-    const result = claimTerminalController(session, controller);
-    if (result.status === 'owner' && result.leaseId !== previousLeaseId) {
-      const flowError = setTerminalExternalFlowControlBlocked(
-        ensureTerminalReducerFlowControl(session),
-        session.process,
-        true,
-      );
-      if (flowError) this.failSessionScreenState(session, flowError);
-    }
-    return result;
-  }
-
-  activateSessionRenderer(sessionId, controller, client) {
-    this.assertActiveController(client);
-    const session = this.sessions.get(sessionId);
-    if (!session || session.status === 'exited' || session.exitFinalizing === true) {
-      return { status: 'renderer-ready-rejected', reason: 'session-unavailable' };
-    }
-    const controlState = validateTerminalControllerRendererReady(session, controller);
-    if (controlState.status !== 'renderer-ready-accepted') return controlState;
-    if (session.controllerLease.rendererReadyFence === controller.fence) {
-      return { ...controlState, status: 'renderer-ready-accepted', duplicate: true };
-    }
-    const flowControl = ensureTerminalReducerFlowControl(session);
-    const resetError = resetTerminalRendererFlowControl(flowControl, session.process);
-    if (resetError) {
-      this.failSessionScreenState(session, resetError);
-      return { ...controlState, status: 'renderer-ready-rejected', reason: 'flow-control-failed' };
-    }
-    session.controllerLease.rendererReadyFence = controller.fence;
-    const resumeError = setTerminalExternalFlowControlBlocked(flowControl, session.process, false);
-    if (resumeError) {
-      session.controllerLease.rendererReadyFence = 0;
-      this.failSessionScreenState(session, resumeError);
-      return { ...controlState, status: 'renderer-ready-rejected', reason: 'flow-control-failed' };
-    }
-    return { ...controlState, status: 'renderer-ready-accepted' };
-  }
-
   async getSessionAttachCheckpoint(sessionId, client) {
     this.assertActiveController(client);
     const session = this.sessions.get(sessionId);
@@ -1125,92 +969,7 @@ class NativePtyHost {
     return this.sessions.get(sessionId) === session ? checkpoint : null;
   }
 
-  renewSessionController(sessionId, controller, client) {
-    this.assertActiveController(client);
-    const session = this.sessions.get(sessionId);
-    if (!session || session.status === 'exited' || session.exitFinalizing === true) {
-      return { status: 'rejected', reason: 'session-unavailable' };
-    }
-    return renewTerminalController(session, controller);
-  }
-
-  releaseSessionController(sessionId, controller, client) {
-    this.assertActiveController(client);
-    const session = this.sessions.get(sessionId);
-    if (!session || session.status === 'exited') {
-      return { status: 'unowned', reason: 'session-unavailable' };
-    }
-    const result = releaseTerminalController(session, controller);
-    if (result.status === 'unowned') {
-      const flowControl = ensureTerminalReducerFlowControl(session);
-      const flowError = resetTerminalRendererFlowControl(flowControl, session.process)
-        || setTerminalExternalFlowControlBlocked(flowControl, session.process, false);
-      if (flowError) this.failSessionScreenState(session, flowError);
-    }
-    return result;
-  }
-
-  acknowledgeSessionOutput(sessionId, charCount, controller, client) {
-    this.assertActiveController(client);
-    const session = this.sessions.get(sessionId);
-    if (!session || session.status === 'exited') {
-      return { status: 'output-ack-rejected', reason: 'session-unavailable' };
-    }
-    const controlState = validateTerminalControllerOutputAck(session, controller);
-    if (controlState.status !== 'output-ack-accepted') return controlState;
-    const flowError = acknowledgeTerminalRendererData(
-      ensureTerminalReducerFlowControl(session),
-      session.process,
-      charCount,
-    );
-    if (flowError) {
-      this.failSessionScreenState(session, flowError);
-      return {
-        ...controlState,
-        status: 'output-ack-rejected',
-        reason: 'flow-control-failed',
-      };
-    }
-    return {
-      ...controlState,
-      acknowledged: Math.max(0, Math.floor(Number(charCount) || 0)),
-    };
-  }
-
-  acknowledgeSessionCheckpoint(sessionId, outputSeq, stateRevision, controller, client) {
-    this.assertActiveController(client);
-    const session = this.sessions.get(sessionId);
-    if (!session || session.status === 'exited') {
-      return { status: 'checkpoint-applied-rejected', reason: 'session-unavailable' };
-    }
-    const controlState = validateTerminalControllerCheckpointApplied(session, controller);
-    if (controlState.status !== 'checkpoint-applied-accepted') return controlState;
-    const appliedOutputSeq = Math.floor(Number(outputSeq));
-    const appliedStateRevision = Math.floor(Number(stateRevision));
-    if (
-      !Number.isFinite(appliedOutputSeq) ||
-      !Number.isFinite(appliedStateRevision) ||
-      appliedOutputSeq < 0 ||
-      appliedStateRevision < 0 ||
-      appliedOutputSeq > session.outputSeq ||
-      appliedStateRevision > session.stateRevision
-    ) {
-      return { ...controlState, status: 'checkpoint-applied-rejected', reason: 'invalid-checkpoint-cut' };
-    }
-    const result = acknowledgeTerminalRendererCheckpoint(
-      ensureTerminalReducerFlowControl(session),
-      session.process,
-      appliedOutputSeq,
-    );
-    if (result.error) {
-      this.failSessionScreenState(session, result.error);
-      return { ...controlState, status: 'checkpoint-applied-rejected', reason: 'flow-control-failed' };
-    }
-    return { ...controlState, outputSeq: appliedOutputSeq, stateRevision: appliedStateRevision };
-  }
-
-  async resizeSession(sessionId, cols, rows, controller, client) {
-    this.assertActiveController(client);
+  async resizeSession(sessionId, cols, rows) {
     const session = this.sessions.get(sessionId);
     if (!session || !session.process || session.status === 'exited' || session.exitFinalizing === true) {
       return { status: 'resize-rejected', reason: 'session-unavailable', resized: false };
@@ -1221,26 +980,23 @@ class NativePtyHost {
 
     const nextCols = normalizePositiveInteger(cols, session.previewCols || DEFAULT_COLS, 1, 1000);
     const nextRows = normalizePositiveInteger(rows, session.previewRows || DEFAULT_ROWS, 1, 1000);
-    const resize = beginTerminalControllerResize(session, controller);
-    if (!resize.accepted) {
-      return {
-        ...resize.result,
-        resized: resize.duplicate === true || resize.result?.status === 'resize-committed',
-      };
-    }
     if (nextCols === session.previewCols && nextRows === session.previewRows) {
-      return commitTerminalControllerResize(session, resize.requestSeq, {
+      return {
+        status: 'resize-committed',
         resized: true,
         unchanged: true,
-      }, resize.token);
+      };
     }
 
     try {
       session.process.resize(nextCols, nextRows);
     } catch (error) {
-      return rejectTerminalControllerResize(session, resize.requestSeq, 'pty-resize-failed', {
+      return {
+        status: 'resize-rejected',
+        reason: 'pty-resize-failed',
+        resized: false,
         error: error instanceof Error ? error.message : String(error || 'unknown PTY resize failure'),
-      }, resize.token);
+      };
     }
     session.stateRevision += 1;
     const stateRevision = session.stateRevision;
@@ -1288,20 +1044,15 @@ class NativePtyHost {
       try {
         await publishedCommit;
       } catch {
-        return rejectTerminalControllerResize(
-          session,
-          resize.requestSeq,
-          'screen-reducer-failed',
-          {},
-          resize.token,
-        );
+        return { status: 'resize-rejected', reason: 'screen-reducer-failed', resized: false };
       }
     }
     if (this.sessions.get(sessionId) !== session) {
       return { status: 'resize-rejected', reason: 'session-replaced', resized: false };
     }
 
-    return commitTerminalControllerResize(session, resize.requestSeq, {
+    return {
+      status: 'resize-committed',
       resized: true,
       unchanged: false,
       runtimeEpoch,
@@ -1309,10 +1060,10 @@ class NativePtyHost {
       stateRevision,
       cols: nextCols,
       rows: nextRows,
-    }, resize.token);
+    };
   }
 
-  async clearBuffer(sessionId, controller = null) {
+  async clearBuffer(sessionId, expectedRuntimeEpoch = '') {
     const session = this.sessions.get(sessionId);
     if (!session || session.status === 'exited' || session.exitFinalizing === true) {
       return { cleared: false };
@@ -1320,9 +1071,8 @@ class NativePtyHost {
     if (session.rotationFrozen === true) {
       return { cleared: false, reason: 'runtime-rotation' };
     }
-    const controlState = validateTerminalControllerClear(session, controller || {});
-    if (controlState.status !== 'clear-accepted') {
-      return { cleared: false, ...controlState };
+    if (expectedRuntimeEpoch && expectedRuntimeEpoch !== session.runtimeEpoch) {
+      return { cleared: false, reason: 'runtime-epoch-mismatch' };
     }
 
     session.output = '';
@@ -1413,7 +1163,6 @@ class NativePtyHost {
       stateRevision: exactState.stateRevision,
       cols: exactState.cols,
       rows: exactState.rows,
-      expiresAt: session.controllerLease?.expiresAt || 0,
     };
   }
 

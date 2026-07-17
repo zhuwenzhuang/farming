@@ -13,8 +13,6 @@ export interface ProjectGroup {
   hasMain: boolean
   hasProjectAgent: boolean
   hasAgentSession: boolean
-  fileAgent?: Agent | null
-  fileAgentId?: string
   hasOpenFile?: boolean
   gitWorktree?: Agent['gitWorktree']
   hiddenAgentSessionCount?: number

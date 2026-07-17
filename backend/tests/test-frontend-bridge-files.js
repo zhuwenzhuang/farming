@@ -53,20 +53,20 @@ function run() {
     'structured runtimes should preserve native ACP prompt attachments through the session bridge'
   );
   assert(
-    sessionBridge.includes('sendTerminalInput(agentId, input, terminalControl)') &&
-      sessionBridge.includes('...terminalControl') &&
+    sessionBridge.includes('sendTerminalInput(agentId, input)') &&
+      !sessionBridge.includes('terminalControl') &&
       crtApp.includes('queueCrtTerminalInput(input)') &&
       crtApp.includes('sendTerminalInput(data)') &&
-      crtApp.includes('function crtTerminalRendererAcceptsInput') &&
+      !crtApp.includes('function crtTerminalRendererAcceptsInput') &&
       !crtApp.includes('pendingTakeoverInput'),
-    'CRT terminal input should use the active fence and direct ordered WebSocket delivery'
+    'CRT terminal input should use direct ordered WebSocket delivery without browser ownership'
   );
   assert(
-    sessionBridge.includes('acknowledgeTerminalOutput(agentId, charCount, controller)') &&
-      sessionBridge.includes("type: 'terminal-output-ack'") &&
-      crtApp.includes('acknowledgeCrtRenderedTerminalOutput(event.data.length, event.runtimeEpoch)') &&
-      crtApp.includes('CRT_TERMINAL_OUTPUT_ACK_CHARS = 5000'),
-    'CRT should acknowledge output only after the terminal renderer commits it'
+    !sessionBridge.includes('acknowledgeTerminalOutput') &&
+      !sessionBridge.includes("type: 'terminal-output-ack'") &&
+      !crtApp.includes('acknowledgeCrtRenderedTerminalOutput') &&
+      !crtApp.includes('CRT_TERMINAL_OUTPUT_ACK_CHARS'),
+    'CRT renderer speed must not pause the shared PTY'
   );
   assert(runtimePaths.includes("path('/ws')"), 'CRT runtime should connect to the base-path WebSocket');
   assert(
@@ -167,7 +167,7 @@ function run() {
   assert(effectsCss.includes('#farming-crt.page-hidden .crt-scan-beam'), 'CRT should pause the scan beam while its page is hidden');
   assert(crtApp.includes("document.addEventListener('visibilitychange'") && crtApp.includes("window.addEventListener('pagehide'"), 'CRT should observe page visibility lifecycle events');
   assert(crtApp.includes('suspendCrtPageConnection') && crtApp.includes('wsReconnectTimer'), 'CRT should close hidden-page sockets and cancel reconnect work');
-  assert(crtApp.includes('resumeCrtPageConnection') && crtApp.includes("claimCrtTerminalController('passive')"), 'CRT should reconnect and reacquire a fenced terminal checkpoint when visible again');
+  assert(crtApp.includes('resumeCrtPageConnection') && crtApp.includes('refreshSessionView(true'), 'CRT should reconnect and fetch an authoritative terminal checkpoint when visible again');
   assert(!effectsCss.includes('repeating-linear-gradient(\n            to right'), 'Monochrome Green should not use an RGB aperture mask');
   assert(indexHtml.includes('id="farming-crt"'), 'CRT effects should be scoped to the CRT skin root');
   assert(indexHtml.includes('rel="icon" type="image/svg+xml" href="assets/branding/farming-crt-icon.svg"'), 'CRT should use its terminal-computer brand mark as the page icon');

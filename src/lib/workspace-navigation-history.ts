@@ -20,6 +20,7 @@ export type WorkspaceNavigationEntry =
       lineNumber: number
       column: number
       endColumn?: number
+      sourceAgentId?: string
       reason: WorkspaceNavigationReason
       ts: number
     }
@@ -36,6 +37,7 @@ export interface WorkspaceNavigationFileInput {
   lineNumber?: number
   column?: number
   endColumn?: number
+  sourceAgentId?: string
   reason?: WorkspaceNavigationReason
 }
 
@@ -73,6 +75,7 @@ export function workspaceNavigationFileEntry(
     lineNumber: Math.max(1, input.lineNumber ?? 1),
     column: Math.max(1, input.column ?? 1),
     endColumn: input.endColumn,
+    ...(input.sourceAgentId ? { sourceAgentId: input.sourceAgentId } : {}),
     reason: input.reason ?? 'file',
     ts: now,
   }

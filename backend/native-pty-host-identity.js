@@ -13,7 +13,6 @@ const NATIVE_PTY_HOST_RUNTIME_FILES = Object.freeze([
   'terminal-screen-worker-thread.js',
   'terminal-screen-worker.js',
   'terminal-reducer-flow-control.js',
-  'terminal-controller-lease.js',
   'terminal-state-serialization.js',
   'native-pty-controller-generation.js',
   'terminal-status.js',

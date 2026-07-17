@@ -63,52 +63,10 @@ class SessionEngineBridge extends EventEmitter {
     return engine.sendInput(sessionId, input, options);
   }
 
-  async claimSessionController(engineName, sessionId, controller) {
-    const engine = this.getEngine(engineName);
-    if (!engine || !engine.claimSessionController) return { status: 'rejected', reason: 'unsupported-engine' };
-    return engine.claimSessionController(sessionId, controller);
-  }
-
-  async activateSessionRenderer(engineName, sessionId, controller) {
-    const engine = this.getEngine(engineName);
-    if (!engine || !engine.activateSessionRenderer) {
-      return { status: 'renderer-ready-rejected', reason: 'unsupported-engine' };
-    }
-    return engine.activateSessionRenderer(sessionId, controller);
-  }
-
-  async renewSessionController(engineName, sessionId, controller) {
-    const engine = this.getEngine(engineName);
-    if (!engine || !engine.renewSessionController) return { status: 'rejected', reason: 'unsupported-engine' };
-    return engine.renewSessionController(sessionId, controller);
-  }
-
-  async releaseSessionController(engineName, sessionId, controller) {
-    const engine = this.getEngine(engineName);
-    if (!engine || !engine.releaseSessionController) return { status: 'unowned', reason: 'unsupported-engine' };
-    return engine.releaseSessionController(sessionId, controller);
-  }
-
-  async acknowledgeSessionOutput(engineName, sessionId, charCount, controller) {
-    const engine = this.getEngine(engineName);
-    if (!engine || !engine.acknowledgeSessionOutput) {
-      return { status: 'output-ack-rejected', reason: 'unsupported-engine' };
-    }
-    return engine.acknowledgeSessionOutput(sessionId, charCount, controller);
-  }
-
-  async acknowledgeSessionCheckpoint(engineName, sessionId, outputSeq, stateRevision, controller) {
-    const engine = this.getEngine(engineName);
-    if (!engine || !engine.acknowledgeSessionCheckpoint) {
-      return { status: 'checkpoint-applied-rejected', reason: 'unsupported-engine' };
-    }
-    return engine.acknowledgeSessionCheckpoint(sessionId, outputSeq, stateRevision, controller);
-  }
-
-  async resizeSession(engineName, sessionId, cols, rows, controller) {
+  async resizeSession(engineName, sessionId, cols, rows) {
     const engine = this.getEngine(engineName);
     if (!engine || !engine.resizeSession) return;
-    return engine.resizeSession(sessionId, cols, rows, controller);
+    return engine.resizeSession(sessionId, cols, rows);
   }
 
   async clearBuffer(engineName, sessionId) {

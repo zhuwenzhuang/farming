@@ -2,10 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Agent, SystemStats, TaskHistoryEntry } from '@/types/agent'
 import type { AppServerRequestResponseMessage, ClientMessage, ComposerInputAttachment, ComposerInputMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
 import { appWsUrl } from '@/lib/base-path'
-import {
-  publishTerminalController,
-  setTerminalControllerTransport,
-} from '@/lib/terminal-controller-client'
+import { setTerminalSessionTransport } from '@/lib/terminal-session-client'
 
 const LAST_MESSAGE_STATE_THROTTLE_MS = 1000
 
@@ -132,17 +129,8 @@ export function useWebSocket() {
     return sendMessage({ type: 'kill-agent', agentId })
   }, [sendMessage])
 
-  const interruptAgent = useCallback((agentId: string, controller?: {
-    attachmentId: string
-    leaseId: string
-    fence: number
-    expectedRuntimeEpoch: string
-  } | null) => {
-    return sendMessage({
-      type: 'interrupt-agent',
-      agentId,
-      ...(controller || {}),
-    })
+  const interruptAgent = useCallback((agentId: string) => {
+    return sendMessage({ type: 'interrupt-agent', agentId })
   }, [sendMessage])
 
   const restartMainAgent = useCallback((command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => {
@@ -184,8 +172,8 @@ export function useWebSocket() {
   }, [sendMessage])
 
   useEffect(() => {
-    setTerminalControllerTransport(message => sendMessage(message))
-    return () => setTerminalControllerTransport(null)
+    setTerminalSessionTransport(message => sendMessage(message))
+    return () => setTerminalSessionTransport(null)
   }, [sendMessage])
 
   useEffect(() => {
@@ -329,9 +317,6 @@ export function useWebSocket() {
               }
               break
             }
-            case 'terminal-controller':
-              publishTerminalController(msg)
-              break
             case 'workspace-file-watch':
               break
             case 'workspace-file-event':

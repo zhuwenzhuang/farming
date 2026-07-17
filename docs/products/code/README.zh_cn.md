@@ -72,6 +72,8 @@ ACP Session 会直接应用受支持的修改。兼容 Native Terminal 会立即
 
 Files 绑定具体 Project Agent。项目侧栏包含 Open Editors、复用 VS Code 图算法的 Git History、Lazy File Tree、Path/Line 与内容搜索、Git Changes 和 Review。Main Agent Row 不会伪装成拥有 Project Files。
 
+Agent Row 会逐级利用侧栏的可用宽度，同时保持紧凑行高：窄侧栏保留标题和必要状态；空间增加后补充 Provider 与相对活跃时间；宽侧栏再显示命令或 Runtime Profile 详情。标题由真实行宽决定截断位置，不再按固定字符数提前截断。
+
 ![Project File 与行内 Blame](assets/04-files-editor-blame.png)
 
 Editor 是轻量介入 Surface：

@@ -1,7 +1,6 @@
 const assert = require('assert');
 const NativePtyHost = require('../native-pty-host');
 const NativePtyHostClient = require('../native-pty-host-client');
-const { createTerminalControllerLease } = require('../terminal-controller-lease');
 const {
   createTerminalReducerFlowControl,
 } = require('../terminal-reducer-flow-control');
@@ -45,7 +44,6 @@ function session(id, overrides = {}) {
     stateProofAvailable: true,
     reducerFlowControl: createTerminalReducerFlowControl(),
     reducerCommitQueue: Promise.resolve(),
-    controllerLease: createTerminalControllerLease(),
     renderOutput: `${id}\r\n`,
     previewText: id,
     previewCols: 80,

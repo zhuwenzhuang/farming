@@ -19,24 +19,11 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function claimRenderer(engine, sessionId, claimId) {
+async function runtimeEpochOptions(engine, sessionId) {
   const state = await engine.getSessionState(sessionId);
-  const ownerKey = `test-owner-${claimId}`;
-  const owner = await engine.claimSessionController(sessionId, {
-    ownerKey,
-    claimId,
-    expectedRuntimeEpoch: state.runtimeEpoch,
-  });
-  assert.strictEqual(owner.status, 'owner');
-  const terminalControl = {
-    ownerKey,
-    leaseId: owner.leaseId,
-    fence: owner.fence,
+  return {
     expectedRuntimeEpoch: state.runtimeEpoch,
   };
-  const ready = await engine.activateSessionRenderer(sessionId, terminalControl);
-  assert.strictEqual(ready.status, 'renderer-ready-accepted');
-  return terminalControl;
 }
 
 async function waitFor(fn, label) {
@@ -657,15 +644,14 @@ async function run() {
       metadata: { command: 'bash', cwd: process.cwd() },
     });
     await waitFor(() => fs.existsSync(persistentSocketPath), 'persistent native pty socket');
-    const persistentControl = await claimRenderer(
+    const persistentOptions = await runtimeEpochOptions(
       persistentEngine,
       'persistent-native-smoke',
-      'persistent',
     );
     await persistentEngine.sendInput(
       'persistent-native-smoke',
       "printf 'persistent-host-alive\\n'\n",
-      { terminalControl: persistentControl },
+      persistentOptions,
     );
     await waitFor(async () => {
       const current = await persistentEngine.getSessionState('persistent-native-smoke');
@@ -722,11 +708,11 @@ async function run() {
     });
 
     await delay(300);
-    let terminalControl = await claimRenderer(engine, 'native-smoke', 'native');
+    let terminalOptions = await runtimeEpochOptions(engine, 'native-smoke');
     await engine.sendInput(
       'native-smoke',
       "printf 'TERM=%s COLORTERM=%s NO_COLOR=%s\\n' \"$TERM\" \"$COLORTERM\" \"${NO_COLOR-unset}\"\nprintf '\\033[31mred\\033[0m\\n'\n",
-      { terminalControl },
+      terminalOptions,
     );
 
     const state = await waitFor(async () => {
@@ -748,7 +734,7 @@ async function run() {
     assert.strictEqual(state.terminalStatus.cwd, process.cwd());
     assert.strictEqual(typeof state.terminalStatus.busy, 'boolean');
 
-    const clearResult = await engine.clearBuffer('native-smoke', terminalControl);
+    const clearResult = await engine.clearBuffer('native-smoke', terminalOptions);
     assert.strictEqual(clearResult.cleared, true, 'native session clear should report success');
     const clearedState = await waitFor(async () => {
       const current = await engine.getSessionState('native-smoke');
@@ -765,7 +751,7 @@ async function run() {
     await engine.sendInput(
       'native-smoke',
       "printf 'AFTER_CLEAR\\n'\n",
-      { terminalControl },
+      terminalOptions,
     );
     const afterClearState = await waitFor(async () => {
       const current = await engine.getSessionState('native-smoke');
@@ -792,7 +778,7 @@ async function run() {
       () => engine.sendInput(
         'native-smoke',
         "printf 'MUST_NOT_RUN_DURING_ROTATION\\n'\n",
-        { terminalControl },
+        terminalOptions,
       ),
       /frozen for runtime rotation/,
       'input must be rejected after the exact serialization cut'
@@ -803,7 +789,7 @@ async function run() {
       'resize must be rejected after the exact serialization cut'
     );
     await assert.rejects(
-      () => engine.clearBuffer('native-smoke', terminalControl),
+      () => engine.clearBuffer('native-smoke', terminalOptions),
       /frozen for runtime rotation/,
       'clear must be rejected after the exact serialization cut'
     );
@@ -854,11 +840,11 @@ async function run() {
     assert(revivedState.renderOutput.includes('AFTER_CLEAR'), revivedState.renderOutput);
     assert.strictEqual(revivedState.renderOutput.includes('TERM=xterm-256color'), false);
 
-    terminalControl = await claimRenderer(engine, 'native-smoke', 'revived');
+    terminalOptions = await runtimeEpochOptions(engine, 'native-smoke');
     await engine.sendInput(
       'native-smoke',
       "printf 'REVIVED_SHELL_LIVE\\n'\n",
-      { terminalControl },
+      terminalOptions,
     );
     await waitFor(async () => {
       const current = await engine.getSessionState('native-smoke');

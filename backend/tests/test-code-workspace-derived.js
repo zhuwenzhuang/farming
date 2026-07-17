@@ -5,9 +5,14 @@ const {
   editorFileStateByAgentForFiles,
   projectListProjectsForAgents,
   projectWorkspaceForHistoryRun,
-  stableProjectFileAgentId,
+  stableProjectSourceAgentId,
   visibleSearchTargetsForProjects,
 } = importTsModule('src/components/code/workspace-derived.ts');
+const {
+  isProjectFilesWorkspaceId,
+  projectFilesWorkspaceId,
+  projectWorkspaceFromFilesId,
+} = importTsModule('src/lib/project-workspaces.ts');
 
 function agent(overrides = {}) {
   return {
@@ -62,16 +67,20 @@ function run() {
   assert.strictEqual(projectWorkspaceForHistoryRun({ cwd: '/cwd', projectWorkspace: '' }), '/cwd');
   assert.strictEqual(projectWorkspaceForHistoryRun({ cwd: '/cwd', projectWorkspace: '/project' }), '/project');
 
-  const fileAgents = [
+  const sourceAgents = [
     agent({ id: 'main', isMain: true }),
     agent({ id: 'older' }),
     agent({ id: 'newer' }),
   ];
-  assert.strictEqual(stableProjectFileAgentId(null, fileAgents), 'older');
-  assert.strictEqual(stableProjectFileAgentId('older', [...fileAgents].reverse()), 'older');
-  assert.strictEqual(stableProjectFileAgentId('missing', fileAgents), 'older');
-  assert.strictEqual(stableProjectFileAgentId('main', fileAgents), 'older');
-  assert.strictEqual(stableProjectFileAgentId(null, [agent({ id: 'main', isMain: true })]), null);
+  assert.strictEqual(stableProjectSourceAgentId(null, sourceAgents), 'older');
+  assert.strictEqual(stableProjectSourceAgentId('older', [...sourceAgents].reverse()), 'older');
+  assert.strictEqual(stableProjectSourceAgentId('missing', sourceAgents), 'older');
+  assert.strictEqual(stableProjectSourceAgentId('main', sourceAgents), 'older');
+  assert.strictEqual(stableProjectSourceAgentId(null, [agent({ id: 'main', isMain: true })]), null);
+  const filesId = projectFilesWorkspaceId('/repo with spaces');
+  assert.strictEqual(filesId, '__farming_project__:%2Frepo%20with%20spaces');
+  assert.strictEqual(projectWorkspaceFromFilesId(filesId), '/repo with spaces');
+  assert.strictEqual(isProjectFilesWorkspaceId(filesId), true);
 
   const projectList = projectListProjectsForAgents(
     [agent({ id: 'main', isMain: true, projectWorkspace: '/main', cwd: '/main' }), agent({ id: 'sub', projectWorkspace: '/repo' })],
@@ -113,7 +122,6 @@ function run() {
   assert.strictEqual(openOnlyProjects[0].workspace, '/repo-topic');
   assert.strictEqual(openOnlyProjects[0].agents.length, 0);
   assert.strictEqual(openOnlyProjects[0].hasOpenFile, true);
-  assert.strictEqual(openOnlyProjects[0].fileAgent.id, 'worktree-agent');
   assert.strictEqual(openOnlyProjects[0].gitWorktree.branch, 'topic');
   const persistedEmptyProjects = projectListProjectsForAgents(
     [],
@@ -127,7 +135,7 @@ function run() {
   assert.strictEqual(persistedEmptyProjects[0].workspace, '/repo-topic');
   assert.strictEqual(persistedEmptyProjects[0].agents.length, 0);
   assert.strictEqual(persistedEmptyProjects[0].hasOpenFile, undefined);
-  assert(persistedEmptyProjects[0].fileAgentId.startsWith('__farming_project__:'));
+  assert.strictEqual(Object.hasOwn(persistedEmptyProjects[0], 'fileAgentId'), false);
   assert.deepStrictEqual(
     displayedProjectsForSearch(openOnlyProjects, 'repo-topic', new Set()).map(project => project.workspace),
     ['/repo-topic'],
@@ -138,7 +146,7 @@ function run() {
     [
       agent({
         id: 'alpha',
-        customTitle: 'Build Search',
+        customTitle: 'Build Search with an adaptive title suffix',
         command: 'hidden-alpha-command',
         task: 'hidden alpha task',
         projectWorkspace: '/repo-alpha',
@@ -171,6 +179,10 @@ function run() {
   assert.deepStrictEqual(filteredByAgentTitle.map(project => project.workspace), ['/repo-alpha']);
   assert.deepStrictEqual(filteredByAgentTitle[0].agents.map(item => item.id), ['alpha']);
   assert.deepStrictEqual(filteredByAgentTitle[0].agentSessions.map(item => item.id), []);
+
+  const filteredByAdaptiveTitleSuffix = displayedProjectsForSearch(searchSourceProjects, 'title suffix', new Set(), new Set());
+  assert.deepStrictEqual(filteredByAdaptiveTitleSuffix.map(project => project.workspace), ['/repo-alpha']);
+  assert.deepStrictEqual(filteredByAdaptiveTitleSuffix[0].agents.map(item => item.id), ['alpha']);
 
   const filteredBySession = displayedProjectsForSearch(searchSourceProjects, 'model picker', new Set(), new Set());
   assert.deepStrictEqual(filteredBySession.map(project => project.workspace), ['/repo-alpha']);

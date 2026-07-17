@@ -358,12 +358,10 @@ function run() {
       terminalPoolSource.includes('record.inputCount += 1') &&
       terminalPoolSource.includes('queueTerminalInput(record, text)') &&
       terminalPoolSource.includes("type: 'input'") &&
-      terminalPoolSource.includes('expectedRuntimeEpoch: record.runtimeEpoch') &&
-      terminalPoolSource.includes('function terminalRendererAcceptsInput(record: SessionRecord)') &&
-      terminalPoolSource.includes('!record.replayInProgress') &&
-      terminalPoolSource.includes('!record.pendingSnapshotReplay') &&
-      terminalPoolSource.includes("reportTerminalInputError(record, 'Terminal is synchronizing; input was not sent')") &&
-      terminalPoolSource.includes('Terminal disconnected; input was not sent') &&
+      terminalPoolSource.includes('sendTerminalSessionMessage({') &&
+      !terminalPoolSource.includes('expectedRuntimeEpoch: record.runtimeEpoch') &&
+      !terminalPoolSource.includes('function terminalRendererAcceptsInput(record: SessionRecord)') &&
+      !terminalPoolSource.includes('Terminal is synchronizing; input was not sent') &&
       !terminalPoolSource.includes('pendingTakeoverInput') &&
       !terminalPoolSource.includes('inputId: next.inputId') &&
       !terminalPoolSource.includes('inputSeq') &&
@@ -387,10 +385,8 @@ function run() {
       terminalPoolSource.includes('function selectTerminalBuffer(record: SessionRecord)') &&
       terminalPoolSource.includes('function clearTerminalBuffer(record: SessionRecord)') &&
       terminalPoolSource.includes("type: 'clear-terminal'") &&
-      terminalPoolSource.includes('leaseId: record.controllerLeaseId') &&
-      terminalPoolSource.includes('fence: record.controllerFence') &&
-      terminalPoolSource.includes('expectedRuntimeEpoch: record.runtimeEpoch') &&
-      terminalPoolSource.includes('Terminal disconnected; clear was not sent') &&
+      !terminalPoolSource.includes('controllerLeaseId') &&
+      !terminalPoolSource.includes('controllerFence') &&
       !terminalPoolSource.includes("appPath(`/api/control/agents/${encodeURIComponent(record.agentId)}/clear`)") &&
       !terminalPoolSource.includes('record.terminal.clearBuffer()') &&
       terminalPoolSource.includes('record.terminal.select(0, 0, selectionLength') &&
@@ -414,30 +410,14 @@ function run() {
     'terminal context-menu paste should not use xterm.input because it can leave bracketed-paste control fragments in the buffer'
   );
   assert(
-    terminalPoolSource.includes("controllerTakeoverButton.textContent = 'Take control'") &&
-      terminalPoolSource.includes("controllerTakeoverButton.addEventListener('click', controllerTakeoverHandler)") &&
-      terminalPoolSource.includes("claimTerminalController(record, 'interactive')") &&
-      terminalPoolSource.includes('use Take control before typing') &&
-      !terminalPoolSource.includes("hostEl.addEventListener('pointerdown', controllerInteractionHandler") &&
-      !terminalPoolSource.includes("hostEl.addEventListener('keydown', controllerInteractionHandler") &&
-      crtAppSource.includes("takeover.textContent = 'TAKE CONTROL'") &&
-      crtAppSource.includes("takeover.addEventListener('click'") &&
-      crtAppSource.includes("claimCrtTerminalController('interactive')") &&
-      !crtAppSource.includes('terminalContainer.onpointerdown ='),
-    'Code and CRT should require an explicit takeover button instead of stealing terminal control from observer interaction'
-  );
-  assert(
-    terminalPoolSource.includes('TERMINAL_OUTPUT_ACK_CHARS = 5000') &&
-      terminalPoolSource.includes('acknowledgeRenderedTerminalOutput(record, data.length, runtimeEpoch)') &&
-      terminalPoolSource.includes("type: 'terminal-output-ack'") &&
-    terminalPoolSource.includes('record.pendingOutputAckChars -= acknowledgedChars'),
-    'Farming Code should acknowledge output only from the xterm write callback and batch acknowledgements'
-  );
-  assert(
-    terminalPoolSource.includes('export function getTerminalControllerCredentials(agentId: string)') &&
-      terminalPoolSource.includes("current.controllerStatus !== 'owner'") &&
-      terminalPoolSource.includes('expectedRuntimeEpoch: current.runtimeEpoch'),
-    'terminal-backed composer interrupts should carry the current controller fence'
+    !terminalPoolSource.includes('Take control') &&
+      !terminalPoolSource.includes('terminal-controller') &&
+      !terminalPoolSource.includes('controllerLeaseId') &&
+      !terminalPoolSource.includes("type: 'terminal-output-ack'") &&
+      !crtAppSource.includes('TAKE CONTROL') &&
+      !crtAppSource.includes('terminal-controller') &&
+      !crtAppSource.includes("type: 'terminal-output-ack'"),
+    'Code and CRT should keep browser ownership and renderer ACK protocol out of shared terminals'
   );
   assert(
     !xtermSource.includes('ignoreBracketedPasteMode: true'),
@@ -533,14 +513,12 @@ function run() {
       terminalResizeSource.includes('export function resetTerminalResizeTracker') &&
       terminalPoolSource.includes("from '@/lib/terminal-resize'") &&
       terminalPoolSource.includes('function notifyTerminalResize') &&
-      terminalPoolSource.includes('function requestTerminalControllerResize') &&
-      terminalPoolSource.includes("record.controllerStatus !== 'owner'") &&
+      !terminalPoolSource.includes('function requestTerminalControllerResize') &&
       !terminalPoolSource.includes('pendingResizeCheckpoint') &&
       terminalPoolSource.includes("type: 'resize-agent'") &&
-      terminalPoolSource.includes('leaseId: record.controllerLeaseId') &&
-      terminalPoolSource.includes('fence: record.controllerFence') &&
-      terminalPoolSource.includes('requestSeq') &&
-      terminalPoolSource.includes('expectedRuntimeEpoch: record.runtimeEpoch') &&
+      terminalPoolSource.includes('agentId: record.agentId') &&
+      terminalPoolSource.includes('cols: nextCols') &&
+      terminalPoolSource.includes('rows: nextRows') &&
       terminalPoolSource.includes('notifyTerminalResizeTracker(record, cols, rows, (nextCols, nextRows) =>') &&
       terminalPoolSource.includes('notifyResizeForTest(agentId: string, cols: number, rows: number)') &&
       terminalPoolSource.includes('function resyncTerminalSizeAfterBackendReconnect') &&
@@ -569,7 +547,7 @@ function run() {
       terminalPoolSource.includes('notifyTerminalResize(record, dimensions.cols, dimensions.rows, options)') &&
       terminalPoolSource.includes('notifyTerminalResize(record, cols, rows)') &&
       webSocketSource.includes("window.dispatchEvent(new Event('farming:backend-connected'))"),
-    'terminal session pool should resize only through an owned fenced lease while display recovery remains on the independent authoritative checkpoint path'
+    'terminal session pool should send direct geometry updates while display recovery remains on the independent authoritative checkpoint path'
   );
   assert(
     terminalPoolSource.includes('hostEl.dataset.agentId = agentId'),
@@ -604,50 +582,31 @@ function run() {
     terminalPoolSource.includes('inputDisabled: Boolean(options.inputDisabled)') &&
       terminalPoolSource.includes('if (!record.inputDisabled) queueTerminalInput(record, data)') &&
       terminalPoolSource.includes('record.inputDisabled = Boolean(options.inputDisabled)') &&
-      terminalPoolSource.includes("record.controllerStatus !== 'owner'") &&
-      terminalPoolSource.includes("if (record.controllerStatus === 'observer') record.controllerTakeoverButton.focus()") &&
-      terminalPoolSource.includes('Terminal is synchronizing; input was not sent') &&
-      terminalPoolSource.includes('leaseId: record.controllerLeaseId') &&
-      terminalPoolSource.includes('fence: record.controllerFence') &&
+      terminalPoolSource.includes('function queueTerminalInput(record: SessionRecord') &&
+      terminalPoolSource.includes('sendTerminalSessionMessage({') &&
+      !terminalPoolSource.includes('controllerStatus') &&
+      !terminalPoolSource.includes('controllerTakeoverButton') &&
+      !terminalPoolSource.includes('Terminal is synchronizing; input was not sent') &&
       !terminalPoolSource.includes('subscribeTerminalInput') &&
       !terminalPoolSource.includes('handleTerminalInputState(record, message)'),
-    'terminal session pool should use direct VS Code-style input behind the Farming ownership fence'
+    'terminal session pool should use direct VS Code-style shared input'
   );
-  const codeInputFlushBody = terminalPoolSource.slice(
-    terminalPoolSource.indexOf('function terminalRendererAcceptsInput'),
-    terminalPoolSource.indexOf('function releaseTerminalController')
+  const codeInputBody = terminalPoolSource.slice(
+    terminalPoolSource.indexOf('function queueTerminalInput'),
+    terminalPoolSource.indexOf('function syncTerminalSize')
   );
-  const codeControllerStateBody = terminalPoolSource.slice(
-    terminalPoolSource.indexOf('function handleTerminalControllerState'),
-    terminalPoolSource.indexOf('function acknowledgeRenderedTerminalOutput')
-  );
-  const crtInputFlushBody = crtAppSource.slice(
-    crtAppSource.indexOf('function crtTerminalRendererAcceptsInput'),
+  const crtInputBody = crtAppSource.slice(
+    crtAppSource.indexOf('function queueCrtTerminalInput'),
     crtAppSource.indexOf('function queueCrtTerminalTransition')
   );
-  const crtControllerStateBody = crtAppSource.slice(
-    crtAppSource.indexOf('function handleCrtTerminalController'),
-    crtAppSource.indexOf('function deriveSessionStreamPatch')
-  );
   assert(
-    codeInputFlushBody.includes('!record.replayInProgress') &&
-      codeInputFlushBody.includes('!record.bootstrappingSnapshot') &&
-      codeInputFlushBody.includes('!record.pendingSnapshotReplay') &&
-      !codeInputFlushBody.includes('pendingTakeoverInput') &&
-      !codeControllerStateBody.includes('checkpointPending') &&
-      codeControllerStateBody.includes('shouldRecoverController') &&
-      codeControllerStateBody.includes('beginTerminalCheckpointBarrier') &&
-      codeControllerStateBody.includes('replayTerminalCheckpoint') &&
-      crtInputFlushBody.includes('!replication.replaying') &&
-      crtInputFlushBody.includes('!replication.checkpointInFlight') &&
-      crtInputFlushBody.includes('!replication.checkpointHalted') &&
-      !crtInputFlushBody.includes('pendingTakeoverInput') &&
-      !crtControllerStateBody.includes('checkpointPending') &&
-      crtControllerStateBody.includes('shouldRecoverController') &&
-      crtControllerStateBody.includes('crtTerminalBeginBarrier') &&
-      crtControllerStateBody.includes('refreshSessionView(true') &&
-      !crtControllerStateBody.includes('scheduleCrtTerminalCheckpointRetry'),
-    'Code and CRT must block raw input during replay and recover rejected controllers through an authoritative checkpoint'
+    codeInputBody.includes("type: 'input'") &&
+      !codeInputBody.includes('replayInProgress') &&
+      !codeInputBody.includes('checkpoint') &&
+      crtInputBody.includes('sendTerminalInput(replication.agentId, text)') &&
+      !crtInputBody.includes('replaying') &&
+      !crtInputBody.includes('checkpoint'),
+    'Code and CRT raw input should remain independent from display replay state'
   );
   assert(
     pooledTerminalHookSource.includes('const latestHandlersRef = useRef') &&
@@ -656,7 +615,7 @@ function run() {
       !pooledTerminalHookSource.includes('onInput:') &&
       !pooledTerminalHookSource.includes('onResize') &&
       !pooledTerminalHookSource.includes('resizeAgent'),
-    'pooled terminal hook should keep the terminal mounted without exposing an unfenced input callback'
+    'pooled terminal hook should keep the terminal mounted without duplicating the shared input path'
   );
   assert(
     mainCssSource.includes('.terminal-session-host textarea.terminal-ime-input.terminal-ime-composing') &&

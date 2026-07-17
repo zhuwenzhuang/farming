@@ -71,17 +71,21 @@ export function FileEditorTabs({
   return (
     <div className="code-file-editor-tab-strip">
       <div className="code-file-editor-navigation">
-        <button
-          type="button"
-          className="code-file-editor-action code-file-editor-agent-return"
-          onClick={() => onBackToAgent(openFile.sourceAgentId ?? openFile.agentId)}
-          aria-label={copy.backToAgent}
-          title={copy.backToAgent}
-          data-testid="code-file-editor-back"
-        >
-          <BackToAgentIcon />
-        </button>
-        <span className="code-file-editor-navigation-divider" aria-hidden="true" />
+        {openFile.sourceAgentId && (
+          <>
+            <button
+              type="button"
+              className="code-file-editor-action code-file-editor-agent-return"
+              onClick={() => onBackToAgent(openFile.sourceAgentId!)}
+              aria-label={copy.backToAgent}
+              title={copy.backToAgent}
+              data-testid="code-file-editor-back"
+            >
+              <BackToAgentIcon />
+            </button>
+            <span className="code-file-editor-navigation-divider" aria-hidden="true" />
+          </>
+        )}
         <button
           type="button"
           className="code-file-editor-action code-file-editor-history-back"

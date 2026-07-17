@@ -337,10 +337,15 @@ export function selectWorkspaceOpenFile(
   const nextFile = findOpenWorkspaceFile(state.files, agentId, filePath, request.workspaceRoot)
   if (!nextFile) return null
   const hasViewRequest = Boolean(request.cursor || request.diffRequestId || request.diffOnly !== undefined || nextFile.diffRequestId)
-  const selectedFile = hasViewRequest
+  const identityChanged = nextFile.agentId !== agentId
+    || Boolean(request.workspaceRoot && request.workspaceRoot !== nextFile.workspaceRoot)
+    || Boolean(request.sourceAgentId && request.sourceAgentId !== nextFile.sourceAgentId)
+  const selectedFile = hasViewRequest || identityChanged
     ? {
         ...nextFile,
+        agentId,
         sourceAgentId: request.sourceAgentId ?? nextFile.sourceAgentId,
+        workspaceRoot: request.workspaceRoot ?? nextFile.workspaceRoot,
         cursor: request.cursor ?? nextFile.cursor,
         diffRequestId: request.diffRequestId,
         diffOnly: request.diffOnly ?? nextFile.diffOnly,
@@ -349,7 +354,7 @@ export function selectWorkspaceOpenFile(
     : nextFile
   return {
     activeFile: selectedFile,
-    files: hasViewRequest ? replaceOpenWorkspaceFile(state.files, selectedFile) : state.files,
+    files: hasViewRequest || identityChanged ? replaceOpenWorkspaceFile(state.files, selectedFile) : state.files,
     closedFileCache: state.closedFileCache,
   }
 }

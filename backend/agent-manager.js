@@ -54,7 +54,6 @@ const ACTIVITY_WARM_SEC = 3 * 60 * 60;
 const ACTIVITY_COOL_SEC = 12 * 60 * 60;
 const ZOMBIE_IDLE_MS = 72 * 60 * 60 * 1000;
 const ZOMBIE_SWEEP_INTERVAL_MS = 60 * 1000;
-const INPUT_SESSION_RETRY_DELAYS_MS = [25, 50, 100, 180, 300, 500];
 const MISSING_ENGINE_SESSION_STARTUP_GRACE_MS = 5000;
 const MIN_TERMINAL_RESIZE_COLS = 40;
 const MIN_TERMINAL_RESIZE_ROWS = 10;
@@ -411,10 +410,6 @@ function interruptInputForAgent(agent) {
   return '\x03';
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 function normalizePathValue(value) {
   if (typeof value !== 'string') return '';
   const trimmed = value.trim();
@@ -541,6 +536,8 @@ class AgentManager extends EventEmitter {
     this.lastActivityUpdate = new Map();
     this.outputEvents = new Map(); // Map<agentId, Array<{timestamp, bytes}>> for rate tracking
     this.lastResizeByAgent = new Map();
+    this.pendingResizeByAgent = new Map();
+    this.resizeDrains = new Map();
     this.inputQueues = new Map();
     this.codexSessionResolveInFlight = new Map();
     this.codexSessionResolveLastAttemptAt = new Map();
@@ -2541,6 +2538,8 @@ class AgentManager extends EventEmitter {
     this.permissionRestartInFlight.clear();
     this.runtimeRestartInFlight.clear();
     this.permissionRestartSuppressedAgentIds.clear();
+    this.pendingResizeByAgent.clear();
+    this.resizeDrains.clear();
     this.inputQueues.clear();
     if (this.codexAppServerRuntime && typeof this.codexAppServerRuntime.dispose === 'function') {
       this.codexAppServerRuntime.dispose();
@@ -3299,15 +3298,7 @@ class AgentManager extends EventEmitter {
       // make a fresh Terminal look user-authored, because that would remove
       // the safe fresh-session path into ACP Chat before the provider has
       // materialized a resumable history record.
-      sendInput: async input => {
-        const result = await this.sendInputNow(agentId, input, {
-          markUserInput: false,
-          terminalControl: options.terminalControl || null,
-        });
-        if (result?.status === 'input-rejected') {
-          throw new Error(`Terminal control lost: ${result.reason || 'input-rejected'}`);
-        }
-      },
+      sendInput: async input => this.sendInputNow(agentId, input, { markUserInput: false }),
     });
     agent.codexTerminalProfile = {
       model: applied.model,
@@ -3627,39 +3618,34 @@ class AgentManager extends EventEmitter {
     return null;
   }
 
-  async sendInputNow(agentId, input, { markUserInput = true, terminalControl = null } = {}) {
+  async sendInputNow(agentId, input, { markUserInput = true, expectedRuntimeEpoch = '' } = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) return;
     // The observer PTY is optional telemetry for App Server Agents. Its
     // disappearance must never redefine the App Server Agent as dead.
     if (isCodexAppServerAgent(agent) || isJsonCliAgent(agent) || isAcpAgent(agent)) return;
+    if (expectedRuntimeEpoch && agent.runtimeEpoch !== expectedRuntimeEpoch) {
+      return { status: 'input-rejected', reason: 'runtime-epoch-mismatch' };
+    }
 
     const engine = this.engineBridge.getEngine(agent.engineName);
     if (!engine) return;
 
-    for (let attempt = 0; ; attempt += 1) {
-      try {
-        const result = await engine.sendInput(agentId, input, { terminalControl });
-        if (result && result.status === 'input-rejected') return result;
-        if (markUserInput && hasSubmittedTerminalInput(input) && agent.terminalInputReceived !== true) {
-          agent.terminalInputReceived = true;
-          this.ensurePersistentAgentSession(agent);
-          this.updateEngineProviderSessionMetadata(agent);
-        }
-        this.observeAgentStateChange(agentId, { force: true });
-        return result;
-      } catch (error) {
-        if (terminalControl) throw error;
-        const delay = INPUT_SESSION_RETRY_DELAYS_MS[attempt];
-        if (!isSessionNotAvailableError(error) || delay === undefined) {
-          console.error('Failed to send input:', error);
-          if (isSessionNotAvailableError(error)) {
-            this.markAgentSessionDead(agentId, error);
-          }
-          return;
-        }
-        await sleep(delay);
+    try {
+      const result = await engine.sendInput(agentId, input, { expectedRuntimeEpoch });
+      if (markUserInput && hasSubmittedTerminalInput(input) && agent.terminalInputReceived !== true) {
+        agent.terminalInputReceived = true;
+        this.ensurePersistentAgentSession(agent);
+        this.updateEngineProviderSessionMetadata(agent);
       }
+      this.observeAgentStateChange(agentId, { force: true });
+      return result;
+    } catch (error) {
+      console.error('Failed to send input:', error);
+      if (isSessionNotAvailableError(error)) {
+        this.markAgentSessionDead(agentId, error);
+      }
+      return;
     }
   }
 
@@ -3730,23 +3716,10 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  agentRequiresTerminalController(agentId) {
+  agentSupportsTerminalInput(agentId) {
     const agent = this.agents.get(agentId);
     if (!agent) return false;
     return !isCodexAppServerAgent(agent) && !isJsonCliAgent(agent) && !isAcpAgent(agent);
-  }
-
-  async claimAgentSessionController(agentId, controller) {
-    const agent = this.agents.get(agentId);
-    if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
-      return { status: 'rejected', reason: 'unsupported-session' };
-    }
-    try {
-      return await this.engineBridge.claimSessionController(agent.engineName, agentId, controller);
-    } catch (error) {
-      console.error('Failed to claim agent session controller:', error);
-      return { status: 'rejected', reason: 'controller-lease-failed' };
-    }
   }
 
   async getAgentSessionAttachCheckpoint(agentId) {
@@ -3762,83 +3735,24 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  async activateAgentSessionRenderer(agentId, controller) {
-    const agent = this.agents.get(agentId);
-    if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
-      return { status: 'renderer-ready-rejected', reason: 'unsupported-session' };
-    }
-    try {
-      return await this.engineBridge.activateSessionRenderer(agent.engineName, agentId, controller);
-    } catch (error) {
-      console.error('Failed to activate agent terminal renderer:', error);
-      return { status: 'renderer-ready-rejected', reason: 'flow-control-failed' };
-    }
+  requestAgentSessionResize(agentId, cols, rows) {
+    this.pendingResizeByAgent.set(agentId, { cols, rows });
+    if (this.resizeDrains.has(agentId)) return true;
+
+    const drain = (async () => {
+      while (this.pendingResizeByAgent.has(agentId)) {
+        const next = this.pendingResizeByAgent.get(agentId);
+        this.pendingResizeByAgent.delete(agentId);
+        await this.resizeAgentSession(agentId, next.cols, next.rows);
+      }
+    })().finally(() => {
+      this.resizeDrains.delete(agentId);
+    });
+    this.resizeDrains.set(agentId, drain);
+    return true;
   }
 
-  async renewAgentSessionController(agentId, controller) {
-    const agent = this.agents.get(agentId);
-    if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
-      return { status: 'rejected', reason: 'unsupported-session' };
-    }
-    try {
-      return await this.engineBridge.renewSessionController(agent.engineName, agentId, controller);
-    } catch (error) {
-      console.error('Failed to renew agent session controller:', error);
-      return { status: 'rejected', reason: 'controller-lease-failed' };
-    }
-  }
-
-  async releaseAgentSessionController(agentId, controller) {
-    const agent = this.agents.get(agentId);
-    if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
-      return { status: 'unowned', reason: 'unsupported-session' };
-    }
-    try {
-      return await this.engineBridge.releaseSessionController(agent.engineName, agentId, controller);
-    } catch (error) {
-      console.error('Failed to release agent session controller:', error);
-      return { status: 'unowned', reason: 'controller-lease-failed' };
-    }
-  }
-
-  async acknowledgeAgentSessionOutput(agentId, charCount, controller) {
-    const agent = this.agents.get(agentId);
-    if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
-      return { status: 'output-ack-rejected', reason: 'unsupported-session' };
-    }
-    try {
-      return await this.engineBridge.acknowledgeSessionOutput(
-        agent.engineName,
-        agentId,
-        charCount,
-        controller,
-      );
-    } catch (error) {
-      console.error('Failed to acknowledge agent session output:', error);
-      return { status: 'output-ack-rejected', reason: 'flow-control-failed' };
-    }
-  }
-
-  async acknowledgeAgentSessionCheckpoint(agentId, outputSeq, stateRevision, controller) {
-    const agent = this.agents.get(agentId);
-    if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
-      return { status: 'checkpoint-applied-rejected', reason: 'unsupported-session' };
-    }
-    try {
-      return await this.engineBridge.acknowledgeSessionCheckpoint(
-        agent.engineName,
-        agentId,
-        outputSeq,
-        stateRevision,
-        controller,
-      );
-    } catch (error) {
-      console.error('Failed to acknowledge agent session checkpoint:', error);
-      return { status: 'checkpoint-applied-rejected', reason: 'flow-control-failed' };
-    }
-  }
-
-  async resizeAgentSession(agentId, cols, rows, controller) {
+  async resizeAgentSession(agentId, cols, rows) {
     const agent = this.agents.get(agentId);
     if (!agent) return { status: 'resize-rejected', reason: 'session-unavailable', resized: false };
     if (isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
@@ -3862,7 +3776,7 @@ class AgentManager extends EventEmitter {
         return { status: 'resize-rejected', reason: 'unsupported-engine', resized: false };
       }
 
-      const result = await engine.resizeSession(agentId, nextCols, nextRows, controller);
+      const result = await engine.resizeSession(agentId, nextCols, nextRows);
       if (result && result.resized === false && result.reason === 'session-unavailable') {
         this.markAgentSessionDead(agentId, 'Session not available');
       }
@@ -3876,15 +3790,18 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  async clearAgentSessionBuffer(agentId, controller = null) {
+  async clearAgentSessionBuffer(agentId, options = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) return { cleared: false };
     if (isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) return { cleared: false };
+    if (options.expectedRuntimeEpoch && agent.runtimeEpoch !== options.expectedRuntimeEpoch) {
+      return { cleared: false, reason: 'runtime-epoch-mismatch' };
+    }
 
     try {
       const engine = this.engineBridge.getEngine(agent.engineName);
       if (!engine || !engine.clearBuffer) return { cleared: false };
-      const result = await engine.clearBuffer(agentId, controller);
+      const result = await engine.clearBuffer(agentId, options);
       if (result && result.cleared === false) {
         if (result.reason === 'session-unavailable') {
           this.markAgentSessionDead(agentId, 'Session not available');

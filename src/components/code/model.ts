@@ -155,17 +155,11 @@ export function groupAgentsByProject(agents: Agent[], agentSessions: AgentSessio
       hasMain: false,
       hasProjectAgent: false,
       hasAgentSession: false,
-      fileAgent: null,
-      fileAgentId: '',
       gitWorktree: agent.gitWorktree ?? null,
     }
     group.agents.push(agent)
     group.hasMain ||= agent.isMain
     group.hasProjectAgent ||= !agent.isMain
-    if (!agent.isMain && !group.fileAgent) {
-      group.fileAgent = agent
-      group.fileAgentId = agent.id
-    }
     if (agent.gitWorktree?.workspace) group.gitWorktree = agent.gitWorktree
     group.name = group.hasMain ? 'Main Agent' : projectNameForWorkspace(group.workspace)
     groups.set(id, group)
@@ -183,8 +177,6 @@ export function groupAgentsByProject(agents: Agent[], agentSessions: AgentSessio
       hasMain: false,
       hasProjectAgent: false,
       hasAgentSession: false,
-      fileAgent: null,
-      fileAgentId: '',
       gitWorktree: null,
     }
     group.agentSessions.push(session)

@@ -72,16 +72,6 @@ declare global {
         pageOutputSuspended?: boolean
         suppressOutputForMs?: number
         needsReconnectOutputSync?: boolean
-        pendingResizeCheckpoint?: {
-          cols: number
-          rows: number
-          requestSeq: number
-          ackRevision: number | null
-        } | null
-        controllerStatus: string
-        controllerFence?: number | null
-        rendererReadyFence?: number | null
-        controllerResizeRequestSeq?: number
         lastNotifiedResize?: { cols: number; rows: number } | null
         resizeNotificationCount?: number
       } | null
@@ -104,7 +94,6 @@ declare global {
       getLastOutputSeq: (agentId: string) => number | null
       getRuntimeEpoch: (agentId: string) => string
       getStateRevision: (agentId: string) => number | null
-      setOutputAckSuppressed: (agentId: string, suppressed: boolean) => boolean
       writeRawAndSampleViewport: (agentId: string, text: string) => Promise<{
         before: number
         during: number

@@ -2,6 +2,7 @@ const { createTwoFilesPatch, diffLines } = require('diff');
 
 const MAX_RENDERED_DIFF_CHARS = 64 * 1024;
 const MAX_INLINE_TOOL_DETAIL_CHARS = 4 * 1024;
+const MAX_EMBEDDED_RESOURCE_TEXT_CHARS = 4 * 1024;
 
 function diffBlocks(content) {
   return (Array.isArray(content) ? content : [])
@@ -163,6 +164,22 @@ function detailForTool(entry) {
   return sections.join('\n\n');
 }
 
+function transcriptResource(resourceValue) {
+  const resource = resourceValue && typeof resourceValue === 'object' ? resourceValue : {};
+  const text = typeof resource.text === 'string' ? resource.text : '';
+  return {
+    name: resource.name,
+    uri: resource.uri,
+    mimeType: resource.mimeType,
+    ...(text
+      ? {
+          text: text.slice(0, MAX_EMBEDDED_RESOURCE_TEXT_CHARS),
+          ...(text.length > MAX_EMBEDDED_RESOURCE_TEXT_CHARS ? { textTruncated: true } : {}),
+        }
+      : {}),
+  };
+}
+
 function transcriptMediaBlocks(entry) {
   const direct = Array.isArray(entry?.content) ? entry.content : [];
   const output = entry?.rawOutput && typeof entry.rawOutput === 'object' ? entry.rawOutput : {};
@@ -175,14 +192,9 @@ function transcriptMediaBlocks(entry) {
     if (block.type === 'terminal') return [{ type: 'terminal', terminalId: String(block.terminalId || '') }];
     if (['image', 'audio', 'resource_link'].includes(block.type)) return [JSON.parse(JSON.stringify(block))];
     if (block.type === 'resource') {
-      const resource = block.resource && typeof block.resource === 'object' ? block.resource : {};
       return [{
         type: 'resource',
-        resource: {
-          name: resource.name,
-          uri: resource.uri,
-          mimeType: resource.mimeType,
-        },
+        resource: transcriptResource(block.resource),
       }];
     }
     if (block.type !== 'content' || !block.content || typeof block.content !== 'object') return [];
@@ -191,16 +203,11 @@ function transcriptMediaBlocks(entry) {
       return [{ type: 'content', content: JSON.parse(JSON.stringify(content)) }];
     }
     if (content.type === 'resource') {
-      const resource = content.resource && typeof content.resource === 'object' ? content.resource : {};
       return [{
         type: 'content',
         content: {
           type: 'resource',
-          resource: {
-            name: resource.name,
-            uri: resource.uri,
-            mimeType: resource.mimeType,
-          },
+          resource: transcriptResource(content.resource),
         },
       }];
     }

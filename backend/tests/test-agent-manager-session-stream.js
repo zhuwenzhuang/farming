@@ -150,8 +150,8 @@ async function run() {
     streams.length = 0;
     updateCount = 0;
     const resizeCalls = [];
-    manager.engineBridge.router.engines.local.resizeSession = async (agentId, cols, rows, controller) => {
-      resizeCalls.push({ agentId, cols, rows, controller });
+    manager.engineBridge.router.engines.local.resizeSession = async (agentId, cols, rows) => {
+      resizeCalls.push({ agentId, cols, rows });
       return { status: 'resize-committed', resized: true };
     };
 
@@ -330,14 +330,13 @@ async function run() {
     assert.strictEqual(typeof manager.agents.get('local-agent').exitedAt, 'number');
     await manager.resizeAgentSession('local-agent', 10, 5);
     assert.deepStrictEqual(resizeCalls, []);
-    const controller = { leaseId: 'lease', fence: 1, requestSeq: 1 };
-    await manager.resizeAgentSession('local-agent', 125.8, 41.2, controller);
-    await manager.resizeAgentSession('local-agent', 125, 41, { ...controller, requestSeq: 2 });
-    await manager.resizeAgentSession('local-agent', 126, 41, { ...controller, requestSeq: 3 });
+    await manager.resizeAgentSession('local-agent', 125.8, 41.2);
+    await manager.resizeAgentSession('local-agent', 125, 41);
+    await manager.resizeAgentSession('local-agent', 126, 41);
     assert.deepStrictEqual(resizeCalls, [
-      { agentId: 'local-agent', cols: 125, rows: 41, controller },
-      { agentId: 'local-agent', cols: 125, rows: 41, controller: { ...controller, requestSeq: 2 } },
-      { agentId: 'local-agent', cols: 126, rows: 41, controller: { ...controller, requestSeq: 3 } },
+      { agentId: 'local-agent', cols: 125, rows: 41 },
+      { agentId: 'local-agent', cols: 125, rows: 41 },
+      { agentId: 'local-agent', cols: 126, rows: 41 },
     ]);
 
     manager.agents.set('missing-resize-agent', {
@@ -355,7 +354,7 @@ async function run() {
       reason: 'session-unavailable',
       resized: false,
     });
-    await manager.resizeAgentSession('missing-resize-agent', 120, 40, controller);
+    await manager.resizeAgentSession('missing-resize-agent', 120, 40);
     const missingResizeAgent = manager.agents.get('missing-resize-agent');
     assert.strictEqual(missingResizeAgent.status, 'dead');
     assert.strictEqual(missingResizeAgent.engineStatus, 'dead');

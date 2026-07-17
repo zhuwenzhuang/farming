@@ -35,7 +35,9 @@ Farming 只有一种 Project：持久挂载在 Farming 中的 workspace。启动
 
 Git worktree 仍作为普通 Project 展示，不增加新的顶层仓库分组。Farming 通过 `git worktree list --porcelain -z` 和共享 Git common directory 识别仓库。在 Project 名称下方放一行低干扰入口，点击后展示同仓库完整 worktree 清单：当前/主 worktree、分支或 detached 状态、短 HEAD、路径，以及 locked/prunable 状态。点击任意行，就把该 worktree 挂载成另一个普通 Project。
 
-状态权威边界保持简单：Git 决定仓库和 worktree 身份，`settings.projectWorkspaces` 决定 Project 成员关系。即使没有 Agent，后端 Files 与 Git API 也接受经过校验的 Project workspace 身份，因此空 Project 仍保留 Files、Changes、History 和编辑能力。Git 探测失败时不自行猜测关系；Agent 的异步探测继续使用 generation guard，旧结果不能覆盖新的 workspace 观测。
+状态权威边界保持简单：Git 决定仓库和 worktree 身份，`settings.projectWorkspaces` 决定 Project 成员关系。即使没有 Agent，后端 Files 与 Git API 也接受经过校验的 Project workspace 身份，因此空 Project 仍保留 Files、Changes、History 和编辑能力。浏览器只从 workspace 派生一个确定性的 Files ID；兼容接口 `/api/files/*` 的字段虽然仍叫 `agentId`，但 Agent 补水、排序或消失时，这个 Project 文件身份绝不能切成 live `agent-*`。`sourceAgentId` 是独立且可选的关联，只用于从编辑器返回仍存活的 Agent。新建 Agent 与 `projectWorkspaces` 持久化之间的有界竞态中，后端可以用 workspace 完全一致的 live 非 Main Agent 临时授权，但 Agent 不会成为文件身份，也不能授权子目录或无关路径。Git 探测失败时不自行猜测关系；Agent 的异步探测继续使用 generation guard，旧结果不能覆盖新的 workspace 观测。
+
+目录加载状态机固定为 `absent -> loading -> loaded | error`。Files ID 或 workspace 改变时，旧 generation 失效，并且所有 pending 目录必须回到 `absent`，展开状态随后发起新请求。旧 generation 的响应不能提交数据，也不能遗留一个会抑制重试的可见 `loading` 占位；只有 Agent 关联变化时，不发生 Files 身份迁移。
 
 用户在 Project 里可以：
 
@@ -110,7 +112,7 @@ Farming row renderer
 - `git-history-graph.ts` / `GitHistoryGraph`：分别承载固定版本的 VS Code SCM lane 算法适配与 SVG row renderer。
 - `FileSectionBody`：Files 展开后的 body 视图层，负责状态行、搜索结果、目录树视图以及传入 body 的命名 view model。
 - `FileSectionOverlays`：Files 浮层视图层，负责文件 context menu 和文件操作弹层。
-- `useWorkspaceFileSectionController`：Files / Open Editors section 状态层，负责折叠状态、Agent 切换清理、reveal request、search focus request 和展开时的 tree refresh 调度。
+- `useWorkspaceFileSectionController`：Files / Open Editors section 状态层，负责折叠状态、Files 身份切换清理、reveal request、search focus request 和展开时的 tree refresh 调度。
 - `useWorkspaceFileTreeController`：目录树控制层，负责 tree refs、row frame 渲染、layout refresh、open-state 同步和最后焦点路径记录。
 - `FileTreeView`：目录树视图层，负责 viewport、sticky context、Arborist `Tree` 接线和 `FileTreeRow` node renderer。
 - `FileTreeRow`：单行 renderer，负责 VS Code-like 行高、缩进、chevron、active 行、git badge、父目录状态点和文件类型 decoration slot。
@@ -212,7 +214,7 @@ Files
 - 隐藏 `.git`、`.farming`、`node_modules`、`dist`、`build`、`coverage` 等目录
 - 当前打开文件高亮
 - 当前打开文件应在 Explorer 中自动 reveal，避免从 terminal/path 跳转打开后左侧只高亮但不可见
-- 打开文件的 working copy 身份按 `workspaceRoot + path` 去重；多个 agent 指向同一 workspace 的同一路径时只保留一个 editor tab，同时保留最近来源 agent 用于返回终端
+- 打开文件的 working copy 身份按 `workspaceRoot + path` 去重；多个 Agent 指向同一 workspace 的同一路径时只保留一个 editor tab。来源 Agent 单独作为可选关联保存，且只有关联仍有效时才显示返回入口
 - 当前打开文件的 active 高亮和 tree selection 要分离：active file 用左侧细条 + 很浅背景表示右侧 editor 对应关系，tree selection 用浅底色交给 tree engine 维护键盘焦点和轻量选择态
 - 搜索入口复用 `/api/files/search`，结果点击直接打开对应文件并定位 Monaco 到匹配行；搜索结果列表只在有输入时出现，不变成独立页面
 - 搜索入口同时支持 `path:line` / `path:line:column` / `path#Lline`，用于从 agent 输出或用户手动复制路径后快速跳转
@@ -353,7 +355,7 @@ Files
 实现约束：
 
 - 文件根目录使用具体项目 agent 状态中的 `projectWorkspace` / `cwd`；Main Agent 即使实际运行在 `.farming` 身份目录，也不作为 Files 的载体。
-- WebSocket 文件监听按 `agentId` 维度维护，避免同一页面展开多个 Project 时 watcher 互相覆盖。
+- WebSocket 文件监听按稳定 Project Files ID 维度维护；展开的 Files section 会合并短时间内的事件，再刷新已加载目录和 Working Copy Changes，Agent 只作为可选关联，不能成为 watcher 主键。
 
 ---
 
@@ -364,6 +366,7 @@ Files
 - 文件读写保留大小上限。
 - 目录树按目录懒加载，不一次性展开整棵仓库。
 - Git History 每页默认 50 个 Commit，并设置硬上限；Commit 变更按点击懒加载，前端详情缓存保持有界。
+- Working Copy status 遇到超大 untracked 集合超过 Git 输出缓冲区时，返回已经完整读取的记录并标记 `truncated: true`；不能把这种情况伪装成干净 workspace。
 - 搜索、diff、blame 等 git / rg 操作使用 limit、timeout 或截断结果，避免无界输出。
 - terminal 实时输出按有界块读取，并在 WebSocket fanout 前做短窗口合并。
 - terminal session 退出前先 flush 最后一段输出，随后释放 screen worker 并清理 session 状态。

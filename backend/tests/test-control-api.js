@@ -23,7 +23,6 @@ async function run() {
   const calls = [];
   const agents = new Map();
   const events = new EventEmitter();
-  let browserControlled = false;
   let nextAgent = 0;
   const agentManager = {
     on: events.on.bind(events),
@@ -57,7 +56,7 @@ async function run() {
       });
       callback(id);
     },
-    agentRequiresTerminalController() {
+    agentSupportsTerminalInput() {
       return true;
     },
     async sendInput(agentId, input, options) {
@@ -66,8 +65,8 @@ async function run() {
       if (agent && /[\r\n]/.test(String(input))) agent.terminalInputReceived = true;
       return { sent: true };
     },
-    async clearAgentSessionBuffer(agentId, terminalControl) {
-      calls.push({ type: 'clearAgentSessionBuffer', agentId, terminalControl });
+    async clearAgentSessionBuffer(agentId, options) {
+      calls.push({ type: 'clearAgentSessionBuffer', agentId, options });
       return { cleared: true, outputSeq: 7 };
     },
     async getAgentSessionText(agentId) {
@@ -79,25 +78,9 @@ async function run() {
       events.emit('update');
     },
   };
-  const terminalMutationCoordinator = {
-    async runSystemMutation(agentId, operation, options) {
-      if (browserControlled && options.allowWhileControlled !== true) {
-        return { status: 'rejected', reason: 'terminal-controlled-by-browser' };
-      }
-      return operation({
-        terminalControl: {
-          kind: 'system',
-          expectedRuntimeEpoch: options.expectedRuntimeEpoch,
-        },
-        expectedRuntimeEpoch: options.expectedRuntimeEpoch,
-      });
-    },
-  };
-
   const app = express();
   app.use('/api/control', createControlRouter(agentManager, {
     initialInputTimeoutMs: 100,
-    terminalMutationCoordinator,
   }));
 
   const server = await new Promise((resolve) => {
@@ -141,7 +124,7 @@ async function run() {
       agentId: created.body.agentId,
       input: 'Inspect optimizer bugs\r',
       options: {
-        terminalControl: { kind: 'system', expectedRuntimeEpoch: 'epoch-1' },
+        expectedRuntimeEpoch: 'epoch-1',
       },
     });
 
@@ -159,7 +142,7 @@ async function run() {
     });
     assert.strictEqual(sent.response.status, 200);
     assert.strictEqual(calls.at(-1).type, 'sendInput');
-    assert.strictEqual(calls.at(-1).options.terminalControl.expectedRuntimeEpoch, 'epoch-1');
+    assert.strictEqual(calls.at(-1).options.expectedRuntimeEpoch, 'epoch-1');
 
     const cleared = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}/clear`, {
       method: 'POST',
@@ -167,20 +150,17 @@ async function run() {
     assert.strictEqual(cleared.response.status, 200);
     assert.strictEqual(cleared.body.outputSeq, 7);
     assert.strictEqual(calls.at(-1).type, 'clearAgentSessionBuffer');
-    assert.strictEqual(calls.at(-1).terminalControl.expectedRuntimeEpoch, 'epoch-1');
+    assert.strictEqual(calls.at(-1).options.expectedRuntimeEpoch, 'epoch-1');
 
-    browserControlled = true;
-    const rejectedInput = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}/input`, {
+    const concurrentInput = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}/input`, {
       method: 'POST',
-      body: JSON.stringify({ input: 'must not be sent\n' }),
+      body: JSON.stringify({ input: 'shared terminal input\n' }),
     });
-    assert.strictEqual(rejectedInput.response.status, 409);
-    assert.strictEqual(rejectedInput.body.error, 'terminal-controlled-by-browser');
-    const rejectedClear = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}/clear`, {
+    assert.strictEqual(concurrentInput.response.status, 200);
+    const concurrentClear = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}/clear`, {
       method: 'POST',
     });
-    assert.strictEqual(rejectedClear.response.status, 409);
-    browserControlled = false;
+    assert.strictEqual(concurrentClear.response.status, 200);
 
     const cancelledPromise = fetchJson(baseUrl, '/api/control/agents', {
       method: 'POST',

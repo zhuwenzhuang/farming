@@ -3,12 +3,6 @@ import path from 'node:path'
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
 
-type TerminalClaim = {
-  agentId: string
-  attachmentId: string
-  claimId: string
-}
-
 type TerminalInputFrame = {
   agentId: string
   input: string
@@ -62,21 +56,18 @@ async function openCodeTerminal(page: Page, agentId: string) {
   await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
 }
 
-async function waitForCodeOwner(page: Page, agentId: string) {
-  await expect(codeTerminalHost(page, agentId))
-    .toHaveAttribute('data-controller-status', 'owner', { timeout: 15_000 })
+async function waitForCodeReady(page: Page, agentId: string) {
+  await expect(codeTerminalHost(page, agentId)).toBeVisible({ timeout: 15_000 })
   await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
   await page.waitForFunction(id => {
     const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics(id) as unknown as {
-      controllerStatus?: string
       checkpointRequestInFlight?: boolean
       replayTargetRevision?: number | null
       replayInProgress?: boolean
       bootstrappingSnapshot?: boolean
       pendingSnapshotReplay?: boolean
     } | null
-    return diagnostics?.controllerStatus === 'owner'
-      && diagnostics.checkpointRequestInFlight === false
+    return diagnostics?.checkpointRequestInFlight === false
       && diagnostics.replayTargetRevision === null
       && diagnostics.replayInProgress === false
       && diagnostics.bootstrappingSnapshot === false
@@ -92,24 +83,8 @@ async function openCrtTerminal(page: Page, agentId: string) {
   await expect(page.locator('#terminal-output .xterm')).toBeVisible({ timeout: 15_000 })
 }
 
-async function waitForCrtOwner(page: Page) {
-  await expect(page.locator('.crt-terminal-takeover')).toBeHidden({ timeout: 15_000 })
+async function waitForCrtReady(page: Page) {
   await expect(page.locator('.crt-terminal-sync-status')).toBeHidden({ timeout: 15_000 })
-}
-
-async function sendCodeCommand(page: Page, agentId: string, command: string) {
-  const input = codeTerminalHost(page, agentId).locator('.xterm-helper-textarea')
-  const previousInputCount = await page.evaluate(
-    id => window.__farmingTerminalTest?.getInputCount(id) || 0,
-    agentId,
-  )
-  await input.focus()
-  await input.pressSequentially(command)
-  await input.press('Enter')
-  await expect.poll(() => page.evaluate(
-    id => window.__farmingTerminalTest?.getInputCount(id) || 0,
-    agentId,
-  ), { timeout: 2_000 }).toBeGreaterThan(previousInputCount)
 }
 
 async function sendCrtCommand(page: Page, command: string) {
@@ -161,40 +136,6 @@ async function expectFileText(file: string, expected: string) {
   ), { timeout: 10_000 }).toBe(expected)
 }
 
-function trackTerminalClaims(page: Page) {
-  const claims: TerminalClaim[] = []
-  page.on('websocket', socket => {
-    socket.on('framesent', frame => {
-      const payload = Buffer.isBuffer(frame.payload)
-        ? frame.payload.toString('utf8')
-        : frame.payload
-      try {
-        const message = JSON.parse(payload) as {
-          type?: string
-          agentId?: string
-          attachmentId?: string
-          claimId?: string
-        }
-        if (
-          message.type === 'terminal-controller-claim' &&
-          message.agentId &&
-          message.attachmentId &&
-          message.claimId
-        ) {
-          claims.push({
-            agentId: message.agentId,
-            attachmentId: message.attachmentId,
-            claimId: message.claimId,
-          })
-        }
-      } catch {
-        // Ignore non-JSON WebSocket frames from unrelated test traffic.
-      }
-    })
-  })
-  return claims
-}
-
 function trackTerminalInputs(page: Page) {
   const inputs: TerminalInputFrame[] = []
   page.on('websocket', socket => {
@@ -219,19 +160,18 @@ function trackTerminalInputs(page: Page) {
   return inputs
 }
 
-test('CRT owner reload restores its checkpoint with a new attachment and keeps accepting input', async ({
+test('CRT reload restores one checkpoint and keeps accepting input', async ({
   page,
   context,
   workspaceRoot,
 }) => {
-  const workspace = path.join(workspaceRoot, 'crt-owner-reload')
+  const workspace = path.join(workspaceRoot, 'crt-checkpoint-reload')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createBashAgent(page, workspace)
   const afterReloadFile = path.join(workspace, 'after-reload.txt')
   const historyMarker = `CRT_RELOAD_HISTORY_${Date.now()}`
   const crtPage = await context.newPage()
   await prepareBrowserPage(crtPage)
-  const claims = trackTerminalClaims(crtPage)
   const inputs = trackTerminalInputs(crtPage)
   let checkpointRequests = 0
   crtPage.on('request', request => {
@@ -242,14 +182,9 @@ test('CRT owner reload restores its checkpoint with a new attachment and keeps a
 
   try {
     await openCrtTerminal(crtPage, agentId)
-    await waitForCrtOwner(crtPage)
-    await expect.poll(() => claims.find(claim => claim.agentId === agentId)?.attachmentId || '')
-      .not.toBe('')
-    const firstAttachmentId = claims.find(claim => claim.agentId === agentId)?.attachmentId
-    expect(firstAttachmentId).toBeTruthy()
+    await waitForCrtReady(crtPage)
     await crtPage.waitForTimeout(3_000)
-    // Display attachment owns one explicit checkpoint request; controller
-    // controller claims never hydrate terminal output.
+    // Each visible CRT attachment hydrates from one authoritative checkpoint.
     expect(checkpointRequests).toBe(1)
 
     const historyCommand = `printf '${historyMarker}\\n'`
@@ -266,12 +201,9 @@ test('CRT owner reload restores its checkpoint with a new attachment and keeps a
     const requestsBeforeReload = checkpointRequests
     await crtPage.reload({ waitUntil: 'domcontentloaded' })
     await expect(crtPage.locator('#session-modal')).toHaveClass(/active/, { timeout: 30_000 })
-    await waitForCrtOwner(crtPage)
+    await waitForCrtReady(crtPage)
     await crtPage.waitForTimeout(3_000)
     expect(checkpointRequests).toBe(requestsBeforeReload + 1)
-    await expect.poll(() => claims.findLast(claim => (
-      claim.agentId === agentId && claim.attachmentId !== firstAttachmentId
-    ))?.attachmentId || '', { timeout: 10_000 }).not.toBe('')
 
     const reloadCommand = "printf 'reload-input-ok\\n' > after-reload.txt"
     const reloadInputStart = inputs.length
@@ -294,16 +226,14 @@ test('CRT hidden-page disconnect resumes from one authoritative latest checkpoin
   const agentId = await createBashAgent(page, workspace)
   await prepareBrowserPage(page)
   await openCodeTerminal(page, agentId)
+  await waitForCodeReady(page, agentId)
 
   const crtPage = await context.newPage()
   await crtPage.addInitScript(() => { window.__FARMING_E2E__ = true })
   try {
     await crtPage.goto(`/farming/crt/?agent=${encodeURIComponent(agentId)}`, { waitUntil: 'domcontentloaded' })
     await expect(crtPage.locator('#session-modal')).toHaveClass(/active/, { timeout: 30_000 })
-    const takeover = crtPage.locator('.crt-terminal-takeover')
-    await expect(takeover).toBeVisible({ timeout: 15_000 })
-    await takeover.click()
-    await expect(takeover).toBeHidden({ timeout: 15_000 })
+    await waitForCrtReady(crtPage)
 
     await crtPage.evaluate(() => {
       (window as typeof window & { suspendCrtPageConnection?: () => void }).suspendCrtPageConnection?.()
@@ -346,7 +276,7 @@ test('CRT commits a live transition only after the xterm write callback', async 
 
   try {
     await openCrtTerminal(crtPage, agentId)
-    await waitForCrtOwner(crtPage)
+    await waitForCrtReady(crtPage)
     const initial = await crtPage.evaluate(() => (
       (window as typeof window & {
         __farmingCrtTerminalTest?: {
@@ -426,7 +356,7 @@ test('CRT preserves checkpoint-uncovered live transitions and flushes empty chec
 
   try {
     await openCrtTerminal(crtPage, agentId)
-    await waitForCrtOwner(crtPage)
+    await waitForCrtReady(crtPage)
     type CrtState = {
       runtimeEpoch: string
       outputSeq: number
@@ -526,117 +456,40 @@ test('CRT preserves checkpoint-uncovered live transitions and flushes empty chec
   }
 })
 
-test('closing the Code owner lets the CRT observer explicitly take over and write', async ({
+test('CRT synthetic composition commits exactly once from each shared viewer', async ({
   page,
   context,
   workspaceRoot,
 }) => {
-  const workspace = path.join(workspaceRoot, 'code-close-crt-survivor')
+  const workspace = path.join(workspaceRoot, 'crt-ime-shared-viewers')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createBashAgent(page, workspace)
-  const resultFile = path.join(workspace, 'crt-survivor.txt')
-  const codePage = await context.newPage()
-  const crtPage = await context.newPage()
-  await prepareBrowserPage(codePage)
-  await prepareBrowserPage(crtPage)
+  const firstFile = path.join(workspace, 'crt-first-ime.txt')
+  const secondFile = path.join(workspace, 'crt-second-ime.txt')
+  const firstPage = await context.newPage()
+  const secondPage = await context.newPage()
+  await prepareBrowserPage(firstPage)
+  await prepareBrowserPage(secondPage)
 
   try {
-    await openCodeTerminal(codePage, agentId)
-    await waitForCodeOwner(codePage, agentId)
-    await openCrtTerminal(crtPage, agentId)
-    const takeover = crtPage.locator('.crt-terminal-takeover')
-    await expect(takeover).toBeVisible({ timeout: 15_000 })
-
-    await codePage.close()
-    await expect(takeover).toBeVisible()
-    await takeover.click()
-    await waitForCrtOwner(crtPage)
-    await sendCrtCommand(
-      crtPage,
-      `printf 'crt-survivor-ok\\n' > ${JSON.stringify(resultFile)}`,
-    )
-    await expectFileText(resultFile, 'crt-survivor-ok\n')
-  } finally {
-    if (!codePage.isClosed()) await codePage.close()
-    await crtPage.close()
-  }
-})
-
-test('closing the CRT owner lets the Code observer explicitly take over and write', async ({
-  page,
-  context,
-  workspaceRoot,
-}) => {
-  const workspace = path.join(workspaceRoot, 'crt-close-code-survivor')
-  fs.mkdirSync(workspace, { recursive: true })
-  const agentId = await createBashAgent(page, workspace)
-  const resultFile = path.join(workspace, 'code-survivor.txt')
-  const crtPage = await context.newPage()
-  const codePage = await context.newPage()
-  await prepareBrowserPage(crtPage)
-  await prepareBrowserPage(codePage)
-
-  try {
-    await openCrtTerminal(crtPage, agentId)
-    await waitForCrtOwner(crtPage)
-    await openCodeTerminal(codePage, agentId)
-    const host = codeTerminalHost(codePage, agentId)
-    await expect(host).toHaveAttribute('data-controller-status', 'observer', { timeout: 15_000 })
-    const takeover = host.locator('.terminal-controller-takeover')
-    await expect(takeover).toBeVisible()
-
-    await crtPage.close()
-    await expect(takeover).toBeVisible()
-    await takeover.click()
-    await waitForCodeOwner(codePage, agentId)
-    await sendCodeCommand(
-      codePage,
-      agentId,
-      `printf 'code-survivor-ok\\n' > ${JSON.stringify(resultFile)}`,
-    )
-    await expectFileText(resultFile, 'code-survivor-ok\n')
-  } finally {
-    if (!crtPage.isClosed()) await crtPage.close()
-    await codePage.close()
-  }
-})
-
-test('CRT synthetic composition commits once for the owner and zero times for an observer', async ({
-  page,
-  context,
-  workspaceRoot,
-}) => {
-  const workspace = path.join(workspaceRoot, 'crt-ime-owner-observer')
-  fs.mkdirSync(workspace, { recursive: true })
-  const agentId = await createBashAgent(page, workspace)
-  const ownerFile = path.join(workspace, 'crt-owner-ime.txt')
-  const observerFile = path.join(workspace, 'crt-observer-ime.txt')
-  const ownerPage = await context.newPage()
-  const observerPage = await context.newPage()
-  await prepareBrowserPage(ownerPage)
-  await prepareBrowserPage(observerPage)
-
-  try {
-    await openCrtTerminal(ownerPage, agentId)
-    await waitForCrtOwner(ownerPage)
+    await openCrtTerminal(firstPage, agentId)
+    await waitForCrtReady(firstPage)
     await dispatchCrtComposition(
-      ownerPage,
-      `printf '中文提交\\n' >> ${JSON.stringify(ownerFile)}\r`,
+      firstPage,
+      `printf '中文提交\\n' >> ${JSON.stringify(firstFile)}\r`,
     )
-    await expectFileText(ownerFile, '中文提交\n')
+    await expectFileText(firstFile, '中文提交\n')
 
-    await openCrtTerminal(observerPage, agentId)
-    const takeover = observerPage.locator('.crt-terminal-takeover')
-    await expect(takeover).toBeVisible({ timeout: 15_000 })
+    await openCrtTerminal(secondPage, agentId)
+    await waitForCrtReady(secondPage)
     await dispatchCrtComposition(
-      observerPage,
-      `printf '不应提交\\n' >> ${JSON.stringify(observerFile)}\r`,
+      secondPage,
+      `printf '第二窗口\\n' >> ${JSON.stringify(secondFile)}\r`,
     )
-    await observerPage.waitForTimeout(300)
-    expect(fs.existsSync(observerFile)).toBe(false)
-    expect(fs.readFileSync(ownerFile, 'utf8')).toBe('中文提交\n')
+    await expectFileText(secondFile, '第二窗口\n')
+    expect(fs.readFileSync(firstFile, 'utf8')).toBe('中文提交\n')
   } finally {
-    await ownerPage.close()
-    await observerPage.close()
+    await firstPage.close()
+    await secondPage.close()
   }
 })

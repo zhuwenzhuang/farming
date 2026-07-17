@@ -71,9 +71,9 @@ function truncatePreviewLine(line: string) {
   return `${line.slice(0, 139)}…`
 }
 
-function truncateTitle(title: string) {
-  if (title.length <= 28) return title
-  return `${title.slice(0, 27)}…`
+function truncateTitle(title: string, maxLength = 28) {
+  if (title.length <= maxLength) return title
+  return `${title.slice(0, Math.max(0, maxLength - 1))}…`
 }
 
 function stripTitleStatusPrefix(title: string) {
@@ -196,11 +196,10 @@ function meaningfulSessionTitle(
   if (genericTitles.has(normalizedTitle)) return ''
   if (workspaceBasenames(agent).includes(normalizedTitle)) return ''
 
-  return truncateTitle(stripTitleStatusPrefix(title) || title)
+  return stripTitleStatusPrefix(title) || title
 }
 
-/** Prefer a user rename, then the agent-updated session title, then a simple agent kind. */
-export function agentTitle(agent: {
+interface AgentTitleSource {
   command: string
   cwd?: string
   projectWorkspace?: string
@@ -210,9 +209,11 @@ export function agentTitle(agent: {
   task?: string
   source?: string
   isMain?: boolean
-}) {
+}
+
+function resolveAgentTitle(agent: AgentTitleSource) {
   const customTitle = typeof agent.customTitle === 'string' ? agent.customTitle.trim() : ''
-  if (customTitle) return truncateTitle(customTitle)
+  if (customTitle) return customTitle
 
   if (agent.isMain) return 'Main Agent'
 
@@ -228,6 +229,20 @@ export function agentTitle(agent: {
   }
 
   return agentDisplayName(agent.command)
+}
+
+/** Prefer a user rename, then the agent-updated session title, then a simple agent kind. */
+export function agentTitle(agent: AgentTitleSource) {
+  return truncateTitle(resolveAgentTitle(agent))
+}
+
+/**
+ * Keep enough source text for width-responsive Agent rows. CSS owns the visible
+ * truncation, while this generous bound prevents unbounded provider text from
+ * entering labels and accessibility attributes.
+ */
+export function agentRowTitle(agent: AgentTitleSource) {
+  return truncateTitle(resolveAgentTitle(agent), 160)
 }
 
 /** Get preview text for an agent, stripping ANSI codes */

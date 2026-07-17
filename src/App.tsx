@@ -16,7 +16,6 @@ import {
 } from '@/lib/ui-preferences'
 import {
   destroyTerminalSession,
-  getTerminalControllerCredentials,
   pruneTerminalSessions,
 } from '@/lib/terminal-session-pool'
 import { appPath } from '@/lib/base-path'
@@ -606,7 +605,7 @@ export function App() {
   }, [ws, closeTerminal])
 
   const handleInterruptAgent = useCallback((agentId: string) => {
-    ws.interruptAgent(agentId, getTerminalControllerCredentials(agentId))
+    ws.interruptAgent(agentId)
   }, [ws])
 
   const handleRestartMainAgent = useCallback((command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => {
@@ -1072,6 +1071,7 @@ export function App() {
         sendComposerInput={ws.sendComposerInput}
         respondToAppServerRequest={ws.respondToAppServerRequest}
         onSessionOutput={ws.onSessionOutput}
+        onWatchWorkspaceFiles={ws.watchWorkspaceFiles}
         onUpdateUiPreferences={updateUiPreferences}
       />
 
