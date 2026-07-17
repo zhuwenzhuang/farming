@@ -84,6 +84,19 @@ body.code-mode[data-appearance='dark'] .code-composer-mode-chip {
   color: var(--code-dark-text-soft);
 }
 
+body.code-mode[data-appearance='dark'] .code-nav-icon {
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-sidebar-toggle,
+body.code-mode[data-appearance='dark'] .code-sidebar-focus-toggle,
+body.code-mode[data-appearance='dark'] .code-sidebar-search-toggle,
+body.code-mode[data-appearance='dark'] .code-sidebar-history-toggle,
+body.code-mode[data-appearance='dark'] .code-sidebar-options {
+  background: rgba(22, 27, 34, 0.66);
+  color: var(--code-dark-text-muted);
+}
+
 body.code-mode[data-appearance='dark'] .code-nav-item:hover,
 body.code-mode[data-appearance='dark'] .code-nav-item.active,
 body.code-mode[data-appearance='dark'] .code-agent-rail-button:hover,
@@ -106,11 +119,18 @@ body.code-mode[data-appearance='dark'] .code-file-row.focused,
 body.code-mode[data-appearance='dark'] .code-file-row.selected,
 body.code-mode[data-appearance='dark'] .code-file-row.active,
 body.code-mode[data-appearance='dark'] .code-sidebar-toggle:hover,
+body.code-mode[data-appearance='dark'] .code-sidebar-toggle:focus-visible,
 body.code-mode[data-appearance='dark'] .code-sidebar-focus-toggle:hover,
+body.code-mode[data-appearance='dark'] .code-sidebar-focus-toggle:focus-visible,
 body.code-mode[data-appearance='dark'] .code-sidebar-focus-toggle.active,
 body.code-mode[data-appearance='dark'] .code-sidebar-search-toggle:hover,
+body.code-mode[data-appearance='dark'] .code-sidebar-search-toggle:focus-visible,
 body.code-mode[data-appearance='dark'] .code-sidebar-search-toggle.active,
+body.code-mode[data-appearance='dark'] .code-sidebar-history-toggle:hover,
+body.code-mode[data-appearance='dark'] .code-sidebar-history-toggle:focus-visible,
+body.code-mode[data-appearance='dark'] .code-sidebar-history-toggle.active,
 body.code-mode[data-appearance='dark'] .code-sidebar-options:hover,
+body.code-mode[data-appearance='dark'] .code-sidebar-options:focus-visible,
 body.code-mode[data-appearance='dark'] .code-file-editor-action:hover:not(:disabled),
 body.code-mode[data-appearance='dark'] .code-file-editor-action.active,
 body.code-mode[data-appearance='dark'] .code-file-editor-breadcrumb:hover,
@@ -1912,6 +1932,11 @@ body.code-mode[data-appearance='dark'] .code-composer.menu-open {
 body.code-mode[data-appearance='dark'] .code-composer-send {
   background: var(--code-dark-text-soft);
   color: var(--code-dark-bg);
+}
+
+body.code-mode[data-appearance='dark'] .code-composer-send:disabled {
+  background: rgba(240, 246, 252, 0.12);
+  color: rgba(240, 246, 252, 0.38);
 }
 
 body.code-mode[data-appearance='dark'] .code-composer-send:not(:disabled):hover {
