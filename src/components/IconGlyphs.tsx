@@ -4,7 +4,7 @@ type IconGlyphProps = SVGProps<SVGSVGElement>
 
 export function ChevronDownGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M3.14598 5.85423L7.64598 10.3542C7.84098 10.5492 8.15798 10.5492 8.35298 10.3542L12.853 5.85423C13.048 5.65923 13.048 5.34223 12.853 5.14723C12.658 4.95223 12.341 4.95223 12.146 5.14723L7.99998 9.29323L3.85398 5.14723C3.65898 4.95223 3.34198 4.95223 3.14698 5.14723C2.95198 5.34223 2.95098 5.65923 3.14598 5.85423Z" />
     </svg>
   )
@@ -12,7 +12,7 @@ export function ChevronDownGlyph(props: IconGlyphProps) {
 
 export function ChevronUpGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M3.14603 9.85423C3.34103 10.0492 3.65803 10.0492 3.85303 9.85423L7.99903 5.70823L12.145 9.85423C12.34 10.0492 12.657 10.0492 12.852 9.85423C13.047 9.65923 13.047 9.34223 12.852 9.14723L8.35203 4.64723C8.15703 4.45223 7.84003 4.45223 7.64503 4.64723L3.14503 9.14723C2.95003 9.34223 2.95103 9.65923 3.14603 9.85423Z" />
     </svg>
   )
@@ -20,7 +20,7 @@ export function ChevronUpGlyph(props: IconGlyphProps) {
 
 export function ChevronLeftGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M9.14601 3.14623L4.64601 7.64623C4.45101 7.84123 4.45101 8.15823 4.64601 8.35323L9.14601 12.8532C9.34101 13.0482 9.65801 13.0482 9.85301 12.8532C10.048 12.6582 10.048 12.3412 9.85301 12.1462L5.70701 8.00023L9.85301 3.85423C10.048 3.65923 10.048 3.34223 9.85301 3.14723C9.65801 2.95223 9.34101 2.95223 9.14601 3.14723V3.14623Z" />
     </svg>
   )
@@ -28,7 +28,7 @@ export function ChevronLeftGlyph(props: IconGlyphProps) {
 
 export function ChevronRightGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M6.14601 3.14579C5.95101 3.34079 5.95101 3.65779 6.14601 3.85279L10.292 7.99879L6.14601 12.1448C5.95101 12.3398 5.95101 12.6568 6.14601 12.8518C6.34101 13.0468 6.65801 13.0468 6.85301 12.8518L11.353 8.35179C11.548 8.15679 11.548 7.83979 11.353 7.64478L6.85301 3.14479C6.65801 2.94979 6.34101 2.95079 6.14601 3.14579Z" />
     </svg>
   )
@@ -36,7 +36,7 @@ export function ChevronRightGlyph(props: IconGlyphProps) {
 
 export function ArrowLeftGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M13.5 8.00023H3.70701L7.85301 3.85423C8.04801 3.65923 8.04801 3.34223 7.85301 3.14723C7.65801 2.95223 7.34101 2.95223 7.14601 3.14723L2.14601 8.14723C1.95101 8.34223 1.95101 8.65923 2.14601 8.85423L7.14601 13.8542C7.24401 13.9522 7.37201 14.0002 7.50001 14.0002C7.62801 14.0002 7.75601 13.9512 7.85401 13.8542C8.04901 13.6592 8.04901 13.3422 7.85401 13.1472L3.70801 9.00123H13.501C13.777 9.00123 14.001 8.77723 14.001 8.50123C14.001 8.22523 13.777 8.00123 13.501 8.00123L13.5 8.00023Z" />
     </svg>
   )
@@ -44,7 +44,7 @@ export function ArrowLeftGlyph(props: IconGlyphProps) {
 
 export function ArrowRightGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M13.854 8.14576L8.854 3.14576C8.659 2.95076 8.342 2.95076 8.147 3.14576C7.952 3.34076 7.952 3.65776 8.147 3.85276L12.293 7.99876H2.5C2.224 7.99876 2 8.22276 2 8.49876C2 8.77476 2.224 8.99876 2.5 8.99876H12.293L8.147 13.1448C7.952 13.3398 7.952 13.6568 8.147 13.8518C8.245 13.9498 8.373 13.9978 8.501 13.9978C8.629 13.9978 8.757 13.9488 8.855 13.8518L13.855 8.85176C14.05 8.65676 14.05 8.33976 13.855 8.14476L13.854 8.14576Z" />
     </svg>
   )
@@ -52,7 +52,7 @@ export function ArrowRightGlyph(props: IconGlyphProps) {
 
 export function ArrowDownGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M13.854 8.146C13.659 7.951 13.342 7.951 13.147 8.146L9.00096 12.292V2.5C9.00096 2.224 8.77696 2 8.50096 2C8.22496 2 8.00096 2.224 8.00096 2.5V12.293L3.85496 8.147C3.65996 7.952 3.34296 7.952 3.14796 8.147C2.95296 8.342 2.95296 8.659 3.14796 8.854L8.14796 13.854C8.24596 13.952 8.37396 14 8.50196 14C8.62996 14 8.75796 13.951 8.85596 13.854L13.856 8.854C14.051 8.659 14.051 8.342 13.856 8.147L13.854 8.146Z" />
     </svg>
   )
@@ -60,7 +60,7 @@ export function ArrowDownGlyph(props: IconGlyphProps) {
 
 export function ArrowUpGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M13.854 7.14576L8.85401 2.14576C8.65901 1.95076 8.34201 1.95076 8.14701 2.14576L3.14601 7.14576C2.95101 7.34076 2.95101 7.65776 3.14601 7.85276C3.34101 8.04776 3.65801 8.04776 3.85301 7.85276L7.99901 3.70676V13.4998C7.99901 13.7758 8.22301 13.9998 8.49901 13.9998C8.77501 13.9998 8.99901 13.7758 8.99901 13.4998V3.70676L13.145 7.85276C13.243 7.95076 13.371 7.99876 13.499 7.99876C13.627 7.99876 13.755 7.94976 13.853 7.85276C14.048 7.65776 14.048 7.34076 13.853 7.14576H13.854Z" />
     </svg>
   )
@@ -68,7 +68,7 @@ export function ArrowUpGlyph(props: IconGlyphProps) {
 
 export function CloseGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M8.70701 8.00001L12.353 4.35401C12.548 4.15901 12.548 3.84201 12.353 3.64701C12.158 3.45201 11.841 3.45201 11.646 3.64701L8.00001 7.29301L4.35401 3.64701C4.15901 3.45201 3.84201 3.45201 3.64701 3.64701C3.45201 3.84201 3.45201 4.15901 3.64701 4.35401L7.29301 8.00001L3.64701 11.646C3.45201 11.841 3.45201 12.158 3.64701 12.353C3.74501 12.451 3.87301 12.499 4.00101 12.499C4.12901 12.499 4.25701 12.45 4.35501 12.353L8.00101 8.70701L11.647 12.353C11.745 12.451 11.873 12.499 12.001 12.499C12.129 12.499 12.257 12.45 12.355 12.353C12.55 12.158 12.55 11.841 12.355 11.646L8.70901 8.00001H8.70701Z" />
     </svg>
   )
@@ -76,7 +76,7 @@ export function CloseGlyph(props: IconGlyphProps) {
 
 export function SearchGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M10.0195 10.7266C9.06578 11.5217 7.83875 12 6.5 12C3.46243 12 1 9.53757 1 6.5C1 3.46243 3.46243 1 6.5 1C9.53757 1 12 3.46243 12 6.5C12 7.83875 11.5217 9.06578 10.7266 10.0195L13.8535 13.1464C14.0488 13.3417 14.0488 13.6583 13.8535 13.8536C13.6583 14.0488 13.3417 14.0488 13.1464 13.8536L10.0195 10.7266ZM11 6.5C11 4.01472 8.98528 2 6.5 2C4.01472 2 2 4.01472 2 6.5C2 8.98528 4.01472 11 6.5 11C8.98528 11 11 8.98528 11 6.5Z" />
     </svg>
   )
@@ -84,7 +84,7 @@ export function SearchGlyph(props: IconGlyphProps) {
 
 export function CheckGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M13.6572 3.13573C13.8583 2.9465 14.175 2.95614 14.3643 3.15722C14.5535 3.35831 14.5438 3.675 14.3428 3.86425L5.84277 11.8642C5.64597 12.0494 5.33756 12.0446 5.14648 11.8535L1.64648 8.35351C1.45121 8.15824 1.45121 7.84174 1.64648 7.64647C1.84174 7.45121 2.15825 7.45121 2.35351 7.64647L5.50976 10.8027L13.6572 3.13573Z" />
     </svg>
   )
@@ -92,7 +92,7 @@ export function CheckGlyph(props: IconGlyphProps) {
 
 export function PlusGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M8 1.5C8 1.22386 7.77614 1 7.5 1C7.22386 1 7 1.22386 7 1.5V7H1.5C1.22386 7 1 7.22386 1 7.5C1 7.77614 1.22386 8 1.5 8H7V13.5C7 13.7761 7.22386 14 7.5 14C7.77614 14 8 13.7761 8 13.5V8H13.5C13.7761 8 14 7.77614 14 7.5C14 7.22386 13.7761 7 13.5 7H8V1.5Z" />
     </svg>
   )
@@ -111,7 +111,7 @@ export function HandGlyph(props: IconGlyphProps) {
 
 export function CopyGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M5.5 1C4.673 1 4 1.673 4 2.5V4H2.5C1.673 4 1 4.673 1 5.5V13.5C1 14.327 1.673 15 2.5 15H10.5C11.327 15 12 14.327 12 13.5V12H13.5C14.327 12 15 11.327 15 10.5V2.5C15 1.673 14.327 1 13.5 1H5.5ZM5 2.5C5 2.224 5.224 2 5.5 2H13.5C13.776 2 14 2.224 14 2.5V10.5C14 10.776 13.776 11 13.5 11H12V5.5C12 4.673 11.327 4 10.5 4H5V2.5ZM2.5 5H10.5C10.776 5 11 5.224 11 5.5V13.5C11 13.776 10.776 14 10.5 14H2.5C2.224 14 2 13.776 2 13.5V5.5C2 5.224 2.224 5 2.5 5Z" />
     </svg>
   )
@@ -146,7 +146,7 @@ export function ColorModeGlyph(props: IconGlyphProps) {
 
 export function SettingsGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path fillRule="evenodd" clipRule="evenodd" d="M6.92 1.25h2.16l.32 1.66c.43.14.84.31 1.2.52l1.4-.95 1.53 1.53-.95 1.4c.21.37.39.77.52 1.2l1.65.31v2.16l-1.65.32c-.13.43-.31.84-.52 1.2l.95 1.4L12 13.53l-1.4-.95c-.36.21-.77.39-1.2.52l-.32 1.65H6.92L6.6 13.1a5.3 5.3 0 0 1-1.2-.52l-1.4.95L2.47 12l.95-1.4a5.3 5.3 0 0 1-.52-1.2l-1.65-.32V6.92L2.9 6.6c.13-.43.31-.83.52-1.2l-.95-1.4L4 2.47l1.4.95c.36-.21.77-.38 1.2-.52l.32-1.65Zm.83 1-.27 1.4-.3.08c-.55.14-1.06.36-1.5.65l-.27.18-1.18-.8-.47.47.8 1.18-.18.27c-.29.44-.51.95-.65 1.5l-.08.3-1.4.27v.66l1.4.27.08.3c.14.55.36 1.06.65 1.5l.18.27-.8 1.18.47.47 1.18-.8.27.18c.44.29.95.51 1.5.65l.3.08.27 1.4h.66l.27-1.4.3-.08c.55-.14 1.06-.36 1.5-.65l.27-.18 1.18.8.47-.47-.8-1.18.18-.27c.29-.44.51-.95.65-1.5l.08-.3 1.4-.27v-.66l-1.4-.27-.08-.3a4.3 4.3 0 0 0-.65-1.5l-.18-.27.8-1.18-.47-.47-1.18.8-.27-.18a4.3 4.3 0 0 0-1.5-.65l-.3-.08-.27-1.4h-.66ZM8 5.25a2.75 2.75 0 1 0 0 5.5 2.75 2.75 0 0 0 0-5.5ZM6.25 8a1.75 1.75 0 1 1 3.5 0 1.75 1.75 0 0 1-3.5 0Z" />
     </svg>
   )
@@ -155,7 +155,7 @@ export function SettingsGlyph(props: IconGlyphProps) {
 // Material Symbols paths used by Gerrit's gr-diff-mode-selector.
 export function DiffSplitGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M3 5v14h8V5H3Zm6 12H5V7h4v10Zm4 2h8V5h-8v14Zm2-12h4v10h-4V7Z" />
     </svg>
   )
@@ -163,7 +163,7 @@ export function DiffSplitGlyph(props: IconGlyphProps) {
 
 export function DiffUnifiedGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M5 3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2H5Zm0 2h14v14H5V5Zm2 3v2h10V8H7Zm0 4v2h10v-2H7Zm0 4v2h10v-2H7Z" />
     </svg>
   )
@@ -171,7 +171,7 @@ export function DiffUnifiedGlyph(props: IconGlyphProps) {
 
 export function ExternalLinkGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M1.5 1H6v1H2v12h12v-4h1v4.5l-.5.5h-13l-.5-.5v-13l.5-.5z" />
       <path d="M15 1.5V8h-1V2.707L7.243 9.465l-.707-.708L13.293 2H8V1h6.5l.5.5z" />
     </svg>
@@ -180,7 +180,7 @@ export function ExternalLinkGlyph(props: IconGlyphProps) {
 
 export function ReplyGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path fillRule="evenodd" clipRule="evenodd" d="M6.306 2.146l-4.02 4.02v.708l4.02 4.02.708-.707L3.807 6.98H5.69c2.813 0 4.605.605 5.705 1.729 1.102 1.125 1.615 2.877 1.615 5.421v.35h1v-.35c0-2.646-.527-4.72-1.9-6.121C10.735 6.605 8.617 5.98 5.69 5.98H3.887l3.127-3.126-.708-.708z" />
     </svg>
   )
@@ -188,7 +188,7 @@ export function ReplyGlyph(props: IconGlyphProps) {
 
 export function SquareGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path fillRule="evenodd" clipRule="evenodd" d="M3.5 4l.5-.5h8l.5.5v8l-.5.5H4l-.5-.5V4zm1 .5v7h7v-7h-7z" />
     </svg>
   )
@@ -196,7 +196,7 @@ export function SquareGlyph(props: IconGlyphProps) {
 
 export function CaseSensitiveGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M8.85352 11.7021H7.85449L7.03809 9.54297H3.77246L3.00439 11.7021H2L4.9541 4H5.88867L8.85352 11.7021ZM6.74268 8.73193L5.53418 5.4502C5.49479 5.34277 5.4554 5.1709 5.41602 4.93457H5.39453C5.35872 5.15299 5.31755 5.32487 5.271 5.4502L4.07324 8.73193H6.74268Z" />
       <path d="M13.756 11.7021H12.8752V10.8428H12.8537C12.4706 11.5016 11.9066 11.8311 11.1618 11.8311C10.6139 11.8311 10.1843 11.686 9.87273 11.396C9.56479 11.106 9.41082 10.721 9.41082 10.2412C9.41082 9.21354 10.016 8.61556 11.2262 8.44727L12.8752 8.21631C12.8752 7.28174 12.4974 6.81445 11.7419 6.81445C11.0794 6.81445 10.4815 7.04004 9.94793 7.49121V6.58887C10.4886 6.24512 11.1117 6.07324 11.8171 6.07324C13.1097 6.07324 13.756 6.75716 13.756 8.125V11.7021ZM12.8752 8.91992L11.5485 9.10254C11.1403 9.15983 10.8324 9.26188 10.6247 9.40869C10.417 9.55192 10.3132 9.80794 10.3132 10.1768C10.3132 10.4453 10.4081 10.6655 10.5978 10.8374C10.7912 11.0057 11.0472 11.0898 11.3659 11.0898C11.8027 11.0898 12.1626 10.9377 12.4455 10.6333C12.7319 10.3254 12.8752 9.93685 12.8752 9.46777V8.91992Z" />
     </svg>
@@ -205,7 +205,7 @@ export function CaseSensitiveGlyph(props: IconGlyphProps) {
 
 export function WholeWordGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path fillRule="evenodd" clipRule="evenodd" d="M0 11H1V13H15V11H16V14H15H1H0V11Z" />
       <path d="M6.84048 11H5.95963V10.1406H5.93814C5.555 10.7995 4.99104 11.1289 4.24625 11.1289C3.69839 11.1289 3.26871 10.9839 2.95718 10.6938C2.64924 10.4038 2.49527 10.0189 2.49527 9.53906C2.49527 8.51139 3.10041 7.91341 4.3107 7.74512L5.95963 7.51416C5.95963 6.57959 5.58186 6.1123 4.82632 6.1123C4.16389 6.1123 3.56591 6.33789 3.03238 6.78906V5.88672C3.57307 5.54297 4.19612 5.37109 4.90152 5.37109C6.19416 5.37109 6.84048 6.05501 6.84048 7.42285V11ZM5.95963 8.21777L4.63297 8.40039C4.22476 8.45768 3.91682 8.55973 3.70914 8.70654C3.50145 8.84977 3.39761 9.10579 3.39761 9.47461C3.39761 9.74316 3.4925 9.96338 3.68228 10.1353C3.87564 10.3035 4.13166 10.3877 4.45035 10.3877C4.8872 10.3877 5.24706 10.2355 5.52994 9.93115C5.8164 9.62321 5.95963 9.2347 5.95963 8.76562V8.21777Z" />
       <path d="M9.3475 10.2051H9.32601V11H8.44515V2.85742H9.32601V6.4668H9.3475C9.78076 5.73633 10.4146 5.37109 11.2489 5.37109C11.9543 5.37109 12.5057 5.61816 12.9032 6.1123C13.3042 6.60286 13.5047 7.26172 13.5047 8.08887C13.5047 9.00911 13.2809 9.74674 12.8333 10.3018C12.3857 10.8532 11.7734 11.1289 10.9964 11.1289C10.2695 11.1289 9.71989 10.821 9.3475 10.2051ZM9.32601 7.98682V8.75488C9.32601 9.20964 9.47282 9.59635 9.76644 9.91504C10.0636 10.2301 10.4396 10.3877 10.8944 10.3877C11.4279 10.3877 11.8451 10.1836 12.1458 9.77539C12.4502 9.36719 12.6024 8.79964 12.6024 8.07275C12.6024 7.46045 12.4609 6.98063 12.1781 6.6333C11.8952 6.28597 11.512 6.1123 11.0286 6.1123C10.5166 6.1123 10.1048 6.29134 9.7933 6.64941C9.48177 7.00391 9.32601 7.44971 9.32601 7.98682Z" />
@@ -215,7 +215,7 @@ export function WholeWordGlyph(props: IconGlyphProps) {
 
 export function RegexGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path fillRule="evenodd" clipRule="evenodd" d="M10.012 2h.976v3.113l2.56-1.557.486.885L11.47 6l2.564 1.559-.485.885-2.561-1.557V10h-.976V6.887l-2.56 1.557-.486-.885L9.53 6 6.966 4.441l.485-.885 2.561 1.557V2zM2 10h4v4H2v-4z" />
     </svg>
   )
@@ -223,7 +223,7 @@ export function RegexGlyph(props: IconGlyphProps) {
 
 export function AskGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M8 11C8.414 11 8.75 11.336 8.75 11.75C8.75 12.164 8.414 12.5 8 12.5C7.586 12.5 7.25 12.164 7.25 11.75C7.25 11.336 7.586 11 8 11Z" />
       <path d="M8 4C9.262 4 10.25 4.988 10.25 6.25C10.25 7.333 9.68352 7.89752 9.22852 8.35352C8.82052 8.76052 8.5 9.082 8.5 9.75C8.5 10.026 8.276 10.25 8 10.25C7.724 10.25 7.5 10.026 7.5 9.75C7.5 8.667 8.06648 8.10248 8.52148 7.64648C8.92948 7.23948 9.25 6.918 9.25 6.25C9.25 5.538 8.712 5 8 5C7.288 5 6.75 5.538 6.75 6.25C6.75 6.526 6.526 6.75 6.25 6.75C5.974 6.75 5.75 6.526 5.75 6.25C5.75 4.988 6.738 4 8 4Z" />
       <path fillRule="evenodd" clipRule="evenodd" d="M8 1C11.866 1 14.999 4.13499 14.999 8.00098C14.999 11.867 11.865 15.001 7.99902 15.001C6.72402 15.001 5.52612 14.6585 4.49512 14.0615L1.7666 14.9707C1.70669 14.9906 1.64491 15.001 1.58301 15.001C1.43501 15.001 1.28969 14.9449 1.17969 14.8389C1.02386 14.6889 0.964466 14.4647 1.02344 14.2568L1.85254 11.3506C1.30871 10.3547 1 9.21279 1 8C1 4.134 4.134 1 8 1ZM8.00098 2.00098C4.693 2.00099 2.00099 4.693 2.00098 8.00098C2.00098 9.00398 2.25345 9.99707 2.73145 10.8721L2.92676 11.2324L2.20117 13.7725L4.17871 13.1133L4.60742 12.9697L4.99707 13.1963C5.90503 13.7222 6.94407 14 8 14L8.00098 14.001C11.309 14.001 14.001 11.309 14.001 8.00098C14.001 4.69299 11.309 2.00098 8.00098 2.00098Z" />
@@ -233,7 +233,7 @@ export function AskGlyph(props: IconGlyphProps) {
 
 export function ErrorGlyph(props: IconGlyphProps) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z" />
     </svg>
   )
