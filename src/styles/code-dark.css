@@ -490,6 +490,16 @@ body.code-mode[data-appearance='dark'] .code-open-editors-title {
   color: var(--code-dark-text-soft);
 }
 
+body.code-mode[data-appearance='dark'] .code-files-refresh {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-files-refresh:hover,
+body.code-mode[data-appearance='dark'] .code-files-refresh:focus-visible {
+  background: var(--code-dark-bg-hover);
+  color: var(--code-dark-text-soft);
+}
+
 body.code-mode[data-appearance='dark'] .code-file-type-icon,
 body.code-mode[data-appearance='dark'] .code-file-chevron,
 body.code-mode[data-appearance='dark'] .code-file-section-chevron,

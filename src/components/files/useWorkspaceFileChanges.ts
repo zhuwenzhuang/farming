@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   shouldRefreshWorkspaceChangesAfterDirtyStateChange,
-  workspaceOpenFileDirtyStateForAgent,
+  workspaceOpenFileDirtyState,
   type WorkspaceOpenFileDirtySnapshot,
 } from '@/lib/workspace-open-files'
 import {
@@ -28,7 +28,7 @@ const EMPTY_CHANGES_STATE: WorkspaceFileChangesState = {
 }
 
 export interface WorkspaceFileChangesController extends WorkspaceFileChangesState {
-  refreshChanges: () => void
+  refreshChanges: () => Promise<void>
 }
 
 export function useWorkspaceFileChanges(
@@ -46,7 +46,7 @@ export function useWorkspaceFileChanges(
       abortRef.current?.abort()
       requestIdRef.current += 1
       setState(EMPTY_CHANGES_STATE)
-      return
+      return Promise.resolve()
     }
 
     abortRef.current?.abort()
@@ -60,7 +60,7 @@ export function useWorkspaceFileChanges(
       loading: true,
     }))
 
-    void fetchWorkspaceChanges(agentId, {
+    return fetchWorkspaceChanges(agentId, {
       limit: WORKSPACE_CHANGES_LIMIT,
       signal: abortController.signal,
     }).then(changes => {
@@ -88,16 +88,16 @@ export function useWorkspaceFileChanges(
   }, [openFiles])
 
   useEffect(() => {
-    dirtyStateRef.current = workspaceOpenFileDirtyStateForAgent(openFilesRef.current, agentId)
-    refreshChanges()
+    dirtyStateRef.current = workspaceOpenFileDirtyState(openFilesRef.current)
+    void refreshChanges()
   }, [agentId, refreshChanges])
 
   useEffect(() => {
     const previous = dirtyStateRef.current
-    const next = workspaceOpenFileDirtyStateForAgent(openFiles, agentId)
+    const next = workspaceOpenFileDirtyState(openFiles)
     dirtyStateRef.current = next
     if (shouldRefreshWorkspaceChangesAfterDirtyStateChange(previous, next)) {
-      refreshChanges()
+      void refreshChanges()
     }
   }, [agentId, openFiles, refreshChanges])
 

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
-import type { WorkspaceFileEventMessage } from '@/types/messages'
 import {
   type WorkspaceFile,
   type WorkspaceFileChange,
@@ -38,7 +37,6 @@ import { useWorkspaceFileTreeController } from './useWorkspaceFileTreeController
 import { useWorkspaceFileTreeKeyboard } from './useWorkspaceFileTreeKeyboard'
 
 const FILE_ROW_HEIGHT = 24
-const WORKSPACE_FILE_REFRESH_DELAY_MS = 250
 const EMPTY_FILE_PATHS = new Set<string>()
 
 interface ProjectFilesSectionProps {
@@ -59,7 +57,6 @@ interface ProjectFilesSectionProps {
   onStartAgent?: (command: string, workspace: string, options?: { projectWorkspace?: string }) => void
   onMoveEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
   onDeleteEntries: (agentId: string, deletions: WorkspaceFileDeleteResult[]) => void
-  onWatchWorkspaceFiles?: (agentId: string, handler: (event: WorkspaceFileEventMessage['event']) => void) => () => void
   onFilesCollapsedChange?: (collapsed: boolean) => void
   readOnly?: boolean
   copy: CodeCopy
@@ -109,7 +106,6 @@ export function ProjectFilesSection({
   onStartAgent,
   onMoveEntries,
   onDeleteEntries,
-  onWatchWorkspaceFiles,
   onFilesCollapsedChange,
   readOnly = false,
   copy,
@@ -132,9 +128,6 @@ export function ProjectFilesSection({
   } = useWorkspaceFileExplorer(agentId, projectId)
 
   const fileOperationActiveRef = useRef(false)
-  const directoriesRef = useRef(directories)
-  const pendingWorkspaceFilePathsRef = useRef(new Set<string>())
-  const workspaceFileRefreshTimerRef = useRef<number | null>(null)
   const fileSearchInputRef = useRef<HTMLInputElement | null>(null)
   const fileSearchResultsRef = useRef<HTMLDivElement | null>(null)
   const lastAutoRevealedActivePathRef = useRef<string | null>(null)
@@ -202,6 +195,14 @@ export function ProjectFilesSection({
 
   const fileChanges = useWorkspaceFileChanges(readOnly ? null : agentId, openFiles)
   const [changesCollapsed, setChangesCollapsed] = useState(true)
+
+  const refreshProjectFiles = useCallback(() => {
+    setOpenFileError(null)
+    const loadedDirectoryPaths = Object.keys(directories)
+    void fileChanges.refreshChanges().then(() => {
+      refreshDirectories(loadedDirectoryPaths.length > 0 ? loadedDirectoryPaths : [''])
+    })
+  }, [directories, fileChanges.refreshChanges, refreshDirectories, setOpenFileError])
 
   useEffect(() => {
     setChangesCollapsed(true)
@@ -314,62 +315,6 @@ export function ProjectFilesSection({
     setOpenFileError,
     treeData,
   })
-
-  useEffect(() => {
-    directoriesRef.current = directories
-  }, [directories])
-
-  useEffect(() => {
-    if (!agentId || filesCollapsed || readOnly || !onWatchWorkspaceFiles) return undefined
-
-    const flushWorkspaceFileEvents = () => {
-      workspaceFileRefreshTimerRef.current = null
-      const changedPaths = Array.from(pendingWorkspaceFilePathsRef.current)
-      pendingWorkspaceFilePathsRef.current.clear()
-      const loadedDirectoryPaths = Object.keys(directoriesRef.current)
-      const directoriesToRefresh = new Set<string>()
-      changedPaths.forEach(changedPath => {
-        loadedDirectoryPaths.forEach(directoryPath => {
-          if (
-            !changedPath
-            || !directoryPath
-            || changedPath === directoryPath
-            || changedPath.startsWith(`${directoryPath}/`)
-          ) {
-            directoriesToRefresh.add(directoryPath)
-          }
-        })
-      })
-      if (directoriesToRefresh.size > 0) {
-        refreshDirectories(Array.from(directoriesToRefresh))
-      }
-      fileChanges.refreshChanges()
-    }
-
-    const stopWatching = onWatchWorkspaceFiles(agentId, event => {
-      if (event.type === 'error') {
-        setOpenFileError(event.message || 'Failed to watch workspace files')
-        return
-      }
-      pendingWorkspaceFilePathsRef.current.add(event.path || '')
-      if (workspaceFileRefreshTimerRef.current !== null) {
-        window.clearTimeout(workspaceFileRefreshTimerRef.current)
-      }
-      workspaceFileRefreshTimerRef.current = window.setTimeout(
-        flushWorkspaceFileEvents,
-        WORKSPACE_FILE_REFRESH_DELAY_MS,
-      )
-    })
-
-    return () => {
-      stopWatching()
-      pendingWorkspaceFilePathsRef.current.clear()
-      if (workspaceFileRefreshTimerRef.current !== null) {
-        window.clearTimeout(workspaceFileRefreshTimerRef.current)
-        workspaceFileRefreshTimerRef.current = null
-      }
-    }
-  }, [agentId, fileChanges.refreshChanges, filesCollapsed, onWatchWorkspaceFiles, readOnly, refreshDirectories, setOpenFileError])
 
   useEffect(() => {
     onFilesCollapsedChange?.(filesCollapsed)
@@ -526,7 +471,7 @@ export function ProjectFilesSection({
         data-project-id={projectId}
         style={filesSectionStyle}
       >
-        <FileSectionHeader {...viewModel.sectionHeader} />
+        <FileSectionHeader {...viewModel.sectionHeader} onRefreshFiles={refreshProjectFiles} />
         {!filesCollapsed && (
           <>
             {!readOnly && (

@@ -22,7 +22,6 @@ import type {
   UsageSummary,
   UsageTimelinePoint,
 } from '@/types/agent'
-import type { WorkspaceFileEventMessage } from '@/types/messages'
 import {
   fetchWorkspaceGitWorktrees,
   type WorkspaceFileDeleteResult,
@@ -200,7 +199,6 @@ interface CodeSidebarProps {
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveWorkspaceEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
   onDeleteWorkspaceEntries: (agentId: string, deletions: WorkspaceFileDeleteResult[]) => void
-  onWatchWorkspaceFiles: (agentId: string, handler: (event: WorkspaceFileEventMessage['event']) => void) => () => void
   onOpenOptionsMenu: (event: ReactMouseEvent<HTMLElement>) => void
   copy: CodeCopy
 }
@@ -260,7 +258,6 @@ export function CodeSidebar({
   onCloseOpenWorkspaceFile,
   onMoveWorkspaceEntries,
   onDeleteWorkspaceEntries,
-  onWatchWorkspaceFiles,
   onOpenOptionsMenu,
   copy,
 }: CodeSidebarProps) {
@@ -636,7 +633,6 @@ export function CodeSidebar({
             onCloseOpenWorkspaceFile={onCloseOpenWorkspaceFile}
             onMoveWorkspaceEntries={onMoveWorkspaceEntries}
             onDeleteWorkspaceEntries={onDeleteWorkspaceEntries}
-            onWatchWorkspaceFiles={onWatchWorkspaceFiles}
             copy={copy}
           />
         ))}
@@ -1907,7 +1903,6 @@ interface ProjectSectionProps {
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveWorkspaceEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
   onDeleteWorkspaceEntries: (agentId: string, deletions: WorkspaceFileDeleteResult[]) => void
-  onWatchWorkspaceFiles: (agentId: string, handler: (event: WorkspaceFileEventMessage['event']) => void) => () => void
   copy: CodeCopy
 }
 
@@ -1949,7 +1944,6 @@ function ProjectSection({
   onCloseOpenWorkspaceFile,
   onMoveWorkspaceEntries,
   onDeleteWorkspaceEntries,
-  onWatchWorkspaceFiles,
   copy,
 }: ProjectSectionProps) {
   const projectGroupRef = useRef<HTMLElement | null>(null)
@@ -2455,7 +2449,6 @@ function ProjectSection({
                 onStartAgent={onStartAgent}
                 onMoveEntries={onMoveWorkspaceEntries}
                 onDeleteEntries={onDeleteWorkspaceEntries}
-                onWatchWorkspaceFiles={onWatchWorkspaceFiles}
                 onFilesCollapsedChange={handleFilesCollapsedChange}
                 copy={copy}
               />

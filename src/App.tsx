@@ -1071,7 +1071,6 @@ export function App() {
         sendComposerInput={ws.sendComposerInput}
         respondToAppServerRequest={ws.respondToAppServerRequest}
         onSessionOutput={ws.onSessionOutput}
-        onWatchWorkspaceFiles={ws.watchWorkspaceFiles}
         onUpdateUiPreferences={updateUiPreferences}
       />
 

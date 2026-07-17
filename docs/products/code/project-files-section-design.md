@@ -160,7 +160,7 @@ The backend remains intentionally thin:
 - create / rename / delete / move;
 - search through `rg` where available;
 - bounded git history, commit changes, status, diff, blame, and line changes through `git`;
-- bounded watcher events keyed by the stable Project Files id; an expanded Files section coalesces events before refreshing loaded directories and working-copy Changes.
+- explicit refresh of every loaded directory plus working-copy Changes from the stable Project Files id. The frontend does not subscribe to workspace watcher events until recursive coverage and bounded delivery are both correct.
 
 Farming should reuse mature tools instead of building a full custom IDE backend.
 
@@ -172,6 +172,7 @@ Large workspaces should stay usable through bounded operations:
 - directory trees load lazily by directory;
 - history defaults to 50 commits per page with a hard page cap, lazy commit-change loading, and a bounded frontend detail cache;
 - working-copy status returns complete records already captured plus `truncated: true` when a large untracked set exceeds the Git output buffer; it must never turn that condition into a false clean workspace;
+- file refresh is user-triggered and bounded to directories already loaded in the explorer, plus one working-copy status request;
 - search and git operations use limits, timeouts, or truncation instead of unbounded output;
 - live terminal output is streamed in bounded chunks and coalesced before WebSocket fanout;
 - exited terminal sessions release screen workers and remove session state after the final output is flushed;

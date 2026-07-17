@@ -196,6 +196,16 @@ export function workspaceOpenFileDirtyStateForAgent(
   return state
 }
 
+export function workspaceOpenFileDirtyState(
+  openFiles: readonly WorkspaceOpenFileDirtySnapshot[]
+) {
+  const state = new Map<string, boolean>()
+  openFiles.forEach(file => {
+    state.set(file.path, Boolean(file.dirty || file.externalChanged))
+  })
+  return state
+}
+
 export function shouldRefreshWorkspaceChangesAfterDirtyStateChange(
   previous: ReadonlyMap<string, boolean>,
   next: ReadonlyMap<string, boolean>

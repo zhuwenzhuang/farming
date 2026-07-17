@@ -342,7 +342,7 @@ function run() {
       fileSectionSource.includes('workspaceFileOpenTargetForChange(change)') &&
       fileSectionSource.includes('transient: true') &&
       fileChangesHookSource.includes('fetchWorkspaceChanges') &&
-      fileChangesHookSource.includes('workspaceOpenFileDirtyStateForAgent') &&
+      fileChangesHookSource.includes('workspaceOpenFileDirtyState') &&
       fileChangesHookSource.includes('shouldRefreshWorkspaceChangesAfterDirtyStateChange') &&
       fileChangesSectionSource.includes('workspaceFileChangeRowKey(change)') &&
       fileChangesSectionSource.includes('workspaceFileChangeTitle(change, gitStatusTitle)') &&
@@ -352,6 +352,7 @@ function run() {
       fileChangesSectionSource.includes('displayName: `${compacted.displayName ?? compacted.name}/${child.displayName ?? child.name}`') &&
       fileChangesSectionSource.includes('data-testid="code-file-change-directory-row"') &&
       fileChangesSectionSource.includes('if (collapsed) changes.refreshChanges()') &&
+      fileChangesSectionSource.includes('if (changes.items.length === 0 && !changes.error) return null') &&
       !fileChangesSectionSource.includes('code-file-changes-refresh') &&
       fileChangesSectionSource.includes('data-testid="code-file-change-row"') &&
       fileChangesSectionSource.includes('data-testid="code-file-change-tracked-group"') &&
@@ -842,7 +843,8 @@ function run() {
       !fileSectionSource.includes('refreshFileTreeRoot') &&
       !fileSectionSource.includes('collapseFileTree') &&
       !fileSectionSource.includes('aria-label="New file"') &&
-      !fileSectionSource.includes('aria-label="Refresh files"') &&
+      fileSectionHeaderSource.includes('data-testid="code-files-refresh"') &&
+      fileSectionHeaderSource.includes('aria-label={copy.refresh}') &&
       !fileSectionSource.includes('aria-label="Collapse folders"') &&
       !fileSectionSource.includes('MAX_STICKY_ANCESTORS') &&
 	      fileTreeViewSource.includes('disableDrag') &&
@@ -1567,12 +1569,14 @@ function run() {
       webSocketSource.includes('workspaceFileListenersRef.current.forEach((listeners, agentId)') &&
       webSocketSource.includes("ws.send(JSON.stringify({ type: 'watch-workspace-files', agentId }))") &&
       webSocketSource.includes('workspaceFileListenersRef.current.get(msg.event.agentId)') &&
-      appSource.includes('onWatchWorkspaceFiles={ws.watchWorkspaceFiles}') &&
-      workspaceSource.includes('onWatchWorkspaceFiles={onWatchWorkspaceFiles}') &&
-      fileSectionSource.includes('onWatchWorkspaceFiles(agentId, event =>') &&
+      !appSource.includes('onWatchWorkspaceFiles={ws.watchWorkspaceFiles}') &&
+      !workspaceSource.includes('onWatchWorkspaceFiles={onWatchWorkspaceFiles}') &&
+      !fileSectionSource.includes('onWatchWorkspaceFiles') &&
+      fileSectionSource.includes('const refreshProjectFiles = useCallback(() =>') &&
+      fileSectionSource.includes("refreshDirectories(loadedDirectoryPaths.length > 0 ? loadedDirectoryPaths : [''])") &&
       fileSectionSource.includes('fileChanges.refreshChanges()') &&
-      fileSectionSource.includes('refreshDirectories(Array.from(directoriesToRefresh))'),
-    'expanded Project Files sections should consume workspace events and coalesce tree plus Changes refreshes'
+      fileSectionSource.includes('onRefreshFiles={refreshProjectFiles}'),
+    'Project Files should expose an explicit tree plus Changes refresh without subscribing to incomplete workspace watchers'
   );
 
 	  assert(
@@ -1659,6 +1663,7 @@ function run() {
       openEditorsSectionSource.includes("'--code-open-editors-list-max-height': `${visibleRowCount * OPEN_EDITOR_ROW_HEIGHT}px`") &&
       stylesSource.includes('.code-open-editors {\n  margin-top: 3px;\n  position: sticky') &&
       stylesSource.includes('.code-files-header {\n  position: sticky') &&
+      stylesSource.includes('.code-files-refresh') &&
       stylesSource.includes('top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px))') &&
       stylesSource.includes('.code-open-editors-list') &&
       stylesSource.includes('max-height: var(--code-open-editors-list-max-height, 196px)') &&

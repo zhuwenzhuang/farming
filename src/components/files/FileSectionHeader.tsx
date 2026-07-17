@@ -18,6 +18,7 @@ interface FileSectionHeaderProps {
   onCancelPendingFileFocus: () => void
   onFileSearchKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void
   onSearchQueryChange: (query: string) => void
+  onRefreshFiles: () => void
   onToggleFilesCollapsed: () => void
 }
 
@@ -28,21 +29,34 @@ export function FileSectionHeader({
   onCancelPendingFileFocus,
   onFileSearchKeyDown,
   onSearchQueryChange,
+  onRefreshFiles,
   onToggleFilesCollapsed,
 }: FileSectionHeaderProps) {
   return (
     <div className={`code-files-header ${filesCollapsed ? 'collapsed' : ''}`}>
-      <button
-        type="button"
-        className="code-files-title"
-        aria-expanded={!filesCollapsed}
-        onClick={onToggleFilesCollapsed}
-      >
-        <span className={`code-file-section-chevron ${filesCollapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
-          {filesCollapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
-        </span>
-        <span>{copy.files}</span>
-      </button>
+      <div className="code-files-heading">
+        <button
+          type="button"
+          className="code-files-title"
+          aria-expanded={!filesCollapsed}
+          onClick={onToggleFilesCollapsed}
+        >
+          <span className={`code-file-section-chevron ${filesCollapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
+            {filesCollapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
+          </span>
+          <span>{copy.files}</span>
+        </button>
+        <button
+          type="button"
+          className="code-files-refresh"
+          data-testid="code-files-refresh"
+          title={copy.refresh}
+          aria-label={copy.refresh}
+          onClick={onRefreshFiles}
+        >
+          ↻
+        </button>
+      </div>
       {!filesCollapsed && (
         <label className="code-file-search-box">
           <span className="code-file-search-icon" aria-hidden="true" />

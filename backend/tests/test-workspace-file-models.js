@@ -111,6 +111,7 @@ const {
   workspaceFileChangeTitle,
   workspaceFileOpenTargetForChange,
   workspaceOpenFileDirtyStateForAgent,
+  workspaceOpenFileDirtyState,
   workspaceOpenFileRequestForTarget,
 } = require('../../src/lib/workspace-open-files.ts');
 const { projectFilesWorkspaceId } = require('../../src/lib/project-workspaces.ts');
@@ -433,6 +434,13 @@ function run() {
   assert.deepStrictEqual(Array.from(workspaceOpenFileDirtyStateForAgent([
     { agentId: 'agent-1', path: 'src/App.tsx', dirty: true },
   ], null)), []);
+  assert.deepStrictEqual(Array.from(workspaceOpenFileDirtyState([
+    { agentId: 'agent-1', path: 'src/App.tsx', dirty: true },
+    { agentId: 'project-files-stable', path: 'README.md' },
+  ])), [
+    ['src/App.tsx', true],
+    ['README.md', false],
+  ]);
   assert.strictEqual(shouldRefreshWorkspaceChangesAfterDirtyStateChange(
     new Map([['src/App.tsx', true]]),
     new Map([['src/App.tsx', false]])

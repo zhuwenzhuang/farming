@@ -16,7 +16,6 @@ import type {
   TaskHistoryEntry,
   UsageSummary,
 } from '@/types/agent'
-import type { WorkspaceFileEventMessage } from '@/types/messages'
 import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { agentTitle } from '@/lib/format'
@@ -331,7 +330,6 @@ interface CodeWorkspaceProps {
   sendComposerInput: (message: string, agentId?: string, attachments?: ComposerPromptAttachment[]) => boolean
   respondToAppServerRequest: (agentId: string, requestId: string, result?: unknown, options?: { reject?: boolean; reason?: string }) => boolean
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
-  onWatchWorkspaceFiles: (agentId: string, handler: (event: WorkspaceFileEventMessage['event']) => void) => () => void
   onUpdateUiPreferences: (patch: Partial<UiPreferences>) => void
 }
 
@@ -513,7 +511,6 @@ export function CodeWorkspace({
   sendComposerInput,
   respondToAppServerRequest,
   onSessionOutput,
-  onWatchWorkspaceFiles,
   onUpdateUiPreferences,
 }: CodeWorkspaceProps) {
   const pageVisible = usePageVisibility()
@@ -4770,7 +4767,6 @@ export function CodeWorkspace({
         onCloseOpenWorkspaceFile={closeOpenWorkspaceFile}
         onMoveWorkspaceEntries={handleWorkspaceFileMove}
         onDeleteWorkspaceEntries={handleWorkspaceFileDelete}
-        onWatchWorkspaceFiles={onWatchWorkspaceFiles}
         onOpenOptionsMenu={openSettingsFromSidebar}
         copy={copy}
       />

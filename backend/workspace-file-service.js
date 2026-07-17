@@ -2027,6 +2027,7 @@ class WorkspaceFileService {
       throwOnError: true,
       untrackedFiles: 'all',
     });
+    this.invalidateGitStatus(root);
     const allItems = await Promise.all(Array.from(gitStatusByPath.entries())
       .map(async ([filePath, status]) => ({
         path: filePath,

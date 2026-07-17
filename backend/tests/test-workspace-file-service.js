@@ -732,7 +732,13 @@ async function run() {
       assert.strictEqual(untrackedDiff.originalContent, '');
       assert.strictEqual(untrackedDiff.modifiedContent, 'untracked\n');
       assert.strictEqual(untrackedDiff.untracked, true);
+      const resolvedWorkspace = await service.resolveRoot(workspace);
+      service.gitStatusCache.set(resolvedWorkspace, {
+        value: new Map(),
+        expiresAt: Date.now() + 30_000,
+      });
       const changes = await service.changes(workspace);
+      assert.strictEqual(service.gitStatusCache.has(resolvedWorkspace), false);
       const changeByPath = new Map(changes.items.map(item => [item.path, item]));
       assert.strictEqual(changes.truncated, false);
       assert.strictEqual(changeByPath.get('src/App.tsx')?.gitStatus, 'modified');

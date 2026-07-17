@@ -1837,6 +1837,14 @@ body.code-resizing-sidebar {
   font-size: 13px;
 }
 
+.code-files-heading {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  min-width: 0;
+}
+
 .code-open-editors-title,
 .code-git-history-title,
 .code-files-title {
@@ -1867,9 +1875,34 @@ body.code-resizing-sidebar {
   outline: 0;
 }
 
+.code-files-refresh {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7368;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.code-files-refresh:hover,
+.code-files-refresh:focus-visible {
+  background: rgba(31, 35, 40, 0.05);
+  color: #30372f;
+  outline: 0;
+}
+
 .code-file-section-chevron {
-  width: 11px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -14435,6 +14468,10 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     gap: 4px;
     align-items: stretch;
     padding-right: 4px;
+  }
+
+  .code-files-heading {
+    width: 100%;
   }
 
   .code-open-editors-title,
