@@ -43,7 +43,7 @@ async function run() {
     });
     assert(agentId);
     const live = manager.agents.get(agentId);
-    assert.strictEqual(live.agentRuntimeMode, 'acp');
+    assert.strictEqual(live.runtimeBinding.kind, 'acp');
     assert.strictEqual(live.engineStarted, false);
     assert.strictEqual(live.providerSessionId, 'acp-new-session');
     assert.strictEqual(live.providerSessionSource, 'acp-new');
@@ -134,7 +134,7 @@ async function run() {
     });
     assert(openCodeAgentId);
     const openCodeAgent = openCodeManager.agents.get(openCodeAgentId);
-    assert.strictEqual(openCodeAgent.agentRuntimeMode, 'acp');
+    assert.strictEqual(openCodeAgent.runtimeBinding.kind, 'acp');
     assert.strictEqual(openCodeAgent.providerSessionProvider, 'opencode');
     assert.strictEqual(openCodeAgent.providerSessionId, 'acp-new-session');
     assert.strictEqual(openCodeAgent.providerSessionSource, 'acp-new');
@@ -170,7 +170,7 @@ async function run() {
       assert(providerAgentId, `${provider} ACP should start`);
       const providerAgent = providerManager.agents.get(providerAgentId);
       assert.strictEqual(providerAgent.providerSessionProvider, provider);
-      assert.strictEqual(providerAgent.agentRuntimeMode, 'acp');
+      assert.strictEqual(providerAgent.runtimeBinding.kind, 'acp');
       assert.strictEqual(
         providerAgent.providerSessionSource,
         'acp-new',
@@ -243,7 +243,7 @@ async function run() {
   try {
     await qoderRecoveryManager.recoverAcpSessions();
     assert.strictEqual(path.basename(recoveredQoderExecutable), 'qodercli');
-    assert.strictEqual(qoderRecoveryManager.agents.get('agent-qoder-recovered').agentRuntimeMode, 'acp');
+    assert.strictEqual(qoderRecoveryManager.agents.get('agent-qoder-recovered').runtimeBinding.kind, 'acp');
   } finally {
     await qoderRecoveryManager.dispose();
   }
@@ -266,11 +266,11 @@ async function run() {
   const stalePtyManager = new AgentManager(config({
     listAgentSessionRecords: () => [{ ...authoritativeRecord }],
     ensureAgentSessionRecord: agent => {
-      recoveryWrites.push(agent.agentRuntimeMode);
+      recoveryWrites.push(agent.runtimeBinding.kind);
       Object.assign(authoritativeRecord, {
         runtimeAgentId: agent.id,
-        agentRuntimeMode: agent.agentRuntimeMode,
-        acpState: agent.acpState,
+        agentRuntimeMode: agent.runtimeBinding.kind,
+        acpState: agent.runtimeBinding.state,
       });
       return authoritativeRecord.id;
     },
@@ -306,7 +306,7 @@ async function run() {
       engineName: 'native',
       sessionId: 'agent-acp-over-stale-pty',
     }]);
-    assert.strictEqual(stalePtyManager.agents.get('agent-acp-over-stale-pty').agentRuntimeMode, 'acp');
+    assert.strictEqual(stalePtyManager.agents.get('agent-acp-over-stale-pty').runtimeBinding.kind, 'acp');
     assert(stalePtyRuntime.bindings.has('agent-acp-over-stale-pty'));
     assert(!recoveryWrites.includes('terminal'), 'stale PTY recovery must not overwrite the persisted ACP mode');
   } finally {

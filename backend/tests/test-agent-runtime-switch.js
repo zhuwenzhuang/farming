@@ -330,7 +330,7 @@ const AgentManager = require('../agent-manager');
   assert.strictEqual(rollbackResult.restartedAgentId, 'agent-restored');
   assert.strictEqual(rollbackResult.agentRuntimeMode, 'terminal');
   assert.match(rollbackResult.warning, /Original runtime restored/);
-  assert.strictEqual(manager.agents.get('agent-restored').agentRuntimeMode, 'terminal');
+  assert.strictEqual(manager.agents.get('agent-restored').runtimeBinding.kind, 'terminal');
   await manager.dispose();
   fs.rmSync(codexHome, { recursive: true, force: true });
   console.log('agent runtime switch tests passed');

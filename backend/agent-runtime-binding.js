@@ -86,39 +86,16 @@ function replaceRuntimeBinding(agent, kind, source = {}) {
   return binding;
 }
 
-const LEGACY_RUNTIME_FIELDS = {
-  acpState: ['acp', 'state', ''],
-  acpError: ['acp', 'error', ''],
-  acpStopReason: ['acp', 'stopReason', ''],
-  acpPendingPermission: ['acp', 'pendingPermission', null],
-  acpPendingPermissions: ['acp', 'pendingPermissions', []],
-  acpPendingElicitation: ['acp', 'pendingElicitation', null],
-  acpPendingElicitations: ['acp', 'pendingElicitations', []],
-  acpActiveElicitations: ['acp', 'activeElicitations', []],
-  acpSessionUpdatedAt: ['acp', 'sessionUpdatedAt', ''],
-  acpSessionRevision: ['acp', 'sessionRevision', 0],
-  jsonCliState: ['json', 'state', ''],
-  jsonCliError: ['json', 'error', ''],
-  jsonCliTranscriptUpdatedAt: ['json', 'transcriptUpdatedAt', ''],
-  codexAppServerState: ['app-server', 'state', ''],
-  codexAppServerEndpoint: ['app-server', 'endpoint', ''],
-  codexAppServerThreadId: ['app-server', 'threadId', ''],
-  codexAppServerTurnId: ['app-server', 'turnId', ''],
-  codexAppServerError: ['app-server', 'error', ''],
-  codexAppServerPendingRequestId: ['app-server', 'pendingRequestId', ''],
-  codexAppServerPendingRequestMethod: ['app-server', 'pendingRequestMethod', ''],
-  codexAppServerPendingRequest: ['app-server', 'pendingRequest', null],
-  codexAppServerNotice: ['app-server', 'notice', null],
-  codexAppServerGoal: ['app-server', 'goal', null],
-  codexCliObserverDeferred: ['app-server', 'observerDeferred', false],
-  codexAppServerHomePath: ['app-server', 'homePath', ''],
-  codexAppServerTranscriptUpdatedAt: ['app-server', 'transcriptUpdatedAt', ''],
-};
-
-function defineLegacyAccessor(agent, name, get, set) {
-  delete agent[name];
-  Object.defineProperty(agent, name, { configurable: true, enumerable: false, get, set });
-}
+const LEGACY_RUNTIME_FIELDS = [
+  'acpState', 'acpError', 'acpStopReason', 'acpPendingPermission', 'acpPendingPermissions',
+  'acpPendingElicitation', 'acpPendingElicitations', 'acpActiveElicitations',
+  'acpSessionUpdatedAt', 'acpSessionRevision', 'jsonCliState', 'jsonCliError',
+  'jsonCliTranscriptUpdatedAt', 'codexAppServerState', 'codexAppServerEndpoint',
+  'codexAppServerThreadId', 'codexAppServerTurnId', 'codexAppServerError',
+  'codexAppServerPendingRequestId', 'codexAppServerPendingRequestMethod',
+  'codexAppServerPendingRequest', 'codexAppServerNotice', 'codexAppServerGoal',
+  'codexCliObserverDeferred', 'codexAppServerHomePath', 'codexAppServerTranscriptUpdatedAt',
+];
 
 function installRuntimeBinding(agent) {
   if (!agent || typeof agent !== 'object') return agent;
@@ -131,41 +108,9 @@ function installRuntimeBinding(agent) {
     ...(agent.runtimeResumeState || {}),
     jsonEvents: jsonResumeEvents,
   };
-  defineLegacyAccessor(agent, 'agentRuntimeMode', () => (
-    ['acp', 'json'].includes(agent.runtimeBinding.kind) ? agent.runtimeBinding.kind : 'terminal'
-  ), value => {
-    if (value === 'acp' && agent.runtimeBinding.kind !== 'acp') agent.runtimeBinding = acpBinding();
-    if (value === 'json' && agent.runtimeBinding.kind !== 'json') {
-      agent.runtimeBinding = jsonBinding({ events: agent.runtimeResumeState.jsonEvents });
-    }
-    if (value === 'terminal' && !['terminal', 'app-server'].includes(agent.runtimeBinding.kind)) {
-      if (agent.runtimeBinding.kind === 'json') agent.runtimeResumeState.jsonEvents = agent.runtimeBinding.events;
-      agent.runtimeBinding = terminalBinding();
-    }
-  });
-  defineLegacyAccessor(agent, 'codexRuntimeMode', () => (
-    agent.runtimeBinding.kind === 'app-server' ? 'app-server' : 'cli'
-  ), value => {
-    if (value === 'app-server' && agent.runtimeBinding.kind !== 'app-server') {
-      agent.runtimeBinding = appServerBinding();
-    } else if (value === 'cli' && agent.runtimeBinding.kind === 'app-server') {
-      agent.runtimeBinding = terminalBinding();
-    }
-  });
-  for (const [name, [kind, field, fallback]] of Object.entries(LEGACY_RUNTIME_FIELDS)) {
-    defineLegacyAccessor(agent, name, () => (
-      agent.runtimeBinding.kind === kind ? agent.runtimeBinding[field] : fallback
-    ), value => {
-      if (agent.runtimeBinding.kind === kind) agent.runtimeBinding[field] = value;
-    });
+  for (const name of ['agentRuntimeMode', 'codexRuntimeMode', 'jsonCliEvents', ...LEGACY_RUNTIME_FIELDS]) {
+    delete agent[name];
   }
-  defineLegacyAccessor(agent, 'jsonCliEvents', () => (
-    agent.runtimeBinding.kind === 'json' ? agent.runtimeBinding.events : agent.runtimeResumeState.jsonEvents
-  ), value => {
-    const events = Array.isArray(value) ? value : [];
-    agent.runtimeResumeState.jsonEvents = events;
-    if (agent.runtimeBinding.kind === 'json') agent.runtimeBinding.events = events;
-  });
   return agent;
 }
 

@@ -460,7 +460,7 @@ async function run() {
         'App Server interrupt failure must not fall back to terminal input'
       );
       assert.match(
-        managedManager.agents.get(agentId).codexAppServerError,
+        managedManager.agents.get(agentId).runtimeBinding.error,
         /Codex App Server interrupt failed/
       );
       managedRuntime.emit('agent-runtime', {
@@ -520,7 +520,7 @@ async function run() {
         provider: 'codex',
         providerSessionId: 'app-server-thread',
         codexRuntimeMode: 'app-server',
-        codexAppServerHomePath: managedManager.agents.get(agentId).codexAppServerHomePath,
+        codexAppServerHomePath: managedManager.agents.get(agentId).runtimeBinding.homePath,
       }, {});
       assert.strictEqual(appServerRecoveredAgent.runtimeBinding.kind, 'app-server');
       assert.strictEqual(

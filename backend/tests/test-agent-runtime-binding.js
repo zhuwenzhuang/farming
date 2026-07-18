@@ -42,10 +42,9 @@ function run() {
   assert.strictEqual(acpAgent.runtimeBinding.kind, 'acp');
   assert.strictEqual(acpAgent.runtimeBinding.state, 'working');
   assert.strictEqual(Object.keys(acpAgent).includes('acpState'), false);
-  acpAgent.acpState = 'idle';
+  assert.strictEqual('acpState' in acpAgent, false);
+  acpAgent.runtimeBinding.state = 'idle';
   assert.strictEqual(acpAgent.runtimeBinding.state, 'idle');
-  acpAgent.runtimeBinding.state = 'waiting-for-input';
-  assert.strictEqual(acpAgent.acpState, 'waiting-for-input');
 
   const agents = new RuntimeAgentMap();
   agents.set('app', {
@@ -58,8 +57,7 @@ function run() {
   assert.strictEqual(appAgent.runtimeBinding.kind, 'app-server');
   assert.strictEqual(appAgent.runtimeBinding.homePath, '/tmp/runtime-home');
   assert.strictEqual(publicRuntimeBinding(appAgent).homePath, undefined);
-  appAgent.codexRuntimeMode = 'cli';
-  assert.deepStrictEqual(appAgent.runtimeBinding, { kind: 'terminal' });
+  assert.strictEqual('codexRuntimeMode' in appAgent, false);
   console.log('test-agent-runtime-binding passed');
 }
 
