@@ -236,7 +236,6 @@ export function CodeOverlays({
       type: 'item',
       id: 'remove-project',
       label: copy.removeProject,
-      removeIcon: true,
       hidden: !contextMenuProject?.workspace || contextMenuProject.hasMain,
       disabled: Boolean(
         contextMenuProject
@@ -413,9 +412,9 @@ function ContextMenuEntries({ entries }: { entries: ContextMenuEntry[] }) {
             disabled={entry.disabled}
             onClick={entry.onSelect}
           >
-            {(entry.icon || entry.removeIcon) && (
+            {entry.icon && (
               <span className="code-context-menu-icon" aria-hidden="true">
-                {entry.removeIcon ? <RemoveProjectIcon /> : <ContextMenuIcon kind={entry.icon!} />}
+                <ContextMenuIcon kind={entry.icon} />
               </span>
             )}
             <span>{entry.label}</span>
@@ -423,14 +422,6 @@ function ContextMenuEntries({ entries }: { entries: ContextMenuEntry[] }) {
         )
       })}
     </>
-  )
-}
-
-function RemoveProjectIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path fill="currentColor" d="M4.354 3.646a.5.5 0 0 0-.708.708L7.293 8l-3.647 3.646a.5.5 0 0 0 .708.708L8 8.707l3.646 3.647a.5.5 0 0 0 .708-.708L8.707 8l3.647-3.646a.5.5 0 0 0-.708-.708L8 7.293 4.354 3.646Z" />
-    </svg>
   )
 }
 

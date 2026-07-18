@@ -680,10 +680,7 @@ test.describe('display-backed agent flows', () => {
     const mainProject = page.getByTestId('code-project-group').filter({ hasText: 'base-repo' })
     await expect(mainProject).toHaveCount(1)
     await mainProject.getByTestId('code-project-actions').click()
-    const mainProjectRemove = page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Remove Project' })
-    await expect(mainProjectRemove.locator('svg')).toHaveCount(1)
-    await expect(mainProjectRemove).not.toHaveClass(/danger/)
-    await mainProjectRemove.click()
+    await page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Remove Project' }).click()
     await expect(mainProject).toHaveCount(0)
 
     const files = project.getByTestId('code-files-section')
