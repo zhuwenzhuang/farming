@@ -18,6 +18,7 @@ import type {
 import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { isAcpRuntime, isAppServerRuntime, isStructuredRuntime } from '@/lib/agent-runtime'
+import { useAgentWithLiveRuntimeState } from '@/lib/agent-live-state'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 import { agentTitle } from '@/lib/format'
 import {
@@ -910,16 +911,18 @@ export function CodeWorkspace({
       .filter((agent): agent is Agent => Boolean(agent)),
     [activeAgents, hiddenMainAgent, openTerminalIds]
   )
-  const activeOpenAgent = useMemo(
+  const structuralActiveOpenAgent = useMemo(
     () => openAgents.find(agent => agent.id === activeTerminalId) ?? openAgents[0] ?? null,
     [activeTerminalId, openAgents]
   )
+  const activeOpenAgent = useAgentWithLiveRuntimeState(structuralActiveOpenAgent)
   const visibleOpenAgents = activeOpenAgent ? [activeOpenAgent] : []
-  const activeAgent = useMemo(
+  const structuralActiveAgent = useMemo(
     () => activeAgents.find(agent => agent.id === activeTerminalId)
       ?? (hiddenMainAgent?.id === activeTerminalId ? hiddenMainAgent : null),
     [activeAgents, activeTerminalId, hiddenMainAgent]
   )
+  const activeAgent = useAgentWithLiveRuntimeState(structuralActiveAgent)
   const activeAcpRuntime = isAcpRuntime(activeAgent) ? activeAgent.runtimeBinding : null
   const activeAppServerRuntime = isAppServerRuntime(activeAgent) ? activeAgent.runtimeBinding : null
   const activeAgentPermissionSwitching = Boolean(
@@ -1762,24 +1765,26 @@ export function CodeWorkspace({
   }, [copy.terminalProfileApplied, copy.terminalProfileApplying, copy.terminalProfileFailed])
 
   useEffect(() => {
-    if (pendingCodexTerminalProfiles.size === 0) return
+    const live = activeAgent?.codexTerminalProfile
+    if (!activeAgent || !live) return
     setPendingCodexTerminalProfiles(current => {
-      let next: Map<string, CodexTerminalProfile> | null = null
-      for (const [agentId, pending] of current) {
-        const live = activeAgents.find(agent => agent.id === agentId)?.codexTerminalProfile
-        if (!live) continue
-        if (
-          live.model === pending.model
-          && live.reasoningEffort === pending.reasoningEffort
-          && live.serviceTier === pending.serviceTier
-        ) {
-          if (!next) next = new Map(current)
-          next.delete(agentId)
-        }
-      }
-      return next || current
+      const pending = current.get(activeAgent.id)
+      if (
+        !pending
+        || live.model !== pending.model
+        || live.reasoningEffort !== pending.reasoningEffort
+        || live.serviceTier !== pending.serviceTier
+      ) return current
+      const next = new Map(current)
+      next.delete(activeAgent.id)
+      return next
     })
-  }, [activeAgents, pendingCodexTerminalProfiles.size])
+  }, [
+    activeAgent?.id,
+    activeAgent?.codexTerminalProfile?.model,
+    activeAgent?.codexTerminalProfile?.reasoningEffort,
+    activeAgent?.codexTerminalProfile?.serviceTier,
+  ])
 
   const sendComposerMessageToAgent = useCallback((agent: Agent, message: string, attachments: ComposerPromptAttachment[] = []) => {
     if (isStructuredRuntime(agent)) {

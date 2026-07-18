@@ -8,7 +8,7 @@ function run() {
   const styles = fs.readFileSync(path.join(__dirname, '../../src/styles/main.css'), 'utf8');
   const types = fs.readFileSync(path.join(__dirname, '../../src/types/agent.ts'), 'utf8');
 
-  assert(component.includes('useAgentWithLiveActivity(agent)'), 'AgentCard should subscribe to activity updates for its Agent only');
+  assert(component.includes('useAgentWithLiveState(agent)'), 'AgentCard should subscribe to live updates for its Agent only');
   assert(component.includes('liveAgent.task'), 'AgentCard should read task metadata from the activity-enriched Agent');
   assert(component.includes('agent-task'), 'AgentCard should render task summary');
   assert(component.includes('child-badge'), 'AgentCard should render child badge for parentAgentId');

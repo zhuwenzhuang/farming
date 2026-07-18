@@ -9,10 +9,12 @@ import {
   updateBackendSystemStats,
 } from '@/lib/backend-live-status'
 import {
-  reconcileAgentLiveActivities,
-  resetAgentLiveActivities,
+  reconcileAgentLiveStates,
+  resetAgentLiveStates,
   updateAgentLiveActivity,
-} from '@/lib/agent-live-activity'
+  updateAgentLivePreview,
+  updateAgentLiveState,
+} from '@/lib/agent-live-state'
 import {
   PROTOCOL_VERSION,
   protocolCompatible,
@@ -194,7 +196,7 @@ export function useWebSocket() {
 
   useEffect(() => {
     resetBackendConnectionStatus()
-    resetAgentLiveActivities()
+    resetAgentLiveStates()
     let reconnectTimer: ReturnType<typeof setTimeout>
     let disposed = false
     let activeSocket: WebSocket | null = null
@@ -268,7 +270,7 @@ export function useWebSocket() {
               if (msg.state.systemStats !== undefined) {
                 updateBackendSystemStats(msg.state.systemStats ?? null)
               }
-              reconcileAgentLiveActivities(msg.state.agents)
+              reconcileAgentLiveStates(msg.state.agents)
               setState(prev => {
                 const previousAgents = new Map(prev.agents.map(agent => [agent.id, agent]))
                 let agentsChanged = prev.agents.length !== msg.state.agents.length
@@ -332,31 +334,10 @@ export function useWebSocket() {
               setState(prev => ({ ...prev, lastStartedAgentId: msg.agentId }))
               break
             case 'agent-update':
-              setState(prev => ({
-                ...prev,
-                agents: prev.agents.map(agent => (
-                  agent.id === msg.update.agentId ? { ...agent, ...msg.update.patch } : agent
-                )),
-              }))
+              updateAgentLiveState(msg.update.agentId, msg.update.patch)
               break
             case 'session-preview':
-              setState(prev => ({
-                ...prev,
-                agents: prev.agents.map(agent => (
-                  agent.id === msg.preview.agentId
-                    ? {
-                        ...agent,
-                        previewText: msg.preview.previewText,
-                        previewCols: msg.preview.cols,
-                        previewRows: msg.preview.rows,
-                        previewSnapshot: msg.preview.previewSnapshot ?? null,
-                        terminalStatus: msg.preview.terminalStatus ?? agent.terminalStatus ?? null,
-                        runtimeObservation: msg.preview.runtimeObservation ?? agent.runtimeObservation,
-                        codexTerminalProfile: msg.preview.codexTerminalProfile ?? agent.codexTerminalProfile ?? null,
-                      }
-                    : agent
-                )),
-              }))
+              updateAgentLivePreview(msg.preview)
               break
             case 'session-output': {
               const listener = outputListenersRef.current.get(msg.stream.agentId)

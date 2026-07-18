@@ -116,7 +116,8 @@ async function waitForWireQuiet(frames: WireFrame[], quietMs = 1_500, timeoutMs 
   while (performance.now() - startedAt < timeoutMs) {
     if (frames.length !== observedLength) {
       const relevantFrames = frames.slice(observedLength).some(frame => (
-        frame.type === 'state' || frame.type === 'session-preview' || frame.type === 'agent-activity'
+        frame.type === 'state' || frame.type === 'session-preview'
+          || frame.type === 'agent-activity' || frame.type === 'agent-update'
       ))
       observedLength = frames.length
       if (relevantFrames) quietStartedAt = performance.now()
@@ -201,7 +202,7 @@ test('characterizes Code workspace scaling through 50 live Agents', async ({ pag
     const previewFrameStart = frames.length
     const previewMetricsBefore = await browserMetrics(cdp)
     const previewStartedAt = performance.now()
-    const previewAgentId = agentIds[targetCount - 1]
+    const previewAgentId = agentIds[targetCount > 1 ? targetCount - 2 : 0]
     const inputResponse = await page.request.post(`/farming/api/control/agents/${previewAgentId}/input`, {
       data: { input: `printf '__FARMING_SCALE_${targetCount}__\\n'\r` },
     })
@@ -247,6 +248,8 @@ test('characterizes Code workspace scaling through 50 live Agents', async ({ pag
     expect(idleRenders.codeWorkspace).toBeLessThanOrEqual(2)
     expect(previewLatencyMs).toBeLessThan(15_000)
     expect(previewWindowMessages.state || 0).toBe(0)
+    expect(previewRenders.app).toBe(0)
+    if (targetCount > 1) expect(previewRenders.codeWorkspace).toBe(0)
     expect(result.statePayloadBytes).toBeGreaterThan(0)
   }
 

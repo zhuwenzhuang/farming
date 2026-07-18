@@ -104,9 +104,10 @@ function run() {
   assert(
     webSocketSource.includes("sendMessage({ type: 'focus-agent', agentId })") &&
       !webSocketSource.includes("sendMessage({ type: 'focus-agent', agentId, refreshState: true })") &&
-      webSocketSource.includes('codexTerminalProfile: msg.preview.codexTerminalProfile') &&
+      webSocketSource.includes('updateAgentLivePreview(msg.preview)') &&
+      webSocketSource.includes('updateAgentLiveState(msg.update.agentId, msg.update.patch)') &&
       messagesSource.includes('refreshState?: boolean'),
-    'focusing an Agent should not reload global state; live Terminal profile changes arrive through the focused preview stream'
+    'focusing or updating one Agent should not reload global state; live changes belong to the per-Agent store'
   );
 
   assert(
@@ -742,7 +743,7 @@ function run() {
 	      workspaceSource.includes("className={`code-agent-dot ${rowState.lifecycleStatus} ${rowState.turnActive ? 'turn-active' : ''}`}") &&
       workspaceSource.includes('data-testid="code-agent-row-pin"') &&
       workspaceSource.includes('data-testid="code-agent-row-archive"') &&
-	      workspaceSource.includes('const liveAgent = useAgentWithLiveActivity(agent)') &&
+	      workspaceSource.includes('const liveAgent = useAgentWithLiveState(agent)') &&
 	      workspaceSource.includes('onUpdateAgentFlags?.(liveAgent, { pinned: !rowState.pinned })') &&
 	      workspaceSource.includes('onUpdateAgentFlags?.(liveAgent, { archived: true })') &&
 	      workspaceSource.includes('lastActive: agent.lastActivity || agent.startedAt || 0') &&

@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react'
 import type { Agent } from '@/types/agent'
 import { agentPreviewText, agentTitle } from '@/lib/format'
-import { useAgentWithLiveActivity } from '@/lib/agent-live-activity'
+import { useAgentWithLiveState } from '@/lib/agent-live-state'
 import { TerminalSnapshotPreview } from './TerminalSnapshotPreview'
 
 interface AgentCardProps {
@@ -14,7 +14,7 @@ interface AgentCardProps {
 }
 
 export function AgentCard({ agent, keyHint, onClick, compact, hideTitle, style }: AgentCardProps) {
-  const liveAgent = useAgentWithLiveActivity(agent)
+  const liveAgent = useAgentWithLiveState(agent)
   const name = agentTitle(liveAgent)
   const useTerminalPreview = !compact && !hideTitle
   const preview = agentPreviewText(liveAgent)

@@ -113,3 +113,63 @@ test('Agent activity updates only the subscribed Agent row', async ({ page, work
   expect(renders.app).toBe(0)
   expect(renders.codeWorkspace).toBe(0)
 })
+
+test('parked Agent output does not update workspace roots', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'parked-agent-output-isolation')
+  fs.mkdirSync(workspace, { recursive: true })
+  const frames: Array<{ type: string; agentId: string }> = []
+  page.on('websocket', socket => {
+    socket.on('framereceived', ({ payload }) => {
+      const text = Buffer.isBuffer(payload) ? payload.toString('utf8') : payload
+      try {
+        const message = JSON.parse(text) as {
+          type?: string
+          preview?: { agentId?: string }
+          update?: { agentId?: string }
+        }
+        frames.push({
+          type: message.type || 'unknown',
+          agentId: message.preview?.agentId || message.update?.agentId || '',
+        })
+      } catch {
+        frames.push({ type: 'invalid', agentId: '' })
+      }
+    })
+  })
+
+  await openFarming(page)
+  const createAgent = async () => {
+    const response = await page.request.post('/farming/api/control/agents', {
+      data: { command: 'bash', workspace },
+    })
+    expect(response.ok()).toBeTruthy()
+    const body = await response.json() as { agentId?: string }
+    expect(body.agentId).toBeTruthy()
+    return body.agentId as string
+  }
+  const parkedAgentId = await createAgent()
+  const activeAgentId = await createAgent()
+  const activeRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${activeAgentId}"]`)
+  await expect(activeRow).toBeVisible({ timeout: 30_000 })
+  await activeRow.click()
+  await expect(activeRow).toHaveClass(/active/, { timeout: 30_000 })
+  await page.waitForTimeout(2_000)
+  frames.length = 0
+  await page.evaluate(() => window.__farmingPerformanceTest?.reset())
+
+  const inputResponse = await page.request.post(`/farming/api/control/agents/${parkedAgentId}/input`, {
+    data: { input: "printf '__FARMING_PARKED_AGENT__\\n'\r" },
+  })
+  expect(inputResponse.ok()).toBeTruthy()
+  await expect.poll(() => frames.some(frame => (
+    frame.type === 'session-preview' && frame.agentId === parkedAgentId
+  )), { timeout: 15_000 }).toBe(true)
+  await page.waitForTimeout(100)
+
+  const renders = await page.evaluate(() => (
+    window.__farmingPerformanceTest?.snapshot() ?? { app: 0, codeWorkspace: 0 }
+  )) as RenderSnapshot
+  expect(frames.filter(frame => frame.type === 'state')).toHaveLength(0)
+  expect(renders.app).toBe(0)
+  expect(renders.codeWorkspace).toBe(0)
+})

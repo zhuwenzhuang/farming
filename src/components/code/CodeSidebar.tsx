@@ -62,7 +62,7 @@ import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { stableProjectSourceAgentId } from './workspace-derived'
 import { useBackendSystemStats, useHasBackendSystemStats } from '@/lib/backend-live-status'
-import { useAgentWithLiveActivity } from '@/lib/agent-live-activity'
+import { useAgentWithLiveState } from '@/lib/agent-live-state'
 
 declare const __FARMING_PACKAGE_VERSION__: string
 
@@ -2738,7 +2738,7 @@ function AgentRow({
   copy: CodeCopy
 }) {
   const draggedRef = useRef(false)
-  const liveAgent = useAgentWithLiveActivity(agent)
+  const liveAgent = useAgentWithLiveState(agent)
   const backing = liveAgent
     ? { kind: 'agent' as const, agent: liveAgent }
     : session
