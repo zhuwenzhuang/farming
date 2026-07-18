@@ -13,7 +13,7 @@ import type { WorkspaceFileChangesController } from './useWorkspaceFileChanges'
 
 interface FileChangesSectionProps {
   activeFilePath?: string
-  agentId: string
+  projectWorkspace: string
   changes: WorkspaceFileChangesController
   collapsed: boolean
   copy: CodeCopy
@@ -280,7 +280,7 @@ function FileChangeTreeRows({
 
 export function FileChangesSection({
   activeFilePath,
-  agentId,
+  projectWorkspace,
   changes,
   collapsed,
   copy,
@@ -321,7 +321,7 @@ export function FileChangesSection({
     })
   }
   const openReview = (scope: 'tracked' | 'untracked') => {
-    const params = new URLSearchParams({ agentId, scope })
+    const params = new URLSearchParams({ root: projectWorkspace, scope })
     if (scope === 'untracked') params.set('modifiedWithinDays', '3')
     window.open(appPath(`/review?${params.toString()}`), '_blank', 'noopener,noreferrer')
   }

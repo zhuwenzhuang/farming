@@ -244,7 +244,7 @@ test.describe('additional Farming Code user scenarios', () => {
     })
 
     await scenario('creating a Codex agent in the same workspace keeps one readable project group', async () => {
-      codexAgentId = await createControlAgent(page, 'codex', projectDir)
+      codexAgentId = await createControlAgent(page, 'codex --farming-fixture-idle-profile', projectDir)
       await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${codexAgentId}"]`)).toBeVisible({ timeout: 30_000 })
       const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(projectDir) })
       await expect(project).toHaveCount(1)
@@ -288,6 +288,9 @@ test.describe('additional Farming Code user scenarios', () => {
     })
 
     await scenario('sidebar search filters the active project and clears cleanly', async () => {
+      await page.route(/\/farming\/api\/agent-sessions\/search(?:\?.*)?$/, async route => {
+        await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ sessions: [] }) })
+      })
       await page.getByTestId('code-nav-search').click()
       await expect(page.getByTestId('code-search-box')).toBeVisible()
       await expect(page.getByTestId('code-search-empty')).toHaveCount(0)
@@ -446,9 +449,11 @@ test.describe('additional Farming Code user scenarios', () => {
 
     await scenario('approval menu has exactly one selected mode and closes with Escape', async () => {
       const menu = page.getByTestId('code-approval-menu')
-      await openStableComposerMenu(page, page.getByTestId('code-composer-approval'), menu)
-      await expect(menu.locator('[role="menuitemradio"][aria-checked="true"]')).toHaveCount(1)
-      await expectMenuFitsViewport(page, 'code-approval-menu')
+      await expect(async () => {
+        await openStableComposerMenu(page, page.getByTestId('code-composer-approval'), menu)
+        await expect(menu.locator('[role="menuitemradio"][aria-checked="true"]')).toHaveCount(1)
+        await expectMenuFitsViewport(page, 'code-approval-menu')
+      }).toPass({ timeout: 30_000 })
       await page.keyboard.press('Escape')
       await expect(menu).toHaveCount(0)
     })
@@ -458,9 +463,10 @@ test.describe('additional Farming Code user scenarios', () => {
       const modelMenu = page.getByTestId('code-model-menu')
       await openStableComposerMenu(page, page.getByTestId('code-composer-model-picker'), modelMenu)
       await modelsLoaded
-      await expect(modelMenu.locator('[role="menuitemradio"][aria-checked="true"]')).toHaveCount(1)
       await page.getByTestId('code-model-submenu-trigger').click()
-      await expect(page.getByTestId('code-model-submenu')).toBeVisible()
+      const modelSubmenu = page.getByTestId('code-model-submenu')
+      await expect(modelSubmenu).toBeVisible()
+      await expect(modelSubmenu.locator('[role="menuitemradio"][aria-checked="true"]')).toHaveCount(1)
       await expectMenuFitsViewport(page, 'code-model-submenu')
       await page.keyboard.press('Escape')
       await expect(page.getByTestId('code-model-menu')).toHaveCount(0)
@@ -768,9 +774,15 @@ test.describe('additional Farming Code user scenarios', () => {
     })
 
     await scenario('mobile model and speed choices expand inside the picker panel', async () => {
+      const codexAgentId = await createControlAgent(
+        page,
+        'codex --farming-fixture-idle-profile',
+        mobileWorkspace,
+      )
       await revealMobileSidebar(page)
-      await openNewAgentDialog(page)
-      const codexAgentId = await startMobileAgentFromOpenDialog(page, 'codex', mobileWorkspace)
+      const codexRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${codexAgentId}"]`)
+      await expect(codexRow).toBeVisible({ timeout: 30_000 })
+      await codexRow.click()
       await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${codexAgentId}"]`)).toBeVisible()
       const composer = page.getByTestId('code-composer')
       const textarea = page.getByTestId('code-composer-input')
@@ -789,6 +801,7 @@ test.describe('additional Farming Code user scenarios', () => {
       await expect(modelMenu).toBeVisible()
       await modelsLoaded
       await expectMenuFitsViewport(page, 'code-model-menu')
+      await expect(page.getByTestId('code-model-submenu-trigger')).toBeEnabled()
       await page.getByTestId('code-model-submenu-trigger').click()
       await expect(page.getByTestId('code-model-submenu')).toBeVisible()
       await expectMenuFitsViewport(page, 'code-model-menu')

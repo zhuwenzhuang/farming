@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { projectFilesWorkspaceId } from '../../src/lib/project-workspaces'
 import { expect, openFarming, test } from './fixtures'
 
 async function createControlAgent(page: import('@playwright/test').Page, workspace: string) {
@@ -119,14 +120,14 @@ test('keeps Project Files on workspace identity while its source Agent changes',
   fs.mkdirSync(projectDir, { recursive: true })
   fs.writeFileSync(path.join(projectDir, 'one.txt'), 'one\n')
   fs.writeFileSync(path.join(projectDir, 'two.txt'), 'two\n')
-  const filesRequestIds: string[] = []
+  const filesRequestRootIds: string[] = []
   page.on('request', request => {
     const url = new URL(request.url())
     if (!url.pathname.startsWith('/farming/api/files/')) return
-    const filesId = url.searchParams.get('agentId')
-    if (filesId) filesRequestIds.push(filesId)
+    const rootId = url.searchParams.get('rootId')
+    if (rootId) filesRequestRootIds.push(rootId)
   })
-  const expectedFilesId = `__farming_project__:${encodeURIComponent(projectDir)}`
+  const expectedFilesId = projectFilesWorkspaceId(projectDir)
 
   await openFarming(page)
   const firstAgentId = await createControlAgent(page, projectDir)
@@ -145,7 +146,7 @@ test('keeps Project Files on workspace identity while its source Agent changes',
   const oneRow = page.locator('[data-testid="code-file-row"][data-file-path="one.txt"]')
   const twoRow = page.locator('[data-testid="code-file-row"][data-file-path="two.txt"]')
   await expect(oneRow).toBeVisible()
-  await expect.poll(() => [...new Set(filesRequestIds)]).toEqual([expectedFilesId])
+  await expect.poll(() => [...new Set(filesRequestRootIds)]).toEqual([expectedFilesId])
 
   let oneRowBox: Awaited<ReturnType<typeof oneRow.boundingBox>> = null
   await expect.poll(async () => {
@@ -169,7 +170,7 @@ test('keeps Project Files on workspace identity while its source Agent changes',
   await expect(twoRow).toBeVisible()
   await twoRow.click()
   await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('two.txt')
-  await expect.poll(() => [...new Set(filesRequestIds)]).toEqual([expectedFilesId])
+  await expect.poll(() => [...new Set(filesRequestRootIds)]).toEqual([expectedFilesId])
   await page.getByTestId('code-file-editor-back').click()
   await expect(project.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)).toHaveClass(/active/)
 })

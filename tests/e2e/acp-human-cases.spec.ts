@@ -60,10 +60,14 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(page.getByTestId('code-acp-composer')).toBeVisible()
     const stateResponse = await page.request.get('/farming/api/control/agents')
     const state = await stateResponse.json() as {
-      agents?: Array<{ command?: string; agentRuntimeMode?: string; providerSessionProvider?: string }>
+      agents?: Array<{
+        command?: string
+        runtimeBinding?: { kind?: string }
+        providerSessionProvider?: string
+      }>
     }
     const openCode = state.agents?.find(agent => agent.command === 'opencode')
-    expect(openCode?.agentRuntimeMode).toBe('acp')
+    expect(openCode?.runtimeBinding?.kind).toBe('acp')
     expect(openCode?.providerSessionProvider).toBe('opencode')
   })
 

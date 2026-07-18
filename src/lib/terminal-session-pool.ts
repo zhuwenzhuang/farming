@@ -3212,23 +3212,37 @@ function installTerminalTestApi() {
     getCanvasInkPixelCount(agentId: string) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return 0
-      const canvas = current.terminal.renderer?.getCanvas?.() || current.hostEl.querySelector('canvas')
-      if (!(canvas instanceof HTMLCanvasElement)) {
+      const rendererCanvas = current.terminal.renderer?.getCanvas?.()
+      const canvases = [...new Set([
+        ...(rendererCanvas instanceof HTMLCanvasElement ? [rendererCanvas] : []),
+        ...current.hostEl.querySelectorAll<HTMLCanvasElement>('canvas'),
+      ])]
+      if (canvases.length === 0) {
         const visibleText = current.hostEl.querySelector('.xterm-rows')?.textContent?.trim() ?? ''
         return visibleText.length * 8
       }
-      const context = canvas.getContext('2d')
-      if (!context) return 0
-
-      const data = context.getImageData(0, 0, canvas.width, canvas.height).data
       let inkPixels = 0
-      for (let index = 0; index < data.length; index += 4) {
-        const red = data[index] ?? 255
-        const green = data[index + 1] ?? 255
-        const blue = data[index + 2] ?? 255
-        const alpha = data[index + 3] ?? 0
-        if (alpha > 0 && !(red > 248 && green > 248 && blue > 245)) {
-          inkPixels += 1
+      for (const canvas of canvases) {
+        let data: Uint8Array | Uint8ClampedArray | null = null
+        const context = canvas.getContext('2d')
+        if (context) {
+          data = context.getImageData(0, 0, canvas.width, canvas.height).data
+        } else {
+          const gl = canvas.getContext('webgl2') || canvas.getContext('webgl')
+          if (gl) {
+            data = new Uint8Array(canvas.width * canvas.height * 4)
+            gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, data)
+          }
+        }
+        if (!data) continue
+        for (let index = 0; index < data.length; index += 4) {
+          const red = data[index] ?? 255
+          const green = data[index + 1] ?? 255
+          const blue = data[index + 2] ?? 255
+          const alpha = data[index + 3] ?? 0
+          if (alpha > 0 && !(red > 248 && green > 248 && blue > 245)) {
+            inkPixels += 1
+          }
         }
       }
       return inkPixels

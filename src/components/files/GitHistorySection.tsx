@@ -22,6 +22,7 @@ interface GitHistorySectionProps {
   agentId: string
   copy: CodeCopy
   projectId: string
+  projectWorkspace: string
 }
 
 function commitTimestamp(timestamp?: number) {
@@ -51,7 +52,7 @@ function commitMessageBody(commit: WorkspaceGitHistoryItem) {
   return message
 }
 
-export function GitHistorySection({ agentId, copy, projectId }: GitHistorySectionProps) {
+export function GitHistorySection({ agentId, copy, projectId, projectWorkspace }: GitHistorySectionProps) {
   const [collapsed, setCollapsed] = useState(true)
   const [history, setHistory] = useState<WorkspaceGitHistory | null>(null)
   const [historyScope, setHistoryScope] = useState<WorkspaceGitHistory['scope']>('current')
@@ -255,7 +256,7 @@ export function GitHistorySection({ agentId, copy, projectId }: GitHistorySectio
 
   const openReview = (commit: WorkspaceGitHistoryItem, base: string, filePath?: string) => {
     if (!base) return
-    const params = new URLSearchParams({ agentId, base, head: commit.id })
+    const params = new URLSearchParams({ root: projectWorkspace, base, head: commit.id })
     if (filePath) params.append('path', filePath)
     window.open(appPath(`/review?${params.toString()}`), '_blank', 'noopener,noreferrer')
   }

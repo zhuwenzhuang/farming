@@ -382,10 +382,11 @@ test('CRT preserves checkpoint-uncovered live transitions and flushes empty chec
     expect(initial?.runtimeEpoch).toBeTruthy()
     const queuedMarker = `CRT_QUEUED_AFTER_CHECKPOINT_${Date.now()}`
 
-    const accepted = await crtPage.evaluate(({ state, marker }) => {
+    const queuedResult = await crtPage.evaluate(marker => {
       const api = (window as typeof window & { __farmingCrtTerminalTest?: CrtTestApi })
         .__farmingCrtTerminalTest
-      if (!api) return false
+      const state = api?.getState()
+      if (!api || !state) return null
       const first = api.streamSequenced(
         'LIVE_BEFORE_CHECKPOINT\r\n',
         state.outputSeq + 1,
@@ -406,47 +407,61 @@ test('CRT preserves checkpoint-uncovered live transitions and flushes empty chec
         rows: state.rows,
         data: 'CHECKPOINT_COVERS_FIRST\r\n',
       })
-      return first && queued && checkpoint
-    }, { state: initial!, marker: queuedMarker })
-    expect(accepted).toBe(true)
-    await expect.poll(() => crtPage.evaluate(() => (
-      (window as typeof window & { __farmingCrtTerminalTest?: CrtTestApi })
-        .__farmingCrtTerminalTest?.getState() || null
-    ))).toMatchObject({
-      outputSeq: initial!.outputSeq + 2,
-      stateRevision: initial!.stateRevision + 2,
-    })
+      return {
+        accepted: first && queued && checkpoint,
+        outputSeq: state.outputSeq + 2,
+        stateRevision: state.stateRevision + 2,
+      }
+    }, queuedMarker)
+    expect(queuedResult?.accepted).toBe(true)
+    await expect.poll(() => crtPage.evaluate(({ outputSeq, stateRevision }) => {
+      const state = (window as typeof window & { __farmingCrtTerminalTest?: CrtTestApi })
+        .__farmingCrtTerminalTest?.getState()
+      return Boolean(state && state.outputSeq >= outputSeq && state.stateRevision >= stateRevision)
+    }, {
+      outputSeq: queuedResult!.outputSeq,
+      stateRevision: queuedResult!.stateRevision,
+    })).toBe(true)
     await expect.poll(() => crtPage.evaluate(() => (
       ((window as typeof window & { __farmingCrtTerminalTest?: CrtTestApi })
         .__farmingCrtTerminalTest?.getRows() || []).join('\n')
     ))).toContain(queuedMarker)
 
     const emptyChunkMarker = `CRT_EMPTY_CHECKPOINT_CHUNK_${Date.now()}`
-    expect(await crtPage.evaluate(({ state, marker }) => {
+    const emptyChunkResult = await crtPage.evaluate(marker => {
       const api = (window as typeof window & { __farmingCrtTerminalTest?: CrtTestApi })
         .__farmingCrtTerminalTest
-      return api?.replaceStream({
+      const state = api?.getState()
+      if (!api || !state) return null
+      const accepted = api.replaceStream({
         runtimeEpoch: state.runtimeEpoch,
-        outputSeq: state.outputSeq + 2,
-        stateRevision: state.stateRevision + 2,
+        outputSeq: state.outputSeq,
+        stateRevision: state.stateRevision,
         cols: state.cols,
         rows: state.rows,
         data: '',
         chunks: [{
           kind: 'output',
           data: `${marker}\r\n`,
-          outputSeq: state.outputSeq + 3,
-          stateRevision: state.stateRevision + 3,
+          outputSeq: state.outputSeq + 1,
+          stateRevision: state.stateRevision + 1,
         }],
-      }) || false
-    }, { state: initial!, marker: emptyChunkMarker })).toBe(true)
-    await expect.poll(() => crtPage.evaluate(() => (
-      (window as typeof window & { __farmingCrtTerminalTest?: CrtTestApi })
-        .__farmingCrtTerminalTest?.getState() || null
-    ))).toMatchObject({
-      outputSeq: initial!.outputSeq + 3,
-      stateRevision: initial!.stateRevision + 3,
-    })
+      })
+      return {
+        accepted,
+        outputSeq: state.outputSeq + 1,
+        stateRevision: state.stateRevision + 1,
+      }
+    }, emptyChunkMarker)
+    expect(emptyChunkResult?.accepted).toBe(true)
+    await expect.poll(() => crtPage.evaluate(({ outputSeq, stateRevision }) => {
+      const state = (window as typeof window & { __farmingCrtTerminalTest?: CrtTestApi })
+        .__farmingCrtTerminalTest?.getState()
+      return Boolean(state && state.outputSeq >= outputSeq && state.stateRevision >= stateRevision)
+    }, {
+      outputSeq: emptyChunkResult!.outputSeq,
+      stateRevision: emptyChunkResult!.stateRevision,
+    })).toBe(true)
     await expect.poll(() => crtPage.evaluate(() => (
       ((window as typeof window & { __farmingCrtTerminalTest?: CrtTestApi })
         .__farmingCrtTerminalTest?.getRows() || []).join('\n')

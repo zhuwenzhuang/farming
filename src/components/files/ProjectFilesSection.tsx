@@ -543,7 +543,7 @@ export function ProjectFilesSection({
             {!readOnly && (
               <FileChangesSection
                 activeFilePath={activeFilePath}
-                agentId={agentId}
+                projectWorkspace={projectWorkspace}
                 changes={fileChanges}
                 collapsed={changesCollapsed}
                 copy={copy}
@@ -558,6 +558,7 @@ export function ProjectFilesSection({
                 agentId={agentId}
                 copy={copy}
                 projectId={projectId}
+                projectWorkspace={projectWorkspace}
               />
             )}
             <FileSectionBody {...viewModel.sectionBody} />

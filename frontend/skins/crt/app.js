@@ -2614,6 +2614,8 @@ function handleCrtTerminalStream(stream) {
         cols: chunk.cols,
         rows: chunk.rows
       }));
+      flushCrtTerminalTransitions();
+      finishCrtTerminalReplay(replication);
     }
     return;
   }

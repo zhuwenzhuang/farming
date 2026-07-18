@@ -343,7 +343,11 @@ export function InputDialog({
     }
     focusDefaultAgent()
     const frame = requestAnimationFrame(focusDefaultAgent)
-    return () => cancelAnimationFrame(frame)
+    const timer = window.setTimeout(focusDefaultAgent, 0)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.clearTimeout(timer)
+    }
   }, [agentLoadFailed, agentsLoaded, effectiveDefaultLaunchAgent, mustStartMain, open, settingsLoaded, step])
 
   const lockStartClick = useCallback(() => {

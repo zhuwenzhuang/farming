@@ -60,7 +60,10 @@ export function FileContextMenu({
       style={{ left: fileMenu.x, top: fileMenu.y }}
       role="menu"
       onKeyDown={handleFileMenuKeyDown}
-      onMouseDown={event => event.stopPropagation()}
+      onMouseDown={event => {
+        event.preventDefault()
+        event.stopPropagation()
+      }}
     >
       {canCreateInTarget && (
         <>

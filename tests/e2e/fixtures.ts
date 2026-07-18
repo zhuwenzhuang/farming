@@ -372,7 +372,43 @@ export async function terminalRows(page: Page, agentId: string, rowCount = 8) {
 
 export async function expectTerminalCanvasToHaveInk(page: Page, agentId: string) {
   await expect.poll(
-    () => page.evaluate((id) => window.__farmingTerminalTest?.getCanvasInkPixelCount(id) ?? 0, agentId),
+    async () => {
+      const terminal = page.locator(
+        `[data-testid="code-terminal-pane"][data-agent-id="${agentId}"] [data-testid="code-terminal-container"]`,
+      )
+      if (!await terminal.isVisible().catch(() => false)) return 0
+      const screenshot = await terminal.screenshot()
+      return page.evaluate(async encoded => {
+        const image = new Image()
+        image.src = `data:image/png;base64,${encoded}`
+        await image.decode()
+        const canvas = document.createElement('canvas')
+        canvas.width = image.naturalWidth
+        canvas.height = image.naturalHeight
+        const context = canvas.getContext('2d')
+        if (!context) return 0
+        context.drawImage(image, 0, 0)
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+        const backgroundIndex = ((canvas.height - 2) * canvas.width + (canvas.width - 2)) * 4
+        const background = [
+          pixels[backgroundIndex] ?? 255,
+          pixels[backgroundIndex + 1] ?? 255,
+          pixels[backgroundIndex + 2] ?? 255,
+        ]
+        let inkPixels = 0
+        for (let y = 2; y < canvas.height - 2; y += 1) {
+          for (let x = 2; x < canvas.width - 2; x += 1) {
+            const index = (y * canvas.width + x) * 4
+            if ((pixels[index + 3] ?? 0) === 0) continue
+            const distance = Math.abs((pixels[index] ?? 255) - background[0])
+              + Math.abs((pixels[index + 1] ?? 255) - background[1])
+              + Math.abs((pixels[index + 2] ?? 255) - background[2])
+            if (distance > 36) inkPixels += 1
+          }
+        }
+        return inkPixels
+      }, screenshot.toString('base64'))
+    },
     { timeout: 15_000 }
   ).toBeGreaterThan(100)
 }

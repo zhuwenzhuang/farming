@@ -1335,13 +1335,15 @@ test.describe('display-backed agent flows', () => {
     await page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'Rename' }).click()
     await expect(page.getByTestId('code-file-operation-dialog')).toHaveCount(0)
     await expect(renameRow.getByTestId('code-file-inline-operation')).toBeVisible()
-    await expect(renameRow.getByTestId('code-file-operation-input')).toBeFocused()
-    await renameRow.getByTestId('code-file-operation-input').fill('renamed-by-ui.txt')
-    await renameRow.getByTestId('code-file-operation-input').press('Enter')
+    const renameInput = renameRow.getByTestId('code-file-operation-input')
+    await renameInput.click()
+    await expect(renameInput).toBeFocused()
+    await renameInput.fill('renamed-by-ui.txt')
+    await renameInput.press('Enter')
     await expect(page.getByTestId('code-file-operation-dialog')).toHaveCount(0)
     const renamedRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="renamed-by-ui.txt"]')
     await expect(renamedRow).toBeVisible()
-    await expect(renamedRow).toHaveClass(/selected/)
+    await expect(renamedRow).toHaveClass(/active/)
     await renamedRow.click({ button: 'right' })
     await page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'New File' }).click()
     const newFileInput = page.getByTestId('code-file-operation-input')
@@ -1754,16 +1756,22 @@ test.describe('display-backed agent flows', () => {
   test('covers desktop and mobile flows with real rendered surfaces', async ({ page, workspaceRoot }) => {
     test.setTimeout(180_000)
 
-    const mainWorkspace = path.resolve('.tmp', 'farming-playwright-main')
-    const childWorkspace = path.resolve('.tmp', 'farming-playwright-child')
+    const mainWorkspace = path.join(workspaceRoot, 'farming-playwright-main')
+    const childWorkspace = path.join(workspaceRoot, 'farming-playwright-child')
     const deepCodexCwd = path.join(childWorkspace, 'deep', 'task')
-    const childWorkspaceDisplay = path.join('.tmp', 'farming-playwright-child')
-    const deepCodexCwdDisplay = path.join(childWorkspaceDisplay, 'deep', 'task')
+    const childWorkspaceDisplay = childWorkspace
+    const deepCodexCwdDisplay = deepCodexCwd
     fs.rmSync(mainWorkspace, { recursive: true, force: true })
     fs.rmSync(childWorkspace, { recursive: true, force: true })
     fs.mkdirSync(mainWorkspace, { recursive: true })
     fs.mkdirSync(childWorkspace, { recursive: true })
     fs.mkdirSync(deepCodexCwd, { recursive: true })
+    fs.writeFileSync(path.join(childWorkspace, 'README.md'), '# Farming Playwright child workspace\n')
+    execFileSync('git', ['init'], { cwd: childWorkspace, stdio: 'ignore' })
+    execFileSync('git', ['config', 'user.email', 'farming-e2e@example.test'], { cwd: childWorkspace })
+    execFileSync('git', ['config', 'user.name', 'Farming E2E'], { cwd: childWorkspace })
+    execFileSync('git', ['add', 'README.md'], { cwd: childWorkspace, stdio: 'ignore' })
+    execFileSync('git', ['commit', '-m', 'seed child workspace'], { cwd: childWorkspace, stdio: 'ignore' })
     await page.addInitScript(() => {
       class MockSpeechRecognition extends EventTarget {
         continuous = false
@@ -1918,6 +1926,12 @@ test.describe('display-backed agent flows', () => {
       effort: 'xhigh',
       source: 'codex',
     }])
+    await page.route('**/api/agent-sessions/search?**', async route => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ sessions: [] }),
+      })
+    })
     let resumedCodexSessionId = ''
     let resumedCodexAgentId = 'resumed-code-agent'
     let resumedClaudeSessionId = ''
@@ -2564,9 +2578,10 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-agent-row')).toHaveCount(2)
     await childProjectTitle.click({ button: 'right' })
     const childProjectMenu = page.getByTestId('code-project-context-menu')
-    await expect(childProjectMenu.getByRole('menuitem')).toHaveCount(2)
+    await expect(childProjectMenu.getByRole('menuitem')).toHaveCount(3)
     await expect(childProjectMenu.getByRole('menuitem', { name: 'Rename project' })).toBeVisible()
     await expect(childProjectMenu.getByRole('menuitem', { name: 'Archive chats' })).toBeVisible()
+    await expect(childProjectMenu.getByRole('menuitem', { name: 'Remove Project' })).toBeDisabled()
     await page.keyboard.press('Escape')
     await expect(childProjectMenu).toBeHidden()
     await expect(childProjectTitle).toBeVisible()
@@ -2964,6 +2979,12 @@ test.describe('display-backed agent flows', () => {
 
 	    await revealMobileSidebar()
 	    await mobileRow.click({ button: 'right' })
+	    const markAsRead = page.getByRole('menuitem', { name: 'Mark as read' })
+	    if (await markAsRead.isVisible().catch(() => false)) {
+	      await markAsRead.click()
+	      await revealMobileSidebar()
+	      await mobileRow.click({ button: 'right' })
+	    }
 	    await page.getByRole('menuitem', { name: 'Mark as unread' }).click()
 	    await expect(mobileRow).toBeFocused()
 	    await revealMobileSidebar()

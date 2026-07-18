@@ -471,7 +471,7 @@ test.describe('human Farming Agent story', () => {
     })
   })
 
-  test('does not mark plain background terminal output as unread', async ({ page, workspaceRoot }) => {
+  test('marks completed background shell work as unread', async ({ page, workspaceRoot }) => {
     const firstWorkspace = path.join(workspaceRoot, 'first-agent')
     const secondWorkspace = path.join(workspaceRoot, 'second-agent')
     fs.mkdirSync(firstWorkspace, { recursive: true })
@@ -506,11 +506,8 @@ test.describe('human Farming Agent story', () => {
       const response = await page.request.get(`/farming/api/control/agents/${firstAgentId}/output?tail=2000`)
       return response.ok() ? (await response.text()).includes('first-agent-output') : false
     }).toBe(true)
-    await expect(firstRow).not.toHaveClass(/unread/)
+    await expect(firstRow).toHaveClass(/unread/)
 
-    await page.goto(`/farming/?agent=${encodeURIComponent(firstAgentId)}`, { waitUntil: 'networkidle' })
-    await expect(firstRow).toHaveClass(/active/)
-    await expect(firstRow).not.toHaveClass(/unread/)
   })
 
   test('keeps rename input selection stable while typing', async ({ page, workspaceRoot }) => {

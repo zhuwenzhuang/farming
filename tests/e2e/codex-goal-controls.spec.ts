@@ -57,6 +57,21 @@ function baseAgent(now: number): Agent {
     providerSessionId: 'thread-goal-controls',
     providerSessionKey: PROVIDER_SESSION_KEY,
     providerSessionSource: 'agent-session',
+    providerCapabilities: {
+      supportedRuntimes: ['terminal', 'app-server'],
+      runtimeSwitch: true,
+      terminalProfile: true,
+      goals: true,
+    },
+    runtimeBinding: { kind: 'terminal' },
+    runtimeObservation: {
+      kind: 'codex',
+      phase: 'working',
+      confidence: 'authoritative',
+      source: 'structured-runtime',
+      observerVersion: 'goal-controls-fixture',
+      observedAt: now,
+    },
   }
 }
 
@@ -64,7 +79,6 @@ function cliWorkingState(now = Date.now()): FarmingState {
   return {
     agents: [{
       ...baseAgent(now),
-      codexRuntimeMode: 'cli',
       terminalStatus: {
         kind: 'codex',
         activity: 'busy',
@@ -87,27 +101,41 @@ function appServerSteeringState(currentGoal: CodexAppServerGoal | null, now = Da
   return {
     agents: [{
       ...baseAgent(now),
-      codexRuntimeMode: 'app-server',
-      codexAppServerState: 'waiting-for-input',
-      codexAppServerThreadId: 'thread-goal-controls',
-      codexAppServerTurnId: 'turn-goal-controls',
-      codexAppServerPendingRequestId: 'request-goal-controls',
-      codexAppServerPendingRequestMethod: 'item/tool/requestUserInput',
-      codexAppServerPendingRequest: {
-        id: 'request-goal-controls',
-        method: 'item/tool/requestUserInput',
-        params: {
-          questions: [{
-            id: 'confirm',
-            header: '确认',
-            question: '继续按这个 goal 推进吗？',
-            isSecret: false,
-            options: [{ label: '继续', description: '保持当前方向' }],
-          }],
+      runtimeBinding: {
+        kind: 'app-server',
+        state: 'waiting-for-input',
+        endpoint: '',
+        threadId: 'thread-goal-controls',
+        turnId: 'turn-goal-controls',
+        error: '',
+        pendingRequestId: 'request-goal-controls',
+        pendingRequestMethod: 'item/tool/requestUserInput',
+        pendingRequest: {
+          id: 'request-goal-controls',
+          method: 'item/tool/requestUserInput',
+          params: {
+            questions: [{
+              id: 'confirm',
+              header: '确认',
+              question: '继续按这个 goal 推进吗？',
+              isSecret: false,
+              options: [{ label: '继续', description: '保持当前方向' }],
+            }],
+          },
+          receivedAt: new Date(now).toISOString(),
         },
-        receivedAt: new Date(now).toISOString(),
+        notice: null,
+        goal: currentGoal,
+        observerDeferred: false,
       },
-      codexAppServerGoal: currentGoal,
+      runtimeObservation: {
+        kind: 'codex',
+        phase: 'waiting',
+        confidence: 'authoritative',
+        source: 'structured-runtime',
+        observerVersion: 'goal-controls-fixture',
+        observedAt: now,
+      },
       terminalStatus: {
         kind: 'codex',
         activity: 'busy',
