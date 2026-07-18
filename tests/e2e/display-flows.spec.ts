@@ -31,9 +31,11 @@ function activeFileTabName(page: Page) {
   return page.getByTestId('code-file-editor').getByRole('tab', { selected: true }).locator('.code-file-editor-tab-name')
 }
 
-async function modifierClick(page: Page, x: number, y: number) {
-  await page.evaluate(({ clientX, clientY }) => {
-    const target = document.elementFromPoint(clientX, clientY)
+async function modifierClick(page: Page, agentId: string, x: number, y: number) {
+  await page.evaluate(({ id, clientX, clientY }) => {
+    const target = document.querySelector(
+      `[data-testid="code-terminal-pane"][data-agent-id="${CSS.escape(id)}"] .terminal-session-host`,
+    )
     if (!(target instanceof HTMLElement)) throw new Error('Modifier-click target is missing')
     const eventOptions = {
       bubbles: true,
@@ -45,7 +47,7 @@ async function modifierClick(page: Page, x: number, y: number) {
       ctrlKey: true,
     }
     target.dispatchEvent(new MouseEvent('mouseup', eventOptions))
-  }, { clientX: x, clientY: y })
+  }, { id: agentId, clientX: x, clientY: y })
 }
 
 async function createControlAgent(page: Page, command: string, workspace: string) {
@@ -978,7 +980,7 @@ test.describe('display-backed agent flows', () => {
     )).toBe('webgl')
     await page.mouse.click(reviewUrlCell.x, reviewUrlCell.y)
     await expect.poll(async () => page.evaluate(() => (window as any).__openedTerminalUrls ?? [])).toHaveLength(0)
-    await modifierClick(page, reviewUrlCell.x, reviewUrlCell.y)
+    await modifierClick(page, childAgentId, reviewUrlCell.x, reviewUrlCell.y)
     await expect.poll(async () => page.evaluate(() => (window as any).__openedTerminalUrls ?? [])).toContain(reviewUrl)
     await page.evaluate(() => {
       window.open = (window as any).__originalOpenForTerminalUrlTest
