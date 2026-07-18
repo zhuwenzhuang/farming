@@ -14,9 +14,12 @@ function isSafeSessionId(sessionId) {
 }
 
 function mainPageAgentSessionKey(provider, sessionId, providerHomeId = '') {
+  const normalizedProvider = normalizeMainPageSessionProvider(provider);
+  const normalizedSessionId = String(sessionId || '').trim();
+  if (!normalizedProvider || !normalizedSessionId) return '';
   const homeId = String(providerHomeId || '').trim();
-  if (homeId && homeId !== 'default') return `agent-session:${provider}:home:${homeId}:${sessionId}`;
-  return `agent-session:${provider}:${sessionId}`;
+  if (homeId && homeId !== 'default') return `agent-session:${normalizedProvider}:home:${homeId}:${normalizedSessionId}`;
+  return `agent-session:${normalizedProvider}:${normalizedSessionId}`;
 }
 
 function mainPageAgentSessionFromKey(key) {

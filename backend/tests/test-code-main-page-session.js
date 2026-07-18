@@ -17,6 +17,7 @@ async function run() {
   } = importTsModule('src/components/code/agent-list-state.ts');
   const {
     findActiveAgentClaimingSession,
+    mainPageAgentSessionKey,
     mainPageAgentSessionsToAutoResume,
   } = require('../main-page-session');
   const {
@@ -28,6 +29,10 @@ async function run() {
   assert.strictEqual(mainPageSessionProviderForCommand('opencode --session ses_example'), 'opencode');
   assert.strictEqual(mainPageSessionProviderForCommand('/usr/local/bin/qodercli --resume abc'), 'qoder');
   assert.strictEqual(mainPageSessionProviderForCommand('bash'), null);
+  assert.strictEqual(mainPageAgentSessionKey('', ''), '');
+  assert.strictEqual(mainPageAgentSessionKey('bash', 'shell-session'), '');
+  assert.strictEqual(mainPageAgentSessionKey('codex', ''), '');
+  assert.strictEqual(mainPageAgentSessionKey('CODEX', 'session-1'), 'agent-session:codex:session-1');
 
   const sessions = [
     {
