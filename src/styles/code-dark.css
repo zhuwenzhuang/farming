@@ -188,6 +188,7 @@ body.code-mode[data-appearance='dark'] .code-project-title-action:focus-visible 
 
 body.code-mode[data-appearance='dark'] .code-file-search-box,
 body.code-mode[data-appearance='dark'] .workspace-input input,
+body.code-mode[data-appearance='dark'] .workspace-directory-picker,
 body.code-mode[data-appearance='dark'] .workspace-input select.workflow-select,
 body.code-mode[data-appearance='dark'] .workspace-input textarea.task-input,
 body.code-mode[data-appearance='dark'] .settings-input,
@@ -196,6 +197,62 @@ body.code-mode[data-appearance='dark'] .code-file-operation-dialog input {
   background: var(--code-dark-bg-panel);
   border-color: var(--code-dark-border);
   color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-picker:hover:not(:disabled) {
+  background: var(--code-dark-bg-hover);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-heading h4,
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-row {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-heading p,
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-status,
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-actions > span,
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-row-arrow {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-close,
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-parent,
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-go,
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-location input,
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-actions button.secondary {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg-panel);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-close:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-parent:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-go:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-row:hover,
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-row:focus-visible,
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-actions button.secondary:hover {
+  background: var(--code-dark-bg-hover);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-list {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-row > svg:first-child {
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-actions button:not(.secondary) {
+  background: var(--code-dark-accent);
+  color: #ffffff;
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-status.error,
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-truncated {
+  color: var(--code-dark-danger);
 }
 
 body.code-mode[data-appearance='dark'] .code-file-search-box input,
@@ -425,9 +482,96 @@ body.code-mode[data-appearance='dark'] .code-usage-heatmap-cell:hover {
   outline-color: rgba(121, 186, 255, 0.7);
 }
 
+body.code-mode[data-appearance='dark'] .code-usage-daily-heatmap-cell[data-recent='true'] {
+  box-shadow: inset 0 0 0 1px rgba(121, 186, 255, 0.42);
+}
+
 body.code-mode[data-appearance='dark'] .code-usage-activity-heading,
+body.code-mode[data-appearance='dark'] .code-usage-time-axis,
 body.code-mode[data-appearance='dark'] .code-usage-activity-readout {
   color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-detail-backdrop {
+  background: rgba(2, 6, 10, 0.58);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-detail-dialog {
+  border-color: var(--code-dark-border);
+  background: rgba(22, 27, 34, 0.98);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-detail-eyebrow,
+body.code-mode[data-appearance='dark'] .code-usage-detail-chart-heading,
+body.code-mode[data-appearance='dark'] .code-usage-detail-stat span,
+body.code-mode[data-appearance='dark'] .code-usage-detail-stat small {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-detail-close {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-detail-close:hover,
+body.code-mode[data-appearance='dark'] .code-usage-detail-close:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-detail-tabs {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-detail-tabs button {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-detail-tabs button[aria-selected='true'] {
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-detail-chart {
+  border-color: var(--code-dark-border);
+  background: rgba(13, 17, 23, 0.55);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-detail-chart-heading strong,
+body.code-mode[data-appearance='dark'] .code-usage-detail-day-highlight > strong,
+body.code-mode[data-appearance='dark'] .code-usage-detail-readout,
+body.code-mode[data-appearance='dark'] .code-usage-detail-stat strong {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-detail-day-highlight,
+body.code-mode[data-appearance='dark'] .code-usage-detail-day-highlight > small {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-detail-day-highlight[data-state='selected'] > strong {
+  color: #79baff;
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-detail-chart .code-usage-daily-heatmap-cell[data-peak='true'] {
+  box-shadow:
+    inset 0 0 0 1px rgba(121, 186, 255, 0.88),
+    0 0 0 2px rgba(88, 166, 255, 0.2);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-detail-chart .code-usage-daily-heatmap-cell[data-peak='true']::after {
+  border-color: rgba(22, 27, 34, 0.95);
+  background: #79baff;
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-detail-chart .code-usage-daily-heatmap-cell[data-selected='true'] {
+  outline-color: rgba(121, 186, 255, 0.9);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-detail-stat {
+  background: rgba(255, 255, 255, 0.055);
 }
 
 body.code-mode[data-appearance='dark'] .code-search-result {
@@ -484,6 +628,21 @@ body.code-mode[data-appearance='dark'] .code-history-actions button {
 
 body.code-mode[data-appearance='dark'] .code-history-actions button:hover {
   background: var(--code-dark-bg-hover);
+}
+
+body.code-mode[data-appearance='dark'] .code-history-pagination {
+  border-top-color: var(--code-dark-border);
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-history-pagination button {
+  border-color: var(--code-dark-border);
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-history-pagination button:hover:not(:disabled) {
+  background: var(--code-dark-bg-hover);
+  color: var(--code-dark-text);
 }
 
 body.code-mode[data-appearance='dark'] .code-agents-section,
@@ -903,6 +1062,55 @@ body.code-mode[data-appearance='dark'] .code-mobile-install-step {
 body.code-mode[data-appearance='dark'] .code-mobile-install-control {
   background: rgba(240, 246, 252, 0.09);
   color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-app-mode-backdrop {
+  background: rgba(1, 4, 9, 0.58);
+}
+
+body.code-mode[data-appearance='dark'] .code-app-mode-dialog {
+  border-color: var(--code-dark-border);
+  background: rgba(22, 27, 34, 0.98);
+  color: var(--code-dark-text);
+  box-shadow: 0 24px 68px rgba(1, 4, 9, 0.52);
+}
+
+body.code-mode[data-appearance='dark'] .code-app-mode-close,
+body.code-mode[data-appearance='dark'] .code-app-mode-heading p,
+body.code-mode[data-appearance='dark'] .code-app-mode-choice p,
+body.code-mode[data-appearance='dark'] .code-app-mode-install-steps {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-app-mode-close:hover,
+body.code-mode[data-appearance='dark'] .code-app-mode-close:focus-visible {
+  background: var(--code-dark-bg-hover);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-app-mode-choice {
+  border-color: var(--code-dark-border);
+  background: rgba(13, 17, 23, 0.72);
+}
+
+body.code-mode[data-appearance='dark'] .code-app-mode-choice.recommended {
+  border-color: rgba(140, 188, 255, 0.25);
+  background: rgba(56, 96, 158, 0.13);
+}
+
+body.code-mode[data-appearance='dark'] .code-app-mode-recommended {
+  color: #8cbcff;
+}
+
+body.code-mode[data-appearance='dark'] .code-app-mode-choice.temporary button {
+  border-color: var(--code-dark-border);
+  background: rgba(240, 246, 252, 0.06);
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-app-mode-choice.temporary button:hover,
+body.code-mode[data-appearance='dark'] .code-app-mode-choice.temporary button:focus-visible {
+  background: var(--code-dark-bg-hover);
 }
 
 body.code-mode[data-appearance='dark'] .code-brand-backdrop {

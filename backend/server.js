@@ -5,6 +5,8 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const { URLSearchParams, pathToFileURL } = require('url');
 const AgentManager = require('./agent-manager');
 const { runtimeKind } = require('./agent-runtime-binding');
@@ -85,6 +87,7 @@ const WS_PATH = routePath(BASE_PATH, '/ws');
 const encodeCookieToken = TokenAuth.encodeCookieToken;
 const MAX_CODEX_TRANSCRIPT_TURNS = 1000;
 const INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS = 3_000;
+const execFileAsync = promisify(execFile);
 
 const app = express();
 const server = http.createServer(app);
@@ -1425,6 +1428,65 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork'), express.json(), asyn
 
   broadcastState();
   res.status(201).json(result);
+});
+
+function resolveProjectActionRoot(rootId) {
+  const root = workspaceRootRegistry.resolve(rootId);
+  if (!root || root.kind === 'global') {
+    throw new WorkspaceFileError('project workspace is required', 400);
+  }
+  return root;
+}
+
+app.post(routePath(BASE_PATH, '/api/projects/reveal'), express.json(), async (req, res) => {
+  try {
+    const root = resolveProjectActionRoot(req.body?.rootId);
+    const command = process.platform === 'darwin'
+      ? 'open'
+      : process.platform === 'win32'
+        ? 'explorer'
+        : 'xdg-open';
+    await execFileAsync(command, [root.canonicalPath], {
+      timeout: 15000,
+      maxBuffer: 1024 * 1024,
+    });
+    res.json({ revealed: true, workspace: root.canonicalPath });
+  } catch (error) {
+    const status = error instanceof WorkspaceFileError ? error.statusCode : 500;
+    res.status(status).json({ error: error.message || 'Failed to reveal project workspace' });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/projects/create-worktree'), express.json(), async (req, res) => {
+  let created = null;
+  let previousProjects = null;
+  try {
+    const root = resolveProjectActionRoot(req.body?.rootId);
+    created = await agentManager.createPermanentWorktree(root.canonicalPath);
+    previousProjects = configManager.getSettings().projectWorkspaces || [];
+    configManager.updateSettings({
+      projectWorkspaces: [
+        created.workspace,
+        ...previousProjects.filter(workspace => workspace !== created.workspace),
+      ],
+    });
+    res.status(201).json({
+      workspace: created.workspace,
+      branch: created.branch,
+      projectWorkspaces: configManager.getSettings().projectWorkspaces,
+    });
+  } catch (error) {
+    if (created) await agentManager.rollbackPermanentWorktree(created);
+    if (previousProjects) {
+      try {
+        configManager.updateSettings({ projectWorkspaces: previousProjects });
+      } catch {
+        // Keep the original error visible; the failed settings write is already the root cause.
+      }
+    }
+    const status = error instanceof WorkspaceFileError ? error.statusCode : 400;
+    res.status(status).json({ error: error.message || 'Failed to create permanent worktree' });
+  }
 });
 
 app.post(routePath(BASE_PATH, '/api/projects/delete-worktree'), express.json(), async (req, res) => {

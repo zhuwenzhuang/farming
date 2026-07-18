@@ -9,6 +9,17 @@ export interface CodeCopy {
   collapseSidebar: string
   enterFocusMode: string
   exitFocusMode: string
+  appModeOpen: string
+  appModeTitle: string
+  appModeDescription: string
+  appModeRecommended: string
+  appModeInstallTitle: string
+  appModeInstallDescription: string
+  appModeInstallAction: string
+  appModeInstallStepOne: string
+  appModeInstallStepTwo: string
+  appModeFullscreenTitle: string
+  appModeFullscreenDescription: string
   terminalView: string
   transcriptView: string
   collapseComposer: string
@@ -76,6 +87,14 @@ export interface CodeCopy {
   languageChinese: string
   pinAgent: string
   unpinAgent: string
+  pinProject: string
+  unpinProject: string
+  revealInFinder: string
+  revealInFinderFailed: string
+  createPermanentWorktree: string
+  permanentWorktreeCreated: string
+  permanentWorktreeFailed: string
+  markAllAsRead: string
   renameAgent: string
   renameProject: string
   archiveAgent: string
@@ -181,6 +200,10 @@ export interface CodeCopy {
   noHistoryYet: string
   noHistoryDescription: string
   historyAgents: string
+  historyPagination: string
+  historyPageStatus: (page: number, totalPages: number, totalItems: number, hasMore: boolean) => string
+  previousPage: string
+  nextPage: string
   agentSessions: string
   recentWorkspaces: string
   agentsSessionsSummary: (agents: number, sessions: number) => string
@@ -193,7 +216,7 @@ export interface CodeCopy {
   showMore: string
   showLess: string
   showAgents: string
-  collapseAgents: string
+  hideAgents: string
   latest: string
   upgrade: string
   updating: string
@@ -380,6 +403,14 @@ export interface CodeCopy {
   otherAgents: string
   workspace: string
   workspacePathPlaceholder: string
+  chooseWorkspaceDirectory: string
+  workspaceDirectoryBrowserFailed: string
+  workspaceDirectoryBrowserHostHint: string
+  workspaceDirectoryBrowserGo: string
+  workspaceDirectoryBrowserParent: string
+  workspaceDirectoryBrowserEmpty: string
+  workspaceDirectoryBrowserTruncated: string
+  workspaceDirectoryBrowserSelect: string
   workspaceMissingTitle: string
   workspaceMissingDescription: string
   workspaceCreateAndStart: string
@@ -408,6 +439,17 @@ const EN_COPY: CodeCopy = {
   collapseSidebar: 'Collapse sidebar',
   enterFocusMode: 'Enter focus mode',
   exitFocusMode: 'Exit focus mode',
+  appModeOpen: 'App mode and fullscreen',
+  appModeTitle: 'Use Farming without browser controls',
+  appModeDescription: 'Install Farming for a clean app window, or use fullscreen temporarily.',
+  appModeRecommended: 'Recommended',
+  appModeInstallTitle: 'Install Farming 2',
+  appModeInstallDescription: 'Opens as its own window without tabs, the address bar, or browser extensions.',
+  appModeInstallAction: 'Install Farming 2',
+  appModeInstallStepOne: 'Open Chrome’s ⋮ menu, then choose “Cast, save and share”.',
+  appModeInstallStepTwo: 'Choose “Install page as app”, then open Farming 2 from its app icon.',
+  appModeFullscreenTitle: 'Fullscreen for now',
+  appModeFullscreenDescription: 'Hide browser controls for this window. Press Esc to leave fullscreen.',
   terminalView: 'Terminal',
   transcriptView: 'Chat',
   collapseComposer: 'Hide input',
@@ -482,6 +524,14 @@ const EN_COPY: CodeCopy = {
   languageChinese: 'Language: 中文',
   pinAgent: 'Pin Agent',
   unpinAgent: 'Unpin Agent',
+  pinProject: 'Pin project',
+  unpinProject: 'Unpin project',
+  revealInFinder: 'Reveal in Finder',
+  revealInFinderFailed: 'Failed to reveal project in Finder',
+  createPermanentWorktree: 'Create permanent worktree',
+  permanentWorktreeCreated: 'Permanent worktree created',
+  permanentWorktreeFailed: 'Failed to create permanent worktree',
+  markAllAsRead: 'Mark all as read',
   renameAgent: 'Rename Agent',
   renameProject: 'Rename project',
   archiveAgent: 'Archive',
@@ -609,6 +659,10 @@ const EN_COPY: CodeCopy = {
   noHistoryYet: 'No history yet',
   noHistoryDescription: 'Agents moved off the main page will appear here.',
   historyAgents: 'History Agents',
+  historyPagination: 'History pages',
+  historyPageStatus: (page, totalPages, totalItems, hasMore) => `${page} / ${totalPages}${hasMore ? '+' : ''} · ${totalItems} loaded`,
+  previousPage: 'Previous page',
+  nextPage: 'Next page',
   agentSessions: 'Agent Sessions',
   recentWorkspaces: 'Recent Workspaces',
   agentsSessionsSummary: (agents, sessions) => `${agents} agents · ${sessions} sessions`,
@@ -621,7 +675,7 @@ const EN_COPY: CodeCopy = {
   showMore: 'Show more',
   showLess: 'Show less',
   showAgents: 'Show agents',
-  collapseAgents: 'Collapse all',
+  hideAgents: 'Hide agents',
   latest: 'Latest',
   upgrade: 'UPGRADE',
   updating: 'UPDATING',
@@ -808,6 +862,14 @@ const EN_COPY: CodeCopy = {
   otherAgents: 'Shell',
   workspace: 'Workspace:',
   workspacePathPlaceholder: '/path/to/workspace',
+  chooseWorkspaceDirectory: 'Choose workspace folder',
+  workspaceDirectoryBrowserFailed: 'Couldn’t read this directory.',
+  workspaceDirectoryBrowserHostHint: 'Browse folders on the Farming host.',
+  workspaceDirectoryBrowserGo: 'Go to directory',
+  workspaceDirectoryBrowserParent: 'Parent directory',
+  workspaceDirectoryBrowserEmpty: 'No subdirectories.',
+  workspaceDirectoryBrowserTruncated: 'Only the first 500 folders are shown. Enter a more specific path to continue.',
+  workspaceDirectoryBrowserSelect: 'Select this folder',
   workspaceMissingTitle: 'Create this workspace?',
   workspaceMissingDescription: 'This directory does not exist yet. Farming can create it and start the Agent there.',
   workspaceCreateAndStart: 'Create & Start',
@@ -836,6 +898,17 @@ const ZH_COPY: CodeCopy = {
   collapseSidebar: '收起侧边栏',
   enterFocusMode: '进入沉浸模式',
   exitFocusMode: '退出沉浸模式',
+  appModeOpen: '应用模式与全屏',
+  appModeTitle: '隐藏浏览器控制',
+  appModeDescription: '安装 Farming 获得干净的应用窗口，也可以临时进入全屏。',
+  appModeRecommended: '推荐',
+  appModeInstallTitle: '安装 Farming 2',
+  appModeInstallDescription: '以后从独立窗口打开，不显示标签栏、地址栏和浏览器扩展。',
+  appModeInstallAction: '安装 Farming 2',
+  appModeInstallStepOne: '打开 Chrome 右上角 ⋮，选择“投放、保存和分享”。',
+  appModeInstallStepTwo: '选择“将网页安装为应用”，以后从 Farming 2 应用图标打开。',
+  appModeFullscreenTitle: '暂时全屏',
+  appModeFullscreenDescription: '只为当前窗口隐藏浏览器控制，按 Esc 即可退出。',
   terminalView: '终端',
   transcriptView: '对话',
   collapseComposer: '收起输入框',
@@ -910,6 +983,14 @@ const ZH_COPY: CodeCopy = {
   languageChinese: '语言：中文',
   pinAgent: '置顶 Agent',
   unpinAgent: '取消置顶',
+  pinProject: '置顶项目',
+  unpinProject: '取消置顶项目',
+  revealInFinder: '在访达中显示',
+  revealInFinderFailed: '无法在访达中显示项目',
+  createPermanentWorktree: '创建永久 worktree',
+  permanentWorktreeCreated: '已创建永久 worktree',
+  permanentWorktreeFailed: '创建永久 worktree 失败',
+  markAllAsRead: '全部标为已读',
   renameAgent: '重命名 Agent',
   renameProject: '重命名项目',
   archiveAgent: '归档',
@@ -1073,6 +1154,10 @@ const ZH_COPY: CodeCopy = {
   noHistoryYet: '还没有历史记录',
   noHistoryDescription: '从主页面移出的 Agent 会出现在这里。',
   historyAgents: 'History Agents',
+  historyPagination: '历史记录分页',
+  historyPageStatus: (page, totalPages, totalItems, hasMore) => `第 ${page} / ${totalPages}${hasMore ? '+' : ''} 页 · 已载入 ${totalItems} 条`,
+  previousPage: '上一页',
+  nextPage: '下一页',
   agentSessions: 'Agent 会话',
   recentWorkspaces: '最近工作区',
   agentsSessionsSummary: (agents, sessions) => `${agents} 个 Agent · ${sessions} 个会话`,
@@ -1085,7 +1170,7 @@ const ZH_COPY: CodeCopy = {
   showMore: '显示更多',
   showLess: '收起',
   showAgents: '展开 Agent',
-  collapseAgents: '完全收起',
+  hideAgents: '隐藏 Agent',
   latest: '最新',
   upgrade: '升级',
   updating: '更新中',
@@ -1272,6 +1357,14 @@ const ZH_COPY: CodeCopy = {
   otherAgents: 'Shell',
   workspace: '工作区：',
   workspacePathPlaceholder: '/工作区/路径',
+  chooseWorkspaceDirectory: '选择工作区目录',
+  workspaceDirectoryBrowserFailed: '无法读取这个目录。',
+  workspaceDirectoryBrowserHostHint: '浏览 Farming Host 上的目录。',
+  workspaceDirectoryBrowserGo: '转到目录',
+  workspaceDirectoryBrowserParent: '上级目录',
+  workspaceDirectoryBrowserEmpty: '没有子目录。',
+  workspaceDirectoryBrowserTruncated: '仅显示前 500 个目录，请输入更具体的路径继续浏览。',
+  workspaceDirectoryBrowserSelect: '选择此目录',
   workspaceMissingTitle: '创建这个工作区？',
   workspaceMissingDescription: '这个目录尚不存在。Farming 可以创建目录，并在其中启动 Agent。',
   workspaceCreateAndStart: '创建并启动',

@@ -35,6 +35,7 @@ function run() {
     assert.strictEqual(settings.lastMainWorkspace, farmingDir);
     assert.deepStrictEqual(settings.workspaceHistory, []);
     assert.deepStrictEqual(settings.projectWorkspaces, []);
+    assert.deepStrictEqual(settings.pinnedProjectWorkspaces, []);
     assert.deepStrictEqual(settings.projectNames, {});
     assert.deepStrictEqual(settings.mainPageSessionKeys, []);
     assert.strictEqual(settings.appearance, 'light');
@@ -73,6 +74,7 @@ function run() {
       removedSetting: 'legacy-value',
       workspaceHistory: [farmingDir, projectA, projectA, projectB, '/tmp', '/var/tmp/farming-e2e'],
       projectWorkspaces: [projectA, projectA, projectB, farmingDir, '/', path.join(tmpRoot, 'missing')],
+      pinnedProjectWorkspaces: [projectB, projectA, projectB, path.join(tmpRoot, 'missing')],
       projectNames: {
         [projectA]: 'Project A',
         [projectB]: '',
@@ -90,6 +92,7 @@ function run() {
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).crtTerminalFontSize, 16);
     assert.deepStrictEqual(settings.workspaceHistory, [projectA, projectB]);
     assert.deepStrictEqual(settings.projectWorkspaces, [projectA, projectB]);
+    assert.deepStrictEqual(settings.pinnedProjectWorkspaces, [projectB, projectA]);
     assert.deepStrictEqual(settings.projectNames, { [projectA]: 'Project A' });
     assert.strictEqual(settings.lastMainWorkspace, projectMain);
     assert.strictEqual(settings.removedSetting, undefined);

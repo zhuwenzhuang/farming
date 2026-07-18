@@ -77,7 +77,7 @@ import { CodeMainArea } from './code/CodeMainArea'
 import { respondToAcpElicitation, respondToAcpPermission, submitAcpDraft as submitAcpComposerDraft } from './code/acp/acp-composer-behavior'
 import { acpComposerStateAliasKeysForAgent, acpComposerStateKeyForAgent } from './code/acp/acp-composer-state'
 import { MobileShareSheet } from './code/MobileShareSheet'
-import { CodeOverlays } from './code/CodeOverlays'
+import { CodeOverlays, ContextMenuIcon } from './code/CodeOverlays'
 import { CodeSidebar } from './code/CodeSidebar'
 import { AgentHomesSettingsPanel } from './code/AgentHomesSettingsPanel'
 import {
@@ -87,6 +87,7 @@ import {
   isAgentTurnActive,
   isCodexAgentWorking,
   mergeSlashCommands,
+  projectCanDeleteWorktree,
   slashCommandsForAgentKind,
   type SlashCommandOption,
 } from './code/capabilities'
@@ -353,8 +354,7 @@ const DESKTOP_AUTO_COLLAPSE_WIDTH = 900
 const TERMINAL_PATH_SEARCH_LIMIT = 12
 const OPEN_FILE_REFRESH_CONCURRENCY = 4
 const OPEN_FILE_REFRESH_TIMEOUT_MS = 15_000
-const MOBILE_PROJECT_CONTEXT_MENU_WIDTH = 214
-const MOBILE_PROJECT_CONTEXT_MENU_HEIGHT = 122
+const MOBILE_PROJECT_CONTEXT_MENU_WIDTH = 286
 const AGENT_SESSION_PAGE_SIZE = 60
 const AGENT_SESSION_SEARCH_LIMIT = 1000
 const AGENT_SESSION_SEARCH_DEBOUNCE_MS = 150
@@ -594,6 +594,10 @@ export function CodeWorkspace({
   const projectWorkspacesRef = useRef<string[]>([])
   const projectWorkspacesMutationRef = useRef(0)
   const projectWorkspacesSaveChainRef = useRef<Promise<void>>(Promise.resolve())
+  const [pinnedProjectWorkspaces, setPinnedProjectWorkspaces] = useState<string[]>([])
+  const pinnedProjectWorkspacesRef = useRef<string[]>([])
+  const pinnedProjectWorkspacesMutationRef = useRef(0)
+  const pinnedProjectWorkspacesSaveChainRef = useRef<Promise<void>>(Promise.resolve())
   const projectWorkspaceAutoMountAttemptsRef = useRef<Set<string>>(new Set())
   const [projectNames, setProjectNames] = useState<Record<string, string>>({})
   const [agentLaunchOptions, setAgentLaunchOptions] = useState<AgentLaunchOption[]>([])
@@ -850,8 +854,9 @@ export function CodeWorkspace({
       openWorkspaceFiles,
       visibleAgents,
       projectWorkspaces,
+      pinnedProjectWorkspaces,
     ),
-    [openWorkspaceFiles, projectNames, projectWorkspaces, sidebarAgentSessions, visibleAgents, visibleLiveAgents]
+    [openWorkspaceFiles, pinnedProjectWorkspaces, projectNames, projectWorkspaces, sidebarAgentSessions, visibleAgents, visibleLiveAgents]
   )
   const projects = useMemo(() => limitProjectAgentSessions(
     projectListProjects,
@@ -866,8 +871,9 @@ export function CodeWorkspace({
       openWorkspaceFiles,
       visibleAgents,
       projectWorkspaces,
+      pinnedProjectWorkspaces,
     ),
-    [openWorkspaceFiles, projectNames, projectWorkspaces, searchableAgentSessions, visibleAgents, visibleLiveAgents]
+    [openWorkspaceFiles, pinnedProjectWorkspaces, projectNames, projectWorkspaces, searchableAgentSessions, visibleAgents, visibleLiveAgents]
   )
   const normalizedSearch = searchQuery.trim().toLowerCase()
   const hasSearchQuery = normalizedSearch.length > 0
@@ -1261,6 +1267,7 @@ export function CodeWorkspace({
           setMainPageSessionKeys(new Set(normalizeMainPageSessionKeys(settings.mainPageSessionKeys ?? [])))
         }
         setProjectWorkspaces(normalizeProjectWorkspaces(settings.projectWorkspaces))
+        setPinnedProjectWorkspaces(normalizeProjectWorkspaces(settings.pinnedProjectWorkspaces))
         setProjectWorkspacesLoaded(true)
         setProjectNames(normalizeProjectNames(settings.projectNames))
         applyLaunchSettings(settings)
@@ -1415,30 +1422,31 @@ export function CodeWorkspace({
     agentSessionsRefreshInFlightRef.current = refresh
     return refresh
   }, [fetchAgentSessions])
-  const loadMoreAgentSessions = useCallback(() => {
-    if (!agentSessionsHasMore || !agentSessionNextCursor || agentSessionsLoadingRef.current) return
+  const loadMoreAgentSessions = useCallback(async () => {
+    if (!agentSessionsHasMore || !agentSessionNextCursor || agentSessionsLoadingRef.current) return false
     agentSessionsLoadingRef.current = true
-    fetchAgentSessions({ cursor: agentSessionNextCursor })
-      .then(page => {
-        setAgentSessions(current => {
-          const seen = new Set(current.map(agentSessionId))
-          const next = [...current]
-          page.sessions.forEach(session => {
-            const sessionId = agentSessionId(session)
-            if (seen.has(sessionId)) return
-            seen.add(sessionId)
-            next.push(session)
-          })
-          agentSessionLoadedCountRef.current = Math.max(AGENT_SESSION_PAGE_SIZE, next.length)
-          return next
+    try {
+      const page = await fetchAgentSessions({ cursor: agentSessionNextCursor })
+      setAgentSessions(current => {
+        const seen = new Set(current.map(agentSessionId))
+        const next = [...current]
+        page.sessions.forEach(session => {
+          const sessionId = agentSessionId(session)
+          if (seen.has(sessionId)) return
+          seen.add(sessionId)
+          next.push(session)
         })
-        setAgentSessionNextCursor(page.nextCursor)
-        setAgentSessionsHasMore(page.hasMore)
+        agentSessionLoadedCountRef.current = Math.max(AGENT_SESSION_PAGE_SIZE, next.length)
+        return next
       })
-      .catch(() => {})
-      .finally(() => {
-        agentSessionsLoadingRef.current = false
-      })
+      setAgentSessionNextCursor(page.nextCursor)
+      setAgentSessionsHasMore(page.hasMore)
+      return page.sessions.length > 0
+    } catch {
+      return false
+    } finally {
+      agentSessionsLoadingRef.current = false
+    }
   }, [agentSessionNextCursor, agentSessionsHasMore, fetchAgentSessions])
 
   useEffect(() => {
@@ -2269,6 +2277,10 @@ export function CodeWorkspace({
     projectWorkspacesRef.current = projectWorkspaces
   }, [projectWorkspaces])
 
+  useEffect(() => {
+    pinnedProjectWorkspacesRef.current = pinnedProjectWorkspaces
+  }, [pinnedProjectWorkspaces])
+
   const persistProjectWorkspaces = useCallback((nextProjects: string[], rollbackProjects: string[]) => {
     const normalized = normalizeProjectWorkspaces(nextProjects)
     const mutationId = projectWorkspacesMutationRef.current += 1
@@ -2294,6 +2306,35 @@ export function CodeWorkspace({
         const rollback = normalizeProjectWorkspaces(rollbackProjects)
         projectWorkspacesRef.current = rollback
         setProjectWorkspaces(rollback)
+        setCopyNotice({ id: Date.now(), kind: 'error', message: copy.copyFailed })
+      })
+  }, [copy.copyFailed])
+
+  const persistPinnedProjectWorkspaces = useCallback((nextProjects: string[], rollbackProjects: string[]) => {
+    const normalized = normalizeProjectWorkspaces(nextProjects)
+    const mutationId = pinnedProjectWorkspacesMutationRef.current += 1
+    pinnedProjectWorkspacesRef.current = normalized
+    setPinnedProjectWorkspaces(normalized)
+    pinnedProjectWorkspacesSaveChainRef.current = pinnedProjectWorkspacesSaveChainRef.current
+      .catch(() => {})
+      .then(async () => {
+        const response = await fetch(appPath('/api/settings'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pinnedProjectWorkspaces: normalized }),
+        })
+        if (!response.ok) throw new Error(`settings request failed (${response.status})`)
+        const data = await response.json() as { settings?: GlobalSettings }
+        if (mutationId !== pinnedProjectWorkspacesMutationRef.current) return
+        const saved = normalizeProjectWorkspaces(data.settings?.pinnedProjectWorkspaces)
+        pinnedProjectWorkspacesRef.current = saved
+        setPinnedProjectWorkspaces(saved)
+      })
+      .catch(() => {
+        if (mutationId !== pinnedProjectWorkspacesMutationRef.current) return
+        const rollback = normalizeProjectWorkspaces(rollbackProjects)
+        pinnedProjectWorkspacesRef.current = rollback
+        setPinnedProjectWorkspaces(rollback)
         setCopyNotice({ id: Date.now(), kind: 'error', message: copy.copyFailed })
       })
   }, [copy.copyFailed])
@@ -3296,9 +3337,10 @@ export function CodeWorkspace({
     event.preventDefault()
     event.stopPropagation()
     const rect = event.currentTarget.getBoundingClientRect()
-    const estimatedHeight = isMobileTouchViewport()
-      ? MOBILE_PROJECT_CONTEXT_MENU_HEIGHT
-      : estimateContextMenuHeight(3)
+    const project = projectListProjects.find(item => item.id === projectId)
+    const itemCount = project?.hasMain ? 4 : projectCanDeleteWorktree(project) ? 8 : 7
+    const separatorCount = project?.hasMain ? 1 : 2
+    const estimatedHeight = estimateContextMenuHeight(itemCount, separatorCount) + itemCount * 8
     const point = isMobileTouchViewport()
       ? mobileActionMenuPoint(rect, estimatedHeight, undefined, MOBILE_PROJECT_CONTEXT_MENU_WIDTH)
       : outwardContextMenuPoint(rect, estimatedHeight)
@@ -3310,7 +3352,7 @@ export function CodeWorkspace({
       x: point.x,
       y: point.y,
     })
-  }, [])
+  }, [projectListProjects])
 
   const openProjectKeyboardMenu = useCallback((event: ReactKeyboardEvent<HTMLElement>, projectId: string) => {
     if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
@@ -3318,9 +3360,10 @@ export function CodeWorkspace({
     event.preventDefault()
     event.stopPropagation()
     const rect = event.currentTarget.getBoundingClientRect()
-    const estimatedHeight = isMobileTouchViewport()
-      ? MOBILE_PROJECT_CONTEXT_MENU_HEIGHT
-      : estimateContextMenuHeight(3)
+    const project = projectListProjects.find(item => item.id === projectId)
+    const itemCount = project?.hasMain ? 4 : projectCanDeleteWorktree(project) ? 8 : 7
+    const separatorCount = project?.hasMain ? 1 : 2
+    const estimatedHeight = estimateContextMenuHeight(itemCount, separatorCount) + itemCount * 8
     const point = isMobileTouchViewport()
       ? mobileActionMenuPoint(rect, estimatedHeight, undefined, MOBILE_PROJECT_CONTEXT_MENU_WIDTH)
       : outwardContextMenuPoint(rect, estimatedHeight)
@@ -3332,7 +3375,7 @@ export function CodeWorkspace({
       x: point.x,
       y: point.y,
     })
-  }, [])
+  }, [projectListProjects])
 
   const openAgentSessionContextMenu = useCallback((event: ReactMouseEvent<HTMLElement>, provider: string, sessionId: string) => {
     event.preventDefault()
@@ -3991,6 +4034,89 @@ export function CodeWorkspace({
     }
   }, [activeComposerKey, focusComposerTextarea, speechListening, speechSupported, uiPreferences.language, updateComposerStateForKey])
 
+  const toggleContextProjectPinned = useCallback(() => {
+    if (!contextMenuProject?.workspace) return
+    const projectId = contextMenuProject.id
+    const workspace = contextMenuProject.workspace
+    const previous = pinnedProjectWorkspacesRef.current
+    const next = contextMenuProject.pinned
+      ? previous.filter(projectWorkspace => projectWorkspace !== workspace)
+      : [...previous.filter(projectWorkspace => projectWorkspace !== workspace), workspace]
+    setProjectMenu(null)
+    setOptionsMenu(null)
+    persistPinnedProjectWorkspaces(next, previous)
+    window.requestAnimationFrame(() => focusProjectTitle(projectId))
+  }, [contextMenuProject, focusProjectTitle, persistPinnedProjectWorkspaces])
+
+  const revealContextProject = useCallback(async () => {
+    if (!contextMenuProject?.workspace) return
+    const projectId = contextMenuProject.id
+    const rootId = projectFilesWorkspaceId(contextMenuProject.workspace)
+    setProjectMenu(null)
+    setOptionsMenu(null)
+    try {
+      const response = await fetch(appPath('/api/projects/reveal'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rootId }),
+      })
+      const result = await response.json().catch(() => null) as { error?: string } | null
+      if (!response.ok) throw new Error(result?.error || copy.revealInFinderFailed)
+    } catch (error) {
+      setCopyNotice({
+        id: Date.now(),
+        kind: 'error',
+        message: error instanceof Error ? error.message : copy.revealInFinderFailed,
+      })
+    }
+    focusProjectTitle(projectId)
+  }, [contextMenuProject, copy.revealInFinderFailed, focusProjectTitle])
+
+  const createContextProjectPermanentWorktree = useCallback(async () => {
+    if (!contextMenuProject?.workspace) return
+    const projectId = contextMenuProject.id
+    const rootId = projectFilesWorkspaceId(contextMenuProject.workspace)
+    setProjectMenu(null)
+    setOptionsMenu(null)
+    try {
+      await projectWorkspacesSaveChainRef.current.catch(() => {})
+      const response = await fetch(appPath('/api/projects/create-worktree'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rootId }),
+      })
+      const result = await response.json().catch(() => null) as {
+        error?: string
+        projectWorkspaces?: string[]
+        workspace?: string
+      } | null
+      if (!response.ok) throw new Error(result?.error || copy.permanentWorktreeFailed)
+      const saved = normalizeProjectWorkspaces(result?.projectWorkspaces)
+      projectWorkspacesMutationRef.current += 1
+      projectWorkspacesRef.current = saved
+      setProjectWorkspaces(saved)
+      setCopyNotice({ id: Date.now(), kind: 'success', message: copy.permanentWorktreeCreated })
+    } catch (error) {
+      setCopyNotice({
+        id: Date.now(),
+        kind: 'error',
+        message: error instanceof Error ? error.message : copy.permanentWorktreeFailed,
+      })
+    }
+    focusProjectTitle(projectId)
+  }, [contextMenuProject, copy.permanentWorktreeCreated, copy.permanentWorktreeFailed, focusProjectTitle])
+
+  const markContextProjectRead = useCallback(() => {
+    if (!contextMenuProject) return
+    const projectId = contextMenuProject.id
+    contextMenuProject.agents.forEach(agent => {
+      if (agent.unread) markAgentReadIfNeeded(agent.id, true)
+    })
+    setProjectMenu(null)
+    setOptionsMenu(null)
+    focusProjectTitle(projectId)
+  }, [contextMenuProject, focusProjectTitle, markAgentReadIfNeeded])
+
   const archiveContextProject = useCallback(() => {
     if (!contextMenuProject) return
 
@@ -4028,10 +4154,17 @@ export function CodeWorkspace({
       previous.filter(workspace => workspace !== contextMenuProject.workspace),
       previous,
     )
+    const previousPinned = pinnedProjectWorkspacesRef.current
+    if (previousPinned.includes(contextMenuProject.workspace)) {
+      persistPinnedProjectWorkspaces(
+        previousPinned.filter(workspace => workspace !== contextMenuProject.workspace),
+        previousPinned,
+      )
+    }
     setProjectMenu(null)
     setOptionsMenu(null)
     restoreProjectListFocusRef.current = 'list'
-  }, [contextMenuProject, persistProjectWorkspaces])
+  }, [contextMenuProject, persistPinnedProjectWorkspaces, persistProjectWorkspaces])
 
   const deleteContextWorktree = useCallback(() => {
     if (!contextMenuProject) return
@@ -4061,10 +4194,17 @@ export function CodeWorkspace({
         previous.filter(workspace => workspace !== dialog.workspace),
         previous,
       )
+      const previousPinned = pinnedProjectWorkspacesRef.current
+      if (previousPinned.includes(dialog.workspace)) {
+        persistPinnedProjectWorkspaces(
+          previousPinned.filter(workspace => workspace !== dialog.workspace),
+          previousPinned,
+        )
+      }
       restoreProjectListFocusRef.current = 'list'
       setDeleteWorktreeDialog(null)
     }
-  }, [deleteWorktreeDialog, onDeleteForkWorktreeProject, persistProjectWorkspaces, removeMainPageAgentSessions])
+  }, [deleteWorktreeDialog, onDeleteForkWorktreeProject, persistPinnedProjectWorkspaces, persistProjectWorkspaces, removeMainPageAgentSessions])
 
   const closeContextMenuAndRestoreFocus = useCallback(() => {
     const agentId = agentMenu?.agentId
@@ -4617,6 +4757,7 @@ export function CodeWorkspace({
         const settings = data.settings ?? {}
         setWorkspaceHistory(buildWorkspaceHistory(settings.lastMainWorkspace, settings.workspaceHistory ?? []))
         setProjectWorkspaces(normalizeProjectWorkspaces(settings.projectWorkspaces))
+        setPinnedProjectWorkspaces(normalizeProjectWorkspaces(settings.pinnedProjectWorkspaces))
         setProjectWorkspacesLoaded(true)
         setProjectNames(normalizeProjectNames(settings.projectNames))
         if (loadMutationVersion === mainPageSessionKeysMutationRef.current) {
@@ -5252,6 +5393,10 @@ export function CodeWorkspace({
             providerHomeId: contextMenuAgentSession.providerHomeId,
           })
         }}
+        onToggleProjectPinned={toggleContextProjectPinned}
+        onRevealProject={revealContextProject}
+        onCreatePermanentWorktree={createContextProjectPermanentWorktree}
+        onMarkProjectRead={markContextProjectRead}
         onArchiveProject={archiveContextProject}
         onRemoveProject={removeContextProject}
         onDeleteWorktree={deleteContextWorktree}
@@ -5298,7 +5443,7 @@ function CodexMenuEntries({ entries }: { entries: ContextMenuEntry[] }) {
             )}
             {entry.icon && (
               <span className="code-context-menu-icon" aria-hidden="true">
-                <CodexMenuIcon kind={entry.icon} />
+                <ContextMenuIcon kind={entry.icon} />
               </span>
             )}
             <span>{entry.label}</span>
@@ -5306,29 +5451,5 @@ function CodexMenuEntries({ entries }: { entries: ContextMenuEntry[] }) {
         )
       })}
     </>
-  )
-}
-
-function CodexMenuIcon({ kind }: { kind: 'rename' | 'archive' | 'trash' }) {
-  if (kind === 'archive') {
-    return (
-      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-        <path fill="currentColor" d="M6.5 8C6.22386 8 6 8.22386 6 8.5C6 8.77614 6.22386 9 6.5 9H9.5C9.77614 9 10 8.77614 10 8.5C10 8.22386 9.77614 8 9.5 8H6.5ZM1 3.5C1 2.67157 1.67157 2 2.5 2H13.5C14.3284 2 15 2.67157 15 3.5V4.5C15 5.15311 14.5826 5.70873 14 5.91465V11.5C14 12.8807 12.8807 14 11.5 14H4.5C3.11929 14 2 12.8807 2 11.5V5.91465C1.4174 5.70873 1 5.15311 1 4.5V3.5ZM2.5 3C2.22386 3 2 3.22386 2 3.5V4.5C2 4.77614 2.22386 5 2.5 5H13.5C13.7761 5 14 4.77614 14 4.5V3.5C14 3.22386 13.7761 3 13.5 3H2.5ZM3 6V11.5C3 12.3284 3.67157 13 4.5 13H11.5C12.3284 13 13 12.3284 13 11.5V6H3Z" />
-      </svg>
-    )
-  }
-
-  if (kind === 'trash') {
-    return (
-      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-        <path fill="currentColor" d="M6.25 2h3.5l.5 1H13v1H3V3h2.75l.5-1ZM4.2 5h7.6l-.48 8.1A1 1 0 0 1 10.32 14H5.68a1 1 0 0 1-1-.9L4.2 5Zm2.05 1 .35 7h.95L7.2 6h-.95Zm2.2 0v7h.95V6h-.95Z" />
-      </svg>
-    )
-  }
-
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path fill="currentColor" d="M11.3536 1.64645C10.963 1.25592 10.3299 1.25592 9.93934 1.64645L3.14645 8.43934C3.05268 8.53311 2.99999 8.66029 2.99999 8.79289V11.5C2.99999 11.7761 3.22385 12 3.49999 12H6.2071C6.33971 12 6.46689 11.9473 6.56066 11.8536L13.3536 5.06066C13.7441 4.67014 13.7441 4.037 13.3536 3.64645L11.3536 1.64645ZM3.99999 9L8.99999 4L11 6L6 11H3.99999V9ZM9.7071 3.29289L10.6464 2.35355L12.6464 4.35355L11.7071 5.29289L9.7071 3.29289ZM2.5 14C2.22386 14 2 14.2239 2 14.5C2 14.7761 2.22386 15 2.5 15H13.5C13.7761 15 14 14.7761 14 14.5C14 14.2239 13.7761 14 13.5 14H2.5Z" />
-    </svg>
   )
 }

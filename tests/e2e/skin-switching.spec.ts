@@ -60,14 +60,15 @@ test('shows the quota reset countdown in the collapsed Code Usage summary', asyn
 
 test('keeps Code Usage to real token sources and renders a compact activity heatmap', async ({ page }) => {
   const sampledAt = Date.now()
-  const bucketMs = 2 * 60 * 1000
-  const points = Array.from({ length: 30 }, (_, index) => {
-    const totalTokens = index === 24 ? 9_000 : index % 7 === 0 ? 2_000 : 0
+  const bucketMs = 60 * 60 * 1000
+  const timelineEndAt = Math.ceil(sampledAt / bucketMs) * bucketMs
+  const points = Array.from({ length: 24 }, (_, index) => {
+    const totalTokens = index === 18 ? 1_500_000_000 : index % 6 === 0 ? 2_000 : 0
     return {
-      startedAt: sampledAt - (30 - index) * bucketMs,
-      endedAt: sampledAt - (29 - index) * bucketMs,
+      startedAt: timelineEndAt - (24 - index) * bucketMs,
+      endedAt: timelineEndAt - (23 - index) * bucketMs,
       totalTokens,
-      tokensPerMinute: totalTokens / 2,
+      tokensPerMinute: totalTokens / 60,
       providers: { codex: totalTokens },
     }
   })
@@ -80,11 +81,39 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
       String(dailyCursor.getMonth() + 1).padStart(2, '0'),
       String(dailyCursor.getDate()).padStart(2, '0'),
     ].join('-')
-    const totalTokens = index === 350 ? 1_234_567 : index % 5 === 0 ? index * 1_000 : 0
+    const totalTokens = index === 0
+      ? 1_000_000_000
+      : index >= 52 * 7 - 7
+        ? 250_000_000
+        : index >= 52 * 7 - 14
+          ? 100_000_000
+          : 0
+    const cacheReadTokens = index >= 52 * 7 - 7 ? 50_000_000 : 0
+    const cacheWriteTokens = index >= 52 * 7 - 7 ? 25_000_000 : 0
     dailyCursor.setDate(dailyCursor.getDate() + 1)
-    return { date, totalTokens, providers: { codex: { totalTokens } } }
+    return {
+      date,
+      totalTokens,
+      inputTokens: Math.max(0, totalTokens - cacheReadTokens - cacheWriteTokens),
+      outputTokens: 0,
+      cacheReadTokens,
+      cacheWriteTokens,
+      unattributedTokens: 0,
+      providers: {
+        codex: {
+          totalTokens,
+          inputTokens: Math.max(0, totalTokens - cacheReadTokens - cacheWriteTokens),
+          outputTokens: 0,
+          cacheReadTokens,
+          cacheWriteTokens,
+          unattributedTokens: 0,
+        },
+      },
+    }
   })
-  const peakDailyPoint = dailyPoints[350]!
+  const peakDailyPoint = dailyPoints.reduce((peak, point) => (
+    point.totalTokens > peak.totalTokens ? point : peak
+  ), dailyPoints[0]!)
 
   await page.route(/\/api\/usage(?:\?|$)/, async route => {
     await route.fulfill({
@@ -97,14 +126,14 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
           timeline: {
             source: 'local provider token events',
             sampledAt,
-            startAt: sampledAt - 60 * 60 * 1000,
-            endAt: sampledAt,
-            windowMs: 60 * 60 * 1000,
+            startAt: timelineEndAt - 24 * 60 * 60 * 1000,
+            endAt: timelineEndAt,
+            windowMs: 24 * 60 * 60 * 1000,
             bucketMs,
             bucketCount: points.length,
             totalTokens: points.reduce((sum, point) => sum + point.totalTokens, 0),
-            averageTokensPerMinute: 300,
-            peakTokensPerMinute: 4_500,
+            averageTokensPerMinute: 1_042_000,
+            peakTokensPerMinute: 25_000_000,
             activeBucketCount: points.filter(point => point.totalTokens > 0).length,
             points,
           },
@@ -176,21 +205,72 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
 
   const heatmap = panel.getByTestId('code-usage-heatmap')
   await expect(heatmap).toBeVisible()
-  await expect(heatmap.locator('.code-usage-heatmap-cell')).toHaveCount(30)
+  await expect(panel.getByText('1d · activity', { exact: true })).toBeVisible()
+  await expect(panel.getByText('1h buckets', { exact: true })).toBeVisible()
+  await expect(heatmap.locator('.code-usage-heatmap-cell')).toHaveCount(24)
   await expect(heatmap.locator(".code-usage-heatmap-cell[data-level='5']")).toHaveCount(1)
+  await expect(panel.getByTestId('code-usage-time-axis').locator('span')).toHaveCount(5)
+  await expect(panel.getByTestId('code-usage-time-axis').locator('span')).toHaveText([
+    /^\d{2}:00$/,
+    /^\d{2}:00$/,
+    /^\d{2}:00$/,
+    /^\d{2}:00$/,
+    /^\d{2}:00$/,
+  ])
+  await expect(panel.getByTestId('code-usage-activity-readout')).toHaveText('1d 1.5B · 7d 1.8B · 52w 3.5B')
+  await expect.poll(() => panel.getByTestId('code-usage-activity-readout').evaluate(element => getComputedStyle(element).fontSize)).toBe('13px')
 
-  const peakHourCell = heatmap.locator(`[data-start="${points[24]!.startedAt}"]`)
-  await expect(peakHourCell).toHaveAttribute('title', /9,000 tokens/)
+  const peakHourCell = heatmap.locator(`[data-start="${points[18]!.startedAt}"]`)
+  await expect(peakHourCell).toHaveAttribute('title', /1,500,000,000 tokens/)
   await peakHourCell.hover()
-  await expect(panel.getByTestId('code-usage-activity-readout')).toContainText('9,000 tokens')
+  await expect(panel.getByTestId('code-usage-activity-readout')).toContainText('1,500,000,000 tokens')
 
   const dailyHeatmap = panel.getByTestId('code-usage-daily-heatmap')
   await expect(dailyHeatmap).toBeVisible()
   await expect(dailyHeatmap.locator('.code-usage-daily-heatmap-cell')).toHaveCount(52 * 7)
+  await expect(dailyHeatmap.locator(".code-usage-daily-heatmap-cell[data-recent='true']")).toHaveCount(7)
   const peakDayCell = dailyHeatmap.locator(`[data-date="${peakDailyPoint.date}"]`)
-  await expect(peakDayCell).toHaveAttribute('title', `${peakDailyPoint.date} · 1,234,567 tokens`)
+  await expect(peakDayCell).toHaveAttribute('title', `${peakDailyPoint.date} · 1,000,000,000 tokens`)
+  await expect(peakDayCell).toHaveAttribute('data-peak', 'true')
   await peakDayCell.hover()
-  await expect(panel.getByTestId('code-usage-activity-readout')).toHaveText(`${peakDailyPoint.date} · 1,234,567 tokens`)
+  await expect(panel.getByTestId('code-usage-activity-readout')).toHaveText(`${peakDailyPoint.date} · 1,000,000,000 tokens`)
+
+  await panel.getByTestId('code-usage-open-day').click()
+  const detail = page.getByTestId('code-usage-detail-dialog')
+  await expect(detail).toBeVisible()
+  await expect(detail.getByTestId('code-usage-detail-day-tab')).toHaveAttribute('aria-selected', 'true')
+  await expect(detail.getByText('24-hour tokens', { exact: true })).toBeVisible()
+  await expect(detail.getByText('Peak hour', { exact: true })).toBeVisible()
+  await expect.poll(() => detail.getByTestId('code-usage-heatmap').locator('.code-usage-heatmap-cell').first().evaluate(element => getComputedStyle(element).height)).toBe('28px')
+
+  await detail.getByTestId('code-usage-detail-year-tab').click()
+  await expect(detail.getByTestId('code-usage-detail-year-tab')).toHaveAttribute('aria-selected', 'true')
+  const dayHighlight = detail.getByTestId('code-usage-detail-day-highlight')
+  await expect(dayHighlight).toHaveAttribute('data-state', 'peak')
+  await expect(dayHighlight).toContainText('Top')
+  await expect(dayHighlight).toContainText('1B')
+  const selectedDailyPoint = dailyPoints.at(-1)!
+  const detailDailyHeatmap = detail.getByTestId('code-usage-daily-heatmap')
+  const selectedDayCell = detailDailyHeatmap.locator(`[data-date="${selectedDailyPoint.date}"]`)
+  await selectedDayCell.hover()
+  await expect(selectedDayCell).toHaveAttribute('data-selected', 'true')
+  await expect(dayHighlight).toHaveAttribute('data-state', 'selected')
+  await expect(dayHighlight).toContainText('250M')
+  await expect(dayHighlight).toContainText('tokens')
+  await expect(detail.getByTestId('code-usage-detail-readout')).toHaveText(
+    `${selectedDailyPoint.date} · 250,000,000 tokens`,
+  )
+  await expect(detail.getByText('Last 7 days', { exact: true })).toBeVisible()
+  await expect(detail.getByText('Previous 7 days', { exact: true })).toBeVisible()
+  await expect(detail.getByText('7-day cache share', { exact: true })).toBeVisible()
+  await expect(detail.getByText('30%', { exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(detail).toHaveCount(0)
+
+  await panel.getByTestId('code-usage-open-year').click()
+  await expect(page.getByTestId('code-usage-detail-year-tab')).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('button', { name: 'Close usage activity' }).click()
+  await expect(page.getByTestId('code-usage-detail-dialog')).toHaveCount(0)
 })
 
 test('switches from Farming Code to the same Agent in Farming CRT', async ({ page, workspaceRoot }) => {

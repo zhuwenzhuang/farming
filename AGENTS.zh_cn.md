@@ -300,7 +300,7 @@ farming/
 │   │
 │   ├── network.js         # 本机内网 IPv4 探测
 │   ├── executable-discovery.js # CLI agent 可执行项发现
-│   │   - Codex 优先使用 `FARMING_CODEX_BIN` / `/Applications/Codex.app/Contents/Resources/codex` / process.env.PATH 中兼容 session `cli_version` 的可执行文件
+│   │   - Codex 优先使用 `FARMING_CODEX_BIN` / `Codex.app` 或 `ChatGPT.app` 内置 CLI / process.env.PATH 中兼容 session `cli_version` 的可执行文件
 │   │   - 测试可用 `FARMING_CODEX_BIN` 指向 fake Codex
 │   │   - 通过 X_OK 判断可执行文件
 │   │
@@ -648,6 +648,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - **lastMainWorkspace**：Main Agent 上次启动使用的工作空间；缺省时 UI 默认填 `~/.farming`
 - **workspaceHistory**：New Agent 最近使用的工作空间历史，最多保留 5 条，供启动对话框下拉和方向键选择；不存在的目录不得进入历史记录，手动填错路径必须通过错误提示反馈给用户；不得包含 Farming 内部目录（如 `~/.farming`）
 - **projectWorkspaces**：Projects 主页面的持久 workspace 成员清单；Agent、文件、恢复的 Project 会话和 Git worktree 入口都写入同一种 Project 身份，只有 Remove Project 才删除
+- **pinnedProjectWorkspaces**：有序的 Project 置顶队列；置顶 Project 整体排在普通 Project 前，新置顶项追加到已有置顶项末尾，取消置顶后恢复普通 Project 顺序
 - **theme**：UI 主题名称（默认：terminal）
 - **heartbeatInterval**：心跳检测和系统监控间隔（单位：毫秒，默认：1000）
 - **dangerouslySkipAgentPermissionsByDefault**：是否默认让支持的 coding agent（如 Codex、Claude、OpenCode、Qoder、Qwen、Aider、GitHub Copilot CLI、Amazon Q）使用各自最激进的权限绕过启动 flag
@@ -836,7 +837,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
   - 非 Projects 主视图支持 `Escape` 返回 Projects
   - 桌面端 Projects 左侧栏可通过分隔拖拽条调整宽度
   - Agent terminal 作为嵌入式 pane 常驻显示，但主区一次只显示当前 active session；其他 session 保留在左侧列表里，不再依赖必须关闭的 modal 或顶部标签
-  - 左侧 Project 行右键菜单提供 Open First Agent / Open First Session、New Agent in Project、Collapse/Expand Project、Move Project to History；左侧 Agent 行右键菜单提供 Open Terminal、Pin/Unpin、Rename Agent、Move to History、Mark as unread/read、New Agent in Project、Copy working directory、Fork into same worktree、Fork into new worktree、Close Terminal、Kill Agent 等真实操作；左侧 Agent session 行右键菜单仅提供 Open Session 和 Copy working directory；Close Terminal 不会终止 agent
+  - 左侧 Project 行的眼睛按钮只隐藏或展示该 Project 的 Agent 列表，Files 保持独立；`...` 菜单提供 Pin/Unpin Project、Reveal in Finder、Create permanent worktree、Rename project、Mark all as read、Archive chats 和 Remove，Farming 生成的 fork worktree 另提供永久删除；左侧 Agent 行右键菜单提供 Open Terminal、Pin/Unpin、Rename Agent、Move to History、Mark as unread/read、New Agent in Project、Copy working directory、Fork into same worktree、Fork into new worktree、Close Terminal、Kill Agent 等真实操作；左侧 Agent session 行右键菜单仅提供 Open Session 和 Copy working directory；Close Terminal 不会终止 agent
   - terminal pane 可用浏览器 resize handle 调整大小，显性 terminal chrome 保持极简
   - 旧终端风格 UI、Agent 方块展示和 Session 弹窗组件保留为 legacy/reference 能力
   - 全键盘操作支持

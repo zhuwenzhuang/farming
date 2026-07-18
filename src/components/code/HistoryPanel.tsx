@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { agentTitle, formatRelativeAge } from '@/lib/format'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
-import { ArrowRightGlyph, CloseGlyph, ExternalLinkGlyph, SearchGlyph } from '@/components/IconGlyphs'
+import {
+  ArrowRightGlyph,
+  ChevronLeftGlyph,
+  ChevronRightGlyph,
+  CloseGlyph,
+  ExternalLinkGlyph,
+  SearchGlyph,
+} from '@/components/IconGlyphs'
 import {
   agentSessionId,
   agentSessionUpdatedAt,
@@ -29,10 +36,13 @@ interface HistoryPanelProps {
   onOpenArchivedAgent: (agentId: string) => void
   onRestoreArchivedAgent: (agentId: string) => void
   searchAgentSessions: (query: string, signal: AbortSignal) => Promise<AgentSessionHistoryItem[]>
+  canLoadMoreAgentSessions: boolean
+  onLoadMoreAgentSessions: () => boolean | Promise<boolean>
   copy: CodeCopy
 }
 
 const HISTORY_SEARCH_DEBOUNCE_MS = 150
+const HISTORY_PAGE_SIZE = 12
 
 function normalizeHistoryProvider(provider?: string) {
   const value = String(provider || '').trim().toLowerCase()
@@ -226,6 +236,20 @@ export function filterHistoryAgentItems(items: HistoryAgentItem[], query: string
   })
 }
 
+export function getHistoryAgentPage(items: HistoryAgentItem[], page: number, pageSize = HISTORY_PAGE_SIZE) {
+  const size = Math.max(1, Math.floor(pageSize))
+  const totalPages = Math.max(1, Math.ceil(items.length / size))
+  const currentPage = Math.max(0, Math.min(totalPages - 1, Math.floor(page)))
+  const start = currentPage * size
+  return {
+    items: items.slice(start, start + size),
+    page: currentPage,
+    pageSize: size,
+    totalItems: items.length,
+    totalPages,
+  }
+}
+
 export function HistoryPanel({
   archivedRuns,
   archivedAgents,
@@ -236,9 +260,13 @@ export function HistoryPanel({
   onOpenArchivedAgent,
   onRestoreArchivedAgent,
   searchAgentSessions,
+  canLoadMoreAgentSessions,
+  onLoadMoreAgentSessions,
   copy,
 }: HistoryPanelProps) {
   const [query, setQuery] = useState('')
+  const [page, setPage] = useState(0)
+  const [loadingNextPage, setLoadingNextPage] = useState(false)
   const normalizedQuery = query.trim()
   const hasQuery = Boolean(normalizedQuery)
   const [searchState, setSearchState] = useState<{
@@ -253,6 +281,7 @@ export function HistoryPanel({
     hasQuery ? mergeHistoryAgentSessions(agentSessions, searchedSessions) : agentSessions
   )
   const displayedHistoryAgents = filterHistoryAgentItems(historyAgents, normalizedQuery)
+  const historyPage = getHistoryAgentPage(displayedHistoryAgents, page)
   const totalHistoryItems = historyAgents.length
   const searchLoading = hasQuery && (
     searchState.query !== normalizedQuery || searchState.loading
@@ -286,6 +315,30 @@ export function HistoryPanel({
       controller.abort()
     }
   }, [normalizedQuery, searchAgentSessions])
+
+  useEffect(() => {
+    setPage(0)
+  }, [normalizedQuery])
+
+  useEffect(() => {
+    if (page !== historyPage.page) setPage(historyPage.page)
+  }, [historyPage.page, page])
+
+  const showNextPage = async () => {
+    const nextPage = historyPage.page + 1
+    if (nextPage < historyPage.totalPages) {
+      setPage(nextPage)
+      return
+    }
+    if (!canLoadMoreAgentSessions || loadingNextPage) return
+
+    setLoadingNextPage(true)
+    try {
+      if (await onLoadMoreAgentSessions()) setPage(nextPage)
+    } finally {
+      setLoadingNextPage(false)
+    }
+  }
 
   return (
     <div className="code-history-panel" data-testid="code-history-panel">
@@ -327,7 +380,7 @@ export function HistoryPanel({
       ) : (
         <div className="code-history-list">
           <section className="code-history-section" data-testid="code-history-agents">
-            {displayedHistoryAgents.map(item => {
+            {historyPage.items.map(item => {
               if (item.kind === 'run') {
                 const { entry } = item
                 return (
@@ -408,6 +461,36 @@ export function HistoryPanel({
               )
             })}
           </section>
+          <nav className="code-history-pagination" data-testid="code-history-pagination" aria-label={copy.historyPagination}>
+            <button
+              type="button"
+              onClick={() => setPage(current => Math.max(0, current - 1))}
+              disabled={historyPage.page === 0}
+              aria-label={copy.previousPage}
+              title={copy.previousPage}
+            >
+              <ChevronLeftGlyph />
+            </button>
+            <span data-testid="code-history-page-status">
+              {copy.historyPageStatus(
+                historyPage.page + 1,
+                historyPage.totalPages,
+                historyPage.totalItems,
+                canLoadMoreAgentSessions
+              )}
+            </span>
+            <button
+              type="button"
+              onClick={() => void showNextPage()}
+              disabled={loadingNextPage || (
+                historyPage.page >= historyPage.totalPages - 1 && !canLoadMoreAgentSessions
+              )}
+              aria-label={copy.nextPage}
+              title={copy.nextPage}
+            >
+              <ChevronRightGlyph />
+            </button>
+          </nav>
         </div>
       )}
     </div>

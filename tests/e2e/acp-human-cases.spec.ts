@@ -71,6 +71,57 @@ test.describe('ACP human-like browser matrix', () => {
     expect(openCode?.providerSessionProvider).toBe('opencode')
   })
 
+  test('keeps Chat reading content on one typography baseline', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-markdown-typography')
+    fs.mkdirSync(workspace, { recursive: true })
+
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    await sendAcpMessage(page, 'markdown typography')
+
+    const turn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'Typography baseline.' })
+    await expect(turn).toBeVisible({ timeout: 15_000 })
+    const metrics = await turn.evaluate(element => {
+      const answer = element.querySelector<HTMLElement>('.code-codex-transcript-assistant.code-markdown-preview')
+      const pre = answer?.querySelector<HTMLElement>('pre')
+      const preCode = pre?.querySelector<HTMLElement>('code')
+      const table = answer?.querySelector<HTMLElement>('table')
+      const header = table?.querySelector<HTMLElement>('th')
+      const quote = answer?.querySelector<HTMLElement>('blockquote')
+      const inlineCode = Array.from(answer?.querySelectorAll<HTMLElement>('code') ?? [])
+        .find(code => !code.closest('pre'))
+      if (!answer || !pre || !preCode || !table || !header || !quote || !inlineCode) {
+        throw new Error('Markdown typography fixtures are incomplete')
+      }
+      return {
+        answerFontSize: getComputedStyle(answer).fontSize,
+        answerLineHeight: getComputedStyle(answer).lineHeight,
+        preFontSize: getComputedStyle(pre).fontSize,
+        preLineHeight: getComputedStyle(pre).lineHeight,
+        preCodeFontSize: getComputedStyle(preCode).fontSize,
+        preCodePaddingLeft: getComputedStyle(preCode).paddingLeft,
+        tableFontSize: getComputedStyle(table).fontSize,
+        headerLineHeight: getComputedStyle(header).lineHeight,
+        quoteFontSize: getComputedStyle(quote).fontSize,
+        inlineCodeFontSize: Number.parseFloat(getComputedStyle(inlineCode).fontSize),
+      }
+    })
+    expect(metrics).toMatchObject({
+      answerFontSize: '14px',
+      answerLineHeight: '20px',
+      preFontSize: '14px',
+      preLineHeight: '20px',
+      preCodeFontSize: '14px',
+      preCodePaddingLeft: '0px',
+      tableFontSize: '14px',
+      headerLineHeight: '20px',
+      quoteFontSize: '14px',
+    })
+    expect(metrics.inlineCodeFontSize).toBeGreaterThanOrEqual(12)
+    expect(metrics.inlineCodeFontSize).toBeLessThan(14)
+  })
+
   test('keeps 53 structured chat interactions coherent across live, history, security, and runtime switching', async ({ page, workspaceRoot }) => {
     test.setTimeout(150_000)
     const workspace = path.join(workspaceRoot, 'acp-human-cases')
@@ -187,6 +238,11 @@ test.describe('ACP human-like browser matrix', () => {
       await richTurn.locator('.code-codex-transcript-result-file').getByText('display-fixture.txt', { exact: true }).click()
       await expect(richTurn.locator('.code-codex-transcript-result-diff')).toContainText('+after')
 
+    })
+    await test.step('23b keep expanded supporting content readable but secondary', async () => {
+      await expect(richTurn.locator('.code-acp-progress-update')).toHaveCSS('font-size', '14px')
+      await expect(readItem.locator('.code-codex-transcript-user-file pre')).toHaveCSS('font-size', '13px')
+      await expect(richTurn.locator('.code-codex-transcript-result-diff')).toHaveCSS('font-size', '13px')
     })
     const terminalItem = richTurn.getByTestId('code-codex-transcript-process-item').filter({ hasText: 'Run verification command' })
     await test.step('24 fetch terminal presentation only when expanded', async () => {

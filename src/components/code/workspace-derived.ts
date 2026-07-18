@@ -37,6 +37,7 @@ export function projectListProjectsForAgents(
   openFiles: readonly OpenWorkspaceFile[] = [],
   allAgents: readonly Agent[] = agents,
   projectWorkspaces: readonly string[] = [],
+  pinnedProjectWorkspaces: readonly string[] = [],
 ) {
   const projects = groupAgentsByProject(agents, sessions)
   const projectsByWorkspace = new Map(projects.map(project => [project.workspace, project]))
@@ -92,12 +93,24 @@ export function projectListProjectsForAgents(
     projectsByWorkspace.set(workspace, project)
   })
 
-  return projects.map(project => {
+  const pinnedOrder = new Map(pinnedProjectWorkspaces.map((workspace, index) => [workspace, index]))
+  return projects.map((project, sourceIndex) => {
     const customName = project.workspace ? projectNames[project.workspace]?.trim() : ''
-    return customName && !project.hasMain
+    const namedProject = customName && !project.hasMain
       ? { ...project, name: customName }
       : project
-  })
+    const pinIndex = pinnedOrder.get(project.workspace)
+    return {
+      project: { ...namedProject, pinned: pinIndex !== undefined },
+      pinIndex,
+      sourceIndex,
+    }
+  }).sort((left, right) => {
+    if (left.pinIndex !== undefined && right.pinIndex !== undefined) return left.pinIndex - right.pinIndex
+    if (left.pinIndex !== undefined) return -1
+    if (right.pinIndex !== undefined) return 1
+    return left.sourceIndex - right.sourceIndex
+  }).map(entry => entry.project)
 }
 
 export function displayedProjectsForSearch(

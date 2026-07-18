@@ -10,6 +10,7 @@ import {
   ChevronDownGlyph,
   ChevronLeftGlyph,
   ChevronRightGlyph,
+  CloseGlyph,
   SettingsGlyph,
   SearchGlyph,
 } from '@/components/IconGlyphs'
@@ -55,6 +56,7 @@ import {
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
 import type { AgentLaunchOption } from './agent-launch-options'
 import { AgentLaunchIcon } from './AgentLaunchIcon'
+import { AppModeDialog } from './AppModeDialog'
 import { BrandAboutDialog } from './BrandAboutDialog'
 import { mobileActionMenuPoint, outwardContextMenuPoint } from './menu-position'
 import { ShareQrButton } from './ShareQrButton'
@@ -70,6 +72,17 @@ const DEFAULT_PROJECT_SESSION_LIMIT = 5
 const PROJECT_AGENT_VISIBLE_LIMIT = 5
 const PROJECT_AGENT_DROP_END = '__project_agent_drop_end__'
 type AgentPreviewAnchorEvent = { currentTarget: HTMLElement }
+
+type AppInstallPromptEvent = Event & {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
+}
+
+function isStandaloneAppWindow() {
+  if (typeof window === 'undefined') return false
+  const iosNavigator = navigator as Navigator & { standalone?: boolean }
+  return iosNavigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches
+}
 
 type AgentPreviewTarget = {
   key: string
@@ -278,6 +291,9 @@ export function CodeSidebar({
   const closeBrandDialog = useCallback(() => setBrandDialogOpen(false), [])
   const [focusModeActive, setFocusModeActive] = useState(false)
   const [focusModeSupported, setFocusModeSupported] = useState(false)
+  const [standaloneAppWindow, setStandaloneAppWindow] = useState(isStandaloneAppWindow)
+  const [appModeDialogOpen, setAppModeDialogOpen] = useState(false)
+  const [appInstallPrompt, setAppInstallPrompt] = useState<AppInstallPromptEvent | null>(null)
   const [rootFilesCollapsed, setRootFilesCollapsed] = useState(false)
   const loadMoreNearProjectListEnd = useCallback((element: HTMLDivElement) => {
     if (!canLoadMoreAgentSessions) return
@@ -341,6 +357,26 @@ export function CodeSidebar({
     }
   }, [])
 
+  useEffect(() => {
+    const standaloneQuery = window.matchMedia('(display-mode: standalone)')
+    const updateStandaloneState = () => {
+      const standalone = isStandaloneAppWindow()
+      setStandaloneAppWindow(standalone)
+      if (standalone) setAppModeDialogOpen(false)
+    }
+    const captureInstallPrompt = (event: Event) => {
+      event.preventDefault()
+      setAppInstallPrompt(event as AppInstallPromptEvent)
+    }
+    standaloneQuery.addEventListener('change', updateStandaloneState)
+    window.addEventListener('beforeinstallprompt', captureInstallPrompt)
+    updateStandaloneState()
+    return () => {
+      standaloneQuery.removeEventListener('change', updateStandaloneState)
+      window.removeEventListener('beforeinstallprompt', captureInstallPrompt)
+    }
+  }, [])
+
   const toggleFocusMode = useCallback(() => {
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {})
@@ -348,6 +384,21 @@ export function CodeSidebar({
     }
     document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {})
   }, [])
+  const installApp = useCallback(() => {
+    const prompt = appInstallPrompt
+    if (!prompt) return
+    void prompt.prompt()
+      .then(() => prompt.userChoice)
+      .then(choice => {
+        setAppInstallPrompt(null)
+        if (choice.outcome === 'accepted') setAppModeDialogOpen(false)
+      })
+      .catch(() => setAppInstallPrompt(null))
+  }, [appInstallPrompt])
+  const toggleFocusModeFromDialog = useCallback(() => {
+    setAppModeDialogOpen(false)
+    toggleFocusMode()
+  }, [toggleFocusMode])
   const pinnedItems = displayedProjects
     .flatMap<PinnedSidebarItem>(project => [
       ...project.agents
@@ -426,15 +477,16 @@ export function CodeSidebar({
             {keyboardShortcutsEnabled && <kbd>N</kbd>}
           </button>
           <ShareQrButton copy={copy} sidebarCollapsed={sidebarCollapsed} shareTarget={shareTarget} />
-          {focusModeSupported && !sidebarCollapsed && (
+          {!standaloneAppWindow && !sidebarCollapsed && (
             <button
               type="button"
               className={`code-sidebar-focus-toggle ${focusModeActive ? 'active' : ''}`}
               data-testid="code-sidebar-focus-toggle"
-              aria-label={focusModeActive ? copy.exitFocusMode : copy.enterFocusMode}
-              title={focusModeActive ? copy.exitFocusMode : copy.enterFocusMode}
-              aria-pressed={focusModeActive}
-              onClick={toggleFocusMode}
+              aria-label={copy.appModeOpen}
+              title={copy.appModeOpen}
+              aria-haspopup="dialog"
+              aria-expanded={appModeDialogOpen}
+              onClick={() => setAppModeDialogOpen(true)}
             >
               <span className="code-sidebar-focus-icon">
                 <FocusModeGlyph />
@@ -700,6 +752,17 @@ export function CodeSidebar({
       )}
       {brandDialogOpen && (
         <BrandAboutDialog copy={copy} version={currentVersionLabel} onClose={closeBrandDialog} />
+      )}
+      {appModeDialogOpen && (
+        <AppModeDialog
+          canInstall={Boolean(appInstallPrompt)}
+          canFullscreen={focusModeSupported}
+          fullscreenActive={focusModeActive}
+          copy={copy}
+          onClose={() => setAppModeDialogOpen(false)}
+          onInstall={installApp}
+          onToggleFullscreen={toggleFocusModeFromDialog}
+        />
       )}
     </aside>
   )
@@ -977,6 +1040,10 @@ function formatHeatmapTime(timestamp: number) {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+function formatHeatmapHour(timestamp: number) {
+  return `${String(new Date(timestamp).getHours()).padStart(2, '0')}:00`
+}
+
 function formatExactTokenCount(value: number) {
   return Math.round(value).toLocaleString('en-US')
 }
@@ -987,9 +1054,17 @@ function usageHeatThresholds(values: number[]) {
     .filter(value => value > 0)
     .sort((left, right) => left - right)
   if (!activeValues.length) return []
-  return [0.2, 0.4, 0.6, 0.8].map(quantile => (
-    activeValues[Math.min(activeValues.length - 1, Math.ceil(activeValues.length * quantile) - 1)]!
-  ))
+  const minimum = activeValues[0]!
+  const maximum = activeValues[activeValues.length - 1]!
+  if (minimum === maximum) return [0.2, 0.4, 0.6, 0.8].map(portion => maximum * portion)
+  return [0.2, 0.4, 0.6, 0.8].map(quantile => {
+    const position = (activeValues.length - 1) * quantile
+    const lowerIndex = Math.floor(position)
+    const upperIndex = Math.ceil(position)
+    const lower = activeValues[lowerIndex]!
+    const upper = activeValues[upperIndex]!
+    return lower + (upper - lower) * (position - lowerIndex)
+  })
 }
 
 function usageHeatLevel(value: number, thresholds: number[]) {
@@ -1039,6 +1114,8 @@ type UsageHeatmapInspection = {
   tokens: number
 }
 
+type UsageDetailRange = 'day' | 'year'
+
 function TokenUsageHeatmap({
   usageSummary,
   points,
@@ -1053,41 +1130,55 @@ function TokenUsageHeatmap({
   const total = points.reduce((sum, point) => sum + Number(point.totalTokens), 0)
   const windowLabel = formatUsageWindow(Number(timeline.windowMs) / 60_000).toLowerCase()
   const thresholds = usageHeatThresholds(points.map(point => point.totalTokens))
+  const tickTimes = [0, 0.25, 0.5, 0.75, 1].map(position => (
+    timeline.startAt + (timeline.endAt - timeline.startAt) * position
+  ))
 
   return (
-    <div
-      className="code-usage-heatmap"
-      data-testid="code-usage-heatmap"
-      role="img"
-      aria-label={`Token activity over the last ${windowLabel}, ${formatCompactNumber(total)} tokens`}
-      title={`Local token activity · last ${windowLabel}`}
-    >
-      {points.map((point, index) => {
-        const tokens = Number(point.totalTokens)
-        const label = `${formatHeatmapTime(point.startedAt)}–${formatHeatmapTime(point.endedAt)}`
-        const title = `${label} · ${formatExactTokenCount(tokens)} tokens`
-        return (
-          <span
-            key={`${point.startedAt}-${index}`}
-            className="code-usage-heatmap-cell"
-            data-level={usageHeatLevel(tokens, thresholds)}
-            data-start={point.startedAt}
-            title={title}
-            aria-label={title}
-            onMouseEnter={() => onInspect({ label, tokens })}
-          />
-        )
-      })}
-    </div>
+    <>
+      <div
+        className="code-usage-heatmap"
+        data-testid="code-usage-heatmap"
+        role="img"
+        aria-label={`Token activity over the last ${windowLabel}, ${formatCompactNumber(total)} tokens`}
+        title={`Local token activity · last ${windowLabel}`}
+      >
+        {points.map((point, index) => {
+          const tokens = Number(point.totalTokens)
+          const label = `${formatHeatmapTime(point.startedAt)}–${formatHeatmapTime(point.endedAt)}`
+          const title = `${label} · ${formatExactTokenCount(tokens)} tokens`
+          return (
+            <span
+              key={`${point.startedAt}-${index}`}
+              className="code-usage-heatmap-cell"
+              data-level={usageHeatLevel(tokens, thresholds)}
+              data-start={point.startedAt}
+              title={title}
+              aria-label={title}
+              onMouseEnter={() => onInspect({ label, tokens })}
+            />
+          )
+        })}
+      </div>
+      <div className="code-usage-time-axis" data-testid="code-usage-time-axis" aria-hidden="true">
+        {tickTimes.map((timestamp, index) => (
+          <span key={`${timestamp}-${index}`}>{formatHeatmapHour(timestamp)}</span>
+        ))}
+      </div>
+    </>
   )
 }
 
 function DailyUsageHeatmap({
   points,
   onInspect,
+  inspection = null,
+  showDayHighlight = false,
 }: {
   points: UsageDailyPoint[]
   onInspect: (inspection: UsageHeatmapInspection) => void
+  inspection?: UsageHeatmapInspection | null
+  showDayHighlight?: boolean
 }) {
   const firstDate = parseUsageDate(points[0]!.date)!
   const leadingDays = (firstDate.getDay() + 6) % 7
@@ -1095,12 +1186,33 @@ function DailyUsageHeatmap({
   const trailingDays = weekCount * 7 - leadingDays - points.length
   const thresholds = usageHeatThresholds(points.map(point => point.totalTokens))
   const activeDays = points.filter(point => point.totalTokens > 0).length
+  const recentStartIndex = Math.max(0, points.length - 7)
+  const recentTokens = points.slice(recentStartIndex).reduce((sum, point) => sum + point.totalTokens, 0)
+  const peakCandidate = points.reduce<UsageDailyPoint | null>((peak, point) => (
+    !peak || point.totalTokens > peak.totalTokens ? point : peak
+  ), null)
+  const peakDay = peakCandidate && peakCandidate.totalTokens > 0 ? peakCandidate : null
+  const selectedDay = inspection ? points.find(point => point.date === inspection.label) ?? null : null
+  const highlightedDay = selectedDay ?? peakDay
+  const highlightedDayIsPeak = Boolean(highlightedDay && highlightedDay.date === peakDay?.date)
 
   return (
     <>
       <div className="code-usage-activity-heading">
         <span>52w · daily</span>
-        <span>{activeDays} active days</span>
+        {showDayHighlight && highlightedDay ? (
+          <div
+            className="code-usage-detail-day-highlight"
+            data-state={selectedDay ? 'selected' : 'peak'}
+            data-testid="code-usage-detail-day-highlight"
+          >
+            <span>{highlightedDayIsPeak ? 'Top · ' : ''}{formatUsageDay(highlightedDay.date)}</span>
+            <strong>{formatCompactNumber(highlightedDay.totalTokens)}</strong>
+            <small>tokens</small>
+          </div>
+        ) : (
+          <span>7d {formatCompactNumber(recentTokens)}</span>
+        )}
       </div>
       <div
         className="code-usage-daily-heatmap"
@@ -1112,18 +1224,34 @@ function DailyUsageHeatmap({
         {Array.from({ length: leadingDays }, (_, index) => (
           <span key={`leading-${index}`} className="code-usage-daily-spacer" aria-hidden="true" />
         ))}
-        {points.map(point => {
+        {points.map((point, index) => {
           const tokens = Number(point.totalTokens)
           const title = `${point.date} · ${formatExactTokenCount(tokens)} tokens`
+          const isPeak = point.date === peakDay?.date
+          const isSelected = point.date === selectedDay?.date
+          const inspect = () => onInspect({ label: point.date, tokens })
           return (
             <span
               key={point.date}
               className="code-usage-heatmap-cell code-usage-daily-heatmap-cell"
               data-date={point.date}
               data-level={usageHeatLevel(tokens, thresholds)}
+              data-peak={isPeak ? 'true' : undefined}
+              data-recent={index >= recentStartIndex ? 'true' : undefined}
+              data-selected={isSelected ? 'true' : undefined}
               title={title}
               aria-label={title}
-              onMouseEnter={() => onInspect({ label: point.date, tokens })}
+              role={showDayHighlight ? 'button' : undefined}
+              tabIndex={showDayHighlight ? 0 : undefined}
+              onClick={showDayHighlight ? inspect : undefined}
+              onFocus={showDayHighlight ? inspect : undefined}
+              onKeyDown={showDayHighlight ? event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  inspect()
+                }
+              } : undefined}
+              onMouseEnter={inspect}
             />
           )
         })}
@@ -1135,33 +1263,259 @@ function DailyUsageHeatmap({
   )
 }
 
+function sumDailyTokens(points: UsageDailyPoint[]) {
+  return points.reduce((sum, point) => sum + Number(point.totalTokens), 0)
+}
+
+function formatUsageChange(current: number, previous: number) {
+  if (previous <= 0) return current > 0 ? 'New' : '0%'
+  const percent = Math.round(((current - previous) / previous) * 100)
+  return `${percent > 0 ? '+' : ''}${percent}%`
+}
+
+function formatUsageDay(dateValue: string) {
+  const date = parseUsageDate(dateValue)
+  if (!date) return dateValue
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+function UsageAnalysisCard({
+  label,
+  value,
+  detail,
+}: {
+  label: string
+  value: string
+  detail?: string
+}) {
+  return (
+    <div className="code-usage-detail-stat">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {detail && <small>{detail}</small>}
+    </div>
+  )
+}
+
+function UsageActivityDialog({
+  initialRange,
+  usageSummary,
+  onClose,
+}: {
+  initialRange: UsageDetailRange
+  usageSummary: UsageSummary
+  onClose: () => void
+}) {
+  const [range, setRange] = useState<UsageDetailRange>(initialRange)
+  const [inspection, setInspection] = useState<UsageHeatmapInspection | null>(null)
+  const timelinePoints = validUsageTimelinePoints(usageSummary)
+  const dailyPoints = validUsageDailyPoints(usageSummary)
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  if (typeof document === 'undefined') return null
+
+  const timelineTotal = timelinePoints?.reduce((sum, point) => sum + point.totalTokens, 0) ?? 0
+  const activeHours = timelinePoints?.filter(point => point.totalTokens > 0).length ?? 0
+  const peakHour = timelinePoints?.reduce<UsageTimelinePoint | null>((peak, point) => (
+    !peak || point.totalTokens > peak.totalTokens ? point : peak
+  ), null) ?? null
+
+  const currentSevenDays = dailyPoints?.slice(-7) ?? []
+  const previousSevenDays = dailyPoints?.slice(-14, -7) ?? []
+  const currentSevenDayTotal = sumDailyTokens(currentSevenDays)
+  const previousSevenDayTotal = sumDailyTokens(previousSevenDays)
+  const annualTotal = dailyPoints ? sumDailyTokens(dailyPoints) : 0
+  const activeDays = dailyPoints?.filter(point => point.totalTokens > 0).length ?? 0
+  const peakDay = dailyPoints?.reduce<UsageDailyPoint | null>((peak, point) => (
+    !peak || point.totalTokens > peak.totalTokens ? point : peak
+  ), null) ?? null
+  const currentSevenDayCache = currentSevenDays.reduce((sum, point) => (
+    sum + (Number(point.cacheReadTokens) || 0) + (Number(point.cacheWriteTokens) || 0)
+  ), 0)
+  const cacheShare = currentSevenDayTotal > 0
+    ? Math.min(100, Math.round((currentSevenDayCache / currentSevenDayTotal) * 100))
+    : 0
+  const dayReadout = inspection
+    ? `${inspection.label} · ${formatExactTokenCount(inspection.tokens)} tokens`
+    : `Last 24 hours · ${formatExactTokenCount(timelineTotal)} tokens`
+  const yearReadout = inspection
+    ? `${inspection.label} · ${formatExactTokenCount(inspection.tokens)} tokens`
+    : `Last 52 weeks · ${formatExactTokenCount(annualTotal)} tokens`
+
+  return createPortal(
+    <div
+      className="code-usage-detail-backdrop"
+      data-testid="code-usage-detail-backdrop"
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <section
+        className="code-usage-detail-dialog"
+        data-testid="code-usage-detail-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="code-usage-detail-title"
+      >
+        <header className="code-usage-detail-header">
+          <div>
+            <span className="code-usage-detail-eyebrow">Local provider tokens</span>
+            <h2 id="code-usage-detail-title">Usage activity</h2>
+          </div>
+          <button type="button" className="code-usage-detail-close" aria-label="Close usage activity" onClick={onClose}>
+            <CloseGlyph />
+          </button>
+        </header>
+        <div className="code-usage-detail-tabs" role="tablist" aria-label="Usage activity range">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={range === 'day'}
+            data-testid="code-usage-detail-day-tab"
+            onClick={() => {
+              setInspection(null)
+              setRange('day')
+            }}
+          >
+            1 Day
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={range === 'year'}
+            data-testid="code-usage-detail-year-tab"
+            onClick={() => {
+              setInspection(null)
+              setRange('year')
+            }}
+          >
+            52 Weeks
+          </button>
+        </div>
+        <div
+          className="code-usage-detail-chart"
+          onBlur={event => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setInspection(null)
+          }}
+          onMouseLeave={() => setInspection(null)}
+        >
+          {range === 'day' && timelinePoints && (
+            <>
+              <div className="code-usage-detail-chart-heading">
+                <span>Hourly activity</span>
+                <strong>{formatCompactNumber(timelineTotal)} tokens</strong>
+              </div>
+              <TokenUsageHeatmap usageSummary={usageSummary} points={timelinePoints} onInspect={setInspection} />
+            </>
+          )}
+          {range === 'year' && dailyPoints && (
+            <DailyUsageHeatmap
+              points={dailyPoints}
+              inspection={inspection}
+              showDayHighlight
+              onInspect={setInspection}
+            />
+          )}
+          <div className="code-usage-detail-readout" data-testid="code-usage-detail-readout">
+            {range === 'day' ? dayReadout : yearReadout}
+          </div>
+        </div>
+        <div className="code-usage-detail-analysis" data-testid="code-usage-detail-analysis">
+          {range === 'day' ? (
+            <>
+              <UsageAnalysisCard label="24-hour tokens" value={formatCompactNumber(timelineTotal)} />
+              <UsageAnalysisCard label="Active hours" value={`${activeHours}`} detail="hours with token activity" />
+              <UsageAnalysisCard
+                label="Peak hour"
+                value={peakHour ? formatHeatmapHour(peakHour.startedAt) : '--'}
+                detail={peakHour ? `${formatCompactNumber(peakHour.totalTokens)} tokens` : 'no activity'}
+              />
+            </>
+          ) : (
+            <>
+              <UsageAnalysisCard label="Last 7 days" value={formatCompactNumber(currentSevenDayTotal)} />
+              <UsageAnalysisCard
+                label="Previous 7 days"
+                value={formatCompactNumber(previousSevenDayTotal)}
+                detail={`${formatUsageChange(currentSevenDayTotal, previousSevenDayTotal)} change`}
+              />
+              <UsageAnalysisCard
+                label="Peak day"
+                value={peakDay ? formatUsageDay(peakDay.date) : '--'}
+                detail={peakDay ? `${formatCompactNumber(peakDay.totalTokens)} tokens` : 'no activity'}
+              />
+              <UsageAnalysisCard label="Active days" value={`${activeDays}`} detail="within 52 weeks" />
+              <UsageAnalysisCard label="7-day cache share" value={`${cacheShare}%`} detail="read and write tokens" />
+              <UsageAnalysisCard label="52-week tokens" value={formatCompactNumber(annualTotal)} />
+            </>
+          )}
+        </div>
+      </section>
+    </div>,
+    document.body,
+  )
+}
+
 function UsageActivityHeatmaps({ usageSummary }: { usageSummary: UsageSummary }) {
-  const hourlyPoints = validUsageTimelinePoints(usageSummary)
+  const timelinePoints = validUsageTimelinePoints(usageSummary)
   const dailyPoints = validUsageDailyPoints(usageSummary)
   const [inspection, setInspection] = useState<UsageHeatmapInspection | null>(null)
-  if (!hourlyPoints && !dailyPoints) return null
+  const [detailRange, setDetailRange] = useState<UsageDetailRange | null>(null)
+  if (!timelinePoints && !dailyPoints) return null
 
-  const hourlyTotal = hourlyPoints?.reduce((sum, point) => sum + point.totalTokens, 0) ?? 0
+  const timelineTotal = timelinePoints?.reduce((sum, point) => sum + point.totalTokens, 0) ?? 0
+  const timelineLabel = formatUsageWindow(Number(usageSummary.timeline?.windowMs) / 60_000).toLowerCase()
+  const sevenDayTotal = dailyPoints?.slice(-7).reduce((sum, point) => sum + point.totalTokens, 0) ?? 0
   const dailyTotal = dailyPoints?.reduce((sum, point) => sum + point.totalTokens, 0) ?? 0
   const readout = inspection
     ? `${inspection.label} · ${formatExactTokenCount(inspection.tokens)} tokens`
-    : `${hourlyPoints ? `1h ${formatCompactNumber(hourlyTotal)}` : ''}${hourlyPoints && dailyPoints ? ' · ' : ''}${dailyPoints ? `52w ${formatCompactNumber(dailyTotal)}` : ''}`
+    : `${timelinePoints ? `${timelineLabel} ${formatCompactNumber(timelineTotal)}` : ''}${timelinePoints && dailyPoints ? ' · ' : ''}${dailyPoints ? `7d ${formatCompactNumber(sevenDayTotal)} · 52w ${formatCompactNumber(dailyTotal)}` : ''}`
 
   return (
     <div className="code-usage-activity" onMouseLeave={() => setInspection(null)}>
-      {hourlyPoints && (
-        <>
+      {timelinePoints && (
+        <button
+          type="button"
+          className="code-usage-chart-trigger"
+          data-testid="code-usage-open-day"
+          title="Open 1-day usage details"
+          onClick={() => setDetailRange('day')}
+        >
           <div className="code-usage-activity-heading">
-            <span>1h · activity</span>
+            <span>{timelineLabel} · activity</span>
             <span>{formatUsageWindow(usageSummary.timeline.bucketMs / 60_000).toLowerCase()} buckets</span>
           </div>
-          <TokenUsageHeatmap usageSummary={usageSummary} points={hourlyPoints} onInspect={setInspection} />
-        </>
+          <TokenUsageHeatmap usageSummary={usageSummary} points={timelinePoints} onInspect={setInspection} />
+        </button>
       )}
-      {dailyPoints && <DailyUsageHeatmap points={dailyPoints} onInspect={setInspection} />}
+      {dailyPoints && (
+        <button
+          type="button"
+          className="code-usage-chart-trigger"
+          data-testid="code-usage-open-year"
+          title="Open 52-week usage details"
+          onClick={() => setDetailRange('year')}
+        >
+          <DailyUsageHeatmap points={dailyPoints} onInspect={setInspection} />
+        </button>
+      )}
       <div className="code-usage-activity-readout" data-testid="code-usage-activity-readout" title={readout}>
         {readout}
       </div>
+      {detailRange && (
+        <UsageActivityDialog
+          initialRange={detailRange}
+          usageSummary={usageSummary}
+          onClose={() => setDetailRange(null)}
+        />
+      )}
     </div>
   )
 }
@@ -2043,7 +2397,6 @@ function ProjectSection({
     ])
   const hiddenProjectAgentCount = Math.max(0, sortedAgents.length - visibleProjectAgents.length)
   const agentListCollapsed = projectAgentsCollapsed && !forceAgentsExpanded
-  const projectAgentListCount = sortedAgents.length + visibleAgentSessions.length + (project.hiddenAgentSessionCount ?? 0)
 
   useEffect(() => {
     if (projectSourceAgentId !== nextProjectSourceAgentId) {
@@ -2282,6 +2635,20 @@ function ProjectSection({
           )}
         </span>
         <span className="code-project-title-actions" aria-hidden={false}>
+          {showAgentsSection && !forceAgentsExpanded && (
+            <button
+              type="button"
+              className="code-project-title-action"
+              data-testid="code-project-agent-visibility"
+              data-collapsed={agentListCollapsed ? 'true' : 'false'}
+              aria-expanded={!agentListCollapsed}
+              aria-label={agentListCollapsed ? copy.showAgents : copy.hideAgents}
+              title={agentListCollapsed ? copy.showAgents : copy.hideAgents}
+              onClick={() => setProjectAgentsCollapsed(collapsed => !collapsed)}
+            >
+              {agentListCollapsed ? <ProjectAgentsVisibleIcon /> : <ProjectAgentsHiddenIcon />}
+            </button>
+          )}
           <button
             type="button"
             className="code-project-title-action"
@@ -2434,12 +2801,12 @@ function ProjectSection({
                     )}
                   </>
                 )}
-                {!forceAgentsExpanded && (
+                {!forceAgentsExpanded && !agentListCollapsed && !compactProjectAgents && sortedAgents.length > PROJECT_AGENT_VISIBLE_LIMIT && (
                   <div
-                    className={`code-agent-list-controls ${agentListCollapsed ? 'collapsed' : ''} ${!agentListCollapsed && !compactProjectAgents && sortedAgents.length > PROJECT_AGENT_VISIBLE_LIMIT ? 'has-range-toggle' : ''}`}
+                    className="code-agent-list-controls"
                     data-testid="code-agent-list-controls"
                   >
-                    {!agentListCollapsed && !compactProjectAgents && hiddenProjectAgentCount > 0 && (
+                    {hiddenProjectAgentCount > 0 && (
                       <button
                         type="button"
                         className={`code-agent-row code-session-show-more ${agentDrag?.targetAgentId === PROJECT_AGENT_DROP_END ? 'drop-after' : ''}`}
@@ -2456,7 +2823,7 @@ function ProjectSection({
                         </span>
                       </button>
                     )}
-                    {!agentListCollapsed && !compactProjectAgents && projectAgentsExpanded && sortedAgents.length > PROJECT_AGENT_VISIBLE_LIMIT && (
+                    {projectAgentsExpanded && (
                       <button
                         type="button"
                         className="code-agent-row code-session-show-more"
@@ -2468,25 +2835,6 @@ function ProjectSection({
                         </span>
                       </button>
                     )}
-                    <button
-                      type="button"
-                      className="code-agent-row code-session-show-more code-agent-list-toggle"
-                      data-testid="code-agent-list-toggle"
-                      data-collapsed={agentListCollapsed ? 'true' : 'false'}
-                      aria-expanded={!agentListCollapsed}
-                      onClick={() => setProjectAgentsCollapsed(collapsed => !collapsed)}
-                    >
-                      <span className="code-agent-row-copy">
-                        <span className="code-agent-name">
-                          {agentListCollapsed ? copy.showAgents : copy.collapseAgents}
-                        </span>
-                      </span>
-                      {agentListCollapsed && (
-                        <span className="code-agent-row-trailing">
-                          <span className="code-agent-list-count">{projectAgentListCount}</span>
-                        </span>
-                      )}
-                    </button>
                   </div>
                 )}
               </div>
@@ -2536,6 +2884,22 @@ function ProjectNewAgentIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
       <path fill="currentColor" d="M7.5 3C7.77614 3 8 3.22386 8 3.5V7H11.5C11.7761 7 12 7.22386 12 7.5C12 7.77614 11.7761 8 11.5 8H8V11.5C8 11.7761 7.77614 12 7.5 12C7.22386 12 7 11.7761 7 11.5V8H3.5C3.22386 8 3 7.77614 3 7.5C3 7.22386 3.22386 7 3.5 7H7V3.5C7 3.22386 7.22386 3 7.5 3Z" />
+    </svg>
+  )
+}
+
+function ProjectAgentsVisibleIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false">
+      <path d="M2.98444 8.62471L2.98346 8.62815C2.91251 8.8948 2.63879 9.05404 2.37202 8.9833C1.94098 8.86907 2.01687 8.37186 2.01687 8.37186L2.03453 8.31047C2.03453 8.31047 2.06063 8.22636 2.08166 8.1653C2.12369 8.04329 2.18795 7.87274 2.27931 7.66977C2.46154 7.26493 2.75443 6.72477 3.19877 6.18295C4.09629 5.08851 5.60509 4 8.00017 4C10.3952 4 11.904 5.08851 12.8016 6.18295C13.2459 6.72477 13.5388 7.26493 13.721 7.66977C13.8124 7.87274 13.8766 8.04329 13.9187 8.1653C13.9397 8.22636 13.9552 8.27541 13.9658 8.31047C13.9711 8.328 13.9752 8.34204 13.9781 8.35236L13.9816 8.365L13.9827 8.36916L13.9832 8.37069L13.9835 8.37186C14.0542 8.63878 13.8952 8.91253 13.6283 8.9833C13.3618 9.05397 13.0885 8.89556 13.0172 8.62937L13.0169 8.62815L13.0159 8.62471L13.0085 8.5997C13.0014 8.57616 12.9898 8.53927 12.9732 8.49095C12.9399 8.39422 12.8866 8.25227 12.8091 8.08023C12.6538 7.73508 12.4041 7.27523 12.0283 6.81706C11.2857 5.9115 10.0445 5 8.00017 5C5.95584 5 4.71464 5.9115 3.97201 6.81706C3.59627 7.27523 3.34655 7.73508 3.19119 8.08023C3.11375 8.25227 3.06047 8.39422 3.02715 8.49095C3.01051 8.53927 2.9989 8.57616 2.99179 8.5997L2.98444 8.62471ZM8.00024 7C6.61953 7 5.50024 8.11929 5.50024 9.5C5.50024 10.8807 6.61953 12 8.00024 12C9.38096 12 10.5002 10.8807 10.5002 9.5C10.5002 8.11929 9.38096 7 8.00024 7ZM6.50024 9.5C6.50024 8.67157 7.17182 8 8.00024 8C8.82867 8 9.50024 8.67157 9.50024 9.5C9.50024 10.3284 8.82867 11 8.00024 11C7.17182 11 6.50024 10.3284 6.50024 9.5Z" />
+    </svg>
+  )
+}
+
+function ProjectAgentsHiddenIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false">
+      <path d="M10.1196 10.8267L14.1464 14.8536C14.3417 15.0488 14.6583 15.0488 14.8536 14.8536C15.0488 14.6583 15.0488 14.3417 14.8536 14.1464L1.85355 1.14645C1.65829 0.951184 1.34171 0.951184 1.14645 1.14645C0.951184 1.34171 0.951184 1.65829 1.14645 1.85355L4.37624 5.08334C3.90117 5.4183 3.5126 5.80026 3.19877 6.18295C2.75443 6.72477 2.46154 7.26493 2.27931 7.66977C2.18795 7.87274 2.12369 8.04329 2.08166 8.1653C2.06063 8.22636 2.03453 8.31047 2.03453 8.31047L2.01687 8.37186C2.01687 8.37186 1.94098 8.86907 2.37202 8.9833C2.63879 9.05404 2.91251 8.8948 2.98346 8.62815L2.98444 8.62471L2.99179 8.5997C2.9989 8.57616 3.01051 8.53927 3.02715 8.49095C3.06047 8.39421 3.11375 8.25227 3.19119 8.08023C3.34655 7.73507 3.59627 7.27523 3.97201 6.81706C4.26363 6.46146 4.63213 6.10494 5.09595 5.80306L6.67356 7.38067C5.9688 7.82277 5.50024 8.60667 5.50024 9.5C5.50024 10.8807 6.61953 12 8.00024 12C8.89358 12 9.67747 11.5314 10.1196 10.8267ZM9.3807 10.0878C9.15205 10.6241 8.62005 11 8.00024 11C7.17182 11 6.50024 10.3284 6.50024 9.5C6.50024 8.88019 6.87616 8.34819 7.41244 8.11955L9.3807 10.0878ZM6.31962 4.19853L7.174 5.05291C7.43366 5.01852 7.70875 5 8.00017 5C10.0445 5 11.2857 5.9115 12.0283 6.81706C12.4041 7.27523 12.6538 7.73507 12.8091 8.08023C12.8866 8.25227 12.9399 8.39421 12.9732 8.49095C12.9898 8.53927 13.0014 8.57616 13.0085 8.5997L13.0159 8.62471L13.0169 8.62815L13.0172 8.62937C13.0885 8.89555 13.3618 9.05397 13.6283 8.9833C13.8952 8.91253 14.0542 8.63878 13.9835 8.37186L13.9832 8.37069L13.9827 8.36916L13.9816 8.365L13.9781 8.35236C13.9752 8.34204 13.9711 8.328 13.9658 8.31047C13.9552 8.27541 13.9397 8.22636 13.9187 8.1653C13.8766 8.04329 13.8124 7.87274 13.721 7.66977C13.5388 7.26493 13.2459 6.72477 12.8016 6.18295C11.904 5.0885 10.3952 4 8.00017 4C7.38264 4 6.82403 4.07236 6.31962 4.19853Z" />
     </svg>
   )
 }

@@ -69,12 +69,28 @@ async function run() {
     assert.strictEqual(sourceAgent.canForkNewWorktree, true);
     assert.strictEqual(sourceAgent.command, 'codex');
 
+    const permanentWorktree = await manager.createPermanentWorktree(repo);
+    assert.match(path.basename(permanentWorktree.workspace), /^repo-farming-worktree-\d{8}-\d{6}(?:-\d+)?$/);
+    assert.match(permanentWorktree.branch, /^farming\/worktree-\d{8}-\d{6}(?:-\d+)?$/);
+    assert.strictEqual(fs.existsSync(permanentWorktree.workspace), true);
+    assert.strictEqual(
+      execFileSync('git', ['-C', permanentWorktree.workspace, 'branch', '--show-current'], { encoding: 'utf8' }).trim(),
+      permanentWorktree.branch,
+    );
+    await manager.rollbackPermanentWorktree(permanentWorktree);
+    assert.strictEqual(fs.existsSync(permanentWorktree.workspace), false);
+    assert.throws(() => execFileSync(
+      'git',
+      ['-C', repo, 'show-ref', '--verify', '--quiet', `refs/heads/${permanentWorktree.branch}`],
+      { stdio: 'ignore' },
+    ));
+
     const sameWorktree = await manager.forkAgent(sourceId, 'same-worktree');
     assert.strictEqual(sameWorktree.error, undefined);
-    assert.strictEqual(sameWorktree.workspace, repo);
+    assert.strictEqual(fs.realpathSync(sameWorktree.workspace), fs.realpathSync(repo));
     assert.notStrictEqual(sameWorktree.agentId, sourceId);
     assert.strictEqual(captured.at(-1).command, expectedCodexCommand);
-    assert.strictEqual(captured.at(-1).cwd, repo);
+    assert.strictEqual(fs.realpathSync(captured.at(-1).cwd), fs.realpathSync(repo));
 
     const sameAgent = manager.getState().agents.find(agent => agent.id === sameWorktree.agentId);
     assert(sameAgent, 'same-worktree fork should appear in state');
@@ -248,7 +264,7 @@ async function run() {
     assert.strictEqual(manager.getState().agents.length, agentCountBeforeMissingResume);
     assert.strictEqual(captured.length, engineStartsBeforeMissingResume);
 
-    console.log('✓ AgentManager forks agents into same and new worktrees');
+    console.log('✓ AgentManager creates permanent worktrees and forks agents into same and new worktrees');
   } finally {
     if (previousCodexBin === undefined) {
       delete process.env.FARMING_CODEX_BIN;

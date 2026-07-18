@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type RefObject, type SyntheticEvent as ReactSyntheticEvent } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
-import { isAcpRuntime, isStructuredRuntime } from '@/lib/agent-runtime'
+import { isAcpRuntime } from '@/lib/agent-runtime'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import type { OpenWorkspaceFile, WorkspaceOpenFileTarget } from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
@@ -204,7 +204,7 @@ interface CodeMainAreaProps {
   onSearchQueryChange: (value: string) => void
   onSearchKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void
   onCloseSearch: () => void
-  onLoadMoreHistoryAgentSessions: () => void
+  onLoadMoreHistoryAgentSessions: () => boolean | Promise<boolean>
   onSearchHistoryAgentSessions: (query: string, signal: AbortSignal) => Promise<AgentSessionHistoryItem[]>
   onResumeHistorySession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onContinueArchivedRun: (entry: TaskHistoryEntry) => void
@@ -293,7 +293,7 @@ export function CodeMainArea({
   onBackToAgentFromFile,
   copy,
 }: CodeMainAreaProps) {
-  const [terminalComposerCollapsed, setTerminalComposerCollapsed] = useState(false)
+  const [composerCollapseRequested, setComposerCollapseRequested] = useState(false)
   const [composerCollapseSupported, setComposerCollapseSupported] = useState(false)
   const [fileEditorPane, setFileEditorPane] = useState<FileEditorPaneComponent | null>(() => loadedFileEditorPane)
   const [fileEditorPaneLoadError, setFileEditorPaneLoadError] = useState<unknown>(null)
@@ -323,24 +323,15 @@ export function CodeMainArea({
     }
   }, [ReadyFileEditorPane, fileEditorRequested])
 
-  const loadMoreHistoryNearEnd = useCallback((element: HTMLElement) => {
-    if (!canLoadMoreHistoryAgentSessions) return
-    const remaining = element.scrollHeight - element.scrollTop - element.clientHeight
-    if (remaining <= 320) onLoadMoreHistoryAgentSessions()
-  }, [canLoadMoreHistoryAgentSessions, onLoadMoreHistoryAgentSessions])
   const activeAgent = activeTerminalId
     ? visibleOpenAgents.find(agent => agent.id === activeTerminalId) || null
     : null
   const acpComposerActive = isAcpRuntime(activeAgent)
-  const activeWorkPaneMode = isStructuredRuntime(activeAgent)
-    ? 'transcript'
-    : 'terminal'
   const canCollapseComposer = composerCollapseSupported
     && activeView === 'projects'
     && !showFileEditor
     && openAgentsCount > 0
-    && activeWorkPaneMode === 'terminal'
-  const composerCollapsed = canCollapseComposer && terminalComposerCollapsed
+  const composerCollapsed = canCollapseComposer && composerCollapseRequested
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(hover: hover) and (pointer: fine)')
@@ -351,10 +342,10 @@ export function CodeMainArea({
   }, [])
 
   useEffect(() => {
-    if (!canCollapseComposer && terminalComposerCollapsed) {
-      setTerminalComposerCollapsed(false)
+    if (!canCollapseComposer && composerCollapseRequested) {
+      setComposerCollapseRequested(false)
     }
-  }, [canCollapseComposer, terminalComposerCollapsed])
+  }, [canCollapseComposer, composerCollapseRequested])
 
   const dismissComposerKeyboardOnMainPress = useCallback((event: ReactSyntheticEvent<HTMLElement>) => {
     if (!isMobileTouchViewport()) return
@@ -385,7 +376,6 @@ export function CodeMainArea({
         <section
           className={`code-side-view-panel ${activeView === 'search' ? 'code-search-view' : ''} ${activeView === 'history' ? 'code-history-view' : ''}`}
           data-testid="code-side-view-panel"
-          onScroll={activeView === 'history' ? event => loadMoreHistoryNearEnd(event.currentTarget) : undefined}
         >
           {activeView === 'search' ? (
             <SearchPanel
@@ -415,6 +405,8 @@ export function CodeMainArea({
               onOpenArchivedAgent={onOpenArchivedAgent}
               onRestoreArchivedAgent={onRestoreArchivedAgent}
               searchAgentSessions={onSearchHistoryAgentSessions}
+              canLoadMoreAgentSessions={canLoadMoreHistoryAgentSessions}
+              onLoadMoreAgentSessions={onLoadMoreHistoryAgentSessions}
               copy={copy}
             />
           ) : (
@@ -487,7 +479,7 @@ export function CodeMainArea({
                 data-testid="code-composer-restore"
                 aria-label={copy.restoreComposer}
                 title={copy.restoreComposer}
-                onClick={() => setTerminalComposerCollapsed(false)}
+                onClick={() => setComposerCollapseRequested(false)}
               >
                 <ChevronUpGlyph />
               </button>
@@ -502,7 +494,7 @@ export function CodeMainArea({
                     data-testid="code-composer-collapse"
                     aria-label={copy.collapseComposer}
                     title={copy.collapseComposer}
-                    onClick={() => setTerminalComposerCollapsed(true)}
+                    onClick={() => setComposerCollapseRequested(true)}
                   >
                     <ChevronDownGlyph />
                   </button>

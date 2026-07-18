@@ -271,6 +271,44 @@ test.describe('display-backed agent flows', () => {
     await expect(historyInput).toBeFocused()
   })
 
+  test('pages History and keeps the first page reachable after refresh', async ({ page, workspaceRoot }) => {
+    await mockCodexSessions(page, Array.from({ length: 25 }, (_, index) => ({
+      id: `history-page-session-${index}`,
+      title: `History page item ${String(index).padStart(2, '0')}`,
+      cwd: workspaceRoot,
+      workspace: workspaceRoot,
+      updatedAt: new Date(Date.now() - index * 60_000).toISOString(),
+      createdAt: new Date(Date.now() - index * 60_000).toISOString(),
+      model: 'gpt-5.5',
+      effort: 'medium',
+    })))
+
+    await openFarming(page)
+    await page.getByTestId('code-nav-history').click()
+    await expect(page.getByTestId('code-session-history-card')).toHaveCount(12)
+    await expect(page.getByTestId('code-history-page-status')).toHaveText('1 / 3 · 25 loaded')
+
+    await page.getByRole('button', { name: 'Next page' }).click()
+    await expect(page.getByTestId('code-history-page-status')).toHaveText('2 / 3 · 25 loaded')
+    await expect(page.getByTestId('code-session-history-card')).toHaveCount(12)
+    await expect(page.getByTestId('code-session-history-card').filter({ hasText: 'History page item 12' })).toHaveCount(1)
+    await expect(page.getByTestId('code-session-history-card').filter({ hasText: 'History page item 00' })).toHaveCount(0)
+
+    await page.reload()
+    await expect(page.getByTestId('code-history-panel')).toBeVisible()
+    await expect(page.getByTestId('code-history-page-status')).toHaveText('1 / 3 · 25 loaded')
+    const historyLayout = await page.getByTestId('code-side-view-panel').evaluate(element => {
+      const header = element.querySelector('.code-history-panel-header')
+      return {
+        panelTop: element.getBoundingClientRect().top,
+        headerTop: header?.getBoundingClientRect().top ?? Number.NEGATIVE_INFINITY,
+        scrollTop: element.scrollTop,
+      }
+    })
+    expect(historyLayout.scrollTop).toBe(0)
+    expect(historyLayout.headerTop).toBeGreaterThanOrEqual(historyLayout.panelTop)
+  })
+
   test('searches older provider History and renders one clear control', async ({ page, workspaceRoot }) => {
     await mockCodexSessions(page)
     let searchRequests = 0
@@ -571,43 +609,32 @@ test.describe('display-backed agent flows', () => {
     await expect(projectGroup.getByTestId('code-project-agent-strip')).toHaveCount(0)
     await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(5)
     const showMoreAgents = projectGroup.getByTestId('code-agent-show-more')
-    const agentListToggle = projectGroup.getByTestId('code-agent-list-toggle')
+    const agentVisibility = projectGroup.getByTestId('code-project-agent-visibility')
     await expect(showMoreAgents).toBeVisible()
     await expect(showMoreAgents.locator('.code-agent-age')).toHaveText('1')
-    await expect(agentListToggle).toHaveText('Collapse all')
-    await expect(agentListToggle).toHaveAttribute('data-collapsed', 'false')
+    await expect(agentVisibility).toHaveAttribute('aria-label', 'Hide agents')
+    await expect(agentVisibility).toHaveAttribute('data-collapsed', 'false')
     const agentListControls = projectGroup.getByTestId('code-agent-list-controls')
-    await expect(agentListControls).toHaveClass(/has-range-toggle/)
-    const showMoreBox = await showMoreAgents.boundingBox()
-    const agentListToggleBox = await agentListToggle.boundingBox()
-    expect(showMoreBox).not.toBeNull()
-    expect(agentListToggleBox).not.toBeNull()
-    expect(Math.abs(agentListToggleBox!.y - showMoreBox!.y)).toBeLessThanOrEqual(1)
-    expect(agentListToggleBox!.x).toBeGreaterThan(showMoreBox!.x)
+    await expect(agentListControls).toBeVisible()
     await showMoreAgents.click()
     await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(6)
     const showLessAgents = projectGroup.getByTestId('code-agent-show-less')
     await expect(showLessAgents).toBeVisible()
-    const showLessBox = await showLessAgents.boundingBox()
-    const expandedAgentListToggleBox = await agentListToggle.boundingBox()
-    expect(showLessBox).not.toBeNull()
-    expect(expandedAgentListToggleBox).not.toBeNull()
-    expect(Math.abs(expandedAgentListToggleBox!.y - showLessBox!.y)).toBeLessThanOrEqual(1)
     await showLessAgents.click()
     await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(5)
     await expect(showMoreAgents).toBeVisible()
-    await agentListToggle.click()
+    await agentVisibility.click()
     await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(0)
     await expect(showMoreAgents).toHaveCount(0)
-    await expect(agentListToggle.locator('.code-agent-name')).toHaveText('Show agents')
-    await expect(agentListToggle.locator('.code-agent-list-count')).toHaveText('6')
-    await expect(agentListToggle).toHaveAttribute('data-collapsed', 'true')
-    await expect(agentListToggle).toBeFocused()
+    await expect(projectGroup.getByTestId('code-agent-list-toggle')).toHaveCount(0)
+    await expect(agentVisibility).toHaveAttribute('aria-label', 'Show agents')
+    await expect(agentVisibility).toHaveAttribute('data-collapsed', 'true')
+    await expect(agentVisibility).toBeFocused()
     await expect(projectGroup.locator('.code-files-title').first()).toBeVisible()
-    await agentListToggle.click()
+    await agentVisibility.click()
     await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(5)
     await expect(showMoreAgents).toBeVisible()
-    await expect(agentListToggle).toBeFocused()
+    await expect(agentVisibility).toBeFocused()
     await showMoreAgents.click()
     await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(6)
     await expect(projectGroup.getByTestId('code-agent-show-less')).toBeVisible()
@@ -686,6 +713,24 @@ test.describe('display-backed agent flows', () => {
     execFileSync('git', ['commit', '-m', 'seed linked worktree'], { cwd: repo, stdio: 'ignore' })
     execFileSync('git', ['worktree', 'add', '-b', 'feature/topic', linkedWorkspace], { cwd: repo, stdio: 'ignore' })
 
+    let revealedProjectRootId = ''
+    let createdWorktreeRootId = ''
+    await page.route(/\/farming\/api\/projects\/reveal$/, async route => {
+      revealedProjectRootId = String((route.request().postDataJSON() as { rootId?: string }).rootId || '')
+      await route.fulfill({ json: { revealed: true, workspace: linkedWorkspace } })
+    })
+    await page.route(/\/farming\/api\/projects\/create-worktree$/, async route => {
+      createdWorktreeRootId = String((route.request().postDataJSON() as { rootId?: string }).rootId || '')
+      await route.fulfill({
+        status: 201,
+        json: {
+          workspace: path.join(workspaceRoot, 'mock-permanent-worktree'),
+          branch: 'farming/worktree-test',
+          projectWorkspaces: [linkedWorkspace],
+        },
+      })
+    })
+
     await openFarming(page)
     await openNewAgentDialog(page)
     const agentId = await startAgentFromOpenDialog(page, 'bash', linkedWorkspace)
@@ -693,6 +738,63 @@ test.describe('display-backed agent flows', () => {
     await expect(project).toHaveCount(1)
     await expect(project.locator('.code-project-worktree')).toContainText('feature/topic', { timeout: 30_000 })
     await expect(project.locator('.code-project-worktree-count')).toHaveText('2')
+    await project.hover()
+    const projectTitleBox = await project.getByTestId('code-project-title').boundingBox()
+    const projectVisibilityBox = await project.getByTestId('code-project-agent-visibility').boundingBox()
+    const projectActionsBox = await project.getByTestId('code-project-actions').boundingBox()
+    const projectNewAgentBox = await project.getByTestId('code-project-new-agent').boundingBox()
+    expect(projectTitleBox).not.toBeNull()
+    expect(projectVisibilityBox).not.toBeNull()
+    expect(projectActionsBox).not.toBeNull()
+    expect(projectNewAgentBox).not.toBeNull()
+    const titleCenterY = projectTitleBox!.y + projectTitleBox!.height / 2
+    for (const box of [projectVisibilityBox!, projectActionsBox!, projectNewAgentBox!]) {
+      expect(Math.abs(box.y + box.height / 2 - titleCenterY)).toBeLessThanOrEqual(1)
+    }
+
+    await project.getByTestId('code-project-actions').click()
+    let projectContextMenu = page.getByTestId('code-project-context-menu')
+    for (const label of [
+      'Pin project',
+      'Reveal in Finder',
+      'Create permanent worktree',
+      'Rename project',
+      'Mark all as read',
+      'Archive chats',
+      'Remove Project',
+    ]) {
+      await expect(projectContextMenu.getByRole('menuitem', { name: label })).toBeVisible()
+    }
+    await expect(projectContextMenu.getByRole('menuitem', { name: 'Mark all as read' })).toBeDisabled()
+    await projectContextMenu.getByRole('menuitem', { name: 'Pin project' }).click()
+    await project.getByTestId('code-project-actions').click()
+    projectContextMenu = page.getByTestId('code-project-context-menu')
+    await expect(projectContextMenu.getByRole('menuitem', { name: 'Unpin project' })).toBeVisible()
+    await projectContextMenu.getByRole('menuitem', { name: 'Unpin project' }).click()
+
+    const otherAgentId = await createControlAgent(page, 'bash', repo)
+    const otherAgentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${otherAgentId}"]`)
+    await expect(otherAgentRow).toBeVisible()
+    await otherAgentRow.click()
+    const markUnreadResponse = await page.request.patch(`/farming/api/agents/${agentId}`, { data: { unread: true } })
+    expect(markUnreadResponse.ok()).toBeTruthy()
+    await expect(project.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)).toHaveClass(/unread/)
+    await project.getByTestId('code-project-actions').click()
+    projectContextMenu = page.getByTestId('code-project-context-menu')
+    await expect(projectContextMenu.getByRole('menuitem', { name: 'Mark all as read' })).toBeEnabled()
+    await projectContextMenu.getByRole('menuitem', { name: 'Mark all as read' }).click()
+    await expect(project.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)).not.toHaveClass(/unread/)
+    const deleteOtherResponse = await page.request.delete(`/farming/api/control/agents/${otherAgentId}`)
+    expect(deleteOtherResponse.ok()).toBeTruthy()
+
+    await project.getByTestId('code-project-actions').click()
+    await page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Reveal in Finder' }).click()
+    await expect.poll(() => revealedProjectRootId).toMatch(/^wroot_[0-9a-f]{16}$/)
+    await project.getByTestId('code-project-actions').click()
+    await page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Create permanent worktree' }).click()
+    await expect.poll(() => createdWorktreeRootId).toBe(revealedProjectRootId)
+    await expect(page.getByTestId('code-copy-toast')).toHaveText('Permanent worktree created')
+
     await project.getByTestId('code-project-worktree').click()
     const worktreeMenu = page.getByTestId('code-project-worktree-menu')
     await expect(worktreeMenu).toBeVisible()
@@ -2016,24 +2118,26 @@ test.describe('display-backed agent flows', () => {
       await expect(projectContextMenu).toHaveScreenshot('desktop-project-context-menu.png')
     }
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Rename project' })).toBeVisible()
+    await expect(projectContextMenu.getByRole('menuitem', { name: 'Pin project' })).toBeVisible()
+    await expect(projectContextMenu.getByRole('menuitem', { name: 'Mark all as read' })).toBeVisible()
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Archive chats' })).toBeVisible()
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Archive chats' })).toBeEnabled()
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Open First Agent' })).toHaveCount(0)
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Collapse Project' })).toHaveCount(0)
-    await expect(projectContextMenu.getByRole('menuitem', { name: 'Rename project' })).toBeFocused()
+    await expect(projectContextMenu.getByRole('menuitem', { name: 'Pin project' })).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(projectContextMenu).toBeHidden()
     await expect(firstProjectTitle).toBeFocused()
     await page.keyboard.press('Shift+F10')
     projectContextMenu = page.getByTestId('code-project-context-menu')
     await expect(projectContextMenu).toBeVisible()
-    await expect(projectContextMenu.getByRole('menuitem', { name: 'Rename project' })).toBeFocused()
+    await expect(projectContextMenu.getByRole('menuitem', { name: 'Pin project' })).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(projectContextMenu).toBeHidden()
     await expect(firstProjectTitle).toBeFocused()
     await firstProjectTitle.click({ button: 'right' })
     projectContextMenu = page.getByTestId('code-project-context-menu')
-    await expect(projectContextMenu.getByRole('menuitem', { name: 'Rename project' })).toBeFocused()
+    await expect(projectContextMenu.getByRole('menuitem', { name: 'Pin project' })).toBeFocused()
     await page.keyboard.press('/')
     await expect(page.getByTestId('code-search-panel')).toBeHidden()
     await expect(projectContextMenu).toBeVisible()
@@ -2110,6 +2214,8 @@ test.describe('display-backed agent flows', () => {
     const activeCodexSessionRow = activeCodexSessionRows.first()
     await expect(activeCodexSessionRow.locator('.code-agent-pin')).toHaveCount(0)
     await activeCodexSessionRow.hover()
+    const activeCodexSessionMore = activeCodexSessionRow.getByTestId('code-agent-row-more')
+    await expect(activeCodexSessionMore).toBeVisible()
     const agentPreview = page.getByTestId('code-agent-hover-preview')
     await expect(agentPreview).toBeVisible()
     await expect(agentPreview).toContainText('Deep Codex Session')
@@ -2117,10 +2223,11 @@ test.describe('display-backed agent flows', () => {
     await page.mouse.move(900, 500)
     await expect(page.getByTestId('code-agent-hover-preview')).toHaveCount(0)
     await activeCodexSessionRow.focus()
+    await expect(activeCodexSessionMore).toBeVisible()
     await expect(page.getByTestId('code-agent-hover-preview')).toHaveCount(0)
     await activeCodexSessionRow.hover()
     await expect(agentPreview).toBeVisible()
-    await activeCodexSessionRow.click({ button: 'right' })
+    await activeCodexSessionMore.click()
     const codexSessionContextMenu = page.getByTestId('code-session-context-menu')
     await expect(codexSessionContextMenu).toBeVisible()
     await expect(codexSessionContextMenu.getByRole('menuitem', { name: 'Open Session' })).toBeFocused()
@@ -2603,8 +2710,12 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-agent-row')).toHaveCount(2)
     await childProjectTitle.click({ button: 'right' })
     const childProjectMenu = page.getByTestId('code-project-context-menu')
-    await expect(childProjectMenu.getByRole('menuitem')).toHaveCount(3)
+    await expect(childProjectMenu.getByRole('menuitem')).toHaveCount(7)
+    await expect(childProjectMenu.getByRole('menuitem', { name: 'Pin project' })).toBeVisible()
+    await expect(childProjectMenu.getByRole('menuitem', { name: 'Reveal in Finder' })).toBeVisible()
+    await expect(childProjectMenu.getByRole('menuitem', { name: 'Create permanent worktree' })).toBeVisible()
     await expect(childProjectMenu.getByRole('menuitem', { name: 'Rename project' })).toBeVisible()
+    await expect(childProjectMenu.getByRole('menuitem', { name: 'Mark all as read' })).toBeVisible()
     await expect(childProjectMenu.getByRole('menuitem', { name: 'Archive chats' })).toBeVisible()
     await expect(childProjectMenu.getByRole('menuitem', { name: 'Remove Project' })).toBeDisabled()
     await page.keyboard.press('Escape')

@@ -17,6 +17,7 @@ export interface ProjectGroup {
   gitWorktree?: Agent['gitWorktree']
   hiddenAgentSessionCount?: number
   agentSessionsExpanded?: boolean
+  pinned?: boolean
 }
 
 export type SearchTarget =
@@ -27,6 +28,7 @@ export interface WorkspaceHistorySettings {
   lastMainWorkspace?: string
   workspaceHistory?: string[]
   projectWorkspaces?: string[]
+  pinnedProjectWorkspaces?: string[]
   projectNames?: Record<string, string>
   mainPageSessionKeys?: string[]
 }

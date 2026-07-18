@@ -86,6 +86,14 @@ function run() {
     serverSource.indexOf("app.post(routePath(BASE_PATH, '/api/settings')"),
     serverSource.indexOf("app.post(routePath(BASE_PATH, '/api/themes/:themeId/set')"),
   );
+  const historyViewStyles = stylesSource.match(/\.code-history-view \{[\s\S]*?\n\}/)?.[0] || '';
+
+  assert(
+    historyViewStyles.includes('flex-direction: column')
+      && historyViewStyles.includes('align-items: center')
+      && historyViewStyles.includes('justify-content: flex-start'),
+    'History should top-align its column so refresh cannot strand the first page above scrollTop zero'
+  );
 
   assert(
     appSource.includes('<CodeWorkspace') &&
@@ -534,7 +542,7 @@ function run() {
       workspaceSource.includes('compactContextMenuEntries') &&
       workspaceSource.includes('function ContextMenuEntries') &&
 	      workspaceSource.includes('type ContextMenuEntry') &&
-	      workspaceSource.includes("icon?: 'rename' | 'archive'") &&
+	      workspaceSource.includes("export type ContextMenuIconKind = 'pin' | 'folder' | 'worktree' | 'rename' | 'check' | 'archive' | 'trash'") &&
 	      workspaceSource.includes('function ContextMenuIcon') &&
 	      workspaceSource.includes('agent?.canForkNewWorktree === true') &&
 	      workspaceSource.includes('projectCanArchive(contextMenuProject)') &&
@@ -614,7 +622,7 @@ function run() {
       workspaceSource.includes("cache: options.fresh ? 'no-store' : 'default'") &&
       workspaceSource.includes("fresh: '1'") &&
       workspaceSource.includes("cache: 'no-store'") &&
-      workspaceSource.includes('const loadMoreAgentSessions = useCallback') &&
+      workspaceSource.includes('const loadMoreAgentSessions = useCallback(async') &&
       workspaceSource.includes('setAgentSessionNextCursor(page.nextCursor)') &&
       workspaceSource.includes('const seen = new Set(current.map(agentSessionId))') &&
       workspaceSource.includes('canLoadMoreAgentSessions={agentSessionsHasMore}') &&
@@ -622,8 +630,11 @@ function run() {
       workspaceSource.includes('onLoadMoreHistoryAgentSessions={loadMoreAgentSessions}') &&
       workspaceSource.includes('remaining <= 240') &&
       workspaceSource.includes('onScroll={event => loadMoreNearProjectListEnd(event.currentTarget)}') &&
-      workspaceSource.includes('remaining <= 320') &&
-      workspaceSource.includes("onScroll={activeView === 'history' ? event => loadMoreHistoryNearEnd(event.currentTarget) : undefined}") &&
+      workspaceSource.includes('HISTORY_PAGE_SIZE = 12') &&
+      workspaceSource.includes('getHistoryAgentPage(') &&
+      workspaceSource.includes('data-testid="code-history-pagination"') &&
+      !workspaceSource.includes('loadMoreHistoryNearEnd') &&
+      !workspaceSource.includes("onScroll={activeView === 'history'") &&
       workspaceSource.includes('data-testid="code-model-menu"') &&
       !workspaceSource.includes('data-agent-launch-provider') &&
       !workspaceSource.includes('data-testid="agent-profile-submenu-trigger"') &&
@@ -770,7 +781,8 @@ function run() {
       workspaceSource.includes('onDraftChange: handleDraftChange') &&
 	      workspaceSource.includes('onTerminalFollowOutputChange={handleTerminalFollowOutputChange}') &&
 	      workspaceSource.includes('onAgentReadLatest={markAgentReadLatest}') &&
-	      (workspaceSource.match(/markAgentReadIfNeeded\(/g) || []).length === 1 &&
+	      workspaceSource.includes('if (agent.unread) markAgentReadIfNeeded(agent.id, true)') &&
+	      (workspaceSource.match(/markAgentReadIfNeeded\(/g) || []).length === 2 &&
 		      terminalPaneSource.includes('!active') &&
 	      workspaceSource.includes("mainPaneMode === 'terminal'") &&
       workspaceSource.includes('data-testid="code-session-search-result"') &&
@@ -778,7 +790,7 @@ function run() {
       workspaceSource.includes('data-testid="code-session-history-card"') &&
 	      workspaceSource.includes('const historyAgents = buildHistoryAgentItems(') &&
 	      workspaceSource.includes('hasQuery ? mergeHistoryAgentSessions(agentSessions, searchedSessions) : agentSessions') &&
-      workspaceSource.includes('displayedHistoryAgents.map(item =>') &&
+	      workspaceSource.includes('historyPage.items.map(item =>') &&
 	      workspaceSource.includes('const [usageCollapsed, setUsageCollapsed] = useState(true)') &&
 	      workspaceSource.includes('function providerLocalTokenRate(usageSummary: UsageSummary | null)') &&
 	      workspaceSource.includes('function formatCollapsedUsageSummary(') &&
@@ -804,8 +816,11 @@ function run() {
 	      workspaceSource.includes('function UsageActivityHeatmaps({ usageSummary }') &&
 	      workspaceSource.includes('function DailyUsageHeatmap({') &&
 	      workspaceSource.includes('data-testid="code-usage-heatmap"') &&
+	      workspaceSource.includes('data-testid="code-usage-time-axis"') &&
 	      workspaceSource.includes('data-testid="code-usage-daily-heatmap"') &&
 	      workspaceSource.includes('data-testid="code-usage-activity-readout"') &&
+	      workspaceSource.includes('data-testid="code-usage-detail-dialog"') &&
+	      workspaceSource.includes('data-testid="code-usage-detail-analysis"') &&
 	      !workspaceSource.includes('<strong>unavailable</strong>') &&
 	      !workspaceSource.includes('function agentOutputRateFromState') &&
 	      !workspaceSource.includes('Agent output') &&
@@ -1480,10 +1495,12 @@ function run() {
   assert(
     stylesSource.includes('.code-composer-collapse-zone:hover .code-composer-collapse') &&
       !stylesSource.includes('.code-composer-shell.collapsible:hover .code-composer-collapse') &&
+      !workspaceSource.includes("activeWorkPaneMode === 'terminal'") &&
+      workspaceSource.includes('const composerCollapsed = canCollapseComposer && composerCollapseRequested') &&
       stylesSource.includes('.code-composer-restore-bar:hover .code-composer-restore') &&
       stylesSource.includes('.code-composer-restore-bar {\n  position: absolute;\n  left: 0;\n  right: 0;\n  bottom: 0;') &&
       stylesSource.includes('height: 30px;\n  pointer-events: auto;'),
-    'Composer collapse and restore controls should appear only from their edge hover zones'
+    'Terminal and Chat Composer collapse controls should appear only from their edge hover zones'
   );
 
   assert(

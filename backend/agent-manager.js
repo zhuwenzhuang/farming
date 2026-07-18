@@ -4202,23 +4202,26 @@ class AgentManager extends EventEmitter {
       : this.markAgentReadCursor(agentId);
   }
 
-  async createForkWorktree(workspace) {
+  async resolveGitWorktreeSourceRoot(workspace) {
     const sourceWorkspace = this.expandWorkspacePath(workspace);
     if (!sourceWorkspace) {
       throw new Error('Source workspace is empty');
     }
 
-    let root;
     try {
       const { stdout } = await execFileAsync('git', ['-C', sourceWorkspace, 'rev-parse', '--show-toplevel'], {
         timeout: 15000,
         maxBuffer: 1024 * 1024,
       });
-      root = stdout.trim();
+      return stdout.trim();
     } catch (error) {
       const message = error && error.stderr ? String(error.stderr).trim() : '';
       throw new Error(message || 'Source workspace is not inside a git repository', { cause: error });
     }
+  }
+
+  async createForkWorktree(workspace) {
+    const root = await this.resolveGitWorktreeSourceRoot(workspace);
 
     const parentDir = path.dirname(root);
     const baseName = path.basename(root);
@@ -4241,6 +4244,70 @@ class AgentManager extends EventEmitter {
     }
 
     return target;
+  }
+
+  async createPermanentWorktree(workspace) {
+    const root = await this.resolveGitWorktreeSourceRoot(workspace);
+    const parentDir = path.dirname(root);
+    const baseName = path.basename(root);
+    const slug = timestampSlug();
+    let suffix = 1;
+
+    while (suffix < 1000) {
+      const suffixText = suffix === 1 ? '' : `-${suffix}`;
+      const target = path.join(parentDir, `${baseName}-farming-worktree-${slug}${suffixText}`);
+      const branch = `farming/worktree-${slug}${suffixText}`;
+      let branchExists = false;
+      try {
+        await execFileAsync('git', ['-C', root, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`], {
+          timeout: 15000,
+          maxBuffer: 1024 * 1024,
+        });
+        branchExists = true;
+      } catch (error) {
+        if (error?.code !== 1) {
+          const message = error && error.stderr ? String(error.stderr).trim() : '';
+          throw new Error(message || 'Failed to inspect git branches', { cause: error });
+        }
+      }
+
+      if (!fs.existsSync(target) && !branchExists) {
+        try {
+          await execFileAsync('git', ['-C', root, 'worktree', 'add', '-b', branch, target, 'HEAD'], {
+            timeout: 60000,
+            maxBuffer: 1024 * 1024 * 4,
+          });
+        } catch (error) {
+          const message = error && error.stderr ? String(error.stderr).trim() : '';
+          throw new Error(message || 'Failed to create permanent git worktree', { cause: error });
+        }
+        return { workspace: target, branch, sourceWorkspace: root };
+      }
+      suffix += 1;
+    }
+
+    throw new Error('Unable to allocate a permanent worktree name');
+  }
+
+  async rollbackPermanentWorktree(created) {
+    if (!created?.workspace || !created?.sourceWorkspace) return;
+    try {
+      await execFileAsync('git', ['-C', created.sourceWorkspace, 'worktree', 'remove', '--force', created.workspace], {
+        timeout: 60000,
+        maxBuffer: 1024 * 1024 * 4,
+      });
+    } catch {
+      // Rollback is best-effort so the original create/persist failure remains visible.
+    }
+    if (!created.branch) return;
+    try {
+      await execFileAsync('git', ['-C', created.sourceWorkspace, 'branch', '-D', created.branch], {
+        timeout: 30000,
+        maxBuffer: 1024 * 1024 * 4,
+      });
+    } catch {
+      // The worktree removal may already have pruned the newly created branch.
+    }
   }
 
   async inspectForkWorktreeProject(workspace) {

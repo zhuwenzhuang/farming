@@ -4,6 +4,7 @@ const { execFileSync } = require('child_process');
 const { getUserLaunchAgents } = require('./cli-agents');
 
 const DEFAULT_CODEX_APP_BIN = '/Applications/Codex.app/Contents/Resources/codex';
+const DEFAULT_CHATGPT_APP_CODEX_BIN = '/Applications/ChatGPT.app/Contents/Resources/codex';
 const executableVersionCache = new Map();
 
 function getPathDirectories(pathEnv = process.env.PATH || '') {
@@ -90,6 +91,7 @@ function getPreferredExecutableCandidates(agentName, pathEnv = process.env.PATH 
   return [
     process.env.FARMING_CODEX_BIN || '',
     DEFAULT_CODEX_APP_BIN,
+    DEFAULT_CHATGPT_APP_CODEX_BIN,
     ...pathCandidates,
   ].filter(Boolean);
 }

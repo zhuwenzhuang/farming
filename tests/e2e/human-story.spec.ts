@@ -30,6 +30,32 @@ async function terminalCellCenter(page: import('@playwright/test').Page, agentId
 }
 
 test.describe('human Farming Agent story', () => {
+  test('restores the selected Agent after reloading with multiple live Agents', async ({ page, workspaceRoot }) => {
+    await openFarming(page)
+    await openNewAgentDialog(page)
+    const firstAgentId = await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+    await openNewAgentDialog(page)
+    const secondAgentId = await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+
+    const firstAgentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)
+    await firstAgentRow.click()
+    await expect(firstAgentRow).toHaveClass(/active/)
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${firstAgentId}"]`)).toBeVisible()
+
+    await page.reload({ waitUntil: 'networkidle' })
+    await expect(firstAgentRow).toHaveClass(/active/)
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${firstAgentId}"]`)).toBeVisible()
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${secondAgentId}"]`)).toBeHidden()
+
+    const terminalComposerInput = page.getByTestId('code-composer-input')
+    await terminalComposerInput.fill('terminal draft survives composer collapse')
+    await page.locator('.code-composer-collapse-zone').hover()
+    await page.getByTestId('code-composer-collapse').click()
+    await expect(page.getByTestId('code-composer')).toHaveCount(0)
+    await page.getByTestId('code-composer-restore').click()
+    await expect(terminalComposerInput).toHaveValue('terminal draft survives composer collapse')
+  })
+
   test('starts a Code-style agent, queues follow-ups while busy, and survives reopening the page', async ({ page, workspaceRoot }) => {
     await openFarming(page)
     await openNewAgentDialog(page)

@@ -5,6 +5,7 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const {
+  browseWorkspaceDirectory,
   createWorkspaceDirectoryRouter,
   prepareWorkspaceDirectory,
   resolveWorkspaceDirectory,
@@ -25,10 +26,30 @@ async function run() {
   const missing = path.join(tempRoot, 'new-project', 'nested');
   const filePath = path.join(tempRoot, 'file.txt');
   fs.mkdirSync(existing);
+  fs.mkdirSync(path.join(existing, '.hidden-worktree'));
+  fs.mkdirSync(path.join(existing, 'project-alpha'));
   fs.writeFileSync(filePath, 'not a directory');
 
   assert.strictEqual(resolveWorkspaceDirectory('~/project', tempRoot), path.join(tempRoot, 'project'));
   assert.strictEqual(resolveWorkspaceDirectory('  ', tempRoot), '');
+
+  const browsed = await browseWorkspaceDirectory(existing);
+  assert.deepStrictEqual(browsed, {
+    status: 200,
+    body: {
+      status: 'ready',
+      workspace: existing,
+      parent: tempRoot,
+      directories: [
+        { name: '.hidden-worktree', path: path.join(existing, '.hidden-worktree') },
+        { name: 'project-alpha', path: path.join(existing, 'project-alpha') },
+      ],
+      truncated: false,
+    },
+  });
+  const missingBrowse = await browseWorkspaceDirectory(path.join(tempRoot, 'missing'));
+  assert.strictEqual(missingBrowse.status, 404);
+  assert.strictEqual(missingBrowse.body.code, 'workspace-not-found');
 
   const ready = await prepareWorkspaceDirectory(existing);
   assert.deepStrictEqual(ready, {
@@ -73,6 +94,12 @@ async function run() {
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
   try {
+    const browserResponse = await fetch(`${baseUrl}/api/workspaces/browse?path=${encodeURIComponent(existing)}`);
+    const browserResult = await browserResponse.json();
+    assert.strictEqual(browserResponse.status, 200);
+    assert.strictEqual(browserResult.workspace, existing);
+    assert.deepStrictEqual(browserResult.directories.map(entry => entry.name), ['.hidden-worktree', 'project-alpha']);
+
     const routeMissing = path.join(tempRoot, 'route-project');
     const checked = await fetchJson(baseUrl, { workspace: routeMissing });
     assert.strictEqual(checked.status, 409);
@@ -86,7 +113,7 @@ async function run() {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 
-  console.log('✓ Workspace directory preparation is explicit and fail-closed');
+  console.log('✓ Workspace directory browsing and preparation are explicit and fail-closed');
 }
 
 run().catch(error => {

@@ -136,6 +136,21 @@ function run() {
   assert.strictEqual(persistedEmptyProjects[0].agents.length, 0);
   assert.strictEqual(persistedEmptyProjects[0].hasOpenFile, undefined);
   assert.strictEqual(Object.hasOwn(persistedEmptyProjects[0], 'fileAgentId'), false);
+  const pinnedProjects = projectListProjectsForAgents(
+    [
+      agent({ id: 'project-a', projectWorkspace: '/project-a', cwd: '/project-a' }),
+      agent({ id: 'project-b', projectWorkspace: '/project-b', cwd: '/project-b' }),
+      agent({ id: 'project-c', projectWorkspace: '/project-c', cwd: '/project-c' }),
+    ],
+    [],
+    {},
+    [],
+    [],
+    ['/project-a', '/project-b', '/project-c'],
+    ['/project-b', '/project-a'],
+  );
+  assert.deepStrictEqual(pinnedProjects.map(project => project.workspace), ['/project-b', '/project-a', '/project-c']);
+  assert.deepStrictEqual(pinnedProjects.map(project => project.pinned), [true, true, false]);
   assert.deepStrictEqual(
     displayedProjectsForSearch(openOnlyProjects, 'repo-topic', new Set()).map(project => project.workspace),
     ['/repo-topic'],

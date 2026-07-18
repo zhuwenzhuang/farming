@@ -326,8 +326,11 @@ async function run() {
   });
   const summary = await monitor.getUsageSummary({ now });
   assert.strictEqual(summary.providers.length, 4);
-  assert.strictEqual(summary.timeline.points.length, 30);
-  assert.strictEqual(summary.timeline.windowMs, 60 * 60 * 1000);
+  assert.strictEqual(summary.timeline.points.length, 24);
+  assert.strictEqual(summary.timeline.windowMs, 24 * 60 * 60 * 1000);
+  assert.strictEqual(summary.timeline.bucketMs, 60 * 60 * 1000);
+  assert.strictEqual(summary.timeline.startAt % (60 * 60 * 1000), 0);
+  assert.strictEqual(summary.timeline.endAt % (60 * 60 * 1000), 0);
   assert.strictEqual(summary.timeline.totalTokens, 22_148);
   assert.strictEqual(summary.daily.points.length, 52 * 7);
   assert.strictEqual(summary.daily.summary.todayTokens, 22_148);

@@ -60,6 +60,13 @@ function run() {
   const faviconHeader = fs.readFileSync(path.join(repoRoot, 'public/farming-2/favicon-v2.ico')).subarray(0, 4);
   assert(productIndex.includes('app-icon-v2-180.png'), 'iOS should use the versioned high-resolution touch icon');
   assert(productIndex.includes('favicon-v2-32.png'), 'browser tabs should use the versioned small-icon crop');
+  assert.strictEqual(manifest.id, undefined, 'the installed app identity should inherit the resolved start URL instead of collapsing custom base paths to one origin-level id');
+  assert.strictEqual(manifest.start_url, '../', 'the installed app should reopen the authenticated base path without persisting a token URL');
+  assert.strictEqual(manifest.scope, '../', 'the installed app should keep Code and CRT routes inside the same standalone window');
+  assert.strictEqual(manifest.display, 'standalone', 'the installed desktop app should omit ordinary browser tabs and address controls');
+  const customBaseManifestUrl = new URL('https://farming.example/custom/base/farming-2/site.webmanifest');
+  assert.strictEqual(new URL(manifest.start_url, customBaseManifestUrl).pathname, '/custom/base/', 'the installed app start URL should honor a custom Farming base path');
+  assert.strictEqual(new URL(manifest.scope, customBaseManifestUrl).pathname, '/custom/base/', 'the installed app scope should honor a custom Farming base path');
   assert(manifest.icons.some(icon => icon.src === 'app-icon-v2-maskable-512.png' && icon.purpose === 'maskable'), 'the PWA manifest should provide a mask-safe Android icon');
   assert.deepStrictEqual([...faviconHeader], [0, 0, 1, 0], 'the v2 favicon should be a binary ICO rather than base64 text');
   assert(

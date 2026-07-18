@@ -1,6 +1,8 @@
 {
   "name": "Farming 2",
   "short_name": "Farming 2",
+  "start_url": "../",
+  "scope": "../",
   "icons": [
     {
       "src": "app-icon-v2-192.png",

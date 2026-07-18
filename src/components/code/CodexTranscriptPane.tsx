@@ -2148,6 +2148,10 @@ export function CodexTranscriptPane({
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const pendingPrependAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
   const followBottomRef = useRef(true)
+  // A saved semantic anchor is for returning to an Agent, not for tracking
+  // every live transcript mutation. Reapplying its fractional position while
+  // a message grows would move a user who is reading away from the bottom.
+  const pendingReadingAnchorRestoreRef = useRef(false)
   // A transcript refresh can arrive while a user is dragging the mobile
   // scroll surface. Never let the refresh/layout pass take the viewport away
   // from the finger (the old behavior made the list jump back to the same
@@ -2175,7 +2179,9 @@ export function CodexTranscriptPane({
     setOpenProcessTurnIds(new Set())
     setClosedLiveProcessTurnIds(new Set())
     setShowJumpToBottom(false)
-    followBottomRef.current = !readReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
+    const hasReadingAnchor = Boolean(readReadingAnchor(readingAnchorAgentKey(agentId, 'chat')))
+    followBottomRef.current = !hasReadingAnchor
+    pendingReadingAnchorRestoreRef.current = hasReadingAnchor
     textSelectionGestureRef.current = false
     textSelectionHadRangeRef.current = false
     pendingPrependAnchorRef.current = null
@@ -2335,6 +2341,7 @@ export function CodexTranscriptPane({
       return
     }
     if (followBottomRef.current) {
+      pendingReadingAnchorRestoreRef.current = false
       window.requestAnimationFrame(() => {
         if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
         element.scrollTop = element.scrollHeight
@@ -2344,6 +2351,8 @@ export function CodexTranscriptPane({
       })
       return
     }
+    if (!pendingReadingAnchorRestoreRef.current) return
+    pendingReadingAnchorRestoreRef.current = false
     window.requestAnimationFrame(() => {
       if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
       const restored = restoreTranscriptReadingAnchor(agentId, element)
@@ -2503,6 +2512,7 @@ export function CodexTranscriptPane({
   const handleScroll = useCallback(() => {
     const element = scrollRef.current
     if (!element) return
+    pendingReadingAnchorRestoreRef.current = false
     if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) {
       followBottomRef.current = false
       textSelectionHadRangeRef.current = true

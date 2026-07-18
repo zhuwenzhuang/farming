@@ -7,7 +7,8 @@ import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { CodeCopy } from '@/components/code/copy'
 import { AgentLaunchIcon } from '@/components/code/AgentLaunchIcon'
 import { normalizeAgentLaunchOptions } from '@/components/code/agent-launch-options'
-import { ArrowDownGlyph, ArrowUpGlyph, CheckGlyph, ChevronDownGlyph, CloseGlyph, ErrorGlyph, PlusGlyph } from '@/components/IconGlyphs'
+import { ArrowDownGlyph, ArrowUpGlyph, CheckGlyph, ChevronDownGlyph, CloseGlyph, ErrorGlyph, FolderGlyph, PlusGlyph } from '@/components/IconGlyphs'
+import { WorkspaceDirectoryBrowser } from '@/components/WorkspaceDirectoryBrowser'
 import { mergeTaskWithWorkflow, WORKFLOW_TEMPLATE_OPTIONS } from '@/lib/workflow-templates'
 import { prepareWorkspaceDirectory } from '@/lib/workspace-directory'
 import {
@@ -161,6 +162,7 @@ export function InputDialog({
   const [historySelection, setHistorySelection] = useState(-1)
   const [startClickLocked, setStartClickLocked] = useState(false)
   const [workspacePreparation, setWorkspacePreparation] = useState<WorkspacePreparation | null>(null)
+  const [workspaceDirectoryBrowserOpen, setWorkspaceDirectoryBrowserOpen] = useState(false)
   const dialogRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const homeMenuRef = useRef<HTMLDivElement>(null)
@@ -196,6 +198,7 @@ export function InputDialog({
     startClickLockedRef.current = false
     setStartClickLocked(false)
     setWorkspacePreparation(null)
+    setWorkspaceDirectoryBrowserOpen(false)
     if (startClickUnlockTimerRef.current !== null) {
       window.clearTimeout(startClickUnlockTimerRef.current)
       startClickUnlockTimerRef.current = null
@@ -786,6 +789,11 @@ export function InputDialog({
         key: 'Escape',
         allowInOverlay: true,
         handler: () => {
+          if (workspaceDirectoryBrowserOpen) {
+            setWorkspaceDirectoryBrowserOpen(false)
+            requestAnimationFrame(() => inputRef.current?.focus())
+            return
+          }
           if (workspacePreparation) {
             if (workspacePreparation.kind === 'creating') return
             setWorkspacePreparation(null)
@@ -839,7 +847,29 @@ export function InputDialog({
           )}
         </div>
 
-        {step === 'agent-list' && (
+        {workspaceDirectoryBrowserOpen && (
+          <WorkspaceDirectoryBrowser
+            copy={copy}
+            initialPath={workspace || workspaceOptions[0] || '~'}
+            onCancel={() => {
+              setWorkspaceDirectoryBrowserOpen(false)
+              requestAnimationFrame(() => inputRef.current?.focus())
+            }}
+            onSelect={nextWorkspace => {
+              workspaceTouchedRef.current = true
+              setWorkspace(nextWorkspace)
+              setHistorySelection(-1)
+              setWorkspacePathSelection(-1)
+              setWorkspaceDirectoryBrowserOpen(false)
+              requestAnimationFrame(() => {
+                inputRef.current?.focus()
+                inputRef.current?.setSelectionRange(nextWorkspace.length, nextWorkspace.length)
+              })
+            }}
+          />
+        )}
+
+        {!workspaceDirectoryBrowserOpen && step === 'agent-list' && (
           <div className="agent-list">
             {!agentsLoaded && (
               <div className="agent-list-status fx-crt-panel" data-testid="agent-list-status">
@@ -921,7 +951,7 @@ export function InputDialog({
           </div>
         )}
 
-        {step === 'workspace' && selectedAgent && (
+        {!workspaceDirectoryBrowserOpen && step === 'workspace' && selectedAgent && (
           <div className="workspace-input" data-testid="workspace-step">
             {(homesForSelectedAgent?.length ?? 0) > 1 && (
               <div className="workspace-home-field" ref={homeMenuRef}>
@@ -1012,72 +1042,85 @@ export function InputDialog({
               </div>
             )}
             <p className="workspace-field-copy">{copy.workspace}</p>
-            <input
-              ref={inputRef}
-              data-testid="workspace-input"
-              type="text"
-              value={workspace}
-              onFocus={() => syncSelectionWithValue(workspace)}
-              onChange={e => {
-                const nextValue = e.target.value
-                workspaceTouchedRef.current = true
-                setWorkspacePreparation(null)
-                setWorkspace(nextValue)
-                syncSelectionWithValue(nextValue)
-              }}
-              onKeyDown={e => {
-                if (e.key === 'ArrowDown') {
-                  if (workspacePathSuggestions.length > 0 && moveWorkspacePathSelection(1)) {
-                    e.preventDefault()
+            <div className="workspace-path-field">
+              <input
+                ref={inputRef}
+                data-testid="workspace-input"
+                type="text"
+                value={workspace}
+                onFocus={() => syncSelectionWithValue(workspace)}
+                onChange={e => {
+                  const nextValue = e.target.value
+                  workspaceTouchedRef.current = true
+                  setWorkspacePreparation(null)
+                  setWorkspace(nextValue)
+                  syncSelectionWithValue(nextValue)
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'ArrowDown') {
+                    if (workspacePathSuggestions.length > 0 && moveWorkspacePathSelection(1)) {
+                      e.preventDefault()
+                      return
+                    }
+                    if (moveWorkspaceHistorySelection(1)) {
+                      e.preventDefault()
+                    }
                     return
                   }
-                  if (moveWorkspaceHistorySelection(1)) {
-                    e.preventDefault()
-                  }
-                  return
-                }
-                if (e.key === 'ArrowUp') {
-                  if (workspacePathSuggestions.length > 0 && moveWorkspacePathSelection(-1)) {
-                    e.preventDefault()
+                  if (e.key === 'ArrowUp') {
+                    if (workspacePathSuggestions.length > 0 && moveWorkspacePathSelection(-1)) {
+                      e.preventDefault()
+                      return
+                    }
+                    if (moveWorkspaceHistorySelection(-1)) {
+                      e.preventDefault()
+                    }
                     return
                   }
-                  if (moveWorkspaceHistorySelection(-1)) {
-                    e.preventDefault()
-                  }
-                  return
-                }
-                if (e.key === 'Tab' && workspacePathSuggestions.length > 0) {
-                  if (acceptWorkspacePathSuggestion(workspacePathSelection === -1 ? 0 : workspacePathSelection)) {
-                    e.preventDefault()
-                  }
-                  return
-                }
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  if (workspacePathSelection !== -1 && acceptWorkspacePathSuggestion(workspacePathSelection)) {
+                  if (e.key === 'Tab' && workspacePathSuggestions.length > 0) {
+                    if (acceptWorkspacePathSuggestion(workspacePathSelection === -1 ? 0 : workspacePathSelection)) {
+                      e.preventDefault()
+                    }
                     return
                   }
-                  void confirm()
-                }
-                if (e.key === 'Escape') {
-                  e.preventDefault()
-                  setStep('agent-list')
-                }
-              }}
-              placeholder={copy.workspacePathPlaceholder}
-              name="workspace-path"
-              inputMode="text"
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              enterKeyHint="go"
-              data-lpignore="true"
-              data-1p-ignore="true"
-              data-bwignore="true"
-              data-form-type="other"
-              disabled={workspacePreparation !== null}
-            />
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    if (workspacePathSelection !== -1 && acceptWorkspacePathSuggestion(workspacePathSelection)) {
+                      return
+                    }
+                    void confirm()
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setStep('agent-list')
+                  }
+                }}
+                placeholder={copy.workspacePathPlaceholder}
+                name="workspace-path"
+                inputMode="text"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                enterKeyHint="go"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-bwignore="true"
+                data-form-type="other"
+                disabled={workspacePreparation !== null}
+              />
+              <button
+                type="button"
+                className="workspace-directory-picker"
+                data-testid="workspace-directory-picker"
+                aria-label={copy.chooseWorkspaceDirectory}
+                title={copy.chooseWorkspaceDirectory}
+                disabled={workspacePreparation !== null}
+                onClick={() => setWorkspaceDirectoryBrowserOpen(true)}
+              >
+                <FolderGlyph />
+              </button>
+            </div>
             {workspacePreparation ? (
               <div
                 className={`workspace-directory-prompt ${workspacePreparation.kind === 'error' ? 'error' : ''}`}

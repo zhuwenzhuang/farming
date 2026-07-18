@@ -26,7 +26,7 @@ Open the authenticated URL and choose **New Agent**.
 
 ![Choose an Agent](assets/02-start-agent-picker.png)
 
-Farming detects available Agent executables instead of showing launch choices that cannot run. Select a recent or custom workspace, choose structured Chat or Terminal where both are supported, and start the task.
+Farming detects available Agent executables instead of showing launch choices that cannot run. Select a recent or custom workspace, choose structured Chat or Terminal where both are supported, and start the task. The folder button beside Workspace opens an in-page directory browser backed by the Farming host, so local and remote pages select the same server-side workspace path without depending on a desktop file manager.
 
 Codex, Claude Code, OpenCode, and Qoder provide both structured ACP Chat and native Terminal. Qwen Code, Aider, GitHub Copilot CLI, Amazon Q, bash, and zsh use the terminal path when detected. Farming hosts those CLIs; it does not replace their installation or login.
 
@@ -47,6 +47,8 @@ Terminal is a native PTY session rendered with xterm.js. ANSI output, full-scree
 ![Native Agent Terminal](assets/12-code-terminal-session.png)
 
 The **Chat / Terminal** control changes the actual Agent runtime; it is not a view toggle. Farming restarts into ACP or PTY mode and resumes the same provider session when its identity exists. A fresh Terminal with no user input may move into a fresh Chat before the provider record has materialized. After Terminal input, missing resume identity is an explicit error so the conversation cannot be discarded silently.
+
+On desktop, both Chat and Terminal use the same edge-hover Composer collapse and restore control. Collapsing hides only the input surface; the active Chat transcript or Terminal remains visible, and an unsent draft survives restoration.
 
 The native PTY host is a separate process from the Farming server. Browsers can reconnect to live terminals, and a normal Farming server restart can recover them without launching duplicate Agents.
 
@@ -82,6 +84,8 @@ Files are scoped to a concrete project Agent. The project sidebar contains Open 
 
 Agent rows progressively use available sidebar width without changing their compact height: the narrow projection keeps the title and essential state, a roomier row adds provider and relative activity time, and a wide row adds command or runtime profile detail. Title text is clipped by the actual row width instead of a fixed character count.
 
+Each Project row keeps its title and actions on one baseline. Its eye control hides or reveals only that Project's Agent list, while Files remains independently available. The `...` menu owns ordered Project pinning, reveal, permanent worktree creation, rename, mark-all-read, archive, and removal actions. Pinned Projects stay ahead of ordinary Projects in the order they were pinned.
+
 ![Project file with inline blame](assets/04-files-editor-blame.png)
 
 The editor is a lightweight intervention surface:
@@ -110,6 +114,8 @@ Search matches project names, Agent titles, and workspace paths across current l
 
 History covers more than the left sidebar. It combines Farming run records, archived supported coding Agents, and unclaimed provider sessions from Codex, Claude Code, OpenCode, and Qoder, with identity-based deduplication.
 
+History uses explicit bounded pages instead of extending one scroll surface indefinitely. Search and refresh return to a valid first page, while older provider-session pages are fetched only when navigation reaches the loaded boundary.
+
 ![Full History search](assets/08-history-search.png)
 
 Results preserve provider identity and workspace context. Depending on the record, the primary action can open, continue, restore, or resume. Shell processes are destroyed when archived and never masquerade as resumable provider sessions.
@@ -129,6 +135,8 @@ Switching to Farming CRT carries the focused Agent when possible and does not re
 Light and dark appearance changes the workbench without changing Agent processes or session identity.
 
 ![Dark Farming Code workspace](assets/09-dark-workspace.png)
+
+On desktop Chrome, Farming can run in a standalone app window without the browser tab bar, address bar, extensions, or other browser controls. In a normal browser tab, click the app/fullscreen control beside Share and follow the install guide; Chrome's equivalent path is **More → Cast, save and share → Install page as app**. The same dialog keeps fullscreen as a temporary alternative. The control is omitted after Farming is opened as an installed app. Future launches from the Farming 2 app icon reopen the clean base-path URL and reuse the authenticated cookie; the startup Token is not stored in the installed launch URL.
 
 On a phone, Farming Code focuses one conversation, terminal, or file at a time and moves project navigation into a drawer. It is intended for checking progress, switching Agents, reading a result, or sending a short intervention—not for squeezing a multi-pane desktop IDE onto a narrow screen.
 

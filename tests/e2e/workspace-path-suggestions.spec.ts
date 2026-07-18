@@ -76,6 +76,56 @@ test.describe('workspace path suggestions', () => {
     expect(suggestionMetrics.color).toBe('rgb(36, 41, 47)')
   })
 
+  test('browses Farming host directories for New Agent and preserves the workspace on cancel', async ({ page, workspaceRoot }) => {
+    const browserRoot = path.join(workspaceRoot, 'host-directory-browser')
+    const hiddenWorkspace = path.join(browserRoot, '.hidden-worktree')
+    const selectedWorkspace = path.join(browserRoot, 'picked-from-browser')
+    fs.mkdirSync(hiddenWorkspace, { recursive: true })
+    fs.mkdirSync(selectedWorkspace, { recursive: true })
+
+    await openFarming(page)
+    await page.getByTestId('code-empty-workspace').getByRole('button', { name: 'New Agent' }).click()
+    await expect(page.getByTestId('agent-list-status')).toBeHidden({ timeout: 30_000 })
+    await page.getByTestId('agent-option-bash').click()
+
+    const workspaceInput = page.getByTestId('workspace-input')
+    const pickerButton = page.getByTestId('workspace-directory-picker')
+    await expect(pickerButton).toHaveAccessibleName('Choose workspace folder')
+    await workspaceInput.fill(browserRoot)
+    await pickerButton.click()
+    const directoryBrowser = page.getByTestId('workspace-directory-browser')
+    await expect(directoryBrowser).toBeVisible()
+    await expect(page.getByText('Browse folders on the Farming host.')).toBeVisible()
+    const browserPathInput = page.getByTestId('workspace-directory-browser-path')
+    const selectFolderButton = page.getByTestId('workspace-directory-browser-select')
+    await expect(browserPathInput).toHaveValue(browserRoot)
+    await expect(page.getByTestId('workspace-directory-browser-row').filter({ hasText: '.hidden-worktree' })).toBeVisible()
+
+    await browserPathInput.fill(path.join(browserRoot, 'missing'))
+    await expect(selectFolderButton).toBeDisabled()
+    await browserPathInput.press('Enter')
+    await expect(directoryBrowser.getByRole('alert')).toContainText('Couldn’t read this directory.')
+    await browserPathInput.fill(browserRoot)
+    await browserPathInput.press('Enter')
+    await expect(page.getByTestId('workspace-directory-browser-row').filter({ hasText: 'picked-from-browser' })).toBeVisible()
+
+    await page.getByTestId('workspace-directory-browser-row').filter({ hasText: 'picked-from-browser' }).click()
+    await expect(browserPathInput).toHaveValue(selectedWorkspace)
+    await page.getByTestId('workspace-directory-browser-parent').click()
+    await expect(browserPathInput).toHaveValue(browserRoot)
+    await page.getByTestId('workspace-directory-browser-row').filter({ hasText: 'picked-from-browser' }).click()
+    await selectFolderButton.click()
+    await expect(directoryBrowser).toBeHidden()
+    await expect(workspaceInput).toHaveValue(selectedWorkspace)
+
+    await workspaceInput.fill(browserRoot)
+    await pickerButton.click()
+    await expect(browserPathInput).toHaveValue(browserRoot)
+    await page.getByTestId('workspace-directory-browser-cancel').click()
+    await expect(directoryBrowser).toBeHidden()
+    await expect(workspaceInput).toHaveValue(browserRoot)
+  })
+
   test('uses the dark skin for the custom home menu and Codex runtime choice', async ({ page, workspaceRoot }) => {
     await openFarming(page)
     await page.request.post('/farming/api/settings', {
@@ -114,6 +164,16 @@ test.describe('workspace path suggestions', () => {
     })
     expect(runtimeMetrics.background).toBe('rgb(22, 27, 34)')
     expect(runtimeMetrics.color).toBe('rgb(230, 237, 243)')
+
+    await page.getByTestId('workspace-directory-picker').click()
+    const directoryList = page.getByTestId('workspace-directory-browser-list')
+    await expect(directoryList).toBeVisible()
+    const directoryListMetrics = await directoryList.evaluate(element => {
+      const style = getComputedStyle(element)
+      return { background: style.backgroundColor, color: style.color }
+    })
+    expect(directoryListMetrics.background).toBe('rgb(17, 22, 29)')
+    await page.getByTestId('workspace-directory-browser-cancel').click()
   })
 
   test('remain scrollable when many directories match', async ({ page, workspaceRoot }) => {

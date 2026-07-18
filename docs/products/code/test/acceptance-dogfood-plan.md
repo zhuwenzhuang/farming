@@ -113,7 +113,7 @@ Cover Files expansion, lazy loading, search, `path:line`, text / image / binary 
 
 ### 7. Usage And System Status
 
-Cover truthful local provider usage summaries, the compact one-hour and 52-week daily token heatmaps, exact token readouts on cell hover, token rate, CPU, memory, collapsed state, no-data state, and read failures. Providers without usable token telemetry and quota fields without real quota data must be omitted instead of rendered as unavailable placeholders. Never run reset actions.
+Cover truthful local provider usage summaries, the compact 24-hour heatmap with whole-hour buckets and axis labels, the 52-week daily token heatmap with a visually distinct recent seven days, compact token totals, and exact token readouts on cell hover. Clicking either chart must open the matching larger heatmap; the 52-week detail defaults to a visually marked peak day and shows that day's compact token total prominently, then temporarily switches the prominent value to any hovered or keyboard-focused day while preserving the exact readout below. The detail analysis must expose peak activity plus bounded comparisons derived from the same local token data, including recent-versus-previous seven days and cache share when daily breakdowns exist. Also cover token rate, CPU, memory, collapsed state, no-data state, and read failures. Providers without usable token telemetry and quota fields without real quota data must be omitted instead of rendered as unavailable placeholders. Never run reset actions.
 
 ### 8. Mobile
 

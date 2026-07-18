@@ -1,10 +1,12 @@
+export type ContextMenuIconKind = 'pin' | 'folder' | 'worktree' | 'rename' | 'check' | 'archive' | 'trash'
+
 export type ContextMenuEntry =
   | {
     type: 'item'
     id: string
     label: string
     ariaLabel?: string
-    icon?: 'rename' | 'archive' | 'trash'
+    icon?: ContextMenuIconKind
     removeIcon?: boolean
     checked?: boolean
     disabled?: boolean

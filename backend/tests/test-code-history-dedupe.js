@@ -54,7 +54,12 @@ function session(overrides = {}) {
 }
 
 function run() {
-  const { buildHistoryAgentItems, filterHistoryAgentItems, mergeHistoryAgentSessions } = importTsModule('src/components/code/HistoryPanel.tsx');
+  const {
+    buildHistoryAgentItems,
+    filterHistoryAgentItems,
+    getHistoryAgentPage,
+    mergeHistoryAgentSessions,
+  } = importTsModule('src/components/code/HistoryPanel.tsx');
   const claudeResumeId = 'd7450fc4-37bd-40b1-8523-02ce5b753082';
   const claudeSource = `claude-history:${claudeResumeId}`;
   const codexResumeId = '019f26d3-7485-76d0-8a64-f5cf5d690129';
@@ -163,6 +168,27 @@ function run() {
       ['older-search-result', '上下游联动替代表测试'],
     ],
     'History should merge full search results beyond the loaded page without duplicating sessions'
+  );
+
+  const pagedItems = buildHistoryAgentItems([], [], Array.from({ length: 25 }, (_, index) => session({
+    id: `page-session-${index}`,
+    updatedAt: new Date(25_000 - index).toISOString(),
+  })));
+  assert.deepStrictEqual(
+    getHistoryAgentPage(pagedItems, 1, 12),
+    {
+      items: pagedItems.slice(12, 24),
+      page: 1,
+      pageSize: 12,
+      totalItems: 25,
+      totalPages: 3,
+    },
+    'History should expose a bounded explicit page instead of one long scroll list'
+  );
+  assert.deepStrictEqual(
+    getHistoryAgentPage(pagedItems, 99, 12).items,
+    pagedItems.slice(24),
+    'History should clamp a stale page after refresh or filtering shrinks the result set'
   );
 
   console.log('test-code-history-dedupe passed');

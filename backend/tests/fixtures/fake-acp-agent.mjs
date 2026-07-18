@@ -293,6 +293,35 @@ class FakeAgent {
       });
       return { stopReason: 'end_turn' };
     }
+    if (promptText.includes('markdown typography')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'markdown-typography-answer',
+          content: {
+            type: 'text',
+            text: [
+              'Typography baseline.',
+              '',
+              '```text',
+              'Primary code content',
+              'Second readable line',
+              '```',
+              '',
+              '| Column | Value |',
+              '| --- | --- |',
+              '| Readability | Primary |',
+              '',
+              '> Quoted reading content.',
+              '',
+              'Inline `metadata` stays compact.',
+            ].join('\n'),
+          },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('rich timeline')) {
       const releaseStory = promptText.includes('release readiness story');
       await client.sessionUpdate({
@@ -479,6 +508,33 @@ class FakeAgent {
         sessionId: params.sessionId,
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'streaming-thought-answer', content: { type: 'text', text: 'Streaming thought complete.' } },
       });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('scroll stability')) {
+      const opening = Array.from(
+        { length: 48 },
+        (_, index) => `Reading paragraph ${String(index + 1).padStart(2, '0')}: keep this viewport stable while the answer continues below.`,
+      ).join('\n\n');
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'scroll-stability-answer',
+          content: { type: 'text', text: opening },
+        },
+      });
+      await new Promise(resolve => setTimeout(resolve, 900));
+      for (let index = 1; index <= 6; index += 1) {
+        await client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            messageId: 'scroll-stability-answer',
+            content: { type: 'text', text: `\n\nStreaming tail ${index}: additional text arrived without taking over the reader's viewport.` },
+          },
+        });
+        await new Promise(resolve => setTimeout(resolve, 260));
+      }
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('usage warning')) {

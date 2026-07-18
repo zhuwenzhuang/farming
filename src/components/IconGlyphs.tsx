@@ -98,6 +98,14 @@ export function PlusGlyph(props: IconGlyphProps) {
   )
 }
 
+export function FolderGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
+      <path d="M1.5 3h4.293l1.5 1.5H14.5l.5.5v7.5l-.5.5h-13l-.5-.5v-9l.5-.5Zm.5 1v8h12V5.5H6.879L5.379 4H2Z" />
+    </svg>
+  )
+}
+
 export function HandGlyph(props: IconGlyphProps) {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false" {...props}>

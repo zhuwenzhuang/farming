@@ -73,6 +73,7 @@ const PERSISTED_SETTING_KEYS = new Set([
   'lastMainWorkspace',
   'workspaceHistory',
   'projectWorkspaces',
+  'pinnedProjectWorkspaces',
   'projectNames',
   'theme',
   'appearance',
@@ -287,6 +288,7 @@ class ConfigManager {
         lastMainWorkspace: this.farmingDir,
         workspaceHistory: [],
         projectWorkspaces: [],
+        pinnedProjectWorkspaces: [],
         projectNames: {},
         theme: 'terminal',
         appearance: 'light',
@@ -322,6 +324,7 @@ class ConfigManager {
       lastMainWorkspace: this.farmingDir,
       workspaceHistory: [],
       projectWorkspaces: [],
+      pinnedProjectWorkspaces: [],
       projectNames: {},
       theme: 'terminal',
       appearance: 'light',
@@ -371,6 +374,7 @@ class ConfigManager {
     this.settings.lastMainWorkspace = this.normalizeMainWorkspace(this.settings.lastMainWorkspace, this.farmingDir);
     this.settings.workspaceHistory = this.normalizeWorkspaceHistory(this.settings.workspaceHistory);
     this.settings.projectWorkspaces = this.normalizeProjectWorkspaces(this.settings.projectWorkspaces);
+    this.settings.pinnedProjectWorkspaces = this.normalizeProjectWorkspaces(this.settings.pinnedProjectWorkspaces);
     this.settings.projectNames = this.normalizeProjectNames(this.settings.projectNames);
     this.settings.agentHomes = this.normalizeAgentHomes(this.settings.agentHomes);
     if (this.settings.updateUrl === LEGACY_DEFAULT_UPDATE_URL || this.settings.updateUrl === API_DEFAULT_UPDATE_URL) {
@@ -813,6 +817,7 @@ class ConfigManager {
     this.settings.lastMainWorkspace = this.normalizeMainWorkspace(this.settings.lastMainWorkspace, previousMainWorkspace);
     this.settings.workspaceHistory = this.normalizeWorkspaceHistory(this.settings.workspaceHistory);
     this.settings.projectWorkspaces = this.normalizeProjectWorkspaces(this.settings.projectWorkspaces);
+    this.settings.pinnedProjectWorkspaces = this.normalizeProjectWorkspaces(this.settings.pinnedProjectWorkspaces);
     this.settings.projectNames = this.normalizeProjectNames(this.settings.projectNames);
     this.settings.agentHomes = this.normalizeAgentHomes(this.settings.agentHomes);
     this.settings.updateUrl = this.normalizeUpdateUrl(this.settings.updateUrl);

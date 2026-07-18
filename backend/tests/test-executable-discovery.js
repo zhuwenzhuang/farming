@@ -81,7 +81,15 @@ function run() {
     assert.strictEqual(codex.resolvedPath, preferredCodex, 'preferred codex binary should win over PATH');
     assert.strictEqual(agents.find((agent) => agent.name === 'qoder').command, 'qodercli');
     assert.strictEqual(resolveAgentExecutable('codex', `${tempDir}${path.delimiter}/usr/bin`), preferredCodex);
-    assert.strictEqual(getPreferredExecutableCandidates('codex', tempDir)[0], preferredCodex);
+    assert.deepStrictEqual(
+      getPreferredExecutableCandidates('codex', tempDir).slice(0, 3),
+      [
+        preferredCodex,
+        '/Applications/Codex.app/Contents/Resources/codex',
+        '/Applications/ChatGPT.app/Contents/Resources/codex',
+      ],
+      'Codex discovery should prefer an explicit override, then cover both macOS app bundle names'
+    );
     assert.strictEqual(parseCliVersion('codex-cli 0.142.3'), '0.142.3');
     assert(compareCliVersions('0.142.3', '0.133.0') > 0, 'newer codex should compare higher');
     const oldCodex = writeExecutable(tempDir, 'old-codex');

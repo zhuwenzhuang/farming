@@ -330,6 +330,8 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
 	      const codeStyle = code ? getComputedStyle(code) : null
 	      const strongStyle = strong ? getComputedStyle(strong) : null
       const preStyle = pre ? getComputedStyle(pre) : null
+      const preCode = pre?.querySelector('code')
+      const preCodeStyle = preCode ? getComputedStyle(preCode) : null
       const transcriptScroll = element.closest('[data-testid="code-codex-transcript-scroll"]') as HTMLElement | null
       const tableStyle = table ? getComputedStyle(table) : null
       const cellStyle = tableCell ? getComputedStyle(tableCell) : null
@@ -356,6 +358,11 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
 	        strongFontWeight: strongStyle?.fontWeight || '',
 	        preFontSize: preStyle?.fontSize || '',
         preLineHeight: preStyle?.lineHeight || '',
+        preCodeFontSize: preCodeStyle?.fontSize || '',
+        preCodeLineHeight: preCodeStyle?.lineHeight || '',
+        preCodePaddingLeft: preCodeStyle?.paddingLeft || '',
+        preCodeBorderRadius: preCodeStyle?.borderRadius || '',
+        preCodeBackground: preCodeStyle?.backgroundColor || '',
         preBorderTopWidth: preStyle?.borderTopWidth || '',
         preBorderRadius: preStyle?.borderRadius || '',
         preOverflowX: preStyle?.overflowX || '',
@@ -363,6 +370,7 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
         preScrollsHorizontally: pre ? pre.scrollWidth > pre.clientWidth + 1 : false,
         transcriptScrollsHorizontally: transcriptScroll ? transcriptScroll.scrollWidth > transcriptScroll.clientWidth + 1 : false,
         tableWidth: tableStyle?.width || '',
+        tableFontSize: tableStyle?.fontSize || '',
         tableBorderCollapse: tableStyle?.borderCollapse || '',
         cellBorderTop: cellStyle?.borderTopWidth || '',
         cellBorderLeft: cellStyle?.borderLeftWidth || '',
@@ -370,6 +378,7 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
         cellPaddingRight: cellStyle?.paddingRight || '',
         headerBackground: headerStyle?.backgroundColor || '',
         headerFontWeight: headerStyle?.fontWeight || '',
+        headerLineHeight: headerStyle?.lineHeight || '',
         taskListPaddingLeft: taskListStyle?.paddingLeft || '',
         taskListListStyle: taskListStyle?.listStyleType || '',
         taskItemDisplay: taskItemStyle?.display || '',
@@ -397,8 +406,13 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
 	    expect(richMarkdownMetrics.codeOverflowWrap).toBe('anywhere')
 	    expect(richMarkdownMetrics.codeWordBreak).toBe('break-word')
 	    expect(Number(richMarkdownMetrics.strongFontWeight)).toBeLessThanOrEqual(520)
-	    expect(richMarkdownMetrics.preFontSize).toBe('12px')
+	    expect(richMarkdownMetrics.preFontSize).toBe('14px')
     expect(richMarkdownMetrics.preLineHeight).toBe('20px')
+    expect(richMarkdownMetrics.preCodeFontSize).toBe('14px')
+    expect(richMarkdownMetrics.preCodeLineHeight).toBe('20px')
+    expect(richMarkdownMetrics.preCodePaddingLeft).toBe('0px')
+    expect(richMarkdownMetrics.preCodeBorderRadius).toBe('0px')
+    expect(richMarkdownMetrics.preCodeBackground).toBe('rgba(0, 0, 0, 0)')
     expect(richMarkdownMetrics.preBorderTopWidth).toBe('1px')
     expect(richMarkdownMetrics.preBorderRadius).toBe('8px')
     expect(richMarkdownMetrics.preOverflowX).toBe('hidden')
@@ -406,12 +420,14 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     expect(richMarkdownMetrics.preScrollsHorizontally).toBe(false)
     expect(richMarkdownMetrics.transcriptScrollsHorizontally).toBe(false)
     expect(richMarkdownMetrics.tableBorderCollapse).toBe('separate')
+    expect(richMarkdownMetrics.tableFontSize).toBe('14px')
     expect(richMarkdownMetrics.cellBorderTop).toBe('0px')
     expect(richMarkdownMetrics.cellBorderLeft).toBe('0px')
     expect(richMarkdownMetrics.cellBorderBottom).toBe('1px')
     expect(richMarkdownMetrics.cellPaddingRight).toBe('22px')
     expect(richMarkdownMetrics.headerBackground).toBe('rgba(0, 0, 0, 0)')
     expect(Number(richMarkdownMetrics.headerFontWeight)).toBeLessThanOrEqual(520)
+    expect(richMarkdownMetrics.headerLineHeight).toBe('20px')
     expect(richMarkdownMetrics.taskListPaddingLeft).toBe('0px')
     expect(richMarkdownMetrics.taskListListStyle).toBe('none')
     expect(richMarkdownMetrics.taskItemDisplay).toBe('grid')

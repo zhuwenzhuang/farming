@@ -9,8 +9,8 @@ const { attachQuotaForecasts } = require('./usage-forecast');
 const execFileAsync = promisify(execFile);
 
 const USAGE_WINDOW_MS = 5 * 60 * 1000;
-const USAGE_TIMELINE_WINDOW_MS = 60 * 60 * 1000;
-const USAGE_TIMELINE_BUCKET_COUNT = 30;
+const USAGE_TIMELINE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const USAGE_TIMELINE_BUCKET_COUNT = 24;
 const USAGE_DAILY_DAYS = 52 * 7;
 const USAGE_DAILY_CACHE_MS = 5 * 60 * 1000;
 const USAGE_LIVE_DAY_CACHE_MS = 5 * 1000;
@@ -268,7 +268,9 @@ function buildUsageTimeline(providerEvents, options = {}) {
   const windowMs = Math.max(60_000, options.windowMs ?? USAGE_TIMELINE_WINDOW_MS);
   const bucketCount = Math.max(1, Math.floor(options.bucketCount ?? USAGE_TIMELINE_BUCKET_COUNT));
   const bucketMs = windowMs / bucketCount;
-  const endAt = now;
+  const endAt = options.alignToBucket
+    ? Math.ceil(now / bucketMs) * bucketMs
+    : now;
   const startAt = endAt - windowMs;
   const providerNames = Object.keys(providerEvents || {});
   const points = Array.from({ length: bucketCount }, (_, index) => ({
@@ -1330,11 +1332,11 @@ class UsageMonitor {
       historyWindowMs,
       source: 'opencode session export',
     });
-    const timeline = buildUsageTimeline({
-      codex: codexUsage.tokenEvents,
-      claude: claudeUsage.tokenEvents,
-      opencode: openCodeUsage.tokenEvents,
-    }, { now, windowMs: historyWindowMs });
+    const timeline = buildUsageTimeline(history.providerEvents, {
+      now,
+      windowMs: historyWindowMs,
+      alignToBucket: true,
+    });
     const openCodeCoverage = history.coverage.find(entry => entry.provider === 'opencode');
     const qoderCoverage = history.coverage.find(entry => entry.provider === 'qoder');
 

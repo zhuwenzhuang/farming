@@ -15,6 +15,7 @@ import {
 import {
   compactContextMenuEntries,
   type ContextMenuEntry,
+  type ContextMenuIconKind,
 } from './menu-model'
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem, ProjectGroup } from './types'
@@ -71,6 +72,10 @@ interface CodeOverlaysProps {
   onToggleSessionPinned: () => void
   onArchiveSession: () => void
   onCopySessionWorkingDirectory: () => void
+  onToggleProjectPinned: () => void
+  onRevealProject: () => void
+  onCreatePermanentWorktree: () => void
+  onMarkProjectRead: () => void
   onArchiveProject: () => void
   onRemoveProject: () => void
   onDeleteWorktree: () => void
@@ -113,6 +118,10 @@ export function CodeOverlays({
   onToggleSessionPinned,
   onArchiveSession,
   onCopySessionWorkingDirectory,
+  onToggleProjectPinned,
+  onRevealProject,
+  onCreatePermanentWorktree,
+  onMarkProjectRead,
   onArchiveProject,
   onRemoveProject,
   onDeleteWorktree,
@@ -128,6 +137,7 @@ export function CodeOverlays({
   const agentCapabilities = capabilitiesForAgent(contextMenuAgent)
   const canArchiveProject = projectCanArchive(contextMenuProject)
   const canDeleteWorktree = projectCanDeleteWorktree(contextMenuProject)
+  const canMarkProjectRead = Boolean(contextMenuProject?.agents.some(agent => agent.unread))
   const agentMenuEntries = compactContextMenuEntries([
     {
       type: 'item',
@@ -221,11 +231,44 @@ export function CodeOverlays({
   const projectMenuEntries = compactContextMenuEntries([
     {
       type: 'item',
+      id: 'pin-project',
+      label: contextMenuProject?.pinned ? copy.unpinProject : copy.pinProject,
+      icon: 'pin',
+      hidden: !contextMenuProject?.workspace,
+      onSelect: onToggleProjectPinned,
+    },
+    {
+      type: 'item',
+      id: 'reveal-project',
+      label: copy.revealInFinder,
+      icon: 'folder',
+      hidden: !contextMenuProject?.workspace || contextMenuProject.hasMain,
+      onSelect: onRevealProject,
+    },
+    {
+      type: 'item',
+      id: 'create-permanent-worktree',
+      label: copy.createPermanentWorktree,
+      icon: 'worktree',
+      hidden: !contextMenuProject?.workspace || contextMenuProject.hasMain,
+      onSelect: onCreatePermanentWorktree,
+    },
+    { type: 'separator', id: 'project-primary-separator' },
+    {
+      type: 'item',
       id: 'rename-project',
       label: copy.renameProject,
       icon: 'rename',
       hidden: !contextMenuProject?.workspace,
       onSelect: onRenameProject,
+    },
+    {
+      type: 'item',
+      id: 'mark-project-read',
+      label: copy.markAllAsRead,
+      icon: 'check',
+      disabled: !canMarkProjectRead,
+      onSelect: onMarkProjectRead,
     },
     {
       type: 'item',
@@ -235,6 +278,7 @@ export function CodeOverlays({
       disabled: !canArchiveProject,
       onSelect: onArchiveProject,
     },
+    { type: 'separator', id: 'project-destructive-separator' },
     {
       type: 'item',
       id: 'remove-project',
@@ -446,7 +490,39 @@ function RemoveProjectIcon() {
   )
 }
 
-function ContextMenuIcon({ kind }: { kind: 'rename' | 'archive' | 'trash' }) {
+export function ContextMenuIcon({ kind }: { kind: ContextMenuIconKind }) {
+  if (kind === 'pin') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false">
+        <path d="M13.5 3C13.303 3 13.109 3.038 12.923 3.114L8.481 4.967L5.659 4.026C5.505 3.976 5.339 4.001 5.209 4.095C5.078 4.189 5.001 4.339 5.001 4.5V7H1.257L0.5 7.5L1.257 8H5V10.5C5 10.661 5.077 10.812 5.208 10.905C5.338 11 5.504 11.023 5.658 10.974L8.48 10.033L12.925 11.887C13.109 11.962 13.302 12 13.499 12C14.326 12 14.999 11.327 14.999 10.5V4.5C14.999 3.673 14.326 3 13.499 3H13.5ZM14 10.5C14 10.843 13.615 11.09 13.308 10.962L8.693 9.038C8.631 9.013 8.566 9 8.501 9C8.447 9 8.395 9.009 8.343 9.025L6.001 9.806V5.193L8.343 5.974C8.457 6.011 8.581 6.007 8.694 5.961L13.306 4.038C13.629 3.902 14.001 4.156 14.001 4.499V10.499L14 10.5Z" />
+      </svg>
+    )
+  }
+
+  if (kind === 'folder') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false">
+        <path d="M2 4.5V9.10022L2.92389 7.5C3.45979 6.5718 4.45017 6 5.52196 6L11.9146 6C11.7087 5.4174 11.1531 5 10.5 5H7C6.86739 5 6.74021 4.94732 6.64645 4.85355L4.93934 3.14645C4.84557 3.05268 4.71839 3 4.58579 3H3.5C2.67157 3 2 3.67157 2 4.5ZM7.06895 13.9953C7.04641 13.9984 7.02339 14 7 14H3.5C2.11929 14 1 12.8807 1 11.5V4.5C1 3.11929 2.11929 2 3.5 2H4.58579C4.98361 2 5.36514 2.15804 5.64645 2.43934L7.20711 4H10.5C11.724 4 12.7426 4.87965 12.958 6.04127C14.605 6.34148 15.5443 8.22106 14.6616 9.75L13.0766 12.4953C12.5407 13.4235 11.5503 13.9953 10.4785 13.9953H7.06895ZM5.52196 7C4.80743 7 4.14718 7.3812 3.78991 8L2.20492 10.7453C1.62757 11.7453 2.34926 12.9953 3.50396 12.9953L10.4785 12.9953C11.193 12.9953 11.8533 12.6141 12.2105 11.9953L13.7955 9.25C14.3729 8.25 13.6512 7 12.4965 7L5.52196 7Z" />
+      </svg>
+    )
+  }
+
+  if (kind === 'worktree') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false">
+        <path d="M14 5.5C14 4.121 12.879 3 11.5 3C10.121 3 9 4.121 9 5.5C9 6.682 9.826 7.669 10.93 7.928C10.744 8.546 10.177 9 9.5 9H6.5C5.935 9 5.419 9.195 5 9.512V4.949C6.14 4.717 7 3.707 7 2.5C7 1.121 5.879 0 4.5 0C3.121 0 2 1.121 2 2.5C2 3.708 2.86 4.717 4 4.949V11.05C2.86 11.282 2 12.292 2 13.499C2 14.878 3.121 15.999 4.5 15.999C5.879 15.999 7 14.878 7 13.499C7 12.317 6.174 11.33 5.07 11.071C5.256 10.453 5.823 9.999 6.5 9.999H9.5C10.723 9.999 11.74 9.115 11.954 7.953C13.116 7.738 14 6.723 14 5.5ZM3 2.5C3 1.673 3.673 1 4.5 1C5.327 1 6 1.673 6 2.5C6 3.327 5.327 4 4.5 4C3.673 4 3 3.327 3 2.5ZM6 13.5C6 14.327 5.327 15 4.5 15C3.673 15 3 14.327 3 13.5C3 12.673 3.673 12 4.5 12C5.327 12 6 12.673 6 13.5ZM11.5 7C10.673 7 10 6.327 10 5.5C10 4.673 10.673 4 11.5 4C12.327 4 13 4.673 13 5.5C13 6.327 12.327 7 11.5 7Z" />
+      </svg>
+    )
+  }
+
+  if (kind === 'check') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false">
+        <path d="M13.6572 3.13573C13.8583 2.9465 14.175 2.95614 14.3643 3.15722C14.5535 3.35831 14.5438 3.675 14.3428 3.86425L5.84277 11.8642C5.64597 12.0494 5.33756 12.0446 5.14648 11.8535L1.64648 8.35351C1.45121 8.15824 1.45121 7.84174 1.64648 7.64647C1.84174 7.45121 2.15825 7.45121 2.35351 7.64647L5.50976 10.8027L13.6572 3.13573Z" />
+      </svg>
+    )
+  }
+
   if (kind === 'archive') {
     return (
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
