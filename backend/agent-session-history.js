@@ -807,7 +807,12 @@ function buildAgentSessionResumeCommand(provider, sessionId, options = {}) {
 
   if (normalizedProvider === 'codex') {
     const cwd = normalizePathValue(options.cwd);
-    const modelProvider = String(options.modelProvider || '').trim();
+    const modelProvider = String(
+      options.modelProvider
+      || (Object.prototype.hasOwnProperty.call(options, 'providerHomePath')
+        ? resolveCodexResumeModelProvider(options.providerHomePath)
+        : '')
+    ).trim();
     const providerArgs = modelProvider
       ? ` -c ${quoteCommandArg(`model_provider=${JSON.stringify(modelProvider)}`)}`
       : '';

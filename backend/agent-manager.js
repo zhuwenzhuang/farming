@@ -10,7 +10,6 @@ const { isSupportedHistoryAgent, parseCommand, resolveLaunchCommand } = require(
 const {
   buildAgentSessionResumeCommand,
   findAgentSession,
-  resolveCodexResumeModelProvider,
 } = require('./agent-session-history');
 const { unarchiveCodexSession } = require('./codex-session-archive');
 const { buildAgentProviderSessionPlan, sessionFromExactResumeSource } = require('./agent-provider-session');
@@ -1346,9 +1345,7 @@ class AgentManager extends EventEmitter {
       const command = canResumeProvider
         ? buildAgentSessionResumeCommand(provider, sessionId, {
             cwd: record.cwd || record.projectWorkspace || '',
-            modelProvider: provider === 'codex'
-              ? resolveCodexResumeModelProvider(record.providerHomePath)
-              : '',
+            providerHomePath: record.providerHomePath || '',
           })
         : (
             record.forkCommand ||
@@ -3924,9 +3921,7 @@ class AgentManager extends EventEmitter {
       ? (agent.forkCommand || agent.command)
       : buildAgentSessionResumeCommand(provider, sessionId, {
           cwd: effectiveAgentWorkspaceRoot(agent),
-          modelProvider: provider === 'codex'
-            ? resolveCodexResumeModelProvider(agent.providerHomePath)
-            : '',
+          providerHomePath: agent.providerHomePath || '',
         });
     if (!command) return { error: 'Failed to build provider resume command' };
     const preserved = {
@@ -4096,9 +4091,7 @@ class AgentManager extends EventEmitter {
       ? 'codex'
       : buildAgentSessionResumeCommand(provider, sessionId, {
         cwd: effectiveAgentWorkspaceRoot(agent),
-        modelProvider: provider === 'codex'
-          ? resolveCodexResumeModelProvider(agent.providerHomePath)
-          : '',
+        providerHomePath: agent.providerHomePath || '',
       });
     if (!command) {
       return { error: 'Failed to build provider resume command' };
@@ -4416,9 +4409,7 @@ class AgentManager extends EventEmitter {
       ? buildAgentSessionResumeCommand(resumedSession.provider, resumedSession.sessionId, {
         fork: true,
         cwd: targetWorkspace,
-        modelProvider: resumedSession.provider === 'codex'
-          ? resolveCodexResumeModelProvider(agent.providerHomePath)
-          : '',
+        providerHomePath: agent.providerHomePath || '',
       })
       : (agent.forkCommand || agent.command);
 

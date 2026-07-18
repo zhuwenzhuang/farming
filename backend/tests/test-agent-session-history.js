@@ -387,6 +387,13 @@ async function run() {
     '',
   ].join('\n'));
   assert.strictEqual(resolveCodexResumeModelProvider(configuredCodexHome), 'profile-provider');
+  assert.strictEqual(
+    buildAgentSessionResumeCommand('codex', codexId, {
+      providerHomePath: configuredCodexHome,
+      cwd: '/repo/codex with space',
+    }),
+    `codex resume -c 'model_provider="profile-provider"' -C '/repo/codex with space' ${codexId}`
+  );
 
   const pagedSessions = [
     { provider: 'codex', providerHomeId: 'default', id: 'page-3', updatedAt: '2026-06-28T12:03:00.000Z' },
