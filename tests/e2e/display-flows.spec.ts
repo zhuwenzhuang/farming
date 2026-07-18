@@ -708,6 +708,27 @@ test.describe('display-backed agent flows', () => {
     await expect(projectMenu.getByRole('menuitem', { name: 'Remove Project' })).toBeEnabled()
     await projectMenu.getByRole('menuitem', { name: 'Remove Project' }).click()
     await expect(project).toHaveCount(0)
+
+    const permanentWorkspace = path.join(workspaceRoot, 'base-repo-farming-fork-20260718-140000')
+    execFileSync('git', ['worktree', 'add', permanentWorkspace, 'HEAD'], { cwd: repo, stdio: 'ignore' })
+    await openNewAgentDialog(page)
+    await startAgentFromOpenDialog(page, 'bash', permanentWorkspace)
+    const permanentProject = page.getByTestId('code-project-group').filter({ hasText: 'base-repo-farming-fork-20260718-140000' })
+    await expect(permanentProject).toHaveCount(1)
+    await permanentProject.getByTestId('code-project-actions').click()
+    const permanentDelete = page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Permanently Delete Worktree' })
+    await expect(permanentDelete).toHaveClass(/danger/)
+    await expect(permanentDelete.locator('svg')).toHaveCount(1)
+    await permanentDelete.click()
+    await expect(page.getByTestId('code-delete-worktree-dialog')).toBeVisible()
+    await page.getByTestId('code-delete-worktree-dialog').getByRole('button', { name: 'Cancel' }).click()
+    await expect(page.getByTestId('code-delete-worktree-dialog')).toBeHidden()
+
+    await permanentProject.getByTestId('code-project-actions').click()
+    await page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Permanently Delete Worktree' }).click()
+    await page.getByTestId('code-delete-worktree-dialog').getByRole('button', { name: 'Permanently Delete' }).click()
+    await expect(permanentProject).toHaveCount(0)
+    expect(fs.existsSync(permanentWorkspace)).toBeFalsy()
   })
 
   test('keeps project files as a collapsible project-level section', async ({ page }) => {

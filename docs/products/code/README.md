@@ -10,6 +10,10 @@ The normal shape is deliberately quiet: project-scoped Agents on the left, the c
 
 For the complete cross-interface capability map, see the [Farming 2 product overview](../README.md). This guide is updated in place so it always describes the current product rather than one release.
 
+## Switch To Farming CRT
+
+Click the gear at the bottom-left, find **Interface**, and choose **Farming CRT**. Farming opens `<base-path>/crt/` and carries the focused Agent when possible. To return, press `S` in CRT (or choose **[S] SETTINGS**) and select **Farming Code** under **UI Theme**. The switch keeps the same live Agent and provider session; it does not restart or duplicate the process.
+
 ## Start A Real Task
 
 On a machine where at least one supported coding CLI already works, install and start Farming with one command:
@@ -114,6 +118,8 @@ History covers more than the left sidebar. It combines Farming run records, arch
 
 Results preserve provider identity and workspace context. Depending on the record, the primary action can open, continue, restore, or resume. Shell processes are destroyed when archived and never masquerade as resumable provider sessions.
 
+Archiving a live Codex Agent completes Farming's local archive first, then asynchronously invokes `codex archive` for its stable provider session. A provider-side failure is reported by the backend and never revives the terminated Agent.
+
 ## Configure The Service Without Leaving The Workspace
 
 Settings groups interface, language, search timeout, installation-aware updates, Agent permissions, and Agent Homes. Agent Homes let one Provider keep multiple identity/configuration roots while retaining a non-removable default home.
@@ -129,12 +135,6 @@ Light and dark appearance changes the workbench without changing Agent processes
 ![Dark Farming Code workspace](assets/09-dark-workspace.png)
 
 On a phone, Farming Code focuses one conversation, terminal, or file at a time and moves project navigation into a drawer. It is intended for checking progress, switching Agents, reading a result, or sending a short intervention—not for squeezing a multi-pane desktop IDE onto a narrow screen.
-
-<p align="center">
-  <img src="assets/05-mobile-agent-chat.jpg" alt="Mobile Agent Chat" width="320">
-  &nbsp;&nbsp;
-  <img src="assets/06-mobile-files-sidebar.jpg" alt="Mobile project drawer" width="320">
-</p>
 
 See the [mobile guide](mobile-guide.md) for the complete phone workflow.
 

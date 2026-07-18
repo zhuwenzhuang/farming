@@ -123,7 +123,7 @@ export interface CodeCopy {
   removeProject: string
   deleteWorktree: string
   deleteWorktreeQuestion: string
-  deleteWorktreeDirtyDescription: (count: number) => string
+  deleteWorktreeDescription: string
   forceDelete: string
   cancel: string
   retry: string
@@ -527,10 +527,10 @@ const EN_COPY: CodeCopy = {
   archiveChats: 'Archive chats',
   archiveProject: 'Archive Project',
   removeProject: 'Remove Project',
-  deleteWorktree: 'Delete Worktree',
-  deleteWorktreeQuestion: 'Delete Worktree?',
-  deleteWorktreeDirtyDescription: count => `${count} uncommitted or untracked file${count === 1 ? '' : 's'} will be deleted with this worktree.`,
-  forceDelete: 'Force Delete',
+  deleteWorktree: 'Permanently Delete Worktree',
+  deleteWorktreeQuestion: 'Permanently delete worktree?',
+  deleteWorktreeDescription: 'This permanently deletes the worktree and all of its files.',
+  forceDelete: 'Permanently Delete',
   cancel: 'Cancel',
   retry: 'Retry',
   save: 'Save',
@@ -955,10 +955,10 @@ const ZH_COPY: CodeCopy = {
   archiveChats: '归档会话',
   archiveProject: '归档项目',
   removeProject: '移除项目',
-  deleteWorktree: '删除 worktree',
-  deleteWorktreeQuestion: '删除 worktree？',
-  deleteWorktreeDirtyDescription: count => `这个 worktree 里还有 ${count} 个未提交或未跟踪文件，强删会连同目录一起删除。`,
-  forceDelete: '强制删除',
+  deleteWorktree: '彻底删除 worktree',
+  deleteWorktreeQuestion: '彻底删除 worktree？',
+  deleteWorktreeDescription: '这会彻底删除该 worktree 及其中的所有文件。',
+  forceDelete: '彻底删除',
   cancel: '取消',
   retry: '重试',
   save: '保存',

@@ -8,6 +8,8 @@ Farming CRT is the keyboard-first control-room interface for Farming 2. It is no
 
 Use CRT when several Agents are running, when terminal output is the main signal, or when direct keyboard control is faster than moving through a coding workspace. Use [Farming Code](../code/README.md) for files, editing, workspace Review, and phone access. Switching interfaces does not restart or duplicate Agents.
 
+To return to Code, press `S` (or choose **[S] SETTINGS**) and select **Farming Code** under **UI Theme**. From Code, click the bottom-left gear, open **Interface**, and choose **Farming CRT**. Farming carries the focused Agent when possible and keeps the same live process and provider session.
+
 For the complete shared capability map, see the [Farming 2 product overview](../README.md).
 
 ## The Dashboard Is A Live Control Room

@@ -11,7 +11,7 @@ const {
   buildAgentSessionResumeCommand,
   findAgentSession,
 } = require('./agent-session-history');
-const { unarchiveCodexSession } = require('./codex-session-archive');
+const { archiveCodexSession, unarchiveCodexSession } = require('./codex-session-archive');
 const { buildAgentProviderSessionPlan, sessionFromExactResumeSource } = require('./agent-provider-session');
 const { resolveAgentExecutable, resolveCompatibleCodexExecutable } = require('./executable-discovery');
 const { ensureMainAgentSkillFiles, renderMainAgentBootstrap } = require('./main-agent-skills');
@@ -581,6 +581,7 @@ class AgentManager extends EventEmitter {
           }
         : {}),
     });
+    this.archiveCodexSession = options.archiveCodexSession || archiveCodexSession;
     this.unarchiveCodexSession = options.unarchiveCodexSession || unarchiveCodexSession;
     this.heartbeatInterval = null;
     this.disposed = false;
@@ -4537,7 +4538,37 @@ class AgentManager extends EventEmitter {
       reason: 'manual-archive',
       recordHistory: !isEphemeralShellAgent(agent),
     });
+    this.scheduleCodexSessionArchive(agent);
     return { agentId, archived: true, removed: true, removedMainPageSessionKeys };
+  }
+
+  scheduleCodexSessionArchive(agent) {
+    if (
+      !agent
+      || agent.providerSessionProvider !== 'codex'
+      || !agent.providerSessionId
+      || agent.providerSessionTemporary === true
+    ) {
+      return;
+    }
+
+    const sessionId = agent.providerSessionId;
+    const session = {
+      cliVersion: agent.cliVersion || '',
+      cwd: agent.cwd || '',
+      workspace: agent.projectWorkspace || '',
+      providerHomePath: agent.providerHomePath || '',
+    };
+    void Promise.resolve()
+      .then(() => this.archiveCodexSession(sessionId, session))
+      .then(result => {
+        if (result?.error) {
+          console.error(`Failed to archive Codex session ${sessionId}: ${result.error}`);
+        }
+      })
+      .catch(error => {
+        console.error(`Failed to archive Codex session ${sessionId}:`, error);
+      });
   }
   
   async killAgent(agentId, options = {}) {

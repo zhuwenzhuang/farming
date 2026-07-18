@@ -7935,6 +7935,10 @@ button.code-codex-transcript-result-summary:focus-visible {
   color: #9d2f2f;
 }
 
+.code-context-menu button.danger .code-context-menu-icon {
+  color: currentColor;
+}
+
 .code-worktree-popover {
   position: fixed;
   z-index: 10004;

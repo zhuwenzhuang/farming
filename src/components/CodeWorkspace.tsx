@@ -642,7 +642,7 @@ export function CodeWorkspace({
   const [mobileShareUrl, setMobileShareUrl] = useState('')
   const [renameDialog, setRenameDialog] = useState<RenameDialogState | null>(null)
   const [killDialog, setKillDialog] = useState<{ agentId: string; title: string } | null>(null)
-  const [deleteWorktreeDialog, setDeleteWorktreeDialog] = useState<{ projectId: string; workspace: string; dirtyEntries: string[]; sessionHandles: string[] } | null>(null)
+  const [deleteWorktreeDialog, setDeleteWorktreeDialog] = useState<{ projectId: string; workspace: string; sessionHandles: string[] } | null>(null)
   const [copyNotice, setCopyNotice] = useState<{ id: number; kind: 'success' | 'error'; message: string } | null>(null)
   const [fileRevealRequest, setFileRevealRequest] = useState<{ agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null>(null)
   const [fileSearchFocusRequest, setFileSearchFocusRequest] = useState<{ agentId: string; requestId: number; query?: string } | null>(null)
@@ -4033,6 +4033,17 @@ export function CodeWorkspace({
     restoreProjectListFocusRef.current = 'list'
   }, [contextMenuProject, persistProjectWorkspaces])
 
+  const deleteContextWorktree = useCallback(() => {
+    if (!contextMenuProject) return
+    setProjectMenu(null)
+    setOptionsMenu(null)
+    setDeleteWorktreeDialog({
+      projectId: contextMenuProject.id,
+      workspace: contextMenuProject.workspace,
+      sessionHandles: contextMenuProject.agentSessions.map(agentSessionId),
+    })
+  }, [contextMenuProject])
+
   const closeDeleteWorktreeDialog = useCallback(() => {
     const projectId = deleteWorktreeDialog?.projectId
     setDeleteWorktreeDialog(null)
@@ -4045,10 +4056,15 @@ export function CodeWorkspace({
     const result = await onDeleteForkWorktreeProject(dialog.workspace, { force: true })
     if (result.deleted) {
       removeMainPageAgentSessions([...dialog.sessionHandles, ...(result.removedMainPageSessionKeys ?? [])])
+      const previous = projectWorkspacesRef.current
+      persistProjectWorkspaces(
+        previous.filter(workspace => workspace !== dialog.workspace),
+        previous,
+      )
       restoreProjectListFocusRef.current = 'list'
       setDeleteWorktreeDialog(null)
     }
-  }, [deleteWorktreeDialog, onDeleteForkWorktreeProject, removeMainPageAgentSessions])
+  }, [deleteWorktreeDialog, onDeleteForkWorktreeProject, persistProjectWorkspaces, removeMainPageAgentSessions])
 
   const closeContextMenuAndRestoreFocus = useCallback(() => {
     const agentId = agentMenu?.agentId
@@ -5238,6 +5254,7 @@ export function CodeWorkspace({
         }}
         onArchiveProject={archiveContextProject}
         onRemoveProject={removeContextProject}
+        onDeleteWorktree={deleteContextWorktree}
         onCloseRenameDialog={closeRenameDialog}
         onRenameDialogTitleChange={title => setRenameDialog(current => current
           ? { ...current, title }
@@ -5292,11 +5309,19 @@ function CodexMenuEntries({ entries }: { entries: ContextMenuEntry[] }) {
   )
 }
 
-function CodexMenuIcon({ kind }: { kind: 'rename' | 'archive' }) {
+function CodexMenuIcon({ kind }: { kind: 'rename' | 'archive' | 'trash' }) {
   if (kind === 'archive') {
     return (
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
         <path fill="currentColor" d="M6.5 8C6.22386 8 6 8.22386 6 8.5C6 8.77614 6.22386 9 6.5 9H9.5C9.77614 9 10 8.77614 10 8.5C10 8.22386 9.77614 8 9.5 8H6.5ZM1 3.5C1 2.67157 1.67157 2 2.5 2H13.5C14.3284 2 15 2.67157 15 3.5V4.5C15 5.15311 14.5826 5.70873 14 5.91465V11.5C14 12.8807 12.8807 14 11.5 14H4.5C3.11929 14 2 12.8807 2 11.5V5.91465C1.4174 5.70873 1 5.15311 1 4.5V3.5ZM2.5 3C2.22386 3 2 3.22386 2 3.5V4.5C2 4.77614 2.22386 5 2.5 5H13.5C13.7761 5 14 4.77614 14 4.5V3.5C14 3.22386 13.7761 3 13.5 3H2.5ZM3 6V11.5C3 12.3284 3.67157 13 4.5 13H11.5C12.3284 13 13 12.3284 13 11.5V6H3Z" />
+      </svg>
+    )
+  }
+
+  if (kind === 'trash') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M6.25 2h3.5l.5 1H13v1H3V3h2.75l.5-1ZM4.2 5h7.6l-.48 8.1A1 1 0 0 1 10.32 14H5.68a1 1 0 0 1-1-.9L4.2 5Zm2.05 1 .35 7h.95L7.2 6h-.95Zm2.2 0v7h.95V6h-.95Z" />
       </svg>
     )
   }

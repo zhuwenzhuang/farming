@@ -51,6 +51,13 @@ A keyboard-first control room for watching many agents, opening structured Chat 
 
 Switching interfaces does not restart or duplicate an Agent. If Farming Code cannot start or render, its bounded diagnostic view leaves the live CRT surface available rather than hiding the running sessions.
 
+To switch without editing the URL:
+
+- **Farming Code → CRT:** click the gear at the bottom-left, open **Interface**, then choose **Farming CRT**.
+- **Farming CRT → Code:** press `S` (or choose **[S] SETTINGS**), then choose **Farming Code** under **UI Theme**.
+
+Farming carries the focused Agent into the other interface when possible. Both views keep using the same live Agent and provider session; this is an interface switch, not a restart.
+
 The complete current capability map and screenshot tour are in the [Farming 2 product overview](./docs/products/README.md). See the focused [Farming Code guide](./docs/products/code/README.md) and [Farming CRT guide](./docs/products/crt/README.md) for the full workflows.
 
 ## Farming Net: One Portal For Deployments
@@ -119,10 +126,6 @@ The first authenticated start stores a readable random token in `~/.farming/.ses
 
 Desktop keeps the project, conversation, files, and review close together. Mobile focuses one conversation, terminal, or file at a time and moves navigation into a drawer, making it useful for checking progress and sending a short intervention.
 
-<p align="center">
-  <img src="./docs/products/code/assets/05-mobile-agent-chat.jpg" alt="Farming Code on mobile" width="320">
-</p>
-
 Farming CRT is currently a desktop interface. Use Farming Code from a phone; CRT mobile concepts are not part of the supported product yet.
 
 ## Installation And Updates
@@ -157,7 +160,7 @@ Development host
 
 The backend owns lifecycle, authentication, session routing, workspace boundaries, history, and configuration. Interactive terminal sessions use a separate native PTY host by default, allowing browser and server reconnection without replacing the live process. The browser terminal renderer defaults to xterm.js WebGL as its single supported product path; the Ghostty web adapter remains an explicit debug path, not a runtime fallback.
 
-Runtime settings live in `~/.farming/settings.json`. Farming session metadata, the project membership index, archived runs, theme settings, update state, logs, and the startup token use separate files under `~/.farming/`. External provider histories remain read-only integrations.
+Runtime settings live in `~/.farming/settings.json`. Farming session metadata, the project membership index, archived runs, theme settings, update state, logs, and the startup token use separate files under `~/.farming/`. External provider histories remain read-only integrations except for explicit Codex archive and unarchive lifecycle actions.
 
 ## Security
 

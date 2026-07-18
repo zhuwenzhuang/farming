@@ -51,6 +51,13 @@ Farming 2 在同一批 Agent 和 Session 上提供两套完整的浏览器界面
 
 切换界面不会重启或复制 Agent。如果 Farming Code 启动或渲染失败，有限范围的诊断层仍会保留后面的实时 CRT 界面，而不是把正在运行的 Session 一起遮掉。
 
+不修改地址也可以直接切换：
+
+- **Farming Code → CRT：**点击左下角齿轮，打开**界面**，再选择 **Farming CRT**。
+- **Farming CRT → Code：**按 `S`（或点击 **[S] SETTINGS**），在 **UI Theme** 中选择 **Farming Code**。
+
+条件允许时，Farming 会把当前聚焦的 Agent 一起带到另一套界面。两边继续使用同一个实时 Agent 和 Provider Session；这里只切换界面，不会重启会话。
+
 完整能力矩阵和截图导览见 [Farming 2 产品总览](./docs/products/README.zh_cn.md)。两套界面的完整流程分别见 [Farming Code 指南](./docs/products/code/README.zh_cn.md) 和 [Farming CRT 指南](./docs/products/crt/README.zh_cn.md)。
 
 ## Farming Net：部署门户
@@ -119,10 +126,6 @@ farming stop
 
 桌面端把项目、对话、文件和 Review 放在彼此靠近的位置。移动端一次聚焦一段对话、一个终端或一个文件，并把导航移入抽屉，更适合查看进度和发送短介入。
 
-<p align="center">
-  <img src="./docs/products/code/assets/05-mobile-agent-chat.jpg" alt="Farming Code 手机界面" width="320">
-</p>
-
 Farming CRT 当前只作为桌面界面使用。手机请使用 Farming Code；CRT 手机方案目前仍是概念设计，不属于已支持的产品能力。
 
 ## 安装与更新
@@ -157,7 +160,7 @@ Development host
 
 后端负责生命周期、鉴权、Session 路由、Workspace 边界、History 和配置。交互式 Terminal 默认由独立的原生 PTY Host 持有，因此浏览器和 Server 可以重新连接，而不需要替换实际进程。xterm.js WebGL 是唯一受支持的产品 Terminal Renderer；Ghostty Web Adapter 只保留为显式调试路径，不作为运行时 Fallback。
 
-运行时设置存放在 `~/.farming/settings.json`。Farming Session 元数据、项目成员索引、归档运行、主题设置、更新状态、日志和启动 Token 使用 `~/.farming/` 下彼此独立的文件。外部 Provider History 仍然只读。
+运行时设置存放在 `~/.farming/settings.json`。Farming Session 元数据、项目成员索引、归档运行、主题设置、更新状态、日志和启动 Token 使用 `~/.farming/` 下彼此独立的文件。外部 Provider History 保持只读，但明确的 Codex archive / unarchive 生命周期操作除外。
 
 ## 安全
 

@@ -294,6 +294,7 @@ class FakeAgent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('rich timeline')) {
+      const releaseStory = promptText.includes('release readiness story');
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: { sessionUpdate: 'usage_update', used: 53_000, size: 200_000, cost: { amount: 0.045, currency: 'USD' } },
@@ -309,7 +310,11 @@ class FakeAgent {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'plan',
-          entries: [
+          entries: releaseStory ? [
+            { content: 'Trace the authoritative checkpoint state', priority: 'high', status: 'completed' },
+            { content: 'Exercise reconnect and gap recovery', priority: 'high', status: 'in_progress' },
+            { content: 'Verify release gates and residual risk', priority: 'medium', status: 'pending' },
+          ] : [
             { content: 'Inspect the source', priority: 'high', status: 'completed' },
             { content: 'Apply the change', priority: 'medium', status: 'in_progress' },
             { content: 'Verify the result', priority: 'medium', status: 'pending' },
@@ -321,7 +326,12 @@ class FakeAgent {
         update: {
           sessionUpdate: 'agent_message_chunk',
           messageId: 'rich-progress-1',
-          content: { type: 'text', text: 'I found the display boundary and am checking the typed ACP content.' },
+          content: {
+            type: 'text',
+            text: releaseStory
+              ? 'The PTY host owns the exact screen state. I am checking reconnect, hidden-page resume, and cross-skin continuity against that boundary.'
+              : 'I found the display boundary and am checking the typed ACP content.',
+          },
         },
       });
       await client.sessionUpdate({
@@ -329,7 +339,12 @@ class FakeAgent {
         update: {
           sessionUpdate: 'agent_thought_chunk',
           messageId: 'rich-thought-1',
-          content: { type: 'text', text: 'The ordered stream must stay reversible.' },
+          content: {
+            type: 'text',
+            text: releaseStory
+              ? 'A reconnect is safe only when one exact checkpoint is installed before contiguous later transitions resume.'
+              : 'The ordered stream must stay reversible.',
+          },
         },
       });
       await client.sessionUpdate({
@@ -337,11 +352,11 @@ class FakeAgent {
         update: {
           sessionUpdate: 'tool_call',
           toolCallId: 'rich-read-tool',
-          title: 'Read ACP display fixtures',
+          title: releaseStory ? 'Inspect terminal recovery protocol' : 'Read ACP display fixtures',
           kind: 'read',
           status: 'completed',
-          locations: [{ path: path.join(process.cwd(), 'README.md'), line: 1 }],
-          rawInput: { path: 'README.md' },
+          locations: [{ path: path.join(process.cwd(), releaseStory ? 'docs/products/code/terminal-state-protocol.md' : 'README.md'), line: 1 }],
+          rawInput: { path: releaseStory ? 'docs/products/code/terminal-state-protocol.md' : 'README.md' },
           content: [
             { type: 'content', content: { type: 'text', text: 'Typed tool result' } },
             { type: 'content', content: { type: 'resource_link', name: 'ACP reference', uri: 'https://agentclientprotocol.com/', mimeType: 'text/html' } },
@@ -356,14 +371,14 @@ class FakeAgent {
         update: {
           sessionUpdate: 'tool_call',
           toolCallId: 'rich-edit-tool',
-          title: 'Edit display fixture',
+          title: releaseStory ? 'Update recovery invariant test' : 'Edit display fixture',
           kind: 'edit',
           status: 'completed',
           content: [{
             type: 'diff',
-            path: path.join(process.cwd(), 'display-fixture.txt'),
-            oldText: 'before\n',
-            newText: 'after\n',
+            path: path.join(process.cwd(), releaseStory ? 'tests/e2e/terminal-cross-skin-recovery.spec.ts' : 'display-fixture.txt'),
+            oldText: releaseStory ? 'expect(view.outputSeq).toBe(3)\n' : 'before\n',
+            newText: releaseStory ? 'expect(view.outputSeq).toBe(checkpoint.outputSeq + 1)\n' : 'after\n',
           }],
         },
       });
@@ -379,7 +394,7 @@ class FakeAgent {
         update: {
           sessionUpdate: 'tool_call',
           toolCallId: 'rich-terminal-tool',
-          title: 'Run verification command',
+          title: releaseStory ? 'Run cross-skin verification' : 'Run verification command',
           kind: 'execute',
           status: 'completed',
           content: [{ type: 'terminal', terminalId: terminal.id }],
@@ -389,7 +404,11 @@ class FakeAgent {
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'plan',
-          entries: [
+          entries: releaseStory ? [
+            { content: 'Trace the authoritative checkpoint state', priority: 'high', status: 'completed' },
+            { content: 'Exercise reconnect and gap recovery', priority: 'high', status: 'completed' },
+            { content: 'Verify release gates and residual risk', priority: 'medium', status: 'completed' },
+          ] : [
             { content: 'Inspect the source', priority: 'high', status: 'completed' },
             { content: 'Apply the change', priority: 'medium', status: 'completed' },
             { content: 'Verify the result', priority: 'medium', status: 'completed' },
@@ -401,7 +420,30 @@ class FakeAgent {
         update: {
           sessionUpdate: 'agent_message_chunk',
           messageId: 'rich-answer',
-          content: { type: 'text', text: 'Rich ACP timeline complete.' },
+          content: {
+            type: 'text',
+            text: releaseStory
+              ? [
+                  '### Release decision · Ready',
+                  '',
+                  'Release readiness is confirmed.',
+                  '',
+                  '| Gate | Evidence | Result |',
+                  '| --- | --- | --- |',
+                  '| Source + backend | 182 checks | Passed |',
+                  '| Cross-skin recovery | 12 scenarios | Passed |',
+                  '| Terminal input | p95 59 ms / 250 ms | Passed |',
+                  '| Release artifacts | 6 bundles verified | Passed |',
+                  '',
+                  '**What is now proven**',
+                  '',
+                  '- Code and CRT restore one exact checkpoint before live output resumes.',
+                  '- Gap, epoch change, and hidden-page recovery converge on the authoritative PTY state.',
+                  '',
+                  '**Residual risk:** none in the supported WebGL path.',
+                ].join('\n')
+              : 'Rich ACP timeline complete.',
+          },
         },
       });
       return { stopReason: 'end_turn' };

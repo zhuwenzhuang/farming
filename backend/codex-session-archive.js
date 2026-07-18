@@ -5,7 +5,7 @@ const { resolveCompatibleCodexExecutable } = require('./executable-discovery');
 
 const execFileAsync = promisify(execFile);
 
-async function unarchiveCodexSession(sessionId, session = {}, options = {}) {
+async function runCodexSessionArchiveCommand(action, sessionId, session = {}, options = {}) {
   const resolveExecutable = options.resolveCompatibleCodexExecutable || resolveCompatibleCodexExecutable;
   const runExecFile = options.execFileAsync || execFileAsync;
   const processEnv = options.processEnv || process.env;
@@ -18,7 +18,7 @@ async function unarchiveCodexSession(sessionId, session = {}, options = {}) {
   }
 
   try {
-    await runExecFile(codexResolution.path || 'codex', ['unarchive', sessionId], {
+    await runExecFile(codexResolution.path || 'codex', [action, sessionId], {
       cwd: session.cwd || session.workspace || os.homedir(),
       env: session.providerHomePath
         ? { ...processEnv, CODEX_HOME: session.providerHomePath }
@@ -26,13 +26,13 @@ async function unarchiveCodexSession(sessionId, session = {}, options = {}) {
       timeout: 30_000,
       maxBuffer: 1024 * 1024,
     });
-    return { unarchived: true };
+    return { [action === 'archive' ? 'archived' : 'unarchived']: true };
   } catch (error) {
     const message = [
       error && error.stdout ? String(error.stdout).trim() : '',
       error && error.stderr ? String(error.stderr).trim() : '',
       error && error.message ? String(error.message).trim() : '',
-    ].filter(Boolean).join('\n') || 'failed to unarchive Codex session';
+    ].filter(Boolean).join('\n') || `failed to ${action} Codex session`;
     return {
       error: message,
       status: 409,
@@ -40,6 +40,15 @@ async function unarchiveCodexSession(sessionId, session = {}, options = {}) {
   }
 }
 
+async function archiveCodexSession(sessionId, session = {}, options = {}) {
+  return runCodexSessionArchiveCommand('archive', sessionId, session, options);
+}
+
+async function unarchiveCodexSession(sessionId, session = {}, options = {}) {
+  return runCodexSessionArchiveCommand('unarchive', sessionId, session, options);
+}
+
 module.exports = {
+  archiveCodexSession,
   unarchiveCodexSession,
 };

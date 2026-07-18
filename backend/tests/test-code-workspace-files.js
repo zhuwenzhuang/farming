@@ -538,8 +538,14 @@ function run() {
 	      workspaceSource.includes('function ContextMenuIcon') &&
 	      workspaceSource.includes('agent?.canForkNewWorktree === true') &&
 	      workspaceSource.includes('projectCanArchive(contextMenuProject)') &&
-	      !workspaceSource.includes('projectCanDeleteWorktree(contextMenuProject)') &&
+	      workspaceSource.includes('projectCanDeleteWorktree(contextMenuProject)') &&
+	      workspaceSource.includes("id: 'delete-worktree'") &&
+	      workspaceSource.includes("icon: 'trash'") &&
+	      workspaceSource.includes('danger: true') &&
+	      workspaceSource.includes('onDeleteWorktree={deleteContextWorktree}') &&
+	      workspaceSource.includes('deleteWorktreeDescription') &&
 	      workspaceSource.includes("onDeleteForkWorktreeProject(dialog.workspace, { force: true })") &&
+	      workspaceSource.includes('previous.filter(workspace => workspace !== dialog.workspace)') &&
       appSource.includes("appPath('/api/projects/delete-worktree')") &&
       !workspaceSource.includes('Open Terminal') &&
       !workspaceSource.includes('Close Terminal') &&

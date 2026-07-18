@@ -3,6 +3,8 @@ const AgentManager = require('../agent-manager');
 
 async function run() {
   const appended = [];
+  const codexArchiveCalls = [];
+  let resolveCodexArchive;
   const settings = {
     mainPageSessionKeys: [
       'agent-session:codex:archive-session',
@@ -33,6 +35,13 @@ async function run() {
     },
     appendTaskHistory(entry) {
       appended.push(entry);
+    },
+  }, {
+    archiveCodexSession(sessionId, session) {
+      codexArchiveCalls.push({ sessionId, session });
+      return new Promise(resolve => {
+        resolveCodexArchive = resolve;
+      });
     },
   });
 
@@ -105,6 +114,7 @@ async function run() {
       providerSessionProvider: 'codex',
       providerSessionId: 'archive-session',
       providerSessionKey: 'agent-session:codex:archive-session',
+      providerHomePath: '/home/farming/.codex',
       customTitle: 'Named archive run',
       task: 'archive target',
     });
@@ -145,6 +155,17 @@ async function run() {
     assert.strictEqual(manager.taskHistory[0].projectWorkspace, '/repo');
     assert.strictEqual(manager.taskHistory[0].title, 'Named archive run');
     assert.strictEqual(manager.taskHistory[0].customTitle, 'Named archive run');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepStrictEqual(codexArchiveCalls, [{
+      sessionId: 'archive-session',
+      session: {
+        cliVersion: '',
+        cwd: '/repo/deep',
+        workspace: '/repo',
+        providerHomePath: '/home/farming/.codex',
+      },
+    }], 'manual Codex archive should asynchronously archive the provider session once');
+    resolveCodexArchive({ archived: true });
 
     manager.agents.set('shell-archive', {
       id: 'shell-archive',

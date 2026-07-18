@@ -8,6 +8,8 @@ Farming CRT 是 Farming 2 的键盘优先控制室。它不是旧的只读皮肤
 
 多个 Agent 同时运行、终端输出是主要信号，或者直接键盘控制比 Coding Workspace 更快时，适合使用 CRT。Files、Editing、工作区 Review 和手机访问请使用 [Farming Code](../code/README.zh_cn.md)。切换界面不会重启或复制 Agent。
 
+返回 Code 时，按 `S`（或选择 **[S] SETTINGS**），在 **UI Theme** 中选择 **Farming Code**。从 Code 进入 CRT 时，点击左下角齿轮，打开**界面**，选择 **Farming CRT**。条件允许时 Farming 会带上当前聚焦的 Agent，并继续使用同一个实时进程和 Provider Session。
+
 共享能力的完整矩阵见 [Farming 2 产品总览](../README.zh_cn.md)。
 
 ## Dashboard 是实时控制室

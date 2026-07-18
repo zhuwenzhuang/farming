@@ -130,10 +130,6 @@ The browser is a control surface, not the process owner. Hidden tabs suspend the
 
 Farming Code mobile emphasizes one readable task surface and a drawer. Farming CRT is currently desktop-only; phones should use Farming Code.
 
-<p align="center">
-  <img src="code/assets/05-mobile-agent-chat.jpg" alt="Farming Code mobile Chat" width="320">
-</p>
-
 ## Runtime And Data Boundaries
 
 - The Farming server owns auth, Agent lifecycle, session routing, files, history, Review, usage, and configuration.

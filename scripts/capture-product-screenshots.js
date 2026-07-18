@@ -84,9 +84,11 @@ function prepareRuntimeDirectories() {
     fs.mkdirSync(path.join(workspaceDir, 'src', 'components'), { recursive: true });
     fs.mkdirSync(path.join(workspaceDir, 'tests'), { recursive: true });
     fs.writeFileSync(path.join(workspaceDir, 'README.md'), [
-      '# Atlas Web',
+      '# Atlas Control Plane',
       '',
-      'Anonymous demo workspace for Farming product screenshots.',
+      'Release workspace for the terminal recovery protocol and cross-skin verification.',
+      '',
+      'Current gate: exact checkpoint recovery, contiguous live output, and native PTY cleanup.',
       '',
     ].join('\n'));
     fs.writeFileSync(path.join(workspaceDir, 'src', 'components', 'Dashboard.tsx'), [
@@ -126,7 +128,9 @@ function prepareRuntimeDirectories() {
     fs.writeFileSync(path.join(workspaceDir, 'notes', 'review-observations.md'), [
       '# Review observations',
       '',
-      '- Verify empty-state behavior before committing.',
+      '- Verify hidden-page recovery before publishing.',
+      '- Confirm Code and CRT preserve one provider session.',
+      '- Keep key-to-PTY-output p95 below 250 ms.',
       '',
     ].join('\n'));
   }
@@ -156,7 +160,7 @@ async function setDemoSettings(page, baseUrl) {
     data: {
       lastMainWorkspace: workspaceDir,
       workspaceHistory: [workspaceDir],
-      projectNames: { [workspaceDir]: 'Atlas Web' },
+      projectNames: { [workspaceDir]: 'Atlas Control Plane' },
       appearance: 'light',
       language: 'en',
       defaultLaunchAgent: 'bash',
@@ -194,6 +198,7 @@ async function startDemoAgent(page, baseUrl) {
 async function startAgent(page, baseUrl, options) {
   const response = await page.request.post(`${baseUrl}${basePath}/api/control/agents`, {
     data: options,
+    timeout: 60_000,
   });
   if (!response.ok()) {
     throw new Error(`failed to start demo agent: ${response.status()} ${await response.text()}`);
@@ -325,7 +330,7 @@ async function screenshot(page, fileName, directory = screenshotDir) {
         'system-ip': 'demo.lan',
         'cpu-usage': '24',
         'mem-percentage': '38',
-        'system-time': '2026-07-14 09:41:00',
+        'system-time': '2026-07-18 13:41:00',
         uptime: '12m 34s',
       };
       for (const [id, value] of Object.entries(replacements)) {
@@ -545,6 +550,7 @@ async function main() {
       FARMING_DISABLE_AUTH: '1',
       FARMING_E2E_FAKE_EXECUTABLES: '1',
       FARMING_E2E_FAKE_ACP_AGENT: '1',
+      FARMING_NATIVE_PTY_HOST_PERSIST: '0',
       FARMING_ANONYMIZE_SHELL_PROMPT: '1',
       HOME: homeDir,
       NODE_ENV: 'test',
@@ -565,7 +571,7 @@ async function main() {
     });
     const context = await browser.newContext({
       baseURL: baseUrl,
-      viewport: { width: 1280, height: 720 },
+      viewport: { width: 1440, height: 810 },
       deviceScaleFactor: 1,
     });
     await context.addInitScript(() => {
@@ -583,55 +589,65 @@ async function main() {
     const codexAgentId = await startAgent(page, baseUrl, {
       command: 'codex',
       workspace: workspaceDir,
-      task: 'Review the dashboard implementation',
+      task: '',
       agentRuntimeMode: 'acp',
     });
     const terminalAgentId = await startAgent(page, baseUrl, {
       command: 'codex',
       workspace: workspaceDir,
-      task: 'Verify the release build',
+      task: '',
       agentRuntimeMode: 'terminal',
     });
     const claudeAgentId = await startAgent(page, baseUrl, {
       command: 'claude',
       workspace: workspaceDir,
-      task: 'Review the responsive layout',
+      task: '',
     });
     const shellAgentId = await startDemoAgent(page, baseUrl);
-    await updateAgent(page, baseUrl, codexAgentId, { customTitle: 'Dashboard review', pinned: true });
-    await updateAgent(page, baseUrl, terminalAgentId, { customTitle: 'Release verification' });
-    await updateAgent(page, baseUrl, claudeAgentId, { customTitle: 'Responsive QA', unread: true });
-    await updateAgent(page, baseUrl, shellAgentId, { customTitle: 'Build smoke' });
+    await updateAgent(page, baseUrl, codexAgentId, { customTitle: 'Recovery protocol', pinned: true });
+    await updateAgent(page, baseUrl, terminalAgentId, { customTitle: 'Release gate' });
+    await updateAgent(page, baseUrl, claudeAgentId, { customTitle: 'Visual QA', unread: true });
+    await updateAgent(page, baseUrl, shellAgentId, { customTitle: 'Linux smoke' });
 
     await ensureApp(page);
     await openAgent(page, terminalAgentId);
     await writeTerminalFixture(page, terminalAgentId, [
-      '> Verify the dashboard release',
+      '> Run the terminal recovery release gate',
       '',
-      '- Ran npm test',
-      '- Checked src/components/Dashboard.tsx:1',
-      '- Verified the responsive layout',
+      '✓ 182 source and backend checks passed',
+      '✓ Code ↔ CRT provider session identity preserved',
+      '✓ Hidden-page checkpoint recovery passed',
+      '✓ Native PTY host restart recovery passed',
       '',
-      'Working (42s - esc to interrupt) - 2 background terminals running - /ps to view',
+      'terminal input p95: 59 ms (limit: 250 ms)',
+      'Release candidate ready — 2 background checks still reporting',
       '',
-      '> Ask for follow-up changes',
+      '> Verify release artifacts',
+      '✓ darwin-arm64 + darwin-x64',
+      '✓ linux-arm64 + linux-x64',
+      '✓ linux-x64 legacy glibc 2.28',
+      '✓ checksums + update manifest',
+      '',
+      'Next: publish after both background checks report green',
     ].join('\r\n'));
     await openAgent(page, claudeAgentId);
     await writeTerminalFixture(page, claudeAgentId, [
-      'Fake Claude Code ready',
-      'Reviewing responsive composer layout...',
-      'Found: microphone button no longer overlaps text input',
-      'Waiting for next instruction',
+      'Claude Code — visual review',
+      'Inspecting desktop information hierarchy...',
+      '✓ Agent status remains readable at a glance',
+      '✓ File and Review entry points stay visible',
+      '✓ Composer controls no longer compete with the result',
+      'Waiting for final screenshot approval',
     ].join('\r\n'));
     await openAgent(page, shellAgentId);
     await writeTerminalFixture(page, shellAgentId, [
       '$ farming status',
       'server: running on http://demo-linux.local:6694/farming',
-      'workspace: /workspaces/atlas-web',
+      'workspace: /workspaces/atlas-control-plane',
       'agents: 4 active, 0 waiting',
       '',
       '$ git status --short',
-      ' M src/components/Dashboard.tsx',
+      ' M tests/e2e/terminal-cross-skin-recovery.spec.ts',
       '',
       '$ npm run check',
       'ok backend tests passed',
@@ -644,8 +660,8 @@ async function main() {
     await sendAgentInput(page, baseUrl, shellAgentId, 'clear\r');
     await page.waitForTimeout(150);
     await sendAgentInput(page, baseUrl, shellAgentId, [
-      "printf '\\033[1;36mAtlas Web release console\\033[0m\\n'",
-      "printf 'tests: 145 passed\\ntypecheck: passed\\nproduction build: ready\\n'",
+      "printf '\\033[1;36mFarming v2.2.11 release console\\033[0m\\n'",
+      "printf 'checks: 182 passed\\ntypecheck: passed\\nlint: passed\\nmacOS + Linux bundles: verified\\nterminal recovery: passed\\nproduction build: ready\\n'",
       'git status --short',
       'stty echo',
     ].join('; ') + '\r');
@@ -663,18 +679,22 @@ async function main() {
       throw new Error(`failed to set screenshot ACP profile: ${acpProfileResponse.status()} ${await acpProfileResponse.text()}`);
     }
     const acpInput = page.getByTestId('code-acp-composer-input');
-    await acpInput.fill('Review the dashboard implementation, keep a rich timeline of the checks, and report what changed.');
+    await acpInput.fill('Audit terminal recovery for the v2.2.11 release. Keep a rich timeline and produce the release readiness story with evidence and residual risk.');
     await page.getByTestId('code-acp-composer-send').click();
-    await page.getByText('Rich ACP timeline complete.', { exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByText('Release readiness is confirmed.', { exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
 
     await waitForFileTree(page);
     await screenshot(page, '01-code-workspace.png');
 
-    const richTurn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'rich timeline' }).first();
+    const richTurn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'release readiness story' }).first();
     await richTurn.getByTestId('code-codex-transcript-process-summary').click();
     const processGroup = richTurn.getByTestId('code-codex-transcript-process-group').first();
     await processGroup.getByTestId('code-codex-transcript-process-group-toggle').click();
-    await processGroup.getByText('Run verification command', { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
+    await processGroup.getByText('Run cross-skin verification', { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
+    await page.getByTestId('code-codex-transcript-scroll').evaluate((element) => {
+      element.scrollTop = Math.min(element.scrollTop + 180, element.scrollHeight - element.clientHeight);
+    });
+    await waitForStableUi(page, 300);
     await screenshot(page, '11-code-agent-process.png');
 
     await openNewAgentDialog(page);
@@ -703,30 +723,6 @@ async function main() {
     await trackedChangesToggle.click();
     await untrackedChangesToggle.click();
 
-    const mobileContext = await browser.newContext({
-      baseURL: baseUrl,
-      viewport: { width: 390, height: 844 },
-      deviceScaleFactor: 1,
-      hasTouch: true,
-      isMobile: true,
-    });
-    await mobileContext.addInitScript(() => {
-      window.__FARMING_E2E__ = true;
-    });
-    const mobilePage = await mobileContext.newPage();
-    await mobilePage.route(`**${basePath}/api/codex/models`, route => route.fulfill({
-      json: { catalog: matrixCatalog, source: 'fixture' },
-    }));
-    await ensureApp(mobilePage);
-    await mobilePage.getByTestId('code-mobile-topbar').waitFor({ state: 'visible', timeout: 20_000 });
-    await openAgent(mobilePage, codexAgentId);
-    await screenshot(mobilePage, '05-mobile-agent-chat.jpg');
-
-    await openSidebarOnMobile(mobilePage);
-    await mobilePage.getByTestId('code-sidebar').waitFor({ state: 'visible', timeout: 20_000 });
-    await screenshot(mobilePage, '06-mobile-files-sidebar.jpg');
-    await mobileContext.close();
-
     await openAgent(page, terminalAgentId);
     await page.getByTestId('code-composer-model-picker').click();
     await page.getByTestId('code-model-matrix-picker').waitFor({ state: 'visible', timeout: 20_000 });
@@ -735,12 +731,29 @@ async function main() {
     await page.getByTestId('code-model-matrix-picker').waitFor({ state: 'hidden', timeout: 20_000 });
     await screenshot(page, '12-code-terminal-session.png');
 
+    const visualHistoryAgentId = await startAgent(page, baseUrl, {
+      command: 'codex',
+      workspace: workspaceDir,
+      task: '',
+      agentRuntimeMode: 'terminal',
+    });
+    await updateAgent(page, baseUrl, visualHistoryAgentId, { customTitle: 'Release visual audit' });
+    await updateAgent(page, baseUrl, visualHistoryAgentId, { archived: true });
+    const packageHistoryAgentId = await startAgent(page, baseUrl, {
+      command: 'codex',
+      workspace: workspaceDir,
+      task: '',
+      agentRuntimeMode: 'terminal',
+    });
+    await updateAgent(page, baseUrl, packageHistoryAgentId, { customTitle: 'Release package smoke' });
+    await updateAgent(page, baseUrl, packageHistoryAgentId, { archived: true });
     await updateAgent(page, baseUrl, terminalAgentId, { archived: true });
     await page.getByTestId('code-nav-history').click();
     await page.getByTestId('code-history-panel').waitFor({ state: 'visible', timeout: 20_000 });
     const historySearch = page.getByRole('searchbox', { name: 'Search history' });
-    await historySearch.fill('Release verification');
-    await page.getByTestId('code-archived-run-card').filter({ hasText: 'Release verification' }).waitFor({ state: 'visible', timeout: 20_000 });
+    await historySearch.fill('Release');
+    const releaseHistoryCards = page.getByTestId('code-archived-run-card').filter({ hasText: 'Release' });
+    await releaseHistoryCards.nth(2).waitFor({ state: 'visible', timeout: 20_000 });
     await waitForStableUi(page, 400);
     await screenshot(page, '08-history-search.png');
 

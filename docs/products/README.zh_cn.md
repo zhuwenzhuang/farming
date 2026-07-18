@@ -130,10 +130,6 @@ Farming Code 保持紧凑的用量信号。CRT Billing 把本地 Provider 数据
 
 Farming Code Mobile 强调一个可读任务 Surface 和 Drawer。Farming CRT 当前只支持桌面使用，手机请使用 Farming Code。
 
-<p align="center">
-  <img src="code/assets/05-mobile-agent-chat.jpg" alt="Farming Code 移动 Chat" width="320">
-</p>
-
 ## 运行时与数据边界
 
 - Farming Server 负责鉴权、Agent Lifecycle、Session Routing、Files、History、Review、Usage 和配置。
