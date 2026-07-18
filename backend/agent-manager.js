@@ -19,7 +19,7 @@ const { ensureMainAgentSkillFiles, renderMainAgentBootstrap } = require('./main-
 const { mainPageAgentSessionKey, resumedAgentSource } = require('./main-page-session');
 const { isSafeProviderSessionId, isTemporaryProviderSessionId } = require('./provider-session-id');
 const { ProviderSessionService } = require('./provider-session-service');
-const { publicRuntimeBinding } = require('./agent-runtime-binding');
+const { publicRuntimeBinding, RuntimeAgentMap } = require('./agent-runtime-binding');
 const { deriveRuntimeObservation } = require('./runtime-observation');
 const {
   applyProviderHomeEnvironment,
@@ -526,7 +526,7 @@ class AgentManager extends EventEmitter {
       0,
       60 * 60 * 1000
     );
-    this.agents = new Map();
+    this.agents = new RuntimeAgentMap();
     this.mainAgentId = null;
     this.lastActivity = new Map();
     this.lastActivityUpdate = new Map();
