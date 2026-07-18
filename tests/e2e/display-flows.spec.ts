@@ -32,13 +32,20 @@ function activeFileTabName(page: Page) {
 }
 
 async function modifierClick(page: Page, x: number, y: number) {
-  const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
-  await page.keyboard.down(modifier)
-  try {
-    await page.mouse.click(x, y)
-  } finally {
-    await page.keyboard.up(modifier)
-  }
+  await page.evaluate(({ clientX, clientY }) => {
+    const target = document.elementFromPoint(clientX, clientY)
+    if (!(target instanceof HTMLElement)) throw new Error('Modifier-click target is missing')
+    const eventOptions = {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      buttons: 0,
+      clientX,
+      clientY,
+      ctrlKey: true,
+    }
+    target.dispatchEvent(new MouseEvent('mouseup', eventOptions))
+  }, { clientX: x, clientY: y })
 }
 
 async function createControlAgent(page: Page, command: string, workspace: string) {
@@ -976,6 +983,7 @@ test.describe('display-backed agent flows', () => {
     await page.evaluate(() => {
       window.open = (window as any).__originalOpenForTerminalUrlTest
     })
+    await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
 
     if (await filesTitle.getAttribute('aria-expanded') !== 'true') {
       await filesTitle.click()
