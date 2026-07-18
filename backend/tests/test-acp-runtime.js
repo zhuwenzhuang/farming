@@ -11,7 +11,7 @@ async function run() {
   assert.strictEqual(acpErrorKind(new Error('429 rate limit exceeded')), 'rate-limit');
   assert.strictEqual(acpErrorKind(new Error('socket connection timed out')), 'network');
   assert.strictEqual(acpErrorKind(new Error('unexpected failure')), 'unknown');
-  assert.strictEqual(resolveAcpLaunch('codex').version, '1.1.2');
+  assert.strictEqual(resolveAcpLaunch('codex').version, '1.1.4');
   assert.strictEqual(resolveAcpLaunch('claude').version, '0.58.1');
   const compatibleCodexLaunch = resolveAcpLaunch('codex', {
     runtimeEnv: {
