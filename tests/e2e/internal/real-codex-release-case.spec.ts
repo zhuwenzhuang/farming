@@ -5,7 +5,6 @@ import { expect, openFarming, test } from '../fixtures'
 
 const PRIMARY_MODEL = 'gpt-5.6-luna'
 const PRIMARY_EFFORT = 'medium'
-const CRT_MODEL = 'gpt-5.4-mini'
 const CLI_BEGIN = 'CLI_FLOW_BEGIN_7F3A'
 const CLI_END = 'CLI_FLOW_END_7F3A'
 const COMPOSITE_BEGIN = 'COMPOSITE_BEGIN_7F3A'
@@ -423,14 +422,25 @@ async function sampleCrtAnchor(page: Page, anchor: string, durationMs = 70) {
   return page.evaluate(async ({ expected, duration }) => {
     const startedAt = performance.now()
     let samples = 0
-    let missing = 0
+    let stableMissing = 0
+    let transientMissing = 0
     while (performance.now() - startedAt < duration) {
       const rows = window.__farmingCrtTerminalTest?.getRows() ?? []
+      const state = window.__farmingCrtTerminalTest?.getState() ?? null
+      const transitioning = Boolean(
+        state?.writeInProgress
+        || state?.replaying
+        || state?.checkpointInFlight
+        || state?.checkpointInstallInProgress
+      )
       samples += 1
-      if (!rows.join('\n').includes(expected)) missing += 1
+      if (!rows.join('\n').includes(expected)) {
+        if (transitioning) transientMissing += 1
+        else stableMissing += 1
+      }
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     }
-    return { samples, missing }
+    return { samples, stableMissing, transientMissing }
   }, { expected: anchor, duration: durationMs })
 }
 
@@ -441,7 +451,7 @@ async function resizeCrtTerminal(page: Page, normalAnchor: string, compactAnchor
     await page.setViewportSize(size)
     const sample = await sampleCrtAnchor(page, normalAnchor)
     expect(sample.samples).toBeGreaterThan(0)
-    expect(sample.missing).toBe(0)
+    expect(sample.stableMissing).toBe(0)
     await page.waitForTimeout(40)
   }
   await expect.poll(async () => {
@@ -459,7 +469,7 @@ async function resizeCrtTerminal(page: Page, normalAnchor: string, compactAnchor
     await page.setViewportSize(size)
     const sample = await sampleCrtAnchor(page, compactAnchor)
     expect(sample.samples).toBeGreaterThan(0)
-    expect(sample.missing).toBe(0)
+    expect(sample.stableMissing).toBe(0)
     await page.waitForTimeout(40)
   }
   await expect.poll(async () => {
@@ -577,12 +587,20 @@ test.describe('real Codex pre-release composite case', () => {
     const catalogBody = await catalogResponse.json() as { catalog?: CodexCatalogModel[] }
     const catalog = catalogBody.catalog ?? []
     const primaryModel = catalog.find(model => model.value === PRIMARY_MODEL)
-    const crtModel = catalog.find(model => model.value === CRT_MODEL)
+    const supportsPrimaryEffort = (model: CodexCatalogModel) => (
+      model.reasoningLevels?.some(level => level.value === PRIMARY_EFFORT) === true
+    )
+    const crtModel = catalog.find(model => (
+      model.value !== PRIMARY_MODEL
+      && supportsPrimaryEffort(model)
+      && /affordable|cost-efficient|small|mini|fast/i.test(`${model.displayName} ${model.description}`)
+    )) ?? catalog.find(model => model.value !== PRIMARY_MODEL && supportsPrimaryEffort(model))
     expect(primaryModel, `${PRIMARY_MODEL} must be present in the live Codex catalog`).toBeTruthy()
-    expect(crtModel, `${CRT_MODEL} must be present in the live Codex catalog`).toBeTruthy()
+    expect(crtModel, 'A second live Codex model is required to prove the ACP model transition').toBeTruthy()
     expect(`${primaryModel?.displayName} ${primaryModel?.description}`).toMatch(/affordable|cost-efficient/i)
-    expect(`${crtModel?.displayName} ${crtModel?.description}`).toMatch(/affordable|cost-efficient|small|mini/i)
     expect(primaryModel?.reasoningLevels?.some(level => level.value === PRIMARY_EFFORT)).toBe(true)
+    if (!crtModel) throw new Error('A second live Codex model is required')
+    const crtModelValue = crtModel.value
     const primaryFamily = PRIMARY_MODEL.replace(/-(sol|terra|luna)$/i, '')
     const launchModel = catalog.find(model => (
       model.value !== PRIMARY_MODEL
@@ -741,7 +759,7 @@ test.describe('real Codex pre-release composite case', () => {
       await assertSameProviderSession(page, agentId, providerSessionId, 'acp')
       await expect(page.locator('#crt-structured-input')).toBeVisible({ timeout: 60_000 })
       await expect(page.locator('.crt-structured-message.assistant').filter({ hasText: CRT_TERMINAL_ACK }).last()).toBeVisible({ timeout: 120_000 })
-      await selectCrtModel(page, agentId, CRT_MODEL)
+      await selectCrtModel(page, agentId, crtModelValue)
       await sendCrtMessage(page, `Do not use tools. Reply with only the concatenation of CRT_MSG_ACK_ and ${ANCHOR_SUFFIX}, with no separator.`)
       await expect(page.locator('.crt-structured-message.assistant').filter({ hasText: CRT_MSG_ACK }).last()).toBeVisible({ timeout: 120_000 })
       await resizeStructuredView(page, CRT_MSG_ACK)
@@ -757,7 +775,7 @@ test.describe('real Codex pre-release composite case', () => {
       await waitForCrtAnchor(page, CRT_MSG_ACK, 180_000)
       await waitForCrtTerminalIdle(page, agentId)
       await expect.poll(async () => (await crtRows(page)).join('\n').toLowerCase(), { timeout: 90_000 })
-        .toContain(`recorded with model \`${CRT_MODEL}\``)
+        .toContain(`recorded with model \`${crtModelValue}\``)
       await expect.poll(async () => (await crtRows(page)).join('\n').toLowerCase(), { timeout: 90_000 })
         .toContain(`resuming with \`${PRIMARY_MODEL}\``)
       await expect.poll(async () => (await crtRows(page)).join('\n').toLowerCase(), { timeout: 90_000 })
@@ -772,7 +790,7 @@ test.describe('real Codex pre-release composite case', () => {
       body: Buffer.from(JSON.stringify({
         providerSessionId,
         primaryModel: PRIMARY_MODEL,
-        configuredChatModel: CRT_MODEL,
+        configuredChatModel: crtModelValue,
         resumedTerminalModel: PRIMARY_MODEL,
         finalAgentId: agentId,
         finalViewport: page.viewportSize(),

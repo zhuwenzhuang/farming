@@ -740,8 +740,8 @@ async function main() {
     await sendAgentInput(page, baseUrl, shellAgentId, 'clear\r');
     await page.waitForTimeout(150);
     await sendAgentInput(page, baseUrl, shellAgentId, [
-      "printf '\\033[1;36mFarming v2.2.11 release console\\033[0m\\n'",
-      "printf '\\nSOURCE GATES\\n  backend: 182 passed\\n  typecheck: passed\\n  lint: passed\\n\\nARTIFACT MATRIX\\n  macOS arm64 / x64: verified\\n  Linux arm64 / x64: verified\\n  legacy glibc 2.28: verified\\n  checksums + manifest: verified\\n\\nRUNTIME PROOF\\n  terminal recovery: passed\\n  cross-skin identity: passed\\n  input p95: 59 ms / 250 ms\\n\\nproduction build: ready\\n\\nWORKTREE\\n'",
+      "printf '\\033[1;36mFarming v2.2.12 release console\\033[0m\\n'",
+      "printf '\\nSOURCE GATES\\n  backend: 184 passed\\n  typecheck: passed\\n  lint: passed\\n\\nARTIFACT MATRIX\\n  macOS arm64 / x64: verified\\n  Linux arm64 / x64: verified\\n  legacy glibc 2.28: verified\\n  checksums + manifest: verified\\n\\nRUNTIME PROOF\\n  terminal recovery: passed\\n  cross-skin identity: passed\\n  input p95: 58 ms / 250 ms\\n\\nproduction build: ready\\n\\nWORKTREE\\n'",
       'git status --short',
       'stty echo',
     ].join('; ') + '\r');
@@ -759,7 +759,7 @@ async function main() {
       throw new Error(`failed to set screenshot ACP profile: ${acpProfileResponse.status()} ${await acpProfileResponse.text()}`);
     }
     const acpInput = page.getByTestId('code-acp-composer-input');
-    await acpInput.fill('Audit terminal recovery for the v2.2.11 release. Keep a rich timeline and produce the release readiness story with evidence and residual risk.');
+    await acpInput.fill('Audit terminal recovery for the v2.2.12 release. Keep a rich timeline and produce the release readiness story with evidence and residual risk.');
     await page.getByTestId('code-acp-composer-send').click();
     await page.getByText('Release readiness is confirmed.', { exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
 

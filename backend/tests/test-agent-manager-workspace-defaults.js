@@ -49,7 +49,7 @@ async function run() {
     assert.strictEqual(manager.mainAgentId, mainAgentId);
     assert.strictEqual(
       manager.getState().agents.find(agent => agent.id === mainAgentId).projectWorkspace,
-      farmingWorkspace
+      fs.realpathSync(farmingWorkspace)
     );
     assert.strictEqual(
       manager.getState().agents.find(agent => agent.id === mainAgentId).engineName,
@@ -154,7 +154,7 @@ async function run() {
     assert.strictEqual(internalManager.getAgentWorkspaceRoot(internalMainAgentId), internalConfigWorkspace);
     assert.strictEqual(
       internalManager.getState().agents.find(agent => agent.id === internalMainAgentId).projectWorkspace,
-      internalConfigWorkspace
+      fs.realpathSync(internalConfigWorkspace)
     );
     clearInterval(internalManager.heartbeatInterval);
     internalManager.engineBridge.dispose();
@@ -167,7 +167,8 @@ async function run() {
     manager.mainAgentId = 'main-agent-existing';
     manager.agents.set('main-agent-existing', {
       id: 'main-agent-existing',
-      status: 'running'
+      status: 'running',
+      output: '',
     });
 
     await startAgent(manager, 'zsh', null, { wantsMain: false });
@@ -188,6 +189,27 @@ async function run() {
     assert.strictEqual(captured[2].metadata.cwd, restoredWorkingDirectory);
     assert.strictEqual(captured[2].metadata.projectWorkspace, restoredProjectWorkspace);
     assert.strictEqual(captured[2].env.FARMING_PROJECT_WORKSPACE, restoredProjectWorkspace);
+
+    const aliasedWorkspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-aliased-project-'));
+    const canonicalAliasedWorkspace = path.join(aliasedWorkspaceRoot, 'project');
+    const aliasedWorkspace = path.join(aliasedWorkspaceRoot, 'project-link');
+    fs.mkdirSync(canonicalAliasedWorkspace);
+    fs.symlinkSync(
+      canonicalAliasedWorkspace,
+      aliasedWorkspace,
+      process.platform === 'win32' ? 'junction' : 'dir'
+    );
+    const aliasedAgentId = await startAgent(manager, 'bash', aliasedWorkspace, { wantsMain: false });
+    assert.strictEqual(
+      manager.agents.get(aliasedAgentId).cwd,
+      aliasedWorkspace,
+      'the runtime should keep the user-selected working-directory spelling'
+    );
+    assert.strictEqual(
+      manager.getState().agents.find(agent => agent.id === aliasedAgentId).projectWorkspace,
+      fs.realpathSync(canonicalAliasedWorkspace),
+      'browser-facing Project identity should resolve filesystem aliases'
+    );
 
     const outsideProjectWorkspace = path.join(os.tmpdir(), 'farming-outside-project-root');
     fs.mkdirSync(outsideProjectWorkspace, { recursive: true });

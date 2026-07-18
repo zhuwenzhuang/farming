@@ -8,6 +8,7 @@ const { importTsModule } = require('./helpers/import-ts-module');
 async function run() {
   const { agentTitle } = importTsModule('src/lib/format.ts');
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-rename-'));
+  const publicProjectWorkspace = fs.realpathSync(tmpRoot);
   const manager = new AgentManager({
     getWorkspace() {
       return tmpRoot;
@@ -45,7 +46,9 @@ async function run() {
       'Restored title '.repeat(8).trim().slice(0, 80),
       'a restored custom title should use the same normalization as renameAgent'
     );
-    const initialOrderedAgents = manager.getState().agents.filter(agent => agent.projectWorkspace === tmpRoot);
+    const initialOrderedAgents = manager.getState().agents.filter(
+      agent => agent.projectWorkspace === publicProjectWorkspace
+    );
     const firstOrder = initialOrderedAgents.find(agent => agent.id === agentId).projectOrder;
     const secondOrder = initialOrderedAgents.find(agent => agent.id === restoredTitleAgentId).projectOrder;
     assert(secondOrder > firstOrder, 'new Agents should be placed at the front of their Project');

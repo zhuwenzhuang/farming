@@ -62,6 +62,7 @@ const {
 const { inspectGitWorktree } = require('./git-worktree-info');
 const { deserializeTerminalState } = require('./terminal-state-serialization');
 const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation');
+const { canonicalWorkspacePath } = require('./workspace-root-registry');
 
 const SESSION_OUTPUT_LIMIT = 10000;
 const AGENT_USAGE_RATE_WINDOW_MS = 5 * 60 * 1000;
@@ -4982,7 +4983,7 @@ class AgentManager extends EventEmitter {
         command: agent.command,
         engineName: agent.engineName || '',
         cwd: agent.cwd,
-        projectWorkspace: agent.projectWorkspace || '',
+        projectWorkspace: canonicalWorkspacePath(agent.projectWorkspace || ''),
         gitWorktree: publicAgentGitWorktree(agent),
         output: agent.output.slice(-2000),
         previewText: agent.previewText || '',
