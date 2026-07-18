@@ -66,8 +66,8 @@ const FARMING_CODEX_TRANSCRIPT_COVERED_THREAD_ITEM_TYPES = [
   'contextCompaction',
 ];
 
-const CODEX_APP_SERVER_USER_INPUT_TYPES = ['text', 'image', 'localImage', 'skill', 'mention'];
-const FARMING_CODEX_TRANSCRIPT_COVERED_USER_INPUT_TYPES = ['text', 'image', 'localImage', 'skill', 'mention'];
+const CODEX_APP_SERVER_USER_INPUT_TYPES = ['text', 'image', 'localImage', 'audio', 'localAudio', 'skill', 'mention'];
+const FARMING_CODEX_TRANSCRIPT_COVERED_USER_INPUT_TYPES = ['text', 'image', 'localImage', 'audio', 'localAudio', 'skill', 'mention'];
 const CODEX_APP_SERVER_DYNAMIC_TOOL_OUTPUT_TYPES = ['inputText', 'inputImage'];
 const FARMING_CODEX_TRANSCRIPT_COVERED_DYNAMIC_TOOL_OUTPUT_TYPES = ['inputText', 'inputImage'];
 const CODEX_RESPONSE_ITEM_TYPES = [
@@ -118,6 +118,8 @@ const CODEX_APP_SERVER_SERVER_NOTIFICATION_TYPES = [
   'thread/name/updated',
   'thread/goal/updated',
   'thread/goal/cleared',
+  'thread/environment/connected',
+  'thread/environment/disconnected',
   'thread/settings/updated',
   'thread/tokenUsage/updated',
   'turn/started',
@@ -131,6 +133,7 @@ const CODEX_APP_SERVER_SERVER_NOTIFICATION_TYPES = [
   'item/autoApprovalReview/completed',
   'item/completed',
   'rawResponseItem/completed',
+  'rawResponse/completed',
   'item/agentMessage/delta',
   'item/plan/delta',
   'command/exec/outputDelta',
@@ -266,11 +269,14 @@ const FARMING_CODEX_TRANSCRIPT_IGNORED_NOTIFICATION_TYPES = [
   'thread/name/updated',
   'thread/goal/updated',
   'thread/goal/cleared',
+  'thread/environment/connected',
+  'thread/environment/disconnected',
   'thread/settings/updated',
   'thread/tokenUsage/updated',
   'command/exec/outputDelta',
   'process/outputDelta',
   'process/exited',
+  'rawResponse/completed',
   'mcpServer/oauthLogin/completed',
   'mcpServer/startupStatus/updated',
   'account/updated',
@@ -545,12 +551,15 @@ function referenceServerNotificationMethods() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-codex-user-input-'));
   const imagePath = path.join(tmpDir, 'sample.png');
   const svgPath = path.join(tmpDir, 'diagram.svg');
+  const audioPath = path.join(tmpDir, 'sample.wav');
   const inlineImageUrl = 'data:image/png;base64,AAAA';
+  const inlineAudioUrl = 'data:audio/wav;base64,UklGRg==';
   fs.writeFileSync(
     imagePath,
     Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64'),
   );
   fs.writeFileSync(svgPath, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8"/></svg>');
+  fs.writeFileSync(audioPath, Buffer.from('RIFFwave', 'ascii'));
 
   const turns = buildTranscriptFromLines([
     notification('item/completed', {
@@ -566,6 +575,8 @@ function referenceServerNotificationMethods() {
           { type: 'image', url: inlineImageUrl, filename: 'inline.png' },
           { type: 'image', path: svgPath },
           { type: 'localImage', path: imagePath },
+          { type: 'audio', url: inlineAudioUrl },
+          { type: 'localAudio', path: audioPath },
         ],
       },
     }),
@@ -590,6 +601,11 @@ function referenceServerNotificationMethods() {
   assert(turns[0].userImages[1].url.startsWith('data:image/svg+xml;base64,'));
   assert.strictEqual(turns[0].userImages[2].alt, 'sample.png');
   assert(turns[0].userImages[2].url.startsWith('data:image/png;base64,'));
+  assert.strictEqual(turns[0].userAudios.length, 2);
+  assert.strictEqual(turns[0].userAudios[0].url, inlineAudioUrl);
+  assert.strictEqual(turns[0].userAudios[0].mimeType, 'audio/wav');
+  assert.strictEqual(turns[0].userAudios[1].name, 'sample.wav');
+  assert(turns[0].userAudios[1].url.startsWith('data:audio/wav;base64,'));
 }
 
 {

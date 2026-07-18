@@ -12,7 +12,7 @@ async function run() {
   assert.strictEqual(acpErrorKind(new Error('socket connection timed out')), 'network');
   assert.strictEqual(acpErrorKind(new Error('unexpected failure')), 'unknown');
   assert.strictEqual(resolveAcpLaunch('codex').version, '1.1.4');
-  assert.strictEqual(resolveAcpLaunch('claude').version, '0.58.1');
+  assert.strictEqual(resolveAcpLaunch('claude').version, '0.59.0');
   const compatibleCodexLaunch = resolveAcpLaunch('codex', {
     runtimeEnv: {
       FARMING_NODE_BIN: '/opt/farming/node',

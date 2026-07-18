@@ -15,8 +15,8 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |
 | `@agentclientprotocol/sdk` | 1.2.1 | Apache-2.0 | ACP JSON-RPC client and protocol types |
-| `@agentclientprotocol/codex-acp` | 1.1.2 | Apache-2.0 | Codex ACP adapter |
-| `@agentclientprotocol/claude-agent-acp` | 0.58.1 | Apache-2.0 | Claude Code ACP adapter |
+| `@agentclientprotocol/codex-acp` | 1.1.4 | Apache-2.0 | Codex ACP adapter |
+| `@agentclientprotocol/claude-agent-acp` | 0.59.0 | Apache-2.0 | Claude Code ACP adapter |
 | `@xterm/addon-clipboard` | 0.2.0 | MIT | Browser terminal clipboard integration |
 | `@xterm/addon-fit` | 0.11.0 | MIT | Browser terminal sizing |
 | `@xterm/addon-search` | 0.16.0 | MIT | Browser terminal search |

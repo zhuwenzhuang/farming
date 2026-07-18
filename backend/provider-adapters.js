@@ -161,7 +161,7 @@ const PROVIDER_ADAPTERS = Object.freeze([
     commands: ['claude'],
     supportedRuntimes: ['terminal', 'acp'],
     planSession: (rawArgs, launchArgs) => explicitSessionPlan('claude', rawArgs, launchArgs),
-    acp: { packageName: '@agentclientprotocol/claude-agent-acp', version: '0.58.1' },
+    acp: { packageName: '@agentclientprotocol/claude-agent-acp', version: '0.59.0' },
     capabilities: { runtimeSwitch: true, terminalProfile: false, goals: false },
   },
   {

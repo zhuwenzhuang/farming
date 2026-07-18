@@ -19,6 +19,9 @@ const USER_MESSAGE_BEGIN = '## My request for Codex:';
 const MAX_USER_IMAGES_PER_TURN = 6;
 const MAX_USER_IMAGE_URL_LENGTH = 5 * 1024 * 1024;
 const MAX_LOCAL_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_USER_AUDIOS_PER_TURN = 6;
+const MAX_USER_AUDIO_URL_LENGTH = 10 * 1024 * 1024;
+const MAX_LOCAL_AUDIO_BYTES = 10 * 1024 * 1024;
 const MAX_USER_FILES_PER_TURN = 6;
 const MAX_USER_FILE_CONTENT_CHARS = 50_000;
 const CODEX_HISTORY_IMAGE_LINK_PATTERN = /\[@(?:image|[^\]]+\.(?:gif|jpe?g|png|svg|webp))\]\(([^)\n]+)\)/gi;
@@ -30,6 +33,18 @@ const LOCAL_IMAGE_MIME_BY_EXT = {
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
+};
+
+const LOCAL_AUDIO_MIME_BY_EXT = {
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
+  '.m4a': 'audio/mp4',
+  '.mp3': 'audio/mpeg',
+  '.oga': 'audio/ogg',
+  '.ogg': 'audio/ogg',
+  '.opus': 'audio/ogg',
+  '.wav': 'audio/wav',
+  '.webm': 'audio/webm',
 };
 
 function normalizeText(value) {
@@ -383,13 +398,15 @@ function visibleUserMessageText(value, options = {}) {
 function renderedAttachmentKindsForTurn(turn) {
   const kinds = [];
   if (turn && Array.isArray(turn.userImages) && turn.userImages.length > 0) kinds.push('image');
+  if (turn && Array.isArray(turn.userAudios) && turn.userAudios.length > 0) kinds.push('audio');
   if (turn && Array.isArray(turn.userFiles) && turn.userFiles.length > 0) kinds.push('file');
   return kinds;
 }
 
-function renderedAttachmentKindsForAttachments({ images = [], files = [] } = {}) {
+function renderedAttachmentKindsForAttachments({ images = [], audios = [], files = [] } = {}) {
   const kinds = [];
   if (Array.isArray(images) && images.length > 0) kinds.push('image');
+  if (Array.isArray(audios) && audios.length > 0) kinds.push('audio');
   if (Array.isArray(files) && files.length > 0) kinds.push('file');
   return kinds;
 }
@@ -487,6 +504,79 @@ function imagesFromContent(content) {
     if (images.length >= MAX_USER_IMAGES_PER_TURN) break;
   }
   return images;
+}
+
+function audioMimeFromUrl(url) {
+  const dataMime = String(url || '').match(/^data:(audio\/[^;,]+)[;,]/i)?.[1];
+  if (dataMime) return dataMime.toLowerCase();
+  try {
+    return LOCAL_AUDIO_MIME_BY_EXT[path.extname(new URL(url).pathname).toLowerCase()] || '';
+  } catch {
+    return '';
+  }
+}
+
+function audioNameFromPart(part, index) {
+  const explicit = compactInline(part?.name || part?.filename || '');
+  if (explicit) return explicit;
+  const target = String(part?.path || part?.url || '');
+  if (target && !/^data:/i.test(target)) {
+    try {
+      const basename = path.basename(new URL(target, 'file:///').pathname);
+      if (basename) return basename;
+    } catch {
+      const basename = path.basename(target);
+      if (basename) return basename;
+    }
+  }
+  return `Audio ${index + 1}`;
+}
+
+function audioFromLocalPath(filePath, index) {
+  const normalized = String(filePath || '').trim();
+  if (!normalized || normalized.includes('\0')) return null;
+  const mimeType = LOCAL_AUDIO_MIME_BY_EXT[path.extname(normalized).toLowerCase()];
+  if (!mimeType) return null;
+  try {
+    const stat = fs.statSync(normalized);
+    if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_LOCAL_AUDIO_BYTES) return null;
+    return {
+      id: `local-audio-${index + 1}`,
+      url: `data:${mimeType};base64,${fs.readFileSync(normalized).toString('base64')}`,
+      mimeType,
+      name: path.basename(normalized) || `Audio ${index + 1}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function audiosFromContent(content) {
+  if (!Array.isArray(content)) return [];
+  const audios = [];
+  for (const part of content) {
+    if (!part || typeof part !== 'object') continue;
+    let audio = null;
+    if (part.type === 'localAudio') {
+      audio = audioFromLocalPath(part.path, audios.length);
+    } else if (part.type === 'audio') {
+      const url = String(part.url || '');
+      if (
+        url.length <= MAX_USER_AUDIO_URL_LENGTH
+        && (/^data:audio\//i.test(url) || /^https?:\/\//i.test(url))
+      ) {
+        audio = {
+          id: `audio-${audios.length + 1}`,
+          url,
+          mimeType: audioMimeFromUrl(url),
+          name: audioNameFromPart(part, audios.length),
+        };
+      }
+    }
+    if (audio && !audios.some(existing => existing.url === audio.url)) audios.push(audio);
+    if (audios.length >= MAX_USER_AUDIOS_PER_TURN) break;
+  }
+  return audios;
 }
 
 function inlineImageFromEntry(entry, index) {
@@ -1047,7 +1137,7 @@ function detailForPlanSteps(steps) {
     .join('\n');
 }
 
-function applyUserMessageToTurn(turn, { id = '', message = '', images = [] } = {}) {
+function applyUserMessageToTurn(turn, { id = '', message = '', images = [], audios = [] } = {}) {
   if (!turn) return;
   const subagentNotification = parseSubagentNotification(message);
   if (subagentNotification) {
@@ -1061,6 +1151,7 @@ function applyUserMessageToTurn(turn, { id = '', message = '', images = [] } = {
     return;
   }
   const userImages = Array.isArray(images) ? images.filter(Boolean) : [];
+  const userAudios = Array.isArray(audios) ? audios.filter(Boolean) : [];
   const pastedTranscript = extractReferencedPastedTranscriptContext(message);
   const approvalTranscript = extractCodexApprovalTranscriptContext(pastedTranscript.text);
   const userFiles = [
@@ -1069,13 +1160,18 @@ function applyUserMessageToTurn(turn, { id = '', message = '', images = [] } = {
     ...extractComposerFileAttachments(approvalTranscript.text).files,
   ].slice(0, MAX_USER_FILES_PER_TURN);
   const text = visibleUserMessageText(approvalTranscript.text, {
-    renderedAttachmentKinds: renderedAttachmentKindsForAttachments({ images: userImages, files: userFiles }),
+    renderedAttachmentKinds: renderedAttachmentKindsForAttachments({
+      images: userImages,
+      audios: userAudios,
+      files: userFiles,
+    }),
   });
-  if (!text && userImages.length <= 0 && userFiles.length <= 0) return;
+  if (!text && userImages.length <= 0 && userAudios.length <= 0 && userFiles.length <= 0) return;
 
   if (!turn.userMessage) {
     if (text) turn.userMessage = text;
     if (userImages.length) turn.userImages = userImages;
+    if (userAudios.length) turn.userAudios = userAudios;
     if (userFiles.length) turn.userFiles = userFiles;
     return;
   }
@@ -1084,6 +1180,7 @@ function applyUserMessageToTurn(turn, { id = '', message = '', images = [] } = {
     text &&
     turn.userMessage === text &&
     userImages.length === 0 &&
+    userAudios.length === 0 &&
     userFiles.length === 0
   ) {
     return;
@@ -1095,6 +1192,7 @@ function applyUserMessageToTurn(turn, { id = '', message = '', images = [] } = {
     title: text || 'User added context',
     detail: text,
     images: userImages,
+    audios: userAudios,
     files: userFiles,
     status: 'completed',
   });
@@ -1105,10 +1203,12 @@ function appendTurnItem(turn, item, status = '') {
   if (!type) return false;
   if (type === 'usermessage') {
     const images = imagesFromContent(item.content);
+    const audios = audiosFromContent(item.content);
     applyUserMessageToTurn(turn, {
       id: item.id,
       message: textFromUserInput(item.content),
       images,
+      audios,
     });
     return true;
   }
@@ -1463,6 +1563,7 @@ function newTurn(id = '') {
     id: id || `turn-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     userMessage: '',
     userImages: [],
+    userAudios: [],
     userFiles: [],
     finalMessage: '',
     startedAt: null,
@@ -1479,6 +1580,7 @@ function newTurn(id = '') {
 function isEmptyTurn(turn) {
   return !turn.userMessage &&
     (!Array.isArray(turn.userImages) || turn.userImages.length === 0) &&
+    (!Array.isArray(turn.userAudios) || turn.userAudios.length === 0) &&
     (!Array.isArray(turn.userFiles) || turn.userFiles.length === 0) &&
     !turn.finalMessage &&
     turn.processItems.length === 0;
@@ -1524,7 +1626,13 @@ function sanitizeProcessItemForOutput(item) {
   if (!item || typeof item !== 'object') return null;
   const title = stripCodexInternalContextBlocks(item.title);
   const detail = stripCodexInternalContextBlocks(item.detail);
-  if (!title && !detail && (!Array.isArray(item.images) || item.images.length <= 0) && (!Array.isArray(item.files) || item.files.length <= 0)) {
+  if (
+    !title
+    && !detail
+    && (!Array.isArray(item.images) || item.images.length <= 0)
+    && (!Array.isArray(item.audios) || item.audios.length <= 0)
+    && (!Array.isArray(item.files) || item.files.length <= 0)
+  ) {
     return null;
   }
   return {
@@ -2356,10 +2464,11 @@ function isUserMessageLine(line) {
       if (turnItemType(payload.item) !== 'usermessage') return false;
       const text = textFromUserInput(payload.item?.content);
       const images = imagesFromContent(payload.item?.content);
+      const audios = audiosFromContent(payload.item?.content);
       const files = extractComposerFileAttachments(text).files;
       return Boolean(visibleUserMessageText(text, {
-        renderedAttachmentKinds: renderedAttachmentKindsForAttachments({ images, files }),
-      }) || images.length > 0 || files.length > 0);
+        renderedAttachmentKinds: renderedAttachmentKindsForAttachments({ images, audios, files }),
+      }) || images.length > 0 || audios.length > 0 || files.length > 0);
     }
     return false;
   } catch {
