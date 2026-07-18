@@ -22,7 +22,7 @@ npm install --global farming-code@latest && farming daemon
 4. 不离开当前 Agent 上下文，就能读文件、检查修改、做小范围编辑或进入 Review。
 5. 离开页面，稍后再回来。Agent 仍在开发机上运行，实时终端可以重新连接。
 
-![启动 Agent 并选择运行时](code/assets/03-start-agent-workspace.png)
+![启动 Agent](code/assets/02-start-agent-picker.png)
 
 ## 根据当下任务选择界面
 
@@ -98,8 +98,6 @@ Project Files 属于具体 Project Agent。侧栏提供 Lazy Tree、Open Editors
 ![Project File 与行内 Blame](code/assets/04-files-editor-blame.png)
 
 Review 初版把已跟踪和未跟踪的工作区修改分开打开。它会捕获 Revision，展示 File / Diff，并把 Comment 与 Reviewed State 绑定到该 Snapshot，也可以比较后续修复。跨多轮持续跟踪同一组 Finding 和证据的体验仍在建设。
-
-![Files 中分开的已跟踪与未跟踪 Review 入口](code/assets/10-review-workflow.png)
 
 ## Search 与 History
 

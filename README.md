@@ -81,8 +81,6 @@ The portal keeps its token, signing identity, and private `instances.json` regis
 
 ![Farming Code project files and blame](./docs/products/code/assets/04-files-editor-blame.png)
 
-![Separate Review entry points for tracked and untracked workspace changes](./docs/products/code/assets/10-review-workflow.png)
-
 ## Supported Agent Paths
 
 Farming discovers installed CLIs on the host. The richer structured runtime currently applies to providers with ACP support; other detected coding agents remain first-class terminal sessions.

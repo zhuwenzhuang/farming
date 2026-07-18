@@ -18,7 +18,7 @@ import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
-import { ArrowDownGlyph, CheckGlyph, ChevronRightGlyph, CloseGlyph, CopyGlyph, SearchGlyph } from '@/components/IconGlyphs'
+import { ArrowDownGlyph, CheckGlyph, ChevronRightGlyph, CloseGlyph, CopyGlyph } from '@/components/IconGlyphs'
 import { MermaidBlock } from '@/components/files/FileEditorMarkdownPreview'
 import { appPath } from '@/lib/base-path'
 import { iconForFilePath } from '@/lib/file-icons'
@@ -1715,7 +1715,6 @@ function CodexTranscriptTurnView({
   onInputTerminal,
   onResizeTerminal,
   onStopSubagent,
-  searchItemId,
 }: {
   turn: CodexTranscriptTurn
   copy: CodeCopy
@@ -1733,7 +1732,6 @@ function CodexTranscriptTurnView({
   onInputTerminal?: (terminalId: string, input: string) => Promise<void>
   onResizeTerminal?: (terminalId: string, cols: number, rows: number) => Promise<void>
   onStopSubagent?: (sessionId: string) => Promise<void>
-  searchItemId?: string
 }) {
   const [loadedProcessDetails, setLoadedProcessDetails] = useState<Record<string, CodexTranscriptProcessPresentation>>({})
   const loadingProcessDetailsRef = useRef<Set<string>>(new Set())
@@ -1808,21 +1806,6 @@ function CodexTranscriptTurnView({
       loadingProcessDetailsRef.current.delete(item.id)
     }
   }, [loadedProcessDetails, onLoadProcessItemDetail])
-  useEffect(() => {
-    if (!searchItemId) return
-    setOpenProcessItemIds(current => {
-      const next = new Set(current)
-      next.add(searchItemId)
-      for (const entry of processEntries) {
-        if (entry.kind === 'group' && entry.items.some(item => item.id === searchItemId)) next.add(entry.id)
-      }
-      return next
-    })
-    const item = resolvedProcessItems.find(candidate => candidate.id === searchItemId)
-    if (item?.detailTruncated || item?.terminalIds?.length || item?.subagentSessionId) {
-      void loadFullProcessDetail(item).catch(() => {})
-    }
-  }, [loadFullProcessDetail, processEntries, resolvedProcessItems, searchItemId])
   useEffect(() => {
     const liveTerminalItems = resolvedProcessItems.filter(item => (
       item.terminalIds?.length
@@ -2162,11 +2145,6 @@ export function CodexTranscriptPane({
   const [turnLimit, setTurnLimit] = useState(() => initialTranscriptTurnLimit(source))
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchIndex, setSearchIndex] = useState(0)
-  const transcriptRootRef = useRef<HTMLDivElement | null>(null)
-  const searchInputRef = useRef<HTMLInputElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const pendingPrependAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
   const followBottomRef = useRef(true)
@@ -2197,9 +2175,6 @@ export function CodexTranscriptPane({
     setOpenProcessTurnIds(new Set())
     setClosedLiveProcessTurnIds(new Set())
     setShowJumpToBottom(false)
-    setSearchOpen(false)
-    setSearchQuery('')
-    setSearchIndex(0)
     followBottomRef.current = !readReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
     textSelectionGestureRef.current = false
     textSelectionHadRangeRef.current = false
@@ -2327,57 +2302,6 @@ export function CodexTranscriptPane({
     && !error
     && turns.length === 0
     && (runtimeState === 'connecting' || expectHistory)
-  const searchMatches = useMemo(() => {
-    const query = searchQuery.trim().toLocaleLowerCase()
-    if (!query) return []
-    return turns.flatMap(turn => {
-      const matches: Array<{ turnId: string; itemId?: string }> = []
-      if ([turn.userMessage, turn.finalMessage].join('\n').toLocaleLowerCase().includes(query)) {
-        matches.push({ turnId: turn.id })
-      }
-      for (const item of turn.processItems) {
-        if ([item.title, item.detail || ''].join('\n').toLocaleLowerCase().includes(query)) {
-          matches.push({ turnId: turn.id, itemId: item.id })
-        }
-      }
-      return matches
-    })
-  }, [searchQuery, turns])
-
-  useEffect(() => {
-    if (!searchOpen) return
-    setTurnLimit(MAX_TRANSCRIPT_TURN_LIMIT)
-    window.requestAnimationFrame(() => searchInputRef.current?.focus({ preventScroll: true }))
-  }, [searchOpen])
-
-  useEffect(() => {
-    setSearchIndex(current => Math.min(current, Math.max(0, searchMatches.length - 1)))
-  }, [searchMatches.length])
-
-  useEffect(() => {
-    const root = transcriptRootRef.current
-    if (!root) return
-    root.querySelectorAll('.code-codex-transcript-turn.search-match').forEach(element => element.classList.remove('search-match'))
-    root.querySelectorAll('.code-codex-transcript-process-item.search-match').forEach(element => element.classList.remove('search-match'))
-    const match = searchMatches[searchIndex]
-    if (!searchOpen || !match) return
-    setOpenProcessTurnIds(current => new Set(current).add(match.turnId))
-    setClosedLiveProcessTurnIds(current => {
-      const next = new Set(current)
-      next.delete(match.turnId)
-      return next
-    })
-    window.requestAnimationFrame(() => {
-      const turn = root.querySelector(`[data-turn-id="${CSS.escape(match.turnId)}"]`)
-      const item = match.itemId
-        ? turn?.querySelector(`[data-process-item-id="${CSS.escape(match.itemId)}"]`)
-        : null
-      const element = item || turn
-      element?.classList.add('search-match')
-      element?.scrollIntoView({ block: 'center' })
-    })
-  }, [searchIndex, searchMatches, searchOpen])
-
   useEffect(() => {
     if (!active || !transcript?.available || turns.length === 0) return
     const element = scrollRef.current
@@ -2646,35 +2570,7 @@ export function CodexTranscriptPane({
   }, [agentId, onReadLatest])
 
   return (
-    <div className="code-codex-transcript" data-testid="code-codex-transcript" ref={transcriptRootRef}>
-      {source === 'acp' && transcript?.available ? (
-        <div className={`code-codex-transcript-search ${searchOpen ? 'open' : ''}`} data-testid="code-acp-transcript-search">
-          {searchOpen ? (
-            <>
-              <input
-                ref={searchInputRef}
-                type="search"
-                value={searchQuery}
-                aria-label="Search this chat"
-                placeholder="Search chat"
-                onChange={event => { setSearchQuery(event.target.value); setSearchIndex(0) }}
-                onKeyDown={event => {
-                  if (event.key === 'Escape') { setSearchOpen(false); setSearchQuery('') }
-                  if (event.key === 'Enter' && searchMatches.length > 0) {
-                    setSearchIndex(index => (index + (event.shiftKey ? -1 : 1) + searchMatches.length) % searchMatches.length)
-                  }
-                }}
-              />
-              <span>{searchMatches.length > 0 ? `${searchIndex + 1}/${searchMatches.length}` : '0/0'}</span>
-              <button type="button" aria-label="Previous match" disabled={searchMatches.length === 0} onClick={() => setSearchIndex(index => (index - 1 + searchMatches.length) % searchMatches.length)}>↑</button>
-              <button type="button" aria-label="Next match" disabled={searchMatches.length === 0} onClick={() => setSearchIndex(index => (index + 1) % searchMatches.length)}>↓</button>
-              <button type="button" aria-label="Close chat search" onClick={() => { setSearchOpen(false); setSearchQuery('') }}><CloseGlyph /></button>
-            </>
-          ) : (
-            <button type="button" aria-label="Search this chat" onClick={() => setSearchOpen(true)}><SearchGlyph /></button>
-          )}
-        </div>
-      ) : null}
+    <div className="code-codex-transcript" data-testid="code-codex-transcript">
       {loading || awaitingAcpHistory ? (
         <div className="code-codex-transcript-state subtle">{copy.codexTranscriptSyncing}</div>
       ) : error ? (
@@ -2719,9 +2615,6 @@ export function CodexTranscriptPane({
                 onInputTerminal={source === 'acp' ? handleInputTerminal : undefined}
                 onResizeTerminal={source === 'acp' ? handleResizeTerminal : undefined}
                 onStopSubagent={source === 'acp' ? handleStopSubagent : undefined}
-                searchItemId={searchOpen && searchMatches[searchIndex]?.turnId === turn.id
-                  ? searchMatches[searchIndex]?.itemId
-                  : undefined}
               />
             )
           })}

@@ -22,7 +22,7 @@ npm install --global farming-code@latest && farming daemon
 4. Read files, inspect changes, edit a small fix, or open Review without leaving the Agent context.
 5. Leave the page and return later. Agents stay on the host and live terminals can reconnect.
 
-![Start an Agent and choose a runtime](code/assets/03-start-agent-workspace.png)
+![Start an Agent](code/assets/02-start-agent-picker.png)
 
 ## Choose The Interface For The Moment
 
@@ -98,8 +98,6 @@ Project Files belong to a concrete project Agent. The sidebar provides a lazy tr
 ![Project file with inline blame](code/assets/04-files-editor-blame.png)
 
 The initial Review flow opens tracked and untracked workspace changes separately. It captures a revision, shows files and diffs, keeps comments and reviewed state with that snapshot, and can compare a later fix. Continuity for one set of findings across several review rounds is still being developed.
-
-![Separate Review entry points for tracked and untracked workspace changes](code/assets/10-review-workflow.png)
 
 ## Search And History
 

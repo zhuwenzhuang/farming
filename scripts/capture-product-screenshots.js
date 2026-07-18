@@ -10,10 +10,10 @@ const repoRoot = path.resolve(__dirname, '..');
 const screenshotTmpRoot = process.env.FARMING_SCREENSHOT_TMP_ROOT
   || (process.platform === 'win32' ? os.tmpdir() : '/tmp');
 const demoRoot = path.join(screenshotTmpRoot, 'farming-product-demo');
-const customWorkspace = Boolean(process.env.FARMING_SCREENSHOT_WORKSPACE);
-const workspaceDir = path.resolve(process.env.FARMING_SCREENSHOT_WORKSPACE || path.join(demoRoot, 'workspaces', 'atlas-web'));
 const configDir = path.join(demoRoot, 'config');
 const homeDir = path.join(demoRoot, 'home');
+const customWorkspace = Boolean(process.env.FARMING_SCREENSHOT_WORKSPACE);
+const workspaceDir = path.resolve(process.env.FARMING_SCREENSHOT_WORKSPACE || path.join(homeDir, 'Projects', 'atlas-control-plane'));
 const screenshotDir = path.join(repoRoot, 'docs', 'products', 'code', 'assets');
 const crtScreenshotDir = path.join(repoRoot, 'docs', 'products', 'crt', 'assets');
 const basePath = '/farming';
@@ -123,7 +123,21 @@ function prepareRuntimeDirectories() {
     run('git', ['init', '-q'], { cwd: workspaceDir });
     run('git', ['add', '.'], { cwd: workspaceDir });
     run('git', ['-c', 'user.name=Alex Chen', '-c', 'user.email=alex@example.invalid', 'commit', '-qm', 'Create dashboard overview'], { cwd: workspaceDir });
-    fs.appendFileSync(path.join(workspaceDir, 'src', 'components', 'Dashboard.tsx'), '// TODO: add empty-state metrics\n');
+    fs.appendFileSync(path.join(workspaceDir, 'src', 'components', 'Dashboard.tsx'), [
+      '',
+      'export function EmptyDashboard() {',
+      '  return <p className="empty-state">No metrics reported yet.</p>',
+      '}',
+      '',
+    ].join('\n'));
+    fs.appendFileSync(path.join(workspaceDir, 'tests', 'dashboard.spec.ts'), [
+      '',
+      "test('renders the empty state', async ({ page }) => {",
+      "  await page.goto('/dashboard?fixture=empty')",
+      "  await expect(page.getByText('No metrics reported yet.')).toBeVisible()",
+      '})',
+      '',
+    ].join('\n'));
     fs.mkdirSync(path.join(workspaceDir, 'notes'), { recursive: true });
     fs.writeFileSync(path.join(workspaceDir, 'notes', 'review-observations.md'), [
       '# Review observations',
@@ -324,6 +338,21 @@ async function waitForStableUi(page, delayMs = 500) {
 
 async function screenshot(page, fileName, directory = screenshotDir) {
   await waitForStableUi(page, 250);
+  await page.evaluate(({ linuxPath, macPath }) => {
+    const walker = document.createTreeWalker(document.body, window.NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      if (node.nodeValue) {
+        node.nodeValue = node.nodeValue
+          .replaceAll(macPath, '~/Projects/atlas-control-plane')
+          .replaceAll(linuxPath, '~/Projects/atlas-control-plane');
+      }
+      node = walker.nextNode();
+    }
+  }, {
+    linuxPath: `/tmp/farming-product-demo/home/Projects/atlas-control-plane`,
+    macPath: `/private/tmp/farming-product-demo/home/Projects/atlas-control-plane`,
+  });
   if (directory === crtScreenshotDir) {
     await page.evaluate(() => {
       const replacements = {
@@ -510,6 +539,56 @@ async function installUsageRoutes(page, fixture) {
   });
 }
 
+async function installSessionSearchRoute(page) {
+  const sessions = [
+    {
+      provider: 'codex',
+      providerName: 'Codex',
+      providerHomeId: 'default',
+      id: '019f-atlas-release-recovery',
+      title: 'Release recovery investigation',
+      workspace: workspaceDir,
+      model: 'gpt-5.6-terra',
+      effort: 'high',
+      updatedAt: '2026-07-18T05:36:00.000Z',
+    },
+    {
+      provider: 'claude',
+      providerName: 'Claude Code',
+      providerHomeId: 'default',
+      id: '019f-atlas-visual-review',
+      title: 'Cross-skin visual review',
+      workspace: workspaceDir,
+      model: 'sonnet',
+      effort: 'medium',
+      updatedAt: '2026-07-18T04:52:00.000Z',
+    },
+    {
+      provider: 'opencode',
+      providerName: 'OpenCode',
+      providerHomeId: 'default',
+      id: '019f-atlas-dependency-audit',
+      title: 'Release dependency audit',
+      workspace: workspaceDir,
+      updatedAt: '2026-07-17T15:18:00.000Z',
+    },
+  ];
+
+  await page.route(`**${basePath}/api/agent-sessions/search?**`, route => {
+    const query = (new URL(route.request().url()).searchParams.get('q') || '').trim().toLowerCase();
+    const matches = query
+      ? sessions.filter(session => [session.title, session.providerName, session.workspace].join('\n').toLowerCase().includes(query))
+      : sessions;
+    return route.fulfill({
+      json: {
+        sessions: matches,
+        total: matches.length,
+        query,
+      },
+    });
+  });
+}
+
 async function showBlameFromEditorGutter(page) {
   const gutterLine = page.locator('.monaco-editor .margin-view-overlays .line-numbers').first();
   await gutterLine.waitFor({ state: 'visible', timeout: 20_000 });
@@ -582,6 +661,7 @@ async function main() {
     await page.route(`**${basePath}/api/codex/models`, route => route.fulfill({
       json: { catalog: matrixCatalog, source: 'fixture' },
     }));
+    await installSessionSearchRoute(page);
     await ensureApp(page);
     await setDemoSettings(page, baseUrl);
     await ensureApp(page);
@@ -661,7 +741,7 @@ async function main() {
     await page.waitForTimeout(150);
     await sendAgentInput(page, baseUrl, shellAgentId, [
       "printf '\\033[1;36mFarming v2.2.11 release console\\033[0m\\n'",
-      "printf 'checks: 182 passed\\ntypecheck: passed\\nlint: passed\\nmacOS + Linux bundles: verified\\nterminal recovery: passed\\nproduction build: ready\\n'",
+      "printf '\\nSOURCE GATES\\n  backend: 182 passed\\n  typecheck: passed\\n  lint: passed\\n\\nARTIFACT MATRIX\\n  macOS arm64 / x64: verified\\n  Linux arm64 / x64: verified\\n  legacy glibc 2.28: verified\\n  checksums + manifest: verified\\n\\nRUNTIME PROOF\\n  terminal recovery: passed\\n  cross-skin identity: passed\\n  input p95: 59 ms / 250 ms\\n\\nproduction build: ready\\n\\nWORKTREE\\n'",
       'git status --short',
       'stty echo',
     ].join('; ') + '\r');
@@ -699,11 +779,6 @@ async function main() {
 
     await openNewAgentDialog(page);
     await screenshot(page, '02-start-agent-picker.png');
-    await page.getByTestId('agent-option-codex').click();
-    await page.getByTestId('workspace-step').waitFor({ state: 'visible', timeout: 20_000 });
-    await page.getByTestId('input-dialog').screenshot({
-      path: path.join(screenshotDir, '03-start-agent-workspace.png'),
-    });
     await closeNewAgentDialog(page);
 
     await openAgent(page, codexAgentId);
@@ -714,15 +789,6 @@ async function main() {
     await waitForStableUi(page, 1000);
     await screenshot(page, '04-files-editor-blame.png');
 
-    const changesSection = page.getByTestId('code-file-changes-section');
-    const trackedChangesToggle = changesSection.getByTestId('code-file-change-tracked-group').getByRole('button', { name: /Changes/ });
-    const untrackedChangesToggle = changesSection.getByTestId('code-file-change-untracked-group').getByRole('button', { name: /Untracked/ });
-    if (await trackedChangesToggle.getAttribute('aria-expanded') !== 'true') await trackedChangesToggle.click();
-    if (await untrackedChangesToggle.getAttribute('aria-expanded') !== 'true') await untrackedChangesToggle.click();
-    await screenshot(page, '10-review-workflow.png');
-    await trackedChangesToggle.click();
-    await untrackedChangesToggle.click();
-
     await openAgent(page, terminalAgentId);
     await page.getByTestId('code-composer-model-picker').click();
     await page.getByTestId('code-model-matrix-picker').waitFor({ state: 'visible', timeout: 20_000 });
@@ -730,6 +796,13 @@ async function main() {
     await page.keyboard.press('Escape');
     await page.getByTestId('code-model-matrix-picker').waitFor({ state: 'hidden', timeout: 20_000 });
     await screenshot(page, '12-code-terminal-session.png');
+
+    await page.getByTestId('code-nav-search').click();
+    await page.getByTestId('code-search-panel').waitFor({ state: 'visible', timeout: 20_000 });
+    const globalSearch = page.getByTestId('code-search-box').locator('input');
+    await globalSearch.fill('Atlas');
+    await page.getByTestId('code-session-search-result').nth(2).waitFor({ state: 'visible', timeout: 20_000 });
+    await screenshot(page, '13-code-search.png');
 
     const visualHistoryAgentId = await startAgent(page, baseUrl, {
       command: 'codex',
@@ -747,22 +820,22 @@ async function main() {
     });
     await updateAgent(page, baseUrl, packageHistoryAgentId, { customTitle: 'Release package smoke' });
     await updateAgent(page, baseUrl, packageHistoryAgentId, { archived: true });
+    const notesHistoryAgentId = await startAgent(page, baseUrl, {
+      command: 'claude',
+      workspace: workspaceDir,
+      task: '',
+    });
+    await updateAgent(page, baseUrl, notesHistoryAgentId, { customTitle: 'Release notes verification' });
+    await updateAgent(page, baseUrl, notesHistoryAgentId, { archived: true });
     await updateAgent(page, baseUrl, terminalAgentId, { archived: true });
     await page.getByTestId('code-nav-history').click();
     await page.getByTestId('code-history-panel').waitFor({ state: 'visible', timeout: 20_000 });
     const historySearch = page.getByRole('searchbox', { name: 'Search history' });
     await historySearch.fill('Release');
     const releaseHistoryCards = page.getByTestId('code-archived-run-card').filter({ hasText: 'Release' });
-    await releaseHistoryCards.nth(2).waitFor({ state: 'visible', timeout: 20_000 });
+    await releaseHistoryCards.nth(3).waitFor({ state: 'visible', timeout: 20_000 });
     await waitForStableUi(page, 400);
     await screenshot(page, '08-history-search.png');
-
-    await page.getByTestId('code-nav-search').click();
-    await page.getByTestId('code-search-panel').waitFor({ state: 'visible', timeout: 20_000 });
-    const globalSearch = page.getByTestId('code-search-box').locator('input');
-    await globalSearch.fill('Atlas');
-    await page.getByTestId('code-search-result').first().waitFor({ state: 'visible', timeout: 20_000 });
-    await screenshot(page, '13-code-search.png');
 
     await page.keyboard.press('Escape');
     await page.getByTestId('code-sidebar-options').click();
@@ -775,27 +848,17 @@ async function main() {
     await openAgent(page, codexAgentId);
     await screenshot(page, '09-dark-workspace.png');
 
+    const dependencyAgentId = await startAgent(page, baseUrl, {
+      command: 'bash',
+      workspace: workspaceDir,
+      task: '',
+    });
+    await updateAgent(page, baseUrl, dependencyAgentId, { customTitle: 'Dependency audit' });
+    await sendAgentInput(page, baseUrl, dependencyAgentId, 'stty -echo; clear; printf "DEPENDENCY AUDIT\\n\\nproduction packages: 74\\nknown vulnerabilities: 0\\nlicense conflicts: 0\\nlockfile drift: none\\n\\nready for release\\n"; stty echo\r');
+    await waitForAgentOutput(page, baseUrl, dependencyAgentId, 'ready for release');
+
     const usageFixture = createUsageFixture();
     await installUsageRoutes(page, usageFixture);
-    await page.route(`**${basePath}/api/agent-sessions/search?**`, route => {
-      const query = new URL(route.request().url()).searchParams.get('q') || '';
-      return route.fulfill({
-        json: {
-          sessions: [{
-            provider: 'codex',
-            providerName: 'Codex',
-            providerHomeId: 'default',
-            id: '019f-atlas-archive',
-            title: 'Atlas migration archive',
-            workspace: workspaceDir,
-            updatedAt: '2026-07-13T16:00:00.000Z',
-          }],
-          total: 1,
-          query,
-        },
-      });
-    });
-
     await page.goto(`${basePath}/crt/`, { waitUntil: 'networkidle' });
     await page.locator('body#farming-crt').waitFor({ state: 'visible', timeout: 30_000 });
     await page.locator('.agent-block').first().waitFor({ state: 'visible', timeout: 30_000 });

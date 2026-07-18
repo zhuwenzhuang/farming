@@ -1690,7 +1690,7 @@ function run() {
       stylesSource.includes('top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px))') &&
       stylesSource.includes('.code-open-editors-list') &&
       stylesSource.includes('max-height: var(--code-open-editors-list-max-height, 196px)') &&
-      stylesSource.includes('.code-file-changes-section {\n  margin: 1px 0 2px;') &&
+      stylesSource.includes('.code-file-changes-section {\n  margin: 1px 0 0;') &&
       !stylesSource.includes('.code-file-changes-header') &&
       !stylesSource.includes('.code-file-changes-title') &&
       !stylesSource.includes('.code-file-change-group-title') &&

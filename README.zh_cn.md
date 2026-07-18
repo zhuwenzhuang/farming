@@ -81,8 +81,6 @@ FARMING_NET_PORT=6693 FARMING_NET_BASE_PATH=/farming-net npm run start:net
 
 ![Farming Code 项目文件与 Blame](./docs/products/code/assets/04-files-editor-blame.png)
 
-![Files 中分开的已跟踪与未跟踪 Review 入口](./docs/products/code/assets/10-review-workflow.png)
-
 ## 支持的 Agent 路径
 
 Farming 会发现开发机上已经安装的 CLI。有 ACP 支持的 Provider 使用更完整的结构化运行时，其他检测到的 Coding Agent 仍然可以作为一等 Terminal Session 使用。

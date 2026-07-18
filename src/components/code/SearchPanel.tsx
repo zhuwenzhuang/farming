@@ -1,9 +1,11 @@
 import { useEffect, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
 import { CloseGlyph, SearchGlyph } from '@/components/IconGlyphs'
+import { agentDisplayName } from '@/lib/format'
 import type { Agent } from '@/types/agent'
 import {
   agentSessionId,
   compactPath,
+  effortLabel,
   formatAgentSessionWorkspace,
   projectWorkspaceForAgent,
 } from './model'
@@ -110,6 +112,11 @@ export function SearchPanel({
               ))}
               {project.agentSessions.map(session => {
                 const sessionHandle = agentSessionId(session)
+                const sessionDetail = [
+                  session.providerName || session.provider,
+                  session.model,
+                  session.effort ? effortLabel(session.effort) : '',
+                ].filter(Boolean).join(' · ') || formatAgentSessionWorkspace(session)
                 return (
                   <button
                     key={sessionHandle}
@@ -120,7 +127,7 @@ export function SearchPanel({
                   >
                     <span className="code-search-result-copy">
                       <strong>{session.title || copy.sessionFallbackTitle(session.providerName)}</strong>
-                      <span>{formatAgentSessionWorkspace(session)}</span>
+                      <span>{sessionDetail}</span>
                     </span>
                   </button>
                 )
@@ -143,6 +150,7 @@ function AgentSearchResult({
   onOpen: () => void
 }) {
   const rowState = buildAgentRowDisplayState({ kind: 'agent', agent })
+  const providerLabel = agentDisplayName(agent.providerSessionProvider || agent.command)
 
   return (
     <button
@@ -157,7 +165,7 @@ function AgentSearchResult({
       )}
       <span className="code-search-result-copy">
         <strong>{rowState.title}</strong>
-        <span>{compactPath(projectWorkspaceForAgent(agent))}</span>
+        <span>{providerLabel || compactPath(projectWorkspaceForAgent(agent))}</span>
       </span>
     </button>
   )

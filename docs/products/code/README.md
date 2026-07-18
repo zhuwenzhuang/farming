@@ -28,8 +28,6 @@ Open the authenticated URL and choose **New Agent**.
 
 Farming detects available Agent executables instead of showing launch choices that cannot run. Select a recent or custom workspace, choose structured Chat or Terminal where both are supported, and start the task.
 
-![Choose workspace and runtime](assets/03-start-agent-workspace.png)
-
 Codex, Claude Code, OpenCode, and Qoder provide both structured ACP Chat and native Terminal. Qwen Code, Aider, GitHub Copilot CLI, Amazon Q, bash, and zsh use the terminal path when detected. Farming hosts those CLIs; it does not replace their installation or login.
 
 ## Read The Result First, Expand The Process When Needed
@@ -101,8 +99,6 @@ It is intentionally not a full IDE replacement. The goal is to verify evidence o
 ## Review Workspace Changes
 
 The initial Review flow separates tracked and untracked workspace changes. It captures a revision, provides file and diff views, keeps inline comments and reviewed state with the relevant snapshot, and can compare a later fix.
-
-![Separate Review entry points for tracked and untracked workspace changes](assets/10-review-workflow.png)
 
 Working-copy and historical ACP changes can feed the Review surface when the required revision evidence exists. Continuous tracking for the same findings and evidence across several review rounds remains an active product direction.
 

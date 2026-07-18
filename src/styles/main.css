@@ -2039,7 +2039,13 @@ body.code-resizing-sidebar {
 }
 
 .code-files-section > .code-git-history-section {
-  margin: 2px 0 3px;
+  margin: 0 0 3px;
+}
+
+.code-files-section > .code-git-history-section .code-git-history-header {
+  min-height: 22px;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .code-files-section > .code-git-history-section .code-git-history-title {
@@ -2582,7 +2588,7 @@ button.code-git-history-change:focus-visible {
 }
 
 .code-file-changes-section {
-  margin: 1px 0 2px;
+  margin: 1px 0 0;
   color: #343a34;
 }
 
@@ -4508,91 +4514,6 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   -webkit-user-select: text;
 }
 
-.code-codex-transcript-search {
-  position: absolute;
-  top: 10px;
-  right: 18px;
-  z-index: 8;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: rgba(250, 251, 247, 0.86);
-  color: #7a827b;
-  backdrop-filter: blur(8px);
-}
-
-@media (min-width: 700px) {
-  .code-agent-work-pane.runtime-switchable .code-codex-transcript-search {
-    right: 92px;
-  }
-}
-
-.code-codex-transcript-search.open {
-  border-color: #dce1d8;
-  box-shadow: 0 5px 18px rgba(45, 53, 46, 0.08);
-}
-
-.code-codex-transcript-search input {
-  width: min(220px, 34vw);
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: #3f4740;
-  font: inherit;
-  font-size: 12px;
-}
-
-.code-codex-transcript-search span {
-  min-width: 34px;
-  font-size: 11px;
-  text-align: center;
-}
-
-.code-codex-transcript-search button {
-  width: 26px;
-  height: 26px;
-  display: inline-grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.code-codex-transcript-search button:hover,
-.code-codex-transcript-search button:focus-visible {
-  background: #eef1eb;
-  outline: 0;
-}
-
-.code-codex-transcript-search button:disabled {
-  cursor: default;
-  opacity: 0.4;
-}
-
-.code-codex-transcript-search svg {
-  width: 14px;
-  height: 14px;
-  fill: currentColor;
-}
-
-.code-codex-transcript-turn.search-match {
-  border-radius: 12px;
-  outline: 2px solid rgba(112, 132, 106, 0.26);
-  outline-offset: 6px;
-}
-
-.code-codex-transcript-process-item.search-match {
-  border-radius: 6px;
-  outline: 2px solid rgba(89, 132, 93, 0.42);
-  outline-offset: 2px;
-}
-
 .code-codex-goal-bar {
   flex: 0 0 auto;
   width: min(500px, calc(100% - 24px));
@@ -4694,6 +4615,10 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   scrollbar-color: rgba(87, 96, 106, 0.16) transparent;
   user-select: text;
   -webkit-user-select: text;
+}
+
+.code-agent-work-pane.runtime-switchable .code-codex-transcript-user {
+  margin-right: 68px;
 }
 
 @media (max-width: 760px), (pointer: coarse) {
@@ -8510,19 +8435,19 @@ button.code-codex-transcript-result-summary:focus-visible {
 }
 
 .code-search-view {
-  align-items: stretch;
+  align-items: center;
   background: #ffffff;
   justify-content: flex-start;
   overflow-y: auto;
-  padding: 18px 22px 28px;
+  padding: 42px 32px 32px;
 }
 
 .code-history-view {
-  align-items: stretch;
+  align-items: center;
   background: #ffffff;
   justify-content: flex-start;
   overflow-y: auto;
-  padding: 22px;
+  padding: 42px 32px 32px;
 }
 
 .code-automations-view {
@@ -8533,7 +8458,7 @@ button.code-codex-transcript-result-summary:focus-visible {
 }
 
 .code-search-panel {
-  width: min(760px, 100%);
+  width: min(820px, 100%);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -8712,7 +8637,7 @@ button.code-codex-transcript-result-summary:focus-visible {
 }
 
 .code-history-panel {
-  width: min(720px, 100%);
+  width: min(820px, 100%);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -15483,6 +15408,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 
   body.code-mode.code-mobile-touch .code-codex-transcript-user {
     max-width: calc(100% - 20px);
+    margin-right: 0;
   }
 
   body.code-mode.code-mobile-touch .code-terminal-mode-toggle {

@@ -28,8 +28,6 @@ npm install --global farming-code@latest && farming daemon
 
 Farming 会发现实际可用的 Agent Executable，不展示无法启动的选项。选择最近使用或自定义 Workspace，在同时支持两种路径时选择结构化 Chat 或 Terminal，然后开始任务。
 
-![选择 Workspace 与运行时](assets/03-start-agent-workspace.png)
-
 Codex、Claude Code、OpenCode 和 Qoder 同时提供结构化 ACP Chat 与原生 Terminal。Qwen Code、Aider、GitHub Copilot CLI、Amazon Q、bash 和 zsh 在检测到时使用 Terminal 路径。Farming 负责承载这些 CLI，不替代安装和登录。
 
 ## 先读结果，需要时再展开过程
@@ -101,8 +99,6 @@ Editor 是轻量介入 Surface：
 ## Review 工作区修改
 
 Review 初版把已跟踪与未跟踪的工作区修改分开。它会捕获 Revision，提供 File / Diff 视图，并把 Inline Comment 和 Reviewed State 绑定到相关 Snapshot，也可以比较后续修复。
-
-![Files 中分开的已跟踪与未跟踪 Review 入口](assets/10-review-workflow.png)
 
 只要 Revision 证据足够，Working Copy 和历史 ACP Change 都可以进入 Review Surface。跨多轮持续跟踪同一组 Finding 和证据，仍是正在完善的产品方向。
 

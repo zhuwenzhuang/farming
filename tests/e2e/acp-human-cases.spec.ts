@@ -200,14 +200,19 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(terminalItem).toContainText(workspace)
       await expect(terminalItem.getByRole('button', { name: 'Copy terminal output' })).toBeVisible()
     })
-    await test.step('26 search the ordered transcript by a tool field', async () => {
-      await page.getByRole('button', { name: 'Search this chat' }).click()
-      await page.getByRole('searchbox', { name: 'Search this chat' }).fill('verification command')
-      await expect(page.getByTestId('code-acp-transcript-search')).toContainText('1/1')
+    await test.step('26 keep transcript search controls out of the Chat header', async () => {
+      await expect(page.getByRole('button', { name: 'Search this chat' })).toHaveCount(0)
+      const userMessage = page.locator('.code-codex-transcript-user').filter({ hasText: 'rich timeline' })
+      const modeToggle = page.getByTestId('code-terminal-mode-toggle')
+      await expect(userMessage).toHaveCount(1)
+      await expect.poll(async () => {
+        const userBox = await userMessage.boundingBox()
+        const toggleBox = await modeToggle.boundingBox()
+        if (!userBox || !toggleBox) return -1
+        return toggleBox.x - (userBox.x + userBox.width)
+      }).toBeGreaterThanOrEqual(8)
     })
-    await test.step('27 close chat search without changing transcript state', async () => {
-      await page.getByRole('button', { name: 'Close chat search' }).click()
-      await expect(page.getByRole('searchbox', { name: 'Search this chat' })).toHaveCount(0)
+    await test.step('27 keep the ordered transcript unchanged', async () => {
       await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible()
     })
     await test.step('28 expose Agent-provided slash commands', async () => {
