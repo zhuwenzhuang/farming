@@ -2391,35 +2391,6 @@ function ProjectSection({
                         )
                       })
                     )}
-                    {!compactProjectAgents && hiddenProjectAgentCount > 0 && (
-                      <button
-                        type="button"
-                        className={`code-agent-row code-session-show-more ${agentDrag?.targetAgentId === PROJECT_AGENT_DROP_END ? 'drop-after' : ''}`}
-                        data-testid="code-agent-show-more"
-                        onClick={() => setProjectAgentsExpanded(true)}
-                        onDragOver={updateProjectEndDropTarget}
-                        onDrop={dropAgentAtProjectEnd}
-                      >
-                        <span className="code-agent-row-copy">
-                          <span className="code-agent-name">{copy.showMore}</span>
-                        </span>
-                        <span className="code-agent-row-trailing">
-                          <span className="code-agent-age">{hiddenProjectAgentCount}</span>
-                        </span>
-                      </button>
-                    )}
-                    {!compactProjectAgents && projectAgentsExpanded && sortedAgents.length > PROJECT_AGENT_VISIBLE_LIMIT && (
-                      <button
-                        type="button"
-                        className="code-agent-row code-session-show-more"
-                        data-testid="code-agent-show-less"
-                        onClick={() => setProjectAgentsExpanded(false)}
-                      >
-                        <span className="code-agent-row-copy">
-                          <span className="code-agent-name">{copy.showLess}</span>
-                        </span>
-                      </button>
-                    )}
                     {visibleAgentSessions.map(session => (
                       <AgentRow
                         key={agentRowKey({ kind: 'history', session })}
@@ -2464,25 +2435,59 @@ function ProjectSection({
                   </>
                 )}
                 {!forceAgentsExpanded && (
-                  <button
-                    type="button"
-                    className="code-agent-row code-session-show-more code-agent-list-toggle"
-                    data-testid="code-agent-list-toggle"
-                    data-collapsed={agentListCollapsed ? 'true' : 'false'}
-                    aria-expanded={!agentListCollapsed}
-                    onClick={() => setProjectAgentsCollapsed(collapsed => !collapsed)}
+                  <div
+                    className={`code-agent-list-controls ${agentListCollapsed ? 'collapsed' : ''} ${!agentListCollapsed && !compactProjectAgents && sortedAgents.length > PROJECT_AGENT_VISIBLE_LIMIT ? 'has-range-toggle' : ''}`}
+                    data-testid="code-agent-list-controls"
                   >
-                    <span className="code-agent-row-copy">
-                      <span className="code-agent-name">
-                        {agentListCollapsed ? copy.showAgents : copy.collapseAgents}
-                      </span>
-                    </span>
-                    {agentListCollapsed && (
-                      <span className="code-agent-row-trailing">
-                        <span className="code-agent-list-count">{projectAgentListCount}</span>
-                      </span>
+                    {!agentListCollapsed && !compactProjectAgents && hiddenProjectAgentCount > 0 && (
+                      <button
+                        type="button"
+                        className={`code-agent-row code-session-show-more ${agentDrag?.targetAgentId === PROJECT_AGENT_DROP_END ? 'drop-after' : ''}`}
+                        data-testid="code-agent-show-more"
+                        onClick={() => setProjectAgentsExpanded(true)}
+                        onDragOver={updateProjectEndDropTarget}
+                        onDrop={dropAgentAtProjectEnd}
+                      >
+                        <span className="code-agent-row-copy">
+                          <span className="code-agent-name">{copy.showMore}</span>
+                        </span>
+                        <span className="code-agent-row-trailing">
+                          <span className="code-agent-age">{hiddenProjectAgentCount}</span>
+                        </span>
+                      </button>
                     )}
-                  </button>
+                    {!agentListCollapsed && !compactProjectAgents && projectAgentsExpanded && sortedAgents.length > PROJECT_AGENT_VISIBLE_LIMIT && (
+                      <button
+                        type="button"
+                        className="code-agent-row code-session-show-more"
+                        data-testid="code-agent-show-less"
+                        onClick={() => setProjectAgentsExpanded(false)}
+                      >
+                        <span className="code-agent-row-copy">
+                          <span className="code-agent-name">{copy.showLess}</span>
+                        </span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="code-agent-row code-session-show-more code-agent-list-toggle"
+                      data-testid="code-agent-list-toggle"
+                      data-collapsed={agentListCollapsed ? 'true' : 'false'}
+                      aria-expanded={!agentListCollapsed}
+                      onClick={() => setProjectAgentsCollapsed(collapsed => !collapsed)}
+                    >
+                      <span className="code-agent-row-copy">
+                        <span className="code-agent-name">
+                          {agentListCollapsed ? copy.showAgents : copy.collapseAgents}
+                        </span>
+                      </span>
+                      {agentListCollapsed && (
+                        <span className="code-agent-row-trailing">
+                          <span className="code-agent-list-count">{projectAgentListCount}</span>
+                        </span>
+                      )}
+                    </button>
+                  </div>
                 )}
               </div>
             </div>

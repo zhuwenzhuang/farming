@@ -1566,9 +1566,40 @@ body.code-resizing-sidebar {
   color: #343a34;
 }
 
-.code-agent-list-toggle {
+.code-agent-list-controls {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.code-agent-list-controls.collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.code-agent-list-controls > .code-agent-row {
   min-height: 26px;
   padding-block: 3px;
+  border: 0;
+  background: transparent;
+}
+
+.code-agent-list-controls > .code-agent-row:hover,
+.code-agent-list-controls > .code-agent-row:focus-visible {
+  background: rgba(31, 35, 40, 0.05);
+}
+
+.code-agent-list-controls:not(.collapsed) > .code-agent-list-toggle {
+  grid-column: 2;
+  justify-self: end;
+  padding-inline: 8px;
+}
+
+.code-agent-list-controls.has-range-toggle > .code-agent-list-toggle {
+  border-left: 1px solid rgba(31, 35, 40, 0.08);
+  border-radius: 0;
 }
 
 .code-agent-row-copy {
