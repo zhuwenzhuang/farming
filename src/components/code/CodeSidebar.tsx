@@ -62,6 +62,7 @@ import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { stableProjectSourceAgentId } from './workspace-derived'
 import { useBackendSystemStats, useHasBackendSystemStats } from '@/lib/backend-live-status'
+import { useAgentWithLiveActivity } from '@/lib/agent-live-activity'
 
 declare const __FARMING_PACKAGE_VERSION__: string
 
@@ -2737,8 +2738,9 @@ function AgentRow({
   copy: CodeCopy
 }) {
   const draggedRef = useRef(false)
-  const backing = agent
-    ? { kind: 'agent' as const, agent }
+  const liveAgent = useAgentWithLiveActivity(agent)
+  const backing = liveAgent
+    ? { kind: 'agent' as const, agent: liveAgent }
     : session
       ? { kind: 'history' as const, session, fallbackTitle: copy.sessionFallbackTitle(session.providerName) }
       : null
@@ -2746,12 +2748,12 @@ function AgentRow({
 
   const rowState = buildAgentRowDisplayState(backing, now)
   const requiresResume = rowState.requiresResume
-  const liveAgentId = agent?.id ?? ''
+  const liveAgentId = liveAgent?.id ?? ''
   const sessionProvider = session?.provider ?? ''
   const sessionId = session?.id ?? ''
   const rowTestId = requiresResume ? 'code-active-session-row' : 'code-agent-row'
-  const providerIcon = agent
-    ? previewAgentIconNameForAgent(agent)
+  const providerIcon = liveAgent
+    ? previewAgentIconNameForAgent(liveAgent)
     : previewAgentIconName(session?.provider)
   const openRow = () => {
     if (requiresResume) {
@@ -2764,14 +2766,14 @@ function AgentRow({
   const togglePinned = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
-    if (!agent) return
-    onUpdateAgentFlags?.(agent, { pinned: !rowState.pinned })
+    if (!liveAgent) return
+    onUpdateAgentFlags?.(liveAgent, { pinned: !rowState.pinned })
   }
   const archiveAgent = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
-    if (!agent) return
-    onUpdateAgentFlags?.(agent, { archived: true })
+    if (!liveAgent) return
+    onUpdateAgentFlags?.(liveAgent, { archived: true })
   }
   const openRowMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
@@ -2790,7 +2792,8 @@ function AgentRow({
       className={`code-agent-row ${providerIcon ? 'has-provider' : ''} ${requiresResume ? 'requires-resume' : ''} ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.pinned ? 'pinned' : ''} ${rowState.unread ? 'unread' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
       draggable={reorderable || undefined}
       data-testid={rowTestId}
-      data-agent-id={agent?.id}
+      data-agent-id={liveAgent?.id}
+      data-activity-level={liveAgent?.activityLevel}
       data-provider={session?.provider}
       data-session-id={session ? agentSessionId(session) : undefined}
       aria-label={rowState.rowTitle || rowState.title}
@@ -2816,8 +2819,8 @@ function AgentRow({
         openRow()
       }}
       onMouseEnter={event => {
-        if (agent) {
-          onShowPreview?.(event, previewTargetForAgent(agent, rowState))
+        if (liveAgent) {
+          onShowPreview?.(event, previewTargetForAgent(liveAgent, rowState))
         } else if (session) {
           onShowPreview?.(event, previewTargetForSession(session, rowState))
         }

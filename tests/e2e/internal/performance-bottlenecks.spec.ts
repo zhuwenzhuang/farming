@@ -1,9 +1,29 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { expect, openFarming, test } from '../fixtures'
 
 type RenderSnapshot = {
   app: number
   codeWorkspace: number
 }
+
+async function cleanupControlAgents(request: import('@playwright/test').APIRequestContext) {
+  const response = await request.get('/farming/api/control/agents').catch(() => null)
+  if (!response?.ok()) return
+  const data = await response.json() as { agents?: Array<{ id?: string }> }
+  await Promise.all((data.agents ?? [])
+    .map(agent => agent.id)
+    .filter((id): id is string => Boolean(id))
+    .map(id => request.delete(`/farming/api/control/agents/${id}`).catch(() => null)))
+}
+
+test.beforeEach(async ({ request }) => {
+  await cleanupControlAgents(request)
+})
+
+test.afterEach(async ({ request }) => {
+  await cleanupControlAgents(request)
+})
 
 test('live status updates stay within the idle render budget', async ({ page }) => {
   const cdp = await page.context().newCDPSession(page)
@@ -56,4 +76,40 @@ test('live status updates stay within the idle render budget', async ({ page }) 
 
   expect(renders.app).toBeLessThanOrEqual(2)
   expect(renders.codeWorkspace).toBeLessThanOrEqual(2)
+})
+
+test('Agent activity updates only the subscribed Agent row', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'agent-activity-render-isolation')
+  fs.mkdirSync(workspace, { recursive: true })
+  await openFarming(page)
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'bash', workspace },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  await expect(row).toBeVisible({ timeout: 30_000 })
+  await page.waitForFunction(() => Boolean(
+    window.__farmingPerformanceTest && window.__farmingAgentActivityTest,
+  ))
+  await page.waitForTimeout(1_000)
+  await page.evaluate(() => window.__farmingPerformanceTest?.reset())
+
+  await page.evaluate((id) => {
+    for (let index = 0; index < 50; index += 1) {
+      window.__farmingAgentActivityTest?.update(id, {
+        lastActivity: Date.now() + index,
+        activityLevel: index === 49 ? 'hot' : 'warm',
+        attentionScore: index,
+        isZombie: false,
+      })
+    }
+  }, agentId)
+
+  await expect(row).toHaveAttribute('data-activity-level', 'hot')
+  const renders = await page.evaluate(() => (
+    window.__farmingPerformanceTest?.snapshot() ?? { app: 0, codeWorkspace: 0 }
+  )) as RenderSnapshot
+  expect(renders.app).toBe(0)
+  expect(renders.codeWorkspace).toBe(0)
 })

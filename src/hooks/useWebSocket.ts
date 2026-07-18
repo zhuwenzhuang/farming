@@ -9,6 +9,11 @@ import {
   updateBackendSystemStats,
 } from '@/lib/backend-live-status'
 import {
+  reconcileAgentLiveActivities,
+  resetAgentLiveActivities,
+  updateAgentLiveActivity,
+} from '@/lib/agent-live-activity'
+import {
   PROTOCOL_VERSION,
   protocolCompatible,
   validateServerMessage,
@@ -189,6 +194,7 @@ export function useWebSocket() {
 
   useEffect(() => {
     resetBackendConnectionStatus()
+    resetAgentLiveActivities()
     let reconnectTimer: ReturnType<typeof setTimeout>
     let disposed = false
     let activeSocket: WebSocket | null = null
@@ -262,6 +268,7 @@ export function useWebSocket() {
               if (msg.state.systemStats !== undefined) {
                 updateBackendSystemStats(msg.state.systemStats ?? null)
               }
+              reconcileAgentLiveActivities(msg.state.agents)
               setState(prev => {
                 const previousAgents = new Map(prev.agents.map(agent => [agent.id, agent]))
                 let agentsChanged = prev.agents.length !== msg.state.agents.length
@@ -384,14 +391,7 @@ export function useWebSocket() {
               break
             }
             case 'agent-activity':
-              setState(prev => ({
-                ...prev,
-                agents: prev.agents.map(agent => (
-                  agent.id === msg.activity.agentId
-                    ? { ...agent, ...msg.activity, id: agent.id }
-                    : agent
-                )),
-              }))
+              updateAgentLiveActivity(msg.activity)
               break
             case 'agent-read':
               setState(prev => ({

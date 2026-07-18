@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import type { Agent } from '@/types/agent'
 import { agentPreviewText, agentTitle } from '@/lib/format'
+import { useAgentWithLiveActivity } from '@/lib/agent-live-activity'
 import { TerminalSnapshotPreview } from './TerminalSnapshotPreview'
 
 interface AgentCardProps {
@@ -13,17 +14,18 @@ interface AgentCardProps {
 }
 
 export function AgentCard({ agent, keyHint, onClick, compact, hideTitle, style }: AgentCardProps) {
-  const name = agentTitle(agent)
+  const liveAgent = useAgentWithLiveActivity(agent)
+  const name = agentTitle(liveAgent)
   const useTerminalPreview = !compact && !hideTitle
-  const preview = agentPreviewText(agent)
-  const zombieClass = agent.isZombie ? 'zombie' : ''
-  const task = typeof agent.task === 'string' ? agent.task.trim() : ''
-  const childLabel = agent.parentAgentId ? 'Child' : ''
+  const preview = agentPreviewText(liveAgent)
+  const zombieClass = liveAgent.isZombie ? 'zombie' : ''
+  const task = typeof liveAgent.task === 'string' ? liveAgent.task.trim() : ''
+  const childLabel = liveAgent.parentAgentId ? 'Child' : ''
 
   return (
     <div
-      className={`agent-block ${agent.isMain ? '' : `${agent.activityLevel} ${zombieClass}`} ${agent.status}`}
-      data-agent-id={agent.id}
+      className={`agent-block ${liveAgent.isMain ? '' : `${liveAgent.activityLevel} ${zombieClass}`} ${liveAgent.status}`}
+      data-agent-id={liveAgent.id}
       data-testid="agent-card"
       onClick={onClick}
       role="button"
@@ -35,16 +37,16 @@ export function AgentCard({ agent, keyHint, onClick, compact, hideTitle, style }
         <div className="agent-title-bar">
           <span className="agent-title-name">{name}</span>
           <span className="agent-title-meta">
-            {agent.isZombie && <span className="zombie-badge">ZOMBIE</span>}
+            {liveAgent.isZombie && <span className="zombie-badge">ZOMBIE</span>}
             {childLabel && <span className="child-badge">{childLabel}</span>}
-            {agent.activityLevel} | score:{agent.attentionScore}
+            {liveAgent.activityLevel} | score:{liveAgent.attentionScore}
           </span>
           {keyHint && <span className="key-badge">[{keyHint}]</span>}
         </div>
       )}
       <div className="agent-body">
-        {!compact && agent.cwd && (
-          <div className="agent-cwd">{agent.cwd}</div>
+        {!compact && liveAgent.cwd && (
+          <div className="agent-cwd">{liveAgent.cwd}</div>
         )}
         {!compact && task && (
           <div className="agent-task" title={task}>{task}</div>
@@ -52,10 +54,10 @@ export function AgentCard({ agent, keyHint, onClick, compact, hideTitle, style }
         {useTerminalPreview ? (
           <div className="agent-output agent-output-terminal">
             <TerminalSnapshotPreview
-              text={agent.previewText || agent.output || ''}
-              snapshot={agent.previewSnapshot}
-              cols={agent.previewCols || 80}
-              rows={agent.previewRows || 24}
+              text={liveAgent.previewText || liveAgent.output || ''}
+              snapshot={liveAgent.previewSnapshot}
+              cols={liveAgent.previewCols || 80}
+              rows={liveAgent.previewRows || 24}
             />
           </div>
         ) : (

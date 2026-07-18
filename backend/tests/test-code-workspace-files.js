@@ -742,8 +742,9 @@ function run() {
 	      workspaceSource.includes("className={`code-agent-dot ${rowState.lifecycleStatus} ${rowState.turnActive ? 'turn-active' : ''}`}") &&
       workspaceSource.includes('data-testid="code-agent-row-pin"') &&
       workspaceSource.includes('data-testid="code-agent-row-archive"') &&
-      workspaceSource.includes('onUpdateAgentFlags?.(agent, { pinned: !rowState.pinned })') &&
-      workspaceSource.includes('onUpdateAgentFlags?.(agent, { archived: true })') &&
+	      workspaceSource.includes('const liveAgent = useAgentWithLiveActivity(agent)') &&
+	      workspaceSource.includes('onUpdateAgentFlags?.(liveAgent, { pinned: !rowState.pinned })') &&
+	      workspaceSource.includes('onUpdateAgentFlags?.(liveAgent, { archived: true })') &&
 	      workspaceSource.includes('lastActive: agent.lastActivity || agent.startedAt || 0') &&
       workspaceSource.includes('const terminalState = inferAgentTerminalState(agent)') &&
       workspaceSource.includes('const turnActive = terminalState.turnActive') &&
