@@ -511,8 +511,8 @@ async function run() {
         providerSessionId: 'legacy-thread',
       }, {});
       assert.strictEqual(
-        legacyRecoveredAgent.codexRuntimeMode,
-        'cli',
+        legacyRecoveredAgent.runtimeBinding.kind,
+        'terminal',
         'a persisted Codex session without runtime metadata must retain its historical CLI behavior'
       );
       const appServerRecoveredAgent = managedManager.recoveredAgentRecord('app-server-codex', 'test', {
@@ -522,7 +522,7 @@ async function run() {
         codexRuntimeMode: 'app-server',
         codexAppServerHomePath: managedManager.agents.get(agentId).codexAppServerHomePath,
       }, {});
-      assert.strictEqual(appServerRecoveredAgent.codexRuntimeMode, 'app-server');
+      assert.strictEqual(appServerRecoveredAgent.runtimeBinding.kind, 'app-server');
       assert.strictEqual(
         appServerRecoveredAgent.providerSessionProvider,
         'codex',
@@ -545,16 +545,11 @@ async function run() {
         codexCliObserverDeferred: true,
       }, {});
       assert.strictEqual(
-        invalidAppServerRecoveredAgent.codexRuntimeMode,
-        'cli',
+        invalidAppServerRecoveredAgent.runtimeBinding.kind,
+        'terminal',
         'a recovered App Server record without runtime home must be corrected back to terminal-owned CLI'
       );
-      assert.strictEqual(invalidAppServerRecoveredAgent.codexAppServerHomePath, '');
-      assert.strictEqual(invalidAppServerRecoveredAgent.codexAppServerState, '');
-      assert.strictEqual(invalidAppServerRecoveredAgent.codexAppServerTurnId, '');
-      assert.strictEqual(invalidAppServerRecoveredAgent.codexAppServerPendingRequestId, '');
-      assert.strictEqual(invalidAppServerRecoveredAgent.codexAppServerPendingRequest, null);
-      assert.strictEqual(invalidAppServerRecoveredAgent.codexCliObserverDeferred, false);
+      assert.deepStrictEqual(invalidAppServerRecoveredAgent.runtimeBinding, { kind: 'terminal' });
     } finally {
       await managedManager.dispose({ preserveTerminalHost: false });
     }

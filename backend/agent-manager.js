@@ -19,7 +19,15 @@ const { ensureMainAgentSkillFiles, renderMainAgentBootstrap } = require('./main-
 const { mainPageAgentSessionKey, resumedAgentSource } = require('./main-page-session');
 const { isSafeProviderSessionId, isTemporaryProviderSessionId } = require('./provider-session-id');
 const { ProviderSessionService } = require('./provider-session-service');
-const { publicRuntimeBinding, RuntimeAgentMap } = require('./agent-runtime-binding');
+const {
+  legacyRuntimeMetadata,
+  publicRuntimeBinding,
+  replaceRuntimeBinding,
+  RuntimeAgentMap,
+  runtimeBindingFor,
+  runtimeBindingOf,
+  runtimeKind,
+} = require('./agent-runtime-binding');
 const { deriveRuntimeObservation } = require('./runtime-observation');
 const {
   applyProviderHomeEnvironment,
@@ -209,23 +217,23 @@ function agentHomeProviderForProgram(command) {
 }
 
 function hasUsableCodexAppServerHome(metadata) {
-  const homePath = String(metadata?.codexAppServerHomePath || '').trim();
+  const homePath = String(runtimeBindingOf(metadata, 'app-server')?.homePath || '').trim();
   return Boolean(homePath) && fs.existsSync(homePath);
 }
 
 function shouldRecoverAsCodexAppServer(metadata) {
   const provider = metadata?.providerSessionProvider || metadata?.provider || '';
   return provider === 'codex'
-    && metadata?.codexRuntimeMode === 'app-server'
+    && runtimeKind(metadata) === 'app-server'
     && hasUsableCodexAppServerHome(metadata);
 }
 
 function isJsonCliAgent(agent) {
-  return agent && agent.agentRuntimeMode === 'json';
+  return runtimeKind(agent) === 'json';
 }
 
 function isAcpAgent(agent) {
-  return agent && agent.agentRuntimeMode === 'acp';
+  return runtimeKind(agent) === 'acp';
 }
 
 function isShellProgram(command) {
@@ -259,7 +267,7 @@ function activeCodexTerminalProfile(agent, previewText) {
     || isCodexAppServerAgent(agent)
     || isJsonCliAgent(agent)
     || isAcpAgent(agent)
-    || (agent.agentRuntimeMode || 'terminal') !== 'terminal'
+    || runtimeKind(agent) !== 'terminal'
   ) {
     return null;
   }
@@ -475,7 +483,7 @@ function isRunningAgentRuntimeStatus(status) {
 }
 
 function isCodexAppServerAgent(agent) {
-  return agent && agent.codexRuntimeMode === 'app-server';
+  return runtimeKind(agent) === 'app-server';
 }
 
 function isLiveEngineSessionState(sessionState) {
@@ -599,9 +607,10 @@ class AgentManager extends EventEmitter {
     if (!this.jsonCliRuntime || typeof this.jsonCliRuntime.on !== 'function') return;
     this.jsonCliRuntime.on('agent-runtime', ({ agentId, state, error, sessionId }) => {
       const agent = this.agents.get(agentId);
-      if (!agent) return;
-      agent.jsonCliState = state || '';
-      agent.jsonCliError = error || '';
+      const runtime = runtimeBindingOf(agent, 'json');
+      if (!runtime) return;
+      runtime.state = state || '';
+      runtime.error = error || '';
       if (sessionId) {
         this.providerSessionService.bindConfirmed(agentId, agent.providerSessionProvider, sessionId);
         this.ensurePersistentAgentSession(agent);
@@ -611,9 +620,10 @@ class AgentManager extends EventEmitter {
     });
     this.jsonCliRuntime.on('transcript', ({ agentId }) => {
       const agent = this.agents.get(agentId);
-      if (!agent) return;
-      agent.jsonCliEvents = this.jsonCliRuntime.getEvents(agentId);
-      agent.jsonCliTranscriptUpdatedAt = new Date().toISOString();
+      const runtime = runtimeBindingOf(agent, 'json');
+      if (!runtime) return;
+      runtime.events = this.jsonCliRuntime.getEvents(agentId);
+      runtime.transcriptUpdatedAt = new Date().toISOString();
       this.emit('update');
     });
   }
@@ -622,16 +632,17 @@ class AgentManager extends EventEmitter {
     if (!this.acpRuntime || typeof this.acpRuntime.on !== 'function') return;
     this.acpRuntime.on('agent-runtime', ({ agentId, state, error, sessionId, stopReason, pendingPermission, pendingPermissions, pendingElicitation, pendingElicitations, activeElicitations, updatedAt }) => {
       const agent = this.agents.get(agentId);
-      if (!agent) return;
-      agent.acpState = state || '';
-      agent.acpError = error || '';
-      agent.acpStopReason = stopReason || '';
-      agent.acpPendingPermission = pendingPermission || null;
-      agent.acpPendingPermissions = Array.isArray(pendingPermissions) ? pendingPermissions : [];
-      agent.acpPendingElicitation = pendingElicitation || null;
-      agent.acpPendingElicitations = Array.isArray(pendingElicitations) ? pendingElicitations : [];
-      agent.acpActiveElicitations = Array.isArray(activeElicitations) ? activeElicitations : [];
-      agent.acpSessionUpdatedAt = updatedAt || '';
+      const runtime = runtimeBindingOf(agent, 'acp');
+      if (!runtime) return;
+      runtime.state = state || '';
+      runtime.error = error || '';
+      runtime.stopReason = stopReason || '';
+      runtime.pendingPermission = pendingPermission || null;
+      runtime.pendingPermissions = Array.isArray(pendingPermissions) ? pendingPermissions : [];
+      runtime.pendingElicitation = pendingElicitation || null;
+      runtime.pendingElicitations = Array.isArray(pendingElicitations) ? pendingElicitations : [];
+      runtime.activeElicitations = Array.isArray(activeElicitations) ? activeElicitations : [];
+      runtime.sessionUpdatedAt = updatedAt || '';
       if (sessionId) {
         this.providerSessionService.bindConfirmed(agentId, agent.providerSessionProvider, sessionId);
         this.ensurePersistentAgentSession(agent);
@@ -641,9 +652,10 @@ class AgentManager extends EventEmitter {
     });
     this.acpRuntime.on('session', ({ agentId, revision }) => {
       const agent = this.agents.get(agentId);
-      if (!agent) return;
-      agent.acpSessionUpdatedAt = new Date().toISOString();
-      agent.acpSessionRevision = Number.isFinite(Number(revision)) ? Number(revision) : (Number(agent.acpSessionRevision) || 0) + 1;
+      const runtime = runtimeBindingOf(agent, 'acp');
+      if (!runtime) return;
+      runtime.sessionUpdatedAt = new Date().toISOString();
+      runtime.sessionRevision = Number.isFinite(Number(revision)) ? Number(revision) : (Number(runtime.sessionRevision) || 0) + 1;
       this.emit('update');
     });
   }
@@ -652,32 +664,33 @@ class AgentManager extends EventEmitter {
     if (!this.codexAppServerRuntime || typeof this.codexAppServerRuntime.on !== 'function') return;
     this.codexAppServerRuntime.on('agent-runtime', ({ agentId, ...patch }) => {
       const agent = this.agents.get(agentId);
-      if (!agent) return;
+      const runtime = runtimeBindingOf(agent, 'app-server');
+      if (!runtime) return;
 
       if (typeof patch.threadId === 'string' && patch.threadId) {
-        agent.codexAppServerThreadId = patch.threadId;
+        runtime.threadId = patch.threadId;
         this.providerSessionService.bindConfirmed(
           agentId,
           agent.providerSessionProvider || 'codex',
           patch.threadId
         );
       }
-      if (typeof patch.turnId === 'string') agent.codexAppServerTurnId = patch.turnId;
-      if (typeof patch.state === 'string' && patch.state) agent.codexAppServerState = patch.state;
-      if (typeof patch.error === 'string') agent.codexAppServerError = patch.error;
-      if (typeof patch.pendingRequestId === 'string') agent.codexAppServerPendingRequestId = patch.pendingRequestId;
-      if (typeof patch.pendingRequestMethod === 'string') agent.codexAppServerPendingRequestMethod = patch.pendingRequestMethod;
+      if (typeof patch.turnId === 'string') runtime.turnId = patch.turnId;
+      if (typeof patch.state === 'string' && patch.state) runtime.state = patch.state;
+      if (typeof patch.error === 'string') runtime.error = patch.error;
+      if (typeof patch.pendingRequestId === 'string') runtime.pendingRequestId = patch.pendingRequestId;
+      if (typeof patch.pendingRequestMethod === 'string') runtime.pendingRequestMethod = patch.pendingRequestMethod;
       if (Object.prototype.hasOwnProperty.call(patch, 'pendingRequest')) {
-        agent.codexAppServerPendingRequest = patch.pendingRequest || null;
+        runtime.pendingRequest = patch.pendingRequest || null;
       }
       if (Object.prototype.hasOwnProperty.call(patch, 'notice')) {
-        agent.codexAppServerNotice = patch.notice || null;
+        runtime.notice = patch.notice || null;
       }
       if (Object.prototype.hasOwnProperty.call(patch, 'goal')) {
-        agent.codexAppServerGoal = patch.goal || null;
+        runtime.goal = patch.goal || null;
       }
       if (typeof patch.transcriptUpdatedAt === 'string') {
-        agent.codexAppServerTranscriptUpdatedAt = patch.transcriptUpdatedAt;
+        runtime.transcriptUpdatedAt = patch.transcriptUpdatedAt;
       }
 
       if (patch.state === 'working' || patch.state === 'waiting-for-input') {
@@ -1431,7 +1444,7 @@ class AgentManager extends EventEmitter {
         ensureAgentOrders(recoveredAgent, Array.from(this.agents.values()));
         recoveredAgent.persistentSessionId = record.id || '';
         recoveredAgent.engineStarted = false;
-        recoveredAgent.acpState = 'connecting';
+        runtimeBindingOf(recoveredAgent, 'acp').state = 'connecting';
         this.agents.set(agentId, recoveredAgent);
         void this.refreshAgentWorktree(agentId);
         this.lastActivity.set(agentId, Date.now());
@@ -1472,16 +1485,17 @@ class AgentManager extends EventEmitter {
         agent.providerSessionId = prepared.sessionId;
         agent.providerSessionTemporary = false;
         agent.providerSessionSource = `acp-${prepared.historyMode}`;
-        agent.agentRuntimeMode = 'acp';
-        agent.acpState = 'idle';
-        agent.acpError = '';
+        const runtime = replaceRuntimeBinding(agent, 'acp', runtimeBindingOf(agent, 'acp'));
+        runtime.state = 'idle';
+        runtime.error = '';
         agent.status = 'running';
         agent.engineStatus = 'running';
         agent.engineStarted = false;
         this.ensurePersistentAgentSession(agent);
       } catch (error) {
-        agent.acpState = 'error';
-        agent.acpError = `ACP recovery failed: ${error && (error.message || error)}`;
+        const runtime = runtimeBindingOf(agent, 'acp');
+        runtime.state = 'error';
+        runtime.error = `ACP recovery failed: ${error && (error.message || error)}`;
         agent.status = 'stopped';
         agent.engineStatus = 'stopped';
         agent.engineStarted = false;
@@ -1509,16 +1523,7 @@ class AgentManager extends EventEmitter {
           }
           if (agent) {
             ensureAgentOrders(agent, Array.from(this.agents.values()));
-            agent.codexRuntimeMode = 'cli';
-            agent.codexAppServerHomePath = '';
-            agent.codexAppServerState = '';
-            agent.codexAppServerEndpoint = '';
-            agent.codexAppServerTurnId = '';
-            agent.codexAppServerError = '';
-            agent.codexAppServerPendingRequestId = '';
-            agent.codexAppServerPendingRequestMethod = '';
-            agent.codexAppServerPendingRequest = null;
-            agent.codexCliObserverDeferred = false;
+            replaceRuntimeBinding(agent, 'terminal');
             this.ensurePersistentAgentSession(agent);
             this.updateEngineProviderSessionMetadata(agent);
           }
@@ -1550,21 +1555,23 @@ class AgentManager extends EventEmitter {
           workspaceRoot: effectiveAgentWorkspaceRoot(agent),
           approvalMode: agent.launchPermissionMode || 'approve',
         });
-        agent.codexAppServerThreadId = binding.threadId;
-        agent.codexAppServerState = 'idle';
-        agent.codexAppServerError = '';
+        const runtime = runtimeBindingOf(agent, 'app-server');
+        runtime.threadId = binding.threadId;
+        runtime.state = 'idle';
+        runtime.error = '';
         // App Server owns this runtime. It deliberately has no CLI/PTy
         // observer, so recovery cannot create a second reader or writer.
         agent.status = 'running';
         agent.engineStatus = 'running';
         agent.engineStarted = false;
-        agent.codexCliObserverDeferred = false;
+        runtime.observerDeferred = false;
         agent.exitedAt = null;
         this.providerSessionService.activate(agentId);
         this.ensurePersistentAgentSession(agent);
       } catch (error) {
-        agent.codexAppServerError = `Codex App Server recovery failed: ${error && (error.message || error)}`;
-        agent.codexAppServerState = 'error';
+        const runtime = runtimeBindingOf(agent, 'app-server');
+        runtime.error = `Codex App Server recovery failed: ${error && (error.message || error)}`;
+        runtime.state = 'error';
         agent.status = 'stopped';
         agent.engineStatus = 'stopped';
         agent.engineStarted = false;
@@ -1593,6 +1600,14 @@ class AgentManager extends EventEmitter {
     const wantsMain = metadata.wantsMain === true;
     const providerSessionProvider = metadata.providerSessionProvider || metadata.provider || '';
     const recoverCodexAppServer = shouldRecoverAsCodexAppServer(metadata);
+    const recoveredRuntimeKind = recoverCodexAppServer
+      ? 'app-server'
+      : (['acp', 'json'].includes(metadata.agentRuntimeMode) ? metadata.agentRuntimeMode : 'terminal');
+    const runtimeBinding = runtimeBindingFor(recoveredRuntimeKind, {
+      ...metadata,
+      codexAppServerThreadId: metadata.codexAppServerThreadId || metadata.providerSessionId || '',
+      codexCliObserverDeferred: false,
+    });
     return {
       id: agentId,
       command: metadata.forkCommand || metadata.command || '',
@@ -1635,28 +1650,7 @@ class AgentManager extends EventEmitter {
       // attachable; recover it as terminal-owned CLI instead of leaving the
       // UI in a split state where the pane is terminal but Composer sends to
       // App Server.
-      codexRuntimeMode: recoverCodexAppServer ? 'app-server' : 'cli',
-      agentRuntimeMode: metadata.agentRuntimeMode === 'acp' ? 'acp' : (metadata.agentRuntimeMode === 'json' ? 'json' : 'terminal'),
-      acpState: metadata.agentRuntimeMode === 'acp' ? (metadata.acpState || '') : '',
-      acpError: metadata.agentRuntimeMode === 'acp' ? (metadata.acpError || '') : '',
-      acpStopReason: metadata.agentRuntimeMode === 'acp' ? (metadata.acpStopReason || '') : '',
-      acpPendingPermission: null,
-      acpPendingPermissions: [],
-      acpPendingElicitation: null,
-      acpPendingElicitations: [],
-      acpActiveElicitations: [],
-      acpSessionUpdatedAt: metadata.agentRuntimeMode === 'acp' ? (metadata.acpSessionUpdatedAt || '') : '',
-      acpSessionRevision: metadata.agentRuntimeMode === 'acp' ? (Number(metadata.acpSessionRevision) || 0) : 0,
-      codexAppServerHomePath: recoverCodexAppServer ? metadata.codexAppServerHomePath : '',
-      codexAppServerState: recoverCodexAppServer ? (metadata.codexAppServerState || '') : '',
-      codexAppServerEndpoint: recoverCodexAppServer ? (metadata.codexAppServerEndpoint || '') : '',
-      codexAppServerThreadId: metadata.codexAppServerThreadId || metadata.providerSessionId || '',
-      codexAppServerTurnId: recoverCodexAppServer ? (metadata.codexAppServerTurnId || '') : '',
-      codexAppServerError: recoverCodexAppServer ? (metadata.codexAppServerError || '') : '',
-      codexAppServerPendingRequestId: recoverCodexAppServer ? (metadata.codexAppServerPendingRequestId || '') : '',
-      codexAppServerPendingRequestMethod: recoverCodexAppServer ? (metadata.codexAppServerPendingRequestMethod || '') : '',
-      codexAppServerPendingRequest: recoverCodexAppServer ? (metadata.codexAppServerPendingRequest || null) : null,
-      codexCliObserverDeferred: false,
+      runtimeBinding,
       forkedFromProviderSessionId: metadata.forkedFromProviderSessionId || '',
       restartedFromAgentId: metadata.restartedFromAgentId || '',
       restartedFromAgentIds: Array.isArray(metadata.restartedFromAgentIds)
@@ -1805,23 +1799,7 @@ class AgentManager extends EventEmitter {
       providerSessionResolvedAt: agent.providerSessionResolvedAt || null,
       providerSessionTitle: agent.providerSessionTitle || '',
       terminalInputReceived: agent.terminalInputReceived === true,
-      codexRuntimeMode: agent.codexRuntimeMode || '',
-      agentRuntimeMode: agent.agentRuntimeMode || 'terminal',
-      acpState: agent.acpState || '',
-      acpError: agent.acpError || '',
-      acpStopReason: agent.acpStopReason || '',
-      acpSessionUpdatedAt: agent.acpSessionUpdatedAt || '',
-      acpSessionRevision: Number(agent.acpSessionRevision) || 0,
-      codexAppServerHomePath: agent.codexAppServerHomePath || '',
-      codexAppServerState: agent.codexAppServerState || '',
-      codexAppServerEndpoint: agent.codexAppServerEndpoint || '',
-      codexAppServerThreadId: agent.codexAppServerThreadId || '',
-      codexAppServerTurnId: agent.codexAppServerTurnId || '',
-      codexAppServerError: agent.codexAppServerError || '',
-      codexAppServerPendingRequestId: agent.codexAppServerPendingRequestId || '',
-      codexAppServerPendingRequestMethod: agent.codexAppServerPendingRequestMethod || '',
-      codexAppServerPendingRequest: agent.codexAppServerPendingRequest || null,
-      codexCliObserverDeferred: agent.codexCliObserverDeferred === true,
+      ...legacyRuntimeMetadata(agent),
       forkedFromProviderSessionId: agent.forkedFromProviderSessionId || '',
       launchPermissionMode: agent.launchPermissionMode || '',
       attentionSeq: finiteNonNegativeInteger(agent.attentionSeq),
@@ -2366,30 +2344,7 @@ class AgentManager extends EventEmitter {
       providerSessionTitle: agent.providerSessionTitle,
       providerSessionWorkspace: agent.providerSessionWorkspace || '',
       terminalInputReceived: agent.terminalInputReceived === true,
-      codexRuntimeMode: agent.codexRuntimeMode,
-      agentRuntimeMode: agent.agentRuntimeMode || 'terminal',
-      jsonCliState: agent.jsonCliState || '',
-      jsonCliError: agent.jsonCliError || '',
-      acpState: agent.acpState || '',
-      acpError: agent.acpError || '',
-      acpStopReason: agent.acpStopReason || '',
-      acpPendingPermission: agent.acpPendingPermission || null,
-      acpPendingPermissions: Array.isArray(agent.acpPendingPermissions) ? agent.acpPendingPermissions : [],
-      acpPendingElicitation: agent.acpPendingElicitation || null,
-      acpPendingElicitations: Array.isArray(agent.acpPendingElicitations) ? agent.acpPendingElicitations : [],
-      acpActiveElicitations: Array.isArray(agent.acpActiveElicitations) ? agent.acpActiveElicitations : [],
-      acpSessionUpdatedAt: agent.acpSessionUpdatedAt || '',
-      acpSessionRevision: Number(agent.acpSessionRevision) || 0,
-      codexAppServerHomePath: agent.codexAppServerHomePath || '',
-      codexAppServerState: agent.codexAppServerState,
-      codexAppServerEndpoint: agent.codexAppServerEndpoint,
-      codexAppServerThreadId: agent.codexAppServerThreadId,
-      codexAppServerTurnId: agent.codexAppServerTurnId,
-      codexAppServerError: agent.codexAppServerError,
-      codexAppServerPendingRequestId: agent.codexAppServerPendingRequestId,
-      codexAppServerPendingRequestMethod: agent.codexAppServerPendingRequestMethod,
-      codexAppServerPendingRequest: agent.codexAppServerPendingRequest || null,
-      codexCliObserverDeferred: agent.codexCliObserverDeferred === true,
+      ...legacyRuntimeMetadata(agent),
       forkedFromProviderSessionId: agent.forkedFromProviderSessionId,
       restartedFromAgentId: agent.restartedFromAgentId,
       restartedFromAgentIds: agent.restartedFromAgentIds,
@@ -2737,34 +2692,16 @@ class AgentManager extends EventEmitter {
       providerSessionTitle: typeof options.providerSessionTitle === 'string' ? options.providerSessionTitle.trim().slice(0, 160) : '',
       providerSessionWorkspace: '',
       terminalInputReceived: false,
-      codexRuntimeMode: structuredRuntimeProvider === 'codex'
-        ? (useCodexAppServer ? 'app-server' : 'cli')
-        : '',
-      agentRuntimeMode: useAcp ? 'acp' : (useJsonCli ? 'json' : 'terminal'),
-      jsonCliState: useJsonCli ? 'idle' : '',
-      jsonCliError: '',
-      jsonCliTranscriptUpdatedAt: '',
-      jsonCliEvents: Array.isArray(options.jsonCliEvents) ? options.jsonCliEvents : [],
-      acpState: useAcp ? 'connecting' : '',
-      acpError: '',
-      acpStopReason: '',
-      acpPendingPermission: null,
-      acpPendingPermissions: [],
-      acpPendingElicitation: null,
-      acpPendingElicitations: [],
-      acpActiveElicitations: [],
-      acpSessionUpdatedAt: '',
-      acpSessionRevision: 0,
-      codexAppServerHomePath,
-      codexAppServerState: useCodexAppServer ? 'connecting' : '',
-      codexAppServerEndpoint: '',
-      codexAppServerThreadId: '',
-      codexAppServerTurnId: '',
-      codexAppServerError: '',
-      codexAppServerPendingRequestId: '',
-      codexAppServerPendingRequestMethod: '',
-      codexAppServerPendingRequest: null,
-      codexCliObserverDeferred: false,
+      runtimeBinding: useCodexAppServer
+        ? runtimeBindingFor('app-server', { state: 'connecting', homePath: codexAppServerHomePath })
+        : (useAcp
+          ? runtimeBindingFor('acp', { state: 'connecting' })
+          : (useJsonCli
+            ? runtimeBindingFor('json', {
+              state: 'idle',
+              events: Array.isArray(options.jsonCliEvents) ? options.jsonCliEvents : [],
+            })
+            : runtimeBindingFor('terminal'))),
       forkedFromProviderSessionId: providerSessionPlan.forkedFromProviderSessionId || '',
       restartedFromAgentId: typeof options.restartedFromAgentId === 'string' ? options.restartedFromAgentId : '',
       restartedFromAgentIds: Array.isArray(options.restartedFromAgentIds)
@@ -2822,9 +2759,10 @@ class AgentManager extends EventEmitter {
     try {
       if (useCodexAppServer) {
         try {
+          const appServer = runtimeBindingOf(agentRecord, 'app-server');
           const prepared = await this.codexAppServerRuntime.prepareAgent({
             agentId,
-            codexHome: agentRecord.codexAppServerHomePath,
+            codexHome: appServer.homePath,
             executable: spawnProgram,
             env: this.buildAgentEnv(agentId, agentRecord),
             cwd: workspace,
@@ -2850,13 +2788,13 @@ class AgentManager extends EventEmitter {
           agentRecord.providerSessionTemporary = false;
           agentRecord.providerSessionSource = prepared.resumed ? 'app-server-resume' : 'app-server-start';
           agentRecord.providerSessionResolvedAt = Date.now();
-          agentRecord.codexAppServerState = 'idle';
-          agentRecord.codexAppServerEndpoint = prepared.endpoint;
-          agentRecord.codexAppServerThreadId = prepared.threadId;
-          agentRecord.codexAppServerError = '';
+          appServer.state = 'idle';
+          appServer.endpoint = prepared.endpoint;
+          appServer.threadId = prepared.threadId;
+          appServer.error = '';
           // App Server mode has no embedded CLI observer. Its chat and
           // lifecycle both come from the structured App Server connection.
-          agentRecord.codexCliObserverDeferred = false;
+          appServer.observerDeferred = false;
         } catch (error) {
           const reason = error && error.message ? error.message : String(error);
           throw new Error(`Codex App Server failed to start: ${reason}`, { cause: error });
@@ -2864,6 +2802,7 @@ class AgentManager extends EventEmitter {
       }
 
       if (useJsonCli) {
+        const jsonRuntime = runtimeBindingOf(agentRecord, 'json');
         this.jsonCliRuntime.registerAgent({
           agentId,
           provider: structuredRuntimeProvider,
@@ -2873,11 +2812,12 @@ class AgentManager extends EventEmitter {
           sessionId: agentRecord.providerSessionTemporary ? '' : agentRecord.providerSessionId,
           approvalMode: agentRecord.launchPermissionMode || 'approve',
           autoApprove: options.dangerouslySkipPermissions === true,
-          initialEvents: agentRecord.jsonCliEvents,
+          initialEvents: jsonRuntime.events,
         });
       }
 
       if (useAcp) {
+        const acpRuntime = runtimeBindingOf(agentRecord, 'acp');
         const prepared = await this.acpRuntime.prepareAgent({
           agentId,
           provider: structuredRuntimeProvider,
@@ -2905,8 +2845,8 @@ class AgentManager extends EventEmitter {
         agentRecord.providerSessionTemporary = false;
         agentRecord.providerSessionSource = `acp-${prepared.historyMode}`;
         agentRecord.providerSessionResolvedAt = Date.now();
-        agentRecord.acpState = 'idle';
-        agentRecord.acpError = '';
+        acpRuntime.state = 'idle';
+        acpRuntime.error = '';
       }
 
       agentRecord.persistentSessionId = this.ensurePersistentAgentSession(agentRecord);
@@ -4667,12 +4607,13 @@ class AgentManager extends EventEmitter {
   getAgentProviderSession(agentId) {
     const agent = this.agents.get(agentId);
     if (!agent) return null;
+    const appServer = runtimeBindingOf(agent, 'app-server');
     return {
       provider: agent.providerSessionProvider || '',
       sessionId: agent.providerSessionId || '',
       providerHomeId: agent.providerHomeId || '',
       providerHomePath: agent.providerHomePath || '',
-      codexAppServerHomePath: agent.codexAppServerHomePath || '',
+      codexAppServerHomePath: appServer?.homePath || '',
       runtimeBinding: publicRuntimeBinding(agent),
       temporary: agent.providerSessionTemporary === true,
       title: agent.providerSessionTitle || '',
@@ -4780,26 +4721,7 @@ class AgentManager extends EventEmitter {
       providerSessionTitle: agent.providerSessionTitle || '',
       providerSessionWorkspace: agent.providerSessionWorkspace || '',
       terminalInputReceived: agent.terminalInputReceived === true,
-      codexRuntimeMode: agent.codexRuntimeMode || '',
-      agentRuntimeMode: agent.agentRuntimeMode || 'terminal',
-      acpState: agent.acpState || '',
-      acpError: agent.acpError || '',
-      acpStopReason: agent.acpStopReason || '',
-      acpPendingPermission: agent.acpPendingPermission || null,
-      acpPendingPermissions: Array.isArray(agent.acpPendingPermissions) ? agent.acpPendingPermissions : [],
-      acpPendingElicitation: agent.acpPendingElicitation || null,
-      acpPendingElicitations: Array.isArray(agent.acpPendingElicitations) ? agent.acpPendingElicitations : [],
-      acpActiveElicitations: Array.isArray(agent.acpActiveElicitations) ? agent.acpActiveElicitations : [],
-      acpSessionUpdatedAt: agent.acpSessionUpdatedAt || '',
-      acpSessionRevision: Number(agent.acpSessionRevision) || 0,
-      codexAppServerState: agent.codexAppServerState || '',
-      codexAppServerEndpoint: agent.codexAppServerEndpoint || '',
-      codexAppServerThreadId: agent.codexAppServerThreadId || '',
-      codexAppServerTurnId: agent.codexAppServerTurnId || '',
-      codexAppServerError: agent.codexAppServerError || '',
-      codexAppServerPendingRequestId: agent.codexAppServerPendingRequestId || '',
-      codexAppServerPendingRequestMethod: agent.codexAppServerPendingRequestMethod || '',
-      codexAppServerPendingRequest: agent.codexAppServerPendingRequest || null,
+      runtimeBinding: publicRuntimeBinding(agent),
       forkedFromProviderSessionId: agent.forkedFromProviderSessionId || '',
       customTitle: agent.customTitle || '',
       pinned: agent.pinned === true,

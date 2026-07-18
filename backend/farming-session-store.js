@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { legacyRuntimeMetadata } = require('./agent-runtime-binding');
 const storageLayout = require('./storage-layout');
 
 const SESSION_ID_PREFIX = 'fsess';
@@ -168,19 +169,7 @@ class FarmingSessionStore {
       providerSessionTitle: typeof agent.providerSessionTitle === 'string' ? agent.providerSessionTitle : '',
       providerSessionWorkspace: typeof agent.providerSessionWorkspace === 'string' ? agent.providerSessionWorkspace : '',
       terminalInputReceived: agent.terminalInputReceived === true,
-      codexRuntimeMode: typeof agent.codexRuntimeMode === 'string' ? agent.codexRuntimeMode : '',
-      agentRuntimeMode: typeof agent.agentRuntimeMode === 'string' ? agent.agentRuntimeMode : 'terminal',
-      acpState: typeof agent.acpState === 'string' ? agent.acpState : '',
-      acpError: typeof agent.acpError === 'string' ? agent.acpError : '',
-      acpStopReason: typeof agent.acpStopReason === 'string' ? agent.acpStopReason : '',
-      acpSessionUpdatedAt: typeof agent.acpSessionUpdatedAt === 'string' ? agent.acpSessionUpdatedAt : '',
-      codexAppServerHomePath: typeof agent.codexAppServerHomePath === 'string' ? agent.codexAppServerHomePath : '',
-      codexAppServerState: typeof agent.codexAppServerState === 'string' ? agent.codexAppServerState : '',
-      codexAppServerEndpoint: typeof agent.codexAppServerEndpoint === 'string' ? agent.codexAppServerEndpoint : '',
-      codexAppServerThreadId: typeof agent.codexAppServerThreadId === 'string' ? agent.codexAppServerThreadId : '',
-      codexAppServerTurnId: typeof agent.codexAppServerTurnId === 'string' ? agent.codexAppServerTurnId : '',
-      codexAppServerError: typeof agent.codexAppServerError === 'string' ? agent.codexAppServerError : '',
-      codexCliObserverDeferred: agent.codexCliObserverDeferred === true,
+      ...legacyRuntimeMetadata(agent),
       engine: typeof agent.engineName === 'string' ? agent.engineName : '',
       category: typeof agent.category === 'string' ? agent.category : '',
       task: typeof agent.task === 'string' ? agent.task : '',

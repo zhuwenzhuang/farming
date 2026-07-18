@@ -66,6 +66,26 @@ function bindingFromLegacy(agent) {
   }
 }
 
+function runtimeBindingFor(kind, source = {}) {
+  switch (kind) {
+    case 'acp': return acpBinding(source);
+    case 'json': return jsonBinding(source);
+    case 'app-server': return appServerBinding(source);
+    default: return terminalBinding();
+  }
+}
+
+function runtimeBindingOf(agent, expectedKind) {
+  const binding = bindingFromLegacy(agent);
+  return !expectedKind || binding.kind === expectedKind ? binding : null;
+}
+
+function replaceRuntimeBinding(agent, kind, source = {}) {
+  const binding = runtimeBindingFor(kind, source);
+  agent.runtimeBinding = binding;
+  return binding;
+}
+
 const LEGACY_RUNTIME_FIELDS = {
   acpState: ['acp', 'state', ''],
   acpError: ['acp', 'error', ''],
@@ -194,10 +214,61 @@ function runtimeState(agent) {
   return binding.kind === 'terminal' ? '' : binding.state || '';
 }
 
+function legacyRuntimeMetadata(agent) {
+  const binding = bindingFromLegacy(agent);
+  const metadata = {
+    codexRuntimeMode: binding.kind === 'app-server' ? 'app-server' : 'cli',
+    agentRuntimeMode: ['acp', 'json'].includes(binding.kind) ? binding.kind : 'terminal',
+  };
+  if (binding.kind === 'acp') {
+    return {
+      ...metadata,
+      acpState: binding.state,
+      acpError: binding.error,
+      acpStopReason: binding.stopReason,
+      acpPendingPermission: binding.pendingPermission,
+      acpPendingPermissions: binding.pendingPermissions,
+      acpPendingElicitation: binding.pendingElicitation,
+      acpPendingElicitations: binding.pendingElicitations,
+      acpActiveElicitations: binding.activeElicitations,
+      acpSessionUpdatedAt: binding.sessionUpdatedAt,
+      acpSessionRevision: binding.sessionRevision,
+    };
+  }
+  if (binding.kind === 'json') {
+    return {
+      ...metadata,
+      jsonCliState: binding.state,
+      jsonCliError: binding.error,
+      jsonCliTranscriptUpdatedAt: binding.transcriptUpdatedAt,
+    };
+  }
+  if (binding.kind === 'app-server') {
+    return {
+      ...metadata,
+      codexAppServerHomePath: binding.homePath,
+      codexAppServerState: binding.state,
+      codexAppServerEndpoint: binding.endpoint,
+      codexAppServerThreadId: binding.threadId,
+      codexAppServerTurnId: binding.turnId,
+      codexAppServerError: binding.error,
+      codexAppServerPendingRequestId: binding.pendingRequestId,
+      codexAppServerPendingRequestMethod: binding.pendingRequestMethod,
+      codexAppServerPendingRequest: binding.pendingRequest,
+      codexCliObserverDeferred: binding.observerDeferred,
+    };
+  }
+  return metadata;
+}
+
 module.exports = {
   RuntimeAgentMap,
   installRuntimeBinding,
+  legacyRuntimeMetadata,
   publicRuntimeBinding,
+  replaceRuntimeBinding,
+  runtimeBindingFor,
+  runtimeBindingOf,
   runtimeKind,
   runtimeState,
 };
