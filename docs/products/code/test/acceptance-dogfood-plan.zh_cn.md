@@ -140,7 +140,7 @@ Linux 目标每轮都要记录：
 ### 5. Project / Sidebar / History
 
 覆盖：
-- Project 分组、Files section、active agent、active session。
+- Project 分组、Files section、active agent、active session；Files 展开后，变更、未跟踪、历史和根级文件树行应保持一致的字号、行高、垂直节奏，以及箭头和文字起点，计数和 Review 操作可保留语义强调。
 - Pin / unread / rename / Move to History。
 - Move Project to History。
 - History 统一展示为 History Agents，按解析到的 agent/session 元数据更新时间排序；不在主页面 membership 中的 session 才出现在 History。
@@ -169,7 +169,7 @@ Linux 目标每轮都要记录：
 覆盖：
 - Codex / Claude quota 摘要。
 - 最近 24 小时的整点桶和时间轴、最近 52 周逐日且最近 7 天有明确区分的紧凑 token 热力图、缩写后的 token 总量，以及每个格子悬停时显示的精确 token 数。
-- 点击两张紧凑图后分别打开对应的大热力图；52 周详情默认突出标记 token 峰值日，并在右上角醒目显示该日缩写后的 token 数，悬停或用键盘聚焦其他日期时临时切换醒目值，同时下方保留精确数值。详情分析继续使用同一份本地 token 数据，展示峰值时段、最近 7 天对比前 7 天，以及逐日明细可用时的缓存占比。
+- 点击两张紧凑图后分别打开对应的大热力图；52 周详情默认展示今天，并在右上角醒目显示今天缩写后的 token 数，悬停或用键盘聚焦其他日期时临时切换醒目值，同时下方保留精确数值；离开临时选择后必须回到今天。下方图表必须懒加载并切换为该日从零开始的 24 小时直方图，每个小时柱以精确的 provider session 归因为基础、按 Agent 类型聚合；快速经过不同日期时要取消过期请求。52 周 Token King 日的整个热力格裁成皇冠轮廓，其他超过 10 亿 token 的日期整格裁成火焰轮廓，沿用各格已有热力颜色，不能在方格内部嵌入小图标。详情分析继续使用同一份本地 token 数据，展示峰值时段、最近 7 天对比前 7 天，以及逐日明细可用时的缓存占比。
 - tok/min、CPU、MEM、折叠和展开。
 - 读取失败、无数据、真实 agent 高输出。
 

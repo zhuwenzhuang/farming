@@ -25,6 +25,12 @@ declare global {
       undo: () => boolean
       getValue: () => string
       getScrollTop: () => number
+      getMarkers: () => Array<{ code: string; message: string; severity: number }>
+      getTypeScriptDiagnosticsOptions: () => {
+        noSemanticValidation?: boolean
+        noSyntaxValidation?: boolean
+        noSuggestionDiagnostics?: boolean
+      }
     }
     __farmingTerminalTest?: {
       getCellCenter: (agentId: string, col: number, row: number) => { x: number; y: number } | null

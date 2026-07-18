@@ -26,7 +26,7 @@ Open the authenticated URL and choose **New Agent**.
 
 ![Choose an Agent](assets/02-start-agent-picker.png)
 
-Farming detects available Agent executables instead of showing launch choices that cannot run. Select a recent or custom workspace, choose structured Chat or Terminal where both are supported, and start the task. The folder button beside Workspace opens an in-page directory browser backed by the Farming host, so local and remote pages select the same server-side workspace path without depending on a desktop file manager.
+Farming detects available Agent executables instead of showing launch choices that cannot run. Select a recent or custom workspace, choose structured Chat or Terminal where both are supported, and start the task. The folder button beside Workspace opens an in-page directory browser backed by the Farming host, so local and remote pages select the same server-side workspace path without depending on a desktop file manager. Directories expand in place as a lazy tree, preserving parent and sibling context while you choose a nested workspace.
 
 Codex, Claude Code, OpenCode, and Qoder provide both structured ACP Chat and native Terminal. Qwen Code, Aider, GitHub Copilot CLI, Amazon Q, bash, and zsh use the terminal path when detected. Farming hosts those CLIs; it does not replace their installation or login.
 

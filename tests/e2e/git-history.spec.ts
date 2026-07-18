@@ -75,6 +75,52 @@ test('shows the VS Code-derived commit graph and opens commit changes in Review'
     const secondGap = (historyBox?.y ?? 0) - (untrackedBox?.y ?? 0)
     return Math.abs(firstGap - secondGap)
   }).toBeLessThan(1)
+  const fileSectionRhythm = await files.evaluate(element => {
+    const changeToggles = Array.from(element.querySelectorAll<HTMLElement>('.code-file-change-group-toggle'))
+    const historyTitle = element.querySelector<HTMLElement>('.code-git-history-title')
+    const firstFileRow = element.querySelector<HTMLElement>('[data-testid="code-file-row"]')
+    const rows = [changeToggles[0], changeToggles[1], historyTitle, firstFileRow]
+    const labels = [
+      changeToggles[0]?.querySelector<HTMLElement>('span:nth-child(2)'),
+      changeToggles[1]?.querySelector<HTMLElement>('span:nth-child(2)'),
+      historyTitle?.querySelector<HTMLElement>('span:nth-child(2)'),
+      firstFileRow?.querySelector<HTMLElement>('.code-file-name'),
+    ]
+    return rows.map((row, index) => {
+      const label = labels[index]
+      const chevron = row?.querySelector<HTMLElement>('.code-file-section-chevron, .code-file-chevron')
+      if (!row || !label || !chevron) return null
+      const rowBox = row.getBoundingClientRect()
+      const labelBox = label.getBoundingClientRect()
+      const chevronBox = chevron.getBoundingClientRect()
+      const style = getComputedStyle(row)
+      return {
+        top: rowBox.top,
+        height: rowBox.height,
+        labelLeft: labelBox.left,
+        chevronLeft: chevronBox.left,
+        fontSize: style.fontSize,
+        fontWeight: style.fontWeight,
+        lineHeight: style.lineHeight,
+      }
+    })
+  })
+  expect(fileSectionRhythm.every(Boolean)).toBeTruthy()
+  const rhythm = fileSectionRhythm.filter((item): item is NonNullable<typeof item> => Boolean(item))
+  expect(rhythm.map(item => item.fontSize)).toEqual(['13px', '13px', '13px', '13px'])
+  expect(rhythm.map(item => item.fontWeight)).toEqual(['400', '400', '400', '400'])
+  expect(rhythm.map(item => item.lineHeight)).toEqual(['16px', '16px', '16px', '16px'])
+  for (const item of rhythm) {
+    expect(Math.abs(item.height - 24)).toBeLessThanOrEqual(0.75)
+    expect(Math.abs(item.labelLeft - rhythm[0]!.labelLeft)).toBeLessThanOrEqual(0.75)
+    expect(Math.abs(item.chevronLeft - rhythm[0]!.chevronLeft)).toBeLessThanOrEqual(0.75)
+  }
+  for (let index = 1; index < rhythm.length; index += 1) {
+    expect(
+      Math.abs((rhythm[index]!.top - rhythm[index - 1]!.top) - 24),
+      JSON.stringify(rhythm),
+    ).toBeLessThanOrEqual(0.75)
+  }
   await expect(history.getByRole('button', { name: 'History', exact: true })).toHaveAttribute('aria-expanded', 'false')
   await history.getByRole('button', { name: 'History', exact: true }).click()
   await expect(page.getByTestId('code-project-worktree').first()).toContainText('main')

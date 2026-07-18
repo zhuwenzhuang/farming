@@ -105,7 +105,7 @@ For terminal IME bugs, prefer the xterm.js / VS Code principle: let browser comp
 
 ### 5. Project / Sidebar / History
 
-Cover project grouping, Files section, active agent, pinned / unread sessions, rename, archive, archived runs, chats, duplicate titles, and continue behavior.
+Cover project grouping, Files section, active agent, pinned / unread sessions, rename, archive, archived runs, chats, duplicate titles, and continue behavior. Within an expanded Files section, Changes, Untracked, History, and root file-tree rows must share the same text size, line height, row rhythm, and root-level chevron / label alignment; counts and review actions may retain semantic emphasis.
 
 ### 6. Files / Editor
 
@@ -113,7 +113,7 @@ Cover Files expansion, lazy loading, search, `path:line`, text / image / binary 
 
 ### 7. Usage And System Status
 
-Cover truthful local provider usage summaries, the compact 24-hour heatmap with whole-hour buckets and axis labels, the 52-week daily token heatmap with a visually distinct recent seven days, compact token totals, and exact token readouts on cell hover. Clicking either chart must open the matching larger heatmap; the 52-week detail defaults to a visually marked peak day and shows that day's compact token total prominently, then temporarily switches the prominent value to any hovered or keyboard-focused day while preserving the exact readout below. The detail analysis must expose peak activity plus bounded comparisons derived from the same local token data, including recent-versus-previous seven days and cache share when daily breakdowns exist. Also cover token rate, CPU, memory, collapsed state, no-data state, and read failures. Providers without usable token telemetry and quota fields without real quota data must be omitted instead of rendered as unavailable placeholders. Never run reset actions.
+Cover truthful local provider usage summaries, the compact 24-hour heatmap with whole-hour buckets and axis labels, the 52-week daily token heatmap with a visually distinct recent seven days, compact token totals, and exact token readouts on cell hover. Clicking either chart must open the matching larger heatmap; the 52-week detail defaults to today and shows today's compact token total prominently, then temporarily switches the prominent value to any hovered or keyboard-focused day while preserving the exact readout below. Its lower chart must lazily switch to that day's zero-based 24-hour histogram, with every hourly bar aggregating exact provider-session attribution by Agent type; rapid day changes must cancel stale requests, and leaving a transient selection must return to today. Clip the whole Token King day cell into a crown silhouette and every non-king day above one billion tokens into a flame silhouette, preserving each cell's heat color instead of embedding an icon inside a square. The detail analysis must expose peak activity plus bounded comparisons derived from the same local token data, including recent-versus-previous seven days and cache share when daily breakdowns exist. Also cover token rate, CPU, memory, collapsed state, no-data state, and read failures. Providers without usable token telemetry and quota fields without real quota data must be omitted instead of rendered as unavailable placeholders. Never run reset actions.
 
 ### 8. Mobile
 

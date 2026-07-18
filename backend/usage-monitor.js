@@ -152,6 +152,32 @@ function addTokenBreakdown(target, source) {
   return target;
 }
 
+function usageAgentIdFromFilePath(filePath) {
+  const basename = path.basename(String(filePath || ''), path.extname(String(filePath || '')));
+  const uuid = basename.match(/([0-9a-f]{8}-[0-9a-f-]{27})$/i);
+  return uuid?.[1] || basename || 'unattributed';
+}
+
+function usageAgentLabel(provider, agentId) {
+  const providerName = {
+    codex: 'Codex',
+    claude: 'Claude',
+    opencode: 'OpenCode',
+    qoder: 'Qoder',
+  }[provider] || provider;
+  if (!agentId || agentId === 'unattributed') return providerName;
+  const shortId = agentId.length > 12 ? `…${agentId.slice(-6)}` : agentId;
+  return `${providerName} · ${shortId}`;
+}
+
+function attributeUsageEvent(event, provider, agentId) {
+  return {
+    ...event,
+    agentId,
+    agentLabel: usageAgentLabel(provider, agentId),
+  };
+}
+
 function subtractTokenBreakdown(current, previous) {
   const result = emptyTokenBreakdown();
   for (const field of Object.keys(result)) {
@@ -654,11 +680,14 @@ function buildUsageDayDetail(providerEvents, options = {}) {
     hour,
     label: String(hour).padStart(2, '0'),
     ...emptyTokenBreakdown(),
+    agents: {},
   }));
   const providers = Object.fromEntries(
     providerNames.map(provider => [provider, emptyTokenBreakdown()]),
   );
   const total = emptyTokenBreakdown();
+  const agents = new Map();
+  const agentLabels = options.agentLabels instanceof Map ? options.agentLabels : new Map();
 
   for (const provider of providerNames) {
     for (const event of providerEvents[provider] || []) {
@@ -666,8 +695,24 @@ function buildUsageDayDetail(providerEvents, options = {}) {
       if (localDateKey(timestamp) !== date) continue;
       const hour = new Date(timestamp).getHours();
       if (!Number.isInteger(hour) || hour < 0 || hour > 23) continue;
+      const agentId = String(event?.agentId || 'unattributed');
+      const agentKey = `${provider}:${agentId}`;
+      let agent = agents.get(agentKey);
+      if (!agent) {
+        agent = {
+          key: agentKey,
+          provider,
+          sessionId: agentId === 'unattributed' ? '' : agentId,
+          label: agentLabels.get(agentKey) || event?.agentLabel || usageAgentLabel(provider, agentId),
+          ...emptyTokenBreakdown(),
+        };
+        agents.set(agentKey, agent);
+      }
+      if (!hours[hour].agents[agentKey]) hours[hour].agents[agentKey] = emptyTokenBreakdown();
       addTokenBreakdown(hours[hour], event);
+      addTokenBreakdown(hours[hour].agents[agentKey], event);
       addTokenBreakdown(providers[provider], event);
+      addTokenBreakdown(agent, event);
       addTokenBreakdown(total, event);
     }
   }
@@ -679,6 +724,9 @@ function buildUsageDayDetail(providerEvents, options = {}) {
     total,
     hours,
     providers,
+    agents: Array.from(agents.values()).sort((left, right) => (
+      right.totalTokens - left.totalTokens || left.label.localeCompare(right.label)
+    )),
   };
 }
 
@@ -711,9 +759,11 @@ async function readDailyFileEvents(filePath, provider, minimumMtimeMs = 0) {
     }
   }
 
+  const agentId = usageAgentIdFromFilePath(filePath);
+  const attributedEvents = events.map(event => attributeUsageEvent(event, provider, agentId));
   const truncated = stat.size > JSONL_TAIL_BYTES;
-  dailyFileEventCache.set(cacheKey, { signature, events, truncated });
-  return { events, mtimeMs: stat.mtimeMs, truncated };
+  dailyFileEventCache.set(cacheKey, { signature, events: attributedEvents, truncated });
+  return { events: attributedEvents, mtimeMs: stat.mtimeMs, truncated };
 }
 
 async function collectCodexDailyEventsWithRipgrep(roots, options = {}) {
@@ -767,7 +817,9 @@ async function collectCodexDailyEventsWithRipgrep(roots, options = {}) {
         states.set(filePath, state);
       }
       const event = codexTokenEventFromRecord(record, state);
-      if (event && event.timestamp >= cutoffMs && event.timestamp <= now + 60_000) events.push(event);
+      if (event && event.timestamp >= cutoffMs && event.timestamp <= now + 60_000) {
+        events.push(attributeUsageEvent(event, 'codex', usageAgentIdFromFilePath(filePath)));
+      }
     });
     child.once('close', code => {
       if (unavailable || (code !== 0 && code !== 1)) {
@@ -894,7 +946,8 @@ async function collectOpenCodeDailyEvents(homePaths, options = {}) {
           { openCodeHome: session.openCodeHome, timeoutMs: OPENCODE_COMMAND_TIMEOUT_MS },
         );
         const exported = JSON.parse(String(result?.stdout || '{}'));
-        const sessionEvents = openCodeTokenEventsFromExport(exported, { cutoffMs, now });
+        const sessionEvents = openCodeTokenEventsFromExport(exported, { cutoffMs, now })
+          .map(event => attributeUsageEvent(event, 'opencode', session.id));
         successfulExports += 1;
         openCodeSessionEventCache.set(cacheKey, { updatedAt: session.updatedAt, events: sessionEvents });
         events.push(...sessionEvents);
@@ -1214,6 +1267,33 @@ class UsageMonitor {
     this.liveDayCache.fetchedAt = 0;
   }
 
+  usageAgentLabels() {
+    const labels = new Map();
+    const agents = this.agentManager?.getState?.().agents;
+    if (!Array.isArray(agents)) return labels;
+    for (const agent of agents) {
+      const provider = String(agent?.providerSessionProvider || '').trim();
+      const sessionId = String(agent?.providerSessionId || '').trim();
+      if (!provider || !sessionId) continue;
+      const label = String(
+        agent.customTitle
+        || agent.task
+        || agent.sessionTitle
+        || agent.providerSessionTitle
+        || '',
+      ).trim();
+      if (label) labels.set(`${provider}:${sessionId}`, label);
+    }
+    return labels;
+  }
+
+  buildUsageDay(providerEvents, date) {
+    return buildUsageDayDetail(providerEvents, {
+      date,
+      agentLabels: this.usageAgentLabels(),
+    });
+  }
+
   getDailyUsage(options = {}) {
     const now = options.now ?? Date.now();
     if (
@@ -1249,7 +1329,7 @@ class UsageMonitor {
     if (options.live === true && String(date || '').trim() === localDateKey(now)) {
       const liveDate = String(date).trim();
       const dailyFallback = this.dailyCache.value?.providerEvents
-        ? buildUsageDayDetail(this.dailyCache.value.providerEvents, { date: liveDate })
+        ? this.buildUsageDay(this.dailyCache.value.providerEvents, liveDate)
         : null;
       const cachedFallback = this.liveDayCache.date === liveDate
         ? this.liveDayCache.value
@@ -1285,7 +1365,7 @@ class UsageMonitor {
         now,
         days: 1,
       }).then(history => {
-        const detail = buildUsageDayDetail(history.providerEvents, { date: liveDate });
+        const detail = this.buildUsageDay(history.providerEvents, liveDate);
         if (this.liveDayCache.date === liveDate) {
           this.liveDayCache.value = detail;
           this.liveDayCache.fetchedAt = now;
@@ -1301,7 +1381,7 @@ class UsageMonitor {
       now,
       force: options.fresh === true,
     });
-    return buildUsageDayDetail(history.providerEvents, { date });
+    return this.buildUsageDay(history.providerEvents, date);
   }
 
   async getUsageSummary(options = {}) {

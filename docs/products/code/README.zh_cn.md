@@ -26,7 +26,7 @@ npm install --global farming-code@latest && farming daemon
 
 ![选择 Agent](assets/02-start-agent-picker.png)
 
-Farming 会发现实际可用的 Agent Executable，不展示无法启动的选项。选择最近使用或自定义 Workspace，在同时支持两种路径时选择结构化 Chat 或 Terminal，然后开始任务。Workspace 后面的目录按钮会打开由 Farming Host 提供数据的页面内目录浏览器，因此本地和远程页面都选择同一种服务端 Workspace 路径，不依赖桌面文件管理器。
+Farming 会发现实际可用的 Agent Executable，不展示无法启动的选项。选择最近使用或自定义 Workspace，在同时支持两种路径时选择结构化 Chat 或 Terminal，然后开始任务。Workspace 后面的目录按钮会打开由 Farming Host 提供数据的页面内目录浏览器，因此本地和远程页面都选择同一种服务端 Workspace 路径，不依赖桌面文件管理器。目录会在原位置按需逐步展开为树，选择深层 Workspace 时仍保留父级和兄弟目录上下文。
 
 Codex、Claude Code、OpenCode 和 Qoder 同时提供结构化 ACP Chat 与原生 Terminal。Qwen Code、Aider、GitHub Copilot CLI、Amazon Q、bash 和 zsh 在检测到时使用 Terminal 路径。Farming 负责承载这些 CLI，不替代安装和登录。
 

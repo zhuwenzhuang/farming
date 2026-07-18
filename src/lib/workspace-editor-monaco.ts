@@ -44,6 +44,11 @@ const WORKSPACE_EDITOR_PRELOAD_LANGUAGE_IDS = [
   'sql',
   'yaml',
 ] as const
+const WORKSPACE_EDITOR_SYNTAX_ONLY_DIAGNOSTICS = {
+  noSemanticValidation: true,
+  noSyntaxValidation: false,
+  noSuggestionDiagnostics: true,
+} as const
 const WORKSPACE_EDITOR_CONTEXT_MENU_IGNORE_SELECTOR = [
   '.code-editor-context-menu',
   '.code-file-tab-context-menu',
@@ -60,6 +65,8 @@ let workspaceEditorPreloadPromise: Promise<void> | null = null
 export function configureWorkspaceEditorMonacoEnvironment() {
   if (monacoEnvironmentConfigured) return
   monacoEnvironmentConfigured = true
+  monaco.typescript.typescriptDefaults.setDiagnosticsOptions(WORKSPACE_EDITOR_SYNTAX_ONLY_DIAGNOSTICS)
+  monaco.typescript.javascriptDefaults.setDiagnosticsOptions(WORKSPACE_EDITOR_SYNTAX_ONLY_DIAGNOSTICS)
   window.MonacoEnvironment = {
     getWorker(_workerId: string, label: string) {
       if (label === 'json') return new JsonWorker()

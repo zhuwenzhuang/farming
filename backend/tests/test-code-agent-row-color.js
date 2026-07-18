@@ -26,6 +26,6 @@ const fileRowFontSize = propertyValue(ruleBody('.code-file-row'), 'font-size');
 assert.strictEqual(agentRowColor, '#585e57');
 assert.strictEqual(fileRowColor, '#4a5149');
 assert.strictEqual(agentRowFontSize, '14px');
-assert.strictEqual(fileRowFontSize, '13px');
+assert.strictEqual(fileRowFontSize, 'var(--code-file-entry-font-size)');
 
 console.log('test-code-agent-row-color passed');

@@ -326,7 +326,9 @@ const MarkdownLink: Components['a'] = ({ href, children, onClick, ...props }) =>
     onClick?.(event)
     if (event.defaultPrevented || !workspacePath) return
     event.preventDefault()
-    void onOpenFilePath(openFile.agentId, workspacePath)
+    void onOpenFilePath(openFile.agentId, workspacePath, {
+      sourceAgentId: openFile.sourceAgentId,
+    })
   }
   return (
     <a

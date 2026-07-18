@@ -517,6 +517,29 @@ export interface UsageDailyHistory {
   points: UsageDailyPoint[]
 }
 
+export interface UsageDayAgent extends UsageDailyTokenBreakdown {
+  key: string
+  provider: string
+  sessionId: string
+  label: string
+}
+
+export interface UsageDayHour extends UsageDailyTokenBreakdown {
+  hour: number
+  label: string
+  agents: Record<string, UsageDailyTokenBreakdown>
+}
+
+export interface UsageDayDetail {
+  source: string
+  date: string
+  timeZone: string
+  total: UsageDailyTokenBreakdown
+  hours: UsageDayHour[]
+  providers: Record<string, UsageDailyTokenBreakdown>
+  agents: UsageDayAgent[]
+}
+
 export interface AgentUsageSummary {
   windowMs: number
   sampledAt: number

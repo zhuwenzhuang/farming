@@ -122,6 +122,40 @@ test.describe('ACP human-like browser matrix', () => {
     expect(metrics.inlineCodeFontSize).toBeLessThan(14)
   })
 
+  test('aligns every Chat turn to one shared content column', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-turn-alignment')
+    fs.mkdirSync(workspace, { recursive: true })
+
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    await sendAcpMessage(page, 'usage warning')
+    await expect(page.getByText('Usage warning published.', { exact: true })).toBeVisible({ timeout: 15_000 })
+    await sendAcpMessage(page, 'Please inspect the complete interaction and return a rich timeline with all relevant details.')
+    await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 20_000 })
+
+    const turns = page.locator('.code-codex-transcript-turn')
+    const shortTurn = turns.filter({ hasText: 'usage warning' })
+    const longTurn = turns.filter({ hasText: 'Please inspect the complete interaction' })
+    const metrics = await Promise.all([shortTurn, longTurn].map(turn => turn.evaluate(element => {
+      const turnBox = element.getBoundingClientRect()
+      const userBox = element.querySelector('.code-codex-transcript-user')?.getBoundingClientRect()
+      const answerBox = element.querySelector('.code-codex-transcript-answer')?.getBoundingClientRect()
+      if (!userBox || !answerBox) throw new Error('Chat alignment fixture is incomplete')
+      return {
+        turnLeft: turnBox.left,
+        turnWidth: turnBox.width,
+        userRight: userBox.right,
+        answerLeft: answerBox.left,
+      }
+    })))
+
+    expect(Math.abs(metrics[0].turnLeft - metrics[1].turnLeft)).toBeLessThanOrEqual(1)
+    expect(Math.abs(metrics[0].turnWidth - metrics[1].turnWidth)).toBeLessThanOrEqual(1)
+    expect(Math.abs(metrics[0].userRight - metrics[1].userRight)).toBeLessThanOrEqual(1)
+    expect(Math.abs(metrics[0].answerLeft - metrics[1].answerLeft)).toBeLessThanOrEqual(1)
+  })
+
   test('keeps 53 structured chat interactions coherent across live, history, security, and runtime switching', async ({ page, workspaceRoot }) => {
     test.setTimeout(150_000)
     const workspace = path.join(workspaceRoot, 'acp-human-cases')

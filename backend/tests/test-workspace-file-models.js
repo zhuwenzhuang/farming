@@ -901,8 +901,8 @@ function run() {
   assert.strictEqual(linkedDirectoryTree[0].symbolicLink, true);
   assert.strictEqual(linkedDirectoryTree[0].children[0].path, 'reference/index.md');
   assert.deepStrictEqual(workspaceFileTreeDepthStyle(2), {
-    '--file-indent': '28px',
-    '--file-status-indent': '46px',
+    '--file-indent': '30px',
+    '--file-status-indent': '48px',
     '--file-guide-width': '24px',
     '--file-depth': 2,
   });

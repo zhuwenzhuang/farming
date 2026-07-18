@@ -1,5 +1,5 @@
 import { useEffect, type MutableRefObject } from 'react'
-import type * as monaco from 'monaco-editor'
+import * as monaco from 'monaco-editor'
 
 declare global {
   interface Window {
@@ -11,6 +11,12 @@ declare global {
       undo: () => boolean
       getValue: () => string
       getScrollTop: () => number
+      getMarkers: () => Array<{ code: string; message: string; severity: number }>
+      getTypeScriptDiagnosticsOptions: () => {
+        noSemanticValidation?: boolean
+        noSyntaxValidation?: boolean
+        noSuggestionDiagnostics?: boolean
+      }
     }
   }
 }
@@ -69,6 +75,18 @@ export function useFileEditorTestBridge({
       },
       getScrollTop() {
         return editorRef.current?.getScrollTop() ?? 0
+      },
+      getMarkers() {
+        const model = editorRef.current?.getModel()
+        if (!model) return []
+        return monaco.editor.getModelMarkers({ resource: model.uri }).map(marker => ({
+          code: String(marker.code ?? ''),
+          message: marker.message,
+          severity: marker.severity,
+        }))
+      },
+      getTypeScriptDiagnosticsOptions() {
+        return monaco.typescript.typescriptDefaults.getDiagnosticsOptions()
       },
     }
     window.__farmingFileEditorTest = testApi

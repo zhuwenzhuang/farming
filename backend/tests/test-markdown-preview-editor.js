@@ -140,7 +140,8 @@ function run() {
       markdownPreviewSource.includes('skipHtml') &&
       markdownPreviewSource.includes('rawWorkspaceFileUrl(openFile.agentId') &&
       markdownPreviewSource.includes('markdownWorkspaceLinkPath') &&
-      markdownPreviewSource.includes('void onOpenFilePath(openFile.agentId, workspacePath)') &&
+      markdownPreviewSource.includes('void onOpenFilePath(openFile.agentId, workspacePath, {') &&
+      markdownPreviewSource.includes('sourceAgentId: openFile.sourceAgentId') &&
       !markdownPreviewSource.includes('function markdownLinkUrl') &&
       codeMainAreaSource.includes('onOpenFilePath={onOpenWorkspaceFilePath}') &&
       workspaceSource.includes('onOpenWorkspaceFilePath={openWorkspaceFilePath}') &&

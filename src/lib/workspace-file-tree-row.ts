@@ -23,8 +23,8 @@ export function workspaceFileTreeStatusTitle(
 
 export function workspaceFileTreeDepthStyle(depth: number) {
   return {
-    '--file-indent': `${4 + depth * FILE_TREE_INDENT}px`,
-    '--file-status-indent': `${22 + depth * FILE_TREE_INDENT}px`,
+    '--file-indent': `${6 + depth * FILE_TREE_INDENT}px`,
+    '--file-status-indent': `${24 + depth * FILE_TREE_INDENT}px`,
     '--file-guide-width': `${depth * FILE_TREE_INDENT}px`,
     '--file-depth': depth,
   } as Record<string, string | number>

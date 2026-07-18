@@ -212,7 +212,7 @@ body.code-mode[data-appearance='dark'] .workspace-directory-browser-row {
 body.code-mode[data-appearance='dark'] .workspace-directory-browser-heading p,
 body.code-mode[data-appearance='dark'] .workspace-directory-browser-status,
 body.code-mode[data-appearance='dark'] .workspace-directory-browser-actions > span,
-body.code-mode[data-appearance='dark'] .workspace-directory-browser-row-arrow {
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-inline-status {
   color: var(--code-dark-text-muted);
 }
 
@@ -236,12 +236,18 @@ body.code-mode[data-appearance='dark'] .workspace-directory-browser-actions butt
   color: var(--code-dark-text);
 }
 
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-row.selected {
+  background: rgba(121, 186, 255, 0.14);
+  color: var(--code-dark-text);
+}
+
 body.code-mode[data-appearance='dark'] .workspace-directory-browser-list {
   border-color: var(--code-dark-border);
   background: var(--code-dark-bg-soft);
 }
 
-body.code-mode[data-appearance='dark'] .workspace-directory-browser-row > svg:first-child {
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-row > svg:first-child,
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-row > svg:nth-child(2) {
   color: var(--code-dark-text-soft);
 }
 
@@ -251,7 +257,9 @@ body.code-mode[data-appearance='dark'] .workspace-directory-browser-actions butt
 }
 
 body.code-mode[data-appearance='dark'] .workspace-directory-browser-status.error,
-body.code-mode[data-appearance='dark'] .workspace-directory-browser-truncated {
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-truncated,
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-inline-status.error,
+body.code-mode[data-appearance='dark'] .workspace-directory-browser-inline-status.truncated {
   color: var(--code-dark-danger);
 }
 
@@ -555,23 +563,57 @@ body.code-mode[data-appearance='dark'] .code-usage-detail-day-highlight[data-sta
   color: #79baff;
 }
 
-body.code-mode[data-appearance='dark'] .code-usage-detail-chart .code-usage-daily-heatmap-cell[data-peak='true'] {
-  box-shadow:
-    inset 0 0 0 1px rgba(121, 186, 255, 0.88),
-    0 0 0 2px rgba(88, 166, 255, 0.2);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-detail-chart .code-usage-daily-heatmap-cell[data-peak='true']::after {
-  border-color: rgba(22, 27, 34, 0.95);
-  background: #79baff;
+body.code-mode[data-appearance='dark'] .code-usage-detail-chart .code-usage-daily-heatmap-cell[data-shape='crown'] {
+  filter:
+    drop-shadow(0 0 1px rgba(13, 17, 23, 0.96))
+    drop-shadow(0 0 1px rgba(121, 186, 255, 0.88));
 }
 
 body.code-mode[data-appearance='dark'] .code-usage-detail-chart .code-usage-daily-heatmap-cell[data-selected='true'] {
   outline-color: rgba(121, 186, 255, 0.9);
 }
 
+body.code-mode[data-appearance='dark'] .code-usage-detail-chart .code-usage-daily-heatmap-cell[data-selected='true'][data-shape] {
+  filter:
+    drop-shadow(0 0 1px rgba(13, 17, 23, 0.96))
+    drop-shadow(0 0 2px rgba(121, 186, 255, 0.92));
+}
+
 body.code-mode[data-appearance='dark'] .code-usage-detail-stat {
   background: rgba(255, 255, 255, 0.055);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-day-breakdown {
+  border-top-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-day-breakdown-heading,
+body.code-mode[data-appearance='dark'] .code-usage-day-histogram-scale,
+body.code-mode[data-appearance='dark'] .code-usage-day-histogram-axis,
+body.code-mode[data-appearance='dark'] .code-usage-day-agent-legend,
+body.code-mode[data-appearance='dark'] .code-usage-day-agent-legend small,
+body.code-mode[data-appearance='dark'] .code-usage-day-agent-legend em,
+body.code-mode[data-appearance='dark'] .code-usage-day-breakdown-status {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-day-breakdown-heading strong {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-day-histogram-bars {
+  border-bottom-color: var(--code-dark-border);
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(139, 148, 158, 0.09) 0,
+    rgba(139, 148, 158, 0.09) 1px,
+    transparent 1px,
+    transparent 34px
+  );
+}
+
+body.code-mode[data-appearance='dark'] .code-usage-day-histogram-segment {
+  box-shadow: inset 0 1px rgba(13, 17, 23, 0.42);
 }
 
 body.code-mode[data-appearance='dark'] .code-search-result {

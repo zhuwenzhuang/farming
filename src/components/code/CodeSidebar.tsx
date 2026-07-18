@@ -19,6 +19,7 @@ import type {
   ProviderQuotaLimit,
   SystemStats,
   UsageDailyPoint,
+  UsageDayDetail,
   UsageProviderSummary,
   UsageSummary,
   UsageTimelinePoint,
@@ -1193,7 +1194,8 @@ function DailyUsageHeatmap({
   ), null)
   const peakDay = peakCandidate && peakCandidate.totalTokens > 0 ? peakCandidate : null
   const selectedDay = inspection ? points.find(point => point.date === inspection.label) ?? null : null
-  const highlightedDay = selectedDay ?? peakDay
+  const today = points[points.length - 1] ?? null
+  const highlightedDay = selectedDay ?? today
   const highlightedDayIsPeak = Boolean(highlightedDay && highlightedDay.date === peakDay?.date)
 
   return (
@@ -1203,10 +1205,10 @@ function DailyUsageHeatmap({
         {showDayHighlight && highlightedDay ? (
           <div
             className="code-usage-detail-day-highlight"
-            data-state={selectedDay ? 'selected' : 'peak'}
+            data-state={selectedDay ? 'selected' : 'today'}
             data-testid="code-usage-detail-day-highlight"
           >
-            <span>{highlightedDayIsPeak ? 'Top · ' : ''}{formatUsageDay(highlightedDay.date)}</span>
+            <span>{selectedDay && highlightedDayIsPeak ? 'Top · ' : ''}{formatUsageDay(highlightedDay.date)}</span>
             <strong>{formatCompactNumber(highlightedDay.totalTokens)}</strong>
             <small>tokens</small>
           </div>
@@ -1226,8 +1228,10 @@ function DailyUsageHeatmap({
         ))}
         {points.map((point, index) => {
           const tokens = Number(point.totalTokens)
-          const title = `${point.date} · ${formatExactTokenCount(tokens)} tokens`
           const isPeak = point.date === peakDay?.date
+          const isBillion = tokens > 1_000_000_000
+          const markerLabel = isPeak ? 'Token king' : isBillion ? 'Over 1B tokens' : ''
+          const title = `${point.date} · ${formatExactTokenCount(tokens)} tokens${markerLabel ? ` · ${markerLabel}` : ''}`
           const isSelected = point.date === selectedDay?.date
           const inspect = () => onInspect({ label: point.date, tokens })
           return (
@@ -1237,6 +1241,8 @@ function DailyUsageHeatmap({
               data-date={point.date}
               data-level={usageHeatLevel(tokens, thresholds)}
               data-peak={isPeak ? 'true' : undefined}
+              data-billion={isBillion ? 'true' : undefined}
+              data-shape={showDayHighlight ? (isPeak ? 'crown' : isBillion ? 'flame' : undefined) : undefined}
               data-recent={index >= recentStartIndex ? 'true' : undefined}
               data-selected={isSelected ? 'true' : undefined}
               title={title}
@@ -1251,7 +1257,8 @@ function DailyUsageHeatmap({
                   inspect()
                 }
               } : undefined}
-              onMouseEnter={inspect}
+              onMouseEnter={showDayHighlight ? undefined : inspect}
+              onPointerMove={showDayHighlight ? inspect : undefined}
             />
           )
         })}
@@ -1277,6 +1284,226 @@ function formatUsageDay(dateValue: string) {
   const date = parseUsageDate(dateValue)
   if (!date) return dateValue
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+function validUsageDayDetail(value: unknown, date: string): value is UsageDayDetail {
+  if (!value || typeof value !== 'object') return false
+  const detail = value as UsageDayDetail
+  return detail.date === date
+    && Array.isArray(detail.hours)
+    && detail.hours.length === 24
+    && detail.hours.every((hour, index) => (
+      hour.hour === index
+      && Number.isFinite(Number(hour.totalTokens))
+      && hour.totalTokens >= 0
+      && Boolean(hour.agents && typeof hour.agents === 'object')
+    ))
+    && Array.isArray(detail.agents)
+    && detail.agents.every(agent => (
+      Boolean(agent.key && agent.label)
+      && Number.isFinite(Number(agent.totalTokens))
+      && agent.totalTokens >= 0
+    ))
+}
+
+function useUsageDayDetail(date: string, live: boolean) {
+  const [retry, setRetry] = useState(0)
+  const [state, setState] = useState<{
+    date: string
+    detail: UsageDayDetail | null
+    error: string
+    loading: boolean
+  }>({ date: '', detail: null, error: '', loading: false })
+
+  useEffect(() => {
+    if (!date) {
+      setState({ date: '', detail: null, error: '', loading: false })
+      return
+    }
+    const controller = new AbortController()
+    setState({ date, detail: null, error: '', loading: true })
+    const params = new URLSearchParams({ date })
+    if (live) params.set('live', '1')
+    fetch(appPath(`/api/usage/day?${params.toString()}`), { signal: controller.signal })
+      .then(async response => {
+        const payload = await response.json() as { detail?: unknown; error?: string }
+        if (!response.ok) throw new Error(payload.error || 'Failed to load day activity')
+        if (!validUsageDayDetail(payload.detail, date)) throw new Error('Day activity response was incomplete')
+        return payload.detail
+      })
+      .then(detail => {
+        if (!controller.signal.aborted) setState({ date, detail, error: '', loading: false })
+      })
+      .catch(error => {
+        if (controller.signal.aborted) return
+        setState({
+          date,
+          detail: null,
+          error: error instanceof Error ? error.message : 'Failed to load day activity',
+          loading: false,
+        })
+      })
+    return () => controller.abort()
+  }, [date, live, retry])
+
+  return {
+    ...state,
+    retry: () => setRetry(value => value + 1),
+  }
+}
+
+const USAGE_AGENT_COLORS = [
+  '#245f1d',
+  '#3b782f',
+  '#548f47',
+  '#70a766',
+  '#8dbc86',
+  '#aacda5',
+  '#486d42',
+  '#789473',
+]
+
+function usageAgentTypeColor(agentType: string) {
+  let hash = 0
+  for (const character of agentType) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0
+  return USAGE_AGENT_COLORS[Math.abs(hash) % USAGE_AGENT_COLORS.length]!
+}
+
+function UsageDayHistogram({
+  date,
+  detail,
+  error,
+  loading,
+  onRetry,
+}: {
+  date: string
+  detail: UsageDayDetail | null
+  error: string
+  loading: boolean
+  onRetry: () => void
+}) {
+  const [inspection, setInspection] = useState<UsageHeatmapInspection | null>(null)
+
+  useEffect(() => setInspection(null), [date])
+
+  if (loading) {
+    return (
+      <div className="code-usage-day-breakdown loading" data-testid="code-usage-day-histogram-loading">
+        <div className="code-usage-day-breakdown-status">Loading hourly Agent activity…</div>
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <div className="code-usage-day-breakdown error" data-testid="code-usage-day-histogram-error">
+        <span>{error}</span>
+        <button type="button" onClick={onRetry}>Retry</button>
+      </div>
+    )
+  }
+  if (!detail) return null
+
+  const maximumHourTokens = Math.max(0, ...detail.hours.map(hour => hour.totalTokens))
+  const agentTypes = Array.from(detail.agents.reduce((types, agent) => {
+    const current = types.get(agent.provider)
+    if (current) {
+      current.totalTokens += agent.totalTokens
+    } else {
+      types.set(agent.provider, {
+        key: agent.provider,
+        label: agentDisplayName(agent.provider),
+        totalTokens: agent.totalTokens,
+      })
+    }
+    return types
+  }, new Map<string, { key: string; label: string; totalTokens: number }>()).values()).sort((left, right) => (
+    right.totalTokens - left.totalTokens || left.label.localeCompare(right.label)
+  ))
+  const readout = inspection
+    ? `${inspection.label} · ${formatCompactNumber(inspection.tokens)} tokens`
+    : `${formatUsageDay(detail.date)} · ${formatCompactNumber(detail.total.totalTokens)} tokens`
+
+  return (
+    <div
+      className="code-usage-day-breakdown"
+      data-testid="code-usage-day-histogram"
+      onMouseLeave={() => setInspection(null)}
+    >
+      <div className="code-usage-day-breakdown-heading">
+        <span>Hourly by Agent type</span>
+        <strong data-testid="code-usage-day-histogram-readout">{readout}</strong>
+      </div>
+      <div
+        className="code-usage-day-histogram-chart"
+        role="img"
+        aria-label={`Hourly token activity for ${detail.date}, split across ${agentTypes.length} Agent types`}
+      >
+        <div className="code-usage-day-histogram-scale" aria-hidden="true">
+          <span>{formatCompactNumber(maximumHourTokens)}</span>
+          <span>0</span>
+        </div>
+        <div className="code-usage-day-histogram-plot">
+          <div className="code-usage-day-histogram-bars">
+            {detail.hours.map(hour => {
+              const height = maximumHourTokens > 0 ? (hour.totalTokens / maximumHourTokens) * 100 : 0
+              return (
+                <div
+                  key={hour.hour}
+                  className="code-usage-day-histogram-column"
+                  data-hour={hour.hour}
+                  title={`${hour.label}:00 · ${formatExactTokenCount(hour.totalTokens)} tokens`}
+                >
+                  <div className="code-usage-day-histogram-stack" style={{ height: `${height}%` }}>
+                    {agentTypes.map(agentType => {
+                      const tokens = detail.agents.reduce((sum, agent) => (
+                        agent.provider === agentType.key
+                          ? sum + (Number(hour.agents[agent.key]?.totalTokens) || 0)
+                          : sum
+                      ), 0)
+                      if (tokens <= 0 || hour.totalTokens <= 0) return null
+                      const label = `${hour.label}:00 · ${agentType.label}`
+                      const title = `${label} · ${formatExactTokenCount(tokens)} tokens`
+                      return (
+                        <span
+                          key={agentType.key}
+                          className="code-usage-day-histogram-segment"
+                          data-agent-type={agentType.key}
+                          style={{
+                            backgroundColor: usageAgentTypeColor(agentType.key),
+                            height: `${(tokens / hour.totalTokens) * 100}%`,
+                          }}
+                          title={title}
+                          onMouseEnter={() => setInspection({ label, tokens })}
+                        />
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className="code-usage-day-histogram-axis" aria-hidden="true">
+            <span>00:00</span>
+            <span>06:00</span>
+            <span>12:00</span>
+            <span>18:00</span>
+            <span>23:00</span>
+          </div>
+        </div>
+      </div>
+      {agentTypes.length > 0 && (
+        <div className="code-usage-day-agent-legend" data-testid="code-usage-day-agent-legend">
+          {agentTypes.map(agentType => (
+            <span key={agentType.key} title={`${agentType.label} · ${formatExactTokenCount(agentType.totalTokens)} tokens`}>
+              <i style={{ backgroundColor: usageAgentTypeColor(agentType.key) }} aria-hidden="true" />
+              <b>{agentType.label}</b>
+              <small>{formatCompactNumber(agentType.totalTokens)}</small>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function UsageAnalysisCard({
@@ -1310,6 +1537,16 @@ function UsageActivityDialog({
   const [inspection, setInspection] = useState<UsageHeatmapInspection | null>(null)
   const timelinePoints = validUsageTimelinePoints(usageSummary)
   const dailyPoints = validUsageDailyPoints(usageSummary)
+  const peakDay = dailyPoints?.reduce<UsageDailyPoint | null>((peak, point) => (
+    !peak || point.totalTokens > peak.totalTokens ? point : peak
+  ), null) ?? null
+  const today = dailyPoints?.[dailyPoints.length - 1] ?? null
+  const inspectedDay = dailyPoints?.find(point => point.date === inspection?.label) ?? null
+  const histogramDay = range === 'year' ? (inspectedDay ?? today)?.date || '' : ''
+  const dayDetail = useUsageDayDetail(
+    histogramDay,
+    Boolean(histogramDay && dailyPoints && histogramDay === dailyPoints[dailyPoints.length - 1]?.date),
+  )
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1333,9 +1570,6 @@ function UsageActivityDialog({
   const previousSevenDayTotal = sumDailyTokens(previousSevenDays)
   const annualTotal = dailyPoints ? sumDailyTokens(dailyPoints) : 0
   const activeDays = dailyPoints?.filter(point => point.totalTokens > 0).length ?? 0
-  const peakDay = dailyPoints?.reduce<UsageDailyPoint | null>((peak, point) => (
-    !peak || point.totalTokens > peak.totalTokens ? point : peak
-  ), null) ?? null
   const currentSevenDayCache = currentSevenDays.reduce((sum, point) => (
     sum + (Number(point.cacheReadTokens) || 0) + (Number(point.cacheWriteTokens) || 0)
   ), 0)
@@ -1416,12 +1650,21 @@ function UsageActivityDialog({
             </>
           )}
           {range === 'year' && dailyPoints && (
-            <DailyUsageHeatmap
-              points={dailyPoints}
-              inspection={inspection}
-              showDayHighlight
-              onInspect={setInspection}
-            />
+            <>
+              <DailyUsageHeatmap
+                points={dailyPoints}
+                inspection={inspection}
+                showDayHighlight
+                onInspect={setInspection}
+              />
+              <UsageDayHistogram
+                date={histogramDay}
+                detail={dayDetail.date === histogramDay ? dayDetail.detail : null}
+                error={dayDetail.date === histogramDay ? dayDetail.error : ''}
+                loading={dayDetail.date === histogramDay ? dayDetail.loading : true}
+                onRetry={dayDetail.retry}
+              />
+            </>
           )}
           <div className="code-usage-detail-readout" data-testid="code-usage-detail-readout">
             {range === 'day' ? dayReadout : yearReadout}

@@ -194,6 +194,8 @@ async function run() {
   const usageDay = buildUsageDayDetail({
     codex: [{
       timestamp: new Date(2026, 5, 28, 9, 15).getTime(),
+      agentId: 'codex-agent-a',
+      agentLabel: 'Codex Agent A',
       totalTokens: 180,
       inputTokens: 80,
       outputTokens: 20,
@@ -201,12 +203,16 @@ async function run() {
     }],
     claude: [{
       timestamp: new Date(2026, 5, 28, 9, 45).getTime(),
+      agentId: 'claude-agent-b',
+      agentLabel: 'Claude Agent B',
       totalTokens: 70,
       inputTokens: 30,
       outputTokens: 30,
       cacheWriteTokens: 10,
     }, {
       timestamp: new Date(2026, 5, 28, 17, 5).getTime(),
+      agentId: 'claude-agent-b',
+      agentLabel: 'Claude Agent B',
       totalTokens: 50,
       inputTokens: 25,
       outputTokens: 25,
@@ -216,6 +222,10 @@ async function run() {
   assert.strictEqual(usageDay.hours.length, 24);
   assert.strictEqual(usageDay.hours[9].totalTokens, 250);
   assert.strictEqual(usageDay.hours[17].totalTokens, 50);
+  assert.strictEqual(usageDay.hours[9].agents['codex:codex-agent-a'].totalTokens, 180);
+  assert.strictEqual(usageDay.hours[9].agents['claude:claude-agent-b'].totalTokens, 70);
+  assert.strictEqual(usageDay.agents.length, 2);
+  assert.strictEqual(usageDay.agents[0].label, 'Codex Agent A');
   assert.strictEqual(usageDay.providers.codex.totalTokens, 180);
   assert.strictEqual(usageDay.providers.claude.totalTokens, 120);
   assert.strictEqual(usageDay.total.totalTokens, 300);
@@ -348,6 +358,8 @@ async function run() {
   const selectedDay = await monitor.getUsageDay(summary.daily.endDate, { now });
   assert.strictEqual(selectedDay.hours.length, 24);
   assert.strictEqual(selectedDay.total.totalTokens, summary.daily.summary.todayTokens);
+  assert(selectedDay.agents.some(agent => agent.provider === 'codex' && agent.sessionId === 'rollout-usage'));
+  assert(selectedDay.agents.some(agent => agent.provider === 'claude' && agent.sessionId === 'session'));
 
   const unavailableOpenCodeMonitor = new UsageMonitor({
     codexHome,

@@ -129,6 +129,7 @@ The right pane is a lightweight editor surface:
 
 - Monaco for text files;
 - in-editor Markdown preview toggled from Markdown source files;
+- workspace links followed from a Markdown document inherit that document's source Agent, so the return-to-Agent control remains available across document navigation;
 - preview for image, PDF, and binary files;
 - readonly mode for oversized files;
 - tabs with mature `tablist` semantics;
@@ -173,6 +174,7 @@ Large workspaces should stay usable through bounded operations:
 - file reads and writes keep size caps;
 - directory trees load lazily by directory;
 - after the Code workspace first renders, it starts one shared non-blocking preload of the dynamic file-editor module, Monaco core, and common syntax tokenizers; opening a file reuses that promise, while language workers remain demand-loaded and a background preload failure never reloads the page on its own;
+- TypeScript and JavaScript keep Monaco syntax diagnostics but disable its semantic and suggestion diagnostics until Farming has a project-backed language service; virtual editor models do not load the workspace's compiler configuration, dependency declarations, or complete file graph, so project-level markers would be misleading;
 - history defaults to 50 commits per page with a hard page cap, lazy commit-change loading, and a bounded frontend detail cache;
 - working-copy status returns complete records already captured plus `truncated: true` when a large untracked set exceeds the Git output buffer; it must never turn that condition into a false clean workspace;
 - file refresh is user-triggered: Git status and browser file requests time out, expanded directories refresh parent-first with at most six concurrent requests, and open files revalidate with at most four concurrent reads;

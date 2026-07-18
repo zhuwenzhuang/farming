@@ -82,7 +82,9 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
       String(dailyCursor.getDate()).padStart(2, '0'),
     ].join('-')
     const totalTokens = index === 0
-      ? 1_000_000_000
+      ? 2_000_000_000
+      : index === 1
+        ? 1_200_000_000
       : index >= 52 * 7 - 7
         ? 250_000_000
         : index >= 52 * 7 - 14
@@ -114,6 +116,70 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   const peakDailyPoint = dailyPoints.reduce((peak, point) => (
     point.totalTokens > peak.totalTokens ? point : peak
   ), dailyPoints[0]!)
+
+  await page.route(/\/api\/usage\/day(?:\?|$)/, async route => {
+    const date = new URL(route.request().url()).searchParams.get('date') || ''
+    const totalTokens = dailyPoints.find(point => point.date === date)?.totalTokens ?? 0
+    const firstAgentTokens = Math.round(totalTokens * 0.6)
+    const secondAgentTokens = totalTokens - firstAgentTokens
+    const emptyBreakdown = () => ({
+      totalTokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      unattributedTokens: 0,
+    })
+    const firstAgent = {
+      key: 'codex:agent-alpha',
+      provider: 'codex',
+      sessionId: 'agent-alpha',
+      label: 'Agent Alpha',
+      ...emptyBreakdown(),
+      totalTokens: firstAgentTokens,
+      inputTokens: firstAgentTokens,
+    }
+    const secondAgent = {
+      key: 'claude:agent-beta',
+      provider: 'claude',
+      sessionId: 'agent-beta',
+      label: 'Agent Beta',
+      ...emptyBreakdown(),
+      totalTokens: secondAgentTokens,
+      inputTokens: secondAgentTokens,
+    }
+    const agents = totalTokens > 0 ? [firstAgent, secondAgent] : []
+    const hours = Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      label: String(hour).padStart(2, '0'),
+      ...emptyBreakdown(),
+      ...(hour === 10 ? { totalTokens, inputTokens: totalTokens } : {}),
+      agents: hour === 10 && totalTokens > 0
+        ? {
+            [firstAgent.key]: { ...emptyBreakdown(), totalTokens: firstAgentTokens, inputTokens: firstAgentTokens },
+            [secondAgent.key]: { ...emptyBreakdown(), totalTokens: secondAgentTokens, inputTokens: secondAgentTokens },
+          }
+        : {},
+    }))
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        detail: {
+          source: 'local provider token events',
+          date,
+          timeZone: 'Asia/Shanghai',
+          total: { ...emptyBreakdown(), totalTokens, inputTokens: totalTokens },
+          hours,
+          providers: {
+            codex: { ...emptyBreakdown(), totalTokens: firstAgentTokens, inputTokens: firstAgentTokens },
+            claude: { ...emptyBreakdown(), totalTokens: secondAgentTokens, inputTokens: secondAgentTokens },
+          },
+          agents,
+        },
+      }),
+    })
+  })
 
   await page.route(/\/api\/usage(?:\?|$)/, async route => {
     await route.fulfill({
@@ -217,7 +283,7 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
     /^\d{2}:00$/,
     /^\d{2}:00$/,
   ])
-  await expect(panel.getByTestId('code-usage-activity-readout')).toHaveText('1d 1.5B · 7d 1.8B · 52w 3.5B')
+  await expect(panel.getByTestId('code-usage-activity-readout')).toHaveText('1d 1.5B · 7d 1.8B · 52w 5.7B')
   await expect.poll(() => panel.getByTestId('code-usage-activity-readout').evaluate(element => getComputedStyle(element).fontSize)).toBe('13px')
 
   const peakHourCell = heatmap.locator(`[data-start="${points[18]!.startedAt}"]`)
@@ -230,10 +296,10 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   await expect(dailyHeatmap.locator('.code-usage-daily-heatmap-cell')).toHaveCount(52 * 7)
   await expect(dailyHeatmap.locator(".code-usage-daily-heatmap-cell[data-recent='true']")).toHaveCount(7)
   const peakDayCell = dailyHeatmap.locator(`[data-date="${peakDailyPoint.date}"]`)
-  await expect(peakDayCell).toHaveAttribute('title', `${peakDailyPoint.date} · 1,000,000,000 tokens`)
+  await expect(peakDayCell).toHaveAttribute('title', `${peakDailyPoint.date} · 2,000,000,000 tokens · Token king`)
   await expect(peakDayCell).toHaveAttribute('data-peak', 'true')
   await peakDayCell.hover()
-  await expect(panel.getByTestId('code-usage-activity-readout')).toHaveText(`${peakDailyPoint.date} · 1,000,000,000 tokens`)
+  await expect(panel.getByTestId('code-usage-activity-readout')).toHaveText(`${peakDailyPoint.date} · 2,000,000,000 tokens`)
 
   await panel.getByTestId('code-usage-open-day').click()
   const detail = page.getByTestId('code-usage-detail-dialog')
@@ -246,11 +312,36 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   await detail.getByTestId('code-usage-detail-year-tab').click()
   await expect(detail.getByTestId('code-usage-detail-year-tab')).toHaveAttribute('aria-selected', 'true')
   const dayHighlight = detail.getByTestId('code-usage-detail-day-highlight')
-  await expect(dayHighlight).toHaveAttribute('data-state', 'peak')
-  await expect(dayHighlight).toContainText('Top')
-  await expect(dayHighlight).toContainText('1B')
-  const selectedDailyPoint = dailyPoints.at(-1)!
+  await expect(dayHighlight).toHaveAttribute('data-state', 'today')
+  await expect(dayHighlight).not.toContainText('Top')
+  await expect(dayHighlight).toContainText('250M')
   const detailDailyHeatmap = detail.getByTestId('code-usage-daily-heatmap')
+  const crownDayCell = detailDailyHeatmap.locator(`[data-date="${peakDailyPoint.date}"]`)
+  const flameDayCell = detailDailyHeatmap.locator(`[data-date="${dailyPoints[1]!.date}"]`)
+  await expect(crownDayCell).toHaveAttribute('data-shape', 'crown')
+  await expect(flameDayCell).toHaveAttribute('data-shape', 'flame')
+  await expect(crownDayCell.locator('[data-marker]')).toHaveCount(0)
+  await expect(flameDayCell.locator('[data-marker]')).toHaveCount(0)
+  const [crownMask, flameMask] = await Promise.all([crownDayCell, flameDayCell].map(locator => (
+    locator.evaluate(element => {
+      const style = getComputedStyle(element)
+      return style.maskImage || style.getPropertyValue('-webkit-mask-image')
+    })
+  )))
+  expect(crownMask).not.toBe('none')
+  expect(flameMask).not.toBe('none')
+  expect(crownMask).not.toBe(flameMask)
+  const hourlyHistogram = detail.getByTestId('code-usage-day-histogram')
+  await expect(hourlyHistogram).toBeVisible()
+  await expect(hourlyHistogram.getByText('Hourly by Agent type', { exact: true })).toBeVisible()
+  await expect(detail.getByTestId('code-usage-day-histogram-readout')).toContainText('250M tokens')
+  await expect(hourlyHistogram.locator('.code-usage-day-histogram-column')).toHaveCount(24)
+  await expect(hourlyHistogram.locator('[data-hour="10"] .code-usage-day-histogram-segment')).toHaveCount(2)
+  await expect(detail.getByTestId('code-usage-day-agent-legend')).toContainText('Codex')
+  await expect(detail.getByTestId('code-usage-day-agent-legend')).toContainText('Claude Code')
+  await expect(detail.getByTestId('code-usage-day-agent-legend')).not.toContainText('Agent Alpha')
+  await expect(detail.getByTestId('code-usage-day-agent-legend')).not.toContainText('Agent Beta')
+  const selectedDailyPoint = dailyPoints.at(-1)!
   const selectedDayCell = detailDailyHeatmap.locator(`[data-date="${selectedDailyPoint.date}"]`)
   await selectedDayCell.hover()
   await expect(selectedDayCell).toHaveAttribute('data-selected', 'true')
@@ -260,6 +351,9 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   await expect(detail.getByTestId('code-usage-detail-readout')).toHaveText(
     `${selectedDailyPoint.date} · 250,000,000 tokens`,
   )
+  await expect(detail.getByTestId('code-usage-day-histogram-readout')).toContainText('250M tokens')
+  await hourlyHistogram.locator('[data-hour="10"] .code-usage-day-histogram-segment').first().hover()
+  await expect(detail.getByTestId('code-usage-day-histogram-readout')).toContainText('Codex')
   await expect(detail.getByText('Last 7 days', { exact: true })).toBeVisible()
   await expect(detail.getByText('Previous 7 days', { exact: true })).toBeVisible()
   await expect(detail.getByText('7-day cache share', { exact: true })).toBeVisible()

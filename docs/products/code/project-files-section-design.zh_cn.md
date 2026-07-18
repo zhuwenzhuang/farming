@@ -295,6 +295,7 @@ Files
 
 - Monaco editor
 - Markdown 源文件可在同一 editor tab 内切换源码 / 渲染预览
+- 从 Markdown 文档点击 workspace 内部链接时，目标文档继承当前文档的来源 Agent，文档间跳转后仍保留返回 Agent 的入口
 - 图片 / PDF / 二进制只读 preview；大文本用只读 Monaco 展示文件开头内容
 - VS Code 风格 tab strip
 - 轻量多文件 tabs：打开过的文件保留 tab，可切换、关闭，并保留各自 dirty / external changed 状态；从目录树鼠标单击打开的是 transient preview tab，再单击另一个干净文件会复用该 tab；搜索结果、`path:line`、键盘 Enter、diff/review 打开是正式 tab；编辑后 transient tab 固定为正式 tab；tab strip 支持键盘切换和关闭，active tab 应自动滚入可见区域；editor 区域支持 `Ctrl/Cmd+PageUp` / `Ctrl/Cmd+PageDown` 切换 tab、`Ctrl/Cmd+W` 关闭当前 tab
@@ -369,6 +370,7 @@ Files
 - 文件读写保留大小上限。
 - 目录树按目录懒加载，不一次性展开整棵仓库。
 - Code workspace 首次渲染后启动一次共享且不阻塞主界面的预热，提前加载动态文件编辑器、Monaco 核心和常用语言 tokenizer；真正打开文件时复用同一个 Promise，语言 worker 仍按需加载，后台预热失败本身不能触发页面刷新。
+- TypeScript 和 JavaScript 保留 Monaco 的语法诊断，但在 Farming 接入基于真实 Project 的语言服务前关闭 semantic 和 suggestion diagnostics；当前虚拟 editor model 不会加载 workspace 的编译配置、依赖声明和完整文件图，项目级 marker 会误导用户。
 - 显式刷新只覆盖根目录和当前展开目录，按父级分层并限制为最多 6 个并发请求；任一 Git status 或文件请求都必须有有界超时。
 - Git History 每页默认 50 个 Commit，并设置硬上限；Commit 变更按点击懒加载，前端详情缓存保持有界。
 - Working Copy status 遇到超大 untracked 集合超过 Git 输出缓冲区时，返回已经完整读取的记录并标记 `truncated: true`；不能把这种情况伪装成干净 workspace。
