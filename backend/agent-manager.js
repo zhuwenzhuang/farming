@@ -1130,7 +1130,7 @@ class AgentManager extends EventEmitter {
       // has already switched to ACP. Recovering that stale PTY first would
       // overwrite the persisted record back to `terminal` before
       // recoverAcpSessions() gets a chance to read it.
-      if (persisted?.agentRuntimeMode === 'acp') {
+      if (runtimeKind(persisted) === 'acp') {
         await this.killRecoveredEngineSession(entry, engineMetadata, agentId);
         continue;
       }
@@ -1160,8 +1160,7 @@ class AgentManager extends EventEmitter {
         terminalInputReceived: Object.prototype.hasOwnProperty.call(persisted, 'terminalInputReceived')
           ? persisted.terminalInputReceived === true
           : engineMetadata.terminalInputReceived,
-        codexRuntimeMode: persisted.codexRuntimeMode || engineMetadata.codexRuntimeMode,
-        agentRuntimeMode: persisted.agentRuntimeMode || engineMetadata.agentRuntimeMode,
+        ...legacyRuntimeMetadata(persisted),
         pinned: persisted.pinned === true,
         projectOrder: finiteOrder(persisted.projectOrder) ?? finiteOrder(engineMetadata.projectOrder),
         pinnedOrder: finiteOrder(persisted.pinnedOrder) ?? finiteOrder(engineMetadata.pinnedOrder),
@@ -1234,8 +1233,7 @@ class AgentManager extends EventEmitter {
     const fallbackCandidates = recordList
       .filter(record => {
         if (!record || record.archived === true) return false;
-        if ((record.agentRuntimeMode || 'terminal') !== 'terminal') return false;
-        if (record.codexRuntimeMode === 'app-server') return false;
+        if (runtimeKind(record) !== 'terminal') return false;
         const provider = String(record.providerSessionProvider || record.provider || '').trim();
         if (!getProviderAdapter(provider)) return false;
         if (!isSafeProviderSessionId(record.providerSessionId)) return false;
@@ -1289,8 +1287,7 @@ class AgentManager extends EventEmitter {
         }))
         .filter(record => {
           if (!record || record.archived === true) return false;
-          if ((record.agentRuntimeMode || 'terminal') !== 'terminal') return false;
-          return record.codexRuntimeMode !== 'app-server';
+          return runtimeKind(record) === 'terminal';
         })
         .sort((left, right) => {
           if (left.wantsMain === true && right.wantsMain !== true) return -1;
@@ -1422,7 +1419,7 @@ class AgentManager extends EventEmitter {
     if (!this.acpRuntime || !this.configManager || typeof this.configManager.listAgentSessionRecords !== 'function') return;
     const mainPageOrder = new Map(this.getMainPageSessionKeys().map((key, index) => [key, index]));
     const records = this.configManager.listAgentSessionRecords()
-      .filter(record => record && record.archived !== true && record.agentRuntimeMode === 'acp')
+      .filter(record => record && record.archived !== true && runtimeKind(record) === 'acp')
       .sort((left, right) => {
         const leftOrder = mainPageOrder.get(left.providerSessionKey);
         const rightOrder = mainPageOrder.get(right.providerSessionKey);
@@ -1510,7 +1507,7 @@ class AgentManager extends EventEmitter {
     if (!this.codexAppServerRuntime || !this.configManager || typeof this.configManager.listAgentSessionRecords !== 'function') return;
     const records = this.configManager.listAgentSessionRecords();
     for (const record of records) {
-      if (!record || record.archived === true || record.codexRuntimeMode !== 'app-server') continue;
+      if (!record || record.archived === true || runtimeKind(record) !== 'app-server') continue;
       const agentId = String(record.runtimeAgentId || '').trim();
       const threadId = String(record.codexAppServerThreadId || record.providerSessionId || '').trim();
       const home = String(record.codexAppServerHomePath || '').trim();
@@ -1600,9 +1597,10 @@ class AgentManager extends EventEmitter {
     const wantsMain = metadata.wantsMain === true;
     const providerSessionProvider = metadata.providerSessionProvider || metadata.provider || '';
     const recoverCodexAppServer = shouldRecoverAsCodexAppServer(metadata);
+    const persistedRuntimeKind = runtimeKind(metadata);
     const recoveredRuntimeKind = recoverCodexAppServer
       ? 'app-server'
-      : (['acp', 'json'].includes(metadata.agentRuntimeMode) ? metadata.agentRuntimeMode : 'terminal');
+      : (persistedRuntimeKind === 'app-server' ? 'terminal' : persistedRuntimeKind);
     const runtimeBinding = runtimeBindingFor(recoveredRuntimeKind, {
       ...metadata,
       codexAppServerThreadId: metadata.codexAppServerThreadId || metadata.providerSessionId || '',
