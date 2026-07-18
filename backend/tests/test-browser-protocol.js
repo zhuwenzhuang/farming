@@ -1,10 +1,16 @@
 const assert = require('assert');
+const packageJson = require('../../package.json');
 const {
   PROTOCOL_VERSION,
   protocolCompatible,
   validateClientMessage,
   validateServerMessage,
 } = require('../../shared/browser-protocol');
+
+assert(
+  packageJson.files.includes('shared/'),
+  'the npm package must include the shared browser protocol required by the server',
+);
 
 assert.strictEqual(protocolCompatible(PROTOCOL_VERSION), true);
 assert.strictEqual(protocolCompatible(PROTOCOL_VERSION + 1), false);

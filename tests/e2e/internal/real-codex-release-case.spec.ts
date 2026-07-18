@@ -19,7 +19,7 @@ const REAL_CODEX_WORKSPACE = path.join(process.cwd(), '.tmp', 'real-codex-releas
 
 type PublicAgent = {
   id: string
-  agentRuntimeMode?: string
+  runtimeBinding?: { kind?: string }
   providerSessionId?: string
   providerSessionTemporary?: boolean
   terminalBusy?: boolean | null
@@ -203,16 +203,25 @@ async function waitForCompletedTerminalTurn(
 }
 
 async function assertCodeTerminalHealthy(page: Page, agentId: string) {
-  const diagnostics = await codeDiagnostics(page, agentId)
-  expect(diagnostics).not.toBeNull()
-  expect(diagnostics).toMatchObject({
+  await expect.poll(async () => {
+    const diagnostics = await codeDiagnostics(page, agentId)
+    if (!diagnostics) return null
+    return {
+      renderer: diagnostics.renderer,
+      checkpointRequestInFlight: diagnostics.checkpointRequestInFlight,
+      replayInProgress: diagnostics.replayInProgress,
+      bootstrappingSnapshot: diagnostics.bootstrappingSnapshot,
+      pendingSnapshotReplay: diagnostics.pendingSnapshotReplay,
+      replayTargetRevision: diagnostics.replayTargetRevision ?? null,
+    }
+  }, { timeout: 15_000 }).toEqual({
     renderer: 'webgl',
     checkpointRequestInFlight: false,
     replayInProgress: false,
     bootstrappingSnapshot: false,
     pendingSnapshotReplay: false,
+    replayTargetRevision: null,
   })
-  expect(diagnostics?.replayTargetRevision ?? null).toBeNull()
   await expect(page.getByTestId('code-terminal-status-card')).toHaveCount(0)
 }
 
@@ -346,7 +355,7 @@ async function switchCrtRuntime(page: Page, agentId: string) {
 
 async function assertSameProviderSession(page: Page, agentId: string, providerSessionId: string, mode: string) {
   const current = await waitForAgent(page, agentId, candidate => (
-    candidate.agentRuntimeMode === mode
+    candidate.runtimeBinding?.kind === mode
     && candidate.providerSessionTemporary !== true
     && candidate.providerSessionId === providerSessionId
     && candidate.status === 'running'

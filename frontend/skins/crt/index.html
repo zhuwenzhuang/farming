@@ -68,6 +68,12 @@
             z-index: 1;
         }
 
+        .map-area.empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
         .map-area.hidden {
             display: none;
         }
@@ -965,6 +971,24 @@
             margin-bottom: 20px;
         }
 
+        .empty-state p {
+            margin-bottom: 16px;
+        }
+
+        .empty-start-agent {
+            padding: 8px 20px;
+            border: 1px solid #00ff00;
+            background: #1a1a1a;
+            color: #00ff00;
+            cursor: pointer;
+            font: inherit;
+        }
+
+        .empty-start-agent:hover,
+        .empty-start-agent:focus-visible {
+            background: #3a3a3a;
+        }
+
         .modal.active {
             z-index: 10001;
         }
@@ -1466,6 +1490,14 @@
             <div class="empty-state" id="empty-state">
                 <h2>No Agents Running</h2>
                 <p>Press <strong>N</strong> to start a new agent</p>
+                <button
+                    type="button"
+                    class="empty-start-agent"
+                    data-crt-nav-key="empty:new-agent"
+                    data-crt-nav-default="true"
+                    tabindex="-1"
+                    onclick="showInputDialog()"
+                >[N] New Agent</button>
             </div>
         </div>
 

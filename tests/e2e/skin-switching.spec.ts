@@ -219,6 +219,50 @@ test('switches from Farming Code to the same Agent in Farming CRT', async ({ pag
   await expect(page.getByText('Terminal', { exact: true })).toHaveCount(0)
 })
 
+test('keeps the CRT dashboard actionable when only the Main Agent is running', async ({ page, workspaceRoot }) => {
+  await openFarming(page)
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/control/agents')
+    const payload = await response.json() as { mainAgentId?: string }
+    return payload.mainAgentId || ''
+  }, { timeout: 30_000 }).not.toBe('')
+
+  await page.goto('/farming/crt/', { waitUntil: 'networkidle' })
+
+  const mapArea = page.locator('#map-area')
+  const emptyState = page.locator('#empty-state')
+  const emptyStartAgent = emptyState.getByRole('button', { name: '[N] New Agent', exact: true })
+  await expect(mapArea).toHaveClass(/empty/)
+  await expect(emptyState).toBeVisible()
+  await expect(emptyStartAgent).toBeVisible()
+  await expect(page.locator('#main-agent-panel')).toBeVisible()
+
+  await emptyStartAgent.click()
+  await expect(page.locator('#input-dialog')).toHaveClass(/active/)
+  await expect(page.locator('#dialog-title')).toHaveText('Start New Agent')
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#input-dialog')).not.toHaveClass(/active/)
+
+  await page.keyboard.press('ArrowDown')
+  await expect(emptyStartAgent).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#input-dialog')).toHaveClass(/active/)
+  await page.keyboard.press('Escape')
+
+  const agentId = await createControlAgent(page, 'bash', workspaceRoot)
+  const agentCard = page.locator(`#map-area .agent-block[data-agent-id="${agentId}"]`)
+  await expect(agentCard).toBeVisible({ timeout: 30_000 })
+  await expect(emptyState).toBeHidden()
+  await expect(mapArea).not.toHaveClass(/empty/)
+
+  const killResponse = await page.request.delete(`/farming/api/control/agents/${agentId}`)
+  expect(killResponse.ok()).toBeTruthy()
+  await expect(agentCard).toHaveCount(0)
+  await expect(emptyState).toBeVisible()
+  await expect(emptyStartAgent).toBeVisible()
+  await expect(page.locator('#main-agent-panel')).toBeVisible()
+})
+
 test('keeps every session command reachable through a Terminal to MSG keyboard flow', async ({ page, workspaceRoot }) => {
   test.setTimeout(90_000)
   await openFarming(page)

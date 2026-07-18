@@ -5621,17 +5621,18 @@ function renderState() {
   mainAgentBlock.removeAttribute('data-agent-id');
   mainAgentBlock.removeAttribute('data-crt-nav-key');
 
+  const regularAgents = getCrtRegularAgents(state);
+  const hasRegularAgents = regularAgents.length > 0;
+  mapArea.classList.toggle('empty', !hasRegularAgents);
+  emptyState.style.display = hasRegularAgents ? 'none' : 'flex';
+
   if (visibleAgents.length === 0) {
-    emptyState.style.display = 'flex';
     mainAgentPanel.style.display = 'none';
     updateCrtAgentPageStatus(getCrtAgentPage([], 0, 1));
     showInputDialog();
     return;
   }
 
-  emptyState.style.display = 'none';
-
-  const regularAgents = getCrtRegularAgents(state);
   const pageLayout = calculateCrtAgentPageLayout(
     mapArea.clientWidth,
     mapArea.clientHeight,
