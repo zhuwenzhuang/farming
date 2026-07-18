@@ -1,5 +1,5 @@
-const PROTOCOL_VERSION = 1;
-const MIN_PROTOCOL_VERSION = 1;
+const PROTOCOL_VERSION = 2;
+const MIN_PROTOCOL_VERSION = 2;
 
 const CLIENT_MESSAGE_TYPES = new Set([
   'protocol-hello',
@@ -29,6 +29,7 @@ const SERVER_MESSAGE_TYPES = new Set([
   'session-preview',
   'system-stats',
   'agent-activity',
+  'agent-update',
   'agent-read',
   'workspace-file-watch',
   'workspace-file-event',
@@ -44,6 +45,31 @@ function stringField(value, name, optional = false) {
 
 function finiteField(value, name) {
   return typeof value[name] === 'number' && Number.isFinite(value[name]);
+}
+
+const AGENT_UPDATE_PATCH_VALIDATORS = {
+  terminalInputReceived: value => typeof value === 'boolean',
+  terminalBusy: value => value === null || typeof value === 'boolean',
+  shellCwd: value => typeof value === 'string',
+  shellLastExitCode: value => value === null || Number.isFinite(value),
+  shellLastEvent: value => typeof value === 'string',
+  shellCommand: value => typeof value === 'string',
+  shellLastCommand: value => typeof value === 'string',
+  shellCommandStartedAt: value => value === null || Number.isFinite(value),
+  shellLastCommandStartedAt: value => value === null || Number.isFinite(value),
+  shellLastCommandFinishedAt: value => value === null || Number.isFinite(value),
+  shellLastCommandDurationMs: value => value === null || Number.isFinite(value),
+  terminalStatus: value => value === null || objectMessage(value),
+  runtimeObservation: objectMessage,
+};
+
+function sanitizeAgentUpdatePatch(value) {
+  if (!objectMessage(value)) return null;
+  const entries = Object.entries(value);
+  if (entries.length === 0 || entries.some(([name, field]) => (
+    !AGENT_UPDATE_PATCH_VALIDATORS[name] || !AGENT_UPDATE_PATCH_VALIDATORS[name](field)
+  ))) return null;
+  return Object.fromEntries(entries);
 }
 
 function validateClientMessage(value) {
@@ -81,6 +107,7 @@ function validateServerMessage(value) {
     case 'session-preview': valid = objectMessage(value.preview) && stringField(value.preview, 'agentId'); break;
     case 'system-stats': valid = objectMessage(value.stats); break;
     case 'agent-activity': valid = objectMessage(value.activity) && stringField(value.activity, 'agentId'); break;
+    case 'agent-update': valid = objectMessage(value.update) && stringField(value.update, 'agentId') && Boolean(sanitizeAgentUpdatePatch(value.update.patch)); break;
     case 'agent-read': valid = objectMessage(value.read) && stringField(value.read, 'agentId'); break;
     case 'workspace-file-watch': valid = stringField(value, 'agentId') && typeof value.watching === 'boolean'; break;
     case 'workspace-file-event': valid = objectMessage(value.event) && stringField(value.event, 'agentId'); break;
@@ -97,6 +124,7 @@ module.exports = {
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
   protocolCompatible,
+  sanitizeAgentUpdatePatch,
   validateClientMessage,
   validateServerMessage,
 };

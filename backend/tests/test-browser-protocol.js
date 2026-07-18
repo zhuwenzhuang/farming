@@ -13,4 +13,13 @@ assert.strictEqual(validateClientMessage({ type: 'resize-agent', agentId: 'a', c
 assert.strictEqual(validateClientMessage({ type: 'unknown' }).ok, false);
 assert.strictEqual(validateServerMessage({ type: 'state', state: { agents: [] } }).ok, true);
 assert.strictEqual(validateServerMessage({ type: 'state', state: {} }).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'agent-update',
+  update: { agentId: 'a', patch: { terminalInputReceived: true } },
+}).ok, true);
+assert.strictEqual(validateServerMessage({ type: 'agent-update', update: { agentId: 'a' } }).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'agent-update',
+  update: { agentId: 'a', patch: { terminalInputReceived: true, status: 'dead' } },
+}).ok, false);
 console.log('browser protocol schema tests passed');

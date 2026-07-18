@@ -205,6 +205,28 @@ export interface AgentReadMessage {
   }
 }
 
+export interface AgentUpdateMessage {
+  type: 'agent-update'
+  update: {
+    agentId: string
+    patch: {
+      terminalInputReceived?: boolean
+      terminalBusy?: boolean | null
+      shellCwd?: string
+      shellLastExitCode?: number | null
+      shellLastEvent?: string
+      shellCommand?: string
+      shellLastCommand?: string
+      shellCommandStartedAt?: number | null
+      shellLastCommandStartedAt?: number | null
+      shellLastCommandFinishedAt?: number | null
+      shellLastCommandDurationMs?: number | null
+      terminalStatus?: AgentTerminalStatus | null
+      runtimeObservation?: RuntimeObservation
+    }
+  }
+}
+
 export interface SessionPreviewMessage {
   type: 'session-preview'
   preview: {
@@ -246,6 +268,7 @@ export type ServerMessage =
   | SessionPreviewMessage
   | SystemStatsMessage
   | AgentActivityMessage
+  | AgentUpdateMessage
   | AgentReadMessage
   | WorkspaceFileWatchMessage
   | WorkspaceFileEventMessage

@@ -331,6 +331,14 @@ export function useWebSocket() {
             case 'agent-started':
               setState(prev => ({ ...prev, lastStartedAgentId: msg.agentId }))
               break
+            case 'agent-update':
+              setState(prev => ({
+                ...prev,
+                agents: prev.agents.map(agent => (
+                  agent.id === msg.update.agentId ? { ...agent, ...msg.update.patch } : agent
+                )),
+              }))
+              break
             case 'session-preview':
               setState(prev => ({
                 ...prev,

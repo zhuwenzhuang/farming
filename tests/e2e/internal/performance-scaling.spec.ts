@@ -218,6 +218,7 @@ test('characterizes Code workspace scaling through 50 live Agents', async ({ pag
     const previewRenders = await renderSnapshot(page)
     const previewDelta = metricDelta(previewMetricsAfter, previewMetricsBefore)
     const previewWindowFrames = frames.slice(previewFrameStart)
+    const previewWindowMessages = messageCounts(previewWindowFrames)
 
     const result: ScaleResult = {
       agentCount: targetCount,
@@ -237,7 +238,7 @@ test('characterizes Code workspace scaling through 50 live Agents', async ({ pag
       previewRenders,
       previewScriptMs: previewDelta.scriptMs,
       previewTaskMs: previewDelta.taskMs,
-      previewWindowMessages: messageCounts(previewWindowFrames),
+      previewWindowMessages,
     }
     results.push(result)
     console.log(`performance-scale ${JSON.stringify(result)}`)
@@ -245,6 +246,7 @@ test('characterizes Code workspace scaling through 50 live Agents', async ({ pag
     expect(idleRenders.app).toBeLessThanOrEqual(2)
     expect(idleRenders.codeWorkspace).toBeLessThanOrEqual(2)
     expect(previewLatencyMs).toBeLessThan(15_000)
+    expect(previewWindowMessages.state || 0).toBe(0)
     expect(result.statePayloadBytes).toBeGreaterThan(0)
   }
 

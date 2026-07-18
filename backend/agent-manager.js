@@ -288,6 +288,24 @@ function activeCodexTerminalProfile(agent, previewText) {
   return profile;
 }
 
+function terminalMetadataPatch(agent) {
+  const terminalStatus = deriveAgentTerminalStatus(agent);
+  return {
+    terminalBusy: typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null,
+    shellCwd: agent.shellCwd || '',
+    shellLastExitCode: agent.shellLastExitCode ?? null,
+    shellLastEvent: agent.shellLastEvent || '',
+    shellCommand: agent.shellCommand || '',
+    shellLastCommand: agent.shellLastCommand || '',
+    shellCommandStartedAt: agent.shellCommandStartedAt ?? null,
+    shellLastCommandStartedAt: agent.shellLastCommandStartedAt ?? null,
+    shellLastCommandFinishedAt: agent.shellLastCommandFinishedAt ?? null,
+    shellLastCommandDurationMs: agent.shellLastCommandDurationMs ?? null,
+    terminalStatus,
+    runtimeObservation: deriveRuntimeObservation({ ...agent, terminalStatus }),
+  };
+}
+
 function terminalRuntimeStatus(agentStatus) {
   return agentStatus === 'stopped' || agentStatus === 'dead' ? 'exited' : agentStatus;
 }
@@ -1021,7 +1039,7 @@ class AgentManager extends EventEmitter {
           void this.refreshAgentWorktree(sessionId, agent.shellCwd);
         }
         this.observeAgentAttentionState(sessionId);
-        this.emit('update');
+        this.emit('agent-update', { agentId: sessionId, patch: terminalMetadataPatch(agent) });
       });
 
     this.engineBridge.on('session-exited', ({
@@ -3398,6 +3416,7 @@ class AgentManager extends EventEmitter {
         agent.terminalInputReceived = true;
         this.ensurePersistentAgentSession(agent);
         this.updateEngineProviderSessionMetadata(agent);
+        this.emit('agent-update', { agentId, patch: { terminalInputReceived: true } });
       }
       if (submittedUserInput) {
         this.providerSessionService.observe(agentId, { force: true });

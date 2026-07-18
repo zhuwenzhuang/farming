@@ -72,6 +72,7 @@ const {
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
   protocolCompatible,
+  sanitizeAgentUpdatePatch,
   validateClientMessage,
 } = require('../shared/browser-protocol');
 
@@ -2246,6 +2247,7 @@ let stateBroadcastTimer = null;
 let lastStateBroadcastAt = 0;
 const pendingPreviewBroadcasts = new Map();
 const pendingAgentActivityBroadcasts = new Map();
+const pendingAgentUpdates = new Map();
 const pendingSessionStreams = new Map();
 let sessionStreamBroadcastTimer = null;
 let lastSessionStreamBroadcastAt = 0;
@@ -2378,6 +2380,33 @@ function scheduleAgentActivityBroadcast(activity) {
 
 agentManager.onAgentActivity(scheduleAgentActivityBroadcast);
 
+function scheduleAgentUpdate(update) {
+  const patch = sanitizeAgentUpdatePatch(update?.patch);
+  if (!update?.agentId || !patch) return;
+  const existing = pendingAgentUpdates.get(update.agentId);
+  if (existing) {
+    Object.assign(existing.patch, patch);
+    return;
+  }
+  const entry = {
+    patch,
+    timer: setTimeout(() => {
+      pendingAgentUpdates.delete(update.agentId);
+      const message = JSON.stringify({
+        type: 'agent-update',
+        update: { agentId: update.agentId, patch: entry.patch },
+      });
+      wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) client.send(message);
+      });
+    }, AGENT_ACTIVITY_BROADCAST_DELAY_MS),
+  };
+  entry.timer.unref?.();
+  pendingAgentUpdates.set(update.agentId, entry);
+}
+
+agentManager.on('agent-update', scheduleAgentUpdate);
+
 function broadcastAgentRead(read) {
   if (!read || !read.agentId) return;
   const message = JSON.stringify({ type: 'agent-read', read });
@@ -2452,6 +2481,10 @@ function clearBroadcastTimers() {
     if (entry && entry.timer) clearTimeout(entry.timer);
   }
   pendingAgentActivityBroadcasts.clear();
+  for (const entry of pendingAgentUpdates.values()) {
+    if (entry && entry.timer) clearTimeout(entry.timer);
+  }
+  pendingAgentUpdates.clear();
   if (sessionStreamBroadcastTimer) {
     clearTimeout(sessionStreamBroadcastTimer);
     sessionStreamBroadcastTimer = null;

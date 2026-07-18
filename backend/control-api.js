@@ -253,7 +253,6 @@ function createControlRouter(agentManager, options = {}) {
       res.status(409).json({ error: result?.reason || 'terminal input rejected' });
       return;
     }
-    notifyUpdate();
     res.json({ success: true });
   });
 

@@ -172,6 +172,8 @@ async function run() {
     });
     const originalObserveProviderSession = manager.providerSessionService.observe.bind(manager.providerSessionService);
     const observedStateChanges = [];
+    const agentUpdates = [];
+    manager.on('agent-update', update => agentUpdates.push(update));
     manager.providerSessionService.observe = (agentId, options) => {
       observedStateChanges.push({ agentId, options });
     };
@@ -202,6 +204,10 @@ async function run() {
       [{ agentId: 'agent-focus-protocol', options: { force: true } }],
       'submitting Terminal input should trigger provider session observation once'
     );
+    assert.deepStrictEqual(agentUpdates, [{
+      agentId: 'agent-focus-protocol',
+      patch: { terminalInputReceived: true },
+    }], 'the first accepted input should publish only the changed Agent field');
     manager.providerSessionService.observe = originalObserveProviderSession;
 
     manager.agents.set('agent-display-events', {
@@ -288,6 +294,9 @@ async function run() {
       [{ agentId: 'agent-display-events', workspace: '/tmp/display-events' }],
       'cwd changes may refresh worktree metadata without triggering provider session scans'
     );
+    assert.strictEqual(agentUpdates.at(-1).agentId, 'agent-display-events');
+    assert.strictEqual(agentUpdates.at(-1).patch.terminalBusy, true);
+    assert.strictEqual(agentUpdates.at(-1).patch.shellCwd, '/tmp/display-events');
 
     manager.engineBridge.emit('session-started', {
       sessionId: 'agent-display-events',

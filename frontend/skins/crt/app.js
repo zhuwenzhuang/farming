@@ -105,7 +105,7 @@ let crtTerminalReplication = null;
 const terminalPreviewSnapshots = new Map();
 const crtBrandPulseTimers = new Map();
 const SESSION_LINK_LIMIT = 6;
-const CRT_PROTOCOL_VERSION = 1;
+const CRT_PROTOCOL_VERSION = 2;
 const CRT_PREVIEW_RENDER_INTERVAL_MS = 1000;
 const CRT_STRUCTURED_PREVIEW_REFRESH_MS = 240;
 const CRT_AGENT_CARD_MIN_WIDTH = 200;
@@ -5201,6 +5201,14 @@ function connect() {
       openCrtAgentDeeplinkIfReady();
     } else if (data.type === 'agent-started') {
       selectCrtStartedAgent(data.agentId);
+    } else if (data.type === 'agent-update') {
+      const update = data.update;
+      const agent = update && state && state.agents.find(candidate => candidate.id === update.agentId);
+      if (agent && update.patch && typeof update.patch === 'object') {
+        Object.assign(agent, update.patch);
+        renderCrtDashboardIfNeeded();
+        if (agent.id === focusedAgentId) updateCrtRuntimeSwitchControl(agent);
+      }
     } else if (data.type === 'session-preview') {
       const preview = data.preview;
       if (preview && preview.agentId) {
