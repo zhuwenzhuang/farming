@@ -19,6 +19,16 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function waitForValue(read, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = read();
+    if (value) return value;
+    await delay(5);
+  }
+  throw new Error('Timed out waiting for test state');
+}
+
 async function run() {
   const calls = [];
   const agents = new Map();
@@ -98,13 +108,13 @@ async function run() {
         parentAgentId: 'agent-main',
       }),
     });
+    const firstAgent = await waitForValue(() => agents.get('agent-1'));
     await delay(10);
     assert.strictEqual(
       calls.filter(call => call.type === 'sendInput').length,
       0,
       'initial Terminal input must not be guessed from a fixed startup delay',
     );
-    const firstAgent = agents.get('agent-1');
     firstAgent.previewText = '› Ask Codex\n\ngpt-5.6-sol xhigh · /repo';
     firstAgent.terminalStatus = { kind: 'codex', activity: 'idle', source: 'terminal-text' };
     firstAgent.stateRevision = 1;
@@ -166,8 +176,7 @@ async function run() {
       method: 'POST',
       body: JSON.stringify({ command: 'codex', task: 'must not race user input' }),
     });
-    await delay(5);
-    const cancelledAgent = agents.get('agent-2');
+    const cancelledAgent = await waitForValue(() => agents.get('agent-2'));
     cancelledAgent.terminalInputReceived = true;
     events.emit('update');
     const cancelled = await cancelledPromise;
@@ -179,8 +188,7 @@ async function run() {
       method: 'POST',
       body: JSON.stringify({ command: 'codex', task: 'must stay on one runtime' }),
     });
-    await delay(5);
-    const replacedAgent = agents.get('agent-3');
+    const replacedAgent = await waitForValue(() => agents.get('agent-3'));
     replacedAgent.runtimeEpoch = 'epoch-3-replacement';
     events.emit('update');
     const replaced = await replacedPromise;

@@ -158,6 +158,7 @@ git -C "${PROJECT_ROOT}" archive --format=tar HEAD -- \
   README.md \
   README.zh_cn.md \
   SECURITY.md \
+  shared \
   THIRD_PARTY_NOTICES.md \
   index.html | tar -xf - -C "${APP_DIR}"
 cp "${PROJECT_ROOT}/package-lock.json" "${APP_DIR}/package-lock.json"

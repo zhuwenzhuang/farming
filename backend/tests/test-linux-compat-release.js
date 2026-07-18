@@ -11,8 +11,10 @@ function createBundle(root, glibcVersion) {
   const bundleDir = path.join(root, bundleName);
   const ptyDir = path.join(bundleDir, 'node_modules/node-pty/build/Release');
   fs.mkdirSync(path.join(bundleDir, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.join(bundleDir, 'shared'), { recursive: true });
   fs.mkdirSync(ptyDir, { recursive: true });
   fs.writeFileSync(path.join(bundleDir, 'scripts/install-release.sh'), '#!/bin/sh\n');
+  fs.writeFileSync(path.join(bundleDir, 'shared/browser-protocol.js'), 'module.exports = {};\n');
   fs.writeFileSync(path.join(ptyDir, 'pty.node'), `ELF fixture GLIBC_2.2.5 GLIBC_${glibcVersion}`);
   fs.writeFileSync(path.join(bundleDir, 'RELEASE.json'), JSON.stringify({
     type: 'app-bundle',

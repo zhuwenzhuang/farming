@@ -71,10 +71,12 @@ function readBundleRelease(archivePath) {
   }
 
   const installerEntry = findBundleEntry(entries, '/scripts/install-release.sh');
+  const browserProtocolEntry = findBundleEntry(entries, '/shared/browser-protocol.js');
   return {
     entries,
     releaseEntry,
     installerEntry,
+    browserProtocolEntry,
     release: readArchiveJson(archivePath, releaseEntry),
   };
 }
@@ -93,6 +95,9 @@ function verifyReleaseBundle(archivePath) {
   }
   if (!bundle.installerEntry) {
     throw new Error(`release archive is missing scripts/install-release.sh: ${archivePath}`);
+  }
+  if (!bundle.browserProtocolEntry) {
+    throw new Error(`release archive is missing shared/browser-protocol.js: ${archivePath}`);
   }
   return bundle;
 }

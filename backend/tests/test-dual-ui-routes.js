@@ -44,6 +44,7 @@ function run() {
   assert(packageJson.files.includes('frontend/skins/'));
   assert(pkgConfig.includes("'frontend/skins/**/*'"));
   assert(packageRelease.includes('  frontend \\\n'));
+  assert(packageRelease.includes('  shared \\\n'));
 
   console.log('✓ Farming Code and CRT expose independent, packaged UI routes');
 }

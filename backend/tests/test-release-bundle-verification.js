@@ -14,6 +14,10 @@ function makeArchive(options = {}) {
   const appDir = path.join(rootDir, `farming-${releaseVersion}`);
   fs.mkdirSync(path.join(appDir, 'scripts'), { recursive: true });
   fs.writeFileSync(path.join(appDir, 'scripts', 'install-release.sh'), '#!/usr/bin/env bash\n');
+  if (!options.missingBrowserProtocol) {
+    fs.mkdirSync(path.join(appDir, 'shared'), { recursive: true });
+    fs.writeFileSync(path.join(appDir, 'shared', 'browser-protocol.js'), 'module.exports = {};\n');
+  }
   fs.writeFileSync(path.join(appDir, 'RELEASE.json'), JSON.stringify({
     name: 'farming',
     type: 'app-bundle',
@@ -36,8 +40,12 @@ function run() {
     () => verifyReleaseBundle(makeArchive({ dirty: true })),
     /must be built from a clean working tree/,
   );
+  assert.throws(
+    () => verifyReleaseBundle(makeArchive({ missingBrowserProtocol: true })),
+    /missing shared\/browser-protocol\.js/,
+  );
 
-  console.log('✓ release bundle verification requires clean release metadata');
+  console.log('✓ release bundle verification requires clean metadata and runtime protocol files');
 }
 
 run();
