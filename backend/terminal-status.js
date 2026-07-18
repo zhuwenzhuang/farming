@@ -150,13 +150,12 @@ function latestTerminalKindFromText(title, previewText) {
 
 function inferKindFromText(title, previewText, command) {
   const commandName = executableName(command).toLowerCase();
-  if (commandName === 'claude') return 'claude';
-  if (commandName === 'codex') return 'codex';
   if (DIRECT_PROCESS_AGENTS.has(commandName)) return 'process';
-  if (commandName && !SHELL_COMMANDS.has(commandName)) return 'process';
-
+  if (commandName && !SHELL_COMMANDS.has(commandName) && commandName !== 'codex' && commandName !== 'claude') return 'process';
   const terminalKind = latestTerminalKindFromText(title, previewText);
   if (terminalKind) return terminalKind;
+  if (commandName === 'claude') return 'claude';
+  if (commandName === 'codex') return 'codex';
   if (SHELL_COMMANDS.has(commandName)) return 'shell';
   return commandName ? 'process' : 'unknown';
 }

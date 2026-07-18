@@ -12,13 +12,23 @@ const {
   findAgentSession,
   resolveCodexResumeModelProvider,
 } = require('./agent-session-history');
-const { listCodexSessions } = require('./codex-session-history');
 const { unarchiveCodexSession } = require('./codex-session-archive');
 const { buildAgentProviderSessionPlan, sessionFromExactResumeSource } = require('./agent-provider-session');
 const { resolveAgentExecutable, resolveCompatibleCodexExecutable } = require('./executable-discovery');
 const { ensureMainAgentSkillFiles, renderMainAgentBootstrap } = require('./main-agent-skills');
 const { mainPageAgentSessionKey, resumedAgentSource } = require('./main-page-session');
 const { isSafeProviderSessionId, isTemporaryProviderSessionId } = require('./provider-session-id');
+const { ProviderSessionService } = require('./provider-session-service');
+const { publicRuntimeBinding } = require('./agent-runtime-binding');
+const { deriveRuntimeObservation } = require('./runtime-observation');
+const {
+  applyProviderHomeEnvironment,
+  getProviderAdapter,
+  isFreshAcpSessionSource,
+  providerCapabilities,
+  providerForProgram,
+  providerSupportsRuntime,
+} = require('./provider-adapters');
 const { deriveTerminalStatus } = require('./terminal-status');
 const { CodexAppServerRuntime, normalizeCodexRuntimeMode } = require('./codex-app-server-runtime');
 const { JsonCliRuntime } = require('./json-cli-runtime');
@@ -42,12 +52,13 @@ const {
   normalizeInteractiveTerminalEnv,
   resolveUserShellEnvSync,
 } = require('./agent-env');
-const { inspectGitWorktree, isLinkedWorktreeOf } = require('./git-worktree-info');
+const { inspectGitWorktree } = require('./git-worktree-info');
 const { deserializeTerminalState } = require('./terminal-state-serialization');
 const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation');
 
 const SESSION_OUTPUT_LIMIT = 10000;
 const AGENT_USAGE_RATE_WINDOW_MS = 5 * 60 * 1000;
+const AGENT_USAGE_RATE_REFRESH_MS = 5 * 1000;
 const ACTIVITY_UPDATE_INTERVAL_MS = 1000;
 const ACTIVITY_HOT_SEC = 30 * 60;
 const ACTIVITY_WARM_SEC = 3 * 60 * 60;
@@ -57,9 +68,6 @@ const ZOMBIE_SWEEP_INTERVAL_MS = 60 * 1000;
 const MISSING_ENGINE_SESSION_STARTUP_GRACE_MS = 5000;
 const MIN_TERMINAL_RESIZE_COLS = 40;
 const MIN_TERMINAL_RESIZE_ROWS = 10;
-const CODEX_PROVIDER_SESSION_RESOLVE_COOLDOWN_MS = 1000;
-const CODEX_PROVIDER_SESSION_MATCH_GRACE_MS = 30 * 1000;
-const PROVIDER_SESSION_TITLE_RESOLVE_COOLDOWN_MS = 30 * 1000;
 const AGENT_DISCOVERY_CACHE_MAX_AGE_MS = 3_000;
 const SHELL_PROMPT_ENV_KEYS = [
   'PS1',
@@ -197,9 +205,7 @@ function agentProgramName(command) {
 }
 
 function agentHomeProviderForProgram(command) {
-  const program = agentProgramName(command).toLowerCase();
-  if (program === 'qodercli') return 'qoder';
-  return ['codex', 'claude', 'opencode', 'qoder'].includes(program) ? program : '';
+  return providerForProgram(agentProgramName(command));
 }
 
 function hasUsableCodexAppServerHome(metadata) {
@@ -362,9 +368,7 @@ function recoveredEngineSessionId(entry, metadata = {}) {
 
 function agentDisplayName(command) {
   const program = agentProgramName(command).toLowerCase();
-  if (program === 'codex') return 'codex';
-  if (program === 'claude') return 'claude code';
-  return program;
+  return getProviderAdapter(providerForProgram(program))?.displayName || program;
 }
 
 function titleComparisonKey(title) {
@@ -403,11 +407,8 @@ function isGenericSessionTitle(agent, title) {
 }
 
 function interruptInputForAgent(agent) {
-  const program = agentProgramName(agent && agent.command);
-  if (program === 'codex' || program === 'claude' || program === 'qodercli') {
-    return '\x1b';
-  }
-  return '\x03';
+  const provider = agent?.providerSessionProvider || agentHomeProviderForProgram(agent?.command);
+  return getProviderAdapter(provider)?.interruptInput || '\x03';
 }
 
 function normalizePathValue(value) {
@@ -455,11 +456,6 @@ function publicAgentGitWorktree(agent) {
       }))
       : [],
   };
-}
-
-function timestampMs(value) {
-  const parsed = Date.parse(value || '');
-  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function normalizePositiveInteger(value, fallback, min, max) {
@@ -535,15 +531,12 @@ class AgentManager extends EventEmitter {
     this.lastActivity = new Map();
     this.lastActivityUpdate = new Map();
     this.outputEvents = new Map(); // Map<agentId, Array<{timestamp, bytes}>> for rate tracking
+    this.agentUsageRateCache = new Map();
     this.lastResizeByAgent = new Map();
     this.pendingResizeByAgent = new Map();
     this.resizeDrains = new Map();
     this.inputQueues = new Map();
     this.codexTerminalProfileQueues = new Map();
-    this.codexSessionResolveInFlight = new Map();
-    this.codexSessionResolveLastAttemptAt = new Map();
-    this.providerSessionTitleResolveInFlight = new Map();
-    this.providerSessionTitleResolveLastAttemptAt = new Map();
     this.agentWorktreeResolveGeneration = new Map();
     this.permissionRestartInFlight = new Map();
     this.runtimeRestartInFlight = new Map();
@@ -569,6 +562,22 @@ class AgentManager extends EventEmitter {
     this.systemMonitor = new SystemMonitor();
     this.startTime = Date.now();
     this.engineBridge = new SessionEngineBridge(configManager);
+    this.providerSessionService = new ProviderSessionService({
+      agents: this.agents,
+      getProviderHomes: () => this.configManager?.getSettings?.()?.agentHomes,
+      commit: (agent, change = {}) => {
+        if (change.kind === 'session-updated') this.ensurePersistentAgentSession(agent);
+        this.updateEngineProviderSessionMetadata(agent);
+        this.rememberMainPageProviderSession(agent);
+        if (change.event) {
+          this.emit('provider-session-updated', change.event);
+          this.emit('update');
+        }
+        if (change.refreshWorkspace) {
+          void this.refreshAgentWorktree(agent.id, change.refreshWorkspace);
+        }
+      },
+    });
     this.recoveryPromise = Promise.resolve();
     this.taskHistory = (this.configManager && this.configManager.getTaskHistory)
       ? [...this.configManager.getTaskHistory()]
@@ -594,13 +603,7 @@ class AgentManager extends EventEmitter {
       agent.jsonCliState = state || '';
       agent.jsonCliError = error || '';
       if (sessionId) {
-        agent.providerSessionId = sessionId;
-        agent.providerSessionTemporary = false;
-        agent.providerSessionKey = this.providerSessionKey(
-          agent.providerSessionProvider,
-          sessionId,
-          agent.providerHomeId || 'default'
-        );
+        this.providerSessionService.bindConfirmed(agentId, agent.providerSessionProvider, sessionId);
         this.ensurePersistentAgentSession(agent);
       }
       this.lastActivity.set(agentId, Date.now());
@@ -630,13 +633,7 @@ class AgentManager extends EventEmitter {
       agent.acpActiveElicitations = Array.isArray(activeElicitations) ? activeElicitations : [];
       agent.acpSessionUpdatedAt = updatedAt || '';
       if (sessionId) {
-        agent.providerSessionId = sessionId;
-        agent.providerSessionTemporary = false;
-        agent.providerSessionKey = this.providerSessionKey(
-          agent.providerSessionProvider,
-          sessionId,
-          agent.providerHomeId || 'default'
-        );
+        this.providerSessionService.bindConfirmed(agentId, agent.providerSessionProvider, sessionId);
         this.ensurePersistentAgentSession(agent);
       }
       if (state === 'working' || state === 'waiting-for-permission' || state === 'waiting-for-input') this.lastActivity.set(agentId, Date.now());
@@ -659,12 +656,10 @@ class AgentManager extends EventEmitter {
 
       if (typeof patch.threadId === 'string' && patch.threadId) {
         agent.codexAppServerThreadId = patch.threadId;
-        agent.providerSessionId = patch.threadId;
-        agent.providerSessionTemporary = false;
-        agent.providerSessionKey = this.providerSessionKey(
+        this.providerSessionService.bindConfirmed(
+          agentId,
           agent.providerSessionProvider || 'codex',
-          patch.threadId,
-          agent.providerHomeId || 'default'
+          patch.threadId
         );
       }
       if (typeof patch.turnId === 'string') agent.codexAppServerTurnId = patch.turnId;
@@ -712,7 +707,7 @@ class AgentManager extends EventEmitter {
         agent.engineStatus = status || 'running';
         agent.startedAt = startedAt || Date.now();
         this.observeAgentAttentionState(sessionId);
-        this.observeAgentStateChange(sessionId, { force: true });
+        this.providerSessionService.observe(sessionId, { force: true });
         this.emit('update');
       });
 
@@ -733,14 +728,15 @@ class AgentManager extends EventEmitter {
 
         this.reviveAgentRuntime(agent);
         agent.output = trimSessionOutput(agent.output + data);
-        agent.lastEngineOutputAt = Date.now();
-        this.lastActivity.set(sessionId, Date.now());
+        const outputAt = Date.now();
+        agent.lastEngineOutputAt = outputAt;
+        this.lastActivity.set(sessionId, outputAt);
 
         // Track output events for rate calculation
         const events = this.outputEvents.get(sessionId) || [];
-        events.push({ timestamp: Date.now(), bytes: Buffer.byteLength(String(data), 'utf8') });
-        const cutoff = Date.now() - AGENT_USAGE_RATE_WINDOW_MS;
-        this.outputEvents.set(sessionId, events.filter(e => e.timestamp > cutoff));
+        events.push({ timestamp: outputAt, bytes: Buffer.byteLength(String(data), 'utf8') });
+        this.outputEvents.set(sessionId, events);
+        this.getAgentUsageRate(sessionId, { now: outputAt });
 
         this.observeAgentAttentionState(sessionId);
         const sessionSource = this.getEngineSessionSource(engineName);
@@ -783,6 +779,7 @@ class AgentManager extends EventEmitter {
         agent.previewText = '';
         agent.previewSnapshot = null;
         this.outputEvents.delete(sessionId);
+        this.agentUsageRateCache.delete(sessionId);
       }
       if (Number.isFinite(cols) && cols > 0) agent.previewCols = cols;
       if (Number.isFinite(rows) && rows > 0) agent.previewRows = rows;
@@ -879,6 +876,11 @@ class AgentManager extends EventEmitter {
         if (Number.isFinite(rows) && rows > 0) {
           agent.previewRows = rows;
         }
+        const terminalStatus = deriveAgentTerminalStatus(agent, {
+          previewText: agent.previewText,
+          title: agent.sessionTitle || '',
+          terminalBusy: typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null,
+        });
         this.emit('session-preview-update', {
           agentId: sessionId,
           previewText: agent.previewText,
@@ -886,11 +888,8 @@ class AgentManager extends EventEmitter {
           rows: agent.previewRows || 30,
           previewSnapshot: agent.previewSnapshot,
           codexTerminalProfile: activeCodexTerminalProfile(agent, agent.previewText),
-          terminalStatus: deriveAgentTerminalStatus(agent, {
-            previewText: agent.previewText,
-            title: agent.sessionTitle || '',
-            terminalBusy: typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null,
-          }),
+          terminalStatus,
+          runtimeObservation: deriveRuntimeObservation({ ...agent, terminalStatus }),
         });
         this.observeAgentAttentionState(sessionId);
         if (titleChanged) {
@@ -1031,8 +1030,7 @@ class AgentManager extends EventEmitter {
         if (isCodexAppServerAgent(agent)) return;
 
         if (stateProofAvailable === false) {
-          this.stopCodexProviderSessionResolver(sessionId);
-          this.stopProviderSessionTitleResolver(sessionId);
+          this.providerSessionService.stop(sessionId);
           agent.status = 'dead';
           agent.engineStatus = 'dead';
           agent.terminalBusy = false;
@@ -1042,18 +1040,18 @@ class AgentManager extends EventEmitter {
             agent.output = trimSessionOutput(`${agent.output || ''}\n${proofError}`);
           }
           this.observeAgentAttentionState(sessionId);
-          this.observeAgentStateChange(sessionId, { force: true });
+          this.providerSessionService.observe(sessionId, { force: true });
           this.emit('update');
           return;
         }
 
         if (!agent.validated) {
-          this.stopCodexProviderSessionResolver(sessionId);
-          this.stopProviderSessionTitleResolver(sessionId);
+          this.providerSessionService.stop(sessionId);
           this.agents.delete(sessionId);
           this.lastActivity.delete(sessionId);
           this.lastActivityUpdate.delete(sessionId);
           this.outputEvents.delete(sessionId);
+          this.agentUsageRateCache.delete(sessionId);
           this.lastResizeByAgent.delete(sessionId);
 
           if (this.mainAgentId === sessionId) {
@@ -1064,13 +1062,12 @@ class AgentManager extends EventEmitter {
           return;
         }
 
-        this.stopCodexProviderSessionResolver(sessionId);
-        this.stopProviderSessionTitleResolver(sessionId);
+        this.providerSessionService.stop(sessionId);
         agent.status = sessionId === this.mainAgentId ? 'dead' : 'stopped';
         agent.exitedAt = exitedAt || Date.now();
         agent.output = trimSessionOutput(`${agent.output}\nProcess exited with code ${code}`);
         this.observeAgentAttentionState(sessionId);
-        this.observeAgentStateChange(sessionId, { force: true });
+        this.providerSessionService.observe(sessionId, { force: true });
         if (sessionId !== this.mainAgentId) {
           this.recordTaskHistory(agent, {
             reason: 'process-exit',
@@ -1172,7 +1169,7 @@ class AgentManager extends EventEmitter {
       if (agentRecord.wantsMain && !this.mainAgentId) {
         this.mainAgentId = agentId;
       }
-      this.activateProviderSessionTracking(agentId);
+      this.providerSessionService.activate(agentId);
       changed = true;
     }
 
@@ -1196,7 +1193,7 @@ class AgentManager extends EventEmitter {
     const liveProviderSessions = new Set(
       [...this.agents.values()]
         .filter(agent => agent?.providerSessionProvider && agent?.providerSessionId)
-        .map(agent => this.providerSessionKey(
+        .map(agent => mainPageAgentSessionKey(
           agent.providerSessionProvider,
           agent.providerSessionId,
           agent.providerHomeId || 'default'
@@ -1227,9 +1224,9 @@ class AgentManager extends EventEmitter {
         if ((record.agentRuntimeMode || 'terminal') !== 'terminal') return false;
         if (record.codexRuntimeMode === 'app-server') return false;
         const provider = String(record.providerSessionProvider || record.provider || '').trim();
-        if (!['codex', 'claude', 'opencode', 'qoder'].includes(provider)) return false;
+        if (!getProviderAdapter(provider)) return false;
         if (!isSafeProviderSessionId(record.providerSessionId)) return false;
-        const sessionKey = record.providerSessionKey || this.providerSessionKey(
+        const sessionKey = record.providerSessionKey || mainPageAgentSessionKey(
           provider,
           record.providerSessionId,
           record.providerHomeId || 'default'
@@ -1243,12 +1240,12 @@ class AgentManager extends EventEmitter {
         if (right.wantsMain === true && left.wantsMain !== true) return 1;
         const leftProvider = String(left.providerSessionProvider || left.provider || '').trim();
         const rightProvider = String(right.providerSessionProvider || right.provider || '').trim();
-        const leftKey = left.providerSessionKey || this.providerSessionKey(
+        const leftKey = left.providerSessionKey || mainPageAgentSessionKey(
           leftProvider,
           left.providerSessionId,
           left.providerHomeId || 'default'
         );
-        const rightKey = right.providerSessionKey || this.providerSessionKey(
+        const rightKey = right.providerSessionKey || mainPageAgentSessionKey(
           rightProvider,
           right.providerSessionId,
           right.providerHomeId || 'default'
@@ -1260,7 +1257,7 @@ class AgentManager extends EventEmitter {
       })
       .filter(record => {
         const provider = String(record.providerSessionProvider || record.provider || '').trim();
-        const sessionKey = record.providerSessionKey || this.providerSessionKey(
+        const sessionKey = record.providerSessionKey || mainPageAgentSessionKey(
           provider,
           record.providerSessionId,
           record.providerHomeId || 'default'
@@ -1310,13 +1307,13 @@ class AgentManager extends EventEmitter {
       if (record.wantsMain === true && this.mainAgentId) continue;
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
       const sessionId = record.providerSessionId;
-      const sessionKey = record.providerSessionKey || this.providerSessionKey(
+      const sessionKey = record.providerSessionKey || mainPageAgentSessionKey(
         provider,
         sessionId,
         record.providerHomeId || 'default'
       );
       if (sessionKey && liveProviderSessions.has(sessionKey)) continue;
-      const canResumeProvider = ['codex', 'claude', 'opencode', 'qoder'].includes(provider)
+      const canResumeProvider = Boolean(getProviderAdapter(provider))
         && isSafeProviderSessionId(sessionId);
       const command = canResumeProvider
         ? buildAgentSessionResumeCommand(provider, sessionId, {
@@ -1427,7 +1424,7 @@ class AgentManager extends EventEmitter {
       const agentId = String(record.runtimeAgentId || '').trim();
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
       const sessionId = String(record.providerSessionId || '').trim();
-      if (!agentId || !sessionId || !['codex', 'claude', 'opencode', 'qoder'].includes(provider)) continue;
+      if (!agentId || !sessionId || !providerSupportsRuntime(provider, 'acp')) continue;
       const agent = this.agents.get(agentId);
       if (!agent) {
         const recoveredAgent = this.recoveredAgentRecord(agentId, record.engine || 'native', record, { status: 'running' });
@@ -1447,9 +1444,9 @@ class AgentManager extends EventEmitter {
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
       const sessionId = String(record.providerSessionId || '').trim();
       const agent = this.agents.get(agentId);
-      if (!agent || !sessionId || !['codex', 'claude', 'opencode', 'qoder'].includes(provider)) continue;
+      if (!agent || !sessionId || !providerSupportsRuntime(provider, 'acp')) continue;
       try {
-        const executableName = provider === 'qoder' ? 'qodercli' : provider;
+        const executableName = getProviderAdapter(provider).executable;
         const executable = resolveAgentExecutable(executableName) || executableName;
         const approvalMode = agent.launchPermissionMode || (
           provider === 'codex' && this.configManager.getCodexApprovalMode
@@ -1563,7 +1560,7 @@ class AgentManager extends EventEmitter {
         agent.engineStarted = false;
         agent.codexCliObserverDeferred = false;
         agent.exitedAt = null;
-        this.activateProviderSessionTracking(agentId);
+        this.providerSessionService.activate(agentId);
         this.ensurePersistentAgentSession(agent);
       } catch (error) {
         agent.codexAppServerError = `Codex App Server recovery failed: ${error && (error.message || error)}`;
@@ -1735,10 +1732,6 @@ class AgentManager extends EventEmitter {
     return Number.isFinite(startedAt) && Date.now() - startedAt < MISSING_ENGINE_SESSION_STARTUP_GRACE_MS;
   }
 
-  providerSessionKey(provider, sessionId, providerHomeId = '') {
-    return provider && sessionId ? mainPageAgentSessionKey(provider, sessionId, providerHomeId) : '';
-  }
-
   getMainPageSessionKeys() {
     if (this.configManager && typeof this.configManager.getMainPageSessionKeys === 'function') {
       return this.configManager.getMainPageSessionKeys();
@@ -1772,19 +1765,6 @@ class AgentManager extends EventEmitter {
     return persistentSessionId;
   }
 
-  currentProviderSessionIds(provider, excludedAgentId = '', providerHomeId = 'default') {
-    const ids = new Set();
-    const normalizedHomeId = String(providerHomeId || 'default').trim() || 'default';
-    for (const agent of this.agents.values()) {
-      if (!agent || agent.id === excludedAgentId) continue;
-      if (agent.providerSessionProvider !== provider) continue;
-      if ((String(agent.providerHomeId || 'default').trim() || 'default') !== normalizedHomeId) continue;
-      if (!agent.providerSessionId || agent.providerSessionTemporary === true) continue;
-      ids.add(agent.providerSessionId);
-    }
-    return ids;
-  }
-
   rememberMainPageProviderSession(agent) {
     if (!agent || agent.wantsMain) return;
     if (!agent.providerSessionProvider || !agent.providerSessionId || agent.providerSessionTemporary === true) return;
@@ -1792,7 +1772,7 @@ class AgentManager extends EventEmitter {
       return;
     }
 
-    const sessionKey = this.providerSessionKey(agent.providerSessionProvider, agent.providerSessionId, agent.providerHomeId || '');
+    const sessionKey = mainPageAgentSessionKey(agent.providerSessionProvider, agent.providerSessionId, agent.providerHomeId || '');
     if (!sessionKey) return;
     const currentKeys = this.getMainPageSessionKeys();
     if (currentKeys[0] === sessionKey) {
@@ -1858,33 +1838,6 @@ class AgentManager extends EventEmitter {
     })).catch((error) => {
       console.warn('Failed to update provider session metadata:', error && (error.message || error));
     });
-  }
-
-  activateProviderSessionTracking(agentId) {
-    const agent = this.agents.get(agentId);
-    if (!agent || !agent.providerSessionProvider || !agent.providerSessionId) return;
-
-    if (agent.providerSessionProvider === 'codex' && agent.providerSessionTemporary === true) {
-      this.observeAgentStateChange(agentId, { force: true });
-      return;
-    }
-
-    this.stopCodexProviderSessionResolver(agentId);
-    this.updateEngineProviderSessionMetadata(agent);
-    this.rememberMainPageProviderSession(agent);
-    this.attemptProviderSessionTitleResolution(agentId, { force: true }).catch((error) => {
-      console.warn('Failed to resolve provider session title:', error && (error.message || error));
-    });
-  }
-
-  stopCodexProviderSessionResolver(agentId) {
-    this.codexSessionResolveInFlight.delete(agentId);
-    this.codexSessionResolveLastAttemptAt.delete(agentId);
-  }
-
-  stopProviderSessionTitleResolver(agentId) {
-    this.providerSessionTitleResolveInFlight.delete(agentId);
-    this.providerSessionTitleResolveLastAttemptAt.delete(agentId);
   }
 
   isAgentAttentionTurnActive(agent) {
@@ -2062,119 +2015,6 @@ class AgentManager extends EventEmitter {
     };
   }
 
-  observeAgentStateChange(agentId, options = {}) {
-    this.attemptCodexProviderSessionResolution(agentId, options).catch((error) => {
-      console.warn('Failed to resolve Codex provider session:', error && (error.message || error));
-    });
-    this.attemptProviderSessionTitleResolution(agentId, options).catch((error) => {
-      console.warn('Failed to resolve provider session title:', error && (error.message || error));
-    });
-  }
-
-  attemptCodexProviderSessionResolution(agentId, options = {}) {
-    const agent = this.agents.get(agentId);
-    if (!agent || agent.providerSessionProvider !== 'codex' || agent.providerSessionTemporary !== true) {
-      this.stopCodexProviderSessionResolver(agentId);
-      return Promise.resolve(false);
-    }
-
-    const inFlight = this.codexSessionResolveInFlight.get(agentId);
-    if (inFlight) return inFlight;
-
-    const now = Date.now();
-    const lastAttemptAt = this.codexSessionResolveLastAttemptAt.get(agentId) || 0;
-    if (options.force !== true && now - lastAttemptAt < CODEX_PROVIDER_SESSION_RESOLVE_COOLDOWN_MS) {
-      return Promise.resolve(false);
-    }
-    this.codexSessionResolveLastAttemptAt.set(agentId, now);
-
-    const attempt = this.findCodexSessionForTemporaryAgent(agent)
-      .then((session) => {
-        if (!session || !session.id) return false;
-        return this.resolveProviderSession(agentId, {
-          provider: 'codex',
-          sessionId: session.id,
-          source: 'codex-rollout',
-          title: session.title || '',
-          workspace: session.workspace || session.cwd || '',
-        });
-      })
-      .catch(() => false)
-      .finally(() => {
-        if (this.codexSessionResolveInFlight.get(agentId) === attempt) {
-          this.codexSessionResolveInFlight.delete(agentId);
-        }
-      });
-    this.codexSessionResolveInFlight.set(agentId, attempt);
-    return attempt;
-  }
-
-  attemptProviderSessionTitleResolution(agentId, options = {}) {
-    const agent = this.agents.get(agentId);
-    if (
-      !agent
-      || !agent.providerSessionProvider
-      || !agent.providerSessionId
-      || agent.providerSessionTemporary === true
-      || isTemporaryProviderSessionId(agent.providerSessionId)
-      || String(agent.providerSessionTitle || '').trim()
-    ) {
-      this.stopProviderSessionTitleResolver(agentId);
-      return Promise.resolve(false);
-    }
-
-    const inFlight = this.providerSessionTitleResolveInFlight.get(agentId);
-    if (inFlight) return inFlight;
-
-    const now = Date.now();
-    const lastAttemptAt = this.providerSessionTitleResolveLastAttemptAt.get(agentId) || 0;
-    if (options.force !== true && now - lastAttemptAt < PROVIDER_SESSION_TITLE_RESOLVE_COOLDOWN_MS) {
-      return Promise.resolve(false);
-    }
-    this.providerSessionTitleResolveLastAttemptAt.set(agentId, now);
-
-    const provider = agent.providerSessionProvider;
-    const sessionId = agent.providerSessionId;
-    const attempt = findAgentSession(provider, sessionId, { limit: 200, providerLimit: 200, providerHomeId: agent.providerHomeId || 'default', providerHomes: this.configManager && this.configManager.getSettings ? this.configManager.getSettings().agentHomes : undefined })
-      .then((session) => {
-        const title = String(session && session.title || '').trim().slice(0, 160);
-        if (!title) return false;
-
-        const current = this.agents.get(agentId);
-        if (
-          !current
-          || current.providerSessionProvider !== provider
-          || current.providerSessionId !== sessionId
-          || current.providerSessionTemporary === true
-          || String(current.providerSessionTitle || '').trim()
-        ) {
-          return false;
-        }
-
-        current.providerSessionTitle = title;
-        this.ensurePersistentAgentSession(current);
-        this.updateEngineProviderSessionMetadata(current);
-        this.rememberMainPageProviderSession(current);
-        this.emit('provider-session-updated', {
-          agentId,
-          provider,
-          sessionId,
-          title,
-          temporary: false,
-        });
-        this.emit('update');
-        return true;
-      })
-      .catch(() => false)
-      .finally(() => {
-        if (this.providerSessionTitleResolveInFlight.get(agentId) === attempt) {
-          this.providerSessionTitleResolveInFlight.delete(agentId);
-        }
-      });
-    this.providerSessionTitleResolveInFlight.set(agentId, attempt);
-    return attempt;
-  }
-
   async refreshAgentWorktree(agentId, workspaceCandidate = '') {
     const agent = this.agents.get(agentId);
     if (!agent || agent.isMain || agent.wantsMain) return false;
@@ -2211,79 +2051,6 @@ class AgentManager extends EventEmitter {
     return true;
   }
 
-  async findCodexSessionForTemporaryAgent(agent) {
-    const sessions = await listCodexSessions({ codexHome: agent.providerHomePath || undefined, limit: 100, scanLimit: 1000 });
-    const workspace = normalizePathValue(effectiveAgentWorkspaceRoot(agent));
-    const startedAt = Number(agent.startedAt) || 0;
-    const claimedSessionIds = this.currentProviderSessionIds('codex', agent.id, agent.providerHomeId || 'default');
-    const candidates = sessions
-      .filter(session => {
-        if (!session || !session.id || claimedSessionIds.has(session.id)) return false;
-        const sessionWorkspace = normalizePathValue(session.workspace || session.cwd);
-        if (workspace && !sessionWorkspace) return false;
-        const sessionTime = timestampMs(session.createdAt || session.updatedAt);
-        if (!sessionTime || !startedAt) return true;
-        return sessionTime >= startedAt - CODEX_PROVIDER_SESSION_MATCH_GRACE_MS;
-      })
-      .sort((a, b) => {
-        const aTime = timestampMs(a.createdAt || a.updatedAt);
-        const bTime = timestampMs(b.createdAt || b.updatedAt);
-        const aDistance = startedAt && aTime ? Math.abs(aTime - startedAt) : Number.MAX_SAFE_INTEGER;
-        const bDistance = startedAt && bTime ? Math.abs(bTime - startedAt) : Number.MAX_SAFE_INTEGER;
-        if (aDistance !== bDistance) return aDistance - bDistance;
-        return bTime - aTime;
-      });
-
-    const exact = candidates.find(session => (
-      !workspace || workspace === normalizePathValue(session.workspace || session.cwd)
-    ));
-    if (exact) return exact;
-    if (!workspace) return candidates[0] || null;
-
-    for (const session of candidates.slice(0, 12)) {
-      const sessionWorkspace = normalizePathValue(session.workspace || session.cwd);
-      if (!sessionWorkspace) continue;
-      if (await isLinkedWorktreeOf(workspace, sessionWorkspace)) return session;
-    }
-    return null;
-  }
-
-  resolveProviderSession(agentId, { provider, sessionId, source, title, workspace }) {
-    const agent = this.agents.get(agentId);
-    if (!agent || !provider || !sessionId || isTemporaryProviderSessionId(sessionId)) return false;
-
-    const previousSessionId = agent.providerSessionId || '';
-    const providerSessionTitle = String(title || '').trim().slice(0, 160);
-    agent.providerSessionProvider = provider;
-    agent.providerSessionId = sessionId;
-    agent.providerSessionKey = this.providerSessionKey(provider, sessionId, agent.providerHomeId || '');
-    agent.providerSessionTemporary = false;
-    agent.providerSessionSource = source || agent.providerSessionSource || '';
-    agent.providerSessionResolvedAt = Date.now();
-    if (typeof workspace === 'string' && workspace.trim()) {
-      agent.providerSessionWorkspace = normalizePathValue(workspace);
-    }
-    if (providerSessionTitle) {
-      agent.providerSessionTitle = providerSessionTitle;
-    }
-
-    this.stopCodexProviderSessionResolver(agentId);
-    this.stopProviderSessionTitleResolver(agentId);
-    this.ensurePersistentAgentSession(agent);
-    this.updateEngineProviderSessionMetadata(agent);
-    this.rememberMainPageProviderSession(agent);
-    this.emit('provider-session-updated', {
-      agentId,
-      provider,
-      sessionId,
-      previousSessionId,
-      temporary: false,
-    });
-    this.emit('update');
-    void this.refreshAgentWorktree(agentId, agent.providerSessionWorkspace);
-    return true;
-  }
-
   emitActivityUpdate(sessionId, activityAt) {
     const now = Number.isFinite(activityAt) ? activityAt : Date.now();
     const lastEmittedAt = this.lastActivityUpdate.get(sessionId) || 0;
@@ -2302,7 +2069,7 @@ class AgentManager extends EventEmitter {
       activityLevel: isMain ? 'warm' : this.calculateActivityLevel(lastActivity, now),
       attentionScore: isMain ? 0 : this.calculateAttentionScore(sessionId, now),
       isZombie: isMain ? false : this.isZombie(sessionId, now),
-      usageRate: this.calculateAgentUsageRate(sessionId, { now }),
+      usageRate: this.getAgentUsageRate(sessionId, { now }),
     });
   }
 
@@ -2420,10 +2187,11 @@ class AgentManager extends EventEmitter {
     }
     if (agent.providerHomePath) {
       const provider = agent.providerSessionProvider || agentHomeProviderForProgram(agent.forkCommand || agent.command);
-      if (provider === 'codex') env.CODEX_HOME = agent.codexAppServerHomePath || agent.providerHomePath;
-      if (provider === 'claude') env.CLAUDE_CONFIG_DIR = agent.providerHomePath;
-      if (provider === 'opencode') env.OPENCODE_CONFIG_DIR = agent.providerHomePath;
-      if (provider === 'qoder') env.QODER_CONFIG_DIR = agent.providerHomePath;
+      applyProviderHomeEnvironment(
+        env,
+        provider,
+        provider === 'codex' ? (agent.codexAppServerHomePath || agent.providerHomePath) : agent.providerHomePath
+      );
     }
 
     return env;
@@ -2535,10 +2303,7 @@ class AgentManager extends EventEmitter {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
     }
-    this.codexSessionResolveInFlight.clear();
-    this.codexSessionResolveLastAttemptAt.clear();
-    this.providerSessionTitleResolveInFlight.clear();
-    this.providerSessionTitleResolveLastAttemptAt.clear();
+    this.providerSessionService.dispose();
     this.agentWorktreeResolveGeneration.clear();
     this.permissionRestartInFlight.clear();
     this.runtimeRestartInFlight.clear();
@@ -2914,18 +2679,18 @@ class AgentManager extends EventEmitter {
       && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
       && normalizeCodexRuntimeMode(requestedCodexRuntimeMode) === 'app-server';
     const useJsonCli = requestedAgentRuntimeMode === 'json'
-      && ['codex', 'opencode'].includes(structuredRuntimeProvider)
+      && providerSupportsRuntime(structuredRuntimeProvider, 'json')
       && !useCodexAppServer
       && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1';
     const useAcp = requestedAgentRuntimeMode === 'acp'
-      && ['codex', 'claude', 'opencode', 'qoder'].includes(structuredRuntimeProvider)
+      && providerSupportsRuntime(structuredRuntimeProvider, 'acp')
       && !useCodexAppServer
       && (
         process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
         || process.env.FARMING_E2E_FAKE_ACP_AGENT === '1'
       );
     const acpGeneratedFreshSession = useAcp
-      && ['claude-session-id', 'qoder-session-id'].includes(providerSessionPlan.source);
+      && isFreshAcpSessionSource(structuredRuntimeProvider, providerSessionPlan.source);
     let codexAppServerHomePath = '';
     if (useCodexAppServer) {
       try {
@@ -2965,7 +2730,7 @@ class AgentManager extends EventEmitter {
       providerHomeId: resolvedProviderHomeId,
       providerHomePath,
       providerSessionId: providerSessionPlan.id || '',
-      providerSessionKey: this.providerSessionKey(providerSessionPlan.provider, providerSessionPlan.id, providerHome ? providerHome.id : providerHomeId),
+      providerSessionKey: mainPageAgentSessionKey(providerSessionPlan.provider, providerSessionPlan.id, providerHome ? providerHome.id : providerHomeId),
       providerSessionTemporary: providerSessionPlan.temporary === true,
       providerSessionSource: providerSessionPlan.source || '',
       providerSessionResolvedAt: providerSessionPlan.temporary === true ? null : Date.now(),
@@ -3077,7 +2842,7 @@ class AgentManager extends EventEmitter {
             developerInstructions: wantsMain ? renderMainAgentBootstrap() : '',
           });
           agentRecord.providerSessionId = prepared.threadId;
-          agentRecord.providerSessionKey = this.providerSessionKey(
+          agentRecord.providerSessionKey = mainPageAgentSessionKey(
             'codex',
             prepared.threadId,
             agentRecord.providerHomeId || 'default'
@@ -3132,7 +2897,7 @@ class AgentManager extends EventEmitter {
           serviceTier: codexServiceTier,
         });
         agentRecord.providerSessionId = prepared.sessionId;
-        agentRecord.providerSessionKey = this.providerSessionKey(
+        agentRecord.providerSessionKey = mainPageAgentSessionKey(
           structuredRuntimeProvider,
           prepared.sessionId,
           agentRecord.providerHomeId || 'default'
@@ -3167,7 +2932,7 @@ class AgentManager extends EventEmitter {
         }
       }
 
-      this.activateProviderSessionTracking(agentId);
+      this.providerSessionService.activate(agentId);
       if (callback) callback(agentId);
       this.emit('update');
       return agentId;
@@ -3191,8 +2956,9 @@ class AgentManager extends EventEmitter {
       this.lastActivity.delete(agentId);
       this.lastActivityUpdate.delete(agentId);
       this.outputEvents.delete(agentId);
+      this.agentUsageRateCache.delete(agentId);
       this.lastResizeByAgent.delete(agentId);
-      this.stopCodexProviderSessionResolver(agentId);
+      this.providerSessionService.stop(agentId);
       if (this.codexAppServerRuntime && typeof this.codexAppServerRuntime.unregisterAgent === 'function') {
         this.codexAppServerRuntime.unregisterAgent(agentId);
       }
@@ -3375,6 +3141,7 @@ class AgentManager extends EventEmitter {
         previewSnapshot: agent.previewSnapshot,
         codexTerminalProfile: agent.codexTerminalProfile,
         terminalStatus: view.terminalStatus,
+        runtimeObservation: deriveRuntimeObservation({ ...agent, terminalStatus: view.terminalStatus }),
       });
     }
     this.emit('update');
@@ -3688,7 +3455,7 @@ class AgentManager extends EventEmitter {
         this.updateEngineProviderSessionMetadata(agent);
       }
       if (submittedUserInput) {
-        this.observeAgentStateChange(agentId, { force: true });
+        this.providerSessionService.observe(agentId, { force: true });
       }
       return result;
     } catch (error) {
@@ -3711,7 +3478,7 @@ class AgentManager extends EventEmitter {
     agent.terminalBusy = false;
     agent.exitedAt = Date.now();
     agent.output = trimSessionOutput(`${agent.output || ''}\n${message}`);
-    this.observeAgentStateChange(agentId, { force: true });
+    this.providerSessionService.observe(agentId, { force: true });
     this.emit('update');
   }
 
@@ -4147,8 +3914,7 @@ class AgentManager extends EventEmitter {
     if (turnActive) {
       return { error: 'Interrupt the active Agent turn before switching Chat and Terminal.' };
     }
-    const supportedProviders = nextMode === 'json' ? ['codex', 'opencode'] : ['codex', 'claude', 'opencode', 'qoder'];
-    if (!supportedProviders.includes(provider)) {
+    if (!providerSupportsRuntime(provider, nextMode)) {
       return { error: `Agent does not support the ${nextMode.toUpperCase()} runtime` };
     }
     const sessionId = String(agent.providerSessionId || '').trim();
@@ -4157,7 +3923,7 @@ class AgentManager extends EventEmitter {
       && agent.terminalInputReceived !== true
       && (
         agent.providerSessionTemporary === true
-        || ['codex-temporary', 'claude-session-id', 'qoder-session-id'].includes(agent.providerSessionSource || '')
+        || isFreshAcpSessionSource(provider, agent.providerSessionSource || '')
       );
     if (!isSafeProviderSessionId(sessionId) && !canStartFreshAcpSession) {
       return { error: 'Runtime switching requires a resumable provider session. Send the first message and try again.' };
@@ -4582,7 +4348,7 @@ class AgentManager extends EventEmitter {
 
     const keysToRemove = new Set();
     agents.forEach(agent => {
-      const providerSessionKey = agent.providerSessionKey || this.providerSessionKey(
+      const providerSessionKey = agent.providerSessionKey || mainPageAgentSessionKey(
         agent.providerSessionProvider,
         agent.providerSessionId,
         agent.providerHomeId || ''
@@ -4839,9 +4605,9 @@ class AgentManager extends EventEmitter {
     this.lastActivity.delete(agentId);
     this.lastActivityUpdate.delete(agentId);
     this.outputEvents.delete(agentId);
+    this.agentUsageRateCache.delete(agentId);
     this.lastResizeByAgent.delete(agentId);
-    this.stopCodexProviderSessionResolver(agentId);
-    this.stopProviderSessionTitleResolver(agentId);
+    this.providerSessionService.stop(agentId);
     if (this.codexAppServerRuntime && typeof this.codexAppServerRuntime.unregisterAgent === 'function') {
       this.codexAppServerRuntime.unregisterAgent(agentId);
     }
@@ -4907,7 +4673,7 @@ class AgentManager extends EventEmitter {
       providerHomeId: agent.providerHomeId || '',
       providerHomePath: agent.providerHomePath || '',
       codexAppServerHomePath: agent.codexAppServerHomePath || '',
-      codexRuntimeMode: agent.codexRuntimeMode || '',
+      runtimeBinding: publicRuntimeBinding(agent),
       temporary: agent.providerSessionTemporary === true,
       title: agent.providerSessionTitle || '',
     };
@@ -5078,8 +4844,26 @@ class AgentManager extends EventEmitter {
       previewRows: (sessionState && Number.isFinite(sessionState.previewRows) && sessionState.previewRows > 0)
         ? sessionState.previewRows
         : (agent.previewRows || 30),
-      usageRate: this.calculateAgentUsageRate(agent.id),
+      usageRate: this.getAgentUsageRate(agent.id),
     };
+  }
+
+  getAgentUsageRate(agentId, options = {}) {
+    const now = options.now || Date.now();
+    const windowMs = options.windowMs || AGENT_USAGE_RATE_WINDOW_MS;
+    const cached = this.agentUsageRateCache.get(agentId);
+    if (
+      cached
+      && cached.windowMs === windowMs
+      && now >= cached.sampledAt
+      && now - cached.sampledAt < AGENT_USAGE_RATE_REFRESH_MS
+    ) {
+      return cached.value;
+    }
+
+    const value = this.calculateAgentUsageRate(agentId, { now, windowMs });
+    this.agentUsageRateCache.set(agentId, { windowMs, sampledAt: now, value });
+    return value;
   }
 
   calculateAgentUsageRate(agentId, options = {}) {
@@ -5118,7 +4902,7 @@ class AgentManager extends EventEmitter {
       cwd: agent.cwd,
       isMain: this.isMainAgentRecord(agent.id, agent),
       status: agent.status,
-      usageRate: this.calculateAgentUsageRate(agent.id, { now, windowMs }),
+      usageRate: this.getAgentUsageRate(agent.id, { now, windowMs }),
     }));
     const totalOutputBytes = agents.reduce((sum, agent) => sum + agent.usageRate.outputBytes, 0);
     const estimatedOutputTokens = agents.reduce((sum, agent) => sum + agent.usageRate.estimatedOutputTokens, 0);
@@ -5195,33 +4979,10 @@ class AgentManager extends EventEmitter {
         providerSessionResolvedAt: agent.providerSessionResolvedAt || null,
         providerSessionTitle: agent.providerSessionTitle || '',
         providerSessionWorkspace: agent.providerSessionWorkspace || '',
+        providerCapabilities: providerCapabilities(agent.providerSessionProvider),
         terminalInputReceived: agent.terminalInputReceived === true,
-        codexRuntimeMode: agent.codexRuntimeMode || '',
-        agentRuntimeMode: agent.agentRuntimeMode || 'terminal',
-        jsonCliState: agent.jsonCliState || '',
-        jsonCliError: agent.jsonCliError || '',
-        jsonCliTranscriptUpdatedAt: agent.jsonCliTranscriptUpdatedAt || '',
-        acpState: agent.acpState || '',
-        acpError: agent.acpError || '',
-        acpStopReason: agent.acpStopReason || '',
-        acpPendingPermission: agent.acpPendingPermission || null,
-        acpPendingPermissions: Array.isArray(agent.acpPendingPermissions) ? agent.acpPendingPermissions : [],
-        acpPendingElicitation: agent.acpPendingElicitation || null,
-        acpPendingElicitations: Array.isArray(agent.acpPendingElicitations) ? agent.acpPendingElicitations : [],
-        acpActiveElicitations: Array.isArray(agent.acpActiveElicitations) ? agent.acpActiveElicitations : [],
-        acpSessionUpdatedAt: agent.acpSessionUpdatedAt || '',
-        acpSessionRevision: Number(agent.acpSessionRevision) || 0,
-        codexAppServerState: agent.codexAppServerState || '',
-        codexAppServerEndpoint: agent.codexAppServerEndpoint || '',
-        codexAppServerThreadId: agent.codexAppServerThreadId || '',
-        codexAppServerTurnId: agent.codexAppServerTurnId || '',
-        codexAppServerError: agent.codexAppServerError || '',
-        codexAppServerPendingRequestId: agent.codexAppServerPendingRequestId || '',
-        codexAppServerPendingRequestMethod: agent.codexAppServerPendingRequestMethod || '',
-        codexAppServerPendingRequest: agent.codexAppServerPendingRequest || null,
-        codexAppServerNotice: agent.codexAppServerNotice || null,
-        codexAppServerGoal: agent.codexAppServerGoal || null,
-        codexCliObserverDeferred: agent.codexCliObserverDeferred === true,
+        runtimeBinding: publicRuntimeBinding(agent),
+        runtimeObservation: deriveRuntimeObservation(agent),
         forkedFromProviderSessionId: agent.forkedFromProviderSessionId || '',
         restartedFromAgentId: agent.restartedFromAgentId || '',
         restartedFromAgentIds: Array.isArray(agent.restartedFromAgentIds) ? agent.restartedFromAgentIds : [],
@@ -5250,7 +5011,7 @@ class AgentManager extends EventEmitter {
         lastActivity,
         attentionScore: isMain ? 0 : this.calculateAttentionScore(id, now),
         isZombie: isMain ? false : this.isZombie(id, now),
-        usageRate: this.calculateAgentUsageRate(id, { now })
+        usageRate: this.getAgentUsageRate(id, { now })
       });
     }
     
@@ -5342,6 +5103,11 @@ class AgentManager extends EventEmitter {
         continue;
       }
 
+      const terminalStatus = deriveAgentTerminalStatus(agent, {
+        previewText: agent.previewText || '',
+        title: agent.sessionTitle || '',
+        terminalBusy: typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null,
+      });
       previews.push({
         agentId: agent.id,
         previewText: agent.previewText || '',
@@ -5349,11 +5115,8 @@ class AgentManager extends EventEmitter {
         rows: agent.previewRows || 30,
         previewSnapshot: agent.previewSnapshot || null,
         codexTerminalProfile: activeCodexTerminalProfile(agent, agent.previewText || ''),
-        terminalStatus: deriveAgentTerminalStatus(agent, {
-          previewText: agent.previewText || '',
-          title: agent.sessionTitle || '',
-          terminalBusy: typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null,
-        }),
+        terminalStatus,
+        runtimeObservation: deriveRuntimeObservation({ ...agent, terminalStatus }),
       });
     }
 

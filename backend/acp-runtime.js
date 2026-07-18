@@ -11,13 +11,12 @@ const { readCodexHistoryImageData } = require('./codex-transcript');
 const { AcpClientFileSystem, AcpClientTerminalManager } = require('./acp/client-services');
 const { permissionSecurityWarnings } = require('./acp/permission-security');
 const { rejectPatch } = require('./acp/patch-decisions');
+const { getProviderAdapter, listProviderAdapters } = require('./provider-adapters');
 
-const ADAPTER_VERSIONS = Object.freeze({
-  codex: '1.1.2',
-  claude: '0.58.1',
-  opencode: 'native',
-  qoder: 'native',
-});
+const ADAPTER_VERSIONS = Object.freeze(Object.fromEntries(
+  listProviderAdapters().filter(adapter => adapter.acp).map(adapter => [adapter.id, adapter.acp.version]),
+));
+
 const DEFAULT_INITIALIZE_TIMEOUT_MS = 15_000;
 const DEFAULT_SESSION_SETUP_TIMEOUT_MS = 120_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
@@ -61,73 +60,23 @@ function nodeAdapterLaunch(entry, env = process.env) {
 }
 
 function resolveAcpLaunch(provider, options = {}) {
-  const normalized = String(provider || '').trim().toLowerCase();
-  if (normalized === 'codex') {
+  const adapter = getProviderAdapter(provider);
+  if (!adapter?.acp) throw new Error(`Unsupported ACP provider: ${provider}`);
+  if (adapter.acp.launch) {
+    return { ...adapter.acp.launch(options), version: adapter.acp.version };
+  }
+  if (adapter.acp.packageName) {
     const launch = nodeAdapterLaunch(
-      adapterEntry('@agentclientprotocol/codex-acp'),
+      adapterEntry(adapter.acp.packageName),
       options.runtimeEnv || process.env,
     );
-    return {
-      ...launch,
-      version: ADAPTER_VERSIONS.codex,
-    };
-  }
-  if (normalized === 'claude') {
-    const launch = nodeAdapterLaunch(
-      adapterEntry('@agentclientprotocol/claude-agent-acp'),
-      options.runtimeEnv || process.env,
-    );
-    return {
-      ...launch,
-      version: ADAPTER_VERSIONS.claude,
-    };
-  }
-  if (normalized === 'opencode') {
-    return {
-      command: options.executable || 'opencode',
-      args: ['acp', '--cwd', path.resolve(options.cwd || process.cwd())],
-      version: ADAPTER_VERSIONS.opencode,
-    };
-  }
-  if (normalized === 'qoder') {
-    return {
-      command: options.executable || 'qodercli',
-      args: ['--acp'],
-      version: ADAPTER_VERSIONS.qoder,
-    };
+    return { ...launch, version: adapter.acp.version };
   }
   throw new Error(`Unsupported ACP provider: ${provider}`);
 }
 
 function codexAcpEnvironment(options = {}) {
-  const env = { ...(options.env || process.env) };
-  if (options.executable && !env.CODEX_PATH) env.CODEX_PATH = options.executable;
-  let config = {};
-  if (env.CODEX_CONFIG) {
-    try {
-      const parsed = JSON.parse(env.CODEX_CONFIG);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) config = parsed;
-    } catch {
-      // A selected Farming profile below replaces an invalid adapter config.
-    }
-  }
-
-  if (options.model && options.model !== 'config') config.model = options.model;
-  if (options.reasoningEffort && options.reasoningEffort !== 'config') {
-    config.model_reasoning_effort = options.reasoningEffort;
-  }
-  if (options.serviceTier && !['config', 'default'].includes(options.serviceTier)) {
-    config.service_tier = options.serviceTier;
-  }
-  if (Object.keys(config).length > 0) env.CODEX_CONFIG = JSON.stringify(config);
-
-  const initialMode = {
-    ask: 'read-only',
-    approve: 'agent',
-    full: 'agent-full-access',
-  }[options.approvalMode];
-  if (initialMode) env.INITIAL_AGENT_MODE = initialMode;
-  return env;
+  return getProviderAdapter('codex').prepareAcpEnvironment(options);
 }
 
 function selectedPermission(option) {
@@ -287,7 +236,7 @@ class AcpRuntime extends EventEmitter {
       provider,
       providerHomeId: String(options.providerHomeId || 'default'),
       cwd: path.resolve(options.cwd || process.cwd()),
-      env: provider === 'codex' ? codexAcpEnvironment(options) : (options.env || process.env),
+      env: (getProviderAdapter(provider)?.prepareAcpEnvironment || (value => value.env || process.env))(options),
       launch,
       restartOptions: { ...options, agentId, provider },
       approvalMode: options.approvalMode || 'approve',

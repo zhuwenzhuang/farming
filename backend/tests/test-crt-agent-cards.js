@@ -113,7 +113,7 @@ function run() {
         { type: 'tool', title: 'Inspect CRT layout', status: 'in_progress' },
         { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'The preview now follows the latest conversation.' }] },
       ],
-    }, { agentRuntimeMode: 'acp', acpState: 'working' }),
+    }, { runtimeBinding: { kind: 'acp', state: 'working' } }),
     {
       messageLines: [
         { role: 'user', label: 'YOU', text: 'Explain the dashboard preview clearly.' },

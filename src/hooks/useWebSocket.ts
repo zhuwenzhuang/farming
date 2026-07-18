@@ -1,8 +1,18 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
-import type { Agent, SystemStats, TaskHistoryEntry } from '@/types/agent'
+import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import type { AppServerRequestResponseMessage, ClientMessage, ComposerInputAttachment, ComposerInputMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
 import { appWsUrl } from '@/lib/base-path'
 import { setTerminalSessionTransport } from '@/lib/terminal-session-client'
+import {
+  resetBackendConnectionStatus,
+  updateBackendConnectionStatus,
+  updateBackendSystemStats,
+} from '@/lib/backend-live-status'
+import {
+  PROTOCOL_VERSION,
+  protocolCompatible,
+  validateServerMessage,
+} from '../../shared/browser-protocol.js'
 
 const LAST_MESSAGE_STATE_THROTTLE_MS = 1000
 
@@ -11,11 +21,7 @@ export interface WebSocketState {
   taskHistory: TaskHistoryEntry[]
   mainPageSessionKeys: string[]
   mainAgentId: string | null
-  systemStats: SystemStats | null
-  uptime: number
   connected: boolean
-  everConnected: boolean
-  lastMessageAt: number
   error: string | null
   errorId: number
   lastStartedAgentId: string | null
@@ -26,18 +32,23 @@ function isInternalMainWorkspace(cwd?: string, parentAgentId?: string) {
   return /(^|[/\\])\.farming[/\\]?$/.test(cwd || '')
 }
 
+function sameStringArray(left: string[], right: string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function sameJsonValue(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
+  const agentStateSignaturesRef = useRef<Map<string, string>>(new Map())
   const [state, setState] = useState<WebSocketState>({
     agents: [],
     taskHistory: [],
     mainPageSessionKeys: [],
     mainAgentId: null,
-    systemStats: null,
-    uptime: 0,
     connected: false,
-    everConnected: false,
-    lastMessageAt: Date.now(),
     error: null,
     errorId: 0,
     lastStartedAgentId: null,
@@ -177,6 +188,7 @@ export function useWebSocket() {
   }, [sendMessage])
 
   useEffect(() => {
+    resetBackendConnectionStatus()
     let reconnectTimer: ReturnType<typeof setTimeout>
     let disposed = false
     let activeSocket: WebSocket | null = null
@@ -185,7 +197,7 @@ export function useWebSocket() {
     function markBackendMessage(receivedAt = Date.now()) {
       if (receivedAt - lastMessageStateUpdateAt < LAST_MESSAGE_STATE_THROTTLE_MS) return
       lastMessageStateUpdateAt = receivedAt
-      setState(prev => ({ ...prev, lastMessageAt: receivedAt }))
+      updateBackendConnectionStatus({ lastMessageAt: receivedAt })
     }
 
     function connect() {
@@ -211,10 +223,14 @@ export function useWebSocket() {
         setState(prev => ({
           ...prev,
           connected: true,
-          everConnected: true,
-          lastMessageAt: lastMessageStateUpdateAt,
           error: null,
         }))
+        updateBackendConnectionStatus({
+          connected: true,
+          everConnected: true,
+          lastMessageAt: lastMessageStateUpdateAt,
+        })
+        ws.send(JSON.stringify({ type: 'protocol-hello', protocolVersion: PROTOCOL_VERSION }))
         window.dispatchEvent(new Event('farming:backend-connected'))
         workspaceFileListenersRef.current.forEach((listeners, agentId) => {
           if (listeners.size > 0) {
@@ -227,29 +243,78 @@ export function useWebSocket() {
         if (disposed || wsRef.current !== ws) return
         markBackendMessage()
         try {
-          const msg = JSON.parse(event.data) as ServerMessage
+          const parsed: unknown = JSON.parse(event.data)
+          const validation = validateServerMessage(parsed)
+          if (!validation.ok) throw new Error(validation.error)
+          const msg = parsed as ServerMessage
           switch (msg.type) {
+            case 'protocol-hello':
+              if (!protocolCompatible(msg.protocolVersion)) {
+                ws.close(4002, `Unsupported Farming protocol version ${msg.protocolVersion}`)
+              }
+              break
+            case 'protocol-error':
+              setState(prev => ({ ...prev, error: msg.message, errorId: prev.errorId + 1 }))
+              break
+            case 'command-ack':
+              break
             case 'state':
+              if (msg.state.systemStats !== undefined) {
+                updateBackendSystemStats(msg.state.systemStats ?? null)
+              }
               setState(prev => {
                 const previousAgents = new Map(prev.agents.map(agent => [agent.id, agent]))
-                const nextAgents = msg.state.agents.map(agent => {
+                let agentsChanged = prev.agents.length !== msg.state.agents.length
+                const nextAgentSignatures = new Map<string, string>()
+                const reconciledAgents = msg.state.agents.map((agent, index) => {
                   const previous = previousAgents.get(agent.id)
+                  const signature = JSON.stringify(agent)
+                  nextAgentSignatures.set(agent.id, signature)
+                  const isMain = agent.isMain || agent.id === msg.state.mainAgentId || isInternalMainWorkspace(agent.cwd, agent.parentAgentId)
+                  if (
+                    previous
+                    && previous.id === prev.agents[index]?.id
+                    && previous.isMain === isMain
+                    && agentStateSignaturesRef.current.get(agent.id) === signature
+                  ) {
+                    return previous
+                  }
                   const normalizedAgent = {
                     ...agent,
-                    isMain: agent.isMain || agent.id === msg.state.mainAgentId || isInternalMainWorkspace(agent.cwd, agent.parentAgentId),
+                    isMain,
                   }
+                  agentsChanged = true
                   return previous?.previewSnapshot
                     ? { ...normalizedAgent, previewSnapshot: previous.previewSnapshot }
                     : normalizedAgent
                 })
+                agentStateSignaturesRef.current = nextAgentSignatures
+
+                const nextAgents = agentsChanged ? reconciledAgents : prev.agents
+                const nextTaskHistory = msg.state.taskHistory ?? prev.taskHistory
+                const nextMainPageSessionKeys = Array.isArray(msg.state.mainPageSessionKeys)
+                  ? msg.state.mainPageSessionKeys
+                  : prev.mainPageSessionKeys
+                const taskHistoryChanged = nextTaskHistory !== prev.taskHistory
+                  && !sameJsonValue(nextTaskHistory, prev.taskHistory)
+                const mainPageSessionKeysChanged = nextMainPageSessionKeys !== prev.mainPageSessionKeys
+                  && !sameStringArray(nextMainPageSessionKeys, prev.mainPageSessionKeys)
+
+                if (
+                  nextAgents === prev.agents
+                  && !taskHistoryChanged
+                  && !mainPageSessionKeysChanged
+                  && msg.state.mainAgentId === prev.mainAgentId
+                ) {
+                  return prev
+                }
 
                 return {
                   ...prev,
                   agents: nextAgents,
-                  taskHistory: msg.state.taskHistory ?? prev.taskHistory,
-                  mainPageSessionKeys: Array.isArray(msg.state.mainPageSessionKeys) ? msg.state.mainPageSessionKeys : prev.mainPageSessionKeys,
+                  taskHistory: taskHistoryChanged ? nextTaskHistory : prev.taskHistory,
+                  mainPageSessionKeys: mainPageSessionKeysChanged ? nextMainPageSessionKeys : prev.mainPageSessionKeys,
                   mainAgentId: msg.state.mainAgentId,
-                  systemStats: msg.state.systemStats ?? prev.systemStats,
                 }
               })
               break
@@ -271,6 +336,7 @@ export function useWebSocket() {
                         previewRows: msg.preview.rows,
                         previewSnapshot: msg.preview.previewSnapshot ?? null,
                         terminalStatus: msg.preview.terminalStatus ?? agent.terminalStatus ?? null,
+                        runtimeObservation: msg.preview.runtimeObservation ?? agent.runtimeObservation,
                         codexTerminalProfile: msg.preview.codexTerminalProfile ?? agent.codexTerminalProfile ?? null,
                       }
                     : agent
@@ -343,15 +409,12 @@ export function useWebSocket() {
               workspaceFileListenersRef.current.get(msg.event.agentId)?.forEach(listener => listener(msg.event))
               break
             case 'system-stats':
-              setState(prev => ({
-                ...prev,
-                systemStats: msg.stats ?? prev.systemStats,
-                uptime: msg.uptime ?? prev.uptime,
-              }))
+              updateBackendSystemStats(msg.stats ?? null)
               break
           }
-        } catch {
-          // ignore parse errors
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Invalid Farming backend message'
+          setState(prev => ({ ...prev, error: message, errorId: prev.errorId + 1 }))
         }
       }
 
@@ -364,6 +427,7 @@ export function useWebSocket() {
           error: event.code === 4001 ? 'Farming token expired or is invalid' : prev.error,
           errorId: event.code === 4001 ? prev.errorId + 1 : prev.errorId,
         }))
+        updateBackendConnectionStatus({ connected: false })
         window.dispatchEvent(new CustomEvent('farming:backend-disconnected', {
           detail: { code: event.code, reason: event.reason },
         }))
@@ -383,6 +447,7 @@ export function useWebSocket() {
       if (wsRef.current === activeSocket) {
         wsRef.current = null
       }
+      updateBackendConnectionStatus({ connected: false })
       activeSocket?.close()
     }
   }, [])

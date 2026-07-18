@@ -1,4 +1,4 @@
-export const GLOBAL_WORKSPACE_FILES_AGENT_ID = '__farming_global_files__'
+export const GLOBAL_WORKSPACE_FILES_AGENT_ID = 'wroot_global'
 export const GLOBAL_WORKSPACE_FILES_PROJECT_ID = '__farming_global_files_project__'
 export const GLOBAL_WORKSPACE_FILES_ROOT = '/'
 

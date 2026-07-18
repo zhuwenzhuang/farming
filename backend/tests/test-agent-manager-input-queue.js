@@ -170,9 +170,9 @@ async function run() {
       agentRuntimeMode: 'terminal',
       terminalInputReceived: false,
     });
-    const originalObserveAgentStateChange = manager.observeAgentStateChange.bind(manager);
+    const originalObserveProviderSession = manager.providerSessionService.observe.bind(manager.providerSessionService);
     const observedStateChanges = [];
-    manager.observeAgentStateChange = (agentId, options) => {
+    manager.providerSessionService.observe = (agentId, options) => {
       observedStateChanges.push({ agentId, options });
     };
     await manager.sendInput('agent-focus-protocol', '\x1b[I');
@@ -202,7 +202,7 @@ async function run() {
       [{ agentId: 'agent-focus-protocol', options: { force: true } }],
       'submitting Terminal input should trigger provider session observation once'
     );
-    manager.observeAgentStateChange = originalObserveAgentStateChange;
+    manager.providerSessionService.observe = originalObserveProviderSession;
 
     manager.agents.set('agent-display-events', {
       id: 'agent-display-events',
@@ -220,7 +220,7 @@ async function run() {
     });
     const displayEventStateChanges = [];
     const worktreeRefreshes = [];
-    manager.observeAgentStateChange = (agentId, options) => {
+    manager.providerSessionService.observe = (agentId, options) => {
       displayEventStateChanges.push({ agentId, options });
     };
     const originalRefreshAgentWorktree = manager.refreshAgentWorktree.bind(manager);
@@ -302,7 +302,7 @@ async function run() {
       [{ agentId: 'agent-display-events', options: { force: true } }],
       'session identity tracking should still run for structural session start events'
     );
-    manager.observeAgentStateChange = originalObserveAgentStateChange;
+    manager.providerSessionService.observe = originalObserveProviderSession;
     manager.refreshAgentWorktree = originalRefreshAgentWorktree;
 
     const readDeltas = [];

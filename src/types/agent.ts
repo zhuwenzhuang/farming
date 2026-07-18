@@ -207,6 +207,80 @@ export interface CodexAppServerGoal {
   updatedAt: number
 }
 
+export interface TerminalRuntimeBinding {
+  kind: 'terminal'
+}
+
+export interface AcpRuntimeBinding {
+  kind: 'acp'
+  state: string
+  error: string
+  stopReason: string
+  pendingPermission: AcpPendingPermission | null
+  pendingPermissions: AcpPendingPermission[]
+  pendingElicitation: AcpPendingElicitation | null
+  pendingElicitations: AcpPendingElicitation[]
+  activeElicitations: AcpPendingElicitation[]
+  sessionUpdatedAt: string
+  sessionRevision: number
+}
+
+export interface JsonRuntimeBinding {
+  kind: 'json'
+  state: string
+  error: string
+  transcriptUpdatedAt: string
+}
+
+export interface CodexAppServerRuntimeBinding {
+  kind: 'app-server'
+  state: string
+  endpoint: string
+  threadId: string
+  turnId: string
+  error: string
+  pendingRequestId: string
+  pendingRequestMethod: string
+  pendingRequest: CodexAppServerPendingRequest | null
+  notice: CodexAppServerNotice | null
+  goal: CodexAppServerGoal | null
+  observerDeferred: boolean
+}
+
+export type AgentRuntimeBinding =
+  | TerminalRuntimeBinding
+  | AcpRuntimeBinding
+  | JsonRuntimeBinding
+  | CodexAppServerRuntimeBinding
+
+export interface RuntimeObservation {
+  kind: 'codex' | 'claude' | 'shell' | 'process' | 'unknown'
+  phase: 'starting' | 'working' | 'waiting' | 'idle' | 'exited' | 'unknown'
+  confidence: 'authoritative' | 'high' | 'heuristic'
+  source: 'structured-runtime' | 'shell-marker' | 'terminal-observer'
+  observerVersion: string
+  observedAt: number
+}
+
+export interface WorkspaceRoot {
+  rootId: string
+  kind: 'global' | 'main-worktree' | 'linked-worktree' | 'directory'
+  canonicalPath: string
+  repositoryId: string
+  accessPolicy: {
+    readOnly: boolean
+    watch: boolean
+    externalReads: boolean
+  }
+}
+
+export interface ProviderCapabilities {
+  supportedRuntimes: Array<'terminal' | 'acp' | 'json' | 'app-server'>
+  runtimeSwitch: boolean
+  terminalProfile: boolean
+  goals: boolean
+}
+
 /** A single CLI agent instance */
 export interface Agent {
   id: string
@@ -242,33 +316,11 @@ export interface Agent {
   providerSessionSource?: string
   providerSessionResolvedAt?: number | null
   providerSessionTitle?: string
+  providerCapabilities: ProviderCapabilities
   terminalInputReceived?: boolean
-  codexRuntimeMode?: 'app-server' | 'cli' | string
-  agentRuntimeMode?: 'terminal' | 'acp' | 'json' | string
-  jsonCliState?: string
-  jsonCliError?: string
-  jsonCliTranscriptUpdatedAt?: string
-  acpState?: string
-  acpError?: string
-  acpStopReason?: string
-  acpPendingPermission?: AcpPendingPermission | null
-  acpPendingPermissions?: AcpPendingPermission[]
-  acpPendingElicitation?: AcpPendingElicitation | null
-  acpPendingElicitations?: AcpPendingElicitation[]
-  acpActiveElicitations?: AcpPendingElicitation[]
-  acpSessionUpdatedAt?: string
-  acpSessionRevision?: number
-  codexAppServerState?: string
-  codexAppServerEndpoint?: string
-  codexAppServerThreadId?: string
-  codexAppServerTurnId?: string
-  codexAppServerError?: string
-  codexAppServerPendingRequestId?: string
-  codexAppServerPendingRequestMethod?: string
-  codexAppServerPendingRequest?: CodexAppServerPendingRequest | null
-  codexAppServerNotice?: CodexAppServerNotice | null
-  codexAppServerGoal?: CodexAppServerGoal | null
-  codexCliObserverDeferred?: boolean
+  runtimeBinding: AgentRuntimeBinding
+  runtimeObservation: RuntimeObservation
+  workspaceRootId?: string
   forkedFromProviderSessionId?: string
   restartedFromAgentId?: string
   restartedFromAgentIds?: string[]
@@ -498,5 +550,6 @@ export interface AppState {
   agents: Agent[]
   taskHistory: TaskHistoryEntry[]
   mainPageSessionKeys?: string[]
+  workspaceRoots?: WorkspaceRoot[]
   systemStats: SystemStats
 }

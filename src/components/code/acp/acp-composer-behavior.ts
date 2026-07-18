@@ -44,7 +44,7 @@ export function submitAcpDraft({
 }: SubmitAcpDraftInput) {
   const promptAttachments = composerPromptAttachments(attachments)
   const text = formatComposerMessage(composerMode, composerMessageForAcp(draft, attachments).trim())
-  if ((!text && promptAttachments.length === 0) || !agent || agent.agentRuntimeMode !== 'acp' || !composerKey) return false
+  if ((!text && promptAttachments.length === 0) || !agent || agent.runtimeBinding.kind !== 'acp' || !composerKey) return false
   if (!turnActive && !sendMessage(agent, text, promptAttachments)) return false
 
   updateComposerState(composerKey, state => ({

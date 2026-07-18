@@ -16,7 +16,7 @@ function readyImage() {
 }
 
 function run() {
-  const agent = { id: 'agent-1', agentRuntimeMode: 'acp' };
+  const agent = { id: 'agent-1', runtimeBinding: { kind: 'acp' } };
   let state = createDefaultAgentComposerState();
   const updateComposerState = (_key, updater) => {
     state = updater(state);

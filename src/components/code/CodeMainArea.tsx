@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type RefObject, type SyntheticEvent as ReactSyntheticEvent } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
+import { isAcpRuntime, isStructuredRuntime } from '@/lib/agent-runtime'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import type { OpenWorkspaceFile, WorkspaceOpenFileTarget } from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
@@ -330,10 +331,8 @@ export function CodeMainArea({
   const activeAgent = activeTerminalId
     ? visibleOpenAgents.find(agent => agent.id === activeTerminalId) || null
     : null
-  const acpComposerActive = activeAgent?.agentRuntimeMode === 'acp'
-  const activeWorkPaneMode = ['acp', 'json'].includes(activeAgent?.agentRuntimeMode || '')
-    || (activeAgent?.providerSessionProvider === 'codex'
-    && activeAgent.codexRuntimeMode === 'app-server')
+  const acpComposerActive = isAcpRuntime(activeAgent)
+  const activeWorkPaneMode = isStructuredRuntime(activeAgent)
     ? 'transcript'
     : 'terminal'
   const canCollapseComposer = composerCollapseSupported

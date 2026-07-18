@@ -1,6 +1,11 @@
-import type { Agent, AgentTerminalStatus, AppState, CodexTerminalProfile, SystemStats, TerminalPreviewSnapshot } from './agent'
+import type { Agent, AgentTerminalStatus, AppState, CodexTerminalProfile, RuntimeObservation, SystemStats, TerminalPreviewSnapshot } from './agent'
 
 // ---- Client → Server messages ----
+
+export interface ProtocolClientHelloMessage {
+  type: 'protocol-hello'
+  protocolVersion: number
+}
 
 export interface StartAgentMessage {
   type: 'start-agent'
@@ -106,6 +111,7 @@ export interface UnwatchWorkspaceFilesMessage {
 }
 
 export type ClientMessage =
+  | ProtocolClientHelloMessage
   | StartAgentMessage
   | InputMessage
   | ComposerInputMessage
@@ -119,6 +125,25 @@ export type ClientMessage =
   | UnwatchWorkspaceFilesMessage
 
 // ---- Server → Client messages ----
+
+export interface ProtocolServerHelloMessage {
+  type: 'protocol-hello'
+  protocolVersion: number
+  minProtocolVersion: number
+}
+
+export interface ProtocolErrorMessage {
+  type: 'protocol-error'
+  protocolVersion: number
+  requestId?: string
+  message: string
+}
+
+export interface CommandAckMessage {
+  type: 'command-ack'
+  requestId: string
+  command: string
+}
 
 export interface StateMessage {
   type: 'state'
@@ -189,6 +214,7 @@ export interface SessionPreviewMessage {
     rows: number
     previewSnapshot?: TerminalPreviewSnapshot | null
     terminalStatus?: AgentTerminalStatus | null
+    runtimeObservation?: RuntimeObservation
     codexTerminalProfile?: CodexTerminalProfile | null
   }
 }
@@ -210,6 +236,9 @@ export interface WorkspaceFileEventMessage {
 }
 
 export type ServerMessage =
+  | ProtocolServerHelloMessage
+  | ProtocolErrorMessage
+  | CommandAckMessage
   | StateMessage
   | ErrorMessage
   | AgentStartedMessage

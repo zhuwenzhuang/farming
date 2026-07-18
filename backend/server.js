@@ -7,6 +7,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { URLSearchParams, pathToFileURL } = require('url');
 const AgentManager = require('./agent-manager');
+const { runtimeKind } = require('./agent-runtime-binding');
 const ConfigManager = require('./config-manager');
 const ThemeManager = require('./theme-manager');
 const TokenAuth = require('./auth');
@@ -36,6 +37,7 @@ const { discoverAgentWorkspaces } = require('./workspace-discovery');
 const { createControlRouter } = require('./control-api');
 const { WorkspaceFileService, WorkspaceFileError } = require('./workspace-file-service');
 const { createWorkspaceFileRouter, resolveWorkspaceRoot } = require('./workspace-file-router');
+const { WorkspaceRootRegistry, rootIdForPath } = require('./workspace-root-registry');
 const { UsageMonitor } = require('./usage-monitor');
 const { CodexContextWindowReader } = require('./codex-context-window');
 const { DEFAULT_MAX_TURNS: DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS, readCodexTranscript } = require('./codex-transcript');
@@ -66,6 +68,12 @@ const {
   deliverSessionStreamToClients,
   shouldBroadcastSessionStreamImmediately,
 } = require('./session-stream-protocol');
+const {
+  MIN_PROTOCOL_VERSION,
+  PROTOCOL_VERSION,
+  protocolCompatible,
+  validateClientMessage,
+} = require('../shared/browser-protocol');
 
 const BASE_PATH = normalizeBasePath(process.env.FARMING_BASE_PATH || '/');
 const PORT = process.env.PORT || 3000;
@@ -101,6 +109,7 @@ const agentManager = new AgentManager(configManager, {
 });
 const themeManager = new ThemeManager({ configDir: configManager.farmingDir });
 const workspaceFileService = new WorkspaceFileService();
+const workspaceRootRegistry = new WorkspaceRootRegistry(agentManager);
 const updateService = new FarmingUpdateService({
   rootDir: path.join(__dirname, '..'),
   configDir: configManager.farmingDir,
@@ -483,7 +492,9 @@ app.use(`${crtEntryPath}/shared`, express.static(frontendDir, { index: false }))
 app.use(`${crtEntryPath}/`, express.static(crtFrontendDir, { index: false }));
 app.use(BASE_PATH || '/', express.static(staticAppDir, { index: false }));
 
-app.use(routePath(BASE_PATH, '/api/files'), createWorkspaceFileRouter(agentManager, workspaceFileService));
+app.use(routePath(BASE_PATH, '/api/files'), createWorkspaceFileRouter(agentManager, workspaceFileService, {
+  rootRegistry: workspaceRootRegistry,
+}));
 
 app.use(routePath(BASE_PATH, '/api/review-sessions'), createReviewSessionRouter(reviewSessionService));
 app.use(routePath(BASE_PATH, '/api/reviews'), createReviewDiffRouter(reviewDiffService, reviewSessionService));
@@ -971,7 +982,7 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/codex-transcript'), async (re
       : DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS;
     const transcript = await readCodexTranscript(providerSession.sessionId, {
       maxTurns,
-      codexHome: providerSession.codexRuntimeMode === 'app-server'
+      codexHome: runtimeKind(providerSession) === 'app-server'
         ? (providerSession.codexAppServerHomePath || providerSession.providerHomePath || '')
         : (providerSession.providerHomePath || ''),
     });
@@ -1842,9 +1853,25 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
+      const validation = validateClientMessage(data);
+      if (!validation.ok) {
+        ws.send(JSON.stringify({
+          type: 'protocol-error',
+          protocolVersion: PROTOCOL_VERSION,
+          requestId: typeof data?.requestId === 'string' ? data.requestId : '',
+          message: validation.error,
+        }));
+        return;
+      }
       handleMessage(ws, data);
     } catch (e) {
       console.error('Failed to parse message:', e);
+      ws.send(JSON.stringify({
+        type: 'protocol-error',
+        protocolVersion: PROTOCOL_VERSION,
+        requestId: '',
+        message: 'message must be valid JSON',
+      }));
     }
   });
   
@@ -1853,6 +1880,11 @@ wss.on('connection', (ws, req) => {
     console.log('Client disconnected');
   });
   
+  ws.send(JSON.stringify({
+    type: 'protocol-hello',
+    protocolVersion: PROTOCOL_VERSION,
+    minProtocolVersion: MIN_PROTOCOL_VERSION,
+  }));
   sendState(ws);
 });
 
@@ -1938,11 +1970,7 @@ async function sendComposerInputMessage(ws, data) {
   }
   if (!targetAgentId || content.length === 0) return;
   const targetAgent = agentManager.getState().agents.find(agent => agent.id === targetAgentId);
-  const structuredRuntime = targetAgent && (
-    targetAgent.agentRuntimeMode === 'acp' ||
-    targetAgent.agentRuntimeMode === 'json' ||
-    (targetAgent.providerSessionProvider === 'codex' && targetAgent.codexRuntimeMode === 'app-server')
-  );
+  const structuredRuntime = targetAgent && runtimeKind(targetAgent) !== 'terminal';
   if (!structuredRuntime) {
     ws.send(JSON.stringify({
       type: 'error',
@@ -1979,6 +2007,13 @@ async function respondToAppServerRequest(ws, data) {
 
 function handleMessage(ws, data) {
   switch (data.type) {
+    case 'protocol-hello':
+      if (!protocolCompatible(data.protocolVersion)) {
+        ws.close(4002, `Unsupported Farming protocol version ${data.protocolVersion}`);
+        return;
+      }
+      ws.protocolVersion = data.protocolVersion;
+      break;
     case 'start-agent': {
       const workspace = data.workspace || null;
       agentManager.startAgent(data.command, workspace, (agentId, error) => {
@@ -2160,8 +2195,14 @@ async function watchWorkspaceFiles(ws, data) {
 }
 
 function buildStatePayload() {
+  const state = agentManager.getState();
   return {
-    ...agentManager.getState(),
+    ...state,
+    agents: state.agents.map(agent => ({
+      ...agent,
+      workspaceRootId: rootIdForPath(agent.projectWorkspace || agent.gitWorktree?.workspace || agent.cwd),
+    })),
+    workspaceRoots: workspaceRootRegistry.list(),
     mainPageSessionKeys: typeof configManager.getMainPageSessionKeys === 'function'
       ? configManager.getMainPageSessionKeys()
       : (Array.isArray(configManager.getSettings().mainPageSessionKeys) ? configManager.getSettings().mainPageSessionKeys : []),

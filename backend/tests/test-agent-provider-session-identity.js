@@ -79,7 +79,7 @@ async function run() {
     assert(codexAgent.providerSessionId.startsWith('tmp_uuid'), 'Codex should start with a tmp_uuid provider id');
     assert.strictEqual(codexAgent.providerSessionKey, `agent-session:codex:${codexAgent.providerSessionId}`);
     assert.deepStrictEqual(settings.mainPageSessionKeys, [], 'temporary Codex ids must not enter main page history');
-    manager.stopCodexProviderSessionResolver(codexId);
+    manager.providerSessionService.stop(codexId);
 
     const incompleteCodexSessionId = '11111111-2222-4333-8444-555555555555';
     const completeCodexSessionId = '22222222-3333-4444-8555-666666666666';
@@ -96,7 +96,7 @@ async function run() {
         payload: { type: 'user_message', message: 'hello' },
       },
     ]);
-    const unresolvedCodexSession = await manager.findCodexSessionForTemporaryAgent(liveCodexAgent);
+    const unresolvedCodexSession = await manager.providerSessionService.findTemporaryCodexSession(liveCodexAgent);
     assert.strictEqual(
       unresolvedCodexSession,
       null,
@@ -115,9 +115,9 @@ async function run() {
         payload: { type: 'user_message', message: '看下cron worker怎么加新模块' },
       },
     ]);
-    manager.engineBridge.router.engines.local.emit('session-output', {
+    manager.engineBridge.router.engines.local.emit('session-started', {
       sessionId: codexId,
-      data: 'Codex output after session metadata',
+      status: 'running',
     });
     await waitFor(() => manager.agents.get(codexId).providerSessionId === completeCodexSessionId);
     const resolvedCodexAgent = manager.getState().agents.find(agent => agent.id === codexId);
@@ -154,7 +154,7 @@ async function run() {
       engineStarted: true,
       startedAt,
     });
-    const titleResolved = await manager.attemptProviderSessionTitleResolution(recoveredCodexId, { force: true });
+    const titleResolved = await manager.providerSessionService.resolveTitle(recoveredCodexId, { force: true });
     const recoveredCodexAgent = manager.getState().agents.find(agent => agent.id === recoveredCodexId);
     assert.strictEqual(titleResolved, true);
     assert.strictEqual(recoveredCodexAgent.providerSessionTitle, '看下cron worker怎么加新模块');
@@ -283,8 +283,7 @@ async function run() {
     }
     process.env.PATH = previousPath;
     for (const agent of manager.getState().agents) {
-      manager.stopCodexProviderSessionResolver(agent.id);
-      manager.stopProviderSessionTitleResolver(agent.id);
+      manager.providerSessionService.stop(agent.id);
     }
     clearInterval(manager.heartbeatInterval);
     manager.engineBridge.dispose();

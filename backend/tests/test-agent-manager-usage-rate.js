@@ -30,13 +30,24 @@ async function run() {
     assert.strictEqual(activeRate.estimatedOutputTokens, 10);
     assert.strictEqual(manager.outputEvents.get('agent-1').length, 1);
 
-    const idleRate = manager.calculateAgentUsageRate('agent-1', { now: now + windowMs + 20_000, windowMs });
+    const cachedRate = manager.getAgentUsageRate('agent-1', { now, windowMs });
+    manager.outputEvents.get('agent-1').push({ timestamp: now + 1000, bytes: 20 });
+    const cachedRateBeforeRefresh = manager.getAgentUsageRate('agent-1', { now: now + 4999, windowMs });
+    assert.strictEqual(cachedRateBeforeRefresh, cachedRate);
+    assert.strictEqual(cachedRateBeforeRefresh.outputBytes, 40);
+
+    const refreshedRate = manager.getAgentUsageRate('agent-1', { now: now + 5000, windowMs });
+    assert.notStrictEqual(refreshedRate, cachedRate);
+    assert.strictEqual(refreshedRate.outputBytes, 60);
+    assert.strictEqual(refreshedRate.sampledAt, now + 5000);
+
+    const idleRate = manager.getAgentUsageRate('agent-1', { now: now + windowMs + 20_000, windowMs });
     assert.strictEqual(idleRate.outputBytes, 0);
     assert.strictEqual(idleRate.estimatedOutputTokens, 0);
     assert.strictEqual(idleRate.estimatedTokensPerMinute, 0);
     assert.strictEqual(manager.outputEvents.has('agent-1'), false);
 
-    console.log('✓ agent output usage rate expires stale events');
+    console.log('✓ agent output usage rate caches exact snapshots and expires stale events');
   } finally {
     clearInterval(manager.heartbeatInterval);
     manager.engineBridge.dispose();

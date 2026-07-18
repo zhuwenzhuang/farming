@@ -78,7 +78,7 @@ function run() {
   assert.strictEqual(stableProjectSourceAgentId('main', sourceAgents), 'older');
   assert.strictEqual(stableProjectSourceAgentId(null, [agent({ id: 'main', isMain: true })]), null);
   const filesId = projectFilesWorkspaceId('/repo with spaces');
-  assert.strictEqual(filesId, '__farming_project__:%2Frepo%20with%20spaces');
+  assert.match(filesId, /^wroot_[0-9a-f]{16}$/);
   assert.strictEqual(projectWorkspaceFromFilesId(filesId), '/repo with spaces');
   assert.strictEqual(isProjectFilesWorkspaceId(filesId), true);
 

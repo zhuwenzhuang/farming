@@ -1618,7 +1618,7 @@ function run() {
 	      apiSource.includes('createWorkspaceEntry') &&
 	      apiSource.includes('renameWorkspaceEntry') &&
 	      apiSource.includes('deleteWorkspaceEntry') &&
-      apiSource.includes('new URLSearchParams({ agentId, path: filePath })') &&
+      apiSource.includes('new URLSearchParams({ rootId, path: filePath })') &&
 	      apiSource.includes('searchWorkspaceFiles') &&
 	      apiSource.includes('fetchWorkspaceDiff') &&
 	      apiSource.includes('fetchWorkspaceChanges') &&

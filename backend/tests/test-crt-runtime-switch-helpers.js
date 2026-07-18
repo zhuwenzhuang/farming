@@ -15,14 +15,14 @@ const {
 assert.strictEqual(formatCrtCompactTotalValue(2_467_206_586), '2.47B');
 assert.strictEqual(formatCrtCompactTotalValue(10_000), '10K');
 
-assert.strictEqual(crtRuntimeView({ agentRuntimeMode: 'acp' }), 'chat');
-assert.strictEqual(crtRuntimeView({ agentRuntimeMode: 'json' }), 'chat');
-assert.strictEqual(crtRuntimeView({ agentRuntimeMode: 'terminal' }), 'terminal');
+assert.strictEqual(crtRuntimeView({ runtimeBinding: { kind: 'acp' } }), 'chat');
+assert.strictEqual(crtRuntimeView({ runtimeBinding: { kind: 'json' } }), 'chat');
+assert.strictEqual(crtRuntimeView({ runtimeBinding: { kind: 'terminal' } }), 'terminal');
 
 assert.strictEqual(canSwitchCrtAgentRuntime({
   providerSessionProvider: 'codex',
   providerSessionId: 'session-1',
-  agentRuntimeMode: 'terminal',
+  runtimeBinding: { kind: 'terminal' },
 }), true);
 assert.strictEqual(canSwitchCrtAgentRuntime({
   providerSessionProvider: 'bash',
@@ -38,7 +38,7 @@ assert.strictEqual(canSwitchCrtAgentRuntime({
   providerSessionId: 'tmp_uuid_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
   providerSessionTemporary: true,
   providerSessionSource: 'codex-temporary',
-  agentRuntimeMode: 'terminal',
+  runtimeBinding: { kind: 'terminal' },
   terminalInputReceived: false,
 }), true);
 assert.strictEqual(canSwitchCrtAgentRuntime({
@@ -46,7 +46,7 @@ assert.strictEqual(canSwitchCrtAgentRuntime({
   providerSessionId: 'tmp_uuid_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
   providerSessionTemporary: true,
   providerSessionSource: 'codex-temporary',
-  agentRuntimeMode: 'terminal',
+  runtimeBinding: { kind: 'terminal' },
   terminalInputReceived: true,
 }), false);
 assert.strictEqual(canSwitchCrtAgentRuntime({ providerSessionProvider: 'opencode' }), false);
@@ -166,13 +166,11 @@ assert.strictEqual(getCrtAgentRemovalFallback({
 
 assert.strictEqual(structuredComposerAction({
   status: 'running',
-  agentRuntimeMode: 'acp',
-  acpState: 'working',
+  runtimeBinding: { kind: 'acp', state: 'working' },
 }, 'queued follow-up'), 'send');
 assert.strictEqual(structuredComposerAction({
   status: 'running',
-  agentRuntimeMode: 'acp',
-  acpState: 'working',
+  runtimeBinding: { kind: 'acp', state: 'working' },
 }, ''), 'interrupt');
 
 assert.deepStrictEqual(structuredTranscriptTurns({

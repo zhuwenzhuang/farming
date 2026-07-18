@@ -8,22 +8,25 @@ function read(relativePath) {
 
 function run() {
   const appSource = read('src/App.tsx');
+  const connectionStatusSource = read('src/components/BackendConnectionStatus.tsx');
   const codeWorkspaceSource = read('src/components/CodeWorkspace.tsx');
   const webSocketSource = read('src/hooks/useWebSocket.ts');
+  const liveStatusSource = read('src/lib/backend-live-status.ts');
   const pageVisibilitySource = read('src/hooks/usePageVisibility.ts');
   const copySource = read('src/components/code/copy.ts');
   const stylesSource = read('src/styles/main.css');
 
   assert(
-    webSocketSource.includes('everConnected: boolean') &&
-      webSocketSource.includes('lastMessageAt: number') &&
+    liveStatusSource.includes('everConnected: boolean') &&
+      liveStatusSource.includes('lastMessageAt: number') &&
       webSocketSource.includes('LAST_MESSAGE_STATE_THROTTLE_MS') &&
       webSocketSource.includes('everConnected: true') &&
       webSocketSource.includes('function markBackendMessage') &&
       webSocketSource.includes('markBackendMessage()') &&
+      webSocketSource.includes('updateBackendConnectionStatus') &&
       webSocketSource.includes('event.code === 4001') &&
       webSocketSource.includes('Farming token expired or is invalid'),
-    'WebSocket state should expose whether the backend was ever connected and when the last backend message arrived'
+    'The isolated backend status store should track whether the backend was ever connected and when the last message arrived'
   );
 
   assert(
@@ -41,8 +44,9 @@ function run() {
   );
 
   assert(
-    appSource.includes('const pageVisible = usePageVisibility()') &&
-      appSource.includes('if (!pageVisible) return undefined') &&
+    connectionStatusSource.includes('const pageVisible = usePageVisibility()') &&
+      connectionStatusSource.includes('if (!pageVisible) return undefined') &&
+      appSource.includes('const pageVisible = usePageVisibility()') &&
       appSource.includes('CONTEXT_WINDOW_REFRESH_MS') &&
       appSource.includes("fetch(appPath('/api/usage'))"),
     'App should pause visible-only polling such as heartbeat display, context windows, and usage while the page is hidden'
@@ -57,13 +61,21 @@ function run() {
   );
 
   assert(
-    appSource.includes('BACKEND_INITIAL_CONNECT_GRACE_MS') &&
-      appSource.includes('BACKEND_HEARTBEAT_STALE_MS') &&
-      appSource.includes("return 'lost'") &&
-      appSource.includes("return 'stale'") &&
-      appSource.includes('data-testid="connection-status"') &&
-      appSource.includes('backendConnectionMessage'),
-    'App should classify initial connecting, disconnected, and stale backend heartbeat states'
+    connectionStatusSource.includes('BACKEND_INITIAL_CONNECT_GRACE_MS') &&
+      connectionStatusSource.includes('BACKEND_HEARTBEAT_STALE_MS') &&
+      connectionStatusSource.includes("return 'lost'") &&
+      connectionStatusSource.includes("return 'stale'") &&
+      connectionStatusSource.includes('data-testid="connection-status"') &&
+      appSource.includes('<BackendConnectionStatus copy={copy} />'),
+    'The isolated connection component should classify initial connecting, disconnected, and stale states'
+  );
+
+  assert(
+    !webSocketSource.includes('systemStats: SystemStats | null') &&
+      webSocketSource.includes('updateBackendSystemStats') &&
+      liveStatusSource.includes('useBackendSystemStats') &&
+      !codeWorkspaceSource.includes('systemStats: SystemStats | null'),
+    'System stats should update narrow subscribers instead of the App and CodeWorkspace state tree'
   );
 
   assert(

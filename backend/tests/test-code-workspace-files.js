@@ -139,17 +139,6 @@ function run() {
   );
 
   assert(
-    agentManagerSource.includes('if (workspace && !sessionWorkspace) return false') &&
-      agentManagerSource.includes('const exact = candidates.find(session =>') &&
-      agentManagerSource.includes('isLinkedWorktreeOf(workspace, sessionWorkspace)') &&
-      agentManagerSource.includes('observeAgentStateChange(sessionId') &&
-      agentManagerSource.includes('attemptCodexProviderSessionResolution(agentId') &&
-      !agentManagerSource.includes('startCodexProviderSessionResolver') &&
-      !agentManagerSource.includes('setTimeout(tick'),
-    'Codex temporary session resolution should be triggered by agent state changes and wait for workspace metadata before claiming a real session id'
-  );
-
-  assert(
     appSource.includes('cycleOpenTerminal') &&
       appSource.includes('const CODEX_SKIN_KEYBOARD_SHORTCUTS_ENABLED = false') &&
       appSource.includes('if (!CODEX_SKIN_KEYBOARD_SHORTCUTS_ENABLED) return []') &&
@@ -815,7 +804,7 @@ function run() {
 	      workspaceSource.includes('data-testid="code-usage-toggle"') &&
       workspaceSource.includes('data-testid="code-usage-summary"') &&
       workspaceSource.includes("title=\"Provider local token usage refreshes periodically.\"") &&
-      workspaceSource.includes("collapsed ? collapsedSummary : '5m rate · activity'") &&
+      workspaceSource.includes('5m rate · activity') &&
       workspaceSource.includes('data-testid="code-session-show-more"') &&
       workspaceSource.includes('data-testid="code-session-show-less"') &&
       workspaceSource.includes('onToggleProjectSessions(project.id)') &&
@@ -833,8 +822,7 @@ function run() {
       workspaceSource.includes('function isCodexAgentWorking(agent: Agent | null | undefined)') &&
       workspaceSource.includes('function isAgentTurnActive(agent: Agent | null | undefined)') &&
       workspaceSource.includes('export function inferAgentTerminalState(agent: Agent | null | undefined)') &&
-      workspaceSource.includes("'terminal-output'") &&
-      workspaceSource.includes("'terminal-busy'") &&
+      workspaceSource.includes('const phase = agent.runtimeObservation.phase') &&
       workspaceSource.includes('const kind = inferAgentTerminalState(agent).kind') &&
       workspaceSource.includes('const [composerByAgentKey, setComposerByAgentKey]') &&
       workspaceSource.includes('history: ComposerHistoryState') &&
@@ -844,7 +832,7 @@ function run() {
       workspaceSource.includes('mergeAgentComposerStates(nextStateByKey[canonicalKey], aliasState)') &&
       workspaceSource.includes('const resolveComposerStateKey = useCallback') &&
       workspaceSource.includes('const canonicalKey = resolveComposerStateKey(composerKey)') &&
-      workspaceSource.includes("const activeComposerKey = activeAgent?.agentRuntimeMode === 'acp'") &&
+      workspaceSource.includes('const activeComposerKey = activeAcpRuntime') &&
       workspaceSource.includes('acpComposerStateKeyForAgent(activeAgent)') &&
       workspaceSource.includes('const activeComposerState = activeComposerKey') &&
       workspaceSource.includes('const activePendingFollowUp = activeComposerState.pendingFollowUp') &&
@@ -1071,13 +1059,13 @@ function run() {
       agentWorkPaneSource.includes('CodexAppServerTranscriptPane') &&
       agentWorkPaneSource.includes('JsonCliTranscriptPane') &&
       agentWorkPaneSource.includes('AcpTranscriptPane') &&
-      agentWorkPaneSource.includes("runtimeState={agent.acpState || ''}") &&
+      agentWorkPaneSource.includes("runtimeState={acpRuntime?.state || ''}") &&
       agentWorkPaneSource.includes("expectHistory={(agent.source || '').startsWith('codex-history:')}") &&
       agentWorkPaneSource.includes('AgentTerminalPane') &&
       !agentWorkPaneSource.includes('resizeAgent') &&
       agentWorkPaneSource.includes('const appServerChat = isCodexAppServerAgent(agent)') &&
-      agentWorkPaneSource.includes("const jsonChat = agent.agentRuntimeMode === 'json'") &&
-      agentWorkPaneSource.includes("const acpChat = agent.agentRuntimeMode === 'acp'") &&
+      agentWorkPaneSource.includes('const jsonRuntime = isJsonRuntime(agent)') &&
+      agentWorkPaneSource.includes('const acpRuntime = isAcpRuntime(agent)') &&
       agentWorkPaneSource.includes('data-testid="code-terminal-mode-toggle"') &&
       agentWorkPaneSource.includes('onRuntimeModeChange') &&
       agentWorkPaneSource.includes('agentWorkPaneModeStorageIdentity') &&
@@ -1158,7 +1146,7 @@ function run() {
   );
 
   assert(
-    codeMainAreaSource.includes("const acpComposerActive = activeAgent?.agentRuntimeMode === 'acp'") &&
+    codeMainAreaSource.includes('const acpComposerActive = isAcpRuntime(activeAgent)') &&
       codeMainAreaSource.includes('<AcpComposer {...acpComposerProps} copy={copy} />') &&
       codeMainAreaSource.includes('<CodeComposer {...composerProps} copy={copy} />') &&
       !terminalComposerSource.includes('AcpPermission') &&
@@ -1185,7 +1173,7 @@ function run() {
       acpComposerSource.includes('data-testid="code-acp-pending-followup"') &&
       acpComposerSource.includes('data-testid="code-acp-pending-followup-discard"') &&
       !acpComposerSource.includes('slashCommands') &&
-      acpComposerBehaviorSource.includes("agent.agentRuntimeMode !== 'acp'") &&
+      acpComposerBehaviorSource.includes("agent.runtimeBinding.kind !== 'acp'") &&
       !acpComposerBehaviorSource.includes('terminalInputPartsForComposerMessage') &&
       acpComposerBehaviorSource.includes('formatComposerMessage') &&
       acpComposerBehaviorSource.includes('composerPromptAttachments') &&
@@ -1193,7 +1181,7 @@ function run() {
       serverSource.includes("data: data.toString('base64')") &&
       serverSource.includes('uri: pathToFileURL(filePath).href') &&
       agentManagerSource.includes('this.acpRuntime.prompt(agentId, prompt)') &&
-      workspaceSource.includes("activeAgent?.agentRuntimeMode === 'acp'") &&
+      workspaceSource.includes('activeAcpRuntime') &&
       acpComposerStateSource.includes("const ACP_COMPOSER_STATE_PREFIX = 'acp:'") &&
       acpSessionHookSource.includes('/acp-session') &&
       acpSessionHookSource.includes("method: 'PATCH'") &&
@@ -1209,15 +1197,16 @@ function run() {
       acpSessionControlsSource.includes('code-model-picker-menu code-composer-menu') &&
       acpSessionControlsSource.includes('code-model-submenu code-composer-menu') &&
       acpSessionControlsSource.includes('code-speed-submenu code-composer-menu') &&
-      agentWorkPaneSource.includes("['codex', 'claude', 'opencode', 'qoder'].includes") &&
+      agentWorkPaneSource.includes('agent.providerCapabilities.runtimeSwitch') &&
+      agentWorkPaneSource.includes("agent.providerCapabilities.supportedRuntimes.includes('acp')") &&
       inputDialogSource.includes("['codex', 'claude', 'opencode', 'qoder'].includes(selectedAgent.name)") &&
       acpPermissionSource.includes('code-acp-permission-details') &&
-      agentWorkPaneSource.includes('refreshSignal={Number(agent.acpSessionRevision) || (agent.acpSessionUpdatedAt ? Date.parse(agent.acpSessionUpdatedAt) : 0)}') &&
+      agentWorkPaneSource.includes('refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)}') &&
       transcriptPaneSource.includes("if (source !== 'acp') timer = window.setInterval(load, 3000)") &&
       acpTranscriptSource.includes("Omit<CodexTranscriptPaneProps, 'source'>") &&
       acpTranscriptSource.includes('groupProcessActions') &&
       !acpTranscriptSource.includes('groupProcessActions={false}') &&
-      workspaceSource.includes("activeAgent?.agentRuntimeMode === 'acp'") &&
+      workspaceSource.includes('activeAcpRuntime') &&
       workspaceSource.includes('acpComposerStateKeyForAgent(activeAgent)') &&
       workspaceSource.includes('acpComposerStateAliasKeysForAgent(activeAgent)'),
     'ACP chat should own a separate composer and behavior module without changing the Terminal composer contract'

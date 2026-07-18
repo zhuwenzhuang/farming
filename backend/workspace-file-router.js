@@ -4,23 +4,38 @@ const os = require('os');
 const path = require('path');
 const { inspectGitWorktree } = require('./git-worktree-info');
 const { WorkspaceFileError } = require('./workspace-file-service');
+const {
+  GLOBAL_WORKSPACE_FILES_AGENT_ID,
+  GLOBAL_WORKSPACE_FILES_ROOT,
+  GLOBAL_WORKSPACE_ROOT_ID,
+  PROJECT_FILES_WORKSPACE_PREFIX,
+  WorkspaceRootRegistry,
+  projectWorkspaceFromLegacyRef,
+} = require('./workspace-root-registry');
 
-const GLOBAL_WORKSPACE_FILES_AGENT_ID = '__farming_global_files__';
-const GLOBAL_WORKSPACE_FILES_ROOT = '/';
-const PROJECT_FILES_WORKSPACE_PREFIX = '__farming_project__:';
+const ROOT_REGISTRIES = new WeakMap();
 
 function isGlobalWorkspaceFilesAgentId(agentId) {
-  return agentId === GLOBAL_WORKSPACE_FILES_AGENT_ID;
+  return agentId === GLOBAL_WORKSPACE_FILES_AGENT_ID || agentId === GLOBAL_WORKSPACE_ROOT_ID;
 }
 
 function projectWorkspaceFromFilesId(filesId) {
-  const value = String(filesId || '');
-  if (!value.startsWith(PROJECT_FILES_WORKSPACE_PREFIX)) return '';
-  try {
-    return decodeURIComponent(value.slice(PROJECT_FILES_WORKSPACE_PREFIX.length)).trim();
-  } catch {
-    return '';
+  return projectWorkspaceFromLegacyRef(filesId);
+}
+
+function workspaceRootRegistryFor(agentManager) {
+  let registry = ROOT_REGISTRIES.get(agentManager);
+  if (!registry) {
+    registry = new WorkspaceRootRegistry(agentManager);
+    ROOT_REGISTRIES.set(agentManager, registry);
   }
+  return registry;
+}
+
+function workspaceRef(source) {
+  return source && typeof source.rootId === 'string' && source.rootId.trim()
+    ? source.rootId
+    : source?.agentId;
 }
 
 function normalizeAbsolutePath(value) {
@@ -171,53 +186,8 @@ function sendWorkspaceFileError(res, error) {
   res.status(500).json({ error: 'workspace file operation failed' });
 }
 
-function resolveWorkspaceRoot(agentManager, agentId) {
-  if (typeof agentId !== 'string' || !agentId.trim()) {
-    throw new WorkspaceFileError('agentId is required', 400);
-  }
-
-  if (isGlobalWorkspaceFilesAgentId(agentId)) {
-    return GLOBAL_WORKSPACE_FILES_ROOT;
-  }
-
-  const projectWorkspace = normalizeAbsolutePath(projectWorkspaceFromFilesId(agentId));
-  if (projectWorkspace) {
-    const settings = agentManager?.configManager?.getSettings?.() || {};
-    const configured = (Array.isArray(settings.projectWorkspaces) ? settings.projectWorkspaces : [])
-      .map(normalizeAbsolutePath);
-    if (configured.includes(projectWorkspace)) return projectWorkspace;
-
-    // A newly created Agent can reach the browser before projectWorkspaces is
-    // persisted. Accept only an exact live non-main workspace during that
-    // bounded race; the Agent authorizes access but never becomes file identity.
-    const state = agentManager && typeof agentManager.getState === 'function'
-      ? agentManager.getState()
-      : { agents: [] };
-    const backedByLiveAgent = (state.agents || []).some(candidate => {
-      if (!candidate || candidate.isMain) return false;
-      const liveWorkspace = normalizeAbsolutePath(
-        candidate.projectWorkspace || candidate.gitWorktree?.workspace || candidate.cwd
-      );
-      return liveWorkspace === projectWorkspace;
-    });
-    if (backedByLiveAgent) return projectWorkspace;
-    throw new WorkspaceFileError('project not found', 404);
-  }
-
-  if (agentManager && typeof agentManager.getAgentWorkspaceRoot === 'function') {
-    const root = agentManager.getAgentWorkspaceRoot(agentId);
-    if (root) return root;
-  }
-
-  const state = agentManager && typeof agentManager.getState === 'function'
-    ? agentManager.getState()
-    : { agents: [] };
-  const agent = (state.agents || []).find(candidate => candidate.id === agentId);
-  if (!agent) {
-    throw new WorkspaceFileError('agent not found', 404);
-  }
-
-  return agent.projectWorkspace || agent.cwd;
+function resolveWorkspaceRoot(agentManager, rootRef) {
+  return workspaceRootRegistryFor(agentManager).resolve(rootRef).canonicalPath;
 }
 
 function assertWritableWorkspaceAgent(agentId) {
@@ -232,18 +202,29 @@ function readOptionsForAgent(agentManager, agentId) {
     : { allowedExternalRoots: globalWorkspaceAllowedRoots(agentManager) };
 }
 
-function createWorkspaceFileRouter(agentManager, fileService) {
+function createWorkspaceFileRouter(agentManager, fileService, options = {}) {
   const router = express.Router();
+  const rootRegistry = options.rootRegistry || workspaceRootRegistryFor(agentManager);
 
   router.use(express.json({ limit: '3mb' }));
 
+  router.get('/roots', (_req, res) => {
+    res.json({ roots: rootRegistry.list() });
+  });
+
+  const resolveRequestRoot = source => {
+    const workspaceRoot = rootRegistry.resolve(workspaceRef(source));
+    return { root: workspaceRoot.canonicalPath, rootId: workspaceRoot.rootId };
+  };
+
   router.get('/tree', async (req, res) => {
     try {
-      const root = resolveWorkspaceRoot(agentManager, req.query.agentId);
-      const tree = isGlobalWorkspaceFilesAgentId(req.query.agentId)
+      const rootRef = workspaceRef(req.query);
+      const { root, rootId } = resolveRequestRoot(req.query);
+      const tree = isGlobalWorkspaceFilesAgentId(rootRef)
         ? await listGlobalWorkspaceTree(agentManager, fileService, req.query.path || '')
-        : await fileService.listTree(root, req.query.path || '', readOptionsForAgent(agentManager, req.query.agentId));
-      res.json({ root, tree });
+        : await fileService.listTree(root, req.query.path || '', readOptionsForAgent(agentManager, rootRef));
+      res.json({ rootId, root, tree });
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }
@@ -251,12 +232,13 @@ function createWorkspaceFileRouter(agentManager, fileService) {
 
   router.get('/file', async (req, res) => {
     try {
-      if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {
+      const rootRef = workspaceRef(req.query);
+      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
         assertGlobalWorkspacePathAllowed(agentManager, req.query.path || '');
       }
-      const root = resolveWorkspaceRoot(agentManager, req.query.agentId);
-      const file = await fileService.readFile(root, req.query.path || '', readOptionsForAgent(agentManager, req.query.agentId));
-      res.json({ root, file });
+      const { root, rootId } = resolveRequestRoot(req.query);
+      const file = await fileService.readFile(root, req.query.path || '', readOptionsForAgent(agentManager, rootRef));
+      res.json({ rootId, root, file });
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }
@@ -264,11 +246,12 @@ function createWorkspaceFileRouter(agentManager, fileService) {
 
   router.get('/raw', async (req, res) => {
     try {
-      if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {
+      const rootRef = workspaceRef(req.query);
+      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
         assertGlobalWorkspacePathAllowed(agentManager, req.query.path || '');
       }
-      const root = resolveWorkspaceRoot(agentManager, req.query.agentId);
-      const file = await fileService.readPreviewFile(root, req.query.path || '', readOptionsForAgent(agentManager, req.query.agentId));
+      const { root } = resolveRequestRoot(req.query);
+      const file = await fileService.readPreviewFile(root, req.query.path || '', readOptionsForAgent(agentManager, rootRef));
       res
         .status(200)
         .type(file.preview.mediaType)
@@ -284,13 +267,14 @@ function createWorkspaceFileRouter(agentManager, fileService) {
   router.put('/file', async (req, res) => {
     try {
       const body = req.body || {};
-      assertWritableWorkspaceAgent(body.agentId);
-      const root = resolveWorkspaceRoot(agentManager, body.agentId);
+      const rootRef = workspaceRef(body);
+      assertWritableWorkspaceAgent(rootRef);
+      const { root, rootId } = resolveRequestRoot(body);
       const file = await fileService.writeFile(root, body.path || '', body.content, {
         baseSha1: body.baseSha1,
         overwrite: body.overwrite === true,
       });
-      res.json({ root, file });
+      res.json({ rootId, root, file });
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }
@@ -299,10 +283,11 @@ function createWorkspaceFileRouter(agentManager, fileService) {
   router.post('/move', async (req, res) => {
     try {
       const body = req.body || {};
-      assertWritableWorkspaceAgent(body.agentId);
-      const root = resolveWorkspaceRoot(agentManager, body.agentId);
+      const rootRef = workspaceRef(body);
+      assertWritableWorkspaceAgent(rootRef);
+      const { root, rootId } = resolveRequestRoot(body);
       const move = await fileService.moveEntry(root, body.sourcePath || '', body.targetDirectory || '');
-      res.json({ root, move });
+      res.json({ rootId, root, move });
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }
@@ -311,10 +296,11 @@ function createWorkspaceFileRouter(agentManager, fileService) {
   router.post('/entry', async (req, res) => {
     try {
       const body = req.body || {};
-      assertWritableWorkspaceAgent(body.agentId);
-      const root = resolveWorkspaceRoot(agentManager, body.agentId);
+      const rootRef = workspaceRef(body);
+      assertWritableWorkspaceAgent(rootRef);
+      const { root, rootId } = resolveRequestRoot(body);
       const created = await fileService.createEntry(root, body.parentPath || '', body.name || '', body.entryType || 'file', body.content || '');
-      res.status(201).json({ root, ...created });
+      res.status(201).json({ rootId, root, ...created });
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }
@@ -323,10 +309,11 @@ function createWorkspaceFileRouter(agentManager, fileService) {
   router.patch('/entry', async (req, res) => {
     try {
       const body = req.body || {};
-      assertWritableWorkspaceAgent(body.agentId);
-      const root = resolveWorkspaceRoot(agentManager, body.agentId);
+      const rootRef = workspaceRef(body);
+      assertWritableWorkspaceAgent(rootRef);
+      const { root, rootId } = resolveRequestRoot(body);
       const move = await fileService.renameEntry(root, body.path || '', body.name || '');
-      res.json({ root, move });
+      res.json({ rootId, root, move });
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }
@@ -335,12 +322,13 @@ function createWorkspaceFileRouter(agentManager, fileService) {
   router.delete('/entry', async (req, res) => {
     try {
       const body = req.body || {};
-      const agentId = body.agentId || req.query.agentId;
+      const rootRef = workspaceRef(body) || workspaceRef(req.query);
       const targetPath = body.path || req.query.path || '';
-      assertWritableWorkspaceAgent(agentId);
-      const root = resolveWorkspaceRoot(agentManager, agentId);
+      assertWritableWorkspaceAgent(rootRef);
+      const workspaceRoot = rootRegistry.resolve(rootRef);
+      const { canonicalPath: root, rootId } = workspaceRoot;
       const deleted = await fileService.deleteEntry(root, targetPath);
-      res.json({ root, deleted });
+      res.json({ rootId, root, deleted });
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }
@@ -348,10 +336,11 @@ function createWorkspaceFileRouter(agentManager, fileService) {
 
   router.get('/search', async (req, res) => {
     try {
-      if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {
+      const rootRef = workspaceRef(req.query);
+      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
         assertGlobalWorkspacePathAllowed(agentManager, req.query.path || '');
       }
-      const root = resolveWorkspaceRoot(agentManager, req.query.agentId);
+      const { root, rootId } = resolveRequestRoot(req.query);
       const settings = agentManager?.configManager?.getSettings?.() || {};
       const results = await fileService.search(root, req.query.q || '', {
         includeIgnored: req.query.includeIgnored === 'true',
@@ -359,7 +348,7 @@ function createWorkspaceFileRouter(agentManager, fileService) {
         limit: req.query.limit,
         timeoutMs: settings.searchTimeoutMs,
       });
-      res.json({ root, results });
+      res.json({ rootId, root, results });
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }
@@ -367,12 +356,13 @@ function createWorkspaceFileRouter(agentManager, fileService) {
 
   router.get('/diff', async (req, res) => {
     try {
-      if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {
+      const rootRef = workspaceRef(req.query);
+      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
         assertGlobalWorkspacePathAllowed(agentManager, req.query.path || '', { allowMissing: true });
       }
-      const root = resolveWorkspaceRoot(agentManager, req.query.agentId);
+      const { root, rootId } = resolveRequestRoot(req.query);
       const diff = await fileService.diff(root, req.query.path || '');
-      res.json({ root, diff });
+      res.json({ rootId, root, diff });
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }
@@ -380,14 +370,15 @@ function createWorkspaceFileRouter(agentManager, fileService) {
 
   router.get('/changes', async (req, res) => {
     try {
-      if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {
+      const rootRef = workspaceRef(req.query);
+      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
         throw new WorkspaceFileError('global files do not support workspace changes', 403);
       }
-      const root = resolveWorkspaceRoot(agentManager, req.query.agentId);
+      const { root, rootId } = resolveRequestRoot(req.query);
       const changes = await fileService.changes(root, {
         limit: req.query.limit,
       });
-      res.json({ root, changes });
+      res.json({ rootId, root, changes });
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }
@@ -395,12 +386,13 @@ function createWorkspaceFileRouter(agentManager, fileService) {
 
   router.get('/branch', async (req, res) => {
     try {
-      if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {
+      const rootRef = workspaceRef(req.query);
+      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
         throw new WorkspaceFileError('global files do not support git branches', 403);
       }
-      const root = resolveWorkspaceRoot(agentManager, req.query.agentId);
+      const { root, rootId } = resolveRequestRoot(req.query);
       const branch = await fileService.gitBranch(root);
-      res.json({ root, branch });
+      res.json({ rootId, root, branch });
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }
@@ -408,12 +400,14 @@ function createWorkspaceFileRouter(agentManager, fileService) {
 
   router.get('/worktrees', async (req, res) => {
     try {
-      if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {
+      const rootRef = workspaceRef(req.query);
+      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
         throw new WorkspaceFileError('global files do not support git worktrees', 403);
       }
-      const root = resolveWorkspaceRoot(agentManager, req.query.agentId);
+      const { root, rootId } = resolveRequestRoot(req.query);
       const info = await inspectGitWorktree(root, { cacheMs: 0 });
       res.json({
+        rootId,
         root,
         worktrees: info
           ? {
@@ -438,16 +432,17 @@ function createWorkspaceFileRouter(agentManager, fileService) {
 
   router.get('/history', async (req, res) => {
     try {
-      if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {
+      const rootRef = workspaceRef(req.query);
+      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
         throw new WorkspaceFileError('global files do not support git history', 403);
       }
-      const root = resolveWorkspaceRoot(agentManager, req.query.agentId);
+      const { root, rootId } = resolveRequestRoot(req.query);
       const history = await fileService.gitHistory(root, {
         limit: req.query.limit,
         skip: req.query.skip,
         scope: req.query.scope,
       });
-      res.json({ root, history });
+      res.json({ rootId, root, history });
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }
@@ -455,17 +450,18 @@ function createWorkspaceFileRouter(agentManager, fileService) {
 
   router.get('/history/changes', async (req, res) => {
     try {
-      if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {
+      const rootRef = workspaceRef(req.query);
+      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
         throw new WorkspaceFileError('global files do not support git history', 403);
       }
-      const root = resolveWorkspaceRoot(agentManager, req.query.agentId);
+      const { root, rootId } = resolveRequestRoot(req.query);
       const changes = await fileService.gitHistoryChanges(
         root,
         req.query.commit,
         req.query.parent,
         { limit: req.query.limit }
       );
-      res.json({ root, changes });
+      res.json({ rootId, root, changes });
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }
@@ -473,17 +469,18 @@ function createWorkspaceFileRouter(agentManager, fileService) {
 
   router.get('/line-changes', async (req, res) => {
     try {
-      if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {
+      const rootRef = workspaceRef(req.query);
+      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
         assertGlobalWorkspacePathAllowed(agentManager, req.query.path || '');
       }
-      const root = resolveWorkspaceRoot(agentManager, req.query.agentId);
+      const { root, rootId } = resolveRequestRoot(req.query);
       const changes = await fileService.lineChanges(
         root,
         req.query.path || '',
         req.query.lineNumber,
         req.query.mode || 'working'
       );
-      res.json({ root, changes });
+      res.json({ rootId, root, changes });
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }
@@ -491,12 +488,13 @@ function createWorkspaceFileRouter(agentManager, fileService) {
 
   router.get('/blame', async (req, res) => {
     try {
-      if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {
+      const rootRef = workspaceRef(req.query);
+      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
         assertGlobalWorkspacePathAllowed(agentManager, req.query.path || '');
       }
-      const root = resolveWorkspaceRoot(agentManager, req.query.agentId);
+      const { root, rootId } = resolveRequestRoot(req.query);
       const blame = await fileService.blame(root, req.query.path || '');
-      res.json({ root, blame });
+      res.json({ rootId, root, blame });
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }
@@ -504,16 +502,17 @@ function createWorkspaceFileRouter(agentManager, fileService) {
 
   router.get('/blame-capability', async (req, res) => {
     try {
-      if (isGlobalWorkspaceFilesAgentId(req.query.agentId)) {
+      const rootRef = workspaceRef(req.query);
+      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
         assertGlobalWorkspacePathAllowed(agentManager, req.query.path || '');
       }
-      const root = resolveWorkspaceRoot(agentManager, req.query.agentId);
+      const { root, rootId } = resolveRequestRoot(req.query);
       const capability = await fileService.blameCapability(
         root,
         req.query.path || '',
-        readOptionsForAgent(agentManager, req.query.agentId)
+        readOptionsForAgent(agentManager, rootRef)
       );
-      res.json({ root, capability });
+      res.json({ rootId, root, capability });
     } catch (error) {
       sendWorkspaceFileError(res, error);
     }

@@ -12,12 +12,13 @@ import type {
   Agent,
   AgentContextWindowUsage,
   CodexTerminalProfile,
-  SystemStats,
   TaskHistoryEntry,
   UsageSummary,
 } from '@/types/agent'
 import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
+import { isAcpRuntime, isAppServerRuntime, isStructuredRuntime } from '@/lib/agent-runtime'
+import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 import { agentTitle } from '@/lib/format'
 import {
   GLOBAL_WORKSPACE_FILES_AGENT_ID,
@@ -282,7 +283,7 @@ export interface AgentFlagUpdateResult {
   restarted?: boolean
   restartedAgentId?: string
   launchPermissionMode?: string
-  agentRuntimeMode?: string
+  agentRuntimeMode?: 'terminal' | 'acp' | 'json'
   switchFailed?: boolean
   warning?: string
   error?: string
@@ -301,7 +302,6 @@ interface CodeWorkspaceProps {
   mainPageSessionKeys: string[]
   activeView: WorkspaceView
   dialogOpen: boolean
-  systemStats: SystemStats | null
   usageSummary: UsageSummary | null
   contextWindowByAgentId: Record<string, AgentContextWindowUsage>
   activeTerminalId: string | null
@@ -401,8 +401,7 @@ function isCodexTerminalAgent(agent: Agent | null | undefined) {
   return Boolean(
     agent
     && agentKindForCommand(agent.command) === 'codex'
-    && !['acp', 'json'].includes(agent.agentRuntimeMode || '')
-    && agent.codexRuntimeMode !== 'app-server'
+    && agent.runtimeBinding.kind === 'terminal'
   )
 }
 
@@ -511,7 +510,6 @@ export function CodeWorkspace({
   mainPageSessionKeys: remoteMainPageSessionKeys,
   activeView,
   dialogOpen,
-  systemStats,
   usageSummary,
   contextWindowByAgentId = {},
   activeTerminalId,
@@ -541,6 +539,7 @@ export function CodeWorkspace({
   onSessionOutput,
   onUpdateUiPreferences,
 }: CodeWorkspaceProps) {
+  recordPerformanceTestRender('codeWorkspace')
   const pageVisible = usePageVisibility()
   const {
     composerByAgentKey,
@@ -921,6 +920,8 @@ export function CodeWorkspace({
       ?? (hiddenMainAgent?.id === activeTerminalId ? hiddenMainAgent : null),
     [activeAgents, activeTerminalId, hiddenMainAgent]
   )
+  const activeAcpRuntime = isAcpRuntime(activeAgent) ? activeAgent.runtimeBinding : null
+  const activeAppServerRuntime = isAppServerRuntime(activeAgent) ? activeAgent.runtimeBinding : null
   const activeAgentPermissionSwitching = Boolean(
     activeAgent && activeAgent.id === permissionSwitchingAgentId
   )
@@ -928,7 +929,7 @@ export function CodeWorkspace({
     activeAgent && codexTerminalProfileApplyingAgentIds.has(activeAgent.id)
   )
   const activeAgentContextWindow = activeAgent ? contextWindowByAgentId[activeAgent.id] ?? null : null
-  const activeComposerKey = activeAgent?.agentRuntimeMode === 'acp'
+  const activeComposerKey = activeAcpRuntime
     ? acpComposerStateKeyForAgent(activeAgent)
     : activeAgent
       ? composerStateKeyForAgent(activeAgent)
@@ -940,7 +941,7 @@ export function CodeWorkspace({
   const activeComposerState = activeComposerKey
     ? composerByAgentKey[activeComposerKey]
       ?? (activeAgent
-        ? (activeAgent.agentRuntimeMode === 'acp'
+        ? (activeAcpRuntime
           ? acpComposerStateAliasKeysForAgent(activeAgent)
           : composerStateAliasKeysForAgent(activeAgent))
           .map(aliasKey => composerByAgentKey[aliasKey])
@@ -953,7 +954,8 @@ export function CodeWorkspace({
   const composerMode = activeComposerState.mode
   const { plusMenuOpen, approvalMenuOpen, modelMenuOpen, modelPickerPane } = activeComposerState.ui
   const activeAcpPromptStartFenced = Boolean(
-    activeAgent?.agentRuntimeMode === 'acp'
+    activeAcpRuntime
+    && activeAgent
     && acpPromptStartFencesRef.current[activeAgent.id] !== undefined
   )
   const activeAgentTurnActive = useMemo(
@@ -1056,7 +1058,7 @@ export function CodeWorkspace({
       : activeAgentCanInterrupt
         ? 'interrupt'
         : 'disabled'
-  const acpComposerSubmitAction = activeAgent?.agentRuntimeMode === 'acp'
+  const acpComposerSubmitAction = activeAcpRuntime
     ? composerSubmitAction
     : 'disabled'
   const updateActiveComposerState = useCallback((updater: (state: AgentComposerState) => AgentComposerState) => {
@@ -1139,11 +1141,7 @@ export function CodeWorkspace({
       return {
         kind: 'agent',
         agentId: activeTerminalId,
-        readingSurface: agent?.agentRuntimeMode === 'acp'
-          || agent?.agentRuntimeMode === 'json'
-          || agent?.codexRuntimeMode === 'app-server'
-          ? 'chat'
-          : 'terminal',
+        readingSurface: isStructuredRuntime(agent) ? 'chat' : 'terminal',
       }
     }
     return null
@@ -1784,8 +1782,8 @@ export function CodeWorkspace({
   }, [activeAgents, pendingCodexTerminalProfiles.size])
 
   const sendComposerMessageToAgent = useCallback((agent: Agent, message: string, attachments: ComposerPromptAttachment[] = []) => {
-    if (['acp', 'json'].includes(agent.agentRuntimeMode || '') || (agent.providerSessionProvider === 'codex' && agent.codexRuntimeMode === 'app-server')) {
-      return sendComposerInput(message, agent.id, agent.agentRuntimeMode === 'acp' ? attachments : [])
+    if (isStructuredRuntime(agent)) {
+      return sendComposerInput(message, agent.id, isAcpRuntime(agent) ? attachments : [])
     }
     if (
       agentKindForCommand(agent.command) === 'shell'
@@ -1815,7 +1813,7 @@ export function CodeWorkspace({
     const text = composerMessageWithAttachments(latestDraft, composerAttachments)
     if (!text || !activeAgent || !activeComposerKey || composerAttachments.some(attachment => attachment.status === 'uploading')) return
 
-    if (composerMode === 'goal' && activeAgent.providerSessionProvider === 'codex' && activeAgent.codexRuntimeMode === 'app-server') {
+    if (composerMode === 'goal' && activeAppServerRuntime) {
       void (async () => {
         const goalSaved = await setNativeCodexGoalFromComposer(activeAgent, text)
         if (!goalSaved) return
@@ -1838,7 +1836,7 @@ export function CodeWorkspace({
 
     const message = formatComposerMessage(composerMode, text)
     let submitted = true
-    if (isCodexAgentWorking(activeAgent) && activeAgent.codexRuntimeMode !== 'app-server' && !['acp', 'json'].includes(activeAgent.agentRuntimeMode || '')) {
+    if (isCodexAgentWorking(activeAgent) && activeAgent.runtimeBinding.kind === 'terminal') {
       updateComposerStateForKey(activeComposerKey, state => {
         const existing = state.pendingFollowUp
         return {
@@ -1864,12 +1862,13 @@ export function CodeWorkspace({
       }
     })
     focusComposerTextarea()
-  }, [activeAgent, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, setNativeCodexGoalFromComposer, updateComposerStateForKey])
+  }, [activeAgent, activeAppServerRuntime, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, setNativeCodexGoalFromComposer, updateComposerStateForKey])
 
   const submitAcpDraft = useCallback((submittedDraft?: string) => {
     const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft
     const promptStartFenced = Boolean(
-      activeAgent?.agentRuntimeMode === 'acp'
+      activeAcpRuntime
+      && activeAgent
       && acpPromptStartFencesRef.current[activeAgent.id] !== undefined
     )
     const submitted = submitAcpComposerDraft({
@@ -1882,11 +1881,11 @@ export function CodeWorkspace({
       sendMessage: sendComposerMessageToAgent,
       updateComposerState: updateComposerStateForKey,
     })
-    if (submitted && activeAgent?.agentRuntimeMode === 'acp' && !activeAgentTurnActive && !promptStartFenced) {
-      acpPromptStartFencesRef.current[activeAgent.id] = Number(activeAgent.acpSessionRevision) || 0
+    if (submitted && activeAgent && activeAcpRuntime && !activeAgentTurnActive && !promptStartFenced) {
+      acpPromptStartFencesRef.current[activeAgent.id] = Number(activeAcpRuntime.sessionRevision) || 0
     }
     if (submitted) focusComposerTextarea()
-  }, [activeAgent, activeAgentTurnActive, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
+  }, [activeAcpRuntime, activeAgent, activeAgentTurnActive, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
 
   const interruptActiveAgent = useCallback(() => {
     if (!activeAgent || !activeAgentCanInterrupt) return
@@ -1949,12 +1948,13 @@ export function CodeWorkspace({
     activeAgents.forEach((agent) => {
       const revisionBeforePrompt = acpPromptStartFencesRef.current[agent.id]
       if (revisionBeforePrompt === undefined) return
+      const acpRuntime = isAcpRuntime(agent) ? agent.runtimeBinding : null
       const promptStateConfirmed = isAgentTurnActive(agent)
-        || (Number(agent.acpSessionRevision) || 0) > revisionBeforePrompt
+        || (Number(acpRuntime?.sessionRevision) || 0) > revisionBeforePrompt
       if (
-        agent.agentRuntimeMode !== 'acp'
+        !acpRuntime
         || promptStateConfirmed
-        || agent.acpState === 'error'
+        || acpRuntime.state === 'error'
         || agent.archived
         || agent.status === 'dead'
         || agent.status === 'stopped'
@@ -1972,7 +1972,8 @@ export function CodeWorkspace({
     }> = []
 
     activeAgents.forEach(agent => {
-      const composerKey = agent.agentRuntimeMode === 'acp'
+      const acpRuntime = isAcpRuntime(agent)
+      const composerKey = acpRuntime
         ? acpComposerStateKeyForAgent(agent)
         : composerStateKeyForAgent(agent)
       if (!composerKey) return
@@ -1982,8 +1983,8 @@ export function CodeWorkspace({
         return
       }
       if (agent.archived || agent.status === 'dead' || agent.status === 'stopped') return
-      if (agent.agentRuntimeMode === 'acp' && acpPromptStartFencesRef.current[agent.id] !== undefined) return
-      if (agent.agentRuntimeMode === 'acp' ? isAgentTurnActive(agent) : isCodexAgentWorking(agent)) {
+      if (acpRuntime && acpPromptStartFencesRef.current[agent.id] !== undefined) return
+      if (acpRuntime ? isAgentTurnActive(agent) : isCodexAgentWorking(agent)) {
         delete pendingFollowUpAutoFlushRef.current[composerKey]
         return
       }
@@ -3774,7 +3775,7 @@ export function CodeWorkspace({
       setCopyNotice({
         id: Date.now(),
         kind: 'success',
-        message: activeAgent.codexRuntimeMode === 'app-server'
+        message: activeAppServerRuntime
           ? copy.permissionProfileApplying
           : copy.permissionProfileRestarting,
       })
@@ -3782,7 +3783,7 @@ export function CodeWorkspace({
     }
     closeActiveComposerMenus()
     focusComposerTextarea()
-  }, [activeAgent, closeActiveComposerMenus, composerAgentKind, copy.permissionProfileApplying, copy.permissionProfileRestarting, focusComposerTextarea, onUpdateAgentFlags, permissionSwitchingAgentId, persistAgentLaunchProfile])
+  }, [activeAgent, activeAppServerRuntime, closeActiveComposerMenus, composerAgentKind, copy.permissionProfileApplying, copy.permissionProfileRestarting, focusComposerTextarea, onUpdateAgentFlags, permissionSwitchingAgentId, persistAgentLaunchProfile])
 
   const updateAgentRuntimeMode = useCallback((agentId: string, mode: 'terminal' | 'acp') => {
     if (permissionSwitchingAgentId) return
@@ -4813,7 +4814,6 @@ export function CodeWorkspace({
         keyboardShortcutsEnabled={keyboardShortcutsEnabled}
         now={now}
         mainAgent={hiddenMainAgent}
-        systemStats={systemStats}
         usageSummary={usageSummary}
         shareTarget={shareTarget}
         agentLaunchOptions={agentLaunchOptions}
@@ -4988,9 +4988,9 @@ export function CodeWorkspace({
         acpComposerProps={{
           active: Boolean(activeAgent) && !activeAgentPermissionSwitching,
           agentId: activeAgent?.id || '',
-          runtimeState: activeAgent?.acpState || '',
-          sessionUpdatedAt: activeAgent?.acpSessionUpdatedAt || '',
-          runtimeError: activeAgent?.acpError || '',
+          runtimeState: activeAcpRuntime?.state || '',
+          sessionUpdatedAt: activeAcpRuntime?.sessionUpdatedAt || '',
+          runtimeError: activeAcpRuntime?.error || '',
           draft,
           attachments: composerAttachments,
           composerMode,
@@ -4999,17 +4999,17 @@ export function CodeWorkspace({
           submitAction: acpComposerSubmitAction,
           textareaRef: composerTextareaRef,
           attachmentInputRef,
-          permissions: activeAgent?.acpPendingPermissions?.length
-            ? activeAgent.acpPendingPermissions
-            : activeAgent?.acpPendingPermission
-              ? [activeAgent.acpPendingPermission]
+          permissions: activeAcpRuntime?.pendingPermissions.length
+            ? activeAcpRuntime.pendingPermissions
+            : activeAcpRuntime?.pendingPermission
+              ? [activeAcpRuntime.pendingPermission]
               : [],
-          elicitations: activeAgent?.acpPendingElicitations?.length
-            ? activeAgent.acpPendingElicitations
-            : activeAgent?.acpPendingElicitation
-              ? [activeAgent.acpPendingElicitation]
+          elicitations: activeAcpRuntime?.pendingElicitations.length
+            ? activeAcpRuntime.pendingElicitations
+            : activeAcpRuntime?.pendingElicitation
+              ? [activeAcpRuntime.pendingElicitation]
               : [],
-          activeElicitations: activeAgent?.acpActiveElicitations || [],
+          activeElicitations: activeAcpRuntime?.activeElicitations || [],
           speechSupported,
           speechListening,
           onDraftChange: handleDraftChange,
@@ -5055,7 +5055,7 @@ export function CodeWorkspace({
           ),
           currentPermissionLabel,
           currentPermissionColor,
-          permissionModeHint: activeAgent?.codexRuntimeMode === 'app-server'
+          permissionModeHint: activeAppServerRuntime
             ? copy.permissionAppServerHint
             : copy.permissionRestartHint,
           currentModelLabel,
@@ -5071,8 +5071,8 @@ export function CodeWorkspace({
               createdAt: activePendingFollowUp.createdAt,
             }
             : null,
-          appServerRequest: activeAgent?.codexAppServerPendingRequest || null,
-          appServerNotice: activeAgent?.codexAppServerNotice || null,
+          appServerRequest: activeAppServerRuntime?.pendingRequest || null,
+          appServerNotice: activeAppServerRuntime?.notice || null,
           submitAction: composerSubmitAction,
           speechSupported,
           speechListening,

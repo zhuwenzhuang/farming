@@ -1,6 +1,8 @@
 const assert = require('assert');
 const { importTsModule } = require('./helpers/import-ts-module');
 const { deriveTerminalStatus } = require('../terminal-status');
+const { publicRuntimeBinding } = require('../agent-runtime-binding');
+const { deriveRuntimeObservation } = require('../runtime-observation');
 
 const {
   inferAgentTerminalState,
@@ -9,7 +11,7 @@ const {
 } = importTsModule('src/components/code/agent-working-state.ts');
 
 function codexAgent(overrides = {}) {
-  return {
+  const agent = {
     id: 'agent-codex',
     command: 'codex',
     cwd: '/tmp/farming',
@@ -23,16 +25,22 @@ function codexAgent(overrides = {}) {
     isZombie: false,
     ...overrides,
   };
+  agent.runtimeBinding = publicRuntimeBinding(agent);
+  agent.runtimeObservation = deriveRuntimeObservation(agent);
+  return agent;
 }
 
 function claudeAgent(overrides = {}) {
-  return {
+  const agent = {
     ...codexAgent({
       id: 'agent-claude',
       command: 'claude',
     }),
     ...overrides,
   };
+  agent.runtimeBinding = publicRuntimeBinding(agent);
+  agent.runtimeObservation = deriveRuntimeObservation(agent);
+  return agent;
 }
 
 function run() {
@@ -262,7 +270,7 @@ function run() {
     })),
     {
       kind: 'codex',
-      kindSource: 'terminal-output',
+      kindSource: 'terminal-status',
       turnActive: false,
       terminalBusy: false,
     },
@@ -276,7 +284,7 @@ function run() {
     })),
     {
       kind: 'shell',
-      kindSource: 'terminal-output',
+      kindSource: 'terminal-status',
       turnActive: false,
       terminalBusy: false,
     },
@@ -290,7 +298,7 @@ function run() {
     })),
     {
       kind: 'claude',
-      kindSource: 'terminal-output',
+      kindSource: 'terminal-status',
       turnActive: true,
       terminalBusy: false,
     },
@@ -305,7 +313,7 @@ function run() {
     })),
     {
       kind: 'shell',
-      kindSource: 'terminal-busy',
+      kindSource: 'terminal-status',
       turnActive: true,
       terminalBusy: true,
     },

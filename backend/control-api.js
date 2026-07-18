@@ -1,4 +1,5 @@
 const express = require('express');
+const { runtimeKind } = require('./agent-runtime-binding');
 const { terminalInputReady } = require('./terminal-status');
 
 const DEFAULT_INITIAL_INPUT_TIMEOUT_MS = 30000;
@@ -165,9 +166,7 @@ function createControlRouter(agentManager, options = {}) {
         if (!started) throw Object.assign(new Error('Agent disappeared before initial input delivery'), {
           code: 'agent-removed',
         });
-        const structuredRuntime = started.agentRuntimeMode === 'acp'
-          || started.agentRuntimeMode === 'json'
-          || (started.providerSessionProvider === 'codex' && started.codexRuntimeMode === 'app-server');
+        const structuredRuntime = runtimeKind(started) !== 'terminal';
         if (structuredRuntime) {
           await agentManager.sendComposerMessage(agentId, initialInput);
           notifyUpdate();

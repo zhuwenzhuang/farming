@@ -105,6 +105,7 @@ let crtTerminalReplication = null;
 const terminalPreviewSnapshots = new Map();
 const crtBrandPulseTimers = new Map();
 const SESSION_LINK_LIMIT = 6;
+const CRT_PROTOCOL_VERSION = 1;
 const CRT_PREVIEW_RENDER_INTERVAL_MS = 1000;
 const CRT_STRUCTURED_PREVIEW_REFRESH_MS = 240;
 const CRT_AGENT_CARD_MIN_WIDTH = 200;
@@ -1396,10 +1397,10 @@ function isCrtAgentWorking(agent) {
   if (activity === 'busy') return true;
   if (activity === 'idle' || activity === 'exited') return false;
   if (agent.terminalStatus && agent.terminalStatus.busy === true) return true;
+  const runtime = agent.runtimeBinding || { kind: 'terminal' };
   if (
-    agent.providerSessionProvider === 'codex' &&
-    agent.codexRuntimeMode === 'app-server' &&
-    ['working', 'waiting-for-input', 'interrupting'].includes(agent.codexAppServerState || '')
+    runtime.kind === 'app-server' &&
+    ['working', 'waiting-for-input', 'interrupting'].includes(runtime.state || '')
   ) {
     return true;
   }
@@ -5123,6 +5124,7 @@ function connect() {
   socket.onopen = () => {
     if (ws !== socket) return;
     console.log('Connected to server');
+    socket.send(JSON.stringify({ type: 'protocol-hello', protocolVersion: CRT_PROTOCOL_VERSION }));
     const activeAgentId = isCrtSessionOpen() ? focusedAgentId : null;
     getSessionClient()?.focusAgent(activeAgentId, {
       streamScope: 'focused',
@@ -5148,6 +5150,16 @@ function connect() {
   socket.onmessage = (event) => {
     if (ws !== socket) return;
     const data = JSON.parse(event.data);
+    if (data.type === 'protocol-hello') {
+      if (data.protocolVersion !== CRT_PROTOCOL_VERSION) {
+        socket.close(4002, `Unsupported Farming protocol version ${data.protocolVersion}`);
+      }
+      return;
+    }
+    if (data.type === 'protocol-error') {
+      console.error(data.message || 'Farming protocol error');
+      return;
+    }
     if (data.type === 'state') {
       const prevAgentCount = state ? state.agents.length : 0;
       state = data.state;
@@ -5204,6 +5216,7 @@ function connect() {
           agent.previewRows = preview.rows || agent.previewRows;
           agent.previewSnapshot = preview.previewSnapshot || null;
           if (preview.terminalStatus) agent.terminalStatus = preview.terminalStatus;
+          if (preview.runtimeObservation) agent.runtimeObservation = preview.runtimeObservation;
           if (isCrtSessionOpen()) dashboardRenderDeferred = true;
           else scheduleCrtPreviewCardRender(agent, previousSnapshot, previousText, previewChanged);
         }
@@ -5665,10 +5678,10 @@ function isCrtAgentInteractive(agent) {
 }
 
 function structuredRuntimeKind(agent) {
-  if (!agent) return '';
-  if (agent.agentRuntimeMode === 'acp') return 'ACP';
-  if (agent.agentRuntimeMode === 'json') return 'JSON';
-  if (agent.providerSessionProvider === 'codex' && agent.codexRuntimeMode === 'app-server') return 'APP SERVER';
+  const kind = agent && agent.runtimeBinding && agent.runtimeBinding.kind;
+  if (kind === 'acp') return 'ACP';
+  if (kind === 'json') return 'JSON';
+  if (kind === 'app-server') return 'APP SERVER';
   return '';
 }
 
@@ -5683,7 +5696,7 @@ function crtRuntimeView(agent) {
 function canSwitchCrtAgentRuntime(agent) {
   const freshCodexTerminal = agent
     && agent.providerSessionProvider === 'codex'
-    && agent.agentRuntimeMode === 'terminal'
+    && agent.runtimeBinding?.kind === 'terminal'
     && agent.providerSessionTemporary === true
     && agent.terminalInputReceived !== true;
   return Boolean(
@@ -5837,23 +5850,19 @@ function toggleCrtSessionRuntimeMode() {
 }
 
 function structuredTranscriptEndpoint(agent) {
-  if (agent.agentRuntimeMode === 'acp') return 'acp-transcript';
-  if (agent.agentRuntimeMode === 'json') return 'json-cli-transcript';
+  if (agent.runtimeBinding.kind === 'acp') return 'acp-transcript';
+  if (agent.runtimeBinding.kind === 'json') return 'json-cli-transcript';
   return 'codex-app-server-transcript';
 }
 
 function structuredRuntimeStatus(agent) {
   if (!agent) return '';
-  if (agent.agentRuntimeMode === 'acp') return agent.acpState || 'idle';
-  if (agent.agentRuntimeMode === 'json') return agent.jsonCliState || 'idle';
-  return agent.codexAppServerState || 'idle';
+  return agent.runtimeBinding?.state || 'idle';
 }
 
 function structuredRuntimeError(agent) {
   if (!agent) return '';
-  if (agent.agentRuntimeMode === 'acp') return agent.acpError || '';
-  if (agent.agentRuntimeMode === 'json') return agent.jsonCliError || '';
-  return agent.codexAppServerError || '';
+  return agent.runtimeBinding?.error || '';
 }
 
 function structuredComposerAction(agent, draft = '') {
@@ -5862,12 +5871,8 @@ function structuredComposerAction(agent, draft = '') {
   const status = String(structuredRuntimeStatus(agent) || 'idle');
   const working = ['working', 'waiting-for-permission'].includes(status);
   if (working) {
-    if (agent.agentRuntimeMode === 'acp' && String(draft || '').trim()) return 'send';
-    if (
-      agent.providerSessionProvider === 'codex'
-      && agent.codexRuntimeMode === 'app-server'
-      && String(draft || '').trim()
-    ) return 'steer';
+    if (agent.runtimeBinding?.kind === 'acp' && String(draft || '').trim()) return 'send';
+    if (agent.runtimeBinding?.kind === 'app-server' && String(draft || '').trim()) return 'steer';
     return 'interrupt';
   }
   if (['starting', 'interrupting'].includes(status)) return 'disabled';
@@ -6202,11 +6207,11 @@ function renderStructuredSessionControls() {
 async function refreshStructuredSessionControls(agentId = focusedAgentId, force = false) {
   if (!agentId || structuredSessionControlsLoading) return;
   const agent = state && state.agents.find((candidate) => candidate.id === agentId);
-  if (!agent || agent.agentRuntimeMode !== 'acp') {
+  if (!agent || agent.runtimeBinding?.kind !== 'acp') {
     resetStructuredSessionControls();
     return;
   }
-  const revision = String(agent.acpSessionUpdatedAt || '');
+  const revision = String(agent.runtimeBinding.sessionUpdatedAt || '');
   if (!force && (
     (revision && revision === structuredSessionControlsRevision)
     || (!revision && structuredSessionSnapshot)
@@ -6324,7 +6329,7 @@ function updateStructuredComposerState(agent) {
   statusNode.textContent = error || `${kind} ${String(runtimeStatus || 'idle').toUpperCase()}`;
   statusNode.classList.toggle('error', Boolean(error));
   renderStructuredPermissions(agent);
-  if (agent && agent.agentRuntimeMode === 'acp') void refreshStructuredSessionControls(agent.id);
+  if (agent && agent.runtimeBinding?.kind === 'acp') void refreshStructuredSessionControls(agent.id);
 }
 
 function structuredAttachmentId(file) {
@@ -6461,10 +6466,11 @@ function renderStructuredPermissions(agent) {
   const container = document.getElementById('crt-structured-composer-notices');
   if (!container) return;
   container.replaceChildren();
-  if (!agent || agent.agentRuntimeMode !== 'acp') return;
-  const requests = Array.isArray(agent.acpPendingPermissions) && agent.acpPendingPermissions.length
-    ? agent.acpPendingPermissions
-    : (agent.acpPendingPermission ? [agent.acpPendingPermission] : []);
+  if (!agent || agent.runtimeBinding?.kind !== 'acp') return;
+  const runtime = agent.runtimeBinding;
+  const requests = Array.isArray(runtime.pendingPermissions) && runtime.pendingPermissions.length
+    ? runtime.pendingPermissions
+    : (runtime.pendingPermission ? [runtime.pendingPermission] : []);
   requests.forEach((request) => {
     const panel = document.createElement('section');
     panel.className = 'crt-structured-permission';
@@ -6651,13 +6657,14 @@ function buildCrtStructuredPreview(transcript, agent = null) {
 
 function crtStructuredPreviewRevision(agent) {
   if (!agent || !isStructuredRuntimeAgent(agent)) return '';
+  const runtime = agent.runtimeBinding;
   return JSON.stringify([
     structuredRuntimeKind(agent),
     structuredRuntimeStatus(agent),
-    agent.acpSessionRevision || 0,
-    agent.acpSessionUpdatedAt || '',
-    agent.jsonCliTranscriptUpdatedAt || '',
-    agent.codexAppServerTurnId || '',
+    runtime.sessionRevision || 0,
+    runtime.sessionUpdatedAt || '',
+    runtime.transcriptUpdatedAt || '',
+    runtime.turnId || '',
     agent.lastActivity || 0,
   ]);
 }

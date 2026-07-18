@@ -61,6 +61,7 @@ import { ShareQrButton } from './ShareQrButton'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { stableProjectSourceAgentId } from './workspace-derived'
+import { useBackendSystemStats, useHasBackendSystemStats } from '@/lib/backend-live-status'
 
 declare const __FARMING_PACKAGE_VERSION__: string
 
@@ -75,7 +76,7 @@ type AgentPreviewTarget = {
   project: string
   lastActive: number
   provider?: PreviewAgentIconName
-  agentId?: string
+  workspaceRootId?: string
 }
 
 type PreviewAgentIconName = 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh'
@@ -161,7 +162,6 @@ interface CodeSidebarProps {
   keyboardShortcutsEnabled: boolean
   now: number
   mainAgent: Agent | null
-  systemStats: SystemStats | null
   usageSummary: UsageSummary | null
   shareTarget: WorkspaceShareTarget | null
   agentLaunchOptions: AgentLaunchOption[]
@@ -221,7 +221,6 @@ export function CodeSidebar({
   keyboardShortcutsEnabled,
   now,
   mainAgent,
-  systemStats,
   usageSummary,
   shareTarget,
   agentLaunchOptions,
@@ -309,20 +308,20 @@ export function CodeSidebar({
       const width = Math.min(320, window.innerWidth - x - 12)
       if (width < 200) return
       const y = Math.max(8, Math.min(rect.top - 4, window.innerHeight - 152))
-      const cachedBranch = target.agentId ? branchCacheRef.current.get(target.agentId) : undefined
+      const cachedBranch = target.workspaceRootId ? branchCacheRef.current.get(target.workspaceRootId) : undefined
       const branch = cachedBranch && cachedBranch.expiresAt > Date.now() ? cachedBranch.branch : ''
       previewBrowsingRef.current = true
       setAgentPreview({ ...target, x, y, width, branch })
-      if (!target.agentId || branch) return
-      fetch(appPath(`/api/files/branch?agentId=${encodeURIComponent(target.agentId)}`))
+      if (!target.workspaceRootId || branch) return
+      fetch(appPath(`/api/files/branch?rootId=${encodeURIComponent(target.workspaceRootId)}`))
         .then(response => response.ok ? response.json() : null)
         .then((data: { branch?: string } | null) => {
           const resolvedBranch = typeof data?.branch === 'string' ? data.branch.trim() : ''
-          branchCacheRef.current.set(target.agentId!, { branch: resolvedBranch, expiresAt: Date.now() + 30_000 })
+          branchCacheRef.current.set(target.workspaceRootId!, { branch: resolvedBranch, expiresAt: Date.now() + 30_000 })
           setAgentPreview(current => current?.key === target.key ? { ...current, branch: resolvedBranch } : current)
         })
         .catch(() => {
-          branchCacheRef.current.set(target.agentId!, { branch: '', expiresAt: Date.now() + 30_000 })
+          branchCacheRef.current.set(target.workspaceRootId!, { branch: '', expiresAt: Date.now() + 30_000 })
         })
     }, delay)
   }, [clearPreviewTimer])
@@ -680,21 +679,16 @@ export function CodeSidebar({
             <SettingsGlyph />
           </button>
         </div>
-        {(usageSummary || systemStats || mainAgent) && (
-          <>
-            {!sidebarCollapsed && (usageSummary || systemStats || mainAgent) && (
-              <UsagePanel
-                collapsed={usageCollapsed}
-                mainAgent={mainAgent}
-                now={now}
-                usageSummary={usageSummary}
-                systemStats={systemStats}
-                onToggleCollapsed={() => setUsageCollapsed(collapsed => !collapsed)}
-                onOpenMainAgent={onOpenMainAgent}
-                onRestartMainAgent={onRestartMainAgent}
-              />
-            )}
-          </>
+        {!sidebarCollapsed && (
+          <UsagePanelSlot
+            collapsed={usageCollapsed}
+            mainAgent={mainAgent}
+            now={now}
+            usageSummary={usageSummary}
+            onToggleCollapsed={() => setUsageCollapsed(collapsed => !collapsed)}
+            onOpenMainAgent={onOpenMainAgent}
+            onRestartMainAgent={onRestartMainAgent}
+          />
         )}
       </div>
       {agentPreview && (
@@ -932,6 +926,52 @@ function formatMainAgentStatus(agent: Agent) {
   return agent.status
 }
 
+function systemStatsWithFallback(liveStats: SystemStats | null, usageSummary: UsageSummary | null) {
+  return liveStats ?? usageSummary?.systemStats ?? null
+}
+
+function CollapsedUsageSummary({ usageSummary, now }: { usageSummary: UsageSummary | null; now: number }) {
+  const liveStats = useBackendSystemStats()
+  const summary = formatCollapsedUsageSummary(
+    usageSummary,
+    systemStatsWithFallback(liveStats, usageSummary),
+    now,
+  )
+  return (
+    <span className="code-usage-summary" data-testid="code-usage-summary" title={summary}>
+      {summary}
+    </span>
+  )
+}
+
+function SystemUsageRow({ usageSummary }: { usageSummary: UsageSummary | null }) {
+  const liveStats = useBackendSystemStats()
+  const systemStats = systemStatsWithFallback(liveStats, usageSummary)
+  if (!systemStats) return null
+  return (
+    <div className="code-usage-row">
+      <span>System</span>
+      <strong>CPU {systemStats.cpu}% / MEM {systemStats.memory.percentage}%</strong>
+    </div>
+  )
+}
+
+interface UsagePanelProps {
+  collapsed: boolean
+  mainAgent: Agent | null
+  now: number
+  usageSummary: UsageSummary | null
+  onToggleCollapsed: () => void
+  onOpenMainAgent: () => void
+  onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => void
+}
+
+function UsagePanelSlot(props: UsagePanelProps) {
+  const hasLiveSystemStats = useHasBackendSystemStats()
+  if (!props.usageSummary && !props.mainAgent && !hasLiveSystemStats) return null
+  return <UsagePanel {...props} />
+}
+
 function formatHeatmapTime(timestamp: number) {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
@@ -1130,23 +1170,12 @@ function UsagePanel({
   mainAgent,
   now,
   usageSummary,
-  systemStats,
   onToggleCollapsed,
   onOpenMainAgent,
   onRestartMainAgent,
-}: {
-  collapsed: boolean
-  mainAgent: Agent | null
-  now: number
-  usageSummary: UsageSummary | null
-  systemStats: SystemStats | null
-  onToggleCollapsed: () => void
-  onOpenMainAgent: () => void
-  onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => void
-}) {
+}: UsagePanelProps) {
   const providers = visibleUsageProviders(usageSummary)
   const localTokenRate = providerLocalTokenRate(usageSummary)
-  const collapsedSummary = formatCollapsedUsageSummary(usageSummary, systemStats, now)
   const [restartMenuOpen, setRestartMenuOpen] = useState(false)
 
   return (
@@ -1166,13 +1195,17 @@ function UsagePanel({
           <span>Usage</span>
         </span>
         <span className="code-usage-header-meta">
-          <span
-            className="code-usage-summary"
-            data-testid="code-usage-summary"
-            title={collapsed ? collapsedSummary : '5-minute rate · hourly and daily activity'}
-          >
-            {collapsed ? collapsedSummary : '5m rate · activity'}
-          </span>
+          {collapsed
+            ? <CollapsedUsageSummary usageSummary={usageSummary} now={now} />
+            : (
+              <span
+                className="code-usage-summary"
+                data-testid="code-usage-summary"
+                title="5-minute rate · hourly and daily activity"
+              >
+                5m rate · activity
+              </span>
+              )}
         </span>
       </button>
       {!collapsed && (
@@ -1240,12 +1273,7 @@ function UsagePanel({
               <strong>{formatTokenRate(localTokenRate)}</strong>
             </div>
           )}
-          {systemStats && (
-            <div className="code-usage-row">
-              <span>System</span>
-              <strong>CPU {systemStats.cpu}% / MEM {systemStats.memory.percentage}%</strong>
-            </div>
-          )}
+          <SystemUsageRow usageSummary={usageSummary} />
         </>
       )}
     </div>
@@ -2544,7 +2572,7 @@ function previewTargetForAgent(agent: Agent, rowState: ReturnType<typeof buildAg
     project: project || projectNameForWorkspace(agent.projectWorkspace || agent.cwd),
     lastActive: agent.lastActivity || agent.startedAt || 0,
     provider: previewAgentIconNameForAgent(agent),
-    agentId: agent.id,
+    workspaceRootId: agent.workspaceRootId,
   }
 }
 

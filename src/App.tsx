@@ -4,6 +4,7 @@ import { usePageVisibility } from '@/hooks/usePageVisibility'
 import { useAgents } from '@/hooks/useAgents'
 import { useKeyboard, type Shortcut } from '@/hooks/useKeyboard'
 import { InputDialog } from '@/components/InputDialog'
+import { BackendConnectionStatus } from '@/components/BackendConnectionStatus'
 import { CodeWorkspace, type AgentFlagUpdateResult, type DeleteForkWorktreeProjectResult, type WorkspaceView } from '@/components/CodeWorkspace'
 import { codeCopyForLanguage } from '@/components/code/copy'
 import { applyThemeAppearance } from '@/lib/theme'
@@ -19,6 +20,12 @@ import {
   pruneTerminalSessions,
 } from '@/lib/terminal-session-pool'
 import { appPath } from '@/lib/base-path'
+import { isAppServerRuntime, runtimeBindingForMode } from '@/lib/agent-runtime'
+import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
+import {
+  getBackendConnectionSnapshot,
+  subscribeBackendConnectionStatus,
+} from '@/lib/backend-live-status'
 import type { Agent, AgentContextWindowUsage, UsageSummary } from '@/types/agent'
 import { loadCodeWorkspaceViewState, saveCodeWorkspaceViewState } from '@/components/code/workspace-view-state'
 
@@ -59,8 +66,6 @@ type PermissionSwitchState = {
 type AgentReplacementTransition = { originalAgentId: string; replacementAgentId: string }
 
 const CODEX_SKIN_KEYBOARD_SHORTCUTS_ENABLED = false
-const BACKEND_INITIAL_CONNECT_GRACE_MS = 3000
-const BACKEND_HEARTBEAT_STALE_MS = 6000
 const MIN_MOBILE_VISUAL_HEIGHT = 240
 const CONTEXT_WINDOW_REFRESH_MS = 30_000
 const PERMISSION_SWITCH_REPLACEMENT_GRACE_MS = 10_000
@@ -135,6 +140,7 @@ function hasBlockingOverlay() {
 }
 
 export function App() {
+  recordPerformanceTestRender('app')
   const ws = useWebSocket()
   const pageVisible = usePageVisibility()
   const { keyMap } = useAgents(ws.agents, ws.mainAgentId)
@@ -158,7 +164,6 @@ export function App() {
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null)
   const [contextWindowByAgentId, setContextWindowByAgentId] = useState<Record<string, AgentContextWindowUsage>>({})
   const [uiPreferences, setUiPreferences] = useState<UiPreferences>(DEFAULT_UI_PREFERENCES)
-  const [connectionCheckNow, setConnectionCheckNow] = useState(() => Date.now())
   const pendingStartRef = useRef<{ beforeIds: Set<string> } | null>(null)
   const pendingMainRestartRef = useRef<{ beforeIds: Set<string> } | null>(null)
   const permissionSwitchRequestRef = useRef<string | null>(null)
@@ -280,17 +285,21 @@ export function App() {
     const current = permissionSwitch
     if (!current?.requestSettled || !current.requestError || current.replacementAgentId) return undefined
     const errorAt = current.requestErrorAt ?? Date.now()
-    if (!current.requestFreshStateAt && ws.connected && ws.lastMessageAt > errorAt) {
+    const observeFreshMessage = () => {
+      const connection = getBackendConnectionSnapshot()
+      if (current.requestFreshStateAt || !connection.connected || connection.lastMessageAt <= errorAt) return false
       const latest = permissionSwitchStateRef.current
       if (
         latest?.originalAgentId === current.originalAgentId
         && !latest.replacementAgentId
         && !latest.requestFreshStateAt
       ) {
-        commitPermissionSwitch({ ...latest, requestFreshStateAt: ws.lastMessageAt })
+        commitPermissionSwitch({ ...latest, requestFreshStateAt: connection.lastMessageAt })
       }
-      return undefined
+      return true
     }
+    if (observeFreshMessage()) return undefined
+    const unsubscribe = subscribeBackendConnectionStatus(observeFreshMessage)
     const hardDeadline = errorAt + PERMISSION_SWITCH_REPLACEMENT_HARD_TIMEOUT_MS
     const freshStateDeadline = current.requestFreshStateAt
       ? current.requestFreshStateAt + PERMISSION_SWITCH_REPLACEMENT_GRACE_MS
@@ -309,8 +318,11 @@ export function App() {
       commitPermissionSwitch(null)
       setAppNotice({ id: Date.now(), kind: 'error', message: latest.requestError })
     }, delay)
-    return () => window.clearTimeout(timer)
-  }, [commitPermissionSwitch, permissionSwitch, ws.connected, ws.lastMessageAt])
+    return () => {
+      unsubscribe()
+      window.clearTimeout(timer)
+    }
+  }, [commitPermissionSwitch, permissionSwitch])
 
   useEffect(() => {
     const current = permissionSwitch
@@ -325,27 +337,6 @@ export function App() {
     }, delay)
     return () => window.clearTimeout(timer)
   }, [commitPermissionSwitch, copy.agentRestartTimedOut, permissionSwitch])
-  const backendConnectionState = useMemo(() => {
-    const elapsed = Math.max(0, connectionCheckNow - ws.lastMessageAt)
-    if (!ws.connected && ws.everConnected) return 'lost'
-    if (!ws.connected && elapsed >= BACKEND_INITIAL_CONNECT_GRACE_MS) return 'connecting'
-    if (ws.connected && elapsed >= BACKEND_HEARTBEAT_STALE_MS) return 'stale'
-    return null
-  }, [connectionCheckNow, ws.connected, ws.everConnected, ws.lastMessageAt])
-  const backendConnectionMessage = backendConnectionState === 'lost'
-    ? copy.backendConnectionLost
-    : backendConnectionState === 'stale'
-      ? copy.backendHeartbeatLost
-      : backendConnectionState === 'connecting'
-        ? copy.backendConnecting
-        : ''
-
-  useEffect(() => {
-    if (!pageVisible) return undefined
-    const timer = window.setInterval(() => setConnectionCheckNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [pageVisible])
-
   const updateUiPreferences = useCallback((patch: Partial<UiPreferences>) => {
     const nextPreferences = {
       appearance: normalizeUiAppearance(patch.appearance ?? uiPreferences.appearance),
@@ -722,8 +713,7 @@ export function App() {
     const permissionAgent = permissionMode || runtimeSwitch
       ? ws.agents.find(agent => agent.id === agentId) ?? null
       : null
-    const switchingAgent = permissionAgent?.providerSessionProvider === 'codex'
-      && permissionAgent.codexRuntimeMode === 'app-server'
+    const switchingAgent = isAppServerRuntime(permissionAgent)
       && !runtimeSwitch
       ? null
       : permissionAgent
@@ -787,7 +777,10 @@ export function App() {
                 ...current.agent,
                 id: restartedAgentId,
                 launchPermissionMode: data.launchPermissionMode ?? permissionMode,
-                agentRuntimeMode: data.agentRuntimeMode ?? current.agent.agentRuntimeMode,
+                runtimeBinding: runtimeBindingForMode(
+                  data.agentRuntimeMode ?? flags.agentRuntimeMode,
+                  current.agent.runtimeBinding,
+                ),
                 restartedFromAgentId: agentId,
                 restartedFromAgentIds: Array.from(new Set([
                   ...(current.agent.restartedFromAgentIds ?? []),
@@ -1053,7 +1046,6 @@ export function App() {
         mainPageSessionKeys={ws.mainPageSessionKeys}
         activeView={activeWorkspaceView}
         dialogOpen={effectiveDialog !== 'none'}
-        systemStats={ws.systemStats ?? usageSummary?.systemStats ?? null}
         usageSummary={usageSummary}
         contextWindowByAgentId={contextWindowByAgentId}
         activeTerminalId={effectiveActiveTerminalId}
@@ -1101,17 +1093,7 @@ export function App() {
         onClose={closeInputDialog}
       />
 
-      {backendConnectionState && (
-        <div
-          className={`connection-status ${backendConnectionState}`}
-          data-testid="connection-status"
-          role="status"
-          aria-live="polite"
-        >
-          <span className="connection-status-dot" aria-hidden="true" />
-          <span>{backendConnectionMessage}</span>
-        </div>
-      )}
+      <BackendConnectionStatus copy={copy} />
       {appNotice && (
         <div className={`app-toast ${appNotice.kind}`} data-testid="app-toast" role="status">
           {appNotice.message}

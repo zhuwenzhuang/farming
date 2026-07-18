@@ -1,8 +1,10 @@
 const assert = require('assert');
 const { importTsModule } = require('./helpers/import-ts-module');
+const { publicRuntimeBinding } = require('../agent-runtime-binding');
+const { deriveRuntimeObservation } = require('../runtime-observation');
 
 function agent(overrides = {}) {
-  return {
+  const value = {
     id: 'agent-1',
     command: 'codex',
     cwd: '/repo',
@@ -22,6 +24,9 @@ function agent(overrides = {}) {
     isZombie: false,
     ...overrides,
   };
+  value.runtimeBinding = publicRuntimeBinding(value);
+  value.runtimeObservation = deriveRuntimeObservation(value);
+  return value;
 }
 
 function session(overrides = {}) {

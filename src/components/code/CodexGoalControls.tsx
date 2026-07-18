@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Agent, CodexAppServerGoal, CodexGoalStatus } from '@/types/agent'
+import { isAppServerRuntime } from '@/lib/agent-runtime'
 import { appPath } from '@/lib/base-path'
 import { CheckGlyph, CloseGlyph } from '../IconGlyphs'
 import type { CodeCopy } from './copy'
@@ -7,8 +8,8 @@ import type { CodeCopy } from './copy'
 function canManageCodexGoal(agent: Agent | null | undefined) {
   return Boolean(agent)
     && agent?.providerSessionProvider === 'codex'
-    && agent?.codexRuntimeMode === 'app-server'
-    && Boolean(agent?.codexAppServerThreadId || agent?.providerSessionId)
+    && isAppServerRuntime(agent)
+    && Boolean(agent.runtimeBinding.threadId || agent.providerSessionId)
 }
 
 function goalStatusForToggle(goal: CodexAppServerGoal | null): CodexGoalStatus {
@@ -62,16 +63,17 @@ interface CodexGoalControlsProps {
 export function CodexGoalControls({ agent, active, copy }: CodexGoalControlsProps) {
   const manageable = canManageCodexGoal(agent)
   const agentId = agent?.id || ''
+  const runtimeGoal = isAppServerRuntime(agent) ? agent.runtimeBinding.goal : null
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
-  const [goal, setGoal] = useState<CodexAppServerGoal | null>(agent?.codexAppServerGoal || null)
+  const [goal, setGoal] = useState<CodexAppServerGoal | null>(runtimeGoal)
   const [objective, setObjective] = useState(goal?.objective || '')
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    setGoal(agent?.codexAppServerGoal || null)
-  }, [agent?.codexAppServerGoal])
+    setGoal(runtimeGoal)
+  }, [runtimeGoal])
 
   useEffect(() => {
     setEditing(false)

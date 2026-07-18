@@ -242,33 +242,33 @@ async function readJson<T>(response: Response): Promise<T> {
   return body as T
 }
 
-export async function fetchWorkspaceTree(agentId: string, directoryPath = '', options: { signal?: AbortSignal } = {}) {
-  const params = new URLSearchParams({ agentId })
+export async function fetchWorkspaceTree(rootId: string, directoryPath = '', options: { signal?: AbortSignal } = {}) {
+  const params = new URLSearchParams({ rootId })
   if (directoryPath) params.set('path', directoryPath)
   const response = await fetch(appPath(`/api/files/tree?${params.toString()}`), { signal: options.signal })
   const body = await readJson<{ tree: { path: string; items: WorkspaceFileEntry[]; gitStatusPending?: boolean } }>(response)
   return body.tree
 }
 
-export async function fetchWorkspaceFile(agentId: string, filePath: string, options: { signal?: AbortSignal } = {}) {
-  const params = new URLSearchParams({ agentId, path: filePath })
+export async function fetchWorkspaceFile(rootId: string, filePath: string, options: { signal?: AbortSignal } = {}) {
+  const params = new URLSearchParams({ rootId, path: filePath })
   const response = await fetch(appPath(`/api/files/file?${params.toString()}`), { signal: options.signal })
   const body = await readJson<{ file: WorkspaceFile }>(response)
   return body.file
 }
 
-export function rawWorkspaceFileUrl(agentId: string, filePath: string, sha1?: string) {
-  const params = new URLSearchParams({ agentId, path: filePath })
+export function rawWorkspaceFileUrl(rootId: string, filePath: string, sha1?: string) {
+  const params = new URLSearchParams({ rootId, path: filePath })
   if (sha1) params.set('sha1', sha1)
   return appPath(`/api/files/raw?${params.toString()}`)
 }
 
-export async function saveWorkspaceFile(agentId: string, filePath: string, content: string, baseSha1: string, overwrite = false) {
+export async function saveWorkspaceFile(rootId: string, filePath: string, content: string, baseSha1: string, overwrite = false) {
   const response = await fetch(appPath('/api/files/file'), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      agentId,
+      rootId,
       path: filePath,
       content,
       baseSha1,
@@ -279,12 +279,12 @@ export async function saveWorkspaceFile(agentId: string, filePath: string, conte
   return body.file
 }
 
-export async function moveWorkspaceEntry(agentId: string, sourcePath: string, targetDirectory: string) {
+export async function moveWorkspaceEntry(rootId: string, sourcePath: string, targetDirectory: string) {
   const response = await fetch(appPath('/api/files/move'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      agentId,
+      rootId,
       sourcePath,
       targetDirectory,
     }),
@@ -294,7 +294,7 @@ export async function moveWorkspaceEntry(agentId: string, sourcePath: string, ta
 }
 
 export async function createWorkspaceEntry(
-  agentId: string,
+  rootId: string,
   parentPath: string,
   name: string,
   entryType: 'file' | 'directory'
@@ -303,7 +303,7 @@ export async function createWorkspaceEntry(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      agentId,
+      rootId,
       parentPath,
       name,
       entryType,
@@ -312,12 +312,12 @@ export async function createWorkspaceEntry(
   return readJson<WorkspaceFileCreateResult>(response)
 }
 
-export async function renameWorkspaceEntry(agentId: string, filePath: string, name: string) {
+export async function renameWorkspaceEntry(rootId: string, filePath: string, name: string) {
   const response = await fetch(appPath('/api/files/entry'), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      agentId,
+      rootId,
       path: filePath,
       name,
     }),
@@ -326,8 +326,8 @@ export async function renameWorkspaceEntry(agentId: string, filePath: string, na
   return body.move
 }
 
-export async function deleteWorkspaceEntry(agentId: string, filePath: string) {
-  const params = new URLSearchParams({ agentId, path: filePath })
+export async function deleteWorkspaceEntry(rootId: string, filePath: string) {
+  const params = new URLSearchParams({ rootId, path: filePath })
   const response = await fetch(appPath(`/api/files/entry?${params.toString()}`), {
     method: 'DELETE',
   })
@@ -335,44 +335,44 @@ export async function deleteWorkspaceEntry(agentId: string, filePath: string) {
   return body.deleted
 }
 
-export async function fetchWorkspaceBlame(agentId: string, filePath: string) {
-  const params = new URLSearchParams({ agentId, path: filePath })
+export async function fetchWorkspaceBlame(rootId: string, filePath: string) {
+  const params = new URLSearchParams({ rootId, path: filePath })
   const response = await fetch(appPath(`/api/files/blame?${params.toString()}`))
   const body = await readJson<{ blame: WorkspaceFileBlame }>(response)
   return body.blame
 }
 
-export async function fetchWorkspaceBlameCapability(agentId: string, filePath: string) {
-  const params = new URLSearchParams({ agentId, path: filePath })
+export async function fetchWorkspaceBlameCapability(rootId: string, filePath: string) {
+  const params = new URLSearchParams({ rootId, path: filePath })
   const response = await fetch(appPath(`/api/files/blame-capability?${params.toString()}`))
   const body = await readJson<{ capability: WorkspaceFileBlameCapability }>(response)
   return body.capability
 }
 
-export async function fetchWorkspaceDiff(agentId: string, filePath: string) {
-  const params = new URLSearchParams({ agentId, path: filePath })
+export async function fetchWorkspaceDiff(rootId: string, filePath: string) {
+  const params = new URLSearchParams({ rootId, path: filePath })
   const response = await fetch(appPath(`/api/files/diff?${params.toString()}`))
   const body = await readJson<{ diff: WorkspaceFileDiff }>(response)
   return body.diff
 }
 
-export async function fetchWorkspaceChanges(agentId: string, options: { limit?: number; signal?: AbortSignal } = {}) {
-  const params = new URLSearchParams({ agentId })
+export async function fetchWorkspaceChanges(rootId: string, options: { limit?: number; signal?: AbortSignal } = {}) {
+  const params = new URLSearchParams({ rootId })
   if (options.limit) params.set('limit', String(options.limit))
   const response = await fetch(appPath(`/api/files/changes?${params.toString()}`), { signal: options.signal })
   const body = await readJson<{ changes: WorkspaceFileChanges }>(response)
   return body.changes
 }
 
-export async function fetchWorkspaceGitWorktrees(agentId: string, options: { signal?: AbortSignal } = {}) {
-  const params = new URLSearchParams({ agentId })
+export async function fetchWorkspaceGitWorktrees(rootId: string, options: { signal?: AbortSignal } = {}) {
+  const params = new URLSearchParams({ rootId })
   const response = await fetch(appPath(`/api/files/worktrees?${params.toString()}`), { signal: options.signal })
   const body = await readJson<{ worktrees: WorkspaceGitWorktrees }>(response)
   return body.worktrees
 }
 
-export async function fetchWorkspaceGitHistory(agentId: string, options: { limit?: number; skip?: number; scope?: WorkspaceGitHistory['scope']; signal?: AbortSignal } = {}) {
-  const params = new URLSearchParams({ agentId })
+export async function fetchWorkspaceGitHistory(rootId: string, options: { limit?: number; skip?: number; scope?: WorkspaceGitHistory['scope']; signal?: AbortSignal } = {}) {
+  const params = new URLSearchParams({ rootId })
   if (options.limit) params.set('limit', String(options.limit))
   if (options.skip) params.set('skip', String(options.skip))
   if (options.scope) params.set('scope', options.scope)
@@ -382,11 +382,11 @@ export async function fetchWorkspaceGitHistory(agentId: string, options: { limit
 }
 
 export async function fetchWorkspaceGitHistoryChanges(
-  agentId: string,
+  rootId: string,
   commit: string,
   options: { parent?: string; limit?: number; signal?: AbortSignal } = {},
 ) {
-  const params = new URLSearchParams({ agentId, commit })
+  const params = new URLSearchParams({ rootId, commit })
   if (options.parent) params.set('parent', options.parent)
   if (options.limit) params.set('limit', String(options.limit))
   const response = await fetch(appPath(`/api/files/history/changes?${params.toString()}`), { signal: options.signal })
@@ -394,15 +394,15 @@ export async function fetchWorkspaceGitHistoryChanges(
   return body.changes
 }
 
-export async function fetchWorkspaceLineChanges(agentId: string, filePath: string, lineNumber: number, mode: WorkspaceFileLineChanges['mode']) {
-  const params = new URLSearchParams({ agentId, path: filePath, lineNumber: String(lineNumber), mode })
+export async function fetchWorkspaceLineChanges(rootId: string, filePath: string, lineNumber: number, mode: WorkspaceFileLineChanges['mode']) {
+  const params = new URLSearchParams({ rootId, path: filePath, lineNumber: String(lineNumber), mode })
   const response = await fetch(appPath(`/api/files/line-changes?${params.toString()}`))
   const body = await readJson<{ changes: WorkspaceFileLineChanges }>(response)
   return body.changes
 }
 
-export async function searchWorkspaceFiles(agentId: string, query: string, options: { includeIgnored?: boolean; path?: string; limit?: number; signal?: AbortSignal } = {}) {
-  const params = new URLSearchParams({ agentId, q: query })
+export async function searchWorkspaceFiles(rootId: string, query: string, options: { includeIgnored?: boolean; path?: string; limit?: number; signal?: AbortSignal } = {}) {
+  const params = new URLSearchParams({ rootId, q: query })
   if (options.includeIgnored) params.set('includeIgnored', 'true')
   if (options.path) params.set('path', options.path)
   if (options.limit) params.set('limit', String(options.limit))

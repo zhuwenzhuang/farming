@@ -65,17 +65,17 @@ async function run() {
       },
     });
     const waitingAgent = manager.getState().agents.find(agent => agent.id === agentId);
-    assert.strictEqual(waitingAgent.acpState, 'waiting-for-input');
-    assert.strictEqual(waitingAgent.acpPendingElicitation.message, 'Confirm from manager state');
-    assert.strictEqual(waitingAgent.acpPendingElicitations.length, 1);
+    assert.strictEqual(waitingAgent.runtimeBinding.state, 'waiting-for-input');
+    assert.strictEqual(waitingAgent.runtimeBinding.pendingElicitation.message, 'Confirm from manager state');
+    assert.strictEqual(waitingAgent.runtimeBinding.pendingElicitations.length, 1);
     manager.respondToAcpElicitation(
       agentId,
-      waitingAgent.acpPendingElicitation.requestId,
+      waitingAgent.runtimeBinding.pendingElicitation.requestId,
       'accept',
       { confirmed: true },
     );
     assert.deepStrictEqual(await elicitationPromise, { action: 'accept', content: { confirmed: true } });
-    assert.strictEqual(manager.getState().agents.find(agent => agent.id === agentId).acpPendingElicitations.length, 0);
+    assert.strictEqual(manager.getState().agents.find(agent => agent.id === agentId).runtimeBinding.pendingElicitations.length, 0);
 
     const result = await manager.sendComposerMessage(agentId, 'manager prompt');
     assert.strictEqual(result.kind, 'acp');

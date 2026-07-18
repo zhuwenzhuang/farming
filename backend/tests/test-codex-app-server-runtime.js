@@ -436,7 +436,7 @@ async function run() {
       )));
       const providerSession = managedManager.getAgentProviderSession(agentId);
       assert.strictEqual(providerSession.provider, 'codex');
-      assert.strictEqual(providerSession.codexRuntimeMode, 'app-server');
+      assert.strictEqual(providerSession.runtimeBinding.kind, 'app-server');
       assert(providerSession.codexAppServerHomePath, 'App Server provider session should expose its runtime home');
       assert.notStrictEqual(
         providerSession.codexAppServerHomePath,
@@ -486,17 +486,17 @@ async function run() {
           receivedAt: new Date().toISOString(),
         },
       });
-      assert.strictEqual(managedManager.getState().agents.find(agent => agent.id === agentId).codexAppServerNotice.kind, 'approval-rejected');
+      assert.strictEqual(managedManager.getState().agents.find(agent => agent.id === agentId).runtimeBinding.notice.kind, 'approval-rejected');
       const managerGoal = await managedManager.setCodexAppServerGoal(agentId, {
         objective: 'manage the goal from chat',
         status: 'paused',
         tokenBudget: 500,
       });
       assert.strictEqual(managerGoal.objective, 'manage the goal from chat');
-      assert.strictEqual(managedManager.getState().agents.find(agent => agent.id === agentId).codexAppServerGoal.status, 'paused');
+      assert.strictEqual(managedManager.getState().agents.find(agent => agent.id === agentId).runtimeBinding.goal.status, 'paused');
       await managedManager.getCodexAppServerGoal(agentId);
       await managedManager.clearCodexAppServerGoal(agentId);
-      assert.strictEqual(managedManager.getState().agents.find(agent => agent.id === agentId).codexAppServerGoal, null);
+      assert.strictEqual(managedManager.getState().agents.find(agent => agent.id === agentId).runtimeBinding.goal, null);
       assert.strictEqual(appServerCalls.filter(call => call.kind === 'prepare').length, 1);
       assert.strictEqual(appServerCalls.find(call => call.kind === 'composer').options.message, 'structured manager message');
       assert(appServerCalls.some(call => call.kind === 'interrupt' && call.agentId === agentId));

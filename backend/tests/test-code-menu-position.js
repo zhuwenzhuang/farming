@@ -6,9 +6,11 @@ const {
   estimateContextMenuHeight,
   outwardContextMenuPoint,
 } = require('../../src/components/code/menu-position.ts');
+const { publicRuntimeBinding } = require('../agent-runtime-binding');
+const { deriveRuntimeObservation } = require('../runtime-observation');
 
 function agent(overrides = {}) {
-  return {
+  const value = {
     id: 'agent-1',
     command: 'codex',
     cwd: '/repo',
@@ -17,6 +19,9 @@ function agent(overrides = {}) {
     pinned: false,
     ...overrides,
   };
+  value.runtimeBinding = publicRuntimeBinding(value);
+  value.runtimeObservation = deriveRuntimeObservation(value);
+  return value;
 }
 
 function run() {

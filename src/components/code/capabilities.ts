@@ -222,13 +222,13 @@ export function mergeSlashCommands(commands: SlashCommandOption[]) {
 
 export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapabilities {
   const kind = inferAgentTerminalState(agent).kind
-  const runtimeMode = agent?.agentRuntimeMode || 'terminal'
+  const runtimeKind = agent?.runtimeBinding.kind || 'terminal'
   const composer = kind === 'codex'
     ? {
         ...CODING_AGENT_COMPOSER_CAPABILITIES,
-        modelPicker: runtimeMode === 'terminal' || agent?.codexRuntimeMode === 'app-server',
-        reasoningEffort: runtimeMode === 'terminal' || agent?.codexRuntimeMode === 'app-server',
-        serviceTier: runtimeMode === 'terminal' || agent?.codexRuntimeMode === 'app-server',
+        modelPicker: runtimeKind === 'terminal' || runtimeKind === 'app-server',
+        reasoningEffort: runtimeKind === 'terminal' || runtimeKind === 'app-server',
+        serviceTier: runtimeKind === 'terminal' || runtimeKind === 'app-server',
       }
     : kind === 'claude'
       ? {
