@@ -28,16 +28,17 @@ function run() {
   }
 
   assert(
-    packageScript.includes('Failed to generate V8 bytecode.*Use --fallback-to-source')
+    packageScript.includes('--fallback-to-source')
+      && packageScript.includes('Failed to generate V8 bytecode.*Use --fallback-to-source')
       && packageScript.includes('refusing to publish a broken CLI'),
-    'CLI packaging must fail closed when pkg silently omits bytecode and source',
+    'CLI packaging must retain source when cross-target bytecode fails and reject missing code',
   );
   assert(
     packageScript.includes('Packaged CLI failed its native startup self-check'),
     'native CLI targets must execute before their manifest is written',
   );
 
-  console.log('✓ CLI packaging keeps the reducer worker executable and fails closed on broken pkg output');
+  console.log('✓ CLI packaging keeps executable source fallback and fails closed on missing code');
 }
 
 run();

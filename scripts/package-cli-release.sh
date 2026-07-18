@@ -167,6 +167,7 @@ for target in "${TARGET_ARRAY[@]}"; do
       -c pkg.config.cjs \
       -t "${target}" \
       --no-native-build \
+      --fallback-to-source \
       --compress GZip \
       -o "${out_bin}" \
       backend/farming-app-cli.pkg.js 2>&1 | tee "${pkg_log}" >&2
