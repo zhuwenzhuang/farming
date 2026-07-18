@@ -343,14 +343,14 @@
         0 0 3px rgba(12, 204, 104, 0.22);
 }
 
-#farming-crt :where(.key-hint, .agent-item .key-hint, .workspace-history-badge, .input-dialog-content button:not(.workspace-history-item), .close-btn) {
+#farming-crt :where(.key-hint, .agent-item .key-hint, .workspace-history-badge, .input-dialog-content button:not(.workspace-history-item):not(.secondary), .close-btn) {
     color: #001409;
     background: var(--crt-phosphor);
     box-shadow: 0 0 8px rgba(12, 204, 104, 0.4);
     text-shadow: none;
 }
 
-#farming-crt :where(.input-dialog-content button:not(.workspace-history-item):hover, .close-btn:hover) {
+#farming-crt :where(.input-dialog-content button:not(.workspace-history-item):not(.secondary):hover, .close-btn:hover) {
     background: var(--crt-phosphor-bright);
 }
 

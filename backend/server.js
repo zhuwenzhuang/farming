@@ -34,6 +34,7 @@ const {
   resumedAgentSource,
 } = require('./main-page-session');
 const { discoverAgentWorkspaces } = require('./workspace-discovery');
+const { createWorkspaceDirectoryRouter } = require('./workspace-directory');
 const { createControlRouter } = require('./control-api');
 const { WorkspaceFileService, WorkspaceFileError } = require('./workspace-file-service');
 const { createWorkspaceFileRouter, resolveWorkspaceRoot } = require('./workspace-file-router');
@@ -569,6 +570,8 @@ app.get(routePath(BASE_PATH, '/api/workspaces/complete'), async (req, res) => {
     });
   }
 });
+
+app.use(routePath(BASE_PATH, '/api/workspaces'), createWorkspaceDirectoryRouter());
 
 app.get(routePath(BASE_PATH, '/api/skills'), (_req, res) => {
   res.json({ skills: getMainAgentSkillsCatalog() });

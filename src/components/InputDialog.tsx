@@ -7,8 +7,9 @@ import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { CodeCopy } from '@/components/code/copy'
 import { AgentLaunchIcon } from '@/components/code/AgentLaunchIcon'
 import { normalizeAgentLaunchOptions } from '@/components/code/agent-launch-options'
-import { ArrowDownGlyph, ArrowUpGlyph, CheckGlyph, ChevronDownGlyph, CloseGlyph } from '@/components/IconGlyphs'
+import { ArrowDownGlyph, ArrowUpGlyph, CheckGlyph, ChevronDownGlyph, CloseGlyph, ErrorGlyph, PlusGlyph } from '@/components/IconGlyphs'
 import { mergeTaskWithWorkflow, WORKFLOW_TEMPLATE_OPTIONS } from '@/lib/workflow-templates'
+import { prepareWorkspaceDirectory } from '@/lib/workspace-directory'
 import {
   buildWorkspaceHistory,
   buildWorkspaceOptions,
@@ -93,6 +94,12 @@ interface InputDialogProps {
 
 type DialogStep = 'agent-list' | 'workspace'
 
+type WorkspacePreparation = {
+  kind: 'confirm' | 'creating' | 'error'
+  workspace: string
+  code?: string
+}
+
 function agentSessionUpdatedAt(session: MainAgentResumeSession) {
   const parsed = Date.parse(session.updatedAt || '')
   return Number.isFinite(parsed) ? parsed : 0
@@ -153,11 +160,13 @@ export function InputDialog({
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [historySelection, setHistorySelection] = useState(-1)
   const [startClickLocked, setStartClickLocked] = useState(false)
+  const [workspacePreparation, setWorkspacePreparation] = useState<WorkspacePreparation | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const homeMenuRef = useRef<HTMLDivElement>(null)
   const homeMenuTriggerRef = useRef<HTMLButtonElement>(null)
   const workspacePathSuggestionsRef = useRef<HTMLDivElement>(null)
+  const workspacePromptPrimaryRef = useRef<HTMLButtonElement>(null)
   const workspaceTouchedRef = useRef(false)
   const startClickLockedRef = useRef(false)
   const startClickUnlockTimerRef = useRef<number | null>(null)
@@ -186,6 +195,7 @@ export function InputDialog({
     workspaceTouchedRef.current = false
     startClickLockedRef.current = false
     setStartClickLocked(false)
+    setWorkspacePreparation(null)
     if (startClickUnlockTimerRef.current !== null) {
       window.clearTimeout(startClickUnlockTimerRef.current)
       startClickUnlockTimerRef.current = null
@@ -302,6 +312,11 @@ export function InputDialog({
       startClickUnlockTimerRef.current = null
     }
   }, [])
+
+  useLayoutEffect(() => {
+    if (!workspacePreparation || workspacePreparation.kind === 'creating') return
+    workspacePromptPrimaryRef.current?.focus()
+  }, [workspacePreparation])
 
   useLayoutEffect(() => {
     if (!open || step !== 'agent-list' || !agentsLoaded || agentLoadFailed) return
@@ -475,21 +490,15 @@ export function InputDialog({
     setWorkspaceHistory(savedHistory)
   }, [workspaceHistory])
 
-  const confirm = useCallback(async () => {
+  const startPreparedAgent = useCallback(async (resolvedWorkspace: string) => {
     if (!selectedAgent) return
-    if (!lockStartClick()) return
-
-    const currentWorkspace = normalizeWorkspaceValue(inputRef.current?.value ?? workspace)
-    const resolvedWorkspace = resolveWorkspaceToStart(currentWorkspace, mustStartMain, mainWorkspaceDefault)
-    if (!resolvedWorkspace) return
-
     if (!mustStartMain && shouldRememberWorkspace(resolvedWorkspace)) {
       await persistWorkspaceHistory(resolvedWorkspace)
     }
 
     const options = resumeStartOptions(selectedAgent)
     if (options) {
-      onStart(selectedAgent.command || selectedAgent.name, resolvedWorkspace, { ...(options || {}), providerHomeId: selectedHomeId })
+      onStart(selectedAgent.command || selectedAgent.name, resolvedWorkspace, { ...options, providerHomeId: selectedHomeId })
       return
     }
 
@@ -513,19 +522,69 @@ export function InputDialog({
     })
   }, [
     selectedAgent,
+    mustStartMain,
+    persistWorkspaceHistory,
+    resumeStartOptions,
+    onStart,
+    selectedHomeId,
+    showWorkflowTaskFields,
+    taskText,
+    workflowId,
+    initialCustomTitle,
+    codexRuntimeMode,
+  ])
+
+  const confirm = useCallback(async () => {
+    if (!selectedAgent) return
+    if (!lockStartClick()) return
+
+    const currentWorkspace = normalizeWorkspaceValue(inputRef.current?.value ?? workspace)
+    const resolvedWorkspace = resolveWorkspaceToStart(currentWorkspace, mustStartMain, mainWorkspaceDefault)
+    if (!resolvedWorkspace) return
+
+    if (mustStartMain) {
+      await startPreparedAgent(resolvedWorkspace)
+      return
+    }
+
+    try {
+      const result = await prepareWorkspaceDirectory(resolvedWorkspace)
+      if (result.status === 'ready') {
+        await startPreparedAgent(result.workspace)
+        return
+      }
+      setWorkspacePreparation({
+        kind: result.status === 'missing' ? 'confirm' : 'error',
+        workspace: result.workspace || resolvedWorkspace,
+        code: result.code,
+      })
+    } catch {
+      setWorkspacePreparation({ kind: 'error', workspace: resolvedWorkspace })
+    }
+  }, [
+    selectedAgent,
     workspace,
     mustStartMain,
     mainWorkspaceDefault,
     lockStartClick,
-    persistWorkspaceHistory,
-    onStart,
-    resumeStartOptions,
-    showWorkflowTaskFields,
-    taskText,
-    workflowId,
-    codexRuntimeMode,
-    initialCustomTitle,
+    startPreparedAgent,
   ])
+
+  const createWorkspaceAndStart = useCallback(async () => {
+    if (!workspacePreparation || workspacePreparation.kind === 'creating') return
+    const target = workspacePreparation.workspace
+    setWorkspacePreparation({ kind: 'creating', workspace: target })
+    try {
+      const result = await prepareWorkspaceDirectory(target, true)
+      if (result.status === 'created' || result.status === 'ready') {
+        await startPreparedAgent(result.workspace)
+        return
+      }
+      setWorkspacePreparation({ kind: 'error', workspace: result.workspace || target, code: result.code })
+    } catch {
+      setWorkspacePreparation({ kind: 'error', workspace: target })
+    }
+  }, [startPreparedAgent, workspacePreparation])
 
   const syncSelectionWithValue = useCallback((value: string) => {
     const normalizedValue = normalizeWorkspaceValue(value)
@@ -723,6 +782,12 @@ export function InputDialog({
         key: 'Escape',
         allowInOverlay: true,
         handler: () => {
+          if (workspacePreparation) {
+            if (workspacePreparation.kind === 'creating') return
+            setWorkspacePreparation(null)
+            requestAnimationFrame(() => inputRef.current?.focus())
+            return
+          }
           if (homeMenuOpen) {
             setHomeMenuOpen(false)
             requestAnimationFrame(() => homeMenuTriggerRef.current?.focus())
@@ -952,6 +1017,7 @@ export function InputDialog({
               onChange={e => {
                 const nextValue = e.target.value
                 workspaceTouchedRef.current = true
+                setWorkspacePreparation(null)
                 setWorkspace(nextValue)
                 syncSelectionWithValue(nextValue)
               }}
@@ -1006,8 +1072,73 @@ export function InputDialog({
               data-1p-ignore="true"
               data-bwignore="true"
               data-form-type="other"
+              disabled={workspacePreparation !== null}
             />
-            {workspacePathSuggestions.length > 0 && (
+            {workspacePreparation ? (
+              <div
+                className={`workspace-directory-prompt ${workspacePreparation.kind === 'error' ? 'error' : ''}`}
+                data-testid="workspace-directory-prompt"
+                role="alertdialog"
+                aria-labelledby="workspace-directory-prompt-title"
+                aria-describedby="workspace-directory-prompt-description"
+              >
+                <div className="workspace-directory-prompt-icon" aria-hidden="true">
+                  {workspacePreparation.kind === 'error' ? <ErrorGlyph /> : <PlusGlyph />}
+                </div>
+                <div className="workspace-directory-prompt-copy">
+                  <h4 id="workspace-directory-prompt-title">
+                    {workspacePreparation.kind === 'error' ? copy.workspaceCreateFailedTitle : copy.workspaceMissingTitle}
+                  </h4>
+                  <p id="workspace-directory-prompt-description">
+                    {workspacePreparation.kind === 'error'
+                      ? workspacePreparation.code === 'workspace-create-forbidden'
+                        ? copy.workspaceCreateForbiddenDescription
+                        : copy.workspaceCreateFailedDescription
+                      : copy.workspaceMissingDescription}
+                  </p>
+                  <code>{formatWorkspaceForDisplay(workspacePreparation.workspace)}</code>
+                </div>
+                <div className="workspace-directory-prompt-actions">
+                  {workspacePreparation.kind === 'error' ? (
+                    <button
+                      ref={workspacePromptPrimaryRef}
+                      type="button"
+                      data-testid="workspace-directory-back"
+                      onClick={() => {
+                        setWorkspacePreparation(null)
+                        requestAnimationFrame(() => inputRef.current?.focus())
+                      }}
+                    >
+                      {copy.returnToWorkspace}
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        ref={workspacePromptPrimaryRef}
+                        type="button"
+                        data-testid="workspace-directory-create"
+                        disabled={workspacePreparation.kind === 'creating'}
+                        onClick={() => void createWorkspaceAndStart()}
+                      >
+                        {workspacePreparation.kind === 'creating' ? copy.workspaceCreating : copy.workspaceCreateAndStart}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        data-testid="workspace-directory-cancel"
+                        disabled={workspacePreparation.kind === 'creating'}
+                        onClick={() => {
+                          setWorkspacePreparation(null)
+                          requestAnimationFrame(() => inputRef.current?.focus())
+                        }}
+                      >
+                        {copy.back}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : workspacePathSuggestions.length > 0 && (
               <div
                 ref={workspacePathSuggestionsRef}
                 className="workspace-path-suggestions fx-crt-panel"
@@ -1069,7 +1200,7 @@ export function InputDialog({
                 />
               </>
             )}
-            {workspaceOptions.length > 0 && (
+            {!workspacePreparation && workspaceOptions.length > 0 && (
               <div
                 className="workspace-history fx-crt-panel"
                 data-testid="workspace-history"
@@ -1101,7 +1232,7 @@ export function InputDialog({
                 </div>
               </div>
             )}
-            <div className="workspace-actions">
+            {!workspacePreparation && <div className="workspace-actions">
               <button
                 type="button"
                 data-testid="workspace-start"
@@ -1119,7 +1250,7 @@ export function InputDialog({
               >
                 {copy.back}
               </button>
-            </div>
+            </div>}
           </div>
         )}
       </div>

@@ -1244,6 +1244,105 @@
             font-family: 'Courier New', monospace;
         }
 
+        .workspace-input:disabled {
+            color: #7eaa7e;
+            border-color: #316831;
+            cursor: not-allowed;
+        }
+
+        .workspace-directory-prompt {
+            display: grid;
+            grid-template-columns: 36px minmax(0, 1fr);
+            gap: 10px 12px;
+            margin-top: 12px;
+            padding: 14px;
+            border: 1px solid #2fdc2f;
+            background: rgba(8, 16, 8, 0.96);
+            box-shadow: inset 0 0 14px rgba(0, 255, 0, 0.04);
+        }
+
+        .workspace-directory-prompt[hidden] {
+            display: none;
+        }
+
+        .workspace-directory-prompt.error {
+            border-color: #ff4d4d;
+            background: rgba(35, 8, 8, 0.96);
+            box-shadow: inset 0 0 14px rgba(255, 77, 77, 0.05);
+        }
+
+        .workspace-directory-prompt-icon {
+            color: #00ffff;
+            font-size: 13px;
+            font-weight: bold;
+            line-height: 1.4;
+        }
+
+        .workspace-directory-prompt.error .workspace-directory-prompt-icon {
+            color: #ff6b6b;
+        }
+
+        .workspace-directory-prompt-copy {
+            min-width: 0;
+        }
+
+        .workspace-directory-prompt h4 {
+            margin: 0 0 6px;
+            color: #9dff97;
+            font-size: 14px;
+        }
+
+        .workspace-directory-prompt.error h4 {
+            color: #ff8585;
+        }
+
+        .workspace-directory-prompt p {
+            margin: 0 0 10px;
+            color: #9aaa9a;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .workspace-directory-prompt code {
+            display: block;
+            overflow: hidden;
+            padding: 7px 9px;
+            border: 1px solid #184d18;
+            background: #050905;
+            color: #87ff87;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .workspace-directory-prompt.error code {
+            border-color: #673232;
+            color: #ffaaaa;
+        }
+
+        .workspace-directory-prompt-actions {
+            grid-column: 2;
+            display: flex;
+            gap: 8px;
+        }
+
+        .input-dialog-content .workspace-directory-prompt-actions button {
+            margin-right: 0;
+            padding: 8px 12px;
+            font-size: 12px;
+        }
+
+        .input-dialog-content .workspace-directory-prompt-actions button.secondary {
+            border: 1px solid #2d6b2d;
+            background: transparent;
+            color: #87ff87;
+        }
+
+        .input-dialog-content .workspace-directory-prompt-actions button.secondary:hover {
+            background: rgba(0, 255, 0, 0.08);
+        }
+
         .workspace-history {
             margin-top: 12px;
             border: 1px solid #184d18;
@@ -1719,6 +1818,19 @@
                     aria-autocomplete="none"
                     data-form-type="other"
                 >
+                <div class="workspace-directory-prompt" id="workspace-directory-prompt" role="alertdialog" aria-labelledby="workspace-directory-prompt-title" aria-describedby="workspace-directory-prompt-description" hidden>
+                    <div class="workspace-directory-prompt-icon" id="workspace-directory-prompt-icon" aria-hidden="true">[+]</div>
+                    <div class="workspace-directory-prompt-copy">
+                        <h4 id="workspace-directory-prompt-title">Create this workspace?</h4>
+                        <p id="workspace-directory-prompt-description">This directory does not exist yet. Farming can create it and start the Agent there.</p>
+                        <code id="workspace-directory-prompt-path"></code>
+                    </div>
+                    <div class="workspace-directory-prompt-actions">
+                        <button id="workspace-directory-create" data-crt-nav-key="new-agent:workspace-create" onclick="createCrtWorkspaceAndStart()">Create &amp; Start [Enter]</button>
+                        <button class="secondary" id="workspace-directory-cancel" data-crt-nav-key="new-agent:workspace-cancel" onclick="hideWorkspaceDirectoryPrompt()">Back [Esc]</button>
+                        <button id="workspace-directory-error-back" data-crt-nav-key="new-agent:workspace-error-back" onclick="hideWorkspaceDirectoryPrompt()" hidden>Change Path [Enter]</button>
+                    </div>
+                </div>
                 <div class="workspace-history" id="workspace-history" style="display: none;">
                     <div class="workspace-history-header">
                         <span>recent workspaces</span>
@@ -1726,7 +1838,7 @@
                     </div>
                     <div class="workspace-history-list" id="workspace-history-list"></div>
                 </div>
-                <div style="margin-top: 10px;">
+                <div id="workspace-start-actions" style="margin-top: 10px;">
                     <button data-crt-nav-key="new-agent:start" onclick="confirmStartAgent()">Start [Enter]</button>
                     <button data-crt-nav-key="new-agent:back" onclick="backToAgentList()">Back [Esc]</button>
                 </div>

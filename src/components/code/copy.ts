@@ -380,6 +380,14 @@ export interface CodeCopy {
   otherAgents: string
   workspace: string
   workspacePathPlaceholder: string
+  workspaceMissingTitle: string
+  workspaceMissingDescription: string
+  workspaceCreateAndStart: string
+  workspaceCreating: string
+  workspaceCreateFailedTitle: string
+  workspaceCreateForbiddenDescription: string
+  workspaceCreateFailedDescription: string
+  returnToWorkspace: string
   recentWorkspacesLower: string
   start: string
   back: string
@@ -800,6 +808,14 @@ const EN_COPY: CodeCopy = {
   otherAgents: 'Shell',
   workspace: 'Workspace:',
   workspacePathPlaceholder: '/path/to/workspace',
+  workspaceMissingTitle: 'Create this workspace?',
+  workspaceMissingDescription: 'This directory does not exist yet. Farming can create it and start the Agent there.',
+  workspaceCreateAndStart: 'Create & Start',
+  workspaceCreating: 'Creating...',
+  workspaceCreateFailedTitle: 'Couldn’t create workspace',
+  workspaceCreateForbiddenDescription: 'Farming does not have permission to create this directory. Choose another location or update the parent directory permissions.',
+  workspaceCreateFailedDescription: 'Farming couldn’t create this directory. Check the path and try again.',
+  returnToWorkspace: 'Change Path',
   recentWorkspacesLower: 'recent workspaces',
   start: 'Start',
   back: 'Back',
@@ -1256,6 +1272,14 @@ const ZH_COPY: CodeCopy = {
   otherAgents: 'Shell',
   workspace: '工作区：',
   workspacePathPlaceholder: '/工作区/路径',
+  workspaceMissingTitle: '创建这个工作区？',
+  workspaceMissingDescription: '这个目录尚不存在。Farming 可以创建目录，并在其中启动 Agent。',
+  workspaceCreateAndStart: '创建并启动',
+  workspaceCreating: '正在创建…',
+  workspaceCreateFailedTitle: '无法创建工作区',
+  workspaceCreateForbiddenDescription: 'Farming 没有权限创建这个目录。请选择其他位置，或调整父目录权限。',
+  workspaceCreateFailedDescription: 'Farming 无法创建这个目录。请检查路径后重试。',
+  returnToWorkspace: '修改路径',
   recentWorkspacesLower: '最近工作区',
   start: '启动',
   back: '返回',

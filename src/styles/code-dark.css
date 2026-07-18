@@ -2526,6 +2526,72 @@ body.code-mode[data-appearance='dark'] .workspace-history-badge {
   color: var(--code-dark-text-soft);
 }
 
+body.code-mode[data-appearance='dark'] .workspace-directory-prompt {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg-panel);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-prompt.error {
+  border-color: rgba(248, 81, 73, 0.42);
+  background: rgba(248, 81, 73, 0.08);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-prompt-icon {
+  background: var(--code-dark-bg-hover);
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-prompt.error .workspace-directory-prompt-icon {
+  background: rgba(248, 81, 73, 0.15);
+  color: var(--code-dark-danger);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-prompt-copy h4 {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-prompt-copy p {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-prompt-copy code {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg-elevated);
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-prompt-actions button {
+  border-color: var(--code-dark-accent);
+  background: var(--code-dark-accent);
+  color: #ffffff;
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-prompt-actions button:hover:not(:disabled) {
+  border-color: #79b8ff;
+  background: #79b8ff;
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-prompt-actions button.secondary {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg-elevated);
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-prompt-actions button.secondary:hover:not(:disabled) {
+  background: var(--code-dark-bg-hover);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-input input:disabled {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg-panel);
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .workspace-directory-prompt-actions button:focus-visible {
+  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.22);
+}
+
 body.code-mode[data-appearance='dark'] .workspace-actions button,
 body.code-mode[data-appearance='dark'] .close-btn,
 body.code-mode[data-appearance='dark'] .kill-btn,

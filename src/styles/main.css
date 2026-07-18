@@ -12134,6 +12134,125 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
   background: transparent;
 }
 
+body.code-mode .workspace-directory-prompt {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px 12px;
+  margin-top: 4px;
+  padding: 13px;
+  border: 1px solid #d8dbd2;
+  border-radius: 10px;
+  background: #f8f8f5;
+  color: #24292f;
+}
+
+body.code-mode .workspace-directory-prompt.error {
+  border-color: #e6b8bd;
+  background: #fff8f8;
+}
+
+body.code-mode .workspace-directory-prompt-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: #e9ebe4;
+  color: #4e554c;
+}
+
+body.code-mode .workspace-directory-prompt.error .workspace-directory-prompt-icon {
+  background: #ffebe9;
+  color: #cf222e;
+}
+
+body.code-mode .workspace-directory-prompt-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+body.code-mode .workspace-directory-prompt-copy {
+  min-width: 0;
+}
+
+body.code-mode .workspace-directory-prompt-copy h4 {
+  margin: 0 0 4px;
+  color: #24292f;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+body.code-mode .workspace-directory-prompt-copy p {
+  margin: 0 0 8px;
+  color: #6d736b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+body.code-mode .workspace-directory-prompt-copy code {
+  display: block;
+  overflow: hidden;
+  padding: 6px 8px;
+  border: 1px solid #e0e3da;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #424a43;
+  font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.code-mode .workspace-directory-prompt-actions {
+  grid-column: 2;
+  display: flex;
+  gap: 7px;
+}
+
+body.code-mode .workspace-directory-prompt-actions button {
+  min-height: 32px;
+  padding: 6px 11px;
+  border: 1px solid #24292f;
+  border-radius: 7px;
+  background: #24292f;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+body.code-mode .workspace-directory-prompt-actions button:hover:not(:disabled) {
+  background: #424a53;
+}
+
+body.code-mode .workspace-directory-prompt-actions button.secondary {
+  border-color: #d8dbd2;
+  background: #ffffff;
+  color: #424a43;
+}
+
+body.code-mode .workspace-directory-prompt-actions button.secondary:hover:not(:disabled) {
+  background: #f1f2ed;
+}
+
+body.code-mode .workspace-directory-prompt-actions button:disabled {
+  cursor: progress;
+  opacity: 0.62;
+}
+
+body.code-mode .workspace-input input:disabled {
+  background: #f4f5f1;
+  color: #737a71;
+  cursor: not-allowed;
+}
+
+body.code-mode .workspace-directory-prompt-actions button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(36, 41, 47, 0.16);
+}
+
 .main-content {
   flex: 1;
   display: flex;

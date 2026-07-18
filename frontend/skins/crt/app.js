@@ -5,6 +5,7 @@ let focusedAgentId = null;
 let keyMap = {};
 let agents = [];
 let waitingForAgent = false;
+let workspaceDirectoryPrompt = null;
 let selectedAgentIndex = null;
 let terminal = null;
 let fitAddon = null;
@@ -4955,6 +4956,7 @@ function refreshWorkspaceMemoryUI() {
 function seedWorkspaceInput() {
   const workspaceInput = document.getElementById('workspace-input');
   if (!workspaceInput) return;
+  hideWorkspaceDirectoryPrompt({ focusInput: false });
   workspaceInput.value = '';
   workspaceInput.placeholder = pendingMainAgentLaunch
     ? formatWorkspaceForDisplay(getDefaultWorkspaceForDialog(true))
@@ -5018,13 +5020,129 @@ function setupWorkspaceHistoryControls() {
 }
 
 async function confirmStartAgent() {
-  if (waitingForAgent || selectedAgentIndex === null || selectedAgentIndex < 0 || selectedAgentIndex >= agents.length) return;
+  if (waitingForAgent || workspaceDirectoryPrompt || selectedAgentIndex === null || selectedAgentIndex < 0 || selectedAgentIndex >= agents.length) return;
 
   const agent = agents[selectedAgentIndex];
   const workspaceInput = normalizeWorkspaceValue(document.getElementById('workspace-input').value);
   const asMainAgent = pendingMainAgentLaunch;
   const workspaceToUse = resolveWorkspaceToStart(workspaceInput, asMainAgent);
 
+  if (asMainAgent || !workspaceToUse) {
+    await startCrtAgent(agent, workspaceToUse, asMainAgent);
+    return;
+  }
+
+  try {
+    const result = await prepareCrtWorkspaceDirectory(workspaceToUse, false);
+    if (result.status === 'ready') {
+      await startCrtAgent(agent, result.workspace, false);
+      return;
+    }
+    showWorkspaceDirectoryPrompt(result.status === 'missing' ? 'confirm' : 'error', {
+      workspace: result.workspace || workspaceToUse,
+      code: result.code || ''
+    });
+  } catch {
+    showWorkspaceDirectoryPrompt('error', { workspace: workspaceToUse, code: '' });
+  }
+}
+
+async function prepareCrtWorkspaceDirectory(workspace, create) {
+  const response = await fetch(farmingApiPath('/workspaces/prepare'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace, create: create === true })
+  });
+  const result = await response.json().catch(() => null);
+  if (result && typeof result.status === 'string' && typeof result.workspace === 'string') {
+    return result;
+  }
+  throw new Error(result && result.message ? result.message : `Failed to prepare workspace (${response.status})`);
+}
+
+function showWorkspaceDirectoryPrompt(kind, { workspace, code = '' }) {
+  const prompt = document.getElementById('workspace-directory-prompt');
+  const input = document.getElementById('workspace-input');
+  const history = document.getElementById('workspace-history');
+  const startActions = document.getElementById('workspace-start-actions');
+  const createButton = document.getElementById('workspace-directory-create');
+  const cancelButton = document.getElementById('workspace-directory-cancel');
+  const errorBackButton = document.getElementById('workspace-directory-error-back');
+  if (!prompt || !input || !createButton || !cancelButton || !errorBackButton) return;
+
+  workspaceDirectoryPrompt = { kind, workspace, code };
+  const isError = kind === 'error';
+  const isCreating = kind === 'creating';
+  prompt.hidden = false;
+  prompt.classList.toggle('error', isError);
+  input.disabled = true;
+  if (history) history.style.display = 'none';
+  if (startActions) startActions.style.display = 'none';
+
+  document.getElementById('workspace-directory-prompt-icon').textContent = isError ? '[!]' : '[+]';
+  document.getElementById('workspace-directory-prompt-title').textContent = isError
+    ? 'Could not create workspace'
+    : isCreating
+      ? 'Creating workspace...'
+      : 'Create this workspace?';
+  document.getElementById('workspace-directory-prompt-description').textContent = isError
+    ? code === 'workspace-create-forbidden'
+      ? 'Farming does not have permission to create this directory. Choose another location or update the parent directory permissions.'
+      : 'Farming could not create this directory. Check the path and try again.'
+    : 'This directory does not exist yet. Farming can create it and start the Agent there.';
+  document.getElementById('workspace-directory-prompt-path').textContent = formatWorkspaceForDisplay(workspace);
+
+  createButton.hidden = isError;
+  cancelButton.hidden = isError;
+  errorBackButton.hidden = !isError;
+  createButton.disabled = isCreating;
+  cancelButton.disabled = isCreating;
+  createButton.textContent = isCreating ? 'Creating...' : 'Create & Start [Enter]';
+  clearCrtNavigationSelection();
+  const primary = isError ? errorBackButton : createButton;
+  if (!isCreating) {
+    setCrtNavigationSelection(primary);
+    primary.focus();
+  }
+}
+
+function hideWorkspaceDirectoryPrompt({ focusInput = true } = {}) {
+  const prompt = document.getElementById('workspace-directory-prompt');
+  const input = document.getElementById('workspace-input');
+  const startActions = document.getElementById('workspace-start-actions');
+  workspaceDirectoryPrompt = null;
+  if (prompt) prompt.hidden = true;
+  if (input) input.disabled = false;
+  if (startActions) startActions.style.display = 'block';
+  renderWorkspaceHistoryUI();
+  if (focusInput && input) {
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+}
+
+async function createCrtWorkspaceAndStart() {
+  if (!workspaceDirectoryPrompt || workspaceDirectoryPrompt.kind !== 'confirm') return;
+  const target = workspaceDirectoryPrompt.workspace;
+  const agent = selectedAgentIndex === null ? null : agents[selectedAgentIndex];
+  if (!agent) return;
+  showWorkspaceDirectoryPrompt('creating', { workspace: target });
+  try {
+    const result = await prepareCrtWorkspaceDirectory(target, true);
+    if (result.status === 'created' || result.status === 'ready') {
+      await startCrtAgent(agent, result.workspace, false);
+      return;
+    }
+    showWorkspaceDirectoryPrompt('error', {
+      workspace: result.workspace || target,
+      code: result.code || ''
+    });
+  } catch {
+    showWorkspaceDirectoryPrompt('error', { workspace: target, code: '' });
+  }
+}
+
+async function startCrtAgent(agent, workspaceToUse, asMainAgent) {
   console.log('Starting agent:', agent.name, 'workspace:', workspaceToUse || 'default');
 
   waitingForAgent = true;
@@ -5054,7 +5172,10 @@ async function confirmStartAgent() {
   }));
 }
 
+globalThis.createCrtWorkspaceAndStart = createCrtWorkspaceAndStart;
+
 function backToAgentList() {
+  hideWorkspaceDirectoryPrompt({ focusInput: false });
   clearCrtNavigationSelection();
   selectedAgentIndex = null;
   document.getElementById('agent-list').style.display = 'block';
@@ -5067,6 +5188,7 @@ function selectAgent(index) {
   if (index < 0 || index >= agents.length) return;
 
   const agent = agents[index];
+  hideWorkspaceDirectoryPrompt({ focusInput: false });
 
   console.log('Selected agent:', agent.name);
   clearCrtNavigationSelection();
@@ -5263,6 +5385,9 @@ function connect() {
       updateSystemStats(data.stats, data.uptime, data.usageRate);
     } else if (data.type === 'error') {
       waitingForAgent = false;
+      if (workspaceDirectoryPrompt?.kind === 'creating') {
+        hideWorkspaceDirectoryPrompt({ focusInput: false });
+      }
       alert('Error: ' + data.message);
     }
   };
@@ -5615,6 +5740,7 @@ function generateKeyMap() {
 }
 
 function showInputDialog(prefill = null) {
+  hideWorkspaceDirectoryPrompt({ focusInput: false });
   clearCrtNavigationSelection();
   void loadAgents();
   const title = document.getElementById('dialog-title');
@@ -5665,6 +5791,7 @@ function hideInputDialog() {
   pendingMainAgentLaunch = false;
   pendingAgentLaunchPrefill = null;
   waitingForAgent = false;
+  hideWorkspaceDirectoryPrompt({ focusInput: false });
   document.getElementById('agent-list').style.display = 'block';
   document.getElementById('workspace-input-container').style.display = 'none';
   document.getElementById('input-dialog').classList.remove('active');
@@ -7709,6 +7836,13 @@ if (typeof document !== 'undefined') {
     }
 
     if (dialogActive) {
+      if (workspaceDirectoryPrompt) {
+        if (e.key === 'Escape' && workspaceDirectoryPrompt.kind !== 'creating') {
+          hideWorkspaceDirectoryPrompt();
+          e.preventDefault();
+        }
+        return;
+      }
       if (workspaceInputVisible) {
         if (workspaceInputFocused) {
           return;
