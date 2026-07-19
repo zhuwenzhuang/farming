@@ -1,5 +1,6 @@
 import { createPortal } from 'react-dom'
 import { useEffect, useRef } from 'react'
+import type { RefObject } from 'react'
 import { appPath } from '@/lib/base-path'
 import type { CodeCopy } from './copy'
 
@@ -9,15 +10,16 @@ export function BrandAboutDialog({
   copy,
   version,
   onClose,
+  returnFocusRef,
 }: {
   copy: CodeCopy
   version: string
   onClose: () => void
+  returnFocusRef: RefObject<HTMLElement | null>
 }) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     closeButtonRef.current?.focus({ preventScroll: true })
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
@@ -25,9 +27,9 @@ export function BrandAboutDialog({
     document.addEventListener('keydown', handleKeyDown)
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
-      previousFocus?.focus({ preventScroll: true })
+      returnFocusRef.current?.focus({ preventScroll: true })
     }
-  }, [onClose])
+  }, [onClose, returnFocusRef])
 
   return createPortal(
     <div className="code-brand-backdrop" data-testid="code-brand-dialog" role="presentation" onPointerDown={onClose}>

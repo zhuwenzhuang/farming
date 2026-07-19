@@ -340,7 +340,10 @@ function run() {
       workspaceSource.includes('return `${describedVersion[1]}-${describedVersion[2]}`') &&
       workspaceSource.includes("import { BrandAboutDialog } from './BrandAboutDialog'") &&
       workspaceSource.includes('setBrandDialogOpen(true)') &&
-      workspaceSource.includes('<BrandAboutDialog copy={copy} version={currentVersionLabel}') &&
+      workspaceSource.includes('<BrandAboutDialog') &&
+      workspaceSource.includes('version={currentVersionLabel}') &&
+      workspaceSource.includes('ref={productMarkRef}') &&
+      workspaceSource.includes('returnFocusRef={productMarkRef}') &&
       workspaceSource.includes('code-product-mark-badge') &&
       workspaceSource.includes('appPath') &&
       !workspaceSource.includes('code-nav-plugins') &&

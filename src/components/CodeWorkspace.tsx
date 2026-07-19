@@ -1236,11 +1236,21 @@ export function CodeWorkspace({
     textarea.style.overflowY = textarea.scrollHeight > 132 ? 'auto' : 'hidden'
   }, [])
   const focusComposerTextarea = useCallback(() => {
+    let composerOwnedFocus = false
     const focus = () => {
       if (document.querySelector('.code-composer-menu')) return
       const input = composerTextareaRef.current
         ?? document.querySelector<HTMLElement>('[data-testid="code-composer-input"]')
+      if (
+        composerOwnedFocus
+        && document.activeElement instanceof HTMLElement
+        && document.activeElement !== document.body
+        && document.activeElement !== input
+      ) {
+        return
+      }
       input?.focus({ preventScroll: true })
+      if (document.activeElement === input) composerOwnedFocus = true
     }
     scheduleFocusRetries(focus, { delays: [60] })
   }, [])

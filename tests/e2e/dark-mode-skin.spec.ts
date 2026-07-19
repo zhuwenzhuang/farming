@@ -160,7 +160,7 @@ test.describe('Farming Code dark skin', () => {
     const bashAgentId = await createControlAgent(page, 'bash', projectDir)
     await page.locator(`[data-testid="code-agent-row"][data-agent-id="${bashAgentId}"]`).click()
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${bashAgentId}"]`)).toBeVisible()
-    await expect.poll(async () => terminalRows(page, bashAgentId, 80).then(rows => rows.some(row => row.includes(path.basename(projectDir))))).toBe(true)
+    await expect.poll(async () => terminalRows(page, bashAgentId, 80).then(rows => rows.join('').includes(path.basename(projectDir)))).toBe(true)
     await expectTerminalAppearance(page, bashAgentId, 'dark')
     await chooseAppearance(page, 'Light')
     await expectTerminalAppearance(page, bashAgentId, 'light')

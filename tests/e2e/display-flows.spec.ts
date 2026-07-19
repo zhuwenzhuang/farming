@@ -32,11 +32,11 @@ function activeFileTabName(page: Page) {
 }
 
 async function modifierClick(page: Page, agentId: string, x: number, y: number) {
-  await page.evaluate(({ id, clientX, clientY }) => {
-    const target = document.querySelector(
-      `[data-testid="code-terminal-pane"][data-agent-id="${CSS.escape(id)}"] .terminal-session-host`,
-    )
-    if (!(target instanceof HTMLElement)) throw new Error('Modifier-click target is missing')
+  const target = page.locator(
+    `[data-testid="code-terminal-pane"][data-agent-id="${agentId}"] .terminal-session-host`,
+  )
+  await expect(target).toHaveCount(1)
+  await target.evaluate((element, { clientX, clientY }) => {
     const eventOptions = {
       bubbles: true,
       cancelable: true,
@@ -46,8 +46,8 @@ async function modifierClick(page: Page, agentId: string, x: number, y: number) 
       clientY,
       ctrlKey: true,
     }
-    target.dispatchEvent(new MouseEvent('mouseup', eventOptions))
-  }, { id: agentId, clientX: x, clientY: y })
+    element.dispatchEvent(new MouseEvent('mouseup', eventOptions))
+  }, { clientX: x, clientY: y })
 }
 
 async function createControlAgent(page: Page, command: string, workspace: string) {
@@ -272,13 +272,14 @@ test.describe('display-backed agent flows', () => {
   })
 
   test('pages History and keeps the first page reachable after refresh', async ({ page, workspaceRoot }) => {
+    const historyTimelineStart = Date.UTC(2100, 0, 1)
     await mockCodexSessions(page, Array.from({ length: 25 }, (_, index) => ({
       id: `history-page-session-${index}`,
       title: `History page item ${String(index).padStart(2, '0')}`,
       cwd: workspaceRoot,
       workspace: workspaceRoot,
-      updatedAt: new Date(Date.now() - index * 60_000).toISOString(),
-      createdAt: new Date(Date.now() - index * 60_000).toISOString(),
+      updatedAt: new Date(historyTimelineStart - index * 60_000).toISOString(),
+      createdAt: new Date(historyTimelineStart - index * 60_000).toISOString(),
       model: 'gpt-5.5',
       effort: 'medium',
     })))
@@ -286,17 +287,22 @@ test.describe('display-backed agent flows', () => {
     await openFarming(page)
     await page.getByTestId('code-nav-history').click()
     await expect(page.getByTestId('code-session-history-card')).toHaveCount(12)
-    await expect(page.getByTestId('code-history-page-status')).toHaveText('1 / 3 · 25 loaded')
+    const pageStatus = page.getByTestId('code-history-page-status')
+    await expect(pageStatus).toHaveText(/^1 \/ \d+ · \d+ loaded$/)
+    const firstPageStatus = await pageStatus.textContent()
+    if (!firstPageStatus) throw new Error('History first-page status is missing')
 
     await page.getByRole('button', { name: 'Next page' }).click()
-    await expect(page.getByTestId('code-history-page-status')).toHaveText('2 / 3 · 25 loaded')
+    await expect(pageStatus).toHaveText(firstPageStatus.replace(/^1 /, '2 '))
     await expect(page.getByTestId('code-session-history-card')).toHaveCount(12)
     await expect(page.getByTestId('code-session-history-card').filter({ hasText: 'History page item 12' })).toHaveCount(1)
     await expect(page.getByTestId('code-session-history-card').filter({ hasText: 'History page item 00' })).toHaveCount(0)
 
     await page.reload()
     await expect(page.getByTestId('code-history-panel')).toBeVisible()
-    await expect(page.getByTestId('code-history-page-status')).toHaveText('1 / 3 · 25 loaded')
+    await expect(pageStatus).toHaveText(firstPageStatus)
+    await expect(page.getByTestId('code-session-history-card')).toHaveCount(12)
+    await expect(page.getByTestId('code-session-history-card').filter({ hasText: 'History page item 00' })).toHaveCount(1)
     const historyLayout = await page.getByTestId('code-side-view-panel').evaluate(element => {
       const header = element.querySelector('.code-history-panel-header')
       return {

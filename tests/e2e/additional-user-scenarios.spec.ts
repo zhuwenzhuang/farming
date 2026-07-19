@@ -196,6 +196,7 @@ test.describe('additional Farming Code user scenarios', () => {
     await scenario('agent picker keeps keyboard focus and wraps between options', async () => {
       await openNewAgentDialog(page)
       await expect(page.getByTestId('agent-list-status')).toBeHidden({ timeout: 30_000 })
+      await expect(page.getByTestId('agent-option-codex')).toBeFocused()
       await page.keyboard.press('Home')
       await expect(page.getByTestId('agent-option-codex')).toBeFocused()
       await page.keyboard.press('End')
@@ -463,7 +464,10 @@ test.describe('additional Farming Code user scenarios', () => {
       const modelMenu = page.getByTestId('code-model-menu')
       await openStableComposerMenu(page, page.getByTestId('code-composer-model-picker'), modelMenu)
       await modelsLoaded
-      await page.getByTestId('code-model-submenu-trigger').click()
+      await openStableComposerMenu(page, page.getByTestId('code-composer-model-picker'), modelMenu)
+      const modelSubmenuTrigger = page.getByTestId('code-model-submenu-trigger')
+      await expect(modelSubmenuTrigger).toBeEnabled()
+      await modelSubmenuTrigger.click()
       const modelSubmenu = page.getByTestId('code-model-submenu')
       await expect(modelSubmenu).toBeVisible()
       await expect(modelSubmenu.locator('[role="menuitemradio"][aria-checked="true"]')).toHaveCount(1)
@@ -645,7 +649,14 @@ test.describe('additional Farming Code user scenarios', () => {
       const contextMenuBox = await contextMenu.boundingBox()
       if (!contextButtonBox || !contextMenuBox) throw new Error('Expected mobile project context menu controller')
       expect(contextMenuBox.y).toBeGreaterThanOrEqual(contextButtonBox.y + contextButtonBox.height - 2)
-      expect(Math.abs((contextMenuBox.x + contextMenuBox.width) - (contextButtonBox.x + contextButtonBox.width))).toBeLessThanOrEqual(2)
+      const mobileMenuRightLimit = await page.evaluate(() => window.innerWidth - 8)
+      const contextMenuRight = contextMenuBox.x + contextMenuBox.width
+      expect(
+        Math.abs(contextMenuRight - (contextButtonBox.x + contextButtonBox.width)) <= 2
+        || Math.abs(contextMenuBox.x - 8) <= 2
+        || Math.abs(contextMenuRight - mobileMenuRightLimit) <= 2,
+        'Project menu should align with its button unless a viewport edge clamps it'
+      ).toBe(true)
       await page.keyboard.press('Escape')
       await expect(contextMenu).toHaveCount(0)
 
@@ -658,7 +669,13 @@ test.describe('additional Farming Code user scenarios', () => {
       const launchMenuBox = await menu.boundingBox()
       if (!launchButtonBox || !launchMenuBox) throw new Error('Expected mobile project launch menu controller')
       expect(launchMenuBox.y).toBeGreaterThanOrEqual(launchButtonBox.y + launchButtonBox.height - 2)
-      expect(Math.abs((launchMenuBox.x + launchMenuBox.width) - (launchButtonBox.x + launchButtonBox.width))).toBeLessThanOrEqual(2)
+      const launchMenuRight = launchMenuBox.x + launchMenuBox.width
+      expect(
+        Math.abs(launchMenuRight - (launchButtonBox.x + launchButtonBox.width)) <= 2
+        || Math.abs(launchMenuBox.x - 8) <= 2
+        || Math.abs(launchMenuRight - mobileMenuRightLimit) <= 2,
+        'Project launch menu should align with its button unless a viewport edge clamps it'
+      ).toBe(true)
       await expect.poll(async () => menu.locator('button').evaluateAll(buttons => {
         const menuRect = buttons[0]?.closest('[data-testid="code-project-new-agent-menu"]')?.getBoundingClientRect()
         if (!menuRect) return 0

@@ -289,6 +289,7 @@ export function CodeSidebar({
   const [usageCollapsed, setUsageCollapsed] = useState(true)
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false)
   const [brandDialogOpen, setBrandDialogOpen] = useState(false)
+  const productMarkRef = useRef<HTMLButtonElement | null>(null)
   const closeBrandDialog = useCallback(() => setBrandDialogOpen(false), [])
   const [focusModeActive, setFocusModeActive] = useState(false)
   const [focusModeSupported, setFocusModeSupported] = useState(false)
@@ -699,6 +700,7 @@ export function CodeSidebar({
       <div className="code-sidebar-footer">
         <div className="code-product-row">
           <button
+            ref={productMarkRef}
             type="button"
             className="code-product-mark"
             data-testid="code-product-mark"
@@ -752,7 +754,12 @@ export function CodeSidebar({
         />
       )}
       {brandDialogOpen && (
-        <BrandAboutDialog copy={copy} version={currentVersionLabel} onClose={closeBrandDialog} />
+        <BrandAboutDialog
+          copy={copy}
+          version={currentVersionLabel}
+          onClose={closeBrandDialog}
+          returnFocusRef={productMarkRef}
+        />
       )}
       {appModeDialogOpen && (
         <AppModeDialog
