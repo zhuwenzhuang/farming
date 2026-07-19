@@ -127,10 +127,16 @@ test('keeps a human reader stationary while an ACP answer streams below', async 
   await page.getByTestId('code-acp-composer-send').click()
   await expect(page.getByText('Reading paragraph 48', { exact: false })).toBeVisible()
 
-  await transcript.hover()
-  await page.mouse.wheel(0, -900)
+  const readingPosition = await transcript.evaluate(element => {
+    const bottom = Math.max(0, element.scrollHeight - element.clientHeight)
+    element.scrollTop = Math.max(0, bottom - 900)
+    element.dispatchEvent(new Event('scroll', { bubbles: true }))
+    return element.scrollTop
+  })
+  expect(await transcript.evaluate(element => (
+    element.scrollHeight - element.clientHeight - element.scrollTop
+  ))).toBeGreaterThan(1)
   await expect(page.getByTestId('code-codex-transcript-jump-bottom')).toBeVisible()
-  const readingPosition = await transcript.evaluate(element => element.scrollTop)
 
   for (let index = 1; index <= 6; index += 1) {
     await expect(page.getByText(`Streaming tail ${index}`, { exact: false })).toBeAttached({ timeout: 10_000 })
