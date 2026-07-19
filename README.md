@@ -23,7 +23,7 @@ npm install --global farming-code@latest && farming daemon
 
 Open the authenticated URL printed by the command, choose **New Agent**, select an Agent and workspace, and start in Chat or Terminal.
 
-![Farming Code workspace](./docs/products/code/assets/01-code-workspace.png)
+![Farming CRT billing control room](./docs/products/crt/assets/crt-billing-control-room.png)
 
 ## Two Interfaces, One Runtime
 

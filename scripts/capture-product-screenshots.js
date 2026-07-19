@@ -7,6 +7,7 @@ const path = require('node:path');
 const { chromium } = require('@playwright/test');
 
 const repoRoot = path.resolve(__dirname, '..');
+const packageVersion = require(path.join(repoRoot, 'package.json')).version;
 const screenshotTmpRoot = process.env.FARMING_SCREENSHOT_TMP_ROOT
   || (process.platform === 'win32' ? os.tmpdir() : '/tmp');
 const demoRoot = path.join(screenshotTmpRoot, 'farming-product-demo');
@@ -111,6 +112,24 @@ function prepareRuntimeDirectories() {
       '}',
       '',
     ].join('\n'));
+    fs.writeFileSync(path.join(workspaceDir, 'src', 'recovery.js'), [
+      'const CHECKPOINT_TIMEOUT_MS = 15_000',
+      '',
+      'export async function recoverSession({ sessionId, expectedEpoch, api }) {',
+      '  const checkpoint = await api.fetchCheckpoint(sessionId, CHECKPOINT_TIMEOUT_MS)',
+      '',
+      '  if (checkpoint.epoch !== expectedEpoch) {',
+      "    return { status: 'reload', checkpoint }",
+      '  }',
+      '',
+      '  if (!checkpoint.exact) {',
+      "    throw new Error('Recovery requires an exact checkpoint')",
+      '  }',
+      '',
+      "  return { status: 'ready', checkpoint }",
+      '}',
+      '',
+    ].join('\n'));
     fs.writeFileSync(path.join(workspaceDir, 'tests', 'dashboard.spec.ts'), [
       "import { test, expect } from '@playwright/test'",
       '',
@@ -122,7 +141,23 @@ function prepareRuntimeDirectories() {
     ].join('\n'));
     run('git', ['init', '-q'], { cwd: workspaceDir });
     run('git', ['add', '.'], { cwd: workspaceDir });
-    run('git', ['-c', 'user.name=Alex Chen', '-c', 'user.email=alex@example.invalid', 'commit', '-qm', 'Create dashboard overview'], { cwd: workspaceDir });
+    run('git', ['-c', 'user.name=Alex Chen', '-c', 'user.email=alex@example.invalid', 'commit', '-qm', 'Create dashboard overview', '--date=2026-07-08T09:30:00Z'], {
+      cwd: workspaceDir,
+      env: { ...process.env, GIT_COMMITTER_DATE: '2026-07-08T09:30:00Z' },
+    });
+    fs.appendFileSync(path.join(workspaceDir, 'src', 'recovery.js'), [
+      'export function acceptTransition(checkpoint, transition) {',
+      '  const isNext = transition.outputSeq === checkpoint.outputSeq + 1',
+      '  const isSameEpoch = transition.epoch === checkpoint.epoch',
+      '  return isNext && isSameEpoch',
+      '}',
+      '',
+    ].join('\n'));
+    run('git', ['add', 'src/recovery.js'], { cwd: workspaceDir });
+    run('git', ['-c', 'user.name=Maya Ortiz', '-c', 'user.email=maya@example.invalid', 'commit', '-qm', 'Fence contiguous recovery output', '--date=2026-07-15T14:20:00Z'], {
+      cwd: workspaceDir,
+      env: { ...process.env, GIT_COMMITTER_DATE: '2026-07-15T14:20:00Z' },
+    });
     fs.appendFileSync(path.join(workspaceDir, 'src', 'components', 'Dashboard.tsx'), [
       '',
       'export function EmptyDashboard() {',
@@ -686,7 +721,7 @@ async function main() {
     const shellAgentId = await startDemoAgent(page, baseUrl);
     await updateAgent(page, baseUrl, codexAgentId, { customTitle: 'Recovery protocol', pinned: true });
     await updateAgent(page, baseUrl, terminalAgentId, { customTitle: 'Release gate' });
-    await updateAgent(page, baseUrl, claudeAgentId, { customTitle: 'Visual QA', unread: true });
+    await updateAgent(page, baseUrl, claudeAgentId, { customTitle: 'Visual QA' });
     await updateAgent(page, baseUrl, shellAgentId, { customTitle: 'Linux smoke' });
 
     await ensureApp(page);
@@ -740,7 +775,7 @@ async function main() {
     await sendAgentInput(page, baseUrl, shellAgentId, 'clear\r');
     await page.waitForTimeout(150);
     await sendAgentInput(page, baseUrl, shellAgentId, [
-      "printf '\\033[1;36mFarming v2.2.12 release console\\033[0m\\n'",
+      `printf '\\033[1;36mFarming v${packageVersion} release console\\033[0m\\n'`,
       "printf '\\nSOURCE GATES\\n  backend: 184 passed\\n  typecheck: passed\\n  lint: passed\\n\\nARTIFACT MATRIX\\n  macOS arm64 / x64: verified\\n  Linux arm64 / x64: verified\\n  legacy glibc 2.28: verified\\n  checksums + manifest: verified\\n\\nRUNTIME PROOF\\n  terminal recovery: passed\\n  cross-skin identity: passed\\n  input p95: 58 ms / 250 ms\\n\\nproduction build: ready\\n\\nWORKTREE\\n'",
       'git status --short',
       'stty echo',
@@ -759,7 +794,7 @@ async function main() {
       throw new Error(`failed to set screenshot ACP profile: ${acpProfileResponse.status()} ${await acpProfileResponse.text()}`);
     }
     const acpInput = page.getByTestId('code-acp-composer-input');
-    await acpInput.fill('Audit terminal recovery for the v2.2.12 release. Keep a rich timeline and produce the release readiness story with evidence and residual risk.');
+    await acpInput.fill(`Audit terminal recovery for the v${packageVersion} release. Keep a rich timeline and produce the release readiness story with evidence and residual risk.`);
     await page.getByTestId('code-acp-composer-send').click();
     await page.getByText('Release readiness is confirmed.', { exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
 
@@ -782,8 +817,14 @@ async function main() {
     await closeNewAgentDialog(page);
 
     await openAgent(page, codexAgentId);
-    await openFile(page, 'src/components/Dashboard.tsx:1');
-    await waitForEditorReady(page, 'Dashboard');
+    await Promise.all([
+      updateAgent(page, baseUrl, codexAgentId, { unread: false }),
+      updateAgent(page, baseUrl, terminalAgentId, { unread: false }),
+      updateAgent(page, baseUrl, claudeAgentId, { unread: false }),
+      updateAgent(page, baseUrl, shellAgentId, { unread: false }),
+    ]);
+    await openFile(page, 'src/recovery.js:1');
+    await waitForEditorReady(page, 'recoverSession');
     await showBlameFromEditorGutter(page);
     await page.locator('.code-file-inline-blame').first().waitFor({ state: 'visible', timeout: 20_000 });
     await waitForStableUi(page, 1000);
@@ -857,11 +898,55 @@ async function main() {
     await sendAgentInput(page, baseUrl, dependencyAgentId, 'stty -echo; clear; printf "DEPENDENCY AUDIT\\n\\nproduction packages: 74\\nknown vulnerabilities: 0\\nlicense conflicts: 0\\nlockfile drift: none\\n\\nready for release\\n"; stty echo\r');
     await waitForAgentOutput(page, baseUrl, dependencyAgentId, 'ready for release');
 
+    const dashboardCards = [
+      {
+        title: 'Agent network map',
+        lines: ['DISCOVERY MAP', '', '✓ 9 instances indexed', '✓ identities verified', 'relay path: not required', '', 'next: user approval'],
+      },
+      {
+        title: 'Markdown & diagrams',
+        lines: ['RENDER CHECK', '', '✓ Markdown + GFM', '✓ syntax colors', '✓ Mermaid + KaTeX', '', 'contrast: calm'],
+      },
+      {
+        title: 'Mobile intervention',
+        lines: ['MOBILE REVIEW', '', '✓ chat stays primary', '✓ keyboard path clear', '✓ no layout jump', '', 'attention cost: low'],
+      },
+      {
+        title: 'Trust boundary',
+        lines: ['TRUST AUDIT', '', '✓ target-bound pass', '✓ one-time exchange', '✓ no token exposure', '', 'risk: contained'],
+      },
+      {
+        title: 'Release notes',
+        lines: ['STORY PASS', '', '✓ message tightened', '✓ screenshots refreshed', '✓ private-data scan', '', 'ready to publish'],
+      },
+    ];
+    const dashboardAgentIds = [];
+    for (const card of dashboardCards) {
+      const agentId = await startAgent(page, baseUrl, {
+        command: 'bash',
+        workspace: workspaceDir,
+        task: '',
+      });
+      dashboardAgentIds.push(agentId);
+      await updateAgent(page, baseUrl, agentId, { customTitle: card.title });
+      const body = card.lines.join('\\n').replaceAll('"', '\\"');
+      await sendAgentInput(page, baseUrl, agentId, `stty -echo; clear; printf "${body}\\n"; stty echo\r`);
+      await waitForAgentOutput(page, baseUrl, agentId, card.lines.at(-1));
+    }
+
     const usageFixture = createUsageFixture();
     await installUsageRoutes(page, usageFixture);
     await page.goto(`${basePath}/crt/`, { waitUntil: 'networkidle' });
     await page.locator('body#farming-crt').waitFor({ state: 'visible', timeout: 30_000 });
     await page.locator('.agent-block').first().waitFor({ state: 'visible', timeout: 30_000 });
+    await Promise.all([
+      codexAgentId,
+      claudeAgentId,
+      shellAgentId,
+      dependencyAgentId,
+      ...dashboardAgentIds,
+    ].map(agentId => updateAgent(page, baseUrl, agentId, { unread: false })));
+    await page.locator('.agent-block').nth(8).waitFor({ state: 'visible', timeout: 30_000 });
     await screenshot(page, '01-crt-dashboard.png', crtScreenshotDir);
 
     await page.goto(`${basePath}/crt/?agent=${encodeURIComponent(codexAgentId)}`, { waitUntil: 'networkidle' });

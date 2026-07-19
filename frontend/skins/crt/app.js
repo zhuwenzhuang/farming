@@ -2209,9 +2209,10 @@ function normalizeSessionViewPayload(payload, fallbackAgent = null) {
   };
 }
 
-function createCrtTerminalReplication(agentId) {
+function createCrtTerminalReplication(agentId, { initialFocusPending = false } = {}) {
   return {
     agentId,
+    initialFocusPending,
     lastResizeCols: null,
     lastResizeRows: null,
     pendingFitResize: null,
@@ -2228,6 +2229,26 @@ function createCrtTerminalReplication(agentId) {
     writeInProgress: false,
     disposed: false
   };
+}
+
+function settleInitialCrtTerminalFocus(replication, terminalInstance = terminal) {
+  if (!replication || replication.disposed || !replication.initialFocusPending) return false;
+  replication.initialFocusPending = false;
+
+  const modal = document.getElementById('session-modal');
+  if (!modal || !modal.classList.contains('active') || !terminalInstance) return false;
+
+  const activeElement = document.activeElement;
+  if (activeElement?.matches?.('#terminal-output .xterm-helper-textarea')) return true;
+  if (
+    activeElement
+    && modal.contains(activeElement)
+    && activeElement.matches('button, input, textarea, select, [contenteditable="true"]')
+  ) return false;
+  if (hasAnySelection()) return false;
+
+  terminalInstance.focus?.();
+  return document.activeElement?.matches?.('#terminal-output .xterm-helper-textarea') === true;
 }
 
 function installCrtTerminalTestApi() {
@@ -2251,6 +2272,7 @@ function installCrtTerminalTestApi() {
         writeInProgress: replication.writeInProgress,
         checkpointInFlight: replication.checkpointInFlight,
         checkpointInstallInProgress: replication.installInProgress,
+        initialFocusPending: replication.initialFocusPending,
         pendingFitResize: replication.pendingFitResize,
         fitResizeTimerPending: replication.fitResizeTimer !== null
       };
@@ -2393,6 +2415,7 @@ function finishCrtTerminalReplay(replication = crtTerminalReplication) {
     if (!crtTerminalReplication || crtTerminalReplication !== replication || replication.disposed) return;
     document.getElementById('terminal-output')?.classList.remove('crt-terminal-checkpoint-installing');
     sendSessionResize(replication.agentId);
+    settleInitialCrtTerminalFocus(replication);
   });
 }
 
@@ -6890,37 +6913,28 @@ function renderStructuredTranscript(transcript, force = false) {
   if (!force && updatedAt && updatedAt === structuredSessionRenderedAt) return;
   const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
   if (!nearBottom && focusedAgentId) saveCrtStructuredReadingAnchor(focusedAgentId);
-  const transcriptNode = document.createElement('div');
-  transcriptNode.className = 'crt-structured-transcript';
   const turns = structuredTranscriptTurns(transcript);
 
-  if (!turns.length) {
-    const empty = document.createElement('div');
-    empty.className = 'crt-structured-empty';
-    empty.textContent = 'No conversation yet.';
-    transcriptNode.appendChild(empty);
-  } else {
-    turns.forEach((turn) => {
-      const section = document.createElement('section');
-      section.className = 'crt-structured-turn';
-      section.dataset.readingAnchorId = String(turn.id || `${turn.userMessage || ''}\n${turn.finalMessage || ''}`.slice(0, 160));
-      if (turn.userMessage) {
-        const user = document.createElement('p');
-        user.className = 'crt-structured-message user';
-        user.textContent = turn.userMessage;
-        section.appendChild(user);
-      }
-      if (turn.finalMessage) {
-        const assistant = document.createElement('p');
-        assistant.className = 'crt-structured-message assistant';
-        assistant.textContent = turn.finalMessage;
-        section.appendChild(assistant);
-      }
-      transcriptNode.appendChild(section);
-    });
+  const markdownRenderer = typeof window !== 'undefined' ? window.FarmingCrtMarkdownRenderer : null;
+  if (!markdownRenderer || typeof markdownRenderer.render !== 'function') {
+    const errorNode = document.createElement('div');
+    errorNode.className = 'crt-structured-error';
+    errorNode.textContent = 'Markdown renderer unavailable. Rebuild Farming and reload CRT.';
+    container.replaceChildren(errorNode);
+    structuredSessionRenderedAt = updatedAt;
+    return;
   }
-
-  container.replaceChildren(transcriptNode);
+  try {
+    markdownRenderer.render(container, turns);
+  } catch (error) {
+    if (typeof markdownRenderer.unmount === 'function') markdownRenderer.unmount(container);
+    const errorNode = document.createElement('div');
+    errorNode.className = 'crt-structured-error';
+    errorNode.textContent = error && error.message ? error.message : 'Failed to render Markdown transcript';
+    container.replaceChildren(errorNode);
+    structuredSessionRenderedAt = updatedAt;
+    return;
+  }
   structuredSessionRenderedAt = updatedAt;
   if (!focusedAgentId || !restoreCrtStructuredReadingAnchor(focusedAgentId)) {
     if (force || nearBottom) container.scrollTop = container.scrollHeight;
@@ -7203,7 +7217,12 @@ function teardownSessionSurface() {
   disposeCrtTerminalReplication();
   disposeTerminal();
   setStructuredComposerActive(false);
-  document.getElementById('terminal-output')?.classList.remove('crt-structured-session');
+  const transcriptContainer = document.getElementById('terminal-output');
+  const markdownRenderer = typeof window !== 'undefined' ? window.FarmingCrtMarkdownRenderer : null;
+  if (transcriptContainer && markdownRenderer && typeof markdownRenderer.unmount === 'function') {
+    markdownRenderer.unmount(transcriptContainer);
+  }
+  transcriptContainer?.classList.remove('crt-structured-session');
   if (SESSION_MODAL_BRIDGE && SESSION_MODAL_BRIDGE.resetTerminalShell) {
     SESSION_MODAL_BRIDGE.resetTerminalShell(document);
     return;
@@ -7305,7 +7324,9 @@ async function openSession(agentId) {
 
   disposeTerminal();
   disposeCrtTerminalReplication();
-  crtTerminalReplication = createCrtTerminalReplication(agentId);
+  crtTerminalReplication = createCrtTerminalReplication(agentId, {
+    initialFocusPending: interactiveTerminal,
+  });
   let mountedTerminal = null;
   try {
     mountedTerminal = SESSION_MODAL_BRIDGE && SESSION_MODAL_BRIDGE.mountTerminal
@@ -7326,7 +7347,7 @@ async function openSession(agentId) {
           sendSessionResize(agentId);
         },
         hasSelection: hasAnySelection,
-        focusTerminal: focusSessionTerminal,
+        focusTerminal: () => terminalBundle.terminal?.focus?.(),
         isSessionActive: () => runtime ? runtime.isCurrentSession(agentId, sessionToken) : focusedAgentId === agentId,
         afterFit: () => {
           if (runtime && !runtime.isCurrentSession(agentId, sessionToken)) return;

@@ -17,6 +17,9 @@
     --crt-border: rgba(12, 204, 104, 0.76);
     --crt-font: "Departure Mono CRT", "Sarasa Mono SC", "PingFang SC", "Hiragino Sans GB", "Noto Sans Mono CJK SC", "Microsoft YaHei UI", monospace;
     --crt-terminal-font: "JetBrains Mono", "SF Mono", Menlo, Monaco, "Cascadia Mono", "Segoe UI Mono", "Sarasa Mono SC", "PingFang SC", "Hiragino Sans GB", "Noto Sans Mono CJK SC", "Microsoft YaHei UI", monospace;
+    --crt-chat-font-size: 14px;
+    --crt-chat-line-height: 20px;
+    --crt-meta-font-size: 12px;
     color: var(--crt-phosphor);
     background: var(--crt-background);
     border-color: var(--crt-phosphor);
@@ -330,7 +333,13 @@
 
 #farming-crt .agent-header {
     color: var(--crt-phosphor-bright);
+    font-size: 14px;
+    line-height: 18px;
     letter-spacing: 0.015em;
+}
+
+#farming-crt .sidebar-item {
+    font-size: 14px;
 }
 
 #farming-crt .agent-output {
@@ -338,9 +347,11 @@
     font-size: 12px;
     line-height: 1.28;
     letter-spacing: 0;
-    text-shadow:
-        0 0 1px currentColor,
-        0 0 3px rgba(12, 204, 104, 0.22);
+    text-shadow: none;
+}
+
+#farming-crt .agent-chat-preview-text {
+    text-shadow: none;
 }
 
 #farming-crt :where(.key-hint, .agent-item .key-hint, .workspace-history-badge, .input-dialog-content button:not(.workspace-history-item):not(.secondary), .close-btn) {

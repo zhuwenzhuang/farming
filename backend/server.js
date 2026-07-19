@@ -494,6 +494,16 @@ app.get(crtEntryPath, (req, res) => {
   res.redirect(308, `${crtEntryPath}/${requestUrl.search}`);
 });
 app.use(`${crtEntryPath}/shared`, express.static(frontendDir, { index: false }));
+app.get(`${crtEntryPath}/crt-markdown-renderer.js`, (_req, res) => {
+  res.sendFile(path.join(distDir, 'crt-markdown-renderer.js'));
+});
+app.get(`${crtEntryPath}/crt-markdown-renderer.css`, (_req, res) => {
+  res.sendFile(path.join(distDir, 'crt-markdown-renderer.css'));
+});
+app.use(`${crtEntryPath}/crt-markdown-assets`, express.static(path.join(distDir, 'crt-markdown-assets'), { index: false }));
+app.get(`${crtEntryPath}/crt-mermaid-renderer.js`, (_req, res) => {
+  res.sendFile(path.join(distDir, 'crt-mermaid-renderer.js'));
+});
 app.use(`${crtEntryPath}/`, express.static(crtFrontendDir, { index: false }));
 app.use(BASE_PATH || '/', express.static(staticAppDir, { index: false }));
 

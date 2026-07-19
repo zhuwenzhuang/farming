@@ -437,6 +437,47 @@ test('keeps the CRT dashboard actionable when only the Main Agent is running', a
   await expect(page.locator('#main-agent-panel')).toBeVisible()
 })
 
+test('focuses the Main Agent terminal after leaving a structured Agent', async ({ page, workspaceRoot }) => {
+  await openFarming(page)
+  let mainAgentId = ''
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/control/agents')
+    const payload = await response.json() as { mainAgentId?: string }
+    mainAgentId = payload.mainAgentId || ''
+    return mainAgentId
+  }, { timeout: 30_000 }).not.toBe('')
+  const chatAgentId = await createControlAgent(page, 'codex', workspaceRoot, 'acp')
+
+  await page.goto('/farming/crt/', { waitUntil: 'networkidle' })
+  const chatAgentCard = page.locator(`#map-area .agent-block[data-agent-id="${chatAgentId}"]`)
+  await expect(chatAgentCard).toBeVisible({ timeout: 30_000 })
+  await chatAgentCard.click()
+  await expect(page.locator('#crt-structured-input')).toBeFocused({ timeout: 30_000 })
+  await page.getByRole('button', { name: 'Close session, Escape', exact: true }).click()
+
+  const mainAgentCard = page.locator(`#main-agent-block[data-agent-id="${mainAgentId}"]`)
+  await mainAgentCard.click()
+  await expect(page.locator('#session-modal')).toHaveClass(/active/)
+  await expect.poll(() => page.evaluate(() => {
+    const terminalState = (window as Window & {
+      __farmingCrtTerminalTest?: { getState: () => {
+        checkpointInFlight: boolean
+        checkpointInstallInProgress: boolean
+        initialFocusPending: boolean
+        replaying: boolean
+      } | null }
+    }).__farmingCrtTerminalTest?.getState()
+    return Boolean(
+      terminalState
+      && !terminalState.checkpointInFlight
+      && !terminalState.checkpointInstallInProgress
+      && !terminalState.initialFocusPending
+      && !terminalState.replaying,
+    )
+  }), { timeout: 30_000 }).toBe(true)
+  await expect(page.locator('#terminal-output .xterm-helper-textarea')).toBeFocused({ timeout: 30_000 })
+})
+
 test('keeps every session command reachable through a Terminal to MSG keyboard flow', async ({ page, workspaceRoot }) => {
   test.setTimeout(90_000)
   await openFarming(page)

@@ -66,10 +66,14 @@ async function run() {
       true,
       'active wantsMain agent should remain marked as Main Agent before mainAgentId is assigned'
     );
-    manager.mainAgentId = mainAgentId;
 
     const duplicateMainAgentId = await startAgent(manager, 'bash', null, { wantsMain: true });
     assert.strictEqual(duplicateMainAgentId, mainAgentId);
+    assert.strictEqual(
+      manager.mainAgentId,
+      mainAgentId,
+      'starting Main Agent should reclaim an active wantsMain Agent when the authoritative id was lost'
+    );
     assert.strictEqual(captured.length, 1);
 
     const recoveryRaceWorkspace = path.join(os.tmpdir(), 'farming-recovery-race-workspace');

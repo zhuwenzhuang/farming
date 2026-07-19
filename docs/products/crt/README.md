@@ -38,6 +38,8 @@ Codex, Claude Code, OpenCode, and Qoder ACP sessions open in a full-screen phosp
 
 History replay and live entries keep their order. The transcript shows user and Agent messages, while the composer exposes provider commands, model or mode configuration, token usage, attachments, pasted images, permission requests, queued follow-ups, and interrupt where supported.
 
+Agent replies are rendered as safe GitHub Flavored Markdown, including lists, tables, blockquotes, links, inline code, syntax-highlighted fenced code blocks, KaTeX formulas, and fenced Mermaid diagrams. Mermaid loads only when a diagram is present, runs in strict security mode, and keeps invalid source visible in a bounded error state. Raw HTML is not executed. User messages remain literal text so a prompt containing Markdown punctuation is not reformatted. Workspace path references remain ordinary Markdown text or links until CRT has a real file-view destination. The first implementation keeps CRT's existing font and phosphor palette around the Markdown structure; richer CRT-specific presentation is intentionally evaluated separately.
+
 Composer behavior is designed for terminal-oriented keyboard use:
 
 - Enter sends and Shift+Enter inserts a newline;

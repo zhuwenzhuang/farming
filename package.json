@@ -1,6 +1,6 @@
 {
   "name": "farming-code",
-  "version": "2.2.12",
+  "version": "2.2.13",
   "description": "Remote browser workspace for supervising AI coding agents",
   "main": "backend/server.js",
   "bin": {
@@ -34,10 +34,13 @@
     "start": "npm run build && node backend/server.js",
     "start:net": "node backend/farming-net-server.js",
     "start:no-auth": "FARMING_DISABLE_AUTH=1 npm start",
+    "predev:backend": "npm run build:crt-markdown",
     "dev:backend": "node backend/server.js",
     "dev:frontend": "vite",
+    "predev": "npm run build:crt-markdown",
     "dev": "node backend/server.js & vite --open & wait",
-    "build": "vite build",
+    "build:crt-markdown": "node -e \"require('fs').rmSync('dist/crt-markdown-assets',{recursive:true,force:true})\" && esbuild src/crt-markdown-renderer.tsx --bundle --outdir=dist --entry-names=crt-markdown-renderer --asset-names=crt-markdown-assets/[name]-[hash] --platform=browser --format=iife --target=es2022 --loader:.woff=file --loader:.woff2=file --loader:.ttf=file --minify && esbuild src/crt-mermaid-runtime.ts --bundle --outfile=dist/crt-mermaid-renderer.js --platform=browser --format=iife --target=es2022 --minify",
+    "build": "vite build && npm run build:crt-markdown",
     "deploy:remote": "./scripts/deploy.sh up",
     "deploy:remote:no-auth": "./scripts/deploy.sh up --disable-auth",
     "release:cli": "./scripts/package-cli-release.sh",

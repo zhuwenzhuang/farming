@@ -304,9 +304,11 @@ class FakeAgent {
             text: [
               'Typography baseline.',
               '',
-              '```text',
-              'Primary code content',
-              'Second readable line',
+              '## Readability heading',
+              '',
+              '```js',
+              "const primary = 'code content'",
+              'return primary',
               '```',
               '',
               '| Column | Value |',
@@ -316,6 +318,57 @@ class FakeAgent {
               '> Quoted reading content.',
               '',
               'Inline `metadata` stays compact.',
+              '',
+              '[Safe docs](https://example.com) [unsafe](javascript:window.__crtMarkdownUnsafe=true)',
+              '',
+              '<script>window.__crtMarkdownUnsafe = true</script>',
+            ].join('\n'),
+          },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('crt math mermaid')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'crt-math-mermaid-answer',
+          content: {
+            type: 'text',
+            text: [
+              'Formula and diagram baseline.',
+              '',
+              'Inline math $E = mc^2$ remains in the sentence.',
+              '',
+              '$$',
+              String.raw`\int_0^1 x^2\,dx = \frac{1}{3}`,
+              '$$',
+              '',
+              '```mermaid',
+              'flowchart LR',
+              '  plan[Plan] --> build[Build]',
+              '```',
+            ].join('\n'),
+          },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('crt invalid mermaid')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'crt-invalid-mermaid-answer',
+          content: {
+            type: 'text',
+            text: [
+              'Invalid diagram baseline.',
+              '',
+              '```mermaid',
+              'this is not a diagram',
+              '```',
             ].join('\n'),
           },
         },

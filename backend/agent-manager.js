@@ -2404,6 +2404,10 @@ class AgentManager extends EventEmitter {
     if (wantsMain) {
       const existingMainStart = this.findActiveMainAgentStart();
       if (existingMainStart) {
+        if (this.mainAgentId !== existingMainStart.id) {
+          this.mainAgentId = existingMainStart.id;
+          this.emit('update');
+        }
         console.log('Main Agent already starting or running:', existingMainStart.id);
         if (callback) callback(existingMainStart.id);
         return existingMainStart.id;

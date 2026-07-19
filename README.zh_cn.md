@@ -23,7 +23,7 @@ npm install --global farming-code@latest && farming daemon
 
 打开命令输出的带鉴权 URL，选择 **New Agent**、Agent 类型和 Workspace，然后从 Chat 或 Terminal 开始工作。
 
-![Farming Code 工作台](./docs/products/code/assets/01-code-workspace.png)
+![Farming CRT 用量控制室](./docs/products/crt/assets/crt-billing-control-room.png)
 
 ## 两套界面，同一套运行时
 

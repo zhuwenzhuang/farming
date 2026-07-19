@@ -154,7 +154,7 @@ function run() {
       && crtApp.includes('e.stopPropagation()'),
     'CRT session commands should remain focus-independent while local Chat Escape transitions keep priority'
   );
-  assert(indexHtml.includes('#farming-crt .session-header-actions > .kill-btn') && indexHtml.includes('height: 38px;') && indexHtml.includes('font-size: 16px;'), 'CRT session header controls should share one height and type size');
+  assert(indexHtml.includes('#farming-crt .session-header-actions > .kill-btn') && indexHtml.includes('height: 34px;') && indexHtml.includes('font-size: 14px;'), 'CRT session header controls should share the compact Chat type scale');
   assert(crtApp.includes("document.addEventListener('keydown', (event) => {") && crtApp.includes('}, true);'), 'CRT should capture the runtime shortcut before xterm sends it to the PTY');
   assert(crtApp.includes('[READ ONLY]') && terminalBridge.includes('disableStdin'), 'CRT should make exited terminal sessions explicitly read-only');
   assert(crtApp.includes('CRT_PREVIEW_RENDER_INTERVAL_MS = 1000'), 'CRT dashboard previews should batch to at most one visual update per second');
@@ -234,6 +234,11 @@ function run() {
   assert(crtApp.includes('renderCrtTerminalSnapshot(outputTail, agent.previewSnapshot)'), 'CRT previews should preserve terminal snapshot colors');
   assert(crtApp.includes("data.type === 'session-preview'") && crtApp.includes('terminalPreviewSnapshots.set'), 'CRT should consume backend color preview snapshots');
   assert(monochromeCss.includes('font-family: var(--crt-terminal-font)'), 'CRT Agent previews should use the readable terminal font stack');
+  assert(
+    /#farming-crt \.agent-output \{[^}]*text-shadow: none;/s.test(monochromeCss)
+      && /#farming-crt \.agent-chat-preview-text \{[^}]*text-shadow: none;/s.test(monochromeCss),
+    'CRT Agent preview text should remain crisp without phosphor blur',
+  );
   assert(
     monochromeCss.includes('#farming-crt #session-modal {') &&
       monochromeCss.includes('padding: 7px;') &&
