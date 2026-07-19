@@ -681,6 +681,45 @@ function npmPackageMetadataUrl(registryUrl, packageName) {
   return `${registry}/${encodeURIComponent(packageName).replace(/^%40/, '@')}`;
 }
 
+function normalizePathForCompare(filePath) {
+  try {
+    return fs.realpathSync(filePath);
+  } catch {
+    return path.resolve(filePath);
+  }
+}
+
+function npmPackageRoot(npmRoot, packageName) {
+  return path.join(npmRoot, ...String(packageName || '').split('/').filter(Boolean));
+}
+
+function npmPrefixForPackageRoot(packageRoot, packageName) {
+  const segments = String(packageName || '').split('/').filter(Boolean);
+  if (!path.isAbsolute(packageRoot) || segments.length === 0) return '';
+  let npmRoot = packageRoot;
+  for (let index = 0; index < segments.length; index += 1) npmRoot = path.dirname(npmRoot);
+  return path.dirname(path.dirname(npmRoot));
+}
+
+function readNpmGlobalRoot(npmCommand, npmPrefix, execFile = childProcess.execFile) {
+  const args = ['root', '--global'];
+  if (npmPrefix) args.push('--prefix', npmPrefix);
+  return new Promise((resolve, reject) => {
+    execFile(npmCommand, args, (error, stdout) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      const root = String(stdout || '').split(/\r?\n/).map(value => value.trim()).find(Boolean);
+      if (!root) {
+        reject(new Error('npm root --global returned no path'));
+        return;
+      }
+      resolve(root);
+    });
+  });
+}
+
 function npmVersionsFromMetadata(metadata, currentVersion) {
   const versions = metadata && metadata.versions && typeof metadata.versions === 'object'
     ? Object.keys(metadata.versions)
@@ -711,6 +750,8 @@ class FarmingUpdateService {
     });
     this.npmPackageName = options.npmPackageName || NPM_PACKAGE_NAME;
     this.npmRegistryUrl = options.npmRegistryUrl || process.env.FARMING_NPM_REGISTRY || DEFAULT_NPM_REGISTRY;
+    this.npmPackageRoot = options.npmPackageRoot || process.env.FARMING_MANAGED_PACKAGE_ROOT || '';
+    this.npmPrefix = options.npmPrefix || process.env.FARMING_NPM_PREFIX || '';
     this.runtime = options.platform || options.arch
       ? {
         platform: normalizePlatform(options.platform || process.platform),
@@ -724,6 +765,8 @@ class FarmingUpdateService {
     this.downloadFile = options.downloadFile || downloadFile;
     this.listArchiveEntries = options.listArchiveEntries || listTarArchiveEntries;
     this.execFile = options.execFile || childProcess.execFile;
+    this.getNpmGlobalRoot = options.getNpmGlobalRoot
+      || ((npmCommand, npmPrefix) => readNpmGlobalRoot(npmCommand, npmPrefix, this.execFile));
     this.spawn = options.spawn || childProcess.spawn;
     this.latestCache = null;
     this.npmCache = null;
@@ -782,6 +825,7 @@ class FarmingUpdateService {
     const current = this.currentVersion();
     const currentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
     const metadata = await this.npmMetadata(options);
+    const target = await this.npmUpdateTarget();
     const versions = npmVersionsFromMetadata(metadata, currentVersion);
     const latestVersion = normalizeVersion(metadata && metadata['dist-tags'] && metadata['dist-tags'].latest)
       || versions[0]?.version
@@ -791,7 +835,8 @@ class FarmingUpdateService {
       || versions.find(version => version.version === latestVersion)
       || versions[0]
       || null;
-    const available = Boolean(selected && selected.available);
+    const blockedReason = target.proven ? '' : target.error;
+    const available = Boolean(selected && selected.available && target.proven);
     return {
       method: 'npm',
       current,
@@ -802,22 +847,60 @@ class FarmingUpdateService {
         publishedAt: '',
         assetName: latestVersion,
         assetSize: 0,
-        blockedReason: '',
+        blockedReason,
         source: npmPackageMetadataUrl(this.npmRegistryUrl, this.npmPackageName),
       },
       selected: {
         version: selected?.version || '',
         assetName: selected?.assetName || '',
         assetSize: selected?.assetSize || 0,
-        blockedReason: selected?.blockedReason || '',
+        blockedReason: selected?.blockedReason || blockedReason,
       },
       versions,
       runtime: this.runtime,
+      target,
       available,
-      installable: Boolean(selected),
+      installable: Boolean(selected && target.proven),
       checkedAt: new Date(this.now()).toISOString(),
       state: this.currentInstallState(),
     };
+  }
+
+  async npmUpdateTarget() {
+    const runningPackageRoot = String(this.npmPackageRoot || '').trim();
+    if (!path.isAbsolute(runningPackageRoot)) {
+      return {
+        proven: false,
+        error: 'npm update target could not be proven: the running package has no managed package-root provenance',
+      };
+    }
+    const npmCommand = process.env.FARMING_NPM_COMMAND || 'npm';
+    const npmPrefix = this.npmPrefix || npmPrefixForPackageRoot(runningPackageRoot, this.npmPackageName);
+    if (!npmPrefix) {
+      return {
+        proven: false,
+        error: 'npm update target could not be proven: the running package has no npm prefix',
+      };
+    }
+    try {
+      const root = await this.getNpmGlobalRoot(npmCommand, npmPrefix);
+      const targetPackageRoot = npmPackageRoot(root, this.npmPackageName);
+      if (normalizePathForCompare(runningPackageRoot) !== normalizePathForCompare(targetPackageRoot)) {
+        return {
+          proven: false,
+          error: `npm update would target a different installation: running ${runningPackageRoot}; npm ${targetPackageRoot}`,
+        };
+      }
+      return {
+        proven: true,
+        packageRoot: targetPackageRoot,
+      };
+    } catch (error) {
+      return {
+        proven: false,
+        error: `npm update target could not be inspected: ${error.message || String(error)}`,
+      };
+    }
   }
 
   unsupportedStatus() {
@@ -1182,7 +1265,10 @@ module.exports = {
   installMethodAllowsBundleUpdate,
   normalizeVersion,
   npmPackageMetadataUrl,
+  npmPrefixForPackageRoot,
+  npmPackageRoot,
   npmVersionsFromMetadata,
+  readNpmGlobalRoot,
   releaseInstallDir,
   manifestAssetSafety,
   normalizeSha256,

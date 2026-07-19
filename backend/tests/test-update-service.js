@@ -660,8 +660,11 @@ async function run() {
     assert.strictEqual(secondSpawned[0].options.env.FARMING_CONFIG_DIR, httpConfigDir);
   });
 
-  const npmRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-update-root.'));
+  const npmPrefix = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-update-prefix.'));
+  const npmGlobalRoot = path.join(npmPrefix, 'lib', 'node_modules');
+  const npmRoot = path.join(npmGlobalRoot, 'farming-code');
   const npmConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-update-config.'));
+  fs.mkdirSync(npmRoot, { recursive: true });
   fs.writeFileSync(path.join(npmRoot, 'package.json'), JSON.stringify({ name: 'farming-code', version: '2.2.5' }));
   fs.mkdirSync(path.join(npmRoot, 'bin'));
   fs.writeFileSync(path.join(npmRoot, 'bin', 'farming'), '#!/usr/bin/env node\n');
@@ -691,14 +694,20 @@ async function run() {
     [['2.3.0', true], ['2.2.6', true], ['2.2.5', false]],
   );
   const npmSpawned = [];
+  let resolvedNpmPrefix = '';
   const npmService = new FarmingUpdateService({
     rootDir: npmRoot,
     configDir: npmConfigDir,
+    npmPackageRoot: npmRoot,
     platform: 'darwin',
     arch: 'arm64',
     fetchJson: async url => {
       assert.strictEqual(String(url), 'https://registry.npmjs.org/farming-code');
       return npmMetadata;
+    },
+    getNpmGlobalRoot: async (_npmCommand, prefix) => {
+      resolvedNpmPrefix = prefix;
+      return npmGlobalRoot;
     },
     spawn: (command, args, options) => {
       npmSpawned.push({ command, args, options });
@@ -710,6 +719,8 @@ async function run() {
   assert.strictEqual(npmStatus.current.type, 'npm');
   assert.strictEqual(npmStatus.current.installDir, npmRoot);
   assert.strictEqual(npmStatus.latest.version, '2.3.0');
+  assert.strictEqual(npmStatus.target.proven, true);
+  assert.strictEqual(resolvedNpmPrefix, npmPrefix);
   assert.deepStrictEqual(npmStatus.versions.map(version => version.version), ['2.3.0', '2.2.6', '2.2.5']);
   const previousNodeBin = process.env.FARMING_NODE_BIN;
   const previousNpmCommand = process.env.FARMING_NPM_COMMAND;
@@ -757,6 +768,34 @@ async function run() {
     installMethod: 'source',
   });
   assert.strictEqual(sourceServiceWithNpmState.currentInstallState().phase, 'idle');
+
+  const npmMismatchService = new FarmingUpdateService({
+    rootDir: npmRoot,
+    configDir: fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-mismatch-config.')),
+    npmPackageRoot: npmRoot,
+    fetchJson: async () => npmMetadata,
+    getNpmGlobalRoot: async () => path.join(os.tmpdir(), 'different-npm-root'),
+    spawn: () => {
+      throw new Error('npm update must not spawn when its target differs');
+    },
+  });
+  const npmMismatchStatus = await npmMismatchService.check({ force: true });
+  assert.strictEqual(npmMismatchStatus.available, false);
+  assert.strictEqual(npmMismatchStatus.installable, false);
+  assert.match(npmMismatchStatus.selected.blockedReason, /would target a different installation/);
+  const npmMismatchInstall = await npmMismatchService.startInstall({ assetName: '2.2.6' });
+  assert.strictEqual(npmMismatchInstall.phase, 'failed');
+
+  const npmUnprovenService = new FarmingUpdateService({
+    rootDir: npmRoot,
+    configDir: fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-unproven-config.')),
+    fetchJson: async () => npmMetadata,
+    getNpmGlobalRoot: async () => npmGlobalRoot,
+  });
+  const npmUnprovenStatus = await npmUnprovenService.check({ force: true });
+  assert.strictEqual(npmUnprovenStatus.available, false);
+  assert.strictEqual(npmUnprovenStatus.installable, false);
+  assert.match(npmUnprovenStatus.selected.blockedReason, /has no managed package-root provenance/);
 
   const macSpawned = [];
   const macInstallService = new FarmingUpdateService({

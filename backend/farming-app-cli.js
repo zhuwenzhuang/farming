@@ -85,6 +85,13 @@ function appendNodeOption(existing, option) {
 function buildServerEnv(overrides = {}, baseEnv = process.env) {
   const env = { ...baseEnv, ...overrides };
   delete env.PKG_EXECPATH;
+  if (!process.pkg && !env.FARMING_MANAGED_PACKAGE_ROOT) {
+    try {
+      env.FARMING_MANAGED_PACKAGE_ROOT = fs.realpathSync(path.join(__dirname, '..'));
+    } catch {
+      // npm update verification will remain unavailable when the package root cannot be proven.
+    }
+  }
   const cliBinDir = process.pkg ? path.dirname(process.execPath) : path.join(__dirname, '..', 'bin');
   env.PORT = String(env.FARMING_PORT || env.PORT || DEFAULT_PORT);
   env.FARMING_BASE_PATH = env.FARMING_BASE_PATH || DEFAULT_BASE_PATH;

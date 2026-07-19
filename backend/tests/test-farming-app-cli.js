@@ -108,6 +108,7 @@ async function runTests() {
     assert.strictEqual(env.PORT, '6694');
     assert.strictEqual(env.FARMING_BASE_PATH, '/farming');
     assert.strictEqual(env.FARMING_CONFIG_DIR, '/tmp/farming-default-config');
+    assert.strictEqual(env.FARMING_MANAGED_PACKAGE_ROOT, fs.realpathSync(path.join(__dirname, '..', '..')));
     assert.strictEqual(env.FARMING_PACKAGED_RUNTIME, undefined);
     assert(!String(env.NODE_OPTIONS || '').includes('--max-old-space-size'));
   }
