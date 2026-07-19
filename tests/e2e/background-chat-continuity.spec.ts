@@ -126,6 +126,9 @@ test('keeps a human reader stationary while an ACP answer streams below', async 
   await page.getByTestId('code-acp-composer-input').fill('scroll stability')
   await page.getByTestId('code-acp-composer-send').click()
   await expect(page.getByText('Reading paragraph 48', { exact: false })).toBeVisible()
+  await expect.poll(async () => transcript.evaluate(element => (
+    element.scrollHeight - element.clientHeight
+  ))).toBeGreaterThan(1)
 
   const readingPosition = await transcript.evaluate(element => {
     const bottom = Math.max(0, element.scrollHeight - element.clientHeight)
