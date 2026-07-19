@@ -1915,6 +1915,7 @@ function installTerminalLinkProvider(record: SessionRecord) {
         callback(undefined)
         return
       }
+      const attachmentGeneration = record.attachGeneration
 
       const logicalLine = readLogicalTerminalLineAtBufferRow(record, bufferLineNumber - 1)
       if (!logicalLine?.text) {
@@ -1930,7 +1931,7 @@ function installTerminalLinkProvider(record: SessionRecord) {
 
       void (async () => {
         const resolvedMatches = await resolveTerminalLinkMatches(record, matches)
-        if (record.disposed) {
+        if (!isCurrentAttachment(record, attachmentGeneration)) {
           callback(undefined)
           return
         }
@@ -1955,8 +1956,11 @@ function installTerminalLinkProvider(record: SessionRecord) {
             },
             activate: (event: MouseEvent) => {
               if (event.button !== 0) return
+              if (Date.now() < record.suppressClickUntil) return
+              if (!isCurrentAttachment(record, attachmentGeneration)) return
               const modifierActive = isTerminalOpenModifierActive(record, event)
-              if (!isTerminalSessionAttached(record)) return
+              if (match.kind === 'url' && findTerminalUrlAtMouseEvent(record, event) !== match.text) return
+              if (match.kind === 'path' && readTerminalPathLinkAtMouseEvent(record, event)?.text !== match.text) return
               if (match.kind === 'url' && !modifierActive) return
               if (match.kind === 'path' && !pathDirectOpen) return
 
@@ -2306,8 +2310,9 @@ function readTerminalPathLinkAtMouseEvent(record: SessionRecord, event: MouseEve
   const cell = cellFromMouseEvent(record, event)
   if (cell) {
     const logicalLine = readLogicalTerminalLineAtCell(record, cell)
-    const pathLink = logicalLine ? parseTerminalPathLinkAtColumn(logicalLine.text, logicalLine.col) : null
-    if (pathLink) return pathLink
+    if (logicalLine) {
+      return parseTerminalPathLinkAtColumn(logicalLine.text, logicalLine.col)
+    }
   }
 
   const domLine = readDomTerminalLineAtMouseEvent(record, event)
@@ -3775,6 +3780,10 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
 
   const mouseUpOpenTargetHandler = (event: MouseEvent) => {
     if (isMobileViewport() || event.button !== 0) return
+    if (Date.now() < record.suppressClickUntil) {
+      record.openTargetMouseDown = null
+      return
+    }
     const modifierActive = isTerminalOpenModifierActive(record, event)
     if (modifierActive) {
       const url = findTerminalUrlAtMouseEvent(record, event)
@@ -3801,8 +3810,10 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     event.preventDefault()
     event.stopPropagation()
     event.stopImmediatePropagation()
+    record.suppressClickUntil = Date.now() + 250
+    const attachmentGeneration = record.attachGeneration
     void resolveTerminalPathTarget(record, mouseDown.pathTarget).then(resolvedTarget => {
-      if (record.disposed) return
+      if (!isCurrentAttachment(record, attachmentGeneration)) return
       if (!resolvedTarget) {
         focusAttachedTerminalInput(record)
         return

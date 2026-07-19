@@ -3241,6 +3241,7 @@ export function CodeWorkspace({
   }, [beginWorkspaceNavigation, finishWorkspaceNavigation, restoreWorkspaceNavigationEntry])
 
   const backToAgentFromFile = useCallback((agentId: string) => {
+    terminalPathOpenRequestRef.current += 1
     setMainPaneMode('terminal')
     onWorkspaceViewChange('projects')
     onOpenTerminal(agentId, { focusTerminal: !isMobileTouchViewport() })

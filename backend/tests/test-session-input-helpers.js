@@ -807,6 +807,16 @@ function run() {
     'terminal URL/path targets should use xterm link providers with direct high-confidence file links and modifier-protected URL links'
   );
   assert(
+    terminalPoolSource.includes('const attachmentGeneration = record.attachGeneration') &&
+      terminalPoolSource.includes('if (!isCurrentAttachment(record, attachmentGeneration))') &&
+      terminalPoolSource.includes('if (Date.now() < record.suppressClickUntil) return') &&
+      terminalPoolSource.includes("if (match.kind === 'url' && findTerminalUrlAtMouseEvent(record, event) !== match.text) return") &&
+      terminalPoolSource.includes("if (match.kind === 'path' && readTerminalPathLinkAtMouseEvent(record, event)?.text !== match.text) return") &&
+      terminalPoolSource.includes('if (logicalLine) {\n      return parseTerminalPathLinkAtColumn(logicalLine.text, logicalLine.col)') &&
+      terminalPoolSource.includes('record.suppressClickUntil = Date.now() + 250'),
+    'terminal link activation should reject stale attachment and cell matches without adding retry latency'
+  );
+  assert(
     terminalOutputSource.includes('function writeTerminalData') &&
       !terminalPoolSource.includes('record.terminal.scrollToBottom = () => {}') &&
       terminalOutputSource.includes('record.terminal.write(data, callback)') &&
