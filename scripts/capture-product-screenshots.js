@@ -17,6 +17,13 @@ const customWorkspace = Boolean(process.env.FARMING_SCREENSHOT_WORKSPACE);
 const workspaceDir = path.resolve(process.env.FARMING_SCREENSHOT_WORKSPACE || path.join(homeDir, 'Projects', 'atlas-control-plane'));
 const screenshotDir = path.join(repoRoot, 'docs', 'products', 'code', 'assets');
 const crtScreenshotDir = path.join(repoRoot, 'docs', 'products', 'crt', 'assets');
+const requestedScreenshotFiles = new Set(
+  String(process.env.FARMING_SCREENSHOT_FILES || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean),
+);
+const capturedScreenshotFiles = new Set();
 const basePath = '/farming';
 const localChromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const executablePath = process.env.FARMING_PLAYWRIGHT_CHROME_PATH
@@ -182,10 +189,68 @@ function prepareRuntimeDirectories() {
       '- Keep key-to-PTY-output p95 below 250 ms.',
       '',
     ].join('\n'));
+    const paginationPath = path.join(workspaceDir, 'src', 'pagination.ts');
+    run('git', ['rm', '-q', 'src/recovery.js'], { cwd: workspaceDir });
+    fs.writeFileSync(path.join(workspaceDir, 'src', 'users-api.ts'), [
+      'export type UserRecord = { id: string; name: string }',
+      '',
+      'export function listUsers(cursor?: string): Promise<Response> {',
+      "  const query = cursor ? '?cursor=' + encodeURIComponent(cursor) : ''",
+      "  return fetch('/api/users' + query)",
+      '}',
+      '',
+    ].join('\n'));
+    fs.writeFileSync(paginationPath, [
+      'export interface Page<T> {',
+      '  items: T[]',
+      '  nextCursor: string | null',
+      '}',
+      '',
+      'type RetryPolicy = {',
+      '  attempts: number',
+      '  baseDelayMs: number',
+      '}',
+      '',
+      'export const RETRY_POLICY: RetryPolicy = {',
+      '  attempts: 3,',
+      '  baseDelayMs: 200,',
+      '}',
+      '',
+    ].join('\n'));
+    run('git', ['add', 'src/pagination.ts', 'src/users-api.ts'], { cwd: workspaceDir });
+    run('git', ['-c', 'user.name=Lena Park', '-c', 'user.email=lena@example.invalid', 'commit', '-qm', 'Define bounded pagination retry policy', '--date=2026-07-17T11:25:00Z'], {
+      cwd: workspaceDir,
+      env: { ...process.env, GIT_COMMITTER_DATE: '2026-07-17T11:25:00Z' },
+    });
+    fs.appendFileSync(paginationPath, [
+      'export function mergePage<T extends { id: string }>(',
+      '  seen: Set<string>,',
+      '  page: Page<T>,',
+      '): T[] {',
+      '  const unique = page.items.filter(item => !seen.has(item.id))',
+      '  unique.forEach(item => seen.add(item.id))',
+      '  return unique',
+      '}',
+      '',
+      'export function shouldRetry(',
+      '  attempt: number,',
+      '  status: number,',
+      '): boolean {',
+      '  const retryable = status === 429 || status === 503',
+      '  return retryable && attempt < RETRY_POLICY.attempts',
+      '}',
+      '',
+    ].join('\n'));
+    run('git', ['add', 'src/pagination.ts'], { cwd: workspaceDir });
+    run('git', ['-c', 'user.name=Omar Rahman', '-c', 'user.email=omar@example.invalid', 'commit', '-qm', 'Deduplicate adjacent API pages', '--date=2026-07-18T16:40:00Z'], {
+      cwd: workspaceDir,
+      env: { ...process.env, GIT_COMMITTER_DATE: '2026-07-18T16:40:00Z' },
+    });
   }
   for (const directory of [screenshotDir, crtScreenshotDir]) {
     for (const entry of fs.readdirSync(directory)) {
-      if (/^\d{2}-.*\.(?:png|jpg|jpeg)$/i.test(entry)) {
+      if (/^\d{2}-.*\.(?:png|jpg|jpeg)$/i.test(entry)
+        && (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has(entry))) {
         fs.rmSync(path.join(directory, entry), { force: true });
       }
     }
@@ -209,7 +274,7 @@ async function setDemoSettings(page, baseUrl) {
     data: {
       lastMainWorkspace: workspaceDir,
       workspaceHistory: [workspaceDir],
-      projectNames: { [workspaceDir]: 'Atlas Control Plane' },
+      projectNames: { [workspaceDir]: 'Northstar API' },
       appearance: 'light',
       language: 'en',
       defaultLaunchAgent: 'bash',
@@ -372,6 +437,7 @@ async function waitForStableUi(page, delayMs = 500) {
 }
 
 async function screenshot(page, fileName, directory = screenshotDir) {
+  if (requestedScreenshotFiles.size > 0 && !requestedScreenshotFiles.has(fileName)) return;
   await waitForStableUi(page, 250);
   await page.evaluate(({ linuxPath, macPath }) => {
     const walker = document.createTreeWalker(document.body, window.NodeFilter.SHOW_TEXT);
@@ -407,6 +473,12 @@ async function screenshot(page, fileName, directory = screenshotDir) {
     path: path.join(directory, fileName),
     fullPage: false,
   });
+  capturedScreenshotFiles.add(fileName);
+}
+
+function requestedScreenshotsComplete() {
+  return requestedScreenshotFiles.size > 0
+    && Array.from(requestedScreenshotFiles).every(fileName => capturedScreenshotFiles.has(fileName));
 }
 
 function createUsageFixture() {
@@ -641,6 +713,140 @@ async function closeNewAgentDialog(page) {
   await page.getByTestId('input-dialog').waitFor({ state: 'hidden', timeout: 20_000 });
 }
 
+async function projectNorthstarChat(page, { mobile = false } = {}) {
+  await page.evaluate(({ version, mobileLayout }) => {
+    const replacements = new Map([
+      [`Audit terminal recovery for the v${version} release. Keep a rich timeline and produce the release readiness story with evidence and residual risk.`, 'Fix duplicate items in the users API pagination. Keep the response contract stable, add bounded retry, and verify page boundaries.'],
+      ['Release decision · Ready', 'Pagination duplicates fixed'],
+      ['Release readiness is confirmed.', 'The users endpoint now returns each record once across page boundaries.'],
+      ['Gate', 'Case'],
+      ['Evidence', 'Before'],
+      ['Result', 'After'],
+      ['Source + backend', 'Page boundary'],
+      ['182 checks', 'duplicate user_104'],
+      ['Cross-skin recovery', 'Concurrent refresh'],
+      ['12 scenarios', 'overlap reproduced'],
+      ['Terminal input', 'Retry policy'],
+      ['p95 59 ms / 250 ms', 'unbounded'],
+      ['Release artifacts', 'Regression tests'],
+      ['6 bundles verified', '8 cases'],
+      ['Passed', 'Fixed'],
+      ['What is now proven', 'What changed'],
+      ['Code and CRT restore one exact checkpoint before live output resumes.', 'The cursor advances only after the last accepted record, so adjacent pages cannot overlap.'],
+      ['Gap, epoch change, and hidden-page recovery converge on the authoritative PTY state.', 'Transient 429 and 503 responses retry at most three times with capped backoff.'],
+      ['Residual risk:', 'Verification:'],
+      ['none in the supported WebGL path.', '8 focused tests pass; the existing JSON response shape is unchanged.'],
+      ['Inspect terminal recovery protocol', 'Inspect pagination cursor flow'],
+      ['Update recovery invariant test', 'Patch bounded retry and dedupe'],
+      ['Run cross-skin verification', 'Run API pagination tests'],
+      ['Trace the authoritative checkpoint state', 'Reproduce the page overlap'],
+      ['Exercise reconnect and gap recovery', 'Patch cursor and retry guards'],
+      ['Verify release gates and residual risk', 'Run focused regression tests'],
+      ['The PTY host owns the exact screen state. I am checking reconnect, hidden-page resume, and cross-skin continuity against that boundary.', 'I reproduced the duplicate at a page boundary, then traced cursor advancement and retry behavior through the request path.'],
+      ['docs/products/code/terminal-state-protocol.md', 'src/api/users.ts'],
+      ['tests/e2e/terminal-cross-skin-recovery.spec.ts', 'tests/api/users-pagination.test.ts'],
+      ['atlas-control-plane', 'Northstar API'],
+    ]);
+    const walker = document.createTreeWalker(document.body, window.NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      if (node.nodeValue) {
+        for (const [before, after] of replacements) {
+          node.nodeValue = node.nodeValue.replaceAll(before, after);
+        }
+      }
+      node = walker.nextNode();
+    }
+
+    document.querySelectorAll('.code-codex-transcript-process-title-text').forEach((title) => {
+      if (title.textContent.trim() !== 'Reasoning') return;
+      const row = title.closest('.code-codex-transcript-process-item, .code-codex-transcript-process-group');
+      if (row) row.style.display = 'none';
+    });
+
+    const changeSummary = document.querySelector('[data-testid="code-codex-transcript-result-summary"]');
+    const summaryLabel = changeSummary && changeSummary.querySelector(':scope > span');
+    const added = changeSummary && changeSummary.querySelector('.added');
+    const removed = changeSummary && changeSummary.querySelector('.removed');
+    if (summaryLabel) summaryLabel.textContent = '3 files changed';
+    if (added) added.textContent = '+42';
+    if (removed) removed.textContent = '-18';
+    if (changeSummary) changeSummary.setAttribute('aria-label', '3 files changed. Show changes');
+
+    let style = document.getElementById('northstar-screenshot-style');
+    if (!style) {
+      style = document.createElement('style');
+      style.id = 'northstar-screenshot-style';
+      style.textContent = [
+        '.code-codex-transcript-process-item.plan,',
+        '.code-acp-progress-update { display: none !important; }',
+        '.code-codex-transcript-assistant table { min-width: 470px; }',
+        'body.code-mobile-touch .code-codex-transcript-process { display: none !important; }',
+        'body.code-mobile-touch .code-codex-transcript-assistant table { min-width: 0; }',
+      ].join('\n');
+      document.head.appendChild(style);
+    }
+
+    if (!mobileLayout) return;
+    document.body.classList.add('code-mobile-touch');
+    const turn = document.querySelector('.code-codex-transcript-turn');
+    const userMessage = turn && turn.querySelector('.code-codex-transcript-user > div');
+    if (userMessage) userMessage.textContent = 'Fix duplicate users across API page boundaries and keep retries bounded.';
+    const answer = turn && turn.querySelector('.code-codex-transcript-assistant');
+    if (answer) {
+      answer.innerHTML = [
+        '<h2>Pagination duplicates fixed</h2>',
+        '<p><small>Northstar API · Agent running on development machine</small></p>',
+        '<p>Each user now appears once when the client loads consecutive pages.</p>',
+        '<ul>',
+        '<li>The cursor advances after the last accepted record.</li>',
+        '<li>429 and 503 responses retry at most three times.</li>',
+        '<li>Adjacent pages no longer return duplicate IDs.</li>',
+        '</ul>',
+        '<p>The client now follows the returned cursor without overlapping adjacent pages.</p>',
+        '<h3>Verification</h3>',
+        '<ul>',
+        '<li>Eight focused boundary tests pass.</li>',
+        '<li>The existing JSON response contract is unchanged.</li>',
+        '</ul>',
+      ].join('');
+    }
+  }, { version: packageVersion, mobileLayout: mobile });
+}
+
+async function projectNorthstarCrtDashboard(page) {
+  await page.addStyleTag({
+    content: [
+      '#farming-crt .agent-output-afterimage { display: none !important; }',
+      '#farming-crt .agent-block.working .agent-output:not(.structured-preview) { animation: none !important; }',
+    ].join('\n'),
+  });
+  await page.evaluate(() => {
+    const firstCard = document.querySelector('#map-area .agent-block');
+    if (!firstCard) throw new Error('CRT dashboard has no Agent card');
+    const title = firstCard.querySelector('.agent-header');
+    const status = firstCard.querySelector('.agent-status');
+    const output = firstCard.querySelector('.agent-output');
+    if (!title || !status || !output) throw new Error('CRT Agent card structure changed');
+    title.textContent = 'Northstar pagination';
+    status.textContent = 'running | warm | Northstar API';
+    output.classList.remove('structured-preview');
+    output.replaceChildren();
+    const tail = document.createElement('div');
+    tail.className = 'agent-output-tail';
+    tail.textContent = [
+      'PAGINATION FIX',
+      '',
+      'page-boundary duplicates: 0',
+      'bounded retries: 3',
+      'response shape: unchanged',
+      '',
+      '8 boundary tests: PASS',
+    ].join('\n');
+    output.appendChild(tail);
+  });
+}
+
 async function main() {
   prepareRuntimeDirectories();
 
@@ -719,10 +925,10 @@ async function main() {
       task: '',
     });
     const shellAgentId = await startDemoAgent(page, baseUrl);
-    await updateAgent(page, baseUrl, codexAgentId, { customTitle: 'Recovery protocol', pinned: true });
-    await updateAgent(page, baseUrl, terminalAgentId, { customTitle: 'Release gate' });
-    await updateAgent(page, baseUrl, claudeAgentId, { customTitle: 'Visual QA' });
-    await updateAgent(page, baseUrl, shellAgentId, { customTitle: 'Linux smoke' });
+    await updateAgent(page, baseUrl, codexAgentId, { customTitle: 'Fix duplicate page items', pinned: true });
+    await updateAgent(page, baseUrl, terminalAgentId, { customTitle: 'Pagination regression' });
+    await updateAgent(page, baseUrl, claudeAgentId, { customTitle: 'Settings UI check' });
+    await updateAgent(page, baseUrl, shellAgentId, { customTitle: 'API request logs' });
 
     await ensureApp(page);
     await openAgent(page, terminalAgentId);
@@ -798,19 +1004,50 @@ async function main() {
     await page.getByTestId('code-acp-composer-send').click();
     await page.getByText('Release readiness is confirmed.', { exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
 
+    await Promise.all([
+      codexAgentId,
+      terminalAgentId,
+      claudeAgentId,
+      shellAgentId,
+    ].map(agentId => updateAgent(page, baseUrl, agentId, { unread: false })));
+    await page.waitForFunction(() => !document.querySelector('.code-agent-unread, .code-project-agent-compact-unread'));
     await waitForFileTree(page);
-    await screenshot(page, '01-code-workspace.png');
-
-    const richTurn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'release readiness story' }).first();
+    const richTurn = page.locator('.code-codex-transcript-turn').last();
     await richTurn.getByTestId('code-codex-transcript-process-summary').click();
-    const processGroup = richTurn.getByTestId('code-codex-transcript-process-group').first();
+    await richTurn.getByTestId('code-codex-transcript-process-group').first().waitFor({ state: 'visible', timeout: 20_000 });
+    await projectNorthstarChat(page);
+    await page.getByTestId('code-codex-transcript-scroll').evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await screenshot(page, '01-code-workspace.png');
+    if (requestedScreenshotsComplete()) return;
+
+    const processGroup = richTurn.getByTestId('code-codex-transcript-process-group')
+      .filter({ hasText: 'Read a file, edited a file, ran a command' })
+      .first();
     await processGroup.getByTestId('code-codex-transcript-process-group-toggle').click();
     await processGroup.getByText('Run cross-skin verification', { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
+    await projectNorthstarChat(page);
+    await processGroup.getByText('Run API pagination tests', { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
     await page.getByTestId('code-codex-transcript-scroll').evaluate((element) => {
-      element.scrollTop = Math.min(element.scrollTop + 180, element.scrollHeight - element.clientHeight);
+      element.scrollTop = Math.min(112, element.scrollHeight - element.clientHeight);
     });
     await waitForStableUi(page, 300);
     await screenshot(page, '11-code-agent-process.png');
+    if (requestedScreenshotsComplete()) return;
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await projectNorthstarChat(page, { mobile: true });
+    await page.getByTestId('code-codex-transcript-scroll').evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await waitForStableUi(page, 500);
+    await screenshot(page, '05-mobile-agent-chat.png');
+    if (requestedScreenshotsComplete()) return;
+    await page.setViewportSize({ width: 1440, height: 810 });
+    await page.evaluate(() => document.body.classList.remove('code-mobile-touch'));
+    await ensureApp(page);
+    await openAgent(page, codexAgentId);
 
     await openNewAgentDialog(page);
     await screenshot(page, '02-start-agent-picker.png');
@@ -823,12 +1060,26 @@ async function main() {
       updateAgent(page, baseUrl, claudeAgentId, { unread: false }),
       updateAgent(page, baseUrl, shellAgentId, { unread: false }),
     ]);
-    await openFile(page, 'src/recovery.js:1');
-    await waitForEditorReady(page, 'recoverSession');
+    await openFile(page, 'src/pagination.ts:1');
+    await waitForEditorReady(page, 'mergePage');
     await showBlameFromEditorGutter(page);
     await page.locator('.code-file-inline-blame').first().waitFor({ state: 'visible', timeout: 20_000 });
+    await projectNorthstarChat(page);
+    await Promise.all([
+      codexAgentId,
+      terminalAgentId,
+      claudeAgentId,
+      shellAgentId,
+    ].map(agentId => updateAgent(page, baseUrl, agentId, { unread: false })));
+    await page.waitForFunction(() => !document.querySelector('.code-agent-unread, .code-project-agent-compact-unread'));
+    await page.getByText('users-api.ts', { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
+    const legacyRecoveryFiles = await page.getByText('recovery.js', { exact: true }).count();
+    if (legacyRecoveryFiles !== 0) throw new Error('legacy recovery.js remained in Files tree');
+    const diagnosticCount = await page.locator('.squiggly-error, .squiggly-warning').count();
+    if (diagnosticCount !== 0) throw new Error(`Files screenshot has ${diagnosticCount} visible diagnostics`);
     await waitForStableUi(page, 1000);
     await screenshot(page, '04-files-editor-blame.png');
+    if (requestedScreenshotsComplete()) return;
 
     await openAgent(page, terminalAgentId);
     await page.getByTestId('code-composer-model-picker').click();
@@ -874,7 +1125,7 @@ async function main() {
     const historySearch = page.getByRole('searchbox', { name: 'Search history' });
     await historySearch.fill('Release');
     const releaseHistoryCards = page.getByTestId('code-archived-run-card').filter({ hasText: 'Release' });
-    await releaseHistoryCards.nth(3).waitFor({ state: 'visible', timeout: 20_000 });
+    await releaseHistoryCards.nth(2).waitFor({ state: 'visible', timeout: 20_000 });
     await waitForStableUi(page, 400);
     await screenshot(page, '08-history-search.png');
 
@@ -900,37 +1151,58 @@ async function main() {
 
     const dashboardCards = [
       {
-        title: 'Agent network map',
-        lines: ['DISCOVERY MAP', '', '✓ 9 instances indexed', '✓ identities verified', 'relay path: not required', '', 'next: user approval'],
+        title: 'Checkpoint recovery',
+        project: 'terminal-lab',
+        lines: ['RECOVERY TRACE 14:32', 'epoch 7c2a / rev 1842', '', 'gap detected at seq 918', 'checkpoint installed: 920', 'live stream resumed: 921', '', 'result  CONTIGUOUS'],
       },
       {
-        title: 'Markdown & diagrams',
-        lines: ['RENDER CHECK', '', '✓ Markdown + GFM', '✓ syntax colors', '✓ Mermaid + KaTeX', '', 'contrast: calm'],
+        title: 'API contract review',
+        project: 'farming-core',
+        lines: ['PATCH REVIEW', '6 files  +148  -37', '', 'runtimeBinding  tagged', 'WorkspaceRoot   stable', 'legacy fields    blocked', '', 'open: cancellation test'],
       },
       {
-        title: 'Mobile intervention',
-        lines: ['MOBILE REVIEW', '', '✓ chat stays primary', '✓ keyboard path clear', '✓ no layout jump', '', 'attention cost: low'],
+        title: 'Mobile control pass',
+        project: 'mobile-console',
+        lines: ['DEVICE MATRIX', '', 'iPhone 15      PASS', 'Pixel 9        PASS', 'iPad mini      PASS', '', 'IME compose    PASS', 'focus restore  PASS'],
       },
       {
-        title: 'Trust boundary',
-        lines: ['TRUST AUDIT', '', '✓ target-bound pass', '✓ one-time exchange', '✓ no token exposure', '', 'risk: contained'],
+        title: 'Federated trust audit',
+        project: 'net-portal',
+        lines: ['PASS INSPECTOR', 'aud: edge-west-2', 'ttl: 43s', '', '[ok] target bound', '[ok] one-time nonce', '[ok] token absent', '', 'replay -> REJECTED'],
       },
       {
-        title: 'Release notes',
-        lines: ['STORY PASS', '', '✓ message tightened', '✓ screenshots refreshed', '✓ private-data scan', '', 'ready to publish'],
+        title: 'Release narrative',
+        project: 'product-docs',
+        lines: ['DOC SET', '', 'README.en/zh       linked', 'Code screens       6/6', 'CRT screens        8/8', 'license notices    clean', '', 'copy pass: COMPLETE'],
+      },
+      {
+        title: 'Latency watch',
+        project: 'release-ops',
+        lines: ['INPUT LATENCY / 5m', '', 'p50   31 ms  ||||||', 'p95   58 ms  |||||||||||', 'p99   83 ms  |||||||||||||', '', 'budget 250 ms', 'headroom 67%'],
+      },
+      {
+        title: 'Operator decision',
+        project: 'deploy-control',
+        lines: ['DEPLOY HOLD', '', 'Mac smoke       green', 'Linux smoke     green', 'manifest        signed', '', 'Choose window:', '  A  16:00   B  18:30'],
       },
     ];
     const dashboardAgentIds = [];
     for (const card of dashboardCards) {
+      const cardWorkspace = path.join(homeDir, 'Projects', card.project);
+      fs.mkdirSync(cardWorkspace, { recursive: true });
       const agentId = await startAgent(page, baseUrl, {
         command: 'bash',
-        workspace: workspaceDir,
+        workspace: cardWorkspace,
         task: '',
       });
       dashboardAgentIds.push(agentId);
-      await updateAgent(page, baseUrl, agentId, { customTitle: card.title });
+      await updateAgent(page, baseUrl, agentId, { customTitle: card.title, unread: false });
       const body = card.lines.join('\\n').replaceAll('"', '\\"');
-      await sendAgentInput(page, baseUrl, agentId, `stty -echo; clear; printf "${body}\\n"; stty echo\r`);
+      await sendAgentInput(page, baseUrl, agentId, 'stty -echo\r');
+      await page.waitForTimeout(120);
+      await sendAgentInput(page, baseUrl, agentId, 'clear\r');
+      await page.waitForTimeout(120);
+      await sendAgentInput(page, baseUrl, agentId, `printf "\\033[H\\033[2J${body}\\n"; stty echo\r`);
       await waitForAgentOutput(page, baseUrl, agentId, card.lines.at(-1));
     }
 
@@ -947,7 +1219,14 @@ async function main() {
       ...dashboardAgentIds,
     ].map(agentId => updateAgent(page, baseUrl, agentId, { unread: false })));
     await page.locator('.agent-block').nth(8).waitFor({ state: 'visible', timeout: 30_000 });
+    await page.waitForTimeout(900);
+    const dashboardCardsVisible = await page.locator('#map-area .agent-block').count();
+    if (dashboardCardsVisible !== 9) {
+      throw new Error(`expected 9 visible CRT dashboard cards, found ${dashboardCardsVisible}`);
+    }
+    await projectNorthstarCrtDashboard(page);
     await screenshot(page, '01-crt-dashboard.png', crtScreenshotDir);
+    if (requestedScreenshotsComplete()) return;
 
     await page.goto(`${basePath}/crt/?agent=${encodeURIComponent(codexAgentId)}`, { waitUntil: 'networkidle' });
     await page.locator('#session-modal.active').waitFor({ state: 'visible', timeout: 30_000 });
