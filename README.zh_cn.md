@@ -119,7 +119,7 @@ farming logs
 farming stop
 ```
 
-启动 Token 存放在 `~/.farming/.session-token`，重启和升级会继续复用。**Settings → Updates** 可以原地升级 npm 安装。GitHub Releases 也提供独立 CLI 和目录 Bundle；当前产物见 [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases)。
+启动 Token 存放在 `~/.farming/.session-token`，重启和升级会继续复用。**Settings → Updates** 可以原地升级 npm 安装。npm 升级会先使用机器配置的 registry；只有该 registry 缺少所选版本时，才会回退到 Settings 展示版本所用的 registry。GitHub Releases 也提供独立 CLI 和目录 Bundle；当前产物见 [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases)。
 
 从源码运行，并使用相同的端口与 Base Path：
 

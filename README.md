@@ -119,7 +119,7 @@ farming logs
 farming stop
 ```
 
-The startup token is stored in `~/.farming/.session-token` and reused across restarts and upgrades. **Settings → Updates** can upgrade npm installations in place. GitHub Releases also provide standalone CLI and directory bundles; see [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases) for current artifacts.
+The startup token is stored in `~/.farming/.session-token` and reused across restarts and upgrades. **Settings → Updates** can upgrade npm installations in place. npm updates first use the machine's configured registry and retry the registry shown in Settings only when that registry lacks the selected version. GitHub Releases also provide standalone CLI and directory bundles; see [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases) for current artifacts.
 
 To run from source with the same port and base path:
 

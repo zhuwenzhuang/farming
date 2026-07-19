@@ -20,6 +20,7 @@ function payloadFor(rootDir, overrides = {}) {
     nodePath: '/usr/bin/true',
     npmCommand: '/usr/bin/true',
     npmPrefix: path.join(rootDir, 'npm-prefix'),
+    npmFallbackRegistryUrl: 'https://registry.example.test',
     serverPid: 0,
     configDir: rootDir,
     port: '6694',
@@ -37,6 +38,7 @@ async function run() {
 
   assert.throws(() => validatePayload({}), /Invalid npm package name/);
   assert.throws(() => validatePayload(payloadFor(rootDir, { npmPrefix: 'relative' })), /Invalid npm update npmPrefix/);
+  assert.throws(() => validatePayload(payloadFor(rootDir, { npmFallbackRegistryUrl: 'file:///tmp/registry' })), /Invalid npm update registry/);
   await runNpmUpdate(payloadFor(rootDir));
   const succeeded = JSON.parse(fs.readFileSync(path.join(rootDir, 'farming-update.json'), 'utf8'));
   assert.strictEqual(succeeded.phase, 'succeeded');
@@ -52,6 +54,27 @@ async function run() {
   const failed = JSON.parse(fs.readFileSync(path.join(failedRoot, 'farming-update.json'), 'utf8'));
   assert.strictEqual(failed.phase, 'failed');
   assert.match(failed.error, /exited/);
+
+  const fallbackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-fallback.'));
+  const fallbackNpm = path.join(fallbackRoot, 'fake-npm');
+  const fallbackArgumentsFile = path.join(fallbackRoot, 'npm-arguments');
+  fs.mkdirSync(path.join(fallbackRoot, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(fallbackRoot, 'bin', 'farming'), '#!/usr/bin/env node\n');
+  fs.writeFileSync(fallbackNpm, [
+    '#!/usr/bin/env node',
+    `const fs = require('fs');`,
+    `const args = process.argv.slice(2);`,
+    `fs.appendFileSync(${JSON.stringify(fallbackArgumentsFile)}, JSON.stringify(args) + '\\n');`,
+    `if (!args.includes('--registry')) { console.error('npm error code ETARGET\\nnpm error notarget No matching version found'); process.exit(1); }`,
+    '',
+  ].join('\n'), { mode: 0o755 });
+  await runNpmUpdate(payloadFor(fallbackRoot, { npmCommand: fallbackNpm }));
+  const fallback = JSON.parse(fs.readFileSync(path.join(fallbackRoot, 'farming-update.json'), 'utf8'));
+  assert.strictEqual(fallback.phase, 'succeeded');
+  const fallbackCalls = fs.readFileSync(fallbackArgumentsFile, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.strictEqual(fallbackCalls.length, 2);
+  assert.strictEqual(fallbackCalls[0].includes('--registry'), false);
+  assert.deepStrictEqual(fallbackCalls[1].slice(4, 6), ['--registry', 'https://registry.example.test']);
 
   const rollbackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-rollback.'));
   const installedVersionFile = path.join(rollbackRoot, 'installed-version');
@@ -100,6 +123,7 @@ async function run() {
   assert.strictEqual(npmCalls.length, 2);
   npmCalls.forEach(args => {
     assert.deepStrictEqual(args.slice(0, 4), ['install', '--global', '--prefix', path.join(rollbackRoot, 'npm-prefix')]);
+    assert.strictEqual(args.includes('--registry'), false);
   });
   const childObservations = fs.readFileSync(childObservationsFile, 'utf8').trim().split('\n').map(line => JSON.parse(line));
   assert.strictEqual(childObservations.length, 4);

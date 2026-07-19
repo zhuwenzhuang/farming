@@ -70,6 +70,17 @@ function validatePayload(payload) {
   if (payload.npmPrefix && !path.isAbsolute(String(payload.npmPrefix))) {
     throw new Error('Invalid npm update npmPrefix');
   }
+  if (payload.npmFallbackRegistryUrl) {
+    let registry;
+    try {
+      registry = new URL(String(payload.npmFallbackRegistryUrl));
+    } catch {
+      throw new Error('Invalid npm update registry');
+    }
+    if (!['http:', 'https:'].includes(registry.protocol)) {
+      throw new Error('Invalid npm update registry');
+    }
+  }
   return payload;
 }
 
@@ -109,15 +120,45 @@ function commandEnvironment() {
 
 async function installPackage(payload, version) {
   const packageSpec = `${payload.packageName}@${version}`;
-  appendLog(payload.logPath, `Installing ${packageSpec}`);
+  return installPackageFromRegistry(payload, packageSpec);
+}
+
+function logSize(filePath) {
+  try {
+    return fs.statSync(filePath).size;
+  } catch {
+    return 0;
+  }
+}
+
+function logSince(filePath, offset) {
+  try {
+    return fs.readFileSync(filePath, 'utf8').slice(offset);
+  } catch {
+    return '';
+  }
+}
+
+async function installPackageFromRegistry(payload, packageSpec, registryUrl = '') {
+  appendLog(payload.logPath, `Installing ${packageSpec}${registryUrl ? ' from the update-status registry' : ''}`);
   const args = ['install', '--global'];
   if (payload.npmPrefix) args.push('--prefix', payload.npmPrefix);
+  if (registryUrl) args.push('--registry', registryUrl);
   args.push(packageSpec, '--no-audit', '--no-fund');
-  await runCommand(payload.npmCommand || 'npm', args, {
-    cwd: payload.configDir,
-    env: commandEnvironment(),
-    logPath: payload.logPath,
-  });
+  const offset = logSize(payload.logPath);
+  try {
+    await runCommand(payload.npmCommand || 'npm', args, {
+      cwd: payload.configDir,
+      env: commandEnvironment(),
+      logPath: payload.logPath,
+    });
+  } catch (error) {
+    if (!registryUrl && payload.npmFallbackRegistryUrl && /(?:ETARGET|No matching version found)/.test(logSince(payload.logPath, offset))) {
+      appendLog(payload.logPath, `Configured npm registry has no ${packageSpec}; retrying from the update-status registry`);
+      return installPackageFromRegistry(payload, packageSpec, payload.npmFallbackRegistryUrl);
+    }
+    throw error;
+  }
 }
 
 async function startServer(payload, version = payload.targetVersion) {

@@ -749,6 +749,7 @@ async function run() {
   assert.strictEqual(npmUpdatePayload.nodePath, '/opt/farming/runtime/bin/node');
   assert.strictEqual(npmUpdatePayload.npmCommand, '/opt/farming/runtime/bin/npm');
   assert.strictEqual(npmUpdatePayload.npmPrefix, '/opt/farming/npm');
+  assert.strictEqual(npmUpdatePayload.npmFallbackRegistryUrl, 'https://registry.npmjs.org');
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(npmConfigDir, 'farming-update.json'), 'utf8')).phase, 'installing');
   const sourceServiceWithNpmState = new FarmingUpdateService({
     rootDir: path.join(__dirname, '..', '..'),

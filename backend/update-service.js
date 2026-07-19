@@ -1084,6 +1084,7 @@ class FarmingUpdateService {
       nodePath,
       npmCommand: process.env.FARMING_NPM_COMMAND || 'npm',
       npmPrefix: process.env.FARMING_NPM_PREFIX || '',
+      npmFallbackRegistryUrl: this.npmRegistryUrl,
       serverPid: process.pid,
       configDir: this.configDir,
       port: process.env.FARMING_PORT || process.env.PORT || '6694',
