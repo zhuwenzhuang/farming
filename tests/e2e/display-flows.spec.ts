@@ -83,6 +83,9 @@ async function expectCompactVersionLabel(productMark: Locator, mode: 'light' | '
       badgeDisplay: badgeStyle.display,
       mainRight: mainRect.x + mainRect.width,
       badgeX: badgeRect.x,
+      verticalCenterDelta: Math.abs(
+        (mainRect.y + mainRect.height / 2) - (badgeRect.y + badgeRect.height / 2),
+      ),
     }
   })
   if (!metrics) {
@@ -94,6 +97,7 @@ async function expectCompactVersionLabel(productMark: Locator, mode: 'light' | '
   expect(metrics.badgeHeight, `${mode} version should stay compact`).toBeLessThanOrEqual(16)
   expect(metrics.badgeDisplay, `${mode} version should be visible`).not.toBe('none')
   expect(metrics.badgeX, `${mode} version should sit to the right of the title`).toBeGreaterThan(metrics.mainRight - 1)
+  expect(metrics.verticalCenterDelta, `${mode} title and version should stay vertically aligned`).toBeLessThanOrEqual(3)
 }
 
 async function expectCollapsedProductMarkIsIconOnly(productMark: Locator) {
@@ -168,15 +172,6 @@ test.describe('display-backed agent flows', () => {
     await expect(productMark).not.toContainText('UPGRADE')
     await expect(productMark).not.toHaveClass(/upgrade/)
     await expectCompactVersionLabel(productMark, 'light')
-    const productMarkMainBox = await productMark.locator('.code-product-mark-main:visible').boundingBox()
-    const productMarkMetaBox = await productMark.locator('.code-product-mark-badge').boundingBox()
-    if (!productMarkMainBox || !productMarkMetaBox) {
-      throw new Error('Product mark layout boxes are missing')
-    }
-    const mainCenterY = productMarkMainBox.y + productMarkMainBox.height / 2
-    const metaCenterY = productMarkMetaBox.y + productMarkMetaBox.height / 2
-    expect(Math.abs(mainCenterY - metaCenterY)).toBeLessThanOrEqual(3)
-    expect(productMarkMetaBox.x).toBeGreaterThan(productMarkMainBox.x + productMarkMainBox.width - 1)
 
     await productMark.click()
     const brandDialog = page.getByTestId('code-brand-dialog')
