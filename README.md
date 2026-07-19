@@ -49,8 +49,6 @@ Farming Code is the default desktop and mobile interface. It groups work by proj
 
 Start or resume Codex, Claude Code, OpenCode, Qoder, and other detected coding CLIs. Supported Agents offer structured Chat for reading results and inspecting tool activity, plus a real Terminal for working directly with the CLI. Search and History cover both current work and resumable sessions.
 
-The browser terminal renderer defaults to xterm.js with WebGL.
-
 ![Farming Code structured Agent process](./docs/products/code/assets/11-code-agent-process.png)
 
 ### Files and Review

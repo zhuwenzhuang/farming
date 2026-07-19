@@ -9,8 +9,6 @@ function read(relativePath) {
 function run() {
   const terminalEngineSource = read('src/lib/terminal-engine.ts');
   const xtermSource = read('src/lib/xterm.ts');
-  const readmeSource = read('README.md');
-  const agentsSource = read('AGENTS.md');
   const packageJson = JSON.parse(read('package.json'));
 
   assert(
@@ -67,12 +65,6 @@ function run() {
       packageJson.dependencies['@xterm/addon-clipboard'] &&
       packageJson.dependencies['@xterm/addon-webgl'],
     'runtime dependencies should include xterm.js and its required product-path addons'
-  );
-
-  assert(
-    readmeSource.includes('The browser terminal renderer defaults to xterm.js') &&
-      agentsSource.includes('Both browser skins default to xterm.js'),
-    'public docs should describe xterm.js as the default terminal renderer'
   );
 
   console.log('✓ Terminal renderer defaults to xterm.js');
