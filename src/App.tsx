@@ -554,11 +554,13 @@ export function App() {
   }, [])
 
   const restoreInputDialogFocus = useCallback(() => {
+    const requestId = inputDialogOpenRequestRef.current
     const returnTarget = inputDialogReturnFocusRef.current
     const preferNewAgent = returnTarget?.getAttribute('data-testid') === 'code-new-agent'
     inputDialogReturnFocusRef.current = null
 
     const restoreFocus = () => {
+      if (inputDialogOpenRequestRef.current !== requestId) return
       if (focusVisibleTarget(returnTarget)) return
       if (preferNewAgent && focusVisibleTarget(document.querySelector<HTMLElement>('[data-testid="code-new-agent"]'))) return
 

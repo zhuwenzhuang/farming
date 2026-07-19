@@ -197,6 +197,8 @@ test.describe('additional Farming Code user scenarios', () => {
       await openNewAgentDialog(page)
       await expect(page.getByTestId('agent-list-status')).toBeHidden({ timeout: 30_000 })
       await expect(page.getByTestId('agent-option-codex')).toBeFocused()
+      await page.waitForTimeout(220)
+      await expect(page.getByTestId('agent-option-codex')).toBeFocused()
       await page.keyboard.press('Home')
       await expect(page.getByTestId('agent-option-codex')).toBeFocused()
       await page.keyboard.press('End')
