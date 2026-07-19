@@ -38,8 +38,29 @@ jobs:
       - name: Build frontend
         run: FARMING_BASE_PATH=/farming npm run build
 
+  browser:
+    name: Chromium (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/2', '2/2']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci --registry=https://registry.npmjs.org/
+
       - name: Install Chromium for browser checks
         run: npx playwright install --with-deps chromium
 
       - name: Run Chromium browser checks
-        run: npx playwright test --project=chromium
+        run: npx playwright test --project=chromium --shard=${{ matrix.shard }}
