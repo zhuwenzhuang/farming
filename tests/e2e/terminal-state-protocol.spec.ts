@@ -477,6 +477,144 @@ test.describe('terminal state protocol', () => {
     await expect.poll(() => visibleText(page, agentId)).toContain(marker)
   })
 
+  test('Code gives one coalesced websocket output batch to xterm in one write', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'terminal-render-output-batch')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createControlAgent(page, workspace)
+    await openTerminalTestPage(page)
+    await selectControlAgent(page, agentId)
+    const initial = await terminalState(page, agentId)
+    const marker = `BATCH_RENDERED_${Date.now()}`
+    const chunks = [
+      '\x1b[2J\x1b[H',
+      ...Array.from({ length: 36 }, (_, index) => `batch-line-${index + 1}\r\n`),
+      `${marker}\r\n`,
+    ]
+    const writeCountBefore = await page.evaluate(id => (
+      window.__farmingTerminalTest?.getBufferDiagnostics(id)?.terminalWriteBatchCount ?? 0
+    ), agentId)
+
+    const duringSameTask = await page.evaluate(({ id, epoch, outputSeq, stateRevision, parts }) => {
+      parts.forEach((part, index) => {
+        void window.__farmingTerminalTest?.streamSequenced(
+          id,
+          part,
+          outputSeq + index + 1,
+          epoch,
+          stateRevision + index + 1,
+        )
+      })
+      return {
+        outputSeq: window.__farmingTerminalTest?.getLastOutputSeq(id) ?? null,
+        stateRevision: window.__farmingTerminalTest?.getStateRevision(id) ?? null,
+        writeCount: window.__farmingTerminalTest?.getBufferDiagnostics(id)?.terminalWriteBatchCount ?? 0,
+      }
+    }, {
+      id: agentId,
+      epoch: initial.runtimeEpoch,
+      outputSeq: initial.outputSeq,
+      stateRevision: initial.stateRevision,
+      parts: chunks,
+    })
+
+    expect(duringSameTask).toEqual({
+      outputSeq: initial.outputSeq,
+      stateRevision: initial.stateRevision,
+      writeCount: writeCountBefore,
+    })
+    await expect.poll(() => terminalState(page, agentId)).toMatchObject({
+      outputSeq: initial.outputSeq + chunks.length,
+      stateRevision: initial.stateRevision + chunks.length,
+    })
+    await expect.poll(() => page.evaluate(id => (
+      window.__farmingTerminalTest?.getBufferDiagnostics(id)?.terminalWriteBatchCount ?? 0
+    ), agentId)).toBe(writeCountBefore + 1)
+    await expect.poll(() => visibleText(page, agentId)).toContain(marker)
+  })
+
+  test('Code holds a resize redraw until the burst is quiet and paints it once', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'terminal-resize-redraw-batch')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createControlAgent(page, workspace)
+    await openTerminalTestPage(page)
+    await selectControlAgent(page, agentId)
+    const initial = await terminalState(page, agentId)
+    const nextRows = initial.rows > 10 ? initial.rows - 1 : initial.rows + 1
+    const marker = `RESIZE_REDRAW_COMPLETE_${Date.now()}`
+    const writeCountBefore = await page.evaluate(id => (
+      window.__farmingTerminalTest?.getBufferDiagnostics(id)?.terminalWriteBatchCount ?? 0
+    ), agentId)
+
+    const duringBurst = await page.evaluate(async ({
+      id,
+      epoch,
+      outputSeq,
+      stateRevision,
+      cols,
+      rows,
+      finalMarker,
+    }) => {
+      await window.__farmingTerminalTest?.streamSequenced(
+        id,
+        '',
+        outputSeq,
+        epoch,
+        stateRevision + 1,
+        'resize',
+        cols,
+        rows,
+      )
+      let nextOutputSeq = outputSeq
+      let nextRevision = stateRevision + 1
+      for (let batch = 0; batch < 3; batch += 1) {
+        const parts = Array.from({ length: 12 }, (_, index) => (
+          `redraw-${batch + 1}-${index + 1}\r\n`
+        ))
+        if (batch === 2) parts.push(`${finalMarker}\r\n`)
+        parts.forEach(part => {
+          nextOutputSeq += 1
+          nextRevision += 1
+          void window.__farmingTerminalTest?.streamSequenced(
+            id,
+            part,
+            nextOutputSeq,
+            epoch,
+            nextRevision,
+          )
+        })
+        await new Promise(resolve => window.setTimeout(resolve, 20))
+      }
+      return {
+        outputSeq: window.__farmingTerminalTest?.getLastOutputSeq(id) ?? null,
+        stateRevision: window.__farmingTerminalTest?.getStateRevision(id) ?? null,
+        diagnostics: window.__farmingTerminalTest?.getBufferDiagnostics(id),
+        finalOutputSeq: nextOutputSeq,
+        finalRevision: nextRevision,
+      }
+    }, {
+      id: agentId,
+      epoch: initial.runtimeEpoch,
+      outputSeq: initial.outputSeq,
+      stateRevision: initial.stateRevision,
+      cols: initial.cols,
+      rows: nextRows,
+      finalMarker: marker,
+    })
+
+    expect(duringBurst.outputSeq).toBe(initial.outputSeq)
+    expect(duringBurst.stateRevision).toBe(initial.stateRevision + 1)
+    expect(duringBurst.diagnostics?.terminalWriteBatchCount).toBe(writeCountBefore)
+    expect(duringBurst.diagnostics?.resizeRedrawTimerPending).toBe(true)
+    await expect.poll(() => terminalState(page, agentId)).toMatchObject({
+      outputSeq: duringBurst.finalOutputSeq,
+      stateRevision: duringBurst.finalRevision,
+    })
+    await expect.poll(() => page.evaluate(id => (
+      window.__farmingTerminalTest?.getBufferDiagnostics(id)?.terminalWriteBatchCount ?? 0
+    ), agentId)).toBe(writeCountBefore + 1)
+    await expect.poll(() => visibleText(page, agentId)).toContain(marker)
+  })
+
   test('stale same-epoch checkpoint keeps chasing the required revision', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'terminal-stale-checkpoint')
     fs.mkdirSync(workspace, { recursive: true })

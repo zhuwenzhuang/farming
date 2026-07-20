@@ -117,6 +117,8 @@ type TerminalTransitionKind = 'output' | 'resize' | 'clear'
 const TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5000
 const TERMINAL_RESIZE_SETTLE_MS = 250
 const TERMINAL_RESIZE_DELIVERY_TIMEOUT_MS = 1500
+const TERMINAL_RESIZE_REDRAW_QUIET_MS = 50
+const TERMINAL_RESIZE_REDRAW_MAX_MS = 300
 const TERMINAL_REPLAY = FarmingTerminalReplay
 type TerminalViewportRestoreState = {
   viewportY: number
@@ -239,8 +241,12 @@ interface SessionRecord {
   replayState: TerminalReplayState
   replayInProgress: boolean
   liveWriteInProgress: boolean
+  liveTransitionFlushScheduled: boolean
+  resizeRedrawStartedAt: number | null
+  resizeRedrawTimer: number | null
   terminalWriteQueue: Promise<void>
   terminalWriteResolvers: Set<(cancelled?: boolean) => boolean>
+  terminalWriteBatchCount: number
   bootstrapRefreshSeq: number
   reconnectSnapshotSeq: number
   checkpointRequestInFlight: boolean
@@ -317,7 +323,16 @@ declare global {
       getCanvasInkPixelCount: (agentId: string) => number
       writeRaw: (agentId: string, text: string) => Promise<void>
       writeSequenced: (agentId: string, text: string, outputSeq: number, runtimeEpoch?: string, stateRevision?: number) => Promise<void>
-      streamSequenced: (agentId: string, text: string, outputSeq: number, runtimeEpoch?: string, stateRevision?: number) => Promise<void>
+      streamSequenced: (
+        agentId: string,
+        text: string,
+        outputSeq: number,
+        runtimeEpoch?: string,
+        stateRevision?: number,
+        kind?: TerminalTransitionKind,
+        cols?: number,
+        rows?: number,
+      ) => Promise<void>
       writeRawAndSampleViewport: (agentId: string, text: string) => Promise<{
         before: number
         during: number
@@ -420,6 +435,31 @@ function clearPendingTerminalFitResize(record: SessionRecord) {
   record.pendingFitResize = null
 }
 
+function clearTerminalResizeRedrawBuffer(record: SessionRecord) {
+  if (record.resizeRedrawTimer !== null) {
+    window.clearTimeout(record.resizeRedrawTimer)
+    record.resizeRedrawTimer = null
+  }
+  record.resizeRedrawStartedAt = null
+}
+
+function scheduleTerminalResizeRedrawFlush(record: SessionRecord, restart = false) {
+  const now = Date.now()
+  if (restart || record.resizeRedrawStartedAt === null) {
+    record.resizeRedrawStartedAt = now
+  }
+  if (record.resizeRedrawTimer !== null) {
+    window.clearTimeout(record.resizeRedrawTimer)
+  }
+  const deadline = record.resizeRedrawStartedAt + TERMINAL_RESIZE_REDRAW_MAX_MS
+  const delay = Math.max(0, Math.min(TERMINAL_RESIZE_REDRAW_QUIET_MS, deadline - now))
+  record.resizeRedrawTimer = window.setTimeout(() => {
+    record.resizeRedrawTimer = null
+    record.resizeRedrawStartedAt = null
+    if (!record.disposed) flushQueuedTerminalOutput(record)
+  }, delay)
+}
+
 function scheduleTerminalFitResize(
   record: SessionRecord,
   dimensions: { cols: number; rows: number },
@@ -439,6 +479,7 @@ function scheduleTerminalFitResize(
 
 function resetTerminalResizeDelivery(record: SessionRecord) {
   clearPendingTerminalFitResize(record)
+  clearTerminalResizeRedrawBuffer(record)
   clearTerminalResizeDeliveryTimeout(record)
   resetTerminalResizeDeliveryTracker(record)
 }
@@ -1144,6 +1185,7 @@ function applyTerminalOutputEvent(
       }
     }
     TERMINAL_REPLAY.commitTransition(record.replayState, event)
+    scheduleTerminalResizeRedrawFlush(record, true)
     if (delivery.next) {
       deliverTerminalResize(record, delivery.next.cols, delivery.next.rows)
     }
@@ -1256,17 +1298,89 @@ function handleTerminalStreamOutput(
     return
   }
 
-  applyTerminalOutputEvent(
-    record,
+  if (replace) {
+    applyTerminalOutputEvent(
+      record,
+      data,
+      true,
+      outputSeq,
+      runtimeEpoch,
+      stateRevision,
+      cols,
+      rows,
+      kind,
+    )
+    return
+  }
+
+  queueTerminalTransition(record, {
+    kind,
     data,
-    replace,
     outputSeq,
     runtimeEpoch,
     stateRevision,
     cols,
     rows,
-    kind,
-  )
+  })
+  scheduleLiveTerminalTransitionFlush(record)
+}
+
+function scheduleLiveTerminalTransitionFlush(record: SessionRecord) {
+  if (record.resizeRedrawTimer !== null) {
+    scheduleTerminalResizeRedrawFlush(record)
+    return
+  }
+  if (record.liveTransitionFlushScheduled) return
+  record.liveTransitionFlushScheduled = true
+  queueMicrotask(() => {
+    record.liveTransitionFlushScheduled = false
+    if (!record.disposed) flushQueuedTerminalOutput(record)
+  })
+}
+
+function queuedTerminalOutputBatch(record: SessionRecord) {
+  const candidates: TerminalReplayTransition[] = []
+  const shadow = TERMINAL_REPLAY.createState()
+  shadow.runtimeEpoch = record.replayState.runtimeEpoch
+  shadow.outputSeq = record.replayState.outputSeq
+  shadow.stateRevision = record.replayState.stateRevision
+  shadow.retiredRuntimeEpochs = new Set(record.replayState.retiredRuntimeEpochs)
+
+  for (const event of record.replayState.queuedTransitions) {
+    if (event.kind === 'resize') break
+    const decision = TERMINAL_REPLAY.classifyTransition(shadow, event)
+    if (decision.action !== 'apply') return null
+    TERMINAL_REPLAY.commitTransition(shadow, event)
+    candidates.push(event)
+  }
+  return candidates.length > 0 ? candidates : null
+}
+
+function applyQueuedTerminalOutputBatch(
+  record: SessionRecord,
+  events: TerminalReplayTransition[],
+) {
+  for (let index = 0; index < events.length; index += 1) {
+    TERMINAL_REPLAY.takeQueuedTransition(record.replayState)
+  }
+  const transitionData = events.map(event => (
+    event.kind === 'clear' ? '\x1b[2J\x1b[3J\x1b[H' : event.data
+  )).join('')
+  record.liveWriteInProgress = true
+  writeTerminalOutput(record, transitionData, () => {
+    if (record.disposed) return
+    events.forEach(event => TERMINAL_REPLAY.commitTransition(record.replayState, event))
+    if (events.some(event => event.kind === 'clear')) {
+      record.terminal.clearTerminalSelection?.()
+    }
+    record.liveWriteInProgress = false
+    if (record.followOutput && !record.hasUnreadOutput) {
+      emitFollowOutputState(record)
+    }
+    scheduleImeOverlayUpdateIfActive(record)
+    flushQueuedTerminalOutput(record)
+    notifyTerminalAttachReady(record, record.attachGeneration)
+  }, { isOutputObserved: () => isTerminalSessionAttached(record) })
 }
 
 function flushQueuedTerminalOutput(record: SessionRecord) {
@@ -1276,15 +1390,22 @@ function flushQueuedTerminalOutput(record: SessionRecord) {
     record.pendingSnapshotReplay ||
     record.replayInProgress ||
     record.checkpointRequestInFlight ||
-    record.liveWriteInProgress
+    record.liveWriteInProgress ||
+    record.resizeRedrawTimer !== null
   ) return
 
   while (
     !record.bootstrappingSnapshot &&
     !record.replayInProgress &&
     !record.checkpointRequestInFlight &&
-    !record.liveWriteInProgress
+    !record.liveWriteInProgress &&
+    record.resizeRedrawTimer === null
   ) {
+    const outputBatch = queuedTerminalOutputBatch(record)
+    if (outputBatch) {
+      applyQueuedTerminalOutputBatch(record, outputBatch)
+      continue
+    }
     const event = TERMINAL_REPLAY.takeQueuedTransition(record.replayState)
     if (!event) break
     applyTerminalOutputEvent(
@@ -3287,6 +3408,9 @@ function installTerminalTestApi() {
       outputSeq: number,
       runtimeEpoch = '',
       stateRevision?: number,
+      kind: TerminalTransitionKind = 'output',
+      cols?: number,
+      rows?: number,
     ) {
       const current = sessions.get(agentId)
       const record = current instanceof Promise ? await current : current
@@ -3298,6 +3422,9 @@ function installTerminalTestApi() {
         outputSeq,
         runtimeEpoch,
         stateRevision ?? ((record.replayState.stateRevision ?? 0) + 1),
+        cols,
+        rows,
+        kind,
       )
     },
     async writeRawAndSampleViewport(agentId: string, text: string) {
@@ -3394,6 +3521,8 @@ function installTerminalTestApi() {
         bufferLength: typeof buffer?.length === 'number' ? buffer.length : undefined,
         queuedTransitions: current.replayState.queuedTransitions.length,
         queuedBytes: current.replayState.queuedBytes,
+        terminalWriteBatchCount: current.terminalWriteBatchCount,
+        resizeRedrawTimerPending: current.resizeRedrawTimer !== null,
         replayTargetEpoch: current.replayState.replayTargetEpoch,
         replayTargetRevision: current.replayState.replayTargetRevision,
         checkpointHalted: current.replayState.halted,
@@ -3578,8 +3707,12 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     replayState: TERMINAL_REPLAY.createState(),
     replayInProgress: false,
     liveWriteInProgress: false,
+    liveTransitionFlushScheduled: false,
+    resizeRedrawStartedAt: null,
+    resizeRedrawTimer: null,
     terminalWriteQueue: Promise.resolve(),
     terminalWriteResolvers: new Set(),
+    terminalWriteBatchCount: 0,
     bootstrapRefreshSeq: 0,
     reconnectSnapshotSeq: 0,
     checkpointRequestInFlight: false,

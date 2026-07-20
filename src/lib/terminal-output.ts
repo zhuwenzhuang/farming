@@ -18,6 +18,7 @@ export interface TerminalOutputRecord {
   suspendRendering: boolean
   terminalWriteQueue: Promise<void>
   terminalWriteResolvers: Set<(cancelled?: boolean) => boolean>
+  terminalWriteBatchCount: number
   followOutput: boolean
   hasUnreadOutput: boolean
   preserveUnreadOutputUntilJump: boolean
@@ -137,6 +138,7 @@ export function restoreViewportAfterLayout(
 }
 
 function writeTerminalData(record: TerminalOutputRecord, data: string, callback?: () => void) {
+  record.terminalWriteBatchCount += 1
   record.terminal.write(data, callback)
 }
 

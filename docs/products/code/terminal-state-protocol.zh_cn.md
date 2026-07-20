@@ -25,7 +25,7 @@ Code 与 CRT 共用 `frontend/terminal-replay.js` 中的浏览器协议实现，
 
 完整 Replay 写入期间 xterm 保持隐藏，Write Callback 完成后一次显示。因此用户长时间未连接后会直接看到最新屏幕，不再观看历史内容从上到下逐步绘制。
 
-Live WebSocket Output 使用 Leading-edge 且有帧率上限的合并策略：空闲后的第一条 Transition 立即发送，以保证打字响应；持续输出仍会合并，但不会丢失任何单独的 Transition Index。
+Live WebSocket Output 使用 Leading-edge 且有帧率上限的合并策略：空闲后的第一条 Transition 立即发送，以保证打字响应；持续输出仍会合并，但不会丢失任何单独的 Transition Index。浏览器仍会逐条校验和提交索引，并把连续的 Output / Clear 一次写入 xterm。Resize 是有序的批次边界：提交 Resize 后，浏览器等待后续重画静默 50 ms（最长 300 ms），再一次性绘制该 Burst；普通非 Resize Output 继续走低延迟路径。
 
 ## 受支持的浏览器 Renderer
 

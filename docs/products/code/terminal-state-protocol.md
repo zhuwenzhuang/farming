@@ -25,7 +25,7 @@ Code and CRT use the same browser protocol implementation in `frontend/terminal-
 
 During a full replay, xterm is hidden until its write callback completes. A user returning after a long absence therefore sees the latest screen once instead of watching historical output paint from top to bottom.
 
-Live WebSocket output uses a leading-edge, frame-bounded batch: the first transition after an idle period is sent immediately for responsive typing, while sustained output is coalesced without dropping its individual transition indexes.
+Live WebSocket output uses a leading-edge, frame-bounded batch: the first transition after an idle period is sent immediately for responsive typing, while sustained output is coalesced without dropping its individual transition indexes. The browser still validates and commits every index separately, but gives each contiguous output / clear run to xterm in one write. Resize is an ordered batch boundary: after committing it, the browser holds its following redraw until 50 ms of output quiet, with a 300 ms maximum, and then paints that burst once. Normal non-resize output keeps the low-latency path.
 
 ## Supported Browser Renderer
 

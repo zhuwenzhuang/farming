@@ -56,6 +56,8 @@ declare global {
         bufferLength?: number
         queuedTransitions: number
         queuedBytes: number
+        terminalWriteBatchCount?: number
+        resizeRedrawTimerPending?: boolean
         replayTargetEpoch: string
         replayTargetRevision: number | null
         checkpointRequestInFlight: boolean
@@ -99,7 +101,16 @@ declare global {
       resumeLive: (agentId: string) => Promise<void>
       writeRaw: (agentId: string, text: string) => Promise<void>
       writeSequenced: (agentId: string, text: string, outputSeq: number, runtimeEpoch?: string, stateRevision?: number) => Promise<void>
-      streamSequenced: (agentId: string, text: string, outputSeq: number, runtimeEpoch?: string, stateRevision?: number) => Promise<void>
+      streamSequenced: (
+        agentId: string,
+        text: string,
+        outputSeq: number,
+        runtimeEpoch?: string,
+        stateRevision?: number,
+        kind?: 'output' | 'resize' | 'clear',
+        cols?: number,
+        rows?: number,
+      ) => Promise<void>
       getLastOutputSeq: (agentId: string) => number | null
       getRuntimeEpoch: (agentId: string) => string
       getStateRevision: (agentId: string) => number | null
