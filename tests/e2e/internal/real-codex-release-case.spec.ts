@@ -11,6 +11,7 @@ const COMPOSITE_BEGIN = 'COMPOSITE_BEGIN_7F3A'
 const COMPOSITE_END = 'COMPOSITE_END_7F3A'
 const CRT_TERMINAL_ACK = 'CRT_TERMINAL_ACK_7F3A'
 const CRT_MSG_ACK = 'CRT_MSG_ACK_7F3A'
+const APP_SERVER_STEER_ACK = 'APP_SERVER_STEER_ACK_7F3A'
 const ANCHOR_SUFFIX = '7F3A'
 const NORMAL_VIEWPORT = { width: 1440, height: 900 }
 const COMPACT_VIEWPORT = { width: 1080, height: 650 }
@@ -123,6 +124,8 @@ Write one standalone line EMOJI_FORMAT_7F3A [OK].
 Then produce six sections named exactly PAGE_01_7F3A through PAGE_06_7F3A. Under every section print 18 separate plain lines. For example, PAGE_01 must contain PAGE_01_LINE_01 through PAGE_01_LINE_18, and PAGE_06 must contain PAGE_06_LINE_01 through PAGE_06_LINE_18. Never abbreviate a range and never combine two tokens on one line.
 
 The final standalone line must concatenate COMPOSITE_END_ and ${ANCHOR_SUFFIX}, with no separator.`
+
+const APP_SERVER_STEER_PROMPT = `Do not use tools or inspect files. First print APP_SERVER_STEER_BEGIN_${ANCHOR_SUFFIX}. Then write 300 separate numbered lines, one token per line, from APP_SERVER_STEER_LINE_001 through APP_SERVER_STEER_LINE_300. Do not abbreviate or combine lines.`
 
 function resizePath(from: { width: number, height: number }, to: { width: number, height: number }, steps = 8) {
   return Array.from({ length: steps }, (_, index) => {
@@ -313,13 +316,27 @@ async function sendCodeComposerInput(page: Page, message: string) {
   await expect(input).toHaveValue('')
 }
 
-async function switchCodeRuntime(page: Page, agentId: string, mode: 'terminal' | 'acp') {
+async function sendCodeAppServerStartAndSteer(page: Page) {
+  const input = page.getByTestId('code-composer-input')
+  const send = page.getByTestId('code-composer-send')
+  await expect(input).toBeEnabled()
+  await input.fill(APP_SERVER_STEER_PROMPT)
+  await send.click()
+  await expect(input).toHaveValue('')
+  await expect(send).toHaveAttribute('data-action', 'interrupt', { timeout: 60_000 })
+  await input.fill(`Stop the numbered output. Reply with only ${APP_SERVER_STEER_ACK}.`)
+  await expect(send).toHaveAttribute('data-action', 'send')
+  await send.click()
+  await expect(input).toHaveValue('')
+}
+
+async function switchCodeRuntime(page: Page, agentId: string, mode: 'terminal' | 'chat') {
   const responsePromise = page.waitForResponse(response => (
     response.request().method() === 'PATCH'
     && response.url().includes(`/api/agents/${agentId}`)
   ))
   await page.getByTestId('code-terminal-mode-toggle')
-    .getByRole('button', { name: mode === 'acp' ? 'Chat' : 'Terminal' })
+    .getByRole('button', { name: mode === 'chat' ? 'Chat' : 'Terminal' })
     .click()
   const response = await responsePromise
   const body = await response.json() as {
@@ -517,30 +534,6 @@ async function sendCrtTerminalInput(page: Page, message: string) {
   await page.keyboard.press('Enter')
 }
 
-async function selectCrtModel(page: Page, agentId: string, model: string) {
-  const configButton = page.locator('#crt-structured-config')
-  await expect(configButton).toBeVisible({ timeout: 30_000 })
-  await configButton.click()
-  const menu = page.locator('#crt-structured-composer-menu')
-  await expect(menu).toBeVisible()
-  const modelConfig = menu.locator('[data-menu-key^="config:"]').filter({ hasText: /^Model:/i })
-  await expect(modelConfig).toHaveCount(1)
-  await modelConfig.click()
-  const modelOption = menu.locator(`[data-menu-key="option:${model}"]`)
-  await expect(modelOption).toBeVisible()
-  await modelOption.click()
-  await expect(menu).toBeHidden()
-  await expect.poll(async () => {
-    const response = await page.request.get(`/farming/api/agents/${agentId}/acp-session`)
-    if (!response.ok()) return ''
-    const body = await response.json() as {
-      session?: { configOptions?: Array<{ id?: string, name?: string, currentValue?: string }> }
-    }
-    const option = body.session?.configOptions?.find(candidate => /model/i.test(`${candidate.id} ${candidate.name}`))
-    return option?.currentValue ?? ''
-  }, { timeout: 30_000 }).toBe(model)
-}
-
 async function sendCrtMessage(page: Page, message: string) {
   const input = page.locator('#crt-structured-input')
   await expect(input).toBeEnabled({ timeout: 30_000 })
@@ -569,7 +562,7 @@ test.describe('real Codex pre-release composite case', () => {
     fs.rmSync(REAL_CODEX_WORKSPACE, { recursive: true, force: true })
   })
 
-  test('preserves one real Codex session across Code, Chat, dark appearance, CRT, MSG, Terminal, model changes, and resize', async ({ page }, testInfo) => {
+  test('preserves one real Codex session across Code, App Server Chat, dark appearance, CRT, Terminal, and resize', async ({ page }, testInfo) => {
     test.setTimeout(15 * 60_000)
     await page.setViewportSize(NORMAL_VIEWPORT)
     const terminalErrors: string[] = []
@@ -590,17 +583,9 @@ test.describe('real Codex pre-release composite case', () => {
     const supportsPrimaryEffort = (model: CodexCatalogModel) => (
       model.reasoningLevels?.some(level => level.value === PRIMARY_EFFORT) === true
     )
-    const crtModel = catalog.find(model => (
-      model.value !== PRIMARY_MODEL
-      && supportsPrimaryEffort(model)
-      && /affordable|cost-efficient|small|mini|fast/i.test(`${model.displayName} ${model.description}`)
-    )) ?? catalog.find(model => model.value !== PRIMARY_MODEL && supportsPrimaryEffort(model))
     expect(primaryModel, `${PRIMARY_MODEL} must be present in the live Codex catalog`).toBeTruthy()
-    expect(crtModel, 'A second live Codex model is required to prove the ACP model transition').toBeTruthy()
     expect(`${primaryModel?.displayName} ${primaryModel?.description}`).toMatch(/affordable|cost-efficient/i)
     expect(primaryModel?.reasoningLevels?.some(level => level.value === PRIMARY_EFFORT)).toBe(true)
-    if (!crtModel) throw new Error('A second live Codex model is required')
-    const crtModelValue = crtModel.value
     const primaryFamily = PRIMARY_MODEL.replace(/-(sol|terra|luna)$/i, '')
     const launchModel = catalog.find(model => (
       model.value !== PRIMARY_MODEL
@@ -701,11 +686,14 @@ test.describe('real Codex pre-release composite case', () => {
       })
     })
 
-    await test.step('Code Chat reloads the same session and all required formats', async () => {
-      agentId = await switchCodeRuntime(page, agentId, 'acp')
-      await assertSameProviderSession(page, agentId, providerSessionId, 'acp')
+    await test.step('Code App Server Chat reloads the same session, renders formats, and accepts steer', async () => {
+      agentId = await switchCodeRuntime(page, agentId, 'chat')
+      await assertSameProviderSession(page, agentId, providerSessionId, 'app-server')
       await expect(page.getByTestId('code-agent-chat-view')).toBeVisible({ timeout: 90_000 })
       await assertChatFormats(page)
+      await sendCodeAppServerStartAndSteer(page)
+      await expect(page.locator('.code-codex-transcript-assistant.code-markdown-preview')
+        .filter({ hasText: APP_SERVER_STEER_ACK }).last()).toBeVisible({ timeout: 120_000 })
       await resizeStructuredView(page, COMPOSITE_END)
       await expect(page.getByTestId('code-acp-error')).toHaveCount(0)
     })
@@ -752,21 +740,20 @@ test.describe('real Codex pre-release composite case', () => {
       await attachScreenshot(page, testInfo, '04-crt-terminal.png')
     })
 
-    await test.step('CRT Terminal to MSG preserves input, changes the live model, and accepts MSG input', async () => {
+    await test.step('CRT Terminal to App Server Chat preserves input and accepts Chat input', async () => {
       const switched = await switchCrtRuntime(page, agentId)
       agentId = switched.agentId
-      expect(switched.mode).toBe('acp')
-      await assertSameProviderSession(page, agentId, providerSessionId, 'acp')
+      expect(switched.mode).toBe('chat')
+      await assertSameProviderSession(page, agentId, providerSessionId, 'app-server')
       await expect(page.locator('#crt-structured-input')).toBeVisible({ timeout: 60_000 })
       await expect(page.locator('.crt-structured-message.assistant').filter({ hasText: CRT_TERMINAL_ACK }).last()).toBeVisible({ timeout: 120_000 })
-      await selectCrtModel(page, agentId, crtModelValue)
       await sendCrtMessage(page, `Do not use tools. Reply with only the concatenation of CRT_MSG_ACK_ and ${ANCHOR_SUFFIX}, with no separator.`)
       await expect(page.locator('.crt-structured-message.assistant').filter({ hasText: CRT_MSG_ACK }).last()).toBeVisible({ timeout: 120_000 })
       await resizeStructuredView(page, CRT_MSG_ACK)
       await expect(page.locator('#crt-structured-composer-status.error')).toHaveCount(0)
     })
 
-    await test.step('Final CRT Terminal reports the model transition truthfully and returns to normal size', async () => {
+    await test.step('Final CRT Terminal resumes the App Server session and returns to normal size', async () => {
       const switched = await switchCrtRuntime(page, agentId)
       agentId = switched.agentId
       expect(switched.mode).toBe('terminal')
@@ -774,10 +761,6 @@ test.describe('real Codex pre-release composite case', () => {
       await waitForCrtTerminal(page)
       await waitForCrtAnchor(page, CRT_MSG_ACK, 180_000)
       await waitForCrtTerminalIdle(page, agentId)
-      await expect.poll(async () => (await crtRows(page)).join('\n').toLowerCase(), { timeout: 90_000 })
-        .toContain(`recorded with model \`${crtModelValue}\``)
-      await expect.poll(async () => (await crtRows(page)).join('\n').toLowerCase(), { timeout: 90_000 })
-        .toContain(`resuming with \`${PRIMARY_MODEL}\``)
       await expect.poll(async () => (await crtRows(page)).join('\n').toLowerCase(), { timeout: 90_000 })
         .toMatch(new RegExp(`${PRIMARY_MODEL}\\s+medium`))
       await resizeCrtTerminal(page, CRT_MSG_ACK, COMPOSITE_END)
@@ -790,11 +773,11 @@ test.describe('real Codex pre-release composite case', () => {
       body: Buffer.from(JSON.stringify({
         providerSessionId,
         primaryModel: PRIMARY_MODEL,
-        configuredChatModel: crtModelValue,
+        chatRuntime: 'app-server',
         resumedTerminalModel: PRIMARY_MODEL,
         finalAgentId: agentId,
         finalViewport: page.viewportSize(),
-        anchors: [CLI_END, COMPOSITE_END, CRT_TERMINAL_ACK, CRT_MSG_ACK],
+        anchors: [CLI_END, COMPOSITE_END, APP_SERVER_STEER_ACK, CRT_TERMINAL_ACK, CRT_MSG_ACK],
       }, null, 2)),
       contentType: 'application/json',
     })
