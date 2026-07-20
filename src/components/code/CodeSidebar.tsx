@@ -11,6 +11,7 @@ import {
   ChevronLeftGlyph,
   ChevronRightGlyph,
   CloseGlyph,
+  PencilGlyph,
   SettingsGlyph,
   SearchGlyph,
 } from '@/components/IconGlyphs'
@@ -59,6 +60,7 @@ import type { AgentLaunchOption } from './agent-launch-options'
 import { AgentLaunchIcon } from './AgentLaunchIcon'
 import { AppModeDialog } from './AppModeDialog'
 import { BrandAboutDialog } from './BrandAboutDialog'
+import { InstanceNameDialog } from './InstanceNameDialog'
 import { mobileActionMenuPoint, outwardContextMenuPoint } from './menu-position'
 import { ShareQrButton } from './ShareQrButton'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
@@ -178,6 +180,7 @@ interface CodeSidebarProps {
   now: number
   mainAgent: Agent | null
   usageSummary: UsageSummary | null
+  instanceName: string
   shareTarget: WorkspaceShareTarget | null
   agentLaunchOptions: AgentLaunchOption[]
   agentCreationWorkspace?: string
@@ -216,6 +219,7 @@ interface CodeSidebarProps {
   onDeleteWorkspaceEntries: (agentId: string, deletions: WorkspaceFileDeleteResult[]) => void
   onRefreshProjectOpenFiles: (filesId: string, workspaceRoot: string) => Promise<boolean>
   onOpenOptionsMenu: (event: ReactMouseEvent<HTMLElement>) => void
+  onRenameInstance: (name: string) => Promise<boolean>
   copy: CodeCopy
 }
 
@@ -237,6 +241,7 @@ export function CodeSidebar({
   now,
   mainAgent,
   usageSummary,
+  instanceName,
   shareTarget,
   agentLaunchOptions,
   agentCreationWorkspace,
@@ -275,6 +280,7 @@ export function CodeSidebar({
   onDeleteWorkspaceEntries,
   onRefreshProjectOpenFiles,
   onOpenOptionsMenu,
+  onRenameInstance,
   copy,
 }: CodeSidebarProps) {
   const [agentPreview, setAgentPreview] = useState<(AgentPreviewTarget & {
@@ -289,7 +295,9 @@ export function CodeSidebar({
   const [usageCollapsed, setUsageCollapsed] = useState(true)
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false)
   const [brandDialogOpen, setBrandDialogOpen] = useState(false)
+  const [instanceNameDialogOpen, setInstanceNameDialogOpen] = useState(false)
   const productMarkRef = useRef<HTMLButtonElement | null>(null)
+  const instanceNameEditRef = useRef<HTMLButtonElement | null>(null)
   const closeBrandDialog = useCallback(() => setBrandDialogOpen(false), [])
   const [focusModeActive, setFocusModeActive] = useState(false)
   const [focusModeSupported, setFocusModeSupported] = useState(false)
@@ -707,8 +715,8 @@ export function CodeSidebar({
             type="button"
             className="code-product-mark"
             data-testid="code-product-mark"
-            title="Farming Code"
-            aria-label="Farming Code"
+            title={instanceName}
+            aria-label={instanceName}
             onClick={() => setBrandDialogOpen(true)}
           >
             <img
@@ -719,14 +727,27 @@ export function CodeSidebar({
             />
             <span className="code-product-mark-copy">
               <span className="code-product-mark-main-slot">
-                <span className="code-product-mark-main code-product-mark-main-full">Farming Code</span>
-                <span className="code-product-mark-main code-product-mark-main-short" aria-hidden="true">Farming</span>
+                <span className="code-product-mark-main code-product-mark-main-full">{instanceName}</span>
+                <span className="code-product-mark-main code-product-mark-main-short" aria-hidden="true">{instanceName}</span>
               </span>
               {currentVersionLabel && (
                 <span className="code-product-mark-badge">{currentVersionLabel}</span>
               )}
             </span>
           </button>
+          {!sidebarCollapsed && (
+            <button
+              ref={instanceNameEditRef}
+              type="button"
+              className="code-instance-name-edit"
+              data-testid="code-instance-name-edit"
+              aria-label={copy.renameInstance}
+              title={copy.renameInstance}
+              onClick={() => setInstanceNameDialogOpen(true)}
+            >
+              <PencilGlyph />
+            </button>
+          )}
           <button
             type="button"
             className="code-sidebar-options"
@@ -762,6 +783,15 @@ export function CodeSidebar({
           version={currentVersionLabel}
           onClose={closeBrandDialog}
           returnFocusRef={productMarkRef}
+        />
+      )}
+      {instanceNameDialogOpen && (
+        <InstanceNameDialog
+          copy={copy}
+          instanceName={instanceName}
+          onClose={() => setInstanceNameDialogOpen(false)}
+          onSave={onRenameInstance}
+          returnFocusRef={instanceNameEditRef}
         />
       )}
       {appModeDialogOpen && (

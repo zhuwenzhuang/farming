@@ -3818,7 +3818,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 .code-product-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px;
+  grid-template-columns: minmax(0, 1fr) 26px 28px;
   align-items: center;
   gap: 6px;
 }
@@ -3963,6 +3963,89 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 .code-sidebar-options:focus-visible {
   outline: 2px solid #9aa597;
   outline-offset: 2px;
+}
+
+.code-instance-name-edit {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #7a8278;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+}
+
+.code-instance-name-edit svg {
+  width: 14px;
+  height: 14px;
+}
+
+.code-instance-name-edit:hover {
+  background: rgba(0, 0, 0, 0.07);
+  color: #3f4c68;
+}
+
+.code-instance-name-edit:focus-visible {
+  outline: 2px solid #9aa597;
+  outline-offset: 2px;
+}
+
+.code-instance-name-dialog {
+  display: grid;
+  gap: 12px;
+}
+
+.code-instance-name-dialog h2,
+.code-instance-name-dialog p {
+  margin: 0;
+}
+
+.code-instance-name-dialog input {
+  width: 100%;
+  border: 1px solid rgba(63, 76, 104, 0.28);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #2f372e;
+  background: #fff;
+  font: inherit;
+}
+
+.code-instance-name-dialog input:focus-visible {
+  outline: 2px solid #9aa597;
+  outline-offset: 1px;
+}
+
+.code-instance-name-error {
+  color: #b42318;
+}
+
+.code-instance-name-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.code-instance-name-actions button {
+  border: 1px solid rgba(63, 76, 104, 0.24);
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: #fff;
+  color: #3f4c68;
+  font: inherit;
+  cursor: pointer;
+}
+
+.code-instance-name-actions button.primary {
+  border-color: #526387;
+  background: #526387;
+  color: #fff;
+}
+
+.code-instance-name-actions button:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .code-sidebar.collapsed .code-product-row {
@@ -18957,7 +19040,7 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
   }
 
   body.code-mode.code-mobile-touch .code-product-row {
-    grid-template-columns: minmax(0, 1fr) 40px;
+    grid-template-columns: minmax(0, 1fr) 40px 40px;
     gap: 4px;
   }
 
@@ -18975,6 +19058,11 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     width: 40px;
     height: 40px;
     background: rgba(31, 35, 40, 0.045);
+  }
+
+  body.code-mode.code-mobile-touch .code-instance-name-edit {
+    width: 40px;
+    height: 40px;
   }
 
   body.code-mode.code-mobile-touch .code-mobile-topbar {

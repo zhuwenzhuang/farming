@@ -1,5 +1,6 @@
 const assert = require('assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const ConfigManager = require('../config-manager');
@@ -37,6 +38,7 @@ function run() {
     assert.deepStrictEqual(settings.projectWorkspaces, []);
     assert.deepStrictEqual(settings.pinnedProjectWorkspaces, []);
     assert.deepStrictEqual(settings.projectNames, {});
+    assert.strictEqual(settings.instanceName, os.hostname());
     assert.deepStrictEqual(settings.mainPageSessionKeys, []);
     assert.strictEqual(settings.appearance, 'light');
     assert.strictEqual(settings.language, 'en');
@@ -80,6 +82,7 @@ function run() {
         [projectB]: '',
         '': 'ignored',
       },
+      instanceName: '  Build\nMachine  ',
       lastMainWorkspace: projectMain,
     });
 
@@ -94,8 +97,12 @@ function run() {
     assert.deepStrictEqual(settings.projectWorkspaces, [projectA, projectB]);
     assert.deepStrictEqual(settings.pinnedProjectWorkspaces, [projectB, projectA]);
     assert.deepStrictEqual(settings.projectNames, { [projectA]: 'Project A' });
+    assert.strictEqual(settings.instanceName, 'Build Machine');
     assert.strictEqual(settings.lastMainWorkspace, projectMain);
     assert.strictEqual(settings.removedSetting, undefined);
+
+    manager.updateSettings({ instanceName: '   ' });
+    assert.strictEqual(manager.getSettings().instanceName, os.hostname(), 'a blank name should restore the hostname label');
 
     manager.updateSettings({
       mainPageSessionKeys: [

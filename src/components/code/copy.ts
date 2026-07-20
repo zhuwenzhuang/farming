@@ -118,6 +118,11 @@ export interface CodeCopy {
   brandStoryOrigin: string
   brandStoryPurpose: string
   brandGithub: string
+  renameInstance: string
+  instanceNameTitle: string
+  instanceNameDescription: string
+  instanceNamePlaceholder: string
+  instanceNameSaveFailed: string
   mobileShareTitle: string
   mobileForwardTitle: string
   mobileForwardHint: string
@@ -558,6 +563,11 @@ const EN_COPY: CodeCopy = {
   brandStoryOrigin: 'Farming Code began with a simple idea: when several coding agents work at once, people should not have to bounce between terminals, editors, and browser tabs.',
   brandStoryPurpose: 'It brings conversations, terminals, project files, and progress into one calm workspace, so attention stays on what matters.',
   brandGithub: 'GitHub',
+  renameInstance: 'Rename instance',
+  instanceNameTitle: 'Rename Farming instance',
+  instanceNameDescription: 'This name appears in the sidebar and browser tab for this Farming machine.',
+  instanceNamePlaceholder: 'Machine name',
+  instanceNameSaveFailed: 'Could not save the instance name.',
   mobileShareTitle: 'Share page',
   mobileForwardTitle: 'Send this page',
   mobileForwardHint: 'Copy the link to send the current view to someone else.',
@@ -1020,6 +1030,11 @@ const ZH_COPY: CodeCopy = {
   brandStoryOrigin: 'Farming Code 从一个简单的问题出发：当多个 Coding Agent 同时工作，人不该在终端、编辑器和浏览器标签页之间反复切换。',
   brandStoryPurpose: '它把对话、终端、项目文件与进展放在一个安静的工作空间里，让注意力留在真正重要的事情上。',
   brandGithub: 'GitHub',
+  renameInstance: '重命名实例',
+  instanceNameTitle: '重命名 Farming 实例',
+  instanceNameDescription: '这个名称会显示在此机器的侧边栏和浏览器页签中。',
+  instanceNamePlaceholder: '机器名称',
+  instanceNameSaveFailed: '无法保存实例名称。',
   mobileShareTitle: '分享页面',
   mobileForwardTitle: '转发当前页面',
   mobileForwardHint: '复制链接，发送给其他人。',

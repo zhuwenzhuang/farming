@@ -643,6 +643,7 @@ export function CodeWorkspace({
   const [agentSessionMenu, setAgentSessionMenu] = useState<{ provider: string; sessionId: string; x: number; y: number } | null>(null)
   const [optionsMenu, setOptionsMenu] = useState<{ x: number; y: number; returnFocusTarget: HTMLElement | null } | null>(null)
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
+  const [instanceName, setInstanceName] = useState('Farming')
   const [mobileShareUrl, setMobileShareUrl] = useState('')
   const [renameDialog, setRenameDialog] = useState<RenameDialogState | null>(null)
   const [killDialog, setKillDialog] = useState<{ agentId: string; title: string } | null>(null)
@@ -1280,6 +1281,9 @@ export function CodeWorkspace({
         setPinnedProjectWorkspaces(normalizeProjectWorkspaces(settings.pinnedProjectWorkspaces))
         setProjectWorkspacesLoaded(true)
         setProjectNames(normalizeProjectNames(settings.projectNames))
+        if (typeof settings.instanceName === 'string' && settings.instanceName.trim()) {
+          setInstanceName(settings.instanceName)
+        }
         applyLaunchSettings(settings)
       })
       .catch(() => {})
@@ -1288,6 +1292,23 @@ export function CodeWorkspace({
       cancelled = true
     }
   }, [applyLaunchSettings])
+  const renameInstance = useCallback(async (name: string) => {
+    try {
+      const response = await fetch(appPath('/api/settings'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instanceName: name }),
+      })
+      if (!response.ok) return false
+      const data = await response.json() as { settings?: GlobalSettings }
+      const nextName = data.settings?.instanceName
+      if (!nextName) return false
+      setInstanceName(nextName)
+      return true
+    } catch {
+      return false
+    }
+  }, [])
   const loadCodexModels = useCallback(() => {
     const catalogAgeMs = Date.now() - codexModelsLoadedAtRef.current
     if (
@@ -4692,6 +4713,10 @@ export function CodeWorkspace({
   useEffect(() => loadGlobalSettings(), [loadGlobalSettings])
 
   useEffect(() => {
+    document.title = `${instanceName} · Farming Code`
+  }, [instanceName])
+
+  useEffect(() => {
     const handleAgentHomesSaved = () => {
       loadGlobalSettings()
       loadAgentSessions()
@@ -4988,6 +5013,7 @@ export function CodeWorkspace({
         now={now}
         mainAgent={hiddenMainAgent}
         usageSummary={usageSummary}
+        instanceName={instanceName}
         shareTarget={shareTarget}
         agentLaunchOptions={agentLaunchOptions}
         agentCreationWorkspace={agentCreationWorkspace}
@@ -5031,6 +5057,7 @@ export function CodeWorkspace({
         onDeleteWorkspaceEntries={handleWorkspaceFileDelete}
         onRefreshProjectOpenFiles={refreshProjectOpenFiles}
         onOpenOptionsMenu={openSettingsFromSidebar}
+        onRenameInstance={renameInstance}
         copy={copy}
       />
 

@@ -2786,6 +2786,9 @@ async function loadGlobalSettings() {
       ...globalSettings,
       ...(data.settings || {})
     };
+    if (globalSettings.instanceName) {
+      document.title = `${globalSettings.instanceName} · Farming CRT`;
+    }
     applyCRTEffects(globalSettings.crtSkinEffectsEnabled !== false);
     if (state) renderCrtDashboardIfNeeded();
     if (agents.length > 0) renderAgentList();
@@ -2813,6 +2816,9 @@ async function saveGlobalSettings() {
         ...globalSettings,
         ...(data.settings || {})
       };
+      if (globalSettings.instanceName) {
+        document.title = `${globalSettings.instanceName} · Farming CRT`;
+      }
       syncWorkspaceSettings();
     }
   } catch (error) {

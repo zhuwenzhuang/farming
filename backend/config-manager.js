@@ -67,6 +67,7 @@ const MAX_SEARCH_TIMEOUT_MS = 180000;
 const DEFAULT_CRT_TERMINAL_FONT_SIZE = 15;
 const MIN_CRT_TERMINAL_FONT_SIZE = 10;
 const MAX_CRT_TERMINAL_FONT_SIZE = 20;
+const MAX_INSTANCE_NAME_LENGTH = 80;
 
 const PERSISTED_SETTING_KEYS = new Set([
   'workspace',
@@ -75,6 +76,7 @@ const PERSISTED_SETTING_KEYS = new Set([
   'projectWorkspaces',
   'pinnedProjectWorkspaces',
   'projectNames',
+  'instanceName',
   'theme',
   'appearance',
   'language',
@@ -181,6 +183,19 @@ class ConfigManager {
     }
 
     return this.farmingDir;
+  }
+
+  normalizeInstanceName(value) {
+    if (typeof value !== 'string') return '';
+    return value
+      .replace(/[\x00-\x1f\x7f]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, MAX_INSTANCE_NAME_LENGTH);
+  }
+
+  getInstanceName() {
+    return this.settings?.instanceName || this.normalizeInstanceName(os.hostname()) || 'Farming';
   }
 
   normalizeWorkspaceHistory(history) {
@@ -290,6 +305,7 @@ class ConfigManager {
         projectWorkspaces: [],
         pinnedProjectWorkspaces: [],
         projectNames: {},
+        instanceName: '',
         theme: 'terminal',
         appearance: 'light',
         language: 'en',
@@ -326,6 +342,7 @@ class ConfigManager {
       projectWorkspaces: [],
       pinnedProjectWorkspaces: [],
       projectNames: {},
+      instanceName: '',
       theme: 'terminal',
       appearance: 'light',
       language: 'en',
@@ -376,6 +393,7 @@ class ConfigManager {
     this.settings.projectWorkspaces = this.normalizeProjectWorkspaces(this.settings.projectWorkspaces);
     this.settings.pinnedProjectWorkspaces = this.normalizeProjectWorkspaces(this.settings.pinnedProjectWorkspaces);
     this.settings.projectNames = this.normalizeProjectNames(this.settings.projectNames);
+    this.settings.instanceName = this.normalizeInstanceName(this.settings.instanceName);
     this.settings.agentHomes = this.normalizeAgentHomes(this.settings.agentHomes);
     if (this.settings.updateUrl === LEGACY_DEFAULT_UPDATE_URL || this.settings.updateUrl === API_DEFAULT_UPDATE_URL) {
       this.settings.updateUrl = DEFAULT_UPDATE_URL;
@@ -739,6 +757,7 @@ class ConfigManager {
   getSettings() {
     return {
       ...this.settings,
+      instanceName: this.getInstanceName(),
       workspace: this.farmingDir,
       mainPageSessionKeys: this.getMainPageSessionKeys(),
       taskHistory: this.getTaskHistory(),
@@ -819,6 +838,7 @@ class ConfigManager {
     this.settings.projectWorkspaces = this.normalizeProjectWorkspaces(this.settings.projectWorkspaces);
     this.settings.pinnedProjectWorkspaces = this.normalizeProjectWorkspaces(this.settings.pinnedProjectWorkspaces);
     this.settings.projectNames = this.normalizeProjectNames(this.settings.projectNames);
+    this.settings.instanceName = this.normalizeInstanceName(this.settings.instanceName);
     this.settings.agentHomes = this.normalizeAgentHomes(this.settings.agentHomes);
     this.settings.updateUrl = this.normalizeUpdateUrl(this.settings.updateUrl);
     this.settings.searchTimeoutMs = this.normalizeSearchTimeoutMs(this.settings.searchTimeoutMs);

@@ -49,6 +49,7 @@ export interface AgentHomeSetting {
 export type AgentHomesSettings = Record<string, AgentHomeSetting[]>
 
 export interface GlobalSettings extends WorkspaceHistorySettings {
+  instanceName?: string
   appearance?: UiAppearance
   language?: UiLanguage
   dangerouslySkipAgentPermissionsByDefault?: boolean

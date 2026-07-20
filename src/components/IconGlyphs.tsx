@@ -160,6 +160,14 @@ export function SettingsGlyph(props: IconGlyphProps) {
   )
 }
 
+export function PencilGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
+      <path d="M11.95 1.35a1.9 1.9 0 0 1 2.7 2.7L6.1 12.6 2 14l1.4-4.1 8.55-8.55Zm.7.7L4.28 10.42l-.63 1.85 1.85-.63 8.37-8.37a.9.9 0 0 0-1.22-1.22Z" />
+    </svg>
+  )
+}
+
 // Material Symbols paths used by Gerrit's gr-diff-mode-selector.
 export function DiffSplitGlyph(props: IconGlyphProps) {
   return (

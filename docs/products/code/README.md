@@ -8,6 +8,8 @@ Farming Code is the default Farming 2 interface: a browser workbench for supervi
 
 The normal shape is deliberately quiet: project-scoped Agents on the left, the current task in the center, relevant file state nearby, and a composer that continues the same provider session.
 
+When you supervise more than one Farming machine, the sidebar defaults to that host's hostname and uses it in the browser tab title. Select the pencil beside the name to give the instance a memorable persistent name; Farming Code and Farming CRT then share that name.
+
 For the complete cross-interface capability map, see the [Farming 2 product overview](../README.md). This guide is updated in place so it always describes the current product rather than one release.
 
 ## Switch To Farming CRT

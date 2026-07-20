@@ -981,6 +981,24 @@ body.code-mode[data-appearance='dark'] .code-product-mark:focus-visible {
   background: transparent;
 }
 
+body.code-mode[data-appearance='dark'] .code-instance-name-edit:hover {
+  background: var(--code-dark-bg-hover);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-instance-name-dialog input,
+body.code-mode[data-appearance='dark'] .code-instance-name-actions button {
+  border-color: var(--code-dark-border);
+  background: var(--code-dark-bg);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-instance-name-actions button.primary {
+  border-color: #58a6ff;
+  background: #1f6feb;
+  color: #fff;
+}
+
 body.code-mode[data-appearance='dark'] .code-product-mark-badge {
   background: transparent;
   border-color: transparent;
