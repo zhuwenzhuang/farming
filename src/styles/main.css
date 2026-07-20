@@ -7357,16 +7357,27 @@ button.code-codex-transcript-result-summary:focus-visible {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid rgba(36, 41, 47, 0.1);
+  border-bottom: 0;
   background: #f6f7f3;
 }
 
 .code-file-editor-tab-strip {
   min-height: 32px;
+  position: relative;
   display: flex;
   align-items: stretch;
   border-bottom: 1px solid rgba(36, 41, 47, 0.08);
   background: #fafaf9;
+}
+
+.code-file-editor-tab-strip > .code-file-editor-actions {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  z-index: 2;
+  padding: 0 6px;
+  background: inherit;
+  transform: translateY(-50%);
 }
 
 .code-file-editor-tabs {
@@ -7494,11 +7505,10 @@ button.code-codex-transcript-result-summary:focus-visible {
 
 .code-file-editor-bar {
   min-height: 26px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 3px 10px;
+  padding: 3px 12px;
+  background: #ffffff;
 }
 
 .code-file-editor-breadcrumbs {
@@ -7507,8 +7517,8 @@ button.code-codex-transcript-result-summary:focus-visible {
   align-items: center;
   gap: 0;
   overflow: hidden;
-  color: #70776e;
-  font-size: 12px;
+  color: #616861;
+  font-size: 13px;
   white-space: nowrap;
 }
 
@@ -7525,14 +7535,13 @@ button.code-codex-transcript-result-summary:focus-visible {
   font: inherit;
 }
 
-.code-file-editor-breadcrumb:first-child {
+.code-file-editor-breadcrumb.root {
   flex-shrink: 1.4;
 }
 
 .code-file-editor-breadcrumb.current {
   flex-shrink: 0;
-  color: #3f453e;
-  font-weight: 560;
+  color: #4b524b;
 }
 
 .code-file-editor-breadcrumb:hover,
@@ -7545,6 +7554,13 @@ button.code-codex-transcript-result-summary:focus-visible {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.code-file-editor-breadcrumb-file-icon {
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  flex: 0 0 16px;
 }
 
 .code-file-editor-breadcrumb-separator {
@@ -7569,7 +7585,7 @@ button.code-codex-transcript-result-summary:focus-visible {
 .code-file-editor-actions {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
 }
 
 .code-file-editor-action {
@@ -7579,7 +7595,7 @@ button.code-codex-transcript-result-summary:focus-visible {
   place-items: center;
   position: relative;
   padding: 0;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: 4px;
   background: transparent;
   color: #5d655b;
@@ -7587,13 +7603,11 @@ button.code-codex-transcript-result-summary:focus-visible {
 }
 
 .code-file-editor-action:hover:not(:disabled) {
-  border-color: rgba(36, 41, 47, 0.1);
-  background: rgba(31, 35, 40, 0.055);
+  background: rgba(31, 35, 40, 0.075);
 }
 
 .code-file-editor-action.active {
-  border-color: rgba(82, 99, 135, 0.16);
-  background: rgba(82, 99, 135, 0.1);
+  background: rgba(82, 99, 135, 0.12);
   color: #394866;
 }
 
@@ -16543,7 +16557,8 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     pointer-events: none;
   }
 
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-tab-strip,
+  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-navigation,
+  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-tabs,
   body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-breadcrumbs,
   body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-status,
   body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.save,
@@ -16553,6 +16568,16 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.overwrite,
   body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-statusbar {
     display: none;
+  }
+
+  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-tab-strip {
+    min-height: 0;
+    display: flex;
+    padding: 0;
+    gap: 0;
+    border: 0;
+    background: transparent;
+    pointer-events: none;
   }
 
   body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-bar {
@@ -16565,6 +16590,10 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   }
 
   body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-actions {
+    position: static;
+    padding: 0;
+    background: transparent;
+    transform: none;
     pointer-events: auto;
   }
 

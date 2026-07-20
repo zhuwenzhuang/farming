@@ -1801,10 +1801,15 @@ body.code-mode[data-appearance='dark'] .code-file-editor {
 }
 
 body.code-mode[data-appearance='dark'] .code-file-editor-header,
-body.code-mode[data-appearance='dark'] .code-file-editor-bar,
 body.code-mode[data-appearance='dark'] .code-file-editor-statusbar {
   background: var(--code-dark-bg-panel);
   border-color: var(--code-dark-border);
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-bar {
+  background: var(--code-dark-bg);
+  border-color: transparent;
   color: var(--code-dark-text-soft);
 }
 

@@ -219,6 +219,11 @@ export function workspaceEditorPathSegments(filePath: string) {
   return filePath.split('/').filter(Boolean)
 }
 
+export function workspaceEditorWorkspaceLabel(workspaceRoot: string | undefined) {
+  if (!workspaceRoot) return ''
+  return workspaceRoot.replace(/\\/g, '/').split('/').filter(Boolean).pop() || '/'
+}
+
 export function workspaceEditorPathToSegment(segments: readonly string[], index: number) {
   return segments.slice(0, index + 1).join('/')
 }

@@ -1493,7 +1493,13 @@ function run() {
       editorHeaderSource.includes('{actions.showBar && (') &&
       !editorActionsSource.includes('function shouldShowFileEditorActions') &&
       !editorSource.includes("? 'Unsaved'") &&
-	      editorBreadcrumbsSource.includes('title={openFile.file.path}') &&
+	      editorBreadcrumbsSource.includes('title={breadcrumbTitle}') &&
+	      editorBreadcrumbsSource.includes('workspaceEditorWorkspaceLabel as workspaceLabel') &&
+	      editorBreadcrumbsSource.includes('className="code-file-editor-breadcrumb root"') &&
+	      editorBreadcrumbsSource.includes('className="code-file-editor-breadcrumb-file-icon"') &&
+	      editorHeaderSource.includes('actions={(') &&
+	      editorTabsComponentSource.includes('{actions}') &&
+	      stylesSource.includes('.code-file-editor-tab-strip > .code-file-editor-actions') &&
 	      designSource.includes('轻量 breadcrumb 展示') &&
 	      designSource.includes('保存状态默认不常驻显示 `Saved`') &&
 	      designSource.includes('clean 状态不常驻 disabled 保存按钮') &&

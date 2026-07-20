@@ -67,7 +67,7 @@ export function FileEditorHeader({
   sourcePreviewOpen,
   wordWrapEnabled,
 }: FileEditorHeaderProps) {
-  const showBreadcrumbs = openFile.file.path.includes('/')
+  const showBreadcrumbs = Boolean(openFile.file.path)
   const actions = workspaceEditorActionState(openFile, editorMode, {
     canPreviewMarkdown,
     canPreviewSource,
@@ -91,14 +91,7 @@ export function FileEditorHeader({
         onTabAuxClick={onTabAuxClick}
         onTabKeyDown={onTabKeyDown}
         onCloseTab={onCloseTab}
-      />
-      {actions.showBar && (
-        <div className="code-file-editor-bar">
-          <FileEditorBreadcrumbs
-            openFile={openFile}
-            copy={copy}
-            onRevealInExplorer={onRevealInExplorer}
-          />
+        actions={(
           <FileEditorActions
             actions={actions}
             copy={copy}
@@ -114,6 +107,15 @@ export function FileEditorHeader({
             onToggleSourcePreview={onToggleSourcePreview}
             onToggleWordWrap={onToggleWordWrap}
             onToggleDiff={onToggleDiff}
+          />
+        )}
+      />
+      {actions.showBar && (
+        <div className="code-file-editor-bar">
+          <FileEditorBreadcrumbs
+            openFile={openFile}
+            copy={copy}
+            onRevealInExplorer={onRevealInExplorer}
           />
         </div>
       )}

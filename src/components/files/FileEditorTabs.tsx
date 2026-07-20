@@ -1,4 +1,4 @@
-import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { iconForFilePath } from '@/lib/file-icons'
 import {
   workspaceEditorBasename as basename,
@@ -27,6 +27,7 @@ interface FileEditorTabsProps {
   onTabAuxClick: (event: ReactMouseEvent<HTMLDivElement>, index: number) => void
   onTabKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>, index: number) => void
   onCloseTab: (index: number) => void
+  actions: ReactNode
 }
 
 function HistoryBackIcon() {
@@ -67,6 +68,7 @@ export function FileEditorTabs({
   onTabAuxClick,
   onTabKeyDown,
   onCloseTab,
+  actions,
 }: FileEditorTabsProps) {
   return (
     <div className="code-file-editor-tab-strip">
@@ -157,6 +159,7 @@ export function FileEditorTabs({
           )
         })}
       </div>
+      {actions}
     </div>
   )
 }

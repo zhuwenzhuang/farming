@@ -109,6 +109,11 @@ function pathSegments(filePath: string) {
   return filePath.split('/').filter(Boolean)
 }
 
+function workspaceLabel(workspaceRoot: string | undefined) {
+  if (!workspaceRoot) return ''
+  return workspaceRoot.replace(/\\/g, '/').split('/').filter(Boolean).pop() || '/'
+}
+
 function FileEditorFallback({
   openFile,
   onChangeDraft,
@@ -119,6 +124,10 @@ function FileEditorFallback({
   copy: CodeCopy
 }) {
   const segments = pathSegments(openFile.file.path)
+  const projectLabel = workspaceLabel(openFile.workspaceRoot)
+  const breadcrumbTitle = openFile.workspaceRoot
+    ? `${openFile.workspaceRoot.replace(/[\\/]+$/, '')}/${openFile.file.path}`
+    : openFile.file.path
 
   return (
     <section
@@ -127,24 +136,32 @@ function FileEditorFallback({
       aria-label={copy.editorFor(openFile.file.path)}
     >
       <header className="code-file-editor-header">
-        <div className="code-file-editor-tabs" role="tablist">
-          <div
-            className={`code-file-editor-tab active ${openFile.dirty ? 'dirty' : ''} ${openFile.externalChanged ? 'warning' : ''}`}
-            title={openFile.file.path}
-            role="tab"
-            aria-selected="true"
-          >
-            <span aria-hidden="true" />
-            <span className="code-file-editor-tab-name">{basename(openFile.file.path)}</span>
-            <span className="code-file-editor-tab-tail">
-              {(openFile.dirty || openFile.externalChanged) && (
-                <span className="code-file-editor-dirty" title={openFile.externalChanged ? copy.changedOnDisk : copy.unsavedChanges} />
-              )}
-            </span>
+        <div className="code-file-editor-tab-strip">
+          <div className="code-file-editor-tabs" role="tablist">
+            <div
+              className={`code-file-editor-tab active ${openFile.dirty ? 'dirty' : ''} ${openFile.externalChanged ? 'warning' : ''}`}
+              title={openFile.file.path}
+              role="tab"
+              aria-selected="true"
+            >
+              <span aria-hidden="true" />
+              <span className="code-file-editor-tab-name">{basename(openFile.file.path)}</span>
+              <span className="code-file-editor-tab-tail">
+                {(openFile.dirty || openFile.externalChanged) && (
+                  <span className="code-file-editor-dirty" title={openFile.externalChanged ? copy.changedOnDisk : copy.unsavedChanges} />
+                )}
+              </span>
+            </div>
           </div>
         </div>
         <div className="code-file-editor-bar">
-          <nav className="code-file-editor-breadcrumbs" title={openFile.file.path} aria-label={copy.filePath}>
+          <nav className="code-file-editor-breadcrumbs" title={breadcrumbTitle} aria-label={copy.filePath}>
+            {projectLabel && (
+              <span className="code-file-editor-breadcrumb root">
+                <span className="code-file-editor-breadcrumb-name">{projectLabel}</span>
+                <span className="code-file-editor-breadcrumb-separator" aria-hidden="true" />
+              </span>
+            )}
             {segments.map((segment, index) => (
               <span
                 key={`${index}-${segment}`}
