@@ -401,6 +401,9 @@ export function CodeSidebar({
     setAppModeDialogOpen(false)
     toggleFocusMode()
   }, [toggleFocusMode])
+  const installUnavailableReason = window.isSecureContext
+    ? copy.appModeInstallUnavailableBrowser
+    : copy.appModeInstallUnavailableInsecure
   const pinnedItems = displayedProjects
     .flatMap<PinnedSidebarItem>(project => [
       ...project.agents
@@ -766,6 +769,7 @@ export function CodeSidebar({
           canInstall={Boolean(appInstallPrompt)}
           canFullscreen={focusModeSupported}
           fullscreenActive={focusModeActive}
+          installUnavailableReason={installUnavailableReason}
           copy={copy}
           onClose={() => setAppModeDialogOpen(false)}
           onInstall={installApp}

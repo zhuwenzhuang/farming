@@ -53,6 +53,18 @@ test('guides desktop users to install Farming and keeps fullscreen as a temporar
   await expect(page.getByTestId('code-app-mode-dialog')).toHaveCount(0)
 })
 
+test('explains when this deployment cannot be installed instead of showing manual install steps', async ({ page }) => {
+  await openFarming(page)
+
+  await page.getByTestId('code-sidebar-focus-toggle').click()
+
+  const dialog = page.getByTestId('code-app-mode-dialog')
+  await expect(dialog.getByTestId('code-app-mode-install-unavailable')).toBeVisible()
+  await expect(dialog).toContainText('Browser app installation is unavailable')
+  await expect(dialog).not.toContainText('Cast, save and share')
+  await expect(dialog.getByTestId('code-app-mode-install')).toHaveCount(0)
+})
+
 test('does not show the app-mode entry inside an installed Farming window', async ({ page }) => {
   await page.addInitScript(() => {
     const browserMatchMedia = window.matchMedia.bind(window)

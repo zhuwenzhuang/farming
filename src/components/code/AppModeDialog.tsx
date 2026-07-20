@@ -7,6 +7,7 @@ export function AppModeDialog({
   canInstall,
   canFullscreen,
   fullscreenActive,
+  installUnavailableReason,
   copy,
   onClose,
   onInstall,
@@ -15,6 +16,7 @@ export function AppModeDialog({
   canInstall: boolean
   canFullscreen: boolean
   fullscreenActive: boolean
+  installUnavailableReason: string
   copy: CodeCopy
   onClose: () => void
   onInstall: () => void
@@ -53,20 +55,25 @@ export function AppModeDialog({
           </div>
         </header>
 
-        <section className="code-app-mode-choice recommended">
-          <span className="code-app-mode-recommended">{copy.appModeRecommended}</span>
-          <h3>{copy.appModeInstallTitle}</h3>
-          <p>{copy.appModeInstallDescription}</p>
-          {canInstall && (
+        {canInstall ? (
+          <section className="code-app-mode-choice recommended">
+            <span className="code-app-mode-recommended">{copy.appModeRecommended}</span>
+            <h3>{copy.appModeInstallTitle}</h3>
+            <p>{copy.appModeInstallDescription}</p>
             <button type="button" className="code-app-mode-install" data-testid="code-app-mode-install" onClick={onInstall}>
               {copy.appModeInstallAction}
             </button>
-          )}
-          <ol className="code-app-mode-install-steps">
-            <li>{copy.appModeInstallStepOne}</li>
-            <li>{copy.appModeInstallStepTwo}</li>
-          </ol>
-        </section>
+            <ol className="code-app-mode-install-steps">
+              <li>{copy.appModeInstallStepOne}</li>
+              <li>{copy.appModeInstallStepTwo}</li>
+            </ol>
+          </section>
+        ) : (
+          <section className="code-app-mode-choice unavailable" data-testid="code-app-mode-install-unavailable">
+            <h3>{copy.appModeInstallUnavailableTitle}</h3>
+            <p>{installUnavailableReason}</p>
+          </section>
+        )}
 
         {canFullscreen && (
           <section className="code-app-mode-choice temporary">

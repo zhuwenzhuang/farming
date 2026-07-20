@@ -136,7 +136,7 @@ Light and dark appearance changes the workbench without changing Agent processes
 
 ![Dark Farming Code workspace](assets/09-dark-workspace.png)
 
-On desktop Chrome, Farming can run in a standalone app window without the browser tab bar, address bar, extensions, or other browser controls. In a normal browser tab, click the app/fullscreen control beside Share and follow the install guide; Chrome's equivalent path is **More → Cast, save and share → Install page as app**. The same dialog keeps fullscreen as a temporary alternative. The control is omitted after Farming is opened as an installed app. Future launches from the Farming 2 app icon reopen the clean base-path URL and reuse the authenticated cookie; the startup Token is not stored in the installed launch URL.
+On desktop Chrome, Farming can run in a standalone app window without the browser tab bar, address bar, extensions, or other browser controls. When the browser provides an install prompt, click the app/fullscreen control beside Share and use **Install Farming 2**; the same dialog keeps fullscreen as a temporary alternative. When installation is unavailable, Farming explains the reason and does not show manual Chrome-menu steps. The control is omitted after Farming is opened as an installed app. Future launches from the Farming 2 app icon reopen the clean base-path URL and reuse the authenticated cookie; the startup Token is not stored in the installed launch URL.
 
 On a phone, Farming Code focuses one conversation, terminal, or file at a time and moves project navigation into a drawer. It is intended for checking progress, switching Agents, reading a result, or sending a short intervention—not for squeezing a multi-pane desktop IDE onto a narrow screen.
 

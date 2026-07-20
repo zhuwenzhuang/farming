@@ -18,6 +18,9 @@ export interface CodeCopy {
   appModeInstallAction: string
   appModeInstallStepOne: string
   appModeInstallStepTwo: string
+  appModeInstallUnavailableTitle: string
+  appModeInstallUnavailableInsecure: string
+  appModeInstallUnavailableBrowser: string
   appModeFullscreenTitle: string
   appModeFullscreenDescription: string
   terminalView: string
@@ -441,13 +444,16 @@ const EN_COPY: CodeCopy = {
   exitFocusMode: 'Exit focus mode',
   appModeOpen: 'App mode and fullscreen',
   appModeTitle: 'Use Farming without browser controls',
-  appModeDescription: 'Install Farming for a clean app window, or use fullscreen temporarily.',
+  appModeDescription: 'Use a clean app window where the browser supports it, or fullscreen temporarily.',
   appModeRecommended: 'Recommended',
   appModeInstallTitle: 'Install Farming 2',
   appModeInstallDescription: 'Opens as its own window without tabs, the address bar, or browser extensions.',
   appModeInstallAction: 'Install Farming 2',
   appModeInstallStepOne: 'Open Chrome’s ⋮ menu, then choose “Cast, save and share”.',
   appModeInstallStepTwo: 'Choose “Install page as app”, then open Farming 2 from its app icon.',
+  appModeInstallUnavailableTitle: 'Browser app installation is unavailable',
+  appModeInstallUnavailableInsecure: 'This deployment uses an insecure HTTP connection, so the browser cannot install it as an app.',
+  appModeInstallUnavailableBrowser: 'This browser has not provided an app-install prompt for this deployment.',
   appModeFullscreenTitle: 'Fullscreen for now',
   appModeFullscreenDescription: 'Hide browser controls for this window. Press Esc to leave fullscreen.',
   terminalView: 'Terminal',
@@ -900,13 +906,16 @@ const ZH_COPY: CodeCopy = {
   exitFocusMode: '退出沉浸模式',
   appModeOpen: '应用模式与全屏',
   appModeTitle: '隐藏浏览器控制',
-  appModeDescription: '安装 Farming 获得干净的应用窗口，也可以临时进入全屏。',
+  appModeDescription: '浏览器支持时可安装为独立应用窗口，也可以临时进入全屏。',
   appModeRecommended: '推荐',
   appModeInstallTitle: '安装 Farming 2',
   appModeInstallDescription: '以后从独立窗口打开，不显示标签栏、地址栏和浏览器扩展。',
   appModeInstallAction: '安装 Farming 2',
   appModeInstallStepOne: '打开 Chrome 右上角 ⋮，选择“投放、保存和分享”。',
   appModeInstallStepTwo: '选择“将网页安装为应用”，以后从 Farming 2 应用图标打开。',
+  appModeInstallUnavailableTitle: '无法安装为浏览器应用',
+  appModeInstallUnavailableInsecure: '当前部署使用不安全的 HTTP 连接，浏览器无法将其安装为应用。',
+  appModeInstallUnavailableBrowser: '当前浏览器没有为此部署提供应用安装入口。',
   appModeFullscreenTitle: '暂时全屏',
   appModeFullscreenDescription: '只为当前窗口隐藏浏览器控制，按 Esc 即可退出。',
   terminalView: '终端',
