@@ -48,6 +48,7 @@ In App Server mode:
 
 - an idle composer submission calls `turn/start`;
 - a submission while the same thread is active calls `turn/steer` with the active turn id;
+- pasted or selected images use the same Composer attachment contract as ACP and are sent as App Server `localImage` inputs; text files remain explicit text in the message;
 - the interrupt control calls `turn/interrupt` through the App Server connection and reports an App Server error if that control is unavailable;
 - changing an App Server Agent's permission profile calls `thread/settings/update` on that same thread. It keeps the Agent and thread in place; the updated approval and sandbox policy applies to subsequent turns without starting a CLI or PTY;
 - command/file approvals and structured user-input requests remain structured runtime events above the Composer and are answered with their original JSON-RPC request id. Farming must not auto-approve them; unsupported reverse requests remain explicit and can be declined rather than silently leaving a turn blocked.

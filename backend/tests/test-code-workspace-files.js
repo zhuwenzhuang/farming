@@ -881,7 +881,9 @@ function run() {
       workspaceSource.includes('const clearAcceptedDraft = () =>') &&
       workspaceSource.includes('void submitted.then(accepted =>') &&
       !workspaceSource.includes("window.setTimeout(() => sendInput('\\r', agent.id), 80)") &&
-      workspaceSource.includes('sendComposerMessageToAgent(activeAgent, message)') &&
+      workspaceSource.includes('const nativeAttachments = isStructuredRuntime(activeAgent)') &&
+      workspaceSource.includes('composerPromptAttachments(composerAttachments)') &&
+      workspaceSource.includes('sendComposerMessageToAgent(activeAgent, message, nativeAttachments)') &&
       workspaceSource.includes('function createPendingFollowUpMessage(text: string, attachments: ComposerPromptAttachment[] = [])') &&
       workspaceSource.includes('function removePendingFollowUpMessage(') &&
       workspaceSource.includes('const pendingFollowUpAutoFlushRef = useRef<Record<string, string>>({})') &&

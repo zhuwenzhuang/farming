@@ -149,14 +149,37 @@ function requestThreadParams(options = {}) {
   };
 }
 
+function appServerUserInput(options = {}) {
+  const input = [];
+  for (const item of Array.isArray(options.input) ? options.input : []) {
+    if (!item || typeof item !== 'object') continue;
+    if (item.type === 'text' && typeof item.text === 'string' && item.text.trim()) {
+      input.push({ type: 'text', text: item.text, textElements: [] });
+      continue;
+    }
+    if (item.type === 'image' && typeof item.path === 'string' && path.isAbsolute(item.path)) {
+      input.push({ type: 'localImage', path: item.path });
+    }
+  }
+  if (input.length === 0 && String(options.message || '').trim()) {
+    input.push({ type: 'text', text: String(options.message), textElements: [] });
+  }
+  return input;
+}
+
+function composerTranscriptInput(input) {
+  return input.map((item) => (
+    item.type === 'text'
+      ? { type: 'input_text', text: item.text }
+      : { type: 'localImage', path: item.path }
+  ));
+}
+
 function requestTurnParams(options = {}) {
+  const input = appServerUserInput(options);
   return {
     threadId: options.threadId,
-    input: [{
-      type: 'text',
-      text: options.message,
-      textElements: [],
-    }],
+    input,
     ...(options.cwd ? { cwd: options.cwd } : {}),
     ...(options.workspaceRoot ? { runtimeWorkspaceRoots: [options.workspaceRoot] } : {}),
     ...(options.model && options.model !== 'config' ? { model: options.model } : {}),
@@ -583,7 +606,7 @@ class CodexAppServerRuntime extends EventEmitter {
     return refresh;
   }
 
-  appendComposerTranscriptInput(agentId, threadId, turnId, message) {
+  appendComposerTranscriptInput(agentId, threadId, turnId, input) {
     this.appendTranscriptEvent(agentId, {
       method: 'item/started',
       params: {
@@ -592,7 +615,7 @@ class CodexAppServerRuntime extends EventEmitter {
         item: {
           id: `farming-composer-${turnId}-${Date.now()}`,
           type: 'user_message',
-          content: [{ type: 'input_text', text: message }],
+          content: composerTranscriptInput(input),
           status: 'completed',
         },
       },
@@ -666,7 +689,8 @@ class CodexAppServerRuntime extends EventEmitter {
 
   async submitComposerMessage(options = {}) {
     const message = String(options.message || '').trim();
-    if (!message) throw new Error('Composer message is empty');
+    const input = appServerUserInput(options);
+    if (input.length === 0) throw new Error('Composer message is empty');
 
     let binding = this.bindings.get(options.agentId);
     if (!binding) binding = await this.reattachAgent(options);
@@ -676,14 +700,10 @@ class CodexAppServerRuntime extends EventEmitter {
       const response = await entry.connection.request('turn/steer', {
         threadId: binding.threadId,
         expectedTurnId: binding.turnId,
-        input: [{
-          type: 'text',
-          text: message,
-          textElements: [],
-        }],
+        input,
       });
       const turnId = readTurnId(response, 'turn/steer');
-      this.appendComposerTranscriptInput(binding.agentId, binding.threadId, turnId, message);
+      this.appendComposerTranscriptInput(binding.agentId, binding.threadId, turnId, input);
       this.emitAgentRuntime(binding.agentId, {
         turnId,
         state: 'working',
@@ -698,7 +718,7 @@ class CodexAppServerRuntime extends EventEmitter {
       message,
     }));
     const turnId = readTurnId(response, 'turn/start');
-    this.appendComposerTranscriptInput(binding.agentId, binding.threadId, turnId, message);
+    this.appendComposerTranscriptInput(binding.agentId, binding.threadId, turnId, input);
     this.emitAgentRuntime(binding.agentId, {
       turnId,
       state: 'working',

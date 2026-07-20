@@ -95,7 +95,9 @@ import {
   appendDraftBlock,
   clipboardImageFiles,
   composerAttachmentMessageBlocks,
+  composerMessageForNativeAttachments,
   composerMessageWithAttachments,
+  composerPromptAttachments,
   createComposerAttachmentId,
   createImageAttachmentPreviewUrl,
   fileDisplayName,
@@ -1832,7 +1834,7 @@ export function CodeWorkspace({
 
   const sendComposerMessageToAgent = useCallback((agent: Agent, message: string, attachments: ComposerPromptAttachment[] = []) => {
     if (isStructuredRuntime(agent)) {
-      return sendComposerInput(message, agent.id, isAcpRuntime(agent) ? attachments : [], {
+      return sendComposerInput(message, agent.id, attachments, {
         awaitResult: isAppServerRuntime(agent),
       })
     }
@@ -1861,14 +1863,20 @@ export function CodeWorkspace({
 
   const submitDraft = useCallback((submittedDraft?: string) => {
     const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft
-    const text = composerMessageWithAttachments(latestDraft, composerAttachments)
-    if (!text || !activeAgent || !activeComposerKey || composerAttachments.some(attachment => attachment.status === 'uploading')) return
+    if (!activeAgent || !activeComposerKey || composerAttachments.some(attachment => attachment.status === 'uploading')) return
+    const nativeAttachments = isStructuredRuntime(activeAgent)
+      ? composerPromptAttachments(composerAttachments)
+      : []
+    const text = nativeAttachments.length > 0
+      ? composerMessageForNativeAttachments(latestDraft, composerAttachments)
+      : composerMessageWithAttachments(latestDraft, composerAttachments)
+    if (!text && nativeAttachments.length === 0) return
 
-    if (composerMode === 'goal' && activeAppServerRuntime) {
+    if (composerMode === 'goal' && activeAppServerRuntime && text) {
       void (async () => {
         const goalSaved = await setNativeCodexGoalFromComposer(activeAgent, text)
         if (!goalSaved) return
-        const submitted = sendComposerMessageToAgent(activeAgent, text)
+        const submitted = sendComposerMessageToAgent(activeAgent, text, nativeAttachments)
         const accepted = typeof submitted === 'boolean' ? submitted : await submitted
         if (!accepted) return
         updateComposerStateForKey(activeComposerKey, state => {
@@ -1900,7 +1908,7 @@ export function CodeWorkspace({
         }
       })
     } else {
-      submitted = sendComposerMessageToAgent(activeAgent, message)
+      submitted = sendComposerMessageToAgent(activeAgent, message, nativeAttachments)
     }
     const clearAcceptedDraft = () => {
       updateComposerStateForKey(activeComposerKey, state => {

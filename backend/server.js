@@ -2050,6 +2050,7 @@ async function sendComposerInputMessage(ws, data) {
         type: 'image',
         data: data.toString('base64'),
         mimeType,
+        path: filePath,
         uri: pathToFileURL(filePath).href,
       });
     } catch {

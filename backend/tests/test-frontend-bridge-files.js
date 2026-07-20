@@ -58,8 +58,10 @@ function run() {
     crtApp.includes('getSessionClient()?.handleServerMessage(data)') &&
       crtApp.includes('getSessionClient()?.rejectPendingComposerMessages()') &&
       crtApp.includes("const waitForAppServer = agent.runtimeBinding?.kind === 'app-server';") &&
+      crtApp.includes('function structuredComposerPromptAttachments()') &&
+      crtApp.includes('sendComposerMessage(focusedAgentId, message, promptAttachments') &&
       crtApp.includes('if (result.accepted !== true)'),
-    'CRT Codex App Server submissions should retain the draft until backend acceptance'
+    'CRT Codex App Server submissions should retain the draft and native image attachments until backend acceptance'
   );
   assert(
     sessionBridge.includes('sendTerminalInput(agentId, input)') &&

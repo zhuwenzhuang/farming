@@ -4,7 +4,7 @@ import { addComposerHistoryEntry } from '../composer-history'
 import { createPendingFollowUpMessage } from '../composer-state'
 import type { AgentComposerState } from '../composer-state'
 import {
-  composerMessageForAcp,
+  composerMessageForNativeAttachments,
   composerPromptAttachments,
   formatComposerMessage,
   revokeComposerAttachmentPreview,
@@ -43,7 +43,7 @@ export function submitAcpDraft({
   updateComposerState,
 }: SubmitAcpDraftInput) {
   const promptAttachments = composerPromptAttachments(attachments)
-  const text = formatComposerMessage(composerMode, composerMessageForAcp(draft, attachments).trim())
+  const text = formatComposerMessage(composerMode, composerMessageForNativeAttachments(draft, attachments).trim())
   if ((!text && promptAttachments.length === 0) || !agent || agent.runtimeBinding.kind !== 'acp' || !composerKey) return false
   if (!turnActive && !sendMessage(agent, text, promptAttachments)) return false
 

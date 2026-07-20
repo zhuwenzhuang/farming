@@ -2983,7 +2983,7 @@ class AgentManager extends EventEmitter {
     return this.enqueueInputOperation(agentId, () => this.sendInputNow(agentId, input, options));
   }
 
-  codexAppServerOptionsForAgent(agent, message = '') {
+  codexAppServerOptionsForAgent(agent, message = '', input = []) {
     const codexResolution = resolveCompatibleCodexExecutable(agent.requiredCliVersion || '');
     if (!codexResolution.compatible) {
       throw new Error(codexResolution.error || 'Codex CLI is not compatible with App Server mode');
@@ -3014,6 +3014,7 @@ class AgentManager extends EventEmitter {
         ? this.configManager.getCodexServiceTier()
         : 'default',
       message,
+      input,
     };
   }
 
@@ -3134,7 +3135,7 @@ class AgentManager extends EventEmitter {
       && typeof this.codexAppServerRuntime.submitComposerMessage === 'function'
     ) {
       const result = await this.codexAppServerRuntime.submitComposerMessage(
-        this.codexAppServerOptionsForAgent(agent, text)
+        this.codexAppServerOptionsForAgent(agent, text, prompt)
       );
       appServer.threadId = result.threadId;
       appServer.turnId = result.turnId;

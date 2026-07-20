@@ -3,7 +3,7 @@ const {
   appendDraftBlock,
   clipboardImageFiles,
   composerAttachmentMessageBlocks,
-  composerMessageForAcp,
+  composerMessageForNativeAttachments,
   composerMessageWithAttachments,
   composerPromptAttachments,
   fileDisplayName,
@@ -37,7 +37,7 @@ function run() {
     size: 12,
     messageBlock: 'Attached image: a.png\n\nImage path: /tmp/a.png',
   };
-  assert.strictEqual(composerMessageForAcp('Please inspect', [readyImage]), 'Please inspect');
+  assert.strictEqual(composerMessageForNativeAttachments('Please inspect', [readyImage]), 'Please inspect');
   assert.deepStrictEqual(composerPromptAttachments([readyImage]), [{
     kind: 'image',
     path: '/tmp/a.png',
@@ -46,7 +46,7 @@ function run() {
     size: 12,
   }]);
   assert.strictEqual(
-    composerMessageForAcp('', [{ ...readyImage, status: 'error', path: undefined, messageBlock: 'upload failed' }]),
+    composerMessageForNativeAttachments('', [{ ...readyImage, status: 'error', path: undefined, messageBlock: 'upload failed' }]),
     'upload failed'
   );
   assert.strictEqual(appendDraftBlock('hello', '   '), 'hello');

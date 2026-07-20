@@ -99,7 +99,7 @@ export function composerMessageWithAttachments(draft: string, attachments: Compo
   return appendDraftBlock(draft.trimEnd(), attachmentBlocks.join('\n\n')).trimEnd()
 }
 
-export function composerMessageForAcp(draft: string, attachments: ComposerAttachment[]) {
+export function composerMessageForNativeAttachments(draft: string, attachments: ComposerAttachment[]) {
   const fallbackBlocks = attachments
     .filter(attachment => !attachment.path)
     .map(attachment => attachment.messageBlock || '')

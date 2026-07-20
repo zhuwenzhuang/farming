@@ -6050,9 +6050,9 @@ function structuredComposerAction(agent, draft = '') {
     : 'disabled';
 }
 
-function queueStructuredComposerFollowUp(agentId, message) {
+function queueStructuredComposerFollowUp(agentId, message, attachments = []) {
   const queue = structuredComposerPendingFollowUps.get(agentId) || [];
-  queue.push(message);
+  queue.push({ message, attachments });
   structuredComposerPendingFollowUps.set(agentId, queue);
 }
 
@@ -6060,10 +6060,10 @@ function flushStructuredComposerFollowUp(agent) {
   if (!agent || structuredRuntimeStatus(agent) !== 'idle') return;
   const queue = structuredComposerPendingFollowUps.get(agent.id);
   if (!queue || queue.length === 0) return;
-  const message = queue.shift();
+  const next = queue.shift();
   if (queue.length === 0) structuredComposerPendingFollowUps.delete(agent.id);
-  if (!getSessionClient()?.sendComposerMessage(agent.id, message)) {
-    queue.unshift(message);
+  if (!getSessionClient()?.sendComposerMessage(agent.id, next.message, next.attachments)) {
+    queue.unshift(next);
     structuredComposerPendingFollowUps.set(agent.id, queue);
     return;
   }
@@ -6565,6 +6565,9 @@ async function prepareStructuredAttachment(file) {
       });
       const body = await response.json().catch(() => null);
       if (!response.ok || !body || !body.path) throw new Error(`Image upload failed (${response.status})`);
+      attachment.path = body.path;
+      attachment.type = body.type || file.type || 'image/png';
+      attachment.size = Number(body.size) || file.size || 0;
       attachment.messageBlock = `Attached image: ${body.name || attachment.name}\n\nImage path: ${body.path}`;
     } else {
       const content = await readStructuredTextFile(file);
@@ -6589,9 +6592,23 @@ function addStructuredAttachmentFiles(files) {
 
 function structuredComposerMessage(draft) {
   return structuredComposerAttachments
-    .filter((attachment) => attachment.status === 'ready' && attachment.messageBlock)
+    .filter((attachment) => attachment.status === 'ready' && attachment.messageBlock && !attachment.path)
     .reduce((message, attachment) => structuredAttachmentBlock(message, attachment.messageBlock), String(draft || ''))
     .trim();
+}
+
+function structuredComposerPromptAttachments() {
+  return structuredComposerAttachments.flatMap((attachment) => (
+    attachment.status === 'ready' && attachment.path
+      ? [{
+          kind: 'image',
+          path: attachment.path,
+          name: attachment.name,
+          type: attachment.type,
+          size: attachment.size,
+        }]
+      : []
+  ));
 }
 
 function structuredComposerHistoryFor(agentId) {
@@ -7174,7 +7191,8 @@ function setupStructuredSessionComposer() {
     }
     const draft = input.value;
     const message = structuredComposerMessage(draft);
-    if (!message) return;
+    const promptAttachments = structuredComposerPromptAttachments();
+    if (!message && promptAttachments.length === 0) return;
     const statusNode = document.getElementById('crt-structured-composer-status');
     const completeSubmission = () => {
       addStructuredComposerHistory(focusedAgentId, draft);
@@ -7191,8 +7209,8 @@ function setupStructuredSessionComposer() {
     };
     const waitForAppServer = agent.runtimeBinding?.kind === 'app-server';
     const sent = action === 'send' && structuredRuntimeStatus(agent) !== 'idle'
-      ? (queueStructuredComposerFollowUp(focusedAgentId, message), true)
-      : getSessionClient()?.sendComposerMessage(focusedAgentId, message, [], waitForAppServer ? {
+      ? (queueStructuredComposerFollowUp(focusedAgentId, message, promptAttachments), true)
+      : getSessionClient()?.sendComposerMessage(focusedAgentId, message, promptAttachments, waitForAppServer ? {
         onResult: (result) => {
           if (result.accepted !== true) {
             if (statusNode) {
