@@ -97,10 +97,10 @@ const AgentManager = require('../agent-manager');
   });
   killed = '';
   started = null;
-  const acpResult = await manager.restartAgentRuntimeMode('agent-acp-switch', 'acp');
+  const acpResult = await manager.restartAgentRuntimeMode('agent-acp-switch', 'chat');
   assert.strictEqual(killed, 'agent-acp-switch');
-  assert.strictEqual(started.options.agentRuntimeMode, 'acp');
-  assert.strictEqual(acpResult.agentRuntimeMode, 'acp');
+  assert.strictEqual(started.options.agentRuntimeMode, 'chat');
+  assert.strictEqual(acpResult.agentRuntimeMode, 'chat');
 
   manager.agents.set('agent-live-acp-switch', {
     id: 'agent-live-acp-switch',
@@ -176,11 +176,11 @@ const AgentManager = require('../agent-manager');
   manager.findRuntimeSwitchSession = async () => ({ provider: 'qoder' });
   killed = '';
   started = null;
-  const qoderAcpResult = await manager.restartAgentRuntimeMode('agent-qoder-switch', 'acp');
+  const qoderAcpResult = await manager.restartAgentRuntimeMode('agent-qoder-switch', 'chat');
   assert.strictEqual(killed, 'agent-qoder-switch');
   assert.strictEqual(started.command.includes('qodercli --resume'), true);
-  assert.strictEqual(started.options.agentRuntimeMode, 'acp');
-  assert.strictEqual(qoderAcpResult.agentRuntimeMode, 'acp');
+  assert.strictEqual(started.options.agentRuntimeMode, 'chat');
+  assert.strictEqual(qoderAcpResult.agentRuntimeMode, 'chat');
 
   manager.agents.set('agent-fresh-qoder-switch', {
     id: 'agent-fresh-qoder-switch',
@@ -202,12 +202,12 @@ const AgentManager = require('../agent-manager');
   manager.findRuntimeSwitchSession = async () => null;
   killed = '';
   started = null;
-  const freshQoderAcpResult = await manager.restartAgentRuntimeMode('agent-fresh-qoder-switch', 'acp');
+  const freshQoderAcpResult = await manager.restartAgentRuntimeMode('agent-fresh-qoder-switch', 'chat');
   assert.strictEqual(killed, 'agent-fresh-qoder-switch');
   assert.strictEqual(started.command, 'qodercli');
   assert.strictEqual(started.options.acpStartFresh, true);
   assert.strictEqual(started.options.source, 'ui-runtime-switch-fresh');
-  assert.strictEqual(freshQoderAcpResult.agentRuntimeMode, 'acp');
+  assert.strictEqual(freshQoderAcpResult.agentRuntimeMode, 'chat');
 
   manager.agents.set('agent-fresh-codex-switch', {
     id: 'agent-fresh-codex-switch',
@@ -228,11 +228,11 @@ const AgentManager = require('../agent-manager');
   });
   killed = '';
   started = null;
-  const freshCodexAcpResult = await manager.restartAgentRuntimeMode('agent-fresh-codex-switch', 'acp');
+  const freshCodexAcpResult = await manager.restartAgentRuntimeMode('agent-fresh-codex-switch', 'chat');
   assert.strictEqual(killed, 'agent-fresh-codex-switch');
   assert.strictEqual(started.command, 'codex');
-  assert.strictEqual(started.options.acpStartFresh, true);
-  assert.strictEqual(freshCodexAcpResult.agentRuntimeMode, 'acp');
+  assert.strictEqual(started.options.acpStartFresh, false);
+  assert.strictEqual(freshCodexAcpResult.agentRuntimeMode, 'chat');
 
   manager.agents.set('agent-used-qoder-switch', {
     id: 'agent-used-qoder-switch',
@@ -253,7 +253,7 @@ const AgentManager = require('../agent-manager');
   });
   killed = '';
   started = null;
-  const usedQoderResult = await manager.restartAgentRuntimeMode('agent-used-qoder-switch', 'acp');
+  const usedQoderResult = await manager.restartAgentRuntimeMode('agent-used-qoder-switch', 'chat');
   assert.strictEqual(usedQoderResult.error, 'The saved Agent session is no longer available in the selected Agent Home.');
   assert.strictEqual(killed, '');
   assert.strictEqual(started, null);
@@ -324,7 +324,7 @@ const AgentManager = require('../agent-manager');
     callback('agent-restored');
     return 'agent-restored';
   };
-  const rollbackResult = await manager.restartAgentRuntimeMode('agent-rollback', 'acp');
+  const rollbackResult = await manager.restartAgentRuntimeMode('agent-rollback', 'chat');
   assert.strictEqual(rollbackStarts, 2);
   assert.strictEqual(rollbackResult.switchFailed, true);
   assert.strictEqual(rollbackResult.restartedAgentId, 'agent-restored');

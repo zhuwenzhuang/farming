@@ -92,7 +92,7 @@ export function useWebSocket() {
     command: string,
     workspace?: string,
     asMain?: boolean,
-    extras?: { task?: string; workflowTemplate?: string; customTitle?: string; projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string }
+    extras?: { task?: string; workflowTemplate?: string; customTitle?: string; projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string }
   ) => {
     const msg: StartAgentMessage = {
       type: 'start-agent',

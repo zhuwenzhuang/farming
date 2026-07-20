@@ -1,4 +1,5 @@
 const path = require('path');
+const { chatCapabilitiesForProvider } = require('./chat-runtime');
 const {
   createProviderSessionId,
   createTemporaryProviderSessionId,
@@ -225,6 +226,9 @@ function providerCapabilities(provider) {
     runtimeSwitch: adapter?.capabilities?.runtimeSwitch === true,
     terminalProfile: adapter?.capabilities?.terminalProfile === true,
     goals: adapter?.capabilities?.goals === true,
+    ...(adapter
+      ? chatCapabilitiesForProvider(provider)
+      : { chatRuntime: '', supportsChat: false, supportsSteer: false }),
   };
 }
 

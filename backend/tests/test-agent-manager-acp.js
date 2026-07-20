@@ -25,20 +25,19 @@ async function run() {
   const runtime = new AcpRuntime({
     resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
   });
-  const manager = new AgentManager(config(), { acpRuntime: runtime });
+  const manager = new AgentManager(config(), { acpRuntime: runtime, skipExecutablePreflight: true });
   let nativeMetadataUpdateCount = 0;
   manager.engineBridge.getEngine('native').updateSessionMetadata = async () => {
     nativeMetadataUpdateCount += 1;
   };
   try {
     const agentId = await new Promise(resolve => {
-      manager.startAgent('codex', process.cwd(), (id, error) => {
+      manager.startAgent('claude', process.cwd(), (id, error) => {
         assert.ifError(error);
         resolve(id);
       }, {
-        agentRuntimeMode: 'acp',
-        codexRuntimeMode: 'cli',
-        codexApprovalMode: 'full',
+        agentRuntimeMode: 'chat',
+        wantsMain: false,
       });
     });
     assert(agentId);
@@ -48,12 +47,6 @@ async function run() {
     assert.strictEqual(live.providerSessionId, 'acp-new-session');
     assert.strictEqual(live.providerSessionSource, 'acp-new');
     const binding = runtime.bindings.get(agentId);
-    assert.strictEqual(binding.env.INITIAL_AGENT_MODE, 'agent-full-access');
-    assert.deepStrictEqual(JSON.parse(binding.env.CODEX_CONFIG), {
-      model: 'gpt-5.5',
-      model_reasoning_effort: 'xhigh',
-      service_tier: 'priority',
-    });
     const elicitationPromise = runtime.requestElicitation(binding, {
       sessionId: binding.sessionId,
       mode: 'form',
@@ -77,19 +70,19 @@ async function run() {
     assert.deepStrictEqual(await elicitationPromise, { action: 'accept', content: { confirmed: true } });
     assert.strictEqual(manager.getState().agents.find(agent => agent.id === agentId).runtimeBinding.pendingElicitations.length, 0);
 
-    const result = await manager.sendComposerMessage(agentId, 'manager prompt');
+    const result = await manager.sendComposerMessage(agentId, 'phase-aware mermaid');
     assert.strictEqual(result.kind, 'acp');
     assert.strictEqual(result.stopReason, 'end_turn');
     const session = manager.getAcpSession(agentId);
-    assert.strictEqual(session.entries.find(item => item.role === 'assistant').content[0].text, 'ACP reply');
+    assert.strictEqual(session.entries.find(item => item.role === 'assistant').content[0].text, 'Checking the final-answer phase.');
     await manager.sendComposerMessage(agentId, [
-      { type: 'text', text: 'inspect image' },
+      { type: 'text', text: 'phase-aware mermaid image' },
       { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' },
     ]);
     const imagePrompt = manager.getAcpSession(agentId).entries
       .filter(item => item.role === 'user')
       .at(-1);
-    assert.strictEqual(imagePrompt.content[0].text, 'inspect image');
+    assert.strictEqual(imagePrompt.content[0].text, 'phase-aware mermaid image');
     assert.strictEqual(imagePrompt.content[1].type, 'image');
     const listed = await manager.listAcpSessions(agentId);
     assert(listed.sessions.some(item => item.sessionId === 'acp-new-session'));
@@ -97,7 +90,7 @@ async function run() {
     assert.strictEqual('turns' in rawTranscript, false, 'ACP Turn/Item projection belongs to the frontend');
     assert.strictEqual(
       rawTranscript.entries.find(item => item.role === 'assistant').content[0].text,
-      'ACP reply',
+      'Checking the final-answer phase.',
     );
     assert.strictEqual((await manager.forkAcpSession(agentId)).sessionId, 'acp-fork-session');
     assert.strictEqual((await manager.setAcpSessionMode(agentId, 'plan')).modeId, 'plan');
@@ -153,7 +146,6 @@ async function run() {
   });
   try {
     for (const { provider, command } of [
-      { provider: 'codex', command: 'codex' },
       { provider: 'claude', command: 'claude' },
       { provider: 'opencode', command: 'opencode' },
       { provider: 'qoder', command: 'qoder' },
@@ -163,7 +155,7 @@ async function run() {
           assert.ifError(error);
           resolve(id);
         }, {
-          agentRuntimeMode: 'acp',
+          agentRuntimeMode: 'chat',
           codexServiceTier: 'default',
         });
       });

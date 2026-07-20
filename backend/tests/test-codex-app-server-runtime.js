@@ -403,8 +403,17 @@ async function run() {
     managedManager.engineBridge.resolve = () => ({ engineName: 'test', spec: { category: 'coding' }, engine: managedEngine });
     managedManager.engineBridge.getEngine = () => managedEngine;
     try {
-      const agentId = await managedManager.startAgent('codex', root, null, { wantsMain: false });
+      const agentId = await managedManager.startAgent('codex', root, null, {
+        wantsMain: false,
+        agentRuntimeMode: 'chat',
+        codexRuntimeMode: 'cli',
+      });
       assert(agentId, 'App Server mode should create a Composer-ready Codex agent');
+      assert.strictEqual(
+        managedManager.agents.get(agentId).runtimeBinding.kind,
+        'app-server',
+        'the product-level Chat request must ignore the retired Codex runtime selector',
+      );
       assert.strictEqual(managedEngineCalls.length, 0, 'a brand-new empty thread is not resumable until its first turn');
       managedManager.engineBridge.emit('session-error', {
         sessionId: agentId,

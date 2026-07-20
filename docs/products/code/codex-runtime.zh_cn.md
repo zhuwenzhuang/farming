@@ -5,9 +5,11 @@ English version: [codex-runtime.md](./codex-runtime.md)
 Farming 为**新启动的** Codex Agent 提供两种运行时模式：
 
 - **CLI**（默认）：Farming 按原来的终端拥有方式启动 Codex；Composer 直接向终端写入消息，作为稳定路径。
-- **App Server**（实验性）：Farming 为每个 Codex Agent 持有专属的 Codex app-server；App Server Chat 页面只通过结构化 Codex 协议读写，不创建 CLI 或 PTY observer。其上游协议可能随 Codex 版本变化。
+- **Chat**：Farming 为每个 Codex Agent 持有专属的 Codex app-server；Chat 页面只通过结构化 Codex 协议读写，不创建 CLI 或 PTY observer。其上游协议可能随 Codex 版本变化。
 
-**New Agent** 对话框是新建 Codex Agent 时唯一可见的运行方式选择入口。持久化的 `codexRuntimeMode` 只作为兼容元数据保留，不再出现在 Settings 中。已经运行的 session 保持创建时的模式，因此为新 Agent 选择运行方式不会抢焦点、重启当前终端，或把用户切换到其他 Agent。
+**New Agent** 对话框只显示 Chat 或 Terminal。Chat 对 Codex 固定解析为 App Server，对其他支持的 provider 固定解析为 ACP；用户不会选择传输方式。持久化的 `codexRuntimeMode` 只为旧 session 兼容保留。
+
+浏览器的所有结构化 Chat 提交都使用同一个 `composer-input` 契约。`AgentManager.sendComposerMessage` 根据权威的 runtime binding 分发：Codex 调用 App Server 的 `turn/start` 或 `turn/steer`，ACP provider 调用 `session/prompt`。能力差异会明确暴露：只有 Codex binding 标记 `supportsSteer`。
 
 ## 两条运行时边界
 
@@ -63,6 +65,6 @@ App Server 模式需要安装的 Codex CLI 支持 app-server 协议。如果 Far
 1. 用确定性的 mock app-server connection 验证 App Server 模式：专属 home 启动决策、创建/恢复 thread、结构化 transcript 事件、Composer `turn/start`、追问 `turn/steer`、中断、反向请求响应，并验证不会创建 CLI observer。
 2. 用 CLI 模式回归验证：不启动 app server、不调用结构化 RPC，Composer 文本仍原样写进 terminal。
 3. 用低频真实 Codex 本机 smoke，在隔离临时 workspace 里验证已安装 CLI 的 `initialize` 与 thread start/resume。
-4. 浏览器验证设置选择、切换设置后当前终端焦点不变，以及请求进行中 App Server runtime 状态。
+4. 浏览器验证 Chat/Terminal 选择、切换后当前终端焦点不变，以及请求进行中 App Server runtime 状态。
 
 本机可用 `npm run test:codex-app-server:real` 运行显式真实 smoke。它会向已安装且已登录的 Codex CLI 发送一条很小的 prompt，因此刻意不进入普通测试或发布 CI。

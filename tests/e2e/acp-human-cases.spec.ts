@@ -6,7 +6,7 @@ import { expect, openFarming, test } from './fixtures'
 
 async function createAcpAgent(page: Page, workspace: string) {
   const response = await page.request.post('/farming/api/control/agents', {
-    data: { command: 'codex', workspace, agentRuntimeMode: 'acp' },
+    data: { command: 'claude', workspace, agentRuntimeMode: 'chat' },
   })
   expect(response.ok()).toBeTruthy()
   const payload = await response.json() as { agentId?: string }
@@ -49,7 +49,7 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(page.getByTestId('input-dialog')).toBeVisible()
     await expect(page.getByTestId('agent-list-status')).toBeHidden({ timeout: 30_000 })
     await page.getByTestId('agent-option-opencode').click()
-    const runtime = page.getByTestId('codex-runtime-mode')
+    const runtime = page.getByTestId('agent-runtime-mode')
     await runtime.getByRole('button', { name: /^Chat/ }).click()
     await expect(runtime.getByRole('button', { name: /^Chat/ })).toHaveAttribute('aria-pressed', 'true')
     await page.getByTestId('workspace-input').fill(workspace)

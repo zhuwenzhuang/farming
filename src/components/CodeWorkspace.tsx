@@ -285,7 +285,7 @@ export interface AgentFlagUpdateResult {
   restarted?: boolean
   restartedAgentId?: string
   launchPermissionMode?: string
-  agentRuntimeMode?: 'terminal' | 'acp' | 'json'
+  agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'
   switchFailed?: boolean
   warning?: string
   error?: string
@@ -318,12 +318,12 @@ interface CodeWorkspaceProps {
   onOpenTerminal: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onOpenTerminalWhenReady: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null, customTitle?: string) => void
-  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string }) => void
+  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string }) => void
   onRenameAgent: (agentId: string, title: string) => void
   onUpdateAgentFlags: (
     agentId: string,
     flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived' | 'launchPermissionMode' | 'readAttentionSeq'>>
-      & { agentRuntimeMode?: 'terminal' | 'acp' | 'json'; readOutputEpoch?: string; readOutputSeq?: number },
+      & { agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; readOutputEpoch?: string; readOutputSeq?: number },
   ) => AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>
   onOpenArchivedAgent: (agentId: string) => void
   onForkAgent: (agentId: string, mode: 'same-worktree' | 'new-worktree') => void
@@ -2078,7 +2078,7 @@ export function CodeWorkspace({
   const startAgentWithLaunchProfile = useCallback((
     command: string,
     workspace: string,
-    options?: { projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string },
+    options?: { projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string },
   ) => {
     setSearchQuery('')
     setSearchOpen(false)
@@ -3657,7 +3657,7 @@ export function CodeWorkspace({
           unarchiveArchived: true,
           providerHomeId,
           ...(['codex', 'claude', 'opencode', 'qoder'].includes(provider) ? {
-            agentRuntimeMode: 'acp',
+            agentRuntimeMode: 'chat',
             acpHistoryMode: 'load',
           } : {}),
           ...(customTitle ? { customTitle } : {}),
@@ -3865,7 +3865,7 @@ export function CodeWorkspace({
     focusComposerTextarea()
   }, [activeAgent, activeAppServerRuntime, closeActiveComposerMenus, composerAgentKind, copy.permissionProfileApplying, copy.permissionProfileRestarting, focusComposerTextarea, onUpdateAgentFlags, permissionSwitchingAgentId, persistAgentLaunchProfile])
 
-  const updateAgentRuntimeMode = useCallback((agentId: string, mode: 'terminal' | 'acp') => {
+  const updateAgentRuntimeMode = useCallback((agentId: string, mode: 'terminal' | 'chat') => {
     if (permissionSwitchingAgentId) return
     setCopyNotice({ id: Date.now(), kind: 'success', message: copy.runtimeModeRestarting })
     void onUpdateAgentFlags(agentId, { agentRuntimeMode: mode })

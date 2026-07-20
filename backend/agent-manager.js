@@ -37,9 +37,10 @@ const {
   providerSupportsRuntime,
 } = require('./provider-adapters');
 const { deriveTerminalStatus } = require('./terminal-status');
-const { CodexAppServerRuntime, normalizeCodexRuntimeMode } = require('./codex-app-server-runtime');
+const { CodexAppServerRuntime } = require('./codex-app-server-runtime');
 const { JsonCliRuntime } = require('./json-cli-runtime');
 const { AcpRuntime } = require('./acp-runtime');
+const { chatRuntimeForProvider, isChatMode } = require('./chat-runtime');
 const { acpToolChanges, acpToolDetail, acpToolReviewChanges, acpTranscriptToolEntry } = require('./acp-transcript');
 const {
   applyCodexTerminalProfile,
@@ -2629,35 +2630,37 @@ class AgentManager extends EventEmitter {
         resolvedProviderHomeId = defaultCodexHome.id || 'default';
       }
     }
-    const requestedAgentRuntimeMode = ['json', 'acp'].includes(options.agentRuntimeMode)
+    const requestedAgentRuntimeMode = ['json', 'acp', 'chat'].includes(options.agentRuntimeMode)
       ? options.agentRuntimeMode
       : 'terminal';
     // A fresh structured runtime does not need a provider CLI resume id yet:
     // ACP/JSON creates the provider session and writes the resulting id back
     // after connecting. OpenCode is the important case here because its
     // terminal CLI does not accept a pre-generated id for a fresh session.
-    const structuredRuntimeProvider = ['json', 'acp'].includes(requestedAgentRuntimeMode)
+    const structuredRuntimeProvider = ['json', 'acp', 'chat'].includes(requestedAgentRuntimeMode)
       ? homeProvider
       : providerSessionPlan.provider;
-    const requestedCodexRuntimeMode = options.codexRuntimeMode === 'app-server' || options.codexRuntimeMode === 'cli'
-      ? options.codexRuntimeMode
-      : (this.configManager && typeof this.configManager.getCodexRuntimeMode === 'function'
-        ? this.configManager.getCodexRuntimeMode()
-        : 'cli');
-    const useCodexAppServer = providerSessionPlan.provider === 'codex'
+    // `chat` is the only browser-facing structured-runtime request. Treat the
+    // retired Codex ACP launch request as that intent too, so an old client
+    // cannot create a second Codex Chat implementation.
+    const requestedChatRuntime = isChatMode(requestedAgentRuntimeMode)
+      || (requestedAgentRuntimeMode === 'acp' && homeProvider === 'codex');
+    const resolvedChatRuntime = requestedChatRuntime
+      ? chatRuntimeForProvider(homeProvider)
+      : (requestedAgentRuntimeMode === 'acp' ? 'acp' : '');
+    const useCodexAppServer = homeProvider === 'codex'
       && this.codexAppServerRuntime
-      && options.agentRuntimeMode !== 'acp'
+      && resolvedChatRuntime === 'app-server'
       // The deterministic browser/server fixtures are terminal-only shims,
       // not an implementation of the Codex App Server protocol. App Server
       // behavior has its own mock runtime test; keep these legacy PTY tests
       // on the path they are designed to exercise.
-      && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
-      && normalizeCodexRuntimeMode(requestedCodexRuntimeMode) === 'app-server';
+      && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1';
     const useJsonCli = requestedAgentRuntimeMode === 'json'
       && providerSupportsRuntime(structuredRuntimeProvider, 'json')
       && !useCodexAppServer
       && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1';
-    const useAcp = requestedAgentRuntimeMode === 'acp'
+    const useAcp = resolvedChatRuntime === 'acp'
       && providerSupportsRuntime(structuredRuntimeProvider, 'acp')
       && !useCodexAppServer
       && (
@@ -3868,15 +3871,16 @@ class AgentManager extends EventEmitter {
   async performAgentRuntimeModeRestart(agentId, mode) {
     const agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
-    const nextMode = ['terminal', 'json', 'acp'].includes(mode) ? mode : '';
-    if (!nextMode) return { error: 'Unsupported Agent runtime mode' };
     const provider = agent.providerSessionProvider || '';
+    const requestedMode = ['terminal', 'json', 'acp', 'chat'].includes(mode) ? mode : '';
+    const nextMode = requestedMode === 'acp' && provider === 'codex' ? 'chat' : requestedMode;
+    if (!nextMode) return { error: 'Unsupported Agent runtime mode' };
     const currentKind = runtimeKind(agent);
-    const currentMode = ['acp', 'json'].includes(currentKind) ? currentKind : 'terminal';
-    const leavesCodexAppServer = provider === 'codex'
-      && currentKind === 'app-server'
-      && nextMode === 'terminal';
-    if (currentMode === nextMode && !leavesCodexAppServer) {
+    const currentMode = ['acp', 'app-server'].includes(currentKind)
+      ? 'chat'
+      : (currentKind === 'json' ? 'json' : 'terminal');
+    const nextRuntimeKind = nextMode === 'chat' ? chatRuntimeForProvider(provider) : nextMode;
+    if (currentMode === nextMode) {
       return { agentId, agentRuntimeMode: nextMode };
     }
     const turnActive = currentKind === 'acp'
@@ -3885,18 +3889,21 @@ class AgentManager extends EventEmitter {
     if (turnActive) {
       return { error: 'Interrupt the active Agent turn before switching Chat and Terminal.' };
     }
-    if (!providerSupportsRuntime(provider, nextMode)) {
+    const supportsNextMode = nextMode === 'chat'
+      ? providerCapabilities(provider).supportsChat === true
+      : providerSupportsRuntime(provider, nextMode);
+    if (!supportsNextMode) {
       return { error: `Agent does not support the ${nextMode.toUpperCase()} runtime` };
     }
     const sessionId = String(agent.providerSessionId || '').trim();
-    const canStartFreshAcpSession = nextMode === 'acp'
+    const canStartFreshChatSession = nextMode === 'chat'
       && currentMode === 'terminal'
       && agent.terminalInputReceived !== true
       && (
         agent.providerSessionTemporary === true
         || isFreshAcpSessionSource(provider, agent.providerSessionSource || '')
       );
-    if (!isSafeProviderSessionId(sessionId) && !canStartFreshAcpSession) {
+    if (!isSafeProviderSessionId(sessionId) && !canStartFreshChatSession) {
       return { error: 'Runtime switching requires a resumable provider session. Send the first message and try again.' };
     }
     // A live ACP binding is the authoritative owner of a newly-created
@@ -3915,15 +3922,15 @@ class AgentManager extends EventEmitter {
       }
     }
     const previouslyVerifiedSession = String(agent.runtimeSwitchVerifiedSessionId || '') === sessionId;
-    let startsFreshAcpSession = canStartFreshAcpSession && !isSafeProviderSessionId(sessionId);
-    if (!startsFreshAcpSession && !liveAcpSession && !previouslyVerifiedSession) {
+    let startsFreshChatSession = canStartFreshChatSession && !isSafeProviderSessionId(sessionId);
+    if (!startsFreshChatSession && !liveAcpSession && !previouslyVerifiedSession) {
       const providerSession = await this.findRuntimeSwitchSession(agent);
       if (!providerSession) {
-        if (canStartFreshAcpSession) startsFreshAcpSession = true;
+        if (canStartFreshChatSession) startsFreshChatSession = true;
         else return { error: 'The saved Agent session is no longer available in the selected Agent Home.' };
       }
     }
-    const command = startsFreshAcpSession
+    const command = startsFreshChatSession
       ? (agent.forkCommand || agent.command)
       : buildAgentSessionResumeCommand(provider, sessionId, {
           cwd: effectiveAgentWorkspaceRoot(agent),
@@ -3945,7 +3952,7 @@ class AgentManager extends EventEmitter {
       task: agent.task || agent.providerSessionTitle || '',
       workflowTemplate: agent.workflowTemplate || '',
       projectWorkspace: effectiveAgentWorkspaceRoot(agent),
-      source: startsFreshAcpSession
+      source: startsFreshChatSession
         ? 'ui-runtime-switch-fresh'
         : resumedAgentSource(provider, sessionId, agent.providerHomeId || ''),
       providerHomeId: agent.providerHomeId || '',
@@ -3960,12 +3967,12 @@ class AgentManager extends EventEmitter {
       projectOrder: preserved.projectOrder,
       pinnedOrder: preserved.pinnedOrder,
       agentRuntimeMode: nextMode,
-      acpStartFresh: startsFreshAcpSession,
+      acpStartFresh: startsFreshChatSession && nextRuntimeKind === 'acp',
       codexRuntimeMode: 'cli',
       codexApprovalMode: agent.launchPermissionMode || undefined,
       jsonCliEvents: preserved.jsonCliEvents,
-      runtimeSwitchVerifiedSessionId: startsFreshAcpSession ? '' : sessionId,
-      ...(provider === 'codex' && !startsFreshAcpSession
+      runtimeSwitchVerifiedSessionId: startsFreshChatSession ? '' : sessionId,
+      ...(provider === 'codex' && !startsFreshChatSession
         ? preserveCodexSessionProfileOptions()
         : {}),
     };

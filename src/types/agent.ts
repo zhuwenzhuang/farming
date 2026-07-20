@@ -279,6 +279,9 @@ export interface ProviderCapabilities {
   runtimeSwitch: boolean
   terminalProfile: boolean
   goals: boolean
+  chatRuntime: 'acp' | 'app-server' | ''
+  supportsChat: boolean
+  supportsSteer: boolean
 }
 
 /** A single CLI agent instance */

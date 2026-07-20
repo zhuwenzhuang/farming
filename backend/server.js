@@ -1710,7 +1710,7 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
         requiredCliVersion: normalizedProvider === 'codex' && session ? session.cliVersion : '',
         projectWorkspace: session ? (session.workspace || session.cwd || '') : '',
         source: shouldFork ? resumeSource.replace('-history:', '-history-fork:') : resumeSource,
-        agentRuntimeMode: options.agentRuntimeMode === 'acp' ? 'acp' : 'terminal',
+        agentRuntimeMode: ['chat', 'acp'].includes(options.agentRuntimeMode) ? 'chat' : 'terminal',
         acpHistoryMode: options.acpHistoryMode === 'resume' ? 'resume' : 'load',
         providerHomeId: resolvedProviderHomeId,
         providerHomePath: session ? (session.providerHomePath || '') : '',
@@ -1754,7 +1754,7 @@ async function startResumedAgentSession(req, res, provider, rawSessionId) {
     allowUnarchiveArchived,
     providerHomeId: req.body && typeof req.body.providerHomeId === 'string' ? req.body.providerHomeId : '',
     customTitle: req.body && typeof req.body.customTitle === 'string' ? req.body.customTitle : '',
-    agentRuntimeMode: req.body && req.body.agentRuntimeMode === 'acp' ? 'acp' : 'terminal',
+    agentRuntimeMode: req.body && ['chat', 'acp'].includes(req.body.agentRuntimeMode) ? 'chat' : 'terminal',
     acpHistoryMode: req.body && req.body.acpHistoryMode === 'resume' ? 'resume' : 'load',
   });
 
@@ -2110,7 +2110,7 @@ function handleMessage(ws, data) {
         codexRuntimeMode: data.codexRuntimeMode === 'app-server' || data.codexRuntimeMode === 'cli'
           ? data.codexRuntimeMode
           : undefined,
-        agentRuntimeMode: ['json', 'acp'].includes(data.agentRuntimeMode) ? data.agentRuntimeMode : 'terminal',
+        agentRuntimeMode: ['json', 'acp', 'chat'].includes(data.agentRuntimeMode) ? data.agentRuntimeMode : 'terminal',
         acpHistoryMode: data.acpHistoryMode === 'resume' ? 'resume' : 'load',
         providerHomeId: typeof data.providerHomeId === 'string' ? data.providerHomeId : '',
         ...(data.dangerouslySkipPermissions === true ? { dangerouslySkipPermissions: true } : {}),

@@ -5,9 +5,11 @@ Chinese version: [codex-runtime.zh_cn.md](./codex-runtime.zh_cn.md)
 Farming supports two runtime modes for newly started Codex agents:
 
 - **CLI** (default): Farming starts Codex exactly as a terminal-owned CLI session. Composer messages are written to the terminal, preserving the stable legacy behavior.
-- **App Server** (experimental): Farming gives each Codex Agent a dedicated Codex app-server. The App Server Chat page sends and reads only the structured Codex protocol; it does not create a CLI or PTY observer. Its upstream protocol may change between Codex versions.
+- **Chat**: Farming gives each Codex Agent a dedicated Codex app-server. The Chat page sends and reads only the structured Codex protocol; it does not create a CLI or PTY observer. Its upstream protocol may change between Codex versions.
 
-The **New Agent** dialog is the visible runtime selector for each new Codex Agent. The persisted `codexRuntimeMode` remains only as compatibility metadata and is not exposed in Settings. Existing sessions keep the runtime that created them, so choosing a runtime for a new launch never steals input focus, restarts a visible terminal, or moves the user to another agent.
+The **New Agent** dialog exposes only Chat or Terminal. Chat resolves to Codex App Server for Codex and ACP for other supported providers; the user never chooses a transport. The persisted `codexRuntimeMode` remains compatibility metadata for old sessions only.
+
+The browser sends every structured Chat submission through one `composer-input` contract. `AgentManager.sendComposerMessage` dispatches by the authoritative runtime binding: Codex uses App Server `turn/start` or `turn/steer`; ACP providers use `session/prompt`. Provider capabilities expose the difference explicitly: only the Codex binding advertises `supportsSteer`.
 
 ## Separate runtime boundaries
 
@@ -63,6 +65,6 @@ Runtime changes require both deterministic and real checks:
 1. A deterministic mock app-server connection verifies App Server mode: dedicated-home startup decisions, thread creation/resume, structured transcript events, composer `turn/start`, follow-up `turn/steer`, interruption, and reverse request resolution without creating a CLI observer.
 2. A CLI-mode regression verifies that neither the app-server process nor structured RPC is requested and composer text reaches the terminal unchanged.
 3. A low-volume local Codex smoke verifies `initialize` plus thread start/resume against the installed CLI, using an isolated disposable workspace.
-4. The browser check verifies the settings selection, the unchanged terminal focus after a runtime switch, and the App Server runtime indicator while a request is in progress.
+4. The browser check verifies the Chat/Terminal selection, the unchanged terminal focus after a runtime switch, and the App Server runtime indicator while a request is in progress.
 
 Run the opt-in real smoke locally with `npm run test:codex-app-server:real`. It sends one small prompt to the installed, authenticated Codex CLI; it is intentionally excluded from normal tests and release CI.

@@ -1051,9 +1051,9 @@ function run() {
       serverSource.includes('return { agentId: existingAgent.id, reused: true }') &&
       serverSource.includes('wantsMain: resumeAsMain') &&
       serverSource.includes("source: shouldFork ? resumeSource.replace('-history:', '-history-fork:') : resumeSource") &&
-      resumeAgentSessionSource.includes("agentRuntimeMode: 'acp'") &&
+      resumeAgentSessionSource.includes("agentRuntimeMode: 'chat'") &&
       resumeAgentSessionSource.includes("acpHistoryMode: 'load'") &&
-      serverSource.includes("agentRuntimeMode: options.agentRuntimeMode === 'acp' ? 'acp' : 'terminal'") &&
+      serverSource.includes("agentRuntimeMode: ['chat', 'acp'].includes(options.agentRuntimeMode) ? 'chat' : 'terminal'") &&
       mainPageSessionSource.includes("agent.status !== 'dead'") &&
       mainPageSessionSource.includes("agent.status !== 'stopped'") &&
       !resumeAgentSessionSource.includes("agent.status === 'dead' || agent.status === 'stopped'"),
@@ -1224,7 +1224,7 @@ function run() {
       acpSessionControlsSource.includes('code-model-submenu code-composer-menu') &&
       acpSessionControlsSource.includes('code-speed-submenu code-composer-menu') &&
       agentWorkPaneSource.includes('agent.providerCapabilities.runtimeSwitch') &&
-      agentWorkPaneSource.includes("agent.providerCapabilities.supportedRuntimes.includes('acp')") &&
+      agentWorkPaneSource.includes('agent.providerCapabilities.supportsChat') &&
       inputDialogSource.includes("['codex', 'claude', 'opencode', 'qoder'].includes(selectedAgent.name)") &&
       acpPermissionSource.includes('code-acp-permission-details') &&
       agentWorkPaneSource.includes('refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)}') &&

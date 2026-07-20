@@ -34,7 +34,34 @@ function run() {
     runtimeSwitch: true,
     terminalProfile: true,
     goals: true,
+    chatRuntime: 'app-server',
+    supportsChat: true,
+    supportsSteer: true,
   });
+  assert.deepStrictEqual(
+    providerCapabilities('claude'),
+    {
+      supportedRuntimes: ['terminal', 'acp'],
+      runtimeSwitch: true,
+      terminalProfile: false,
+      goals: false,
+      chatRuntime: 'acp',
+      supportsChat: true,
+      supportsSteer: false,
+    },
+  );
+  assert.deepStrictEqual(
+    providerCapabilities('unknown'),
+    {
+      supportedRuntimes: ['terminal'],
+      runtimeSwitch: false,
+      terminalProfile: false,
+      goals: false,
+      chatRuntime: '',
+      supportsChat: false,
+      supportsSteer: false,
+    },
+  );
   assert.strictEqual(providerSupportsRuntime('opencode', 'json'), true);
   assert.strictEqual(providerSupportsRuntime('claude', 'json'), false);
   assert.strictEqual(isFreshAcpSessionSource('qoder', 'qoder-session-id'), true);

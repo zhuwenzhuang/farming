@@ -27,7 +27,7 @@ export function runtimeState(agent: Agent | null | undefined) {
 }
 
 export function runtimeBindingForMode(
-  mode: 'terminal' | 'acp' | 'json' | undefined,
+  mode: 'terminal' | 'chat' | 'acp' | 'json' | undefined,
   fallback: AgentRuntimeBinding,
 ): AgentRuntimeBinding {
   if (mode === 'terminal') return { kind: 'terminal' }

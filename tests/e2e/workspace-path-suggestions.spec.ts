@@ -53,11 +53,11 @@ test.describe('workspace path suggestions', () => {
     await page.getByTestId('agent-home-option').filter({ hasText: 'mobile' }).click()
     await expect(homeSelect).toContainText('mobile')
 
-    const runtimeMode = page.getByTestId('codex-runtime-mode')
+    const runtimeMode = page.getByTestId('agent-runtime-mode')
     await expect(runtimeMode).toBeVisible()
     await expect(runtimeMode.getByRole('button', { name: /Terminal/ })).toHaveAttribute('aria-pressed', 'true')
-    await runtimeMode.getByRole('button', { name: /Chat ACP/ }).click()
-    await expect(runtimeMode.getByRole('button', { name: /Chat ACP/ })).toHaveAttribute('aria-pressed', 'true')
+    await runtimeMode.getByRole('button', { name: /^Chat$/ }).click()
+    await expect(runtimeMode.getByRole('button', { name: /^Chat$/ })).toHaveAttribute('aria-pressed', 'true')
 
     const workspaceInput = page.getByTestId('workspace-input')
     await expect(workspaceInput).toHaveAttribute('autocomplete', 'off')
@@ -174,7 +174,7 @@ test.describe('workspace path suggestions', () => {
     await page.keyboard.press('Escape')
     await expect(homeMenu).toBeHidden()
 
-    const runtimeMetrics = await page.getByTestId('codex-runtime-mode').locator('.workspace-runtime-options').evaluate(element => {
+    const runtimeMetrics = await page.getByTestId('agent-runtime-mode').locator('.workspace-runtime-options').evaluate(element => {
       const style = getComputedStyle(element)
       return { background: style.backgroundColor, color: style.color }
     })

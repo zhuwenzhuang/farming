@@ -69,8 +69,7 @@ interface MainAgentResumeSession {
 
 export interface StartAgentOptions {
   providerHomeId?: string
-  codexRuntimeMode?: 'cli' | 'app-server'
-  agentRuntimeMode?: 'terminal' | 'acp' | 'json'
+  agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'
   resumeSession?: {
     provider: string
     id: string
@@ -149,7 +148,7 @@ export function InputDialog({
   const [workspaceHistory, setWorkspaceHistory] = useState<string[]>([])
   const [agentHomes, setAgentHomes] = useState<Record<string, Array<{ id: string; path: string }>>>({})
   const [selectedHomeId, setSelectedHomeId] = useState('default')
-  const [codexRuntimeMode, setCodexRuntimeMode] = useState<'cli' | 'app-server' | 'acp'>('cli')
+  const [agentRuntimeMode, setAgentRuntimeMode] = useState<'terminal' | 'chat'>('terminal')
   const [homeMenuOpen, setHomeMenuOpen] = useState(false)
   const [discoveredWorkspaces, setDiscoveredWorkspaces] = useState<string[]>([])
   const [workspacePathSuggestions, setWorkspacePathSuggestions] = useState<WorkspacePathSuggestion[]>([])
@@ -211,7 +210,7 @@ export function InputDialog({
     setDefaultLaunchAgent('codex')
     setAgentHomes({})
     setSelectedHomeId('default')
-    setCodexRuntimeMode('cli')
+    setAgentRuntimeMode('terminal')
     setHomeMenuOpen(false)
     setHistorySelection(-1)
     setAgentsLoaded(false)
@@ -264,7 +263,6 @@ export function InputDialog({
         setDefaultLaunchAgent(normalizeDefaultLaunchAgent(settings.defaultLaunchAgent))
         setWorkspaceHistory(history)
         setAgentHomes(settings.agentHomes ?? {})
-        setCodexRuntimeMode(settings.codexRuntimeMode === 'app-server' ? 'app-server' : 'cli')
         if (mustStartMain && !workspaceTouchedRef.current) {
           setWorkspace(nextMainWorkspaceDefault)
         }
@@ -523,8 +521,7 @@ export function InputDialog({
       ...(initialCustomTitle ? { customTitle: initialCustomTitle } : {}),
       providerHomeId: selectedHomeId,
       ...(['codex', 'claude', 'opencode', 'qoder'].includes(selectedAgent.name) ? {
-        codexRuntimeMode: codexRuntimeMode === 'app-server' ? 'app-server' : 'cli',
-        agentRuntimeMode: codexRuntimeMode === 'acp' ? 'acp' : 'terminal',
+        agentRuntimeMode,
       } : {}),
     })
   }, [
@@ -538,7 +535,7 @@ export function InputDialog({
     taskText,
     workflowId,
     initialCustomTitle,
-    codexRuntimeMode,
+    agentRuntimeMode,
   ])
 
   const confirm = useCallback(async () => {
@@ -1030,14 +1027,11 @@ export function InputDialog({
               </div>
             )}
             {['codex', 'claude', 'opencode', 'qoder'].includes(selectedAgent.name) && (
-              <div className="workspace-runtime-field" data-testid="codex-runtime-mode">
+              <div className="workspace-runtime-field" data-testid="agent-runtime-mode">
                 <p className="workspace-field-copy">{agentDisplayName(selectedAgent.name)} runtime</p>
                 <div className="workspace-runtime-options" role="group" aria-label={`${agentDisplayName(selectedAgent.name)} runtime`}>
-                  <button type="button" className={codexRuntimeMode === 'cli' ? 'active' : ''} aria-pressed={codexRuntimeMode === 'cli'} onClick={() => setCodexRuntimeMode('cli')}>Terminal</button>
-                  <button type="button" className={codexRuntimeMode === 'acp' ? 'active' : ''} aria-pressed={codexRuntimeMode === 'acp'} onClick={() => setCodexRuntimeMode('acp')}>Chat <span>ACP</span></button>
-                  {selectedAgent.name === 'codex' && (
-                    <button type="button" className={codexRuntimeMode === 'app-server' ? 'active' : ''} aria-pressed={codexRuntimeMode === 'app-server'} onClick={() => setCodexRuntimeMode('app-server')}>App Server <span>unstable</span></button>
-                  )}
+                  <button type="button" className={agentRuntimeMode === 'terminal' ? 'active' : ''} aria-pressed={agentRuntimeMode === 'terminal'} onClick={() => setAgentRuntimeMode('terminal')}>Terminal</button>
+                  <button type="button" className={agentRuntimeMode === 'chat' ? 'active' : ''} aria-pressed={agentRuntimeMode === 'chat'} onClick={() => setAgentRuntimeMode('chat')}>Chat</button>
                 </div>
               </div>
             )}

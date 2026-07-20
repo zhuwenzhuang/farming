@@ -2,7 +2,7 @@ import path from 'node:path'
 import type { Page } from '@playwright/test'
 import { expect, openFarming, openNewAgentDialog, startAgentFromOpenDialog, test } from './fixtures'
 
-async function createControlAgent(page: Page, command: string, workspace: string, agentRuntimeMode: 'terminal' | 'acp' = 'terminal') {
+async function createControlAgent(page: Page, command: string, workspace: string, agentRuntimeMode: 'terminal' | 'chat' | 'acp' = 'terminal') {
   const response = await page.request.post('/farming/api/control/agents', {
     data: { command, workspace, agentRuntimeMode },
   })

@@ -15,7 +15,7 @@ export interface StartAgentMessage {
   asMain?: boolean
   codexApprovalMode?: string
   codexRuntimeMode?: 'cli' | 'app-server'
-  agentRuntimeMode?: 'terminal' | 'acp' | 'json'
+  agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'
   providerHomeId?: string
   dangerouslySkipPermissions?: boolean
   /** Sub-agent task body (may include workflow prefix from mergeTaskWithWorkflow) */

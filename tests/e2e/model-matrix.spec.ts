@@ -38,7 +38,7 @@ const TERMINAL_MODEL_CATALOG = MODEL_OPTIONS.map(option => ({
 
 function sessionSnapshot(state: MatrixState) {
   return {
-    provider: 'codex',
+    provider: 'claude',
     sessionId: 'model-matrix-session',
     state: 'ready',
     error: '',
@@ -55,9 +55,9 @@ function sessionSnapshot(state: MatrixState) {
   }
 }
 
-async function createAcpAgent(page: Page, workspace: string, provider = 'codex') {
+async function createAcpAgent(page: Page, workspace: string, provider = 'claude') {
   const response = await page.request.post('/farming/api/control/agents', {
-    data: { command: provider, workspace, agentRuntimeMode: 'acp' },
+    data: { command: provider, workspace, agentRuntimeMode: 'chat' },
   })
   expect(response.ok()).toBeTruthy()
   const payload = await response.json() as { agentId?: string }
@@ -82,7 +82,7 @@ function requestedState(route: Route, current: MatrixState) {
   }, { ...current })
 }
 
-test('Codex model matrix responds locally, settles once, and morphs Advanced without a layout jump', async ({ page, workspaceRoot }) => {
+test('ACP model matrix responds locally, settles once, and morphs Advanced without a layout jump', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'model-matrix')
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, 'README.md'), '# Model matrix fixture\n')
@@ -249,7 +249,7 @@ test('Codex model matrix responds locally, settles once, and morphs Advanced wit
   }
 })
 
-for (const provider of ['codex', 'claude', 'opencode', 'qoder']) {
+for (const provider of ['claude', 'opencode', 'qoder']) {
   test(`${provider} ACP exposes and updates its advertised profile controls`, async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, `acp-controls-${provider}`)
     fs.mkdirSync(workspace, { recursive: true })

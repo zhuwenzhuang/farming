@@ -197,7 +197,7 @@ interface CodeMainAreaProps {
     agentId: string,
     readCut?: { runtimeEpoch: string; outputSeq: number } | null,
   ) => void
-  onRuntimeModeChange: (agentId: string, mode: 'terminal' | 'acp') => void
+  onRuntimeModeChange: (agentId: string, mode: 'terminal' | 'chat') => void
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   onOpenSearchAgent: (agentId: string) => void
   onOpenSearchSession: (session: AgentSessionHistoryItem) => void

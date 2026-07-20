@@ -30,7 +30,7 @@ interface AgentWorkPaneProps {
   onOpenWorkspaceFilePath?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onFollowOutputChange?: (agentId: string, state: TerminalFollowState) => void
   onReadLatest?: (agentId: string, readCut?: { runtimeEpoch: string; outputSeq: number } | null) => void
-  onRuntimeModeChange?: (agentId: string, mode: 'terminal' | 'acp') => void
+  onRuntimeModeChange?: (agentId: string, mode: 'terminal' | 'chat') => void
   copy: CodeCopy
 }
 
@@ -72,7 +72,7 @@ export function AgentWorkPane({
     && agent.providerSessionTemporary === true
     && agent.terminalInputReceived !== true
   const canSwitchRuntime = agent.providerCapabilities.runtimeSwitch
-    && agent.providerCapabilities.supportedRuntimes.includes('acp')
+    && agent.providerCapabilities.supportsChat
     && (agent.providerSessionTemporary !== true || freshSwitchableTerminal)
     && Boolean(agent.providerSessionId)
   const runtimeSwitchDisabled = switching || isAgentTurnActive(agent)
@@ -91,7 +91,7 @@ export function AgentWorkPane({
     >
       {canSwitchRuntime ? (
         <div className="code-terminal-mode-toggle" data-testid="code-terminal-mode-toggle" onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}>
-          <button type="button" className={chatMode ? 'active' : ''} aria-pressed={chatMode} aria-label={copy.transcriptView} title={copy.transcriptView} disabled={runtimeSwitchDisabled} onClick={() => !chatMode && onRuntimeModeChange?.(agent.id, 'acp')}>
+          <button type="button" className={chatMode ? 'active' : ''} aria-pressed={chatMode} aria-label={copy.transcriptView} title={copy.transcriptView} disabled={runtimeSwitchDisabled} onClick={() => !chatMode && onRuntimeModeChange?.(agent.id, 'chat')}>
             <ChatBubblesGlyph />
           </button>
           <button type="button" className={!chatMode ? 'active' : ''} aria-pressed={!chatMode} aria-label={copy.terminalView} title={copy.terminalView} disabled={runtimeSwitchDisabled} onClick={() => chatMode && onRuntimeModeChange?.(agent.id, 'terminal')}>

@@ -5,7 +5,7 @@ import { expect, openFarming, test } from './fixtures'
 
 async function createAcpAgent(page: Page, workspace: string) {
   const response = await page.request.post('/farming/api/control/agents', {
-    data: { command: 'codex', workspace, agentRuntimeMode: 'acp' },
+    data: { command: 'claude', workspace, agentRuntimeMode: 'chat' },
   })
   expect(response.ok()).toBeTruthy()
   const payload = await response.json() as { agentId?: string }
