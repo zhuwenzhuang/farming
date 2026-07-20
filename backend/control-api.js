@@ -219,7 +219,7 @@ function createControlRouter(agentManager, options = {}) {
       parentAgentId: typeof body.parentAgentId === 'string' ? body.parentAgentId : '',
       task,
       source: 'control-cli',
-      agentRuntimeMode: ['json', 'acp'].includes(body.agentRuntimeMode) ? body.agentRuntimeMode : 'terminal',
+      agentRuntimeMode: ['json', 'acp', 'chat'].includes(body.agentRuntimeMode) ? body.agentRuntimeMode : 'terminal',
       acpHistoryMode: body.acpHistoryMode === 'resume' ? 'resume' : 'load',
       providerSessionTitle: typeof body.providerSessionTitle === 'string' ? body.providerSessionTitle : '',
       dangerouslySkipPermissions: body.dangerouslySkipPermissions === true,

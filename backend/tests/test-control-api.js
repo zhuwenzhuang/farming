@@ -196,6 +196,19 @@ async function run() {
     assert.strictEqual(replaced.body.code, 'runtime-replaced');
     assert(!calls.some(call => call.type === 'sendInput' && call.agentId === 'agent-3'));
 
+    const chatCreated = await fetchJson(baseUrl, '/api/control/agents', {
+      method: 'POST',
+      body: JSON.stringify({
+        command: 'codex',
+        workspace: '/chat-repo',
+        agentRuntimeMode: 'chat',
+      }),
+    });
+    assert.strictEqual(chatCreated.response.status, 201);
+    assert.strictEqual(chatCreated.body.initialInputDelivered, false);
+    assert.strictEqual(calls.at(-1).type, 'startAgent');
+    assert.strictEqual(calls.at(-1).options.agentRuntimeMode, 'chat');
+
     const killed = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}`, {
       method: 'DELETE',
     });

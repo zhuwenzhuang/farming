@@ -5979,7 +5979,7 @@ async function switchCrtSessionRuntimeMode(mode) {
   if (runtimeSwitchPending || !focusedAgentId || !state) return;
   const agent = state.agents.find((candidate) => candidate.id === focusedAgentId);
   if (!canSwitchCrtAgentRuntime(agent)) return;
-  const targetMode = mode === 'terminal' ? 'terminal' : 'acp';
+  const targetMode = mode === 'terminal' ? 'terminal' : 'chat';
   if (crtRuntimeView(agent) === (targetMode === 'terminal' ? 'terminal' : 'chat')) return;
 
   const requestSequence = ++runtimeSwitchRequestSequence;
@@ -6013,7 +6013,7 @@ function toggleCrtSessionRuntimeMode() {
   if (!focusedAgentId || !state) return;
   const agent = state.agents.find((candidate) => candidate.id === focusedAgentId);
   if (!canSwitchCrtAgentRuntime(agent)) return;
-  void switchCrtSessionRuntimeMode(crtRuntimeView(agent) === 'chat' ? 'terminal' : 'acp');
+  void switchCrtSessionRuntimeMode(crtRuntimeView(agent) === 'chat' ? 'terminal' : 'chat');
 }
 
 function structuredTranscriptEndpoint(agent) {

@@ -142,7 +142,11 @@ function run() {
   assert(crtApp.includes('renderStructuredPermissions') && crtApp.includes('/acp-permission'), 'CRT structured input should surface ACP permission requests beside the prompt');
   assert(crtApp.includes('isStructuredRuntimeAgent') && crtApp.includes('sendComposerMessage'), 'CRT should not route ACP, JSON, or App Server Agents through PTY input');
   assert(indexHtml.includes('id="crt-runtime-toggle"') && indexHtml.includes('class="crt-runtime-glyph" aria-hidden="true">MSG</span>') && indexHtml.includes('class="crt-runtime-glyph" aria-hidden="true">TTY</span>'), 'CRT should expose retro MSG and TTY runtime controls');
-  assert(crtApp.includes("body: JSON.stringify({ agentRuntimeMode: targetMode })"), 'CRT runtime controls should use the backend restart path');
+  assert(
+    crtApp.includes("const targetMode = mode === 'terminal' ? 'terminal' : 'chat';")
+      && crtApp.includes("body: JSON.stringify({ agentRuntimeMode: targetMode })"),
+    'CRT runtime controls should request the product-level Chat runtime through the backend restart path'
+  );
   assert(crtApp.includes('isCrtRuntimeSwitchShortcut') && indexHtml.includes('class="crt-command-shortcut" aria-hidden="true">[ALT+M]</span>'), 'CRT should expose a visible non-terminal runtime switch shortcut');
   assert(indexHtml.includes('class="kill-btn" aria-label="Kill Agent, Ctrl+K"') && indexHtml.includes('class="close-btn" aria-label="Close session, Ctrl+Escape"'), 'CRT Kill and Close should retain their standalone button styles');
   assert(indexHtml.includes('>KILL [CTRL+K]</button>') && indexHtml.includes('>CLOSE [CTRL+ESC]</button>'), 'CRT session actions should default to the Terminal keyboard labels');
