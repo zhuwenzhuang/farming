@@ -1,17 +1,19 @@
 const assert = require('assert');
 const {
   appendDraftBlock,
-  clipboardImageFiles,
+  clipboardMediaFiles,
   composerAttachmentMessageBlocks,
   composerMessageForNativeAttachments,
   composerMessageWithAttachments,
   composerPromptAttachments,
   fileDisplayName,
   formatAttachedFile,
+  formatAttachedAudio,
   formatAttachedImage,
   formatAttachmentError,
   formatComposerMessage,
   isImageFile,
+  isAudioFile,
 } = require('../../src/components/code/composer-message.ts');
 
 function makeFile(overrides = {}) {
@@ -54,6 +56,7 @@ function run() {
   assert.strictEqual(fileDisplayName(makeFile({ name: '' }), 'fallback.txt'), 'fallback.txt');
   assert.strictEqual(isImageFile(makeFile({ type: 'image/png' })), true);
   assert.strictEqual(isImageFile(makeFile({ type: 'application/pdf' })), false);
+  assert.strictEqual(isAudioFile(makeFile({ type: 'audio/wav' })), true);
 
   const longContent = 'x'.repeat(50_005);
   const attached = formatAttachedFile(makeFile({ name: 'long.txt' }), longContent);
@@ -63,6 +66,10 @@ function run() {
   assert.strictEqual(
     formatAttachedImage({ name: 'shot.png', path: '/tmp/shot.png', type: 'image/png', size: 12 }),
     'Attached image: shot.png\n\nImage path: /tmp/shot.png'
+  );
+  assert.strictEqual(
+    formatAttachedAudio({ name: 'note.wav', path: '/tmp/note.wav', type: 'audio/wav', size: 12 }),
+    'Attached audio: note.wav\n\nAudio path: /tmp/note.wav'
   );
 
   assert.strictEqual(
@@ -100,24 +107,26 @@ function run() {
   );
 
   const pngFile = makeFile({ name: 'paste.png', type: 'image/png' });
+  const wavFile = makeFile({ name: 'paste.wav', type: 'audio/wav' });
   const txtFile = makeFile({ name: 'paste.txt', type: 'text/plain' });
   assert.deepStrictEqual(
-    clipboardImageFiles({ files: [txtFile, pngFile], items: [] }),
-    [pngFile],
-    'clipboard file list should prefer image files'
+    clipboardMediaFiles({ files: [txtFile, pngFile, wavFile], items: [] }),
+    [pngFile, wavFile],
+    'clipboard file list should prefer native media files'
   );
   assert.deepStrictEqual(
-    clipboardImageFiles({
+    clipboardMediaFiles({
       files: [],
       items: [
         { kind: 'string', type: 'text/plain', getAsFile: () => txtFile },
         { kind: 'file', type: 'image/png', getAsFile: () => pngFile },
+        { kind: 'file', type: 'audio/wav', getAsFile: () => wavFile },
       ],
     }),
-    [pngFile],
-    'clipboard items should fall back to image file items when files is empty'
+    [pngFile, wavFile],
+    'clipboard items should fall back to native media file items when files is empty'
   );
-  assert.deepStrictEqual(clipboardImageFiles(null), []);
+  assert.deepStrictEqual(clipboardMediaFiles(null), []);
 
   console.log('test-code-composer-message passed');
 }

@@ -159,6 +159,10 @@ function appServerUserInput(options = {}) {
     }
     if (item.type === 'image' && typeof item.path === 'string' && path.isAbsolute(item.path)) {
       input.push({ type: 'localImage', path: item.path });
+      continue;
+    }
+    if (item.type === 'audio' && typeof item.path === 'string' && path.isAbsolute(item.path)) {
+      input.push({ type: 'localAudio', path: item.path });
     }
   }
   if (input.length === 0 && String(options.message || '').trim()) {
@@ -171,7 +175,9 @@ function composerTranscriptInput(input) {
   return input.map((item) => (
     item.type === 'text'
       ? { type: 'input_text', text: item.text }
-      : { type: 'localImage', path: item.path }
+      : item.type === 'image'
+        ? { type: 'localImage', path: item.path }
+        : { type: 'localAudio', path: item.path }
   ));
 }
 

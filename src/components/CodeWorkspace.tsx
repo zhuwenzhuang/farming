@@ -93,7 +93,7 @@ import {
 } from './code/capabilities'
 import {
   appendDraftBlock,
-  clipboardImageFiles,
+  clipboardMediaFiles,
   composerAttachmentMessageBlocks,
   composerMessageForNativeAttachments,
   composerMessageWithAttachments,
@@ -101,11 +101,13 @@ import {
   createComposerAttachmentId,
   createImageAttachmentPreviewUrl,
   fileDisplayName,
+  formatAttachedAudio,
   formatAttachedImage,
   formatAttachmentError,
   formatAttachmentFile,
   formatComposerMessage,
   isImageFile,
+  isAudioFile,
   revokeComposerAttachmentPreview,
   uploadImageAttachment,
   type ComposerAttachment,
@@ -1549,15 +1551,16 @@ export function CodeWorkspace({
     attachmentInputRef.current?.click()
   }, [activeComposerKey, updateActiveComposerState])
 
-  const addImageAttachment = useCallback((composerKey: string, file: File) => {
+  const addMediaAttachment = useCallback((composerKey: string, file: File) => {
     const id = createComposerAttachmentId(file)
-    const name = fileDisplayName(file, 'pasted image')
-    const previewUrl = createImageAttachmentPreviewUrl(file)
+    const image = isImageFile(file)
+    const name = fileDisplayName(file, image ? 'pasted image' : 'pasted audio')
+    const previewUrl = image ? createImageAttachmentPreviewUrl(file) : undefined
     const initialAttachment: ComposerAttachment = {
       id,
-      kind: 'image',
+      kind: image ? 'image' : 'audio',
       name,
-      type: file.type || 'image/png',
+      type: file.type || (image ? 'image/png' : 'audio/wav'),
       size: file.size,
       status: 'uploading',
       previewUrl,
@@ -1581,7 +1584,9 @@ export function CodeWorkspace({
                 size: uploaded.size || attachment.size,
                 status: 'ready',
                 path: uploaded.path,
-                messageBlock: formatAttachedImage({ ...uploaded, name }),
+                messageBlock: image
+                  ? formatAttachedImage({ ...uploaded, name })
+                  : formatAttachedAudio({ ...uploaded, name }),
                 error: undefined,
               }
               : attachment
@@ -1608,10 +1613,10 @@ export function CodeWorkspace({
   const appendAttachmentFiles = useCallback(async (files: File[]) => {
     if (!activeComposerKey || files.length === 0) return
 
-    const imageFiles = files.filter(isImageFile)
-    imageFiles.forEach(file => addImageAttachment(activeComposerKey, file))
+    const mediaFiles = files.filter(file => isImageFile(file) || isAudioFile(file))
+    mediaFiles.forEach(file => addMediaAttachment(activeComposerKey, file))
 
-    const textFiles = files.filter(file => !isImageFile(file))
+    const textFiles = files.filter(file => !isImageFile(file) && !isAudioFile(file))
     if (textFiles.length === 0) {
       focusComposerTextarea()
       return
@@ -1631,7 +1636,7 @@ export function CodeWorkspace({
       draft: appendDraftBlock(state.draft, blocks.join('\n\n')),
     }))
     focusComposerTextarea()
-  }, [activeComposerKey, addImageAttachment, focusComposerTextarea, updateComposerStateForKey])
+  }, [activeComposerKey, addMediaAttachment, focusComposerTextarea, updateComposerStateForKey])
 
   const removeComposerAttachment = useCallback((attachmentId: string) => {
     updateActiveComposerState(state => {
@@ -1652,7 +1657,7 @@ export function CodeWorkspace({
   }, [appendAttachmentFiles])
 
   const handlePasteAttachment = useCallback((event: ReactClipboardEvent<HTMLElement>) => {
-    const files = clipboardImageFiles(event.clipboardData)
+    const files = clipboardMediaFiles(event.clipboardData)
     if (files.length === 0) return
 
     event.preventDefault()

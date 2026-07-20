@@ -28,7 +28,7 @@ export interface UploadedImageAttachment {
 
 export interface ComposerAttachment {
   id: string
-  kind: 'image'
+  kind: 'image' | 'audio'
   name: string
   type: string
   size: number
@@ -40,7 +40,7 @@ export interface ComposerAttachment {
 }
 
 export interface ComposerPromptAttachment {
-  kind: 'image'
+  kind: 'image' | 'audio'
   path: string
   name: string
   type: string
@@ -62,6 +62,10 @@ export function isImageFile(file: File) {
   return typeof file.type === 'string' && file.type.startsWith('image/')
 }
 
+export function isAudioFile(file: File) {
+  return typeof file.type === 'string' && file.type.startsWith('audio/')
+}
+
 export function formatAttachedFile(file: File, content: string) {
   const truncated = content.length > MAX_ATTACHED_FILE_CHARS
   const body = truncated ? content.slice(0, MAX_ATTACHED_FILE_CHARS) : content
@@ -73,9 +77,14 @@ export function formatAttachedImage(attachment: UploadedImageAttachment) {
   return `Attached image: ${attachment.name}\n\nImage path: ${attachment.path}`
 }
 
+export function formatAttachedAudio(attachment: UploadedImageAttachment) {
+  return `Attached audio: ${attachment.name}\n\nAudio path: ${attachment.path}`
+}
+
 export function createComposerAttachmentId(file: File) {
   const suffix = Math.random().toString(36).slice(2, 8)
-  return `image-${Date.now()}-${fileDisplayName(file, 'pasted-image')}-${suffix}`
+  const kind = isAudioFile(file) ? 'audio' : 'image'
+  return `${kind}-${Date.now()}-${fileDisplayName(file, `pasted-${kind}`)}-${suffix}`
 }
 
 export function createImageAttachmentPreviewUrl(file: File) {
@@ -110,7 +119,7 @@ export function composerMessageForNativeAttachments(draft: string, attachments: 
 export function composerPromptAttachments(attachments: ComposerAttachment[]): ComposerPromptAttachment[] {
   return attachments.flatMap(attachment => attachment.status === 'ready' && attachment.path
     ? [{
-        kind: 'image' as const,
+        kind: attachment.kind,
         path: attachment.path,
         name: attachment.name,
         type: attachment.type,
@@ -129,10 +138,11 @@ export function readFileText(file: File) {
 }
 
 export async function uploadImageAttachment(file: File): Promise<UploadedImageAttachment> {
-  const response = await fetch(composerAppPath('/api/attachments/image'), {
+  const route = isAudioFile(file) ? '/api/attachments/audio' : '/api/attachments/image'
+  const response = await fetch(composerAppPath(route), {
     method: 'POST',
     headers: {
-      'Content-Type': file.type || 'image/png',
+      'Content-Type': file.type || (isAudioFile(file) ? 'audio/wav' : 'image/png'),
     },
     body: file,
   })
@@ -148,6 +158,9 @@ export async function formatAttachmentFile(file: File) {
   if (isImageFile(file)) {
     return formatAttachedImage(await uploadImageAttachment(file))
   }
+  if (isAudioFile(file)) {
+    return formatAttachedAudio(await uploadImageAttachment(file))
+  }
 
   try {
     return formatAttachedFile(file, await readFileText(file))
@@ -161,19 +174,23 @@ export function formatAttachmentError(file: File) {
     return `Attached image: ${fileDisplayName(file, 'pasted image')}\n\n[Unable to upload this image]`
   }
 
+  if (isAudioFile(file)) {
+    return `Attached audio: ${fileDisplayName(file, 'pasted audio')}\n\n[Unable to upload this audio]`
+  }
+
   return `Attached file: ${fileDisplayName(file)}\n\n[Unable to read this file as text]`
 }
 
-export function clipboardImageFiles(data: DataTransfer | null) {
+export function clipboardMediaFiles(data: DataTransfer | null) {
   if (!data) return []
 
-  const files = Array.from(data.files ?? []).filter(isImageFile)
+  const files = Array.from(data.files ?? []).filter(file => isImageFile(file) || isAudioFile(file))
   if (files.length > 0) return files
 
   return Array.from(data.items ?? [])
-    .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+    .filter(item => item.kind === 'file' && /^(image|audio)\//.test(item.type))
     .map(item => item.getAsFile())
-    .filter((file): file is File => Boolean(file && isImageFile(file)))
+    .filter((file): file is File => Boolean(file && (isImageFile(file) || isAudioFile(file))))
 }
 
 export function formatComposerMessage(mode: ComposerMode, text: string) {

@@ -40,7 +40,7 @@ export interface ComposerInputMessage {
 }
 
 export interface ComposerInputAttachment {
-  kind: 'image'
+  kind: 'image' | 'audio'
   path: string
   name: string
   type: string

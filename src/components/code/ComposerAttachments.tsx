@@ -2,7 +2,7 @@ import { CloseGlyph, SquareGlyph } from '@/components/IconGlyphs'
 
 export interface ComposerAttachmentView {
   id: string
-  kind: 'image'
+  kind: 'image' | 'audio'
   name: string
   status: 'uploading' | 'ready' | 'error'
   previewUrl?: string

@@ -6550,6 +6550,7 @@ function readStructuredTextFile(file) {
 async function prepareStructuredAttachment(file) {
   const attachment = {
     id: structuredAttachmentId(file),
+    kind: String(file.type || '').startsWith('audio/') ? 'audio' : 'image',
     name: file.name || 'attachment',
     status: 'uploading',
     messageBlock: ''
@@ -6557,18 +6558,21 @@ async function prepareStructuredAttachment(file) {
   structuredComposerAttachments.push(attachment);
   renderStructuredComposerAttachments();
   try {
-    if (String(file.type || '').startsWith('image/')) {
-      const response = await fetch(farmingApiPath('/attachments/image'), {
+    if (String(file.type || '').startsWith('image/') || String(file.type || '').startsWith('audio/')) {
+      const image = attachment.kind === 'image';
+      const response = await fetch(farmingApiPath(image ? '/attachments/image' : '/attachments/audio'), {
         method: 'POST',
-        headers: { 'Content-Type': file.type || 'image/png' },
+        headers: { 'Content-Type': file.type || (image ? 'image/png' : 'audio/wav') },
         body: file
       });
       const body = await response.json().catch(() => null);
-      if (!response.ok || !body || !body.path) throw new Error(`Image upload failed (${response.status})`);
+      if (!response.ok || !body || !body.path) throw new Error(`${image ? 'Image' : 'Audio'} upload failed (${response.status})`);
       attachment.path = body.path;
       attachment.type = body.type || file.type || 'image/png';
       attachment.size = Number(body.size) || file.size || 0;
-      attachment.messageBlock = `Attached image: ${body.name || attachment.name}\n\nImage path: ${body.path}`;
+      attachment.messageBlock = image
+        ? `Attached image: ${body.name || attachment.name}\n\nImage path: ${body.path}`
+        : `Attached audio: ${body.name || attachment.name}\n\nAudio path: ${body.path}`;
     } else {
       const content = await readStructuredTextFile(file);
       const limit = 50000;
@@ -6601,7 +6605,7 @@ function structuredComposerPromptAttachments() {
   return structuredComposerAttachments.flatMap((attachment) => (
     attachment.status === 'ready' && attachment.path
       ? [{
-          kind: 'image',
+          kind: attachment.kind,
           path: attachment.path,
           name: attachment.name,
           type: attachment.type,
@@ -7038,11 +7042,11 @@ function setupStructuredSessionComposer() {
     updateStructuredComposerState(agent);
   });
   input.addEventListener('paste', (event) => {
-    const imageFiles = Array.from(event.clipboardData && event.clipboardData.files || [])
-      .filter((file) => String(file.type || '').startsWith('image/'));
-    if (!imageFiles.length) return;
+    const mediaFiles = Array.from(event.clipboardData && event.clipboardData.files || [])
+      .filter((file) => /^(image|audio)\//.test(String(file.type || '')));
+    if (!mediaFiles.length) return;
     event.preventDefault();
-    addStructuredAttachmentFiles(imageFiles);
+    addStructuredAttachmentFiles(mediaFiles);
   });
   input.addEventListener('compositionend', () => {
     structuredComposerCompositionEndAt = Date.now();

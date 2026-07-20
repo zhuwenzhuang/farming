@@ -48,7 +48,7 @@ App Server 模式中：
 
 - 空闲时 Composer 提交调用 `turn/start`；
 - 同一 thread 已在执行时，提交调用带当前 turn id 的 `turn/steer`；
-- 粘贴或选择的图片与 ACP 共用同一 Composer 附件契约，并作为 App Server `localImage` 输入发送；文本文件继续以内联文本发送；
+- 粘贴或选择的图片和音频与 ACP 共用同一 Composer 附件契约，并作为 App Server `localImage` 和 `localAudio` 输入发送；文本文件继续以内联文本发送；
 - 中断按钮通过 App Server 连接调用 `turn/interrupt`；如果该控制不可用，就显示 App Server 错误；
 - 切换 App Server Agent 的权限 profile 会直接对同一个 thread 调用 `thread/settings/update`，保留原 Agent 和 thread，不会启动 CLI 或 PTY；更新后的审批和 sandbox 策略从后续 turn 生效；
 - Codex 发来的命令/文件审批和结构化用户输入会显示在 Composer 上方，并按原始 JSON-RPC request id 回答；Farming 不会自动批准。暂不支持的反向请求会明确提示并允许拒绝，不会悄悄把 turn 卡住。

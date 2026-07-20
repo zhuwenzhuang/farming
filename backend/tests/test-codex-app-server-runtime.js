@@ -173,19 +173,23 @@ async function run() {
     assert.strictEqual(spawned.length, 1, 'the first connection should spawn one managed App Server');
 
     const imagePath = path.join(root, 'attached.png');
+    const audioPath = path.join(root, 'attached.wav');
     fs.writeFileSync(imagePath, Buffer.from('image'));
+    fs.writeFileSync(audioPath, Buffer.from('audio'));
     const started = await runtime.submitComposerMessage({
       agentId: 'agent-one',
       message: 'first structured message',
       input: [
         { type: 'text', text: 'first structured message' },
         { type: 'image', path: imagePath },
+        { type: 'audio', path: audioPath },
       ],
     });
     assert.deepStrictEqual(started, { kind: 'start', threadId: 'thread-new', turnId: 'turn-1' });
     assert.deepStrictEqual(mock.messages.find(message => message.method === 'turn/start').params.input, [
       { type: 'text', text: 'first structured message', textElements: [] },
       { type: 'localImage', path: imagePath },
+      { type: 'localAudio', path: audioPath },
     ]);
     mock.emitNotification({
       method: 'item/agentMessage/delta',

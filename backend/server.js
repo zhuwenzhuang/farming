@@ -602,14 +602,29 @@ const IMAGE_ATTACHMENT_EXTENSIONS = {
   'image/gif': 'gif',
   'image/webp': 'webp',
 };
+const AUDIO_ATTACHMENT_EXTENSIONS = {
+  'audio/aac': 'aac',
+  'audio/flac': 'flac',
+  'audio/mp4': 'm4a',
+  'audio/mpeg': 'mp3',
+  'audio/ogg': 'ogg',
+  'audio/wav': 'wav',
+  'audio/webm': 'webm',
+};
 const IMAGE_ATTACHMENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const IMAGE_ATTACHMENT_GC_INTERVAL_MS = 60 * 60 * 1000;
 const IMAGE_ATTACHMENT_FILENAME_RE = /^pasted-image-\d+-[a-f0-9]{8}\.(?:png|jpg|gif|webp)$/;
+const AUDIO_ATTACHMENT_FILENAME_RE = /^pasted-audio-\d+-[a-f0-9]{8}\.(?:aac|flac|m4a|mp3|ogg|wav|webm)$/;
 let lastImageAttachmentGcAt = 0;
 
 function imageAttachmentExtension(contentType) {
   const normalized = String(contentType || '').split(';')[0].trim().toLowerCase();
   return IMAGE_ATTACHMENT_EXTENSIONS[normalized] || '';
+}
+
+function audioAttachmentExtension(contentType) {
+  const normalized = String(contentType || '').split(';')[0].trim().toLowerCase();
+  return AUDIO_ATTACHMENT_EXTENSIONS[normalized] || '';
 }
 
 function imageAttachmentsDir() {
@@ -634,7 +649,7 @@ async function cleanupExpiredImageAttachments(options = {}) {
 
   const cutoff = now - IMAGE_ATTACHMENT_RETENTION_MS;
   await Promise.all(entries.map(async (entry) => {
-    if (!entry.isFile() || !IMAGE_ATTACHMENT_FILENAME_RE.test(entry.name)) return;
+    if (!entry.isFile() || (!IMAGE_ATTACHMENT_FILENAME_RE.test(entry.name) && !AUDIO_ATTACHMENT_FILENAME_RE.test(entry.name))) return;
 
     const filePath = path.join(attachmentsDir, entry.name);
     try {
@@ -681,6 +696,30 @@ app.post(
       type: contentType,
       size: req.body.length,
     });
+  }
+);
+
+app.post(
+  routePath(BASE_PATH, '/api/attachments/audio'),
+  express.raw({ type: 'audio/*', limit: '25mb' }),
+  (req, res) => {
+    const contentType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    const extension = audioAttachmentExtension(contentType);
+    if (!extension) {
+      res.status(415).json({ error: 'unsupported audio type' });
+      return;
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      res.status(400).json({ error: 'empty audio attachment' });
+      return;
+    }
+    const attachmentsDir = imageAttachmentsDir();
+    fs.mkdirSync(attachmentsDir, { recursive: true });
+    const filename = `pasted-audio-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${extension}`;
+    const filePath = path.join(attachmentsDir, filename);
+    fs.writeFileSync(filePath, req.body);
+    void cleanupExpiredImageAttachments();
+    res.status(201).json({ path: filePath, name: filename, type: contentType, size: req.body.length });
   }
 );
 
@@ -2036,18 +2075,20 @@ async function sendComposerInputMessage(ws, data) {
   const attachmentsRoot = path.resolve(imageAttachmentsDir());
   const attachments = Array.isArray(data.attachments) ? data.attachments.slice(0, 8) : [];
   for (const attachment of attachments) {
-    if (attachment?.kind !== 'image' || typeof attachment.path !== 'string') continue;
+    if (!['image', 'audio'].includes(attachment?.kind) || typeof attachment.path !== 'string') continue;
     const filePath = path.resolve(attachment.path);
     if (!filePath.startsWith(`${attachmentsRoot}${path.sep}`)) continue;
-    const mimeType = typeof attachment.type === 'string' && /^image\/(?:png|jpe?g|gif|webp)$/i.test(attachment.type)
+    const mimeType = typeof attachment.type === 'string' && attachment.kind === 'image' && /^image\/(?:png|jpe?g|gif|webp)$/i.test(attachment.type)
       ? attachment.type.toLowerCase()
-      : '';
+      : (typeof attachment.type === 'string' && attachment.kind === 'audio' && Object.hasOwn(AUDIO_ATTACHMENT_EXTENSIONS, attachment.type.toLowerCase())
+        ? attachment.type.toLowerCase()
+        : '');
     if (!mimeType) continue;
     try {
       const data = await fs.promises.readFile(filePath);
       if (data.length === 0 || data.length > 12 * 1024 * 1024) continue;
       content.push({
-        type: 'image',
+        type: attachment.kind,
         data: data.toString('base64'),
         mimeType,
         path: filePath,
