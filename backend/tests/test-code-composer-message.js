@@ -57,6 +57,7 @@ function run() {
   assert.strictEqual(isImageFile(makeFile({ type: 'image/png' })), true);
   assert.strictEqual(isImageFile(makeFile({ type: 'application/pdf' })), false);
   assert.strictEqual(isAudioFile(makeFile({ type: 'audio/wav' })), true);
+  assert.strictEqual(isAudioFile(makeFile({ type: 'audio/x-wav' })), true);
 
   const longContent = 'x'.repeat(50_005);
   const attached = formatAttachedFile(makeFile({ name: 'long.txt' }), longContent);

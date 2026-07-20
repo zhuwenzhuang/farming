@@ -609,7 +609,9 @@ const AUDIO_ATTACHMENT_EXTENSIONS = {
   'audio/mpeg': 'mp3',
   'audio/ogg': 'ogg',
   'audio/wav': 'wav',
+  'audio/wave': 'wav',
   'audio/webm': 'webm',
+  'audio/x-wav': 'wav',
 };
 const IMAGE_ATTACHMENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const IMAGE_ATTACHMENT_GC_INTERVAL_MS = 60 * 60 * 1000;
