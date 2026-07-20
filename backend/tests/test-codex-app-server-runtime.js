@@ -13,6 +13,8 @@ function createMockAppServerConnectionFactory() {
   let goal = null;
   let ready = false;
   let failThreadReads = false;
+  let rejectLocalAudio = false;
+  let rejectStaleSteer = false;
 
   class MockConnection {
     constructor() {
@@ -33,6 +35,17 @@ function createMockAppServerConnectionFactory() {
     async request(method, params) {
       const message = { method, params };
       messages.push(message);
+      if (
+        rejectLocalAudio
+        && (method === 'turn/start' || method === 'turn/steer')
+        && Array.isArray(params.input)
+        && params.input.some(input => input && input.type === 'localAudio')
+      ) {
+        return { error: { message: 'Invalid request: unknown variant `localAudio`, expected one of `text`, `image`, `localImage`' } };
+      }
+      if (rejectStaleSteer && method === 'turn/steer') {
+        return { error: { message: 'no active turn to steer' } };
+      }
       if (method === 'thread/start') return { result: { thread: { id: 'thread-new' } } };
       if (method === 'thread/resume') return { result: { thread: { id: params.threadId } } };
       if (method === 'thread/read') {
@@ -103,6 +116,8 @@ function createMockAppServerConnectionFactory() {
     createConnection() { return new MockConnection(); },
     markReady() { ready = true; },
     setThreadReadFailure(value) { failThreadReads = value === true; },
+    setRejectLocalAudio(value) { rejectLocalAudio = value === true; },
+    setRejectStaleSteer(value) { rejectStaleSteer = value === true; },
     emitServerRequest(request) {
       pendingServerRequests.set(String(request.id), request);
       connections.forEach(connection => connection.subscribers.forEach(handler => handler({ kind: 'server-request', payload: request })));
@@ -191,6 +206,40 @@ async function run() {
       { type: 'localImage', path: imagePath },
       { type: 'localAudio', path: audioPath },
     ]);
+    mock.setRejectLocalAudio(true);
+    const audioFallback = await runtime.submitComposerMessage({
+      agentId: 'agent-one',
+      message: 'send audio through an older server',
+      input: [{ type: 'audio', path: audioPath }],
+    });
+    assert.deepStrictEqual(audioFallback, { kind: 'steer', threadId: 'thread-new', turnId: 'turn-1' });
+    const audioSteers = mock.messages.filter(message => message.method === 'turn/steer');
+    assert.strictEqual(audioSteers.length, 2, 'an older App Server should retry the same steer once without localAudio');
+    assert.deepStrictEqual(audioSteers[1].params.input, [{
+      type: 'text',
+      text: `Attached audio is available locally at ${audioPath}. This Codex App Server does not accept native audio input; inspect the file with tools if helpful.`,
+      textElements: [],
+    }]);
+    const cachedAudioFallback = await runtime.submitComposerMessage({
+      agentId: 'agent-one',
+      message: 'send another audio file',
+      input: [{ type: 'audio', path: audioPath }],
+    });
+    assert.deepStrictEqual(cachedAudioFallback, { kind: 'steer', threadId: 'thread-new', turnId: 'turn-1' });
+    const cachedAudioSteer = mock.messages.filter(message => message.method === 'turn/steer').at(-1);
+    assert.strictEqual(cachedAudioSteer.params.input[0].type, 'text', 'the rejected App Server Home should not receive another localAudio input');
+    mock.setRejectLocalAudio(false);
+    mock.setRejectStaleSteer(true);
+    const recoveredStaleSteer = await runtime.submitComposerMessage({
+      agentId: 'agent-one',
+      message: 'send after the previous turn completed',
+    });
+    assert.deepStrictEqual(recoveredStaleSteer, { kind: 'start', threadId: 'thread-new', turnId: 'turn-1' });
+    const staleSteer = mock.messages.filter(message => message.method === 'turn/steer').at(-1);
+    const retryStart = mock.messages.filter(message => message.method === 'turn/start').at(-1);
+    assert.strictEqual(staleSteer.params.expectedTurnId, 'turn-1');
+    assert.strictEqual(retryStart.params.input[0].text, 'send after the previous turn completed');
+    mock.setRejectStaleSteer(false);
     mock.emitNotification({
       method: 'item/agentMessage/delta',
       params: { threadId: 'thread-new', turnId: 'turn-1', delta: 'structured reply' },

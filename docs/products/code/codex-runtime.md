@@ -48,7 +48,7 @@ In App Server mode:
 
 - an idle composer submission calls `turn/start`;
 - a submission while the same thread is active calls `turn/steer` with the active turn id;
-- pasted or selected images and audio use the same Composer attachment contract as ACP and are sent as App Server `localImage` and `localAudio` inputs; text files remain explicit text in the message;
+- pasted or selected images use the same Composer attachment contract as ACP and are sent as App Server `localImage` inputs. Audio uses `localAudio` when the connected App Server accepts it; an older server that rejects that variant retries the same message once with an explicit local-file-path text fallback and caches that capability per Agent Home. Text files remain explicit text in the message;
 - the interrupt control calls `turn/interrupt` through the App Server connection and reports an App Server error if that control is unavailable;
 - changing an App Server Agent's permission profile calls `thread/settings/update` on that same thread. It keeps the Agent and thread in place; the updated approval and sandbox policy applies to subsequent turns without starting a CLI or PTY;
 - command/file approvals and structured user-input requests remain structured runtime events above the Composer and are answered with their original JSON-RPC request id. Farming must not auto-approve them; unsupported reverse requests remain explicit and can be declined rather than silently leaving a turn blocked.
@@ -67,7 +67,7 @@ Runtime changes require both deterministic and real checks:
 
 1. A deterministic mock app-server connection verifies App Server mode: dedicated-home startup decisions, thread creation/resume, structured transcript events, composer `turn/start`, follow-up `turn/steer`, interruption, and reverse request resolution without creating a CLI observer.
 2. A CLI-mode regression verifies that neither the app-server process nor structured RPC is requested and composer text reaches the terminal unchanged.
-3. A low-volume local Codex smoke verifies `initialize` plus thread start/resume against the installed CLI, using an isolated disposable workspace.
+3. A low-volume local Codex smoke uses the product's isolated App Server Home and verifies settings update, a mixed text/image/audio Composer input, live-steer or stale-steer recovery, and thread resume against the installed CLI.
 4. The browser check verifies the Chat/Terminal selection, the unchanged terminal focus after a runtime switch, and the App Server runtime indicator while a request is in progress.
 
-Run the opt-in real smoke locally with `npm run test:codex-app-server:real`. It sends one small prompt to the installed, authenticated Codex CLI; it is intentionally excluded from normal tests and release CI.
+Run the opt-in real smoke locally with `npm run test:codex-app-server:real`. It sends a small mixed-media prompt and one follow-up to the installed, authenticated Codex CLI; it is intentionally excluded from normal tests and release CI.

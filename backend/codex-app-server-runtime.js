@@ -149,8 +149,13 @@ function requestThreadParams(options = {}) {
   };
 }
 
-function appServerUserInput(options = {}) {
+function audioPathFallback(audioPath) {
+  return `Attached audio is available locally at ${audioPath}. This Codex App Server does not accept native audio input; inspect the file with tools if helpful.`;
+}
+
+function appServerUserInput(options = {}, capabilities = {}) {
   const input = [];
+  const supportsLocalAudio = capabilities.localAudio !== false;
   for (const item of Array.isArray(options.input) ? options.input : []) {
     if (!item || typeof item !== 'object') continue;
     if (item.type === 'text' && typeof item.text === 'string' && item.text.trim()) {
@@ -162,7 +167,9 @@ function appServerUserInput(options = {}) {
       continue;
     }
     if (item.type === 'audio' && typeof item.path === 'string' && path.isAbsolute(item.path)) {
-      input.push({ type: 'localAudio', path: item.path });
+      input.push(supportsLocalAudio
+        ? { type: 'localAudio', path: item.path }
+        : { type: 'text', text: audioPathFallback(item.path), textElements: [] });
     }
   }
   if (input.length === 0 && String(options.message || '').trim()) {
@@ -172,17 +179,15 @@ function appServerUserInput(options = {}) {
 }
 
 function composerTranscriptInput(input) {
-  return input.map((item) => (
-    item.type === 'text'
-      ? { type: 'input_text', text: item.text }
-      : item.type === 'image'
-        ? { type: 'localImage', path: item.path }
-        : { type: 'localAudio', path: item.path }
-  ));
+  return input.map((item) => {
+    if (item.type === 'text') return { type: 'input_text', text: item.text };
+    if (item.type === 'localImage') return { type: 'localImage', path: item.path };
+    if (item.type === 'localAudio') return { type: 'localAudio', path: item.path };
+    return { type: 'input_text', text: '' };
+  });
 }
 
-function requestTurnParams(options = {}) {
-  const input = appServerUserInput(options);
+function requestTurnParams(options = {}, input = appServerUserInput(options)) {
   return {
     threadId: options.threadId,
     input,
@@ -196,6 +201,20 @@ function requestTurnParams(options = {}) {
       ? { effort: options.reasoningEffort }
       : {}),
   };
+}
+
+function hasLocalAudioInput(input) {
+  return input.some(item => item && item.type === 'localAudio');
+}
+
+function isUnsupportedLocalAudioError(error) {
+  const message = String(error && error.message ? error.message : error || '');
+  return /localAudio/i.test(message) && /(unknown variant|invalid request|unsupported)/i.test(message);
+}
+
+function isNoActiveTurnToSteerError(error) {
+  const message = String(error && error.message ? error.message : error || '');
+  return /no active turn to steer/i.test(message);
 }
 
 function cliResumeArgs(threadId, cwd) {
@@ -285,6 +304,10 @@ class CodexAppServerRuntime extends EventEmitter {
       child: null,
       lastError: '',
       lastConnectedAt: null,
+      // The App Server schema gained localAudio after older Codex builds had
+      // already shipped. Start optimistically, then downgrade only this Home
+      // when the server proves it cannot parse the variant.
+      supportsLocalAudio: true,
       agentIds: new Set(),
     };
     entry.connection = this.createRuntimeConnection(entry);
@@ -695,41 +718,64 @@ class CodexAppServerRuntime extends EventEmitter {
 
   async submitComposerMessage(options = {}) {
     const message = String(options.message || '').trim();
-    const input = appServerUserInput(options);
-    if (input.length === 0) throw new Error('Composer message is empty');
 
     let binding = this.bindings.get(options.agentId);
     if (!binding) binding = await this.reattachAgent(options);
     const { entry } = binding;
+    let input = appServerUserInput(options, { localAudio: entry.supportsLocalAudio });
+    if (input.length === 0) throw new Error('Composer message is empty');
 
-    if (binding.turnId) {
-      const response = await entry.connection.request('turn/steer', {
+    const submit = async () => {
+      if (binding.turnId) {
+        const response = await entry.connection.request('turn/steer', {
+          threadId: binding.threadId,
+          expectedTurnId: binding.turnId,
+          input,
+        });
+        return { kind: 'steer', turnId: readTurnId(response, 'turn/steer') };
+      }
+
+      const response = await entry.connection.request('turn/start', requestTurnParams({
+        ...binding.options,
+        ...options,
         threadId: binding.threadId,
-        expectedTurnId: binding.turnId,
-        input,
-      });
-      const turnId = readTurnId(response, 'turn/steer');
-      this.appendComposerTranscriptInput(binding.agentId, binding.threadId, turnId, input);
-      this.emitAgentRuntime(binding.agentId, {
-        turnId,
-        state: 'working',
-      });
-      return { kind: 'steer', threadId: binding.threadId, turnId };
-    }
+        message,
+      }, input));
+      return { kind: 'start', turnId: readTurnId(response, 'turn/start') };
+    };
 
-    const response = await entry.connection.request('turn/start', requestTurnParams({
-      ...binding.options,
-      ...options,
-      threadId: binding.threadId,
-      message,
-    }));
-    const turnId = readTurnId(response, 'turn/start');
+    let submitted;
+    let retriedAudioFallback = false;
+    let retriedStaleSteer = false;
+    while (!submitted) {
+      try {
+        submitted = await submit();
+      } catch (error) {
+        if (!retriedAudioFallback && entry.supportsLocalAudio !== false && hasLocalAudioInput(input) && isUnsupportedLocalAudioError(error)) {
+          entry.supportsLocalAudio = false;
+          input = appServerUserInput(options, { localAudio: false });
+          retriedAudioFallback = true;
+          continue;
+        }
+        // App Server can complete the turn after Farming receives its last
+        // notification but before it handles a follow-up Composer request.
+        // A steer is then stale, not a user-visible send failure: start the
+        // exact same input as the next turn once.
+        if (!retriedStaleSteer && binding.turnId && isNoActiveTurnToSteerError(error)) {
+          binding.turnId = '';
+          retriedStaleSteer = true;
+          continue;
+        }
+        throw error;
+      }
+    }
+    const { turnId } = submitted;
     this.appendComposerTranscriptInput(binding.agentId, binding.threadId, turnId, input);
     this.emitAgentRuntime(binding.agentId, {
       turnId,
       state: 'working',
     });
-    return { kind: 'start', threadId: binding.threadId, turnId };
+    return { kind: submitted.kind, threadId: binding.threadId, turnId };
   }
 
   async updateAgentPermissionMode(options = {}) {
