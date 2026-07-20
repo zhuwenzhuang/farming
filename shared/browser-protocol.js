@@ -6,7 +6,6 @@ const CLIENT_MESSAGE_TYPES = new Set([
   'start-agent',
   'input',
   'composer-input',
-  'app-server-request-response',
   'acp-permission-response',
   'interrupt-agent',
   'focus-agent',
@@ -82,7 +81,6 @@ function validateClientMessage(value) {
     case 'start-agent': valid = stringField(value, 'command'); break;
     case 'input': valid = stringField(value, 'agentId', true) && (typeof value.input === 'string' || Array.isArray(value.inputParts)); break;
     case 'composer-input': valid = stringField(value, 'message') && stringField(value, 'agentId', true) && stringField(value, 'requestId', true); break;
-    case 'app-server-request-response':
     case 'acp-permission-response': valid = stringField(value, 'agentId') && stringField(value, 'requestId'); break;
     case 'focus-agent': valid = value.agentId === null || stringField(value, 'agentId'); break;
     case 'resize-agent': valid = stringField(value, 'agentId') && finiteField(value, 'cols') && finiteField(value, 'rows'); break;

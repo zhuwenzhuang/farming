@@ -72,7 +72,6 @@ export interface CodeCopy {
   codexGoalSave: string
   codexGoalClear: string
   codexGoalSaving: string
-  codexGoalUnsupported: string
   searchProjectsOrAgents: string
   clearSearch: string
   projectsAndAgents: string
@@ -172,7 +171,7 @@ export interface CodeCopy {
   describePlanFirst: string
   openAgentTerminalFirst: string
   queuedMessages: (count: number) => string
-  steerQueuedMessage: string
+  sendQueuedMessage: string
   discardQueuedMessage: string
   addContext: string
   attachFile: string
@@ -184,14 +183,12 @@ export interface CodeCopy {
   permissionsPrompt: string
   permissionProfileSavedForNextLaunch: string
   permissionProfileRestarting: string
-  permissionProfileApplying: string
   runtimeModeRestarting: string
   terminalProfileApplying: string
   terminalProfileApplied: string
   terminalProfileFailed: (message: string) => string
   agentRestartTimedOut: string
   permissionRestartHint: string
-  permissionAppServerHint: string
   modelAndReasoning: string
   reasoning: string
   speed: string
@@ -289,16 +286,7 @@ export interface CodeCopy {
   terminalSearchNoResults: string
   terminalSearchResults: (current: number, total: number) => string
   terminalSessionUnavailable: string
-  appServerWaitingForFirstMessage: string
-  appServerRequestTitle: string
-  appServerRequestCommand: string
-  appServerRequestQuestion: string
-  appServerRequestApprove: string
-  appServerRequestDecline: string
-  appServerRequestSubmit: string
-  appServerRequestUnsupported: string
-  appServerApprovalRejectedTitle: string
-  appServerApprovalRejectedDescription: string
+  acpPermissionAllow: string
   acpPermissionTitle: string
   acpPermissionTool: string
   file: string
@@ -517,7 +505,6 @@ const EN_COPY: CodeCopy = {
   codexGoalSave: 'Save goal',
   codexGoalClear: 'Clear',
   codexGoalSaving: 'Saving...',
-  codexGoalUnsupported: 'Native goal controls require a Codex App Server session.',
   searchProjectsOrAgents: 'Search projects or agents',
   clearSearch: 'Clear search',
   projectsAndAgents: 'Projects and agents',
@@ -639,7 +626,7 @@ const EN_COPY: CodeCopy = {
   describePlanFirst: 'Describe what should be planned first',
   openAgentTerminalFirst: 'Open an agent terminal first',
   queuedMessages: count => `${count} queued messages`,
-  steerQueuedMessage: 'Steer',
+  sendQueuedMessage: 'Send next',
   discardQueuedMessage: 'Discard queued message',
   addContext: 'Add context',
   attachFile: 'Attach file',
@@ -651,14 +638,12 @@ const EN_COPY: CodeCopy = {
   permissionsPrompt: 'Launch permission profile',
   permissionProfileSavedForNextLaunch: 'Saved for new agents. Running sessions keep the permissions they launched with.',
   permissionProfileRestarting: 'Switching agent permissions…',
-  permissionProfileApplying: 'Applying App Server permissions…',
   runtimeModeRestarting: 'Restarting Agent…',
   terminalProfileApplying: 'Applying model to Codex Terminal…',
   terminalProfileApplied: 'Codex Terminal model updated.',
   terminalProfileFailed: message => `Codex Terminal model was not changed: ${message}`,
   agentRestartTimedOut: 'Agent restart timed out. The previous Agent remains available; try switching again.',
   permissionRestartHint: 'The running agent restarts to apply these permissions. If it has no resumable session id yet, a fresh session starts.',
-  permissionAppServerHint: 'Applies to this App Server thread without restarting the Agent. New permissions take effect for subsequent turns.',
   modelAndReasoning: 'Model and reasoning',
   reasoning: 'Reasoning',
   speed: 'Speed',
@@ -756,16 +741,7 @@ const EN_COPY: CodeCopy = {
   terminalSearchNoResults: 'No results',
   terminalSearchResults: (current, total) => `${current}/${total}`,
   terminalSessionUnavailable: 'Terminal session unavailable',
-  appServerWaitingForFirstMessage: 'App Server is ready. Send the first Composer message to start the shared Codex CLI terminal.',
-  appServerRequestTitle: 'Codex needs your input',
-  appServerRequestCommand: 'Requested command',
-  appServerRequestQuestion: 'Question',
-  appServerRequestApprove: 'Allow',
-  appServerRequestDecline: 'Decline',
-  appServerRequestSubmit: 'Submit answer',
-  appServerRequestUnsupported: 'This Codex request is not supported in Farming. Declining it will let the turn continue safely.',
-  appServerApprovalRejectedTitle: 'Permission request declined',
-  appServerApprovalRejectedDescription: 'Chat does not approve this permission request. Increase this Agent permission mode, or handle it in Terminal view.',
+  acpPermissionAllow: 'Allow',
   acpPermissionTitle: 'Agent needs permission',
   acpPermissionTool: 'Requested tool',
   file: 'File',
@@ -984,7 +960,6 @@ const ZH_COPY: CodeCopy = {
   codexGoalSave: '保存目标',
   codexGoalClear: '清除',
   codexGoalSaving: '保存中...',
-  codexGoalUnsupported: '原生目标控制需要 Codex App Server 会话。',
   searchProjectsOrAgents: '搜索项目或 Agent',
   clearSearch: '清空搜索',
   projectsAndAgents: '项目与 Agent',
@@ -1142,7 +1117,7 @@ const ZH_COPY: CodeCopy = {
   describePlanFirst: '描述需要先规划的事情',
   openAgentTerminalFirst: '先打开一个 Agent 终端',
   queuedMessages: count => `${count} 条排队消息`,
-  steerQueuedMessage: '引导',
+  sendQueuedMessage: '当前轮后发送',
   discardQueuedMessage: '丢弃排队消息',
   addContext: '添加上下文',
   attachFile: '附加文件',
@@ -1154,14 +1129,12 @@ const ZH_COPY: CodeCopy = {
   permissionsPrompt: '启动权限 profile',
   permissionProfileSavedForNextLaunch: '已保存给新 Agent。运行中的会话保留启动时的权限。',
   permissionProfileRestarting: '正在切换 Agent 权限…',
-  permissionProfileApplying: '正在应用 App Server 权限…',
   runtimeModeRestarting: '正在重启 Agent…',
   terminalProfileApplying: '正在应用 Codex Terminal 模型…',
   terminalProfileApplied: 'Codex Terminal 模型已更新。',
   terminalProfileFailed: message => `Codex Terminal 模型未修改：${message}`,
   agentRestartTimedOut: 'Agent 重启超时。原 Agent 仍然可用，请重新切换。',
   permissionRestartHint: '运行中的 Agent 会重启以应用权限；如果还没有可 resume 的 Session ID，则启动一个新会话。',
-  permissionAppServerHint: '直接应用到当前 App Server thread，不重启 Agent；新权限从后续 turn 生效。',
   modelAndReasoning: '模型与推理',
   reasoning: '推理',
   speed: '速度',
@@ -1259,16 +1232,7 @@ const ZH_COPY: CodeCopy = {
   terminalSearchNoResults: '无结果',
   terminalSearchResults: (current, total) => `${current}/${total}`,
   terminalSessionUnavailable: '终端会话不可用',
-  appServerWaitingForFirstMessage: 'App Server 已就绪。发送第一条 Composer 消息后，会启动加入同一条 thread 的 Codex CLI 终端。',
-  appServerRequestTitle: 'Codex 需要你的输入',
-  appServerRequestCommand: '请求执行的命令',
-  appServerRequestQuestion: '问题',
-  appServerRequestApprove: '允许',
-  appServerRequestDecline: '拒绝',
-  appServerRequestSubmit: '提交回答',
-  appServerRequestUnsupported: 'Farming 目前不支持这类 Codex 请求。拒绝后，当前 turn 会安全地继续。',
-  appServerApprovalRejectedTitle: '已拒绝权限申请',
-  appServerApprovalRejectedDescription: 'Chat 界面不会批准这类权限申请。请调高这个 Agent 的权限，或切到 Terminal 界面处理。',
+  acpPermissionAllow: '允许',
   acpPermissionTitle: 'Agent 需要权限',
   acpPermissionTool: '请求使用工具',
   file: '文件',

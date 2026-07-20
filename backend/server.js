@@ -50,7 +50,6 @@ const { discoverSlashCommands } = require('./slash-command-discovery');
 const { FarmingUpdateService } = require('./update-service');
 const { isRestartBlockingAgent } = require('./agent-activity');
 const { inputPartsFromMessage } = require('./input-parts');
-const { AppServerApiBridge, createAppServerApiRouter } = require('./app-server-api');
 const { cleanupTerminalRuntime } = require('./terminal-runtime-cleanup');
 const { QrShareTicketStore, SHARE_TICKET_TTL_MS } = require('./qr-share-tickets');
 const { ReviewStateStore } = require('./review-state-store');
@@ -123,7 +122,6 @@ const updateService = new FarmingUpdateService({
   packagedRuntime: Boolean(process.pkg || process.env.FARMING_PACKAGED_RUNTIME === '1'),
   getUpdateUrl: () => configManager.getSettings().updateUrl || '',
 });
-const appServerApiBridge = new AppServerApiBridge();
 const usageMonitor = new UsageMonitor({ agentManager, getProviderHomes: configuredProviderHomes });
 const codexContextWindowReader = new CodexContextWindowReader();
 const usageSummaryCache = new AsyncCache(() => usageMonitor.getUsageSummary(), {
@@ -529,10 +527,6 @@ app.use(routePath(BASE_PATH, '/api/control'), createControlRouter(agentManager, 
   notifyUpdate: broadcastState,
   allowConcurrentTestControl: process.env.NODE_ENV === 'test'
     && process.env.FARMING_E2E_FAKE_EXECUTABLES === '1',
-}));
-
-app.use(routePath(BASE_PATH, '/api/app-server'), createAppServerApiRouter({
-  bridge: appServerApiBridge,
 }));
 
 app.get([
@@ -1009,8 +1003,8 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/session-view'), async (req, r
 });
 
 app.get(routePath(BASE_PATH, '/api/agents/:agentId/codex-transcript'), async (req, res) => {
-  // Legacy JSONL transcript reader. New App Server Agents use the dedicated
-  // structured endpoint below; Terminal Agents stay in their terminal UI.
+  // Legacy JSONL transcript reader. ACP Chat uses the dedicated ACP endpoint;
+  // Terminal Agents stay in their terminal UI.
   const providerSession = agentManager.getAgentProviderSession(req.params.agentId);
   if (!providerSession) {
     res.status(404).json({ error: 'Agent not found' });
@@ -1040,28 +1034,12 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/codex-transcript'), async (re
       : DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS;
     const transcript = await readCodexTranscript(providerSession.sessionId, {
       maxTurns,
-      codexHome: runtimeKind(providerSession) === 'app-server'
-        ? (providerSession.codexAppServerHomePath || providerSession.providerHomePath || '')
-        : (providerSession.providerHomePath || ''),
+      codexHome: providerSession.providerHomePath || '',
     });
     res.json({ transcript });
   } catch (error) {
     console.error('Failed to read Codex transcript:', error);
     res.status(500).json({ error: error.message || 'Failed to read Codex transcript' });
-  }
-});
-
-app.get(routePath(BASE_PATH, '/api/agents/:agentId/codex-app-server-transcript'), async (req, res) => {
-  try {
-    const requestedMaxTurns = Number.parseInt(String(req.query.maxTurns || ''), 10);
-    const maxTurns = Number.isFinite(requestedMaxTurns)
-      ? Math.min(MAX_CODEX_TRANSCRIPT_TURNS, Math.max(20, requestedMaxTurns))
-      : DEFAULT_CODEX_TRANSCRIPT_MAX_TURNS;
-    const transcript = agentManager.getCodexAppServerTranscript(req.params.agentId, { maxTurns });
-    res.json({ transcript });
-  } catch (error) {
-    const message = error && error.message ? error.message : 'Failed to read Codex App Server transcript';
-    res.status(/not using the Codex App Server runtime/i.test(message) ? 409 : 500).json({ error: message });
   }
 });
 
@@ -1281,41 +1259,6 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId/acp-session'), express.json
   } catch (error) {
     const message = error && error.message ? error.message : 'Failed to update ACP session';
     res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
-  }
-});
-
-app.get(routePath(BASE_PATH, '/api/agents/:agentId/codex-goal'), async (req, res) => {
-  try {
-    const goal = await agentManager.getCodexAppServerGoal(req.params.agentId);
-    res.json({ goal });
-  } catch (error) {
-    const message = error && error.message ? error.message : 'Failed to read Codex goal';
-    res.status(message === 'Agent not found' ? 404 : 400).json({ error: message });
-  }
-});
-
-app.patch(routePath(BASE_PATH, '/api/agents/:agentId/codex-goal'), express.json(), async (req, res) => {
-  try {
-    const body = req.body || {};
-    const goal = await agentManager.setCodexAppServerGoal(req.params.agentId, {
-      objective: typeof body.objective === 'string' ? body.objective : undefined,
-      status: typeof body.status === 'string' ? body.status : undefined,
-      ...(Object.prototype.hasOwnProperty.call(body, 'tokenBudget') ? { tokenBudget: body.tokenBudget } : {}),
-    });
-    res.json({ goal });
-  } catch (error) {
-    const message = error && error.message ? error.message : 'Failed to update Codex goal';
-    res.status(message === 'Agent not found' ? 404 : 400).json({ error: message });
-  }
-});
-
-app.delete(routePath(BASE_PATH, '/api/agents/:agentId/codex-goal'), async (req, res) => {
-  try {
-    await agentManager.clearCodexAppServerGoal(req.params.agentId);
-    res.json({ goal: null });
-  } catch (error) {
-    const message = error && error.message ? error.message : 'Failed to clear Codex goal';
-    res.status(message === 'Agent not found' ? 404 : 400).json({ error: message });
   }
 });
 
@@ -2122,23 +2065,6 @@ async function sendComposerInputMessage(ws, data) {
   }
 }
 
-async function respondToAppServerRequest(ws, data) {
-  const targetAgentId = resolveInputTargetAgentId(ws, data);
-  const requestId = typeof data.requestId === 'string' ? data.requestId : '';
-  if (!targetAgentId || !requestId) return;
-  try {
-    agentManager.respondToCodexAppServerRequest(targetAgentId, requestId, data.result, {
-      reject: data.reject === true,
-      reason: typeof data.reason === 'string' ? data.reason : '',
-    });
-  } catch (error) {
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: error && error.message ? error.message : 'Failed to respond to Codex App Server request',
-    }));
-  }
-}
-
 function handleMessage(ws, data) {
   switch (data.type) {
     case 'protocol-hello':
@@ -2165,9 +2091,6 @@ function handleMessage(ws, data) {
         workflowTemplate: typeof data.workflowTemplate === 'string' ? data.workflowTemplate : '',
         customTitle: typeof data.customTitle === 'string' ? data.customTitle : '',
         codexApprovalMode: typeof data.codexApprovalMode === 'string' ? data.codexApprovalMode : undefined,
-        codexRuntimeMode: data.codexRuntimeMode === 'app-server' || data.codexRuntimeMode === 'cli'
-          ? data.codexRuntimeMode
-          : undefined,
         agentRuntimeMode: ['json', 'acp', 'chat'].includes(data.agentRuntimeMode) ? data.agentRuntimeMode : 'terminal',
         acpHistoryMode: data.acpHistoryMode === 'resume' ? 'resume' : 'load',
         providerHomeId: typeof data.providerHomeId === 'string' ? data.providerHomeId : '',
@@ -2184,12 +2107,6 @@ function handleMessage(ws, data) {
     case 'composer-input':
       {
         void sendComposerInputMessage(ws, data);
-      }
-      break;
-
-    case 'app-server-request-response':
-      {
-        void respondToAppServerRequest(ws, data);
       }
       break;
 
@@ -2775,7 +2692,6 @@ module.exports = {
   server,
   wss,
   agentManager,
-  appServerApiBridge,
   workspaceFileService,
   handleMessage,
   resolveCliBinDir,

@@ -55,7 +55,6 @@
     "release:remote:linux-compat": "./scripts/install-remote-linux-compat-release.sh",
     "docs:product:screenshots": "node scripts/capture-product-screenshots.js",
     "test": "node scripts/run-tests.js",
-    "test:codex-app-server:real": "FARMING_REAL_CODEX_APP_SERVER_SMOKE=1 node scripts/smoke-codex-app-server.js",
     "test:pre-release:codex-ui": "FARMING_REAL_CODEX_BIN=\"$(command -v codex)\" FARMING_CODEX_BIN=\"$PWD/tests/e2e/fixtures/real-codex-no-update\" FARMING_REAL_CODEX_RELEASE_CASE=1 FARMING_E2E_REAL_CODEX=1 FARMING_PLAYWRIGHT_INTERNAL=1 playwright test tests/e2e/internal/real-codex-release-case.spec.ts --project=chromium --workers=1 --retries=0 --trace=retain-on-failure",
     "test:pre-release:terminal-input": "playwright test tests/e2e/terminal-input-performance.spec.ts --project=chromium --workers=1 --retries=0 --trace=retain-on-failure",
     "test:performance:audit": "node tests/performance/agent-usage-hotpath.js && FARMING_PLAYWRIGHT_INTERNAL=1 playwright test tests/e2e/internal/performance-bottlenecks.spec.ts --project=chromium --workers=1 --retries=0 --trace=retain-on-failure",

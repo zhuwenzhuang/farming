@@ -33,7 +33,7 @@ async function createCodexHistoryAgent(page: import('@playwright/test').Page, wo
 }
 
 // @deprecated CLI JSONL transcript is no longer a product runtime path.
-// App Server Chat coverage lives with the managed App Server tests instead.
+// Live structured Chat coverage lives with the ACP tests instead.
 test.describe.skip('Legacy Codex JSONL transcript view', () => {
   test('renders Codex-app style turns with collapsible process details and raw terminal fallback', async ({ page, workspaceRoot }) => {
     const projectDir = path.join(workspaceRoot, 'codex-transcript-fixture')

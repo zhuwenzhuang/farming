@@ -29,7 +29,7 @@ function run() {
     sessionRevision: 0,
   });
   assert.strictEqual(runtimeKind({ runtimeBinding: { kind: 'json', state: 'idle' } }), 'json');
-  assert.strictEqual(runtimeState({ runtimeBinding: { kind: 'app-server', state: 'working' } }), 'working');
+  assert.strictEqual(runtimeState({ runtimeBinding: { kind: 'app-server', state: 'working' } }), 'connecting');
   assert.deepStrictEqual(
     publicRuntimeBinding({ runtimeBinding: { kind: 'json', state: 'idle', error: '', transcriptUpdatedAt: '' } }),
     { kind: 'json', state: 'idle', error: '', transcriptUpdatedAt: '' },
@@ -54,9 +54,9 @@ function run() {
     codexAppServerHomePath: '/tmp/runtime-home',
   });
   const appAgent = agents.get('app');
-  assert.strictEqual(appAgent.runtimeBinding.kind, 'app-server');
-  assert.strictEqual(appAgent.runtimeBinding.homePath, '/tmp/runtime-home');
-  assert.strictEqual(publicRuntimeBinding(appAgent).homePath, undefined);
+  assert.strictEqual(appAgent.runtimeBinding.kind, 'acp');
+  assert.strictEqual(appAgent.runtimeBinding.state, 'connecting');
+  assert.strictEqual(publicRuntimeBinding(appAgent).kind, 'acp');
   assert.strictEqual('codexRuntimeMode' in appAgent, false);
   console.log('test-agent-runtime-binding passed');
 }

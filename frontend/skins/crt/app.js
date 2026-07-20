@@ -1400,8 +1400,8 @@ function isCrtAgentWorking(agent) {
   if (agent.terminalStatus && agent.terminalStatus.busy === true) return true;
   const runtime = agent.runtimeBinding || { kind: 'terminal' };
   if (
-    runtime.kind === 'app-server' &&
-    ['working', 'waiting-for-input', 'interrupting'].includes(runtime.state || '')
+    runtime.kind === 'acp' &&
+    ['working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(runtime.state || '')
   ) {
     return true;
   }
@@ -5850,7 +5850,6 @@ function structuredRuntimeKind(agent) {
   const kind = agent && agent.runtimeBinding && agent.runtimeBinding.kind;
   if (kind === 'acp') return 'ACP';
   if (kind === 'json') return 'JSON';
-  if (kind === 'app-server') return 'APP SERVER';
   return '';
 }
 
@@ -6020,8 +6019,7 @@ function toggleCrtSessionRuntimeMode() {
 
 function structuredTranscriptEndpoint(agent) {
   if (agent.runtimeBinding.kind === 'acp') return 'acp-transcript';
-  if (agent.runtimeBinding.kind === 'json') return 'json-cli-transcript';
-  return 'codex-app-server-transcript';
+  return 'json-cli-transcript';
 }
 
 function structuredRuntimeStatus(agent) {
@@ -6041,7 +6039,6 @@ function structuredComposerAction(agent, draft = '') {
   const working = ['working', 'waiting-for-permission'].includes(status);
   if (working) {
     if (agent.runtimeBinding?.kind === 'acp' && String(draft || '').trim()) return 'send';
-    if (agent.runtimeBinding?.kind === 'app-server' && String(draft || '').trim()) return 'steer';
     return 'interrupt';
   }
   if (['starting', 'interrupting'].includes(status)) return 'disabled';
@@ -6489,9 +6486,7 @@ function updateStructuredComposerState(agent) {
   }
   sendButton.disabled = action === 'disabled';
   sendButton.dataset.action = action;
-  sendButton.textContent = action === 'interrupt'
-    ? 'BREAK [ESC]'
-    : action === 'steer' ? 'STEER [ENTER]' : 'SEND [ENTER]';
+  sendButton.textContent = action === 'interrupt' ? 'BREAK [ESC]' : 'SEND [ENTER]';
   input.placeholder = error
     ? 'Session unavailable'
     : (busy ? 'Agent is changing state...' : 'Type a message...');
@@ -7205,39 +7200,19 @@ function setupStructuredSessionComposer() {
       renderStructuredComposerAttachments();
       resizeStructuredComposerInput(input);
       if (statusNode) {
-        statusNode.textContent = action === 'steer' ? 'STEERING...' : 'SENDING...';
+        statusNode.textContent = 'SENDING...';
         statusNode.classList.remove('error');
       }
       updateStructuredComposerState(agent);
       setTimeout(() => void refreshStructuredSession(focusedAgentId, true), 160);
     };
-    const waitForAppServer = agent.runtimeBinding?.kind === 'app-server';
     const sent = action === 'send' && structuredRuntimeStatus(agent) !== 'idle'
       ? (queueStructuredComposerFollowUp(focusedAgentId, message, promptAttachments), true)
-      : getSessionClient()?.sendComposerMessage(focusedAgentId, message, promptAttachments, waitForAppServer ? {
-        onResult: (result) => {
-          if (result.accepted !== true) {
-            if (statusNode) {
-              statusNode.textContent = result.message || 'Chat submission was not accepted';
-              statusNode.classList.add('error');
-            }
-            input.focus();
-            return;
-          }
-          completeSubmission();
-        },
-      } : undefined);
+      : getSessionClient()?.sendComposerMessage(focusedAgentId, message, promptAttachments);
     if (!sent) {
       if (statusNode) {
         statusNode.textContent = 'Connection unavailable';
         statusNode.classList.add('error');
-      }
-      return;
-    }
-    if (waitForAppServer) {
-      if (statusNode) {
-        statusNode.textContent = action === 'steer' ? 'STEERING...' : 'SENDING...';
-        statusNode.classList.remove('error');
       }
       return;
     }

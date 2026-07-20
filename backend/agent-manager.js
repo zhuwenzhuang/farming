@@ -37,7 +37,6 @@ const {
   providerSupportsRuntime,
 } = require('./provider-adapters');
 const { deriveTerminalStatus } = require('./terminal-status');
-const { CodexAppServerRuntime } = require('./codex-app-server-runtime');
 const { JsonCliRuntime } = require('./json-cli-runtime');
 const { AcpRuntime } = require('./acp-runtime');
 const { chatRuntimeForProvider, isChatMode } = require('./chat-runtime');
@@ -47,7 +46,6 @@ const {
   codexTerminalProfileFromOutput,
   codexTerminalProfileFromPreview,
 } = require('./codex-terminal-profile');
-const { ensureCodexAppServerHome } = require('./codex-app-server-home');
 const {
   ensureAgentOrders,
   finiteOrder,
@@ -217,18 +215,6 @@ function agentHomeProviderForProgram(command) {
   return providerForProgram(agentProgramName(command));
 }
 
-function hasUsableCodexAppServerHome(metadata) {
-  const homePath = String(runtimeBindingOf(metadata, 'app-server')?.homePath || '').trim();
-  return Boolean(homePath) && fs.existsSync(homePath);
-}
-
-function shouldRecoverAsCodexAppServer(metadata) {
-  const provider = metadata?.providerSessionProvider || metadata?.provider || '';
-  return provider === 'codex'
-    && runtimeKind(metadata) === 'app-server'
-    && hasUsableCodexAppServerHome(metadata);
-}
-
 function isJsonCliAgent(agent) {
   return runtimeKind(agent) === 'json';
 }
@@ -265,7 +251,6 @@ function activeCodexTerminalProfile(agent, previewText) {
     || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
   if (
     provider !== 'codex'
-    || isCodexAppServerAgent(agent)
     || isJsonCliAgent(agent)
     || isAcpAgent(agent)
     || runtimeKind(agent) !== 'terminal'
@@ -501,10 +486,6 @@ function isRunningAgentRuntimeStatus(status) {
   return String(status || '').toLowerCase() === 'running';
 }
 
-function isCodexAppServerAgent(agent) {
-  return runtimeKind(agent) === 'app-server';
-}
-
 function isLiveEngineSessionState(sessionState) {
   return Boolean(sessionState && sessionState.status && sessionState.status !== 'exited');
 }
@@ -569,7 +550,6 @@ class AgentManager extends EventEmitter {
     this.runtimeRestartInFlight = new Map();
     this.codexSessionUnarchiveInFlight = new Map();
     this.permissionRestartSuppressedAgentIds = new Set();
-    this.codexAppServerRuntime = options.codexAppServerRuntime || new CodexAppServerRuntime();
     this.jsonCliRuntime = options.jsonCliRuntime || new JsonCliRuntime();
     this.acpRuntime = options.acpRuntime || new AcpRuntime({
       ...(this.configManager?.farmingDir ? { configDir: this.configManager.farmingDir } : {}),
@@ -613,7 +593,6 @@ class AgentManager extends EventEmitter {
     this.lastZombieSweepAt = 0;
     this.startHeartbeat();
     this.bindEngineEvents();
-    this.bindCodexAppServerRuntimeEvents();
     this.bindJsonCliRuntimeEvents();
     this.bindAcpRuntimeEvents();
     if (this.configManager && this.configManager.farmingDir) {
@@ -676,46 +655,6 @@ class AgentManager extends EventEmitter {
       if (!runtime) return;
       runtime.sessionUpdatedAt = new Date().toISOString();
       runtime.sessionRevision = Number.isFinite(Number(revision)) ? Number(revision) : (Number(runtime.sessionRevision) || 0) + 1;
-      this.emit('update');
-    });
-  }
-
-  bindCodexAppServerRuntimeEvents() {
-    if (!this.codexAppServerRuntime || typeof this.codexAppServerRuntime.on !== 'function') return;
-    this.codexAppServerRuntime.on('agent-runtime', ({ agentId, ...patch }) => {
-      const agent = this.agents.get(agentId);
-      const runtime = runtimeBindingOf(agent, 'app-server');
-      if (!runtime) return;
-
-      if (typeof patch.threadId === 'string' && patch.threadId) {
-        runtime.threadId = patch.threadId;
-        this.providerSessionService.bindConfirmed(
-          agentId,
-          agent.providerSessionProvider || 'codex',
-          patch.threadId
-        );
-      }
-      if (typeof patch.turnId === 'string') runtime.turnId = patch.turnId;
-      if (typeof patch.state === 'string' && patch.state) runtime.state = patch.state;
-      if (typeof patch.error === 'string') runtime.error = patch.error;
-      if (typeof patch.pendingRequestId === 'string') runtime.pendingRequestId = patch.pendingRequestId;
-      if (typeof patch.pendingRequestMethod === 'string') runtime.pendingRequestMethod = patch.pendingRequestMethod;
-      if (Object.prototype.hasOwnProperty.call(patch, 'pendingRequest')) {
-        runtime.pendingRequest = patch.pendingRequest || null;
-      }
-      if (Object.prototype.hasOwnProperty.call(patch, 'notice')) {
-        runtime.notice = patch.notice || null;
-      }
-      if (Object.prototype.hasOwnProperty.call(patch, 'goal')) {
-        runtime.goal = patch.goal || null;
-      }
-      if (typeof patch.transcriptUpdatedAt === 'string') {
-        runtime.transcriptUpdatedAt = patch.transcriptUpdatedAt;
-      }
-
-      if (patch.state === 'working' || patch.state === 'waiting-for-input') {
-        this.lastActivity.set(agentId, Date.now());
-      }
       this.emit('update');
     });
   }
@@ -1056,12 +995,6 @@ class AgentManager extends EventEmitter {
         clearPendingTerminalStartSyncCut(agent);
         if (this.permissionRestartSuppressedAgentIds.has(sessionId)) return;
 
-        // A fresh App Server thread deliberately has no CLI/PTy observer until
-        // its first turn has completed and become resumable.  Native host
-        // cleanup can still report an old/missing session id while that gap is
-        // open; it is not an exit of the App Server Agent.
-        if (isCodexAppServerAgent(agent)) return;
-
         if (stateProofAvailable === false) {
           this.providerSessionService.stop(sessionId);
           agent.status = 'dead';
@@ -1216,7 +1149,6 @@ class AgentManager extends EventEmitter {
       await this.restoreTerminalSessionsAfterRuntimeRotation(persistedRecords, runtimeRotations);
     }
 
-    await this.recoverCodexAppServerSessions();
     await this.recoverAcpSessions();
   }
 
@@ -1451,7 +1383,7 @@ class AgentManager extends EventEmitter {
     for (const record of records) {
       const agentId = String(record.runtimeAgentId || '').trim();
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
-      const sessionId = String(record.providerSessionId || '').trim();
+      const sessionId = String(record.providerSessionId || record.codexAppServerThreadId || '').trim();
       if (!agentId || !sessionId || !providerSupportsRuntime(provider, 'acp')) continue;
       const agent = this.agents.get(agentId);
       if (!agent) {
@@ -1470,7 +1402,7 @@ class AgentManager extends EventEmitter {
     for (const record of records) {
       const agentId = String(record.runtimeAgentId || '').trim();
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
-      const sessionId = String(record.providerSessionId || '').trim();
+      const sessionId = String(record.providerSessionId || record.codexAppServerThreadId || '').trim();
       const agent = this.agents.get(agentId);
       if (!agent || !sessionId || !providerSupportsRuntime(provider, 'acp')) continue;
       try {
@@ -1521,82 +1453,6 @@ class AgentManager extends EventEmitter {
     this.emit('update');
   }
 
-  async recoverCodexAppServerSessions() {
-    if (!this.codexAppServerRuntime || !this.configManager || typeof this.configManager.listAgentSessionRecords !== 'function') return;
-    const records = this.configManager.listAgentSessionRecords();
-    for (const record of records) {
-      if (!record || record.archived === true || runtimeKind(record) !== 'app-server') continue;
-      const agentId = String(record.runtimeAgentId || '').trim();
-      const threadId = String(record.codexAppServerThreadId || record.providerSessionId || '').trim();
-      const home = String(record.codexAppServerHomePath || '').trim();
-      if (!agentId || !threadId || !home || !fs.existsSync(home)) {
-        if (record.provider === 'codex' || record.providerSessionProvider === 'codex') {
-          let agent = this.agents.get(agentId);
-          if (!agent && agentId) {
-            agent = this.recoveredAgentRecord(agentId, record.engine || 'native', record, { status: 'running' });
-            agent.persistentSessionId = record.id || '';
-          }
-          if (agent) {
-            ensureAgentOrders(agent, Array.from(this.agents.values()));
-            replaceRuntimeBinding(agent, 'terminal');
-            this.ensurePersistentAgentSession(agent);
-            this.updateEngineProviderSessionMetadata(agent);
-          }
-        }
-        continue;
-      }
-      let agent = this.agents.get(agentId);
-      if (!agent) {
-        agent = this.recoveredAgentRecord(agentId, record.engine || 'native', record, { status: 'running' });
-        ensureAgentOrders(agent, Array.from(this.agents.values()));
-        agent.persistentSessionId = record.id || '';
-        agent.engineStarted = false;
-        this.agents.set(agentId, agent);
-        void this.refreshAgentWorktree(agentId);
-        this.lastActivity.set(agentId, Date.now());
-      }
-      try {
-        // Remove a CLI observer recovered from pre-split metadata before the
-        // structured runtime reconnects to this App Server Agent.
-        await this.killRecoveredEngineSession({ engineName: agent.engineName }, record, agentId);
-        const executable = resolveCompatibleCodexExecutable('').path || resolveAgentExecutable('codex') || 'codex';
-        const binding = await this.codexAppServerRuntime.reattachAgent({
-          agentId,
-          threadId,
-          codexHome: home,
-          executable,
-          env: this.buildAgentEnv(agentId, agent),
-          cwd: agent.cwd,
-          workspaceRoot: effectiveAgentWorkspaceRoot(agent),
-          approvalMode: agent.launchPermissionMode || 'approve',
-        });
-        const runtime = runtimeBindingOf(agent, 'app-server');
-        runtime.threadId = binding.threadId;
-        runtime.state = 'idle';
-        runtime.error = '';
-        // App Server owns this runtime. It deliberately has no CLI/PTy
-        // observer, so recovery cannot create a second reader or writer.
-        agent.status = 'running';
-        agent.engineStatus = 'running';
-        agent.engineStarted = false;
-        runtime.observerDeferred = false;
-        agent.exitedAt = null;
-        this.providerSessionService.activate(agentId);
-        this.ensurePersistentAgentSession(agent);
-      } catch (error) {
-        const runtime = runtimeBindingOf(agent, 'app-server');
-        runtime.error = `Codex App Server recovery failed: ${error && (error.message || error)}`;
-        runtime.state = 'error';
-        agent.status = 'stopped';
-        agent.engineStatus = 'stopped';
-        agent.engineStarted = false;
-        agent.exitedAt = Date.now();
-        this.ensurePersistentAgentSession(agent);
-      }
-    }
-    this.emit('update');
-  }
-
   async killRecoveredEngineSession(entry, metadata, agentId) {
     if (!this.engineBridge || typeof this.engineBridge.killSession !== 'function') return;
     const engineName = entry.engineName || metadata.engineName || 'native';
@@ -1614,16 +1470,8 @@ class AgentManager extends EventEmitter {
   recoveredAgentRecord(agentId, engineName, metadata, state) {
     const wantsMain = metadata.wantsMain === true;
     const providerSessionProvider = metadata.providerSessionProvider || metadata.provider || '';
-    const recoverCodexAppServer = shouldRecoverAsCodexAppServer(metadata);
-    const persistedRuntimeKind = runtimeKind(metadata);
-    const recoveredRuntimeKind = recoverCodexAppServer
-      ? 'app-server'
-      : (persistedRuntimeKind === 'app-server' ? 'terminal' : persistedRuntimeKind);
-    const runtimeBinding = runtimeBindingFor(recoveredRuntimeKind, {
-      ...metadata,
-      codexAppServerThreadId: metadata.codexAppServerThreadId || metadata.providerSessionId || '',
-      codexCliObserverDeferred: false,
-    });
+    const providerSessionId = metadata.providerSessionId || metadata.codexAppServerThreadId || '';
+    const runtimeBinding = runtimeBindingFor(runtimeKind(metadata), metadata);
     return {
       id: agentId,
       command: metadata.forkCommand || metadata.command || '',
@@ -1649,23 +1497,21 @@ class AgentManager extends EventEmitter {
       providerSessionProvider,
       providerHomeId: metadata.providerHomeId || '',
       providerHomePath: metadata.providerHomePath || '',
-      providerSessionId: metadata.providerSessionId || '',
+      providerSessionId,
       providerSessionKey: metadata.providerSessionKey || (
-        providerSessionProvider && metadata.providerSessionId
-          ? mainPageAgentSessionKey(providerSessionProvider, metadata.providerSessionId, metadata.providerHomeId || '')
+        providerSessionProvider && providerSessionId
+          ? mainPageAgentSessionKey(providerSessionProvider, providerSessionId, metadata.providerHomeId || '')
           : ''
       ),
-      providerSessionTemporary: metadata.providerSessionTemporary === true || isTemporaryProviderSessionId(metadata.providerSessionId),
+      providerSessionTemporary: metadata.providerSessionTemporary === true || isTemporaryProviderSessionId(providerSessionId),
       providerSessionSource: metadata.providerSessionSource || '',
       providerSessionResolvedAt: metadata.providerSessionResolvedAt || null,
       providerSessionTitle: metadata.providerSessionTitle || '',
       providerSessionWorkspace: metadata.providerSessionWorkspace || '',
       terminalInputReceived: metadata.terminalInputReceived === true,
-      // Older persisted sessions predate App Server mode. Also, a Codex
-      // App Server record without its isolated runtime home is not actually
-      // attachable; recover it as terminal-owned CLI instead of leaving the
-      // UI in a split state where the pane is terminal but Composer sends to
-      // App Server.
+      // Legacy App Server records normalize to ACP at the runtime-binding
+      // boundary. Codex thread ids are valid ACP session ids, so the existing
+      // conversation remains recoverable without restarting App Server.
       runtimeBinding,
       forkedFromProviderSessionId: metadata.forkedFromProviderSessionId || '',
       restartedFromAgentId: metadata.restartedFromAgentId || '',
@@ -1736,7 +1582,6 @@ class AgentManager extends EventEmitter {
 
   shouldDeferMissingEngineSession(agent) {
     if (!agent || !isRunningAgentRuntimeStatus(agent.status)) return false;
-    if (isCodexAppServerAgent(agent)) return true;
     if (agent.engineStarted === false) return true;
     const startedAt = Number(agent.startedAt);
     return Number.isFinite(startedAt) && Date.now() - startedAt < MISSING_ENGINE_SESSION_STARTUP_GRACE_MS;
@@ -2181,11 +2026,10 @@ class AgentManager extends EventEmitter {
     }
     if (agent.providerHomePath) {
       const provider = agent.providerSessionProvider || agentHomeProviderForProgram(agent.forkCommand || agent.command);
-      const appServerHome = runtimeBindingOf(agent, 'app-server')?.homePath || '';
       applyProviderHomeEnvironment(
         env,
         provider,
-        provider === 'codex' ? (appServerHome || agent.providerHomePath) : agent.providerHomePath
+        agent.providerHomePath
       );
     }
 
@@ -2307,9 +2151,6 @@ class AgentManager extends EventEmitter {
     this.resizeDrains.clear();
     this.inputQueues.clear();
     this.codexTerminalProfileQueues.clear();
-    if (this.codexAppServerRuntime && typeof this.codexAppServerRuntime.dispose === 'function') {
-      this.codexAppServerRuntime.dispose();
-    }
     if (this.jsonCliRuntime) {
       for (const agentId of this.agents.keys()) this.jsonCliRuntime.unregisterAgent(agentId);
     }
@@ -2648,40 +2489,17 @@ class AgentManager extends EventEmitter {
     const resolvedChatRuntime = requestedChatRuntime
       ? chatRuntimeForProvider(homeProvider)
       : (requestedAgentRuntimeMode === 'acp' ? 'acp' : '');
-    const useCodexAppServer = homeProvider === 'codex'
-      && this.codexAppServerRuntime
-      && resolvedChatRuntime === 'app-server'
-      // The deterministic browser/server fixtures are terminal-only shims,
-      // not an implementation of the Codex App Server protocol. App Server
-      // behavior has its own mock runtime test; keep these legacy PTY tests
-      // on the path they are designed to exercise.
-      && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1';
     const useJsonCli = requestedAgentRuntimeMode === 'json'
       && providerSupportsRuntime(structuredRuntimeProvider, 'json')
-      && !useCodexAppServer
       && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1';
     const useAcp = resolvedChatRuntime === 'acp'
       && providerSupportsRuntime(structuredRuntimeProvider, 'acp')
-      && !useCodexAppServer
       && (
         process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
         || process.env.FARMING_E2E_FAKE_ACP_AGENT === '1'
       );
     const acpGeneratedFreshSession = useAcp
       && isFreshAcpSessionSource(structuredRuntimeProvider, providerSessionPlan.source);
-    let codexAppServerHomePath = '';
-    if (useCodexAppServer) {
-      try {
-        codexAppServerHomePath = ensureCodexAppServerHome({
-          configDir: this.configManager && this.configManager.farmingDir,
-          agentId,
-          sourceHome: providerHomePath || path.join(os.homedir(), '.codex'),
-        });
-      } catch (error) {
-        if (callback) callback(null, error.message);
-        return null;
-      }
-    }
     const agentRecord = {
       id: agentId,
       command: launch.program,
@@ -2715,16 +2533,14 @@ class AgentManager extends EventEmitter {
       providerSessionTitle: typeof options.providerSessionTitle === 'string' ? options.providerSessionTitle.trim().slice(0, 160) : '',
       providerSessionWorkspace: '',
       terminalInputReceived: false,
-      runtimeBinding: useCodexAppServer
-        ? runtimeBindingFor('app-server', { state: 'connecting', homePath: codexAppServerHomePath })
-        : (useAcp
-          ? runtimeBindingFor('acp', { state: 'connecting' })
-          : (useJsonCli
-            ? runtimeBindingFor('json', {
-              state: 'idle',
-              events: Array.isArray(options.jsonCliEvents) ? options.jsonCliEvents : [],
-            })
-            : runtimeBindingFor('terminal'))),
+      runtimeBinding: useAcp
+        ? runtimeBindingFor('acp', { state: 'connecting' })
+        : (useJsonCli
+          ? runtimeBindingFor('json', {
+            state: 'idle',
+            events: Array.isArray(options.jsonCliEvents) ? options.jsonCliEvents : [],
+          })
+          : runtimeBindingFor('terminal')),
       forkedFromProviderSessionId: providerSessionPlan.forkedFromProviderSessionId || '',
       restartedFromAgentId: typeof options.restartedFromAgentId === 'string' ? options.restartedFromAgentId : '',
       restartedFromAgentIds: Array.isArray(options.restartedFromAgentIds)
@@ -2780,50 +2596,6 @@ class AgentManager extends EventEmitter {
     this.emit('update');
 
     try {
-      if (useCodexAppServer) {
-        try {
-          const appServer = runtimeBindingOf(agentRecord, 'app-server');
-          const prepared = await this.codexAppServerRuntime.prepareAgent({
-            agentId,
-            codexHome: appServer.homePath,
-            executable: spawnProgram,
-            env: this.buildAgentEnv(agentId, agentRecord),
-            cwd: workspace,
-            workspaceRoot: projectWorkspace || workspace,
-            resumeThreadId: agentRecord.providerSessionTemporary ? '' : agentRecord.providerSessionId,
-            temporaryThreadId: agentRecord.providerSessionTemporary ? agentRecord.providerSessionId : '',
-            approvalMode: agentRecord.launchPermissionMode || (
-              this.configManager && this.configManager.getCodexApprovalMode
-                ? this.configManager.getCodexApprovalMode()
-                : 'approve'
-            ),
-            model: codexModel,
-            reasoningEffort: codexReasoningEffort,
-            serviceTier: codexServiceTier,
-            developerInstructions: wantsMain ? renderMainAgentBootstrap() : '',
-          });
-          agentRecord.providerSessionId = prepared.threadId;
-          agentRecord.providerSessionKey = mainPageAgentSessionKey(
-            'codex',
-            prepared.threadId,
-            agentRecord.providerHomeId || 'default'
-          );
-          agentRecord.providerSessionTemporary = false;
-          agentRecord.providerSessionSource = prepared.resumed ? 'app-server-resume' : 'app-server-start';
-          agentRecord.providerSessionResolvedAt = Date.now();
-          appServer.state = 'idle';
-          appServer.endpoint = prepared.endpoint;
-          appServer.threadId = prepared.threadId;
-          appServer.error = '';
-          // App Server mode has no embedded CLI observer. Its chat and
-          // lifecycle both come from the structured App Server connection.
-          appServer.observerDeferred = false;
-        } catch (error) {
-          const reason = error && error.message ? error.message : String(error);
-          throw new Error(`Codex App Server failed to start: ${reason}`, { cause: error });
-        }
-      }
-
       if (useJsonCli) {
         const jsonRuntime = runtimeBindingOf(agentRecord, 'json');
         this.jsonCliRuntime.registerAgent({
@@ -2873,7 +2645,7 @@ class AgentManager extends EventEmitter {
       }
 
       agentRecord.persistentSessionId = this.ensurePersistentAgentSession(agentRecord);
-      if (!useCodexAppServer && !useJsonCli && !useAcp) {
+      if (!useJsonCli && !useAcp) {
         const engineLaunch = {
           command: spawnProgram,
           args,
@@ -2922,9 +2694,6 @@ class AgentManager extends EventEmitter {
       this.agentUsageRateCache.delete(agentId);
       this.lastResizeByAgent.delete(agentId);
       this.providerSessionService.stop(agentId);
-      if (this.codexAppServerRuntime && typeof this.codexAppServerRuntime.unregisterAgent === 'function') {
-        this.codexAppServerRuntime.unregisterAgent(agentId);
-      }
       if (this.acpRuntime) this.acpRuntime.unregisterAgent(agentId);
 
       if (this.mainAgentId === agentId) {
@@ -2983,41 +2752,6 @@ class AgentManager extends EventEmitter {
     return this.enqueueInputOperation(agentId, () => this.sendInputNow(agentId, input, options));
   }
 
-  codexAppServerOptionsForAgent(agent, message = '', input = []) {
-    const codexResolution = resolveCompatibleCodexExecutable(agent.requiredCliVersion || '');
-    if (!codexResolution.compatible) {
-      throw new Error(codexResolution.error || 'Codex CLI is not compatible with App Server mode');
-    }
-
-    const runtime = runtimeBindingOf(agent, 'app-server');
-    if (!runtime) throw new Error('Agent is not using the Codex App Server runtime');
-    return {
-      agentId: agent.id,
-      codexHome: runtime.homePath,
-      executable: codexResolution.path || resolveAgentExecutable(agent.command) || agent.command,
-      env: this.buildAgentEnv(agent.id, agent),
-      cwd: agent.cwd,
-      workspaceRoot: effectiveAgentWorkspaceRoot(agent),
-      threadId: runtime.threadId || agent.providerSessionId || '',
-      approvalMode: agent.launchPermissionMode || (
-        this.configManager && this.configManager.getCodexApprovalMode
-          ? this.configManager.getCodexApprovalMode()
-          : 'approve'
-      ),
-      model: this.configManager && this.configManager.getCodexModel
-        ? this.configManager.getCodexModel()
-        : 'gpt-5.5',
-      reasoningEffort: this.configManager && this.configManager.getCodexReasoningEffort
-        ? this.configManager.getCodexReasoningEffort()
-        : 'xhigh',
-      serviceTier: this.configManager && this.configManager.getCodexServiceTier
-        ? this.configManager.getCodexServiceTier()
-        : 'default',
-      message,
-      input,
-    };
-  }
-
   async sendComposerMessage(agentId, message) {
     return this.enqueueInputOperation(agentId, () => this.sendComposerMessageNow(agentId, message));
   }
@@ -3049,7 +2783,6 @@ class AgentManager extends EventEmitter {
     if (!agent) throw new Error('Agent not found');
     if (
       agentProgramName(agent.command).toLowerCase() !== 'codex'
-      || isCodexAppServerAgent(agent)
       || isJsonCliAgent(agent)
       || isAcpAgent(agent)
       || runtimeKind(agent) !== 'terminal'
@@ -3127,25 +2860,6 @@ class AgentManager extends EventEmitter {
       throw new Error('Composer message is empty');
     }
 
-    const appServer = runtimeBindingOf(agent, 'app-server');
-    if (
-      agent.providerSessionProvider === 'codex'
-      && appServer
-      && this.codexAppServerRuntime
-      && typeof this.codexAppServerRuntime.submitComposerMessage === 'function'
-    ) {
-      const result = await this.codexAppServerRuntime.submitComposerMessage(
-        this.codexAppServerOptionsForAgent(agent, text, prompt)
-      );
-      appServer.threadId = result.threadId;
-      appServer.turnId = result.turnId;
-      appServer.state = 'working';
-      appServer.error = '';
-      this.lastActivity.set(agentId, Date.now());
-      this.emit('update');
-      return result;
-    }
-
     if (isJsonCliAgent(agent)) {
       const result = await this.jsonCliRuntime.submitComposerMessage(agentId, text, {
         approvalMode: agent.launchPermissionMode || 'approve',
@@ -3167,64 +2881,6 @@ class AgentManager extends EventEmitter {
 
     await this.sendInputNow(agentId, [{ type: 'paste', text }, '\r']);
     return { kind: 'terminal' };
-  }
-
-  respondToCodexAppServerRequest(agentId, requestId, result, options = {}) {
-    const agent = this.agents.get(agentId);
-    if (!agent) throw new Error('Agent not found');
-    const runtime = runtimeBindingOf(agent, 'app-server');
-    if (agent.providerSessionProvider !== 'codex' || !runtime) {
-      throw new Error('This Agent is not using the Codex App Server runtime');
-    }
-    const resolvedRequestId = String(requestId || '');
-    if (!resolvedRequestId || resolvedRequestId !== runtime.pendingRequestId) {
-      throw new Error('Codex App Server request is no longer pending');
-    }
-    if (!this.codexAppServerRuntime) throw new Error('Codex App Server runtime is unavailable');
-
-    const response = options.reject === true
-      ? this.codexAppServerRuntime.rejectAgentServerRequest(
-        agentId,
-        resolvedRequestId,
-        { code: -32000, message: String(options.reason || 'Rejected by Farming') }
-      )
-      : this.codexAppServerRuntime.resolveAgentServerRequest(agentId, resolvedRequestId, result);
-    runtime.pendingRequestId = '';
-    runtime.pendingRequestMethod = '';
-    runtime.pendingRequest = null;
-    runtime.state = runtime.turnId ? 'working' : 'idle';
-    this.emit('update');
-    return response;
-  }
-
-  assertCodexAppServerGoalAgent(agentId) {
-    const agent = this.agents.get(agentId);
-    if (!agent) throw new Error('Agent not found');
-    const runtime = runtimeBindingOf(agent, 'app-server');
-    if (agent.providerSessionProvider !== 'codex' || !runtime) {
-      throw new Error('This Agent is not using the Codex App Server runtime');
-    }
-    if (!this.codexAppServerRuntime) throw new Error('Codex App Server runtime is unavailable');
-    if (!(runtime.threadId || agent.providerSessionId)) {
-      throw new Error('Codex App Server thread id is not available yet');
-    }
-    return agent;
-  }
-
-  async getCodexAppServerGoal(agentId) {
-    const agent = this.assertCodexAppServerGoalAgent(agentId);
-    const goal = await this.codexAppServerRuntime.getAgentGoal(this.codexAppServerOptionsForAgent(agent));
-    runtimeBindingOf(agent, 'app-server').goal = goal || null;
-    this.emit('update');
-    return goal || null;
-  }
-
-  getCodexAppServerTranscript(agentId, options = {}) {
-    const agent = this.assertCodexAppServerGoalAgent(agentId);
-    if (!this.codexAppServerRuntime || typeof this.codexAppServerRuntime.getAgentTranscript !== 'function') {
-      throw new Error('Codex App Server transcript is unavailable');
-    }
-    return this.codexAppServerRuntime.getAgentTranscript(agent.id, options);
   }
 
   getJsonCliTranscript(agentId, options = {}) {
@@ -3371,44 +3027,10 @@ class AgentManager extends EventEmitter {
     return this.acpRuntime.setSessionConfigOptions(agentId, changes);
   }
 
-  async setCodexAppServerGoal(agentId, patch = {}) {
-    const agent = this.assertCodexAppServerGoalAgent(agentId);
-    const objective = typeof patch.objective === 'string' ? patch.objective.trim().slice(0, 4000) : undefined;
-    const status = typeof patch.status === 'string' ? patch.status : undefined;
-    let tokenBudget;
-    if (Object.prototype.hasOwnProperty.call(patch, 'tokenBudget')) {
-      tokenBudget = Number.isFinite(Number(patch.tokenBudget)) && Number(patch.tokenBudget) > 0
-        ? Math.floor(Number(patch.tokenBudget))
-        : null;
-    }
-    if (objective !== undefined && !objective) {
-      throw new Error('Codex goal objective is required');
-    }
-    const goal = await this.codexAppServerRuntime.setAgentGoal({
-      ...this.codexAppServerOptionsForAgent(agent),
-      ...(objective !== undefined ? { objective } : {}),
-      ...(status !== undefined ? { status } : {}),
-      ...(Object.prototype.hasOwnProperty.call(patch, 'tokenBudget') ? { tokenBudget } : {}),
-    });
-    runtimeBindingOf(agent, 'app-server').goal = goal || null;
-    this.emit('update');
-    return goal || null;
-  }
-
-  async clearCodexAppServerGoal(agentId) {
-    const agent = this.assertCodexAppServerGoalAgent(agentId);
-    await this.codexAppServerRuntime.clearAgentGoal(this.codexAppServerOptionsForAgent(agent));
-    runtimeBindingOf(agent, 'app-server').goal = null;
-    this.emit('update');
-    return null;
-  }
-
   async sendInputNow(agentId, input, { markUserInput = true, expectedRuntimeEpoch = '' } = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) return;
-    // The observer PTY is optional telemetry for App Server Agents. Its
-    // disappearance must never redefine the App Server Agent as dead.
-    if (isCodexAppServerAgent(agent) || isJsonCliAgent(agent) || isAcpAgent(agent)) return;
+    if (isJsonCliAgent(agent) || isAcpAgent(agent)) return;
     if (expectedRuntimeEpoch && agent.runtimeEpoch !== expectedRuntimeEpoch) {
       return { status: 'input-rejected', reason: 'runtime-epoch-mismatch' };
     }
@@ -3441,8 +3063,6 @@ class AgentManager extends EventEmitter {
   markAgentSessionDead(agentId, error) {
     const agent = this.agents.get(agentId);
     if (!agent || agent.status === 'dead') return;
-    if (isCodexAppServerAgent(agent)) return;
-
     const message = error && error.message ? error.message : String(error || 'Session not available');
     agent.status = 'dead';
     agent.engineStatus = 'dead';
@@ -3456,31 +3076,7 @@ class AgentManager extends EventEmitter {
   async interruptAgent(agentId, options = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) return;
-    const appServer = runtimeBindingOf(agent, 'app-server');
-
     try {
-      if (
-        agent.providerSessionProvider === 'codex'
-        && appServer
-        && this.codexAppServerRuntime
-        && typeof this.codexAppServerRuntime.interruptAgent === 'function'
-      ) {
-        try {
-          const interrupted = await this.codexAppServerRuntime.interruptAgent(agentId);
-          if (interrupted) {
-            appServer.state = 'interrupting';
-            this.emit('update');
-            return;
-          }
-          appServer.error = 'Codex App Server interrupt is not available';
-          this.emit('update');
-          return;
-        } catch (error) {
-          appServer.error = `Codex App Server interrupt failed: ${error && (error.message || error)}`;
-          this.emit('update');
-          return;
-        }
-      }
       if (isJsonCliAgent(agent)) {
         this.jsonCliRuntime.interruptAgent(agentId);
         return;
@@ -3509,12 +3105,12 @@ class AgentManager extends EventEmitter {
   agentSupportsTerminalInput(agentId) {
     const agent = this.agents.get(agentId);
     if (!agent) return false;
-    return !isCodexAppServerAgent(agent) && !isJsonCliAgent(agent) && !isAcpAgent(agent);
+    return !isJsonCliAgent(agent) && !isAcpAgent(agent);
   }
 
   async getAgentSessionAttachCheckpoint(agentId) {
     const agent = this.agents.get(agentId);
-    if (!agent || isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
+    if (!agent || isAcpAgent(agent) || isJsonCliAgent(agent)) {
       return null;
     }
     try {
@@ -3545,7 +3141,7 @@ class AgentManager extends EventEmitter {
   async resizeAgentSession(agentId, cols, rows) {
     const agent = this.agents.get(agentId);
     if (!agent) return { status: 'resize-rejected', reason: 'session-unavailable', resized: false };
-    if (isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) {
+    if (isAcpAgent(agent) || isJsonCliAgent(agent)) {
       return { status: 'resize-rejected', reason: 'unsupported-session', resized: false };
     }
 
@@ -3583,7 +3179,7 @@ class AgentManager extends EventEmitter {
   async clearAgentSessionBuffer(agentId, options = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) return { cleared: false };
-    if (isCodexAppServerAgent(agent) || isAcpAgent(agent) || isJsonCliAgent(agent)) return { cleared: false };
+    if (isAcpAgent(agent) || isJsonCliAgent(agent)) return { cleared: false };
     if (options.expectedRuntimeEpoch && agent.runtimeEpoch !== options.expectedRuntimeEpoch) {
       return { cleared: false, reason: 'runtime-epoch-mismatch' };
     }
@@ -3784,50 +3380,7 @@ class AgentManager extends EventEmitter {
   async syncCodexTerminalPermissionMode(agentId, mode) {
     const agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
-
-    if (
-      agent.providerSessionProvider === 'codex'
-      && runtimeKind(agent) === 'app-server'
-    ) {
-      return this.updateCodexAppServerPermissionMode(agentId, mode);
-    }
-
     return this.restartAgentWithPermissionMode(agentId, mode);
-  }
-
-  async updateCodexAppServerPermissionMode(agentId, mode) {
-    const agent = this.agents.get(agentId);
-    if (!agent) return { error: 'Agent not found' };
-    const runtime = runtimeBindingOf(agent, 'app-server');
-    if (agent.providerSessionProvider !== 'codex' || !runtime) {
-      return { error: 'Agent is not using the Codex App Server runtime' };
-    }
-
-    const nextMode = ['ask', 'approve', 'full', 'custom'].includes(mode) ? mode : '';
-    if (!nextMode) return { error: 'Unsupported Codex permission mode' };
-    if (!this.codexAppServerRuntime || typeof this.codexAppServerRuntime.updateAgentPermissionMode !== 'function') {
-      return { error: 'Codex App Server permission updates are unavailable' };
-    }
-
-    try {
-      await this.codexAppServerRuntime.updateAgentPermissionMode({
-        ...this.codexAppServerOptionsForAgent(agent),
-        approvalMode: nextMode,
-      });
-    } catch (error) {
-      return { error: error && error.message ? error.message : 'Failed to update Codex App Server permissions' };
-    }
-
-    agent.launchPermissionMode = nextMode;
-    runtime.error = '';
-    this.updateEngineProviderSessionMetadata(agent);
-    this.ensurePersistentAgentSession(agent, { launchPermissionMode: nextMode });
-    this.emit('update');
-    return {
-      agentId,
-      updated: true,
-      launchPermissionMode: nextMode,
-    };
   }
 
   async restartAgentWithPermissionMode(agentId, mode) {
@@ -3877,7 +3430,7 @@ class AgentManager extends EventEmitter {
     const nextMode = requestedMode === 'acp' && provider === 'codex' ? 'chat' : requestedMode;
     if (!nextMode) return { error: 'Unsupported Agent runtime mode' };
     const currentKind = runtimeKind(agent);
-    const currentMode = ['acp', 'app-server'].includes(currentKind)
+    const currentMode = currentKind === 'acp'
       ? 'chat'
       : (currentKind === 'json' ? 'json' : 'terminal');
     const nextRuntimeKind = nextMode === 'chat' ? chatRuntimeForProvider(provider) : nextMode;
@@ -3969,7 +3522,6 @@ class AgentManager extends EventEmitter {
       pinnedOrder: preserved.pinnedOrder,
       agentRuntimeMode: nextMode,
       acpStartFresh: startsFreshChatSession && nextRuntimeKind === 'acp',
-      codexRuntimeMode: 'cli',
       codexApprovalMode: agent.launchPermissionMode || undefined,
       jsonCliEvents: preserved.jsonCliEvents,
       runtimeSwitchVerifiedSessionId: startsFreshChatSession ? '' : sessionId,
@@ -3981,7 +3533,6 @@ class AgentManager extends EventEmitter {
     const originalOptions = {
       ...restartOptions,
       agentRuntimeMode: originalMode,
-      codexRuntimeMode: currentKind === 'app-server' ? 'app-server' : 'cli',
       acpStartFresh: false,
     };
     const startReplacement = options => new Promise(resolve => {
@@ -4678,9 +4229,6 @@ class AgentManager extends EventEmitter {
     this.agentUsageRateCache.delete(agentId);
     this.lastResizeByAgent.delete(agentId);
     this.providerSessionService.stop(agentId);
-    if (this.codexAppServerRuntime && typeof this.codexAppServerRuntime.unregisterAgent === 'function') {
-      this.codexAppServerRuntime.unregisterAgent(agentId);
-    }
     if (this.jsonCliRuntime) this.jsonCliRuntime.unregisterAgent(agentId);
     if (this.acpRuntime) this.acpRuntime.unregisterAgent(agentId);
 
@@ -4737,13 +4285,11 @@ class AgentManager extends EventEmitter {
   getAgentProviderSession(agentId) {
     const agent = this.agents.get(agentId);
     if (!agent) return null;
-    const appServer = runtimeBindingOf(agent, 'app-server');
     return {
       provider: agent.providerSessionProvider || '',
       sessionId: agent.providerSessionId || '',
       providerHomeId: agent.providerHomeId || '',
       providerHomePath: agent.providerHomePath || '',
-      codexAppServerHomePath: appServer?.homePath || '',
       runtimeBinding: publicRuntimeBinding(agent),
       temporary: agent.providerSessionTemporary === true,
       title: agent.providerSessionTitle || '',

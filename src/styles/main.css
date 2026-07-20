@@ -10157,7 +10157,7 @@ button.code-history-card {
   fill: currentColor;
 }
 
-.code-app-server-request {
+.code-acp-request {
   display: grid;
   gap: 9px;
   padding: 11px 12px;
@@ -10167,29 +10167,29 @@ button.code-history-card {
   color: #485049;
 }
 
-.code-app-server-notice {
+.code-acp-notice {
   border-color: #eac54f;
   background: rgba(255, 248, 220, 0.92);
 }
 
-.code-app-server-request header,
-.code-app-server-request-actions,
-.code-app-server-request-options {
+.code-acp-request header,
+.code-acp-request-actions,
+.code-acp-request-options {
   display: flex;
   align-items: center;
   gap: 7px;
 }
 
-.code-app-server-request header {
+.code-acp-request header {
   justify-content: space-between;
 }
 
-.code-app-server-request header strong {
+.code-acp-request header strong {
   color: #2d352e;
   font-size: 13px;
 }
 
-.code-app-server-request header span {
+.code-acp-request header span {
   max-width: 60%;
   overflow: hidden;
   color: #838b83;
@@ -10199,23 +10199,23 @@ button.code-history-card {
   white-space: nowrap;
 }
 
-.code-app-server-request p,
-.code-app-server-request label,
-.code-app-server-request small {
+.code-acp-request p,
+.code-acp-request label,
+.code-acp-request small {
   margin: 0;
   color: #687169;
   font-size: 12px;
   line-height: 1.4;
 }
 
-.code-app-server-request-command,
-.code-app-server-request-questions,
-.code-app-server-request-questions label {
+.code-acp-request-command,
+.code-acp-request-questions,
+.code-acp-request-questions label {
   display: grid;
   gap: 5px;
 }
 
-.code-app-server-request-command code {
+.code-acp-request-command code {
   overflow: auto;
   padding: 7px 8px;
   border-radius: 8px;
@@ -10225,13 +10225,13 @@ button.code-history-card {
   white-space: pre-wrap;
 }
 
-.code-app-server-request-questions label > span {
+.code-acp-request-questions label > span {
   color: #485049;
   font-size: 12px;
   font-weight: 600;
 }
 
-.code-app-server-request input {
+.code-acp-request input {
   width: 100%;
   box-sizing: border-box;
   border: 1px solid #d8ded4;
@@ -10242,7 +10242,7 @@ button.code-history-card {
   padding: 7px 8px;
 }
 
-.code-app-server-request select {
+.code-acp-request select {
   width: 100%;
   box-sizing: border-box;
   border: 1px solid #d8ded4;
@@ -10443,16 +10443,16 @@ button.code-history-card {
   font-size: 11px;
 }
 
-.code-app-server-request input.code-app-server-secret-input {
+.code-acp-request input.code-acp-secret-input {
   -webkit-text-security: disc;
 }
 
-.code-app-server-request-options {
+.code-acp-request-options {
   flex-wrap: wrap;
 }
 
-.code-app-server-request-options button,
-.code-app-server-request-actions button {
+.code-acp-request-options button,
+.code-acp-request-actions button {
   appearance: none;
   border: 1px solid #d6dcd2;
   border-radius: 8px;
@@ -10464,38 +10464,38 @@ button.code-history-card {
   padding: 6px 8px;
 }
 
-.code-app-server-request-options button {
+.code-acp-request-options button {
   display: grid;
   gap: 2px;
   text-align: left;
 }
 
-.code-app-server-request-options button small {
+.code-acp-request-options button small {
   color: #868e86;
   font-size: 10px;
 }
 
-.code-app-server-request-options button.active,
-.code-app-server-request-actions button.approve {
+.code-acp-request-options button.active,
+.code-acp-request-actions button.approve {
   border-color: #6f816b;
   background: #6f816b;
   color: #fff;
 }
 
-.code-app-server-request-actions button:disabled {
+.code-acp-request-actions button:disabled {
   cursor: default;
   opacity: 0.45;
 }
 
-.code-app-server-request-actions select {
+.code-acp-request-actions select {
   width: auto;
   max-width: min(220px, 45vw);
 }
 
-.code-app-server-request-actions button:not(:disabled):hover,
-.code-app-server-request-actions button:not(:disabled):focus-visible,
-.code-app-server-request-options button:hover,
-.code-app-server-request-options button:focus-visible {
+.code-acp-request-actions button:not(:disabled):hover,
+.code-acp-request-actions button:not(:disabled):focus-visible,
+.code-acp-request-options button:hover,
+.code-acp-request-options button:focus-visible {
   border-color: #8a9886;
   outline: 0;
 }
@@ -16537,7 +16537,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   body.code-mode.code-mobile-touch .code-main:has(.code-composer.recording),
   body.code-mode.code-mobile-touch .code-main:has(.code-composer.has-attachments),
   body.code-mode.code-mobile-touch .code-main:has(.code-composer.has-pending-followup),
-  body.code-mode.code-mobile-touch .code-main:has(.code-composer.has-app-server-request) {
+  body.code-mode.code-mobile-touch .code-main:has(.code-composer.has-acp-request) {
     --mobile-composer-reserved-height: calc(var(--mobile-composer-current-height, var(--mobile-composer-active-height)) + var(--mobile-composer-viewport-gap) + 2px);
   }
 
@@ -16933,7 +16933,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     pointer-events: none;
   }
 
-  body.code-mode.code-mobile-touch .code-composer-shell:has(.code-composer.has-app-server-request) {
+  body.code-mode.code-mobile-touch .code-composer-shell:has(.code-composer.has-acp-request) {
     padding-bottom: 0;
   }
 
@@ -16960,7 +16960,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     overflow: auto;
   }
 
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request) {
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) {
     grid-template-columns: 30px minmax(0, 1fr) auto;
     grid-template-rows: 1fr;
     align-items: center;
@@ -16994,7 +16994,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     padding: 5px 5px 4px;
   }
 
-  body.code-mode.code-mobile-touch .code-composer.has-app-server-request {
+  body.code-mode.code-mobile-touch .code-composer.has-acp-request {
     --mobile-composer-height: min(236px, calc(var(--app-visual-height, 100dvh) * 0.34));
     height: var(--mobile-composer-height);
     min-height: var(--mobile-composer-height);
@@ -17016,16 +17016,16 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     line-height: 1.34;
   }
 
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request) textarea,
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request) .code-composer-mobile-input {
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) textarea,
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-mobile-input {
     min-height: 18px;
     max-height: 18px;
     overflow: hidden;
     white-space: nowrap;
   }
 
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request) textarea,
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request) .code-composer-mobile-input {
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) textarea,
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-mobile-input {
     grid-column: 2;
     grid-row: 1;
     min-height: 24px;
@@ -17041,7 +17041,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     min-height: 28px;
   }
 
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request) .code-composer-toolbar {
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-toolbar {
     display: contents;
   }
 
@@ -17050,7 +17050,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     align-items: center;
   }
 
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request) .code-composer-left-tools {
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-left-tools {
     grid-column: 1;
     grid-row: 1;
     flex: 0 0 30px;
@@ -17059,7 +17059,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     overflow: visible;
   }
 
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request) .code-composer-right-tools {
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-right-tools {
     grid-column: 3;
     grid-row: 1;
     flex: 0 0 auto;
@@ -17067,10 +17067,10 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     margin-left: 0;
   }
 
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request) .code-composer-mode-chip,
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request) .code-composer-approval,
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request) .code-composer-context-window,
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request) .code-composer-menu-anchor.model-picker {
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-mode-chip,
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-approval,
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-context-window,
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-menu-anchor.model-picker {
     display: none;
   }
 
@@ -19139,20 +19139,20 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     text-align: left;
   }
 
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request):has(.code-composer-left-tools:empty) {
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request):has(.code-composer-left-tools:empty) {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request):has(.code-composer-left-tools:empty) textarea,
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request):has(.code-composer-left-tools:empty) .code-composer-mobile-input {
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request):has(.code-composer-left-tools:empty) textarea,
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request):has(.code-composer-left-tools:empty) .code-composer-mobile-input {
     grid-column: 1;
   }
 
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request):has(.code-composer-left-tools:empty) .code-composer-left-tools {
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request):has(.code-composer-left-tools:empty) .code-composer-left-tools {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-app-server-request):has(.code-composer-left-tools:empty) .code-composer-right-tools {
+  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request):has(.code-composer-left-tools:empty) .code-composer-right-tools {
     grid-column: 2;
   }
 

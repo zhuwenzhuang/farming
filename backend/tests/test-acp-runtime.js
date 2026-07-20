@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { AcpRuntime, acpErrorKind, autoPermissionResponse, codexAcpEnvironment, resolveAcpLaunch } = require('../acp-runtime');
+const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, resolveAcpLaunch } = require('../acp-runtime');
 const { AcpSessionState } = require('../acp-session-state');
 
 async function run() {
@@ -58,6 +58,14 @@ async function run() {
     service_tier: 'priority',
   });
   assert.strictEqual(codexAcpEnvironment({ env: {}, approvalMode: 'ask' }).INITIAL_AGENT_MODE, 'read-only');
+  assert.deepStrictEqual(acpSessionRequestOptions({
+    additionalDirectories: ['../shared', '../shared', '/tmp/absolute'],
+    mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: ['--stdio'] }],
+  }, '/tmp/project'), {
+    cwd: '/tmp/project',
+    additionalDirectories: ['/tmp/shared', '/tmp/absolute'],
+    mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: ['--stdio'] }],
+  });
 
   const state = new AcpSessionState({ provider: 'codex', sessionId: 's1', cwd: '/tmp' });
   state.apply({ sessionId: 's1', update: {

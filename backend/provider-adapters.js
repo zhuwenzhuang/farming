@@ -146,11 +146,11 @@ const PROVIDER_ADAPTERS = Object.freeze([
     interruptInput: '\x1b',
     freshAcpSessionSources: ['codex-temporary'],
     commands: ['codex'],
-    supportedRuntimes: ['terminal', 'acp', 'json', 'app-server'],
+    supportedRuntimes: ['terminal', 'acp', 'json'],
     planSession: codexSessionPlan,
     acp: { packageName: '@agentclientprotocol/codex-acp', version: '1.1.4' },
     prepareAcpEnvironment: codexAcpEnvironment,
-    capabilities: { runtimeSwitch: true, terminalProfile: true, goals: true },
+    capabilities: { runtimeSwitch: true, terminalProfile: true, goals: false },
   },
   {
     id: 'claude',

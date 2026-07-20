@@ -63,7 +63,6 @@ function configManager() {
         providerSessionTitle: 'Recovered Codex session',
         providerSessionWorkspace: '/repo',
         terminalInputReceived: true,
-        codexRuntimeMode: 'cli',
         agentRuntimeMode: 'terminal',
         pinned: true,
         projectOrder: 4096,
@@ -272,7 +271,7 @@ async function run() {
     assert.strictEqual(
       restoredStarts.length,
       1,
-      'only the newest authoritative main-page Terminal record should restart; duplicates and App Server records must not'
+      'only the newest authoritative main-page Terminal record should restart; duplicates and migrated ACP records must not'
     );
     assert(restoredStarts[0].command.includes(providerSessionId), restoredStarts[0].command);
     assert.strictEqual(restoredStarts[0].options.skipRecoveryWait, true);
@@ -375,7 +374,12 @@ async function run() {
     assert.strictEqual(shellRestart.command, 'bash');
     assert.strictEqual(shellRestart.options.reviveTerminalState.replayEvent.events[0].data, 'shell output before rotation');
     assert.strictEqual(serializedRotationManager.agents.has(hiddenRecord.runtimeAgentId), false);
-    assert.strictEqual(serializedRotationManager.agents.has(appServerRecord.runtimeAgentId), false);
+    assert.strictEqual(serializedRotationManager.agents.has(appServerRecord.runtimeAgentId), true);
+    assert.strictEqual(
+      serializedRotationManager.agents.get(appServerRecord.runtimeAgentId).runtimeBinding.kind,
+      'acp',
+      'legacy App Server records should migrate to ACP instead of reviving a PTY or App Server process'
+    );
   } finally {
     await serializedRotationManager.dispose({ preserveTerminalHost: true });
   }

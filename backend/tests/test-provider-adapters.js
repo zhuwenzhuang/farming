@@ -30,13 +30,13 @@ function run() {
     { command: '/bin/opencode', args: ['acp', '--cwd', '/tmp/project'] },
   );
   assert.deepStrictEqual(providerCapabilities('codex'), {
-    supportedRuntimes: ['terminal', 'acp', 'json', 'app-server'],
+    supportedRuntimes: ['terminal', 'acp', 'json'],
     runtimeSwitch: true,
     terminalProfile: true,
-    goals: true,
-    chatRuntime: 'app-server',
+    goals: false,
+    chatRuntime: 'acp',
     supportsChat: true,
-    supportsSteer: true,
+    supportsSteer: false,
   });
   assert.deepStrictEqual(
     providerCapabilities('claude'),

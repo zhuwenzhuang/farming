@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { Agent } from '@/types/agent'
 import { usePooledTerminal } from '@/hooks/usePooledTerminal'
-import { isAppServerRuntime } from '@/lib/agent-runtime'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { TerminalPathOpenTarget, TerminalSearchDirection, TerminalSearchResult } from '@/lib/terminal-session-pool'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
@@ -137,7 +136,6 @@ export function AgentTerminalPane({
   const [terminalSearchOptions, setTerminalSearchOptions] = useState<TerminalSearchOptions>({})
   const [terminalSearchResult, setTerminalSearchResult] = useState<TerminalSearchResult | null>(null)
   const [terminalError, setTerminalError] = useState<string | null>(null)
-  const appServerWaitingForFirstMessage = isAppServerRuntime(agent) && agent.runtimeBinding.observerDeferred
   const handleFollowOutputChange = useCallback((state: TerminalFollowState) => {
     setFollowOutputStateKnown(true)
     setFollowOutputState(state)
@@ -164,7 +162,7 @@ export function AgentTerminalPane({
     agentId: agent.id,
     containerRef: terminalContainerRef,
     onSessionOutput,
-    inputDisabled: appServerWaitingForFirstMessage,
+    inputDisabled: false,
     suppressRendererCursor: shouldSuppressRendererCursorForAgent(agent.command),
     onFollowOutputChange: handleFollowOutputChange,
     onPathOpen: onOpenPath,
@@ -388,16 +386,7 @@ export function AgentTerminalPane({
         data-testid="code-terminal-container"
         ref={terminalContainerRef}
       />
-      {appServerWaitingForFirstMessage ? (
-        <div
-          className="code-terminal-status-card"
-          data-testid="code-terminal-app-server-ready"
-          onPointerDown={event => event.stopPropagation()}
-          onMouseDown={event => event.stopPropagation()}
-        >
-          <span>{copy.appServerWaitingForFirstMessage}</span>
-        </div>
-      ) : terminalError ? (
+      {terminalError ? (
         <div
           className="code-terminal-status-card"
           data-testid="code-terminal-status-card"

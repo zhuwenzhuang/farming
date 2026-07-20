@@ -10,4 +10,4 @@ The JSON CLI runtime is retained for compatibility with existing Codex and OpenC
 - The top-right Chat / Terminal control now switches between ACP and Terminal. It no longer starts JSON CLI mode.
 - Existing JSON transcript events are carried across a live runtime replacement. Provider history import and server-restart recovery remain separate history concerns.
 
-The regular Terminal runtime remains the fallback for unsupported agents and direct TUI interaction. App Server remains available as a separate experimental Codex runtime.
+The regular Terminal runtime remains the fallback for unsupported agents and direct TUI interaction. Codex structured Chat uses ACP exclusively.

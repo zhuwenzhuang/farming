@@ -132,8 +132,8 @@ const AgentManager = require('../agent-manager');
   manager.acpRuntime.getSession = originalGetAcpSession;
   manager.findRuntimeSwitchSession = originalFindRuntimeSwitchSession;
 
-  manager.agents.set('agent-app-server-switch', {
-    id: 'agent-app-server-switch',
+  manager.agents.set('agent-legacy-app-server-switch', {
+    id: 'agent-legacy-app-server-switch',
     command: 'codex',
     forkCommand: 'codex',
     cwd: '/tmp/project',
@@ -143,7 +143,7 @@ const AgentManager = require('../agent-manager');
     providerSessionTemporary: false,
     providerHomeId: 'zwz',
     providerHomePath: codexHome,
-    providerSessionTitle: 'App Server demo',
+    providerSessionTitle: 'Legacy App Server demo',
     codexRuntimeMode: 'app-server',
     agentRuntimeMode: 'terminal',
     status: 'running',
@@ -151,9 +151,9 @@ const AgentManager = require('../agent-manager');
   });
   killed = '';
   started = null;
-  const appServerTerminalResult = await manager.restartAgentRuntimeMode('agent-app-server-switch', 'terminal');
-  assert.strictEqual(killed, 'agent-app-server-switch');
-  assert.strictEqual(started.options.codexRuntimeMode, 'cli');
+  const appServerTerminalResult = await manager.restartAgentRuntimeMode('agent-legacy-app-server-switch', 'terminal');
+  assert.strictEqual(killed, 'agent-legacy-app-server-switch');
+  assert.strictEqual(started.options.codexRuntimeMode, undefined);
   assert.strictEqual(started.options.agentRuntimeMode, 'terminal');
   assert.strictEqual(appServerTerminalResult.agentRuntimeMode, 'terminal');
 
@@ -231,7 +231,8 @@ const AgentManager = require('../agent-manager');
   const freshCodexAcpResult = await manager.restartAgentRuntimeMode('agent-fresh-codex-switch', 'chat');
   assert.strictEqual(killed, 'agent-fresh-codex-switch');
   assert.strictEqual(started.command, 'codex');
-  assert.strictEqual(started.options.acpStartFresh, false);
+  assert.strictEqual(started.options.acpStartFresh, true);
+  assert.strictEqual(started.options.source, 'ui-runtime-switch-fresh');
   assert.strictEqual(freshCodexAcpResult.agentRuntimeMode, 'chat');
 
   manager.agents.set('agent-used-qoder-switch', {
@@ -308,7 +309,6 @@ const AgentManager = require('../agent-manager');
     providerHomeId: 'zwz',
     providerHomePath: codexHome,
     agentRuntimeMode: 'terminal',
-    codexRuntimeMode: 'cli',
     terminalBusy: false,
     status: 'running',
     output: '',

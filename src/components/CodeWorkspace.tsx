@@ -17,7 +17,7 @@ import type {
 } from '@/types/agent'
 import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
-import { isAcpRuntime, isAppServerRuntime, isStructuredRuntime } from '@/lib/agent-runtime'
+import { isAcpRuntime, isStructuredRuntime } from '@/lib/agent-runtime'
 import { useAgentWithLiveRuntimeState } from '@/lib/agent-live-state'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 import { agentTitle } from '@/lib/format'
@@ -322,7 +322,7 @@ interface CodeWorkspaceProps {
   onOpenTerminal: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onOpenTerminalWhenReady: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null, customTitle?: string) => void
-  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string }) => void
+  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string }) => void
   onRenameAgent: (agentId: string, title: string) => void
   onUpdateAgentFlags: (
     agentId: string,
@@ -342,7 +342,6 @@ interface CodeWorkspaceProps {
     attachments?: ComposerPromptAttachment[],
     options?: { awaitResult?: boolean },
   ) => boolean | Promise<boolean>
-  respondToAppServerRequest: (agentId: string, requestId: string, result?: unknown, options?: { reject?: boolean; reason?: string }) => boolean
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   onUpdateUiPreferences: (patch: Partial<UiPreferences>) => void
 }
@@ -545,7 +544,6 @@ export function CodeWorkspace({
   onKill,
   onInterruptAgent,
   sendComposerInput,
-  respondToAppServerRequest,
   onSessionOutput,
   onUpdateUiPreferences,
 }: CodeWorkspaceProps) {
@@ -940,7 +938,6 @@ export function CodeWorkspace({
   )
   const activeAgent = useAgentWithLiveRuntimeState(structuralActiveAgent)
   const activeAcpRuntime = isAcpRuntime(activeAgent) ? activeAgent.runtimeBinding : null
-  const activeAppServerRuntime = isAppServerRuntime(activeAgent) ? activeAgent.runtimeBinding : null
   const activeAgentPermissionSwitching = Boolean(
     activeAgent && activeAgent.id === permissionSwitchingAgentId
   )
@@ -1840,7 +1837,7 @@ export function CodeWorkspace({
   const sendComposerMessageToAgent = useCallback((agent: Agent, message: string, attachments: ComposerPromptAttachment[] = []) => {
     if (isStructuredRuntime(agent)) {
       return sendComposerInput(message, agent.id, attachments, {
-        awaitResult: isAppServerRuntime(agent),
+        awaitResult: false,
       })
     }
     if (
@@ -1853,19 +1850,6 @@ export function CodeWorkspace({
     return sendTerminalSessionInput(agent.id, terminalInputPartsForComposerMessage(message))
   }, [sendComposerInput])
 
-  const setNativeCodexGoalFromComposer = useCallback(async (agent: Agent, objective: string) => {
-    const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agent.id)}/codex-goal`), {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        objective,
-        status: 'active',
-        tokenBudget: null,
-      }),
-    })
-    return response.ok
-  }, [])
-
   const submitDraft = useCallback((submittedDraft?: string) => {
     const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft
     if (!activeAgent || !activeComposerKey || composerAttachments.some(attachment => attachment.status === 'uploading')) return
@@ -1876,28 +1860,6 @@ export function CodeWorkspace({
       ? composerMessageForNativeAttachments(latestDraft, composerAttachments)
       : composerMessageWithAttachments(latestDraft, composerAttachments)
     if (!text && nativeAttachments.length === 0) return
-
-    if (composerMode === 'goal' && activeAppServerRuntime && text) {
-      void (async () => {
-        const goalSaved = await setNativeCodexGoalFromComposer(activeAgent, text)
-        if (!goalSaved) return
-        const submitted = sendComposerMessageToAgent(activeAgent, text, nativeAttachments)
-        const accepted = typeof submitted === 'boolean' ? submitted : await submitted
-        if (!accepted) return
-        updateComposerStateForKey(activeComposerKey, state => {
-          state.attachments.forEach(revokeComposerAttachmentPreview)
-          return {
-            ...state,
-            draft: '',
-            attachments: [],
-            mode: 'default',
-            history: addComposerHistoryEntry(state.history, latestDraft),
-          }
-        })
-        focusComposerTextarea()
-      })()
-      return
-    }
 
     const message = formatComposerMessage(composerMode, text)
     let submitted: boolean | Promise<boolean> = true
@@ -1936,7 +1898,7 @@ export function CodeWorkspace({
     void submitted.then(accepted => {
       if (accepted) clearAcceptedDraft()
     })
-  }, [activeAgent, activeAppServerRuntime, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, setNativeCodexGoalFromComposer, updateComposerStateForKey])
+  }, [activeAgent, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
 
   const submitAcpDraft = useCallback((submittedDraft?: string) => {
     const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft
@@ -1970,19 +1932,6 @@ export function CodeWorkspace({
     focusComposerTextarea()
   }, [activeAgent, activeAgentCanInterrupt, focusComposerTextarea, onInterruptAgent])
 
-  const respondToActiveAppServerRequest = useCallback((requestId: string, result: unknown) => {
-    if (!activeAgent) return
-    respondToAppServerRequest(activeAgent.id, requestId, result)
-  }, [activeAgent, respondToAppServerRequest])
-
-  const rejectActiveAppServerRequest = useCallback((requestId: string) => {
-    if (!activeAgent) return
-    respondToAppServerRequest(activeAgent.id, requestId, undefined, {
-      reject: true,
-      reason: 'Declined in Farming',
-    })
-  }, [activeAgent, respondToAppServerRequest])
-
   const respondToActiveAcpPermission = useCallback((requestId: string, optionId?: string, cancelled?: boolean) => {
     if (!activeAgent) return
     void respondToAcpPermission(activeAgent.id, requestId, optionId, cancelled === true)
@@ -1993,7 +1942,7 @@ export function CodeWorkspace({
     void respondToAcpElicitation(activeAgent.id, requestId, action, content)
   }, [activeAgent])
 
-  const steerPendingFollowUp = useCallback((messageId: string) => {
+  const sendPendingFollowUp = useCallback((messageId: string) => {
     if (!activeAgent || !activeComposerKey) return
     const pending = composerByAgentKey[activeComposerKey]?.pendingFollowUp
     if (!pending || pending.messages.length === 0) return
@@ -2132,7 +2081,7 @@ export function CodeWorkspace({
   const startAgentWithLaunchProfile = useCallback((
     command: string,
     workspace: string,
-    options?: { projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string },
+    options?: { projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string },
   ) => {
     setSearchQuery('')
     setSearchOpen(false)
@@ -3906,18 +3855,12 @@ export function CodeWorkspace({
     setCodexApprovalMode(nextMode)
     persistAgentLaunchProfile('codex', { approvalMode: nextMode })
     if (activeAgent && composerAgentKind === 'codex') {
-      setCopyNotice({
-        id: Date.now(),
-        kind: 'success',
-        message: activeAppServerRuntime
-          ? copy.permissionProfileApplying
-          : copy.permissionProfileRestarting,
-      })
+      setCopyNotice({ id: Date.now(), kind: 'success', message: copy.permissionProfileRestarting })
       void onUpdateAgentFlags(activeAgent.id, { launchPermissionMode: nextMode })
     }
     closeActiveComposerMenus()
     focusComposerTextarea()
-  }, [activeAgent, activeAppServerRuntime, closeActiveComposerMenus, composerAgentKind, copy.permissionProfileApplying, copy.permissionProfileRestarting, focusComposerTextarea, onUpdateAgentFlags, permissionSwitchingAgentId, persistAgentLaunchProfile])
+  }, [activeAgent, closeActiveComposerMenus, composerAgentKind, copy.permissionProfileRestarting, focusComposerTextarea, onUpdateAgentFlags, permissionSwitchingAgentId, persistAgentLaunchProfile])
 
   const updateAgentRuntimeMode = useCallback((agentId: string, mode: 'terminal' | 'chat') => {
     if (permissionSwitchingAgentId) return
@@ -5309,9 +5252,7 @@ export function CodeWorkspace({
           ),
           currentPermissionLabel,
           currentPermissionColor,
-          permissionModeHint: activeAppServerRuntime
-            ? copy.permissionAppServerHint
-            : copy.permissionRestartHint,
+          permissionModeHint: copy.permissionRestartHint,
           currentModelLabel,
           currentReasoningLabel,
           currentSpeedLabel,
@@ -5325,8 +5266,6 @@ export function CodeWorkspace({
               createdAt: activePendingFollowUp.createdAt,
             }
             : null,
-          appServerRequest: activeAppServerRuntime?.pendingRequest || null,
-          appServerNotice: activeAppServerRuntime?.notice || null,
           submitAction: composerSubmitAction,
           speechSupported,
           speechListening,
@@ -5340,10 +5279,8 @@ export function CodeWorkspace({
           onRemoveAttachment: removeComposerAttachment,
           onSubmit: submitDraft,
           onInterrupt: interruptActiveAgent,
-          onSteerPendingFollowUp: steerPendingFollowUp,
+          onSendPendingFollowUp: sendPendingFollowUp,
           onDiscardPendingFollowUp: discardPendingFollowUp,
-          onRespondToAppServerRequest: respondToActiveAppServerRequest,
-          onRejectAppServerRequest: rejectActiveAppServerRequest,
           onPasteAttachment: handlePasteAttachment,
           onAttachmentFiles: handleAttachmentFiles,
           onChooseAttachmentFile: chooseAttachmentFile,

@@ -74,7 +74,7 @@ export function AcpElicitationCard({ request, onRespond }: AcpElicitationCardPro
   }
 
   return (
-    <form className="code-app-server-request code-acp-elicitation" data-testid="code-acp-elicitation" data-status={request.status || 'pending'} onSubmit={submit}>
+    <form className="code-acp-request code-acp-elicitation" data-testid="code-acp-elicitation" data-status={request.status || 'pending'} onSubmit={submit}>
       <header><strong>{title}</strong><span>{request.origin === 'subagent' ? `Subagent · ${request.mode}` : request.mode}</span></header>
       <p>{request.message}</p>
       {request.requestedSchema?.description ? <small>{request.requestedSchema.description}</small> : null}
@@ -84,7 +84,7 @@ export function AcpElicitationCard({ request, onRespond }: AcpElicitationCardPro
           <a className="code-acp-elicitation-link" href={safeUrl} target="_blank" rel="noreferrer">Open secure link</a>
         ) : <small role="alert">The Agent provided an unsupported link.</small>
       ) : (
-        <div className="code-app-server-request-questions">
+        <div className="code-acp-request-questions">
           {Object.entries(properties).map(([name, property]) => {
             const options = choices(property)
             const label = property.title || name
@@ -165,7 +165,7 @@ export function AcpElicitationCard({ request, onRespond }: AcpElicitationCardPro
         </div>
       )}
       {acceptedUrl ? <small className="code-acp-elicitation-waiting">Waiting for the Agent to confirm completion…</small> : (
-        <div className="code-app-server-request-actions">
+        <div className="code-acp-request-actions">
           <button type="submit" className="approve" disabled={request.mode === 'url' && !safeUrl}>
             {request.mode === 'url' ? 'Continue' : 'Submit'}
           </button>

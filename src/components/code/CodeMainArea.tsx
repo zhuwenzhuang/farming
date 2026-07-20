@@ -8,7 +8,6 @@ import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import { AgentWorkPane } from './AgentWorkPane'
 import { CodeComposer } from './CodeComposer'
 import { AcpComposer } from './acp/AcpComposer'
-import { CodexGoalControls } from './CodexGoalControls'
 import { HistoryPanel } from './HistoryPanel'
 import { SearchPanel } from './SearchPanel'
 import { ChevronDownGlyph, ChevronUpGlyph } from '../IconGlyphs'
@@ -560,13 +559,6 @@ export function CodeMainArea({
                     <ChevronDownGlyph />
                   </button>
                 </div>
-              ) : null}
-              {!acpComposerActive ? (
-                <CodexGoalControls
-                  agent={activeAgent}
-                  active={activeView === 'projects' && !showFileEditor && !composerCollapsed}
-                  copy={copy}
-                />
               ) : null}
               {acpComposerActive ? (
                 <AcpComposer {...acpComposerProps} copy={copy} />

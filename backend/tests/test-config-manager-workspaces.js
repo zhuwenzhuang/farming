@@ -57,8 +57,7 @@ function run() {
     assert.strictEqual(settings.codexModel, 'gpt-5.5');
     assert.strictEqual(settings.codexReasoningEffort, 'xhigh');
     assert.strictEqual(settings.codexServiceTier, 'default');
-    assert.strictEqual(settings.codexRuntimeMode, 'cli');
-    assert.strictEqual(manager.getCodexRuntimeMode(), 'cli');
+    assert.strictEqual(settings.codexRuntimeMode, undefined);
     assert.strictEqual(settings.updateUrl, DEFAULT_UPDATE_URL);
     assert.strictEqual(DEFAULT_SEARCH_TIMEOUT_MS, 15000);
     assert.strictEqual(settings.searchTimeoutMs, DEFAULT_SEARCH_TIMEOUT_MS);
@@ -176,9 +175,9 @@ function run() {
     assert.strictEqual(manager.getDangerouslySkipAgentPermissionsByDefault(), false);
 
     manager.updateSettings({ codexRuntimeMode: 'app-server' });
-    assert.strictEqual(manager.getCodexRuntimeMode(), 'app-server');
+    assert.strictEqual(manager.getSettings().codexRuntimeMode, undefined);
     manager.updateSettings({ codexRuntimeMode: 'not-a-runtime' });
-    assert.strictEqual(manager.getCodexRuntimeMode(), 'cli');
+    assert.strictEqual(manager.getSettings().codexRuntimeMode, undefined);
 
     manager.updateSettings({ codexApprovalMode: 'full' });
     assert.strictEqual(manager.getSettings().codexApprovalMode, 'full');

@@ -14,7 +14,6 @@ export interface StartAgentMessage {
   projectWorkspace?: string
   asMain?: boolean
   codexApprovalMode?: string
-  codexRuntimeMode?: 'cli' | 'app-server'
   agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'
   providerHomeId?: string
   dangerouslySkipPermissions?: boolean
@@ -45,15 +44,6 @@ export interface ComposerInputAttachment {
   name: string
   type: string
   size: number
-}
-
-export interface AppServerRequestResponseMessage {
-  type: 'app-server-request-response'
-  agentId: string
-  requestId: string
-  result?: unknown
-  reject?: boolean
-  reason?: string
 }
 
 export interface PasteInputPart {
@@ -116,7 +106,6 @@ export type ClientMessage =
   | StartAgentMessage
   | InputMessage
   | ComposerInputMessage
-  | AppServerRequestResponseMessage
   | FocusAgentMessage
   | TerminalSessionClientMessage
   | KillAgentMessage

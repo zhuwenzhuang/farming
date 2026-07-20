@@ -901,7 +901,7 @@ function run() {
       workspaceSource.includes('pendingFollowUp: {') &&
       workspaceSource.includes('data-testid="code-pending-followup-row"') &&
       workspaceSource.includes('data-testid="code-pending-followup"') &&
-      workspaceSource.includes('data-testid="code-pending-followup-steer"') &&
+      workspaceSource.includes('data-testid="code-pending-followup-send-next"') &&
       workspaceSource.includes('data-testid="code-pending-followup-discard"') &&
       workspaceSource.includes('data-action={submitAction}') &&
       workspaceSource.includes('submitIsInterrupt ? onInterrupt : () => onSubmit(latestDraftRef.current)') &&
@@ -949,9 +949,10 @@ function run() {
       workspaceSource.includes('data-testid="code-composer-attachment"') &&
       workspaceSource.includes('onRemoveAttachment: removeComposerAttachment') &&
       workspaceSource.includes('attachments: [...state.attachments, initialAttachment]') &&
-      workspaceSource.includes('messageBlock: formatAttachedImage({ ...uploaded, name })') &&
-      workspaceSource.includes('onPasteAttachment: handlePasteAttachment') &&
-      workspaceSource.includes("fetch(composerAppPath('/api/attachments/image')") &&
+	      workspaceSource.includes('formatAttachedImage({ ...uploaded, name })') &&
+	      workspaceSource.includes('onPasteAttachment: handlePasteAttachment') &&
+	      workspaceSource.includes("const route = isAudioFile(file) ? '/api/attachments/audio' : '/api/attachments/image'") &&
+	      workspaceSource.includes('fetch(composerAppPath(route)') &&
       workspaceSource.includes('Image path: ${attachment.path}') &&
       workspaceSource.includes('formatComposerMessage') &&
       workspaceSource.includes("mode: 'default'") &&
@@ -1085,20 +1086,20 @@ function run() {
       !terminalPaneSource.includes('session-text') &&
       !terminalPaneSource.includes('TerminalDisplayMode') &&
       !terminalPaneSource.includes('transcriptAvailability') &&
-      agentWorkPaneSource.includes('CodexAppServerTranscriptPane') &&
+	      !agentWorkPaneSource.includes('CodexAppServerTranscriptPane') &&
       agentWorkPaneSource.includes('JsonCliTranscriptPane') &&
       agentWorkPaneSource.includes('AcpTranscriptPane') &&
       agentWorkPaneSource.includes("runtimeState={acpRuntime?.state || ''}") &&
       agentWorkPaneSource.includes("expectHistory={(agent.source || '').startsWith('codex-history:')}") &&
       agentWorkPaneSource.includes('AgentTerminalPane') &&
       !agentWorkPaneSource.includes('resizeAgent') &&
-      agentWorkPaneSource.includes('const appServerChat = isCodexAppServerAgent(agent)') &&
+	      !agentWorkPaneSource.includes('isCodexAppServerAgent') &&
       agentWorkPaneSource.includes('const jsonRuntime = isJsonRuntime(agent)') &&
       agentWorkPaneSource.includes('const acpRuntime = isAcpRuntime(agent)') &&
       agentWorkPaneSource.includes('data-testid="code-terminal-mode-toggle"') &&
       agentWorkPaneSource.includes('onRuntimeModeChange') &&
       agentWorkPaneSource.includes('agentWorkPaneModeStorageIdentity') &&
-      agentWorkPaneSource.includes('providerSessionKey') &&
+	      agentWorkPaneSource.includes('Boolean(agent.providerSessionId)') &&
       agentWorkPaneSource.includes('data-testid="code-permission-switching"') &&
       agentWorkPaneSource.includes("switchingKind === 'runtime' ? copy.runtimeModeRestarting : copy.permissionProfileRestarting") &&
       agentWorkPaneSource.includes('aria-busy={switching}') &&

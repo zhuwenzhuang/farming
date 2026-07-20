@@ -102,7 +102,7 @@ export function AcpAuthenticationCard({
   const supportedMethods = methods.filter(method => !method.type || method.type === 'agent' || method.type === 'terminal')
   const clientManagedMethods = methods.filter(method => method.type === 'env_var')
   return (
-    <section className="code-app-server-request code-acp-authentication" data-testid="code-acp-authentication" role="alert">
+    <section className="code-acp-request code-acp-authentication" data-testid="code-acp-authentication" role="alert">
       <header><strong>Sign in to {agentName || 'Agent'}</strong><span>Authentication required</span></header>
       <div className="code-acp-authentication-methods">
         {authTerminal ? <AcpAuthenticationTerminal agentId={agentId} authTerminal={authTerminal} /> : null}

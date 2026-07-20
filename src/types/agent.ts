@@ -94,21 +94,6 @@ export interface AgentGitWorktreeItem {
   main: boolean
 }
 
-export interface CodexAppServerPendingRequest {
-  id: string
-  method: string
-  params: Record<string, unknown>
-  receivedAt: string
-}
-
-export interface CodexAppServerNotice {
-  id: string
-  kind: 'approval-rejected' | string
-  method: string
-  message: string
-  receivedAt: string
-}
-
 export interface CodexTerminalProfile {
   model: string
   reasoningEffort: string
@@ -194,19 +179,6 @@ export interface AcpPendingElicitation {
   }
 }
 
-export type CodexGoalStatus = 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete'
-
-export interface CodexAppServerGoal {
-  threadId: string
-  objective: string
-  status: CodexGoalStatus
-  tokenBudget: number | null
-  tokensUsed: number
-  timeUsedSeconds: number
-  createdAt: number
-  updatedAt: number
-}
-
 export interface TerminalRuntimeBinding {
   kind: 'terminal'
 }
@@ -232,26 +204,10 @@ export interface JsonRuntimeBinding {
   transcriptUpdatedAt: string
 }
 
-export interface CodexAppServerRuntimeBinding {
-  kind: 'app-server'
-  state: string
-  endpoint: string
-  threadId: string
-  turnId: string
-  error: string
-  pendingRequestId: string
-  pendingRequestMethod: string
-  pendingRequest: CodexAppServerPendingRequest | null
-  notice: CodexAppServerNotice | null
-  goal: CodexAppServerGoal | null
-  observerDeferred: boolean
-}
-
 export type AgentRuntimeBinding =
   | TerminalRuntimeBinding
   | AcpRuntimeBinding
   | JsonRuntimeBinding
-  | CodexAppServerRuntimeBinding
 
 export interface RuntimeObservation {
   kind: 'codex' | 'claude' | 'shell' | 'process' | 'unknown'
@@ -275,11 +231,11 @@ export interface WorkspaceRoot {
 }
 
 export interface ProviderCapabilities {
-  supportedRuntimes: Array<'terminal' | 'acp' | 'json' | 'app-server'>
+  supportedRuntimes: Array<'terminal' | 'acp' | 'json'>
   runtimeSwitch: boolean
   terminalProfile: boolean
   goals: boolean
-  chatRuntime: 'acp' | 'app-server' | ''
+  chatRuntime: 'acp' | ''
   supportsChat: boolean
   supportsSteer: boolean
 }

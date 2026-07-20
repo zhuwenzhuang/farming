@@ -12,7 +12,8 @@ const {
 } = require('./codex-transcript-sanitizer');
 
 // @deprecated `readCodexTranscript` below is the legacy JSONL file reader.
-// App Server uses the generic event-to-turn projection exported here instead.
+// The generic event-to-turn projection remains for JSON compatibility feeds;
+// live structured Chat is reduced from ACP session updates instead.
 const DEFAULT_MAX_READ_BYTES = 32 * 1024 * 1024;
 const DEFAULT_MAX_TURNS = 240;
 const USER_MESSAGE_BEGIN = '## My request for Codex:';

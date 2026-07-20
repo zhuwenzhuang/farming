@@ -90,7 +90,6 @@ const PERSISTED_SETTING_KEYS = new Set([
   'agentHomes',
   'updateUrl',
   'searchTimeoutMs',
-  'codexRuntimeMode',
   'codexApprovalMode',
   'codexModel',
   'codexReasoningEffort',
@@ -322,7 +321,6 @@ class ConfigManager {
         agentHomes: cloneAgentHomes(DEFAULT_AGENT_HOMES),
         updateUrl: DEFAULT_UPDATE_URL,
         searchTimeoutMs: DEFAULT_SEARCH_TIMEOUT_MS,
-        codexRuntimeMode: 'cli',
         codexApprovalMode: 'approve',
         codexModel: 'gpt-5.5',
         codexReasoningEffort: 'xhigh',
@@ -359,7 +357,6 @@ class ConfigManager {
       agentHomes: cloneAgentHomes(DEFAULT_AGENT_HOMES),
       updateUrl: DEFAULT_UPDATE_URL,
       searchTimeoutMs: DEFAULT_SEARCH_TIMEOUT_MS,
-      codexRuntimeMode: 'cli',
       codexApprovalMode: 'approve',
       codexModel: 'gpt-5.5',
       codexReasoningEffort: 'xhigh',
@@ -400,7 +397,7 @@ class ConfigManager {
     }
     this.settings.updateUrl = this.normalizeUpdateUrl(this.settings.updateUrl);
     this.settings.searchTimeoutMs = this.normalizeSearchTimeoutMs(this.settings.searchTimeoutMs);
-    this.settings.codexRuntimeMode = this.normalizeCodexRuntimeMode(this.settings.codexRuntimeMode);
+    delete this.settings.codexRuntimeMode;
     const legacyMainPageSessionKeys = this.normalizeMainPageSessionKeys(this.settings.mainPageSessionKeys);
     delete this.settings.mainPageSessionKeys;
     this.sessionStore.init({ legacyMainPageSessionKeys });
@@ -533,10 +530,6 @@ class ConfigManager {
 
   normalizeCodexApprovalMode(mode) {
     return ['ask', 'approve', 'full', 'custom'].includes(mode) ? mode : 'approve';
-  }
-
-  normalizeCodexRuntimeMode(mode) {
-    return mode === 'app-server' ? 'app-server' : 'cli';
   }
 
   normalizeCodexModelPreset(preset) {
@@ -694,11 +687,6 @@ class ConfigManager {
     return this.getAgentLaunchProfile('codex').approvalMode;
   }
 
-  getCodexRuntimeMode() {
-    if (!this.settings) return 'cli';
-    return this.normalizeCodexRuntimeMode(this.settings.codexRuntimeMode);
-  }
-
   getCodexModelPreset() {
     if (!this.settings) return 'gpt-5.5:xhigh';
     return this.getAgentLaunchProfile('codex').modelPreset;
@@ -842,7 +830,7 @@ class ConfigManager {
     this.settings.agentHomes = this.normalizeAgentHomes(this.settings.agentHomes);
     this.settings.updateUrl = this.normalizeUpdateUrl(this.settings.updateUrl);
     this.settings.searchTimeoutMs = this.normalizeSearchTimeoutMs(this.settings.searchTimeoutMs);
-    this.settings.codexRuntimeMode = this.normalizeCodexRuntimeMode(this.settings.codexRuntimeMode);
+    delete this.settings.codexRuntimeMode;
     delete this.settings.mainPageSessionKeys;
     delete this.settings.taskHistory;
     if (incomingMainPageSessionKeys !== undefined) {

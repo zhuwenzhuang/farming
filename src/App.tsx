@@ -20,7 +20,7 @@ import {
   pruneTerminalSessions,
 } from '@/lib/terminal-session-pool'
 import { appPath } from '@/lib/base-path'
-import { isAppServerRuntime, runtimeBindingForMode } from '@/lib/agent-runtime'
+import { runtimeBindingForMode } from '@/lib/agent-runtime'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 import {
   getBackendConnectionSnapshot,
@@ -46,7 +46,6 @@ type StartAgentExtras = {
   workflowTemplate?: string
   customTitle?: string
   codexApprovalMode?: string
-  codexRuntimeMode?: 'cli' | 'app-server'
   agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'
   dangerouslySkipPermissions?: boolean
   providerHomeId?: string
@@ -715,10 +714,7 @@ export function App() {
     const permissionAgent = permissionMode || runtimeSwitch
       ? ws.agents.find(agent => agent.id === agentId) ?? null
       : null
-    const switchingAgent = isAppServerRuntime(permissionAgent)
-      && !runtimeSwitch
-      ? null
-      : permissionAgent
+    const switchingAgent = permissionAgent
     if (switchingAgent) {
       if (permissionSwitchRequestRef.current) return false
       permissionSwitchRequestRef.current = agentId
@@ -1078,7 +1074,6 @@ export function App() {
         onKill={handleKill}
         onInterruptAgent={handleInterruptAgent}
         sendComposerInput={ws.sendComposerInput}
-        respondToAppServerRequest={ws.respondToAppServerRequest}
         onSessionOutput={ws.onSessionOutput}
         onUpdateUiPreferences={updateUiPreferences}
       />

@@ -10,7 +10,7 @@ import type {
   PointerEvent,
   TouchEvent,
 } from 'react'
-import type { AgentContextWindowUsage, CodexAppServerNotice, CodexAppServerPendingRequest } from '@/types/agent'
+import type { AgentContextWindowUsage } from '@/types/agent'
 import {
   ArrowUpGlyph,
   CheckGlyph,
@@ -31,7 +31,6 @@ import {
   shouldSuppressComposerEnterAfterComposition,
 } from './composer-keyboard'
 import type { CodeCopy } from './copy'
-import { CodexAppServerRequestCard } from './CodexAppServerRequestCard'
 import type { PermissionModeColor, PermissionModeOption } from './composer-profile'
 import { ComposerAttachments, type ComposerAttachmentView } from './ComposerAttachments'
 import {
@@ -164,8 +163,6 @@ interface CodeComposerProps {
   permissionModeOptions: PermissionModeOption[]
   contextWindow: AgentContextWindowUsage | null
   pendingFollowUp: { messages: PendingFollowUpMessage[]; createdAt: number } | null
-  appServerRequest: CodexAppServerPendingRequest | null
-  appServerNotice: CodexAppServerNotice | null
   submitAction: 'send' | 'interrupt' | 'disabled'
   speechSupported: boolean
   speechListening: boolean
@@ -179,10 +176,8 @@ interface CodeComposerProps {
   onRemoveAttachment: (id: string) => void
   onSubmit: (draft?: string) => void
   onInterrupt: () => void
-  onSteerPendingFollowUp: (messageId: string) => void
+  onSendPendingFollowUp: (messageId: string) => void
   onDiscardPendingFollowUp: (messageId: string) => void
-  onRespondToAppServerRequest: (requestId: string, result: unknown) => void
-  onRejectAppServerRequest: (requestId: string) => void
   onPasteAttachment: (event: ClipboardEvent<HTMLElement>) => void
   onAttachmentFiles: (event: ChangeEvent<HTMLInputElement>) => void
   onChooseAttachmentFile: () => void
@@ -236,8 +231,6 @@ export function CodeComposer({
   permissionModeOptions,
   contextWindow,
   pendingFollowUp,
-  appServerRequest,
-  appServerNotice,
   submitAction,
   speechSupported,
   speechListening,
@@ -251,10 +244,8 @@ export function CodeComposer({
   onRemoveAttachment,
   onSubmit,
   onInterrupt,
-  onSteerPendingFollowUp,
+  onSendPendingFollowUp,
   onDiscardPendingFollowUp,
-  onRespondToAppServerRequest,
-  onRejectAppServerRequest,
   onPasteAttachment,
   onAttachmentFiles,
   onChooseAttachmentFile,
@@ -514,15 +505,12 @@ export function CodeComposer({
     })
   }
 
-  const hasAppServerPrompt = active && Boolean(appServerRequest || appServerNotice)
-
   const composerClasses = [
     'code-composer',
     composerMenuOpen ? 'menu-open' : '',
     showMobileRecordingBar ? 'recording' : '',
     attachments.length > 0 ? 'has-attachments' : '',
     pendingFollowUp && active ? 'has-pending-followup' : '',
-    hasAppServerPrompt ? 'has-app-server-request' : '',
   ].filter(Boolean).join(' ')
 
   return (
@@ -544,11 +532,11 @@ export function CodeComposer({
               <div className="code-pending-followup-actions">
                 <button
                   type="button"
-                  data-testid="code-pending-followup-steer"
-                  onClick={() => onSteerPendingFollowUp(message.id)}
+                  data-testid="code-pending-followup-send-next"
+                  onClick={() => onSendPendingFollowUp(message.id)}
                 >
                   <ReplyGlyph />
-                  <span>{copy.steerQueuedMessage}</span>
+                  <span>{copy.sendQueuedMessage}</span>
                 </button>
                 <button
                   type="button"
@@ -563,23 +551,6 @@ export function CodeComposer({
             </div>
           ))}
         </div>
-      )}
-      {active && appServerRequest && (
-        <CodexAppServerRequestCard
-          request={appServerRequest}
-          onRespond={onRespondToAppServerRequest}
-          onReject={onRejectAppServerRequest}
-          copy={copy}
-        />
-      )}
-      {active && appServerNotice && appServerNotice.kind === 'approval-rejected' && (
-        <section className="code-app-server-request code-app-server-notice" data-testid="code-app-server-notice">
-          <header>
-            <strong>{copy.appServerApprovalRejectedTitle}</strong>
-            {appServerNotice.method ? <span>{appServerNotice.method}</span> : null}
-          </header>
-          <p>{copy.appServerApprovalRejectedDescription}</p>
-        </section>
       )}
       {showSlashMenu && (
         <div

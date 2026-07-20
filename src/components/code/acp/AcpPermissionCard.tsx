@@ -50,7 +50,7 @@ export function AcpPermissionCard({ request, onRespond, copy }: AcpPermissionCar
   if (request.toolCall?.content !== undefined) details.push(['Content', request.toolCall.content])
   if (request.toolCall?.locations !== undefined) details.push(['Locations', request.toolCall.locations])
   return (
-    <section className="code-app-server-request" data-testid="code-acp-permission-request">
+    <section className="code-acp-request" data-testid="code-acp-permission-request">
       <header>
         <strong>{copy.acpPermissionTitle}</strong>
         <span>{request.origin === 'subagent' ? `Subagent · ${request.toolCall?.kind || 'tool'}` : request.toolCall?.kind || 'tool'}</span>
@@ -112,7 +112,7 @@ export function AcpPermissionCard({ request, onRespond, copy }: AcpPermissionCar
           <span>I reviewed these targets and wish to proceed.</span>
         </label>
       ) : null}
-      <div className="code-app-server-request-actions">
+      <div className="code-acp-request-actions">
         {allowOptions.length > 1 ? (
           <select
             aria-label="Permission scope"
@@ -129,7 +129,7 @@ export function AcpPermissionCard({ request, onRespond, copy }: AcpPermissionCar
             disabled={allowBlocked}
             onClick={() => onRespond(request.requestId, allowOptionId || allowOptions[0]!.optionId, false)}
           >
-            {allowOptions.length === 1 ? allowOptions[0]!.name : copy.appServerRequestApprove}
+            {allowOptions.length === 1 ? allowOptions[0]!.name : copy.acpPermissionAllow}
           </button>
         ) : null}
         {rejectOptions.map(option => (

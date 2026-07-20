@@ -1,11 +1,9 @@
-// Chat is a product-level intent. The concrete runtime remains provider-owned:
-// Codex needs its App Server turn protocol, while other coding agents use ACP.
+// Chat is a product-level intent. ACP is the single structured Chat runtime for
+// every supported coding agent, including Codex.
 const CHAT_MODE = 'chat';
 
-function chatRuntimeForProvider(provider) {
-  return String(provider || '').trim().toLowerCase() === 'codex'
-    ? 'app-server'
-    : 'acp';
+function chatRuntimeForProvider() {
+  return 'acp';
 }
 
 function isChatMode(mode) {
@@ -17,9 +15,8 @@ function chatCapabilitiesForProvider(provider) {
   return {
     chatRuntime: runtime,
     supportsChat: true,
-    // ACP does not define a turn-versioned steer operation. Do not make this
-    // look generic just because both runtimes render in the same Chat UI.
-    supportsSteer: runtime === 'app-server',
+    // ACP does not currently define a turn-versioned steer operation.
+    supportsSteer: false,
   };
 }
 

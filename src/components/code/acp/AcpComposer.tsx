@@ -301,7 +301,7 @@ export function AcpComposer({
         />
       ) : null}
       {active && sessionError ? (
-        <section className="code-app-server-request code-app-server-notice" data-testid="code-acp-error" role="alert">
+        <section className="code-acp-request code-acp-notice" data-testid="code-acp-error" role="alert">
           <header><strong>ACP</strong><span>{runtimeState || 'error'}</span></header>
           <p>{sessionError}</p>
         </section>

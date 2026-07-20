@@ -148,7 +148,7 @@ export interface CodexTranscriptPaneProps {
   workspaceRoot?: string
   active: boolean
   viewportLayoutKey?: string
-  source?: 'acp' | 'app-server' | 'json-cli' | 'legacy-jsonl'
+  source?: 'acp' | 'json-cli' | 'legacy-jsonl'
   refreshSignal?: number
   runtimeState?: string
   expectHistory?: boolean
@@ -2275,9 +2275,7 @@ export function CodexTranscriptPane({
       }
       const endpoint = source === 'acp'
         ? 'acp-transcript'
-        : source === 'app-server'
-          ? 'codex-app-server-transcript'
-          : source === 'json-cli'
+        : source === 'json-cli'
             ? 'json-cli-transcript'
             : 'codex-transcript'
       fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/${endpoint}?${params.toString()}`), {

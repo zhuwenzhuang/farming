@@ -34,7 +34,6 @@ export interface WorkspaceHistorySettings {
 }
 
 export type CodexApprovalMode = 'ask' | 'approve' | 'full' | 'custom'
-export type CodexRuntimeMode = 'app-server' | 'cli'
 export type ClaudePermissionMode = 'acceptEdits' | 'auto' | 'bypassPermissions' | 'default' | 'dontAsk' | 'plan'
 export type CodexModelPreset = string
 export type MainPaneMode = 'terminal' | 'editor'
@@ -55,7 +54,6 @@ export interface GlobalSettings extends WorkspaceHistorySettings {
   dangerouslySkipAgentPermissionsByDefault?: boolean
   updateUrl?: string
   searchTimeoutMs?: number
-  codexRuntimeMode?: CodexRuntimeMode
   agentHomes?: AgentHomesSettings
   agentLaunchProfiles?: {
     codex?: {

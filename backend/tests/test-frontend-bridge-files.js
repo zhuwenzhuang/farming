@@ -57,11 +57,9 @@ function run() {
   assert(
     crtApp.includes('getSessionClient()?.handleServerMessage(data)') &&
       crtApp.includes('getSessionClient()?.rejectPendingComposerMessages()') &&
-      crtApp.includes("const waitForAppServer = agent.runtimeBinding?.kind === 'app-server';") &&
       crtApp.includes('function structuredComposerPromptAttachments()') &&
-      crtApp.includes('sendComposerMessage(focusedAgentId, message, promptAttachments') &&
-      crtApp.includes('if (result.accepted !== true)'),
-    'CRT Codex App Server submissions should retain the draft and native image attachments until backend acceptance'
+      crtApp.includes('sendComposerMessage(focusedAgentId, message, promptAttachments'),
+    'CRT ACP submissions should preserve native image attachments and use the structured session bridge'
   );
   assert(
     sessionBridge.includes('sendTerminalInput(agentId, input)') &&
@@ -151,7 +149,7 @@ function run() {
   assert(indexHtml.includes('id="crt-structured-command"') && crtApp.includes('availableCommands'), 'CRT structured input should expose ACP slash commands');
   assert(crtApp.includes("target.closest('#crt-structured-composer')"), 'CRT global clipboard handlers should leave structured input copy and paste native');
   assert(crtApp.includes('renderStructuredPermissions') && crtApp.includes('/acp-permission'), 'CRT structured input should surface ACP permission requests beside the prompt');
-  assert(crtApp.includes('isStructuredRuntimeAgent') && crtApp.includes('sendComposerMessage'), 'CRT should not route ACP, JSON, or App Server Agents through PTY input');
+  assert(crtApp.includes('isStructuredRuntimeAgent') && crtApp.includes('sendComposerMessage'), 'CRT should not route ACP or JSON Agents through PTY input');
   assert(indexHtml.includes('id="crt-runtime-toggle"') && indexHtml.includes('class="crt-runtime-glyph" aria-hidden="true">MSG</span>') && indexHtml.includes('class="crt-runtime-glyph" aria-hidden="true">TTY</span>'), 'CRT should expose retro MSG and TTY runtime controls');
   assert(
     crtApp.includes("const targetMode = mode === 'terminal' ? 'terminal' : 'chat';")

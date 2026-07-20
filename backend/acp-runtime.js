@@ -202,6 +202,19 @@ function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
+function acpSessionRequestOptions(options = {}, cwd = process.cwd()) {
+  const root = path.resolve(cwd || process.cwd());
+  const additionalDirectories = Array.isArray(options.additionalDirectories)
+    ? [...new Set(options.additionalDirectories
+      .filter(directory => typeof directory === 'string' && directory.trim())
+      .map(directory => path.resolve(root, directory)))]
+    : [];
+  const mcpServers = Array.isArray(options.mcpServers)
+    ? clone(options.mcpServers.filter(server => server && typeof server === 'object' && !Array.isArray(server)))
+    : [];
+  return { cwd: root, additionalDirectories, mcpServers };
+}
+
 class AcpRuntime extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -231,11 +244,14 @@ class AcpRuntime extends EventEmitter {
     if (this.bindings.has(agentId)) throw new Error('ACP Agent is already registered');
     const provider = String(options.provider || '').trim().toLowerCase();
     const launch = this.resolveLaunch(provider, options);
+    const cwd = path.resolve(options.cwd || process.cwd());
+    const sessionRequestOptions = acpSessionRequestOptions(options, cwd);
     const binding = {
       agentId,
       provider,
       providerHomeId: String(options.providerHomeId || 'default'),
-      cwd: path.resolve(options.cwd || process.cwd()),
+      cwd,
+      sessionRequestOptions,
       env: (getProviderAdapter(provider)?.prepareAcpEnvironment || (value => value.env || process.env))(options),
       launch,
       restartOptions: { ...options, agentId, provider },
@@ -313,7 +329,7 @@ class AcpRuntime extends EventEmitter {
       const revisionBase = Number.isFinite(Number(options.revisionBase))
         ? Math.max(0, Math.floor(Number(options.revisionBase)))
         : 0;
-      const sessionRequest = { sessionId: requestedSessionId, cwd: binding.cwd, mcpServers: [] };
+      const sessionRequest = { sessionId: requestedSessionId, ...binding.sessionRequestOptions };
       let sessionResponse;
       let historyMode = 'new';
       if (requestedSessionId) {
@@ -413,7 +429,7 @@ class AcpRuntime extends EventEmitter {
         }
       } else {
         sessionResponse = await withTimeout(
-          connection.newSession({ cwd: binding.cwd, mcpServers: [] }),
+          connection.newSession(binding.sessionRequestOptions),
           this.sessionSetupTimeoutMs,
           'ACP session/new'
         );
@@ -871,6 +887,9 @@ class AcpRuntime extends EventEmitter {
     if (!capabilities?.list) throw new Error(`${binding.provider} ACP Agent does not support session/list`);
     return withTimeout(binding.connection.listSessions({
       ...(options.cwd ? { cwd: path.resolve(options.cwd) } : {}),
+      ...(Array.isArray(options.additionalDirectories)
+        ? { additionalDirectories: acpSessionRequestOptions(options, options.cwd || binding.cwd).additionalDirectories }
+        : {}),
       ...(options.cursor ? { cursor: String(options.cursor) } : {}),
     }), this.requestTimeoutMs, 'ACP session/list');
   }
@@ -994,13 +1013,13 @@ class AcpRuntime extends EventEmitter {
     const binding = this.requireBinding(agentId);
     const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
     if (!capabilities?.fork) throw new Error(`${binding.provider} ACP Agent does not support session/fork`);
+    const sessionOptions = acpSessionRequestOptions({
+      additionalDirectories: options.additionalDirectories ?? binding.sessionRequestOptions.additionalDirectories,
+      mcpServers: options.mcpServers ?? binding.sessionRequestOptions.mcpServers,
+    }, options.cwd || binding.cwd);
     return withTimeout(binding.connection.unstable_forkSession({
       sessionId: options.sessionId || binding.sessionId,
-      cwd: path.resolve(options.cwd || binding.cwd),
-      additionalDirectories: Array.isArray(options.additionalDirectories)
-        ? options.additionalDirectories.map(directory => path.resolve(directory))
-        : [],
-      mcpServers: [],
+      ...sessionOptions,
     }), this.sessionSetupTimeoutMs, 'ACP session/fork');
   }
 
@@ -1452,6 +1471,7 @@ class AcpRuntime extends EventEmitter {
 module.exports = {
   AcpRuntime,
   ADAPTER_VERSIONS,
+  acpSessionRequestOptions,
   acpErrorKind,
   autoPermissionResponse,
   codexAcpEnvironment,

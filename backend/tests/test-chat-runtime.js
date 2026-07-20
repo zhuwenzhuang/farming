@@ -9,12 +9,12 @@ const {
 assert.strictEqual(CHAT_MODE, 'chat');
 assert.strictEqual(isChatMode('chat'), true);
 assert.strictEqual(isChatMode('acp'), false);
-assert.strictEqual(chatRuntimeForProvider('codex'), 'app-server');
+assert.strictEqual(chatRuntimeForProvider('codex'), 'acp');
 assert.strictEqual(chatRuntimeForProvider('claude'), 'acp');
 assert.deepStrictEqual(chatCapabilitiesForProvider('codex'), {
-  chatRuntime: 'app-server',
+  chatRuntime: 'acp',
   supportsChat: true,
-  supportsSteer: true,
+  supportsSteer: false,
 });
 assert.deepStrictEqual(chatCapabilitiesForProvider('opencode'), {
   chatRuntime: 'acp',

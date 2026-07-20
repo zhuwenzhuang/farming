@@ -255,7 +255,7 @@ export function InputDialog({
 
     fetch(appPath('/api/settings'))
       .then(r => r.json())
-      .then((data: { settings?: { workspace?: string; lastMainWorkspace?: string; workspaceHistory?: string[]; defaultLaunchAgent?: string; codexRuntimeMode?: string; agentHomes?: Record<string, Array<{ id: string; path: string }>> } }) => {
+      .then((data: { settings?: { workspace?: string; lastMainWorkspace?: string; workspaceHistory?: string[]; defaultLaunchAgent?: string; agentHomes?: Record<string, Array<{ id: string; path: string }>> } }) => {
         const settings = data.settings ?? {}
         const nextMainWorkspaceDefault = getMainWorkspaceDefault(settings)
         const history = buildWorkspaceHistory(null, settings.workspaceHistory ?? [])

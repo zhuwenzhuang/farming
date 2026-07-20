@@ -1,12 +1,11 @@
 import { useCallback } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { Agent } from '@/types/agent'
-import { isAcpRuntime, isAppServerRuntime, isJsonRuntime } from '@/lib/agent-runtime'
+import { isAcpRuntime, isJsonRuntime } from '@/lib/agent-runtime'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import { AgentTerminalPane } from '../AgentTerminalPane'
 import { ChatBubblesGlyph, TerminalSquareGlyph } from '../IconGlyphs'
-import { CodexAppServerTranscriptPane } from './CodexAppServerTranscriptPane'
 import { JsonCliTranscriptPane } from './JsonCliTranscriptPane'
 import { AcpTranscriptPane } from './acp/AcpTranscriptPane'
 import { isAgentTurnActive } from './agent-working-state'
@@ -35,15 +34,8 @@ interface AgentWorkPaneProps {
   copy: CodeCopy
 }
 
-function isCodexAppServerAgent(agent: Agent) {
-  return isAppServerRuntime(agent)
-}
-
 export function agentWorkPaneModeStorageIdentity(agent: Agent) {
-  if (!isCodexAppServerAgent(agent)) return agent.restartedFromAgentIds?.[0] || agent.id
-  const providerSessionKey = String(agent.providerSessionKey || '').trim()
-  if (providerSessionKey) return `session:${providerSessionKey}`
-  return `session:${agent.providerSessionProvider}:${agent.providerHomeId || 'default'}:${agent.providerSessionId}`
+  return agent.restartedFromAgentIds?.[0] || agent.id
 }
 
 export function AgentWorkPane({
@@ -63,12 +55,11 @@ export function AgentWorkPane({
   onRuntimeModeChange,
   copy,
 }: AgentWorkPaneProps) {
-  const appServerChat = isCodexAppServerAgent(agent)
   const jsonRuntime = isJsonRuntime(agent) ? agent.runtimeBinding : null
   const acpRuntime = isAcpRuntime(agent) ? agent.runtimeBinding : null
   const jsonChat = Boolean(jsonRuntime)
   const acpChat = Boolean(acpRuntime)
-  const chatMode = appServerChat || jsonChat || acpChat
+  const chatMode = jsonChat || acpChat
   const freshSwitchableTerminal = agent.providerCapabilities.runtimeSwitch
     && agent.runtimeBinding.kind === 'terminal'
     && agent.providerSessionTemporary === true
@@ -132,8 +123,6 @@ export function AgentWorkPane({
         >
           {acpChat ? (
             <AcpTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={(agent.source || '').startsWith('codex-history:')} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
-          ) : appServerChat ? (
-            <CodexAppServerTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
           ) : (
             <JsonCliTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} refreshSignal={jsonRuntime?.transcriptUpdatedAt ? Date.parse(jsonRuntime.transcriptUpdatedAt) : 0} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
           )}

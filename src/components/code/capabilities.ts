@@ -226,9 +226,9 @@ export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapa
   const composer = kind === 'codex'
     ? {
         ...CODING_AGENT_COMPOSER_CAPABILITIES,
-        modelPicker: runtimeKind === 'terminal' || runtimeKind === 'app-server',
-        reasoningEffort: runtimeKind === 'terminal' || runtimeKind === 'app-server',
-        serviceTier: runtimeKind === 'terminal' || runtimeKind === 'app-server',
+        modelPicker: runtimeKind === 'terminal',
+        reasoningEffort: runtimeKind === 'terminal',
+        serviceTier: runtimeKind === 'terminal',
       }
     : kind === 'claude'
       ? {

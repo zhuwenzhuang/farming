@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
-import type { AppServerRequestResponseMessage, ClientMessage, ComposerInputAttachment, ComposerInputMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
+import type { ClientMessage, ComposerInputAttachment, ComposerInputMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
 import { appWsUrl } from '@/lib/base-path'
 import { setTerminalSessionTransport } from '@/lib/terminal-session-client'
 import {
@@ -105,7 +105,7 @@ export function useWebSocket() {
     command: string,
     workspace?: string,
     asMain?: boolean,
-    extras?: { task?: string; workflowTemplate?: string; customTitle?: string; projectWorkspace?: string; codexApprovalMode?: string; codexRuntimeMode?: 'cli' | 'app-server'; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string }
+    extras?: { task?: string; workflowTemplate?: string; customTitle?: string; projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string }
   ) => {
     const msg: StartAgentMessage = {
       type: 'start-agent',
@@ -118,7 +118,6 @@ export function useWebSocket() {
     if (extras?.customTitle !== undefined) msg.customTitle = extras.customTitle
     if (extras?.projectWorkspace !== undefined) msg.projectWorkspace = extras.projectWorkspace
     if (extras?.codexApprovalMode !== undefined) msg.codexApprovalMode = extras.codexApprovalMode
-    if (extras?.codexRuntimeMode !== undefined) msg.codexRuntimeMode = extras.codexRuntimeMode
     if (extras?.agentRuntimeMode !== undefined) msg.agentRuntimeMode = extras.agentRuntimeMode
     if (extras?.dangerouslySkipPermissions !== undefined) msg.dangerouslySkipPermissions = extras.dangerouslySkipPermissions
     if (extras?.providerHomeId !== undefined) msg.providerHomeId = extras.providerHomeId
@@ -151,23 +150,6 @@ export function useWebSocket() {
       }
     })
   }, [sendMessage, settleComposerRequest])
-
-  const respondToAppServerRequest = useCallback((
-    agentId: string,
-    requestId: string,
-    result?: unknown,
-    options?: { reject?: boolean; reason?: string },
-  ) => {
-    const message: AppServerRequestResponseMessage = {
-      type: 'app-server-request-response',
-      agentId,
-      requestId,
-      result,
-      ...(options?.reject === true ? { reject: true } : {}),
-      ...(options?.reason ? { reason: options.reason } : {}),
-    }
-    return sendMessage(message)
-  }, [sendMessage])
 
   const focusAgent = useCallback((agentId: string) => {
     return sendMessage({ type: 'focus-agent', agentId })
@@ -483,7 +465,6 @@ export function useWebSocket() {
     ...state,
     startAgent,
     sendComposerInput,
-    respondToAppServerRequest,
     focusAgent,
     killAgent,
     interruptAgent,

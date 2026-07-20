@@ -2320,40 +2320,40 @@ body.code-mode[data-appearance='dark'] .code-pending-followup-actions button:foc
   color: var(--code-dark-text);
 }
 
-body.code-mode[data-appearance='dark'] .code-app-server-request {
+body.code-mode[data-appearance='dark'] .code-acp-request {
   border-color: var(--code-dark-border);
   background: var(--code-dark-bg-elevated);
   color: var(--code-dark-text-soft);
 }
 
-body.code-mode[data-appearance='dark'] .code-app-server-notice {
+body.code-mode[data-appearance='dark'] .code-acp-notice {
   border-color: #806c2f;
   background: rgba(75, 61, 26, 0.82);
 }
 
-body.code-mode[data-appearance='dark'] .code-app-server-request header strong,
-body.code-mode[data-appearance='dark'] .code-app-server-request-questions label > span,
-body.code-mode[data-appearance='dark'] .code-app-server-request input {
+body.code-mode[data-appearance='dark'] .code-acp-request header strong,
+body.code-mode[data-appearance='dark'] .code-acp-request-questions label > span,
+body.code-mode[data-appearance='dark'] .code-acp-request input {
   color: var(--code-dark-text);
 }
 
-body.code-mode[data-appearance='dark'] .code-app-server-request p,
-body.code-mode[data-appearance='dark'] .code-app-server-request small,
-body.code-mode[data-appearance='dark'] .code-app-server-request header span {
+body.code-mode[data-appearance='dark'] .code-acp-request p,
+body.code-mode[data-appearance='dark'] .code-acp-request small,
+body.code-mode[data-appearance='dark'] .code-acp-request header span {
   color: var(--code-dark-text-muted);
 }
 
-body.code-mode[data-appearance='dark'] .code-app-server-request-command code,
-body.code-mode[data-appearance='dark'] .code-app-server-request input,
-body.code-mode[data-appearance='dark'] .code-app-server-request-options button,
-body.code-mode[data-appearance='dark'] .code-app-server-request-actions button {
+body.code-mode[data-appearance='dark'] .code-acp-request-command code,
+body.code-mode[data-appearance='dark'] .code-acp-request input,
+body.code-mode[data-appearance='dark'] .code-acp-request-options button,
+body.code-mode[data-appearance='dark'] .code-acp-request-actions button {
   border-color: var(--code-dark-border);
   background: var(--code-dark-bg);
   color: var(--code-dark-text-soft);
 }
 
-body.code-mode[data-appearance='dark'] .code-app-server-request-options button.active,
-body.code-mode[data-appearance='dark'] .code-app-server-request-actions button.approve {
+body.code-mode[data-appearance='dark'] .code-acp-request-options button.active,
+body.code-mode[data-appearance='dark'] .code-acp-request-actions button.approve {
   border-color: #6f816b;
   background: #6f816b;
   color: #fff;

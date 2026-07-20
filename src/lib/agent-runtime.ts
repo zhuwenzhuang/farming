@@ -2,7 +2,6 @@ import type {
   AcpRuntimeBinding,
   Agent,
   AgentRuntimeBinding,
-  CodexAppServerRuntimeBinding,
   JsonRuntimeBinding,
 } from '@/types/agent'
 
@@ -12,10 +11,6 @@ export function isAcpRuntime(agent: Agent | null | undefined): agent is Agent & 
 
 export function isJsonRuntime(agent: Agent | null | undefined): agent is Agent & { runtimeBinding: JsonRuntimeBinding } {
   return agent?.runtimeBinding.kind === 'json'
-}
-
-export function isAppServerRuntime(agent: Agent | null | undefined): agent is Agent & { runtimeBinding: CodexAppServerRuntimeBinding } {
-  return agent?.runtimeBinding.kind === 'app-server'
 }
 
 export function isStructuredRuntime(agent: Agent | null | undefined) {

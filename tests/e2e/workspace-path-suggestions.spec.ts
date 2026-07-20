@@ -24,7 +24,6 @@ test.describe('workspace path suggestions', () => {
     await openFarming(page)
     await page.request.post('/farming/api/settings', {
       data: {
-        codexRuntimeMode: 'cli',
         agentHomes: {
           codex: [
             { id: 'default', path: '~/.codex' },
@@ -142,12 +141,11 @@ test.describe('workspace path suggestions', () => {
     await expect(workspaceInput).toHaveValue(browserRoot)
   })
 
-  test('uses the dark skin for the custom home menu and Codex runtime choice', async ({ page, workspaceRoot }) => {
+  test('uses the dark skin for the custom Codex home menu', async ({ page, workspaceRoot }) => {
     await openFarming(page)
     await page.request.post('/farming/api/settings', {
       data: {
         appearance: 'dark',
-        codexRuntimeMode: 'cli',
         agentHomes: {
           codex: [
             { id: 'default', path: '~/.codex' },

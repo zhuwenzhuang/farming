@@ -1,4 +1,4 @@
-const RUNTIME_KINDS = new Set(['terminal', 'acp', 'json', 'app-server']);
+const RUNTIME_KINDS = new Set(['terminal', 'acp', 'json']);
 
 function terminalBinding() {
   return { kind: 'terminal' };
@@ -30,38 +30,24 @@ function jsonBinding(source = {}) {
   };
 }
 
-function appServerBinding(source = {}) {
-  return {
-    kind: 'app-server',
-    state: source.state || source.codexAppServerState || '',
-    endpoint: source.endpoint || source.codexAppServerEndpoint || '',
-    threadId: source.threadId || source.codexAppServerThreadId || '',
-    turnId: source.turnId || source.codexAppServerTurnId || '',
-    error: source.error || source.codexAppServerError || '',
-    pendingRequestId: source.pendingRequestId || source.codexAppServerPendingRequestId || '',
-    pendingRequestMethod: source.pendingRequestMethod || source.codexAppServerPendingRequestMethod || '',
-    pendingRequest: source.pendingRequest || source.codexAppServerPendingRequest || null,
-    notice: source.notice || source.codexAppServerNotice || null,
-    goal: source.goal || source.codexAppServerGoal || null,
-    observerDeferred: source.observerDeferred === true || source.codexCliObserverDeferred === true,
-    homePath: source.homePath || source.codexAppServerHomePath || '',
-    transcriptUpdatedAt: source.transcriptUpdatedAt || source.codexAppServerTranscriptUpdatedAt || '',
-  };
-}
-
 function runtimeKind(agent) {
   if (RUNTIME_KINDS.has(agent?.runtimeBinding?.kind)) return agent.runtimeBinding.kind;
+  // App Server was an experimental Codex runtime. Persisted records migrate to
+  // ACP because codex-acp uses the same Codex thread id as its session id.
+  if (agent?.runtimeBinding?.kind === 'app-server' || agent?.codexRuntimeMode === 'app-server') return 'acp';
   if (agent?.agentRuntimeMode === 'acp') return 'acp';
   if (agent?.agentRuntimeMode === 'json') return 'json';
-  return agent?.codexRuntimeMode === 'app-server' ? 'app-server' : 'terminal';
+  return 'terminal';
 }
 
 function bindingFromLegacy(agent) {
   if (RUNTIME_KINDS.has(agent?.runtimeBinding?.kind)) return agent.runtimeBinding;
+  if (agent?.runtimeBinding?.kind === 'app-server' || agent?.codexRuntimeMode === 'app-server') {
+    return acpBinding({ state: 'connecting' });
+  }
   switch (runtimeKind(agent)) {
     case 'acp': return acpBinding(agent);
     case 'json': return jsonBinding(agent);
-    case 'app-server': return appServerBinding(agent);
     default: return terminalBinding();
   }
 }
@@ -70,7 +56,6 @@ function runtimeBindingFor(kind, source = {}) {
   switch (kind) {
     case 'acp': return acpBinding(source);
     case 'json': return jsonBinding(source);
-    case 'app-server': return appServerBinding(source);
     default: return terminalBinding();
   }
 }
@@ -133,22 +118,6 @@ function publicRuntimeBinding(agent) {
       transcriptUpdatedAt: binding.transcriptUpdatedAt,
     };
   }
-  if (binding.kind === 'app-server') {
-    return {
-      kind: 'app-server',
-      state: binding.state,
-      endpoint: binding.endpoint,
-      threadId: binding.threadId,
-      turnId: binding.turnId,
-      error: binding.error,
-      pendingRequestId: binding.pendingRequestId,
-      pendingRequestMethod: binding.pendingRequestMethod,
-      pendingRequest: binding.pendingRequest,
-      notice: binding.notice,
-      goal: binding.goal,
-      observerDeferred: binding.observerDeferred,
-    };
-  }
   return { ...binding };
 }
 
@@ -162,7 +131,6 @@ function runtimeState(agent) {
 function legacyRuntimeMetadata(agent) {
   const binding = bindingFromLegacy(agent);
   const metadata = {
-    codexRuntimeMode: binding.kind === 'app-server' ? 'app-server' : 'cli',
     agentRuntimeMode: ['acp', 'json'].includes(binding.kind) ? binding.kind : 'terminal',
   };
   if (binding.kind === 'acp') {
@@ -186,21 +154,6 @@ function legacyRuntimeMetadata(agent) {
       jsonCliState: binding.state,
       jsonCliError: binding.error,
       jsonCliTranscriptUpdatedAt: binding.transcriptUpdatedAt,
-    };
-  }
-  if (binding.kind === 'app-server') {
-    return {
-      ...metadata,
-      codexAppServerHomePath: binding.homePath,
-      codexAppServerState: binding.state,
-      codexAppServerEndpoint: binding.endpoint,
-      codexAppServerThreadId: binding.threadId,
-      codexAppServerTurnId: binding.turnId,
-      codexAppServerError: binding.error,
-      codexAppServerPendingRequestId: binding.pendingRequestId,
-      codexAppServerPendingRequestMethod: binding.pendingRequestMethod,
-      codexAppServerPendingRequest: binding.pendingRequest,
-      codexCliObserverDeferred: binding.observerDeferred,
     };
   }
   return metadata;

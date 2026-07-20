@@ -132,7 +132,7 @@ test.describe('human Farming Agent story', () => {
     await expect(page.getByTestId('code-pending-followup-row')).toHaveCount(2)
     await expect(page.getByTestId('code-pending-followup')).toContainText('follow up: make greeting excited')
 
-    await page.getByTestId('code-pending-followup-steer').nth(1).click()
+    await page.getByTestId('code-pending-followup-send-next').nth(1).click()
     await expect(page.getByTestId('code-pending-followup')).toContainText('add greeting to app.js')
     await expect(page.getByTestId('code-pending-followup')).not.toContainText('follow up: make greeting excited')
     await page.getByTestId('code-pending-followup-discard').click()
@@ -679,7 +679,7 @@ test.describe('human Farming Agent story', () => {
     await expect(textarea).toHaveValue('/goal ship slash commands')
     await page.getByTestId('code-composer-send').click()
     if (await page.getByTestId('code-pending-followup').count() > 0) {
-      await page.getByTestId('code-pending-followup-steer').first().click()
+      await page.getByTestId('code-pending-followup-send-next').first().click()
     }
     await expect.poll(() => sessionText(page, agentId)).toContain('/goal ship slash commands')
   })
