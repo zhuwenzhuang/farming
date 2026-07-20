@@ -2,6 +2,8 @@
   function createClient(options = {}) {
     const getSocket = options.getSocket || (() => null);
     const fetchImpl = options.fetchImpl || global.fetch.bind(global);
+    const composerResults = new Map();
+    let composerRequestSequence = 0;
 
     function send(message) {
       const ws = getSocket();
@@ -31,13 +33,33 @@
         });
       },
 
-      sendComposerMessage(agentId, message, attachments = []) {
-        return send({
+      sendComposerMessage(agentId, message, attachments = [], options = {}) {
+        const requestId = options.onResult
+          ? `composer-${Date.now().toString(36)}-${++composerRequestSequence}`
+          : '';
+        const sent = send({
           type: 'composer-input',
           agentId,
           message,
+          ...(requestId ? { requestId } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
         });
+        if (sent && requestId) composerResults.set(requestId, options.onResult);
+        return sent;
+      },
+
+      handleServerMessage(message) {
+        if (!message || message.type !== 'composer-input-result') return false;
+        const callback = composerResults.get(message.requestId);
+        if (!callback) return false;
+        composerResults.delete(message.requestId);
+        callback(message);
+        return true;
+      },
+
+      rejectPendingComposerMessages(message = 'Connection unavailable') {
+        composerResults.forEach(callback => callback({ accepted: false, message }));
+        composerResults.clear();
       },
 
       interruptAgent(agentId) {

@@ -48,9 +48,18 @@ function run() {
   assert(skinBridge.includes('getSessionSkin'), 'skin bridge should expose session skin resolution');
   assert(runtimePaths.includes('FarmingRuntimePaths'), 'CRT runtime should expose base-path-aware URLs');
   assert(
-    sessionBridge.includes('sendComposerMessage(agentId, message, attachments = [])') &&
-      sessionBridge.includes('...(attachments.length > 0 ? { attachments } : {})'),
-    'structured runtimes should preserve native ACP prompt attachments through the session bridge'
+    sessionBridge.includes('sendComposerMessage(agentId, message, attachments = [], options = {})') &&
+      sessionBridge.includes('...(attachments.length > 0 ? { attachments } : {})') &&
+      sessionBridge.includes("type !== 'composer-input-result'") &&
+      sessionBridge.includes('rejectPendingComposerMessages'),
+    'structured runtimes should preserve ACP attachments and correlate Codex chat acceptance through the session bridge'
+  );
+  assert(
+    crtApp.includes('getSessionClient()?.handleServerMessage(data)') &&
+      crtApp.includes('getSessionClient()?.rejectPendingComposerMessages()') &&
+      crtApp.includes("const waitForAppServer = agent.runtimeBinding?.kind === 'app-server';") &&
+      crtApp.includes('if (result.accepted !== true)'),
+    'CRT Codex App Server submissions should retain the draft until backend acceptance'
   );
   assert(
     sessionBridge.includes('sendTerminalInput(agentId, input)') &&

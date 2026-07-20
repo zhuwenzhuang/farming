@@ -5303,6 +5303,7 @@ function connect() {
   socket.onmessage = (event) => {
     if (ws !== socket) return;
     const data = JSON.parse(event.data);
+    if (getSessionClient()?.handleServerMessage(data)) return;
     if (data.type === 'protocol-hello') {
       if (data.protocolVersion !== CRT_PROTOCOL_VERSION) {
         socket.close(4002, `Unsupported Farming protocol version ${data.protocolVersion}`);
@@ -5426,6 +5427,7 @@ function connect() {
   socket.onclose = () => {
     if (ws !== socket) return;
     ws = null;
+    getSessionClient()?.rejectPendingComposerMessages();
     console.log('Disconnected from server');
     if (crtTerminalReplication) {
       clearPendingCrtTerminalFitResize(crtTerminalReplication);
@@ -7173,10 +7175,36 @@ function setupStructuredSessionComposer() {
     const draft = input.value;
     const message = structuredComposerMessage(draft);
     if (!message) return;
+    const statusNode = document.getElementById('crt-structured-composer-status');
+    const completeSubmission = () => {
+      addStructuredComposerHistory(focusedAgentId, draft);
+      input.value = '';
+      structuredComposerAttachments = [];
+      renderStructuredComposerAttachments();
+      resizeStructuredComposerInput(input);
+      if (statusNode) {
+        statusNode.textContent = action === 'steer' ? 'STEERING...' : 'SENDING...';
+        statusNode.classList.remove('error');
+      }
+      updateStructuredComposerState(agent);
+      setTimeout(() => void refreshStructuredSession(focusedAgentId, true), 160);
+    };
+    const waitForAppServer = agent.runtimeBinding?.kind === 'app-server';
     const sent = action === 'send' && structuredRuntimeStatus(agent) !== 'idle'
       ? (queueStructuredComposerFollowUp(focusedAgentId, message), true)
-      : getSessionClient()?.sendComposerMessage(focusedAgentId, message);
-    const statusNode = document.getElementById('crt-structured-composer-status');
+      : getSessionClient()?.sendComposerMessage(focusedAgentId, message, [], waitForAppServer ? {
+        onResult: (result) => {
+          if (result.accepted !== true) {
+            if (statusNode) {
+              statusNode.textContent = result.message || 'Chat submission was not accepted';
+              statusNode.classList.add('error');
+            }
+            input.focus();
+            return;
+          }
+          completeSubmission();
+        },
+      } : undefined);
     if (!sent) {
       if (statusNode) {
         statusNode.textContent = 'Connection unavailable';
@@ -7184,17 +7212,14 @@ function setupStructuredSessionComposer() {
       }
       return;
     }
-    addStructuredComposerHistory(focusedAgentId, draft);
-    input.value = '';
-    structuredComposerAttachments = [];
-    renderStructuredComposerAttachments();
-    resizeStructuredComposerInput(input);
-    if (statusNode) {
-      statusNode.textContent = action === 'steer' ? 'STEERING...' : 'SENDING...';
-      statusNode.classList.remove('error');
+    if (waitForAppServer) {
+      if (statusNode) {
+        statusNode.textContent = action === 'steer' ? 'STEERING...' : 'SENDING...';
+        statusNode.classList.remove('error');
+      }
+      return;
     }
-    updateStructuredComposerState(agent);
-    setTimeout(() => void refreshStructuredSession(focusedAgentId, true), 160);
+    completeSubmission();
   });
 }
 
