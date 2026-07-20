@@ -14917,10 +14917,11 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 
 .terminal-session-host .xterm .composition-view {
   color: #1f2328;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(31, 35, 40, 0.12);
-  border-radius: 3px;
-  box-shadow: 0 2px 8px rgba(31, 35, 40, 0.08);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid #0969da;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .terminal-session-host .xterm .xterm-helper-textarea:focus {
@@ -14950,6 +14951,9 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   color: #1f2328 !important;
   -webkit-text-fill-color: #1f2328 !important;
   caret-color: transparent !important;
+  border-bottom: 2px solid #0969da !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
   opacity: 1 !important;
 }
 

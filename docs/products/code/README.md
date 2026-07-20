@@ -44,13 +44,13 @@ While a turn is active, a follow-up can be queued visibly and sent when the Agen
 
 ## Use A Real Terminal When Exact CLI Behavior Matters
 
-Terminal is a native PTY session rendered with xterm.js. ANSI output, full-screen TUIs, IME input, selection and copy, terminal search, scrollback, links, and CLI shortcuts stay on the terminal path.
+Terminal is a native PTY session rendered with xterm.js. ANSI output, full-screen TUIs, IME input, selection and copy, terminal search, scrollback, links, and CLI shortcuts stay on the terminal path. Active IME composition is shown in place with an underline instead of floating input chrome.
 
 ![Native Agent Terminal](assets/12-code-terminal-session.png)
 
 The **Chat / Terminal** control changes the actual Agent runtime; it is not a view toggle. Farming restarts into ACP or PTY mode and resumes the same provider session when its identity exists. A fresh Terminal with no user input may move into a fresh Chat before the provider record has materialized. After Terminal input, missing resume identity is an explicit error so the conversation cannot be discarded silently.
 
-On desktop, both Chat and Terminal use the same edge-hover Composer collapse and restore control. Collapsing hides only the input surface; the active Chat transcript or Terminal remains visible, and an unsent draft survives restoration.
+On desktop, both Chat and Terminal use the same edge-hover Composer collapse and restore control. Terminal starts collapsed and remembers the user's last manual choice across reloads, while mobile Terminal keeps the Composer visible. Collapsing hides only the input surface; the active Chat transcript or Terminal remains visible, and an unsent draft survives restoration.
 
 The native PTY host is a separate process from the Farming server. Browsers can reconnect to live terminals, and a normal Farming server restart can recover them without launching duplicate Agents.
 

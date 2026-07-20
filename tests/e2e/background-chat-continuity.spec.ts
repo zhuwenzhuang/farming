@@ -74,6 +74,79 @@ test('keeps ACP Chat live while the browser page is hidden', async ({ page, work
   expect(backendSocketClosed).toBe(0)
 })
 
+test('keeps long ACP Chat stable when the Composer is collapsed and restored', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'composer-layout-anchor')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+  const entries = Array.from({ length: 24 }, (_, index) => ([
+    {
+      id: `user-${index}`,
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'text', text: `Long conversation question ${index}` }],
+    },
+    {
+      id: `answer-${index}`,
+      type: 'message',
+      role: 'assistant',
+      _meta: { codex: { phase: 'final_answer' } },
+      content: [{
+        type: 'text',
+        text: `Long answer ${index}.\n\n${'Keep this transcript tall enough to exercise layout anchoring. '.repeat(5)}`,
+      }],
+    },
+  ])).flat()
+
+  await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        transcript: {
+          sessionId: 'composer-layout-anchor-session',
+          state: 'idle',
+          revision: 1,
+          entries,
+        },
+      }),
+    })
+  })
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  const transcriptScroll = page.getByTestId('code-codex-transcript-scroll')
+  await expect(transcriptScroll).toContainText('Long conversation question 23')
+  await transcriptScroll.evaluate(element => {
+    element.scrollTop = element.scrollHeight
+  })
+
+  const bottomDistance = () => transcriptScroll.evaluate(element => (
+    element.scrollHeight - element.clientHeight - element.scrollTop
+  ))
+  await expect.poll(bottomDistance).toBeLessThanOrEqual(2)
+
+  await page.locator('.code-composer-collapse-zone').hover()
+  await page.getByTestId('code-composer-collapse').click()
+  await expect(page.getByTestId('code-acp-composer')).toHaveCount(0)
+  await expect.poll(bottomDistance).toBeLessThanOrEqual(2)
+
+  await page.getByTestId('code-composer-restore').click()
+  await expect(page.getByTestId('code-acp-composer')).toBeVisible()
+  await expect.poll(bottomDistance).toBeLessThanOrEqual(2)
+
+  const readingTop = await transcriptScroll.evaluate(element => {
+    element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 500)
+    element.dispatchEvent(new Event('scroll', { bubbles: true }))
+    return element.scrollTop
+  })
+  expect(readingTop).toBeGreaterThan(0)
+
+  await page.locator('.code-composer-collapse-zone').hover()
+  await page.getByTestId('code-composer-collapse').click()
+  await page.getByTestId('code-composer-restore').click()
+  await expect.poll(() => transcriptScroll.evaluate(element => element.scrollTop)).toBeCloseTo(readingTop, 0)
+  await expect(page.getByTestId('code-codex-transcript-jump-bottom')).toBeVisible()
+})
+
 test('keeps a short ACP answer close to the Composer with compact copy affordance', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'compact-chat-tail')
   fs.mkdirSync(workspace, { recursive: true })

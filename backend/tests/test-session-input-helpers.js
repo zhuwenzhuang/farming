@@ -641,6 +641,14 @@ function run() {
       !mainCssSource.includes('color: var(--theme-fg, #00ff41) !important'),
     'terminal IME composition text should use normal Codex text color instead of terminal green'
   );
+  const xtermCompositionStyle = mainCssSource.match(/\.terminal-session-host \.xterm \.composition-view \{([^}]*)\}/)?.[1] || '';
+  assert(
+    xtermCompositionStyle.includes('background: transparent') &&
+      xtermCompositionStyle.includes('border-bottom: 2px solid #0969da') &&
+      xtermCompositionStyle.includes('border-radius: 0') &&
+      xtermCompositionStyle.includes('box-shadow: none'),
+    'xterm IME composition should use an inline underline without floating input chrome'
+  );
   assert(
       xtermSource.includes("import { WebglAddon } from '@xterm/addon-webgl'") &&
         xtermSource.includes("cursorInactiveStyle: 'none'") &&

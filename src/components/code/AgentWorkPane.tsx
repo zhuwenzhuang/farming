@@ -20,6 +20,7 @@ type TerminalFollowState = {
 interface AgentWorkPaneProps {
   agent: Agent
   active: boolean
+  viewportLayoutKey: string
   switching: boolean
   switchingKind: 'permission' | 'runtime' | null
   focusSignal: number
@@ -48,6 +49,7 @@ export function agentWorkPaneModeStorageIdentity(agent: Agent) {
 export function AgentWorkPane({
   agent,
   active,
+  viewportLayoutKey,
   switching,
   switchingKind,
   focusSignal,
@@ -129,11 +131,11 @@ export function AgentWorkPane({
           onPointerDown={activateChatView}
         >
           {acpChat ? (
-            <AcpTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} runtimeState={acpRuntime?.state || ''} expectHistory={(agent.source || '').startsWith('codex-history:')} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
+            <AcpTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={(agent.source || '').startsWith('codex-history:')} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
           ) : appServerChat ? (
-            <CodexAppServerTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
+            <CodexAppServerTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
           ) : (
-            <JsonCliTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} refreshSignal={jsonRuntime?.transcriptUpdatedAt ? Date.parse(jsonRuntime.transcriptUpdatedAt) : 0} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
+            <JsonCliTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} refreshSignal={jsonRuntime?.transcriptUpdatedAt ? Date.parse(jsonRuntime.transcriptUpdatedAt) : 0} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
           )}
         </div>
       ) : null}

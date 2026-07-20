@@ -22,6 +22,31 @@ type TerminalFollowState = {
   hasUnreadOutput: boolean
 }
 
+const TERMINAL_COMPOSER_COLLAPSED_STORAGE_KEY = 'farming.code.terminalComposerCollapsed.v1'
+
+function readTerminalComposerCollapsed() {
+  try {
+    const stored = window.localStorage.getItem(TERMINAL_COMPOSER_COLLAPSED_STORAGE_KEY)
+    return stored === null ? true : stored === 'true'
+  } catch {
+    return true
+  }
+}
+
+function writeTerminalComposerCollapsed(collapsed: boolean) {
+  try {
+    window.localStorage.setItem(TERMINAL_COMPOSER_COLLAPSED_STORAGE_KEY, String(collapsed))
+  } catch {
+    // The in-memory preference still applies when local storage is unavailable.
+  }
+}
+
+function supportsComposerCollapse() {
+  return typeof window !== 'undefined'
+    && window.matchMedia('(hover: hover) and (pointer: fine)').matches
+    && !isMobileTouchViewport()
+}
+
 const FILE_EDITOR_CHUNK_RECOVERY_KEY = 'farming.code.fileEditor.chunk-recovery'
 type FileEditorPaneComponent = typeof import('../files/FileEditorPane')['FileEditorPane']
 type LoadedFileEditorPane = { default: FileEditorPaneComponent }
@@ -293,8 +318,9 @@ export function CodeMainArea({
   onBackToAgentFromFile,
   copy,
 }: CodeMainAreaProps) {
-  const [composerCollapseRequested, setComposerCollapseRequested] = useState(false)
-  const [composerCollapseSupported, setComposerCollapseSupported] = useState(false)
+  const [terminalComposerCollapsed, setTerminalComposerCollapsed] = useState(readTerminalComposerCollapsed)
+  const [chatComposerCollapseRequested, setChatComposerCollapseRequested] = useState(false)
+  const [composerCollapseSupported, setComposerCollapseSupported] = useState(supportsComposerCollapse)
   const [fileEditorPane, setFileEditorPane] = useState<FileEditorPaneComponent | null>(() => loadedFileEditorPane)
   const [fileEditorPaneLoadError, setFileEditorPaneLoadError] = useState<unknown>(null)
   const ReadyFileEditorPane = fileEditorPane ?? loadedFileEditorPane
@@ -327,6 +353,10 @@ export function CodeMainArea({
     ? visibleOpenAgents.find(agent => agent.id === activeTerminalId) || null
     : null
   const acpComposerActive = isAcpRuntime(activeAgent)
+  const terminalComposerActive = activeAgent?.runtimeBinding.kind === 'terminal'
+  const composerCollapseRequested = terminalComposerActive
+    ? terminalComposerCollapsed
+    : chatComposerCollapseRequested
   const canCollapseComposer = composerCollapseSupported
     && activeView === 'projects'
     && !showFileEditor
@@ -335,17 +365,30 @@ export function CodeMainArea({
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(hover: hover) and (pointer: fine)')
-    const updateCollapseSupport = () => setComposerCollapseSupported(mediaQuery.matches)
+    const updateCollapseSupport = () => setComposerCollapseSupported(supportsComposerCollapse())
     updateCollapseSupport()
     mediaQuery.addEventListener('change', updateCollapseSupport)
-    return () => mediaQuery.removeEventListener('change', updateCollapseSupport)
+    window.addEventListener('resize', updateCollapseSupport)
+    return () => {
+      mediaQuery.removeEventListener('change', updateCollapseSupport)
+      window.removeEventListener('resize', updateCollapseSupport)
+    }
   }, [])
 
   useEffect(() => {
-    if (!canCollapseComposer && composerCollapseRequested) {
-      setComposerCollapseRequested(false)
+    if (!canCollapseComposer && chatComposerCollapseRequested) {
+      setChatComposerCollapseRequested(false)
     }
-  }, [canCollapseComposer, composerCollapseRequested])
+  }, [canCollapseComposer, chatComposerCollapseRequested])
+
+  const updateComposerCollapsed = useCallback((collapsed: boolean) => {
+    if (terminalComposerActive) {
+      setTerminalComposerCollapsed(collapsed)
+      writeTerminalComposerCollapsed(collapsed)
+      return
+    }
+    setChatComposerCollapseRequested(collapsed)
+  }, [terminalComposerActive])
 
   const dismissComposerKeyboardOnMainPress = useCallback((event: ReactSyntheticEvent<HTMLElement>) => {
     if (!isMobileTouchViewport()) return
@@ -454,6 +497,7 @@ export function CodeMainArea({
                   key={agent.id}
                   agent={agent}
                   active={agent.id === activeTerminalId}
+                  viewportLayoutKey={composerCollapsed ? 'composer-collapsed' : 'composer-expanded'}
                   switching={agent.id === permissionSwitchingAgentId}
                   switchingKind={agent.id === permissionSwitchingAgentId ? agentSwitchingKind : null}
                   onActivate={onOpenTerminal}
@@ -479,7 +523,7 @@ export function CodeMainArea({
                 data-testid="code-composer-restore"
                 aria-label={copy.restoreComposer}
                 title={copy.restoreComposer}
-                onClick={() => setComposerCollapseRequested(false)}
+                onClick={() => updateComposerCollapsed(false)}
               >
                 <ChevronUpGlyph />
               </button>
@@ -494,7 +538,7 @@ export function CodeMainArea({
                     data-testid="code-composer-collapse"
                     aria-label={copy.collapseComposer}
                     title={copy.collapseComposer}
-                    onClick={() => setComposerCollapseRequested(true)}
+                    onClick={() => updateComposerCollapsed(true)}
                   >
                     <ChevronDownGlyph />
                   </button>

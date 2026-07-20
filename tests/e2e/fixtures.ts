@@ -245,6 +245,8 @@ export async function startAgentFromOpenDialog(page: Page, name: string, workspa
     await expect(row).toHaveClass(/active/, { timeout: 30_000 })
   }
   await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible({ timeout: 30_000 })
+  const restoreComposer = page.getByTestId('code-composer-restore')
+  if (await restoreComposer.count()) await restoreComposer.click()
   return agentId
 }
 

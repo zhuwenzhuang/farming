@@ -30,6 +30,61 @@ async function terminalCellCenter(page: import('@playwright/test').Page, agentId
 }
 
 test.describe('human Farming Agent story', () => {
+  test('defaults the desktop Terminal Composer closed and remembers the manual choice without hiding it on mobile', async ({ page, workspaceRoot }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 1, configurable: true })
+    })
+    await page.setViewportSize({ width: 1280, height: 800 })
+    const response = await page.request.post('/farming/api/control/agents', {
+      data: { command: 'bash', workspace: workspaceRoot },
+    })
+    expect(response.ok()).toBeTruthy()
+    const payload = await response.json() as { agentId?: string }
+    expect(payload.agentId).toBeTruthy()
+
+    await openFarming(page)
+    const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${payload.agentId}"]`)
+    await expect(row).toBeVisible()
+    await row.click()
+
+    const imePresentation = await page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${payload.agentId}"] .composition-view`).evaluate(element => {
+      const style = window.getComputedStyle(element)
+      return {
+        backgroundColor: style.backgroundColor,
+        borderBottomColor: style.borderBottomColor,
+        borderBottomStyle: style.borderBottomStyle,
+        borderBottomWidth: style.borderBottomWidth,
+        borderRadius: style.borderRadius,
+        boxShadow: style.boxShadow,
+      }
+    })
+    expect(imePresentation).toMatchObject({
+      backgroundColor: 'rgba(0, 0, 0, 0)',
+      borderBottomColor: 'rgb(9, 105, 218)',
+      borderBottomStyle: 'solid',
+      borderBottomWidth: '2px',
+      borderRadius: '0px',
+      boxShadow: 'none',
+    })
+
+    await expect(page.getByTestId('code-composer')).toHaveCount(0)
+    await expect(page.getByTestId('code-composer-restore')).toBeVisible()
+    await page.getByTestId('code-composer-restore').click()
+    await expect(page.getByTestId('code-composer-input')).toBeVisible()
+
+    await page.reload({ waitUntil: 'networkidle' })
+    await expect(page.getByTestId('code-composer-input')).toBeVisible()
+    await page.locator('.code-composer-collapse-zone').hover()
+    await page.getByTestId('code-composer-collapse').click()
+    await page.reload({ waitUntil: 'networkidle' })
+    await expect(page.getByTestId('code-composer')).toHaveCount(0)
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.reload({ waitUntil: 'networkidle' })
+    await expect(page.getByTestId('code-composer-input')).toBeVisible()
+    await expect(page.getByTestId('code-composer-restore')).toHaveCount(0)
+  })
+
   test('restores the selected Agent after reloading with multiple live Agents', async ({ page, workspaceRoot }) => {
     await openFarming(page)
     await openNewAgentDialog(page)

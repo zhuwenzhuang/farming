@@ -147,6 +147,7 @@ export interface CodexTranscriptPaneProps {
   agentId: string
   workspaceRoot?: string
   active: boolean
+  viewportLayoutKey?: string
   source?: 'acp' | 'app-server' | 'json-cli' | 'legacy-jsonl'
   refreshSignal?: number
   runtimeState?: string
@@ -2126,6 +2127,7 @@ export function CodexTranscriptPane({
   agentId,
   workspaceRoot,
   active,
+  viewportLayoutKey = '',
   source = 'legacy-jsonl',
   refreshSignal = 0,
   runtimeState = '',
@@ -2148,6 +2150,7 @@ export function CodexTranscriptPane({
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const pendingPrependAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
   const followBottomRef = useRef(true)
+  const previousViewportLayoutKeyRef = useRef(viewportLayoutKey)
   // A saved semantic anchor is for returning to an Agent, not for tracking
   // every live transcript mutation. Reapplying its fractional position while
   // a message grows would move a user who is reading away from the bottom.
@@ -2168,6 +2171,24 @@ export function CodexTranscriptPane({
   useLayoutEffect(() => {
     openWorkspaceFilePathRef.current = onOpenWorkspaceFilePath
   }, [onOpenWorkspaceFilePath])
+
+  useLayoutEffect(() => {
+    const layoutChanged = previousViewportLayoutKeyRef.current !== viewportLayoutKey
+    previousViewportLayoutKeyRef.current = viewportLayoutKey
+    if (!layoutChanged || !active || !followBottomRef.current) return
+    const element = scrollRef.current
+    if (!element || userScrollGestureRef.current) return
+    if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
+
+    // Like VS Code's workbench layout, keep the logical scroll state stable in
+    // the same layout commit that changes the input part. Letting the browser
+    // resize first makes its synthetic scroll event look like a user scroll,
+    // which drops follow-latest and causes long chats to jump on later updates.
+    element.scrollTop = element.scrollHeight
+    clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
+    setShowJumpToBottom(false)
+    onReadLatest?.()
+  }, [active, agentId, onReadLatest, viewportLayoutKey])
 
   useEffect(() => {
     setTranscript(null)
