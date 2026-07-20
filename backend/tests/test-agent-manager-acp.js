@@ -38,6 +38,8 @@ async function run() {
       }, {
         agentRuntimeMode: 'chat',
         wantsMain: false,
+        additionalDirectories: [path.join(process.cwd(), 'docs')],
+        mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [], env: [] }],
       });
     });
     assert(agentId);
@@ -47,6 +49,10 @@ async function run() {
     assert.strictEqual(live.providerSessionId, 'acp-new-session');
     assert.strictEqual(live.providerSessionSource, 'acp-new');
     const binding = runtime.bindings.get(agentId);
+    assert.deepStrictEqual(binding.sessionRequestOptions.additionalDirectories, [path.join(process.cwd(), 'docs')]);
+    assert.deepStrictEqual(binding.sessionRequestOptions.mcpServers, [
+      { name: 'docs', command: '/bin/docs-mcp', args: [], env: [] },
+    ]);
     const elicitationPromise = runtime.requestElicitation(binding, {
       sessionId: binding.sessionId,
       mode: 'form',
@@ -104,6 +110,24 @@ async function run() {
       'The parser is consistent.',
     );
     assert.strictEqual(nativeMetadataUpdateCount, 0, 'ACP sessions must not update native PTY metadata');
+    assert.deepStrictEqual(await manager.logoutAcpAgent(agentId), { loggedOut: true });
+    runtime.unregisterAgent(agentId);
+    manager.agents.delete(agentId);
+    const resumedAgentId = await new Promise(resolve => {
+      manager.startAgent('claude --resume acp-new-session', process.cwd(), (id, error) => {
+        assert.ifError(error);
+        resolve(id);
+      }, {
+        agentRuntimeMode: 'chat',
+        wantsMain: false,
+      });
+    });
+    assert(resumedAgentId);
+    assert.deepStrictEqual(runtime.getSessionRequestOptions(resumedAgentId), {
+      cwd: process.cwd(),
+      additionalDirectories: [path.join(process.cwd(), 'docs')],
+      mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [], env: [] }],
+    });
   } finally {
     await manager.dispose();
   }

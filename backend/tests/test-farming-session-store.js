@@ -124,6 +124,9 @@ function run() {
     agentRuntimeMode: 'acp',
     acpState: 'idle',
     engineName: 'native',
+  }, {
+    acpAdditionalDirectories: ['/shared/docs'],
+    acpMcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [], env: [] }],
   });
   assert.strictEqual(resolvedRecordId, tempRecordId, 'resolved provider id should keep the original Farming session file');
   index = readJson(indexFile);
@@ -135,6 +138,12 @@ function run() {
   assert.strictEqual(resolvedRecord.agentRuntimeMode, 'acp');
   assert.strictEqual(resolvedRecord.acpState, 'idle');
   assert.strictEqual(resolvedRecord.title, '看下cron worker怎么加新模块');
+  assert.deepStrictEqual(resolvedRecord.acpAdditionalDirectories, ['/shared/docs']);
+  assert.deepStrictEqual(resolvedRecord.acpMcpServers, [
+    { name: 'docs', command: '/bin/docs-mcp', args: [], env: [] },
+  ]);
+  assert.strictEqual(fs.statSync(path.join(root, 'sessions', `${tempRecordId}.json`)).mode & 0o777, 0o600);
+  assert.strictEqual(fs.statSync(indexFile).mode & 0o777, 0o600);
 
   const workRecordId = store.ensureRecordForAgent({
     id: 'agent-work-codex',

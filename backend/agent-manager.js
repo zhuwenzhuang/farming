@@ -549,6 +549,10 @@ class AgentManager extends EventEmitter {
     this.permissionRestartInFlight = new Map();
     this.runtimeRestartInFlight = new Map();
     this.codexSessionUnarchiveInFlight = new Map();
+    // Standard ACP session inputs may contain MCP credentials. Keep the live
+    // copy outside browser-facing Agent records; crash recovery persists it
+    // only through the private Farming session store.
+    this.acpSessionOptionsByKey = new Map();
     this.permissionRestartSuppressedAgentIds = new Set();
     this.jsonCliRuntime = options.jsonCliRuntime || new JsonCliRuntime();
     this.acpRuntime = options.acpRuntime || new AcpRuntime({
@@ -1428,8 +1432,23 @@ class AgentManager extends EventEmitter {
           model: 'config',
           reasoningEffort: 'config',
           serviceTier: 'config',
+          additionalDirectories: Array.isArray(record.acpAdditionalDirectories) ? record.acpAdditionalDirectories : [],
+          mcpServers: Array.isArray(record.acpMcpServers) ? record.acpMcpServers : [],
         });
         agent.providerSessionId = prepared.sessionId;
+        agent.providerSessionKey = mainPageAgentSessionKey(
+          provider,
+          prepared.sessionId,
+          agent.providerHomeId || record.providerHomeId || 'default'
+        );
+        this.acpSessionOptionsByKey.set(agent.providerSessionKey, {
+          additionalDirectories: Array.isArray(record.acpAdditionalDirectories)
+            ? [...record.acpAdditionalDirectories]
+            : [],
+          mcpServers: Array.isArray(record.acpMcpServers)
+            ? JSON.parse(JSON.stringify(record.acpMcpServers))
+            : [],
+        });
         agent.providerSessionTemporary = false;
         agent.providerSessionSource = `acp-${prepared.historyMode}`;
         const runtime = replaceRuntimeBinding(agent, 'acp', runtimeBindingOf(agent, 'acp'));
@@ -1613,7 +1632,16 @@ class AgentManager extends EventEmitter {
     if (!agent || !this.configManager || typeof this.configManager.ensureAgentSessionRecord !== 'function') {
       return '';
     }
-    const persistentSessionId = this.configManager.ensureAgentSessionRecord(agent, patch);
+    const sessionOptions = agent.providerSessionKey
+      ? this.acpSessionOptionsByKey.get(agent.providerSessionKey)
+      : null;
+    const persistentSessionId = this.configManager.ensureAgentSessionRecord(agent, {
+      ...(sessionOptions ? {
+        acpAdditionalDirectories: [...sessionOptions.additionalDirectories],
+        acpMcpServers: JSON.parse(JSON.stringify(sessionOptions.mcpServers)),
+      } : {}),
+      ...patch,
+    });
     if (persistentSessionId && !agent.persistentSessionId) {
       agent.persistentSessionId = persistentSessionId;
     }
@@ -2151,6 +2179,7 @@ class AgentManager extends EventEmitter {
     this.resizeDrains.clear();
     this.inputQueues.clear();
     this.codexTerminalProfileQueues.clear();
+    this.acpSessionOptionsByKey.clear();
     if (this.jsonCliRuntime) {
       for (const agentId of this.agents.keys()) this.jsonCliRuntime.unregisterAgent(agentId);
     }
@@ -2613,6 +2642,22 @@ class AgentManager extends EventEmitter {
 
       if (useAcp) {
         const acpRuntime = runtimeBindingOf(agentRecord, 'acp');
+        const sessionOptionsKey = agentRecord.providerSessionId && !agentRecord.providerSessionTemporary
+          ? mainPageAgentSessionKey(
+              structuredRuntimeProvider,
+              agentRecord.providerSessionId,
+              agentRecord.providerHomeId || 'default'
+            )
+          : '';
+        const rememberedSessionOptions = sessionOptionsKey
+          ? this.acpSessionOptionsByKey.get(sessionOptionsKey) || {}
+          : {};
+        const additionalDirectories = Array.isArray(options.additionalDirectories)
+          ? options.additionalDirectories
+          : rememberedSessionOptions.additionalDirectories || [];
+        const mcpServers = Array.isArray(options.mcpServers)
+          ? options.mcpServers
+          : rememberedSessionOptions.mcpServers || [];
         const prepared = await this.acpRuntime.prepareAgent({
           agentId,
           provider: structuredRuntimeProvider,
@@ -2630,6 +2675,8 @@ class AgentManager extends EventEmitter {
           model: codexModel,
           reasoningEffort: codexReasoningEffort,
           serviceTier: codexServiceTier,
+          additionalDirectories,
+          mcpServers,
         });
         agentRecord.providerSessionId = prepared.sessionId;
         agentRecord.providerSessionKey = mainPageAgentSessionKey(
@@ -2640,6 +2687,17 @@ class AgentManager extends EventEmitter {
         agentRecord.providerSessionTemporary = false;
         agentRecord.providerSessionSource = `acp-${prepared.historyMode}`;
         agentRecord.providerSessionResolvedAt = Date.now();
+        let normalizedSessionOptions = { additionalDirectories, mcpServers };
+        try {
+          normalizedSessionOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+        } catch {
+          // prepareAgent already validated the request; retain the caller copy
+          // only for custom runtimes that do not expose the normalized scope.
+        }
+        this.acpSessionOptionsByKey.set(agentRecord.providerSessionKey, {
+          additionalDirectories: [...normalizedSessionOptions.additionalDirectories],
+          mcpServers: JSON.parse(JSON.stringify(normalizedSessionOptions.mcpServers)),
+        });
         acpRuntime.state = 'idle';
         acpRuntime.error = '';
       }
@@ -2995,6 +3053,11 @@ class AgentManager extends EventEmitter {
   authenticateAcpAgent(agentId, methodId) {
     this.getAcpSession(agentId);
     return this.acpRuntime.authenticate(agentId, methodId);
+  }
+
+  logoutAcpAgent(agentId) {
+    this.getAcpSession(agentId);
+    return this.acpRuntime.logout(agentId);
   }
 
   forkAcpSession(agentId, options = {}) {
@@ -3501,6 +3564,14 @@ class AgentManager extends EventEmitter {
         ? this.jsonCliRuntime.getEvents(agentId)
         : (Array.isArray(agent.runtimeResumeState?.jsonEvents) ? agent.runtimeResumeState.jsonEvents : []),
     };
+    let acpSessionOptions = {};
+    if (currentKind === 'acp' && this.acpRuntime?.getSessionRequestOptions) {
+      try {
+        acpSessionOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+      } catch {
+        acpSessionOptions = {};
+      }
+    }
     const restartOptions = {
       wantsMain: agent.wantsMain === true,
       task: agent.task || agent.providerSessionTitle || '',
@@ -3525,6 +3596,7 @@ class AgentManager extends EventEmitter {
       codexApprovalMode: agent.launchPermissionMode || undefined,
       jsonCliEvents: preserved.jsonCliEvents,
       runtimeSwitchVerifiedSessionId: startsFreshChatSession ? '' : sessionId,
+      ...acpSessionOptions,
       ...(provider === 'codex' && !startsFreshChatSession
         ? preserveCodexSessionProfileOptions()
         : {}),
@@ -3662,6 +3734,14 @@ class AgentManager extends EventEmitter {
       return { error: 'Failed to build provider resume command' };
     }
 
+    let acpSessionOptions = {};
+    if (isAcpAgent(agent) && this.acpRuntime?.getSessionRequestOptions) {
+      try {
+        acpSessionOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+      } catch {
+        acpSessionOptions = {};
+      }
+    }
     const restartOptions = {
       wantsMain: agent.wantsMain === true,
       task: agent.task || agent.providerSessionTitle || '',
@@ -3684,6 +3764,7 @@ class AgentManager extends EventEmitter {
       ])),
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
+      ...acpSessionOptions,
       ...(provider === 'codex' ? { codexApprovalMode: nextMode } : { claudePermissionMode: nextMode }),
       ...(provider === 'codex' && hasResumableSession
         ? preserveCodexSessionProfileOptions()

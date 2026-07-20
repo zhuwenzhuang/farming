@@ -32,6 +32,15 @@ function sessionConfigOptions() {
   ];
 }
 
+function validateRequestedSessionScope(params) {
+  const requestsDocsRoot = params.additionalDirectories?.some(directory => path.basename(directory) === 'docs');
+  if (!requestsDocsRoot) return;
+  const docsServer = params.mcpServers?.find(server => server.name === 'docs');
+  if (!docsServer || docsServer.command !== '/bin/docs-mcp') {
+    throw new Error('Farming did not preserve the requested ACP additional directory and MCP server');
+  }
+}
+
 class FakeAgent {
   async initialize(params) {
     if (
@@ -48,6 +57,7 @@ class FakeAgent {
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentCapabilities: {
+        auth: { logout: {} },
         loadSession: true,
         promptCapabilities: { image: true, audio: true, embeddedContext: true },
         sessionCapabilities: { list: {}, resume: {}, fork: {}, delete: {}, close: {} },
@@ -68,7 +78,8 @@ class FakeAgent {
     };
   }
 
-  async newSession() {
+  async newSession(params) {
+    validateRequestedSessionScope(params);
     return {
       sessionId,
       configOptions: sessionConfigOptions(),
@@ -76,6 +87,7 @@ class FakeAgent {
   }
 
   async loadSession(params) {
+    validateRequestedSessionScope(params);
     sessionId = params.sessionId;
     if (sessionId === 'acp-new-session') {
       const replay = [
@@ -138,6 +150,7 @@ class FakeAgent {
   }
 
   async resumeSession(params) {
+    validateRequestedSessionScope(params);
     sessionId = params.sessionId;
     return { configOptions: sessionConfigOptions() };
   }
@@ -212,6 +225,10 @@ class FakeAgent {
   }
 
   async authenticate() {
+    return {};
+  }
+
+  async logout() {
     return {};
   }
 

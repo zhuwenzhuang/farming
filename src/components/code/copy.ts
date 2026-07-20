@@ -176,6 +176,9 @@ export interface CodeCopy {
   addContext: string
   attachFile: string
   fileContext: string
+  acpSignOut: string
+  acpSigningOut: string
+  acpSignOutDescription: string
   setObjective: string
   planFirst: string
   clearComposerMode: string
@@ -631,6 +634,9 @@ const EN_COPY: CodeCopy = {
   addContext: 'Add context',
   attachFile: 'Attach file',
   fileContext: 'File context',
+  acpSignOut: 'Sign out',
+  acpSigningOut: 'Signing out…',
+  acpSignOutDescription: 'Sign out of this ACP Agent',
   setObjective: 'Set objective',
   planFirst: 'Plan first',
   clearComposerMode: 'Clear composer mode',
@@ -1122,6 +1128,9 @@ const ZH_COPY: CodeCopy = {
   addContext: '添加上下文',
   attachFile: '附加文件',
   fileContext: '文件上下文',
+  acpSignOut: '退出登录',
+  acpSigningOut: '正在退出…',
+  acpSignOutDescription: '退出当前 ACP Agent 登录',
   setObjective: '设置目标',
   planFirst: '先做计划',
   clearComposerMode: '清除输入模式',

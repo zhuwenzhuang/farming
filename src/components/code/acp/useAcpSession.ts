@@ -62,6 +62,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   const [error, setError] = useState('')
   const [updatingId, setUpdatingId] = useState('')
   const [authenticatingId, setAuthenticatingId] = useState('')
+  const [loggingOut, setLoggingOut] = useState(false)
   const sessionRef = useRef<AcpSessionSnapshot | null>(null)
   const scopeRef = useRef({ agentId, active })
   const mutationRef = useRef<{ agentId: string; id: string; sequence: number } | null>(null)
@@ -218,5 +219,25 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
     }
   }, [agentId, authenticatingId, refresh])
 
-  return { session, error, updatingId, authenticatingId, setMode, setConfigOption, setConfigOptions, authenticate }
+  const logout = useCallback(async () => {
+    if (!agentId || loggingOut) return false
+    setLoggingOut(true)
+    try {
+      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-session/logout`), {
+        method: 'POST',
+      })
+      const body = await response.json().catch(() => null) as { error?: string } | null
+      if (!response.ok) throw new Error(body?.error || `Failed to log out ACP Agent (${response.status})`)
+      setError('')
+      await refresh()
+      return true
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'Failed to log out ACP Agent')
+      return false
+    } finally {
+      setLoggingOut(false)
+    }
+  }, [agentId, loggingOut, refresh])
+
+  return { session, error, updatingId, authenticatingId, loggingOut, setMode, setConfigOption, setConfigOptions, authenticate, logout }
 }

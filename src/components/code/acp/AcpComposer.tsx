@@ -135,7 +135,7 @@ export function AcpComposer({
   const [activeCommandIndex, setActiveCommandIndex] = useState(0)
   const [openMenu, setOpenMenu] = useState<AcpComposerMenu>(null)
   const [modelPane, setModelPane] = useState<'model' | 'speed' | null>(null)
-  const { session, error: sessionError, updatingId, authenticatingId, setMode, setConfigOption, setConfigOptions, authenticate } = useAcpSession(
+  const { session, error: sessionError, updatingId, authenticatingId, loggingOut, setMode, setConfigOption, setConfigOptions, authenticate, logout } = useAcpSession(
     agentId,
     active,
     `${runtimeState}:${sessionUpdatedAt || ''}`,
@@ -409,6 +409,21 @@ export function AcpComposer({
                   <span>{copy.attachFile}</span>
                   <small>{copy.fileContext}</small>
                 </button>
+                {session?.capabilities?.auth?.logout != null ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid="code-acp-logout"
+                    disabled={loggingOut}
+                    onClick={() => {
+                      setOpenMenu(null)
+                      void logout()
+                    }}
+                  >
+                    <span>{loggingOut ? copy.acpSigningOut : copy.acpSignOut}</span>
+                    <small>{copy.acpSignOutDescription}</small>
+                  </button>
+                ) : null}
                 <button type="button" role="menuitem" data-testid="code-acp-composer-goal-mode" onClick={() => { setOpenMenu(null); onActivateComposerMode('goal') }}>
                   <span>{copy.goalMode}</span>
                   <small>{copy.setObjective}</small>

@@ -469,6 +469,17 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(page.getByTestId('code-acp-authentication')).toHaveCount(0)
       await expect(page.getByTestId('code-codex-transcript-scroll').getByText('401 Unauthorized', { exact: false })).toBeVisible()
     })
+    await test.step('45b expose and complete capability-negotiated ACP logout', async () => {
+      await page.getByTestId('code-acp-composer-add').click()
+      const logout = page.getByTestId('code-acp-logout')
+      await expect(logout).toBeVisible()
+      const logoutResponse = page.waitForResponse(response => (
+        response.request().method() === 'POST'
+        && response.url().includes(`/api/agents/${agentId}/acp-session/logout`)
+      ))
+      await logout.click()
+      expect((await logoutResponse).ok()).toBeTruthy()
+    })
     await test.step('46 expose a running client terminal as an ordered tool item', async () => {
       await sendAcpMessage(page, 'long terminal')
       const longTurn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'long terminal' }).last()

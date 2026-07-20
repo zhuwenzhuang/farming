@@ -322,7 +322,7 @@ interface CodeWorkspaceProps {
   onOpenTerminal: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onOpenTerminalWhenReady: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null, customTitle?: string) => void
-  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string }) => void
+  onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string; additionalDirectories?: string[]; mcpServers?: Array<Record<string, unknown>> }) => void
   onRenameAgent: (agentId: string, title: string) => void
   onUpdateAgentFlags: (
     agentId: string,
@@ -2081,7 +2081,7 @@ export function CodeWorkspace({
   const startAgentWithLaunchProfile = useCallback((
     command: string,
     workspace: string,
-    options?: { projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string },
+    options?: { projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string; additionalDirectories?: string[]; mcpServers?: Array<Record<string, unknown>> },
   ) => {
     setSearchQuery('')
     setSearchOpen(false)

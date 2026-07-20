@@ -90,6 +90,14 @@ export interface AcpSessionSnapshot {
   stopReason: string
   errorKind?: string
   authMethods?: AcpAuthMethod[]
+  capabilities?: {
+    auth?: { logout?: Record<string, never> | null } | null
+    promptCapabilities?: {
+      image?: boolean
+      audio?: boolean
+      embeddedContext?: boolean
+    } | null
+  }
   authTerminal?: AcpAuthTerminal | null
   availableCommands: AcpAvailableCommand[]
   currentModeId: string

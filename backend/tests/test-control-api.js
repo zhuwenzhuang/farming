@@ -202,12 +202,18 @@ async function run() {
         command: 'codex',
         workspace: '/chat-repo',
         agentRuntimeMode: 'chat',
+        additionalDirectories: ['/shared'],
+        mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [], env: [] }],
       }),
     });
     assert.strictEqual(chatCreated.response.status, 201);
     assert.strictEqual(chatCreated.body.initialInputDelivered, false);
     assert.strictEqual(calls.at(-1).type, 'startAgent');
     assert.strictEqual(calls.at(-1).options.agentRuntimeMode, 'chat');
+    assert.deepStrictEqual(calls.at(-1).options.additionalDirectories, ['/shared']);
+    assert.deepStrictEqual(calls.at(-1).options.mcpServers, [
+      { name: 'docs', command: '/bin/docs-mcp', args: [], env: [] },
+    ]);
 
     const killed = await fetchJson(baseUrl, `/api/control/agents/${created.body.agentId}`, {
       method: 'DELETE',

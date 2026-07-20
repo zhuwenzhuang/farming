@@ -49,6 +49,8 @@ type StartAgentExtras = {
   agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'
   dangerouslySkipPermissions?: boolean
   providerHomeId?: string
+  additionalDirectories?: string[]
+  mcpServers?: Array<Record<string, unknown>>
 }
 type PermissionSwitchState = {
   originalAgentId: string

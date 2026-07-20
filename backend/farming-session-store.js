@@ -25,8 +25,9 @@ function safeSessionFileName(id) {
 function atomicWriteJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmpFile = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmpFile, JSON.stringify(value, null, 2));
+  fs.writeFileSync(tmpFile, JSON.stringify(value, null, 2), { mode: 0o600 });
   fs.renameSync(tmpFile, file);
+  fs.chmodSync(file, 0o600);
 }
 
 function parseProviderSessionKey(key) {

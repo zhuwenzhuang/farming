@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, resolveAcpLaunch } = require('../acp-runtime');
+const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, promptContentForCapabilities, resolveAcpLaunch } = require('../acp-runtime');
 const { AcpSessionState } = require('../acp-session-state');
 
 async function run() {
@@ -66,6 +66,13 @@ async function run() {
     additionalDirectories: ['/tmp/shared', '/tmp/absolute'],
     mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: ['--stdio'] }],
   });
+  assert.deepStrictEqual(promptContentForCapabilities([
+    { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png', path: '/tmp/screenshot.png' },
+    { type: 'audio', data: 'YXVkaW8=', mimeType: 'audio/wav', path: '/tmp/note.wav' },
+  ], { promptCapabilities: { image: true } }), [
+    { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png', path: '/tmp/screenshot.png' },
+    { type: 'text', text: 'Attached audio: note.wav\n\nAudio path: /tmp/note.wav' },
+  ]);
 
   const state = new AcpSessionState({ provider: 'codex', sessionId: 's1', cwd: '/tmp' });
   state.apply({ sessionId: 's1', update: {
@@ -528,6 +535,7 @@ async function run() {
       authenticated: true,
       methodId: 'fake-login',
     });
+    assert.deepStrictEqual(await runtime.logout('agent-acp-client-services'), { loggedOut: true });
     const authenticatedSession = runtime.getSession('agent-acp-client-services');
     assert.strictEqual(authenticatedSession.state, 'idle');
     assert.strictEqual(authenticatedSession.error, '');
@@ -710,6 +718,7 @@ async function run() {
     const requestScopedInput = runtime.getSession('agent-acp-permission').pendingElicitations[0];
     assert.match(requestScopedInput.requestId, /^acp-elicitation-/);
     assert.strictEqual(requestScopedInput.protocolRequestId, 42);
+    assert.strictEqual(requestScopedInput.origin, 'request');
     runtime.respondElicitation('agent-acp-permission', requestScopedInput.requestId, 'accept', {});
     assert.deepStrictEqual(await requestScopedElicitation, { action: 'accept', content: {} });
     assert.strictEqual(runtime.getSession('agent-acp-permission').state, 'idle');

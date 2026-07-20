@@ -215,6 +215,25 @@ function acpSessionRequestOptions(options = {}, cwd = process.cwd()) {
   return { cwd: root, additionalDirectories, mcpServers };
 }
 
+function promptContentForCapabilities(content, capabilities = {}) {
+  const promptCapabilities = capabilities?.promptCapabilities || {};
+  return (Array.isArray(content) ? content : []).flatMap(block => {
+    if (!block || typeof block !== 'object') return [];
+    if (!['image', 'audio'].includes(block.type)) return [clone(block)];
+    if (promptCapabilities[block.type] === true) return [clone(block)];
+
+    const label = block.type === 'audio' ? 'audio' : 'image';
+    const attachmentPath = typeof block.path === 'string' && block.path.trim()
+      ? path.resolve(block.path)
+      : '';
+    const name = attachmentPath ? path.basename(attachmentPath) : `attached ${label}`;
+    const detail = attachmentPath
+      ? `${label[0].toUpperCase()}${label.slice(1)} path: ${attachmentPath}`
+      : `[The ACP Agent does not accept native ${label} content]`;
+    return [{ type: 'text', text: `Attached ${label}: ${name}\n\n${detail}` }];
+  });
+}
+
 class AcpRuntime extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -713,9 +732,11 @@ class AcpRuntime extends EventEmitter {
   }
 
   requestElicitation(binding, request) {
-    const requestSessionId = String(request?.sessionId || binding.sessionId);
-    const isPrimarySession = requestSessionId === binding.sessionId;
-    if (!isPrimarySession && !binding.subagentStates.has(requestSessionId)) {
+    const hasSessionScope = typeof request?.sessionId === 'string' && request.sessionId.length > 0;
+    const requestSessionId = hasSessionScope ? String(request.sessionId) : '';
+    const isPrimarySession = hasSessionScope && requestSessionId === binding.sessionId;
+    const isRequestScoped = !hasSessionScope;
+    if (!isRequestScoped && !isPrimarySession && !binding.subagentStates.has(requestSessionId)) {
       throw new Error('ACP elicitation does not match an active session');
     }
     if (!['form', 'url'].includes(String(request?.mode || ''))) {
@@ -731,7 +752,7 @@ class AcpRuntime extends EventEmitter {
       ...cloned,
       ...(protocolRequestId !== undefined ? { protocolRequestId } : {}),
       requestId,
-      origin: isPrimarySession ? 'agent' : 'subagent',
+      origin: isRequestScoped ? 'request' : isPrimarySession ? 'agent' : 'subagent',
     };
     binding.interactionOrigins.set(requestId, binding.state);
     binding.pendingElicitations.set(requestId, pending);
@@ -773,7 +794,11 @@ class AcpRuntime extends EventEmitter {
   async prompt(agentId, prompt) {
     const binding = this.requireBinding(agentId);
     if (!['idle', 'error'].includes(binding.state)) throw new Error(`ACP Agent is not ready (${binding.state})`);
-    const content = Array.isArray(prompt) ? prompt : [{ type: 'text', text: String(prompt || '') }];
+    const rawContent = Array.isArray(prompt) ? prompt : [{ type: 'text', text: String(prompt || '') }];
+    const content = promptContentForCapabilities(
+      rawContent,
+      binding.initializeResponse?.agentCapabilities || {},
+    );
     await this.markCheckpointDirty(binding);
     binding.sessionState.beginPrompt(content);
     binding.promptActive = true;
@@ -894,6 +919,11 @@ class AcpRuntime extends EventEmitter {
     }), this.requestTimeoutMs, 'ACP session/list');
   }
 
+  getSessionRequestOptions(agentId) {
+    const binding = this.requireBinding(agentId);
+    return clone(binding.sessionRequestOptions);
+  }
+
   async authenticate(agentId, methodId) {
     const binding = this.requireBinding(agentId);
     const method = binding.initializeResponse?.authMethods?.find(item => item.id === methodId);
@@ -913,6 +943,20 @@ class AcpRuntime extends EventEmitter {
     this.emitRuntime(binding);
     this.emitSession(binding);
     return { authenticated: true, methodId };
+  }
+
+  async logout(agentId) {
+    const binding = this.requireBinding(agentId);
+    if (binding.initializeResponse?.agentCapabilities?.auth?.logout == null) {
+      throw new Error(`${binding.provider} ACP Agent does not support logout`);
+    }
+    await withTimeout(binding.connection.logout({}), this.requestTimeoutMs, 'ACP logout');
+    binding.error = '';
+    binding.stopReason = '';
+    binding.updatedAt = new Date().toISOString();
+    this.emitRuntime(binding);
+    this.emitSession(binding);
+    return { loggedOut: true };
   }
 
   terminalAuthenticationLaunch(binding, method) {
@@ -1475,5 +1519,6 @@ module.exports = {
   acpErrorKind,
   autoPermissionResponse,
   codexAcpEnvironment,
+  promptContentForCapabilities,
   resolveAcpLaunch,
 };

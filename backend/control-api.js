@@ -222,6 +222,8 @@ function createControlRouter(agentManager, options = {}) {
       agentRuntimeMode: ['json', 'acp', 'chat'].includes(body.agentRuntimeMode) ? body.agentRuntimeMode : 'terminal',
       acpHistoryMode: body.acpHistoryMode === 'resume' ? 'resume' : 'load',
       providerSessionTitle: typeof body.providerSessionTitle === 'string' ? body.providerSessionTitle : '',
+      ...(Array.isArray(body.additionalDirectories) ? { additionalDirectories: body.additionalDirectories } : {}),
+      ...(Array.isArray(body.mcpServers) ? { mcpServers: body.mcpServers } : {}),
       dangerouslySkipPermissions: body.dangerouslySkipPermissions === true,
     });
   });

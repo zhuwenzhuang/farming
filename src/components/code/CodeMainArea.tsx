@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type RefObject, type SyntheticEvent as ReactSyntheticEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type RefObject, type SyntheticEvent as ReactSyntheticEvent } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { isAcpRuntime } from '@/lib/agent-runtime'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
@@ -44,6 +44,13 @@ function supportsComposerCollapse() {
   return typeof window !== 'undefined'
     && window.matchMedia('(hover: hover) and (pointer: fine)').matches
     && !isMobileTouchViewport()
+}
+
+function replacesAgent(agent: Agent | null, previousAgentId: string | null) {
+  if (!agent || !previousAgentId) return false
+  return agent.id === previousAgentId
+    || agent.restartedFromAgentId === previousAgentId
+    || agent.restartedFromAgentIds?.includes(previousAgentId) === true
 }
 
 const FILE_EDITOR_CHUNK_RECOVERY_KEY = 'farming.code.fileEditor.chunk-recovery'
@@ -336,6 +343,11 @@ export function CodeMainArea({
 }: CodeMainAreaProps) {
   const [terminalComposerCollapsed, setTerminalComposerCollapsed] = useState(readTerminalComposerCollapsed)
   const [chatComposerCollapseRequested, setChatComposerCollapseRequested] = useState(false)
+  const [runtimeSwitchExpandedAgentId, setRuntimeSwitchExpandedAgentId] = useState<string | null>(null)
+  const previousActiveRuntimeRef = useRef<{ agentId: string | null; kind: 'acp' | 'terminal' | null }>({
+    agentId: null,
+    kind: null,
+  })
   const [composerCollapseSupported, setComposerCollapseSupported] = useState(supportsComposerCollapse)
   const [fileEditorPane, setFileEditorPane] = useState<FileEditorPaneComponent | null>(() => loadedFileEditorPane)
   const [fileEditorPaneLoadError, setFileEditorPaneLoadError] = useState<unknown>(null)
@@ -371,13 +383,30 @@ export function CodeMainArea({
   const acpComposerActive = isAcpRuntime(activeAgent)
   const terminalComposerActive = activeAgent?.runtimeBinding.kind === 'terminal'
   const composerCollapseRequested = terminalComposerActive
-    ? terminalComposerCollapsed
+    ? (runtimeSwitchExpandedAgentId === activeAgent?.id ? false : terminalComposerCollapsed)
     : chatComposerCollapseRequested
   const canCollapseComposer = composerCollapseSupported
     && activeView === 'projects'
     && !showFileEditor
     && openAgentsCount > 0
   const composerCollapsed = canCollapseComposer && composerCollapseRequested
+
+  useLayoutEffect(() => {
+    const previous = previousActiveRuntimeRef.current
+    const currentKind = acpComposerActive ? 'acp' : terminalComposerActive ? 'terminal' : null
+    if (
+      previous.kind === 'acp'
+      && currentKind === 'terminal'
+      && activeAgent?.id
+      && replacesAgent(activeAgent, previous.agentId)
+    ) {
+      // Runtime switching replaces the Agent id. Preserve the visible Chat
+      // composer for that replacement without changing the user's normal
+      // preference for newly opened Terminal sessions.
+      setRuntimeSwitchExpandedAgentId(activeAgent.id)
+    }
+    previousActiveRuntimeRef.current = { agentId: activeAgent?.id ?? null, kind: currentKind }
+  }, [acpComposerActive, activeAgent?.id, terminalComposerActive])
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(hover: hover) and (pointer: fine)')
@@ -399,6 +428,7 @@ export function CodeMainArea({
 
   const updateComposerCollapsed = useCallback((collapsed: boolean) => {
     if (terminalComposerActive) {
+      setRuntimeSwitchExpandedAgentId(null)
       setTerminalComposerCollapsed(collapsed)
       writeTerminalComposerCollapsed(collapsed)
       return

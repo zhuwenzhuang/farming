@@ -1,5 +1,8 @@
 const assert = require('assert');
 const EventEmitter = require('events');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const sessionEngineBridgePath = require.resolve('../session-engine-bridge');
 
 class FakeSessionEngineBridge extends EventEmitter {
@@ -73,6 +76,7 @@ function configManager() {
 }
 
 async function run() {
+  const testConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-recovery-'));
   const killed = [];
   const manager = new AgentManager(configManager());
   manager.engineBridge = {
@@ -228,7 +232,7 @@ async function run() {
   };
   const rotationManager = new AgentManager({
     ...configManager(),
-    farmingDir: process.cwd(),
+    farmingDir: testConfigDir,
     getMainPageSessionKeys() {
       return [providerSessionKey, appServerSessionKey];
     },
@@ -319,7 +323,7 @@ async function run() {
   ]);
   const serializedRotationManager = new AgentManager({
     ...configManager(),
-    farmingDir: process.cwd(),
+    farmingDir: testConfigDir,
     getMainPageSessionKeys() {
       return [providerSessionKey];
     },
@@ -430,6 +434,7 @@ async function run() {
     await rollbackManager.dispose({ preserveTerminalHost: true });
   }
 
+  fs.rmSync(testConfigDir, { recursive: true, force: true });
   console.log('✓ Agent manager restores the Main Agent shell and kills unrecovered scratch shells');
 }
 

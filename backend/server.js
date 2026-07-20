@@ -1210,6 +1210,15 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/authenticate'), 
   }
 });
 
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/logout'), async (req, res) => {
+  try {
+    res.json(await agentManager.logoutAcpAgent(req.params.agentId));
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Failed to log out ACP Agent';
+    res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
+  }
+});
+
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/acp-session/fork'), express.json(), async (req, res) => {
   try {
     res.json(await agentManager.forkAcpSession(req.params.agentId, req.body || {}));
@@ -2094,6 +2103,8 @@ function handleMessage(ws, data) {
         agentRuntimeMode: ['json', 'acp', 'chat'].includes(data.agentRuntimeMode) ? data.agentRuntimeMode : 'terminal',
         acpHistoryMode: data.acpHistoryMode === 'resume' ? 'resume' : 'load',
         providerHomeId: typeof data.providerHomeId === 'string' ? data.providerHomeId : '',
+        ...(Array.isArray(data.additionalDirectories) ? { additionalDirectories: data.additionalDirectories } : {}),
+        ...(Array.isArray(data.mcpServers) ? { mcpServers: data.mcpServers } : {}),
         ...(data.dangerouslySkipPermissions === true ? { dangerouslySkipPermissions: true } : {}),
       });
       break;

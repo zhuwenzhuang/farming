@@ -105,7 +105,7 @@ export function useWebSocket() {
     command: string,
     workspace?: string,
     asMain?: boolean,
-    extras?: { task?: string; workflowTemplate?: string; customTitle?: string; projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string }
+    extras?: { task?: string; workflowTemplate?: string; customTitle?: string; projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; dangerouslySkipPermissions?: boolean; providerHomeId?: string; additionalDirectories?: string[]; mcpServers?: Array<Record<string, unknown>> }
   ) => {
     const msg: StartAgentMessage = {
       type: 'start-agent',
@@ -121,6 +121,8 @@ export function useWebSocket() {
     if (extras?.agentRuntimeMode !== undefined) msg.agentRuntimeMode = extras.agentRuntimeMode
     if (extras?.dangerouslySkipPermissions !== undefined) msg.dangerouslySkipPermissions = extras.dangerouslySkipPermissions
     if (extras?.providerHomeId !== undefined) msg.providerHomeId = extras.providerHomeId
+    if (extras?.additionalDirectories !== undefined) msg.additionalDirectories = extras.additionalDirectories
+    if (extras?.mcpServers !== undefined) msg.mcpServers = extras.mcpServers
     return sendMessage(msg)
   }, [sendMessage])
 
