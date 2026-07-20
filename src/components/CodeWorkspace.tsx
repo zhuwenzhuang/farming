@@ -332,7 +332,12 @@ interface CodeWorkspaceProps {
   onWorkspaceViewChange: (view: WorkspaceView) => void
   onKill: (agentId: string) => void
   onInterruptAgent: (agentId: string) => void
-  sendComposerInput: (message: string, agentId?: string, attachments?: ComposerPromptAttachment[]) => boolean
+  sendComposerInput: (
+    message: string,
+    agentId?: string,
+    attachments?: ComposerPromptAttachment[],
+    options?: { awaitResult?: boolean },
+  ) => boolean | Promise<boolean>
   respondToAppServerRequest: (agentId: string, requestId: string, result?: unknown, options?: { reject?: boolean; reason?: string }) => boolean
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   onUpdateUiPreferences: (patch: Partial<UiPreferences>) => void
@@ -1827,7 +1832,9 @@ export function CodeWorkspace({
 
   const sendComposerMessageToAgent = useCallback((agent: Agent, message: string, attachments: ComposerPromptAttachment[] = []) => {
     if (isStructuredRuntime(agent)) {
-      return sendComposerInput(message, agent.id, isAcpRuntime(agent) ? attachments : [])
+      return sendComposerInput(message, agent.id, isAcpRuntime(agent) ? attachments : [], {
+        awaitResult: isAppServerRuntime(agent),
+      })
     }
     if (
       agentKindForCommand(agent.command) === 'shell'
@@ -1862,7 +1869,8 @@ export function CodeWorkspace({
         const goalSaved = await setNativeCodexGoalFromComposer(activeAgent, text)
         if (!goalSaved) return
         const submitted = sendComposerMessageToAgent(activeAgent, text)
-        if (!submitted) return
+        const accepted = typeof submitted === 'boolean' ? submitted : await submitted
+        if (!accepted) return
         updateComposerStateForKey(activeComposerKey, state => {
           state.attachments.forEach(revokeComposerAttachmentPreview)
           return {
@@ -1879,7 +1887,7 @@ export function CodeWorkspace({
     }
 
     const message = formatComposerMessage(composerMode, text)
-    let submitted = true
+    let submitted: boolean | Promise<boolean> = true
     if (isCodexAgentWorking(activeAgent) && activeAgent.runtimeBinding.kind === 'terminal') {
       updateComposerStateForKey(activeComposerKey, state => {
         const existing = state.pendingFollowUp
@@ -1894,18 +1902,27 @@ export function CodeWorkspace({
     } else {
       submitted = sendComposerMessageToAgent(activeAgent, message)
     }
-    if (!submitted) return
-    updateComposerStateForKey(activeComposerKey, state => {
-      state.attachments.forEach(revokeComposerAttachmentPreview)
-      return {
-        ...state,
-        draft: '',
-        attachments: [],
-        mode: 'default',
-        history: addComposerHistoryEntry(state.history, latestDraft),
-      }
+    const clearAcceptedDraft = () => {
+      updateComposerStateForKey(activeComposerKey, state => {
+        if (state.draft !== latestDraft) return state
+        state.attachments.forEach(revokeComposerAttachmentPreview)
+        return {
+          ...state,
+          draft: '',
+          attachments: [],
+          mode: 'default',
+          history: addComposerHistoryEntry(state.history, latestDraft),
+        }
+      })
+      focusComposerTextarea()
+    }
+    if (typeof submitted === 'boolean') {
+      if (submitted) clearAcceptedDraft()
+      return
+    }
+    void submitted.then(accepted => {
+      if (accepted) clearAcceptedDraft()
     })
-    focusComposerTextarea()
   }, [activeAgent, activeAppServerRuntime, activeComposerKey, composerAttachments, composerMode, draft, focusComposerTextarea, sendComposerMessageToAgent, setNativeCodexGoalFromComposer, updateComposerStateForKey])
 
   const submitAcpDraft = useCallback((submittedDraft?: string) => {
@@ -1922,7 +1939,10 @@ export function CodeWorkspace({
       attachments: composerAttachments,
       composerMode,
       turnActive: activeAgentTurnActive || promptStartFenced,
-      sendMessage: sendComposerMessageToAgent,
+      sendMessage: (agent, message, attachments) => {
+        const submitted = sendComposerMessageToAgent(agent, message, attachments)
+        return typeof submitted === 'boolean' ? submitted : false
+      },
       updateComposerState: updateComposerStateForKey,
     })
     if (submitted && activeAgent && activeAcpRuntime && !activeAgentTurnActive && !promptStartFenced) {
@@ -1966,13 +1986,24 @@ export function CodeWorkspace({
     if (!pending || pending.messages.length === 0) return
     const message = pending.messages.find(item => item.id === messageId)
     if (!message) return
-    if (!sendComposerMessageToAgent(activeAgent, message.text, message.attachments)) return
-    pendingFollowUpAutoFlushRef.current[activeComposerKey] = message.id
-    updateComposerStateForKey(activeComposerKey, state => {
+    const removeAcceptedFollowUp = () => updateComposerStateForKey(activeComposerKey, state => {
       if (!state.pendingFollowUp) return state
       return { ...state, pendingFollowUp: removePendingFollowUpMessage(state.pendingFollowUp, messageId) }
     })
-    focusComposerTextarea()
+    const submitted = sendComposerMessageToAgent(activeAgent, message.text, message.attachments)
+    if (typeof submitted === 'boolean') {
+      if (!submitted) return
+      pendingFollowUpAutoFlushRef.current[activeComposerKey] = message.id
+      removeAcceptedFollowUp()
+      focusComposerTextarea()
+      return
+    }
+    void submitted.then(accepted => {
+      if (!accepted) return
+      pendingFollowUpAutoFlushRef.current[activeComposerKey] = message.id
+      removeAcceptedFollowUp()
+      focusComposerTextarea()
+    })
   }, [activeAgent, activeComposerKey, composerByAgentKey, focusComposerTextarea, sendComposerMessageToAgent, updateComposerStateForKey])
 
   const discardPendingFollowUp = useCallback((messageId: string) => {
@@ -2041,11 +2072,21 @@ export function CodeWorkspace({
     if (pendingFlushes.length === 0) return
 
     pendingFlushes.forEach(({ agent, composerKey, message }) => {
-      if (!sendComposerMessageToAgent(agent, message.text, message.attachments)) return
-      pendingFollowUpAutoFlushRef.current[composerKey] = message.id
-      updateExistingComposerStateForKey(composerKey, state => {
+      const removeAcceptedFollowUp = () => updateExistingComposerStateForKey(composerKey, state => {
         if (!state.pendingFollowUp) return state
         return { ...state, pendingFollowUp: removePendingFollowUpMessage(state.pendingFollowUp, message.id) }
+      })
+      const submitted = sendComposerMessageToAgent(agent, message.text, message.attachments)
+      if (typeof submitted === 'boolean') {
+        if (!submitted) return
+        pendingFollowUpAutoFlushRef.current[composerKey] = message.id
+        removeAcceptedFollowUp()
+        return
+      }
+      void submitted.then(accepted => {
+        if (!accepted) return
+        pendingFollowUpAutoFlushRef.current[composerKey] = message.id
+        removeAcceptedFollowUp()
       })
     })
   }, [activeAgents, composerByAgentKey, sendComposerMessageToAgent, updateExistingComposerStateForKey])

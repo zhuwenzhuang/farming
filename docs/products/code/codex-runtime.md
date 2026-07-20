@@ -11,6 +11,8 @@ The **New Agent** dialog exposes only Chat or Terminal. Chat resolves to Codex A
 
 The browser sends every structured Chat submission through one `composer-input` contract. `AgentManager.sendComposerMessage` dispatches by the authoritative runtime binding: Codex uses App Server `turn/start` or `turn/steer`; ACP providers use `session/prompt`. Provider capabilities expose the difference explicitly: only the Codex binding advertises `supportsSteer`.
 
+For Codex Chat, each composer submission has a client request id. Farming keeps the draft until the managed App Server accepts the exact `turn/start` or `turn/steer`; a rejected or disconnected request leaves the draft available rather than treating WebSocket enqueue as delivery.
+
 ## Separate runtime boundaries
 
 Codex CLI itself uses an app-server client. On a local machine it discovers the default Unix control socket below the active `CODEX_HOME`:

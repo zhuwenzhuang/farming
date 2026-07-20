@@ -50,6 +50,8 @@ function sameJsonValue(left: unknown, right: unknown) {
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const agentStateSignaturesRef = useRef<Map<string, string>>(new Map())
+  const composerRequestSequenceRef = useRef(0)
+  const composerRequestResolversRef = useRef(new Map<string, { resolve: (accepted: boolean) => void; timeout: number }>())
   const [state, setState] = useState<WebSocketState>({
     agents: [],
     taskHistory: [],
@@ -88,6 +90,17 @@ export function useWebSocket() {
     return false
   }, [])
 
+  const settleComposerRequest = useCallback((requestId: string, accepted: boolean, message = '') => {
+    const pending = composerRequestResolversRef.current.get(requestId)
+    if (!pending) return
+    composerRequestResolversRef.current.delete(requestId)
+    window.clearTimeout(pending.timeout)
+    if (!accepted && message) {
+      setState(prev => ({ ...prev, error: message, errorId: prev.errorId + 1 }))
+    }
+    pending.resolve(accepted)
+  }, [])
+
   const startAgent = useCallback((
     command: string,
     workspace?: string,
@@ -112,15 +125,32 @@ export function useWebSocket() {
     return sendMessage(msg)
   }, [sendMessage])
 
-  const sendComposerInput = useCallback((message: string, agentId?: string, attachments: ComposerInputAttachment[] = []) => {
+  const sendComposerInput = useCallback((
+    message: string,
+    agentId?: string,
+    attachments: ComposerInputAttachment[] = [],
+    options?: { awaitResult?: boolean },
+  ) => {
     const input: ComposerInputMessage = {
       type: 'composer-input',
       message,
       agentId,
       ...(attachments.length > 0 ? { attachments } : {}),
     }
-    return sendMessage(input)
-  }, [sendMessage])
+    if (options?.awaitResult !== true) return sendMessage(input)
+
+    const requestId = `composer-${Date.now().toString(36)}-${++composerRequestSequenceRef.current}`
+    input.requestId = requestId
+    return new Promise<boolean>(resolve => {
+      const timeout = window.setTimeout(() => {
+        settleComposerRequest(requestId, false, 'Chat submission was not accepted by Farming. Your draft is still available.')
+      }, 15_000)
+      composerRequestResolversRef.current.set(requestId, { resolve, timeout })
+      if (!sendMessage(input)) {
+        settleComposerRequest(requestId, false, 'Farming backend is not connected. Your draft is still available.')
+      }
+    })
+  }, [sendMessage, settleComposerRequest])
 
   const respondToAppServerRequest = useCallback((
     agentId: string,
@@ -330,6 +360,9 @@ export function useWebSocket() {
             case 'error':
               setState(prev => ({ ...prev, error: msg.message, errorId: prev.errorId + 1 }))
               break
+            case 'composer-input-result':
+              settleComposerRequest(msg.requestId, msg.accepted, msg.message || '')
+              break
             case 'agent-started':
               setState(prev => ({ ...prev, lastStartedAgentId: msg.agentId }))
               break
@@ -410,6 +443,11 @@ export function useWebSocket() {
       ws.onclose = (event) => {
         if (disposed || wsRef.current !== ws) return
         wsRef.current = null
+        composerRequestResolversRef.current.forEach(({ resolve, timeout }) => {
+          window.clearTimeout(timeout)
+          resolve(false)
+        })
+        composerRequestResolversRef.current.clear()
         setState(prev => ({
           ...prev,
           connected: false,

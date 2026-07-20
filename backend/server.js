@@ -2018,6 +2018,18 @@ async function sendInputMessage(ws, data) {
 
 async function sendComposerInputMessage(ws, data) {
   const targetAgentId = resolveInputTargetAgentId(ws, data);
+  const requestId = typeof data.requestId === 'string' ? data.requestId : '';
+  const responseAgentId = targetAgentId || (typeof data.agentId === 'string' ? data.agentId : '');
+  const respond = (accepted, message = '') => {
+    if (!requestId || !responseAgentId) return;
+    ws.send(JSON.stringify({
+      type: 'composer-input-result',
+      requestId,
+      agentId: responseAgentId,
+      accepted,
+      ...(message ? { message } : {}),
+    }));
+  };
   const message = typeof data.message === 'string' ? data.message : '';
   const content = [];
   if (message.trim()) content.push({ type: 'text', text: message });
@@ -2044,23 +2056,25 @@ async function sendComposerInputMessage(ws, data) {
       // The text fallback already explains failed or unavailable uploads.
     }
   }
-  if (!targetAgentId || content.length === 0) return;
+  if (!targetAgentId || content.length === 0) {
+    respond(false, 'Composer message is empty');
+    return;
+  }
   const targetAgent = agentManager.getState().agents.find(agent => agent.id === targetAgentId);
   const structuredRuntime = targetAgent && runtimeKind(targetAgent) !== 'terminal';
   if (!structuredRuntime) {
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: 'Terminal Composer input requires the active terminal owner',
-    }));
+    const error = 'Terminal Composer input requires the active terminal owner';
+    if (requestId) respond(false, error);
+    else ws.send(JSON.stringify({ type: 'error', message: error }));
     return;
   }
   try {
     await agentManager.sendComposerMessage(targetAgentId, content);
+    respond(true);
   } catch (error) {
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: error && error.message ? error.message : 'Failed to send Composer message',
-    }));
+    const message = error && error.message ? error.message : 'Failed to send Composer message';
+    if (requestId) respond(false, message);
+    else ws.send(JSON.stringify({ type: 'error', message }));
   }
 }
 

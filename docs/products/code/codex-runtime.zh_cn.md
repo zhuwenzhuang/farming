@@ -11,6 +11,8 @@ Farming 为**新启动的** Codex Agent 提供两种运行时模式：
 
 浏览器的所有结构化 Chat 提交都使用同一个 `composer-input` 契约。`AgentManager.sendComposerMessage` 根据权威的 runtime binding 分发：Codex 调用 App Server 的 `turn/start` 或 `turn/steer`，ACP provider 调用 `session/prompt`。能力差异会明确暴露：只有 Codex binding 标记 `supportsSteer`。
 
+Codex Chat 的每次 Composer 提交都有客户端 request id。Farming 会保留草稿，直到受管 App Server 接受对应的 `turn/start` 或 `turn/steer`；请求被拒绝或连接断开时，不能把 WebSocket 入队误当成已送达，草稿仍可继续编辑或重试。
+
 ## 两条运行时边界
 
 Codex CLI 自己也使用 app-server client。本机运行时，它会在当前 `CODEX_HOME` 下发现默认的 Unix 控制 socket：

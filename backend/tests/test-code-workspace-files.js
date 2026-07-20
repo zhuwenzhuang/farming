@@ -877,8 +877,9 @@ function run() {
       workspaceSource.includes("capabilitiesForAgent(agent).kind === 'shell'") &&
       workspaceSource.includes("return sendTerminalSessionInput(agent.id, `${message}\\r`)") &&
       workspaceSource.includes('return sendTerminalSessionInput(agent.id, terminalInputPartsForComposerMessage(message))') &&
-      workspaceSource.includes('let submitted = true') &&
-      workspaceSource.includes('if (!submitted) return') &&
+      workspaceSource.includes('let submitted: boolean | Promise<boolean> = true') &&
+      workspaceSource.includes('const clearAcceptedDraft = () =>') &&
+      workspaceSource.includes('void submitted.then(accepted =>') &&
       !workspaceSource.includes("window.setTimeout(() => sendInput('\\r', agent.id), 80)") &&
       workspaceSource.includes('sendComposerMessageToAgent(activeAgent, message)') &&
       workspaceSource.includes('function createPendingFollowUpMessage(text: string, attachments: ComposerPromptAttachment[] = [])') &&

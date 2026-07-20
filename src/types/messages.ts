@@ -35,6 +35,7 @@ export interface ComposerInputMessage {
   type: 'composer-input'
   message: string
   agentId?: string
+  requestId?: string
   attachments?: ComposerInputAttachment[]
 }
 
@@ -155,6 +156,14 @@ export interface ErrorMessage {
   message: string
 }
 
+export interface ComposerInputResultMessage {
+  type: 'composer-input-result'
+  requestId: string
+  agentId: string
+  accepted: boolean
+  message?: string
+}
+
 export interface AgentStartedMessage {
   type: 'agent-started'
   agentId: string
@@ -263,6 +272,7 @@ export type ServerMessage =
   | CommandAckMessage
   | StateMessage
   | ErrorMessage
+  | ComposerInputResultMessage
   | AgentStartedMessage
   | SessionOutputMessage
   | SessionPreviewMessage

@@ -24,6 +24,7 @@ const SERVER_MESSAGE_TYPES = new Set([
   'command-ack',
   'state',
   'error',
+  'composer-input-result',
   'agent-started',
   'session-output',
   'session-preview',
@@ -80,7 +81,7 @@ function validateClientMessage(value) {
     case 'protocol-hello': valid = Number.isInteger(value.protocolVersion); break;
     case 'start-agent': valid = stringField(value, 'command'); break;
     case 'input': valid = stringField(value, 'agentId', true) && (typeof value.input === 'string' || Array.isArray(value.inputParts)); break;
-    case 'composer-input': valid = stringField(value, 'message') && stringField(value, 'agentId', true); break;
+    case 'composer-input': valid = stringField(value, 'message') && stringField(value, 'agentId', true) && stringField(value, 'requestId', true); break;
     case 'app-server-request-response':
     case 'acp-permission-response': valid = stringField(value, 'agentId') && stringField(value, 'requestId'); break;
     case 'focus-agent': valid = value.agentId === null || stringField(value, 'agentId'); break;
@@ -102,6 +103,7 @@ function validateServerMessage(value) {
     case 'error': valid = stringField(value, 'message'); break;
     case 'command-ack': valid = stringField(value, 'requestId') && stringField(value, 'command'); break;
     case 'state': valid = objectMessage(value.state) && Array.isArray(value.state.agents); break;
+    case 'composer-input-result': valid = stringField(value, 'requestId') && stringField(value, 'agentId') && typeof value.accepted === 'boolean' && stringField(value, 'message', true); break;
     case 'agent-started': valid = stringField(value, 'agentId'); break;
     case 'session-output': valid = objectMessage(value.stream) && stringField(value.stream, 'agentId'); break;
     case 'session-preview': valid = objectMessage(value.preview) && stringField(value.preview, 'agentId'); break;
