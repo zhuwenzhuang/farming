@@ -131,6 +131,21 @@ test.describe('ACP human-like browser matrix', () => {
     await agentRow(page, agentId).click()
     await sendAcpMessage(page, 'usage warning')
     await expect(page.getByText('Usage warning published.', { exact: true })).toBeVisible({ timeout: 15_000 })
+
+    const shortTranscriptGeometry = await page.getByTestId('code-codex-transcript-scroll').evaluate(element => {
+      const user = element.querySelector<HTMLElement>('.code-codex-transcript-user')
+      if (!user) throw new Error('Short Chat turn fixture is incomplete')
+      const scrollerBox = element.getBoundingClientRect()
+      const userBox = user.getBoundingClientRect()
+      return {
+        userTopOffset: userBox.top - scrollerBox.top,
+        scrollTop: element.scrollTop,
+      }
+    })
+    expect(shortTranscriptGeometry.scrollTop).toBe(0)
+    expect(shortTranscriptGeometry.userTopOffset).toBeGreaterThanOrEqual(30)
+    expect(shortTranscriptGeometry.userTopOffset).toBeLessThanOrEqual(60)
+
     await sendAcpMessage(page, 'Please inspect the complete interaction and return a rich timeline with all relevant details.')
     await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 20_000 })
 

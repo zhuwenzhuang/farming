@@ -147,7 +147,7 @@ test('keeps long ACP Chat stable when the Composer is collapsed and restored', a
   await expect(page.getByTestId('code-codex-transcript-jump-bottom')).toBeVisible()
 })
 
-test('keeps a short ACP answer close to the Composer with compact copy affordance', async ({ page, workspaceRoot }) => {
+test('starts a short ACP turn at the top with a compact copy affordance', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'compact-chat-tail')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createAcpAgent(page, workspace)
@@ -164,19 +164,30 @@ test('keeps a short ACP answer close to the Composer with compact copy affordanc
   const geometry = await page.getByTestId('code-codex-transcript-copy-answer').evaluate(element => {
     const action = element.getBoundingClientRect()
     const icon = element.querySelector('svg')?.getBoundingClientRect()
+    const turn = element.closest<HTMLElement>('.code-codex-transcript-turn')
+    const user = turn?.querySelector<HTMLElement>('.code-codex-transcript-user')?.getBoundingClientRect()
+    const answer = turn?.querySelector<HTMLElement>('.code-codex-transcript-answer')?.getBoundingClientRect()
+    const scroller = element.closest<HTMLElement>('.code-codex-transcript-scroll')?.getBoundingClientRect()
     const composer = document.querySelector<HTMLElement>('.code-composer')?.getBoundingClientRect()
-    if (!icon || !composer) throw new Error('Chat action or Composer geometry is unavailable')
+    if (!icon || !user || !answer || !scroller || !composer) {
+      throw new Error('Chat turn geometry is unavailable')
+    }
     return {
       actionWidth: action.width,
       actionHeight: action.height,
       iconWidth: icon.width,
       iconHeight: icon.height,
+      userTopOffset: user.top - scroller.top,
+      answerGap: answer.top - user.bottom,
       composerGap: composer.top - action.bottom,
     }
   })
 
-  expect(geometry.composerGap).toBeGreaterThanOrEqual(32)
-  expect(geometry.composerGap).toBeLessThanOrEqual(48)
+  expect(geometry.userTopOffset).toBeGreaterThanOrEqual(30)
+  expect(geometry.userTopOffset).toBeLessThanOrEqual(60)
+  expect(geometry.answerGap).toBeGreaterThanOrEqual(16)
+  expect(geometry.answerGap).toBeLessThanOrEqual(28)
+  expect(geometry.composerGap).toBeGreaterThan(200)
   expect(geometry).toMatchObject({
     actionWidth: 20,
     actionHeight: 20,

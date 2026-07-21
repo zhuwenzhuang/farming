@@ -5562,17 +5562,6 @@ body.code-mode .code-instance-name {
   -webkit-user-select: text;
 }
 
-@media (min-width: 761px) and (hover: hover) and (pointer: fine) {
-  .code-codex-transcript-scroll {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .code-codex-transcript-turn:first-child {
-    margin-top: auto;
-  }
-}
-
 .code-agent-work-pane.runtime-switchable .code-codex-transcript-user {
   margin-right: 68px;
 }
