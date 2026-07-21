@@ -893,6 +893,7 @@ class FarmingUpdateService {
       }
       return {
         proven: true,
+        npmPrefix,
         packageRoot: targetPackageRoot,
       };
     } catch (error) {
@@ -1164,9 +1165,10 @@ class FarmingUpdateService {
       stateFile: this.updateStateFile,
       logPath: this.updateLogFile,
       cliPath: path.join(this.rootDir, 'bin', 'farming'),
+      packageRoot: status.target.packageRoot,
       nodePath,
       npmCommand: process.env.FARMING_NPM_COMMAND || 'npm',
-      npmPrefix: process.env.FARMING_NPM_PREFIX || '',
+      npmPrefix: status.target.npmPrefix,
       npmFallbackRegistryUrl: this.npmRegistryUrl,
       serverPid: process.pid,
       configDir: this.configDir,

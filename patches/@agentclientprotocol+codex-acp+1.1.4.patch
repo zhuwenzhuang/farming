@@ -2,7 +2,7 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
 index fb338ee..28f5470 100755
 --- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 +++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-@@ -23365,8 +23365,9 @@ function createAgentTextThoughtChunk(text, messageId, meta3) {
+@@ -23365,6 +23365,7 @@ function createAgentTextThoughtChunk(text, messageId, meta3) {
  // src/AcpExtensions.ts
  var LEGACY_SET_SESSION_MODEL_METHOD = "session/set_model";
  var GOAL_CONTROL_METHOD = "_codex/session/goal_control";
@@ -11,8 +11,6 @@ index fb338ee..28f5470 100755
 -  return request.method === "authentication/status" || request.method === "authentication/logout" || request.method === LEGACY_SET_SESSION_MODEL_METHOD || request.method === GOAL_CONTROL_METHOD;
 +  return request.method === "authentication/status" || request.method === "authentication/logout" || request.method === LEGACY_SET_SESSION_MODEL_METHOD || request.method === GOAL_CONTROL_METHOD || request.method === STEER_METHOD;
  }
- 
- // src/ThreadGoalSnapshot.ts
 @@ -26316,6 +26317,14 @@ var CodexAcpClient = class {
        serviceTier
      }, onTurnStarted);

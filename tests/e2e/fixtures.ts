@@ -263,7 +263,15 @@ export async function startAgentFromOpenDialog(page: Page, name: string, workspa
 }
 
 export async function openNewAgentDialog(page: Page) {
-  await page.getByTestId('code-new-agent').click()
+  const sidebarButton = page.getByTestId('code-new-agent')
+  const emptyWorkspaceButton = page.getByTestId('code-empty-workspace').getByRole('button')
+  const sidebarCollapsed = (await page.getByTestId('code-workspace').getAttribute('class'))?.includes('sidebar-collapsed') === true
+  if (sidebarCollapsed && await emptyWorkspaceButton.isVisible()) {
+    await emptyWorkspaceButton.click()
+  } else {
+    if (sidebarCollapsed) await page.getByTestId('code-mobile-menu').click()
+    await sidebarButton.click()
+  }
   await expect(page.getByTestId('input-dialog')).toBeVisible()
 }
 

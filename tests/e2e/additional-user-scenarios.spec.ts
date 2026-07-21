@@ -519,11 +519,28 @@ test.describe('additional Farming Code user scenarios', () => {
     })
 
     await scenario('multiline composer draft grows without covering the toolbar or shifting the page', async () => {
+      const composer = page.getByTestId('code-composer')
       const textarea = page.getByTestId('code-composer').locator('textarea')
+      await textarea.fill('')
+      const restingHeight = await textarea.evaluate(element => element.getBoundingClientRect().height)
       await textarea.fill(Array.from({ length: 8 }, (_, index) => `readability line ${index + 1}`).join('\n'))
       await expect(page.getByTestId('code-composer-toolbar')).toBeVisible()
-      const height = await textarea.evaluate(element => (element as HTMLElement).getBoundingClientRect().height)
-      expect(height).toBeLessThanOrEqual(220)
+      await expect.poll(async () => textarea.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThan(restingHeight)
+      const expandedHeight = await textarea.evaluate(element => element.getBoundingClientRect().height)
+      expect(expandedHeight).toBeLessThanOrEqual(132)
+
+      await composer.evaluate(element => { element.style.width = '700px' })
+      await textarea.fill('wrapped composer content '.repeat(18))
+      const wideHeight = await textarea.evaluate(element => element.getBoundingClientRect().height)
+      await composer.evaluate(element => { element.style.width = '280px' })
+      await expect.poll(async () => textarea.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThan(wideHeight)
+      const narrowMetrics = await textarea.evaluate(element => ({
+        clientHeight: element.clientHeight,
+        overflowY: getComputedStyle(element).overflowY,
+        scrollHeight: element.scrollHeight,
+      }))
+      expect(narrowMetrics.scrollHeight <= narrowMetrics.clientHeight + 1 || narrowMetrics.overflowY === 'auto').toBe(true)
+      await composer.evaluate(element => { element.style.removeProperty('width') })
       await expectNoDocumentOverflow(page)
     })
 

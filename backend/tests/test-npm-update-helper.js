@@ -8,6 +8,25 @@ const {
   validatePayload,
 } = require('../npm-update-helper');
 
+function successfulNpmCommand(rootDir) {
+  const packageJsonPath = path.join(rootDir, 'package.json');
+  if (!fs.existsSync(packageJsonPath)) {
+    fs.writeFileSync(packageJsonPath, JSON.stringify({ name: 'farming-code', version: '2.2.5' }));
+  }
+  const command = path.join(rootDir, 'fake-npm-success');
+  if (!fs.existsSync(command)) {
+    fs.writeFileSync(command, [
+      '#!/usr/bin/env node',
+      `const fs = require('fs');`,
+      `const spec = process.argv.find(value => value.startsWith('farming-code@'));`,
+      `const version = spec.split('@').pop();`,
+      `fs.writeFileSync(${JSON.stringify(packageJsonPath)}, JSON.stringify({ name: 'farming-code', version }));`,
+      '',
+    ].join('\n'), { mode: 0o755 });
+  }
+  return command;
+}
+
 function payloadFor(rootDir, overrides = {}) {
   return {
     packageName: 'farming-code',
@@ -17,8 +36,9 @@ function payloadFor(rootDir, overrides = {}) {
     stateFile: path.join(rootDir, 'farming-update.json'),
     logPath: path.join(rootDir, 'farming-update.log'),
     cliPath: path.join(rootDir, 'bin', 'farming'),
+    packageRoot: rootDir,
     nodePath: '/usr/bin/true',
-    npmCommand: '/usr/bin/true',
+    npmCommand: successfulNpmCommand(rootDir),
     npmPrefix: path.join(rootDir, 'npm-prefix'),
     npmFallbackRegistryUrl: 'https://registry.example.test',
     serverPid: 0,
@@ -38,11 +58,23 @@ async function run() {
 
   assert.throws(() => validatePayload({}), /Invalid npm package name/);
   assert.throws(() => validatePayload(payloadFor(rootDir, { npmPrefix: 'relative' })), /Invalid npm update npmPrefix/);
+  assert.throws(() => validatePayload(payloadFor(rootDir, { packageRoot: 'relative' })), /Invalid npm update packageRoot/);
   assert.throws(() => validatePayload(payloadFor(rootDir, { npmFallbackRegistryUrl: 'file:///tmp/registry' })), /Invalid npm update registry/);
   await runNpmUpdate(payloadFor(rootDir));
   const succeeded = JSON.parse(fs.readFileSync(path.join(rootDir, 'farming-update.json'), 'utf8'));
   assert.strictEqual(succeeded.phase, 'succeeded');
   assert.strictEqual(succeeded.version, '2.3.0');
+
+  const mismatchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-version-mismatch.'));
+  fs.mkdirSync(path.join(mismatchRoot, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(mismatchRoot, 'bin', 'farming'), '#!/usr/bin/env node\n');
+  await runNpmUpdate(payloadFor(mismatchRoot, {
+    npmCommand: '/usr/bin/true',
+    serverPid: process.pid,
+  }));
+  const mismatch = JSON.parse(fs.readFileSync(path.join(mismatchRoot, 'farming-update.json'), 'utf8'));
+  assert.strictEqual(mismatch.phase, 'failed');
+  assert.match(mismatch.error, /version mismatch: expected 2\.3\.0, found 2\.2\.5/);
 
   const failedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-failed.'));
   fs.mkdirSync(path.join(failedRoot, 'bin'), { recursive: true });
@@ -66,6 +98,8 @@ async function run() {
     `const args = process.argv.slice(2);`,
     `fs.appendFileSync(${JSON.stringify(fallbackArgumentsFile)}, JSON.stringify(args) + '\\n');`,
     `if (!args.includes('--registry')) { console.error('npm error code ETARGET\\nnpm error notarget No matching version found'); process.exit(1); }`,
+    `const version = args.find(value => value.startsWith('farming-code@')).split('@').pop();`,
+    `fs.writeFileSync(${JSON.stringify(path.join(fallbackRoot, 'package.json'))}, JSON.stringify({ name: 'farming-code', version }));`,
     '',
   ].join('\n'), { mode: 0o755 });
   await runNpmUpdate(payloadFor(fallbackRoot, { npmCommand: fallbackNpm }));
@@ -87,6 +121,7 @@ async function run() {
     `const fs = require('fs');`,
     `const version = process.argv.find(value => value.startsWith('farming-code@')).split('@').pop();`,
     `fs.writeFileSync(${JSON.stringify(installedVersionFile)}, version);`,
+    `fs.writeFileSync(${JSON.stringify(path.join(rollbackRoot, 'package.json'))}, JSON.stringify({ name: 'farming-code', version }));`,
     `fs.appendFileSync(${JSON.stringify(npmArgumentsFile)}, JSON.stringify(process.argv.slice(2)) + '\\n');`,
     `fs.appendFileSync(${JSON.stringify(childObservationsFile)}, JSON.stringify({ kind: 'npm', cwd: process.cwd(), runServer: process.env.FARMING_RUN_SERVER, runNativeHost: process.env.FARMING_RUN_NATIVE_PTY_HOST }) + '\\n');`,
     '',

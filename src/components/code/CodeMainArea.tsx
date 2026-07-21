@@ -27,9 +27,9 @@ const TERMINAL_COMPOSER_COLLAPSED_STORAGE_KEY = 'farming.code.terminalComposerCo
 function readTerminalComposerCollapsed() {
   try {
     const stored = window.localStorage.getItem(TERMINAL_COMPOSER_COLLAPSED_STORAGE_KEY)
-    return stored === null ? true : stored === 'true'
+    return stored === 'true'
   } catch {
-    return true
+    return false
   }
 }
 

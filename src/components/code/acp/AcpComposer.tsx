@@ -12,6 +12,7 @@ import {
 import { findComposerCommandTrigger } from '../composer-slash-commands'
 import type { CodeCopy } from '../copy'
 import { useMobileComposerHeight } from '../useMobileComposerHeight'
+import { useComposerTextareaAutoSize } from '../useComposerTextareaAutoSize'
 import type { ComposerMode } from '../types'
 import { AcpPermissionCard } from './AcpPermissionCard'
 import { AcpElicitationCard } from './AcpElicitationCard'
@@ -143,6 +144,7 @@ export function AcpComposer({
     `${runtimeState}:${sessionUpdatedAt || ''}`,
   )
   useMobileComposerHeight(composerRef)
+  useComposerTextareaAutoSize(textareaRef, draft)
   latestDraftRef.current = draft
   const interrupting = submitAction === 'interrupt'
   const disabled = submitAction === 'disabled'
@@ -363,6 +365,7 @@ export function AcpComposer({
       <textarea
           data-testid="code-acp-composer-input"
           ref={textareaRef}
+          rows={1}
           name="farming-acp-chat-message"
           inputMode="text"
           autoComplete="off"

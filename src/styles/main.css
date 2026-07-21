@@ -16569,8 +16569,8 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   }
 
   body.code-mode.code-compact-layout .code-main {
-    --mobile-composer-resting-height: 74px;
-    --mobile-composer-active-height: 74px;
+    --mobile-composer-resting-height: 72px;
+    --mobile-composer-active-height: 72px;
     --mobile-composer-expanded-height: 118px;
     --mobile-composer-viewport-gap: max(6px, env(safe-area-inset-bottom));
     --mobile-composer-reserved-height: calc(var(--mobile-composer-resting-height) + var(--mobile-composer-viewport-gap) + 2px);
@@ -16969,7 +16969,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     width: calc(var(--app-visual-width, 100vw) - 8px);
     max-width: calc(var(--app-visual-width, 100vw) - 8px);
     height: auto;
-    min-height: var(--mobile-composer-resting-height, 74px);
+    min-height: var(--mobile-composer-resting-height, 72px);
     max-height: var(--mobile-composer-expanded-height, 118px);
     margin: 0;
     grid-template-rows: minmax(22px, auto) 44px;
@@ -17101,7 +17101,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   }
 
   body.code-mode.code-compact-layout .code-composer textarea {
-    min-height: 26px;
+    min-height: 22px;
     max-height: 66px;
     font-size: 16px;
     line-height: 1.34;

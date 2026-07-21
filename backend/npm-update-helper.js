@@ -64,7 +64,7 @@ function validatePayload(payload) {
   if (!/^[A-Za-z0-9@/._-]+$/.test(String(payload.packageName || ''))) throw new Error('Invalid npm package name');
   if (!/^[0-9A-Za-z.+-]+$/.test(String(payload.targetVersion || ''))) throw new Error('Invalid npm target version');
   if (!/^[0-9A-Za-z.+-]+$/.test(String(payload.previousVersion || ''))) throw new Error('Invalid npm previous version');
-  for (const key of ['stateFile', 'logPath', 'cliPath', 'configDir']) {
+  for (const key of ['stateFile', 'logPath', 'cliPath', 'packageRoot', 'configDir']) {
     if (!path.isAbsolute(String(payload[key] || ''))) throw new Error(`Invalid npm update ${key}`);
   }
   if (payload.npmPrefix && !path.isAbsolute(String(payload.npmPrefix))) {
@@ -123,6 +123,20 @@ async function installPackage(payload, version) {
   return installPackageFromRegistry(payload, packageSpec);
 }
 
+function verifyInstalledVersion(payload, expectedVersion) {
+  const packageJsonPath = path.join(payload.packageRoot, 'package.json');
+  let metadata;
+  try {
+    metadata = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  } catch (error) {
+    throw new Error(`Installed ${payload.packageName} package metadata is unreadable: ${error.message || String(error)}`, { cause: error });
+  }
+  const actualVersion = String(metadata && metadata.version || '');
+  if (actualVersion !== expectedVersion) {
+    throw new Error(`Installed ${payload.packageName} version mismatch: expected ${expectedVersion}, found ${actualVersion || 'missing'}`);
+  }
+}
+
 function logSize(filePath) {
   try {
     return fs.statSync(filePath).size;
@@ -175,6 +189,7 @@ async function runNpmUpdate(rawPayload) {
   try {
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'installing'));
     await installPackage(payload, payload.targetVersion);
+    verifyInstalledVersion(payload, payload.targetVersion);
 
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'restarting'));
     await stopProcess(Number(payload.serverPid));
@@ -192,6 +207,7 @@ async function runNpmUpdate(rawPayload) {
       try {
         writeJsonAtomic(payload.stateFile, stateFor(payload, 'rolling-back', { error: message }));
         await installPackage(payload, payload.previousVersion);
+        verifyInstalledVersion(payload, payload.previousVersion);
         await startServer(payload, payload.previousVersion);
         writeJsonAtomic(payload.stateFile, stateFor(payload, 'rolled-back', {
           version: payload.previousVersion,
@@ -237,5 +253,6 @@ module.exports = {
   runNpmUpdate,
   stopProcess,
   validatePayload,
+  verifyInstalledVersion,
   writeJsonAtomic,
 };

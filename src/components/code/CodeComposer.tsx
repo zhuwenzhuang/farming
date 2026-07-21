@@ -39,6 +39,7 @@ import {
   rankComposerCommand,
 } from './composer-slash-commands'
 import { useMobileComposerHeight } from './useMobileComposerHeight'
+import { useComposerTextareaAutoSize } from './useComposerTextareaAutoSize'
 import type {
   CodexModelOption,
   CodeModelPickerPane,
@@ -291,6 +292,7 @@ export function CodeComposer({
   const latestDraftRef = useRef(draft)
   const mobileSpeechPointerHandledRef = useRef(false)
   useMobileComposerHeight(composerRef)
+  useComposerTextareaAutoSize(textareaRef, draft)
 
   const baseComposerMenuOpen = plusMenuOpen || approvalMenuOpen || modelMenuOpen
   const slashTrigger = useMemo(
@@ -539,6 +541,7 @@ export function CodeComposer({
       <textarea
           data-testid="code-composer-input"
           ref={textareaRef}
+          rows={1}
           enterKeyHint="send"
           name="farming-chat-message"
           inputMode="text"

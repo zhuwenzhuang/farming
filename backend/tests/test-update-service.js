@@ -720,6 +720,7 @@ async function run() {
   assert.strictEqual(npmStatus.current.installDir, npmRoot);
   assert.strictEqual(npmStatus.latest.version, '2.3.0');
   assert.strictEqual(npmStatus.target.proven, true);
+  assert.strictEqual(npmStatus.target.npmPrefix, npmPrefix);
   assert.strictEqual(resolvedNpmPrefix, npmPrefix);
   assert.deepStrictEqual(npmStatus.versions.map(version => version.version), ['2.3.0', '2.2.6', '2.2.5']);
   const previousNodeBin = process.env.FARMING_NODE_BIN;
@@ -759,7 +760,8 @@ async function run() {
   assert.strictEqual(npmUpdatePayload.configDir, npmConfigDir);
   assert.strictEqual(npmUpdatePayload.nodePath, '/opt/farming/runtime/bin/node');
   assert.strictEqual(npmUpdatePayload.npmCommand, '/opt/farming/runtime/bin/npm');
-  assert.strictEqual(npmUpdatePayload.npmPrefix, '/opt/farming/npm');
+  assert.strictEqual(npmUpdatePayload.npmPrefix, npmPrefix);
+  assert.strictEqual(npmUpdatePayload.packageRoot, npmRoot);
   assert.strictEqual(npmUpdatePayload.npmFallbackRegistryUrl, 'https://registry.npmjs.org');
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(npmConfigDir, 'farming-update.json'), 'utf8')).phase, 'installing');
   const sourceServiceWithNpmState = new FarmingUpdateService({
