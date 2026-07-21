@@ -27,7 +27,7 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `ansi-to-html` | 0.7.2 | MIT | ANSI text rendering support |
 | `chokidar` | 5.0.0 | MIT | Filesystem watching |
 | `diff` | 9.0.0 | BSD-3-Clause | Character-level diff ranges for code review |
-| `express` | 4.22.1 | MIT | HTTP API server |
+| `express` | 4.22.2 | MIT | HTTP API server |
 | `ghostty-web` | 0.4.0 | MIT | Optional/debug terminal renderer assets |
 | `highlight.js` | 11.11.1 | BSD-3-Clause | Syntax highlighting |
 | `katex` | 0.17.0 | MIT | Mathematical notation rendering |
