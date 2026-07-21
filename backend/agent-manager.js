@@ -38,7 +38,7 @@ const {
 } = require('./provider-adapters');
 const { deriveTerminalStatus } = require('./terminal-status');
 const { JsonCliRuntime } = require('./json-cli-runtime');
-const { AcpRuntime } = require('./acp-runtime');
+const { AcpRuntime, isCodexSteerUnavailableError } = require('./acp-runtime');
 const { chatRuntimeForProvider, isChatMode } = require('./chat-runtime');
 const { acpToolChanges, acpToolDetail, acpToolReviewChanges, acpTranscriptToolEntry } = require('./acp-transcript');
 const {
@@ -221,6 +221,19 @@ function isJsonCliAgent(agent) {
 
 function isAcpAgent(agent) {
   return runtimeKind(agent) === 'acp';
+}
+
+function normalizedComposerPrompt(message) {
+  const prompt = Array.isArray(message) ? message : [{ type: 'text', text: String(message || '') }];
+  const text = prompt
+    .filter(content => content?.type === 'text')
+    .map(content => String(content.text || ''))
+    .join('')
+    .trim();
+  if (prompt.length === 0 || (!text && !prompt.some(content => content?.type !== 'text'))) {
+    throw new Error('Composer message is empty');
+  }
+  return prompt;
 }
 
 function isShellProgram(command) {
@@ -633,13 +646,14 @@ class AgentManager extends EventEmitter {
 
   bindAcpRuntimeEvents() {
     if (!this.acpRuntime || typeof this.acpRuntime.on !== 'function') return;
-    this.acpRuntime.on('agent-runtime', ({ agentId, state, error, sessionId, stopReason, pendingPermission, pendingPermissions, pendingElicitation, pendingElicitations, activeElicitations, updatedAt }) => {
+    this.acpRuntime.on('agent-runtime', ({ agentId, state, error, sessionId, stopReason, supportsSteer, pendingPermission, pendingPermissions, pendingElicitation, pendingElicitations, activeElicitations, updatedAt }) => {
       const agent = this.agents.get(agentId);
       const runtime = runtimeBindingOf(agent, 'acp');
       if (!runtime) return;
       runtime.state = state || '';
       runtime.error = error || '';
       runtime.stopReason = stopReason || '';
+      runtime.supportsSteer = supportsSteer === true;
       runtime.pendingPermission = pendingPermission || null;
       runtime.pendingPermissions = Array.isArray(pendingPermissions) ? pendingPermissions : [];
       runtime.pendingElicitation = pendingElicitation || null;
@@ -2811,6 +2825,13 @@ class AgentManager extends EventEmitter {
   }
 
   async sendComposerMessage(agentId, message) {
+    if (this.acpRuntime.canSteer?.(agentId)) {
+      try {
+        return await this.sendAcpSteerNow(agentId, message);
+      } catch (error) {
+        if (!isCodexSteerUnavailableError(error)) throw error;
+      }
+    }
     return this.enqueueInputOperation(agentId, () => this.sendComposerMessageNow(agentId, message));
   }
 
@@ -2908,15 +2929,12 @@ class AgentManager extends EventEmitter {
   async sendComposerMessageNow(agentId, message) {
     const agent = this.agents.get(agentId);
     if (!agent) throw new Error('Agent not found');
-    const prompt = Array.isArray(message) ? message : [{ type: 'text', text: String(message || '') }];
+    const prompt = normalizedComposerPrompt(message);
     const text = prompt
       .filter(content => content?.type === 'text')
       .map(content => String(content.text || ''))
       .join('')
       .trim();
-    if (prompt.length === 0 || (!text && !prompt.some(content => content?.type !== 'text'))) {
-      throw new Error('Composer message is empty');
-    }
 
     if (isJsonCliAgent(agent)) {
       const result = await this.jsonCliRuntime.submitComposerMessage(agentId, text, {
@@ -2939,6 +2957,16 @@ class AgentManager extends EventEmitter {
 
     await this.sendInputNow(agentId, [{ type: 'paste', text }, '\r']);
     return { kind: 'terminal' };
+  }
+
+  async sendAcpSteerNow(agentId, message) {
+    const agent = this.agents.get(agentId);
+    if (!agent) throw new Error('Agent not found');
+    if (!isAcpAgent(agent)) throw new Error('Agent is not using ACP Chat');
+    const prompt = normalizedComposerPrompt(message);
+    const result = await this.acpRuntime.steer(agentId, prompt);
+    this.ensurePersistentAgentSession(agent);
+    return { kind: 'acp', steered: true, ...result };
   }
 
   getJsonCliTranscript(agentId, options = {}) {
@@ -4658,7 +4686,10 @@ class AgentManager extends EventEmitter {
         providerSessionResolvedAt: agent.providerSessionResolvedAt || null,
         providerSessionTitle: agent.providerSessionTitle || '',
         providerSessionWorkspace: agent.providerSessionWorkspace || '',
-        providerCapabilities: providerCapabilities(agent.providerSessionProvider),
+        providerCapabilities: {
+          ...providerCapabilities(agent.providerSessionProvider),
+          supportsSteer: runtimeBindingOf(agent, 'acp')?.supportsSteer === true,
+        },
         terminalInputReceived: agent.terminalInputReceived === true,
         runtimeBinding: publicRuntimeBinding(agent),
         runtimeObservation: deriveRuntimeObservation(agent),

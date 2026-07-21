@@ -163,7 +163,9 @@ test.describe('display-backed agent flows', () => {
 
     await openFarming(page)
     const productMark = page.getByTestId('code-product-mark')
+    const instanceName = page.getByTestId('code-instance-name-edit')
     await expect(productMark).toContainText('Farming Code')
+    await expect(productMark).not.toContainText('farming-e2e-host')
     await expect(productMark).toContainText(`v${packageVersion}`)
     await expect(productMark).not.toContainText('DOGFOOD')
     await expect(productMark).not.toContainText('g25c4faf4')
@@ -171,6 +173,31 @@ test.describe('display-backed agent flows', () => {
     await expect(productMark).toHaveAttribute('title', 'Farming Code')
     await expect(productMark).not.toContainText('UPGRADE')
     await expect(productMark).not.toHaveClass(/upgrade/)
+    await expect(instanceName).toContainText('farming-e2e-host')
+    await expect(instanceName).toHaveAttribute('title', 'farming-e2e-host')
+    const footerMetrics = await productMark.evaluate(element => {
+      const instance = document.querySelector<HTMLElement>('[data-testid="code-instance-name-edit"]')
+      const productTitle = element.querySelector<HTMLElement>('.code-product-mark-main-full')
+      if (!instance || !productTitle) return null
+      const instanceRect = instance.getBoundingClientRect()
+      const productRect = element.getBoundingClientRect()
+      return {
+        instanceBottom: instanceRect.bottom,
+        productTop: productRect.top,
+        instanceFontSize: Number.parseFloat(getComputedStyle(instance).fontSize),
+        productFontSize: Number.parseFloat(getComputedStyle(productTitle).fontSize),
+        instanceFits: instance.scrollWidth <= instance.clientWidth,
+      }
+    })
+    expect(footerMetrics).not.toBeNull()
+    expect(footerMetrics?.instanceBottom ?? Infinity).toBeLessThanOrEqual(footerMetrics?.productTop ?? 0)
+    expect(footerMetrics?.instanceFontSize ?? Infinity).toBeLessThan(footerMetrics?.productFontSize ?? 0)
+    expect(footerMetrics?.instanceFits).toBe(true)
+    await instanceName.click()
+    await expect(page.getByTestId('code-instance-name-dialog')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('code-instance-name-dialog')).toHaveCount(0)
+    await expect(instanceName).toBeFocused()
     await expectCompactVersionLabel(productMark, 'light')
 
     await productMark.click()

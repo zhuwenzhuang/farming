@@ -20,6 +20,7 @@ function run() {
     state: 'working',
     error: '',
     stopReason: '',
+    supportsSteer: false,
     pendingPermission: null,
     pendingPermissions: [{ requestId: 'permission-1' }],
     pendingElicitation: null,

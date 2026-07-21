@@ -170,6 +170,7 @@ async function resetSettings(page: Page) {
         projectWorkspaces: [],
         mainPageSessionKeys: [],
         defaultLaunchAgent: 'codex',
+        instanceName: 'farming-e2e-host',
         appearance: 'light',
         language: 'en',
         codexApprovalMode: 'approve',

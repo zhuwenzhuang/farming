@@ -188,6 +188,7 @@ export interface AcpRuntimeBinding {
   state: string
   error: string
   stopReason: string
+  supportsSteer: boolean
   pendingPermission: AcpPendingPermission | null
   pendingPermissions: AcpPendingPermission[]
   pendingElicitation: AcpPendingElicitation | null

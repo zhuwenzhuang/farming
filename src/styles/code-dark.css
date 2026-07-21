@@ -981,7 +981,7 @@ body.code-mode[data-appearance='dark'] .code-product-mark:focus-visible {
   background: transparent;
 }
 
-body.code-mode[data-appearance='dark'] .code-instance-name-edit:hover {
+body.code-mode[data-appearance='dark'] .code-instance-name:hover {
   background: var(--code-dark-bg-hover);
   color: var(--code-dark-text);
 }

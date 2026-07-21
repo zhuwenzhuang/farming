@@ -1,0 +1,103 @@
+diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
+index fb338ee..28f5470 100755
+--- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
++++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
+@@ -23365,8 +23365,9 @@ function createAgentTextThoughtChunk(text, messageId, meta3) {
+ // src/AcpExtensions.ts
+ var LEGACY_SET_SESSION_MODEL_METHOD = "session/set_model";
+ var GOAL_CONTROL_METHOD = "_codex/session/goal_control";
++var STEER_METHOD = "_codex/session/steer";
+ function isExtMethodRequest(request) {
+-  return request.method === "authentication/status" || request.method === "authentication/logout" || request.method === LEGACY_SET_SESSION_MODEL_METHOD || request.method === GOAL_CONTROL_METHOD;
++  return request.method === "authentication/status" || request.method === "authentication/logout" || request.method === LEGACY_SET_SESSION_MODEL_METHOD || request.method === GOAL_CONTROL_METHOD || request.method === STEER_METHOD;
+ }
+ 
+ // src/ThreadGoalSnapshot.ts
+@@ -26316,6 +26317,14 @@ var CodexAcpClient = class {
+       serviceTier
+     }, onTurnStarted);
+   }
++  async steerPrompt(sessionId, turnId, prompt, clientMessageId) {
++    return await this.codexClient.turnSteer({
++      threadId: sessionId,
++      input: buildPromptItems(prompt),
++      expectedTurnId: turnId,
++      clientUserMessageId: clientMessageId ?? null
++    });
++  }
+   async setCollaborationMode(sessionId, mode, currentModelId) {
+     await this.codexClient.threadSettingsUpdate({
+       threadId: sessionId,
+@@ -28210,6 +28219,11 @@ var CodexAcpServer = class _CodexAcpServer {
+           acp: false,
+           http: true,
+           sse: false
++        },
++        _meta: {
++          codex: {
++            steer: { method: STEER_METHOD, version: 1 }
++          }
+         }
+       },
+       authMethods: getCodexAuthMethods(_params.clientCapabilities)
+@@ -28248,6 +28262,31 @@ var CodexAcpServer = class _CodexAcpServer {
+         }
+         return {};
+       }
++      case STEER_METHOD: {
++        const sessionState = this.sessions.get(methodRequest.params.sessionId);
++        if (!sessionState) {
++          throw RequestError.invalidParams(void 0, `Unknown session: ${methodRequest.params.sessionId}`);
++        }
++        if (!this.activePrompts.has(sessionState.sessionId) || !sessionState.currentTurnId) {
++          throw RequestError.invalidRequest({ details: "No active Codex turn to steer" });
++        }
++        const response = await this.runWithProcessCheck(() => this.codexAcpClient.steerPrompt(
++          sessionState.sessionId,
++          sessionState.currentTurnId,
++          methodRequest.params.prompt,
++          methodRequest.params.clientMessageId
++        ));
++        const session = new ACPSessionConnection(this.connection, sessionState.sessionId);
++        for (const content of methodRequest.params.prompt) {
++          await session.update({
++            sessionUpdate: "user_message_chunk",
++            messageId: methodRequest.params.clientMessageId ?? null,
++            content,
++            _meta: { codex: { steer: true, turnId: response.turnId } }
++          });
++        }
++        return { turnId: response.turnId };
++      }
+     }
+   }
+   async checkAuthorization() {
+@@ -29805,6 +29844,9 @@ var CodexAppServerClient = class {
+   async turnStart(params) {
+     return await this.sendRequest({ method: "turn/start", params });
+   }
++  async turnSteer(params) {
++    return await this.sendRequest({ method: "turn/steer", params });
++  }
+   async runTurn(params, onTurnStarted) {
+     const capturedCompletions = [];
+     const releaseCapture = this.captureTurnCompletions(params.threadId, (event) => {
+@@ -30595,6 +30637,11 @@ var goalControlParamsParser = external_exports.object({
+   sessionId: external_exports.string(),
+   action: external_exports.enum(["pause", "clear"])
+ }).passthrough();
++var steerParamsParser = external_exports.object({
++  sessionId: external_exports.string(),
++  prompt: external_exports.array(external_exports.unknown()),
++  clientMessageId: external_exports.string().optional()
++}).passthrough();
+ if (process.argv.includes("--version")) {
+   console.log(`${package_default.name} ${package_default.version}`);
+   process.exit(0);
+@@ -30667,5 +30714,5 @@ function startAcpServer() {
+         codexAcpServer = null;
+       }
+     });
+-  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).connect(acpJsonStream);
++  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(STEER_METHOD, steerParamsParser, (ctx) => getAgent().extMethod(STEER_METHOD, ctx.params)).connect(acpJsonStream);
+ }

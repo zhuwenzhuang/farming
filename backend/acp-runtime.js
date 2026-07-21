@@ -25,6 +25,7 @@ const DEFAULT_HISTORY_REPLAY_MIN_WAIT_MS = 350;
 const DEFAULT_HISTORY_REPLAY_QUIET_MS = 150;
 const DEFAULT_HISTORY_REPLAY_MAX_WAIT_MS = 5_000;
 const CODEX_SET_SESSION_MODEL_METHOD = 'session/set_model';
+const CODEX_STEER_METHOD = '_codex/session/steer';
 
 let sdkPromise;
 const runtimeRequire = createRequire(__filename);
@@ -234,6 +235,27 @@ function promptContentForCapabilities(content, capabilities = {}) {
   });
 }
 
+function supportsCodexSteer(capabilities = {}) {
+  const capability = capabilities?._meta?.codex?.steer;
+  return capability?.method === CODEX_STEER_METHOD
+    && Number.isFinite(Number(capability.version))
+    && Number(capability.version) >= 1;
+}
+
+function isCodexSteerUnavailableError(error) {
+  const text = [
+    error?.message,
+    error?.data?.details,
+    error?.cause?.message,
+    error?.cause?.data?.details,
+  ].filter(Boolean).join(' ').toLowerCase();
+  return text.includes('no active codex turn to steer')
+    || text.includes('no active turn to steer')
+    || /expected active turn id .* but found/.test(text)
+    || text.includes('cannot steer a review turn')
+    || text.includes('cannot steer a compact turn');
+}
+
 class AcpRuntime extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -292,6 +314,8 @@ class AcpRuntime extends EventEmitter {
       subagentStates: new Map(),
       interactionOrigins: new Map(),
       promptActive: false,
+      supportsSteer: false,
+      steerTail: null,
       historyReplayActive: false,
       sessionState: null,
       authTerminal: null,
@@ -343,6 +367,8 @@ class AcpRuntime extends EventEmitter {
       if (binding.initializeResponse.protocolVersion !== sdk.PROTOCOL_VERSION) {
         throw new Error(`ACP protocol version mismatch: Agent selected ${binding.initializeResponse.protocolVersion}, Farming supports ${sdk.PROTOCOL_VERSION}`);
       }
+      binding.supportsSteer = binding.provider === 'codex'
+        && supportsCodexSteer(binding.initializeResponse.agentCapabilities);
 
       const requestedSessionId = String(options.sessionId || '').trim();
       const revisionBase = Number.isFinite(Number(options.revisionBase))
@@ -836,6 +862,54 @@ class AcpRuntime extends EventEmitter {
     }
   }
 
+  canSteer(agentId) {
+    const binding = this.bindings.get(agentId);
+    return binding?.provider === 'codex'
+      && binding.supportsSteer === true
+      && binding.promptActive === true
+      && Boolean(binding.sessionId)
+      && Boolean(binding.connection);
+  }
+
+  async steer(agentId, prompt) {
+    const binding = this.requireBinding(agentId);
+    if (binding.provider !== 'codex' || binding.supportsSteer !== true) {
+      throw new Error(`${binding.provider} ACP Agent does not support steer`);
+    }
+    const rawContent = Array.isArray(prompt) ? prompt : [{ type: 'text', text: String(prompt || '') }];
+    const content = promptContentForCapabilities(
+      rawContent,
+      binding.initializeResponse?.agentCapabilities || {},
+    );
+    const clientMessageId = `farming-steer-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const operation = async () => {
+      if (!binding.promptActive) throw new Error('No active Codex turn to steer');
+      await this.markCheckpointDirty(binding);
+      const response = await withTimeout(
+        binding.connection.request(CODEX_STEER_METHOD, {
+          sessionId: binding.sessionId,
+          prompt: content,
+          clientMessageId,
+        }),
+        this.requestTimeoutMs,
+        'Codex ACP steer',
+      );
+      return {
+        sessionId: binding.sessionId,
+        turnId: String(response?.turnId || ''),
+        clientMessageId,
+      };
+    };
+    const previous = binding.steerTail || Promise.resolve();
+    const pending = previous.catch(() => {}).then(operation);
+    binding.steerTail = pending;
+    try {
+      return await pending;
+    } finally {
+      if (binding.steerTail === pending) binding.steerTail = null;
+    }
+  }
+
   async cancel(agentId) {
     const binding = this.requireBinding(agentId);
     if (!binding.sessionId) return false;
@@ -1249,6 +1323,7 @@ class AcpRuntime extends EventEmitter {
       error: binding.error,
       errorKind: binding.error ? acpErrorKind(binding.error) : '',
       stopReason: binding.stopReason,
+      supportsSteer: binding.supportsSteer === true,
       protocolVersion: binding.initializeResponse?.protocolVersion || null,
       agentInfo: binding.initializeResponse?.agentInfo || null,
       capabilities: binding.initializeResponse?.agentCapabilities || {},
@@ -1439,6 +1514,7 @@ class AcpRuntime extends EventEmitter {
       error: binding.error,
       errorKind: binding.error ? acpErrorKind(binding.error) : '',
       stopReason: binding.stopReason,
+      supportsSteer: binding.supportsSteer === true,
       pendingPermission: binding.pendingPermissions.values().next().value || null,
       pendingPermissions: [...binding.pendingPermissions.values()],
       pendingElicitation: binding.pendingElicitations.values().next().value || null,
@@ -1521,4 +1597,7 @@ module.exports = {
   codexAcpEnvironment,
   promptContentForCapabilities,
   resolveAcpLaunch,
+  supportsCodexSteer,
+  isCodexSteerUnavailableError,
+  CODEX_STEER_METHOD,
 };

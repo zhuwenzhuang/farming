@@ -132,6 +132,86 @@ async function run() {
     await manager.dispose();
   }
 
+  const codexRuntime = new AcpRuntime({
+    resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
+  });
+  const codexManager = new AgentManager(config(), { acpRuntime: codexRuntime, skipExecutablePreflight: true });
+  try {
+    const codexAgentId = await new Promise(resolve => {
+      codexManager.startAgent('codex', process.cwd(), (id, error) => {
+        assert.ifError(error);
+        resolve(id);
+      }, { agentRuntimeMode: 'chat', wantsMain: false });
+    });
+    const codexAgent = codexManager.getState().agents.find(agent => agent.id === codexAgentId);
+    assert.strictEqual(codexAgent.providerCapabilities.supportsSteer, true);
+    assert.strictEqual(codexAgent.runtimeBinding.supportsSteer, true);
+
+    const firstTurn = codexManager.sendComposerMessage(codexAgentId, 'hold for steer');
+    while (!codexRuntime.canSteer(codexAgentId)) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    const steerResult = await codexManager.sendComposerMessage(codexAgentId, [
+      { type: 'text', text: 'inspect the attached image instead' },
+      { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' },
+    ]);
+    assert.strictEqual(steerResult.steered, true);
+    assert.strictEqual(steerResult.turnId, 'fake-active-turn');
+    await firstTurn;
+    const steeredEntries = codexManager.getAcpSession(codexAgentId).entries;
+    const steeredUser = steeredEntries.find(entry => entry.role === 'user' && entry._meta?.codex?.steer === true);
+    assert(steeredUser, 'accepted steer should appear once in the ordered ACP transcript');
+    assert.strictEqual(steeredUser.content[0].text, 'inspect the attached image instead');
+    assert.strictEqual(steeredUser.content[1].type, 'image');
+    assert.strictEqual(steeredEntries.filter(entry => entry._meta?.codex?.steer === true).length, 1);
+
+    const orderedTurn = codexManager.sendComposerMessage(codexAgentId, 'hold for two steers');
+    while (!codexRuntime.canSteer(codexAgentId)) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    const orderedSteers = await Promise.all([
+      codexManager.sendComposerMessage(codexAgentId, 'first rapid steer'),
+      codexManager.sendComposerMessage(codexAgentId, 'second rapid steer'),
+    ]);
+    assert(orderedSteers.every(result => result.steered === true));
+    await orderedTurn;
+    const orderedUserSteers = codexManager.getAcpSession(codexAgentId).entries
+      .filter(entry => entry.role === 'user' && entry._meta?.codex?.steer === true)
+      .slice(-2)
+      .map(entry => entry.content[0].text);
+    assert.deepStrictEqual(orderedUserSteers, ['first rapid steer', 'second rapid steer']);
+
+    const originalCanSteer = codexRuntime.canSteer.bind(codexRuntime);
+    const originalSteer = codexRuntime.steer.bind(codexRuntime);
+    codexRuntime.canSteer = () => true;
+    codexRuntime.steer = async () => {
+      const error = new Error('Invalid request');
+      error.data = { details: 'expected active turn id old but found new' };
+      throw error;
+    };
+    const raceFallback = await codexManager.sendComposerMessage(codexAgentId, 'phase-aware mermaid after steer race');
+    assert.strictEqual(raceFallback.steered, undefined);
+    assert.strictEqual(raceFallback.stopReason, 'end_turn');
+
+    const entriesBeforeAmbiguousFailure = codexManager.getAcpSession(codexAgentId).entries.length;
+    codexRuntime.steer = async () => {
+      throw new Error('ACP request timed out');
+    };
+    await assert.rejects(
+      codexManager.sendComposerMessage(codexAgentId, 'do not replay this ambiguous steer'),
+      /timed out/,
+    );
+    assert.strictEqual(
+      codexManager.getAcpSession(codexAgentId).entries.length,
+      entriesBeforeAmbiguousFailure,
+      'an ambiguous steer failure must not replay as a new prompt',
+    );
+    codexRuntime.canSteer = originalCanSteer;
+    codexRuntime.steer = originalSteer;
+  } finally {
+    await codexManager.dispose();
+  }
+
   const openCodeRuntime = new AcpRuntime({
     resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
   });

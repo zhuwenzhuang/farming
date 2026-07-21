@@ -158,6 +158,10 @@ function codexMessagePhase(entry: AcpRecord) {
   return stringValue(record(record(entry._meta).codex).phase).trim().toLowerCase()
 }
 
+function isCodexSteerEntry(entry: AcpRecord) {
+  return record(record(entry._meta).codex).steer === true
+}
+
 function diffBlocks(content: unknown) {
   return list(content)
     .map(record)
@@ -531,6 +535,21 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
   for (const value of list(session.entries)) {
     const entry = record(value)
     if (entry.type === 'message' && entry.role === 'user') {
+      if (isCodexSteerEntry(entry)) {
+        if (!current) current = emptyTurn(`acp-segment-${++sequence}`, false)
+        const entryId = stringValue(entry.id) || String(++sequence)
+        current.processItems.push({
+          id: `acp-steer-${entryId}`,
+          type: 'user-steer',
+          title: 'Steering update',
+          detail: contentText(entry.content),
+          images: contentImages(entry.content, entryId),
+          audios: contentAudios(entry.content, entryId),
+          files: contentFiles(entry.content, entryId),
+          status: 'completed',
+        })
+        continue
+      }
       flush()
       const entryId = stringValue(entry.id) || String(++sequence)
       current = emptyTurn(`acp-turn-${entryId}`, entry.internal === true)

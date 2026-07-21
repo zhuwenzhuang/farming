@@ -29,11 +29,12 @@ flowchart LR
 - permission request、elicitation 与 authentication；
 - tool detail、diff、patch decision 和 ACP terminal；
 - 文本、图片和音频 prompt part；
+- 通过可协商、带版本的 adapter 扩展对活跃 Codex turn 执行实时 steer；
 - agent 声明支持时的 session mode 与 config option。
 
 能力以 ACP initialize 与 session metadata 为准。连接的 agent 未声明某项能力时，UI 必须禁用或隐藏相应控制。Codex 差异应停留在 provider adapter 边界，不能分叉通用生命周期或 Chat UI。
 
-ACP 标准没有 live steer 操作。因此 turn 活跃时提交的新消息在 Farming 中是明确的排队追问，不会修改正在执行的 turn。停止当前 prompt 使用标准 cancel。
+ACP 标准没有 live steer 操作。因此 Farming 锁定的 Codex adapter 会声明带版本的 `_codex/session/steer` 扩展，并携带活跃 turn id 转发到 Codex App Server `turn/steer`。统一 Chat 后端只在实时 adapter 明确声明该能力时使用它；其他 ACP provider 仍保留明确的排队追问行为，停止当前 prompt 继续使用标准 cancel。
 
 ## 生命周期与恢复
 
@@ -52,7 +53,7 @@ Codex Chat 改动需要覆盖：
 
 1. 确定性 ACP 协议测试：initialize、new/load、prompt、cancel、update、permission、elicitation、authentication、tool、terminal、config 和混合 prompt part；
 2. 恢复测试：精确 checkpoint、stale/dirty checkpoint、断线，以及旧 App Server 元数据迁移；
-3. 浏览器测试：Chat/Terminal 切换、transcript、权限/输入卡片、附件、排队追问、cancel、刷新与重连；
-4. 通过 `codex-acp` 的低频真实 Codex smoke：文本、图片、混合输入、排队追问、cancel 和 session resume。
+3. 浏览器测试：Chat/Terminal 切换、transcript、权限/输入卡片、附件、协商后的 Codex steer、非 Codex 排队追问、cancel、刷新与重连；
+4. 通过 `codex-acp` 的低频真实 Codex smoke：文本、图片、混合输入 steer、turn 结束竞态、cancel 和 session resume。
 
 发布门禁仍为 `npm run test:pre-release:codex-ui`，但它必须覆盖受支持的 ACP 路径，而不是私有 Codex transport。

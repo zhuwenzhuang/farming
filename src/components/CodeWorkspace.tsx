@@ -1914,6 +1914,7 @@ export function CodeWorkspace({
       attachments: composerAttachments,
       composerMode,
       turnActive: activeAgentTurnActive || promptStartFenced,
+      supportsSteer: activeAgent?.providerCapabilities.supportsSteer === true,
       sendMessage: (agent, message, attachments) => {
         const submitted = sendComposerMessageToAgent(agent, message, attachments)
         return typeof submitted === 'boolean' ? submitted : false

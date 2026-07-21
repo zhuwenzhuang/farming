@@ -23,6 +23,7 @@ let refreshedModelId = '';
 let activeModel = 'gpt-5.5';
 let activeEffort = 'high';
 const cancelledSessions = new Map();
+let activeSteerTurn = null;
 
 function sessionConfigOptions() {
   return [
@@ -61,6 +62,7 @@ class FakeAgent {
         loadSession: true,
         promptCapabilities: { image: true, audio: true, embeddedContext: true },
         sessionCapabilities: { list: {}, resume: {}, fork: {}, delete: {}, close: {} },
+        _meta: { codex: { steer: { method: '_codex/session/steer', version: 1 } } },
       },
       authMethods: [{
         id: 'fake-login',
@@ -214,6 +216,41 @@ class FakeAgent {
   }
 
   async extMethod(method, params) {
+    if (method === '_codex/session/steer') {
+      if (!activeSteerTurn || activeSteerTurn.sessionId !== params.sessionId) {
+        const error = new Error('No active Codex turn to steer');
+        error.data = { details: 'no active turn to steer' };
+        throw error;
+      }
+      const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
+      for (const content of params.prompt || []) {
+        await client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: 'user_message_chunk',
+            messageId: params.clientMessageId,
+            content,
+            _meta: { codex: { steer: true, turnId: activeSteerTurn.turnId } },
+          },
+        });
+      }
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: `steer-accepted-answer-${activeSteerTurn.received + 1}`,
+          content: { type: 'text', text: `Steer accepted: ${promptText}` },
+        },
+      });
+      activeSteerTurn.received += 1;
+      const turnId = activeSteerTurn.turnId;
+      if (activeSteerTurn.received >= activeSteerTurn.expected) {
+        const turn = activeSteerTurn;
+        activeSteerTurn = null;
+        turn.release();
+      }
+      return { turnId };
+    }
     if (method !== 'session/set_model') throw new Error(`Unsupported extension method: ${method}`);
     refreshedModelId = params.modelId;
     const match = refreshedModelId.match(/^(.+)\[([^\]]+)]$/);
@@ -235,6 +272,27 @@ class FakeAgent {
   async prompt(params) {
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
     const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
+    if (promptText.includes('hold for steer') || promptText.includes('hold for two steers')) {
+      let releaseSteerTurn;
+      const steerTurnReleased = new Promise(resolve => { releaseSteerTurn = resolve; });
+      activeSteerTurn = {
+        sessionId: params.sessionId,
+        turnId: 'fake-active-turn',
+        expected: promptText.includes('two steers') ? 2 : 1,
+        received: 0,
+        release: releaseSteerTurn,
+      };
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'steer-ready',
+          content: { type: 'text', text: 'Waiting for steering.' },
+        },
+      });
+      await steerTurnReleased;
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('phase-aware mermaid')) {
       await client.sessionUpdate({
         sessionId: params.sessionId,

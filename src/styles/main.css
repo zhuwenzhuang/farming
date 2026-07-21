@@ -3812,13 +3812,13 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 7px;
 }
 
 .code-product-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 26px 28px;
+  grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;
   gap: 6px;
 }
@@ -3965,31 +3965,45 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   outline-offset: 2px;
 }
 
-.code-instance-name-edit {
-  width: 26px;
-  height: 26px;
+body.code-mode .code-instance-name {
+  width: 100%;
+  min-width: 0;
+  min-height: 18px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 5px;
+  padding: 1px 3px 1px 2px;
   background: transparent;
-  color: #7a8278;
+  color: #858b83;
   cursor: pointer;
-  display: inline-grid;
-  place-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 12px;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: left;
 }
 
-.code-instance-name-edit svg {
-  width: 14px;
-  height: 14px;
+.code-instance-name-copy {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.code-instance-name-edit:hover {
-  background: rgba(0, 0, 0, 0.07);
+.code-instance-name svg {
+  width: 11px;
+  height: 11px;
+}
+
+.code-instance-name:hover {
+  background: rgba(0, 0, 0, 0.045);
   color: #3f4c68;
 }
 
-.code-instance-name-edit:focus-visible {
+.code-instance-name:focus-visible {
   outline: 2px solid #9aa597;
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 
 .code-instance-name-dialog {
@@ -19073,7 +19087,7 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
   }
 
   body.code-mode.code-mobile-touch .code-product-row {
-    grid-template-columns: minmax(0, 1fr) 40px 40px;
+    grid-template-columns: minmax(0, 1fr) 40px;
     gap: 4px;
   }
 
@@ -19093,9 +19107,16 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     background: rgba(31, 35, 40, 0.045);
   }
 
-  body.code-mode.code-mobile-touch .code-instance-name-edit {
-    width: 40px;
-    height: 40px;
+  body.code-mode.code-mobile-touch .code-instance-name {
+    min-height: 40px;
+    grid-template-columns: minmax(0, 1fr) 16px;
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+
+  body.code-mode.code-mobile-touch .code-instance-name svg {
+    width: 14px;
+    height: 14px;
   }
 
   body.code-mode.code-mobile-touch .code-mobile-topbar {

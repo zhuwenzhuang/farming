@@ -63,6 +63,30 @@ assert.doesNotMatch(transcript.turns[0].processItems[2].detail, /Terminal: termi
 assert.match(transcript.turns[0].processItems[2].detail, /Output\nok/);
 assert.match(transcript.turns[0].processItems[2].detail, /Locations\n\/tmp\/a\.js:3/);
 
+const steeredTranscript = acpSessionTranscript({
+  state: 'working',
+  entries: [
+    { id: 'steer-user', type: 'message', role: 'user', content: [{ type: 'text', text: 'Start broadly' }] },
+    { id: 'steer-progress', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Inspecting broadly' }] },
+    {
+      id: 'steer-update',
+      type: 'message',
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Focus on this image' },
+        { type: 'image', mimeType: 'image/png', data: 'aW1hZ2U=' },
+      ],
+      _meta: { codex: { steer: true, turnId: 'turn-1' } },
+    },
+    { id: 'steer-answer', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Following the new direction' }] },
+  ],
+});
+assert.strictEqual(steeredTranscript.turns.length, 1, 'a steer stays inside the active Codex turn');
+const steerItem = steeredTranscript.turns[0].processItems.find(item => item.type === 'user-steer');
+assert.strictEqual(steerItem.detail, 'Focus on this image');
+assert.strictEqual(steerItem.images.length, 1);
+assert.strictEqual(steeredTranscript.turns[0].status, 'inProgress');
+
 const mirroredCommandOutput = acpSessionTranscript({
   state: 'idle',
   entries: [

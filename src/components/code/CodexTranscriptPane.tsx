@@ -1985,6 +1985,9 @@ function CodexTranscriptTurnView({
             <span>{turnProcessLabel(turn, copy, workingLabel, planLabel)}</span>
             <ChevronRightGlyph className="code-codex-transcript-chevron" />
           </button>
+          {!effectiveProcessOpen ? resolvedProcessItems
+            .filter(isUserSteerProcessItem)
+            .map(item => <CodexTranscriptSteerItem key={item.id} item={item} />) : null}
           {effectiveProcessOpen ? (
             <div className="code-codex-transcript-process-list">
               {processEntries.map(entry => {

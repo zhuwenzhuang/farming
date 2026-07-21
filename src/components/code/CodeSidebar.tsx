@@ -709,14 +709,28 @@ export function CodeSidebar({
       </div>
 
       <div className="code-sidebar-footer">
+        {!sidebarCollapsed && (
+          <button
+            ref={instanceNameEditRef}
+            type="button"
+            className="code-instance-name"
+            data-testid="code-instance-name-edit"
+            aria-label={copy.renameInstance}
+            title={instanceName}
+            onClick={() => setInstanceNameDialogOpen(true)}
+          >
+            <span className="code-instance-name-copy">{instanceName}</span>
+            <PencilGlyph />
+          </button>
+        )}
         <div className="code-product-row">
           <button
             ref={productMarkRef}
             type="button"
             className="code-product-mark"
             data-testid="code-product-mark"
-            title={instanceName}
-            aria-label={instanceName}
+            title="Farming Code"
+            aria-label="Farming Code"
             onClick={() => setBrandDialogOpen(true)}
           >
             <img
@@ -727,27 +741,14 @@ export function CodeSidebar({
             />
             <span className="code-product-mark-copy">
               <span className="code-product-mark-main-slot">
-                <span className="code-product-mark-main code-product-mark-main-full">{instanceName}</span>
-                <span className="code-product-mark-main code-product-mark-main-short" aria-hidden="true">{instanceName}</span>
+                <span className="code-product-mark-main code-product-mark-main-full">Farming Code</span>
+                <span className="code-product-mark-main code-product-mark-main-short" aria-hidden="true">Farming</span>
               </span>
               {currentVersionLabel && (
                 <span className="code-product-mark-badge">{currentVersionLabel}</span>
               )}
             </span>
           </button>
-          {!sidebarCollapsed && (
-            <button
-              ref={instanceNameEditRef}
-              type="button"
-              className="code-instance-name-edit"
-              data-testid="code-instance-name-edit"
-              aria-label={copy.renameInstance}
-              title={copy.renameInstance}
-              onClick={() => setInstanceNameDialogOpen(true)}
-            >
-              <PencilGlyph />
-            </button>
-          )}
           <button
             type="button"
             className="code-sidebar-options"

@@ -34,6 +34,7 @@ function run() {
     attachments: [readyImage()],
     composerMode: 'plan',
     turnActive: true,
+    supportsSteer: false,
     sendMessage,
     updateComposerState,
   }), true);
@@ -52,12 +53,30 @@ function run() {
     attachments: [readyImage()],
     composerMode: 'default',
     turnActive: false,
+    supportsSteer: false,
     sendMessage,
     updateComposerState,
   }), true);
   assert.strictEqual(sent.length, 1);
   assert.strictEqual(sent[0].text, 'send now');
   assert.strictEqual(sent[0].attachments[0].name, 'screen.png');
+
+  state = createDefaultAgentComposerState();
+  assert.strictEqual(submitAcpDraft({
+    agent,
+    composerKey: 'acp:session-1',
+    draft: 'change direction now',
+    attachments: [readyImage()],
+    composerMode: 'default',
+    turnActive: true,
+    supportsSteer: true,
+    sendMessage,
+    updateComposerState,
+  }), true);
+  assert.strictEqual(sent.length, 2, 'a steer-capable running ACP turn should submit immediately');
+  assert.strictEqual(sent[1].text, 'change direction now');
+  assert.strictEqual(sent[1].attachments[0].path, '/tmp/screen.png');
+  assert.strictEqual(state.pendingFollowUp, undefined);
 
   console.log('ACP composer behavior tests passed');
 }

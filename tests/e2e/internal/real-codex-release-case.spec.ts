@@ -316,7 +316,7 @@ async function sendCodeComposerInput(page: Page, message: string) {
   await expect(input).toHaveValue('')
 }
 
-async function sendCodeAcpPromptAndQueuedFollowUp(page: Page) {
+async function sendCodeAcpPromptAndSteer(page: Page) {
   const input = page.getByTestId('code-composer-input')
   const send = page.getByTestId('code-composer-send')
   await expect(input).toBeEnabled()
@@ -324,6 +324,8 @@ async function sendCodeAcpPromptAndQueuedFollowUp(page: Page) {
   await send.click()
   await expect(input).toHaveValue('')
   await expect(send).toHaveAttribute('data-action', 'interrupt', { timeout: 60_000 })
+  await expect(page.locator('.code-codex-transcript-assistant.code-markdown-preview')
+    .filter({ hasText: `ACP_LONG_BEGIN_${ANCHOR_SUFFIX}` }).last()).toBeVisible({ timeout: 60_000 })
   await input.fill(`Reply with only ${ACP_FOLLOW_UP_ACK}.`)
   await expect(send).toHaveAttribute('data-action', 'send')
   await send.click()
@@ -686,12 +688,14 @@ test.describe('real Codex pre-release composite case', () => {
       })
     })
 
-    await test.step('Code ACP Chat reloads the same session, renders formats, and runs a queued follow-up', async () => {
+    await test.step('Code ACP Chat reloads the same session, renders formats, and steers the active turn', async () => {
       agentId = await switchCodeRuntime(page, agentId, 'chat')
       await assertSameProviderSession(page, agentId, providerSessionId, 'acp')
       await expect(page.getByTestId('code-agent-chat-view')).toBeVisible({ timeout: 90_000 })
       await assertChatFormats(page)
-      await sendCodeAcpPromptAndQueuedFollowUp(page)
+      await sendCodeAcpPromptAndSteer(page)
+      await expect(page.getByTestId('code-codex-transcript-steer')
+        .filter({ hasText: ACP_FOLLOW_UP_ACK }).last()).toBeVisible({ timeout: 60_000 })
       await expect(page.locator('.code-codex-transcript-assistant.code-markdown-preview')
         .filter({ hasText: ACP_FOLLOW_UP_ACK }).last()).toBeVisible({ timeout: 120_000 })
       await resizeStructuredView(page, COMPOSITE_END)

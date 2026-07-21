@@ -20,6 +20,7 @@ interface SubmitAcpDraftInput {
   attachments: ComposerAttachment[]
   composerMode: ComposerMode
   turnActive: boolean
+  supportsSteer: boolean
   sendMessage: (agent: Agent, message: string, attachments?: ComposerPromptAttachment[]) => boolean
   updateComposerState: (
     key: string,
@@ -39,13 +40,15 @@ export function submitAcpDraft({
   attachments,
   composerMode,
   turnActive,
+  supportsSteer,
   sendMessage,
   updateComposerState,
 }: SubmitAcpDraftInput) {
   const promptAttachments = composerPromptAttachments(attachments)
   const text = formatComposerMessage(composerMode, composerMessageForNativeAttachments(draft, attachments).trim())
   if ((!text && promptAttachments.length === 0) || !agent || agent.runtimeBinding.kind !== 'acp' || !composerKey) return false
-  if (!turnActive && !sendMessage(agent, text, promptAttachments)) return false
+  const steerNow = turnActive && supportsSteer
+  if ((!turnActive || steerNow) && !sendMessage(agent, text, promptAttachments)) return false
 
   updateComposerState(composerKey, state => ({
     ...state,
@@ -53,7 +56,7 @@ export function submitAcpDraft({
     attachments: [],
     mode: 'default',
     history: addComposerHistoryEntry(state.history, draft),
-    ...(turnActive ? {
+    ...(turnActive && !steerNow ? {
       pendingFollowUp: {
         messages: [
           ...(state.pendingFollowUp?.messages || []),

@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, promptContentForCapabilities, resolveAcpLaunch } = require('../acp-runtime');
+const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, promptContentForCapabilities, resolveAcpLaunch, supportsCodexSteer } = require('../acp-runtime');
 const { AcpSessionState } = require('../acp-session-state');
 
 async function run() {
@@ -13,6 +13,12 @@ async function run() {
   assert.strictEqual(acpErrorKind(new Error('unexpected failure')), 'unknown');
   assert.strictEqual(resolveAcpLaunch('codex').version, '1.1.4');
   assert.strictEqual(resolveAcpLaunch('claude').version, '0.59.0');
+  assert.strictEqual(supportsCodexSteer({
+    _meta: { codex: { steer: { method: '_codex/session/steer', version: 1 } } },
+  }), true);
+  assert.strictEqual(supportsCodexSteer({
+    _meta: { codex: { steer: { method: '_codex/session/steer', version: 0 } } },
+  }), false);
   const compatibleCodexLaunch = resolveAcpLaunch('codex', {
     runtimeEnv: {
       FARMING_NODE_BIN: '/opt/farming/node',

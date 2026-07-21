@@ -33,6 +33,7 @@ export function runtimeBindingForMode(
       state: 'starting',
       error: '',
       stopReason: '',
+      supportsSteer: false,
       pendingPermission: null,
       pendingPermissions: [],
       pendingElicitation: null,

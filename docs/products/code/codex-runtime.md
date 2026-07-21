@@ -29,11 +29,12 @@ The supported ACP surface includes:
 - permission requests, elicitation, and authentication;
 - tool-call details, diffs, patch decisions, and ACP terminals;
 - text, image, and audio prompt parts;
+- live steer for the active Codex turn through a negotiated, versioned adapter extension;
 - session modes and configuration options when the agent advertises them.
 
 Capabilities come from ACP initialization and session metadata. The UI must disable or omit controls that the connected agent does not advertise. Codex-specific behavior must stay at the provider-adapter boundary rather than branching the generic lifecycle or Chat UI.
 
-ACP has no standard live-steer operation. A message submitted while a turn is active is therefore an explicit queued follow-up in Farming, not an in-flight mutation of the active turn. Cancel remains the standard bounded way to stop an active prompt.
+ACP has no standard live-steer operation. Farming's pinned Codex adapter therefore advertises a versioned `_codex/session/steer` extension and forwards it to Codex App Server `turn/steer` with the active turn id. The shared Chat backend uses this only when the live adapter advertises it. Other ACP providers keep the explicit queued-follow-up behavior, and cancel remains the standard bounded way to stop an active prompt.
 
 ## Lifecycle and recovery
 
@@ -52,7 +53,7 @@ Changes to Codex Chat should cover:
 
 1. deterministic ACP protocol tests for initialization, new/load, prompt, cancel, updates, permissions, elicitation, authentication, tools, terminals, configuration, and mixed prompt parts;
 2. recovery tests for exact checkpoints, stale or dirty checkpoints, disconnects, and legacy App Server metadata migration;
-3. browser tests for Chat/Terminal switching, transcript rendering, permission/input cards, attachments, queued follow-ups, cancellation, refresh, and reconnect;
-4. a low-volume real Codex smoke through `codex-acp`, including text, image, mixed input, a queued follow-up, cancellation, and session resume.
+3. browser tests for Chat/Terminal switching, transcript rendering, permission/input cards, attachments, negotiated Codex steer, non-Codex queued follow-ups, cancellation, refresh, and reconnect;
+4. a low-volume real Codex smoke through `codex-acp`, including text, image, mixed-input steer, turn-end races, cancellation, and session resume.
 
 The release gate remains `npm run test:pre-release:codex-ui`; it must exercise the supported ACP path rather than a private Codex transport.

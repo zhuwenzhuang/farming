@@ -10,6 +10,7 @@ function acpBinding(source = {}) {
     state: source.state || source.acpState || '',
     error: source.error || source.acpError || '',
     stopReason: source.stopReason || source.acpStopReason || '',
+    supportsSteer: source.supportsSteer === true,
     pendingPermission: source.pendingPermission || source.acpPendingPermission || null,
     pendingPermissions: source.pendingPermissions || source.acpPendingPermissions || [],
     pendingElicitation: source.pendingElicitation || source.acpPendingElicitation || null,
