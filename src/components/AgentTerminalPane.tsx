@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { Agent } from '@/types/agent'
 import { usePooledTerminal } from '@/hooks/usePooledTerminal'
-import { isMobileTouchViewport } from '@/lib/responsive-mode'
+import { isTouchInputViewport } from '@/lib/responsive-mode'
 import type { TerminalPathOpenTarget, TerminalRecoveryStatus, TerminalSearchDirection, TerminalSearchResult } from '@/lib/terminal-session-pool'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
 import type { CodeCopy } from './code/copy'
@@ -53,7 +53,7 @@ function shouldSuppressRendererCursorForAgent(command?: string) {
 }
 
 function isMobileViewport() {
-  return isMobileTouchViewport()
+  return isTouchInputViewport()
 }
 
 function isPrimaryFindShortcut(event: Pick<KeyboardEvent, 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey' | 'key'>) {
@@ -385,6 +385,11 @@ export function AgentTerminalPane({
     focus()
   }, [active, agent.id, focus, onActivate])
 
+  const refreshTerminalLayoutAfterClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || getSelectionNow()) return
+    refreshLayout()
+  }, [getSelectionNow, refreshLayout])
+
   const jumpToLatestOutput = useCallback(() => {
     scrollToBottom()
     onReadLatest?.(agent.id, getReadCutNow())
@@ -428,6 +433,7 @@ export function AgentTerminalPane({
         className="code-terminal-container terminal-container"
         data-testid="code-terminal-container"
         ref={terminalContainerRef}
+        onClick={refreshTerminalLayoutAfterClick}
       />
       {terminalRecovering ? (
         <div

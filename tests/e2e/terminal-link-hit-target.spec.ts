@@ -86,3 +86,63 @@ test('terminal path affordance clears on same-line blank cells', async ({ page, 
   await expect(page.getByTestId('code-file-editor')).toBeVisible()
   await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('README.md')
 })
+
+test('modifier-click releases xterm selection tracking after opening a URL', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'terminal-modifier-click-release')
+  fs.mkdirSync(projectDir, { recursive: true })
+
+  const agentId = await createControlAgent(page, 'bash', projectDir)
+  await openFarming(page)
+  await selectAgent(page, agentId)
+
+  const url = 'https://example.test/path'
+  await page.evaluate(() => {
+    const target = window as unknown as {
+      __openedTerminalUrls?: string[]
+      __originalOpenForTerminalReleaseTest?: typeof window.open
+    }
+    target.__openedTerminalUrls = []
+    target.__originalOpenForTerminalReleaseTest = window.open
+    window.open = ((openedUrl?: string | URL) => {
+      target.__openedTerminalUrls?.push(String(openedUrl ?? ''))
+      return null
+    }) as typeof window.open
+  })
+
+  try {
+    await writeTerminalFixture(page, agentId, `${url}\r\n`)
+    const urlCell = await cellForText(page, agentId, 'example.test', 2)
+    await expect.poll(async () => page.evaluate(({ id, col, row }) => {
+      return window.__farmingTerminalTest?.getUrlAtCell(id, col, row) ?? null
+    }, { id: agentId, col: urlCell.col, row: urlCell.row })).toBe(url)
+
+    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
+    await page.keyboard.down(modifier)
+    try {
+      await page.mouse.click(urlCell.x, urlCell.y)
+    } finally {
+      await page.keyboard.up(modifier)
+    }
+    await expect.poll(async () => page.evaluate(() => {
+      return (window as unknown as { __openedTerminalUrls?: string[] }).__openedTerminalUrls ?? []
+    })).toEqual([url])
+
+    const releaseProbe = await page.evaluate(({ id, row }) => {
+      return window.__farmingTerminalTest?.getCellCenter(id, 0, row) ?? null
+    }, { id: agentId, row: urlCell.row })
+    if (!releaseProbe) throw new Error('Terminal mouse-release probe cell is missing')
+    await page.mouse.move(releaseProbe.x, releaseProbe.y)
+    await expect.poll(async () => page.evaluate((id) => {
+      return window.__farmingTerminalTest?.getSelection(id) ?? ''
+    }, agentId)).toBe('')
+  } finally {
+    await page.evaluate(() => {
+      const target = window as unknown as {
+        __originalOpenForTerminalReleaseTest?: typeof window.open
+      }
+      if (target.__originalOpenForTerminalReleaseTest) {
+        window.open = target.__originalOpenForTerminalReleaseTest
+      }
+    })
+  }
+})

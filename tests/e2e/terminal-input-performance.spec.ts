@@ -40,6 +40,23 @@ function terminalHost(page: Page, agentId: string) {
   return page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"] .terminal-session-host[data-agent-id="${agentId}"]`)
 }
 
+async function clickReadyTerminalInput(page: Page, agentId: string) {
+  const host = terminalHost(page, agentId)
+  await expect(host).not.toHaveClass(/terminal-checkpoint-installing/, { timeout: 15_000 })
+  await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"] [data-testid="code-terminal-recovery"]`))
+    .toHaveCount(0, { timeout: 15_000 })
+
+  const screen = host.locator('.xterm-screen')
+  await expect(screen).toBeVisible()
+  await screen.click({ position: { x: 8, y: 8 } })
+
+  const input = host.locator('.xterm-helper-textarea')
+  await expect(input).toHaveCount(1)
+  await expect.poll(() => input.evaluate(element => document.activeElement === element))
+    .toBe(true)
+  return input
+}
+
 async function openTerminal(page: Page, agentId: string) {
   const row = codeAgentRow(page, agentId)
   await expect(row).toBeVisible({ timeout: 30_000 })
@@ -120,9 +137,10 @@ test('terminal typing stays small and direct after switching an existing agent',
     .toEqual(expect.arrayContaining([expect.objectContaining({ agentId: firstAgentId })]))
   expect(afterFocus.filter(message => message.direction === 'received' && message.type === 'state')).toHaveLength(0)
 
-  const input = terminalHost(page, firstAgentId).locator('.xterm-helper-textarea')
-  await expect(input).toHaveCount(1)
-  await input.focus()
+  // Exercise the same path as a person: wait until the authoritative screen
+  // has finished installing, click the visible xterm surface, and prove that
+  // xterm moved focus to its native input before measuring key-to-PTY latency.
+  await clickReadyTerminalInput(page, firstAgentId)
 
   const samples: number[] = []
   const typingStart = messages.length

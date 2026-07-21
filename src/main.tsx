@@ -280,7 +280,6 @@ async function renderApplication() {
 
   await import('./styles/tokens.css')
   await import('./styles/main.css')
-  await import('./styles/code-mobile.css')
   await import('./styles/code-dark.css')
   const { App } = await import('./App')
   root.render(<ApplicationErrorBoundary><App /></ApplicationErrorBoundary>)

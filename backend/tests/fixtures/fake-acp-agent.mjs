@@ -272,6 +272,27 @@ class FakeAgent {
   async prompt(params) {
     const promptText = params.prompt?.map(block => block.type === 'text' ? block.text : '').join('') || '';
     const imageCount = params.prompt?.filter(block => block.type === 'image').length || 0;
+    if (promptText.includes('mobile interrupt')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'mobile-interrupt-waiting',
+          content: { type: 'text', text: 'Mobile interrupt waiting.' },
+        },
+      });
+      await new Promise(resolve => cancelledSessions.set(params.sessionId, resolve));
+      cancelledSessions.delete(params.sessionId);
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'mobile-interrupt-stopped',
+          content: { type: 'text', text: 'Mobile interrupt stopped.' },
+        },
+      });
+      return { stopReason: 'cancelled' };
+    }
     if (promptText.includes('hold for steer') || promptText.includes('hold for two steers')) {
       let releaseSteerTurn;
       const steerTurnReleased = new Promise(resolve => { releaseSteerTurn = resolve; });
@@ -606,6 +627,17 @@ class FakeAgent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('live progress')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'live-command',
+          title: 'PORT=4187 FARMING_PLAYWRIGHT_PORT=4187 FARMING_BASE_PATH=/farming node ./scripts/run-long-command.js --verify-mobile-composer-focus',
+          kind: 'execute',
+          status: 'in_progress',
+          rawInput: { command: 'PORT=4187 FARMING_PLAYWRIGHT_PORT=4187 FARMING_BASE_PATH=/farming node ./scripts/run-long-command.js --verify-mobile-composer-focus' },
+        },
+      });
       for (const [index, text] of ['Inspecting files', 'Editing display data', 'Running checks'].entries()) {
         await client.sessionUpdate({
           sessionId: params.sessionId,
@@ -615,6 +647,15 @@ class FakeAgent {
         // real queued-follow-up controls instead of racing an instant fixture.
         await new Promise(resolve => setTimeout(resolve, 500));
       }
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'live-command',
+          status: 'completed',
+          rawOutput: { stdout: 'checks passed\n', stderr: '', exitCode: 0 },
+        },
+      });
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: { sessionUpdate: 'agent_message_chunk', messageId: 'live-answer', content: { type: 'text', text: 'Live progress complete.' } },

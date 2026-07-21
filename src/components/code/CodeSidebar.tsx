@@ -63,7 +63,7 @@ import { BrandAboutDialog } from './BrandAboutDialog'
 import { InstanceNameDialog } from './InstanceNameDialog'
 import { mobileActionMenuPoint, outwardContextMenuPoint } from './menu-position'
 import { ShareQrButton } from './ShareQrButton'
-import { isMobileTouchViewport } from '@/lib/responsive-mode'
+import { isCompactViewport } from '@/lib/responsive-mode'
 import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { stableProjectSourceAgentId } from './workspace-derived'
 import { useBackendSystemStats, useHasBackendSystemStats } from '@/lib/backend-live-status'
@@ -2645,7 +2645,15 @@ function ProjectSection({
   const [projectSourceAgentId, setProjectSourceAgentId] = useState<string | null>(() => (
     stableProjectSourceAgentId(null, project.agents)
   ))
-  const nextProjectSourceAgentId = stableProjectSourceAgentId(projectSourceAgentId, project.agents)
+  const activeProjectAgentId = activeTerminalId && project.agents.some(agent => (
+    !agent.isMain && agent.id === activeTerminalId
+  ))
+    ? activeTerminalId
+    : null
+  const nextProjectSourceAgentId = stableProjectSourceAgentId(
+    activeProjectAgentId ?? projectSourceAgentId,
+    project.agents,
+  )
   const projectSourceAgent = project.agents.find(agent => (
     !agent.isMain && agent.id === nextProjectSourceAgentId
   )) ?? null
@@ -2672,7 +2680,7 @@ function ProjectSection({
   const sortedAgents = project.agents.filter(agent => !agent.pinned)
   const visibleAgentSessions = project.agentSessions.filter(session => !session.pinned)
   const showAgentsSection = sortedAgents.length > 0 || visibleAgentSessions.length > 0 || (project.hiddenAgentSessionCount ?? 0) > 0
-  const filesCompressAgents = projectFilesExpanded && isMobileTouchViewport() && sortedAgents.length > 1
+  const filesCompressAgents = projectFilesExpanded && isCompactViewport() && sortedAgents.length > 1
   const compactProjectAgents = (compactAgents || filesCompressAgents) && sortedAgents.length > 0
   const visibleProjectAgents = compactProjectAgents || projectAgentsExpanded
     ? sortedAgents
@@ -2852,7 +2860,7 @@ function ProjectSection({
     const rect = event.currentTarget.getBoundingClientRect()
     const menuWidth = 160
     const menuHeight = Math.min(260, agentLaunchOptions.length * 34 + 12)
-    const point = isMobileTouchViewport()
+    const point = isCompactViewport()
       ? mobileActionMenuPoint(rect, menuHeight, undefined, menuWidth)
       : outwardContextMenuPoint(rect, menuHeight, undefined, menuWidth)
     setLaunchMenu(point)
@@ -2874,7 +2882,7 @@ function ProjectSection({
     const rect = event.currentTarget.getBoundingClientRect()
     const menuWidth = Math.min(440, Math.max(320, window.innerWidth - 24))
     const menuHeight = Math.min(420, Math.max(132, (repositoryWorktrees?.items.length || 2) * 58 + 54))
-    const point = isMobileTouchViewport()
+    const point = isCompactViewport()
       ? mobileActionMenuPoint(rect, menuHeight, undefined, menuWidth)
       : outwardContextMenuPoint(rect, menuHeight, undefined, menuWidth)
     setWorktreeMenu(point)

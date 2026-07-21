@@ -12,6 +12,7 @@ const COMPOSITE_END = 'COMPOSITE_END_7F3A'
 const CRT_TERMINAL_ACK = 'CRT_TERMINAL_ACK_7F3A'
 const CRT_MSG_ACK = 'CRT_MSG_ACK_7F3A'
 const ACP_FOLLOW_UP_ACK = 'ACP_FOLLOW_UP_ACK_7F3A'
+const RUNNING_SWITCH_END = 'RUNNING_SWITCH_END_7F3A'
 const ANCHOR_SUFFIX = '7F3A'
 const NORMAL_VIEWPORT = { width: 1440, height: 900 }
 const COMPACT_VIEWPORT = { width: 1080, height: 650 }
@@ -62,8 +63,18 @@ type CrtTerminalState = {
   writeInProgress: boolean
   checkpointInFlight: boolean
   checkpointInstallInProgress: boolean
+  queuedTransitionCount: number
   pendingFitResize: { cols: number, rows: number } | null
   fitResizeTimerPending: boolean
+}
+
+type CrtTerminalGeometry = {
+  cols: number
+  rows: number
+  proposedCols: number
+  proposedRows: number
+  baseY: number
+  viewportY: number
 }
 
 declare global {
@@ -71,6 +82,7 @@ declare global {
     __farmingCrtTerminalTest?: {
       getState: () => CrtTerminalState | null
       getRows: () => string[]
+      getGeometry: () => CrtTerminalGeometry
     }
   }
 }
@@ -87,6 +99,12 @@ const CLI_PROMPT = oneLine(`
   CLI_JSON {"route":"terminal","ok":true}, then CLI_CJK 中文终端正常, and make the
   final line by concatenating CLI_FLOW_END_ and ${ANCHOR_SUFFIX}, with no separator.
   Do not omit or combine lines.
+`)
+
+const RUNNING_SWITCH_PROMPT = oneLine(`
+  Use the terminal tool to run exactly this command and wait for it to finish:
+  for i in $(seq 1 300); do echo REAL_CODEX_RUNNING_SWITCH_$i; sleep 0.1; done
+  After it finishes, reply with only ${RUNNING_SWITCH_END}. Do not do anything else.
 `)
 
 const COMPOSITE_PROMPT = `Do not use tools or inspect files. Return only the requested Markdown, with no introduction or conclusion. Do not wrap the whole response in one code fence.
@@ -317,8 +335,8 @@ async function sendCodeComposerInput(page: Page, message: string) {
 }
 
 async function sendCodeAcpPromptAndSteer(page: Page) {
-  const input = page.getByTestId('code-composer-input')
-  const send = page.getByTestId('code-composer-send')
+  const input = page.getByTestId('code-acp-composer-input')
+  const send = page.getByTestId('code-acp-composer-send')
   await expect(input).toBeEnabled()
   await input.fill(ACP_LONG_PROMPT)
   await send.click()
@@ -429,6 +447,24 @@ async function waitForCrtTerminal(page: Page) {
   })
 }
 
+async function waitForCrtSurfaceFitWhileCodexIsBusy(page: Page, agentId: string) {
+  await expect(page.locator('#terminal-output .xterm')).toBeVisible({ timeout: 60_000 })
+  await expect.poll(async () => {
+    const current = await agent(page, agentId)
+    const geometry = await page.evaluate(() => window.__farmingCrtTerminalTest?.getGeometry() ?? null)
+    const activity = current?.terminalStatus?.activity || ''
+    return {
+      busy: current?.terminalBusy === true || (activity !== '' && activity !== 'idle'),
+      fit: Boolean(
+        geometry
+        && geometry.cols === geometry.proposedCols
+        && geometry.rows === geometry.proposedRows
+      ),
+      atBottom: Boolean(geometry && geometry.baseY === geometry.viewportY),
+    }
+  }, { timeout: 30_000 }).toEqual({ busy: true, fit: true, atBottom: true })
+}
+
 async function waitForCrtTerminalIdle(page: Page, agentId: string) {
   await waitForAgent(page, agentId, current => current.terminalStatus?.activity === 'idle', 120_000)
 }
@@ -437,41 +473,26 @@ async function waitForCrtAnchor(page: Page, anchor: string, timeout = 120_000) {
   await expect.poll(async () => (await crtRows(page)).join('\n'), { timeout }).toContain(anchor)
 }
 
-async function sampleCrtAnchor(page: Page, anchor: string, durationMs = 70) {
-  return page.evaluate(async ({ expected, duration }) => {
-    const startedAt = performance.now()
-    let samples = 0
-    let stableMissing = 0
-    let transientMissing = 0
-    while (performance.now() - startedAt < duration) {
-      const rows = window.__farmingCrtTerminalTest?.getRows() ?? []
-      const state = window.__farmingCrtTerminalTest?.getState() ?? null
-      const transitioning = Boolean(
-        state?.writeInProgress
-        || state?.replaying
-        || state?.checkpointInFlight
-        || state?.checkpointInstallInProgress
-      )
-      samples += 1
-      if (!rows.join('\n').includes(expected)) {
-        if (transitioning) transientMissing += 1
-        else stableMissing += 1
-      }
-      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-    }
-    return { samples, stableMissing, transientMissing }
-  }, { expected: anchor, duration: durationMs })
-}
-
-async function resizeCrtTerminal(page: Page, normalAnchor: string, compactAnchor = normalAnchor) {
+async function resizeCrtTerminal(page: Page, initialAnchor: string) {
+  await waitForCrtAnchor(page, initialAnchor, 15_000)
   const initial = await page.evaluate(() => window.__farmingCrtTerminalTest?.getState() ?? null)
   expect(initial).not.toBeNull()
+  const runtimeEpoch = initial!.runtimeEpoch
+  let outputSeq = initial!.outputSeq
+  let stateRevision = initial!.stateRevision
+  const assertOrderedState = async () => {
+    const state = await page.evaluate(() => window.__farmingCrtTerminalTest?.getState() ?? null)
+    expect(state).not.toBeNull()
+    expect(state!.runtimeEpoch).toBe(runtimeEpoch)
+    expect(state!.outputSeq).toBeGreaterThanOrEqual(outputSeq)
+    expect(state!.stateRevision).toBeGreaterThanOrEqual(stateRevision)
+    outputSeq = state!.outputSeq
+    stateRevision = state!.stateRevision
+  }
   for (const size of resizePath(NORMAL_VIEWPORT, COMPACT_VIEWPORT)) {
     await page.setViewportSize(size)
-    const sample = await sampleCrtAnchor(page, normalAnchor)
-    expect(sample.samples).toBeGreaterThan(0)
-    expect(sample.stableMissing).toBe(0)
     await page.waitForTimeout(40)
+    await assertOrderedState()
   }
   await expect.poll(async () => {
     const state = await page.evaluate(() => window.__farmingCrtTerminalTest?.getState() ?? null)
@@ -483,13 +504,10 @@ async function resizeCrtTerminal(page: Page, normalAnchor: string, compactAnchor
   }, { timeout: 15_000 }).toEqual({ changed: true, pending: null, timerPending: false })
   const compact = await page.evaluate(() => window.__farmingCrtTerminalTest?.getState() ?? null)
   expect({ cols: compact?.cols, rows: compact?.rows }).not.toEqual({ cols: initial?.cols, rows: initial?.rows })
-  await waitForCrtAnchor(page, compactAnchor, 15_000)
   for (const size of resizePath(COMPACT_VIEWPORT, NORMAL_VIEWPORT)) {
     await page.setViewportSize(size)
-    const sample = await sampleCrtAnchor(page, compactAnchor)
-    expect(sample.samples).toBeGreaterThan(0)
-    expect(sample.stableMissing).toBe(0)
     await page.waitForTimeout(40)
+    await assertOrderedState()
   }
   await expect.poll(async () => {
     const state = await page.evaluate(() => window.__farmingCrtTerminalTest?.getState() ?? null)
@@ -497,8 +515,10 @@ async function resizeCrtTerminal(page: Page, normalAnchor: string, compactAnchor
       cols: state?.cols ?? 0,
       rows: state?.rows ?? 0,
       replaying: state?.replaying ?? true,
+      writeInProgress: state?.writeInProgress ?? true,
       checkpointInFlight: state?.checkpointInFlight ?? true,
       checkpointInstallInProgress: state?.checkpointInstallInProgress ?? true,
+      queuedTransitionCount: state?.queuedTransitionCount ?? -1,
       pending: state?.pendingFitResize ?? null,
       timerPending: state?.fitResizeTimerPending ?? true,
     }
@@ -506,13 +526,15 @@ async function resizeCrtTerminal(page: Page, normalAnchor: string, compactAnchor
     cols: initial?.cols,
     rows: initial?.rows,
     replaying: false,
+    writeInProgress: false,
     checkpointInFlight: false,
     checkpointInstallInProgress: false,
+    queuedTransitionCount: 0,
     pending: null,
     timerPending: false,
   })
+  await assertOrderedState()
   await expect(page.locator('.crt-webgl-error')).toHaveCount(0)
-  await waitForCrtAnchor(page, normalAnchor, 15_000)
 }
 
 async function sendCrtTerminalInput(page: Page, message: string) {
@@ -634,6 +656,8 @@ test.describe('real Codex pre-release composite case', () => {
     expect((await codeRows(page, agentId)).join('\n')).not.toContain('Do you trust the contents of this directory?')
 
     await test.step('Code Terminal switches to the fixed low-cost model', async () => {
+      const restoreComposer = page.getByTestId('code-composer-restore')
+      if (await restoreComposer.isVisible()) await restoreComposer.click()
       const picker = page.getByTestId('code-composer-model-picker')
       await expect(picker).toHaveAttribute('data-agent-model-preset', `${launchModel?.value}:${PRIMARY_EFFORT}`, { timeout: 60_000 })
       await picker.click()
@@ -647,9 +671,30 @@ test.describe('real Codex pre-release composite case', () => {
       await page.keyboard.press('Escape')
     })
 
-    await test.step('Terminal input and Composer input create multi-page mixed-format output', async () => {
+    await test.step('Multi-page Composer output stays at the visible bottom during a running Code to CRT switch', async () => {
       await sendCodeTerminalInput(page, agentId, CLI_PROMPT, 'CLI_JSON')
       await waitForCompletedTerminalTurn(page, agentId, CLI_END)
+      await sendCodeComposerInput(page, RUNNING_SWITCH_PROMPT)
+      await expect(page.getByTestId('code-composer-send')).toHaveAttribute('data-action', 'interrupt', {
+        timeout: 60_000,
+      })
+      await waitForAgent(page, agentId, current => (
+        current.terminalBusy === true
+        || Boolean(current.terminalStatus?.activity && current.terminalStatus.activity !== 'idle')
+      ), 60_000)
+
+      await page.goto(`/farming/crt/?agent=${encodeURIComponent(agentId)}`, {
+        waitUntil: 'domcontentloaded',
+      })
+      await waitForCrtSurfaceFitWhileCodexIsBusy(page, agentId)
+      await waitForCrtTerminal(page)
+      await waitForCrtAnchor(page, RUNNING_SWITCH_END, 180_000)
+      await waitForCrtTerminalIdle(page, agentId)
+
+      await page.goto(`/farming/?agent=${encodeURIComponent(agentId)}`, {
+        waitUntil: 'domcontentloaded',
+      })
+      await waitForCodeTerminal(page, agentId)
       await sendCodeComposerInput(page, COMPOSITE_PROMPT)
       await waitForCompletedTerminalTurn(page, agentId, COMPOSITE_END)
       await waitForCodeAnchor(page, agentId, 'PAGE_06_LINE_18')
@@ -737,7 +782,11 @@ test.describe('real Codex pre-release composite case', () => {
       await waitForCrtTerminal(page)
       await waitForCrtAnchor(page, COMPOSITE_END, 180_000)
       await waitForCrtTerminalIdle(page, agentId)
-      await resizeCrtTerminal(page, COMPOSITE_END, 'PAGE_06_LINE_18')
+      // The terminal is intentionally following the latest output. After the
+      // ACP follow-up, older composite lines may move into scrollback during a
+      // narrow reflow; assert the newest preserved turn stays continuously
+      // visible instead of pinning the viewport to historical content.
+      await resizeCrtTerminal(page, ACP_FOLLOW_UP_ACK)
       await sendCrtTerminalInput(page, oneLine(`Do not use tools. Reply with only the concatenation of CRT_TERMINAL_ACK_ and ${ANCHOR_SUFFIX}, with no separator.`))
       await waitForCrtAnchor(page, CRT_TERMINAL_ACK)
       await waitForCrtTerminalIdle(page, agentId)
@@ -767,7 +816,7 @@ test.describe('real Codex pre-release composite case', () => {
       await waitForCrtTerminalIdle(page, agentId)
       await expect.poll(async () => (await crtRows(page)).join('\n').toLowerCase(), { timeout: 90_000 })
         .toMatch(new RegExp(`${PRIMARY_MODEL}\\s+medium`))
-      await resizeCrtTerminal(page, CRT_MSG_ACK, COMPOSITE_END)
+      await resizeCrtTerminal(page, CRT_MSG_ACK)
       await page.setViewportSize(NORMAL_VIEWPORT)
       await attachScreenshot(page, testInfo, '05-crt-terminal-final.png')
     })

@@ -471,6 +471,128 @@ test('CRT preserves checkpoint-uncovered live transitions and flushes empty chec
   }
 })
 
+test('CRT fits the current surface before a live checkpoint backlog becomes idle', async ({
+  page,
+  context,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'crt-checkpoint-live-fit')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createBashAgent(page, workspace)
+  const crtPage = await context.newPage()
+  await prepareBrowserPage(crtPage)
+  await crtPage.setViewportSize({ width: 1280, height: 720 })
+
+  try {
+    await openCrtTerminal(crtPage, agentId)
+    await waitForCrtReady(crtPage)
+    await expect.poll(() => crtPage.evaluate(() => {
+      const state = (window as typeof window & {
+        __farmingCrtTerminalTest?: {
+          getState: () => {
+            pendingFitResize: { cols: number, rows: number } | null
+            fitResizeTimerPending: boolean
+          } | null
+        }
+      }).__farmingCrtTerminalTest?.getState()
+      return state && {
+        pendingFitResize: state.pendingFitResize,
+        fitResizeTimerPending: state.fitResizeTimerPending,
+      }
+    })).toEqual({ pendingFitResize: null, fitResizeTimerPending: false })
+
+    const result = await crtPage.evaluate(async () => {
+      type CrtState = {
+        runtimeEpoch: string
+        outputSeq: number
+        stateRevision: number
+        writeInProgress: boolean
+        checkpointInstallInProgress: boolean
+        queuedTransitionCount: number
+        pendingFitResize: { cols: number, rows: number } | null
+        fitResizeTimerPending: boolean
+      }
+      type CrtGeometry = {
+        cols: number
+        rows: number
+        proposedCols: number
+        proposedRows: number
+      }
+      type CrtTestApi = {
+        getState: () => CrtState | null
+        getGeometry: () => CrtGeometry
+        replaceStream: (stream: Record<string, unknown>) => boolean
+      }
+      const api = (window as typeof window & { __farmingCrtTerminalTest?: CrtTestApi })
+        .__farmingCrtTerminalTest
+      const initial = api?.getState()
+      const surface = api?.getGeometry()
+      if (!api || !initial || !surface?.proposedCols || !surface.proposedRows) return null
+
+      const chunks = Array.from({ length: 120 }, (_, index) => ({
+        kind: 'output',
+        data: `CRT_LIVE_FIT_${index}_${'x'.repeat(4096)}\r\n`,
+        outputSeq: initial.outputSeq + index + 2,
+        stateRevision: initial.stateRevision + index + 2,
+      }))
+      const accepted = api.replaceStream({
+        runtimeEpoch: initial.runtimeEpoch,
+        outputSeq: initial.outputSeq + 1,
+        stateRevision: initial.stateRevision + 1,
+        cols: surface.proposedCols,
+        rows: surface.proposedRows + 12,
+        data: 'CRT_CHECKPOINT_FROM_TALLER_CODE_VIEW\r\n',
+        chunks,
+      })
+
+      const deadline = performance.now() + 5_000
+      while (performance.now() < deadline) {
+        const state = api.getState()
+        if (
+          state
+          && !state.checkpointInstallInProgress
+          && (state.writeInProgress || state.queuedTransitionCount > 0)
+        ) {
+          const geometry = api.getGeometry()
+          return {
+            accepted,
+            fitReconciledWhileBusy: (
+              geometry.rows === geometry.proposedRows
+              && geometry.cols === geometry.proposedCols
+            ) || state.fitResizeTimerPending || state.pendingFitResize !== null,
+            queuedTransitionCount: state.queuedTransitionCount,
+          }
+        }
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+      }
+      return { accepted, timedOut: true }
+    })
+
+    expect(result).toMatchObject({
+      accepted: true,
+      fitReconciledWhileBusy: true,
+    })
+    expect(result?.queuedTransitionCount).toBeGreaterThan(0)
+    await expect.poll(() => crtPage.evaluate(() => {
+      type CrtGeometry = {
+        cols: number
+        rows: number
+        proposedCols: number
+        proposedRows: number
+      }
+      const geometry = (window as typeof window & {
+        __farmingCrtTerminalTest?: { getGeometry: () => CrtGeometry }
+      }).__farmingCrtTerminalTest?.getGeometry()
+      return geometry && {
+        colsMatch: geometry.cols === geometry.proposedCols,
+        rowsMatch: geometry.rows === geometry.proposedRows,
+      }
+    }), { timeout: 5_000 }).toEqual({ colsMatch: true, rowsMatch: true })
+  } finally {
+    await crtPage.close()
+  }
+})
+
 test('CRT synthetic composition commits exactly once from each shared viewer', async ({
   page,
   context,

@@ -4,7 +4,7 @@ import { isAcpRuntime } from '@/lib/agent-runtime'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import type { OpenWorkspaceFile, WorkspaceOpenFileTarget } from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
-import { isMobileTouchViewport } from '@/lib/responsive-mode'
+import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import { isWorkspaceMarkdownFile } from '@/lib/workspace-editor-model'
 import { AgentWorkPane } from './AgentWorkPane'
 import { CodeComposer } from './CodeComposer'
@@ -44,7 +44,7 @@ function writeTerminalComposerCollapsed(collapsed: boolean) {
 function supportsComposerCollapse() {
   return typeof window !== 'undefined'
     && window.matchMedia('(hover: hover) and (pointer: fine)').matches
-    && !isMobileTouchViewport()
+    && !isCompactViewport()
 }
 
 function replacesAgent(agent: Agent | null, previousAgentId: string | null) {
@@ -441,7 +441,7 @@ export function CodeMainArea({
   }, [terminalComposerActive])
 
   const dismissComposerKeyboardOnMainPress = useCallback((event: ReactSyntheticEvent<HTMLElement>) => {
-    if (!isMobileTouchViewport()) return
+    if (!isTouchInputViewport()) return
     const target = event.target
     if (target instanceof Element && target.closest('.code-composer')) return
     const activeElement = document.activeElement

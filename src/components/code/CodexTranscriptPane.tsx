@@ -30,11 +30,11 @@ import {
   saveReadingAnchor,
 } from '@/lib/reading-anchor'
 import { collectTerminalPathLinkMatches } from '@/lib/terminal-links'
-import { isMobileTouchViewport } from '@/lib/responsive-mode'
+import { isCompactViewport } from '@/lib/responsive-mode'
 import { loadAcpReviewPreview } from '@/lib/review/api'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from './copy'
-import { acpActivityKind, acpCompactPlanLabel, acpPlanProgress, type AcpActivityKind } from './acp/acp-activity-label'
+import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivityLabel, acpPlanProgress, type AcpActivityKind } from './acp/acp-activity-label'
 import { AcpEmbeddedTerminal } from './acp/AcpEmbeddedTerminal'
 import {
   projectAcpTranscript,
@@ -249,8 +249,8 @@ function elapsedDurationLabel(startedAt: number | null | undefined) {
   return durationLabel(Math.max(0, Date.now() - timestamp))
 }
 
-function acpActivityLabel(turn: CodexTranscriptTurn, copy: CodeCopy) {
-  const labels: Record<AcpActivityKind, string> = {
+function acpActivityLabels(copy: CodeCopy): Record<AcpActivityKind, string> {
+  return {
     thinking: copy.codexTranscriptThinking,
     running: copy.codexTranscriptRunning,
     reading: copy.codexTranscriptReading,
@@ -261,7 +261,14 @@ function acpActivityLabel(turn: CodexTranscriptTurn, copy: CodeCopy) {
     tool: copy.codexTranscriptUsingTool,
     processing: copy.codexTranscriptWorking,
   }
-  return labels[acpActivityKind(turn.processItems)]
+}
+
+function acpActivityLabel(turn: CodexTranscriptTurn, copy: CodeCopy) {
+  return acpActivityLabels(copy)[acpActivityKind(turn.processItems)]
+}
+
+function acpLiveToolLabel(turn: CodexTranscriptTurn, copy: CodeCopy) {
+  return acpLiveToolActivityLabel(turn.processItems, acpActivityLabels(copy))
 }
 
 function acpPlanLabel(turn: CodexTranscriptTurn, copy: CodeCopy) {
@@ -1772,7 +1779,7 @@ function CodexTranscriptTurnView({
       .find(item => ['reasoning', 'thought'].includes(item.type) && Boolean(String(item.detail || '').trim()))
       ?.id || ''
   }, [resolvedProcessItems, turn.status])
-  const mobileTouch = isMobileTouchViewport()
+  const compactViewport = isCompactViewport()
   const answerMessage = useMemo(() => stripRawMemoryCitation(turn.finalMessage), [turn.finalMessage])
   const shouldShowWaiting = turn.status === 'inProgress' && !answerMessage && (
     Boolean(turn.userMessage) || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 || hasProcess
@@ -1789,6 +1796,7 @@ function CodexTranscriptTurnView({
     ? turn
     : { ...turn, processItems: resolvedProcessItems }
   const workingLabel = source === 'acp' ? acpActivityLabel(activityTurn, copy) : copy.codexTranscriptWorking
+  const liveToolLabel = source === 'acp' ? acpLiveToolLabel(activityTurn, copy) : ''
   const planLabel = source === 'acp' ? acpPlanLabel(activityTurn, copy) : ''
   const loadFullProcessDetail = useCallback(async (item: CodexTranscriptProcessItem, force = false) => {
     if ((!item.detailTruncated && !item.terminalIds?.length && !item.subagentSessionId) || !onLoadProcessItemDetail) {
@@ -1968,7 +1976,7 @@ function CodexTranscriptTurnView({
             className="code-codex-transcript-process-summary"
             data-testid="code-codex-transcript-process-summary"
             aria-expanded={effectiveProcessOpen}
-            title={turnProcessTitle(turn, copy)}
+            title={liveToolLabel || turnProcessTitle(turn, copy)}
             onPointerDown={event => event.stopPropagation()}
             onMouseDown={event => event.stopPropagation()}
             onClick={event => {
@@ -1982,7 +1990,9 @@ function CodexTranscriptTurnView({
               toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, toggleProcessOpen)
             }}
           >
-            <span>{turnProcessLabel(turn, copy, workingLabel, planLabel)}</span>
+            <span className="code-codex-transcript-process-summary-label">
+              {turnProcessLabel(turn, copy, liveToolLabel || workingLabel, liveToolLabel ? '' : planLabel)}
+            </span>
             <ChevronRightGlyph className="code-codex-transcript-chevron" />
           </button>
           {!effectiveProcessOpen ? resolvedProcessItems
@@ -1994,7 +2004,7 @@ function CodexTranscriptTurnView({
                 if (entry.kind === 'group') {
                   const groupOpen = openProcessItemIds.has(entry.id) || (
                     source !== 'acp'
-                    && !mobileTouch
+                    && !compactViewport
                     && entry.items.some(isProcessItemRunning)
                   )
                   return (
@@ -2608,9 +2618,9 @@ export function CodexTranscriptPane({
       ) : error ? (
         <div className="code-codex-transcript-state" role="status">{error}</div>
       ) : !transcript?.available ? (
-        <div className="code-codex-transcript-blank" />
+        <div className="code-codex-transcript-blank" role="status">{copy.codexTranscriptEmpty}</div>
       ) : turns.length === 0 ? (
-        <div className="code-codex-transcript-blank" />
+        <div className="code-codex-transcript-blank" role="status">{copy.codexTranscriptEmpty}</div>
       ) : (
         <div
           className="code-codex-transcript-scroll"

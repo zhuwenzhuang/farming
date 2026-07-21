@@ -86,8 +86,7 @@
 }
 
 #farming-crt.no-crt .crt-phosphor-noise,
-#farming-crt.no-crt .crt-scan-beam,
-#farming-crt.no-crt .agent-output-afterimage {
+#farming-crt.no-crt .crt-scan-beam {
     display: none;
 }
 
@@ -110,15 +109,6 @@
     100% {
         transform: translate3d(0, 100vh, 0);
     }
-}
-
-#farming-crt .agent-output-afterimage {
-    pointer-events: none;
-    user-select: none;
-    opacity: 0.34;
-    filter: blur(0.35px);
-    mix-blend-mode: screen;
-    animation: crt-content-afterimage 620ms cubic-bezier(0.16, 0.72, 0.28, 1) forwards;
 }
 
 #farming-crt .xterm-screen {
@@ -150,30 +140,8 @@
     color: #b98282;
 }
 
-#farming-crt .agent-output-afterimage {
-    position: absolute;
-    inset: 0;
-    z-index: 2;
-}
-
-@keyframes crt-content-afterimage {
-    0% {
-        opacity: 0.34;
-        filter: blur(0.25px) brightness(1.08);
-    }
-    45% {
-        opacity: 0.13;
-        filter: blur(0.65px) brightness(0.94);
-    }
-    100% {
-        opacity: 0;
-        filter: blur(1.2px) brightness(0.72);
-    }
-}
-
 @media (prefers-reduced-motion: reduce) {
-    #farming-crt .crt-scan-beam,
-    #farming-crt .agent-output-afterimage {
+    #farming-crt .crt-scan-beam {
         display: none;
     }
 }

@@ -198,6 +198,9 @@ test.describe('ACP human-like browser matrix', () => {
     await test.step('04 show Chat rather than a terminal for an ACP runtime', async () => {
       await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
       await expect(page.getByTestId('code-agent-terminal-view')).toHaveCount(0)
+      const emptyState = page.locator('.code-codex-transcript-blank')
+      await expect(emptyState).toHaveText('No conversation yet.')
+      await expect(emptyState).toHaveAttribute('role', 'status')
     })
     await test.step('05 retain the established composer shape and toolbar', async () => {
       await expect(page.getByTestId('code-acp-composer')).toBeVisible()
@@ -411,8 +414,15 @@ test.describe('ACP human-like browser matrix', () => {
     await test.step('37 show restrained live progress while the Agent works', async () => {
       await sendAcpMessage(page, 'live progress')
       await expect(page.getByText('Inspecting files', { exact: true })).toBeVisible({ timeout: 5_000 })
-      await expect(page.getByText('Live progress complete.', { exact: true })).toBeVisible({ timeout: 10_000 })
       const liveTurn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'live progress' }).last()
+      const liveSummary = liveTurn.getByTestId('code-codex-transcript-process-summary')
+      await expect(liveSummary).toContainText('Running: PORT=4187 FARMING_PLAYWRIGHT_PORT=4187')
+      await expect(liveSummary).toHaveAttribute('title', /run-long-command\.js --verify-mobile-composer-focus/)
+      const liveSummaryLabel = liveSummary.locator('.code-codex-transcript-process-summary-label')
+      await expect(liveSummaryLabel).toHaveCSS('text-overflow', 'ellipsis')
+      await expect(liveSummaryLabel).toHaveCSS('white-space', 'nowrap')
+      await expect(page.getByText('Live progress complete.', { exact: true })).toBeVisible({ timeout: 10_000 })
+      await expect(liveSummary).not.toContainText('Running: PORT=4187')
       await liveTurn.getByTestId('code-codex-transcript-process-summary').click()
       await expect(liveTurn.getByText('Editing display data', { exact: true })).toBeVisible()
       await expect(liveTurn.getByText('Running checks', { exact: true })).toBeVisible()

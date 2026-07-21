@@ -8,7 +8,6 @@ import type {
   RefObject,
   CSSProperties,
   PointerEvent,
-  TouchEvent,
 } from 'react'
 import type { AgentContextWindowUsage } from '@/types/agent'
 import {
@@ -21,7 +20,7 @@ import {
   PlusGlyph,
   ReplyGlyph,
 } from '@/components/IconGlyphs'
-import { isMobileTouchViewport } from '@/lib/responsive-mode'
+import { isTouchInputViewport } from '@/lib/responsive-mode'
 import { codexModelDisplayName } from './model'
 import type { AgentComposerCapabilities, ComposerAgentKind, SlashCommandOption } from './capabilities'
 import {
@@ -39,13 +38,7 @@ import {
   matchesComposerCommand,
   rankComposerCommand,
 } from './composer-slash-commands'
-import {
-  MobileCodeComposerInput,
-  mobileComposerPlainText,
-  mobileComposerSelectionOffset,
-  setMobileComposerSelectionOffset,
-  useMobileComposerHeight,
-} from './MobileCodeComposerInput'
+import { useMobileComposerHeight } from './useMobileComposerHeight'
 import type {
   CodexModelOption,
   CodeModelPickerPane,
@@ -79,7 +72,7 @@ function composerModePlaceholder(copy: CodeCopy, mode: ComposerMode, agentKind: 
 }
 
 function isMobileComposerViewport() {
-  return typeof window !== 'undefined' && isMobileTouchViewport()
+  return typeof window !== 'undefined' && isTouchInputViewport()
 }
 
 function compactComposerModelLabel(label: string) {
@@ -110,10 +103,6 @@ const COMPOSER_VOICE_WAVEFORM_BARS = [
   0.28, 0.5, 0.72, 0.46, 0.9, 0.36, 0.62, 0.82, 0.42, 0.68, 0.95, 0.52,
   0.33, 0.75, 0.57, 0.88, 0.4, 0.64, 0.93, 0.48, 0.7, 0.31, 0.58, 0.83,
 ]
-const MOBILE_COMPOSER_INPUT_REST_HEIGHT = 22
-const MOBILE_COMPOSER_INPUT_MIN_HEIGHT = 22
-const MOBILE_COMPOSER_INPUT_MAX_HEIGHT = 66
-
 const COMPOSER_MIC_REGULAR_PATH = 'M8 10.9995C9.654 10.9995 11 9.65351 11 7.99951V3.99951C11 2.34551 9.654 0.999512 8 0.999512C6.346 0.999512 5 2.34551 5 3.99951V7.99951C5 9.65351 6.346 10.9995 8 10.9995ZM6 3.99951C6 2.89651 6.897 1.99951 8 1.99951C9.103 1.99951 10 2.89651 10 3.99951V7.99951C10 9.10251 9.103 9.99951 8 9.99951C6.897 9.99951 6 9.10251 6 7.99951V3.99951ZM13 7.49951V7.99951C13 10.5855 11.02 12.6935 8.5 12.9485V14.4995C8.5 14.7755 8.276 14.9995 8 14.9995C7.724 14.9995 7.5 14.7755 7.5 14.4995V12.9485C4.98 12.6935 3 10.5845 3 7.99951V7.49951C3 7.22351 3.224 6.99951 3.5 6.99951C3.776 6.99951 4 7.22351 4 7.49951V7.99951C4 10.2055 5.794 11.9995 8 11.9995C10.206 11.9995 12 10.2055 12 7.99951V7.49951C12 7.22351 12.224 6.99951 12.5 6.99951C12.776 6.99951 13 7.22351 13 7.49951Z'
 const COMPOSER_MIC_FILLED_PATH = 'M8 10.9995C9.654 10.9995 11 9.65351 11 7.99951V3.99951C11 2.34551 9.654 0.999512 8 0.999512C6.346 0.999512 5 2.34551 5 3.99951V7.99951C5 9.65351 6.346 10.9995 8 10.9995ZM13 7.49951V7.99951C13 10.5855 11.02 12.6935 8.5 12.9485V14.4995C8.5 14.7755 8.276 14.9995 8 14.9995C7.724 14.9995 7.5 14.7755 7.5 14.4995V12.9485C4.98 12.6935 3 10.5845 3 7.99951V7.49951C3 7.22351 3.224 6.99951 3.5 6.99951C3.776 6.99951 4 7.22351 4 7.49951V7.99951C4 10.2055 5.794 11.9995 8 11.9995C10.206 11.9995 12 10.2055 12 7.99951V7.49951C12 7.22351 12.224 6.99951 12.5 6.99951C12.776 6.99951 13 7.22351 13 7.49951Z'
 
@@ -297,7 +286,6 @@ export function CodeComposer({
     && (!mobileComposerViewport || speechSupported)
   const slashCommandRefs = useRef(new Map<string, HTMLButtonElement>())
   const composerRef = useRef<HTMLElement | null>(null)
-  const mobileEditorRef = useRef<HTMLDivElement | null>(null)
   const compositionActiveRef = useRef(false)
   const lastCompositionEndAtRef = useRef(0)
   const latestDraftRef = useRef(draft)
@@ -343,7 +331,7 @@ export function CodeComposer({
   const speechControlAvailable = speechSupported || mobileComposerViewport
 
   const startSpeechInputIntent = () => {
-    if (mobileComposerViewport || isMobileTouchViewport()) {
+    if (mobileComposerViewport || isTouchInputViewport()) {
       setMobileDictationHintVisible(true)
     }
     onToggleSpeechInput()
@@ -364,17 +352,9 @@ export function CodeComposer({
     startSpeechInputIntent()
   }
 
-  function focusTextareaForMobileInputIntent(target: EventTarget | null) {
-    if (!mobileComposerViewport || !active) return
-    if (target instanceof Element && target.closest('.code-composer-menu, button, input, select, [role="menuitem"]')) return
-
-    const mobileEditor = mobileEditorRef.current
-    if (mobileEditor) {
-      mobileEditor.focus({ preventScroll: true })
-      const nextSelection = mobileComposerSelectionOffset(mobileEditor)
-      setTextareaSelectionStart(nextSelection || (mobileEditor.textContent || '').length)
-      return
-    }
+  function focusTextareaForInputIntent(target: EventTarget | null) {
+    if (!active) return
+    if (target instanceof Element && target.closest('.code-composer-menu, button, input, select, textarea, [role="menuitem"]')) return
 
     const textarea = textareaRef.current
     if (!textarea || textarea.disabled) return
@@ -382,16 +362,8 @@ export function CodeComposer({
     updateSelectionFromTextarea(textarea)
   }
 
-  const handleComposerPointerDownCapture = (event: PointerEvent<HTMLElement>) => {
-    focusTextareaForMobileInputIntent(event.target)
-  }
-
-  const handleComposerTouchStartCapture = (event: TouchEvent<HTMLElement>) => {
-    focusTextareaForMobileInputIntent(event.target)
-  }
-
-  const handleComposerMouseInputCapture = (event: MouseEvent<HTMLElement>) => {
-    focusTextareaForMobileInputIntent(event.target)
+  const handleComposerClick = (event: MouseEvent<HTMLElement>) => {
+    focusTextareaForInputIntent(event.target)
   }
 
   useEffect(() => {
@@ -462,10 +434,6 @@ export function CodeComposer({
     setTextareaSelectionStart(textarea.selectionStart ?? draft.length)
   }
 
-  function updateSelectionFromMobileEditor() {
-    setTextareaSelectionStart(mobileComposerSelectionOffset(mobileEditorRef.current))
-  }
-
   function insertSlashCommand(command: SlashCommandOption) {
     if (!slashTrigger) return
 
@@ -476,14 +444,6 @@ export function CodeComposer({
     setTextareaSelectionStart(nextCursor)
     setDismissedSlashTriggerId(null)
     window.requestAnimationFrame(() => {
-      if (mobileComposerViewport) {
-        const mobileEditor = mobileEditorRef.current
-        if (!mobileEditor) return
-        mobileEditor.focus({ preventScroll: true })
-        setMobileComposerSelectionOffset(mobileEditor, nextCursor)
-        setTextareaSelectionStart(nextCursor)
-        return
-      }
       const textarea = textareaRef.current
       if (!textarea) return
       textarea.focus({ preventScroll: true })
@@ -505,10 +465,7 @@ export function CodeComposer({
       ref={composerRef}
       className={composerClasses}
       data-testid="code-composer"
-      onPointerDownCapture={handleComposerPointerDownCapture}
-      onTouchStartCapture={handleComposerTouchStartCapture}
-      onMouseDownCapture={handleComposerMouseInputCapture}
-      onClickCapture={handleComposerMouseInputCapture}
+      onClick={handleComposerClick}
     >
       {pendingFollowUp && active && (
         <div className="code-pending-followup" data-testid="code-pending-followup">
@@ -579,66 +536,7 @@ export function CodeComposer({
           ))}
         </div>
       )}
-      {mobileComposerViewport ? (
-        <MobileCodeComposerInput
-          active={active}
-          draft={draft}
-          placeholder={active ? composerModePlaceholder(copy, composerMode, agentKind) : copy.openAgentTerminalFirst}
-          minHeight={
-            textareaFocused || composerMenuOpen || attachments.length > 0 || Boolean(pendingFollowUp && active)
-              ? MOBILE_COMPOSER_INPUT_MIN_HEIGHT
-              : MOBILE_COMPOSER_INPUT_REST_HEIGHT
-          }
-          maxHeight={MOBILE_COMPOSER_INPUT_MAX_HEIGHT}
-          editorRef={mobileEditorRef}
-          onFocus={() => {
-            onCloseMenus()
-            setTextareaFocused(true)
-            setTextareaSelectionStart(mobileComposerSelectionOffset(mobileEditorRef.current))
-          }}
-          onBlur={() => setTextareaFocused(false)}
-          onInput={event => {
-            const nextDraft = mobileComposerPlainText(event.currentTarget)
-            latestDraftRef.current = nextDraft
-            onDraftChange(nextDraft)
-            setDismissedSlashTriggerId(null)
-            setTextareaSelectionStart(mobileComposerSelectionOffset(event.currentTarget))
-          }}
-          onPaste={onPasteAttachment}
-          onCompositionStart={() => {
-            compositionActiveRef.current = true
-          }}
-          onCompositionEnd={event => {
-            compositionActiveRef.current = false
-            lastCompositionEndAtRef.current = Date.now()
-            const nextDraft = mobileComposerPlainText(event.currentTarget)
-            latestDraftRef.current = nextDraft
-            onDraftChange(nextDraft)
-            setTextareaSelectionStart(mobileComposerSelectionOffset(event.currentTarget))
-          }}
-          onKeyDown={event => {
-            const compositionActive = compositionActiveRef.current
-            if (isComposerImeCompositionEvent(event, compositionActive)) return
-            if (shouldSuppressComposerEnterAfterComposition(event, lastCompositionEndAtRef.current)) {
-              event.preventDefault()
-              event.stopPropagation()
-              return
-            }
-            if (showSlashMenu && (event.key === 'Enter' || event.key === 'Tab') && selectedSlashCommand) {
-              event.preventDefault()
-              event.stopPropagation()
-              insertSlashCommand(selectedSlashCommand)
-              return
-            }
-            if (event.key !== 'Enter' || event.shiftKey) return
-            event.preventDefault()
-            event.stopPropagation()
-            onSubmit(composerDraftForSubmit(mobileComposerPlainText(event.currentTarget), latestDraftRef.current))
-          }}
-          onSelectionIntent={updateSelectionFromMobileEditor}
-        />
-      ) : (
-        <textarea
+      <textarea
           data-testid="code-composer-input"
           ref={textareaRef}
           enterKeyHint="send"
@@ -754,8 +652,7 @@ export function CodeComposer({
           }}
           placeholder={active ? composerModePlaceholder(copy, composerMode, agentKind) : copy.openAgentTerminalFirst}
           disabled={!active}
-        />
-      )}
+      />
       {mobileDictationHintVisible && !speechListening && (
         <div className="code-composer-dictation-hint" data-testid="code-composer-dictation-hint">
           {copy.mobileDictationHint}

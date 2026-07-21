@@ -13,6 +13,7 @@ interface AcpActivityItem {
   type?: string
   kind?: string
   status?: string
+  title?: string
   completedSteps?: number
   totalSteps?: number
   currentStep?: string
@@ -51,6 +52,20 @@ export function acpActivityKind(items: AcpActivityItem[]): AcpActivityKind {
   if (kind === 'fetch') return 'fetching'
   if (type === 'tool') return 'tool'
   return 'processing'
+}
+
+export function acpLiveToolActivityLabel(
+  items: AcpActivityItem[],
+  labels: Record<AcpActivityKind, string>,
+) {
+  return items
+    .filter(item => ['tool', 'patch', 'subagent'].includes(String(item.type || '').toLowerCase()) && isActive(item))
+    .map(item => {
+      const activity = labels[acpActivityKind([item])]
+      const title = String(item.title || '').trim().replace(/\s+/g, ' ')
+      return title ? `${activity}: ${title}` : activity
+    })
+    .join(' · ')
 }
 
 export function acpPlanProgress(items: AcpActivityItem[]) {

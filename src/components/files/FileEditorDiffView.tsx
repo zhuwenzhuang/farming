@@ -8,7 +8,7 @@ import {
 } from '@/lib/workspace-editor-monaco'
 import { workspaceFileResourceKey } from '@/lib/workspace-working-copy'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
-import { isMobileTouchViewport } from '@/lib/responsive-mode'
+import { isCompactViewport } from '@/lib/responsive-mode'
 import type { CodeCopy } from '../code/copy'
 import type { FileEditorDiffState } from './useFileEditorDiffController'
 
@@ -88,14 +88,14 @@ export function FileEditorDiffView({
       // A side-by-side diff leaves two line-number gutters on a phone. Use
       // Monaco's inline diff layout there so the code keeps one readable
       // column and the user can scroll it vertically.
-      renderSideBySide: !isMobileTouchViewport(),
+      renderSideBySide: !isCompactViewport(),
       originalEditable: false,
       readOnly: true,
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
       fixedOverflowWidgets: true,
       renderOverviewRuler: true,
-      enableSplitViewResizing: !isMobileTouchViewport(),
+      enableSplitViewResizing: !isCompactViewport(),
       ignoreTrimWhitespace: false,
       glyphMargin: true,
       lineNumbersMinChars: 4,

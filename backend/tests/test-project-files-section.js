@@ -213,7 +213,8 @@ function run() {
 	      workspaceSource.includes('projectEditorExternalChangedFilePaths') &&
 	      operationSource.includes('const nextCache = new Map<string, T>()') &&
 	      workspaceSource.includes('stableProjectSourceAgentId(null, project.agents)') &&
-	      workspaceSource.includes('const nextProjectSourceAgentId = stableProjectSourceAgentId(projectSourceAgentId, project.agents)') &&
+	      workspaceSource.includes('const activeProjectAgentId = activeTerminalId && project.agents.some') &&
+	      workspaceSource.includes('activeProjectAgentId ?? projectSourceAgentId') &&
 	      workspaceSource.includes('agent.id === nextProjectSourceAgentId') &&
 	      workspaceSource.includes("const filesWorkspaceId = project.workspace ? projectFilesWorkspaceId(project.workspace) : ''") &&
 	      workspaceSource.includes('const showProjectFiles = project.id !== MAIN_AGENT_PROJECT_ID && Boolean(filesWorkspaceId)') &&
@@ -1343,7 +1344,7 @@ function run() {
 	      editorDiffViewSource.includes('monaco.editor.createDiffEditor') &&
 	      editorDiffViewSource.includes('monaco.editor.getModel(uri)?.dispose()') &&
 	      editorDiffViewSource.includes('function createDiffTextModel') &&
-	      editorDiffViewSource.includes('renderSideBySide: !isMobileTouchViewport()') &&
+	      editorDiffViewSource.includes('renderSideBySide: !isCompactViewport()') &&
 		      editorDiffViewSource.includes('data-testid="code-file-diff-view"') &&
 	      editorDiffViewSource.includes('data-testid="code-file-diff-monaco"') &&
 		      editorSurfaceSource.includes('<FileEditorDiffView') &&
@@ -1807,8 +1808,9 @@ function run() {
       stylesSource.includes('.code-file-operation-text') &&
       stylesSource.includes('.code-file-sticky-stack') &&
       stylesSource.includes('.code-file-sticky-row') &&
-	      stylesSource.includes('@media (min-width: 700px) and (max-width: 980px) and (any-pointer: coarse)') &&
-	      stylesSource.includes('@media (min-width: 700px) and (max-width: 980px) and (any-pointer: coarse) {\n  .code-workspace {\n    grid-template-columns: minmax(0, 1fr);') &&
+	      stylesSource.includes('@media (max-width: 980px)') &&
+	      stylesSource.includes('body.code-mode.code-compact-layout .code-workspace,\n  body.code-mode.code-compact-layout .code-workspace.sidebar-collapsed') &&
+	      !stylesSource.includes('@media (min-width: 700px) and (max-width: 980px) and (any-pointer: coarse)') &&
       stylesSource.includes('.code-file-editor-tabs') &&
       stylesSource.includes('overflow-x: auto') &&
       stylesSource.includes('overscroll-behavior-x: contain') &&

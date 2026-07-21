@@ -34,7 +34,7 @@ Codex, Claude Code, OpenCode, and Qoder provide both structured ACP Chat and nat
 
 ## Read The Result First, Expand The Process When Needed
 
-ACP history replay and live updates become one ordered entry stream. Farming Code projects that stream around human attention: the result stays prominent, while plans, reasoning, tools, permissions, child sessions, embedded terminals, and exact patches remain expandable and reversible.
+ACP history replay and live updates become one ordered entry stream. Farming Code projects that stream around human attention: the result stays prominent, while plans, reasoning, tools, permissions, child sessions, embedded terminals, and exact patches remain expandable and reversible. A Chat whose first stable transcript contains no turns shows an explicit empty-conversation state instead of an unexplained blank surface; synchronization and failures keep their separate visible states.
 
 ![Expanded Agent process](assets/11-code-agent-process.png)
 

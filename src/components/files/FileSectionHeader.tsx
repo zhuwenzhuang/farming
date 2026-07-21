@@ -1,6 +1,6 @@
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react'
 import { CheckGlyph, ChevronDownGlyph, ChevronRightGlyph, ErrorGlyph } from '@/components/IconGlyphs'
-import { isMobileTouchViewport } from '@/lib/responsive-mode'
+import { isTouchInputViewport } from '@/lib/responsive-mode'
 import type { CodeCopy } from '../code/copy'
 
 export interface FileSectionHeaderSearch {
@@ -106,7 +106,7 @@ export function FileSectionHeader({
             onFocus={onCancelPendingFileFocus}
             onPointerDown={event => {
               onCancelPendingFileFocus()
-              if (!isMobileTouchViewport()) return
+              if (!isTouchInputViewport()) return
               event.preventDefault()
               event.currentTarget.focus({ preventScroll: true })
             }}

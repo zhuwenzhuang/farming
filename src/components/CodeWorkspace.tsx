@@ -56,7 +56,7 @@ import {
   type WorkspaceShareTarget,
 } from '@/lib/workspace-share-target'
 import { importSharedReadingAnchor } from '@/lib/reading-anchor'
-import { isIOSLikeTouchViewport, isMobileTouchViewport } from '@/lib/responsive-mode'
+import { isCompactViewport, isIOSLikeTouchViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import { buildWorkspaceHistory } from '@/lib/workspace-options'
 import {
   fetchWorkspaceFile,
@@ -395,7 +395,7 @@ async function refreshOpenWorkspaceFileReads(agentId: string, filePaths: readonl
 
 function shouldUseNativeMobileDictation() {
   if (typeof window === 'undefined') return false
-  return isMobileTouchViewport() && isIOSLikeTouchViewport()
+  return isTouchInputViewport() && isIOSLikeTouchViewport()
 }
 
 function isPlainTextComposerAgentCommand(command?: string) {
@@ -431,7 +431,7 @@ function searchTargetHandle(target: SearchTarget) {
 }
 
 function isMobileNavigationViewport() {
-  return isMobileTouchViewport()
+  return isCompactViewport()
 }
 
 function isDesktopAutoCollapseWidth(width: number) {
@@ -3270,7 +3270,7 @@ export function CodeWorkspace({
     terminalPathOpenRequestRef.current += 1
     setMainPaneMode('terminal')
     onWorkspaceViewChange('projects')
-    onOpenTerminal(agentId, { focusTerminal: !isMobileTouchViewport() })
+    onOpenTerminal(agentId, { focusTerminal: !isTouchInputViewport() })
     closeSidebarForMobile()
   }, [closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange])
 
@@ -3378,7 +3378,7 @@ export function CodeWorkspace({
     const itemCount = project?.hasMain ? 4 : projectCanDeleteWorktree(project) ? 8 : 7
     const separatorCount = project?.hasMain ? 1 : 2
     const estimatedHeight = estimateContextMenuHeight(itemCount, separatorCount) + itemCount * 8
-    const point = isMobileTouchViewport()
+    const point = isCompactViewport()
       ? mobileActionMenuPoint(rect, estimatedHeight, undefined, MOBILE_PROJECT_CONTEXT_MENU_WIDTH)
       : outwardContextMenuPoint(rect, estimatedHeight)
     setAgentMenu(null)
@@ -3401,7 +3401,7 @@ export function CodeWorkspace({
     const itemCount = project?.hasMain ? 4 : projectCanDeleteWorktree(project) ? 8 : 7
     const separatorCount = project?.hasMain ? 1 : 2
     const estimatedHeight = estimateContextMenuHeight(itemCount, separatorCount) + itemCount * 8
-    const point = isMobileTouchViewport()
+    const point = isCompactViewport()
       ? mobileActionMenuPoint(rect, estimatedHeight, undefined, MOBILE_PROJECT_CONTEXT_MENU_WIDTH)
       : outwardContextMenuPoint(rect, estimatedHeight)
     setAgentMenu(null)
@@ -3700,7 +3700,7 @@ export function CodeWorkspace({
     setAgentMenu(null)
     setProjectMenu(null)
     setAgentSessionMenu(null)
-    if (!isMobileTouchViewport()) {
+    if (!isCompactViewport()) {
       setOptionsMenu(null)
       setSettingsPanelOpen(true)
       return
@@ -3756,7 +3756,7 @@ export function CodeWorkspace({
   }, [])
 
   const optionsMenuEntries = useMemo<ContextMenuEntry[]>(() => {
-    if (isMobileTouchViewport()) {
+    if (isCompactViewport()) {
       return compactContextMenuEntries([
         { type: 'separator', id: 'options-mobile-share-separator' },
         {
@@ -4003,7 +4003,7 @@ export function CodeWorkspace({
     const targetComposerKey = activeComposerKey
     if (!targetComposerKey) return
 
-    const mobileComposerFallback = isMobileTouchViewport()
+    const mobileComposerFallback = isTouchInputViewport()
     const nativeMobileDictation = shouldUseNativeMobileDictation()
     const SpeechRecognition = speechSupported && !nativeMobileDictation
       ? (window as WindowWithSpeechRecognition).SpeechRecognition

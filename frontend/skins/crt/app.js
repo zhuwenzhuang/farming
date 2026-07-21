@@ -79,6 +79,7 @@ let crtAgentPageResizeFrame = null;
 let dashboardRenderDeferred = false;
 let lastCrtDashboardSignature = '';
 let crtPreviewRenderTimer = null;
+let crtPreviewRenderFrame = null;
 const pendingCrtPreviewRenders = new Map();
 const crtStructuredPreviewCache = new Map();
 const crtStructuredPreviewTimers = new Map();
@@ -1233,7 +1234,6 @@ function updateCrtAgentPreviewCard(agent) {
 }
 
 function flushCrtPreviewCardRenders() {
-  crtPreviewRenderTimer = null;
   const pending = Array.from(pendingCrtPreviewRenders.values());
   pendingCrtPreviewRenders.clear();
   if (pending.length === 0) return;
@@ -1242,9 +1242,12 @@ function flushCrtPreviewCardRenders() {
     return;
   }
 
-  pending.forEach(({ agent, previousSnapshot, previousText, previewChanged }) => {
+  pending.forEach(({ agent, previewChanged }) => {
     const currentAgent = state && state.agents.find((candidate) => candidate.id === agent.id);
     if (!isCrtLiveAgent(currentAgent)) return;
+    // updateCrtAgentPreviewCard prepares a detached preview tree and swaps it
+    // into the existing card atomically. Keeping that card stable avoids the
+    // flash caused by rebuilding or overlaying every sampled frame.
     if (!updateCrtAgentPreviewCard(currentAgent)) {
       if (currentAgent.id !== state.mainAgentId && !isCrtAgentOnCurrentPage(currentAgent.id)) {
         if (previewChanged) pulseCrtBrandForAgent(agent.id);
@@ -1253,42 +1256,28 @@ function flushCrtPreviewCardRenders() {
       renderCrtDashboardIfNeeded(true);
       return;
     }
-    if (previewChanged) {
-      appendCrtPreviewAfterimage(agent.id, previousSnapshot, previousText);
-      pulseCrtBrandForAgent(agent.id);
-    }
   });
 }
 
-function scheduleCrtPreviewCardRender(agent, previousSnapshot, previousText, previewChanged) {
+function flushCrtPreviewCardRendersOnFrame() {
+  crtPreviewRenderTimer = null;
+  if (crtPreviewRenderFrame !== null) return;
+  crtPreviewRenderFrame = requestAnimationFrame(() => {
+    crtPreviewRenderFrame = null;
+    flushCrtPreviewCardRenders();
+  });
+}
+
+function scheduleCrtPreviewCardRender(agent, previewChanged = false) {
   if (!isCrtLiveAgent(agent)) return;
   const existing = pendingCrtPreviewRenders.get(agent.id);
   pendingCrtPreviewRenders.set(agent.id, {
     agent,
-    previousSnapshot: existing ? existing.previousSnapshot : previousSnapshot,
-    previousText: existing ? existing.previousText : previousText,
     previewChanged: Boolean(previewChanged || (existing && existing.previewChanged)),
   });
-  if (!crtPreviewRenderTimer) {
-    crtPreviewRenderTimer = setTimeout(flushCrtPreviewCardRenders, CRT_PREVIEW_RENDER_INTERVAL_MS);
+  if (!crtPreviewRenderTimer && crtPreviewRenderFrame === null) {
+    crtPreviewRenderTimer = setTimeout(flushCrtPreviewCardRendersOnFrame, CRT_PREVIEW_RENDER_INTERVAL_MS);
   }
-}
-
-function appendCrtPreviewAfterimage(agentId, snapshot, fallbackText) {
-  if (typeof document === 'undefined') return;
-  const block = Array.from(document.querySelectorAll('[data-agent-id]'))
-    .find((candidate) => candidate.dataset.agentId === agentId);
-  const output = block && block.querySelector('.agent-output');
-  if (!output || (!snapshot && !fallbackText)) return;
-
-  const afterimage = document.createElement('div');
-  afterimage.className = 'agent-output-afterimage';
-  const tail = document.createElement('div');
-  tail.className = 'agent-output-tail';
-  if (!renderCrtTerminalSnapshot(tail, snapshot)) tail.textContent = fallbackText;
-  afterimage.appendChild(tail);
-  afterimage.addEventListener('animationend', () => afterimage.remove(), { once: true });
-  output.appendChild(afterimage);
 }
 
 function crtCommandProgram(command) {
@@ -2273,8 +2262,23 @@ function installCrtTerminalTestApi() {
         checkpointInFlight: replication.checkpointInFlight,
         checkpointInstallInProgress: replication.installInProgress,
         initialFocusPending: replication.initialFocusPending,
+        queuedTransitionCount: replication.replayState.queuedTransitions.length,
         pendingFitResize: replication.pendingFitResize,
         fitResizeTimerPending: replication.fitResizeTimer !== null
+      };
+    },
+    getGeometry() {
+      const buffer = terminal?.buffer?.active;
+      const proposed = fitAddon && typeof fitAddon.proposeDimensions === 'function'
+        ? fitAddon.proposeDimensions()
+        : null;
+      return {
+        cols: terminal?.cols || 0,
+        rows: terminal?.rows || 0,
+        proposedCols: proposed?.cols || 0,
+        proposedRows: proposed?.rows || 0,
+        baseY: buffer?.baseY || 0,
+        viewportY: buffer?.viewportY || 0
       };
     },
     getRows() {
@@ -2414,7 +2418,7 @@ function finishCrtTerminalReplay(replication = crtTerminalReplication) {
   requestAnimationFrame(() => {
     if (!crtTerminalReplication || crtTerminalReplication !== replication || replication.disposed) return;
     document.getElementById('terminal-output')?.classList.remove('crt-terminal-checkpoint-installing');
-    sendSessionResize(replication.agentId);
+    sendSessionResize(replication.agentId, null, { forceDuringRecovery: true });
     settleInitialCrtTerminalFocus(replication);
   });
 }
@@ -2546,6 +2550,10 @@ function performCrtTerminalCheckpointInstall(replication, sessionView) {
       runtime.markHydrated(sessionView.renderOutput.length);
       syncSessionRuntimeState();
     }
+    // The checkpoint geometry belongs to the previous viewer. Reconcile it with
+    // this CRT container as soon as the checkpoint is committed; a continuous
+    // live stream must not postpone the fit until the replay queue becomes idle.
+    sendSessionResize(replication.agentId, null, { forceDuringRecovery: true });
     if (drainCrtTerminalCheckpointInstall(replication)) return;
     flushCrtTerminalTransitions();
     finishCrtTerminalReplay(replication);
@@ -2600,6 +2608,7 @@ function installCrtTerminalCheckpoint(sessionView) {
     terminal.rows === sessionView.previewRows
   ) {
     TERMINAL_REPLAY.commitCheckpoint(replication.replayState, checkpoint);
+    sendSessionResize(replication.agentId);
     flushCrtTerminalTransitions();
     finishCrtTerminalReplay(replication);
     return true;
@@ -5322,6 +5331,18 @@ function connect() {
       terminalPreviewSnapshots.forEach((_snapshot, agentId) => {
         if (!activeAgentIds.has(agentId)) terminalPreviewSnapshots.delete(agentId);
       });
+      if (
+        focusedAgentId
+        && !activeAgentIds.has(focusedAgentId)
+        && !runtimeSwitchPending
+        && !pendingRuntimeSwitchAgentId
+      ) {
+        // Another viewer may kill or archive the Agent while this CRT session
+        // is open. Runtime replacement has its own bounded handoff and may
+        // briefly remove the old id, so do not mistake that legal transition
+        // for a dead session.
+        closeSession();
+      }
       state.agents.forEach((agent) => {
         if (terminalPreviewSnapshots.has(agent.id)) {
           agent.previewSnapshot = terminalPreviewSnapshots.get(agent.id);
@@ -5366,21 +5387,23 @@ function connect() {
     } else if (data.type === 'session-preview') {
       const preview = data.preview;
       if (preview && preview.agentId) {
-        terminalPreviewSnapshots.set(preview.agentId, preview.previewSnapshot || null);
+        if (preview.previewSnapshot && typeof preview.previewSnapshot === 'object') {
+          terminalPreviewSnapshots.set(preview.agentId, preview.previewSnapshot);
+        }
         const agent = state && state.agents.find((candidate) => candidate.id === preview.agentId);
         if (agent) {
-          const previousSnapshot = agent.previewSnapshot;
-          const previousText = getAgentDisplayText(agent);
           const previewChanged = typeof preview.previewText === 'string'
             && preview.previewText !== agent.previewText;
           agent.previewText = preview.previewText || agent.previewText;
           agent.previewCols = preview.cols || agent.previewCols;
           agent.previewRows = preview.rows || agent.previewRows;
-          agent.previewSnapshot = preview.previewSnapshot || null;
+          // A null preview is not a completed new frame. Retain the last
+          // authoritative snapshot until a replacement is ready.
+          agent.previewSnapshot = preview.previewSnapshot || agent.previewSnapshot || null;
           if (preview.terminalStatus) agent.terminalStatus = preview.terminalStatus;
           if (preview.runtimeObservation) agent.runtimeObservation = preview.runtimeObservation;
           if (isCrtSessionOpen()) dashboardRenderDeferred = true;
-          else scheduleCrtPreviewCardRender(agent, previousSnapshot, previousText, previewChanged);
+          else scheduleCrtPreviewCardRender(agent, previewChanged);
         }
       }
     } else if (data.type === 'session-output') {
@@ -5411,7 +5434,8 @@ function connect() {
       const agent = activity && state && state.agents.find((candidate) => candidate.id === activity.agentId);
       if (agent) {
         Object.assign(agent, activity);
-        renderCrtDashboardIfNeeded();
+        if (isCrtSessionOpen()) dashboardRenderDeferred = true;
+        else scheduleCrtPreviewCardRender(agent);
       }
     } else if (data.type === 'system-stats') {
       updateSystemStats(data.stats, data.uptime, data.usageRate);
@@ -5875,6 +5899,19 @@ function canSwitchCrtAgentRuntime(agent) {
   );
 }
 
+function crtRuntimeSwitchUnavailableReason(agent) {
+  if (!agent || !agent.providerCapabilities?.runtimeSwitch || !agent.providerCapabilities?.supportsChat) {
+    return '';
+  }
+  if (agent.providerSessionTemporary === true && agent.terminalInputReceived === true) {
+    return 'MSG unavailable: this temporary Terminal session already has input and cannot be resumed safely.';
+  }
+  if (!String(agent.providerSessionId || '').trim()) {
+    return 'MSG unavailable: this Agent has no resumable provider session yet.';
+  }
+  return '';
+}
+
 function isCrtRuntimeSwitchShortcut(event) {
   return Boolean(
     event
@@ -5938,11 +5975,27 @@ function updateCrtRuntimeSwitchControl(agent) {
   const terminalButton = document.getElementById('crt-runtime-terminal');
   if (!control || !chatButton || !terminalButton) return;
   const supported = canSwitchCrtAgentRuntime(agent);
+  const unavailableReason = crtRuntimeSwitchUnavailableReason(agent);
   const view = crtRuntimeView(agent);
-  control.hidden = !supported;
+  // Keep a disabled control visible for a provider that supports Chat when
+  // this particular session cannot be resumed. Hiding it made a live
+  // Terminal look like a product capability was missing, while silently
+  // enabling it would risk replacing a temporary session and losing input.
+  control.hidden = !supported && !unavailableReason;
   control.setAttribute('aria-busy', runtimeSwitchPending ? 'true' : 'false');
   chatButton.disabled = !supported || runtimeSwitchPending;
   terminalButton.disabled = !supported || runtimeSwitchPending;
+  if (unavailableReason) {
+    control.title = unavailableReason;
+    control.setAttribute('aria-label', unavailableReason);
+    chatButton.title = unavailableReason;
+    terminalButton.title = unavailableReason;
+  } else {
+    control.removeAttribute('title');
+    control.removeAttribute('aria-label');
+    chatButton.title = 'Chat view [Alt+M]';
+    terminalButton.title = 'Terminal view [Alt+M]';
+  }
   chatButton.classList.toggle('active', view === 'chat');
   terminalButton.classList.toggle('active', view === 'terminal');
   chatButton.setAttribute('aria-pressed', view === 'chat' ? 'true' : 'false');
@@ -6013,7 +6066,11 @@ async function switchCrtSessionRuntimeMode(mode) {
 function toggleCrtSessionRuntimeMode() {
   if (!focusedAgentId || !state) return;
   const agent = state.agents.find((candidate) => candidate.id === focusedAgentId);
-  if (!canSwitchCrtAgentRuntime(agent)) return;
+  if (!canSwitchCrtAgentRuntime(agent)) {
+    const reason = crtRuntimeSwitchUnavailableReason(agent);
+    if (reason) setCrtRuntimeSwitchStatus(reason, true);
+    return;
+  }
   void switchCrtSessionRuntimeMode(crtRuntimeView(agent) === 'chat' ? 'terminal' : 'chat');
 }
 
@@ -7564,7 +7621,11 @@ function clearPendingCrtTerminalFitResize(replication) {
   replication.pendingFitResize = null;
 }
 
-function commitCrtTerminalResize(agentId, normalizedDimensions) {
+function commitCrtTerminalResize(
+  agentId,
+  normalizedDimensions,
+  { allowDuringRecovery = false } = {}
+) {
   const replication = crtTerminalReplication;
   if (
     !agentId ||
@@ -7572,7 +7633,7 @@ function commitCrtTerminalResize(agentId, normalizedDimensions) {
     !replication ||
     replication.disposed ||
     replication.agentId !== agentId ||
-    replication.replayState.recovering ||
+    (!allowDuringRecovery && replication.replayState.recovering) ||
     (
       normalizedDimensions.cols === replication.lastResizeCols &&
       normalizedDimensions.rows === replication.lastResizeRows
@@ -7614,7 +7675,11 @@ function scheduleCrtTerminalFitResize(replication, agentId, normalizedDimensions
   }, CRT_TERMINAL_RESIZE_SETTLE_MS);
 }
 
-function sendSessionResize(agentId = focusedAgentId, requestedDimensions = null) {
+function sendSessionResize(
+  agentId = focusedAgentId,
+  requestedDimensions = null,
+  { forceDuringRecovery = false } = {}
+) {
   const replication = crtTerminalReplication;
   if (
     !agentId ||
@@ -7622,7 +7687,7 @@ function sendSessionResize(agentId = focusedAgentId, requestedDimensions = null)
     !fitAddon ||
     !replication ||
     replication.agentId !== agentId ||
-    replication.replayState.recovering
+    (!forceDuringRecovery && replication.replayState.recovering)
   ) return;
   const dimensions = requestedDimensions || (
     typeof fitAddon.proposeDimensions === 'function'
@@ -7646,6 +7711,25 @@ function sendSessionResize(agentId = focusedAgentId, requestedDimensions = null)
       normalizedDimensions.rows === replication.lastResizeRows
     ) {
       clearPendingCrtTerminalFitResize(replication);
+      // A checkpoint can temporarily restore the previous viewer's geometry
+      // after this surface's resize was already delivered. Reapply the known
+      // local geometry without sending a duplicate resize to the backend.
+      if (
+        terminal.cols !== normalizedDimensions.cols ||
+        terminal.rows !== normalizedDimensions.rows
+      ) {
+        replication.applyingLocalResize = true;
+        try {
+          terminal.resize(normalizedDimensions.cols, normalizedDimensions.rows);
+        } finally {
+          replication.applyingLocalResize = false;
+        }
+      }
+      return;
+    }
+    if (forceDuringRecovery) {
+      clearPendingCrtTerminalFitResize(replication);
+      commitCrtTerminalResize(agentId, normalizedDimensions, { allowDuringRecovery: true });
       return;
     }
     scheduleCrtTerminalFitResize(replication, agentId, normalizedDimensions);

@@ -93,7 +93,7 @@ import {
   terminalReadingAnchorFingerprint,
   type ReadingAnchor,
 } from '@/lib/reading-anchor'
-import { isMobileTouchViewport } from '@/lib/responsive-mode'
+import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
 import { sendTerminalSessionMessage } from '@/lib/terminal-session-client'
 import type { TerminalInputPart } from '@/types/messages'
@@ -413,7 +413,7 @@ declare global {
 }
 
 function isMobileViewport() {
-  return isMobileTouchViewport()
+  return isTouchInputViewport()
 }
 
 function appendHost(record: SessionRecord, mountEl: HTMLElement) {
@@ -3715,7 +3715,7 @@ function installTerminalTestApi() {
 }
 
 async function bootstrapSession(agentId: string, options: AttachOptions) {
-  const terminalFontSize = isMobileViewport()
+  const terminalFontSize = isCompactViewport()
     ? SESSION_TERMINAL_FONT_MOBILE
     : SESSION_TERMINAL_FONT_DESKTOP
 
@@ -4033,9 +4033,14 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     if (modifierActive) {
       const url = findTerminalUrlAtMouseEvent(record, event)
       if (url) {
+        // xterm owns a document-level mouseup listener that terminates its
+        // selection gesture. Let this mouseup bubble to it; the following
+        // click is still suppressed so the target opens only once.
         event.preventDefault()
-        event.stopPropagation()
-        event.stopImmediatePropagation()
+        if (!isXtermTerminal(terminal)) {
+          event.stopPropagation()
+          event.stopImmediatePropagation()
+        }
         openTerminalUrl(url)
         record.suppressClickUntil = Date.now() + 250
         return
@@ -4377,6 +4382,11 @@ function notifyTerminalAttachReady(record: SessionRecord, generation: number) {
     record.replayState.outputSeq === null ||
     record.replayState.stateRevision === null
   ) return false
+  // A ready record may have been detached and reattached before the previous
+  // install-completion animation frame ran. That frame is generation-fenced,
+  // so it intentionally stops after detach; clear its visual latch here at
+  // the authoritative ready boundary or the reattached xterm stays hidden.
+  record.hostEl.classList.remove('terminal-checkpoint-installing')
   publishTerminalRecoveryStatus(record, 'ready')
   if (record.attachReadyNotified) return true
   record.attachReadyNotified = true

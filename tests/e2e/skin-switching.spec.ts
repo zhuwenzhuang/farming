@@ -478,6 +478,96 @@ test('focuses the Main Agent terminal after leaving a structured Agent', async (
   await expect(page.locator('#terminal-output .xterm-helper-textarea')).toBeFocused({ timeout: 30_000 })
 })
 
+test('keeps a running CRT dashboard preview steady while its content advances', async ({ page, workspaceRoot }) => {
+  test.setTimeout(60_000)
+  await openFarming(page)
+  const agentId = await createControlAgent(page, 'bash', workspaceRoot)
+
+  await page.goto('/farming/crt/', { waitUntil: 'networkidle' })
+  const agentCard = page.locator(`#map-area .agent-block[data-agent-id="${agentId}"]`)
+  await expect(agentCard).toBeVisible({ timeout: 30_000 })
+  await agentCard.evaluate(element => { element.dataset.previewTestIdentity = 'stable-card' })
+
+  const input = await page.request.post(`/farming/api/control/agents/${agentId}/input`, {
+    data: {
+      input: "for i in {1..60}; do printf 'CRT_SMOOTH_PREVIEW_%03d\\n' \"$i\"; sleep 0.08; done\r",
+    },
+  })
+  expect(input.ok()).toBeTruthy()
+  await expect(agentCard).toContainText('CRT_SMOOTH_PREVIEW_', { timeout: 15_000 })
+
+  const samples = await page.evaluate(async (id) => {
+    const texts = new Set<string>()
+    const animationNames = new Set<string>()
+    let identityLost = false
+    let afterimageCount = 0
+    let minimumOpacity = 1
+    const deadline = performance.now() + 2_600
+    while (performance.now() < deadline) {
+      const card = document.querySelector<HTMLElement>(`#map-area .agent-block[data-agent-id="${id}"]`)
+      const output = card?.querySelector<HTMLElement>('.agent-output') || null
+      if (!card || card.dataset.previewTestIdentity !== 'stable-card') identityLost = true
+      if (output) {
+        texts.add(output.textContent || '')
+        minimumOpacity = Math.min(minimumOpacity, Number.parseFloat(getComputedStyle(output).opacity) || 0)
+        output.getAnimations().forEach((animation) => {
+          const effect = animation.effect as KeyframeEffect | null
+          if (effect?.getKeyframes().length) animationNames.add(String((effect as KeyframeEffect).target))
+        })
+      }
+      afterimageCount = Math.max(afterimageCount, document.querySelectorAll('.agent-output-afterimage').length)
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    }
+    return {
+      distinctFrames: texts.size,
+      identityLost,
+      afterimageCount,
+      minimumOpacity,
+      animationCount: animationNames.size,
+    }
+  }, agentId)
+
+  expect(samples.distinctFrames).toBeGreaterThan(1)
+  expect(samples.identityLost).toBe(false)
+  expect(samples.afterimageCount).toBe(0)
+  expect(samples.minimumOpacity).toBe(1)
+  expect(samples.animationCount).toBe(0)
+})
+
+test('explains why MSG is unavailable after a temporary Codex Terminal receives input', async ({ page, workspaceRoot }) => {
+  test.setTimeout(60_000)
+  await openFarming(page)
+  const agentId = await createControlAgent(page, 'codex', workspaceRoot)
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/control/agents')
+    if (!response.ok()) return false
+    const payload = await response.json() as { agents?: Array<{ id: string; providerSessionTemporary?: boolean; terminalInputReceived?: boolean }> }
+    const agent = payload.agents?.find(candidate => candidate.id === agentId)
+    return agent?.providerSessionTemporary === true && agent.terminalInputReceived === false
+  }, { timeout: 30_000 }).toBe(true)
+
+  const input = await page.request.post(`/farming/api/control/agents/${agentId}/input`, {
+    data: { input: 'echo CRT_MSG_EXPLANATION\r' },
+  })
+  expect(input.ok()).toBeTruthy()
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/control/agents')
+    if (!response.ok()) return false
+    const payload = await response.json() as { agents?: Array<{ id: string; terminalInputReceived?: boolean }> }
+    const agent = payload.agents?.find(candidate => candidate.id === agentId)
+    return agent?.terminalInputReceived === true
+  }, { timeout: 30_000 }).toBe(true)
+
+  await page.goto('/farming/crt/', { waitUntil: 'networkidle' })
+  const agentCard = page.locator(`#map-area .agent-block[data-agent-id="${agentId}"]`)
+  await agentCard.click()
+  const runtimeToggle = page.locator('#crt-runtime-toggle')
+  await expect(runtimeToggle).toBeVisible({ timeout: 30_000 })
+  await expect(runtimeToggle).toHaveAttribute('title', /temporary Terminal session/i)
+  await expect(page.locator('#crt-runtime-chat')).toBeDisabled()
+  await expect(page.locator('#crt-runtime-terminal')).toBeDisabled()
+})
+
 test('keeps every session command reachable through a Terminal to MSG keyboard flow', async ({ page, workspaceRoot }) => {
   test.setTimeout(90_000)
   await openFarming(page)
@@ -638,7 +728,7 @@ test('round-trips every CRT top-level surface with keyboard-only navigation', as
   await expect(agentCard).toBeFocused()
 })
 
-test('previews structured Chat on CRT cards and removes killed Agents from the live grid', async ({ page, workspaceRoot }) => {
+test('previews structured Chat and closes a CRT session when another viewer kills its Agent', async ({ page, workspaceRoot }) => {
   test.setTimeout(90_000)
   await openFarming(page)
   await openNewAgentDialog(page)
@@ -674,15 +764,22 @@ test('previews structured Chat on CRT cards and removes killed Agents from the l
     return {
       overflow: trailStyle?.overflowY || '',
       lineClamp: textStyle?.webkitLineClamp || '',
+      panelJustify: getComputedStyle(element).justifyContent,
+      trailJustify: trailStyle?.justifyContent || '',
     }
   })
   expect(previewLayout.overflow).toBe('hidden')
   expect(['', 'none']).toContain(previewLayout.lineClamp)
+  expect(previewLayout.panelJustify).toBe('flex-start')
+  expect(previewLayout.trailJustify).toBe('flex-start')
   await expect(chatCard.getByText('No output yet...', { exact: true })).toHaveCount(0)
 
   const killedAgentId = await createControlAgent(page, 'bash', workspaceRoot)
   const killedCard = page.locator(`#map-area .agent-block[data-agent-id="${killedAgentId}"]`)
   await expect(killedCard).toBeVisible({ timeout: 30_000 })
+  await killedCard.click()
+  await expect(page.locator('#session-modal')).toHaveClass(/active/)
+  await expect(page.locator('#terminal-output .xterm-helper-textarea')).toBeFocused({ timeout: 30_000 })
   const killResponse = await page.request.delete(`/farming/api/control/agents/${killedAgentId}`)
   expect(killResponse.ok()).toBeTruthy()
   await expect.poll(async () => {
@@ -690,6 +787,8 @@ test('previews structured Chat on CRT cards and removes killed Agents from the l
     const body = await response.json() as { agents?: Array<{ id?: string; status?: string }> }
     return body.agents?.some(agent => agent.id === killedAgentId) === true
   }, { timeout: 20_000 }).toBe(false)
+  await expect(page.locator('#session-modal')).not.toHaveClass(/active/)
+  await expect(page.locator('#terminal-output .xterm-helper-textarea')).toHaveCount(0)
   await expect(killedCard).toHaveCount(0)
 })
 

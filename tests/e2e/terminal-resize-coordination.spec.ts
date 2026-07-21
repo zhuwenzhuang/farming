@@ -350,6 +350,81 @@ test('coalesces a sustained diagonal window drag into one geometry update', asyn
   }).toEqual(messages[0])
 })
 
+test('lets a clicked viewer reclaim its local terminal geometry', async ({
+  page,
+  context,
+  workspaceRoot,
+}) => {
+  await installResizeMessageCapture(page)
+  await page.setViewportSize({ width: 1500, height: 900 })
+
+  const workspace = path.join(workspaceRoot, 'terminal-click-reclaim-geometry')
+  fs.mkdirSync(workspace, { recursive: true })
+  await page.goto('/farming/', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  const agentId = await createControlAgent(page, workspace)
+  await openAgent(page, agentId)
+
+  const desktopDimensions = await page.evaluate(id => {
+    const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics(id)
+    return {
+      cols: diagnostics?.cols ?? 0,
+      rows: diagnostics?.rows ?? 0,
+    }
+  }, agentId)
+  expect(desktopDimensions.cols).toBeGreaterThan(0)
+  expect(desktopDimensions.rows).toBeGreaterThan(0)
+
+  const compactPage = await context.newPage()
+  await compactPage.addInitScript(() => {
+    window.__FARMING_E2E__ = true
+  })
+  await compactPage.setViewportSize({ width: 1000, height: 720 })
+  await compactPage.goto('/farming/', { waitUntil: 'domcontentloaded' })
+  await expect(compactPage.getByTestId('app-shell')).toBeVisible()
+
+  try {
+    await openAgent(compactPage, agentId)
+    await expect.poll(() => page.evaluate(id => {
+      const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics(id)
+      return {
+        cols: diagnostics?.cols ?? 0,
+        rows: diagnostics?.rows ?? 0,
+      }
+    }, agentId)).not.toEqual(desktopDimensions)
+
+    const messageCountBeforeClick = await page.evaluate(
+      id => window.__farmingResizeMessages?.filter(message => message.agentId === id).length ?? 0,
+      agentId,
+    )
+    const terminalScreen = page.locator(
+      `[data-testid="code-terminal-pane"][data-agent-id="${agentId}"] .xterm-screen`,
+    )
+    await terminalScreen.click()
+
+    await expect.poll(() => page.evaluate(id => {
+      const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics(id)
+      return {
+        cols: diagnostics?.cols ?? 0,
+        rows: diagnostics?.rows ?? 0,
+      }
+    }, agentId)).toEqual(desktopDimensions)
+    await expect.poll(() => page.evaluate(
+      id => window.__farmingResizeMessages?.filter(message => message.agentId === id).length ?? 0,
+      agentId,
+    )).toBe(messageCountBeforeClick + 1)
+
+    await terminalScreen.click()
+    await page.waitForTimeout(300)
+    expect(await page.evaluate(
+      id => window.__farmingResizeMessages?.filter(message => message.agentId === id).length ?? 0,
+      agentId,
+    )).toBe(messageCountBeforeClick + 1)
+  } finally {
+    await compactPage.close()
+  }
+})
+
 test('different-sized viewers settle after repeatedly switching the same terminal', async ({
   page,
   context,

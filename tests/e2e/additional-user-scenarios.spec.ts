@@ -712,7 +712,7 @@ test.describe('additional Farming Code user scenarios', () => {
       expect(focusedComposerBox.width).toBeGreaterThanOrEqual(366)
       const iosKeyboardComposerBox = await page.getByTestId('code-composer').evaluate(async element => {
         const root = document.documentElement
-        document.body.classList.add('code-mode', 'code-mobile-touch', 'code-mobile-ios')
+        document.body.classList.add('code-mode', 'code-compact-layout', 'code-mobile-touch', 'code-mobile-ios')
         document.body.classList.add('code-mobile-keyboard-active')
         element.classList.add('menu-open')
         root.style.setProperty('--app-visual-height', '420px')

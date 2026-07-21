@@ -981,7 +981,7 @@ function run() {
       workspaceSource.includes('code-agent-row') &&
       workspaceSource.includes('PROJECT_AGENT_VISIBLE_LIMIT = 5') &&
       workspaceSource.includes('const agentCompressionActive = sidebarCollapsed') &&
-      workspaceSource.includes('const filesCompressAgents = projectFilesExpanded && isMobileTouchViewport() && sortedAgents.length > 1') &&
+      workspaceSource.includes('const filesCompressAgents = projectFilesExpanded && isCompactViewport() && sortedAgents.length > 1') &&
       workspaceSource.includes('onFilesCollapsedChange={handleFilesCollapsedChange}') &&
       workspaceSource.includes('function ProjectAgentCompactStrip') &&
       workspaceSource.includes('function PinnedItemCompactStrip') &&
@@ -1319,8 +1319,8 @@ function run() {
     inputDialogSource.includes('initialWorkspace') &&
       inputDialogSource.includes('initialCommand') &&
       inputDialogSource.includes("normalizeWorkspaceValue(initialWorkspace || '')") &&
-      inputDialogSource.includes("import { isMobileTouchViewport } from '@/lib/responsive-mode'") &&
-      inputDialogSource.includes('return isMobileTouchViewport()') &&
+      inputDialogSource.includes("import { isTouchInputViewport } from '@/lib/responsive-mode'") &&
+      inputDialogSource.includes('return isTouchInputViewport()') &&
       responsiveModeSource.includes("window.matchMedia('(any-pointer: coarse)').matches") &&
       responsiveModeSource.includes('navigator.maxTouchPoints > 0') &&
       inputDialogSource.includes('role="dialog"') &&
@@ -1529,12 +1529,16 @@ function run() {
       workspaceSource.includes('const DESKTOP_AUTO_COLLAPSE_WIDTH = 900') &&
       workspaceSource.includes('const sidebarAutoCollapsedRef = useRef(sidebarCollapsed)') &&
       appSource.includes('useLayoutEffect') &&
-      appSource.includes("import { isIOSLikeTouchViewport, isMobileTouchViewport } from '@/lib/responsive-mode'") &&
-      appSource.includes('const mobileViewport = isMobileTouchViewport()') &&
-      appSource.includes("document.body.classList.toggle('code-mobile-touch', mobileViewport)") &&
-      workspaceSource.includes("import { isMobileTouchViewport } from '@/lib/responsive-mode'") &&
-      workspaceSource.includes('return isMobileTouchViewport()') &&
+      appSource.includes("import { isCompactViewport, isIOSLikeTouchViewport, isTouchInputViewport } from '@/lib/responsive-mode'") &&
+      appSource.includes('const compactViewport = isCompactViewport()') &&
+      appSource.includes('const touchViewport = isTouchInputViewport()') &&
+      appSource.includes("document.body.classList.toggle('code-compact-layout', compactViewport)") &&
+      appSource.includes("document.body.classList.toggle('code-mobile-touch', compactViewport && touchViewport)") &&
+      workspaceSource.includes("import { isCompactViewport, isIOSLikeTouchViewport, isTouchInputViewport } from '@/lib/responsive-mode'") &&
+      workspaceSource.includes('return isCompactViewport()') &&
       responsiveModeSource.includes('MOBILE_NAVIGATION_MAX_WIDTH = 980') &&
+      responsiveModeSource.includes('export function isCompactViewport') &&
+      responsiveModeSource.includes('export function isTouchInputViewport') &&
       responsiveModeSource.includes("window.matchMedia('(any-pointer: coarse)').matches") &&
       responsiveModeSource.includes('navigator.maxTouchPoints > 0') &&
       workspaceSource.includes('function isDesktopAutoCollapseWidth(width: number)') &&
@@ -1547,22 +1551,21 @@ function run() {
       stylesSource.includes('grid-auto-rows: 42px;') &&
       stylesSource.includes('width: 42px;\n  height: 42px;\n  flex: 0 0 42px;') &&
       darkStylesSource.includes(".code-mode[data-appearance='dark'] .code-agent-rail-button") &&
-      stylesSource.includes('@media (max-width: 980px) and (any-pointer: coarse)') &&
-      stylesSource.includes('@media (min-width: 700px) and (max-width: 980px) and (any-pointer: coarse)') &&
-      stylesSource.includes('body.code-mode.code-mobile-touch') &&
-      stylesSource.includes('body.code-mode.code-mobile-touch .code-workspace.sidebar-collapsed') &&
-      stylesSource.includes('body.code-mode.code-mobile-touch .code-sidebar.collapsed') &&
+      stylesSource.includes('@media (max-width: 980px)') &&
+      !stylesSource.includes('@media (max-width: 980px) and (any-pointer: coarse)') &&
+      stylesSource.includes('body.code-mode.code-compact-layout') &&
+      stylesSource.includes('body.code-mode.code-compact-layout .code-workspace.sidebar-collapsed') &&
+      stylesSource.includes('body.code-mode.code-compact-layout .code-sidebar.collapsed') &&
       stylesSource.includes('transform: translateX(calc(-100% - 18px));') &&
-      stylesSource.includes('body.code-mode #root,\n  body.code-mode .app-container,\n  body.code-mode .code-app-shell,\n  body.code-mode .code-workspace') &&
+      stylesSource.includes('body.code-mode.code-compact-layout #root,\n  body.code-mode.code-compact-layout .app-container,\n  body.code-mode.code-compact-layout .code-app-shell,\n  body.code-mode.code-compact-layout .code-workspace') &&
       stylesSource.includes('width: var(--app-visual-width, 100vw);') &&
       stylesSource.includes('height: var(--app-visual-height, 100dvh);') &&
       stylesSource.includes('top: var(--app-visual-offset-top, 0px);') &&
-      stylesSource.includes('@media (min-width: 700px) and (max-width: 980px) and (any-pointer: coarse) {\n  .code-workspace {\n    grid-template-columns: minmax(0, 1fr);') &&
-      stylesSource.includes('@media (max-width: 980px) and (any-pointer: fine)') &&
-      stylesSource.includes('body.code-mode .input-dialog {\n    width: min(92vw, 560px);') &&
       stylesSource.includes('body.code-mode .input-dialog {\n    max-height: var(--app-visual-height, 100dvh);') &&
+      stylesSource.includes('min-height: var(--app-visual-height, 100dvh);') &&
+      !stylesSource.includes('@media (max-width: 980px) and (any-pointer: fine)') &&
       !stylesSource.includes('@media (max-width: 640px), (max-width: 980px) and (pointer: coarse)'),
-    'Collapsed desktop sidebar should stay narrow, auto-collapse on constrained desktop width, and expose live agent rail shortcuts without entering the mobile drawer layout'
+    'Compact layout structure should be driven only by width on desktop and touch devices, while touch capability remains an interaction-only signal'
   );
 
   assert(

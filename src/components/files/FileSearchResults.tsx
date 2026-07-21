@@ -7,7 +7,7 @@ import {
   type WorkspaceFileJumpQuery,
 } from '@/lib/workspace-file-search'
 import type { WorkspaceFileSearchMatch } from '@/lib/workspace-files'
-import { isMobileTouchViewport } from '@/lib/responsive-mode'
+import { isCompactViewport } from '@/lib/responsive-mode'
 import type { CodeCopy } from '../code/copy'
 
 interface FileSearchResultsProps {
@@ -81,7 +81,7 @@ function splitWorkspaceFilePath(pathText: string) {
 function fileSearchPanelStyle(anchor: HTMLElement | null): FileSearchPanelStyle | null {
   if (!anchor || typeof window === 'undefined') return null
   const rect = anchor.getBoundingClientRect()
-  if (isMobileTouchViewport()) {
+  if (isCompactViewport()) {
     const visualViewport = window.visualViewport
     const viewportTop = visualViewport?.offsetTop ?? 0
     const viewportLeft = visualViewport?.offsetLeft ?? 0

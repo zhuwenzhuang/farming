@@ -58,6 +58,12 @@ function run() {
     'deploy script should keep generated local-only paths out of remote source sync'
   );
 
+  assert(
+    deploySource.includes('FARMING_BASE_PATH=${REMOTE_BASE_PATH} npm run build') &&
+      !deploySource.includes('FARMING_BASE_PATH=${REMOTE_BASE_PATH} npx vite build'),
+    'deploy script should build Code plus the CRT Markdown and Mermaid renderer bundles'
+  );
+
 	  assert(
 	    deploySource.includes('source_release_metadata_b64') &&
 	      deploySource.includes("git(['describe', '--tags', '--dirty', '--always'])") &&

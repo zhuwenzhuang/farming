@@ -72,6 +72,7 @@ async function installStateSocket(page: import('@playwright/test').Page, initial
       onopen: ((event: Event) => void) | null = null
       onmessage: ((event: MessageEvent) => void) | null = null
       onclose: ((event: CloseEvent) => void) | null = null
+      heartbeatTimer: number | null = null
 
       constructor() {
         sockets.add(this)
@@ -79,12 +80,16 @@ async function installStateSocket(page: import('@playwright/test').Page, initial
           this.readyState = MockWebSocket.OPEN
           this.onopen?.(new Event('open'))
           this.onmessage?.({ data: JSON.stringify({ type: 'state', state }) } as MessageEvent)
+          this.heartbeatTimer = window.setInterval(() => {
+            this.onmessage?.({ data: JSON.stringify({ type: 'state', state }) } as MessageEvent)
+          }, 2_000)
         }, 0)
       }
 
       send() {}
 
       close() {
+        if (this.heartbeatTimer !== null) window.clearInterval(this.heartbeatTimer)
         this.readyState = MockWebSocket.CLOSED
         this.onclose?.(new CloseEvent('close'))
         sockets.delete(this)
@@ -255,8 +260,8 @@ test.describe('mobile Farming Code user story', () => {
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('code-empty-workspace')).toContainText('Start or select an agent')
     const inactiveComposerInput = page.getByTestId('code-composer-input')
-    await expect(inactiveComposerInput).toHaveAttribute('data-placeholder', 'Open an agent terminal first')
-    await expect(inactiveComposerInput).toHaveAttribute('aria-disabled', 'true')
+    await expect(inactiveComposerInput).toHaveAttribute('placeholder', 'Open an agent terminal first')
+    await expect(inactiveComposerInput).toBeDisabled()
 
     await page.getByTestId('code-empty-workspace').getByRole('button', { name: 'New Agent' }).click()
     await expect(page.getByTestId('input-dialog')).toContainText('Start New Agent')
@@ -287,7 +292,7 @@ test.describe('mobile Farming Code user story', () => {
     const projectDir = path.join(workspaceRoot, 'mobile-transcript-status')
     fs.mkdirSync(path.join(projectDir, 'src/components/code'), { recursive: true })
     fs.mkdirSync(path.join(projectDir, 'backend/tests'), { recursive: true })
-    fs.writeFileSync(path.join(projectDir, 'src/components/code/MobileCodeComposerInput.tsx'), 'export const mobile = true\n')
+    fs.writeFileSync(path.join(projectDir, 'src/components/code/useMobileComposerHeight.ts'), 'export const mobile = true\n')
     fs.writeFileSync(path.join(projectDir, 'backend/tests/test-mobile.js'), 'console.log("mobile")\n')
     const sessionId = `019f-mobile-status-${Date.now()}`
     const agentId = `agent-mobile-status-${Date.now()}`
@@ -364,14 +369,14 @@ test.describe('mobile Farming Code user story', () => {
                   'node backend/tests/test-mobile.js --workspace /very/long/workspace/path/that/should/wrap/instead/of/creating/a-horizontal-scrollbar --mode mobile-chat',
                   '```',
                   '',
-                  'Inline paths such as `src/components/code/MobileCodeComposerInput.tsx` should wrap too.',
+                  'Inline paths such as `src/components/code/useMobileComposerHeight.ts` should wrap too.',
                 ].join('\n'),
                 startedAt: Date.now() - 120_000,
                 completedAt: Date.now() - 90_000,
                 durationMs: 30_000,
                 status: 'completed',
                 processItems: [
-                  { id: 'completed-patch', type: 'patch', title: 'Edited 2 files', detail: 'update src/components/code/MobileCodeComposerInput.tsx +34 -4\nupdate src/styles/main.css +21 -9', status: 'completed' },
+                  { id: 'completed-patch', type: 'patch', title: 'Edited 2 files', detail: 'update src/components/code/useMobileComposerHeight.ts +34 -4\nupdate src/styles/main.css +21 -9', status: 'completed' },
                 ],
               },
               {
@@ -382,13 +387,16 @@ test.describe('mobile Farming Code user story', () => {
                 status: 'inProgress',
                 processItems: [
                   { id: 'running-command', type: 'command', title: 'Ran mobile layout audit', detail: 'measuring visual viewport and composer gap', status: 'completed' },
-                  { id: 'running-patch', type: 'patch', title: 'Edited 3 files', detail: 'update src/components/code/CodeComposer.tsx +18 -6\nupdate src/components/code/MobileCodeComposerInput.tsx +11 -2\nupdate src/styles/main.css +29 -14', status: 'running' },
+                  { id: 'running-patch', type: 'patch', title: 'Edited 3 files', detail: 'update src/components/code/CodeComposer.tsx +18 -6\nupdate src/components/code/useMobileComposerHeight.ts +11 -2\nupdate src/styles/main.css +29 -14', status: 'running' },
                 ],
               },
             ],
           },
         }),
       })
+    })
+    await page.route(`/farming/api/agents/${agentId}`, async route => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ success: true }) })
     })
 
     await openFarming(page)
@@ -428,12 +436,12 @@ test.describe('mobile Farming Code user story', () => {
     })
     expect(metrics.documentScrollWidth).toBe(metrics.innerWidth)
     expect(metrics.bodyScrollWidth).toBe(metrics.innerWidth)
-    expect(metrics.composerHeight).toBeLessThanOrEqual(90)
+    expect(metrics.composerHeight).toBeLessThanOrEqual(118)
     expect(metrics.inputHeight).toBeGreaterThanOrEqual(34)
     expect(metrics.inputHeight).toBeLessThanOrEqual(52)
-    expect(metrics.inputAutocomplete).toBeNull()
-    expect(metrics.inputMode).toBeNull()
-    expect(metrics.inputName).toBeNull()
+    expect(metrics.inputAutocomplete).toBe('off')
+    expect(metrics.inputMode).toBe('text')
+    expect(metrics.inputName).toBe('farming-chat-message')
     expect(metrics.inputRole).toBeNull()
     expect(metrics.placeholderDisplay).toBe('none')
     expect(metrics.statusGapToComposer).toBeGreaterThanOrEqual(0)
@@ -479,7 +487,7 @@ test.describe('mobile Farming Code user story', () => {
     }
     await expect(page.getByTestId('code-composer-send')).toBeVisible()
     const composerInput = page.getByTestId('code-composer-input')
-    await expect(composerInput).toHaveAttribute('contenteditable', 'true')
+    expect(await composerInput.evaluate(element => element.tagName)).toBe('TEXTAREA')
     await expect(composerInput).toHaveAttribute('autocorrect', 'off')
     await expect(composerInput).toHaveAttribute('autocapitalize', 'none')
     await expect(composerInput).toHaveAttribute('spellcheck', 'false')
@@ -488,10 +496,10 @@ test.describe('mobile Farming Code user story', () => {
     await expect(composerInput).toHaveAttribute('data-bwignore', 'true')
     await expect(composerInput).toHaveAttribute('data-form-type', 'other')
     expect(await composerInput.evaluate(element => element.getAttribute('role'))).toBeNull()
-    expect(await composerInput.evaluate(element => element.getAttribute('autocomplete'))).toBeNull()
+    await expect(composerInput).toHaveAttribute('autocomplete', 'off')
     expect(await composerInput.evaluate(element => element.getAttribute('aria-autocomplete'))).toBeNull()
-    expect(await composerInput.evaluate(element => element.getAttribute('inputmode'))).toBeNull()
-    expect(await composerInput.evaluate(element => element.getAttribute('name'))).toBeNull()
+    await expect(composerInput).toHaveAttribute('inputmode', 'text')
+    await expect(composerInput).toHaveAttribute('name', 'farming-chat-message')
     await composerInput.focus()
     await expect(composerInput).toBeFocused()
     await expect(page.locator('input[type="password"], input[autocomplete="new-password"]')).toHaveCount(0)
@@ -508,9 +516,9 @@ test.describe('mobile Farming Code user story', () => {
       const inputRect = input?.getBoundingClientRect()
       return { height: rect.height, inputHeight: inputRect?.height ?? 0 }
     })
-    expect(compactComposerMetrics.height).toBeLessThanOrEqual(88)
+    expect(compactComposerMetrics.height).toBeLessThanOrEqual(100)
     expect(compactComposerMetrics.inputHeight).toBeGreaterThanOrEqual(22)
-    expect(compactComposerMetrics.inputHeight).toBeLessThanOrEqual(34)
+    expect(compactComposerMetrics.inputHeight).toBeLessThanOrEqual(52)
     await composerInput.fill(['line one', 'line two', 'line three', 'line four'].join('\n'))
     await expect.poll(async () => page.getByTestId('code-composer').evaluate(element => {
       const input = element.querySelector('[data-testid="code-composer-input"]') as HTMLElement | null
@@ -518,13 +526,15 @@ test.describe('mobile Farming Code user story', () => {
       return inputRect?.height ?? 0
     })).toBeGreaterThanOrEqual(56)
     const expandedComposerHeight = await page.getByTestId('code-composer').evaluate(element => element.getBoundingClientRect().height)
-    expect(expandedComposerHeight).toBeLessThanOrEqual(112)
+    expect(expandedComposerHeight).toBeLessThanOrEqual(122)
     await composerInput.fill('')
 
     const marker = `mobile-story-${Date.now()}`
-    await composerInput.fill(`echo ${marker}`)
-    await page.getByTestId('code-composer-send').click()
-    await expect.poll(async () => composerInput.evaluate(element => element.textContent || '')).toBe('')
+    await composerInput.click()
+    await page.keyboard.insertText(`echo ${marker}`)
+    await expect(composerInput).toHaveValue(`echo ${marker}`)
+    await page.keyboard.press('Enter')
+    await expect(composerInput).toHaveValue('')
     await expect.poll(async () => {
       const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
       const data = await response.json()

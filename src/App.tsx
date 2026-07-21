@@ -8,7 +8,7 @@ import { BackendConnectionStatus } from '@/components/BackendConnectionStatus'
 import { CodeWorkspace, type AgentFlagUpdateResult, type DeleteForkWorktreeProjectResult, type WorkspaceView } from '@/components/CodeWorkspace'
 import { codeCopyForLanguage } from '@/components/code/copy'
 import { applyThemeAppearance } from '@/lib/theme'
-import { isIOSLikeTouchViewport, isMobileTouchViewport } from '@/lib/responsive-mode'
+import { isCompactViewport, isIOSLikeTouchViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import {
   DEFAULT_UI_PREFERENCES,
   normalizeUiAppearance,
@@ -415,21 +415,23 @@ export function App() {
       const rawHeight = viewport?.height ?? window.innerHeight
       const offsetTop = viewport?.offsetTop ?? 0
       const offsetLeft = viewport?.offsetLeft ?? 0
-      const mobileViewport = isMobileTouchViewport()
+      const compactViewport = isCompactViewport()
+      const touchViewport = isTouchInputViewport()
       const layoutHeight = window.innerHeight || rawHeight || MIN_MOBILE_VISUAL_HEIGHT
-      const height = mobileViewport
+      const height = compactViewport
         ? Math.min(Math.max(rawHeight, MIN_MOBILE_VISUAL_HEIGHT), Math.max(layoutHeight, MIN_MOBILE_VISUAL_HEIGHT))
         : rawHeight
       const keyboardOffset = Math.max(0, layoutHeight - rawHeight - offsetTop)
-      const iosLikeTouchViewport = mobileViewport && isIOSLikeTouchViewport()
-      const mobileKeyboardActive = mobileViewport && keyboardOffset > 80
+      const iosLikeTouchViewport = touchViewport && isIOSLikeTouchViewport()
+      const mobileKeyboardActive = compactViewport && touchViewport && keyboardOffset > 80
       const iosNavigator = navigator as Navigator & { standalone?: boolean }
       const standaloneWebApp = iosNavigator.standalone === true
         || window.matchMedia('(display-mode: standalone)').matches
 
-      document.body.classList.toggle('code-mobile-touch', mobileViewport)
+      document.body.classList.toggle('code-compact-layout', compactViewport)
+      document.body.classList.toggle('code-mobile-touch', compactViewport && touchViewport)
       document.body.classList.toggle('code-mobile-ios', iosLikeTouchViewport)
-      document.body.classList.toggle('code-mobile-standalone', mobileViewport && standaloneWebApp)
+      document.body.classList.toggle('code-mobile-standalone', compactViewport && standaloneWebApp)
       document.body.classList.toggle('code-mobile-keyboard-active', mobileKeyboardActive)
       document.documentElement.style.setProperty('--app-visual-width', `${width}px`)
       document.documentElement.style.setProperty('--app-visual-height', `${height}px`)
@@ -452,6 +454,7 @@ export function App() {
       document.documentElement.style.removeProperty('--app-visual-offset-top')
       document.documentElement.style.removeProperty('--app-visual-offset-left')
       document.documentElement.style.removeProperty('--mobile-keyboard-offset')
+      document.body.classList.remove('code-compact-layout')
       document.body.classList.remove('code-mobile-touch')
       document.body.classList.remove('code-mobile-ios')
       document.body.classList.remove('code-mobile-standalone')

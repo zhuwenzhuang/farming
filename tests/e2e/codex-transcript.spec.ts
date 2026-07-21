@@ -828,7 +828,7 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     await reviewPage.close()
   })
 
-  test('keeps unavailable Codex chat history quiet and preserves raw terminal access', async ({ page, workspaceRoot }) => {
+  test('shows a clear empty Chat state and preserves raw terminal access', async ({ page, workspaceRoot }) => {
     const projectDir = path.join(workspaceRoot, 'codex-chat-unavailable')
     fs.mkdirSync(projectDir, { recursive: true })
     const sessionId = '019fchat-unavailable'
@@ -858,7 +858,10 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     const modeToggle = pane.getByTestId('code-terminal-mode-toggle')
     await expect(modeToggle.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true')
     await expect(pane.getByTestId('code-codex-transcript')).toBeVisible()
-    await expect(pane.locator('.code-codex-transcript-blank')).toBeVisible()
+    const emptyState = pane.locator('.code-codex-transcript-blank')
+    await expect(emptyState).toBeVisible()
+    await expect(emptyState).toHaveText('No conversation yet.')
+    await expect(emptyState).toHaveAttribute('role', 'status')
     await expect(pane.getByText('Codex transcript is not available yet.')).toHaveCount(0)
     await expect(pane.getByText('Codex 对话历史暂时不可用。')).toHaveCount(0)
 

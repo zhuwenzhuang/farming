@@ -1144,19 +1144,19 @@ body.code-resizing-sidebar {
 }
 
 @media (max-width: 980px) {
-  body.code-mode.code-mobile-touch .code-brand-backdrop {
+  body.code-mode.code-compact-layout .code-brand-backdrop {
     align-items: end;
     padding: 8px;
   }
 
-  body.code-mode.code-mobile-touch .code-brand-dialog {
+  body.code-mode.code-compact-layout .code-brand-dialog {
     width: 100%;
     gap: 14px;
     padding: 25px 22px max(24px, env(safe-area-inset-bottom));
     border-radius: 22px;
   }
 
-  body.code-mode.code-mobile-touch .code-brand-logo {
+  body.code-mode.code-compact-layout .code-brand-logo {
     width: 88px;
     height: 88px;
     border-radius: 22px;
@@ -1854,7 +1854,7 @@ body.code-resizing-sidebar {
   display: none;
 }
 
-body.code-mode:not(.code-mobile-touch) .code-agent-row.requires-resume .code-agent-row-more {
+body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-agent-row-more {
   width: 28px;
   height: 28px;
   position: absolute;
@@ -1874,20 +1874,20 @@ body.code-mode:not(.code-mobile-touch) .code-agent-row.requires-resume .code-age
   z-index: 1;
 }
 
-body.code-mode:not(.code-mobile-touch) .code-agent-row.requires-resume:hover .code-agent-row-more,
-body.code-mode:not(.code-mobile-touch) .code-agent-row.requires-resume:focus-within .code-agent-row-more {
+body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume:hover .code-agent-row-more,
+body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume:focus-within .code-agent-row-more {
   opacity: 1;
   pointer-events: auto;
 }
 
-body.code-mode:not(.code-mobile-touch) .code-agent-row.requires-resume .code-agent-row-more:hover,
-body.code-mode:not(.code-mobile-touch) .code-agent-row.requires-resume .code-agent-row-more:focus-visible {
+body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-agent-row-more:hover,
+body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-agent-row-more:focus-visible {
   background: rgba(0, 0, 0, 0.08);
   color: #242a24;
   outline: none;
 }
 
-body.code-mode:not(.code-mobile-touch) .code-agent-row.requires-resume .code-agent-row-more svg {
+body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-agent-row-more svg {
   width: 16px;
   height: 16px;
 }
@@ -5602,7 +5602,15 @@ body.code-mode .code-instance-name {
 }
 
 .code-codex-transcript-blank {
+  width: 100%;
+  max-width: 980px;
   height: 100%;
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: 36px clamp(18px, 4vw, 54px) 8px;
+  color: #8c959f;
+  font-size: 14px;
+  line-height: 20px;
 }
 
 .code-codex-transcript-turn {
@@ -5753,6 +5761,7 @@ body.code-mode .code-instance-name {
 
 .code-codex-transcript-process-summary {
   min-height: 28px;
+  max-width: 100%;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -5766,6 +5775,13 @@ body.code-mode .code-instance-name {
   user-select: none;
 }
 
+.code-codex-transcript-process-summary-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .code-codex-transcript-process-summary:focus-visible {
   outline: 2px solid rgba(9, 105, 218, 0.28);
   outline-offset: 2px;
@@ -5775,6 +5791,7 @@ body.code-mode .code-instance-name {
 .code-codex-transcript-chevron {
   width: 15px;
   height: 15px;
+  flex: 0 0 auto;
   fill: currentColor;
   opacity: 0.7;
   transition: transform 160ms ease, opacity 160ms ease;
@@ -14886,7 +14903,10 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 }
 
 .terminal-session-host.terminal-checkpoint-installing .xterm {
-  visibility: hidden;
+  /* Keep xterm's native textarea focused while a checkpoint replaces the
+     visual buffer. Opacity still suppresses every intermediate paint without
+     making the direct PTY input stream disappear mid-keystroke. */
+  opacity: 0;
 }
 
 .terminal-session-host .xterm-screen,
@@ -14941,8 +14961,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   background-color: rgba(31, 35, 40, 0.18) !important;
 }
 
-.code-main:has(.code-composer textarea:focus) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor,
-.code-main:has(.code-composer-mobile-input:focus) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor {
+.code-main:has(.code-composer textarea:focus) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor {
   background-color: transparent !important;
   border-color: transparent !important;
   color: transparent !important;
@@ -14953,9 +14972,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 }
 
 .code-main:has(.code-composer textarea:focus) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor-bar,
-.code-main:has(.code-composer textarea:focus) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor-underline,
-.code-main:has(.code-composer-mobile-input:focus) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor-bar,
-.code-main:has(.code-composer-mobile-input:focus) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor-underline {
+.code-main:has(.code-composer textarea:focus) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor-underline {
   border-color: transparent !important;
   opacity: 0 !important;
 }
@@ -15380,7 +15397,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   .mobile-main-icon,
   .mobile-main-submit {
     width: 32px;
-    height: 32px;
+    height: 44px;
   }
 
   .mobile-main-input {
@@ -15701,7 +15718,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   }
 }
 
-@media (max-width: 980px) and (any-pointer: coarse) {
+@media (max-width: 980px) {
   body.code-mode {
     position: fixed;
     inset: 0;
@@ -16296,7 +16313,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 }
 
 @media (max-width: 980px) {
-  body.code-mode.code-mobile-touch {
+  body.code-mode.code-compact-layout {
     position: fixed;
     inset: 0;
     width: 100vw;
@@ -16307,10 +16324,10 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     background: #ffffff;
   }
 
-  body.code-mode.code-mobile-touch #root,
-  body.code-mode.code-mobile-touch .app-container,
-  body.code-mode.code-mobile-touch .code-app-shell,
-  body.code-mode.code-mobile-touch .code-workspace {
+  body.code-mode.code-compact-layout #root,
+  body.code-mode.code-compact-layout .app-container,
+  body.code-mode.code-compact-layout .code-app-shell,
+  body.code-mode.code-compact-layout .code-workspace {
     width: var(--app-visual-width, 100vw);
     max-width: var(--app-visual-width, 100vw);
     height: var(--app-visual-height, 100dvh);
@@ -16320,22 +16337,22 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     overscroll-behavior: none;
   }
 
-  body.code-mode.code-mobile-touch .app-container {
+  body.code-mode.code-compact-layout .app-container {
     position: fixed;
     inset: var(--app-visual-offset-top, 0px) auto auto var(--app-visual-offset-left, 0px);
   }
 
-  body.code-mode.code-mobile-touch .code-workspace,
-  body.code-mode.code-mobile-touch .code-workspace.sidebar-collapsed {
+  body.code-mode.code-compact-layout .code-workspace,
+  body.code-mode.code-compact-layout .code-workspace.sidebar-collapsed {
     position: relative;
     grid-template-columns: minmax(0, 1fr);
   }
 
-  body.code-mode.code-mobile-touch .code-sidebar-resizer {
+  body.code-mode.code-compact-layout .code-sidebar-resizer {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-sidebar {
+  body.code-mode.code-compact-layout .code-sidebar {
     position: fixed;
     top: var(--app-visual-offset-top, 0px);
     bottom: auto;
@@ -16353,7 +16370,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     transform: translateX(0);
   }
 
-  body.code-mode.code-mobile-touch .code-sidebar.collapsed {
+  body.code-mode.code-compact-layout .code-sidebar.collapsed {
     width: min(86vw, 360px);
     padding: max(16px, env(safe-area-inset-top)) 10px max(12px, env(safe-area-inset-bottom));
     align-items: stretch;
@@ -16361,23 +16378,23 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     transform: translateX(calc(-100% - 18px));
   }
 
-  body.code-mode.code-mobile-touch .code-sidebar.collapsed .code-nav-item {
+  body.code-mode.code-compact-layout .code-sidebar.collapsed .code-nav-item {
     grid-template-columns: 18px minmax(0, 1fr);
     justify-items: stretch;
     padding: 6px 7px;
   }
 
-  body.code-mode.code-mobile-touch .code-sidebar.collapsed .code-nav-item span:not(.code-nav-icon),
-  body.code-mode.code-mobile-touch .code-sidebar.collapsed .code-nav-item kbd {
+  body.code-mode.code-compact-layout .code-sidebar.collapsed .code-nav-item span:not(.code-nav-icon),
+  body.code-mode.code-compact-layout .code-sidebar.collapsed .code-nav-item kbd {
     display: initial;
   }
 
-  body.code-mode.code-mobile-touch .code-sidebar.collapsed .code-project-list,
-  body.code-mode.code-mobile-touch .code-sidebar.collapsed .code-agent-rail {
+  body.code-mode.code-compact-layout .code-sidebar.collapsed .code-project-list,
+  body.code-mode.code-compact-layout .code-sidebar.collapsed .code-agent-rail {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-sidebar-backdrop {
+  body.code-mode.code-compact-layout .code-mobile-sidebar-backdrop {
     display: block;
     position: fixed;
     inset: auto;
@@ -16393,7 +16410,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     cursor: default;
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-topbar {
+  body.code-mode.code-compact-layout .code-mobile-topbar {
     height: 32px;
     position: fixed;
     top: calc(var(--app-visual-offset-top, 0px) + max(2px, env(safe-area-inset-top)));
@@ -16403,21 +16420,21 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     max-width: var(--app-visual-width, 100vw);
     z-index: 50;
     display: grid;
-    grid-template-columns: 32px minmax(0, 1fr) 32px;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
     align-items: center;
     padding: 0 6px;
     pointer-events: none;
   }
 
-  body.code-mode.code-mobile-touch.code-mobile-keyboard-active .code-mobile-topbar {
-    height: 30px;
-    grid-template-columns: 30px minmax(0, 1fr) 30px;
+  body.code-mode.code-compact-layout.code-mobile-keyboard-active .code-mobile-topbar {
+    height: 44px;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
     padding: 0 5px;
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-topbar-button {
-    width: 28px;
-    height: 28px;
+  body.code-mode.code-compact-layout .code-mobile-topbar-button {
+    width: 44px;
+    height: 44px;
     justify-self: start;
     display: inline-grid;
     place-items: center;
@@ -16433,18 +16450,18 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     pointer-events: auto;
   }
 
-  body.code-mode.code-mobile-touch.code-mobile-keyboard-active .code-mobile-topbar-button {
-    width: 26px;
-    height: 26px;
+  body.code-mode.code-compact-layout.code-mobile-keyboard-active .code-mobile-topbar-button {
+    width: 44px;
+    height: 44px;
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-topbar-button.more {
+  body.code-mode.code-compact-layout .code-mobile-topbar-button.more {
     justify-self: end;
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-topbar-button.menu span,
-  body.code-mode.code-mobile-touch .code-mobile-topbar-button.menu::before,
-  body.code-mode.code-mobile-touch .code-mobile-topbar-button.menu::after {
+  body.code-mode.code-compact-layout .code-mobile-topbar-button.menu span,
+  body.code-mode.code-compact-layout .code-mobile-topbar-button.menu::before,
+  body.code-mode.code-compact-layout .code-mobile-topbar-button.menu::after {
     width: 18px;
     height: 2px;
     position: absolute;
@@ -16453,15 +16470,15 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     content: '';
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-topbar-button.menu::before {
+  body.code-mode.code-compact-layout .code-mobile-topbar-button.menu::before {
     transform: translateY(-6px);
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-topbar-button.menu::after {
+  body.code-mode.code-compact-layout .code-mobile-topbar-button.menu::after {
     transform: translateY(6px);
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-topbar-button.back span {
+  body.code-mode.code-compact-layout .code-mobile-topbar-button.back span {
     width: 13px;
     height: 13px;
     border-left: 3px solid currentColor;
@@ -16469,9 +16486,9 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     transform: translateX(2px) rotate(45deg);
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-topbar-button.more span,
-  body.code-mode.code-mobile-touch .code-mobile-topbar-button.more::before,
-  body.code-mode.code-mobile-touch .code-mobile-topbar-button.more::after {
+  body.code-mode.code-compact-layout .code-mobile-topbar-button.more span,
+  body.code-mode.code-compact-layout .code-mobile-topbar-button.more::before,
+  body.code-mode.code-compact-layout .code-mobile-topbar-button.more::after {
     width: 4px;
     height: 4px;
     position: absolute;
@@ -16480,15 +16497,15 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     content: '';
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-topbar-button.more::before {
+  body.code-mode.code-compact-layout .code-mobile-topbar-button.more::before {
     transform: translateX(-8px);
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-topbar-button.more::after {
+  body.code-mode.code-compact-layout .code-mobile-topbar-button.more::after {
     transform: translateX(8px);
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-topbar-title {
+  body.code-mode.code-compact-layout .code-mobile-topbar-title {
     min-width: 0;
     display: flex;
     flex-direction: column;
@@ -16499,7 +16516,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     pointer-events: none;
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-topbar-title strong {
+  body.code-mode.code-compact-layout .code-mobile-topbar-title strong {
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -16509,16 +16526,16 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     font-weight: 500;
   }
 
-  body.code-mode.code-mobile-touch.code-mobile-keyboard-active .code-mobile-topbar-title strong {
+  body.code-mode.code-compact-layout.code-mobile-keyboard-active .code-mobile-topbar-title strong {
     font-size: 12px;
     line-height: 15px;
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-topbar-title span {
+  body.code-mode.code-compact-layout .code-mobile-topbar-title span {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-topbar-title i {
+  body.code-mode.code-compact-layout .code-mobile-topbar-title i {
     width: 6px;
     height: 6px;
     flex: 0 0 auto;
@@ -16526,18 +16543,18 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     background: #28c781;
   }
 
-  body.code-mode.code-mobile-touch.code-mobile-markdown-reading .code-mobile-topbar {
+  body.code-mode.code-compact-layout.code-mobile-markdown-reading .code-mobile-topbar {
     height: 48px;
     top: calc(var(--app-visual-offset-top, 0px) + max(6px, env(safe-area-inset-top)));
     grid-template-columns: 52px minmax(0, 1fr) 52px;
     padding: 0 8px;
   }
 
-  body.code-mode.code-mobile-touch.code-mobile-markdown-reading .code-mobile-topbar-title {
+  body.code-mode.code-compact-layout.code-mobile-markdown-reading .code-mobile-topbar-title {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch.code-mobile-markdown-reading .code-mobile-topbar-button {
+  body.code-mode.code-compact-layout.code-mobile-markdown-reading .code-mobile-topbar-button {
     width: 40px;
     height: 40px;
     background: rgba(255, 255, 255, 0.78);
@@ -16547,14 +16564,14 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     -webkit-backdrop-filter: blur(14px);
   }
 
-  body.code-mode.code-mobile-touch.code-mobile-markdown-reading .code-mobile-topbar-button.more {
+  body.code-mode.code-compact-layout.code-mobile-markdown-reading .code-mobile-topbar-button.more {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-main {
-    --mobile-composer-resting-height: 62px;
-    --mobile-composer-active-height: 62px;
-    --mobile-composer-expanded-height: 106px;
+  body.code-mode.code-compact-layout .code-main {
+    --mobile-composer-resting-height: 74px;
+    --mobile-composer-active-height: 74px;
+    --mobile-composer-expanded-height: 118px;
     --mobile-composer-viewport-gap: max(6px, env(safe-area-inset-bottom));
     --mobile-composer-reserved-height: calc(var(--mobile-composer-resting-height) + var(--mobile-composer-viewport-gap) + 2px);
     width: 100%;
@@ -16565,35 +16582,35 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     position: relative;
     overflow: hidden;
     overscroll-behavior: none;
-    padding-top: calc(36px + env(safe-area-inset-top));
+    padding-top: calc(44px + env(safe-area-inset-top));
     padding-bottom: 0;
   }
 
-  body.code-mode.code-mobile-touch.code-mobile-standalone:not(.code-mobile-keyboard-active) .code-main {
+  body.code-mode.code-compact-layout.code-mobile-standalone:not(.code-mobile-keyboard-active) .code-main {
     --mobile-composer-viewport-gap: max(4px, calc(env(safe-area-inset-bottom) - 12px));
   }
 
-  body.code-mode.code-mobile-touch.code-mobile-keyboard-active .code-main {
+  body.code-mode.code-compact-layout.code-mobile-keyboard-active .code-main {
     --mobile-composer-viewport-gap: 4px;
     --mobile-composer-reserved-height: calc(var(--mobile-composer-current-height, var(--mobile-composer-resting-height)) + var(--mobile-composer-viewport-gap) + 2px);
-    padding-top: calc(32px + env(safe-area-inset-top));
+    padding-top: calc(44px + env(safe-area-inset-top));
   }
 
-  body.code-mode.code-mobile-touch .code-main:has(.code-composer:focus-within),
-  body.code-mode.code-mobile-touch .code-main:has(.code-composer.menu-open),
-  body.code-mode.code-mobile-touch .code-main:has(.code-composer.recording),
-  body.code-mode.code-mobile-touch .code-main:has(.code-composer.has-attachments),
-  body.code-mode.code-mobile-touch .code-main:has(.code-composer.has-pending-followup),
-  body.code-mode.code-mobile-touch .code-main:has(.code-composer.has-acp-request) {
+  body.code-mode.code-compact-layout .code-main:has(.code-composer:focus-within),
+  body.code-mode.code-compact-layout .code-main:has(.code-composer.menu-open),
+  body.code-mode.code-compact-layout .code-main:has(.code-composer.recording),
+  body.code-mode.code-compact-layout .code-main:has(.code-composer.has-attachments),
+  body.code-mode.code-compact-layout .code-main:has(.code-composer.has-pending-followup),
+  body.code-mode.code-compact-layout .code-main:has(.code-composer.has-acp-request) {
     --mobile-composer-reserved-height: calc(var(--mobile-composer-current-height, var(--mobile-composer-active-height)) + var(--mobile-composer-viewport-gap) + 2px);
   }
 
-  body.code-mode.code-mobile-touch.code-mobile-markdown-reading .code-main {
+  body.code-mode.code-compact-layout.code-mobile-markdown-reading .code-main {
     padding-top: 0;
     padding-bottom: 0;
   }
 
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-header {
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-header {
     position: absolute;
     top: calc(max(6px, env(safe-area-inset-top)) + 4px);
     right: max(8px, env(safe-area-inset-right));
@@ -16604,20 +16621,20 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     pointer-events: none;
   }
 
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-navigation,
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-tabs,
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-breadcrumbs,
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-status,
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.save,
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.diff,
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.markdown-split,
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.reload,
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.overwrite,
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-statusbar {
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-navigation,
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-tabs,
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-breadcrumbs,
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-status,
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.save,
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.diff,
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.markdown-split,
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.reload,
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.overwrite,
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-statusbar {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-tab-strip {
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-tab-strip {
     min-height: 0;
     display: flex;
     padding: 0;
@@ -16627,7 +16644,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     pointer-events: none;
   }
 
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-bar {
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-bar {
     min-height: 0;
     display: flex;
     padding: 0;
@@ -16636,7 +16653,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     pointer-events: none;
   }
 
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-actions {
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-actions {
     position: static;
     padding: 0;
     background: transparent;
@@ -16644,7 +16661,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     pointer-events: auto;
   }
 
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.source-preview {
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview {
     width: 40px;
     height: 40px;
     border: 0;
@@ -16656,40 +16673,40 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     -webkit-backdrop-filter: none;
   }
 
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.source-preview.active {
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview.active {
     border-color: transparent;
     background: transparent;
     color: rgba(31, 35, 40, 0.72);
   }
 
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.source-preview::after {
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview::after {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.source-preview:hover:not(:disabled),
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.source-preview:focus-visible {
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:hover:not(:disabled),
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:focus-visible {
     background: rgba(31, 35, 40, 0.055);
     outline: 0;
   }
 
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-preview-panel.markdown {
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-preview-panel.markdown {
     min-height: 0;
     height: 100%;
   }
 
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-split.markdown,
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-source-region.markdown-split {
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-split.markdown,
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-source-region.markdown-split {
     display: block;
     min-height: 0;
     height: 100%;
   }
 
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-split.markdown .code-file-monaco,
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-source-region.markdown-split .code-file-monaco {
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-split.markdown .code-file-monaco,
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-source-region.markdown-split .code-file-monaco {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-file-diff-monaco {
+  body.code-mode.code-compact-layout .code-file-diff-monaco {
     min-width: 0;
     max-width: 100%;
     overflow: hidden;
@@ -16698,59 +16715,59 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 
   /* Monaco's inline diff still keeps an empty original gutter. Removing that
      gutter leaves one line-number column on a phone instead of two. */
-  body.code-mode.code-mobile-touch .code-file-diff-monaco .monaco-diff-editor .editor.original {
+  body.code-mode.code-compact-layout .code-file-diff-monaco .monaco-diff-editor .editor.original {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-file-diff-monaco .monaco-diff-editor .editor.modified {
+  body.code-mode.code-compact-layout .code-file-diff-monaco .monaco-diff-editor .editor.modified {
     left: 0 !important;
     width: 100% !important;
   }
 
-  body.code-mode.code-mobile-touch .code-file-editor.markdown-reading .code-markdown-preview {
+  body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-markdown-preview {
     padding:
       calc(58px + max(8px, env(safe-area-inset-top)))
       18px
       calc(22px + env(safe-area-inset-bottom));
   }
 
-  body.code-mode.code-mobile-touch .code-nav-item {
+  body.code-mode.code-compact-layout .code-nav-item {
     grid-template-columns: 18px minmax(0, 1fr);
     min-height: 32px;
     padding: 6px 7px;
     font-size: 13px;
   }
 
-  body.code-mode.code-mobile-touch .code-nav-item kbd {
+  body.code-mode.code-compact-layout .code-nav-item kbd {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-project-list {
+  body.code-mode.code-compact-layout .code-project-list {
     --code-project-sticky-height: 32px;
   }
 
-  body.code-mode.code-mobile-touch .code-project-title-actions {
+  body.code-mode.code-compact-layout .code-project-title-actions {
     opacity: 1;
     pointer-events: auto;
   }
 
-  body.code-mode.code-mobile-touch .code-project-context-menu,
-  body.code-mode.code-mobile-touch .code-project-launch-menu {
+  body.code-mode.code-compact-layout .code-project-context-menu,
+  body.code-mode.code-compact-layout .code-project-launch-menu {
     z-index: 10030;
     max-height: calc(100dvh - 16px);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
 
-  body.code-mode.code-mobile-touch .code-project-context-menu {
+  body.code-mode.code-compact-layout .code-project-context-menu {
     width: min(286px, calc(100vw - 16px));
   }
 
-  body.code-mode.code-mobile-touch .code-project-launch-menu {
+  body.code-mode.code-compact-layout .code-project-launch-menu {
     width: 160px;
   }
 
-  body.code-mode.code-mobile-touch .code-terminal-grid {
+  body.code-mode.code-compact-layout .code-terminal-grid {
     padding: 2px 2px var(--mobile-composer-reserved-height, 80px);
     grid-template-columns: minmax(0, 1fr);
     gap: 8px;
@@ -16761,11 +16778,11 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     -webkit-overflow-scrolling: touch;
   }
 
-  body.code-mode.code-mobile-touch.code-mobile-keyboard-active .code-terminal-grid {
+  body.code-mode.code-compact-layout.code-mobile-keyboard-active .code-terminal-grid {
     gap: 4px;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-scroll {
+  body.code-mode.code-compact-layout .code-codex-transcript-scroll {
     padding: 5px 3px 3px;
     /* The parent terminal grid already reserves space for the composer. Do
        not reserve it a second time here or short transcripts end in a large
@@ -16778,32 +16795,32 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     -webkit-overflow-scrolling: touch;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-turn:last-child {
+  body.code-mode.code-compact-layout .code-codex-transcript-turn:last-child {
     margin-bottom: 0;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-turn {
+  body.code-mode.code-compact-layout .code-codex-transcript-turn {
     width: 100%;
     max-width: none;
     margin-bottom: 18px;
   }
 
-  body.code-mode.code-mobile-touch.code-mobile-keyboard-active .code-codex-transcript-turn {
+  body.code-mode.code-compact-layout.code-mobile-keyboard-active .code-codex-transcript-turn {
     margin-bottom: 12px;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-answer,
-  body.code-mode.code-mobile-touch .code-codex-transcript-assistant {
+  body.code-mode.code-compact-layout .code-codex-transcript-answer,
+  body.code-mode.code-compact-layout .code-codex-transcript-assistant {
     width: 100%;
     max-width: 100%;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-user {
+  body.code-mode.code-compact-layout .code-codex-transcript-user {
     max-width: calc(100% - 20px);
     margin-right: 0;
   }
 
-  body.code-mode.code-mobile-touch .code-terminal-mode-toggle {
+  body.code-mode.code-compact-layout .code-terminal-mode-toggle {
     position: fixed;
     top: calc(var(--app-visual-offset-top, 0px) + max(2px, env(safe-area-inset-top)) + 7px);
     right: calc(max(6px, env(safe-area-inset-right)) + 32px);
@@ -16816,34 +16833,34 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     opacity: 0.76;
   }
 
-  body.code-mode.code-mobile-touch .code-terminal-mode-toggle button {
+  body.code-mode.code-compact-layout .code-terminal-mode-toggle button {
     width: 26px;
     height: 26px;
     border-radius: 7px;
     opacity: 0.86;
   }
 
-  body.code-mode.code-mobile-touch .code-terminal-mode-toggle button.active {
+  body.code-mode.code-compact-layout .code-terminal-mode-toggle button.active {
     background: rgba(31, 35, 40, 0.08);
     opacity: 1;
   }
 
   /* Keep patch summaries centered in the narrower transcript column. */
-  body.code-mode.code-mobile-touch .code-codex-transcript-result-card {
+  body.code-mode.code-compact-layout .code-codex-transcript-result-card {
     margin: 0 auto;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-results.code-codex-transcript-status-row {
+  body.code-mode.code-compact-layout .code-codex-transcript-results.code-codex-transcript-status-row {
     justify-content: center;
     gap: 5px;
     margin-top: 3px;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-turn.running:last-child .code-codex-transcript-placeholder {
+  body.code-mode.code-compact-layout .code-codex-transcript-turn.running:last-child .code-codex-transcript-placeholder {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-turn.running:last-child .code-codex-transcript-results.code-codex-transcript-status-row {
+  body.code-mode.code-compact-layout .code-codex-transcript-turn.running:last-child .code-codex-transcript-results.code-codex-transcript-status-row {
     position: fixed;
     left: calc(var(--app-visual-offset-left, 0px) + 4px);
     right: auto;
@@ -16862,7 +16879,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     pointer-events: auto;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-result-summary {
+  body.code-mode.code-compact-layout .code-codex-transcript-result-summary {
     min-height: 34px;
     gap: 6px;
     padding: 6px 13px;
@@ -16872,7 +16889,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     line-height: 18px;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-progress {
+  body.code-mode.code-compact-layout .code-codex-transcript-progress {
     min-height: 34px;
     padding: 6px 11px;
     border-radius: 17px;
@@ -16880,35 +16897,35 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     line-height: 18px;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-copy {
+  body.code-mode.code-compact-layout .code-codex-transcript-copy {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-answer-actions,
-  body.code-mode.code-mobile-touch .code-codex-transcript-answer-action {
+  body.code-mode.code-compact-layout .code-codex-transcript-answer-actions,
+  body.code-mode.code-compact-layout .code-codex-transcript-answer-action {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-file-icon {
+  body.code-mode.code-compact-layout .code-codex-transcript-file-icon {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-markdown-file-link .code-codex-transcript-file-label {
+  body.code-mode.code-compact-layout .code-codex-transcript-markdown-file-link .code-codex-transcript-file-label {
     margin-left: 0;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-process-group.running > .code-codex-transcript-process-group-summary > .code-codex-transcript-process-dot,
-  body.code-mode.code-mobile-touch .code-codex-transcript-process-item.status-running .code-codex-transcript-process-dot,
-  body.code-mode.code-mobile-touch .code-codex-transcript-plan-list li.running .code-codex-transcript-plan-marker {
+  body.code-mode.code-compact-layout .code-codex-transcript-process-group.running > .code-codex-transcript-process-group-summary > .code-codex-transcript-process-dot,
+  body.code-mode.code-compact-layout .code-codex-transcript-process-item.status-running .code-codex-transcript-process-dot,
+  body.code-mode.code-compact-layout .code-codex-transcript-plan-list li.running .code-codex-transcript-plan-marker {
     animation: none;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-transcript-jump-bottom {
+  body.code-mode.code-compact-layout .code-codex-transcript-jump-bottom {
     bottom: var(--mobile-composer-reserved-height, 84px);
   }
 
-  body.code-mode.code-mobile-touch .code-agent-work-pane,
-  body.code-mode.code-mobile-touch .code-terminal-pane {
+  body.code-mode.code-compact-layout .code-agent-work-pane,
+  body.code-mode.code-compact-layout .code-terminal-pane {
     min-width: 0;
     width: 100%;
     max-width: 100%;
@@ -16917,32 +16934,32 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     resize: none;
   }
 
-  body.code-mode.code-mobile-touch .code-terminal-container {
+  body.code-mode.code-compact-layout .code-terminal-container {
     max-width: 100%;
     overflow: hidden;
     padding: 4px 6px 6px;
   }
 
-  body.code-mode.code-mobile-touch .terminal-session-host,
-  body.code-mode.code-mobile-touch .terminal-session-host .xterm,
-  body.code-mode.code-mobile-touch .terminal-session-host .xterm-screen,
-  body.code-mode.code-mobile-touch .terminal-session-host .xterm-viewport,
-  body.code-mode.code-mobile-touch .terminal-container canvas {
+  body.code-mode.code-compact-layout .terminal-session-host,
+  body.code-mode.code-compact-layout .terminal-session-host .xterm,
+  body.code-mode.code-compact-layout .terminal-session-host .xterm-screen,
+  body.code-mode.code-compact-layout .terminal-session-host .xterm-viewport,
+  body.code-mode.code-compact-layout .terminal-container canvas {
     touch-action: pan-y;
   }
 
-  body.code-mode.code-mobile-touch .code-terminal-grid,
-  body.code-mode.code-mobile-touch .code-agent-work-pane,
-  body.code-mode.code-mobile-touch .code-terminal-pane,
-  body.code-mode.code-mobile-touch .code-terminal-container,
-  body.code-mode.code-mobile-touch .terminal-session-host,
-  body.code-mode.code-mobile-touch .terminal-session-host .xterm,
-  body.code-mode.code-mobile-touch .terminal-session-host .xterm-screen,
-  body.code-mode.code-mobile-touch .terminal-session-host .xterm-viewport {
+  body.code-mode.code-compact-layout .code-terminal-grid,
+  body.code-mode.code-compact-layout .code-agent-work-pane,
+  body.code-mode.code-compact-layout .code-terminal-pane,
+  body.code-mode.code-compact-layout .code-terminal-container,
+  body.code-mode.code-compact-layout .terminal-session-host,
+  body.code-mode.code-compact-layout .terminal-session-host .xterm,
+  body.code-mode.code-compact-layout .terminal-session-host .xterm-screen,
+  body.code-mode.code-compact-layout .terminal-session-host .xterm-viewport {
     background: #ffffff !important;
   }
 
-  body.code-mode.code-mobile-touch .code-composer {
+  body.code-mode.code-compact-layout .code-composer {
     --mobile-composer-height: auto;
     position: absolute;
     left: 4px;
@@ -16952,10 +16969,10 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     width: calc(var(--app-visual-width, 100vw) - 8px);
     max-width: calc(var(--app-visual-width, 100vw) - 8px);
     height: auto;
-    min-height: var(--mobile-composer-resting-height, 62px);
-    max-height: var(--mobile-composer-expanded-height, 106px);
+    min-height: var(--mobile-composer-resting-height, 74px);
+    max-height: var(--mobile-composer-expanded-height, 118px);
     margin: 0;
-    grid-template-rows: minmax(22px, auto) 34px;
+    grid-template-rows: minmax(22px, auto) 44px;
     gap: 1px;
     padding: 2px 5px 3px;
     border-radius: 20px;
@@ -16974,23 +16991,23 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
       box-shadow 160ms ease;
   }
 
-  body.code-mode.code-mobile-touch .code-composer-shell {
+  body.code-mode.code-compact-layout .code-composer-shell {
     height: 0;
     min-height: 0;
     padding-bottom: 0;
     pointer-events: none;
   }
 
-  body.code-mode.code-mobile-touch .code-composer-shell:has(.code-composer.has-acp-request) {
+  body.code-mode.code-compact-layout .code-composer-shell:has(.code-composer.has-acp-request) {
     padding-bottom: 0;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-goal-bar,
-  body.code-mode.code-mobile-touch .code-composer {
+  body.code-mode.code-compact-layout .code-codex-goal-bar,
+  body.code-mode.code-compact-layout .code-composer {
     pointer-events: auto;
   }
 
-  body.code-mode.code-mobile-touch .code-codex-goal-bar {
+  body.code-mode.code-compact-layout .code-codex-goal-bar {
     position: fixed;
     left: calc(var(--app-visual-offset-left, 0px) + 12px);
     bottom: calc(
@@ -17008,24 +17025,41 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     overflow: auto;
   }
 
-  body.code-mode.code-mobile-touch .code-composer.recording,
-  body.code-mode.code-mobile-touch .code-composer.has-attachments,
-  body.code-mode.code-mobile-touch .code-composer.has-pending-followup {
-    --mobile-composer-height: var(--mobile-composer-expanded-height, 106px);
+  body.code-mode.code-compact-layout .code-composer.recording,
+  body.code-mode.code-compact-layout .code-composer.has-pending-followup {
+    --mobile-composer-height: var(--mobile-composer-expanded-height, 118px);
     height: var(--mobile-composer-height);
     min-height: var(--mobile-composer-height);
     max-height: var(--mobile-composer-height);
-    grid-template-rows: minmax(0, 1fr) 28px;
+    grid-template-rows: minmax(0, 1fr) 44px;
     gap: 4px;
     padding: 5px 5px 4px;
   }
 
-  body.code-mode.code-mobile-touch .code-composer.has-acp-request {
+  body.code-mode.code-compact-layout .code-composer.has-attachments {
+    --mobile-composer-height: min(212px, calc(var(--app-visual-height, 100dvh) * 0.4));
+    height: var(--mobile-composer-height);
+    min-height: var(--mobile-composer-height);
+    max-height: var(--mobile-composer-height);
+    grid-template-rows: minmax(26px, auto) minmax(0, 112px) 44px;
+    gap: 4px;
+    padding: 5px 5px 4px;
+  }
+
+  body.code-mode.code-compact-layout .code-composer.has-attachments .code-composer-attachments {
+    min-height: 0;
+    max-height: 112px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  body.code-mode.code-compact-layout .code-composer.has-acp-request {
     --mobile-composer-height: min(236px, calc(var(--app-visual-height, 100dvh) * 0.34));
     height: var(--mobile-composer-height);
     min-height: var(--mobile-composer-height);
     max-height: var(--mobile-composer-height);
-    grid-template-rows: minmax(0, 1fr) 28px;
+    grid-template-rows: minmax(0, 1fr) 44px;
     gap: 4px;
     padding: 7px 6px 5px;
     /* A request needs to be actionable as soon as it arrives. Animating the
@@ -17034,30 +17068,148 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     transition: bottom 160ms ease;
   }
 
-  body.code-mode.code-mobile-touch .code-composer textarea,
-  body.code-mode.code-mobile-touch .code-composer-mobile-input,
-  body.code-mode.code-mobile-touch .code-composer-mobile-input-mirror {
+  body.code-mode.code-compact-layout .code-composer.has-acp-request > .code-acp-request {
+    min-width: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  body.code-mode.code-compact-layout .code-acp-request-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    align-items: stretch;
+    flex-wrap: wrap;
+    padding: 4px 0 2px;
+    background: inherit;
+  }
+
+  body.code-mode.code-compact-layout .code-acp-request-actions select {
+    width: auto;
+    min-width: 96px;
+    max-width: none;
+    min-height: 44px;
+    flex: 1 1 120px;
+  }
+
+  body.code-mode.code-compact-layout .code-acp-request-actions button {
+    min-width: 44px;
+    min-height: 44px;
+    flex: 0 0 auto;
+  }
+
+  body.code-mode.code-compact-layout .code-composer textarea {
     min-height: 26px;
     max-height: 66px;
     font-size: 16px;
     line-height: 1.34;
   }
 
-  body.code-mode.code-mobile-touch .code-composer-toolbar {
+  body.code-mode.code-compact-layout .code-composer-toolbar {
     align-items: center;
-    min-height: 34px;
+    min-height: 44px;
   }
 
-  body.code-mode.code-mobile-touch .code-composer-left-tools,
-  body.code-mode.code-mobile-touch .code-composer-right-tools {
+  body.code-mode.code-compact-layout .code-composer-add,
+  body.code-mode.code-compact-layout .code-composer-approval,
+  body.code-mode.code-compact-layout .code-composer-model-picker {
+    min-height: 44px;
+    height: 44px;
+  }
+
+  body.code-mode.code-compact-layout .code-composer-add {
+    width: 44px;
+    min-width: 44px;
+    flex: 0 0 44px;
+  }
+
+  body.code-mode.code-compact-layout .code-composer-approval {
+    width: 44px;
+    min-width: 44px;
+    max-width: 44px;
+    flex: 0 0 44px;
+  }
+
+  body.code-mode.code-compact-layout .code-composer-attachment.chip {
+    min-height: 44px;
+    height: 44px;
+  }
+
+  body.code-mode.code-compact-layout .code-composer-attachment-remove {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+
+  body.code-mode.code-compact-layout .code-composer-attachment.image .code-composer-attachment-remove {
+    top: -3px;
+    right: -3px;
+    width: 44px;
+    height: 44px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  body.code-mode.code-compact-layout .code-composer-attachment.image .code-composer-attachment-remove::before {
+    content: '';
+    position: absolute;
+    width: 26px;
+    height: 26px;
+    border: 2px solid #fff;
+    border-radius: 999px;
+    background: #111;
+    box-shadow: 0 4px 12px rgba(36, 41, 47, 0.18);
+  }
+
+  body.code-mode.code-compact-layout .code-composer-attachment.image .code-composer-attachment-remove svg {
+    position: relative;
+    z-index: 1;
+  }
+
+  body.code-mode.code-compact-layout .code-composer-attachment.image .code-composer-attachment-remove:hover,
+  body.code-mode.code-compact-layout .code-composer-attachment.image .code-composer-attachment-remove:focus-visible {
+    background: transparent;
+  }
+
+  body.code-mode.code-compact-layout .code-composer-left-tools,
+  body.code-mode.code-compact-layout .code-composer-right-tools {
     align-items: center;
   }
 
-  body.code-mode.code-mobile-touch .code-composer-recording-bar {
+  body.code-mode.code-compact-layout .code-composer-right-tools > .code-composer-menu-anchor.model-picker {
+    min-width: 0;
+    max-width: min(128px, 34vw);
+    flex: 0 1 128px;
+    overflow: hidden;
+  }
+
+  body.code-mode.code-compact-layout .code-composer-menu-anchor.model-picker .code-composer-model-picker {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  body.code-mode.code-compact-layout .code-composer-model-picker .code-composer-model-label.mobile,
+  body.code-mode.code-compact-layout .code-composer-model-picker .code-composer-model-picker-muted.mobile {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  body.code-mode.code-compact-layout .code-composer-send {
+    position: relative;
+    z-index: 1;
+    flex: 0 0 44px;
+  }
+
+  body.code-mode.code-compact-layout .code-composer-recording-bar {
     height: 28px;
   }
 
-  body.code-mode.code-mobile-touch .code-composer .code-composer-menu:not(.code-model-submenu):not(.code-speed-submenu) {
+  body.code-mode.code-compact-layout .code-composer .code-composer-menu:not(.code-model-submenu):not(.code-speed-submenu) {
     position: fixed;
     left: calc(var(--app-visual-offset-left, 0px) + (var(--app-visual-width, 100vw) / 2));
     right: auto;
@@ -17065,15 +17217,15 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     transform: translateX(-50%);
   }
 
-  body.code-mode.code-mobile-touch .code-composer-send:not(:disabled) {
+  body.code-mode.code-compact-layout .code-composer-send:not(:disabled) {
     background: #111;
   }
 
-  body.code-mode.code-mobile-touch .code-composer-send:not(:disabled):hover {
+  body.code-mode.code-compact-layout .code-composer-send:not(:disabled):hover {
     background: #000;
   }
 
-  body.code-mode.code-mobile-touch .code-model-picker-menu {
+  body.code-mode.code-compact-layout .code-model-picker-menu {
     width: min(300px, calc(var(--app-visual-width, 100vw) - 28px));
     max-width: calc(var(--app-visual-width, 100vw) - 28px);
     max-height: min(520px, calc(var(--app-visual-height, 100dvh) - 160px));
@@ -17081,8 +17233,8 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     border-radius: 22px;
   }
 
-  body.code-mode.code-mobile-touch .code-model-submenu,
-  body.code-mode.code-mobile-touch .code-speed-submenu {
+  body.code-mode.code-compact-layout .code-model-submenu,
+  body.code-mode.code-compact-layout .code-speed-submenu {
     position: static;
     width: 100%;
     min-width: 0;
@@ -17101,37 +17253,31 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   /* Chat/Terminal switching lives in the overflow menu on phones. Keep the
      desktop control in the DOM so the menu can trigger it without exposing a
      second, redundant toolbar. */
-  body.code-mode.code-mobile-touch .code-terminal-mode-toggle {
+  body.code-mode.code-compact-layout .code-terminal-mode-toggle {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-model-submenu .code-model-option,
-  body.code-mode.code-mobile-touch .code-speed-submenu .code-model-option {
+  body.code-mode.code-compact-layout .code-model-submenu .code-model-option,
+  body.code-mode.code-compact-layout .code-speed-submenu .code-model-option {
     min-height: 42px;
   }
 
-  body.code-mode.code-mobile-touch .code-model-submenu .code-model-option-copy span,
-  body.code-mode.code-mobile-touch .code-speed-submenu .code-model-option-copy span {
+  body.code-mode.code-compact-layout .code-model-submenu .code-model-option-copy span,
+  body.code-mode.code-compact-layout .code-speed-submenu .code-model-option-copy span {
     font-size: 15px;
   }
 
-  body.code-mode.code-mobile-touch .code-model-submenu .code-model-option-copy small,
-  body.code-mode.code-mobile-touch .code-speed-submenu .code-model-option-copy small {
+  body.code-mode.code-compact-layout .code-model-submenu .code-model-option-copy small,
+  body.code-mode.code-compact-layout .code-speed-submenu .code-model-option-copy small {
     font-size: 12px;
   }
 
-  body.code-mode.code-mobile-touch .code-model-nested-trigger.selected {
+  body.code-mode.code-compact-layout .code-model-nested-trigger.selected {
     background: rgba(31, 35, 40, 0.06);
   }
 }
 
-@media (min-width: 700px) and (max-width: 980px) and (any-pointer: coarse) {
-  .code-workspace {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 980px) and (orientation: portrait) {
+@media (max-width: 980px) {
   .input-dialog {
     max-height: var(--app-visual-height, 100dvh);
     min-height: var(--app-visual-height, 100dvh);
@@ -17160,57 +17306,6 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 
   .agent-list {
     padding-bottom: 12px;
-  }
-}
-
-@media (max-width: 980px) and (any-pointer: fine) {
-  .dialog-overlay {
-    inset: 0;
-    top: 0;
-    height: auto;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-  }
-
-  .input-dialog,
-  .settings-dialog {
-    width: min(92vw, 600px);
-    max-width: none;
-    max-height: 80vh;
-    min-height: auto;
-    border-left: 1px solid var(--theme-border-soft, #184d18);
-    border-right: 1px solid var(--theme-border-soft, #184d18);
-    border-bottom: 1px solid var(--theme-border-soft, #184d18);
-    border-radius: 0;
-    padding: 14px;
-  }
-
-  body.code-mode .input-dialog {
-    width: min(92vw, 560px);
-    min-height: min(368px, 86dvh);
-    max-height: min(86dvh, 760px);
-    border-radius: 16px;
-    padding: 14px 16px 16px;
-  }
-
-  body.code-mode .settings-dialog {
-    width: min(92vw, 640px);
-    border-radius: 16px;
-  }
-
-  .dialog-header {
-    position: static;
-    top: auto;
-    margin: -14px -14px 12px;
-    padding: 4px 8px;
-  }
-
-  body.code-mode .input-dialog .dialog-header {
-    position: static;
-    top: auto;
-    margin: -14px -16px 12px;
-    padding: 11px 14px;
   }
 }
 
@@ -18845,7 +18940,7 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
 /* Mobile hand-feel pass: keep the drawer useful, but make it feel like a sheet
    over the workspace instead of a desktop sidebar squeezed onto iPhone. */
 @media (max-width: 980px) {
-  body.code-mode.code-mobile-touch .code-sidebar {
+  body.code-mode.code-compact-layout .code-sidebar {
     width: min(82vw, 342px);
     max-width: calc(var(--app-visual-width, 100vw) - 28px);
     padding: max(10px, env(safe-area-inset-top)) 10px max(8px, env(safe-area-inset-bottom));
@@ -18857,75 +18952,75 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     -webkit-backdrop-filter: blur(24px) saturate(1.16);
   }
 
-  body.code-mode.code-mobile-touch .code-sidebar.collapsed {
+  body.code-mode.code-compact-layout .code-sidebar.collapsed {
     width: min(82vw, 342px);
     max-width: calc(var(--app-visual-width, 100vw) - 28px);
     padding: max(10px, env(safe-area-inset-top)) 10px max(8px, env(safe-area-inset-bottom));
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-sidebar-backdrop {
+  body.code-mode.code-compact-layout .code-mobile-sidebar-backdrop {
     background: rgba(247, 247, 243, 0.24);
     backdrop-filter: blur(10px) saturate(1.08);
     -webkit-backdrop-filter: blur(10px) saturate(1.08);
   }
 
-  body.code-mode.code-mobile-touch .code-nav {
+  body.code-mode.code-compact-layout .code-nav {
     gap: 5px;
   }
 
-  body.code-mode.code-mobile-touch .code-nav-top-row {
-    grid-template-columns: minmax(0, 1fr) 40px 40px 40px;
+  body.code-mode.code-compact-layout .code-nav-top-row {
+    grid-template-columns: minmax(0, 1fr) 44px 44px 44px;
     gap: 6px;
   }
 
-  body.code-mode.code-mobile-touch .code-nav-top-row .code-share-root,
-  body.code-mode.code-mobile-touch .code-nav-top-row .code-sidebar-focus-toggle {
+  body.code-mode.code-compact-layout .code-nav-top-row .code-share-root,
+  body.code-mode.code-compact-layout .code-nav-top-row .code-sidebar-focus-toggle {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-nav-item {
-    min-height: 42px;
+  body.code-mode.code-compact-layout .code-nav-item {
+    min-height: 44px;
     padding: 7px 8px;
     border-radius: 10px;
     font-size: 14px;
   }
 
-  body.code-mode.code-mobile-touch .code-nav-top-row .code-nav-item {
-    min-height: 42px;
+  body.code-mode.code-compact-layout .code-nav-top-row .code-nav-item {
+    min-height: 44px;
   }
 
-  body.code-mode.code-mobile-touch .code-sidebar-toggle {
-    width: 40px;
-    height: 40px;
+  body.code-mode.code-compact-layout .code-sidebar-toggle {
+    width: 44px;
+    height: 44px;
     border-radius: 999px;
     background: rgba(31, 35, 40, 0.045);
   }
 
-  body.code-mode.code-mobile-touch .code-project-list {
+  body.code-mode.code-compact-layout .code-project-list {
     gap: 6px;
     padding: 0 1px 4px 0;
     scrollbar-width: none;
   }
 
-  body.code-mode.code-mobile-touch .code-project-list::-webkit-scrollbar {
+  body.code-mode.code-compact-layout .code-project-list::-webkit-scrollbar {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-project-title {
-    min-height: 40px;
+  body.code-mode.code-compact-layout .code-project-title {
+    min-height: 44px;
     padding: 6px 4px;
     font-size: 14.5px;
   }
 
-  body.code-mode.code-mobile-touch .code-agent-row {
+  body.code-mode.code-compact-layout .code-agent-row {
     grid-template-columns: minmax(0, 1fr) auto;
-    min-height: 42px;
+    min-height: 44px;
     padding: 7px 7px;
     border-radius: 10px;
     font-size: 14px;
   }
 
-  body.code-mode.code-mobile-touch .code-agent-row-provider-icon {
+  body.code-mode.code-compact-layout .code-agent-row-provider-icon {
     position: absolute;
     left: -17px;
     top: 50%;
@@ -18938,20 +19033,20 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     pointer-events: none;
   }
 
-  body.code-mode.code-mobile-touch .code-agent-row-provider-icon .agent-launch-icon {
+  body.code-mode.code-compact-layout .code-agent-row-provider-icon .agent-launch-icon {
     width: 17px;
     height: 17px;
     display: block;
   }
 
-  body.code-mode.code-mobile-touch .code-agent-row-actions {
+  body.code-mode.code-compact-layout .code-agent-row-actions {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-agent-row-more {
-    width: 40px;
-    min-width: 40px;
-    height: 40px;
+  body.code-mode.code-compact-layout .code-agent-row-more {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
     margin: -6px -5px -6px 0;
     display: inline-grid;
     place-items: center;
@@ -18961,38 +19056,38 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     color: #687067;
   }
 
-  body.code-mode.code-mobile-touch .code-agent-row-more:active {
+  body.code-mode.code-compact-layout .code-agent-row-more:active {
     background: rgba(31, 35, 40, 0.08);
   }
 
-  body.code-mode.code-mobile-touch .code-agent-row-more svg {
+  body.code-mode.code-compact-layout .code-agent-row-more svg {
     width: 18px;
     height: 18px;
   }
 
-  body.code-mode.code-mobile-touch .code-agents-section {
+  body.code-mode.code-compact-layout .code-agents-section {
     margin-right: 0;
     padding-left: 12px;
     background: rgba(247, 247, 244, 0.86);
   }
 
-  body.code-mode.code-mobile-touch .code-open-editors,
-  body.code-mode.code-mobile-touch .code-files-section {
+  body.code-mode.code-compact-layout .code-open-editors,
+  body.code-mode.code-compact-layout .code-files-section {
     margin-left: 6px;
     margin-right: 4px;
   }
 
-  body.code-mode.code-mobile-touch .code-file-tree-viewport,
-  body.code-mode.code-mobile-touch .code-file-tree {
+  body.code-mode.code-compact-layout .code-file-tree-viewport,
+  body.code-mode.code-compact-layout .code-file-tree {
     width: 100% !important;
     min-width: 0;
   }
 
-  body.code-mode.code-mobile-touch .code-file-tree-row {
+  body.code-mode.code-compact-layout .code-file-tree-row {
     min-width: 0;
   }
 
-  body.code-mode.code-mobile-touch .code-file-row {
+  body.code-mode.code-compact-layout .code-file-row {
     min-height: 24px;
     min-width: 0;
     grid-template-columns: 14px 16px minmax(32px, 1fr) minmax(0, auto);
@@ -19002,104 +19097,104 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     font-size: 14px;
   }
 
-  body.code-mode.code-mobile-touch .code-file-row:hover:not(.focused):not(.selected):not(.active) {
+  body.code-mode.code-compact-layout .code-file-row:hover:not(.focused):not(.selected):not(.active) {
     background: transparent;
   }
 
-  body.code-mode.code-mobile-touch .code-file-row.directory {
+  body.code-mode.code-compact-layout .code-file-row.directory {
     grid-template-columns: 14px minmax(32px, 1fr) minmax(0, auto);
   }
 
-  body.code-mode.code-mobile-touch .code-file-sticky-expanded-rows {
+  body.code-mode.code-compact-layout .code-file-sticky-expanded-rows {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-file-row.code-file-sticky-compact-row {
+  body.code-mode.code-compact-layout .code-file-row.code-file-sticky-compact-row {
     display: grid;
     padding-left: 4px;
   }
 
-  body.code-mode.code-mobile-touch .code-file-name {
+  body.code-mode.code-compact-layout .code-file-name {
     min-width: 0;
   }
 
-  body.code-mode.code-mobile-touch .code-file-git-status,
-  body.code-mode.code-mobile-touch .code-file-changed,
-  body.code-mode.code-mobile-touch .code-file-descendant-status,
-  body.code-mode.code-mobile-touch .code-file-open-spinner {
+  body.code-mode.code-compact-layout .code-file-git-status,
+  body.code-mode.code-compact-layout .code-file-changed,
+  body.code-mode.code-compact-layout .code-file-descendant-status,
+  body.code-mode.code-compact-layout .code-file-open-spinner {
     justify-self: end;
     max-width: 18px;
     overflow: hidden;
   }
 
-  body.code-mode.code-mobile-touch .code-file-row.active::after {
+  body.code-mode.code-compact-layout .code-file-row.active::after {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-file-row.active {
+  body.code-mode.code-compact-layout .code-file-row.active {
     background: rgba(82, 99, 135, 0.09);
   }
 
-  body.code-mode.code-mobile-touch .code-sidebar-footer {
+  body.code-mode.code-compact-layout .code-sidebar-footer {
     gap: 6px;
     margin: auto -2px 0;
     padding-top: 7px;
     border-top: 1px solid rgba(95, 103, 94, 0.1);
   }
 
-  body.code-mode.code-mobile-touch .code-sidebar-footer .code-usage-panel {
+  body.code-mode.code-compact-layout .code-sidebar-footer .code-usage-panel {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-product-row {
-    grid-template-columns: minmax(0, 1fr) 40px;
+  body.code-mode.code-compact-layout .code-product-row {
+    grid-template-columns: minmax(0, 1fr) 44px;
     gap: 4px;
   }
 
-  body.code-mode.code-mobile-touch .code-product-mark-copy {
+  body.code-mode.code-compact-layout .code-product-mark-copy {
     gap: 6px;
   }
 
-  body.code-mode.code-mobile-touch .code-product-mark-badge {
+  body.code-mode.code-compact-layout .code-product-mark-badge {
     max-width: 52%;
     min-height: 20px;
     padding-inline: 7px;
   }
 
-  body.code-mode.code-mobile-touch .code-sidebar-options {
-    width: 40px;
-    height: 40px;
+  body.code-mode.code-compact-layout .code-sidebar-options {
+    width: 44px;
+    height: 44px;
     background: rgba(31, 35, 40, 0.045);
   }
 
-  body.code-mode.code-mobile-touch .code-instance-name {
-    min-height: 40px;
+  body.code-mode.code-compact-layout .code-instance-name {
+    min-height: 44px;
     grid-template-columns: minmax(0, 1fr) 16px;
     padding: 5px 8px;
     font-size: 12px;
   }
 
-  body.code-mode.code-mobile-touch .code-instance-name svg {
+  body.code-mode.code-compact-layout .code-instance-name svg {
     width: 14px;
     height: 14px;
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-topbar {
-    height: 32px;
+  body.code-mode.code-compact-layout .code-mobile-topbar {
+    height: 44px;
     top: calc(var(--app-visual-offset-top, 0px) + max(2px, env(safe-area-inset-top)));
     padding-inline: 6px;
   }
 
-  body.code-mode.code-mobile-touch .code-main {
-    padding-top: calc(36px + env(safe-area-inset-top));
+  body.code-mode.code-compact-layout .code-main {
+    padding-top: calc(44px + env(safe-area-inset-top));
   }
 
-  body.code-mode.code-mobile-touch .code-mobile-topbar-button {
+  body.code-mode.code-compact-layout .code-mobile-topbar-button {
     background: transparent;
     box-shadow: none;
   }
 
-  body.code-mode.code-mobile-touch .code-composer {
+  body.code-mode.code-compact-layout .code-composer {
     margin: 0;
     border: 0;
     box-shadow:
@@ -19107,15 +19202,15 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
       0 12px 34px rgba(31, 35, 40, 0.08);
   }
 
-  body.code-mode.code-mobile-touch .code-composer-mic,
-  body.code-mode.code-mobile-touch .code-composer-send {
-    width: 34px;
-    min-width: 34px;
-    height: 34px;
-    min-height: 34px;
+  body.code-mode.code-compact-layout .code-composer-mic,
+  body.code-mode.code-compact-layout .code-composer-send {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
   }
 
-  body.code-mode.code-mobile-touch .code-composer-dictation-hint {
+  body.code-mode.code-compact-layout .code-composer-dictation-hint {
     position: absolute;
     right: 10px;
     bottom: calc(100% + 8px);
@@ -19127,7 +19222,7 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
 
   /* Keep the phone overflow menu as a small action rail, not a desktop
      context card. */
-  body.code-mode.code-mobile-touch .code-options-menu {
+  body.code-mode.code-compact-layout .code-options-menu {
     min-width: 132px;
     max-width: 164px;
     padding: 4px;
@@ -19139,8 +19234,8 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     -webkit-backdrop-filter: blur(18px) saturate(1.1);
   }
 
-  body.code-mode.code-mobile-touch .code-options-menu button {
-    min-height: 30px;
+  body.code-mode.code-compact-layout .code-options-menu button {
+    min-height: 44px;
     display: block;
     width: 100%;
     padding: 5px 10px;
@@ -19151,25 +19246,25 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     line-height: 20px;
   }
 
-  body.code-mode.code-mobile-touch .code-options-menu button:hover:not(:disabled),
-  body.code-mode.code-mobile-touch .code-options-menu button:active {
+  body.code-mode.code-compact-layout .code-options-menu button:hover:not(:disabled),
+  body.code-mode.code-compact-layout .code-options-menu button:active {
     background: rgba(31, 35, 40, 0.065);
     color: #24292f;
   }
 
-  body.code-mode.code-mobile-touch .code-options-menu button:focus,
-  body.code-mode.code-mobile-touch .code-options-menu button:focus-visible {
+  body.code-mode.code-compact-layout .code-options-menu button:focus,
+  body.code-mode.code-compact-layout .code-options-menu button:focus-visible {
     outline: 0;
     background: transparent;
     color: #4f5750;
   }
 
-  body.code-mode.code-mobile-touch .code-options-menu .code-context-menu-separator {
+  body.code-mode.code-compact-layout .code-options-menu .code-context-menu-separator {
     margin: 4px 5px;
     background: rgba(31, 35, 40, 0.1);
   }
 
-  body.code-mode.code-mobile-touch .code-settings-panel-overlay {
+  body.code-mode.code-compact-layout .code-settings-panel-overlay {
     justify-content: flex-start;
     align-items: flex-start;
     background: rgba(247, 247, 243, 0.24);
@@ -19177,7 +19272,7 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     -webkit-backdrop-filter: blur(10px) saturate(1.08);
   }
 
-  body.code-mode.code-mobile-touch .code-settings-panel {
+  body.code-mode.code-compact-layout .code-settings-panel {
     width: min(82vw, 342px);
     max-width: calc(var(--app-visual-width, 100vw) - 28px);
     height: var(--app-visual-height, 100dvh);
@@ -19189,7 +19284,7 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     animation: code-settings-mobile-enter 180ms cubic-bezier(0.2, 0.72, 0.25, 1);
   }
 
-  body.code-mode.code-mobile-touch .code-settings-panel-header {
+  body.code-mode.code-compact-layout .code-settings-panel-header {
     position: sticky;
     top: 0;
     z-index: 2;
@@ -19201,7 +19296,7 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     background: inherit;
   }
 
-  body.code-mode.code-mobile-touch .code-settings-panel-back {
+  body.code-mode.code-compact-layout .code-settings-panel-back {
     width: 32px;
     height: 32px;
     display: inline-grid;
@@ -19212,49 +19307,49 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     color: #596159;
   }
 
-  body.code-mode.code-mobile-touch .code-settings-panel-back svg {
+  body.code-mode.code-compact-layout .code-settings-panel-back svg {
     width: 18px;
     height: 18px;
     fill: currentColor;
   }
 
-  body.code-mode.code-mobile-touch .code-settings-panel-close {
+  body.code-mode.code-compact-layout .code-settings-panel-close {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-settings-panel-body {
+  body.code-mode.code-compact-layout .code-settings-panel-body {
     padding: 8px 14px calc(18px + env(safe-area-inset-bottom));
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
   }
 
-  body.code-mode[data-appearance='dark'].code-mobile-touch .code-settings-panel-overlay {
+  body.code-mode[data-appearance='dark'].code-compact-layout .code-settings-panel-overlay {
     background: rgba(1, 4, 9, 0.28);
   }
 
-  body.code-mode[data-appearance='dark'].code-mobile-touch .code-settings-panel {
+  body.code-mode[data-appearance='dark'].code-compact-layout .code-settings-panel {
     background: rgba(13, 17, 23, 0.97);
     box-shadow: 16px 0 44px rgba(0, 0, 0, 0.36);
   }
 
-  body.code-mode[data-appearance='dark'].code-mobile-touch .code-settings-panel-back {
+  body.code-mode[data-appearance='dark'].code-compact-layout .code-settings-panel-back {
     color: var(--code-dark-text-muted);
   }
 
-  body.code-mode.code-mobile-touch .code-side-view-panel.code-search-view {
+  body.code-mode.code-compact-layout .code-side-view-panel.code-search-view {
     padding: 8px;
   }
 
-  body.code-mode.code-mobile-touch .code-search-panel {
+  body.code-mode.code-compact-layout .code-search-panel {
     width: 100%;
     gap: 8px;
   }
 
-  body.code-mode.code-mobile-touch .code-search-panel-header {
+  body.code-mode.code-compact-layout .code-search-panel-header {
     display: none;
   }
 
-  body.code-mode.code-mobile-touch .code-search-panel-input {
+  body.code-mode.code-compact-layout .code-search-panel-input {
     min-height: 42px;
     padding: 5px 10px;
     border: 0;
@@ -19263,30 +19358,30 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     box-shadow: none;
   }
 
-  body.code-mode.code-mobile-touch .code-search-panel-input:focus-within {
+  body.code-mode.code-compact-layout .code-search-panel-input:focus-within {
     border: 0;
     background: rgba(31, 35, 40, 0.065);
     box-shadow: none;
   }
 
-  body.code-mode.code-mobile-touch .code-search-panel-input input {
+  body.code-mode.code-compact-layout .code-search-panel-input input {
     font-size: 15px;
   }
 
-  body.code-mode[data-appearance='dark'].code-mobile-touch .code-sidebar {
+  body.code-mode[data-appearance='dark'].code-compact-layout .code-sidebar {
     background: rgba(13, 17, 23, 0.9);
     box-shadow: 16px 0 44px rgba(0, 0, 0, 0.36);
   }
 
-  body.code-mode[data-appearance='dark'].code-mobile-touch .code-mobile-sidebar-backdrop {
+  body.code-mode[data-appearance='dark'].code-compact-layout .code-mobile-sidebar-backdrop {
     background: rgba(1, 4, 9, 0.28);
   }
 
-  body.code-mode[data-appearance='dark'].code-mobile-touch .code-agents-section {
+  body.code-mode[data-appearance='dark'].code-compact-layout .code-agents-section {
     background: rgba(13, 17, 23, 0.86);
   }
 
-  body.code-mode[data-appearance='dark'].code-mobile-touch .code-sidebar-footer {
+  body.code-mode[data-appearance='dark'].code-compact-layout .code-sidebar-footer {
     border-top-color: rgba(139, 148, 158, 0.14);
   }
 }

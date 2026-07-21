@@ -292,7 +292,7 @@ test.describe('Farming Code dark skin', () => {
 
     await page.setViewportSize({ width: 390, height: 844 })
     await page.waitForTimeout(250)
-    await page.evaluate(() => document.body.classList.add('code-mobile-touch'))
+    await page.evaluate(() => document.body.classList.add('code-compact-layout', 'code-mobile-touch'))
     await expect(page.getByTestId('code-mobile-topbar')).toBeVisible()
     await expectDarkSurface(page.getByTestId('code-mobile-topbar'), 'mobile topbar')
     await saveScreenshot(testInfo, 'mobile-shell.png', page)

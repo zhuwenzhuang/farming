@@ -547,8 +547,8 @@ cmd_deploy() {
   log "Installing dependencies ..."
   remote "cd ${REMOTE_DIR} && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci"
 
-  log "Building frontend ..."
-  remote "cd ${REMOTE_DIR} && FARMING_BASE_PATH=${REMOTE_BASE_PATH} npx vite build"
+  log "Building frontend and CRT renderers ..."
+  remote "cd ${REMOTE_DIR} && FARMING_BASE_PATH=${REMOTE_BASE_PATH} npm run build"
 
   log "Pruning development dependencies from runtime install ..."
   remote "cd ${REMOTE_DIR} && npm prune --omit=dev"

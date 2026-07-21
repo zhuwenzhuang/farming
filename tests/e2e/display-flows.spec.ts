@@ -3089,7 +3089,7 @@ test.describe('display-backed agent flows', () => {
     const mobileComposerInput = page.getByTestId('code-composer-input')
     await mobileComposerInput.fill(`echo ${mobileMarker}`)
     await mobileComposerInput.press('Enter')
-    await expect.poll(async () => mobileComposerInput.evaluate(element => element.textContent || '')).toBe('')
+    await expect(mobileComposerInput).toHaveValue('')
     await expect.poll(async () => {
       const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
       const data = await response.json()

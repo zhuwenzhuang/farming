@@ -119,8 +119,13 @@ function run() {
   assert(!effectsCss.includes('#farming-crt.session-open .crt-scan-beam'), 'CRT scan should remain a whole-screen surface effect in opened sessions');
   assert(!effectsCss.includes('#farming-crt:not(.no-crt)::after'), 'CRT should not darken the viewport edges with a vignette');
   assert(effectsCss.includes('phosphor-noise.svg'), 'CRT screen surface should retain its original static noise texture');
-  assert(effectsCss.includes('crt-content-afterimage 620ms'), 'CRT content changes should leave a short phosphor afterimage');
-  assert(crtApp.includes('appendCrtPreviewAfterimage'), 'CRT previews should use event-driven phosphor decay');
+  assert(!effectsCss.includes('crt-content-afterimage'), 'CRT live previews should not flash a fading copy of every previous frame');
+  assert(!crtApp.includes('appendCrtPreviewAfterimage'), 'CRT live previews should replace completed frames without an afterimage overlay');
+  assert(
+    crtApp.includes('requestAnimationFrame(() => {')
+      && crtApp.includes('preview.previewSnapshot || agent.previewSnapshot || null'),
+    'CRT live previews should align sampled updates to a paint frame and retain the previous completed snapshot'
+  );
   assert(indexHtml.includes('id="crt-structured-composer"'), 'CRT should expose a native composer for structured Agent runtimes');
   assert(!indexHtml.includes('crt-structured-input-prompt') && !indexHtml.includes('MESSAGE&gt;'), 'CRT structured input should not spend horizontal space on a redundant prompt label');
   assert(indexHtml.includes('id="crt-structured-input" rows="2"') && crtApp.includes('resizeStructuredComposerInput'), 'CRT structured input should grow to show multiline drafts');
@@ -300,7 +305,7 @@ function run() {
   assert(crtApp.includes('workspaceHistoryExpanded = getWorkspaceHistory().length > 0'), 'CRT New Agent should show recent workspaces immediately');
   assert(indexHtml.includes('.settings-panel') && indexHtml.includes('0 0 6px rgba(0, 255, 0, 0.2)'), 'CRT settings borders should retain restrained phosphor glow');
   assert(crtApp.includes('"JetBrains Mono", "SF Mono", Menlo'), 'CRT terminal fallback should preserve readable mixed-language metrics');
-  assert(indexHtml.includes('.agent-block.working .agent-output'), 'CRT should blink only working agent previews');
+  assert(!indexHtml.includes('.agent-block.working .agent-output'), 'CRT working previews should remain at a steady opacity');
   assert(!indexHtml.includes('.agent-block.hot .agent-output'), 'recent activity alone should not blink CRT previews');
   assert(crtApp.includes("outputTail.className = 'agent-output-tail'"), 'CRT cards should anchor live output at the bottom');
   assert(

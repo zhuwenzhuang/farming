@@ -174,7 +174,7 @@
             inset: 3px 0 0;
             display: flex;
             flex-direction: column;
-            justify-content: flex-end;
+            justify-content: flex-start;
             gap: 5px;
             min-height: 0;
             padding: 0 4px 2px 12px;
@@ -209,7 +209,7 @@
             display: flex;
             flex: 0 1 auto;
             flex-direction: column;
-            justify-content: flex-end;
+            justify-content: flex-start;
             gap: 5px;
             min-height: 0;
             overflow: hidden;
@@ -300,18 +300,9 @@
             opacity: 0.58;
         }
 
-        .agent-block.working .agent-output:not(.structured-preview) {
-            animation: blink 0.5s infinite;
-        }
-
         @keyframes crt-chat-signal {
             0%, 100% { opacity: 0.45; transform: scale(0.82); }
             50% { opacity: 1; transform: scale(1); }
-        }
-
-        @keyframes blink {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.8; }
         }
 
         .sidebar {

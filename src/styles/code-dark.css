@@ -264,15 +264,13 @@ body.code-mode[data-appearance='dark'] .workspace-directory-browser-inline-statu
 }
 
 body.code-mode[data-appearance='dark'] .code-file-search-box input,
-body.code-mode[data-appearance='dark'] .code-composer textarea,
-body.code-mode[data-appearance='dark'] .code-composer-mobile-input {
+body.code-mode[data-appearance='dark'] .code-composer textarea {
   color: var(--code-dark-text);
   caret-color: var(--code-dark-text);
 }
 
 body.code-mode[data-appearance='dark'] .code-file-search-box input::placeholder,
 body.code-mode[data-appearance='dark'] .code-composer textarea::placeholder,
-body.code-mode[data-appearance='dark'] .code-composer-mobile-input:empty::before,
 body.code-mode[data-appearance='dark'] .workspace-input input::placeholder,
 body.code-mode[data-appearance='dark'] .workspace-input textarea.task-input::placeholder {
   color: var(--code-dark-text-muted);
@@ -1200,14 +1198,14 @@ body.code-mode[data-appearance='dark'] .code-brand-github {
   color: #8cbcff;
 }
 
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-options-menu,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-options-menu button,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-options-menu button:focus,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-options-menu button:focus-visible {
+body.code-mode[data-appearance='dark'].code-compact-layout .code-options-menu,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-options-menu button,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-options-menu button:focus,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-options-menu button:focus-visible {
   color: var(--code-dark-text);
 }
 
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-options-menu {
+body.code-mode[data-appearance='dark'].code-compact-layout .code-options-menu {
   background: rgba(22, 27, 34, 0.94);
 }
 
@@ -1787,6 +1785,7 @@ body.code-mode[data-appearance='dark'] .code-codex-transcript-process-item.warni
 }
 
 body.code-mode[data-appearance='dark'] .code-codex-transcript-state,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-blank,
 body.code-mode[data-appearance='dark'] .code-codex-transcript-placeholder {
   color: var(--code-dark-text-muted);
 }
@@ -2312,6 +2311,20 @@ body.code-mode[data-appearance='dark'] .code-composer-attachment.image .code-com
 body.code-mode[data-appearance='dark'] .code-composer-attachment.image .code-composer-attachment-remove:focus-visible {
   background: #fff;
   color: #111;
+}
+
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer-attachment.image .code-composer-attachment-remove,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer-attachment.image .code-composer-attachment-remove:hover,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer-attachment.image .code-composer-attachment-remove:focus-visible {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #111;
+}
+
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer-attachment.image .code-composer-attachment-remove::before {
+  border-color: var(--code-dark-bg);
+  background: #f0f3f6;
 }
 
 body.code-mode[data-appearance='dark'] .code-pending-followup {
@@ -2926,41 +2939,41 @@ body.code-mode[data-appearance='dark'].code-mobile-markdown-reading .code-mobile
   border-color: transparent;
 }
 
-body.code-mode[data-appearance='dark'].code-mobile-touch {
+body.code-mode[data-appearance='dark'].code-compact-layout {
   background: var(--code-dark-bg);
 }
 
-body.code-mode[data-appearance='dark'].code-mobile-touch #root,
-body.code-mode[data-appearance='dark'].code-mobile-touch .app-container,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-app-shell,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-workspace,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-main,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-terminal-grid,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-agent-work-pane,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-terminal-pane,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-terminal-container,
-body.code-mode[data-appearance='dark'].code-mobile-touch .terminal-session-host,
-body.code-mode[data-appearance='dark'].code-mobile-touch .terminal-session-host .xterm,
-body.code-mode[data-appearance='dark'].code-mobile-touch .terminal-session-host .xterm-screen,
-body.code-mode[data-appearance='dark'].code-mobile-touch .terminal-session-host .xterm-viewport,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-codex-transcript-scroll {
+body.code-mode[data-appearance='dark'].code-compact-layout #root,
+body.code-mode[data-appearance='dark'].code-compact-layout .app-container,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-app-shell,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-workspace,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-main,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-terminal-grid,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-agent-work-pane,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-terminal-pane,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-terminal-container,
+body.code-mode[data-appearance='dark'].code-compact-layout .terminal-session-host,
+body.code-mode[data-appearance='dark'].code-compact-layout .terminal-session-host .xterm,
+body.code-mode[data-appearance='dark'].code-compact-layout .terminal-session-host .xterm-screen,
+body.code-mode[data-appearance='dark'].code-compact-layout .terminal-session-host .xterm-viewport,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-codex-transcript-scroll {
   background: var(--code-dark-bg) !important;
   color: var(--code-dark-text);
 }
 
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-mobile-topbar-title {
+body.code-mode[data-appearance='dark'].code-compact-layout .code-mobile-topbar-title {
   color: var(--code-dark-text);
 }
 
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-mobile-topbar-title strong {
+body.code-mode[data-appearance='dark'].code-compact-layout .code-mobile-topbar-title strong {
   color: var(--code-dark-text);
 }
 
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-mobile-topbar-title span {
+body.code-mode[data-appearance='dark'].code-compact-layout .code-mobile-topbar-title span {
   color: var(--code-dark-text-muted);
 }
 
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer {
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer {
   background: rgba(22, 27, 34, 0.78) !important;
   border-color: rgba(240, 246, 252, 0.08) !important;
   color: var(--code-dark-text);
@@ -2969,8 +2982,8 @@ body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer {
     inset 0 0 0 1px rgba(240, 246, 252, 0.045) !important;
 }
 
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer:focus-within,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer.menu-open {
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer:focus-within,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer.menu-open {
   background: rgba(22, 27, 34, 0.86) !important;
   border-color: rgba(240, 246, 252, 0.1) !important;
   box-shadow:
@@ -2978,39 +2991,37 @@ body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer.menu-ope
     inset 0 0 0 1px rgba(240, 246, 252, 0.055) !important;
 }
 
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer-mobile-input,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer textarea {
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer textarea {
   color: rgba(240, 246, 252, 0.92);
   caret-color: rgba(240, 246, 252, 0.96);
 }
 
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer-mobile-input:empty::before,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer textarea::placeholder {
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer textarea::placeholder {
   color: rgba(240, 246, 252, 0.46);
 }
 
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer-add,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer-mic,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer-approval,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer-context-window,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer-model-picker,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer-mode-chip {
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer-add,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer-mic,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer-approval,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer-context-window,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer-model-picker,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer-mode-chip {
   color: rgba(240, 246, 252, 0.74);
 }
 
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer-send {
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer-send {
   background: rgba(240, 246, 252, 0.92);
   color: #0d1117;
 }
 
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-composer-send:disabled {
+body.code-mode[data-appearance='dark'].code-compact-layout .code-composer-send:disabled {
   background: rgba(240, 246, 252, 0.12);
   color: rgba(240, 246, 252, 0.38);
 }
 
 body.code-mode[data-appearance='dark'].code-mobile-markdown-reading .code-mobile-topbar-button,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-mobile-topbar-button,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.source-preview {
+body.code-mode[data-appearance='dark'].code-compact-layout .code-mobile-topbar-button,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview {
   background: rgba(22, 27, 34, 0.74);
   color: rgba(240, 246, 252, 0.84);
   box-shadow: 0 10px 24px rgba(1, 4, 9, 0.28);
@@ -3018,15 +3029,15 @@ body.code-mode[data-appearance='dark'].code-mobile-touch .code-file-editor.markd
   -webkit-backdrop-filter: blur(18px) saturate(1.12);
 }
 
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.source-preview,
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.source-preview.active {
+body.code-mode[data-appearance='dark'].code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview.active {
   background: transparent;
   color: rgba(240, 246, 252, 0.82);
   box-shadow: none;
 }
 
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.source-preview:hover:not(:disabled),
-body.code-mode[data-appearance='dark'].code-mobile-touch .code-file-editor.markdown-reading .code-file-editor-action.source-preview:focus-visible {
+body.code-mode[data-appearance='dark'].code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:hover:not(:disabled),
+body.code-mode[data-appearance='dark'].code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:focus-visible {
   background: rgba(240, 246, 252, 0.09);
 }
 

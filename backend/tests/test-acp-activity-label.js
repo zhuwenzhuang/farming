@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { acpActivityKind, acpCompactPlanLabel, acpPlanProgress } = require('../../src/components/code/acp/acp-activity-label.ts');
+const { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivityLabel, acpPlanProgress } = require('../../src/components/code/acp/acp-activity-label.ts');
 const { codeCopyForLanguage } = require('../../src/components/code/copy.ts');
 
 assert.strictEqual(acpActivityKind([]), 'processing');
@@ -81,6 +81,29 @@ for (const language of ['en', 'zh']) {
     copy.codexTranscriptUsingTool,
   ];
   assert(labels.every(label => [...label].length <= 10), `${language} activity labels must be at most 10 characters`);
+
+  const activityLabels = {
+    thinking: copy.codexTranscriptThinking,
+    running: copy.codexTranscriptRunning,
+    reading: copy.codexTranscriptReading,
+    searching: copy.codexTranscriptSearching,
+    editing: copy.codexTranscriptEditing,
+    plan: copy.codexTranscriptPlanActive,
+    fetching: copy.codexTranscriptFetching,
+    tool: copy.codexTranscriptUsingTool,
+    processing: copy.codexTranscriptWorking,
+  };
+  assert.strictEqual(
+    acpLiveToolActivityLabel([
+      { type: 'tool', kind: 'execute', status: 'completed', title: 'old command' },
+      { type: 'tool', kind: 'execute', status: 'in_progress', title: 'PORT=4187   npm test\n-- --runInBand' },
+    ], activityLabels),
+    `${copy.codexTranscriptRunning}: PORT=4187 npm test -- --runInBand`,
+  );
+  assert.strictEqual(
+    acpLiveToolActivityLabel([{ type: 'tool', kind: 'execute', status: 'completed', title: 'npm test' }], activityLabels),
+    '',
+  );
 }
 
 console.log('test-acp-activity-label passed');

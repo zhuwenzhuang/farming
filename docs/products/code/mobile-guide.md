@@ -38,12 +38,16 @@ Mobile has three primary regions:
 
 The sidebar starts collapsed so the main content is not squeezed. The user can reopen it when switching projects or agents.
 
+The compact structure is selected by available width, not by touch-device detection. A desktop browser narrowed to the same width as an iPhone renders the same top bar, drawer, main area, and Composer; touch detection is reserved for soft-keyboard and gesture behavior.
+
 ## Terminal Workflow
 
 Expected:
 
 - Terminal output remains readable at phone width.
 - Tapping terminal output should not accidentally summon the keyboard.
+- When another viewer changes the shared terminal geometry, tapping the terminal remeasures it for the current viewport; an already aligned terminal does not send another resize.
+- Chat and Terminal use a native text area so a direct tap opens the iPhone keyboard and preserves system IME, selection, paste, and dictation behavior.
 - The input area remains visible when the keyboard appears.
 - Chat and Terminal use the same compact Composer geometry: focusing an empty input does not change its layout, and model selection remains reachable before the keyboard opens.
 - Long output should scroll inside the terminal experience without causing page-wide horizontal overflow.
