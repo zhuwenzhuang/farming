@@ -30,7 +30,7 @@ async function terminalCellCenter(page: import('@playwright/test').Page, agentId
 }
 
 test.describe('human Farming Agent story', () => {
-  test('defaults the desktop Terminal Composer closed and remembers the manual choice without hiding it on mobile', async ({ page, workspaceRoot }) => {
+  test('defaults the desktop Terminal Composer open and remembers a manual collapse without hiding it on mobile', async ({ page, workspaceRoot }) => {
     await page.addInitScript(() => {
       Object.defineProperty(navigator, 'maxTouchPoints', { value: 1, configurable: true })
     })
@@ -67,15 +67,14 @@ test.describe('human Farming Agent story', () => {
       boxShadow: 'none',
     })
 
-    await expect(page.getByTestId('code-composer')).toHaveCount(0)
-    await expect(page.getByTestId('code-composer-restore')).toBeVisible()
-    await page.getByTestId('code-composer-restore').click()
     await expect(page.getByTestId('code-composer-input')).toBeVisible()
+    await expect(page.getByTestId('code-composer-restore')).toHaveCount(0)
 
     await page.reload({ waitUntil: 'networkidle' })
     await expect(page.getByTestId('code-composer-input')).toBeVisible()
     await page.locator('.code-composer-collapse-zone').hover()
     await page.getByTestId('code-composer-collapse').click()
+    await expect(page.getByTestId('code-composer')).toHaveCount(0)
     await page.reload({ waitUntil: 'networkidle' })
     await expect(page.getByTestId('code-composer')).toHaveCount(0)
 
