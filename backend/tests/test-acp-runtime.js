@@ -32,7 +32,17 @@ async function run() {
     '/opt/farming/lib',
     '/opt/farming/node',
   ]);
-  assert.match(compatibleCodexLaunch.args[3], /codex-acp\/dist\/index\.js$/);
+  assert.match(compatibleCodexLaunch.args[3], /(?:dist\/acp\/codex-acp-1\.1\.4\.js|codex-acp\/dist\/index\.js)$/);
+  const originalProcessPkg = process.pkg;
+  try {
+    process.pkg = { entrypoint: 'backend/farming-app-cli.pkg.js' };
+    const packagedCodexLaunch = resolveAcpLaunch('codex');
+    assert.strictEqual(packagedCodexLaunch.command, process.execPath);
+    assert.deepStrictEqual(packagedCodexLaunch.args, ['--farming-codex-acp']);
+  } finally {
+    if (originalProcessPkg === undefined) delete process.pkg;
+    else process.pkg = originalProcessPkg;
+  }
   assert.deepStrictEqual(resolveAcpLaunch('opencode', { cwd: '/tmp/demo', executable: '/bin/opencode' }), {
     command: '/bin/opencode',
     args: ['acp', '--cwd', '/tmp/demo'],

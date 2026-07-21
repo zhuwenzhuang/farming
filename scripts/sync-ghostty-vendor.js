@@ -39,7 +39,8 @@ function replaceOnce(filePath, search, replacement) {
 function patchGhosttyVendor() {
   // The upstream build ceilings the measured "M" width, which makes CJK and
   // soft-wrapped terminal content visibly wider than native Ghostty. Keep this
-  // local runtime patch here so npm install cannot overwrite the vendored fix.
+  // local runtime patch here so every source and release build regenerates the
+  // same reviewed vendored fix from the pinned dependency.
   replaceOnce(
     path.join(targetDir, 'ghostty-web.js'),
     'const g = B.measureText("M"), E = Math.ceil(g.width),',

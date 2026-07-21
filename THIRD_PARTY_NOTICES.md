@@ -35,7 +35,6 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `mermaid` | 11.16.0 | MIT | Diagram rendering |
 | `monaco-editor` | 0.55.1 | MIT | Lightweight code editor |
 | `node-pty` | 1.2.0-beta.12 | MIT | Native pseudo-terminal integration |
-| `patch-package` | 8.0.1 | MIT | Applies the version-locked Codex ACP capability extension at install time |
 | `qrcode-generator` | 2.0.4 | MIT | Browser share QR generation |
 | `react` | 19.2.4 | MIT | Frontend UI framework |
 | `react-arborist` | 3.10.5 | MIT | Tree view UI |

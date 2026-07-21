@@ -185,6 +185,14 @@ for target in "${TARGET_ARRAY[@]}"; do
       echo "Packaged CLI failed its native startup self-check: ${out_bin}" >&2
       exit 1
     fi
+    codex_bin="$(command -v codex || true)"
+    if [ -z "${codex_bin}" ]; then
+      echo "Packaged CLI ACP smoke requires the pinned Codex executable from node_modules." >&2
+      exit 1
+    fi
+    CODEX_PATH="${codex_bin}" node "${PROJECT_ROOT}/scripts/smoke-codex-acp-process.js" \
+      --command "${out_bin}" \
+      --arg --farming-codex-acp
   fi
   sha256="$(sha256_value "${out_bin}")"
   printf '%s  %s\n' "${sha256}" "${asset_file}" >> "${CHECKSUM_FILE}"

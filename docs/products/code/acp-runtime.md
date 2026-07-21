@@ -6,7 +6,7 @@ Farming has an Agent Client Protocol runtime for Codex, Claude Code, OpenCode, a
 
 ## Provider Connections
 
-- Codex uses the pinned `@agentclientprotocol/codex-acp` adapter. A version-locked `patch-package` delta adds only the negotiated `_codex/session/steer` extension and its `turn/steer` forwarding; installation fails if the pinned upstream package no longer matches the reviewed patch.
+- Codex uses the pinned `@agentclientprotocol/codex-acp` adapter. A version-locked `patch-package` delta adds only the negotiated `_codex/session/steer` extension and its `turn/steer` forwarding. Packaging fails if the pinned upstream package no longer matches the reviewed patch, then copies the exact patched adapter into the release under a locked SHA-256. Installed packages launch that immutable artifact and never rely on post-install mutation. Standalone CLI builds bundle it behind an internal process entry and must complete an ACP `initialize` handshake as part of native artifact smoke.
 - Claude Code uses the pinned `@agentclientprotocol/claude-agent-acp` adapter.
 - OpenCode uses its native `opencode acp --cwd <workspace>` command.
 - Qoder uses its native `qodercli --acp` command. Qoder can emit the tail of a loaded history after `session/load` returns, so Farming waits for the replay stream to settle before exposing the restored session.

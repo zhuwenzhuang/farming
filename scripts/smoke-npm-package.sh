@@ -6,6 +6,12 @@ TMP_ROOT="$(mktemp -d /tmp/farming-npm-smoke.XXXXXX)"
 PREFIX="${TMP_ROOT}/prefix"
 CONFIG_DIR="${TMP_ROOT}/config"
 PORT_VALUE="${FARMING_NPM_SMOKE_PORT:-6794}"
+NPM_MAJOR="$(npm --version | cut -d. -f1)"
+
+if [ "${NPM_MAJOR}" -lt 12 ]; then
+  echo "npm package release smoke requires npm 12 or newer, found $(npm --version)" >&2
+  exit 1
+fi
 
 cleanup() {
   if [ -x "${PREFIX}/bin/farming" ]; then
@@ -24,18 +30,36 @@ if [ -z "${PACKAGE_TARBALL}" ]; then
   exit 1
 fi
 
-npm install --global --prefix "${PREFIX}" "${PACKAGE_TARBALL}" --no-audit --no-fund --silent
+npm install --global --prefix "${PREFIX}" "${PACKAGE_TARBALL}" --ignore-scripts --no-audit --no-fund --silent
 PACKAGE_ROOT="${PREFIX}/lib/node_modules/farming-code"
-CODEX_ACP_DIST="${PACKAGE_ROOT}/node_modules/@agentclientprotocol/codex-acp/dist/index.js"
-PATCH_FILE="${PACKAGE_ROOT}/patches/@agentclientprotocol+codex-acp+1.1.4.patch"
-if [ ! -f "${PATCH_FILE}" ]; then
-  echo "npm package omitted the pinned codex-acp patch" >&2
+CODEX_ACP_UPSTREAM="${PACKAGE_ROOT}/node_modules/@agentclientprotocol/codex-acp/dist/index.js"
+CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.1.4.js"
+if [ ! -f "${CODEX_ACP_VENDOR}" ]; then
+  echo "npm package omitted the version-locked Codex ACP runtime" >&2
   exit 1
 fi
-if ! grep -Fq 'var STEER_METHOD = "_codex/session/steer";' "${CODEX_ACP_DIST}"; then
-  echo "npm install did not apply the pinned codex-acp steer patch" >&2
-  exit 1
-fi
+node - "${PACKAGE_ROOT}" "${CODEX_ACP_UPSTREAM}" "${CODEX_ACP_VENDOR}" <<'NODE'
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+const [packageRoot, upstreamEntry, vendorEntry] = process.argv.slice(2);
+const sha256 = filePath => crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+const expectedUpstream = '7534a0ad3cc4c9affd0b2da5007fa53ea0f1d6fcd71b2c5ef202e2056a976a97';
+const expectedVendor = '39cbae01e336c2ca185d624358e03280d1f6fef6d73bbe42dd9eb77e2b1efb32';
+if (sha256(upstreamEntry) !== expectedUpstream) {
+  throw new Error('Packed install unexpectedly mutated the upstream codex-acp dependency');
+}
+if (sha256(vendorEntry) !== expectedVendor) {
+  throw new Error('Packed Codex ACP runtime failed its SHA-256 verification');
+}
+const { resolveAcpLaunch } = require(path.join(packageRoot, 'backend/acp-runtime'));
+const launch = resolveAcpLaunch('codex');
+if (fs.realpathSync(launch.args.at(-1)) !== fs.realpathSync(vendorEntry)) {
+  throw new Error(`Codex ACP launch did not select the packaged runtime: ${launch.args.at(-1)}`);
+}
+NODE
+node "${PROJECT_ROOT}/scripts/smoke-codex-acp-process.js" --package-root "${PACKAGE_ROOT}"
 "${PREFIX}/bin/farming" help >/dev/null
 FARMING_DISABLE_AUTH=1 "${PREFIX}/bin/farming" daemon \
   --port "${PORT_VALUE}" \
@@ -51,4 +75,4 @@ node -e '
 ' "${PREFIX}"
 
 "${PREFIX}/bin/farming" stop --config-dir "${CONFIG_DIR}" >/dev/null
-echo "✓ npm package installs globally, applies the codex-acp patch, starts Farming, and loads node-pty"
+echo "✓ npm package installs globally without package mutation, verifies Codex ACP, starts Farming, and loads node-pty"

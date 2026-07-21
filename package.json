@@ -1,6 +1,6 @@
 {
   "name": "farming-code",
-  "version": "2.2.15",
+  "version": "2.2.16",
   "description": "Remote browser workspace for supervising AI coding agents",
   "main": "backend/server.js",
   "bin": {
@@ -18,9 +18,7 @@
     "frontend/skins/",
     "frontend/themes/",
     "frontend/vendor/ghostty-web/",
-    "patches/",
     "shared/",
-    "scripts/sync-ghostty-vendor.js",
     "LICENSE",
     "README.md",
     "README.zh_cn.md",
@@ -30,18 +28,20 @@
   ],
   "scripts": {
     "sync:ghostty-vendor": "node scripts/sync-ghostty-vendor.js",
-    "postinstall": "node scripts/sync-ghostty-vendor.js && patch-package",
+    "prepare:acp-vendor": "node scripts/prepare-codex-acp-vendor.js --copy",
+    "prebuild": "node scripts/sync-ghostty-vendor.js && node scripts/prepare-codex-acp-vendor.js",
     "prepack": "FARMING_BASE_PATH=/farming npm run build",
+    "pretest": "npm run prepare:acp-vendor",
     "start": "npm run build && node backend/server.js",
     "start:net": "node backend/farming-net-server.js",
     "start:no-auth": "FARMING_DISABLE_AUTH=1 npm start",
-    "predev:backend": "npm run build:crt-markdown",
+    "predev:backend": "npm run prepare:acp-vendor && npm run build:crt-markdown",
     "dev:backend": "node backend/server.js",
     "dev:frontend": "vite",
-    "predev": "npm run build:crt-markdown",
+    "predev": "npm run prepare:acp-vendor && npm run build:crt-markdown",
     "dev": "node backend/server.js & vite --open & wait",
     "build:crt-markdown": "node -e \"require('fs').rmSync('dist/crt-markdown-assets',{recursive:true,force:true})\" && esbuild src/crt-markdown-renderer.tsx --bundle --outdir=dist --entry-names=crt-markdown-renderer --asset-names=crt-markdown-assets/[name]-[hash] --platform=browser --format=iife --target=es2022 --loader:.woff=file --loader:.woff2=file --loader:.ttf=file --minify && esbuild src/crt-mermaid-runtime.ts --bundle --outfile=dist/crt-mermaid-renderer.js --platform=browser --format=iife --target=es2022 --minify",
-    "build": "vite build && npm run build:crt-markdown",
+    "build": "vite build && npm run build:crt-markdown && npm run prepare:acp-vendor",
     "deploy:remote": "./scripts/deploy.sh up",
     "deploy:remote:no-auth": "./scripts/deploy.sh up --disable-auth",
     "release:cli": "./scripts/package-cli-release.sh",
@@ -121,7 +121,6 @@
     "mermaid": "^11.16.0",
     "monaco-editor": "^0.55.1",
     "node-pty": "^1.2.0-beta.12",
-    "patch-package": "8.0.1",
     "qrcode-generator": "^2.0.4",
     "react": "^19.2.4",
     "react-arborist": "^3.10.5",
@@ -144,6 +143,7 @@
     "@yao-pkg/pkg": "6.20.0",
     "esbuild": "^0.27.7",
     "eslint": "^10.2.0",
+    "patch-package": "8.0.1",
     "puppeteer": "^24.40.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
@@ -157,5 +157,12 @@
     },
     "qs": "6.15.3",
     "dompurify": "3.4.12"
+  },
+  "allowScripts": {
+    "esbuild@0.27.7": true,
+    "esbuild@0.28.1": true,
+    "node-pty@1.2.0-beta.12": true,
+    "fsevents": false,
+    "puppeteer": false
   }
 }

@@ -1,4 +1,5 @@
 const EventEmitter = require('events');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -9,6 +10,7 @@ const { AcpCheckpointStore } = require('./acp-checkpoint-store');
 const { AcpSessionState } = require('./acp-session-state');
 const { readCodexHistoryImageData } = require('./codex-transcript');
 const { AcpClientFileSystem, AcpClientTerminalManager } = require('./acp/client-services');
+const { PACKAGED_CODEX_ACP_ARG } = require('./acp/packaged-codex-acp');
 const { permissionSecurityWarnings } = require('./acp/permission-security');
 const { rejectPatch } = require('./acp/patch-decisions');
 const { getProviderAdapter, listProviderAdapters } = require('./provider-adapters');
@@ -26,6 +28,16 @@ const DEFAULT_HISTORY_REPLAY_QUIET_MS = 150;
 const DEFAULT_HISTORY_REPLAY_MAX_WAIT_MS = 5_000;
 const CODEX_SET_SESSION_MODEL_METHOD = 'session/set_model';
 const CODEX_STEER_METHOD = '_codex/session/steer';
+const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
+const CODEX_ACP_VERSION = '1.1.4';
+const CODEX_ACP_SHA256 = '39cbae01e336c2ca185d624358e03280d1f6fef6d73bbe42dd9eb77e2b1efb32';
+const CODEX_ACP_VENDOR_ENTRY = path.join(
+  __dirname,
+  '..',
+  'dist',
+  'acp',
+  `codex-acp-${CODEX_ACP_VERSION}.js`,
+);
 
 let sdkPromise;
 const runtimeRequire = createRequire(__filename);
@@ -34,7 +46,24 @@ function loadAcpSdk() {
   return sdkPromise;
 }
 
+function fileSha256(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function verifiedCodexAcpEntry(entry) {
+  const actualSha256 = fileSha256(entry);
+  if (actualSha256 !== CODEX_ACP_SHA256) {
+    throw new Error(
+      `Codex ACP runtime failed integrity verification: expected ${CODEX_ACP_SHA256}, found ${actualSha256}`,
+    );
+  }
+  return entry;
+}
+
 function adapterEntry(packageName) {
+  if (packageName === CODEX_ACP_PACKAGE && fs.existsSync(CODEX_ACP_VENDOR_ENTRY)) {
+    return verifiedCodexAcpEntry(CODEX_ACP_VENDOR_ENTRY);
+  }
   let sdkDirectory;
   try {
     sdkDirectory = path.dirname(runtimeRequire.resolve('@agentclientprotocol/sdk'));
@@ -43,11 +72,15 @@ function adapterEntry(packageName) {
   }
   const entry = path.resolve(sdkDirectory, '..', '..', packageName.split('/').pop(), 'dist', 'index.js');
   if (!fs.existsSync(entry)) throw new Error(`ACP adapter is not installed: ${packageName}`);
+  if (packageName === CODEX_ACP_PACKAGE) return verifiedCodexAcpEntry(entry);
   return entry;
 }
 
-function nodeAdapterLaunch(entry, env = process.env) {
+function nodeAdapterLaunch(entry, env = process.env, packagedArg = '') {
   const runtimeEnv = env && typeof env === 'object' ? env : process.env;
+  if (process.pkg && packagedArg) {
+    return { command: process.execPath, args: [packagedArg] };
+  }
   const nodeBin = runtimeEnv.FARMING_NODE_BIN || process.execPath;
   const ldPath = runtimeEnv.FARMING_NODE_LD || '';
   const libraryPath = runtimeEnv.FARMING_NODE_LIBRARY_PATH || '';
@@ -70,6 +103,7 @@ function resolveAcpLaunch(provider, options = {}) {
     const launch = nodeAdapterLaunch(
       adapterEntry(adapter.acp.packageName),
       options.runtimeEnv || process.env,
+      adapter.acp.packageName === CODEX_ACP_PACKAGE ? PACKAGED_CODEX_ACP_ARG : '',
     );
     return { ...launch, version: adapter.acp.version };
   }

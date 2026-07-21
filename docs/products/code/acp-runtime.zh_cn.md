@@ -6,7 +6,7 @@ Farming 现在提供一条面向 Codex、Claude Code、OpenCode 和 Qoder 的 Ag
 
 ## Provider 连接
 
-- Codex 使用锁定版本的 `@agentclientprotocol/codex-acp` adapter。一份版本锁定的 `patch-package` 增量只增加可协商的 `_codex/session/steer` 扩展及其 `turn/steer` 转发；如果上游包与审阅过的 patch 不再匹配，安装会直接失败。
+- Codex 使用锁定版本的 `@agentclientprotocol/codex-acp` adapter。一份版本锁定的 `patch-package` 增量只增加可协商的 `_codex/session/steer` 扩展及其 `turn/steer` 转发；如果上游包与审阅过的 patch 不再匹配，打包会直接失败。打包随后把精确的已打补丁 adapter 复制进发行包，并锁定其 SHA-256；安装后的运行时只启动这个不可变产物，不依赖安装后修改依赖。单文件 CLI 通过内部进程入口打包该 adapter，原生产物 Smoke 必须经该入口完成 ACP `initialize` 握手。
 - Claude Code 使用锁定版本的 `@agentclientprotocol/claude-agent-acp` adapter。
 - OpenCode 使用自身的 `opencode acp --cwd <workspace>` 命令。
 - Qoder 使用自身的 `qodercli --acp` 命令。Qoder 可能在 `session/load` 返回之后继续发送历史尾部，因此 Farming 会等待 replay stream 稳定后再暴露恢复完成的 Session。

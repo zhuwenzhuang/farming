@@ -45,6 +45,12 @@ const commonOptions = {
   minify: true,
   legalComments: 'none',
   logLevel: 'warning',
+  banner: {
+    js: 'const __farmingImportMetaUrl = require("url").pathToFileURL(__filename).href;',
+  },
+  define: {
+    'import.meta.url': '__farmingImportMetaUrl',
+  },
 };
 
 async function main() {

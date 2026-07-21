@@ -6,6 +6,7 @@ function run() {
   const root = path.join(__dirname, '../..');
   const configPath = path.join(root, 'pkg.config.cjs');
   const packageScript = fs.readFileSync(path.join(root, 'scripts/package-cli-release.sh'), 'utf8');
+  const packagedAcpBridge = fs.readFileSync(path.join(root, 'backend/acp/packaged-codex-acp.js'), 'utf8');
   const previousEntry = process.env.FARMING_PKG_ENTRY;
   const previousWorkerEntry = process.env.FARMING_PKG_WORKER_ENTRY;
 
@@ -34,8 +35,18 @@ function run() {
     'CLI packaging must retain source when cross-target bytecode fails and reject missing code',
   );
   assert(
+    packagedAcpBridge.includes("require('../../dist/acp/codex-acp-1.1.4.js')")
+      && packagedAcpBridge.includes("PACKAGED_CODEX_ACP_ARG = '--farming-codex-acp'"),
+    'standalone CLI must bundle a hidden entry for the pinned Codex ACP runtime',
+  );
+  assert(
     packageScript.includes('Packaged CLI failed its native startup self-check'),
     'native CLI targets must execute before their manifest is written',
+  );
+  assert(
+    packageScript.includes('smoke-codex-acp-process.js')
+      && packageScript.includes('--arg --farming-codex-acp'),
+    'native CLI targets must complete an ACP initialize handshake before their manifest is written',
   );
 
   console.log('✓ CLI packaging keeps executable source fallback and fails closed on missing code');

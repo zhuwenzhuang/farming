@@ -7,6 +7,7 @@ const path = require('path');
 const { URLSearchParams } = require('url');
 const { execFileSync, spawn } = require('child_process');
 const { run: runControlCli } = require('./farming-cli');
+const { PACKAGED_CODEX_ACP_ARG, runPackagedCodexAcp } = require('./acp/packaged-codex-acp');
 const storageLayout = require('./storage-layout');
 
 const SERVER_MODE_ARG = '--farming-server';
@@ -778,6 +779,11 @@ async function run(argv = process.argv.slice(2)) {
       execPath: process.execPath,
       pkg: Boolean(process.pkg),
     }, null, 2));
+    return 0;
+  }
+
+  if (argv[0] === PACKAGED_CODEX_ACP_ARG) {
+    runPackagedCodexAcp();
     return 0;
   }
 
