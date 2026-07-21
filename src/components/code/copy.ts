@@ -25,6 +25,8 @@ export interface CodeCopy {
   appModeFullscreenDescription: string
   terminalView: string
   transcriptView: string
+  switchToTerminal: string
+  switchToChat: string
   collapseComposer: string
   restoreComposer: string
   codexTranscriptSyncing: string
@@ -459,6 +461,8 @@ const EN_COPY: CodeCopy = {
   appModeFullscreenDescription: 'Hide browser controls for this window. Press Esc to leave fullscreen.',
   terminalView: 'Terminal',
   transcriptView: 'Chat',
+  switchToTerminal: 'Switch to Terminal',
+  switchToChat: 'Switch to Chat',
   collapseComposer: 'Hide input',
   restoreComposer: 'Show input',
   codexTranscriptSyncing: 'Syncing chat history...',
@@ -922,6 +926,8 @@ const ZH_COPY: CodeCopy = {
   appModeFullscreenDescription: '只为当前窗口隐藏浏览器控制，按 Esc 即可退出。',
   terminalView: '终端',
   transcriptView: '对话',
+  switchToTerminal: '切换到终端',
+  switchToChat: '切换到对话',
   collapseComposer: '收起输入框',
   restoreComposer: '唤出输入框',
   codexTranscriptSyncing: '正在同步聊天历史...',

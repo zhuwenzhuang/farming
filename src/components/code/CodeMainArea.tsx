@@ -5,6 +5,7 @@ import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import type { OpenWorkspaceFile, WorkspaceOpenFileTarget } from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
+import { isWorkspaceMarkdownFile } from '@/lib/workspace-editor-model'
 import { AgentWorkPane } from './AgentWorkPane'
 import { CodeComposer } from './CodeComposer'
 import { AcpComposer } from './acp/AcpComposer'
@@ -131,6 +132,7 @@ function FileEditorFallback({
 }) {
   const segments = pathSegments(openFile.file.path)
   const projectLabel = workspaceLabel(openFile.workspaceRoot)
+  const showBreadcrumbs = !isWorkspaceMarkdownFile(openFile.file.path)
   const breadcrumbTitle = openFile.workspaceRoot
     ? `${openFile.workspaceRoot.replace(/[\\/]+$/, '')}/${openFile.file.path}`
     : openFile.file.path
@@ -160,30 +162,32 @@ function FileEditorFallback({
             </div>
           </div>
         </div>
-        <div className="code-file-editor-bar">
-          <nav className="code-file-editor-breadcrumbs" title={breadcrumbTitle} aria-label={copy.filePath}>
-            {projectLabel && (
-              <span className="code-file-editor-breadcrumb root">
-                <span className="code-file-editor-breadcrumb-name">{projectLabel}</span>
-                <span className="code-file-editor-breadcrumb-separator" aria-hidden="true" />
-              </span>
-            )}
-            {segments.map((segment, index) => (
-              <span
-                key={`${index}-${segment}`}
-                className={`code-file-editor-breadcrumb ${index === segments.length - 1 ? 'current' : ''}`}
-              >
-                <span className="code-file-editor-breadcrumb-name">{segment}</span>
-                {index < segments.length - 1 && (
+        {showBreadcrumbs && (
+          <div className="code-file-editor-bar">
+            <nav className="code-file-editor-breadcrumbs" title={breadcrumbTitle} aria-label={copy.filePath}>
+              {projectLabel && (
+                <span className="code-file-editor-breadcrumb root">
+                  <span className="code-file-editor-breadcrumb-name">{projectLabel}</span>
                   <span className="code-file-editor-breadcrumb-separator" aria-hidden="true" />
-                )}
-              </span>
-            ))}
-          </nav>
-          <div className="code-file-editor-actions">
-            {openFile.dirty && <span className="code-file-editor-status">{copy.unsavedChanges}</span>}
+                </span>
+              )}
+              {segments.map((segment, index) => (
+                <span
+                  key={`${index}-${segment}`}
+                  className={`code-file-editor-breadcrumb ${index === segments.length - 1 ? 'current' : ''}`}
+                >
+                  <span className="code-file-editor-breadcrumb-name">{segment}</span>
+                  {index < segments.length - 1 && (
+                    <span className="code-file-editor-breadcrumb-separator" aria-hidden="true" />
+                  )}
+                </span>
+              ))}
+            </nav>
+            <div className="code-file-editor-actions">
+              {openFile.dirty && <span className="code-file-editor-status">{copy.unsavedChanges}</span>}
+            </div>
           </div>
-        </div>
+        )}
       </header>
       <textarea
         className="code-file-editor-fallback-textarea"

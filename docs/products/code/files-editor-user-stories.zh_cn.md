@@ -44,6 +44,7 @@ Project 侧栏的文件体验应接近紧凑版 VS Code Explorer。具体 agent 
 期望：
 - 文本文件在右侧 Monaco editor 打开，并出现 tab 与 breadcrumb。
 - Markdown 文件可在同一个 editor tab 内切换源码编辑和渲染预览。
+- Markdown 纯渲染预览隐藏 breadcrumb，保持阅读界面干净；源码、分栏预览和 diff 仍保留文件上下文。
 - 打开第一个文件后，`Files` 上方出现默认折叠的 `Open Editors` section。
 - 展开 `Open Editors` 后显示当前打开文件列表，点击条目可切回对应文件。
 - 图片通过只读 preview 打开。

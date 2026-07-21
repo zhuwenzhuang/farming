@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type RefObject } from 'react'
 import { ArrowUpGlyph, CloseGlyph, PlusGlyph, ReplyGlyph } from '@/components/IconGlyphs'
+import { isMobileTouchViewport } from '@/lib/responsive-mode'
 import type { AcpPendingElicitation, AcpPendingPermission, AgentContextWindowUsage } from '@/types/agent'
 import { ComposerAttachments, type ComposerAttachmentView } from '../ComposerAttachments'
 import type { ComposerHistoryDirection, ComposerHistoryNavigationInput } from '../composer-history'
@@ -9,6 +10,13 @@ import {
 } from '../composer-keyboard'
 import { findComposerCommandTrigger } from '../composer-slash-commands'
 import type { CodeCopy } from '../copy'
+import {
+  MobileCodeComposerInput,
+  mobileComposerPlainText,
+  mobileComposerSelectionOffset,
+  setMobileComposerSelectionOffset,
+  useMobileComposerHeight,
+} from '../MobileCodeComposerInput'
 import type { ComposerMode } from '../types'
 import { AcpPermissionCard } from './AcpPermissionCard'
 import { AcpElicitationCard } from './AcpElicitationCard'
@@ -23,6 +31,8 @@ import { useAcpSession } from './useAcpSession'
 
 const COMPOSER_MIC_REGULAR_PATH = 'M8 10.9995C9.654 10.9995 11 9.65351 11 7.99951V3.99951C11 2.34551 9.654 0.999512 8 0.999512C6.346 0.999512 5 2.34551 5 3.99951V7.99951C5 9.65351 6.346 10.9995 8 10.9995ZM6 3.99951C6 2.89651 6.897 1.99951 8 1.99951C9.103 1.99951 10 2.89651 10 3.99951V7.99951C10 9.10251 9.103 9.99951 8 9.99951C6.897 9.99951 6 9.10251 6 7.99951V3.99951ZM13 7.49951V7.99951C13 10.5855 11.02 12.6935 8.5 12.9485V14.4995C8.5 14.7755 8.276 14.9995 8 14.9995C7.724 14.9995 7.5 14.7755 7.5 14.4995V12.9485C4.98 12.6935 3 10.5845 3 7.99951V7.49951C3 7.22351 3.224 6.99951 3.5 6.99951C3.776 6.99951 4 7.22351 4 7.49951V7.99951C4 10.2055 5.794 11.9995 8 11.9995C10.206 11.9995 12 10.2055 12 7.99951V7.49951C12 7.22351 12.224 6.99951 12.5 6.99951C12.776 6.99951 13 7.22351 13 7.49951Z'
 const COMPOSER_MIC_FILLED_PATH = 'M8 10.9995C9.654 10.9995 11 9.65351 11 7.99951V3.99951C11 2.34551 9.654 0.999512 8 0.999512C6.346 0.999512 5 2.34551 5 3.99951V7.99951C5 9.65351 6.346 10.9995 8 10.9995ZM13 7.49951V7.99951C13 10.5855 11.02 12.6935 8.5 12.9485V14.4995C8.5 14.7755 8.276 14.9995 8 14.9995C7.724 14.9995 7.5 14.7755 7.5 14.4995V12.9485C4.98 12.6935 3 10.5845 3 7.99951V7.49951C3 7.22351 3.224 6.99951 3.5 6.99951C3.776 6.99951 4 7.22351 4 7.49951V7.99951C4 10.2055 5.794 11.9995 8 11.9995C10.206 11.9995 12 10.2055 12 7.99951V7.49951C12 7.22351 12.224 6.99951 12.5 6.99951C12.776 6.99951 13 7.22351 13 7.49951Z'
+const MOBILE_COMPOSER_INPUT_HEIGHT = 22
+const MOBILE_COMPOSER_INPUT_MAX_HEIGHT = 66
 
 function ComposerMicIcon({ listening }: { listening: boolean }) {
   return (
@@ -130,6 +140,8 @@ export function AcpComposer({
   const lastCompositionEndAtRef = useRef(0)
   const latestDraftRef = useRef(draft)
   const composerRef = useRef<HTMLElement | null>(null)
+  const mobileEditorRef = useRef<HTMLDivElement | null>(null)
+  const [mobileComposerViewport, setMobileComposerViewport] = useState(() => isMobileTouchViewport())
   const [focused, setFocused] = useState(false)
   const [selectionStart, setSelectionStart] = useState(draft.length)
   const [activeCommandIndex, setActiveCommandIndex] = useState(0)
@@ -140,6 +152,7 @@ export function AcpComposer({
     active,
     `${runtimeState}:${sessionUpdatedAt || ''}`,
   )
+  useMobileComposerHeight(composerRef)
   latestDraftRef.current = draft
   const interrupting = submitAction === 'interrupt'
   const disabled = submitAction === 'disabled'
@@ -166,6 +179,18 @@ export function AcpComposer({
   useEffect(() => setActiveCommandIndex(0), [commandTrigger?.query, commandTrigger?.trigger, filteredCommands.length])
 
   useEffect(() => {
+    const query = window.matchMedia('(max-width: 980px)')
+    const update = () => setMobileComposerViewport(isMobileTouchViewport())
+    update()
+    window.addEventListener('resize', update)
+    query.addEventListener('change', update)
+    return () => {
+      window.removeEventListener('resize', update)
+      query.removeEventListener('change', update)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!openMenu) return undefined
     const closeOutside = (event: PointerEvent) => {
       if (event.target instanceof Node && composerRef.current?.contains(event.target)) return
@@ -185,6 +210,14 @@ export function AcpComposer({
     latestDraftRef.current = nextDraft
     onDraftChange(nextDraft)
     window.requestAnimationFrame(() => {
+      if (mobileComposerViewport) {
+        const editor = mobileEditorRef.current
+        if (!editor) return
+        editor.focus({ preventScroll: true })
+        setMobileComposerSelectionOffset(editor, nextCursor)
+        setSelectionStart(nextCursor)
+        return
+      }
       textareaRef.current?.focus({ preventScroll: true })
       textareaRef.current?.setSelectionRange(nextCursor, nextCursor)
       setSelectionStart(nextCursor)
@@ -259,11 +292,26 @@ export function AcpComposer({
     : ''
   const authenticationRequired = session?.errorKind === 'authentication'
     || /\b(?:auth(?:entication)?|login|sign[ -]?in|unauthorized|401)\b/i.test(runtimeError)
+  const hasAcpRequest = active && Boolean(
+    permissions.length
+    || elicitations.length
+    || activeElicitations.length
+    || authenticationRequired
+    || sessionError
+  )
+  const composerClasses = [
+    'code-composer',
+    'code-acp-composer',
+    openMenu ? 'menu-open' : '',
+    attachments.length > 0 ? 'has-attachments' : '',
+    pendingFollowUp && active ? 'has-pending-followup' : '',
+    hasAcpRequest ? 'has-acp-request' : '',
+  ].filter(Boolean).join(' ')
 
   return (
     <footer
       ref={composerRef}
-      className={`code-composer code-acp-composer ${openMenu ? 'menu-open' : ''} ${attachments.length > 0 ? 'has-attachments' : ''} ${pendingFollowUp && active ? 'has-pending-followup' : ''}`}
+      className={composerClasses}
       data-testid="code-acp-composer"
     >
       {pendingFollowUp && active ? (
@@ -330,47 +378,113 @@ export function AcpComposer({
           ))}
         </div>
       ) : null}
-      <textarea
-        data-testid="code-acp-composer-input"
-        ref={textareaRef}
-        name="farming-acp-chat-message"
-        inputMode="text"
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="none"
-        spellCheck={false}
-        value={draft}
-        placeholder={active
-          ? (composerMode === 'goal' ? copy.describeAgentGoal : composerMode === 'plan' ? copy.describePlanFirst : copy.askFollowUpChanges)
-          : copy.openAgentTerminalFirst}
-        disabled={!active}
-        onFocus={event => {
-          setFocused(true)
-          setSelectionStart(event.currentTarget.selectionStart)
-          setOpenMenu(null)
-          setModelPane(null)
-        }}
-        onBlur={() => setFocused(false)}
-        onClick={event => setSelectionStart(event.currentTarget.selectionStart)}
-        onKeyUp={event => setSelectionStart(event.currentTarget.selectionStart)}
-        onSelect={event => setSelectionStart(event.currentTarget.selectionStart)}
-        onChange={event => {
-          setSelectionStart(event.currentTarget.selectionStart)
-          onDraftChange(event.currentTarget.value)
-        }}
-        onPaste={onPasteAttachment}
-        onCompositionStart={() => { compositionActiveRef.current = true }}
-        onCompositionEnd={event => {
-          compositionActiveRef.current = false
-          lastCompositionEndAtRef.current = Date.now()
-          onDraftChange(event.currentTarget.value)
-        }}
-        onKeyDown={handleKeyDown}
-        data-lpignore="true"
-        data-1p-ignore="true"
-        data-bwignore="true"
-        data-form-type="other"
-      />
+      {mobileComposerViewport ? (
+        <MobileCodeComposerInput
+          testId="code-acp-composer-input"
+          active={active}
+          draft={draft}
+          placeholder={active
+            ? (composerMode === 'goal' ? copy.describeAgentGoal : composerMode === 'plan' ? copy.describePlanFirst : copy.askFollowUpChanges)
+            : copy.openAgentTerminalFirst}
+          minHeight={MOBILE_COMPOSER_INPUT_HEIGHT}
+          maxHeight={MOBILE_COMPOSER_INPUT_MAX_HEIGHT}
+          editorRef={mobileEditorRef}
+          onFocus={() => {
+            setFocused(true)
+            setSelectionStart(mobileComposerSelectionOffset(mobileEditorRef.current))
+            setOpenMenu(null)
+            setModelPane(null)
+          }}
+          onBlur={() => setFocused(false)}
+          onInput={event => {
+            const nextDraft = mobileComposerPlainText(event.currentTarget)
+            latestDraftRef.current = nextDraft
+            onDraftChange(nextDraft)
+            setSelectionStart(mobileComposerSelectionOffset(event.currentTarget))
+          }}
+          onPaste={onPasteAttachment}
+          onCompositionStart={() => { compositionActiveRef.current = true }}
+          onCompositionEnd={event => {
+            compositionActiveRef.current = false
+            lastCompositionEndAtRef.current = Date.now()
+            const nextDraft = mobileComposerPlainText(event.currentTarget)
+            latestDraftRef.current = nextDraft
+            onDraftChange(nextDraft)
+            setSelectionStart(mobileComposerSelectionOffset(event.currentTarget))
+          }}
+          onKeyDown={event => {
+            if (showCommands && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+              event.preventDefault()
+              const direction = event.key === 'ArrowDown' ? 1 : -1
+              setActiveCommandIndex(index => (index + direction + filteredCommands.length) % filteredCommands.length)
+              return
+            }
+            if (showCommands && event.key === 'Home') {
+              event.preventDefault()
+              setActiveCommandIndex(0)
+              return
+            }
+            if (showCommands && event.key === 'End') {
+              event.preventDefault()
+              setActiveCommandIndex(filteredCommands.length - 1)
+              return
+            }
+            if (showCommands && (event.key === 'Enter' || event.key === 'Tab') && selectedCommand) {
+              event.preventDefault()
+              event.stopPropagation()
+              insertCommand(selectedCommand.name)
+              return
+            }
+            if (!shouldSubmitComposerEnter(event, compositionActiveRef.current, lastCompositionEndAtRef.current)) return
+            event.preventDefault()
+            event.stopPropagation()
+            onSubmit(composerDraftForSubmit(mobileComposerPlainText(event.currentTarget), latestDraftRef.current))
+          }}
+          onSelectionIntent={() => setSelectionStart(mobileComposerSelectionOffset(mobileEditorRef.current))}
+        />
+      ) : (
+        <textarea
+          data-testid="code-acp-composer-input"
+          ref={textareaRef}
+          name="farming-acp-chat-message"
+          inputMode="text"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          value={draft}
+          placeholder={active
+            ? (composerMode === 'goal' ? copy.describeAgentGoal : composerMode === 'plan' ? copy.describePlanFirst : copy.askFollowUpChanges)
+            : copy.openAgentTerminalFirst}
+          disabled={!active}
+          onFocus={event => {
+            setFocused(true)
+            setSelectionStart(event.currentTarget.selectionStart)
+            setOpenMenu(null)
+            setModelPane(null)
+          }}
+          onBlur={() => setFocused(false)}
+          onClick={event => setSelectionStart(event.currentTarget.selectionStart)}
+          onKeyUp={event => setSelectionStart(event.currentTarget.selectionStart)}
+          onSelect={event => setSelectionStart(event.currentTarget.selectionStart)}
+          onChange={event => {
+            setSelectionStart(event.currentTarget.selectionStart)
+            onDraftChange(event.currentTarget.value)
+          }}
+          onPaste={onPasteAttachment}
+          onCompositionStart={() => { compositionActiveRef.current = true }}
+          onCompositionEnd={event => {
+            compositionActiveRef.current = false
+            lastCompositionEndAtRef.current = Date.now()
+            onDraftChange(event.currentTarget.value)
+          }}
+          onKeyDown={handleKeyDown}
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-bwignore="true"
+          data-form-type="other"
+        />
+      )}
       <ComposerAttachments attachments={attachments} onRemove={onRemoveAttachment} />
       <input
         ref={attachmentInputRef}

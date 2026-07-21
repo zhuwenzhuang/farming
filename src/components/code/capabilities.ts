@@ -256,6 +256,22 @@ export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapa
   }
 }
 
+export function canSwitchAgentRuntime(agent: Agent | null | undefined) {
+  if (!agent?.providerCapabilities) return false
+  const providerCapabilities = agent.providerCapabilities
+  const freshSwitchableTerminal = providerCapabilities.runtimeSwitch
+    && agent.runtimeBinding.kind === 'terminal'
+    && agent.providerSessionTemporary === true
+    && agent.terminalInputReceived !== true
+
+  return Boolean(
+    providerCapabilities.runtimeSwitch
+    && providerCapabilities.supportsChat
+    && (agent.providerSessionTemporary !== true || freshSwitchableTerminal)
+    && agent.providerSessionId
+  )
+}
+
 export function projectCanArchive(project: ProjectGroup | null | undefined) {
   return Boolean(
     project
@@ -274,7 +290,9 @@ export function projectCanDeleteWorktree(project: ProjectGroup | null | undefine
 
 export function agentMenuShape(agent: Agent | undefined) {
   const capabilities = capabilitiesForAgent(agent)
+  const canSwitchRuntime = canSwitchAgentRuntime(agent)
   const itemCount = [
+    canSwitchRuntime,
     capabilities.actions.pin,
     capabilities.actions.rename,
     capabilities.actions.archive,
@@ -287,6 +305,6 @@ export function agentMenuShape(agent: Agent | undefined) {
 
   return {
     itemCount,
-    separatorCount: itemCount > 0 ? 2 : 0,
+    separatorCount: itemCount > 0 ? 2 + Number(canSwitchRuntime) : 0,
   }
 }

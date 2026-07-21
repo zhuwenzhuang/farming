@@ -8,6 +8,7 @@ import { AgentTerminalPane } from '../AgentTerminalPane'
 import { ChatBubblesGlyph, TerminalSquareGlyph } from '../IconGlyphs'
 import { JsonCliTranscriptPane } from './JsonCliTranscriptPane'
 import { AcpTranscriptPane } from './acp/AcpTranscriptPane'
+import { canSwitchAgentRuntime } from './capabilities'
 import { isAgentTurnActive } from './agent-working-state'
 import type { CodeCopy } from './copy'
 
@@ -60,14 +61,7 @@ export function AgentWorkPane({
   const jsonChat = Boolean(jsonRuntime)
   const acpChat = Boolean(acpRuntime)
   const chatMode = jsonChat || acpChat
-  const freshSwitchableTerminal = agent.providerCapabilities.runtimeSwitch
-    && agent.runtimeBinding.kind === 'terminal'
-    && agent.providerSessionTemporary === true
-    && agent.terminalInputReceived !== true
-  const canSwitchRuntime = agent.providerCapabilities.runtimeSwitch
-    && agent.providerCapabilities.supportsChat
-    && (agent.providerSessionTemporary !== true || freshSwitchableTerminal)
-    && Boolean(agent.providerSessionId)
+  const canSwitchRuntime = canSwitchAgentRuntime(agent)
   const runtimeSwitchDisabled = switching || isAgentTurnActive(agent)
 
   const activateChatView = useCallback((event: ReactPointerEvent) => {

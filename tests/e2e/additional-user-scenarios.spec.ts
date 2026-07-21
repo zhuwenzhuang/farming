@@ -806,7 +806,7 @@ test.describe('additional Farming Code user scenarios', () => {
       const composer = page.getByTestId('code-composer')
       const textarea = page.getByTestId('code-composer-input')
       await textarea.evaluate(element => (element as HTMLElement).blur())
-      await expect(page.getByTestId('code-composer-model-picker')).toBeHidden()
+      await expect(page.getByTestId('code-composer-model-picker')).toBeVisible()
       const collapsedComposerBox = await composer.evaluate(element => {
         const rect = (element as HTMLElement).getBoundingClientRect()
         return { height: rect.height }
@@ -814,6 +814,11 @@ test.describe('additional Farming Code user scenarios', () => {
       expect(collapsedComposerBox.height).toBeLessThanOrEqual(72)
       await textarea.click()
       await expect(page.getByTestId('code-composer-model-picker')).toBeVisible()
+      const focusedComposerBox = await composer.evaluate(element => {
+        const rect = (element as HTMLElement).getBoundingClientRect()
+        return { height: rect.height }
+      })
+      expect(Math.abs(focusedComposerBox.height - collapsedComposerBox.height)).toBeLessThanOrEqual(2)
       const modelsLoaded = page.waitForResponse(response => response.url().includes('/api/codex/models'))
       await page.getByTestId('code-composer-model-picker').click()
       const modelMenu = page.getByTestId('code-model-menu')

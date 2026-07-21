@@ -6,15 +6,16 @@ import type {
   KeyboardEvent,
   RefObject,
 } from 'react'
+import { isMobileTouchViewport } from '@/lib/responsive-mode'
 
 interface MobileCodeComposerInputProps {
+  testId?: string
   active: boolean
   draft: string
   placeholder: string
   minHeight: number
   maxHeight: number
   editorRef: RefObject<HTMLDivElement | null>
-  composerRef: RefObject<HTMLElement | null>
   onFocus: () => void
   onBlur: () => void
   onInput: (event: FormEvent<HTMLDivElement>) => void
@@ -23,6 +24,39 @@ interface MobileCodeComposerInputProps {
   onCompositionEnd: (event: CompositionEvent<HTMLDivElement>) => void
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void
   onSelectionIntent: () => void
+}
+
+export function useMobileComposerHeight(composerRef: RefObject<HTMLElement | null>) {
+  useLayoutEffect(() => {
+    const composer = composerRef.current
+    if (!composer) return undefined
+    const main = composer.closest('.code-main') as HTMLElement | null
+    const clear = () => {
+      composer.style.removeProperty('--mobile-composer-current-height')
+      main?.style.removeProperty('--mobile-composer-current-height')
+    }
+    const publish = () => {
+      if (!isMobileTouchViewport()) {
+        clear()
+        return
+      }
+      const height = composer.getBoundingClientRect().height
+      if (height <= 0) return
+      const value = `${Math.ceil(height)}px`
+      composer.style.setProperty('--mobile-composer-current-height', value)
+      main?.style.setProperty('--mobile-composer-current-height', value)
+    }
+
+    publish()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(publish)
+    observer?.observe(composer)
+    window.addEventListener('resize', publish)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', publish)
+      clear()
+    }
+  }, [composerRef])
 }
 
 export function mobileComposerSelectionOffset(root: HTMLElement | null) {
@@ -75,13 +109,13 @@ export function mobileComposerPlainText(root: HTMLElement | null) {
 }
 
 export function MobileCodeComposerInput({
+  testId = 'code-composer-input',
   active,
   draft,
   placeholder,
   minHeight,
   maxHeight,
   editorRef,
-  composerRef,
   onFocus,
   onBlur,
   onInput,
@@ -96,27 +130,20 @@ export function MobileCodeComposerInput({
   useLayoutEffect(() => {
     const editor = editorRef.current
     const mirror = mirrorRef.current
-    const composer = composerRef.current
-    if (!editor || !mirror || !composer) return
+    if (!editor || !mirror) return
 
     if ((editor.textContent || '') !== draft) {
       editor.textContent = draft
     }
 
     mirror.innerText = draft || 'M'
+    editor.style.minHeight = `${minHeight}px`
+    editor.style.maxHeight = `${maxHeight}px`
     editor.style.height = 'auto'
-    const measuredHeight = Math.max(mirror.scrollHeight, editor.scrollHeight)
+    const measuredHeight = mirror.scrollHeight || editor.scrollHeight
     const nextHeight = Math.min(maxHeight, Math.max(minHeight, measuredHeight))
     editor.style.height = `${nextHeight}px`
-
-    const main = composer.closest('.code-main') as HTMLElement | null
-    const composerHeight = composer.getBoundingClientRect().height
-    if (composerHeight > 0) {
-      const heightValue = `${Math.ceil(composerHeight)}px`
-      composer.style.setProperty('--mobile-composer-current-height', heightValue)
-      main?.style.setProperty('--mobile-composer-current-height', heightValue)
-    }
-  }, [composerRef, draft, editorRef, maxHeight, minHeight])
+  }, [draft, editorRef, maxHeight, minHeight])
 
   useLayoutEffect(() => {
     const editor = editorRef.current
@@ -137,7 +164,7 @@ export function MobileCodeComposerInput({
   return (
     <>
       <div
-        data-testid="code-composer-input"
+        data-testid={testId}
         ref={editorRef}
         className="code-composer-mobile-input"
         aria-disabled={!active}

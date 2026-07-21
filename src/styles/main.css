@@ -16552,9 +16552,9 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   }
 
   body.code-mode.code-mobile-touch .code-main {
-    --mobile-composer-resting-height: 52px;
-    --mobile-composer-active-height: 56px;
-    --mobile-composer-expanded-height: 98px;
+    --mobile-composer-resting-height: 62px;
+    --mobile-composer-active-height: 62px;
+    --mobile-composer-expanded-height: 106px;
     --mobile-composer-viewport-gap: max(6px, env(safe-area-inset-bottom));
     --mobile-composer-reserved-height: calc(var(--mobile-composer-resting-height) + var(--mobile-composer-viewport-gap) + 2px);
     width: 100%;
@@ -16575,7 +16575,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 
   body.code-mode.code-mobile-touch.code-mobile-keyboard-active .code-main {
     --mobile-composer-viewport-gap: 4px;
-    --mobile-composer-reserved-height: calc(var(--mobile-composer-resting-height) + var(--mobile-composer-viewport-gap) + 2px);
+    --mobile-composer-reserved-height: calc(var(--mobile-composer-current-height, var(--mobile-composer-resting-height)) + var(--mobile-composer-viewport-gap) + 2px);
     padding-top: calc(32px + env(safe-area-inset-top));
   }
 
@@ -16943,7 +16943,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   }
 
   body.code-mode.code-mobile-touch .code-composer {
-    --mobile-composer-height: var(--mobile-composer-resting-height, 52px);
+    --mobile-composer-height: auto;
     position: absolute;
     left: 4px;
     top: auto;
@@ -16951,10 +16951,11 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     z-index: 56;
     width: calc(var(--app-visual-width, 100vw) - 8px);
     max-width: calc(var(--app-visual-width, 100vw) - 8px);
-    height: var(--mobile-composer-height);
-    min-height: var(--mobile-composer-height);
+    height: auto;
+    min-height: var(--mobile-composer-resting-height, 62px);
+    max-height: var(--mobile-composer-expanded-height, 106px);
     margin: 0;
-    grid-template-rows: minmax(18px, 1fr) 28px;
+    grid-template-rows: minmax(22px, auto) 34px;
     gap: 1px;
     padding: 2px 5px 3px;
     border-radius: 20px;
@@ -17007,35 +17008,13 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     overflow: auto;
   }
 
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) {
-    grid-template-columns: 30px minmax(0, 1fr) auto;
-    grid-template-rows: 1fr;
-    align-items: center;
-    gap: 8px;
-  }
-
-  body.code-mode.code-mobile-touch .code-composer:focus-within,
-  body.code-mode.code-mobile-touch .code-composer.menu-open {
-    --mobile-composer-height: auto;
-    height: auto;
-    min-height: var(--mobile-composer-active-height, 56px);
-    max-height: 98px;
-    grid-template-rows: minmax(22px, auto) 26px;
-    gap: 1px;
-    padding: 2px 5px 3px;
-    border-radius: 18px;
-    background: rgba(255, 255, 255, 0.84);
-    box-shadow:
-      0 16px 44px rgba(31, 35, 40, 0.11),
-      inset 0 0 0 1px rgba(205, 211, 201, 0.32);
-  }
-
   body.code-mode.code-mobile-touch .code-composer.recording,
   body.code-mode.code-mobile-touch .code-composer.has-attachments,
   body.code-mode.code-mobile-touch .code-composer.has-pending-followup {
-    --mobile-composer-height: var(--mobile-composer-expanded-height, 98px);
+    --mobile-composer-height: var(--mobile-composer-expanded-height, 106px);
     height: var(--mobile-composer-height);
     min-height: var(--mobile-composer-height);
+    max-height: var(--mobile-composer-height);
     grid-template-rows: minmax(0, 1fr) 28px;
     gap: 4px;
     padding: 5px 5px 4px;
@@ -17045,6 +17024,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     --mobile-composer-height: min(236px, calc(var(--app-visual-height, 100dvh) * 0.34));
     height: var(--mobile-composer-height);
     min-height: var(--mobile-composer-height);
+    max-height: var(--mobile-composer-height);
     grid-template-rows: minmax(0, 1fr) 28px;
     gap: 4px;
     padding: 7px 6px 5px;
@@ -17063,62 +17043,14 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     line-height: 1.34;
   }
 
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) textarea,
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-mobile-input {
-    min-height: 18px;
-    max-height: 18px;
-    overflow: hidden;
-    white-space: nowrap;
-  }
-
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) textarea,
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-mobile-input {
-    grid-column: 2;
-    grid-row: 1;
-    min-height: 24px;
-    height: 24px;
-    max-height: 24px;
-    padding: 1px 0 0;
-    font-size: 16px;
-    line-height: 1.35;
-  }
-
   body.code-mode.code-mobile-touch .code-composer-toolbar {
     align-items: center;
-    min-height: 28px;
-  }
-
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-toolbar {
-    display: contents;
+    min-height: 34px;
   }
 
   body.code-mode.code-mobile-touch .code-composer-left-tools,
   body.code-mode.code-mobile-touch .code-composer-right-tools {
     align-items: center;
-  }
-
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-left-tools {
-    grid-column: 1;
-    grid-row: 1;
-    flex: 0 0 30px;
-    gap: 0;
-    justify-content: center;
-    overflow: visible;
-  }
-
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-right-tools {
-    grid-column: 3;
-    grid-row: 1;
-    flex: 0 0 auto;
-    gap: 4px;
-    margin-left: 0;
-  }
-
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-mode-chip,
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-approval,
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-context-window,
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request) .code-composer-menu-anchor.model-picker {
-    display: none;
   }
 
   body.code-mode.code-mobile-touch .code-composer-recording-bar {
@@ -19191,23 +19123,6 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     max-width: calc(100% - 20px);
     margin: 0;
     text-align: left;
-  }
-
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request):has(.code-composer-left-tools:empty) {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request):has(.code-composer-left-tools:empty) textarea,
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request):has(.code-composer-left-tools:empty) .code-composer-mobile-input {
-    grid-column: 1;
-  }
-
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request):has(.code-composer-left-tools:empty) .code-composer-left-tools {
-    display: none;
-  }
-
-  body.code-mode.code-mobile-touch .code-composer:not(:focus-within):not(.menu-open):not(.recording):not(.has-attachments):not(.has-pending-followup):not(.has-acp-request):has(.code-composer-left-tools:empty) .code-composer-right-tools {
-    grid-column: 2;
   }
 
   /* Keep the phone overflow menu as a small action rail, not a desktop

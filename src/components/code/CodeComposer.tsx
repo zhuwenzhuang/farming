@@ -44,6 +44,7 @@ import {
   mobileComposerPlainText,
   mobileComposerSelectionOffset,
   setMobileComposerSelectionOffset,
+  useMobileComposerHeight,
 } from './MobileCodeComposerInput'
 import type {
   CodexModelOption,
@@ -301,6 +302,7 @@ export function CodeComposer({
   const lastCompositionEndAtRef = useRef(0)
   const latestDraftRef = useRef(draft)
   const mobileSpeechPointerHandledRef = useRef(false)
+  useMobileComposerHeight(composerRef)
 
   const baseComposerMenuOpen = plusMenuOpen || approvalMenuOpen || modelMenuOpen
   const slashTrigger = useMemo(
@@ -400,13 +402,6 @@ export function CodeComposer({
     latestDraftRef.current = draft
   }, [draft])
 
-  useEffect(() => () => {
-    const composer = composerRef.current
-    composer?.style.removeProperty('--mobile-composer-current-height')
-    const main = composer?.closest('.code-main') as HTMLElement | null
-    main?.style.removeProperty('--mobile-composer-current-height')
-  }, [])
-
   useEffect(() => {
     if (!slashTrigger) {
       setDismissedSlashTriggerId(null)
@@ -431,14 +426,6 @@ export function CodeComposer({
       query.removeEventListener('change', updateMobileViewport)
     }
   }, [])
-
-  useEffect(() => {
-    if (mobileComposerViewport) return
-    const composer = composerRef.current
-    const main = composer?.closest('.code-main') as HTMLElement | null
-    composer?.style.removeProperty('--mobile-composer-current-height')
-    main?.style.removeProperty('--mobile-composer-current-height')
-  }, [mobileComposerViewport])
 
   useEffect(() => {
     if (speechListening || !mobileDictationHintVisible) return undefined
@@ -604,7 +591,6 @@ export function CodeComposer({
           }
           maxHeight={MOBILE_COMPOSER_INPUT_MAX_HEIGHT}
           editorRef={mobileEditorRef}
-          composerRef={composerRef}
           onFocus={() => {
             onCloseMenus()
             setTextareaFocused(true)

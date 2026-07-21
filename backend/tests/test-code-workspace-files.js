@@ -1099,7 +1099,9 @@ function run() {
       agentWorkPaneSource.includes('data-testid="code-terminal-mode-toggle"') &&
       agentWorkPaneSource.includes('onRuntimeModeChange') &&
       agentWorkPaneSource.includes('agentWorkPaneModeStorageIdentity') &&
-	      agentWorkPaneSource.includes('Boolean(agent.providerSessionId)') &&
+	      agentWorkPaneSource.includes('const canSwitchRuntime = canSwitchAgentRuntime(agent)') &&
+      capabilitiesSource.includes('export function canSwitchAgentRuntime') &&
+      capabilitiesSource.includes('&& agent.providerSessionId') &&
       agentWorkPaneSource.includes('data-testid="code-permission-switching"') &&
       agentWorkPaneSource.includes("switchingKind === 'runtime' ? copy.runtimeModeRestarting : copy.permissionProfileRestarting") &&
       agentWorkPaneSource.includes('aria-busy={switching}') &&
@@ -1151,6 +1153,14 @@ function run() {
       xtermSource.includes('let lastSearchOptionsKey') &&
       xtermSource.includes('lastSearchOptionsKey !== searchOptionsKey') &&
       terminalPaneSource.includes('data-testid="code-terminal-status-card"') &&
+      terminalPaneSource.includes('data-testid="code-terminal-recovery"') &&
+      terminalPaneSource.includes('data-phase={terminalRecoveryStatus.phase}') &&
+      terminalPaneSource.includes('copy.terminalRecoveryElapsed(recoveryElapsedSeconds)') &&
+      workspaceSource.includes("terminalRecoveryRequesting: 'Loading terminal state…'") &&
+      workspaceSource.includes("terminalRecoveryRequesting: '正在获取终端状态…'") &&
+      workspaceSource.includes("terminalRecoveryInstalling: 'Terminal state received. Restoring screen…'") &&
+      workspaceSource.includes("terminalRecoveryInstalling: '终端状态已获取，正在恢复画面…'") &&
+      stylesSource.includes('.code-terminal-recovery {') &&
       terminalPaneSource.includes('copy.terminalSessionUnavailable') &&
       terminalPaneSource.includes('retryTerminalAttach') &&
       terminalPaneSource.includes('}, [active, agent.id, focus, onActivate])'),
@@ -1227,8 +1237,9 @@ function run() {
       acpSessionControlsSource.includes('code-model-picker-menu code-composer-menu') &&
       acpSessionControlsSource.includes('code-model-submenu code-composer-menu') &&
       acpSessionControlsSource.includes('code-speed-submenu code-composer-menu') &&
-      agentWorkPaneSource.includes('agent.providerCapabilities.runtimeSwitch') &&
-      agentWorkPaneSource.includes('agent.providerCapabilities.supportsChat') &&
+      capabilitiesSource.includes('if (!agent?.providerCapabilities) return false') &&
+      capabilitiesSource.includes('providerCapabilities.runtimeSwitch') &&
+      capabilitiesSource.includes('providerCapabilities.supportsChat') &&
       inputDialogSource.includes("['codex', 'claude', 'opencode', 'qoder'].includes(selectedAgent.name)") &&
       acpPermissionSource.includes('code-acp-permission-details') &&
       agentWorkPaneSource.includes('refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)}') &&

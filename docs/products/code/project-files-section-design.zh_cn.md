@@ -306,7 +306,7 @@ Files
 - dirty tab 使用状态点表达未保存，不额外加粗文件名；避免 tab strip 同时靠颜色、点、字重重复提醒而变重
 - editor dirty / external changed 状态同步给左侧 Files tree，避免用户只从 tab strip 才能发现未保存文件
 - 关闭 dirty tab 不应在同一会话内直接丢失草稿；第一版采用轻量 hot-exit 缓存，重新打开同一文件时恢复未保存草稿，并在保存干净后清除缓存
-- 文件路径标题使用轻量 breadcrumb 展示，长路径保留最后文件名的可读性，不引入完整 command palette / breadcrumb menu
+- 源码、分栏预览和 diff 使用轻量 breadcrumb 展示文件上下文，长路径保留最后文件名的可读性，不引入完整 command palette / breadcrumb menu；Markdown 纯渲染预览隐藏 breadcrumb
 - 保存状态默认不常驻显示 `Saved`；只在 `Unsaved` / `Saving` / `Changed on disk` 这类需要注意的状态出现时显示，避免 editor 顶部变重
 - 外部修改提示
 - 保存、刷新、覆盖等 editor action 使用紧凑图标按钮并保留 aria/title；状态文本独立显示，避免顶部 bar 堆满操作文案；Save action 只在 dirty/saving 时显示，clean 状态不常驻 disabled 保存按钮；Reload action 只在 external changed / error 时显示，避免 dirty 编辑时提供容易丢草稿的常驻刷新入口

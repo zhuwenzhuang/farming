@@ -32,6 +32,7 @@ interface FileEditorHeaderProps {
   canPreviewMarkdown: boolean
   canPreviewSource: boolean
   diffOpen: boolean
+  markdownPreviewVisible: boolean
   markdownSplitOpen: boolean
   sourcePreviewOpen: boolean
   wordWrapEnabled: boolean
@@ -63,11 +64,12 @@ export function FileEditorHeader({
   canPreviewMarkdown,
   canPreviewSource,
   diffOpen,
+  markdownPreviewVisible,
   markdownSplitOpen,
   sourcePreviewOpen,
   wordWrapEnabled,
 }: FileEditorHeaderProps) {
-  const showBreadcrumbs = Boolean(openFile.file.path)
+  const showBreadcrumbs = Boolean(openFile.file.path) && !markdownPreviewVisible
   const actions = workspaceEditorActionState(openFile, editorMode, {
     canPreviewMarkdown,
     canPreviewSource,
@@ -110,7 +112,7 @@ export function FileEditorHeader({
           />
         )}
       />
-      {actions.showBar && (
+      {showBreadcrumbs && (
         <div className="code-file-editor-bar">
           <FileEditorBreadcrumbs
             openFile={openFile}

@@ -135,7 +135,7 @@ The right pane is a lightweight editor surface:
 - tabs with mature `tablist` semantics;
 - transient preview tabs for mouse clicks in the Explorer tree; search results, `path:line`, keyboard Enter, and review/diff opens create pinned tabs, and editing pins a transient tab;
 - per-file Monaco model and view state;
-- breadcrumb as lightweight context;
+- breadcrumb as lightweight context on source, split-preview, and diff surfaces; pure rendered Markdown preview omits it;
 - dirty close confirmation.
 - a project-scoped Changes list for working-tree review;
 - VS Code-style line change inspection from the editor context menu;

@@ -36,6 +36,22 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   const editor = page.getByTestId('code-file-editor')
   const tabStrip = editor.locator('.code-file-editor-tab-strip')
   const actions = editor.locator('.code-file-editor-actions')
+  const breadcrumbBar = editor.locator('.code-file-editor-bar')
+  await expect(breadcrumbBar).toHaveCount(0)
+
+  await actions.locator('.diff').click()
+  await expect(breadcrumbBar).toBeVisible()
+  await actions.locator('.diff').click()
+  await expect(breadcrumbBar).toHaveCount(0)
+
+  await actions.locator('.markdown-split').click()
+  await expect(breadcrumbBar).toBeVisible()
+  await actions.locator('.markdown-split').click()
+  await expect(breadcrumbBar).toHaveCount(0)
+
+  await actions.locator('.source-preview').click()
+  await expect(breadcrumbBar).toBeVisible()
+  await expect(editor.locator('.code-file-monaco')).toBeVisible()
   const breadcrumbs = editor.locator('.code-file-editor-breadcrumbs')
   await expect(actions).toHaveCount(1)
   await expect(actions).toBeVisible()
@@ -54,7 +70,7 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     const activeTab = tabs.querySelector<HTMLElement>('.code-file-editor-tab')!
     const breadcrumbs = element.querySelector<HTMLElement>('.code-file-editor-breadcrumbs')!
     const breadcrumbBar = element.querySelector<HTMLElement>('.code-file-editor-bar')!
-    const content = element.querySelector<HTMLElement>('.code-file-preview-panel')!
+    const content = element.querySelector<HTMLElement>('.code-file-monaco')!
     for (let index = 0; index < 12; index += 1) {
       const overflowTab = activeTab.cloneNode(true) as HTMLElement
       overflowTab.querySelector<HTMLElement>('.code-file-editor-tab-name')!.textContent = `very-long-document-name-${index}.md`
@@ -104,7 +120,7 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   const darkBackgrounds = await page.evaluate(() => {
     document.body.dataset.appearance = 'dark'
     const breadcrumbBar = document.querySelector<HTMLElement>('.code-file-editor-bar')!
-    const content = document.querySelector<HTMLElement>('.code-file-preview-panel')!
+    const content = document.querySelector<HTMLElement>('.code-file-monaco')!
     return {
       breadcrumb: getComputedStyle(breadcrumbBar).backgroundColor,
       content: getComputedStyle(content).backgroundColor,

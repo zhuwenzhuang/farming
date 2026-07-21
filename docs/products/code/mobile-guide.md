@@ -45,7 +45,9 @@ Expected:
 - Terminal output remains readable at phone width.
 - Tapping terminal output should not accidentally summon the keyboard.
 - The input area remains visible when the keyboard appears.
+- Chat and Terminal use the same compact Composer geometry: focusing an empty input does not change its layout, and model selection remains reachable before the keyboard opens.
 - Long output should scroll inside the terminal experience without causing page-wide horizontal overflow.
+- When the provider session supports both modes, the Agent row's three-dot menu switches between Chat and Terminal.
 - Live Codex work stays collapsed to a compact status row by default; expand a step only when its detail is needed.
 - Structured Chat keeps queued follow-ups, interrupt, permission cards, and expandable tool details reachable at phone width.
 - Mobile uses the device keyboard's dictation instead of a separate web speech button.

@@ -249,6 +249,53 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   }
 })
 
+test('mobile ACP keeps one compact Composer state and exposes model selection before keyboard focus', async ({ page, workspaceRoot }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: 1, configurable: true })
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+
+  const workspace = path.join(workspaceRoot, 'mobile-acp-composer')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+  const state: MatrixState = { model: 'gpt-5.6-terra', reasoning: 'medium', fast: false }
+
+  await page.route(/\/farming\/api\/agents\/[^/]+\/acp-session(?:\?includeEntries=0)?$/, async route => {
+    await route.fulfill({ json: { session: sessionSnapshot(state) } })
+  })
+
+  await page.goto(`/farming/?agent=${encodeURIComponent(agentId)}`, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  const composer = page.getByTestId('code-acp-composer')
+  const input = page.getByTestId('code-acp-composer-input')
+  const picker = page.getByTestId('code-acp-model-picker')
+  await expect(composer).toBeVisible()
+  await input.blur()
+  await expect(picker).toBeVisible()
+
+  const compactHeight = await composer.evaluate(element => element.getBoundingClientRect().height)
+  expect(compactHeight).toBeLessThanOrEqual(72)
+  await picker.click()
+  await expect(page.getByTestId('code-acp-model-menu')).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await input.click()
+  await expect(input).toBeFocused()
+  const focusedHeight = await composer.evaluate(element => element.getBoundingClientRect().height)
+  expect(Math.abs(focusedHeight - compactHeight)).toBeLessThanOrEqual(2)
+
+  await input.fill('line one\nline two\nline three\nline four')
+  await expect.poll(() => composer.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThan(compactHeight)
+  const measured = await composer.evaluate(element => {
+    const main = element.closest('.code-main') as HTMLElement | null
+    return {
+      composerHeight: Math.ceil(element.getBoundingClientRect().height),
+      publishedHeight: Number.parseFloat(main ? getComputedStyle(main).getPropertyValue('--mobile-composer-current-height') : ''),
+    }
+  })
+  expect(measured.publishedHeight).toBe(measured.composerHeight)
+})
+
 for (const provider of ['claude', 'opencode', 'qoder']) {
   test(`${provider} ACP exposes and updates its advertised profile controls`, async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, `acp-controls-${provider}`)

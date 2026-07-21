@@ -49,6 +49,7 @@ Expected:
 
 - Text opens in the Monaco editor with a tab and breadcrumb.
 - Markdown files can switch between source editing and rendered preview in the same editor tab.
+- Pure rendered Markdown preview omits the breadcrumb for a quieter reading surface; source, split preview, and diff keep it for file context.
 - Opening the first file creates an `Open Editors` section above `Files`, collapsed by default.
 - Expanding `Open Editors` shows the open file list; selecting a row switches back to that file.
 - Images open as readonly previews.

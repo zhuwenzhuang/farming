@@ -212,6 +212,7 @@ export function FileEditorPane({
     diffDisabled: !editorMode.canShowDiff,
     onClearBlameDetail: clearBlameDetail,
   })
+  const markdownPreviewVisible = markdownPreviewOpen && !diffState.open
 
   const {
     blameOverlay,
@@ -333,6 +334,7 @@ export function FileEditorPane({
         canPreviewMarkdown={canPreviewMarkdown}
         canPreviewSource={canPreviewSource}
         diffOpen={diffState.open}
+        markdownPreviewVisible={markdownPreviewVisible}
         markdownSplitOpen={markdownSplitOpen}
         sourcePreviewOpen={sourcePreviewOpen}
         wordWrapEnabled={wordWrapEnabled}

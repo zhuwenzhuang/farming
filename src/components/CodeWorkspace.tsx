@@ -81,6 +81,7 @@ import { CodeOverlays, ContextMenuIcon } from './code/CodeOverlays'
 import { CodeSidebar } from './code/CodeSidebar'
 import { AgentHomesSettingsPanel } from './code/AgentHomesSettingsPanel'
 import {
+  canSwitchAgentRuntime,
   capabilitiesForAgent,
   agentKindForCommand,
   inferAgentTerminalState,
@@ -3869,6 +3870,14 @@ export function CodeWorkspace({
     void onUpdateAgentFlags(agentId, { agentRuntimeMode: mode })
   }, [copy.runtimeModeRestarting, onUpdateAgentFlags, permissionSwitchingAgentId])
 
+  const switchContextMenuAgentRuntime = useCallback((agentId: string, mode: 'terminal' | 'chat') => {
+    const agent = activeAgents.find(item => item.id === agentId)
+    if (permissionSwitchingAgentId || !canSwitchAgentRuntime(agent) || isAgentTurnActive(agent)) return
+    setAgentMenu(null)
+    setOptionsMenu(null)
+    updateAgentRuntimeMode(agentId, mode)
+  }, [activeAgents, permissionSwitchingAgentId, updateAgentRuntimeMode])
+
   const commitCodexProfile = useCallback((model: string, effort: string, serviceTier: string) => {
     setCodexModel(model)
     setCodexReasoningEffort(effort)
@@ -5397,6 +5406,8 @@ export function CodeWorkspace({
         deleteWorktreeDialogRef={deleteWorktreeDialogRef}
         deleteWorktreeCancelButtonRef={deleteWorktreeCancelButtonRef}
         onContextMenuKeyDown={handleContextMenuKeyDown}
+        runtimeSwitchDisabled={Boolean(permissionSwitchingAgentId)}
+        onSwitchAgentRuntime={switchContextMenuAgentRuntime}
         onUpdateAgentFlags={updateContextMenuAgentFlags}
         onRenameAgent={renameContextMenuAgent}
         onRenameProject={renameContextMenuProject}

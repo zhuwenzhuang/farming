@@ -129,7 +129,110 @@ async function startMobileAgentFromOpenDialog(page: import('@playwright/test').P
   return agentId
 }
 
+function runtimeMenuAgent(agentId: string, workspace: string, mode: 'terminal' | 'chat'): Agent {
+  return {
+    id: agentId,
+    command: 'codex',
+    cwd: workspace,
+    projectWorkspace: workspace,
+    output: '',
+    previewText: 'Mobile runtime menu fixture',
+    status: 'running',
+    isMain: false,
+    activityLevel: 'cold',
+    lastActivity: Date.now(),
+    attentionScore: 0,
+    isZombie: false,
+    providerSessionProvider: 'codex',
+    providerHomeId: 'default',
+    providerSessionId: 'mobile-runtime-menu-session',
+    providerSessionKey: 'agent-session:codex:mobile-runtime-menu-session',
+    providerSessionTemporary: false,
+    providerCapabilities: {
+      supportedRuntimes: ['terminal', 'acp'],
+      runtimeSwitch: true,
+      terminalProfile: true,
+      goals: false,
+      chatRuntime: 'acp',
+      supportsChat: true,
+      supportsSteer: true,
+    },
+    runtimeBinding: mode === 'terminal'
+      ? { kind: 'terminal' }
+      : {
+          kind: 'acp',
+          state: 'ready',
+          error: '',
+          stopReason: '',
+          supportsSteer: true,
+          pendingPermission: null,
+          pendingPermissions: [],
+          pendingElicitation: null,
+          pendingElicitations: [],
+          activeElicitations: [],
+          sessionUpdatedAt: new Date().toISOString(),
+          sessionRevision: 1,
+        },
+    runtimeObservation: {
+      kind: 'codex',
+      phase: 'idle',
+      confidence: 'authoritative',
+      source: 'structured-runtime',
+      observerVersion: 'mobile-runtime-menu-fixture',
+      observedAt: Date.now(),
+    },
+  }
+}
+
 test.describe('mobile Farming Code user story', () => {
+  test('switches Chat and Terminal from the Agent three-dot menu', async ({ page, workspaceRoot }) => {
+    const agentId = `agent-mobile-runtime-menu-${Date.now()}`
+    const state = (mode: 'terminal' | 'chat'): FarmingState => ({
+      agents: [runtimeMenuAgent(agentId, workspaceRoot, mode)],
+      taskHistory: [],
+      mainPageSessionKeys: ['agent-session:codex:mobile-runtime-menu-session'],
+      mainAgentId: null,
+      systemStats: null,
+    })
+    const requestedModes: string[] = []
+
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 1, configurable: true })
+    })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await installStateSocket(page, state('terminal'))
+    await page.route(`/farming/api/agents/${agentId}`, async route => {
+      const payload = route.request().postDataJSON() as { agentRuntimeMode?: string }
+      requestedModes.push(payload.agentRuntimeMode || '')
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          restarted: true,
+          restartedAgentId: agentId,
+          agentRuntimeMode: payload.agentRuntimeMode,
+        }),
+      })
+    })
+
+    await openFarming(page)
+    await revealMobileSidebar(page)
+    const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+    await agentRow.getByTestId('code-agent-row-more').click()
+    const menu = page.getByTestId('code-agent-context-menu')
+    await expect(menu).toBeVisible()
+    await menu.getByRole('menuitem', { name: /Switch to Chat|切换到对话/ }).click()
+    await expect(menu).toBeHidden()
+    await expect.poll(() => requestedModes).toEqual(['chat'])
+
+    await page.evaluate(nextState => window.__farmingEmitState?.(nextState), state('chat'))
+    await revealMobileSidebar(page)
+    await agentRow.getByTestId('code-agent-row-more').click()
+    await expect(menu).toBeVisible()
+    await menu.getByRole('menuitem', { name: /Switch to Terminal|切换到终端/ }).click()
+    await expect(menu).toBeHidden()
+    await expect.poll(() => requestedModes).toEqual(['chat', 'terminal'])
+  })
+
   test('keeps mobile actions compact and moves settings out of the three-dot menu', async ({ page }) => {
     await page.addInitScript(() => {
       Object.defineProperty(navigator, 'maxTouchPoints', { value: 1, configurable: true })

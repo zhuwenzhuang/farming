@@ -59,15 +59,24 @@ function run() {
       editorPaneSource.includes('const markdownReadingOpen = canPreviewMarkdown && sourcePreviewOpen') &&
       editorPaneSource.includes('const markdownSplitOpen = markdownReadingOpen') &&
       editorPaneSource.includes('const markdownPreviewOpen = markdownReadingOpen && !markdownSplitOpen') &&
+      editorPaneSource.includes('const markdownPreviewVisible = markdownPreviewOpen && !diffState.open') &&
       editorPaneSource.includes('code-mobile-markdown-reading') &&
       editorPaneSource.includes("markdownReadingOpen ? 'markdown-reading' : ''") &&
       editorPaneSource.includes('toggleMarkdownSplit') &&
-      editorPaneSource.includes('markdownPreviewOpen={markdownPreviewOpen}') &&
+      editorPaneSource.includes('markdownPreviewVisible={markdownPreviewVisible}') &&
       editorPaneSource.includes('markdownSplitOpen={markdownSplitOpen}') &&
       editorPaneSource.includes('onOpenFilePath={onOpenFilePath}') &&
       editorPaneSource.includes('canPreviewMarkdown={canPreviewMarkdown}') &&
       editorPaneSource.includes('onToggleSourcePreview={toggleSourcePreview}'),
     'FileEditorPane should default Markdown to preview, store source/split as per-open-file frontend view state, and mark mobile reading mode'
+  );
+
+  assert(
+    editorHeaderSource.includes('const showBreadcrumbs = Boolean(openFile.file.path) && !markdownPreviewVisible') &&
+      editorHeaderSource.includes('{showBreadcrumbs && (') &&
+      codeMainAreaSource.includes('const showBreadcrumbs = !isWorkspaceMarkdownFile(openFile.file.path)') &&
+      codeMainAreaSource.includes('{showBreadcrumbs && ('),
+    'Pure Markdown preview should omit the breadcrumb while source, split, and diff surfaces keep file context'
   );
 
   assert(

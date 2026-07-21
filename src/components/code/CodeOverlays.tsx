@@ -8,7 +8,9 @@ import {
   projectWorkspaceForAgent,
 } from './model'
 import {
+  canSwitchAgentRuntime,
   capabilitiesForAgent,
+  isAgentTurnActive,
   projectCanArchive,
   projectCanDeleteWorktree,
 } from './capabilities'
@@ -62,6 +64,8 @@ interface CodeOverlaysProps {
   deleteWorktreeDialogRef: RefObject<HTMLDivElement | null>
   deleteWorktreeCancelButtonRef: RefObject<HTMLButtonElement | null>
   onContextMenuKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
+  runtimeSwitchDisabled: boolean
+  onSwitchAgentRuntime: (agentId: string, mode: 'terminal' | 'chat') => void
   onUpdateAgentFlags: (flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived'>>) => void
   onRenameAgent: () => void
   onRenameProject: () => void
@@ -108,6 +112,8 @@ export function CodeOverlays({
   deleteWorktreeDialogRef,
   deleteWorktreeCancelButtonRef,
   onContextMenuKeyDown,
+  runtimeSwitchDisabled,
+  onSwitchAgentRuntime,
   onUpdateAgentFlags,
   onRenameAgent,
   onRenameProject,
@@ -138,7 +144,20 @@ export function CodeOverlays({
   const canArchiveProject = projectCanArchive(contextMenuProject)
   const canDeleteWorktree = projectCanDeleteWorktree(contextMenuProject)
   const canMarkProjectRead = Boolean(contextMenuProject?.agents.some(agent => agent.unread))
+  const agentChatMode = contextMenuAgent?.runtimeBinding.kind !== 'terminal'
   const agentMenuEntries = compactContextMenuEntries([
+    {
+      type: 'item',
+      id: 'switch-agent-runtime',
+      label: agentChatMode ? copy.switchToTerminal : copy.switchToChat,
+      hidden: !canSwitchAgentRuntime(contextMenuAgent),
+      disabled: runtimeSwitchDisabled || isAgentTurnActive(contextMenuAgent),
+      onSelect: () => {
+        if (!contextMenuAgent) return
+        onSwitchAgentRuntime(contextMenuAgent.id, agentChatMode ? 'terminal' : 'chat')
+      },
+    },
+    { type: 'separator', id: 'agent-runtime-separator' },
     {
       type: 'item',
       id: 'pin-agent',

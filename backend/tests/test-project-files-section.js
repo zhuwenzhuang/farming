@@ -1490,7 +1490,7 @@ function run() {
 		      editorBlameToastSource.includes('data-testid="code-file-blame-state"') &&
 		      !editorSource.includes('const showSaveAction = openFile.dirty || openFile.saving') &&
       editorHeaderSource.includes('const actions = workspaceEditorActionState(openFile, editorMode, {') &&
-      editorHeaderSource.includes('{actions.showBar && (') &&
+      editorHeaderSource.includes('{showBreadcrumbs && (') &&
       !editorActionsSource.includes('function shouldShowFileEditorActions') &&
       !editorSource.includes("? 'Unsaved'") &&
 	      editorBreadcrumbsSource.includes('title={breadcrumbTitle}') &&
