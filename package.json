@@ -18,6 +18,7 @@
     "frontend/skins/",
     "frontend/themes/",
     "frontend/vendor/ghostty-web/",
+    "patches/",
     "shared/",
     "scripts/sync-ghostty-vendor.js",
     "LICENSE",

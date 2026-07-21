@@ -25,6 +25,17 @@ if [ -z "${PACKAGE_TARBALL}" ]; then
 fi
 
 npm install --global --prefix "${PREFIX}" "${PACKAGE_TARBALL}" --no-audit --no-fund --silent
+PACKAGE_ROOT="${PREFIX}/lib/node_modules/farming-code"
+CODEX_ACP_DIST="${PACKAGE_ROOT}/node_modules/@agentclientprotocol/codex-acp/dist/index.js"
+PATCH_FILE="${PACKAGE_ROOT}/patches/@agentclientprotocol+codex-acp+1.1.4.patch"
+if [ ! -f "${PATCH_FILE}" ]; then
+  echo "npm package omitted the pinned codex-acp patch" >&2
+  exit 1
+fi
+if ! grep -Fq 'var STEER_METHOD = "_codex/session/steer";' "${CODEX_ACP_DIST}"; then
+  echo "npm install did not apply the pinned codex-acp steer patch" >&2
+  exit 1
+fi
 "${PREFIX}/bin/farming" help >/dev/null
 FARMING_DISABLE_AUTH=1 "${PREFIX}/bin/farming" daemon \
   --port "${PORT_VALUE}" \
@@ -40,4 +51,4 @@ node -e '
 ' "${PREFIX}"
 
 "${PREFIX}/bin/farming" stop --config-dir "${CONFIG_DIR}" >/dev/null
-echo "✓ npm package installs globally, starts Farming, and loads node-pty"
+echo "✓ npm package installs globally, applies the codex-acp patch, starts Farming, and loads node-pty"
