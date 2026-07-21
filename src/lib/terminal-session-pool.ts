@@ -138,10 +138,20 @@ interface AttachOptions {
   onFollowOutputChange?: (state: TerminalFollowState) => void
   onPathOpen?: (agentId: string, target: TerminalPathOpenTarget) => void
   onPathResolve?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
+  onRecoveryStatusChange?: (status: TerminalRecoveryStatus) => void
   onReady?: () => void
   onError?: (error: Error) => void
   bootstrapState?: SessionBootstrapState
   signal?: AbortSignal
+}
+
+export type TerminalRecoveryPhase = 'requesting' | 'installing' | 'retrying' | 'ready' | 'failed'
+
+export interface TerminalRecoveryStatus {
+  phase: TerminalRecoveryPhase
+  attempt: number
+  startedAt: number | null
+  retryDelayMs: number | null
 }
 
 export type TerminalSearchDirection = 'next' | 'previous'
@@ -186,6 +196,8 @@ interface SessionRecord {
   parkedViewportState: TerminalViewportRestoreState | null
   inputDisabled: boolean
   errorHandler: ((error: Error) => void) | null
+  recoveryStatusHandler: ((status: TerminalRecoveryStatus) => void) | null
+  recoveryStatus: TerminalRecoveryStatus
   rendererFailureDisposable: (() => void) | null
   scrollChangeDisposable: (() => void) | null
   backendConnectedHandler: (() => void) | null
@@ -227,6 +239,7 @@ interface SessionRecord {
   resizeDeliveryTimeout: number | null
   pendingFitResize: { cols: number; rows: number } | null
   fitResizeTimer: number | null
+  resizeAfterReplayRequired: boolean
   followOutputHandler: ((state: TerminalFollowState) => void) | null
   pathOpenHandler: ((agentId: string, target: TerminalPathOpenTarget) => void) | null
   pathResolveHandler: ((agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null) | null
@@ -247,6 +260,8 @@ interface SessionRecord {
   terminalWriteQueue: Promise<void>
   terminalWriteResolvers: Set<(cancelled?: boolean) => boolean>
   terminalWriteBatchCount: number
+  holdCheckpointInstallCompletionForTest: boolean
+  heldCheckpointInstallCompletionForTest: (() => void) | null
   bootstrapRefreshSeq: number
   reconnectSnapshotSeq: number
   checkpointRequestInFlight: boolean
@@ -356,6 +371,7 @@ declare global {
       getRuntimeEpoch: (agentId: string) => string
       getStateRevision: (agentId: string) => number | null
       setCheckpointAckSuppressed: (agentId: string, suppressed: boolean) => boolean
+      setCheckpointInstallCompletionHeld: (agentId: string, held: boolean) => boolean
       getBufferDiagnostics: (agentId: string) => {
         engine?: string
         renderer?: 'pending' | 'webgl' | 'failed'
@@ -415,6 +431,10 @@ function findSessionRecordForHost(hostEl: HTMLDivElement) {
 
 function invalidateTerminalCheckpointRequest(record: SessionRecord) {
   record.reconnectSnapshotSeq += 1
+  // A checkpoint may already be inside xterm's ordered write queue. Its
+  // completion is fenced by reconnectSnapshotSeq, but the replacement
+  // recovery must not inherit the old install latch or it can never start.
+  record.replayInProgress = false
   clearTerminalCheckpointRetry(record)
   record.bootstrapRequestControllers.forEach(controller => controller.abort())
   record.bootstrapRequestControllers.clear()
@@ -507,6 +527,7 @@ function parkTerminalSessionRecord(record: SessionRecord) {
   invalidateTerminalCheckpointRequest(record)
   resetTerminalResizeDelivery(record)
   record.followOutputHandler = null
+  record.recoveryStatusHandler = null
   record.pathOpenHandler = null
   record.pathResolveHandler = null
   pauseTerminalResizeObserver(record)
@@ -543,6 +564,33 @@ function readTerminalFontSize(hostEl: HTMLElement): number {
   const raw = hostEl.dataset.terminalFontSize
   const n = raw ? Number(raw) : NaN
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_FONT_SIZE
+}
+
+function publishTerminalRecoveryStatus(
+  record: SessionRecord,
+  phase: TerminalRecoveryPhase,
+  options: { attempt?: number; retryDelayMs?: number | null; restart?: boolean } = {},
+) {
+  const active = phase !== 'ready' && phase !== 'failed'
+  const next: TerminalRecoveryStatus = {
+    phase,
+    attempt: active ? Math.max(1, options.attempt ?? record.recoveryStatus.attempt) : 0,
+    startedAt: active
+      ? (options.restart || record.recoveryStatus.startedAt === null
+          ? Date.now()
+          : record.recoveryStatus.startedAt)
+      : null,
+    retryDelayMs: phase === 'retrying' ? options.retryDelayMs ?? null : null,
+  }
+  const previous = record.recoveryStatus
+  if (
+    previous.phase === next.phase
+    && previous.attempt === next.attempt
+    && previous.startedAt === next.startedAt
+    && previous.retryDelayMs === next.retryDelayMs
+  ) return
+  record.recoveryStatus = next
+  record.recoveryStatusHandler?.(next)
 }
 
 async function fetchSessionBootstrapState(
@@ -901,6 +949,10 @@ function retryTerminalReplayAfterFailure(
     stopTerminalReplay(record, failure.message)
     return
   }
+  publishTerminalRecoveryStatus(record, 'retrying', {
+    attempt: record.replayState.failureCount + 1,
+    retryDelayMs: failure.delay,
+  })
   scheduleTerminalCheckpointRetry(record, failure.delay, generation)
 }
 
@@ -912,6 +964,7 @@ function stopTerminalReplay(record: SessionRecord, message: string) {
   record.pendingSnapshotReplay = false
   TERMINAL_REPLAY.clearQueuedTransitions(record.replayState)
   record.hostEl.classList.add('terminal-checkpoint-installing')
+  publishTerminalRecoveryStatus(record, 'failed')
   reportTerminalSyncError(record, message)
 }
 
@@ -941,10 +994,12 @@ function finishTerminalReplay(record: SessionRecord, generation: number) {
 
   record.bootstrappingSnapshot = false
   resetTerminalResizeDelivery(record)
+  const forceResize = record.resizeAfterReplayRequired || record.lastNotifiedResize === null
+  record.resizeAfterReplayRequired = false
   requestAnimationFrame(() => {
     if (!isCurrentAttachment(record, generation) || record.disposed) return
     record.hostEl.classList.remove('terminal-checkpoint-installing')
-    syncTerminalSize(record, { force: true })
+    syncTerminalSize(record, { force: forceResize })
     notifyTerminalAttachReady(record, generation)
   })
 }
@@ -1007,6 +1062,9 @@ function installTerminalCheckpoint(
     !isCurrentAttachment(record, generation)
   ) return false
 
+  publishTerminalRecoveryStatus(record, 'installing', {
+    attempt: record.replayState.failureCount + 1,
+  })
   record.checkpointRequestInFlight = false
   const checkpoint = terminalReplayCheckpoint(state)
   const decision = TERMINAL_REPLAY.evaluateCheckpoint(record.replayState, checkpoint)
@@ -1057,23 +1115,30 @@ function installTerminalCheckpoint(
   }
 
   replaceTerminalOutput(record, state.output, () => {
-    if (
-      record.disposed ||
-      !isCurrentAttachment(record, generation) ||
-      record.reconnectSnapshotSeq !== installSeq
-    ) return
+    const completeInstall = () => {
+      if (
+        record.disposed ||
+        !isCurrentAttachment(record, generation) ||
+        record.reconnectSnapshotSeq !== installSeq
+      ) return
 
-    TERMINAL_REPLAY.commitCheckpoint(record.replayState, checkpoint)
-    record.followOutput = viewportState.following
-    record.hasUnreadOutput = viewportState.hasUnreadOutput
-    record.preserveUnreadOutputUntilJump = viewportState.preserveUnreadOutputUntilJump
-    restoreTerminalViewportFromAnchor(record, viewportState)
-    record.replayInProgress = false
-    record.needsReconnectOutputSync = false
-    record.bootstrappingSnapshot = false
-    scheduleImeOverlayUpdateIfActive(record)
-    flushQueuedTerminalOutput(record)
-    finishTerminalReplay(record, generation)
+      TERMINAL_REPLAY.commitCheckpoint(record.replayState, checkpoint)
+      record.followOutput = viewportState.following
+      record.hasUnreadOutput = viewportState.hasUnreadOutput
+      record.preserveUnreadOutputUntilJump = viewportState.preserveUnreadOutputUntilJump
+      restoreTerminalViewportFromAnchor(record, viewportState)
+      record.replayInProgress = false
+      record.needsReconnectOutputSync = false
+      record.bootstrappingSnapshot = false
+      scheduleImeOverlayUpdateIfActive(record)
+      flushQueuedTerminalOutput(record)
+      finishTerminalReplay(record, generation)
+    }
+    if (record.holdCheckpointInstallCompletionForTest) {
+      record.heldCheckpointInstallCompletionForTest = completeInstall
+      return
+    }
+    completeInstall()
   })
   return true
 }
@@ -1090,6 +1155,9 @@ function requestTerminalReplay(record: SessionRecord, generation = record.attach
     !isCurrentAttachment(record, generation)
   ) return
 
+  publishTerminalRecoveryStatus(record, 'requesting', {
+    attempt: record.replayState.failureCount + 1,
+  })
   TERMINAL_REPLAY.beginRecovery(record.replayState)
   const requestSeq = record.reconnectSnapshotSeq + 1
   record.reconnectSnapshotSeq = requestSeq
@@ -1702,6 +1770,25 @@ function syncTerminalSize(
       clearPendingTerminalFitResize(record)
       return
     }
+    if (
+      !options.force &&
+      record.lastNotifiedResize?.cols === dimensions.cols &&
+      record.lastNotifiedResize.rows === dimensions.rows
+    ) {
+      // The authoritative PTY geometry may have been changed by another
+      // viewer. Do not interpret that remote transition as a new change in
+      // this browser's unchanged layout and echo the old local size back.
+      clearPendingTerminalFitResize(record)
+      return
+    }
+
+    if (record.replayInProgress || record.bootstrappingSnapshot) {
+      // A genuine attach/layout change that occurs behind the checkpoint
+      // barrier still needs one immediate resize after the exact cut lands.
+      record.resizeAfterReplayRequired = true
+      clearPendingTerminalFitResize(record)
+      return
+    }
 
     if (shouldDebounceTerminalResize(
       current,
@@ -1768,7 +1855,9 @@ function notifyTerminalResize(
 }
 
 function resyncTerminalSizeAfterBackendReconnect(record: SessionRecord) {
-  resetTerminalResizeTracker(record)
+  if (record.resizeRequestInFlight || record.pendingResizeRequest) {
+    record.resizeAfterReplayRequired = true
+  }
   resetTerminalResizeDelivery(record)
   TERMINAL_REPLAY.resetRecovery(record.replayState)
   TERMINAL_REPLAY.beginRecovery(record.replayState)
@@ -1781,6 +1870,7 @@ function resyncTerminalSizeAfterBackendReconnect(record: SessionRecord) {
 
 function resyncTerminalAfterPageResume(record: SessionRecord) {
   resetTerminalResizeTracker(record)
+  record.resizeAfterReplayRequired = true
   resetTerminalResizeDelivery(record)
   TERMINAL_REPLAY.resetRecovery(record.replayState)
   TERMINAL_REPLAY.beginRecovery(record.replayState)
@@ -3501,6 +3591,17 @@ function installTerminalTestApi() {
       const current = sessions.get(agentId)
       return Boolean(current && !(current instanceof Promise) && !current.disposed)
     },
+    setCheckpointInstallCompletionHeld(agentId: string, held: boolean) {
+      const current = sessions.get(agentId)
+      if (!current || current instanceof Promise || current.disposed) return false
+      current.holdCheckpointInstallCompletionForTest = held
+      if (!held) {
+        const completeInstall = current.heldCheckpointInstallCompletionForTest
+        current.heldCheckpointInstallCompletionForTest = null
+        completeInstall?.()
+      }
+      return true
+    },
     getBufferDiagnostics(agentId: string) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return null
@@ -3652,6 +3753,13 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     parkedViewportState: null,
     inputDisabled: Boolean(options.inputDisabled),
     errorHandler: options.onError ?? null,
+    recoveryStatusHandler: options.onRecoveryStatusChange ?? null,
+    recoveryStatus: {
+      phase: 'requesting',
+      attempt: 1,
+      startedAt: Date.now(),
+      retryDelayMs: null,
+    },
     rendererFailureDisposable: null,
     scrollChangeDisposable: null,
     backendConnectedHandler: null,
@@ -3693,6 +3801,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     resizeDeliveryTimeout: null,
     pendingFitResize: null,
     fitResizeTimer: null,
+    resizeAfterReplayRequired: false,
     followOutputHandler: options.onFollowOutputChange ?? null,
     pathOpenHandler: options.onPathOpen ?? null,
     pathResolveHandler: options.onPathResolve ?? null,
@@ -3713,6 +3822,8 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     terminalWriteQueue: Promise.resolve(),
     terminalWriteResolvers: new Set(),
     terminalWriteBatchCount: 0,
+    holdCheckpointInstallCompletionForTest: false,
+    heldCheckpointInstallCompletionForTest: null,
     bootstrapRefreshSeq: 0,
     reconnectSnapshotSeq: 0,
     checkpointRequestInFlight: false,
@@ -3759,6 +3870,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     if (record.disposed) return
     record.inputDisabled = true
     resetTerminalResizeDelivery(record)
+    publishTerminalRecoveryStatus(record, 'failed')
     record.errorHandler?.(error)
     void destroyTerminalSession(record.agentId).catch((destroyError) => {
       console.error('Failed to dispose terminal after renderer failure:', destroyError)
@@ -4253,7 +4365,6 @@ async function getOrCreateSession(agentId: string, options: AttachOptions) {
 
 function notifyTerminalAttachReady(record: SessionRecord, generation: number) {
   if (
-    record.attachReadyNotified ||
     record.attachReadyGeneration !== generation ||
     !isCurrentAttachment(record, generation) ||
     record.bootstrappingSnapshot ||
@@ -4266,6 +4377,8 @@ function notifyTerminalAttachReady(record: SessionRecord, generation: number) {
     record.replayState.outputSeq === null ||
     record.replayState.stateRevision === null
   ) return false
+  publishTerminalRecoveryStatus(record, 'ready')
+  if (record.attachReadyNotified) return true
   record.attachReadyNotified = true
   const revealedLatestParkedOutput = Boolean(
     record.parkedViewportState?.following
@@ -4338,6 +4451,8 @@ export async function attachTerminalSession(agentId: string, options: AttachOpti
   record.attachReadyHandler = options.onReady ?? null
   record.attachReadyGeneration = generation
   record.attachReadyNotified = false
+  record.recoveryStatusHandler = options.onRecoveryStatusChange ?? null
+  publishTerminalRecoveryStatus(record, 'requesting', { attempt: 1, restart: true })
   invalidateTerminalCheckpointRequest(record)
   TERMINAL_REPLAY.resetRecovery(record.replayState)
   TERMINAL_REPLAY.beginRecovery(record.replayState)

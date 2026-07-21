@@ -48,6 +48,51 @@ async function installResizeMessageCapture(page: import('@playwright/test').Page
   })
 }
 
+async function openAgent(page: import('@playwright/test').Page, agentId: string) {
+  const row = page.locator(
+    `[data-testid="code-agent-row"][data-agent-id="${agentId}"], ` +
+    `[data-testid="code-project-agent-compact"][data-agent-id="${agentId}"]`,
+  ).first()
+  await expect(row).toBeVisible({ timeout: 30_000 })
+  await row.click()
+  await expect(page.locator(`.terminal-session-host[data-agent-id="${agentId}"]`))
+    .toBeVisible({ timeout: 15_000 })
+  await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
+}
+
+async function sendActiveTerminalCommand(
+  page: import('@playwright/test').Page,
+  agentId: string,
+  command: string,
+) {
+  const host = page.locator(
+    `[data-testid="code-terminal-pane"][data-agent-id="${agentId}"].active ` +
+    `.terminal-session-host[data-agent-id="${agentId}"]`,
+  )
+  await expect(host).toBeVisible({ timeout: 15_000 })
+  await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
+  const inputCount = await page.evaluate(
+    id => window.__farmingTerminalTest?.getInputCount(id) ?? 0,
+    agentId,
+  )
+  const input = host.locator('.xterm-helper-textarea')
+  await input.focus()
+  await page.keyboard.insertText(command)
+  await input.press('Enter')
+  await expect.poll(() => page.evaluate(
+    id => window.__farmingTerminalTest?.getInputCount(id) ?? 0,
+    agentId,
+  )).toBeGreaterThan(inputCount)
+}
+
+async function waitForFileLines(file: string, expected: string[]) {
+  await expect.poll(() => (
+    fs.existsSync(file)
+      ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).sort()
+      : []
+  )).toEqual([...expected].sort())
+}
+
 test('keeps newer local terminal geometry while older resize transitions arrive', async ({ page, workspaceRoot }) => {
   await installResizeMessageCapture(page)
 
@@ -303,4 +348,247 @@ test('coalesces a sustained diagonal window drag into one geometry update', asyn
       rows: body.session?.previewRows ?? null,
     }
   }).toEqual(messages[0])
+})
+
+test('different-sized viewers settle after repeatedly switching the same terminal', async ({
+  page,
+  context,
+  workspaceRoot,
+}) => {
+  await installResizeMessageCapture(page)
+  await page.setViewportSize({ width: 1280, height: 720 })
+
+  const workspace = path.join(workspaceRoot, 'terminal-shared-viewer-resize-settle')
+  fs.mkdirSync(workspace, { recursive: true })
+  await page.goto('/farming/', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  const sharedAgentId = await createControlAgent(page, workspace)
+  const alternateAgentId = await createControlAgent(page, workspace)
+
+  const widePage = await context.newPage()
+  await widePage.addInitScript(() => {
+    window.__FARMING_E2E__ = true
+  })
+  await installResizeMessageCapture(widePage)
+  await widePage.setViewportSize({ width: 1855, height: 1391 })
+  await widePage.goto('/farming/', { waitUntil: 'domcontentloaded' })
+  await expect(widePage.getByTestId('app-shell')).toBeVisible()
+
+  try {
+    await openAgent(page, sharedAgentId)
+    await openAgent(widePage, sharedAgentId)
+
+    for (let index = 0; index < 4; index += 1) {
+      await openAgent(page, alternateAgentId)
+      await openAgent(page, sharedAgentId)
+      await openAgent(widePage, alternateAgentId)
+      await openAgent(widePage, sharedAgentId)
+    }
+
+    const messageCount = async () => {
+      const [narrow, wide] = await Promise.all([
+        page.evaluate(id => window.__farmingResizeMessages
+          ?.filter(message => message.agentId === id).length ?? 0, sharedAgentId),
+        widePage.evaluate(id => window.__farmingResizeMessages
+          ?.filter(message => message.agentId === id).length ?? 0, sharedAgentId),
+      ])
+      return narrow + wide
+    }
+
+    await page.waitForTimeout(1_000)
+    const settledCount = await messageCount()
+    await page.waitForTimeout(1_000)
+    expect(await messageCount()).toBe(settledCount)
+    expect(settledCount).toBeLessThanOrEqual(12)
+
+    const recover = async (viewer: import('@playwright/test').Page) => {
+      await viewer.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
+      await expect.poll(() => viewer.evaluate(id => {
+        const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics(id)
+        return Boolean(
+          diagnostics
+          && diagnostics.needsReconnectOutputSync === false
+          && diagnostics.replayInProgress === false
+          && diagnostics.checkpointRequestInFlight === false,
+        )
+      }, sharedAgentId)).toBe(true)
+    }
+    for (let index = 0; index < 3; index += 1) {
+      await recover(page)
+      await recover(widePage)
+    }
+    await page.waitForTimeout(1_000)
+    expect(await messageCount()).toBe(settledCount)
+
+    const [narrowRows, wideRows] = await Promise.all([
+      page.evaluate(id => window.__farmingTerminalTest?.getRows(id) ?? [], sharedAgentId),
+      widePage.evaluate(id => window.__farmingTerminalTest?.getRows(id) ?? [], sharedAgentId),
+    ])
+    expect(narrowRows.some(row => row.trim().length > 0)).toBe(true)
+    expect(wideRows.some(row => row.trim().length > 0)).toBe(true)
+  } finally {
+    await widePage.close()
+  }
+})
+
+test('different-sized viewers converge after concurrent rapid Agent switching', async ({
+  page,
+  context,
+  workspaceRoot,
+}) => {
+  await installResizeMessageCapture(page)
+  await page.setViewportSize({ width: 1280, height: 720 })
+
+  const workspace = path.join(workspaceRoot, 'terminal-shared-viewer-rapid-switch')
+  fs.mkdirSync(workspace, { recursive: true })
+  await page.goto('/farming/', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  const firstAgentId = await createControlAgent(page, workspace)
+  const secondAgentId = await createControlAgent(page, workspace)
+
+  const widePage = await context.newPage()
+  await widePage.addInitScript(() => {
+    window.__FARMING_E2E__ = true
+  })
+  await installResizeMessageCapture(widePage)
+  await widePage.setViewportSize({ width: 1855, height: 1391 })
+  await widePage.goto('/farming/', { waitUntil: 'domcontentloaded' })
+  await expect(widePage.getByTestId('app-shell')).toBeVisible()
+
+  const rapidSwitch = async (viewer: import('@playwright/test').Page) => {
+    const first = viewer.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)
+    const second = viewer.locator(`[data-testid="code-agent-row"][data-agent-id="${secondAgentId}"]`)
+    await expect(first).toBeVisible({ timeout: 30_000 })
+    await expect(second).toBeVisible({ timeout: 30_000 })
+    for (let index = 0; index < 8; index += 1) {
+      await first.click()
+      await second.click()
+    }
+    await first.click()
+  }
+
+  try {
+    await Promise.all([rapidSwitch(page), rapidSwitch(widePage)])
+    await Promise.all([openAgent(page, firstAgentId), openAgent(widePage, firstAgentId)])
+
+    for (const viewer of [page, widePage]) {
+      await expect(viewer.locator(
+        `[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`,
+      )).toHaveClass(/active/)
+      await expect(viewer.locator(
+        `[data-testid="code-terminal-pane"][data-agent-id="${firstAgentId}"]`,
+      )).toBeVisible()
+      await expect(viewer.getByTestId('code-terminal-recovery')).toBeHidden()
+      await expect.poll(() => viewer.evaluate(id => {
+        const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics(id)
+        return {
+          ready: window.__farmingTerminalTest?.isReady(id) ?? false,
+          queuedTransitions: diagnostics?.queuedTransitions ?? -1,
+          replayInProgress: diagnostics?.replayInProgress ?? true,
+          needsReconnectOutputSync: diagnostics?.needsReconnectOutputSync ?? true,
+        }
+      }, firstAgentId)).toMatchObject({
+        ready: true,
+        queuedTransitions: 0,
+        replayInProgress: false,
+        needsReconnectOutputSync: false,
+      })
+      const nonblankRows = await viewer.evaluate(id => (
+        window.__farmingTerminalTest?.getRows(id, 120).filter(row => row.trim()).length ?? 0
+      ), firstAgentId)
+      expect(nonblankRows).toBeGreaterThan(0)
+    }
+
+    const countMessages = async () => {
+      const counts = await Promise.all([page, widePage].map(viewer => viewer.evaluate(
+        id => window.__farmingResizeMessages?.filter(message => message.agentId === id).length ?? 0,
+        firstAgentId,
+      )))
+      return counts[0] + counts[1]
+    }
+    await page.waitForTimeout(1_000)
+    const settledCount = await countMessages()
+    await page.waitForTimeout(1_000)
+    expect(await countMessages()).toBe(settledCount)
+  } finally {
+    await widePage.close()
+  }
+})
+
+test('routes each viewer input exactly once across switching and recovery', async ({
+  page,
+  context,
+  workspaceRoot,
+}) => {
+  const sharedWorkspace = path.join(workspaceRoot, 'terminal-shared-viewer-input')
+  const alternateWorkspace = path.join(workspaceRoot, 'terminal-shared-viewer-alternate')
+  fs.mkdirSync(sharedWorkspace, { recursive: true })
+  fs.mkdirSync(alternateWorkspace, { recursive: true })
+  const sharedFile = path.join(sharedWorkspace, 'multi-viewer-input.log')
+  const alternateFile = path.join(alternateWorkspace, 'multi-viewer-input.log')
+
+  await page.goto('/farming/', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  const sharedAgentId = await createControlAgent(page, sharedWorkspace)
+  const alternateAgentId = await createControlAgent(page, alternateWorkspace)
+
+  const observerPage = await context.newPage()
+  await observerPage.addInitScript(() => {
+    window.__FARMING_E2E__ = true
+  })
+  await observerPage.setViewportSize({ width: 1600, height: 1000 })
+  await observerPage.goto('/farming/', { waitUntil: 'domcontentloaded' })
+  await expect(observerPage.getByTestId('app-shell')).toBeVisible()
+
+  const command = (marker: string) => `printf '%s\\n' '${marker}' >> multi-viewer-input.log`
+  try {
+    await Promise.all([openAgent(page, sharedAgentId), openAgent(observerPage, sharedAgentId)])
+    await sendActiveTerminalCommand(page, sharedAgentId, command('primary-before'))
+    await sendActiveTerminalCommand(observerPage, sharedAgentId, command('observer-before'))
+    await waitForFileLines(sharedFile, ['primary-before', 'observer-before'])
+
+    await openAgent(observerPage, alternateAgentId)
+    await sendActiveTerminalCommand(page, sharedAgentId, command('primary-while-observer-away'))
+    await sendActiveTerminalCommand(observerPage, alternateAgentId, command('observer-on-alternate'))
+    await waitForFileLines(sharedFile, [
+      'primary-before',
+      'observer-before',
+      'primary-while-observer-away',
+    ])
+    await waitForFileLines(alternateFile, ['observer-on-alternate'])
+
+    await openAgent(observerPage, sharedAgentId)
+    await Promise.all([page, observerPage].map(async viewer => {
+      await viewer.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
+      await viewer.waitForFunction(id => {
+        const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics(id)
+        return Boolean(
+          diagnostics
+          && diagnostics.needsReconnectOutputSync === false
+          && diagnostics.replayInProgress === false
+          && diagnostics.checkpointRequestInFlight === false,
+        )
+      }, sharedAgentId)
+    }))
+
+    await sendActiveTerminalCommand(page, sharedAgentId, command('primary-after-recovery'))
+    await sendActiveTerminalCommand(observerPage, sharedAgentId, command('observer-after-recovery'))
+    await waitForFileLines(sharedFile, [
+      'primary-before',
+      'observer-before',
+      'primary-while-observer-away',
+      'primary-after-recovery',
+      'observer-after-recovery',
+    ])
+    await waitForFileLines(alternateFile, ['observer-on-alternate'])
+
+    for (const viewer of [page, observerPage]) {
+      await expect(viewer.getByTestId('code-terminal-recovery')).toBeHidden()
+      await expect(viewer.locator(
+        `[data-testid="code-terminal-pane"][data-agent-id="${sharedAgentId}"]`,
+      )).toBeVisible()
+    }
+  } finally {
+    await observerPage.close()
+  }
 })

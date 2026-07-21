@@ -15,6 +15,7 @@ import {
   type TerminalSearchDirection,
   type TerminalSearchResult,
   type TerminalPathOpenTarget,
+  type TerminalRecoveryStatus,
 } from '@/lib/terminal-session-pool'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
 import type { SessionBootstrapState } from '@/lib/terminal-bootstrap'
@@ -33,6 +34,7 @@ interface UsePooledTerminalOptions {
   onFollowOutputChange?: (state: TerminalFollowState) => void
   onPathOpen?: (agentId: string, target: TerminalPathOpenTarget) => void
   onPathResolve?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
+  onRecoveryStatusChange?: (status: TerminalRecoveryStatus) => void
   onReady?: () => void
   onError?: (error: Error) => void
   bootstrapState?: SessionBootstrapState
@@ -47,6 +49,7 @@ export function usePooledTerminal({
   onFollowOutputChange,
   onPathOpen,
   onPathResolve,
+  onRecoveryStatusChange,
   onReady,
   onError,
   bootstrapState,
@@ -56,6 +59,7 @@ export function usePooledTerminal({
     onFollowOutputChange,
     onPathOpen,
     onPathResolve,
+    onRecoveryStatusChange,
     onReady,
     onError,
     bootstrapState,
@@ -65,6 +69,7 @@ export function usePooledTerminal({
     onFollowOutputChange,
     onPathOpen,
     onPathResolve,
+    onRecoveryStatusChange,
     onReady,
     onError,
     bootstrapState,
@@ -84,6 +89,10 @@ export function usePooledTerminal({
 
   const handlePathResolve = useCallback((currentAgentId: string, target: TerminalPathOpenTarget) => {
     return latestHandlersRef.current.onPathResolve?.(currentAgentId, target) ?? null
+  }, [])
+
+  const handleRecoveryStatusChange = useCallback((status: TerminalRecoveryStatus) => {
+    latestHandlersRef.current.onRecoveryStatusChange?.(status)
   }, [])
 
   const handleReady = useCallback(() => {
@@ -111,6 +120,7 @@ export function usePooledTerminal({
       onFollowOutputChange: handleFollowOutputChange,
       onPathOpen: handlePathOpen,
       onPathResolve: handlePathResolve,
+      onRecoveryStatusChange: handleRecoveryStatusChange,
       onError: handleError,
       bootstrapState: latestHandlersRef.current.bootstrapState,
       signal: controller.signal,
@@ -131,7 +141,7 @@ export function usePooledTerminal({
         console.error('Failed to detach terminal session:', error)
       })
     }
-  }, [agentId, containerRef, handleError, handleFollowOutputChange, handlePathOpen, handlePathResolve, handleReady, handleSessionOutput, inputDisabled, suppressRendererCursor])
+  }, [agentId, containerRef, handleError, handleFollowOutputChange, handlePathOpen, handlePathResolve, handleReady, handleRecoveryStatusChange, handleSessionOutput, inputDisabled, suppressRendererCursor])
 
   useEffect(() => {
     if (!agentId || !bootstrapState?.runtimeEpoch || bootstrapState.stateRevision === null) return
@@ -167,6 +177,7 @@ export function usePooledTerminal({
         onFollowOutputChange: handleFollowOutputChange,
         onPathOpen: handlePathOpen,
         onPathResolve: handlePathResolve,
+        onRecoveryStatusChange: handleRecoveryStatusChange,
         onError: handleError,
         bootstrapState: latestHandlersRef.current.bootstrapState,
         onReady: handleReady,
@@ -175,7 +186,7 @@ export function usePooledTerminal({
       console.error('Failed to focus terminal session:', error)
       handleError(error instanceof Error ? error : new Error(String(error)))
     })
-  }, [agentId, containerRef, handleError, handleFollowOutputChange, handlePathOpen, handlePathResolve, handleReady, handleSessionOutput, inputDisabled, suppressRendererCursor])
+  }, [agentId, containerRef, handleError, handleFollowOutputChange, handlePathOpen, handlePathResolve, handleReady, handleRecoveryStatusChange, handleSessionOutput, inputDisabled, suppressRendererCursor])
 
   const refreshLayout = useCallback((options: { autoFocus?: boolean } = {}) => {
     if (!agentId) return

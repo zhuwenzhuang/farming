@@ -67,6 +67,7 @@
     "test:e2e:local": "FARMING_BASE_PATH=/farming npm run build && node scripts/e2e.js local",
     "test:e2e:remote": "FARMING_BASE_PATH=/farming npm run build && node scripts/e2e.js remote",
     "test:remote-terminal:smoke": "node scripts/smoke-remote-terminal.js",
+    "test:remote-terminal:chaos": "node scripts/smoke-remote-terminal-chaos.js",
     "test:e2e:workspaces:local": "FARMING_BASE_PATH=/farming npm run build && node scripts/e2e-workspaces.js local",
     "test:e2e:workspaces:remote": "FARMING_BASE_PATH=/farming npm run build && node scripts/e2e-workspaces.js remote",
     "typecheck": "tsc --noEmit",

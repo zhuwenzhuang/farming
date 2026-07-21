@@ -288,6 +288,11 @@ export interface CodeCopy {
   terminalSearchRegex: string
   terminalSearchNoResults: string
   terminalSearchResults: (current: number, total: number) => string
+  terminalRecoveryRequesting: string
+  terminalRecoveryInstalling: string
+  terminalRecoveryRetrying: (delaySeconds: number) => string
+  terminalRecoveryElapsed: (seconds: number) => string
+  terminalRecoveryAttempt: (attempt: number) => string
   terminalSessionUnavailable: string
   acpPermissionAllow: string
   acpPermissionTitle: string
@@ -746,6 +751,11 @@ const EN_COPY: CodeCopy = {
   terminalSearchRegex: 'Use regular expression',
   terminalSearchNoResults: 'No results',
   terminalSearchResults: (current, total) => `${current}/${total}`,
+  terminalRecoveryRequesting: 'Loading terminal state…',
+  terminalRecoveryInstalling: 'Terminal state received. Restoring screen…',
+  terminalRecoveryRetrying: delaySeconds => `Terminal state unavailable. Retrying in ${delaySeconds}s…`,
+  terminalRecoveryElapsed: seconds => `Waiting ${seconds}s`,
+  terminalRecoveryAttempt: attempt => `Attempt ${attempt}`,
   terminalSessionUnavailable: 'Terminal session unavailable',
   acpPermissionAllow: 'Allow',
   acpPermissionTitle: 'Agent needs permission',
@@ -1240,6 +1250,11 @@ const ZH_COPY: CodeCopy = {
   terminalSearchRegex: '使用正则表达式',
   terminalSearchNoResults: '无结果',
   terminalSearchResults: (current, total) => `${current}/${total}`,
+  terminalRecoveryRequesting: '正在获取终端状态…',
+  terminalRecoveryInstalling: '终端状态已获取，正在恢复画面…',
+  terminalRecoveryRetrying: delaySeconds => `终端状态获取失败，${delaySeconds} 秒后重试…`,
+  terminalRecoveryElapsed: seconds => `已等待 ${seconds} 秒`,
+  terminalRecoveryAttempt: attempt => `第 ${attempt} 次尝试`,
   terminalSessionUnavailable: '终端会话不可用',
   acpPermissionAllow: '允许',
   acpPermissionTitle: 'Agent 需要权限',

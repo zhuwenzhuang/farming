@@ -25,6 +25,10 @@ Code and CRT use the same browser protocol implementation in `frontend/terminal-
 
 During a full replay, xterm is hidden until its write callback completes. A user returning after a long absence therefore sees the latest screen once instead of watching historical output paint from top to bottom.
 
+If reconnect, reattach, page resume, or a newer bootstrap cut supersedes a checkpoint that is already inside xterm's ordered write queue, invalidation releases the old install latch immediately. The stale write may drain in queue order, but its completion remains sequence-fenced and cannot commit; the replacement checkpoint queues behind it and remains able to reach a visible authoritative cut.
+
+Farming Code keeps that atomic paint boundary visible to the user with one centered recovery status owned by the terminal session pool. It distinguishes checkpoint request, screen installation, and retry backoff, and shows elapsed wait time plus the current attempt. The status disappears only after the authoritative cut has committed to xterm; renderer or invariant failures continue to use the terminal's explicit failure card.
+
 Live WebSocket output uses a leading-edge, frame-bounded batch: the first transition after an idle period is sent immediately for responsive typing, while sustained output is coalesced without dropping its individual transition indexes. The browser still validates and commits every index separately, but gives each contiguous output / clear run to xterm in one write. Resize is an ordered batch boundary: after committing it, the browser holds its following redraw until 50 ms of output quiet, with a 300 ms maximum, and then paints that burst once. Normal non-resize output keeps the low-latency path.
 
 ## Supported Browser Renderer
@@ -39,10 +43,12 @@ Input is xterm's raw `onData` stream and is written directly to the PTY. Farming
 
 The release gate `npm run test:pre-release:terminal-input` uses two deterministic local Bash sessions. It switches between existing Agents, types and deletes through xterm, rejects a full `state` frame after focus, requires focused previews to stay below 8 KiB, and enforces a loopback key-to-`session-output` p95 of at most 250 ms. This is a regression bound for the local product path, not a claim about arbitrary remote network latency; the release checklist separately requires a human-like remote dogfood smoke.
 
-Resize is also shared. Every browser-layout-driven geometry change trailing-coalesces as one complete `cols + rows` update, preventing a sustained window drag from repeatedly reflowing xterm and retriggering a full-screen TUI redraw. This rule does not branch on output length or normal/alternate buffer state. Explicit attach and recovery fits bypass that delay. The server then keeps at most one resize in flight and the latest pending size. A browser applies a committed remote resize without sending it back again.
+Resize is also shared. Every browser-layout-driven geometry change trailing-coalesces as one complete `cols + rows` update, preventing a sustained window drag from repeatedly reflowing xterm and retriggering a full-screen TUI redraw. This rule does not branch on output length or normal/alternate buffer state. Explicit attach and a layout change observed during recovery bypass that delay. The server then keeps at most one resize in flight and the latest pending size. A browser applies a committed remote resize without sending it back again. In particular, completing an ordinary checkpoint recovery does not unconditionally reclaim that browser's previously requested geometry: doing so lets different-sized viewers alternate resize, full-screen redraw, backpressure disconnect, and recovery forever.
 
 ## Backpressure And Recovery
 
 The PTY host publishes output only after the headless reducer has committed it. Reducer backlog may pause PTY reads. Slow browser WebSockets are isolated from one another; there is no browser renderer-debt protocol.
+
+The explicit remote chaos smoke is run with `FARMING_REMOTE_URL=... FARMING_REMOTE_TOKEN=... npm run test:remote-terminal:chaos`. It creates and later removes two isolated shell Agents, drives the same redraw-heavy terminal from independent desktop and mobile browser contexts without waiting for readiness between actions, and injects latency, offline recovery, viewport churn, reload, switching, and input. Its acceptance boundary is user-visible and bounded: no unexplained blank may persist, recovery must settle, redraw state must stop advancing, and post-recovery input from each viewer must arrive exactly once. The run keeps a deterministic action trace and failure screenshots under `.tmp/remote-terminal-chaos/`.
 
 A compatible Farming server restart reattaches to the existing native PTY host. An incompatible host rotation serializes the screen before replacement. An unexpected PTY-host crash is reported as process loss and is never presented as a successful replay.

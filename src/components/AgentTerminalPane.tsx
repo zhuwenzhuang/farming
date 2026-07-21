@@ -3,7 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerE
 import type { Agent } from '@/types/agent'
 import { usePooledTerminal } from '@/hooks/usePooledTerminal'
 import { isMobileTouchViewport } from '@/lib/responsive-mode'
-import type { TerminalPathOpenTarget, TerminalSearchDirection, TerminalSearchResult } from '@/lib/terminal-session-pool'
+import type { TerminalPathOpenTarget, TerminalRecoveryStatus, TerminalSearchDirection, TerminalSearchResult } from '@/lib/terminal-session-pool'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
 import type { CodeCopy } from './code/copy'
 import {
@@ -111,6 +111,15 @@ function terminalSearchOptionButtonClass(enabled?: boolean) {
   return `code-terminal-search-button option${enabled ? ' active' : ''}`
 }
 
+function initialTerminalRecoveryStatus(): TerminalRecoveryStatus {
+  return {
+    phase: 'requesting',
+    attempt: 1,
+    startedAt: Date.now(),
+    retryDelayMs: null,
+  }
+}
+
 export function AgentTerminalPane({
   agent,
   active,
@@ -136,6 +145,8 @@ export function AgentTerminalPane({
   const [terminalSearchOptions, setTerminalSearchOptions] = useState<TerminalSearchOptions>({})
   const [terminalSearchResult, setTerminalSearchResult] = useState<TerminalSearchResult | null>(null)
   const [terminalError, setTerminalError] = useState<string | null>(null)
+  const [terminalRecoveryStatus, setTerminalRecoveryStatus] = useState<TerminalRecoveryStatus>(initialTerminalRecoveryStatus)
+  const [terminalRecoveryClock, setTerminalRecoveryClock] = useState(Date.now)
   const handleFollowOutputChange = useCallback((state: TerminalFollowState) => {
     setFollowOutputStateKnown(true)
     setFollowOutputState(state)
@@ -149,6 +160,11 @@ export function AgentTerminalPane({
   const handleTerminalError = useCallback((error: Error) => {
     setTerminalError(error.message || copy.terminalSessionUnavailable)
   }, [copy.terminalSessionUnavailable])
+
+  const handleTerminalRecoveryStatus = useCallback((status: TerminalRecoveryStatus) => {
+    setTerminalRecoveryStatus(status)
+    setTerminalRecoveryClock(Date.now())
+  }, [])
 
   const {
     focus,
@@ -167,9 +183,21 @@ export function AgentTerminalPane({
     onFollowOutputChange: handleFollowOutputChange,
     onPathOpen: onOpenPath,
     onPathResolve: onResolvePath,
+    onRecoveryStatusChange: handleTerminalRecoveryStatus,
     onReady: handleTerminalReady,
     onError: handleTerminalError,
   })
+
+  useEffect(() => {
+    if (
+      terminalRecoveryStatus.phase === 'ready'
+      || terminalRecoveryStatus.phase === 'failed'
+    ) return undefined
+    const updateClock = () => setTerminalRecoveryClock(Date.now())
+    updateClock()
+    const interval = window.setInterval(updateClock, 1000)
+    return () => window.clearInterval(interval)
+  }, [terminalRecoveryStatus.phase, terminalRecoveryStatus.startedAt])
 
   useEffect(() => {
     if (
@@ -371,6 +399,21 @@ export function AgentTerminalPane({
 
   const shouldShowJumpButton = !followOutputState.following || followOutputState.hasUnreadOutput
   const searchStatus = terminalSearchStatus(terminalSearchQuery, terminalSearchResult, copy)
+  const terminalRecovering = terminalRecoveryStatus.phase !== 'ready'
+    && terminalRecoveryStatus.phase !== 'failed'
+    && !terminalError
+  const recoveryElapsedSeconds = terminalRecoveryStatus.startedAt === null
+    ? 0
+    : Math.max(0, Math.floor((terminalRecoveryClock - terminalRecoveryStatus.startedAt) / 1000))
+  const recoveryTitle = terminalRecoveryStatus.phase === 'installing'
+    ? copy.terminalRecoveryInstalling
+    : terminalRecoveryStatus.phase === 'retrying'
+      ? copy.terminalRecoveryRetrying(Math.max(1, Math.ceil((terminalRecoveryStatus.retryDelayMs || 0) / 1000)))
+      : copy.terminalRecoveryRequesting
+  const recoveryDetails = [
+    recoveryElapsedSeconds > 0 ? copy.terminalRecoveryElapsed(recoveryElapsedSeconds) : '',
+    terminalRecoveryStatus.attempt > 1 ? copy.terminalRecoveryAttempt(terminalRecoveryStatus.attempt) : '',
+  ].filter(Boolean).join(' · ')
 
   return (
     <section
@@ -386,6 +429,22 @@ export function AgentTerminalPane({
         data-testid="code-terminal-container"
         ref={terminalContainerRef}
       />
+      {terminalRecovering ? (
+        <div
+          className="code-terminal-recovery"
+          data-testid="code-terminal-recovery"
+          data-phase={terminalRecoveryStatus.phase}
+          data-attempt={terminalRecoveryStatus.attempt}
+          role="status"
+          aria-live="polite"
+        >
+          <span className="code-permission-switching-spinner" aria-hidden="true" />
+          <span className="code-terminal-recovery-copy">
+            <strong>{recoveryTitle}</strong>
+            {recoveryDetails ? <span>{recoveryDetails}</span> : null}
+          </span>
+        </div>
+      ) : null}
       {terminalError ? (
         <div
           className="code-terminal-status-card"

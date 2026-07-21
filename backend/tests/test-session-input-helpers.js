@@ -552,8 +552,13 @@ function run() {
       terminalPoolSource.includes('const controller = new AbortController()') &&
       terminalPoolSource.includes('TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5000') &&
       terminalPoolSource.includes('record.bootstrapRequestControllers.forEach(controller => controller.abort())') &&
+      terminalPoolSource.includes('old install latch or it can never start') &&
       terminalPoolSource.includes('TERMINAL_REPLAY.evaluateCheckpoint(record.replayState, checkpoint)') &&
       terminalPoolSource.includes('installTerminalCheckpoint(record, state, generation)') &&
+      terminalPoolSource.includes("publishTerminalRecoveryStatus(record, 'requesting'") &&
+      terminalPoolSource.includes("publishTerminalRecoveryStatus(record, 'installing'") &&
+      terminalPoolSource.includes("publishTerminalRecoveryStatus(record, 'retrying'") &&
+      terminalPoolSource.includes("publishTerminalRecoveryStatus(record, 'ready'") &&
       terminalPoolSource.includes('resetTerminalResizeTracker(record)') &&
       terminalPoolSource.includes('resetTerminalResizeDelivery(record)') &&
       terminalPoolSource.includes("window.addEventListener('farming:backend-connected', backendConnectedHandler)") &&

@@ -218,6 +218,138 @@ test.describe('terminal state protocol', () => {
     expect(sessionViewRequests).toBeLessThanOrEqual(2)
   })
 
+  test('checkpoint recovery reports its live phase and wait time in the terminal pane', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'terminal-visible-recovery-status')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createControlAgent(page, workspace)
+    await openTerminalTestPage(page)
+    await selectControlAgent(page, agentId)
+
+    let releaseCheckpoint!: () => void
+    const checkpointGate = new Promise<void>((resolve) => {
+      releaseCheckpoint = resolve
+    })
+    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
+    await page.route(routePattern, async route => {
+      await checkpointGate
+      await route.continue()
+    })
+
+    await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
+
+    const recovery = page.getByTestId('code-terminal-recovery')
+    await expect(recovery).toBeVisible()
+    await expect(recovery).toHaveAttribute('data-phase', 'requesting')
+    await expect(recovery).toHaveAttribute('data-attempt', '1')
+    await expect(recovery).toContainText('Loading terminal state…')
+    await expect(recovery).toContainText('Waiting 1s', { timeout: 3_000 })
+
+    releaseCheckpoint()
+    await expect(recovery).toBeHidden({ timeout: 10_000 })
+    await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
+  })
+
+  test('checkpoint retry reports its backoff and next attempt before recovering', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'terminal-visible-recovery-retry')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createControlAgent(page, workspace)
+    await openTerminalTestPage(page)
+    await selectControlAgent(page, agentId)
+
+    let requests = 0
+    let releaseSuccessfulRetry!: () => void
+    const successfulRetryGate = new Promise<void>((resolve) => {
+      releaseSuccessfulRetry = resolve
+    })
+    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
+    await page.route(routePattern, async route => {
+      requests += 1
+      if (requests === 1) {
+        await route.fulfill({ status: 503, body: 'checkpoint temporarily unavailable' })
+        return
+      }
+      await successfulRetryGate
+      await route.continue()
+    })
+
+    const retryingState = page.waitForFunction(() => {
+      const recovery = document.querySelector('[data-testid="code-terminal-recovery"]')
+      if (!(recovery instanceof HTMLElement) || recovery.dataset.phase !== 'retrying') return null
+      return {
+        attempt: recovery.dataset.attempt || '',
+        text: recovery.textContent || '',
+      }
+    }).then(handle => handle.jsonValue() as Promise<{ attempt: string; text: string }>)
+
+    await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
+    const retrying = await retryingState
+    expect(retrying.attempt).toBe('2')
+    expect(retrying.text).toContain('Terminal state unavailable. Retrying in 1s…')
+    expect(retrying.text).toContain('Attempt 2')
+
+    await expect.poll(() => requests).toBeGreaterThanOrEqual(2)
+    await expect(page.getByTestId('code-terminal-recovery')).toHaveAttribute('data-phase', 'requesting')
+    releaseSuccessfulRetry()
+    await expect(page.getByTestId('code-terminal-recovery')).toBeHidden({ timeout: 10_000 })
+    await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
+  })
+
+  test('a newer recovery supersedes a checkpoint that is already installing', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'terminal-superseded-checkpoint-install')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createControlAgent(page, workspace)
+    await openTerminalTestPage(page)
+    await selectControlAgent(page, agentId)
+    const initial = await terminalState(page, agentId)
+
+    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
+    const latest = checkpoint(
+      initial.runtimeEpoch,
+      initial.outputSeq + 2,
+      initial.stateRevision + 2,
+      initial.cols,
+      initial.rows,
+      'LATEST_SUPERSEDING_CHECKPOINT',
+    )
+    let requests = 0
+    await page.route(routePattern, async route => {
+      requests += 1
+      if (requests === 1) {
+        const stale = checkpoint(
+          initial.runtimeEpoch,
+          initial.outputSeq + 1,
+          initial.stateRevision + 1,
+          initial.cols,
+          initial.rows,
+          'STALE_INSTALL_IN_PROGRESS',
+        )
+        await route.fulfill({ contentType: 'application/json', body: JSON.stringify(stale) })
+        return
+      }
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(latest) })
+    })
+
+    await page.evaluate(id => {
+      window.__farmingTerminalTest?.setCheckpointInstallCompletionHeld(id, true)
+      window.dispatchEvent(new Event('farming:backend-connected'))
+    }, agentId)
+    await page.waitForFunction(id => (
+      window.__farmingTerminalTest?.getBufferDiagnostics(id)?.replayInProgress === true
+    ), agentId)
+    await expect(terminalHost(page, agentId)).toHaveClass(/terminal-checkpoint-installing/)
+
+    await page.evaluate(id => {
+      window.dispatchEvent(new Event('farming:backend-connected'))
+      window.__farmingTerminalTest?.setCheckpointInstallCompletionHeld(id, false)
+    }, agentId)
+
+    await expect.poll(() => requests).toBeGreaterThanOrEqual(2)
+    await expect.poll(() => visibleText(page, agentId), { timeout: 15_000 })
+      .toContain('LATEST_SUPERSEDING_CHECKPOINT')
+    await expect(terminalHost(page, agentId)).not.toHaveClass(/terminal-checkpoint-installing/)
+    await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
+  })
+
   test('jumping to a completed command clears both viewport and attention unread state', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'terminal-jump-read-cut')
     fs.mkdirSync(workspace, { recursive: true })

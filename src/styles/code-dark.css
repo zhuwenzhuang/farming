@@ -1306,6 +1306,21 @@ body.code-mode[data-appearance='dark'] .code-terminal-search-button.option.activ
   color: var(--code-dark-accent);
 }
 
+body.code-mode[data-appearance='dark'] .code-terminal-recovery {
+  background: rgba(22, 27, 34, 0.94);
+  border-color: var(--code-dark-border);
+  color: var(--code-dark-text-soft);
+  box-shadow: 0 12px 32px var(--code-dark-shadow);
+}
+
+body.code-mode[data-appearance='dark'] .code-terminal-recovery-copy strong {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-terminal-recovery-copy > span {
+  color: var(--code-dark-text-soft);
+}
+
 body.code-mode[data-appearance='dark'] .code-terminal-status-card {
   background: rgba(22, 27, 34, 0.96);
   border-color: var(--code-dark-border);
