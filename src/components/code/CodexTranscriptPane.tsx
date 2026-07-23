@@ -1087,19 +1087,18 @@ function processEntriesForTurn(items: CodexTranscriptProcessItem[]) {
 const COMPACT_PROCESS_ACTION_LIMIT = 4
 
 function compactProcessEntries(entries: ProcessEntry[], turnStatus: CodexTranscriptTurn['status']) {
-  const eligible = entries.flatMap(entry => (
-    entry.kind === 'group'
-      ? entry.items.filter(item => turnStatus === 'inProgress' || isProcessItemFailed(item))
-      : isProcessItemFailed(entry.item) ? [entry.item] : []
-  ))
+  const eligible = turnStatus === 'inProgress'
+    ? entries.flatMap(entry => (
+        entry.kind === 'group'
+          ? entry.items.filter(item => !isProcessItemFailed(item))
+          : []
+      ))
+    : []
   const selectedIndexes = new Set<number>()
   for (let index = eligible.length - 1; index >= 0; index -= 1) {
     if (!isProcessItemRunning(eligible[index]!)) continue
     selectedIndexes.add(index)
     break
-  }
-  for (let index = eligible.length - 1; index >= 0 && selectedIndexes.size < COMPACT_PROCESS_ACTION_LIMIT; index -= 1) {
-    if (isProcessItemFailed(eligible[index]!)) selectedIndexes.add(index)
   }
   for (let index = eligible.length - 1; index >= 0 && selectedIndexes.size < COMPACT_PROCESS_ACTION_LIMIT; index -= 1) {
     selectedIndexes.add(index)
