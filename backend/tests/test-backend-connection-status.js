@@ -1,6 +1,11 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const {
+  BACKEND_HEARTBEAT_STALE_MS,
+  classifyBackendConnection,
+  reducePageVisibilitySnapshot,
+} = require('../../shared/backend-connection-status');
 
 function read(relativePath) {
   return fs.readFileSync(path.join(__dirname, '../..', relativePath), 'utf8');
@@ -13,6 +18,7 @@ function run() {
   const webSocketSource = read('src/hooks/useWebSocket.ts');
   const liveStatusSource = read('src/lib/backend-live-status.ts');
   const pageVisibilitySource = read('src/hooks/usePageVisibility.ts');
+  const connectionClassifierSource = read('shared/backend-connection-status.js');
   const copySource = read('src/components/code/copy.ts');
   const stylesSource = read('src/styles/main.css');
 
@@ -44,12 +50,15 @@ function run() {
   );
 
   assert(
-    connectionStatusSource.includes('const pageVisible = usePageVisibility()') &&
-      connectionStatusSource.includes('if (!pageVisible) return undefined') &&
+    connectionStatusSource.includes('const pageVisibility = usePageVisibilitySnapshot()') &&
+      connectionStatusSource.includes('if (!pageVisibility.visible) return undefined') &&
+      connectionStatusSource.includes('if (!pageVisibility.visible || !isPageVisible()) return null') &&
+      connectionStatusSource.includes('visibleSince: pageVisibility.visibleSince') &&
+      pageVisibilitySource.includes('reducePageVisibilitySnapshot(current') &&
       appSource.includes('const pageVisible = usePageVisibility()') &&
       appSource.includes('CONTEXT_WINDOW_REFRESH_MS') &&
       appSource.includes("fetch(appPath('/api/usage'))"),
-    'App should pause visible-only polling such as heartbeat display, context windows, and usage while the page is hidden'
+    'App should pause visible-only polling and restart heartbeat observation after the page becomes visible'
   );
 
   assert(
@@ -61,10 +70,10 @@ function run() {
   );
 
   assert(
-    connectionStatusSource.includes('BACKEND_INITIAL_CONNECT_GRACE_MS') &&
-      connectionStatusSource.includes('BACKEND_HEARTBEAT_STALE_MS') &&
-      connectionStatusSource.includes("return 'lost'") &&
-      connectionStatusSource.includes("return 'stale'") &&
+    connectionClassifierSource.includes('BACKEND_INITIAL_CONNECT_GRACE_MS') &&
+      connectionClassifierSource.includes('BACKEND_HEARTBEAT_STALE_MS') &&
+      connectionClassifierSource.includes("return 'lost'") &&
+      connectionClassifierSource.includes("return 'stale'") &&
       connectionStatusSource.includes('data-testid="connection-status"') &&
       appSource.includes('<BackendConnectionStatus copy={copy} />'),
     'The isolated connection component should classify initial connecting, disconnected, and stale states'
@@ -92,6 +101,56 @@ function run() {
       stylesSource.includes('bottom: calc(env(safe-area-inset-bottom, 0px) + 86px)'),
     'Connection status should have a visible Code-style banner and a mobile-safe position'
   );
+
+  const backgroundMessageAt = 1_000;
+  const foregroundAt = backgroundMessageAt + BACKEND_HEARTBEAT_STALE_MS + 10_000;
+  assert.strictEqual(classifyBackendConnection({
+    connected: true,
+    everConnected: true,
+    lastMessageAt: backgroundMessageAt,
+    visibleSince: foregroundAt,
+    now: foregroundAt,
+  }), null, 'Returning from a suspended background page should restart heartbeat observation');
+  assert.strictEqual(classifyBackendConnection({
+    connected: true,
+    everConnected: true,
+    lastMessageAt: backgroundMessageAt,
+    visibleSince: foregroundAt,
+    now: foregroundAt + BACKEND_HEARTBEAT_STALE_MS,
+  }), 'stale', 'A visible connected page should report stale after the full observation window');
+  assert.strictEqual(classifyBackendConnection({
+    connected: false,
+    everConnected: true,
+    lastMessageAt: foregroundAt,
+    visibleSince: foregroundAt,
+    now: foregroundAt,
+  }), 'lost', 'A real WebSocket close should remain immediately visible');
+
+  const hiddenSnapshot = { visible: false, visibleSince: backgroundMessageAt };
+  const hiddenPageShow = reducePageVisibilitySnapshot(hiddenSnapshot, {
+    eventType: 'pageshow',
+    documentVisible: false,
+    changedAt: foregroundAt - 1_000,
+  });
+  assert.strictEqual(hiddenPageShow, hiddenSnapshot, 'A background pageshow must not start visible heartbeat observation');
+  const foregroundSnapshot = reducePageVisibilitySnapshot(hiddenPageShow, {
+    eventType: 'visibilitychange',
+    documentVisible: true,
+    changedAt: foregroundAt,
+  });
+  assert.deepStrictEqual(foregroundSnapshot, {
+    visible: true,
+    visibleSince: foregroundAt,
+  }, 'The actual foreground transition should atomically start a fresh observation window');
+  const hiddenAgain = reducePageVisibilitySnapshot(foregroundSnapshot, {
+    eventType: 'pagehide',
+    documentVisible: true,
+    changedAt: foregroundAt + 1_000,
+  });
+  assert.deepStrictEqual(hiddenAgain, {
+    visible: false,
+    visibleSince: foregroundAt,
+  }, 'Pagehide should suppress visible-only heartbeat observation');
 
   console.log('test-backend-connection-status passed');
 }

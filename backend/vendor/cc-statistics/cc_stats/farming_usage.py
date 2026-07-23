@@ -28,8 +28,8 @@ from typing import Any, Iterable
 from .parser import _extract_codex_text, _extract_codex_token_usage, _to_int
 
 
-SCHEMA_VERSION = 4
-SOURCE_VERSION = "cc-statistics-1.1.0-c98be0a"
+SCHEMA_VERSION = 5
+SOURCE_VERSION = "cc-statistics-1.2.0-bucketed"
 PREFIX_BYTES = 64 * 1024
 READ_CHUNK_BYTES = 1024 * 1024
 MAX_JSON_LINE_BYTES = 8 * 1024 * 1024
@@ -37,6 +37,13 @@ MAX_JSON_KEY_BYTES = 256
 MAX_CAPTURED_SCALAR_BYTES = 64 * 1024
 DEFAULT_RETENTION_DAYS = 52 * 7
 DEFAULT_RECENT_RAW_MS = 24 * 60 * 60 * 1000
+DEFAULT_SCAN_BUDGET_MS = 5_000
+TOKEN_FIELDS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+)
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS metadata (
@@ -58,9 +65,40 @@ CREATE TABLE IF NOT EXISTS source_files (
     session_id TEXT NOT NULL,
     project_path TEXT NOT NULL,
     latest_quota_at INTEGER,
-    latest_quota TEXT
+    latest_quota TEXT,
+    scan_complete INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS usage_events (
+CREATE TABLE IF NOT EXISTS usage_hourly (
+    source_path TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    bucket_start_ms INTEGER NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cache_read_tokens INTEGER NOT NULL,
+    cache_write_tokens INTEGER NOT NULL,
+    event_count INTEGER NOT NULL,
+    PRIMARY KEY (source_path, provider, session_id, bucket_start_ms),
+    FOREIGN KEY (source_path) REFERENCES source_files(path) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS usage_hourly_provider_time
+    ON usage_hourly(provider, bucket_start_ms);
+CREATE TABLE IF NOT EXISTS recent_events (
+    source_path TEXT NOT NULL,
+    event_key TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    timestamp_ms INTEGER NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cache_read_tokens INTEGER NOT NULL,
+    cache_write_tokens INTEGER NOT NULL,
+    PRIMARY KEY (source_path, event_key),
+    FOREIGN KEY (source_path) REFERENCES source_files(path) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS recent_events_provider_time
+    ON recent_events(provider, timestamp_ms);
+CREATE TABLE IF NOT EXISTS dedupe_events (
     source_path TEXT NOT NULL,
     event_key TEXT NOT NULL,
     dedupe_key TEXT NOT NULL,
@@ -74,12 +112,8 @@ CREATE TABLE IF NOT EXISTS usage_events (
     PRIMARY KEY (source_path, event_key),
     FOREIGN KEY (source_path) REFERENCES source_files(path) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS usage_events_time
-    ON usage_events(timestamp_ms);
-CREATE INDEX IF NOT EXISTS usage_events_provider_session_time
-    ON usage_events(provider, session_id, timestamp_ms);
-CREATE INDEX IF NOT EXISTS usage_events_dedupe
-    ON usage_events(provider, session_id, dedupe_key, output_tokens);
+CREATE INDEX IF NOT EXISTS dedupe_events_lookup
+    ON dedupe_events(provider, session_id, dedupe_key, output_tokens);
 """
 
 
@@ -501,51 +535,88 @@ def _discover(roots: Iterable[str]) -> list[Path]:
     return sorted(files)
 
 
-def _connect(cache_file: Path) -> sqlite3.Connection:
+def _open_sqlite(cache_file: Path) -> sqlite3.Connection:
     cache_file.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(cache_file, timeout=30)
     connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA journal_mode=WAL")
-    connection.execute("PRAGMA synchronous=NORMAL")
-    connection.execute("PRAGMA foreign_keys=ON")
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS metadata "
-        "(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+    return connection
+
+
+def _open_sqlite_readonly(cache_file: Path) -> sqlite3.Connection:
+    connection = sqlite3.connect(
+        f"{cache_file.resolve().as_uri()}?mode=ro",
+        uri=True,
+        timeout=30,
     )
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def _cache_is_compatible(connection: sqlite3.Connection) -> bool:
+    tables = {
+        row["name"]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        )
+    }
+    if not tables:
+        return True
+    if "metadata" not in tables:
+        return False
     current = connection.execute(
         "SELECT value FROM metadata WHERE key = 'schema_version'"
     ).fetchone()
     current_source = connection.execute(
         "SELECT value FROM metadata WHERE key = 'source_version'"
     ).fetchone()
-    source_columns = {
-        row["name"]
-        for row in connection.execute("PRAGMA table_info(source_files)")
-    }
-    event_columns = {
-        row["name"]
-        for row in connection.execute("PRAGMA table_info(usage_events)")
-    }
-    if (
+    return (
         current is not None
-        and current["value"] != str(SCHEMA_VERSION)
-    ) or (
-        current_source is not None
-        and current_source["value"] != SOURCE_VERSION
-    ) or (
-        source_columns
-        and not {"prefix_bytes", "file_dev", "file_ino"}.issubset(source_columns)
-    ) or (
-        event_columns
-        and "dedupe_key" not in event_columns
-    ):
-        connection.executescript(
-            """
-            DROP TABLE IF EXISTS usage_events;
-            DROP TABLE IF EXISTS source_files;
-            DELETE FROM metadata;
-            """
-        )
+        and current["value"] == str(SCHEMA_VERSION)
+        and current_source is not None
+        and current_source["value"] == SOURCE_VERSION
+        and {
+            "source_files",
+            "usage_hourly",
+            "recent_events",
+            "dedupe_events",
+        }.issubset(tables)
+    )
+
+
+def _remove_cache_files(cache_file: Path) -> None:
+    for suffix in ("", "-wal", "-shm"):
+        try:
+            Path(f"{cache_file}{suffix}").unlink(missing_ok=True)
+        except OSError:
+            if suffix == "":
+                raise
+
+
+def _connect(cache_file: Path) -> tuple[sqlite3.Connection, bool]:
+    rebuilt = False
+    if cache_file.exists():
+        probe: sqlite3.Connection | None = None
+        try:
+            probe = _open_sqlite_readonly(cache_file)
+            compatible = _cache_is_compatible(probe)
+        except sqlite3.OperationalError as error:
+            if any(marker in str(error).lower() for marker in ("locked", "busy")):
+                raise
+            compatible = False
+        except sqlite3.DatabaseError:
+            compatible = False
+        finally:
+            if probe is not None:
+                probe.close()
+        if not compatible:
+            _remove_cache_files(cache_file)
+            rebuilt = True
+
+    connection = _open_sqlite(cache_file)
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA synchronous=NORMAL")
+    connection.execute("PRAGMA foreign_keys=ON")
     connection.executescript(SCHEMA_SQL)
     connection.execute(
         "INSERT OR REPLACE INTO metadata(key, value) VALUES('schema_version', ?)",
@@ -560,7 +631,7 @@ def _connect(cache_file: Path) -> sqlite3.Connection:
         os.chmod(cache_file, 0o600)
     except OSError:
         pass
-    return connection
+    return connection, rebuilt
 
 
 def _empty_state(provider: str, path: Path) -> dict[str, Any]:
@@ -595,8 +666,8 @@ def _insert_source_file(
             path, provider, size, mtime_ns, committed_offset, file_dev, file_ino,
             prefix_bytes, prefix_sha256,
             carry, parser_state, session_id, project_path,
-            latest_quota_at, latest_quota
-        ) VALUES(?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, '', NULL, NULL)
+            latest_quota_at, latest_quota, scan_complete
+        ) VALUES(?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, '', NULL, NULL, 0)
         """,
         (
             str(path),
@@ -720,6 +791,51 @@ def _interesting_line(provider: str, line: bytes) -> bool:
     return b'"assistant"' in line
 
 
+def _local_hour_ms(timestamp_ms: int) -> int:
+    local_hour = datetime.fromtimestamp(
+        timestamp_ms / 1000,
+        tz=timezone.utc,
+    ).astimezone().replace(minute=0, second=0, microsecond=0)
+    return int(local_hour.timestamp() * 1000)
+
+
+def _hourly_add(
+    connection: sqlite3.Connection,
+    *,
+    path: Path,
+    provider: str,
+    session_id: str,
+    timestamp_ms: int,
+    usage: dict[str, int],
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO usage_hourly(
+            source_path, provider, session_id, bucket_start_ms,
+            input_tokens, output_tokens, cache_read_tokens,
+            cache_write_tokens, event_count
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, 1)
+        ON CONFLICT(source_path, provider, session_id, bucket_start_ms)
+        DO UPDATE SET
+            input_tokens = input_tokens + excluded.input_tokens,
+            output_tokens = output_tokens + excluded.output_tokens,
+            cache_read_tokens = cache_read_tokens + excluded.cache_read_tokens,
+            cache_write_tokens = cache_write_tokens + excluded.cache_write_tokens,
+            event_count = event_count + 1
+        """,
+        (
+            str(path),
+            provider,
+            session_id,
+            _local_hour_ms(timestamp_ms),
+            usage["input_tokens"],
+            usage["output_tokens"],
+            usage["cache_read_tokens"],
+            usage["cache_write_tokens"],
+        ),
+    )
+
+
 def _event_upsert(
     connection: sqlite3.Connection,
     *,
@@ -730,23 +846,12 @@ def _event_upsert(
     timestamp_ms: int,
     usage: dict[str, int],
     deduplicate_by_output: bool,
+    recent_cutoff_ms: int,
 ) -> None:
-    values = (
-        str(path),
-        event_key,
-        event_key.removeprefix("message:") if event_key.startswith("message:") else "",
-        provider,
-        session_id,
-        timestamp_ms,
-        usage["input_tokens"],
-        usage["output_tokens"],
-        usage["cache_read_tokens"],
-        usage["cache_write_tokens"],
-    )
     if deduplicate_by_output:
         connection.execute(
             """
-            INSERT INTO usage_events(
+            INSERT INTO dedupe_events(
                 source_path, event_key, dedupe_key, provider, session_id, timestamp_ms,
                 input_tokens, output_tokens, cache_read_tokens,
                 cache_write_tokens
@@ -758,21 +863,131 @@ def _event_upsert(
                 output_tokens = excluded.output_tokens,
                 cache_read_tokens = excluded.cache_read_tokens,
                 cache_write_tokens = excluded.cache_write_tokens
-            WHERE excluded.output_tokens > usage_events.output_tokens
+            WHERE excluded.output_tokens > dedupe_events.output_tokens
             """,
-            values,
+            (
+                str(path),
+                event_key,
+                event_key.removeprefix("message:"),
+                provider,
+                session_id,
+                timestamp_ms,
+                usage["input_tokens"],
+                usage["output_tokens"],
+                usage["cache_read_tokens"],
+                usage["cache_write_tokens"],
+            ),
         )
-    else:
+        return
+
+    _hourly_add(
+        connection,
+        path=path,
+        provider=provider,
+        session_id=session_id,
+        timestamp_ms=timestamp_ms,
+        usage=usage,
+    )
+    if timestamp_ms >= recent_cutoff_ms:
         connection.execute(
             """
-            INSERT OR IGNORE INTO usage_events(
-                source_path, event_key, dedupe_key, provider, session_id, timestamp_ms,
+            INSERT OR IGNORE INTO recent_events(
+                source_path, event_key, provider, session_id, timestamp_ms,
                 input_tokens, output_tokens, cache_read_tokens,
                 cache_write_tokens
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            values,
+            (
+                str(path),
+                event_key,
+                provider,
+                session_id,
+                timestamp_ms,
+                usage["input_tokens"],
+                usage["output_tokens"],
+                usage["cache_read_tokens"],
+                usage["cache_write_tokens"],
+            ),
         )
+
+
+def _normalize_source_session(
+    connection: sqlite3.Connection,
+    path: Path,
+    session_id: str,
+) -> None:
+    source_path = str(path)
+    mismatched = connection.execute(
+        """
+        SELECT 1 FROM usage_hourly
+        WHERE source_path = ? AND session_id != ?
+        UNION ALL
+        SELECT 1 FROM recent_events
+        WHERE source_path = ? AND session_id != ?
+        UNION ALL
+        SELECT 1 FROM dedupe_events
+        WHERE source_path = ? AND session_id != ?
+        LIMIT 1
+        """,
+        (
+            source_path,
+            session_id,
+            source_path,
+            session_id,
+            source_path,
+            session_id,
+        ),
+    ).fetchone()
+    if mismatched is None:
+        return
+
+    hourly_rows = connection.execute(
+        """
+        SELECT provider, bucket_start_ms,
+               SUM(input_tokens) AS input_tokens,
+               SUM(output_tokens) AS output_tokens,
+               SUM(cache_read_tokens) AS cache_read_tokens,
+               SUM(cache_write_tokens) AS cache_write_tokens,
+               SUM(event_count) AS event_count
+        FROM usage_hourly
+        WHERE source_path = ?
+        GROUP BY provider, bucket_start_ms
+        """,
+        (source_path,),
+    ).fetchall()
+    connection.execute(
+        "DELETE FROM usage_hourly WHERE source_path = ?",
+        (source_path,),
+    )
+    for row in hourly_rows:
+        connection.execute(
+            """
+            INSERT INTO usage_hourly(
+                source_path, provider, session_id, bucket_start_ms,
+                input_tokens, output_tokens, cache_read_tokens,
+                cache_write_tokens, event_count
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                source_path,
+                row["provider"],
+                session_id,
+                row["bucket_start_ms"],
+                row["input_tokens"],
+                row["output_tokens"],
+                row["cache_read_tokens"],
+                row["cache_write_tokens"],
+                row["event_count"],
+            ),
+        )
+    connection.execute(
+        "UPDATE recent_events SET session_id = ? WHERE source_path = ?",
+        (session_id, source_path),
+    )
+    connection.execute(
+        "UPDATE dedupe_events SET session_id = ? WHERE source_path = ?",
+        (session_id, source_path),
+    )
 
 
 def _scan_file(
@@ -781,16 +996,19 @@ def _scan_file(
     provider: str,
     stat: os.stat_result,
     metrics: dict[str, int],
-) -> None:
+    recent_cutoff_ms: int,
+    deadline: float,
+) -> bool:
     row = _file_row(connection, path)
     if (
         row is not None
         and row["provider"] == provider
         and stat.st_size == row["size"]
         and stat.st_mtime_ns == row["mtime_ns"]
+        and int(row["scan_complete"]) == 1
     ):
         metrics["reused_files"] += 1
-        return
+        return True
 
     rebuild = row is None or row["provider"] != provider
     prefix_bytes = min(stat.st_size, PREFIX_BYTES)
@@ -804,13 +1022,19 @@ def _scan_file(
         )
         if stat.st_size < int(row["committed_offset"]) or not same_identity:
             rebuild = True
-        elif stat.st_size == int(row["size"]):
+        elif (
+            stat.st_size == int(row["size"])
+            and (
+                int(row["scan_complete"]) == 1
+                or stat.st_mtime_ns != int(row["mtime_ns"])
+            )
+        ):
             prefix_bytes = int(row["prefix_bytes"])
             prefix_sha256, bytes_read = _prefix_hash(path, prefix_bytes)
             metrics["bytes_read"] += bytes_read
             if prefix_sha256 != row["prefix_sha256"]:
                 rebuild = True
-            else:
+            elif int(row["scan_complete"]) == 1:
                 connection.execute(
                     """
                     UPDATE source_files SET
@@ -825,7 +1049,7 @@ def _scan_file(
                     ),
                 )
                 metrics["reused_files"] += 1
-                return
+                return True
 
     if rebuild:
         if row is not None:
@@ -914,6 +1138,7 @@ def _scan_file(
             timestamp_ms=timestamp_ms,
             usage=usage,
             deduplicate_by_output=bool(message_id),
+            recent_cutoff_ms=recent_cutoff_ms,
         )
         metrics["parsed_events"] += 1
         return True
@@ -932,6 +1157,7 @@ def _scan_file(
     line_start = offset
     pending_line = b""
     large_fields: _BoundedJsonFields | None = None
+    stopped_for_budget = False
     with path.open("rb") as handle:
         handle.seek(offset)
         while True:
@@ -967,6 +1193,14 @@ def _scan_file(
                     pending_line = b""
                     large_fields = None
                 cursor = end
+            if (
+                time.monotonic() >= deadline
+                and not pending_line
+                and large_fields is None
+            ):
+                stopped_for_budget = physical_offset < stat.st_size
+                if stopped_for_budget:
+                    break
 
     if large_fields is not None:
         obj = large_fields.record(provider)
@@ -983,13 +1217,14 @@ def _scan_file(
         committed_offset = line_start
 
     final_stat = path.stat()
+    scan_complete = not stopped_for_budget and physical_offset >= final_stat.st_size
     connection.execute(
         """
         UPDATE source_files SET
             size = ?, mtime_ns = ?, committed_offset = ?,
             file_dev = ?, file_ino = ?, prefix_bytes = ?, prefix_sha256 = ?,
             carry = ?, parser_state = ?, session_id = ?, project_path = ?,
-            latest_quota_at = ?, latest_quota = ?
+            latest_quota_at = ?, latest_quota = ?, scan_complete = ?
         WHERE path = ?
         """,
         (
@@ -1010,14 +1245,16 @@ def _scan_file(
                 if latest_quota is not None
                 else None
             ),
+            1 if scan_complete else 0,
             str(path),
         ),
     )
-    connection.execute(
-        "UPDATE usage_events SET session_id = ? WHERE source_path = ?",
-        (state["session_id"], str(path)),
-    )
-    metrics["scanned_files"] += 1
+    _normalize_source_session(connection, path, state["session_id"])
+    if scan_complete:
+        metrics["scanned_files"] += 1
+    else:
+        metrics["partial_files"] += 1
+    return scan_complete
 
 
 def _event_dict(row: sqlite3.Row, timestamp_ms: int | None = None) -> dict[str, Any]:
@@ -1048,19 +1285,44 @@ def _provider_events(
     retention_cutoff_ms: int,
     recent_cutoff_ms: int,
 ) -> list[dict[str, Any]]:
-    rows = connection.execute(
+    recent_boundary_ms = _local_hour_ms(recent_cutoff_ms)
+    hourly_rows = connection.execute(
+        """
+        SELECT session_id, bucket_start_ms AS timestamp_ms,
+               input_tokens, output_tokens, cache_read_tokens,
+               cache_write_tokens
+        FROM usage_hourly
+        WHERE provider = ?
+          AND bucket_start_ms >= ?
+          AND bucket_start_ms < ?
+        ORDER BY bucket_start_ms
+        """,
+        (provider, _local_hour_ms(retention_cutoff_ms), recent_boundary_ms),
+    ).fetchall()
+    recent_rows = connection.execute(
+        """
+        SELECT session_id, timestamp_ms, input_tokens, output_tokens,
+               cache_read_tokens, cache_write_tokens
+        FROM recent_events
+        WHERE provider = ?
+          AND timestamp_ms >= ?
+        ORDER BY timestamp_ms
+        """,
+        (provider, recent_boundary_ms),
+    ).fetchall()
+    dedupe_rows = connection.execute(
         """
         SELECT e.source_path, e.event_key, e.dedupe_key, e.session_id,
                e.timestamp_ms, e.input_tokens, e.output_tokens,
                e.cache_read_tokens, e.cache_write_tokens
-        FROM usage_events AS e
+        FROM dedupe_events AS e
         WHERE e.provider = ?
           AND e.timestamp_ms >= ?
           AND (
             e.dedupe_key = ''
             OR NOT EXISTS (
               SELECT 1
-              FROM usage_events AS better
+              FROM dedupe_events AS better
               WHERE better.provider = e.provider
                 AND better.session_id = e.session_id
                 AND better.dedupe_key = e.dedupe_key
@@ -1082,19 +1344,17 @@ def _provider_events(
         ORDER BY e.timestamp_ms
         """,
         (provider, retention_cutoff_ms),
-    )
-    recent: list[dict[str, Any]] = []
+    ).fetchall()
+    events = [_event_dict(row) for row in hourly_rows]
+    events.extend(_event_dict(row) for row in recent_rows)
+    dedupe_recent: list[dict[str, Any]] = []
     older: dict[tuple[str, int], dict[str, Any]] = {}
-    for row in rows:
+    for row in dedupe_rows:
         timestamp_ms = int(row["timestamp_ms"])
-        if timestamp_ms >= recent_cutoff_ms:
-            recent.append(_event_dict(row))
+        if timestamp_ms >= recent_boundary_ms:
+            dedupe_recent.append(_event_dict(row))
             continue
-        local_hour = datetime.fromtimestamp(
-            timestamp_ms / 1000,
-            tz=timezone.utc,
-        ).astimezone().replace(minute=0, second=0, microsecond=0)
-        hour_timestamp_ms = int(local_hour.timestamp() * 1000)
+        hour_timestamp_ms = _local_hour_ms(timestamp_ms)
         key = (row["session_id"], hour_timestamp_ms)
         aggregate = older.get(key)
         if aggregate is None:
@@ -1107,21 +1367,14 @@ def _provider_events(
                 "cache_write_tokens": 0,
             }
             older[key] = aggregate
-        for field in (
-            "input_tokens",
-            "output_tokens",
-            "cache_read_tokens",
-            "cache_write_tokens",
-        ):
+        for field in TOKEN_FIELDS:
             aggregate[field] += int(row[field])
-    older_events = [
-        _event_dict(row)
-        for row in sorted(
-            older.values(),
-            key=lambda row: (row["timestamp_ms"], row["session_id"]),
-        )
-    ]
-    return older_events + recent
+    events.extend(_event_dict(row) for row in older.values())
+    events.extend(dedupe_recent)
+    return sorted(
+        events,
+        key=lambda event: (event["timestamp"], event["sessionId"]),
+    )
 
 
 def _latest_quotas(
@@ -1158,6 +1411,9 @@ def collect_usage(request: dict[str, Any]) -> dict[str, Any]:
     recent_raw_ms = max(
         60_000, int(request.get("recentRawMs") or DEFAULT_RECENT_RAW_MS)
     )
+    scan_budget_ms = max(
+        100, int(request.get("scanBudgetMs") or DEFAULT_SCAN_BUDGET_MS)
+    )
     roots_by_provider = _json_dict(request.get("roots"))
     providers = ("codex", "claude")
     discovered: dict[str, list[Path]] = {
@@ -1167,6 +1423,7 @@ def collect_usage(request: dict[str, Any]) -> dict[str, Any]:
     metrics = {
         "discovered_files": sum(len(paths) for paths in discovered.values()),
         "scanned_files": 0,
+        "partial_files": 0,
         "reused_files": 0,
         "appended_files": 0,
         "rebuilt_files": 0,
@@ -1177,20 +1434,57 @@ def collect_usage(request: dict[str, Any]) -> dict[str, Any]:
         "errors": 0,
         "errors_by_provider": {provider: 0 for provider in providers},
     }
-    connection = _connect(cache_file)
-    seen: set[str] = set()
+    connection, cache_rebuilt = _connect(cache_file)
+    metrics["cache_rebuilt"] = cache_rebuilt
+    seen = {
+        str(path)
+        for provider in providers
+        for path in discovered[provider]
+    }
     try:
+        candidates: list[tuple[int, str, Path, os.stat_result]] = []
         for provider in providers:
             for path in discovered[provider]:
-                seen.add(str(path))
                 try:
                     stat = path.stat()
-                    _scan_file(connection, path, provider, stat, metrics)
-                    connection.commit()
-                except (OSError, ValueError, sqlite3.Error, json.JSONDecodeError):
+                    candidates.append((stat.st_mtime_ns, provider, path, stat))
+                except OSError:
                     metrics["errors"] += 1
                     metrics["errors_by_provider"][provider] += 1
-                    connection.rollback()
+        candidates.sort(key=lambda candidate: candidate[0], reverse=True)
+
+        retention_cutoff_ms = now_ms - retention_days * 24 * 60 * 60 * 1000
+        recent_cutoff_ms = max(
+            retention_cutoff_ms, now_ms - recent_raw_ms
+        )
+        recent_boundary_ms = _local_hour_ms(recent_cutoff_ms)
+        deadline = time.monotonic() + scan_budget_ms / 1000
+        scan_complete = True
+        pending_files = 0
+        for index, (_, provider, path, stat) in enumerate(candidates):
+            if index > 0 and time.monotonic() >= deadline:
+                scan_complete = False
+                pending_files = len(candidates) - index
+                break
+            try:
+                file_complete = _scan_file(
+                    connection,
+                    path,
+                    provider,
+                    stat,
+                    metrics,
+                    recent_boundary_ms,
+                    deadline,
+                )
+                connection.commit()
+                if not file_complete:
+                    scan_complete = False
+                    pending_files = len(candidates) - index
+                    break
+            except (OSError, ValueError, sqlite3.Error, json.JSONDecodeError):
+                metrics["errors"] += 1
+                metrics["errors_by_provider"][provider] += 1
+                connection.rollback()
 
         cached_paths = {
             row["path"]
@@ -1203,18 +1497,33 @@ def collect_usage(request: dict[str, Any]) -> dict[str, Any]:
             )
         metrics["removed_files"] = len(stale_paths)
 
-        retention_cutoff_ms = now_ms - retention_days * 24 * 60 * 60 * 1000
         before = connection.total_changes
         connection.execute(
-            "DELETE FROM usage_events WHERE timestamp_ms < ?",
+            "DELETE FROM usage_hourly WHERE bucket_start_ms < ?",
+            (_local_hour_ms(retention_cutoff_ms),),
+        )
+        connection.execute(
+            "DELETE FROM recent_events WHERE timestamp_ms < ?",
+            (recent_boundary_ms,),
+        )
+        connection.execute(
+            "DELETE FROM dedupe_events WHERE timestamp_ms < ?",
             (retention_cutoff_ms,),
         )
         metrics["pruned_events"] = connection.total_changes - before
         connection.commit()
 
-        recent_cutoff_ms = max(
-            retention_cutoff_ms, now_ms - recent_raw_ms
-        )
+        metrics["scan_complete"] = scan_complete
+        metrics["pending_files"] = pending_files
+        metrics["hourly_rows"] = connection.execute(
+            "SELECT COUNT(*) AS count FROM usage_hourly"
+        ).fetchone()["count"]
+        metrics["recent_rows"] = connection.execute(
+            "SELECT COUNT(*) AS count FROM recent_events"
+        ).fetchone()["count"]
+        metrics["dedupe_rows"] = connection.execute(
+            "SELECT COUNT(*) AS count FROM dedupe_events"
+        ).fetchone()["count"]
         result_providers: dict[str, Any] = {}
         for provider in providers:
             provider_errors = metrics["errors_by_provider"][provider]
@@ -1236,6 +1545,7 @@ def collect_usage(request: dict[str, Any]) -> dict[str, Any]:
                 ),
                 "fileCount": len(discovered[provider]),
                 "available": provider_available,
+                "partial": not scan_complete,
                 **(
                     {}
                     if provider_available

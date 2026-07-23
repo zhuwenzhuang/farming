@@ -466,6 +466,7 @@ export interface UsageDailyHistory {
   startDate: string
   endDate: string
   partial?: boolean
+  syncing?: boolean
   summary: {
     todayTokens: number
     sevenDayTokens: number

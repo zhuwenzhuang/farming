@@ -1,43 +1,32 @@
 import { useEffect, useState } from 'react'
 import type { CodeCopy } from '@/components/code/copy'
-import { usePageVisibility } from '@/hooks/usePageVisibility'
+import { isPageVisible, usePageVisibilitySnapshot } from '@/hooks/usePageVisibility'
 import { useBackendConnectionStatus } from '@/lib/backend-live-status'
-
-const BACKEND_INITIAL_CONNECT_GRACE_MS = 3000
-const BACKEND_HEARTBEAT_STALE_MS = 6000
+import { classifyBackendConnection } from '../../shared/backend-connection-status.js'
 
 type ConnectionState = 'connecting' | 'lost' | 'stale' | null
 
-function classifyBackendConnection(
-  connected: boolean,
-  everConnected: boolean,
-  lastMessageAt: number,
-  now: number,
-): ConnectionState {
-  const elapsed = Math.max(0, now - lastMessageAt)
-  if (!connected && everConnected) return 'lost'
-  if (!connected && elapsed >= BACKEND_INITIAL_CONNECT_GRACE_MS) return 'connecting'
-  if (connected && elapsed >= BACKEND_HEARTBEAT_STALE_MS) return 'stale'
-  return null
-}
-
 export function BackendConnectionStatus({ copy }: { copy: CodeCopy }) {
   const connection = useBackendConnectionStatus()
-  const pageVisible = usePageVisibility()
+  const pageVisibility = usePageVisibilitySnapshot()
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
-    if (!pageVisible) return undefined
+    if (!pageVisibility.visible) return undefined
+    setNow(Date.now())
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
-  }, [pageVisible])
+  }, [pageVisibility.visible])
 
-  const state = classifyBackendConnection(
-    connection.connected,
-    connection.everConnected,
-    connection.lastMessageAt,
+  if (!pageVisibility.visible || !isPageVisible()) return null
+
+  const state = classifyBackendConnection({
+    connected: connection.connected,
+    everConnected: connection.everConnected,
+    lastMessageAt: connection.lastMessageAt,
+    visibleSince: pageVisibility.visibleSince,
     now,
-  )
+  }) as ConnectionState
   if (!state) return null
 
   const message = state === 'lost'

@@ -364,6 +364,7 @@ async function run() {
   assert.strictEqual(summary.timeline.endAt % (60 * 60 * 1000), 0);
   assert.strictEqual(summary.timeline.totalTokens, 22_148);
   assert.strictEqual(summary.daily.points.length, 52 * 7);
+  assert.strictEqual(summary.daily.syncing, false);
   assert.strictEqual(summary.daily.summary.todayTokens, 22_148);
   assert.strictEqual(summary.daily.points.at(-1).cacheReadTokens, 80);
   assert.strictEqual(summary.daily.points.at(-1).cacheWriteTokens, 40);

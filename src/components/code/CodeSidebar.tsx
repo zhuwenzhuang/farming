@@ -1759,9 +1759,10 @@ function UsageActivityHeatmaps({ usageSummary }: { usageSummary: UsageSummary })
   const timelineLabel = formatUsageWindow(Number(usageSummary.timeline?.windowMs) / 60_000).toLowerCase()
   const sevenDayTotal = dailyPoints?.slice(-7).reduce((sum, point) => sum + point.totalTokens, 0) ?? 0
   const dailyTotal = dailyPoints?.reduce((sum, point) => sum + point.totalTokens, 0) ?? 0
-  const readout = inspection
+  const baseReadout = inspection
     ? `${inspection.label} · ${formatExactTokenCount(inspection.tokens)} tokens`
     : `${timelinePoints ? `${timelineLabel} ${formatCompactNumber(timelineTotal)}` : ''}${timelinePoints && dailyPoints ? ' · ' : ''}${dailyPoints ? `7d ${formatCompactNumber(sevenDayTotal)} · 52w ${formatCompactNumber(dailyTotal)}` : ''}`
+  const readout = `${baseReadout}${usageSummary.daily?.syncing === true ? ' · syncing history' : ''}`
 
   return (
     <div className="code-usage-activity" onMouseLeave={() => setInspection(null)}>

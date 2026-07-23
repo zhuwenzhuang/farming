@@ -17,6 +17,7 @@ const COMMAND_TIMEOUT_MS = 2500;
 const OPENCODE_COMMAND_TIMEOUT_MS = 20_000;
 const OPENCODE_EXPORT_CONCURRENCY = 4;
 const OPENCODE_SESSION_LIMIT = 5000;
+const OPENCODE_SESSION_CACHE_LIMIT = 5000;
 const openCodeSessionEventCache = new Map();
 
 function numberOrNull(value) {
@@ -507,6 +508,16 @@ function openCodeTokenEventsFromExport(sessionExport, options = {}) {
   return events;
 }
 
+function cacheOpenCodeSessionEvents(cacheKey, value) {
+  openCodeSessionEventCache.delete(cacheKey);
+  openCodeSessionEventCache.set(cacheKey, value);
+  while (openCodeSessionEventCache.size > OPENCODE_SESSION_CACHE_LIMIT) {
+    const oldestKey = openCodeSessionEventCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    openCodeSessionEventCache.delete(oldestKey);
+  }
+}
+
 async function collectOpenCodeDailyEvents(homePaths, options = {}) {
   const now = options.now ?? Date.now();
   const cutoffMs = options.cutoffMs ?? 0;
@@ -548,6 +559,7 @@ async function collectOpenCodeDailyEvents(homePaths, options = {}) {
       const cacheKey = `${session.openCodeHome}:${session.id}`;
       const cached = openCodeSessionEventCache.get(cacheKey);
       if (cached?.updatedAt === session.updatedAt) {
+        cacheOpenCodeSessionEvents(cacheKey, cached);
         successfulExports += 1;
         events.push(...cached.events);
         continue;
@@ -561,7 +573,10 @@ async function collectOpenCodeDailyEvents(homePaths, options = {}) {
         const sessionEvents = openCodeTokenEventsFromExport(exported, { cutoffMs, now })
           .map(event => attributeUsageEvent(event, 'opencode', session.id));
         successfulExports += 1;
-        openCodeSessionEventCache.set(cacheKey, { updatedAt: session.updatedAt, events: sessionEvents });
+        cacheOpenCodeSessionEvents(
+          cacheKey,
+          { updatedAt: session.updatedAt, events: sessionEvents },
+        );
         events.push(...sessionEvents);
       } catch (error) {
         partial = true;
@@ -661,6 +676,7 @@ async function collectUsageHistory(options = {}) {
     daily: {
       ...buildDailyUsage(providerEvents, { now, days }),
       partial: codex.available !== true || claude.available !== true || openCode.partial,
+      syncing: ccStatistics.result.cache?.scan_complete === false,
       coverage,
       ccStatisticsCache: ccStatistics.result.cache,
     },

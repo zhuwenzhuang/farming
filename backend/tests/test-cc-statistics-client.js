@@ -182,7 +182,7 @@ async function run() {
     fresh: true,
   };
   const cold = await client.collect(request);
-  assert.strictEqual(cold.source, 'cc-statistics-1.1.0-c98be0a');
+  assert.strictEqual(cold.source, 'cc-statistics-1.2.0-bucketed');
   assert.strictEqual(cold.cache.rebuilt_files, 6);
   assert.strictEqual(cold.cache.scanned_files, 6);
   assert.strictEqual(cold.cache.pruned_events, 1,
@@ -270,8 +270,29 @@ async function run() {
     claudeRoots: [],
     fresh: true,
   });
-  assert.strictEqual(legacyMigrated.schemaVersion, 4,
+  assert.strictEqual(legacyMigrated.schemaVersion, 5,
     'a real v2 table layout must migrate before indexes reference new columns');
+  assert.strictEqual(legacyMigrated.cache.cache_rebuilt, true,
+    'an incompatible derived cache must be deleted and rebuilt automatically');
+  const rebuiltSchemaCode = [
+    'import sqlite3, sys',
+    'db = sqlite3.connect(sys.argv[1])',
+    `names = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")]`,
+    'print(",".join(names))',
+  ].join(';');
+  const rebuiltSchemaArgs = client.python.toLowerCase().endsWith('py.exe')
+    ? ['-3', '-c', rebuiltSchemaCode, legacyCacheFile]
+    : ['-c', rebuiltSchemaCode, legacyCacheFile];
+  const rebuiltSchema = spawnSync(client.python, rebuiltSchemaArgs, { encoding: 'utf8' });
+  assert.strictEqual(rebuiltSchema.status, 0, rebuiltSchema.stderr);
+  const rebuiltTableNames = rebuiltSchema.stdout.trim().split(',');
+  assert(!rebuiltTableNames.includes('usage_events'),
+    'the incompatible raw-event table must not survive cache recreation');
+  assert.deepStrictEqual(
+    ['dedupe_events', 'metadata', 'recent_events', 'source_files', 'usage_hourly']
+      .filter(name => !rebuiltTableNames.includes(name)),
+    [],
+  );
 
   const migrationCode = [
     'import sqlite3, sys',
@@ -287,6 +308,73 @@ async function run() {
   const migrated = await client.collect({ ...request, now: now + 10_000, fresh: true });
   assert.strictEqual(migrated.cache.rebuilt_files, 6,
     'a cc-statistics source-version change must invalidate old normalized events');
+
+  const scaleRoot = path.join(root, 'scale-codex');
+  const scaleFile = path.join(scaleRoot, 'rollout-scale.jsonl');
+  const scaleRecords = [
+    {
+      timestamp: '2026-07-20T10:00:00.000Z',
+      type: 'session_meta',
+      payload: { id: 'scale-session', cwd: '/scale' },
+    },
+    {
+      timestamp: '2026-07-20T10:01:00.000Z',
+      type: 'event_msg',
+      payload: { type: 'agent_message', message: 'done' },
+    },
+    ...Array.from({ length: 20_000 }, (_, index) => codexToken(
+      `2026-07-20T10:${String(1 + Math.floor(index / 1000)).padStart(2, '0')}:00.000Z`,
+      index + 1,
+      { input_tokens: 1, output_tokens: 1 },
+    )),
+  ];
+  writeJsonl(scaleFile, scaleRecords);
+  const scaleConfigDir = path.join(root, 'scale-config');
+  const scaled = await new CCStatisticsClient({
+    configDir: scaleConfigDir,
+    timeoutMs: 30_000,
+  }).collect({
+    now,
+    codexRoots: [scaleRoot],
+    claudeRoots: [],
+    scanBudgetMs: 30_000,
+    fresh: true,
+  });
+  assert.strictEqual(scaled.cache.scan_complete, true);
+  assert.strictEqual(scaled.providers.codex.events.length, 1);
+  assert.strictEqual(sumTokens(scaled.providers.codex.events), 40_000);
+  assert.strictEqual(scaled.cache.hourly_rows, 1,
+    'long-term Codex storage must grow by active session-hours, not token events');
+  assert.strictEqual(scaled.cache.recent_rows, 0);
+  assert.strictEqual(scaled.cache.dedupe_rows, 0);
+
+  let backgroundCalls = 0;
+  const backgroundClient = new CCStatisticsClient({
+    configDir: path.join(root, 'background-config'),
+    async probe() {},
+    async runner() {
+      backgroundCalls += 1;
+      return {
+        ...cold,
+        cache: {
+          ...cold.cache,
+          scan_complete: backgroundCalls >= 2,
+          pending_files: backgroundCalls >= 2 ? 0 : 1,
+        },
+      };
+    },
+  });
+  const partial = await backgroundClient.collect({
+    now,
+    codexRoots: [],
+    claudeRoots: [],
+    fresh: true,
+  });
+  assert.strictEqual(partial.cache.scan_complete, false);
+  await new Promise(resolve => setTimeout(resolve, 250));
+  assert.strictEqual(backgroundCalls, 2,
+    'a bounded first result must continue rebuilding in one background scanner');
+  assert.strictEqual(backgroundClient.cached.cache.scan_complete, true);
 
   writeJsonl(codexFile, [
     {

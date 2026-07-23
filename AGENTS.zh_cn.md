@@ -678,7 +678,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - `sessions/index.json` 维护主页面真实 provider-session membership；`mainPageSessionKeys` 只是 API 兼容投影。Codex `tmp_uuid...` live id 不得进入这里；不在列表里的 Codex / Claude provider session 只出现在 History；Move to History / Move Project to History 会从这里移除对应 key，从 History 恢复会写回 key。
 - 归档 run/history 存储在 `~/.farming/history/runs.json`，不属于 `settings.json`；其中可选的 `customTitle` 用于在恢复时保留用户明确重命名过的 Agent 名称，旧记录没有该字段也继续兼容。
 - config 目录下后端自有文件路径统一由 `backend/storage-layout.js` 定义；新增 `settings.json`、`theme-settings.json`、`.session-token`、`sessions/`、`history/`、server pid/state/log、native pty host log 这类路径时，不要在功能模块里手写 `path.join(configDir, ...)`。Codex `~/.codex/sessions`、Claude history 等外部 provider 历史是只读集成，不属于 Farming 自有元数据。
-- Codex / Claude usage 的 Farming 自有缓存位于 `history/cc-statistics-usage-v1.sqlite3`。cc-statistics 适配层按源文件保存前缀指纹、已提交字节偏移、累计状态和标准事件；文件截断或前缀不一致时只重建该文件。默认保留 52 周，近期事件保持原始精度，较早输出按 Session 与小时聚合，过期事件自动清理但继续保留增量状态。刷新路径不得恢复全历史 `rg`、JavaScript token 解析或整文件读取。Python 核心跨平台、要求 Python 3.10+ 且无第三方 Python 依赖；运行时缺失时必须明确显示 usage 不可用，不得切换到另一套统计器。
+- Codex / Claude usage 的 Farming 自有缓存位于 `history/cc-statistics-usage-v1.sqlite3`。cc-statistics 适配层按源文件保存前缀指纹、已提交字节偏移和累计状态；文件截断或前缀不一致时只重建该文件。Codex 长期数据写入时直接按“源文件 / Session / 本地小时”分桶，近期窗口保留精确事件；Claude 只保留跨文件消息去重所必需的事件行。默认保留 52 周并自动清理过期数据。冷重建按最新文件优先，先返回有界的部分结果，再由唯一后台扫描器续建。不兼容的派生缓存必须删除数据库及其 WAL/SHM 后重建，不能在巨大的旧事件表上原地迁移。刷新路径不得恢复全历史 `rg`、JavaScript token 解析、Codex 长期逐事件落库或整文件读取。Python 核心跨平台、要求 Python 3.10+ 且无第三方 Python 依赖；运行时缺失时必须明确显示 usage 不可用，不得切换到另一套统计器。
 
 **CRT 皮肤设置（settings.json）：**
 

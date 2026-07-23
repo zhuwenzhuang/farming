@@ -12,6 +12,8 @@ const VENDOR_METADATA = require('./vendor/cc-statistics/VENDOR.json');
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_RETENTION_DAYS = 52 * 7;
 const DEFAULT_RECENT_RAW_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_SCAN_BUDGET_MS = 5_000;
+const BACKGROUND_SCAN_DELAY_MS = 100;
 const RESULT_REUSE_MS = 2_000;
 
 function pythonCandidates() {
@@ -249,9 +251,12 @@ class CCStatisticsClient {
     this.python = options.python || '';
     this.pythonVerified = false;
     this.pending = null;
+    this.pendingKey = '';
     this.cached = null;
     this.cachedAt = 0;
     this.cacheKey = '';
+    this.backgroundTimer = null;
+    this.backgroundGeneration = 0;
   }
 
   async invoke(request) {
@@ -291,6 +296,40 @@ class CCStatisticsClient {
     throw error;
   }
 
+  storeResult(result, cacheKey) {
+    if (cacheKey !== this.cacheKey) return;
+    this.cached = result;
+    this.cachedAt = Number.isFinite(result?.sampledAt)
+      ? result.sampledAt
+      : Date.now();
+  }
+
+  scheduleBackgroundScan(request, cacheKey, result) {
+    if (result?.cache?.scan_complete !== false || cacheKey !== this.cacheKey) return;
+    if (this.backgroundTimer) return;
+    const generation = this.backgroundGeneration;
+    this.backgroundTimer = setTimeout(() => {
+      this.backgroundTimer = null;
+      if (generation !== this.backgroundGeneration || cacheKey !== this.cacheKey) return;
+      const backgroundRequest = { ...request, nowMs: Date.now() };
+      const pending = this.invoke(backgroundRequest).then(nextResult => {
+        this.storeResult(nextResult, cacheKey);
+        this.scheduleBackgroundScan(backgroundRequest, cacheKey, nextResult);
+        return nextResult;
+      }).catch(() => {
+        // Keep the last usable partial snapshot. A later normal request retries.
+      }).finally(() => {
+        if (this.pending === pending) {
+          this.pending = null;
+          this.pendingKey = '';
+        }
+      });
+      this.pending = pending;
+      this.pendingKey = cacheKey;
+    }, BACKGROUND_SCAN_DELAY_MS);
+    this.backgroundTimer.unref?.();
+  }
+
   collect(options = {}) {
     const now = options.now ?? Date.now();
     const retentionDays = options.retentionDays ?? DEFAULT_RETENTION_DAYS;
@@ -298,32 +337,50 @@ class CCStatisticsClient {
       codex: Array.from(new Set(options.codexRoots || [])).sort(),
       claude: Array.from(new Set(options.claudeRoots || [])).sort(),
     };
-    const cacheKey = JSON.stringify({ roots, retentionDays });
+    const recentRawMs = options.recentRawMs ?? DEFAULT_RECENT_RAW_MS;
+    const cacheKey = JSON.stringify({ roots, retentionDays, recentRawMs });
+    if (this.cacheKey && this.cacheKey !== cacheKey) {
+      this.backgroundGeneration += 1;
+      if (this.backgroundTimer) clearTimeout(this.backgroundTimer);
+      this.backgroundTimer = null;
+    }
     if (
       options.fresh !== true
       && this.cached
       && this.cacheKey === cacheKey
-      && now - this.cachedAt <= RESULT_REUSE_MS
+      && (
+        now - this.cachedAt <= RESULT_REUSE_MS
+        || this.backgroundTimer
+        || (this.pending && this.pendingKey === cacheKey)
+      )
     ) {
       return Promise.resolve(this.cached);
     }
-    if (this.pending && this.cacheKey === cacheKey) return this.pending;
+    if (this.pending && this.pendingKey === cacheKey) return this.pending;
+    if (this.pending) {
+      return this.pending.then(() => this.collect(options));
+    }
     this.cacheKey = cacheKey;
     const request = {
       cacheFile: ccStatisticsUsageCacheFile(this.configDir),
       nowMs: now,
       retentionDays,
-      recentRawMs: options.recentRawMs ?? DEFAULT_RECENT_RAW_MS,
+      recentRawMs,
+      scanBudgetMs: options.scanBudgetMs ?? DEFAULT_SCAN_BUDGET_MS,
       roots,
     };
     const pending = this.invoke(request).then(result => {
-      this.cached = result;
-      this.cachedAt = now;
+      this.storeResult(result, cacheKey);
+      this.scheduleBackgroundScan(request, cacheKey, result);
       return result;
     }).finally(() => {
-      if (this.pending === pending) this.pending = null;
+      if (this.pending === pending) {
+        this.pending = null;
+        this.pendingKey = '';
+      }
     });
     this.pending = pending;
+    this.pendingKey = cacheKey;
     return pending;
   }
 }
@@ -332,6 +389,7 @@ module.exports = {
   CCStatisticsClient,
   DEFAULT_RECENT_RAW_MS,
   DEFAULT_RETENTION_DAYS,
+  DEFAULT_SCAN_BUDGET_MS,
   resolveRuntimeRoot,
   runPython,
   probePython,
