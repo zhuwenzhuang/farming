@@ -9,6 +9,7 @@ const { FarmingSessionStore } = require('../farming-session-store');
 
 function configForStore(store, workspace) {
   return {
+    farmingDir: store.configDir,
     getWorkspace: () => workspace,
     getHeartbeatInterval: () => 60_000,
     getTaskHistory: () => [],
@@ -45,18 +46,18 @@ async function run() {
     runtimeBinding: { kind: 'acp', state: 'idle' },
     customTitle: '',
   };
-  store.rememberAgent(agent);
-
   const firstRuntime = new AcpRuntime();
   const firstManager = new AgentManager(
     configForStore(store, configDir),
     { acpRuntime: firstRuntime, skipExecutablePreflight: true },
   );
   firstManager.engineBridge.getEngine = () => ({ killSession: async () => {} });
-  firstManager.agents.set(agent.id, agent);
-  firstManager.lastActivity.set(agent.id, Date.now());
 
   try {
+    await firstManager.whenRecovered();
+    store.rememberAgent(agent);
+    firstManager.agents.set(agent.id, agent);
+    firstManager.lastActivity.set(agent.id, Date.now());
     firstManager.renameAgent(agent.id, 'Persisted Claude name');
     assert.strictEqual(
       store.listAgentRecords().find(record => record.providerSessionKey === sessionKey).customTitle,
@@ -74,13 +75,22 @@ async function run() {
     await firstManager.dispose();
   }
 
+  const recoveredStore = new FarmingSessionStore(configDir);
+  recoveredStore.init();
+  assert.deepStrictEqual(recoveredStore.getMainPageSessionKeys(), []);
+  assert.strictEqual(
+    recoveredStore.listAgentRecords().find(record => record.providerSessionKey === sessionKey).customTitle,
+    'Persisted Claude name',
+    'a fresh session store must read the renamed title from disk',
+  );
+
   const recoveredRuntime = new AcpRuntime();
   const recoveredManager = new AgentManager(
-    configForStore(store, configDir),
+    configForStore(recoveredStore, configDir),
     { acpRuntime: recoveredRuntime, skipExecutablePreflight: true },
   );
   try {
-    await recoveredManager.recoverAcpSessions();
+    await recoveredManager.whenRecovered();
     assert.strictEqual(
       recoveredManager.agents.has(agent.id),
       false,
