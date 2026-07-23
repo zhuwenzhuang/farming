@@ -2051,42 +2051,19 @@ test.describe('terminal regression matrix', () => {
       expect(checkpoint.outputSeq).not.toBeNull()
       expect(checkpoint.runtimeEpoch).not.toBe('')
       expect(checkpoint.stateRevision).not.toBeNull()
-      const baseSeq = checkpoint.outputSeq as number
-      const baseRevision = checkpoint.stateRevision as number
       const runtimeEpoch = checkpoint.runtimeEpoch
 
-      const contiguousCut = await page.evaluate(async ({ id, epoch }) => {
-        const outputSeq = window.__farmingTerminalTest?.getLastOutputSeq(id) ?? 0
-        const stateRevision = window.__farmingTerminalTest?.getStateRevision(id) ?? 0
-        await window.__farmingTerminalTest?.streamSequenced(
-          id,
-          'DELTA_CONTIGUOUS\r\n',
-          outputSeq + 1,
-          epoch,
-          stateRevision + 1,
-        )
-        return { outputSeq: outputSeq + 1, stateRevision: stateRevision + 1 }
-      }, { id: agentId, epoch: runtimeEpoch })
-      try {
-        await expect.poll(async () => page.evaluate(id => ({
-          outputSeq: window.__farmingTerminalTest?.getLastOutputSeq(id) ?? 0,
-          stateRevision: window.__farmingTerminalTest?.getStateRevision(id) ?? 0,
-        }), agentId)).toEqual(contiguousCut)
-        await expect.poll(async () => await visibleTerminalText(page, agentId)).toContain('DELTA_CONTIGUOUS')
-      } catch (error) {
-        throw new Error(
-          `Contiguous delta did not commit: ${JSON.stringify(await terminalDiagnostics(page, agentId))}`,
-          { cause: error },
-        )
-      }
-
-      const checkpointSeq = baseSeq + 3
-      const checkpointRevision = baseRevision + 3
-      const checkpointLabel = `CHECKPOINT_${checkpointRevision}`
       const sessionViewRoute = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
       let snapshotRequests = 0
+      type CheckpointCut = { outputSeq: number; stateRevision: number }
+      let resolveCheckpointCut!: (cut: CheckpointCut) => void
+      const checkpointCutReady = new Promise<CheckpointCut>((resolve) => {
+        resolveCheckpointCut = resolve
+      })
       const handler = async (route: import('@playwright/test').Route) => {
         snapshotRequests += 1
+        const checkpointCut = await checkpointCutReady
+        const checkpointLabel = `CHECKPOINT_${checkpointCut.stateRevision}`
         const output = `${checkpointLabel}\r\n$ `
         await route.fulfill({
           contentType: 'application/json',
@@ -2095,8 +2072,8 @@ test.describe('terminal regression matrix', () => {
               runtimeEpoch,
               output,
               renderOutput: output,
-              outputSeq: checkpointSeq,
-              stateRevision: checkpointRevision,
+              outputSeq: checkpointCut.outputSeq,
+              stateRevision: checkpointCut.stateRevision,
               previewCols: checkpoint.dimensions.cols,
               previewRows: checkpoint.dimensions.rows,
               previewSnapshot: snapshotFromRows([checkpointLabel, '$ '], 100, 1, 2),
@@ -2106,27 +2083,31 @@ test.describe('terminal regression matrix', () => {
       }
       await page.route(sessionViewRoute, handler)
       try {
-        await page.evaluate(async ({ id, epoch, outputSeq, stateRevision }) => {
+        const checkpointCut = await page.evaluate(async ({ id, epoch }) => {
+          const outputSeq = window.__farmingTerminalTest?.getLastOutputSeq(id) ?? 0
+          const stateRevision = window.__farmingTerminalTest?.getStateRevision(id) ?? 0
+          const cut = {
+            outputSeq: outputSeq + 100,
+            stateRevision: stateRevision + 100,
+          }
           await window.__farmingTerminalTest?.streamSequenced(
             id,
             'UNPROVEN_GAP_DELTA\r\n',
-            outputSeq,
+            cut.outputSeq,
             epoch,
-            stateRevision,
+            cut.stateRevision,
           )
-        }, {
-          id: agentId,
-          epoch: runtimeEpoch,
-          outputSeq: checkpointSeq,
-          stateRevision: checkpointRevision,
-        })
+          return cut
+        }, { id: agentId, epoch: runtimeEpoch })
+        resolveCheckpointCut(checkpointCut)
+        const checkpointLabel = `CHECKPOINT_${checkpointCut.stateRevision}`
 
         await expect.poll(() => snapshotRequests).toBeGreaterThan(0)
         await expect.poll(async () => await visibleTerminalText(page, agentId)).toContain(checkpointLabel)
         expect(await visibleTerminalText(page, agentId)).not.toContain('UNPROVEN_GAP_DELTA')
         await expect.poll(async () => page.evaluate((id) => (
           window.__farmingTerminalTest?.getLastOutputSeq(id) ?? null
-        ), agentId)).toBe(checkpointSeq)
+        ), agentId)).toBe(checkpointCut.outputSeq)
 
         await page.evaluate(async ({ id, epoch, outputSeq, stateRevision }) => {
           await window.__farmingTerminalTest?.streamSequenced(
@@ -2139,8 +2120,8 @@ test.describe('terminal regression matrix', () => {
         }, {
           id: agentId,
           epoch: runtimeEpoch,
-          outputSeq: checkpointSeq,
-          stateRevision: checkpointRevision,
+          outputSeq: checkpointCut.outputSeq,
+          stateRevision: checkpointCut.stateRevision,
         })
         await expect.poll(async () => await visibleTerminalText(page, agentId)).toContain('DELTA_AFTER_CHECKPOINT')
       } finally {

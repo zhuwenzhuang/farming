@@ -3269,6 +3269,9 @@ function installTerminalTestApi() {
       record.needsReconnectOutputSync = false
       record.fixtureOverrideActive = true
       record.suppressOutputUntil = Date.now() + 1500
+      resetTransientTerminalUi(record)
+      record.openTargetMouseDown = null
+      record.suppressClickUntil = 0
       record.terminal.reset()
       record.terminal.viewportY = 0
       record.terminal.scrollToLine?.(0)
