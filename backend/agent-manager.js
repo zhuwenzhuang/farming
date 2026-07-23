@@ -79,6 +79,9 @@ const AGENT_DISCOVERY_CACHE_MAX_AGE_MS = 3_000;
 const UNCERTAIN_TERMINAL_STOP_TIMEOUT_MS = 5_000;
 const TERMINAL_STOP_STATE_READ_TIMEOUT_MS = 1_000;
 const TERMINAL_STOP_POLL_MS = 50;
+const CODEX_TERMINAL_START_READY_TIMEOUT_MS = 30_000;
+const CODEX_TERMINAL_START_READY_POLL_MS = 50;
+const CODEX_TERMINAL_START_OUTPUT_LIMIT = 64 * 1024;
 const SHELL_PROMPT_ENV_KEYS = [
   'PS1',
   'PS2',
@@ -98,6 +101,15 @@ function withBoundedWait(promise, timeoutMs, label) {
     timer.unref?.();
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function canonicalProviderHomePath(value) {
+  const resolved = path.resolve(String(value || '').trim() || '.');
+  try {
+    return fs.realpathSync.native(resolved);
+  } catch {
+    return resolved;
+  }
 }
 
 async function deletePrecreatedProviderSession(options = {}) {
@@ -591,6 +603,8 @@ class AgentManager extends EventEmitter {
     this.resizeDrains = new Map();
     this.inputQueues = new Map();
     this.codexTerminalProfileQueues = new Map();
+    this.codexTerminalStartQueues = new Map();
+    this.codexTerminalStartOutput = new Map();
     this.agentWorktreeResolveGeneration = new Map();
     this.permissionRestartInFlight = new Map();
     this.runtimeRestartInFlight = new Map();
@@ -757,6 +771,13 @@ class AgentManager extends EventEmitter {
 
         this.reviveAgentRuntime(agent);
         agent.output = trimSessionOutput(agent.output + data);
+        if (this.codexTerminalStartOutput.has(sessionId)) {
+          const startupOutput = `${this.codexTerminalStartOutput.get(sessionId) || ''}${data}`;
+          this.codexTerminalStartOutput.set(
+            sessionId,
+            startupOutput.slice(-CODEX_TERMINAL_START_OUTPUT_LIMIT),
+          );
+        }
         if (agent.providerSessionProvider === 'codex' && agent.providerSessionTemporary === true) {
           void this.providerSessionService.resolveTemporaryCodex(sessionId);
         }
@@ -2264,6 +2285,8 @@ class AgentManager extends EventEmitter {
     this.resizeDrains.clear();
     this.inputQueues.clear();
     this.codexTerminalProfileQueues.clear();
+    this.codexTerminalStartQueues.clear();
+    this.codexTerminalStartOutput.clear();
     this.acpSessionOptionsByKey.clear();
     if (this.jsonCliRuntime) {
       for (const agentId of this.agents.keys()) this.jsonCliRuntime.unregisterAgent(agentId);
@@ -2371,6 +2394,37 @@ class AgentManager extends EventEmitter {
       await new Promise(resolve => setTimeout(resolve, TERMINAL_STOP_POLL_MS));
     }
     throw new Error(`Terminal ${agentId} did not reach an exited state after kill`);
+  }
+
+  async waitForCodexTerminalStart(agentId) {
+    const deadline = Date.now() + CODEX_TERMINAL_START_READY_TIMEOUT_MS;
+    while (Date.now() <= deadline) {
+      const agent = this.agents.get(agentId);
+      if (!agent) throw new Error(`Codex Terminal ${agentId} disappeared during startup`);
+      if (['dead', 'stopped'].includes(agent.status) || agent.engineStatus === 'exited') {
+        const detail = trimSessionOutput(agent.previewText || agent.output || '').trim();
+        throw new Error(detail || `Codex Terminal ${agentId} exited during startup`);
+      }
+      if ((this.codexTerminalStartOutput.get(agentId) || '').includes('\u001b')) {
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, CODEX_TERMINAL_START_READY_POLL_MS));
+    }
+    throw new Error(`Codex Terminal ${agentId} did not become ready within ${CODEX_TERMINAL_START_READY_TIMEOUT_MS}ms`);
+  }
+
+  async enqueueCodexTerminalStart(providerHomeKey, operation) {
+    const key = canonicalProviderHomePath(providerHomeKey || '.');
+    const previous = this.codexTerminalStartQueues.get(key) || Promise.resolve();
+    const next = previous.catch(() => {}).then(operation);
+    this.codexTerminalStartQueues.set(key, next);
+    try {
+      return await next;
+    } finally {
+      if (this.codexTerminalStartQueues.get(key) === next) {
+        this.codexTerminalStartQueues.delete(key);
+      }
+    }
   }
 
   async startAgent(command, customWorkspace, callback, options = {}) {
@@ -3016,14 +3070,34 @@ class AgentManager extends EventEmitter {
       }
 
       if (!useJsonCli && !useAcp) {
-        const engineLaunch = {
-          command: spawnProgram,
-          args,
-          cwd: workspace,
-          category: resolution.spec ? resolution.spec.category : 'shell',
-          reviveState: options.reviveTerminalState || null,
+        const serializeCodexStartup = agentRecord.providerSessionProvider === 'codex'
+          && resolution.engineName === 'native';
+        const startTerminal = async () => {
+          const engineLaunch = {
+            command: spawnProgram,
+            args,
+            cwd: workspace,
+            category: resolution.spec ? resolution.spec.category : 'shell',
+            reviveState: options.reviveTerminalState || null,
+          };
+          if (serializeCodexStartup) this.codexTerminalStartOutput.set(agentId, '');
+          try {
+            await this.createAgentEngineSession(agentRecord, resolution.engine, engineLaunch);
+            if (serializeCodexStartup) {
+              await this.waitForCodexTerminalStart(agentId);
+            }
+          } finally {
+            if (serializeCodexStartup) this.codexTerminalStartOutput.delete(agentId);
+          }
         };
-        await this.createAgentEngineSession(agentRecord, resolution.engine, engineLaunch);
+        if (serializeCodexStartup) {
+          await this.enqueueCodexTerminalStart(
+            providerHomePath || resolvedProviderHomeId || 'default',
+            startTerminal
+          );
+        } else {
+          await startTerminal();
+        }
       }
       agentRecord.persistentSessionId = this.ensurePersistentAgentSession(agentRecord, {
         visibleOnMainPage: true,

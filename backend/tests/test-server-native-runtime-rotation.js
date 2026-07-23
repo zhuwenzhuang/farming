@@ -8,6 +8,7 @@ const { spawn } = require('child_process');
 const NativePtyHost = require('../native-pty-host');
 const NativePtyHostClient = require('../native-pty-host-client');
 const NativeSessionEngine = require('../native-session-engine');
+const { FarmingSessionStore } = require('../farming-session-store');
 const { nativePtyHostSocketPath } = require('../native-pty-host-path');
 const { nativePtyHostRuntimeIdentity } = require('../native-pty-host-identity');
 
@@ -41,7 +42,7 @@ async function waitFor(fn, label, timeoutMs = 20000) {
   throw lastError || new Error(`Timed out waiting for ${label}`);
 }
 
-function startServerProcess({ port, configDir }) {
+function startServerProcess({ port, configDir, codexBin }) {
   const fixtureBinDir = path.join(__dirname, '..', '..', 'tests', 'e2e', 'fixtures');
   const child = spawn(process.execPath, ['backend/server.js'], {
     cwd: path.join(__dirname, '..', '..'),
@@ -53,7 +54,7 @@ function startServerProcess({ port, configDir }) {
       FARMING_CONFIG_DIR: configDir,
       FARMING_DISABLE_AUTH: '1',
       FARMING_E2E_FAKE_EXECUTABLES: '1',
-      FARMING_CODEX_BIN: path.join(fixtureBinDir, 'fake-codex'),
+      FARMING_CODEX_BIN: codexBin || path.join(fixtureBinDir, 'fake-codex'),
       NODE_ENV: 'test',
       PATH: `${fixtureBinDir}${path.delimiter}${process.env.PATH || ''}`,
     },
@@ -126,10 +127,47 @@ async function run() {
     ),
     version: 'old-runtime-test',
   };
-  const agentId = 'agent-runtime-rotation-codex';
+  const agentIds = Array.from({ length: 4 }, (_, index) => `agent-runtime-rotation-codex-${index}`);
+  const sessionIds = [
+    '019f9000-0000-7000-8000-000000000001',
+    '019f9000-0000-7000-8000-000000000002',
+    '019f9000-0000-7000-8000-000000000003',
+    '019f9000-0000-7000-8000-000000000004',
+  ];
   const beforeMarker = `BEFORE_ROTATION_${Date.now()}`;
   const afterMarker = `AFTER_ROTATION_${Date.now()}`;
   const fakeCodex = path.join(__dirname, '..', '..', 'tests', 'e2e', 'fixtures', 'fake-codex');
+  const startupLockDir = path.join(configDir, 'fake-codex-startup.lock');
+  const startupLockedFakeCodex = path.join(configDir, 'fake-codex-startup-lock');
+  const providerHomeAlias = path.join(configDir, 'provider-home-alias');
+  fs.symlinkSync(configDir, providerHomeAlias, 'dir');
+  fs.writeFileSync(startupLockedFakeCodex, `#!/usr/bin/env bash
+set -eu
+if [[ " $* " == *" resume "* ]]; then
+  if ! mkdir '${startupLockDir}'; then
+    printf 'database is locked\\n' >&2
+    exit 5
+  fi
+  trap "rmdir '${startupLockDir}' 2>/dev/null || true" EXIT
+  printf 'Could not create otel exporter: fixture warning\\n' >&2
+  sleep 0.25
+  rmdir '${startupLockDir}'
+  trap - EXIT
+  printf '\\033[?25l\\033[?25h'
+  if [[ " $* " == *" 019f9000-0000-7000-8000-000000000004 "* ]]; then
+    printf 'Account setup required\\n'
+    while IFS= read -r line; do
+      printf 'setup received: %s\\n' "$line"
+    done
+    exit 0
+  fi
+fi
+exec '${fakeCodex}' "$@"
+`);
+  fs.chmodSync(startupLockedFakeCodex, 0o755);
+  const sessionStore = new FarmingSessionStore(configDir);
+  sessionStore.init();
+  sessionStore.setMainPageSessionKeys(sessionIds.map(sessionId => `agent-session:codex:${sessionId}`));
   const oldHost = new NativePtyHost({
     configDir,
     socketPath,
@@ -151,60 +189,90 @@ async function run() {
       client: oldClient,
       preserveHostOnDispose: true,
     });
-    await oldEngine.createSession({
-      agentId,
-      command: fakeCodex,
-      args: [],
-      cwd: workspace,
-      env: process.env,
-      category: 'coding',
-      metadata: {
+    const oldEpochs = new Map();
+    for (let index = 0; index < agentIds.length; index += 1) {
+      const agentId = agentIds[index];
+      const sessionId = sessionIds[index];
+      await oldEngine.createSession({
         agentId,
-        command: 'codex',
-        forkCommand: fakeCodex,
+        command: fakeCodex,
+        args: [],
         cwd: workspace,
-        projectWorkspace: workspace,
+        env: process.env,
         category: 'coding',
-        wantsMain: false,
-        visibleOnMainPage: true,
-        source: 'runtime-rotation-test',
-      },
-    });
-    const initialState = await oldEngine.getSessionState(agentId);
-    await oldEngine.sendInput(agentId, `${beforeMarker}\n`, {
-      expectedRuntimeEpoch: initialState.runtimeEpoch,
-    });
-    const oldState = await waitFor(async () => {
-      const state = await oldEngine.getSessionState(agentId);
-      return String(state?.output || '').includes(beforeMarker) ? state : null;
-    }, 'old host marker');
-    const oldEpoch = oldState.runtimeEpoch;
+        metadata: {
+          agentId,
+          command: 'codex',
+          forkCommand: fakeCodex,
+          cwd: workspace,
+          projectWorkspace: workspace,
+          category: 'coding',
+          wantsMain: false,
+          visibleOnMainPage: true,
+          source: 'runtime-rotation-test',
+          provider: 'codex',
+          providerSessionProvider: 'codex',
+          providerHomeId: 'default',
+          providerHomePath: index === 1 ? providerHomeAlias : configDir,
+          providerSessionId: sessionId,
+          providerSessionKey: `agent-session:codex:${sessionId}`,
+        },
+      });
+      const initialState = await oldEngine.getSessionState(agentId);
+      await oldEngine.sendInput(agentId, `${beforeMarker}_${index}\n`, {
+        expectedRuntimeEpoch: initialState.runtimeEpoch,
+      });
+      const oldState = await waitFor(async () => {
+        const state = await oldEngine.getSessionState(agentId);
+        return String(state?.output || '').includes(`${beforeMarker}_${index}`) ? state : null;
+      }, `old host marker ${index}`);
+      oldEpochs.set(agentId, oldState.runtimeEpoch);
+    }
     oldEngine.dispose();
     oldEngine = null;
 
-    serverProcess = startServerProcess({ port, configDir });
+    serverProcess = startServerProcess({
+      port,
+      configDir,
+      codexBin: startupLockedFakeCodex,
+    });
     await waitFor(
       () => fetch(`${baseUrl}/api/control/agents`).then(response => response.ok).catch(() => false),
       'Farming server startup after runtime mismatch',
     );
 
-    const revived = await waitFor(async () => {
-      const view = await fetchJson(baseUrl, `/api/agents/${agentId}/session-view`);
-      const session = view.body.session;
-      return view.response.ok
-        && session?.runtimeEpoch
-        && session.runtimeEpoch !== oldEpoch
-        && String(session.renderOutput || '').includes(beforeMarker)
-        && String(session.renderOutput || '').includes('History restored')
-        ? session
-        : Promise.reject(new Error(
-          `revived terminal not ready: ${view.response.status} ${JSON.stringify(view.body)}`,
-        ));
-    }, 'revived terminal after controlled host rotation');
-    assert.strictEqual(revived.status, 'running');
-    assert.strictEqual(revived.outputSeq >= 1, true);
-    assert.strictEqual(revived.stateRevision >= 1, true);
+    for (let index = 0; index < agentIds.length; index += 1) {
+      const agentId = agentIds[index];
+      const revived = await waitFor(async () => {
+        const view = await fetchJson(baseUrl, `/api/agents/${agentId}/session-view`);
+        const session = view.body.session;
+        return view.response.ok
+          && session?.runtimeEpoch
+          && session.runtimeEpoch !== oldEpochs.get(agentId)
+          && String(session.renderOutput || '').includes(`${beforeMarker}_${index}`)
+          && String(session.renderOutput || '').includes('History restored')
+          && (
+            index !== agentIds.length - 1
+            || String(session.renderOutput || '').includes('Account setup required')
+          )
+          ? session
+          : Promise.reject(new Error(
+            `revived terminal not ready: ${view.response.status} ${JSON.stringify(view.body)}`,
+          ));
+      }, `revived terminal ${index} after controlled host rotation`);
+      assert.strictEqual(revived.status, 'running');
+      assert.strictEqual(revived.outputSeq >= 1, true);
+      assert.strictEqual(revived.stateRevision >= 1, true);
+      if (index === agentIds.length - 1) {
+        assert(
+          String(revived.renderOutput || '').includes('Account setup required'),
+          'a healthy nonstandard Codex startup screen should release the queue',
+        );
+      }
+    }
+    assert(!serverProcess.outputText().includes('database is locked'), serverProcess.outputText());
 
+    const agentId = agentIds[0];
     const sent = await fetchJson(baseUrl, `/api/control/agents/${agentId}/input`, {
       method: 'POST',
       body: JSON.stringify({ input: `${afterMarker}\n` }),
@@ -215,8 +283,10 @@ async function run() {
       return String(view.body.session?.output || '').includes(afterMarker);
     }, 'new input after controlled host rotation');
 
-    await fetchJson(baseUrl, `/api/control/agents/${agentId}`, { method: 'DELETE' });
-    console.log('✓ Controlled native PTY runtime rotation restores history and a live new epoch');
+    for (const currentAgentId of agentIds) {
+      await fetchJson(baseUrl, `/api/control/agents/${currentAgentId}`, { method: 'DELETE' });
+    }
+    console.log('✓ Controlled native PTY runtime rotation serializes same-home Codex startup');
   } catch (error) {
     if (serverProcess?.outputText) {
       console.error(serverProcess.outputText());
