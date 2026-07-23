@@ -161,6 +161,8 @@ git -C "${PROJECT_ROOT}" archive --format=tar HEAD -- \
   THIRD_PARTY_NOTICES.md \
   index.html | tar -xf - -C "${APP_DIR}"
 cp "${PROJECT_ROOT}/package-lock.json" "${APP_DIR}/package-lock.json"
+cp "${PROJECT_ROOT}/backend/usage-history-scanner.generated.js" \
+  "${APP_DIR}/backend/usage-history-scanner.generated.js"
 rm -rf "${APP_DIR}/backend/tests"
 
 cp -R "${PROJECT_ROOT}/dist" "${APP_DIR}/dist"
@@ -229,7 +231,12 @@ case "${1:-}" in
   *)
     node_bin="$(type -P node || true)"
     if [ -z "${node_bin}" ]; then
-      echo "Node.js 22 or newer is required." >&2
+      echo "Node.js 22.13 LTS or Node.js 24+ is required." >&2
+      exit 1
+    fi
+    if ! "${node_bin}" -e \
+      'const [major, minor] = process.versions.node.split(".").map(Number); process.exit((major === 22 && minor >= 13) || major >= 24 ? 0 : 1)'; then
+      echo "Node.js 22.13 LTS or Node.js 24+ is required." >&2
       exit 1
     fi
     if [ "${FARMING_USE_GLIBC_RUNTIME:-auto}" != "0" ] && [ "$(uname -s)" = Linux ]; then

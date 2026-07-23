@@ -340,7 +340,7 @@ farming/
 │   │   - 生成 `codex resume -C <cwd> <id>` / `claude --resume <id>` 恢复命令
 │   │
 │   ├── usage-monitor.js # Codex / Claude usage 与 quota 只读采集
-│   │   - Codex / Claude token usage 只由锁定 commit 的 cc-statistics 1.1.0 Python 核心解析和归一化
+│   │   - Codex / Claude token usage 由独立 Worker 中的 TypeScript 扫描器解析，无 Python 运行时依赖
 │   │   - SQLite 按源文件持久化字节偏移、解析状态和标准事件；未变化文件不读正文，追加文件只读新增字节
 │   │   - Codex `token_count.rate_limits` 随同统计事件一次采集，但不计入 token 总量
 │   │   - 暴露 agent 输出速率估算和 CPU/MEM 状态，不执行 reset
@@ -680,7 +680,8 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - `sessions/index.json` 维护主页面真实 provider-session membership；`mainPageSessionKeys` 只是 API 兼容投影。Codex `tmp_uuid...` live id 不得进入这里；不在列表里的 Codex / Claude provider session 只出现在 History；Move to History / Move Project to History 会从这里移除对应 key，从 History 恢复会写回 key。
 - 归档 run/history 存储在 `~/.farming/history/runs.json`，不属于 `settings.json`；其中可选的 `customTitle` 用于在恢复时保留用户明确重命名过的 Agent 名称，旧记录没有该字段也继续兼容。
 - config 目录下后端自有文件路径统一由 `backend/storage-layout.js` 定义；新增 `settings.json`、`theme-settings.json`、`.session-token`、`sessions/`、`history/`、server pid/state/log、native pty host log 这类路径时，不要在功能模块里手写 `path.join(configDir, ...)`。Codex `~/.codex/sessions`、Claude history 等外部 provider 历史是只读集成，不属于 Farming 自有元数据。
-- Codex / Claude usage 的 Farming 自有缓存位于 `history/cc-statistics-usage-v1.sqlite3`。cc-statistics 适配层按源文件保存前缀指纹、已提交字节偏移和累计状态；Codex 文件发生破坏性重写时重建该 Provider Ledger。Codex Rollout 只有第一条 `SessionMeta` 属于当前会话，后续元信息和 Token 事件可能来自 Fork 复制历史；Farming 使用绑定谱系的紧凑 usage 指纹去重，把事件归回最早的原始记录，并继续按“Session / 本地小时”保存长期聚合，近期窗口保留精确事件。Claude 只保留跨文件消息去重所必需的事件行。默认保留 52 周并自动清理过期数据。冷重建按最新文件优先，先返回有界的部分结果，再由唯一后台扫描器续建。不兼容的派生缓存必须删除数据库及其 WAL/SHM 后重建，不能在巨大的旧事件表上原地迁移。刷新路径不得恢复全历史 `rg`、JavaScript Token 解析、重复的 Codex Fork 事件、Codex 长期逐事件明细或整文件读取。Python 核心跨平台、要求 Python 3.10+ 且无第三方 Python 依赖；运行时缺失时必须明确显示 usage 不可用，不得切换到另一套统计器。
+- Codex / Claude usage 的 Farming 自有缓存位于 `history/usage-history-v2.sqlite3`，由独立 Worker 中的 TypeScript 扫描器通过 Node 内置 SQLite 维护，不依赖 Python。Codex 累计计数与复制前缀分类移植自锁定 commit 的 CodexBar 0.45.2；Claude assistant usage 提取及流式 message-id 去重移植自锁定 commit 的 cc-statistics 1.1.0。准确的来源版本、文件、移植范围与 MIT 许可证必须保留在 `backend/vendor/usage-parsers/` 和 `THIRD_PARTY_NOTICES.md`，产品包不携带两者的运行时。
+- 扫描器按源文件保存前缀指纹、已提交字节偏移和累计状态；未变化文件不读正文，追加只读已提交偏移之后的字节，Codex Archive/恢复改名按正式 Session 身份迁移 checkpoint，破坏性改写只重建对应 Provider Ledger。Codex Rollout 的第一条 `session_meta` 是叶会话身份；后续不同身份的 metadata 证明存在复制祖先，复制的累计前缀在当前会话边界前不计费。紧凑的显式 Fork 只采用可信的 last-token 增量，不把无法证明的累计基线当作新增消耗。CodexBar 的单调水位与有界累计值集合用于阻止 Ultra 高低谱系交错时重复计算缺口。长期数据按“源文件 / Session / 本地小时”聚合，近期窗口保留精确事件；Claude 只保留跨文件流式去重所需的紧凑 message identity，存储不得随 Codex 每条 token event 各增一行。冷重建未完成时不得发布 Codex 总量，由唯一后台 Worker 续扫。不兼容 schema 必须删除数据库及 WAL/SHM 后重建，旧 `cc-statistics-usage-v1.sqlite3` 自动清理。刷新路径不得恢复全历史 `rg`、Python 子进程、双解析器、Codex 长期逐事件明细或整文件读取。
 
 **CRT 皮肤设置（settings.json）：**
 

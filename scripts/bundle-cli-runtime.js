@@ -9,6 +9,8 @@ const entryOutfile = process.env.FARMING_CLI_BUNDLE_ENTRY
   || path.join(projectRoot, 'backend', 'farming-app-cli.pkg.js');
 const workerOutfile = process.env.FARMING_CLI_BUNDLE_WORKER
   || path.join(projectRoot, 'backend', 'terminal-screen-worker-thread.pkg.js');
+const usageWorkerOutfile = process.env.FARMING_CLI_BUNDLE_USAGE_WORKER
+  || path.join(projectRoot, 'backend', 'usage-history-worker.pkg.js');
 
 const dynamicRequire = [
   'var __farmingDynamicRequire = typeof module !== "undefined" && module.require',
@@ -65,6 +67,14 @@ async function main() {
     ...commonOptions,
     entryPoints: [path.join(projectRoot, 'backend', 'terminal-screen-worker-thread.js')],
     outfile: workerOutfile,
+  });
+
+  await esbuild.build({
+    ...commonOptions,
+    target: 'node22',
+    entryPoints: [path.join(projectRoot, 'backend', 'usage-history-worker.js')],
+    outfile: usageWorkerOutfile,
+    external: ['node:sqlite'],
   });
 }
 

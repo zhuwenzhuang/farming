@@ -175,7 +175,7 @@ Linux 目标每轮都要记录：
 
 验收不变量：
 - usage 默认折叠，折叠行仍显示关键速率和机器状态。
-- Codex / Claude 首次 cc-statistics 扫描会生成 SQLite usage 缓存；未变化刷新不得读取 JSONL 正文，Session 追加后只能读取已保存偏移之后的字节，服务重启后继续复用同一缓存。用包含超长非 usage tool 输出行的真实日志验证 token-only 适配层保持内存有界；确认 Codex 长期行数随活跃 Session 小时增长而不是随 Token 事件增长，冷重建能先提供近期部分数据再由后台续扫，不兼容缓存会连同 WAL/SHM 一起重建。冷/热缓存下的总量、小时和 Session 归因必须完全一致。在 macOS 与 Linux 都验证 Python 3.10+ 路径；运行时缺失时必须明确显示 usage 不可用，不得回退第二套解析器。
+- Codex / Claude 首次 TypeScript Worker 扫描会生成 `usage-history-v2.sqlite3`；未变化刷新不得读取 JSONL 正文，Session 追加后只能读取已保存偏移之后的字节，服务重启后继续复用同一缓存。用包含超长非 usage tool 输出行的真实日志验证 token-only 适配层保持内存有界；确认 Codex 长期行数随活跃 Session 小时增长而不是随 Token 事件增长，复制 Fork 与交错累计计数器不会抬高总量，冷重建未完成时不发布 Codex 总量而由后台 Worker 续扫，不兼容缓存会连同 WAL/SHM 一起重建。冷/热缓存下的总量、小时和 Session 归因必须完全一致。在 macOS 与 Linux 验证同一套纯 Node 路径，并确认不会探测或启动 Python。
 - 不执行 reset。
 - 没有可用 token 遥测的 Provider 整块不展示；没有真实 quota 数据时不展示 unavailable 占位行。
 

@@ -1,5 +1,6 @@
 const entry = process.env.FARMING_PKG_ENTRY || 'backend/farming-code-cli.js';
 const workerEntry = process.env.FARMING_PKG_WORKER_ENTRY || '';
+const usageWorkerEntry = process.env.FARMING_PKG_USAGE_WORKER_ENTRY || '';
 
 module.exports = {
   name: 'farming-code',
@@ -8,11 +9,12 @@ module.exports = {
     scripts: [
       ...(process.env.FARMING_PKG_ENTRY ? [entry] : ['backend/*.js']),
       ...(workerEntry ? [workerEntry] : []),
+      ...(usageWorkerEntry ? [usageWorkerEntry] : []),
     ],
     assets: [
       'dist/**/*',
       'backend/data/**/*.json',
-      'backend/vendor/cc-statistics/**/*',
+      'backend/vendor/usage-parsers/**/*',
       'frontend/*.js',
       'frontend/skins/**/*',
       'frontend/vendor/**/*',

@@ -25,6 +25,10 @@ function run() {
     assert.strictEqual(storageLayout.historyDir(configDir), path.join(configDir, 'history'));
     assert.strictEqual(storageLayout.runHistoryFile(configDir), path.join(configDir, 'history', 'runs.json'));
     assert.strictEqual(storageLayout.reviewStateFile(configDir), path.join(configDir, 'history', 'review-state.json'));
+    assert.strictEqual(
+      storageLayout.usageHistoryCacheFile(configDir),
+      path.join(configDir, 'history', 'usage-history-v2.sqlite3'),
+    );
     assert.strictEqual(storageLayout.serverPidFile(configDir), path.join(configDir, 'farming-server.pid'));
     assert.strictEqual(storageLayout.serverStateFile(configDir), path.join(configDir, 'farming-server.json'));
     assert.strictEqual(storageLayout.serverLogFile(configDir), path.join(configDir, 'farming-server.log'));

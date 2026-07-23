@@ -16,6 +16,7 @@ config/farming-code.install.env
 dist/
 dist-release/
 releases/
+backend/usage-history-scanner.generated.js
 reference/
 docs/products/hive/
 .farming/

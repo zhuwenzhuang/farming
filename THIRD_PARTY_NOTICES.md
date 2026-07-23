@@ -58,11 +58,21 @@ beside the vendored files at `frontend/vendor/ghostty-web/LICENSE`.
 If vendored assets are updated, keep this notice in sync with the package name,
 version, and license.
 
-Farming vendors the OS-independent, zero-dependency Python core of
-`cc-statistics` 1.1.0 at commit `c98be0af52bbc7f09a1f277747744ace48d9e014`.
-Farming's integration adds a token-only incremental cache adapter while keeping
-the upstream Claude Code and Codex normalization rules as the source of truth.
-The upstream MIT license is preserved beside the vendored source.
+Farming's TypeScript token-history scanner adapts the cumulative Codex
+accounting and copied-prefix classification semantics from
+[`CodexBar`](https://github.com/steipete/CodexBar) 0.45.2 at commit
+`91560ca98e776b96fdf910d4a0423c2f0c07a3b9` (MIT, Copyright (c) 2026 Peter
+Steinberger). It adapts Claude assistant usage extraction, streaming message-id
+deduplication, and cached-input normalization from
+[`cc-statistics`](https://github.com/androidZzT/cc-statistics) 1.1.0 at commit
+`c98be0af52bbc7f09a1f277747744ace48d9e014` (MIT, Copyright (c) 2026
+androidZzT).
+
+Farming does not bundle either application's runtime. The adapted TypeScript
+scanner, incremental filesystem checkpoints, SQLite schema, scan budgeting,
+and product result shape are maintained by Farming. Exact source files,
+adaptation scope, revisions, and both MIT licenses are retained under
+`backend/vendor/usage-parsers/`.
 
 The CRT skin bundles one font file under `frontend/skins/crt/fonts/`:
 

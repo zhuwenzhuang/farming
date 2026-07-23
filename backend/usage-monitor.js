@@ -2,7 +2,7 @@ const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
-const { CCStatisticsClient } = require('./cc-statistics-client');
+const { UsageHistoryClient } = require('./usage-history-client');
 const { attachQuotaForecasts } = require('./usage-forecast');
 
 const execFileAsync = promisify(execFile);
@@ -121,7 +121,7 @@ function ccStatisticsRoots(options = {}) {
 }
 
 function ccStatisticsClient(options = {}) {
-  return options.ccStatisticsClient || new CCStatisticsClient({
+  return options.usageHistoryClient || options.ccStatisticsClient || new UsageHistoryClient({
     configDir: options.configDir || path.join(os.homedir(), '.farming'),
   });
 }
@@ -130,7 +130,7 @@ function unavailableCCStatisticsResult(error, now) {
   const reason = commandUnavailable(error);
   return {
     schemaVersion: 1,
-    source: 'cc-statistics unavailable',
+    source: 'local usage history unavailable',
     sampledAt: now,
     providers: {
       codex: { events: [], quotaCandidates: [], available: false, reason, fileCount: 0 },
@@ -640,7 +640,7 @@ async function collectUsageHistory(options = {}) {
       available: codex.available === true,
       homeCount: ccStatistics.roots.codexHomes.length,
       fileCount: codex.fileCount,
-      source: ccStatistics.result.source,
+      source: codex.source || ccStatistics.result.source,
       ...(codex.reason ? { reason: codex.reason } : {}),
     },
     {
@@ -649,7 +649,7 @@ async function collectUsageHistory(options = {}) {
       available: claude.available === true,
       homeCount: ccStatistics.roots.claudeHomes.length,
       fileCount: claude.fileCount,
-      source: ccStatistics.result.source,
+      source: claude.source || ccStatistics.result.source,
       ...(claude.reason ? { reason: claude.reason } : {}),
     },
     {
@@ -740,6 +740,7 @@ async function collectCodexUsage(options = {}) {
     days: options.days ?? USAGE_DAILY_DAYS,
   });
   const provider = ccStatistics.result.providers.codex;
+  const providerSource = provider.source || ccStatistics.result.source;
   const events = ccStatisticsProviderEvents(ccStatistics.result, 'codex');
   let latestQuota = null;
   let latestQuotaAt = 0;
@@ -760,18 +761,18 @@ async function collectCodexUsage(options = {}) {
   }
   const quota = latestOverallQuota || latestQuota || {
     available: false,
-    source: ccStatistics.result.source,
+    source: providerSource,
     reason: provider.reason || 'No Codex token_count event with rate limits was found.',
   };
   const usage = providerUsageFromEvents(events, {
     now,
     windowMs,
     historyWindowMs,
-    source: ccStatistics.result.source,
+    source: providerSource,
   });
   if (provider.available !== true) {
     usage.tokenUsage.available = false;
-    usage.tokenUsage.reason = provider.reason || 'cc-statistics is unavailable.';
+    usage.tokenUsage.reason = provider.reason || 'Local usage history is unavailable.';
   }
 
   return {
@@ -790,16 +791,17 @@ async function collectClaudeUsage(options = {}) {
     days: options.days ?? USAGE_DAILY_DAYS,
   });
   const provider = ccStatistics.result.providers.claude;
+  const providerSource = provider.source || ccStatistics.result.source;
   const events = ccStatisticsProviderEvents(ccStatistics.result, 'claude');
   const usage = providerUsageFromEvents(events, {
     now,
     windowMs,
     historyWindowMs,
-    source: ccStatistics.result.source,
+    source: providerSource,
   });
   if (provider.available !== true) {
     usage.tokenUsage.available = false;
-    usage.tokenUsage.reason = provider.reason || 'cc-statistics is unavailable.';
+    usage.tokenUsage.reason = provider.reason || 'Local usage history is unavailable.';
   }
 
   return {
@@ -824,9 +826,9 @@ class UsageMonitor {
     this.getProviderHomes = options.getProviderHomes || null;
     this.openCodeCommandRunner = options.openCodeCommandRunner;
     this.configDir = options.configDir || path.join(os.homedir(), '.farming');
-    this.ccStatisticsClient = options.ccStatisticsClient || new CCStatisticsClient({
-      configDir: this.configDir,
-    });
+    this.ccStatisticsClient = options.usageHistoryClient
+      || options.ccStatisticsClient
+      || new UsageHistoryClient({ configDir: this.configDir });
     this.windowMs = options.windowMs ?? USAGE_WINDOW_MS;
     this.dailyDays = options.dailyDays ?? USAGE_DAILY_DAYS;
     this.dailyCacheMs = options.dailyCacheMs ?? USAGE_DAILY_CACHE_MS;

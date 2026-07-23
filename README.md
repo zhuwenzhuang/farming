@@ -15,7 +15,7 @@
   <a href="https://github.com/zhuwenzhuang/farming/releases"><img alt="Release" src="https://img.shields.io/github/v/release/zhuwenzhuang/farming?label=release"></a>
   <a href="https://www.npmjs.com/package/farming-code"><img alt="npm" src="https://img.shields.io/npm/v/farming-code?label=npm"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/github/license/zhuwenzhuang/farming"></a>
-  <img alt="Node.js 22+" src="https://img.shields.io/badge/node-%3E%3D22-339933?logo=nodedotjs&amp;logoColor=white">
+  <img alt="Node.js 22.13 LTS or 24+" src="https://img.shields.io/badge/node-22.13_LTS_%7C_24%2B-339933?logo=nodedotjs&amp;logoColor=white">
   <img alt="macOS and Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-555">
 </p>
 
@@ -25,7 +25,7 @@ Farming runs on the same development machine as your repositories and coding CLI
 
 ## Quick Start
 
-With Node.js 22 or newer and at least one supported coding CLI installed and signed in:
+With Node.js 22.13 LTS (22.x) or Node.js 24+ and at least one supported coding CLI installed and signed in:
 
 ```bash
 npm install --global farming-code@latest && farming daemon

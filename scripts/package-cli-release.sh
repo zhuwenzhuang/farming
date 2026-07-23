@@ -17,6 +17,7 @@ ASSET_MANIFEST_TMP="$(mktemp /tmp/farming-cli-assets.XXXXXX)"
 PKG_LOGS=()
 BUNDLE_ENTRY="${PROJECT_ROOT}/backend/farming-app-cli.pkg.js"
 BUNDLE_WORKER="${PROJECT_ROOT}/backend/terminal-screen-worker-thread.pkg.js"
+BUNDLE_USAGE_WORKER="${PROJECT_ROOT}/backend/usage-history-worker.pkg.js"
 GIT_SHA="$(cd "${PROJECT_ROOT}" && git rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)"
 GIT_STATUS="$(cd "${PROJECT_ROOT}" && git status --porcelain --untracked-files=normal 2>/dev/null || true)"
 GIT_DIRTY=false
@@ -104,7 +105,7 @@ MODERN_PKG_BIN="${PROJECT_ROOT}/node_modules/@yao-pkg/pkg/lib-es5/bin.js"
 BUNDLE_CLI_RUNTIME="${PROJECT_ROOT}/scripts/bundle-cli-runtime.js"
 
 cleanup() {
-  rm -f "${BUNDLE_ENTRY}" "${BUNDLE_WORKER}" "${ASSET_MANIFEST_TMP}"
+  rm -f "${BUNDLE_ENTRY}" "${BUNDLE_WORKER}" "${BUNDLE_USAGE_WORKER}" "${ASSET_MANIFEST_TMP}"
   if [ "${#PKG_LOGS[@]}" -gt 0 ]; then
     rm -f "${PKG_LOGS[@]}"
   fi
@@ -137,6 +138,7 @@ log "Bundling backend runtime with esbuild ..."
   cd "${PROJECT_ROOT}"
   FARMING_CLI_BUNDLE_ENTRY="${BUNDLE_ENTRY}" \
   FARMING_CLI_BUNDLE_WORKER="${BUNDLE_WORKER}" \
+  FARMING_CLI_BUNDLE_USAGE_WORKER="${BUNDLE_USAGE_WORKER}" \
     node "${BUNDLE_CLI_RUNTIME}" >&2
 )
 
@@ -163,6 +165,7 @@ for target in "${TARGET_ARRAY[@]}"; do
     cd "${PROJECT_ROOT}"
     FARMING_PKG_ENTRY="backend/farming-app-cli.pkg.js" \
     FARMING_PKG_WORKER_ENTRY="backend/terminal-screen-worker-thread.pkg.js" \
+    FARMING_PKG_USAGE_WORKER_ENTRY="backend/usage-history-worker.pkg.js" \
       node "${MODERN_PKG_BIN}" \
       -c pkg.config.cjs \
       -t "${target}" \

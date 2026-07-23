@@ -1,0 +1,45 @@
+{
+  "runtimeDependency": false,
+  "adaptedFile": "backend/usage-history-scanner.ts",
+  "sources": [
+    {
+      "name": "CodexBar",
+      "version": "0.45.2",
+      "repository": "https://github.com/steipete/CodexBar",
+      "commit": "91560ca98e776b96fdf910d4a0423c2f0c07a3b9",
+      "license": "MIT",
+      "upstreamFiles": [
+        "Sources/CodexBarCore/Vendored/CostUsage/CostUsageScanner.swift",
+        "Sources/CodexBarCore/Vendored/CostUsage/CodexSubagentRolloutShape.swift"
+      ],
+      "adaptedSemantics": [
+        "cumulative total and last-token delta selection",
+        "bounded exact cumulative-total replay suppression",
+        "monotonic watermark containment for interleaved lineages",
+        "first session metadata owns rollout identity",
+        "embedded ancestor metadata identifies a copied prefix"
+      ],
+      "farmingDifferences": [
+        "Farming stores source checkpoints and hourly aggregates in SQLite instead of CodexBar cache files",
+        "Farming excludes pricing, model catalogs, quota network calls, and UI code",
+        "Farming reports mutually exclusive non-cached input and cached input fields",
+        "For a compact explicit fork with no copied prefix, Farming accepts a present last-token delta but never bills an unknown total-only baseline"
+      ]
+    },
+    {
+      "name": "cc-statistics",
+      "version": "1.1.0",
+      "repository": "https://github.com/androidZzT/cc-statistics",
+      "commit": "c98be0af52bbc7f09a1f277747744ace48d9e014",
+      "license": "MIT",
+      "upstreamFiles": [
+        "cc_stats/parser.py"
+      ],
+      "adaptedSemantics": [
+        "Claude assistant usage extraction",
+        "Claude streaming message-id deduplication",
+        "Codex cached-input normalization"
+      ]
+    }
+  ]
+}

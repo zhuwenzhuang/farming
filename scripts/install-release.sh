@@ -59,7 +59,10 @@ is_truthy() {
 }
 
 ensure_prerequisites() {
-  [ -n "${SYSTEM_NODE_BIN}" ] || { echo "Node.js 22 or newer is required." >&2; exit 1; }
+  [ -n "${SYSTEM_NODE_BIN}" ] || { echo "Node.js 22.13 LTS or Node.js 24+ is required." >&2; exit 1; }
+  "${SYSTEM_NODE_BIN}" -e \
+    'const [major, minor] = process.versions.node.split(".").map(Number); process.exit((major === 22 && minor >= 13) || major >= 24 ? 0 : 1)' \
+    || { echo "Node.js 22.13 LTS or Node.js 24+ is required." >&2; exit 1; }
   if release_uses_managed_npm; then
     [ -n "${SYSTEM_NPM_BIN}" ] || { echo "npm is required for managed Farming updates." >&2; exit 1; }
   fi

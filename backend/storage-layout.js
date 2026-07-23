@@ -41,12 +41,8 @@ function reviewSessionsFile(configDir) {
   return path.join(historyDir(configDir), 'review-sessions.json');
 }
 
-function ccStatisticsUsageCacheFile(configDir) {
-  return path.join(historyDir(configDir), 'cc-statistics-usage-v1.sqlite3');
-}
-
-function ccStatisticsRuntimeDir(configDir, revision) {
-  return path.join(configDir, 'runtime', `cc-statistics-${revision}`);
+function usageHistoryCacheFile(configDir) {
+  return path.join(historyDir(configDir), 'usage-history-v2.sqlite3');
 }
 
 function sessionIndexFile(configDir) {
@@ -145,6 +141,5 @@ module.exports = {
   themeSettingsFile,
   updateLogFile,
   updateStateFile,
-  ccStatisticsRuntimeDir,
-  ccStatisticsUsageCacheFile,
+  usageHistoryCacheFile,
 };

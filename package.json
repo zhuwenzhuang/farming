@@ -8,9 +8,10 @@
   },
   "files": [
     "backend/*.js",
+    "backend/usage-history-scanner.ts",
     "backend/acp/",
     "backend/data/",
-    "backend/vendor/cc-statistics/",
+    "backend/vendor/usage-parsers/",
     "bin/",
     "config/*.example",
     "dist/",
@@ -30,16 +31,17 @@
   "scripts": {
     "sync:ghostty-vendor": "node scripts/sync-ghostty-vendor.js",
     "prepare:acp-vendor": "node scripts/prepare-codex-acp-vendor.js --copy",
-    "prebuild": "node scripts/sync-ghostty-vendor.js && node scripts/prepare-codex-acp-vendor.js",
+    "build:usage-history": "node scripts/build-usage-history-scanner.js",
+    "prebuild": "node scripts/build-usage-history-scanner.js && node scripts/sync-ghostty-vendor.js && node scripts/prepare-codex-acp-vendor.js",
     "prepack": "FARMING_BASE_PATH=/farming npm run build",
-    "pretest": "npm run prepare:acp-vendor",
+    "pretest": "npm run prepare:acp-vendor && npm run build:usage-history",
     "start": "npm run build && node backend/server.js",
     "start:net": "node backend/farming-net-server.js",
     "start:no-auth": "FARMING_DISABLE_AUTH=1 npm start",
-    "predev:backend": "npm run prepare:acp-vendor && npm run build:crt-markdown",
+    "predev:backend": "npm run prepare:acp-vendor && npm run build:usage-history && npm run build:crt-markdown",
     "dev:backend": "node backend/server.js",
     "dev:frontend": "vite",
-    "predev": "npm run prepare:acp-vendor && npm run build:crt-markdown",
+    "predev": "npm run prepare:acp-vendor && npm run build:usage-history && npm run build:crt-markdown",
     "dev": "node backend/server.js & vite --open & wait",
     "build:crt-markdown": "node -e \"require('fs').rmSync('dist/crt-markdown-assets',{recursive:true,force:true})\" && esbuild src/crt-markdown-renderer.tsx --bundle --outdir=dist --entry-names=crt-markdown-renderer --asset-names=crt-markdown-assets/[name]-[hash] --platform=browser --format=iife --target=es2022 --loader:.woff=file --loader:.woff2=file --loader:.ttf=file --minify && esbuild src/crt-mermaid-runtime.ts --bundle --outfile=dist/crt-mermaid-renderer.js --platform=browser --format=iife --target=es2022 --minify",
     "build": "vite build && npm run build:crt-markdown && npm run prepare:acp-vendor",
@@ -72,8 +74,8 @@
     "test:remote-terminal:chaos": "node scripts/smoke-remote-terminal-chaos.js",
     "test:e2e:workspaces:local": "FARMING_BASE_PATH=/farming npm run build && node scripts/e2e-workspaces.js local",
     "test:e2e:workspaces:remote": "FARMING_BASE_PATH=/farming npm run build && node scripts/e2e-workspaces.js remote",
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint --max-warnings=0 \"backend/**/*.js\" \"frontend/**/*.js\" \"scripts/**/*.js\" bin/farming --ignore-pattern \"frontend/vendor/**\" --ignore-pattern \"frontend/themes/**\"",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.usage.json",
+    "lint": "eslint --max-warnings=0 \"backend/**/*.js\" \"frontend/**/*.js\" \"scripts/**/*.js\" bin/farming --ignore-pattern \"backend/usage-history-scanner.generated.js\" --ignore-pattern \"frontend/vendor/**\" --ignore-pattern \"frontend/themes/**\"",
     "check": "npm run typecheck && npm run lint && npm test"
   },
   "keywords": [
@@ -98,7 +100,7 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=22"
+    "node": "^22.13.0 || >=24.0.0"
   },
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.59.0",
@@ -138,6 +140,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.59.1",
+    "@types/node": "^26.1.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

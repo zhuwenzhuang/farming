@@ -156,7 +156,7 @@ Both interfaces connect to the same backend sessions. If Code cannot start or re
 
 ## Runtime Defaults And Operations
 
-The default runtime requires Node.js 22 or newer.
+The default runtime requires Node.js 22.13 LTS (22.x) or Node.js 24+.
 
 Farming defaults to port `6694`, base path `/farming`, config directory `~/.farming`, and token authentication. Useful commands:
 
