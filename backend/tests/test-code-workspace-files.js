@@ -1011,7 +1011,7 @@ function run() {
       codeMainAreaSource.includes('active={agentWorkspaceVisible && agent.id === activeTerminalId}') &&
       workspaceSource.includes('touchAgentViewCache(retainedAgentViewIds, activeTerminalId)') &&
       appSource.includes('pruneTerminalSessions(effectiveRetainedAgentViewIds)') &&
-      agentViewCacheSource.includes('MAX_RETAINED_AGENT_VIEWS = 6') &&
+      agentViewCacheSource.includes('MAX_RETAINED_AGENT_VIEWS = 20') &&
       agentWorkPaneSource.includes('hidden={!active}') &&
       agentWorkPaneSource.includes('{!chatMode && active ? (') &&
       agentWorkPaneSource.includes('{chatMode ? (') &&

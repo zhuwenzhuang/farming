@@ -1,8 +1,7 @@
-export const MAX_RETAINED_AGENT_VIEWS = 6
+export const MAX_RETAINED_AGENT_VIEWS = 20
 
-// The active view plus five recent views keeps the measured mixed working set
-// bounded while covering normal back-and-forth supervision. The large-cache
-// browser test exercises two >1.5 MiB Chats and real pooled Terminals.
+// Keep the active view plus nineteen recent views. The large-cache browser test
+// crosses this exact boundary with two >1.5 MiB Chats and real pooled Terminals.
 export function normalizeAgentViewCache(
   agentIds: readonly string[],
   limit = MAX_RETAINED_AGENT_VIEWS,

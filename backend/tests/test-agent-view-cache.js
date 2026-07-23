@@ -9,11 +9,14 @@ const {
 } = importTsModule('src/components/code/agent-view-cache.ts');
 
 function run() {
-  assert.strictEqual(MAX_RETAINED_AGENT_VIEWS, 6);
+  assert.strictEqual(MAX_RETAINED_AGENT_VIEWS, 20);
 
-  const fullCache = ['agent-1', 'agent-2', 'agent-3', 'agent-4', 'agent-5', 'agent-6'];
+  const fullCache = Array.from(
+    { length: MAX_RETAINED_AGENT_VIEWS },
+    (_, index) => `agent-${index + 1}`,
+  );
   assert.strictEqual(
-    touchAgentViewCache(fullCache, 'agent-6'),
+    touchAgentViewCache(fullCache, 'agent-20'),
     fullCache,
     'touching the current MRU should preserve the cache reference and avoid an empty React update',
   );
@@ -23,13 +26,13 @@ function run() {
     'a no-op lifecycle reconciliation should preserve the cache reference',
   );
   assert.deepStrictEqual(
-    touchAgentViewCache(fullCache, 'agent-7'),
-    ['agent-2', 'agent-3', 'agent-4', 'agent-5', 'agent-6', 'agent-7'],
-    'adding a seventh view should evict the least recently used Agent',
+    touchAgentViewCache(fullCache, 'agent-21'),
+    [...fullCache.slice(1), 'agent-21'],
+    'adding a twenty-first view should evict the least recently used Agent',
   );
   assert.deepStrictEqual(
     touchAgentViewCache(fullCache, 'agent-2'),
-    ['agent-1', 'agent-3', 'agent-4', 'agent-5', 'agent-6', 'agent-2'],
+    ['agent-1', ...fullCache.slice(2), 'agent-2'],
     'touching a cached Agent should make it most recently used without growing the cache',
   );
   assert.deepStrictEqual(
