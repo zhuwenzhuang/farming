@@ -993,7 +993,10 @@ test.describe('additional Farming Code user scenarios', () => {
     await directoryRow.click({ button: 'right' })
     const fileContextMenu = page.getByTestId('code-file-context-menu')
     await expect(fileContextMenu).toBeVisible()
-    await fileContextMenu.getByTestId('file-new-agent-submenu-trigger').hover()
+    const agentSubmenuTrigger = fileContextMenu.getByTestId('file-new-agent-submenu-trigger')
+    await expect(agentSubmenuTrigger).toHaveAttribute('aria-haspopup', 'menu')
+    await agentSubmenuTrigger.focus()
+    await agentSubmenuTrigger.press('ArrowRight')
     await expect(page.getByTestId('file-new-agent-submenu')).toBeVisible()
     await page.getByTestId('agent-launch-bash').click()
 
