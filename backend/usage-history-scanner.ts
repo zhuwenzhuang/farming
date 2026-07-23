@@ -1086,6 +1086,85 @@ function processRecord(
   metrics.parsed_events = Number(metrics.parsed_events) + 1;
 }
 
+function isCompleteJsonValue(
+  filePath: string,
+  startOffset: number,
+  endOffset: number,
+): boolean {
+  const descriptor = fs.openSync(filePath, 'r');
+  let physicalOffset = startOffset;
+  let started = false;
+  let finished = false;
+  let inString = false;
+  let escaped = false;
+  let invalid = false;
+  const stack: number[] = [];
+  try {
+    const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);
+    while (physicalOffset < endOffset && !invalid) {
+      const length = fs.readSync(
+        descriptor,
+        buffer,
+        0,
+        Math.min(buffer.length, endOffset - physicalOffset),
+        physicalOffset,
+      );
+      if (length === 0) break;
+      physicalOffset += length;
+      for (const byte of buffer.subarray(0, length)) {
+        if (!started) {
+          if (byte === 0x20 || byte === 0x09 || byte === 0x0d || byte === 0x0a) continue;
+          if (byte !== 0x7b && byte !== 0x5b) {
+            invalid = true;
+            break;
+          }
+          started = true;
+          stack.push(byte);
+          continue;
+        }
+        if (finished) {
+          if (byte !== 0x20 && byte !== 0x09 && byte !== 0x0d && byte !== 0x0a) {
+            invalid = true;
+            break;
+          }
+          continue;
+        }
+        if (inString) {
+          if (escaped) {
+            escaped = false;
+          } else if (byte === 0x5c) {
+            escaped = true;
+          } else if (byte === 0x22) {
+            inString = false;
+          }
+          continue;
+        }
+        if (byte === 0x22) {
+          inString = true;
+        } else if (byte === 0x7b || byte === 0x5b) {
+          stack.push(byte);
+        } else if (byte === 0x7d || byte === 0x5d) {
+          const expected = byte === 0x7d ? 0x7b : 0x5b;
+          if (stack.pop() !== expected) {
+            invalid = true;
+            break;
+          }
+          if (stack.length === 0) finished = true;
+        }
+      }
+    }
+    return physicalOffset >= endOffset
+      && started
+      && finished
+      && !inString
+      && !escaped
+      && !invalid
+      && stack.length === 0;
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
 function scanFile(
   database: DatabaseSync,
   candidate: SourceCandidate,
@@ -1163,12 +1242,6 @@ function scanFile(
   let tail = Buffer.alloc(0);
   let truncated = false;
   let stoppedForBudget = false;
-  let jsonStarted = false;
-  let jsonFinished = false;
-  let jsonInString = false;
-  let jsonEscaped = false;
-  let jsonInvalid = false;
-  let jsonStack: number[] = [];
 
   const resetLine = () => {
     fullChunks = [];
@@ -1176,58 +1249,8 @@ function scanFile(
     first = Buffer.alloc(0);
     tail = Buffer.alloc(0);
     truncated = false;
-    jsonStarted = false;
-    jsonFinished = false;
-    jsonInString = false;
-    jsonEscaped = false;
-    jsonInvalid = false;
-    jsonStack = [];
-  };
-  const trackJsonCompleteness = (part: Buffer) => {
-    for (const byte of part) {
-      if (jsonInvalid) return;
-      if (!jsonStarted) {
-        if (byte === 0x20 || byte === 0x09 || byte === 0x0d || byte === 0x0a) continue;
-        if (byte !== 0x7b && byte !== 0x5b) {
-          jsonInvalid = true;
-          return;
-        }
-        jsonStarted = true;
-        jsonStack.push(byte);
-        continue;
-      }
-      if (jsonFinished) {
-        if (byte !== 0x20 && byte !== 0x09 && byte !== 0x0d && byte !== 0x0a) {
-          jsonInvalid = true;
-        }
-        continue;
-      }
-      if (jsonInString) {
-        if (jsonEscaped) {
-          jsonEscaped = false;
-        } else if (byte === 0x5c) {
-          jsonEscaped = true;
-        } else if (byte === 0x22) {
-          jsonInString = false;
-        }
-        continue;
-      }
-      if (byte === 0x22) {
-        jsonInString = true;
-      } else if (byte === 0x7b || byte === 0x5b) {
-        jsonStack.push(byte);
-      } else if (byte === 0x7d || byte === 0x5d) {
-        const expected = byte === 0x7d ? 0x7b : 0x5b;
-        if (jsonStack.pop() !== expected) {
-          jsonInvalid = true;
-          return;
-        }
-        if (jsonStack.length === 0) jsonFinished = true;
-      }
-    }
   };
   const appendPart = (part: Buffer) => {
-    trackJsonCompleteness(part);
     lineBytes += part.length;
     if (!truncated && lineBytes <= MAX_LINE_BYTES) {
       fullChunks.push(part);
@@ -1252,22 +1275,14 @@ function scanFile(
   const finishLine = (lineEnd: number, requireCompleteJson = false): boolean => {
     const fullLine = truncated ? null : Buffer.concat(fullChunks);
     if (requireCompleteJson) {
-      if (
-        !jsonStarted
-        || !jsonFinished
-        || jsonInString
-        || jsonEscaped
-        || jsonInvalid
-        || jsonStack.length !== 0
-      ) {
-        return false;
-      }
       if (fullLine) {
         try {
           JSON.parse(fullLine.toString('utf8'));
         } catch {
           return false;
         }
+      } else if (!isCompleteJsonValue(candidate.filePath, committedOffset, lineEnd)) {
+        return false;
       }
     }
     const record = parseRecord(candidate.provider, fullLine, first, tail);
