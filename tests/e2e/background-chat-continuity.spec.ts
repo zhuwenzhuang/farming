@@ -74,7 +74,7 @@ test('keeps ACP Chat live while the browser page is hidden', async ({ page, work
   expect(backendSocketClosed).toBe(0)
 })
 
-test('keeps each opened Chat frontend mounted and refreshes it by revision after Agent switches', async ({ page, workspaceRoot }) => {
+test('keeps retained Chat frontends mounted and refreshes them by revision after Agent switches', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'agent-chat-view-cache')
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, 'cache-target.txt'), 'retained Chat file target\n')

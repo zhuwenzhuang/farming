@@ -28,6 +28,11 @@ import {
 } from '@/lib/backend-live-status'
 import type { Agent, AgentContextWindowUsage, UsageSummary } from '@/types/agent'
 import { loadCodeWorkspaceViewState, saveCodeWorkspaceViewState } from '@/components/code/workspace-view-state'
+import {
+  normalizeAgentViewCache,
+  reconcileAgentViewCache,
+  touchAgentViewCache,
+} from '@/components/code/agent-view-cache'
 
 type DialogState = 'none' | 'input'
 type AgentFlagPatch = Partial<{
@@ -152,6 +157,11 @@ export function App() {
   const [inputInitialCommand, setInputInitialCommand] = useState<string | undefined>(undefined)
   const [inputInitialCustomTitle, setInputInitialCustomTitle] = useState<string | undefined>(undefined)
   const [openTerminalIds, setOpenTerminalIds] = useState<string[]>(() => initialWorkspaceViewState.openTerminalIds ?? [])
+  const [retainedAgentViewIds, setRetainedAgentViewIds] = useState<string[]>(() => {
+    const initialAgentId = initialWorkspaceViewState.activeTerminalId
+      ?? initialWorkspaceViewState.openTerminalIds?.[0]
+    return initialAgentId ? [initialAgentId] : []
+  })
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(() => initialWorkspaceViewState.activeTerminalId ?? null)
   const [terminalFocusRequest, setTerminalFocusRequest] = useState<{ agentId: string; nonce: number } | null>(null)
   const [pendingTerminalOpen, setPendingTerminalOpen] = useState<{
@@ -209,7 +219,7 @@ export function App() {
   }, [permissionSwitch, ws.agents])
   const observedAgentReplacements = useMemo(() => {
     const replacements = new Map<string, string>()
-    const candidateIds = new Set(openTerminalIds)
+    const candidateIds = new Set([...openTerminalIds, ...retainedAgentViewIds])
     if (activeTerminalId) candidateIds.add(activeTerminalId)
     candidateIds.forEach(agentId => {
       if (displayedAgents.some(agent => agent.id === agentId && isOpenableAgent(agent))) return
@@ -217,7 +227,7 @@ export function App() {
       if (replacement) replacements.set(agentId, replacement.id)
     })
     return replacements
-  }, [activeTerminalId, displayedAgents, openTerminalIds])
+  }, [activeTerminalId, displayedAgents, openTerminalIds, retainedAgentViewIds])
   const observedAgentReplacement = useMemo<AgentReplacementTransition | null>(() => {
     if (activeTerminalId) {
       const replacementAgentId = observedAgentReplacements.get(activeTerminalId)
@@ -229,6 +239,9 @@ export function App() {
   const effectiveOpenTerminalIds = useMemo(() => Array.from(new Set(
     openTerminalIds.map(agentId => observedAgentReplacements.get(agentId) ?? agentId)
   )), [observedAgentReplacements, openTerminalIds])
+  const effectiveRetainedAgentViewIds = useMemo(() => normalizeAgentViewCache(
+    retainedAgentViewIds.map(agentId => observedAgentReplacements.get(agentId) ?? agentId)
+  ), [observedAgentReplacements, retainedAgentViewIds])
   const effectiveActiveTerminalId = activeTerminalId
     ? observedAgentReplacements.get(activeTerminalId) ?? activeTerminalId
     : null
@@ -236,9 +249,20 @@ export function App() {
   useLayoutEffect(() => {
     if (!observedAgentReplacement) return
     setOpenTerminalIds(effectiveOpenTerminalIds)
+    setRetainedAgentViewIds(effectiveRetainedAgentViewIds)
     setActiveTerminalId(effectiveActiveTerminalId)
     setExternalAgentReplacement(observedAgentReplacement)
-  }, [effectiveActiveTerminalId, effectiveOpenTerminalIds, observedAgentReplacement])
+  }, [
+    effectiveActiveTerminalId,
+    effectiveOpenTerminalIds,
+    effectiveRetainedAgentViewIds,
+    observedAgentReplacement,
+  ])
+
+  useLayoutEffect(() => {
+    if (!effectiveActiveTerminalId) return
+    setRetainedAgentViewIds(ids => touchAgentViewCache(ids, effectiveActiveTerminalId))
+  }, [effectiveActiveTerminalId])
 
   useEffect(() => {
     if (!externalAgentReplacement || observedAgentReplacement) return
@@ -261,6 +285,9 @@ export function App() {
     setOpenTerminalIds(ids => Array.from(new Set(ids.map(id => (
       isRestartDescendantOf(replacement, id) ? replacement.id : id
     )))))
+    setRetainedAgentViewIds(ids => reconcileAgentViewCache(ids, ids.map(id => (
+      isRestartDescendantOf(replacement, id) ? replacement.id : id
+    ))))
     setActiveTerminalId(activeId => (
       activeId && isRestartDescendantOf(replacement, activeId) ? replacement.id : activeId
     ))
@@ -467,6 +494,7 @@ export function App() {
       ws.focusAgent(agentId)
     }
     setOpenTerminalIds(ids => ids.includes(agentId) ? ids : [...ids, agentId])
+    setRetainedAgentViewIds(ids => touchAgentViewCache(ids, agentId))
     setActiveTerminalId(agentId)
     setActiveWorkspaceView('projects')
     if (options?.focusTerminal !== false) {
@@ -512,6 +540,12 @@ export function App() {
 
     openTerminalIdsRef.current = remaining
     setOpenTerminalIds(remaining)
+    setRetainedAgentViewIds(ids => {
+      const remainingCache = normalizeAgentViewCache(ids.filter(id => !closingIds.has(id)))
+      return nextActiveId
+        ? touchAgentViewCache(remainingCache, nextActiveId)
+        : remainingCache
+    })
     setActiveTerminalId(current => {
       if (!current || !closingIds.has(current)) return current
       return nextActiveId
@@ -770,6 +804,9 @@ export function App() {
         if (switchingAgent && current?.originalAgentId === agentId) {
           if (current.agent.id === agentId) {
             setOpenTerminalIds(ids => ids.map(id => id === agentId ? restartedAgentId : id))
+            setRetainedAgentViewIds(ids => reconcileAgentViewCache(ids,
+              ids.map(id => id === agentId ? restartedAgentId : id)
+            ))
             setActiveTerminalId(activeId => activeId === agentId ? restartedAgentId : activeId)
             commitPermissionSwitch({
               ...current,
@@ -935,13 +972,14 @@ export function App() {
     }
   }, [pageVisible])
 
-  // Clean up pooled terminal instances for agents that no longer exist
+  // Chat DOM and xterm instances share one bounded frontend working set.
+  // Eviction destroys only browser-owned state; ACP and PTY processes remain
+  // backend-owned and can restore from their authoritative transcript/checkpoint.
   useEffect(() => {
-    const activeIds = displayedAgents.filter(isOpenableAgent).map(a => a.id)
-    pruneTerminalSessions(activeIds).catch(error => {
+    pruneTerminalSessions(effectiveRetainedAgentViewIds).catch(error => {
       console.error('Failed to prune terminal sessions:', error)
     })
-  }, [displayedAgents])
+  }, [effectiveRetainedAgentViewIds])
 
   useEffect(() => {
     const liveIds = new Set(displayedAgents.filter(isOpenableAgent).map(agent => agent.id))
@@ -951,6 +989,12 @@ export function App() {
     }))).filter(id => (
       liveIds.has(id) || permissionSwitchStateRef.current?.agent.id === id
     )))
+    setRetainedAgentViewIds(ids => reconcileAgentViewCache(ids, ids.map(id => {
+      if (liveIds.has(id)) return id
+      return latestRestartDescendant(displayedAgents, id)?.id ?? id
+    }).filter(id => (
+      liveIds.has(id) || permissionSwitchStateRef.current?.agent.id === id
+    ))))
   }, [displayedAgents])
 
   useEffect(() => {
@@ -980,6 +1024,7 @@ export function App() {
     // explicit open actions through activateTerminal so background refreshes
     // cannot replace the user's current Search or History surface.
     setOpenTerminalIds([fallbackId])
+    setRetainedAgentViewIds([fallbackId])
     setActiveTerminalId(fallbackId)
   }, [displayedAgents, openTerminalIds.length, ws.mainAgentId])
 
@@ -1069,7 +1114,7 @@ export function App() {
             replacementAgentId: permissionSwitch.replacementAgentId,
           }
           : observedAgentReplacement ?? externalAgentReplacement}
-        openTerminalIds={effectiveOpenTerminalIds}
+        retainedAgentViewIds={effectiveRetainedAgentViewIds}
         terminalFocusRequest={terminalFocusRequest}
         keyMap={keyMap}
         keyboardShortcutsEnabled={CODEX_SKIN_KEYBOARD_SHORTCUTS_ENABLED}

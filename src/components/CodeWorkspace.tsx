@@ -223,6 +223,7 @@ import {
   normalizeAgentLaunchOptions,
   type AgentLaunchOption,
 } from './code/agent-launch-options'
+import { touchAgentViewCache } from './code/agent-view-cache'
 
 export type { WorkspaceView } from './code/types'
 
@@ -315,7 +316,7 @@ interface CodeWorkspaceProps {
   permissionSwitchingAgentId: string | null
   agentSwitchingKind: 'permission' | 'runtime' | null
   permissionSwitchReplacement: { originalAgentId: string; replacementAgentId: string } | null
-  openTerminalIds: string[]
+  retainedAgentViewIds: string[]
   terminalFocusRequest: { agentId: string; nonce: number } | null
   keyMap: Map<string, string>
   keyboardShortcutsEnabled: boolean
@@ -526,7 +527,7 @@ export function CodeWorkspace({
   permissionSwitchingAgentId,
   agentSwitchingKind,
   permissionSwitchReplacement,
-  openTerminalIds,
+  retainedAgentViewIds,
   terminalFocusRequest,
   keyMap,
   keyboardShortcutsEnabled,
@@ -920,11 +921,17 @@ export function CodeWorkspace({
     })
     return shortcuts
   }, [keyMap, keyboardShortcutsEnabled])
+  const mountedAgentViewIds = useMemo(
+    () => activeTerminalId
+      ? touchAgentViewCache(retainedAgentViewIds, activeTerminalId)
+      : retainedAgentViewIds,
+    [activeTerminalId, retainedAgentViewIds]
+  )
   const openAgents = useMemo(
-    () => openTerminalIds
+    () => mountedAgentViewIds
       .map(id => activeAgents.find(agent => agent.id === id) ?? (hiddenMainAgent?.id === id ? hiddenMainAgent : null))
       .filter((agent): agent is Agent => Boolean(agent)),
-    [activeAgents, hiddenMainAgent, openTerminalIds]
+    [activeAgents, hiddenMainAgent, mountedAgentViewIds]
   )
   const structuralActiveOpenAgent = useMemo(
     () => openAgents.find(agent => agent.id === activeTerminalId) ?? openAgents[0] ?? null,

@@ -68,6 +68,7 @@ function run() {
   const acpPermissionSource = read('src/components/code/acp/AcpPermissionCard.tsx');
   const acpTranscriptSource = read('src/components/code/acp/AcpTranscriptPane.tsx');
   const acpProgressTimelineSource = read('src/components/code/acp/acp-progress-timeline.ts');
+  const agentViewCacheSource = read('src/components/code/agent-view-cache.ts');
   const terminalSearchSource = read('src/lib/terminal-search.ts');
   const terminalSessionPoolSource = read('src/lib/terminal-session-pool.ts');
   const usePooledTerminalSource = read('src/hooks/usePooledTerminal.ts');
@@ -1008,12 +1009,15 @@ function run() {
       codeMainAreaSource.includes('hidden={!agentWorkspaceVisible}') &&
       codeMainAreaSource.includes('openAgents.map(agent => (') &&
       codeMainAreaSource.includes('active={agentWorkspaceVisible && agent.id === activeTerminalId}') &&
+      workspaceSource.includes('touchAgentViewCache(retainedAgentViewIds, activeTerminalId)') &&
+      appSource.includes('pruneTerminalSessions(effectiveRetainedAgentViewIds)') &&
+      agentViewCacheSource.includes('MAX_RETAINED_AGENT_VIEWS = 6') &&
       agentWorkPaneSource.includes('hidden={!active}') &&
       agentWorkPaneSource.includes('{!chatMode && active ? (') &&
       agentWorkPaneSource.includes('{chatMode ? (') &&
       stylesSource.includes('.code-terminal-grid[hidden]') &&
       stylesSource.includes('.code-agent-work-pane[hidden]'),
-    'Opened Agent views should retain inactive Chat DOM while hidden Terminal panes continue to use the pooled xterm lifecycle'
+    'Chat DOM and pooled xterm views should share one bounded retained-Agent working set'
   );
 
   assert(

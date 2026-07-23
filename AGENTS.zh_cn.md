@@ -181,7 +181,7 @@ Code 与 CRT 的产品 Terminal 统一使用 xterm.js WebGL Renderer，并且只
 
 ACP 历史重放和实时更新必须归约到同一条有序 entry stream，不要在后端为 ACP 重建 `Turn -> Item` 模型。面向用户的结果/过程分组属于 ACP 前端的注意力投影：必须可逆、保留 entry 顺序与 tool 详情，并在不删除可见 automation 通知的前提下隐藏 Codex 内部 heartbeat/context 活动。
 
-Farming Code 的前端视图保留由现有“已打开 Agent”集合统一拥有。切换 Agent，或暂时打开 Search、History、文件时，已打开 Chat 只能隐藏、不能被逐出；重新激活时必须先展示保留的 transcript 和阅读状态，再按 revision 校准 ACP 增量。Terminal 通过池化 xterm 生命周期遵守相同产品契约。只有关闭、归档、终止或替换 Agent 才释放该缓存视图。
+Farming Code 必须把“已打开 Agent”的逻辑顺序与有界前端视图缓存分开。Chat DOM 和池化 xterm 共用一份最多六个 Agent 的 LRU 工作集：激活 Agent 会把它移到最近使用端，当前活跃 Agent 绝不能被逐出；打开第七个需要保留的视图时，只释放最久未使用的非活跃 Chat DOM 或 xterm 实例，不停止后端 ACP 或 PTY 进程。在缓存命中的 Agent 之间切换，或暂时打开 Search、History、文件时，只隐藏而不逐出这些视图。命中的 Chat 先展示原 transcript 与阅读状态，再按 revision 校准 ACP 增量；被逐出的 Chat 重新加载权威 transcript，被逐出的 Terminal 从权威 session-view checkpoint 重建。关闭、归档或终止 Agent 时立即移除视图，runtime replacement 则映射保留身份。
 
 ACP 只有在 Farming reducer checkpoint 已精确且原子落盘，并且 provider、Agent Home、Session、工作区与 provider 新鲜度仍一致时，才可以跳过完整 `session/load`。发送 prompt 前必须先把 checkpoint fence 为 dirty；缺失、dirty、过期、损坏或无法校验的状态必须明确进入有界 load/repair 路径。Transcript 页面只携带紧凑有序 tool envelope，准确 raw tool detail 仍由后端持有，并按 tool-call id 懒加载。
 
