@@ -10,6 +10,7 @@
     "backend/*.js",
     "backend/acp/",
     "backend/data/",
+    "backend/vendor/cc-statistics/",
     "bin/",
     "config/*.example",
     "dist/",

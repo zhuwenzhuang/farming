@@ -166,6 +166,7 @@ async function run() {
         projectWorkspace: workspace,
         category: 'coding',
         wantsMain: false,
+        visibleOnMainPage: true,
         source: 'runtime-rotation-test',
       },
     });
@@ -196,7 +197,9 @@ async function run() {
         && String(session.renderOutput || '').includes(beforeMarker)
         && String(session.renderOutput || '').includes('History restored')
         ? session
-        : null;
+        : Promise.reject(new Error(
+          `revived terminal not ready: ${view.response.status} ${JSON.stringify(view.body)}`,
+        ));
     }, 'revived terminal after controlled host rotation');
     assert.strictEqual(revived.status, 'running');
     assert.strictEqual(revived.outputSeq >= 1, true);

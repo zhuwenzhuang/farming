@@ -12,6 +12,7 @@ module.exports = {
     assets: [
       'dist/**/*',
       'backend/data/**/*.json',
+      'backend/vendor/cc-statistics/**/*',
       'frontend/*.js',
       'frontend/skins/**/*',
       'frontend/vendor/**/*',

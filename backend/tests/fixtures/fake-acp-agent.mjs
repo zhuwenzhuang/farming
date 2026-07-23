@@ -662,6 +662,124 @@ class FakeAgent {
       });
       return { stopReason: 'end_turn' };
     }
+    if (promptText.includes('grouped streaming tools')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'grouped-stream-tool-1',
+          title: 'Inspect grouped stream',
+          kind: 'read',
+          status: 'completed',
+          rawInput: { path: 'grouped-stream.txt' },
+          rawOutput: { text: 'first action complete' },
+        },
+      });
+      await new Promise(resolve => setTimeout(resolve, 2_000));
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'grouped-stream-tool-2',
+          title: 'Verify grouped stream',
+          kind: 'execute',
+          status: 'in_progress',
+          rawInput: { command: 'verify-grouped-stream' },
+        },
+      });
+      await new Promise(resolve => setTimeout(resolve, 3_000));
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'grouped-stream-tool-2',
+          status: 'completed',
+          rawOutput: { stdout: 'grouped stream verified\n', stderr: '', exitCode: 0 },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'grouped-stream-answer',
+          content: { type: 'text', text: 'Grouped streaming tools complete.' },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('dense multi-step progress')) {
+      for (let index = 1; index <= 24; index += 1) {
+        await client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: 'agent_thought_chunk',
+            messageId: `dense-thought-${index}`,
+            content: { type: 'text', text: `Reasoning checkpoint ${index}` },
+          },
+        });
+        await client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: 'tool_call',
+            toolCallId: `dense-tool-${index}`,
+            title: `Run verification step ${index}`,
+            kind: 'execute',
+            status: index === 24 ? 'in_progress' : index <= 4 ? 'failed' : 'completed',
+            rawInput: { command: `verify-step-${index}` },
+            ...(index === 24
+              ? {}
+              : index <= 4
+                ? { rawOutput: { stdout: '', stderr: `step ${index} failed\n`, exitCode: 2 } }
+                : { rawOutput: { stdout: `step ${index} passed\n`, stderr: '', exitCode: 0 } }),
+          },
+        });
+        if (index === 8 || index === 16) {
+          await client.sessionUpdate({
+            sessionId: params.sessionId,
+            update: {
+              sessionUpdate: 'agent_message_chunk',
+              messageId: `dense-progress-${index}`,
+              content: {
+                type: 'text',
+                text: index === 8
+                  ? 'The first verification phase passed.'
+                  : [
+                      'The second verification phase passed; final checks are running.',
+                      '',
+                      'The compatibility matrix is still being checked.',
+                      '',
+                      'The browser projection remains stable.',
+                      '',
+                      'The remaining assertions are bounded.',
+                      '',
+                      'The final result will follow after verification. [Details](https://example.invalid/progress)',
+                    ].join('\n'),
+              },
+            },
+          });
+          await new Promise(resolve => setTimeout(resolve, 1_200));
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, 5_000));
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'dense-tool-24',
+          status: 'completed',
+          rawOutput: { stdout: 'step 24 passed\n', stderr: '', exitCode: 0 },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'dense-progress-answer',
+          content: { type: 'text', text: 'Dense multi-step progress complete.' },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('streaming thought')) {
       await client.sessionUpdate({
         sessionId: params.sessionId,
@@ -996,6 +1114,44 @@ class FakeAgent {
           sessionUpdate: 'agent_message_chunk',
           messageId: 'long-terminal-answer',
           content: { type: 'text', text: exit.signal ? 'Long command stopped.' : 'Long command completed.' },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('failing terminal')) {
+      const terminal = await client.createTerminal({
+        sessionId: params.sessionId,
+        command: process.execPath,
+        args: ['-e', "process.stdout.write('failing-terminal-ready\\n'); setTimeout(() => process.exit(2), 3000)"],
+        cwd: process.cwd(),
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'failing-terminal-tool',
+          title: 'Run failing command',
+          kind: 'execute',
+          status: 'in_progress',
+          content: [{ type: 'terminal', terminalId: terminal.id }],
+        },
+      });
+      const exit = await terminal.waitForExit();
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'failing-terminal-tool',
+          status: 'failed',
+          rawOutput: { exitCode: exit.exitCode },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'failing-terminal-answer',
+          content: { type: 'text', text: 'Failing terminal finished.' },
         },
       });
       return { stopReason: 'end_turn' };

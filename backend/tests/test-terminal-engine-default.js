@@ -33,7 +33,7 @@ function run() {
       xtermSource.includes("rendererType = 'webgl'") &&
       !xtermSource.includes('falling back to the DOM renderer') &&
       xtermSource.includes('adapted.reattach = () =>') &&
-      xtermSource.includes('terminal: decorateXtermTerminal(terminal, searchAddon)') &&
+      xtermSource.includes('terminal: decorateXtermTerminal(terminal, searchAddon, themeOverride)') &&
       xtermSource.includes('adapted.forceRedraw = () =>') &&
       xtermSource.includes('terminal.clearTextureAtlas()') &&
       xtermSource.includes('adapted.clearTerminalSelection = () => terminal.clearSelection()') &&

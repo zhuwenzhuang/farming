@@ -56,6 +56,7 @@ function run() {
   const inputPartsSource = read('backend/input-parts.js');
   const terminalPaneSource = read('src/components/AgentTerminalPane.tsx');
   const transcriptPaneSource = read('src/components/code/CodexTranscriptPane.tsx');
+  const copySource = read('src/components/code/copy.ts');
   const agentWorkPaneSource = read('src/components/code/AgentWorkPane.tsx');
   const codeMainAreaSource = read('src/components/code/CodeMainArea.tsx');
   const terminalComposerSource = read('src/components/code/CodeComposer.tsx');
@@ -1281,14 +1282,22 @@ function run() {
   );
   assert(
     transcriptPaneSource.includes('data-testid="code-acp-progress-update"') &&
-      transcriptPaneSource.includes("source !== 'acp'") &&
       transcriptPaneSource.includes("turn.status === 'inProgress'") &&
-      transcriptPaneSource.includes('closedLiveProcessTurnIds') &&
-      transcriptPaneSource.includes('acpActionGroupLabel(entry.items)') &&
+      transcriptPaneSource.includes('latestLiveProgressItem') &&
+      transcriptPaneSource.includes('openLiveProcessTurnIds') &&
+      !transcriptPaneSource.includes('closedLiveProcessTurnIds') &&
+      transcriptPaneSource.includes('COMPACT_PROCESS_ACTION_LIMIT = 4') &&
+      transcriptPaneSource.includes('data-testid="code-codex-transcript-process-compact-list"') &&
+      transcriptPaneSource.includes('autoExpandedTerminalItemIdsRef') &&
+      transcriptPaneSource.includes('const timer = window.setInterval(checkForOutput, 500)') &&
+      transcriptPaneSource.includes('compactAcpActionLabel(item, copy)') &&
+      transcriptPaneSource.includes('showStatus={false}') &&
+      transcriptPaneSource.includes('entry.items.some(item => openProcessItemIds.has(item.id))') &&
+      copySource.includes('codexTranscriptEarlierActions: count =>') &&
       acpProgressTimelineSource.includes("return String(item.type || '').trim().toLowerCase() === 'progress'") &&
       acpProgressTimelineSource.includes("return 'Reasoning'") &&
       !terminalPaneSource.includes('code-acp-progress-update'),
-    'ACP Chat should show ordered progress prose and compact action groups while a turn is live without changing Terminal rendering'
+    'ACP Chat should show a bounded compact tool trail, auto-expand real long-running terminal output, keep only the latest progress note, and preserve full ordered evidence'
   );
 
   const keyboardSource = read('src/hooks/useKeyboard.ts');

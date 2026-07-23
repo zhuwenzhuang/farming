@@ -122,6 +122,65 @@ async function run() {
     clearInterval(recoveryRaceManager.heartbeatInterval);
     recoveryRaceManager.engineBridge.dispose();
 
+    const concurrentMainWorkspace = path.join(os.tmpdir(), 'farming-concurrent-main-workspace');
+    fs.mkdirSync(concurrentMainWorkspace, { recursive: true });
+    let concurrentMainCreates = 0;
+    let concurrentIdentityCreates = 0;
+    let releaseConcurrentMainCreate = () => {};
+    const concurrentMainCreateGate = new Promise(resolve => {
+      releaseConcurrentMainCreate = resolve;
+    });
+    const concurrentMainManager = new AgentManager({
+      getWorkspace() {
+        return concurrentMainWorkspace;
+      },
+      getHeartbeatInterval() {
+        return 1000;
+      },
+      getDangerouslySkipAgentPermissionsByDefault() {
+        return false;
+      },
+    }, {
+      skipExecutablePreflight: true,
+      async createProviderSessionIdentity() {
+        concurrentIdentityCreates += 1;
+        await concurrentMainCreateGate;
+        return { sessionId: '019f1234-5678-7abc-8def-0123456789ad' };
+      },
+    });
+    concurrentMainManager.engineBridge.resolve = () => ({
+      engineName: 'local',
+      engine: {
+        async createSession() {
+          concurrentMainCreates += 1;
+        },
+      },
+      spec: { category: 'other' },
+    });
+    const firstConcurrentMain = startAgent(concurrentMainManager, 'codex', null, { wantsMain: true });
+    const secondConcurrentMain = startAgent(concurrentMainManager, 'codex', null, { wantsMain: true });
+    let secondConcurrentMainSettled = false;
+    void secondConcurrentMain.finally(() => {
+      secondConcurrentMainSettled = true;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.strictEqual(
+      secondConcurrentMainSettled,
+      false,
+      'a duplicate Main start must wait for the reserved launch outcome',
+    );
+    releaseConcurrentMainCreate();
+    const [firstConcurrentMainId, secondConcurrentMainId] = await Promise.all([
+      firstConcurrentMain,
+      secondConcurrentMain,
+    ]);
+    assert.strictEqual(secondConcurrentMainId, firstConcurrentMainId);
+    assert.strictEqual(concurrentIdentityCreates, 1, 'concurrent Main starts must pre-create one provider identity');
+    assert.strictEqual(concurrentMainCreates, 1, 'concurrent Main starts must share one reserved launch');
+    clearInterval(concurrentMainManager.heartbeatInterval);
+    concurrentMainManager.engineBridge.dispose();
+
     manager.agents.get(mainAgentId).status = 'dead';
 
     const internalConfigWorkspace = path.join(os.tmpdir(), 'farming-internal-main-workspace', '.farming');

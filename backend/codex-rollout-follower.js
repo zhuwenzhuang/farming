@@ -59,6 +59,88 @@ function findCodexRolloutFile(sessionId, options = {}) {
   return '';
 }
 
+function recentSessionDirectories(root, now = new Date()) {
+  const directories = [];
+  for (const offsetDays of [-1, 0, 1]) {
+    const date = new Date(now.getTime() + offsetDays * 24 * 60 * 60 * 1000);
+    directories.push(
+      path.join(
+        root,
+        String(date.getFullYear()),
+        String(date.getMonth() + 1).padStart(2, '0'),
+        String(date.getDate()).padStart(2, '0'),
+      ),
+      path.join(
+        root,
+        String(date.getUTCFullYear()),
+        String(date.getUTCMonth() + 1).padStart(2, '0'),
+        String(date.getUTCDate()).padStart(2, '0'),
+      ),
+    );
+  }
+  return [...new Set(directories)];
+}
+
+async function findCodexRolloutFileAsync(sessionId, options = {}) {
+  const normalizedSessionId = String(sessionId || '').trim();
+  if (!normalizedSessionId) return '';
+  const codexHome = normalizePathValue(options.codexHome || path.join(os.homedir(), '.codex'));
+  const maxEntries = Number.isFinite(options.maxEntries)
+    ? Math.max(1, Math.floor(options.maxEntries))
+    : 100_000;
+  const deadline = Number.isFinite(options.deadline)
+    ? Number(options.deadline)
+    : Date.now() + 5_000;
+  const sessionsRoot = path.join(codexHome, 'sessions');
+  const archivedRoot = path.join(codexHome, 'archived_sessions');
+  const preferredDirectories = [
+    ...recentSessionDirectories(sessionsRoot),
+    ...(options.recentOnly === true ? [] : [archivedRoot]),
+  ];
+  const visited = new Set();
+  let inspectedEntries = 0;
+
+  async function inspectDirectory(directory, descend) {
+    if (Date.now() > deadline || inspectedEntries >= maxEntries || visited.has(directory)) return '';
+    visited.add(directory);
+    let entries;
+    try {
+      entries = await fsp.readdir(directory, { withFileTypes: true });
+    } catch {
+      return '';
+    }
+    const subdirectories = [];
+    for (const entry of entries) {
+      inspectedEntries += 1;
+      if (Date.now() > deadline || inspectedEntries > maxEntries) return '';
+      const fullPath = path.join(directory, entry.name);
+      if (entry.isFile() && entry.name.endsWith('.jsonl') && sessionIdFromFilePath(fullPath) === normalizedSessionId) {
+        return fullPath;
+      }
+      if (descend && entry.isDirectory()) subdirectories.push(fullPath);
+    }
+    return subdirectories;
+  }
+
+  for (const directory of preferredDirectories) {
+    const found = await inspectDirectory(directory, false);
+    if (typeof found === 'string' && found) return found;
+  }
+  if (options.recentOnly === true) return '';
+
+  const stack = [sessionsRoot, archivedRoot];
+  while (stack.length > 0 && Date.now() <= deadline && inspectedEntries < maxEntries) {
+    const directory = stack.pop();
+    const result = await inspectDirectory(directory, true);
+    if (typeof result === 'string') {
+      if (result) return result;
+      continue;
+    }
+    stack.push(...result);
+  }
+  return '';
+}
+
 function normalizePreviewText(value, maxLength = 400) {
   return String(value || '')
     .replace(/\r\n/g, '\n')
@@ -239,5 +321,6 @@ class CodexRolloutFollower extends EventEmitter {
 module.exports = {
   CodexRolloutFollower,
   findCodexRolloutFile,
+  findCodexRolloutFileAsync,
   formatCodexRolloutEvent,
 };

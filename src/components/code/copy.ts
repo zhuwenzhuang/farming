@@ -44,6 +44,11 @@ export interface CodeCopy {
   codexTranscriptPlanProgress: (completed: number, total: number) => string
   codexTranscriptFetching: string
   codexTranscriptUsingTool: string
+  codexTranscriptActionRunning: (title: string) => string
+  codexTranscriptActionFailed: (title: string) => string
+  codexTranscriptEarlierActions: (count: number) => string
+  codexTranscriptTerminalStatusUnavailable: string
+  codexTranscriptRetryTerminalStatus: string
   codexTranscriptWorkedFor: (duration: string) => string
   codexTranscriptProcessCount: (count: number) => string
   codexTranscriptCopyDetails: string
@@ -469,7 +474,7 @@ const EN_COPY: CodeCopy = {
   codexTranscriptUnavailable: 'This session’s Chat history could not be loaded.',
   codexTranscriptEmpty: 'No conversation yet.',
   codexTranscriptWaiting: 'Agent is still working...',
-  codexTranscriptProcess: 'Worked',
+  codexTranscriptProcess: 'Process',
   codexTranscriptWorking: 'Processing',
   codexTranscriptThinking: 'Thinking',
   codexTranscriptRunning: 'Running',
@@ -480,6 +485,11 @@ const EN_COPY: CodeCopy = {
   codexTranscriptPlanProgress: (completed, total) => `Plan ${completed}/${total}`,
   codexTranscriptFetching: 'Fetching',
   codexTranscriptUsingTool: 'Using tool',
+  codexTranscriptActionRunning: title => `Running: ${title}`,
+  codexTranscriptActionFailed: title => `Failed: ${title}`,
+  codexTranscriptEarlierActions: count => `${count} earlier ${count === 1 ? 'action' : 'actions'}`,
+  codexTranscriptTerminalStatusUnavailable: 'Terminal status could not be synchronized.',
+  codexTranscriptRetryTerminalStatus: 'Retry',
   codexTranscriptWorkedFor: duration => `Worked for ${duration}`,
   codexTranscriptProcessCount: count => `${count} ${count === 1 ? 'event' : 'events'}`,
   codexTranscriptCopyDetails: 'Copy details',
@@ -945,6 +955,11 @@ const ZH_COPY: CodeCopy = {
   codexTranscriptPlanProgress: (completed, total) => `执行计划 ${completed}/${total}`,
   codexTranscriptFetching: '获取信息中',
   codexTranscriptUsingTool: '调用工具中',
+  codexTranscriptActionRunning: title => `正在执行：${title}`,
+  codexTranscriptActionFailed: title => `失败：${title}`,
+  codexTranscriptEarlierActions: count => `更早的 ${count} 个操作`,
+  codexTranscriptTerminalStatusUnavailable: '终端状态未能同步。',
+  codexTranscriptRetryTerminalStatus: '重试',
   codexTranscriptWorkedFor: duration => `Worked for ${duration}`,
   codexTranscriptProcessCount: count => `${count} 个事件`,
   codexTranscriptCopyDetails: '复制详情',

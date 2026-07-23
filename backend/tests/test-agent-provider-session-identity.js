@@ -2,14 +2,16 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const EventEmitter = require('events');
 const AgentManager = require('../agent-manager');
 
 async function run() {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-provider-session-'));
   const binDir = path.join(tmpRoot, 'bin');
   const workspace = path.join(tmpRoot, 'repo');
+  const nestedWorkspace = path.join(workspace, 'packages', 'app');
   fs.mkdirSync(binDir, { recursive: true });
-  fs.mkdirSync(workspace, { recursive: true });
+  fs.mkdirSync(nestedWorkspace, { recursive: true });
   writeFakeExecutable(path.join(binDir, 'codex'), 'codex 9.9.9\n');
   writeFakeExecutable(path.join(binDir, 'claude'), 'claude 9.9.9\n');
   writeFakeExecutable(path.join(binDir, 'opencode'), 'opencode 9.9.9\n');
@@ -30,8 +32,19 @@ async function run() {
   };
   const settings = { mainPageSessionKeys: [], agentHomes: providerHomes };
   const captured = [];
+  const identityRequests = [];
   const metadataUpdates = [];
+  const identityRollbacks = [];
+  const persistedSessionPatches = [];
+  const engineKills = [];
   const sessionStates = new Map();
+  const providerSessionIds = {
+    codex: '019f1234-5678-7abc-8def-0123456789ab',
+    opencode: 'ses_01K0FARMINGOPENCODE',
+  };
+  const acpRuntime = new EventEmitter();
+  acpRuntime.unregisterAgent = () => {};
+  acpRuntime.dispose = async () => {};
   const engine = {
     async createSession(options) {
       captured.push(options);
@@ -41,6 +54,9 @@ async function run() {
     },
     async getSessionState(agentId) {
       return sessionStates.get(agentId) || null;
+    },
+    async killSession(agentId) {
+      engineKills.push(agentId);
     },
   };
   const manager = new AgentManager({
@@ -62,6 +78,30 @@ async function run() {
     updateSettings(patch) {
       Object.assign(settings, patch);
     },
+    ensureAgentSessionRecord(agent, patch) {
+      persistedSessionPatches.push({
+        providerSessionId: agent.providerSessionId,
+        patch: JSON.parse(JSON.stringify(patch)),
+      });
+      return agent.persistentSessionId || `fsess_test_${persistedSessionPatches.length}`;
+    },
+  }, {
+    acpRuntime,
+    createProviderSessionIdentity: async options => {
+      identityRequests.push(options);
+      return {
+        sessionId: providerSessionIds[options.provider],
+        historyMode: 'new',
+        sessionRequestOptions: {
+          cwd: options.cwd,
+          additionalDirectories: (options.additionalDirectories || []).map(directory => path.resolve(options.cwd, directory)),
+          mcpServers: JSON.parse(JSON.stringify(options.mcpServers || [])),
+        },
+      };
+    },
+    deleteProviderSessionIdentity: async options => {
+      identityRollbacks.push(options);
+    },
   });
 
   manager.engineBridge.resolve = () => ({
@@ -72,20 +112,63 @@ async function run() {
   manager.engineBridge.getEngine = () => engine;
 
   try {
-    const codexId = await startAgent(manager, 'codex', workspace, { wantsMain: false });
+    const codexId = await startAgent(manager, 'codex', workspace, {
+      wantsMain: false,
+      additionalDirectories: ['../shared'],
+      mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [] }],
+    });
     const codexAgent = manager.getState().agents.find(agent => agent.id === codexId);
     assert.strictEqual(codexAgent.providerSessionProvider, 'codex');
-    assert.strictEqual(codexAgent.providerSessionTemporary, true);
-    assert(codexAgent.providerSessionId.startsWith('tmp_uuid'), 'Codex should start with a tmp_uuid provider id');
+    assert.strictEqual(codexAgent.providerSessionTemporary, false);
+    assert.strictEqual(codexAgent.providerSessionId, providerSessionIds.codex);
+    assert.deepStrictEqual(captured.at(-1).args.slice(0, 2), ['resume', providerSessionIds.codex]);
+    assert.strictEqual(identityRequests.at(-1).provider, 'codex');
+    assert.strictEqual(identityRequests.at(-1).env.CODEX_HOME, providerHomes.codex[0].path);
     assert.strictEqual(codexAgent.providerSessionKey, `agent-session:codex:${codexAgent.providerSessionId}`);
-    assert.deepStrictEqual(settings.mainPageSessionKeys, [], 'temporary Codex ids must not enter main page history');
+    assert.deepStrictEqual(manager.acpSessionOptionsByKey.get(codexAgent.providerSessionKey), {
+      additionalDirectories: [path.resolve(workspace, '../shared')],
+      mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [] }],
+    });
+    assert.deepStrictEqual(
+      persistedSessionPatches.find(entry => entry.providerSessionId === providerSessionIds.codex)?.patch,
+      {
+        acpAdditionalDirectories: [path.resolve(workspace, '../shared')],
+        acpMcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [] }],
+        visibleOnMainPage: true,
+        archived: false,
+      },
+      'pre-created Terminal scope must be stored only in the private Farming session record',
+    );
+    assert.strictEqual(settings.mainPageSessionKeys[0], `agent-session:codex:${providerSessionIds.codex}`);
     manager.providerSessionService.stop(codexId);
+
+    const identityCountBeforeRemote = identityRequests.length;
+    await assert.rejects(
+      startAgent(manager, 'codex --remote ws://127.0.0.1:9000', workspace, { wantsMain: false }),
+      /cannot pre-create a stable session id/,
+    );
+    assert.strictEqual(
+      identityRequests.length,
+      identityCountBeforeRemote,
+      'unsupported fresh remote sessions must fail before creating a local provider identity',
+    );
+
+    const legacyCodexId = await startAgent(
+      manager,
+      'codex fork 33333333-4444-4555-8666-777777777777',
+      workspace,
+      { wantsMain: false },
+    );
+    const legacyCodexAgent = manager.getState().agents.find(agent => agent.id === legacyCodexId);
+    assert.strictEqual(legacyCodexAgent.providerSessionTemporary, true);
+    assert(legacyCodexAgent.providerSessionId.startsWith('tmp_uuid'));
+    manager.providerSessionService.stop(legacyCodexId);
 
     const incompleteCodexSessionId = '11111111-2222-4333-8444-555555555555';
     const completeCodexSessionId = '22222222-3333-4444-8555-666666666666';
-    const startedAt = Number(codexAgent.startedAt) || Date.now();
+    const startedAt = Number(legacyCodexAgent.startedAt) || Date.now();
     const codexHistoryWorkspace = fs.realpathSync(path.join(__dirname, '../..'));
-    const liveCodexAgent = manager.agents.get(codexId);
+    const liveCodexAgent = manager.agents.get(legacyCodexId);
     liveCodexAgent.engineStarted = true;
     liveCodexAgent.projectWorkspace = codexHistoryWorkspace;
     liveCodexAgent.cwd = codexHistoryWorkspace;
@@ -116,11 +199,11 @@ async function run() {
       },
     ]);
     manager.engineBridge.router.engines.local.emit('session-started', {
-      sessionId: codexId,
+      sessionId: legacyCodexId,
       status: 'running',
     });
-    await waitFor(() => manager.agents.get(codexId).providerSessionId === completeCodexSessionId);
-    const resolvedCodexAgent = manager.getState().agents.find(agent => agent.id === codexId);
+    await waitFor(() => manager.agents.get(legacyCodexId).providerSessionId === completeCodexSessionId);
+    const resolvedCodexAgent = manager.getState().agents.find(agent => agent.id === legacyCodexId);
     assert.strictEqual(resolvedCodexAgent.providerSessionId, completeCodexSessionId);
     assert.strictEqual(resolvedCodexAgent.providerSessionTemporary, false);
     assert.strictEqual(resolvedCodexAgent.providerSessionTitle, '看下cron worker怎么加新模块');
@@ -187,9 +270,18 @@ async function run() {
     assert.strictEqual(workCodexAgent.providerHomePath, providerHomes.codex[1].path);
     assert.strictEqual(captured.at(-1).env.CODEX_HOME, providerHomes.codex[1].path);
 
-    const openCodeId = await startAgent(manager, 'opencode', workspace, { wantsMain: false, providerHomeId: 'work' });
+    const openCodeId = await startAgent(manager, 'opencode packages/app', workspace, {
+      wantsMain: false,
+      providerHomeId: 'work',
+    });
     const openCodeAgent = manager.getState().agents.find(agent => agent.id === openCodeId);
     assert.strictEqual(openCodeAgent.providerHomeId, 'work');
+    assert.strictEqual(openCodeAgent.providerSessionId, providerSessionIds.opencode);
+    assert.strictEqual(openCodeAgent.providerSessionTemporary, false);
+    assert.deepStrictEqual(captured.at(-1).args.slice(-2), ['--session', providerSessionIds.opencode]);
+    assert.strictEqual(identityRequests.at(-1).provider, 'opencode');
+    assert.strictEqual(identityRequests.at(-1).cwd, nestedWorkspace);
+    assert.strictEqual(identityRequests.at(-1).env.OPENCODE_CONFIG_DIR, providerHomes.opencode[1].path);
     assert.strictEqual(captured.at(-1).env.OPENCODE_CONFIG_DIR, providerHomes.opencode[1].path);
     const openCodeSessionId = 'ses_0b5c8bfdbffepm0O5sc1lPLtzK';
     const resumedOpenCodeId = await startAgent(manager, `opencode --session ${openCodeSessionId}`, workspace, {
@@ -203,6 +295,144 @@ async function run() {
     assert.strictEqual(resumedOpenCodeAgent.providerSessionTemporary, false);
     assert.strictEqual(resumedOpenCodeAgent.providerSessionKey, `agent-session:opencode:home:work:${openCodeSessionId}`);
     assert.strictEqual(settings.mainPageSessionKeys[0], `agent-session:opencode:home:work:${openCodeSessionId}`);
+
+    const originalIdentityFactory = manager.createProviderSessionIdentity;
+    const agentCountBeforeIdentityFailure = manager.agents.size;
+    const launchCountBeforeIdentityFailure = captured.length;
+    manager.createProviderSessionIdentity = async () => {
+      throw new Error('identity precreation failed');
+    };
+    await assert.rejects(
+      startAgent(manager, 'codex', workspace, { wantsMain: false }),
+      /identity precreation failed/,
+    );
+    manager.createProviderSessionIdentity = originalIdentityFactory;
+    assert.strictEqual(manager.agents.size, agentCountBeforeIdentityFailure);
+    assert.strictEqual(captured.length, launchCountBeforeIdentityFailure);
+
+    const postCreateFailureSessionId = '019f1234-5678-7abc-8def-0123456789b0';
+    manager.createProviderSessionIdentity = async options => {
+      const error = new Error('rollout verification failed after session/new');
+      Object.defineProperty(error, 'providerSessionIdentity', {
+        value: {
+          provider: 'codex',
+          executable: options.executable,
+          env: options.env,
+          cwd: options.cwd,
+          sessionId: postCreateFailureSessionId,
+          producerStopped: true,
+        },
+        enumerable: false,
+      });
+      throw error;
+    };
+    await assert.rejects(
+      startAgent(manager, 'codex', workspace, { wantsMain: false }),
+      /rollout verification failed after session\/new/,
+    );
+    assert.strictEqual(
+      identityRollbacks.at(-1).sessionId,
+      postCreateFailureSessionId,
+      'AgentManager must retry rollback when identity creation reports an exact orphan id',
+    );
+
+    const unsafeRollbackCount = identityRollbacks.length;
+    manager.createProviderSessionIdentity = async options => {
+      const error = new Error('adapter process-tree exit was not proven');
+      Object.defineProperty(error, 'providerSessionIdentity', {
+        value: {
+          provider: 'opencode',
+          executable: options.executable,
+          env: options.env,
+          cwd: options.cwd,
+          sessionId: 'ses_retained_for_safe_recovery',
+          producerStopped: false,
+        },
+        enumerable: false,
+      });
+      throw error;
+    };
+    await assert.rejects(
+      startAgent(manager, 'opencode', workspace, { wantsMain: false }),
+      /provider session retained because ACP producer shutdown could not be proven/,
+    );
+    assert.strictEqual(
+      identityRollbacks.length,
+      unsafeRollbackCount,
+      'AgentManager must not delete an identity while its ACP producer may still be alive',
+    );
+
+    manager.createProviderSessionIdentity = async options => {
+      const error = new Error('provider returned an invalid resumable session id');
+      Object.defineProperty(error, 'providerSessionIdentity', {
+        value: {
+          provider: 'opencode',
+          executable: options.executable,
+          env: options.env,
+          cwd: options.cwd,
+          sessionId: '--help',
+          producerStopped: true,
+        },
+        enumerable: false,
+      });
+      throw error;
+    };
+    await assert.rejects(
+      startAgent(manager, 'opencode', workspace, { wantsMain: false }),
+      /unsafe session id; it was retained without invoking CLI rollback/,
+    );
+    assert.strictEqual(
+      identityRollbacks.length,
+      unsafeRollbackCount,
+      'AgentManager must not pass an unsafe provider id to CLI rollback',
+    );
+    manager.createProviderSessionIdentity = originalIdentityFactory;
+
+    const rollbackSessionId = '019f1234-5678-7abc-8def-0123456789af';
+    const originalEngineCreateSession = engine.createSession;
+    const originalEngineKillSession = engine.killSession;
+    const originalEngineGetSessionState = engine.getSessionState;
+    let ambiguousRuntimeLive = false;
+    manager.createProviderSessionIdentity = async options => ({
+      sessionId: rollbackSessionId,
+      sessionRequestOptions: {
+        cwd: options.cwd,
+        additionalDirectories: [],
+        mcpServers: [],
+      },
+    });
+    engine.createSession = async options => {
+      ambiguousRuntimeLive = true;
+      sessionStates.set(options.agentId, { status: 'running' });
+      throw new Error('terminal launch failed');
+    };
+    engine.killSession = async agentId => {
+      engineKills.push(agentId);
+      ambiguousRuntimeLive = false;
+      sessionStates.set(agentId, { status: 'exited' });
+    };
+    await assert.rejects(
+      startAgent(manager, 'codex', workspace, { wantsMain: false }),
+      /terminal launch failed/,
+    );
+    assert.strictEqual(ambiguousRuntimeLive, false, 'an uncertain Terminal create must be killed by id');
+    assert(engineKills.length > 0, 'Terminal rollback must call the idempotent engine kill boundary');
+    assert.strictEqual(identityRollbacks.at(-1).sessionId, rollbackSessionId);
+    assert.strictEqual(
+      manager.acpSessionOptionsByKey.has(`agent-session:codex:${rollbackSessionId}`),
+      false,
+      'failed Terminal launch must remove private options for the rolled-back provider identity',
+    );
+    assert.strictEqual(
+      persistedSessionPatches.some(entry => entry.providerSessionId === rollbackSessionId),
+      false,
+      'failed Terminal launch must not leave a Farming session record',
+    );
+    engine.createSession = originalEngineCreateSession;
+    engine.killSession = originalEngineKillSession;
+    engine.getSessionState = originalEngineGetSessionState;
+    manager.createProviderSessionIdentity = originalIdentityFactory;
+
     await assert.rejects(
       startAgent(manager, 'codex', workspace, { wantsMain: false, providerHomeId: 'missing' }),
       /Unknown codex agent home: missing/

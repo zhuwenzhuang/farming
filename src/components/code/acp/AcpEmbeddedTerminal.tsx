@@ -25,18 +25,22 @@ export function AcpEmbeddedTerminal({
   const resizeRef = useRef(onResize)
   const lastResizeRef = useRef('')
   const [error, setError] = useState('')
+  const outputLineCount = Math.max(1, output.replace(/\r/g, '').split('\n').length)
+  const viewportRows = Math.min(8, Math.max(4, outputLineCount + 1))
+  const viewportHeight = viewportRows * 15 + 16
   outputRef.current = output
   interactiveRef.current = interactive
   inputRef.current = onInput
   resizeRef.current = onResize
 
   useEffect(() => {
+    if (!interactive) return undefined
     const host = hostRef.current
     if (!host) return undefined
     let disposed = false
     let resizeObserver: ResizeObserver | null = null
     let cleanup: (() => void) | undefined
-    void createXtermTerminalInstance({ fontSize: 12 }).then(({ terminal, fitAddon }) => {
+    void createXtermTerminalInstance({ fontSize: 12, theme: 'dark' }).then(({ terminal, fitAddon }) => {
       if (disposed) {
         terminal.dispose()
         fitAddon.dispose()
@@ -61,7 +65,7 @@ export function AcpEmbeddedTerminal({
         const cols = Number(terminal.cols || 0)
         const rows = Number(terminal.rows || 0)
         const key = `${cols}x${rows}`
-        if (!resizeRef.current || cols < 40 || rows < 10 || key === lastResizeRef.current) return
+        if (!resizeRef.current || cols < 40 || rows < 3 || key === lastResizeRef.current) return
         lastResizeRef.current = key
         void resizeRef.current(cols, rows).catch(() => {})
       }
@@ -82,7 +86,7 @@ export function AcpEmbeddedTerminal({
       terminalRef.current = null
       cleanup?.()
     }
-  }, [terminalId])
+  }, [interactive, terminalId])
 
   useEffect(() => {
     const terminal = terminalRef.current
@@ -96,9 +100,20 @@ export function AcpEmbeddedTerminal({
     renderedOutputRef.current = output
   }, [output])
 
+  if (!interactive) {
+    return output ? (
+      <pre className="code-acp-terminal-output" data-testid="code-acp-terminal-output" aria-label="Terminal output">{output}</pre>
+    ) : null
+  }
+
   return (
-    <div className={`code-acp-embedded-terminal ${interactive ? 'interactive' : 'readonly'}`} data-testid="code-acp-embedded-terminal">
-      <div ref={hostRef} className="code-acp-embedded-terminal-host" onClick={() => terminalRef.current?.focus()} />
+    <div className="code-acp-embedded-terminal interactive" data-testid="code-acp-embedded-terminal">
+      <div
+        ref={hostRef}
+        className="code-acp-embedded-terminal-host"
+        style={{ height: `${viewportHeight}px` }}
+        onClick={() => terminalRef.current?.focus()}
+      />
       <pre className="code-visually-hidden" aria-label="Terminal output">{output}</pre>
       {error ? <small className="code-codex-transcript-terminal-error" role="alert">{error}</small> : null}
     </div>

@@ -1,0 +1,1360 @@
+"""解析 Claude Code / Codex / Gemini 会话文件"""
+
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+from urllib.parse import unquote, urlparse
+
+
+@dataclass
+class ToolCall:
+    name: str
+    input: dict[str, Any]
+    timestamp: str
+    tool_use_id: str = ""
+
+
+@dataclass
+class Message:
+    role: str  # "user" | "assistant"
+    timestamp: str
+    content: Any
+    model: str | None = None
+    usage: dict[str, Any] = field(default_factory=dict)
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    is_tool_result: bool = False
+    is_meta: bool = False
+    session_id: str = ""
+    message_id: str = ""  # API message ID，用于流式去重
+    tool_results: dict[str, bool] = field(default_factory=dict)
+    # tool_use_id -> is_error, 从 tool_result 块中提取
+
+
+@dataclass
+class Session:
+    session_id: str
+    project_path: str
+    file_path: Path
+    source: str = "claude"  # "claude" | "codex" | "gemini"
+    messages: list[Message] = field(default_factory=list)
+
+
+def parse_jsonl(path: Path) -> Session:
+    """解析单个 JSONL 文件为 Session 对象"""
+    messages: list[Message] = []
+    session_id = path.stem
+    project_path = ""
+
+    def read_messages(jsonl_path: Path) -> None:
+        nonlocal project_path
+        with open(jsonl_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                msg_type = obj.get("type")
+                if msg_type not in ("user", "assistant"):
+                    continue
+
+                if not project_path:
+                    project_path = obj.get("cwd", "")
+
+                raw_msg = obj.get("message", {})
+                if not isinstance(raw_msg, dict):
+                    raw_msg = {}
+                timestamp = obj.get("timestamp", "")
+                content = raw_msg.get("content", "")
+                usage = raw_msg.get("usage", {})
+                if not isinstance(usage, dict):
+                    usage = {}
+
+                # 判断是否为 tool_result（工具返回）
+                is_tool_result = False
+                if isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "tool_result":
+                            is_tool_result = True
+                            break
+
+                # 提取 tool_use 调用
+                tool_calls: list[ToolCall] = []
+                if msg_type == "assistant" and isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "tool_use":
+                            tool_calls.append(ToolCall(
+                                name=block.get("name", ""),
+                                input=block.get("input", {}),
+                                timestamp=timestamp,
+                                tool_use_id=block.get("id", ""),
+                            ))
+
+                # 提取 tool_result 的 is_error 信息
+                tool_results: dict[str, bool] = {}
+                if is_tool_result and isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "tool_result":
+                            tid = block.get("tool_use_id", "")
+                            if tid:
+                                tool_results[tid] = bool(block.get("is_error", False))
+
+                messages.append(Message(
+                    role=msg_type,
+                    timestamp=timestamp,
+                    content=content,
+                    model=raw_msg.get("model"),
+                    usage=usage,
+                    tool_calls=tool_calls,
+                    is_tool_result=is_tool_result,
+                    is_meta=obj.get("isMeta", False),
+                    session_id=obj.get("sessionId", session_id),
+                    message_id=raw_msg.get("id", ""),
+                    tool_results=tool_results,
+                ))
+
+    read_messages(path)
+    for subagent_file in _subagent_files_for_parent(path):
+        read_messages(subagent_file)
+
+    # 流式去重：Claude Code 对同一条 API 消息会写多条 JSONL 记录
+    # （prefill 记录 output_tokens=1 + 最终记录 output_tokens=实际值）
+    # 按 message_id 去重，保留 output_tokens 最大的记录
+    messages = _deduplicate_messages(messages)
+
+    return Session(
+        session_id=session_id,
+        project_path=project_path,
+        file_path=path,
+        messages=messages,
+    )
+
+
+def _deduplicate_messages(messages: list[Message]) -> list[Message]:
+    """按 message_id 去重 assistant 消息，保留 output_tokens 最大的记录"""
+    best: dict[str, tuple[int, int]] = {}  # message_id -> (index, output_tokens)
+    to_remove: set[int] = set()
+
+    for i, msg in enumerate(messages):
+        if msg.role != "assistant" or not msg.message_id:
+            continue
+        out = msg.usage.get("output_tokens", 0) or 0
+        if msg.message_id in best:
+            old_idx, old_out = best[msg.message_id]
+            if out > old_out:
+                to_remove.add(old_idx)
+                best[msg.message_id] = (i, out)
+            else:
+                to_remove.add(i)
+        else:
+            best[msg.message_id] = (i, out)
+
+    if not to_remove:
+        return messages
+    return [m for i, m in enumerate(messages) if i not in to_remove]
+
+
+def _path_to_dirname(path: Path) -> str:
+    """将绝对路径转为 Claude Code 的项目目录名格式
+
+    例如 /Users/foo/bar → -Users-foo-bar
+    """
+    return str(path.resolve()).replace("\\", "-").replace("/", "-")
+
+
+def _normalized_project_path(path: Path | str) -> str:
+    try:
+        resolved = str(Path(path).expanduser().resolve())
+    except OSError:
+        resolved = str(Path(path).expanduser())
+    return os.path.normcase(resolved)
+
+
+def _home_dir() -> Path:
+    return Path.home()
+
+
+def _is_subagent_file(path: Path) -> bool:
+    return path.parent.name == "subagents" and path.name.startswith("agent-")
+
+
+def _subagent_files_for_parent(path: Path) -> list[Path]:
+    """Return subagent JSONL files belonging to a top-level Claude session."""
+    if _is_subagent_file(path):
+        return []
+    subagents_dir = path.parent / path.stem / "subagents"
+    if not subagents_dir.is_dir():
+        return []
+    return sorted(subagents_dir.glob("*.jsonl"))
+
+
+def _claude_session_entry_files(project_path: Path) -> list[Path]:
+    """Return top-level sessions plus orphan subagent sessions for one project.
+
+    Normal subagent files are merged when their parent top-level session is
+    parsed. Some Claude Code runs create only the nested subagent JSONL under a
+    worktree project, so include those orphan files as independent entries.
+    """
+    top_level = [
+        f for f in sorted(project_path.glob("*.jsonl"))
+        if not f.name.startswith("agent-")
+    ]
+    parent_ids = {f.stem for f in top_level}
+
+    orphan_subagents: list[Path] = []
+    for agent_file in sorted(project_path.glob("*/subagents/*.jsonl")):
+        session_dir = agent_file.parent.parent
+        if session_dir.name not in parent_ids:
+            orphan_subagents.append(agent_file)
+
+    return top_level + orphan_subagents
+
+
+def find_sessions(
+    project_dir: Path | None = None,
+    *,
+    projects_dir: Path | None = None,
+) -> list[Path]:
+    """查找 ~/.claude/projects/ 下所有 JSONL 会话文件
+
+    如果指定 project_dir，只返回匹配的项目。
+    """
+    claude_projects = projects_dir or _home_dir() / ".claude" / "projects"
+    if not claude_projects.exists():
+        return []
+
+    results: list[Path] = []
+    target_dirname = _path_to_dirname(project_dir) if project_dir else None
+
+    for proj in sorted(claude_projects.iterdir()):
+        if not proj.is_dir():
+            continue
+        if target_dirname:
+            if proj.name != target_dirname:
+                continue
+        results.extend(_claude_session_entry_files(proj))
+
+    return results
+
+
+def find_sessions_by_keyword(
+    keyword: str,
+    *,
+    projects_dir: Path | None = None,
+) -> list[Path]:
+    """按关键词模糊匹配项目，在目录名和 JSONL 中的 cwd 中搜索"""
+    import json
+
+    claude_projects = projects_dir or _home_dir() / ".claude" / "projects"
+    if not claude_projects.exists():
+        return []
+
+    results: list[Path] = []
+    keyword_lower = keyword.lower()
+
+    for proj in sorted(claude_projects.iterdir()):
+        if not proj.is_dir():
+            continue
+        jsonl_files = _claude_session_entry_files(proj)
+        if not jsonl_files:
+            continue
+
+        # 先在目录名中搜索
+        if keyword_lower in proj.name.lower():
+            results.extend(jsonl_files)
+            continue
+
+        # 再在 JSONL 的 cwd 中搜索
+        for jf in jsonl_files:
+            try:
+                with open(jf, encoding="utf-8") as fh:
+                    for ln in fh:
+                        try:
+                            obj = json.loads(ln)
+                            cwd = obj.get("cwd", "")
+                            if cwd and keyword_lower in cwd.lower():
+                                results.extend(jsonl_files)
+                                break
+                        except (json.JSONDecodeError, UnicodeDecodeError):
+                            continue
+                    else:
+                        continue
+                    break  # matched, stop checking more files
+            except OSError:
+                continue
+
+    return results
+
+
+# ── Codex 解析 ───────────────────────────────────────────────
+
+_CODEX_TOOL_MAP: dict[str, str] = {
+    "exec_command": "Bash",
+    "write_stdin": "Bash",
+    "read_mcp_resource": "Read",
+    "list_mcp_resources": "ToolSearch",
+    "list_mcp_resource_templates": "ToolSearch",
+    "search_query": "WebSearch",
+    "image_query": "WebSearch",
+    "web.run": "WebSearch",
+    "apply_patch": "Edit",
+}
+
+
+def _to_int(value: Any) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(float(value))
+        except ValueError:
+            return 0
+    return 0
+
+
+def _merge_usage(dst: dict[str, Any], src: dict[str, Any]) -> None:
+    for key in (
+        "input_tokens",
+        "output_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
+    ):
+        dst[key] = _to_int(dst.get(key, 0)) + _to_int(src.get(key, 0))
+
+
+def _extract_codex_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+
+    parts: list[str] = []
+    for block in content:
+        if isinstance(block, str):
+            parts.append(block)
+            continue
+        if not isinstance(block, dict):
+            continue
+        block_type = block.get("type")
+        if block_type in ("text", "input_text", "output_text"):
+            text = block.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+    return "\n".join(parts)
+
+
+def _is_codex_meta_user_text(text: str) -> bool:
+    s = text.lstrip()
+    return (
+        s.startswith("<environment_context>")
+        or s.startswith("<permissions instructions>")
+        or s.startswith("<app-context>")
+    )
+
+
+def _parse_apply_patch_stats(raw_args: Any) -> dict[str, Any]:
+    patch_text = raw_args if isinstance(raw_args, str) else ""
+    if isinstance(raw_args, dict):
+        patch_text = str(raw_args.get("patch") or raw_args.get("input") or "")
+
+    file_path = ""
+    added = 0
+    removed = 0
+    for line in patch_text.splitlines():
+        if not file_path:
+            if line.startswith("*** Update File: "):
+                file_path = line.split(": ", 1)[1].strip()
+            elif line.startswith("*** Add File: "):
+                file_path = line.split(": ", 1)[1].strip()
+            elif line.startswith("*** Delete File: "):
+                file_path = line.split(": ", 1)[1].strip()
+        if line.startswith("+") and not line.startswith("+++"):
+            added += 1
+        elif line.startswith("-") and not line.startswith("---"):
+            removed += 1
+
+    def _dummy_lines(n: int) -> str:
+        return "\n".join(["x"] * n) if n > 0 else ""
+
+    return {
+        "target_file": file_path,
+        "old_string": _dummy_lines(removed),
+        "new_string": _dummy_lines(added),
+    }
+
+
+def _parse_codex_tool_input(tool_name: str, raw_args: Any) -> dict[str, Any]:
+    if tool_name == "apply_patch":
+        return _parse_apply_patch_stats(raw_args)
+
+    if isinstance(raw_args, dict):
+        return raw_args
+    if isinstance(raw_args, str):
+        try:
+            data = json.loads(raw_args)
+            if isinstance(data, dict):
+                return data
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _extract_codex_token_usage(payload: dict[str, Any]) -> dict[str, Any]:
+    info = payload.get("info")
+    if not isinstance(info, dict):
+        return {}
+
+    usage = info.get("last_token_usage")
+    if not isinstance(usage, dict):
+        return {}
+
+    raw_input = _to_int(usage.get("input_tokens", 0))
+    cached = _to_int(usage.get("cached_input_tokens", 0))
+    output = _to_int(usage.get("output_tokens", 0))
+
+    if raw_input <= 0 and cached <= 0 and output <= 0:
+        return {}
+
+    # Codex 的 input_tokens 包含 cached_input_tokens，转换为 cc-stats 统一口径：
+    # total = input + output + cache_read + cache_creation
+    input_tokens = max(raw_input - cached, 0)
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output,
+        "cache_read_input_tokens": cached,
+        "cache_creation_input_tokens": 0,
+    }
+
+
+def _extract_codex_model(payload: dict[str, Any]) -> str:
+    model = payload.get("model")
+    if isinstance(model, str) and model:
+        return model
+
+    collab = payload.get("collaboration_mode")
+    if isinstance(collab, dict):
+        settings = collab.get("settings")
+        if isinstance(settings, dict):
+            setting_model = settings.get("model")
+            if isinstance(setting_model, str) and setting_model:
+                return setting_model
+
+    return ""
+
+
+def parse_codex_jsonl(path: Path) -> Session:
+    """解析 Codex rollout JSONL 会话文件"""
+    session_id = path.stem
+    project_path = ""
+    messages: list[Message] = []
+    assistant_indices: list[int] = []
+    seen_user: set[tuple[str, str]] = set()
+    seen_assistant: set[tuple[str, str]] = set()
+    last_total_tokens: int | None = None
+    latest_model = ""
+
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            timestamp = obj.get("timestamp", "")
+            obj_type = obj.get("type", "")
+            payload = obj.get("payload", {})
+            if not isinstance(payload, dict):
+                payload = {}
+
+            if obj_type == "session_meta":
+                meta_sid = payload.get("id")
+                if isinstance(meta_sid, str) and meta_sid:
+                    session_id = meta_sid
+                cwd = payload.get("cwd")
+                if isinstance(cwd, str) and cwd:
+                    project_path = cwd
+                model = _extract_codex_model(payload)
+                if model:
+                    latest_model = model
+                continue
+
+            if obj_type == "turn_context":
+                model = _extract_codex_model(payload)
+                if model:
+                    latest_model = model
+                continue
+
+            if obj_type == "event_msg":
+                ev_type = payload.get("type", "")
+
+                if ev_type == "user_message":
+                    text = payload.get("message", "")
+                    if not isinstance(text, str):
+                        continue
+                    key = (timestamp, text)
+                    if key in seen_user:
+                        continue
+                    seen_user.add(key)
+                    messages.append(Message(
+                        role="user",
+                        timestamp=timestamp,
+                        content=text,
+                        session_id=session_id,
+                    ))
+                    continue
+
+                if ev_type == "agent_message":
+                    text = payload.get("message", "")
+                    if not isinstance(text, str):
+                        continue
+                    key = (timestamp, text)
+                    if key in seen_assistant:
+                        continue
+                    seen_assistant.add(key)
+                    messages.append(Message(
+                        role="assistant",
+                        timestamp=timestamp,
+                        content=text,
+                        model=latest_model or None,
+                        session_id=session_id,
+                    ))
+                    assistant_indices.append(len(messages) - 1)
+                    continue
+
+                if ev_type == "token_count":
+                    info = payload.get("info", {})
+                    if isinstance(info, dict):
+                        totals = info.get("total_token_usage", {})
+                        if isinstance(totals, dict):
+                            total_tokens = _to_int(totals.get("total_tokens", 0))
+                            if (
+                                total_tokens > 0
+                                and last_total_tokens is not None
+                                and total_tokens == last_total_tokens
+                            ):
+                                continue
+                            if total_tokens > 0:
+                                last_total_tokens = total_tokens
+
+                    usage = _extract_codex_token_usage(payload)
+                    if not usage:
+                        continue
+                    if assistant_indices:
+                        last_msg = messages[assistant_indices[-1]]
+                        _merge_usage(last_msg.usage, usage)
+                        if not last_msg.model and latest_model:
+                            last_msg.model = latest_model
+                    else:
+                        messages.append(Message(
+                            role="assistant",
+                            timestamp=timestamp,
+                            content="",
+                            usage=usage,
+                            model=latest_model or None,
+                            session_id=session_id,
+                            is_meta=True,
+                        ))
+                        assistant_indices.append(len(messages) - 1)
+                    continue
+
+            if obj_type == "response_item":
+                item_type = payload.get("type", "")
+
+                if item_type == "function_call":
+                    raw_name = payload.get("name", "")
+                    if not isinstance(raw_name, str) or not raw_name:
+                        continue
+                    mapped_name = _CODEX_TOOL_MAP.get(raw_name, raw_name)
+                    args = payload.get("arguments")
+                    tc = ToolCall(
+                        name=mapped_name,
+                        input=_parse_codex_tool_input(raw_name, args),
+                        timestamp=timestamp,
+                        tool_use_id=str(payload.get("call_id", "")),
+                    )
+                    messages.append(Message(
+                        role="assistant",
+                        timestamp=timestamp,
+                        content="",
+                        model=latest_model or None,
+                        tool_calls=[tc],
+                        session_id=session_id,
+                    ))
+                    assistant_indices.append(len(messages) - 1)
+                    continue
+
+                if item_type == "web_search_call":
+                    action = payload.get("action", {})
+                    tc = ToolCall(
+                        name="WebSearch",
+                        input=action if isinstance(action, dict) else {},
+                        timestamp=timestamp,
+                    )
+                    messages.append(Message(
+                        role="assistant",
+                        timestamp=timestamp,
+                        content="",
+                        tool_calls=[tc],
+                        session_id=session_id,
+                    ))
+                    assistant_indices.append(len(messages) - 1)
+                    continue
+
+                if item_type == "message":
+                    role = payload.get("role", "")
+                    content = _extract_codex_text(payload.get("content"))
+                    if not content:
+                        continue
+                    if role == "user":
+                        if _is_codex_meta_user_text(content):
+                            continue
+                        key = (timestamp, content)
+                        if key in seen_user:
+                            continue
+                        seen_user.add(key)
+                        messages.append(Message(
+                            role="user",
+                            timestamp=timestamp,
+                            content=content,
+                            session_id=session_id,
+                        ))
+                    elif role == "assistant":
+                        key = (timestamp, content)
+                        if key in seen_assistant:
+                            continue
+                        seen_assistant.add(key)
+                        messages.append(Message(
+                            role="assistant",
+                            timestamp=timestamp,
+                            content=content,
+                            model=latest_model or None,
+                            session_id=session_id,
+                        ))
+                        assistant_indices.append(len(messages) - 1)
+
+    return Session(
+        session_id=session_id,
+        project_path=project_path,
+        file_path=path,
+        source="codex",
+        messages=messages,
+    )
+
+
+def _looks_like_codex_jsonl(path: Path) -> bool:
+    if path.suffix != ".jsonl":
+        return False
+
+    if (
+        path.name.startswith("rollout-")
+        and "sessions" in path.parts
+        and ".codex" in path.parts
+    ):
+        return True
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                msg_type = obj.get("type", "")
+                if msg_type in ("session_meta", "event_msg", "response_item", "turn_context"):
+                    return True
+                if msg_type in ("user", "assistant"):
+                    return False
+                break
+    except OSError:
+        return False
+
+    return False
+
+
+def _read_codex_session_meta(path: Path) -> dict[str, Any]:
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if obj.get("type") == "session_meta":
+                    payload = obj.get("payload", {})
+                    return payload if isinstance(payload, dict) else {}
+    except OSError:
+        return {}
+    return {}
+
+
+def find_codex_sessions(
+    project_dir: Path | None = None,
+    *,
+    codex_home_dir: Path | None = None,
+) -> list[Path]:
+    """查找 ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl 会话文件"""
+    codex_home = codex_home_dir or _home_dir() / ".codex"
+    base = codex_home / "sessions"
+    if not base.exists():
+        return []
+
+    all_files = sorted(base.glob("*/*/*/rollout-*.jsonl"))
+    if project_dir is None:
+        return all_files
+
+    target = _normalized_project_path(project_dir)
+
+    results: list[Path] = []
+    for path in all_files:
+        meta = _read_codex_session_meta(path)
+        cwd = meta.get("cwd", "")
+        if not isinstance(cwd, str) or not cwd:
+            continue
+        normalized = _normalized_project_path(cwd)
+        if normalized == target:
+            results.append(path)
+    return results
+
+
+def find_codex_sessions_by_keyword(
+    keyword: str,
+    *,
+    codex_home_dir: Path | None = None,
+) -> list[Path]:
+    """按关键词搜索 Codex 会话（路径/cwd/用户消息内容）"""
+    keyword_lower = keyword.lower()
+    results: list[Path] = []
+
+    for path in find_codex_sessions(codex_home_dir=codex_home_dir):
+        if keyword_lower in str(path).lower():
+            results.append(path)
+            continue
+
+        meta = _read_codex_session_meta(path)
+        cwd = meta.get("cwd", "")
+        if isinstance(cwd, str) and cwd and keyword_lower in cwd.lower():
+            results.append(path)
+            continue
+
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if obj.get("type") != "event_msg":
+                        continue
+                    payload = obj.get("payload", {})
+                    if not isinstance(payload, dict):
+                        continue
+                    if payload.get("type") == "user_message":
+                        msg = payload.get("message", "")
+                        if isinstance(msg, str) and keyword_lower in msg.lower():
+                            results.append(path)
+                            break
+        except OSError:
+            continue
+
+    return results
+
+
+# ── Gemini CLI 解析 ──────────────────────────────────────────
+
+# Gemini 工具名映射为 cc-stats 内部统一名称
+_GEMINI_TOOL_MAP: dict[str, str] = {
+    "read_file": "Read",
+    "read_many_files": "Read",
+    "edit_file": "Edit",
+    "write_file": "Write",
+    "shell": "Bash",
+    "glob": "Glob",
+    "grep": "Grep",
+    "list_directory": "Glob",
+    "web_search": "WebSearch",
+    "web_fetch": "WebFetch",
+}
+
+
+def parse_gemini_json(path: Path) -> Session:
+    """解析 Gemini CLI 的 JSON 会话文件为 Session 对象
+
+    Gemini 会话格式：单个 JSON 文件，包含 sessionId、messages[] 等字段。
+    消息类型：user / gemini / info / error / warning
+    """
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    session_id = data.get("sessionId", path.stem)
+    # 尝试从 directories 字段获取项目路径
+    dirs = data.get("directories", [])
+    project_path = dirs[0] if dirs else ""
+
+    messages: list[Message] = []
+
+    for msg_record in data.get("messages", []):
+        msg_type = msg_record.get("type", "")
+        timestamp = msg_record.get("timestamp", "")
+
+        if msg_type == "user":
+            content = _extract_gemini_content(msg_record.get("content"))
+            messages.append(Message(
+                role="user",
+                timestamp=timestamp,
+                content=content,
+                session_id=session_id,
+            ))
+
+        elif msg_type == "gemini":
+            content = _extract_gemini_content(msg_record.get("content"))
+            model = msg_record.get("model", "")
+
+            # 提取工具调用
+            tool_calls: list[ToolCall] = []
+            for tc in msg_record.get("toolCalls", []):
+                raw_name = tc.get("name", "")
+                mapped_name = _GEMINI_TOOL_MAP.get(raw_name, raw_name)
+                tool_calls.append(ToolCall(
+                    name=mapped_name,
+                    input=tc.get("args", {}),
+                    timestamp=tc.get("timestamp", timestamp),
+                ))
+
+            # 转换 token 用量为 cc-stats 统一格式
+            usage: dict[str, Any] = {}
+            tokens = msg_record.get("tokens")
+            if tokens and isinstance(tokens, dict):
+                usage = {
+                    "input_tokens": tokens.get("input", 0),
+                    "output_tokens": tokens.get("output", 0),
+                    "cache_read_input_tokens": tokens.get("cached", 0),
+                    "cache_creation_input_tokens": 0,
+                }
+
+            messages.append(Message(
+                role="assistant",
+                timestamp=timestamp,
+                content=content,
+                model=model,
+                usage=usage,
+                tool_calls=tool_calls,
+                session_id=session_id,
+            ))
+
+        # info / error / warning 类型跳过（非对话消息）
+
+    return Session(
+        session_id=session_id,
+        project_path=project_path,
+        file_path=path,
+        source="gemini",
+        messages=messages,
+    )
+
+
+def parse_gemini_jsonl(path: Path) -> Session:
+    """Parse Gemini CLI JSONL session files written under ~/.gemini/tmp/*/chats."""
+    session_id = path.stem
+    project_path = ""
+    messages: list[Message] = []
+
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            if "sessionId" in record:
+                session_id = record.get("sessionId") or session_id
+                if not project_path:
+                    project_path = _gemini_jsonl_project_path(path)
+                continue
+
+            msg_type = record.get("type", "")
+            timestamp = record.get("timestamp", "")
+            if msg_type == "user":
+                messages.append(Message(
+                    role="user",
+                    timestamp=timestamp,
+                    content=_extract_gemini_content(record.get("content")),
+                    session_id=session_id,
+                    message_id=record.get("id", ""),
+                ))
+            elif msg_type == "gemini":
+                tool_calls: list[ToolCall] = []
+                for tc in record.get("toolCalls", []) or []:
+                    if not isinstance(tc, dict):
+                        continue
+                    raw_name = tc.get("name", "")
+                    mapped_name = _GEMINI_TOOL_MAP.get(raw_name, raw_name)
+                    tool_calls.append(ToolCall(
+                        name=mapped_name,
+                        input=tc.get("args", {}),
+                        timestamp=tc.get("timestamp", timestamp),
+                        tool_use_id=tc.get("id", ""),
+                    ))
+
+                usage: dict[str, Any] = {}
+                tokens = record.get("tokens")
+                if isinstance(tokens, dict):
+                    usage = {
+                        "input_tokens": tokens.get("input", 0),
+                        "output_tokens": tokens.get("output", 0),
+                        "cache_read_input_tokens": tokens.get("cached", 0),
+                        "cache_creation_input_tokens": 0,
+                    }
+
+                messages.append(Message(
+                    role="assistant",
+                    timestamp=timestamp,
+                    content=_extract_gemini_content(record.get("content")),
+                    model=record.get("model"),
+                    usage=usage,
+                    tool_calls=tool_calls,
+                    session_id=session_id,
+                    message_id=record.get("id", ""),
+                ))
+
+    if not project_path:
+        project_path = _gemini_jsonl_project_path(path)
+
+    return Session(
+        session_id=session_id,
+        project_path=project_path,
+        file_path=path,
+        source="gemini",
+        messages=messages,
+    )
+
+
+def _gemini_jsonl_project_path(path: Path) -> str:
+    project_root = path.parent.parent / ".project_root"
+    try:
+        value = project_root.read_text(encoding="utf-8").strip()
+        if value:
+            return value
+    except OSError:
+        pass
+
+    project_slug = path.parent.parent.name
+    projects_json = path.parent.parent.parent.parent / "projects.json"
+    try:
+        data = json.loads(projects_json.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return ""
+
+    projects = data.get("projects", {})
+    if not isinstance(projects, dict):
+        return ""
+    for project_path, slug in projects.items():
+        if slug == project_slug:
+            return project_path
+    return ""
+
+
+def _extract_gemini_content(raw: Any) -> Any:
+    """提取 Gemini 消息内容（可能是字符串或 Part 列表）"""
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, list):
+        texts = []
+        for part in raw:
+            if isinstance(part, dict) and "text" in part:
+                texts.append(part["text"])
+        return "\n".join(texts) if texts else raw
+    return raw or ""
+
+
+def find_gemini_sessions(
+    *,
+    gemini_home_dir: Path | None = None,
+) -> list[Path]:
+    """查找 ~/.gemini/tmp/*/chats/*.json 会话文件"""
+    gemini_home = gemini_home_dir or _home_dir() / ".gemini"
+    gemini_dir = gemini_home / "tmp"
+    if not gemini_dir.exists():
+        return []
+
+    results: list[Path] = []
+    for chats_dir in gemini_dir.glob("*/chats"):
+        if not chats_dir.is_dir():
+            continue
+        results.extend(sorted(chats_dir.glob("*.json")))
+        results.extend(sorted(chats_dir.glob("*.jsonl")))
+
+    return results
+
+
+def find_gemini_sessions_by_keyword(
+    keyword: str,
+    *,
+    gemini_home_dir: Path | None = None,
+) -> list[Path]:
+    """按关键词搜索 Gemini 会话（在 directories 和内容中搜索）"""
+    all_sessions = find_gemini_sessions(gemini_home_dir=gemini_home_dir)
+    if not all_sessions:
+        return []
+
+    keyword_lower = keyword.lower()
+    results: list[Path] = []
+
+    for path in all_sessions:
+        try:
+            session = parse_session_file(path)
+            if keyword_lower in session.project_path.lower():
+                results.append(path)
+                continue
+            content = "\n".join(
+                str(message.content)
+                for message in session.messages
+                if message.content
+            )
+            if keyword_lower in content.lower():
+                results.append(path)
+        except (ValueError, OSError):
+            continue
+
+    return results
+
+
+def _looks_like_gemini_jsonl(path: Path) -> bool:
+    if path.suffix != ".jsonl" or path.parent.name != "chats":
+        return False
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                obj = json.loads(line)
+                return "sessionId" in obj and "projectHash" in obj
+    except (json.JSONDecodeError, OSError):
+        return False
+    return False
+
+
+# Cursor SQLite parsing
+
+
+def find_cursor_sessions(
+    *,
+    cursor_state_db_path: Path | None = None,
+) -> list[Path]:
+    db_path = cursor_state_db_path or _home_dir() / ".config" / "Cursor" / "User" / "globalStorage" / "state.vscdb"
+    return [db_path] if db_path.exists() else []
+
+
+def parse_cursor_db(path: Path) -> Session:
+    """Parse Cursor's global SQLite state DB as one aggregate session."""
+    sessions = parse_cursor_sessions(path)
+    messages: list[Message] = []
+    project_path = ""
+    for session in sessions:
+        if not project_path and session.project_path:
+            project_path = session.project_path
+        messages.extend(session.messages)
+    return Session(
+        session_id="cursor",
+        project_path=project_path or "Cursor",
+        file_path=path,
+        source="cursor",
+        messages=messages,
+    )
+
+
+def parse_cursor_sessions(path: Path) -> list[Session]:
+    """Parse Cursor composer sessions from User/globalStorage/state.vscdb."""
+    if not path.exists():
+        return []
+
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return []
+
+    try:
+        rows = con.execute(
+            "SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'"
+        ).fetchall()
+        bubbles_by_composer = _cursor_bubbles_by_composer(con)
+        sessions: list[Session] = []
+        for key, raw_value in rows:
+            composer = _cursor_json(raw_value)
+            if not isinstance(composer, dict):
+                continue
+            composer_id = str(composer.get("composerId") or str(key).split(":", 1)[-1])
+            session = _parse_cursor_composer(
+                bubbles_by_composer.get(composer_id, {}),
+                path,
+                str(key),
+                composer,
+            )
+            if session is not None:
+                sessions.append(session)
+        return sorted(
+            sessions,
+            key=lambda s: next((m.timestamp for m in s.messages if m.timestamp), ""),
+        )
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+
+
+def _parse_cursor_composer(
+    bubbles: dict[str, dict[str, Any]],
+    db_path: Path,
+    key: str,
+    composer: dict[str, Any],
+) -> Session | None:
+    composer_id = str(composer.get("composerId") or key.split(":", 1)[-1])
+    if not composer_id:
+        return None
+
+    model = _cursor_model(composer)
+    default_ts = _cursor_timestamp(composer.get("createdAt"))
+    messages: list[Message] = []
+    project_path = ""
+
+    headers = composer.get("fullConversationHeadersOnly")
+    if not isinstance(headers, list) or not headers:
+        conversation_map = composer.get("conversationMap")
+        if isinstance(conversation_map, dict):
+            headers = [
+                {"bubbleId": bubble_id}
+                for bubble_id in conversation_map.keys()
+                if isinstance(bubble_id, str)
+            ]
+        else:
+            headers = []
+
+    for header in headers:
+        if not isinstance(header, dict):
+            continue
+        bubble_id = header.get("bubbleId")
+        if not isinstance(bubble_id, str) or not bubble_id:
+            continue
+        bubble = bubbles.get(bubble_id, {})
+        if not isinstance(bubble, dict):
+            bubble = {}
+        bubble_type = bubble.get("type", header.get("type"))
+        role = "user" if bubble_type == 1 else "assistant" if bubble_type == 2 else ""
+        if not role:
+            continue
+
+        if not project_path:
+            project_path = _cursor_project_path(bubble) or _cursor_project_path(composer)
+
+        timestamp = _cursor_timestamp(bubble.get("createdAt")) or default_ts
+        bubble_model = _cursor_model(bubble) or model
+        usage: dict[str, Any] = {}
+        if role == "assistant":
+            usage = _cursor_usage(bubble.get("tokenCount"))
+
+        messages.append(Message(
+            role=role,
+            timestamp=timestamp,
+            content=_cursor_text(bubble),
+            model=bubble_model or None,
+            usage=usage,
+            session_id=composer_id,
+            message_id=bubble_id,
+        ))
+
+    added = _to_int(composer.get("totalLinesAdded", 0))
+    removed = _to_int(composer.get("totalLinesRemoved", 0))
+    if added or removed:
+        timestamp = _cursor_timestamp(composer.get("lastUpdatedAt")) or default_ts
+        messages.append(Message(
+            role="assistant",
+            timestamp=timestamp,
+            content="",
+            model=model or None,
+            tool_calls=[
+                ToolCall(
+                    name="Edit",
+                    input={
+                        "target_file": "cursor://composer",
+                        "old_string": _cursor_line_blob(removed),
+                        "new_string": _cursor_line_blob(added),
+                    },
+                    timestamp=timestamp,
+                )
+            ],
+            is_meta=True,
+            session_id=composer_id,
+        ))
+
+    if not messages:
+        return None
+    if not project_path:
+        project_path = _cursor_project_path(composer) or "Cursor"
+
+    return Session(
+        session_id=composer_id,
+        project_path=project_path,
+        file_path=db_path,
+        source="cursor",
+        messages=messages,
+    )
+
+
+def _cursor_bubbles_by_composer(
+    con: sqlite3.Connection,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    bubbles: dict[str, dict[str, dict[str, Any]]] = {}
+    try:
+        rows = con.execute(
+            "SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'",
+        ).fetchall()
+    except sqlite3.Error:
+        return bubbles
+
+    for key, raw_value in rows:
+        parts = str(key).split(":", 2)
+        if len(parts) != 3:
+            continue
+        _, composer_id, bubble_id = parts
+        bubble = _cursor_json(raw_value)
+        if isinstance(bubble, dict):
+            bubbles.setdefault(composer_id, {})[bubble_id] = bubble
+    return bubbles
+
+
+def _cursor_json(value: Any) -> Any:
+    if isinstance(value, bytes):
+        text = value.decode("utf-8", errors="replace")
+    else:
+        text = str(value)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
+def _cursor_model(record: dict[str, Any]) -> str:
+    model_info = record.get("modelInfo")
+    if isinstance(model_info, dict):
+        model_name = model_info.get("modelName")
+        if isinstance(model_name, str) and model_name:
+            return model_name
+    model_config = record.get("modelConfig")
+    if isinstance(model_config, dict):
+        model_name = model_config.get("modelName")
+        if isinstance(model_name, str) and model_name:
+            return model_name
+    return ""
+
+
+def _cursor_usage(token_count: Any) -> dict[str, Any]:
+    if not isinstance(token_count, dict):
+        return {}
+    return {
+        "input_tokens": _to_int(token_count.get("inputTokens", 0)),
+        "output_tokens": _to_int(token_count.get("outputTokens", 0)),
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+    }
+
+
+def _cursor_timestamp(value: Any) -> str:
+    if isinstance(value, (int, float)):
+        try:
+            from datetime import datetime, timezone
+
+            return datetime.fromtimestamp(value / 1000, tz=timezone.utc).isoformat()
+        except (OSError, ValueError):
+            return ""
+    if isinstance(value, str):
+        return value
+    return ""
+
+
+def _cursor_text(record: dict[str, Any]) -> str:
+    text = record.get("text")
+    if isinstance(text, str) and text:
+        return text
+    rich = record.get("richText")
+    if isinstance(rich, str) and rich:
+        return rich
+    return ""
+
+
+def _cursor_project_path(record: dict[str, Any]) -> str:
+    uris = record.get("workspaceUris")
+    if isinstance(uris, list):
+        for uri in uris:
+            if not isinstance(uri, str):
+                continue
+            path = _file_uri_to_path(uri)
+            if path:
+                return path
+
+    workspace = record.get("workspaceProjectDir")
+    if isinstance(workspace, str) and workspace:
+        return workspace
+
+    attached = record.get("allAttachedFileCodeChunksUris")
+    if isinstance(attached, list):
+        for uri in attached:
+            if isinstance(uri, str):
+                path = _file_uri_to_path(uri)
+                if path:
+                    return str(Path(path).parent)
+
+    return ""
+
+
+def _file_uri_to_path(uri: str) -> str:
+    parsed = urlparse(uri)
+    if parsed.scheme != "file":
+        return ""
+    raw_path = unquote(parsed.path)
+    if os.name == "nt" and raw_path.startswith("/") and len(raw_path) > 2 and raw_path[2] == ":":
+        raw_path = raw_path[1:]
+    return os.path.normpath(raw_path)
+
+
+def _cursor_line_blob(count: int) -> str:
+    if count <= 0:
+        return ""
+    return "\n".join("x" for _ in range(count))
+
+
+def _looks_like_cursor_db(path: Path) -> bool:
+    return path.name == "state.vscdb"
+
+
+def parse_session_file(path: Path) -> Session:
+    """自动识别并解析会话文件（Claude / Codex / Gemini）"""
+    if _looks_like_cursor_db(path):
+        return parse_cursor_db(path)
+    if path.suffix == ".json":
+        return parse_gemini_json(path)
+    if _looks_like_gemini_jsonl(path):
+        return parse_gemini_jsonl(path)
+    if _looks_like_codex_jsonl(path):
+        return parse_codex_jsonl(path)
+    return parse_jsonl(path)

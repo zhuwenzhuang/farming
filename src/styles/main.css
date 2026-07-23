@@ -5808,12 +5808,71 @@ body.code-mode .code-instance-name {
   padding: 6px 0 14px;
 }
 
+.code-codex-transcript-process-compact-list {
+  gap: 1px;
+  padding: 2px 0 4px;
+}
+
+.code-codex-transcript-process-compact-list > .code-codex-transcript-process-item {
+  min-width: 0;
+}
+
+.code-codex-transcript-process-compact-list > .code-codex-transcript-process-item > .code-codex-transcript-process-title {
+  width: 100%;
+  min-width: 0;
+}
+
+.code-codex-transcript-process-compact-list .code-codex-transcript-process-title-toggle,
+.code-codex-transcript-process-compact-list .code-codex-transcript-process-title-static {
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.code-codex-transcript-process-compact-list .code-codex-transcript-process-title-text {
+  overflow: hidden;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-codex-transcript-process-compact-list .code-codex-transcript-process-status,
+.code-codex-transcript-process-compact-list .code-codex-transcript-process-item-chevron {
+  flex: 0 0 auto;
+}
+
+.code-codex-transcript-process-earlier {
+  width: fit-content;
+  min-height: 22px;
+  margin-left: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #8c959f;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.code-codex-transcript-process-earlier:hover,
+.code-codex-transcript-process-earlier:focus-visible {
+  color: #57606a;
+  outline: none;
+  text-decoration: underline;
+}
+
 .code-acp-progress-update {
   padding: 8px 0 5px;
   color: #24292f;
   font-size: 14px;
   line-height: 20px;
   overflow-wrap: anywhere;
+}
+
+.code-acp-progress-update.compact {
+  box-sizing: border-box;
+  max-height: 73px;
+  overflow: hidden;
 }
 
 .code-acp-progress-update > :first-child {
@@ -6152,6 +6211,13 @@ body.code-mode .code-instance-name {
   white-space: nowrap;
 }
 
+.code-codex-transcript-terminal-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
 .code-codex-transcript-terminal-copy,
 .code-codex-transcript-terminal-stop {
   display: grid;
@@ -6195,6 +6261,34 @@ body.code-mode .code-instance-name {
   font-size: 11px;
 }
 
+.code-codex-transcript-terminal-sync-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 9px;
+  border-top: 1px solid rgba(31, 35, 40, 0.08);
+  color: #b54708;
+  font-size: 11px;
+}
+
+.code-codex-transcript-terminal-sync-error button {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 1px solid rgba(181, 71, 8, 0.28);
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.code-codex-transcript-terminal-sync-error button:hover,
+.code-codex-transcript-terminal-sync-error button:focus-visible {
+  background: rgba(181, 71, 8, 0.08);
+  outline: none;
+}
+
 .code-codex-transcript-terminal-meta {
   display: flex;
   min-width: 0;
@@ -6212,13 +6306,14 @@ body.code-mode .code-instance-name {
   white-space: nowrap;
 }
 
-.code-codex-transcript-terminal > pre {
+.code-codex-transcript-terminal > pre,
+.code-acp-terminal-output {
   max-height: 240px;
   margin: 0;
   overflow: auto;
   padding: 9px;
   border-radius: 0;
-  background: #161b22;
+  background: #0d1117;
   color: #d0d7de;
   white-space: pre-wrap;
 }
@@ -6226,23 +6321,17 @@ body.code-mode .code-instance-name {
 .code-acp-embedded-terminal {
   position: relative;
   min-width: 0;
-  background: #161b22;
+  background: #0d1117;
 }
 
 .code-acp-embedded-terminal-host {
-  height: 220px;
-  min-height: 160px;
   padding: 8px 9px;
   overflow: hidden;
-  background: #161b22;
+  background: #0d1117;
 }
 
 .code-acp-embedded-terminal-host .xterm {
   height: 100%;
-}
-
-.code-acp-embedded-terminal.readonly .xterm-helper-textarea {
-  pointer-events: none;
 }
 
 .code-visually-hidden {

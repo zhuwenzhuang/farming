@@ -45,6 +45,8 @@ async function run() {
     getDangerouslySkipAgentPermissionsByDefault() {
       return false;
     },
+  }, {
+    createProviderSessionIdentity: async () => ({ sessionId: '019f1234-5678-7abc-8def-0123456789ab' }),
   });
 
   manager.engineBridge.resolve = () => ({

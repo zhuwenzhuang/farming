@@ -2,18 +2,21 @@ const EventEmitter = require('events');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const { Readable, Writable } = require('stream');
 const { createRequire } = require('module');
+const { promisify } = require('util');
 const packageJson = require('../package.json');
 const { AcpCheckpointStore } = require('./acp-checkpoint-store');
 const { AcpSessionState } = require('./acp-session-state');
+const { findCodexRolloutFileAsync } = require('./codex-rollout-follower');
 const { readCodexHistoryImageData } = require('./codex-transcript');
 const { AcpClientFileSystem, AcpClientTerminalManager } = require('./acp/client-services');
 const { PACKAGED_CODEX_ACP_ARG } = require('./acp/packaged-codex-acp');
 const { permissionSecurityWarnings } = require('./acp/permission-security');
 const { rejectPatch } = require('./acp/patch-decisions');
 const { getProviderAdapter, listProviderAdapters } = require('./provider-adapters');
+const { isSafeProviderSessionId } = require('./provider-session-id');
 
 const ADAPTER_VERSIONS = Object.freeze(Object.fromEntries(
   listProviderAdapters().filter(adapter => adapter.acp).map(adapter => [adapter.id, adapter.acp.version]),
@@ -26,11 +29,16 @@ const DEFAULT_CANCEL_TIMEOUT_MS = 15_000;
 const DEFAULT_HISTORY_REPLAY_MIN_WAIT_MS = 350;
 const DEFAULT_HISTORY_REPLAY_QUIET_MS = 150;
 const DEFAULT_HISTORY_REPLAY_MAX_WAIT_MS = 5_000;
+const DEFAULT_CODEX_MATERIALIZE_VERIFY_TIMEOUT_MS = 5_000;
+const IDENTITY_ADAPTER_GRACEFUL_EXIT_MS = 3_000;
+const IDENTITY_ADAPTER_TERMINATE_MS = 1_000;
+const IDENTITY_ADAPTER_KILL_MS = 1_000;
 const CODEX_SET_SESSION_MODEL_METHOD = 'session/set_model';
+const CODEX_MATERIALIZE_METHOD = '_codex/session/materialize';
 const CODEX_STEER_METHOD = '_codex/session/steer';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '1.1.4';
-const CODEX_ACP_SHA256 = '39cbae01e336c2ca185d624358e03280d1f6fef6d73bbe42dd9eb77e2b1efb32';
+const CODEX_ACP_SHA256 = 'f2298e389785cccf5db9226bd5505ae3b833f601d8f8f672f3c3704a90493c2e';
 const CODEX_ACP_VENDOR_ENTRY = path.join(
   __dirname,
   '..',
@@ -38,6 +46,7 @@ const CODEX_ACP_VENDOR_ENTRY = path.join(
   'acp',
   `codex-acp-${CODEX_ACP_VERSION}.js`,
 );
+const execFileAsync = promisify(execFile);
 
 let sdkPromise;
 const runtimeRequire = createRequire(__filename);
@@ -276,6 +285,40 @@ function supportsCodexSteer(capabilities = {}) {
     && Number(capability.version) >= 1;
 }
 
+function supportsCodexMaterialize(capabilities = {}) {
+  const capability = capabilities?._meta?.codex?.materialize;
+  return capability?.method === CODEX_MATERIALIZE_METHOD
+    && Number.isFinite(Number(capability.version))
+    && Number(capability.version) >= 1;
+}
+
+function codexRolloutHasSessionMeta(filePath, sessionId) {
+  const expectedId = String(sessionId || '').trim();
+  if (!filePath || !expectedId) return false;
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const maxBytes = 256 * 1024;
+      const buffer = Buffer.allocUnsafe(maxBytes);
+      const bytesRead = fs.readSync(fd, buffer, 0, maxBytes, 0);
+      const lines = buffer.subarray(0, bytesRead).toString('utf8').split('\n');
+      return lines.some((line) => {
+        if (!line.trim()) return false;
+        try {
+          const event = JSON.parse(line);
+          return event?.type === 'session_meta' && String(event?.payload?.id || '') === expectedId;
+        } catch {
+          return false;
+        }
+      });
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+}
+
 function isCodexSteerUnavailableError(error) {
   const text = [
     error?.message,
@@ -288,6 +331,81 @@ function isCodexSteerUnavailableError(error) {
     || /expected active turn id .* but found/.test(text)
     || text.includes('cannot steer a review turn')
     || text.includes('cannot steer a compact turn');
+}
+
+function childHasExited(child) {
+  return !child
+    || (child.exitCode !== null && child.exitCode !== undefined)
+    || (child.signalCode !== null && child.signalCode !== undefined);
+}
+
+function processGroupHasExited(binding) {
+  if (!binding?.ownsProcessGroup || !binding.child?.pid || process.platform === 'win32') {
+    return childHasExited(binding?.child);
+  }
+  try {
+    process.kill(-binding.child.pid, 0);
+    return false;
+  } catch (error) {
+    return error?.code === 'ESRCH';
+  }
+}
+
+async function waitForProcessTreeExit(binding, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    if (processGroupHasExited(binding)) return true;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  return processGroupHasExited(binding);
+}
+
+function signalProcessTree(binding, signal) {
+  if (!binding?.child || processGroupHasExited(binding)) return;
+  if (binding.ownsProcessGroup && binding.child.pid && process.platform !== 'win32') {
+    try {
+      process.kill(-binding.child.pid, signal);
+      return;
+    } catch (error) {
+      if (error?.code === 'ESRCH') return;
+    }
+  }
+  binding.child.kill(signal);
+}
+
+async function deleteProviderSessionIdentity(options = {}) {
+  const provider = String(options.provider || '').trim().toLowerCase();
+  const sessionId = String(options.sessionId || '').trim();
+  if (!isSafeProviderSessionId(sessionId)) {
+    throw new Error('Provider session rollback requires a safe exact session id');
+  }
+  let args;
+  if (provider === 'codex') args = ['delete', '--force', sessionId];
+  else if (provider === 'opencode') args = ['session', 'delete', sessionId];
+  else throw new Error(`${provider || 'Provider'} does not support identity rollback`);
+  await execFileAsync(options.executable || getProviderAdapter(provider)?.executable, args, {
+    cwd: options.cwd,
+    env: options.env,
+    timeout: 15_000,
+    maxBuffer: 1024 * 1024,
+  });
+}
+
+function attachProviderSessionIdentity(error, identity, rollbackError) {
+  const target = error instanceof Error ? error : new Error(String(error || 'Provider session identity failed'));
+  Object.defineProperty(target, 'providerSessionIdentity', {
+    value: identity,
+    enumerable: false,
+    configurable: true,
+  });
+  if (rollbackError) {
+    Object.defineProperty(target, 'providerSessionRollbackError', {
+      value: rollbackError,
+      enumerable: false,
+      configurable: true,
+    });
+  }
+  return target;
 }
 
 class AcpRuntime extends EventEmitter {
@@ -304,6 +422,14 @@ class AcpRuntime extends EventEmitter {
     this.historyReplayMinWaitMs = options.historyReplayMinWaitMs ?? DEFAULT_HISTORY_REPLAY_MIN_WAIT_MS;
     this.historyReplayQuietMs = options.historyReplayQuietMs ?? DEFAULT_HISTORY_REPLAY_QUIET_MS;
     this.historyReplayMaxWaitMs = options.historyReplayMaxWaitMs ?? DEFAULT_HISTORY_REPLAY_MAX_WAIT_MS;
+    this.codexMaterializeVerifyTimeoutMs = Number.isFinite(options.codexMaterializeVerifyTimeoutMs)
+      ? Math.max(0, options.codexMaterializeVerifyTimeoutMs)
+      : DEFAULT_CODEX_MATERIALIZE_VERIFY_TIMEOUT_MS;
+    this.findCodexRolloutFileAsync = options.findCodexRolloutFileAsync
+      || (options.findCodexRolloutFile
+        ? async (...args) => options.findCodexRolloutFile(...args)
+        : findCodexRolloutFileAsync);
+    this.deleteProviderSessionIdentity = options.deleteProviderSessionIdentity || deleteProviderSessionIdentity;
     this.checkpointStore = options.checkpointStore
       || (options.configDir ? new AcpCheckpointStore(options.configDir, options.checkpointOptions) : null);
     this.bindings = new Map();
@@ -331,10 +457,12 @@ class AcpRuntime extends EventEmitter {
       launch,
       restartOptions: { ...options, agentId, provider },
       approvalMode: options.approvalMode || 'approve',
+      ownsProcessGroup: options.identityOnly === true && process.platform !== 'win32',
       child: null,
       connection: null,
       initializeResponse: null,
       sessionId: '',
+      untrustedSessionId: '',
       state: 'connecting',
       error: '',
       stopReason: '',
@@ -366,6 +494,7 @@ class AcpRuntime extends EventEmitter {
         cwd: binding.cwd,
         env: binding.env,
         stdio: ['pipe', 'pipe', 'pipe'],
+        detached: binding.ownsProcessGroup,
       });
       binding.child = child;
       child.stderr.on('data', chunk => {
@@ -512,8 +641,12 @@ class AcpRuntime extends EventEmitter {
           this.sessionSetupTimeoutMs,
           'ACP session/new'
         );
-        binding.sessionId = String(sessionResponse.sessionId || '');
-        if (!binding.sessionId) throw new Error('ACP session/new did not return a session id');
+        const returnedSessionId = String(sessionResponse.sessionId || '').trim();
+        if (!isSafeProviderSessionId(returnedSessionId)) {
+          binding.untrustedSessionId = returnedSessionId;
+          throw new Error('ACP session/new returned an invalid resumable session id');
+        }
+        binding.sessionId = returnedSessionId;
         binding.sessionState = new AcpSessionState({ provider, sessionId: binding.sessionId, cwd: binding.cwd, maxUpdates: this.maxUpdates });
       }
       binding.modes = sessionResponse?.modes || null;
@@ -546,9 +679,148 @@ class AcpRuntime extends EventEmitter {
     } catch (error) {
       const runtimeError = new Error(acpErrorMessage(error), { cause: error });
       this.handleExit(binding, runtimeError);
-      this.unregisterAgent(agentId);
+      if (options.identityOnly === true) {
+        const returnedIdentity = binding.sessionId || binding.untrustedSessionId;
+        const identity = returnedIdentity
+          ? {
+              provider,
+              executable: options.executable || getProviderAdapter(provider)?.executable,
+              env: binding.env,
+              cwd: binding.cwd,
+              sessionId: returnedIdentity,
+              producerStopped: false,
+            }
+          : null;
+        let producerStopped = false;
+        try {
+          await this.unregisterAgentAndWait(agentId);
+          producerStopped = true;
+          if (identity) identity.producerStopped = true;
+        } catch (cleanupError) {
+          Object.defineProperty(runtimeError, 'adapterCleanupError', {
+            value: cleanupError,
+            enumerable: false,
+            configurable: true,
+          });
+          if (identity) attachProviderSessionIdentity(runtimeError, identity);
+        }
+        if (identity && producerStopped && isSafeProviderSessionId(identity.sessionId)) {
+          try {
+            await this.deleteProviderSessionIdentity(identity);
+          } catch (rollbackError) {
+            attachProviderSessionIdentity(runtimeError, identity, rollbackError);
+          }
+        } else if (identity && producerStopped) {
+          attachProviderSessionIdentity(runtimeError, identity);
+        }
+      } else {
+        this.unregisterAgent(agentId);
+      }
       throw runtimeError;
     }
+  }
+
+  async createSessionIdentity(options = {}) {
+    const agentId = `provider-session-${crypto.randomUUID()}`;
+    let prepared = null;
+    let result = null;
+    let failure = null;
+    let identity = null;
+    try {
+      prepared = await this.prepareAgent({
+        ...options,
+        agentId,
+        identityOnly: true,
+        sessionId: '',
+      });
+      const binding = this.requireBinding(agentId);
+      identity = {
+        provider: String(options.provider || '').trim().toLowerCase(),
+        executable: options.executable || getProviderAdapter(options.provider)?.executable,
+        env: binding.env,
+        cwd: binding.cwd,
+        sessionId: prepared.sessionId,
+        producerStopped: false,
+      };
+      if (String(options.provider || '').trim().toLowerCase() === 'codex') {
+        if (supportsCodexMaterialize(prepared.capabilities)) {
+          await withTimeout(
+            binding.connection.request(CODEX_MATERIALIZE_METHOD, {
+              sessionId: prepared.sessionId,
+            }),
+            this.sessionSetupTimeoutMs,
+            'Codex session materialization',
+          );
+          let rolloutPath = '';
+          if (prepared.adapter?.version === CODEX_ACP_VERSION) {
+            rolloutPath = await this.verifyCodexSessionMaterialized(
+              prepared.sessionId,
+              binding.env.CODEX_HOME,
+            );
+          }
+          result = {
+            ...prepared,
+            materialized: true,
+            rolloutPath,
+            sessionRequestOptions: this.getSessionRequestOptions(agentId),
+          };
+        }
+        if (!result && prepared.adapter?.version === CODEX_ACP_VERSION) {
+          throw new Error('Codex ACP runtime cannot materialize a resumable Terminal session');
+        }
+      }
+      if (!result) {
+        result = {
+          ...prepared,
+          materialized: false,
+          sessionRequestOptions: this.getSessionRequestOptions(agentId),
+        };
+      }
+    } catch (error) {
+      failure = error instanceof Error ? error : new Error(String(error || 'Provider session identity failed'));
+    }
+
+    if (prepared) {
+      let producerStopped = false;
+      try {
+        await this.unregisterAgentAndWait(agentId);
+        producerStopped = true;
+        if (identity) identity.producerStopped = true;
+      } catch (cleanupError) {
+        if (!failure) {
+          failure = cleanupError instanceof Error
+            ? cleanupError
+            : new Error(String(cleanupError || 'ACP identity adapter cleanup failed'));
+        } else {
+          Object.defineProperty(failure, 'adapterCleanupError', {
+            value: cleanupError,
+            enumerable: false,
+            configurable: true,
+          });
+        }
+        if (identity) failure = attachProviderSessionIdentity(failure, identity);
+      }
+      if (failure && identity?.sessionId && producerStopped) {
+        try {
+          await this.deleteProviderSessionIdentity(identity);
+        } catch (rollbackError) {
+          failure = attachProviderSessionIdentity(failure, identity, rollbackError);
+        }
+      }
+    }
+    if (failure) throw failure;
+    return result;
+  }
+
+  async verifyCodexSessionMaterialized(sessionId, codexHome) {
+    const deadline = Date.now() + this.codexMaterializeVerifyTimeoutMs;
+    const filePath = await this.findCodexRolloutFileAsync(sessionId, {
+      codexHome,
+      deadline,
+      recentOnly: true,
+    });
+    if (codexRolloutHasSessionMeta(filePath, sessionId)) return filePath;
+    throw new Error(`Codex session ${sessionId} did not produce a verifiable rollout`);
   }
 
   checkpointIdentity(binding, sessionId = binding?.sessionId) {
@@ -1589,11 +1861,10 @@ class AcpRuntime extends EventEmitter {
     this.emitRuntime(binding);
   }
 
-  unregisterAgent(agentId) {
-    const binding = this.bindings.get(agentId);
-    if (!binding) return;
+  detachAgentBinding(binding) {
+    if (!binding || this.bindings.get(binding.agentId) !== binding) return false;
     if (binding.sessionState && !binding.promptActive) this.scheduleCheckpoint(binding, { exact: true });
-    this.bindings.delete(agentId);
+    this.bindings.delete(binding.agentId);
     for (const resolve of binding.permissionResolvers.values()) resolve({ outcome: { outcome: 'cancelled' } });
     for (const resolve of binding.elicitationResolvers.values()) resolve({ action: 'cancel' });
     binding.permissionResolvers.clear();
@@ -1607,9 +1878,33 @@ class AcpRuntime extends EventEmitter {
     try {
       binding.connection?.close();
     } catch {
-      // The adapter process is terminated below even if transport cleanup raced its exit.
+      // Process cleanup below remains authoritative if transport cleanup races.
     }
-    if (binding.child && !binding.child.killed) binding.child.kill('SIGTERM');
+    if (binding.child?.stdin?.writable && !binding.child.stdin.destroyed) {
+      try {
+        binding.child.stdin.end();
+      } catch {
+        // Process cleanup below remains authoritative if stdin already closed.
+      }
+    }
+    return true;
+  }
+
+  unregisterAgent(agentId) {
+    const binding = this.bindings.get(agentId);
+    if (!binding || !this.detachAgentBinding(binding)) return;
+    signalProcessTree(binding, 'SIGTERM');
+  }
+
+  async unregisterAgentAndWait(agentId) {
+    const binding = this.bindings.get(agentId);
+    if (!binding || !this.detachAgentBinding(binding)) return;
+    if (await waitForProcessTreeExit(binding, IDENTITY_ADAPTER_GRACEFUL_EXIT_MS)) return;
+    signalProcessTree(binding, 'SIGTERM');
+    if (await waitForProcessTreeExit(binding, IDENTITY_ADAPTER_TERMINATE_MS)) return;
+    signalProcessTree(binding, 'SIGKILL');
+    if (await waitForProcessTreeExit(binding, IDENTITY_ADAPTER_KILL_MS)) return;
+    throw new Error(`ACP identity adapter process tree ${binding.child?.pid || ''} did not exit`);
   }
 
   async dispose() {
@@ -1629,9 +1924,13 @@ module.exports = {
   acpErrorKind,
   autoPermissionResponse,
   codexAcpEnvironment,
+  codexRolloutHasSessionMeta,
   promptContentForCapabilities,
   resolveAcpLaunch,
+  supportsCodexMaterialize,
   supportsCodexSteer,
   isCodexSteerUnavailableError,
+  CODEX_MATERIALIZE_METHOD,
   CODEX_STEER_METHOD,
+  deleteProviderSessionIdentity,
 };

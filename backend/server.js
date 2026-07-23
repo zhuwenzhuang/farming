@@ -122,7 +122,11 @@ const updateService = new FarmingUpdateService({
   packagedRuntime: Boolean(process.pkg || process.env.FARMING_PACKAGED_RUNTIME === '1'),
   getUpdateUrl: () => configManager.getSettings().updateUrl || '',
 });
-const usageMonitor = new UsageMonitor({ agentManager, getProviderHomes: configuredProviderHomes });
+const usageMonitor = new UsageMonitor({
+  agentManager,
+  configDir: configManager.farmingDir,
+  getProviderHomes: configuredProviderHomes,
+});
 const codexContextWindowReader = new CodexContextWindowReader();
 const usageSummaryCache = new AsyncCache(() => usageMonitor.getUsageSummary(), {
   ttlMs: 15_000,

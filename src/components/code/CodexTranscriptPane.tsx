@@ -707,13 +707,6 @@ function CodexTranscriptAudios({ audios }: { audios: CodexTranscriptAudio[] }) {
   )
 }
 
-function terminalStatusLabel(terminal: CodexTranscriptTerminal) {
-  const exit = terminal.terminal?.exitStatus
-  if (!exit) return terminal.terminal?.released ? 'Released' : 'Running'
-  if (exit.signal) return `Exited (${exit.signal})`
-  return `Exited ${exit.exitCode ?? ''}`.trim()
-}
-
 function terminalCommandLabel(terminal: CodexTranscriptTerminal) {
   const command = String(terminal.terminal?.command || '').trim()
   const args = Array.isArray(terminal.terminal?.args) ? terminal.terminal.args : []
@@ -726,13 +719,42 @@ function terminalDurationLabel(durationMs?: number) {
   return `${(Number(durationMs) / 1_000).toFixed(Number(durationMs) < 10_000 ? 1 : 0)}s`
 }
 
+function terminalExitLabel(terminal: CodexTranscriptTerminal) {
+  const exit = terminal.terminal?.exitStatus
+  if (exit?.signal) return exit.signal
+  if (Number.isInteger(exit?.exitCode)) return `Exit ${exit?.exitCode}`
+  return terminal.terminal?.released ? 'Released' : ''
+}
+
+function detailDuplicatesTerminalOutcome(detail: string, terminals: CodexTranscriptTerminal[]) {
+  if (!detail.startsWith('Output\n') || detail.includes('\n\n')) return false
+  let output: unknown
+  try {
+    output = JSON.parse(detail.slice('Output\n'.length))
+  } catch {
+    return false
+  }
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return false
+  const record = output as { exitCode?: unknown, signal?: unknown }
+  const keys = Object.keys(record)
+  if (keys.length <= 0 || keys.some(key => !['exitCode', 'signal'].includes(key))) return false
+  return terminals.some(terminal => {
+    const exit = terminal.terminal?.exitStatus
+    if (!exit) return false
+    return (!Object.prototype.hasOwnProperty.call(record, 'exitCode') || record.exitCode === exit.exitCode)
+      && (!Object.prototype.hasOwnProperty.call(record, 'signal') || record.signal === exit.signal)
+  })
+}
+
 function CodexTranscriptTerminals({
   terminals,
+  terminalStateFinal = false,
   onStop,
   onInput,
   onResize,
 }: {
   terminals: CodexTranscriptTerminal[]
+  terminalStateFinal?: boolean
   onStop?: (terminalId: string) => Promise<void>
   onInput?: (terminalId: string, input: string) => Promise<void>
   onResize?: (terminalId: string, cols: number, rows: number) => Promise<void>
@@ -746,60 +768,69 @@ function CodexTranscriptTerminals({
       {terminals.map(terminal => {
         const command = terminalCommandLabel(terminal)
         const duration = terminalDurationLabel(terminal.terminal?.durationMs)
+        const exit = terminalExitLabel(terminal)
         const output = terminal.terminal?.output || ''
         return (
           <section key={terminal.terminalId} className="code-codex-transcript-terminal">
             <header>
               <code title={command}>{command}</code>
-              <span>{terminalStatusLabel(terminal)}</span>
-              {!terminal.terminal?.exitStatus && !terminal.terminal?.released && onStop ? (
-                <button
-                  type="button"
-                  className="code-codex-transcript-terminal-stop"
-                  data-testid="code-acp-terminal-stop"
-                  aria-label="Stop command"
-                  title="Stop command"
-                  disabled={Boolean(stoppingTerminalId)}
-                  onClick={() => {
-                    setStoppingTerminalId(terminal.terminalId)
-                    setStopError('')
-                    void onStop(terminal.terminalId)
-                      .catch(error => setStopError(error instanceof Error ? error.message : 'Failed to stop command'))
-                      .finally(() => setStoppingTerminalId(''))
-                  }}
-                >
-                  {stoppingTerminalId === terminal.terminalId ? <span className="code-permission-switching-spinner" /> : <CloseGlyph />}
-                </button>
-              ) : null}
-              {output ? (
-                <button
-                  type="button"
-                  className="code-codex-transcript-terminal-copy"
-                  aria-label={copiedTerminalId === terminal.terminalId ? 'Copied terminal output' : 'Copy terminal output'}
-                  title={copiedTerminalId === terminal.terminalId ? 'Copied' : 'Copy output'}
-                  onClick={() => {
-                    void writeClipboardText(output).then(copied => {
-                      if (!copied) return
-                      setCopiedTerminalId(terminal.terminalId)
-                      window.setTimeout(() => setCopiedTerminalId(current => current === terminal.terminalId ? '' : current), 1200)
-                    })
-                  }}
-                >
-                  {copiedTerminalId === terminal.terminalId ? <CheckGlyph /> : <CopyGlyph />}
-                </button>
-              ) : null}
+              <div className="code-codex-transcript-terminal-actions">
+                {!terminalStateFinal && !terminal.terminal?.exitStatus && !terminal.terminal?.released && onStop ? (
+                  <button
+                    type="button"
+                    className="code-codex-transcript-terminal-stop"
+                    data-testid="code-acp-terminal-stop"
+                    aria-label="Stop command"
+                    title="Stop command"
+                    disabled={Boolean(stoppingTerminalId)}
+                    onClick={() => {
+                      setStoppingTerminalId(terminal.terminalId)
+                      setStopError('')
+                      void onStop(terminal.terminalId)
+                        .catch(error => setStopError(error instanceof Error ? error.message : 'Failed to stop command'))
+                        .finally(() => setStoppingTerminalId(''))
+                    }}
+                  >
+                    {stoppingTerminalId === terminal.terminalId ? <span className="code-permission-switching-spinner" /> : <CloseGlyph />}
+                  </button>
+                ) : null}
+                {output ? (
+                  <button
+                    type="button"
+                    className="code-codex-transcript-terminal-copy"
+                    aria-label={copiedTerminalId === terminal.terminalId ? 'Copied terminal output' : 'Copy terminal output'}
+                    title={copiedTerminalId === terminal.terminalId ? 'Copied' : 'Copy output'}
+                    onClick={() => {
+                      void writeClipboardText(output).then(copied => {
+                        if (!copied) return
+                        setCopiedTerminalId(terminal.terminalId)
+                        window.setTimeout(() => setCopiedTerminalId(current => current === terminal.terminalId ? '' : current), 1200)
+                      })
+                    }}
+                  >
+                    {copiedTerminalId === terminal.terminalId ? <CheckGlyph /> : <CopyGlyph />}
+                  </button>
+                ) : null}
+              </div>
             </header>
-            {(terminal.terminal?.cwd || duration || terminal.terminal?.truncated) ? (
+            {(terminal.terminal?.cwd || duration || exit || terminal.terminal?.truncated) ? (
               <div className="code-codex-transcript-terminal-meta">
                 {terminal.terminal?.cwd ? <span title={terminal.terminal.cwd}>{terminal.terminal.cwd}</span> : null}
                 {duration ? <span>{duration}</span> : null}
+                {exit ? <span>{exit}</span> : null}
                 {terminal.terminal?.truncated ? <span>Earlier output hidden</span> : null}
               </div>
             ) : null}
             <AcpEmbeddedTerminal
               terminalId={terminal.terminalId}
               output={output}
-              interactive={Boolean(terminal.terminal?.interactive && !terminal.terminal.exitStatus && !terminal.terminal.released && onInput)}
+              interactive={Boolean(
+                !terminalStateFinal
+                && terminal.terminal?.interactive
+                && !terminal.terminal.exitStatus
+                && !terminal.terminal.released
+                && onInput,
+              )}
               onInput={onInput ? input => onInput(terminal.terminalId, input) : undefined}
               onResize={onResize ? (cols, rows) => onResize(terminal.terminalId, cols, rows) : undefined}
             />
@@ -943,7 +974,9 @@ function CodexTranscriptSubagentPreview({
 
 function processItemClassName(item: CodexTranscriptProcessItem) {
   const type = item.type.replace(/[^a-z0-9_-]/gi, '').toLowerCase() || 'event'
-  const status = (item.status || '').replace(/[^a-z0-9_-]/gi, '').toLowerCase()
+  const status = isProcessItemRunning(item)
+    ? 'running'
+    : (item.status || '').replace(/[^a-z0-9_-]/gi, '').toLowerCase()
   return ['code-codex-transcript-process-item', type, status ? `status-${status}` : '']
     .filter(Boolean)
     .join(' ')
@@ -963,6 +996,12 @@ function isProcessItemRunning(item: CodexTranscriptProcessItem) {
     'started',
     'active',
   ].includes(normalized)
+}
+
+function isProcessItemFailed(item: CodexTranscriptProcessItem) {
+  return ['failed', 'rejected', 'cancelled', 'canceled'].includes(
+    String(item.status || '').trim().toLowerCase(),
+  ) || item.type === 'error'
 }
 
 function transcriptBottomDistance(element: HTMLElement) {
@@ -1030,7 +1069,7 @@ function processEntriesForTurn(items: CodexTranscriptProcessItem[]) {
   const entries: ProcessEntry[] = []
   let group: CodexTranscriptProcessItem[] = []
   const flushGroup = () => {
-    if (group.length > 0) entries.push({ kind: 'group', id: `group:${group.map(item => item.id).join(':')}`, items: group })
+    if (group.length > 0) entries.push({ kind: 'group', id: `group:${group[0]?.id || ''}`, items: group })
     group = []
   }
   for (const item of items) {
@@ -1043,6 +1082,35 @@ function processEntriesForTurn(items: CodexTranscriptProcessItem[]) {
   }
   flushGroup()
   return entries
+}
+
+const COMPACT_PROCESS_ACTION_LIMIT = 4
+
+function compactProcessEntries(entries: ProcessEntry[], turnStatus: CodexTranscriptTurn['status']) {
+  const eligible = entries.flatMap(entry => (
+    entry.kind === 'group'
+      ? entry.items.filter(item => turnStatus === 'inProgress' || isProcessItemFailed(item))
+      : isProcessItemFailed(entry.item) ? [entry.item] : []
+  ))
+  const selectedIndexes = new Set<number>()
+  for (let index = eligible.length - 1; index >= 0; index -= 1) {
+    if (!isProcessItemRunning(eligible[index]!)) continue
+    selectedIndexes.add(index)
+    break
+  }
+  for (let index = eligible.length - 1; index >= 0 && selectedIndexes.size < COMPACT_PROCESS_ACTION_LIMIT; index -= 1) {
+    if (isProcessItemFailed(eligible[index]!)) selectedIndexes.add(index)
+  }
+  for (let index = eligible.length - 1; index >= 0 && selectedIndexes.size < COMPACT_PROCESS_ACTION_LIMIT; index -= 1) {
+    selectedIndexes.add(index)
+  }
+  const items = eligible.filter((_item, index) => selectedIndexes.has(index))
+  return { items, hiddenActionCount: eligible.length - items.length }
+}
+
+function compactAcpActionLabel(item: CodexTranscriptProcessItem, copy: CodeCopy) {
+  if (isProcessItemFailed(item)) return copy.codexTranscriptActionFailed(item.title)
+  return item.title
 }
 
 function processGroupLabel(items: CodexTranscriptProcessItem[]) {
@@ -1293,6 +1361,8 @@ function CodexTranscriptSteerItem({ item }: { item: CodexTranscriptProcessItem }
 
 function CodexTranscriptProcessItemView({
   item,
+  title,
+  showStatus = true,
   copy,
   copied,
   detailOpen,
@@ -1301,9 +1371,13 @@ function CodexTranscriptProcessItemView({
   onStopTerminal,
   onInputTerminal,
   onResizeTerminal,
+  terminalOutcomeSyncFailed = false,
+  onRetryTerminalOutcome,
   onStopSubagent,
 }: {
   item: CodexTranscriptProcessItem
+  title?: string
+  showStatus?: boolean
   copy: CodeCopy
   copied: boolean
   detailOpen: boolean
@@ -1312,20 +1386,27 @@ function CodexTranscriptProcessItemView({
   onStopTerminal?: (itemId: string, terminalId: string) => Promise<void>
   onInputTerminal?: (itemId: string, terminalId: string, input: string) => Promise<void>
   onResizeTerminal?: (itemId: string, terminalId: string, cols: number, rows: number) => Promise<void>
+  terminalOutcomeSyncFailed?: boolean
+  onRetryTerminalOutcome?: (itemId: string) => void
   onStopSubagent?: (sessionId: string) => Promise<void>
 }) {
   if (isUserSteerProcessItem(item)) {
     return <CodexTranscriptSteerItem item={item} />
   }
 
-  const detail = item.detail && item.detail.trim() !== item.title.trim() ? item.detail : ''
-  const hasDetail = !!detail
   const images = item.images || []
   const audios = item.audios || []
   const files = item.files || []
   const terminals = item.terminals || []
+  const copyableDetail = item.detail && item.detail.trim() !== item.title.trim() ? item.detail : ''
+  const detail = copyableDetail && detailDuplicatesTerminalOutcome(copyableDetail, terminals)
+    ? ''
+    : copyableDetail
+  const hasCopyableDetail = !!copyableDetail
+  const hasDetail = !!detail
   const planItems = item.type === 'plan' && detail ? planDetailItems(detail) : null
   const expandable = hasExpandableProcessItemContent(item, detail, planItems)
+  const displayTitle = title || item.title
   const details = (
     <>
       {planItems ? (
@@ -1341,12 +1422,28 @@ function CodexTranscriptProcessItemView({
       <CodexTranscriptProcessImages images={images} />
       <CodexTranscriptAudios audios={audios} />
       <CodexTranscriptUserFiles files={files} />
-      <CodexTranscriptTerminals
-        terminals={terminals}
-        onStop={onStopTerminal ? terminalId => onStopTerminal(item.id, terminalId) : undefined}
-        onInput={onInputTerminal ? (terminalId, input) => onInputTerminal(item.id, terminalId, input) : undefined}
-        onResize={onResizeTerminal ? (terminalId, cols, rows) => onResizeTerminal(item.id, terminalId, cols, rows) : undefined}
-      />
+      {terminalOutcomeSyncFailed ? (
+        <div
+          className="code-codex-transcript-terminal-sync-error"
+          data-testid="code-acp-terminal-sync-error"
+          role="alert"
+        >
+          <span>{copy.codexTranscriptTerminalStatusUnavailable}</span>
+          {onRetryTerminalOutcome ? (
+            <button type="button" onClick={() => onRetryTerminalOutcome(item.id)}>
+              {copy.codexTranscriptRetryTerminalStatus}
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <CodexTranscriptTerminals
+          terminals={terminals}
+          terminalStateFinal={!isProcessItemRunning(item)}
+          onStop={onStopTerminal ? terminalId => onStopTerminal(item.id, terminalId) : undefined}
+          onInput={onInputTerminal ? (terminalId, input) => onInputTerminal(item.id, terminalId, input) : undefined}
+          onResize={onResizeTerminal ? (terminalId, cols, rows) => onResizeTerminal(item.id, terminalId, cols, rows) : undefined}
+        />
+      )}
       {item.subagentTranscript ? (
         <CodexTranscriptSubagentPreview
           transcript={item.subagentTranscript}
@@ -1387,21 +1484,21 @@ function CodexTranscriptProcessItemView({
               toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, () => onToggle(item.id))
             }}
           >
-            <span className="code-codex-transcript-process-title-text">{item.title}</span>
-            {shouldShowStatus(item.status) ? (
+            <span className="code-codex-transcript-process-title-text">{displayTitle}</span>
+            {showStatus && shouldShowStatus(item.status) ? (
               <span className="code-codex-transcript-process-status">{item.status}</span>
             ) : null}
             <ChevronRightGlyph className="code-codex-transcript-process-item-chevron" />
           </button>
         ) : (
           <span className="code-codex-transcript-process-title-static">
-            <span className="code-codex-transcript-process-title-text">{item.title}</span>
-            {shouldShowStatus(item.status) ? (
+            <span className="code-codex-transcript-process-title-text">{displayTitle}</span>
+            {showStatus && shouldShowStatus(item.status) ? (
               <span className="code-codex-transcript-process-status">{item.status}</span>
             ) : null}
           </span>
         )}
-        {hasDetail ? (
+        {hasCopyableDetail ? (
           <button
             type="button"
             className={`code-codex-transcript-copy ${copied ? 'copied' : ''}`}
@@ -1421,6 +1518,39 @@ function CodexTranscriptProcessItemView({
   )
 }
 
+function CodexTranscriptProgressUpdate({
+  item,
+  markdownComponents,
+  compact = false,
+}: {
+  item: CodexTranscriptProcessItem
+  markdownComponents: Components
+  compact?: boolean
+}) {
+  const progressText = String(item.detail || '').trim()
+  if (!progressText) return null
+  const compactText = progressText.replace(/\s+/g, ' ').trim()
+  const compactPreview = compactText.length > 240 ? `${compactText.slice(0, 239).trimEnd()}…` : compactText
+  return (
+    <div
+      className={`code-acp-progress-update code-markdown-preview ${compact ? 'compact' : ''}`}
+      data-testid="code-acp-progress-update"
+    >
+      {compact ? compactPreview : (
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkMath]}
+          rehypePlugins={[rehypeKatex, rehypeHighlight]}
+          components={markdownComponents}
+          skipHtml
+          urlTransform={codexTranscriptUrlTransform}
+        >
+          {progressText}
+        </ReactMarkdown>
+      )}
+    </div>
+  )
+}
+
 function CodexTranscriptProcessGroupView({
   groupId,
   items,
@@ -1435,6 +1565,8 @@ function CodexTranscriptProcessGroupView({
   onStopTerminal,
   onInputTerminal,
   onResizeTerminal,
+  terminalOutcomeSyncFailedItemIds,
+  onRetryTerminalOutcome,
   onStopSubagent,
 }: {
   groupId: string
@@ -1450,6 +1582,8 @@ function CodexTranscriptProcessGroupView({
   onStopTerminal?: (itemId: string, terminalId: string) => Promise<void>
   onInputTerminal?: (itemId: string, terminalId: string, input: string) => Promise<void>
   onResizeTerminal?: (itemId: string, terminalId: string, cols: number, rows: number) => Promise<void>
+  terminalOutcomeSyncFailedItemIds: Set<string>
+  onRetryTerminalOutcome?: (itemId: string) => void
   onStopSubagent?: (sessionId: string) => Promise<void>
 }) {
   const running = items.some(isProcessItemRunning)
@@ -1495,6 +1629,8 @@ function CodexTranscriptProcessGroupView({
               onStopTerminal={onStopTerminal}
               onInputTerminal={onInputTerminal}
               onResizeTerminal={onResizeTerminal}
+              terminalOutcomeSyncFailed={terminalOutcomeSyncFailedItemIds.has(item.id)}
+              onRetryTerminalOutcome={onRetryTerminalOutcome}
               onStopSubagent={onStopSubagent}
             />
           ))}
@@ -1766,12 +1902,23 @@ function CodexTranscriptTurnView({
   const [answerCopied, setAnswerCopied] = useState(false)
   const [openProcessItemIds, setOpenProcessItemIds] = useState<Set<string>>(() => new Set())
   const [closedLiveProcessItemIds, setClosedLiveProcessItemIds] = useState<Set<string>>(() => new Set())
+  const [terminalOutcomeSyncFailedItemIds, setTerminalOutcomeSyncFailedItemIds] = useState<Set<string>>(() => new Set())
+  const manuallyToggledProcessItemIdsRef = useRef(new Set<string>())
+  const autoExpandedTerminalItemIdsRef = useRef(new Set<string>())
+  const autoHandledTerminalItemIdsRef = useRef(new Set<string>())
+  const observedRunningTerminalItemIdsRef = useRef(new Set<string>())
+  const refreshedTerminalOutcomeItemIdsRef = useRef(new Set<string>())
+  const syncingTerminalOutcomeItemIdsRef = useRef(new Set<string>())
   const [, setProgressClock] = useState(0)
   const processEntries = useMemo(() => (
     groupProcessActions
       ? processEntriesForTurn(resolvedProcessItems)
       : resolvedProcessItems.map(item => ({ kind: 'item' as const, item }))
   ), [groupProcessActions, resolvedProcessItems])
+  const compactProcess = useMemo(
+    () => compactProcessEntries(processEntries, turn.status),
+    [processEntries, turn.status],
+  )
   const latestLiveThoughtId = useMemo(() => {
     if (turn.status !== 'inProgress') return ''
     return [...resolvedProcessItems]
@@ -1779,11 +1926,21 @@ function CodexTranscriptTurnView({
       .find(item => ['reasoning', 'thought'].includes(item.type) && Boolean(String(item.detail || '').trim()))
       ?.id || ''
   }, [resolvedProcessItems, turn.status])
+  const latestLiveProgressItem = useMemo(() => {
+    if (source !== 'acp' || turn.status !== 'inProgress') return null
+    return [...resolvedProcessItems]
+      .reverse()
+      .find(item => isAcpProgressUpdate(item) && Boolean(String(item.detail || '').trim()))
+      || null
+  }, [resolvedProcessItems, source, turn.status])
   const compactViewport = isCompactViewport()
   const answerMessage = useMemo(() => stripRawMemoryCitation(turn.finalMessage), [turn.finalMessage])
-  const shouldShowWaiting = turn.status === 'inProgress' && !answerMessage && (
+  const shouldShowWaiting = turn.status === 'inProgress'
+    && !answerMessage
+    && compactProcess.items.length === 0
+    && (
     Boolean(turn.userMessage) || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 || hasProcess
-  )
+    )
   useEffect(() => {
     if (turn.status !== 'inProgress' || !turn.startedAt) return undefined
     const timer = window.setInterval(() => setProgressClock(Date.now()), 30_000)
@@ -1796,6 +1953,9 @@ function CodexTranscriptTurnView({
     ? turn
     : { ...turn, processItems: resolvedProcessItems }
   const workingLabel = source === 'acp' ? acpActivityLabel(activityTurn, copy) : copy.codexTranscriptWorking
+  const processSummaryWorkingLabel = compactProcess.items.length > 0
+    ? copy.codexTranscriptProcess
+    : workingLabel
   const liveToolLabel = source === 'acp' ? acpLiveToolLabel(activityTurn, copy) : ''
   const planLabel = source === 'acp' ? acpPlanLabel(activityTurn, copy) : ''
   const loadFullProcessDetail = useCallback(async (item: CodexTranscriptProcessItem, force = false) => {
@@ -1815,6 +1975,102 @@ function CodexTranscriptTurnView({
       loadingProcessDetailsRef.current.delete(item.id)
     }
   }, [loadedProcessDetails, onLoadProcessItemDetail])
+  const refreshTerminalOutcome = useCallback((item: CodexTranscriptProcessItem) => {
+    if (syncingTerminalOutcomeItemIdsRef.current.has(item.id)) return
+    syncingTerminalOutcomeItemIdsRef.current.add(item.id)
+    refreshedTerminalOutcomeItemIdsRef.current.add(item.id)
+    setTerminalOutcomeSyncFailedItemIds(current => {
+      if (!current.has(item.id)) return current
+      const next = new Set(current)
+      next.delete(item.id)
+      return next
+    })
+    const finishFailure = () => {
+      syncingTerminalOutcomeItemIdsRef.current.delete(item.id)
+      setTerminalOutcomeSyncFailedItemIds(current => new Set([...current, item.id]))
+    }
+    const refresh = (attempt: number) => {
+      void loadFullProcessDetail(item, true).then(presentation => {
+        const terminalOutcomeReady = presentation.terminals?.some(terminal => (
+          Boolean(terminal.terminal?.exitStatus) || terminal.terminal?.released
+        ))
+        if (!terminalOutcomeReady) {
+          if (attempt < 2) {
+            window.setTimeout(() => refresh(attempt + 1), 500 * (attempt + 1))
+            return
+          }
+          finishFailure()
+          return
+        }
+        syncingTerminalOutcomeItemIdsRef.current.delete(item.id)
+        observedRunningTerminalItemIdsRef.current.delete(item.id)
+      }).catch(() => {
+        if (attempt < 2) {
+          window.setTimeout(() => refresh(attempt + 1), 500 * (attempt + 1))
+          return
+        }
+        finishFailure()
+      })
+    }
+    refresh(0)
+  }, [loadFullProcessDetail])
+  useEffect(() => {
+    if (source !== 'acp' || turn.status !== 'inProgress' || processOpen) return undefined
+    const candidates = compactProcess.items.filter(item => (
+      item.terminalIds?.length
+      && isProcessItemRunning(item)
+      && !autoHandledTerminalItemIdsRef.current.has(item.id)
+      && !manuallyToggledProcessItemIdsRef.current.has(item.id)
+    ))
+    if (candidates.length === 0) return undefined
+    let stopped = false
+    const checkForOutput = () => candidates.forEach(item => {
+      void loadFullProcessDetail(item, true).then(presentation => {
+        if (stopped || autoHandledTerminalItemIdsRef.current.has(item.id)) return
+        const hasRealOutput = presentation.terminals?.some(terminal => Boolean(terminal.terminal?.output?.trim()))
+        if (!hasRealOutput) return
+        autoHandledTerminalItemIdsRef.current.add(item.id)
+        autoExpandedTerminalItemIdsRef.current.add(item.id)
+        setOpenProcessItemIds(current => new Set([...current, item.id]))
+      }).catch(() => {})
+    })
+    const timer = window.setInterval(checkForOutput, 500)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
+  }, [compactProcess.items, loadFullProcessDetail, processOpen, source, turn.status])
+  useEffect(() => {
+    const itemById = new Map(resolvedProcessItems.map(item => [item.id, item]))
+    const completed = [...autoExpandedTerminalItemIdsRef.current]
+      .filter(itemId => {
+        const item = itemById.get(itemId)
+        return !item || !isProcessItemRunning(item)
+      })
+    if (completed.length === 0) return
+    setOpenProcessItemIds(current => {
+      const next = new Set(current)
+      for (const itemId of completed) {
+        const item = itemById.get(itemId)
+        if (!(item && isProcessItemFailed(item))
+          && !manuallyToggledProcessItemIdsRef.current.has(itemId)) next.delete(itemId)
+        autoExpandedTerminalItemIdsRef.current.delete(itemId)
+      }
+      return next
+    })
+  }, [resolvedProcessItems])
+  useEffect(() => {
+    resolvedProcessItems
+      .filter(item => item.terminalIds?.length && isProcessItemRunning(item))
+      .forEach(item => observedRunningTerminalItemIdsRef.current.add(item.id))
+    const completedTerminalItems = resolvedProcessItems.filter(item => (
+      item.terminalIds?.length
+      && !isProcessItemRunning(item)
+      && observedRunningTerminalItemIdsRef.current.has(item.id)
+      && !refreshedTerminalOutcomeItemIdsRef.current.has(item.id)
+    ))
+    completedTerminalItems.forEach(refreshTerminalOutcome)
+  }, [refreshTerminalOutcome, resolvedProcessItems])
   useEffect(() => {
     const liveTerminalItems = resolvedProcessItems.filter(item => (
       item.terminalIds?.length
@@ -1853,6 +2109,7 @@ function CodexTranscriptTurnView({
     onToggleProcess(turn.id)
   }, [onToggleProcess, turn.id])
   const handleToggleProcessItem = useCallback((itemId: string) => {
+    manuallyToggledProcessItemIdsRef.current.add(itemId)
     if (itemId === latestLiveThoughtId && !openProcessItemIds.has(itemId)) {
       setClosedLiveProcessItemIds(current => {
         const next = new Set(current)
@@ -1892,6 +2149,10 @@ function CodexTranscriptTurnView({
     if (!onResizeTerminal) return
     await onResizeTerminal(terminalId, cols, rows)
   }, [onResizeTerminal])
+  const handleRetryTerminalOutcome = useCallback((itemId: string) => {
+    const item = resolvedProcessItems.find(candidate => candidate.id === itemId)
+    if (item) refreshTerminalOutcome(item)
+  }, [refreshTerminalOutcome, resolvedProcessItems])
   // Keep the process compact while the agent works. The short activity label
   // carries the live state; full reasoning and tool details remain opt-in.
   const effectiveProcessOpen = processOpen
@@ -1991,18 +2252,66 @@ function CodexTranscriptTurnView({
             }}
           >
             <span className="code-codex-transcript-process-summary-label">
-              {turnProcessLabel(turn, copy, liveToolLabel || workingLabel, liveToolLabel ? '' : planLabel)}
+              {turnProcessLabel(turn, copy, processSummaryWorkingLabel, planLabel)}
             </span>
             <ChevronRightGlyph className="code-codex-transcript-chevron" />
           </button>
           {!effectiveProcessOpen ? resolvedProcessItems
             .filter(isUserSteerProcessItem)
             .map(item => <CodexTranscriptSteerItem key={item.id} item={item} />) : null}
+          {!effectiveProcessOpen && compactProcess.items.length > 0 ? (
+            <div
+              className="code-codex-transcript-process-list code-codex-transcript-process-compact-list"
+              data-testid="code-codex-transcript-process-compact-list"
+            >
+              {compactProcess.hiddenActionCount > 0 ? (
+                <button
+                  type="button"
+                  className="code-codex-transcript-process-earlier"
+                  data-testid="code-codex-transcript-process-earlier"
+                  onClick={event => {
+                    event.stopPropagation()
+                    toggleProcessOpen()
+                  }}
+                >
+                  {copy.codexTranscriptEarlierActions(compactProcess.hiddenActionCount)}
+                </button>
+              ) : null}
+              {compactProcess.items.map(item => (
+                <CodexTranscriptProcessItemView
+                  key={item.id}
+                  item={item}
+                  title={source === 'acp' ? compactAcpActionLabel(item, copy) : item.title}
+                  showStatus={false}
+                  copy={copy}
+                  copied={copiedItemId === item.id}
+                  detailOpen={openProcessItemIds.has(item.id)}
+                  onToggle={handleToggleProcessItem}
+                  onCopy={handleCopyItem}
+                  onStopTerminal={handleStopTerminal}
+                  onInputTerminal={handleInputTerminal}
+                  onResizeTerminal={handleResizeTerminal}
+                  terminalOutcomeSyncFailed={terminalOutcomeSyncFailedItemIds.has(item.id)}
+                  onRetryTerminalOutcome={handleRetryTerminalOutcome}
+                  onStopSubagent={onStopSubagent}
+                />
+              ))}
+            </div>
+          ) : null}
+          {!effectiveProcessOpen && latestLiveProgressItem ? (
+            <CodexTranscriptProgressUpdate
+              item={latestLiveProgressItem}
+              markdownComponents={markdownComponents}
+              compact
+            />
+          ) : null}
           {effectiveProcessOpen ? (
             <div className="code-codex-transcript-process-list">
               {processEntries.map(entry => {
                 if (entry.kind === 'group') {
-                  const groupOpen = openProcessItemIds.has(entry.id) || (
+                  const groupOpen = openProcessItemIds.has(entry.id)
+                    || entry.items.some(item => openProcessItemIds.has(item.id))
+                    || (
                     source !== 'acp'
                     && !compactViewport
                     && entry.items.some(isProcessItemRunning)
@@ -2025,29 +2334,19 @@ function CodexTranscriptTurnView({
                       onStopTerminal={handleStopTerminal}
                       onInputTerminal={handleInputTerminal}
                       onResizeTerminal={handleResizeTerminal}
+                      terminalOutcomeSyncFailedItemIds={terminalOutcomeSyncFailedItemIds}
+                      onRetryTerminalOutcome={handleRetryTerminalOutcome}
                       onStopSubagent={onStopSubagent}
                     />
                   )
                 }
                 if (source === 'acp' && isAcpProgressUpdate(entry.item)) {
-                  const progressText = String(entry.item.detail || '').trim()
-                  if (!progressText) return null
                   return (
-                    <div
+                    <CodexTranscriptProgressUpdate
                       key={entry.item.id}
-                      className="code-acp-progress-update code-markdown-preview"
-                      data-testid="code-acp-progress-update"
-                    >
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm, remarkMath]}
-                        rehypePlugins={[rehypeKatex, rehypeHighlight]}
-                        components={markdownComponents}
-                        skipHtml
-                        urlTransform={codexTranscriptUrlTransform}
-                      >
-                        {progressText}
-                      </ReactMarkdown>
-                    </div>
+                      item={entry.item}
+                      markdownComponents={markdownComponents}
+                    />
                   )
                 }
                 return (
@@ -2065,6 +2364,8 @@ function CodexTranscriptTurnView({
                     onStopTerminal={handleStopTerminal}
                     onInputTerminal={handleInputTerminal}
                     onResizeTerminal={handleResizeTerminal}
+                    terminalOutcomeSyncFailed={terminalOutcomeSyncFailedItemIds.has(entry.item.id)}
+                    onRetryTerminalOutcome={handleRetryTerminalOutcome}
                     onStopSubagent={onStopSubagent}
                   />
                 )
@@ -2156,7 +2457,7 @@ export function CodexTranscriptPane({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [openProcessTurnIds, setOpenProcessTurnIds] = useState<Set<string>>(() => new Set())
-  const [closedLiveProcessTurnIds, setClosedLiveProcessTurnIds] = useState<Set<string>>(() => new Set())
+  const [openLiveProcessTurnIds, setOpenLiveProcessTurnIds] = useState<Set<string>>(() => new Set())
   const [turnLimit, setTurnLimit] = useState(() => initialTranscriptTurnLimit(source))
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
@@ -2211,7 +2512,7 @@ export function CodexTranscriptPane({
     setLoadingOlder(false)
     setTurnLimit(initialTranscriptTurnLimit(source))
     setOpenProcessTurnIds(new Set())
-    setClosedLiveProcessTurnIds(new Set())
+    setOpenLiveProcessTurnIds(new Set())
     setShowJumpToBottom(false)
     const hasReadingAnchor = Boolean(readReadingAnchor(readingAnchorAgentKey(agentId, 'chat')))
     followBottomRef.current = !hasReadingAnchor
@@ -2582,7 +2883,7 @@ export function CodexTranscriptPane({
   const handleToggleProcess = useCallback((turnId: string) => {
     const turn = turns.find(candidate => candidate.id === turnId)
     if (source === 'acp' && turn?.status === 'inProgress') {
-      setClosedLiveProcessTurnIds(current => {
+      setOpenLiveProcessTurnIds(current => {
         const next = new Set(current)
         if (next.has(turnId)) next.delete(turnId)
         else next.add(turnId)
@@ -2635,9 +2936,9 @@ export function CodexTranscriptPane({
           onTouchCancel={handleTouchEnd}
         >
           {turns.map(turn => {
-            const liveAcpProcessOpen = source === 'acp'
-              && turn.status === 'inProgress'
-              && !closedLiveProcessTurnIds.has(turn.id)
+            const processOpen = source === 'acp' && turn.status === 'inProgress'
+              ? openLiveProcessTurnIds.has(turn.id)
+              : openProcessTurnIds.has(turn.id)
             return (
               <StableCodexTranscriptTurnView
                 key={turn.id}
@@ -2645,7 +2946,7 @@ export function CodexTranscriptPane({
                 copy={copy}
                 onOpenFile={onOpenWorkspaceFilePath ? handleOpenFile : undefined}
                 workspaceRoot={workspaceRoot}
-                processOpen={openProcessTurnIds.has(turn.id) || liveAcpProcessOpen}
+                processOpen={processOpen}
                 groupProcessActions={groupProcessActions}
                 source={source}
                 onToggleProcess={handleToggleProcess}

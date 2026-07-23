@@ -76,6 +76,9 @@ const MISSING_ENGINE_SESSION_STARTUP_GRACE_MS = 5000;
 const MIN_TERMINAL_RESIZE_COLS = 40;
 const MIN_TERMINAL_RESIZE_ROWS = 10;
 const AGENT_DISCOVERY_CACHE_MAX_AGE_MS = 3_000;
+const UNCERTAIN_TERMINAL_STOP_TIMEOUT_MS = 5_000;
+const TERMINAL_STOP_STATE_READ_TIMEOUT_MS = 1_000;
+const TERMINAL_STOP_POLL_MS = 50;
 const SHELL_PROMPT_ENV_KEYS = [
   'PS1',
   'PS2',
@@ -87,6 +90,31 @@ const SHELL_PROMPT_ENV_KEYS = [
   'PROMPT_COMMAND',
 ];
 const execFileAsync = promisify(execFile);
+
+function withBoundedWait(promise, timeoutMs, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+    timer.unref?.();
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+async function deletePrecreatedProviderSession(options = {}) {
+  const provider = String(options.provider || '').trim().toLowerCase();
+  const sessionId = String(options.sessionId || '').trim();
+  if (!isSafeProviderSessionId(sessionId)) throw new Error('Invalid pre-created provider session id');
+  let args = [];
+  if (provider === 'codex') args = ['delete', '--force', sessionId];
+  else if (provider === 'opencode') args = ['session', 'delete', sessionId];
+  else throw new Error(`${provider || 'Provider'} does not support pre-created session rollback`);
+  await execFileAsync(options.executable, args, {
+    cwd: options.cwd,
+    env: options.env,
+    timeout: 15_000,
+    maxBuffer: 1024 * 1024,
+  });
+}
 
 function trimSessionOutput(output) {
   const text = typeof output === 'string' ? output : '';
@@ -378,13 +406,17 @@ function hasAgentOutputAfterAttentionBaseline(agent) {
   return false;
 }
 
-function shouldRecoverEngineSession(metadata) {
-  if (!metadata) return false;
-  // Main Agent shells are a product session, not an ephemeral scratch shell.
-  // Keep them attached to the persistent native PTY host across server restarts.
-  if (metadata.wantsMain === true) return true;
-  if (metadata.category === 'shell') return false;
-  return !isShellProgram(metadata.forkCommand || metadata.command || '');
+function shouldRestoreAgentFromMetadata(record, mainPageSessionKeys) {
+  if (!record || record.archived === true) return false;
+  if (record.wantsMain === true) return true;
+  const provider = String(record.providerSessionProvider || record.provider || '').trim();
+  const sessionKey = record.providerSessionKey || mainPageAgentSessionKey(
+    provider,
+    record.providerSessionId,
+    record.providerHomeId || 'default'
+  );
+  if (sessionKey) return mainPageSessionKeys.has(sessionKey);
+  return record.visibleOnMainPage === true;
 }
 
 function recoveredEngineSessionId(entry, metadata = {}) {
@@ -549,6 +581,7 @@ class AgentManager extends EventEmitter {
     );
     this.agents = new RuntimeAgentMap();
     this.mainAgentId = null;
+    this.mainAgentStartReservation = null;
     this.lastActivity = new Map();
     this.lastActivityUpdate = new Map();
     this.outputEvents = new Map(); // Map<agentId, Array<{timestamp, bytes}>> for rate tracking
@@ -580,6 +613,12 @@ class AgentManager extends EventEmitter {
           }
         : {}),
     });
+    this.createProviderSessionIdentity = typeof options.createProviderSessionIdentity === 'function'
+      ? options.createProviderSessionIdentity
+      : createOptions => this.acpRuntime.createSessionIdentity(createOptions);
+    this.deleteProviderSessionIdentity = typeof options.deleteProviderSessionIdentity === 'function'
+      ? options.deleteProviderSessionIdentity
+      : deletePrecreatedProviderSession;
     this.archiveCodexSession = options.archiveCodexSession || archiveCodexSession;
     this.unarchiveCodexSession = options.unarchiveCodexSession || unarchiveCodexSession;
     this.heartbeatInterval = null;
@@ -1086,6 +1125,7 @@ class AgentManager extends EventEmitter {
     const persistedRecords = this.configManager && typeof this.configManager.listAgentSessionRecords === 'function'
       ? this.configManager.listAgentSessionRecords()
       : [];
+    const mainPageSessionKeys = new Set(this.getMainPageSessionKeys());
     const persistedByRuntimeAgentId = new Map(persistedRecords
       .filter(record => record && record.runtimeAgentId)
       .map(record => [record.runtimeAgentId, record]));
@@ -1096,6 +1136,11 @@ class AgentManager extends EventEmitter {
       const state = entry.state || {};
       const agentId = recoveredEngineSessionId(entry, engineMetadata);
       const persisted = persistedByRuntimeAgentId.get(agentId);
+      const desiredMetadata = persisted || engineMetadata;
+      if (!shouldRestoreAgentFromMetadata(desiredMetadata, mainPageSessionKeys)) {
+        await this.killRecoveredEngineSession(entry, engineMetadata, agentId);
+        continue;
+      }
       // The persisted runtime mode is authoritative. A PTY can outlive the
       // server long enough to appear in native-host recovery after the Agent
       // has already switched to ACP. Recovering that stale PTY first would
@@ -1131,21 +1176,23 @@ class AgentManager extends EventEmitter {
         terminalInputReceived: Object.prototype.hasOwnProperty.call(persisted, 'terminalInputReceived')
           ? persisted.terminalInputReceived === true
           : engineMetadata.terminalInputReceived,
+        customTitle: Object.prototype.hasOwnProperty.call(persisted, 'customTitle')
+          ? persisted.customTitle
+          : engineMetadata.customTitle,
         ...legacyRuntimeMetadata(persisted),
         pinned: persisted.pinned === true,
         projectOrder: finiteOrder(persisted.projectOrder) ?? finiteOrder(engineMetadata.projectOrder),
         pinnedOrder: finiteOrder(persisted.pinnedOrder) ?? finiteOrder(engineMetadata.pinnedOrder),
       } : engineMetadata;
       if (!agentId || this.agents.has(agentId)) continue;
-      if (!shouldRecoverEngineSession(metadata)) {
-        await this.killRecoveredEngineSession(entry, metadata, agentId);
-        continue;
-      }
 
       const agentRecord = this.recoveredAgentRecord(agentId, entry.engineName || metadata.engineName || 'native', metadata, state);
       ensureAgentOrders(agentRecord, Array.from(this.agents.values()));
       agentRecord.lastObservedTurnActive = this.isAgentAttentionTurnActive(agentRecord);
-      this.ensurePersistentAgentSession(agentRecord);
+      this.ensurePersistentAgentSession(agentRecord, {
+        visibleOnMainPage: true,
+        archived: false,
+      });
       this.agents.set(agentId, agentRecord);
       void this.refreshAgentWorktree(agentId);
       this.lastActivity.set(agentId, state.lastActivityAt || metadata.lastActivityAt || Date.now());
@@ -1172,6 +1219,7 @@ class AgentManager extends EventEmitter {
 
   async restoreTerminalSessionsAfterRuntimeRotation(records, rotations) {
     const mainPageOrder = new Map(this.getMainPageSessionKeys().map((key, index) => [key, index]));
+    const mainPageSessionKeys = new Set(mainPageOrder.keys());
     const liveProviderSessions = new Set(
       [...this.agents.values()]
         .filter(agent => agent?.providerSessionProvider && agent?.providerSessionId)
@@ -1265,8 +1313,9 @@ class AgentManager extends EventEmitter {
           return (Number(right.updatedAt) || 0) - (Number(left.updatedAt) || 0);
         })
       : fallbackCandidates;
+    const desiredCandidates = candidates.filter(record => shouldRestoreAgentFromMetadata(record, mainPageSessionKeys));
 
-    if (candidates.length > 0) {
+    if (desiredCandidates.length > 0) {
       const rotationSummary = (Array.isArray(rotations) ? rotations : []).map(rotation => {
         const { serializedTerminalState, ...rest } = rotation || {};
         return {
@@ -1277,13 +1326,13 @@ class AgentManager extends EventEmitter {
         };
       });
       console.warn(
-        `Restoring ${candidates.length} Terminal session(s) after native PTY runtime rotation`,
+        `Restoring ${desiredCandidates.length} Terminal session(s) after native PTY runtime rotation`,
         rotationSummary
       );
     }
 
     let changed = false;
-    for (const record of candidates) {
+    for (const record of desiredCandidates) {
       if (record.wantsMain === true && this.mainAgentId) continue;
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
       const sessionId = record.providerSessionId;
@@ -1386,8 +1435,12 @@ class AgentManager extends EventEmitter {
   async recoverAcpSessions() {
     if (!this.acpRuntime || !this.configManager || typeof this.configManager.listAgentSessionRecords !== 'function') return;
     const mainPageOrder = new Map(this.getMainPageSessionKeys().map((key, index) => [key, index]));
+    const mainPageSessionKeys = new Set(mainPageOrder.keys());
     const records = this.configManager.listAgentSessionRecords()
-      .filter(record => record && record.archived !== true && runtimeKind(record) === 'acp')
+      .filter(record => (
+        shouldRestoreAgentFromMetadata(record, mainPageSessionKeys)
+        && runtimeKind(record) === 'acp'
+      ))
       .sort((left, right) => {
         const leftOrder = mainPageOrder.get(left.providerSessionKey);
         const rightOrder = mainPageOrder.get(right.providerSessionKey);
@@ -1716,6 +1769,7 @@ class AgentManager extends EventEmitter {
       readOutputSeq: finiteNumberOrNull(agent.readOutputSeq),
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
+      customTitle: agent.customTitle || '',
     })).catch((error) => {
       console.warn('Failed to update provider session metadata:', error && (error.message || error));
     });
@@ -2280,7 +2334,99 @@ class AgentManager extends EventEmitter {
     });
   }
 
+  async stopUncertainTerminalSession(engine, agentId) {
+    if (typeof engine?.killSession !== 'function' || typeof engine?.getSessionState !== 'function') {
+      throw new Error('Session engine cannot prove an uncertain Terminal start has stopped');
+    }
+    await withBoundedWait(
+      Promise.resolve(engine.killSession(agentId)),
+      UNCERTAIN_TERMINAL_STOP_TIMEOUT_MS,
+      'Terminal kill request',
+    );
+    const deadline = Date.now() + UNCERTAIN_TERMINAL_STOP_TIMEOUT_MS;
+    while (Date.now() <= deadline) {
+      const state = await withBoundedWait(
+        Promise.resolve(engine.getSessionState(agentId)),
+        TERMINAL_STOP_STATE_READ_TIMEOUT_MS,
+        'Terminal stop-state read',
+      );
+      if (!state || ['dead', 'exited', 'stopped'].includes(String(state.status || ''))) return;
+      await new Promise(resolve => setTimeout(resolve, TERMINAL_STOP_POLL_MS));
+    }
+    throw new Error(`Terminal ${agentId} did not reach an exited state after kill`);
+  }
+
   async startAgent(command, customWorkspace, callback, options = {}) {
+    if (options.wantsMain !== false && options.skipRecoveryWait !== true) {
+      await this.whenRecovered();
+    }
+
+    const wantsMain = options.wantsMain === true || (options.wantsMain !== false && !this.mainAgentId);
+    if (!wantsMain) {
+      return this.startAgentUnreserved(command, customWorkspace, callback, {
+        ...options,
+        wantsMain: false,
+        skipRecoveryWait: true,
+      });
+    }
+
+    if (this.mainAgentStartReservation) {
+      const outcome = await this.mainAgentStartReservation.promise;
+      if (callback) callback(outcome.agentId, outcome.error);
+      return outcome.agentId;
+    }
+
+    const existingMainStart = this.findActiveMainAgentStart();
+    if (existingMainStart) {
+      if (this.mainAgentId !== existingMainStart.id) {
+        this.mainAgentId = existingMainStart.id;
+        this.emit('update');
+      }
+      console.log('Main Agent already starting or running:', existingMainStart.id);
+      if (callback) callback(existingMainStart.id);
+      return existingMainStart.id;
+    }
+
+    let resolveReservation;
+    const reservation = {
+      promise: new Promise(resolve => {
+        resolveReservation = resolve;
+      }),
+    };
+    this.mainAgentStartReservation = reservation;
+    let outcome = null;
+    let callbackCalled = false;
+    const reservedCallback = (agentId, error) => {
+      callbackCalled = true;
+      outcome = { agentId: agentId || null, error: error || null };
+      if (callback) callback(agentId, error);
+    };
+    try {
+      const agentId = await this.startAgentUnreserved(command, customWorkspace, reservedCallback, {
+        ...options,
+        wantsMain: true,
+        skipRecoveryWait: true,
+      });
+      if (!callbackCalled) {
+        outcome = { agentId: agentId || null, error: null };
+        if (callback) callback(agentId);
+      }
+      return agentId;
+    } catch (error) {
+      if (!callbackCalled) {
+        outcome = { agentId: null, error: error && (error.message || String(error)) };
+        if (callback) callback(null, outcome.error);
+      }
+      throw error;
+    } finally {
+      resolveReservation(outcome || { agentId: null, error: 'Main Agent failed to start' });
+      if (this.mainAgentStartReservation === reservation) {
+        this.mainAgentStartReservation = null;
+      }
+    }
+  }
+
+  async startAgentUnreserved(command, customWorkspace, callback, options = {}) {
     if (options.wantsMain !== false && options.skipRecoveryWait !== true) {
       await this.whenRecovered();
     }
@@ -2365,6 +2511,10 @@ class AgentManager extends EventEmitter {
         source: 'ui',
       });
     }
+    if (providerSessionPlan.error) {
+      if (callback) callback(null, providerSessionPlan.error);
+      return null;
+    }
 
     let args = providerSessionPlan.args;
     const userShellEnv = this.resolveAgentShellEnv('', { maxAgeMs: AGENT_DISCOVERY_CACHE_MAX_AGE_MS });
@@ -2446,13 +2596,6 @@ class AgentManager extends EventEmitter {
       }
     }
     
-    const logArgs = args.map((arg, index) => (
-      index > 0 && args[index - 1] === '--append-system-prompt'
-        ? '<farming-main-agent-bootstrap>'
-        : arg
-    ));
-    console.log('Starting agent:', program, logArgs, 'workspace:', workspace, spawnProgram !== program ? `resolved: ${spawnProgram}` : '');
-    
     if (!fs.existsSync(workspace)) {
       console.log('Workspace does not exist:', workspace);
       if (callback) callback(null, `Workspace does not exist: ${workspace}`);
@@ -2519,8 +2662,7 @@ class AgentManager extends EventEmitter {
       : 'terminal';
     // A fresh structured runtime does not need a provider CLI resume id yet:
     // ACP/JSON creates the provider session and writes the resulting id back
-    // after connecting. OpenCode is the important case here because its
-    // terminal CLI does not accept a pre-generated id for a fresh session.
+    // after connecting. Fresh Terminal sessions are handled separately below.
     const structuredRuntimeProvider = ['json', 'acp', 'chat'].includes(requestedAgentRuntimeMode)
       ? homeProvider
       : providerSessionPlan.provider;
@@ -2630,6 +2772,135 @@ class AgentManager extends EventEmitter {
       attentionSuppressUntil: 0
     };
 
+    let precreatedProviderSession = null;
+    if (
+      providerSessionPlan.precreate === true
+      && !useAcp
+      && !useJsonCli
+    ) {
+      const adapter = getProviderAdapter(providerSessionPlan.provider);
+      if (typeof adapter?.terminalResumeArgs !== 'function') {
+        const message = `${providerSessionPlan.provider} cannot resume a pre-created Terminal session`;
+        if (callback) callback(null, message);
+        return null;
+      }
+      try {
+        const requestedIdentityWorkspace = this.expandWorkspacePath(providerSessionPlan.identityWorkspace || '');
+        const identityWorkspace = requestedIdentityWorkspace
+          ? (path.isAbsolute(requestedIdentityWorkspace)
+            ? path.resolve(requestedIdentityWorkspace)
+            : path.resolve(workspace, requestedIdentityWorkspace))
+          : workspace;
+        let identityWorkspaceExists = false;
+        try {
+          identityWorkspaceExists = fs.statSync(identityWorkspace).isDirectory();
+        } catch {
+          identityWorkspaceExists = false;
+        }
+        if (!identityWorkspaceExists) {
+          throw new Error(`Workspace does not exist: ${identityWorkspace}`);
+        }
+        const identityEnv = this.buildAgentEnv(agentId, agentRecord);
+        const requestedAdditionalDirectories = Array.isArray(options.additionalDirectories)
+          ? options.additionalDirectories
+          : [];
+        const requestedMcpServers = Array.isArray(options.mcpServers) ? options.mcpServers : [];
+        const created = await this.createProviderSessionIdentity({
+          provider: providerSessionPlan.provider,
+          executable: spawnProgram,
+          env: identityEnv,
+          cwd: identityWorkspace,
+          providerHomeId: agentRecord.providerHomeId || 'default',
+          approvalMode: agentRecord.launchPermissionMode || 'approve',
+          model: codexModel,
+          reasoningEffort: codexReasoningEffort,
+          serviceTier: codexServiceTier,
+          additionalDirectories: requestedAdditionalDirectories,
+          mcpServers: requestedMcpServers,
+        });
+        const providerSessionId = String(created?.sessionId || '').trim();
+        if (!isSafeProviderSessionId(providerSessionId)) {
+          throw new Error(`${providerSessionPlan.provider} ACP session/new returned an invalid session id`);
+        }
+        const normalizedSessionOptions = created?.sessionRequestOptions || {
+          additionalDirectories: requestedAdditionalDirectories.map(directory => path.resolve(identityWorkspace, directory)),
+          mcpServers: JSON.parse(JSON.stringify(requestedMcpServers)),
+        };
+        args = adapter.terminalResumeArgs(args, providerSessionId, providerSessionPlan);
+        providerSessionPlan = {
+          ...providerSessionPlan,
+          id: providerSessionId,
+          precreate: false,
+          temporary: false,
+          source: 'acp-precreated',
+          args,
+        };
+        agentRecord.providerSessionId = providerSessionId;
+        agentRecord.providerSessionKey = mainPageAgentSessionKey(
+          providerSessionPlan.provider,
+          providerSessionId,
+          agentRecord.providerHomeId || 'default'
+        );
+        agentRecord.providerSessionTemporary = false;
+        agentRecord.providerSessionSource = providerSessionPlan.source;
+        agentRecord.providerSessionResolvedAt = Date.now();
+        this.acpSessionOptionsByKey.set(agentRecord.providerSessionKey, {
+          additionalDirectories: Array.isArray(normalizedSessionOptions.additionalDirectories)
+            ? [...normalizedSessionOptions.additionalDirectories]
+            : [],
+          mcpServers: Array.isArray(normalizedSessionOptions.mcpServers)
+            ? JSON.parse(JSON.stringify(normalizedSessionOptions.mcpServers))
+            : [],
+        });
+        precreatedProviderSession = {
+          provider: providerSessionPlan.provider,
+          executable: spawnProgram,
+          env: identityEnv,
+          cwd: identityWorkspace,
+          sessionId: providerSessionId,
+          sessionKey: agentRecord.providerSessionKey,
+        };
+      } catch (error) {
+        let identityRollbackError = null;
+        let identityRetainedReason = '';
+        const orphanedIdentity = error?.providerSessionIdentity;
+        if (
+          orphanedIdentity
+          && orphanedIdentity.producerStopped === true
+          && isSafeProviderSessionId(orphanedIdentity.sessionId)
+        ) {
+          try {
+            await this.deleteProviderSessionIdentity(orphanedIdentity);
+          } catch (cleanupError) {
+            identityRollbackError = cleanupError;
+          }
+        } else if (orphanedIdentity && !isSafeProviderSessionId(orphanedIdentity.sessionId)) {
+          identityRetainedReason = 'provider returned an unsafe session id; it was retained without invoking CLI rollback';
+        } else if (orphanedIdentity) {
+          identityRetainedReason = 'provider session retained because ACP producer shutdown could not be proven';
+        }
+        const baseMessage = error && error.message
+          ? error.message
+          : `Failed to create ${providerSessionPlan.provider} session identity`;
+        let message = baseMessage;
+        if (identityRollbackError) {
+          message = `${baseMessage}; provider session rollback failed: ${identityRollbackError.message || identityRollbackError}`;
+        } else if (identityRetainedReason) {
+          message = `${baseMessage}; ${identityRetainedReason}`;
+        }
+        console.error('Failed to create provider session identity:', error);
+        if (callback) callback(null, message);
+        return null;
+      }
+    }
+
+    const logArgs = args.map((arg, index) => (
+      index > 0 && args[index - 1] === '--append-system-prompt'
+        ? '<farming-main-agent-bootstrap>'
+        : arg
+    ));
+    console.log('Starting agent:', program, logArgs, 'workspace:', workspace, spawnProgram !== program ? `resolved: ${spawnProgram}` : '');
+
     ensureAgentOrders(agentRecord, Array.from(this.agents.values()));
     this.agents.set(agentId, agentRecord);
     void this.refreshAgentWorktree(agentId);
@@ -2716,7 +2987,6 @@ class AgentManager extends EventEmitter {
         acpRuntime.error = '';
       }
 
-      agentRecord.persistentSessionId = this.ensurePersistentAgentSession(agentRecord);
       if (!useJsonCli && !useAcp) {
         const engineLaunch = {
           command: spawnProgram,
@@ -2727,6 +2997,10 @@ class AgentManager extends EventEmitter {
         };
         await this.createAgentEngineSession(agentRecord, resolution.engine, engineLaunch);
       }
+      agentRecord.persistentSessionId = this.ensurePersistentAgentSession(agentRecord, {
+        visibleOnMainPage: true,
+        archived: false,
+      });
 
       const agent = this.agents.get(agentId);
       if (agent && agent.status === 'pending') {
@@ -2745,6 +3019,33 @@ class AgentManager extends EventEmitter {
       return agentId;
     } catch (error) {
       console.error('Failed to start agent:', error);
+      let runtimeCleanupError = null;
+      if (!useJsonCli && !useAcp) {
+        try {
+          await this.stopUncertainTerminalSession(resolution.engine, agentId);
+        } catch (engineCleanupError) {
+          runtimeCleanupError = engineCleanupError;
+          console.error(
+            'Failed to stop partially started Agent runtime:',
+            engineCleanupError && (engineCleanupError.message || engineCleanupError)
+          );
+        }
+      }
+      let rollbackError = null;
+      if (precreatedProviderSession && !runtimeCleanupError) {
+        try {
+          await this.deleteProviderSessionIdentity(precreatedProviderSession);
+        } catch (cleanupError) {
+          rollbackError = cleanupError;
+          console.error(
+            'Failed to roll back pre-created provider session:',
+            cleanupError && (cleanupError.message || cleanupError)
+          );
+        }
+        this.acpSessionOptionsByKey.delete(precreatedProviderSession.sessionKey);
+      } else if (precreatedProviderSession) {
+        this.acpSessionOptionsByKey.delete(precreatedProviderSession.sessionKey);
+      }
       if (options.restoreRuntimeAgentIdOnFailure && agentRecord.persistentSessionId) {
         const failedAgentId = agentRecord.id;
         try {
@@ -2773,7 +3074,14 @@ class AgentManager extends EventEmitter {
       }
 
       this.emit('update');
-      if (callback) callback(null, error.message);
+      const startupError = error && (error.message || String(error));
+      const cleanupSuffix = rollbackError
+        ? `; provider session rollback failed: ${rollbackError.message || rollbackError}`
+        : '';
+      const runtimeCleanupSuffix = runtimeCleanupError
+        ? `; Terminal rollback failed and the provider session was retained: ${runtimeCleanupError.message || runtimeCleanupError}`
+        : '';
+      if (callback) callback(null, `${startupError}${runtimeCleanupSuffix}${cleanupSuffix}`);
       return null;
     }
   }
@@ -3306,6 +3614,8 @@ class AgentManager extends EventEmitter {
 
     const customTitle = String(title || '').trim().slice(0, 80);
     agent.customTitle = customTitle;
+    this.ensurePersistentAgentSession(agent);
+    this.updateEngineProviderSessionMetadata(agent);
     this.emit('update');
     return { agentId, customTitle };
   }
@@ -4274,6 +4584,7 @@ class AgentManager extends EventEmitter {
     }
 
     const removedMainPageSessionKeys = this.removeMainPageProviderSessionsForAgents([agent]);
+    this.ensurePersistentAgentSession(agent, { visibleOnMainPage: false });
     await this.killAgent(agentId, {
       reason: 'manual-archive',
       recordHistory: !isEphemeralShellAgent(agent),

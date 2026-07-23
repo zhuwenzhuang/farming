@@ -111,6 +111,7 @@ async function run() {
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}/farming`;
   const marker = `SERVER_RESTART_MARKER_${Date.now()}`;
+  const fakeSessionId = '019f1234-5678-7abc-8def-0123456789ab';
   let serverProcess = null;
   let agentId = '';
 
@@ -124,7 +125,7 @@ async function run() {
 
     const created = await fetchJson(baseUrl, '/api/control/agents', {
       method: 'POST',
-      body: JSON.stringify({ command: 'codex', workspace }),
+      body: JSON.stringify({ command: `codex resume ${fakeSessionId}`, workspace }),
     });
     assert.strictEqual(created.response.status, 201, JSON.stringify(created.body));
     agentId = created.body.agentId;

@@ -1545,6 +1545,15 @@ body.code-mode[data-appearance='dark'] .code-acp-progress-update {
   color: var(--code-dark-text);
 }
 
+body.code-mode[data-appearance='dark'] .code-codex-transcript-process-earlier {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-codex-transcript-process-earlier:hover,
+body.code-mode[data-appearance='dark'] .code-codex-transcript-process-earlier:focus-visible {
+  color: var(--code-dark-text-soft);
+}
+
 body.code-mode[data-appearance='dark'] .code-codex-transcript-process-title {
   color: var(--code-dark-text-soft);
 }

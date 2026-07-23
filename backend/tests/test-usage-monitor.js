@@ -38,12 +38,20 @@ async function run() {
         type: 'token_count',
         info: {
           total_token_usage: { total_tokens: 1000 },
-          last_token_usage: { total_tokens: 1000 },
+          last_token_usage: { input_tokens: 800, output_tokens: 200, total_tokens: 1000 },
         },
         rate_limits: {
           limit_id: 'codex',
           primary: { used_percent: 12, window_minutes: 300, resets_at: 1782558828 },
         },
+      },
+    }),
+    JSON.stringify({
+      timestamp: '2026-06-28T11:58:30.000Z',
+      type: 'event_msg',
+      payload: {
+        type: 'agent_message',
+        message: 'Completed the current turn.',
       },
     }),
     JSON.stringify({
@@ -133,7 +141,13 @@ async function run() {
     },
   }));
 
-  const codexUsage = await collectCodexUsage({ codexHome, now, windowMs });
+  const codexUsage = await collectCodexUsage({
+    codexHome,
+    claudeHome,
+    configDir: root,
+    now,
+    windowMs,
+  });
   assert.strictEqual(codexUsage.quota.available, true);
   assert.strictEqual(codexUsage.quota.limitId, 'codex');
   assert.strictEqual(codexUsage.quota.planType, 'pro');
@@ -147,7 +161,13 @@ async function run() {
   assert.strictEqual(codexUsage.tokenUsage.totalTokens, 600);
   assert.strictEqual(codexUsage.tokenUsage.tokensPerMinute, 120);
 
-  const claudeUsage = await collectClaudeUsage({ claudeHome, now, windowMs });
+  const claudeUsage = await collectClaudeUsage({
+    codexHome,
+    claudeHome,
+    configDir: root,
+    now,
+    windowMs,
+  });
   assert.strictEqual(claudeUsage.quota.available, false);
   assert.strictEqual(claudeUsage.tokenUsage.totalTokens, 200);
   assert.strictEqual(claudeUsage.tokenUsage.tokensPerMinute, 40);
@@ -297,6 +317,7 @@ async function run() {
   process.env.PATH = `${shadowBin}${path.delimiter}${originalPath}`;
 
   const monitor = new UsageMonitor({
+    configDir: root,
     codexHome,
     claudeHome,
     openCodeHome,
@@ -362,6 +383,7 @@ async function run() {
   assert(selectedDay.agents.some(agent => agent.provider === 'claude' && agent.sessionId === 'session'));
 
   const unavailableOpenCodeMonitor = new UsageMonitor({
+    configDir: root,
     codexHome,
     claudeHome,
     openCodeHome,
@@ -380,6 +402,7 @@ async function run() {
   assert.strictEqual(unavailableOpenCode.tokenUsage.available, false);
 
   const failedExportOpenCodeMonitor = new UsageMonitor({
+    configDir: root,
     codexHome,
     claudeHome,
     openCodeHome,

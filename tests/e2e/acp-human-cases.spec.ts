@@ -302,7 +302,7 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(terminalItem.getByTestId('code-codex-transcript-terminals')).toBeVisible()
     })
     await test.step('25 show terminal exit status and output', async () => {
-      await expect(terminalItem).toContainText('Exited 0')
+      await expect(terminalItem).toContainText('Exit 0')
       await expect(terminalItem).toContainText('rich-terminal-output')
       await expect(terminalItem).toContainText(process.execPath)
       await expect(terminalItem).toContainText(workspace)
@@ -385,10 +385,12 @@ test.describe('ACP human-like browser matrix', () => {
       await sendAcpMessage(page, 'failed tool')
       await expect(page.getByText('The check failed; no files were changed.', { exact: true })).toBeVisible({ timeout: 15_000 })
       const failedTurn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'failed tool' })
-      await failedTurn.getByTestId('code-codex-transcript-process-summary').click()
-      await failedTurn.getByTestId('code-codex-transcript-process-group-toggle').click()
-      const failedItem = failedTurn.getByTestId('code-codex-transcript-process-item').filter({ hasText: 'Run failing check' })
+      await expect(failedTurn.getByTestId('code-codex-transcript-process-summary')).toHaveAttribute('aria-expanded', 'false')
+      const failedItem = failedTurn.getByTestId('code-codex-transcript-process-item')
+        .filter({ hasText: 'Failed: Run failing check' })
       await expect(failedItem).toHaveAttribute('data-status', 'failed')
+      await expect(failedItem.getByTestId('code-codex-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
+      await expect(failedItem.locator('.code-codex-transcript-process-status')).toHaveCount(0)
     })
     await test.step('34 block permission grants for punycode and invisible paths', async () => {
       await sendAcpMessage(page, 'unicode permission')
@@ -416,13 +418,20 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(page.getByText('Inspecting files', { exact: true })).toBeVisible({ timeout: 5_000 })
       const liveTurn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'live progress' }).last()
       const liveSummary = liveTurn.getByTestId('code-codex-transcript-process-summary')
-      await expect(liveSummary).toContainText('Running: PORT=4187 FARMING_PLAYWRIGHT_PORT=4187')
+      await expect(liveSummary).toContainText('Process')
       await expect(liveSummary).toHaveAttribute('title', /run-long-command\.js --verify-mobile-composer-focus/)
+      const liveAction = liveTurn.getByTestId('code-codex-transcript-process-item')
+        .filter({ hasText: 'PORT=4187 FARMING_PLAYWRIGHT_PORT=4187' })
+      await expect(liveAction).toBeVisible()
+      await expect(liveAction.locator('.code-codex-transcript-process-status')).toHaveCount(0)
+      const liveActionTitle = liveAction.locator('.code-codex-transcript-process-title-text')
+      await expect(liveActionTitle).toHaveCSS('text-overflow', 'ellipsis')
+      await expect(liveActionTitle).toHaveCSS('white-space', 'nowrap')
       const liveSummaryLabel = liveSummary.locator('.code-codex-transcript-process-summary-label')
       await expect(liveSummaryLabel).toHaveCSS('text-overflow', 'ellipsis')
       await expect(liveSummaryLabel).toHaveCSS('white-space', 'nowrap')
       await expect(page.getByText('Live progress complete.', { exact: true })).toBeVisible({ timeout: 10_000 })
-      await expect(liveSummary).not.toContainText('Running: PORT=4187')
+      await expect(liveSummary).not.toHaveAttribute('title', /run-long-command\.js --verify-mobile-composer-focus/)
       await liveTurn.getByTestId('code-codex-transcript-process-summary').click()
       await expect(liveTurn.getByText('Editing display data', { exact: true })).toBeVisible()
       await expect(liveTurn.getByText('Running checks', { exact: true })).toBeVisible()
@@ -474,8 +483,9 @@ test.describe('ACP human-like browser matrix', () => {
       const errorTurn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'authentication error' })
       const errorSummary = errorTurn.getByTestId('code-codex-transcript-process-summary')
       await expect(errorSummary).toContainText('Authentication required', { timeout: 10_000 })
-      await errorSummary.click()
+      await expect(errorSummary).toHaveAttribute('aria-expanded', 'false')
       const errorItem = errorTurn.getByTestId('code-codex-transcript-process-item').filter({ hasText: 'Authentication required' })
+      await expect(errorItem.getByTestId('code-codex-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
       await errorItem.getByTestId('code-codex-transcript-process-item-toggle').click()
       await expect(errorTurn).toContainText('401 Unauthorized')
       await expect(page.getByTestId('code-acp-error')).toHaveCount(0)
@@ -508,17 +518,19 @@ test.describe('ACP human-like browser matrix', () => {
     await test.step('46 expose a running client terminal as an ordered tool item', async () => {
       await sendAcpMessage(page, 'long terminal')
       const longTurn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'long terminal' }).last()
-      const actionGroup = longTurn.getByTestId('code-codex-transcript-process-group')
-      await expect(actionGroup.getByTestId('code-codex-transcript-process-group-toggle')).toContainText('Ran a command', { timeout: 15_000 })
-      await actionGroup.getByTestId('code-codex-transcript-process-group-toggle').click()
-      await expect(actionGroup.getByTestId('code-codex-transcript-process-group-toggle')).toHaveAttribute('aria-expanded', 'true')
-      await expect(longTurn.getByText('Run long command', { exact: true })).toBeVisible({ timeout: 15_000 })
+      await expect(longTurn.getByTestId('code-codex-transcript-process-summary')).toHaveAttribute('aria-expanded', 'false')
+      const longItem = longTurn.getByTestId('code-codex-transcript-process-item')
+        .filter({ hasText: 'Run long command' })
+      await expect(longItem).toBeVisible({ timeout: 15_000 })
+      await expect(longItem.getByTestId('code-codex-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'true')
+      await expect(longItem).toContainText('long-terminal-ready')
+      await expect(longTurn.locator('.code-codex-transcript-placeholder')).toHaveCount(0)
+      await expect(longItem.locator('.code-codex-transcript-terminal > header > span')).toHaveCount(0)
+      expect((await longItem.locator('.code-acp-embedded-terminal-host').boundingBox())?.height || 0).toBeLessThan(120)
     })
     await test.step('47 stop the running ACP terminal from its detail card', async () => {
       const longTurn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'long terminal' }).last()
       const longItem = longTurn.getByTestId('code-codex-transcript-process-item').filter({ hasText: 'Run long command' })
-      await longItem.getByTestId('code-codex-transcript-process-item-toggle').click()
-      await expect(longTurn.getByTestId('code-codex-transcript-process-group-toggle')).toHaveAttribute('aria-expanded', 'true')
       await expect(longItem).toBeVisible()
       await expect(longItem).toContainText('long-terminal-ready')
       await longItem.getByTestId('code-acp-terminal-stop').click()
@@ -526,8 +538,16 @@ test.describe('ACP human-like browser matrix', () => {
     await test.step('48 preserve terminal output and report the stopped result', async () => {
       await expect(page.getByText('Long command stopped.', { exact: true })).toBeVisible({ timeout: 15_000 })
       const longTurn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'long terminal' }).last()
-      await longTurn.getByTestId('code-codex-transcript-process-summary').click()
+      const processSummary = longTurn.getByTestId('code-codex-transcript-process-summary')
+      await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
+      await processSummary.click()
+      const actionGroup = longTurn.getByTestId('code-codex-transcript-process-group')
+      await actionGroup.getByTestId('code-codex-transcript-process-group-toggle').click()
+      const longItem = longTurn.getByTestId('code-codex-transcript-process-item').filter({ hasText: 'Run long command' })
+      await expect(longItem.getByTestId('code-codex-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'true')
       await expect(longTurn).toContainText('long-terminal-ready')
+      await expect(longItem.getByTestId('code-acp-embedded-terminal')).toHaveCount(0)
+      await expect(longItem.getByTestId('code-acp-terminal-output')).toContainText('long-terminal-ready')
     })
     await test.step('49 restart from Chat into Terminal with the same provider session', async () => {
       const stateResponse = await page.request.get('/farming/api/control/agents')
@@ -616,17 +636,17 @@ test.describe('ACP human-like browser matrix', () => {
 
     await sendAcpMessage(page, 'interactive terminal')
     const turn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'interactive terminal' }).last()
-    await expect(turn.getByTestId('code-codex-transcript-process-summary')).toHaveAttribute('aria-expanded', 'true')
-    const actionGroup = turn.getByTestId('code-codex-transcript-process-group')
-    await expect(actionGroup.getByTestId('code-codex-transcript-process-group-toggle')).toContainText('Ran a command', { timeout: 15_000 })
-    await actionGroup.getByTestId('code-codex-transcript-process-group-toggle').click()
-    const tool = turn.getByTestId('code-codex-transcript-process-item').filter({ hasText: 'Ask in terminal' })
-    await tool.getByTestId('code-codex-transcript-process-item-toggle').click()
+    await expect(turn.getByTestId('code-codex-transcript-process-summary')).toHaveAttribute('aria-expanded', 'false')
+    const tool = turn.getByTestId('code-codex-transcript-process-item')
+      .filter({ hasText: 'Ask in terminal' })
+    await expect(tool).toBeVisible({ timeout: 15_000 })
+    await expect(tool.getByTestId('code-codex-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'true')
     await expect(tool).toContainText('name>')
     const terminal = tool.getByTestId('code-acp-embedded-terminal')
     await expect(terminal).toBeVisible()
+    expect((await terminal.locator('.code-acp-embedded-terminal-host').boundingBox())?.height || 0).toBeLessThan(120)
     await terminal.locator('.code-acp-embedded-terminal-host').click()
-    await page.keyboard.type('Farming')
+    await page.keyboard.type('Farming', { delay: 30 })
     await page.keyboard.press('Enter')
     const answer = page.locator('.code-codex-transcript-answer').filter({ hasText: 'Interactive terminal completed:' })
     await expect(answer).toContainText('hello Farming', { timeout: 15_000 })
@@ -634,7 +654,7 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(page.getByTestId('code-agent-terminal-view')).toHaveCount(0)
   })
 
-  test('shows only the latest streaming thought and folds it after the turn completes', async ({ page, workspaceRoot }) => {
+  test('keeps streaming thought behind explicit process disclosure and folds it after completion', async ({ page, workspaceRoot }) => {
     test.setTimeout(60_000)
     const workspace = path.join(workspaceRoot, 'acp-streaming-thought')
     fs.mkdirSync(workspace, { recursive: true })
@@ -644,6 +664,9 @@ test.describe('ACP human-like browser matrix', () => {
 
     await sendAcpMessage(page, 'streaming thought')
     const turn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'streaming thought' }).last()
+    await expect(turn.getByTestId('code-codex-transcript-process-summary')).toHaveAttribute('aria-expanded', 'false')
+    await expect(turn.getByText('Comparing the likely causes', { exact: false })).toHaveCount(0)
+    await turn.getByTestId('code-codex-transcript-process-summary').click()
     await expect(turn.getByText('Comparing the likely causes', { exact: false })).toBeVisible({ timeout: 10_000 })
     const thought = turn.getByTestId('code-codex-transcript-process-item').filter({ hasText: 'Reasoning' })
     await expect(thought.getByTestId('code-codex-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'true')
@@ -651,6 +674,195 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(turn.getByTestId('code-codex-transcript-process-summary')).toHaveAttribute('aria-expanded', 'false')
     await turn.getByTestId('code-codex-transcript-process-summary').click()
     await expect(thought.getByTestId('code-codex-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  test('preserves a manually opened process group while consecutive tools stream into it', async ({ page, workspaceRoot }) => {
+    test.setTimeout(60_000)
+    const workspace = path.join(workspaceRoot, 'acp-grouped-streaming-tools')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+
+    await sendAcpMessage(page, 'grouped streaming tools')
+    const turn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'grouped streaming tools' }).last()
+    const processSummary = turn.getByTestId('code-codex-transcript-process-summary')
+    await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
+    await processSummary.click()
+    const group = turn.getByTestId('code-codex-transcript-process-group')
+    await expect(group).toHaveAttribute('data-count', '1', { timeout: 10_000 })
+    await group.getByTestId('code-codex-transcript-process-group-toggle').click()
+    await expect(group.getByTestId('code-codex-transcript-process-group-toggle')).toHaveAttribute('aria-expanded', 'true')
+    await expect(group).toHaveAttribute('data-count', '2', { timeout: 10_000 })
+    await expect(group.getByTestId('code-codex-transcript-process-group-toggle')).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByText('Grouped streaming tools complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
+  })
+
+  test('keeps a manually closed terminal detail closed when the running command fails', async ({ page, workspaceRoot }) => {
+    test.setTimeout(60_000)
+    const workspace = path.join(workspaceRoot, 'acp-failing-terminal')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+
+    let delayedTerminalOutcomeResponses = 0
+    await page.route('**/acp-tool-details/failing-terminal-tool', async route => {
+      const response = await route.fetch()
+      const body = await response.json() as {
+        terminals?: Array<{ terminal?: { exitStatus?: unknown, released?: boolean } }>
+      }
+      const hasTerminalOutcome = body.terminals?.some(terminal => (
+        Boolean(terminal.terminal?.exitStatus) || terminal.terminal?.released
+      ))
+      if (hasTerminalOutcome && delayedTerminalOutcomeResponses < 3) {
+        delayedTerminalOutcomeResponses += 1
+        body.terminals = body.terminals?.map(terminal => ({
+          ...terminal,
+          terminal: terminal.terminal ? {
+            ...terminal.terminal,
+            exitStatus: null,
+            released: false,
+          } : terminal.terminal,
+        }))
+      }
+      await route.fulfill({ response, json: body })
+    })
+
+    await sendAcpMessage(page, 'failing terminal')
+    const turn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'failing terminal' }).last()
+    const runningItem = turn.getByTestId('code-codex-transcript-process-item')
+      .filter({ hasText: 'Run failing command' })
+    const toggle = runningItem.getByTestId('code-codex-transcript-process-item-toggle')
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true', { timeout: 15_000 })
+    await expect(runningItem).toContainText('failing-terminal-ready')
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    await expect(page.getByText('Failing terminal finished.', { exact: true })).toBeVisible({ timeout: 15_000 })
+    const failedItem = turn.getByTestId('code-codex-transcript-process-item')
+      .filter({ hasText: 'Failed: Run failing command' })
+    await expect(failedItem).toBeVisible()
+    const failedToggle = failedItem.getByTestId('code-codex-transcript-process-item-toggle')
+    await expect(failedToggle).toHaveAttribute('aria-expanded', 'false')
+    await failedToggle.click()
+    const syncError = failedItem.getByTestId('code-acp-terminal-sync-error')
+    await expect(syncError).toContainText('Terminal status could not be synchronized.')
+    await expect(failedItem.getByTestId('code-acp-terminal-stop')).toHaveCount(0)
+    await expect(failedItem.getByTestId('code-acp-embedded-terminal')).toHaveCount(0)
+    expect(delayedTerminalOutcomeResponses).toBe(3)
+    await syncError.getByRole('button', { name: 'Retry' }).click()
+    await expect(syncError).toHaveCount(0)
+    await expect(failedItem.getByTestId('code-acp-terminal-output')).toContainText('failing-terminal-ready')
+    await expect(failedItem.locator('.code-codex-transcript-terminal-meta')).toContainText('Exit 2')
+    await expect(failedItem.getByText('Output', { exact: true })).toHaveCount(0)
+  })
+
+  test('shows terminal outcome recovery when no terminal snapshot could be loaded', async ({ page, workspaceRoot }) => {
+    test.setTimeout(60_000)
+    const workspace = path.join(workspaceRoot, 'acp-unavailable-terminal-detail')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+
+    let allowTerminalDetail = false
+    await page.route('**/acp-tool-details/failing-terminal-tool', async route => {
+      if (!allowTerminalDetail) {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'terminal detail temporarily unavailable' }),
+        })
+        return
+      }
+      await route.continue()
+    })
+
+    await sendAcpMessage(page, 'failing terminal')
+    const turn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'failing terminal' }).last()
+    const runningItem = turn.getByTestId('code-codex-transcript-process-item')
+      .filter({ hasText: 'Run failing command' })
+    const toggle = runningItem.getByTestId('code-codex-transcript-process-item-toggle')
+    await expect(toggle).toBeVisible({ timeout: 10_000 })
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    await expect(page.getByText('Failing terminal finished.', { exact: true })).toBeVisible({ timeout: 15_000 })
+    const failedItem = turn.getByTestId('code-codex-transcript-process-item')
+      .filter({ hasText: 'Failed: Run failing command' })
+    const syncError = failedItem.getByTestId('code-acp-terminal-sync-error')
+    await expect(syncError).toContainText('Terminal status could not be synchronized.', { timeout: 10_000 })
+    await expect(failedItem.locator('.code-codex-transcript-terminal')).toHaveCount(0)
+    await expect(failedItem.getByTestId('code-acp-terminal-stop')).toHaveCount(0)
+
+    allowTerminalDetail = true
+    await syncError.getByRole('button', { name: 'Retry' }).click()
+    await expect(syncError).toHaveCount(0)
+    await expect(failedItem.getByTestId('code-acp-terminal-output')).toContainText('failing-terminal-ready')
+    await expect(failedItem.locator('.code-codex-transcript-terminal-meta')).toContainText('Exit 2')
+  })
+
+  test('keeps a dense multi-step turn compact until the user opens its evidence', async ({ page, workspaceRoot }) => {
+    test.setTimeout(60_000)
+    const workspace = path.join(workspaceRoot, 'acp-dense-multi-step-progress')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+
+    await sendAcpMessage(page, 'dense multi-step progress')
+    const turn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'dense multi-step progress' }).last()
+    const processSummary = turn.getByTestId('code-codex-transcript-process-summary')
+    await expect(processSummary).toContainText('Process', { timeout: 10_000 })
+    expect(await processSummary.getAttribute('aria-expanded')).toBe('false')
+    await expect(turn.getByTestId('code-codex-transcript-process-group')).toHaveCount(0)
+    await expect(turn.getByTestId('code-codex-transcript-process-item')).toHaveCount(4)
+    await expect(turn.getByTestId('code-codex-transcript-process-earlier')).toHaveText('20 earlier actions')
+    await expect(turn.getByTestId('code-codex-transcript-process-item')
+      .filter({ hasText: 'Failed: Run verification step 2' })).toBeVisible()
+    await expect(turn.getByTestId('code-codex-transcript-process-item')
+      .filter({ hasText: 'Failed: Run verification step 1' })).toHaveCount(0)
+    await expect(turn.getByTestId('code-codex-transcript-process-item')
+      .filter({ hasText: 'Run verification step 21' })).toHaveCount(0)
+    const failedItems = turn.locator('[data-testid="code-codex-transcript-process-item"][data-status="failed"]')
+    await expect(failedItems).toHaveCount(3)
+    await expect(failedItems.nth(0).getByTestId('code-codex-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
+    await expect(failedItems.nth(1).getByTestId('code-codex-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
+    await expect(failedItems.nth(2).getByTestId('code-codex-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
+    const activeAction = turn.getByTestId('code-codex-transcript-process-item')
+      .filter({ hasText: 'Run verification step 24' })
+    await expect(activeAction).toBeVisible()
+    const visibleProgress = turn.getByTestId('code-acp-progress-update')
+    await expect(visibleProgress).toHaveCount(1)
+    await expect(visibleProgress).toContainText('The second verification phase passed; final checks are running.')
+    await expect(visibleProgress).not.toContainText('The first verification phase passed.')
+    await expect(visibleProgress).toHaveCSS('max-height', '73px')
+    await expect(visibleProgress).toHaveCSS('overflow', 'hidden')
+    await expect(visibleProgress.locator('a')).toHaveCount(0)
+
+    await activeAction.getByTestId('code-codex-transcript-process-item-toggle').click()
+    await processSummary.click()
+    await expect(processSummary).toHaveAttribute('aria-expanded', 'true')
+    await expect(turn.getByTestId('code-codex-transcript-process-group')).toHaveCount(24)
+    const activeFullGroup = turn.getByTestId('code-codex-transcript-process-group')
+      .filter({ hasText: 'Run verification step 24' })
+    await expect(activeFullGroup.getByTestId('code-codex-transcript-process-group-toggle')).toHaveAttribute('aria-expanded', 'true')
+    const fullProgress = turn.getByTestId('code-acp-progress-update').last()
+    expect((await fullProgress.boundingBox())?.height || 0).toBeGreaterThan(60)
+    await expect(fullProgress.getByRole('link', { name: 'Details' })).toBeVisible()
+    const thought = turn.getByTestId('code-codex-transcript-process-item').filter({ hasText: 'Reasoning' })
+    await expect(thought).toHaveCount(24)
+    await expect(thought.filter({ hasText: 'Reasoning checkpoint 24' })
+      .getByTestId('code-codex-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'true')
+    await processSummary.click()
+    await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
+    await expect(turn.getByTestId('code-codex-transcript-process-group')).toHaveCount(0)
+    await expect(turn.getByTestId('code-codex-transcript-process-item')).toHaveCount(4)
+
+    await expect(page.getByText('Dense multi-step progress complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
+    await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
+    await expect(turn.getByTestId('code-acp-progress-update')).toHaveCount(0)
   })
 
   test('keeps a phase-marked rich answer visible after a trailing thought and renders encoded Mermaid source', async ({ page, workspaceRoot }) => {
@@ -685,6 +897,9 @@ test.describe('ACP human-like browser matrix', () => {
 
     await sendAcpMessage(page, 'long subagent')
     const turn = page.locator('.code-codex-transcript-turn').filter({ hasText: 'long subagent' }).last()
+    const processSummary = turn.getByTestId('code-codex-transcript-process-summary')
+    await expect(processSummary).toHaveAttribute('aria-expanded', 'false')
+    await processSummary.click()
     const item = turn.getByTestId('code-codex-transcript-process-item').filter({ hasText: 'Investigate with subagent' })
     await expect(item).toBeVisible({ timeout: 15_000 })
     await item.getByTestId('code-codex-transcript-process-item-toggle').click()

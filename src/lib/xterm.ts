@@ -81,8 +81,8 @@ function xtermThemeForCurrentAppearance() {
   }
 }
 
-function applyXtermAppearance(terminal: Terminal) {
-  const theme = xtermThemeForCurrentAppearance()
+function applyXtermAppearance(terminal: Terminal, themeOverride?: typeof DARK_THEME) {
+  const theme = themeOverride || xtermThemeForCurrentAppearance()
   terminal.options.theme = theme
   applyXtermElementAppearance(terminal, theme)
   terminal.refresh?.(0, Math.max(0, terminal.rows - 1))
@@ -117,11 +117,11 @@ function applyXtermElementAppearance(terminal: Terminal, theme = xtermThemeForCu
   })
 }
 
-function scheduleXtermAppearanceRefresh(terminal: Terminal) {
+function scheduleXtermAppearanceRefresh(terminal: Terminal, themeOverride?: typeof DARK_THEME) {
   if (typeof window === 'undefined') return () => {}
 
   const refresh = () => {
-    applyXtermElementAppearance(terminal)
+    applyXtermElementAppearance(terminal, themeOverride || xtermThemeForCurrentAppearance())
     terminal.refresh?.(0, Math.max(0, terminal.rows - 1))
   }
   const frame = window.requestAnimationFrame(refresh)
@@ -132,13 +132,13 @@ function scheduleXtermAppearanceRefresh(terminal: Terminal) {
   }
 }
 
-function watchXtermAppearance(terminal: Terminal) {
+function watchXtermAppearance(terminal: Terminal, themeOverride?: typeof DARK_THEME) {
   if (typeof document === 'undefined') return
   const cancelScheduledRefreshes: Array<() => void> = []
-  applyXtermAppearance(terminal)
+  applyXtermAppearance(terminal, themeOverride)
   const observer = new MutationObserver(() => {
-    applyXtermAppearance(terminal)
-    cancelScheduledRefreshes.push(scheduleXtermAppearanceRefresh(terminal))
+    applyXtermAppearance(terminal, themeOverride)
+    cancelScheduledRefreshes.push(scheduleXtermAppearanceRefresh(terminal, themeOverride))
   })
   observer.observe(document.body, { attributes: true, attributeFilter: ['data-appearance'] })
   const disposeTerminal = terminal.dispose.bind(terminal)
@@ -204,7 +204,11 @@ function xtermSearchDecorations() {
   }
 }
 
-function decorateXtermTerminal(terminal: Terminal, searchAddon: SearchAddon): XtermBackedTerminal {
+function decorateXtermTerminal(
+  terminal: Terminal,
+  searchAddon: SearchAddon,
+  themeOverride?: typeof DARK_THEME,
+): XtermBackedTerminal {
   const adapted = terminal as unknown as XtermBackedTerminal
   const nativeOpen = terminal.open.bind(terminal)
   const nativeDispose = terminal.dispose.bind(terminal)
@@ -269,7 +273,7 @@ function decorateXtermTerminal(terminal: Terminal, searchAddon: SearchAddon): Xt
   adapted.getCellMetrics = () => getXtermCellMetrics(terminal)
   adapted.getScreenElement = () => getXtermScreenElement(terminal)
   adapted.getTerminalElement = () => getXtermElement(terminal)
-  adapted.syncAppearanceTheme = () => applyXtermAppearance(terminal)
+  adapted.syncAppearanceTheme = () => applyXtermAppearance(terminal, themeOverride)
   adapted.reattach = () => {
     const element = getXtermElement(terminal)
     if (!element) return
@@ -377,11 +381,13 @@ function decorateXtermTerminal(terminal: Terminal, searchAddon: SearchAddon): Xt
 
 export async function createXtermTerminalInstance(options?: {
   fontSize?: number
+  theme?: 'appearance' | 'dark'
 }): Promise<{
   terminal: XtermBackedTerminal
   fitAddon: GhosttyFitAddon
 }> {
   const fontSize = options?.fontSize ?? DEFAULT_FONT_SIZE
+  const themeOverride = options?.theme === 'dark' ? DARK_THEME : undefined
   const terminal = new Terminal({
     allowProposedApi: true,
     altClickMovesCursor: false,
@@ -408,7 +414,7 @@ export async function createXtermTerminalInstance(options?: {
     scrollOnEraseInDisplay: true,
     scrollOnUserInput: true,
     smoothScrollDuration: 0,
-    theme: xtermThemeForCurrentAppearance(),
+    theme: themeOverride || xtermThemeForCurrentAppearance(),
     wordSeparator: ' ()[]{}\'"`\u2500',
     windowOptions: {
       getCellSizePixels: true,
@@ -419,10 +425,10 @@ export async function createXtermTerminalInstance(options?: {
   const searchAddon = new SearchAddon({ highlightLimit: 2000 })
   terminal.loadAddon(new ClipboardAddon(undefined, createTerminalClipboardProvider()))
   terminal.loadAddon(searchAddon)
-  watchXtermAppearance(terminal)
+  watchXtermAppearance(terminal, themeOverride)
 
   return {
-    terminal: decorateXtermTerminal(terminal, searchAddon),
+    terminal: decorateXtermTerminal(terminal, searchAddon, themeOverride),
     fitAddon: new FitAddon() as unknown as GhosttyFitAddon,
   }
 }

@@ -58,6 +58,12 @@ beside the vendored files at `frontend/vendor/ghostty-web/LICENSE`.
 If vendored assets are updated, keep this notice in sync with the package name,
 version, and license.
 
+Farming vendors the OS-independent, zero-dependency Python core of
+`cc-statistics` 1.1.0 at commit `c98be0af52bbc7f09a1f277747744ace48d9e014`.
+Farming's integration adds a token-only incremental cache adapter while keeping
+the upstream Claude Code and Codex normalization rules as the source of truth.
+The upstream MIT license is preserved beside the vendored source.
+
 The CRT skin bundles one font file under `frontend/skins/crt/fonts/`:
 
 | Font | License | Purpose |

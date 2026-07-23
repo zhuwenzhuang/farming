@@ -293,16 +293,32 @@ async function run() {
   const recoveryRuntime = new AcpRuntime({
     resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
   });
+  const recoverySessionKey = 'agent-session:codex:existing-session';
   const recoveryManager = new AgentManager(config({
-    listAgentSessionRecords: () => [{
-      id: 'fsess-recovered',
-      runtimeAgentId: 'agent-acp-recovered',
-      agentRuntimeMode: 'acp',
-      providerSessionProvider: 'codex',
-      providerSessionId: 'existing-session',
-      cwd: process.cwd(),
-      status: 'running',
-    }],
+    getMainPageSessionKeys: () => [recoverySessionKey],
+    listAgentSessionRecords: () => [
+      {
+        id: 'fsess-recovered',
+        runtimeAgentId: 'agent-acp-recovered',
+        agentRuntimeMode: 'acp',
+        providerSessionProvider: 'codex',
+        providerSessionId: 'existing-session',
+        providerSessionKey: recoverySessionKey,
+        cwd: process.cwd(),
+        status: 'running',
+      },
+      {
+        id: 'fsess-hidden-claude',
+        runtimeAgentId: 'agent-acp-hidden-claude',
+        agentRuntimeMode: 'acp',
+        providerSessionProvider: 'claude',
+        providerSessionId: 'closed-session',
+        providerSessionKey: 'agent-session:claude:closed-session',
+        visibleOnMainPage: false,
+        cwd: process.cwd(),
+        status: 'running',
+      },
+    ],
   }), { acpRuntime: recoveryRuntime });
   try {
     await recoveryManager.recoverAcpSessions();
@@ -313,6 +329,11 @@ async function run() {
       recoveredBinding.env.CODEX_CONFIG,
       undefined,
       'ACP recovery must let Codex resolve its Home config instead of applying Farming launch defaults',
+    );
+    assert.strictEqual(
+      recoveryManager.agents.has('agent-acp-hidden-claude'),
+      false,
+      'ACP recovery must not restart a History-only Claude session',
     );
   } finally {
     await recoveryManager.dispose();
@@ -325,13 +346,16 @@ async function run() {
       return { command: process.execPath, args: [fixture], version: 'test' };
     },
   });
+  const qoderRecoverySessionKey = 'agent-session:qoder:existing-session';
   const qoderRecoveryManager = new AgentManager(config({
+    getMainPageSessionKeys: () => [qoderRecoverySessionKey],
     listAgentSessionRecords: () => [{
       id: 'fsess-qoder-recovered',
       runtimeAgentId: 'agent-qoder-recovered',
       agentRuntimeMode: 'acp',
       providerSessionProvider: 'qoder',
       providerSessionId: 'existing-session',
+      providerSessionKey: qoderRecoverySessionKey,
       cwd: process.cwd(),
       status: 'running',
     }],
@@ -350,6 +374,7 @@ async function run() {
     agentRuntimeMode: 'acp',
     providerSessionProvider: 'codex',
     providerSessionId: 'existing-session',
+    providerSessionKey: 'agent-session:codex:existing-session',
     command: 'codex resume existing-session',
     cwd: process.cwd(),
     category: 'coding',
@@ -360,6 +385,7 @@ async function run() {
     resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
   });
   const stalePtyManager = new AgentManager(config({
+    getMainPageSessionKeys: () => [authoritativeRecord.providerSessionKey],
     listAgentSessionRecords: () => [{ ...authoritativeRecord }],
     ensureAgentSessionRecord: agent => {
       recoveryWrites.push(agent.runtimeBinding.kind);

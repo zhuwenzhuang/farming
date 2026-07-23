@@ -175,6 +175,7 @@ Linux 目标每轮都要记录：
 
 验收不变量：
 - usage 默认折叠，折叠行仍显示关键速率和机器状态。
+- Codex / Claude 首次 cc-statistics 扫描会生成 SQLite usage 缓存；未变化刷新不得读取 JSONL 正文，Session 追加后只能读取已保存偏移之后的字节，服务重启后继续复用同一缓存。用包含超长非 usage tool 输出行的真实日志验证 token-only 适配层保持内存有界，并确认冷/热缓存下的总量、小时和 Session 归因完全一致。在 macOS 与 Linux 都验证 Python 3.10+ 路径；运行时缺失时必须明确显示 usage 不可用，不得回退第二套解析器。
 - 不执行 reset。
 - 没有可用 token 遥测的 Provider 整块不展示；没有真实 quota 数据时不展示 unavailable 占位行。
 

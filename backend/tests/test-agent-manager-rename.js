@@ -9,6 +9,8 @@ async function run() {
   const { agentTitle } = importTsModule('src/lib/format.ts');
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-rename-'));
   const publicProjectWorkspace = fs.realpathSync(tmpRoot);
+  const precreatedCodexSessionId = '019f1234-5678-7abc-8def-0123456789ac';
+  const persistedAgentSnapshots = [];
   const manager = new AgentManager({
     getWorkspace() {
       return tmpRoot;
@@ -25,7 +27,14 @@ async function run() {
     getDangerouslySkipAgentPermissionsByDefault() {
       return false;
     },
-  }, { skipExecutablePreflight: true });
+    ensureAgentSessionRecord(agent, patch = {}) {
+      persistedAgentSnapshots.push({ ...agent, ...patch });
+      return agent.persistentSessionId || `fsess_${agent.id}`;
+    },
+  }, {
+    skipExecutablePreflight: true,
+    createProviderSessionIdentity: async () => ({ sessionId: precreatedCodexSessionId }),
+  });
 
   manager.engineBridge.resolve = () => ({
     engineName: 'local',
@@ -74,7 +83,10 @@ async function run() {
       getCodexModel() { return 'config'; },
       getCodexReasoningEffort() { return 'config'; },
       getCodexServiceTier() { return 'default'; },
-    }, { skipExecutablePreflight: true });
+    }, {
+      skipExecutablePreflight: true,
+      createProviderSessionIdentity: async () => ({ sessionId: '019f1234-5678-7abc-8def-0123456789ab' }),
+    });
     dangerousManager.engineBridge.resolve = () => ({
       engineName: 'local',
       engine: {
@@ -96,6 +108,11 @@ async function run() {
     assert.strictEqual(
       manager.getState().agents.find(agent => agent.id === agentId).customTitle,
       'Investigate parser bug'
+    );
+    assert.strictEqual(
+      persistedAgentSnapshots.at(-1).customTitle,
+      'Investigate parser bug',
+      'rename should persist the custom title before reporting success'
     );
 
     const longTitle = 'x'.repeat(100);
@@ -407,13 +424,15 @@ async function run() {
     assert.strictEqual(permissionRestartKills.at(-1), pendingCodexPermissionAgentId);
     assert(permissionRestartStarts.at(-1).args.includes('--ask-for-approval'));
     assert(permissionRestartStarts.at(-1).args.includes('untrusted'));
-    assert.strictEqual(permissionRestartStarts.at(-1).args.includes('resume'), false);
+    assert.strictEqual(permissionRestartStarts.at(-1).args.includes('resume'), true);
     assert.strictEqual(permissionRestartStarts.at(-1).args.includes(pendingCodexSessionId), false);
+    assert.strictEqual(permissionRestartStarts.at(-1).args.includes(precreatedCodexSessionId), true);
     assert.strictEqual(manager.agents.has(pendingCodexPermissionAgentId), false);
     const restartedPendingCodex = manager.agents.get(pendingCodexPermission.restartedAgentId);
     assert.strictEqual(restartedPendingCodex.launchPermissionMode, 'ask');
-    assert.strictEqual(restartedPendingCodex.providerSessionTemporary, true);
-    assert(restartedPendingCodex.providerSessionId.startsWith('tmp_uuid_'));
+    assert.strictEqual(restartedPendingCodex.providerSessionTemporary, false);
+    assert.strictEqual(restartedPendingCodex.providerSessionId, precreatedCodexSessionId);
+    assert.strictEqual(restartedPendingCodex.providerSessionSource, 'acp-precreated');
     assert.notStrictEqual(restartedPendingCodex.providerSessionId, pendingCodexSessionId);
     assert.strictEqual(restartedPendingCodex.restartedFromAgentId, pendingCodexPermissionAgentId);
     assert.deepStrictEqual(restartedPendingCodex.restartedFromAgentIds, [pendingCodexPermissionAgentId]);
@@ -430,6 +449,7 @@ async function run() {
     );
     assert.strictEqual(chainedPendingCodexPermission.error, undefined);
     const chainedPendingCodex = manager.agents.get(chainedPendingCodexPermission.restartedAgentId);
+    assert.strictEqual(chainedPendingCodex.providerSessionId, precreatedCodexSessionId);
     assert.strictEqual(chainedPendingCodex.restartedFromAgentId, pendingCodexPermission.restartedAgentId);
     assert.deepStrictEqual(chainedPendingCodex.restartedFromAgentIds, [
       pendingCodexPermissionAgentId,

@@ -1,9 +1,8 @@
-const fsp = require('fs/promises');
 const os = require('os');
 const path = require('path');
-const readline = require('readline');
-const { execFile, spawn } = require('child_process');
+const { execFile } = require('child_process');
 const { promisify } = require('util');
+const { CCStatisticsClient } = require('./cc-statistics-client');
 const { attachQuotaForecasts } = require('./usage-forecast');
 
 const execFileAsync = promisify(execFile);
@@ -14,18 +13,11 @@ const USAGE_TIMELINE_BUCKET_COUNT = 24;
 const USAGE_DAILY_DAYS = 52 * 7;
 const USAGE_DAILY_CACHE_MS = 5 * 60 * 1000;
 const USAGE_LIVE_DAY_CACHE_MS = 5 * 1000;
-const JSONL_FILE_LIMIT = 60;
-const JSONL_SCAN_LIMIT = 2000;
-const DAILY_JSONL_FILE_LIMIT = 5000;
-const DAILY_JSONL_SCAN_LIMIT = 20_000;
-const JSONL_TAIL_BYTES = 2 * 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 2500;
 const OPENCODE_COMMAND_TIMEOUT_MS = 20_000;
 const OPENCODE_EXPORT_CONCURRENCY = 4;
 const OPENCODE_SESSION_LIMIT = 5000;
-const dailyFileEventCache = new Map();
 const openCodeSessionEventCache = new Map();
-let nativeRipgrepPathPromise = null;
 
 function numberOrNull(value) {
   const numberValue = Number(value);
@@ -50,18 +42,6 @@ function parseTimestampMs(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function tokenTotalFromUsage(usage, fields) {
-  if (!usage || typeof usage !== 'object') return 0;
-
-  const explicitTotal = numberOrNull(usage.total_tokens);
-  if (explicitTotal !== null) return Math.max(0, explicitTotal);
-
-  return fields.reduce((sum, field) => {
-    const value = numberOrNull(usage[field]);
-    return sum + Math.max(0, value ?? 0);
-  }, 0);
-}
-
 function tokenUsageSummary({ totalTokens, eventCount, source, windowMs, sampledAt }) {
   const windowMinutes = Math.max(1, windowMs / 60_000);
   return {
@@ -75,10 +55,6 @@ function tokenUsageSummary({ totalTokens, eventCount, source, windowMs, sampledA
   };
 }
 
-function codexTokenTotalFromInfo(info, field) {
-  return tokenTotalFromUsage(info?.[field], ['input_tokens', 'output_tokens']);
-}
-
 function emptyTokenBreakdown() {
   return {
     totalTokens: 0,
@@ -87,30 +63,6 @@ function emptyTokenBreakdown() {
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
     unattributedTokens: 0,
-  };
-}
-
-function tokenBreakdownFromUsage(usage, provider) {
-  if (!usage || typeof usage !== 'object') return emptyTokenBreakdown();
-  const rawInput = Math.max(0, numberOrNull(usage.input_tokens) ?? 0);
-  const outputTokens = Math.max(0, numberOrNull(usage.output_tokens) ?? 0);
-  const cacheReadTokens = Math.max(0, numberOrNull(
-    usage.cached_input_tokens ?? usage.cache_read_input_tokens,
-  ) ?? 0);
-  const cacheWriteTokens = Math.max(0, numberOrNull(usage.cache_creation_input_tokens) ?? 0);
-  const inputTokens = provider === 'codex'
-    ? Math.max(0, rawInput - cacheReadTokens)
-    : rawInput;
-  const componentTotal = inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens;
-  const explicitTotal = numberOrNull(usage.total_tokens);
-  const totalTokens = Math.max(0, explicitTotal ?? componentTotal);
-  return {
-    totalTokens,
-    inputTokens,
-    outputTokens,
-    cacheReadTokens,
-    cacheWriteTokens,
-    unattributedTokens: Math.max(0, totalTokens - componentTotal),
   };
 }
 
@@ -145,17 +97,78 @@ function providerHomePaths(providerHomes, provider, fallbackPath) {
   }).filter(Boolean)));
 }
 
+function ccStatisticsRoots(options = {}) {
+  const codexHomes = providerHomePaths(
+    options.providerHomes,
+    'codex',
+    options.codexHome || path.join(os.homedir(), '.codex'),
+  );
+  const claudeHomes = providerHomePaths(
+    options.providerHomes,
+    'claude',
+    options.claudeHome || path.join(os.homedir(), '.claude'),
+  );
+  return {
+    codexHomes,
+    claudeHomes,
+    codexRoots: codexHomes.flatMap(home => [
+      path.join(home, 'sessions'),
+      path.join(home, 'archived_sessions'),
+    ]),
+    claudeRoots: claudeHomes.map(home => path.join(home, 'projects')),
+  };
+}
+
+function ccStatisticsClient(options = {}) {
+  return options.ccStatisticsClient || new CCStatisticsClient({
+    configDir: options.configDir || path.join(os.homedir(), '.farming'),
+  });
+}
+
+function unavailableCCStatisticsResult(error, now) {
+  const reason = commandUnavailable(error);
+  return {
+    schemaVersion: 1,
+    source: 'cc-statistics unavailable',
+    sampledAt: now,
+    providers: {
+      codex: { events: [], quotaCandidates: [], available: false, reason, fileCount: 0 },
+      claude: { events: [], quotaCandidates: [], available: false, reason, fileCount: 0 },
+    },
+    cache: { errors: 1 },
+  };
+}
+
+async function collectCCStatistics(options = {}) {
+  const now = options.now ?? Date.now();
+  const roots = ccStatisticsRoots(options);
+  try {
+    const result = await ccStatisticsClient(options).collect({
+      now,
+      retentionDays: options.retentionDays ?? USAGE_DAILY_DAYS,
+      codexRoots: roots.codexRoots,
+      claudeRoots: roots.claudeRoots,
+      fresh: options.fresh,
+    });
+    return { result, roots };
+  } catch (error) {
+    return { result: unavailableCCStatisticsResult(error, now), roots };
+  }
+}
+
+function ccStatisticsProviderEvents(result, provider) {
+  return (result?.providers?.[provider]?.events || []).map(event => attributeUsageEvent(
+    event,
+    provider,
+    String(event.sessionId || 'unattributed'),
+  ));
+}
+
 function addTokenBreakdown(target, source) {
   for (const field of Object.keys(emptyTokenBreakdown())) {
     target[field] += Math.max(0, numberOrNull(source?.[field]) ?? 0);
   }
   return target;
-}
-
-function usageAgentIdFromFilePath(filePath) {
-  const basename = path.basename(String(filePath || ''), path.extname(String(filePath || '')));
-  const uuid = basename.match(/([0-9a-f]{8}-[0-9a-f-]{27})$/i);
-  return uuid?.[1] || basename || 'unattributed';
 }
 
 function usageAgentLabel(provider, agentId) {
@@ -176,117 +189,6 @@ function attributeUsageEvent(event, provider, agentId) {
     agentId,
     agentLabel: usageAgentLabel(provider, agentId),
   };
-}
-
-function subtractTokenBreakdown(current, previous) {
-  const result = emptyTokenBreakdown();
-  for (const field of Object.keys(result)) {
-    result[field] = Math.max(0, current[field] - previous[field]);
-  }
-  return result;
-}
-
-function normalizeDeltaBreakdown(current, previous, last) {
-  const deltaTotal = Math.max(0, current.totalTokens - previous.totalTokens);
-  const delta = subtractTokenBreakdown(current, previous);
-  const componentTotal = delta.inputTokens + delta.outputTokens + delta.cacheReadTokens
-    + delta.cacheWriteTokens + delta.unattributedTokens;
-  if (componentTotal === deltaTotal) return delta;
-  if (last.totalTokens === deltaTotal) return last;
-  return { ...emptyTokenBreakdown(), totalTokens: deltaTotal, unattributedTokens: deltaTotal };
-}
-
-function usageObjectSignature(usage) {
-  if (!usage || typeof usage !== 'object') return '';
-  return JSON.stringify(Object.keys(usage).sort().map(key => [key, usage[key]]));
-}
-
-function createCodexDeltaState() {
-  return {
-    previousTotal: null,
-    previousBreakdown: emptyTokenBreakdown(),
-    seenFallbackUsages: new Set(),
-  };
-}
-
-function codexTokenEventFromRecord(record, state) {
-  if (record?.type !== 'event_msg' || record.payload?.type !== 'token_count') return null;
-  const timestamp = parseTimestampMs(record.timestamp);
-  if (!timestamp) return null;
-  const info = record.payload?.info;
-  const cumulativeTotal = codexTokenTotalFromInfo(info, 'total_token_usage');
-  const lastTokenTotal = codexTokenTotalFromInfo(info, 'last_token_usage');
-  const cumulativeBreakdown = tokenBreakdownFromUsage(info?.total_token_usage, 'codex');
-  const lastBreakdown = tokenBreakdownFromUsage(info?.last_token_usage, 'codex');
-
-  if (cumulativeTotal > 0) {
-    let delta = 0;
-    let deltaBreakdown = emptyTokenBreakdown();
-    if (state.previousTotal !== null && cumulativeTotal >= state.previousTotal) {
-      delta = cumulativeTotal - state.previousTotal;
-      deltaBreakdown = normalizeDeltaBreakdown(
-        cumulativeBreakdown,
-        state.previousBreakdown,
-        lastBreakdown,
-      );
-    } else if (state.previousTotal === null) {
-      delta = lastTokenTotal > 0 ? lastTokenTotal : cumulativeTotal;
-      deltaBreakdown = lastTokenTotal > 0 ? lastBreakdown : cumulativeBreakdown;
-    } else if (lastTokenTotal > 0) {
-      delta = lastTokenTotal;
-      deltaBreakdown = lastBreakdown;
-    }
-    state.previousTotal = cumulativeTotal;
-    state.previousBreakdown = cumulativeBreakdown;
-    return delta > 0 ? { timestamp, ...deltaBreakdown, totalTokens: delta } : null;
-  }
-
-  if (lastTokenTotal <= 0) return null;
-  const signature = usageObjectSignature(info?.last_token_usage);
-  if (signature && state.seenFallbackUsages.has(signature)) return null;
-  if (signature) state.seenFallbackUsages.add(signature);
-  return { timestamp, ...lastBreakdown, totalTokens: lastTokenTotal };
-}
-
-function collectCodexTokenDeltas(records, {
-  now,
-  windowMs,
-  historyWindowMs = windowMs,
-  includeAllEvents = false,
-}) {
-  const windowStart = now - windowMs;
-  const historyWindowStart = now - historyWindowMs;
-  const sortedRecords = records
-    .map((record, index) => ({
-      record,
-      index,
-      timestamp: parseTimestampMs(record.timestamp),
-    }))
-    .filter(entry => entry.record.type === 'event_msg' && entry.record.payload?.type === 'token_count')
-    .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0) || a.index - b.index);
-
-  let totalTokens = 0;
-  let eventCount = 0;
-  const tokenEvents = [];
-  const deltaState = createCodexDeltaState();
-
-  for (const entry of sortedRecords) {
-    const { record } = entry;
-    const event = codexTokenEventFromRecord(record, deltaState);
-    if (!event) continue;
-    const { timestamp } = event;
-    const inWindow = Boolean(timestamp && timestamp >= windowStart && timestamp <= now + 60_000);
-    const inHistoryWindow = Boolean(timestamp && (
-      includeAllEvents || (timestamp >= historyWindowStart && timestamp <= now + 60_000)
-    ));
-    if (inWindow) {
-      totalTokens += event.totalTokens;
-      eventCount += 1;
-    }
-    if (inHistoryWindow) tokenEvents.push(event);
-  }
-
-  return { totalTokens, eventCount, tokenEvents };
 }
 
 function buildUsageTimeline(providerEvents, options = {}) {
@@ -443,162 +345,6 @@ async function readClaudeAuthStatus(commandRunner = defaultCommandRunner) {
   }
 }
 
-async function readJsonlTail(filePath, maxBytes = JSONL_TAIL_BYTES) {
-  const stat = await fsp.stat(filePath);
-  const size = stat.size;
-  if (size <= 0) return '';
-
-  const bytesToRead = Math.min(size, maxBytes);
-  const start = size - bytesToRead;
-  const buffer = Buffer.alloc(bytesToRead);
-  const handle = await fsp.open(filePath, 'r');
-  try {
-    await handle.read(buffer, 0, bytesToRead, start);
-  } finally {
-    await handle.close();
-  }
-
-  let text = buffer.toString('utf8');
-  if (start > 0) {
-    const newlineIndex = text.indexOf('\n');
-    text = newlineIndex === -1 ? '' : text.slice(newlineIndex + 1);
-  }
-  return text;
-}
-
-async function findRecentJsonlFiles(roots, options = {}) {
-  const limit = options.limit ?? JSONL_FILE_LIMIT;
-  const maxDepth = options.maxDepth ?? 6;
-  const scanLimit = options.scanLimit ?? JSONL_SCAN_LIMIT;
-  const files = [];
-  let scanned = 0;
-
-  async function walk(dir, depth) {
-    if (depth > maxDepth || scanned >= scanLimit) return;
-
-    let entries;
-    try {
-      entries = await fsp.readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-
-    for (const entry of entries) {
-      if (scanned >= scanLimit) return;
-      const entryPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await walk(entryPath, depth + 1);
-        continue;
-      }
-      if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
-
-      scanned += 1;
-      try {
-        const stat = await fsp.stat(entryPath);
-        files.push({ filePath: entryPath, mtimeMs: stat.mtimeMs });
-      } catch {
-        // Ignore files that disappear while we scan.
-      }
-    }
-  }
-
-  for (const root of roots) {
-    await walk(root, 0);
-  }
-
-  return files
-    .sort((a, b) => b.mtimeMs - a.mtimeMs)
-    .slice(0, limit)
-    .map(file => file.filePath);
-}
-
-async function readJsonlRecords(filePath) {
-  const text = await readJsonlTail(filePath);
-  return text
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map(line => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-}
-
-async function isNativeExecutable(filePath) {
-  try {
-    const resolved = await fsp.realpath(filePath);
-    const stat = await fsp.stat(resolved);
-    if (!stat.isFile()) return false;
-    const handle = await fsp.open(resolved, 'r');
-    try {
-      const header = Buffer.alloc(2);
-      const { bytesRead } = await handle.read(header, 0, header.length, 0);
-      return bytesRead === header.length && header.toString('utf8') !== '#!';
-    } finally {
-      await handle.close();
-    }
-  } catch {
-    return false;
-  }
-}
-
-async function codexBundledRipgrepCandidates() {
-  let codexPackagePath;
-  try {
-    codexPackagePath = require.resolve('@openai/codex/package.json');
-  } catch {
-    return [];
-  }
-  const scopeDir = path.dirname(path.dirname(codexPackagePath));
-  let packages;
-  try {
-    packages = await fsp.readdir(scopeDir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  const executableName = process.platform === 'win32' ? 'rg.exe' : 'rg';
-  const candidates = [];
-  for (const entry of packages) {
-    if (!entry.isDirectory() || !entry.name.startsWith('codex-')) continue;
-    const vendorDir = path.join(scopeDir, entry.name, 'vendor');
-    let triples;
-    try {
-      triples = await fsp.readdir(vendorDir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const triple of triples) {
-      if (!triple.isDirectory()) continue;
-      candidates.push(path.join(vendorDir, triple.name, 'codex-path', executableName));
-    }
-  }
-  return candidates;
-}
-
-async function resolveNativeRipgrepPath() {
-  if (process.env.FARMING_RG_BIN) return process.env.FARMING_RG_BIN;
-  if (nativeRipgrepPathPromise) return nativeRipgrepPathPromise;
-  nativeRipgrepPathPromise = (async () => {
-    const executableName = process.platform === 'win32' ? 'rg.exe' : 'rg';
-    const pathCandidates = String(process.env.PATH || '')
-      .split(path.delimiter)
-      .filter(Boolean)
-      .map(dir => path.join(dir, executableName));
-    const candidates = [
-      ...pathCandidates,
-      ...await codexBundledRipgrepCandidates(),
-    ];
-    for (const candidate of Array.from(new Set(candidates))) {
-      if (await isNativeExecutable(candidate)) return candidate;
-    }
-    return null;
-  })();
-  return nativeRipgrepPathPromise;
-}
-
 function localDateKey(timestamp) {
   const date = new Date(timestamp);
   if (!Number.isFinite(date.getTime())) return '';
@@ -730,140 +476,6 @@ function buildUsageDayDetail(providerEvents, options = {}) {
   };
 }
 
-async function readDailyFileEvents(filePath, provider, minimumMtimeMs = 0) {
-  const stat = await fsp.stat(filePath);
-  if (stat.mtimeMs < minimumMtimeMs) return { events: [], mtimeMs: stat.mtimeMs };
-  const cacheKey = `${provider}:${filePath}`;
-  const signature = `${stat.size}:${stat.mtimeMs}`;
-  const cached = dailyFileEventCache.get(cacheKey);
-  if (cached?.signature === signature) {
-    return { events: cached.events, mtimeMs: stat.mtimeMs, truncated: cached.truncated };
-  }
-
-  const records = await readJsonlRecords(filePath);
-  const events = [];
-  if (provider === 'codex') {
-    events.push(...collectCodexTokenDeltas(records, {
-      now: Date.now(),
-      windowMs: 1,
-      includeAllEvents: true,
-    }).tokenEvents);
-  } else {
-    for (const record of records) {
-      const timestamp = parseTimestampMs(record.timestamp);
-      if (!timestamp) continue;
-      for (const usage of claudeUsageObjectsFromRecord(record)) {
-        const breakdown = tokenBreakdownFromUsage(usage, 'claude');
-        if (breakdown.totalTokens > 0) events.push({ timestamp, ...breakdown });
-      }
-    }
-  }
-
-  const agentId = usageAgentIdFromFilePath(filePath);
-  const attributedEvents = events.map(event => attributeUsageEvent(event, provider, agentId));
-  const truncated = stat.size > JSONL_TAIL_BYTES;
-  dailyFileEventCache.set(cacheKey, { signature, events: attributedEvents, truncated });
-  return { events: attributedEvents, mtimeMs: stat.mtimeMs, truncated };
-}
-
-async function collectCodexDailyEventsWithRipgrep(roots, options = {}) {
-  const existingRoots = [];
-  for (const root of roots) {
-    try {
-      await fsp.access(root);
-      existingRoots.push(root);
-    } catch {
-      // Ignore provider history roots that do not exist yet.
-    }
-  }
-  if (existingRoots.length === 0) return { events: [], partial: false };
-
-  const now = options.now ?? Date.now();
-  const cutoffMs = options.cutoffMs ?? 0;
-  const ripgrepPath = options.ripgrepPath || await resolveNativeRipgrepPath();
-  if (!ripgrepPath) return null;
-  return new Promise((resolve) => {
-    const child = spawn(ripgrepPath, [
-      '-F',
-      '"type":"token_count"',
-      '--with-filename',
-      '--no-heading',
-      '--no-line-number',
-      '-g',
-      '*.jsonl',
-      ...existingRoots,
-    ], { stdio: ['ignore', 'pipe', 'pipe'] });
-    const events = [];
-    const states = new Map();
-    let unavailable = false;
-    child.once('error', () => {
-      unavailable = true;
-    });
-    child.stderr.resume();
-    const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
-    lines.on('line', line => {
-      const separator = line.indexOf(':{');
-      if (separator <= 0) return;
-      const filePath = line.slice(0, separator);
-      let record;
-      try {
-        record = JSON.parse(line.slice(separator + 1));
-      } catch {
-        return;
-      }
-      let state = states.get(filePath);
-      if (!state) {
-        state = createCodexDeltaState();
-        states.set(filePath, state);
-      }
-      const event = codexTokenEventFromRecord(record, state);
-      if (event && event.timestamp >= cutoffMs && event.timestamp <= now + 60_000) {
-        events.push(attributeUsageEvent(event, 'codex', usageAgentIdFromFilePath(filePath)));
-      }
-    });
-    child.once('close', code => {
-      if (unavailable || (code !== 0 && code !== 1)) {
-        resolve(null);
-        return;
-      }
-      resolve({ events, partial: false, source: 'ripgrep token_count scan' });
-    });
-  });
-}
-
-async function collectProviderDailyEvents(provider, roots, options = {}) {
-  const now = options.now ?? Date.now();
-  const days = Math.max(1, Math.floor(options.days ?? USAGE_DAILY_DAYS));
-  const cutoff = new Date(now);
-  cutoff.setHours(0, 0, 0, 0);
-  cutoff.setDate(cutoff.getDate() - days);
-  if (provider === 'codex') {
-    const ripgrepResult = await collectCodexDailyEventsWithRipgrep(roots, {
-      now,
-      cutoffMs: cutoff.getTime(),
-    });
-    if (ripgrepResult) return ripgrepResult;
-  }
-  const fileLimit = options.fileLimit ?? DAILY_JSONL_FILE_LIMIT;
-  const files = await findRecentJsonlFiles(roots, {
-    limit: fileLimit,
-    maxDepth: options.maxDepth ?? 6,
-    scanLimit: options.scanLimit ?? DAILY_JSONL_SCAN_LIMIT,
-  });
-  const events = [];
-  let truncated = false;
-  for (const filePath of files) {
-    const file = await readDailyFileEvents(filePath, provider, cutoff.getTime()).catch(() => null);
-    if (!file) continue;
-    events.push(...file.events);
-    truncated = truncated || file.truncated === true;
-  }
-  return {
-    events,
-    partial: truncated || files.length >= fileLimit,
-  };
-}
-
 async function defaultOpenCodeCommandRunner(args, options = {}) {
   const env = { ...process.env };
   if (options.openCodeHome) env.OPENCODE_CONFIG_DIR = options.openCodeHome;
@@ -979,16 +591,6 @@ async function collectUsageHistory(options = {}) {
   const cutoff = new Date(now);
   cutoff.setHours(0, 0, 0, 0);
   cutoff.setDate(cutoff.getDate() - days);
-  const codexHomes = providerHomePaths(
-    options.providerHomes,
-    'codex',
-    options.codexHome || path.join(os.homedir(), '.codex'),
-  );
-  const claudeHomes = providerHomePaths(
-    options.providerHomes,
-    'claude',
-    options.claudeHome || path.join(os.homedir(), '.claude'),
-  );
   const openCodeHomes = providerHomePaths(
     options.providerHomes,
     'opencode',
@@ -999,41 +601,41 @@ async function collectUsageHistory(options = {}) {
     'qoder',
     options.qoderHome || path.join(os.homedir(), '.qoder'),
   );
-  const [codex, claude, openCode] = await Promise.all([
-    collectProviderDailyEvents('codex', codexHomes.flatMap(home => [
-      path.join(home, 'sessions'),
-      path.join(home, 'archived_sessions'),
-    ]), { now, days, maxDepth: 6 }),
-    collectProviderDailyEvents('claude', claudeHomes.map(home => path.join(home, 'projects')), {
-      now,
-      days,
-      maxDepth: 4,
-    }),
+  const [ccStatistics, openCode] = await Promise.all([
+    collectCCStatistics({ ...options, now, days }),
     collectOpenCodeDailyEvents(openCodeHomes, {
       now,
       cutoffMs: cutoff.getTime(),
       openCodeCommandRunner: options.openCodeCommandRunner,
     }),
   ]);
+  const codex = ccStatistics.result.providers.codex;
+  const claude = ccStatistics.result.providers.claude;
+  const codexEvents = ccStatisticsProviderEvents(ccStatistics.result, 'codex');
+  const claudeEvents = ccStatisticsProviderEvents(ccStatistics.result, 'claude');
   const providerEvents = {
-    codex: codex.events,
-    claude: claude.events,
+    codex: codexEvents,
+    claude: claudeEvents,
     opencode: openCode.events,
   };
   const coverage = [
     {
       provider: 'codex',
       providerName: 'Codex',
-      available: true,
-      homeCount: codexHomes.length,
-      source: codex.source || 'local Codex token_count events',
+      available: codex.available === true,
+      homeCount: ccStatistics.roots.codexHomes.length,
+      fileCount: codex.fileCount,
+      source: ccStatistics.result.source,
+      ...(codex.reason ? { reason: codex.reason } : {}),
     },
     {
       provider: 'claude',
       providerName: 'Claude',
-      available: true,
-      homeCount: claudeHomes.length,
-      source: 'local Claude usage fields',
+      available: claude.available === true,
+      homeCount: ccStatistics.roots.claudeHomes.length,
+      fileCount: claude.fileCount,
+      source: ccStatistics.result.source,
+      ...(claude.reason ? { reason: claude.reason } : {}),
     },
     {
       provider: 'opencode',
@@ -1058,8 +660,9 @@ async function collectUsageHistory(options = {}) {
   return {
     daily: {
       ...buildDailyUsage(providerEvents, { now, days }),
-      partial: codex.partial || claude.partial || openCode.partial,
+      partial: codex.available !== true || claude.available !== true || openCode.partial,
       coverage,
+      ccStatisticsCache: ccStatistics.result.cache,
     },
     providerEvents,
     coverage,
@@ -1115,115 +718,72 @@ async function collectCodexUsage(options = {}) {
   const now = options.now ?? Date.now();
   const windowMs = options.windowMs ?? USAGE_WINDOW_MS;
   const historyWindowMs = options.historyWindowMs ?? USAGE_TIMELINE_WINDOW_MS;
-  const codexHomes = providerHomePaths(
-    options.providerHomes,
-    'codex',
-    options.codexHome || path.join(os.homedir(), '.codex'),
-  );
-  const roots = codexHomes.flatMap(home => [
-    path.join(home, 'sessions'),
-    path.join(home, 'archived_sessions'),
-  ]);
-  const files = await findRecentJsonlFiles(roots, {
-    limit: options.fileLimit ?? JSONL_FILE_LIMIT,
-    maxDepth: 6,
-    scanLimit: options.scanLimit ?? JSONL_SCAN_LIMIT,
+  const ccStatistics = await collectCCStatistics({
+    ...options,
+    now,
+    days: options.days ?? USAGE_DAILY_DAYS,
   });
-  let totalTokens = 0;
-  let eventCount = 0;
-  const tokenEvents = [];
+  const provider = ccStatistics.result.providers.codex;
+  const events = ccStatisticsProviderEvents(ccStatistics.result, 'codex');
   let latestQuota = null;
   let latestQuotaAt = 0;
   let latestOverallQuota = null;
   let latestOverallQuotaAt = 0;
 
-  for (const filePath of files) {
-    const records = await readJsonlRecords(filePath).catch(() => []);
-    for (const record of records) {
-      if (record.type !== 'event_msg' || record.payload?.type !== 'token_count') continue;
-      const timestamp = parseTimestampMs(record.timestamp);
-      const rateLimits = parseCodexRateLimits(record.payload.rate_limits);
-      if (rateLimits && (!timestamp || timestamp >= latestQuotaAt)) {
-        latestQuota = rateLimits;
-        latestQuotaAt = timestamp ?? latestQuotaAt;
-      }
-      if (rateLimits && isCodexOverallRateLimit(rateLimits) && (!timestamp || timestamp >= latestOverallQuotaAt)) {
-        latestOverallQuota = rateLimits;
-        latestOverallQuotaAt = timestamp ?? latestOverallQuotaAt;
-      }
-
+  for (const candidate of provider.quotaCandidates || []) {
+    const timestamp = parseTimestampMs(candidate.timestamp);
+    const rateLimits = parseCodexRateLimits(candidate.rateLimits);
+    if (rateLimits && (!timestamp || timestamp >= latestQuotaAt)) {
+      latestQuota = rateLimits;
+      latestQuotaAt = timestamp ?? latestQuotaAt;
     }
-    const fileUsage = collectCodexTokenDeltas(records, { now, windowMs, historyWindowMs });
-    totalTokens += fileUsage.totalTokens;
-    eventCount += fileUsage.eventCount;
-    tokenEvents.push(...fileUsage.tokenEvents);
+    if (rateLimits && isCodexOverallRateLimit(rateLimits) && (!timestamp || timestamp >= latestOverallQuotaAt)) {
+      latestOverallQuota = rateLimits;
+      latestOverallQuotaAt = timestamp ?? latestOverallQuotaAt;
+    }
   }
   const quota = latestOverallQuota || latestQuota || {
     available: false,
-    source: 'codex token_count events',
-    reason: 'No recent Codex token_count event with rate limits was found.',
+    source: ccStatistics.result.source,
+    reason: provider.reason || 'No Codex token_count event with rate limits was found.',
   };
+  const usage = providerUsageFromEvents(events, {
+    now,
+    windowMs,
+    historyWindowMs,
+    source: ccStatistics.result.source,
+  });
+  if (provider.available !== true) {
+    usage.tokenUsage.available = false;
+    usage.tokenUsage.reason = provider.reason || 'cc-statistics is unavailable.';
+  }
 
   return {
     quota: attachQuotaForecasts(quota, { now }),
-    tokenUsage: tokenUsageSummary({
-      totalTokens,
-      eventCount,
-      source: 'codex cumulative token_count deltas',
-      windowMs,
-      sampledAt: now,
-    }),
-    tokenEvents,
+    ...usage,
   };
-}
-
-function claudeUsageObjectsFromRecord(record) {
-  const objects = [];
-  if (record?.message?.usage) objects.push(record.message.usage);
-  if (record?.toolUseResult?.usage) objects.push(record.toolUseResult.usage);
-  return objects;
 }
 
 async function collectClaudeUsage(options = {}) {
   const now = options.now ?? Date.now();
   const windowMs = options.windowMs ?? USAGE_WINDOW_MS;
   const historyWindowMs = options.historyWindowMs ?? USAGE_TIMELINE_WINDOW_MS;
-  const claudeHomes = providerHomePaths(
-    options.providerHomes,
-    'claude',
-    options.claudeHome || path.join(os.homedir(), '.claude'),
-  );
-  const files = await findRecentJsonlFiles(claudeHomes.map(home => path.join(home, 'projects')), {
-    limit: options.fileLimit ?? JSONL_FILE_LIMIT,
-    maxDepth: 4,
-    scanLimit: options.scanLimit ?? JSONL_SCAN_LIMIT,
+  const ccStatistics = await collectCCStatistics({
+    ...options,
+    now,
+    days: options.days ?? USAGE_DAILY_DAYS,
   });
-  let totalTokens = 0;
-  let eventCount = 0;
-  const tokenEvents = [];
-
-  for (const filePath of files) {
-    const records = await readJsonlRecords(filePath).catch(() => []);
-    for (const record of records) {
-      const timestamp = parseTimestampMs(record.timestamp);
-      if (!timestamp || timestamp < now - historyWindowMs || timestamp > now + 60_000) continue;
-
-      for (const usage of claudeUsageObjectsFromRecord(record)) {
-        const tokenTotal = tokenTotalFromUsage(usage, [
-          'input_tokens',
-          'cache_creation_input_tokens',
-          'cache_read_input_tokens',
-          'output_tokens',
-        ]);
-        if (tokenTotal > 0) {
-          tokenEvents.push({ timestamp, totalTokens: tokenTotal });
-          if (timestamp >= now - windowMs) {
-            totalTokens += tokenTotal;
-            eventCount += 1;
-          }
-        }
-      }
-    }
+  const provider = ccStatistics.result.providers.claude;
+  const events = ccStatisticsProviderEvents(ccStatistics.result, 'claude');
+  const usage = providerUsageFromEvents(events, {
+    now,
+    windowMs,
+    historyWindowMs,
+    source: ccStatistics.result.source,
+  });
+  if (provider.available !== true) {
+    usage.tokenUsage.available = false;
+    usage.tokenUsage.reason = provider.reason || 'cc-statistics is unavailable.';
   }
 
   return {
@@ -1232,14 +792,7 @@ async function collectClaudeUsage(options = {}) {
       source: 'claude auth status',
       reason: 'Claude Code auth/status output does not expose usage remaining.',
     },
-    tokenUsage: tokenUsageSummary({
-      totalTokens,
-      eventCount,
-      source: 'claude local usage fields',
-      windowMs,
-      sampledAt: now,
-    }),
-    tokenEvents,
+    ...usage,
   };
 }
 
@@ -1254,6 +807,10 @@ class UsageMonitor {
     this.qoderHome = options.qoderHome;
     this.getProviderHomes = options.getProviderHomes || null;
     this.openCodeCommandRunner = options.openCodeCommandRunner;
+    this.configDir = options.configDir || path.join(os.homedir(), '.farming');
+    this.ccStatisticsClient = options.ccStatisticsClient || new CCStatisticsClient({
+      configDir: this.configDir,
+    });
     this.windowMs = options.windowMs ?? USAGE_WINDOW_MS;
     this.dailyDays = options.dailyDays ?? USAGE_DAILY_DAYS;
     this.dailyCacheMs = options.dailyCacheMs ?? USAGE_DAILY_CACHE_MS;
@@ -1312,6 +869,8 @@ class UsageMonitor {
       qoderHome: this.qoderHome,
       providerHomes,
       openCodeCommandRunner: this.openCodeCommandRunner,
+      configDir: this.configDir,
+      ccStatisticsClient: this.ccStatisticsClient,
       now,
       days: this.dailyDays,
     }).then(value => {
@@ -1362,6 +921,8 @@ class UsageMonitor {
         qoderHome: this.qoderHome,
         providerHomes: this.getProviderHomes ? this.getProviderHomes() : undefined,
         openCodeCommandRunner: this.openCodeCommandRunner,
+        configDir: this.configDir,
+        ccStatisticsClient: this.ccStatisticsClient,
         now,
         days: 1,
       }).then(history => {
@@ -1400,8 +961,26 @@ class UsageMonitor {
     ] = await Promise.all([
       readCodexAuthStatus(this.commandRunner),
       readClaudeAuthStatus(this.commandRunner),
-      collectCodexUsage({ codexHome: this.codexHome, providerHomes, now, windowMs, historyWindowMs }),
-      collectClaudeUsage({ claudeHome: this.claudeHome, providerHomes, now, windowMs, historyWindowMs }),
+      collectCodexUsage({
+        codexHome: this.codexHome,
+        claudeHome: this.claudeHome,
+        providerHomes,
+        configDir: this.configDir,
+        ccStatisticsClient: this.ccStatisticsClient,
+        now,
+        windowMs,
+        historyWindowMs,
+      }),
+      collectClaudeUsage({
+        codexHome: this.codexHome,
+        claudeHome: this.claudeHome,
+        providerHomes,
+        configDir: this.configDir,
+        ccStatisticsClient: this.ccStatisticsClient,
+        now,
+        windowMs,
+        historyWindowMs,
+      }),
       this.getDailyUsage({ now, force: options.fresh === true }),
       this.systemMonitor?.getSystemStats ? this.systemMonitor.getSystemStats().catch(() => null) : Promise.resolve(null),
     ]);
@@ -1507,10 +1086,7 @@ module.exports = {
   collectClaudeUsage,
   collectCodexUsage,
   collectOpenCodeDailyEvents,
-  findRecentJsonlFiles,
   openCodeTokenEventsFromExport,
   readClaudeAuthStatus,
   readCodexAuthStatus,
-  collectCodexTokenDeltas,
-  tokenTotalFromUsage,
 };

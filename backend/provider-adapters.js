@@ -7,45 +7,73 @@ const {
 } = require('./provider-session-id');
 
 const CODEX_VALUE_OPTIONS = new Set([
-  '-a', '-c', '-C', '-m', '-s', '--ask-for-approval', '--cd', '--config',
-  '--config-profile', '--model', '--profile', '--sandbox',
+  '-a', '-c', '-C', '-m', '-p', '-s', '--ask-for-approval', '--cd', '--config',
+  '--config-profile', '--model', '--profile', '--sandbox', '--add-dir',
+  '--enable', '--disable', '--remote', '--remote-auth-token-env',
+  '--local-provider', '-i', '--image',
 ]);
+const OPENCODE_VALUE_OPTIONS = new Set([
+  '-m', '-s', '--agent', '--hostname', '--log-level', '--mdns-domain',
+  '--model', '--port', '--prompt', '--replay-limit', '--session',
+]);
+const CODEX_SUBCOMMANDS = new Set([
+  'exec', 'e', 'review', 'login', 'logout', 'mcp', 'plugin', 'mcp-server',
+  'app-server', 'remote-control', 'app', 'completion', 'update', 'doctor',
+  'sandbox', 'debug', 'apply', 'a', 'resume', 'archive', 'delete', 'unarchive',
+  'fork', 'cloud', 'exec-server', 'features', 'help',
+]);
+const OPENCODE_SUBCOMMANDS = new Set([
+  'completion', 'acp', 'mcp', 'attach', 'run', 'debug', 'providers', 'auth',
+  'agent', 'upgrade', 'uninstall', 'serve', 'web', 'models', 'stats', 'export',
+  'import', 'github', 'pr', 'session', 'plugin', 'plug', 'db',
+]);
+const CODEX_SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function optionTakesValue(option, valueOptions) {
   return Boolean(option && !option.includes('=') && valueOptions.has(option));
 }
 
-function firstCodexSubcommand(args) {
+function scanPositionals(args, valueOptions, options = {}) {
+  const positionals = [];
   for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
+    const arg = String(args[index] || '');
     if (!arg) continue;
+    if (arg === '--') {
+      for (let positionalIndex = index + 1; positionalIndex < args.length; positionalIndex += 1) {
+        const value = String(args[positionalIndex] || '');
+        if (value) positionals.push({ value, index: positionalIndex, afterDelimiter: true });
+      }
+      break;
+    }
     if (arg.startsWith('-')) {
-      if (optionTakesValue(arg, CODEX_VALUE_OPTIONS)) index += 1;
+      if (
+        options.multiValueOptions?.has(arg)
+        && !arg.includes('=')
+      ) {
+        while (index + 1 < args.length && !String(args[index + 1] || '').startsWith('-')) index += 1;
+        continue;
+      }
+      if (optionTakesValue(arg, valueOptions)) index += 1;
       continue;
     }
-    return { value: arg, index };
+    positionals.push({ value: arg, index, afterDelimiter: false });
   }
-  return null;
+  return positionals;
 }
 
 function codexSessionIdAfterSubcommand(args, subcommandIndex) {
-  const positional = [];
-  for (let index = subcommandIndex + 1; index < args.length; index += 1) {
-    const arg = args[index];
-    if (!arg) continue;
-    if (arg.startsWith('-')) {
-      if (optionTakesValue(arg, CODEX_VALUE_OPTIONS)) index += 1;
-      continue;
-    }
-    positional.push(arg);
-  }
-  const sessionId = positional.at(-1) || '';
-  return isSafeProviderSessionId(sessionId) ? sessionId : '';
+  const sessionId = scanPositionals(
+    args.slice(subcommandIndex + 1),
+    CODEX_VALUE_OPTIONS,
+    { multiValueOptions: new Set(['-i', '--image']) },
+  )[0]?.value || '';
+  return CODEX_SESSION_ID_RE.test(sessionId) ? sessionId.toLowerCase() : '';
 }
 
 function argValue(args, names) {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+    if (arg === '--') break;
     for (const name of names) {
       if (arg === name) return args[index + 1] || '';
       if (arg.startsWith(`${name}=`)) return arg.slice(name.length + 1);
@@ -55,13 +83,26 @@ function argValue(args, names) {
 }
 
 function hasArg(args, names) {
-  return args.some(arg => names.includes(arg) || names.some(name => arg.startsWith(`${name}=`)));
+  for (const arg of args) {
+    if (arg === '--') break;
+    if (names.includes(arg) || names.some(name => arg.startsWith(`${name}=`))) return true;
+  }
+  return false;
 }
 
-function codexSessionPlan(rawArgs) {
-  const subcommand = firstCodexSubcommand(rawArgs);
+function codexSessionPlan(rawArgs, _launchArgs) {
+  const positional = scanPositionals(rawArgs, CODEX_VALUE_OPTIONS, {
+    multiValueOptions: new Set(['-i', '--image']),
+  });
+  const subcommand = positional[0]
+    && positional[0].afterDelimiter !== true
+    && CODEX_SUBCOMMANDS.has(positional[0].value)
+    ? positional[0]
+    : null;
   if (subcommand?.value === 'resume') {
-    const id = codexSessionIdAfterSubcommand(rawArgs, subcommand.index);
+    const id = hasArg(rawArgs.slice(subcommand.index + 1), ['--last'])
+      ? ''
+      : codexSessionIdAfterSubcommand(rawArgs, subcommand.index);
     if (id) return { id, temporary: false, source: 'resume' };
   }
   if (subcommand?.value === 'fork') {
@@ -69,11 +110,24 @@ function codexSessionPlan(rawArgs) {
       id: createTemporaryProviderSessionId(),
       temporary: true,
       source: 'codex-fork-temporary',
-      forkedFromProviderSessionId: codexSessionIdAfterSubcommand(rawArgs, subcommand.index),
+      forkedFromProviderSessionId: hasArg(rawArgs.slice(subcommand.index + 1), ['--last'])
+        ? ''
+        : codexSessionIdAfterSubcommand(rawArgs, subcommand.index),
     };
   }
-  if (subcommand?.value) return null;
-  return { id: createTemporaryProviderSessionId(), temporary: true, source: 'codex-temporary' };
+  if (subcommand) return null;
+  if (hasArg(rawArgs, ['--remote'])) {
+    return {
+      error: 'A fresh Codex --remote Terminal cannot pre-create a stable session id; resume an explicit remote session id instead',
+    };
+  }
+  return {
+    id: '',
+    precreate: true,
+    temporary: false,
+    source: 'codex-precreate',
+    identityWorkspace: argValue(rawArgs, ['-C', '--cd']),
+  };
 }
 
 function explicitSessionPlan(provider, rawArgs, launchArgs) {
@@ -103,22 +157,42 @@ function explicitSessionPlan(provider, rawArgs, launchArgs) {
   };
 }
 
-function openCodeSessionPlan(rawArgs) {
+function openCodeSessionPlan(rawArgs, launchArgs) {
   const id = argValue(rawArgs, ['--session', '-s']);
-  if (!id || !isSafeProviderSessionId(id)) return null;
-  return hasArg(rawArgs, ['--fork'])
-    ? {
-      id: createTemporaryProviderSessionId(),
-      temporary: true,
-      source: 'opencode-fork-temporary',
-      forkedFromProviderSessionId: id,
-    }
-    : { id, temporary: false, source: 'resume' };
+  if (id && isSafeProviderSessionId(id)) {
+    return hasArg(rawArgs, ['--fork'])
+      ? {
+        id: createTemporaryProviderSessionId(),
+        temporary: true,
+        source: 'opencode-fork-temporary',
+        forkedFromProviderSessionId: id,
+      }
+      : { id, temporary: false, source: 'resume' };
+  }
+  if (hasArg(rawArgs, ['--session', '-s', '--continue', '-c', '--fork'])) return null;
+  const positional = scanPositionals(rawArgs, OPENCODE_VALUE_OPTIONS, {
+    multiValueOptions: new Set(['--cors']),
+  });
+  if (
+    positional[0]
+    && positional[0].afterDelimiter !== true
+    && OPENCODE_SUBCOMMANDS.has(positional[0].value)
+  ) return null;
+  return {
+    id: '',
+    precreate: true,
+    temporary: false,
+    source: 'opencode-precreate',
+    identityWorkspace: positional[0]?.value || '',
+    resumeInsertIndex: launchArgs.length,
+  };
 }
 
 function codexAcpEnvironment(options = {}) {
   const env = { ...(options.env || process.env) };
   if (options.executable && !env.CODEX_PATH) env.CODEX_PATH = options.executable;
+  if (options.identityOnly === true) env.FARMING_CODEX_ACP_IDENTITY_ONLY = '1';
+  else delete env.FARMING_CODEX_ACP_IDENTITY_ONLY;
   let config = {};
   if (env.CODEX_CONFIG) {
     try {
@@ -148,6 +222,7 @@ const PROVIDER_ADAPTERS = Object.freeze([
     commands: ['codex'],
     supportedRuntimes: ['terminal', 'acp', 'json'],
     planSession: codexSessionPlan,
+    terminalResumeArgs: (args, sessionId) => ['resume', sessionId, ...args],
     acp: { packageName: '@agentclientprotocol/codex-acp', version: '1.1.4' },
     prepareAcpEnvironment: codexAcpEnvironment,
     capabilities: { runtimeSwitch: true, terminalProfile: true, goals: false },
@@ -175,6 +250,16 @@ const PROVIDER_ADAPTERS = Object.freeze([
     commands: ['opencode'],
     supportedRuntimes: ['terminal', 'acp', 'json'],
     planSession: openCodeSessionPlan,
+    terminalResumeArgs: (args, sessionId) => {
+      const delimiterIndex = args.indexOf('--');
+      const insertIndex = delimiterIndex >= 0 ? delimiterIndex : args.length;
+      return [
+        ...args.slice(0, insertIndex),
+        '--session',
+        sessionId,
+        ...args.slice(insertIndex),
+      ];
+    },
     acp: {
       version: 'native',
       launch: options => ({

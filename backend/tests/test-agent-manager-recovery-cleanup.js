@@ -50,27 +50,47 @@ function configManager() {
     getTaskHistory() {
       return [];
     },
+    getMainPageSessionKeys() {
+      return [
+        'agent-session:codex:11111111-1111-4111-8111-111111111111',
+        'agent-session:codex:44444444-4444-4444-8444-444444444444',
+      ];
+    },
     listAgentSessionRecords() {
-      return [{
-        runtimeAgentId: 'recovered-codex',
-        source: 'ui',
-        projectWorkspace: '/repo',
-        provider: 'codex',
-        providerHomeId: 'default',
-        providerHomePath: '/home/test/.codex',
-        providerSessionId: '11111111-1111-4111-8111-111111111111',
-        providerSessionKey: 'agent-session:codex:11111111-1111-4111-8111-111111111111',
-        providerSessionTemporary: false,
-        providerSessionSource: 'codex-rollout',
-        providerSessionResolvedAt: 1234,
-        providerSessionTitle: 'Recovered Codex session',
-        providerSessionWorkspace: '/repo',
-        terminalInputReceived: true,
-        agentRuntimeMode: 'terminal',
-        pinned: true,
-        projectOrder: 4096,
-        pinnedOrder: 2048,
-      }];
+      return [
+        {
+          runtimeAgentId: 'recovered-codex',
+          source: 'ui',
+          projectWorkspace: '/repo',
+          provider: 'codex',
+          providerHomeId: 'default',
+          providerHomePath: '/home/test/.codex',
+          providerSessionId: '11111111-1111-4111-8111-111111111111',
+          providerSessionKey: 'agent-session:codex:11111111-1111-4111-8111-111111111111',
+          providerSessionTemporary: false,
+          providerSessionSource: 'codex-rollout',
+          providerSessionResolvedAt: 1234,
+          providerSessionTitle: 'Recovered Codex session',
+          providerSessionWorkspace: '/repo',
+          customTitle: 'Persisted Agent name',
+          terminalInputReceived: true,
+          agentRuntimeMode: 'terminal',
+          pinned: true,
+          projectOrder: 4096,
+          pinnedOrder: 2048,
+        },
+        {
+          runtimeAgentId: 'recovered-cleared-title',
+          source: 'ui',
+          projectWorkspace: '/repo',
+          provider: 'codex',
+          providerHomeId: 'default',
+          providerSessionId: '44444444-4444-4444-8444-444444444444',
+          providerSessionKey: 'agent-session:codex:44444444-4444-4444-8444-444444444444',
+          customTitle: '',
+          agentRuntimeMode: 'terminal',
+        },
+      ];
     },
   };
 }
@@ -91,6 +111,7 @@ async function run() {
             cwd: '/repo',
             category: 'coding',
             source: 'ui',
+            customTitle: 'Stale runtime name',
             launchPermissionMode: 'full',
           },
           state: { status: 'running', startedAt: 1234 },
@@ -107,6 +128,19 @@ async function run() {
             wantsMain: true,
           },
           state: { status: 'running', startedAt: 2000 },
+        },
+        {
+          engineName: 'native',
+          agentId: 'recovered-cleared-title',
+          metadata: {
+            agentId: 'recovered-cleared-title',
+            command: 'codex',
+            cwd: '/repo',
+            category: 'coding',
+            source: 'ui',
+            customTitle: 'Stale title that must stay cleared',
+          },
+          state: { status: 'running', startedAt: 2100 },
         },
         {
           engineName: 'native',
@@ -158,6 +192,12 @@ async function run() {
       'the first recovered projection must retain the persisted provider identity even when a legacy host omits it'
     );
     assert.strictEqual(manager.agents.get('recovered-codex').providerSessionTemporary, false);
+    assert.strictEqual(manager.agents.get('recovered-codex').customTitle, 'Persisted Agent name');
+    assert.strictEqual(
+      manager.agents.get('recovered-cleared-title').customTitle,
+      '',
+      'an explicitly cleared persisted title must override stale native-host metadata',
+    );
     assert.strictEqual(manager.agents.get('recovered-codex').terminalInputReceived, true);
     assert.strictEqual(
       manager.getState().agents.find(agent => agent.id === 'recovered-codex').launchPermissionMode,
@@ -300,6 +340,7 @@ async function run() {
     category: 'other',
     source: 'ui',
     agentRuntimeMode: 'terminal',
+    visibleOnMainPage: true,
     archived: false,
     updatedAt: 30,
   };
@@ -378,11 +419,10 @@ async function run() {
     assert.strictEqual(shellRestart.command, 'bash');
     assert.strictEqual(shellRestart.options.reviveTerminalState.replayEvent.events[0].data, 'shell output before rotation');
     assert.strictEqual(serializedRotationManager.agents.has(hiddenRecord.runtimeAgentId), false);
-    assert.strictEqual(serializedRotationManager.agents.has(appServerRecord.runtimeAgentId), true);
     assert.strictEqual(
-      serializedRotationManager.agents.get(appServerRecord.runtimeAgentId).runtimeBinding.kind,
-      'acp',
-      'legacy App Server records should migrate to ACP instead of reviving a PTY or App Server process'
+      serializedRotationManager.agents.has(appServerRecord.runtimeAgentId),
+      false,
+      'a hidden legacy App Server record must stay in History instead of migrating back into the main page'
     );
   } finally {
     await serializedRotationManager.dispose({ preserveTerminalHost: true });
@@ -404,6 +444,10 @@ async function run() {
           async createSession() {
             throw new Error('simulated replacement host launch failure');
           },
+          async killSession() {},
+          async getSessionState() {
+            return null;
+          },
         },
         spec: { category: 'shell' },
       };
@@ -423,12 +467,15 @@ async function run() {
       }
     );
     assert.strictEqual(restartedAgentId, null);
-    assert.strictEqual(persistedRuntimeAgentIds.length, 2);
-    assert.match(persistedRuntimeAgentIds[0], /^agent-/);
     assert.strictEqual(
-      persistedRuntimeAgentIds[1],
+      persistedRuntimeAgentIds.length,
+      1,
+      'a replacement runtime must not be persisted before its engine session exists',
+    );
+    assert.strictEqual(
+      persistedRuntimeAgentIds[0],
       'agent-before-failed-restart',
-      'a failed replacement launch must restore the persisted record to its previous runtime Agent id'
+      'a failed replacement launch must retain the previous runtime Agent id'
     );
   } finally {
     await rollbackManager.dispose({ preserveTerminalHost: true });

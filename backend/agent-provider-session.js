@@ -16,9 +16,13 @@ function emptyPlan(args) {
   return {
     provider: '',
     id: '',
+    precreate: false,
     temporary: false,
     source: '',
     forkedFromProviderSessionId: '',
+    identityWorkspace: '',
+    resumeInsertIndex: null,
+    error: '',
     args,
   };
 }
@@ -44,13 +48,23 @@ function buildAgentProviderSessionPlan({ command, program, args, source } = {}) 
   }
 
   const plan = adapter.planSession(rawParts.slice(1), launchArgs);
-  if (!plan?.id) return emptyPlan(launchArgs);
+  if (plan?.error) {
+    return {
+      ...emptyPlan(launchArgs),
+      provider,
+      error: String(plan.error),
+    };
+  }
+  if (!plan || (!plan.id && plan.precreate !== true)) return emptyPlan(launchArgs);
   return {
     provider,
     id: plan.id,
+    precreate: plan.precreate === true,
     temporary: plan.temporary === true,
     source: plan.source || '',
     forkedFromProviderSessionId: plan.forkedFromProviderSessionId || '',
+    identityWorkspace: plan.identityWorkspace || '',
+    resumeInsertIndex: Number.isInteger(plan.resumeInsertIndex) ? plan.resumeInsertIndex : null,
     args: Array.isArray(plan.args) ? plan.args : launchArgs,
   };
 }
