@@ -178,7 +178,7 @@ async function run() {
   };
   const cold = await client.collect(request);
   assert.strictEqual(cold.source, 'farming-usage-ts-1-codexbar-v0.45.2');
-  assert.strictEqual(cold.schemaVersion, 9);
+  assert.strictEqual(cold.schemaVersion, 11);
   assert.strictEqual(cold.cache.scan_complete, true);
   assert.strictEqual(cold.providers.codex.events.length, 1);
   assert.strictEqual(sum(cold.providers.codex.events), 110);
@@ -303,8 +303,153 @@ async function run() {
   assert.strictEqual(sum(forked.providers.codex.events), 280);
   assert.deepStrictEqual(
     forked.providers.codex.events.map(event => [event.sessionId, event.totalTokens]),
-    [['parent', 100], ['child', 60], ['sibling', 60], ['total-only', 60]],
+    [['codex-aggregate', 100], ['child', 60], ['sibling', 60], ['total-only', 60]],
   );
+
+  const missingParentRoot = path.join(root, 'missing-parent');
+  writeJsonl(path.join(missingParentRoot, 'child.jsonl'), [
+    meta('2026-07-23T13:00:00.000Z', 'missing-parent-child', {
+      forked_from_id: 'missing-parent',
+    }),
+    assistant('2026-07-23T13:00:30.000Z', 'first owned turn'),
+    token(
+      '2026-07-23T13:01:00.000Z',
+      { input_tokens: 90, output_tokens: 10 },
+      { input_tokens: 50, output_tokens: 10 },
+    ),
+    assistant('2026-07-23T13:01:30.000Z', 'second owned turn'),
+    token(
+      '2026-07-23T13:02:00.000Z',
+      { input_tokens: 105, output_tokens: 15 },
+      null,
+    ),
+  ]);
+  const missingParent = await new UsageHistoryClient({
+    configDir: path.join(root, 'missing-parent-config'),
+  }).collect({
+    now,
+    codexRoots: [missingParentRoot],
+    claudeRoots: [],
+    scanBudgetMs: 30_000,
+    fresh: true,
+  });
+  assert.strictEqual(sum(missingParent.providers.codex.events), 80,
+    'a missing fork parent must not make a later cumulative-only sample recount ancestry');
+
+  const growingRewriteRoot = path.join(root, 'growing-rewrite');
+  const growingRewriteFile = path.join(growingRewriteRoot, 'rollout.jsonl');
+  writeJsonl(growingRewriteFile, [
+    meta('2026-07-23T14:00:00.000Z', 'growing-rewrite'),
+    assistant('2026-07-23T14:00:30.000Z'),
+    token(
+      '2026-07-23T14:01:00.000Z',
+      { input_tokens: 90, output_tokens: 10 },
+      { input_tokens: 90, output_tokens: 10 },
+    ),
+  ]);
+  const growingRewriteClient = new UsageHistoryClient({
+    configDir: path.join(root, 'growing-rewrite-config'),
+  });
+  const growingRewriteRequest = {
+    now,
+    codexRoots: [growingRewriteRoot],
+    claudeRoots: [],
+    scanBudgetMs: 30_000,
+    fresh: true,
+  };
+  const beforeGrowingRewrite = await growingRewriteClient.collect(growingRewriteRequest);
+  assert.strictEqual(sum(beforeGrowingRewrite.providers.codex.events), 100);
+  writeJsonl(growingRewriteFile, [
+    meta('2026-07-23T14:00:00.000Z', 'growing-rewrite'),
+    assistant('2026-07-23T14:00:30.000Z'),
+    token(
+      '2026-07-23T14:01:00.000Z',
+      { input_tokens: 180, output_tokens: 20 },
+      { input_tokens: 180, output_tokens: 20 },
+    ),
+    assistant('2026-07-23T14:01:30.000Z'),
+    token(
+      '2026-07-23T14:02:00.000Z',
+      { input_tokens: 225, output_tokens: 25 },
+      { input_tokens: 45, output_tokens: 5 },
+    ),
+  ]);
+  const afterGrowingRewrite = await growingRewriteClient.collect({
+    ...growingRewriteRequest,
+    now: now + 1,
+  });
+  assert.strictEqual(afterGrowingRewrite.cache.codex_cache_rebuilt, true);
+  assert.strictEqual(sum(afterGrowingRewrite.providers.codex.events), 250,
+    'rewriting a cached prefix and then growing the same inode must rebuild that source');
+
+  const repeatedAppendRoot = path.join(root, 'repeated-append');
+  const repeatedAppendFile = path.join(repeatedAppendRoot, 'rollout.jsonl');
+  writeJsonl(repeatedAppendFile, [
+    meta('2026-07-23T15:00:00.000Z', 'repeated-append'),
+    assistant('2026-07-23T15:00:30.000Z'),
+    token(
+      '2026-07-23T15:01:00.000Z',
+      { input_tokens: 8, output_tokens: 2 },
+      { input_tokens: 8, output_tokens: 2 },
+    ),
+  ]);
+  const repeatedAppendClient = new UsageHistoryClient({
+    configDir: path.join(root, 'repeated-append-config'),
+  });
+  const repeatedAppendRequest = {
+    now,
+    codexRoots: [repeatedAppendRoot],
+    claudeRoots: [],
+    scanBudgetMs: 30_000,
+    fresh: true,
+  };
+  await repeatedAppendClient.collect(repeatedAppendRequest);
+  appendJsonl(repeatedAppendFile, [
+    assistant('2026-07-23T15:01:30.000Z'),
+    token(
+      '2026-07-23T15:02:00.000Z',
+      { input_tokens: 16, output_tokens: 4 },
+      { input_tokens: 8, output_tokens: 2 },
+    ),
+  ]);
+  const firstAppend = await repeatedAppendClient.collect({
+    ...repeatedAppendRequest,
+    now: now + 1,
+  });
+  assert.strictEqual(firstAppend.cache.appended_files, 1);
+  assert.strictEqual(firstAppend.cache.rebuilt_files, 0);
+  appendJsonl(repeatedAppendFile, [
+    assistant('2026-07-23T15:02:30.000Z'),
+    token(
+      '2026-07-23T15:03:00.000Z',
+      { input_tokens: 24, output_tokens: 6 },
+      { input_tokens: 8, output_tokens: 2 },
+    ),
+  ]);
+  const secondAppend = await repeatedAppendClient.collect({
+    ...repeatedAppendRequest,
+    now: now + 2,
+  });
+  assert.strictEqual(secondAppend.cache.appended_files, 1);
+  assert.strictEqual(secondAppend.cache.rebuilt_files, 0,
+    'refreshing the prefix fingerprint must keep a second small-file append incremental');
+  assert.strictEqual(sum(secondAppend.providers.codex.events), 30);
+  const repeatedAppendCache = usageHistoryCacheFile(
+    path.join(root, 'repeated-append-config'),
+  );
+  const recreateDb = new DatabaseSync(repeatedAppendCache);
+  recreateDb.prepare(`
+    INSERT INTO discovery_source_queue(path, provider, action, priority, queued_at_ms)
+    VALUES(?, 'codex', 'remove', -1, ?)
+  `).run(repeatedAppendFile, now + 3);
+  recreateDb.close();
+  const recreatedBeforeRemove = await repeatedAppendClient.collect({
+    ...repeatedAppendRequest,
+    now: now + 3,
+  });
+  assert.strictEqual(recreatedBeforeRemove.cache.pending_files, 0,
+    'a file present when its stale remove runs must be requeued and processed');
+  assert.strictEqual(sum(recreatedBeforeRemove.providers.codex.events), 30);
 
   const subagentRoot = path.join(root, 'subagent');
   writeJsonl(path.join(subagentRoot, 'subagent.jsonl'), [
@@ -440,6 +585,220 @@ async function run() {
   assert.strictEqual(scaled.cache.hourly_rows, 1);
   assert.strictEqual(scaled.cache.codex_fingerprint_rows, 0);
 
+  const discoveryScaleRoot = path.join(root, 'discovery-scale');
+  for (let index = 0; index < 500; index += 1) {
+    writeJsonl(path.join(discoveryScaleRoot, `rollout-${index}.jsonl`), [
+      meta('2026-07-20T11:00:00.000Z', `discovery-${index}`),
+      token(
+        '2026-07-20T11:01:00.000Z',
+        { input_tokens: index + 1, output_tokens: 1 },
+        { input_tokens: index + 1, output_tokens: 1 },
+      ),
+    ]);
+  }
+  const discoveryScaleCache = path.join(root, 'discovery-scale-config', 'usage.sqlite3');
+  let discoveryCold;
+  for (let pass = 0; pass < 8; pass += 1) {
+    discoveryCold = await runUsageWorker({
+      cacheFile: discoveryScaleCache,
+      nowMs: now + pass,
+      scanBudgetMs: 30_000,
+      roots: { codex: [discoveryScaleRoot], claude: [] },
+    });
+    assert(discoveryCold.cache.enumerated_entries <= 256,
+      'one scan pass must not enumerate more than the fixed directory-entry batch');
+    if (discoveryCold.cache.scan_complete) break;
+  }
+  assert.strictEqual(discoveryCold.cache.scan_complete, true);
+  assert.strictEqual(discoveryCold.cache.discovered_files, 500);
+  assert.strictEqual(discoveryCold.providers.codex.events.length, 1,
+    'old session rows must reduce to a bounded provider-hour aggregate');
+  const discoveryWarm = await runUsageWorker({
+    cacheFile: discoveryScaleCache,
+    nowMs: now + 1,
+    scanBudgetMs: 30_000,
+    roots: { codex: [discoveryScaleRoot], claude: [] },
+  });
+  assert.strictEqual(discoveryWarm.cache.enumerated_entries, 0,
+    'an unchanged root must reuse its persisted directory census');
+  assert(discoveryWarm.cache.audited_files <= 160,
+    'steady refresh must stat only the fixed source audit batch');
+  assert.strictEqual(discoveryWarm.cache.bytes_read, 0);
+  assert.deepStrictEqual(discoveryWarm.providers, discoveryCold.providers);
+
+  const sharedRootCacheA = path.join(root, 'shared-root-a.sqlite3');
+  const sharedRootCacheB = path.join(root, 'shared-root-b.sqlite3');
+  const sharedAFirst = await runUsageWorker({
+    cacheFile: sharedRootCacheA,
+    nowMs: now,
+    scanBudgetMs: 30_000,
+    roots: { codex: [discoveryScaleRoot], claude: [] },
+  });
+  const sharedBFirst = await runUsageWorker({
+    cacheFile: sharedRootCacheB,
+    nowMs: now,
+    scanBudgetMs: 30_000,
+    roots: { codex: [discoveryScaleRoot], claude: [] },
+  });
+  assert.strictEqual(sharedAFirst.cache.scan_complete, false);
+  assert.strictEqual(sharedBFirst.cache.scan_complete, false,
+    'directory cursors for two caches must not consume each other');
+  for (const cacheFile of [sharedRootCacheA, sharedRootCacheB]) {
+    let completed = false;
+    for (let pass = 0; pass < 8; pass += 1) {
+      const result = await runUsageWorker({
+        cacheFile,
+        nowMs: now + pass + 1,
+        scanBudgetMs: 30_000,
+        roots: { codex: [discoveryScaleRoot], claude: [] },
+      });
+      if (result.cache.scan_complete) {
+        assert.strictEqual(result.cache.discovered_files, 500);
+        completed = true;
+        break;
+      }
+    }
+    assert.strictEqual(completed, true);
+  }
+
+  writeJsonl(path.join(discoveryScaleRoot, 'rollout-new.jsonl'), [
+    meta('2026-07-20T11:02:00.000Z', 'discovery-new'),
+    token(
+      '2026-07-20T11:03:00.000Z',
+      { input_tokens: 2, output_tokens: 1 },
+      { input_tokens: 2, output_tokens: 1 },
+    ),
+  ]);
+  const changedDirectory = await runUsageWorker({
+    cacheFile: discoveryScaleCache,
+    nowMs: now + 2,
+    scanBudgetMs: 30_000,
+    roots: { codex: [discoveryScaleRoot], claude: [] },
+  });
+  assert(changedDirectory.cache.enumerated_entries <= 256,
+    'adding one file to a flat directory must keep each refresh bounded');
+  assert.strictEqual(changedDirectory.cache.scan_complete, false);
+  for (let pass = 0; pass < 8; pass += 1) {
+    const completed = await runUsageWorker({
+      cacheFile: discoveryScaleCache,
+      nowMs: now + 3 + pass,
+      scanBudgetMs: 30_000,
+      roots: { codex: [discoveryScaleRoot], claude: [] },
+    });
+    assert(completed.cache.enumerated_entries <= 256);
+    if (completed.cache.scan_complete) {
+      assert.strictEqual(completed.cache.discovered_files, 501);
+      break;
+    }
+    if (pass === 7) assert.fail('changed flat directory did not finish its bounded scan');
+  }
+
+  const queuedDeleteRoot = path.join(root, 'queued-delete');
+  for (let index = 0; index < 800; index += 1) {
+    writeJsonl(path.join(queuedDeleteRoot, `rollout-${index}.jsonl`), [
+      meta('2026-07-20T12:00:00.000Z', `queued-delete-${index}`),
+      token(
+        '2026-07-20T12:01:00.000Z',
+        { input_tokens: 1, output_tokens: 1 },
+        { input_tokens: 1, output_tokens: 1 },
+      ),
+    ]);
+  }
+  const queuedDeleteCache = path.join(root, 'queued-delete-config', 'usage.sqlite3');
+  await runUsageWorker({
+    cacheFile: queuedDeleteCache,
+    nowMs: now,
+    scanBudgetMs: 100,
+    roots: { codex: [queuedDeleteRoot], claude: [] },
+  });
+  const queuedDb = new DatabaseSync(queuedDeleteCache, { readOnly: true });
+  const queuedPath = queuedDb.prepare(
+    "SELECT path FROM discovery_source_queue WHERE action = 'upsert' "
+      + 'ORDER BY priority ASC LIMIT 1',
+  ).get().path;
+  queuedDb.close();
+  fs.unlinkSync(queuedPath);
+  let queuedDeleteComplete = false;
+  for (let pass = 0; pass < 16; pass += 1) {
+    const result = await runUsageWorker({
+      cacheFile: queuedDeleteCache,
+      nowMs: now + pass + 1,
+      scanBudgetMs: 30_000,
+      roots: { codex: [queuedDeleteRoot], claude: [] },
+    });
+    assert.strictEqual(result.cache.errors, 0,
+      'a queued source deleted before processing must be removed, not poison the queue');
+    if (result.cache.scan_complete) {
+      queuedDeleteComplete = true;
+      assert.strictEqual(result.cache.discovered_files, 799);
+      break;
+    }
+  }
+  assert.strictEqual(queuedDeleteComplete, true);
+
+  const backgroundRoot = path.join(root, 'background-progress');
+  for (let index = 0; index < 1_100; index += 1) {
+    writeJsonl(path.join(backgroundRoot, `rollout-${index}.jsonl`), [
+      meta('2026-07-20T13:00:00.000Z', `background-${index}`),
+      token(
+        '2026-07-20T13:01:00.000Z',
+        { input_tokens: 1, output_tokens: 1 },
+        { input_tokens: 1, output_tokens: 1 },
+      ),
+    ]);
+  }
+  const backgroundClient = new UsageHistoryClient({
+    configDir: path.join(root, 'background-progress-config'),
+    backgroundDelayMs: 1,
+  });
+  await backgroundClient.collect({
+    now,
+    codexRoots: [backgroundRoot],
+    claudeRoots: [],
+    scanBudgetMs: 30_000,
+    fresh: true,
+  });
+  const backgroundDeadline = Date.now() + 5_000;
+  while (
+    backgroundClient.cached?.cache?.scan_complete !== true
+    && Date.now() < backgroundDeadline
+  ) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.strictEqual(backgroundClient.cached?.cache?.scan_complete, true,
+    'bounded enumeration must count as background progress beyond four batches');
+  assert.strictEqual(backgroundClient.cached?.cache?.discovered_files, 1_100);
+
+  const compatibilityRoot = path.join(root, 'compatibility');
+  const compatibilityFile = path.join(compatibilityRoot, 'rollout.jsonl');
+  writeJsonl(compatibilityFile, [
+    meta('2026-07-20T14:00:00.000Z', 'compatibility'),
+    token(
+      '2026-07-20T14:01:00.000Z',
+      { input_tokens: 3, output_tokens: 1 },
+      { input_tokens: 3, output_tokens: 1 },
+    ),
+  ]);
+  const compatibilityCache = path.join(root, 'compatibility.sqlite3');
+  await runUsageWorker({
+    cacheFile: compatibilityCache,
+    nowMs: now,
+    scanBudgetMs: 30_000,
+    roots: { codex: [compatibilityRoot], claude: [] },
+  });
+  const brokenCompatibilityDb = new DatabaseSync(compatibilityCache);
+  brokenCompatibilityDb.exec('DROP TABLE cache_stats');
+  brokenCompatibilityDb.close();
+  const rebuiltCompatibility = await runUsageWorker({
+    cacheFile: compatibilityCache,
+    nowMs: now + 1,
+    scanBudgetMs: 30_000,
+    roots: { codex: [compatibilityRoot], claude: [] },
+  });
+  assert.strictEqual(rebuiltCompatibility.cache.cache_rebuilt, true,
+    'missing v11 authoritative tables must invalidate the disposable cache');
+  assert.strictEqual(sum(rebuiltCompatibility.providers.codex.events), 4);
+
   const direct = await runUsageWorker({
     cacheFile: path.join(root, 'direct.sqlite3'),
     nowMs: now,
@@ -455,7 +814,30 @@ async function run() {
   db.close();
   assert(!tables.includes('codex_event_fingerprints'));
   assert(tables.includes('usage_hourly'));
+  assert(tables.includes('usage_provider_hourly'));
+  assert(tables.includes('cache_stats'));
+  assert(tables.includes('codex_quota_candidates'));
   assert(tables.includes('claude_messages'));
+  assert(tables.includes('discovery_directories'));
+  assert(tables.includes('discovery_source_queue'));
+  const planDb = new DatabaseSync(usageHistoryCacheFile(configDir), { readOnly: true });
+  const sourceGenerationPlan = planDb.prepare(`
+    EXPLAIN QUERY PLAN
+    SELECT path FROM source_files
+    WHERE directory_path = ? AND directory_generation < ?
+  `).all(path.dirname(codexFile), Number.MAX_SAFE_INTEGER)
+    .map(row => String(row.detail)).join(' ');
+  const directoryGenerationPlan = planDb.prepare(`
+    EXPLAIN QUERY PLAN
+    SELECT path FROM discovery_directories
+    WHERE parent_path = ? AND present = 1 AND parent_generation < ?
+  `).all(codexRoot, Number.MAX_SAFE_INTEGER)
+    .map(row => String(row.detail)).join(' ');
+  planDb.close();
+  assert.match(sourceGenerationPlan, /directory_generation</,
+    'source cleanup must use a generation range, not scan the whole directory index');
+  assert.match(directoryGenerationPlan, /parent_generation</,
+    'directory cleanup must use a generation range, not scan all child rows');
 
   let persistentErrorCalls = 0;
   const persistentErrorClient = new UsageHistoryClient({
@@ -465,7 +847,7 @@ async function run() {
     runner: async requestData => {
       persistentErrorCalls += 1;
       return {
-        schemaVersion: 9,
+        schemaVersion: 11,
         source: 'test',
         sampledAt: requestData.nowMs,
         providers: {

@@ -10,6 +10,7 @@ const { isTemporaryProviderSessionId } = require('./provider-session-id');
 
 const CODEX_RESOLVE_COOLDOWN_MS = 1000;
 const CODEX_MATCH_WINDOW_MS = 30 * 1000;
+const CODEX_STARTUP_RETRY_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 12000];
 const TITLE_RESOLVE_COOLDOWN_MS = 30 * 1000;
 
 function normalizePath(value) {
@@ -41,8 +42,12 @@ class ProviderSessionService {
     this.commit = options.commit || (() => {});
     this.listCodexSessionIdentities = options.listCodexSessionIdentities || listCodexSessionIdentities;
     this.findAgentSession = options.findAgentSession || findAgentSession;
+    this.codexStartupRetryDelaysMs = Array.isArray(options.codexStartupRetryDelaysMs)
+      ? options.codexStartupRetryDelaysMs
+      : CODEX_STARTUP_RETRY_DELAYS_MS;
     this.resolutions = new Map();
     this.codexIdentityScans = new Map();
+    this.codexStartupRetries = new Map();
   }
 
   activate(agentId) {
@@ -51,6 +56,7 @@ class ProviderSessionService {
 
     if (agent.providerSessionProvider === 'codex' && agent.providerSessionTemporary === true) {
       this.observe(agentId, { force: true });
+      this.scheduleTemporaryCodexStartupRetry(agentId);
       return;
     }
 
@@ -67,11 +73,71 @@ class ProviderSessionService {
   stop(agentId) {
     this.resolutions.delete(`codex:${agentId}`);
     this.resolutions.delete(`title:${agentId}`);
+    const startupRetry = this.codexStartupRetries.get(agentId);
+    if (startupRetry?.timer) clearTimeout(startupRetry.timer);
+    this.codexStartupRetries.delete(agentId);
   }
 
   dispose() {
+    for (const startupRetry of this.codexStartupRetries.values()) {
+      if (startupRetry?.timer) clearTimeout(startupRetry.timer);
+    }
     this.resolutions.clear();
     this.codexIdentityScans.clear();
+    this.codexStartupRetries.clear();
+  }
+
+  scheduleTemporaryCodexStartupRetry(agentId) {
+    if (this.codexStartupRetries.has(agentId)) return;
+    const agent = this.agents.get(agentId);
+    const retry = {
+      attempt: 0,
+      timer: null,
+      deadlineAt: (Number(agent?.startedAt) || Date.now()) + CODEX_MATCH_WINDOW_MS,
+    };
+    this.codexStartupRetries.set(agentId, retry);
+
+    const scheduleNext = () => {
+      if (this.codexStartupRetries.get(agentId) !== retry) return;
+      const agent = this.agents.get(agentId);
+      if (
+        !agent
+        || agent.providerSessionProvider !== 'codex'
+        || agent.providerSessionTemporary !== true
+      ) {
+        this.stop(agentId);
+        return;
+      }
+      const delayMs = Number(this.codexStartupRetryDelaysMs[retry.attempt]);
+      if (!Number.isFinite(delayMs) || delayMs < 0) {
+        this.codexStartupRetries.delete(agentId);
+        return;
+      }
+      if (Date.now() + delayMs > retry.deadlineAt) {
+        this.codexStartupRetries.delete(agentId);
+        return;
+      }
+      retry.attempt += 1;
+      retry.timer = setTimeout(async () => {
+        retry.timer = null;
+        if (
+          this.codexStartupRetries.get(agentId) !== retry
+          || Date.now() > retry.deadlineAt
+        ) {
+          if (this.codexStartupRetries.get(agentId) === retry) {
+            this.codexStartupRetries.delete(agentId);
+          }
+          return;
+        }
+        const resolved = await this.resolveTemporaryCodex(agentId, { force: true });
+        if (this.codexStartupRetries.get(agentId) !== retry) return;
+        if (resolved) return;
+        scheduleNext();
+      }, delayMs);
+      retry.timer.unref?.();
+    };
+
+    scheduleNext();
   }
 
   bindConfirmed(agentId, provider, sessionId) {
@@ -210,7 +276,7 @@ class ProviderSessionService {
     }
     const sessions = await scan;
     const workspace = normalizePath(
-      agent?.gitWorktree?.workspace || agent?.projectWorkspace || agent?.cwd || ''
+      agent?.projectWorkspace || agent?.cwd || agent?.gitWorktree?.workspace || ''
     );
     if (!workspace) return null;
     const homeId = String(agent.providerHomeId || 'default').trim() || 'default';

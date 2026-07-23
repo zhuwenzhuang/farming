@@ -196,6 +196,10 @@ for target in "${TARGET_ARRAY[@]}"; do
     CODEX_PATH="${codex_bin}" node "${PROJECT_ROOT}/scripts/smoke-codex-acp-process.js" \
       --command "${out_bin}" \
       --arg --farming-codex-acp
+    if ! "${out_bin}" --farming-usage-history-smoke >/dev/null; then
+      echo "Packaged CLI failed its Usage History worker + SQLite smoke: ${out_bin}" >&2
+      exit 1
+    fi
   fi
   sha256="$(sha256_value "${out_bin}")"
   printf '%s  %s\n' "${sha256}" "${asset_file}" >> "${CHECKSUM_FILE}"

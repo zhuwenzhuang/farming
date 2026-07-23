@@ -258,6 +258,105 @@ async function run() {
   assert.strictEqual(agents.get('title').providerSessionTitle, '');
   assert.deepStrictEqual(titleCommits, [], 'a stale title lookup must not mutate a different session');
 
+  const startupStartedAt = Date.now();
+  agents.set('startup-retry', {
+    id: 'startup-retry',
+    cwd: workspace,
+    projectWorkspace: workspace,
+    gitWorktree: { workspace: '/tmp/provider-session-service-repository-root' },
+    providerSessionProvider: 'codex',
+    providerSessionId: 'tmp_uuid-startup-retry',
+    providerSessionTemporary: true,
+    providerHomeId: 'default',
+    startedAt: startupStartedAt,
+  });
+  let startupScans = 0;
+  let resolveStartupRetry;
+  const startupRetryResolved = new Promise(resolve => {
+    resolveStartupRetry = resolve;
+  });
+  const startupRetryService = new ProviderSessionService({
+    agents,
+    codexStartupRetryDelaysMs: [5, 10, 20],
+    listCodexSessionIdentities: async () => {
+      startupScans += 1;
+      return startupScans < 3
+        ? []
+        : [{
+            id: 'codex-startup-retry',
+            workspace,
+            createdAt: new Date(startupStartedAt).toISOString(),
+          }];
+    },
+    commit(agent, change) {
+      if (change.kind === 'session-updated' && agent.id === 'startup-retry') {
+        resolveStartupRetry();
+      }
+    },
+  });
+  startupRetryService.activate('startup-retry');
+  await Promise.race([
+    startupRetryResolved,
+    new Promise((_, reject) => setTimeout(
+      () => reject(new Error('startup retry did not resolve the Codex session')),
+      500,
+    )),
+  ]);
+  assert.strictEqual(startupScans, 3);
+  assert.strictEqual(agents.get('startup-retry').providerSessionId, 'codex-startup-retry');
+  assert.strictEqual(agents.get('startup-retry').providerSessionTemporary, false);
+
+  const cancelledScan = deferred();
+  let cancelledScans = 0;
+  agents.set('startup-cancelled', {
+    id: 'startup-cancelled',
+    cwd: workspace,
+    projectWorkspace: workspace,
+    providerSessionProvider: 'codex',
+    providerSessionId: 'tmp_uuid-startup-cancelled',
+    providerSessionTemporary: true,
+    providerHomeId: 'default',
+    startedAt: Date.now(),
+  });
+  const cancelledRetryService = new ProviderSessionService({
+    agents,
+    codexStartupRetryDelaysMs: [5, 10],
+    listCodexSessionIdentities: () => {
+      cancelledScans += 1;
+      return cancelledScan.promise;
+    },
+  });
+  cancelledRetryService.activate('startup-cancelled');
+  await Promise.resolve();
+  assert.strictEqual(cancelledScans, 1);
+  cancelledRetryService.stop('startup-cancelled');
+  cancelledScan.resolve([]);
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.strictEqual(cancelledScans, 1, 'a stopped in-flight scan must not recreate its startup timer');
+
+  let deadlineScans = 0;
+  agents.set('startup-deadline', {
+    id: 'startup-deadline',
+    cwd: workspace,
+    projectWorkspace: workspace,
+    providerSessionProvider: 'codex',
+    providerSessionId: 'tmp_uuid-startup-deadline',
+    providerSessionTemporary: true,
+    providerHomeId: 'default',
+    startedAt: Date.now() - 29_990,
+  });
+  const deadlineRetryService = new ProviderSessionService({
+    agents,
+    codexStartupRetryDelaysMs: [50],
+    listCodexSessionIdentities: async () => {
+      deadlineScans += 1;
+      return [];
+    },
+  });
+  deadlineRetryService.activate('startup-deadline');
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.strictEqual(deadlineScans, 1, 'startup retries must not scan beyond the absolute launch deadline');
+
   service.dispose();
   cooldownService.dispose();
   ambiguousService.dispose();
@@ -266,6 +365,9 @@ async function run() {
   missingWorkspaceService.dispose();
   expiredService.dispose();
   titleService.dispose();
+  startupRetryService.dispose();
+  cancelledRetryService.dispose();
+  deadlineRetryService.dispose();
   console.log('test-provider-session-service passed');
 }
 

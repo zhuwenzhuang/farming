@@ -11,6 +11,8 @@ const BACKGROUND_SCAN_DELAY_MS = 100;
 const RESULT_REUSE_MS = 2_000;
 const SOURCE_WORKER_FILE = 'usage-history-worker.js';
 const PACKAGED_WORKER_FILE = 'usage-history-worker.pkg.js';
+let sharedWorkerSession = null;
+let nextWorkerRequestId = 1;
 
 function resolveWorkerFile() {
   if (!process.pkg && process.env.FARMING_PACKAGED_RUNTIME !== '1') {
@@ -21,6 +23,18 @@ function resolveWorkerFile() {
 }
 
 function runUsageWorker(request, options = {}) {
+  if (options.WorkerClass) {
+    return runOneShotUsageWorker(request, options);
+  }
+  const workerFile = path.join(__dirname, resolveWorkerFile());
+  if (!sharedWorkerSession || sharedWorkerSession.workerFile !== workerFile) {
+    sharedWorkerSession?.terminate();
+    sharedWorkerSession = createSharedWorkerSession(workerFile, options.WorkerClass || Worker);
+  }
+  return sharedWorkerSession.run(request, options.timeoutMs || DEFAULT_TIMEOUT_MS);
+}
+
+function runOneShotUsageWorker(request, options = {}) {
   return new Promise((resolve, reject) => {
     const worker = new (options.WorkerClass || Worker)(
       path.join(__dirname, resolveWorkerFile()),
@@ -68,6 +82,76 @@ function runUsageWorker(request, options = {}) {
   });
 }
 
+function createSharedWorkerSession(workerFile, WorkerClass) {
+  const worker = new WorkerClass(workerFile);
+  const pending = new Map();
+  const failAll = (error) => {
+    for (const request of pending.values()) {
+      clearTimeout(request.timeout);
+      request.reject(error);
+    }
+    pending.clear();
+    if (sharedWorkerSession?.worker === worker) sharedWorkerSession = null;
+  };
+  worker.on('message', (message) => {
+    const request = pending.get(message?.requestId);
+    if (!request) return;
+    pending.delete(message.requestId);
+    clearTimeout(request.timeout);
+    if (message?.error) {
+      const error = new Error(message.error.message || 'Usage scanner failed');
+      error.code = message.error.code || 'EUSAGE';
+      error.stack = message.error.stack || error.stack;
+      request.reject(error);
+    } else {
+      request.resolve(message?.result);
+    }
+    if (pending.size === 0) worker.unref?.();
+  });
+  worker.once('error', failAll);
+  worker.once('exit', (code) => {
+    if (pending.size > 0) {
+      const error = new Error(
+        code === 0
+          ? 'TypeScript usage scanner exited before returning all results'
+          : `TypeScript usage scanner exited with code ${code}`,
+      );
+      error.code = 'EUSAGEWORKER';
+      failAll(error);
+    } else if (sharedWorkerSession?.worker === worker) {
+      sharedWorkerSession = null;
+    }
+  });
+  worker.unref?.();
+  return {
+    worker,
+    workerFile,
+    run(request, timeoutMs) {
+      return new Promise((resolve, reject) => {
+        const requestId = nextWorkerRequestId++;
+        const timeout = setTimeout(() => {
+          if (!pending.delete(requestId)) return;
+          const error = new Error(`TypeScript usage scanner exceeded ${timeoutMs}ms`);
+          error.code = 'ETIMEDOUT';
+          reject(error);
+          worker.terminate().catch(() => {});
+          if (sharedWorkerSession?.worker === worker) sharedWorkerSession = null;
+        }, timeoutMs);
+        timeout.unref?.();
+        pending.set(requestId, { resolve, reject, timeout });
+        worker.ref?.();
+        worker.postMessage({ requestId, request });
+      });
+    },
+    terminate() {
+      const error = new Error('Usage scanner worker was replaced');
+      error.code = 'EUSAGEWORKER';
+      failAll(error);
+      worker.terminate().catch(() => {});
+    },
+  };
+}
+
 class UsageHistoryClient {
   constructor(options = {}) {
     this.configDir = options.configDir;
@@ -110,10 +194,15 @@ class UsageHistoryClient {
     const hasErrors = Number(result?.cache?.errors) > 0;
     this.backgroundErrorRetries = hasErrors ? this.backgroundErrorRetries + 1 : 0;
     const progressSignature = [
+      result?.cache?.pending_directories,
       result?.cache?.pending_files,
+      result?.cache?.discovered_files,
       result?.cache?.committed_bytes,
     ].join(':');
-    if (progressSignature === this.backgroundProgressSignature) {
+    if (Number(result?.cache?.enumerated_entries) > 0) {
+      this.backgroundProgressSignature = progressSignature;
+      this.backgroundStalls = 0;
+    } else if (progressSignature === this.backgroundProgressSignature) {
       this.backgroundStalls += 1;
     } else {
       this.backgroundProgressSignature = progressSignature;

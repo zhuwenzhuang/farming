@@ -9,6 +9,7 @@ const {
   buildUsageTimeline,
   collectClaudeUsage,
   collectCodexUsage,
+  collectOpenCodeDailyEvents,
   readClaudeAuthStatus,
   readCodexAuthStatus,
 } = require('../usage-monitor');
@@ -435,6 +436,25 @@ async function run() {
   assert.strictEqual(failedExportCoverage.partial, true);
   assert.strictEqual(failedExportCoverage.sessionCount, 1);
   assert.strictEqual(failedExportCoverage.exportCount, 0);
+  const truncatedOpenCode = await collectOpenCodeDailyEvents([openCodeHome], {
+    now,
+    cutoffMs: now - 24 * 60 * 60 * 1000,
+    async openCodeCommandRunner(args) {
+      if (args[0] === 'session' && args[1] === 'list') {
+        return {
+          stdout: JSON.stringify(Array.from({ length: 5_000 }, (_, index) => ({
+            id: `old-${index}`,
+            updated: now - 2 * 24 * 60 * 60 * 1000,
+          }))),
+          stderr: '',
+        };
+      }
+      throw new Error(`Unexpected truncated OpenCode command ${args.join(' ')}`);
+    },
+  });
+  assert.strictEqual(truncatedOpenCode.partial, true);
+  assert.strictEqual(truncatedOpenCode.available, false);
+  assert.match(truncatedOpenCode.reason, /5,000/);
   assert.strictEqual(selectedDay.providers.opencode.totalTokens, 300);
   const liveDay = await monitor.getUsageDay(summary.daily.endDate, { now, live: true });
   const cachedLiveDay = await monitor.getUsageDay(summary.daily.endDate, { now: now + 1_000, live: true });

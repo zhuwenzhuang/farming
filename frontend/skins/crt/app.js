@@ -3856,11 +3856,17 @@ function renderCrtBillingSelectedDay({ preferSummary = false } = {}) {
   updateCrtBillingExactMetric('billing-day-cache-read', displayPoint && displayPoint.cacheReadTokens, { date: selectedDate, live: isToday });
   updateCrtBillingExactMetric('billing-day-cache-write', displayPoint && displayPoint.cacheWriteTokens, { date: selectedDate, live: isToday });
   if (providers) {
-    const providerTotals = displayProviders ? Object.entries(displayProviders) : [];
-    providers.textContent = providerTotals
+    const providerTotals = displayProviders
+      ? Object.entries(displayProviders).filter(([, usage]) => (
+          Math.max(0, Number(usage && usage.totalTokens) || 0) > 0
+        ))
+      : [];
+    providers.textContent = providerTotals.length > 0
+      ? `${providerTotals.length} ${providerTotals.length === 1 ? 'SOURCE' : 'SOURCES'}`
+      : '--';
+    providers.title = providerTotals
       .map(([provider, usage]) => `${provider.toUpperCase()} ${formatCrtExactUsageValue(usage && usage.totalTokens)}`)
       .join(' · ') || '--';
-    providers.title = providers.textContent;
   }
   if (stateLabel) {
     const notes = isToday ? ['LIVE 5S', 'PARTIAL DAY', 'INCL CACHE'] : ['COMPLETE DAY', 'INCL CACHE'];

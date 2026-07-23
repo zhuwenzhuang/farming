@@ -111,7 +111,11 @@ Shell 和未知命令不会变成可 Resume 的 Provider Session 或 Provider Hi
 
 ## 用量与运行感知
 
-Farming Code 保持紧凑的用量信号。CRT Billing 把本地 Provider 数据扩展成两套运行视图：
+Farming Code 默认保持紧凑信号，需要精确每日总量、按小时 Agent 类型归属、Cache 占比和峰值日上下文时，再打开聚焦的 52 周视图。
+
+![Farming Code Token 用量](code/assets/15-code-usage-activity.png)
+
+CRT Billing 把同一份本地 Provider 历史展示为完整控制室界面：
 
 - **Days**：高对比度的 52 周每日 Activity Calendar、右侧醒目的 Selected Day 缩写 Total、每 5 秒刷新并以跳动数字追赶新总量的当天读数、与 Total/Cache 阶梯波形对齐的 24 格本地小时坐标带，以及 Provider Share。
 - **Live**：60 分钟 Token Rate 示波器、5 分钟 Provider Channel、Quota Window 和 Reset Time。
@@ -120,7 +124,7 @@ Farming Code 保持紧凑的用量信号。CRT Billing 把本地 Provider 数据
 
 ![CRT 实时 Token 遥测](crt/assets/07-crt-billing-live.png)
 
-这些是 Processed Token 遥测，不是账单。Cache Read 会包含在内。Provider 没有 Quota 或 Token Field 时会明确显示不可用，不会从 Terminal Output 中猜测。
+两套皮肤读取同一份 Provider 本地用量结果。Codex 和 Claude 历史由 Farming 的增量 SQLite 派生缓存支持；OpenCode 用量来自 Session Export。这些是 Processed Token 遥测，不是账单。Cache Read 会包含在内。Provider 没有 Quota 或 Token Field 时会明确显示不可用，不会从 Terminal Output 中猜测。
 
 ## 桌面、手机与再次回来
 

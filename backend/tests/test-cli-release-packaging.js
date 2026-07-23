@@ -60,6 +60,11 @@ function run() {
       && packageScript.includes('--arg --farming-codex-acp'),
     'native CLI targets must complete an ACP initialize handshake before their manifest is written',
   );
+  assert(
+    packageScript.includes('--farming-usage-history-smoke')
+      && packageScript.includes('Usage History worker + SQLite smoke'),
+    'native CLI targets must run the packaged Usage worker through SQLite before release',
+  );
 
   console.log('✓ CLI packaging keeps executable source fallback and fails closed on missing code');
 }

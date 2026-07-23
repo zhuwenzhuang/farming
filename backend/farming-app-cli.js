@@ -13,6 +13,7 @@ const storageLayout = require('./storage-layout');
 const SERVER_MODE_ARG = '--farming-server';
 const SERVER_MODE_ENV = 'FARMING_RUN_SERVER';
 const NATIVE_PTY_HOST_ARG = '--native-pty-host';
+const USAGE_HISTORY_SMOKE_ARG = '--farming-usage-history-smoke';
 const DEFAULT_PORT = '6694';
 const DEFAULT_BASE_PATH = '/farming';
 const DEFAULT_SERVER_START_TIMEOUT_MS = 30_000;
@@ -784,6 +785,13 @@ async function run(argv = process.argv.slice(2)) {
 
   if (argv[0] === PACKAGED_CODEX_ACP_ARG) {
     runPackagedCodexAcp();
+    return 0;
+  }
+
+  if (argv[0] === USAGE_HISTORY_SMOKE_ARG) {
+    const { runUsageHistorySmoke } = require('./usage-history-smoke');
+    const result = await runUsageHistorySmoke();
+    console.log(JSON.stringify(result));
     return 0;
   }
 

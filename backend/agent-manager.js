@@ -204,12 +204,6 @@ function applyTerminalStateCursor(agent, runtimeEpoch, outputSeq, stateRevision,
   return true;
 }
 
-function hasResumeArg(args) {
-  return Array.isArray(args)
-    ? args.some(arg => arg === '--resume' || (typeof arg === 'string' && arg.startsWith('--resume=')))
-    : false;
-}
-
 function codexCommandContinuesSession(command) {
   const parts = parseCommand(command);
   return path.basename(parts[0] || '') === 'codex'
@@ -2526,13 +2520,24 @@ class AgentManager extends EventEmitter {
     });
 
     const hasResumeSource = Boolean(resumedSessionFromSource(resolvedSource));
-    if (providerSessionPlan.source === 'resume-source' && hasResumeSource && !hasResumeArg(launch.args)) {
-      providerSessionPlan = buildAgentProviderSessionPlan({
-        command,
-        program,
-        args: launch.args,
-        source: 'ui',
-      });
+    const commandProviderSessionPlan = hasResumeSource
+      ? buildAgentProviderSessionPlan({
+          command,
+          program,
+          args: launch.args,
+          source: 'ui',
+        })
+      : null;
+    const commandContinuesProviderSession = commandProviderSessionPlan
+      && commandProviderSessionPlan.temporary !== true
+      && commandProviderSessionPlan.provider === providerSessionPlan.provider
+      && commandProviderSessionPlan.id === providerSessionPlan.id;
+    if (
+      providerSessionPlan.source === 'resume-source'
+      && hasResumeSource
+      && !commandContinuesProviderSession
+    ) {
+      providerSessionPlan = commandProviderSessionPlan;
     }
     if (providerSessionPlan.error) {
       if (callback) callback(null, providerSessionPlan.error);

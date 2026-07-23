@@ -323,6 +323,24 @@ async function run() {
     assert.strictEqual(workCodexAgent.providerHomePath, providerHomes.codex[1].path);
     assert.strictEqual(captured.at(-1).env.CODEX_HOME, providerHomes.codex[1].path);
 
+    for (const [label, misleadingCommand] of [
+      ['option-value', `codex -C resume ${workCodexSessionId}`],
+      ['other-subcommand', `codex exec resume ${workCodexSessionId}`],
+      ['fork', `codex fork ${workCodexSessionId}`],
+    ]) {
+      const misleadingId = await startAgent(manager, misleadingCommand, workspace, {
+        wantsMain: false,
+        source: `codex-history:${workCodexSessionId}`,
+      });
+      const misleadingAgent = manager.getState().agents.find(agent => agent.id === misleadingId);
+      assert.notStrictEqual(
+        misleadingAgent.providerSessionId,
+        workCodexSessionId,
+        `${label} must not inherit an exact resume source that its command does not resume`,
+      );
+      manager.providerSessionService.stop(misleadingId);
+    }
+
     const openCodeId = await startAgent(manager, 'opencode packages/app', workspace, {
       wantsMain: false,
       providerHomeId: 'work',

@@ -275,6 +275,7 @@ async function setDemoSettings(page, baseUrl) {
       lastMainWorkspace: workspaceDir,
       workspaceHistory: [workspaceDir],
       projectNames: { [workspaceDir]: 'Northstar API' },
+      instanceName: 'Farming Demo',
       appearance: 'light',
       language: 'en',
       defaultLaunchAgent: 'bash',
@@ -460,7 +461,7 @@ async function screenshot(page, fileName, directory = screenshotDir) {
         'system-ip': 'demo.lan',
         'cpu-usage': '24',
         'mem-percentage': '38',
-        'system-time': '2026-07-18 13:41:00',
+        'system-time': '2026-07-14 09:00:00',
         uptime: '12m 34s',
       };
       for (const [id, value] of Object.entries(replacements)) {
@@ -502,7 +503,7 @@ function createUsageFixture() {
     const totalTokens = index === 52 * 7 - 1
       ? 486_000
       : index === 302
-        ? 1_280_000_000
+        ? 4_200_000
         : index % 9 === 0 ? 180_000 + index * 1_600 : index % 17 === 0 ? 86_000 : 0;
     dailyCursor.setDate(dailyCursor.getDate() + 1);
     return {
@@ -615,17 +616,46 @@ async function installUsageRoutes(page, fixture) {
       const date = requestUrl.searchParams.get('date') || fixture.dailyPoints.at(-1).date;
       const point = fixture.dailyPoints.find(candidate => candidate.date === date) || fixture.dailyPoints.at(-1);
       const hourlyWeights = new Map([[3, 0.08], [8, 0.17], [10, 0.25], [14, 0.12], [18, 0.28], [22, 0.10]]);
+      const breakdown = totalTokens => ({
+        totalTokens,
+        inputTokens: Math.round(totalTokens * 0.35),
+        outputTokens: Math.round(totalTokens * 0.15),
+        cacheReadTokens: Math.round(totalTokens * 0.45),
+        cacheWriteTokens: Math.round(totalTokens * 0.05),
+        unattributedTokens: 0,
+      });
+      const agentSpecs = [
+        { key: 'codex:release-audit', provider: 'codex', sessionId: 'release-audit', label: 'Release audit', share: 0.72 },
+        { key: 'claude:visual-review', provider: 'claude', sessionId: 'visual-review', label: 'Visual review', share: 0.20 },
+        { key: 'opencode:package-smoke', provider: 'opencode', sessionId: 'package-smoke', label: 'Package smoke', share: 0.08 },
+      ];
       const hours = Array.from({ length: 24 }, (_, hour) => {
         const totalTokens = Math.round(point.totalTokens * (hourlyWeights.get(hour) || 0));
+        const agentTotals = agentSpecs.map((agent, index) => (
+          index === agentSpecs.length - 1
+            ? totalTokens - Math.round(totalTokens * 0.72) - Math.round(totalTokens * 0.20)
+            : Math.round(totalTokens * agent.share)
+        ));
         return {
           hour,
           label: String(hour).padStart(2, '0'),
-          totalTokens,
-          inputTokens: Math.round(totalTokens * 0.35),
-          outputTokens: Math.round(totalTokens * 0.15),
-          cacheReadTokens: Math.round(totalTokens * 0.45),
-          cacheWriteTokens: Math.round(totalTokens * 0.05),
-          unattributedTokens: 0,
+          ...breakdown(totalTokens),
+          agents: Object.fromEntries(agentSpecs.map((agent, index) => [
+            agent.key,
+            breakdown(agentTotals[index]),
+          ])),
+        };
+      });
+      const agents = agentSpecs.map((agent, index) => {
+        const totalTokens = index === agentSpecs.length - 1
+          ? point.totalTokens - Math.round(point.totalTokens * 0.72) - Math.round(point.totalTokens * 0.20)
+          : Math.round(point.totalTokens * agent.share);
+        return {
+          key: agent.key,
+          provider: agent.provider,
+          sessionId: agent.sessionId,
+          label: agent.label,
+          ...breakdown(totalTokens),
         };
       });
       await route.fulfill({
@@ -636,7 +666,8 @@ async function installUsageRoutes(page, fixture) {
             timeZone: 'Asia/Shanghai',
             total: point,
             hours,
-            providers: point.providers,
+            providers: Object.fromEntries(agents.map(agent => [agent.provider, breakdown(agent.totalTokens)])),
+            agents,
           },
         },
       });
@@ -1140,6 +1171,34 @@ async function main() {
     await openAgent(page, codexAgentId);
     await screenshot(page, '09-dark-workspace.png');
 
+    const usageFixture = createUsageFixture();
+    await installUsageRoutes(page, usageFixture);
+    await ensureApp(page);
+    await openAgent(page, codexAgentId);
+    const usageToggle = page.getByTestId('code-usage-toggle');
+    if (await usageToggle.getAttribute('aria-expanded') !== 'true') {
+      await usageToggle.evaluate(element => element.click());
+    }
+    const usagePanel = page.getByTestId('code-usage-panel');
+    await usagePanel.getByTestId('code-usage-daily-heatmap').waitFor({ state: 'attached', timeout: 20_000 });
+    await usagePanel.getByTestId('code-usage-open-year').evaluate(element => element.click());
+    const usageDialog = page.getByTestId('code-usage-detail-dialog');
+    await usageDialog.waitFor({ state: 'visible', timeout: 20_000 });
+    await usageDialog.getByTestId('code-usage-day-histogram').waitFor({ state: 'visible', timeout: 20_000 });
+    await page.setViewportSize({ width: 1440, height: 960 });
+    const usageScreenshotStyle = await page.addStyleTag({
+      content: `
+        [data-testid='code-usage-detail-dialog'] {
+          max-height: calc(100vh - 48px) !important;
+        }
+      `,
+    });
+    await screenshot(page, '15-code-usage-activity.png');
+    if (requestedScreenshotsComplete()) return;
+    await usageScreenshotStyle.evaluate(element => element.remove());
+    await page.setViewportSize({ width: 1440, height: 810 });
+    await page.keyboard.press('Escape');
+
     const dependencyAgentId = await startAgent(page, baseUrl, {
       command: 'bash',
       workspace: workspaceDir,
@@ -1206,8 +1265,6 @@ async function main() {
       await waitForAgentOutput(page, baseUrl, agentId, card.lines.at(-1));
     }
 
-    const usageFixture = createUsageFixture();
-    await installUsageRoutes(page, usageFixture);
     await page.goto(`${basePath}/crt/`, { waitUntil: 'networkidle' });
     await page.locator('body#farming-crt').waitFor({ state: 'visible', timeout: 30_000 });
     await page.locator('.agent-block').first().waitFor({ state: 'visible', timeout: 30_000 });
@@ -1257,7 +1314,9 @@ async function main() {
     await page.getByRole('button', { name: '[$] BILLING', exact: true }).click();
     await page.locator('#billing-status').filter({ hasText: 'HISTORY READY' }).waitFor({ state: 'visible', timeout: 30_000 });
     await page.locator('#billing-day-insight-state').filter({ hasText: '24 HOURLY BINS READY' }).waitFor({ state: 'visible', timeout: 30_000 });
+    await page.setViewportSize({ width: 1440, height: 960 });
     await screenshot(page, '06-crt-billing-days.png', crtScreenshotDir);
+    await page.setViewportSize({ width: 1440, height: 810 });
     await page.getByRole('tab', { name: '[L] LIVE', exact: true }).click();
     await page.locator('#billing-status').filter({ hasText: 'SIGNAL LOCKED' }).waitFor({ state: 'visible', timeout: 30_000 });
     await screenshot(page, '07-crt-billing-live.png', crtScreenshotDir);

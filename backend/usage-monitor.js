@@ -537,6 +537,11 @@ async function collectOpenCodeDailyEvents(homePaths, options = {}) {
       const listed = JSON.parse(String(result?.stdout || '[]'));
       if (!Array.isArray(listed)) throw new Error('OpenCode session list was not an array');
       successfulHomes += 1;
+      if (listed.length >= OPENCODE_SESSION_LIMIT) {
+        partial = true;
+        reason = reason
+          || `OpenCode returned the ${OPENCODE_SESSION_LIMIT.toLocaleString('en-US')} session limit; older sessions may be omitted.`;
+      }
       for (const session of listed) {
         const id = typeof session?.id === 'string' ? session.id.trim() : '';
         const updatedAt = parseTimestampMs(session?.updated ?? session?.created);
@@ -592,7 +597,8 @@ async function collectOpenCodeDailyEvents(homePaths, options = {}) {
   return {
     events,
     partial,
-    available: successfulHomes === homePaths.length
+    available: !partial
+      && successfulHomes === homePaths.length
       && (sessions.length === 0 || successfulExports === sessions.length),
     reason,
     sessionCount: sessions.length,

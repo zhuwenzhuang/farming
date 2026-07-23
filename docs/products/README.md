@@ -111,7 +111,11 @@ Shells and unknown commands do not become resumable provider sessions or provide
 
 ## Usage And Operational Awareness
 
-Farming Code keeps usage signals compact. CRT Billing expands local provider data into two operational views:
+Farming Code keeps the default signal compact and opens a focused 52-week view when the operator wants exact daily totals, hourly Agent-type attribution, cache share, and peak-day context.
+
+![Farming Code token usage](code/assets/15-code-usage-activity.png)
+
+CRT Billing presents the same local provider history as a full control-room surface:
 
 - **Days**: a high-contrast 52-week daily activity calendar, exact selected-day totals with a prominent compact value at the right, a five-second current-day refresh whose digits catch up to new totals, a 24-cell local-hour coordinate strip aligned with a total/cache step trace, and provider shares.
 - **Live**: 60-minute token-rate oscilloscope, five-minute provider channels, quota windows, and reset timing.
@@ -120,7 +124,7 @@ Farming Code keeps usage signals compact. CRT Billing expands local provider dat
 
 ![CRT live token telemetry](crt/assets/07-crt-billing-live.png)
 
-These are processed-token telemetry views, not invoices. Cache reads are included. Missing provider quota or token fields are shown as unavailable rather than estimated from terminal output.
+Both skins read the same provider-local usage result. Codex and Claude history is backed by Farming's incremental SQLite-derived cache; OpenCode usage comes from its session export. These are processed-token telemetry views, not invoices. Cache reads are included. Missing provider quota or token fields are shown as unavailable rather than estimated from terminal output.
 
 ## Desktop, Phone, And Return Visits
 

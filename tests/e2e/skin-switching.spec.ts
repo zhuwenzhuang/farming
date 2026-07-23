@@ -598,7 +598,28 @@ test('keeps every session command reachable through a Terminal to MSG keyboard f
   const terminalSwitchPayload = await terminalSwitchResponse.json() as { error?: string, restartedAgentId?: string }
   expect(terminalSwitchResponse.ok(), terminalSwitchPayload.error || 'Terminal runtime switch request failed').toBeTruthy()
   const terminalAgentId = terminalSwitchPayload.restartedAgentId || initialChatAgentId
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/control/agents')
+    if (!response.ok()) return `HTTP ${response.status()}`
+    const payload = await response.json() as {
+      agents?: Array<{
+        id: string,
+        runtimeBinding?: { kind?: string },
+        providerSessionId?: string,
+        providerSessionProvider?: string,
+        providerSessionTemporary?: boolean,
+      }>
+    }
+    return (payload.agents ?? []).map(agent => [
+      agent.id,
+      agent.runtimeBinding?.kind || '',
+      agent.providerSessionProvider || '',
+      agent.providerSessionId || '',
+      agent.providerSessionTemporary === true ? 'temporary' : 'resumable',
+    ].join(':')).join(',')
+  }, { timeout: 30_000 }).toContain(`${terminalAgentId}:terminal:codex:`)
   await expect(page.getByRole('button', { name: 'Close session, Ctrl+Escape', exact: true })).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('#crt-runtime-chat')).toBeEnabled({ timeout: 30_000 })
 
   const switchResponsePromise = page.waitForResponse(response => (
     response.request().method() === 'PATCH'
@@ -1130,6 +1151,8 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   await expect(page.locator('#billing-day-hour-strip .billing-day-hour-cell.selected')).toHaveAttribute('data-hour', '11')
   await expect(page.locator('#billing-day-hour-readout')).toHaveText('[11:00—12:00]  TOTAL 0  //  CACHE 0  //  NO ACTIVITY')
   await expect(page.locator('#billing-day-date')).toContainText(dailyPoints.at(-1)!.date)
+  await expect(page.locator('#billing-day-providers')).toHaveText('2 SOURCES')
+  await expect(page.locator('#billing-day-providers')).toHaveAttribute('title', 'CODEX 8,000 · CLAUDE 2,000')
   await expect(page.locator('#billing-day-provider-shares .billing-day-share-row')).toHaveCount(2)
   await expect(page.locator('#billing-day-provider-shares')).toContainText('CODEX')
   await expect(page.locator('#billing-day-provider-shares')).toContainText('80.0% · 8,000')
