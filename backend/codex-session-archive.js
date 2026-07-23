@@ -1,4 +1,5 @@
 const { execFile } = require('child_process');
+const fs = require('fs');
 const os = require('os');
 const { promisify } = require('util');
 const { resolveCompatibleCodexExecutable } = require('./executable-discovery');
@@ -9,6 +10,13 @@ async function runCodexSessionArchiveCommand(action, sessionId, session = {}, op
   const resolveExecutable = options.resolveCompatibleCodexExecutable || resolveCompatibleCodexExecutable;
   const runExecFile = options.execFileAsync || execFileAsync;
   const processEnv = options.processEnv || process.env;
+  const directoryExists = options.directoryExists || ((directory) => {
+    try {
+      return fs.statSync(directory).isDirectory();
+    } catch {
+      return false;
+    }
+  });
   const codexResolution = resolveExecutable(session.cliVersion || '', processEnv.PATH || '');
   if (!codexResolution.compatible) {
     return {
@@ -18,8 +26,11 @@ async function runCodexSessionArchiveCommand(action, sessionId, session = {}, op
   }
 
   try {
+    const sessionCwd = session.cwd || session.workspace || '';
     await runExecFile(codexResolution.path || 'codex', [action, sessionId], {
-      cwd: session.cwd || session.workspace || os.homedir(),
+      cwd: sessionCwd && directoryExists(sessionCwd)
+        ? sessionCwd
+        : (processEnv.HOME || os.homedir()),
       env: session.providerHomePath
         ? { ...processEnv, CODEX_HOME: session.providerHomePath }
         : processEnv,

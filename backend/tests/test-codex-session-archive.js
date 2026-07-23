@@ -14,6 +14,10 @@ async function run() {
       assert.strictEqual(searchPath, '/test/bin');
       return { compatible: true, path: '/test/bin/codex' };
     },
+    directoryExists(directory) {
+      assert.strictEqual(directory, '/repo/worktree');
+      return true;
+    },
     async execFileAsync(command, args, options) {
       calls.push({ command, args, options });
     },
@@ -25,6 +29,22 @@ async function run() {
   assert.deepStrictEqual(calls[0].args, ['archive', '019f0000-0000-7000-8000-000000000001']);
   assert.strictEqual(calls[0].options.cwd, '/repo/worktree');
   assert.strictEqual(calls[0].options.env.CODEX_HOME, '/home/farming/.codex');
+
+  await archiveCodexSession('019f0000-0000-7000-8000-000000000002', {
+    cwd: '/deleted/test-workspace',
+  }, {
+    processEnv: { PATH: '/test/bin', HOME: '/home/farming' },
+    resolveCompatibleCodexExecutable() {
+      return { compatible: true, path: '/test/bin/codex' };
+    },
+    directoryExists() {
+      return false;
+    },
+    async execFileAsync(command, args, options) {
+      calls.push({ command, args, options });
+    },
+  });
+  assert.strictEqual(calls[1].options.cwd, '/home/farming');
 
   console.log('test-codex-session-archive passed');
 }

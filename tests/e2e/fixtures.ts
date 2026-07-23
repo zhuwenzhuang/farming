@@ -136,24 +136,35 @@ declare global {
   }
 }
 
+type CleanupAgent = {
+  id?: string
+  command?: string
+}
+
+async function cleanupAgent(page: Page, agent: CleanupAgent) {
+  if (!agent.id) return
+  if (process.env.FARMING_E2E_REAL_CODEX === '1' && agent.command === 'codex') {
+    const response = await page.request.patch(`/farming/api/agents/${agent.id}`, {
+      data: { archived: true },
+    }).catch(() => null)
+    if (response?.ok()) return
+  }
+  await page.request.delete(`/farming/api/control/agents/${agent.id}`).catch(() => null)
+}
+
 async function cleanupAgents(page: Page) {
   try {
     const response = await page.request.get('/farming/api/control/agents')
     if (!response.ok()) return
-    const data = await response.json() as { agents?: Array<{ id?: string }> }
-    await Promise.all((data.agents ?? [])
-      .map(agent => agent.id)
-      .filter((id): id is string => Boolean(id))
-      .map(id => page.request.delete(`/farming/api/control/agents/${id}`).catch(() => null)))
+    const data = await response.json() as { agents?: CleanupAgent[] }
+    await Promise.all((data.agents ?? []).map(agent => cleanupAgent(page, agent)))
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const nextResponse = await page.request.get('/farming/api/control/agents').catch(() => null)
       if (!nextResponse?.ok()) return
-      const nextData = await nextResponse.json() as { agents?: Array<{ id?: string }> }
-      const remainingIds = (nextData.agents ?? [])
-        .map(agent => agent.id)
-        .filter((id): id is string => Boolean(id))
-      if (remainingIds.length === 0) return
-      await Promise.all(remainingIds.map(id => page.request.delete(`/farming/api/control/agents/${id}`).catch(() => null)))
+      const nextData = await nextResponse.json() as { agents?: CleanupAgent[] }
+      const remainingAgents = nextData.agents ?? []
+      if (remainingAgents.length === 0) return
+      await Promise.all(remainingAgents.map(agent => cleanupAgent(page, agent)))
       await delay(100)
     }
   } catch {

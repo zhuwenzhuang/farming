@@ -8,7 +8,7 @@
 npm run test:pre-release:codex-ui
 ```
 
-该命令使用本机已经登录的真实 Codex CLI、单个 Chromium Worker、隔离的 Farming Config Directory 和临时 Workspace。测试专用 Launcher 会在每次 Terminal Start / Resume 时关闭 CLI 启动升级检查，但不修改用户全局 Codex 配置。它不会进入默认 Fake Agent E2E，因为它会消耗真实模型额度，并验证外部 CLI Integration。缺少登录、指定模型不可用、Runtime Error 或任何断言失败都会阻断发布；Case 不会改用其他 Renderer、Model Flow、Agent 实现或测试分支。
+该命令使用本机已经登录的真实 Codex CLI、单个 Chromium Worker、隔离的 Farming Config Directory 和临时 Workspace。测试专用 Launcher 会在每次 Terminal Start / Resume 时关闭 CLI 启动升级检查，但不修改用户全局 Codex 配置。共享 Playwright Teardown 会归档真实 Agent 测试创建的每个稳定 Codex Provider Session，即使测试失败也会执行，避免测试对话残留在 Codex 活跃会话列表中；如果临时测试 Workspace 已被删除，Provider Archive 会回退到用户主目录执行。它不会进入默认 Fake Agent E2E，因为它会消耗真实模型额度，并验证外部 CLI Integration。缺少登录、指定模型不可用、Runtime Error 或任何断言失败都会阻断发布；Case 不会改用其他 Renderer、Model Flow、Agent 实现或测试分支。
 
 ## 状态链
 
