@@ -181,6 +181,8 @@ Code 与 CRT 的产品 Terminal 统一使用 xterm.js WebGL Renderer，并且只
 
 ACP 历史重放和实时更新必须归约到同一条有序 entry stream，不要在后端为 ACP 重建 `Turn -> Item` 模型。面向用户的结果/过程分组属于 ACP 前端的注意力投影：必须可逆、保留 entry 顺序与 tool 详情，并在不删除可见 automation 通知的前提下隐藏 Codex 内部 heartbeat/context 活动。
 
+Farming Code 的前端视图保留由现有“已打开 Agent”集合统一拥有。切换 Agent，或暂时打开 Search、History、文件时，已打开 Chat 只能隐藏、不能被逐出；重新激活时必须先展示保留的 transcript 和阅读状态，再按 revision 校准 ACP 增量。Terminal 通过池化 xterm 生命周期遵守相同产品契约。只有关闭、归档、终止或替换 Agent 才释放该缓存视图。
+
 ACP 只有在 Farming reducer checkpoint 已精确且原子落盘，并且 provider、Agent Home、Session、工作区与 provider 新鲜度仍一致时，才可以跳过完整 `session/load`。发送 prompt 前必须先把 checkpoint fence 为 dirty；缺失、dirty、过期、损坏或无法校验的状态必须明确进入有界 load/repair 路径。Transcript 页面只携带紧凑有序 tool envelope，准确 raw tool detail 仍由后端持有，并按 tool-call id 懒加载。
 
 Agent 进程不能直接完整继承 Farming server 的 `process.env`。后端应先解析用户 shell 环境，再只叠加 agent 需要的服务端变量，例如模型凭据、代理、SSH auth 和证书路径，最后统一规范化 `TERM`、`COLORTERM`、`TERM_PROGRAM` 等 terminal 变量，并移除 `NO_COLOR`、非交互式 `cat` pager、动态库覆盖和 Node heap flag 等 server/runtime shim。新增启动路径必须复用这套 resolver，不能重新复制 `process.env`。

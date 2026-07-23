@@ -931,7 +931,10 @@ export function CodeWorkspace({
     [activeTerminalId, openAgents]
   )
   const activeOpenAgent = useAgentWithLiveRuntimeState(structuralActiveOpenAgent)
-  const visibleOpenAgents = activeOpenAgent ? [activeOpenAgent] : []
+  const mountedOpenAgents = useMemo(
+    () => openAgents.map(agent => agent.id === activeOpenAgent?.id ? activeOpenAgent : agent),
+    [activeOpenAgent, openAgents]
+  )
   const structuralActiveAgent = useMemo(
     () => activeAgents.find(agent => agent.id === activeTerminalId)
       ?? (hiddenMainAgent?.id === activeTerminalId ? hiddenMainAgent : null),
@@ -5182,7 +5185,7 @@ export function CodeWorkspace({
         openWorkspaceFile={openWorkspaceFile}
         openWorkspaceFiles={openWorkspaceFiles}
         openAgentsCount={openAgents.length}
-        visibleOpenAgents={visibleOpenAgents}
+        openAgents={mountedOpenAgents}
         activeTerminalId={activeTerminalId}
         permissionSwitchingAgentId={permissionSwitchingAgentId}
         agentSwitchingKind={agentSwitchingKind}

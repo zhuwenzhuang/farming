@@ -219,7 +219,7 @@ interface CodeMainAreaProps {
   openWorkspaceFile: OpenWorkspaceFile | null
   openWorkspaceFiles: OpenWorkspaceFile[]
   openAgentsCount: number
-  visibleOpenAgents: Agent[]
+  openAgents: Agent[]
   activeTerminalId: string | null
   permissionSwitchingAgentId: string | null
   agentSwitchingKind: 'permission' | 'runtime' | null
@@ -290,7 +290,7 @@ export function CodeMainArea({
   openWorkspaceFile,
   openWorkspaceFiles,
   openAgentsCount,
-  visibleOpenAgents,
+  openAgents,
   activeTerminalId,
   permissionSwitchingAgentId,
   agentSwitchingKind,
@@ -382,8 +382,10 @@ export function CodeMainArea({
   }, [ReadyFileEditorPane, fileEditorRequested])
 
   const activeAgent = activeTerminalId
-    ? visibleOpenAgents.find(agent => agent.id === activeTerminalId) || null
+    ? openAgents.find(agent => agent.id === activeTerminalId) || null
     : null
+  const agentWorkspaceVisible = activeView === 'projects'
+    && !(showFileEditor && openWorkspaceFile)
   const acpComposerActive = isAcpRuntime(activeAgent)
   const terminalComposerActive = activeAgent?.runtimeBinding.kind === 'terminal'
   const composerCollapseRequested = terminalComposerActive
@@ -529,80 +531,81 @@ export function CodeMainArea({
         ) : (
           <FileEditorFallback openFile={openWorkspaceFile} onChangeDraft={onChangeWorkspaceFileDraft} copy={copy} />
         )
-      ) : (
-        <>
-          <div
-            className="code-terminal-grid panes-1"
-            data-testid="code-terminal-grid"
-          >
-            {openAgentsCount === 0 ? (
-              <div className="code-empty-workspace" data-testid="code-empty-workspace">
-                <h2>{copy.startOrSelectAgent}</h2>
-                <p>{copy.startOrSelectAgentDescription}</p>
-                <button type="button" onClick={() => onNewAgent(agentCreationWorkspace)}>{copy.newAgent}</button>
+      ) : null}
+
+      <div
+        className="code-terminal-grid panes-1"
+        data-testid="code-terminal-grid"
+        hidden={!agentWorkspaceVisible}
+      >
+        {openAgentsCount === 0 ? (
+          <div className="code-empty-workspace" data-testid="code-empty-workspace">
+            <h2>{copy.startOrSelectAgent}</h2>
+            <p>{copy.startOrSelectAgentDescription}</p>
+            <button type="button" onClick={() => onNewAgent(agentCreationWorkspace)}>{copy.newAgent}</button>
+          </div>
+        ) : (
+          openAgents.map(agent => (
+            <AgentWorkPane
+              key={agent.id}
+              agent={agent}
+              active={agentWorkspaceVisible && agent.id === activeTerminalId}
+              viewportLayoutKey={composerCollapsed ? 'composer-collapsed' : 'composer-expanded'}
+              switching={agent.id === permissionSwitchingAgentId}
+              switchingKind={agent.id === permissionSwitchingAgentId ? agentSwitchingKind : null}
+              onActivate={onOpenTerminal}
+              onOpenPath={onOpenTerminalPath}
+              onResolvePath={onResolveTerminalPath}
+              onOpenWorkspaceFilePath={onOpenWorkspaceFilePath}
+              onFollowOutputChange={onTerminalFollowOutputChange}
+              onReadLatest={onAgentReadLatest}
+              onRuntimeModeChange={onRuntimeModeChange}
+              onSessionOutput={onSessionOutput}
+              focusSignal={terminalFocusRequest?.agentId === agent.id ? terminalFocusRequest.nonce : 0}
+              copy={copy}
+            />
+          ))
+        )}
+      </div>
+
+      {agentWorkspaceVisible ? (
+        composerCollapsed ? (
+          <div className="code-composer-restore-bar" data-testid="code-composer-restore-bar">
+            <button
+              type="button"
+              className="code-composer-restore"
+              data-testid="code-composer-restore"
+              aria-label={copy.restoreComposer}
+              title={copy.restoreComposer}
+              onClick={() => updateComposerCollapsed(false)}
+            >
+              <ChevronUpGlyph />
+            </button>
+          </div>
+        ) : (
+          <div className={`code-composer-shell ${canCollapseComposer ? 'collapsible' : ''}`}>
+            {canCollapseComposer ? (
+              <div className="code-composer-collapse-zone" aria-hidden="false">
+                <button
+                  type="button"
+                  className="code-composer-collapse"
+                  data-testid="code-composer-collapse"
+                  aria-label={copy.collapseComposer}
+                  title={copy.collapseComposer}
+                  onClick={() => updateComposerCollapsed(true)}
+                >
+                  <ChevronDownGlyph />
+                </button>
               </div>
+            ) : null}
+            {acpComposerActive ? (
+              <AcpComposer {...acpComposerProps} copy={copy} />
             ) : (
-              visibleOpenAgents.map(agent => (
-                <AgentWorkPane
-                  key={agent.id}
-                  agent={agent}
-                  active={agent.id === activeTerminalId}
-                  viewportLayoutKey={composerCollapsed ? 'composer-collapsed' : 'composer-expanded'}
-                  switching={agent.id === permissionSwitchingAgentId}
-                  switchingKind={agent.id === permissionSwitchingAgentId ? agentSwitchingKind : null}
-                  onActivate={onOpenTerminal}
-                  onOpenPath={onOpenTerminalPath}
-                  onResolvePath={onResolveTerminalPath}
-                  onOpenWorkspaceFilePath={onOpenWorkspaceFilePath}
-                  onFollowOutputChange={onTerminalFollowOutputChange}
-                  onReadLatest={onAgentReadLatest}
-                  onRuntimeModeChange={onRuntimeModeChange}
-                  onSessionOutput={onSessionOutput}
-                  focusSignal={terminalFocusRequest?.agentId === agent.id ? terminalFocusRequest.nonce : 0}
-                  copy={copy}
-                />
-              ))
+              <CodeComposer {...composerProps} copy={copy} />
             )}
           </div>
-
-          {composerCollapsed ? (
-            <div className="code-composer-restore-bar" data-testid="code-composer-restore-bar">
-              <button
-                type="button"
-                className="code-composer-restore"
-                data-testid="code-composer-restore"
-                aria-label={copy.restoreComposer}
-                title={copy.restoreComposer}
-                onClick={() => updateComposerCollapsed(false)}
-              >
-                <ChevronUpGlyph />
-              </button>
-            </div>
-          ) : (
-            <div className={`code-composer-shell ${canCollapseComposer ? 'collapsible' : ''}`}>
-              {canCollapseComposer ? (
-                <div className="code-composer-collapse-zone" aria-hidden="false">
-                  <button
-                    type="button"
-                    className="code-composer-collapse"
-                    data-testid="code-composer-collapse"
-                    aria-label={copy.collapseComposer}
-                    title={copy.collapseComposer}
-                    onClick={() => updateComposerCollapsed(true)}
-                  >
-                    <ChevronDownGlyph />
-                  </button>
-                </div>
-              ) : null}
-              {acpComposerActive ? (
-                <AcpComposer {...acpComposerProps} copy={copy} />
-              ) : (
-                <CodeComposer {...composerProps} copy={copy} />
-              )}
-            </div>
-          )}
-        </>
-      )}
+        )
+      ) : null}
     </main>
   )
 }

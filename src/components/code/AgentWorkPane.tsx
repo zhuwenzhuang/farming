@@ -74,6 +74,7 @@ export function AgentWorkPane({
       className={`code-agent-work-pane ${active ? 'active' : ''} ${canSwitchRuntime ? 'runtime-switchable' : ''}`}
       data-testid="code-agent-work-pane"
       data-agent-id={agent.id}
+      hidden={!active}
       aria-busy={switching}
     >
       {canSwitchRuntime ? (
@@ -86,7 +87,7 @@ export function AgentWorkPane({
           </button>
         </div>
       ) : null}
-      {!chatMode ? (
+      {!chatMode && active ? (
         <div
           key="terminal"
           className="code-agent-work-view terminal active"

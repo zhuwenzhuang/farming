@@ -4995,6 +4995,10 @@ body.code-mode .code-instance-name {
   overflow: hidden;
 }
 
+.code-terminal-grid[hidden] {
+  display: none;
+}
+
 .code-agent-work-pane,
 .code-terminal-pane {
   position: relative;
@@ -5012,6 +5016,10 @@ body.code-mode .code-instance-name {
 
 .code-agent-work-pane {
   display: block;
+}
+
+.code-agent-work-pane[hidden] {
+  display: none;
 }
 
 .code-agent-work-view > .code-terminal-pane,

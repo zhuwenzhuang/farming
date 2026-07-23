@@ -571,7 +571,7 @@ function run() {
       workspaceSource.includes('openProjectFile') &&
       !workspaceSource.includes('handleWorkspaceFileEvent') &&
       workspaceSource.includes('activeOpenAgent') &&
-      workspaceSource.includes('visibleOpenAgents') &&
+      workspaceSource.includes('mountedOpenAgents') &&
       workspaceSource.includes('className="code-terminal-grid panes-1"') &&
       workspaceSource.includes('tabIndex={0}') &&
       workspaceSource.includes('data-testid="code-composer-approval"') &&
@@ -1000,7 +1000,20 @@ function run() {
       workspaceSource.includes('code-terminal-grid') &&
       workspaceSource.includes('code-composer') &&
       workspaceSource.includes('onClick={event => onNewAgent(agentCreationWorkspace, undefined, event.currentTarget)}'),
-    'CodeWorkspace should expose real left-rail actions, Project Files, agent context-menu actions, project-scoped agent creation, keyboard agent navigation, single active terminal pane, and composer'
+    'CodeWorkspace should expose real left-rail actions, Project Files, agent context-menu actions, project-scoped agent creation, keyboard agent navigation, cached open Agent panes, and composer'
+  );
+
+  assert(
+    codeMainAreaSource.includes("const agentWorkspaceVisible = activeView === 'projects'") &&
+      codeMainAreaSource.includes('hidden={!agentWorkspaceVisible}') &&
+      codeMainAreaSource.includes('openAgents.map(agent => (') &&
+      codeMainAreaSource.includes('active={agentWorkspaceVisible && agent.id === activeTerminalId}') &&
+      agentWorkPaneSource.includes('hidden={!active}') &&
+      agentWorkPaneSource.includes('{!chatMode && active ? (') &&
+      agentWorkPaneSource.includes('{chatMode ? (') &&
+      stylesSource.includes('.code-terminal-grid[hidden]') &&
+      stylesSource.includes('.code-agent-work-pane[hidden]'),
+    'Opened Agent views should retain inactive Chat DOM while hidden Terminal panes continue to use the pooled xterm lifecycle'
   );
 
   assert(
@@ -1120,7 +1133,8 @@ function run() {
       agentWorkPaneSource.includes('data-testid="code-agent-chat-view"') &&
       agentWorkPaneSource.includes('onActivate(agent.id, { focusTerminal: false })') &&
       agentWorkPaneSource.includes('active={active}') &&
-      agentWorkPaneSource.includes('{!chatMode ? (') &&
+      agentWorkPaneSource.includes('hidden={!active}') &&
+      agentWorkPaneSource.includes('{!chatMode && active ? (') &&
       agentWorkPaneSource.includes('{chatMode ? (') &&
       terminalPaneSource.includes('setTerminalSearchOptions(previous => ({') &&
       terminalPaneSource.includes('const selectedQuery = terminalSearchQueryFromSelection(getSelectionNow())') &&
