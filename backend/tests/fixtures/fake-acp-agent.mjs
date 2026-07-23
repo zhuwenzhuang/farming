@@ -18,7 +18,10 @@ if (process.argv.includes('--fake-terminal-login')) {
 }
 
 let client;
-let sessionId = 'acp-new-session';
+const initialSessionId = process.env.FARMING_E2E_FAKE_EXECUTABLES === '1'
+  ? '019f0000-0000-7000-8000-000000000001'
+  : 'acp-new-session';
+let sessionId = initialSessionId;
 let refreshedModelId = '';
 let activeModel = 'gpt-5.5';
 let activeEffort = 'high';
@@ -91,7 +94,7 @@ class FakeAgent {
   async loadSession(params) {
     validateRequestedSessionScope(params);
     sessionId = params.sessionId;
-    if (sessionId === 'acp-new-session') {
+    if (sessionId === initialSessionId) {
       const replay = [
         ['user_message_chunk', 'history-rich-user', 'rich timeline'],
         ['agent_message_chunk', 'history-rich-progress', 'I found the display boundary and am checking the typed ACP content.'],

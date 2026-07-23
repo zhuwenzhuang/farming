@@ -418,6 +418,7 @@ test.describe('mobile Farming Code user story', () => {
       const rows = Array.from(document.querySelectorAll('.code-codex-transcript-status-row')) as HTMLElement[]
       const statusRow = rows.at(-1) ?? null
       const runningPlaceholder = document.querySelector('.code-codex-transcript-turn.running:last-child .code-codex-transcript-placeholder') as HTMLElement | null
+      const runningPlaceholderStyle = runningPlaceholder ? getComputedStyle(runningPlaceholder) : null
       return {
         innerWidth: window.innerWidth,
         documentScrollWidth: document.documentElement.scrollWidth,
@@ -428,7 +429,11 @@ test.describe('mobile Farming Code user story', () => {
         inputMode: input?.getAttribute('inputmode'),
         inputName: input?.getAttribute('name'),
         inputRole: input?.getAttribute('role'),
-        placeholderDisplay: runningPlaceholder ? getComputedStyle(runningPlaceholder).display : '',
+        placeholderVisible: Boolean(
+          runningPlaceholderStyle
+          && runningPlaceholderStyle.display !== 'none'
+          && runningPlaceholderStyle.visibility !== 'hidden'
+        ),
         statusGapToComposer: statusRow && composer
           ? Math.round(composer.getBoundingClientRect().top - statusRow.getBoundingClientRect().bottom)
           : -1,
@@ -443,7 +448,7 @@ test.describe('mobile Farming Code user story', () => {
     expect(metrics.inputMode).toBe('text')
     expect(metrics.inputName).toBe('farming-chat-message')
     expect(metrics.inputRole).toBeNull()
-    expect(metrics.placeholderDisplay).toBe('none')
+    expect(metrics.placeholderVisible).toBe(false)
     expect(metrics.statusGapToComposer).toBeGreaterThanOrEqual(0)
     expect(metrics.statusGapToComposer).toBeLessThanOrEqual(24)
   })
