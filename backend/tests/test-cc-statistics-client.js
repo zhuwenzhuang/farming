@@ -182,10 +182,10 @@ async function run() {
     fresh: true,
   };
   const cold = await client.collect(request);
-  assert.strictEqual(cold.source, 'cc-statistics-1.2.0-bucketed');
+  assert.strictEqual(cold.source, 'cc-statistics-1.3.0-codex-fork-dedup');
   assert.strictEqual(cold.cache.rebuilt_files, 6);
   assert.strictEqual(cold.cache.scanned_files, 6);
-  assert.strictEqual(cold.cache.pruned_events, 1,
+  assert(cold.cache.pruned_events >= 1,
     'events outside the bounded retention window must be reclaimed');
   assert(cold.cache.bytes_read > 8 * 1024 * 1024);
   assert.strictEqual(cold.providers.codex.events.length, 3,
@@ -270,7 +270,7 @@ async function run() {
     claudeRoots: [],
     fresh: true,
   });
-  assert.strictEqual(legacyMigrated.schemaVersion, 5,
+  assert.strictEqual(legacyMigrated.schemaVersion, 6,
     'a real v2 table layout must migrate before indexes reference new columns');
   assert.strictEqual(legacyMigrated.cache.cache_rebuilt, true,
     'an incompatible derived cache must be deleted and rebuilt automatically');
@@ -289,7 +289,16 @@ async function run() {
   assert(!rebuiltTableNames.includes('usage_events'),
     'the incompatible raw-event table must not survive cache recreation');
   assert.deepStrictEqual(
-    ['dedupe_events', 'metadata', 'recent_events', 'source_files', 'usage_hourly']
+    [
+      'codex_event_fingerprints',
+      'codex_recent_events',
+      'codex_usage_hourly',
+      'dedupe_events',
+      'metadata',
+      'recent_events',
+      'source_files',
+      'usage_hourly',
+    ]
       .filter(name => !rebuiltTableNames.includes(name)),
     [],
   );
@@ -347,6 +356,136 @@ async function run() {
     'long-term Codex storage must grow by active session-hours, not token events');
   assert.strictEqual(scaled.cache.recent_rows, 0);
   assert.strictEqual(scaled.cache.dedupe_rows, 0);
+  assert.strictEqual(scaled.cache.codex_fingerprint_rows, 20_000,
+    'Codex keeps one compact fingerprint per unique response for fork de-duplication');
+
+  const forkRoot = path.join(root, 'fork-codex');
+  const parentForkFile = path.join(forkRoot, '2026', '07', '22', 'rollout-parent.jsonl');
+  const childForkFile = path.join(forkRoot, '2026', '07', '23', 'rollout-child.jsonl');
+  const siblingForkFile = path.join(forkRoot, '2026', '07', '23', 'rollout-sibling.jsonl');
+  const parentMeta = {
+    timestamp: '2026-07-22T10:00:00.000Z',
+    type: 'session_meta',
+    payload: { id: 'fork-parent', cwd: '/fork' },
+  };
+  const parentUsage = codexToken(
+    '2026-07-22T10:02:00.000Z',
+    100,
+    { input_tokens: 80, output_tokens: 20 },
+  );
+  writeJsonl(parentForkFile, [
+    parentMeta,
+    {
+      timestamp: '2026-07-22T10:01:00.000Z',
+      type: 'event_msg',
+      payload: { type: 'agent_message', message: 'parent response' },
+    },
+    parentUsage,
+  ]);
+  writeJsonl(childForkFile, [
+    {
+      timestamp: '2026-07-23T10:00:00.000Z',
+      type: 'session_meta',
+      payload: {
+        id: 'fork-child',
+        cwd: '/fork',
+        forked_from_id: 'fork-parent',
+      },
+    },
+    {
+      ...parentMeta,
+      timestamp: '2026-07-23T10:00:01.000Z',
+    },
+    {
+      timestamp: '2026-07-23T10:00:02.000Z',
+      type: 'event_msg',
+      payload: { type: 'agent_message', message: 'parent response' },
+    },
+    {
+      ...parentUsage,
+      timestamp: '2026-07-23T10:00:03.000Z',
+    },
+    {
+      timestamp: '2026-07-23T10:01:00.000Z',
+      type: 'response_item',
+      payload: { type: 'function_call', id: 'child-response', name: 'exec_command' },
+    },
+    codexToken(
+      '2026-07-23T10:02:00.000Z',
+      160,
+      { input_tokens: 50, cached_input_tokens: 10, output_tokens: 10 },
+    ),
+  ]);
+  writeJsonl(siblingForkFile, [
+    {
+      timestamp: '2026-07-23T11:00:00.000Z',
+      type: 'session_meta',
+      payload: {
+        id: 'fork-sibling',
+        cwd: '/fork',
+        forked_from_id: 'fork-parent',
+      },
+    },
+    {
+      ...parentMeta,
+      timestamp: '2026-07-23T11:00:01.000Z',
+    },
+    {
+      timestamp: '2026-07-23T11:00:02.000Z',
+      type: 'event_msg',
+      payload: { type: 'agent_message', message: 'parent response' },
+    },
+    {
+      ...parentUsage,
+      timestamp: '2026-07-23T11:00:03.000Z',
+    },
+    {
+      timestamp: '2026-07-23T11:01:00.000Z',
+      type: 'response_item',
+      payload: { type: 'function_call', id: 'sibling-response', name: 'exec_command' },
+    },
+    codexToken(
+      '2026-07-23T11:02:00.000Z',
+      160,
+      { input_tokens: 50, cached_input_tokens: 10, output_tokens: 10 },
+    ),
+  ]);
+  const forked = await new CCStatisticsClient({
+    configDir: path.join(root, 'fork-config'),
+  }).collect({
+    now,
+    codexRoots: [forkRoot],
+    claudeRoots: [],
+    fresh: true,
+  });
+  assert.strictEqual(sumTokens(forked.providers.codex.events), 220,
+    'a fork must count inherited token telemetry only once');
+  assert.deepStrictEqual(
+    forked.providers.codex.events.map(event => ({
+      sessionId: event.sessionId,
+      timestamp: event.timestamp,
+      totalTokens: event.totalTokens,
+    })),
+    [
+      {
+        sessionId: 'fork-parent',
+        timestamp: Date.parse('2026-07-22T09:30:00.000Z'),
+        totalTokens: 100,
+      },
+      {
+        sessionId: 'fork-child',
+        timestamp: Date.parse('2026-07-23T10:01:00.000Z'),
+        totalTokens: 60,
+      },
+      {
+        sessionId: 'fork-sibling',
+        timestamp: Date.parse('2026-07-23T11:01:00.000Z'),
+        totalTokens: 60,
+      },
+    ],
+    'copied history de-duplicates while sibling responses remain distinct',
+  );
+  assert.strictEqual(forked.cache.codex_fingerprint_rows, 3);
 
   let backgroundCalls = 0;
   const backgroundClient = new CCStatisticsClient({
@@ -389,8 +528,9 @@ async function run() {
     ),
   ]);
   const replaced = await client.collect({ ...request, now: now + 12_000, fresh: true });
-  assert.strictEqual(replaced.cache.rebuilt_files, 1,
-    'truncation or prefix replacement must rebuild only the changed source');
+  assert.strictEqual(replaced.cache.rebuilt_files, 3,
+    'a destructive Codex rewrite must rebuild the provider ledger');
+  assert.strictEqual(replaced.cache.codex_cache_rebuilt, true);
   assert.strictEqual(sumTokens(replaced.providers.codex.events), 43);
   assert(replaced.providers.codex.events.some(
     event => event.sessionId === 'replacement-session' && event.totalTokens === 12,

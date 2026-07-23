@@ -28,8 +28,8 @@ from typing import Any, Iterable
 from .parser import _extract_codex_text, _extract_codex_token_usage, _to_int
 
 
-SCHEMA_VERSION = 5
-SOURCE_VERSION = "cc-statistics-1.2.0-bucketed"
+SCHEMA_VERSION = 6
+SOURCE_VERSION = "cc-statistics-1.3.0-codex-fork-dedup"
 PREFIX_BYTES = 64 * 1024
 READ_CHUNK_BYTES = 1024 * 1024
 MAX_JSON_LINE_BYTES = 8 * 1024 * 1024
@@ -114,6 +114,36 @@ CREATE TABLE IF NOT EXISTS dedupe_events (
 );
 CREATE INDEX IF NOT EXISTS dedupe_events_lookup
     ON dedupe_events(provider, session_id, dedupe_key, output_tokens);
+CREATE TABLE IF NOT EXISTS codex_event_fingerprints (
+    dedupe_key BLOB PRIMARY KEY,
+    timestamp_ms INTEGER NOT NULL,
+    session_id TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS codex_event_fingerprints_time
+    ON codex_event_fingerprints(timestamp_ms);
+CREATE TABLE IF NOT EXISTS codex_usage_hourly (
+    session_id TEXT NOT NULL,
+    bucket_start_ms INTEGER NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cache_read_tokens INTEGER NOT NULL,
+    cache_write_tokens INTEGER NOT NULL,
+    event_count INTEGER NOT NULL,
+    PRIMARY KEY (session_id, bucket_start_ms)
+);
+CREATE INDEX IF NOT EXISTS codex_usage_hourly_time
+    ON codex_usage_hourly(bucket_start_ms);
+CREATE TABLE IF NOT EXISTS codex_recent_events (
+    dedupe_key BLOB PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    timestamp_ms INTEGER NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cache_read_tokens INTEGER NOT NULL,
+    cache_write_tokens INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS codex_recent_events_time
+    ON codex_recent_events(timestamp_ms);
 """
 
 
@@ -580,6 +610,9 @@ def _cache_is_compatible(connection: sqlite3.Connection) -> bool:
             "usage_hourly",
             "recent_events",
             "dedupe_events",
+            "codex_event_fingerprints",
+            "codex_usage_hourly",
+            "codex_recent_events",
         }.issubset(tables)
     )
 
@@ -638,9 +671,12 @@ def _empty_state(provider: str, path: Path) -> dict[str, Any]:
     return {
         "last_total_tokens": None,
         "session_id": _session_id_for_path(path, provider),
+        "session_meta_seen": False,
+        "lineage_id": "",
         "project_path": "",
         "quotas": {},
         "last_assistant_timestamp": None,
+        "last_response_id": "",
     }
 
 
@@ -649,6 +685,45 @@ def _file_row(connection: sqlite3.Connection, path: Path) -> sqlite3.Row | None:
         "SELECT * FROM source_files WHERE path = ?",
         (str(path),),
     ).fetchone()
+
+
+def _codex_cache_requires_rebuild(
+    connection: sqlite3.Connection,
+    current: dict[str, os.stat_result],
+) -> bool:
+    cached = {
+        row["path"]: row
+        for row in connection.execute(
+            "SELECT * FROM source_files WHERE provider = 'codex'"
+        )
+    }
+    if any(path not in current for path in cached):
+        return True
+    for path, row in cached.items():
+        stat = current[path]
+        if (
+            stat.st_size < int(row["committed_offset"])
+            or int(row["file_dev"]) != int(stat.st_dev)
+            or int(row["file_ino"]) != int(stat.st_ino)
+        ):
+            return True
+        if (
+            stat.st_size == int(row["size"])
+            and stat.st_mtime_ns != int(row["mtime_ns"])
+        ):
+            prefix_sha256, _ = _prefix_hash(
+                Path(path), int(row["prefix_bytes"])
+            )
+            if prefix_sha256 != row["prefix_sha256"]:
+                return True
+    return False
+
+
+def _reset_codex_cache(connection: sqlite3.Connection) -> None:
+    connection.execute("DELETE FROM codex_event_fingerprints")
+    connection.execute("DELETE FROM codex_usage_hourly")
+    connection.execute("DELETE FROM codex_recent_events")
+    connection.execute("DELETE FROM source_files WHERE provider = 'codex'")
 
 
 def _insert_source_file(
@@ -688,22 +763,29 @@ def _insert_source_file(
 def _codex_record(
     obj: dict[str, Any],
     state: dict[str, Any],
-) -> tuple[dict[str, int] | None, dict[str, Any] | None]:
+) -> tuple[
+    dict[str, int] | None,
+    dict[str, Any] | None,
+    bytes | None,
+]:
     obj_type = obj.get("type")
     payload = _json_dict(obj.get("payload"))
     if obj_type == "session_meta":
         session_id = payload.get("id")
         if isinstance(session_id, str) and session_id:
-            state["session_id"] = session_id
-        project_path = payload.get("cwd")
-        if isinstance(project_path, str) and project_path:
-            state["project_path"] = project_path
-        return None, None
+            if not state.get("session_meta_seen"):
+                state["session_id"] = session_id
+                state["session_meta_seen"] = True
+                project_path = payload.get("cwd")
+                if isinstance(project_path, str) and project_path:
+                    state["project_path"] = project_path
+            state["lineage_id"] = session_id
+        return None, None, None
     timestamp = obj.get("timestamp")
     if obj_type == "event_msg" and payload.get("type") == "agent_message":
         if isinstance(payload.get("message"), str):
             state["last_assistant_timestamp"] = timestamp
-        return None, None
+        return None, None, None
     if obj_type == "response_item":
         item_type = payload.get("type")
         is_assistant = (
@@ -717,9 +799,12 @@ def _codex_record(
         )
         if is_assistant:
             state["last_assistant_timestamp"] = timestamp
-        return None, None
+            response_id = payload.get("id")
+            if isinstance(response_id, str) and response_id:
+                state["last_response_id"] = response_id
+        return None, None, None
     if obj_type != "event_msg" or payload.get("type") != "token_count":
-        return None, None
+        return None, None, None
 
     info = _json_dict(payload.get("info"))
     totals = _json_dict(info.get("total_token_usage"))
@@ -744,8 +829,28 @@ def _codex_record(
                 normalized.get("cache_creation_input_tokens", 0)
             ),
         }
+    dedupe_key = None
+    if usage is not None and total_tokens > 0:
+        fingerprint = {
+            "lineage": state.get("lineage_id") or state["session_id"],
+            "response": state.get("last_response_id") or "",
+            "total": totals,
+            "last": _json_dict(info.get("last_token_usage")),
+        }
+        dedupe_key = hashlib.blake2b(
+            json.dumps(
+                fingerprint,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8"),
+            digest_size=16,
+        ).digest()
     rate_limits = payload.get("rate_limits")
-    return usage, rate_limits if isinstance(rate_limits, dict) else None
+    return (
+        usage,
+        rate_limits if isinstance(rate_limits, dict) else None,
+        dedupe_key,
+    )
 
 
 def _claude_record(
@@ -834,6 +939,149 @@ def _hourly_add(
             usage["cache_write_tokens"],
         ),
     )
+
+
+def _codex_hourly_delta(
+    connection: sqlite3.Connection,
+    *,
+    session_id: str,
+    timestamp_ms: int,
+    usage: dict[str, int],
+    direction: int,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO codex_usage_hourly(
+            session_id, bucket_start_ms, input_tokens, output_tokens,
+            cache_read_tokens, cache_write_tokens, event_count
+        ) VALUES(?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, bucket_start_ms) DO UPDATE SET
+            input_tokens = input_tokens + excluded.input_tokens,
+            output_tokens = output_tokens + excluded.output_tokens,
+            cache_read_tokens = cache_read_tokens + excluded.cache_read_tokens,
+            cache_write_tokens = cache_write_tokens + excluded.cache_write_tokens,
+            event_count = event_count + excluded.event_count
+        """,
+        (
+            session_id,
+            _local_hour_ms(timestamp_ms),
+            direction * usage["input_tokens"],
+            direction * usage["output_tokens"],
+            direction * usage["cache_read_tokens"],
+            direction * usage["cache_write_tokens"],
+            direction,
+        ),
+    )
+    if direction < 0:
+        connection.execute(
+            """
+            DELETE FROM codex_usage_hourly
+            WHERE session_id = ? AND bucket_start_ms = ? AND event_count <= 0
+            """,
+            (session_id, _local_hour_ms(timestamp_ms)),
+        )
+
+
+def _codex_event_upsert(
+    connection: sqlite3.Connection,
+    *,
+    dedupe_key: bytes,
+    session_id: str,
+    timestamp_ms: int,
+    usage: dict[str, int],
+    recent_cutoff_ms: int,
+) -> None:
+    inserted = connection.execute(
+        """
+        INSERT OR IGNORE INTO codex_event_fingerprints(
+            dedupe_key, timestamp_ms, session_id
+        ) VALUES(?, ?, ?)
+        """,
+        (dedupe_key, timestamp_ms, session_id),
+    ).rowcount
+    if inserted:
+        _codex_hourly_delta(
+            connection,
+            session_id=session_id,
+            timestamp_ms=timestamp_ms,
+            usage=usage,
+            direction=1,
+        )
+        if timestamp_ms >= recent_cutoff_ms:
+            connection.execute(
+                """
+                INSERT INTO codex_recent_events(
+                    dedupe_key, session_id, timestamp_ms, input_tokens,
+                    output_tokens, cache_read_tokens, cache_write_tokens
+                ) VALUES(?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    dedupe_key,
+                    session_id,
+                    timestamp_ms,
+                    usage["input_tokens"],
+                    usage["output_tokens"],
+                    usage["cache_read_tokens"],
+                    usage["cache_write_tokens"],
+                ),
+            )
+        return
+
+    existing = connection.execute(
+        """
+        SELECT timestamp_ms, session_id
+        FROM codex_event_fingerprints
+        WHERE dedupe_key = ?
+        """,
+        (dedupe_key,),
+    ).fetchone()
+    if existing is None or timestamp_ms >= int(existing["timestamp_ms"]):
+        return
+
+    _codex_hourly_delta(
+        connection,
+        session_id=existing["session_id"],
+        timestamp_ms=int(existing["timestamp_ms"]),
+        usage=usage,
+        direction=-1,
+    )
+    connection.execute(
+        "DELETE FROM codex_recent_events WHERE dedupe_key = ?",
+        (dedupe_key,),
+    )
+    connection.execute(
+        """
+        UPDATE codex_event_fingerprints
+        SET timestamp_ms = ?, session_id = ?
+        WHERE dedupe_key = ?
+        """,
+        (timestamp_ms, session_id, dedupe_key),
+    )
+    _codex_hourly_delta(
+        connection,
+        session_id=session_id,
+        timestamp_ms=timestamp_ms,
+        usage=usage,
+        direction=1,
+    )
+    if timestamp_ms >= recent_cutoff_ms:
+        connection.execute(
+            """
+            INSERT INTO codex_recent_events(
+                dedupe_key, session_id, timestamp_ms, input_tokens,
+                output_tokens, cache_read_tokens, cache_write_tokens
+            ) VALUES(?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                dedupe_key,
+                session_id,
+                timestamp_ms,
+                usage["input_tokens"],
+                usage["output_tokens"],
+                usage["cache_read_tokens"],
+                usage["cache_write_tokens"],
+            ),
+        )
 
 
 def _event_upsert(
@@ -1088,8 +1336,9 @@ def _scan_file(
     def consume_obj(obj: dict[str, Any], line_end: int) -> bool:
         nonlocal latest_quota_at, latest_quota
         timestamp_ms = _timestamp_ms(obj.get("timestamp"))
+        codex_dedupe_key = None
         if provider == "codex":
-            usage, quota = _codex_record(obj, state)
+            usage, quota, codex_dedupe_key = _codex_record(obj, state)
             message_id = None
             if usage is not None and not state.get("last_assistant_timestamp"):
                 state["last_assistant_timestamp"] = obj.get("timestamp")
@@ -1129,17 +1378,27 @@ def _scan_file(
             if message_id
             else f"offset:{line_end}"
         )
-        _event_upsert(
-            connection,
-            path=path,
-            event_key=event_key,
-            provider=provider,
-            session_id=state["session_id"],
-            timestamp_ms=timestamp_ms,
-            usage=usage,
-            deduplicate_by_output=bool(message_id),
-            recent_cutoff_ms=recent_cutoff_ms,
-        )
+        if provider == "codex" and codex_dedupe_key is not None:
+            _codex_event_upsert(
+                connection,
+                dedupe_key=codex_dedupe_key,
+                session_id=state["session_id"],
+                timestamp_ms=timestamp_ms,
+                usage=usage,
+                recent_cutoff_ms=recent_cutoff_ms,
+            )
+        else:
+            _event_upsert(
+                connection,
+                path=path,
+                event_key=event_key,
+                provider=provider,
+                session_id=state["session_id"],
+                timestamp_ms=timestamp_ms,
+                usage=usage,
+                deduplicate_by_output=bool(message_id),
+                recent_cutoff_ms=recent_cutoff_ms,
+            )
         metrics["parsed_events"] += 1
         return True
 
@@ -1286,6 +1545,34 @@ def _provider_events(
     recent_cutoff_ms: int,
 ) -> list[dict[str, Any]]:
     recent_boundary_ms = _local_hour_ms(recent_cutoff_ms)
+    if provider == "codex":
+        hourly_rows = connection.execute(
+            """
+            SELECT session_id, bucket_start_ms AS timestamp_ms,
+                   input_tokens, output_tokens, cache_read_tokens,
+                   cache_write_tokens
+            FROM codex_usage_hourly
+            WHERE bucket_start_ms >= ?
+              AND bucket_start_ms < ?
+            ORDER BY bucket_start_ms
+            """,
+            (_local_hour_ms(retention_cutoff_ms), recent_boundary_ms),
+        ).fetchall()
+        recent_rows = connection.execute(
+            """
+            SELECT session_id, timestamp_ms, input_tokens, output_tokens,
+                   cache_read_tokens, cache_write_tokens
+            FROM codex_recent_events
+            WHERE timestamp_ms >= ?
+            ORDER BY timestamp_ms
+            """,
+            (recent_boundary_ms,),
+        ).fetchall()
+        return [
+            _event_dict(row)
+            for row in (*hourly_rows, *recent_rows)
+        ]
+
     hourly_rows = connection.execute(
         """
         SELECT session_id, bucket_start_ms AS timestamp_ms,
@@ -1452,6 +1739,17 @@ def collect_usage(request: dict[str, Any]) -> dict[str, Any]:
                     metrics["errors"] += 1
                     metrics["errors_by_provider"][provider] += 1
         candidates.sort(key=lambda candidate: candidate[0], reverse=True)
+        codex_current = {
+            str(path): stat
+            for _, provider, path, stat in candidates
+            if provider == "codex"
+        }
+        if _codex_cache_requires_rebuild(connection, codex_current):
+            _reset_codex_cache(connection)
+            metrics["codex_cache_rebuilt"] = True
+            connection.commit()
+        else:
+            metrics["codex_cache_rebuilt"] = False
 
         retention_cutoff_ms = now_ms - retention_days * 24 * 60 * 60 * 1000
         recent_cutoff_ms = max(
@@ -1510,19 +1808,44 @@ def collect_usage(request: dict[str, Any]) -> dict[str, Any]:
             "DELETE FROM dedupe_events WHERE timestamp_ms < ?",
             (retention_cutoff_ms,),
         )
+        connection.execute(
+            "DELETE FROM codex_usage_hourly WHERE bucket_start_ms < ?",
+            (_local_hour_ms(retention_cutoff_ms),),
+        )
+        connection.execute(
+            "DELETE FROM codex_recent_events WHERE timestamp_ms < ?",
+            (recent_boundary_ms,),
+        )
+        connection.execute(
+            "DELETE FROM codex_event_fingerprints WHERE timestamp_ms < ?",
+            (retention_cutoff_ms,),
+        )
         metrics["pruned_events"] = connection.total_changes - before
         connection.commit()
 
         metrics["scan_complete"] = scan_complete
         metrics["pending_files"] = pending_files
         metrics["hourly_rows"] = connection.execute(
-            "SELECT COUNT(*) AS count FROM usage_hourly"
+            """
+            SELECT
+                (SELECT COUNT(*) FROM usage_hourly)
+                + (SELECT COUNT(*) FROM codex_usage_hourly)
+                AS count
+            """
         ).fetchone()["count"]
         metrics["recent_rows"] = connection.execute(
-            "SELECT COUNT(*) AS count FROM recent_events"
+            """
+            SELECT
+                (SELECT COUNT(*) FROM recent_events)
+                + (SELECT COUNT(*) FROM codex_recent_events)
+                AS count
+            """
         ).fetchone()["count"]
         metrics["dedupe_rows"] = connection.execute(
             "SELECT COUNT(*) AS count FROM dedupe_events"
+        ).fetchone()["count"]
+        metrics["codex_fingerprint_rows"] = connection.execute(
+            "SELECT COUNT(*) AS count FROM codex_event_fingerprints"
         ).fetchone()["count"]
         result_providers: dict[str, Any] = {}
         for provider in providers:
