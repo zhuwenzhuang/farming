@@ -144,8 +144,7 @@ async function run() {
       skipExecutablePreflight: true,
       async createProviderSessionIdentity() {
         concurrentIdentityCreates += 1;
-        await concurrentMainCreateGate;
-        return { sessionId: '019f1234-5678-7abc-8def-0123456789ad' };
+        throw new Error('fresh Codex must not pre-create a provider identity');
       },
     });
     concurrentMainManager.engineBridge.resolve = () => ({
@@ -153,6 +152,7 @@ async function run() {
       engine: {
         async createSession() {
           concurrentMainCreates += 1;
+          await concurrentMainCreateGate;
         },
       },
       spec: { category: 'other' },
@@ -176,7 +176,7 @@ async function run() {
       secondConcurrentMain,
     ]);
     assert.strictEqual(secondConcurrentMainId, firstConcurrentMainId);
-    assert.strictEqual(concurrentIdentityCreates, 1, 'concurrent Main starts must pre-create one provider identity');
+    assert.strictEqual(concurrentIdentityCreates, 0, 'concurrent Codex Main starts must not pre-create a provider identity');
     assert.strictEqual(concurrentMainCreates, 1, 'concurrent Main starts must share one reserved launch');
     clearInterval(concurrentMainManager.heartbeatInterval);
     concurrentMainManager.engineBridge.dispose();

@@ -9,7 +9,6 @@ const { promisify } = require('util');
 const packageJson = require('../package.json');
 const { AcpCheckpointStore } = require('./acp-checkpoint-store');
 const { AcpSessionState } = require('./acp-session-state');
-const { findCodexRolloutFileAsync } = require('./codex-rollout-follower');
 const { readCodexHistoryImageData } = require('./codex-transcript');
 const { AcpClientFileSystem, AcpClientTerminalManager } = require('./acp/client-services');
 const { PACKAGED_CODEX_ACP_ARG } = require('./acp/packaged-codex-acp');
@@ -29,16 +28,14 @@ const DEFAULT_CANCEL_TIMEOUT_MS = 15_000;
 const DEFAULT_HISTORY_REPLAY_MIN_WAIT_MS = 350;
 const DEFAULT_HISTORY_REPLAY_QUIET_MS = 150;
 const DEFAULT_HISTORY_REPLAY_MAX_WAIT_MS = 5_000;
-const DEFAULT_CODEX_MATERIALIZE_VERIFY_TIMEOUT_MS = 5_000;
 const IDENTITY_ADAPTER_GRACEFUL_EXIT_MS = 3_000;
 const IDENTITY_ADAPTER_TERMINATE_MS = 1_000;
 const IDENTITY_ADAPTER_KILL_MS = 1_000;
 const CODEX_SET_SESSION_MODEL_METHOD = 'session/set_model';
-const CODEX_MATERIALIZE_METHOD = '_codex/session/materialize';
 const CODEX_STEER_METHOD = '_codex/session/steer';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '1.1.4';
-const CODEX_ACP_SHA256 = 'f2298e389785cccf5db9226bd5505ae3b833f601d8f8f672f3c3704a90493c2e';
+const CODEX_ACP_SHA256 = '39cbae01e336c2ca185d624358e03280d1f6fef6d73bbe42dd9eb77e2b1efb32';
 const CODEX_ACP_VENDOR_ENTRY = path.join(
   __dirname,
   '..',
@@ -285,40 +282,6 @@ function supportsCodexSteer(capabilities = {}) {
     && Number(capability.version) >= 1;
 }
 
-function supportsCodexMaterialize(capabilities = {}) {
-  const capability = capabilities?._meta?.codex?.materialize;
-  return capability?.method === CODEX_MATERIALIZE_METHOD
-    && Number.isFinite(Number(capability.version))
-    && Number(capability.version) >= 1;
-}
-
-function codexRolloutHasSessionMeta(filePath, sessionId) {
-  const expectedId = String(sessionId || '').trim();
-  if (!filePath || !expectedId) return false;
-  try {
-    const fd = fs.openSync(filePath, 'r');
-    try {
-      const maxBytes = 256 * 1024;
-      const buffer = Buffer.allocUnsafe(maxBytes);
-      const bytesRead = fs.readSync(fd, buffer, 0, maxBytes, 0);
-      const lines = buffer.subarray(0, bytesRead).toString('utf8').split('\n');
-      return lines.some((line) => {
-        if (!line.trim()) return false;
-        try {
-          const event = JSON.parse(line);
-          return event?.type === 'session_meta' && String(event?.payload?.id || '') === expectedId;
-        } catch {
-          return false;
-        }
-      });
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    return false;
-  }
-}
-
 function isCodexSteerUnavailableError(error) {
   const text = [
     error?.message,
@@ -422,13 +385,6 @@ class AcpRuntime extends EventEmitter {
     this.historyReplayMinWaitMs = options.historyReplayMinWaitMs ?? DEFAULT_HISTORY_REPLAY_MIN_WAIT_MS;
     this.historyReplayQuietMs = options.historyReplayQuietMs ?? DEFAULT_HISTORY_REPLAY_QUIET_MS;
     this.historyReplayMaxWaitMs = options.historyReplayMaxWaitMs ?? DEFAULT_HISTORY_REPLAY_MAX_WAIT_MS;
-    this.codexMaterializeVerifyTimeoutMs = Number.isFinite(options.codexMaterializeVerifyTimeoutMs)
-      ? Math.max(0, options.codexMaterializeVerifyTimeoutMs)
-      : DEFAULT_CODEX_MATERIALIZE_VERIFY_TIMEOUT_MS;
-    this.findCodexRolloutFileAsync = options.findCodexRolloutFileAsync
-      || (options.findCodexRolloutFile
-        ? async (...args) => options.findCodexRolloutFile(...args)
-        : findCodexRolloutFileAsync);
     this.deleteProviderSessionIdentity = options.deleteProviderSessionIdentity || deleteProviderSessionIdentity;
     this.checkpointStore = options.checkpointStore
       || (options.configDir ? new AcpCheckpointStore(options.configDir, options.checkpointOptions) : null);
@@ -742,40 +698,10 @@ class AcpRuntime extends EventEmitter {
         sessionId: prepared.sessionId,
         producerStopped: false,
       };
-      if (String(options.provider || '').trim().toLowerCase() === 'codex') {
-        if (supportsCodexMaterialize(prepared.capabilities)) {
-          await withTimeout(
-            binding.connection.request(CODEX_MATERIALIZE_METHOD, {
-              sessionId: prepared.sessionId,
-            }),
-            this.sessionSetupTimeoutMs,
-            'Codex session materialization',
-          );
-          let rolloutPath = '';
-          if (prepared.adapter?.version === CODEX_ACP_VERSION) {
-            rolloutPath = await this.verifyCodexSessionMaterialized(
-              prepared.sessionId,
-              binding.env.CODEX_HOME,
-            );
-          }
-          result = {
-            ...prepared,
-            materialized: true,
-            rolloutPath,
-            sessionRequestOptions: this.getSessionRequestOptions(agentId),
-          };
-        }
-        if (!result && prepared.adapter?.version === CODEX_ACP_VERSION) {
-          throw new Error('Codex ACP runtime cannot materialize a resumable Terminal session');
-        }
-      }
-      if (!result) {
-        result = {
-          ...prepared,
-          materialized: false,
-          sessionRequestOptions: this.getSessionRequestOptions(agentId),
-        };
-      }
+      result = {
+        ...prepared,
+        sessionRequestOptions: this.getSessionRequestOptions(agentId),
+      };
     } catch (error) {
       failure = error instanceof Error ? error : new Error(String(error || 'Provider session identity failed'));
     }
@@ -810,17 +736,6 @@ class AcpRuntime extends EventEmitter {
     }
     if (failure) throw failure;
     return result;
-  }
-
-  async verifyCodexSessionMaterialized(sessionId, codexHome) {
-    const deadline = Date.now() + this.codexMaterializeVerifyTimeoutMs;
-    const filePath = await this.findCodexRolloutFileAsync(sessionId, {
-      codexHome,
-      deadline,
-      recentOnly: true,
-    });
-    if (codexRolloutHasSessionMeta(filePath, sessionId)) return filePath;
-    throw new Error(`Codex session ${sessionId} did not produce a verifiable rollout`);
   }
 
   checkpointIdentity(binding, sessionId = binding?.sessionId) {
@@ -1924,13 +1839,10 @@ module.exports = {
   acpErrorKind,
   autoPermissionResponse,
   codexAcpEnvironment,
-  codexRolloutHasSessionMeta,
   promptContentForCapabilities,
   resolveAcpLaunch,
-  supportsCodexMaterialize,
   supportsCodexSteer,
   isCodexSteerUnavailableError,
-  CODEX_MATERIALIZE_METHOD,
   CODEX_STEER_METHOD,
   deleteProviderSessionIdentity,
 };

@@ -65,11 +65,22 @@ async function run() {
   try {
     const expectedCodexCommand = resolveAgentExecutable('codex') || 'codex';
     const expectedClaudeCommand = resolveAgentExecutable('claude') || 'claude';
+    const expectedBashCommand = resolveAgentExecutable('bash') || '/bin/bash';
 
-    const sourceId = await startAgent(manager, 'codex', repo, { wantsMain: false });
+    const temporaryCodexId = await startAgent(manager, 'codex', repo, { wantsMain: false });
+    const startsBeforeTemporaryFork = captured.length;
+    const temporaryCodexFork = await manager.forkAgent(temporaryCodexId, 'same-worktree');
+    assert.match(temporaryCodexFork.error, /requires a resumable Codex session/);
+    assert.strictEqual(
+      captured.length,
+      startsBeforeTemporaryFork,
+      'a temporary Codex identity must not turn Fork into a fresh unrelated Agent',
+    );
+
+    const sourceId = await startAgent(manager, 'bash', repo, { wantsMain: false });
     const sourceAgent = manager.getState().agents.find(agent => agent.id === sourceId);
     assert.strictEqual(sourceAgent.canForkNewWorktree, true);
-    assert.strictEqual(sourceAgent.command, 'codex');
+    assert.strictEqual(sourceAgent.command, 'bash');
 
     const permanentWorktree = await manager.createPermanentWorktree(repo);
     assert.match(path.basename(permanentWorktree.workspace), /^repo-farming-worktree-\d{8}-\d{6}(?:-\d+)?$/);
@@ -91,7 +102,7 @@ async function run() {
     assert.strictEqual(sameWorktree.error, undefined);
     assert.strictEqual(fs.realpathSync(sameWorktree.workspace), fs.realpathSync(repo));
     assert.notStrictEqual(sameWorktree.agentId, sourceId);
-    assert.strictEqual(captured.at(-1).command, expectedCodexCommand);
+    assert.strictEqual(captured.at(-1).command, expectedBashCommand);
     assert.strictEqual(fs.realpathSync(captured.at(-1).cwd), fs.realpathSync(repo));
 
     const sameAgent = manager.getState().agents.find(agent => agent.id === sameWorktree.agentId);
@@ -104,7 +115,7 @@ async function run() {
     assert.strictEqual(newWorktree.error, undefined);
     assert.notStrictEqual(newWorktree.workspace, repo);
     assert(fs.existsSync(newWorktree.workspace), 'new worktree directory should exist');
-    assert.strictEqual(captured.at(-1).command, expectedCodexCommand);
+    assert.strictEqual(captured.at(-1).command, expectedBashCommand);
     assert.strictEqual(captured.at(-1).cwd, newWorktree.workspace);
     const worktreeList = execFileSync('git', ['-C', repo, 'worktree', 'list', '--porcelain'], { encoding: 'utf8' });
     assert(worktreeList.includes(newWorktree.workspace), 'git should know about the created worktree');

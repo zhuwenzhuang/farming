@@ -40,7 +40,7 @@ function run() {
     assert.deepStrictEqual(settings.projectNames, {});
     assert.strictEqual(settings.instanceName, os.hostname());
     assert.deepStrictEqual(settings.mainPageSessionKeys, []);
-    assert.strictEqual(settings.appearance, 'light');
+    assert.strictEqual(settings.appearance, 'system');
     assert.strictEqual(settings.language, 'en');
     assert.strictEqual(settings.crtSkinEffectsEnabled, true);
     assert.strictEqual(settings.crtDynamicHeatEnabled, false);
@@ -137,8 +137,10 @@ function run() {
     manager.updateSettings({ appearance: 'dark', language: 'zh' });
     assert.strictEqual(manager.getSettings().appearance, 'dark');
     assert.strictEqual(manager.getSettings().language, 'zh');
+    manager.updateSettings({ appearance: 'system' });
+    assert.strictEqual(manager.getSettings().appearance, 'system');
     manager.updateSettings({ appearance: 'sepia', language: 'jp' });
-    assert.strictEqual(manager.getSettings().appearance, 'light');
+    assert.strictEqual(manager.getSettings().appearance, 'system');
     assert.strictEqual(manager.getSettings().language, 'en');
     manager.updateSettings({ updateUrl: 'https://updates.example.test/farming/' });
     assert.strictEqual(manager.getSettings().updateUrl, 'https://updates.example.test/farming/');

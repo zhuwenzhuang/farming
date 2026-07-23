@@ -111,8 +111,8 @@ async function run() {
     ], 'later Terminal input should wait for model menus but not for direct Fast confirmation');
     assert.deepStrictEqual(
       profileInputReceivedStates,
-      [false, false, false, false, false],
-      'Farming-owned model menu input should keep a fresh Terminal eligible for ACP Chat, and user input should be marked only after the PTY accepts it'
+      [false, false, false, false, true],
+      'Farming-owned model menu input should keep a fresh Terminal eligible for ACP Chat, while submitted user input is fenced before an ambiguous PTY response'
     );
     assert.strictEqual(
       manager.agents.get('agent-profile').terminalInputReceived,
@@ -209,6 +209,30 @@ async function run() {
       patch: { terminalInputReceived: true },
     }], 'the first accepted input should publish only the changed Agent field');
     manager.providerSessionService.observe = originalObserveProviderSession;
+
+    manager.agents.set('agent-ambiguous-input', {
+      id: 'agent-ambiguous-input',
+      command: 'codex',
+      cwd: '/tmp',
+      engineName: 'local',
+      status: 'running',
+      agentRuntimeMode: 'terminal',
+      providerSessionProvider: 'codex',
+      providerSessionId: 'tmp_uuid_ambiguous-input',
+      providerSessionTemporary: true,
+      terminalInputReceived: false,
+    });
+    manager.engineBridge.getEngine = () => ({
+      async sendInput() {
+        throw new Error('simulated lost PTY response after write');
+      },
+    });
+    await manager.sendInput('agent-ambiguous-input', '\r');
+    assert.strictEqual(
+      manager.agents.get('agent-ambiguous-input').terminalInputReceived,
+      true,
+      'an uncertain input result must fail closed after the PTY may have accepted the submission',
+    );
 
     manager.agents.set('agent-display-events', {
       id: 'agent-display-events',

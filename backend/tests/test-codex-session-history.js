@@ -3,8 +3,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
+  codexSessionDateKeys,
   hasTemporaryWorkspaceReference,
   isTemporaryWorkspace,
+  listCodexSessionIdentities,
   listCodexSessions,
 } = require('../codex-session-history');
 
@@ -23,6 +25,7 @@ async function run() {
   const tempIndexOnlyId = '019f0000-0000-7000-8000-000000000006';
   const tempTitleId = '019f0000-0000-7000-8000-000000000007';
   const previewOnlyId = '019f0000-0000-7000-8000-000000000008';
+  const largeHeaderId = '019f0000-0000-7000-8000-000000000009';
   const automationsDir = path.join(root, 'automations');
   fs.writeFileSync(path.join(root, 'session_index.jsonl'), [
     JSON.stringify({ id: activeId, thread_name: 'Active title', updated_at: '2026-06-27T10:00:00.000Z' }),
@@ -157,12 +160,51 @@ async function run() {
       payload: { cwd: '/repo/preview-only', model: 'gpt-5.5', effort: 'medium' },
     }),
   ].join('\n'));
+  fs.writeFileSync(path.join(sessionsDir, `rollout-2026-06-27T18-00-01-${largeHeaderId}.jsonl`), [
+    JSON.stringify({
+      timestamp: '2026-06-27T10:00:01.000Z',
+      type: 'session_meta',
+      payload: {
+        id: largeHeaderId,
+        cwd: '/private/tmp/codex-large-header',
+        source: 'cli',
+        base_instructions: 'x'.repeat(70 * 1024),
+      },
+    }),
+  ].join('\n'));
 
   assert.strictEqual(isTemporaryWorkspace('/private/tmp/codex-playwright'), true);
   assert.strictEqual(isTemporaryWorkspace('/var/folders/abc/workspace'), true);
   assert.strictEqual(isTemporaryWorkspace('/repo/active'), false);
   assert.strictEqual(hasTemporaryWorkspaceReference('Evaluation workspace /tmp/codex-eval/workspace'), true);
   assert.strictEqual(hasTemporaryWorkspaceReference('Active title'), false);
+  const localMidnight = new Date(2026, 5, 28, 0, 0, 0, 0).getTime();
+  assert.deepStrictEqual(
+    codexSessionDateKeys(localMidnight, 30000),
+    ['2026-06-27', '2026-06-28'],
+  );
+
+  const identities = await listCodexSessionIdentities({
+    codexHome: root,
+    startedAt: Date.parse('2026-06-27T10:00:00.000Z'),
+    windowMs: 30000,
+  });
+  assert.deepStrictEqual(identities.find(identity => identity.id === activeId), {
+    id: activeId,
+    createdAt: '2026-06-27T10:00:00.000Z',
+    cwd: '/repo/active',
+    workspace: '/repo/active',
+  }, 'identity discovery should read the launch-date rollout header');
+  assert.strictEqual(
+    identities.find(identity => identity.id === largeHeaderId)?.cwd,
+    '/private/tmp/codex-large-header',
+    'identity discovery should read a session_meta line larger than one 64 KiB chunk',
+  );
+  assert.strictEqual(
+    identities.some(identity => identity.id === archivedId),
+    false,
+    'identity discovery should not scan archived history',
+  );
 
   const sessions = await listCodexSessions({ codexHome: root, limit: 10, scanLimit: 10 });
   assert.strictEqual(sessions.length, 4);

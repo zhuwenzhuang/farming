@@ -3,9 +3,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, codexRolloutHasSessionMeta, deleteProviderSessionIdentity, promptContentForCapabilities, resolveAcpLaunch, supportsCodexMaterialize, supportsCodexSteer } = require('../acp-runtime');
+const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, deleteProviderSessionIdentity, promptContentForCapabilities, resolveAcpLaunch, supportsCodexSteer } = require('../acp-runtime');
 const { AcpSessionState } = require('../acp-session-state');
-const { findCodexRolloutFileAsync } = require('../codex-rollout-follower');
 
 async function run() {
   assert.strictEqual(acpErrorKind(new Error('401 Unauthorized: sign in required')), 'authentication');
@@ -21,45 +20,6 @@ async function run() {
   assert.strictEqual(supportsCodexSteer({
     _meta: { codex: { steer: { method: '_codex/session/steer', version: 0 } } },
   }), false);
-  assert.strictEqual(supportsCodexMaterialize({
-    _meta: { codex: { materialize: { method: '_codex/session/materialize', version: 1 } } },
-  }), true);
-  assert.strictEqual(supportsCodexMaterialize({
-    _meta: { codex: { materialize: { method: '_codex/session/materialize', version: 0 } } },
-  }), false);
-  const rolloutVerificationRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-codex-materialize-'));
-  const rolloutVerificationPath = path.join(rolloutVerificationRoot, 'rollout-session.jsonl');
-  fs.writeFileSync(rolloutVerificationPath, `${JSON.stringify({
-    type: 'session_meta',
-    payload: { id: 'verified-session' },
-  })}\n`);
-  assert.strictEqual(codexRolloutHasSessionMeta(rolloutVerificationPath, 'verified-session'), true);
-  assert.strictEqual(codexRolloutHasSessionMeta(rolloutVerificationPath, 'different-session'), false);
-  const exactRolloutId = '019f1234-5678-7abc-8def-0123456789ae';
-  const exactRolloutDirectory = path.join(
-    rolloutVerificationRoot,
-    'sessions',
-    String(new Date().getUTCFullYear()),
-    String(new Date().getUTCMonth() + 1).padStart(2, '0'),
-    String(new Date().getUTCDate()).padStart(2, '0'),
-  );
-  fs.mkdirSync(exactRolloutDirectory, { recursive: true });
-  const exactRolloutPath = path.join(exactRolloutDirectory, `rollout-test-${exactRolloutId}.jsonl`);
-  fs.writeFileSync(exactRolloutPath, '{}\n');
-  assert.strictEqual(
-    await findCodexRolloutFileAsync(exactRolloutId, { codexHome: rolloutVerificationRoot }),
-    exactRolloutPath,
-  );
-  const failedRolloutVerificationRuntime = new AcpRuntime({
-    codexMaterializeVerifyTimeoutMs: 0,
-    findCodexRolloutFile: () => rolloutVerificationPath,
-  });
-  await assert.rejects(
-    failedRolloutVerificationRuntime.verifyCodexSessionMaterialized('different-session', rolloutVerificationRoot),
-    /did not produce a verifiable rollout/,
-  );
-  await failedRolloutVerificationRuntime.dispose();
-  fs.rmSync(rolloutVerificationRoot, { recursive: true, force: true });
   let unsafeConnectionClose;
   const unsafeConnectionClosed = new Promise(resolve => {
     unsafeConnectionClose = resolve;
@@ -178,16 +138,6 @@ async function run() {
     service_tier: 'priority',
   });
   assert.strictEqual(codexAcpEnvironment({ env: {}, approvalMode: 'ask' }).INITIAL_AGENT_MODE, 'read-only');
-  assert.strictEqual(
-    codexAcpEnvironment({ env: {}, identityOnly: true }).FARMING_CODEX_ACP_IDENTITY_ONLY,
-    '1',
-  );
-  assert.strictEqual(
-    Object.hasOwn(codexAcpEnvironment({
-      env: { FARMING_CODEX_ACP_IDENTITY_ONLY: '1' },
-    }), 'FARMING_CODEX_ACP_IDENTITY_ONLY'),
-    false,
-  );
   assert.deepStrictEqual(acpSessionRequestOptions({
     additionalDirectories: ['../shared', '../shared', '/tmp/absolute'],
     mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: ['--stdio'] }],
@@ -457,14 +407,13 @@ async function run() {
     assert.strictEqual(prepared.historyMode, 'new');
     const bindingCountBeforeIdentity = runtime.bindings.size;
     const identity = await runtime.createSessionIdentity({
-      provider: 'codex',
+      provider: 'opencode',
       cwd: process.cwd(),
       env: process.env,
       approvalMode: 'full',
     });
     assert.strictEqual(identity.sessionId, 'acp-new-session');
     assert.strictEqual(identity.historyMode, 'new');
-    assert.strictEqual(identity.materialized, false, 'custom ACP test adapters may omit Codex materialization');
     assert.deepStrictEqual(identity.sessionRequestOptions, {
       cwd: process.cwd(),
       additionalDirectories: [],
@@ -487,45 +436,6 @@ async function run() {
       bindingCountBeforeIdentity,
       'one-shot session identity creation must not retain an ACP binding',
     );
-    const strictIdentityRollbackEvents = [];
-    const strictCodexRuntime = new AcpRuntime({
-      resolveLaunch() {
-        return { command: process.execPath, args: [fixture], version: '1.1.4' };
-      },
-      async deleteProviderSessionIdentity(identity) {
-        strictIdentityRollbackEvents.push({ type: 'deleted', identity });
-      },
-    });
-    const strictCodexUnregister = strictCodexRuntime.unregisterAgentAndWait.bind(strictCodexRuntime);
-    strictCodexRuntime.unregisterAgentAndWait = async agentId => {
-      await strictCodexUnregister(agentId);
-      strictIdentityRollbackEvents.push({ type: 'stopped' });
-    };
-    await assert.rejects(
-      strictCodexRuntime.createSessionIdentity({
-        provider: 'codex',
-        cwd: process.cwd(),
-        env: process.env,
-        approvalMode: 'full',
-      }),
-      /cannot materialize a resumable Terminal session/,
-    );
-    assert.strictEqual(
-      strictCodexRuntime.bindings.size,
-      0,
-      'failed Codex identity materialization must close the one-shot ACP binding',
-    );
-    assert.strictEqual(
-      strictIdentityRollbackEvents.find(event => event.type === 'deleted').identity.sessionId,
-      'acp-new-session',
-      'a failure after session/new must roll back the exact created provider session',
-    );
-    assert.deepStrictEqual(
-      strictIdentityRollbackEvents.map(event => event.type),
-      ['stopped', 'deleted'],
-      'the one-shot ACP process tree must be proven stopped before provider rollback',
-    );
-    await strictCodexRuntime.dispose();
     const cleanupFailureRollbacks = [];
     const cleanupFailureRuntime = new AcpRuntime({
       resolveLaunch() {
@@ -543,7 +453,7 @@ async function run() {
     let cleanupFailureError = null;
     await assert.rejects(
       cleanupFailureRuntime.createSessionIdentity({
-        provider: 'codex',
+        provider: 'opencode',
         cwd: process.cwd(),
         env: process.env,
         approvalMode: 'full',

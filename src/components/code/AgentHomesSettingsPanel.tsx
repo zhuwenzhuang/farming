@@ -68,6 +68,7 @@ function panelCopy(language: UiPreferences['language']) {
     back: zh ? '返回导航' : 'Back to navigation',
     general: zh ? '通用' : 'General',
     appearance: zh ? '外观' : 'Appearance',
+    system: zh ? '跟随系统' : 'System',
     light: zh ? '浅色' : 'Light',
     dark: zh ? '深色' : 'Dark',
     interface: zh ? '界面' : 'Interface',
@@ -585,6 +586,7 @@ export function AgentHomesSettingsPanel({
               <div className="code-settings-inline-choice">
                 <ColorModeGlyph aria-hidden="true" />
                 <div className="code-settings-segmented" role="group" aria-label={copy.appearance}>
+                  <button type="button" className={uiPreferences.appearance === 'system' ? 'active' : ''} onClick={() => onUpdateUiPreferences({ appearance: 'system' })}>{copy.system}</button>
                   <button type="button" className={uiPreferences.appearance === 'light' ? 'active' : ''} onClick={() => onUpdateUiPreferences({ appearance: 'light' })}>{copy.light}</button>
                   <button type="button" className={uiPreferences.appearance === 'dark' ? 'active' : ''} onClick={() => onUpdateUiPreferences({ appearance: 'dark' })}>{copy.dark}</button>
                 </div>

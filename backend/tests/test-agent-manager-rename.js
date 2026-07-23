@@ -9,7 +9,6 @@ async function run() {
   const { agentTitle } = importTsModule('src/lib/format.ts');
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-rename-'));
   const publicProjectWorkspace = fs.realpathSync(tmpRoot);
-  const precreatedCodexSessionId = '019f1234-5678-7abc-8def-0123456789ac';
   const persistedAgentSnapshots = [];
   const manager = new AgentManager({
     getWorkspace() {
@@ -31,10 +30,7 @@ async function run() {
       persistedAgentSnapshots.push({ ...agent, ...patch });
       return agent.persistentSessionId || `fsess_${agent.id}`;
     },
-  }, {
-    skipExecutablePreflight: true,
-    createProviderSessionIdentity: async () => ({ sessionId: precreatedCodexSessionId }),
-  });
+  }, { skipExecutablePreflight: true });
 
   manager.engineBridge.resolve = () => ({
     engineName: 'local',
@@ -83,10 +79,7 @@ async function run() {
       getCodexModel() { return 'config'; },
       getCodexReasoningEffort() { return 'config'; },
       getCodexServiceTier() { return 'default'; },
-    }, {
-      skipExecutablePreflight: true,
-      createProviderSessionIdentity: async () => ({ sessionId: '019f1234-5678-7abc-8def-0123456789ab' }),
-    });
+    }, { skipExecutablePreflight: true });
     dangerousManager.engineBridge.resolve = () => ({
       engineName: 'local',
       engine: {
@@ -392,6 +385,7 @@ async function run() {
       providerSessionProvider: 'codex',
       providerSessionId: pendingCodexSessionId,
       providerSessionTemporary: true,
+      terminalInputReceived: false,
     });
 
     const permissionRestartKillCount = permissionRestartKills.length;
@@ -424,15 +418,14 @@ async function run() {
     assert.strictEqual(permissionRestartKills.at(-1), pendingCodexPermissionAgentId);
     assert(permissionRestartStarts.at(-1).args.includes('--ask-for-approval'));
     assert(permissionRestartStarts.at(-1).args.includes('untrusted'));
-    assert.strictEqual(permissionRestartStarts.at(-1).args.includes('resume'), true);
+    assert.strictEqual(permissionRestartStarts.at(-1).args.includes('resume'), false);
     assert.strictEqual(permissionRestartStarts.at(-1).args.includes(pendingCodexSessionId), false);
-    assert.strictEqual(permissionRestartStarts.at(-1).args.includes(precreatedCodexSessionId), true);
     assert.strictEqual(manager.agents.has(pendingCodexPermissionAgentId), false);
     const restartedPendingCodex = manager.agents.get(pendingCodexPermission.restartedAgentId);
     assert.strictEqual(restartedPendingCodex.launchPermissionMode, 'ask');
-    assert.strictEqual(restartedPendingCodex.providerSessionTemporary, false);
-    assert.strictEqual(restartedPendingCodex.providerSessionId, precreatedCodexSessionId);
-    assert.strictEqual(restartedPendingCodex.providerSessionSource, 'acp-precreated');
+    assert.strictEqual(restartedPendingCodex.providerSessionTemporary, true);
+    assert.match(restartedPendingCodex.providerSessionId, /^tmp_uuid/);
+    assert.strictEqual(restartedPendingCodex.providerSessionSource, 'codex-temporary');
     assert.notStrictEqual(restartedPendingCodex.providerSessionId, pendingCodexSessionId);
     assert.strictEqual(restartedPendingCodex.restartedFromAgentId, pendingCodexPermissionAgentId);
     assert.deepStrictEqual(restartedPendingCodex.restartedFromAgentIds, [pendingCodexPermissionAgentId]);
@@ -449,7 +442,9 @@ async function run() {
     );
     assert.strictEqual(chainedPendingCodexPermission.error, undefined);
     const chainedPendingCodex = manager.agents.get(chainedPendingCodexPermission.restartedAgentId);
-    assert.strictEqual(chainedPendingCodex.providerSessionId, precreatedCodexSessionId);
+    assert.strictEqual(chainedPendingCodex.providerSessionTemporary, true);
+    assert.match(chainedPendingCodex.providerSessionId, /^tmp_uuid/);
+    assert.notStrictEqual(chainedPendingCodex.providerSessionId, restartedPendingCodex.providerSessionId);
     assert.strictEqual(chainedPendingCodex.restartedFromAgentId, pendingCodexPermission.restartedAgentId);
     assert.deepStrictEqual(chainedPendingCodex.restartedFromAgentIds, [
       pendingCodexPermissionAgentId,
@@ -459,6 +454,16 @@ async function run() {
       manager.getState().agents.find(agent => agent.id === chainedPendingCodexPermission.restartedAgentId).restartedFromAgentIds,
       [pendingCodexPermissionAgentId, pendingCodexPermission.restartedAgentId]
     );
+    chainedPendingCodex.terminalInputReceived = true;
+    const blockedPermissionRestartStartCount = permissionRestartStarts.length;
+    const blockedPermissionRestartKillCount = permissionRestartKills.length;
+    const blockedPendingCodexPermission = await manager.syncCodexTerminalPermissionMode(
+      chainedPendingCodexPermission.restartedAgentId,
+      'ask'
+    );
+    assert.match(blockedPendingCodexPermission.error, /require a resumable provider session/);
+    assert.strictEqual(permissionRestartStarts.length, blockedPermissionRestartStartCount);
+    assert.strictEqual(permissionRestartKills.length, blockedPermissionRestartKillCount);
 
     const claudePermissionAgentId = 'agent-claude-permissions';
     manager.agents.set(claudePermissionAgentId, {

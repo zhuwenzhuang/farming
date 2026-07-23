@@ -118,15 +118,13 @@ function codexSessionPlan(rawArgs, _launchArgs) {
   if (subcommand) return null;
   if (hasArg(rawArgs, ['--remote'])) {
     return {
-      error: 'A fresh Codex --remote Terminal cannot pre-create a stable session id; resume an explicit remote session id instead',
+      error: 'A fresh Codex --remote Terminal cannot be correlated with a local resumable session id; resume an explicit remote session id instead',
     };
   }
   return {
-    id: '',
-    precreate: true,
-    temporary: false,
-    source: 'codex-precreate',
-    identityWorkspace: argValue(rawArgs, ['-C', '--cd']),
+    id: createTemporaryProviderSessionId(),
+    temporary: true,
+    source: 'codex-temporary',
   };
 }
 
@@ -191,8 +189,6 @@ function openCodeSessionPlan(rawArgs, launchArgs) {
 function codexAcpEnvironment(options = {}) {
   const env = { ...(options.env || process.env) };
   if (options.executable && !env.CODEX_PATH) env.CODEX_PATH = options.executable;
-  if (options.identityOnly === true) env.FARMING_CODEX_ACP_IDENTITY_ONLY = '1';
-  else delete env.FARMING_CODEX_ACP_IDENTITY_ONLY;
   let config = {};
   if (env.CODEX_CONFIG) {
     try {

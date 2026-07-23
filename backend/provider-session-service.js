@@ -1,12 +1,15 @@
+const fs = require('fs');
 const path = require('path');
 const { findAgentSession } = require('./agent-session-history');
-const { listCodexSessions } = require('./codex-session-history');
-const { isLinkedWorktreeOf } = require('./git-worktree-info');
+const {
+  codexSessionDateKeys,
+  listCodexSessionIdentities,
+} = require('./codex-session-history');
 const { mainPageAgentSessionKey } = require('./main-page-session');
 const { isTemporaryProviderSessionId } = require('./provider-session-id');
 
 const CODEX_RESOLVE_COOLDOWN_MS = 1000;
-const CODEX_MATCH_GRACE_MS = 30 * 1000;
+const CODEX_MATCH_WINDOW_MS = 30 * 1000;
 const TITLE_RESOLVE_COOLDOWN_MS = 30 * 1000;
 
 function normalizePath(value) {
@@ -14,6 +17,16 @@ function normalizePath(value) {
   const trimmed = value.trim();
   if (!trimmed || trimmed === path.sep) return trimmed;
   return trimmed.replace(/[\\/]+$/, '');
+}
+
+function canonicalPath(value) {
+  const normalized = normalizePath(value);
+  if (!normalized) return '';
+  try {
+    return normalizePath(fs.realpathSync.native(normalized));
+  } catch {
+    return normalized;
+  }
 }
 
 function timestampMs(value) {
@@ -26,10 +39,10 @@ class ProviderSessionService {
     this.agents = options.agents || new Map();
     this.getProviderHomes = options.getProviderHomes || (() => undefined);
     this.commit = options.commit || (() => {});
-    this.listCodexSessions = options.listCodexSessions || listCodexSessions;
+    this.listCodexSessionIdentities = options.listCodexSessionIdentities || listCodexSessionIdentities;
     this.findAgentSession = options.findAgentSession || findAgentSession;
-    this.isLinkedWorktreeOf = options.isLinkedWorktreeOf || isLinkedWorktreeOf;
     this.resolutions = new Map();
+    this.codexIdentityScans = new Map();
   }
 
   activate(agentId) {
@@ -58,6 +71,7 @@ class ProviderSessionService {
 
   dispose() {
     this.resolutions.clear();
+    this.codexIdentityScans.clear();
   }
 
   bindConfirmed(agentId, provider, sessionId) {
@@ -95,6 +109,14 @@ class ProviderSessionService {
     const agent = this.agents.get(agentId);
     if (!agent || agent.providerSessionProvider !== 'codex' || agent.providerSessionTemporary !== true) {
       this.resolutions.delete(`codex:${agentId}`);
+      return Promise.resolve(false);
+    }
+    const startedAt = Number(agent.startedAt) || 0;
+    if (
+      options.force !== true
+      && startedAt
+      && Date.now() > startedAt + CODEX_MATCH_WINDOW_MS
+    ) {
       return Promise.resolve(false);
     }
 
@@ -167,15 +189,30 @@ class ProviderSessionService {
   }
 
   async findTemporaryCodexSession(agent) {
-    const sessions = await this.listCodexSessions({
-      codexHome: agent.providerHomePath || undefined,
-      limit: 100,
-      scanLimit: 1000,
-    });
+    const startedAt = Number(agent.startedAt) || 0;
+    const codexHome = agent.providerHomePath || '';
+    const scanKey = [
+      codexHome,
+      ...codexSessionDateKeys(startedAt, CODEX_MATCH_WINDOW_MS),
+    ].join('\0');
+    let scan = this.codexIdentityScans.get(scanKey);
+    if (!scan) {
+      scan = Promise.resolve(this.listCodexSessionIdentities({
+        codexHome: codexHome || undefined,
+        startedAt,
+        windowMs: CODEX_MATCH_WINDOW_MS,
+      })).finally(() => {
+        if (this.codexIdentityScans.get(scanKey) === scan) {
+          this.codexIdentityScans.delete(scanKey);
+        }
+      });
+      this.codexIdentityScans.set(scanKey, scan);
+    }
+    const sessions = await scan;
     const workspace = normalizePath(
       agent?.gitWorktree?.workspace || agent?.projectWorkspace || agent?.cwd || ''
     );
-    const startedAt = Number(agent.startedAt) || 0;
+    if (!workspace) return null;
     const homeId = String(agent.providerHomeId || 'default').trim() || 'default';
     const claimedSessionIds = new Set([...this.agents.values()]
       .filter(candidate => candidate?.id !== agent.id
@@ -189,35 +226,36 @@ class ProviderSessionService {
         if (!session?.id || claimedSessionIds.has(session.id)) return false;
         const sessionWorkspace = normalizePath(session.workspace || session.cwd);
         if (workspace && !sessionWorkspace) return false;
-        const sessionTime = timestampMs(session.createdAt || session.updatedAt);
-        if (!sessionTime || !startedAt) return true;
-        return sessionTime >= startedAt - CODEX_MATCH_GRACE_MS;
-      })
-      .sort((a, b) => {
-        const aTime = timestampMs(a.createdAt || a.updatedAt);
-        const bTime = timestampMs(b.createdAt || b.updatedAt);
-        const aDistance = startedAt && aTime ? Math.abs(aTime - startedAt) : Number.MAX_SAFE_INTEGER;
-        const bDistance = startedAt && bTime ? Math.abs(bTime - startedAt) : Number.MAX_SAFE_INTEGER;
-        if (aDistance !== bDistance) return aDistance - bDistance;
-        return bTime - aTime;
+        const sessionTime = timestampMs(session.createdAt);
+        if (!sessionTime || !startedAt) return false;
+        return Math.abs(sessionTime - startedAt) <= CODEX_MATCH_WINDOW_MS;
       });
 
-    const exact = candidates.find(session => (
-      !workspace || workspace === normalizePath(session.workspace || session.cwd)
+    const exact = candidates.filter(session => (
+      workspace === normalizePath(session.workspace || session.cwd)
     ));
-    if (exact) return exact;
-    if (!workspace) return candidates[0] || null;
-
-    for (const session of candidates.slice(0, 12)) {
-      const sessionWorkspace = normalizePath(session.workspace || session.cwd);
-      if (!sessionWorkspace) continue;
-      if (await this.isLinkedWorktreeOf(workspace, sessionWorkspace)) return session;
-    }
+    if (exact.length === 1) return exact[0];
+    if (exact.length > 1) return null;
+    const canonicalWorkspace = canonicalPath(workspace);
+    const canonical = candidates.filter(session => (
+      canonicalWorkspace === canonicalPath(session.workspace || session.cwd)
+    ));
+    if (canonical.length === 1) return canonical[0];
     return null;
   }
 
   confirm(agentId, { provider, sessionId, source, title, workspace }) {
-    const previousSessionId = this.agents.get(agentId)?.providerSessionId || '';
+    const current = this.agents.get(agentId);
+    const homeId = String(current?.providerHomeId || 'default').trim() || 'default';
+    const claimedByAnotherAgent = [...this.agents.values()].some(candidate => (
+      candidate?.id !== agentId
+      && candidate?.providerSessionProvider === provider
+      && candidate?.providerSessionId === sessionId
+      && candidate?.providerSessionTemporary !== true
+      && (String(candidate.providerHomeId || 'default').trim() || 'default') === homeId
+    ));
+    if (claimedByAnotherAgent) return false;
+    const previousSessionId = current?.providerSessionId || '';
     const agent = this.bindConfirmed(agentId, provider, sessionId);
     if (!agent) return false;
     const providerSessionTitle = String(title || '').trim().slice(0, 160);

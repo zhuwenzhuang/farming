@@ -4,7 +4,10 @@ const NativePtyHostClient = require('../native-pty-host-client');
 const {
   createTerminalReducerFlowControl,
 } = require('../terminal-reducer-flow-control');
-const { deserializeTerminalState } = require('../terminal-state-serialization');
+const {
+  deserializeTerminalState,
+  serializeTerminalState,
+} = require('../terminal-state-serialization');
 
 function deferred() {
   let resolve;
@@ -197,6 +200,152 @@ async function testConcurrentCreateIsIncludedOrRejectedByBarrier() {
   assert.strictEqual(created.rotationFrozen, false);
 }
 
+async function testTemporaryCodexInputAbortsRotation() {
+  const host = hostHarness();
+  const current = session('temporary-codex-input', {
+    command: 'codex',
+    metadata: {
+      agentId: 'temporary-codex-input',
+      category: 'coding',
+      providerSessionProvider: 'codex',
+      providerSessionId: 'tmp_uuid_rotation-guard',
+      providerSessionTemporary: true,
+      terminalInputReceived: true,
+    },
+  });
+  host.sessions.set(current.id, current);
+
+  const controllerIdentity = { id: 'controller-temporary-codex', generation: 11 };
+  const controllerClient = {};
+  const rotationClient = new NativePtyHostClient({
+    configDir: '/tmp/farming-rotation-temporary-codex-test',
+    controllerIdentity,
+    hostRotationTimeoutMs: 100,
+  });
+  rotationClient.socket = {
+    destroyed: false,
+    destroy() {
+      this.destroyed = true;
+    },
+  };
+
+  const methods = [];
+  rotationClient.requestOnce = async (method, params = {}) => {
+    methods.push(method);
+    return host.dispatch(method, params, controllerClient);
+  };
+  let spawnCalls = 0;
+  rotationClient.spawnHost = () => {
+    spawnCalls += 1;
+  };
+
+  await assert.rejects(
+    () => rotationClient.rotateMismatchedHost({
+      pid: 1234,
+      runtimeIdentity: null,
+    }),
+    error => (
+      error?.code === 'FARMING_NATIVE_HOST_UNRESUMABLE_SESSION'
+      && /has user input but no exact resume id/.test(error.message)
+    ),
+  );
+
+  assert(methods.includes('serializeTerminalState'));
+  assert(methods.includes('resumeTerminalState'));
+  assert.strictEqual(methods.includes('shutdownHost'), false);
+  assert.strictEqual(spawnCalls, 0);
+  assert.strictEqual(host.rotationPreparation, null);
+  assert.strictEqual(current.rotationFrozen, false);
+  assert.strictEqual(current.process.pauseCalls, 1);
+  assert.strictEqual(current.process.resumeCalls, 1);
+}
+
+async function testInvalidCheckpointResumesPreparedHost() {
+  const rotationClient = new NativePtyHostClient({
+    configDir: '/tmp/farming-rotation-invalid-checkpoint-test',
+    controllerIdentity: { id: 'controller-invalid-checkpoint', generation: 12 },
+    hostRotationTimeoutMs: 100,
+  });
+  rotationClient.socket = { destroyed: false };
+  const methods = [];
+  rotationClient.requestOnce = async (method) => {
+    methods.push(method);
+    if (method === 'serializeTerminalState') {
+      return {
+        preparationToken: 'invalid-checkpoint-token',
+        serializedTerminalState: '{not-json',
+      };
+    }
+    if (method === 'resumeTerminalState') return { resumed: 1 };
+    return {};
+  };
+
+  await assert.rejects(
+    () => rotationClient.rotateMismatchedHost({
+      pid: 1234,
+      runtimeIdentity: null,
+    }),
+    error => (
+      error?.code === 'FARMING_NATIVE_HOST_RUNTIME_MISMATCH'
+      && /invalid terminal checkpoint/.test(error.message)
+    ),
+  );
+  assert.deepStrictEqual(
+    methods,
+    ['registerController', 'serializeTerminalState', 'resumeTerminalState'],
+    'checkpoint inspection failure must resume the prepared host before returning an error',
+  );
+}
+
+async function testPreparedHostResumeFailureIsVisible() {
+  const serializedTerminalState = serializeTerminalState([{
+    id: 'temporary-codex-resume-failure',
+    metadata: {
+      providerSessionProvider: 'codex',
+      providerSessionId: 'tmp_uuid_resume-failure',
+      providerSessionTemporary: true,
+      terminalInputReceived: true,
+    },
+    processDetails: { cwd: '/tmp', title: 'Codex' },
+    processLaunchConfig: { command: 'codex', args: [], category: 'coding' },
+    replayEvent: { events: [{ data: 'output', cols: 80, rows: 24 }] },
+  }]);
+  const rotationClient = new NativePtyHostClient({
+    configDir: '/tmp/farming-rotation-resume-failure-test',
+    controllerIdentity: { id: 'controller-resume-failure', generation: 13 },
+    hostRotationTimeoutMs: 100,
+  });
+  rotationClient.socket = { destroyed: false };
+  const methods = [];
+  rotationClient.requestOnce = async (method) => {
+    methods.push(method);
+    if (method === 'serializeTerminalState') {
+      return {
+        preparationToken: 'resume-failure-token',
+        serializedTerminalState,
+      };
+    }
+    if (method === 'resumeTerminalState') throw new Error('simulated resume failure');
+    return {};
+  };
+
+  await assert.rejects(
+    () => rotationClient.rotateMismatchedHost({
+      pid: 1234,
+      runtimeIdentity: null,
+    }),
+    error => (
+      error?.code === 'FARMING_NATIVE_HOST_ROTATION_RECOVERY_FAILED'
+      && /Cannot confirm recovery/.test(error.message)
+    ),
+  );
+  assert.deepStrictEqual(
+    methods,
+    ['registerController', 'serializeTerminalState', 'resumeTerminalState'],
+    'a failed prepared-host resume must be surfaced and must never continue to shutdown',
+  );
+}
+
 async function testExitDuringCutIsNotSerialized() {
   const host = hostHarness();
   const controller = await registerController(host, 'controller-exit', 9);
@@ -249,6 +398,9 @@ async function testWrongPreparationTokenCannotShutdown() {
 async function run() {
   await testSerializeFailureFailsClosedAndResumesOldHost();
   await testConcurrentCreateIsIncludedOrRejectedByBarrier();
+  await testTemporaryCodexInputAbortsRotation();
+  await testInvalidCheckpointResumesPreparedHost();
+  await testPreparedHostResumeFailureIsVisible();
   await testExitDuringCutIsNotSerialized();
   await testWrongPreparationTokenCannotShutdown();
   console.log('native PTY rotation transaction tests passed');

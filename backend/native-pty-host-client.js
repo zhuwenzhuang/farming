@@ -14,7 +14,9 @@ const {
   allocateNativePtyControllerGeneration,
   positiveGeneration,
 } = require('./native-pty-controller-generation');
+const { isTemporaryProviderSessionId } = require('./provider-session-id');
 const storageLayout = require('./storage-layout');
+const { deserializeTerminalState } = require('./terminal-state-serialization');
 
 const DEFAULT_CONNECT_RETRIES = 300;
 const DEFAULT_CONNECT_RETRY_MS = 50;
@@ -463,6 +465,23 @@ class NativePtyHostClient extends EventEmitter {
     });
   }
 
+  async requirePreparedHostRotationResume(preparationToken, actual, primaryError) {
+    if (!preparationToken) return;
+    try {
+      await this.resumePreparedHostRotation(preparationToken);
+    } catch (resumeError) {
+      const recoveryError = new Error(
+        `Cannot confirm recovery of incompatible native PTY host (${actual}) after aborting rotation`
+      );
+      recoveryError.code = 'FARMING_NATIVE_HOST_ROTATION_RECOVERY_FAILED';
+      recoveryError.cause = new AggregateError(
+        [primaryError, resumeError].filter(Boolean),
+        'Native PTY rotation failed and the prepared host could not be resumed'
+      );
+      throw recoveryError;
+    }
+  }
+
   async rotateMismatchedHost(hostInfo) {
     const expected = runtimeIdentityLabel(this.expectedRuntimeIdentity);
     const actual = runtimeIdentityLabel(hostInfo && hostInfo.runtimeIdentity);
@@ -513,7 +532,11 @@ class NativePtyHostClient extends EventEmitter {
         throw new Error('The native PTY host returned an invalid rotation checkpoint');
       }
     } catch (error) {
-      await this.resumePreparedHostRotation(preparationToken).catch(() => {});
+      if (preparationToken) {
+        await this.requirePreparedHostRotationResume(preparationToken, actual, error);
+      } else {
+        await this.resumePreparedHostRotation('').catch(() => {});
+      }
       const recovered = await this.requestOnce('recoverSessions', {}, {
         ensureConnected: false,
         retryOnDisconnect: false,
@@ -532,6 +555,40 @@ class NativePtyHostClient extends EventEmitter {
       }
     }
 
+    let unresumableCodex;
+    try {
+      unresumableCodex = deserializeTerminalState(serializedTerminalState).find(entry => {
+        const metadata = entry.metadata || {};
+        const provider = String(metadata.providerSessionProvider || metadata.provider || '').trim();
+        return provider === 'codex'
+          && metadata.terminalInputReceived === true
+          && (
+            metadata.providerSessionTemporary === true
+            || isTemporaryProviderSessionId(metadata.providerSessionId)
+          );
+      });
+    } catch (error) {
+      await this.requirePreparedHostRotationResume(preparationToken, actual, error);
+      const mismatchError = new Error(
+        `Cannot rotate incompatible native PTY host (${actual}) with an invalid terminal checkpoint`
+      );
+      mismatchError.code = 'FARMING_NATIVE_HOST_RUNTIME_MISMATCH';
+      mismatchError.cause = error;
+      throw mismatchError;
+    }
+    if (unresumableCodex) {
+      const unresumableError = new Error(
+        `Codex session ${unresumableCodex.id} has user input but no exact resume id`
+      );
+      await this.requirePreparedHostRotationResume(preparationToken, actual, unresumableError);
+      const mismatchError = new Error(
+        `Cannot rotate incompatible native PTY host (${actual}) while Codex session ${unresumableCodex.id} has user input but no exact resume id`
+      );
+      mismatchError.code = 'FARMING_NATIVE_HOST_UNRESUMABLE_SESSION';
+      mismatchError.cause = unresumableError;
+      throw mismatchError;
+    }
+
     const socket = this.socket;
     if (socket) this.suppressedDisconnectSockets.add(socket);
     let shutdownUncertain = false;
@@ -546,7 +603,7 @@ class NativePtyHostClient extends EventEmitter {
       });
     } catch (error) {
       if (!isConnectRetryable(error)) {
-        await this.resumePreparedHostRotation(preparationToken).catch(() => {});
+        await this.requirePreparedHostRotationResume(preparationToken, actual, error);
         const mismatchError = new Error(
           `Cannot rotate incompatible native PTY host (${actual}); stop the old host and restart Farming`
         );

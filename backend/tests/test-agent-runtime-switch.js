@@ -235,6 +235,33 @@ const AgentManager = require('../agent-manager');
   assert.strictEqual(started.options.source, 'ui-runtime-switch-fresh');
   assert.strictEqual(freshCodexAcpResult.agentRuntimeMode, 'chat');
 
+  manager.agents.set('agent-used-codex-temporary-switch', {
+    id: 'agent-used-codex-temporary-switch',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: 'tmp_uuid_bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
+    providerSessionTemporary: true,
+    providerSessionSource: 'codex-temporary',
+    providerHomeId: 'default',
+    providerHomePath: codexHome,
+    agentRuntimeMode: 'terminal',
+    terminalInputReceived: true,
+    status: 'running',
+    output: '',
+  });
+  killed = '';
+  started = null;
+  const usedTemporaryCodexResult = await manager.restartAgentRuntimeMode(
+    'agent-used-codex-temporary-switch',
+    'chat',
+  );
+  assert.match(usedTemporaryCodexResult.error, /requires a resumable provider session/);
+  assert.strictEqual(killed, '');
+  assert.strictEqual(started, null);
+
   manager.agents.set('agent-used-qoder-switch', {
     id: 'agent-used-qoder-switch',
     command: 'qodercli',

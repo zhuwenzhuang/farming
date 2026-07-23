@@ -30,8 +30,9 @@ function run() {
     { command: '/bin/opencode', args: ['acp', '--cwd', '/tmp/project'] },
   );
   const codexFresh = getProviderAdapter('codex').planSession([], ['--model', 'gpt-5.5']);
-  assert.strictEqual(codexFresh.precreate, true);
-  assert.strictEqual(codexFresh.temporary, false);
+  assert.strictEqual(codexFresh.precreate, undefined);
+  assert.strictEqual(codexFresh.temporary, true);
+  assert.match(codexFresh.id, /^tmp_uuid/);
   assert.deepStrictEqual(
     getProviderAdapter('codex').terminalResumeArgs(['--model', 'gpt-5.5'], 'codex-session-1'),
     ['resume', 'codex-session-1', '--model', 'gpt-5.5'],
@@ -44,7 +45,7 @@ function run() {
     'inspect this screenshot',
   ];
   const codexPromptPlan = getProviderAdapter('codex').planSession(codexPromptArgs, codexPromptArgs);
-  assert.strictEqual(codexPromptPlan.precreate, true);
+  assert.strictEqual(codexPromptPlan.temporary, true);
   assert.deepStrictEqual(
     getProviderAdapter('codex').terminalResumeArgs(
       codexPromptArgs,
@@ -67,7 +68,7 @@ function run() {
     'Codex non-interactive subcommands must not be rewritten as Terminal sessions',
   );
   assert.strictEqual(
-    getProviderAdapter('codex').planSession(['--local-provider', 'ollama'], ['--local-provider', 'ollama']).precreate,
+    getProviderAdapter('codex').planSession(['--local-provider', 'ollama'], ['--local-provider', 'ollama']).temporary,
     true,
   );
   const profilePlan = getProviderAdapter('codex').planSession(['-p', 'work'], ['-p', 'work']);
@@ -101,7 +102,7 @@ function run() {
     ['resume', '019f1234-5678-7abc-8def-0123456789ad', '--', 'hello'],
   );
   assert.strictEqual(
-    getProviderAdapter('codex').planSession(['--', 'exec'], ['--', 'exec']).precreate,
+    getProviderAdapter('codex').planSession(['--', 'exec'], ['--', 'exec']).temporary,
     true,
     'a Codex prompt after -- must not be classified as a subcommand',
   );
@@ -109,7 +110,7 @@ function run() {
     getProviderAdapter('codex').planSession(
       ['--', 'resume', '019f1234-5678-7abc-8def-0123456789ae'],
       [],
-    ).precreate,
+    ).temporary,
     true,
     'Codex words after -- must retain prompt semantics',
   );
@@ -211,18 +212,18 @@ function run() {
     'a UUID-shaped fork prompt must not replace an earlier Codex session name',
   );
   assert.strictEqual(
-    getProviderAdapter('codex').planSession(['--', '--remote'], []).precreate,
+    getProviderAdapter('codex').planSession(['--', '--remote'], []).temporary,
     true,
     'a Codex --remote prompt after the delimiter must not select remote mode',
   );
   assert.strictEqual(
-    getProviderAdapter('codex').planSession(['--', '--cd', '/tmp'], []).identityWorkspace,
-    '',
-    'a Codex --cd prompt after the delimiter must not change the identity workspace',
+    getProviderAdapter('codex').planSession(['--', '--cd', '/tmp'], []).temporary,
+    true,
+    'a Codex --cd prompt after the delimiter must retain prompt semantics',
   );
   assert.match(
     getProviderAdapter('codex').planSession(['--remote', 'ws://127.0.0.1:9000'], []).error,
-    /cannot pre-create a stable session id/,
+    /cannot be correlated with a local resumable session id/,
   );
   const openCodeFresh = getProviderAdapter('opencode').planSession([], ['--auto']);
   assert.strictEqual(openCodeFresh.precreate, true);

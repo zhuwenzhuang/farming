@@ -412,6 +412,98 @@ async function readSessionMetadata(filePath, maxLines = 80) {
   return metadata.id ? metadata : null;
 }
 
+function codexSessionDateKeys(startedAt, windowMs) {
+  const center = Number(startedAt);
+  const radius = Math.max(0, Number(windowMs) || 0);
+  if (!Number.isFinite(center) || center <= 0) return [];
+  const cursor = new Date(center - radius);
+  cursor.setHours(0, 0, 0, 0);
+  const lastDay = new Date(center + radius);
+  lastDay.setHours(0, 0, 0, 0);
+  const keys = [];
+  while (cursor <= lastDay) {
+    keys.push([
+      cursor.getFullYear(),
+      String(cursor.getMonth() + 1).padStart(2, '0'),
+      String(cursor.getDate()).padStart(2, '0'),
+    ].join('-'));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return keys;
+}
+
+async function readCodexSessionIdentity(filePath) {
+  let handle;
+  try {
+    handle = await fs.promises.open(filePath, 'r');
+    const chunk = Buffer.allocUnsafe(64 * 1024);
+    const chunks = [];
+    let bytesReadTotal = 0;
+    let lineEnd = -1;
+    while (bytesReadTotal < 1024 * 1024 && lineEnd < 0) {
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, bytesReadTotal);
+      if (bytesRead <= 0) break;
+      const current = Buffer.from(chunk.subarray(0, bytesRead));
+      chunks.push(current);
+      const newlineIndex = current.indexOf(0x0a);
+      if (newlineIndex >= 0) lineEnd = bytesReadTotal + newlineIndex;
+      bytesReadTotal += bytesRead;
+    }
+    const header = Buffer.concat(chunks);
+    const firstLine = header.subarray(0, lineEnd >= 0 ? lineEnd : header.length).toString('utf8').replace(/\r$/, '');
+    const fileSessionId = sessionIdFromFilePath(filePath);
+    const event = JSON.parse(firstLine);
+    if (event?.type !== 'session_meta') return null;
+    const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+    const id = typeof payload.id === 'string' ? payload.id.trim() : '';
+    if (!id || (fileSessionId && id !== fileSessionId)) return null;
+    const cwd = typeof payload.cwd === 'string' ? normalizePathValue(payload.cwd) : '';
+    return {
+      id,
+      createdAt: typeof event.timestamp === 'string' ? event.timestamp : '',
+      cwd,
+      workspace: cwd,
+    };
+  } catch {
+    return null;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
+async function listCodexSessionIdentities(options = {}) {
+  const codexHome = options.codexHome || path.join(os.homedir(), '.codex');
+  const startedAt = Number(options.startedAt);
+  const windowMs = Math.max(0, Number(options.windowMs) || 0);
+  if (!Number.isFinite(startedAt) || startedAt <= 0) return [];
+
+  const files = [];
+  for (const dateKey of codexSessionDateKeys(startedAt, windowMs)) {
+    const [year, month, day] = dateKey.split('-');
+    const directory = path.join(codexHome, 'sessions', year, month, day);
+    let entries;
+    try {
+      entries = fs.readdirSync(directory, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
+      files.push(path.join(directory, entry.name));
+    }
+  }
+
+  const identities = [];
+  const batchSize = 32;
+  for (let offset = 0; offset < files.length; offset += batchSize) {
+    const batch = await Promise.all(
+      files.slice(offset, offset + batchSize).map(readCodexSessionIdentity)
+    );
+    identities.push(...batch.filter(Boolean));
+  }
+  return identities;
+}
+
 function getGlobalState(codexHome) {
   const state = readJsonFile(path.join(codexHome, '.codex-global-state.json'), {});
   const atom = state['electron-persisted-atom-state'] || {};
@@ -540,8 +632,10 @@ async function listCodexSessions(options = {}) {
 }
 
 module.exports = {
+  codexSessionDateKeys,
   hasTemporaryWorkspaceReference,
   isTemporaryWorkspace,
+  listCodexSessionIdentities,
   listCodexSessions,
   readSessionIndex,
   readSessionMetadata,

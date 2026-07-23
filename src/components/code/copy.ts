@@ -90,6 +90,7 @@ export interface CodeCopy {
   openOptions: string
   openSettings: string
   agentActions: string
+  appearanceSystem: string
   appearanceLight: string
   appearanceDark: string
   languageEnglish: string
@@ -538,6 +539,7 @@ const EN_COPY: CodeCopy = {
   openOptions: 'Open options',
   openSettings: 'Settings',
   agentActions: 'Agent actions',
+  appearanceSystem: 'Appearance: System',
   appearanceLight: 'Appearance: Light',
   appearanceDark: 'Appearance: Dark',
   languageEnglish: 'Language: English',
@@ -1008,6 +1010,7 @@ const ZH_COPY: CodeCopy = {
   openOptions: '打开选项',
   openSettings: '设置',
   agentActions: 'Agent 操作',
+  appearanceSystem: '外观：跟随系统',
   appearanceLight: '外观：浅色',
   appearanceDark: '外观：深色',
   languageEnglish: '语言：English',

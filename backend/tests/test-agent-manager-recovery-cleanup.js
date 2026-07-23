@@ -90,6 +90,27 @@ function configManager() {
           customTitle: '',
           agentRuntimeMode: 'terminal',
         },
+        {
+          id: 'fsess_recovered_temporary_codex',
+          runtimeAgentId: 'recovered-temporary-codex',
+          command: 'codex',
+          source: 'ui',
+          cwd: '/repo',
+          projectWorkspace: '/repo',
+          provider: 'codex',
+          providerHomeId: 'default',
+          providerHomePath: '/home/test/.codex',
+          providerSessionId: 'tmp_uuid_recovered-temporary-codex',
+          providerSessionKey: '',
+          providerSessionTemporary: true,
+          providerSessionSource: 'codex-temporary',
+          visibleOnMainPage: true,
+          archived: false,
+          pinned: true,
+          customTitle: 'Temporary recovery',
+          terminalInputReceived: true,
+          agentRuntimeMode: 'terminal',
+        },
       ];
     },
   };
@@ -141,6 +162,22 @@ async function run() {
             customTitle: 'Stale title that must stay cleared',
           },
           state: { status: 'running', startedAt: 2100 },
+        },
+        {
+          engineName: 'native',
+          agentId: 'recovered-temporary-codex',
+          metadata: {
+            agentId: 'recovered-temporary-codex',
+            command: 'codex',
+            cwd: '/repo',
+            category: 'coding',
+            source: 'ui',
+            providerSessionProvider: 'codex',
+            providerSessionId: 'tmp_uuid_recovered-temporary-codex',
+            providerSessionKey: 'agent-session:codex:tmp_uuid_recovered-temporary-codex',
+            providerSessionTemporary: true,
+          },
+          state: { status: 'running', startedAt: 2200 },
         },
         {
           engineName: 'native',
@@ -199,6 +236,12 @@ async function run() {
       'an explicitly cleared persisted title must override stale native-host metadata',
     );
     assert.strictEqual(manager.agents.get('recovered-codex').terminalInputReceived, true);
+    assert(manager.agents.has('recovered-temporary-codex'), 'visible temporary Codex sessions should survive server recovery');
+    assert.strictEqual(manager.agents.get('recovered-temporary-codex').providerSessionTemporary, true);
+    assert.strictEqual(manager.agents.get('recovered-temporary-codex').persistentSessionId, 'fsess_recovered_temporary_codex');
+    assert.strictEqual(manager.agents.get('recovered-temporary-codex').customTitle, 'Temporary recovery');
+    assert.strictEqual(manager.agents.get('recovered-temporary-codex').pinned, true);
+    assert.strictEqual(manager.agents.get('recovered-temporary-codex').terminalInputReceived, true);
     assert.strictEqual(
       manager.getState().agents.find(agent => agent.id === 'recovered-codex').launchPermissionMode,
       'full'
@@ -344,6 +387,26 @@ async function run() {
     archived: false,
     updatedAt: 30,
   };
+  const temporaryCodexRotationRecord = {
+    id: 'fsess_temporary_codex_rotation',
+    runtimeAgentId: 'agent-temporary-codex-before-upgrade',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: process.cwd(),
+    projectWorkspace: process.cwd(),
+    category: 'coding',
+    source: 'codex-temporary',
+    provider: 'codex',
+    providerSessionProvider: 'codex',
+    providerSessionId: 'tmp_uuid_rotation-recovery-guard',
+    providerSessionTemporary: true,
+    providerHomeId: 'default',
+    terminalInputReceived: true,
+    agentRuntimeMode: 'terminal',
+    visibleOnMainPage: true,
+    archived: false,
+    updatedAt: 31,
+  };
   const serializedRotationState = serializeTerminalState([
     {
       id: rotationRecord.runtimeAgentId,
@@ -361,6 +424,14 @@ async function run() {
       replayEvent: { events: [{ data: 'shell output before rotation', cols: 120, rows: 40 }] },
       timestamp: 101,
     },
+    {
+      id: temporaryCodexRotationRecord.runtimeAgentId,
+      metadata: temporaryCodexRotationRecord,
+      processDetails: { cwd: temporaryCodexRotationRecord.cwd, title: 'Codex' },
+      processLaunchConfig: { command: 'codex', args: [], category: 'coding' },
+      replayEvent: { events: [{ data: 'temporary Codex output before rotation', cols: 100, rows: 32 }] },
+      timestamp: 102,
+    },
   ]);
   const serializedRotationManager = new AgentManager({
     ...configManager(),
@@ -369,7 +440,13 @@ async function run() {
       return [providerSessionKey];
     },
     listAgentSessionRecords() {
-      return [rotationRecord, shellRotationRecord, hiddenRecord, appServerRecord];
+      return [
+        rotationRecord,
+        shellRotationRecord,
+        temporaryCodexRotationRecord,
+        hiddenRecord,
+        appServerRecord,
+      ];
     },
   });
   await serializedRotationManager.whenRecovered();
@@ -419,6 +496,11 @@ async function run() {
     assert.strictEqual(shellRestart.command, 'bash');
     assert.strictEqual(shellRestart.options.reviveTerminalState.replayEvent.events[0].data, 'shell output before rotation');
     assert.strictEqual(serializedRotationManager.agents.has(hiddenRecord.runtimeAgentId), false);
+    assert.strictEqual(
+      serializedRotationManager.agents.has(temporaryCodexRotationRecord.runtimeAgentId),
+      false,
+      'a temporary Codex Terminal with user input must never be replaced by a fresh process after rotation'
+    );
     assert.strictEqual(
       serializedRotationManager.agents.has(appServerRecord.runtimeAgentId),
       false,

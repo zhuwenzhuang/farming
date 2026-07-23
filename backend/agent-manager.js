@@ -409,6 +409,12 @@ function hasAgentOutputAfterAttentionBaseline(agent) {
 function shouldRestoreAgentFromMetadata(record, mainPageSessionKeys) {
   if (!record || record.archived === true) return false;
   if (record.wantsMain === true) return true;
+  if (
+    record.providerSessionTemporary === true
+    || isTemporaryProviderSessionId(record.providerSessionId)
+  ) {
+    return record.visibleOnMainPage === true;
+  }
   const provider = String(record.providerSessionProvider || record.provider || '').trim();
   const sessionKey = record.providerSessionKey || mainPageAgentSessionKey(
     provider,
@@ -757,6 +763,9 @@ class AgentManager extends EventEmitter {
 
         this.reviveAgentRuntime(agent);
         agent.output = trimSessionOutput(agent.output + data);
+        if (agent.providerSessionProvider === 'codex' && agent.providerSessionTemporary === true) {
+          void this.providerSessionService.resolveTemporaryCodex(sessionId);
+        }
         const outputAt = Date.now();
         agent.lastEngineOutputAt = outputAt;
         this.lastActivity.set(sessionId, outputAt);
@@ -1159,6 +1168,7 @@ class AgentManager extends EventEmitter {
         // even briefly makes Chat/Terminal switching disappear until a later
         // provider resolver update happens to repair it.
         source: persisted.source || engineMetadata.source,
+        persistentSessionId: persisted.id || persisted.persistentSessionId || engineMetadata.persistentSessionId,
         projectWorkspace: persisted.projectWorkspace || engineMetadata.projectWorkspace,
         provider: persistedProvider || engineMetadata.provider,
         providerSessionProvider: persistedProvider || engineMetadata.providerSessionProvider,
@@ -1342,6 +1352,19 @@ class AgentManager extends EventEmitter {
         record.providerHomeId || 'default'
       );
       if (sessionKey && liveProviderSessions.has(sessionKey)) continue;
+      if (
+        provider === 'codex'
+        && record.terminalInputReceived === true
+        && (
+          record.providerSessionTemporary === true
+          || isTemporaryProviderSessionId(sessionId)
+        )
+      ) {
+        console.warn(
+          `Refusing to replace Codex Terminal ${record.runtimeAgentId || sessionId} after native PTY runtime rotation without an exact resume id`
+        );
+        continue;
+      }
       const canResumeProvider = Boolean(getProviderAdapter(provider))
         && isSafeProviderSessionId(sessionId);
       const command = canResumeProvider
@@ -3437,15 +3460,16 @@ class AgentManager extends EventEmitter {
     const engine = this.engineBridge.getEngine(agent.engineName);
     if (!engine) return;
 
+    const submittedUserInput = markUserInput && hasSubmittedTerminalInput(input);
+    if (submittedUserInput && agent.terminalInputReceived !== true) {
+      agent.terminalInputReceived = true;
+      this.ensurePersistentAgentSession(agent);
+      this.updateEngineProviderSessionMetadata(agent);
+      this.emit('agent-update', { agentId, patch: { terminalInputReceived: true } });
+    }
+
     try {
-      const submittedUserInput = markUserInput && hasSubmittedTerminalInput(input);
       const result = await engine.sendInput(agentId, input, { expectedRuntimeEpoch });
-      if (submittedUserInput && agent.terminalInputReceived !== true) {
-        agent.terminalInputReceived = true;
-        this.ensurePersistentAgentSession(agent);
-        this.updateEngineProviderSessionMetadata(agent);
-        this.emit('agent-update', { agentId, patch: { terminalInputReceived: true } });
-      }
       if (submittedUserInput) {
         this.providerSessionService.observe(agentId, { force: true });
       }
@@ -4059,6 +4083,9 @@ class AgentManager extends EventEmitter {
     const startsFreshCodexSession = provider === 'codex'
       && !hasResumableSession
       && (agent.providerSessionTemporary === true || !String(agent.providerSessionId || '').trim());
+    if (startsFreshCodexSession && agent.terminalInputReceived === true) {
+      return { error: 'Permission changes require a resumable provider session. Try again after the session id is available.' };
+    }
     if (!hasResumableSession && !startsFreshCodexSession) {
       return { error: 'Permission changes require a resumable provider session. Try again after the session id is available.' };
     }
@@ -4434,6 +4461,12 @@ class AgentManager extends EventEmitter {
     }
     if (!['same-worktree', 'new-worktree'].includes(mode)) {
       return { error: 'Unsupported fork mode' };
+    }
+    if (agent.providerSessionProvider === 'codex' && agent.providerSessionTemporary === true) {
+      await this.providerSessionService.resolveTemporaryCodex(agentId, { force: true });
+      if (agent.providerSessionTemporary === true) {
+        return { error: 'Fork requires a resumable Codex session. Try again after the session id is available.' };
+      }
     }
 
     const sourceWorkspace = effectiveAgentWorkspaceRoot(agent);

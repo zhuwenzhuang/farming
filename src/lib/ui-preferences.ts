@@ -1,4 +1,5 @@
-export type UiAppearance = 'light' | 'dark'
+export type UiAppearance = 'system' | 'light' | 'dark'
+export type ResolvedUiAppearance = Exclude<UiAppearance, 'system'>
 export type UiLanguage = 'en' | 'zh'
 
 export interface UiPreferences {
@@ -7,12 +8,14 @@ export interface UiPreferences {
 }
 
 export const DEFAULT_UI_PREFERENCES: UiPreferences = {
-  appearance: 'light',
+  appearance: 'system',
   language: 'en',
 }
 
 export function normalizeUiAppearance(value: unknown): UiAppearance {
-  return value === 'light' || value === 'dark' ? value : DEFAULT_UI_PREFERENCES.appearance
+  return value === 'system' || value === 'light' || value === 'dark'
+    ? value
+    : DEFAULT_UI_PREFERENCES.appearance
 }
 
 export function normalizeUiLanguage(value: unknown): UiLanguage {
@@ -21,6 +24,9 @@ export function normalizeUiLanguage(value: unknown): UiLanguage {
     : DEFAULT_UI_PREFERENCES.language
 }
 
-export function resolveUiAppearance(preference: UiAppearance) {
-  return preference
+export function resolveUiAppearance(preference: UiAppearance): ResolvedUiAppearance {
+  if (preference !== 'system') return preference
+  return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
+    ? 'dark'
+    : 'light'
 }

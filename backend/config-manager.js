@@ -306,7 +306,7 @@ class ConfigManager {
         projectNames: {},
         instanceName: '',
         theme: 'terminal',
-        appearance: 'light',
+        appearance: 'system',
         language: 'en',
         heartbeatInterval: 1000,
         dangerouslySkipAgentPermissionsByDefault: false,
@@ -342,7 +342,7 @@ class ConfigManager {
       projectNames: {},
       instanceName: '',
       theme: 'terminal',
-      appearance: 'light',
+      appearance: 'system',
       language: 'en',
       heartbeatInterval: 1000,
       dangerouslySkipAgentPermissionsByDefault: false,
@@ -498,7 +498,7 @@ class ConfigManager {
   }
 
   normalizeAppearance(appearance) {
-    return ['light', 'dark'].includes(appearance) ? appearance : 'light';
+    return ['system', 'light', 'dark'].includes(appearance) ? appearance : 'system';
   }
 
   normalizeLanguage(language) {

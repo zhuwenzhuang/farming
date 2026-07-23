@@ -1016,10 +1016,19 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    applyThemeAppearance('terminal', {
-      crtEffects: false,
-      appearance: uiPreferences.appearance,
-    })
+    const applyAppearance = () => {
+      applyThemeAppearance('terminal', {
+        crtEffects: false,
+        appearance: uiPreferences.appearance,
+      })
+    }
+
+    applyAppearance()
+    if (uiPreferences.appearance !== 'system') return undefined
+
+    const systemAppearance = window.matchMedia('(prefers-color-scheme: dark)')
+    systemAppearance.addEventListener('change', applyAppearance)
+    return () => systemAppearance.removeEventListener('change', applyAppearance)
   }, [uiPreferences.appearance])
 
   useEffect(() => {

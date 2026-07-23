@@ -3771,6 +3771,14 @@ export function CodeWorkspace({
     return compactContextMenuEntries([
     {
       type: 'item',
+      id: 'options-appearance-system',
+      label: appearanceOptionDisplayLabel(copy.appearanceSystem),
+      ariaLabel: copy.appearanceSystem,
+      checked: uiPreferences.appearance === 'system',
+      onSelect: () => updateAppearancePreference('system'),
+    },
+    {
+      type: 'item',
       id: 'options-appearance-light',
       label: appearanceOptionDisplayLabel(copy.appearanceLight),
       ariaLabel: copy.appearanceLight,
@@ -3814,6 +3822,7 @@ export function CodeWorkspace({
   }, [
     copy.appearanceDark,
     copy.appearanceLight,
+    copy.appearanceSystem,
     copy.languageChinese,
     copy.languageEnglish,
     copy.openSettings,

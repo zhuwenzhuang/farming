@@ -119,33 +119,62 @@ async function run() {
     });
     const codexAgent = manager.getState().agents.find(agent => agent.id === codexId);
     assert.strictEqual(codexAgent.providerSessionProvider, 'codex');
-    assert.strictEqual(codexAgent.providerSessionTemporary, false);
-    assert.strictEqual(codexAgent.providerSessionId, providerSessionIds.codex);
-    assert.deepStrictEqual(captured.at(-1).args.slice(0, 2), ['resume', providerSessionIds.codex]);
-    assert.strictEqual(identityRequests.at(-1).provider, 'codex');
-    assert.strictEqual(identityRequests.at(-1).env.CODEX_HOME, providerHomes.codex[0].path);
-    assert.strictEqual(codexAgent.providerSessionKey, `agent-session:codex:${codexAgent.providerSessionId}`);
-    assert.deepStrictEqual(manager.acpSessionOptionsByKey.get(codexAgent.providerSessionKey), {
-      additionalDirectories: [path.resolve(workspace, '../shared')],
-      mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [] }],
-    });
+    assert.strictEqual(codexAgent.providerSessionTemporary, true);
+    assert.match(codexAgent.providerSessionId, /^tmp_uuid/);
+    assert.notStrictEqual(captured.at(-1).args[0], 'resume');
+    assert.strictEqual(identityRequests.length, 0, 'fresh Codex must not wait for one-shot ACP identity creation');
     assert.deepStrictEqual(
-      persistedSessionPatches.find(entry => entry.providerSessionId === providerSessionIds.codex)?.patch,
+      persistedSessionPatches.find(entry => entry.providerSessionId === codexAgent.providerSessionId)?.patch,
       {
-        acpAdditionalDirectories: [path.resolve(workspace, '../shared')],
-        acpMcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [] }],
         visibleOnMainPage: true,
         archived: false,
       },
-      'pre-created Terminal scope must be stored only in the private Farming session record',
+      'temporary Codex must receive a stable private Farming session record',
     );
-    assert.strictEqual(settings.mainPageSessionKeys[0], `agent-session:codex:${providerSessionIds.codex}`);
+    assert(!settings.mainPageSessionKeys.some(key => key.includes('tmp_uuid')));
+    const codexPersistentSessionId = manager.agents.get(codexId).persistentSessionId;
+    await manager.providerSessionService.resolveTemporaryCodex(codexId, { force: true });
     manager.providerSessionService.stop(codexId);
+    const originalListCodexSessionIdentities = manager.providerSessionService.listCodexSessionIdentities;
+    manager.providerSessionService.listCodexSessionIdentities = async () => [{
+      id: providerSessionIds.codex,
+      workspace,
+      createdAt: new Date(Date.now() + 1000).toISOString(),
+    }];
+    const originalResolveTemporaryCodex = manager.providerSessionService.resolveTemporaryCodex
+      .bind(manager.providerSessionService);
+    let outputResolution = null;
+    manager.providerSessionService.resolveTemporaryCodex = (...args) => {
+      outputResolution = originalResolveTemporaryCodex(...args);
+      return outputResolution;
+    };
+    const outputAgent = manager.agents.get(codexId);
+    assert.strictEqual(
+      (await manager.providerSessionService.findTemporaryCodexSession(outputAgent))?.id,
+      providerSessionIds.codex,
+    );
+    manager.engineBridge.emit('session-output', {
+      sessionId: codexId,
+      data: 'Codex ready',
+      engineName: 'local',
+      runtimeEpoch: outputAgent.runtimeEpoch,
+      outputSeq: (Number(outputAgent.lastOutputSeq) || 0) + 1,
+      stateRevision: (Number(outputAgent.stateRevision) || 0) + 1,
+    });
+    assert(outputResolution, 'Codex output must trigger temporary provider identity discovery');
+    assert.strictEqual(await outputResolution, true);
+    manager.providerSessionService.resolveTemporaryCodex = originalResolveTemporaryCodex;
+    manager.providerSessionService.listCodexSessionIdentities = originalListCodexSessionIdentities;
+    assert.strictEqual(
+      manager.agents.get(codexId).persistentSessionId,
+      codexPersistentSessionId,
+      'output-time provider discovery must attach to the existing Farming session record',
+    );
 
     const identityCountBeforeRemote = identityRequests.length;
     await assert.rejects(
       startAgent(manager, 'codex --remote ws://127.0.0.1:9000', workspace, { wantsMain: false }),
-      /cannot pre-create a stable session id/,
+      /cannot be correlated with a local resumable session id/,
     );
     assert.strictEqual(
       identityRequests.length,
@@ -166,6 +195,7 @@ async function run() {
 
     const incompleteCodexSessionId = '11111111-2222-4333-8444-555555555555';
     const completeCodexSessionId = '22222222-3333-4444-8555-666666666666';
+    const ambiguousCodexSessionId = '22222222-3333-4444-8555-666666666667';
     const startedAt = Number(legacyCodexAgent.startedAt) || Date.now();
     const codexHistoryWorkspace = fs.realpathSync(path.join(__dirname, '../..'));
     const liveCodexAgent = manager.agents.get(legacyCodexId);
@@ -198,15 +228,38 @@ async function run() {
         payload: { type: 'user_message', message: '看下cron worker怎么加新模块' },
       },
     ]);
+    const ambiguousSessionPath = writeCodexSession(tmpRoot, ambiguousCodexSessionId, [
+      {
+        timestamp: new Date(startedAt + 6000).toISOString(),
+        type: 'session_meta',
+        payload: { id: ambiguousCodexSessionId, cwd: codexHistoryWorkspace, source: 'codex_cli' },
+      },
+    ]);
     manager.engineBridge.router.engines.local.emit('session-started', {
       sessionId: legacyCodexId,
       status: 'running',
     });
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.strictEqual(
+      manager.agents.get(legacyCodexId).providerSessionTemporary,
+      true,
+      'multiple matching sessions in the same workspace must remain unresolved instead of using timestamps',
+    );
+    fs.unlinkSync(ambiguousSessionPath);
+    manager.providerSessionService.observe(legacyCodexId, { force: true });
     await waitFor(() => manager.agents.get(legacyCodexId).providerSessionId === completeCodexSessionId);
     const resolvedCodexAgent = manager.getState().agents.find(agent => agent.id === legacyCodexId);
     assert.strictEqual(resolvedCodexAgent.providerSessionId, completeCodexSessionId);
     assert.strictEqual(resolvedCodexAgent.providerSessionTemporary, false);
-    assert.strictEqual(resolvedCodexAgent.providerSessionTitle, '看下cron worker怎么加新模块');
+    assert.strictEqual(
+      await manager.providerSessionService.resolveTitle(legacyCodexId, { force: true }),
+      true,
+      'provider title hydration may follow the lightweight identity-only scan',
+    );
+    assert.strictEqual(
+      manager.getState().agents.find(agent => agent.id === legacyCodexId).providerSessionTitle,
+      '看下cron worker怎么加新模块',
+    );
     assert.strictEqual(settings.mainPageSessionKeys[0], `agent-session:codex:${completeCodexSessionId}`);
     assert(!settings.mainPageSessionKeys.some(key => key.includes('tmp_uuid')));
     assert.strictEqual(metadataUpdates.at(-1).patch.providerSessionId, completeCodexSessionId);
@@ -303,19 +356,19 @@ async function run() {
       throw new Error('identity precreation failed');
     };
     await assert.rejects(
-      startAgent(manager, 'codex', workspace, { wantsMain: false }),
+      startAgent(manager, 'opencode', workspace, { wantsMain: false }),
       /identity precreation failed/,
     );
     manager.createProviderSessionIdentity = originalIdentityFactory;
     assert.strictEqual(manager.agents.size, agentCountBeforeIdentityFailure);
     assert.strictEqual(captured.length, launchCountBeforeIdentityFailure);
 
-    const postCreateFailureSessionId = '019f1234-5678-7abc-8def-0123456789b0';
+    const postCreateFailureSessionId = 'ses_post_create_failure';
     manager.createProviderSessionIdentity = async options => {
-      const error = new Error('rollout verification failed after session/new');
+      const error = new Error('session verification failed after session/new');
       Object.defineProperty(error, 'providerSessionIdentity', {
         value: {
-          provider: 'codex',
+          provider: 'opencode',
           executable: options.executable,
           env: options.env,
           cwd: options.cwd,
@@ -327,8 +380,8 @@ async function run() {
       throw error;
     };
     await assert.rejects(
-      startAgent(manager, 'codex', workspace, { wantsMain: false }),
-      /rollout verification failed after session\/new/,
+      startAgent(manager, 'opencode', workspace, { wantsMain: false }),
+      /session verification failed after session\/new/,
     );
     assert.strictEqual(
       identityRollbacks.at(-1).sessionId,
@@ -388,7 +441,7 @@ async function run() {
     );
     manager.createProviderSessionIdentity = originalIdentityFactory;
 
-    const rollbackSessionId = '019f1234-5678-7abc-8def-0123456789af';
+    const rollbackSessionId = 'ses_terminal_launch_rollback';
     const originalEngineCreateSession = engine.createSession;
     const originalEngineKillSession = engine.killSession;
     const originalEngineGetSessionState = engine.getSessionState;
@@ -412,14 +465,14 @@ async function run() {
       sessionStates.set(agentId, { status: 'exited' });
     };
     await assert.rejects(
-      startAgent(manager, 'codex', workspace, { wantsMain: false }),
+      startAgent(manager, 'opencode', workspace, { wantsMain: false }),
       /terminal launch failed/,
     );
     assert.strictEqual(ambiguousRuntimeLive, false, 'an uncertain Terminal create must be killed by id');
     assert(engineKills.length > 0, 'Terminal rollback must call the idempotent engine kill boundary');
     assert.strictEqual(identityRollbacks.at(-1).sessionId, rollbackSessionId);
     assert.strictEqual(
-      manager.acpSessionOptionsByKey.has(`agent-session:codex:${rollbackSessionId}`),
+      manager.acpSessionOptionsByKey.has(`agent-session:opencode:${rollbackSessionId}`),
       false,
       'failed Terminal launch must remove private options for the rolled-back provider identity',
     );
@@ -531,12 +584,22 @@ if (process.argv.includes('--version')) {
 }
 
 function writeCodexSession(home, sessionId, events) {
-  const sessionsDir = path.join(home, '.codex', 'sessions', '2026', '07', '03');
+  const sessionDate = new Date(events[0]?.timestamp || Date.now());
+  const sessionsDir = path.join(
+    home,
+    '.codex',
+    'sessions',
+    String(sessionDate.getFullYear()),
+    String(sessionDate.getMonth() + 1).padStart(2, '0'),
+    String(sessionDate.getDate()).padStart(2, '0'),
+  );
   fs.mkdirSync(sessionsDir, { recursive: true });
+  const filePath = path.join(sessionsDir, `rollout-${sessionId}.jsonl`);
   fs.writeFileSync(
-    path.join(sessionsDir, `rollout-${sessionId}.jsonl`),
+    filePath,
     `${events.map(event => JSON.stringify(event)).join('\n')}\n`
   );
+  return filePath;
 }
 
 function startAgent(manager, command, workspace, options) {
