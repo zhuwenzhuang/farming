@@ -43,8 +43,8 @@ test.describe('permission switching', () => {
     const codexAgentId = await createControlAgent(page, 'codex', workspace)
     const bashAgentId = await createControlAgent(page, 'bash', workspace)
     const initialCodex = (await controlAgents(page)).find(agent => agent.id === codexAgentId)
-    expect(initialCodex?.providerSessionTemporary).toBe(false)
-    expect(initialCodex?.providerSessionId).toBe('acp-new-session')
+    expect(initialCodex?.providerSessionTemporary).toBe(true)
+    expect(initialCodex?.providerSessionId).toMatch(/^tmp_uuid_/)
 
     let patchCount = 0
     let restartedAgentId = ''
@@ -105,8 +105,9 @@ test.describe('permission switching', () => {
     await expect(page.getByTestId('code-agent-terminal-view')).toHaveClass(/active/)
     await expect(page.getByTestId('code-composer-input')).toHaveValue(unsentDraft)
     const replacement = (await controlAgents(page)).find(agent => agent.id === restartedAgentId)
-    expect(replacement?.providerSessionTemporary).toBe(false)
-    expect(replacement?.providerSessionId).toBe(initialCodex?.providerSessionId)
+    expect(replacement?.providerSessionTemporary).toBe(true)
+    expect(replacement?.providerSessionId).toMatch(/^tmp_uuid_/)
+    expect(replacement?.providerSessionId).not.toBe(initialCodex?.providerSessionId)
   })
 
   test('keeps the WebSocket replacement when the PATCH response is lost', async ({ page, workspaceRoot }) => {
