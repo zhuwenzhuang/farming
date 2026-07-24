@@ -584,6 +584,10 @@ async function run() {
       runtime.prompt('agent-acp-close-race', 'must not reopen a closed session'),
       /not ready/,
     );
+    await assert.rejects(
+      runtime.authenticate('agent-acp-close-race', 'fake-login'),
+      /session is closed/,
+    );
     assert.deepStrictEqual(runtime.requestPermission(closeRaceBinding, {
       sessionId: closeRaceBinding.sessionId,
       toolCall: { toolCallId: 'late-closed-tool', title: 'Late closed request' },

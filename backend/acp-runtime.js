@@ -1454,6 +1454,7 @@ class AcpRuntime extends EventEmitter {
   async authenticate(agentId, methodId) {
     const binding = this.requireBinding(agentId);
     this.requireOpenBinding(binding);
+    if (binding.state === 'closed') throw new Error('ACP session is closed');
     const method = binding.initializeResponse?.authMethods?.find(item => item.id === methodId);
     if (!method) throw new Error('Unknown ACP authentication method');
     if (method.type === 'terminal' || method?._meta?.['terminal-auth']) {
