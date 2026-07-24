@@ -116,9 +116,11 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   const peakDailyPoint = dailyPoints.reduce((peak, point) => (
     point.totalTokens > peak.totalTokens ? point : peak
   ), dailyPoints[0]!)
+  const requestedDayDates: string[] = []
 
   await page.route(/\/api\/usage\/day(?:\?|$)/, async route => {
     const date = new URL(route.request().url()).searchParams.get('date') || ''
+    requestedDayDates.push(date)
     const totalTokens = dailyPoints.find(point => point.date === date)?.totalTokens ?? 0
     const firstAgentTokens = Math.round(totalTokens * 0.6)
     const secondAgentTokens = totalTokens - firstAgentTokens
@@ -358,7 +360,15 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
     }
   })
   const emptyDailyPoint = dailyPoints[2]!
+  const nextEmptyDailyPoint = dailyPoints[3]!
+  const dayRequestsBeforeQuickSweep = requestedDayDates.length
   await detailDailyHeatmap.locator(`[data-date="${emptyDailyPoint.date}"]`).hover()
+  await detailDailyHeatmap.locator(`[data-date="${nextEmptyDailyPoint.date}"]`).hover()
+  await page.waitForTimeout(100)
+  expect(requestedDayDates).toHaveLength(dayRequestsBeforeQuickSweep)
+  await expect(detail.getByTestId('code-usage-day-histogram-loading')).toHaveCount(0)
+  await expect(detail.getByTestId('code-usage-day-histogram-readout')).toContainText('250M tokens')
+  await expect.poll(() => requestedDayDates.at(-1)).toBe(nextEmptyDailyPoint.date)
   await expect(detail.getByTestId('code-usage-day-histogram-readout')).toContainText('0 tokens')
   const emptyDayGeometry = await detail.evaluate(element => {
     const histogram = element.querySelector<HTMLElement>('[data-testid="code-usage-day-histogram"]')
@@ -858,6 +868,32 @@ test('round-trips every CRT top-level surface with keyboard-only navigation', as
 
 test('previews structured Chat and closes a CRT session when another viewer kills its Agent', async ({ page, workspaceRoot }) => {
   test.setTimeout(90_000)
+  await page.route(/\/api\/usage(?:\?|$)/, async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        usage: {
+          sampledAt: Date.now(),
+          windowMs: 5 * 60 * 1000,
+          providers: [{
+            provider: 'codex',
+            providerName: 'Codex',
+            auth: { available: true, status: 'Logged in using ChatGPT' },
+            quota: { available: false },
+            tokenUsage: {
+              available: true,
+              totalTokens: 1_608,
+              tokensPerMinute: 321.5,
+              windowMs: 5 * 60 * 1000,
+              eventCount: 2,
+              source: 'codex cumulative token_count deltas',
+            },
+          }],
+        },
+      }),
+    })
+  })
   await openFarming(page)
   await openNewAgentDialog(page)
   await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
@@ -875,6 +911,7 @@ test('previews structured Chat and closes a CRT session when another viewer kill
   await page.getByTestId('code-settings-skin-crt').click()
   await expect(page.locator('body')).toHaveAttribute('id', 'farming-crt')
   await expect(page.locator('#session-modal')).toHaveClass(/active/)
+  await expect(page.locator('#tokens-per-minute')).toHaveText('322')
   await expect(page.locator('#crt-structured-composer-usage')).toHaveText('53K / 200K TOK')
   await expect(page.locator('#crt-structured-composer-usage')).toHaveAttribute('title', 'Context window: 27% used (73% left)')
   await page.keyboard.press('Control+Escape')
@@ -1216,6 +1253,7 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   await expect(page).toHaveURL(new RegExp(`/farming/crt/\\?agent=${agentId}$`))
   await page.getByRole('button', { name: 'Close session, Ctrl+Escape', exact: true }).click()
   await expect(page.locator('#session-modal')).not.toHaveClass(/active/)
+  await expect(page.locator('#tokens-per-minute')).toHaveText('11K')
 
   await page.getByRole('button', { name: '[$] BILLING', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Billing', exact: true })).toBeVisible()
@@ -1357,6 +1395,40 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   await expect(page.getByLabel('Provider channels').getByText('CLAUDE', { exact: true })).toBeVisible()
   await expect(page.getByLabel('Provider channels').getByText('OPENCODE', { exact: true })).toBeVisible()
   await expect(page.getByText('NO TOKEN DATA', { exact: true })).toBeVisible()
+  const navigationIndex = dailyPoints.findIndex((point, index) => (
+    index >= 7
+    && index < dailyPoints.length - 7
+    && new Date(`${point.date}T12:00:00`).getDay() === 3
+  ))
+  const selectedCalendarDay = page.locator('#billing-calendar-grid .billing-calendar-day.selected')
+  const navigationDay = page.locator(`.billing-calendar-day[data-date="${dailyPoints[navigationIndex].date}"]`)
+  await navigationDay.click()
+  await navigationDay.press('ArrowUp')
+  await expect(selectedCalendarDay).toHaveAttribute('data-date', dailyPoints[navigationIndex - 1].date)
+  await page.keyboard.press('ArrowDown')
+  await expect(selectedCalendarDay).toHaveAttribute('data-date', dailyPoints[navigationIndex].date)
+  await page.keyboard.press('ArrowLeft')
+  await expect(selectedCalendarDay).toHaveAttribute('data-date', dailyPoints[navigationIndex - 7].date)
+  await page.keyboard.press('ArrowRight')
+  await expect(selectedCalendarDay).toHaveAttribute('data-date', dailyPoints[navigationIndex].date)
+  await page.keyboard.press('ArrowRight')
+  await expect(selectedCalendarDay).toHaveAttribute('data-date', dailyPoints[navigationIndex + 7].date)
+  const mondayIndex = dailyPoints.findIndex((point, index) => (
+    index >= 7 && new Date(`${point.date}T12:00:00`).getDay() === 1
+  ))
+  const mondayDay = page.locator(`.billing-calendar-day[data-date="${dailyPoints[mondayIndex].date}"]`)
+  await mondayDay.click()
+  await mondayDay.press('ArrowUp')
+  await expect(selectedCalendarDay).toHaveAttribute('data-date', dailyPoints[mondayIndex].date)
+  await expect(mondayDay).toBeFocused()
+  const sundayIndex = dailyPoints.findIndex((point, index) => (
+    index >= 7 && new Date(`${point.date}T12:00:00`).getDay() === 0
+  ))
+  const sundayDay = page.locator(`.billing-calendar-day[data-date="${dailyPoints[sundayIndex].date}"]`)
+  await sundayDay.click()
+  await sundayDay.press('ArrowDown')
+  await expect(selectedCalendarDay).toHaveAttribute('data-date', dailyPoints[sundayIndex].date)
+  await expect(sundayDay).toBeFocused()
   await expect.poll(() => freshRequests.length).toBeGreaterThan(0)
   await page.keyboard.press('l')
   await expect(page.locator('#billing-status')).toHaveText('SIGNAL LOCKED')

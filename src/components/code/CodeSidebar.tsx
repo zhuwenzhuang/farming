@@ -1169,6 +1169,8 @@ type UsageHeatmapInspection = {
   tokens: number
 }
 
+const USAGE_DAY_HOVER_DELAY_MS = 200
+
 type UsageDetailRange = 'day' | 'year'
 
 function TokenUsageHeatmap({
@@ -1235,6 +1237,22 @@ function DailyUsageHeatmap({
   inspection?: UsageHeatmapInspection | null
   showDayHighlight?: boolean
 }) {
+  const hoverInspectionTimerRef = useRef<number | null>(null)
+  const cancelHoverInspection = useCallback(() => {
+    if (hoverInspectionTimerRef.current === null) return
+    window.clearTimeout(hoverInspectionTimerRef.current)
+    hoverInspectionTimerRef.current = null
+  }, [])
+  const inspectAfterHover = useCallback((nextInspection: UsageHeatmapInspection) => {
+    cancelHoverInspection()
+    hoverInspectionTimerRef.current = window.setTimeout(() => {
+      hoverInspectionTimerRef.current = null
+      onInspect(nextInspection)
+    }, USAGE_DAY_HOVER_DELAY_MS)
+  }, [cancelHoverInspection, onInspect])
+
+  useEffect(() => cancelHoverInspection, [cancelHoverInspection])
+
   const firstDate = parseUsageDate(points[0]!.date)!
   const leadingDays = (firstDate.getDay() + 6) % 7
   const weekCount = Math.max(1, Math.ceil((leadingDays + points.length) / 7))
@@ -1287,7 +1305,11 @@ function DailyUsageHeatmap({
           const markerLabel = isPeak ? 'Token king' : isBillion ? 'Over 1B tokens' : ''
           const title = `${point.date} · ${formatExactTokenCount(tokens)} tokens${markerLabel ? ` · ${markerLabel}` : ''}`
           const isSelected = point.date === selectedDay?.date
-          const inspect = () => onInspect({ label: point.date, tokens })
+          const nextInspection = { label: point.date, tokens }
+          const inspect = () => {
+            cancelHoverInspection()
+            onInspect(nextInspection)
+          }
           return (
             <span
               key={point.date}
@@ -1312,7 +1334,8 @@ function DailyUsageHeatmap({
                 }
               } : undefined}
               onMouseEnter={showDayHighlight ? undefined : inspect}
-              onPointerMove={showDayHighlight ? inspect : undefined}
+              onPointerEnter={showDayHighlight ? () => inspectAfterHover(nextInspection) : undefined}
+              onPointerLeave={showDayHighlight ? cancelHoverInspection : undefined}
             />
           )
         })}

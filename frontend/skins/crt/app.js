@@ -55,6 +55,9 @@ let billingRequestSequence = 0;
 let billingAbortController = null;
 let billingRefreshTimer = null;
 let billingLiveDayRefreshTimer = null;
+let crtTokenRateRefreshTimer = null;
+let crtTokenRateFirstLoadTimer = null;
+let crtTokenRateAbortController = null;
 let billingCanvasFrame = null;
 let billingMode = 'days';
 let billingSelectedDate = '';
@@ -118,6 +121,8 @@ const CRT_SEARCH_DEBOUNCE_MS = 180;
 const CRT_SEARCH_RESULT_LIMIT = 100;
 const CRT_BILLING_REFRESH_MS = 30_000;
 const CRT_BILLING_LIVE_DAY_REFRESH_MS = 5_000;
+const CRT_TOKEN_RATE_REFRESH_MS = 60_000;
+const CRT_TOKEN_RATE_FIRST_LOAD_MS = 1_500;
 const CRT_BILLING_DAY_DETAIL_CACHE_MS = 30_000;
 const CRT_BILLING_TOTAL_ANIMATION_MS = 900;
 const CRT_BILLING_DAY_DETAIL_RETRY_MS = 750;
@@ -4006,6 +4011,30 @@ function scrollCrtBillingSelectedDayIntoView() {
   else if (right > scroll.scrollLeft + scroll.clientWidth) scroll.scrollLeft = right - scroll.clientWidth;
 }
 
+function crtBillingDayArrowTargetIndex(points, index, key) {
+  if (!Array.isArray(points) || index < 0 || index >= points.length) return -1;
+  const firstDate = parseCrtBillingDate(points[0] && points[0].date);
+  const leadingDays = firstDate ? (firstDate.getDay() + 6) % 7 : 0;
+  const position = leadingDays + index;
+  const weekdayRow = position % 7;
+  let targetPosition = position;
+  if (key === 'ArrowUp') {
+    if (weekdayRow === 0) return -1;
+    targetPosition -= 1;
+  } else if (key === 'ArrowDown') {
+    if (weekdayRow === 6) return -1;
+    targetPosition += 1;
+  } else if (key === 'ArrowLeft') {
+    targetPosition -= 7;
+  } else if (key === 'ArrowRight') {
+    targetPosition += 7;
+  } else {
+    return -1;
+  }
+  const targetIndex = targetPosition - leadingDays;
+  return targetIndex >= 0 && targetIndex < points.length ? targetIndex : -1;
+}
+
 function selectCrtBillingDayByArrow(key) {
   if (crtMainView !== 'billing' || billingMode !== 'days') return false;
   const points = billingSummary && billingSummary.daily && Array.isArray(billingSummary.daily.points)
@@ -4014,8 +4043,8 @@ function selectCrtBillingDayByArrow(key) {
   if (points.length === 0) return false;
   let index = points.findIndex(point => point.date === billingSelectedDate);
   if (index < 0) index = points.length - 1;
-  const delta = key === 'ArrowLeft' ? -1 : key === 'ArrowRight' ? 1 : key === 'ArrowUp' ? -7 : 7;
-  const nextIndex = Math.max(0, Math.min(points.length - 1, index + delta));
+  const nextIndex = crtBillingDayArrowTargetIndex(points, index, key);
+  if (nextIndex < 0) return false;
   return selectCrtBillingDay(points[nextIndex].date, { focus: true });
 }
 
@@ -4212,6 +4241,13 @@ function crtBillingCurrentRate(summary = billingSummary) {
     }
   });
   return hasRate ? total : null;
+}
+
+function renderCrtTopBarTokenRate(summary = billingSummary) {
+  const tokensPerMinute = document.getElementById('tokens-per-minute');
+  if (tokensPerMinute) {
+    tokensPerMinute.textContent = formatCrtTokenRate(crtBillingCurrentRate(summary));
+  }
 }
 
 function appendCrtBillingMessage(container, text, isError = false) {
@@ -4449,6 +4485,10 @@ async function loadCrtBilling({ fresh = false } = {}) {
   billingRequestSequence += 1;
   const requestSequence = billingRequestSequence;
   if (billingAbortController) billingAbortController.abort();
+  if (crtTokenRateAbortController) {
+    crtTokenRateAbortController.abort();
+    crtTokenRateAbortController = null;
+  }
   const controller = new window.AbortController();
   billingAbortController = controller;
   billingLoading = true;
@@ -4463,6 +4503,7 @@ async function loadCrtBilling({ fresh = false } = {}) {
     if (!response.ok || !data || !data.usage) throw new Error(data && data.error ? data.error : `Usage request failed (${response.status})`);
     if (requestSequence !== billingRequestSequence) return;
     billingSummary = data.usage;
+    renderCrtTopBarTokenRate();
   } catch (error) {
     if (controller.signal.aborted || requestSequence !== billingRequestSequence) return;
     billingError = error instanceof Error ? error.message : 'Failed to load token telemetry';
@@ -4479,6 +4520,58 @@ async function loadCrtBilling({ fresh = false } = {}) {
       }
     }
   }
+}
+
+async function loadCrtTopBarTokenRate() {
+  if (billingLoading || crtTokenRateAbortController) return;
+  const controller = new window.AbortController();
+  crtTokenRateAbortController = controller;
+  try {
+    const response = await fetch(farmingApiPath('/usage'), {
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    const data = await response.json().catch(() => null);
+    if (controller.signal.aborted) return;
+    if (!response.ok || !data || !data.usage) {
+      throw new Error(data && data.error ? data.error : `Usage request failed (${response.status})`);
+    }
+    renderCrtTopBarTokenRate(data.usage);
+  } catch {
+    if (!controller.signal.aborted) renderCrtTopBarTokenRate(null);
+  } finally {
+    if (crtTokenRateAbortController === controller) crtTokenRateAbortController = null;
+  }
+}
+
+function stopCrtTopBarTokenRateRefresh({ abort = false } = {}) {
+  if (crtTokenRateFirstLoadTimer !== null) {
+    clearTimeout(crtTokenRateFirstLoadTimer);
+    crtTokenRateFirstLoadTimer = null;
+  }
+  if (crtTokenRateRefreshTimer !== null) {
+    clearInterval(crtTokenRateRefreshTimer);
+    crtTokenRateRefreshTimer = null;
+  }
+  if (abort && crtTokenRateAbortController) {
+    crtTokenRateAbortController.abort();
+    crtTokenRateAbortController = null;
+  }
+}
+
+function startCrtTopBarTokenRateRefresh({ immediate = false } = {}) {
+  stopCrtTopBarTokenRateRefresh();
+  if (immediate) {
+    void loadCrtTopBarTokenRate();
+  } else {
+    crtTokenRateFirstLoadTimer = setTimeout(() => {
+      crtTokenRateFirstLoadTimer = null;
+      if (document.visibilityState !== 'hidden') void loadCrtTopBarTokenRate();
+    }, CRT_TOKEN_RATE_FIRST_LOAD_MS);
+  }
+  crtTokenRateRefreshTimer = setInterval(() => {
+    if (document.visibilityState !== 'hidden') void loadCrtTopBarTokenRate();
+  }, CRT_TOKEN_RATE_REFRESH_MS);
 }
 
 function stopCrtBillingRefresh({ abort = false } = {}) {
@@ -5485,7 +5578,7 @@ function connect() {
         else scheduleCrtPreviewCardRender(agent);
       }
     } else if (data.type === 'system-stats') {
-      updateSystemStats(data.stats, data.uptime, data.usageRate);
+      updateSystemStats(data.stats, data.uptime);
     } else if (data.type === 'error') {
       waitingForAgent = false;
       if (workspaceDirectoryPrompt?.kind === 'creating') {
@@ -5532,6 +5625,7 @@ function connect() {
 function suspendCrtPageConnection() {
   document.body.classList.add('page-hidden');
   stopCrtBillingRefresh({ abort: true });
+  stopCrtTopBarTokenRateRefresh({ abort: true });
   if (wsReconnectTimer) {
     clearTimeout(wsReconnectTimer);
     wsReconnectTimer = null;
@@ -5545,6 +5639,7 @@ function resumeCrtPageConnection() {
   if (document.visibilityState === 'hidden') return;
   document.body.classList.remove('page-hidden');
   connect();
+  startCrtTopBarTokenRateRefresh({ immediate: true });
   if (crtMainView === 'billing') {
     startCrtBillingRefresh();
     void loadCrtBilling();
@@ -5582,21 +5677,22 @@ function formatSystemClock(timestamp, timeZone) {
 }
 
 function formatCrtTokenRate(value) {
+  if (value === null || value === undefined || value === '') return '--';
   const rate = Number(value);
   if (!Number.isFinite(rate) || rate < 0) return '--';
   const rounded = rate < 10 ? Math.round(rate * 10) / 10 : Math.round(rate);
   if (rounded >= 1_000_000) {
     const compact = rounded / 1_000_000;
-    return `~${compact >= 10 ? Math.round(compact) : Math.round(compact * 10) / 10}M`;
+    return `${compact >= 10 ? Math.round(compact) : Math.round(compact * 10) / 10}M`;
   }
   if (rounded >= 1_000) {
     const compact = rounded / 1_000;
-    return `~${compact >= 10 ? Math.round(compact) : Math.round(compact * 10) / 10}K`;
+    return `${compact >= 10 ? Math.round(compact) : Math.round(compact * 10) / 10}K`;
   }
-  return `~${rounded}`;
+  return String(rounded);
 }
 
-function updateSystemStats(stats, uptime, usageRate) {
+function updateSystemStats(stats, uptime) {
   if (stats.cpu !== undefined) {
     document.getElementById('cpu-usage').textContent = stats.cpu;
   }
@@ -5611,11 +5707,6 @@ function updateSystemStats(stats, uptime, usageRate) {
 
   if (stats.timestamp !== undefined) {
     document.getElementById('system-time').textContent = formatSystemClock(stats.timestamp, stats.timeZone);
-  }
-
-  const tokensPerMinute = document.getElementById('tokens-per-minute');
-  if (tokensPerMinute) {
-    tokensPerMinute.textContent = formatCrtTokenRate(usageRate && usageRate.estimatedTokensPerMinute);
   }
 
   if (uptime !== undefined) {
@@ -7952,13 +8043,14 @@ if (typeof document !== 'undefined') {
 
     if (
       crtMainView === 'billing'
+      && billingMode === 'days'
       && !sessionActive
       && !e.ctrlKey
       && !e.metaKey
       && !e.altKey
       && navigationArrow
-      && selectCrtBillingDayByArrow(e.key)
     ) {
+      selectCrtBillingDayByArrow(e.key);
       e.preventDefault();
       return;
     }
@@ -8329,6 +8421,7 @@ if (typeof module !== 'undefined' && module.exports) {
     crtAgentSessionKey,
     crtResumedSessionFromSource,
     crtDashboardStateSignature,
+    crtBillingDayArrowTargetIndex,
     crtBillingTimelineLabels,
     crtBillingCurrentRate,
     findDefaultNewAgentIndex,
@@ -8398,5 +8491,6 @@ if (typeof module !== 'undefined' && module.exports) {
   });
   window.addEventListener('pagehide', suspendCrtPageConnection);
   window.addEventListener('pageshow', resumeCrtPageConnection);
+  startCrtTopBarTokenRateRefresh();
   connect();
 }

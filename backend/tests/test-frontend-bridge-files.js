@@ -299,7 +299,43 @@ function run() {
   assert(indexHtml.includes('<span class="key">[E]</span> EXTENSIONS'), 'CRT Extensions should reserve the E shortcut');
   assert(!indexHtml.includes('TASK LIST'), 'CRT Search should replace the disabled Task List placeholder');
   assert(indexHtml.includes('styles/search.css'), 'CRT Search should keep its phosphor layout styles scoped to the CRT skin');
-  assert(crtApp.includes('data.usageRate') && crtApp.includes('formatCrtTokenRate'), 'CRT should render the server token-rate estimate');
+  assert(
+    crtApp.includes("fetch(farmingApiPath('/usage')")
+      && crtApp.includes('crtBillingCurrentRate(summary)')
+      && !crtApp.includes('usageRate && usageRate.estimatedTokensPerMinute'),
+    'CRT top bar should render Provider token telemetry instead of the terminal-output estimate',
+  );
+  const crtTopBarUsageLoader = crtApp.slice(
+    crtApp.indexOf('async function loadCrtTopBarTokenRate'),
+    crtApp.indexOf('function stopCrtTopBarTokenRateRefresh'),
+  );
+  assert(
+    crtTopBarUsageLoader.includes('renderCrtTopBarTokenRate(data.usage)')
+      && !crtTopBarUsageLoader.includes('billingSummary = data.usage')
+      && crtTopBarUsageLoader.includes('if (billingLoading || crtTokenRateAbortController) return;')
+      && crtTopBarUsageLoader.includes('if (controller.signal.aborted) return;'),
+    'CRT top-bar polling should not overwrite the Billing view state',
+  );
+  const crtBillingLoader = crtApp.slice(
+    crtApp.indexOf('async function loadCrtBilling'),
+    crtApp.indexOf('async function loadCrtTopBarTokenRate'),
+  );
+  assert(
+    crtBillingLoader.includes('crtTokenRateAbortController.abort()'),
+    'CRT Billing refresh should cancel an older top-bar usage request before rendering fresh telemetry',
+  );
+  const crtTopBarRefresh = crtApp.slice(
+    crtApp.indexOf('function startCrtTopBarTokenRateRefresh'),
+    crtApp.indexOf('function stopCrtBillingRefresh'),
+  );
+  const crtTopBarFirstLoad = crtTopBarRefresh.slice(
+    crtTopBarRefresh.indexOf('crtTokenRateFirstLoadTimer = setTimeout'),
+    crtTopBarRefresh.indexOf('}, CRT_TOKEN_RATE_FIRST_LOAD_MS);'),
+  );
+  assert(
+    crtTopBarFirstLoad.includes("document.visibilityState !== 'hidden'"),
+    'CRT top-bar polling should not issue its initial request while the page is hidden',
+  );
   assert(server.includes('agentManager.getAgentUsageSnapshots()') && server.includes('estimatedTokensPerMinute: usageSnapshot.estimatedTokensPerMinute'), 'System stats should publish the aggregate token-rate estimate');
   assert(indexHtml.indexOf('id="system-ip"') < indexHtml.indexOf('id="system-time"') && indexHtml.indexOf('id="system-time"') < indexHtml.indexOf('id="uptime"'), 'CRT IP and time should sit immediately before uptime');
   assert(indexHtml.includes('id="dynamic-heat"'), 'CRT settings should expose the dynamic heat toggle');

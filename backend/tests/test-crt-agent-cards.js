@@ -72,11 +72,13 @@ function run() {
   assert.strictEqual(normalizeCrtTerminalFontSize(15.6), 16);
   assert.strictEqual(normalizeCrtTerminalFontSize(100), 20);
   assert.strictEqual(normalizeCrtTerminalFontSize('invalid'), 15);
+  assert.strictEqual(formatCrtTokenRate(null), '--');
   assert.strictEqual(formatCrtTokenRate(undefined), '--');
-  assert.strictEqual(formatCrtTokenRate(0), '~0');
-  assert.strictEqual(formatCrtTokenRate(9.94), '~9.9');
-  assert.strictEqual(formatCrtTokenRate(1250), '~1.3K');
-  assert.strictEqual(formatCrtTokenRate(1200000), '~1.2M');
+  assert.strictEqual(formatCrtTokenRate(''), '--');
+  assert.strictEqual(formatCrtTokenRate(0), '0');
+  assert.strictEqual(formatCrtTokenRate(9.94), '9.9');
+  assert.strictEqual(formatCrtTokenRate(1250), '1.3K');
+  assert.strictEqual(formatCrtTokenRate(1200000), '1.2M');
   assert.strictEqual(requestedCrtAgentId('?agent=agent-123'), 'agent-123');
   assert.strictEqual(requestedCrtAgentId('?view=agents'), '');
   const liveDashboardState = {

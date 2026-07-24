@@ -138,6 +138,8 @@ Switching to Farming CRT carries the focused Agent when possible and does not re
 
 Expand **Usage** at the bottom of the sidebar to see the recent rate, daily history, and the provider signals Farming can read locally. Select the one-day or 52-week chart for a larger view with exact totals, hourly Agent-type attribution, cache share, active days, and the peak day.
 
+In the 52-week detail, pausing briefly over a date updates the hourly chart; moving across dates keeps the current chart stable until the pointer settles. Click, keyboard focus, and the mobile date control select a day immediately.
+
 ![Farming Code token usage](assets/15-code-usage-activity.png)
 
 These numbers are processed tokens reported by local Codex and Claude Code history plus OpenCode session exports. They include cache reads, so they are useful for understanding Agent activity but are not an invoice or a direct estimate of API cost. Farming keeps an incremental SQLite-derived cache and a persistent directory census for Codex and Claude history under its own config directory. After the first bounded build, unchanged directories are reused and each refresh checks only recent files plus a fixed rotating audit batch instead of enumerating or `stat`-ing every session. Providers or homes without a readable token field remain explicitly unavailable.
