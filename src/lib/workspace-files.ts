@@ -6,6 +6,7 @@ export interface WorkspaceFileEntry {
   type: 'directory' | 'file' | 'symlink' | 'other'
   size: number
   mtimeMs: number
+  version?: string
   ignored?: boolean
   symbolicLink?: boolean
   external?: boolean
@@ -42,6 +43,8 @@ export interface WorkspaceFileMove {
   targetPath: string
   sourceDirectory: string
   targetDirectory: string
+  sourceVersion?: string
+  targetVersion?: string
 }
 
 export interface WorkspaceFileCreateResult {
@@ -53,6 +56,7 @@ export interface WorkspaceFileDeleteResult {
   path: string
   parentDirectory: string
   type: WorkspaceFileEntry['type']
+  version?: string
 }
 
 export interface WorkspaceFileBlameLine {
@@ -279,7 +283,7 @@ export async function saveWorkspaceFile(rootId: string, filePath: string, conten
   return body.file
 }
 
-export async function moveWorkspaceEntry(rootId: string, sourcePath: string, targetDirectory: string) {
+export async function moveWorkspaceEntry(rootId: string, sourcePath: string, targetDirectory: string, expectedVersion?: string) {
   const response = await fetch(appPath('/api/files/move'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -287,6 +291,7 @@ export async function moveWorkspaceEntry(rootId: string, sourcePath: string, tar
       rootId,
       sourcePath,
       targetDirectory,
+      expectedVersion,
     }),
   })
   const body = await readJson<{ move: WorkspaceFileMove }>(response)
@@ -312,7 +317,7 @@ export async function createWorkspaceEntry(
   return readJson<WorkspaceFileCreateResult>(response)
 }
 
-export async function renameWorkspaceEntry(rootId: string, filePath: string, name: string) {
+export async function renameWorkspaceEntry(rootId: string, filePath: string, name: string, expectedVersion?: string) {
   const response = await fetch(appPath('/api/files/entry'), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -320,14 +325,16 @@ export async function renameWorkspaceEntry(rootId: string, filePath: string, nam
       rootId,
       path: filePath,
       name,
+      expectedVersion,
     }),
   })
   const body = await readJson<{ move: WorkspaceFileMove }>(response)
   return body.move
 }
 
-export async function deleteWorkspaceEntry(rootId: string, filePath: string) {
+export async function deleteWorkspaceEntry(rootId: string, filePath: string, expectedVersion?: string) {
   const params = new URLSearchParams({ rootId, path: filePath })
+  if (expectedVersion) params.set('expectedVersion', expectedVersion)
   const response = await fetch(appPath(`/api/files/entry?${params.toString()}`), {
     method: 'DELETE',
   })

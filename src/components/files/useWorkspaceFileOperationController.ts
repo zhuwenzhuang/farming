@@ -112,7 +112,12 @@ export function useWorkspaceFileOperationController({
       }
 
       if (operation.kind === 'rename' && operation.item) {
-        const move = await renameWorkspaceEntry(agentId, operation.item.path, name)
+        const move = await renameWorkspaceEntry(
+          agentId,
+          operation.item.path,
+          name,
+          operation.item.version
+        )
         refreshDirectories(workspaceFileMoveRefreshDirectories(move))
         onMoveEntries(agentId, [move])
         onWorkspaceChange?.()
@@ -122,7 +127,11 @@ export function useWorkspaceFileOperationController({
       }
 
       if (operation.kind === 'delete' && operation.item) {
-        const deleted = await deleteWorkspaceEntry(agentId, operation.item.path)
+        const deleted = await deleteWorkspaceEntry(
+          agentId,
+          operation.item.path,
+          operation.item.version
+        )
         refreshDirectories(workspaceFileDeleteRefreshDirectories(deleted))
         onDeleteEntries(agentId, [deleted])
         onWorkspaceChange?.()
@@ -130,6 +139,15 @@ export function useWorkspaceFileOperationController({
         focusFileTreePath(workspaceFileDeleteFocusPath(deleted))
       }
     } catch (error) {
+      const reconcileDirectories = operation.kind === 'new-file' || operation.kind === 'new-folder'
+        ? [operation.parentPath]
+        : operation.item
+          ? [operation.item.path.includes('/') ? operation.item.path.slice(0, operation.item.path.lastIndexOf('/')) : '']
+          : []
+      if (reconcileDirectories.length > 0) {
+        refreshDirectories(reconcileDirectories)
+        onWorkspaceChange?.()
+      }
       setOpenFileError(error instanceof Error ? error.message : 'File operation failed')
     }
   }, [

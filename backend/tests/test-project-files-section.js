@@ -164,7 +164,7 @@ function run() {
 	      workspaceSource.includes('workspaceOpenFiles.select(identity.filesId, filePath, openRequest)') &&
 	      workspaceSource.includes('workspaceOpenFiles.close(targets)') &&
 	      workspaceSource.includes('workspaceOpenFiles.reopenLastClosed(file => workspaceNavigationFileIds.has(file.agentId))') &&
-	      workspaceSource.includes('workspaceOpenFiles.update(nextFile)') &&
+	      workspaceSource.includes('workspaceOpenFiles.update(target, updater)') &&
 	      workspaceSource.includes('workspaceOpenFiles.updateDraft(nextDraft)') &&
 	      workspaceSource.includes('workspaceOpenFiles.move(agentId, moves)') &&
 	      workspaceSource.includes('workspaceOpenFiles.deleteEntries(agentId, deletions)') &&
@@ -202,7 +202,7 @@ function run() {
 	      openFilesSource.includes('type WorkspaceOpenFileRequestInput = WorkspaceOpenFileRequest | WorkspaceFileCursor') &&
 	      openFilesSource.includes('function normalizeWorkspaceOpenFileRequest') &&
 	      openFilesSource.includes('diffOnly: request.diffOnly === true') &&
-	      openFilesSource.includes('cachedFile.draft !== file.content') &&
+	      openFilesSource.includes('idleCachedFile.draft !== file.content') &&
 	      openFilesSource.includes('const targetKeys = new Set') &&
 	      workspaceSource.includes('onCloseOpenWorkspaceFiles={closeOpenWorkspaceFiles}') &&
 	      openFilesSource.includes('closedFileCache.delete(workspaceOpenFileKey(nextFile))') &&
@@ -1091,8 +1091,9 @@ function run() {
 
   assert(
 	      editorWorkingCopyControllerSource.includes('saveWorkspaceFile') &&
-        editorWorkingCopyControllerSource.includes('...fileToSave') &&
-        editorWorkingCopyControllerSource.includes('...openFile') &&
+        editorWorkingCopyControllerSource.includes('beginWorkspaceOpenFileSave') &&
+        editorWorkingCopyControllerSource.includes('completeWorkspaceOpenFileSave') &&
+        editorWorkingCopyControllerSource.includes('failWorkspaceOpenFileSave') &&
 	        editorWorkingCopyControllerSource.includes('fetchWorkspaceFile') &&
         editorSource.includes('useFileEditorBlameController({') &&
         editorBlameControllerSource.includes('fetchWorkspaceBlame(openFile.agentId, openFile.file.path)') &&
@@ -1291,8 +1292,8 @@ function run() {
 	      editorMonacoControllerSource.includes('editor.revealLineInCenter(selection.startLineNumber)') &&
 	      editorMonacoControllerSource.includes('editor.setSelection') &&
 		      editorWorkingCopyControllerSource.includes('status === 409') &&
-			      editorWorkingCopyControllerSource.includes('if (fileToSave.saving) return false') &&
-			      editorWorkingCopyControllerSource.includes('if (!overwrite && !fileToSave.dirty) return true') &&
+	      editorWorkingCopyControllerSource.includes('if (currentFile.saving || (!overwrite && !currentFile.dirty)) return currentFile') &&
+	      editorWorkingCopyControllerSource.includes('savingFile.saveRequestId !== saveRequestId') &&
       editorMonacoSource.includes('monaco.KeyCode.KeyS') &&
       editorMonacoSource.includes('monaco.KeyCode.KeyP') &&
 	      editorSource.includes(': null') &&

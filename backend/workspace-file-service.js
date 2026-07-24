@@ -404,6 +404,17 @@ function metadataFileVersion(relativePath, stat) {
   return sha1(Buffer.from(`${relativePath}:${stat.size}:${stat.mtimeMs}`, 'utf8'));
 }
 
+function workspaceEntryVersion(stat) {
+  return sha1(Buffer.from([
+    stat.dev,
+    stat.ino,
+    stat.mode,
+    stat.size,
+    stat.mtimeMs,
+    stat.ctimeMs,
+  ].join(':'), 'utf8'));
+}
+
 async function readTextPrefix(target, maxBytes) {
   const handle = await fsp.open(target, 'r');
   try {
@@ -1122,6 +1133,7 @@ class WorkspaceFileService {
     this.gitStatusInlineTimeoutMs = options.gitStatusInlineTimeoutMs ?? DEFAULT_GIT_STATUS_INLINE_TIMEOUT_MS;
     this.gitStatusTimeoutMs = options.gitStatusTimeoutMs ?? DEFAULT_GIT_STATUS_TIMEOUT_MS;
     this.gitStatusCache = new Map();
+    this.mutationQueues = new Map();
     this.watchers = new Map();
     this.watchOptions = options.watchOptions || {};
     this.watchDepth = Number.isFinite(options.watchDepth) ? Math.max(0, options.watchDepth) : DEFAULT_WATCH_DEPTH;
@@ -1134,6 +1146,26 @@ class WorkspaceFileService {
       maxBuffer: 2 * 1024 * 1024,
       ...options,
     });
+  }
+
+  async runWorkspaceMutation(workspaceRoot, operation) {
+    const root = await this.resolveRoot(workspaceRoot);
+    const previous = this.mutationQueues.get(root) || Promise.resolve();
+    let release;
+    const current = new Promise(resolve => {
+      release = resolve;
+    });
+    const tail = previous.then(() => current);
+    this.mutationQueues.set(root, tail);
+    await previous;
+    try {
+      return await operation(root);
+    } finally {
+      release();
+      if (this.mutationQueues.get(root) === tail) {
+        this.mutationQueues.delete(root);
+      }
+    }
   }
 
   async execRipgrep(args, options = {}) {
@@ -1679,6 +1711,7 @@ class WorkspaceFileService {
           type,
           size: targetStat.size,
           mtimeMs: targetStat.mtimeMs,
+          version: workspaceEntryVersion(entryStat),
           ...(symbolicLink ? { symbolicLink: true } : {}),
           ...(external ? { external: true } : {}),
           ...(readOnly ? { readOnly: true } : {}),
@@ -2198,6 +2231,12 @@ class WorkspaceFileService {
   }
 
   async writeFile(workspaceRoot, userPath, content, options = {}) {
+    return this.runWorkspaceMutation(workspaceRoot, root => (
+      this.writeFileUnlocked(root, userPath, content, options)
+    ));
+  }
+
+  async writeFileUnlocked(workspaceRoot, userPath, content, options = {}) {
     if (typeof content !== 'string') {
       throw new WorkspaceFileError('content must be a string', 400);
     }
@@ -2211,9 +2250,13 @@ class WorkspaceFileService {
     const overwrite = options.overwrite === true;
     let currentMode = 0o666;
     let currentSha1 = '';
+    let currentStat = null;
     let exists = false;
+    let symbolicLink = false;
 
     try {
+      const requestedStat = await fsp.lstat(target);
+      symbolicLink = requestedStat.isSymbolicLink();
       const realTarget = await fsp.realpath(target);
       if (!isInside(root, realTarget)) {
         throw new WorkspaceFileError('symlinks outside the workspace are not allowed', 403);
@@ -2225,26 +2268,37 @@ class WorkspaceFileService {
     }
 
     try {
-      const stat = await fsp.stat(writeTarget);
-      if (!stat.isFile()) {
+      currentStat = await fsp.stat(writeTarget);
+      if (!currentStat.isFile()) {
         throw new WorkspaceFileError('path must be a file', 400);
       }
-      if (stat.size > this.maxFileSize) {
-        throw new WorkspaceFileError('existing file is too large to overwrite safely', 413, { size: stat.size });
+      if (currentStat.size > this.maxFileSize) {
+        throw new WorkspaceFileError('existing file is too large to overwrite safely', 413, { size: currentStat.size });
       }
       if (await isProbablyBinaryFile(writeTarget)) {
         throw new WorkspaceFileError('binary files cannot be overwritten as text', 415);
       }
       const currentBuffer = await fsp.readFile(writeTarget);
       currentSha1 = sha1(currentBuffer);
-      currentMode = stat.mode;
+      currentMode = currentStat.mode;
       exists = true;
     } catch (error) {
       if (error instanceof WorkspaceFileError) throw error;
       if (error.code !== 'ENOENT') throw error;
     }
 
+    const desiredSha1 = sha1(Buffer.from(content, 'utf8'));
     if (baseSha1 && currentSha1 && baseSha1 !== currentSha1 && !overwrite) {
+      if (currentSha1 === desiredSha1) {
+        return {
+          path: relativePath,
+          content,
+          size: Buffer.byteLength(content, 'utf8'),
+          mtimeMs: currentStat.mtimeMs,
+          sha1: desiredSha1,
+          ...(symbolicLink ? { symbolicLink: true } : {}),
+        };
+      }
       throw new WorkspaceFileError('file changed on disk', 409, {
         path: relativePath,
         currentSha1,
@@ -2256,16 +2310,47 @@ class WorkspaceFileService {
 
     const tempPath = path.join(
       path.dirname(writeTarget),
-      `.${path.basename(writeTarget)}.farming-${process.pid}-${Date.now()}.tmp`
+      `.${path.basename(writeTarget)}.farming-${process.pid}-${crypto.randomUUID()}.tmp`
     );
-    await fsp.writeFile(tempPath, content, { mode: currentMode });
-    await fsp.rename(tempPath, writeTarget);
+    let tempHandle = null;
+    let committedStat = null;
+    try {
+      tempHandle = await fsp.open(tempPath, 'wx', currentMode);
+      await tempHandle.writeFile(content);
+      committedStat = await tempHandle.stat();
+      await tempHandle.close();
+      tempHandle = null;
+      await fsp.rename(tempPath, writeTarget);
+    } catch (error) {
+      if (tempHandle) {
+        await tempHandle.close().catch(() => {});
+      }
+      await fsp.unlink(tempPath).catch(unlinkError => {
+        if (unlinkError.code !== 'ENOENT') {
+          console.error('Failed to clean up workspace file temporary:', unlinkError);
+        }
+      });
+      throw error;
+    }
     this.invalidateGitStatus(root);
 
-    return this.readFile(workspaceRoot, relativePath);
+    return {
+      path: relativePath,
+      content,
+      size: Buffer.byteLength(content, 'utf8'),
+      mtimeMs: committedStat.mtimeMs,
+      sha1: desiredSha1,
+      ...(symbolicLink ? { symbolicLink: true } : {}),
+    };
   }
 
-  async moveEntry(workspaceRoot, sourcePath, targetDirectory = '') {
+  async moveEntry(workspaceRoot, sourcePath, targetDirectory = '', options = {}) {
+    return this.runWorkspaceMutation(workspaceRoot, root => (
+      this.moveEntryUnlocked(root, sourcePath, targetDirectory, options)
+    ));
+  }
+
+  async moveEntryUnlocked(workspaceRoot, sourcePath, targetDirectory = '', options = {}) {
     const root = await this.resolveRoot(workspaceRoot);
     const normalizedSource = normalizeUserPath(sourcePath);
     const normalizedTargetDirectory = normalizeUserPath(targetDirectory);
@@ -2310,6 +2395,13 @@ class WorkspaceFileService {
     }
 
     const sourceStat = await fsp.lstat(source.target);
+    const sourceVersion = workspaceEntryVersion(sourceStat);
+    if (options.expectedVersion && options.expectedVersion !== sourceVersion) {
+      throw new WorkspaceFileError('source changed on disk', 409, {
+        path: source.relativePath,
+        currentVersion: sourceVersion,
+      });
+    }
     if (sourceStat.isDirectory() && isInside(source.target, target)) {
       throw new WorkspaceFileError('directory cannot be moved into itself', 400);
     }
@@ -2323,6 +2415,7 @@ class WorkspaceFileService {
     }
 
     await fsp.rename(source.target, target);
+    const targetStat = await fsp.lstat(target);
     this.invalidateGitStatus(root);
 
     return {
@@ -2330,10 +2423,18 @@ class WorkspaceFileService {
       targetPath,
       sourceDirectory: parentDirectory(source.relativePath),
       targetDirectory: normalizedTargetDirectory,
+      sourceVersion,
+      targetVersion: workspaceEntryVersion(targetStat),
     };
   }
 
   async createEntry(workspaceRoot, parentPath = '', name, type = 'file', content = '') {
+    return this.runWorkspaceMutation(workspaceRoot, root => (
+      this.createEntryUnlocked(root, parentPath, name, type, content)
+    ));
+  }
+
+  async createEntryUnlocked(workspaceRoot, parentPath = '', name, type = 'file', content = '') {
     const root = await this.resolveRoot(workspaceRoot);
     const normalizedParentPath = normalizeUserPath(parentPath);
     const entryName = normalizeEntryName(name);
@@ -2368,43 +2469,59 @@ class WorkspaceFileService {
       throw new WorkspaceFileError('ignored paths cannot be changed', 403);
     }
 
-    try {
-      await fsp.lstat(target);
-      throw new WorkspaceFileError('target path already exists', 409, { path: targetPath });
-    } catch (error) {
-      if (error instanceof WorkspaceFileError) throw error;
-      if (error.code !== 'ENOENT') throw error;
-    }
-
     if (entryType === 'directory') {
-      await fsp.mkdir(target);
+      try {
+        await fsp.mkdir(target);
+      } catch (error) {
+        if (error.code === 'EEXIST') {
+          throw new WorkspaceFileError('target path already exists', 409, { path: targetPath });
+        }
+        throw error;
+      }
+      const stat = await fsp.lstat(target);
       this.invalidateGitStatus(root);
       return {
         entry: {
           name: entryName,
           path: targetPath,
           type: 'directory',
-          size: 0,
-          mtimeMs: Date.now(),
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+          version: workspaceEntryVersion(stat),
         },
       };
     }
 
-    await fsp.writeFile(target, String(content || ''));
+    try {
+      await fsp.writeFile(target, String(content || ''), { flag: 'wx' });
+    } catch (error) {
+      if (error.code === 'EEXIST') {
+        throw new WorkspaceFileError('target path already exists', 409, { path: targetPath });
+      }
+      throw error;
+    }
+    const stat = await fsp.lstat(target);
     this.invalidateGitStatus(root);
     return {
       entry: {
         name: entryName,
         path: targetPath,
         type: 'file',
-        size: Buffer.byteLength(String(content || ''), 'utf8'),
-        mtimeMs: Date.now(),
+        size: stat.size,
+        mtimeMs: stat.mtimeMs,
+        version: workspaceEntryVersion(stat),
       },
       file: await this.readFile(workspaceRoot, targetPath),
     };
   }
 
-  async renameEntry(workspaceRoot, sourcePath, name) {
+  async renameEntry(workspaceRoot, sourcePath, name, options = {}) {
+    return this.runWorkspaceMutation(workspaceRoot, root => (
+      this.renameEntryUnlocked(root, sourcePath, name, options)
+    ));
+  }
+
+  async renameEntryUnlocked(workspaceRoot, sourcePath, name, options = {}) {
     const root = await this.resolveRoot(workspaceRoot);
     const normalizedSource = normalizeUserPath(sourcePath);
     const entryName = normalizeEntryName(name);
@@ -2432,6 +2549,15 @@ class WorkspaceFileService {
       };
     }
 
+    const sourceStat = await fsp.lstat(source.target);
+    const sourceVersion = workspaceEntryVersion(sourceStat);
+    if (options.expectedVersion && options.expectedVersion !== sourceVersion) {
+      throw new WorkspaceFileError('source changed on disk', 409, {
+        path: source.relativePath,
+        currentVersion: sourceVersion,
+      });
+    }
+
     try {
       await fsp.lstat(target);
       throw new WorkspaceFileError('target path already exists', 409, { path: targetPath });
@@ -2441,6 +2567,7 @@ class WorkspaceFileService {
     }
 
     await fsp.rename(source.target, target);
+    const targetStat = await fsp.lstat(target);
     this.invalidateGitStatus(root);
 
     return {
@@ -2448,10 +2575,18 @@ class WorkspaceFileService {
       targetPath,
       sourceDirectory: parentDirectory(source.relativePath),
       targetDirectory: parentDirectory(targetPath),
+      sourceVersion,
+      targetVersion: workspaceEntryVersion(targetStat),
     };
   }
 
-  async deleteEntry(workspaceRoot, userPath) {
+  async deleteEntry(workspaceRoot, userPath, options = {}) {
+    return this.runWorkspaceMutation(workspaceRoot, root => (
+      this.deleteEntryUnlocked(root, userPath, options)
+    ));
+  }
+
+  async deleteEntryUnlocked(workspaceRoot, userPath, options = {}) {
     const { root, target, relativePath } = await this.resolveEntryPath(workspaceRoot, userPath);
     if (!relativePath) {
       throw new WorkspaceFileError('workspace root cannot be deleted', 400);
@@ -2461,6 +2596,13 @@ class WorkspaceFileService {
     }
 
     const stat = await fsp.lstat(target);
+    const version = workspaceEntryVersion(stat);
+    if (options.expectedVersion && options.expectedVersion !== version) {
+      throw new WorkspaceFileError('entry changed on disk', 409, {
+        path: relativePath,
+        currentVersion: version,
+      });
+    }
     const type = stat.isDirectory() ? 'directory' : stat.isFile() ? 'file' : stat.isSymbolicLink() ? 'symlink' : 'other';
     if (stat.isDirectory()) {
       await fsp.rm(target, { recursive: true, force: false });
@@ -2473,6 +2615,7 @@ class WorkspaceFileService {
       path: relativePath,
       parentDirectory: parentDirectory(relativePath),
       type,
+      version,
     };
   }
 

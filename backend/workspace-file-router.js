@@ -286,7 +286,9 @@ function createWorkspaceFileRouter(agentManager, fileService, options = {}) {
       const rootRef = workspaceRef(body);
       assertWritableWorkspaceAgent(rootRef);
       const { root, rootId } = resolveRequestRoot(body);
-      const move = await fileService.moveEntry(root, body.sourcePath || '', body.targetDirectory || '');
+      const move = await fileService.moveEntry(root, body.sourcePath || '', body.targetDirectory || '', {
+        expectedVersion: body.expectedVersion,
+      });
       res.json({ rootId, root, move });
     } catch (error) {
       sendWorkspaceFileError(res, error);
@@ -312,7 +314,9 @@ function createWorkspaceFileRouter(agentManager, fileService, options = {}) {
       const rootRef = workspaceRef(body);
       assertWritableWorkspaceAgent(rootRef);
       const { root, rootId } = resolveRequestRoot(body);
-      const move = await fileService.renameEntry(root, body.path || '', body.name || '');
+      const move = await fileService.renameEntry(root, body.path || '', body.name || '', {
+        expectedVersion: body.expectedVersion,
+      });
       res.json({ rootId, root, move });
     } catch (error) {
       sendWorkspaceFileError(res, error);
@@ -327,7 +331,9 @@ function createWorkspaceFileRouter(agentManager, fileService, options = {}) {
       assertWritableWorkspaceAgent(rootRef);
       const workspaceRoot = rootRegistry.resolve(rootRef);
       const { canonicalPath: root, rootId } = workspaceRoot;
-      const deleted = await fileService.deleteEntry(root, targetPath);
+      const deleted = await fileService.deleteEntry(root, targetPath, {
+        expectedVersion: body.expectedVersion || req.query.expectedVersion,
+      });
       res.json({ rootId, root, deleted });
     } catch (error) {
       sendWorkspaceFileError(res, error);

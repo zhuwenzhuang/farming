@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   closeWorkspaceOpenFiles,
   deleteWorkspaceOpenFiles,
+  findOpenWorkspaceFileForUpdate,
   moveWorkspaceOpenFiles,
   openWorkspaceFileFromRead,
   replaceOpenWorkspaceFile,
@@ -12,6 +13,7 @@ import {
   updateWorkspaceOpenFileDraft,
   type OpenWorkspaceFile,
   type WorkspaceOpenFileRequest,
+  type WorkspaceOpenFileUpdater,
   type WorkspaceOpenFilesState,
   type WorkspaceOpenFileTarget,
 } from '@/lib/workspace-open-files'
@@ -65,9 +67,18 @@ export function useWorkspaceOpenFiles() {
     return commitState(nextState)
   }, [commitState])
 
-  const update = useCallback((nextFile: OpenWorkspaceFile) => (
-    commitState(updateWorkspaceOpenFile(stateRef.current, nextFile))
-  ), [commitState])
+  const update = useCallback((
+    target: WorkspaceOpenFileTarget,
+    updater: WorkspaceOpenFileUpdater
+  ) => {
+    const currentFile = findOpenWorkspaceFileForUpdate(stateRef.current.files, target)
+    if (!currentFile) return null
+    const nextFile = updater(currentFile)
+    if (nextFile !== currentFile) {
+      commitState(updateWorkspaceOpenFile(stateRef.current, nextFile))
+    }
+    return nextFile
+  }, [commitState])
 
   const refreshFromReads = useCallback((workspaceRoot: string, files: readonly WorkspaceFile[]) => (
     commitState(refreshWorkspaceOpenFilesFromReads(stateRef.current, workspaceRoot, files))

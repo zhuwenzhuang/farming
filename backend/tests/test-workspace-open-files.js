@@ -1,9 +1,13 @@
 const assert = require('assert');
 const {
+  beginWorkspaceOpenFileSave,
   closeWorkspaceOpenFiles,
+  completeWorkspaceOpenFileSave,
   createWorkspaceOpenFile,
   deleteWorkspaceOpenFiles,
+  failWorkspaceOpenFileSave,
   findOpenWorkspaceFile,
+  findOpenWorkspaceFileForUpdate,
   isSameOpenWorkspaceFile,
   moveWorkspaceOpenFiles,
   openWorkspaceFileFromRead,
@@ -111,6 +115,14 @@ function run() {
   assert.strictEqual(dirtyRefresh.draft, 'local edit');
   assert.strictEqual(dirtyRefresh.dirty, true);
   assert.strictEqual(dirtyRefresh.externalChanged, true);
+
+  const savingRefresh = refreshOpenWorkspaceFileFromRead(
+    beginWorkspaceOpenFileSave(dirty, 7),
+    workspaceFile('src/App.tsx', 'server', 'server-sha')
+  );
+  assert.strictEqual(savingRefresh.draft, 'local edit');
+  assert.strictEqual(savingRefresh.saving, true);
+  assert.strictEqual(savingRefresh.saveRequestId, 7);
 
   const opened = openWorkspaceFileFromRead(state(), 'agent-1', workspaceFile('src/App.tsx', 'server', 'server-sha'));
   assert.strictEqual(opened.activeFile.file.path, 'src/App.tsx');
@@ -244,9 +256,61 @@ function run() {
   }), { ...cachedDirty, dirty: false, saving: false, draft: cachedDirty.file.content });
   assert.deepStrictEqual(keys(updatedClean.closedFileCache), []);
 
+  const backgroundFile = openFile('agent-1', 'src/Background.tsx');
+  const backgroundUpdated = updateWorkspaceOpenFile(state({
+    activeFile: third,
+    files: [third, backgroundFile],
+  }), { ...backgroundFile, saving: true });
+  assert.strictEqual(backgroundUpdated.activeFile, third);
+  assert.strictEqual(backgroundUpdated.files[1].saving, true);
+
   const drafted = updateWorkspaceOpenFileDraft(openFile('agent-1', 'src/App.tsx', { error: 'old error' }), 'new draft');
   assert.strictEqual(drafted.dirty, true);
   assert.strictEqual(drafted.error, null);
+  assert.strictEqual(drafted.revision, 1);
+
+  const savingRevision = beginWorkspaceOpenFileSave(drafted, 11);
+  assert.strictEqual(savingRevision.saving, true);
+  assert.strictEqual(savingRevision.saveRequestId, 11);
+  assert.strictEqual(savingRevision.saveRevision, 1);
+  const editedWhileSaving = updateWorkspaceOpenFileDraft(savingRevision, 'newer draft');
+  const savedRevision = workspaceFile('src/App.tsx', 'new draft', 'saved-sha');
+  const completedAfterEdit = completeWorkspaceOpenFileSave(editedWhileSaving, 11, savedRevision);
+  assert.strictEqual(completedAfterEdit.file.sha1, 'saved-sha');
+  assert.strictEqual(completedAfterEdit.draft, 'newer draft');
+  assert.strictEqual(completedAfterEdit.dirty, true);
+  assert.strictEqual(completedAfterEdit.saving, false);
+
+  const savingWithoutMoreEdits = beginWorkspaceOpenFileSave(drafted, 12);
+  const completedWithoutMoreEdits = completeWorkspaceOpenFileSave(savingWithoutMoreEdits, 12, savedRevision);
+  assert.strictEqual(completedWithoutMoreEdits.draft, 'new draft');
+  assert.strictEqual(completedWithoutMoreEdits.dirty, false);
+  assert.strictEqual(completedWithoutMoreEdits.saving, false);
+
+  const staleCompletion = completeWorkspaceOpenFileSave(savingWithoutMoreEdits, 99, savedRevision);
+  assert.strictEqual(staleCompletion, savingWithoutMoreEdits);
+  const movedWhileSaving = {
+    ...savingWithoutMoreEdits,
+    file: {
+      ...savingWithoutMoreEdits.file,
+      path: 'src/Renamed.tsx',
+    },
+  };
+  const replacementAtOldPath = openFile('agent-1', 'src/App.tsx');
+  assert.strictEqual(findOpenWorkspaceFileForUpdate([replacementAtOldPath, movedWhileSaving], {
+    agentId: movedWhileSaving.agentId,
+    filePath: 'src/App.tsx',
+    workspaceRoot: movedWhileSaving.workspaceRoot,
+    saveRequestId: 12,
+  }), movedWhileSaving);
+  const completedAfterMove = completeWorkspaceOpenFileSave(movedWhileSaving, 12, savedRevision);
+  assert.strictEqual(completedAfterMove.file.path, 'src/Renamed.tsx');
+  assert.strictEqual(completedAfterMove.file.sha1, 'saved-sha');
+  const failedSave = failWorkspaceOpenFileSave(savingWithoutMoreEdits, 12, 'file changed on disk', true);
+  assert.strictEqual(failedSave.draft, 'new draft');
+  assert.strictEqual(failedSave.dirty, true);
+  assert.strictEqual(failedSave.externalChanged, true);
+  assert.strictEqual(failedSave.saving, false);
 
   const moved = moveWorkspaceOpenFiles(state({
     activeFile: openFile('agent-1', 'src/App.tsx', { externalChanged: true, error: 'stale' }),

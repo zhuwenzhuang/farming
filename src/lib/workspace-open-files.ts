@@ -56,8 +56,11 @@ export interface OpenWorkspaceFile {
   file: WorkspaceFile
   draft: string
   dirty: boolean
+  revision: number
   externalChanged: boolean
   saving: boolean
+  saveRequestId?: number
+  saveRevision?: number
   error: string | null
   cursor?: WorkspaceFileCursor
   diffRequestId?: number
@@ -69,7 +72,10 @@ export interface WorkspaceOpenFileTarget {
   agentId: string
   filePath: string
   workspaceRoot?: string
+  saveRequestId?: number
 }
+
+export type WorkspaceOpenFileUpdater = (currentFile: OpenWorkspaceFile) => OpenWorkspaceFile
 
 export interface WorkspaceOpenFilesState {
   activeFile: OpenWorkspaceFile | null
@@ -102,7 +108,12 @@ const MAX_CLOSED_WORKSPACE_FILE_CACHE = 32
 function rememberClosedWorkspaceOpenFile(cache: Map<string, OpenWorkspaceFile>, file: OpenWorkspaceFile) {
   const fileHandle = workspaceOpenFileKey(file)
   cache.delete(fileHandle)
-  cache.set(fileHandle, { ...file, saving: false })
+  cache.set(fileHandle, {
+    ...file,
+    saving: false,
+    saveRequestId: undefined,
+    saveRevision: undefined,
+  })
 
   while (cache.size > MAX_CLOSED_WORKSPACE_FILE_CACHE) {
     const oldestKey = cache.keys().next().value
@@ -232,6 +243,25 @@ export function findOpenWorkspaceFile(files: readonly OpenWorkspaceFile[], agent
   return files.find(file => isSameOpenWorkspaceFile(file, agentId, filePath, workspaceRoot)) ?? null
 }
 
+export function findOpenWorkspaceFileForUpdate(
+  files: readonly OpenWorkspaceFile[],
+  target: WorkspaceOpenFileTarget
+) {
+  if (target.saveRequestId !== undefined) {
+    return files.find(file => (
+      file.agentId === target.agentId &&
+      file.workspaceRoot === target.workspaceRoot &&
+      file.saveRequestId === target.saveRequestId
+    )) ?? null
+  }
+  return findOpenWorkspaceFile(
+    files,
+    target.agentId,
+    target.filePath,
+    target.workspaceRoot
+  )
+}
+
 export function replaceOpenWorkspaceFile(files: readonly OpenWorkspaceFile[], nextFile: OpenWorkspaceFile) {
   const index = files.findIndex(file => workspaceOpenFileKey(file) === workspaceOpenFileKey(nextFile))
   if (index === -1) return [...files, nextFile]
@@ -241,6 +271,18 @@ export function replaceOpenWorkspaceFile(files: readonly OpenWorkspaceFile[], ne
 }
 
 export function refreshOpenWorkspaceFileFromRead(openFile: OpenWorkspaceFile, file: OpenWorkspaceFile['file']) {
+  if (openFile.saving) {
+    const nextDirty = openFile.draft !== file.content
+    return {
+      ...openFile,
+      file,
+      draft: openFile.draft,
+      dirty: nextDirty,
+      externalChanged: nextDirty && (openFile.externalChanged || openFile.file.sha1 !== file.sha1),
+      error: null,
+    }
+  }
+
   if (!openFile.dirty) {
     return {
       ...openFile,
@@ -304,6 +346,7 @@ export function createWorkspaceOpenFile(
     file,
     draft: file.content,
     dirty: false,
+    revision: 0,
     externalChanged: false,
     saving: false,
     error: null,
@@ -325,8 +368,16 @@ export function openWorkspaceFileFromRead(
   const cacheKey = workspaceFileCacheKey(agentId, file.path, request.workspaceRoot)
   const cachedFile = closedFileCache.get(cacheKey)
   const existingFile = findOpenWorkspaceFile(state.files, agentId, file.path, request.workspaceRoot)
-  const restoredFile = !existingFile && cachedFile && cachedFile.draft !== file.content
-    ? refreshOpenWorkspaceFileFromRead(cachedFile, file)
+  const idleCachedFile = cachedFile
+    ? {
+        ...cachedFile,
+        saving: false,
+        saveRequestId: undefined,
+        saveRevision: undefined,
+      }
+    : null
+  const restoredFile = !existingFile && idleCachedFile && idleCachedFile.draft !== file.content
+    ? refreshOpenWorkspaceFileFromRead(idleCachedFile, file)
     : null
   if (cachedFile && !restoredFile) {
     closedFileCache.delete(cacheKey)
@@ -459,7 +510,12 @@ export function reopenLastClosedWorkspaceOpenFile(
     if (options.canReopen && !options.canReopen(cachedFile)) continue
     if (findOpenWorkspaceFile(state.files, cachedFile.agentId, cachedFile.file.path, cachedFile.workspaceRoot)) continue
 
-    const nextFile = { ...cachedFile, saving: false }
+    const nextFile = {
+      ...cachedFile,
+      saving: false,
+      saveRequestId: undefined,
+      saveRevision: undefined,
+    }
     return {
       activeFile: nextFile,
       files: replaceOpenWorkspaceFile(state.files, nextFile),
@@ -480,7 +536,9 @@ export function updateWorkspaceOpenFile(
   }
 
   return {
-    activeFile: nextFile,
+    activeFile: state.activeFile && workspaceOpenFileKey(state.activeFile) === workspaceOpenFileKey(nextFile)
+      ? nextFile
+      : state.activeFile,
     files: replaceOpenWorkspaceFile(state.files, nextFile),
     closedFileCache,
   }
@@ -491,8 +549,65 @@ export function updateWorkspaceOpenFileDraft(file: OpenWorkspaceFile, nextDraft:
     ...file,
     draft: nextDraft,
     dirty: nextDraft !== file.file.content,
+    revision: (file.revision ?? 0) + 1,
     error: null,
     transient: false,
+  }
+}
+
+export function beginWorkspaceOpenFileSave(
+  file: OpenWorkspaceFile,
+  saveRequestId: number
+): OpenWorkspaceFile {
+  if (file.saving) return file
+  return {
+    ...file,
+    saving: true,
+    saveRequestId,
+    saveRevision: file.revision ?? 0,
+    error: null,
+  }
+}
+
+export function completeWorkspaceOpenFileSave(
+  file: OpenWorkspaceFile,
+  saveRequestId: number,
+  savedFile: WorkspaceFile
+): OpenWorkspaceFile {
+  if (!file.saving || file.saveRequestId !== saveRequestId) return file
+  const committedFile = savedFile.path === file.file.path
+    ? savedFile
+    : { ...savedFile, path: file.file.path }
+  const changedWhileSaving = (file.revision ?? 0) !== (file.saveRevision ?? 0)
+  const draft = changedWhileSaving ? file.draft : committedFile.content
+  return {
+    ...file,
+    file: committedFile,
+    draft,
+    dirty: draft !== committedFile.content,
+    externalChanged: false,
+    saving: false,
+    saveRequestId: undefined,
+    saveRevision: undefined,
+    error: null,
+  }
+}
+
+export function failWorkspaceOpenFileSave(
+  file: OpenWorkspaceFile,
+  saveRequestId: number,
+  message: string,
+  conflict: boolean
+): OpenWorkspaceFile {
+  if (!file.saving || file.saveRequestId !== saveRequestId) return file
+  return {
+    ...file,
+    dirty: file.draft !== file.file.content,
+    externalChanged: file.externalChanged || conflict,
+    saving: false,
+    saveRequestId: undefined,
+    saveRevision: undefined,
+    error: message,
   }
 }
 

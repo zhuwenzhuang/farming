@@ -294,6 +294,42 @@ async function run() {
       baseSha1: saved.sha1,
     }), 409);
 
+    fs.writeFileSync(path.join(srcDir, 'Concurrent.ts'), 'base\n');
+    const concurrentBase = await service.readFile(workspace, 'src/Concurrent.ts');
+    const originalNow = Date.now;
+    Date.now = () => 1234567890;
+    let concurrentSaves;
+    try {
+      concurrentSaves = await Promise.allSettled([
+        service.writeFile(workspace, 'src/Concurrent.ts', 'left\n', { baseSha1: concurrentBase.sha1 }),
+        service.writeFile(workspace, 'src/Concurrent.ts', 'right\n', { baseSha1: concurrentBase.sha1 }),
+      ]);
+    } finally {
+      Date.now = originalNow;
+    }
+    const fulfilledConcurrentSaves = concurrentSaves.filter(result => result.status === 'fulfilled');
+    const rejectedConcurrentSaves = concurrentSaves.filter(result => result.status === 'rejected');
+    assert.strictEqual(fulfilledConcurrentSaves.length, 1);
+    assert.strictEqual(rejectedConcurrentSaves.length, 1);
+    assert.strictEqual(rejectedConcurrentSaves[0].reason.statusCode, 409);
+    assert.strictEqual(
+      fs.readFileSync(path.join(srcDir, 'Concurrent.ts'), 'utf8'),
+      fulfilledConcurrentSaves[0].value.content
+    );
+    assert.deepStrictEqual(
+      fs.readdirSync(srcDir).filter(name => name.includes('.farming-')),
+      []
+    );
+
+    fs.writeFileSync(path.join(srcDir, 'Idempotent.ts'), 'base\n');
+    const idempotentBase = await service.readFile(workspace, 'src/Idempotent.ts');
+    const duplicateSaves = await Promise.all([
+      service.writeFile(workspace, 'src/Idempotent.ts', 'same\n', { baseSha1: idempotentBase.sha1 }),
+      service.writeFile(workspace, 'src/Idempotent.ts', 'same\n', { baseSha1: idempotentBase.sha1 }),
+    ]);
+    assert.strictEqual(duplicateSaves[0].sha1, duplicateSaves[1].sha1);
+    assert.strictEqual(fs.readFileSync(path.join(srcDir, 'Idempotent.ts'), 'utf8'), 'same\n');
+
     const newFile = await service.writeFile(workspace, 'src/NewFile.ts', 'new file\n');
     assert.strictEqual(newFile.path, 'src/NewFile.ts');
 
@@ -303,18 +339,44 @@ async function run() {
     const createdFile = await service.createEntry(workspace, 'notes', 'todo.md', 'file', '# Todo\n');
     assert.strictEqual(createdFile.entry.path, 'notes/todo.md');
     assert.strictEqual(createdFile.file.content, '# Todo\n');
+    assert(createdFile.entry.version);
+    const concurrentCreates = await Promise.allSettled([
+      service.createEntry(workspace, 'notes', 'race.md', 'file', 'left\n'),
+      service.createEntry(workspace, 'notes', 'race.md', 'file', 'right\n'),
+    ]);
+    assert.strictEqual(concurrentCreates.filter(result => result.status === 'fulfilled').length, 1);
+    assert.strictEqual(concurrentCreates.filter(result => result.status === 'rejected').length, 1);
+    assert.strictEqual(
+      concurrentCreates.find(result => result.status === 'rejected').reason.statusCode,
+      409
+    );
     await assertRejectsWithStatus(service.createEntry(workspace, 'notes', '../bad.md', 'file'), 400);
     await assertRejectsWithStatus(service.createEntry(workspace, '', '.git', 'directory'), 403);
 
-    const renamedFile = await service.renameEntry(workspace, 'notes/todo.md', 'done.md');
+    const renamedFile = await service.renameEntry(workspace, 'notes/todo.md', 'done.md', {
+      expectedVersion: createdFile.entry.version,
+    });
     assert.strictEqual(renamedFile.sourcePath, 'notes/todo.md');
     assert.strictEqual(renamedFile.targetPath, 'notes/done.md');
+    assert(renamedFile.targetVersion);
     assert.strictEqual(fs.existsSync(path.join(workspace, 'notes', 'done.md')), true);
     await assertRejectsWithStatus(service.renameEntry(workspace, 'notes/done.md', '../escape.md'), 400);
 
-    const deletedFile = await service.deleteEntry(workspace, 'notes/done.md');
+    const staleTree = await service.listTree(workspace, 'notes');
+    const staleDoneEntry = staleTree.items.find(item => item.path === 'notes/done.md');
+    fs.unlinkSync(path.join(workspace, 'notes', 'done.md'));
+    fs.writeFileSync(path.join(workspace, 'notes', 'done.md'), 'replacement\n');
+    await assertRejectsWithStatus(service.deleteEntry(workspace, 'notes/done.md', {
+      expectedVersion: staleDoneEntry.version,
+    }), 409);
+    const replacementTree = await service.listTree(workspace, 'notes');
+    const replacementDoneEntry = replacementTree.items.find(item => item.path === 'notes/done.md');
+    const deletedFile = await service.deleteEntry(workspace, 'notes/done.md', {
+      expectedVersion: replacementDoneEntry.version,
+    });
     assert.strictEqual(deletedFile.path, 'notes/done.md');
     assert.strictEqual(deletedFile.parentDirectory, 'notes');
+    assert.strictEqual(deletedFile.version, replacementDoneEntry.version);
     assert.strictEqual(fs.existsSync(path.join(workspace, 'notes', 'done.md')), false);
     const deletedDirectory = await service.deleteEntry(workspace, 'notes');
     assert.strictEqual(deletedDirectory.path, 'notes');

@@ -39,6 +39,10 @@ Git worktree 仍作为普通 Project 展示，不增加新的顶层仓库分组�
 
 目录加载状态机固定为 `absent -> loading -> loaded | error`。Files ID 或 workspace 改变时，旧 generation 失效，并且所有 pending 目录必须回到 `absent`，展开状态随后发起新请求。旧 generation 的响应不能提交数据，也不能遗留一个会抑制重试的可见 `loading` 占位；只有 Agent 关联变化时，不发生 Files 身份迁移。
 
+编辑状态机采用“文件系统权威 + 乐观工作副本”模型。每个浏览器工作副本保存磁盘基线、草稿和单调递增的草稿 revision。保存时捕获一个 revision；请求返回后，只有该 revision 仍是当前值时才能转为 clean，保存期间继续产生的编辑必须叠加在新的磁盘基线上并继续保持 dirty。后端按规范化 workspace 串行执行修改，在队列内校验 expected version，使用唯一且独占创建的临时文件完成原子替换，并把“相同期望内容已经提交”视为成功。Create 使用 create-if-absent；rename、move、delete 携带用户所选目录项的 version，陈旧对象必须返回冲突。不确定的保存结果会重新读取文件并检查期望内容，不能盲目重放；目录修改失败后先刷新受影响的父目录，再接受下一次用户操作。文件 watcher 永远只是失效提示。
+
+该模型有意不宣称能与任意外部写入者组成事务。Shell、Agent、Git 和其他编辑器仍可直接修改 workspace；Farming 对已经观察到的冲突负责检测、保留浏览器草稿并重新读取磁盘权威状态。严格的跨进程 compare-and-swap 或断电持久性需要改变存储权威，不属于轻量编辑器边界。
+
 用户在 Project 里可以：
 
 - 点 Agent：右侧显示该 Agent 的 terminal

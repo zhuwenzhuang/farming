@@ -365,6 +365,7 @@ async function run() {
       assert.strictEqual(createdFile.response.status, 201);
       assert.strictEqual(createdFile.body.entry.path, 'src/app.ts');
       assert.strictEqual(createdFile.body.file.content, 'export {}\n');
+      assert(createdFile.body.entry.version);
 
       const renamed = await fetchJson(baseUrl, '/api/files/entry', {
         method: 'PATCH',
@@ -372,6 +373,7 @@ async function run() {
           agentId: 'agent-main',
           path: 'src/app.ts',
           name: 'index.ts',
+          expectedVersion: createdFile.body.entry.version,
         }),
       });
       assert.strictEqual(renamed.response.status, 200);
@@ -379,20 +381,35 @@ async function run() {
       assert.strictEqual(renamed.body.move.targetPath, 'src/index.ts');
       assert.strictEqual(fs.existsSync(path.join(projectWorkspace, 'src', 'index.ts')), true);
 
-      const deleted = await fetchJson(baseUrl, '/api/files/entry?agentId=agent-main&path=src%2Findex.ts', {
+      const staleDelete = await fetchJson(
+        baseUrl,
+        '/api/files/entry?agentId=agent-main&path=src%2Findex.ts&expectedVersion=stale',
+        { method: 'DELETE' }
+      );
+      assert.strictEqual(staleDelete.response.status, 409);
+      assert.strictEqual(fs.existsSync(path.join(projectWorkspace, 'src', 'index.ts')), true);
+
+      const deleted = await fetchJson(
+        baseUrl,
+        `/api/files/entry?agentId=agent-main&path=src%2Findex.ts&expectedVersion=${renamed.body.move.targetVersion}`,
+        {
         method: 'DELETE',
-      });
+        }
+      );
       assert.strictEqual(deleted.response.status, 200);
       assert.strictEqual(deleted.body.deleted.path, 'src/index.ts');
       assert.strictEqual(fs.existsSync(path.join(projectWorkspace, 'src', 'index.ts')), false);
 
       fs.mkdirSync(path.join(projectWorkspace, 'docs'), { recursive: true });
+      const treeBeforeMove = await fetchJson(baseUrl, '/api/files/tree?agentId=agent-main');
+      const readmeBeforeMove = treeBeforeMove.body.tree.items.find(item => item.path === 'README.md');
       const moved = await fetchJson(baseUrl, '/api/files/move', {
         method: 'POST',
         body: JSON.stringify({
           agentId: 'agent-main',
           sourcePath: 'README.md',
           targetDirectory: 'docs',
+          expectedVersion: readmeBeforeMove.version,
         }),
       });
       assert.strictEqual(moved.response.status, 200);

@@ -10,7 +10,12 @@ import {
   workspaceEditorTabDomId as fileEditorTabDomId,
 } from '@/lib/workspace-editor-model'
 import { isGlobalWorkspaceFilesAgentId } from '@/lib/global-workspace-files'
-import type { OpenWorkspaceFile, WorkspaceFileOpenTarget, WorkspaceOpenFileTarget } from '@/lib/workspace-open-files'
+import type {
+  OpenWorkspaceFile,
+  WorkspaceFileOpenTarget,
+  WorkspaceOpenFileTarget,
+  WorkspaceOpenFileUpdater,
+} from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
 import type { CodeCopy } from '../code/copy'
 import { FileEditorHeader } from './FileEditorHeader'
@@ -32,7 +37,10 @@ interface FileEditorPaneProps {
   openFile: OpenWorkspaceFile
   openFiles: OpenWorkspaceFile[]
   onChangeDraft: (draft: string) => void
-  onUpdateOpenFile: (nextFile: OpenWorkspaceFile) => void
+  onUpdateOpenFile: (
+    target: WorkspaceOpenFileTarget,
+    updater: WorkspaceOpenFileUpdater
+  ) => OpenWorkspaceFile | null
   onSelectOpenFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   canNavigateBack: boolean

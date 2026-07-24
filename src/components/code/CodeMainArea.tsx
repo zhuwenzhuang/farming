@@ -2,7 +2,11 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Compone
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { isAcpRuntime } from '@/lib/agent-runtime'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
-import type { OpenWorkspaceFile, WorkspaceOpenFileTarget } from '@/lib/workspace-open-files'
+import type {
+  OpenWorkspaceFile,
+  WorkspaceOpenFileTarget,
+  WorkspaceOpenFileUpdater,
+} from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
 import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import { isWorkspaceMarkdownFile } from '@/lib/workspace-editor-model'
@@ -278,7 +282,10 @@ interface CodeMainAreaProps {
   onOpenArchivedAgent: (agentId: string) => void
   onRestoreArchivedAgent: (agentId: string) => void
   onChangeWorkspaceFileDraft: (draft: string) => void
-  onUpdateOpenWorkspaceFile: (nextFile: OpenWorkspaceFile) => void
+  onUpdateOpenWorkspaceFile: (
+    target: WorkspaceOpenFileTarget,
+    updater: WorkspaceOpenFileUpdater
+  ) => OpenWorkspaceFile | null
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onOpenWorkspaceFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   canNavigateWorkspaceBack: boolean

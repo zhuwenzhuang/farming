@@ -38,6 +38,7 @@ import {
   workspaceOpenFileKey,
   workspaceOpenFileTargetKey,
   type OpenWorkspaceFile,
+  type WorkspaceOpenFileUpdater,
   type WorkspaceOpenFileTarget,
 } from '@/lib/workspace-open-files'
 import {
@@ -827,7 +828,11 @@ export function CodeWorkspace({
     if (!openWorkspaceFile?.sourceAgentId) return
     const identity = resolveWorkspaceFileIdentity(openWorkspaceFile.agentId, openWorkspaceFile.sourceAgentId)
     if (identity.sourceAgentId) return
-    workspaceOpenFiles.update({ ...openWorkspaceFile, sourceAgentId: undefined })
+    workspaceOpenFiles.update({
+      agentId: openWorkspaceFile.agentId,
+      filePath: openWorkspaceFile.file.path,
+      workspaceRoot: openWorkspaceFile.workspaceRoot,
+    }, currentFile => ({ ...currentFile, sourceAgentId: undefined }))
   }, [openWorkspaceFile, resolveWorkspaceFileIdentity, workspaceOpenFiles])
 
   const decoratedAgentSessions = useMemo(
@@ -3285,8 +3290,11 @@ export function CodeWorkspace({
     return true
   }, [activeAgents, clearSearch, closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange, workspaceNavigationFileIds, workspaceOpenFiles])
 
-  const updateOpenWorkspaceFile = useCallback((nextFile: OpenWorkspaceFile) => {
-    workspaceOpenFiles.update(nextFile)
+  const updateOpenWorkspaceFile = useCallback((
+    target: WorkspaceOpenFileTarget,
+    updater: WorkspaceOpenFileUpdater
+  ) => {
+    return workspaceOpenFiles.update(target, updater)
   }, [workspaceOpenFiles])
 
   const updateOpenWorkspaceFileDraft = useCallback((nextDraft: string) => {

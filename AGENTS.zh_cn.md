@@ -171,6 +171,8 @@ Terminal Input 保持直接的 Raw PTY Stream：不要增加逐输入 ACK、去�
 
 浏览器可见的 Agent 状态有四个明确领域边界。`runtimeBinding` 是带标签的 Runtime 契约（`terminal`、`acp` 或 `json`）；旧的扁平 Runtime 字段只作为后端内部持久化兼容形态，不能重新泄漏给客户端或新增业务代码。持久化的实验性 Codex `app-server` binding 必须在此边界迁移为 ACP，绝不能重启 App Server 进程。`runtimeObservation` 是后端唯一维护的当前 Runtime 分类，UI 与 Restart/Deploy Guard 共同消费，前端不得再从 Terminal 文本重复推断。Provider 专属的可执行文件、Session 规划、Runtime 支持、Home 环境与规范化 Capability 必须进入 `ProviderAdapter`，通用 Lifecycle/UI 只能读取 Capability，不能维护 Provider 名单。Project Files 的 HTTP API 使用 `WorkspaceRoot.rootId`，旧 `agentId` 仅为读取兼容 Adapter。Code 与 CRT WebSocket 在处理消息前必须协商并校验共享版本化浏览器协议；Terminal Input 继续明确排除在命令 ACK/重放语义之外。
 
+Project Files 使用“文件系统权威 + 乐观工作副本”模型。浏览器草稿携带单调递增的 revision；一次进行中的保存只有在该 revision 仍是当前版本时才能把工作副本标记为 clean，否则只能更新磁盘基线，并把更新后的草稿继续保留为 dirty。后端按规范化 workspace 串行执行修改，在队列内重新校验文件内容版本，以唯一名称独占创建临时文件，写完后再原子 rename 到目标；相同期望内容的重复保存可重入。目录项携带由文件系统元数据派生的 version，rename、move、delete 可以要求该版本仍然匹配；新建文件使用 create-if-absent。Watcher 永远只作为失效提示，不能成为权威状态。上述保证只覆盖同一 Farming 服务进程发起的操作；任意外部写入者不在串行域内，必须依靠冲突检测和重新读取文件系统收敛，不能宣称跨进程事务或断电持久性。
+
 常规的单 Agent Terminal 元数据变化必须走协议白名单限定的 `agent-update` Patch，不得广播完整 Workspace State。该 Patch 通道对任意 Agent 字段关闭，只允许 Terminal Input、Shell 状态、Terminal 状态与 Runtime Observation 元数据；重连和首次 Hydration 仍使用权威完整 State。
 
 Code 与 CRT 的产品 Terminal 统一使用 xterm.js WebGL Renderer，并且只支持这一条渲染路径。WebGL 初始化失败或不可恢复的 Context Loss 必须显式停止并报错，不能在 Live Terminal 中静默切换到 DOM Renderer。Ghostty Web 只作为显式 Debug Renderer 存在，不是产品 Fallback。

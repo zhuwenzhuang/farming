@@ -1,12 +1,30 @@
 import { useCallback } from 'react'
-import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
+import {
+  beginWorkspaceOpenFileSave,
+  completeWorkspaceOpenFileSave,
+  failWorkspaceOpenFileSave,
+  type OpenWorkspaceFile,
+  type WorkspaceOpenFileTarget,
+  type WorkspaceOpenFileUpdater,
+} from '@/lib/workspace-open-files'
 import { fetchWorkspaceFile, saveWorkspaceFile, WorkspaceFileApiError } from '@/lib/workspace-files'
 import { isWorkspaceWorkingCopyPreview } from '@/lib/workspace-working-copy'
 
 interface UseFileEditorWorkingCopyControllerOptions {
   openFile: OpenWorkspaceFile
   readOnly: boolean
-  onUpdateOpenFile: (nextFile: OpenWorkspaceFile) => void
+  onUpdateOpenFile: (
+    target: WorkspaceOpenFileTarget,
+    updater: WorkspaceOpenFileUpdater
+  ) => OpenWorkspaceFile | null
+}
+
+let nextWorkspaceFileRequestId = 1
+
+function allocateWorkspaceFileRequestId() {
+  const requestId = nextWorkspaceFileRequestId
+  nextWorkspaceFileRequestId += 1
+  return requestId
 }
 
 export function useFileEditorWorkingCopyController({
@@ -16,35 +34,58 @@ export function useFileEditorWorkingCopyController({
 }: UseFileEditorWorkingCopyControllerOptions) {
   const saveOpenWorkspaceFile = useCallback(async (fileToSave: OpenWorkspaceFile, overwrite = false) => {
     if (isWorkspaceWorkingCopyPreview(fileToSave)) return true
-    if (fileToSave.saving) return false
-    if (!overwrite && !fileToSave.dirty) return true
-
-    onUpdateOpenFile({
-      ...fileToSave,
-      saving: true,
-      error: null,
+    const target = {
+      agentId: fileToSave.agentId,
+      filePath: fileToSave.file.path,
+      workspaceRoot: fileToSave.workspaceRoot,
+    }
+    const saveRequestId = allocateWorkspaceFileRequestId()
+    const savingFile = onUpdateOpenFile(target, currentFile => {
+      if (currentFile.saving || (!overwrite && !currentFile.dirty)) return currentFile
+      return beginWorkspaceOpenFileSave(currentFile, saveRequestId)
     })
+    if (!savingFile) return false
+    if (savingFile.saveRequestId !== saveRequestId) {
+      return !savingFile.dirty && !savingFile.saving
+    }
+    const requestTarget = { ...target, saveRequestId }
 
     try {
-      const file = await saveWorkspaceFile(fileToSave.agentId, fileToSave.file.path, fileToSave.draft, fileToSave.file.sha1, overwrite)
-      onUpdateOpenFile({
-        ...fileToSave,
-        file,
-        draft: file.content,
-        dirty: false,
-        externalChanged: false,
-        saving: false,
-        error: null,
-      })
-      return true
+      const file = await saveWorkspaceFile(
+        savingFile.agentId,
+        savingFile.file.path,
+        savingFile.draft,
+        savingFile.file.sha1,
+        overwrite
+      )
+      const completedFile = onUpdateOpenFile(requestTarget, currentFile => (
+        completeWorkspaceOpenFileSave(currentFile, saveRequestId, file)
+      ))
+      return Boolean(completedFile && !completedFile.dirty)
     } catch (error) {
       const conflict = error instanceof WorkspaceFileApiError && error.status === 409
-      onUpdateOpenFile({
-        ...fileToSave,
-        saving: false,
-        externalChanged: fileToSave.externalChanged || conflict,
-        error: error instanceof Error ? error.message : 'Failed to save file',
-      })
+      const uncertainOutcome = !(error instanceof WorkspaceFileApiError) || error.status >= 500
+      if (uncertainOutcome) {
+        try {
+          const currentFile = await fetchWorkspaceFile(savingFile.agentId, savingFile.file.path)
+          if (currentFile.content === savingFile.draft) {
+            const reconciledFile = onUpdateOpenFile(requestTarget, openFile => (
+              completeWorkspaceOpenFileSave(openFile, saveRequestId, currentFile)
+            ))
+            return Boolean(reconciledFile && !reconciledFile.dirty)
+          }
+        } catch {
+          // Preserve the draft and report the original save failure when the disk outcome is unknown.
+        }
+      }
+      onUpdateOpenFile(requestTarget, currentFile => (
+        failWorkspaceOpenFileSave(
+          currentFile,
+          saveRequestId,
+          error instanceof Error ? error.message : 'Failed to save file',
+          conflict
+        )
+      ))
       return false
     }
   }, [onUpdateOpenFile])
@@ -55,29 +96,33 @@ export function useFileEditorWorkingCopyController({
   }, [openFile, readOnly, saveOpenWorkspaceFile])
 
   const reloadFile = useCallback(async () => {
-    onUpdateOpenFile({
-      ...openFile,
-      saving: true,
-      error: null,
+    const target = {
+      agentId: openFile.agentId,
+      filePath: openFile.file.path,
+      workspaceRoot: openFile.workspaceRoot,
+    }
+    const reloadRequestId = allocateWorkspaceFileRequestId()
+    const reloadingFile = onUpdateOpenFile(target, currentFile => {
+      if (currentFile.saving) return currentFile
+      return beginWorkspaceOpenFileSave(currentFile, reloadRequestId)
     })
+    if (!reloadingFile || reloadingFile.saveRequestId !== reloadRequestId) return
+    const requestTarget = { ...target, saveRequestId: reloadRequestId }
 
     try {
-      const file = await fetchWorkspaceFile(openFile.agentId, openFile.file.path)
-      onUpdateOpenFile({
-        ...openFile,
-        file,
-        draft: file.content,
-        dirty: false,
-        externalChanged: false,
-        saving: false,
-        error: null,
-      })
+      const file = await fetchWorkspaceFile(reloadingFile.agentId, reloadingFile.file.path)
+      onUpdateOpenFile(requestTarget, currentFile => (
+        completeWorkspaceOpenFileSave(currentFile, reloadRequestId, file)
+      ))
     } catch (error) {
-      onUpdateOpenFile({
-        ...openFile,
-        saving: false,
-        error: error instanceof Error ? error.message : 'Failed to reload file',
-      })
+      onUpdateOpenFile(requestTarget, currentFile => (
+        failWorkspaceOpenFileSave(
+          currentFile,
+          reloadRequestId,
+          error instanceof Error ? error.message : 'Failed to reload file',
+          false
+        )
+      ))
     }
   }, [onUpdateOpenFile, openFile])
 
