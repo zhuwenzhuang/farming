@@ -1334,7 +1334,7 @@ function DailyUsageHeatmap({
                 }
               } : undefined}
               onMouseEnter={showDayHighlight ? undefined : inspect}
-              onPointerEnter={showDayHighlight ? () => inspectAfterHover(nextInspection) : undefined}
+              onPointerMove={showDayHighlight ? () => inspectAfterHover(nextInspection) : undefined}
               onPointerLeave={showDayHighlight ? cancelHoverInspection : undefined}
             />
           )
