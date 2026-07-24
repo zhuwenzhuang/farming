@@ -4901,19 +4901,31 @@ class AgentManager extends EventEmitter {
       lifecycleToken,
     });
     if (killResult?.error) return killResult;
+    const originalMainPageSessionKeys = this.getMainPageSessionKeys();
     let removedMainPageSessionKeys = [];
     try {
       removedMainPageSessionKeys = this.removeMainPageProviderSessionsForAgents([agent]);
       this.ensurePersistentAgentSession(agent, { visibleOnMainPage: false });
     } catch (error) {
+      let rollbackError = null;
+      if (removedMainPageSessionKeys.length > 0) {
+        try {
+          this.setMainPageSessionKeys(originalMainPageSessionKeys);
+        } catch (restoreError) {
+          rollbackError = restoreError;
+        }
+      }
       this.emit('update');
       return {
         agentId,
-        error: `Agent stopped, but archive metadata could not be saved: ${error.message || error}`,
+        error: `Agent stopped, but archive metadata could not be saved: ${error.message || error}${
+          rollbackError ? `; membership rollback failed: ${rollbackError.message || rollbackError}` : ''
+        }`,
         stopped: true,
         archived: false,
         retryable: true,
         removedMainPageSessionKeys,
+        membershipRestored: removedMainPageSessionKeys.length === 0 || !rollbackError,
       };
     }
 

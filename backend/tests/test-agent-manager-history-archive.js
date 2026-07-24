@@ -385,6 +385,10 @@ async function run() {
     assert.strictEqual(manager.taskHistory.length, 3, 'central history recording should reject unsupported Agents');
     assert.strictEqual(appended.length, 3, 'unsupported Agents should never be persisted to task history');
 
+    settings.mainPageSessionKeys = [
+      'agent-session:codex:archive-metadata-failure',
+      ...settings.mainPageSessionKeys,
+    ];
     manager.agents.set('archive-metadata-failure', {
       id: 'archive-metadata-failure',
       command: 'codex',
@@ -393,6 +397,9 @@ async function run() {
       status: 'running',
       engineName: 'local',
       source: 'ui',
+      providerSessionProvider: 'codex',
+      providerSessionId: 'archive-metadata-failure',
+      providerSessionKey: 'agent-session:codex:archive-metadata-failure',
       task: 'archive metadata failure',
     });
     const ensurePersistentAgentSession = manager.ensurePersistentAgentSession;
@@ -405,8 +412,13 @@ async function run() {
     assert.strictEqual(partialArchive.stopped, true);
     assert.strictEqual(partialArchive.archived, false);
     assert.strictEqual(partialArchive.retryable, true);
+    assert.strictEqual(partialArchive.membershipRestored, true);
     assert.match(partialArchive.error, /archive metadata could not be saved/i);
     assert.strictEqual(manager.agents.get('archive-metadata-failure').status, 'stopped');
+    assert(
+      settings.mainPageSessionKeys.includes('agent-session:codex:archive-metadata-failure'),
+      'partial archive must restore main-page membership so the stopped Agent remains recoverable',
+    );
     manager.ensurePersistentAgentSession = ensurePersistentAgentSession;
     const retriedArchive = await manager.archiveAgent('archive-metadata-failure', {
       scheduleProviderArchive: false,
