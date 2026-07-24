@@ -54,6 +54,7 @@ ACP Composer 保留所有不依赖 PTY 输入的日常消息框行为：草稿�
 
 ACP 的边界保持明确：
 
+- 活跃 binding 对象是 ACP 的进程内代际 fence。`agentId` 负责路由当前 Farming runtime，provider `sessionId` 负责限定协议消息；每个异步完成和 Agent 发往 Client 的反向请求，还必须匹配当前仍开放的 binding，才能归约状态、发出更新或安排 checkpoint。基础 prompt 会在 dirty-checkpoint 写入之前同步占住准入位，因此两个 prompt 不能同时穿过同一个 idle 状态；在这个准入窗口内执行 cancel，会在请求到达 provider 之前撤销它。已经 detach 或关闭的 binding 会取消迟到的 permission/input 请求，且不能再次恢复为可用状态。
 - 基础 ACP 没有并发 prompt/steer 操作。实时 Codex adapter 声明 Farming 的带版本 steer 扩展后，Agent 工作时输入的新消息会在独立 steer 通道串行发送，并指向当前活跃 Codex turn。明确的 turn 结束或不可 steer turn 拒绝会回退到普通下一轮 prompt 队列；不明确的传输失败不会自动重放。没有该能力的 provider 继续使用可见、可丢弃的排队 follow-up。草稿为空时仍提供中断。
 - Goal 和 Plan 是与 Terminal 一致的显式 Composer 请求模式。Provider Session 的 mode、model、reasoning、speed 等 runtime 设置，仍只展示 Agent 实际宣告的 ACP mode 或 config option。
 - Context window 百分比需要已用 token 和最大 token。Codex 有精确 provider-session token event 时显示百分比；只提供累计 usage 的 ACP Agent 仍只显示 token 数。

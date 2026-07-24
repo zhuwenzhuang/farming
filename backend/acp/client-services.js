@@ -20,6 +20,10 @@ function requireMatchingSession(binding, params) {
   }
 }
 
+function requireOpenBinding(binding) {
+  if (binding?.exited === true) throw new Error('ACP Agent connection is closed');
+}
+
 async function resolveWorkspacePath(binding, requestedPath, options = {}) {
   const value = String(requestedPath || '');
   if (!path.isAbsolute(value)) throw new Error('ACP file and terminal paths must be absolute');
@@ -76,6 +80,7 @@ class AcpClientFileSystem {
       throw new Error('ACP text file is too large to write');
     }
     const target = await resolveWorkspacePath(binding, params.path, { allowMissing: true });
+    requireOpenBinding(binding);
     let mode = 0o666;
     try {
       const existing = await fsp.realpath(target);
@@ -89,7 +94,9 @@ class AcpClientFileSystem {
     }
     const temporary = path.join(path.dirname(target), `.${path.basename(target)}.farming-acp-${process.pid}-${Date.now()}.tmp`);
     try {
+      requireOpenBinding(binding);
       await fsp.writeFile(temporary, content, { mode });
+      requireOpenBinding(binding);
       await fsp.rename(temporary, target);
     } catch (error) {
       await fsp.rm(temporary, { force: true }).catch(() => {});
@@ -142,6 +149,7 @@ class AcpClientTerminalManager {
     const cwd = params.cwd
       ? await resolveWorkspacePath(binding, params.cwd)
       : await fsp.realpath(binding.cwd);
+    requireOpenBinding(binding);
     const env = { ...binding.env };
     for (const item of Array.isArray(params.env) ? params.env : []) {
       const name = String(item?.name || '');

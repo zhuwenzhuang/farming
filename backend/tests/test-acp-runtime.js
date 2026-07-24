@@ -83,6 +83,72 @@ async function run() {
     /safe exact session id/,
   );
   await unsafeSessionRuntime.dispose();
+  let oldInitializeStarted;
+  const oldInitializeReady = new Promise(resolve => {
+    oldInitializeStarted = resolve;
+  });
+  let rejectOldInitialize;
+  let connectionSequence = 0;
+  const stalePrepareRuntime = new AcpRuntime({
+    resolveLaunch() {
+      return {
+        command: process.execPath,
+        args: ['-e', 'process.stdin.resume()'],
+        version: 'test',
+      };
+    },
+    async createConnection() {
+      const connectionId = ++connectionSequence;
+      const signal = { aborted: false };
+      return {
+        signal,
+        closed: new Promise(() => {}),
+        initialize() {
+          if (connectionId === 1) {
+            oldInitializeStarted();
+            return new Promise((_, reject) => {
+              rejectOldInitialize = reject;
+            });
+          }
+          return Promise.resolve({
+            protocolVersion: 1,
+            agentCapabilities: { sessionCapabilities: {} },
+            agentInfo: { name: 'replacement', version: '1' },
+          });
+        },
+        newSession() {
+          return Promise.resolve({ sessionId: 'replacement-session' });
+        },
+        close() {
+          signal.aborted = true;
+        },
+      };
+    },
+  });
+  const stalePreparation = stalePrepareRuntime.prepareAgent({
+    agentId: 'agent-stale-preparation',
+    provider: 'codex',
+    cwd: process.cwd(),
+    env: process.env,
+  });
+  await oldInitializeReady;
+  stalePrepareRuntime.unregisterAgent('agent-stale-preparation');
+  const replacementPreparation = await stalePrepareRuntime.prepareAgent({
+    agentId: 'agent-stale-preparation',
+    provider: 'codex',
+    cwd: process.cwd(),
+    env: process.env,
+  });
+  rejectOldInitialize(new Error('old initialize failed'));
+  await assert.rejects(stalePreparation, /old initialize failed/);
+  assert.strictEqual(replacementPreparation.sessionId, 'replacement-session');
+  assert.strictEqual(
+    stalePrepareRuntime.getSession('agent-stale-preparation').sessionId,
+    'replacement-session',
+    'a detached preparation failure must not unregister its replacement binding',
+  );
+  await stalePrepareRuntime.dispose();
+
   const compatibleCodexLaunch = resolveAcpLaunch('codex', {
     runtimeEnv: {
       FARMING_NODE_BIN: '/opt/farming/node',
@@ -479,6 +545,171 @@ async function run() {
       true,
       'the selected Fast launch profile should be applied through the negotiated ACP boolean option'
     );
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-prompt-admission',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'full',
+    });
+    const admittedPrompt = runtime.prompt('agent-acp-prompt-admission', 'first admitted prompt');
+    await assert.rejects(
+      runtime.prompt('agent-acp-prompt-admission', 'concurrent prompt'),
+      /not ready/,
+      'ACP must reserve prompt admission before its first asynchronous checkpoint operation',
+    );
+    assert.strictEqual((await admittedPrompt).stopReason, 'end_turn');
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-prompt-cancel',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'full',
+    });
+    const markCheckpointDirty = runtime.markCheckpointDirty.bind(runtime);
+    let releasePromptAdmission;
+    runtime.markCheckpointDirty = async binding => {
+      if (binding.agentId !== 'agent-acp-prompt-cancel') return markCheckpointDirty(binding);
+      await new Promise(resolve => {
+        releasePromptAdmission = resolve;
+      });
+    };
+    const cancelledAdmission = runtime.prompt('agent-acp-prompt-cancel', 'cancel before provider submission');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(await runtime.cancel('agent-acp-prompt-cancel'), true);
+    releasePromptAdmission();
+    await assert.rejects(cancelledAdmission, /cancelled before submission/);
+    assert.strictEqual(runtime.getSession('agent-acp-prompt-cancel').entries.length, 0);
+    runtime.markCheckpointDirty = markCheckpointDirty;
+
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-binding-fence',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'approve',
+    });
+    const staleBinding = runtime.bindings.get('agent-acp-binding-fence');
+    const staleHandlers = runtime.clientHandlers(staleBinding);
+    let resolveStalePrompt;
+    staleBinding.connection.prompt = () => new Promise(resolve => {
+      resolveStalePrompt = resolve;
+    });
+    const stalePrompt = runtime.prompt('agent-acp-binding-fence', 'old binding prompt');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(staleBinding.promptActive, true);
+    runtime.unregisterAgent('agent-acp-binding-fence');
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-binding-fence',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'approve',
+    });
+    const replacementBinding = runtime.bindings.get('agent-acp-binding-fence');
+    resolveStalePrompt({ stopReason: 'end_turn' });
+    await assert.rejects(
+      stalePrompt,
+      /no longer active/,
+      'an old ACP binding must not commit a prompt result after replacement',
+    );
+    assert.strictEqual(runtime.bindings.get('agent-acp-binding-fence'), replacementBinding);
+    assert.strictEqual(runtime.getSession('agent-acp-binding-fence').entries.length, 0);
+    assert.deepStrictEqual(
+      await Promise.race([
+        Promise.resolve(staleHandlers.requestPermission({
+          sessionId: staleBinding.sessionId,
+          toolCall: { toolCallId: 'stale-tool', title: 'Stale tool' },
+          options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+        })),
+        new Promise(resolve => setTimeout(() => resolve('timed-out'), 25)),
+      ]),
+      { outcome: { outcome: 'cancelled' } },
+      'a detached ACP binding must cancel late reverse requests instead of creating new pending state',
+    );
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-request-fence',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'approve',
+    });
+    const requestBinding = runtime.bindings.get('agent-acp-request-fence');
+    let resolveStaleList;
+    requestBinding.connection.listSessions = () => new Promise(resolve => {
+      resolveStaleList = resolve;
+    });
+    const staleList = runtime.listSessions('agent-acp-request-fence');
+    await new Promise(resolve => setImmediate(resolve));
+    runtime.unregisterAgent('agent-acp-request-fence');
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-request-fence',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'approve',
+    });
+    resolveStaleList({ sessions: [{ sessionId: 'stale-list-result' }] });
+    await assert.rejects(
+      staleList,
+      /no longer active/,
+      'an asynchronous ACP request result must still match its binding generation',
+    );
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-closed-binding',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'approve',
+    });
+    const closedBinding = runtime.bindings.get('agent-acp-closed-binding');
+    runtime.handleExit(closedBinding, new Error('socket connection closed'));
+    assert.strictEqual(runtime.getSession('agent-acp-closed-binding').state, 'error');
+    await assert.rejects(
+      runtime.prompt('agent-acp-closed-binding', 'must not reuse closed transport'),
+      /not ready/,
+    );
+    assert.deepStrictEqual(
+      runtime.requestPermission(closedBinding, {
+        sessionId: closedBinding.sessionId,
+        toolCall: { toolCallId: 'closed-tool', title: 'Closed tool' },
+        options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+      }),
+      { outcome: { outcome: 'cancelled' } },
+    );
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-exit-during-prompt',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'approve',
+    });
+    const exitingBinding = runtime.bindings.get('agent-acp-exit-during-prompt');
+    let resolveExitedPrompt;
+    exitingBinding.connection.prompt = () => new Promise(resolve => {
+      resolveExitedPrompt = resolve;
+    });
+    const exitedPrompt = runtime.prompt('agent-acp-exit-during-prompt', 'connection exits during prompt');
+    await new Promise(resolve => setImmediate(resolve));
+    runtime.handleExit(exitingBinding, new Error('socket connection closed during prompt'));
+    const exitedRevision = exitingBinding.sessionState.revision;
+    resolveExitedPrompt({ stopReason: 'end_turn' });
+    await assert.rejects(exitedPrompt, /connection is closed/);
+    runtime.handleExit(exitingBinding, new Error('duplicate close notification'));
+    const exitedSession = runtime.getSession('agent-acp-exit-during-prompt');
+    assert.strictEqual(exitedSession.state, 'error');
+    assert.strictEqual(exitingBinding.promptActive, false);
+    assert.strictEqual(
+      exitedSession.entries.filter(entry => entry.type === 'error').length,
+      1,
+      'connection exit must complete an active prompt with one terminal error entry',
+    );
+    assert.strictEqual(
+      exitingBinding.sessionState.revision,
+      exitedRevision,
+      'duplicate exit and late prompt completion must not reduce the session twice',
+    );
+
     const prompted = await runtime.prompt('agent-acp-new', 'hello ACP');
     assert.strictEqual(prompted.stopReason, 'end_turn');
     const session = runtime.getSession('agent-acp-new');
@@ -792,6 +1023,15 @@ async function run() {
       toolCall: { toolCallId: 'parallel-tool', title: 'Parallel request' },
       options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
     };
+    assert.deepStrictEqual(runtime.requestPermission(permissionBinding, {
+      ...request,
+      sessionId: 'unrelated-session',
+    }), { outcome: { outcome: 'cancelled' } });
+    assert.strictEqual(
+      runtime.getSession('agent-acp-permission').pendingPermissions.length,
+      0,
+      'an unrelated ACP session must not create permission state on this binding',
+    );
     const firstPermission = runtime.requestPermission(permissionBinding, request);
     const secondPermission = runtime.requestPermission(permissionBinding, {
       ...request,

@@ -129,6 +129,16 @@ async function run() {
       terminals.create(binding, request({ command: process.execPath, cwd: outside })),
       /outside the Agent workspace/,
     );
+    binding.exited = true;
+    await assert.rejects(
+      files.writeTextFile(binding, request({ path: file, content: 'must-not-write' })),
+      /connection is closed/,
+    );
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), 'updated');
+    await assert.rejects(
+      terminals.create(binding, request({ command: process.execPath })),
+      /connection is closed/,
+    );
   } finally {
     terminals.cleanupAgent(binding.agentId);
     fs.rmSync(root, { recursive: true, force: true });

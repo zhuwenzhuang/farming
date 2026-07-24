@@ -439,7 +439,10 @@ class AcpRuntime extends EventEmitter {
       authTerminal: null,
       patchDecisions: new Map(),
       checkpointProof: null,
+      promptAdmission: null,
+      promptStarting: false,
       stderr: '',
+      exited: false,
       updatedAt: new Date().toISOString(),
     };
     this.bindings.set(agentId, binding);
@@ -468,8 +471,10 @@ class AcpRuntime extends EventEmitter {
         ? await this.createConnection(this.clientHandlers(binding), child, binding)
         : await this.officialConnection(this.clientHandlers(binding), child);
       binding.connection = connection;
+      this.requireOpenBinding(binding);
       connection.closed.catch(error => this.handleExit(binding, error));
       const sdk = await loadAcpSdk();
+      this.requireOpenBinding(binding);
       binding.initializeResponse = await withTimeout(connection.initialize({
         protocolVersion: sdk.PROTOCOL_VERSION,
         clientCapabilities: {
@@ -483,6 +488,7 @@ class AcpRuntime extends EventEmitter {
         },
         clientInfo: { name: 'farming', title: 'Farming', version: packageJson.version || '0.0.0' },
       }), this.initializeTimeoutMs, 'ACP initialize');
+      this.requireOpenBinding(binding);
       if (binding.initializeResponse.protocolVersion !== sdk.PROTOCOL_VERSION) {
         throw new Error(`ACP protocol version mismatch: Agent selected ${binding.initializeResponse.protocolVersion}, Farming supports ${sdk.PROTOCOL_VERSION}`);
       }
@@ -507,6 +513,7 @@ class AcpRuntime extends EventEmitter {
             this.checkpointIdentity(binding, requestedSessionId),
             { allowDirty: true },
           );
+          this.requireOpenBinding(binding);
           restoredCheckpoint = this.restoreBindingCheckpoint(binding, saved?.state, {
             sessionId: requestedSessionId,
           });
@@ -516,6 +523,7 @@ class AcpRuntime extends EventEmitter {
           const providerStateMatches = restoredCheckpoint?.complete === true && saved?.exact === true
             ? await this.checkpointMatchesProviderSession(connection, capabilities, sessionRequest, saved)
             : false;
+          this.requireOpenBinding(binding);
           if (providerStateMatches) {
             binding.sessionId = requestedSessionId;
             binding.sessionState = restoredCheckpointState;
@@ -528,9 +536,11 @@ class AcpRuntime extends EventEmitter {
                 this.sessionSetupTimeoutMs,
                 'ACP session/resume'
               );
+              this.requireOpenBinding(binding);
               historyMode = 'checkpoint';
               opened = true;
             } catch (error) {
+              this.requireOpenBinding(binding);
               if (!capabilities.loadSession) throw error;
               console.warn(`ACP checkpoint resume failed for ${provider}; replaying history:`, error && (error.message || error));
             }
@@ -554,7 +564,9 @@ class AcpRuntime extends EventEmitter {
               this.sessionSetupTimeoutMs,
               'ACP session/load'
             );
+            this.requireOpenBinding(binding);
             if (provider === 'qoder') await this.waitForHistoryReplay(binding);
+            this.requireOpenBinding(binding);
           } finally {
             binding.historyReplayActive = false;
           }
@@ -568,7 +580,9 @@ class AcpRuntime extends EventEmitter {
             } catch {
               // Local history images can still be restored from their adapter paths.
             }
+            this.requireOpenBinding(binding);
             await binding.sessionState.hydrateCodexHistoryAttachments({ imageDataByPath });
+            this.requireOpenBinding(binding);
           }
           historyMode = 'load';
           opened = true;
@@ -586,6 +600,7 @@ class AcpRuntime extends EventEmitter {
             this.sessionSetupTimeoutMs,
             'ACP session/resume'
           );
+          this.requireOpenBinding(binding);
           historyMode = 'resume';
           opened = true;
         } else {
@@ -597,6 +612,7 @@ class AcpRuntime extends EventEmitter {
           this.sessionSetupTimeoutMs,
           'ACP session/new'
         );
+        this.requireOpenBinding(binding);
         const returnedSessionId = String(sessionResponse.sessionId || '').trim();
         if (!isSafeProviderSessionId(returnedSessionId)) {
           binding.untrustedSessionId = returnedSessionId;
@@ -605,6 +621,7 @@ class AcpRuntime extends EventEmitter {
         binding.sessionId = returnedSessionId;
         binding.sessionState = new AcpSessionState({ provider, sessionId: binding.sessionId, cwd: binding.cwd, maxUpdates: this.maxUpdates });
       }
+      this.requireOpenBinding(binding);
       binding.modes = sessionResponse?.modes || null;
       binding.configOptions = sessionResponse?.configOptions || [];
       binding.sessionState.currentModeId = String(binding.modes?.currentModeId || '');
@@ -619,6 +636,7 @@ class AcpRuntime extends EventEmitter {
           await this.applySessionConfigOption(binding, fastOption.id, fastEnabled, { emit: false });
         }
       }
+      this.requireOpenBinding(binding);
       binding.state = 'idle';
       binding.updatedAt = new Date().toISOString();
       this.scheduleCheckpoint(binding, { exact: true });
@@ -670,7 +688,16 @@ class AcpRuntime extends EventEmitter {
           attachProviderSessionIdentity(runtimeError, identity);
         }
       } else {
-        this.unregisterAgent(agentId);
+        if (this.isCurrentBinding(binding)) {
+          this.unregisterAgent(agentId, binding);
+        } else {
+          try {
+            binding.connection?.close();
+          } catch {
+            // The detached binding still needs process cleanup below.
+          }
+          signalProcessTree(binding, 'SIGTERM');
+        }
       }
       throw runtimeError;
     }
@@ -738,6 +765,27 @@ class AcpRuntime extends EventEmitter {
     return result;
   }
 
+  isCurrentBinding(binding) {
+    return Boolean(binding) && this.bindings.get(binding.agentId) === binding;
+  }
+
+  requireCurrentBinding(binding) {
+    if (!this.isCurrentBinding(binding)) {
+      throw new Error('ACP Agent binding is no longer active');
+    }
+    return binding;
+  }
+
+  isOpenBinding(binding) {
+    return this.isCurrentBinding(binding) && binding.exited !== true;
+  }
+
+  requireOpenBinding(binding) {
+    this.requireCurrentBinding(binding);
+    if (binding.exited) throw new Error('ACP Agent connection is closed');
+    return binding;
+  }
+
   checkpointIdentity(binding, sessionId = binding?.sessionId) {
     if (!binding || !sessionId) return null;
     return {
@@ -749,6 +797,7 @@ class AcpRuntime extends EventEmitter {
   }
 
   scheduleCheckpoint(binding, _options = {}) {
+    if (!this.isOpenBinding(binding)) return;
     const identity = this.checkpointIdentity(binding);
     if (!this.checkpointStore || !identity || !binding.sessionState) return;
     // ACP currently has no conditional resume or provider-owned revision
@@ -759,15 +808,19 @@ class AcpRuntime extends EventEmitter {
   }
 
   async markCheckpointDirty(binding) {
+    this.requireOpenBinding(binding);
     const identity = this.checkpointIdentity(binding);
     if (!this.checkpointStore || !identity) return;
     await this.checkpointStore.markDirty(identity);
+    this.requireOpenBinding(binding);
   }
 
   async writeCheckpoint(binding, _options = {}) {
+    this.requireOpenBinding(binding);
     const identity = this.checkpointIdentity(binding);
     if (!this.checkpointStore || !identity || !binding.sessionState) return;
     await this.checkpointStore.write(identity, this.bindingCheckpoint(binding), { exact: false });
+    this.requireOpenBinding(binding);
   }
 
   bindingCheckpoint(binding) {
@@ -874,6 +927,7 @@ class AcpRuntime extends EventEmitter {
     let lastChangedAt = startedAt;
     while (Date.now() - startedAt < this.historyReplayMaxWaitMs) {
       await new Promise(resolve => setTimeout(resolve, 50));
+      if (!this.isOpenBinding(binding)) return;
       const now = Date.now();
       const updateCount = binding.sessionState?.updates.length || 0;
       if (updateCount !== lastUpdateCount) {
@@ -888,8 +942,15 @@ class AcpRuntime extends EventEmitter {
   }
 
   clientHandlers(binding) {
+    const openClientRequest = handler => async request => {
+      this.requireOpenBinding(binding);
+      const response = await handler(request);
+      this.requireOpenBinding(binding);
+      return response;
+    };
     return {
       sessionUpdate: notification => {
+        if (!this.isOpenBinding(binding)) return;
         const notificationSessionId = String(notification?.sessionId || '');
         const isPrimarySession = !binding.sessionId || !notificationSessionId || notificationSessionId === binding.sessionId;
         let targetState = isPrimarySession ? binding.sessionState : binding.subagentStates.get(notificationSessionId);
@@ -929,19 +990,30 @@ class AcpRuntime extends EventEmitter {
         }
       },
       requestPermission: request => this.requestPermission(binding, request),
-      readTextFile: request => this.clientFileSystem.readTextFile(binding, request),
-      writeTextFile: request => this.clientFileSystem.writeTextFile(binding, request),
-      createTerminal: request => this.clientTerminals.create(binding, request),
-      terminalOutput: request => this.clientTerminals.output(binding, request),
-      waitForTerminalExit: request => this.clientTerminals.waitForExit(binding, request),
-      killTerminal: request => this.clientTerminals.kill(binding, request),
-      releaseTerminal: request => this.clientTerminals.release(binding, request),
+      readTextFile: openClientRequest(request => this.clientFileSystem.readTextFile(binding, request)),
+      writeTextFile: openClientRequest(request => this.clientFileSystem.writeTextFile(binding, request)),
+      createTerminal: openClientRequest(request => this.clientTerminals.create(binding, request)),
+      terminalOutput: openClientRequest(request => this.clientTerminals.output(binding, request)),
+      waitForTerminalExit: openClientRequest(request => this.clientTerminals.waitForExit(binding, request)),
+      killTerminal: openClientRequest(request => this.clientTerminals.kill(binding, request)),
+      releaseTerminal: openClientRequest(request => this.clientTerminals.release(binding, request)),
       unstable_createElicitation: request => this.requestElicitation(binding, request),
       unstable_completeElicitation: notification => this.completeElicitation(binding, notification),
     };
   }
 
   requestPermission(binding, request) {
+    if (!this.isOpenBinding(binding)) return { outcome: { outcome: 'cancelled' } };
+    const requestSessionId = String(request?.sessionId || '');
+    if (
+      !requestSessionId
+      || (
+        requestSessionId !== binding.sessionId
+        && !binding.subagentStates.has(requestSessionId)
+      )
+    ) {
+      return { outcome: { outcome: 'cancelled' } };
+    }
     const automatic = autoPermissionResponse(request, binding.approvalMode);
     if (automatic) return automatic;
     const requestId = `acp-permission-${++this.permissionSequence}`;
@@ -979,6 +1051,7 @@ class AcpRuntime extends EventEmitter {
   }
 
   requestElicitation(binding, request) {
+    if (!this.isOpenBinding(binding)) return { action: 'cancel' };
     const hasSessionScope = typeof request?.sessionId === 'string' && request.sessionId.length > 0;
     const requestSessionId = hasSessionScope ? String(request.sessionId) : '';
     const isPrimarySession = hasSessionScope && requestSessionId === binding.sessionId;
@@ -1033,6 +1106,7 @@ class AcpRuntime extends EventEmitter {
   }
 
   completeElicitation(binding, notification) {
+    if (!this.isOpenBinding(binding)) return;
     const elicitationId = String(notification?.elicitationId || '');
     if (elicitationId) binding.activeElicitations.delete(elicitationId);
     this.emitRuntime(binding);
@@ -1040,13 +1114,38 @@ class AcpRuntime extends EventEmitter {
 
   async prompt(agentId, prompt) {
     const binding = this.requireBinding(agentId);
-    if (!['idle', 'error'].includes(binding.state)) throw new Error(`ACP Agent is not ready (${binding.state})`);
+    if (
+      binding.exited
+      || binding.promptStarting
+      || binding.promptActive
+      || !['idle', 'error'].includes(binding.state)
+    ) {
+      throw new Error(`ACP Agent is not ready (${binding.state})`);
+    }
     const rawContent = Array.isArray(prompt) ? prompt : [{ type: 'text', text: String(prompt || '') }];
     const content = promptContentForCapabilities(
       rawContent,
       binding.initializeResponse?.agentCapabilities || {},
     );
-    await this.markCheckpointDirty(binding);
+    const admission = { previousState: binding.state };
+    binding.promptAdmission = admission;
+    binding.promptStarting = true;
+    try {
+      await this.markCheckpointDirty(binding);
+      this.requireOpenBinding(binding);
+      if (binding.promptAdmission !== admission) {
+        throw new Error('ACP prompt was cancelled before submission');
+      }
+    } catch (error) {
+      if (binding.promptAdmission === admission) {
+        binding.promptAdmission = null;
+        binding.promptStarting = false;
+        if (this.isCurrentBinding(binding)) binding.state = admission.previousState;
+      }
+      throw error;
+    }
+    binding.promptAdmission = null;
+    binding.promptStarting = false;
     binding.sessionState.beginPrompt(content);
     binding.promptActive = true;
     binding.state = 'working';
@@ -1056,6 +1155,7 @@ class AcpRuntime extends EventEmitter {
     this.emitSession(binding);
     try {
       const response = await binding.connection.prompt({ sessionId: binding.sessionId, prompt: content });
+      this.requireOpenBinding(binding);
       binding.stopReason = String(response?.stopReason || '');
       binding.sessionState.completePrompt(binding.stopReason);
       binding.promptActive = false;
@@ -1067,6 +1167,7 @@ class AcpRuntime extends EventEmitter {
       return { sessionId: binding.sessionId, stopReason: binding.stopReason };
     } catch (error) {
       const runtimeError = new Error(acpErrorMessage(error), { cause: error });
+      if (!this.isCurrentBinding(binding) || binding.exited) throw runtimeError;
       binding.stopReason = 'error';
       // JSON-RPC implementations commonly move the actionable provider text
       // into error.data.details. Classify the normalized message so the
@@ -1104,8 +1205,10 @@ class AcpRuntime extends EventEmitter {
     );
     const clientMessageId = `farming-steer-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const operation = async () => {
+      this.requireOpenBinding(binding);
       if (!binding.promptActive) throw new Error('No active Codex turn to steer');
       await this.markCheckpointDirty(binding);
+      this.requireOpenBinding(binding);
       const response = await withTimeout(
         binding.connection.request(CODEX_STEER_METHOD, {
           sessionId: binding.sessionId,
@@ -1115,6 +1218,7 @@ class AcpRuntime extends EventEmitter {
         this.requestTimeoutMs,
         'Codex ACP steer',
       );
+      this.requireOpenBinding(binding);
       return {
         sessionId: binding.sessionId,
         turnId: String(response?.turnId || ''),
@@ -1133,7 +1237,15 @@ class AcpRuntime extends EventEmitter {
 
   async cancel(agentId) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
     if (!binding.sessionId) return false;
+    if (binding.promptStarting) {
+      const admission = binding.promptAdmission;
+      binding.promptAdmission = null;
+      binding.promptStarting = false;
+      binding.state = admission?.previousState || 'idle';
+      return true;
+    }
     binding.state = 'interrupting';
     for (const resolve of binding.permissionResolvers.values()) {
       resolve({ outcome: { outcome: 'cancelled' } });
@@ -1152,9 +1264,11 @@ class AcpRuntime extends EventEmitter {
         this.cancelTimeoutMs,
         'ACP session/cancel'
       );
+      this.requireOpenBinding(binding);
       return true;
     } catch (error) {
       const runtimeError = new Error(acpErrorMessage(error), { cause: error });
+      if (!this.isOpenBinding(binding)) throw runtimeError;
       binding.state = 'error';
       binding.error = runtimeError.message;
       binding.stopReason = 'cancel_error';
@@ -1167,6 +1281,7 @@ class AcpRuntime extends EventEmitter {
 
   async cancelSubagent(agentId, sessionId) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
     const targetSessionId = String(sessionId || '');
     if (!targetSessionId || targetSessionId === binding.sessionId || !binding.subagentStates.has(targetSessionId)) {
       throw new Error('ACP subagent session not found');
@@ -1195,6 +1310,7 @@ class AcpRuntime extends EventEmitter {
       this.cancelTimeoutMs,
       'ACP subagent session/cancel'
     );
+    this.requireOpenBinding(binding);
     binding.updatedAt = new Date().toISOString();
     this.emitSession(binding);
     this.emitRuntime(binding);
@@ -1203,15 +1319,18 @@ class AcpRuntime extends EventEmitter {
 
   async listSessions(agentId, options = {}) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
     const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
     if (!capabilities?.list) throw new Error(`${binding.provider} ACP Agent does not support session/list`);
-    return withTimeout(binding.connection.listSessions({
+    const response = await withTimeout(binding.connection.listSessions({
       ...(options.cwd ? { cwd: path.resolve(options.cwd) } : {}),
       ...(Array.isArray(options.additionalDirectories)
         ? { additionalDirectories: acpSessionRequestOptions(options, options.cwd || binding.cwd).additionalDirectories }
         : {}),
       ...(options.cursor ? { cursor: String(options.cursor) } : {}),
     }), this.requestTimeoutMs, 'ACP session/list');
+    this.requireOpenBinding(binding);
+    return response;
   }
 
   getSessionRequestOptions(agentId) {
@@ -1221,6 +1340,7 @@ class AcpRuntime extends EventEmitter {
 
   async authenticate(agentId, methodId) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
     const method = binding.initializeResponse?.authMethods?.find(item => item.id === methodId);
     if (!method) throw new Error('Unknown ACP authentication method');
     if (method.type === 'terminal' || method?._meta?.['terminal-auth']) {
@@ -1231,6 +1351,7 @@ class AcpRuntime extends EventEmitter {
       this.requestTimeoutMs,
       'ACP authenticate'
     );
+    this.requireOpenBinding(binding);
     binding.error = '';
     binding.stopReason = '';
     binding.state = interactiveRuntimeState(binding, 'idle');
@@ -1242,10 +1363,12 @@ class AcpRuntime extends EventEmitter {
 
   async logout(agentId) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
     if (binding.initializeResponse?.agentCapabilities?.auth?.logout == null) {
       throw new Error(`${binding.provider} ACP Agent does not support logout`);
     }
     await withTimeout(binding.connection.logout({}), this.requestTimeoutMs, 'ACP logout');
+    this.requireOpenBinding(binding);
     binding.error = '';
     binding.stopReason = '';
     binding.updatedAt = new Date().toISOString();
@@ -1272,6 +1395,7 @@ class AcpRuntime extends EventEmitter {
   }
 
   async startTerminalAuthentication(binding, method) {
+    this.requireOpenBinding(binding);
     if (binding.authTerminal?.state === 'running') throw new Error('ACP terminal authentication is already running');
     const launch = this.terminalAuthenticationLaunch(binding, method);
     const created = await this.clientTerminals.create(binding, {
@@ -1282,6 +1406,19 @@ class AcpRuntime extends EventEmitter {
       env: Object.entries(launch.env).map(([name, value]) => ({ name, value: String(value) })),
       outputByteLimit: 2 * 1024 * 1024,
     });
+    try {
+      this.requireOpenBinding(binding);
+    } catch (error) {
+      try {
+        this.clientTerminals.release(binding, {
+          sessionId: binding.sessionId,
+          terminalId: created.terminalId,
+        });
+      } catch {
+        // Binding teardown may already have removed the terminal.
+      }
+      throw error;
+    }
     binding.authTerminal = {
       terminalId: created.terminalId,
       methodId: String(method.id || ''),
@@ -1296,7 +1433,7 @@ class AcpRuntime extends EventEmitter {
       sessionId: binding.sessionId,
       terminalId: created.terminalId,
     })).then(async exit => {
-      if (this.bindings.get(binding.agentId) !== binding) return;
+      if (!this.isOpenBinding(binding)) return;
       if (exit.exitCode !== 0) {
         binding.authTerminal.state = 'failed';
         binding.authTerminal.error = `Sign-in command exited ${exit.exitCode ?? exit.signal ?? ''}`.trim();
@@ -1310,14 +1447,14 @@ class AcpRuntime extends EventEmitter {
       this.emitSession(binding);
       await this.restartAgentConnection(binding.agentId).catch(error => {
         const current = this.bindings.get(binding.agentId);
-        if (!current) return;
+        if (current !== binding || current.exited) return;
         current.state = 'error';
         current.error = acpErrorMessage(error);
         current.updatedAt = new Date().toISOString();
         this.emitRuntime(current);
       });
     }).catch(error => {
-      if (this.bindings.get(binding.agentId) !== binding) return;
+      if (!this.isOpenBinding(binding)) return;
       binding.authTerminal.state = 'failed';
       binding.authTerminal.error = acpErrorMessage(error);
       binding.updatedAt = new Date().toISOString();
@@ -1329,6 +1466,7 @@ class AcpRuntime extends EventEmitter {
 
   async restartAgentConnection(agentId) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
     const revisionBase = Number(binding.sessionState?.revision || 0);
     const options = {
       ...binding.restartOptions,
@@ -1344,26 +1482,31 @@ class AcpRuntime extends EventEmitter {
     if (binding.sessionState && !binding.promptActive) {
       await this.writeCheckpoint(binding, { exact: true });
     }
-    this.unregisterAgent(agentId);
+    this.requireOpenBinding(binding);
+    this.unregisterAgent(agentId, binding);
     return this.prepareAgent(options);
   }
 
   async forkSession(agentId, options = {}) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
     const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
     if (!capabilities?.fork) throw new Error(`${binding.provider} ACP Agent does not support session/fork`);
     const sessionOptions = acpSessionRequestOptions({
       additionalDirectories: options.additionalDirectories ?? binding.sessionRequestOptions.additionalDirectories,
       mcpServers: options.mcpServers ?? binding.sessionRequestOptions.mcpServers,
     }, options.cwd || binding.cwd);
-    return withTimeout(binding.connection.unstable_forkSession({
+    const response = await withTimeout(binding.connection.unstable_forkSession({
       sessionId: options.sessionId || binding.sessionId,
       ...sessionOptions,
     }), this.sessionSetupTimeoutMs, 'ACP session/fork');
+    this.requireOpenBinding(binding);
+    return response;
   }
 
   async deleteSession(agentId, sessionId) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
     const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
     if (!capabilities?.delete) throw new Error(`${binding.provider} ACP Agent does not support session/delete`);
     await withTimeout(
@@ -1371,11 +1514,13 @@ class AcpRuntime extends EventEmitter {
       this.requestTimeoutMs,
       'ACP session/delete'
     );
+    this.requireOpenBinding(binding);
     return { deleted: true, sessionId: String(sessionId || '') };
   }
 
   async closeSession(agentId) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
     const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
     if (!capabilities?.close) throw new Error(`${binding.provider} ACP Agent does not support session/close`);
     await withTimeout(
@@ -1383,6 +1528,7 @@ class AcpRuntime extends EventEmitter {
       this.requestTimeoutMs,
       'ACP session/close'
     );
+    this.requireOpenBinding(binding);
     binding.state = 'closed';
     this.emitRuntime(binding);
     return { closed: true, sessionId: binding.sessionId };
@@ -1390,11 +1536,13 @@ class AcpRuntime extends EventEmitter {
 
   async setSessionMode(agentId, modeId) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
     await withTimeout(
       binding.connection.setSessionMode({ sessionId: binding.sessionId, modeId: String(modeId || '') }),
       this.requestTimeoutMs,
       'ACP session/set_mode'
     );
+    this.requireOpenBinding(binding);
     binding.sessionState.currentModeId = String(modeId || '');
     if (binding.modes) binding.modes = { ...binding.modes, currentModeId: binding.sessionState.currentModeId };
     this.scheduleCheckpoint(binding, { exact: true });
@@ -1404,12 +1552,14 @@ class AcpRuntime extends EventEmitter {
 
   async setSessionConfigOption(agentId, configId, value) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
     return this.enqueueSessionConfigMutation(binding, () => (
       this.setSessionConfigOptionNow(binding, configId, value)
     ));
   }
 
   async setSessionConfigOptionNow(binding, configId, value) {
+    this.requireOpenBinding(binding);
     const option = binding.configOptions?.find(candidate => candidate.id === String(configId || ''));
     if (
       binding.provider === 'codex'
@@ -1437,12 +1587,14 @@ class AcpRuntime extends EventEmitter {
 
   async setSessionConfigOptions(agentId, changes) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
     return this.enqueueSessionConfigMutation(binding, () => (
       this.setSessionConfigOptionsNow(binding, changes)
     ));
   }
 
   async setSessionConfigOptionsNow(binding, changes) {
+    this.requireOpenBinding(binding);
     const normalized = Array.isArray(changes)
       ? changes.filter(change => change && typeof change.configId === 'string' && Object.prototype.hasOwnProperty.call(change, 'value'))
       : [];
@@ -1497,6 +1649,7 @@ class AcpRuntime extends EventEmitter {
   }
 
   async refreshCodexSessionModel(binding, model, effort) {
+    this.requireOpenBinding(binding);
     await withTimeout(
       binding.connection.request(CODEX_SET_SESSION_MODEL_METHOD, {
         sessionId: binding.sessionId,
@@ -1505,9 +1658,11 @@ class AcpRuntime extends EventEmitter {
       this.requestTimeoutMs,
       'Codex ACP session/set_model capability refresh'
     );
+    this.requireOpenBinding(binding);
   }
 
   async applySessionConfigOption(binding, configId, value, options = {}) {
+    this.requireOpenBinding(binding);
     const normalizedConfigId = String(configId || '');
     const currentOption = binding.configOptions?.find(candidate => candidate.id === normalizedConfigId);
     if (options.force !== true && currentOption?.currentValue === value) {
@@ -1524,6 +1679,7 @@ class AcpRuntime extends EventEmitter {
         this.requestTimeoutMs,
         'ACP session/set_config_option'
       );
+      this.requireOpenBinding(binding);
       binding.configOptions = response?.configOptions || binding.configOptions;
       const confirmed = binding.configOptions?.find(candidate => candidate.id === normalizedConfigId);
       if (confirmed?.currentValue === request.value) break;
@@ -1625,6 +1781,7 @@ class AcpRuntime extends EventEmitter {
 
   async decidePatch(agentId, toolCallId, requestedPath, decision) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
     if (binding.promptActive) throw new Error('Wait for the Agent to finish before deciding a patch');
     const entry = binding.sessionState?.toolEntries.get(String(toolCallId || ''));
     if (entry && binding.sessionState.isInternalEntry(entry)) throw new Error('ACP tool call not found');
@@ -1636,6 +1793,7 @@ class AcpRuntime extends EventEmitter {
     let result = { action: 'kept', path: String(requestedPath || '') };
     if (normalizedDecision === 'revert') {
       result = await rejectPatch({ entry, root: binding.cwd, requestedPath });
+      this.requireOpenBinding(binding);
     }
     binding.patchDecisions.set(key, result.action);
     entry._meta = { ...(entry._meta || {}) };
@@ -1652,6 +1810,7 @@ class AcpRuntime extends EventEmitter {
 
   killTerminal(agentId, terminalId) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
     this.clientTerminals.kill(binding, {
       sessionId: binding.sessionId,
       terminalId: String(terminalId || ''),
@@ -1661,6 +1820,7 @@ class AcpRuntime extends EventEmitter {
 
   inputTerminal(agentId, terminalId, input) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
     return this.clientTerminals.input(binding, {
       sessionId: binding.sessionId,
       terminalId,
@@ -1670,6 +1830,7 @@ class AcpRuntime extends EventEmitter {
 
   resizeTerminal(agentId, terminalId, cols, rows) {
     const binding = this.requireBinding(agentId);
+    this.requireOpenBinding(binding);
     return this.clientTerminals.resize(binding, {
       sessionId: binding.sessionId,
       terminalId,
@@ -1727,6 +1888,7 @@ class AcpRuntime extends EventEmitter {
   }
 
   emitRuntime(binding) {
+    if (!this.isCurrentBinding(binding)) return false;
     this.emit('agent-runtime', {
       agentId: binding.agentId,
       provider: binding.provider,
@@ -1743,23 +1905,37 @@ class AcpRuntime extends EventEmitter {
       activeElicitations: [...binding.activeElicitations.values()],
       updatedAt: binding.updatedAt,
     });
+    return true;
   }
 
   emitSession(binding) {
+    if (!this.isCurrentBinding(binding)) return false;
     this.emit('session', {
       agentId: binding.agentId,
       updatedAt: binding.updatedAt,
       revision: binding.sessionState?.revision || 0,
     });
+    return true;
   }
 
   handleExit(binding, error) {
-    if (this.bindings.get(binding.agentId) !== binding) return;
+    if (!this.isCurrentBinding(binding) || binding.exited) return;
+    binding.exited = true;
+    binding.promptAdmission = null;
+    binding.promptStarting = false;
+    const promptWasActive = binding.promptActive;
+    binding.promptActive = false;
     if (error) {
       binding.state = 'error';
       binding.error = acpErrorMessage(error);
+      binding.stopReason = 'error';
     } else if (binding.state !== 'error') {
       binding.state = 'stopped';
+      binding.stopReason = promptWasActive ? 'stopped' : binding.stopReason;
+    }
+    if (promptWasActive && binding.sessionState) {
+      if (error) binding.sessionState.recordError(binding.error, acpErrorKind(error));
+      binding.sessionState.completePrompt(binding.stopReason);
     }
     for (const resolve of binding.permissionResolvers.values()) {
       resolve({ outcome: { outcome: 'cancelled' } });
@@ -1773,6 +1949,7 @@ class AcpRuntime extends EventEmitter {
     binding.interactionOrigins.clear();
     binding.subagentStates.clear();
     this.clientTerminals.cleanupAgent(binding.agentId);
+    if (promptWasActive) this.emitSession(binding);
     this.emitRuntime(binding);
   }
 
@@ -1780,6 +1957,9 @@ class AcpRuntime extends EventEmitter {
     if (!binding || this.bindings.get(binding.agentId) !== binding) return false;
     if (binding.sessionState && !binding.promptActive) this.scheduleCheckpoint(binding, { exact: true });
     this.bindings.delete(binding.agentId);
+    binding.exited = true;
+    binding.promptAdmission = null;
+    binding.promptStarting = false;
     for (const resolve of binding.permissionResolvers.values()) resolve({ outcome: { outcome: 'cancelled' } });
     for (const resolve of binding.elicitationResolvers.values()) resolve({ action: 'cancel' });
     binding.permissionResolvers.clear();
@@ -1805,14 +1985,16 @@ class AcpRuntime extends EventEmitter {
     return true;
   }
 
-  unregisterAgent(agentId) {
+  unregisterAgent(agentId, expectedBinding = null) {
     const binding = this.bindings.get(agentId);
+    if (expectedBinding && binding !== expectedBinding) return;
     if (!binding || !this.detachAgentBinding(binding)) return;
     signalProcessTree(binding, 'SIGTERM');
   }
 
-  async unregisterAgentAndWait(agentId) {
+  async unregisterAgentAndWait(agentId, expectedBinding = null) {
     const binding = this.bindings.get(agentId);
+    if (expectedBinding && binding !== expectedBinding) return;
     if (!binding || !this.detachAgentBinding(binding)) return;
     if (await waitForProcessTreeExit(binding, IDENTITY_ADAPTER_GRACEFUL_EXIT_MS)) return;
     signalProcessTree(binding, 'SIGTERM');
