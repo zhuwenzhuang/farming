@@ -2,6 +2,7 @@ const assert = require('assert');
 const {
   crtBillingCurrentRate,
   crtBillingDayArrowTargetIndex,
+  crtBillingTimeline,
   crtBillingTimelineLabels,
   formatCrtUsageValue,
   formatStructuredUsage,
@@ -57,6 +58,10 @@ assert.deepStrictEqual(crtBillingTimelineLabels(null), {
   start: '-WINDOW',
   midpoint: '-WINDOW',
 });
+const historicalTimeline = { windowMs: 24 * 60 * 60 * 1000 };
+const liveTimeline = { windowMs: 60 * 60 * 1000 };
+assert.strictEqual(crtBillingTimeline({ timeline: historicalTimeline }), historicalTimeline);
+assert.strictEqual(crtBillingTimeline({ timeline: historicalTimeline, liveTimeline }), liveTimeline);
 assert.strictEqual(crtBillingCurrentRate(null), null);
 assert.strictEqual(crtBillingCurrentRate({ providers: [] }), null);
 assert.strictEqual(crtBillingCurrentRate({

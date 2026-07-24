@@ -1087,6 +1087,7 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   const calendarLeadingDays = (calendarStartDate.getDay() + 6) % 7
   const calendarWeekCount = Math.ceil((calendarLeadingDays + dailyPoints.length) / 7)
   const freshRequests: string[] = []
+  const liveSummaryRequests: string[] = []
   const dayDetailRequests: string[] = []
   let currentDayLiveRequests = 0
   let allowCurrentDayIncrease = false
@@ -1158,6 +1159,7 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
       return
     }
     if (requestUrl.searchParams.get('fresh') === '1') freshRequests.push(route.request().url())
+    if (requestUrl.searchParams.get('live') === '1') liveSummaryRequests.push(route.request().url())
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1431,8 +1433,17 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   await expect(sundayDay).toBeFocused()
   await expect.poll(() => freshRequests.length).toBeGreaterThan(0)
   await page.keyboard.press('l')
-  await expect(page.locator('#billing-status')).toHaveText('SIGNAL LOCKED')
+  await expect(page.locator('#billing-status')).toHaveText(/^LIVE \d{2}:\d{2}:\d{2}$/)
+  await expect.poll(() => liveSummaryRequests.length).toBeGreaterThan(0)
   await expect(page.locator('#billing-live-view')).not.toHaveClass(/hidden/)
+  await expect(page.locator('#billing-days-tab')).not.toHaveClass(/active/)
+  await expect(page.locator('#billing-days-tab')).not.toHaveClass(/crt-nav-selected/)
+  await expect(page.locator('#billing-live-tab')).toHaveClass(/active/)
+  await expect(page.locator('#billing-live-tab')).toHaveClass(/crt-nav-selected/)
+  const billingTabBackgrounds = await page.locator('#billing-days-tab,#billing-live-tab').evaluateAll(tabs => (
+    tabs.map(tab => getComputedStyle(tab).backgroundColor)
+  ))
+  expect(billingTabBackgrounds[0]).not.toBe(billingTabBackgrounds[1])
   await expect(page.locator('#billing-current-rate')).toHaveText('11K')
   await expect(page.locator('#billing-window-label')).toHaveText('TOKENS · 1H')
   await expect(page.locator('#billing-peak-label')).toHaveText('TOK/MIN · 1H')

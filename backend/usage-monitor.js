@@ -10,6 +10,8 @@ const execFileAsync = promisify(execFile);
 const USAGE_WINDOW_MS = 5 * 60 * 1000;
 const USAGE_TIMELINE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const USAGE_TIMELINE_BUCKET_COUNT = 24;
+const USAGE_LIVE_TIMELINE_WINDOW_MS = 60 * 60 * 1000;
+const USAGE_LIVE_TIMELINE_BUCKET_COUNT = 60;
 const USAGE_DAILY_DAYS = 52 * 7;
 const USAGE_DAILY_CACHE_MS = 5 * 60 * 1000;
 const USAGE_LIVE_DAY_CACHE_MS = 5 * 1000;
@@ -1020,6 +1022,12 @@ class UsageMonitor {
       windowMs: historyWindowMs,
       alignToBucket: true,
     });
+    const liveTimeline = buildUsageTimeline(history.providerEvents, {
+      now,
+      windowMs: USAGE_LIVE_TIMELINE_WINDOW_MS,
+      bucketCount: USAGE_LIVE_TIMELINE_BUCKET_COUNT,
+      alignToBucket: true,
+    });
     const openCodeCoverage = history.coverage.find(entry => entry.provider === 'opencode');
     const qoderCoverage = history.coverage.find(entry => entry.provider === 'qoder');
 
@@ -1027,6 +1035,7 @@ class UsageMonitor {
       sampledAt: now,
       windowMs,
       timeline,
+      liveTimeline,
       daily: history.daily,
       providers: [
         {
@@ -1099,6 +1108,8 @@ module.exports = {
   USAGE_WINDOW_MS,
   USAGE_TIMELINE_WINDOW_MS,
   USAGE_TIMELINE_BUCKET_COUNT,
+  USAGE_LIVE_TIMELINE_WINDOW_MS,
+  USAGE_LIVE_TIMELINE_BUCKET_COUNT,
   USAGE_DAILY_DAYS,
   USAGE_DAILY_CACHE_MS,
   USAGE_LIVE_DAY_CACHE_MS,

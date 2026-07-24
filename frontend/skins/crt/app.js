@@ -119,7 +119,7 @@ const CRT_AGENT_GRID_GAP = 15;
 const CRT_AGENT_GRID_PADDING = 20;
 const CRT_SEARCH_DEBOUNCE_MS = 180;
 const CRT_SEARCH_RESULT_LIMIT = 100;
-const CRT_BILLING_REFRESH_MS = 30_000;
+const CRT_BILLING_REFRESH_MS = 15_000;
 const CRT_BILLING_LIVE_DAY_REFRESH_MS = 5_000;
 const CRT_TOKEN_RATE_REFRESH_MS = 60_000;
 const CRT_TOKEN_RATE_FIRST_LOAD_MS = 1_500;
@@ -4185,9 +4185,33 @@ function setCrtBillingMode(mode) {
   }
   const status = document.getElementById('billing-status');
   if (status && billingSummary && !billingLoading && !billingError) {
-    status.textContent = billingMode === 'days' ? 'HISTORY READY' : 'SIGNAL LOCKED';
+    status.textContent = crtBillingStatusText();
   }
   if (billingMode === 'live') window.requestAnimationFrame(() => drawCrtBillingScope());
+}
+
+function selectCrtBillingMode(mode) {
+  setCrtBillingMode(mode);
+  const selectedTab = document.getElementById(
+    billingMode === 'live' ? 'billing-live-tab' : 'billing-days-tab',
+  );
+  if (selectedTab) setCrtNavigationSelection(selectedTab);
+  if (billingMode === 'live' && !billingLoading) void loadCrtBilling();
+}
+
+function crtBillingTimeline(summary = billingSummary) {
+  return summary && summary.liveTimeline || summary && summary.timeline || null;
+}
+
+function crtBillingStatusText(summary = billingSummary) {
+  if (billingMode === 'days') return 'HISTORY READY';
+  const sampledAt = Number(summary && summary.sampledAt);
+  if (!Number.isFinite(sampledAt) || sampledAt <= 0) return 'LIVE';
+  const sampled = new Date(sampledAt);
+  const time = [sampled.getHours(), sampled.getMinutes(), sampled.getSeconds()]
+    .map(value => String(value).padStart(2, '0'))
+    .join(':');
+  return `LIVE ${time}`;
 }
 
 function formatCrtBillingWindow(windowMinutes) {
@@ -4350,7 +4374,7 @@ function drawCrtBillingScope(summary = billingSummary) {
   context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   context.clearRect(0, 0, rect.width, rect.height);
 
-  const timeline = summary && summary.timeline;
+  const timeline = crtBillingTimeline(summary);
   const points = timeline && Array.isArray(timeline.points) ? timeline.points : [];
   const values = points.map(point => Math.max(0, Number(point.tokensPerMinute) || 0));
   const providerNames = points.length > 0 ? Object.keys(points[0].providers || {}) : [];
@@ -4428,7 +4452,7 @@ function renderCrtBilling() {
   const status = document.getElementById('billing-status');
   const refresh = document.getElementById('billing-refresh');
   const empty = document.getElementById('billing-scope-empty');
-  const timeline = billingSummary && billingSummary.timeline;
+  const timeline = crtBillingTimeline();
   const hasSignal = Boolean(timeline && Number(timeline.totalTokens) > 0);
   if (status) {
     status.classList.toggle('is-busy', billingLoading);
@@ -4438,7 +4462,7 @@ function renderCrtBilling() {
       : billingLoading
         ? (billingSummary ? 'REFRESHING' : 'SCANNING LOGS')
         : billingSummary
-          ? (billingMode === 'days' ? 'HISTORY READY' : 'SIGNAL LOCKED')
+          ? crtBillingStatusText()
           : 'STANDBY';
   }
   if (refresh) refresh.disabled = billingLoading;
@@ -4495,7 +4519,8 @@ async function loadCrtBilling({ fresh = false } = {}) {
   billingError = '';
   renderCrtBilling();
   try {
-    const response = await fetch(farmingApiPath(`/usage${fresh ? '?fresh=1' : ''}`), {
+    const query = fresh ? '?fresh=1' : billingMode === 'live' ? '?live=1' : '';
+    const response = await fetch(farmingApiPath(`/usage${query}`), {
       signal: controller.signal,
       cache: 'no-store',
     });
@@ -8244,13 +8269,13 @@ if (typeof document !== 'undefined') {
     }
 
     if ((e.key === 'd' || e.key === 'D') && crtMainView === 'billing') {
-      setCrtBillingMode('days');
+      selectCrtBillingMode('days');
       e.preventDefault();
       return;
     }
 
     if ((e.key === 'l' || e.key === 'L') && crtMainView === 'billing') {
-      setCrtBillingMode('live');
+      selectCrtBillingMode('live');
       e.preventDefault();
       return;
     }
@@ -8423,6 +8448,7 @@ if (typeof module !== 'undefined' && module.exports) {
     crtDashboardStateSignature,
     crtBillingDayArrowTargetIndex,
     crtBillingTimelineLabels,
+    crtBillingTimeline,
     crtBillingCurrentRate,
     findDefaultNewAgentIndex,
     findDirectionalNavigationIndex,

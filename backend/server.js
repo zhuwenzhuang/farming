@@ -744,8 +744,12 @@ app.get(routePath(BASE_PATH, '/api/claude/settings'), (req, res) => {
 app.get(routePath(BASE_PATH, '/api/usage'), async (req, res) => {
   try {
     const fresh = req.query.fresh === '1';
+    const live = req.query.live === '1';
     if (fresh) usageMonitor.invalidateDailyCache();
-    const usage = await usageSummaryCache.get('summary', fresh ? { force: true } : {});
+    const usage = await usageSummaryCache.get(
+      'summary',
+      fresh ? { force: true } : live ? { maxAgeMs: 15_000 } : {},
+    );
     res.json({ usage });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Failed to read usage information' });

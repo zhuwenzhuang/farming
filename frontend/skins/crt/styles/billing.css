@@ -50,7 +50,12 @@
 
 #farming-crt .billing-view-switch button:hover,
 #farming-crt .billing-view-switch button:focus-visible,
-#farming-crt .billing-view-switch button.crt-nav-selected,
+#farming-crt .billing-view-switch button.crt-nav-selected {
+    color: var(--crt-phosphor-bright);
+    border-color: rgba(85, 245, 155, 0.72);
+    outline: none;
+}
+
 #farming-crt .billing-view-switch button.active {
     color: var(--crt-background);
     background: var(--crt-phosphor-bright);

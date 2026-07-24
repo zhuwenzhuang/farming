@@ -218,7 +218,11 @@ function run() {
       && crtApp.includes("e.key === '4' && e.shiftKey"),
     'CRT Billing should expose daily history, exact day details, live trend, and quota telemetry surfaces',
   );
-  assert(crtApp.includes("farmingApiPath(`/usage${fresh ? '?fresh=1' : ''}`)"), 'CRT Billing should load telemetry from the Farming usage API');
+  assert(
+    crtApp.includes("billingMode === 'live' ? '?live=1' : ''")
+      && server.includes("live ? { maxAgeMs: 15_000 }"),
+    'CRT Billing Live should request a bounded fresh summary without invalidating daily history',
+  );
   assert(
     crtApp.includes('crtBillingTimelineLabels(timeline)')
       && crtApp.includes('Number(timeline && timeline.windowMs) / 60_000')
@@ -228,7 +232,7 @@ function run() {
   );
   assert(
     server.includes('if (fresh) usageMonitor.invalidateDailyCache()')
-      && server.includes("usageSummaryCache.get('summary', fresh ? { force: true } : {})"),
+      && server.includes("fresh ? { force: true } : live ? { maxAgeMs: 15_000 } : {}"),
     'the Farming usage API should support an explicit fresh live and daily Billing sample',
   );
   assert(
