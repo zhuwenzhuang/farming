@@ -97,6 +97,22 @@ function run() {
     assert.deepStrictEqual(settings.projectWorkspaces, [projectA, projectB, missingProject]);
     assert.deepStrictEqual(settings.pinnedProjectWorkspaces, [projectB, projectA, missingProject]);
     assert.deepStrictEqual(settings.projectNames, { [projectA]: 'Project A' });
+    assert.deepStrictEqual(
+      manager.setProjectName(projectB, ' Project B '),
+      { workspace: projectB, name: 'Project B' },
+    );
+    assert.deepStrictEqual(manager.getSettings().projectNames, {
+      [projectA]: 'Project A',
+      [projectB]: 'Project B',
+    }, 'renaming one Project should preserve other Project names');
+    assert.deepStrictEqual(
+      JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).projectNames,
+      { [projectA]: 'Project A', [projectB]: 'Project B' },
+    );
+    assert.throws(
+      () => manager.setProjectName('', 'Invalid'),
+      /Project workspace and name are required/,
+    );
     assert.strictEqual(settings.instanceName, 'Build Machine');
     assert.strictEqual(settings.lastMainWorkspace, projectMain);
     assert.strictEqual(settings.removedSetting, undefined);

@@ -1,4 +1,5 @@
 const assert = require('assert');
+const EventEmitter = require('events');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -47,6 +48,12 @@ async function run() {
     assert.strictEqual(fs.readFileSync(file, 'utf8'), 'updated');
     await files.writeTextFile(binding, request({ path: path.join(root, 'new.txt'), content: 'created' }));
     assert.strictEqual(fs.readFileSync(path.join(root, 'new.txt'), 'utf8'), 'created');
+    const concurrentFile = path.join(root, 'concurrent.txt');
+    await Promise.all([
+      files.writeTextFile(binding, request({ path: concurrentFile, content: 'first' })),
+      files.writeTextFile(binding, request({ path: concurrentFile, content: 'second' })),
+    ]);
+    assert(['first', 'second'].includes(fs.readFileSync(concurrentFile, 'utf8')));
     await assert.rejects(
       files.readTextFile(binding, request({ path: path.join(outside, 'missing.txt') })),
       /outside the Agent workspace/,
@@ -124,6 +131,33 @@ async function run() {
     const killedDisplay = terminals.display(longRunning.terminalId);
     assert(killedDisplay.exitStatus);
     assert(Number.isFinite(killedDisplay.endedAt));
+
+    const cappedTerminals = new AcpClientTerminalManager({
+      spawn() {
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.killed = false;
+        child.kill = signal => {
+          if (child.killed) return false;
+          child.killed = true;
+          Promise.resolve().then(() => child.emit('close', null, signal));
+          return true;
+        };
+        return child;
+      },
+    });
+    const cappedCreates = await Promise.allSettled(Array.from({ length: 33 }, () => (
+      cappedTerminals.create(binding, request({ command: 'fake-command' }))
+    )));
+    assert.strictEqual(cappedCreates.filter(result => result.status === 'fulfilled').length, 32);
+    assert.strictEqual(cappedCreates.filter(result => result.status === 'rejected').length, 1);
+    assert.match(cappedCreates.find(result => result.status === 'rejected').reason.message, /terminal limit/);
+    assert.strictEqual(
+      new Set(cappedCreates.filter(result => result.status === 'fulfilled').map(result => result.value.terminalId)).size,
+      32,
+    );
+    cappedTerminals.cleanupAgent(binding.agentId);
 
     await assert.rejects(
       terminals.create(binding, request({ command: process.execPath, cwd: outside })),

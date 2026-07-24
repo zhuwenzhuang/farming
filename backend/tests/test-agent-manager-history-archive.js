@@ -5,6 +5,7 @@ async function run() {
   const appended = [];
   const codexArchiveCalls = [];
   const persistedSessionPatches = [];
+  const unverifiableRuntimeIds = new Set();
   let resolveCodexArchive;
   const settings = {
     mainPageSessionKeys: [
@@ -52,7 +53,12 @@ async function run() {
 
   manager.engineBridge.getEngine = () => ({
     killSession: async () => {},
-    getSessionState: async () => null,
+    getSessionState: async agentId => {
+      if (unverifiableRuntimeIds.has(agentId)) {
+        throw new Error('runtime state unavailable');
+      }
+      return null;
+    },
   });
 
   try {
@@ -250,6 +256,115 @@ async function run() {
     assert.strictEqual(manager.taskHistory.length, 3, 'manual shell kill should not create a history run');
     assert.strictEqual(appended.length, 3, 'manual shell kill should not be persisted to task history');
 
+    manager.agents.set('unverifiable-kill', {
+      id: 'unverifiable-kill',
+      command: 'codex',
+      cwd: '/repo',
+      output: '',
+      status: 'running',
+      engineName: 'local',
+      source: 'ui',
+      task: 'must remain live until exit is proven',
+    });
+    unverifiableRuntimeIds.add('unverifiable-kill');
+    const historyBeforeUnverifiableKill = manager.taskHistory.length;
+    const unverifiableKill = await manager.killAgent('unverifiable-kill');
+    assert.match(unverifiableKill.error, /runtime state unavailable/);
+    assert.strictEqual(
+      manager.agents.has('unverifiable-kill'),
+      true,
+      'kill must retain the live Agent when runtime exit cannot be verified',
+    );
+    assert.strictEqual(
+      manager.taskHistory.length,
+      historyBeforeUnverifiableKill,
+      'an unverified kill must not record a completed history run',
+    );
+
+    settings.mainPageSessionKeys = [
+      'agent-session:codex:unverifiable-archive',
+      ...settings.mainPageSessionKeys,
+    ];
+    manager.agents.set('unverifiable-archive', {
+      id: 'unverifiable-archive',
+      command: 'codex',
+      cwd: '/repo',
+      projectWorkspace: '/repo',
+      output: '',
+      status: 'running',
+      engineName: 'local',
+      source: 'codex-history:unverifiable-archive',
+      providerSessionProvider: 'codex',
+      providerSessionId: 'unverifiable-archive',
+      providerSessionKey: 'agent-session:codex:unverifiable-archive',
+      task: 'archive must wait for runtime exit proof',
+    });
+    unverifiableRuntimeIds.add('unverifiable-archive');
+    const persistedPatchesBeforeUnverifiableArchive = persistedSessionPatches.length;
+    const providerArchiveCallsBeforeUnverifiableArchive = codexArchiveCalls.length;
+    const unverifiableArchive = await manager.archiveAgent('unverifiable-archive');
+    assert.match(unverifiableArchive.error, /runtime state unavailable/);
+    assert.strictEqual(manager.agents.has('unverifiable-archive'), true);
+    assert(
+      settings.mainPageSessionKeys.includes('agent-session:codex:unverifiable-archive'),
+      'failed archive must preserve main-page membership',
+    );
+    assert.strictEqual(
+      persistedSessionPatches.length,
+      persistedPatchesBeforeUnverifiableArchive,
+      'failed archive must not persist visibleOnMainPage=false',
+    );
+    assert.strictEqual(
+      codexArchiveCalls.length,
+      providerArchiveCallsBeforeUnverifiableArchive,
+      'failed local archive must not schedule provider archive',
+    );
+
+    manager.agents.set('history-write-failure', {
+      id: 'history-write-failure',
+      command: 'codex',
+      cwd: '/repo',
+      output: '',
+      status: 'running',
+      engineName: 'local',
+      source: 'ui',
+      task: 'history persistence failure',
+    });
+    const appendTaskHistory = manager.configManager.appendTaskHistory;
+    manager.configManager.appendTaskHistory = () => {
+      throw new Error('history disk unavailable');
+    };
+    const historyWriteFailureKill = await manager.killAgent('history-write-failure');
+    manager.configManager.appendTaskHistory = appendTaskHistory;
+    assert.strictEqual(historyWriteFailureKill.killed, true);
+    assert.match(historyWriteFailureKill.warning, /history could not be saved/i);
+    assert.strictEqual(
+      manager.agents.has('history-write-failure'),
+      false,
+      'history persistence failure must not resurrect a stopped Agent',
+    );
+
+    manager.agents.set('archive-history-write-failure', {
+      id: 'archive-history-write-failure',
+      command: 'codex',
+      cwd: '/repo',
+      output: '',
+      status: 'running',
+      engineName: 'local',
+      source: 'ui',
+      task: 'archive history persistence failure',
+    });
+    manager.configManager.appendTaskHistory = () => {
+      throw new Error('archive history disk unavailable');
+    };
+    const historyWriteFailureArchive = await manager.archiveAgent('archive-history-write-failure', {
+      scheduleProviderArchive: false,
+    });
+    manager.configManager.appendTaskHistory = appendTaskHistory;
+    assert.strictEqual(historyWriteFailureArchive.archived, true);
+    assert.match(historyWriteFailureArchive.warning, /history could not be saved/i);
+    assert.strictEqual(manager.agents.has('archive-history-write-failure'), false);
+
     manager.recordTaskHistory({
       id: 'shell-process-exit',
       command: 'env TERM=xterm-256color /bin/fish',
@@ -269,6 +384,35 @@ async function run() {
     }, { reason: 'process-exit', archivedAt: now });
     assert.strictEqual(manager.taskHistory.length, 3, 'central history recording should reject unsupported Agents');
     assert.strictEqual(appended.length, 3, 'unsupported Agents should never be persisted to task history');
+
+    manager.agents.set('archive-metadata-failure', {
+      id: 'archive-metadata-failure',
+      command: 'codex',
+      cwd: '/repo',
+      output: '',
+      status: 'running',
+      engineName: 'local',
+      source: 'ui',
+      task: 'archive metadata failure',
+    });
+    const ensurePersistentAgentSession = manager.ensurePersistentAgentSession;
+    manager.ensurePersistentAgentSession = () => {
+      throw new Error('session metadata disk unavailable');
+    };
+    const partialArchive = await manager.archiveAgent('archive-metadata-failure', {
+      scheduleProviderArchive: false,
+    });
+    assert.strictEqual(partialArchive.stopped, true);
+    assert.strictEqual(partialArchive.archived, false);
+    assert.strictEqual(partialArchive.retryable, true);
+    assert.match(partialArchive.error, /archive metadata could not be saved/i);
+    assert.strictEqual(manager.agents.get('archive-metadata-failure').status, 'stopped');
+    manager.ensurePersistentAgentSession = ensurePersistentAgentSession;
+    const retriedArchive = await manager.archiveAgent('archive-metadata-failure', {
+      scheduleProviderArchive: false,
+    });
+    assert.strictEqual(retriedArchive.archived, true);
+    assert.strictEqual(manager.agents.has('archive-metadata-failure'), false);
 
     assert.strictEqual((await manager.archiveAgent('missing-agent')).error, 'Agent not found');
     assert.strictEqual((await manager.archiveAgent('main-1')).error, 'Main Agent cannot be archived');

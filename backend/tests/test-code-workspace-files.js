@@ -254,7 +254,7 @@ function run() {
       workspaceSource.includes('moveReplacementState(\n          permissionSwitchReplacement.originalAgentId') &&
       workspaceSource.includes('`acp:${permissionSwitchReplacement.originalAgentId}`') &&
       !workspaceSource.includes('previousActiveTerminalIdRef') &&
-      agentManagerSource.includes('permissionRestartInFlight') &&
+      agentManagerSource.includes('agentLifecycleOperations') &&
       agentManagerSource.includes('restartedFromAgentId: agentId') &&
       agentManagerSource.includes('restartedFromAgentIds: Array.from(new Set([') &&
       agentManagerSource.includes('permissionRestartSuppressedAgentIds') &&
@@ -1092,12 +1092,17 @@ function run() {
       workspaceSource.includes('await mountProject(identity.workspaceRoot)') &&
       workspaceSource.includes("appPath('/api/projects/remove')") &&
       workspaceSource.includes("appPath('/api/projects/pin')") &&
+      workspaceSource.includes("appPath('/api/projects/name')") &&
+      workspaceSource.includes("method: 'PATCH'") &&
+      !workspaceSource.includes('body: JSON.stringify({ projectNames: nextProjectNames })') &&
       workspaceSource.includes('applyProjectMembership({ projectWorkspaces: remoteProjectWorkspaces })') &&
       workspaceSource.includes('applyProjectMembership({ pinnedProjectWorkspaces: remotePinnedProjectWorkspaces })') &&
       !workspaceSource.includes('applyProjectMembership(data)') &&
       resumeAgentSessionSource.indexOf('await mountProject(projectWorkspaceForAgent(existingAgent))') <
         resumeAgentSessionSource.indexOf('\n      markSessionResumedLocally()') &&
       serverSource.includes('configManager.mountProjectWorkspace(result.projectWorkspace)') &&
+      serverSource.includes("app.patch(routePath(BASE_PATH, '/api/projects/name')") &&
+      serverSource.includes('configManager.setProjectName(req.body?.workspace, req.body?.name)') &&
       serverSource.includes('delete settingsPatch.projectWorkspaces') &&
       serverSource.includes('delete settingsPatch.pinnedProjectWorkspaces') &&
       serverSource.includes('Rollback failed: ${rollbackError}') &&

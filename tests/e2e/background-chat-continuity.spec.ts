@@ -435,6 +435,23 @@ test('starts a short ACP turn at the top with a compact copy affordance', async 
   await page.getByTestId('code-acp-composer-input').fill('image attachment')
   await page.getByTestId('code-acp-composer-send').click()
   await expect(page.getByText('Received 0 image.', { exact: true })).toBeVisible()
+  const forkRequests: Array<{ mode?: string }> = []
+  await page.route(`/farming/api/agents/${agentId}/fork`, async route => {
+    forkRequests.push(route.request().postDataJSON() as { mode?: string })
+    await new Promise(resolve => setTimeout(resolve, 100))
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ agentId }),
+    })
+  })
+  const forkButton = page.getByTestId('code-agent-transcript-fork')
+  await expect(forkButton).toHaveCount(1)
+  await expect(forkButton).toBeVisible()
+  await forkButton.evaluate(button => {
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+  await expect.poll(() => forkRequests).toEqual([{ mode: 'same-worktree' }])
 
   const geometry = await page.getByTestId('code-agent-transcript-copy-answer').evaluate(element => {
     const action = element.getBoundingClientRect()

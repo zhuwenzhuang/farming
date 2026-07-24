@@ -606,8 +606,8 @@ class AgentManager extends EventEmitter {
     this.codexTerminalStartQueues = new Map();
     this.codexTerminalStartOutput = new Map();
     this.agentWorktreeResolveGeneration = new Map();
-    this.permissionRestartInFlight = new Map();
-    this.runtimeRestartInFlight = new Map();
+    this.agentLifecycleOperations = new Map();
+    this.verifiedStoppedAgentIds = new Set();
     this.codexSessionUnarchiveInFlight = new Map();
     // Standard ACP session inputs may contain MCP credentials. Keep the live
     // copy outside browser-facing Agent records; crash recovery persists it
@@ -2322,8 +2322,8 @@ class AgentManager extends EventEmitter {
     }
     this.providerSessionService.dispose();
     this.agentWorktreeResolveGeneration.clear();
-    this.permissionRestartInFlight.clear();
-    this.runtimeRestartInFlight.clear();
+    this.agentLifecycleOperations.clear();
+    this.verifiedStoppedAgentIds.clear();
     this.permissionRestartSuppressedAgentIds.clear();
     this.pendingResizeByAgent.clear();
     this.resizeDrains.clear();
@@ -3027,15 +3027,30 @@ class AgentManager extends EventEmitter {
     ));
     console.log('Starting agent:', program, logArgs, 'workspace:', workspace, spawnProgram !== program ? `resolved: ${spawnProgram}` : '');
 
-    ensureAgentOrders(agentRecord, Array.from(this.agents.values()));
-    this.agents.set(agentId, agentRecord);
-    void this.refreshAgentWorktree(agentId);
-
-    this.lastActivity.set(agentId, Date.now());
-
-    this.emit('update');
+    let finishStartLifecycle = () => {};
+    if (
+      options.lifecycleToken
+      && !this.adoptAgentLifecycleOperation(agentId, options.lifecycleToken)
+    ) {
+      if (callback) callback(null, 'Agent lifecycle operation is no longer active');
+      return null;
+    }
+    if (!options.lifecycleToken) {
+      finishStartLifecycle = this.beginAgentStartLifecycleOperation(agentId);
+      if (!finishStartLifecycle) {
+        if (callback) callback(null, 'Agent lifecycle operation already in progress');
+        return null;
+      }
+    }
+    let structuredRuntimeRegistered = false;
 
     try {
+      ensureAgentOrders(agentRecord, Array.from(this.agents.values()));
+      this.agents.set(agentId, agentRecord);
+      void this.refreshAgentWorktree(agentId);
+      this.lastActivity.set(agentId, Date.now());
+      this.emit('update');
+
       if (useJsonCli) {
         const jsonRuntime = runtimeBindingOf(agentRecord, 'json');
         this.jsonCliRuntime.registerAgent({
@@ -3049,6 +3064,7 @@ class AgentManager extends EventEmitter {
           autoApprove: options.dangerouslySkipPermissions === true,
           initialEvents: jsonRuntime.events,
         });
+        structuredRuntimeRegistered = true;
       }
 
       if (useAcp) {
@@ -3089,6 +3105,7 @@ class AgentManager extends EventEmitter {
           additionalDirectories,
           mcpServers,
         });
+        structuredRuntimeRegistered = true;
         agentRecord.providerSessionId = prepared.sessionId;
         agentRecord.providerSessionKey = mainPageAgentSessionKey(
           structuredRuntimeProvider,
@@ -3163,13 +3180,37 @@ class AgentManager extends EventEmitter {
       }
 
       this.providerSessionService.activate(agentId);
+      finishStartLifecycle();
       if (callback) callback(agentId);
       this.emit('update');
       return agentId;
     } catch (error) {
       console.error('Failed to start agent:', error);
       let runtimeCleanupError = null;
-      if (!useJsonCli && !useAcp) {
+      if (useJsonCli && structuredRuntimeRegistered) {
+        try {
+          const stopped = await this.jsonCliRuntime.unregisterAgentAndWait(agentId);
+          if (stopped !== true) {
+            throw new Error('JSON runtime binding disappeared before exit was verified', { cause: error });
+          }
+        } catch (cleanupError) {
+          runtimeCleanupError = cleanupError;
+        }
+      } else if (
+        useAcp
+        && error?.runtimeCleanupVerified !== true
+        && (structuredRuntimeRegistered || error?.runtimeCleanupAttempted === true)
+      ) {
+        try {
+          const stopped = await this.acpRuntime.unregisterAgentAndWait(agentId);
+          if (stopped !== true) {
+            throw error?.adapterCleanupError
+              || new Error('ACP runtime binding disappeared before exit was verified', { cause: error });
+          }
+        } catch (cleanupError) {
+          runtimeCleanupError = cleanupError;
+        }
+      } else if (!useJsonCli && !useAcp) {
         try {
           await this.stopUncertainTerminalSession(resolution.engine, agentId);
         } catch (engineCleanupError) {
@@ -3179,6 +3220,12 @@ class AgentManager extends EventEmitter {
             engineCleanupError && (engineCleanupError.message || engineCleanupError)
           );
         }
+      }
+      if (runtimeCleanupError) {
+        console.error(
+          'Failed to stop partially started Agent runtime:',
+          runtimeCleanupError.message || runtimeCleanupError
+        );
       }
       let rollbackError = null;
       if (precreatedProviderSession && !runtimeCleanupError) {
@@ -3195,7 +3242,7 @@ class AgentManager extends EventEmitter {
       } else if (precreatedProviderSession) {
         this.acpSessionOptionsByKey.delete(precreatedProviderSession.sessionKey);
       }
-      if (options.restoreRuntimeAgentIdOnFailure && agentRecord.persistentSessionId) {
+      if (!runtimeCleanupError && options.restoreRuntimeAgentIdOnFailure && agentRecord.persistentSessionId) {
         const failedAgentId = agentRecord.id;
         try {
           agentRecord.id = options.restoreRuntimeAgentIdOnFailure;
@@ -3208,6 +3255,26 @@ class AgentManager extends EventEmitter {
         } finally {
           agentRecord.id = failedAgentId;
         }
+      }
+      const startupError = error && (error.message || String(error));
+      const cleanupSuffix = rollbackError
+        ? `; provider session rollback failed: ${rollbackError.message || rollbackError}`
+        : '';
+      const runtimeCleanupSuffix = runtimeCleanupError
+        ? `; runtime cleanup could not be verified and Agent ${agentId} was retained for retry: ${runtimeCleanupError.message || runtimeCleanupError}`
+        : '';
+      if (runtimeCleanupError) {
+        agentRecord.status = 'error';
+        agentRecord.engineStatus = 'cleanup-uncertain';
+        const runtime = runtimeBindingOf(agentRecord);
+        if (runtime && Object.prototype.hasOwnProperty.call(runtime, 'state')) {
+          runtime.state = 'error';
+          runtime.error = runtimeCleanupError.message || String(runtimeCleanupError);
+        }
+        finishStartLifecycle();
+        this.emit('update');
+        if (callback) callback(agentId, `${startupError}${runtimeCleanupSuffix}${cleanupSuffix}`);
+        return null;
       }
       this.agents.delete(agentId);
       this.lastActivity.delete(agentId);
@@ -3222,14 +3289,8 @@ class AgentManager extends EventEmitter {
         this.mainAgentId = null;
       }
 
+      finishStartLifecycle();
       this.emit('update');
-      const startupError = error && (error.message || String(error));
-      const cleanupSuffix = rollbackError
-        ? `; provider session rollback failed: ${rollbackError.message || rollbackError}`
-        : '';
-      const runtimeCleanupSuffix = runtimeCleanupError
-        ? `; Terminal rollback failed and the provider session was retained: ${runtimeCleanupError.message || runtimeCleanupError}`
-        : '';
       if (callback) callback(null, `${startupError}${runtimeCleanupSuffix}${cleanupSuffix}`);
       return null;
     }
@@ -3934,46 +3995,91 @@ class AgentManager extends EventEmitter {
     return this.restartAgentWithPermissionMode(agentId, mode);
   }
 
-  async restartAgentWithPermissionMode(agentId, mode) {
-    const inFlight = this.permissionRestartInFlight.get(agentId);
+  runAgentLifecycleOperation(agentId, key, kind, label, operation, sameKindConflictError = '') {
+    const inFlight = this.agentLifecycleOperations.get(agentId);
     if (inFlight) {
-      return inFlight.mode === mode
-        ? inFlight.promise
-        : { error: 'Permission change already in progress' };
+      if (inFlight.key === key) return inFlight.promise;
+      if (inFlight.kind === kind && sameKindConflictError) {
+        return Promise.resolve({ error: sameKindConflictError });
+      }
+      return Promise.resolve({ error: `Agent lifecycle change already in progress: ${inFlight.label}` });
     }
 
-    const restart = this.performAgentPermissionRestart(agentId, mode);
-    const entry = { mode, promise: restart };
-    this.permissionRestartInFlight.set(agentId, entry);
-    try {
-      return await restart;
-    } finally {
-      if (this.permissionRestartInFlight.get(agentId) === entry) {
-        this.permissionRestartInFlight.delete(agentId);
+    const token = Symbol(key);
+    const promise = Promise.resolve().then(() => operation(token));
+    const entry = { key, kind, label, token, promise, agentIds: new Set([agentId]) };
+    this.agentLifecycleOperations.set(agentId, entry);
+    void promise.finally(() => {
+      for (const ownedAgentId of entry.agentIds) {
+        if (this.agentLifecycleOperations.get(ownedAgentId) === entry) {
+          this.agentLifecycleOperations.delete(ownedAgentId);
+        }
       }
-    }
+    }).catch(() => {});
+    return promise;
   }
 
-  async restartAgentRuntimeMode(agentId, mode) {
-    const inFlight = this.runtimeRestartInFlight.get(agentId);
-    if (inFlight) {
-      return inFlight.mode === mode
-        ? inFlight.promise
-        : { error: 'Agent runtime switch already in progress' };
-    }
-    const restart = this.performAgentRuntimeModeRestart(agentId, mode);
-    const entry = { mode, promise: restart };
-    this.runtimeRestartInFlight.set(agentId, entry);
-    try {
-      return await restart;
-    } finally {
-      if (this.runtimeRestartInFlight.get(agentId) === entry) {
-        this.runtimeRestartInFlight.delete(agentId);
+  beginAgentStartLifecycleOperation(agentId) {
+    if (this.agentLifecycleOperations.has(agentId)) return null;
+    let resolveCompletion;
+    const promise = new Promise(resolve => {
+      resolveCompletion = resolve;
+    });
+    const entry = {
+      key: 'start',
+      kind: 'start',
+      label: 'start',
+      token: Symbol('start'),
+      promise,
+      agentIds: new Set([agentId]),
+    };
+    this.agentLifecycleOperations.set(agentId, entry);
+    let finished = false;
+    return () => {
+      if (finished) return;
+      finished = true;
+      if (this.agentLifecycleOperations.get(agentId) === entry) {
+        this.agentLifecycleOperations.delete(agentId);
       }
-    }
+      resolveCompletion({ agentId, started: true });
+    };
   }
 
-  async performAgentRuntimeModeRestart(agentId, mode) {
+  adoptAgentLifecycleOperation(agentId, lifecycleToken) {
+    if (!lifecycleToken) return false;
+    const entry = [...new Set(this.agentLifecycleOperations.values())]
+      .find(candidate => candidate.token === lifecycleToken);
+    if (!entry) return false;
+    const existing = this.agentLifecycleOperations.get(agentId);
+    if (existing && existing !== entry) return false;
+    entry.agentIds.add(agentId);
+    this.agentLifecycleOperations.set(agentId, entry);
+    return true;
+  }
+
+  restartAgentWithPermissionMode(agentId, mode) {
+    return this.runAgentLifecycleOperation(
+      agentId,
+      `permission-restart:${mode}`,
+      'permission-restart',
+      'permission restart',
+      token => this.performAgentPermissionRestart(agentId, mode, token),
+      'Permission change already in progress',
+    );
+  }
+
+  restartAgentRuntimeMode(agentId, mode) {
+    return this.runAgentLifecycleOperation(
+      agentId,
+      `runtime-switch:${mode}`,
+      'runtime-switch',
+      'runtime switch',
+      token => this.performAgentRuntimeModeRestart(agentId, mode, token),
+      'Agent runtime switch already in progress',
+    );
+  }
+
+  async performAgentRuntimeModeRestart(agentId, mode, lifecycleToken) {
     const agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
     const provider = agent.providerSessionProvider || '';
@@ -4084,6 +4190,7 @@ class AgentManager extends EventEmitter {
       codexApprovalMode: agent.launchPermissionMode || undefined,
       jsonCliEvents: preserved.jsonCliEvents,
       runtimeSwitchVerifiedSessionId: startsFreshChatSession ? '' : sessionId,
+      lifecycleToken,
       ...acpSessionOptions,
       ...(provider === 'codex' && !startsFreshChatSession
         ? preserveCodexSessionProfileOptions()
@@ -4120,7 +4227,13 @@ class AgentManager extends EventEmitter {
       Object.assign(replacement, preserved);
       this.ensurePersistentAgentSession(replacement);
     };
-    await this.killAgent(agentId, { reason: 'runtime-switch', recordHistory: false, emitUpdate: false });
+    const killResult = await this.killAgent(agentId, {
+      reason: 'runtime-switch',
+      recordHistory: false,
+      emitUpdate: false,
+      lifecycleToken,
+    });
+    if (killResult?.error) return killResult;
     const switched = await startReplacement(restartOptions);
     if (switched.restartedAgentId && !switched.error) {
       restorePreservedState(switched.restartedAgentId);
@@ -4132,13 +4245,14 @@ class AgentManager extends EventEmitter {
         agentRuntimeMode: nextMode,
       };
     }
-    if (switched.restartedAgentId && this.agents.has(switched.restartedAgentId)) {
-      await this.killAgent(switched.restartedAgentId, {
-        reason: 'runtime-switch-start-failed',
-        recordHistory: false,
-        emitUpdate: false,
-      });
-    }
+      if (switched.restartedAgentId && this.agents.has(switched.restartedAgentId)) {
+        await this.killAgent(switched.restartedAgentId, {
+          reason: 'runtime-switch-start-failed',
+          recordHistory: false,
+          emitUpdate: false,
+          lifecycleToken,
+        });
+      }
 
     const restored = await startReplacement(originalOptions);
     if (restored.restartedAgentId && !restored.error) {
@@ -4158,6 +4272,7 @@ class AgentManager extends EventEmitter {
         reason: 'runtime-switch-restore-failed',
         recordHistory: false,
         emitUpdate: false,
+        lifecycleToken,
       });
     }
     this.emit('update');
@@ -4181,7 +4296,7 @@ class AgentManager extends EventEmitter {
     });
   }
 
-  async performAgentPermissionRestart(agentId, mode) {
+  async performAgentPermissionRestart(agentId, mode, lifecycleToken) {
     const agent = this.agents.get(agentId);
     if (!agent) {
       return { error: 'Agent not found' };
@@ -4255,6 +4370,7 @@ class AgentManager extends EventEmitter {
       ])),
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
+      lifecycleToken,
       ...acpSessionOptions,
       ...(provider === 'codex' ? { codexApprovalMode: nextMode } : { claudePermissionMode: nextMode }),
       ...(provider === 'codex' && hasResumableSession
@@ -4271,16 +4387,13 @@ class AgentManager extends EventEmitter {
       readAttentionSeq: finiteNonNegativeInteger(agent.readAttentionSeq),
     };
 
-    this.permissionRestartSuppressedAgentIds.add(agentId);
-    try {
-      await this.killAgent(agentId, {
-        reason: 'permission-restart',
-        recordHistory: false,
-        emitUpdate: false,
-      });
-    } finally {
-      this.permissionRestartSuppressedAgentIds.delete(agentId);
-    }
+    const killResult = await this.killAgent(agentId, {
+      reason: 'permission-restart',
+      recordHistory: false,
+      emitUpdate: false,
+      lifecycleToken,
+    });
+    if (killResult?.error) return killResult;
 
     return new Promise((resolve) => {
       const startResult = this.startAgent(command, effectiveAgentWorkspaceRoot(agent) || null, (restartedAgentId, error) => {
@@ -4748,36 +4861,85 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  async archiveAgent(agentId, options = {}) {
+  archiveAgent(agentId, options = {}) {
+    const inFlight = this.agentLifecycleOperations.get(agentId);
+    if (inFlight) {
+      return this.runAgentLifecycleOperation(
+        agentId,
+        'archive',
+        'archive',
+        'archive',
+        lifecycleToken => this.performArchiveAgent(agentId, options, lifecycleToken),
+      );
+    }
     const agent = this.agents.get(agentId);
     if (!agent) {
-      return { error: 'Agent not found' };
+      return Promise.resolve({ error: 'Agent not found' });
     }
     if (agent.id === this.mainAgentId) {
-      return { error: 'Main Agent cannot be archived' };
+      return Promise.resolve({ error: 'Main Agent cannot be archived' });
     }
 
-    if (options.requireEngineExit !== true) {
-      const removedMainPageSessionKeys = this.removeMainPageProviderSessionsForAgents([agent]);
-      this.ensurePersistentAgentSession(agent, { visibleOnMainPage: false });
-      await this.killAgent(agentId, {
-        reason: options.reason || 'manual-archive',
-        recordHistory: options.recordHistory !== false && !isEphemeralShellAgent(agent),
-      });
-      if (options.scheduleProviderArchive !== false) this.scheduleCodexSessionArchive(agent);
-      return { agentId, archived: true, removed: true, removedMainPageSessionKeys };
-    }
+    return this.runAgentLifecycleOperation(
+      agentId,
+      'archive',
+      'archive',
+      'archive',
+      lifecycleToken => this.performArchiveAgent(agentId, options, lifecycleToken),
+    );
+  }
 
+  async performArchiveAgent(agentId, options, lifecycleToken) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return { error: 'Agent not found' };
     const killResult = await this.killAgent(agentId, {
       reason: options.reason || 'manual-archive',
-      recordHistory: options.recordHistory !== false && !isEphemeralShellAgent(agent),
+      recordHistory: false,
       requireEngineExit: true,
+      retainAgentRecord: true,
+      emitUpdate: false,
+      lifecycleToken,
     });
     if (killResult?.error) return killResult;
-    const removedMainPageSessionKeys = this.removeMainPageProviderSessionsForAgents([agent]);
-    this.ensurePersistentAgentSession(agent, { visibleOnMainPage: false });
+    let removedMainPageSessionKeys = [];
+    try {
+      removedMainPageSessionKeys = this.removeMainPageProviderSessionsForAgents([agent]);
+      this.ensurePersistentAgentSession(agent, { visibleOnMainPage: false });
+    } catch (error) {
+      this.emit('update');
+      return {
+        agentId,
+        error: `Agent stopped, but archive metadata could not be saved: ${error.message || error}`,
+        stopped: true,
+        archived: false,
+        retryable: true,
+        removedMainPageSessionKeys,
+      };
+    }
+
+    let historyWarning = '';
+    if (options.recordHistory !== false && !isEphemeralShellAgent(agent)) {
+      const previousTaskHistory = this.taskHistory;
+      try {
+        this.recordTaskHistory(agent, {
+          reason: options.reason || 'manual-archive',
+          archivedAt: Date.now(),
+        });
+      } catch (error) {
+        this.taskHistory = previousTaskHistory;
+        historyWarning = `Agent stopped, but history could not be saved: ${error.message || error}`;
+        console.error(historyWarning);
+      }
+    }
+    this.forgetStoppedAgentRecord(agentId);
     if (options.scheduleProviderArchive !== false) this.scheduleCodexSessionArchive(agent);
-    return { agentId, archived: true, removed: true, removedMainPageSessionKeys };
+    return {
+      agentId,
+      archived: true,
+      removed: true,
+      removedMainPageSessionKeys,
+      ...(historyWarning ? { warning: historyWarning } : {}),
+    };
   }
 
   scheduleCodexSessionArchive(agent) {
@@ -4809,54 +4971,144 @@ class AgentManager extends EventEmitter {
       });
   }
   
-  async killAgent(agentId, options = {}) {
+  killAgent(agentId, options = {}) {
+    const inFlight = this.agentLifecycleOperations.get(agentId);
+    if (inFlight) {
+      if (options.lifecycleToken && inFlight.token === options.lifecycleToken) {
+        return this.performKillAgent(agentId, options);
+      }
+      return this.runAgentLifecycleOperation(
+        agentId,
+        'kill',
+        'kill',
+        'kill',
+        lifecycleToken => this.performKillAgent(agentId, { ...options, lifecycleToken }),
+      );
+    }
+    const agent = this.agents.get(agentId);
+    if (!agent) return Promise.resolve({ agentId, killed: true, missing: true });
+
+    return this.runAgentLifecycleOperation(
+      agentId,
+      'kill',
+      'kill',
+      'kill',
+      lifecycleToken => this.performKillAgent(agentId, { ...options, lifecycleToken }),
+    );
+  }
+
+  async performKillAgent(agentId, options = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) return { agentId, killed: true, missing: true };
 
-    const engine = this.engineBridge.getEngine(agent.engineName);
-    if (options.requireEngineExit === true && !engine) {
-      return { agentId, error: 'Agent runtime is unavailable; process exit cannot be verified' };
-    }
-    try {
-      if (engine) {
-        await engine.killSession(agentId);
-      }
-    } catch (error) {
-      console.error('Failed to kill agent:', error);
-      if (options.requireEngineExit === true) {
-        return { agentId, error: error.message || 'Failed to stop Agent runtime' };
-      }
-    }
-
-    if (options.requireEngineExit === true && engine) {
-      const deadline = Date.now() + 3000;
-      let lastState = null;
-      while (Date.now() < deadline) {
-        try {
-          lastState = await engine.getSessionState(agentId);
-        } catch (error) {
-          if (isSessionNotAvailableError(error)) {
-            lastState = null;
-            break;
-          }
-          return { agentId, error: error.message || 'Failed to verify Agent process exit' };
+    const requireEngineExit = options.requireEngineExit !== false;
+    const currentRuntimeKind = runtimeKind(agent);
+    if (!this.verifiedStoppedAgentIds.has(agentId)) {
+      this.permissionRestartSuppressedAgentIds.add(agentId);
+      try {
+      if (currentRuntimeKind === 'acp') {
+        if (typeof this.acpRuntime?.unregisterAgentAndWait !== 'function') {
+          return { agentId, error: 'ACP runtime exit cannot be verified' };
         }
-        if (!isLiveEngineSessionState(lastState)) break;
-        await new Promise(resolve => setTimeout(resolve, 50));
+        const stopped = await this.acpRuntime.unregisterAgentAndWait(agentId);
+        if (stopped !== true) {
+          return { agentId, error: 'ACP runtime binding is missing; process exit cannot be verified' };
+        }
+      } else if (currentRuntimeKind === 'json') {
+        if (typeof this.jsonCliRuntime?.unregisterAgentAndWait !== 'function') {
+          return { agentId, error: 'JSON runtime exit cannot be verified' };
+        }
+        const stopped = await this.jsonCliRuntime.unregisterAgentAndWait(agentId);
+        if (stopped !== true) {
+          return { agentId, error: 'JSON runtime binding is missing; process exit cannot be verified' };
+        }
+      } else {
+        const engine = this.engineBridge.getEngine(agent.engineName);
+        if (requireEngineExit && !engine) {
+          return { agentId, error: 'Agent runtime is unavailable; process exit cannot be verified' };
+        }
+        let killError = null;
+        try {
+          if (engine) {
+            await engine.killSession(agentId);
+          }
+        } catch (error) {
+          console.error('Failed to kill agent:', error);
+          killError = error;
+        }
+
+        if (requireEngineExit && engine) {
+          const deadline = Date.now() + 3000;
+          let lastState = null;
+          while (Date.now() < deadline) {
+            try {
+              lastState = await engine.getSessionState(agentId);
+            } catch (error) {
+              if (isSessionNotAvailableError(error)) {
+                lastState = null;
+                break;
+              }
+              return { agentId, error: error.message || 'Failed to verify Agent process exit' };
+            }
+            if (!isLiveEngineSessionState(lastState)) break;
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+          if (isLiveEngineSessionState(lastState)) {
+            return {
+              agentId,
+              error: killError?.message || 'Agent process did not exit within 3 seconds',
+            };
+          }
+        } else if (killError) {
+          return { agentId, error: killError.message || 'Failed to stop Agent runtime' };
+        }
       }
-      if (isLiveEngineSessionState(lastState)) {
-        return { agentId, error: 'Agent process did not exit within 3 seconds' };
+      } catch (error) {
+        return { agentId, error: error.message || 'Failed to stop Agent runtime' };
+      } finally {
+        this.permissionRestartSuppressedAgentIds.delete(agentId);
       }
     }
 
+    let historyWarning = '';
     if (options.recordHistory !== false && !isEphemeralShellAgent(agent)) {
-      this.recordTaskHistory(agent, {
-        reason: options.reason || 'manual-kill',
-        archivedAt: Date.now(),
-      });
+      const previousTaskHistory = this.taskHistory;
+      try {
+        this.recordTaskHistory(agent, {
+          reason: options.reason || 'manual-kill',
+          archivedAt: Date.now(),
+        });
+      } catch (error) {
+        this.taskHistory = previousTaskHistory;
+        historyWarning = `Agent stopped, but history could not be saved: ${error.message || error}`;
+        console.error(historyWarning);
+      }
     }
 
+    if (options.retainAgentRecord === true) {
+      this.verifiedStoppedAgentIds.add(agentId);
+      agent.status = 'stopped';
+      agent.engineStatus = 'exited';
+      if (options.emitUpdate !== false) this.emit('update');
+      return {
+        agentId,
+        killed: true,
+        retained: true,
+        ...(historyWarning ? { warning: historyWarning } : {}),
+      };
+    }
+
+    this.forgetStoppedAgentRecord(agentId, { emitUpdate: options.emitUpdate !== false });
+    return {
+      agentId,
+      killed: true,
+      ...(historyWarning ? { warning: historyWarning } : {}),
+    };
+  }
+
+  forgetStoppedAgentRecord(agentId, options = {}) {
     this.agents.delete(agentId);
+    this.verifiedStoppedAgentIds.delete(agentId);
     this.lastActivity.delete(agentId);
     this.lastActivityUpdate.delete(agentId);
     this.outputEvents.delete(agentId);
@@ -4870,10 +5122,7 @@ class AgentManager extends EventEmitter {
       this.mainAgentId = null;
     }
     
-    if (options.emitUpdate !== false) {
-      this.emit('update');
-    }
-    return { agentId, killed: true };
+    if (options.emitUpdate !== false) this.emit('update');
   }
 
   async getAgentSessionText(agentId) {

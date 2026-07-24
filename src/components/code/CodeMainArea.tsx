@@ -268,6 +268,7 @@ interface CodeMainAreaProps {
     readCut?: { runtimeEpoch: string; outputSeq: number } | null,
   ) => void
   onRuntimeModeChange: (agentId: string, mode: 'terminal' | 'chat') => void
+  onForkAgent: (agentId: string, mode: 'same-worktree' | 'new-worktree') => Promise<void> | void
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   onOpenSearchAgent: (agentId: string) => void
   onOpenSearchSession: (session: AgentSessionHistoryItem) => void
@@ -485,6 +486,7 @@ export function CodeMainArea({
   onTerminalFollowOutputChange,
   onAgentReadLatest,
   onRuntimeModeChange,
+  onForkAgent,
   onSessionOutput,
   onOpenSearchAgent,
   onOpenSearchSession,
@@ -767,6 +769,7 @@ export function CodeMainArea({
               onFollowOutputChange={onTerminalFollowOutputChange}
               onReadLatest={onAgentReadLatest}
               onRuntimeModeChange={onRuntimeModeChange}
+              onForkAgent={onForkAgent}
               onSessionOutput={onSessionOutput}
               focusSignal={terminalFocusRequest?.agentId === agent.id ? terminalFocusRequest.nonce : 0}
               copy={copy}

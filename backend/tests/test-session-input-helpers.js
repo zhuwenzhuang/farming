@@ -898,6 +898,13 @@ function run() {
       serverSource.includes('pendingResumeStarts.delete(pendingResumeId)'),
     'server should serialize duplicate resume requests for the same agent session'
   );
+  assert(
+    serverSource.includes('async function killAgentFromMessage') &&
+      serverSource.includes('const result = await agentManager.killAgent(agentId)') &&
+      serverSource.includes("case 'kill-agent':") &&
+      serverSource.includes('void killAgentFromMessage(ws, data.agentId)'),
+    'WebSocket kill should await the authoritative lifecycle result before broadcasting state'
+  );
 
   const agentManagerSource = fs.readFileSync(path.join(__dirname, '../../backend/agent-manager.js'), 'utf8');
   const startAgentBody = agentManagerSource.slice(

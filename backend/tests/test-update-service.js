@@ -25,7 +25,7 @@ const {
 const VALID_SHA256 = 'a'.repeat(64);
 const ARCHIVE_SHA256 = crypto.createHash('sha256').update('archive').digest('hex');
 
-function waitFor(predicate, timeoutMs = 1000) {
+function waitFor(predicate, timeoutMs = 1000, label = 'update test condition') {
   const startedAt = Date.now();
   return new Promise((resolve, reject) => {
     const tick = () => {
@@ -34,7 +34,7 @@ function waitFor(predicate, timeoutMs = 1000) {
         return;
       }
       if (Date.now() - startedAt > timeoutMs) {
-        reject(new Error('timed out waiting for update test condition'));
+        reject(new Error(`timed out waiting for ${label}`));
         return;
       }
       setTimeout(tick, 10);
@@ -94,6 +94,31 @@ async function withFakeUpdateServer(filesByName, visibleFiles, fn) {
 }
 
 async function run() {
+  const singleFlightRootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-single-flight-root-'));
+  const singleFlightConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-single-flight-config-'));
+  const singleFlightService = new FarmingUpdateService({
+    rootDir: singleFlightRootDir,
+    configDir: singleFlightConfigDir,
+  });
+  let singleFlightCalls = 0;
+  let releaseSingleFlight;
+  const singleFlightGate = new Promise((resolve) => {
+    releaseSingleFlight = resolve;
+  });
+  singleFlightService.startInstallUnreserved = async () => {
+    singleFlightCalls += 1;
+    await singleFlightGate;
+    return { phase: 'downloading', version: 'single-flight' };
+  };
+  const firstSingleFlightStart = singleFlightService.startInstall();
+  const secondSingleFlightStart = singleFlightService.startInstall();
+  await Promise.resolve();
+  assert.strictEqual(singleFlightCalls, 1, 'concurrent update starts should share one installer');
+  releaseSingleFlight();
+  assert.deepStrictEqual(await firstSingleFlightStart, { phase: 'downloading', version: 'single-flight' });
+  assert.deepStrictEqual(await secondSingleFlightStart, { phase: 'downloading', version: 'single-flight' });
+  assert.strictEqual(singleFlightService.installStartPromise, null, 'the start reservation should clear after completion');
+
   const serverSource = fs.readFileSync(path.join(process.cwd(), 'backend/server.js'), 'utf8');
   assert(serverSource.includes("app.get(routePath(BASE_PATH, '/api/update')"));
   assert(serverSource.includes("app.post(routePath(BASE_PATH, '/api/update/install')"));
@@ -510,7 +535,7 @@ async function run() {
   let installState;
   try {
     installState = await service.startInstall();
-    await waitFor(() => spawned.length === 1);
+    await waitFor(() => spawned.length === 1, 1000, 'initial bundle helper spawn');
   } finally {
     Object.entries(previousBundleEnvironment).forEach(([key, value]) => {
       if (value === undefined) delete process.env[key];
@@ -636,7 +661,7 @@ async function run() {
     assert.strictEqual(selectedStatus.selected.assetName, bundle101);
     assert.deepStrictEqual(selectedStatus.versions.map(version => version.assetName), [bundle102, bundle101]);
     await selectedService.startInstall({ assetName: bundle101 });
-    await waitFor(() => selectedSpawned.length === 1);
+    await waitFor(() => selectedSpawned.length === 1, 1000, 'selected bundle helper spawn');
     assert.strictEqual(selectedService.installState.version, '1.0.1');
     assert.strictEqual(selectedService.installState.assetName, bundle101);
     assert(selectedService.installState.releaseDir.endsWith('farming-1.0.1'));
@@ -660,7 +685,7 @@ async function run() {
     assert.strictEqual(firstStatus.latest.assetName, bundle101);
     assert.strictEqual(firstStatus.latest.source, baseUrl);
     await firstService.startInstall();
-    await waitFor(() => firstSpawned.length === 1);
+    await waitFor(() => firstSpawned.length === 1, 1000, 'first HTTP bundle helper spawn');
     assert.strictEqual(firstSpawned[0].command, process.execPath);
     assert(firstSpawned[0].args[0].endsWith('/backend/bundle-update-helper.js'));
     assert.strictEqual(firstSpawned[0].options.env.FARMING_INSTALL_DIR, httpInstallRoot);
@@ -691,7 +716,7 @@ async function run() {
     assert.strictEqual(secondStatus.latest.version, '1.0.2');
     assert.strictEqual(secondStatus.latest.assetName, bundle102);
     await secondService.startInstall();
-    await waitFor(() => secondSpawned.length === 1);
+    await waitFor(() => secondSpawned.length === 1, 1000, 'second HTTP bundle helper spawn');
     assert.strictEqual(secondSpawned[0].options.env.FARMING_CONFIG_DIR, httpConfigDir);
   });
 
@@ -887,7 +912,7 @@ async function run() {
     },
   });
   await macInstallService.startInstall();
-  await waitFor(() => macSpawned.length === 1);
+  await waitFor(() => macSpawned.length === 1, 1000, 'macOS bundle helper spawn');
   assert.strictEqual(macInstallService.installState.phase, 'installing');
   assert.strictEqual(macSpawned[0].command, process.execPath);
   assert(macSpawned[0].args[0].endsWith('/backend/bundle-update-helper.js'));

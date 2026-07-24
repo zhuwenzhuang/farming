@@ -27,6 +27,7 @@ function fakeSpawn() {
       '{"type":"turn.completed"}',
       '',
     ].join('\n')));
+    child.exitCode = 0;
     child.emit('close', 0, null);
   });
   return child;
@@ -41,6 +42,77 @@ function fakeSpawn() {
   assert.strictEqual(transcript.turns.length, 1);
   assert.strictEqual(transcript.turns[0].userMessage, 'work');
   assert.strictEqual(transcript.turns[0].finalMessage, 'done');
+
+  const stoppingRuntime = new JsonCliRuntime();
+  const stoppingChild = new EventEmitter();
+  stoppingChild.exitCode = null;
+  stoppingChild.killed = false;
+  stoppingChild.kill = signal => {
+    stoppingChild.killed = true;
+    process.nextTick(() => {
+      stoppingChild.exitCode = signal === 'SIGKILL' ? 137 : 143;
+      stoppingChild.emit('close', stoppingChild.exitCode, signal);
+    });
+    return true;
+  };
+  const stoppingBinding = stoppingRuntime.registerAgent({
+    agentId: 'agent-stopping',
+    provider: 'codex',
+    executable: 'codex',
+    cwd: '/tmp/demo',
+    env: {},
+    initialEvents: [],
+  });
+  stoppingBinding.child = stoppingChild;
+  await stoppingRuntime.unregisterAgentAndWait('agent-stopping');
+  assert.strictEqual(stoppingRuntime.bindings.has('agent-stopping'), false);
+  assert.strictEqual(stoppingChild.killed, true);
+
+  const errorChild = new EventEmitter();
+  errorChild.pid = 12345;
+  errorChild.exitCode = null;
+  errorChild.signalCode = null;
+  errorChild.stdout = new EventEmitter();
+  errorChild.stderr = new EventEmitter();
+  errorChild.stdin = { end() {} };
+  errorChild.kill = () => {
+    process.nextTick(() => errorChild.emit('error', new Error('signal failed')));
+    return false;
+  };
+  const errorRuntime = new JsonCliRuntime({
+    spawn: () => errorChild,
+    processExitTimeoutMs: 10,
+    processKillTimeoutMs: 10,
+    ownsProcessGroups: false,
+  });
+  const errorBinding = errorRuntime.registerAgent({
+    agentId: 'agent-error-only',
+    provider: 'codex',
+    executable: 'codex',
+    cwd: '/tmp/demo',
+    env: {},
+    initialEvents: [],
+  });
+  const failedTurn = errorRuntime.submitComposerMessage('agent-error-only', 'work').catch(() => {});
+  await assert.rejects(
+    errorRuntime.unregisterAgentAndWait('agent-error-only'),
+    /did not exit/,
+  );
+  assert.strictEqual(
+    errorRuntime.bindings.has('agent-error-only'),
+    true,
+    'a child error without exit must retain the binding for retry',
+  );
+  assert.strictEqual(
+    errorBinding.child,
+    errorChild,
+    'a child error with a process id must retain process identity for cleanup retry',
+  );
+  errorChild.exitCode = 143;
+  assert.strictEqual(await errorRuntime.unregisterAgentAndWait('agent-error-only'), true);
+  assert.strictEqual(errorRuntime.bindings.has('agent-error-only'), false);
+  await failedTurn;
+
   console.log('json cli runtime tests passed');
 })().catch(error => {
   console.error(error);

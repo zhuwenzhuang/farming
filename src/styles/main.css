@@ -7112,6 +7112,11 @@ body.code-mode .code-instance-name {
   color: #24292f;
 }
 
+.code-agent-transcript-answer-action:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 .code-agent-transcript-answer-action svg {
   width: 14px;
   height: 14px;
@@ -17472,9 +17477,16 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     display: none;
   }
 
-  body.code-mode.code-compact-layout .code-agent-transcript-answer-actions,
   body.code-mode.code-compact-layout .code-agent-transcript-answer-action {
     display: none;
+  }
+
+  body.code-mode.code-compact-layout .code-agent-transcript-answer-actions {
+    display: inline-flex;
+  }
+
+  body.code-mode.code-compact-layout .code-agent-transcript-fork-action {
+    display: inline-grid;
   }
 
   body.code-mode.code-compact-layout .code-agent-transcript-file-icon {

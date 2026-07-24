@@ -3,6 +3,48 @@ const { spawn } = require('child_process');
 const { AgentJsonStreamParser } = require('./agent-json-stream');
 
 const MAX_EVENTS = 12_000;
+const PROCESS_EXIT_TIMEOUT_MS = 1500;
+const PROCESS_KILL_TIMEOUT_MS = 1000;
+
+function childHasExited(child) {
+  return !child
+    || (child.exitCode !== null && child.exitCode !== undefined)
+    || (child.signalCode !== null && child.signalCode !== undefined);
+}
+
+function processTreeHasExited(child, ownsProcessGroup) {
+  if (!ownsProcessGroup || !child?.pid || process.platform === 'win32') {
+    return childHasExited(child);
+  }
+  try {
+    process.kill(-child.pid, 0);
+    return false;
+  } catch (error) {
+    return error?.code === 'ESRCH';
+  }
+}
+
+async function waitForProcessTreeExit(child, ownsProcessGroup, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    if (processTreeHasExited(child, ownsProcessGroup)) return true;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  return processTreeHasExited(child, ownsProcessGroup);
+}
+
+function signalProcessTree(child, ownsProcessGroup, signal) {
+  if (!child || processTreeHasExited(child, ownsProcessGroup)) return;
+  if (ownsProcessGroup && child.pid && process.platform !== 'win32') {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch (error) {
+      if (error?.code === 'ESRCH') return;
+    }
+  }
+  child.kill(signal);
+}
 
 function codexPermissionArgs(mode) {
   if (mode === 'full') return ['--dangerously-bypass-approvals-and-sandbox'];
@@ -35,6 +77,9 @@ class JsonCliRuntime extends EventEmitter {
   constructor(options = {}) {
     super();
     this.spawn = options.spawn || spawn;
+    this.processExitTimeoutMs = options.processExitTimeoutMs ?? PROCESS_EXIT_TIMEOUT_MS;
+    this.processKillTimeoutMs = options.processKillTimeoutMs ?? PROCESS_KILL_TIMEOUT_MS;
+    this.ownsProcessGroups = options.ownsProcessGroups ?? process.platform !== 'win32';
     this.bindings = new Map();
   }
 
@@ -42,6 +87,7 @@ class JsonCliRuntime extends EventEmitter {
     const binding = {
       ...options,
       events: Array.isArray(options.initialEvents) ? [...options.initialEvents].slice(-MAX_EVENTS) : [],
+      ownsProcessGroup: this.ownsProcessGroups,
       child: null,
       operationSeq: 0,
       state: 'idle',
@@ -53,8 +99,25 @@ class JsonCliRuntime extends EventEmitter {
 
   unregisterAgent(agentId) {
     const binding = this.bindings.get(agentId);
-    if (binding?.child && !binding.child.killed) binding.child.kill('SIGTERM');
+    if (binding?.child) signalProcessTree(binding.child, binding.ownsProcessGroup, 'SIGTERM');
     this.bindings.delete(agentId);
+  }
+
+  async unregisterAgentAndWait(agentId) {
+    const binding = this.bindings.get(agentId);
+    if (!binding) return false;
+    const child = binding.child;
+    if (child && !processTreeHasExited(child, binding.ownsProcessGroup)) {
+      signalProcessTree(child, binding.ownsProcessGroup, 'SIGTERM');
+      if (!await waitForProcessTreeExit(child, binding.ownsProcessGroup, this.processExitTimeoutMs)) {
+        signalProcessTree(child, binding.ownsProcessGroup, 'SIGKILL');
+        if (!await waitForProcessTreeExit(child, binding.ownsProcessGroup, this.processKillTimeoutMs)) {
+          throw new Error(`JSON Agent process tree ${child.pid || ''} did not exit`);
+        }
+      }
+    }
+    if (this.bindings.get(agentId) === binding) this.bindings.delete(agentId);
+    return true;
   }
 
   async submitComposerMessage(agentId, message, patch = {}) {
@@ -75,6 +138,7 @@ class JsonCliRuntime extends EventEmitter {
       cwd: binding.cwd,
       env: binding.env,
       stdio: ['pipe', 'pipe', 'pipe'],
+      detached: binding.ownsProcessGroup,
     });
     binding.child = child;
     this.emitRuntime(binding);
@@ -89,7 +153,7 @@ class JsonCliRuntime extends EventEmitter {
         stderr = `${stderr}${chunk.toString('utf8')}`.slice(-8000);
       });
       child.on('error', error => {
-        binding.child = null;
+        if (!child.pid) binding.child = null;
         binding.state = 'error';
         binding.error = error.message;
         this.emitRuntime(binding);
@@ -100,12 +164,19 @@ class JsonCliRuntime extends EventEmitter {
         binding.events.push(...parser.events);
         if (binding.events.length > MAX_EVENTS) binding.events.splice(0, binding.events.length - MAX_EVENTS);
         if (parser.sessionId) binding.sessionId = parser.sessionId;
-        binding.child = null;
-        binding.state = code === 0 ? 'idle' : 'error';
-        binding.error = code === 0 ? '' : (stderr.trim() || `JSON CLI exited with code ${code}${signal ? ` (${signal})` : ''}`);
+        const processTreeExited = processTreeHasExited(child, binding.ownsProcessGroup);
+        if (processTreeExited) binding.child = null;
+        binding.state = code === 0 && processTreeExited ? 'idle' : 'error';
+        binding.error = code === 0 && processTreeExited
+          ? ''
+          : (
+            !processTreeExited
+              ? 'JSON CLI root exited while its process tree remained live'
+              : (stderr.trim() || `JSON CLI exited with code ${code}${signal ? ` (${signal})` : ''}`)
+          );
         this.emit('transcript', { agentId, transcript: this.getTranscript(agentId) });
         this.emitRuntime(binding);
-        if (code === 0) resolve({ sessionId: binding.sessionId });
+        if (code === 0 && processTreeExited) resolve({ sessionId: binding.sessionId });
         else reject(new Error(binding.error));
       });
       if (launch.stdin) child.stdin.end(launch.stdin);

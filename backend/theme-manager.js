@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const storageLayout = require('./storage-layout');
 
 class ThemeManager {
@@ -79,14 +80,27 @@ class ThemeManager {
     )));
   }
   
-  saveUserThemeSettings() {
+  saveUserThemeSettings(settings = this.userThemeSettings) {
+    let temporaryFile = '';
     try {
       if (!fs.existsSync(this.farmingDir)) {
         fs.mkdirSync(this.farmingDir, { recursive: true });
       }
-      fs.writeFileSync(this.themeSettingsFile, JSON.stringify(this.userThemeSettings, null, 2));
+      temporaryFile = `${this.themeSettingsFile}.${process.pid}.${crypto.randomUUID()}.tmp`;
+      fs.writeFileSync(temporaryFile, JSON.stringify(settings, null, 2), { flag: 'wx', mode: 0o600 });
+      fs.renameSync(temporaryFile, this.themeSettingsFile);
+      return true;
     } catch (error) {
       console.error('Failed to save user theme settings:', error.message);
+      return false;
+    } finally {
+      if (temporaryFile) {
+        try {
+          fs.unlinkSync(temporaryFile);
+        } catch {
+          // A successful rename already removed the temporary path.
+        }
+      }
     }
   }
   
@@ -132,12 +146,16 @@ class ThemeManager {
     }
     
     const normalizedSettings = this.normalizeThemeSettings(settings);
-    this.userThemeSettings[themeId] = {
+    const nextUserThemeSettings = {
       ...this.userThemeSettings[themeId],
       ...normalizedSettings
     };
-    
-    this.saveUserThemeSettings();
+    const nextSettings = {
+      ...this.userThemeSettings,
+      [themeId]: nextUserThemeSettings,
+    };
+    if (!this.saveUserThemeSettings(nextSettings)) return false;
+    this.userThemeSettings = nextSettings;
     return true;
   }
 }

@@ -235,6 +235,17 @@ export function ReplyGlyph(props: IconGlyphProps) {
   )
 }
 
+export function ForkGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...props}>
+      <circle cx="4" cy="3" r="1.5" />
+      <circle cx="11.5" cy="4.5" r="1.5" />
+      <circle cx="11.5" cy="11.5" r="1.5" />
+      <path d="M4 4.5v3A4 4 0 0 0 8 11.5h2M5.5 4.5H10" />
+    </svg>
+  )
+}
+
 export function SquareGlyph(props: IconGlyphProps) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>

@@ -47,11 +47,15 @@ async function run() {
     customTitle: '',
   };
   const firstRuntime = new AcpRuntime();
+  firstRuntime.unregisterAgentAndWait = async () => true;
   const firstManager = new AgentManager(
     configForStore(store, configDir),
     { acpRuntime: firstRuntime, skipExecutablePreflight: true },
   );
-  firstManager.engineBridge.getEngine = () => ({ killSession: async () => {} });
+  firstManager.engineBridge.getEngine = () => ({
+    killSession: async () => {},
+    getSessionState: async () => null,
+  });
 
   try {
     await firstManager.whenRecovered();

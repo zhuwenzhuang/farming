@@ -1315,6 +1315,29 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/codex-terminal-profile'), ex
 app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (req, res) => {
   const body = req.body || {};
   const updates = {};
+  const providedPatchFields = [
+    'customTitle',
+    'task',
+    'pinned',
+    'unread',
+    'archived',
+    'readAttentionSeq',
+    'readOutputEpoch',
+    'readOutputSeq',
+    'launchPermissionMode',
+    'agentRuntimeMode',
+  ].filter(field => Object.prototype.hasOwnProperty.call(body, field));
+  const lifecyclePatchFields = providedPatchFields.filter(field => (
+    field === 'launchPermissionMode'
+    || field === 'agentRuntimeMode'
+    || (field === 'archived' && body.archived === true)
+  ));
+  if (lifecyclePatchFields.length > 0 && providedPatchFields.length > 1) {
+    res.status(400).json({
+      error: 'Archive, permission restart, and runtime switch must be requested separately from other Agent updates',
+    });
+    return;
+  }
 
   if (typeof body.customTitle === 'string') {
     const result = agentManager.renameAgent(req.params.agentId, body.customTitle);
@@ -1356,8 +1379,10 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
   if (flagPatch.archived === true) {
     const result = await agentManager.archiveAgent(req.params.agentId);
     if (result.error) {
-      const status = result.error === 'Agent not found' ? 404 : 400;
-      res.status(status).json({ error: result.error });
+      const status = result.stopped === true
+        ? 409
+        : (result.error === 'Agent not found' ? 404 : 400);
+      res.status(status).json(result);
       return;
     }
     Object.assign(updates, result);
@@ -1534,6 +1559,16 @@ app.post(routePath(BASE_PATH, '/api/projects/pin'), express.json(), (req, res) =
     res.json(membership);
   } catch (error) {
     res.status(400).json({ error: error.message || 'Failed to update Project pin' });
+  }
+});
+
+app.patch(routePath(BASE_PATH, '/api/projects/name'), express.json(), (req, res) => {
+  try {
+    const result = configManager.setProjectName(req.body?.workspace, req.body?.name);
+    scheduleBroadcastState();
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Failed to rename Project' });
   }
 });
 
@@ -2268,6 +2303,22 @@ function restartMainAgent(ws, command) {
   })();
 }
 
+async function killAgentFromMessage(ws, agentId) {
+  try {
+    const result = await agentManager.killAgent(agentId);
+    if (result?.error) {
+      ws.send(JSON.stringify({ type: 'error', message: result.error }));
+    }
+  } catch (error) {
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: error instanceof Error ? error.message : 'Failed to stop Agent',
+    }));
+  } finally {
+    broadcastState();
+  }
+}
+
 async function sendInputMessage(ws, data) {
   const targetAgentId = resolveInputTargetAgentId(ws, data);
   if (!targetAgentId) return;
@@ -2486,8 +2537,7 @@ function handleMessage(ws, data) {
       break;
       
     case 'kill-agent':
-      agentManager.killAgent(data.agentId);
-      broadcastState();
+      void killAgentFromMessage(ws, data.agentId);
       break;
 
     case 'restart-main-agent':

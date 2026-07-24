@@ -177,6 +177,7 @@ export function App() {
   const [uiPreferences, setUiPreferences] = useState<UiPreferences>(DEFAULT_UI_PREFERENCES)
   const pendingStartRef = useRef<{ beforeIds: Set<string> } | null>(null)
   const pendingMainRestartRef = useRef<{ beforeIds: Set<string> } | null>(null)
+  const pendingForkAgentIdsRef = useRef(new Set<string>())
   const permissionSwitchRequestRef = useRef<string | null>(null)
   const permissionSwitchStateRef = useRef<PermissionSwitchState | null>(null)
   const openTerminalIdsRef = useRef<string[]>([])
@@ -669,6 +670,8 @@ export function App() {
   }, [requestTerminalOpen, ws.lastStartedAgentId])
 
   const handleForkAgent = useCallback(async (agentId: string, mode: 'same-worktree' | 'new-worktree') => {
+    if (pendingForkAgentIdsRef.current.has(agentId)) return
+    pendingForkAgentIdsRef.current.add(agentId)
     try {
       const response = await fetch(appPath(`/api/agents/${agentId}/fork`), {
         method: 'POST',
@@ -683,6 +686,8 @@ export function App() {
       requestTerminalOpen(data.agentId)
     } catch (error) {
       notifyError(error instanceof Error ? error.message : 'Failed to fork agent')
+    } finally {
+      pendingForkAgentIdsRef.current.delete(agentId)
     }
   }, [notifyError, requestTerminalOpen])
 

@@ -498,6 +498,22 @@ class ConfigManager {
     return normalized;
   }
 
+  setProjectName(workspace, name) {
+    const normalized = this.normalizeProjectNames({ [workspace]: name });
+    const entry = Object.entries(normalized)[0];
+    if (!entry) throw new Error('Project workspace and name are required');
+    const [normalizedWorkspace, normalizedName] = entry;
+    this.settings.projectNames = {
+      ...this.settings.projectNames,
+      [normalizedWorkspace]: normalizedName,
+    };
+    this.writeSettingsFile();
+    return {
+      workspace: normalizedWorkspace,
+      name: normalizedName,
+    };
+  }
+
   normalizeAppearance(appearance) {
     return ['system', 'light', 'dark'].includes(appearance) ? appearance : 'system';
   }

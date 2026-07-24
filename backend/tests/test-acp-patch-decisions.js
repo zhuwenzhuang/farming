@@ -13,6 +13,10 @@ async function run() {
     const modifiedResult = await rejectPatch({ entry: modifiedEntry, root, requestedPath: modified });
     assert.strictEqual(modifiedResult.action, 'reverted');
     assert.strictEqual(fs.readFileSync(modified, 'utf8'), 'before\n');
+    assert.strictEqual(
+      (await rejectPatch({ entry: modifiedEntry, root, requestedPath: modified })).action,
+      'reverted',
+    );
 
     const added = path.join(root, 'added.txt');
     fs.writeFileSync(added, 'new\n');
@@ -22,6 +26,11 @@ async function run() {
       requestedPath: added,
     });
     assert.strictEqual(fs.existsSync(added), false);
+    assert.strictEqual((await rejectPatch({
+      entry: { content: [{ type: 'diff', path: added, oldText: null, newText: 'new\n', _meta: { kind: 'added' } }] },
+      root,
+      requestedPath: added,
+    })).action, 'reverted');
 
     const deleted = path.join(root, 'deleted.txt');
     await rejectPatch({
@@ -30,6 +39,11 @@ async function run() {
       requestedPath: deleted,
     });
     assert.strictEqual(fs.readFileSync(deleted, 'utf8'), 'restored\n');
+    assert.strictEqual((await rejectPatch({
+      entry: { content: [{ type: 'diff', path: deleted, oldText: 'restored\n', newText: '', _meta: { kind: 'deleted' } }] },
+      root,
+      requestedPath: deleted,
+    })).action, 'reverted');
 
     const conflicted = path.join(root, 'conflicted.txt');
     fs.writeFileSync(conflicted, 'newer change\n');

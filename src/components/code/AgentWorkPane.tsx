@@ -8,7 +8,7 @@ import { AgentTerminalPane } from '../AgentTerminalPane'
 import { ChatBubblesGlyph, TerminalSquareGlyph } from '../IconGlyphs'
 import { JsonCliTranscriptPane } from './JsonCliTranscriptPane'
 import { AcpTranscriptPane } from './acp/AcpTranscriptPane'
-import { canSwitchAgentRuntime } from './capabilities'
+import { canForkAgentConversation, canSwitchAgentRuntime } from './capabilities'
 import { isAgentTurnActive } from './agent-working-state'
 import type { CodeCopy } from './copy'
 
@@ -32,6 +32,7 @@ interface AgentWorkPaneProps {
   onFollowOutputChange?: (agentId: string, state: TerminalFollowState) => void
   onReadLatest?: (agentId: string, readCut?: { runtimeEpoch: string; outputSeq: number } | null) => void
   onRuntimeModeChange?: (agentId: string, mode: 'terminal' | 'chat') => void
+  onForkAgent?: (agentId: string, mode: 'same-worktree' | 'new-worktree') => Promise<void> | void
   copy: CodeCopy
 }
 
@@ -54,6 +55,7 @@ export function AgentWorkPane({
   onFollowOutputChange,
   onReadLatest,
   onRuntimeModeChange,
+  onForkAgent,
   copy,
 }: AgentWorkPaneProps) {
   const jsonRuntime = isJsonRuntime(agent) ? agent.runtimeBinding : null
@@ -63,6 +65,7 @@ export function AgentWorkPane({
   const chatMode = jsonChat || acpChat
   const canSwitchRuntime = canSwitchAgentRuntime(agent)
   const runtimeSwitchDisabled = switching || isAgentTurnActive(agent)
+  const canForkConversation = canForkAgentConversation(agent) && !isAgentTurnActive(agent)
 
   const activateChatView = useCallback((event: ReactPointerEvent) => {
     if (event.button !== 0) return
@@ -117,9 +120,9 @@ export function AgentWorkPane({
           onPointerDown={activateChatView}
         >
           {acpChat ? (
-            <AcpTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={(agent.source || '').startsWith('codex-history:')} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
+            <AcpTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={(agent.source || '').startsWith('codex-history:')} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} onForkLatest={canForkConversation ? () => onForkAgent?.(agent.id, 'same-worktree') : undefined} copy={copy} />
           ) : (
-            <JsonCliTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} refreshSignal={jsonRuntime?.transcriptUpdatedAt ? Date.parse(jsonRuntime.transcriptUpdatedAt) : 0} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} copy={copy} />
+            <JsonCliTranscriptPane agentId={agent.id} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} refreshSignal={jsonRuntime?.transcriptUpdatedAt ? Date.parse(jsonRuntime.transcriptUpdatedAt) : 0} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onReadLatest={() => onReadLatest?.(agent.id)} onForkLatest={canForkConversation ? () => onForkAgent?.(agent.id, 'same-worktree') : undefined} copy={copy} />
           )}
         </div>
       ) : null}

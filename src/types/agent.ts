@@ -236,6 +236,7 @@ export interface ProviderCapabilities {
   runtimeSwitch: boolean
   terminalProfile: boolean
   goals: boolean
+  sessionFork: boolean
   chatRuntime: 'acp' | ''
   supportsChat: boolean
   supportsSteer: boolean

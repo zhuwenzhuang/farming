@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { resolveWorkspacePath } = require('./client-services');
@@ -91,7 +92,10 @@ async function missingTarget(root, requestedPath) {
 }
 
 async function atomicWrite(target, content, mode = 0o666) {
-  const temporary = path.join(path.dirname(target), `.${path.basename(target)}.farming-acp-revert-${process.pid}-${Date.now()}.tmp`);
+  const temporary = path.join(
+    path.dirname(target),
+    `.${path.basename(target)}.farming-acp-revert-${process.pid}-${crypto.randomUUID()}.tmp`,
+  );
   try {
     await fsp.writeFile(temporary, content, { mode });
     await fsp.rename(temporary, target);
@@ -111,14 +115,26 @@ async function rejectPatch({ entry, root, requestedPath }) {
   const current = await existingTarget(root, requestedPath);
 
   if (deleted) {
-    if (current.exists) throw new AcpPatchDecisionError('File changed after this ACP patch; it was not reverted', 409);
+    if (current.exists) {
+      const currentText = await fsp.readFile(current.target, 'utf8');
+      if (currentText === oldText) {
+        return { action: 'reverted', path: relativeWorkspacePath(root, current.logical) };
+      }
+      throw new AcpPatchDecisionError('File changed after this ACP patch; it was not reverted', 409);
+    }
     const target = await missingTarget(root, requestedPath);
     await atomicWrite(target.target, oldText);
     return { action: 'reverted', path: relativeWorkspacePath(root, target.logical) };
   }
 
-  if (!current.exists) throw new AcpPatchDecisionError('File changed after this ACP patch; it was not reverted', 409);
+  if (!current.exists) {
+    if (added) return { action: 'reverted', path: relativeWorkspacePath(root, current.logical) };
+    throw new AcpPatchDecisionError('File changed after this ACP patch; it was not reverted', 409);
+  }
   const currentText = await fsp.readFile(current.target, 'utf8');
+  if (!added && currentText === oldText) {
+    return { action: 'reverted', path: relativeWorkspacePath(root, current.logical) };
+  }
   if (currentText !== newText) throw new AcpPatchDecisionError('File changed after this ACP patch; it was not reverted', 409);
 
   if (added) {

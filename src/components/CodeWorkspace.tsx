@@ -340,7 +340,7 @@ interface CodeWorkspaceProps {
       & { agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; readOutputEpoch?: string; readOutputSeq?: number },
   ) => AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>
   onOpenArchivedAgent: (agentId: string) => void
-  onForkAgent: (agentId: string, mode: 'same-worktree' | 'new-worktree') => void
+  onForkAgent: (agentId: string, mode: 'same-worktree' | 'new-worktree') => Promise<void> | void
   onDeleteForkWorktreeProject: (workspace: string, options?: { force?: boolean }) => Promise<DeleteForkWorktreeProjectResult>
   onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => void
   onWorkspaceViewChange: (view: WorkspaceView) => void
@@ -3481,17 +3481,24 @@ export function CodeWorkspace({
       [renameDialog.workspace]: title,
     }
     setProjectNames(nextProjectNames)
-    fetch(appPath('/api/settings'), {
-      method: 'POST',
+    fetch(appPath('/api/projects/name'), {
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectNames: nextProjectNames }),
+      body: JSON.stringify({ workspace: renameDialog.workspace, name: title }),
     })
-      .then(response => response.json())
-      .then((data: { settings?: GlobalSettings }) => {
-        const settings = data.settings ?? {}
-        setProjectNames(normalizeProjectNames(settings.projectNames))
+      .then(async response => {
+        const data = await response.json().catch(() => null) as { error?: string } | null
+        if (!response.ok) throw new Error(data?.error || copy.copyFailed)
       })
       .catch(() => {
+        setProjectNames(current => {
+          if (current[renameDialog.workspace] !== title) return current
+          const restored = { ...current }
+          const previousName = projectNames[renameDialog.workspace]
+          if (previousName) restored[renameDialog.workspace] = previousName
+          else delete restored[renameDialog.workspace]
+          return restored
+        })
         setCopyNotice({ id: Date.now(), kind: 'error', message: copy.copyFailed })
       })
     setRenameDialog(null)
@@ -5366,6 +5373,7 @@ export function CodeWorkspace({
         onTerminalFollowOutputChange={handleTerminalFollowOutputChange}
         onAgentReadLatest={markAgentReadLatest}
         onRuntimeModeChange={updateAgentRuntimeMode}
+        onForkAgent={onForkAgent}
         onSessionOutput={onSessionOutput}
         onOpenSearchAgent={openTerminalFromWorkspace}
         onOpenSearchSession={session => {

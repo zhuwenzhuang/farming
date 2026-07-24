@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -92,7 +93,10 @@ class AcpClientFileSystem {
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error;
     }
-    const temporary = path.join(path.dirname(target), `.${path.basename(target)}.farming-acp-${process.pid}-${Date.now()}.tmp`);
+    const temporary = path.join(
+      path.dirname(target),
+      `.${path.basename(target)}.farming-acp-${process.pid}-${crypto.randomUUID()}.tmp`,
+    );
     try {
       requireOpenBinding(binding);
       await fsp.writeFile(temporary, content, { mode });
@@ -127,8 +131,8 @@ class AcpClientTerminalManager {
       : typeof options.spawn === 'function'
         ? null
         : nodePty.spawn;
-    this.sequence = 0;
     this.terminals = new Map();
+    this.pendingCreates = new Map();
   }
 
   activeCount(agentId) {
@@ -139,11 +143,31 @@ class AcpClientTerminalManager {
     return count;
   }
 
-  async create(binding, params) {
-    requireMatchingSession(binding, params);
-    if (this.activeCount(binding.agentId) >= MAX_ACTIVE_TERMINALS_PER_AGENT) {
+  reserveCreate(agentId) {
+    const pending = this.pendingCreates.get(agentId) || 0;
+    if (this.activeCount(agentId) + pending >= MAX_ACTIVE_TERMINALS_PER_AGENT) {
       throw new Error('ACP terminal limit reached for this Agent');
     }
+    this.pendingCreates.set(agentId, pending + 1);
+  }
+
+  releaseCreate(agentId) {
+    const pending = this.pendingCreates.get(agentId) || 0;
+    if (pending <= 1) this.pendingCreates.delete(agentId);
+    else this.pendingCreates.set(agentId, pending - 1);
+  }
+
+  async create(binding, params) {
+    requireMatchingSession(binding, params);
+    this.reserveCreate(binding.agentId);
+    try {
+      return await this.createReserved(binding, params);
+    } finally {
+      this.releaseCreate(binding.agentId);
+    }
+  }
+
+  async createReserved(binding, params) {
     const command = String(params.command || '').trim();
     if (!command) throw new Error('ACP terminal command is required');
     const cwd = params.cwd
@@ -156,7 +180,7 @@ class AcpClientTerminalManager {
       if (!name || name.includes('=') || name.includes('\0')) throw new Error('Invalid ACP terminal environment variable');
       env[name] = String(item?.value ?? '');
     }
-    const terminalId = `acp-terminal-${++this.sequence}`;
+    const terminalId = `acp-terminal-${crypto.randomUUID()}`;
     const args = Array.isArray(params.args) ? params.args.map(String) : [];
     const child = this.ptySpawn
       ? this.ptySpawn(command, args, {

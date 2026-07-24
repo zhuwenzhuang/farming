@@ -767,6 +767,7 @@ class FarmingUpdateService {
     this.latestCache = null;
     this.npmCache = null;
     this.installState = { phase: 'idle' };
+    this.installStartPromise = null;
     this.updateStateFile = options.updateStateFile || storageLayout.updateStateFile(this.configDir);
     this.updateLogFile = options.updateLogFile || storageLayout.updateLogFile(this.configDir);
   }
@@ -1089,6 +1090,17 @@ class FarmingUpdateService {
   }
 
   async startInstall(options = {}) {
+    if (this.installStartPromise) return this.installStartPromise;
+    const startPromise = this.startInstallUnreserved(options);
+    this.installStartPromise = startPromise;
+    try {
+      return await startPromise;
+    } finally {
+      if (this.installStartPromise === startPromise) this.installStartPromise = null;
+    }
+  }
+
+  async startInstallUnreserved(options = {}) {
     const currentState = this.currentInstallState();
     if (['downloading', 'extracting', 'installing', 'restarting', 'rolling-back'].includes(currentState.phase)) {
       return currentState;

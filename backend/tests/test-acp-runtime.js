@@ -560,6 +560,173 @@ async function run() {
     );
     assert.strictEqual((await admittedPrompt).stopReason, 'end_turn');
     await runtime.prepareAgent({
+      agentId: 'agent-acp-close-race',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'full',
+    });
+    const closeRaceBinding = runtime.bindings.get('agent-acp-close-race');
+    let releaseClose;
+    closeRaceBinding.connection.closeSession = () => new Promise(resolve => {
+      releaseClose = resolve;
+    });
+    const closing = runtime.closeSession('agent-acp-close-race');
+    await assert.rejects(
+      runtime.prompt('agent-acp-close-race', 'must not race session close'),
+      /not ready/,
+      'a prompt must not enter while session close is in flight',
+    );
+    releaseClose({});
+    assert.deepStrictEqual(await closing, { closed: true, sessionId: closeRaceBinding.sessionId });
+    assert.strictEqual(runtime.getSession('agent-acp-close-race').state, 'closed');
+    await assert.rejects(
+      runtime.prompt('agent-acp-close-race', 'must not reopen a closed session'),
+      /not ready/,
+    );
+    assert.deepStrictEqual(runtime.requestPermission(closeRaceBinding, {
+      sessionId: closeRaceBinding.sessionId,
+      toolCall: { toolCallId: 'late-closed-tool', title: 'Late closed request' },
+      options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+    }), { outcome: { outcome: 'cancelled' } });
+
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-close-during-prompt',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'full',
+    });
+    const activePrompt = runtime.prompt('agent-acp-close-during-prompt', 'mobile interrupt');
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (runtime.bindings.get('agent-acp-close-during-prompt').promptActive) break;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    await assert.rejects(
+      runtime.closeSession('agent-acp-close-during-prompt'),
+      /not ready/,
+      'session close must not race an active prompt',
+    );
+    await runtime.cancel('agent-acp-close-during-prompt');
+    assert.strictEqual((await activePrompt).stopReason, 'cancelled');
+    assert.strictEqual(runtime.getSession('agent-acp-close-during-prompt').state, 'idle');
+
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-config-isolation',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'full',
+    });
+    const configBinding = runtime.bindings.get('agent-acp-config-isolation');
+    configBinding.configOptions = [
+      { id: 'toggle', name: 'Toggle', type: 'boolean', currentValue: false },
+    ];
+    configBinding.sessionState.configOptions = JSON.parse(JSON.stringify(configBinding.configOptions));
+    let releaseConfig;
+    configBinding.connection.setSessionConfigOption = params => new Promise(resolve => {
+      releaseConfig = () => resolve({
+        configOptions: [
+          { id: 'toggle', name: 'Toggle', type: 'boolean', currentValue: params.value },
+        ],
+      });
+    });
+    const configChange = runtime.setSessionConfigOption('agent-acp-config-isolation', 'toggle', true);
+    const promptAfterConfig = runtime.prompt('agent-acp-config-isolation', 'prompt after config');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(configBinding.promptStarting, true);
+    assert.strictEqual(configBinding.promptActive, false);
+    assert.strictEqual(configBinding.sessionState.entries.length, 0);
+    releaseConfig();
+    await configChange;
+    assert.strictEqual((await promptAfterConfig).stopReason, 'end_turn');
+
+    const providerConfig = new Map([['alpha', 'old-alpha'], ['beta', 'old-beta']]);
+    configBinding.configOptions = [
+      { id: 'alpha', name: 'Alpha', type: 'select', currentValue: 'old-alpha', options: [] },
+      { id: 'beta', name: 'Beta', type: 'select', currentValue: 'old-beta', options: [] },
+    ];
+    configBinding.sessionState.configOptions = JSON.parse(JSON.stringify(configBinding.configOptions));
+    configBinding.connection.setSessionConfigOption = async params => {
+      if (params.configId === 'beta' && params.value === 'new-beta') {
+        throw new Error('simulated second config failure');
+      }
+      providerConfig.set(params.configId, params.value);
+      return {
+        configOptions: [...providerConfig.entries()].map(([id, currentValue]) => ({
+          id,
+          name: id,
+          type: 'select',
+          currentValue,
+          options: [],
+        })),
+      };
+    };
+    await assert.rejects(
+      runtime.setSessionConfigOptions('agent-acp-config-isolation', [
+        { configId: 'alpha', value: 'new-alpha' },
+        { configId: 'beta', value: 'new-beta' },
+      ]),
+      /simulated second config failure/,
+    );
+    assert.deepStrictEqual([...providerConfig.entries()], [
+      ['alpha', 'old-alpha'],
+      ['beta', 'old-beta'],
+    ]);
+    assert.strictEqual(
+      configBinding.configOptions.find(option => option.id === 'alpha').currentValue,
+      'old-alpha',
+    );
+
+    const patchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-patch-race-'));
+    try {
+      fs.writeFileSync(path.join(patchRoot, 'decision-keep.txt'), 'before keep\n');
+      fs.writeFileSync(path.join(patchRoot, 'decision-revert.txt'), 'before revert\n');
+      await runtime.prepareAgent({
+        agentId: 'agent-acp-patch-race',
+        provider: 'codex',
+        cwd: patchRoot,
+        env: process.env,
+        approvalMode: 'full',
+      });
+      assert.strictEqual(
+        (await runtime.prompt('agent-acp-patch-race', 'applied edit')).stopReason,
+        'end_turn',
+      );
+      const revertPath = path.join(patchRoot, 'decision-revert.txt');
+      const requestedRevertPath = runtime.getToolEntry('agent-acp-patch-race', 'decision-tool')
+        .content.find(block => String(block.path || '').endsWith('decision-revert.txt')).path;
+      const decisions = await Promise.allSettled([
+        runtime.decidePatch('agent-acp-patch-race', 'decision-tool', requestedRevertPath, 'revert'),
+        runtime.decidePatch('agent-acp-patch-race', 'decision-tool', requestedRevertPath, 'keep'),
+      ]);
+      assert.strictEqual(
+        decisions.filter(result => result.status === 'fulfilled').length,
+        1,
+        decisions.map(result => result.status === 'rejected' ? result.reason?.message : result.value?.action).join(', '),
+      );
+      assert.strictEqual(decisions.filter(result => result.status === 'rejected').length, 1);
+      assert.strictEqual(fs.readFileSync(revertPath, 'utf8'), 'before revert\n');
+      assert.strictEqual(
+        runtime.getPatchDecision('agent-acp-patch-race', 'decision-tool', requestedRevertPath),
+        'reverted',
+      );
+      assert.strictEqual(
+        (await runtime.decidePatch(
+          'agent-acp-patch-race',
+          'decision-tool',
+          requestedRevertPath,
+          'revert',
+        )).action,
+        'reverted',
+        'repeating the committed decision must be idempotent',
+      );
+    } finally {
+      await runtime.unregisterAgentAndWait('agent-acp-patch-race').catch(() => {});
+      fs.rmSync(patchRoot, { recursive: true, force: true });
+    }
+
+    await runtime.prepareAgent({
       agentId: 'agent-acp-prompt-cancel',
       provider: 'codex',
       cwd: process.cwd(),

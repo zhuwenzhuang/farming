@@ -58,6 +58,22 @@ function run() {
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(storageLayout.themeSettingsFile(configDir), 'utf8')), {
       terminal: { crtEffects: false },
     });
+    assert.deepStrictEqual(
+      fs.readdirSync(configDir).filter((name) => name.startsWith('theme-settings.json.') && name.endsWith('.tmp')),
+      [],
+      'successful theme saves should not leave temporary files behind',
+    );
+
+    const settingsBeforeFailedSave = manager.getThemeSettings('terminal');
+    const saveUserThemeSettings = manager.saveUserThemeSettings.bind(manager);
+    manager.saveUserThemeSettings = () => false;
+    assert.strictEqual(manager.updateThemeSettings('terminal', { crtEffects: true }), false);
+    assert.deepStrictEqual(
+      manager.getThemeSettings('terminal'),
+      settingsBeforeFailedSave,
+      'a failed theme save should not publish unpersisted in-memory state',
+    );
+    manager.saveUserThemeSettings = saveUserThemeSettings;
     assert.strictEqual(
       fs.existsSync(path.join(homeDir, '.farming', 'theme-settings.json')),
       false,

@@ -272,6 +272,15 @@ export function canSwitchAgentRuntime(agent: Agent | null | undefined) {
   )
 }
 
+export function canForkAgentConversation(agent: Agent | null | undefined) {
+  return Boolean(
+    agent
+    && agent.providerCapabilities.sessionFork
+    && agent.providerSessionId
+    && agent.providerSessionTemporary !== true
+  )
+}
+
 export function projectCanArchive(project: ProjectGroup | null | undefined) {
   return Boolean(
     project

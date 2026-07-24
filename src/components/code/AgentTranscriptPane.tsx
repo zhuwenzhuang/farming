@@ -18,7 +18,7 @@ import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
-import { ArrowDownGlyph, CheckGlyph, ChevronRightGlyph, CloseGlyph, CopyGlyph } from '@/components/IconGlyphs'
+import { ArrowDownGlyph, CheckGlyph, ChevronRightGlyph, CloseGlyph, CopyGlyph, ForkGlyph } from '@/components/IconGlyphs'
 import { MermaidBlock } from '@/components/files/FileEditorMarkdownPreview'
 import { appPath } from '@/lib/base-path'
 import { iconForFilePath } from '@/lib/file-icons'
@@ -155,6 +155,7 @@ export interface AgentTranscriptPaneProps {
   onOpenWorkspaceFilePath?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onAvailabilityChange?: (state: { loading: boolean; hasContent: boolean; available: boolean }) => void
   onReadLatest?: () => void
+  onForkLatest?: () => Promise<void> | void
   groupProcessActions?: boolean
   copy: CodeCopy
 }
@@ -1858,6 +1859,7 @@ function AgentTranscriptTurnView({
   onInputTerminal,
   onResizeTerminal,
   onStopSubagent,
+  onFork,
 }: {
   turn: AgentTranscriptTurn
   copy: CodeCopy
@@ -1875,6 +1877,7 @@ function AgentTranscriptTurnView({
   onInputTerminal?: (terminalId: string, input: string) => Promise<void>
   onResizeTerminal?: (terminalId: string, cols: number, rows: number) => Promise<void>
   onStopSubagent?: (sessionId: string) => Promise<void>
+  onFork?: () => Promise<void> | void
 }) {
   const [loadedProcessDetails, setLoadedProcessDetails] = useState<Record<string, AgentTranscriptProcessPresentation>>({})
   const loadingProcessDetailsRef = useRef<Set<string>>(new Set())
@@ -1899,6 +1902,8 @@ function AgentTranscriptTurnView({
   const resultFiles = turn.resultFiles || []
   const [copiedItemId, setCopiedItemId] = useState('')
   const [answerCopied, setAnswerCopied] = useState(false)
+  const [forking, setForking] = useState(false)
+  const forkingRef = useRef(false)
   const [openProcessItemIds, setOpenProcessItemIds] = useState<Set<string>>(() => new Set())
   const [closedLiveProcessItemIds, setClosedLiveProcessItemIds] = useState<Set<string>>(() => new Set())
   const [terminalOutcomeSyncFailedItemIds, setTerminalOutcomeSyncFailedItemIds] = useState<Set<string>>(() => new Set())
@@ -2104,6 +2109,17 @@ function AgentTranscriptTurnView({
       window.setTimeout(() => setAnswerCopied(false), 1200)
     })
   }, [answerMessage])
+  const handleFork = useCallback(async () => {
+    if (!onFork || forkingRef.current) return
+    forkingRef.current = true
+    setForking(true)
+    try {
+      await onFork()
+    } finally {
+      forkingRef.current = false
+      setForking(false)
+    }
+  }, [onFork])
   const toggleProcessOpen = useCallback(() => {
     onToggleProcess(turn.id)
   }, [onToggleProcess, turn.id])
@@ -2404,6 +2420,20 @@ function AgentTranscriptTurnView({
             >
               {answerCopied ? <CheckGlyph /> : <CopyGlyph />}
             </button>
+            {onFork ? (
+              <button
+                type="button"
+                className="code-agent-transcript-answer-action code-agent-transcript-fork-action"
+                data-testid="code-agent-transcript-fork"
+                aria-label={copy.agentTranscriptFork}
+                title={copy.agentTranscriptFork}
+                data-tooltip={copy.agentTranscriptFork}
+                disabled={forking}
+                onClick={handleFork}
+              >
+                <ForkGlyph />
+              </button>
+            ) : null}
           </div> : null}
         </div>
       ) : shouldShowWaiting ? (
@@ -2448,6 +2478,7 @@ export function AgentTranscriptPane({
   onOpenWorkspaceFilePath,
   onAvailabilityChange,
   onReadLatest,
+  onForkLatest,
   groupProcessActions = true,
   copy,
 }: AgentTranscriptPaneProps) {
@@ -2934,7 +2965,7 @@ export function AgentTranscriptPane({
           onTouchEnd={handleTouchEnd}
           onTouchCancel={handleTouchEnd}
         >
-          {turns.map(turn => {
+          {turns.map((turn, index) => {
             const processOpen = source === 'acp' && turn.status === 'inProgress'
               ? openLiveProcessTurnIds.has(turn.id)
               : openProcessTurnIds.has(turn.id)
@@ -2957,6 +2988,7 @@ export function AgentTranscriptPane({
                 onInputTerminal={source === 'acp' ? handleInputTerminal : undefined}
                 onResizeTerminal={source === 'acp' ? handleResizeTerminal : undefined}
                 onStopSubagent={source === 'acp' ? handleStopSubagent : undefined}
+                onFork={index === turns.length - 1 && turn.status !== 'inProgress' ? onForkLatest : undefined}
               />
             )
           })}
