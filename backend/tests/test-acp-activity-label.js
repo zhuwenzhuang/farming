@@ -69,36 +69,36 @@ assert.strictEqual(
 for (const language of ['en', 'zh']) {
   const copy = codeCopyForLanguage(language);
   const labels = [
-    copy.codexTranscriptWorking,
-    copy.codexTranscriptThinking,
-    copy.codexTranscriptRunning,
-    copy.codexTranscriptReading,
-    copy.codexTranscriptSearching,
-    copy.codexTranscriptEditing,
-    copy.codexTranscriptPlanActive,
-    copy.codexTranscriptPlanProgress(2, 5),
-    copy.codexTranscriptFetching,
-    copy.codexTranscriptUsingTool,
+    copy.agentTranscriptWorking,
+    copy.agentTranscriptThinking,
+    copy.agentTranscriptRunning,
+    copy.agentTranscriptReading,
+    copy.agentTranscriptSearching,
+    copy.agentTranscriptEditing,
+    copy.agentTranscriptPlanActive,
+    copy.agentTranscriptPlanProgress(2, 5),
+    copy.agentTranscriptFetching,
+    copy.agentTranscriptUsingTool,
   ];
   assert(labels.every(label => [...label].length <= 10), `${language} activity labels must be at most 10 characters`);
 
   const activityLabels = {
-    thinking: copy.codexTranscriptThinking,
-    running: copy.codexTranscriptRunning,
-    reading: copy.codexTranscriptReading,
-    searching: copy.codexTranscriptSearching,
-    editing: copy.codexTranscriptEditing,
-    plan: copy.codexTranscriptPlanActive,
-    fetching: copy.codexTranscriptFetching,
-    tool: copy.codexTranscriptUsingTool,
-    processing: copy.codexTranscriptWorking,
+    thinking: copy.agentTranscriptThinking,
+    running: copy.agentTranscriptRunning,
+    reading: copy.agentTranscriptReading,
+    searching: copy.agentTranscriptSearching,
+    editing: copy.agentTranscriptEditing,
+    plan: copy.agentTranscriptPlanActive,
+    fetching: copy.agentTranscriptFetching,
+    tool: copy.agentTranscriptUsingTool,
+    processing: copy.agentTranscriptWorking,
   };
   assert.strictEqual(
     acpLiveToolActivityLabel([
       { type: 'tool', kind: 'execute', status: 'completed', title: 'old command' },
       { type: 'tool', kind: 'execute', status: 'in_progress', title: 'PORT=4187   npm test\n-- --runInBand' },
     ], activityLabels),
-    `${copy.codexTranscriptRunning}: PORT=4187 npm test -- --runInBand`,
+    `${copy.agentTranscriptRunning}: PORT=4187 npm test -- --runInBand`,
   );
   assert.strictEqual(
     acpLiveToolActivityLabel([{ type: 'tool', kind: 'execute', status: 'completed', title: 'npm test' }], activityLabels),

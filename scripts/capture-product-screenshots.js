@@ -789,13 +789,13 @@ async function projectNorthstarChat(page, { mobile = false } = {}) {
       node = walker.nextNode();
     }
 
-    document.querySelectorAll('.code-codex-transcript-process-title-text').forEach((title) => {
+    document.querySelectorAll('.code-agent-transcript-process-title-text').forEach((title) => {
       if (title.textContent.trim() !== 'Reasoning') return;
-      const row = title.closest('.code-codex-transcript-process-item, .code-codex-transcript-process-group');
+      const row = title.closest('.code-agent-transcript-process-item, .code-agent-transcript-process-group');
       if (row) row.style.display = 'none';
     });
 
-    const changeSummary = document.querySelector('[data-testid="code-codex-transcript-result-summary"]');
+    const changeSummary = document.querySelector('[data-testid="code-agent-transcript-result-summary"]');
     const summaryLabel = changeSummary && changeSummary.querySelector(':scope > span');
     const added = changeSummary && changeSummary.querySelector('.added');
     const removed = changeSummary && changeSummary.querySelector('.removed');
@@ -809,21 +809,21 @@ async function projectNorthstarChat(page, { mobile = false } = {}) {
       style = document.createElement('style');
       style.id = 'northstar-screenshot-style';
       style.textContent = [
-        '.code-codex-transcript-process-item.plan,',
+        '.code-agent-transcript-process-item.plan,',
         '.code-acp-progress-update { display: none !important; }',
-        '.code-codex-transcript-assistant table { min-width: 470px; }',
-        'body.code-mobile-touch .code-codex-transcript-process { display: none !important; }',
-        'body.code-mobile-touch .code-codex-transcript-assistant table { min-width: 0; }',
+        '.code-agent-transcript-assistant table { min-width: 470px; }',
+        'body.code-mobile-touch .code-agent-transcript-process { display: none !important; }',
+        'body.code-mobile-touch .code-agent-transcript-assistant table { min-width: 0; }',
       ].join('\n');
       document.head.appendChild(style);
     }
 
     if (!mobileLayout) return;
     document.body.classList.add('code-mobile-touch');
-    const turn = document.querySelector('.code-codex-transcript-turn');
-    const userMessage = turn && turn.querySelector('.code-codex-transcript-user > div');
+    const turn = document.querySelector('.code-agent-transcript-turn');
+    const userMessage = turn && turn.querySelector('.code-agent-transcript-user > div');
     if (userMessage) userMessage.textContent = 'Fix duplicate users across API page boundaries and keep retries bounded.';
-    const answer = turn && turn.querySelector('.code-codex-transcript-assistant');
+    const answer = turn && turn.querySelector('.code-agent-transcript-assistant');
     if (answer) {
       answer.innerHTML = [
         '<h2>Pagination duplicates fixed</h2>',
@@ -1043,24 +1043,24 @@ async function main() {
     ].map(agentId => updateAgent(page, baseUrl, agentId, { unread: false })));
     await page.waitForFunction(() => !document.querySelector('.code-agent-unread, .code-project-agent-compact-unread'));
     await waitForFileTree(page);
-    const richTurn = page.locator('.code-codex-transcript-turn').last();
-    await richTurn.getByTestId('code-codex-transcript-process-summary').click();
-    await richTurn.getByTestId('code-codex-transcript-process-group').first().waitFor({ state: 'visible', timeout: 20_000 });
+    const richTurn = page.locator('.code-agent-transcript-turn').last();
+    await richTurn.getByTestId('code-agent-transcript-process-summary').click();
+    await richTurn.getByTestId('code-agent-transcript-process-group').first().waitFor({ state: 'visible', timeout: 20_000 });
     await projectNorthstarChat(page);
-    await page.getByTestId('code-codex-transcript-scroll').evaluate((element) => {
+    await page.getByTestId('code-agent-transcript-scroll').evaluate((element) => {
       element.scrollTop = 0;
     });
     await screenshot(page, '01-code-workspace.png');
     if (requestedScreenshotsComplete()) return;
 
-    const processGroup = richTurn.getByTestId('code-codex-transcript-process-group')
+    const processGroup = richTurn.getByTestId('code-agent-transcript-process-group')
       .filter({ hasText: 'Read a file, edited a file, ran a command' })
       .first();
-    await processGroup.getByTestId('code-codex-transcript-process-group-toggle').click();
+    await processGroup.getByTestId('code-agent-transcript-process-group-toggle').click();
     await processGroup.getByText('Run cross-skin verification', { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
     await projectNorthstarChat(page);
     await processGroup.getByText('Run API pagination tests', { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
-    await page.getByTestId('code-codex-transcript-scroll').evaluate((element) => {
+    await page.getByTestId('code-agent-transcript-scroll').evaluate((element) => {
       element.scrollTop = Math.min(112, element.scrollHeight - element.clientHeight);
     });
     await waitForStableUi(page, 300);
@@ -1069,7 +1069,7 @@ async function main() {
 
     await page.setViewportSize({ width: 390, height: 844 });
     await projectNorthstarChat(page, { mobile: true });
-    await page.getByTestId('code-codex-transcript-scroll').evaluate((element) => {
+    await page.getByTestId('code-agent-transcript-scroll').evaluate((element) => {
       element.scrollTop = 0;
     });
     await waitForStableUi(page, 500);

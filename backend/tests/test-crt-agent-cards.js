@@ -32,6 +32,7 @@ const {
   getCrtAgentVerticalPageTarget,
   getCrtLiveAgents,
   getCrtRegularAgents,
+  getCrtMainAgentDialogAction,
   isCrtLiveAgent,
   requestedCrtAgentId,
   createSessionModalState,
@@ -267,6 +268,32 @@ function run() {
   );
   assert.strictEqual(formatCrtHistoryAge(1_000, 1_000), 'now');
   assert.strictEqual(formatCrtHistoryAge(1_000, 61_000), '1m');
+
+  const liveMainAgentState = {
+    mainAgentId: 'main-agent',
+    agents: [{ id: 'main-agent', status: 'running' }],
+  };
+  const missingMainAgentState = { mainAgentId: '', agents: [] };
+  assert.strictEqual(getCrtMainAgentDialogAction({
+    currentState: missingMainAgentState,
+    mainView: 'history',
+  }), 'none', 'History should not be interrupted by Main Agent onboarding during recovery');
+  assert.strictEqual(getCrtMainAgentDialogAction({
+    currentState: liveMainAgentState,
+    mainView: 'history',
+    dialogActive: true,
+    pendingMainAgent: true,
+  }), 'hide', 'a recovered Main Agent should dismiss stale onboarding');
+  assert.strictEqual(getCrtMainAgentDialogAction({
+    currentState: missingMainAgentState,
+    mainView: 'agents',
+  }), 'show', 'the Agents view should still onboard a genuinely missing Main Agent');
+  assert.strictEqual(getCrtMainAgentDialogAction({
+    currentState: missingMainAgentState,
+    mainView: 'agents',
+    dialogActive: true,
+    pendingMainAgent: false,
+  }), 'none', 'state refreshes should not reclassify an active regular-Agent dialog');
 
   const historyItems = buildCrtHistoryItems({
     taskHistory: [

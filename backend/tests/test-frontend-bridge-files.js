@@ -200,6 +200,13 @@ function run() {
   assert(indexHtml.includes('styles/monochrome-green.css'), 'CRT entry should load its private Monochrome Green stylesheet');
   assert(indexHtml.includes('styles/billing.css'), 'CRT entry should load its Billing telemetry stylesheet');
   assert(
+    indexHtml.includes('>Agent Permissions</h3>')
+      && !indexHtml.includes('Coding Agent Engine')
+      && !indexHtml.includes('Uses Farming&#39;s built-in local session runtime.')
+      && !indexHtml.includes("Uses Farming's built-in local session runtime."),
+    'CRT Settings should not present the fixed built-in session runtime as a configurable engine',
+  );
+  assert(
     indexHtml.includes('id="billing-calendar-grid"')
       && indexHtml.includes('id="billing-calendar-months"')
       && indexHtml.includes('id="billing-day-total"')

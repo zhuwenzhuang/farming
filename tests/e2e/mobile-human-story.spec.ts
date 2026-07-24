@@ -403,8 +403,8 @@ test.describe('mobile Farming Code user story', () => {
     await expect(page.getByTestId('code-mobile-topbar')).toBeVisible()
     await revealMobileSidebar(page)
     await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
-    await expect(page.getByTestId('code-codex-transcript')).toBeVisible()
-    await page.getByTestId('code-codex-transcript-scroll').evaluate(element => {
+    await expect(page.getByTestId('code-agent-transcript')).toBeVisible()
+    await page.getByTestId('code-agent-transcript-scroll').evaluate(element => {
       element.scrollTop = element.scrollHeight
     })
     const composerInput = page.getByTestId('code-composer-input')
@@ -415,9 +415,9 @@ test.describe('mobile Farming Code user story', () => {
     const metrics = await page.evaluate(() => {
       const composer = document.querySelector('[data-testid="code-composer"]') as HTMLElement | null
       const input = document.querySelector('[data-testid="code-composer-input"]') as HTMLElement | null
-      const rows = Array.from(document.querySelectorAll('.code-codex-transcript-status-row')) as HTMLElement[]
+      const rows = Array.from(document.querySelectorAll('.code-agent-transcript-status-row')) as HTMLElement[]
       const statusRow = rows.at(-1) ?? null
-      const runningPlaceholder = document.querySelector('.code-codex-transcript-turn.running:last-child .code-codex-transcript-placeholder') as HTMLElement | null
+      const runningPlaceholder = document.querySelector('.code-agent-transcript-turn.running:last-child .code-agent-transcript-placeholder') as HTMLElement | null
       const runningPlaceholderStyle = runningPlaceholder ? getComputedStyle(runningPlaceholder) : null
       return {
         innerWidth: window.innerWidth,

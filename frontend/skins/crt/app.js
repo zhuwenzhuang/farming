@@ -3164,6 +3164,7 @@ function setCrtMainView(view) {
   if (historySidebarItem) historySidebarItem.classList.toggle('active', crtMainView === 'history');
   if (searchSidebarItem) searchSidebarItem.classList.toggle('active', crtMainView === 'search');
   if (billingSidebarItem) billingSidebarItem.classList.toggle('active', crtMainView === 'billing');
+  if (previousView !== 'agents' && crtMainView === 'agents') checkMainAgentStatus();
 }
 
 function getCrtSearchResults() {
@@ -5674,13 +5675,31 @@ function resumeCrtPageConnection() {
 function checkMainAgentStatus() {
   if (!state) return;
 
-  const mainAgent = state.mainAgentId
-    ? state.agents.find(a => a.id === state.mainAgentId)
-    : null;
-
-  if (!state.mainAgentId || !isCrtLiveAgent(mainAgent)) {
+  const inputDialog = document.getElementById('input-dialog');
+  const action = getCrtMainAgentDialogAction({
+    currentState: state,
+    mainView: crtMainView,
+    dialogActive: Boolean(inputDialog && inputDialog.classList.contains('active')),
+    pendingMainAgent: pendingMainAgentLaunch,
+  });
+  if (action === 'hide') {
+    hideInputDialog();
+  } else if (action === 'show') {
     showInputDialog();
   }
+}
+
+function getCrtMainAgentDialogAction({
+  currentState,
+  mainView = 'agents',
+  dialogActive = false,
+  pendingMainAgent = false,
+} = {}) {
+  if (!needsMainAgent(currentState)) {
+    return dialogActive && pendingMainAgent ? 'hide' : 'none';
+  }
+  if (mainView !== 'agents' || dialogActive) return 'none';
+  return 'show';
 }
 
 function formatSystemClock(timestamp, timeZone) {
@@ -8473,6 +8492,7 @@ if (typeof module !== 'undefined' && module.exports) {
     getCrtAgentVerticalPageTarget,
     getCrtLiveAgents,
     getCrtRegularAgents,
+    getCrtMainAgentDialogAction,
     getCrtAgentRemovalFallback,
     getAgentDisplayText,
     getCrtPreviewCellStyle,

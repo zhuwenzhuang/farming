@@ -106,7 +106,7 @@ async function sendLongComposerText(page: Page, text: string) {
 }
 
 async function waitForChatAnswer(page: Page, anchor: string, timeout = 180_000) {
-  const answer = page.locator('.code-codex-transcript-assistant.code-markdown-preview')
+  const answer = page.locator('.code-agent-transcript-assistant.code-markdown-preview')
     .filter({ hasText: anchor })
     .last()
   await expect(answer).toBeVisible({ timeout })
@@ -210,8 +210,8 @@ test.describe('real Agent iPhone visual audit', () => {
 
     const codexAgentId = await createAgent(page, 'codex', 'chat')
     await activateAgent(page, codexAgentId)
-    await expect(page.getByTestId('code-codex-transcript')).toBeVisible({ timeout: 60_000 })
-    await expect(page.getByTestId('code-codex-transcript').getByRole('status')).toContainText('No conversation yet.')
+    await expect(page.getByTestId('code-agent-transcript')).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByTestId('code-agent-transcript').getByRole('status')).toContainText('No conversation yet.')
     await capture(page, testInfo, '05-codex-chat-empty-light.png')
 
     const codexShort = 'IPHONE_CODEX_SHORT_OK'
@@ -230,8 +230,8 @@ test.describe('real Agent iPhone visual audit', () => {
 
     const openCodeAgentId = await createAgent(page, 'opencode', 'chat')
     await activateAgent(page, openCodeAgentId)
-    await expect(page.getByTestId('code-codex-transcript')).toBeVisible({ timeout: 60_000 })
-    await expect(page.getByTestId('code-codex-transcript').getByRole('status')).toContainText('No conversation yet.')
+    await expect(page.getByTestId('code-agent-transcript')).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByTestId('code-agent-transcript').getByRole('status')).toContainText('No conversation yet.')
     await capture(page, testInfo, '09-opencode-chat-empty-dark.png')
 
     await page.getByTestId('code-acp-composer-file-input').setInputFiles(path.join(AUDIT_WORKSPACE, 'attachment.png'))

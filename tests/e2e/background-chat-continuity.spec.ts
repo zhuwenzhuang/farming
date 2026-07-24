@@ -215,14 +215,14 @@ test('keeps retained Chat frontends mounted and refreshes them by revision after
 
   await firstRow.click()
   const firstPane = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${firstAgentId}"]`)
-  const firstScroll = firstPane.getByTestId('code-codex-transcript-scroll')
+  const firstScroll = firstPane.getByTestId('code-agent-transcript-scroll')
   await expect(firstPane.getByText('FIRST cached answer 19.', { exact: false })).toBeVisible()
-  const firstProcessSummary = firstPane.getByTestId('code-codex-transcript-process-summary').last()
+  const firstProcessSummary = firstPane.getByTestId('code-agent-transcript-process-summary').last()
   await firstProcessSummary.click()
   await expect(firstProcessSummary).toHaveAttribute('aria-expanded', 'true')
   const savedScrollTop = await firstScroll.evaluate(element => {
     element.closest<HTMLElement>('[data-testid="code-agent-work-pane"]')!.dataset.cacheProbe = 'retained'
-    const sentinel = Array.from(element.querySelectorAll<HTMLElement>('.code-codex-transcript-assistant'))
+    const sentinel = Array.from(element.querySelectorAll<HTMLElement>('.code-agent-transcript-assistant'))
       .find(candidate => candidate.textContent?.includes('FIRST cached answer 19.'))
     if (!sentinel) throw new Error('Cached transcript sentinel is missing')
     sentinel.dataset.cacheSentinel = 'retained'
@@ -243,7 +243,7 @@ test('keeps retained Chat frontends mounted and refreshes them by revision after
     const row = document.querySelector<HTMLElement>(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
     const pane = document.querySelector<HTMLElement>(`[data-testid="code-agent-work-pane"][data-agent-id="${agentId}"]`)
     const sentinel = pane?.querySelector<HTMLElement>('[data-cache-sentinel="retained"]')
-    const scroller = pane?.querySelector<HTMLElement>('[data-testid="code-codex-transcript-scroll"]')
+    const scroller = pane?.querySelector<HTMLElement>('[data-testid="code-agent-transcript-scroll"]')
     if (!row || !pane || !sentinel || !scroller) {
       reject(new Error('Cached Agent row, pane, or transcript sentinel is unavailable'))
       return
@@ -388,7 +388,7 @@ test('keeps long ACP Chat stable when the Composer is collapsed and restored', a
 
   await openFarming(page)
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
-  const transcriptScroll = page.getByTestId('code-codex-transcript-scroll')
+  const transcriptScroll = page.getByTestId('code-agent-transcript-scroll')
   await expect(transcriptScroll).toContainText('Long conversation question 23')
   await transcriptScroll.evaluate(element => {
     element.scrollTop = element.scrollHeight
@@ -419,7 +419,7 @@ test('keeps long ACP Chat stable when the Composer is collapsed and restored', a
   await page.getByTestId('code-composer-collapse').click()
   await page.getByTestId('code-composer-restore').click()
   await expect.poll(() => transcriptScroll.evaluate(element => element.scrollTop)).toBeCloseTo(readingTop, 0)
-  await expect(page.getByTestId('code-codex-transcript-jump-bottom')).toBeVisible()
+  await expect(page.getByTestId('code-agent-transcript-jump-bottom')).toBeVisible()
 })
 
 test('starts a short ACP turn at the top with a compact copy affordance', async ({ page, workspaceRoot }) => {
@@ -436,13 +436,13 @@ test('starts a short ACP turn at the top with a compact copy affordance', async 
   await page.getByTestId('code-acp-composer-send').click()
   await expect(page.getByText('Received 0 image.', { exact: true })).toBeVisible()
 
-  const geometry = await page.getByTestId('code-codex-transcript-copy-answer').evaluate(element => {
+  const geometry = await page.getByTestId('code-agent-transcript-copy-answer').evaluate(element => {
     const action = element.getBoundingClientRect()
     const icon = element.querySelector('svg')?.getBoundingClientRect()
-    const turn = element.closest<HTMLElement>('.code-codex-transcript-turn')
-    const user = turn?.querySelector<HTMLElement>('.code-codex-transcript-user')?.getBoundingClientRect()
-    const answer = turn?.querySelector<HTMLElement>('.code-codex-transcript-answer')?.getBoundingClientRect()
-    const scroller = element.closest<HTMLElement>('.code-codex-transcript-scroll')?.getBoundingClientRect()
+    const turn = element.closest<HTMLElement>('.code-agent-transcript-turn')
+    const user = turn?.querySelector<HTMLElement>('.code-agent-transcript-user')?.getBoundingClientRect()
+    const answer = turn?.querySelector<HTMLElement>('.code-agent-transcript-answer')?.getBoundingClientRect()
+    const scroller = element.closest<HTMLElement>('.code-agent-transcript-scroll')?.getBoundingClientRect()
     const composer = document.querySelector<HTMLElement>('.code-composer')?.getBoundingClientRect()
     if (!icon || !user || !answer || !scroller || !composer) {
       throw new Error('Chat turn geometry is unavailable')
@@ -481,7 +481,7 @@ test('keeps a human reader stationary while an ACP answer streams below', async 
   await expect(row).toBeVisible()
   await row.click()
 
-  const transcript = page.getByTestId('code-codex-transcript-scroll')
+  const transcript = page.getByTestId('code-agent-transcript-scroll')
   await page.getByTestId('code-acp-composer-input').fill('scroll stability')
   await page.getByTestId('code-acp-composer-send').click()
   await expect(page.getByText('Reading paragraph 48', { exact: false })).toBeVisible()
@@ -498,7 +498,7 @@ test('keeps a human reader stationary while an ACP answer streams below', async 
   expect(await transcript.evaluate(element => (
     element.scrollHeight - element.clientHeight - element.scrollTop
   ))).toBeGreaterThan(1)
-  await expect(page.getByTestId('code-codex-transcript-jump-bottom')).toBeVisible()
+  await expect(page.getByTestId('code-agent-transcript-jump-bottom')).toBeVisible()
 
   for (let index = 1; index <= 6; index += 1) {
     await expect(page.getByText(`Streaming tail ${index}`, { exact: false })).toBeAttached({ timeout: 10_000 })
@@ -508,7 +508,7 @@ test('keeps a human reader stationary while an ACP answer streams below', async 
     expect(positionDelta).toBeLessThanOrEqual(1)
   }
 
-  await page.getByTestId('code-codex-transcript-jump-bottom').click()
+  await page.getByTestId('code-agent-transcript-jump-bottom').click()
   await expect.poll(async () => transcript.evaluate(element => (
     element.scrollHeight - element.clientHeight - element.scrollTop
   ))).toBeLessThanOrEqual(1)

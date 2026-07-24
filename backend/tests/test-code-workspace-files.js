@@ -55,7 +55,7 @@ function run() {
   const mainPageSessionSource = read('backend/main-page-session.js');
   const inputPartsSource = read('backend/input-parts.js');
   const terminalPaneSource = read('src/components/AgentTerminalPane.tsx');
-  const transcriptPaneSource = read('src/components/code/CodexTranscriptPane.tsx');
+  const transcriptPaneSource = read('src/components/code/AgentTranscriptPane.tsx');
   const copySource = read('src/components/code/copy.ts');
   const iconGlyphsSource = read('src/components/IconGlyphs.tsx');
   const agentWorkPaneSource = read('src/components/code/AgentWorkPane.tsx');
@@ -1123,7 +1123,7 @@ function run() {
       terminalPaneSource.includes('type TerminalSearchOptionKey') &&
       terminalPaneSource.includes('function terminalSearchOptionShortcut') &&
       terminalPaneSource.includes('terminalSearchOptionButtonClass') &&
-      !terminalPaneSource.includes('CodexTranscriptPane') &&
+      !terminalPaneSource.includes('AgentTranscriptPane') &&
       !terminalPaneSource.includes('codex-transcript') &&
       !terminalPaneSource.includes('session-text') &&
       !terminalPaneSource.includes('TerminalDisplayMode') &&
@@ -1156,7 +1156,7 @@ function run() {
       transcriptPaneSource.includes("runtimeState === 'connecting' || expectHistory") &&
       transcriptPaneSource.includes('loading || awaitingAcpHistory') &&
       workspaceSource.includes('无法加载此会话的 Chat 历史。') &&
-      !workspaceSource.includes('codexTranscriptGoalProgress') &&
+      !workspaceSource.includes('agentTranscriptGoalProgress') &&
       agentWorkPaneSource.includes('data-testid="code-agent-terminal-view"') &&
       agentWorkPaneSource.includes('data-testid="code-agent-chat-view"') &&
       agentWorkPaneSource.includes('onActivate(agent.id, { focusTerminal: false })') &&
@@ -1287,7 +1287,7 @@ function run() {
       acpPermissionSource.includes('code-acp-permission-details') &&
       agentWorkPaneSource.includes('refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)}') &&
       transcriptPaneSource.includes("if (source !== 'acp') timer = window.setInterval(load, 3000)") &&
-      acpTranscriptSource.includes("Omit<CodexTranscriptPaneProps, 'source'>") &&
+      acpTranscriptSource.includes("Omit<AgentTranscriptPaneProps, 'source'>") &&
       acpTranscriptSource.includes('groupProcessActions') &&
       !acpTranscriptSource.includes('groupProcessActions={false}') &&
       workspaceSource.includes('activeAcpRuntime') &&
@@ -1311,7 +1311,7 @@ function run() {
       transcriptPaneSource.includes('function preserveCompletedTranscriptTurns(') &&
       transcriptPaneSource.includes('const textSelectionGestureRef = useRef(false)') &&
       transcriptPaneSource.includes('const textSelectionHadRangeRef = useRef(false)') &&
-      transcriptPaneSource.includes('const StableCodexTranscriptTurnView = memo(CodexTranscriptTurnView)') &&
+      transcriptPaneSource.includes('const StableAgentTranscriptTurnView = memo(AgentTranscriptTurnView)') &&
       transcriptPaneSource.includes("document.addEventListener('selectionchange', updateSelectionState)") &&
       transcriptPaneSource.includes('onPointerDown={handleTranscriptPointerDown}') &&
       transcriptPaneSource.includes("source === 'acp'") &&
@@ -1329,13 +1329,13 @@ function run() {
       transcriptPaneSource.includes('openLiveProcessTurnIds') &&
       !transcriptPaneSource.includes('closedLiveProcessTurnIds') &&
       transcriptPaneSource.includes('COMPACT_PROCESS_ACTION_LIMIT = 4') &&
-      transcriptPaneSource.includes('data-testid="code-codex-transcript-process-compact-list"') &&
+      transcriptPaneSource.includes('data-testid="code-agent-transcript-process-compact-list"') &&
       transcriptPaneSource.includes('autoExpandedTerminalItemIdsRef') &&
       transcriptPaneSource.includes('const timer = window.setInterval(checkForOutput, 500)') &&
       transcriptPaneSource.includes('compactAcpActionLabel(item, copy)') &&
       transcriptPaneSource.includes('showStatus={false}') &&
       transcriptPaneSource.includes('entry.items.some(item => openProcessItemIds.has(item.id))') &&
-      copySource.includes('codexTranscriptEarlierActions: count =>') &&
+      copySource.includes('agentTranscriptEarlierActions: count =>') &&
       acpProgressTimelineSource.includes("return String(item.type || '').trim().toLowerCase() === 'progress'") &&
       acpProgressTimelineSource.includes("return 'Reasoning'") &&
       !terminalPaneSource.includes('code-acp-progress-update'),

@@ -5,14 +5,14 @@ const MAX_INLINE_TOOL_DETAIL_CHARS = 4 * 1024
 
 type AcpRecord = Record<string, unknown>
 
-export interface CodexTranscriptAudio {
+export interface AgentTranscriptAudio {
   id: string
   url: string
   mimeType?: string
   name?: string
 }
 
-export interface CodexTranscriptTerminal {
+export interface AgentTranscriptTerminal {
   terminalId: string
   terminal?: {
     command?: string
@@ -29,7 +29,7 @@ export interface CodexTranscriptTerminal {
   }
 }
 
-export interface CodexTranscriptPatchChange {
+export interface AgentTranscriptPatchChange {
   path: string
   kind: string
   added: number
@@ -38,13 +38,13 @@ export interface CodexTranscriptPatchChange {
   decision?: string
 }
 
-export interface CodexTranscriptUserImage {
+export interface AgentTranscriptUserImage {
   id: string
   url: string
   alt?: string
 }
 
-export interface CodexTranscriptUserFile {
+export interface AgentTranscriptUserFile {
   id: string
   name: string
   content?: string
@@ -55,45 +55,45 @@ export interface CodexTranscriptUserFile {
   resourceKind?: string
 }
 
-export interface CodexTranscriptProcessItem {
+export interface AgentTranscriptProcessItem {
   id: string
   type: string
   title: string
   detail?: string
-  images?: CodexTranscriptUserImage[]
-  audios?: CodexTranscriptAudio[]
-  files?: CodexTranscriptUserFile[]
+  images?: AgentTranscriptUserImage[]
+  audios?: AgentTranscriptAudio[]
+  files?: AgentTranscriptUserFile[]
   status?: string
   kind?: string
   completedSteps?: number
   totalSteps?: number
   currentStep?: string
   detailTruncated?: boolean
-  changes?: CodexTranscriptPatchChange[]
+  changes?: AgentTranscriptPatchChange[]
   terminalIds?: string[]
-  terminals?: CodexTranscriptTerminal[]
+  terminals?: AgentTranscriptTerminal[]
   subagentSessionId?: string
-  subagentTranscript?: CodexTranscript
+  subagentTranscript?: AgentTranscript
 }
 
-export interface CodexTranscriptTurn {
+export interface AgentTranscriptTurn {
   id: string
   userMessage: string
-  userImages?: CodexTranscriptUserImage[]
-  userFiles?: CodexTranscriptUserFile[]
-  userAudios?: CodexTranscriptAudio[]
-  resultImages?: CodexTranscriptUserImage[]
-  resultFiles?: CodexTranscriptUserFile[]
-  resultAudios?: CodexTranscriptAudio[]
+  userImages?: AgentTranscriptUserImage[]
+  userFiles?: AgentTranscriptUserFile[]
+  userAudios?: AgentTranscriptAudio[]
+  resultImages?: AgentTranscriptUserImage[]
+  resultFiles?: AgentTranscriptUserFile[]
+  resultAudios?: AgentTranscriptAudio[]
   finalMessage: string
   startedAt: number | null
   completedAt: number | null
   durationMs: number | null
   status: 'inProgress' | 'completed' | 'interrupted' | string
-  processItems: CodexTranscriptProcessItem[]
+  processItems: AgentTranscriptProcessItem[]
 }
 
-export interface CodexTranscript {
+export interface AgentTranscript {
   version?: number
   available: boolean
   reason?: string
@@ -111,18 +111,18 @@ export interface CodexTranscript {
   replaceFromTurnId?: string
   stopReason?: string
   truncated?: boolean
-  turns: CodexTranscriptTurn[]
+  turns: AgentTranscriptTurn[]
 }
 
-interface MutableTurn extends CodexTranscriptTurn {
+interface MutableTurn extends AgentTranscriptTurn {
   internal: boolean
   assistantMessages: Array<{ text: string; processItemId: string; phase: string }>
-  userImages: CodexTranscriptUserImage[]
-  userFiles: CodexTranscriptUserFile[]
-  userAudios: CodexTranscriptAudio[]
-  resultImages: CodexTranscriptUserImage[]
-  resultFiles: CodexTranscriptUserFile[]
-  resultAudios: CodexTranscriptAudio[]
+  userImages: AgentTranscriptUserImage[]
+  userFiles: AgentTranscriptUserFile[]
+  userAudios: AgentTranscriptAudio[]
+  resultImages: AgentTranscriptUserImage[]
+  resultFiles: AgentTranscriptUserFile[]
+  resultAudios: AgentTranscriptAudio[]
 }
 
 function record(value: unknown): AcpRecord {
@@ -206,7 +206,7 @@ function patchLineStats(oldText: string, newText: string) {
   }, { added: 0, removed: 0 })
 }
 
-function patchChanges(content: unknown, decisions: AcpRecord = {}): CodexTranscriptPatchChange[] {
+function patchChanges(content: unknown, decisions: AcpRecord = {}): AgentTranscriptPatchChange[] {
   return diffBlocks(content).map(block => {
     const path = stringValue(block.path).trim()
     const stats = patchLineStats(stringValue(block.oldText), stringValue(block.newText))
@@ -274,7 +274,7 @@ function uniqueByUrl<T extends { url: string }>(items: T[]) {
   })
 }
 
-function contentImages(content: unknown, prefix: string): CodexTranscriptUserImage[] {
+function contentImages(content: unknown, prefix: string): AgentTranscriptUserImage[] {
   return list(content).map(record)
     .filter(block => block.type === 'image' && typeof block.data === 'string' && block.data)
     .map((block, index) => ({
@@ -284,7 +284,7 @@ function contentImages(content: unknown, prefix: string): CodexTranscriptUserIma
     }))
 }
 
-function contentAudios(content: unknown, prefix: string): CodexTranscriptAudio[] {
+function contentAudios(content: unknown, prefix: string): AgentTranscriptAudio[] {
   return list(content).map(record)
     .filter(block => block.type === 'audio' && typeof block.data === 'string' && block.data)
     .map((block, index) => ({
@@ -295,7 +295,7 @@ function contentAudios(content: unknown, prefix: string): CodexTranscriptAudio[]
     }))
 }
 
-function contentFiles(content: unknown, prefix: string): CodexTranscriptUserFile[] {
+function contentFiles(content: unknown, prefix: string): AgentTranscriptUserFile[] {
   return list(content).flatMap((value, index) => {
     const block = record(value)
     if (block.type === 'resource_link') {
@@ -403,7 +403,7 @@ function errorTitle(kind: string) {
   return 'Agent error'
 }
 
-function processEntry(entry: AcpRecord): CodexTranscriptProcessItem | null {
+function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
   if (entry.type === 'error') {
     const kind = stringValue(entry.kind) || 'unknown'
     return { id: stringValue(entry.id), type: 'error', kind, title: errorTitle(kind), detail: stringValue(entry.message), status: 'failed' }
@@ -498,7 +498,7 @@ function emptyTurn(id: string, internal: boolean): MutableTurn {
   }
 }
 
-function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): CodexTranscriptTurn | null {
+function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): AgentTranscriptTurn | null {
   if (!turn) return null
   const lastAssistant = turn.assistantMessages[turn.assistantMessages.length - 1]
   const lastProcess = turn.processItems[turn.processItems.length - 1]
@@ -521,9 +521,9 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): Code
     : null
 }
 
-export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?: number } = {}): CodexTranscript {
+export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?: number } = {}): AgentTranscript {
   const session = record(sessionValue)
-  const turns: CodexTranscriptTurn[] = []
+  const turns: AgentTranscriptTurn[] = []
   let current: MutableTurn | null = null
   let sequence = 0
   const activeSession = ['working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(stringValue(session.state))
@@ -603,7 +603,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
   }
   flush(activeSession)
 
-  const lastTurn: CodexTranscriptTurn | undefined = turns[turns.length - 1]
+  const lastTurn: AgentTranscriptTurn | undefined = turns[turns.length - 1]
   if (lastTurn && activeSession) {
     lastTurn.status = 'inProgress'
   } else if (lastTurn && ['cancelled', 'canceled', 'max_tokens', 'max_turn_requests', 'refusal', 'error', 'cancel_error']

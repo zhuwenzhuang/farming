@@ -1,7 +1,7 @@
-import { CodexTranscriptPane, type CodexTranscriptPaneProps } from './CodexTranscriptPane'
+import { AgentTranscriptPane, type AgentTranscriptPaneProps } from './AgentTranscriptPane'
 
-type JsonCliTranscriptPaneProps = Omit<CodexTranscriptPaneProps, 'source'>
+type JsonCliTranscriptPaneProps = Omit<AgentTranscriptPaneProps, 'source'>
 
 export function JsonCliTranscriptPane(props: JsonCliTranscriptPaneProps) {
-  return <CodexTranscriptPane {...props} source="json-cli" />
+  return <AgentTranscriptPane {...props} source="json-cli" />
 }

@@ -29,40 +29,40 @@ export interface CodeCopy {
   switchToChat: string
   collapseComposer: string
   restoreComposer: string
-  codexTranscriptSyncing: string
-  codexTranscriptUnavailable: string
-  codexTranscriptEmpty: string
-  codexTranscriptWaiting: string
-  codexTranscriptProcess: string
-  codexTranscriptWorking: string
-  codexTranscriptThinking: string
-  codexTranscriptRunning: string
-  codexTranscriptReading: string
-  codexTranscriptSearching: string
-  codexTranscriptEditing: string
-  codexTranscriptPlanActive: string
-  codexTranscriptPlanProgress: (completed: number, total: number) => string
-  codexTranscriptFetching: string
-  codexTranscriptUsingTool: string
-  codexTranscriptActionRunning: (title: string) => string
-  codexTranscriptActionFailed: (title: string) => string
-  codexTranscriptEarlierActions: (count: number) => string
-  codexTranscriptTerminalStatusUnavailable: string
-  codexTranscriptRetryTerminalStatus: string
-  codexTranscriptWorkedFor: (duration: string) => string
-  codexTranscriptProcessCount: (count: number) => string
-  codexTranscriptCopyDetails: string
-  codexTranscriptCopiedDetails: string
-  codexTranscriptCopyAnswer: string
-  codexTranscriptCopiedAnswer: string
-  codexTranscriptReviewChanges: string
-  codexTranscriptShowChanges: string
-  codexTranscriptLoadingChanges: string
-  codexTranscriptKeepChange: string
-  codexTranscriptRevertChange: string
-  codexTranscriptChangeKept: string
-  codexTranscriptChangeReverted: string
-  codexTranscriptShowMoreFiles: (count: number) => string
+  agentTranscriptSyncing: string
+  agentTranscriptUnavailable: string
+  agentTranscriptEmpty: string
+  agentTranscriptWaiting: string
+  agentTranscriptProcess: string
+  agentTranscriptWorking: string
+  agentTranscriptThinking: string
+  agentTranscriptRunning: string
+  agentTranscriptReading: string
+  agentTranscriptSearching: string
+  agentTranscriptEditing: string
+  agentTranscriptPlanActive: string
+  agentTranscriptPlanProgress: (completed: number, total: number) => string
+  agentTranscriptFetching: string
+  agentTranscriptUsingTool: string
+  agentTranscriptActionRunning: (title: string) => string
+  agentTranscriptActionFailed: (title: string) => string
+  agentTranscriptEarlierActions: (count: number) => string
+  agentTranscriptTerminalStatusUnavailable: string
+  agentTranscriptRetryTerminalStatus: string
+  agentTranscriptWorkedFor: (duration: string) => string
+  agentTranscriptProcessCount: (count: number) => string
+  agentTranscriptCopyDetails: string
+  agentTranscriptCopiedDetails: string
+  agentTranscriptCopyAnswer: string
+  agentTranscriptCopiedAnswer: string
+  agentTranscriptReviewChanges: string
+  agentTranscriptShowChanges: string
+  agentTranscriptLoadingChanges: string
+  agentTranscriptKeepChange: string
+  agentTranscriptRevertChange: string
+  agentTranscriptChangeKept: string
+  agentTranscriptChangeReverted: string
+  agentTranscriptShowMoreFiles: (count: number) => string
   codexGoalTitle: string
   codexGoalEmpty: string
   codexGoalOpen: string
@@ -481,40 +481,40 @@ const EN_COPY: CodeCopy = {
   switchToChat: 'Switch to Chat',
   collapseComposer: 'Hide input',
   restoreComposer: 'Show input',
-  codexTranscriptSyncing: 'Syncing chat history...',
-  codexTranscriptUnavailable: 'This session’s Chat history could not be loaded.',
-  codexTranscriptEmpty: 'No conversation yet.',
-  codexTranscriptWaiting: 'Agent is still working...',
-  codexTranscriptProcess: 'Process',
-  codexTranscriptWorking: 'Processing',
-  codexTranscriptThinking: 'Thinking',
-  codexTranscriptRunning: 'Running',
-  codexTranscriptReading: 'Reading',
-  codexTranscriptSearching: 'Searching',
-  codexTranscriptEditing: 'Editing',
-  codexTranscriptPlanActive: 'On plan',
-  codexTranscriptPlanProgress: (completed, total) => `Plan ${completed}/${total}`,
-  codexTranscriptFetching: 'Fetching',
-  codexTranscriptUsingTool: 'Using tool',
-  codexTranscriptActionRunning: title => `Running: ${title}`,
-  codexTranscriptActionFailed: title => `Failed: ${title}`,
-  codexTranscriptEarlierActions: count => `${count} earlier ${count === 1 ? 'action' : 'actions'}`,
-  codexTranscriptTerminalStatusUnavailable: 'Terminal status could not be synchronized.',
-  codexTranscriptRetryTerminalStatus: 'Retry',
-  codexTranscriptWorkedFor: duration => `Worked for ${duration}`,
-  codexTranscriptProcessCount: count => `${count} ${count === 1 ? 'event' : 'events'}`,
-  codexTranscriptCopyDetails: 'Copy details',
-  codexTranscriptCopiedDetails: 'Copied',
-  codexTranscriptCopyAnswer: 'Copy answer',
-  codexTranscriptCopiedAnswer: 'Copied answer',
-  codexTranscriptReviewChanges: 'Review',
-  codexTranscriptShowChanges: 'Show file changes',
-  codexTranscriptLoadingChanges: 'Loading exact changes…',
-  codexTranscriptKeepChange: 'Keep',
-  codexTranscriptRevertChange: 'Revert',
-  codexTranscriptChangeKept: 'Kept',
-  codexTranscriptChangeReverted: 'Reverted',
-  codexTranscriptShowMoreFiles: count => `Show ${count} more file${count === 1 ? '' : 's'}`,
+  agentTranscriptSyncing: 'Syncing chat history...',
+  agentTranscriptUnavailable: 'This session’s Chat history could not be loaded.',
+  agentTranscriptEmpty: 'No conversation yet.',
+  agentTranscriptWaiting: 'Agent is still working...',
+  agentTranscriptProcess: 'Process',
+  agentTranscriptWorking: 'Processing',
+  agentTranscriptThinking: 'Thinking',
+  agentTranscriptRunning: 'Running',
+  agentTranscriptReading: 'Reading',
+  agentTranscriptSearching: 'Searching',
+  agentTranscriptEditing: 'Editing',
+  agentTranscriptPlanActive: 'On plan',
+  agentTranscriptPlanProgress: (completed, total) => `Plan ${completed}/${total}`,
+  agentTranscriptFetching: 'Fetching',
+  agentTranscriptUsingTool: 'Using tool',
+  agentTranscriptActionRunning: title => `Running: ${title}`,
+  agentTranscriptActionFailed: title => `Failed: ${title}`,
+  agentTranscriptEarlierActions: count => `${count} earlier ${count === 1 ? 'action' : 'actions'}`,
+  agentTranscriptTerminalStatusUnavailable: 'Terminal status could not be synchronized.',
+  agentTranscriptRetryTerminalStatus: 'Retry',
+  agentTranscriptWorkedFor: duration => `Worked for ${duration}`,
+  agentTranscriptProcessCount: count => `${count} ${count === 1 ? 'event' : 'events'}`,
+  agentTranscriptCopyDetails: 'Copy details',
+  agentTranscriptCopiedDetails: 'Copied',
+  agentTranscriptCopyAnswer: 'Copy answer',
+  agentTranscriptCopiedAnswer: 'Copied answer',
+  agentTranscriptReviewChanges: 'Review',
+  agentTranscriptShowChanges: 'Show file changes',
+  agentTranscriptLoadingChanges: 'Loading exact changes…',
+  agentTranscriptKeepChange: 'Keep',
+  agentTranscriptRevertChange: 'Revert',
+  agentTranscriptChangeKept: 'Kept',
+  agentTranscriptChangeReverted: 'Reverted',
+  agentTranscriptShowMoreFiles: count => `Show ${count} more file${count === 1 ? '' : 's'}`,
   codexGoalTitle: 'Goal',
   codexGoalEmpty: 'No active goal',
   codexGoalOpen: 'Open goal controls',
@@ -962,40 +962,40 @@ const ZH_COPY: CodeCopy = {
   switchToChat: '切换到对话',
   collapseComposer: '收起输入框',
   restoreComposer: '唤出输入框',
-  codexTranscriptSyncing: '正在同步聊天历史...',
-  codexTranscriptUnavailable: '无法加载此会话的 Chat 历史。',
-  codexTranscriptEmpty: '还没有对话。',
-  codexTranscriptWaiting: 'Agent 仍在工作...',
-  codexTranscriptProcess: '执行过程',
-  codexTranscriptWorking: '处理中',
-  codexTranscriptThinking: '思考中',
-  codexTranscriptRunning: '运行命令中',
-  codexTranscriptReading: '读取文件中',
-  codexTranscriptSearching: '搜索中',
-  codexTranscriptEditing: '修改文件中',
-  codexTranscriptPlanActive: '执行计划中',
-  codexTranscriptPlanProgress: (completed, total) => `执行计划 ${completed}/${total}`,
-  codexTranscriptFetching: '获取信息中',
-  codexTranscriptUsingTool: '调用工具中',
-  codexTranscriptActionRunning: title => `正在执行：${title}`,
-  codexTranscriptActionFailed: title => `失败：${title}`,
-  codexTranscriptEarlierActions: count => `更早的 ${count} 个操作`,
-  codexTranscriptTerminalStatusUnavailable: '终端状态未能同步。',
-  codexTranscriptRetryTerminalStatus: '重试',
-  codexTranscriptWorkedFor: duration => `Worked for ${duration}`,
-  codexTranscriptProcessCount: count => `${count} 个事件`,
-  codexTranscriptCopyDetails: '复制详情',
-  codexTranscriptCopiedDetails: '已复制',
-  codexTranscriptCopyAnswer: '复制答复',
-  codexTranscriptCopiedAnswer: '已复制答复',
-  codexTranscriptReviewChanges: 'Review',
-  codexTranscriptShowChanges: '展开文件改动',
-  codexTranscriptLoadingChanges: '正在加载准确改动…',
-  codexTranscriptKeepChange: '保留',
-  codexTranscriptRevertChange: '撤销',
-  codexTranscriptChangeKept: '已保留',
-  codexTranscriptChangeReverted: '已撤销',
-  codexTranscriptShowMoreFiles: count => `显示另外 ${count} 个文件`,
+  agentTranscriptSyncing: '正在同步聊天历史...',
+  agentTranscriptUnavailable: '无法加载此会话的 Chat 历史。',
+  agentTranscriptEmpty: '还没有对话。',
+  agentTranscriptWaiting: 'Agent 仍在工作...',
+  agentTranscriptProcess: '执行过程',
+  agentTranscriptWorking: '处理中',
+  agentTranscriptThinking: '思考中',
+  agentTranscriptRunning: '运行命令中',
+  agentTranscriptReading: '读取文件中',
+  agentTranscriptSearching: '搜索中',
+  agentTranscriptEditing: '修改文件中',
+  agentTranscriptPlanActive: '执行计划中',
+  agentTranscriptPlanProgress: (completed, total) => `执行计划 ${completed}/${total}`,
+  agentTranscriptFetching: '获取信息中',
+  agentTranscriptUsingTool: '调用工具中',
+  agentTranscriptActionRunning: title => `正在执行：${title}`,
+  agentTranscriptActionFailed: title => `失败：${title}`,
+  agentTranscriptEarlierActions: count => `更早的 ${count} 个操作`,
+  agentTranscriptTerminalStatusUnavailable: '终端状态未能同步。',
+  agentTranscriptRetryTerminalStatus: '重试',
+  agentTranscriptWorkedFor: duration => `Worked for ${duration}`,
+  agentTranscriptProcessCount: count => `${count} 个事件`,
+  agentTranscriptCopyDetails: '复制详情',
+  agentTranscriptCopiedDetails: '已复制',
+  agentTranscriptCopyAnswer: '复制答复',
+  agentTranscriptCopiedAnswer: '已复制答复',
+  agentTranscriptReviewChanges: 'Review',
+  agentTranscriptShowChanges: '展开文件改动',
+  agentTranscriptLoadingChanges: '正在加载准确改动…',
+  agentTranscriptKeepChange: '保留',
+  agentTranscriptRevertChange: '撤销',
+  agentTranscriptChangeKept: '已保留',
+  agentTranscriptChangeReverted: '已撤销',
+  agentTranscriptShowMoreFiles: count => `显示另外 ${count} 个文件`,
   codexGoalTitle: '目标',
   codexGoalEmpty: '没有活动目标',
   codexGoalOpen: '打开目标控制',

@@ -342,7 +342,7 @@ async function sendCodeAcpPromptAndSteer(page: Page) {
   await send.click()
   await expect(input).toHaveValue('')
   await expect(send).toHaveAttribute('data-action', 'interrupt', { timeout: 60_000 })
-  await expect(page.locator('.code-codex-transcript-assistant.code-markdown-preview')
+  await expect(page.locator('.code-agent-transcript-assistant.code-markdown-preview')
     .filter({ hasText: `ACP_LONG_BEGIN_${ANCHOR_SUFFIX}` }).last()).toBeVisible({ timeout: 60_000 })
   await input.fill(`Reply with only ${ACP_FOLLOW_UP_ACK}.`)
   await expect(send).toHaveAttribute('data-action', 'send')
@@ -400,7 +400,7 @@ async function assertSameProviderSession(page: Page, agentId: string, providerSe
 }
 
 async function assertChatFormats(page: Page) {
-  const assistant = page.locator('.code-codex-transcript-assistant.code-markdown-preview')
+  const assistant = page.locator('.code-agent-transcript-assistant.code-markdown-preview')
     .filter({ hasText: COMPOSITE_END })
     .last()
   await expect(assistant).toBeVisible({ timeout: 120_000 })
@@ -739,9 +739,9 @@ test.describe('real Codex pre-release composite case', () => {
       await expect(page.getByTestId('code-agent-chat-view')).toBeVisible({ timeout: 90_000 })
       await assertChatFormats(page)
       await sendCodeAcpPromptAndSteer(page)
-      await expect(page.getByTestId('code-codex-transcript-steer')
+      await expect(page.getByTestId('code-agent-transcript-steer')
         .filter({ hasText: ACP_FOLLOW_UP_ACK }).last()).toBeVisible({ timeout: 60_000 })
-      await expect(page.locator('.code-codex-transcript-assistant.code-markdown-preview')
+      await expect(page.locator('.code-agent-transcript-assistant.code-markdown-preview')
         .filter({ hasText: ACP_FOLLOW_UP_ACK }).last()).toBeVisible({ timeout: 120_000 })
       await resizeStructuredView(page, COMPOSITE_END)
       await expect(page.getByTestId('code-acp-error')).toHaveCount(0)

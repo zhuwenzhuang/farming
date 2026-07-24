@@ -1,7 +1,7 @@
-import { CodexTranscriptPane, type CodexTranscriptPaneProps } from '../CodexTranscriptPane'
+import { AgentTranscriptPane, type AgentTranscriptPaneProps } from '../AgentTranscriptPane'
 
-type AcpTranscriptPaneProps = Omit<CodexTranscriptPaneProps, 'source'>
+type AcpTranscriptPaneProps = Omit<AgentTranscriptPaneProps, 'source'>
 
 export function AcpTranscriptPane(props: AcpTranscriptPaneProps) {
-  return <CodexTranscriptPane {...props} source="acp" groupProcessActions />
+  return <AgentTranscriptPane {...props} source="acp" groupProcessActions />
 }

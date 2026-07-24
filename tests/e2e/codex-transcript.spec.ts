@@ -43,7 +43,7 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     fs.mkdirSync(path.join(projectDir, 'src/components/code'), { recursive: true })
     fs.mkdirSync(path.join(projectDir, 'warehouse-sql/compiler/src/test/java/com/example/warehouse'), { recursive: true })
     fs.writeFileSync(path.join(projectDir, 'backend/codex-transcript.js'), 'module.exports = { oldValue: 1 }\n')
-    fs.writeFileSync(path.join(projectDir, 'src/components/code/CodexTranscriptPane.tsx'), 'export function Pane() { return null }\n')
+    fs.writeFileSync(path.join(projectDir, 'src/components/code/AgentTranscriptPane.tsx'), 'export function Pane() { return null }\n')
     fs.writeFileSync(path.join(projectDir, 'warehouse-sql/compiler/src/test/java/com/example/warehouse/CreateTableClusteredByTest.java'), 'class CreateTableClusteredByTest {}\n')
     fs.writeFileSync(
       path.join(projectDir, 'warehouse-sql/compiler/src/test/java/com/example/warehouse/TypeChecker.java'),
@@ -55,7 +55,7 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     execFileSync('git', ['add', '.'], { cwd: projectDir, stdio: 'ignore' })
     execFileSync('git', ['commit', '-m', 'seed codex transcript fixture'], { cwd: projectDir, stdio: 'ignore' })
     fs.writeFileSync(path.join(projectDir, 'backend/codex-transcript.js'), 'module.exports = { oldValue: 1, newValue: 2 }\n')
-    fs.writeFileSync(path.join(projectDir, 'src/components/code/CodexTranscriptPane.tsx'), 'export function Pane() { return <div>changed</div> }\n')
+    fs.writeFileSync(path.join(projectDir, 'src/components/code/AgentTranscriptPane.tsx'), 'export function Pane() { return <div>changed</div> }\n')
     const sessionId = '019ftranscript-fixture'
 
     await page.route(/\/farming\/api\/agents\/[^/]+\/codex-transcript(?:\?.*)?$/, async route => {
@@ -113,7 +113,7 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
                   '- 需要时可以展开查看命令、diff、工具输出和 warning。',
                   '- [x] 支持 GFM task list。',
                   '- ~~不要展示原始 citation 标签。~~',
-                  '- 可直接打开 `backend/codex-transcript.js:1` 和 [Pane](src/components/code/CodexTranscriptPane.tsx)。',
+                  '- 可直接打开 `backend/codex-transcript.js:1` 和 [Pane](src/components/code/AgentTranscriptPane.tsx)。',
                   '',
                   '> 这个视图应该优先服务快速扫读，而不是复刻 terminal 的每一行。',
                   '',
@@ -168,9 +168,9 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
                   { id: 'agent-message', type: 'agent-message', title: 'main -> worker', detail: 'Please verify the transcript fixture.', status: 'completed' },
                   { id: 'memory-citation', type: 'citation', title: 'Memory citations', detail: 'MEMORY.md:885-886 | Codex reference scope', status: 'completed' },
                   { id: 'hook', type: 'hook', title: 'Hook prompt', detail: 'pre-submit hook requested a short continuation.', status: 'completed' },
-                  { id: 'cmd-ok', type: 'command', title: 'Ran rg transcript src backend', detail: 'cwd: /repo\nsrc/components/code/CodexTranscriptPane.tsx', status: 'completed' },
+                  { id: 'cmd-ok', type: 'command', title: 'Ran rg transcript src backend', detail: 'cwd: /repo\nsrc/components/code/AgentTranscriptPane.tsx', status: 'completed' },
                   { id: 'cmd-fail', type: 'command', title: 'Ran npm run missing-script', detail: 'exit: 1\nmissing script: missing-script', status: 'failed' },
-                  { id: 'patch', type: 'patch', title: 'Edited 5 files', detail: 'update backend/codex-transcript.js +6 -2\nupdate src/components/code/CodexTranscriptPane.tsx +24 -4\nupdate src/lib/xterm.ts +1 -1\nupdate tests/e2e/terminal-regression-matrix.spec.ts +6 -2\nupdate backend/tests/test-session-input-helpers.js +2 -2\nSuccess. Updated the following files:\nM backend/codex-transcript.js\nExit code: 0\nWall time: 0 seconds\nOutput:\nSuccess. Updated the following files:\nM backend/codex-transcript.js', status: 'completed' },
+                  { id: 'patch', type: 'patch', title: 'Edited 5 files', detail: 'update backend/codex-transcript.js +6 -2\nupdate src/components/code/AgentTranscriptPane.tsx +24 -4\nupdate src/lib/xterm.ts +1 -1\nupdate tests/e2e/terminal-regression-matrix.spec.ts +6 -2\nupdate backend/tests/test-session-input-helpers.js +2 -2\nSuccess. Updated the following files:\nM backend/codex-transcript.js\nExit code: 0\nWall time: 0 seconds\nOutput:\nSuccess. Updated the following files:\nM backend/codex-transcript.js', status: 'completed' },
                   { id: 'patch-absolute', type: 'patch', title: 'Edited 1 file', detail: `update ${projectDir}/backend/codex-transcript.js +1 -1`, status: 'completed' },
                   { id: 'mcp', type: 'mcp', title: 'Used docs/lookup', detail: '{\"q\":\"codex protocol\"}\nok', status: 'completed' },
                   { id: 'tool', type: 'tool', title: 'Used imagegen', detail: '{\"prompt\":\"interface mock\"}', status: 'running' },
@@ -272,18 +272,18 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     })
     expect(modeToggleRestingMetrics.opacity).toBeLessThanOrEqual(0.6)
     expect(modeToggleRestingMetrics.activeBackground).toBe('rgba(31, 35, 40, 0.055)')
-    await expect(pane.getByTestId('code-codex-transcript')).toBeVisible()
+    await expect(pane.getByTestId('code-agent-transcript')).toBeVisible()
     await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
     await page.evaluate(async ({ id, text }) => {
       await window.__farmingTerminalTest?.writeRaw(id, text)
     }, { id: agentId, text: 'CHAT_TO_TERMINAL_SENTINEL\r\n' })
     await expect(pane.getByText('你现在在干啥？')).toBeVisible()
-    await expect(pane.getByTestId('code-codex-transcript-user-images').getByRole('img', { name: 'sample.png' })).toBeVisible()
-    await expect(pane.getByTestId('code-codex-transcript-user-files').getByText('notes.txt')).toBeVisible()
+    await expect(pane.getByTestId('code-agent-transcript-user-images').getByRole('img', { name: 'sample.png' })).toBeVisible()
+    await expect(pane.getByTestId('code-agent-transcript-user-files').getByText('notes.txt')).toBeVisible()
     await expect(pane.getByText('2 lines · 40 chars')).toBeVisible()
     await pane.getByText('notes.txt').click()
     await expect(pane.getByText('first attached line')).toBeVisible()
-    const userBubbleMetrics = await pane.locator('.code-codex-transcript-user').first().evaluate(element => {
+    const userBubbleMetrics = await pane.locator('.code-agent-transcript-user').first().evaluate(element => {
       const style = getComputedStyle(element)
       return {
         fontSize: style.fontSize,
@@ -296,22 +296,22 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     await expect(pane.getByText('oai-mem-citation')).toHaveCount(0)
     await expect(pane.getByText('实现并验证 Codex 桌面端风格的过程折叠。')).toBeVisible()
     await expect(pane.getByText('已完成：')).toBeVisible()
-    await expect(pane.locator('.code-codex-transcript-assistant input[type="checkbox"]')).toBeChecked()
-    await expect(pane.locator('.code-codex-transcript-assistant del')).toContainText('不要展示原始 citation 标签。')
-    await expect(pane.locator('.code-codex-transcript-assistant blockquote')).toContainText('快速扫读')
-    await expect(pane.locator('.code-codex-transcript-assistant pre').filter({ hasText: 'const mode = "chat"' })).toBeVisible()
-    await expect(pane.locator('.code-codex-transcript-assistant pre[data-language]')).toHaveCount(0)
-    await expect(pane.locator('.code-codex-transcript-assistant table')).toContainText('completed')
-    await expect(pane.locator('.code-codex-transcript-assistant code').filter({ hasText: 'INSERT OVERWRITE' })).toBeVisible()
-	    await expect(pane.locator('.code-codex-transcript-assistant code').filter({ hasText: '20260708071013753g4o8vpic5c71' })).toBeVisible()
-	    await expect(pane.locator('.code-codex-transcript-file-link').filter({ hasText: 'INSERT OVERWRITE' })).toHaveCount(0)
-	    await expect(pane.locator('.code-codex-transcript-file-link').filter({ hasText: '20260708071013753g4o8vpic5c71' })).toHaveCount(0)
-	    await expect(pane.locator('.code-codex-transcript-file-link').filter({ hasText: 'create.append2.table.with.cluster.sorted.unsupported' })).toHaveCount(0)
-	    await expect(pane.locator('.code-codex-transcript-file-link').filter({ hasText: 'auth.json' })).toHaveCount(0)
+    await expect(pane.locator('.code-agent-transcript-assistant input[type="checkbox"]')).toBeChecked()
+    await expect(pane.locator('.code-agent-transcript-assistant del')).toContainText('不要展示原始 citation 标签。')
+    await expect(pane.locator('.code-agent-transcript-assistant blockquote')).toContainText('快速扫读')
+    await expect(pane.locator('.code-agent-transcript-assistant pre').filter({ hasText: 'const mode = "chat"' })).toBeVisible()
+    await expect(pane.locator('.code-agent-transcript-assistant pre[data-language]')).toHaveCount(0)
+    await expect(pane.locator('.code-agent-transcript-assistant table')).toContainText('completed')
+    await expect(pane.locator('.code-agent-transcript-assistant code').filter({ hasText: 'INSERT OVERWRITE' })).toBeVisible()
+	    await expect(pane.locator('.code-agent-transcript-assistant code').filter({ hasText: '20260708071013753g4o8vpic5c71' })).toBeVisible()
+	    await expect(pane.locator('.code-agent-transcript-file-link').filter({ hasText: 'INSERT OVERWRITE' })).toHaveCount(0)
+	    await expect(pane.locator('.code-agent-transcript-file-link').filter({ hasText: '20260708071013753g4o8vpic5c71' })).toHaveCount(0)
+	    await expect(pane.locator('.code-agent-transcript-file-link').filter({ hasText: 'create.append2.table.with.cluster.sorted.unsupported' })).toHaveCount(0)
+	    await expect(pane.locator('.code-agent-transcript-file-link').filter({ hasText: 'auth.json' })).toHaveCount(0)
     await expect(pane.getByText('动态写入完成后不要残留等待提示。')).toBeVisible()
     await expect(pane.getByText('动态回复已经落盘。')).toBeVisible()
     await expect(pane.getByText('Codex is still working...')).toHaveCount(1)
-    const richMarkdownMetrics = await pane.locator('.code-codex-transcript-answer').nth(1).evaluate(element => {
+    const richMarkdownMetrics = await pane.locator('.code-agent-transcript-answer').nth(1).evaluate(element => {
 	      const blockquote = element.querySelector('blockquote')
 	      const code = element.querySelector('code')
 	      const strong = element.querySelector('strong')
@@ -332,7 +332,7 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
       const preStyle = pre ? getComputedStyle(pre) : null
       const preCode = pre?.querySelector('code')
       const preCodeStyle = preCode ? getComputedStyle(preCode) : null
-      const transcriptScroll = element.closest('[data-testid="code-codex-transcript-scroll"]') as HTMLElement | null
+      const transcriptScroll = element.closest('[data-testid="code-agent-transcript-scroll"]') as HTMLElement | null
       const tableStyle = table ? getComputedStyle(table) : null
       const cellStyle = tableCell ? getComputedStyle(tableCell) : null
       const headerStyle = tableHeader ? getComputedStyle(tableHeader) : null
@@ -436,7 +436,7 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     expect(richMarkdownMetrics.hrBorderTopWidth).toBe('1px')
     expect(richMarkdownMetrics.imageDisplay).toBe('block')
     expect(richMarkdownMetrics.imageBorderRadius).toBe('8px')
-    const richAnswer = pane.locator('.code-codex-transcript-answer').nth(1)
+    const richAnswer = pane.locator('.code-agent-transcript-answer').nth(1)
     const mermaidDiagram = richAnswer.locator('.code-markdown-mermaid')
     const mermaidToolbar = richAnswer.locator('.code-markdown-mermaid-toolbar')
     const mermaidCanvas = richAnswer.locator('.code-markdown-mermaid-canvas')
@@ -484,13 +484,13 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     await expect(mermaidDiagram).not.toHaveClass(/fullscreen/)
     const richScreenshotPath = process.env.FARMING_CODEX_TRANSCRIPT_RICH_SCREENSHOT
     if (richScreenshotPath) {
-      const richAnswer = pane.locator('.code-codex-transcript-answer').nth(1)
+      const richAnswer = pane.locator('.code-agent-transcript-answer').nth(1)
       await richAnswer.scrollIntoViewIfNeeded()
       await page.screenshot({ path: richScreenshotPath, fullPage: false })
     }
     const richAnswerScreenshotPath = process.env.FARMING_CODEX_TRANSCRIPT_RICH_ANSWER_SCREENSHOT
     if (richAnswerScreenshotPath) {
-      const richAnswer = pane.locator('.code-codex-transcript-answer').nth(1)
+      const richAnswer = pane.locator('.code-agent-transcript-answer').nth(1)
       const viewportSize = page.viewportSize()
       if (viewportSize && viewportSize.height < 1300) {
         await page.setViewportSize({ width: viewportSize.width, height: 1300 })
@@ -503,15 +503,15 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     }
     await expect(pane.getByText('继续观察运行中的 agent。')).toBeVisible()
     await expect(pane.getByText('Codex is still working...')).toBeVisible()
-    await expect(pane.getByTestId('code-codex-transcript-copy-answer')).toHaveCount(3)
-    await expect(pane.getByTestId('code-codex-transcript-copy-answer').first()).toBeVisible()
-    const firstAnswer = pane.locator('.code-codex-transcript-answer').first()
+    await expect(pane.getByTestId('code-agent-transcript-copy-answer')).toHaveCount(3)
+    await expect(pane.getByTestId('code-agent-transcript-copy-answer').first()).toBeVisible()
+    const firstAnswer = pane.locator('.code-agent-transcript-answer').first()
     await firstAnswer.hover()
     const firstAnswerGeometry = await firstAnswer.evaluate(element => {
       const container = element.getBoundingClientRect()
-      const assistant = element.querySelector('.code-codex-transcript-assistant')
+      const assistant = element.querySelector('.code-agent-transcript-assistant')
       const paragraph = assistant?.querySelector('p')?.getBoundingClientRect()
-      const action = element.querySelector('.code-codex-transcript-answer-action')?.getBoundingClientRect()
+      const action = element.querySelector('.code-agent-transcript-answer-action')?.getBoundingClientRect()
       const style = assistant ? getComputedStyle(assistant) : null
       return paragraph && action && style
         ? {
@@ -528,9 +528,9 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     expect(firstAnswerGeometry?.lineHeight).toBe('20px')
     expect(firstAnswerGeometry?.leftGap).toBeLessThanOrEqual(4)
     expect(firstAnswerGeometry?.verticalGap ?? -1).toBeGreaterThanOrEqual(0)
-    const transcriptSelectionMetrics = await pane.getByTestId('code-codex-transcript').evaluate(element => {
-      const assistant = element.querySelector('.code-codex-transcript-assistant')
-      const user = element.querySelector('.code-codex-transcript-user')
+    const transcriptSelectionMetrics = await pane.getByTestId('code-agent-transcript').evaluate(element => {
+      const assistant = element.querySelector('.code-agent-transcript-assistant')
+      const user = element.querySelector('.code-agent-transcript-user')
       return {
         transcriptUserSelect: getComputedStyle(element).userSelect,
         assistantUserSelect: assistant ? getComputedStyle(assistant).userSelect : '',
@@ -541,8 +541,8 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     expect(transcriptSelectionMetrics.assistantUserSelect).toBe('text')
     expect(transcriptSelectionMetrics.userUserSelect).toBe('text')
     const inlineFileLink = pane.getByRole('link', { name: 'codex-transcript.js' })
-    await expect(inlineFileLink.locator('.code-codex-transcript-file-icon')).toBeVisible()
-    await expect(inlineFileLink).toHaveClass('code-codex-transcript-markdown-file-link')
+    await expect(inlineFileLink.locator('.code-agent-transcript-file-icon')).toBeVisible()
+    await expect(inlineFileLink).toHaveClass('code-agent-transcript-markdown-file-link')
     const inlineFileLinkStyle = await inlineFileLink.evaluate(element => {
       const style = getComputedStyle(element)
       return {
@@ -552,14 +552,14 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     })
     expect(inlineFileLinkStyle.display).toBe('inline')
     expect(inlineFileLinkStyle.backgroundColor).toBe('rgba(0, 0, 0, 0)')
-    await expect(pane.getByRole('link', { name: 'Pane' }).locator('.code-codex-transcript-file-icon')).toBeVisible()
-    await expect(pane.getByRole('link', { name: 'CreateTableClusteredByTest.java' }).locator('.code-codex-transcript-file-icon')).toBeVisible()
+    await expect(pane.getByRole('link', { name: 'Pane' }).locator('.code-agent-transcript-file-icon')).toBeVisible()
+    await expect(pane.getByRole('link', { name: 'CreateTableClusteredByTest.java' }).locator('.code-agent-transcript-file-icon')).toBeVisible()
     const javaLineLink = pane.getByRole('link', { name: 'TypeChecker.java:149' })
-    await expect(javaLineLink.locator('.code-codex-transcript-file-icon')).toBeVisible()
+    await expect(javaLineLink.locator('.code-agent-transcript-file-icon')).toBeVisible()
     const bareDomainLink = pane.getByRole('link', { name: 'Review 28350655' })
     await expect(bareDomainLink).toHaveAttribute('href', 'https://review.example.test/projects/demo/reviews/28350655')
     await expect(bareDomainLink).toHaveAttribute('target', '_blank')
-    const javaIconMetrics = await javaLineLink.locator('.code-codex-transcript-file-icon').evaluate(element => {
+    const javaIconMetrics = await javaLineLink.locator('.code-agent-transcript-file-icon').evaluate(element => {
       const style = getComputedStyle(element)
       return {
         backgroundColor: style.backgroundColor,
@@ -573,7 +573,7 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
 
     await pane.getByRole('link', { name: 'codex-ecs-cpa-account-onboarding.md' }).click()
     await expect(page.getByTestId('code-search-box')).toHaveCount(0)
-    await expect(page.getByTestId('code-codex-transcript')).toBeVisible()
+    await expect(page.getByTestId('code-agent-transcript')).toBeVisible()
 
     const inlinePathRequest = page.waitForRequest(request => {
       const url = new URL(request.url())
@@ -585,19 +585,19 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     await expect(page.getByTestId('code-file-editor')).toBeVisible()
     await expect(page.locator('.code-file-editor-tab.active')).toContainText('codex-transcript.js')
     await page.getByTestId('code-file-editor-back').click()
-    await expect(pane.getByTestId('code-codex-transcript')).toBeVisible()
+    await expect(pane.getByTestId('code-agent-transcript')).toBeVisible()
 
     const markdownLinkRequest = page.waitForRequest(request => {
       const url = new URL(request.url())
       return url.pathname.endsWith('/api/files/file') &&
-        url.searchParams.get('path') === 'src/components/code/CodexTranscriptPane.tsx'
+        url.searchParams.get('path') === 'src/components/code/AgentTranscriptPane.tsx'
     })
     await pane.getByRole('link', { name: 'Pane' }).click()
     expect((await markdownLinkRequest).url()).toContain('agentId=')
     await expect(page.getByTestId('code-file-editor')).toBeVisible()
-    await expect(page.locator('.code-file-editor-tab.active')).toContainText('CodexTranscriptPane.tsx')
+    await expect(page.locator('.code-file-editor-tab.active')).toContainText('AgentTranscriptPane.tsx')
     await page.getByTestId('code-file-editor-back').click()
-    await expect(pane.getByTestId('code-codex-transcript')).toBeVisible()
+    await expect(pane.getByTestId('code-agent-transcript')).toBeVisible()
 
     const basenameLinkRequest = page.waitForRequest(request => {
       const url = new URL(request.url())
@@ -609,7 +609,7 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     await expect(page.getByTestId('code-file-editor')).toBeVisible()
     await expect(page.locator('.code-file-editor-tab.active')).toContainText('CreateTableClusteredByTest.java')
     await page.getByTestId('code-file-editor-back').click()
-    await expect(pane.getByTestId('code-codex-transcript')).toBeVisible()
+    await expect(pane.getByTestId('code-agent-transcript')).toBeVisible()
 
     const javaLineRequest = page.waitForRequest(request => {
       const url = new URL(request.url())
@@ -622,30 +622,30 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     await expect(page.locator('.code-file-editor-tab.active')).toContainText('TypeChecker.java')
     await expect(page.locator('.code-file-editor-cursor-position')).toContainText('149')
     await page.getByTestId('code-file-editor-back').click()
-    await expect(pane.getByTestId('code-codex-transcript')).toBeVisible()
+    await expect(pane.getByTestId('code-agent-transcript')).toBeVisible()
 
-    const processSummaries = pane.getByTestId('code-codex-transcript-process-summary')
+    const processSummaries = pane.getByTestId('code-agent-transcript-process-summary')
     await expect(processSummaries).toHaveCount(2)
     await expect(processSummaries.first()).toHaveText('Worked for 2m 59s')
     await expect(processSummaries.first()).toHaveAttribute('title', '33 events')
     await expect(processSummaries.nth(1)).toHaveText('Working')
     await expect(processSummaries.nth(1)).toHaveAttribute('title', '1 event')
-    const initialProcessItems = pane.getByTestId('code-codex-transcript-process-item')
+    const initialProcessItems = pane.getByTestId('code-agent-transcript-process-item')
     await expect(initialProcessItems).toHaveCount(1)
     await expect(initialProcessItems).toContainText('Ran npm test')
     await expect(initialProcessItems).not.toContainText('still running')
-    await initialProcessItems.getByTestId('code-codex-transcript-process-item-toggle').click()
+    await initialProcessItems.getByTestId('code-agent-transcript-process-item-toggle').click()
     await expect(initialProcessItems).toContainText('still running')
-    const patchResultCard = pane.getByTestId('code-codex-transcript-result-card')
-    const patchResultSummary = patchResultCard.getByTestId('code-codex-transcript-result-summary')
+    const patchResultCard = pane.getByTestId('code-agent-transcript-result-card')
+    const patchResultSummary = patchResultCard.getByTestId('code-agent-transcript-result-summary')
     await expect(patchResultCard).toHaveCount(1)
     await expect(patchResultSummary).toHaveText('5 files changed+39-11')
     await expect(patchResultSummary).toBeVisible()
     await expect(patchResultCard).not.toContainText('backend/codex-transcript.js')
     await expect(patchResultCard).not.toContainText(projectDir)
     await expect(patchResultCard).not.toContainText('Exit code')
-    const resultCardMetrics = await pane.getByTestId('code-codex-transcript-result-card').evaluate(element => {
-      const summary = element.querySelector('.code-codex-transcript-result-summary')
+    const resultCardMetrics = await pane.getByTestId('code-agent-transcript-result-card').evaluate(element => {
+      const summary = element.querySelector('.code-agent-transcript-result-summary')
       return {
         summaryWeight: summary ? getComputedStyle(summary).fontWeight : '',
         summaryHeight: summary ? getComputedStyle(summary).minHeight : '',
@@ -657,11 +657,11 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     await page.evaluate(() => {
       document.body.dataset.appearance = 'dark'
     })
-    const darkTranscriptMetrics = await pane.getByTestId('code-codex-transcript').evaluate(element => {
-      const userBubble = element.querySelector('.code-codex-transcript-user')
-      const inlineCode = element.querySelector('.code-codex-transcript-assistant code')
-      const blockquote = element.querySelector('.code-codex-transcript-assistant blockquote')
-      const resultSummary = element.querySelector('.code-codex-transcript-result-summary')
+    const darkTranscriptMetrics = await pane.getByTestId('code-agent-transcript').evaluate(element => {
+      const userBubble = element.querySelector('.code-agent-transcript-user')
+      const inlineCode = element.querySelector('.code-agent-transcript-assistant code')
+      const blockquote = element.querySelector('.code-agent-transcript-assistant blockquote')
+      const resultSummary = element.querySelector('.code-agent-transcript-result-summary')
       return {
         userBubbleBackground: userBubble ? getComputedStyle(userBubble).backgroundColor : '',
         userBubbleBorder: userBubble ? getComputedStyle(userBubble).borderTopColor : '',
@@ -689,11 +689,11 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
       const top = await processSummaries.first().evaluate(element => element.getBoundingClientRect().top)
       return Math.abs(top - firstProcessSummaryTop)
     }).toBeLessThanOrEqual(1)
-    await expect(pane.getByTestId('code-codex-transcript-steer')).toContainText('中途补充：重点看 web 端更新。')
-    const steerMetrics = await pane.getByTestId('code-codex-transcript-steer').evaluate(element => {
+    await expect(pane.getByTestId('code-agent-transcript-steer')).toContainText('中途补充：重点看 web 端更新。')
+    const steerMetrics = await pane.getByTestId('code-agent-transcript-steer').evaluate(element => {
       const steer = element.getBoundingClientRect()
-      const pane = element.closest('[data-testid="code-codex-transcript"]')?.getBoundingClientRect()
-      const bubble = element.querySelector('.code-codex-transcript-user')
+      const pane = element.closest('[data-testid="code-agent-transcript"]')?.getBoundingClientRect()
+      const bubble = element.querySelector('.code-agent-transcript-user')
       return {
         alignedRight: Boolean(pane && steer.right > pane.left + pane.width * 0.58),
         background: bubble ? getComputedStyle(bubble).backgroundColor : '',
@@ -701,14 +701,14 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     })
     expect(steerMetrics.alignedRight).toBeTruthy()
     expect(steerMetrics.background).toBe('rgba(31, 35, 40, 0.06)')
-    const processGroups = pane.getByTestId('code-codex-transcript-process-group')
+    const processGroups = pane.getByTestId('code-agent-transcript-process-group')
     await expect(processGroups).toHaveCount(7)
     await expect(processGroups.filter({ hasText: 'Ran 10 actions' })).toHaveCount(1)
     const processGroupCount = await processGroups.count()
     for (let index = 0; index < processGroupCount; index += 1) {
-      await processGroups.nth(index).getByTestId('code-codex-transcript-process-group-toggle').click()
+      await processGroups.nth(index).getByTestId('code-agent-transcript-process-group-toggle').click()
     }
-    const processItems = pane.getByTestId('code-codex-transcript-process-item')
+    const processItems = pane.getByTestId('code-agent-transcript-process-item')
     await expect(processItems).toHaveCount(33)
     await expect(processItems.filter({ hasText: 'Ran rg transcript src backend' })).toBeVisible()
     const summaryBox = await processSummaries.first().boundingBox()
@@ -720,7 +720,7 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
       await page.mouse.up()
       await expect(processSummaries.first()).toHaveAttribute('aria-expanded', 'true')
     }
-    const transcriptScroll = pane.getByTestId('code-codex-transcript-scroll')
+    const transcriptScroll = pane.getByTestId('code-agent-transcript-scroll')
     await transcriptScroll.hover()
     await page.mouse.wheel(0, 620)
     await page.waitForTimeout(3500)
@@ -740,19 +740,19 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
 	    await expect(processItems.filter({ hasText: 'Verified model' })).toHaveAttribute('data-type', 'event')
 	    await expect(processItems.filter({ hasText: 'Safety buffering' })).toHaveAttribute('data-status', 'warning')
 	    await expect(processItems.filter({ hasText: 'Resolved server request' })).toHaveAttribute('data-type', 'event')
-	    await expect(processItems.filter({ hasText: 'Updated plan' }).locator('.code-codex-transcript-plan-list')).toHaveCount(0)
-	    await processItems.filter({ hasText: 'Updated plan' }).getByTestId('code-codex-transcript-process-item-toggle').click()
-	    await expect(processItems.filter({ hasText: 'Updated plan' }).locator('.code-codex-transcript-plan-list')).toBeVisible()
-	    await expect(processItems.filter({ hasText: 'Updated plan' }).locator('.code-codex-transcript-plan-list li.running')).toContainText('implement')
+	    await expect(processItems.filter({ hasText: 'Updated plan' }).locator('.code-agent-transcript-plan-list')).toHaveCount(0)
+	    await processItems.filter({ hasText: 'Updated plan' }).getByTestId('code-agent-transcript-process-item-toggle').click()
+	    await expect(processItems.filter({ hasText: 'Updated plan' }).locator('.code-agent-transcript-plan-list')).toBeVisible()
+	    await expect(processItems.filter({ hasText: 'Updated plan' }).locator('.code-agent-transcript-plan-list li.running')).toContainText('implement')
 	    await expect(processItems.filter({ hasText: 'Agent spawnAgent' })).toHaveAttribute('data-type', 'agent-tool')
 	    await expect(processItems.filter({ hasText: 'interacted worker' })).toHaveAttribute('data-type', 'sub-agent')
 	    await expect(processItems.filter({ hasText: 'Subagent completed' })).toHaveAttribute('data-type', 'subagent')
-	    await processItems.filter({ hasText: 'Subagent completed' }).getByTestId('code-codex-transcript-process-item-toggle').click()
+	    await processItems.filter({ hasText: 'Subagent completed' }).getByTestId('code-agent-transcript-process-item-toggle').click()
 	    await expect(processItems.filter({ hasText: 'Subagent completed' })).toContainText('Completed a focused implementation check.')
 	    await expect(processItems.filter({ hasText: 'Viewed /tmp/screenshot.png' })).toHaveAttribute('data-type', 'image')
 	    const generatedProcessImage = processItems.filter({ hasText: 'Generated image' }).locator('img[alt="Generated image"]')
 	    await expect(generatedProcessImage).toHaveCount(0)
-	    await processItems.filter({ hasText: 'Generated image' }).getByTestId('code-codex-transcript-process-item-toggle').click()
+	    await processItems.filter({ hasText: 'Generated image' }).getByTestId('code-agent-transcript-process-item-toggle').click()
 	    await expect(generatedProcessImage).toBeVisible()
     const generatedProcessImageMetrics = await generatedProcessImage.evaluate(image => ({
       loaded: image instanceof HTMLImageElement ? image.complete && image.naturalWidth > 0 : false,
@@ -766,14 +766,14 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
 	    await expect(processItems.filter({ hasText: 'Entered review mode' })).toHaveAttribute('data-type', 'review')
 	    await expect(processItems.filter({ hasText: 'Error' })).toHaveAttribute('data-status', 'failed')
 	    await expect(processItems.filter({ hasText: 'Tool output' }).locator('text=structured output line')).toHaveCount(0)
-	    await processItems.filter({ hasText: 'Tool output' }).getByTestId('code-codex-transcript-process-item-toggle').click()
+	    await processItems.filter({ hasText: 'Tool output' }).getByTestId('code-agent-transcript-process-item-toggle').click()
 	    await expect(processItems.filter({ hasText: 'structured output line' })).toBeVisible()
     const toolOutputProcessImage = processItems.filter({ hasText: 'Tool output' }).locator('img[alt="Tool output image"]')
     await expect(toolOutputProcessImage).toBeVisible()
     await expect(toolOutputProcessImage).toHaveJSProperty('complete', true)
     const processCopyGeometry = await processItems.filter({ hasText: 'Ran rg transcript src backend' }).evaluate(element => {
-      const title = element.querySelector('.code-codex-transcript-process-title-text')?.getBoundingClientRect()
-      const copy = element.querySelector('.code-codex-transcript-copy')?.getBoundingClientRect()
+      const title = element.querySelector('.code-agent-transcript-process-title-text')?.getBoundingClientRect()
+      const copy = element.querySelector('.code-agent-transcript-copy')?.getBoundingClientRect()
       return title && copy
         ? {
             horizontalGap: copy.left - title.right,
@@ -791,7 +791,7 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
       await page.screenshot({ path: expandedScreenshotPath, fullPage: true })
     }
 
-    await pane.getByTestId('code-codex-transcript-scroll').evaluate(element => {
+    await pane.getByTestId('code-agent-transcript-scroll').evaluate(element => {
       element.scrollTop = element.scrollHeight
     })
     await expect(pane.getByText('Codex is still working...')).toBeInViewport()
@@ -803,7 +803,7 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
 
     await modeToggle.getByRole('button', { name: 'Terminal' }).click()
     await expect(modeToggle.getByRole('button', { name: 'Terminal' })).toHaveAttribute('aria-pressed', 'true')
-    await expect(pane.getByTestId('code-codex-transcript')).toHaveCount(0)
+    await expect(pane.getByTestId('code-agent-transcript')).toHaveCount(0)
     await expect(pane.getByTestId('code-terminal-container')).toBeVisible()
     await expect.poll(async () => {
       const rows = await page.evaluate(id => window.__farmingTerminalTest?.getRows(id, 20) ?? [], agentId)
@@ -815,12 +815,12 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     expect(terminalBox?.height ?? 0).toBeGreaterThan(200)
 
     await modeToggle.getByRole('button', { name: 'Chat' }).click()
-    await expect(pane.getByTestId('code-codex-transcript')).toBeVisible()
-    await expect.poll(async () => pane.getByTestId('code-codex-transcript-scroll').evaluate(element => element.scrollTop), { timeout: 5_000 }).toBeGreaterThan(100)
-    const reviewCard = pane.getByTestId('code-codex-transcript-result-card')
+    await expect(pane.getByTestId('code-agent-transcript')).toBeVisible()
+    await expect.poll(async () => pane.getByTestId('code-agent-transcript-scroll').evaluate(element => element.scrollTop), { timeout: 5_000 }).toBeGreaterThan(100)
+    const reviewCard = pane.getByTestId('code-agent-transcript-result-card')
     await reviewCard.scrollIntoViewIfNeeded()
     const reviewPagePromise = page.waitForEvent('popup')
-    await reviewCard.getByTestId('code-codex-transcript-result-summary').click()
+    await reviewCard.getByTestId('code-agent-transcript-result-summary').click()
     const reviewPage = await reviewPagePromise
     await expect.poll(() => new URL(reviewPage.url()).pathname).toBe('/farming/review')
     expect(new URL(reviewPage.url()).searchParams.get('root')).toBe(projectDir)
@@ -857,8 +857,8 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     const pane = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${agentId}"]`)
     const modeToggle = pane.getByTestId('code-terminal-mode-toggle')
     await expect(modeToggle.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true')
-    await expect(pane.getByTestId('code-codex-transcript')).toBeVisible()
-    const emptyState = pane.locator('.code-codex-transcript-blank')
+    await expect(pane.getByTestId('code-agent-transcript')).toBeVisible()
+    const emptyState = pane.locator('.code-agent-transcript-blank')
     await expect(emptyState).toBeVisible()
     await expect(emptyState).toHaveText('No conversation yet.')
     await expect(emptyState).toHaveAttribute('role', 'status')
@@ -938,7 +938,7 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     await expect(page.locator('[data-testid="code-files-section"][data-project-id="__farming_global_files_project__"]')).toBeVisible()
     await expect(page.getByText('outside workspace document')).toBeVisible()
     await page.getByTestId('code-file-editor-back').click()
-    await expect(pane.getByTestId('code-codex-transcript')).toBeVisible()
+    await expect(pane.getByTestId('code-agent-transcript')).toBeVisible()
 
     const rootRelativeExternalPath = externalFilePath.replace(/^\/+/, '')
     const externalFileRequest = page.waitForRequest(request => {
@@ -1002,10 +1002,10 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     await agentRow.click()
 
     const pane = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${agentId}"]`)
-    await expect(pane.getByTestId('code-codex-transcript-result-summary')).toHaveText('1 file changed+1-1')
+    await expect(pane.getByTestId('code-agent-transcript-result-summary')).toHaveText('1 file changed+1-1')
 
     const reviewPagePromise = page.waitForEvent('popup')
-    await pane.getByTestId('code-codex-transcript-result-summary').click()
+    await pane.getByTestId('code-agent-transcript-result-summary').click()
     const reviewPage = await reviewPagePromise
     await expect.poll(() => new URL(reviewPage.url()).pathname).toBe('/farming/review')
     expect(new URL(reviewPage.url()).searchParams.get('root')).toBe(projectDir)
@@ -1056,10 +1056,10 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     await agentRow.click()
 
     const pane = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${agentId}"]`)
-    const transcriptScroll = pane.getByTestId('code-codex-transcript-scroll')
+    const transcriptScroll = pane.getByTestId('code-agent-transcript-scroll')
     await expect(transcriptScroll).toContainText('历史问题 40')
     await expect(transcriptScroll).not.toContainText('历史问题 0')
-    await expect(pane.locator('.code-codex-transcript-turn')).toHaveCount(80)
+    await expect(pane.locator('.code-agent-transcript-turn')).toHaveCount(80)
     await transcriptScroll.evaluate(element => {
       element.scrollTop = element.scrollHeight
     })
@@ -1067,11 +1067,11 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
       element.scrollTop = Math.max(0, element.scrollTop - 260)
       element.dispatchEvent(new Event('scroll', { bubbles: true }))
     })
-    await expect(pane.getByTestId('code-codex-transcript-jump-bottom')).toBeVisible()
-    await pane.getByTestId('code-codex-transcript-jump-bottom').click()
+    await expect(pane.getByTestId('code-agent-transcript-jump-bottom')).toBeVisible()
+    await pane.getByTestId('code-agent-transcript-jump-bottom').click()
     await expect.poll(async () => transcriptScroll.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop), { timeout: 5_000 })
       .toBeLessThanOrEqual(120)
-    await expect(pane.getByTestId('code-codex-transcript-jump-bottom')).toHaveCount(0)
+    await expect(pane.getByTestId('code-agent-transcript-jump-bottom')).toHaveCount(0)
 
     await transcriptScroll.evaluate(element => {
       element.scrollTop = 0
@@ -1081,7 +1081,7 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
 
     await expect.poll(() => requestedLimits.some(limit => limit >= 160), { timeout: 5_000 }).toBeTruthy()
     await expect(transcriptScroll).toContainText('历史问题 0')
-    await expect(pane.locator('.code-codex-transcript-turn')).toHaveCount(120)
+    await expect(pane.locator('.code-agent-transcript-turn')).toHaveCount(120)
     await expect.poll(async () => transcriptScroll.evaluate(element => element.scrollTop), { timeout: 5_000 })
       .toBeGreaterThan(0)
   })
@@ -1126,7 +1126,7 @@ test.describe.skip('Legacy Codex JSONL transcript view', () => {
     const pane = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${agentId}"]`)
     const modeToggle = pane.getByTestId('code-terminal-mode-toggle')
     await expect(modeToggle.getByRole('button', { name: 'Terminal' })).toHaveAttribute('aria-pressed', 'true')
-    await expect(pane.getByTestId('code-codex-transcript')).toHaveCount(0)
+    await expect(pane.getByTestId('code-agent-transcript')).toHaveCount(0)
     await expect(pane.getByTestId('code-terminal-container')).toBeVisible()
   })
 

@@ -38,28 +38,28 @@ import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivityLabel, acpPlan
 import { AcpEmbeddedTerminal } from './acp/AcpEmbeddedTerminal'
 import {
   projectAcpTranscript,
-  type CodexTranscript,
-  type CodexTranscriptAudio,
-  type CodexTranscriptPatchChange,
-  type CodexTranscriptProcessItem,
-  type CodexTranscriptTerminal,
-  type CodexTranscriptTurn,
-  type CodexTranscriptUserFile,
-  type CodexTranscriptUserImage,
+  type AgentTranscript,
+  type AgentTranscriptAudio,
+  type AgentTranscriptPatchChange,
+  type AgentTranscriptProcessItem,
+  type AgentTranscriptTerminal,
+  type AgentTranscriptTurn,
+  type AgentTranscriptUserFile,
+  type AgentTranscriptUserImage,
 } from './acp/acp-entry-projection'
 import { acpActionGroupLabel, isAcpProgressUpdate } from './acp/acp-progress-timeline'
 import { terminalTargetFilePath } from './workspace-file-view'
 import 'katex/dist/katex.min.css'
 
-interface CodexTranscriptProcessPresentation {
+interface AgentTranscriptProcessPresentation {
   detail: string
-  terminals?: CodexTranscriptTerminal[]
-  subagentTranscript?: CodexTranscript
+  terminals?: AgentTranscriptTerminal[]
+  subagentTranscript?: AgentTranscript
 }
 
 function completedTranscriptTurnUnchanged(
-  current: CodexTranscriptTurn,
-  next: CodexTranscriptTurn,
+  current: AgentTranscriptTurn,
+  next: AgentTranscriptTurn,
 ) {
   const currentLastItem = current.processItems[current.processItems.length - 1]
   const nextLastItem = next.processItems[next.processItems.length - 1]
@@ -84,8 +84,8 @@ function completedTranscriptTurnUnchanged(
   }
 
 function preserveCompletedTranscriptTurns(
-  current: CodexTranscript | null,
-  next: CodexTranscript | null,
+  current: AgentTranscript | null,
+  next: AgentTranscript | null,
 ) {
   if (!current || !next || current.sessionId !== next.sessionId) return next
   const completedTurns = new Map(
@@ -105,8 +105,8 @@ function preserveCompletedTranscriptTurns(
 }
 
 function mergeAcpTranscript(
-  current: CodexTranscript | null,
-  next: CodexTranscript | null,
+  current: AgentTranscript | null,
+  next: AgentTranscript | null,
 ) {
   if (!next?.delta) return preserveCompletedTranscriptTurns(current, next)
   if (!current || current.sessionId !== next.sessionId) return next
@@ -143,7 +143,7 @@ function mergeAcpTranscript(
   })
 }
 
-export interface CodexTranscriptPaneProps {
+export interface AgentTranscriptPaneProps {
   agentId: string
   workspaceRoot?: string
   active: boolean
@@ -221,7 +221,7 @@ const INITIAL_ACP_TRANSCRIPT_TURN_LIMIT = 20
 const ACP_TRANSCRIPT_TURN_PAGE_SIZE = 20
 const MAX_TRANSCRIPT_TURN_LIMIT = 1000
 
-function initialTranscriptTurnLimit(source: CodexTranscriptPaneProps['source']) {
+function initialTranscriptTurnLimit(source: AgentTranscriptPaneProps['source']) {
   return source === 'acp'
     ? INITIAL_ACP_TRANSCRIPT_TURN_LIMIT
     : INITIAL_TRANSCRIPT_TURN_LIMIT
@@ -251,40 +251,40 @@ function elapsedDurationLabel(startedAt: number | null | undefined) {
 
 function acpActivityLabels(copy: CodeCopy): Record<AcpActivityKind, string> {
   return {
-    thinking: copy.codexTranscriptThinking,
-    running: copy.codexTranscriptRunning,
-    reading: copy.codexTranscriptReading,
-    searching: copy.codexTranscriptSearching,
-    editing: copy.codexTranscriptEditing,
-    plan: copy.codexTranscriptPlanActive,
-    fetching: copy.codexTranscriptFetching,
-    tool: copy.codexTranscriptUsingTool,
-    processing: copy.codexTranscriptWorking,
+    thinking: copy.agentTranscriptThinking,
+    running: copy.agentTranscriptRunning,
+    reading: copy.agentTranscriptReading,
+    searching: copy.agentTranscriptSearching,
+    editing: copy.agentTranscriptEditing,
+    plan: copy.agentTranscriptPlanActive,
+    fetching: copy.agentTranscriptFetching,
+    tool: copy.agentTranscriptUsingTool,
+    processing: copy.agentTranscriptWorking,
   }
 }
 
-function acpActivityLabel(turn: CodexTranscriptTurn, copy: CodeCopy) {
+function acpActivityLabel(turn: AgentTranscriptTurn, copy: CodeCopy) {
   return acpActivityLabels(copy)[acpActivityKind(turn.processItems)]
 }
 
-function acpLiveToolLabel(turn: CodexTranscriptTurn, copy: CodeCopy) {
+function acpLiveToolLabel(turn: AgentTranscriptTurn, copy: CodeCopy) {
   return acpLiveToolActivityLabel(turn.processItems, acpActivityLabels(copy))
 }
 
-function acpPlanLabel(turn: CodexTranscriptTurn, copy: CodeCopy) {
+function acpPlanLabel(turn: AgentTranscriptTurn, copy: CodeCopy) {
   const progress = acpPlanProgress(turn.processItems)
   if (!progress) return ''
   const currentStepLabel = acpCompactPlanLabel(turn.processItems)
   if (currentStepLabel) return currentStepLabel
   return progress.total <= 99
-    ? copy.codexTranscriptPlanProgress(progress.completed, progress.total)
-    : copy.codexTranscriptPlanActive
+    ? copy.agentTranscriptPlanProgress(progress.completed, progress.total)
+    : copy.agentTranscriptPlanActive
 }
 
 function turnProcessLabel(
-  turn: CodexTranscriptTurn,
+  turn: AgentTranscriptTurn,
   copy: CodeCopy,
-  workingLabel = copy.codexTranscriptWorking,
+  workingLabel = copy.agentTranscriptWorking,
   planLabel = '',
 ) {
   const duration = durationLabel(turn.durationMs)
@@ -293,15 +293,15 @@ function turnProcessLabel(
     : undefined
   if (errorItem?.title) return errorItem.title
   return duration
-    ? copy.codexTranscriptWorkedFor(duration)
+    ? copy.agentTranscriptWorkedFor(duration)
     : turn.status === 'inProgress'
       ? planLabel || workingLabel
-      : copy.codexTranscriptProcess
+      : copy.agentTranscriptProcess
 }
 
-function turnProcessTitle(turn: CodexTranscriptTurn, copy: CodeCopy) {
+function turnProcessTitle(turn: AgentTranscriptTurn, copy: CodeCopy) {
   if (turn.processItems.length <= 0) return undefined
-  return copy.codexTranscriptProcessCount(turn.processItems.length)
+  return copy.agentTranscriptProcessCount(turn.processItems.length)
 }
 
 function plainTextBlock(text: string) {
@@ -535,7 +535,7 @@ function isMermaidCodeBlock(children: ReactNode) {
   return codeBlockSource(props.children)
 }
 
-function codexTranscriptUrlTransform(value: string, key: string) {
+function agentTranscriptUrlTransform(value: string, key: string) {
   if (key === 'src' && /^data:image\/(?:png|gif|jpe?g|webp|svg\+xml);base64,/i.test(value)) {
     return value
   }
@@ -548,10 +548,10 @@ function codexTranscriptUrlTransform(value: string, key: string) {
   return defaultUrlTransform(value)
 }
 
-function CodexTranscriptUserImages({ images }: { images: CodexTranscriptUserImage[] }) {
+function AgentTranscriptUserImages({ images }: { images: AgentTranscriptUserImage[] }) {
   if (images.length <= 0) return null
   return (
-    <div className="code-codex-transcript-user-images" data-testid="code-codex-transcript-user-images">
+    <div className="code-agent-transcript-user-images" data-testid="code-agent-transcript-user-images">
       {images.map(image => (
         <img
           key={image.id}
@@ -565,7 +565,7 @@ function CodexTranscriptUserImages({ images }: { images: CodexTranscriptUserImag
   )
 }
 
-function userFileMeta(file: CodexTranscriptUserFile) {
+function userFileMeta(file: AgentTranscriptUserFile) {
   if (file.error) return file.error
   if (file.resourceKind === 'link') return file.mimeType || 'Resource link'
   const content = file.content || ''
@@ -586,34 +586,34 @@ function safeResourceHref(uri?: string) {
   }
 }
 
-function CodexTranscriptUserFiles({ files }: { files: CodexTranscriptUserFile[] }) {
+function AgentTranscriptUserFiles({ files }: { files: AgentTranscriptUserFile[] }) {
   if (files.length <= 0) return null
   return (
-    <div className="code-codex-transcript-user-files" data-testid="code-codex-transcript-user-files">
+    <div className="code-agent-transcript-user-files" data-testid="code-agent-transcript-user-files">
       {files.map(file => {
         const content = file.content || ''
         const hasContent = Boolean(content)
         const resourceHref = file.resourceKind === 'link' ? safeResourceHref(file.uri) : ''
         if (file.resourceKind === 'link') {
           return (
-            <div key={file.id} className="code-codex-transcript-user-file code-codex-transcript-resource-link">
+            <div key={file.id} className="code-agent-transcript-user-file code-agent-transcript-resource-link">
               <TranscriptFileIcon filePath={file.name} />
               {resourceHref ? (
                 <a href={resourceHref} target="_blank" rel="noreferrer" title={file.uri}>{file.name}</a>
               ) : <span title={file.uri}>{file.name}</span>}
-              <span className="code-codex-transcript-user-file-meta">{userFileMeta(file)}</span>
+              <span className="code-agent-transcript-user-file-meta">{userFileMeta(file)}</span>
             </div>
           )
         }
         return (
-          <details key={file.id} className={`code-codex-transcript-user-file ${file.error ? 'error' : ''}`}>
+          <details key={file.id} className={`code-agent-transcript-user-file ${file.error ? 'error' : ''}`}>
             <summary>
               <TranscriptFileIcon filePath={file.name} />
-              <span className="code-codex-transcript-user-file-name" title={file.name}>{file.name}</span>
-              <span className="code-codex-transcript-user-file-meta">{userFileMeta(file)}</span>
+              <span className="code-agent-transcript-user-file-name" title={file.name}>{file.name}</span>
+              <span className="code-agent-transcript-user-file-meta">{userFileMeta(file)}</span>
             </summary>
             {file.error ? (
-              <div className="code-codex-transcript-user-file-error">{file.error}</div>
+              <div className="code-agent-transcript-user-file-error">{file.error}</div>
             ) : hasContent ? (
               <pre>{content}</pre>
             ) : null}
@@ -628,7 +628,7 @@ function TranscriptFileIcon({ filePath }: { filePath: string }) {
   const iconUrl = iconForFilePath(filePath)
   return (
     <span
-      className="code-codex-transcript-file-icon"
+      className="code-agent-transcript-file-icon"
       style={{
         WebkitMaskImage: `url("${iconUrl}")`,
         maskImage: `url("${iconUrl}")`,
@@ -652,15 +652,15 @@ function TranscriptFileLinkLabel({
   return (
     <span title={location}>
       <TranscriptFileIcon filePath={filePath} />
-      <span className="code-codex-transcript-file-label">{label}</span>
+      <span className="code-agent-transcript-file-label">{label}</span>
     </span>
   )
 }
 
-function CodexTranscriptProcessImages({ images }: { images: CodexTranscriptUserImage[] }) {
+function AgentTranscriptProcessImages({ images }: { images: AgentTranscriptUserImage[] }) {
   if (images.length <= 0) return null
   return (
-    <div className="code-codex-transcript-process-images" data-testid="code-codex-transcript-process-images">
+    <div className="code-agent-transcript-process-images" data-testid="code-agent-transcript-process-images">
       {images.map(image => (
         <img
           key={image.id}
@@ -674,10 +674,10 @@ function CodexTranscriptProcessImages({ images }: { images: CodexTranscriptUserI
   )
 }
 
-function CodexTranscriptResultImages({ images }: { images: CodexTranscriptUserImage[] }) {
+function AgentTranscriptResultImages({ images }: { images: AgentTranscriptUserImage[] }) {
   if (images.length <= 0) return null
   return (
-    <div className="code-codex-transcript-result-images" data-testid="code-codex-transcript-result-images">
+    <div className="code-agent-transcript-result-images" data-testid="code-agent-transcript-result-images">
       {images.map(image => (
         <img
           key={image.id}
@@ -691,10 +691,10 @@ function CodexTranscriptResultImages({ images }: { images: CodexTranscriptUserIm
   )
 }
 
-function CodexTranscriptAudios({ audios }: { audios: CodexTranscriptAudio[] }) {
+function AgentTranscriptAudios({ audios }: { audios: AgentTranscriptAudio[] }) {
   if (audios.length <= 0) return null
   return (
-    <div className="code-codex-transcript-audios" data-testid="code-codex-transcript-audios">
+    <div className="code-agent-transcript-audios" data-testid="code-agent-transcript-audios">
       {audios.map(audio => (
         <figure key={audio.id}>
           {audio.name ? <figcaption>{audio.name}</figcaption> : null}
@@ -707,7 +707,7 @@ function CodexTranscriptAudios({ audios }: { audios: CodexTranscriptAudio[] }) {
   )
 }
 
-function terminalCommandLabel(terminal: CodexTranscriptTerminal) {
+function terminalCommandLabel(terminal: AgentTranscriptTerminal) {
   const command = String(terminal.terminal?.command || '').trim()
   const args = Array.isArray(terminal.terminal?.args) ? terminal.terminal.args : []
   return [command, ...args].filter(Boolean).join(' ') || terminal.terminalId
@@ -719,14 +719,14 @@ function terminalDurationLabel(durationMs?: number) {
   return `${(Number(durationMs) / 1_000).toFixed(Number(durationMs) < 10_000 ? 1 : 0)}s`
 }
 
-function terminalExitLabel(terminal: CodexTranscriptTerminal) {
+function terminalExitLabel(terminal: AgentTranscriptTerminal) {
   const exit = terminal.terminal?.exitStatus
   if (exit?.signal) return exit.signal
   if (Number.isInteger(exit?.exitCode)) return `Exit ${exit?.exitCode}`
   return terminal.terminal?.released ? 'Released' : ''
 }
 
-function detailDuplicatesTerminalOutcome(detail: string, terminals: CodexTranscriptTerminal[]) {
+function detailDuplicatesTerminalOutcome(detail: string, terminals: AgentTranscriptTerminal[]) {
   if (!detail.startsWith('Output\n') || detail.includes('\n\n')) return false
   let output: unknown
   try {
@@ -746,14 +746,14 @@ function detailDuplicatesTerminalOutcome(detail: string, terminals: CodexTranscr
   })
 }
 
-function CodexTranscriptTerminals({
+function AgentTranscriptTerminals({
   terminals,
   terminalStateFinal = false,
   onStop,
   onInput,
   onResize,
 }: {
-  terminals: CodexTranscriptTerminal[]
+  terminals: AgentTranscriptTerminal[]
   terminalStateFinal?: boolean
   onStop?: (terminalId: string) => Promise<void>
   onInput?: (terminalId: string, input: string) => Promise<void>
@@ -764,21 +764,21 @@ function CodexTranscriptTerminals({
   const [stopError, setStopError] = useState('')
   if (terminals.length <= 0) return null
   return (
-    <div className="code-codex-transcript-terminals" data-testid="code-codex-transcript-terminals">
+    <div className="code-agent-transcript-terminals" data-testid="code-agent-transcript-terminals">
       {terminals.map(terminal => {
         const command = terminalCommandLabel(terminal)
         const duration = terminalDurationLabel(terminal.terminal?.durationMs)
         const exit = terminalExitLabel(terminal)
         const output = terminal.terminal?.output || ''
         return (
-          <section key={terminal.terminalId} className="code-codex-transcript-terminal">
+          <section key={terminal.terminalId} className="code-agent-transcript-terminal">
             <header>
               <code title={command}>{command}</code>
-              <div className="code-codex-transcript-terminal-actions">
+              <div className="code-agent-transcript-terminal-actions">
                 {!terminalStateFinal && !terminal.terminal?.exitStatus && !terminal.terminal?.released && onStop ? (
                   <button
                     type="button"
-                    className="code-codex-transcript-terminal-stop"
+                    className="code-agent-transcript-terminal-stop"
                     data-testid="code-acp-terminal-stop"
                     aria-label="Stop command"
                     title="Stop command"
@@ -797,7 +797,7 @@ function CodexTranscriptTerminals({
                 {output ? (
                   <button
                     type="button"
-                    className="code-codex-transcript-terminal-copy"
+                    className="code-agent-transcript-terminal-copy"
                     aria-label={copiedTerminalId === terminal.terminalId ? 'Copied terminal output' : 'Copy terminal output'}
                     title={copiedTerminalId === terminal.terminalId ? 'Copied' : 'Copy output'}
                     onClick={() => {
@@ -814,7 +814,7 @@ function CodexTranscriptTerminals({
               </div>
             </header>
             {(terminal.terminal?.cwd || duration || exit || terminal.terminal?.truncated) ? (
-              <div className="code-codex-transcript-terminal-meta">
+              <div className="code-agent-transcript-terminal-meta">
                 {terminal.terminal?.cwd ? <span title={terminal.terminal.cwd}>{terminal.terminal.cwd}</span> : null}
                 {duration ? <span>{duration}</span> : null}
                 {exit ? <span>{exit}</span> : null}
@@ -834,7 +834,7 @@ function CodexTranscriptTerminals({
               onInput={onInput ? input => onInput(terminal.terminalId, input) : undefined}
               onResize={onResize ? (cols, rows) => onResize(terminal.terminalId, cols, rows) : undefined}
             />
-            {stopError ? <div className="code-codex-transcript-terminal-error" role="alert">{stopError}</div> : null}
+            {stopError ? <div className="code-agent-transcript-terminal-error" role="alert">{stopError}</div> : null}
           </section>
         )
       })}
@@ -842,7 +842,7 @@ function CodexTranscriptTerminals({
   )
 }
 
-function CodexTranscriptSubagentAction({ item }: { item: CodexTranscriptProcessItem }) {
+function AgentTranscriptSubagentAction({ item }: { item: AgentTranscriptProcessItem }) {
   const detail = String(item.detail || '').trim()
   const changes = item.changes || []
   const expandable = Boolean(detail || changes.length > 0)
@@ -852,9 +852,9 @@ function CodexTranscriptSubagentAction({ item }: { item: CodexTranscriptProcessI
       {shouldShowStatus(item.status) ? <small>{item.status}</small> : null}
     </>
   )
-  if (!expandable) return <div className="code-codex-transcript-subagent-action static">{label}</div>
+  if (!expandable) return <div className="code-agent-transcript-subagent-action static">{label}</div>
   return (
-    <details className="code-codex-transcript-subagent-action" data-testid="code-codex-transcript-subagent-action">
+    <details className="code-agent-transcript-subagent-action" data-testid="code-agent-transcript-subagent-action">
       <summary>{label}<ChevronRightGlyph /></summary>
       {detail ? <div className="detail">{plainTextBlock(detail)}</div> : null}
       {changes.length > 0 ? (
@@ -871,11 +871,11 @@ function CodexTranscriptSubagentAction({ item }: { item: CodexTranscriptProcessI
   )
 }
 
-function CodexTranscriptSubagentPreview({
+function AgentTranscriptSubagentPreview({
   transcript,
   onStop,
 }: {
-  transcript: CodexTranscript
+  transcript: AgentTranscript
   onStop?: () => Promise<void>
 }) {
   const active = ['working', 'waiting-for-permission', 'waiting-for-input', 'interrupting'].includes(transcript.state || '')
@@ -893,14 +893,14 @@ function CodexTranscriptSubagentPreview({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [fullscreen])
   const entries = (
-    <div className="code-codex-transcript-subagent-entries">
+    <div className="code-agent-transcript-subagent-entries">
       {transcript.turns.map(turn => (
-        <div className="code-codex-transcript-subagent-turn" key={turn.id}>
+        <div className="code-agent-transcript-subagent-turn" key={turn.id}>
           {turn.userMessage ? <div className="user">{plainTextBlock(turn.userMessage)}</div> : null}
           {turn.processItems.length > 0 ? (
-            <div className="actions">{turn.processItems.map(item => <CodexTranscriptSubagentAction item={item} key={item.id} />)}</div>
+            <div className="actions">{turn.processItems.map(item => <AgentTranscriptSubagentAction item={item} key={item.id} />)}</div>
           ) : null}
-          <CodexTranscriptResultImages images={turn.resultImages || []} />
+          <AgentTranscriptResultImages images={turn.resultImages || []} />
           {turn.finalMessage ? <div className="assistant">{plainTextBlock(turn.finalMessage)}</div> : null}
         </div>
       ))}
@@ -910,15 +910,15 @@ function CodexTranscriptSubagentPreview({
   const header = (
     <header>
       <span>{transcript.title || 'Subagent'}</span>
-      <span className="code-codex-transcript-subagent-meta" title={transcript.sessionId}>
+      <span className="code-agent-transcript-subagent-meta" title={transcript.sessionId}>
         {transcript.turns.length} {transcript.turns.length === 1 ? 'turn' : 'turns'}
         {actionCount > 0 ? ` · ${actionCount} ${actionCount === 1 ? 'action' : 'actions'}` : ''}
       </span>
-      <span className={`code-codex-transcript-subagent-status ${transcript.error ? 'error' : active ? 'active' : ''}`}>{status}</span>
+      <span className={`code-agent-transcript-subagent-status ${transcript.error ? 'error' : active ? 'active' : ''}`}>{status}</span>
       {active && onStop ? (
         <button
           type="button"
-          className="code-codex-transcript-subagent-control stop"
+          className="code-agent-transcript-subagent-control stop"
           data-testid="code-acp-subagent-stop"
           aria-label="Stop subagent"
           title="Stop subagent"
@@ -936,7 +936,7 @@ function CodexTranscriptSubagentPreview({
       ) : null}
       <button
         type="button"
-        className="code-codex-transcript-subagent-control"
+        className="code-agent-transcript-subagent-control"
         data-testid="code-acp-subagent-fullscreen"
         aria-label={fullscreen ? 'Close subagent details' : 'Open subagent details'}
         title={fullscreen ? 'Close details' : 'Open details'}
@@ -947,10 +947,10 @@ function CodexTranscriptSubagentPreview({
     </header>
   )
   const preview = (
-    <section className="code-codex-transcript-subagent" data-testid="code-codex-transcript-subagent">
+    <section className="code-agent-transcript-subagent" data-testid="code-agent-transcript-subagent">
       {header}
-      {transcript.error ? <div className="code-codex-transcript-subagent-error" role="status">{transcript.error}</div> : null}
-      {stopError ? <div className="code-codex-transcript-subagent-error" role="alert">{stopError}</div> : null}
+      {transcript.error ? <div className="code-agent-transcript-subagent-error" role="status">{transcript.error}</div> : null}
+      {stopError ? <div className="code-agent-transcript-subagent-error" role="alert">{stopError}</div> : null}
       {entries}
     </section>
   )
@@ -958,11 +958,11 @@ function CodexTranscriptSubagentPreview({
     <>
       {preview}
       {fullscreen ? (
-        <div className="code-codex-transcript-subagent-overlay" role="dialog" aria-modal="true" aria-label="Subagent details">
-          <div className="code-codex-transcript-subagent-dialog">
+        <div className="code-agent-transcript-subagent-overlay" role="dialog" aria-modal="true" aria-label="Subagent details">
+          <div className="code-agent-transcript-subagent-dialog">
             {header}
-            {transcript.error ? <div className="code-codex-transcript-subagent-error" role="status">{transcript.error}</div> : null}
-            {stopError ? <div className="code-codex-transcript-subagent-error" role="alert">{stopError}</div> : null}
+            {transcript.error ? <div className="code-agent-transcript-subagent-error" role="status">{transcript.error}</div> : null}
+            {stopError ? <div className="code-agent-transcript-subagent-error" role="alert">{stopError}</div> : null}
             {entries}
           </div>
         </div>
@@ -972,12 +972,12 @@ function CodexTranscriptSubagentPreview({
 }
 
 
-function processItemClassName(item: CodexTranscriptProcessItem) {
+function processItemClassName(item: AgentTranscriptProcessItem) {
   const type = item.type.replace(/[^a-z0-9_-]/gi, '').toLowerCase() || 'event'
   const status = isProcessItemRunning(item)
     ? 'running'
     : (item.status || '').replace(/[^a-z0-9_-]/gi, '').toLowerCase()
-  return ['code-codex-transcript-process-item', type, status ? `status-${status}` : '']
+  return ['code-agent-transcript-process-item', type, status ? `status-${status}` : '']
     .filter(Boolean)
     .join(' ')
 }
@@ -987,7 +987,7 @@ function shouldShowStatus(status?: string) {
   return !!normalized && normalized !== 'completed' && normalized !== 'success'
 }
 
-function isProcessItemRunning(item: CodexTranscriptProcessItem) {
+function isProcessItemRunning(item: AgentTranscriptProcessItem) {
   const normalized = String(item.status || '').trim().replace(/[_-]/g, '').toLowerCase()
   return [
     'running',
@@ -998,7 +998,7 @@ function isProcessItemRunning(item: CodexTranscriptProcessItem) {
   ].includes(normalized)
 }
 
-function isProcessItemFailed(item: CodexTranscriptProcessItem) {
+function isProcessItemFailed(item: AgentTranscriptProcessItem) {
   return ['failed', 'rejected', 'cancelled', 'canceled'].includes(
     String(item.status || '').trim().toLowerCase(),
   ) || item.type === 'error'
@@ -1036,7 +1036,7 @@ function planDetailItems(detail: string) {
   return parsed as Array<{ status: 'completed' | 'running' | 'pending'; text: string }>
 }
 
-function shouldRenderDetailAsProse(item: CodexTranscriptProcessItem) {
+function shouldRenderDetailAsProse(item: AgentTranscriptProcessItem) {
   return [
     'message',
     'agent-message',
@@ -1053,21 +1053,21 @@ function shouldRenderDetailAsProse(item: CodexTranscriptProcessItem) {
   ].includes(item.type)
 }
 
-function isNarrativeProcessItem(item: CodexTranscriptProcessItem) {
+function isNarrativeProcessItem(item: AgentTranscriptProcessItem) {
   return shouldRenderDetailAsProse(item) || item.type === 'plan' || item.type === 'user-steer'
 }
 
-function isCommandLikeProcessItem(item: CodexTranscriptProcessItem) {
+function isCommandLikeProcessItem(item: AgentTranscriptProcessItem) {
   return !isNarrativeProcessItem(item)
 }
 
 type ProcessEntry =
-  | { kind: 'item'; item: CodexTranscriptProcessItem }
-  | { kind: 'group'; id: string; items: CodexTranscriptProcessItem[] }
+  | { kind: 'item'; item: AgentTranscriptProcessItem }
+  | { kind: 'group'; id: string; items: AgentTranscriptProcessItem[] }
 
-function processEntriesForTurn(items: CodexTranscriptProcessItem[]) {
+function processEntriesForTurn(items: AgentTranscriptProcessItem[]) {
   const entries: ProcessEntry[] = []
-  let group: CodexTranscriptProcessItem[] = []
+  let group: AgentTranscriptProcessItem[] = []
   const flushGroup = () => {
     if (group.length > 0) entries.push({ kind: 'group', id: `group:${group[0]?.id || ''}`, items: group })
     group = []
@@ -1086,7 +1086,7 @@ function processEntriesForTurn(items: CodexTranscriptProcessItem[]) {
 
 const COMPACT_PROCESS_ACTION_LIMIT = 4
 
-function compactProcessEntries(entries: ProcessEntry[], turnStatus: CodexTranscriptTurn['status']) {
+function compactProcessEntries(entries: ProcessEntry[], turnStatus: AgentTranscriptTurn['status']) {
   const eligible = turnStatus === 'inProgress'
     ? entries.flatMap(entry => (
         entry.kind === 'group'
@@ -1107,12 +1107,12 @@ function compactProcessEntries(entries: ProcessEntry[], turnStatus: CodexTranscr
   return { items, hiddenActionCount: eligible.length - items.length }
 }
 
-function compactAcpActionLabel(item: CodexTranscriptProcessItem, copy: CodeCopy) {
-  if (isProcessItemFailed(item)) return copy.codexTranscriptActionFailed(item.title)
+function compactAcpActionLabel(item: AgentTranscriptProcessItem, copy: CodeCopy) {
+  if (isProcessItemFailed(item)) return copy.agentTranscriptActionFailed(item.title)
   return item.title
 }
 
-function processGroupLabel(items: CodexTranscriptProcessItem[]) {
+function processGroupLabel(items: AgentTranscriptProcessItem[]) {
   const failedCount = items.filter(item => ['failed', 'rejected', 'cancelled', 'canceled'].includes(String(item.status || '').toLowerCase())).length
   if (failedCount > 0) return failedCount === 1 ? 'Action failed' : `${failedCount} actions failed`
   const counts = items.reduce<Record<string, number>>((acc, item) => {
@@ -1141,7 +1141,7 @@ function processGroupLabel(items: CodexTranscriptProcessItem[]) {
   return `Completed ${items.length} actions`
 }
 
-function hasExpandableProcessItemContent(item: CodexTranscriptProcessItem, detail: string, planItems: ReturnType<typeof planDetailItems>) {
+function hasExpandableProcessItemContent(item: AgentTranscriptProcessItem, detail: string, planItems: ReturnType<typeof planDetailItems>) {
   return Boolean(
     detail
     || planItems
@@ -1156,15 +1156,15 @@ function hasExpandableProcessItemContent(item: CodexTranscriptProcessItem, detai
   )
 }
 
-function isPatchResultItem(item: CodexTranscriptProcessItem) {
+function isPatchResultItem(item: AgentTranscriptProcessItem) {
   return item.type === 'patch'
 }
 
-function isUserSteerProcessItem(item: CodexTranscriptProcessItem) {
+function isUserSteerProcessItem(item: AgentTranscriptProcessItem) {
   return item.type === 'user-steer'
 }
 
-function patchResultLines(item: CodexTranscriptProcessItem) {
+function patchResultLines(item: AgentTranscriptProcessItem) {
   return String(item.detail || '')
     .split('\n')
     .map(line => line.trim())
@@ -1253,7 +1253,7 @@ function mergePatchRows(rows: PatchResultRow[], workspaceRoot?: string) {
   return deduped
 }
 
-function patchRowsForChanges(changes: CodexTranscriptPatchChange[], workspaceRoot?: string) {
+function patchRowsForChanges(changes: AgentTranscriptPatchChange[], workspaceRoot?: string) {
   return mergePatchRows(changes.map(change => ({
     kind: change.kind,
     path: change.path,
@@ -1262,7 +1262,7 @@ function patchRowsForChanges(changes: CodexTranscriptPatchChange[], workspaceRoo
   })), workspaceRoot)
 }
 
-function patchRowsForItems(items: CodexTranscriptProcessItem[], workspaceRoot?: string) {
+function patchRowsForItems(items: AgentTranscriptProcessItem[], workspaceRoot?: string) {
   return mergePatchRows(
     items.flatMap(item => item.changes?.length
       ? patchRowsForChanges(item.changes)
@@ -1318,7 +1318,7 @@ function fallbackCopyText(text: string) {
 }
 
 function toggleTranscriptDisclosureWithStableAnchor(anchor: HTMLElement, toggle: () => void) {
-  const scroller = anchor.closest('.code-codex-transcript-scroll') as HTMLElement | null
+  const scroller = anchor.closest('.code-agent-transcript-scroll') as HTMLElement | null
   const beforeTop = anchor.getBoundingClientRect().top
   toggle()
   window.requestAnimationFrame(() => {
@@ -1338,7 +1338,7 @@ async function writeClipboardText(text: string) {
   return fallbackCopyText(text)
 }
 
-function CodexTranscriptSteerItem({ item }: { item: CodexTranscriptProcessItem }) {
+function AgentTranscriptSteerItem({ item }: { item: AgentTranscriptProcessItem }) {
   const text = (item.detail || item.title || '').trim()
   const images = item.images || []
   const audios = item.audios || []
@@ -1346,19 +1346,19 @@ function CodexTranscriptSteerItem({ item }: { item: CodexTranscriptProcessItem }
   const terminals = item.terminals || []
   if (!text && images.length <= 0 && audios.length <= 0 && files.length <= 0 && terminals.length <= 0) return null
   return (
-    <div className="code-codex-transcript-steer" data-testid="code-codex-transcript-steer">
-      <div className="code-codex-transcript-user code-codex-transcript-steer-bubble">
+    <div className="code-agent-transcript-steer" data-testid="code-agent-transcript-steer">
+      <div className="code-agent-transcript-user code-agent-transcript-steer-bubble">
         {text ? <div>{plainTextBlock(text)}</div> : null}
-        <CodexTranscriptUserImages images={images} />
-        <CodexTranscriptAudios audios={audios} />
-        <CodexTranscriptUserFiles files={files} />
-        <CodexTranscriptTerminals terminals={terminals} />
+        <AgentTranscriptUserImages images={images} />
+        <AgentTranscriptAudios audios={audios} />
+        <AgentTranscriptUserFiles files={files} />
+        <AgentTranscriptTerminals terminals={terminals} />
       </div>
     </div>
   )
 }
 
-function CodexTranscriptProcessItemView({
+function AgentTranscriptProcessItemView({
   item,
   title,
   showStatus = true,
@@ -1374,14 +1374,14 @@ function CodexTranscriptProcessItemView({
   onRetryTerminalOutcome,
   onStopSubagent,
 }: {
-  item: CodexTranscriptProcessItem
+  item: AgentTranscriptProcessItem
   title?: string
   showStatus?: boolean
   copy: CodeCopy
   copied: boolean
   detailOpen: boolean
   onToggle: (itemId: string) => void
-  onCopy: (item: CodexTranscriptProcessItem) => void
+  onCopy: (item: AgentTranscriptProcessItem) => void
   onStopTerminal?: (itemId: string, terminalId: string) => Promise<void>
   onInputTerminal?: (itemId: string, terminalId: string, input: string) => Promise<void>
   onResizeTerminal?: (itemId: string, terminalId: string, cols: number, rows: number) => Promise<void>
@@ -1390,7 +1390,7 @@ function CodexTranscriptProcessItemView({
   onStopSubagent?: (sessionId: string) => Promise<void>
 }) {
   if (isUserSteerProcessItem(item)) {
-    return <CodexTranscriptSteerItem item={item} />
+    return <AgentTranscriptSteerItem item={item} />
   }
 
   const images = item.images || []
@@ -1409,33 +1409,33 @@ function CodexTranscriptProcessItemView({
   const details = (
     <>
       {planItems ? (
-        <ul className="code-codex-transcript-plan-list">
+        <ul className="code-agent-transcript-plan-list">
           {planItems.map((entry, index) => (
             <li key={`${index}-${entry.text}`} className={entry.status}>
-              <span className="code-codex-transcript-plan-marker" aria-hidden="true" />
+              <span className="code-agent-transcript-plan-marker" aria-hidden="true" />
               <span>{entry.text}</span>
             </li>
           ))}
         </ul>
       ) : null}
-      <CodexTranscriptProcessImages images={images} />
-      <CodexTranscriptAudios audios={audios} />
-      <CodexTranscriptUserFiles files={files} />
+      <AgentTranscriptProcessImages images={images} />
+      <AgentTranscriptAudios audios={audios} />
+      <AgentTranscriptUserFiles files={files} />
       {terminalOutcomeSyncFailed ? (
         <div
-          className="code-codex-transcript-terminal-sync-error"
+          className="code-agent-transcript-terminal-sync-error"
           data-testid="code-acp-terminal-sync-error"
           role="alert"
         >
-          <span>{copy.codexTranscriptTerminalStatusUnavailable}</span>
+          <span>{copy.agentTranscriptTerminalStatusUnavailable}</span>
           {onRetryTerminalOutcome ? (
             <button type="button" onClick={() => onRetryTerminalOutcome(item.id)}>
-              {copy.codexTranscriptRetryTerminalStatus}
+              {copy.agentTranscriptRetryTerminalStatus}
             </button>
           ) : null}
         </div>
       ) : (
-        <CodexTranscriptTerminals
+        <AgentTranscriptTerminals
           terminals={terminals}
           terminalStateFinal={!isProcessItemRunning(item)}
           onStop={onStopTerminal ? terminalId => onStopTerminal(item.id, terminalId) : undefined}
@@ -1444,31 +1444,31 @@ function CodexTranscriptProcessItemView({
         />
       )}
       {item.subagentTranscript ? (
-        <CodexTranscriptSubagentPreview
+        <AgentTranscriptSubagentPreview
           transcript={item.subagentTranscript}
           onStop={item.subagentSessionId && onStopSubagent ? () => onStopSubagent(item.subagentSessionId || '') : undefined}
         />
       ) : null}
       {!planItems && hasDetail && shouldRenderDetailAsProse(item) ? (
-        <div className="code-codex-transcript-process-detail">{plainTextBlock(detail)}</div>
+        <div className="code-agent-transcript-process-detail">{plainTextBlock(detail)}</div>
       ) : !planItems && hasDetail ? <pre>{detail}</pre> : null}
     </>
   )
   return (
     <section
       className={processItemClassName(item)}
-      data-testid="code-codex-transcript-process-item"
+      data-testid="code-agent-transcript-process-item"
       data-process-item-id={item.id}
       data-type={item.type}
       data-status={item.status || ''}
     >
-      <div className="code-codex-transcript-process-title">
-        <span className="code-codex-transcript-process-dot" aria-hidden="true" />
+      <div className="code-agent-transcript-process-title">
+        <span className="code-agent-transcript-process-dot" aria-hidden="true" />
         {expandable ? (
           <button
             type="button"
-            className="code-codex-transcript-process-title-toggle"
-            data-testid="code-codex-transcript-process-item-toggle"
+            className="code-agent-transcript-process-title-toggle"
+            data-testid="code-agent-transcript-process-item-toggle"
             aria-expanded={detailOpen}
             onPointerDown={event => event.stopPropagation()}
             onMouseDown={event => event.stopPropagation()}
@@ -1483,27 +1483,27 @@ function CodexTranscriptProcessItemView({
               toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, () => onToggle(item.id))
             }}
           >
-            <span className="code-codex-transcript-process-title-text">{displayTitle}</span>
+            <span className="code-agent-transcript-process-title-text">{displayTitle}</span>
             {showStatus && shouldShowStatus(item.status) ? (
-              <span className="code-codex-transcript-process-status">{item.status}</span>
+              <span className="code-agent-transcript-process-status">{item.status}</span>
             ) : null}
-            <ChevronRightGlyph className="code-codex-transcript-process-item-chevron" />
+            <ChevronRightGlyph className="code-agent-transcript-process-item-chevron" />
           </button>
         ) : (
-          <span className="code-codex-transcript-process-title-static">
-            <span className="code-codex-transcript-process-title-text">{displayTitle}</span>
+          <span className="code-agent-transcript-process-title-static">
+            <span className="code-agent-transcript-process-title-text">{displayTitle}</span>
             {showStatus && shouldShowStatus(item.status) ? (
-              <span className="code-codex-transcript-process-status">{item.status}</span>
+              <span className="code-agent-transcript-process-status">{item.status}</span>
             ) : null}
           </span>
         )}
         {hasCopyableDetail ? (
           <button
             type="button"
-            className={`code-codex-transcript-copy ${copied ? 'copied' : ''}`}
-            aria-label={copied ? copy.codexTranscriptCopiedDetails : copy.codexTranscriptCopyDetails}
-            title={copied ? copy.codexTranscriptCopiedDetails : copy.codexTranscriptCopyDetails}
-            data-tooltip={copied ? copy.codexTranscriptCopiedDetails : copy.codexTranscriptCopyDetails}
+            className={`code-agent-transcript-copy ${copied ? 'copied' : ''}`}
+            aria-label={copied ? copy.agentTranscriptCopiedDetails : copy.agentTranscriptCopyDetails}
+            title={copied ? copy.agentTranscriptCopiedDetails : copy.agentTranscriptCopyDetails}
+            data-tooltip={copied ? copy.agentTranscriptCopiedDetails : copy.agentTranscriptCopyDetails}
             onPointerDown={event => event.stopPropagation()}
             onMouseDown={event => event.stopPropagation()}
             onClick={() => onCopy(item)}
@@ -1517,12 +1517,12 @@ function CodexTranscriptProcessItemView({
   )
 }
 
-function CodexTranscriptProgressUpdate({
+function AgentTranscriptProgressUpdate({
   item,
   markdownComponents,
   compact = false,
 }: {
-  item: CodexTranscriptProcessItem
+  item: AgentTranscriptProcessItem
   markdownComponents: Components
   compact?: boolean
 }) {
@@ -1541,7 +1541,7 @@ function CodexTranscriptProgressUpdate({
           rehypePlugins={[rehypeKatex, rehypeHighlight]}
           components={markdownComponents}
           skipHtml
-          urlTransform={codexTranscriptUrlTransform}
+          urlTransform={agentTranscriptUrlTransform}
         >
           {progressText}
         </ReactMarkdown>
@@ -1550,7 +1550,7 @@ function CodexTranscriptProgressUpdate({
   )
 }
 
-function CodexTranscriptProcessGroupView({
+function AgentTranscriptProcessGroupView({
   groupId,
   items,
   summaryLabel,
@@ -1569,7 +1569,7 @@ function CodexTranscriptProcessGroupView({
   onStopSubagent,
 }: {
   groupId: string
-  items: CodexTranscriptProcessItem[]
+  items: AgentTranscriptProcessItem[]
   summaryLabel?: string
   copy: CodeCopy
   copiedItemId: string
@@ -1577,7 +1577,7 @@ function CodexTranscriptProcessGroupView({
   openProcessItemIds: Set<string>
   onToggleGroup: (groupId: string) => void
   onToggleItem: (itemId: string) => void
-  onCopy: (item: CodexTranscriptProcessItem) => void
+  onCopy: (item: AgentTranscriptProcessItem) => void
   onStopTerminal?: (itemId: string, terminalId: string) => Promise<void>
   onInputTerminal?: (itemId: string, terminalId: string, input: string) => Promise<void>
   onResizeTerminal?: (itemId: string, terminalId: string, cols: number, rows: number) => Promise<void>
@@ -1588,14 +1588,14 @@ function CodexTranscriptProcessGroupView({
   const running = items.some(isProcessItemRunning)
   return (
     <section
-      className={`code-codex-transcript-process-group ${running ? 'running' : ''}`}
-      data-testid="code-codex-transcript-process-group"
+      className={`code-agent-transcript-process-group ${running ? 'running' : ''}`}
+      data-testid="code-agent-transcript-process-group"
       data-count={items.length}
     >
       <button
         type="button"
-        className="code-codex-transcript-process-group-summary"
-        data-testid="code-codex-transcript-process-group-toggle"
+        className="code-agent-transcript-process-group-summary"
+        data-testid="code-agent-transcript-process-group-toggle"
         aria-expanded={detailOpen}
         onPointerDown={event => event.stopPropagation()}
         onMouseDown={event => event.stopPropagation()}
@@ -1610,14 +1610,14 @@ function CodexTranscriptProcessGroupView({
           toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, () => onToggleGroup(groupId))
         }}
       >
-        <span className="code-codex-transcript-process-dot" aria-hidden="true" />
-        <span className="code-codex-transcript-process-title-text">{summaryLabel || processGroupLabel(items)}</span>
-        <ChevronRightGlyph className="code-codex-transcript-process-item-chevron" />
+        <span className="code-agent-transcript-process-dot" aria-hidden="true" />
+        <span className="code-agent-transcript-process-title-text">{summaryLabel || processGroupLabel(items)}</span>
+        <ChevronRightGlyph className="code-agent-transcript-process-item-chevron" />
       </button>
       {detailOpen ? (
-        <div className="code-codex-transcript-process-group-list">
+        <div className="code-agent-transcript-process-group-list">
           {items.map(item => (
-            <CodexTranscriptProcessItemView
+            <AgentTranscriptProcessItemView
               key={item.id}
               item={item}
               copy={copy}
@@ -1639,7 +1639,7 @@ function CodexTranscriptProcessGroupView({
   )
 }
 
-function CodexTranscriptPatchResultCard({
+function AgentTranscriptPatchResultCard({
   items,
   copy,
   onLoadPatchChanges,
@@ -1648,16 +1648,16 @@ function CodexTranscriptPatchResultCard({
   source,
   workspaceRoot,
 }: {
-  items: CodexTranscriptProcessItem[]
+  items: AgentTranscriptProcessItem[]
   copy: CodeCopy
-  onLoadPatchChanges?: (itemIds: string[]) => Promise<CodexTranscriptPatchChange[]>
+  onLoadPatchChanges?: (itemIds: string[]) => Promise<AgentTranscriptPatchChange[]>
   onCreateReview?: (itemIds: string[]) => string
   onDecidePatch?: (itemId: string, path: string, decision: 'keep' | 'revert') => Promise<{ action: string }>
-  source: CodexTranscriptPaneProps['source']
+  source: AgentTranscriptPaneProps['source']
   workspaceRoot?: string
 }) {
   const [detailOpen, setDetailOpen] = useState(false)
-  const [detailedChanges, setDetailedChanges] = useState<CodexTranscriptPatchChange[] | null>(null)
+  const [detailedChanges, setDetailedChanges] = useState<AgentTranscriptPatchChange[] | null>(null)
   const [detailError, setDetailError] = useState('')
   const embeddedDecisions = useMemo(() => Object.fromEntries(items.flatMap(item => (
     (item.changes || []).flatMap(change => {
@@ -1714,10 +1714,10 @@ function CodexTranscriptPatchResultCard({
       .then(result => setPatchDecisions(current => ({ ...current, [displayPath]: result.action })))
       .catch(error => setDecisionErrors(current => ({
         ...current,
-        [displayPath]: error instanceof Error ? error.message : copy.codexTranscriptUnavailable,
+        [displayPath]: error instanceof Error ? error.message : copy.agentTranscriptUnavailable,
       })))
       .finally(() => setDecidingPath(''))
-  }, [copy.codexTranscriptUnavailable, decidingPath, onDecidePatch, patchTargetForPath])
+  }, [copy.agentTranscriptUnavailable, decidingPath, onDecidePatch, patchTargetForPath])
   const handleReview = useCallback(() => {
     if (!workspaceRoot) return
     if (source === 'acp' && reviewPaths.length === 0) return
@@ -1743,8 +1743,8 @@ function CodexTranscriptPatchResultCard({
     setDetailError('')
     void onLoadPatchChanges(items.map(item => item.id))
       .then(setDetailedChanges)
-      .catch(error => setDetailError(error instanceof Error ? error.message : copy.codexTranscriptUnavailable))
-  }, [copy.codexTranscriptUnavailable, detailOpen, detailedChanges, handleReview, items, onLoadPatchChanges, source])
+      .catch(error => setDetailError(error instanceof Error ? error.message : copy.agentTranscriptUnavailable))
+  }, [copy.agentTranscriptUnavailable, detailOpen, detailedChanges, handleReview, items, onLoadPatchChanges, source])
   const summaryContent = (
     <>
       <span>{summary}</span>
@@ -1754,29 +1754,29 @@ function CodexTranscriptPatchResultCard({
   )
   return (
     <section
-      className={`code-codex-transcript-result-card ${failed ? 'failed' : ''}`}
-      data-testid="code-codex-transcript-result-card"
+      className={`code-agent-transcript-result-card ${failed ? 'failed' : ''}`}
+      data-testid="code-agent-transcript-result-card"
     >
       {workspaceRoot && rows.length > 0 ? (
         <button
           type="button"
-          className="code-codex-transcript-result-summary"
-          data-testid="code-codex-transcript-result-summary"
-          aria-label={`${summary}. ${source === 'acp' ? copy.codexTranscriptShowChanges : copy.codexTranscriptReviewChanges}`}
+          className="code-agent-transcript-result-summary"
+          data-testid="code-agent-transcript-result-summary"
+          aria-label={`${summary}. ${source === 'acp' ? copy.agentTranscriptShowChanges : copy.agentTranscriptReviewChanges}`}
           aria-expanded={source === 'acp' ? detailOpen : undefined}
           onClick={handleSummary}
         >
           {summaryContent}
-          {source === 'acp' ? <ChevronRightGlyph className="code-codex-transcript-result-chevron" /> : null}
+          {source === 'acp' ? <ChevronRightGlyph className="code-agent-transcript-result-chevron" /> : null}
         </button>
       ) : (
-        <div className="code-codex-transcript-result-summary" aria-label={summary}>
+        <div className="code-agent-transcript-result-summary" aria-label={summary}>
           {summaryContent}
         </div>
       )}
       {source === 'acp' && detailOpen ? (
-        <div className="code-codex-transcript-result-details" data-testid="code-codex-transcript-result-details">
-          <div className="code-codex-transcript-result-files">
+        <div className="code-agent-transcript-result-details" data-testid="code-agent-transcript-result-details">
+          <div className="code-agent-transcript-result-files">
             {rows.map(row => {
               const path = patchRowDisplayPath(row, workspaceRoot)
               const changes = availableChanges.filter(change => (
@@ -1785,32 +1785,32 @@ function CodexTranscriptPatchResultCard({
               const patchTarget = patchTargetForPath(path)
               const decision = patchDecisions[path]
               return (
-                <details className="code-codex-transcript-result-file" key={`${items[0]?.id || 'patch'}:${path}`}>
+                <details className="code-agent-transcript-result-file" key={`${items[0]?.id || 'patch'}:${path}`}>
                   <summary>
-                    <span className="code-codex-transcript-result-file-path">{path}</span>
-                    <span className="code-codex-transcript-result-file-stats">
+                    <span className="code-agent-transcript-result-file-path">{path}</span>
+                    <span className="code-agent-transcript-result-file-stats">
                       {row.added ? <span className="added">{row.added}</span> : null}
                       {row.removed ? <span className="removed">{row.removed}</span> : null}
                     </span>
                   </summary>
                   {changes.map((change, changeIndex) => change.diff ? (
-                    <pre className="code-codex-transcript-result-diff" key={`${path}:${changeIndex}`}>
+                    <pre className="code-agent-transcript-result-diff" key={`${path}:${changeIndex}`}>
                       {change.diff.split('\n').map((line, lineIndex) => (
                         <span className={patchDiffLineClass(line)} key={`${lineIndex}:${line}`}>{line}{'\n'}</span>
                       ))}
                     </pre>
                   ) : null)}
                   {patchTarget && onDecidePatch ? (
-                    <div className="code-codex-transcript-result-decision" data-testid="code-acp-patch-decision">
+                    <div className="code-agent-transcript-result-decision" data-testid="code-acp-patch-decision">
                       {decision ? (
-                        <span>{decision === 'reverted' ? copy.codexTranscriptChangeReverted : copy.codexTranscriptChangeKept}</span>
+                        <span>{decision === 'reverted' ? copy.agentTranscriptChangeReverted : copy.agentTranscriptChangeKept}</span>
                       ) : (
                         <>
                           <button type="button" disabled={Boolean(decidingPath)} onClick={() => decidePatch(path, 'keep')}>
-                            {copy.codexTranscriptKeepChange}
+                            {copy.agentTranscriptKeepChange}
                           </button>
                           <button type="button" className="revert" disabled={Boolean(decidingPath)} onClick={() => decidePatch(path, 'revert')}>
-                            {copy.codexTranscriptRevertChange}
+                            {copy.agentTranscriptRevertChange}
                           </button>
                         </>
                       )}
@@ -1822,17 +1822,17 @@ function CodexTranscriptPatchResultCard({
             })}
           </div>
           {!detailedChanges && !detailError ? (
-            <div className="code-codex-transcript-result-loading">{copy.codexTranscriptLoadingChanges}</div>
+            <div className="code-agent-transcript-result-loading">{copy.agentTranscriptLoadingChanges}</div>
           ) : null}
-          {detailError ? <div className="code-codex-transcript-result-error">{detailError}</div> : null}
+          {detailError ? <div className="code-agent-transcript-result-error">{detailError}</div> : null}
           {source !== 'acp' || reviewPaths.length > 0 ? (
             <button
               type="button"
-              className="code-codex-transcript-result-review"
-              aria-label={`${copy.codexTranscriptReviewChanges}: ${reviewPaths.length} workspace ${reviewPaths.length === 1 ? 'file' : 'files'}`}
+              className="code-agent-transcript-result-review"
+              aria-label={`${copy.agentTranscriptReviewChanges}: ${reviewPaths.length} workspace ${reviewPaths.length === 1 ? 'file' : 'files'}`}
               onClick={handleReview}
             >
-              {copy.codexTranscriptReviewChanges}
+              {copy.agentTranscriptReviewChanges}
             </button>
           ) : null}
         </div>
@@ -1841,7 +1841,7 @@ function CodexTranscriptPatchResultCard({
   )
 }
 
-function CodexTranscriptTurnView({
+function AgentTranscriptTurnView({
   turn,
   copy,
   onOpenFile,
@@ -1859,16 +1859,16 @@ function CodexTranscriptTurnView({
   onResizeTerminal,
   onStopSubagent,
 }: {
-  turn: CodexTranscriptTurn
+  turn: AgentTranscriptTurn
   copy: CodeCopy
   onOpenFile?: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   workspaceRoot?: string
   processOpen: boolean
   groupProcessActions: boolean
-  source: CodexTranscriptPaneProps['source']
+  source: AgentTranscriptPaneProps['source']
   onToggleProcess: (turnId: string) => void
-  onLoadProcessItemDetail?: (itemId: string) => Promise<CodexTranscriptProcessPresentation>
-  onLoadPatchChanges?: (itemIds: string[]) => Promise<CodexTranscriptPatchChange[]>
+  onLoadProcessItemDetail?: (itemId: string) => Promise<AgentTranscriptProcessPresentation>
+  onLoadPatchChanges?: (itemIds: string[]) => Promise<AgentTranscriptPatchChange[]>
   onCreatePatchReview?: (itemIds: string[]) => string
   onDecidePatch?: (itemId: string, path: string, decision: 'keep' | 'revert') => Promise<{ action: string }>
   onStopTerminal?: (terminalId: string) => Promise<void>
@@ -1876,7 +1876,7 @@ function CodexTranscriptTurnView({
   onResizeTerminal?: (terminalId: string, cols: number, rows: number) => Promise<void>
   onStopSubagent?: (sessionId: string) => Promise<void>
 }) {
-  const [loadedProcessDetails, setLoadedProcessDetails] = useState<Record<string, CodexTranscriptProcessPresentation>>({})
+  const [loadedProcessDetails, setLoadedProcessDetails] = useState<Record<string, AgentTranscriptProcessPresentation>>({})
   const loadingProcessDetailsRef = useRef<Set<string>>(new Set())
   const resolvedProcessItems = useMemo(() => turn.processItems.map(item => (
     Object.prototype.hasOwnProperty.call(loadedProcessDetails, item.id)
@@ -1951,13 +1951,13 @@ function CodexTranscriptTurnView({
   const activityTurn = resolvedProcessItems === turn.processItems
     ? turn
     : { ...turn, processItems: resolvedProcessItems }
-  const workingLabel = source === 'acp' ? acpActivityLabel(activityTurn, copy) : copy.codexTranscriptWorking
+  const workingLabel = source === 'acp' ? acpActivityLabel(activityTurn, copy) : copy.agentTranscriptWorking
   const processSummaryWorkingLabel = compactProcess.items.length > 0
-    ? copy.codexTranscriptProcess
+    ? copy.agentTranscriptProcess
     : workingLabel
   const liveToolLabel = source === 'acp' ? acpLiveToolLabel(activityTurn, copy) : ''
   const planLabel = source === 'acp' ? acpPlanLabel(activityTurn, copy) : ''
-  const loadFullProcessDetail = useCallback(async (item: CodexTranscriptProcessItem, force = false) => {
+  const loadFullProcessDetail = useCallback(async (item: AgentTranscriptProcessItem, force = false) => {
     if ((!item.detailTruncated && !item.terminalIds?.length && !item.subagentSessionId) || !onLoadProcessItemDetail) {
       return { detail: item.detail || '', terminals: item.terminals, subagentTranscript: item.subagentTranscript }
     }
@@ -1974,7 +1974,7 @@ function CodexTranscriptTurnView({
       loadingProcessDetailsRef.current.delete(item.id)
     }
   }, [loadedProcessDetails, onLoadProcessItemDetail])
-  const refreshTerminalOutcome = useCallback((item: CodexTranscriptProcessItem) => {
+  const refreshTerminalOutcome = useCallback((item: AgentTranscriptProcessItem) => {
     if (syncingTerminalOutcomeItemIdsRef.current.has(item.id)) return
     syncingTerminalOutcomeItemIdsRef.current.add(item.id)
     refreshedTerminalOutcomeItemIdsRef.current.add(item.id)
@@ -2084,7 +2084,7 @@ function CodexTranscriptTurnView({
     const timer = window.setInterval(refresh, 1_000)
     return () => window.clearInterval(timer)
   }, [loadFullProcessDetail, openProcessItemIds, resolvedProcessItems])
-  const handleCopyItem = useCallback((item: CodexTranscriptProcessItem) => {
+  const handleCopyItem = useCallback((item: AgentTranscriptProcessItem) => {
     void loadFullProcessDetail(item).then(presentation => {
       const text = [item.title, presentation.detail].filter(Boolean).join('\n\n')
       if (!text) return
@@ -2169,7 +2169,7 @@ function CodexTranscriptTurnView({
       return (
         <a
           {...props}
-          className={[props.className, target ? 'code-codex-transcript-markdown-file-link' : ''].filter(Boolean).join(' ') || undefined}
+          className={[props.className, target ? 'code-agent-transcript-markdown-file-link' : ''].filter(Boolean).join(' ') || undefined}
           href={target ? '#' : normalizedHref}
           target={external ? '_blank' : undefined}
           rel={external ? 'noreferrer' : undefined}
@@ -2196,7 +2196,7 @@ function CodexTranscriptTurnView({
       }
       return (
         <a
-          className="code-codex-transcript-markdown-file-link"
+          className="code-agent-transcript-markdown-file-link"
           href="#"
           onPointerDown={event => event.stopPropagation()}
           onMouseDown={event => event.stopPropagation()}
@@ -2219,22 +2219,22 @@ function CodexTranscriptTurnView({
   }), [copy, onOpenFile, workspaceRoot])
 
   return (
-    <article className={`code-codex-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''}`} data-turn-id={turn.id}>
+    <article className={`code-agent-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''}`} data-turn-id={turn.id}>
       {turn.userMessage || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 ? (
-        <div className="code-codex-transcript-user">
+        <div className="code-agent-transcript-user">
           {turn.userMessage ? <div>{plainTextBlock(turn.userMessage)}</div> : null}
-          <CodexTranscriptUserImages images={userImages} />
-          <CodexTranscriptAudios audios={userAudios} />
-          <CodexTranscriptUserFiles files={userFiles} />
+          <AgentTranscriptUserImages images={userImages} />
+          <AgentTranscriptAudios audios={userAudios} />
+          <AgentTranscriptUserFiles files={userFiles} />
         </div>
       ) : null}
 
       {hasProcess ? (
-        <div className={`code-codex-transcript-process ${effectiveProcessOpen ? 'expanded' : ''}`}>
+        <div className={`code-agent-transcript-process ${effectiveProcessOpen ? 'expanded' : ''}`}>
           <button
             type="button"
-            className="code-codex-transcript-process-summary"
-            data-testid="code-codex-transcript-process-summary"
+            className="code-agent-transcript-process-summary"
+            data-testid="code-agent-transcript-process-summary"
             aria-expanded={effectiveProcessOpen}
             title={liveToolLabel || turnProcessTitle(turn, copy)}
             onPointerDown={event => event.stopPropagation()}
@@ -2250,34 +2250,34 @@ function CodexTranscriptTurnView({
               toggleTranscriptDisclosureWithStableAnchor(event.currentTarget, toggleProcessOpen)
             }}
           >
-            <span className="code-codex-transcript-process-summary-label">
+            <span className="code-agent-transcript-process-summary-label">
               {turnProcessLabel(turn, copy, processSummaryWorkingLabel, planLabel)}
             </span>
-            <ChevronRightGlyph className="code-codex-transcript-chevron" />
+            <ChevronRightGlyph className="code-agent-transcript-chevron" />
           </button>
           {!effectiveProcessOpen ? resolvedProcessItems
             .filter(isUserSteerProcessItem)
-            .map(item => <CodexTranscriptSteerItem key={item.id} item={item} />) : null}
+            .map(item => <AgentTranscriptSteerItem key={item.id} item={item} />) : null}
           {!effectiveProcessOpen && compactProcess.items.length > 0 ? (
             <div
-              className="code-codex-transcript-process-list code-codex-transcript-process-compact-list"
-              data-testid="code-codex-transcript-process-compact-list"
+              className="code-agent-transcript-process-list code-agent-transcript-process-compact-list"
+              data-testid="code-agent-transcript-process-compact-list"
             >
               {compactProcess.hiddenActionCount > 0 ? (
                 <button
                   type="button"
-                  className="code-codex-transcript-process-earlier"
-                  data-testid="code-codex-transcript-process-earlier"
+                  className="code-agent-transcript-process-earlier"
+                  data-testid="code-agent-transcript-process-earlier"
                   onClick={event => {
                     event.stopPropagation()
                     toggleProcessOpen()
                   }}
                 >
-                  {copy.codexTranscriptEarlierActions(compactProcess.hiddenActionCount)}
+                  {copy.agentTranscriptEarlierActions(compactProcess.hiddenActionCount)}
                 </button>
               ) : null}
               {compactProcess.items.map(item => (
-                <CodexTranscriptProcessItemView
+                <AgentTranscriptProcessItemView
                   key={item.id}
                   item={item}
                   title={source === 'acp' ? compactAcpActionLabel(item, copy) : item.title}
@@ -2298,14 +2298,14 @@ function CodexTranscriptTurnView({
             </div>
           ) : null}
           {!effectiveProcessOpen && latestLiveProgressItem ? (
-            <CodexTranscriptProgressUpdate
+            <AgentTranscriptProgressUpdate
               item={latestLiveProgressItem}
               markdownComponents={markdownComponents}
               compact
             />
           ) : null}
           {effectiveProcessOpen ? (
-            <div className="code-codex-transcript-process-list">
+            <div className="code-agent-transcript-process-list">
               {processEntries.map(entry => {
                 if (entry.kind === 'group') {
                   const groupOpen = openProcessItemIds.has(entry.id)
@@ -2316,7 +2316,7 @@ function CodexTranscriptTurnView({
                     && entry.items.some(isProcessItemRunning)
                   )
                   return (
-                    <CodexTranscriptProcessGroupView
+                    <AgentTranscriptProcessGroupView
                       key={entry.id}
                       groupId={entry.id}
                       items={entry.items}
@@ -2341,7 +2341,7 @@ function CodexTranscriptTurnView({
                 }
                 if (source === 'acp' && isAcpProgressUpdate(entry.item)) {
                   return (
-                    <CodexTranscriptProgressUpdate
+                    <AgentTranscriptProgressUpdate
                       key={entry.item.id}
                       item={entry.item}
                       markdownComponents={markdownComponents}
@@ -2349,7 +2349,7 @@ function CodexTranscriptTurnView({
                   )
                 }
                 return (
-                  <CodexTranscriptProcessItemView
+                  <AgentTranscriptProcessItemView
                     key={entry.item.id}
                     item={entry.item}
                     copy={copy}
@@ -2375,31 +2375,31 @@ function CodexTranscriptTurnView({
       ) : null}
 
       {answerMessage || resultImages.length > 0 || resultAudios.length > 0 || resultFiles.length > 0 ? (
-        <div className="code-codex-transcript-answer">
+        <div className="code-agent-transcript-answer">
           {answerMessage ? (
-            <div className="code-codex-transcript-assistant code-markdown-preview">
+            <div className="code-agent-transcript-assistant code-markdown-preview">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm, remarkMath]}
                 rehypePlugins={[rehypeKatex, rehypeHighlight]}
                 components={markdownComponents}
                 skipHtml
-                urlTransform={codexTranscriptUrlTransform}
+                urlTransform={agentTranscriptUrlTransform}
               >
                 {answerMessage}
               </ReactMarkdown>
             </div>
           ) : null}
-          <CodexTranscriptResultImages images={resultImages} />
-          <CodexTranscriptAudios audios={resultAudios} />
-          <CodexTranscriptUserFiles files={resultFiles} />
-          {answerMessage ? <div className="code-codex-transcript-answer-actions">
+          <AgentTranscriptResultImages images={resultImages} />
+          <AgentTranscriptAudios audios={resultAudios} />
+          <AgentTranscriptUserFiles files={resultFiles} />
+          {answerMessage ? <div className="code-agent-transcript-answer-actions">
             <button
               type="button"
-              className={`code-codex-transcript-answer-action ${answerCopied ? 'copied' : ''}`}
-              data-testid="code-codex-transcript-copy-answer"
-              aria-label={answerCopied ? copy.codexTranscriptCopiedAnswer : copy.codexTranscriptCopyAnswer}
-              title={answerCopied ? copy.codexTranscriptCopiedAnswer : copy.codexTranscriptCopyAnswer}
-              data-tooltip={answerCopied ? copy.codexTranscriptCopiedAnswer : copy.codexTranscriptCopyAnswer}
+              className={`code-agent-transcript-answer-action ${answerCopied ? 'copied' : ''}`}
+              data-testid="code-agent-transcript-copy-answer"
+              aria-label={answerCopied ? copy.agentTranscriptCopiedAnswer : copy.agentTranscriptCopyAnswer}
+              title={answerCopied ? copy.agentTranscriptCopiedAnswer : copy.agentTranscriptCopyAnswer}
+              data-tooltip={answerCopied ? copy.agentTranscriptCopiedAnswer : copy.agentTranscriptCopyAnswer}
               onClick={handleCopyAnswer}
             >
               {answerCopied ? <CheckGlyph /> : <CopyGlyph />}
@@ -2407,13 +2407,13 @@ function CodexTranscriptTurnView({
           </div> : null}
         </div>
       ) : shouldShowWaiting ? (
-        <div className="code-codex-transcript-placeholder">{copy.codexTranscriptWaiting}</div>
+        <div className="code-agent-transcript-placeholder">{copy.agentTranscriptWaiting}</div>
       ) : null}
 
       {patchResults.length > 0 || turn.status === 'inProgress' ? (
-        <div className="code-codex-transcript-results code-codex-transcript-status-row">
+        <div className="code-agent-transcript-results code-agent-transcript-status-row">
           {patchResults.length > 0 ? (
-            <CodexTranscriptPatchResultCard
+            <AgentTranscriptPatchResultCard
               items={patchResults}
               copy={copy}
               onLoadPatchChanges={onLoadPatchChanges}
@@ -2424,7 +2424,7 @@ function CodexTranscriptTurnView({
             />
           ) : null}
           {turn.status === 'inProgress' ? (
-            <span className="code-codex-transcript-progress">
+            <span className="code-agent-transcript-progress">
               {[workingLabel, progressDuration].filter(Boolean).join(' ')}
             </span>
           ) : null}
@@ -2434,9 +2434,9 @@ function CodexTranscriptTurnView({
   )
 }
 
-const StableCodexTranscriptTurnView = memo(CodexTranscriptTurnView)
+const StableAgentTranscriptTurnView = memo(AgentTranscriptTurnView)
 
-export function CodexTranscriptPane({
+export function AgentTranscriptPane({
   agentId,
   workspaceRoot,
   active,
@@ -2450,9 +2450,9 @@ export function CodexTranscriptPane({
   onReadLatest,
   groupProcessActions = true,
   copy,
-}: CodexTranscriptPaneProps) {
-  const [transcript, setTranscript] = useState<CodexTranscript | null>(null)
-  const transcriptRef = useRef<CodexTranscript | null>(null)
+}: AgentTranscriptPaneProps) {
+  const [transcript, setTranscript] = useState<AgentTranscript | null>(null)
+  const transcriptRef = useRef<AgentTranscript | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [openProcessTurnIds, setOpenProcessTurnIds] = useState<Set<string>>(() => new Set())
@@ -2595,7 +2595,7 @@ export function CodexTranscriptPane({
         signal: controller.signal,
       })
         .then(response => {
-          if (!response.ok) throw new Error(copy.codexTranscriptUnavailable)
+          if (!response.ok) throw new Error(copy.agentTranscriptUnavailable)
           return response.json()
         })
         .then(payload => {
@@ -2616,7 +2616,7 @@ export function CodexTranscriptPane({
         })
         .catch(reason => {
           if (stopped || reason?.name === 'AbortError') return
-          setError(reason?.message || copy.codexTranscriptUnavailable)
+          setError(reason?.message || copy.agentTranscriptUnavailable)
           setLoading(false)
           setLoadingOlder(false)
         })
@@ -2633,7 +2633,7 @@ export function CodexTranscriptPane({
       controller?.abort()
       if (timer) window.clearInterval(timer)
     }
-  }, [active, agentId, copy.codexTranscriptUnavailable, refreshSignal, source, turnLimit])
+  }, [active, agentId, copy.agentTranscriptUnavailable, refreshSignal, source, turnLimit])
 
   const turns = useMemo(() => transcript?.turns || [], [transcript])
   const awaitingAcpHistory = source === 'acp'
@@ -2724,15 +2724,15 @@ export function CodexTranscriptPane({
       `/api/agents/${encodeURIComponent(agentId)}/acp-tool-details/${encodeURIComponent(itemId)}`,
     ))
     const payload = await response.json().catch(() => ({}))
-    if (!response.ok) throw new Error(payload.error || copy.codexTranscriptUnavailable)
+    if (!response.ok) throw new Error(payload.error || copy.agentTranscriptUnavailable)
     return {
       detail: String(payload.detail || ''),
-      terminals: Array.isArray(payload.terminals) ? payload.terminals as CodexTranscriptTerminal[] : undefined,
+      terminals: Array.isArray(payload.terminals) ? payload.terminals as AgentTranscriptTerminal[] : undefined,
       subagentTranscript: payload.subagentSession && typeof payload.subagentSession === 'object'
         ? projectAcpTranscript(payload.subagentSession, { maxTurns: 12 })
         : undefined,
     }
-  }, [agentId, copy.codexTranscriptUnavailable])
+  }, [agentId, copy.agentTranscriptUnavailable])
   const handleLoadPatchChanges = useCallback((itemIds: string[]) => (
     loadAcpReviewPreview(agentId, itemIds)
   ), [agentId])
@@ -2912,19 +2912,19 @@ export function CodexTranscriptPane({
   }, [agentId, onReadLatest])
 
   return (
-    <div className="code-codex-transcript" data-testid="code-codex-transcript">
+    <div className="code-agent-transcript" data-testid="code-agent-transcript">
       {loading || awaitingAcpHistory ? (
-        <div className="code-codex-transcript-state subtle">{copy.codexTranscriptSyncing}</div>
+        <div className="code-agent-transcript-state subtle">{copy.agentTranscriptSyncing}</div>
       ) : error ? (
-        <div className="code-codex-transcript-state" role="status">{error}</div>
+        <div className="code-agent-transcript-state" role="status">{error}</div>
       ) : !transcript?.available ? (
-        <div className="code-codex-transcript-blank" role="status">{copy.codexTranscriptEmpty}</div>
+        <div className="code-agent-transcript-blank" role="status">{copy.agentTranscriptEmpty}</div>
       ) : turns.length === 0 ? (
-        <div className="code-codex-transcript-blank" role="status">{copy.codexTranscriptEmpty}</div>
+        <div className="code-agent-transcript-blank" role="status">{copy.agentTranscriptEmpty}</div>
       ) : (
         <div
-          className="code-codex-transcript-scroll"
-          data-testid="code-codex-transcript-scroll"
+          className="code-agent-transcript-scroll"
+          data-testid="code-agent-transcript-scroll"
           ref={scrollRef}
           onPointerDown={handleTranscriptPointerDown}
           onScroll={handleScroll}
@@ -2939,7 +2939,7 @@ export function CodexTranscriptPane({
               ? openLiveProcessTurnIds.has(turn.id)
               : openProcessTurnIds.has(turn.id)
             return (
-              <StableCodexTranscriptTurnView
+              <StableAgentTranscriptTurnView
                 key={turn.id}
                 turn={turn}
                 copy={copy}
@@ -2965,8 +2965,8 @@ export function CodexTranscriptPane({
       {showJumpToBottom ? (
         <button
           type="button"
-          className="code-codex-transcript-jump-bottom"
-          data-testid="code-codex-transcript-jump-bottom"
+          className="code-agent-transcript-jump-bottom"
+          data-testid="code-agent-transcript-jump-bottom"
           aria-label="Jump to latest chat"
           onClick={handleJumpToBottom}
         >

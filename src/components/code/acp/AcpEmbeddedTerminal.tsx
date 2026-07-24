@@ -115,7 +115,7 @@ export function AcpEmbeddedTerminal({
         onClick={() => terminalRef.current?.focus()}
       />
       <pre className="code-visually-hidden" aria-label="Terminal output">{output}</pre>
-      {error ? <small className="code-codex-transcript-terminal-error" role="alert">{error}</small> : null}
+      {error ? <small className="code-agent-transcript-terminal-error" role="alert">{error}</small> : null}
     </div>
   )
 }
