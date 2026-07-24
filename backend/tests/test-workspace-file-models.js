@@ -130,6 +130,8 @@ const {
 } = require('../../src/lib/workspace-file-search.ts');
 const {
   createWorkspaceFileOperation,
+  reconcileWorkspaceFileDeleteFromDirectory,
+  reconcileWorkspaceFileRenameFromDirectory,
   workspaceFileContextMenuPosition,
   workspaceFileOperationInitialName,
   workspaceFileOperationSelectionEnd,
@@ -1385,7 +1387,7 @@ function run() {
   ]);
   assert.deepStrictEqual(pathSearchTextRanges('src/components/App.tsx', 'components'), [{ start: 4, end: 14 }]);
 
-  const fileNode = workspaceFile('src/components/App.test.tsx');
+  const fileNode = workspaceFile('src/components/App.test.tsx', { version: 'source-version' });
   const directoryNode = directory('src/components');
   assert.strictEqual(workspaceFileOperationTargetDirectory(null), '');
   assert.strictEqual(workspaceFileOperationTargetDirectory(fileNode), 'src/components');
@@ -1412,6 +1414,39 @@ function run() {
     ...createWorkspaceFileOperation('rename', fileNode),
     name: 'Renamed.tsx',
   }), 'Renamed.tsx');
+  const deleteOperation = createWorkspaceFileOperation('delete', fileNode);
+  assert.deepStrictEqual(reconcileWorkspaceFileDeleteFromDirectory(deleteOperation, []), {
+    path: 'src/components/App.test.tsx',
+    parentDirectory: 'src/components',
+    type: 'file',
+    version: 'source-version',
+  });
+  assert.strictEqual(reconcileWorkspaceFileDeleteFromDirectory(deleteOperation, [fileNode]), null);
+  const renameOperation = createWorkspaceFileOperation('rename', fileNode);
+  const renamedNode = workspaceFile('src/components/Renamed.tsx', { version: 'target-version' });
+  assert.deepStrictEqual(
+    reconcileWorkspaceFileRenameFromDirectory(renameOperation, 'Renamed.tsx', [renamedNode]),
+    {
+      sourcePath: 'src/components/App.test.tsx',
+      targetPath: 'src/components/Renamed.tsx',
+      sourceDirectory: 'src/components',
+      targetDirectory: 'src/components',
+      sourceVersion: 'source-version',
+      targetVersion: 'target-version',
+    }
+  );
+  assert.strictEqual(
+    reconcileWorkspaceFileRenameFromDirectory(renameOperation, 'Renamed.tsx', [fileNode, renamedNode]),
+    null
+  );
+  assert.strictEqual(
+    reconcileWorkspaceFileRenameFromDirectory(renameOperation, 'Renamed.tsx', []),
+    null
+  );
+  assert.strictEqual(
+    reconcileWorkspaceFileRenameFromDirectory(renameOperation, 'Renamed.tsx', [directory('src/components/Renamed.tsx')]),
+    null
+  );
   assert.strictEqual(workspaceFileOperationTitle(createWorkspaceFileOperation('new-file', null), {
     newFile: 'New File',
     newFolder: 'New Folder',

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import {
   createWorkspaceFileOperation,
+  reconcileWorkspaceFileDeleteFromDirectory,
+  reconcileWorkspaceFileRenameFromDirectory,
   workspaceFileOperationSubmitName,
   type WorkspaceFileOperationKind,
   type WorkspaceFileOperationState,
@@ -14,7 +16,9 @@ import {
 import {
   createWorkspaceEntry,
   deleteWorkspaceEntry,
+  fetchWorkspaceTree,
   renameWorkspaceEntry,
+  WorkspaceFileApiError,
   type WorkspaceFile,
   type WorkspaceFileDeleteResult,
   type WorkspaceFileMove,
@@ -144,6 +148,41 @@ export function useWorkspaceFileOperationController({
         : operation.item
           ? [operation.item.path.includes('/') ? operation.item.path.slice(0, operation.item.path.lastIndexOf('/')) : '']
           : []
+      const uncertainOutcome = !(error instanceof WorkspaceFileApiError) || error.status >= 500
+      if (
+        uncertainOutcome &&
+        operation.item &&
+        (operation.kind === 'rename' || operation.kind === 'delete')
+      ) {
+        try {
+          const parentPath = reconcileDirectories[0] ?? ''
+          const tree = await fetchWorkspaceTree(agentId, parentPath)
+          if (operation.kind === 'rename') {
+            const move = reconcileWorkspaceFileRenameFromDirectory(operation, name, tree.items)
+            if (move) {
+              refreshDirectories(workspaceFileMoveRefreshDirectories(move))
+              onMoveEntries(agentId, [move])
+              onWorkspaceChange?.()
+              clearFileOperation()
+              focusFileTreePath(workspaceFileMoveFocusPath(move))
+              return
+            }
+          }
+          if (operation.kind === 'delete') {
+            const deleted = reconcileWorkspaceFileDeleteFromDirectory(operation, tree.items)
+            if (deleted) {
+              refreshDirectories(workspaceFileDeleteRefreshDirectories(deleted))
+              onDeleteEntries(agentId, [deleted])
+              onWorkspaceChange?.()
+              clearFileOperation()
+              focusFileTreePath(workspaceFileDeleteFocusPath(deleted))
+              return
+            }
+          }
+        } catch {
+          // Preserve the original operation error when authoritative rereading also fails.
+        }
+      }
       if (reconcileDirectories.length > 0) {
         refreshDirectories(reconcileDirectories)
         onWorkspaceChange?.()

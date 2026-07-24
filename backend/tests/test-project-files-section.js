@@ -85,6 +85,7 @@ function run() {
   const treeRowModelSource = read('src/lib/workspace-file-tree-row.ts');
   const openFilesSource = read('src/lib/workspace-open-files.ts');
   const openFilesHookSource = read('src/components/code/useWorkspaceOpenFiles.ts');
+  const draftBackupsSource = read('src/lib/workspace-draft-backups.ts');
   const explorerHookSource = read('src/components/files/useWorkspaceFileExplorer.ts');
   const operationSource = read('src/lib/workspace-file-operations.ts');
   const workingCopySource = read('src/lib/workspace-working-copy.ts');
@@ -1028,6 +1029,20 @@ function run() {
   assert(
     projectFilesSectionDelegates,
     'ProjectFilesSection should delegate Explorer tree behavior to react-arborist while preserving Farming file API wiring and row decorations'
+  );
+
+  assert(
+    openFilesHookSource.includes('loadWorkspaceDraftBackups') &&
+      openFilesHookSource.includes('createWorkspaceDraftBackup(file)') &&
+      openFilesHookSource.includes("window.addEventListener('pagehide', flushOnPageHide)") &&
+      draftBackupsSource.includes('function restoreWorkspaceOpenFileDraft') &&
+      draftBackupsSource.includes('const MAX_BACKUPS = 32') &&
+      fileOperationControllerSource.includes('fetchWorkspaceTree(agentId, parentPath)') &&
+      fileOperationControllerSource.includes('reconcileWorkspaceFileDeleteFromDirectory') &&
+      fileOperationModelSource.includes('function reconcileWorkspaceFileDeleteFromDirectory') &&
+      fileOperationControllerSource.includes('reconcileWorkspaceFileRenameFromDirectory') &&
+      fileOperationModelSource.includes('function reconcileWorkspaceFileRenameFromDirectory'),
+    'Project Files should persist bounded dirty drafts and reconcile uncertain deletes from authoritative reads'
   );
 
   assert(

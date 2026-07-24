@@ -1,4 +1,11 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  createWorkspaceDraftBackup,
+  loadWorkspaceDraftBackups,
+  restoreWorkspaceOpenFileDraft,
+  saveWorkspaceDraftBackups,
+  type WorkspaceDraftBackup,
+} from '@/lib/workspace-draft-backups'
 import {
   closeWorkspaceOpenFiles,
   deleteWorkspaceOpenFiles,
@@ -11,6 +18,7 @@ import {
   selectWorkspaceOpenFile,
   updateWorkspaceOpenFile,
   updateWorkspaceOpenFileDraft,
+  workspaceOpenFileKey,
   type OpenWorkspaceFile,
   type WorkspaceOpenFileRequest,
   type WorkspaceOpenFileUpdater,
@@ -35,19 +43,92 @@ function openFilesStateOnly(state: WorkspaceOpenFilesState): WorkspaceOpenFilesS
   }
 }
 
+function browserDraftBackupStorage() {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.localStorage
+  } catch {
+    return null
+  }
+}
+
+function trackedOpenWorkspaceFiles(state: WorkspaceOpenFilesState) {
+  return [...state.files, ...state.closedFileCache.values()]
+}
+
 export function useWorkspaceOpenFiles() {
   const [state, setState] = useState<WorkspaceOpenFilesState>(() => initialWorkspaceOpenFilesState())
   const stateRef = useRef(state)
+  const draftBackupsRef = useRef<Map<string, WorkspaceDraftBackup> | null>(null)
+  const draftBackupWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  if (draftBackupsRef.current === null) {
+    const storage = browserDraftBackupStorage()
+    draftBackupsRef.current = storage ? loadWorkspaceDraftBackups(storage) : new Map()
+  }
 
-  const commitState = useCallback((nextState: WorkspaceOpenFilesState) => {
-    stateRef.current = openFilesStateOnly(nextState)
-    setState(stateRef.current)
-    return stateRef.current
+  const flushDraftBackups = useCallback(() => {
+    if (draftBackupWriteTimerRef.current !== null) {
+      clearTimeout(draftBackupWriteTimerRef.current)
+      draftBackupWriteTimerRef.current = null
+    }
+    const storage = browserDraftBackupStorage()
+    if (storage) saveWorkspaceDraftBackups(storage, draftBackupsRef.current ?? new Map())
   }, [])
 
-  const openFromRead = useCallback((agentId: string, file: WorkspaceFile, options?: WorkspaceOpenFileRequest) => (
-    commitState(openWorkspaceFileFromRead(stateRef.current, agentId, file, options))
-  ), [commitState])
+  const scheduleDraftBackupWrite = useCallback(() => {
+    if (draftBackupWriteTimerRef.current !== null) {
+      clearTimeout(draftBackupWriteTimerRef.current)
+    }
+    draftBackupWriteTimerRef.current = setTimeout(() => {
+      draftBackupWriteTimerRef.current = null
+      const storage = browserDraftBackupStorage()
+      if (storage) saveWorkspaceDraftBackups(storage, draftBackupsRef.current ?? new Map())
+    }, 250)
+  }, [])
+
+  const syncDraftBackups = useCallback((
+    previousState: WorkspaceOpenFilesState,
+    nextState: WorkspaceOpenFilesState
+  ) => {
+    const backups = draftBackupsRef.current
+    if (!backups) return
+    const nextFiles = trackedOpenWorkspaceFiles(nextState)
+    const nextKeys = new Set(nextFiles.map(workspaceOpenFileKey))
+    trackedOpenWorkspaceFiles(previousState).forEach(file => {
+      const key = workspaceOpenFileKey(file)
+      if (!nextKeys.has(key)) backups.delete(key)
+    })
+    nextFiles.forEach(file => {
+      const key = workspaceOpenFileKey(file)
+      if (file.dirty) {
+        backups.set(key, createWorkspaceDraftBackup(file))
+      } else {
+        backups.delete(key)
+      }
+    })
+    scheduleDraftBackupWrite()
+  }, [scheduleDraftBackupWrite])
+
+  const commitState = useCallback((nextState: WorkspaceOpenFilesState) => {
+    const previousState = stateRef.current
+    stateRef.current = openFilesStateOnly(nextState)
+    syncDraftBackups(previousState, stateRef.current)
+    setState(stateRef.current)
+    return stateRef.current
+  }, [syncDraftBackups])
+
+  const openFromRead = useCallback((agentId: string, file: WorkspaceFile, options?: WorkspaceOpenFileRequest) => {
+    let nextState = openWorkspaceFileFromRead(stateRef.current, agentId, file, options)
+    const openedFile = nextState.activeFile
+    const backup = openedFile ? draftBackupsRef.current?.get(workspaceOpenFileKey(openedFile)) : null
+    if (openedFile && backup) {
+      nextState = updateWorkspaceOpenFile(
+        nextState,
+        restoreWorkspaceOpenFileDraft(openedFile, backup)
+      )
+    }
+    return commitState(nextState)
+  }, [commitState])
 
   const select = useCallback((agentId: string, filePath: string, options?: WorkspaceOpenFileRequest) => {
     const nextState = selectWorkspaceOpenFile(stateRef.current, agentId, filePath, options)
@@ -110,6 +191,15 @@ export function useWorkspaceOpenFiles() {
   const closedFiles = useMemo(() => (
     Array.from(state.closedFileCache.values())
   ), [state.closedFileCache])
+
+  useEffect(() => {
+    const flushOnPageHide = () => flushDraftBackups()
+    window.addEventListener('pagehide', flushOnPageHide)
+    return () => {
+      window.removeEventListener('pagehide', flushOnPageHide)
+      flushDraftBackups()
+    }
+  }, [flushDraftBackups])
 
   return useMemo(() => ({
     activeFile: state.activeFile,

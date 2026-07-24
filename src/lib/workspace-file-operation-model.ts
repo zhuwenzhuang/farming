@@ -1,4 +1,9 @@
 import { parentDirectory, type WorkspaceFileTreeNode } from './workspace-file-tree'
+import type {
+  WorkspaceFileDeleteResult,
+  WorkspaceFileEntry,
+  WorkspaceFileMove,
+} from './workspace-files'
 
 export type WorkspaceFileOperationKind = 'new-file' | 'new-folder' | 'rename' | 'delete'
 
@@ -68,6 +73,42 @@ export function workspaceFileOperationSubmitName(operation: WorkspaceFileOperati
   return name.endsWith(`${extension}${extension}`)
     ? name.slice(0, -extension.length)
     : name
+}
+
+export function reconcileWorkspaceFileDeleteFromDirectory(
+  operation: WorkspaceFileOperationState,
+  items: readonly WorkspaceFileEntry[]
+): WorkspaceFileDeleteResult | null {
+  if (operation.kind !== 'delete' || !operation.item) return null
+  if (items.some(item => item.path === operation.item?.path)) return null
+  return {
+    path: operation.item.path,
+    parentDirectory: parentDirectory(operation.item.path),
+    type: operation.item.type,
+    version: operation.item.version,
+  }
+}
+
+export function reconcileWorkspaceFileRenameFromDirectory(
+  operation: WorkspaceFileOperationState,
+  submittedName: string,
+  items: readonly WorkspaceFileEntry[]
+): WorkspaceFileMove | null {
+  if (operation.kind !== 'rename' || !operation.item) return null
+  const sourcePath = operation.item.path
+  const sourceDirectory = parentDirectory(sourcePath)
+  const targetPath = sourceDirectory ? `${sourceDirectory}/${submittedName}` : submittedName
+  if (targetPath === sourcePath || items.some(item => item.path === sourcePath)) return null
+  const target = items.find(item => item.path === targetPath)
+  if (!target || target.type !== operation.item.type) return null
+  return {
+    sourcePath,
+    targetPath,
+    sourceDirectory,
+    targetDirectory: sourceDirectory,
+    sourceVersion: operation.item.version,
+    targetVersion: target.version,
+  }
 }
 
 export function workspaceFileOperationTitle(

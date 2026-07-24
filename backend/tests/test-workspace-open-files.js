@@ -20,6 +20,12 @@ const {
   workspaceFileCursorForTarget,
 } = require('../../src/lib/workspace-open-files.ts');
 const { workspaceFileCacheKey } = require('../../src/lib/workspace-working-copy.ts');
+const {
+  createWorkspaceDraftBackup,
+  loadWorkspaceDraftBackups,
+  restoreWorkspaceOpenFileDraft,
+  saveWorkspaceDraftBackups,
+} = require('../../src/lib/workspace-draft-backups.ts');
 
 function workspaceFile(path, content = 'old', sha1 = 'old-sha') {
   return {
@@ -58,6 +64,21 @@ function state(overrides = {}) {
 
 function keys(map) {
   return Array.from(map.keys()).sort();
+}
+
+function memoryStorage() {
+  const values = new Map();
+  return {
+    getItem(key) {
+      return values.has(key) ? values.get(key) : null;
+    },
+    setItem(key, value) {
+      values.set(key, String(value));
+    },
+    removeItem(key) {
+      values.delete(key);
+    },
+  };
 }
 
 function run() {
@@ -123,6 +144,56 @@ function run() {
   assert.strictEqual(savingRefresh.draft, 'local edit');
   assert.strictEqual(savingRefresh.saving, true);
   assert.strictEqual(savingRefresh.saveRequestId, 7);
+
+  const draftBackup = createWorkspaceDraftBackup(dirty, 1234);
+  assert.strictEqual(draftBackup.baseSha1, 'old-sha');
+  assert.strictEqual(draftBackup.draft, 'local edit');
+  assert.strictEqual(draftBackup.externalChanged, false);
+  assert.strictEqual(draftBackup.updatedAt, 1234);
+  const backupStorage = memoryStorage();
+  saveWorkspaceDraftBackups(backupStorage, new Map([[draftBackup.key, draftBackup]]));
+  const loadedDraftBackups = loadWorkspaceDraftBackups(backupStorage);
+  assert.deepStrictEqual(loadedDraftBackups.get(draftBackup.key), draftBackup);
+  assert.doesNotThrow(() => loadWorkspaceDraftBackups({
+    getItem() {
+      throw new Error('storage unavailable');
+    },
+    setItem() {
+      throw new Error('storage unavailable');
+    },
+    removeItem() {
+      throw new Error('storage unavailable');
+    },
+  }));
+  const restoredDraft = restoreWorkspaceOpenFileDraft(
+    openFile('agent-1', 'src/App.tsx', { revision: 0 }),
+    draftBackup
+  );
+  assert.strictEqual(restoredDraft.draft, 'local edit');
+  assert.strictEqual(restoredDraft.dirty, true);
+  assert.strictEqual(restoredDraft.externalChanged, false);
+  const restoredAfterDiskChange = restoreWorkspaceOpenFileDraft(
+    openFile('agent-1', 'src/App.tsx', {
+      revision: 0,
+      file: workspaceFile('src/App.tsx', 'server', 'server-sha'),
+    }),
+    draftBackup
+  );
+  assert.strictEqual(restoredAfterDiskChange.draft, 'local edit');
+  assert.strictEqual(restoredAfterDiskChange.externalChanged, true);
+  const restoredKnownConflict = restoreWorkspaceOpenFileDraft(
+    openFile('agent-1', 'src/App.tsx', { revision: 0 }),
+    { ...draftBackup, externalChanged: true }
+  );
+  assert.strictEqual(restoredKnownConflict.externalChanged, true);
+  const alreadyCommittedBackup = restoreWorkspaceOpenFileDraft(
+    openFile('agent-1', 'src/App.tsx', {
+      revision: 0,
+      file: workspaceFile('src/App.tsx', 'local edit', 'saved-sha'),
+    }),
+    draftBackup
+  );
+  assert.strictEqual(alreadyCommittedBackup.dirty, false);
 
   const opened = openWorkspaceFileFromRead(state(), 'agent-1', workspaceFile('src/App.tsx', 'server', 'server-sha'));
   assert.strictEqual(opened.activeFile.file.path, 'src/App.tsx');

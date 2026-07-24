@@ -67,6 +67,7 @@ async function run() {
     maxWriteSize: 1024 * 32,
     gitStatusCacheTtlMs: 0,
     gitStatusInlineTimeoutMs: 0,
+    flushWorkspaceWrites: false,
     watchOptions: { usePolling: true, interval: 50 },
   });
   assert.strictEqual(DEFAULT_WATCH_DEPTH, 1);
@@ -296,6 +297,18 @@ async function run() {
 
     fs.writeFileSync(path.join(srcDir, 'Concurrent.ts'), 'base\n');
     const concurrentBase = await service.readFile(workspace, 'src/Concurrent.ts');
+    service.flushWorkspaceWrites = true;
+    const originalOpen = fs.promises.open;
+    let datasyncCalls = 0;
+    fs.promises.open = async (...args) => {
+      const handle = await originalOpen(...args);
+      const originalDatasync = handle.datasync.bind(handle);
+      handle.datasync = async () => {
+        datasyncCalls += 1;
+        return originalDatasync();
+      };
+      return handle;
+    };
     const originalNow = Date.now;
     Date.now = () => 1234567890;
     let concurrentSaves;
@@ -306,7 +319,9 @@ async function run() {
       ]);
     } finally {
       Date.now = originalNow;
+      fs.promises.open = originalOpen;
     }
+    assert(datasyncCalls > 0);
     const fulfilledConcurrentSaves = concurrentSaves.filter(result => result.status === 'fulfilled');
     const rejectedConcurrentSaves = concurrentSaves.filter(result => result.status === 'rejected');
     assert.strictEqual(fulfilledConcurrentSaves.length, 1);
@@ -320,6 +335,38 @@ async function run() {
       fs.readdirSync(srcDir).filter(name => name.includes('.farming-')),
       []
     );
+
+    const datasyncFailureBase = await service.readFile(workspace, 'src/Concurrent.ts');
+    fs.promises.open = async (...args) => {
+      const handle = await originalOpen(...args);
+      if (String(args[0]).includes('.farming-')) {
+        handle.datasync = async () => {
+          const error = new Error('simulated datasync failure');
+          error.code = 'EIO';
+          throw error;
+        };
+      }
+      return handle;
+    };
+    try {
+      await assert.rejects(
+        service.writeFile(workspace, 'src/Concurrent.ts', 'must not commit\n', {
+          baseSha1: datasyncFailureBase.sha1,
+        }),
+        /simulated datasync failure/
+      );
+    } finally {
+      fs.promises.open = originalOpen;
+    }
+    assert.strictEqual(
+      fs.readFileSync(path.join(srcDir, 'Concurrent.ts'), 'utf8'),
+      datasyncFailureBase.content
+    );
+    assert.deepStrictEqual(
+      fs.readdirSync(srcDir).filter(name => name.includes('.farming-')),
+      []
+    );
+    service.flushWorkspaceWrites = false;
 
     fs.writeFileSync(path.join(srcDir, 'Idempotent.ts'), 'base\n');
     const idempotentBase = await service.readFile(workspace, 'src/Idempotent.ts');

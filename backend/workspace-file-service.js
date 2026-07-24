@@ -1134,6 +1134,7 @@ class WorkspaceFileService {
     this.gitStatusTimeoutMs = options.gitStatusTimeoutMs ?? DEFAULT_GIT_STATUS_TIMEOUT_MS;
     this.gitStatusCache = new Map();
     this.mutationQueues = new Map();
+    this.flushWorkspaceWrites = options.flushWorkspaceWrites !== false;
     this.watchers = new Map();
     this.watchOptions = options.watchOptions || {};
     this.watchDepth = Number.isFinite(options.watchDepth) ? Math.max(0, options.watchDepth) : DEFAULT_WATCH_DEPTH;
@@ -2236,6 +2237,19 @@ class WorkspaceFileService {
     ));
   }
 
+  async flushWorkspaceFileHandle(handle) {
+    if (!this.flushWorkspaceWrites) return;
+    try {
+      await handle.datasync();
+    } catch (error) {
+      if (!['EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP'].includes(error?.code)) {
+        throw error;
+      }
+      this.flushWorkspaceWrites = false;
+      console.warn('Workspace file datasync is unsupported; disabling it for this server process:', error);
+    }
+  }
+
   async writeFileUnlocked(workspaceRoot, userPath, content, options = {}) {
     if (typeof content !== 'string') {
       throw new WorkspaceFileError('content must be a string', 400);
@@ -2317,6 +2331,7 @@ class WorkspaceFileService {
     try {
       tempHandle = await fsp.open(tempPath, 'wx', currentMode);
       await tempHandle.writeFile(content);
+      await this.flushWorkspaceFileHandle(tempHandle);
       committedStat = await tempHandle.stat();
       await tempHandle.close();
       tempHandle = null;
