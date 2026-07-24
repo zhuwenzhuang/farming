@@ -23,6 +23,7 @@ class TerminalScreenWorkerPool {
     this.waiters = [];
     this.readyWaiters = [];
     this.pendingStarts = 0;
+    this.startTasks = new Set();
     this.consecutiveStartFailures = 0;
     this.retryDelayMs = Number.isFinite(options.retryDelayMs)
       ? Math.max(0, Number(options.retryDelayMs))
@@ -91,13 +92,12 @@ class TerminalScreenWorkerPool {
   startWorker() {
     this.pendingStarts += 1;
     let failed = false;
-    this.createReadyWorker()
+    const startTask = this.createReadyWorker()
       .then((worker) => {
         this.pendingStarts -= 1;
         this.consecutiveStartFailures = 0;
         if (this.disposed) {
-          worker.dispose().catch(() => {});
-          return;
+          return worker.dispose().catch(() => {});
         }
         this.deliverWorker(worker);
       })
@@ -122,6 +122,11 @@ class TerminalScreenWorkerPool {
           this.ensureCapacity();
         }
       });
+    this.startTasks.add(startTask);
+    startTask.then(
+      () => this.startTasks.delete(startTask),
+      () => this.startTasks.delete(startTask),
+    );
   }
 
   scheduleCapacityRetry() {
@@ -197,8 +202,8 @@ class TerminalScreenWorkerPool {
   }
 
   async dispose() {
-    if (this.disposed) {
-      return;
+    if (this.disposePromise) {
+      return this.disposePromise;
     }
 
     this.disposed = true;
@@ -210,7 +215,11 @@ class TerminalScreenWorkerPool {
     this.waiters.splice(0).forEach(({ reject }) => reject(error));
     this.readyWaiters.splice(0).forEach(({ reject }) => reject(error));
     const workers = this.idle.splice(0);
-    await Promise.allSettled(workers.map(worker => worker.dispose()));
+    this.disposePromise = Promise.allSettled([
+      ...workers.map(worker => worker.dispose()),
+      ...this.startTasks,
+    ]).then(() => undefined);
+    return this.disposePromise;
   }
 }
 

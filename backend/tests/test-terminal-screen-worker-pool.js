@@ -176,11 +176,11 @@ async function run() {
   });
   const slowReady = slowPool.ready();
   const slowAcquire = slowPool.acquire();
-  await slowPool.dispose();
+  const slowDispose = slowPool.dispose();
   await assert.rejects(() => slowReady, /disposed/);
   await assert.rejects(() => slowAcquire, /disposed/);
   releaseSlowStarts.forEach(resolve => resolve());
-  await delay(10);
+  await slowDispose;
   assert.strictEqual(FakeScreenWorker.disposed, 2, 'workers finishing after disposal must be disposed');
 
   console.log('✓ Terminal screen worker pool prewarms and replenishes workers');
