@@ -110,6 +110,8 @@ Review 初版把已跟踪与未跟踪的工作区修改分开。它会捕获 Rev
 
 ## 找到实时工作，或恢复旧工作
 
+没有打开任何 Agent 时，主工作区会显示克制的开始引导，而不是一块没有入口的空白页。主操作用于继续 History 或新建 Agent；次级操作可以打开 Search、分享、专注模式，或收起侧栏。紧凑布局只保留两个主操作。
+
 Search 会在当前 Live Work 中匹配项目名、Agent Title 和 Workspace Path。
 
 ![实时 Agent Search](assets/13-code-search.png)
@@ -120,7 +122,7 @@ History 使用有边界的显式分页，不再持续拉长同一个滚动面。
 
 ![完整 History Search](assets/08-history-search.png)
 
-结果保留 Provider Identity 和 Workspace Context。根据记录类型，主操作可以是 Open、Continue、Restore 或 Resume。Shell 进程归档时会被销毁，绝不会伪装成可以 Resume 的 Provider Session。
+结果保留 Provider Identity 和 Workspace Context。History 行主体执行主要的 Open、Continue 或 Resume 操作；行尾仍保留显式控件，用于 Restore 等备选操作。Shell 进程归档时会被销毁，绝不会伪装成可以 Resume 的 Provider Session。
 
 归档实时 Codex Agent 时，Farming 会先完成本地归档，再异步对稳定的 Provider Session 调用 `codex archive`。Provider 侧失败会由后端报告，但不会重新唤起已经终止的 Agent。
 

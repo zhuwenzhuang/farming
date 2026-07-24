@@ -51,7 +51,15 @@ function run() {
 
   assert(sidebarSource.includes("import { ShareQrButton } from './ShareQrButton'"));
   assert(sidebarSource.includes('shareTarget: WorkspaceShareTarget | null'));
-  assert(sidebarSource.includes('<ShareQrButton copy={copy} sidebarCollapsed={sidebarCollapsed} shareTarget={shareTarget} />'));
+  assert(
+    sidebarSource.includes('<ShareQrButton') &&
+      sidebarSource.includes('shareTarget={shareTarget}') &&
+      sidebarSource.includes("emptyHomeActionRequest?.kind === 'share'"),
+    'the empty-workspace Share action should reuse the sidebar QR control'
+  );
+  assert(shareButtonSource.includes('openRequest = 0'));
+  assert(shareButtonSource.includes('handledOpenRequestRef.current === openRequest'));
+  assert(shareButtonSource.includes('openPopover(true, true)'));
   assert(copySource.includes('copyFullShareLink:'));
   assert(copySource.includes("copyFullShareLink: '复制完整链接'"));
 

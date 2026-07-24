@@ -33,7 +33,7 @@ Steps:
 Mobile has three primary regions:
 
 - top bar: connection state, current project / file, and main actions;
-- drawer: Projects, Agents, Files, Search, History, New Agent;
+- drawer: Projects, Agents, Files, Search, History, Usage activity, New Agent;
 - main area: one focused Chat, Terminal, search result, Review, or editor at a time.
 
 The sidebar starts collapsed so the main content is not squeezed. The user can reopen it when switching projects or agents.
@@ -66,11 +66,18 @@ Expected:
 - The mobile top bar shows enough file context.
 - Git blame can be inspected without breaking layout.
 
+## Usage Activity
+
+Open the drawer and tap **Usage activity** to inspect token usage without leaving the mobile workspace. The activity view fills the phone viewport and uses one vertical scroll area; it does not introduce page-level horizontal scrolling.
+
+The 52-week heatmap remains an overview. Use the native **Selected day** date control to choose an exact day, then inspect its complete 24-hour histogram. Changing the selected day, including while data is loading, must not resize the activity frame or histogram. The header and close control remain reachable while the content scrolls.
+
 ## Recommended Mobile Use
 
 Good mobile tasks:
 
 - check whether an agent is still running;
+- inspect recent usage and one day's hourly activity;
 - read recent output;
 - send a short steering message;
 - start a simple shell agent;
@@ -90,8 +97,9 @@ Desktop is still better for:
 2. Open the drawer and select a running agent.
 3. Read the latest structured result or Terminal output.
 4. Send a short input.
-5. Expand the project Files section.
-6. Search `README.md:2`.
-7. Open the file.
-8. Show git blame.
-9. Refresh the page and confirm the same remote agent is still visible.
+5. Open **Usage activity**, select a day, and confirm the full histogram remains visible without horizontal scrolling.
+6. Close Usage activity and expand the project Files section.
+7. Search `README.md:2`.
+8. Open the file.
+9. Show git blame.
+10. Refresh the page and confirm the same remote agent is still visible.

@@ -337,6 +337,240 @@ test.describe('display-backed agent flows', () => {
     expect(historyLayout.headerTop).toBeGreaterThanOrEqual(historyLayout.panelTop)
   })
 
+  test('guides an empty workspace and resumes History from the row body', async ({ page, workspaceRoot }) => {
+    const sessionId = '019f0000-0000-7000-8000-000000000221'
+    await mockCodexSessions(page, [{
+      provider: 'codex',
+      providerName: 'Codex',
+      capabilities: ['resume'],
+      id: sessionId,
+      title: 'Resume from the whole row',
+      cwd: workspaceRoot,
+      workspace: workspaceRoot,
+      updatedAt: new Date().toISOString(),
+      createdAt: new Date(Date.now() - 60_000).toISOString(),
+      model: 'gpt-5.5',
+      effort: 'medium',
+    }])
+    let resumeRequests = 0
+    await page.route(`**/farming/api/agent-sessions/codex/${sessionId}/resume`, async route => {
+      resumeRequests += 1
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ agentId: 'agent-resumed-from-history-row' }),
+      })
+    })
+
+    await openFarming(page)
+    const emptyWorkspace = page.getByTestId('code-empty-workspace')
+    await expect(emptyWorkspace.getByTestId('code-empty-home-history')).toBeVisible()
+    await expect(emptyWorkspace.getByTestId('code-empty-home-new-agent')).toBeVisible()
+    await expect(page.getByTestId('code-empty-home-brace')).toBeVisible()
+    await expect(page.getByTestId('code-empty-home-target-brace')).toBeVisible()
+    const guideGeometry = await page.evaluate(() => {
+      const brace = document.querySelector<HTMLElement>('[data-testid="code-empty-home-brace"]')?.getBoundingClientRect()
+      const guideHome = document.querySelector<HTMLElement>('.code-empty-home')?.getBoundingClientRect()
+      const guideLine = document.querySelector<HTMLElement>('.code-empty-home-origin')?.getBoundingClientRect()
+      const targetPath = document.querySelector<HTMLElement>('.code-empty-home-target-path')?.getBoundingClientRect()
+      const targetBrace = document.querySelector<HTMLElement>('[data-testid="code-empty-home-target-brace"]')?.getBoundingClientRect()
+      const actionMap = document.querySelector<HTMLElement>('.code-empty-home-action-map')?.getBoundingClientRect()
+      const actions = document.querySelector<HTMLElement>('.code-empty-home-actions')?.getBoundingClientRect()
+      const guideHeader = document.querySelector<HTMLElement>('.code-empty-home-header')?.getBoundingClientRect()
+      const guideTitle = document.querySelector<HTMLElement>('.code-empty-home-header h2')?.getBoundingClientRect()
+      const main = document.querySelector<HTMLElement>('[data-testid="code-main"]')?.getBoundingClientRect()
+      const toolbarButton = document.querySelector<HTMLElement>('[data-testid="code-nav-history"]')?.getBoundingClientRect()
+      const resizer = document.querySelector<HTMLElement>('[data-testid="code-sidebar-resizer"]')?.getBoundingClientRect()
+      const guideButtons = Array.from(document.querySelectorAll<HTMLElement>('.code-empty-home-card'))
+      const guideIcons = Array.from(document.querySelectorAll<HTMLElement>('.code-empty-home-card-icon'))
+      const iconPairs = [
+        ['code-empty-home-new-agent', 'code-new-agent'],
+        ['code-empty-home-share', 'code-share-button'],
+        ['code-empty-home-focus', 'code-sidebar-focus-toggle'],
+        ['code-empty-home-search', 'code-nav-search'],
+        ['code-empty-home-history', 'code-nav-history'],
+        ['code-empty-home-collapse', 'code-sidebar-toggle'],
+      ]
+      const getPathPoint = (selector: string, fraction: number) => {
+        const path = document.querySelector<SVGPathElement>(selector)
+        const transform = path?.getScreenCTM()
+        if (!path || !transform) return null
+        const point = path.getPointAtLength(path.getTotalLength() * fraction)
+        const viewportPoint = new DOMPoint(point.x, point.y).matrixTransform(transform)
+        return { x: viewportPoint.x, y: viewportPoint.y }
+      }
+      const smallBraceWaist = getPathPoint('.code-empty-home-brace path', 0.5)
+      const targetBraceWaist = getPathPoint('.code-empty-home-target-brace path', 0.5)
+      const connectorStart = getPathPoint('.code-empty-home-origin .code-empty-home-connector-base', 0)
+      const connectorJoinTop = getPathPoint('.code-empty-home-origin .code-empty-home-connector-base', 1)
+      const connectorJoinBottom = getPathPoint('.code-empty-home-target-path .code-empty-home-connector-base', 0)
+      const connectorEnd = getPathPoint('.code-empty-home-target-path .code-empty-home-connector-base', 1)
+      const connectorBaseStyle = getComputedStyle(
+        document.querySelector<SVGPathElement>('.code-empty-home-origin .code-empty-home-connector-base')!,
+      )
+      const connectorGrowthStyle = getComputedStyle(
+        document.querySelector<SVGPathElement>('.code-empty-home-origin .code-empty-home-connector-growth')!,
+      )
+      const braceStyles = Array.from(
+        document.querySelectorAll<SVGPathElement>('.code-empty-home-brace path, .code-empty-home-target-brace path'),
+        path => getComputedStyle(path),
+      )
+      return {
+        braceHeight: brace?.height ?? 0,
+        toolbarButtonHeight: toolbarButton?.height ?? 0,
+        braceLeft: brace?.left ?? 0,
+        resizerRight: resizer?.right ?? 0,
+        connectorSharesScrollRoot: Boolean(
+          brace
+          && guideLine
+          && document.querySelector('.code-empty-home')?.contains(
+            document.querySelector('[data-testid="code-empty-home-brace"]'),
+          )
+          && document.querySelector('.code-empty-home')?.contains(
+            document.querySelector('.code-empty-home-origin'),
+          )
+          && document.querySelector('.code-empty-home')?.contains(
+            document.querySelector('[data-testid="code-empty-home-target-brace"]'),
+          )
+        ),
+        connectorStartGap: smallBraceWaist && connectorStart
+          ? connectorStart.x - smallBraceWaist.x
+          : Number.POSITIVE_INFINITY,
+        connectorStartVerticalDelta: smallBraceWaist && connectorStart
+          ? Math.abs(connectorStart.y - smallBraceWaist.y)
+          : Number.POSITIVE_INFINITY,
+        connectorJoinDelta: connectorJoinTop && connectorJoinBottom
+          ? Math.hypot(
+            connectorJoinTop.x - connectorJoinBottom.x,
+            connectorJoinTop.y - connectorJoinBottom.y,
+          )
+          : Number.POSITIVE_INFINITY,
+        connectorTargetGap: connectorEnd && targetBraceWaist
+          ? targetBraceWaist.x - connectorEnd.x
+          : Number.POSITIVE_INFINITY,
+        connectorTargetVerticalDelta: connectorEnd && targetBraceWaist
+          ? Math.abs(connectorEnd.y - targetBraceWaist.y)
+          : Number.POSITIVE_INFINITY,
+        connectorBaseStrokeWidth: Number.parseFloat(connectorBaseStyle.strokeWidth),
+        connectorGrowthStrokeWidth: Number.parseFloat(connectorGrowthStyle.strokeWidth),
+        connectorStrokeDasharray: connectorBaseStyle.strokeDasharray,
+        connectorGrowthMasks: Array.from(
+          document.querySelectorAll<SVGPathElement>('.code-empty-home-connector-growth'),
+          path => path.getAttribute('mask'),
+        ),
+        braceStrokeWidths: braceStyles.map(style => Number.parseFloat(style.strokeWidth)),
+        braceStrokeDasharrays: braceStyles.map(style => style.strokeDasharray),
+        targetBraceHeightDelta: targetBrace && actions
+          ? Math.abs(targetBrace.height - actions.height)
+          : Number.POSITIVE_INFINITY,
+        targetBraceToActionsGap: targetBrace && actions ? actions.left - targetBrace.right : -1,
+        titleCenterDelta: guideTitle && main
+          ? Math.abs(guideTitle.left + guideTitle.width / 2 - (main.left + main.width / 2))
+          : Number.POSITIVE_INFINITY,
+        actionMapCenterDelta: actionMap && main
+          ? Math.abs(actionMap.left + actionMap.width / 2 - (main.left + main.width / 2))
+          : Number.POSITIVE_INFINITY,
+        contentCenterDelta: guideHome && guideHeader && actionMap
+          ? Math.abs((guideHeader.top + actionMap.bottom) / 2 - (guideHome.top + guideHome.height / 2))
+          : Number.POSITIVE_INFINITY,
+        guideBorderWidths: [...guideButtons, ...guideIcons].map(element => getComputedStyle(element).borderTopWidth),
+        cardBackgrounds: guideButtons.map(element => getComputedStyle(element).backgroundColor),
+        iconsMatchToolbar: iconPairs.every(([guideId, toolbarId]) => {
+          const guideIcon = document.querySelector(`[data-testid="${guideId}"] .code-empty-home-card-icon svg`)
+          const toolbarIcon = document.querySelector(`[data-testid="${toolbarId}"] svg`)
+          return Boolean(guideIcon && toolbarIcon && guideIcon.innerHTML === toolbarIcon.innerHTML)
+        }),
+      }
+    })
+    expect(guideGeometry.braceHeight).toBeLessThanOrEqual(guideGeometry.toolbarButtonHeight + 5)
+    expect(guideGeometry.braceLeft).toBeGreaterThan(guideGeometry.resizerRight + 4)
+    expect(guideGeometry.connectorSharesScrollRoot).toBe(true)
+    expect(guideGeometry.connectorStartGap).toBeGreaterThanOrEqual(2)
+    expect(guideGeometry.connectorStartGap).toBeLessThanOrEqual(12)
+    expect(guideGeometry.connectorStartVerticalDelta).toBeLessThanOrEqual(1)
+    expect(guideGeometry.connectorJoinDelta).toBeLessThanOrEqual(1)
+    expect(guideGeometry.connectorTargetGap).toBeGreaterThanOrEqual(2)
+    expect(guideGeometry.connectorTargetGap).toBeLessThanOrEqual(12)
+    expect(guideGeometry.connectorTargetVerticalDelta).toBeLessThanOrEqual(1)
+    expect(guideGeometry.connectorBaseStrokeWidth).toBeLessThan(guideGeometry.connectorGrowthStrokeWidth)
+    expect(guideGeometry.connectorBaseStrokeWidth).toBeCloseTo(0.85, 2)
+    expect(guideGeometry.connectorGrowthStrokeWidth).toBeCloseTo(1.55, 2)
+    expect(guideGeometry.connectorStrokeDasharray).not.toBe('none')
+    expect(guideGeometry.connectorGrowthMasks).toEqual([
+      'url(#code-empty-home-origin-mask)',
+      'url(#code-empty-home-target-mask)',
+    ])
+    expect(guideGeometry.braceStrokeWidths).toEqual([1.15, 1.55])
+    expect(guideGeometry.braceStrokeDasharrays).toEqual(['none', 'none'])
+    expect(guideGeometry.targetBraceHeightDelta).toBeLessThanOrEqual(1)
+    expect(guideGeometry.targetBraceToActionsGap).toBeGreaterThanOrEqual(10)
+    expect(guideGeometry.targetBraceToActionsGap).toBeLessThanOrEqual(14)
+    expect(guideGeometry.titleCenterDelta).toBeLessThanOrEqual(1)
+    expect(guideGeometry.actionMapCenterDelta).toBeLessThanOrEqual(1)
+    expect(guideGeometry.contentCenterDelta).toBeLessThanOrEqual(1)
+    expect(guideGeometry.guideBorderWidths).toEqual(
+      Array.from({ length: guideGeometry.guideBorderWidths.length }, () => '0px'),
+    )
+    expect(new Set(guideGeometry.cardBackgrounds).size).toBe(1)
+    expect(guideGeometry.iconsMatchToolbar).toBe(true)
+
+    await emptyWorkspace.getByTestId('code-empty-home-share').click()
+    await expect(page.getByTestId('code-share-popover')).toBeVisible()
+    await page.getByTestId('code-share-button').click()
+    await expect(page.getByTestId('code-share-popover')).toHaveCount(0)
+
+    await emptyWorkspace.getByTestId('code-empty-home-focus').click()
+    await expect(page.getByTestId('code-app-mode-dialog')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('code-app-mode-dialog')).toHaveCount(0)
+
+    await emptyWorkspace.getByTestId('code-empty-home-collapse').click()
+    await expect(emptyWorkspace.getByTestId('code-empty-compact-history')).toBeVisible()
+    await page.getByTestId('code-sidebar-toggle').click()
+    await expect(emptyWorkspace.getByTestId('code-empty-home-history')).toBeVisible()
+
+    await emptyWorkspace.getByTestId('code-empty-home-search').click()
+    const searchView = page.getByTestId('code-side-view-panel')
+    const searchPanel = page.getByTestId('code-search-panel')
+    await expect(searchPanel).toBeVisible()
+    const searchGeometry = await page.evaluate(() => {
+      const view = document.querySelector<HTMLElement>('[data-testid="code-side-view-panel"]')?.getBoundingClientRect()
+      const panel = document.querySelector<HTMLElement>('[data-testid="code-search-panel"]')?.getBoundingClientRect()
+      return {
+        topGap: view && panel ? panel.top - view.top : Number.POSITIVE_INFINITY,
+        centerDelta: view && panel
+          ? Math.abs(panel.left + panel.width / 2 - (view.left + view.width / 2))
+          : Number.POSITIVE_INFINITY,
+      }
+    })
+    expect(searchGeometry.topGap).toBeGreaterThanOrEqual(30)
+    expect(searchGeometry.topGap).toBeLessThanOrEqual(66)
+    expect(searchGeometry.centerDelta).toBeLessThanOrEqual(1)
+    await page.getByTestId('code-search-back').click()
+    await expect(emptyWorkspace.getByTestId('code-empty-home-history')).toBeVisible()
+
+    await emptyWorkspace.getByTestId('code-empty-home-history').click()
+    await expect(page.getByTestId('code-history-back')).toBeVisible()
+    await page.getByTestId('code-history-back').click()
+    await expect(emptyWorkspace.getByTestId('code-empty-home-history')).toBeVisible()
+
+    await page.setViewportSize({ width: 900, height: 700 })
+    const compactHistory = emptyWorkspace.getByTestId('code-empty-compact-history')
+    await expect(compactHistory).toBeVisible()
+    await expect(emptyWorkspace.getByTestId('code-empty-compact-new-agent')).toBeVisible()
+    await compactHistory.click()
+    const historyRow = page.getByTestId('code-session-history-card').filter({ hasText: 'Resume from the whole row' })
+    await expect(historyRow).toBeVisible()
+    const historyPrimary = historyRow.getByTestId('code-session-history-primary')
+    await expect(historyPrimary).toBeVisible()
+    await expect(historyRow.locator('[role="link"]')).toHaveCount(0)
+    const historyIcon = historyRow.locator('.code-history-agent-icon .agent-launch-icon-codex')
+    await expect(historyIcon).toBeVisible()
+    await expect(historyIcon).toHaveCSS('width', '13px')
+    await expect(historyIcon).toHaveCSS('height', '13px')
+    await historyPrimary.click()
+    await expect.poll(() => resumeRequests).toBe(1)
+  })
+
   test('searches older provider History and renders one clear control', async ({ page, workspaceRoot }) => {
     await mockCodexSessions(page)
     let searchRequests = 0

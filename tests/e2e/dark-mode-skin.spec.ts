@@ -237,7 +237,7 @@ test.describe('Farming Code dark skin', () => {
     await expect(page.getByTestId('code-history-panel')).toBeVisible()
     await expectDarkSurface(page.getByTestId('code-side-view-panel'), 'history side view')
     await expectReadableDarkText(page.getByTestId('code-history-panel').locator('.code-history-panel-header h2'), 'history header')
-    await expectReadableDarkText(page.getByTestId('code-history-panel').locator('.code-empty-workspace h2, .code-history-card h3').first(), 'history content')
+    await expectReadableDarkText(page.getByTestId('code-history-panel').locator('.code-empty-workspace h2, .code-history-card-title').first(), 'history content')
     await saveScreenshot(testInfo, 'history-view.png', page.getByTestId('code-side-view-panel'))
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('code-history-panel')).toHaveCount(0)

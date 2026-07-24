@@ -57,6 +57,7 @@ function run() {
   const terminalPaneSource = read('src/components/AgentTerminalPane.tsx');
   const transcriptPaneSource = read('src/components/code/CodexTranscriptPane.tsx');
   const copySource = read('src/components/code/copy.ts');
+  const iconGlyphsSource = read('src/components/IconGlyphs.tsx');
   const agentWorkPaneSource = read('src/components/code/AgentWorkPane.tsx');
   const codeMainAreaSource = read('src/components/code/CodeMainArea.tsx');
   const terminalComposerSource = read('src/components/code/CodeComposer.tsx');
@@ -418,7 +419,8 @@ function run() {
       workspaceSource.includes('ChevronRightGlyph') &&
       workspaceSource.includes('ChevronDownGlyph') &&
       workspaceSource.includes("import { ShareQrButton } from './ShareQrButton'") &&
-      workspaceSource.includes('<ShareQrButton copy={copy} sidebarCollapsed={sidebarCollapsed} shareTarget={shareTarget} />') &&
+      workspaceSource.includes('<ShareQrButton') &&
+      workspaceSource.includes('shareTarget={shareTarget}') &&
       workspaceSource.includes('workspaceShareTargetFromSearch(window.location.search)') &&
       workspaceSource.includes('const shareTarget = useMemo<WorkspaceShareTarget | null>') &&
       workspaceSource.includes("kind: 'file'") &&
@@ -1407,6 +1409,26 @@ function run() {
   );
 
   assert(
+    /\.code-empty-workspace \.code-empty-home-card \{[\s\S]*?border: 0;/.test(stylesSource) &&
+      /\.code-empty-home-card-icon \{[\s\S]*?(?:\n|^) {2}color: #303831;/.test(stylesSource) &&
+      iconGlyphsSource.includes('export function NewAgentGlyph') &&
+      iconGlyphsSource.includes('export function HistoryGlyph') &&
+      iconGlyphsSource.includes('export function FocusModeGlyph') &&
+      iconGlyphsSource.includes('export function QrGlyph') &&
+      codeMainAreaSource.includes("if (action === 'history') return <HistoryGlyph />") &&
+      codeMainAreaSource.includes("if (action === 'share') return <QrGlyph />") &&
+      workspaceSource.includes('<NewAgentGlyph />') &&
+      workspaceSource.includes('<HistoryGlyph />') &&
+      codeMainAreaSource.includes('data-testid="code-empty-compact-history"') &&
+      !codeMainAreaSource.includes('code-empty-home-rail') &&
+      !stylesSource.includes('.code-empty-home-rail') &&
+      !stylesSource.includes('.code-empty-home-origin::after') &&
+      !stylesSource.includes('.code-empty-home-card.history::before') &&
+      !stylesSource.includes('.code-empty-home-card.utility::before'),
+    'Empty-workspace guidance should stay borderless and reuse the toolbar icon glyphs'
+  );
+
+  assert(
     stylesSource.includes('body.code-mode') &&
     stylesSource.includes('.code-workspace') &&
       stylesSource.includes('--code-sidebar-width') &&
@@ -1442,8 +1464,8 @@ function run() {
       stylesSource.includes('.code-history-view') &&
       stylesSource.includes('.code-history-card') &&
       stylesSource.includes('.code-history-actions button svg') &&
-      stylesSource.includes('button.code-history-card') &&
-      stylesSource.includes('.code-history-card:focus-visible') &&
+	      stylesSource.includes('.code-history-card-primary') &&
+	      stylesSource.includes('.code-history-card-primary:focus-visible') &&
       !stylesSource.includes('.code-settings-view') &&
       !stylesSource.includes('.code-settings-button') &&
       stylesSource.includes('.code-agent-row.search-selected') &&
@@ -1479,8 +1501,7 @@ function run() {
 	      darkStylesSource.includes('--code-agent-row-action-surface: var(--code-dark-bg-hover);') &&
 	      stylesSource.includes('.code-agent-row-action.pin.active') &&
 	      stylesSource.includes('.code-agent-row-action svg') &&
-	      workspaceSource.includes('function HistoryIcon()') &&
-	      workspaceSource.includes('<HistoryIcon />') &&
+	      workspaceSource.includes('<HistoryGlyph />') &&
 	      workspaceSource.includes('function AgentPinIcon()') &&
 	      workspaceSource.includes('function AgentArchiveIcon()') &&
 	      workspaceSource.includes('function AgentNewWorktreeForkIcon()') &&

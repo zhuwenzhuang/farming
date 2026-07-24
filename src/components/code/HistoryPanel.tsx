@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { agentTitle, formatRelativeAge } from '@/lib/format'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
 import {
+  ArrowLeftGlyph,
   ArrowRightGlyph,
   ChevronLeftGlyph,
   ChevronRightGlyph,
   CloseGlyph,
   ExternalLinkGlyph,
   SearchGlyph,
+  TerminalSquareGlyph,
 } from '@/components/IconGlyphs'
 import {
   agentSessionId,
@@ -20,6 +22,7 @@ import {
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem } from './types'
 import { resumedAgentSessionFromSource } from './session-display'
+import { AgentLaunchIcon } from './AgentLaunchIcon'
 
 export type HistoryAgentItem =
   | { kind: 'run'; historyKey: string; updatedAt: number; entry: TaskHistoryEntry }
@@ -38,11 +41,53 @@ interface HistoryPanelProps {
   searchAgentSessions: (query: string, signal: AbortSignal) => Promise<AgentSessionHistoryItem[]>
   canLoadMoreAgentSessions: boolean
   onLoadMoreAgentSessions: () => boolean | Promise<boolean>
+  onBack: () => void
   copy: CodeCopy
 }
 
 const HISTORY_SEARCH_DEBOUNCE_MS = 150
 const HISTORY_PAGE_SIZE = 12
+type HistoryAgentIconName = 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh'
+
+function historyAgentIconName(value?: string): HistoryAgentIconName | undefined {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'claude-code') return 'claude'
+  if (['codex', 'claude', 'opencode', 'qoder', 'bash', 'zsh'].includes(normalized)) {
+    return normalized as HistoryAgentIconName
+  }
+  return undefined
+}
+
+function historyCommandIconName(command?: string) {
+  const executable = String(command || '').trim().split(/\s+/).find(token => (
+    token !== 'env' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)
+  ))
+  return historyAgentIconName(executable?.split('/').pop())
+}
+
+function historyRunIconName(entry: TaskHistoryEntry) {
+  return historyAgentIconName(resumedAgentSessionFromSource(entry.source)?.provider)
+    || historyCommandIconName(entry.command)
+}
+
+function historyArchivedAgentIconName(agent: Agent) {
+  return historyAgentIconName(agent.providerSessionProvider)
+    || historyAgentIconName(agent.engineName)
+    || historyCommandIconName(agent.command)
+}
+
+function HistoryMeta({ iconName, children }: { iconName?: HistoryAgentIconName; children: ReactNode }) {
+  return (
+    <span className="code-history-meta">
+      <span className="code-history-agent-icon" aria-hidden="true">
+        {iconName
+          ? <AgentLaunchIcon name={iconName} variant="monochrome" />
+          : <TerminalSquareGlyph />}
+      </span>
+      <span>{children}</span>
+    </span>
+  )
+}
 
 function normalizeHistoryProvider(provider?: string) {
   const value = String(provider || '').trim().toLowerCase()
@@ -262,6 +307,7 @@ export function HistoryPanel({
   searchAgentSessions,
   canLoadMoreAgentSessions,
   onLoadMoreAgentSessions,
+  onBack,
   copy,
 }: HistoryPanelProps) {
   const [query, setQuery] = useState('')
@@ -343,7 +389,19 @@ export function HistoryPanel({
   return (
     <div className="code-history-panel" data-testid="code-history-panel">
       <div className="code-history-panel-header">
-        <h2>{copy.history}</h2>
+        <div className="code-side-view-heading">
+          <button
+            type="button"
+            className="code-side-view-back"
+            data-testid="code-history-back"
+            aria-label={copy.back}
+            title={copy.back}
+            onClick={onBack}
+          >
+            <ArrowLeftGlyph />
+          </button>
+          <h2>{copy.history}</h2>
+        </div>
         <div className="code-search-panel-input code-history-search" data-testid="code-history-search-box">
           <span className="code-search-panel-icon" aria-hidden="true"><SearchGlyph /></span>
           <input
@@ -384,11 +442,23 @@ export function HistoryPanel({
               if (item.kind === 'run') {
                 const { entry } = item
                 return (
-                  <article key={item.historyKey} className="code-history-card archived" data-testid="code-archived-run-card">
-                    <div>
-                      <h3>{historyRunTitle(entry)}</h3>
-                      <p>{historyRunMeta(entry)}</p>
-                    </div>
+                  <article
+                    key={item.historyKey}
+                    className="code-history-card archived"
+                    data-testid="code-archived-run-card"
+                  >
+                    <button
+                      type="button"
+                      className="code-history-card-primary"
+                      data-testid="code-archived-run-primary"
+                      aria-label={`${copy.continueRun}: ${historyRunTitle(entry)}`}
+                      onClick={() => onContinueRun(entry)}
+                    >
+                      <span className="code-history-card-copy">
+                        <span className="code-history-card-title">{historyRunTitle(entry)}</span>
+                        <HistoryMeta iconName={historyRunIconName(entry)}>{historyRunMeta(entry)}</HistoryMeta>
+                      </span>
+                    </button>
                     <div className="code-history-actions">
                       <span>{formatRelativeAge(item.updatedAt, now)}</span>
                       <button
@@ -408,11 +478,23 @@ export function HistoryPanel({
               if (item.kind === 'agent') {
                 const { agent } = item
                 return (
-                  <article key={item.historyKey} className="code-history-card archived" data-testid="code-archived-agent-card">
-                    <div>
-                      <h3>{agentTitle(agent)}</h3>
-                      <p>{historyAgentMeta(agent)}</p>
-                    </div>
+                  <article
+                    key={item.historyKey}
+                    className="code-history-card archived"
+                    data-testid="code-archived-agent-card"
+                  >
+                    <button
+                      type="button"
+                      className="code-history-card-primary"
+                      data-testid="code-archived-agent-primary"
+                      aria-label={`${copy.open}: ${agentTitle(agent)}`}
+                      onClick={() => onOpenArchivedAgent(agent.id)}
+                    >
+                      <span className="code-history-card-copy">
+                        <span className="code-history-card-title">{agentTitle(agent)}</span>
+                        <HistoryMeta iconName={historyArchivedAgentIconName(agent)}>{historyAgentMeta(agent)}</HistoryMeta>
+                      </span>
+                    </button>
                     <div className="code-history-actions">
                       <span>{formatRelativeAge(item.updatedAt, now)}</span>
                       <button
@@ -441,11 +523,23 @@ export function HistoryPanel({
               const { session } = item
               const sessionTitle = session.title || copy.sessionFallbackTitle(session.providerName)
               return (
-                <article key={item.historyKey} className="code-history-card code-session" data-testid="code-session-history-card">
-                  <div>
-                    <h3>{sessionTitle}</h3>
-                    <p>{historySessionMeta(session)}</p>
-                  </div>
+                <article
+                  key={item.historyKey}
+                  className="code-history-card code-session"
+                  data-testid="code-session-history-card"
+                >
+                  <button
+                    type="button"
+                    className="code-history-card-primary"
+                    data-testid="code-session-history-primary"
+                    aria-label={copy.resumeSessionAria(sessionTitle)}
+                    onClick={() => onResumeSession(session.provider, session.id, session.providerHomeId)}
+                  >
+                    <span className="code-history-card-copy">
+                      <span className="code-history-card-title">{sessionTitle}</span>
+                      <HistoryMeta iconName={historyAgentIconName(session.provider)}>{historySessionMeta(session)}</HistoryMeta>
+                    </span>
+                  </button>
                   <div className="code-history-actions">
                     <span>{formatRelativeAge(item.updatedAt, now)}</span>
                     <button

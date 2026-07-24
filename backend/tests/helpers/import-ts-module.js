@@ -20,6 +20,9 @@ function importTsModule(relativePath) {
     alias: {
       '@': path.join(projectRoot, 'src'),
     },
+    loader: {
+      '.svg': 'text',
+    },
   });
   const output = result.outputFiles[0]?.text;
   if (!output) throw new Error(`Failed to bundle ${relativePath}`);

@@ -211,6 +211,16 @@ export interface CodeCopy {
   interruptAgent: string
   startOrSelectAgent: string
   startOrSelectAgentDescription: string
+  emptyWorkspaceWelcome: string
+  emptyWorkspaceWelcomeDescription: string
+  emptyWorkspaceContinue: string
+  emptyWorkspaceContinueDescription: string
+  emptyWorkspaceNewAgentDescription: string
+  emptyWorkspaceSearchDescription: string
+  emptyWorkspaceShareDescription: string
+  emptyWorkspaceFocus: string
+  emptyWorkspaceFocusDescription: string
+  emptyWorkspaceCollapseDescription: string
   historySummary: (workspaces: number, projects: number, archived: number, sessions: number) => string
   searchHistory: string
   noHistoryYet: string
@@ -682,6 +692,16 @@ const EN_COPY: CodeCopy = {
   interruptAgent: 'Interrupt agent',
   startOrSelectAgent: 'Start or select an agent',
   startOrSelectAgentDescription: 'Projects live on the left. Open any agent terminal without closing the rest of the workspace.',
+  emptyWorkspaceWelcome: 'Welcome to Farming',
+  emptyWorkspaceWelcomeDescription: 'Continue earlier work, or start a new Agent.',
+  emptyWorkspaceContinue: 'Continue earlier work',
+  emptyWorkspaceContinueDescription: 'Resume Codex, Claude, and other Agent sessions from History.',
+  emptyWorkspaceNewAgentDescription: 'Start a new coding task in the current project.',
+  emptyWorkspaceSearchDescription: 'Find projects, Agents, and history.',
+  emptyWorkspaceShareDescription: 'Open Farming on your phone or another device.',
+  emptyWorkspaceFocus: 'Focus mode',
+  emptyWorkspaceFocusDescription: 'Hide distractions and focus on the current task.',
+  emptyWorkspaceCollapseDescription: 'Give the workspace more room.',
   historySummary: (_workspaces, _projects, archived, sessions) => `${archived + sessions} history agents`,
   searchHistory: 'Search history',
   noHistoryYet: 'No history yet',
@@ -1189,6 +1209,16 @@ const ZH_COPY: CodeCopy = {
   interruptAgent: '中止 Agent',
   startOrSelectAgent: '启动或选择一个 Agent',
   startOrSelectAgentDescription: '项目在左侧。打开任意 Agent 终端时，不会关闭其他工作区。',
+  emptyWorkspaceWelcome: '欢迎使用 Farming',
+  emptyWorkspaceWelcomeDescription: '继续之前的工作，或开始一个新的 Agent。',
+  emptyWorkspaceContinue: '继续之前的工作',
+  emptyWorkspaceContinueDescription: '从历史记录恢复 Codex、Claude 等 Agent 会话。',
+  emptyWorkspaceNewAgentDescription: '在当前项目开始一个新的编码任务。',
+  emptyWorkspaceSearchDescription: '查找项目、Agent 和历史。',
+  emptyWorkspaceShareDescription: '在手机或另一台设备打开。',
+  emptyWorkspaceFocus: '专注模式',
+  emptyWorkspaceFocusDescription: '隐藏干扰，专注当前任务。',
+  emptyWorkspaceCollapseDescription: '给工作区更多空间。',
   historySummary: (_workspaces, _projects, archived, sessions) => `${archived + sessions} 个 History Agents`,
   searchHistory: '搜索历史记录',
   noHistoryYet: '还没有历史记录',

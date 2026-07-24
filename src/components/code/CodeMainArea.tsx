@@ -11,7 +11,16 @@ import { CodeComposer } from './CodeComposer'
 import { AcpComposer } from './acp/AcpComposer'
 import { HistoryPanel } from './HistoryPanel'
 import { SearchPanel } from './SearchPanel'
-import { ChevronDownGlyph, ChevronUpGlyph } from '../IconGlyphs'
+import {
+  ChevronDownGlyph,
+  ChevronLeftGlyph,
+  ChevronUpGlyph,
+  FocusModeGlyph,
+  HistoryGlyph,
+  NewAgentGlyph,
+  QrGlyph,
+  SearchGlyph,
+} from '../IconGlyphs'
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
 
@@ -241,6 +250,11 @@ interface CodeMainAreaProps {
   composerProps: ComposerProps
   acpComposerProps: AcpComposerProps
   onNewAgent: (workspace?: string, command?: string) => void
+  onOpenHistory: () => void
+  onOpenSearch: () => void
+  onOpenShare: () => void
+  onOpenAppMode: () => void
+  onCollapseSidebar: () => void
   onOpenTerminal: (agentId: string, options?: { focusTerminal?: boolean }) => void
   onOpenTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => void
   onResolveTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
@@ -256,6 +270,7 @@ interface CodeMainAreaProps {
   onSearchQueryChange: (value: string) => void
   onSearchKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void
   onCloseSearch: () => void
+  onBackToProjects: () => void
   onLoadMoreHistoryAgentSessions: () => boolean | Promise<boolean>
   onSearchHistoryAgentSessions: (query: string, signal: AbortSignal) => Promise<AgentSessionHistoryItem[]>
   onResumeHistorySession: (provider: string, sessionId: string, providerHomeId?: string) => void
@@ -282,6 +297,146 @@ function viewTitle(copy: CodeCopy, view: WorkspaceView) {
   if (view === 'search') return copy.search
   if (view === 'history') return copy.history
   return 'Farming'
+}
+
+type EmptyWorkspaceAction = 'history' | 'new-agent' | 'search' | 'share' | 'focus' | 'collapse'
+
+function EmptyWorkspaceActionGlyph({ action }: { action: EmptyWorkspaceAction }) {
+  if (action === 'new-agent') return <NewAgentGlyph />
+  if (action === 'search') return <SearchGlyph />
+  if (action === 'collapse') return <ChevronLeftGlyph />
+  if (action === 'history') return <HistoryGlyph />
+  if (action === 'share') return <QrGlyph />
+  return <FocusModeGlyph />
+}
+
+function EmptyWorkspaceGuide({
+  agentCreationWorkspace,
+  onNewAgent,
+  onOpenHistory,
+  onOpenSearch,
+  onOpenShare,
+  onOpenAppMode,
+  onCollapseSidebar,
+  copy,
+}: {
+  agentCreationWorkspace?: string
+  onNewAgent: (workspace?: string, command?: string) => void
+  onOpenHistory: () => void
+  onOpenSearch: () => void
+  onOpenShare: () => void
+  onOpenAppMode: () => void
+  onCollapseSidebar: () => void
+  copy: CodeCopy
+}) {
+  const utilityActions: Array<{
+    action: EmptyWorkspaceAction
+    title: string
+    description: string
+    onClick: () => void
+  }> = [
+    { action: 'search', title: copy.search, description: copy.emptyWorkspaceSearchDescription, onClick: onOpenSearch },
+    { action: 'share', title: copy.sharePage, description: copy.emptyWorkspaceShareDescription, onClick: onOpenShare },
+    { action: 'focus', title: copy.emptyWorkspaceFocus, description: copy.emptyWorkspaceFocusDescription, onClick: onOpenAppMode },
+    { action: 'collapse', title: copy.collapseSidebar, description: copy.emptyWorkspaceCollapseDescription, onClick: onCollapseSidebar },
+  ]
+
+  return (
+    <div className="code-empty-home">
+      <span className="code-empty-home-brace" data-testid="code-empty-home-brace" aria-hidden="true">
+        <svg viewBox="0 0 12 28">
+          <path d="M2 1.25h1.2c2.25 0 3.2 1.55 3.2 4.1v4.05c0 2.5 1.05 4.05 3.6 4.6-2.55.55-3.6 2.1-3.6 4.6v4.05c0 2.55-.95 4.1-3.2 4.1H2" />
+        </svg>
+      </span>
+      <svg className="code-empty-home-origin" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="code-empty-home-origin-weight" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="white" stopOpacity="0" />
+            <stop offset="1" stopColor="white" stopOpacity="0.65" />
+          </linearGradient>
+          <mask id="code-empty-home-origin-mask" maskUnits="objectBoundingBox">
+            <rect width="100%" height="100%" fill="url(#code-empty-home-origin-weight)" />
+          </mask>
+        </defs>
+        <path className="code-empty-home-connector-base" d="M9 0C22 0 84 76 84 100" />
+        <path
+          className="code-empty-home-connector-growth"
+          d="M9 0C22 0 84 76 84 100"
+          mask="url(#code-empty-home-origin-mask)"
+        />
+      </svg>
+      <svg className="code-empty-home-target-path" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="code-empty-home-target-weight" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="white" stopOpacity="0.65" />
+            <stop offset="0.5" stopColor="white" stopOpacity="1" />
+            <stop offset="1" stopColor="white" stopOpacity="1" />
+          </linearGradient>
+          <mask id="code-empty-home-target-mask" maskUnits="objectBoundingBox">
+            <rect width="100%" height="100%" fill="url(#code-empty-home-target-weight)" />
+          </mask>
+        </defs>
+        <path className="code-empty-home-connector-base" d="M84 0C84 24 88 43 92 50" />
+        <path
+          className="code-empty-home-connector-growth"
+          d="M84 0C84 24 88 43 92 50"
+          mask="url(#code-empty-home-target-mask)"
+        />
+      </svg>
+      <header className="code-empty-home-header">
+        <h2>{copy.emptyWorkspaceWelcome}</h2>
+        <p>{copy.emptyWorkspaceWelcomeDescription}</p>
+      </header>
+      <div className="code-empty-home-action-map">
+        <span className="code-empty-home-target-brace" data-testid="code-empty-home-target-brace" aria-hidden="true">
+          <svg viewBox="0 0 30 100" preserveAspectRatio="none">
+            <path d="M28 1h-2.4C16 1 14 8.5 14 20v14c0 8.6-4 13.9-14 16 10 2.1 14 7.4 14 16v14c0 11.5 2 19 11.6 19H28" />
+          </svg>
+        </span>
+        <div className="code-empty-home-actions">
+          <div className="code-empty-home-primary">
+            <button
+              type="button"
+              className="code-empty-home-card primary history"
+              data-testid="code-empty-home-history"
+              onClick={onOpenHistory}
+            >
+              <span className="code-empty-home-card-icon"><EmptyWorkspaceActionGlyph action="history" /></span>
+              <strong>{copy.emptyWorkspaceContinue}</strong>
+              <span>{copy.emptyWorkspaceContinueDescription}</span>
+            </button>
+            <button
+              type="button"
+              className="code-empty-home-card primary"
+              data-testid="code-empty-home-new-agent"
+              onClick={() => onNewAgent(agentCreationWorkspace)}
+            >
+              <span className="code-empty-home-card-icon"><EmptyWorkspaceActionGlyph action="new-agent" /></span>
+              <strong>{copy.newAgent}</strong>
+              <span>{copy.emptyWorkspaceNewAgentDescription}</span>
+            </button>
+          </div>
+          <div className="code-empty-home-utilities">
+            {utilityActions.map(item => (
+              <button
+                key={item.action}
+                type="button"
+                className="code-empty-home-card utility"
+                data-testid={`code-empty-home-${item.action}`}
+                onClick={item.onClick}
+              >
+                <span className="code-empty-home-card-icon"><EmptyWorkspaceActionGlyph action={item.action} /></span>
+                <span className="code-empty-home-card-copy">
+                  <strong>{item.title}</strong>
+                  <span>{item.description}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export function CodeMainArea({
@@ -312,6 +467,11 @@ export function CodeMainArea({
   composerProps,
   acpComposerProps,
   onNewAgent,
+  onOpenHistory,
+  onOpenSearch,
+  onOpenShare,
+  onOpenAppMode,
+  onCollapseSidebar,
   onOpenTerminal,
   onOpenTerminalPath,
   onResolveTerminalPath,
@@ -324,6 +484,7 @@ export function CodeMainArea({
   onSearchQueryChange,
   onSearchKeyDown,
   onCloseSearch,
+  onBackToProjects,
   onLoadMoreHistoryAgentSessions,
   onSearchHistoryAgentSessions,
   onResumeHistorySession,
@@ -485,6 +646,7 @@ export function CodeMainArea({
               onQueryChange={onSearchQueryChange}
               onKeyDown={onSearchKeyDown}
               onClearSearch={onCloseSearch}
+              onBack={onCloseSearch}
               onOpenAgent={onOpenSearchAgent}
               onOpenSession={onOpenSearchSession}
               copy={copy}
@@ -502,6 +664,7 @@ export function CodeMainArea({
               searchAgentSessions={onSearchHistoryAgentSessions}
               canLoadMoreAgentSessions={canLoadMoreHistoryAgentSessions}
               onLoadMoreAgentSessions={onLoadMoreHistoryAgentSessions}
+              onBack={onBackToProjects}
               copy={copy}
             />
           ) : (
@@ -539,10 +702,47 @@ export function CodeMainArea({
         hidden={!agentWorkspaceVisible}
       >
         {openAgentsCount === 0 ? (
-          <div className="code-empty-workspace" data-testid="code-empty-workspace">
-            <h2>{copy.startOrSelectAgent}</h2>
-            <p>{copy.startOrSelectAgentDescription}</p>
-            <button type="button" onClick={() => onNewAgent(agentCreationWorkspace)}>{copy.newAgent}</button>
+          <div className="code-empty-workspace code-empty-home-state" data-testid="code-empty-workspace">
+            <EmptyWorkspaceGuide
+              agentCreationWorkspace={agentCreationWorkspace}
+              onNewAgent={onNewAgent}
+              onOpenHistory={onOpenHistory}
+              onOpenSearch={onOpenSearch}
+              onOpenShare={onOpenShare}
+              onOpenAppMode={onOpenAppMode}
+              onCollapseSidebar={onCollapseSidebar}
+              copy={copy}
+            />
+            <div className="code-empty-workspace-compact">
+              <h2>{copy.startOrSelectAgent}</h2>
+              <p>{copy.startOrSelectAgentDescription}</p>
+              <div className="code-empty-workspace-compact-actions">
+                <button
+                  type="button"
+                  className="code-empty-home-card compact-primary"
+                  data-testid="code-empty-compact-history"
+                  onClick={onOpenHistory}
+                >
+                  <span className="code-empty-home-card-icon"><HistoryGlyph /></span>
+                  <span className="code-empty-home-card-copy">
+                    <strong>{copy.emptyWorkspaceContinue}</strong>
+                    <span>{copy.history}</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="code-empty-home-card compact-primary"
+                  data-testid="code-empty-compact-new-agent"
+                  onClick={() => onNewAgent(agentCreationWorkspace)}
+                >
+                  <span className="code-empty-home-card-icon"><NewAgentGlyph /></span>
+                  <span className="code-empty-home-card-copy">
+                    <strong>{copy.newAgent}</strong>
+                    <span>{copy.emptyWorkspaceNewAgentDescription}</span>
+                  </span>
+                </button>
+              </div>
+            </div>
           </div>
         ) : (
           openAgents.map(agent => (

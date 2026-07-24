@@ -231,6 +231,11 @@ type RenameDialogState =
   | { kind: 'agent'; agentId: string; title: string }
   | { kind: 'project'; projectId: string; workspace: string; title: string }
 
+type EmptyHomeSidebarActionRequest = {
+  kind: 'share' | 'focus'
+  nonce: number
+}
+
 function mobileServerLabel() {
   if (typeof window === 'undefined') return ''
   const hostname = window.location.hostname
@@ -642,6 +647,7 @@ export function CodeWorkspace({
   const [expandedSessionProjectIds, setExpandedSessionProjectIds] = useState<Set<string>>(() => new Set())
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => shouldCollapseSidebarInitially())
+  const [emptyHomeSidebarActionRequest, setEmptyHomeSidebarActionRequest] = useState<EmptyHomeSidebarActionRequest | null>(null)
   const [pendingShareTarget, setPendingShareTarget] = useState<WorkspaceShareTarget | null>(() => (
     typeof window === 'undefined' ? null : workspaceShareTargetFromSearch(window.location.search)
   ))
@@ -724,6 +730,12 @@ export function CodeWorkspace({
   const toggleSidebar = useCallback(() => {
     sidebarAutoCollapsedRef.current = false
     setSidebarCollapsed(collapsed => !collapsed)
+  }, [])
+  const requestEmptyHomeSidebarAction = useCallback((kind: EmptyHomeSidebarActionRequest['kind']) => {
+    setEmptyHomeSidebarActionRequest(previous => ({
+      kind,
+      nonce: (previous?.nonce || 0) + 1,
+    }))
   }, [])
   activeTerminalIdRef.current = activeTerminalId
   const copy = useMemo(() => codeCopyForLanguage(uiPreferences.language), [uiPreferences.language])
@@ -5023,6 +5035,7 @@ export function CodeWorkspace({
     >
       <CodeSidebar
         sidebarCollapsed={sidebarCollapsed}
+        emptyHomeActionRequest={emptyHomeSidebarActionRequest}
         activeView={activeView}
         searchOpen={searchOpen}
         displayedProjects={projects}
@@ -5369,6 +5382,11 @@ export function CodeWorkspace({
           onToggleSpeechInput: toggleSpeechInput,
         }}
         onNewAgent={onNewAgent}
+        onOpenHistory={() => openWorkspaceViewFromSidebar('history')}
+        onOpenSearch={openSearchFromSidebar}
+        onOpenShare={() => requestEmptyHomeSidebarAction('share')}
+        onOpenAppMode={() => requestEmptyHomeSidebarAction('focus')}
+        onCollapseSidebar={collapseSidebar}
         onOpenTerminal={onOpenTerminal}
         onOpenTerminalPath={openTerminalPathTarget}
         onResolveTerminalPath={resolveTerminalPathTarget}
@@ -5385,6 +5403,7 @@ export function CodeWorkspace({
         onSearchQueryChange={setSearchQuery}
         onSearchKeyDown={handleSearchInputKeyDown}
         onCloseSearch={closeSearchView}
+        onBackToProjects={() => openWorkspaceView('projects')}
         onLoadMoreHistoryAgentSessions={loadMoreAgentSessions}
         onSearchHistoryAgentSessions={searchHistoryAgentSessions}
         onResumeHistorySession={resumeAgentSession}

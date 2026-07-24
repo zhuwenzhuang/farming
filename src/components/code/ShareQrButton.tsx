@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type qrcode from 'qrcode-generator'
 import { appPath } from '@/lib/base-path'
+import { QrGlyph } from '@/components/IconGlyphs'
 import { writeTerminalClipboardText } from '@/lib/terminal-clipboard'
 import {
   workspaceShareTargetKey,
@@ -170,23 +171,16 @@ function FarmingQrCode({ value, badgeUrl, qrCodeFactory }: { value: string; badg
   )
 }
 
-function QrIcon() {
-  return (
-    <svg className="code-share-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path d="M2.5 2.5h4v4h-4zM9.5 2.5h4v4h-4zM2.5 9.5h4v4h-4z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-      <path d="M4 4h1v1H4zM11 4h1v1h-1zM4 11h1v1H4zM9.5 9.5h1.4v1.4H9.5zM12.1 9.5h1.4v1.4h-1.4zM9.5 12.1h1.4v1.4H9.5zM12.1 12.1h1.4v1.4h-1.4z" fill="currentColor" />
-    </svg>
-  )
-}
-
 export function ShareQrButton({
   copy,
   sidebarCollapsed,
   shareTarget,
+  openRequest = 0,
 }: {
   copy: CodeCopy
   sidebarCollapsed: boolean
   shareTarget?: WorkspaceShareTarget | null
+  openRequest?: number
 }) {
   const [open, setOpen] = useState(false)
   const [pinned, setPinned] = useState(false)
@@ -204,6 +198,7 @@ export function ShareQrButton({
   const requestSeqRef = useRef(0)
   const ticketRef = useRef<ShareTicket | null>(null)
   const copiedTimerRef = useRef<number | null>(null)
+  const handledOpenRequestRef = useRef(0)
   const [singleLineTokenFits, setSingleLineTokenFits] = useState(true)
   const [qrCodeFactory, setQrCodeFactory] = useState<QrCodeFactory | null>(null)
   const badgeUrl = appPath('/farming-2/app-icon-v2-180.png')
@@ -306,6 +301,12 @@ export function ShareQrButton({
     preloadQrRenderer()
     void createTicket(force)
   }, [clearCloseTimer, createTicket, preloadQrRenderer, updatePlacement])
+
+  useEffect(() => {
+    if (!openRequest || handledOpenRequestRef.current === openRequest) return
+    handledOpenRequestRef.current = openRequest
+    openPopover(true, true)
+  }, [openPopover, openRequest])
 
   const scheduleClose = useCallback(() => {
     if (!open || pinned) return
@@ -452,7 +453,7 @@ export function ShareQrButton({
         aria-expanded={open}
         onClick={handleButtonClick}
       >
-        <QrIcon />
+        <QrGlyph className="code-share-icon" />
       </button>
       {open && (
         <div

@@ -341,6 +341,38 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   await expect(detail.getByTestId('code-usage-day-agent-legend')).toContainText('Claude Code')
   await expect(detail.getByTestId('code-usage-day-agent-legend')).not.toContainText('Agent Alpha')
   await expect(detail.getByTestId('code-usage-day-agent-legend')).not.toContainText('Agent Beta')
+  await page.evaluate(() => document.fonts.ready)
+  await expect.poll(() => detail.evaluate(element => (
+    element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight
+  ))).toBe(true)
+  const populatedDayGeometry = await detail.evaluate(element => {
+    const histogram = element.querySelector<HTMLElement>('[data-testid="code-usage-day-histogram"]')
+    const bounds = element.getBoundingClientRect()
+    const histogramBounds = histogram?.getBoundingClientRect()
+    return {
+      dialogWidth: bounds.width,
+      dialogHeight: bounds.height,
+      histogramHeight: histogramBounds?.height ?? 0,
+      fitsHorizontally: element.scrollWidth <= element.clientWidth,
+      fitsVertically: element.scrollHeight <= element.clientHeight,
+    }
+  })
+  const emptyDailyPoint = dailyPoints[2]!
+  await detailDailyHeatmap.locator(`[data-date="${emptyDailyPoint.date}"]`).hover()
+  await expect(detail.getByTestId('code-usage-day-histogram-readout')).toContainText('0 tokens')
+  const emptyDayGeometry = await detail.evaluate(element => {
+    const histogram = element.querySelector<HTMLElement>('[data-testid="code-usage-day-histogram"]')
+    const bounds = element.getBoundingClientRect()
+    const histogramBounds = histogram?.getBoundingClientRect()
+    return {
+      dialogWidth: bounds.width,
+      dialogHeight: bounds.height,
+      histogramHeight: histogramBounds?.height ?? 0,
+      fitsHorizontally: element.scrollWidth <= element.clientWidth,
+      fitsVertically: element.scrollHeight <= element.clientHeight,
+    }
+  })
+  expect(emptyDayGeometry).toEqual(populatedDayGeometry)
   const selectedDailyPoint = dailyPoints.at(-1)!
   const selectedDayCell = detailDailyHeatmap.locator(`[data-date="${selectedDailyPoint.date}"]`)
   await selectedDayCell.hover()
@@ -352,6 +384,19 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
     `${selectedDailyPoint.date} · 250,000,000 tokens`,
   )
   await expect(detail.getByTestId('code-usage-day-histogram-readout')).toContainText('250M tokens')
+  await page.setViewportSize({ width: 1100, height: 680 })
+  await expect.poll(() => detail.evaluate(element => {
+    const histogram = element.querySelector<HTMLElement>('[data-testid="code-usage-day-histogram"]')
+    return {
+      dialogFits: element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight,
+      histogramFits: Boolean(
+        histogram
+        && histogram.scrollWidth <= histogram.clientWidth
+        && histogram.scrollHeight <= histogram.clientHeight,
+      ),
+    }
+  })).toEqual({ dialogFits: true, histogramFits: true })
+  await page.setViewportSize({ width: 1440, height: 900 })
   await hourlyHistogram.locator('[data-hour="10"] .code-usage-day-histogram-segment').first().hover()
   await expect(detail.getByTestId('code-usage-day-histogram-readout')).toContainText('Codex')
   await expect(detail.getByText('Last 7 days', { exact: true })).toBeVisible()
@@ -365,6 +410,68 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   await expect(page.getByTestId('code-usage-detail-year-tab')).toHaveAttribute('aria-selected', 'true')
   await page.getByRole('button', { name: 'Close usage activity' }).click()
   await expect(page.getByTestId('code-usage-detail-dialog')).toHaveCount(0)
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByTestId('code-mobile-menu').click()
+  const mobileUsageOpen = page.getByTestId('code-mobile-usage-open')
+  await expect(mobileUsageOpen).toBeVisible()
+  expect(await mobileUsageOpen.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
+  await mobileUsageOpen.click()
+
+  const mobileDetail = page.getByTestId('code-usage-detail-dialog')
+  await expect(mobileDetail).toBeVisible()
+  await expect(mobileDetail.getByTestId('code-usage-detail-year-tab')).toHaveAttribute('aria-selected', 'true')
+  const mobileHistogram = mobileDetail.getByTestId('code-usage-day-histogram')
+  await expect(mobileHistogram).toBeVisible()
+  const mobileDatePicker = mobileDetail.getByTestId('code-usage-mobile-date-picker')
+  await expect(mobileDatePicker).toBeVisible()
+  const mobilePopulatedGeometry = await mobileDetail.evaluate(element => {
+    const histogram = element.querySelector<HTMLElement>('[data-testid="code-usage-day-histogram"]')
+    const bounds = element.getBoundingClientRect()
+    return {
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      left: bounds.left,
+      top: bounds.top,
+      width: bounds.width,
+      height: bounds.height,
+      histogramHeight: histogram?.getBoundingClientRect().height ?? 0,
+      horizontalOverflow: element.scrollWidth > element.clientWidth,
+    }
+  })
+  expect(mobilePopulatedGeometry).toEqual({
+    viewportWidth: 390,
+    viewportHeight: 844,
+    left: 0,
+    top: 0,
+    width: 390,
+    height: 844,
+    histogramHeight: 200,
+    horizontalOverflow: false,
+  })
+
+  await mobileDatePicker.fill(emptyDailyPoint.date)
+  await expect(mobileDetail.getByTestId('code-usage-day-histogram-readout')).toContainText('0 tokens')
+  const mobileEmptyGeometry = await mobileDetail.evaluate(element => {
+    const histogram = element.querySelector<HTMLElement>('[data-testid="code-usage-day-histogram"]')
+    const bounds = element.getBoundingClientRect()
+    return {
+      width: bounds.width,
+      height: bounds.height,
+      histogramHeight: histogram?.getBoundingClientRect().height ?? 0,
+      horizontalOverflow: element.scrollWidth > element.clientWidth,
+    }
+  })
+  expect(mobileEmptyGeometry).toEqual({
+    width: mobilePopulatedGeometry.width,
+    height: mobilePopulatedGeometry.height,
+    histogramHeight: mobilePopulatedGeometry.histogramHeight,
+    horizontalOverflow: false,
+  })
+
+  await mobileDetail.getByText('52-week tokens', { exact: true }).scrollIntoViewIfNeeded()
+  await expect(mobileDetail.getByText('52-week tokens', { exact: true })).toBeVisible()
+  await expect(mobileDetail.getByRole('button', { name: 'Close usage activity' })).toBeVisible()
 })
 
 test('switches from Farming Code to the same Agent in Farming CRT', async ({ page, workspaceRoot }) => {

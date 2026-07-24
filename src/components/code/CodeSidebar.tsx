@@ -11,6 +11,9 @@ import {
   ChevronLeftGlyph,
   ChevronRightGlyph,
   CloseGlyph,
+  FocusModeGlyph,
+  HistoryGlyph,
+  NewAgentGlyph,
   PencilGlyph,
   SettingsGlyph,
   SearchGlyph,
@@ -122,14 +125,6 @@ type PinnedSidebarItem =
 
 type SidebarRailItem = { agent: Agent; projectName: string }
 
-function FocusModeGlyph() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor" aria-hidden="true">
-      <path d="M3.75 3C3.33579 3 3 3.33579 3 3.75V5.5C3 5.77614 2.77614 6 2.5 6C2.22386 6 2 5.77614 2 5.5V3.75C2 2.7835 2.7835 2 3.75 2H5.5C5.77614 2 6 2.22386 6 2.5C6 2.77614 5.77614 3 5.5 3H3.75ZM10 2.5C10 2.22386 10.2239 2 10.5 2H12.25C13.2165 2 14 2.7835 14 3.75V5.5C14 5.77614 13.7761 6 13.5 6C13.2239 6 13 5.77614 13 5.5V3.75C13 3.33579 12.6642 3 12.25 3H10.5C10.2239 3 10 2.77614 10 2.5ZM2.5 10C2.77614 10 3 10.2239 3 10.5V12.25C3 12.6642 3.33579 13 3.75 13H5.5C5.77614 13 6 13.2239 6 13.5C6 13.7761 5.77614 14 5.5 14H3.75C2.7835 14 2 13.2165 2 12.25V10.5C2 10.2239 2.22386 10 2.5 10ZM13.5 10C13.7761 10 14 10.2239 14 10.5V12.25C14 13.2165 13.2165 14 12.25 14H10.5C10.2239 14 10 13.7761 10 13.5C10 13.2239 10.2239 13 10.5 13H12.25C12.6642 13 13 12.6642 13 12.25V10.5C13 10.2239 13.2239 10 13.5 10Z" />
-    </svg>
-  )
-}
-
 function BranchGlyph() {
   return (
     <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -164,6 +159,7 @@ const ProjectFilesSection = lazy(() => import('../files/ProjectFilesSection').th
 
 interface CodeSidebarProps {
   sidebarCollapsed: boolean
+  emptyHomeActionRequest: { kind: 'share' | 'focus'; nonce: number } | null
   activeView: WorkspaceView
   searchOpen: boolean
   displayedProjects: ProjectGroup[]
@@ -225,6 +221,7 @@ interface CodeSidebarProps {
 
 export function CodeSidebar({
   sidebarCollapsed,
+  emptyHomeActionRequest,
   activeView,
   searchOpen,
   displayedProjects,
@@ -304,6 +301,7 @@ export function CodeSidebar({
   const [standaloneAppWindow, setStandaloneAppWindow] = useState(isStandaloneAppWindow)
   const [appModeDialogOpen, setAppModeDialogOpen] = useState(false)
   const [appInstallPrompt, setAppInstallPrompt] = useState<AppInstallPromptEvent | null>(null)
+  const handledEmptyHomeActionRef = useRef(0)
   const [rootFilesCollapsed, setRootFilesCollapsed] = useState(false)
   const loadMoreNearProjectListEnd = useCallback((element: HTMLDivElement) => {
     if (!canLoadMoreAgentSessions) return
@@ -394,6 +392,17 @@ export function CodeSidebar({
     }
     document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (!emptyHomeActionRequest || handledEmptyHomeActionRef.current === emptyHomeActionRequest.nonce) return
+    handledEmptyHomeActionRef.current = emptyHomeActionRequest.nonce
+    if (emptyHomeActionRequest.kind !== 'focus') return
+    if (standaloneAppWindow) {
+      toggleFocusMode()
+      return
+    }
+    setAppModeDialogOpen(true)
+  }, [emptyHomeActionRequest, standaloneAppWindow, toggleFocusMode])
   const installApp = useCallback(() => {
     const prompt = appInstallPrompt
     if (!prompt) return
@@ -482,14 +491,17 @@ export function CodeSidebar({
             onClick={event => onNewAgent(agentCreationWorkspace, undefined, event.currentTarget)}
           >
             <span className="code-nav-icon">
-              <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor" aria-hidden="true">
-                <path d="M14.452 1.548C14.087 1.183 13.608 1 13.13 1C12.652 1 12.173 1.183 11.808 1.548L6.979 6.377C6.697 6.659 6.498 7.011 6.401 7.398L6.027 8.896C5.883 9.473 6.329 10.002 6.886 10.002C6.958 10.002 7.031 9.993 7.106 9.975L8.604 9.601C8.99 9.504 9.343 9.305 9.625 9.023L14.454 4.194C15.184 3.464 15.184 2.28 14.454 1.549L14.452 1.548ZM13.745 3.485L8.916 8.314C8.763 8.467 8.57 8.576 8.36 8.629L7.04 8.962L7.371 7.64C7.424 7.43 7.532 7.237 7.686 7.084L12.516 2.255C12.68 2.091 12.899 2 13.131 2C13.363 2 13.582 2.091 13.746 2.255C14.085 2.594 14.085 3.146 13.746 3.486L13.745 3.485ZM13 7.768L14 6.768V11.5C14 12.878 12.879 14 11.5 14H4.5C3.121 14 2 12.878 2 11.5V4.5C2 3.122 3.121 2 4.5 2H9.236L8.236 3H4.5C3.673 3 3 3.673 3 4.5V11.5C3 12.327 3.673 13 4.5 13H11.5C12.327 13 13 12.327 13 11.5V7.768Z" />
-              </svg>
+              <NewAgentGlyph />
             </span>
             <span>{copy.newAgent}</span>
             {keyboardShortcutsEnabled && <kbd>N</kbd>}
           </button>
-          <ShareQrButton copy={copy} sidebarCollapsed={sidebarCollapsed} shareTarget={shareTarget} />
+          <ShareQrButton
+            copy={copy}
+            sidebarCollapsed={sidebarCollapsed}
+            shareTarget={shareTarget}
+            openRequest={emptyHomeActionRequest?.kind === 'share' ? emptyHomeActionRequest.nonce : 0}
+          />
           {!standaloneAppWindow && !sidebarCollapsed && (
             <button
               type="button"
@@ -531,7 +543,7 @@ export function CodeSidebar({
                 onClick={() => onOpenWorkspaceView('history')}
               >
                 <span className="code-sidebar-history-icon" aria-hidden="true">
-                  <HistoryIcon />
+                  <HistoryGlyph />
                 </span>
               </button>
             </>
@@ -1308,6 +1320,22 @@ function DailyUsageHeatmap({
           <span key={`trailing-${index}`} className="code-usage-daily-spacer" aria-hidden="true" />
         ))}
       </div>
+      {showDayHighlight && highlightedDay && (
+        <label className="code-usage-mobile-date-picker">
+          <span>Selected day</span>
+          <input
+            type="date"
+            min={points[0]!.date}
+            max={today?.date}
+            value={highlightedDay.date}
+            data-testid="code-usage-mobile-date-picker"
+            onChange={event => {
+              const point = points.find(candidate => candidate.date === event.currentTarget.value)
+              if (point) onInspect({ label: point.date, tokens: point.totalTokens })
+            }}
+          />
+        </label>
+      )}
     </>
   )
 }
@@ -1818,9 +1846,32 @@ function UsagePanel({
   const providers = visibleUsageProviders(usageSummary)
   const localTokenRate = providerLocalTokenRate(usageSummary)
   const [restartMenuOpen, setRestartMenuOpen] = useState(false)
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false)
+  const mobileDetailRange: UsageDetailRange | null = usageSummary && validUsageDailyPoints(usageSummary)
+    ? 'year'
+    : usageSummary && validUsageTimelinePoints(usageSummary)
+      ? 'day'
+      : null
 
   return (
-    <div className={`code-usage-panel ${collapsed ? 'collapsed' : ''}`} data-testid="code-usage-panel">
+    <div
+      className={`code-usage-panel ${collapsed ? 'collapsed' : ''} ${mobileDetailRange ? '' : 'mobile-unavailable'}`}
+      data-testid="code-usage-panel"
+    >
+      {mobileDetailRange && (
+        <button
+          type="button"
+          className="code-usage-mobile-open"
+          data-testid="code-mobile-usage-open"
+          onClick={() => setMobileDetailOpen(true)}
+        >
+          <span>Usage activity</span>
+          <span>
+            {mobileDetailRange === 'year' ? '52 Weeks' : '1 Day'}
+            <ChevronRightGlyph />
+          </span>
+        </button>
+      )}
       <button
         type="button"
         className="code-usage-header"
@@ -1916,6 +1967,13 @@ function UsagePanel({
           )}
           <SystemUsageRow usageSummary={usageSummary} />
         </>
+      )}
+      {mobileDetailOpen && mobileDetailRange && usageSummary && (
+        <UsageActivityDialog
+          initialRange={mobileDetailRange}
+          usageSummary={usageSummary}
+          onClose={() => setMobileDetailOpen(false)}
+        />
       )}
     </div>
   )
@@ -3314,17 +3372,6 @@ function AgentUnpinIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor" aria-hidden="true" focusable="false">
       <path d="M9.56016 10.2673L14.1464 14.8536C14.3417 15.0488 14.6583 15.0488 14.8536 14.8536C15.0488 14.6583 15.0488 14.3417 14.8536 14.1464L1.85355 1.14645C1.65829 0.951184 1.34171 0.951184 1.14645 1.14645C0.951184 1.34171 0.951184 1.65829 1.14645 1.85355L5.73223 6.43934L5.6526 6.58876L2.8419 7.52566C2.6775 7.58046 2.5532 7.71648 2.51339 7.88513C2.47357 8.05378 2.52392 8.23102 2.64646 8.35356L4.79291 10.5L2.14645 13.1465L2 14L2.85356 13.8536L5.50002 11.2071L7.64646 13.3536C7.76899 13.4761 7.94623 13.5264 8.11489 13.4866C8.28354 13.4468 8.41955 13.3225 8.47435 13.1581L9.41143 10.3469L9.56016 10.2673ZM8.82138 9.52849L8.76403 9.5592C8.65137 9.61951 8.56608 9.72066 8.52567 9.84189L7.7815 12.0744L3.92562 8.21851L6.15812 7.47435C6.27966 7.43383 6.38101 7.34822 6.44126 7.23516L6.47143 7.17854L8.82138 9.52849ZM12.7178 7.4426L10.6636 8.54227L11.4024 9.28105L13.1897 8.32422C14.0759 7.84981 14.2538 6.65509 13.5443 5.94304L10.0589 2.44509C9.34701 1.73062 8.14697 1.90828 7.67261 2.79838L6.71556 4.59421L7.45476 5.33341L8.55511 3.26869C8.71323 2.97199 9.11324 2.91277 9.35055 3.15093L12.836 6.64888C13.0725 6.88623 13.0131 7.28446 12.7178 7.4426Z" />
-    </svg>
-  )
-}
-
-function HistoryIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path
-        fill="currentColor"
-        d="M7.99909 3C10.7605 3 12.9991 5.23858 12.9991 8C12.9991 10.7614 10.7605 13 7.99909 13C5.39117 13 3.2491 11.003 3.0195 8.45512C2.99471 8.1801 2.75167 7.97723 2.47664 8.00202C2.20161 8.0268 1.99875 8.26985 2.02353 8.54488C2.29916 11.6035 4.86898 14 7.99909 14C11.3128 14 13.9991 11.3137 13.9991 8C13.9991 4.68629 11.3128 2 7.99909 2C6.20656 2 4.59815 2.78613 3.49909 4.03138V2.5C3.49909 2.22386 3.27524 2 2.99909 2C2.72295 2 2.49909 2.22386 2.49909 2.5V5.5C2.49909 5.77614 2.72295 6 2.99909 6H3.08812C3.09498 6.00014 3.10184 6.00014 3.10868 6H5.99909C6.27524 6 6.49909 5.77614 6.49909 5.5C6.49909 5.22386 6.27524 5 5.99909 5H3.99863C4.91128 3.78495 6.36382 3 7.99909 3ZM7.99909 5.5C7.99909 5.22386 7.77524 5 7.49909 5C7.22295 5 6.99909 5.22386 6.99909 5.5V8.5C6.99909 8.77614 7.22295 9 7.49909 9H9.49909C9.77524 9 9.99909 8.77614 9.99909 8.5C9.99909 8.22386 9.77524 8 9.49909 8H7.99909V5.5Z"
-      />
     </svg>
   )
 }

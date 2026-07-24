@@ -1,5 +1,5 @@
 import { useEffect, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
-import { CloseGlyph, SearchGlyph } from '@/components/IconGlyphs'
+import { ArrowLeftGlyph, CloseGlyph, SearchGlyph } from '@/components/IconGlyphs'
 import { agentDisplayName } from '@/lib/format'
 import type { Agent } from '@/types/agent'
 import {
@@ -25,6 +25,7 @@ interface SearchPanelProps {
   onQueryChange: (value: string) => void
   onKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void
   onClearSearch: () => void
+  onBack: () => void
   onOpenAgent: (agentId: string) => void
   onOpenSession: (session: AgentSessionHistoryItem) => void
   copy: CodeCopy
@@ -42,6 +43,7 @@ export function SearchPanel({
   onQueryChange,
   onKeyDown,
   onClearSearch,
+  onBack,
   onOpenAgent,
   onOpenSession,
   copy,
@@ -57,7 +59,19 @@ export function SearchPanel({
   return (
     <div className="code-search-panel" data-testid="code-search-panel">
       <div className="code-search-panel-header">
-        <h2>{copy.search}</h2>
+        <div className="code-side-view-heading">
+          <button
+            type="button"
+            className="code-side-view-back"
+            data-testid="code-search-back"
+            aria-label={copy.back}
+            title={copy.back}
+            onClick={onBack}
+          >
+            <ArrowLeftGlyph />
+          </button>
+          <h2>{copy.search}</h2>
+        </div>
         {hasQuery ? <span>{copy.resultsCount(resultCount)}</span> : null}
       </div>
       <div className="code-search-panel-input" data-testid="code-search-box">

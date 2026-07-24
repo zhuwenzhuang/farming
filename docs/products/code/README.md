@@ -110,6 +110,8 @@ Working-copy and historical ACP changes can feed the Review surface when the req
 
 ## Find Live Work Or Resume Old Work
 
+When no Agent is open, the main workspace presents a restrained getting-started map instead of a dead screen. Its primary actions resume History or create an Agent, while secondary actions open Search, sharing, focus mode, or collapse the sidebar. Compact layouts keep only the two primary actions.
+
 Search matches project names, Agent titles, and workspace paths across current live work.
 
 ![Live Agent Search](assets/13-code-search.png)
@@ -120,7 +122,7 @@ History uses explicit bounded pages instead of extending one scroll surface inde
 
 ![Full History search](assets/08-history-search.png)
 
-Results preserve provider identity and workspace context. Depending on the record, the primary action can open, continue, restore, or resume. Shell processes are destroyed when archived and never masquerade as resumable provider sessions.
+Results preserve provider identity and workspace context. The History row body performs its primary open, continue, or resume action, while explicit trailing controls remain available for alternate actions such as restore. Shell processes are destroyed when archived and never masquerade as resumable provider sessions.
 
 Archiving a live Codex Agent completes Farming's local archive first, then asynchronously invokes `codex archive` for its stable provider session. A provider-side failure is reported by the backend and never revives the terminated Agent.
 
