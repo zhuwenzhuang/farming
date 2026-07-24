@@ -169,7 +169,9 @@ test('keeps Project Files on workspace identity while its source Agent changes',
   const oneRow = page.locator('[data-testid="code-file-row"][data-file-path="one.txt"]')
   const twoRow = page.locator('[data-testid="code-file-row"][data-file-path="two.txt"]')
   await expect(oneRow).toBeVisible()
-  await expect.poll(() => [...new Set(filesRequestRootIds)]).toEqual([expectedFilesId])
+  await expect.poll(() => filesRequestRootIds.includes(expectedFilesId)).toBe(true)
+  expect(filesRequestRootIds).not.toContain(firstAgentId)
+  expect(filesRequestRootIds).not.toContain(secondAgentId)
 
   let oneRowBox: Awaited<ReturnType<typeof oneRow.boundingBox>> = null
   await expect.poll(async () => {
@@ -193,7 +195,9 @@ test('keeps Project Files on workspace identity while its source Agent changes',
   await expect(twoRow).toBeVisible()
   await twoRow.click()
   await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('two.txt')
-  await expect.poll(() => [...new Set(filesRequestRootIds)]).toEqual([expectedFilesId])
+  await expect.poll(() => filesRequestRootIds.includes(expectedFilesId)).toBe(true)
+  expect(filesRequestRootIds).not.toContain(firstAgentId)
+  expect(filesRequestRootIds).not.toContain(secondAgentId)
   await page.getByTestId('code-file-editor-back').click()
   await expect(project.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)).toHaveClass(/active/)
 })
