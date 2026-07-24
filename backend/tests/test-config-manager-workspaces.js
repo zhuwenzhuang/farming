@@ -21,6 +21,7 @@ function run() {
   const projectA = path.join(tmpRoot, 'project-a');
   const projectB = path.join(tmpRoot, 'project-b');
   const projectMain = path.join(tmpRoot, 'main-workspace');
+  const missingProject = path.join(tmpRoot, 'missing');
 
   try {
     fs.mkdirSync(projectA, { recursive: true });
@@ -74,8 +75,8 @@ function run() {
       crtTerminalFontSize: 16,
       removedSetting: 'legacy-value',
       workspaceHistory: [farmingDir, projectA, projectA, projectB, '/tmp', '/var/tmp/farming-e2e'],
-      projectWorkspaces: [projectA, projectA, projectB, farmingDir, '/', path.join(tmpRoot, 'missing')],
-      pinnedProjectWorkspaces: [projectB, projectA, projectB, path.join(tmpRoot, 'missing')],
+      projectWorkspaces: [projectA, projectA, projectB, farmingDir, '/', missingProject],
+      pinnedProjectWorkspaces: [projectB, projectA, projectB, missingProject],
       projectNames: {
         [projectA]: 'Project A',
         [projectB]: '',
@@ -93,12 +94,51 @@ function run() {
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).crtDynamicHeatEnabled, true);
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).crtTerminalFontSize, 16);
     assert.deepStrictEqual(settings.workspaceHistory, [projectA, projectB]);
-    assert.deepStrictEqual(settings.projectWorkspaces, [projectA, projectB]);
-    assert.deepStrictEqual(settings.pinnedProjectWorkspaces, [projectB, projectA]);
+    assert.deepStrictEqual(settings.projectWorkspaces, [projectA, projectB, missingProject]);
+    assert.deepStrictEqual(settings.pinnedProjectWorkspaces, [projectB, projectA, missingProject]);
     assert.deepStrictEqual(settings.projectNames, { [projectA]: 'Project A' });
     assert.strictEqual(settings.instanceName, 'Build Machine');
     assert.strictEqual(settings.lastMainWorkspace, projectMain);
     assert.strictEqual(settings.removedSetting, undefined);
+
+    let projectMembership = manager.removeProjectWorkspace(missingProject);
+    assert.deepStrictEqual(projectMembership.projectWorkspaces, [projectA, projectB]);
+    assert.deepStrictEqual(projectMembership.pinnedProjectWorkspaces, [projectB, projectA]);
+    projectMembership = manager.mountProjectWorkspace(projectA);
+    assert.deepStrictEqual(projectMembership.projectWorkspaces, [projectA, projectB]);
+    projectMembership = manager.mountProjectWorkspace(projectB);
+    assert.deepStrictEqual(projectMembership.projectWorkspaces, [projectA, projectB]);
+    manager.updateSettings({ pinnedProjectWorkspaces: [projectA, projectB] });
+    projectMembership = manager.removeProjectWorkspace(projectA);
+    assert.deepStrictEqual(projectMembership.projectWorkspaces, [projectB]);
+    assert.deepStrictEqual(projectMembership.pinnedProjectWorkspaces, [projectB]);
+    projectMembership = manager.mountProjectWorkspace(projectA);
+    assert.deepStrictEqual(projectMembership.projectWorkspaces, [projectA, projectB]);
+    projectMembership = manager.setProjectWorkspacePinned(projectA, true);
+    assert.deepStrictEqual(projectMembership.pinnedProjectWorkspaces, [projectB, projectA]);
+    projectMembership = manager.setProjectWorkspacePinned(projectA, false);
+    assert.deepStrictEqual(projectMembership.pinnedProjectWorkspaces, [projectB]);
+    assert.throws(
+      () => manager.mountProjectWorkspace(missingProject),
+      /invalid or unavailable/,
+    );
+    const settingsFile = path.join(farmingDir, 'settings.json');
+    const settingsBeforeFailedCommit = fs.readFileSync(settingsFile, 'utf8');
+    const renameSync = fs.renameSync;
+    fs.renameSync = () => {
+      throw new Error('simulated rename failure');
+    };
+    try {
+      assert.throws(() => manager.mountProjectWorkspace(projectMain), /simulated rename failure/);
+    } finally {
+      fs.renameSync = renameSync;
+    }
+    assert.deepStrictEqual(manager.getSettings().projectWorkspaces, [projectA, projectB]);
+    assert.strictEqual(fs.readFileSync(settingsFile, 'utf8'), settingsBeforeFailedCommit);
+    assert.deepStrictEqual(
+      fs.readdirSync(farmingDir).filter(name => name.startsWith('settings.json.') && name.endsWith('.tmp')),
+      [],
+    );
 
     manager.updateSettings({ instanceName: '   ' });
     assert.strictEqual(manager.getSettings().instanceName, os.hostname(), 'a blank name should restore the hostname label');

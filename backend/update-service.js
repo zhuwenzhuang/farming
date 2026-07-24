@@ -342,10 +342,6 @@ function manifestAssetSafety(asset, manifest, options = {}) {
   return { safe: true, reason: '' };
 }
 
-function shellQuote(value) {
-  return `'${String(value).replace(/'/g, `'\\''`)}'`;
-}
-
 function requestWithRedirects(url, options = {}, redirectCount = 0, authOrigin = null) {
   if (redirectCount > 5) {
     return Promise.reject(new Error(`too many redirects for ${url}`));
@@ -798,7 +794,16 @@ class FarmingUpdateService {
 
   currentInstallState() {
     const persisted = readJsonFile(this.updateStateFile);
-    if (this.installMethod === 'npm' && persisted && persisted.method === 'npm') return persisted;
+    if (persisted && persisted.method === this.installMethod) return persisted;
+    const current = this.currentVersion();
+    const currentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
+    if (
+      persisted
+      && persisted.targetMethod === this.installMethod
+      && normalizeVersion(persisted.version) === currentVersion
+    ) {
+      return persisted;
+    }
     return this.installState;
   }
 
@@ -1116,19 +1121,22 @@ class FarmingUpdateService {
       this.runtime,
       this.currentVersion().compatibilityProfile,
     );
-    this.installState = {
+    this.persistInstallState({
       phase: 'downloading',
+      method: this.installMethod,
       version: status.selected.version,
+      previousVersion: status.current.releaseVersion || status.current.packageVersion,
       assetName: status.selected.assetName,
       startedAt: new Date(this.now()).toISOString(),
       logPath: path.join(this.configDir, 'farming-update.log'),
-    };
+    });
     void this.runInstall(asset).catch(error => {
-      this.installState = {
+      this.persistInstallState({
         ...this.installState,
         phase: 'failed',
         error: error.message || String(error),
-      };
+        completedAt: new Date(this.now()).toISOString(),
+      });
     });
     return this.installState;
   }
@@ -1221,7 +1229,7 @@ class FarmingUpdateService {
 
     validateArchiveEntries(await this.listArchiveEntries(archivePath));
 
-    this.installState = { ...this.installState, phase: 'extracting' };
+    this.persistInstallState({ ...this.installState, phase: 'extracting' });
     await new Promise((resolve, reject) => {
       this.execFile('tar', ['-xzf', archivePath, '-C', tempRoot], (error) => {
         if (error) reject(error);
@@ -1240,23 +1248,38 @@ class FarmingUpdateService {
       throw new Error('downloaded release is missing scripts/install-release.sh');
     }
     const logPath = this.installState.logPath || path.join(this.configDir, 'farming-update.log');
-    const installCommand = [
-      'sleep 1',
-      `cd ${shellQuote(releaseDir)}`,
-      `exec bash scripts/install-release.sh install >> ${shellQuote(logPath)} 2>&1`,
-    ].join('; ');
-    const child = this.spawn('bash', ['-lc', installCommand], {
-      detached: true,
-      stdio: 'ignore',
-      env: this.installEnvironment(),
-    });
-    if (child && typeof child.unref === 'function') child.unref();
-    this.installState = {
+    const targetMethod = String(releaseMetadata.updateMethod || releaseMetadata.type || this.installMethod);
+    const helperPath = path.join(__dirname, 'bundle-update-helper.js');
+    const nodePath = process.env.FARMING_NODE_BIN || process.execPath;
+    const helperInvocation = nodeScriptInvocation(nodePath, helperPath);
+    const payload = {
+      method: this.installMethod,
+      targetMethod,
+      version: this.installState.version,
+      previousVersion: this.installState.previousVersion,
+      startedAt: this.installState.startedAt,
+      stateFile: this.updateStateFile,
+      logPath,
+      releaseDir,
+      installer,
+    };
+    this.persistInstallState({
       ...this.installState,
       phase: 'installing',
+      targetMethod,
       releaseDir,
       logPath,
-    };
+    });
+    const child = this.spawn(helperInvocation.command, helperInvocation.args, {
+      cwd: this.configDir,
+      detached: true,
+      stdio: 'ignore',
+      env: {
+        ...this.installEnvironment(),
+        FARMING_BUNDLE_UPDATE_PAYLOAD: JSON.stringify(payload),
+      },
+    });
+    if (child && typeof child.unref === 'function') child.unref();
   }
 }
 

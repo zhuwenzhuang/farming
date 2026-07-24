@@ -974,6 +974,8 @@ test.describe('display-backed agent flows', () => {
     execFileSync('git', ['add', 'README.md'], { cwd: repo, stdio: 'ignore' })
     execFileSync('git', ['commit', '-m', 'seed linked worktree'], { cwd: repo, stdio: 'ignore' })
     execFileSync('git', ['worktree', 'add', '-b', 'feature/topic', linkedWorkspace], { cwd: repo, stdio: 'ignore' })
+    const nestedWorkspace = path.join(linkedWorkspace, 'nested', 'workspace')
+    fs.mkdirSync(nestedWorkspace, { recursive: true })
 
     let revealedProjectRootId = ''
     let createdWorktreeRootId = ''
@@ -994,10 +996,31 @@ test.describe('display-backed agent flows', () => {
     })
 
     await openFarming(page)
+    const initialSettingsResponse = await page.request.get('/farming/api/settings')
+    const initialSettings = (await initialSettingsResponse.json()).settings ?? {}
+    const initialProjects = Array.isArray(initialSettings.projectWorkspaces)
+      ? initialSettings.projectWorkspaces as string[]
+      : []
+    const initialPinnedProjects = Array.isArray(initialSettings.pinnedProjectWorkspaces)
+      ? initialSettings.pinnedProjectWorkspaces as string[]
+      : []
+    const expectedProjects = [
+      linkedWorkspace,
+      ...initialProjects.filter(workspace => workspace !== linkedWorkspace),
+    ]
+    const expectedPinnedProjects = [
+      ...initialPinnedProjects.filter(workspace => workspace !== linkedWorkspace),
+      linkedWorkspace,
+    ]
     await openNewAgentDialog(page)
-    const agentId = await startAgentFromOpenDialog(page, 'bash', linkedWorkspace)
+    const agentId = await startAgentFromOpenDialog(page, 'bash', nestedWorkspace)
     const project = page.getByTestId('code-project-group').filter({ hasText: 'linked-project' })
     await expect(project).toHaveCount(1)
+    await expect.poll(async () => {
+      const response = await page.request.get('/farming/api/settings')
+      const data = await response.json()
+      return data.settings?.projectWorkspaces
+    }).toEqual(expectedProjects)
     await expect(project.locator('.code-project-worktree')).toContainText('feature/topic', { timeout: 30_000 })
     await expect(project.locator('.code-project-worktree-count')).toHaveText('2')
     await project.hover()
@@ -1029,6 +1052,21 @@ test.describe('display-backed agent flows', () => {
     }
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Mark all as read' })).toBeDisabled()
     await projectContextMenu.getByRole('menuitem', { name: 'Pin project' }).click()
+    await expect.poll(async () => {
+      const response = await page.request.get('/farming/api/settings')
+      const data = await response.json()
+      return {
+        projects: data.settings?.projectWorkspaces,
+        pinned: data.settings?.pinnedProjectWorkspaces,
+      }
+    }).toEqual({ projects: expectedProjects, pinned: expectedPinnedProjects })
+    const staleSettingsResponse = await page.request.post('/farming/api/settings', {
+      data: { projectWorkspaces: [], pinnedProjectWorkspaces: [] },
+    })
+    expect(staleSettingsResponse.ok()).toBeTruthy()
+    const settingsAfterStaleWrite = await staleSettingsResponse.json()
+    expect(settingsAfterStaleWrite.settings?.projectWorkspaces).toEqual(expectedProjects)
+    expect(settingsAfterStaleWrite.settings?.pinnedProjectWorkspaces).toEqual(expectedPinnedProjects)
     await project.getByTestId('code-project-actions').click()
     projectContextMenu = page.getByTestId('code-project-context-menu')
     await expect(projectContextMenu.getByRole('menuitem', { name: 'Unpin project' })).toBeVisible()
@@ -2127,12 +2165,14 @@ test.describe('display-backed agent flows', () => {
       await route.fulfill({
         contentType: 'application/json',
         status: 201,
-        body: JSON.stringify({ agentId: 'farming-others-agent' }),
+        body: JSON.stringify({
+          agentId: 'farming-others-agent',
+        }),
       })
     })
 
     await openFarming(page)
-    await page.getByRole('button', { name: /Search/ }).click()
+    await page.getByTestId('code-nav-search').click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
     await page.getByTestId('code-search-box').locator('input').fill('Farming others')
     await expect(page.getByTestId('code-session-search-result')).toHaveCount(1)
@@ -2579,16 +2619,16 @@ test.describe('display-backed agent flows', () => {
     await page.getByRole('button', { name: /Search/ }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
     await page.getByTestId('code-search-box').locator('input').fill('child')
-    await expect(page.getByTestId('code-project-group')).toHaveCount(2)
-    await expect(page.getByTestId('code-project-group').first()).toContainText('child')
-    await expect(page.getByTestId('code-project-group').filter({ hasText: 'farming-playwright-main' })).toHaveCount(1)
+    await expect(childProjectGroup).toHaveCount(1)
+    await expect(primaryProjectGroup).toHaveCount(1)
     await expect(page.getByTestId('code-search-result')).toHaveCount(1)
     await expect(page.getByTestId('code-search-panel')).toContainText('child')
     await expect(page.getByTestId('code-agent-row').first()).toHaveClass(/search-selected/)
     await page.getByTestId('code-search-result').click()
     await expect(page.getByTestId('code-search-box')).toBeHidden()
     await expect(childStartedRow).toHaveClass(/active/)
-    await expect(page.getByTestId('code-project-group')).toHaveCount(2)
+    await expect(childProjectGroup).toHaveCount(1)
+    await expect(primaryProjectGroup).toHaveCount(1)
 
     await page.getByRole('button', { name: /Search/ }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
@@ -2965,7 +3005,9 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-project-list')).toBeVisible()
     await expect.poll(async () => (await page.getByTestId('code-sidebar').boundingBox())?.width ?? 0).toBeGreaterThan(sidebarExpandedBox.width - 5)
 
-    const childProjectTitle = page.getByTestId('code-project-title').filter({ hasText: 'child' })
+    const childProjectTitle = page
+      .getByTestId('code-project-list')
+      .getByRole('button', { name: path.basename(childWorkspace), exact: true })
     await childProjectTitle.click()
     await expect(page.getByTestId('code-agent-row')).toHaveCount(1)
     await childProjectTitle.click()

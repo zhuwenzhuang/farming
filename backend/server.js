@@ -36,6 +36,7 @@ const {
   resumedAgentSource,
 } = require('./main-page-session');
 const { discoverAgentWorkspaces } = require('./workspace-discovery');
+const { inspectGitWorktree } = require('./git-worktree-info');
 const { createWorkspaceDirectoryRouter } = require('./workspace-directory');
 const { createControlRouter } = require('./control-api');
 const { WorkspaceFileService, WorkspaceFileError } = require('./workspace-file-service');
@@ -1433,6 +1434,40 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork'), express.json(), asyn
     return;
   }
 
+  try {
+    const membership = configManager.mountProjectWorkspace(result.workspace);
+    result.projectWorkspaces = membership.projectWorkspaces;
+    result.pinnedProjectWorkspaces = membership.pinnedProjectWorkspaces;
+  } catch (error) {
+    let rollbackError = '';
+    try {
+      if (mode === 'new-worktree') {
+        const rollback = await agentManager.deleteForkWorktreeProject(result.workspace, { force: true });
+        if (!rollback?.deleted || rollback.cleanupError) {
+          rollbackError = rollback?.error || rollback?.cleanupError || 'Failed to delete the fork worktree';
+        }
+      } else {
+        const rollback = await agentManager.archiveAgent(result.agentId, {
+          reason: 'project-mount-failed',
+          recordHistory: false,
+          requireEngineExit: true,
+          scheduleProviderArchive: false,
+        });
+        if (rollback?.error) rollbackError = rollback.error;
+      }
+    } catch (cleanupError) {
+      rollbackError = cleanupError?.message || String(cleanupError);
+    }
+    broadcastState();
+    const mountError = error.message || 'Failed to create Project';
+    res.status(500).json({
+      error: rollbackError
+        ? `${mountError}. Rollback failed: ${rollbackError}`
+        : mountError,
+      ...(rollbackError ? { rollbackError } : {}),
+    });
+    return;
+  }
   broadcastState();
   res.status(201).json(result);
 });
@@ -1464,54 +1499,132 @@ app.post(routePath(BASE_PATH, '/api/projects/reveal'), express.json(), async (re
   }
 });
 
+app.post(routePath(BASE_PATH, '/api/projects/mount'), express.json(), async (req, res) => {
+  try {
+    const workspace = await canonicalProjectWorkspace(req.body?.workspace);
+    const membership = configManager.mountProjectWorkspace(workspace);
+    broadcastState();
+    res.json(membership);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Failed to create Project' });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/projects/remove'), express.json(), (req, res) => {
+  try {
+    const membership = configManager.removeProjectWorkspace(req.body?.workspace);
+    broadcastState();
+    res.json(membership);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Failed to remove Project' });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/projects/pin'), express.json(), (req, res) => {
+  try {
+    const membership = configManager.setProjectWorkspacePinned(
+      req.body?.workspace,
+      req.body?.pinned === true
+    );
+    broadcastState();
+    res.json(membership);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Failed to update Project pin' });
+  }
+});
+
 app.post(routePath(BASE_PATH, '/api/projects/create-worktree'), express.json(), async (req, res) => {
   let created = null;
-  let previousProjects = null;
   try {
     const root = resolveProjectActionRoot(req.body?.rootId);
     created = await agentManager.createPermanentWorktree(root.canonicalPath);
-    previousProjects = configManager.getSettings().projectWorkspaces || [];
-    configManager.updateSettings({
-      projectWorkspaces: [
-        created.workspace,
-        ...previousProjects.filter(workspace => workspace !== created.workspace),
-      ],
-    });
+    const membership = configManager.mountProjectWorkspace(created.workspace);
+    broadcastState();
     res.status(201).json({
       workspace: created.workspace,
       branch: created.branch,
-      projectWorkspaces: configManager.getSettings().projectWorkspaces,
+      projectWorkspaces: membership.projectWorkspaces,
+      pinnedProjectWorkspaces: membership.pinnedProjectWorkspaces,
     });
   } catch (error) {
-    if (created) await agentManager.rollbackPermanentWorktree(created);
-    if (previousProjects) {
-      try {
-        configManager.updateSettings({ projectWorkspaces: previousProjects });
-      } catch {
-        // Keep the original error visible; the failed settings write is already the root cause.
-      }
+    let rollbackError = '';
+    if (created) {
+      const rollback = await agentManager.rollbackPermanentWorktree(created);
+      if (rollback?.rolledBack === false) rollbackError = rollback.error || 'Unknown rollback failure';
     }
     const status = error instanceof WorkspaceFileError ? error.statusCode : 400;
-    res.status(status).json({ error: error.message || 'Failed to create permanent worktree' });
+    const createError = error.message || 'Failed to create permanent worktree';
+    res.status(status).json({
+      error: rollbackError
+        ? `${createError}. Rollback failed: ${rollbackError}`
+        : createError,
+      ...(rollbackError ? { rollbackError } : {}),
+    });
   }
 });
 
 app.post(routePath(BASE_PATH, '/api/projects/delete-worktree'), express.json(), async (req, res) => {
   const body = req.body || {};
   const workspace = typeof body.workspace === 'string' ? body.workspace : '';
-  const result = await agentManager.deleteForkWorktreeProject(workspace, { force: body.force === true });
-  if (result.error) {
-    if (result.requiresForce) {
-      res.status(409).json(result);
+  const inspected = await agentManager.inspectForkWorktreeProject(workspace);
+  if (inspected.error || (inspected.requiresForce && body.force !== true)) {
+    if (inspected.requiresForce) {
+      res.status(409).json({
+        ...inspected,
+        error: 'Worktree has uncommitted or untracked files',
+      });
       return;
     }
-    const status = result.error === 'Workspace not found' || result.error === 'Workspace is required' ? 404 : 400;
-    res.status(status).json(result);
+    const status = inspected.error === 'Workspace not found' || inspected.error === 'Workspace is required' ? 404 : 400;
+    res.status(status).json(inspected);
     return;
   }
 
+  const wasPinned = (configManager.getSettings().pinnedProjectWorkspaces || []).includes(inspected.workspace);
+  let membership;
+  try {
+    membership = configManager.removeProjectWorkspace(inspected.workspace);
+  } catch (error) {
+    res.status(500).json({
+      ...inspected,
+      error: error.message || 'Project removal failed; the worktree was not deleted',
+    });
+    return;
+  }
+  const result = await agentManager.deleteForkWorktreeProject(inspected.workspace, { force: body.force === true });
+  if (result.error) {
+    let rollbackError = '';
+    try {
+      configManager.mountProjectWorkspace(inspected.workspace);
+      if (wasPinned) configManager.setProjectWorkspacePinned(inspected.workspace, true);
+    } catch (error) {
+      rollbackError = error.message || String(error);
+    }
+    broadcastState();
+    const status = result.requiresForce ? 409 : 400;
+    res.status(status).json({
+      ...result,
+      ...(rollbackError ? {
+        error: `${result.error}. Project restore failed: ${rollbackError}`,
+        rollbackError,
+      } : {}),
+    });
+    return;
+  }
+  if (result.cleanupError) {
+    broadcastState();
+    res.status(500).json({
+      ...result,
+      error: `Worktree was deleted, but Agent cleanup failed: ${result.cleanupError}`,
+    });
+    return;
+  }
   broadcastState();
-  res.json(result);
+  res.json({
+    ...result,
+    projectWorkspaces: membership.projectWorkspaces,
+    pinnedProjectWorkspaces: membership.pinnedProjectWorkspaces,
+  });
 });
 
 app.post(routePath(BASE_PATH, '/api/codex/sessions/:sessionId/resume'), express.json(), async (req, res) => {
@@ -1523,6 +1636,7 @@ app.post(routePath(BASE_PATH, '/api/agent-sessions/:provider/:sessionId/resume')
 });
 
 const pendingResumeStarts = new Map();
+const pendingProjectWorkspaceResolutions = new Map();
 
 function resumedAgentStartKey(provider, sessionId, options = {}) {
   return [
@@ -1612,7 +1726,12 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
     const existingAgent = findResumedAgent(normalizedProvider, sessionId, providerHomeId);
     if (existingAgent) {
       if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);
-      return { agentId: existingAgent.id, reused: true };
+      const projectWorkspace = requestedAsMain
+        ? ''
+        : await canonicalProjectWorkspace(
+          existingAgent.gitWorktree?.workspace || existingAgent.projectWorkspace || existingAgent.cwd
+        );
+      return { agentId: existingAgent.id, projectWorkspace, reused: true };
     }
   }
   const pendingStart = pendingResumeStarts.get(pendingResumeId);
@@ -1624,6 +1743,7 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
     if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);
     return {
       agentId: result.agentId,
+      projectWorkspace: result.projectWorkspace || '',
       reused: true,
       pending: true,
       ...(result.claimed ? { claimed: true } : {}),
@@ -1671,7 +1791,10 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
       });
       if (claimingAgent) {
         if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);
-        return { agentId: claimingAgent.id, reused: true, claimed: true };
+        const projectWorkspace = await canonicalProjectWorkspace(
+          claimingAgent.gitWorktree?.workspace || claimingAgent.projectWorkspace || claimingAgent.cwd
+        );
+        return { agentId: claimingAgent.id, projectWorkspace, reused: true, claimed: true };
       }
     }
 
@@ -1689,6 +1812,11 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
     const savedAttentionSeq = Number(savedSession?.attentionSeq) || 0;
     const savedReadAttentionSeq = Number(savedSession?.readAttentionSeq) || 0;
     const workingDirectory = session && (session.cwd || session.workspace) ? (session.cwd || session.workspace) : null;
+    const projectWorkspace = resumeAsMain
+      ? ''
+      : await canonicalProjectWorkspace(
+        savedSession?.projectWorkspace || (session ? (session.workspace || session.cwd || '') : workingDirectory)
+      );
     const command = buildAgentSessionResumeCommand(normalizedProvider, sessionId, {
       fork: shouldFork,
       cwd: workingDirectory,
@@ -1715,7 +1843,7 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
           return;
         }
 
-        resolve({ agentId });
+        resolve({ agentId, projectWorkspace });
       }, {
         wantsMain: resumeAsMain,
         task: savedSession?.task || (session ? session.title : ''),
@@ -1725,7 +1853,7 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
           : (savedSession?.customTitle || ''),
         customTitleExplicit: hasRequestedCustomTitle,
         requiredCliVersion: normalizedProvider === 'codex' && session ? session.cliVersion : '',
-        projectWorkspace: savedSession?.projectWorkspace || (session ? (session.workspace || session.cwd || '') : ''),
+        projectWorkspace,
         source: shouldFork ? resumeSource.replace('-history:', '-history-fork:') : resumeSource,
         agentRuntimeMode: ['chat', 'acp'].includes(options.agentRuntimeMode) ? 'chat' : 'terminal',
         acpHistoryMode: options.acpHistoryMode === 'resume' ? 'resume' : 'load',
@@ -1769,17 +1897,57 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
   if (result.reused) {
     return {
       agentId: result.agentId,
+      projectWorkspace: result.projectWorkspace || '',
       reused: true,
       ...(result.claimed ? { claimed: true } : {}),
     };
   }
-  return { agentId: result.agentId };
+  return {
+    agentId: result.agentId,
+    projectWorkspace: result.projectWorkspace || '',
+  };
+}
+
+async function canonicalProjectWorkspace(workspace) {
+  const candidate = configManager.expandWorkspacePath(String(workspace || '').trim());
+  if (!candidate) return '';
+  const pending = pendingProjectWorkspaceResolutions.get(candidate);
+  if (pending) return pending;
+
+  const resolution = (async () => {
+    try {
+      const worktree = await inspectGitWorktree(candidate);
+      if (worktree?.workspace) return worktree.workspace;
+    } catch (error) {
+      console.warn('Failed to resolve project worktree:', candidate, error?.message || error);
+    }
+    try {
+      return fs.realpathSync(path.resolve(candidate));
+    } catch {
+      return candidate;
+    }
+  })();
+  pendingProjectWorkspaceResolutions.set(candidate, resolution);
+  try {
+    return await resolution;
+  } finally {
+    if (pendingProjectWorkspaceResolutions.get(candidate) === resolution) {
+      pendingProjectWorkspaceResolutions.delete(candidate);
+    }
+  }
 }
 
 async function startResumedAgentSession(req, res, provider, rawSessionId) {
   const shouldFork = req.body && req.body.fork === true;
   const requestedAsMain = req.body && req.body.asMain === true && !shouldFork;
   const allowUnarchiveArchived = req.body && req.body.unarchiveArchived === true && !shouldFork && !requestedAsMain;
+  const providerHomeId = req.body && typeof req.body.providerHomeId === 'string'
+    ? req.body.providerHomeId
+    : '';
+  const sessionKey = mainPageAgentSessionKey(provider, rawSessionId, providerHomeId);
+  const mainPageSessionWasRemembered = !shouldFork
+    && !requestedAsMain
+    && configManager.getMainPageSessionKeys().includes(sessionKey);
   if (
     req.body
     && Object.prototype.hasOwnProperty.call(req.body, 'customTitle')
@@ -1792,7 +1960,7 @@ async function startResumedAgentSession(req, res, provider, rawSessionId) {
     fork: shouldFork,
     asMain: requestedAsMain,
     allowUnarchiveArchived,
-    providerHomeId: req.body && typeof req.body.providerHomeId === 'string' ? req.body.providerHomeId : '',
+    providerHomeId,
     ...(req.body && Object.prototype.hasOwnProperty.call(req.body, 'customTitle')
       ? { customTitle: req.body.customTitle }
       : {}),
@@ -1805,10 +1973,49 @@ async function startResumedAgentSession(req, res, provider, rawSessionId) {
     return;
   }
 
+  let projectMembership = {
+    projectWorkspaces: configManager.getSettings().projectWorkspaces || [],
+    pinnedProjectWorkspaces: configManager.getSettings().pinnedProjectWorkspaces || [],
+  };
+  try {
+    if (!requestedAsMain && result.projectWorkspace) {
+      projectMembership = configManager.mountProjectWorkspace(result.projectWorkspace);
+    }
+  } catch (error) {
+    let rollbackError = '';
+    if (!result.reused) {
+      try {
+        const rollback = await agentManager.archiveAgent(result.agentId, {
+          reason: 'project-mount-failed',
+          recordHistory: false,
+          requireEngineExit: true,
+          scheduleProviderArchive: false,
+        });
+        if (rollback?.error) rollbackError = rollback.error;
+      } catch (cleanupError) {
+        rollbackError = cleanupError?.message || String(cleanupError);
+      }
+    }
+    if (!mainPageSessionWasRemembered && !rollbackError) {
+      forgetMainPageAgentSession(provider, rawSessionId, providerHomeId || 'default');
+    }
+    broadcastState();
+    const mountError = error.message || 'Failed to create Project';
+    res.status(500).json({
+      error: rollbackError
+        ? `${mountError}. Rollback failed: ${rollbackError}`
+        : mountError,
+      ...(rollbackError ? { rollbackError } : {}),
+    });
+    return;
+  }
   broadcastState();
   if (result.reused) {
     res.status(200).json({
       agentId: result.agentId,
+      ...(result.projectWorkspace ? { projectWorkspace: result.projectWorkspace } : {}),
+      projectWorkspaces: projectMembership.projectWorkspaces,
+      pinnedProjectWorkspaces: projectMembership.pinnedProjectWorkspaces,
       reused: true,
       ...(result.claimed ? { claimed: true } : {}),
       ...(result.pending ? { pending: true } : {}),
@@ -1816,7 +2023,12 @@ async function startResumedAgentSession(req, res, provider, rawSessionId) {
     return;
   }
 
-  res.status(201).json({ agentId: result.agentId });
+  res.status(201).json({
+    agentId: result.agentId,
+    ...(result.projectWorkspace ? { projectWorkspace: result.projectWorkspace } : {}),
+    projectWorkspaces: projectMembership.projectWorkspaces,
+    pinnedProjectWorkspaces: projectMembership.pinnedProjectWorkspaces,
+  });
 }
 
 async function autoResumeMainPageAgentSessions() {
@@ -1892,7 +2104,10 @@ async function autoResumeMainPageAgentSessions() {
 }
 
 app.post(routePath(BASE_PATH, '/api/settings'), express.json(), (req, res) => {
-  configManager.updateSettings(req.body || {});
+  const settingsPatch = { ...(req.body || {}) };
+  delete settingsPatch.projectWorkspaces;
+  delete settingsPatch.pinnedProjectWorkspaces;
+  configManager.updateSettings(settingsPatch);
   agentSessionsCache.invalidate();
   res.json({
     success: true,
@@ -2134,27 +2349,70 @@ function handleMessage(ws, data) {
       break;
     case 'start-agent': {
       const workspace = data.workspace || null;
-      agentManager.startAgent(data.command, workspace, (agentId, error) => {
-        if (error) {
-          ws.send(JSON.stringify({ type: 'error', message: error }));
-        } else if (agentId) {
-          ws.agentId = agentId;
-          broadcastState();
-          ws.send(JSON.stringify({ type: 'agent-started', agentId }));
-        }
-      }, {
-        wantsMain: data.asMain === true,
-        projectWorkspace: typeof data.projectWorkspace === 'string' ? data.projectWorkspace : '',
-        task: typeof data.task === 'string' ? data.task : '',
-        workflowTemplate: typeof data.workflowTemplate === 'string' ? data.workflowTemplate : '',
-        customTitle: typeof data.customTitle === 'string' ? data.customTitle : '',
-        codexApprovalMode: typeof data.codexApprovalMode === 'string' ? data.codexApprovalMode : undefined,
-        agentRuntimeMode: ['json', 'acp', 'chat'].includes(data.agentRuntimeMode) ? data.agentRuntimeMode : 'terminal',
-        acpHistoryMode: data.acpHistoryMode === 'resume' ? 'resume' : 'load',
-        providerHomeId: typeof data.providerHomeId === 'string' ? data.providerHomeId : '',
-        ...(Array.isArray(data.additionalDirectories) ? { additionalDirectories: data.additionalDirectories } : {}),
-        ...(Array.isArray(data.mcpServers) ? { mcpServers: data.mcpServers } : {}),
-        ...(data.dangerouslySkipPermissions === true ? { dangerouslySkipPermissions: true } : {}),
+      void (async () => {
+        const projectWorkspace = data.asMain === true
+          ? ''
+          : await canonicalProjectWorkspace(
+            typeof data.projectWorkspace === 'string' && data.projectWorkspace.trim()
+              ? data.projectWorkspace
+              : workspace
+          );
+        agentManager.startAgent(data.command, workspace, (agentId, error) => {
+          if (error) {
+            ws.send(JSON.stringify({ type: 'error', message: error }));
+          } else if (agentId) {
+            void (async () => {
+              try {
+                if (projectWorkspace) configManager.mountProjectWorkspace(projectWorkspace);
+              } catch (mountError) {
+                let rollbackError = '';
+                try {
+                  const rollback = await agentManager.archiveAgent(agentId, {
+                    reason: 'project-mount-failed',
+                    recordHistory: false,
+                    requireEngineExit: true,
+                    scheduleProviderArchive: false,
+                  });
+                  if (rollback?.error) rollbackError = rollback.error;
+                } catch (cleanupError) {
+                  rollbackError = cleanupError?.message || String(cleanupError);
+                }
+                broadcastState();
+                const errorMessage = mountError.message || 'Failed to create Project';
+                ws.send(JSON.stringify({
+                  type: 'error',
+                  message: rollbackError
+                    ? `${errorMessage}. Rollback failed: ${rollbackError}`
+                    : errorMessage,
+                }));
+                return;
+              }
+              ws.agentId = agentId;
+              broadcastState();
+              ws.send(JSON.stringify({ type: 'agent-started', agentId }));
+            })().catch(callbackError => {
+              console.warn('Failed to finish started Agent transition:', agentId, callbackError?.message || callbackError);
+            });
+          }
+        }, {
+          wantsMain: data.asMain === true,
+          projectWorkspace,
+          task: typeof data.task === 'string' ? data.task : '',
+          workflowTemplate: typeof data.workflowTemplate === 'string' ? data.workflowTemplate : '',
+          customTitle: typeof data.customTitle === 'string' ? data.customTitle : '',
+          codexApprovalMode: typeof data.codexApprovalMode === 'string' ? data.codexApprovalMode : undefined,
+          agentRuntimeMode: ['json', 'acp', 'chat'].includes(data.agentRuntimeMode) ? data.agentRuntimeMode : 'terminal',
+          acpHistoryMode: data.acpHistoryMode === 'resume' ? 'resume' : 'load',
+          providerHomeId: typeof data.providerHomeId === 'string' ? data.providerHomeId : '',
+          ...(Array.isArray(data.additionalDirectories) ? { additionalDirectories: data.additionalDirectories } : {}),
+          ...(Array.isArray(data.mcpServers) ? { mcpServers: data.mcpServers } : {}),
+          ...(data.dangerouslySkipPermissions === true ? { dangerouslySkipPermissions: true } : {}),
+        });
+      })().catch(error => {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: error.message || 'Failed to resolve Project workspace',
+        }));
       });
       break;
     }
@@ -2307,6 +2565,7 @@ async function watchWorkspaceFiles(ws, data) {
 
 function buildStatePayload() {
   const state = agentManager.getState();
+  const settings = configManager.getSettings();
   return {
     ...state,
     agents: state.agents.map(agent => ({
@@ -2316,7 +2575,9 @@ function buildStatePayload() {
     workspaceRoots: workspaceRootRegistry.list(),
     mainPageSessionKeys: typeof configManager.getMainPageSessionKeys === 'function'
       ? configManager.getMainPageSessionKeys()
-      : (Array.isArray(configManager.getSettings().mainPageSessionKeys) ? configManager.getSettings().mainPageSessionKeys : []),
+      : (Array.isArray(settings.mainPageSessionKeys) ? settings.mainPageSessionKeys : []),
+    projectWorkspaces: settings.projectWorkspaces || [],
+    pinnedProjectWorkspaces: settings.pinnedProjectWorkspaces || [],
   };
 }
 

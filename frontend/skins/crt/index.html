@@ -977,22 +977,15 @@
             margin-bottom: 20px;
         }
 
-        .empty-state p {
-            margin-bottom: 16px;
+        .empty-state-shortcuts {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
         }
 
-        .empty-start-agent {
-            padding: 8px 20px;
-            border: 1px solid #00ff00;
-            background: #1a1a1a;
-            color: #00ff00;
-            cursor: pointer;
-            font: inherit;
-        }
-
-        .empty-start-agent:hover,
-        .empty-start-agent:focus-visible {
-            background: #3a3a3a;
+        .empty-state-shortcuts p {
+            margin: 0;
         }
 
         .modal.active {
@@ -1495,15 +1488,10 @@
         <div class="map-area" id="map-area">
             <div class="empty-state" id="empty-state">
                 <h2>No Agents Running</h2>
-                <p>Press <strong>N</strong> to start a new agent</p>
-                <button
-                    type="button"
-                    class="empty-start-agent"
-                    data-crt-nav-key="empty:new-agent"
-                    data-crt-nav-default="true"
-                    tabindex="-1"
-                    onclick="showInputDialog()"
-                >[N] New Agent</button>
+                <div class="empty-state-shortcuts">
+                    <p>Press <strong>[N]</strong> to start a new agent</p>
+                    <p>Press <strong>[H]</strong> to continue from history</p>
+                </div>
             </div>
         </div>
 
@@ -1678,12 +1666,12 @@
                         <div class="billing-meter">
                             <span>INTEGRAL</span>
                             <strong id="billing-window-total">--</strong>
-                            <small>TOKENS · 60M</small>
+                            <small id="billing-window-label">TOKENS · WINDOW</small>
                         </div>
                         <div class="billing-meter">
                             <span>PEAK</span>
                             <strong id="billing-peak-rate">--</strong>
-                            <small>TOK/MIN · 60M</small>
+                            <small id="billing-peak-label">TOK/MIN · WINDOW</small>
                         </div>
                         <div class="billing-meter">
                             <span>DUTY</span>
@@ -1694,16 +1682,16 @@
 
                     <section class="billing-scope-panel" aria-label="Token burn oscilloscope">
                         <div class="billing-panel-heading">
-                            <h3>TOKEN BURN // 60 MINUTES</h3>
+                            <h3 id="billing-scope-title">TOKEN BURN // WINDOW</h3>
                             <span id="billing-scope-scale">-- TOK/MIN PEAK</span>
                         </div>
                         <div class="billing-scope-screen">
-                            <canvas id="billing-scope" role="img" aria-label="Token burn rate over the last 60 minutes"></canvas>
+                            <canvas id="billing-scope" role="img" aria-label="Token burn rate for the reported window"></canvas>
                             <div class="billing-scope-sweep" aria-hidden="true"></div>
                             <div class="billing-scope-empty" id="billing-scope-empty">AWAITING SIGNAL</div>
                         </div>
                         <div class="billing-scope-axis" aria-hidden="true">
-                            <span>-60M</span><span>-30M</span><span>NOW</span>
+                            <span id="billing-scope-start">-WINDOW</span><span id="billing-scope-midpoint">-MID</span><span>NOW</span>
                         </div>
                     </section>
                 </div>

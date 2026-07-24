@@ -323,6 +323,8 @@ interface CodeWorkspaceProps {
   permissionSwitchReplacement: { originalAgentId: string; replacementAgentId: string } | null
   retainedAgentViewIds: string[]
   terminalFocusRequest: { agentId: string; nonce: number } | null
+  remoteProjectWorkspaces: string[] | null
+  remotePinnedProjectWorkspaces: string[] | null
   keyMap: Map<string, string>
   keyboardShortcutsEnabled: boolean
   uiPreferences: UiPreferences
@@ -534,6 +536,8 @@ export function CodeWorkspace({
   permissionSwitchReplacement,
   retainedAgentViewIds,
   terminalFocusRequest,
+  remoteProjectWorkspaces,
+  remotePinnedProjectWorkspaces,
   keyMap,
   keyboardShortcutsEnabled,
   uiPreferences,
@@ -605,14 +609,7 @@ export function CodeWorkspace({
   const [, setWorkspaceHistory] = useState<string[]>([])
   const [projectWorkspaces, setProjectWorkspaces] = useState<string[]>([])
   const [projectWorkspacesLoaded, setProjectWorkspacesLoaded] = useState(false)
-  const projectWorkspacesRef = useRef<string[]>([])
-  const projectWorkspacesMutationRef = useRef(0)
-  const projectWorkspacesSaveChainRef = useRef<Promise<void>>(Promise.resolve())
   const [pinnedProjectWorkspaces, setPinnedProjectWorkspaces] = useState<string[]>([])
-  const pinnedProjectWorkspacesRef = useRef<string[]>([])
-  const pinnedProjectWorkspacesMutationRef = useRef(0)
-  const pinnedProjectWorkspacesSaveChainRef = useRef<Promise<void>>(Promise.resolve())
-  const projectWorkspaceAutoMountAttemptsRef = useRef<Set<string>>(new Set())
   const [projectNames, setProjectNames] = useState<Record<string, string>>({})
   const [agentLaunchOptions, setAgentLaunchOptions] = useState<AgentLaunchOption[]>([])
   const [mainPageSessionKeys, setMainPageSessionKeys] = useState<Set<string>>(() => new Set())
@@ -1306,9 +1303,6 @@ export function CodeWorkspace({
         if (loadMutationVersion === mainPageSessionKeysMutationRef.current) {
           setMainPageSessionKeys(new Set(normalizeMainPageSessionKeys(settings.mainPageSessionKeys ?? [])))
         }
-        setProjectWorkspaces(normalizeProjectWorkspaces(settings.projectWorkspaces))
-        setPinnedProjectWorkspaces(normalizeProjectWorkspaces(settings.pinnedProjectWorkspaces))
-        setProjectWorkspacesLoaded(true)
         setProjectNames(normalizeProjectNames(settings.projectNames))
         if (typeof settings.instanceName === 'string' && settings.instanceName.trim()) {
           setInstanceName(settings.instanceName)
@@ -2331,101 +2325,52 @@ export function CodeWorkspace({
     })
   }, [])
 
-  useEffect(() => {
-    projectWorkspacesRef.current = projectWorkspaces
-  }, [projectWorkspaces])
+  const applyProjectMembership = useCallback((membership: {
+    projectWorkspaces?: string[]
+    pinnedProjectWorkspaces?: string[]
+  }) => {
+    if (Array.isArray(membership.projectWorkspaces)) {
+      const saved = normalizeProjectWorkspaces(membership.projectWorkspaces)
+      setProjectWorkspaces(saved)
+      setProjectWorkspacesLoaded(true)
+    }
+    if (Array.isArray(membership.pinnedProjectWorkspaces)) {
+      const savedPinned = normalizeProjectWorkspaces(membership.pinnedProjectWorkspaces)
+      setPinnedProjectWorkspaces(savedPinned)
+    }
+  }, [])
 
   useEffect(() => {
-    pinnedProjectWorkspacesRef.current = pinnedProjectWorkspaces
-  }, [pinnedProjectWorkspaces])
+    if (!remoteProjectWorkspaces) return
+    applyProjectMembership({ projectWorkspaces: remoteProjectWorkspaces })
+  }, [applyProjectMembership, remoteProjectWorkspaces])
 
-  const persistProjectWorkspaces = useCallback((nextProjects: string[], rollbackProjects: string[]) => {
-    const normalized = normalizeProjectWorkspaces(nextProjects)
-    const mutationId = projectWorkspacesMutationRef.current += 1
-    projectWorkspacesRef.current = normalized
-    setProjectWorkspaces(normalized)
-    projectWorkspacesSaveChainRef.current = projectWorkspacesSaveChainRef.current
-      .catch(() => {})
-      .then(async () => {
-        const response = await fetch(appPath('/api/settings'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectWorkspaces: normalized }),
-        })
-        if (!response.ok) throw new Error(`settings request failed (${response.status})`)
-        const data = await response.json() as { settings?: GlobalSettings }
-        if (mutationId !== projectWorkspacesMutationRef.current) return
-        const saved = normalizeProjectWorkspaces(data.settings?.projectWorkspaces)
-        projectWorkspacesRef.current = saved
-        setProjectWorkspaces(saved)
-      })
-      .catch(() => {
-        if (mutationId !== projectWorkspacesMutationRef.current) return
-        const rollback = normalizeProjectWorkspaces(rollbackProjects)
-        projectWorkspacesRef.current = rollback
-        setProjectWorkspaces(rollback)
-        setCopyNotice({ id: Date.now(), kind: 'error', message: copy.copyFailed })
-      })
-  }, [copy.copyFailed])
+  useEffect(() => {
+    if (!remotePinnedProjectWorkspaces) return
+    applyProjectMembership({ pinnedProjectWorkspaces: remotePinnedProjectWorkspaces })
+  }, [applyProjectMembership, remotePinnedProjectWorkspaces])
 
-  const persistPinnedProjectWorkspaces = useCallback((nextProjects: string[], rollbackProjects: string[]) => {
-    const normalized = normalizeProjectWorkspaces(nextProjects)
-    const mutationId = pinnedProjectWorkspacesMutationRef.current += 1
-    pinnedProjectWorkspacesRef.current = normalized
-    setPinnedProjectWorkspaces(normalized)
-    pinnedProjectWorkspacesSaveChainRef.current = pinnedProjectWorkspacesSaveChainRef.current
-      .catch(() => {})
-      .then(async () => {
-        const response = await fetch(appPath('/api/settings'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pinnedProjectWorkspaces: normalized }),
-        })
-        if (!response.ok) throw new Error(`settings request failed (${response.status})`)
-        const data = await response.json() as { settings?: GlobalSettings }
-        if (mutationId !== pinnedProjectWorkspacesMutationRef.current) return
-        const saved = normalizeProjectWorkspaces(data.settings?.pinnedProjectWorkspaces)
-        pinnedProjectWorkspacesRef.current = saved
-        setPinnedProjectWorkspaces(saved)
-      })
-      .catch(() => {
-        if (mutationId !== pinnedProjectWorkspacesMutationRef.current) return
-        const rollback = normalizeProjectWorkspaces(rollbackProjects)
-        pinnedProjectWorkspacesRef.current = rollback
-        setPinnedProjectWorkspaces(rollback)
-        setCopyNotice({ id: Date.now(), kind: 'error', message: copy.copyFailed })
-      })
-  }, [copy.copyFailed])
-
-  const mountProject = useCallback((workspace: string) => {
+  const mountProject = useCallback(async (workspace: string) => {
     const normalizedWorkspace = workspace.trim().replace(/[\\/]+$/, '')
     if (!normalizedWorkspace) return
-    const previous = projectWorkspacesRef.current
-    if (!previous.includes(normalizedWorkspace)) {
-      persistProjectWorkspaces([normalizedWorkspace, ...previous], previous)
-    }
+    const response = await fetch(appPath('/api/projects/mount'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace: normalizedWorkspace }),
+    })
+    const membership = await response.json().catch(() => null) as {
+      error?: string
+      workspace?: string
+    } | null
+    if (!response.ok) throw new Error(membership?.error || `Project request failed (${response.status})`)
+    const mountedWorkspace = membership?.workspace || normalizedWorkspace
     setCollapsedProjectIds(current => {
-      if (!current.has(normalizedWorkspace)) return current
+      if (!current.has(mountedWorkspace)) return current
       const next = new Set(current)
-      next.delete(normalizedWorkspace)
+      next.delete(mountedWorkspace)
       return next
     })
-  }, [persistProjectWorkspaces])
-
-  useEffect(() => {
-    if (!projectWorkspacesLoaded) return
-    const previous = projectWorkspacesRef.current
-    const missing = projectListProjects
-      .filter(project => !project.hasMain && Boolean(project.workspace))
-      .map(project => project.workspace)
-      .filter(workspace => (
-        !previous.includes(workspace)
-        && !projectWorkspaceAutoMountAttemptsRef.current.has(workspace)
-      ))
-    if (missing.length === 0) return
-    missing.forEach(workspace => projectWorkspaceAutoMountAttemptsRef.current.add(workspace))
-    persistProjectWorkspaces([...missing, ...previous], previous)
-  }, [persistProjectWorkspaces, projectListProjects, projectWorkspacesLoaded])
+  }, [])
 
   const toggleProjectSessions = useCallback((projectId: string) => {
     setExpandedSessionProjectIds(previous => {
@@ -2685,10 +2630,22 @@ export function CodeWorkspace({
     })
   ), [])
 
-  const openProjectFile = useCallback((agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => {
+  const openProjectFile = useCallback(async (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => {
     const identity = resolveWorkspaceFileIdentity(agentId, target?.sourceAgentId)
     const globalFile = isGlobalWorkspaceFilesAgentId(identity.filesId)
     const projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
+    if (!globalFile && identity.workspaceRoot) {
+      try {
+        await mountProject(identity.workspaceRoot)
+      } catch (error) {
+        setCopyNotice({
+          id: Date.now(),
+          kind: 'error',
+          message: error instanceof Error ? error.message : 'Failed to create Project',
+        })
+        throw error
+      }
+    }
     if (!globalFile && (projectWorkspace || identity.sourceAgent)) {
       const projectId = projectWorkspace || (identity.sourceAgent?.isMain
         ? MAIN_AGENT_PROJECT_ID
@@ -2725,7 +2682,7 @@ export function CodeWorkspace({
       onOpenTerminal(identity.sourceAgentId, { focusTerminal: false })
     }
     closeSidebarForMobile()
-  }, [clearSearch, closeSidebarForMobile, createWorkspaceOpenFileRequest, onOpenTerminal, onWorkspaceViewChange, resolveWorkspaceFileIdentity, workspaceOpenFiles])
+  }, [clearSearch, closeSidebarForMobile, createWorkspaceOpenFileRequest, mountProject, onOpenTerminal, onWorkspaceViewChange, resolveWorkspaceFileIdentity, workspaceOpenFiles])
 
   useEffect(() => {
     if (workspaceSurfaceRestoredRef.current || workspaceSurfaceRestoreStartedRef.current) return
@@ -2777,7 +2734,7 @@ export function CodeWorkspace({
 
     void fetchWorkspaceFile(identity.filesId, surface.filePath)
       .then(file => {
-        openProjectFile(identity.filesId, file, {
+        return openProjectFile(identity.filesId, file, {
           view: surface.view ?? 'editor',
           lineNumber: surface.lineNumber,
           column: surface.column,
@@ -2918,7 +2875,7 @@ export function CodeWorkspace({
     const openResolvedFile = async (resolvedPath: string, resolvedTarget = openTarget) => {
       const file = await fetchWorkspaceFile(identity.filesId, resolvedPath)
       if (terminalPathOpenRequestRef.current !== requestId) return
-      openProjectFile(identity.filesId, file, resolvedTarget)
+      await openProjectFile(identity.filesId, file, resolvedTarget)
     }
 
     const revealResolvedDirectory = (resolvedPath: string) => {
@@ -3052,7 +3009,7 @@ export function CodeWorkspace({
     if (selectOpenWorkspaceFile(filesId, resolvedFilePath, resolvedTarget)) return
     const openResolvedFile = async (resolvedPath: string, fileTarget = resolvedTarget) => {
       const file = await fetchWorkspaceFile(filesId, resolvedPath)
-      openProjectFile(filesId, file, fileTarget)
+      await openProjectFile(filesId, file, fileTarget)
     }
     try {
       await openResolvedFile(resolvedFilePath, resolvedTarget)
@@ -3136,7 +3093,7 @@ export function CodeWorkspace({
         const previewFilePath = workspaceFolderPreviewFilePath(tree.items)
         if (previewFilePath) {
           const file = await fetchWorkspaceFile(identity.filesId, previewFilePath)
-          openProjectFile(identity.filesId, file, { sourceAgentId: identity.sourceAgentId })
+          await openProjectFile(identity.filesId, file, { sourceAgentId: identity.sourceAgentId })
           return true
         }
         revealWorkspaceFileInExplorer(identity.filesId, resolvedPath.filePath, 'directory')
@@ -3154,7 +3111,7 @@ export function CodeWorkspace({
 
     try {
       const file = await fetchWorkspaceFile(identity.filesId, resolvedPath.filePath)
-      openProjectFile(identity.filesId, file, openTarget)
+      await openProjectFile(identity.filesId, file, openTarget)
       return true
     } catch {
       return false
@@ -3256,7 +3213,7 @@ export function CodeWorkspace({
 
     try {
       const file = await fetchWorkspaceFile(identity.filesId, entry.filePath)
-      openProjectFile(identity.filesId, file, target)
+      await openProjectFile(identity.filesId, file, target)
       return true
     } catch {
       return false
@@ -3669,6 +3626,16 @@ export function CodeWorkspace({
       && agent.status !== 'stopped'
     ))
     if (existingAgent) {
+      try {
+        await mountProject(projectWorkspaceForAgent(existingAgent))
+      } catch (error) {
+        setCopyNotice({
+          id: Date.now(),
+          kind: 'error',
+          message: error instanceof Error ? error.message : 'Failed to resume agent session',
+        })
+        return
+      }
       markSessionResumedLocally()
       addMainPageAgentSession(provider, sessionId, providerHomeId)
       onOpenTerminal(existingAgent.id)
@@ -3690,7 +3657,10 @@ export function CodeWorkspace({
           ...(customTitle ? { customTitle } : {}),
         }),
       })
-      const data = await response.json().catch(() => null) as { agentId?: string; error?: string } | null
+      const data = await response.json().catch(() => null) as {
+        agentId?: string
+        error?: string
+      } | null
       if (!response.ok || !data?.agentId) {
         setCopyNotice({ id: Date.now(), kind: 'error', message: data?.error || `Failed to resume agent session (${response.status})` })
         return
@@ -3702,7 +3672,7 @@ export function CodeWorkspace({
     } catch (error) {
       setCopyNotice({ id: Date.now(), kind: 'error', message: error instanceof Error ? error.message : 'Failed to resume agent session' })
     }
-  }, [activeAgents, addMainPageAgentSession, closeSidebarForMobile, onOpenTerminal, onOpenTerminalWhenReady])
+  }, [activeAgents, addMainPageAgentSession, closeSidebarForMobile, mountProject, onOpenTerminal, onOpenTerminalWhenReady])
   resumeAgentSessionRef.current = resumeAgentSession
 
   const continueArchivedRun = useCallback((entry: TaskHistoryEntry) => {
@@ -4104,19 +4074,31 @@ export function CodeWorkspace({
     }
   }, [activeComposerKey, focusComposerTextarea, speechListening, speechSupported, uiPreferences.language, updateComposerStateForKey])
 
-  const toggleContextProjectPinned = useCallback(() => {
+  const toggleContextProjectPinned = useCallback(async () => {
     if (!contextMenuProject?.workspace) return
     const projectId = contextMenuProject.id
     const workspace = contextMenuProject.workspace
-    const previous = pinnedProjectWorkspacesRef.current
-    const next = contextMenuProject.pinned
-      ? previous.filter(projectWorkspace => projectWorkspace !== workspace)
-      : [...previous.filter(projectWorkspace => projectWorkspace !== workspace), workspace]
     setProjectMenu(null)
     setOptionsMenu(null)
-    persistPinnedProjectWorkspaces(next, previous)
+    try {
+      const response = await fetch(appPath('/api/projects/pin'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace, pinned: !contextMenuProject.pinned }),
+      })
+      const membership = await response.json().catch(() => null) as {
+        error?: string
+      } | null
+      if (!response.ok) throw new Error(membership?.error || `Project request failed (${response.status})`)
+    } catch (error) {
+      setCopyNotice({
+        id: Date.now(),
+        kind: 'error',
+        message: error instanceof Error ? error.message : copy.copyFailed,
+      })
+    }
     window.requestAnimationFrame(() => focusProjectTitle(projectId))
-  }, [contextMenuProject, focusProjectTitle, persistPinnedProjectWorkspaces])
+  }, [contextMenuProject, copy.copyFailed, focusProjectTitle])
 
   const revealContextProject = useCallback(async () => {
     if (!contextMenuProject?.workspace) return
@@ -4149,7 +4131,6 @@ export function CodeWorkspace({
     setProjectMenu(null)
     setOptionsMenu(null)
     try {
-      await projectWorkspacesSaveChainRef.current.catch(() => {})
       const response = await fetch(appPath('/api/projects/create-worktree'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -4157,14 +4138,8 @@ export function CodeWorkspace({
       })
       const result = await response.json().catch(() => null) as {
         error?: string
-        projectWorkspaces?: string[]
-        workspace?: string
       } | null
       if (!response.ok) throw new Error(result?.error || copy.permanentWorktreeFailed)
-      const saved = normalizeProjectWorkspaces(result?.projectWorkspaces)
-      projectWorkspacesMutationRef.current += 1
-      projectWorkspacesRef.current = saved
-      setProjectWorkspaces(saved)
       setCopyNotice({ id: Date.now(), kind: 'success', message: copy.permanentWorktreeCreated })
     } catch (error) {
       setCopyNotice({
@@ -4211,7 +4186,7 @@ export function CodeWorkspace({
     restoreProjectListFocusRef.current = 'list'
   }, [mainPageAgentSessions, contextMenuProject, onUpdateAgentFlags, removeMainPageAgentSessions])
 
-  const removeContextProject = useCallback(() => {
+  const removeContextProject = useCallback(async () => {
     if (
       !contextMenuProject
       || contextMenuProject.hasMain
@@ -4219,22 +4194,27 @@ export function CodeWorkspace({
       || contextMenuProject.agentSessions.length > 0
       || contextMenuProject.hasOpenFile
     ) return
-    const previous = projectWorkspacesRef.current
-    persistProjectWorkspaces(
-      previous.filter(workspace => workspace !== contextMenuProject.workspace),
-      previous,
-    )
-    const previousPinned = pinnedProjectWorkspacesRef.current
-    if (previousPinned.includes(contextMenuProject.workspace)) {
-      persistPinnedProjectWorkspaces(
-        previousPinned.filter(workspace => workspace !== contextMenuProject.workspace),
-        previousPinned,
-      )
+    try {
+      const response = await fetch(appPath('/api/projects/remove'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace: contextMenuProject.workspace }),
+      })
+      const membership = await response.json().catch(() => null) as {
+        error?: string
+      } | null
+      if (!response.ok) throw new Error(membership?.error || `Project request failed (${response.status})`)
+    } catch (error) {
+      setCopyNotice({
+        id: Date.now(),
+        kind: 'error',
+        message: error instanceof Error ? error.message : copy.copyFailed,
+      })
     }
     setProjectMenu(null)
     setOptionsMenu(null)
     restoreProjectListFocusRef.current = 'list'
-  }, [contextMenuProject, persistPinnedProjectWorkspaces, persistProjectWorkspaces])
+  }, [contextMenuProject, copy.copyFailed])
 
   const deleteContextWorktree = useCallback(() => {
     if (!contextMenuProject) return
@@ -4259,22 +4239,10 @@ export function CodeWorkspace({
     const result = await onDeleteForkWorktreeProject(dialog.workspace, { force: true })
     if (result.deleted) {
       removeMainPageAgentSessions([...dialog.sessionHandles, ...(result.removedMainPageSessionKeys ?? [])])
-      const previous = projectWorkspacesRef.current
-      persistProjectWorkspaces(
-        previous.filter(workspace => workspace !== dialog.workspace),
-        previous,
-      )
-      const previousPinned = pinnedProjectWorkspacesRef.current
-      if (previousPinned.includes(dialog.workspace)) {
-        persistPinnedProjectWorkspaces(
-          previousPinned.filter(workspace => workspace !== dialog.workspace),
-          previousPinned,
-        )
-      }
       restoreProjectListFocusRef.current = 'list'
       setDeleteWorktreeDialog(null)
     }
-  }, [deleteWorktreeDialog, onDeleteForkWorktreeProject, persistPinnedProjectWorkspaces, persistProjectWorkspaces, removeMainPageAgentSessions])
+  }, [deleteWorktreeDialog, onDeleteForkWorktreeProject, removeMainPageAgentSessions])
 
   const closeContextMenuAndRestoreFocus = useCallback(() => {
     const agentId = agentMenu?.agentId
@@ -4830,9 +4798,6 @@ export function CodeWorkspace({
         if (cancelled) return
         const settings = data.settings ?? {}
         setWorkspaceHistory(buildWorkspaceHistory(settings.lastMainWorkspace, settings.workspaceHistory ?? []))
-        setProjectWorkspaces(normalizeProjectWorkspaces(settings.projectWorkspaces))
-        setPinnedProjectWorkspaces(normalizeProjectWorkspaces(settings.pinnedProjectWorkspaces))
-        setProjectWorkspacesLoaded(true)
         setProjectNames(normalizeProjectNames(settings.projectNames))
         if (loadMutationVersion === mainPageSessionKeysMutationRef.current) {
           setMainPageSessionKeys(new Set(normalizeMainPageSessionKeys(settings.mainPageSessionKeys ?? [])))

@@ -307,7 +307,7 @@ async function run() {
       const extractRoot = args[args.indexOf('-C') + 1];
       const releaseDir = path.join(extractRoot, 'farming-2.0.5');
       fs.mkdirSync(path.join(releaseDir, 'scripts'), { recursive: true });
-      fs.writeFileSync(path.join(releaseDir, 'RELEASE.json'), JSON.stringify({}));
+      fs.writeFileSync(path.join(releaseDir, 'RELEASE.json'), JSON.stringify({ updateMethod: 'npm' }));
       fs.writeFileSync(path.join(releaseDir, 'scripts', 'install-release.sh'), '#!/usr/bin/env bash\n');
       callback(null);
     },
@@ -495,16 +495,47 @@ async function run() {
   assert.strictEqual(sourceDeployStatus.current.packageVersion, '2.0.0');
   assert.strictEqual(sourceDeployStatus.available, false);
 
-  const installState = await service.startInstall();
+  const previousBundleEnvironment = {
+    FARMING_NODE_BIN: process.env.FARMING_NODE_BIN,
+    FARMING_NODE_LD: process.env.FARMING_NODE_LD,
+    FARMING_NODE_LIBRARY_PATH: process.env.FARMING_NODE_LIBRARY_PATH,
+    FARMING_PORT: process.env.FARMING_PORT,
+    PORT: process.env.PORT,
+  };
+  process.env.FARMING_NODE_BIN = '/opt/farming/runtime/bin/node';
+  process.env.FARMING_NODE_LD = '/opt/farming/glibc/lib/ld-2.28.so';
+  process.env.FARMING_NODE_LIBRARY_PATH = '/opt/farming/glibc/lib';
+  process.env.FARMING_PORT = '39401';
+  process.env.PORT = '39401';
+  let installState;
+  try {
+    installState = await service.startInstall();
+    await waitFor(() => spawned.length === 1);
+  } finally {
+    Object.entries(previousBundleEnvironment).forEach(([key, value]) => {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    });
+  }
   assert.strictEqual(installState.phase, 'downloading');
-  await new Promise(resolve => setTimeout(resolve, 20));
   assert.strictEqual(spawned.length, 1);
-  assert.strictEqual(spawned[0].command, 'bash');
+  assert.strictEqual(spawned[0].command, '/opt/farming/glibc/lib/ld-2.28.so');
+  assert.deepStrictEqual(spawned[0].args.slice(0, 3), [
+    '--library-path',
+    '/opt/farming/glibc/lib',
+    '/opt/farming/runtime/bin/node',
+  ]);
+  assert(spawned[0].args[3].endsWith('/backend/bundle-update-helper.js'));
   assert.strictEqual(spawned[0].options.detached, true);
   assert.strictEqual(spawned[0].options.env.FARMING_INSTALL_DIR, rootDir);
+  assert.strictEqual(spawned[0].options.env.FARMING_PORT, '39401');
+  assert.strictEqual(spawned[0].options.env.PORT, '39401');
   assert.strictEqual(downloadedUrls[0], 'https://updates.example.test/farming/farming-2.0.5.tar.gz');
-  assert(spawned[0].args.join(' ').includes('install-release.sh install'));
+  const bundlePayload = JSON.parse(spawned[0].options.env.FARMING_BUNDLE_UPDATE_PAYLOAD);
+  assert(bundlePayload.installer.endsWith('/scripts/install-release.sh'));
+  assert.strictEqual(bundlePayload.targetMethod, 'npm');
   assert.strictEqual(service.installState.phase, 'installing');
+  fs.rmSync(service.updateStateFile, { force: true });
 
   const plainBundleSpawned = [];
   const plainBundleService = new FarmingUpdateService({
@@ -549,6 +580,7 @@ async function run() {
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.strictEqual(plainBundleSpawned.length, 1);
   assert.strictEqual(plainBundleService.installState.phase, 'installing');
+  fs.rmSync(plainBundleService.updateStateFile, { force: true });
 
   const failingUrls = [];
   const failingService = new FarmingUpdateService({
@@ -608,6 +640,7 @@ async function run() {
     assert.strictEqual(selectedService.installState.version, '1.0.1');
     assert.strictEqual(selectedService.installState.assetName, bundle101);
     assert(selectedService.installState.releaseDir.endsWith('farming-1.0.1'));
+    fs.rmSync(selectedService.updateStateFile, { force: true });
     visibleFiles.splice(-2, 2);
 
     const firstSpawned = [];
@@ -628,11 +661,13 @@ async function run() {
     assert.strictEqual(firstStatus.latest.source, baseUrl);
     await firstService.startInstall();
     await waitFor(() => firstSpawned.length === 1);
-    assert.strictEqual(firstSpawned[0].command, 'bash');
+    assert.strictEqual(firstSpawned[0].command, process.execPath);
+    assert(firstSpawned[0].args[0].endsWith('/backend/bundle-update-helper.js'));
     assert.strictEqual(firstSpawned[0].options.env.FARMING_INSTALL_DIR, httpInstallRoot);
     assert.strictEqual(firstSpawned[0].options.env.FARMING_CONFIG_DIR, httpConfigDir);
     assert(fs.existsSync(path.join(firstService.installState.releaseDir, 'scripts', 'install-release.sh')));
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(httpConfigDir, 'settings.json'), 'utf8')).workspaceHistory, ['/kept/workspace']);
+    fs.rmSync(firstService.updateStateFile, { force: true });
 
     fs.writeFileSync(path.join(httpInstallRoot, 'RELEASE.json'), JSON.stringify({
       type: 'app-bundle',
@@ -771,6 +806,30 @@ async function run() {
   });
   assert.strictEqual(sourceServiceWithNpmState.currentInstallState().phase, 'idle');
 
+  const migratedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-migrated-update-root.'));
+  const migratedConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-migrated-update-config.'));
+  fs.writeFileSync(path.join(migratedRoot, 'package.json'), JSON.stringify({
+    name: 'farming-code',
+    version: '2.3.0',
+  }));
+  fs.writeFileSync(path.join(migratedRoot, 'RELEASE.json'), JSON.stringify({
+    type: 'app-bundle',
+    updateMethod: 'npm',
+    releaseVersion: '2.3.0',
+    packageVersion: '2.3.0',
+  }));
+  fs.writeFileSync(path.join(migratedConfigDir, 'farming-update.json'), JSON.stringify({
+    method: 'source-deploy',
+    targetMethod: 'npm',
+    phase: 'succeeded',
+    version: '2.3.0',
+  }));
+  const migratedService = new FarmingUpdateService({
+    rootDir: migratedRoot,
+    configDir: migratedConfigDir,
+  });
+  assert.strictEqual(migratedService.currentInstallState().phase, 'succeeded');
+
   const npmMismatchService = new FarmingUpdateService({
     rootDir: npmRoot,
     configDir: fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-mismatch-config.')),
@@ -830,7 +889,8 @@ async function run() {
   await macInstallService.startInstall();
   await waitFor(() => macSpawned.length === 1);
   assert.strictEqual(macInstallService.installState.phase, 'installing');
-  assert.strictEqual(macSpawned[0].command, 'bash');
+  assert.strictEqual(macSpawned[0].command, process.execPath);
+  assert(macSpawned[0].args[0].endsWith('/backend/bundle-update-helper.js'));
 
   console.log('✓ Farming update service uses configured HTTP manifests and directory listings');
 }

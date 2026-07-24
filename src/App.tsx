@@ -1116,6 +1116,8 @@ export function App() {
           : observedAgentReplacement ?? externalAgentReplacement}
         retainedAgentViewIds={effectiveRetainedAgentViewIds}
         terminalFocusRequest={terminalFocusRequest}
+        remoteProjectWorkspaces={ws.projectWorkspaces}
+        remotePinnedProjectWorkspaces={ws.pinnedProjectWorkspaces}
         keyMap={keyMap}
         keyboardShortcutsEnabled={CODEX_SKIN_KEYBOARD_SHORTCUTS_ENABLED}
         uiPreferences={uiPreferences}

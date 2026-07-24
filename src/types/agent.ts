@@ -534,6 +534,8 @@ export interface AppState {
   agents: Agent[]
   taskHistory: TaskHistoryEntry[]
   mainPageSessionKeys?: string[]
+  projectWorkspaces?: string[]
+  pinnedProjectWorkspaces?: string[]
   workspaceRoots?: WorkspaceRoot[]
   systemStats: SystemStats
 }

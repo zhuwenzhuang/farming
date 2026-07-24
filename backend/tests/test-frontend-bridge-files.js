@@ -152,6 +152,12 @@ function run() {
   assert(crtApp.includes('structuredComposerRestoreFocusAfterInterrupt') && crtApp.includes('requestAnimationFrame(() => input.focus())'), 'CRT structured input should restore focus after an interrupt reaches a stable runtime state');
   assert(indexHtml.includes('id="crt-structured-attach"') && crtApp.includes('prepareStructuredAttachment'), 'CRT structured input should attach image and text context through the shared attachment format');
   assert(indexHtml.includes('id="crt-structured-command"') && crtApp.includes('availableCommands'), 'CRT structured input should expose ACP slash commands');
+  assert(
+    crtApp.includes('const usedTokens = usage && usage.used')
+      && crtApp.includes('const limitTokens = usage && usage.size')
+      && !crtApp.includes('session.usage && session.usage.totalTokens'),
+    'CRT structured usage should consume the same ACP used/size context fields as Farming Code Chat',
+  );
   assert(crtApp.includes("target.closest('#crt-structured-composer')"), 'CRT global clipboard handlers should leave structured input copy and paste native');
   assert(crtApp.includes('renderStructuredPermissions') && crtApp.includes('/acp-permission'), 'CRT structured input should surface ACP permission requests beside the prompt');
   assert(crtApp.includes('isStructuredRuntimeAgent') && crtApp.includes('sendComposerMessage'), 'CRT should not route ACP or JSON Agents through PTY input');
@@ -200,6 +206,8 @@ function run() {
       && indexHtml.includes('id="billing-day-total-compact"')
       && indexHtml.includes('id="billing-day-hour-strip"')
       && indexHtml.includes('id="billing-scope"')
+      && indexHtml.includes('id="billing-window-label"')
+      && indexHtml.includes('id="billing-scope-title"')
       && indexHtml.includes('id="billing-quota-list"')
       && indexHtml.includes('<span class="key">[$]</span> BILLING')
       && crtApp.includes('/usage/day?date=')
@@ -211,6 +219,13 @@ function run() {
     'CRT Billing should expose daily history, exact day details, live trend, and quota telemetry surfaces',
   );
   assert(crtApp.includes("farmingApiPath(`/usage${fresh ? '?fresh=1' : ''}`)"), 'CRT Billing should load telemetry from the Farming usage API');
+  assert(
+    crtApp.includes('crtBillingTimelineLabels(timeline)')
+      && crtApp.includes('Number(timeline && timeline.windowMs) / 60_000')
+      && !indexHtml.includes('TOKENS · 60M')
+      && !indexHtml.includes('TOKEN BURN // 60 MINUTES'),
+    'CRT live token labels should follow the usage timeline window instead of claiming a fixed 60-minute range',
+  );
   assert(
     server.includes('if (fresh) usageMonitor.invalidateDailyCache()')
       && server.includes("usageSummaryCache.get('summary', fresh ? { force: true } : {})"),

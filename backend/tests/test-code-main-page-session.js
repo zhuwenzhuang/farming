@@ -202,7 +202,8 @@ async function run() {
       serverSource.includes('customTitleExplicit: hasRequestedCustomTitle') &&
       serverSource.includes("res.status(400).json({ error: 'customTitle must be a string' })") &&
       serverSource.includes('const workingDirectory = session && (session.cwd || session.workspace) ? (session.cwd || session.workspace) : null') &&
-      serverSource.includes("projectWorkspace: savedSession?.projectWorkspace || (session ? (session.workspace || session.cwd || '') : '')") &&
+      serverSource.includes("savedSession?.projectWorkspace || (session ? (session.workspace || session.cwd || '') : workingDirectory)") &&
+      serverSource.includes('const worktree = await inspectGitWorktree(candidate)') &&
       serverSource.includes('void autoResumeMainPageAgentSessions()'),
     'Server restart should auto-resume only supported coding-agent main-page history sessions and leave shell rows out'
   );

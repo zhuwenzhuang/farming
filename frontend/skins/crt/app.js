@@ -3409,6 +3409,7 @@ function setupCrtSearchControls() {
 }
 
 function formatCrtUsageValue(value) {
+  if (value === null || value === undefined || value === '') return '--';
   const numberValue = Number(value);
   if (!Number.isFinite(numberValue) || numberValue < 0) return '--';
   if (numberValue >= 1_000_000_000) {
@@ -4169,6 +4170,20 @@ function formatCrtBillingWindow(windowMinutes) {
   return `${Math.round(minutes)}M`;
 }
 
+function crtBillingTimelineLabels(timeline) {
+  const windowMinutes = Number(timeline && timeline.windowMs) / 60_000;
+  const windowLabel = formatCrtBillingWindow(windowMinutes);
+  const midpointLabel = formatCrtBillingWindow(windowMinutes / 2);
+  return {
+    integral: `TOKENS · ${windowLabel}`,
+    peak: `TOK/MIN · ${windowLabel}`,
+    title: `TOKEN BURN // ${windowLabel}`,
+    ariaLabel: `Token burn rate over the last ${windowLabel}`,
+    start: `-${windowLabel}`,
+    midpoint: `-${midpointLabel}`,
+  };
+}
+
 function formatCrtBillingReset(resetsAt, now = Date.now()) {
   const timestamp = Number(resetsAt);
   if (!Number.isFinite(timestamp) || timestamp <= 0) return 'RESET --';
@@ -4180,10 +4195,23 @@ function formatCrtBillingReset(resetsAt, now = Date.now()) {
 
 function crtBillingCurrentRate(summary = billingSummary) {
   const providers = summary && Array.isArray(summary.providers) ? summary.providers : [];
-  return providers.reduce((total, provider) => {
-    const rate = Number(provider && provider.tokenUsage && provider.tokenUsage.tokensPerMinute);
-    return total + (Number.isFinite(rate) ? Math.max(0, rate) : 0);
-  }, 0);
+  let total = 0;
+  let hasRate = false;
+  providers.forEach((provider) => {
+    const tokenUsage = provider && provider.tokenUsage;
+    const rate = tokenUsage && tokenUsage.tokensPerMinute;
+    if (
+      tokenUsage
+      && tokenUsage.available !== false
+      && typeof rate === 'number'
+      && Number.isFinite(rate)
+      && rate >= 0
+    ) {
+      total += rate;
+      hasRate = true;
+    }
+  });
+  return hasRate ? total : null;
 }
 
 function appendCrtBillingMessage(container, text, isError = false) {
@@ -4384,11 +4412,24 @@ function renderCrtBilling() {
   const peakRate = document.getElementById('billing-peak-rate');
   const dutyCycle = document.getElementById('billing-duty-cycle');
   const scopeScale = document.getElementById('billing-scope-scale');
+  const windowLabel = document.getElementById('billing-window-label');
+  const peakLabel = document.getElementById('billing-peak-label');
+  const scopeTitle = document.getElementById('billing-scope-title');
+  const scope = document.getElementById('billing-scope');
+  const scopeStart = document.getElementById('billing-scope-start');
+  const scopeMidpoint = document.getElementById('billing-scope-midpoint');
+  const timelineLabels = crtBillingTimelineLabels(timeline);
   if (currentRate) currentRate.textContent = formatCrtUsageValue(crtBillingCurrentRate());
   if (windowTotal) windowTotal.textContent = formatCrtUsageValue(timeline && timeline.totalTokens);
   if (peakRate) peakRate.textContent = formatCrtUsageValue(timeline && timeline.peakTokensPerMinute);
   if (dutyCycle) dutyCycle.textContent = timeline ? `${timeline.activeBucketCount}/${timeline.bucketCount}` : '--';
   if (scopeScale) scopeScale.textContent = `${formatCrtUsageValue(timeline && timeline.peakTokensPerMinute)} TOK/MIN PEAK`;
+  if (windowLabel) windowLabel.textContent = timelineLabels.integral;
+  if (peakLabel) peakLabel.textContent = timelineLabels.peak;
+  if (scopeTitle) scopeTitle.textContent = timelineLabels.title;
+  if (scope) scope.setAttribute('aria-label', timelineLabels.ariaLabel);
+  if (scopeStart) scopeStart.textContent = timelineLabels.start;
+  if (scopeMidpoint) scopeMidpoint.textContent = timelineLabels.midpoint;
   if (empty) {
     empty.classList.toggle('hidden', hasSignal);
     empty.textContent = billingError ? 'SIGNAL LOST' : billingLoading ? 'ACQUIRING SIGNAL' : 'NO TOKEN SIGNAL';
@@ -6130,10 +6171,45 @@ function flushStructuredComposerFollowUp(agent) {
   setTimeout(() => void refreshStructuredSession(agent.id, true), 160);
 }
 
+function structuredContextUsage(session) {
+  const usage = session && session.usage;
+  const usedTokens = usage && usage.used;
+  const limitTokens = usage && usage.size;
+  if (
+    typeof usedTokens !== 'number'
+    || !Number.isFinite(usedTokens)
+    || usedTokens < 0
+    || typeof limitTokens !== 'number'
+    || !Number.isFinite(limitTokens)
+    || limitTokens <= 0
+  ) return null;
+  const percentUsed = Math.max(0, Math.min(100, Math.round(usedTokens / limitTokens * 100)));
+  return {
+    usedTokens,
+    limitTokens,
+    percentUsed,
+    percentLeft: 100 - percentUsed,
+  };
+}
+
 function formatStructuredUsage(session) {
-  const tokens = Number(session && session.usage && session.usage.totalTokens);
-  if (!Number.isFinite(tokens) || tokens <= 0) return '';
-  return `${Math.round(tokens / 1000)}K TOK`;
+  const contextUsage = structuredContextUsage(session);
+  if (!contextUsage) return '';
+  return `${formatCrtUsageValue(contextUsage.usedTokens)} / ${formatCrtUsageValue(contextUsage.limitTokens)} TOK`;
+}
+
+function updateStructuredUsageDisplay(element, session) {
+  if (!element) return;
+  const contextUsage = structuredContextUsage(session);
+  element.textContent = formatStructuredUsage(session);
+  if (!contextUsage) {
+    element.removeAttribute('title');
+    element.removeAttribute('aria-label');
+    return;
+  }
+  const label = `Context window: ${contextUsage.percentUsed}% used (${contextUsage.percentLeft}% left)`;
+  element.title = label;
+  element.setAttribute('aria-label', label);
 }
 
 function structuredSelectOptions(option) {
@@ -6187,7 +6263,7 @@ function resetStructuredSessionControls() {
   if (commandButton) commandButton.hidden = true;
   if (modeButton) modeButton.hidden = true;
   if (configButton) configButton.hidden = true;
-  if (usage) usage.textContent = '';
+  updateStructuredUsageDisplay(usage, null);
 }
 
 function setStructuredComposerMenu(menu, { focusFirst = false, opener = null } = {}) {
@@ -6429,7 +6505,7 @@ function renderStructuredSessionControls() {
   const currentMode = modes.find((mode) => mode.id === (session && (session.currentModeId || (session.modes && session.modes.currentModeId))));
   modeButton.textContent = `[MODE ${currentMode ? currentMode.name : ''}]`;
   configButton.textContent = `[${currentStructuredConfigLabel(session)}]`;
-  usage.textContent = formatStructuredUsage(session);
+  updateStructuredUsageDisplay(usage, session);
   renderStructuredComposerMenu();
 }
 
@@ -8253,6 +8329,8 @@ if (typeof module !== 'undefined' && module.exports) {
     crtAgentSessionKey,
     crtResumedSessionFromSource,
     crtDashboardStateSignature,
+    crtBillingTimelineLabels,
+    crtBillingCurrentRate,
     findDefaultNewAgentIndex,
     findDirectionalNavigationIndex,
     isBrowserShortcut,
@@ -8269,6 +8347,8 @@ if (typeof module !== 'undefined' && module.exports) {
     formatCrtTokenRate,
     formatCrtHistoryAge,
     formatCrtCompactTotalValue,
+    formatCrtUsageValue,
+    formatStructuredUsage,
     getCrtHistoryPage,
     getCrtAgentPage,
     getCrtAgentVerticalPageTarget,
@@ -8290,6 +8370,8 @@ if (typeof module !== 'undefined' && module.exports) {
     hasCrtStructuredLocalEscapeAction,
     resolveCrtSessionKeyboardCommand,
     structuredComposerAction,
+    structuredContextUsage,
+    updateStructuredUsageDisplay,
     structuredTranscriptTurns,
     crtStructuredPreviewMessageLines,
     getCrtBrandPaneKey,

@@ -60,6 +60,9 @@ async function run() {
   });
   manager.engineBridge.getEngine = () => ({
     async killSession() {},
+    async getSessionState() {
+      return null;
+    },
   });
 
   try {
@@ -90,7 +93,8 @@ async function run() {
       execFileSync('git', ['-C', permanentWorktree.workspace, 'branch', '--show-current'], { encoding: 'utf8' }).trim(),
       permanentWorktree.branch,
     );
-    await manager.rollbackPermanentWorktree(permanentWorktree);
+    const permanentRollback = await manager.rollbackPermanentWorktree(permanentWorktree);
+    assert.deepStrictEqual(permanentRollback, { rolledBack: true });
     assert.strictEqual(fs.existsSync(permanentWorktree.workspace), false);
     assert.throws(() => execFileSync(
       'git',

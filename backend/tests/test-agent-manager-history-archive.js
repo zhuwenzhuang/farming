@@ -4,6 +4,7 @@ const AgentManager = require('../agent-manager');
 async function run() {
   const appended = [];
   const codexArchiveCalls = [];
+  const persistedSessionPatches = [];
   let resolveCodexArchive;
   const settings = {
     mainPageSessionKeys: [
@@ -36,6 +37,10 @@ async function run() {
     appendTaskHistory(entry) {
       appended.push(entry);
     },
+    ensureAgentSessionRecord(agent, patch) {
+      persistedSessionPatches.push({ agentId: agent.id, patch });
+      return agent.persistentSessionId || `fsess_${agent.id}`;
+    },
   }, {
     archiveCodexSession(sessionId, session) {
       codexArchiveCalls.push({ sessionId, session });
@@ -47,6 +52,7 @@ async function run() {
 
   manager.engineBridge.getEngine = () => ({
     killSession: async () => {},
+    getSessionState: async () => null,
   });
 
   try {
@@ -166,6 +172,47 @@ async function run() {
       },
     }], 'manual Codex archive should asynchronously archive the provider session once');
     resolveCodexArchive({ archived: true });
+
+    settings.mainPageSessionKeys = [
+      'agent-session:codex:rollback-session',
+      ...settings.mainPageSessionKeys,
+    ];
+    manager.agents.set('project-rollback', {
+      id: 'project-rollback',
+      command: 'codex',
+      cwd: '/repo',
+      projectWorkspace: '/repo',
+      output: '',
+      status: 'running',
+      engineName: 'local',
+      source: 'codex-history:rollback-session',
+      providerSessionProvider: 'codex',
+      providerSessionId: 'rollback-session',
+      providerSessionKey: 'agent-session:codex:rollback-session',
+      persistentSessionId: 'fsess_project-rollback',
+      task: 'failed Project transition',
+    });
+    const historyBeforeRollback = manager.taskHistory.length;
+    const archiveCallsBeforeRollback = codexArchiveCalls.length;
+    const rollbackArchive = await manager.archiveAgent('project-rollback', {
+      reason: 'project-mount-failed',
+      recordHistory: false,
+      requireEngineExit: true,
+      scheduleProviderArchive: false,
+    });
+    assert.strictEqual(rollbackArchive.error, undefined);
+    assert.strictEqual(manager.agents.has('project-rollback'), false);
+    assert.strictEqual(manager.taskHistory.length, historyBeforeRollback, 'failed Project admission should not create a completed run');
+    assert.strictEqual(codexArchiveCalls.length, archiveCallsBeforeRollback, 'failed Project admission should not archive the provider conversation');
+    assert(!settings.mainPageSessionKeys.includes('agent-session:codex:rollback-session'));
+    assert.deepStrictEqual(
+      persistedSessionPatches.at(-1),
+      {
+        agentId: 'project-rollback',
+        patch: { visibleOnMainPage: false },
+      },
+      'verified rollback should hide the durable Farming session so restart cannot revive a failed admission',
+    );
 
     manager.agents.set('shell-archive', {
       id: 'shell-archive',

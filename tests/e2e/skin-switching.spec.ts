@@ -512,22 +512,21 @@ test('keeps the CRT dashboard actionable when only the Main Agent is running', a
 
   const mapArea = page.locator('#map-area')
   const emptyState = page.locator('#empty-state')
-  const emptyStartAgent = emptyState.getByRole('button', { name: '[N] New Agent', exact: true })
   await expect(mapArea).toHaveClass(/empty/)
   await expect(emptyState).toBeVisible()
-  await expect(emptyStartAgent).toBeVisible()
+  await expect(emptyState.getByText('Press [N] to start a new agent', { exact: true })).toBeVisible()
+  await expect(emptyState.getByText('Press [H] to continue from history', { exact: true })).toBeVisible()
+  await expect(emptyState.getByRole('button')).toHaveCount(0)
   await expect(page.locator('#main-agent-panel')).toBeVisible()
 
-  await emptyStartAgent.click()
+  await page.keyboard.press('h')
+  await expect(page.locator('#history-area')).not.toHaveClass(/hidden/)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#history-area')).toHaveClass(/hidden/)
+
+  await page.keyboard.press('n')
   await expect(page.locator('#input-dialog')).toHaveClass(/active/)
   await expect(page.locator('#dialog-title')).toHaveText('Start New Agent')
-  await page.keyboard.press('Escape')
-  await expect(page.locator('#input-dialog')).not.toHaveClass(/active/)
-
-  await page.keyboard.press('ArrowDown')
-  await expect(emptyStartAgent).toBeFocused()
-  await page.keyboard.press('Enter')
-  await expect(page.locator('#input-dialog')).toHaveClass(/active/)
   await page.keyboard.press('Escape')
 
   const agentId = await createControlAgent(page, 'bash', workspaceRoot)
@@ -540,7 +539,8 @@ test('keeps the CRT dashboard actionable when only the Main Agent is running', a
   expect(killResponse.ok()).toBeTruthy()
   await expect(agentCard).toHaveCount(0)
   await expect(emptyState).toBeVisible()
-  await expect(emptyStartAgent).toBeVisible()
+  await expect(emptyState.getByText('Press [N] to start a new agent', { exact: true })).toBeVisible()
+  await expect(emptyState.getByText('Press [H] to continue from history', { exact: true })).toBeVisible()
   await expect(page.locator('#main-agent-panel')).toBeVisible()
 })
 
@@ -875,6 +875,8 @@ test('previews structured Chat and closes a CRT session when another viewer kill
   await page.getByTestId('code-settings-skin-crt').click()
   await expect(page.locator('body')).toHaveAttribute('id', 'farming-crt')
   await expect(page.locator('#session-modal')).toHaveClass(/active/)
+  await expect(page.locator('#crt-structured-composer-usage')).toHaveText('53K / 200K TOK')
+  await expect(page.locator('#crt-structured-composer-usage')).toHaveAttribute('title', 'Context window: 27% used (73% left)')
   await page.keyboard.press('Control+Escape')
   await expect(page.locator('#session-modal')).not.toHaveClass(/active/)
 
@@ -1360,6 +1362,11 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   await expect(page.locator('#billing-status')).toHaveText('SIGNAL LOCKED')
   await expect(page.locator('#billing-live-view')).not.toHaveClass(/hidden/)
   await expect(page.locator('#billing-current-rate')).toHaveText('11K')
+  await expect(page.locator('#billing-window-label')).toHaveText('TOKENS · 1H')
+  await expect(page.locator('#billing-peak-label')).toHaveText('TOK/MIN · 1H')
+  await expect(page.locator('#billing-scope-title')).toHaveText('TOKEN BURN // 1H')
+  await expect(page.locator('#billing-scope-start')).toHaveText('-1H')
+  await expect(page.locator('#billing-scope-midpoint')).toHaveText('-30M')
   await expect.poll(async () => page.locator('#billing-scope').evaluate((node) => {
     const canvas = node as HTMLCanvasElement
     const context = canvas.getContext('2d')

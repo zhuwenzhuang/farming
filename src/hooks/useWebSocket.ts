@@ -32,6 +32,8 @@ export interface WebSocketState {
   error: string | null
   errorId: number
   lastStartedAgentId: string | null
+  projectWorkspaces: string[] | null
+  pinnedProjectWorkspaces: string[] | null
 }
 
 function isInternalMainWorkspace(cwd?: string, parentAgentId?: string) {
@@ -61,6 +63,8 @@ export function useWebSocket() {
     error: null,
     errorId: 0,
     lastStartedAgentId: null,
+    projectWorkspaces: null,
+    pinnedProjectWorkspaces: null,
   })
 
   // Session output callback — components can subscribe
@@ -318,15 +322,27 @@ export function useWebSocket() {
                 const nextMainPageSessionKeys = Array.isArray(msg.state.mainPageSessionKeys)
                   ? msg.state.mainPageSessionKeys
                   : prev.mainPageSessionKeys
+                const nextProjectWorkspaces = Array.isArray(msg.state.projectWorkspaces)
+                  ? msg.state.projectWorkspaces
+                  : prev.projectWorkspaces
+                const nextPinnedProjectWorkspaces = Array.isArray(msg.state.pinnedProjectWorkspaces)
+                  ? msg.state.pinnedProjectWorkspaces
+                  : prev.pinnedProjectWorkspaces
                 const taskHistoryChanged = nextTaskHistory !== prev.taskHistory
                   && !sameJsonValue(nextTaskHistory, prev.taskHistory)
                 const mainPageSessionKeysChanged = nextMainPageSessionKeys !== prev.mainPageSessionKeys
                   && !sameStringArray(nextMainPageSessionKeys, prev.mainPageSessionKeys)
+                const projectWorkspacesChanged = nextProjectWorkspaces !== prev.projectWorkspaces
+                  && (prev.projectWorkspaces === null || !sameStringArray(nextProjectWorkspaces ?? [], prev.projectWorkspaces))
+                const pinnedProjectWorkspacesChanged = nextPinnedProjectWorkspaces !== prev.pinnedProjectWorkspaces
+                  && (prev.pinnedProjectWorkspaces === null || !sameStringArray(nextPinnedProjectWorkspaces ?? [], prev.pinnedProjectWorkspaces))
 
                 if (
                   nextAgents === prev.agents
                   && !taskHistoryChanged
                   && !mainPageSessionKeysChanged
+                  && !projectWorkspacesChanged
+                  && !pinnedProjectWorkspacesChanged
                   && msg.state.mainAgentId === prev.mainAgentId
                 ) {
                   return prev
@@ -337,6 +353,10 @@ export function useWebSocket() {
                   agents: nextAgents,
                   taskHistory: taskHistoryChanged ? nextTaskHistory : prev.taskHistory,
                   mainPageSessionKeys: mainPageSessionKeysChanged ? nextMainPageSessionKeys : prev.mainPageSessionKeys,
+                  projectWorkspaces: projectWorkspacesChanged ? nextProjectWorkspaces : prev.projectWorkspaces,
+                  pinnedProjectWorkspaces: pinnedProjectWorkspacesChanged
+                    ? nextPinnedProjectWorkspaces
+                    : prev.pinnedProjectWorkspaces,
                   mainAgentId: msg.state.mainAgentId,
                 }
               })

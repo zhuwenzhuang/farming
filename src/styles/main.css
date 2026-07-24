@@ -19517,7 +19517,7 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     padding: max(10px, env(safe-area-inset-top)) 10px max(8px, env(safe-area-inset-bottom));
     gap: 8px;
     border-right: 0;
-    background: rgba(247, 247, 244, 0.9);
+    background: #f7f7f4;
     box-shadow: 16px 0 44px rgba(31, 35, 40, 0.18);
     backdrop-filter: blur(24px) saturate(1.16);
     -webkit-backdrop-filter: blur(24px) saturate(1.16);
@@ -20060,7 +20060,7 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
   }
 
   body.code-mode[data-appearance='dark'].code-compact-layout .code-sidebar {
-    background: rgba(13, 17, 23, 0.9);
+    background: #0d1117;
     box-shadow: 16px 0 44px rgba(0, 0, 0, 0.36);
   }
 

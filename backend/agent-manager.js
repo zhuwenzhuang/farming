@@ -4426,24 +4426,33 @@ class AgentManager extends EventEmitter {
   }
 
   async rollbackPermanentWorktree(created) {
-    if (!created?.workspace || !created?.sourceWorkspace) return;
+    if (!created?.workspace || !created?.sourceWorkspace) {
+      return { rolledBack: true };
+    }
+    const errors = [];
     try {
       await execFileAsync('git', ['-C', created.sourceWorkspace, 'worktree', 'remove', '--force', created.workspace], {
         timeout: 60000,
         maxBuffer: 1024 * 1024 * 4,
       });
-    } catch {
-      // Rollback is best-effort so the original create/persist failure remains visible.
+    } catch (error) {
+      const message = error && error.stderr ? String(error.stderr).trim() : '';
+      errors.push(message || 'Failed to remove the created worktree');
     }
-    if (!created.branch) return;
-    try {
-      await execFileAsync('git', ['-C', created.sourceWorkspace, 'branch', '-D', created.branch], {
-        timeout: 30000,
-        maxBuffer: 1024 * 1024 * 4,
-      });
-    } catch {
-      // The worktree removal may already have pruned the newly created branch.
+    if (created.branch) {
+      try {
+        await execFileAsync('git', ['-C', created.sourceWorkspace, 'branch', '-D', created.branch], {
+          timeout: 30000,
+          maxBuffer: 1024 * 1024 * 4,
+        });
+      } catch (error) {
+        const message = error && error.stderr ? String(error.stderr).trim() : '';
+        errors.push(message || 'Failed to delete the created worktree branch');
+      }
     }
+    return errors.length > 0
+      ? { rolledBack: false, error: errors.join('; ') }
+      : { rolledBack: true };
   }
 
   async inspectForkWorktreeProject(workspace) {
@@ -4545,13 +4554,6 @@ class AgentManager extends EventEmitter {
     }
 
     const projectAgents = this.agentsForProjectWorkspace(inspected.workspace);
-    const removedMainPageSessionKeys = this.removeMainPageProviderSessionsForAgents(projectAgents);
-    const archivedAgentIds = [];
-    for (const agent of projectAgents) {
-      const result = await this.archiveAgent(agent.id);
-      if (result && !result.error) archivedAgentIds.push(agent.id);
-    }
-
     const args = ['-C', inspected.workspace, 'worktree', 'remove'];
     if (options.force === true) args.push('--force');
     args.push(inspected.workspace);
@@ -4565,18 +4567,31 @@ class AgentManager extends EventEmitter {
       const message = error && error.stderr ? String(error.stderr).trim() : '';
       return {
         ...inspected,
-        archivedAgentIds,
-        removedMainPageSessionKeys,
         error: message || 'Failed to delete git worktree',
       };
     }
 
+    const archivedAgentIds = [];
+    const removedMainPageSessionKeys = [];
+    const cleanupErrors = [];
+    for (const agent of projectAgents) {
+      const result = await this.archiveAgent(agent.id, { requireEngineExit: true });
+      if (result && !result.error) {
+        archivedAgentIds.push(agent.id);
+        removedMainPageSessionKeys.push(...(result.removedMainPageSessionKeys || []));
+      } else {
+        cleanupErrors.push(`${agent.id}: ${result?.error || 'Failed to archive Agent'}`);
+      }
+    }
     return {
       workspace: inspected.workspace,
       deleted: true,
       forced: options.force === true,
       archivedAgentIds,
-      removedMainPageSessionKeys,
+      removedMainPageSessionKeys: Array.from(new Set(removedMainPageSessionKeys)),
+      ...(cleanupErrors.length > 0 ? {
+        cleanupError: cleanupErrors.join('; '),
+      } : {}),
     };
   }
 
@@ -4733,7 +4748,7 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  async archiveAgent(agentId) {
+  async archiveAgent(agentId, options = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) {
       return { error: 'Agent not found' };
@@ -4742,13 +4757,26 @@ class AgentManager extends EventEmitter {
       return { error: 'Main Agent cannot be archived' };
     }
 
+    if (options.requireEngineExit !== true) {
+      const removedMainPageSessionKeys = this.removeMainPageProviderSessionsForAgents([agent]);
+      this.ensurePersistentAgentSession(agent, { visibleOnMainPage: false });
+      await this.killAgent(agentId, {
+        reason: options.reason || 'manual-archive',
+        recordHistory: options.recordHistory !== false && !isEphemeralShellAgent(agent),
+      });
+      if (options.scheduleProviderArchive !== false) this.scheduleCodexSessionArchive(agent);
+      return { agentId, archived: true, removed: true, removedMainPageSessionKeys };
+    }
+
+    const killResult = await this.killAgent(agentId, {
+      reason: options.reason || 'manual-archive',
+      recordHistory: options.recordHistory !== false && !isEphemeralShellAgent(agent),
+      requireEngineExit: true,
+    });
+    if (killResult?.error) return killResult;
     const removedMainPageSessionKeys = this.removeMainPageProviderSessionsForAgents([agent]);
     this.ensurePersistentAgentSession(agent, { visibleOnMainPage: false });
-    await this.killAgent(agentId, {
-      reason: 'manual-archive',
-      recordHistory: !isEphemeralShellAgent(agent),
-    });
-    this.scheduleCodexSessionArchive(agent);
+    if (options.scheduleProviderArchive !== false) this.scheduleCodexSessionArchive(agent);
     return { agentId, archived: true, removed: true, removedMainPageSessionKeys };
   }
 
@@ -4783,15 +4811,42 @@ class AgentManager extends EventEmitter {
   
   async killAgent(agentId, options = {}) {
     const agent = this.agents.get(agentId);
-    if (!agent) return;
+    if (!agent) return { agentId, killed: true, missing: true };
 
+    const engine = this.engineBridge.getEngine(agent.engineName);
+    if (options.requireEngineExit === true && !engine) {
+      return { agentId, error: 'Agent runtime is unavailable; process exit cannot be verified' };
+    }
     try {
-      const engine = this.engineBridge.getEngine(agent.engineName);
       if (engine) {
         await engine.killSession(agentId);
       }
     } catch (error) {
       console.error('Failed to kill agent:', error);
+      if (options.requireEngineExit === true) {
+        return { agentId, error: error.message || 'Failed to stop Agent runtime' };
+      }
+    }
+
+    if (options.requireEngineExit === true && engine) {
+      const deadline = Date.now() + 3000;
+      let lastState = null;
+      while (Date.now() < deadline) {
+        try {
+          lastState = await engine.getSessionState(agentId);
+        } catch (error) {
+          if (isSessionNotAvailableError(error)) {
+            lastState = null;
+            break;
+          }
+          return { agentId, error: error.message || 'Failed to verify Agent process exit' };
+        }
+        if (!isLiveEngineSessionState(lastState)) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      if (isLiveEngineSessionState(lastState)) {
+        return { agentId, error: 'Agent process did not exit within 3 seconds' };
+      }
     }
 
     if (options.recordHistory !== false && !isEphemeralShellAgent(agent)) {
@@ -4818,6 +4873,7 @@ class AgentManager extends EventEmitter {
     if (options.emitUpdate !== false) {
       this.emit('update');
     }
+    return { agentId, killed: true };
   }
 
   async getAgentSessionText(agentId) {

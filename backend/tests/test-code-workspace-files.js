@@ -560,7 +560,7 @@ function run() {
 	      workspaceSource.includes('onDeleteWorktree={deleteContextWorktree}') &&
 	      workspaceSource.includes('deleteWorktreeDescription') &&
 	      workspaceSource.includes("onDeleteForkWorktreeProject(dialog.workspace, { force: true })") &&
-	      workspaceSource.includes('previous.filter(workspace => workspace !== dialog.workspace)') &&
+	      !workspaceSource.includes('applyProjectMembership(result)') &&
       appSource.includes("appPath('/api/projects/delete-worktree')") &&
       !workspaceSource.includes('Open Terminal') &&
       !workspaceSource.includes('Close Terminal') &&
@@ -728,8 +728,6 @@ function run() {
       workspaceSource.includes('projectListProjectsForAgents(') &&
       workspaceSource.includes('openWorkspaceFiles,\n      visibleAgents,') &&
       workspaceSource.includes('project.hasOpenFile') &&
-      workspaceSource.includes('projectWorkspaceAutoMountAttemptsRef') &&
-      workspaceSource.includes('!projectWorkspaceAutoMountAttemptsRef.current.has(workspace)') &&
       workspaceSource.includes("const filesWorkspaceId = project.workspace ? projectFilesWorkspaceId(project.workspace) : ''") &&
       !workspaceSource.includes('fileAgentId') &&
       workspaceSource.includes('code-project-worktree') &&
@@ -1072,7 +1070,7 @@ function run() {
       serverSource.includes('const shouldRememberMainPageSession = options.rememberMainPageSession !== false && !shouldFork && !requestedAsMain') &&
       serverSource.includes("return { error: 'session is not a Main Agent session', status: 400 }") &&
       serverSource.includes('if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);') &&
-      serverSource.includes('return { agentId: existingAgent.id, reused: true }') &&
+      serverSource.includes('return { agentId: existingAgent.id, projectWorkspace, reused: true }') &&
       serverSource.includes('wantsMain: resumeAsMain') &&
       serverSource.includes("source: shouldFork ? resumeSource.replace('-history:', '-history-fork:') : resumeSource") &&
       resumeAgentSessionSource.includes("agentRuntimeMode: 'chat'") &&
@@ -1082,6 +1080,30 @@ function run() {
       mainPageSessionSource.includes("agent.status !== 'stopped'") &&
       !resumeAgentSessionSource.includes("agent.status === 'dead' || agent.status === 'stopped'"),
     'Resuming the same Codex/Claude/Qoder session should reuse only live agents and keep stopped rows out of the input target flow'
+  );
+
+  assert(
+    !workspaceSource.includes('projectWorkspaceAutoMountAttemptsRef') &&
+      !workspaceSource.includes('persistProjectWorkspaces') &&
+      !workspaceSource.includes('pinnedProjectWorkspacesMutationRef') &&
+      !workspaceSource.includes('setProjectWorkspaces(normalizeProjectWorkspaces(settings.projectWorkspaces))') &&
+      !workspaceSource.includes('setPinnedProjectWorkspaces(normalizeProjectWorkspaces(settings.pinnedProjectWorkspaces))') &&
+      workspaceSource.includes("appPath('/api/projects/mount')") &&
+      workspaceSource.includes('await mountProject(identity.workspaceRoot)') &&
+      workspaceSource.includes("appPath('/api/projects/remove')") &&
+      workspaceSource.includes("appPath('/api/projects/pin')") &&
+      workspaceSource.includes('applyProjectMembership({ projectWorkspaces: remoteProjectWorkspaces })') &&
+      workspaceSource.includes('applyProjectMembership({ pinnedProjectWorkspaces: remotePinnedProjectWorkspaces })') &&
+      !workspaceSource.includes('applyProjectMembership(data)') &&
+      resumeAgentSessionSource.indexOf('await mountProject(projectWorkspaceForAgent(existingAgent))') <
+        resumeAgentSessionSource.indexOf('\n      markSessionResumedLocally()') &&
+      serverSource.includes('configManager.mountProjectWorkspace(result.projectWorkspace)') &&
+      serverSource.includes('delete settingsPatch.projectWorkspaces') &&
+      serverSource.includes('delete settingsPatch.pinnedProjectWorkspaces') &&
+      serverSource.includes('Rollback failed: ${rollbackError}') &&
+      serverSource.includes('projectWorkspaces: settings.projectWorkspaces || []') &&
+      serverSource.includes('pinnedProjectWorkspaces: settings.pinnedProjectWorkspaces || []'),
+    'Project membership should be owned by backend CRUD transitions instead of frontend render-derived settings writes'
   );
 
   assert(

@@ -222,13 +222,14 @@ class ConfigManager {
       if (!expanded) continue;
       const resolved = path.resolve(expanded);
       if (resolved === path.parse(resolved).root || this.isInternalWorkspace(resolved)) continue;
-      let canonical;
+      let canonical = resolved;
       try {
         canonical = fs.realpathSync(resolved);
-        if (!fs.statSync(canonical).isDirectory()) continue;
       } catch {
-        continue;
+        // Project membership is durable. A temporarily unavailable path remains
+        // until the user explicitly removes it.
       }
+      if (this.isInternalWorkspace(canonical)) continue;
       if (seen.has(canonical)) continue;
       seen.add(canonical);
       result.push(canonical);
@@ -752,6 +753,97 @@ class ConfigManager {
     };
   }
 
+  mountProjectWorkspace(workspace) {
+    const expanded = this.expandWorkspacePath(workspace);
+    const resolved = expanded ? path.resolve(expanded) : '';
+    let canonicalWorkspace = '';
+    if (resolved) {
+      try {
+        canonicalWorkspace = fs.realpathSync(resolved);
+        if (!fs.statSync(canonicalWorkspace).isDirectory()) canonicalWorkspace = '';
+      } catch {
+        canonicalWorkspace = '';
+      }
+    }
+    if (
+      !canonicalWorkspace
+      || canonicalWorkspace === path.parse(canonicalWorkspace).root
+      || this.isInternalWorkspace(canonicalWorkspace)
+    ) {
+      throw new Error('Project workspace is invalid or unavailable');
+    }
+    const current = this.settings.projectWorkspaces || [];
+    if (!current.includes(canonicalWorkspace)) {
+      this.commitProjectMembership({
+        projectWorkspaces: [canonicalWorkspace, ...current],
+      });
+    }
+    return {
+      workspace: canonicalWorkspace,
+      projectWorkspaces: [...(this.settings.projectWorkspaces || [])],
+      pinnedProjectWorkspaces: [...(this.settings.pinnedProjectWorkspaces || [])],
+    };
+  }
+
+  removeProjectWorkspace(workspace) {
+    const expanded = this.expandWorkspacePath(workspace);
+    if (!expanded) throw new Error('Project workspace is required');
+    const resolved = path.resolve(expanded);
+    const candidates = new Set([expanded, resolved]);
+    try {
+      candidates.add(fs.realpathSync(resolved));
+    } catch {
+      // A deleted worktree can still be removed by its last canonical path.
+    }
+    const current = this.settings.projectWorkspaces || [];
+    const nextProjects = current.filter(entry => !candidates.has(entry));
+    const currentPinned = this.settings.pinnedProjectWorkspaces || [];
+    const nextPinned = currentPinned.filter(entry => !candidates.has(entry));
+    if (nextProjects.length !== current.length || nextPinned.length !== currentPinned.length) {
+      this.commitProjectMembership({
+        projectWorkspaces: nextProjects,
+        pinnedProjectWorkspaces: nextPinned,
+      });
+    }
+    return {
+      workspace: current.find(entry => candidates.has(entry)) || resolved,
+      projectWorkspaces: [...(this.settings.projectWorkspaces || [])],
+      pinnedProjectWorkspaces: [...(this.settings.pinnedProjectWorkspaces || [])],
+    };
+  }
+
+  setProjectWorkspacePinned(workspace, pinned) {
+    const [canonicalWorkspace] = this.normalizeProjectWorkspaces([workspace]);
+    if (!canonicalWorkspace || !(this.settings.projectWorkspaces || []).includes(canonicalWorkspace)) {
+      throw new Error('Project does not exist');
+    }
+    const current = this.settings.pinnedProjectWorkspaces || [];
+    const nextPinned = pinned
+      ? [...current.filter(entry => entry !== canonicalWorkspace), canonicalWorkspace]
+      : current.filter(entry => entry !== canonicalWorkspace);
+    if (
+      nextPinned.length !== current.length
+      || nextPinned.some((entry, index) => entry !== current[index])
+    ) {
+      this.commitProjectMembership({ pinnedProjectWorkspaces: nextPinned });
+    }
+    return {
+      workspace: canonicalWorkspace,
+      projectWorkspaces: [...(this.settings.projectWorkspaces || [])],
+      pinnedProjectWorkspaces: [...(this.settings.pinnedProjectWorkspaces || [])],
+    };
+  }
+
+  commitProjectMembership(settingsPatch) {
+    const previousSettings = this.settings;
+    try {
+      this.updateSettings(settingsPatch);
+    } catch (error) {
+      this.settings = previousSettings;
+      throw error;
+    }
+  }
+
   getMainPageSessionKeys() {
     return this.sessionStore ? this.sessionStore.getMainPageSessionKeys() : [];
   }
@@ -798,7 +890,17 @@ class ConfigManager {
 
   writeSettingsFile() {
     fs.mkdirSync(this.farmingDir, { recursive: true });
-    fs.writeFileSync(this.settingsFile, JSON.stringify(this.settings, null, 2));
+    const tempFile = `${this.settingsFile}.${process.pid}.${Date.now()}.tmp`;
+    try {
+      fs.writeFileSync(tempFile, JSON.stringify(this.settings, null, 2));
+      fs.renameSync(tempFile, this.settingsFile);
+    } finally {
+      try {
+        fs.unlinkSync(tempFile);
+      } catch {
+        // A successful rename already removed the temporary path.
+      }
+    }
   }
 
   appendTaskHistory(entry) {
