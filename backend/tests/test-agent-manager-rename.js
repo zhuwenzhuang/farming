@@ -107,6 +107,33 @@ async function run() {
       'Investigate parser bug',
       'rename should persist the custom title before reporting success'
     );
+    const originalEnsureAgentSessionRecord = manager.configManager.ensureAgentSessionRecord;
+    const originalGetAgentSessionRecord = manager.configManager.getAgentSessionRecordForProviderSessionKey;
+    const reboundAgent = {
+      id: 'agent-rebound-session',
+      persistentSessionId: 'fsess_temporary_record',
+      providerSessionKey: 'agent-session:codex:resolved-session',
+      customTitle: '',
+      pinned: false,
+    };
+    manager.configManager.ensureAgentSessionRecord = () => 'fsess_canonical_record';
+    manager.configManager.getAgentSessionRecordForProviderSessionKey = () => ({
+      id: 'fsess_canonical_record',
+      customTitle: 'Canonical title',
+      pinned: true,
+      projectOrder: 2048,
+    });
+    manager.ensurePersistentAgentSession(reboundAgent);
+    manager.configManager.ensureAgentSessionRecord = originalEnsureAgentSessionRecord;
+    manager.configManager.getAgentSessionRecordForProviderSessionKey = originalGetAgentSessionRecord;
+    assert.strictEqual(
+      reboundAgent.persistentSessionId,
+      'fsess_canonical_record',
+      'provider confirmation should rebind a live Agent to the canonical Farming session record',
+    );
+    assert.strictEqual(reboundAgent.customTitle, 'Canonical title');
+    assert.strictEqual(reboundAgent.pinned, true);
+    assert.strictEqual(reboundAgent.projectOrder, 2048);
 
     const longTitle = 'x'.repeat(100);
     const truncated = manager.renameAgent(agentId, longTitle);

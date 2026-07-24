@@ -1414,6 +1414,16 @@ class AgentManager extends EventEmitter {
         projectOrder: finiteOrder(record.projectOrder),
         pinnedOrder: finiteOrder(record.pinnedOrder),
         customTitle: record.customTitle || '',
+        pinned: record.pinned === true,
+        attentionSeq: finiteNonNegativeInteger(record.attentionSeq),
+        readAttentionSeq: finiteNonNegativeInteger(record.readAttentionSeq),
+        attentionUpdatedAt: finiteNumberOrNull(record.attentionUpdatedAt),
+        readAttentionAt: finiteNumberOrNull(record.readAttentionAt),
+        attentionReason: record.attentionReason || '',
+        attentionOutputEpoch: record.attentionOutputEpoch || '',
+        attentionOutputSeq: finiteNumberOrNull(record.attentionOutputSeq),
+        readOutputEpoch: record.readOutputEpoch || '',
+        readOutputSeq: finiteNumberOrNull(record.readOutputSeq),
         persistentSessionId: record.id || '',
         runtimeAgentId: record.runtimeAgentId || '',
         reviveTerminalState: record.serializedState || null,
@@ -1461,7 +1471,10 @@ class AgentManager extends EventEmitter {
       replacement.attentionUpdatedAt = finiteNumberOrNull(record.attentionUpdatedAt);
       replacement.readAttentionAt = finiteNumberOrNull(record.readAttentionAt);
       replacement.attentionReason = record.attentionReason || '';
+      replacement.attentionOutputEpoch = record.attentionOutputEpoch || '';
       replacement.attentionOutputSeq = finiteNumberOrNull(record.attentionOutputSeq);
+      replacement.readOutputEpoch = record.readOutputEpoch || '';
+      replacement.readOutputSeq = finiteNumberOrNull(record.readOutputSeq);
       replacement.unread = agentAttentionUnread(replacement);
       this.ensurePersistentAgentSession(replacement);
       if (sessionKey) liveProviderSessions.add(sessionKey);
@@ -1737,6 +1750,7 @@ class AgentManager extends EventEmitter {
     if (!agent || !this.configManager || typeof this.configManager.ensureAgentSessionRecord !== 'function') {
       return '';
     }
+    const previousPersistentSessionId = agent.persistentSessionId || '';
     const sessionOptions = agent.providerSessionKey
       ? this.acpSessionOptionsByKey.get(agent.providerSessionKey)
       : null;
@@ -1747,8 +1761,38 @@ class AgentManager extends EventEmitter {
       } : {}),
       ...patch,
     });
-    if (persistentSessionId && !agent.persistentSessionId) {
+    if (persistentSessionId) {
       agent.persistentSessionId = persistentSessionId;
+    }
+    if (
+      persistentSessionId
+      && previousPersistentSessionId
+      && persistentSessionId !== previousPersistentSessionId
+      && agent.providerSessionKey
+      && typeof this.configManager.getAgentSessionRecordForProviderSessionKey === 'function'
+    ) {
+      const record = this.configManager.getAgentSessionRecordForProviderSessionKey(agent.providerSessionKey);
+      if (record) {
+        agent.projectWorkspace = record.projectWorkspace || agent.projectWorkspace || '';
+        agent.task = typeof record.task === 'string' ? record.task : (agent.task || '');
+        agent.workflowTemplate = typeof record.workflowTemplate === 'string'
+          ? record.workflowTemplate
+          : (agent.workflowTemplate || '');
+        agent.customTitle = typeof record.customTitle === 'string' ? record.customTitle : '';
+        agent.pinned = record.pinned === true;
+        agent.projectOrder = finiteOrder(record.projectOrder);
+        agent.pinnedOrder = finiteOrder(record.pinnedOrder);
+        agent.attentionSeq = finiteNonNegativeInteger(record.attentionSeq);
+        agent.readAttentionSeq = finiteNonNegativeInteger(record.readAttentionSeq);
+        agent.attentionUpdatedAt = finiteNumberOrNull(record.attentionUpdatedAt);
+        agent.readAttentionAt = finiteNumberOrNull(record.readAttentionAt);
+        agent.attentionReason = record.attentionReason || '';
+        agent.attentionOutputEpoch = record.attentionOutputEpoch || '';
+        agent.attentionOutputSeq = finiteNumberOrNull(record.attentionOutputSeq);
+        agent.readOutputEpoch = record.readOutputEpoch || '';
+        agent.readOutputSeq = finiteNumberOrNull(record.readOutputSeq);
+        agent.unread = agentAttentionUnread(agent);
+      }
     }
     return persistentSessionId;
   }
@@ -2828,19 +2872,19 @@ class AgentManager extends EventEmitter {
       shellLastCommandStartedAt: null,
       shellLastCommandFinishedAt: null,
       shellLastCommandDurationMs: null,
-      pinned: false,
+      pinned: options.pinned === true,
       projectOrder: finiteOrder(options.projectOrder),
       pinnedOrder: finiteOrder(options.pinnedOrder),
-      attentionSeq: 0,
-      readAttentionSeq: 0,
-      attentionUpdatedAt: null,
-      readAttentionAt: null,
-      attentionReason: '',
-      attentionOutputEpoch: '',
-      attentionOutputSeq: null,
-      readOutputEpoch: '',
-      readOutputSeq: null,
-      unread: false,
+      attentionSeq: finiteNonNegativeInteger(options.attentionSeq),
+      readAttentionSeq: finiteNonNegativeInteger(options.readAttentionSeq),
+      attentionUpdatedAt: finiteNumberOrNull(options.attentionUpdatedAt),
+      readAttentionAt: finiteNumberOrNull(options.readAttentionAt),
+      attentionReason: typeof options.attentionReason === 'string' ? options.attentionReason : '',
+      attentionOutputEpoch: typeof options.attentionOutputEpoch === 'string' ? options.attentionOutputEpoch : '',
+      attentionOutputSeq: finiteNumberOrNull(options.attentionOutputSeq),
+      readOutputEpoch: typeof options.readOutputEpoch === 'string' ? options.readOutputEpoch : '',
+      readOutputSeq: finiteNumberOrNull(options.readOutputSeq),
+      unread: finiteNonNegativeInteger(options.attentionSeq) > finiteNonNegativeInteger(options.readAttentionSeq),
       archived: false,
       archivedAt: null,
       canForkNewWorktree: this.canCreateForkWorktree(projectWorkspace || workspace),
@@ -3102,6 +3146,9 @@ class AgentManager extends EventEmitter {
       agentRecord.persistentSessionId = this.ensurePersistentAgentSession(agentRecord, {
         visibleOnMainPage: true,
         archived: false,
+        ...(options.customTitleExplicit === true
+          ? { customTitle: agentRecord.customTitle }
+          : {}),
       });
 
       const agent = this.agents.get(agentId);
@@ -3717,7 +3764,7 @@ class AgentManager extends EventEmitter {
 
     const customTitle = String(title || '').trim().slice(0, 80);
     agent.customTitle = customTitle;
-    this.ensurePersistentAgentSession(agent);
+    this.ensurePersistentAgentSession(agent, { customTitle });
     this.updateEngineProviderSessionMetadata(agent);
     this.emit('update');
     return { agentId, customTitle };

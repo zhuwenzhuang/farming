@@ -1584,6 +1584,14 @@ function forgetMainPageAgentSession(provider, sessionId, providerHomeId = '') {
   });
 }
 
+function savedFarmingAgentSession(provider, sessionId, providerHomeId = '') {
+  if (typeof configManager.getAgentSessionRecordForProviderSessionKey !== 'function') return null;
+  const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
+  return sessionKey
+    ? configManager.getAgentSessionRecordForProviderSessionKey(sessionKey)
+    : null;
+}
+
 async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
   const normalizedProvider = normalizeProvider(provider);
   const sessionId = String(rawSessionId || '').trim();
@@ -1672,6 +1680,14 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
       return { error: 'session is not a Main Agent session', status: 400 };
     }
 
+    const savedSession = shouldFork
+      ? null
+      : savedFarmingAgentSession(normalizedProvider, sessionId, session
+        ? (session.providerHomeId || providerHomeId)
+        : providerHomeId);
+    const hasRequestedCustomTitle = Object.prototype.hasOwnProperty.call(options, 'customTitle');
+    const savedAttentionSeq = Number(savedSession?.attentionSeq) || 0;
+    const savedReadAttentionSeq = Number(savedSession?.readAttentionSeq) || 0;
     const workingDirectory = session && (session.cwd || session.workspace) ? (session.cwd || session.workspace) : null;
     const command = buildAgentSessionResumeCommand(normalizedProvider, sessionId, {
       fork: shouldFork,
@@ -1702,16 +1718,35 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
         resolve({ agentId });
       }, {
         wantsMain: resumeAsMain,
-        task: session ? session.title : '',
-        customTitle: typeof options.customTitle === 'string' ? options.customTitle : '',
+        task: savedSession?.task || (session ? session.title : ''),
+        workflowTemplate: savedSession?.workflowTemplate || '',
+        customTitle: hasRequestedCustomTitle
+          ? (typeof options.customTitle === 'string' ? options.customTitle : '')
+          : (savedSession?.customTitle || ''),
+        customTitleExplicit: hasRequestedCustomTitle,
         requiredCliVersion: normalizedProvider === 'codex' && session ? session.cliVersion : '',
-        projectWorkspace: session ? (session.workspace || session.cwd || '') : '',
+        projectWorkspace: savedSession?.projectWorkspace || (session ? (session.workspace || session.cwd || '') : ''),
         source: shouldFork ? resumeSource.replace('-history:', '-history-fork:') : resumeSource,
         agentRuntimeMode: ['chat', 'acp'].includes(options.agentRuntimeMode) ? 'chat' : 'terminal',
         acpHistoryMode: options.acpHistoryMode === 'resume' ? 'resume' : 'load',
         providerHomeId: resolvedProviderHomeId,
         providerHomePath: session ? (session.providerHomePath || '') : '',
-        autoReadInitialAttention: options.autoReadInitialAttention === true,
+        providerSessionTitle: session?.title || savedSession?.providerSessionTitle || '',
+        persistentSessionId: savedSession?.id || '',
+        pinned: savedSession?.pinned === true,
+        projectOrder: savedSession?.projectOrder,
+        pinnedOrder: savedSession?.pinnedOrder,
+        attentionSeq: savedAttentionSeq,
+        readAttentionSeq: savedReadAttentionSeq,
+        attentionUpdatedAt: savedSession?.attentionUpdatedAt,
+        readAttentionAt: savedSession?.readAttentionAt,
+        attentionReason: savedSession?.attentionReason,
+        attentionOutputEpoch: savedSession?.attentionOutputEpoch,
+        attentionOutputSeq: savedSession?.attentionOutputSeq,
+        readOutputEpoch: savedSession?.readOutputEpoch,
+        readOutputSeq: savedSession?.readOutputSeq,
+        autoReadInitialAttention: options.autoReadInitialAttention === true
+          && savedAttentionSeq <= savedReadAttentionSeq,
         preserveProviderSessionProfile: normalizedProvider === 'codex',
       });
       Promise.resolve(startResult).catch((error) => {
@@ -1745,12 +1780,22 @@ async function startResumedAgentSession(req, res, provider, rawSessionId) {
   const shouldFork = req.body && req.body.fork === true;
   const requestedAsMain = req.body && req.body.asMain === true && !shouldFork;
   const allowUnarchiveArchived = req.body && req.body.unarchiveArchived === true && !shouldFork && !requestedAsMain;
+  if (
+    req.body
+    && Object.prototype.hasOwnProperty.call(req.body, 'customTitle')
+    && typeof req.body.customTitle !== 'string'
+  ) {
+    res.status(400).json({ error: 'customTitle must be a string' });
+    return;
+  }
   const result = await resumeAgentSessionById(provider, rawSessionId, {
     fork: shouldFork,
     asMain: requestedAsMain,
     allowUnarchiveArchived,
     providerHomeId: req.body && typeof req.body.providerHomeId === 'string' ? req.body.providerHomeId : '',
-    customTitle: req.body && typeof req.body.customTitle === 'string' ? req.body.customTitle : '',
+    ...(req.body && Object.prototype.hasOwnProperty.call(req.body, 'customTitle')
+      ? { customTitle: req.body.customTitle }
+      : {}),
     agentRuntimeMode: req.body && ['chat', 'acp'].includes(req.body.agentRuntimeMode) ? 'chat' : 'terminal',
     acpHistoryMode: req.body && req.body.acpHistoryMode === 'resume' ? 'resume' : 'load',
   });

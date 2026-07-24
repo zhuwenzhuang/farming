@@ -6,6 +6,24 @@ const storageLayout = require('./storage-layout');
 
 const SESSION_ID_PREFIX = 'fsess';
 const MAX_MAIN_PAGE_SESSION_KEYS = 50;
+const PRODUCT_STATE_FIELDS = [
+  'projectWorkspace',
+  'task',
+  'workflowTemplate',
+  'pinned',
+  'projectOrder',
+  'pinnedOrder',
+  'attentionSeq',
+  'readAttentionSeq',
+  'attentionUpdatedAt',
+  'readAttentionAt',
+  'attentionReason',
+  'attentionOutputEpoch',
+  'attentionOutputSeq',
+  'readOutputEpoch',
+  'readOutputSeq',
+  'customTitle',
+];
 
 function now() {
   return Date.now();
@@ -184,10 +202,15 @@ class FarmingSessionStore {
       attentionUpdatedAt: typeof agent.attentionUpdatedAt === 'number' ? agent.attentionUpdatedAt : null,
       readAttentionAt: typeof agent.readAttentionAt === 'number' ? agent.readAttentionAt : null,
       attentionReason: typeof agent.attentionReason === 'string' ? agent.attentionReason : '',
+      attentionOutputEpoch: typeof agent.attentionOutputEpoch === 'string' ? agent.attentionOutputEpoch : '',
       attentionOutputSeq: typeof agent.attentionOutputSeq === 'number' ? agent.attentionOutputSeq : null,
+      readOutputEpoch: typeof agent.readOutputEpoch === 'string' ? agent.readOutputEpoch : '',
+      readOutputSeq: typeof agent.readOutputSeq === 'number' ? agent.readOutputSeq : null,
       archived: agent.archived === true,
       archivedAt: typeof agent.archivedAt === 'number' ? agent.archivedAt : null,
-      customTitle: typeof agent.customTitle === 'string' ? agent.customTitle : '',
+      ...(typeof agent.customTitle === 'string' && agent.customTitle
+        ? { customTitle: agent.customTitle }
+        : {}),
       title: typeof agent.customTitle === 'string' && agent.customTitle
         ? agent.customTitle
         : (typeof agent.providerSessionTitle === 'string' && agent.providerSessionTitle
@@ -222,6 +245,9 @@ class FarmingSessionStore {
       providerSessionTemporary: false,
       updatedAt: now(),
     };
+    if (typeof record.customTitle === 'string' && record.customTitle) {
+      record.title = record.customTitle;
+    }
     index.providerSessionRecords[sessionKey] = id;
     this.writeRecord(record);
     this.writeIndex();
@@ -231,10 +257,38 @@ class FarmingSessionStore {
   ensureRecordForAgent(agent, patch = {}) {
     const providerSessionKey = this.providerSessionKeyForAgent(agent);
     if (providerSessionKey) {
+      const previousId = safeSessionFileName(agent?.persistentSessionId)
+        ? agent.persistentSessionId
+        : '';
+      const previous = previousId ? this.readRecord(previousId) : null;
+      const canonical = this.getRecordForProviderSessionKey(providerSessionKey);
+      const agentPatch = this.recordPatchFromAgent(agent);
+      if (canonical && previousId && canonical.id !== previousId) {
+        PRODUCT_STATE_FIELDS.forEach(field => {
+          if (Object.prototype.hasOwnProperty.call(canonical, field)) {
+            agentPatch[field] = canonical[field];
+          } else if (previous && Object.prototype.hasOwnProperty.call(previous, field)) {
+            agentPatch[field] = previous[field];
+          }
+        });
+      }
       const id = this.ensureRecordForProviderSessionKey(providerSessionKey, {
-        ...this.recordPatchFromAgent(agent),
+        ...agentPatch,
         ...patch,
       }, agent?.persistentSessionId || '');
+      if (previousId && previousId !== id) {
+        if (previous && (previous.providerSessionTemporary === true || !previous.providerSessionKey)) {
+          this.writeRecord({
+            ...previous,
+            runtimeAgentId: '',
+            visibleOnMainPage: false,
+            archived: true,
+            archivedAt: now(),
+            mergedInto: id,
+            updatedAt: now(),
+          });
+        }
+      }
       return id;
     }
 
@@ -343,6 +397,12 @@ class FarmingSessionStore {
 
   getMainPageSessionKeys() {
     return this.ensureIndex().mainPageSessionKeys.slice();
+  }
+
+  getRecordForProviderSessionKey(sessionKey) {
+    const index = this.ensureIndex();
+    const id = index.providerSessionRecords[sessionKey];
+    return safeSessionFileName(id) ? this.readRecord(id) : null;
   }
 
   listAgentRecords() {

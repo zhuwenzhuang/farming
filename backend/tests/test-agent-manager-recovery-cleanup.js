@@ -288,6 +288,10 @@ async function run() {
     terminalInputReceived: true,
     attentionSeq: 3,
     readAttentionSeq: 1,
+    attentionOutputEpoch: 'runtime-before-upgrade',
+    attentionOutputSeq: 42,
+    readOutputEpoch: 'runtime-before-upgrade',
+    readOutputSeq: 42,
     archived: false,
     updatedAt: 20,
   };
@@ -364,11 +368,18 @@ async function run() {
     assert.strictEqual(restoredStarts[0].options.skipRecoveryWait, true);
     assert.strictEqual(restoredStarts[0].options.persistentSessionId, rotationRecord.id);
     assert.strictEqual(restoredStarts[0].options.runtimeAgentId, rotationRecord.runtimeAgentId);
+    assert.strictEqual(restoredStarts[0].options.attentionOutputEpoch, 'runtime-before-upgrade');
+    assert.strictEqual(restoredStarts[0].options.readOutputEpoch, 'runtime-before-upgrade');
+    assert.strictEqual(restoredStarts[0].options.readOutputSeq, 42);
     const replacement = rotationManager.agents.get('agent-after-upgrade');
     assert.strictEqual(replacement.customTitle, 'Pinned recovery');
     assert.strictEqual(replacement.pinned, true);
     assert.strictEqual(replacement.terminalInputReceived, true);
     assert.strictEqual(replacement.unread, true);
+    assert.strictEqual(replacement.attentionOutputEpoch, 'runtime-before-upgrade');
+    assert.strictEqual(replacement.attentionOutputSeq, 42);
+    assert.strictEqual(replacement.readOutputEpoch, 'runtime-before-upgrade');
+    assert.strictEqual(replacement.readOutputSeq, 42);
   } finally {
     await rotationManager.dispose({ preserveTerminalHost: true });
   }

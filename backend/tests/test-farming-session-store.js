@@ -145,6 +145,135 @@ function run() {
   assert.strictEqual(fs.statSync(path.join(root, 'sessions', `${tempRecordId}.json`)).mode & 0o777, 0o600);
   assert.strictEqual(fs.statSync(indexFile).mode & 0o777, 0o600);
 
+  store.ensureRecordForAgent({
+    id: 'agent-renamed-codex',
+    persistentSessionId: tempRecordId,
+    providerSessionProvider: 'codex',
+    providerSessionId: 'resolved-codex-session',
+    providerSessionKey: 'agent-session:codex:resolved-codex-session',
+    providerSessionTemporary: false,
+    customTitle: '用户自定义名称',
+  }, {
+    customTitle: '用户自定义名称',
+  });
+  const resumedRecordId = store.ensureRecordForAgent({
+    id: 'agent-resumed-without-title',
+    providerSessionProvider: 'codex',
+    providerSessionId: 'resolved-codex-session',
+    providerSessionKey: 'agent-session:codex:resolved-codex-session',
+    providerSessionTemporary: false,
+    customTitle: '',
+  });
+  assert.strictEqual(resumedRecordId, tempRecordId);
+  assert.strictEqual(
+    store.readRecord(tempRecordId).customTitle,
+    '用户自定义名称',
+    'a resume snapshot without a custom title must not clear the Farming-owned name',
+  );
+  store.ensureRecordForAgent({
+    id: 'agent-explicitly-cleared-title',
+    providerSessionProvider: 'codex',
+    providerSessionId: 'resolved-codex-session',
+    providerSessionKey: 'agent-session:codex:resolved-codex-session',
+    providerSessionTemporary: false,
+    customTitle: '',
+  }, {
+    customTitle: '',
+  });
+  assert.strictEqual(
+    store.readRecord(tempRecordId).customTitle,
+    '',
+    'an explicit empty custom-title patch must still clear the name',
+  );
+
+  const collisionKey = 'agent-session:codex:collision-session';
+  const canonicalCollisionId = store.ensureRecordForAgent({
+    id: 'agent-old-collision',
+    providerSessionProvider: 'codex',
+    providerSessionId: 'collision-session',
+    providerSessionKey: collisionKey,
+    providerSessionTemporary: false,
+    customTitle: 'Canonical name',
+    projectWorkspace: '/canonical/project',
+    pinned: true,
+    pinnedOrder: 512,
+    attentionSeq: 9,
+    readAttentionSeq: 7,
+    attentionOutputEpoch: 'canonical-epoch',
+    attentionOutputSeq: 90,
+    readOutputEpoch: 'canonical-epoch',
+    readOutputSeq: 80,
+  });
+  assert.strictEqual(
+    store.getRecordForProviderSessionKey(collisionKey).id,
+    canonicalCollisionId,
+    'provider resume should load the canonical Farming session record through the index',
+  );
+  const temporaryCollisionId = store.ensureRecordForAgent({
+    id: 'agent-new-collision',
+    providerSessionProvider: 'codex',
+    providerSessionId: 'tmp_uuid_collision',
+    providerSessionTemporary: true,
+    customTitle: 'Live temporary name',
+    projectWorkspace: '/temporary/project',
+    pinned: false,
+    pinnedOrder: 2048,
+    attentionSeq: 2,
+    readAttentionSeq: 2,
+    attentionOutputEpoch: 'temporary-epoch',
+    attentionOutputSeq: 20,
+    readOutputEpoch: 'temporary-epoch',
+    readOutputSeq: 20,
+  }, {
+    visibleOnMainPage: true,
+  });
+  const reboundCollisionId = store.ensureRecordForAgent({
+    id: 'agent-new-collision',
+    persistentSessionId: temporaryCollisionId,
+    providerSessionProvider: 'codex',
+    providerSessionId: 'collision-session',
+    providerSessionKey: collisionKey,
+    providerSessionTemporary: false,
+    customTitle: 'Live temporary name',
+  });
+  assert.strictEqual(reboundCollisionId, canonicalCollisionId);
+  assert.strictEqual(
+    store.readRecord(canonicalCollisionId).customTitle,
+    'Canonical name',
+    'provider confirmation must preserve the existing canonical product metadata',
+  );
+  const canonicalCollisionRecord = store.readRecord(canonicalCollisionId);
+  assert.strictEqual(canonicalCollisionRecord.projectWorkspace, '/canonical/project');
+  assert.strictEqual(canonicalCollisionRecord.pinned, true);
+  assert.strictEqual(canonicalCollisionRecord.pinnedOrder, 512);
+  assert.strictEqual(canonicalCollisionRecord.attentionSeq, 9);
+  assert.strictEqual(canonicalCollisionRecord.readAttentionSeq, 7);
+  assert.strictEqual(canonicalCollisionRecord.attentionOutputEpoch, 'canonical-epoch');
+  assert.strictEqual(canonicalCollisionRecord.attentionOutputSeq, 90);
+  assert.strictEqual(canonicalCollisionRecord.readOutputEpoch, 'canonical-epoch');
+  assert.strictEqual(canonicalCollisionRecord.readOutputSeq, 80);
+  const mergedTemporaryRecord = store.readRecord(temporaryCollisionId);
+  assert.strictEqual(mergedTemporaryRecord.visibleOnMainPage, false);
+  assert.strictEqual(mergedTemporaryRecord.archived, true);
+  assert.strictEqual(mergedTemporaryRecord.runtimeAgentId, '');
+  assert.strictEqual(mergedTemporaryRecord.mergedInto, canonicalCollisionId);
+  store.ensureRecordForAgent({
+    id: 'agent-new-collision',
+    persistentSessionId: temporaryCollisionId,
+    providerSessionProvider: 'codex',
+    providerSessionId: 'collision-session',
+    providerSessionKey: collisionKey,
+    providerSessionTemporary: false,
+    customTitle: 'Explicit live rename',
+  }, {
+    customTitle: 'Explicit live rename',
+  });
+  assert.strictEqual(
+    store.readRecord(canonicalCollisionId).customTitle,
+    'Explicit live rename',
+    'an explicit user rename must still win while a stale temporary record is being rebound',
+  );
+
   const workRecordId = store.ensureRecordForAgent({
     id: 'agent-work-codex',
     command: 'codex',

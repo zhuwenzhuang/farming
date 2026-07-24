@@ -195,8 +195,14 @@ async function run() {
       serverSource.includes('claimed: true') &&
       serverSource.includes('rememberMainPageSession: false') &&
       serverSource.includes('autoReadInitialAttention: true') &&
+      serverSource.includes('const savedSession = shouldFork') &&
+      serverSource.includes('savedFarmingAgentSession(normalizedProvider, sessionId') &&
+      serverSource.includes("persistentSessionId: savedSession?.id || ''") &&
+      serverSource.includes("customTitle: hasRequestedCustomTitle") &&
+      serverSource.includes('customTitleExplicit: hasRequestedCustomTitle') &&
+      serverSource.includes("res.status(400).json({ error: 'customTitle must be a string' })") &&
       serverSource.includes('const workingDirectory = session && (session.cwd || session.workspace) ? (session.cwd || session.workspace) : null') &&
-      serverSource.includes("projectWorkspace: session ? (session.workspace || session.cwd || '') : ''") &&
+      serverSource.includes("projectWorkspace: savedSession?.projectWorkspace || (session ? (session.workspace || session.cwd || '') : '')") &&
       serverSource.includes('void autoResumeMainPageAgentSessions()'),
     'Server restart should auto-resume only supported coding-agent main-page history sessions and leave shell rows out'
   );

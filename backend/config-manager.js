@@ -776,6 +776,10 @@ class ConfigManager {
     return this.sessionStore ? this.sessionStore.ensureRecordForAgent(agent, patch) : '';
   }
 
+  getAgentSessionRecordForProviderSessionKey(sessionKey) {
+    return this.sessionStore ? this.sessionStore.getRecordForProviderSessionKey(sessionKey) : null;
+  }
+
   setProviderSessionDisplayState(sessionKey, patch = {}) {
     return this.sessionStore ? this.sessionStore.setProviderSessionDisplayState(sessionKey, patch) : '';
   }
