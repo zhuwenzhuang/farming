@@ -54,7 +54,7 @@ Case 会校验：
 - Code 连续拖动窗口时多页 Buffer 始终存在，每个拖动方向只提交一次最终 Geometry；
 - CRT Terminal 的 Resize 逐帧采样会在提交前保留正常尺寸 Anchor，从紧凑布局展开时保留必需的页尾 Anchor，回到正常尺寸后恢复最终输出 Anchor，不会进入 Checkpoint Recovery 或显示 WebGL Failure；
 - 最终 Terminal Geometry 回到正常 Viewport；
-- 初始低成本模型切换与后续 CRT Model 设置都真正进入 Live Session，最终 Terminal 会如实展示 Recorded Model 与 Resumed Model 的迁移关系；
+- 初始低成本模型切换与后续 CRT Model 设置都进入 Live Session，最终 Terminal 展示 Recorded Model 与 Resumed Model 的迁移关系；
 - Page Error Stream 中没有 Terminal、WebGL、Checkpoint、Replay 或 Renderer Error。
 
 失败时 Playwright 会保留 Trace。Case 还会附加 Code Terminal、Dark Chat、CRT MSG、CRT Terminal 等关键状态截图，以及一份包含 Provider Session ID、所选模型、Anchor、最终 Agent ID 和最终 Viewport 的 JSON Evidence。

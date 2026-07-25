@@ -2,7 +2,7 @@
 
 > English version: [README.md](./README.md)
 
-Farming Net 是一个轻量、带 Token 鉴权的 Farming 部署门户。把它运行在一台可信主机上，将已经部署好的 Farming URL 登记进去，就可以从一个稳定页面找到本机、远程、内网或隧道环境。目标 Farming 完成显式登记后，可以接受门户签发的短时通行证，因此所有者登录一次门户，就能打开自己已经授权的全部 Farming。
+Farming Net 是一个独立、带 Token 鉴权的 Farming 部署门户。把它运行在一台可信主机上，将已经部署好的 Farming URL 登记进去，就可以从一个页面找到本机、远程、内网或隧道环境。目标 Farming 完成显式登记后，可以接受门户签发的短时通行证，因此所有者登录一次门户，就能打开自己已经授权的全部 Farming。
 
 它与 Farming Code、Farming CRT 是彼此独立的产品面。Farming Net 不启动 Agent、不代理终端流量、不合并设置，也不会把目标 Token 复制进注册表。每张卡片会在新标签页打开登记的目标，目标环境仍然执行自己的网络策略和显式配置的门户信任。
 

@@ -2,9 +2,9 @@
 
 > Chinese version: [README.zh_cn.md](./README.zh_cn.md)
 
-Farming Net is a small, token-protected directory for Farming deployments. Run it on one trusted host, register the Farming URLs you already operate, and use one stable page to find local, remote, intranet, or tunneled environments. An enrolled target can accept a short-lived signed pass from the portal, so one portal login opens every Farming instance the owner has explicitly trusted.
+Farming Net is a standalone, token-protected directory for Farming deployments. Run it on one trusted host, register the Farming URLs you already operate, and use one page to find local, remote, intranet, or tunneled environments. An enrolled target can accept a short-lived signed pass from the portal, so one portal login opens every Farming instance the owner has explicitly trusted.
 
-It is deliberately separate from Farming Code and Farming CRT. Farming Net does not start Agents, proxy terminal traffic, merge settings, or copy target tokens into the registry. Each card opens the registered target in a new tab, and that target continues to enforce its own network policy and explicitly configured portal trust.
+Farming Net runs separately from Farming Code and Farming CRT. It does not start Agents, proxy terminal traffic, merge settings, or copy target tokens into the registry. Each card opens the registered target in a new tab, and that target continues to enforce its own network policy and explicitly configured portal trust.
 
 ## Start
 

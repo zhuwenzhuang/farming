@@ -72,9 +72,9 @@ Open the drawer and tap **Usage activity** to inspect token usage without leavin
 
 The 52-week heatmap remains an overview. Use the native **Selected day** date control to choose an exact day, then inspect its complete 24-hour histogram. Changing the selected day, including while data is loading, must not resize the activity frame or histogram. The header and close control remain reachable while the content scrolls.
 
-## Recommended Mobile Use
+## Mobile Task Scope
 
-Good mobile tasks:
+Use mobile for:
 
 - check whether an agent is still running;
 - inspect recent usage and one day's hourly activity;
@@ -84,7 +84,7 @@ Good mobile tasks:
 - search and inspect one file;
 - check blame for one line.
 
-Desktop is still better for:
+Use desktop for:
 
 - multi-file editing;
 - long code review;

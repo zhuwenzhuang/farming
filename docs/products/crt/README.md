@@ -6,7 +6,7 @@ Farming CRT is the keyboard-first control-room interface for Farming 2. It is no
 
 ![Farming CRT dashboard](assets/01-crt-dashboard.png)
 
-Use CRT when several Agents are running, when terminal output is the main signal, or when direct keyboard control is faster than moving through a coding workspace. Use [Farming Code](../code/README.md) for files, editing, workspace Review, and phone access. Switching interfaces does not restart or duplicate Agents.
+Use CRT when several Agents are running, when terminal output is the main signal, or when you prefer direct keyboard navigation. Use [Farming Code](../code/README.md) for files, editing, workspace Review, and phone access. Switching interfaces does not restart or duplicate Agents.
 
 To return to Code, press `S` (or choose **[S] SETTINGS**) and select **Farming Code** under **UI Theme**. From Code, click the bottom-left gear, open **Interface**, and choose **Farming CRT**. Farming carries the focused Agent when possible and keeps the same live process and provider session.
 
@@ -21,14 +21,14 @@ Each card shows:
 - the human rename, provider session title, terminal title, or friendly provider name;
 - running, waiting, unread, and optional heat state;
 - the configured project name;
-- a bottom-aligned ANSI-aware terminal tail with unused trailing screen rows removed, or a compact ordered Chat trail with up to eight recent visible messages and the active tool step; each card naturally clips only the oldest overflow when its current grid size is smaller;
+- a bottom-aligned ANSI-aware terminal tail with unused trailing screen rows removed, or a compact ordered Chat trail with up to eight recent visible messages and the active tool step; when the current grid size is smaller, each card clips only the oldest overflow;
 - a stable numeric shortcut badge.
 
 The dashboard is a live-work surface: archived, stopped, and dead Agent records do not retain grid bays or numeric shortcuts. Their run or provider history remains available through History when it is resumable.
 
 The top bar reports active Agents, terminal-output token-rate estimate, CPU/MEM, host identity, local time, and uptime. The sidebar keeps New Agent, Search, History, Billing, Settings, and optional Main Agent supervision reachable without covering the grid.
 
-Arrow keys move the reverse-video selection, Enter opens it, and Escape backs out of the current console. At page boundaries, Up and Down continue naturally into the previous or next Agent page while preserving the column.
+Arrow keys move the reverse-video selection, Enter opens it, and Escape backs out of the current console. At page boundaries, Up and Down move into the previous or next Agent page while preserving the column.
 
 ## Open Structured Chat Without Leaving CRT
 
@@ -38,7 +38,7 @@ Codex, Claude Code, OpenCode, and Qoder ACP sessions open in a full-screen phosp
 
 History replay and live entries keep their order. The transcript shows user and Agent messages, while the composer exposes provider commands, model or mode configuration, token usage, attachments, pasted images, permission requests, queued follow-ups, and interrupt where supported.
 
-Agent replies are rendered as safe GitHub Flavored Markdown, including lists, tables, blockquotes, links, inline code, syntax-highlighted fenced code blocks, KaTeX formulas, and fenced Mermaid diagrams. Mermaid loads only when a diagram is present, runs in strict security mode, and keeps invalid source visible in a bounded error state. Raw HTML is not executed. User messages remain literal text so a prompt containing Markdown punctuation is not reformatted. Workspace path references remain ordinary Markdown text or links until CRT has a real file-view destination. The first implementation keeps CRT's existing font and phosphor palette around the Markdown structure; richer CRT-specific presentation is intentionally evaluated separately.
+Agent replies are rendered as safe GitHub Flavored Markdown, including lists, tables, blockquotes, links, inline code, syntax-highlighted fenced code blocks, KaTeX formulas, and fenced Mermaid diagrams. Mermaid loads only when a diagram is present, runs in strict security mode, and keeps invalid source visible in a bounded error state. Raw HTML is not executed. User messages remain literal text so a prompt containing Markdown punctuation is not reformatted. Workspace path references remain ordinary Markdown text or links until CRT has a file-view destination. Markdown uses CRT's existing font and phosphor palette.
 
 Composer behavior is designed for terminal-oriented keyboard use:
 

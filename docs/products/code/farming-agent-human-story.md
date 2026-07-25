@@ -92,7 +92,7 @@ Expected:
 - file operations stay inside the workspace root;
 - blame, diff, and editor state remain stable while Agents continue producing output;
 - History search can find older provider sessions beyond the first loaded browser page;
-- ephemeral shell runtimes are destroyed on archive, while supported provider sessions keep truthful resume behavior.
+- ephemeral shell runtimes are destroyed on archive, while supported provider sessions resume the same provider identity.
 
 ## Story 6: Return From A Phone
 

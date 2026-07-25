@@ -54,7 +54,7 @@ The case checks:
 - continuous Code window drags preserve the multi-page buffer and commit one final geometry per drag direction;
 - CRT terminal resize samples preserve the normal-size anchor until the resize settles, preserve a required page-tail anchor while expanding from the compact layout, restore the final output anchor at normal size, never enter checkpoint recovery, and never show a WebGL failure;
 - the final terminal geometry returns to the normal viewport;
-- the low-cost model switch and the later CRT model setting both reach the live session, and the final Terminal reports the recorded-versus-resumed model transition truthfully;
+- the low-cost model switch and the later CRT model setting both reach the live session, and the final Terminal reports the recorded-versus-resumed model transition;
 - no terminal, WebGL, checkpoint, replay, or renderer error reaches the page error stream.
 
 Playwright retains a trace on failure. The case also attaches screenshots for the important Code Terminal, dark Chat, CRT MSG, and CRT Terminal states, plus a JSON evidence record containing the provider session id, selected models, anchors, final Agent id, and final viewport.

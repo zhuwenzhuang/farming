@@ -92,7 +92,7 @@
 - 文件操作始终限制在 workspace root 内；
 - Agent 继续输出时，blame、diff 与 editor 状态保持稳定；
 - History 可以找到浏览器第一页之外的旧 provider Session；
-- 临时 shell runtime 归档后销毁，受支持 provider Session 保持真实 resume 语义。
+- 临时 shell runtime 归档后销毁，受支持 provider Session 恢复同一个 provider identity。
 
 ## 故事 6：从手机回到现场
 

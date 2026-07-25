@@ -76,7 +76,7 @@
 
 ### 3.5 New Agent / Settings 对话框
 
-从 Sidebar **N**、**S** 打开的模态框（`InputDialog`、`Settings`）与 Session 弹窗同一气质：细软边框、扁顶栏、11px 级排版；完整规格见 `base_layout.zh_cn.md` §5.4。
+从 Sidebar **N**、**S** 打开的模态框（`InputDialog`、`Settings`）采用与 Session 弹窗相同的柔和细边框、扁平顶栏和 11px 级排版；完整规格见 `base_layout.zh_cn.md` §5.4。
 
 ---
 
@@ -138,7 +138,7 @@
 
 ### 4.3 Session 终端弹窗
 
-桌面端打开 agent 终端时，`SessionModal` 采用 **比地图卡片更克制** 的顶栏与外壳（见 `base_layout.zh_cn.md` §5.3）：`4px 8px` 顶栏、细 **1px** 柔和边框（`--theme-border-soft`）、无外壳 CRT 外发光；Kill/Close 更小一号，避免对话框式厚重感。交互终端（ghostty）画布默认 **`11px`**，与全局 CRT 小字号一致。
+桌面端打开 Agent Terminal 时，`SessionModal` 使用 `4px 8px` 顶栏、细 **1px** 柔和边框（`--theme-border-soft`）且不显示外壳 CRT 发光；Kill/Close 使用更小字号。交互终端（Ghostty）画布默认 **`11px`**，与全局 CRT 小字号一致。完整规格见 `base_layout.zh_cn.md` §5.3。
 
 ---
 

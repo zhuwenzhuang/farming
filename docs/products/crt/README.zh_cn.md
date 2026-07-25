@@ -6,7 +6,7 @@ Farming CRT 是 Farming 2 的键盘优先控制室。它不是旧的只读皮肤
 
 ![Farming CRT 控制台](assets/01-crt-dashboard.png)
 
-多个 Agent 同时运行、终端输出是主要信号，或者直接键盘控制比 Coding Workspace 更快时，适合使用 CRT。Files、Editing、工作区 Review 和手机访问请使用 [Farming Code](../code/README.zh_cn.md)。切换界面不会重启或复制 Agent。
+多个 Agent 同时运行、终端输出是主要信号，或者需要直接键盘导航时，可以使用 CRT。Files、Editing、工作区 Review 和手机访问请使用 [Farming Code](../code/README.zh_cn.md)。切换界面不会重启或复制 Agent。
 
 返回 Code 时，按 `S`（或选择 **[S] SETTINGS**），在 **UI Theme** 中选择 **Farming Code**。从 Code 进入 CRT 时，点击左下角齿轮，打开**界面**，选择 **Farming CRT**。条件允许时 Farming 会带上当前聚焦的 Agent，并继续使用同一个实时进程和 Provider Session。
 
@@ -28,7 +28,7 @@ Dashboard 只表示实时工作面：Archived、Stopped 与 Dead Agent 不再占
 
 Top Bar 展示 Active Agent、Terminal Output Token Rate 估计、CPU/MEM、Host Identity、本地时间和 Uptime。Sidebar 保持 New Agent、Search、History、Billing、Settings 和可选 Main Agent 监督直接可达，同时不遮住 Grid。
 
-方向键移动反色选中，Enter 打开，Escape 退出当前 Console。在分页边界继续按 Up / Down 会自然进入上一页或下一页，并保留选中列。
+方向键移动反色选中，Enter 打开，Escape 退出当前 Console。在分页边界继续按 Up / Down 会进入上一页或下一页，并保留选中列。
 
 ## 不离开 CRT 就能打开结构化 Chat
 
@@ -38,7 +38,7 @@ Codex、Claude Code、OpenCode 和 Qoder ACP Session 会打开全屏磷光 Chat�
 
 History Replay 与 Live Entry 保持顺序。Transcript 显示 User / Agent Message，Composer 根据支持情况提供 Provider Command、Model / Mode Configuration、Token Usage、Attachment、Pasted Image、Permission Request、Queued Follow-up 和 Interrupt。
 
-Agent Reply 使用安全的 GitHub Flavored Markdown 渲染，包括 List、Table、Blockquote、Link、Inline Code、带语法高亮的 Fenced Code Block、KaTeX 公式和 Fenced Mermaid 图。Mermaid 只在消息确实包含图表时加载，使用 Strict Security Mode；非法图表会保留源码并显示有界错误。Raw HTML 不会执行。User Message 继续按原始文本展示，因此 Prompt 中的 Markdown 标点不会被重新排版。在 CRT 具备真实文件查看目标之前，Workspace Path Reference 仍保持普通 Markdown 文本或链接。第一版只让 Markdown 结构继承 CRT 现有字体与磷光主色，更丰富的 CRT 专用表现会独立评估。
+Agent Reply 使用安全的 GitHub Flavored Markdown 渲染，包括 List、Table、Blockquote、Link、Inline Code、带语法高亮的 Fenced Code Block、KaTeX 公式和 Fenced Mermaid 图。Mermaid 只在消息确实包含图表时加载，使用 Strict Security Mode；非法图表会保留源码并显示有界错误。Raw HTML 不会执行。User Message 继续按原始文本展示，因此 Prompt 中的 Markdown 标点不会被重新排版。在 CRT 具备文件查看目标之前，Workspace Path Reference 仍保持普通 Markdown 文本或链接。Markdown 使用 CRT 现有字体与磷光主色。
 
 Composer 围绕终端式键盘使用设计：
 
