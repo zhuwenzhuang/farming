@@ -191,18 +191,43 @@ async function run() {
       .map(entry => entry.content[0].text);
     assert.deepStrictEqual(orderedUserSteers, ['first rapid steer', 'second rapid steer']);
 
-    const originalCanSteer = codexRuntime.canSteer.bind(codexRuntime);
     const originalSteer = codexRuntime.steer.bind(codexRuntime);
-    codexRuntime.canSteer = () => true;
-    codexRuntime.steer = async () => {
+    const raceTurn = codexManager.sendComposerMessage(codexAgentId, 'hold for steer');
+    while (!codexRuntime.canSteer(codexAgentId)) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    codexRuntime.steer = async agentId => {
+      await originalSteer(agentId, 'release turn before fallback');
       const error = new Error('Invalid request');
       error.data = { details: 'expected active turn id old but found new' };
       throw error;
     };
-    const raceFallback = await codexManager.sendComposerMessage(codexAgentId, 'phase-aware mermaid after steer race');
+    const raceFallbackPromise = codexManager.sendComposerMessage(
+      codexAgentId,
+      'phase-aware mermaid after steer race',
+    );
+    const raceFollowerPromise = codexManager.sendComposerMessage(
+      codexAgentId,
+      'phase-aware mermaid after ordered fallback',
+    );
+    const [raceFallback, raceFollower] = await Promise.all([raceFallbackPromise, raceFollowerPromise]);
     assert.strictEqual(raceFallback.steered, undefined);
     assert.strictEqual(raceFallback.stopReason, 'end_turn');
+    assert.strictEqual(raceFollower.stopReason, 'end_turn');
+    await raceTurn;
+    assert.deepStrictEqual(
+      codexManager.getAcpSession(codexAgentId).entries
+        .filter(entry => entry.role === 'user' && entry._meta?.codex?.steer !== true)
+        .slice(-2)
+        .map(entry => entry.content[0].text),
+      ['phase-aware mermaid after steer race', 'phase-aware mermaid after ordered fallback'],
+      'a steer fallback must retain its original Composer admission order',
+    );
 
+    const ambiguousTurn = codexManager.sendComposerMessage(codexAgentId, 'hold for steer');
+    while (!codexRuntime.canSteer(codexAgentId)) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
     const entriesBeforeAmbiguousFailure = codexManager.getAcpSession(codexAgentId).entries.length;
     codexRuntime.steer = async () => {
       throw new Error('ACP request timed out');
@@ -216,8 +241,30 @@ async function run() {
       entriesBeforeAmbiguousFailure,
       'an ambiguous steer failure must not replay as a new prompt',
     );
-    codexRuntime.canSteer = originalCanSteer;
     codexRuntime.steer = originalSteer;
+    await originalSteer(codexAgentId, 'release turn after ambiguous failure');
+    await ambiguousTurn;
+
+    const interruptedTurn = codexManager.sendComposerMessage(codexAgentId, 'mobile interrupt');
+    while (!codexRuntime.canSteer(codexAgentId)) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    const queuedAfterInterrupt = codexManager.sendComposerMessage(
+      codexAgentId,
+      'phase-aware mermaid after interrupt',
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    await codexManager.interruptAgent(codexAgentId);
+    assert.strictEqual((await interruptedTurn).stopReason, 'cancelled');
+    assert.strictEqual((await queuedAfterInterrupt).stopReason, 'end_turn');
+    assert.deepStrictEqual(
+      codexManager.getAcpSession(codexAgentId).entries
+        .filter(entry => entry.role === 'user' && entry._meta?.codex?.steer !== true)
+        .slice(-2)
+        .map(entry => entry.content[0].text),
+      ['mobile interrupt', 'phase-aware mermaid after interrupt'],
+      'a message admitted during cancellation must wait for the old Turn and start exactly once afterward',
+    );
   } finally {
     await codexManager.dispose();
   }

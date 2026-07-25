@@ -612,14 +612,15 @@ test.describe('ACP human-like browser matrix', () => {
     await sendAcpMessage(page, 'rich timeline')
     await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 20_000 })
 
-    const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'rich timeline' })
+    const pane = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${agentId}"]`)
+    const turn = pane.locator('.code-agent-transcript-turn').filter({ hasText: 'rich timeline' }).last()
     const summary = turn.getByTestId('code-agent-transcript-result-summary')
     await expect(summary).toHaveText('1 file changed+1-1')
     await summary.click()
     await expect(turn.getByTestId('code-agent-transcript-result-details')).toBeVisible()
     await expect(turn.locator('.code-agent-transcript-result-loading')).toHaveCount(0)
     await expect(turn.locator('.code-agent-transcript-result-error')).toHaveCount(0)
-    await turn.locator('.code-agent-transcript-result-file').filter({ hasText: 'display-fixture.txt' }).locator('summary').click()
+    await turn.locator('.code-agent-transcript-result-file-path').filter({ hasText: /^display-fixture\.txt$/ }).click()
     await expect(turn.locator('.code-agent-transcript-result-diff')).toContainText('+after')
 
     const reviewPagePromise = page.waitForEvent('popup')

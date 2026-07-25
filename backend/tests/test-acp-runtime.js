@@ -1057,6 +1057,84 @@ async function run() {
       'a detached ACP binding must cancel late reverse requests instead of creating new pending state',
     );
     await runtime.prepareAgent({
+      agentId: 'agent-acp-subagent-binding-fence',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'approve',
+    });
+    const staleSubagentBinding = runtime.bindings.get('agent-acp-subagent-binding-fence');
+    runtime.clientHandlers(staleSubagentBinding).sessionUpdate({
+      sessionId: 'stale-subagent-session',
+      update: {
+        sessionUpdate: 'agent_thought_chunk',
+        messageId: 'stale-subagent-thought',
+        content: { type: 'text', text: 'Old binding work.' },
+      },
+    });
+    let resolveStaleSubagentCancel;
+    staleSubagentBinding.connection.cancel = () => new Promise(resolve => {
+      resolveStaleSubagentCancel = resolve;
+    });
+    const staleSubagentCancel = runtime.cancelSubagent(
+      'agent-acp-subagent-binding-fence',
+      'stale-subagent-session',
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    runtime.unregisterAgent('agent-acp-subagent-binding-fence');
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-subagent-binding-fence',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'approve',
+    });
+    resolveStaleSubagentCancel({});
+    await assert.rejects(
+      staleSubagentCancel,
+      /no longer active/,
+      'an old Subagent cancellation must not commit into a replacement binding',
+    );
+    assert.strictEqual(
+      runtime.getSubagentTranscriptSession('agent-acp-subagent-binding-fence', 'stale-subagent-session'),
+      null,
+    );
+    const replacementSubagentBinding = runtime.bindings.get('agent-acp-subagent-binding-fence');
+    runtime.clientHandlers(replacementSubagentBinding).sessionUpdate({
+      sessionId: 'child-before-parent-tool',
+      update: {
+        sessionUpdate: 'agent_thought_chunk',
+        messageId: 'child-before-parent-thought',
+        content: { type: 'text', text: 'Child became active before its parent Tool update.' },
+      },
+    });
+    const outOfOrderCancelSessionIds = [];
+    replacementSubagentBinding.connection.cancel = async ({ sessionId }) => {
+      outOfOrderCancelSessionIds.push(sessionId);
+      return {};
+    };
+    await runtime.cancel('agent-acp-subagent-binding-fence');
+    assert.deepStrictEqual(
+      new Set(outOfOrderCancelSessionIds),
+      new Set([replacementSubagentBinding.sessionId, 'child-before-parent-tool']),
+      'parent cancellation must include a child observed before its parent Tool status arrives',
+    );
+    runtime.updateSubagentControlFromParent(replacementSubagentBinding, {
+      status: 'running',
+      _meta: { subagent_session_info: { session_id: 'child-before-parent-tool' } },
+    });
+    assert.strictEqual(
+      replacementSubagentBinding.subagentControls.get('child-before-parent-tool').phase,
+      'cancelled',
+      'a late parent Tool update must not reopen a terminal child control',
+    );
+    runtime.resetSubagentControls(replacementSubagentBinding);
+    assert.strictEqual(
+      replacementSubagentBinding.subagentControls.get('child-before-parent-tool').phase,
+      'completed',
+      'restored child evidence without a parent Tool must not be treated as a live process',
+    );
+    await runtime.prepareAgent({
       agentId: 'agent-acp-request-fence',
       provider: 'codex',
       cwd: process.cwd(),
@@ -1336,11 +1414,45 @@ async function run() {
       runtime.getSubagentTranscriptSession('agent-acp-client-services', 'acp-long-child-session').state,
       'working',
     );
+    const originalClientServicesCancel = clientServicesBinding.connection.cancel.bind(clientServicesBinding.connection);
+    let longSubagentCancelRequests = 0;
+    let longParentCancelRequests = 0;
+    clientServicesBinding.connection.cancel = params => {
+      if (params?.sessionId === 'acp-long-child-session') longSubagentCancelRequests += 1;
+      if (params?.sessionId === clientServicesBinding.sessionId) longParentCancelRequests += 1;
+      return originalClientServicesCancel(params);
+    };
     assert.deepStrictEqual(
-      await runtime.cancelSubagent('agent-acp-client-services', 'acp-long-child-session'),
-      { cancelled: true, sessionId: 'acp-long-child-session' },
+      await Promise.all([
+        runtime.cancel('agent-acp-client-services'),
+        runtime.cancelSubagent('agent-acp-client-services', 'acp-long-child-session'),
+        runtime.cancelSubagent('agent-acp-client-services', 'acp-long-child-session'),
+      ]),
+      [
+        true,
+        { cancelled: true, sessionId: 'acp-long-child-session' },
+        { cancelled: true, sessionId: 'acp-long-child-session' },
+      ],
     );
+    assert.strictEqual(longParentCancelRequests, 1, 'parent cancellation must issue one root provider request');
+    assert.strictEqual(longSubagentCancelRequests, 1, 'duplicate Subagent cancels must join one provider request');
     assert.strictEqual((await longSubagentPrompt).stopReason, 'cancelled');
+    const lateSubagentUpdate = runtime.clientHandlers(clientServicesBinding).sessionUpdate;
+    lateSubagentUpdate({
+      sessionId: 'acp-long-child-session',
+      update: {
+        sessionUpdate: 'agent_thought_chunk',
+        messageId: 'late-long-child-thought',
+        content: { type: 'text', text: 'Late provider update after cancellation.' },
+      },
+    });
+    const cancelledSubagent = runtime.getSubagentTranscriptSession(
+      'agent-acp-client-services',
+      'acp-long-child-session',
+    );
+    assert.strictEqual(cancelledSubagent.state, 'idle');
+    assert.strictEqual(cancelledSubagent.stopReason, 'cancelled');
+    clientServicesBinding.connection.cancel = originalClientServicesCancel;
     clientServicesBinding.approvalMode = clientServicesApprovalMode;
     await assert.rejects(
       runtime.prompt('agent-acp-client-services', 'authentication error'),

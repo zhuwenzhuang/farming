@@ -567,6 +567,8 @@ class AcpRuntime extends EventEmitter {
       elicitationResolvers: new Map(),
       activeElicitations: new Map(),
       subagentStates: new Map(),
+      subagentControls: new Map(),
+      nextSubagentGeneration: 1,
       interactionOrigins: new Map(),
       // One binding owns at most one Turn. All Turn controls and its terminal
       // commit are fenced by this object before they may mutate shared state.
@@ -731,6 +733,7 @@ class AcpRuntime extends EventEmitter {
         binding.sessionId = forkedSessionId;
         binding.sessionState = restoredForkSource.sessionState;
         binding.subagentStates = restoredForkSource.subagentStates;
+        this.resetSubagentControls(binding);
         binding.patchDecisions = restoredForkSource.patchDecisions;
         delete binding.restartOptions.forkSourceSessionId;
         delete binding.restartOptions.forkSourceCheckpoint;
@@ -772,6 +775,7 @@ class AcpRuntime extends EventEmitter {
             binding.sessionId = requestedSessionId;
             binding.sessionState = restoredCheckpointState;
             binding.subagentStates = restoredCheckpoint.subagentStates;
+            this.resetSubagentControls(binding);
             binding.patchDecisions = restoredCheckpoint.patchDecisions;
             binding.checkpointProof = restoredCheckpoint.providerProof;
             try {
@@ -1126,6 +1130,80 @@ class AcpRuntime extends EventEmitter {
     }
   }
 
+  ensureSubagentControl(binding, sessionId) {
+    const id = String(sessionId || '');
+    if (!id) return null;
+    let control = binding.subagentControls.get(id);
+    if (!control) {
+      control = {
+        sessionId: id,
+        generation: binding.nextSubagentGeneration++,
+        phase: 'active',
+        error: '',
+        cancelPromise: null,
+      };
+      binding.subagentControls.set(id, control);
+    }
+    return control;
+  }
+
+  resetSubagentControls(binding) {
+    binding.subagentControls.clear();
+    for (const sessionId of binding.subagentStates.keys()) {
+      const control = this.ensureSubagentControl(binding, sessionId);
+      const parentTool = binding.sessionState?.entries.find(entry => (
+        entry?.type === 'tool'
+        && String(entry?._meta?.subagent_session_info?.session_id || '') === sessionId
+      ));
+      if (parentTool) {
+        this.updateSubagentControlFromParent(binding, parentTool);
+      } else {
+        // Restored evidence without a parent Tool cannot prove that a child
+        // from the previous adapter process is still active.
+        control.phase = 'completed';
+      }
+    }
+  }
+
+  activeSubagentSessionIds(binding) {
+    return [...binding.subagentStates.keys()].filter(sessionId => {
+      const control = this.ensureSubagentControl(binding, sessionId);
+      if (control?.cancelPromise || ['active', 'cancelling'].includes(control?.phase)) return true;
+      const hasInteraction = [...binding.pendingPermissions.values(), ...binding.pendingElicitations.values()]
+        .some(request => String(request?.sessionId || '') === sessionId);
+      if (hasInteraction) return true;
+      const parentTool = binding.sessionState?.entries.find(entry => (
+        entry?.type === 'tool'
+        && String(entry?._meta?.subagent_session_info?.session_id || '') === sessionId
+      ));
+      return ['pending', 'in_progress', 'in-progress', 'running']
+        .includes(String(parentTool?.status || '').toLowerCase());
+    });
+  }
+
+  updateSubagentControlFromParent(binding, update) {
+    const sessionId = String(update?._meta?.subagent_session_info?.session_id || '');
+    if (!sessionId || !binding.subagentStates.has(sessionId)) return;
+    const control = this.ensureSubagentControl(binding, sessionId);
+    const status = String(update?.status || '').toLowerCase();
+    if (['cancelled', 'canceled'].includes(status)) {
+      control.phase = 'cancelled';
+      control.error = '';
+    } else if (['completed', 'complete'].includes(status)) {
+      control.phase = 'completed';
+      control.error = '';
+    } else if (['failed', 'error'].includes(status)) {
+      control.phase = 'error';
+      control.error = String(update?.title || 'Subagent failed');
+    } else if (
+      ['pending', 'in_progress', 'in-progress', 'running'].includes(status)
+      && !['cancelling', 'cancelled', 'completed', 'error'].includes(control.phase)
+    ) {
+      control.phase = 'active';
+      control.error = '';
+    }
+  }
+
   beginSessionMutation(binding, action) {
     this.requireOpenBinding(binding);
     if (
@@ -1360,8 +1438,17 @@ class AcpRuntime extends EventEmitter {
           });
           binding.subagentStates.set(notificationSessionId, targetState);
         }
+        if (!isPrimarySession && targetState) {
+          this.ensureSubagentControl(binding, notificationSessionId);
+          const parentTool = binding.sessionState?.entries.find(entry => (
+            entry?.type === 'tool'
+            && String(entry?._meta?.subagent_session_info?.session_id || '') === notificationSessionId
+          ));
+          if (parentTool) this.updateSubagentControlFromParent(binding, parentTool);
+        }
         if (targetState?.apply(notification)) {
           const update = notification?.update;
+          if (isPrimarySession) this.updateSubagentControlFromParent(binding, update);
           if (isPrimarySession && update?.sessionUpdate === 'current_mode_update' && binding.modes) {
             binding.modes = { ...binding.modes, currentModeId: String(update.currentModeId || '') };
           }
@@ -1511,7 +1598,39 @@ class AcpRuntime extends EventEmitter {
     this.emitRuntime(binding);
   }
 
-  async prompt(agentId, prompt) {
+  async submitMessage(agentId, prompt, options = {}) {
+    const binding = this.requireBinding(agentId);
+    while (true) {
+      this.requireOpenBinding(binding);
+      const turn = binding.activeTurn;
+      if (turn?.phase === 'blocked') {
+        throw new Error(`ACP Agent is not ready (${binding.state})`);
+      }
+      if (
+        turn?.phase === 'running'
+        && turn.providerSettled !== true
+        && binding.provider === 'codex'
+        && binding.supportsSteer === true
+      ) {
+        try {
+          const result = await this.steer(agentId, prompt);
+          options.onSubmitted?.();
+          return { steered: true, ...result };
+        } catch (error) {
+          if (!isCodexSteerUnavailableError(error)) throw error;
+          this.requireOpenBinding(binding);
+        }
+      }
+      if (binding.activeTurn === turn && turn) {
+        await turn.completion;
+        continue;
+      }
+      if (binding.activeTurn) continue;
+      return this.prompt(agentId, prompt, options);
+    }
+  }
+
+  async prompt(agentId, prompt, options = {}) {
     const binding = this.requireBinding(agentId);
     if (
       binding.exited
@@ -1557,7 +1676,13 @@ class AcpRuntime extends EventEmitter {
     this.emitSession(binding);
     let response;
     try {
-      response = await binding.connection.prompt({ sessionId: binding.sessionId, prompt: content });
+      const responsePromise = binding.connection.prompt({ sessionId: binding.sessionId, prompt: content });
+      try {
+        options.onSubmitted?.();
+      } catch {
+        // Submission is already owned by the provider; admission callbacks cannot roll it back.
+      }
+      response = await responsePromise;
       turn.providerSettled = true;
     } catch (error) {
       turn.providerSettled = true;
@@ -1666,6 +1791,7 @@ class AcpRuntime extends EventEmitter {
     const stateBeforeCancellation = binding.state;
     let cancelAcknowledged = false;
     const cancelOperation = async () => {
+      const activeSubagentSessionIds = this.activeSubagentSessionIds(binding);
       if (turn) {
         this.requireCurrentTurn(binding, turn, ['running']);
         if (turn.providerSettled) throw new Error('No active turn to cancel');
@@ -1683,11 +1809,14 @@ class AcpRuntime extends EventEmitter {
       binding.activeElicitations.clear();
       binding.interactionOrigins.clear();
       this.emitRuntime(binding);
-      await withTimeout(
-        binding.connection.cancel({ sessionId: binding.sessionId }),
-        this.cancelTimeoutMs,
-        'ACP session/cancel'
-      );
+      await Promise.all([
+        withTimeout(
+          binding.connection.cancel({ sessionId: binding.sessionId }),
+          this.cancelTimeoutMs,
+          'ACP session/cancel'
+        ),
+        ...activeSubagentSessionIds.map(sessionId => this.cancelSubagentControl(binding, sessionId)),
+      ]);
       this.requireOpenBinding(binding);
       cancelAcknowledged = true;
       return true;
@@ -1734,13 +1863,14 @@ class AcpRuntime extends EventEmitter {
     }
   }
 
-  async cancelSubagent(agentId, sessionId) {
-    const binding = this.requireBinding(agentId);
-    this.requireOpenBinding(binding);
-    const targetSessionId = String(sessionId || '');
-    if (!targetSessionId || targetSessionId === binding.sessionId || !binding.subagentStates.has(targetSessionId)) {
-      throw new Error('ACP subagent session not found');
+  cancelSubagentControl(binding, targetSessionId) {
+    const control = this.ensureSubagentControl(binding, targetSessionId);
+    if (control.cancelPromise) return control.cancelPromise;
+    if (['cancelled', 'completed'].includes(control.phase)) {
+      return Promise.resolve({ cancelled: true, sessionId: targetSessionId });
     }
+    control.phase = 'cancelling';
+    control.error = '';
     for (const [requestId, pending] of binding.pendingPermissions.entries()) {
       if (String(pending?.sessionId || '') !== targetSessionId) continue;
       binding.permissionResolvers.get(requestId)?.({ outcome: { outcome: 'cancelled' } });
@@ -1760,16 +1890,51 @@ class AcpRuntime extends EventEmitter {
     }
     binding.state = interactiveRuntimeState(binding, binding.state);
     this.emitRuntime(binding);
-    await withTimeout(
-      binding.connection.cancel({ sessionId: targetSessionId }),
-      this.cancelTimeoutMs,
-      'ACP subagent session/cancel'
-    );
+    const cancellation = (async () => {
+      try {
+        await withTimeout(
+          binding.connection.cancel({ sessionId: targetSessionId }),
+          this.cancelTimeoutMs,
+          'ACP subagent session/cancel'
+        );
+        this.requireOpenBinding(binding);
+        if (binding.subagentControls.get(targetSessionId) !== control) {
+          throw new Error('ACP subagent control is no longer active');
+        }
+        control.phase = 'cancelled';
+        control.error = '';
+        binding.updatedAt = new Date().toISOString();
+        this.emitSession(binding);
+        this.emitRuntime(binding);
+        return { cancelled: true, sessionId: targetSessionId };
+      } catch (error) {
+        if (this.isOpenBinding(binding) && binding.subagentControls.get(targetSessionId) === control) {
+          control.phase = 'error';
+          control.error = acpErrorMessage(error);
+          binding.updatedAt = new Date().toISOString();
+          this.emitSession(binding);
+          this.emitRuntime(binding);
+        }
+        throw error;
+      }
+    })();
+    control.cancelPromise = cancellation;
+    void cancellation.finally(() => {
+      if (binding.subagentControls.get(targetSessionId) === control && control.cancelPromise === cancellation) {
+        control.cancelPromise = null;
+      }
+    }).catch(() => {});
+    return cancellation;
+  }
+
+  async cancelSubagent(agentId, sessionId) {
+    const binding = this.requireBinding(agentId);
     this.requireOpenBinding(binding);
-    binding.updatedAt = new Date().toISOString();
-    this.emitSession(binding);
-    this.emitRuntime(binding);
-    return { cancelled: true, sessionId: targetSessionId };
+    const targetSessionId = String(sessionId || '');
+    if (!targetSessionId || targetSessionId === binding.sessionId || !binding.subagentStates.has(targetSessionId)) {
+      throw new Error('ACP subagent session not found');
+    }
+    return this.cancelSubagentControl(binding, targetSessionId);
   }
 
   async listSessions(agentId, options = {}) {
@@ -2454,17 +2619,26 @@ class AcpRuntime extends EventEmitter {
       .some(request => String(request?.sessionId || '') === id);
     const pendingElicitation = [...binding.pendingElicitations.values()]
       .some(request => String(request?.sessionId || '') === id);
+    const control = this.ensureSubagentControl(binding, id);
     const active = ['pending', 'in_progress', 'in-progress', 'running'].includes(status);
     const failed = ['failed', 'error'].includes(status);
     const stateName = pendingPermission
       ? 'waiting-for-permission'
       : pendingElicitation
         ? 'waiting-for-input'
-        : active
-          ? 'working'
-          : failed
+        : control.phase === 'cancelling'
+          ? 'interrupting'
+          : control.phase === 'error'
             ? 'error'
-            : 'idle';
+            : ['cancelled', 'completed'].includes(control.phase)
+              ? 'idle'
+              : active
+                ? 'working'
+                : failed
+                  ? 'error'
+                  : 'idle';
+    const controlFailed = control.phase === 'error';
+    const cancelled = control.phase === 'cancelled';
     return {
       version: 2,
       protocol: 'acp',
@@ -2475,9 +2649,9 @@ class AcpRuntime extends EventEmitter {
       updatedAt: binding.updatedAt,
       truncated: state.truncated === true,
       state: stateName,
-      error: failed ? String(parentTool?.title || 'Subagent failed') : '',
-      errorKind: failed ? 'agent' : '',
-      stopReason: failed ? 'error' : active ? '' : 'end_turn',
+      error: controlFailed ? control.error : failed ? String(parentTool?.title || 'Subagent failed') : '',
+      errorKind: controlFailed || failed ? 'agent' : '',
+      stopReason: controlFailed || failed ? 'error' : cancelled ? 'cancelled' : active ? '' : 'end_turn',
       ...state.transcriptSlice(options),
     };
   }
@@ -2560,6 +2734,7 @@ class AcpRuntime extends EventEmitter {
     binding.activeElicitations.clear();
     binding.interactionOrigins.clear();
     binding.subagentStates.clear();
+    binding.subagentControls.clear();
     this.clientTerminals.cleanupAgent(binding.agentId);
     if (promptWasActive) this.emitSession(binding);
     this.emitRuntime(binding);
@@ -2585,6 +2760,7 @@ class AcpRuntime extends EventEmitter {
     binding.activeElicitations.clear();
     binding.interactionOrigins.clear();
     binding.subagentStates.clear();
+    binding.subagentControls.clear();
     this.clientTerminals.cleanupAgent(binding.agentId);
     try {
       binding.connection?.close();

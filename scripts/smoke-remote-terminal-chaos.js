@@ -2,8 +2,10 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const zlib = require('node:zlib');
 const { chromium } = require('@playwright/test');
 const { PNG } = require('playwright-core/lib/utilsBundle');
+const { transformSync } = require('esbuild');
 
 const REMOTE_URL = process.env.FARMING_REMOTE_URL || '';
 const REMOTE_TOKEN = process.env.FARMING_REMOTE_TOKEN || '';
@@ -114,8 +116,12 @@ function draw() {
 process.on('SIGWINCH', draw);
 draw();
 setInterval(() => {}, 1 << 30);
-`;
-  return `/usr/local/bin/node -e "$(printf %s ${Buffer.from(source).toString('base64')} | base64 -d)"\r`;
+  `;
+  const minified = transformSync(source, { loader: 'js', minify: true }).code;
+  const payload = zlib.gzipSync(minified, { level: 9 }).toString('base64');
+  const command = `node -e "$(printf %s ${payload} | base64 -d | gzip -dc)"\r`;
+  assert(Buffer.byteLength(command) < 900, 'remote chaos bootstrap exceeds a conservative TTY line limit');
+  return command;
 }
 
 function foregroundPixelCount(buffer) {
@@ -220,44 +226,68 @@ function visibleAgentRow(page, agentId) {
 }
 
 async function ensureAgentVisible(page, agentId) {
+  const deadline = Date.now() + 15_000;
   const workspace = page.getByTestId('code-workspace');
-  if ((await workspace.getAttribute('class'))?.includes('sidebar-collapsed')) {
-    const mobileMenu = page.getByTestId('code-mobile-menu');
-    if (await mobileMenu.isVisible().catch(() => false)) {
-      await mobileMenu.click();
-    } else {
-      await page.getByTestId('code-sidebar-toggle').click();
-    }
-  }
-
-  let row = visibleAgentRow(page, agentId);
-  if (await row.isVisible().catch(() => false)) return row;
-
   const project = page.getByTestId('code-project-group').filter({
     has: page.locator(`[data-agent-id="${agentId}"]`),
   }).first();
-  await project.waitFor({ state: 'attached', timeout: 15_000 });
-  const projectTitle = project.getByTestId('code-project-title');
-  if (await projectTitle.getAttribute('aria-expanded') !== 'true') {
-    await projectTitle.click();
+
+  while (Date.now() < deadline) {
+    if ((await workspace.getAttribute('class'))?.includes('sidebar-collapsed')) {
+      const mobileMenu = page.getByTestId('code-mobile-menu');
+      const toggle = await mobileMenu.isVisible().catch(() => false)
+        ? mobileMenu
+        : page.getByTestId('code-sidebar-toggle');
+      await toggle.click({ timeout: Math.min(2_000, deadline - Date.now()) }).catch(() => {});
+    }
+
+    let row = visibleAgentRow(page, agentId);
+    if (await row.isVisible().catch(() => false)) return row;
+
+    if (await project.isVisible().catch(() => false)) {
+      const projectTitle = project.getByTestId('code-project-title');
+      if (await projectTitle.getAttribute('aria-expanded') !== 'true') {
+        await projectTitle.click({ timeout: Math.min(2_000, deadline - Date.now()) }).catch(() => {});
+      }
+
+      row = visibleAgentRow(page, agentId);
+      if (await row.isVisible().catch(() => false)) return row;
+
+      const visibility = project.getByTestId('code-project-agent-visibility');
+      if (await visibility.count() && await visibility.getAttribute('aria-expanded') !== 'true') {
+        await visibility.click({ timeout: Math.min(2_000, deadline - Date.now()) }).catch(() => {});
+      }
+    }
+    await delay(50);
   }
 
-  row = visibleAgentRow(page, agentId);
-  if (await row.isVisible().catch(() => false)) return row;
-
-  const visibility = project.getByTestId('code-project-agent-visibility');
-  if (await visibility.count() && await visibility.getAttribute('aria-expanded') !== 'true') {
-    await visibility.click();
-  }
-  row = visibleAgentRow(page, agentId);
-  await row.waitFor({ state: 'visible', timeout: 15_000 });
-  return row;
+  const diagnostic = await page.evaluate(id => ({
+    bodyClass: document.body.className,
+    workspaceClass: document.querySelector('[data-testid="code-workspace"]')?.className || '',
+    mobileMenuVisible: Boolean(document.querySelector('[data-testid="code-mobile-menu"]')?.getClientRects().length),
+    sidebarVisible: Boolean(document.querySelector('[data-testid="code-sidebar"]')?.getClientRects().length),
+    projectCount: document.querySelectorAll('[data-testid="code-project-group"]').length,
+    agentRowCount: document.querySelectorAll(`[data-agent-id="${id}"]`).length,
+    visibleAgentRowCount: [...document.querySelectorAll(`[data-agent-id="${id}"]`)]
+      .filter(element => element.getClientRects().length > 0).length,
+  }), agentId);
+  throw new Error(`Agent ${agentId} did not become visible: ${JSON.stringify(diagnostic)}`);
 }
 
 async function clickAgentWithoutReady(page, agentId, trace, viewer) {
-  const row = await ensureAgentVisible(page, agentId);
-  await row.click({ timeout: 15_000 });
-  trace.push({ at: Date.now(), viewer, action: 'click', agentId });
+  const deadline = Date.now() + 15_000;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      const row = await ensureAgentVisible(page, agentId);
+      await row.click({ timeout: Math.min(2_000, deadline - Date.now()) });
+      trace.push({ at: Date.now(), viewer, action: 'click', agentId });
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error(`Agent ${agentId} did not remain clickable`);
 }
 
 async function rapidSwitch(page, agentIds, count, trace, viewer) {

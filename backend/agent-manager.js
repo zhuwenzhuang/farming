@@ -42,7 +42,6 @@ const { deriveTerminalStatus } = require('./terminal-status');
 const { JsonCliRuntime } = require('./json-cli-runtime');
 const {
   AcpRuntime,
-  isCodexSteerUnavailableError,
   stopPersistedAcpProcessGroup,
 } = require('./acp-runtime');
 const { chatRuntimeForProvider, isChatMode } = require('./chat-runtime');
@@ -4550,22 +4549,12 @@ class AgentManager extends EventEmitter {
   }
 
   async sendComposerMessage(agentId, message) {
-    if (this.acpRuntime.canSteer?.(agentId)) {
-      if (this.disposing) {
-        throw new Error('Farming is shutting down; Agent input is not accepted');
-      }
-      return this.trackInputOperation((async () => {
-        try {
-          return await this.sendAcpSteerNow(agentId, message);
-        } catch (error) {
-          if (!isCodexSteerUnavailableError(error)) throw error;
-        }
-        return this.enqueueInputOperation(
-          agentId,
-          () => this.sendComposerMessageNow(agentId, message),
-          { admitted: true },
-        );
-      })());
+    const agent = this.agents.get(agentId);
+    if (agent && isAcpAgent(agent)) {
+      return this.enqueueInputOperationUntilReleased(
+        agentId,
+        releaseInput => this.sendComposerMessageNow(agentId, message, { releaseInput }),
+      );
     }
     return this.enqueueInputOperation(agentId, () => this.sendComposerMessageNow(agentId, message));
   }
@@ -4661,7 +4650,7 @@ class AgentManager extends EventEmitter {
     return applied;
   }
 
-  async sendComposerMessageNow(agentId, message) {
+  async sendComposerMessageNow(agentId, message, options = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) throw new Error('Agent not found');
     const prompt = normalizedComposerPrompt(message);
@@ -4683,24 +4672,20 @@ class AgentManager extends EventEmitter {
 
     if (isAcpAgent(agent)) {
       this.requireLiveAcpAgent(agentId);
-      const result = await this.acpRuntime.prompt(agentId, prompt);
-      const runtime = runtimeBindingOf(agent, 'acp');
-      runtime.state = 'idle';
-      runtime.stopReason = result.stopReason || '';
+      const result = await this.acpRuntime.submitMessage(agentId, prompt, {
+        onSubmitted: options.releaseInput,
+      });
+      if (result.steered !== true) {
+        const runtime = runtimeBindingOf(agent, 'acp');
+        runtime.state = 'idle';
+        runtime.stopReason = result.stopReason || '';
+      }
       this.ensurePersistentAgentSession(agent);
       return { kind: 'acp', ...result };
     }
 
     await this.sendInputNow(agentId, [{ type: 'paste', text }, '\r']);
     return { kind: 'terminal' };
-  }
-
-  async sendAcpSteerNow(agentId, message) {
-    const agent = this.requireLiveAcpAgent(agentId);
-    const prompt = normalizedComposerPrompt(message);
-    const result = await this.acpRuntime.steer(agentId, prompt);
-    this.ensurePersistentAgentSession(agent);
-    return { kind: 'acp', steered: true, ...result };
   }
 
   getJsonCliTranscript(agentId, options = {}) {

@@ -1271,7 +1271,7 @@ function run() {
       acpComposerBehaviorSource.includes('createPendingFollowUpMessage') &&
       serverSource.includes("data: data.toString('base64')") &&
       serverSource.includes('uri: pathToFileURL(filePath).href') &&
-      agentManagerSource.includes('this.acpRuntime.prompt(agentId, prompt)') &&
+      agentManagerSource.includes('this.acpRuntime.submitMessage(agentId, prompt') &&
       workspaceSource.includes('activeAcpRuntime') &&
       acpComposerStateSource.includes("const ACP_COMPOSER_STATE_PREFIX = 'acp:'") &&
       acpSessionHookSource.includes('/acp-session') &&
