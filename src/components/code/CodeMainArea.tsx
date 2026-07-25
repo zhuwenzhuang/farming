@@ -370,10 +370,10 @@ function EmptyWorkspaceGuide({
             <rect width="100%" height="100%" fill="url(#code-empty-home-origin-weight)" />
           </mask>
         </defs>
-        <path className="code-empty-home-connector-base" d="M9 0C22 0 84 76 84 100" />
+        <path className="code-empty-home-connector-base" d="M9 0C52 0 76 70 76 100" />
         <path
           className="code-empty-home-connector-growth"
-          d="M9 0C22 0 84 76 84 100"
+          d="M9 0C52 0 76 70 76 100"
           mask="url(#code-empty-home-origin-mask)"
         />
       </svg>
@@ -388,10 +388,10 @@ function EmptyWorkspaceGuide({
             <rect width="100%" height="100%" fill="url(#code-empty-home-target-weight)" />
           </mask>
         </defs>
-        <path className="code-empty-home-connector-base" d="M84 0C84 24 88 43 92 50" />
+        <path className="code-empty-home-connector-base" d="M76 0C76 4 0 50 98 50" />
         <path
           className="code-empty-home-connector-growth"
-          d="M84 0C84 24 88 43 92 50"
+          d="M76 0C76 4 0 50 98 50"
           mask="url(#code-empty-home-target-mask)"
         />
       </svg>

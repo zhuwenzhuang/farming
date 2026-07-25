@@ -398,11 +398,27 @@ test.describe('display-backed agent flows', () => {
         const viewportPoint = new DOMPoint(point.x, point.y).matrixTransform(transform)
         return { x: viewportPoint.x, y: viewportPoint.y }
       }
+      const getPathEndpointAngle = (selector: string, endpoint: 'start' | 'end') => {
+        const path = document.querySelector<SVGPathElement>(selector)
+        const transform = path?.getScreenCTM()
+        if (!path || !transform) return Number.POSITIVE_INFINITY
+        const length = path.getTotalLength()
+        const sampleLength = Math.min(0.5, length / 4)
+        const first = path.getPointAtLength(endpoint === 'start' ? 0 : length - sampleLength)
+        const second = path.getPointAtLength(endpoint === 'start' ? sampleLength : length)
+        const viewportFirst = new DOMPoint(first.x, first.y).matrixTransform(transform)
+        const viewportSecond = new DOMPoint(second.x, second.y).matrixTransform(transform)
+        return Math.abs(Math.atan2(
+          viewportSecond.y - viewportFirst.y,
+          viewportSecond.x - viewportFirst.x,
+        ) * 180 / Math.PI)
+      }
       const smallBraceWaist = getPathPoint('.code-empty-home-brace path', 0.5)
       const targetBraceWaist = getPathPoint('.code-empty-home-target-brace path', 0.5)
       const connectorStart = getPathPoint('.code-empty-home-origin .code-empty-home-connector-base', 0)
       const connectorJoinTop = getPathPoint('.code-empty-home-origin .code-empty-home-connector-base', 1)
       const connectorJoinBottom = getPathPoint('.code-empty-home-target-path .code-empty-home-connector-base', 0)
+      const connectorTargetTurn = getPathPoint('.code-empty-home-target-path .code-empty-home-connector-base', 0.5)
       const connectorEnd = getPathPoint('.code-empty-home-target-path .code-empty-home-connector-base', 1)
       const connectorBaseStyle = getComputedStyle(
         document.querySelector<SVGPathElement>('.code-empty-home-origin .code-empty-home-connector-base')!,
@@ -450,6 +466,21 @@ test.describe('display-backed agent flows', () => {
         connectorTargetVerticalDelta: connectorEnd && targetBraceWaist
           ? Math.abs(connectorEnd.y - targetBraceWaist.y)
           : Number.POSITIVE_INFINITY,
+        connectorStartAngle: getPathEndpointAngle(
+          '.code-empty-home-origin .code-empty-home-connector-base',
+          'start',
+        ),
+        connectorTargetAngle: getPathEndpointAngle(
+          '.code-empty-home-target-path .code-empty-home-connector-base',
+          'end',
+        ),
+        connectorJoinTangentDelta: Math.abs(
+          getPathEndpointAngle('.code-empty-home-origin .code-empty-home-connector-base', 'end')
+          - getPathEndpointAngle('.code-empty-home-target-path .code-empty-home-connector-base', 'start')
+        ),
+        connectorTargetTurnback: connectorJoinBottom && connectorTargetTurn
+          ? connectorJoinBottom.x - connectorTargetTurn.x
+          : Number.NEGATIVE_INFINITY,
         connectorBaseStrokeWidth: Number.parseFloat(connectorBaseStyle.strokeWidth),
         connectorGrowthStrokeWidth: Number.parseFloat(connectorGrowthStyle.strokeWidth),
         connectorStrokeDasharray: connectorBaseStyle.strokeDasharray,
@@ -488,9 +519,13 @@ test.describe('display-backed agent flows', () => {
     expect(guideGeometry.connectorStartGap).toBeLessThanOrEqual(12)
     expect(guideGeometry.connectorStartVerticalDelta).toBeLessThanOrEqual(1)
     expect(guideGeometry.connectorJoinDelta).toBeLessThanOrEqual(1)
-    expect(guideGeometry.connectorTargetGap).toBeGreaterThanOrEqual(2)
-    expect(guideGeometry.connectorTargetGap).toBeLessThanOrEqual(12)
+    expect(guideGeometry.connectorTargetGap).toBeGreaterThanOrEqual(0)
+    expect(guideGeometry.connectorTargetGap).toBeLessThanOrEqual(3)
     expect(guideGeometry.connectorTargetVerticalDelta).toBeLessThanOrEqual(1)
+    expect(guideGeometry.connectorStartAngle).toBeLessThanOrEqual(12)
+    expect(guideGeometry.connectorTargetAngle).toBeLessThanOrEqual(12)
+    expect(guideGeometry.connectorJoinTangentDelta).toBeLessThanOrEqual(8)
+    expect(guideGeometry.connectorTargetTurnback).toBeGreaterThanOrEqual(4)
     expect(guideGeometry.connectorBaseStrokeWidth).toBeLessThan(guideGeometry.connectorGrowthStrokeWidth)
     expect(guideGeometry.connectorBaseStrokeWidth).toBeCloseTo(0.85, 2)
     expect(guideGeometry.connectorGrowthStrokeWidth).toBeCloseTo(1.55, 2)

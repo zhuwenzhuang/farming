@@ -9827,6 +9827,10 @@ button.code-agent-transcript-result-summary:focus-visible {
   vector-effect: non-scaling-stroke;
 }
 
+.code-empty-home-target-path path {
+  stroke-dashoffset: 1;
+}
+
 .code-empty-home-connector-base {
   stroke-width: 0.85;
 }
