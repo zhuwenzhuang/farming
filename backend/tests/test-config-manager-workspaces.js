@@ -179,7 +179,7 @@ function run() {
       'agent-session:claude:chat:with-colon',
     ]);
     const codexSessionRecord = sessionIndex.providerSessionRecords['agent-session:codex:abc-123'];
-    assert(/^fsess_/.test(codexSessionRecord), 'provider session should map to a stable Farming session id');
+    assert(/^agent_/.test(codexSessionRecord), 'provider session should map to a stable Agent record id');
     assert(fs.existsSync(path.join(farmingDir, 'sessions', `${codexSessionRecord}.json`)));
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(farmingDir, 'settings.json'), 'utf8')).mainPageSessionKeys, undefined);
 

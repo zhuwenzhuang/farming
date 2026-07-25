@@ -494,6 +494,12 @@ function agentAttentionUnread(agent) {
   return finiteNonNegativeInteger(agent && agent.attentionSeq) > finiteNonNegativeInteger(agent && agent.readAttentionSeq);
 }
 
+function setAgentRecordId(agent, agentRecordId) {
+  if (!agent || typeof agentRecordId !== 'string' || !agentRecordId) return;
+  agent.agentRecordId = agentRecordId;
+  agent.persistentSessionId = agentRecordId;
+}
+
 function hasAgentOutputAfterAttentionBaseline(agent) {
   if (!agent || agent.attentionRequiresNewOutput !== true) return true;
   const baselineSeq = finiteNumberOrNull(agent.attentionBaselineOutputSeq);
@@ -1530,7 +1536,7 @@ class AgentManager extends EventEmitter {
         { ...record, persistentSessionId: record.id || record.persistentSessionId || '' },
         { status: 'exited' },
       );
-      recoveredAgent.persistentSessionId = record.id || record.persistentSessionId || '';
+      setAgentRecordId(recoveredAgent, record.id || record.persistentSessionId || '');
       try {
         if (operation.type === 'create') {
           this.transitionPersistentAgentOperation(
@@ -1852,7 +1858,7 @@ class AgentManager extends EventEmitter {
       if (!agent) {
         const recoveredAgent = this.recoveredAgentRecord(agentId, record.engine || 'native', record, { status: 'running' });
         ensureAgentOrders(recoveredAgent, Array.from(this.agents.values()));
-        recoveredAgent.persistentSessionId = record.id || '';
+        setAgentRecordId(recoveredAgent, record.id || '');
         recoveredAgent.engineStarted = false;
         if (blockedOperation) {
           recoveredAgent.status = 'error';
@@ -2040,7 +2046,7 @@ class AgentManager extends EventEmitter {
         { ...record, persistentSessionId: record.id || '' },
         { status: 'exited' },
       );
-      staged.persistentSessionId = record.id || '';
+      setAgentRecordId(staged, record.id || '');
       staged.structuredRuntimeProcess = null;
       try {
         if (operation.type === 'create') {
@@ -2099,7 +2105,7 @@ class AgentManager extends EventEmitter {
         record,
         { status: 'stopped' },
       );
-      staged.persistentSessionId = record.id || '';
+      setAgentRecordId(staged, record.id || '');
       const request = operation.request || {};
       if (Object.prototype.hasOwnProperty.call(request, 'customTitle')) {
         staged.customTitle = String(request.customTitle || '').trim().slice(0, 80);
@@ -2171,6 +2177,7 @@ class AgentManager extends EventEmitter {
     const providerSessionProvider = metadata.providerSessionProvider || metadata.provider || '';
     const providerSessionId = metadata.providerSessionId || metadata.codexAppServerThreadId || '';
     const runtimeBinding = runtimeBindingFor(runtimeKind(metadata), metadata);
+    const agentRecordId = metadata.agentRecordId || metadata.persistentSessionId || metadata.id || '';
     return {
       id: agentId,
       command: metadata.forkCommand || metadata.command || '',
@@ -2227,7 +2234,8 @@ class AgentManager extends EventEmitter {
       restartedFromAgentIds: Array.isArray(metadata.restartedFromAgentIds)
         ? metadata.restartedFromAgentIds.filter(id => typeof id === 'string' && id)
         : [],
-      persistentSessionId: metadata.persistentSessionId || '',
+      agentRecordId,
+      persistentSessionId: agentRecordId,
       lifecycleJournal: lifecycleJournal(metadata),
       customTitle: metadata.customTitle || '',
       terminalBusy: typeof state.terminalBusy === 'boolean' ? state.terminalBusy : null,
@@ -2324,24 +2332,24 @@ class AgentManager extends EventEmitter {
       return '';
     }
     this.assertPersistentAgentRuntimeOwner(agent);
-    const previousPersistentSessionId = agent.persistentSessionId || '';
+    const previousAgentRecordId = agent.agentRecordId || agent.persistentSessionId || '';
     const sessionOptions = agent.providerSessionKey
       ? this.acpSessionOptionsByKey.get(agent.providerSessionKey)
       : null;
-    const persistentSessionId = this.configManager.ensureAgentSessionRecord(agent, {
+    const agentRecordId = this.configManager.ensureAgentSessionRecord(agent, {
       ...(sessionOptions ? {
         acpAdditionalDirectories: [...sessionOptions.additionalDirectories],
         acpMcpServers: JSON.parse(JSON.stringify(sessionOptions.mcpServers)),
       } : {}),
       ...patch,
     });
-    if (persistentSessionId) {
-      agent.persistentSessionId = persistentSessionId;
+    if (agentRecordId) {
+      setAgentRecordId(agent, agentRecordId);
     }
     if (
-      persistentSessionId
-      && previousPersistentSessionId
-      && persistentSessionId !== previousPersistentSessionId
+      agentRecordId
+      && previousAgentRecordId
+      && agentRecordId !== previousAgentRecordId
       && agent.providerSessionKey
       && typeof this.configManager.getAgentSessionRecordForProviderSessionKey === 'function'
     ) {
@@ -2368,7 +2376,7 @@ class AgentManager extends EventEmitter {
         agent.unread = agentAttentionUnread(agent);
       }
     }
-    return persistentSessionId;
+    return agentRecordId;
   }
 
   assertPersistentAgentRuntimeOwner(agent) {
@@ -2574,7 +2582,7 @@ class AgentManager extends EventEmitter {
       return { error: `Failed to persist Create result: ${error.message || error}` };
     }
     agent.lifecycleJournal = staged.lifecycleJournal;
-    if (staged.persistentSessionId) agent.persistentSessionId = staged.persistentSessionId;
+    setAgentRecordId(agent, staged.agentRecordId || staged.persistentSessionId || '');
     return { agentId, operationId: operation.id, result };
   }
 
@@ -2595,7 +2603,7 @@ class AgentManager extends EventEmitter {
     }
     if (typeof this.configManager.rememberAgentSessionRecord === 'function') {
       const persistentSessionId = this.configManager.rememberAgentSessionRecord(agent);
-      if (persistentSessionId) agent.persistentSessionId = persistentSessionId;
+      setAgentRecordId(agent, persistentSessionId);
       return;
     }
     this.setMainPageSessionKeys([
@@ -3869,7 +3877,12 @@ class AgentManager extends EventEmitter {
       runtimeSwitchVerifiedSessionId: typeof options.runtimeSwitchVerifiedSessionId === 'string'
         ? options.runtimeSwitchVerifiedSessionId
         : '',
-      persistentSessionId: typeof options.persistentSessionId === 'string' ? options.persistentSessionId : '',
+      agentRecordId: typeof options.agentRecordId === 'string'
+        ? options.agentRecordId
+        : (typeof options.persistentSessionId === 'string' ? options.persistentSessionId : ''),
+      persistentSessionId: typeof options.agentRecordId === 'string'
+        ? options.agentRecordId
+        : (typeof options.persistentSessionId === 'string' ? options.persistentSessionId : ''),
       customTitle: typeof options.customTitle === 'string' ? options.customTitle.trim().slice(0, 80) : '',
       terminalBusy: null,
       shellCwd: '',
@@ -5081,7 +5094,7 @@ class AgentManager extends EventEmitter {
     }
     agent.customTitle = customTitle;
     agent.lifecycleJournal = staged.lifecycleJournal;
-    if (staged.persistentSessionId) agent.persistentSessionId = staged.persistentSessionId;
+    setAgentRecordId(agent, staged.agentRecordId || staged.persistentSessionId || '');
     this.updateEngineProviderSessionMetadata(agent);
     this.emit('update');
     return { agentId, customTitle, operationId: admission.operation.id };
@@ -5127,7 +5140,7 @@ class AgentManager extends EventEmitter {
     }
     agent.task = nextTask;
     agent.lifecycleJournal = staged.lifecycleJournal;
-    if (staged.persistentSessionId) agent.persistentSessionId = staged.persistentSessionId;
+    setAgentRecordId(agent, staged.agentRecordId || staged.persistentSessionId || '');
     this.emit('update');
     return { agentId, task: nextTask, operationId: admission.operation.id };
   }
@@ -5361,9 +5374,14 @@ class AgentManager extends EventEmitter {
       let rollbackError = null;
       for (const item of attempted.reverse()) {
         try {
+          const agentRecordId = item.stagedAgent.agentRecordId
+            || item.stagedAgent.persistentSessionId
+            || item.agent.agentRecordId
+            || item.agent.persistentSessionId;
           this.ensurePersistentAgentSession({
             ...item.agent,
-            persistentSessionId: item.stagedAgent.persistentSessionId || item.agent.persistentSessionId,
+            agentRecordId,
+            persistentSessionId: agentRecordId,
           });
         } catch (restoreError) {
           rollbackError = restoreError;
@@ -5378,9 +5396,10 @@ class AgentManager extends EventEmitter {
 
     const updates = staged.map(item => {
       item.agent[field] = item.order;
-      if (item.stagedAgent.persistentSessionId) {
-        item.agent.persistentSessionId = item.stagedAgent.persistentSessionId;
-      }
+      setAgentRecordId(
+        item.agent,
+        item.stagedAgent.agentRecordId || item.stagedAgent.persistentSessionId || '',
+      );
       this.updateEngineProviderSessionMetadata(item.agent);
       return { agentId: item.agent.id, [field]: item.order };
     });

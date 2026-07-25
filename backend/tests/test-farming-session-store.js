@@ -38,7 +38,7 @@ function run() {
   const indexFile = path.join(root, 'sessions', 'index.json');
   let index = readJson(indexFile);
   const legacyRecordId = index.providerSessionRecords['agent-session:codex:legacy-session'];
-  assert(/^fsess_/.test(legacyRecordId), 'legacy provider session should be mapped to a stable Farming session id');
+  assert(/^agent_/.test(legacyRecordId), 'legacy provider session should be mapped to a stable Agent record id');
   assert(fs.existsSync(path.join(root, 'sessions', `${legacyRecordId}.json`)));
 
   store.rememberMainPageSessionKey('agent-session:claude:claude-session', {
@@ -47,7 +47,7 @@ function run() {
   });
   index = readJson(indexFile);
   const claudeRecordId = index.providerSessionRecords['agent-session:claude:claude-session'];
-  assert(/^fsess_/.test(claudeRecordId));
+  assert(/^agent_/.test(claudeRecordId));
   const claudeRecord = readJson(path.join(root, 'sessions', `${claudeRecordId}.json`));
   assert.strictEqual(claudeRecord.id, claudeRecordId);
   assert.strictEqual(claudeRecord.provider, 'claude');
@@ -104,7 +104,7 @@ function run() {
     projectOrder: 4096,
     pinnedOrder: 2048,
   });
-  assert(/^fsess_/.test(tempRecordId));
+  assert(/^agent_/.test(tempRecordId));
   const temporaryRecord = readJson(path.join(root, 'sessions', `${tempRecordId}.json`));
   assert.strictEqual(temporaryRecord.projectOrder, 4096);
   assert.strictEqual(temporaryRecord.pinnedOrder, 2048);
@@ -131,7 +131,7 @@ function run() {
   assert.strictEqual(resolvedRecordId, tempRecordId, 'resolved provider id should keep the original Farming session file');
   index = readJson(indexFile);
   assert.strictEqual(index.providerSessionRecords['agent-session:codex:resolved-codex-session'], tempRecordId);
-  const resolvedRecord = readJson(path.join(root, 'sessions', `${tempRecordId}.json`));
+  const resolvedRecord = store.readRecord(tempRecordId);
   assert.strictEqual(resolvedRecord.providerSessionId, 'resolved-codex-session');
   assert.strictEqual(resolvedRecord.providerSessionTemporary, false);
   assert.strictEqual(resolvedRecord.providerSessionTitle, '看下cron worker怎么加新模块');
@@ -142,7 +142,17 @@ function run() {
   assert.deepStrictEqual(resolvedRecord.acpMcpServers, [
     { name: 'docs', command: '/bin/docs-mcp', args: [], env: [] },
   ]);
+  const resolvedMetadata = readJson(path.join(root, 'sessions', `${tempRecordId}.json`));
+  const resolvedState = readJson(path.join(root, 'sessions', `${tempRecordId}.state.json`));
+  assert.strictEqual(resolvedMetadata.recordVersion, 1);
+  assert.strictEqual(resolvedMetadata.agentRecordId, tempRecordId);
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(resolvedMetadata, 'acpState'), false);
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(resolvedMetadata, 'attentionSeq'), false);
+  assert.strictEqual(resolvedState.agentStateVersion, 1);
+  assert.strictEqual(resolvedState.agentRecordId, tempRecordId);
+  assert.strictEqual(resolvedState.acpState, 'idle');
   assert.strictEqual(fs.statSync(path.join(root, 'sessions', `${tempRecordId}.json`)).mode & 0o777, 0o600);
+  assert.strictEqual(fs.statSync(path.join(root, 'sessions', `${tempRecordId}.state.json`)).mode & 0o777, 0o600);
   assert.strictEqual(fs.statSync(indexFile).mode & 0o777, 0o600);
 
   store.ensureRecordForAgent({
@@ -302,8 +312,157 @@ function run() {
       providerSessionTemporary: false,
     }),
     /already bound/,
-    'one fsess must not be rebound from one stable provider identity to another',
+    'one Agent record must not be rebound from one stable provider identity to another',
   );
+
+  const legacyReadonlyId = 'fsess_readonly_upgrade';
+  const legacyReadonlyFile = path.join(root, 'sessions', `${legacyReadonlyId}.json`);
+  const legacyReadonlyRecord = {
+    id: legacyReadonlyId,
+    kind: 'agent',
+    createdAt: 1,
+    updatedAt: 2,
+    runtimeAgentId: 'agent-legacy-runtime',
+    command: 'codex',
+    cwd: '/legacy/repo',
+    projectWorkspace: '/legacy/repo',
+    provider: 'codex',
+    providerSessionId: '',
+    providerSessionKey: '',
+    providerSessionTemporary: true,
+    agentRuntimeMode: 'acp',
+    acpState: 'working',
+    attentionSeq: 3,
+    readAttentionSeq: 1,
+    archived: false,
+    visibleOnMainPage: true,
+  };
+  fs.writeFileSync(legacyReadonlyFile, JSON.stringify(legacyReadonlyRecord, null, 2));
+  const legacyBytes = fs.readFileSync(legacyReadonlyFile);
+  assert.strictEqual(store.readRecord(legacyReadonlyId).acpState, 'working');
+  const upgradedRecordId = store.ensureRecordForAgent({
+    id: 'agent-legacy-runtime',
+    agentRecordId: legacyReadonlyId,
+    persistentSessionId: legacyReadonlyId,
+    command: 'codex',
+    cwd: '/legacy/repo',
+    projectWorkspace: '/legacy/repo',
+    providerSessionProvider: 'codex',
+    providerSessionId: '',
+    providerSessionTemporary: true,
+    agentRuntimeMode: 'acp',
+    acpState: 'idle',
+    attentionSeq: 4,
+    readAttentionSeq: 1,
+  });
+  assert(/^agent_/.test(upgradedRecordId));
+  assert.notStrictEqual(upgradedRecordId, legacyReadonlyId);
+  assert.deepStrictEqual(fs.readFileSync(legacyReadonlyFile), legacyBytes, 'legacy fsess files must remain byte-for-byte read-only');
+  assert.strictEqual(store.readRecord(upgradedRecordId).legacyRecordId, legacyReadonlyId);
+  assert.strictEqual(store.readRecord(upgradedRecordId).acpState, 'idle');
+  assert.strictEqual(store.readRecord(upgradedRecordId).attentionSeq, 4);
+  assert.strictEqual(
+    store.listAgentRecords().some(record => record.id === legacyReadonlyId),
+    false,
+    'a promoted legacy record must not be returned beside its Agent-record successor',
+  );
+  const upgradedMetadataFile = path.join(root, 'sessions', `${upgradedRecordId}.json`);
+  const metadataBeforeStateUpdate = fs.readFileSync(upgradedMetadataFile);
+  const stateUpdateRecordId = store.ensureRecordForAgent({
+    id: 'agent-legacy-runtime',
+    agentRecordId: upgradedRecordId,
+    command: 'codex',
+    cwd: '/legacy/repo',
+    projectWorkspace: '/legacy/repo',
+    providerSessionProvider: 'codex',
+    providerSessionId: '',
+    providerSessionTemporary: true,
+    agentRuntimeMode: 'acp',
+    acpState: 'working',
+    attentionSeq: 5,
+    readAttentionSeq: 1,
+  });
+  assert.strictEqual(stateUpdateRecordId, upgradedRecordId, 'the new Agent record id must work without its legacy alias');
+  assert.deepStrictEqual(
+    fs.readFileSync(upgradedMetadataFile),
+    metadataBeforeStateUpdate,
+    'an internal Agent-state update must not rewrite the outer metadata record',
+  );
+  assert.strictEqual(store.readRecord(upgradedRecordId).acpState, 'working');
+  assert.strictEqual(store.readRecord(upgradedRecordId).attentionSeq, 5);
+
+  const legacyProviderRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-session-store-legacy-provider-'));
+  const legacyProviderSessions = path.join(legacyProviderRoot, 'sessions');
+  fs.mkdirSync(legacyProviderSessions, { recursive: true });
+  const legacyProviderId = 'fsess_legacy_provider';
+  const legacyProviderKey = 'agent-session:claude:legacy-provider-session';
+  const legacyProviderFile = path.join(legacyProviderSessions, `${legacyProviderId}.json`);
+  fs.writeFileSync(legacyProviderFile, JSON.stringify({
+    id: legacyProviderId,
+    kind: 'agent',
+    createdAt: 1,
+    updatedAt: 2,
+    runtimeAgentId: 'agent-legacy-provider-runtime',
+    command: 'claude',
+    cwd: '/legacy/provider',
+    projectWorkspace: '/legacy/provider',
+    provider: 'claude',
+    providerSessionId: 'legacy-provider-session',
+    providerSessionKey: legacyProviderKey,
+    providerSessionTemporary: false,
+    agentRuntimeMode: 'acp',
+    acpState: 'idle',
+    archived: false,
+    visibleOnMainPage: true,
+  }, null, 2));
+  fs.writeFileSync(path.join(legacyProviderSessions, 'index.json'), JSON.stringify({
+    version: 1,
+    mainPageSessionKeys: [legacyProviderKey],
+    providerSessionRecords: { [legacyProviderKey]: legacyProviderId },
+    updatedAt: 2,
+  }, null, 2));
+  const legacyProviderBytes = fs.readFileSync(legacyProviderFile);
+  const legacyProviderStore = new FarmingSessionStore(
+    legacyProviderRoot,
+    { normalizeMainPageSessionKeys },
+  );
+  legacyProviderStore.init();
+  assert.strictEqual(legacyProviderStore.getRecordForProviderSessionKey(legacyProviderKey).id, legacyProviderId);
+  const upgradedProviderId = legacyProviderStore.ensureRecordForAgent({
+    id: 'agent-legacy-provider-runtime',
+    agentRecordId: legacyProviderId,
+    persistentSessionId: legacyProviderId,
+    command: 'claude',
+    cwd: '/legacy/provider',
+    projectWorkspace: '/legacy/provider',
+    providerSessionProvider: 'claude',
+    providerSessionId: 'legacy-provider-session',
+    providerSessionKey: legacyProviderKey,
+    providerSessionTemporary: false,
+    agentRuntimeMode: 'acp',
+    acpState: 'working',
+  });
+  assert(/^agent_/.test(upgradedProviderId));
+  assert.deepStrictEqual(fs.readFileSync(legacyProviderFile), legacyProviderBytes);
+  assert.strictEqual(
+    readJson(path.join(legacyProviderSessions, 'index.json')).providerSessionRecords[legacyProviderKey],
+    upgradedProviderId,
+  );
+  const restartedLegacyProviderStore = new FarmingSessionStore(
+    legacyProviderRoot,
+    { normalizeMainPageSessionKeys },
+  );
+  restartedLegacyProviderStore.init();
+  assert.strictEqual(
+    restartedLegacyProviderStore.getRecordForProviderSessionKey(legacyProviderKey).id,
+    upgradedProviderId,
+  );
+  assert.deepStrictEqual(
+    restartedLegacyProviderStore.listAgentRecords().map(record => record.id),
+    [upgradedProviderId],
+    'restart must expose only the writable successor of a read-only legacy provider record',
+  );
+  fs.rmSync(legacyProviderRoot, { recursive: true, force: true });
 
   const repairRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-session-store-repair-'));
   const repairStore = new FarmingSessionStore(repairRoot, { normalizeMainPageSessionKeys });

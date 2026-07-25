@@ -25,6 +25,10 @@ function acpCheckpointsDir(configDir) {
   return path.join(sessionsDir(configDir), 'acp-checkpoints');
 }
 
+function agentStateFile(configDir, agentRecordId) {
+  return path.join(sessionsDir(configDir), `${agentRecordId}.state.json`);
+}
+
 function historyDir(configDir) {
   return path.join(configDir, 'history');
 }
@@ -115,6 +119,7 @@ function farmingNetTrustFile(configDir) {
 
 module.exports = {
   acpCheckpointsDir,
+  agentStateFile,
   farmingNetInstancesFile,
   farmingNetServerLogFile,
   farmingNetServerStateFile,

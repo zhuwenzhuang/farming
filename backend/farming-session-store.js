@@ -1,12 +1,41 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { isDeepStrictEqual } = require('util');
 const { legacyRuntimeMetadata } = require('./agent-runtime-binding');
 const { lifecycleJournal } = require('./agent-lifecycle-journal');
 const storageLayout = require('./storage-layout');
 
-const SESSION_ID_PREFIX = 'fsess';
+const AGENT_RECORD_ID_PREFIX = 'agent';
+const AGENT_RECORD_VERSION = 1;
+const AGENT_STATE_VERSION = 1;
 const MAX_MAIN_PAGE_SESSION_KEYS = 50;
+const AGENT_STATE_FIELDS = [
+  'acpState',
+  'acpError',
+  'acpStopReason',
+  'acpPendingPermission',
+  'acpPendingPermissions',
+  'acpPendingElicitation',
+  'acpPendingElicitations',
+  'acpActiveElicitations',
+  'acpSessionUpdatedAt',
+  'acpSessionRevision',
+  'jsonCliState',
+  'jsonCliError',
+  'jsonCliTranscriptUpdatedAt',
+  'attentionSeq',
+  'readAttentionSeq',
+  'attentionUpdatedAt',
+  'readAttentionAt',
+  'attentionReason',
+  'attentionOutputEpoch',
+  'attentionOutputSeq',
+  'readOutputEpoch',
+  'readOutputSeq',
+  'unread',
+];
+const AGENT_STATE_FIELD_SET = new Set(AGENT_STATE_FIELDS);
 const PRODUCT_STATE_FIELDS = [
   'projectWorkspace',
   'task',
@@ -30,15 +59,45 @@ function now() {
   return Date.now();
 }
 
-function createSessionId() {
+function createAgentRecordId() {
   const stamp = now().toString(36);
   const random = crypto.randomBytes(6).toString('hex');
-  return `${SESSION_ID_PREFIX}_${stamp}_${random}`;
+  return `${AGENT_RECORD_ID_PREFIX}_${stamp}_${random}`;
 }
 
 function safeSessionFileName(id) {
   const value = String(id || '').trim();
-  return /^fsess_[A-Za-z0-9_-]+$/.test(value) ? `${value}.json` : '';
+  return /^(?:agent|fsess)_[A-Za-z0-9_-]+$/.test(value) ? `${value}.json` : '';
+}
+
+function isLegacySessionId(id) {
+  return /^fsess_[A-Za-z0-9_-]+$/.test(String(id || '').trim());
+}
+
+function isAgentRecordId(id) {
+  return /^agent_[A-Za-z0-9_-]+$/.test(String(id || '').trim());
+}
+
+function agentRecordIdFor(agent) {
+  if (agent && Object.prototype.hasOwnProperty.call(agent, 'persistentSessionId')) {
+    return typeof agent.persistentSessionId === 'string' ? agent.persistentSessionId : '';
+  }
+  return typeof agent?.agentRecordId === 'string' ? agent.agentRecordId : '';
+}
+
+function cloneJson(value) {
+  if (value === undefined) return undefined;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function sameJson(left, right) {
+  return isDeepStrictEqual(left, right);
+}
+
+function withoutUpdatedAt(value) {
+  const copy = { ...(value || {}) };
+  delete copy.updatedAt;
+  return copy;
 }
 
 function atomicWriteJson(file, value) {
@@ -95,22 +154,15 @@ class FarmingSessionStore {
   reconcileProviderSessionIndex() {
     const index = this.ensureIndex();
     const recordsByProviderKey = new Map();
-    let names = [];
-    try {
-      names = fs.readdirSync(this.sessionsDir);
-    } catch {
-      return;
-    }
-    for (const name of names) {
-      if (!name.endsWith('.json')) continue;
-      const id = name.slice(0, -5);
-      if (!safeSessionFileName(id)) continue;
-      const record = this.readRecord(id);
+    const records = this.listStoredAgentRecords();
+    const successors = this.legacySuccessors(records);
+    for (const record of records) {
+      if (successors.has(record.id)) continue;
       const sessionKey = String(record?.providerSessionKey || '');
       if (!record || record.kind !== 'agent' || !parseProviderSessionKey(sessionKey)) continue;
-      const records = recordsByProviderKey.get(sessionKey) || [];
-      records.push(record);
-      recordsByProviderKey.set(sessionKey, records);
+      const matches = recordsByProviderKey.get(sessionKey) || [];
+      matches.push(record);
+      recordsByProviderKey.set(sessionKey, matches);
     }
 
     for (const [sessionKey, records] of recordsByProviderKey) {
@@ -120,7 +172,7 @@ class FarmingSessionStore {
         const ids = records.map(record => record.id).sort().join(', ');
         throw new Error(`Conflicting Farming session records for ${sessionKey}: ${ids}`);
       }
-      if (!indexedRecord) {
+      if (!indexedRecord || isLegacySessionId(indexedId)) {
         index.providerSessionRecords[sessionKey] = records[0].id;
       }
     }
@@ -188,7 +240,11 @@ class FarmingSessionStore {
     return fileName ? path.join(this.sessionsDir, fileName) : '';
   }
 
-  readRecord(id) {
+  agentStateFile(id) {
+    return isAgentRecordId(id) ? storageLayout.agentStateFile(this.configDir, id) : '';
+  }
+
+  readMetadataRecord(id) {
     const file = this.sessionFile(id);
     if (!file) return null;
     try {
@@ -200,11 +256,122 @@ class FarmingSessionStore {
     }
   }
 
+  readAgentState(id) {
+    const file = this.agentStateFile(id);
+    if (!file) return null;
+    try {
+      if (!fs.existsSync(file)) return null;
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (
+        !parsed
+        || typeof parsed !== 'object'
+        || parsed.agentRecordId !== id
+        || parsed.agentStateVersion !== AGENT_STATE_VERSION
+      ) {
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  readRecord(id) {
+    const metadata = this.readMetadataRecord(id);
+    if (!metadata) return null;
+    if (!isAgentRecordId(id)) return metadata;
+    const state = this.readAgentState(id);
+    if (!state) return { ...metadata, agentRecordId: id };
+    const merged = { ...metadata, agentRecordId: id };
+    AGENT_STATE_FIELDS.forEach(field => {
+      if (Object.prototype.hasOwnProperty.call(state, field)) merged[field] = cloneJson(state[field]);
+    });
+    return merged;
+  }
+
+  splitAgentRecord(record, id) {
+    const metadata = {};
+    const state = {
+      agentStateVersion: AGENT_STATE_VERSION,
+      agentRecordId: id,
+      kind: 'agent-state',
+    };
+    Object.entries(record || {}).forEach(([field, value]) => {
+      if (AGENT_STATE_FIELD_SET.has(field)) state[field] = cloneJson(value);
+      else metadata[field] = cloneJson(value);
+    });
+    metadata.id = id;
+    metadata.agentRecordId = id;
+    metadata.kind = 'agent';
+    metadata.recordVersion = AGENT_RECORD_VERSION;
+    return { metadata, state };
+  }
+
+  promoteIndexRecordId(previousId, nextId) {
+    if (!this.index || !previousId || previousId === nextId) return;
+    Object.entries(this.index.providerSessionRecords).forEach(([key, id]) => {
+      if (id === previousId) this.index.providerSessionRecords[key] = nextId;
+    });
+  }
+
   writeRecord(record) {
     if (!record || !safeSessionFileName(record.id)) return '';
-    const file = this.sessionFile(record.id);
-    atomicWriteJson(file, record);
-    return record.id;
+    const previousId = record.id;
+    const id = isLegacySessionId(previousId) ? createAgentRecordId() : previousId;
+    if (!isAgentRecordId(id)) return '';
+    const promoted = id !== previousId;
+    const nextRecord = {
+      ...record,
+      id,
+      agentRecordId: id,
+      ...(promoted ? { legacyRecordId: previousId } : {}),
+    };
+    const { metadata, state } = this.splitAgentRecord(nextRecord, id);
+    const existingMetadata = this.readMetadataRecord(id);
+    const existingState = this.readAgentState(id);
+    const metadataChanged = !existingMetadata
+      || !sameJson(withoutUpdatedAt(existingMetadata), withoutUpdatedAt(metadata));
+    const stateChanged = !existingState
+      || !sameJson(withoutUpdatedAt(existingState), withoutUpdatedAt(state));
+    if (stateChanged) {
+      state.updatedAt = now();
+      atomicWriteJson(this.agentStateFile(id), state);
+    }
+    if (metadataChanged) {
+      metadata.updatedAt = now();
+      atomicWriteJson(this.sessionFile(id), metadata);
+    }
+    if (promoted) this.promoteIndexRecordId(previousId, id);
+    return id;
+  }
+
+  listStoredAgentRecords() {
+    let names = [];
+    try {
+      names = fs.readdirSync(this.sessionsDir);
+    } catch {
+      return [];
+    }
+    return names
+      .filter(name => name.endsWith('.json') && !name.endsWith('.state.json'))
+      .map(name => name.slice(0, -5))
+      .filter(id => safeSessionFileName(id))
+      .map(id => this.readRecord(id))
+      .filter(record => record && record.kind === 'agent');
+  }
+
+  legacySuccessors(records) {
+    const successors = new Map();
+    for (const record of Array.isArray(records) ? records : []) {
+      const legacyId = String(record?.legacyRecordId || '').trim();
+      if (!isLegacySessionId(legacyId)) continue;
+      const previous = successors.get(legacyId);
+      if (previous && previous !== record.id) {
+        throw new Error(`Conflicting Agent record successors for ${legacyId}: ${previous}, ${record.id}`);
+      }
+      successors.set(legacyId, record.id);
+    }
+    return successors;
   }
 
   providerSessionKeyForAgent(agent) {
@@ -279,7 +446,6 @@ class FarmingSessionStore {
           ? agent.providerSessionTitle
           : (typeof agent.sessionTitle === 'string' ? agent.sessionTitle : '')),
       startedAt: typeof agent.startedAt === 'number' ? agent.startedAt : null,
-      lastSeenAt: now(),
     };
   }
 
@@ -302,7 +468,7 @@ class FarmingSessionStore {
     }
     const id = safeSessionFileName(existingId)
       ? existingId
-      : (normalizedPreferredId || createSessionId());
+      : (normalizedPreferredId || createAgentRecordId());
     const existing = this.readRecord(id) || {};
     const record = {
       id,
@@ -325,17 +491,18 @@ class FarmingSessionStore {
     Object.entries(index.providerSessionRecords).forEach(([key, recordId]) => {
       if (key !== sessionKey && recordId === id) delete index.providerSessionRecords[key];
     });
-    index.providerSessionRecords[sessionKey] = id;
-    this.writeRecord(record);
+    const writtenId = this.writeRecord(record);
+    index.providerSessionRecords[sessionKey] = writtenId;
     this.writeIndex();
-    return id;
+    return writtenId;
   }
 
   ensureRecordForAgent(agent, patch = {}) {
     const providerSessionKey = this.providerSessionKeyForAgent(agent);
     if (providerSessionKey) {
-      const previousId = safeSessionFileName(agent?.persistentSessionId)
-        ? agent.persistentSessionId
+      const preferredId = agentRecordIdFor(agent);
+      const previousId = safeSessionFileName(preferredId)
+        ? preferredId
         : '';
       const previous = previousId ? this.readRecord(previousId) : null;
       const canonical = this.getRecordForProviderSessionKey(providerSessionKey);
@@ -352,10 +519,15 @@ class FarmingSessionStore {
       const id = this.ensureRecordForProviderSessionKey(providerSessionKey, {
         ...agentPatch,
         ...patch,
-      }, agent?.persistentSessionId || '');
+      }, preferredId || '');
       if (previousId && previousId !== id) {
-        if (previous && (previous.providerSessionTemporary === true || !previous.providerSessionKey)) {
-          this.writeRecord({
+        const promotedFromPrevious = this.readRecord(id)?.legacyRecordId === previousId;
+        if (
+          !promotedFromPrevious
+          && previous
+          && (previous.providerSessionTemporary === true || !previous.providerSessionKey)
+        ) {
+          const mergedId = this.writeRecord({
             ...previous,
             runtimeAgentId: '',
             visibleOnMainPage: false,
@@ -364,13 +536,15 @@ class FarmingSessionStore {
             mergedInto: id,
             updatedAt: now(),
           });
+          if (mergedId && mergedId !== previousId) this.writeIndex();
         }
       }
       return id;
     }
 
-    const existingId = safeSessionFileName(agent?.persistentSessionId) ? agent.persistentSessionId : '';
-    const id = existingId || createSessionId();
+    const preferredId = agentRecordIdFor(agent);
+    const existingId = safeSessionFileName(preferredId) ? preferredId : '';
+    const id = existingId || createAgentRecordId();
     const existing = this.readRecord(id) || {};
     const record = {
       id,
@@ -383,8 +557,7 @@ class FarmingSessionStore {
       ...patch,
       updatedAt: now(),
     };
-    this.writeRecord(record);
-    return id;
+    return this.writeRecord(record);
   }
 
   setProviderSessionDisplayState(sessionKey, patch = {}) {
@@ -435,11 +608,12 @@ class FarmingSessionStore {
       const id = index.providerSessionRecords[key];
       const existing = this.readRecord(id);
       if (existing) {
-        this.writeRecord({
+        const writtenId = this.writeRecord({
           ...existing,
           visibleOnMainPage: false,
           updatedAt: now(),
         });
+        if (writtenId) index.providerSessionRecords[key] = writtenId;
       }
     });
     index.mainPageSessionKeys = normalized;
@@ -454,11 +628,12 @@ class FarmingSessionStore {
     const id = index.providerSessionRecords[sessionKey];
     const existing = this.readRecord(id);
     if (existing) {
-      this.writeRecord({
+      const writtenId = this.writeRecord({
         ...existing,
         visibleOnMainPage: false,
         updatedAt: now(),
       });
+      if (writtenId) index.providerSessionRecords[sessionKey] = writtenId;
     }
     this.writeIndex();
     return true;
@@ -484,20 +659,15 @@ class FarmingSessionStore {
 
   listAgentRecords() {
     this.ensureIndex();
-    let names = [];
-    try {
-      names = fs.readdirSync(this.sessionsDir);
-    } catch {
-      return [];
-    }
-    return names
-      .filter(name => name.endsWith('.json') && safeSessionFileName(name.slice(0, -5)))
-      .map(name => this.readRecord(name.slice(0, -5)))
-      .filter(record => record && record.kind === 'agent');
+    const records = this.listStoredAgentRecords();
+    const successors = this.legacySuccessors(records);
+    return records.filter(record => !successors.has(record.id));
   }
 }
 
 module.exports = {
+  AGENT_RECORD_VERSION,
+  AGENT_STATE_VERSION,
   FarmingSessionStore,
   MAX_MAIN_PAGE_SESSION_KEYS,
   parseProviderSessionKey,
