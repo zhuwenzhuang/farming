@@ -81,6 +81,29 @@ async function runTests() {
   }
 
   {
+    const previousTimeZone = process.env.TZ;
+    const previousLocale = process.env.LC_ALL;
+    try {
+      process.env.TZ = 'UTC';
+      process.env.LC_ALL = 'C';
+      const utcIdentity = await readServerProcessIdentity(process.pid);
+      process.env.TZ = 'Asia/Shanghai';
+      process.env.LC_ALL = 'zh_CN.UTF-8';
+      const localizedIdentity = await readServerProcessIdentity(process.pid);
+      assert.deepStrictEqual(
+        localizedIdentity,
+        utcIdentity,
+        'server process identity must not depend on the stop caller time zone or locale',
+      );
+    } finally {
+      if (previousTimeZone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimeZone;
+      if (previousLocale === undefined) delete process.env.LC_ALL;
+      else process.env.LC_ALL = previousLocale;
+    }
+  }
+
+  {
     const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-cli.'));
     execFileSync('git', ['init', '-q', repo]);
     execFileSync('git', ['-C', repo, 'config', 'user.email', 'review@example.com']);
@@ -251,14 +274,15 @@ async function runTests() {
         unrelated.once('spawn', resolve);
         unrelated.once('error', reject);
       });
+      const unrelatedIdentity = await readServerProcessIdentity(unrelated.pid);
+      assert(unrelatedIdentity, 'the detached stale process must expose a process identity');
       fs.writeFileSync(storageLayout.serverPidFile(configDir), String(unrelated.pid));
       fs.writeFileSync(serverStateFile(configDir), JSON.stringify({
         pid: unrelated.pid,
         port,
         configDir: fs.realpathSync.native(configDir),
         processIdentity: {
-          pid: unrelated.pid,
-          processGroupId: unrelated.pid,
+          ...unrelatedIdentity,
           startedAt: 'stale-process-start-time',
         },
       }));

@@ -71,6 +71,7 @@ function createHarness({ clipboardRead } = {}) {
     clipboard: clipboardRead ? { readText: clipboardRead } : undefined,
   };
   sandbox.window = {
+    AbortController: globalThis.AbortController,
     FarmingCrtMarkdownRenderer: {
       render(_container, turns) {
         renders.push(turns);
@@ -208,6 +209,11 @@ async function testClipboardReadCannotPasteIntoNewAgent() {
 
 async function testSettingsWritesOnlyCarryAndCommitTheirPatch() {
   const harness = createHarness();
+  assert.strictEqual(
+    harness.evaluate('CRT_SETTINGS_REQUEST_TIMEOUT_MS'),
+    15_000,
+    'CRT settings requests should have a bounded wait',
+  );
   harness.evaluate(`
     globalSettings = {
       workspace: '/stale/workspace',
@@ -224,19 +230,22 @@ async function testSettingsWritesOnlyCarryAndCommitTheirPatch() {
     globalSettings.crtTerminalFontSize = 17;
     saveGlobalSettings({ crtTerminalFontSize: 17 });
   `);
+  await new Promise(resolve => setImmediate(resolve));
   assert.deepStrictEqual(JSON.parse(harness.requests[0].options.body), { crtTerminalFontSize: 16 });
-  assert.deepStrictEqual(JSON.parse(harness.requests[1].options.body), { crtTerminalFontSize: 17 });
+  assert.strictEqual(harness.requests.length, 1, 'settings writes should admit only one request at a time');
 
-  harness.requests[1].deferred.resolve(response({
-    success: true,
-    settings: { crtTerminalFontSize: 17, workspace: '/other-writer' },
-  }));
-  await second;
   harness.requests[0].deferred.resolve(response({
     success: true,
-    settings: { crtTerminalFontSize: 16, workspace: '/stale-response' },
+    settings: { crtTerminalFontSize: 16, workspace: '/other-writer' },
   }));
   await first;
+  assert.strictEqual(harness.requests.length, 2, 'the latest settings value should run after the first request settles');
+  assert.deepStrictEqual(JSON.parse(harness.requests[1].options.body), { crtTerminalFontSize: 17 });
+  harness.requests[1].deferred.resolve(response({
+    success: true,
+    settings: { crtTerminalFontSize: 17, workspace: '/latest-response' },
+  }));
+  await second;
   assert.deepStrictEqual(JSON.parse(harness.evaluate(`JSON.stringify({
     fontSize: globalSettings.crtTerminalFontSize,
     workspace: globalSettings.workspace

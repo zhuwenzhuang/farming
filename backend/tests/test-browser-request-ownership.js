@@ -45,8 +45,11 @@ function run() {
       && agentHomesSource.includes('settingsLoadRequestRef.current !== requestId')
       && agentHomesSource.includes('panelScopeRef.current.generation !== generation')
       && agentHomesSource.includes('homesSaveRequestRef.current !== requestId')
+      && agentHomesSource.includes('const AGENT_HOMES_REQUEST_TIMEOUT_MS = 15_000')
+      && agentHomesSource.includes('fetchAgentHomesSettings(appPath(\'/api/settings\')')
+      && agentHomesSource.includes('reconcileAfterSave')
       && agentHomesSource.includes('disabled={loading || saving}'),
-    'Agent Home loads and saves should use synchronous admission and reject results from an old panel generation'
+    'Agent Home loads and saves should be bounded, reconcile uncertain saves, and reject results from an old panel generation'
   );
 
   console.log('✓ Browser requests reject stale results after resource replacement or unmount');

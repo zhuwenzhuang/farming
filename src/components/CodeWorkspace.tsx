@@ -389,6 +389,17 @@ const AGENT_SESSION_PAGE_SIZE = 60
 const AGENT_SESSION_SEARCH_LIMIT = 1000
 const AGENT_SESSION_SEARCH_DEBOUNCE_MS = 150
 const CODEX_TERMINAL_PROFILE_REQUEST_TIMEOUT_MS = 35_000
+const MAIN_PAGE_SESSION_MUTATION_TIMEOUT_MS = 15_000
+
+async function fetchMainPageSessionMutation(url: string, init?: RequestInit) {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), MAIN_PAGE_SESSION_MUTATION_TIMEOUT_MS)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
 
 async function refreshOpenWorkspaceFileReads(agentId: string, filePaths: readonly string[]) {
   const files: WorkspaceFile[] = []
@@ -2218,7 +2229,7 @@ export function CodeWorkspace({
       const authoritativeRevisionAtStart = mainPageSessionKeysAuthoritativeRevisionRef.current
       let authoritativeKeys: string[] | null = null
       try {
-        const response = await fetch(appPath('/api/main-page-agent-sessions'), {
+        const response = await fetchMainPageSessionMutation(appPath('/api/main-page-agent-sessions'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ operation, sessionKeys: normalized }),
@@ -2230,7 +2241,7 @@ export function CodeWorkspace({
         authoritativeKeys = data.mainPageSessionKeys
       } catch {
         try {
-          const response = await fetch(appPath('/api/settings'))
+          const response = await fetchMainPageSessionMutation(appPath('/api/settings'))
           if (!response.ok) throw new Error(`Failed to reconcile main-page sessions: ${response.status}`)
           const data = await response.json() as { settings?: { mainPageSessionKeys?: string[] } }
           if (!Array.isArray(data.settings?.mainPageSessionKeys)) {

@@ -109,6 +109,7 @@ let pendingRuntimeSwitchAgentId = '';
 let runtimeSwitchRequestSequence = 0;
 let crtTerminalReplication = null;
 const globalSettingsSaveRevisions = new Map();
+let globalSettingsSaveTail = Promise.resolve();
 const terminalPreviewSnapshots = new Map();
 const crtBrandPulseTimers = new Map();
 const SESSION_LINK_LIMIT = 6;
@@ -130,6 +131,7 @@ const CRT_BILLING_TOTAL_ANIMATION_MS = 900;
 const CRT_BILLING_DAY_DETAIL_RETRY_MS = 750;
 const CRT_BILLING_DAY_DETAIL_MAX_RETRIES = 4;
 const CRT_TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5_000;
+const CRT_SETTINGS_REQUEST_TIMEOUT_MS = 15_000;
 const CRT_TERMINAL_RESIZE_SETTLE_MS = 250;
 const CRT_TERMINAL_MIN_COLS = 40;
 const CRT_TERMINAL_MIN_ROWS = 10;
@@ -2804,9 +2806,19 @@ async function loadThemes() {
   }
 }
 
+async function fetchCrtSettingsRequest(url, init) {
+  const controller = new window.AbortController();
+  const timeout = setTimeout(() => controller.abort(), CRT_SETTINGS_REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function loadGlobalSettings() {
   try {
-    const response = await fetch(farmingApiPath('/settings'));
+    const response = await fetchCrtSettingsRequest(farmingApiPath('/settings'));
     const data = await response.json();
     globalSettings = {
       ...globalSettings,
@@ -2836,32 +2848,37 @@ async function saveGlobalSettings(settingsPatch) {
     globalSettingsSaveRevisions.set(key, revision);
     return [key, revision];
   }));
-  try {
-    const response = await fetch(farmingApiPath('/settings'), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(patch)
-    });
-
-    const data = await response.json();
-    if (data.success) {
-      const savedSettings = data.settings || {};
-      keys.forEach((key) => {
-        if (globalSettingsSaveRevisions.get(key) !== revisions.get(key)) return;
-        globalSettings[key] = Object.prototype.hasOwnProperty.call(savedSettings, key)
-          ? savedSettings[key]
-          : patch[key];
+  const save = globalSettingsSaveTail.catch(() => {}).then(async () => {
+    try {
+      const response = await fetchCrtSettingsRequest(farmingApiPath('/settings'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(patch)
       });
-      if (globalSettings.instanceName) {
-        document.title = `${globalSettings.instanceName} · Farming CRT`;
+
+      const data = await response.json();
+      if (data.success) {
+        const savedSettings = data.settings || {};
+        keys.forEach((key) => {
+          if (globalSettingsSaveRevisions.get(key) !== revisions.get(key)) return;
+          globalSettings[key] = Object.prototype.hasOwnProperty.call(savedSettings, key)
+            ? savedSettings[key]
+            : patch[key];
+        });
+        if (globalSettings.instanceName) {
+          document.title = `${globalSettings.instanceName} · Farming CRT`;
+        }
+        syncWorkspaceSettings();
       }
-      syncWorkspaceSettings();
+    } catch (error) {
+      console.error('Failed to save global settings:', error);
+      await loadGlobalSettings();
     }
-  } catch (error) {
-    console.error('Failed to save global settings:', error);
-  }
+  });
+  globalSettingsSaveTail = save;
+  return save;
 }
 
 async function setTheme(themeId) {

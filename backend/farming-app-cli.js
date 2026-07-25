@@ -20,6 +20,7 @@ const DEFAULT_SERVER_START_TIMEOUT_MS = 30_000;
 const DEFAULT_SERVER_START_STABILITY_MS = 1_500;
 const DEFAULT_SERVER_STOP_TIMEOUT_MS = 30_000;
 const SERVER_STOP_POLL_MS = 100;
+const SERVER_PROCESS_IDENTITY_FORMAT = 'ps-lstart-c-utc-v1';
 const SERVER_COMMANDS = new Set(['start', 'serve', 'daemon', 'stop', 'status', 'logs', 'url', 'help']);
 const CONTROL_COMMANDS = new Set(['skills', 'memory', 'report', 'list', 'spawn', 'output', 'send', 'kill']);
 const SERVER_BACKED_CONTROL_COMMANDS = new Set(['list', 'spawn', 'output', 'send', 'kill']);
@@ -478,7 +479,12 @@ async function readServerProcessIdentity(pid) {
     stdout = execFileSync(
       '/bin/ps',
       ['-p', String(processId), '-o', 'pid=', '-o', 'pgid=', '-o', 'lstart='],
-      { encoding: 'utf8', timeout: 1_000, maxBuffer: 16_384 },
+      {
+        encoding: 'utf8',
+        timeout: 1_000,
+        maxBuffer: 16_384,
+        env: { ...process.env, LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
+      },
     );
   } catch (error) {
     if (error?.status === 1 || error?.code === 'ESRCH') return null;
@@ -490,6 +496,7 @@ async function readServerProcessIdentity(pid) {
     pid: processId,
     processGroupId: Number(match[2]),
     startedAt: match[3].trim(),
+    format: SERVER_PROCESS_IDENTITY_FORMAT,
   };
 }
 
@@ -1007,7 +1014,7 @@ async function stopDaemon(parsed) {
   }
   const state = readServerState(configDir);
   const port = Number(state.port || env.PORT || DEFAULT_PORT);
-  if (state.processIdentity) {
+  if (state.processIdentity?.format === SERVER_PROCESS_IDENTITY_FORMAT) {
     await assertServerProcessIdentity(configDir, pid, state);
   } else {
     await migrateLegacyServerIdentity(configDir, pid, state);

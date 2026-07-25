@@ -61,6 +61,17 @@ const KNOWN_PROVIDERS = ['codex', 'claude', 'opencode', 'qoder']
 const NON_CODING_AGENT_NAMES = new Set(['bash', 'zsh'])
 const ID_PATTERN = /^[A-Za-z0-9._-]+$/
 const SEARCH_TIMEOUT_OPTIONS_SECONDS = [3, 5, 10, 15, 30, 60, 180]
+const AGENT_HOMES_REQUEST_TIMEOUT_MS = 15_000
+
+async function fetchAgentHomesSettings(url: string, init?: RequestInit) {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), AGENT_HOMES_REQUEST_TIMEOUT_MS)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
 
 function nearestSearchTimeoutSeconds(timeoutMs: number) {
   const seconds = timeoutMs / 1000
@@ -345,7 +356,7 @@ export function AgentHomesSettingsPanel({
     settingsLoadRequestRef.current = requestId
     setLoading(true)
     setError('')
-    fetch(appPath('/api/settings'))
+    fetchAgentHomesSettings(appPath('/api/settings'))
       .then(response => response.json())
       .then((data: { settings?: GlobalSettings }) => {
         if (
@@ -419,7 +430,8 @@ export function AgentHomesSettingsPanel({
     setSaving(true)
     setError('')
     setNotice('')
-    fetch(appPath('/api/settings'), {
+    let reconcileAfterSave = false
+    fetchAgentHomesSettings(appPath('/api/settings'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ agentHomes: nextHomes }),
@@ -439,6 +451,7 @@ export function AgentHomesSettingsPanel({
         window.dispatchEvent(new CustomEvent('farming-agent-homes-saved'))
       })
       .catch(error => {
+        reconcileAfterSave = true
         if (
           homesSaveRequestRef.current === requestId
           && panelScopeRef.current.generation === generation
@@ -450,7 +463,7 @@ export function AgentHomesSettingsPanel({
         homesSaveRequestRef.current = null
         if (!panelScopeRef.current.open) return
         setSaving(false)
-        if (panelScopeRef.current.generation !== generation) loadSettings()
+        if (reconcileAfterSave || panelScopeRef.current.generation !== generation) loadSettings()
       })
   }, [copy.saveFailed, copy.saved, loadSettings])
 

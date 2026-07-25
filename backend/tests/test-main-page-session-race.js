@@ -3,12 +3,13 @@ const fs = require('fs');
 const path = require('path');
 const ts = require('typescript');
 
+const workspaceSource = fs.readFileSync(path.join(__dirname, '../../src/components/CodeWorkspace.tsx'), 'utf8');
+
 function loadMutationHelper() {
-  const source = fs.readFileSync(path.join(__dirname, '../../src/components/CodeWorkspace.tsx'), 'utf8');
-  const start = source.indexOf('export type MainPageSessionKeyMutation =');
-  const end = source.indexOf('\nasync function writeClipboardText', start);
+  const start = workspaceSource.indexOf('export type MainPageSessionKeyMutation =');
+  const end = workspaceSource.indexOf('\nasync function writeClipboardText', start);
   assert(start >= 0 && end > start, 'main-page mutation helper should remain directly testable');
-  const compiled = ts.transpileModule(source.slice(start, end), {
+  const compiled = ts.transpileModule(workspaceSource.slice(start, end), {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
       target: ts.ScriptTarget.ES2022,
@@ -21,6 +22,12 @@ function loadMutationHelper() {
 
 function run() {
   const applyPending = loadMutationHelper();
+  assert(
+    workspaceSource.includes('const MAIN_PAGE_SESSION_MUTATION_TIMEOUT_MS = 15_000')
+      && workspaceSource.includes('fetchMainPageSessionMutation(appPath(\'/api/main-page-agent-sessions\')')
+      && workspaceSource.includes('fetchMainPageSessionMutation(appPath(\'/api/settings\'))'),
+    'main-page mutation and authoritative reconciliation requests must both have a bounded wait',
+  );
   const add = { version: 1, operation: 'add', sessionKeys: ['codex:default:one'] };
   const remove = { version: 2, operation: 'remove', sessionKeys: ['codex:default:one'] };
 
