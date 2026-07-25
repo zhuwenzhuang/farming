@@ -819,7 +819,10 @@ class AgentManager extends EventEmitter {
     this.unarchiveCodexSession = options.unarchiveCodexSession || unarchiveCodexSession;
     this.stopPersistedAcpProcessGroup = options.stopPersistedAcpProcessGroup
       || stopPersistedAcpProcessGroup;
-    this.allowUnprovenLegacyAcpRecovery = options.allowUnprovenLegacyAcpRecovery === true;
+    // Upgrade compatibility is the product default: records created before
+    // ACP process identities existed must still resume their provider Session.
+    // Strict callers may opt out explicitly for cleanup-safety diagnostics.
+    this.allowUnprovenLegacyAcpRecovery = options.allowUnprovenLegacyAcpRecovery !== false;
     this.heartbeatInterval = null;
     this.disposing = false;
     this.disposeFrozen = false;

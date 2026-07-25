@@ -365,6 +365,7 @@ async function run() {
     }],
   }), {
     acpRuntime: blockedRecoveryRuntime,
+    allowUnprovenLegacyAcpRecovery: false,
     skipExecutablePreflight: true,
   });
   try {
@@ -427,7 +428,6 @@ async function run() {
     ],
   }), {
     acpRuntime: recoveryRuntime,
-    allowUnprovenLegacyAcpRecovery: true,
   });
   try {
     await recoveryManager.recoverAcpSessions();
@@ -471,7 +471,6 @@ async function run() {
     }],
   }), {
     acpRuntime: qoderRecoveryRuntime,
-    allowUnprovenLegacyAcpRecovery: true,
   });
   try {
     await qoderRecoveryManager.recoverAcpSessions();
@@ -512,7 +511,6 @@ async function run() {
     },
   }), {
     acpRuntime: stalePtyRuntime,
-    allowUnprovenLegacyAcpRecovery: true,
   });
   await stalePtyManager.engineBridge.dispose();
   const killedRecoveredSessions = [];

@@ -129,6 +129,7 @@ async function run() {
   };
   const recoveredManager = new AgentManager(configForStore(recoveredStore, configDir), {
     acpRuntime: recoveredRuntime,
+    allowUnprovenLegacyAcpRecovery: false,
     skipExecutablePreflight: true,
     stopPersistedAcpProcessGroup: async identity => (
       identity
@@ -242,6 +243,7 @@ async function run() {
   restartedStore.init();
   const restartedManager = new AgentManager(configForStore(restartedStore, configDir), {
     acpRuntime: new AcpRuntime(),
+    allowUnprovenLegacyAcpRecovery: false,
     skipExecutablePreflight: true,
     stopPersistedAcpProcessGroup: async identity => (
       identity
