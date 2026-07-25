@@ -6,6 +6,8 @@ TMP_ROOT="$(mktemp -d /tmp/farming-npm-smoke.XXXXXX)"
 PREFIX="${TMP_ROOT}/prefix"
 CONFIG_DIR="${TMP_ROOT}/config"
 PORT_VALUE="${FARMING_NPM_SMOKE_PORT:-6794}"
+NPM_CACHE="${TMP_ROOT}/npm-cache"
+NPM_REGISTRY="${FARMING_NPM_SMOKE_REGISTRY:-https://registry.npmjs.org/}"
 NPM_MAJOR="$(npm --version | cut -d. -f1)"
 
 if [ "${NPM_MAJOR}" -lt 12 ]; then
@@ -23,14 +25,17 @@ trap cleanup EXIT
 
 mkdir -p "${PREFIX}" "${CONFIG_DIR}"
 cd "${PROJECT_ROOT}"
-npm pack --pack-destination "${TMP_ROOT}" --silent >/dev/null
+NPM_CONFIG_CACHE="${NPM_CACHE}" NPM_CONFIG_REGISTRY="${NPM_REGISTRY}" \
+  npm pack --pack-destination "${TMP_ROOT}" --silent >/dev/null
 PACKAGE_TARBALL="$(find "${TMP_ROOT}" -maxdepth 1 -name 'farming-code-*.tgz' -print -quit)"
 if [ -z "${PACKAGE_TARBALL}" ]; then
   echo "npm pack did not create a farming-code tarball" >&2
   exit 1
 fi
 
-npm install --global --prefix "${PREFIX}" "${PACKAGE_TARBALL}" --ignore-scripts --no-audit --no-fund --silent
+NPM_CONFIG_CACHE="${NPM_CACHE}" NPM_CONFIG_REGISTRY="${NPM_REGISTRY}" \
+  npm install --global --prefix "${PREFIX}" "${PACKAGE_TARBALL}" \
+    --ignore-scripts --no-audit --no-fund --silent
 PACKAGE_ROOT="${PREFIX}/lib/node_modules/farming-code"
 CODEX_ACP_UPSTREAM="${PACKAGE_ROOT}/node_modules/@agentclientprotocol/codex-acp/dist/index.js"
 CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.1.4.js"
