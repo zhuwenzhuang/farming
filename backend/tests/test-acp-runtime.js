@@ -885,6 +885,7 @@ async function run() {
     assert.strictEqual(prompted.stopReason, 'end_turn');
     const session = runtime.getSession('agent-acp-new');
     assert.strictEqual(session.protocol, 'acp');
+    assert.strictEqual(session.supportsFork, true);
     assert.strictEqual(session.entries.find(item => item.type === 'tool').status, 'completed');
     assert.strictEqual(session.entries.find(item => item.role === 'assistant').content[0].text, 'ACP reply');
     assert(emittedSessions.length > 0);
@@ -893,7 +894,15 @@ async function run() {
     assert(runtime.getSession('agent-acp-new', { includeUpdates: true }).updates.length > 0);
     const listed = await runtime.listSessions('agent-acp-new');
     assert.strictEqual(listed.sessions[0].sessionId, 'acp-new-session');
-    assert.strictEqual((await runtime.forkSession('agent-acp-new')).sessionId, 'acp-fork-session');
+    const forkRevision = runtime.bindings.get('agent-acp-new').sessionState.revision;
+    await assert.rejects(
+      runtime.forkSession('agent-acp-new', { expectedRevision: forkRevision + 1 }),
+      /conversation changed/,
+    );
+    assert.strictEqual(
+      (await runtime.forkSession('agent-acp-new', { expectedRevision: forkRevision })).sessionId,
+      'acp-fork-session',
+    );
     assert.deepStrictEqual(await runtime.setSessionMode('agent-acp-new', 'plan'), {
       sessionId: 'acp-new-session', modeId: 'plan',
     });

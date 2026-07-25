@@ -340,7 +340,11 @@ interface CodeWorkspaceProps {
       & { agentRuntimeMode?: 'terminal' | 'chat' | 'acp' | 'json'; readOutputEpoch?: string; readOutputSeq?: number },
   ) => AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>
   onOpenArchivedAgent: (agentId: string) => void
-  onForkAgent: (agentId: string, mode: 'same-worktree' | 'new-worktree') => Promise<void> | void
+  onForkAgent: (
+    agentId: string,
+    mode: 'same-worktree' | 'new-worktree',
+    options?: { targetRuntime?: 'chat'; expectedRevision?: number }
+  ) => Promise<void> | void
   onDeleteForkWorktreeProject: (workspace: string, options?: { force?: boolean }) => Promise<DeleteForkWorktreeProjectResult>
   onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => void
   onWorkspaceViewChange: (view: WorkspaceView) => void

@@ -669,14 +669,18 @@ export function App() {
     requestTerminalOpen(agentId)
   }, [requestTerminalOpen, ws.lastStartedAgentId])
 
-  const handleForkAgent = useCallback(async (agentId: string, mode: 'same-worktree' | 'new-worktree') => {
+  const handleForkAgent = useCallback(async (
+    agentId: string,
+    mode: 'same-worktree' | 'new-worktree',
+    options?: { targetRuntime?: 'chat'; expectedRevision?: number }
+  ) => {
     if (pendingForkAgentIdsRef.current.has(agentId)) return
     pendingForkAgentIdsRef.current.add(agentId)
     try {
       const response = await fetch(appPath(`/api/agents/${agentId}/fork`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({ mode, ...options }),
       })
       const data = await response.json().catch(() => null) as { agentId?: string; error?: string } | null
       if (!response.ok || !data?.agentId) {

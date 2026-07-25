@@ -11,6 +11,7 @@ function acpBinding(source = {}) {
     error: source.error || source.acpError || '',
     stopReason: source.stopReason || source.acpStopReason || '',
     supportsSteer: source.supportsSteer === true,
+    supportsFork: source.supportsFork === true,
     pendingPermission: source.pendingPermission || source.acpPendingPermission || null,
     pendingPermissions: source.pendingPermissions || source.acpPendingPermissions || [],
     pendingElicitation: source.pendingElicitation || source.acpPendingElicitation || null,

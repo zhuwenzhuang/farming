@@ -1607,6 +1607,15 @@ class AcpRuntime extends EventEmitter {
     try {
       const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
       if (!capabilities?.fork) throw new Error(`${binding.provider} ACP Agent does not support session/fork`);
+      if (options.requireLoad === true && !binding.initializeResponse?.agentCapabilities?.loadSession) {
+        throw new Error(`${binding.provider} ACP Agent cannot load a forked conversation`);
+      }
+      if (
+        Number.isFinite(options.expectedRevision)
+        && Number(binding.sessionState?.revision || 0) !== Math.floor(options.expectedRevision)
+      ) {
+        throw new Error('ACP conversation changed before it could be forked. Try again from the latest answer.');
+      }
       const sessionOptions = acpSessionRequestOptions({
         additionalDirectories: options.additionalDirectories ?? binding.sessionRequestOptions.additionalDirectories,
         mcpServers: options.mcpServers ?? binding.sessionRequestOptions.mcpServers,
@@ -1616,7 +1625,11 @@ class AcpRuntime extends EventEmitter {
         ...sessionOptions,
       }), this.sessionSetupTimeoutMs, 'ACP session/fork');
       this.requireOpenBinding(binding);
-      return response;
+      const sessionId = String(response?.sessionId || '').trim();
+      if (!isSafeProviderSessionId(sessionId) || sessionId === binding.sessionId) {
+        throw new Error('ACP session/fork returned an invalid new session id');
+      }
+      return { ...response, sessionId };
     } finally {
       this.endSessionMutation(binding, mutation);
     }
@@ -1867,6 +1880,10 @@ class AcpRuntime extends EventEmitter {
       errorKind: binding.error ? acpErrorKind(binding.error) : '',
       stopReason: binding.stopReason,
       supportsSteer: binding.supportsSteer === true,
+      supportsFork: Boolean(
+        binding.initializeResponse?.agentCapabilities?.sessionCapabilities?.fork != null
+        && binding.initializeResponse?.agentCapabilities?.loadSession
+      ),
       protocolVersion: binding.initializeResponse?.protocolVersion || null,
       agentInfo: binding.initializeResponse?.agentInfo || null,
       capabilities: binding.initializeResponse?.agentCapabilities || {},
@@ -2111,6 +2128,10 @@ class AcpRuntime extends EventEmitter {
       errorKind: binding.error ? acpErrorKind(binding.error) : '',
       stopReason: binding.stopReason,
       supportsSteer: binding.supportsSteer === true,
+      supportsFork: Boolean(
+        binding.initializeResponse?.agentCapabilities?.sessionCapabilities?.fork != null
+        && binding.initializeResponse?.agentCapabilities?.loadSession
+      ),
       pendingPermission: binding.pendingPermissions.values().next().value || null,
       pendingPermissions: [...binding.pendingPermissions.values()],
       pendingElicitation: binding.pendingElicitations.values().next().value || null,

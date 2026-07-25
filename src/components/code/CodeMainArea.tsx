@@ -268,7 +268,11 @@ interface CodeMainAreaProps {
     readCut?: { runtimeEpoch: string; outputSeq: number } | null,
   ) => void
   onRuntimeModeChange: (agentId: string, mode: 'terminal' | 'chat') => void
-  onForkAgent: (agentId: string, mode: 'same-worktree' | 'new-worktree') => Promise<void> | void
+  onForkAgent: (
+    agentId: string,
+    mode: 'same-worktree' | 'new-worktree',
+    options?: { targetRuntime?: 'chat'; expectedRevision?: number }
+  ) => Promise<void> | void
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   onOpenSearchAgent: (agentId: string) => void
   onOpenSearchSession: (session: AgentSessionHistoryItem) => void

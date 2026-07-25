@@ -1456,7 +1456,19 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/reorder'), express.json(), (
 
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork'), express.json(), async (req, res) => {
   const mode = req.body && typeof req.body.mode === 'string' ? req.body.mode : 'same-worktree';
-  const result = await agentManager.forkAgent(req.params.agentId, mode);
+  const targetRuntime = req.body && typeof req.body.targetRuntime === 'string'
+    ? req.body.targetRuntime
+    : '';
+  if (targetRuntime && targetRuntime !== 'chat') {
+    res.status(400).json({ error: 'Unsupported Fork target runtime' });
+    return;
+  }
+  const result = await agentManager.forkAgent(req.params.agentId, mode, {
+    ...(targetRuntime ? { targetRuntime } : {}),
+    ...(Number.isSafeInteger(req.body?.expectedRevision)
+      ? { expectedRevision: req.body.expectedRevision }
+      : {}),
+  });
   if (result.error) {
     const status = result.error === 'Agent not found' ? 404 : 400;
     res.status(status).json({ error: result.error });

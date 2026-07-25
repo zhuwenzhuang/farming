@@ -435,9 +435,13 @@ test('starts a short ACP turn at the top with a compact copy affordance', async 
   await page.getByTestId('code-acp-composer-input').fill('image attachment')
   await page.getByTestId('code-acp-composer-send').click()
   await expect(page.getByText('Received 0 image.', { exact: true })).toBeVisible()
-  const forkRequests: Array<{ mode?: string }> = []
+  const forkRequests: Array<{ mode?: string; targetRuntime?: string; expectedRevision?: number }> = []
   await page.route(`/farming/api/agents/${agentId}/fork`, async route => {
-    forkRequests.push(route.request().postDataJSON() as { mode?: string })
+    forkRequests.push(route.request().postDataJSON() as {
+      mode?: string
+      targetRuntime?: string
+      expectedRevision?: number
+    })
     await new Promise(resolve => setTimeout(resolve, 100))
     await route.fulfill({
       contentType: 'application/json',
@@ -451,7 +455,12 @@ test('starts a short ACP turn at the top with a compact copy affordance', async 
     button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   })
-  await expect.poll(() => forkRequests).toEqual([{ mode: 'same-worktree' }])
+  await expect.poll(() => forkRequests.length).toBe(1)
+  expect(forkRequests[0]).toMatchObject({
+    mode: 'same-worktree',
+    targetRuntime: 'chat',
+  })
+  expect(forkRequests[0].expectedRevision).toBeGreaterThan(0)
 
   const geometry = await page.getByTestId('code-agent-transcript-copy-answer').evaluate(element => {
     const action = element.getBoundingClientRect()
@@ -486,6 +495,38 @@ test('starts a short ACP turn at the top with a compact copy affordance', async 
     iconWidth: 14,
     iconHeight: 14,
   })
+})
+
+test('forks the latest ACP answer into a new Chat Agent in the same workspace', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'acp-conversation-fork')
+  fs.mkdirSync(workspace, { recursive: true })
+  const sourceAgentId = await createAcpAgent(page, workspace)
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${sourceAgentId}"]`).click()
+  await page.getByTestId('code-acp-composer-input').fill('phase-aware mermaid fork this conversation')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByText('Phase-aware rich answer.', { exact: false })).toBeVisible()
+
+  const rows = page.getByTestId('code-agent-row')
+  const sourceAgentIds = await rows.evaluateAll(elements => (
+    elements.map(element => element.getAttribute('data-agent-id')).filter(Boolean)
+  ))
+  await page.getByTestId('code-agent-transcript-fork').click()
+  await expect(rows).toHaveCount(sourceAgentIds.length + 1)
+
+  const agentIds = await rows.evaluateAll(elements => (
+    elements.map(element => element.getAttribute('data-agent-id')).filter(Boolean)
+  ))
+  const forkedAgentId = agentIds.find(id => !sourceAgentIds.includes(id))
+  expect(forkedAgentId).toBeTruthy()
+  const forkedPane = page.locator(
+    `[data-testid="code-agent-work-pane"][data-agent-id="${forkedAgentId}"]`
+  )
+  await expect(forkedPane).toBeVisible()
+  await expect(forkedPane.getByTestId('code-agent-chat-view')).toBeVisible()
+  await expect(forkedPane.getByText('historical question', { exact: true })).toBeVisible()
+  await expect(forkedPane.getByText('historical answer', { exact: true })).toBeVisible()
 })
 
 test('keeps a human reader stationary while an ACP answer streams below', async ({ page, workspaceRoot }) => {

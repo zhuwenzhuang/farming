@@ -275,6 +275,8 @@ export function canSwitchAgentRuntime(agent: Agent | null | undefined) {
 export function canForkAgentConversation(agent: Agent | null | undefined) {
   return Boolean(
     agent
+    && agent.runtimeBinding.kind === 'acp'
+    && agent.runtimeBinding.supportsFork === true
     && agent.providerCapabilities.sessionFork
     && agent.providerSessionId
     && agent.providerSessionTemporary !== true

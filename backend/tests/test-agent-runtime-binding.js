@@ -21,6 +21,7 @@ function run() {
     error: '',
     stopReason: '',
     supportsSteer: false,
+    supportsFork: false,
     pendingPermission: null,
     pendingPermissions: [{ requestId: 'permission-1' }],
     pendingElicitation: null,

@@ -218,6 +218,63 @@ async function run() {
       codexHome,
     }]);
 
+    const sourceAcpAgent = manager.agents.get(resumedCodexId);
+    sourceAcpAgent.runtimeBinding = {
+      kind: 'acp',
+      state: 'idle',
+      error: '',
+      stopReason: '',
+      supportsSteer: true,
+      supportsFork: true,
+      pendingPermission: null,
+      pendingPermissions: [],
+      pendingElicitation: null,
+      pendingElicitations: [],
+      activeElicitations: [],
+      sessionUpdatedAt: '',
+      sessionRevision: 17,
+    };
+    const originalGetSessionRequestOptions = manager.acpRuntime.getSessionRequestOptions.bind(manager.acpRuntime);
+    const originalForkSession = manager.acpRuntime.forkSession.bind(manager.acpRuntime);
+    const originalPrepareAgent = manager.acpRuntime.prepareAgent.bind(manager.acpRuntime);
+    const acpForkSessionId = '77777777-8888-4999-8aaa-bbbbbbbbbbbb';
+    let acpForkOptions = null;
+    let acpPreparedOptions = null;
+    manager.acpRuntime.getSessionRequestOptions = () => ({
+      additionalDirectories: [],
+      mcpServers: [],
+    });
+    manager.acpRuntime.forkSession = async (forkAgentId, options) => {
+      assert.strictEqual(forkAgentId, resumedCodexId);
+      acpForkOptions = options;
+      return { sessionId: acpForkSessionId };
+    };
+    manager.acpRuntime.prepareAgent = async options => {
+      acpPreparedOptions = options;
+      return { sessionId: options.sessionId, historyMode: 'load' };
+    };
+    const acpChatFork = await manager.forkAgent(resumedCodexId, 'same-worktree', {
+      targetRuntime: 'chat',
+      expectedRevision: 17,
+    });
+    assert.strictEqual(acpChatFork.error, undefined);
+    assert.strictEqual(acpChatFork.targetRuntime, 'chat');
+    assert.strictEqual(acpChatFork.providerSessionId, acpForkSessionId);
+    assert.strictEqual(acpForkOptions.expectedRevision, 17);
+    assert.strictEqual(acpForkOptions.requireLoad, true);
+    assert.strictEqual(fs.realpathSync(acpForkOptions.cwd), fs.realpathSync(repo));
+    assert.strictEqual(acpPreparedOptions.sessionId, acpForkSessionId);
+    assert.strictEqual(acpPreparedOptions.historyMode, 'load');
+    const acpChatForkAgent = manager.agents.get(acpChatFork.agentId);
+    assert.strictEqual(acpChatForkAgent.runtimeBinding.kind, 'acp');
+    assert.strictEqual(acpChatForkAgent.parentAgentId, resumedCodexId);
+    assert.strictEqual(acpChatForkAgent.source, 'ui-fork-acp-chat');
+    assert.strictEqual(acpChatForkAgent.forkedFromProviderSessionId, codexSessionId);
+    assert.strictEqual(fs.realpathSync(acpChatForkAgent.projectWorkspace), fs.realpathSync(repo));
+    manager.acpRuntime.getSessionRequestOptions = originalGetSessionRequestOptions;
+    manager.acpRuntime.forkSession = originalForkSession;
+    manager.acpRuntime.prepareAgent = originalPrepareAgent;
+
     const originalUnarchiveCodexSession = manager.unarchiveCodexSession;
     let releaseConcurrentUnarchive;
     let concurrentUnarchiveCalls = 0;
