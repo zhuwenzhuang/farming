@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="./public/farming-2/app-icon-v2-512.png" alt="Farming" width="112">
+  <img src="./public/farming-2/app-icon-v2-512.png" alt="Farming Code" width="112">
 </p>
 
-<h1 align="center">Farming</h1>
+<h1 align="center">Farming Code</h1>
 
 <p align="center">
-  Farming is an open-source remote web workbench for running and supervising AI coding agents on a development machine.
+  Farming Code is an open-source, self-hosted browser workspace for running and supervising Codex, Claude Code, OpenCode, and other AI coding agents.
 </p>
 
 <p align="center"><a href="./README.zh_cn.md">简体中文</a></p>
@@ -21,7 +21,7 @@
 
 ![Farming Code workbench](./docs/products/code/assets/01-code-workspace.png)
 
-Farming runs on the same development machine as your repositories and coding CLIs. Agent processes, terminals, and project files stay on that machine; a desktop or phone browser connects to those real sessions.
+Farming Code runs on the same development machine as your repositories and coding CLIs. Agent processes, terminals, and project files stay on that machine; a desktop or phone browser connects to those real sessions.
 
 ## Quick Start
 

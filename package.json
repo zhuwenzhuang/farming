@@ -1,7 +1,7 @@
 {
   "name": "farming-code",
   "version": "2.2.21",
-  "description": "Remote browser workspace for supervising AI coding agents",
+  "description": "Farming Code is a self-hosted browser workspace for running and supervising AI coding agents",
   "main": "backend/server.js",
   "bin": {
     "farming": "bin/farming"
@@ -80,10 +80,16 @@
   },
   "keywords": [
     "ai-agent",
+    "ai-agent-workspace",
+    "browser-terminal",
+    "claude-code",
     "coding-agent",
     "codex",
-    "claude",
+    "codex-cli",
+    "developer-tools",
+    "farming-code",
     "remote-workspace",
+    "self-hosted",
     "terminal"
   ],
   "author": "",

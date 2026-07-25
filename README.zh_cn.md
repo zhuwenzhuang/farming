@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="./public/farming-2/app-icon-v2-512.png" alt="Farming" width="112">
+  <img src="./public/farming-2/app-icon-v2-512.png" alt="Farming Code" width="112">
 </p>
 
-<h1 align="center">Farming</h1>
+<h1 align="center">Farming Code</h1>
 
 <p align="center">
-  Farming 是一个开源的远程 Web 工作台，用于在开发机上启动和管理 AI Coding Agent。
+  Farming Code 是一个开源、自托管的浏览器工作区，用于启动和管理 Codex、Claude Code、OpenCode 及其他 AI Coding Agent。
 </p>
 
 <p align="center"><a href="./README.md">English</a></p>
@@ -21,7 +21,7 @@
 
 ![Farming Code 工作台](./docs/products/code/assets/01-code-workspace.png)
 
-Farming 与代码仓库和 Coding CLI 运行在同一台开发机上。Agent 进程、终端和项目文件都留在这台机器上；电脑或手机浏览器连接并操作这些真实 Session。
+Farming Code 与代码仓库和 Coding CLI 运行在同一台开发机上。Agent 进程、终端和项目文件都留在这台机器上；电脑或手机浏览器连接并操作这些真实 Session。
 
 ## 快速开始
 
