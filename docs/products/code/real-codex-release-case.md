@@ -10,6 +10,8 @@ npm run test:pre-release:codex-ui
 
 The command uses the locally authenticated real Codex CLI, one Chromium worker, an isolated Farming config directory, and a temporary workspace. Its test-only launcher disables the CLI startup update check for every Terminal start and resume without changing the user's global Codex configuration. Shared Playwright teardown archives every stable Codex provider session created by a real-Agent test, including when the test fails, so test conversations do not remain in the active Codex session list. Provider archive also falls back to the user home when a temporary test workspace has already been removed. It is intentionally absent from the default fake-Agent E2E suite because it consumes a real model allocation and validates external CLI integration. A missing login, unavailable required model, runtime error, or failed assertion blocks the release; the case does not select another renderer, model flow, Agent implementation, or test branch.
 
+If Codex reports changed hooks at Terminal startup, the gate follows the currently rendered menu selection and chooses **Continue without trusting** before proceeding. It never persists hook trust or uses `--dangerously-bypass-hook-trust`; an unrecognized prompt or menu shape fails the gate.
+
 ## State Chain
 
 The test has one ordered state chain:

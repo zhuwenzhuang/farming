@@ -207,6 +207,39 @@ async function waitForCodeTerminal(page: Page, agentId: string) {
   await expect(pane.getByTestId('code-terminal-status-card')).toHaveCount(0)
 }
 
+async function continueWithoutUntrustedHooks(page: Page, agentId: string, readyFooter: string) {
+  let startupState = 'waiting'
+  await expect.poll(async () => {
+    const rendered = (await codeRows(page, agentId)).join('\n')
+    startupState = rendered.includes(readyFooter)
+      ? 'ready'
+      : rendered.includes('Hooks need review') ? 'hooks' : 'waiting'
+    return startupState
+  }, { timeout: 60_000 }).toMatch(/^(ready|hooks)$/)
+  if (startupState === 'ready') return
+
+  const options = ['Review hooks', 'Trust all and continue', 'Continue without trusting']
+  const selectedOption = async () => {
+    const rows = await codeRows(page, agentId)
+    return options.find(option => rows.some(row => row.includes('›') && row.includes(option))) || ''
+  }
+  const targetIndex = options.indexOf('Continue without trusting')
+  let currentIndex = options.indexOf(await selectedOption())
+  expect(currentIndex, 'Codex hook review must expose a selected rendered option').toBeGreaterThanOrEqual(0)
+  const input = page.locator(
+    `[data-testid="code-terminal-pane"][data-agent-id="${agentId}"] .terminal-session-host[data-agent-id="${agentId}"] .xterm-helper-textarea`,
+  )
+  await input.focus()
+  while (currentIndex !== targetIndex) {
+    const direction = currentIndex < targetIndex ? 1 : -1
+    const nextIndex = currentIndex + direction
+    await page.keyboard.press(direction > 0 ? 'ArrowDown' : 'ArrowUp')
+    await expect.poll(selectedOption, { timeout: 5_000 }).toBe(options[nextIndex])
+    currentIndex = nextIndex
+  }
+  await page.keyboard.press('Enter')
+}
+
 async function waitForCodeAnchor(page: Page, agentId: string, anchor: string, timeout = 120_000) {
   await expect.poll(async () => (await codeRows(page, agentId)).join('\n'), { timeout }).toContain(anchor)
 }
@@ -651,6 +684,7 @@ test.describe('real Codex pre-release composite case', () => {
     await expect(row).toBeVisible({ timeout: 60_000 })
     await row.click()
     await waitForCodeTerminal(page, agentId)
+    await continueWithoutUntrustedHooks(page, agentId, `${launchModel?.value} ${PRIMARY_EFFORT}`)
     await expect.poll(async () => (await codeRows(page, agentId)).join('\n'), { timeout: 60_000 })
       .toContain(`${launchModel?.value} ${PRIMARY_EFFORT}`)
     expect((await codeRows(page, agentId)).join('\n')).not.toContain('Do you trust the contents of this directory?')
