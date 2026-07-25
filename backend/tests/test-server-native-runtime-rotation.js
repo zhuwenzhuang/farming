@@ -236,10 +236,12 @@ exec '${fakeCodex}' "$@"
       configDir,
       codexBin: startupLockedFakeCodex,
     });
-    await waitFor(
-      () => fetch(`${baseUrl}/api/control/agents`).then(response => response.ok).catch(() => false),
-      'Farming server startup after runtime mismatch',
-    );
+    await waitFor(async () => {
+      const listed = await fetchJson(baseUrl, '/api/control/agents');
+      if (!listed.response.ok) return null;
+      const listedIds = new Set((listed.body.agents || []).map(agent => agent.id));
+      return agentIds.every(agentId => listedIds.has(agentId)) ? listed.body : null;
+    }, 'Farming Agent recovery after runtime mismatch', 35_000);
 
     for (let index = 0; index < agentIds.length; index += 1) {
       const agentId = agentIds[index];
