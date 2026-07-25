@@ -220,6 +220,58 @@ async function run() {
     fs.rmSync(configDir, { recursive: true, force: true });
   }
 
+  if (process.platform !== 'win32') {
+    const legacyConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-native-legacy-socket-'));
+    const legacySocketPath = nativePtyHostSocketPath(legacyConfigDir);
+    const legacyHost = new NativePtyHost({
+      configDir: legacyConfigDir,
+      socketPath: legacySocketPath,
+      runtimeIdentity: mismatchedRuntimeIdentity,
+      exitOnShutdown: false,
+    });
+    const legacyDispatch = legacyHost.dispatch.bind(legacyHost);
+    legacyHost.dispatch = (method, params, client) => {
+      const result = legacyDispatch(method, params, client);
+      if (method !== 'ping' || !result || typeof result !== 'object') return result;
+      const legacyPing = { ...result };
+      delete legacyPing.privateSocketPath;
+      return legacyPing;
+    };
+    const upgradingClient = new NativePtyHostClient({
+      configDir: legacyConfigDir,
+      socketPath: legacySocketPath,
+      expectedRuntimeIdentity,
+    });
+    let waitedPrivateSocketPath = '';
+    const waitForHostRelease = upgradingClient.waitForHostRelease.bind(upgradingClient);
+    upgradingClient.waitForHostRelease = async (privateSocketPath) => {
+      waitedPrivateSocketPath = privateSocketPath;
+      return waitForHostRelease(privateSocketPath);
+    };
+    try {
+      await legacyHost.start();
+      await upgradingClient.ensureConnected();
+      assert.strictEqual(
+        waitedPrivateSocketPath,
+        legacyHost.boundSocketPath,
+        'an upgrade should resolve a legacy host private listener by the public socket inode',
+      );
+      assert(
+        nativePtyHostRuntimeIdentityMatches(
+          expectedRuntimeIdentity,
+          upgradingClient.connectedHostInfo?.runtimeIdentity,
+        ),
+        'the client should connect to the replacement host after rotating the legacy listener',
+      );
+    } finally {
+      await upgradingClient.request('shutdownHost', {}, { timeoutMs: 5000 }).catch(() => {});
+      upgradingClient.disconnect();
+      await legacyHost.dispose().catch(() => {});
+      await waitFor(() => !fs.existsSync(legacySocketPath), 'legacy upgrade socket cleanup').catch(() => {});
+      fs.rmSync(legacyConfigDir, { recursive: true, force: true });
+    }
+  }
+
   for (const [label, EngineClass] of [
     ['native PTY host', NativePtyHost],
     ['local session engine', LocalSessionEngine],

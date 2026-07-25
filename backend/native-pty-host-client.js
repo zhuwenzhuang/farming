@@ -257,6 +257,36 @@ class NativePtyHostClient extends EventEmitter {
     }
   }
 
+  connectedPrivateSocketPath(hostInfo = {}) {
+    if (process.platform === 'win32') return '';
+    if (typeof hostInfo.privateSocketPath === 'string' && hostInfo.privateSocketPath) {
+      return hostInfo.privateSocketPath;
+    }
+    if (!this.connectedSocketPath || this.connectedSocketPath !== this.socketPath) {
+      return this.connectedSocketPath;
+    }
+
+    let publicIdentity;
+    try {
+      const stat = fs.statSync(this.socketPath, { bigint: true });
+      publicIdentity = { dev: stat.dev, ino: stat.ino };
+    } catch (error) {
+      if (error?.code === 'ENOENT') return '';
+      throw error;
+    }
+
+    const matching = this.privateSocketCandidates().filter((candidate) => {
+      try {
+        const stat = fs.statSync(candidate, { bigint: true });
+        return stat.dev === publicIdentity.dev && stat.ino === publicIdentity.ino;
+      } catch (error) {
+        if (error?.code === 'ENOENT') return false;
+        throw error;
+      }
+    });
+    return matching.length === 1 ? matching[0] : '';
+  }
+
   async resolveConnectSocketPath() {
     if (process.platform === 'win32' || fs.existsSync(this.socketPath)) {
       return this.socketPath;
@@ -649,6 +679,7 @@ class NativePtyHostClient extends EventEmitter {
       throw mismatchError;
     }
 
+    const privateSocketPath = this.connectedPrivateSocketPath(hostInfo);
     const socket = this.socket;
     if (socket) this.suppressedDisconnectSockets.add(socket);
     let shutdownUncertain = false;
@@ -682,7 +713,7 @@ class NativePtyHostClient extends EventEmitter {
     }
 
     try {
-      await this.waitForHostRelease(hostInfo?.privateSocketPath || this.connectedSocketPath);
+      await this.waitForHostRelease(privateSocketPath || this.connectedSocketPath);
     } catch (error) {
       if (shutdownUncertain) {
         try {
