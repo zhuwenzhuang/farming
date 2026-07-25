@@ -1216,6 +1216,17 @@ function run() {
   );
 
   assert(
+    agentWorkPaneSource.includes('forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)}') &&
+      transcriptPaneSource.includes('data-testid="code-agent-transcript-fork-origin"') &&
+      transcriptPaneSource.includes('copy.agentTranscriptForkedFromAgent') &&
+      copySource.includes("agentTranscriptForkedFromAgent: 'Forked from agent'") &&
+      copySource.includes("agentTranscriptForkedFromAgent: '从 Agent 分叉'") &&
+      stylesSource.includes('.code-agent-transcript-fork-origin') &&
+      darkStylesSource.includes('.code-agent-transcript-fork-origin'),
+    'ACP child Chat should show a localized presentation-only fork origin marker only from explicit Agent and provider lineage'
+  );
+
+  assert(
     webSocketSource.includes("type: 'interrupt-agent', agentId") &&
       !webSocketSource.includes('...(controller || {})') &&
       webSocketSource.includes('interruptAgent,') &&

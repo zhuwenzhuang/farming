@@ -152,6 +152,7 @@ export interface AgentTranscriptPaneProps {
   refreshSignal?: number
   runtimeState?: string
   expectHistory?: boolean
+  forkedFromAgent?: boolean
   onOpenWorkspaceFilePath?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onAvailabilityChange?: (state: { loading: boolean; hasContent: boolean; available: boolean }) => void
   onReadLatest?: () => void
@@ -2475,6 +2476,7 @@ export function AgentTranscriptPane({
   refreshSignal = 0,
   runtimeState = '',
   expectHistory = false,
+  forkedFromAgent = false,
   onOpenWorkspaceFilePath,
   onAvailabilityChange,
   onReadLatest,
@@ -2944,6 +2946,16 @@ export function AgentTranscriptPane({
 
   return (
     <div className="code-agent-transcript" data-testid="code-agent-transcript">
+      {forkedFromAgent ? (
+        <div className="code-agent-transcript-fork-origin" data-testid="code-agent-transcript-fork-origin" role="note">
+          <span aria-hidden="true" />
+          <span className="code-agent-transcript-fork-origin-label">
+            <ForkGlyph />
+            {copy.agentTranscriptForkedFromAgent}
+          </span>
+          <span aria-hidden="true" />
+        </div>
+      ) : null}
       {loading || awaitingAcpHistory ? (
         <div className="code-agent-transcript-state subtle">{copy.agentTranscriptSyncing}</div>
       ) : error ? (

@@ -5650,6 +5650,37 @@ body.code-mode .code-instance-name {
   -webkit-user-select: text;
 }
 
+.code-agent-transcript-fork-origin {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(24px, 1fr) auto minmax(24px, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin: 22px clamp(18px, 4vw, 54px) 0;
+  color: #0969da;
+  font-size: 13px;
+  line-height: 1;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.code-agent-transcript-fork-origin > span[aria-hidden='true'] {
+  height: 1px;
+  background: rgba(208, 215, 222, 0.88);
+}
+
+.code-agent-transcript-fork-origin-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.code-agent-transcript-fork-origin-label svg {
+  width: 15px;
+  height: 15px;
+}
+
 .code-agent-work-pane.runtime-switchable .code-agent-transcript-user {
   margin-right: 68px;
 }

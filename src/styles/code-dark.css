@@ -1518,6 +1518,14 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-scroll::-webkit-sc
   background: rgba(139, 148, 158, 0.18);
 }
 
+body.code-mode[data-appearance='dark'] .code-agent-transcript-fork-origin {
+  color: #58a6ff;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-fork-origin > span[aria-hidden='true'] {
+  background: rgba(48, 54, 61, 0.92);
+}
+
 body.code-mode[data-appearance='dark'] .code-codex-goal-bar {
   border-color: rgba(139, 148, 158, 0.24);
   background: rgba(22, 27, 34, 0.76);

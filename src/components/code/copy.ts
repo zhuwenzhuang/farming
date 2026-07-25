@@ -56,6 +56,7 @@ export interface CodeCopy {
   agentTranscriptCopyAnswer: string
   agentTranscriptCopiedAnswer: string
   agentTranscriptFork: string
+  agentTranscriptForkedFromAgent: string
   agentTranscriptReviewChanges: string
   agentTranscriptShowChanges: string
   agentTranscriptLoadingChanges: string
@@ -511,6 +512,7 @@ const EN_COPY: CodeCopy = {
   agentTranscriptCopyAnswer: 'Copy answer',
   agentTranscriptCopiedAnswer: 'Copied answer',
   agentTranscriptFork: 'Fork conversation',
+  agentTranscriptForkedFromAgent: 'Forked from agent',
   agentTranscriptReviewChanges: 'Review',
   agentTranscriptShowChanges: 'Show file changes',
   agentTranscriptLoadingChanges: 'Loading exact changes…',
@@ -995,6 +997,7 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptCopyAnswer: '复制答复',
   agentTranscriptCopiedAnswer: '已复制答复',
   agentTranscriptFork: '分叉对话',
+  agentTranscriptForkedFromAgent: '从 Agent 分叉',
   agentTranscriptReviewChanges: 'Review',
   agentTranscriptShowChanges: '展开文件改动',
   agentTranscriptLoadingChanges: '正在加载准确改动…',
