@@ -5,6 +5,7 @@ const http = require('http');
 const https = require('https');
 const os = require('os');
 const path = require('path');
+const { Transform } = require('stream');
 const { pipeline } = require('stream/promises');
 const storageLayout = require('./storage-layout');
 
@@ -581,7 +582,26 @@ async function downloadFile(url, outputPath, options = {}) {
     ...options,
     accept: 'application/octet-stream',
   });
-  await pipeline(response, fs.createWriteStream(outputPath));
+  const responseLength = Number(response.headers['content-length']);
+  const expectedLength = Number(options.totalBytes);
+  const totalBytes = Number.isFinite(responseLength) && responseLength > 0
+    ? responseLength
+    : (Number.isFinite(expectedLength) && expectedLength > 0 ? expectedLength : 0);
+  let receivedBytes = 0;
+  const trackProgress = new Transform({
+    transform(chunk, _encoding, callback) {
+      receivedBytes += chunk.length;
+      try {
+        if (typeof options.onProgress === 'function') {
+          options.onProgress({ receivedBytes, totalBytes });
+        }
+        callback(null, chunk);
+      } catch (error) {
+        callback(error);
+      }
+    },
+  });
+  await pipeline(response, trackProgress, fs.createWriteStream(outputPath));
 }
 
 function sha256File(filePath) {
@@ -1139,6 +1159,8 @@ class FarmingUpdateService {
       version: status.selected.version,
       previousVersion: status.current.releaseVersion || status.current.packageVersion,
       assetName: status.selected.assetName,
+      receivedBytes: 0,
+      totalBytes: Number(status.selected.assetSize) || 0,
       startedAt: new Date(this.now()).toISOString(),
       logPath: path.join(this.configDir, 'farming-update.log'),
     });
@@ -1219,8 +1241,28 @@ class FarmingUpdateService {
     fs.mkdirSync(this.configDir, { recursive: true });
     const tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'farming-update.'));
     const archivePath = path.join(tempRoot, asset.name || 'farming-update.tar.gz');
+    let lastProgressPercent = -1;
+    let lastProgressBytes = 0;
     await this.downloadFile(asset.browser_download_url, archivePath, {
       authToken: this.authToken,
+      totalBytes: Number(asset.size) || Number(this.installState.totalBytes) || 0,
+      onProgress: ({ receivedBytes, totalBytes }) => {
+        const safeReceivedBytes = Math.max(0, Number(receivedBytes) || 0);
+        const safeTotalBytes = Math.max(0, Number(totalBytes) || 0);
+        if (safeTotalBytes > 0) {
+          const percent = Math.min(100, Math.floor((safeReceivedBytes / safeTotalBytes) * 100));
+          if (percent === lastProgressPercent && safeReceivedBytes < safeTotalBytes) return;
+          lastProgressPercent = percent;
+        } else if (safeReceivedBytes - lastProgressBytes < 1024 * 1024) {
+          return;
+        }
+        lastProgressBytes = safeReceivedBytes;
+        this.persistInstallState({
+          ...this.installState,
+          receivedBytes: safeReceivedBytes,
+          totalBytes: safeTotalBytes,
+        });
+      },
     });
     let expectedSha256 = normalizeSha256(asset.sha256);
     const checksumUrl = asset.checksum_url || asset.checksumUrl || '';

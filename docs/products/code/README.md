@@ -132,7 +132,7 @@ Settings groups interface, language, search timeout, installation-aware updates,
 
 ![Farming Code Settings](assets/14-code-settings.png)
 
-Switching to Farming CRT carries the focused Agent when possible and does not restart the session. npm installations can check and install updates in place; source checkouts update through Git, and standalone artifacts remain manual.
+Switching to Farming CRT carries the focused Agent when possible and does not restart the session. npm installations can check and install updates in place; the update card shows the current install, restart, or rollback stage and elapsed time. Bundle downloads additionally show byte-backed percentage progress. Source checkouts update through Git, and standalone artifacts remain manual.
 
 ## Understand Local Token Usage
 

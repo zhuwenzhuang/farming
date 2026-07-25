@@ -33,7 +33,16 @@ type UpdateStatus = {
   available?: boolean
   installable?: boolean
   blockingAgents?: Array<{ id: string; command: string; task?: string; cwd?: string }>
-  state?: { phase?: string; error?: string; version?: string; previousVersion?: string }
+  state?: {
+    phase?: string
+    error?: string
+    version?: string
+    previousVersion?: string
+    receivedBytes?: number
+    totalBytes?: number
+    startedAt?: string
+    completedAt?: string
+  }
   checkedAt?: string
 }
 
@@ -57,6 +66,20 @@ function nearestSearchTimeoutSeconds(timeoutMs: number) {
   return SEARCH_TIMEOUT_OPTIONS_SECONDS.reduce((closest, option) => (
     Math.abs(option - seconds) < Math.abs(closest - seconds) ? option : closest
   ))
+}
+
+function updateDownloadPercent(state: UpdateStatus['state']) {
+  const receivedBytes = Number(state?.receivedBytes)
+  const totalBytes = Number(state?.totalBytes)
+  if (!Number.isFinite(receivedBytes) || !Number.isFinite(totalBytes) || totalBytes <= 0) return null
+  return Math.max(0, Math.min(100, Math.floor((receivedBytes / totalBytes) * 100)))
+}
+
+function updateElapsedSeconds(state: UpdateStatus['state'], now = Date.now()) {
+  const startedAt = Date.parse(String(state?.startedAt || ''))
+  const completedAt = state?.completedAt ? Date.parse(state.completedAt) : now
+  if (!Number.isFinite(startedAt) || !Number.isFinite(completedAt) || completedAt < startedAt) return null
+  return Math.floor((completedAt - startedAt) / 1000)
 }
 
 function panelCopy(language: UiPreferences['language']) {
@@ -112,10 +135,21 @@ function panelCopy(language: UiPreferences['language']) {
     upToDate: zh ? '已是最新版本' : 'Up to date',
     updateAvailable: zh ? '有新版本可用' : 'Update available',
     updateNotInstallable: zh ? '当前更新不可安装' : 'Update is not installable',
-    updateInstalling: zh ? '升级已开始，服务会自动重启。' : 'Upgrade started. The server will restart automatically.',
+    updateDownloading: (percent: number | null) => percent === null
+      ? (zh ? '正在下载更新包…' : 'Downloading update package…')
+      : (zh ? `正在下载更新包 ${percent}%` : `Downloading update package ${percent}%`),
+    updateExtracting: zh ? '正在解压更新包…' : 'Extracting update package…',
+    updateInstalling: zh ? '正在安装更新…' : 'Installing update…',
     updateRestarting: zh ? '新版本已安装，正在重启 Farming。' : 'The new version is installed. Restarting Farming.',
+    updateRollingBack: zh ? '正在回退到旧版本…' : 'Rolling back to the previous version…',
     updateSucceeded: zh ? '更新成功。' : 'Update completed.',
     updateRolledBack: zh ? '新版本启动失败，已回退到旧版本。' : 'The new version failed to start and Farming rolled back.',
+    updateElapsed: (seconds: number) => {
+      const minutes = Math.floor(seconds / 60)
+      const remainingSeconds = seconds % 60
+      if (zh) return `已用时 ${minutes > 0 ? `${minutes} 分 ` : ''}${remainingSeconds} 秒`
+      return `Elapsed ${minutes > 0 ? `${minutes}m ` : ''}${remainingSeconds}s`
+    },
     agentHomes: 'Agent Homes',
     agentHomesHint: zh
       ? '为不同 Agent 配置独立的主目录。'
@@ -547,21 +581,32 @@ export function AgentHomesSettingsPanel({
     && targetUpdateVersion !== '-'
     && currentUpdateVersion !== targetUpdateVersion
     && (updateStatus?.available === true || updateBusy)
+  const downloadPercent = updateDownloadPercent(updateStatus?.state)
   const updateSummary = !updateStatus
     ? copy.checkingUpdates
     : updatePhase === 'rolled-back'
       ? copy.updateRolledBack
       : updatePhase === 'failed' && updateStatus?.state?.error
         ? updateStatus.state.error
-        : updatePhase === 'restarting'
-          ? copy.updateRestarting
-          : ['downloading', 'extracting', 'installing', 'rolling-back'].includes(updatePhase)
-            ? copy.updateInstalling
-            : updateStatus.available
-              ? copy.updateAvailable
-              : updatePhase === 'succeeded'
-                ? copy.updateSucceeded
-                : updateStatus.latest?.blockedReason || copy.upToDate
+        : updatePhase === 'downloading'
+          ? copy.updateDownloading(downloadPercent)
+          : updatePhase === 'extracting'
+            ? copy.updateExtracting
+            : updatePhase === 'installing'
+              ? copy.updateInstalling
+              : updatePhase === 'restarting'
+                ? copy.updateRestarting
+                : updatePhase === 'rolling-back'
+                  ? copy.updateRollingBack
+                  : updateStatus.available
+                    ? copy.updateAvailable
+                    : updatePhase === 'succeeded'
+                      ? copy.updateSucceeded
+                      : updateStatus.latest?.blockedReason || copy.upToDate
+  const elapsedSeconds = (updateInstallBusy || ['succeeded', 'failed', 'rolled-back'].includes(updatePhase))
+    ? updateElapsedSeconds(updateStatus?.state)
+    : null
+  const updateElapsed = elapsedSeconds === null ? '' : copy.updateElapsed(elapsedSeconds)
   const updateActionLabel = updateInstallBusy
     ? copy.updating
     : selectedVersion?.available && targetUpdateVersion !== '-'
@@ -672,8 +717,11 @@ export function AgentHomesSettingsPanel({
                   role="status"
                   aria-live="polite"
                 >
-                  {updateMethod && <><span>{updateMethodLabel}</span><span aria-hidden="true"> · </span></>}
-                  <span>{updateSummary}</span>
+                  <span className="code-settings-update-summary-text">
+                    {updateMethod && <><span>{updateMethodLabel}</span><span aria-hidden="true"> · </span></>}
+                    <span>{updateSummary}</span>
+                  </span>
+                  {updateElapsed && <span className="code-settings-update-elapsed" aria-hidden="true">{updateElapsed}</span>}
                 </div>
               </div>
               <div className="code-settings-update-actions">

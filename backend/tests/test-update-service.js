@@ -79,7 +79,10 @@ async function withFakeUpdateServer(filesByName, visibleFiles, fn) {
       response.end('not found');
       return;
     }
-    response.writeHead(200, { 'Content-Type': 'application/gzip' });
+    response.writeHead(200, {
+      'Content-Type': 'application/gzip',
+      'Content-Length': fs.statSync(filePath).size,
+    });
     fs.createReadStream(filePath).pipe(response);
   });
 
@@ -283,6 +286,7 @@ async function run() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-config.'));
   const requestedUrls = [];
   const downloadedUrls = [];
+  let observedDownloadProgress = null;
   const spawned = [];
   const release205 = {
     tag_name: 'v2.0.5',
@@ -317,14 +321,18 @@ async function run() {
           releaseVersion: '2.0.5',
           tag: 'v2.0.5',
           assets: [
-            { type: 'app-bundle', file: 'farming-2.0.5.tar.gz', sha256: ARCHIVE_SHA256 },
+            { type: 'app-bundle', file: 'farming-2.0.5.tar.gz', size: 1024, sha256: ARCHIVE_SHA256 },
           ],
         };
       }
       return release205;
     },
-    downloadFile: async (url, outputPath) => {
+    downloadFile: async (url, outputPath, options) => {
       downloadedUrls.push(String(url));
+      assert.strictEqual(options.totalBytes, 1024);
+      assert.strictEqual(typeof options.onProgress, 'function');
+      options.onProgress({ receivedBytes: 512, totalBytes: 1024 });
+      observedDownloadProgress = JSON.parse(fs.readFileSync(path.join(configDir, 'farming-update.json'), 'utf8'));
       fs.writeFileSync(outputPath, 'archive');
     },
     listArchiveEntries: async () => ['farming-2.0.5/', 'farming-2.0.5/scripts/install-release.sh'],
@@ -543,6 +551,16 @@ async function run() {
     });
   }
   assert.strictEqual(installState.phase, 'downloading');
+  assert.strictEqual(installState.receivedBytes, 0);
+  assert.strictEqual(installState.totalBytes, 1024);
+  assert.deepStrictEqual(
+    {
+      phase: observedDownloadProgress.phase,
+      receivedBytes: observedDownloadProgress.receivedBytes,
+      totalBytes: observedDownloadProgress.totalBytes,
+    },
+    { phase: 'downloading', receivedBytes: 512, totalBytes: 1024 },
+  );
   assert.strictEqual(spawned.length, 1);
   assert.strictEqual(spawned[0].command, '/opt/farming/glibc/lib/ld-2.28.so');
   assert.deepStrictEqual(spawned[0].args.slice(0, 3), [
@@ -690,6 +708,8 @@ async function run() {
     assert(firstSpawned[0].args[0].endsWith('/backend/bundle-update-helper.js'));
     assert.strictEqual(firstSpawned[0].options.env.FARMING_INSTALL_DIR, httpInstallRoot);
     assert.strictEqual(firstSpawned[0].options.env.FARMING_CONFIG_DIR, httpConfigDir);
+    assert.strictEqual(firstService.installState.receivedBytes, fs.statSync(bundle101Path).size);
+    assert.strictEqual(firstService.installState.totalBytes, fs.statSync(bundle101Path).size);
     assert(fs.existsSync(path.join(firstService.installState.releaseDir, 'scripts', 'install-release.sh')));
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(httpConfigDir, 'settings.json'), 'utf8')).workspaceHistory, ['/kept/workspace']);
     fs.rmSync(firstService.updateStateFile, { force: true });

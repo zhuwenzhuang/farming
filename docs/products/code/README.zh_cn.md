@@ -132,7 +132,7 @@ Settings 把 Interface、Language、Search Timeout、Installation Aware Update�
 
 ![Farming Code Settings](assets/14-code-settings.png)
 
-切换到 Farming CRT 时会尽量携带当前 Focused Agent，不会重启 Session。npm 安装可以原地检查和安装更新；源码 Checkout 通过 Git 更新，Standalone Artifact 仍然手工替换。
+切换到 Farming CRT 时会尽量携带当前 Focused Agent，不会重启 Session。npm 安装可以原地检查和安装更新；更新卡片会显示当前的安装、重启或回滚阶段及已用时间，Bundle 下载还会显示基于实际字节数的百分比。源码 Checkout 通过 Git 更新，Standalone Artifact 仍然手工替换。
 
 ## 理解本地 Token 用量
 

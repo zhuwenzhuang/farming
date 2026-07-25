@@ -19186,10 +19186,27 @@ body.code-mode[data-appearance='dark'] .code-settings-inline-choice > span {
 
 .code-settings-update-summary {
   min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8px;
   overflow-wrap: anywhere;
   color: #747b72;
   font-size: 13px;
   line-height: 18px;
+}
+
+.code-settings-update-summary-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.code-settings-update-elapsed {
+  flex: 0 0 auto;
+  color: #8a9187;
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  white-space: nowrap;
 }
 
 .code-settings-update-summary.available {
@@ -19294,6 +19311,26 @@ body.code-mode[data-appearance='dark'] .code-settings-inline-choice > span {
 .code-settings-update-save:disabled {
   opacity: 0.48;
   cursor: not-allowed;
+}
+
+@media (max-width: 420px) {
+  .code-settings-update-card {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .code-settings-update-actions {
+    grid-column: 1;
+    max-width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .code-settings-update-actions button.primary {
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+  }
 }
 
 .code-agent-home-form-actions .primary {
@@ -19445,6 +19482,10 @@ body.code-mode[data-appearance='dark'] .code-settings-update-summary.available {
 
 body.code-mode[data-appearance='dark'] .code-settings-update-arrow,
 body.code-mode[data-appearance='dark'] .code-settings-update-summary {
+  color: #8b949e;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-elapsed {
   color: #8b949e;
 }
 
