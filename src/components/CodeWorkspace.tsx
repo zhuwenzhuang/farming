@@ -75,7 +75,12 @@ import {
 import { isOverlayShortcutTarget, isTerminalShortcutTarget, isTextEditingShortcutTarget } from '@/hooks/useKeyboard'
 import { usePageVisibility } from '@/hooks/usePageVisibility'
 import { CodeMainArea } from './code/CodeMainArea'
-import { respondToAcpElicitation, respondToAcpPermission, submitAcpDraft as submitAcpComposerDraft } from './code/acp/acp-composer-behavior'
+import {
+  isAcpComposerAvailable,
+  respondToAcpElicitation,
+  respondToAcpPermission,
+  submitAcpDraft as submitAcpComposerDraft,
+} from './code/acp/acp-composer-behavior'
 import { acpComposerStateAliasKeysForAgent, acpComposerStateKeyForAgent } from './code/acp/acp-composer-state'
 import { MobileShareSheet } from './code/MobileShareSheet'
 import { CodeOverlays, ContextMenuIcon } from './code/CodeOverlays'
@@ -1110,7 +1115,7 @@ export function CodeWorkspace({
       : activeAgentCanInterrupt
         ? 'interrupt'
         : 'disabled'
-  const acpComposerSubmitAction = activeAcpRuntime
+  const acpComposerSubmitAction = isAcpComposerAvailable(activeAgent)
     ? composerSubmitAction
     : 'disabled'
   const updateActiveComposerState = useCallback((updater: (state: AgentComposerState) => AgentComposerState) => {

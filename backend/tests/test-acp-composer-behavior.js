@@ -16,7 +16,7 @@ function readyImage() {
 }
 
 function run() {
-  const agent = { id: 'agent-1', runtimeBinding: { kind: 'acp' } };
+  const agent = { id: 'agent-1', status: 'running', runtimeBinding: { kind: 'acp' } };
   let state = createDefaultAgentComposerState();
   const updateComposerState = (_key, updater) => {
     state = updater(state);
@@ -77,6 +77,35 @@ function run() {
   assert.strictEqual(sent[1].text, 'change direction now');
   assert.strictEqual(sent[1].attachments[0].path, '/tmp/screen.png');
   assert.strictEqual(state.pendingFollowUp, undefined);
+
+  state = {
+    ...createDefaultAgentComposerState(),
+    draft: 'keep this blocked draft',
+  };
+  const sentBeforeBlockedRecovery = sent.length;
+  assert.strictEqual(submitAcpDraft({
+    agent: {
+      ...agent,
+      status: 'stopped',
+      requiresProcessExitAcknowledgement: true,
+      runtimeBinding: {
+        kind: 'acp',
+        state: 'error',
+        error: 'ACP recovery failed: Legacy ACP process exit cannot be proven after restart',
+      },
+    },
+    composerKey: 'acp:session-1',
+    draft: state.draft,
+    attachments: [],
+    composerMode: 'default',
+    turnActive: false,
+    supportsSteer: false,
+    sendMessage,
+    updateComposerState,
+  }), false);
+  assert.strictEqual(sent.length, sentBeforeBlockedRecovery, 'blocked ACP recovery must not send');
+  assert.strictEqual(state.draft, 'keep this blocked draft', 'blocked ACP recovery must preserve the draft');
+  assert.strictEqual(state.pendingFollowUp, undefined, 'blocked ACP recovery must not create a false active turn');
 
   console.log('ACP composer behavior tests passed');
 }

@@ -1261,7 +1261,10 @@ function run() {
       acpComposerSource.includes('data-testid="code-acp-pending-followup"') &&
       acpComposerSource.includes('data-testid="code-acp-pending-followup-discard"') &&
       !acpComposerSource.includes('slashCommands') &&
-      acpComposerBehaviorSource.includes("agent.runtimeBinding.kind !== 'acp'") &&
+      acpComposerBehaviorSource.includes("agent.runtimeBinding.kind === 'acp'") &&
+      acpComposerBehaviorSource.includes("agent.status === 'running'") &&
+      acpComposerBehaviorSource.includes('agent.requiresProcessExitAcknowledgement !== true') &&
+      workspaceSource.includes('isAcpComposerAvailable(activeAgent)') &&
       !acpComposerBehaviorSource.includes('terminalInputPartsForComposerMessage') &&
       acpComposerBehaviorSource.includes('formatComposerMessage') &&
       acpComposerBehaviorSource.includes('composerPromptAttachments') &&

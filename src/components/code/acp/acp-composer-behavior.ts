@@ -28,6 +28,15 @@ interface SubmitAcpDraftInput {
   ) => void
 }
 
+export function isAcpComposerAvailable(agent: Agent | null) {
+  return Boolean(
+    agent
+    && agent.runtimeBinding.kind === 'acp'
+    && agent.status === 'running'
+    && agent.requiresProcessExitAcknowledgement !== true
+  )
+}
+
 /**
  * ACP chat submits one user message through the structured runtime path. Files
  * and uploaded image paths use the existing composer message representation;
@@ -46,7 +55,7 @@ export function submitAcpDraft({
 }: SubmitAcpDraftInput) {
   const promptAttachments = composerPromptAttachments(attachments)
   const text = formatComposerMessage(composerMode, composerMessageForNativeAttachments(draft, attachments).trim())
-  if ((!text && promptAttachments.length === 0) || !agent || agent.runtimeBinding.kind !== 'acp' || !composerKey) return false
+  if ((!text && promptAttachments.length === 0) || !agent || !isAcpComposerAvailable(agent) || !composerKey) return false
   const steerNow = turnActive && supportsSteer
   if ((!turnActive || steerNow) && !sendMessage(agent, text, promptAttachments)) return false
 
