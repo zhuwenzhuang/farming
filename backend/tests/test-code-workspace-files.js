@@ -692,6 +692,7 @@ function run() {
       serverSource.includes('removeMainPageSessionKeys(sessionKeys)') &&
       serverSource.includes('delete settingsPatch.mainPageSessionKeys;') &&
       workspaceSource.includes('mainPageSessionKeysPendingMutationsRef') &&
+      workspaceSource.includes('mainPageSessionKeysAuthoritativeRevisionRef') &&
       workspaceSource.includes('applyPendingMainPageSessionKeyMutations') &&
       !workspaceSource.includes('pendingMainPageLaunchForAgent') &&
       !workspaceSource.includes('resolvePendingMainPageLaunches') &&

@@ -2246,7 +2246,7 @@ export function CodeWorkspace({
         const responseIsStillAuthoritative = authoritativeKeys !== null
           && mainPageSessionKeysAuthoritativeRevisionRef.current === authoritativeRevisionAtStart
         reconcileMainPageSessionKeys(
-          responseIsStillAuthoritative ? authoritativeKeys : undefined,
+          responseIsStillAuthoritative && authoritativeKeys ? authoritativeKeys : undefined,
         )
       }
     }

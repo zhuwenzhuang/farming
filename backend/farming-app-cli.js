@@ -471,8 +471,26 @@ function canonicalConfigDir(configDir) {
 }
 
 async function readServerProcessIdentity(pid) {
-  const { describeAcpProcessGroup } = require('./acp-runtime');
-  return describeAcpProcessGroup(pid);
+  const processId = Number(pid);
+  if (!Number.isSafeInteger(processId) || processId <= 0 || process.platform === 'win32') return null;
+  let stdout;
+  try {
+    stdout = execFileSync(
+      '/bin/ps',
+      ['-p', String(processId), '-o', 'pid=', '-o', 'pgid=', '-o', 'lstart='],
+      { encoding: 'utf8', timeout: 1_000, maxBuffer: 16_384 },
+    );
+  } catch (error) {
+    if (error?.status === 1 || error?.code === 'ESRCH') return null;
+    throw error;
+  }
+  const match = String(stdout || '').trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
+  if (!match || Number(match[1]) !== processId) return null;
+  return {
+    pid: processId,
+    processGroupId: Number(match[2]),
+    startedAt: match[3].trim(),
+  };
 }
 
 function writeServerState(configDir, env, pid, processIdentity) {
@@ -506,8 +524,41 @@ function processLooksLikeFarmingServer(pid) {
   return /(?:^|\s)(?:\S+[/\\])?backend[/\\]server\.js(?:\s|$)/.test(environment);
 }
 
-function readLegacyServerSettings(configDir, state) {
-  const token = readTokenForEnv({ FARMING_CONFIG_DIR: configDir });
+function processHasExactEnvironment(pid, expected) {
+  try {
+    const entries = fs.readFileSync(`/proc/${pid}/environ`, 'utf8')
+      .split('\0')
+      .filter(Boolean)
+      .map(entry => {
+        const separator = entry.indexOf('=');
+        return separator < 0 ? [entry, ''] : [entry.slice(0, separator), entry.slice(separator + 1)];
+      });
+    const environment = new Map(entries);
+    return Object.entries(expected).every(([key, value]) => environment.get(key) === String(value));
+  } catch {
+    if (Object.values(expected).some(value => /\s/.test(String(value)))) return false;
+    try {
+      const environment = execFileSync(
+        '/bin/ps',
+        ['eww', '-p', String(pid), '-o', 'command='],
+        { encoding: 'utf8', timeout: 1_000, maxBuffer: 1024 * 1024 },
+      );
+      return Object.entries(expected).every(([key, value]) => {
+        const escaped = `${key}=${value}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`).test(environment);
+      });
+    } catch {
+      return false;
+    }
+  }
+}
+
+function readLegacyServerSettings(configDir, state, pid) {
+  const authDisabled = processHasExactEnvironment(pid, { FARMING_DISABLE_AUTH: '1' });
+  const token = authDisabled ? '' : readTokenForEnv({ FARMING_CONFIG_DIR: configDir });
+  if (!authDisabled && !token) {
+    return Promise.reject(new Error('legacy Farming server identity probe requires this config directory token'));
+  }
   const requestPath = routePath(state.basePath || DEFAULT_BASE_PATH, '/api/settings');
   return new Promise((resolve, reject) => {
     const req = http.request({
@@ -530,9 +581,8 @@ function readLegacyServerSettings(configDir, state) {
         }
         try {
           const payload = JSON.parse(body);
-          const workspace = canonicalConfigDir(payload?.settings?.workspace || '');
-          if (workspace !== canonicalConfigDir(configDir)) {
-            reject(new Error('legacy Farming server identity probe returned a different config directory'));
+          if (!payload?.settings || typeof payload.settings !== 'object') {
+            reject(new Error('legacy Farming server identity probe did not return Farming settings'));
             return;
           }
           resolve(payload.settings);
@@ -545,6 +595,55 @@ function readLegacyServerSettings(configDir, state) {
     req.on('timeout', () => req.destroy(new Error('legacy Farming server identity probe timed out')));
     req.end();
   });
+}
+
+function processOwnsListeningPort(pid, port) {
+  const processId = Number(pid);
+  const portNumber = Number(port);
+  if (!Number.isSafeInteger(processId) || processId <= 0 || !Number.isInteger(portNumber) || portNumber <= 0) {
+    return false;
+  }
+  if (process.platform === 'linux') {
+    try {
+      const socketInodes = new Set(fs.readdirSync(`/proc/${processId}/fd`).flatMap(entry => {
+        try {
+          const target = fs.readlinkSync(`/proc/${processId}/fd/${entry}`);
+          const match = target.match(/^socket:\[(\d+)\]$/);
+          return match ? [match[1]] : [];
+        } catch {
+          return [];
+        }
+      }));
+      const portHex = portNumber.toString(16).toUpperCase().padStart(4, '0');
+      for (const table of ['/proc/net/tcp', '/proc/net/tcp6']) {
+        let rows = [];
+        try {
+          rows = fs.readFileSync(table, 'utf8').trim().split(/\r?\n/).slice(1);
+        } catch {
+          continue;
+        }
+        if (rows.some(row => {
+          const fields = row.trim().split(/\s+/);
+          const localPort = String(fields[1] || '').split(':').at(-1);
+          return localPort === portHex && fields[3] === '0A' && socketInodes.has(fields[9]);
+        })) return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+  try {
+    const lsof = fs.existsSync('/usr/sbin/lsof') ? '/usr/sbin/lsof' : 'lsof';
+    const stdout = execFileSync(
+      lsof,
+      ['-nP', '-a', '-p', String(processId), `-iTCP:${portNumber}`, '-sTCP:LISTEN', '-Fpfn'],
+      { encoding: 'utf8', timeout: 1_000, maxBuffer: 64 * 1024 },
+    );
+    return String(stdout || '').split(/\r?\n/).some(line => line.startsWith('n') && line.endsWith(`:${portNumber}`));
+  } catch {
+    return false;
+  }
 }
 
 function matchingProcessIdentity(expected, current) {
@@ -563,7 +662,8 @@ async function assertServerProcessIdentity(configDir, pid, state) {
     || canonicalConfigDir(state?.configDir || '') !== canonicalConfigDir(configDir)
     || !expected
     || Number(expected.pid) !== pid
-    || Number(expected.processGroupId) !== pid
+    || !Number.isSafeInteger(Number(expected.processGroupId))
+    || Number(expected.processGroupId) <= 0
     || !String(expected.startedAt || '').trim()
   ) {
     throw new Error(
@@ -576,6 +676,9 @@ async function assertServerProcessIdentity(configDir, pid, state) {
       `Refusing to stop Farming PID ${pid}: the live process identity does not match the server control metadata`,
     );
   }
+  if (!processOwnsListeningPort(pid, Number(state.port))) {
+    throw new Error(`Refusing to stop Farming PID ${pid}: the process does not own listening port ${state.port}`);
+  }
   return current;
 }
 
@@ -587,6 +690,10 @@ async function migrateLegacyServerIdentity(configDir, pid, state) {
     || Number(state.port) <= 0
     || Number(state.port) > 65535
     || !processLooksLikeFarmingServer(pid)
+    || !processHasExactEnvironment(pid, {
+      FARMING_CONFIG_DIR: configDir,
+      PORT: String(state.port),
+    })
   ) {
     throw new Error(
       `Refusing to stop Farming PID ${pid}: legacy server control metadata could not prove this process belongs to the config directory`,
@@ -596,7 +703,10 @@ async function migrateLegacyServerIdentity(configDir, pid, state) {
   if (!firstIdentity) {
     throw new Error(`Refusing to stop Farming PID ${pid}: the legacy server process identity could not be read`);
   }
-  await readLegacyServerSettings(configDir, state);
+  if (!processOwnsListeningPort(pid, Number(state.port))) {
+    throw new Error(`Refusing to stop Farming PID ${pid}: the legacy process does not own listening port ${state.port}`);
+  }
+  await readLegacyServerSettings(configDir, state, pid);
   const stableIdentity = await readServerProcessIdentity(pid);
   if (!matchingProcessIdentity(firstIdentity, stableIdentity) || readPid(configDir) !== pid) {
     throw new Error(`Refusing to stop Farming PID ${pid}: the legacy server process identity changed during verification`);

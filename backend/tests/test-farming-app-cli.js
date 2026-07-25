@@ -235,8 +235,15 @@ async function runTests() {
 
   {
     const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-stale-stop-daemon.'));
+    const port = await freePort();
     const unrelated = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
       detached: true,
+      env: {
+        ...process.env,
+        FARMING_RUN_SERVER: '1',
+        FARMING_CONFIG_DIR: configDir,
+        PORT: String(port),
+      },
       stdio: 'ignore',
     });
     try {
@@ -244,7 +251,6 @@ async function runTests() {
         unrelated.once('spawn', resolve);
         unrelated.once('error', reject);
       });
-      const port = await freePort();
       fs.writeFileSync(storageLayout.serverPidFile(configDir), String(unrelated.pid));
       fs.writeFileSync(serverStateFile(configDir), JSON.stringify({
         pid: unrelated.pid,
@@ -272,7 +278,7 @@ async function runTests() {
       }));
       await assert.rejects(
         stopDaemon(parseServerArgs(['stop', '--config-dir', configDir])),
-        /legacy server control metadata could not prove this process belongs to the config directory/,
+        /legacy process does not own listening port/,
       );
       assert.doesNotThrow(() => process.kill(unrelated.pid, 0), 'legacy metadata without identity must fail closed');
       assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), true);
@@ -291,6 +297,10 @@ async function runTests() {
     const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-legacy-stop-daemon.'));
     const fixture = path.join(__dirname, 'fixtures', 'farming-stop-server.js');
     const port = await freePort();
+    const token = 'legacy-config-token-019f98f3';
+    const legacyWorkspace = '/project/workspace-not-config-dir';
+    assert.notStrictEqual(legacyWorkspace, fs.realpathSync.native(configDir));
+    fs.writeFileSync(storageLayout.sessionTokenFile(configDir), token, { mode: 0o600 });
     const child = fork(fixture, [], {
       detached: true,
       env: {
@@ -298,8 +308,9 @@ async function runTests() {
         FARMING_RUN_SERVER: '1',
         FARMING_CONFIG_DIR: configDir,
         FARMING_BASE_PATH: '/farming',
-        FARMING_DISABLE_AUTH: '1',
         FARMING_TEST_PORT: String(port),
+        FARMING_TEST_TOKEN: token,
+        FARMING_TEST_WORKSPACE: legacyWorkspace,
         PORT: String(port),
       },
       stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
@@ -332,6 +343,15 @@ async function runTests() {
         configDir: fs.realpathSync.native(configDir),
         updatedAt: '2026-07-01T00:00:00.000Z',
       }));
+      fs.writeFileSync(storageLayout.sessionTokenFile(configDir), 'wrong-config-token', { mode: 0o600 });
+      await assert.rejects(
+        stopDaemon(parseServerArgs(['stop', '--config-dir', configDir])),
+        /identity probe returned HTTP 401/,
+      );
+      assert.doesNotThrow(() => process.kill(child.pid, 0), 'a mismatched config token must not signal the legacy server PID');
+      assert.strictEqual(JSON.parse(fs.readFileSync(serverStateFile(configDir), 'utf8')).processIdentity, undefined);
+      fs.writeFileSync(storageLayout.sessionTokenFile(configDir), token, { mode: 0o600 });
+
       const stopRequested = childMessage('stop-requested');
       let stopSettled = false;
       const stopping = stopDaemon(parseServerArgs(['stop', '--config-dir', configDir]))
@@ -343,6 +363,74 @@ async function runTests() {
       assert.strictEqual(migratedState.processIdentity.pid, child.pid);
       assert.strictEqual(typeof migratedState.processIdentity.startedAt, 'string');
       assert.strictEqual(stopSettled, false, 'legacy migration must still wait for process exit and port release');
+      child.send({ type: 'release' });
+      assert.strictEqual(await stopping, 0);
+      assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), false);
+      assert.strictEqual(fs.existsSync(serverStateFile(configDir)), false);
+      assert.strictEqual(await canBindPort(port), true);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-legacy-no-auth-stop-daemon.'));
+    const fixture = path.join(__dirname, 'fixtures', 'farming-stop-server.js');
+    const port = await freePort();
+    fs.writeFileSync(storageLayout.sessionTokenFile(configDir), 'stale-token-from-an-authenticated-launch', { mode: 0o600 });
+    const child = fork(fixture, [], {
+      detached: true,
+      env: {
+        ...process.env,
+        FARMING_RUN_SERVER: '1',
+        FARMING_CONFIG_DIR: configDir,
+        FARMING_BASE_PATH: '/farming',
+        FARMING_DISABLE_AUTH: '1',
+        FARMING_TEST_PORT: String(port),
+        FARMING_TEST_REJECT_COOKIE: '1',
+        FARMING_TEST_WORKSPACE: '/legacy/no-auth/project-workspace',
+        PORT: String(port),
+      },
+      stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
+    });
+    const childMessage = type => new Promise((resolve, reject) => {
+      const onMessage = message => {
+        if (message?.type !== type) return;
+        cleanup();
+        resolve(message);
+      };
+      const onExit = (code, signal) => {
+        cleanup();
+        reject(new Error(`legacy no-auth stop fixture exited early (${signal || code})`));
+      };
+      const cleanup = () => {
+        child.off('message', onMessage);
+        child.off('exit', onExit);
+      };
+      child.on('message', onMessage);
+      child.on('exit', onExit);
+    });
+
+    try {
+      await childMessage('listening');
+      assert.strictEqual(fs.existsSync(storageLayout.sessionTokenFile(configDir)), true);
+      fs.writeFileSync(storageLayout.serverPidFile(configDir), String(child.pid));
+      fs.writeFileSync(serverStateFile(configDir), JSON.stringify({
+        pid: child.pid,
+        port,
+        basePath: '/farming',
+        configDir: fs.realpathSync.native(configDir),
+        updatedAt: '2026-07-01T00:00:00.000Z',
+      }));
+      const stopRequested = childMessage('stop-requested');
+      let stopSettled = false;
+      const stopping = stopDaemon(parseServerArgs(['stop', '--config-dir', configDir]))
+        .finally(() => { stopSettled = true; });
+      await stopRequested;
+      const migratedState = JSON.parse(fs.readFileSync(serverStateFile(configDir), 'utf8'));
+      assert.strictEqual(migratedState.processIdentity.pid, child.pid);
+      assert.strictEqual(stopSettled, false);
       child.send({ type: 'release' });
       assert.strictEqual(await stopping, 0);
       assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), false);
