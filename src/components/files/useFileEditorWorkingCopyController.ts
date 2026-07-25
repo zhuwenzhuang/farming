@@ -110,7 +110,7 @@ export function useFileEditorWorkingCopyController({
     const requestTarget = { ...target, saveRequestId: reloadRequestId }
 
     try {
-      const file = await fetchWorkspaceFile(reloadingFile.agentId, reloadingFile.file.path)
+      const file = await fetchWorkspaceFile(reloadingFile.agentId, reloadingFile.file.path, { exactExternal: reloadingFile.exactExternal })
       onUpdateOpenFile(requestTarget, currentFile => (
         completeWorkspaceOpenFileSave(currentFile, reloadRequestId, file)
       ))

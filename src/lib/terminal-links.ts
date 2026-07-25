@@ -3,6 +3,8 @@ export interface TerminalPathOpenTarget {
   lineNumber?: number
   column?: number
   endColumn?: number
+  globalRoot?: boolean
+  exactExternal?: boolean
 }
 
 export interface TerminalLinkMatch {

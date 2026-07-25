@@ -126,6 +126,7 @@ Search reuses `/api/files/search`. It supports:
 - file path search;
 - `path:line`;
 - `path:line:column`.
+- Clicking a terminal `path:line` uses the same open path: workspace-relative and in-workspace absolute paths use the current Project Files root. A user-clicked absolute file outside the workspace may be read once through the read-only global Files root when it is readable by the Farming process; it does not authorize its parent directory for browsing, search, editing, or Git operations.
 
 Search results must expose keyboard active state to the DOM. `aria-activedescendant` should point at the active result where possible.
 

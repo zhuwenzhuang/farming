@@ -304,7 +304,7 @@ async function dispatchTouchDrag(
         x: from.x + (to.x - from.x) * progress,
         y: from.y + (to.y - from.y) * progress,
       }],
-    })
+      })
   }
   await client.send('Input.dispatchTouchEvent', {
     type: 'touchEnd',
@@ -1290,6 +1290,39 @@ test.describe('terminal regression matrix', () => {
       await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
     })
 
+    await scenario('plain-clicking an external absolute terminal path opens its exact readable file without selecting it', async () => {
+      const externalDirectory = fs.mkdtempSync('/tmp/farming-terminal-exact-file-')
+      const externalFile = path.join(externalDirectory, 'README.md')
+      fs.writeFileSync(externalFile, '# External terminal file\n')
+      try {
+        await writeTerminalFixture(page, bashAgentId, `${externalFile}\r\n`)
+        const cell = await cellForText(page, bashAgentId, 'README.md', 2)
+        await hoverTerminalCell(page, cell.x, cell.y)
+        await expect.poll(async () => {
+          return page.evaluate((id) => {
+            const host = document.querySelector(`.terminal-session-host[data-agent-id="${CSS.escape(id)}"]`)
+            return host instanceof HTMLElement ? host.dataset.terminalOpenTarget || '' : ''
+          }, bashAgentId)
+        }).toBe('path')
+        const externalRead = page.waitForResponse(response => (
+          response.url().includes('/api/files/file?')
+          && response.url().includes('exact=1')
+          && response.url().includes(encodeURIComponent(externalDirectory.replace(/^\/+/, '')))
+        ))
+        await page.mouse.click(cell.x, cell.y)
+        expect((await externalRead).status()).toBe(200)
+        await expect(page.getByTestId('code-file-editor')).toBeVisible()
+        await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('README.md')
+        await expect.poll(async () => {
+          return page.evaluate((id) => window.__farmingTerminalTest?.getSelection(id) ?? '', bashAgentId)
+        }).toBe('')
+        await page.getByTestId('code-file-editor-back').click()
+        await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
+      } finally {
+        fs.rmSync(externalDirectory, { recursive: true, force: true })
+      }
+    })
+
     await scenario('plain-clicking a unique terminal filename opens the workspace file', async () => {
       await writeTerminalFixture(page, bashAgentId, 'unique-only.log unique terminal filename\r\n')
       const cell = await cellForText(page, bashAgentId, 'unique-only.log', 2)
@@ -1758,16 +1791,17 @@ test.describe('terminal regression matrix', () => {
       expect(viewport.hasUnreadOutput).toBe(false)
     })
 
-      await scenario('shared workspace keeps all live agents in one project group', async () => {
-        const project = page.getByTestId('code-project-group').filter({ hasText: 'matrix-project' })
-        await expect(project).toHaveCount(1)
-        const showMore = project.getByTestId('code-agent-show-more')
-        if (await showMore.isVisible().catch(() => false)) await showMore.click()
-        await expect(project.locator('[data-testid="code-agent-row"], [data-testid="code-project-agent-compact"], [data-testid="code-pinned-agent-compact"]')).toHaveCount(8)
-      })
+    await scenario('shared workspace keeps all live agents in one project group', async () => {
+      const project = page.getByTestId('code-project-group').filter({ hasText: 'matrix-project' })
+      await expect(project).toHaveCount(1)
+      const showMore = project.getByTestId('code-agent-show-more')
+      if (await showMore.isVisible().catch(() => false)) await showMore.click()
+      await expect(project.locator('[data-testid="code-agent-row"], [data-testid="code-project-agent-compact"], [data-testid="code-pinned-agent-compact"]')).toHaveCount(8)
+    })
 
     await scenario('active agent row returns from Open Editors back to its terminal', async () => {
-      const openEditors = page.getByTestId('code-open-editors')
+      const project = page.getByTestId('code-project-group').filter({ hasText: 'matrix-project' })
+      const openEditors = project.getByTestId('code-open-editors')
       const title = openEditors.locator('.code-open-editors-title')
       if (await title.getAttribute('aria-expanded') !== 'true') {
         await title.click()

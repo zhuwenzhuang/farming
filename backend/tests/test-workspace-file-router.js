@@ -86,6 +86,11 @@ async function run() {
     fs.writeFileSync(globalReadFile, 'global file\n');
     const forbiddenGlobalReadFile = path.join(tmpRoot, 'outside-project.md');
     fs.writeFileSync(forbiddenGlobalReadFile, 'outside project\n');
+    const exactExternalPreviewFile = path.join(tmpRoot, 'outside-project.png');
+    fs.writeFileSync(exactExternalPreviewFile, Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgF/2l2fLwAAAABJRU5ErkJggg==',
+      'base64'
+    ));
 
     const agentManager = {
       configManager: {
@@ -169,6 +174,14 @@ async function run() {
       const forbiddenGlobalReadPath = forbiddenGlobalReadFile.replace(/^\/+/, '');
       const forbiddenGlobalRead = await fetchJson(baseUrl, `/api/files/file?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}&path=${encodeURIComponent(forbiddenGlobalReadPath)}`);
       assert.strictEqual(forbiddenGlobalRead.response.status, 403);
+      const exactExternalRead = await fetchJson(baseUrl, `/api/files/file?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}&path=${encodeURIComponent(forbiddenGlobalReadPath)}&exact=1`);
+      assert.strictEqual(exactExternalRead.response.status, 200);
+      assert.strictEqual(exactExternalRead.body.file.content, 'outside project\n');
+      const exactExternalDirectory = await fetchJson(baseUrl, `/api/files/file?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}&path=${encodeURIComponent(tmpRoot.replace(/^\/+/, ''))}&exact=1`);
+      assert.strictEqual(exactExternalDirectory.response.status, 400);
+      const exactExternalRaw = await fetchRaw(baseUrl, `/api/files/raw?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}&path=${encodeURIComponent(exactExternalPreviewFile.replace(/^\/+/, ''))}&exact=1`);
+      assert.strictEqual(exactExternalRaw.response.status, 200);
+      assert(exactExternalRaw.response.headers.get('content-type').includes('image/png'));
       const globalWrite = await fetchJson(baseUrl, '/api/files/file', {
         method: 'PUT',
         body: JSON.stringify({

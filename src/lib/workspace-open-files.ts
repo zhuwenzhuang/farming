@@ -16,6 +16,7 @@ export interface WorkspaceFileOpenTarget {
   view?: 'editor' | 'diff'
   diffOnly?: boolean
   globalRoot?: boolean
+  exactExternal?: boolean
   revealInTree?: boolean
   sourceAgentId?: string
   transient?: boolean
@@ -38,6 +39,7 @@ export interface WorkspaceOpenFileRequest {
   workspaceRoot?: string
   sourceAgentId?: string
   transient?: boolean
+  exactExternal?: boolean
 }
 
 type WorkspaceOpenFileRequestInput = WorkspaceOpenFileRequest | WorkspaceFileCursor
@@ -66,6 +68,7 @@ export interface OpenWorkspaceFile {
   diffRequestId?: number
   diffOnly?: boolean
   transient?: boolean
+  exactExternal?: boolean
 }
 
 export interface WorkspaceOpenFileTarget {
@@ -149,6 +152,7 @@ export function workspaceOpenFileRequestForTarget(
     diffRequestId: workspaceFileDiffRequestForTarget(target, requestIds.diffRequestId),
     diffOnly: workspaceFileDiffOnlyForTarget(target),
     transient: target?.transient,
+    exactExternal: target?.exactExternal,
   }
 }
 
@@ -354,6 +358,7 @@ export function createWorkspaceOpenFile(
     diffRequestId: request.diffRequestId,
     diffOnly: request.diffOnly,
     transient: request.transient,
+    exactExternal: request.exactExternal,
   }
 }
 
@@ -397,6 +402,7 @@ export function openWorkspaceFileFromRead(
     diffRequestId: request.diffRequestId,
     diffOnly: request.diffOnly === true,
     transient: nextTransient,
+    exactExternal: request.exactExternal ?? baseFile.exactExternal,
   }
 
   const files = nextFile.transient

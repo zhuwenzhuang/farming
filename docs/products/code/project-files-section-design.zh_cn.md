@@ -224,7 +224,7 @@ Files
 - 当前打开文件的 active 高亮和 tree selection 要分离：active file 用左侧细条 + 很浅背景表示右侧 editor 对应关系，tree selection 用浅底色交给 tree engine 维护键盘焦点和轻量选择态
 - 搜索入口复用 `/api/files/search`，结果点击直接打开对应文件并定位 Monaco 到匹配行；搜索结果列表只在有输入时出现，不变成独立页面
 - 搜索入口同时支持 `path:line` / `path:line:column` / `path#Lline`，用于从 agent 输出或用户手动复制路径后快速跳转
-- 点击 terminal output 中的 `path:line` 也应走同一套打开逻辑；workspace 内绝对路径先转成相对路径再请求 `/api/files/file`，workspace 外绝对路径不处理，避免越过当前 Project 文件边界
+- 点击 terminal output 中的 `path:line` 也应走同一套打开逻辑；workspace 内绝对路径先转成相对路径再请求 `/api/files/file`。用户点击的 workspace 外绝对文件在 Farming 进程可读取时，可通过只读全局 Files 根精确读取一次，但不因此授权浏览其父目录、搜索、编辑或 Git 操作
 - 搜索结果的键盘选中态需要暴露给 DOM：输入框用 `aria-activedescendant` 指向当前结果，结果列表用 `listbox/option` 语义，保证视觉 active、上下键选择和辅助语义一致
 - 右侧 editor breadcrumb 是轻量上下文入口：点击目录段会在左侧 Explorer 展开并 reveal 对应目录，点击文件段 reveal 当前文件，避免用户滚动远离 active file 后丢上下文
 - 文件被外部修改或 git 工作区未提交时，在对应文件行显示轻量状态

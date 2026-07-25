@@ -38,7 +38,7 @@ export function FileEditorPreviewPanel({
           <img
             className="code-file-image-preview"
             data-testid="code-file-image-preview"
-            src={rawWorkspaceFileUrl(openFile.agentId, openFile.file.path, openFile.file.sha1)}
+            src={rawWorkspaceFileUrl(openFile.agentId, openFile.file.path, openFile.file.sha1, { exactExternal: openFile.exactExternal })}
             alt={basename(openFile.file.path)}
             draggable={false}
           />
@@ -59,7 +59,7 @@ export function FileEditorPreviewPanel({
         <iframe
           className="code-file-pdf-preview"
           data-testid="code-file-pdf-preview"
-          src={rawWorkspaceFileUrl(openFile.agentId, openFile.file.path, openFile.file.sha1)}
+          src={rawWorkspaceFileUrl(openFile.agentId, openFile.file.path, openFile.file.sha1, { exactExternal: openFile.exactExternal })}
           title={copy.previewFor(openFile.file.path)}
         />
       </section>

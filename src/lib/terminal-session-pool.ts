@@ -2074,6 +2074,7 @@ function terminalPathResolveCacheKey(target: TerminalPathOpenTarget) {
 
 async function resolveTerminalPathTarget(record: SessionRecord, target: TerminalPathOpenTarget) {
   if (!record.pathResolveHandler) return target
+  if (target.globalRoot) return target
 
   const cacheKey = terminalPathResolveCacheKey(target)
   const cached = record.pathResolveCache.get(cacheKey)
@@ -3952,7 +3953,16 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
         event.preventDefault()
         event.stopPropagation()
         event.stopImmediatePropagation()
-        record.pathOpenHandler(agentId, pathTarget)
+        clearTerminalSelectionState(record)
+        const attachmentGeneration = record.attachGeneration
+        void resolveTerminalPathTarget(record, pathTarget).then(resolvedTarget => {
+          if (!isCurrentAttachment(record, attachmentGeneration)) return
+          if (!resolvedTarget) {
+            focusAttachedTerminalInput(record)
+            return
+          }
+          record.pathOpenHandler?.(agentId, resolvedTarget)
+        })
         record.suppressClickUntil = Date.now() + 250
         return true
       }
@@ -4057,12 +4067,12 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
       record.suppressClickUntil = Date.now() + 250
       return
     }
-    if (getTerminalSelectionForCopy(record)) return
     if (openTerminalClickTarget(event)) return
 
     event.preventDefault()
     event.stopPropagation()
     event.stopImmediatePropagation()
+    clearTerminalSelectionState(record)
     record.suppressClickUntil = Date.now() + 250
     const attachmentGeneration = record.attachGeneration
     void resolveTerminalPathTarget(record, mouseDown.pathTarget).then(resolvedTarget => {

@@ -214,6 +214,7 @@ import {
 import { useAgentComposerState } from './code/useAgentComposerState'
 import {
   terminalTargetFilePath,
+  terminalTargetGlobalFilePath,
 } from './code/workspace-file-view'
 import {
   applySessionDisplayOverrides,
@@ -2957,7 +2958,10 @@ export function CodeWorkspace({
   const resolveTerminalPathTarget = useCallback(async (agentId: string, target: TerminalPathOpenTarget) => {
     const identity = resolveWorkspaceFileIdentity(agentId, agentId)
     const filePath = terminalTargetFilePath(target.path, identity.workspaceRoot ?? '')
-    if (!filePath) return null
+    if (!filePath) {
+      const globalFilePath = terminalTargetGlobalFilePath(target.path)
+      return globalFilePath ? { ...target, path: globalFilePath, globalRoot: true, exactExternal: true } : null
+    }
 
     try {
       const results = await searchWorkspaceFiles(identity.filesId, filePath, { limit: TERMINAL_PATH_SEARCH_LIMIT })
@@ -2971,8 +2975,13 @@ export function CodeWorkspace({
   }, [resolveWorkspaceFileIdentity])
 
   const openTerminalPathTarget = useCallback((agentId: string, target: TerminalPathOpenTarget) => {
-    const identity = resolveWorkspaceFileIdentity(agentId, agentId)
-    const filePath = terminalTargetFilePath(target.path, identity.workspaceRoot ?? '')
+    const identity = resolveWorkspaceFileIdentity(
+      target.globalRoot ? GLOBAL_WORKSPACE_FILES_AGENT_ID : agentId,
+      agentId,
+    )
+    const filePath = target.globalRoot
+      ? normalizeGlobalWorkspaceFilePath(target.path)
+      : terminalTargetFilePath(target.path, identity.workspaceRoot ?? '')
     if (!filePath) return
 
     const requestId = terminalPathOpenRequestRef.current + 1
@@ -2980,11 +2989,13 @@ export function CodeWorkspace({
     const requestedOpenTarget = openTargetForTerminalPath(target)
     const openTarget: WorkspaceFileOpenTarget = {
       ...(requestedOpenTarget ?? {}),
+      ...(target.globalRoot ? { globalRoot: true } : {}),
+      ...(target.exactExternal ? { exactExternal: true } : {}),
       sourceAgentId: identity.sourceAgentId,
     }
 
     const openResolvedFile = async (resolvedPath: string, resolvedTarget = openTarget) => {
-      const file = await fetchWorkspaceFile(identity.filesId, resolvedPath)
+      const file = await fetchWorkspaceFile(identity.filesId, resolvedPath, { exactExternal: target.exactExternal })
       if (terminalPathOpenRequestRef.current !== requestId) return
       await openProjectFile(identity.filesId, file, resolvedTarget)
     }
@@ -3008,6 +3019,18 @@ export function CodeWorkspace({
     }
 
     void (async () => {
+      if (target.exactExternal) {
+        try {
+          await openResolvedFile(filePath)
+        } catch (error) {
+          setCopyNotice({
+            id: Date.now(),
+            kind: 'error',
+            message: error instanceof Error ? error.message : 'Failed to open external file',
+          })
+        }
+        return
+      }
       try {
         await fetchWorkspaceTree(identity.filesId, filePath)
         revealResolvedDirectory(filePath)
@@ -3052,7 +3075,7 @@ export function CodeWorkspace({
 
       revealSearch()
     })()
-  }, [focusWorkspaceFilesSearch, openProjectFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer])
+  }, [focusWorkspaceFilesSearch, openProjectFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, setCopyNotice])
 
   const selectOpenWorkspaceFile = useCallback((agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
     const identity = resolveWorkspaceFileIdentity(agentId, target?.sourceAgentId)
@@ -3119,7 +3142,7 @@ export function CodeWorkspace({
         : undefined
     if (selectOpenWorkspaceFile(filesId, resolvedFilePath, resolvedTarget)) return
     const openResolvedFile = async (resolvedPath: string, fileTarget = resolvedTarget) => {
-      const file = await fetchWorkspaceFile(filesId, resolvedPath)
+      const file = await fetchWorkspaceFile(filesId, resolvedPath, { exactExternal: fileTarget?.exactExternal })
       await openProjectFile(filesId, file, fileTarget)
     }
     try {

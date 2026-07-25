@@ -9,6 +9,7 @@ const {
   relativePathInsideWorkspace,
   replaceOpenWorkspaceFile,
   terminalTargetFilePath,
+  terminalTargetGlobalFilePath,
   workspaceFileCacheKey,
   workspaceHomeRoot,
 } = require('../../src/components/code/workspace-file-view.ts');
@@ -61,6 +62,9 @@ function run() {
   assert.strictEqual(terminalTargetFilePath('../secret', '/repo/project'), null);
   assert.strictEqual(terminalTargetFilePath('/repo/project/src/App.tsx', '/repo/project'), 'src/App.tsx');
   assert.strictEqual(terminalTargetFilePath('/repo/other/App.tsx', '/repo/project'), null);
+  assert.strictEqual(terminalTargetGlobalFilePath('/tmp/mcp-apps-zh.hZaYew/README.md'), 'tmp/mcp-apps-zh.hZaYew/README.md');
+  assert.strictEqual(terminalTargetGlobalFilePath('//tmp/README.md'), null);
+  assert.strictEqual(terminalTargetGlobalFilePath('README.md'), null);
   assert.strictEqual(
     terminalTargetFilePath('~/git/farming/src/App.tsx', '/Users/alice/git/farming'),
     'src/App.tsx'

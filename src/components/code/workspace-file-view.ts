@@ -67,3 +67,9 @@ export function terminalTargetFilePath(targetPath: string, workspaceRoot: string
   }
   return normalizedPath
 }
+
+export function terminalTargetGlobalFilePath(targetPath: string) {
+  const normalizedPath = normalizeTerminalPathText(targetPath)
+  if (!normalizedPath.startsWith('/') || normalizedPath.startsWith('//')) return null
+  return normalizedPath.replace(/^\/+/, '')
+}

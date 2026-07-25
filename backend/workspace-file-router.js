@@ -136,6 +136,23 @@ function assertGlobalWorkspacePathAllowed(agentManager, userPath, options = {}) 
   return { target: requestedTarget, allowedRoots };
 }
 
+function assertExactExternalFileReadable(userPath) {
+  const requestedTarget = globalUserPathToAbsolute(userPath);
+  let target;
+  let stat;
+  try {
+    target = fs.realpathSync(requestedTarget);
+    stat = fs.statSync(target);
+    fs.accessSync(target, fs.constants.R_OK);
+  } catch {
+    throw new WorkspaceFileError('external file is not readable', 403);
+  }
+  if (!stat.isFile()) {
+    throw new WorkspaceFileError('external path must be a file', 400);
+  }
+  return relativeGlobalPath(target);
+}
+
 function globalSyntheticTree(agentManager, userPath = '') {
   const { target, allowedRoots } = assertGlobalWorkspacePathAllowed(agentManager, userPath, {
     allowAllowedRootAncestor: true,
@@ -233,11 +250,14 @@ function createWorkspaceFileRouter(agentManager, fileService, options = {}) {
   router.get('/file', async (req, res) => {
     try {
       const rootRef = workspaceRef(req.query);
-      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
-        assertGlobalWorkspacePathAllowed(agentManager, req.query.path || '');
+      const requestPath = isGlobalWorkspaceFilesAgentId(rootRef) && req.query.exact === '1'
+        ? assertExactExternalFileReadable(req.query.path || '')
+        : req.query.path || '';
+      if (isGlobalWorkspaceFilesAgentId(rootRef) && req.query.exact !== '1') {
+        assertGlobalWorkspacePathAllowed(agentManager, requestPath);
       }
       const { root, rootId } = resolveRequestRoot(req.query);
-      const file = await fileService.readFile(root, req.query.path || '', readOptionsForAgent(agentManager, rootRef));
+      const file = await fileService.readFile(root, requestPath, readOptionsForAgent(agentManager, rootRef));
       res.json({ rootId, root, file });
     } catch (error) {
       sendWorkspaceFileError(res, error);
@@ -247,11 +267,14 @@ function createWorkspaceFileRouter(agentManager, fileService, options = {}) {
   router.get('/raw', async (req, res) => {
     try {
       const rootRef = workspaceRef(req.query);
-      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
-        assertGlobalWorkspacePathAllowed(agentManager, req.query.path || '');
+      const requestPath = isGlobalWorkspaceFilesAgentId(rootRef) && req.query.exact === '1'
+        ? assertExactExternalFileReadable(req.query.path || '')
+        : req.query.path || '';
+      if (isGlobalWorkspaceFilesAgentId(rootRef) && req.query.exact !== '1') {
+        assertGlobalWorkspacePathAllowed(agentManager, requestPath);
       }
       const { root } = resolveRequestRoot(req.query);
-      const file = await fileService.readPreviewFile(root, req.query.path || '', readOptionsForAgent(agentManager, rootRef));
+      const file = await fileService.readPreviewFile(root, requestPath, readOptionsForAgent(agentManager, rootRef));
       res
         .status(200)
         .type(file.preview.mediaType)
@@ -533,6 +556,7 @@ module.exports = {
   PROJECT_FILES_WORKSPACE_PREFIX,
   PROJECT_FILES_AGENT_PREFIX: PROJECT_FILES_WORKSPACE_PREFIX,
   assertGlobalWorkspacePathAllowed,
+  assertExactExternalFileReadable,
   createWorkspaceFileRouter,
   globalWorkspaceAllowedRoots,
   isGlobalWorkspaceFilesAgentId,
