@@ -132,7 +132,7 @@ Settings groups interface, language, search timeout, installation-aware updates,
 
 ![Farming Code Settings](assets/14-code-settings.png)
 
-Switching to Farming CRT carries the focused Agent when possible and does not restart the session. npm installations can check and install updates in place; the update card shows the current install, restart, or rollback stage and elapsed time. Bundle downloads additionally show byte-backed percentage progress. Source checkouts update through Git, and standalone artifacts remain manual.
+Switching to Farming CRT carries the focused Agent when possible and does not restart the session. Updates follow a Zed-style two-step flow: **Prepare** downloads and validates a Bundle or installs an npm release into a separate staging directory while the current server keeps running. The card then remains in **Update ready** until the user clicks **Restart to update**; only that second action switches the prepared version and restarts Farming. npm directory-switch failures restore the previous package before restarting it. The card shows preparation, restart, or rollback state and freezes elapsed time when preparation completes. Bundle downloads additionally show byte-backed percentage progress when the server provides a total size. Source checkouts update through Git, and standalone artifacts remain manual.
 
 ## Understand Local Token Usage
 

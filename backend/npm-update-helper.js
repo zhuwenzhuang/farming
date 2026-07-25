@@ -61,10 +61,11 @@ async function stopProcess(pid, timeoutMs = 15_000) {
 
 function validatePayload(payload) {
   if (!payload || typeof payload !== 'object') throw new Error('Missing npm update payload');
+  if (!['prepare', 'apply'].includes(payload.action)) throw new Error('Invalid npm update action');
   if (!/^[A-Za-z0-9@/._-]+$/.test(String(payload.packageName || ''))) throw new Error('Invalid npm package name');
   if (!/^[0-9A-Za-z.+-]+$/.test(String(payload.targetVersion || ''))) throw new Error('Invalid npm target version');
   if (!/^[0-9A-Za-z.+-]+$/.test(String(payload.previousVersion || ''))) throw new Error('Invalid npm previous version');
-  for (const key of ['stateFile', 'logPath', 'cliPath', 'packageRoot', 'configDir']) {
+  for (const key of ['stateFile', 'logPath', 'cliPath', 'packageRoot', 'configDir', 'stagingPrefix', 'stagingPackageRoot']) {
     if (!path.isAbsolute(String(payload[key] || ''))) throw new Error(`Invalid npm update ${key}`);
   }
   if (payload.npmPrefix && !path.isAbsolute(String(payload.npmPrefix))) {
@@ -81,6 +82,13 @@ function validatePayload(payload) {
       throw new Error('Invalid npm update registry');
     }
   }
+  const expectedStagingRoot = path.join(payload.stagingPrefix, 'lib', 'node_modules', payload.packageName);
+  if (path.resolve(payload.stagingPackageRoot) !== path.resolve(expectedStagingRoot)) {
+    throw new Error('Invalid npm update stagingPackageRoot');
+  }
+  if (path.resolve(payload.stagingPackageRoot) === path.resolve(payload.packageRoot)) {
+    throw new Error('npm update staging root must differ from the running package root');
+  }
   return payload;
 }
 
@@ -93,6 +101,8 @@ function stateFor(payload, phase, extra = {}) {
     packageName: payload.packageName,
     startedAt: payload.startedAt,
     logPath: payload.logPath,
+    stagingPrefix: payload.stagingPrefix,
+    stagingPackageRoot: payload.stagingPackageRoot,
     ...extra,
   };
 }
@@ -118,13 +128,13 @@ function commandEnvironment() {
   return env;
 }
 
-async function installPackage(payload, version) {
+async function installPackage(payload, version, npmPrefix = payload.npmPrefix) {
   const packageSpec = `${payload.packageName}@${version}`;
-  return installPackageFromRegistry(payload, packageSpec);
+  return installPackageFromRegistry(payload, packageSpec, '', npmPrefix);
 }
 
-function verifyInstalledVersion(payload, expectedVersion) {
-  const packageJsonPath = path.join(payload.packageRoot, 'package.json');
+function verifyInstalledVersion(payload, expectedVersion, packageRoot = payload.packageRoot) {
+  const packageJsonPath = path.join(packageRoot, 'package.json');
   let metadata;
   try {
     metadata = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
@@ -153,10 +163,10 @@ function logSince(filePath, offset) {
   }
 }
 
-async function installPackageFromRegistry(payload, packageSpec, registryUrl = '') {
+async function installPackageFromRegistry(payload, packageSpec, registryUrl = '', npmPrefix = payload.npmPrefix) {
   appendLog(payload.logPath, `Installing ${packageSpec}${registryUrl ? ' from the update-status registry' : ''}`);
   const args = ['install', '--global'];
-  if (payload.npmPrefix) args.push('--prefix', payload.npmPrefix);
+  if (npmPrefix) args.push('--prefix', npmPrefix);
   if (registryUrl) args.push('--registry', registryUrl);
   args.push(packageSpec, '--no-audit', '--no-fund');
   const offset = logSize(payload.logPath);
@@ -169,7 +179,7 @@ async function installPackageFromRegistry(payload, packageSpec, registryUrl = ''
   } catch (error) {
     if (!registryUrl && payload.npmFallbackRegistryUrl && /(?:ETARGET|No matching version found)/.test(logSince(payload.logPath, offset))) {
       appendLog(payload.logPath, `Configured npm registry has no ${packageSpec}; retrying from the update-status registry`);
-      return installPackageFromRegistry(payload, packageSpec, payload.npmFallbackRegistryUrl);
+      return installPackageFromRegistry(payload, packageSpec, payload.npmFallbackRegistryUrl, npmPrefix);
     }
     throw error;
   }
@@ -184,38 +194,100 @@ async function startServer(payload, version = payload.targetVersion) {
   });
 }
 
-async function runNpmUpdate(rawPayload) {
-  const payload = validatePayload(rawPayload);
+async function prepareNpmUpdate(payload) {
   try {
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'installing'));
-    await installPackage(payload, payload.targetVersion);
-    verifyInstalledVersion(payload, payload.targetVersion);
+    fs.mkdirSync(payload.stagingPrefix, { recursive: true });
+    await installPackage(payload, payload.targetVersion, payload.stagingPrefix);
+    verifyInstalledVersion(payload, payload.targetVersion, payload.stagingPackageRoot);
+    const preparedAt = new Date().toISOString();
+    writeJsonAtomic(payload.stateFile, stateFor(payload, 'ready-to-restart', {
+      preparedAt,
+    }));
+    appendLog(payload.logPath, `Farming ${payload.targetVersion} is ready to restart`);
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    appendLog(payload.logPath, `Update preparation failed: ${message}`);
+    try {
+      fs.rmSync(payload.stagingPrefix, { recursive: true, force: true });
+    } catch (cleanupError) {
+      appendLog(payload.logPath, `Update preparation cleanup failed: ${cleanupError.message || cleanupError}`);
+    }
+    writeJsonAtomic(payload.stateFile, stateFor(payload, 'failed', {
+      error: message,
+      completedAt: new Date().toISOString(),
+    }));
+  }
+}
 
-    writeJsonAtomic(payload.stateFile, stateFor(payload, 'restarting'));
+async function applyNpmUpdate(payload) {
+  const backupRoot = path.join(
+    path.dirname(payload.packageRoot),
+    `.${path.basename(payload.packageRoot)}.backup-${process.pid}`,
+  );
+  let stoppedOldServer = false;
+  let movedOldPackage = false;
+  let movedNewPackage = false;
+  try {
+    verifyInstalledVersion(payload, payload.previousVersion, payload.packageRoot);
+    verifyInstalledVersion(payload, payload.targetVersion, payload.stagingPackageRoot);
+    if (fs.existsSync(backupRoot)) throw new Error(`npm update backup already exists: ${backupRoot}`);
+
+    writeJsonAtomic(payload.stateFile, stateFor(payload, 'restarting', {
+      preparedAt: payload.preparedAt,
+    }));
+    await new Promise(resolve => setTimeout(resolve, 1_000));
     await stopProcess(Number(payload.serverPid));
+    stoppedOldServer = true;
+    fs.renameSync(payload.packageRoot, backupRoot);
+    movedOldPackage = true;
+    fs.renameSync(payload.stagingPackageRoot, payload.packageRoot);
+    movedNewPackage = true;
     await startServer(payload);
 
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'succeeded', {
+      preparedAt: payload.preparedAt,
       completedAt: new Date().toISOString(),
     }));
     appendLog(payload.logPath, `Farming updated to ${payload.targetVersion}`);
+    try {
+      fs.rmSync(backupRoot, { recursive: true, force: true });
+      fs.rmSync(payload.stagingPrefix, { recursive: true, force: true });
+    } catch (cleanupError) {
+      appendLog(payload.logPath, `Update cleanup failed: ${cleanupError.message || cleanupError}`);
+    }
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
-    appendLog(payload.logPath, `Update failed: ${message}`);
+    appendLog(payload.logPath, `Update apply failed: ${message}`);
 
-    if (!isProcessRunning(Number(payload.serverPid))) {
+    if (stoppedOldServer || !isProcessRunning(Number(payload.serverPid))) {
       try {
-        writeJsonAtomic(payload.stateFile, stateFor(payload, 'rolling-back', { error: message }));
-        await installPackage(payload, payload.previousVersion);
-        verifyInstalledVersion(payload, payload.previousVersion);
+        writeJsonAtomic(payload.stateFile, stateFor(payload, 'rolling-back', {
+          preparedAt: payload.preparedAt,
+          error: message,
+        }));
+        if (movedNewPackage && fs.existsSync(payload.packageRoot)) {
+          fs.mkdirSync(path.dirname(payload.stagingPackageRoot), { recursive: true });
+          fs.renameSync(payload.packageRoot, payload.stagingPackageRoot);
+        }
+        if (movedOldPackage && fs.existsSync(backupRoot)) {
+          fs.renameSync(backupRoot, payload.packageRoot);
+        }
+        verifyInstalledVersion(payload, payload.previousVersion, payload.packageRoot);
         await startServer(payload, payload.previousVersion);
         writeJsonAtomic(payload.stateFile, stateFor(payload, 'rolled-back', {
           version: payload.previousVersion,
           attemptedVersion: payload.targetVersion,
+          preparedAt: payload.preparedAt,
           error: message,
           completedAt: new Date().toISOString(),
         }));
         appendLog(payload.logPath, `Rolled back to ${payload.previousVersion}`);
+        try {
+          fs.rmSync(payload.stagingPrefix, { recursive: true, force: true });
+        } catch (cleanupError) {
+          appendLog(payload.logPath, `Rollback cleanup failed: ${cleanupError.message || cleanupError}`);
+        }
         return;
       } catch (rollbackError) {
         const rollbackMessage = rollbackError && rollbackError.message ? rollbackError.message : String(rollbackError);
@@ -228,10 +300,17 @@ async function runNpmUpdate(rawPayload) {
     }
 
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'failed', {
+      preparedAt: payload.preparedAt,
       error: message,
       completedAt: new Date().toISOString(),
     }));
   }
+}
+
+async function runNpmUpdate(rawPayload) {
+  const payload = validatePayload(rawPayload);
+  if (payload.action === 'prepare') return prepareNpmUpdate(payload);
+  return applyNpmUpdate(payload);
 }
 
 if (require.main === module) {

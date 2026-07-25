@@ -705,6 +705,11 @@ function normalizePathForCompare(filePath) {
   }
 }
 
+function pathIsInside(parentPath, childPath) {
+  const relative = path.relative(path.resolve(parentPath), path.resolve(childPath));
+  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
 function npmPackageRoot(npmRoot, packageName) {
   return path.join(npmRoot, ...String(packageName || '').split('/').filter(Boolean));
 }
@@ -790,6 +795,7 @@ class FarmingUpdateService {
     this.installStartPromise = null;
     this.updateStateFile = options.updateStateFile || storageLayout.updateStateFile(this.configDir);
     this.updateLogFile = options.updateLogFile || storageLayout.updateLogFile(this.configDir);
+    this.updateStagingDir = options.updateStagingDir || storageLayout.updateStagingDir(this.configDir);
   }
 
   updateUrl() {
@@ -1125,6 +1131,7 @@ class FarmingUpdateService {
     if (['downloading', 'extracting', 'installing', 'restarting', 'rolling-back'].includes(currentState.phase)) {
       return currentState;
     }
+    if (currentState.phase === 'ready-to-restart') return currentState;
 
     if (this.installMethod === 'npm') return this.startNpmInstall(options);
     if (!installMethodAllowsBundleUpdate(this.installMethod)) {
@@ -1188,18 +1195,27 @@ class FarmingUpdateService {
     }
 
     const startedAt = new Date(this.now()).toISOString();
+    fs.mkdirSync(this.updateStagingDir, { recursive: true });
+    const stagingPrefix = fs.mkdtempSync(path.join(this.updateStagingDir, `npm-${status.selected.version}.`));
+    const stagingPackageRoot = npmPackageRoot(
+      path.join(stagingPrefix, 'lib', 'node_modules'),
+      this.npmPackageName,
+    );
     const state = this.persistInstallState({
       method: 'npm',
       phase: 'installing',
       version: status.selected.version,
       previousVersion: status.current.releaseVersion || status.current.packageVersion,
       packageName: this.npmPackageName,
+      stagingPrefix,
+      stagingPackageRoot,
       startedAt,
       logPath: this.updateLogFile,
     });
     const helperPath = path.join(__dirname, 'npm-update-helper.js');
     const nodePath = process.env.FARMING_NODE_BIN || process.execPath;
     const payload = {
+      action: 'prepare',
       packageName: this.npmPackageName,
       targetVersion: status.selected.version,
       previousVersion: status.current.releaseVersion || status.current.packageVersion,
@@ -1211,6 +1227,8 @@ class FarmingUpdateService {
       nodePath,
       npmCommand: process.env.FARMING_NPM_COMMAND || 'npm',
       npmPrefix: status.target.npmPrefix,
+      stagingPrefix,
+      stagingPackageRoot,
       npmFallbackRegistryUrl: this.npmRegistryUrl,
       serverPid: process.pid,
       configDir: this.configDir,
@@ -1220,7 +1238,7 @@ class FarmingUpdateService {
       disableAuth: /^(1|true|yes|on)$/i.test(String(process.env.FARMING_DISABLE_AUTH || '')),
     };
     const helperInvocation = nodeScriptInvocation(nodePath, helperPath);
-    const child = this.spawn(helperInvocation.command, helperInvocation.args, {
+    const spawnOptions = {
       cwd: this.configDir,
       detached: true,
       stdio: 'ignore',
@@ -1228,7 +1246,169 @@ class FarmingUpdateService {
         ...process.env,
         FARMING_NPM_UPDATE_PAYLOAD: JSON.stringify(payload),
       },
+    };
+    let child;
+    try {
+      child = this.spawn(helperInvocation.command, helperInvocation.args, spawnOptions);
+    } catch (error) {
+      fs.rmSync(stagingPrefix, { recursive: true, force: true });
+      this.persistInstallState({
+        ...state,
+        phase: 'failed',
+        error: error.message || String(error),
+        completedAt: new Date(this.now()).toISOString(),
+      });
+      throw error;
+    }
+    if (child && typeof child.once === 'function') {
+      child.once('error', (error) => {
+        fs.rmSync(stagingPrefix, { recursive: true, force: true });
+        this.persistInstallState({
+          ...state,
+          phase: 'failed',
+          error: error.message || String(error),
+          completedAt: new Date(this.now()).toISOString(),
+        });
+      });
+    }
+    if (child && typeof child.unref === 'function') child.unref();
+    return state;
+  }
+
+  async applyPreparedUpdate() {
+    if (this.installStartPromise) return this.installStartPromise;
+    const applyPromise = this.applyPreparedUpdateUnreserved();
+    this.installStartPromise = applyPromise;
+    try {
+      return await applyPromise;
+    } finally {
+      if (this.installStartPromise === applyPromise) this.installStartPromise = null;
+    }
+  }
+
+  async applyPreparedUpdateUnreserved() {
+    const prepared = this.currentInstallState();
+    if (prepared.phase !== 'ready-to-restart') {
+      throw new Error('No prepared Farming update is ready to restart');
+    }
+    const current = this.currentVersion();
+    const currentVersion = normalizeVersion(current.releaseVersion || current.packageVersion);
+    if (normalizeVersion(prepared.previousVersion) !== currentVersion) {
+      const error = 'Prepared update no longer matches the running Farming version';
+      this.persistInstallState({ ...prepared, phase: 'failed', error, completedAt: new Date(this.now()).toISOString() });
+      throw new Error(error);
+    }
+
+    const nodePath = process.env.FARMING_NODE_BIN || process.execPath;
+    let helperPath;
+    let payload;
+    let env;
+    if (this.installMethod === 'npm') {
+      const target = await this.npmUpdateTarget();
+      if (!target.proven) throw new Error(target.error);
+      if (!path.isAbsolute(String(prepared.stagingPrefix || '')) || !path.isAbsolute(String(prepared.stagingPackageRoot || ''))) {
+        throw new Error('Prepared npm update is missing its staging identity');
+      }
+      const stagingPrefix = normalizePathForCompare(prepared.stagingPrefix);
+      if (!pathIsInside(normalizePathForCompare(this.updateStagingDir), stagingPrefix)) {
+        throw new Error('Prepared npm update is outside the Farming staging directory');
+      }
+      if (path.resolve(prepared.stagingPackageRoot) !== path.resolve(npmPackageRoot(
+        path.join(prepared.stagingPrefix, 'lib', 'node_modules'),
+        this.npmPackageName,
+      ))) {
+        throw new Error('Prepared npm update has an invalid package root');
+      }
+      const stagingPackageRoot = normalizePathForCompare(prepared.stagingPackageRoot);
+      const stagedMetadata = readJsonFile(path.join(stagingPackageRoot, 'package.json')) || {};
+      if (normalizeVersion(stagedMetadata.version) !== normalizeVersion(prepared.version)) {
+        throw new Error('Prepared npm update is no longer available; prepare it again');
+      }
+      helperPath = path.join(__dirname, 'npm-update-helper.js');
+      payload = {
+        action: 'apply',
+        packageName: this.npmPackageName,
+        targetVersion: prepared.version,
+        previousVersion: prepared.previousVersion,
+        startedAt: prepared.startedAt,
+        preparedAt: prepared.preparedAt,
+        stateFile: this.updateStateFile,
+        logPath: prepared.logPath || this.updateLogFile,
+        cliPath: path.join(this.rootDir, 'bin', 'farming'),
+        packageRoot: target.packageRoot,
+        nodePath,
+        npmCommand: process.env.FARMING_NPM_COMMAND || 'npm',
+        npmPrefix: target.npmPrefix,
+        npmFallbackRegistryUrl: this.npmRegistryUrl,
+        stagingPrefix,
+        stagingPackageRoot,
+        serverPid: process.pid,
+        configDir: this.configDir,
+        port: process.env.FARMING_PORT || process.env.PORT || '6694',
+        basePath: process.env.FARMING_BASE_PATH || '/farming',
+        serverHome: process.env.FARMING_SERVER_HOME || '',
+        disableAuth: /^(1|true|yes|on)$/i.test(String(process.env.FARMING_DISABLE_AUTH || '')),
+      };
+      env = { ...process.env, FARMING_NPM_UPDATE_PAYLOAD: JSON.stringify(payload) };
+    } else {
+      if (!installMethodAllowsBundleUpdate(this.installMethod)) {
+        throw new Error(installMethodBlockedReason(this.installMethod));
+      }
+      if (!path.isAbsolute(String(prepared.releaseDir || '')) || !path.isAbsolute(String(prepared.installer || '')) || !fs.existsSync(prepared.installer)) {
+        throw new Error('Prepared bundle update is no longer available; prepare it again');
+      }
+      const releaseDir = normalizePathForCompare(prepared.releaseDir);
+      const installer = normalizePathForCompare(prepared.installer);
+      if (!pathIsInside(normalizePathForCompare(os.tmpdir()), releaseDir)
+        || !path.basename(path.dirname(releaseDir)).startsWith('farming-update.')
+        || installer !== normalizePathForCompare(path.join(releaseDir, 'scripts', 'install-release.sh'))) {
+        throw new Error('Prepared bundle update has an invalid staging identity');
+      }
+      const releaseMetadata = readJsonFile(path.join(releaseDir, 'RELEASE.json')) || {};
+      const preparedVersion = normalizeVersion(releaseMetadata.releaseVersion || releaseMetadata.packageVersion);
+      if (preparedVersion && preparedVersion !== normalizeVersion(prepared.version)) {
+        throw new Error('Prepared bundle version does not match the selected update');
+      }
+      if (!assetMatchesRuntime(releaseMetadata, this.runtime)) {
+        throw new Error(`Prepared bundle is not compatible with ${this.runtime.platform}-${this.runtime.arch}`);
+      }
+      helperPath = path.join(__dirname, 'bundle-update-helper.js');
+      payload = {
+        method: this.installMethod,
+        targetMethod: prepared.targetMethod,
+        version: prepared.version,
+        previousVersion: prepared.previousVersion,
+        startedAt: prepared.startedAt,
+        preparedAt: prepared.preparedAt,
+        stateFile: this.updateStateFile,
+        logPath: prepared.logPath || this.updateLogFile,
+        releaseDir,
+        installer,
+      };
+      env = { ...this.installEnvironment(), FARMING_BUNDLE_UPDATE_PAYLOAD: JSON.stringify(payload) };
+    }
+
+    const state = this.persistInstallState({ ...prepared, phase: 'restarting', error: '' });
+    const helperInvocation = nodeScriptInvocation(nodePath, helperPath);
+    const spawnOptions = {
+      cwd: this.configDir,
+      detached: true,
+      stdio: 'ignore',
+      env,
+    };
+    const restorePreparedState = (error) => this.persistInstallState({
+      ...prepared,
+      phase: 'ready-to-restart',
+      error: error.message || String(error),
     });
+    let child;
+    try {
+      child = this.spawn(helperInvocation.command, helperInvocation.args, spawnOptions);
+    } catch (error) {
+      restorePreparedState(error);
+      throw error;
+    }
+    if (child && typeof child.once === 'function') child.once('error', restorePreparedState);
     if (child && typeof child.unref === 'function') child.unref();
     return state;
   }
@@ -1303,37 +1483,15 @@ class FarmingUpdateService {
     }
     const logPath = this.installState.logPath || path.join(this.configDir, 'farming-update.log');
     const targetMethod = String(releaseMetadata.updateMethod || releaseMetadata.type || this.installMethod);
-    const helperPath = path.join(__dirname, 'bundle-update-helper.js');
-    const nodePath = process.env.FARMING_NODE_BIN || process.execPath;
-    const helperInvocation = nodeScriptInvocation(nodePath, helperPath);
-    const payload = {
-      method: this.installMethod,
-      targetMethod,
-      version: this.installState.version,
-      previousVersion: this.installState.previousVersion,
-      startedAt: this.installState.startedAt,
-      stateFile: this.updateStateFile,
-      logPath,
-      releaseDir,
-      installer,
-    };
     this.persistInstallState({
       ...this.installState,
-      phase: 'installing',
+      phase: 'ready-to-restart',
       targetMethod,
       releaseDir,
+      installer,
       logPath,
+      preparedAt: new Date(this.now()).toISOString(),
     });
-    const child = this.spawn(helperInvocation.command, helperInvocation.args, {
-      cwd: this.configDir,
-      detached: true,
-      stdio: 'ignore',
-      env: {
-        ...this.installEnvironment(),
-        FARMING_BUNDLE_UPDATE_PAYLOAD: JSON.stringify(payload),
-      },
-    });
-    if (child && typeof child.unref === 'function') child.unref();
   }
 }
 

@@ -41,6 +41,7 @@ type UpdateStatus = {
     receivedBytes?: number
     totalBytes?: number
     startedAt?: string
+    preparedAt?: string
     completedAt?: string
   }
   checkedAt?: string
@@ -77,7 +78,9 @@ function updateDownloadPercent(state: UpdateStatus['state']) {
 
 function updateElapsedSeconds(state: UpdateStatus['state'], now = Date.now()) {
   const startedAt = Date.parse(String(state?.startedAt || ''))
-  const completedAt = state?.completedAt ? Date.parse(state.completedAt) : now
+  const completedAt = state?.completedAt
+    ? Date.parse(state.completedAt)
+    : (state?.preparedAt ? Date.parse(state.preparedAt) : now)
   if (!Number.isFinite(startedAt) || !Number.isFinite(completedAt) || completedAt < startedAt) return null
   return Math.floor((completedAt - startedAt) / 1000)
 }
@@ -117,9 +120,10 @@ function panelCopy(language: UiPreferences['language']) {
     updateUrlEmpty: zh ? '等待检查更新' : 'Waiting for update check',
     saveUpdateUrl: zh ? '保存更新 URL' : 'Save Update URL',
     refreshUpdates: zh ? '刷新' : 'Refresh',
-    updateAction: zh ? '更新' : 'Update',
-    updateToVersion: (version: string) => zh ? `更新到 ${version}` : `Update to ${version}`,
-    updating: zh ? '更新中…' : 'Updating…',
+    updateAction: zh ? '准备更新' : 'Prepare update',
+    updateToVersion: (version: string) => zh ? `准备 ${version}` : `Prepare ${version}`,
+    updating: zh ? '准备中…' : 'Preparing…',
+    restartToUpdate: zh ? '重启并应用' : 'Restart to update',
     checkingUpdates: zh ? '正在检查更新…' : 'Checking for updates…',
     currentVersion: zh ? '当前版本' : 'Current',
     latestVersion: zh ? '最新版本' : 'Latest',
@@ -139,7 +143,8 @@ function panelCopy(language: UiPreferences['language']) {
       ? (zh ? '正在下载更新包…' : 'Downloading update package…')
       : (zh ? `正在下载更新包 ${percent}%` : `Downloading update package ${percent}%`),
     updateExtracting: zh ? '正在解压更新包…' : 'Extracting update package…',
-    updateInstalling: zh ? '正在安装更新…' : 'Installing update…',
+    updateInstalling: zh ? '正在准备更新…' : 'Preparing update…',
+    updateReady: zh ? '更新已准备好，重启后应用。' : 'Update ready. Restart to apply it.',
     updateRestarting: zh ? '新版本已安装，正在重启 Farming。' : 'The new version is installed. Restarting Farming.',
     updateRollingBack: zh ? '正在回退到旧版本…' : 'Rolling back to the previous version…',
     updateSucceeded: zh ? '更新成功。' : 'Update completed.',
@@ -395,6 +400,11 @@ export function AgentHomesSettingsPanel({
         setUpdateStatus(nextUpdate)
         const versions = nextUpdate?.versions ?? []
         setSelectedUpdateAsset(current => {
+          if (nextUpdate?.state?.phase === 'ready-to-restart') {
+            const preparedVersion = nextUpdate.state.version
+            const prepared = versions.find(version => version.version === preparedVersion)
+            if (prepared?.assetName) return prepared.assetName
+          }
           if (current && versions.some(version => version.assetName === current)) return current
           return versions[0]?.assetName || ''
         })
@@ -447,8 +457,9 @@ export function AgentHomesSettingsPanel({
   }, [copy.saveFailed])
 
   const startUpgrade = useCallback(() => {
+    const restartPreparedUpdate = updateStatus?.state?.phase === 'ready-to-restart'
     const selectedVersion = updateStatus?.versions?.find(version => version.assetName === selectedUpdateAsset)
-    if (!selectedVersion?.available) {
+    if (!restartPreparedUpdate && !selectedVersion?.available) {
       refreshUpdateStatus(true)
       return
     }
@@ -456,11 +467,13 @@ export function AgentHomesSettingsPanel({
     setUpdateChecking(true)
     setError('')
     setNotice('')
-    upgradeTargetVersionRef.current = selectedVersion.version || selectedVersion.assetName || ''
-    fetch(appPath('/api/update/install'), {
+    upgradeTargetVersionRef.current = restartPreparedUpdate
+      ? (updateStatus?.state?.version || '')
+      : (selectedVersion?.version || selectedVersion?.assetName || '')
+    fetch(appPath(restartPreparedUpdate ? '/api/update/restart' : '/api/update/install'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ assetName: selectedUpdateAsset }),
+      body: JSON.stringify(restartPreparedUpdate ? {} : { assetName: selectedUpdateAsset }),
     })
       .then(async response => {
         const data = await response.json().catch(() => null) as { update?: { state?: UpdateStatus['state']; blockingAgents?: UpdateStatus['blockingAgents'] }; error?: string; blockingAgents?: UpdateStatus['blockingAgents'] } | null
@@ -567,6 +580,7 @@ export function AgentHomesSettingsPanel({
   const updateVersions = updateStatus?.versions ?? []
   const selectedVersion = updateVersions.find(version => version.assetName === selectedUpdateAsset)
   const updateInstallBusy = ['downloading', 'extracting', 'installing', 'restarting', 'rolling-back'].includes(updatePhase)
+  const updateReadyToRestart = updatePhase === 'ready-to-restart'
   const updateBusy = updateChecking || updateSaving || updateInstallBusy
   const updateMethod = updateStatus?.method || updateStatus?.current?.type || ''
   const updateMethodLabel = copy.updateMethodLabel(updateMethod)
@@ -576,11 +590,13 @@ export function AgentHomesSettingsPanel({
     || updateStatus?.state?.previousVersion
     || '-'
   const latestUpdateVersion = updateStatus?.latest?.version || '-'
-  const targetUpdateVersion = selectedVersion?.version || updateStatus?.selected?.version || latestUpdateVersion
+  const targetUpdateVersion = updateReadyToRestart
+    ? (updateStatus?.state?.version || selectedVersion?.version || updateStatus?.selected?.version || latestUpdateVersion)
+    : (selectedVersion?.version || updateStatus?.selected?.version || latestUpdateVersion)
   const showUpdateTransition = currentUpdateVersion !== '-'
     && targetUpdateVersion !== '-'
     && currentUpdateVersion !== targetUpdateVersion
-    && (updateStatus?.available === true || updateBusy)
+    && (updateStatus?.available === true || updateBusy || updateReadyToRestart)
   const downloadPercent = updateDownloadPercent(updateStatus?.state)
   const updateSummary = !updateStatus
     ? copy.checkingUpdates
@@ -590,28 +606,32 @@ export function AgentHomesSettingsPanel({
         ? updateStatus.state.error
         : updatePhase === 'downloading'
           ? copy.updateDownloading(downloadPercent)
-          : updatePhase === 'extracting'
-            ? copy.updateExtracting
-            : updatePhase === 'installing'
-              ? copy.updateInstalling
-              : updatePhase === 'restarting'
-                ? copy.updateRestarting
-                : updatePhase === 'rolling-back'
-                  ? copy.updateRollingBack
-                  : updateStatus.available
-                    ? copy.updateAvailable
-                    : updatePhase === 'succeeded'
-                      ? copy.updateSucceeded
-                      : updateStatus.latest?.blockedReason || copy.upToDate
-  const elapsedSeconds = (updateInstallBusy || ['succeeded', 'failed', 'rolled-back'].includes(updatePhase))
+          : updateReadyToRestart
+            ? copy.updateReady
+            : updatePhase === 'extracting'
+              ? copy.updateExtracting
+              : updatePhase === 'installing'
+                ? copy.updateInstalling
+                : updatePhase === 'restarting'
+                  ? copy.updateRestarting
+                  : updatePhase === 'rolling-back'
+                    ? copy.updateRollingBack
+                    : updateStatus.available
+                      ? copy.updateAvailable
+                      : updatePhase === 'succeeded'
+                        ? copy.updateSucceeded
+                        : updateStatus.latest?.blockedReason || copy.upToDate
+  const elapsedSeconds = (updateInstallBusy || updateReadyToRestart || ['succeeded', 'failed', 'rolled-back'].includes(updatePhase))
     ? updateElapsedSeconds(updateStatus?.state)
     : null
   const updateElapsed = elapsedSeconds === null ? '' : copy.updateElapsed(elapsedSeconds)
   const updateActionLabel = updateInstallBusy
     ? copy.updating
-    : selectedVersion?.available && targetUpdateVersion !== '-'
-      ? copy.updateToVersion(targetUpdateVersion)
-      : copy.updateAction
+    : updateReadyToRestart
+      ? copy.restartToUpdate
+      : selectedVersion?.available && targetUpdateVersion !== '-'
+        ? copy.updateToVersion(targetUpdateVersion)
+        : copy.updateAction
   return (
     <div className="code-settings-panel-overlay" data-testid="code-settings-panel" onPointerDown={event => {
       if (event.target === event.currentTarget) onClose()
@@ -738,7 +758,7 @@ export function AgentHomesSettingsPanel({
                   className="primary"
                   data-testid="code-settings-update-action"
                   onClick={startUpgrade}
-                  disabled={updateBusy || !selectedVersion?.available}
+                  disabled={updateBusy || (!updateReadyToRestart && !selectedVersion?.available)}
                 >{updateActionLabel}</button>
               </div>
               {bundleUpdate && <label className="code-settings-update-url">
@@ -769,7 +789,7 @@ export function AgentHomesSettingsPanel({
                   value={selectedUpdateAsset}
                   aria-label={copy.targetVersion}
                   onChange={event => setSelectedUpdateAsset(event.target.value)}
-                  disabled={updateBusy || updateVersions.length === 0}
+                  disabled={updateBusy || updateReadyToRestart || updateVersions.length === 0}
                 >
                   {updateVersions.map(version => (
                     <option key={version.assetName || version.version} value={version.assetName || ''}>

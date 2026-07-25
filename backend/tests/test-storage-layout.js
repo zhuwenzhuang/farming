@@ -35,6 +35,7 @@ function run() {
     assert.strictEqual(storageLayout.nativePtyHostLogFile(configDir), path.join(configDir, 'native-pty-host.log'));
     assert.strictEqual(storageLayout.updateStateFile(configDir), path.join(configDir, 'farming-update.json'));
     assert.strictEqual(storageLayout.updateLogFile(configDir), path.join(configDir, 'farming-update.log'));
+    assert.strictEqual(storageLayout.updateStagingDir(configDir), path.join(configDir, 'updates'));
     assert.strictEqual(storageLayout.farmingNetInstancesFile(configDir), path.join(configDir, 'instances.json'));
     assert.strictEqual(storageLayout.farmingNetServerStateFile(configDir), path.join(configDir, 'farming-net-server.json'));
     assert.strictEqual(storageLayout.farmingNetServerLogFile(configDir), path.join(configDir, 'farming-net-server.log'));

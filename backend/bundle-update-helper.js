@@ -71,17 +71,21 @@ function runInstaller(payload) {
 
 async function runBundleUpdate(rawPayload) {
   const payload = validatePayload(rawPayload);
-  writeJsonAtomic(payload.stateFile, stateFor(payload, 'installing'));
+  writeJsonAtomic(payload.stateFile, stateFor(payload, 'restarting', {
+    preparedAt: payload.preparedAt,
+  }));
   await new Promise(resolve => setTimeout(resolve, 1_000));
   try {
     await runInstaller(payload);
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'succeeded', {
+      preparedAt: payload.preparedAt,
       completedAt: new Date().toISOString(),
     }));
     appendLog(payload.logPath, `Farming updated to ${payload.version}`);
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
     writeJsonAtomic(payload.stateFile, stateFor(payload, 'failed', {
+      preparedAt: payload.preparedAt,
       error: message,
       completedAt: new Date().toISOString(),
     }));

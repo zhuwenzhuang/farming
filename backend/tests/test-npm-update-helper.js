@@ -8,39 +8,68 @@ const {
   validatePayload,
 } = require('../npm-update-helper');
 
-function successfulNpmCommand(rootDir) {
-  const packageJsonPath = path.join(rootDir, 'package.json');
-  if (!fs.existsSync(packageJsonPath)) {
-    fs.writeFileSync(packageJsonPath, JSON.stringify({ name: 'farming-code', version: '2.2.5' }));
-  }
-  const command = path.join(rootDir, 'fake-npm-success');
-  if (!fs.existsSync(command)) {
-    fs.writeFileSync(command, [
-      '#!/usr/bin/env node',
-      `const fs = require('fs');`,
-      `const spec = process.argv.find(value => value.startsWith('farming-code@'));`,
-      `const version = spec.split('@').pop();`,
-      `fs.writeFileSync(${JSON.stringify(packageJsonPath)}, JSON.stringify({ name: 'farming-code', version }));`,
-      '',
-    ].join('\n'), { mode: 0o755 });
-  }
+function packageRoot(prefix) {
+  return path.join(prefix, 'lib', 'node_modules', 'farming-code');
+}
+
+function writePackage(root, version) {
+  fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'farming-code', version }));
+}
+
+function writeCli(root, exitCode, observationsFile) {
+  fs.writeFileSync(path.join(root, 'bin', 'farming'), [
+    `const fs = require('fs');`,
+    `const path = require('path');`,
+    `const metadata = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));`,
+    `fs.appendFileSync(${JSON.stringify(observationsFile)}, JSON.stringify({ version: metadata.version, cwd: process.cwd(), runServer: process.env.FARMING_RUN_SERVER, runNativeHost: process.env.FARMING_RUN_NATIVE_PTY_HOST }) + '\\n');`,
+    `process.exit(${exitCode});`,
+    '',
+  ].join('\n'));
+}
+
+function writeFakeNpm(rootDir, callsFile, { requireFallback = false } = {}) {
+  const command = path.join(rootDir, 'fake-npm');
+  fs.writeFileSync(command, [
+    '#!/usr/bin/env node',
+    `const fs = require('fs');`,
+    `const path = require('path');`,
+    `const args = process.argv.slice(2);`,
+    `fs.appendFileSync(${JSON.stringify(callsFile)}, JSON.stringify(args) + '\\n');`,
+    ...(requireFallback ? [
+      `if (!args.includes('--registry')) { console.error('npm error code ETARGET\\nnpm error notarget No matching version found'); process.exit(1); }`,
+    ] : []),
+    `const prefix = args[args.indexOf('--prefix') + 1];`,
+    `const spec = args.find(value => value.startsWith('farming-code@'));`,
+    `const version = spec.split('@').pop();`,
+    `const packageRoot = path.join(prefix, 'lib', 'node_modules', 'farming-code');`,
+    `fs.mkdirSync(path.join(packageRoot, 'bin'), { recursive: true });`,
+    `fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: 'farming-code', version }));`,
+    '',
+  ].join('\n'), { mode: 0o755 });
   return command;
 }
 
 function payloadFor(rootDir, overrides = {}) {
+  const npmPrefix = path.join(rootDir, 'npm');
+  const stagingPrefix = path.join(rootDir, 'updates', 'npm-2.3.0.test');
   return {
+    action: 'prepare',
     packageName: 'farming-code',
     targetVersion: '2.3.0',
     previousVersion: '2.2.5',
     startedAt: new Date().toISOString(),
+    preparedAt: new Date().toISOString(),
     stateFile: path.join(rootDir, 'farming-update.json'),
     logPath: path.join(rootDir, 'farming-update.log'),
-    cliPath: path.join(rootDir, 'bin', 'farming'),
-    packageRoot: rootDir,
-    nodePath: '/usr/bin/true',
-    npmCommand: successfulNpmCommand(rootDir),
-    npmPrefix: path.join(rootDir, 'npm-prefix'),
+    cliPath: path.join(packageRoot(npmPrefix), 'bin', 'farming'),
+    packageRoot: packageRoot(npmPrefix),
+    nodePath: process.execPath,
+    npmCommand: '/usr/bin/true',
+    npmPrefix,
     npmFallbackRegistryUrl: 'https://registry.example.test',
+    stagingPrefix,
+    stagingPackageRoot: packageRoot(stagingPrefix),
     serverPid: 0,
     configDir: rootDir,
     port: '6694',
@@ -52,123 +81,87 @@ function payloadFor(rootDir, overrides = {}) {
 }
 
 async function run() {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper.'));
-  fs.mkdirSync(path.join(rootDir, 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(rootDir, 'bin', 'farming'), '#!/usr/bin/env node\n');
+  const validationRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-validation.'));
+  assert.throws(() => validatePayload({}), /Invalid npm update action/);
+  assert.throws(() => validatePayload(payloadFor(validationRoot, { npmPrefix: 'relative' })), /Invalid npm update npmPrefix/);
+  assert.throws(() => validatePayload(payloadFor(validationRoot, { packageRoot: 'relative' })), /Invalid npm update packageRoot/);
+  assert.throws(() => validatePayload(payloadFor(validationRoot, { stagingPackageRoot: validationRoot })), /Invalid npm update stagingPackageRoot/);
+  assert.throws(() => validatePayload(payloadFor(validationRoot, { npmFallbackRegistryUrl: 'file:///tmp/registry' })), /Invalid npm update registry/);
 
-  assert.throws(() => validatePayload({}), /Invalid npm package name/);
-  assert.throws(() => validatePayload(payloadFor(rootDir, { npmPrefix: 'relative' })), /Invalid npm update npmPrefix/);
-  assert.throws(() => validatePayload(payloadFor(rootDir, { packageRoot: 'relative' })), /Invalid npm update packageRoot/);
-  assert.throws(() => validatePayload(payloadFor(rootDir, { npmFallbackRegistryUrl: 'file:///tmp/registry' })), /Invalid npm update registry/);
-  await runNpmUpdate(payloadFor(rootDir));
-  const succeeded = JSON.parse(fs.readFileSync(path.join(rootDir, 'farming-update.json'), 'utf8'));
-  assert.strictEqual(succeeded.phase, 'succeeded');
-  assert.strictEqual(succeeded.version, '2.3.0');
+  const prepareRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-prepare.'));
+  const prepareCalls = path.join(prepareRoot, 'npm-calls');
+  const preparePayload = payloadFor(prepareRoot, {
+    npmCommand: writeFakeNpm(prepareRoot, prepareCalls),
+  });
+  writePackage(preparePayload.packageRoot, '2.2.5');
+  await runNpmUpdate(preparePayload);
+  const prepared = JSON.parse(fs.readFileSync(preparePayload.stateFile, 'utf8'));
+  assert.strictEqual(prepared.phase, 'ready-to-restart');
+  assert.strictEqual(prepared.version, '2.3.0');
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(preparePayload.packageRoot, 'package.json'))).version, '2.2.5');
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(preparePayload.stagingPackageRoot, 'package.json'))).version, '2.3.0');
+  const prepareArguments = JSON.parse(fs.readFileSync(prepareCalls, 'utf8').trim());
+  assert.deepStrictEqual(prepareArguments.slice(0, 4), ['install', '--global', '--prefix', preparePayload.stagingPrefix]);
 
-  const mismatchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-version-mismatch.'));
-  fs.mkdirSync(path.join(mismatchRoot, 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(mismatchRoot, 'bin', 'farming'), '#!/usr/bin/env node\n');
-  await runNpmUpdate(payloadFor(mismatchRoot, {
-    npmCommand: '/usr/bin/true',
-    serverPid: process.pid,
-  }));
-  const mismatch = JSON.parse(fs.readFileSync(path.join(mismatchRoot, 'farming-update.json'), 'utf8'));
-  assert.strictEqual(mismatch.phase, 'failed');
-  assert.match(mismatch.error, /version mismatch: expected 2\.3\.0, found 2\.2\.5/);
-
-  const failedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-failed.'));
-  fs.mkdirSync(path.join(failedRoot, 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(failedRoot, 'bin', 'farming'), '#!/usr/bin/env node\n');
-  await runNpmUpdate(payloadFor(failedRoot, {
-    npmCommand: '/usr/bin/false',
-    serverPid: process.pid,
-  }));
-  const failed = JSON.parse(fs.readFileSync(path.join(failedRoot, 'farming-update.json'), 'utf8'));
-  assert.strictEqual(failed.phase, 'failed');
-  assert.match(failed.error, /exited/);
+  const failedPrepareRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-prepare-failure.'));
+  const failedPreparePayload = payloadFor(failedPrepareRoot, { npmCommand: '/usr/bin/false' });
+  writePackage(failedPreparePayload.packageRoot, '2.2.5');
+  await runNpmUpdate(failedPreparePayload);
+  const failedPrepare = JSON.parse(fs.readFileSync(failedPreparePayload.stateFile, 'utf8'));
+  assert.strictEqual(failedPrepare.phase, 'failed');
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(failedPreparePayload.packageRoot, 'package.json'))).version, '2.2.5');
+  assert.strictEqual(fs.existsSync(failedPreparePayload.stagingPrefix), false);
 
   const fallbackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-fallback.'));
-  const fallbackNpm = path.join(fallbackRoot, 'fake-npm');
-  const fallbackArgumentsFile = path.join(fallbackRoot, 'npm-arguments');
-  fs.mkdirSync(path.join(fallbackRoot, 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(fallbackRoot, 'bin', 'farming'), '#!/usr/bin/env node\n');
-  fs.writeFileSync(fallbackNpm, [
-    '#!/usr/bin/env node',
-    `const fs = require('fs');`,
-    `const args = process.argv.slice(2);`,
-    `fs.appendFileSync(${JSON.stringify(fallbackArgumentsFile)}, JSON.stringify(args) + '\\n');`,
-    `if (!args.includes('--registry')) { console.error('npm error code ETARGET\\nnpm error notarget No matching version found'); process.exit(1); }`,
-    `const version = args.find(value => value.startsWith('farming-code@')).split('@').pop();`,
-    `fs.writeFileSync(${JSON.stringify(path.join(fallbackRoot, 'package.json'))}, JSON.stringify({ name: 'farming-code', version }));`,
-    '',
-  ].join('\n'), { mode: 0o755 });
-  await runNpmUpdate(payloadFor(fallbackRoot, { npmCommand: fallbackNpm }));
-  const fallback = JSON.parse(fs.readFileSync(path.join(fallbackRoot, 'farming-update.json'), 'utf8'));
-  assert.strictEqual(fallback.phase, 'succeeded');
-  const fallbackCalls = fs.readFileSync(fallbackArgumentsFile, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  const fallbackCallsFile = path.join(fallbackRoot, 'npm-calls');
+  const fallbackPayload = payloadFor(fallbackRoot, {
+    npmCommand: writeFakeNpm(fallbackRoot, fallbackCallsFile, { requireFallback: true }),
+  });
+  writePackage(fallbackPayload.packageRoot, '2.2.5');
+  await runNpmUpdate(fallbackPayload);
+  const fallback = JSON.parse(fs.readFileSync(fallbackPayload.stateFile, 'utf8'));
+  assert.strictEqual(fallback.phase, 'ready-to-restart');
+  const fallbackCalls = fs.readFileSync(fallbackCallsFile, 'utf8').trim().split('\n').map(line => JSON.parse(line));
   assert.strictEqual(fallbackCalls.length, 2);
   assert.strictEqual(fallbackCalls[0].includes('--registry'), false);
   assert.deepStrictEqual(fallbackCalls[1].slice(4, 6), ['--registry', 'https://registry.example.test']);
 
+  const applyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-apply.'));
+  const applyPayload = payloadFor(applyRoot, { action: 'apply' });
+  const applyObservations = path.join(applyRoot, 'cli-observations');
+  writePackage(applyPayload.packageRoot, '2.2.5');
+  writePackage(applyPayload.stagingPackageRoot, '2.3.0');
+  writeCli(applyPayload.packageRoot, 0, applyObservations);
+  writeCli(applyPayload.stagingPackageRoot, 0, applyObservations);
+  await runNpmUpdate(applyPayload);
+  const succeeded = JSON.parse(fs.readFileSync(applyPayload.stateFile, 'utf8'));
+  assert.strictEqual(succeeded.phase, 'succeeded');
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(applyPayload.packageRoot, 'package.json'))).version, '2.3.0');
+  assert.strictEqual(fs.existsSync(applyPayload.stagingPrefix), false);
+
   const rollbackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-rollback.'));
-  const installedVersionFile = path.join(rollbackRoot, 'installed-version');
-  const fakeNpm = path.join(rollbackRoot, 'fake-npm');
-  const npmArgumentsFile = path.join(rollbackRoot, 'npm-arguments');
-  const childObservationsFile = path.join(rollbackRoot, 'child-observations');
-  const fakeCli = path.join(rollbackRoot, 'fake-farming.js');
-  fs.writeFileSync(fakeNpm, [
-    '#!/usr/bin/env node',
-    `const fs = require('fs');`,
-    `const version = process.argv.find(value => value.startsWith('farming-code@')).split('@').pop();`,
-    `fs.writeFileSync(${JSON.stringify(installedVersionFile)}, version);`,
-    `fs.writeFileSync(${JSON.stringify(path.join(rollbackRoot, 'package.json'))}, JSON.stringify({ name: 'farming-code', version }));`,
-    `fs.appendFileSync(${JSON.stringify(npmArgumentsFile)}, JSON.stringify(process.argv.slice(2)) + '\\n');`,
-    `fs.appendFileSync(${JSON.stringify(childObservationsFile)}, JSON.stringify({ kind: 'npm', cwd: process.cwd(), runServer: process.env.FARMING_RUN_SERVER, runNativeHost: process.env.FARMING_RUN_NATIVE_PTY_HOST }) + '\\n');`,
-    '',
-  ].join('\n'), { mode: 0o755 });
-  fs.writeFileSync(fakeCli, [
-    `const fs = require('fs');`,
-    `fs.appendFileSync(${JSON.stringify(childObservationsFile)}, JSON.stringify({ kind: 'cli', cwd: process.cwd(), runServer: process.env.FARMING_RUN_SERVER, runNativeHost: process.env.FARMING_RUN_NATIVE_PTY_HOST }) + '\\n');`,
-    `const version = fs.readFileSync(${JSON.stringify(installedVersionFile)}, 'utf8');`,
-    `process.exit(version === '2.3.0' ? 1 : 0);`,
-    '',
-  ].join('\n'));
-  const previousRunServer = process.env.FARMING_RUN_SERVER;
-  const previousRunNativeHost = process.env.FARMING_RUN_NATIVE_PTY_HOST;
-  process.env.FARMING_RUN_SERVER = '1';
-  process.env.FARMING_RUN_NATIVE_PTY_HOST = '1';
-  try {
-    await runNpmUpdate(payloadFor(rollbackRoot, {
-      cliPath: fakeCli,
-      nodePath: process.execPath,
-      npmCommand: fakeNpm,
-    }));
-  } finally {
-    if (previousRunServer === undefined) delete process.env.FARMING_RUN_SERVER;
-    else process.env.FARMING_RUN_SERVER = previousRunServer;
-    if (previousRunNativeHost === undefined) delete process.env.FARMING_RUN_NATIVE_PTY_HOST;
-    else process.env.FARMING_RUN_NATIVE_PTY_HOST = previousRunNativeHost;
-  }
-  const rolledBack = JSON.parse(fs.readFileSync(path.join(rollbackRoot, 'farming-update.json'), 'utf8'));
+  const rollbackPayload = payloadFor(rollbackRoot, { action: 'apply' });
+  const rollbackObservations = path.join(rollbackRoot, 'cli-observations');
+  writePackage(rollbackPayload.packageRoot, '2.2.5');
+  writePackage(rollbackPayload.stagingPackageRoot, '2.3.0');
+  writeCli(rollbackPayload.packageRoot, 0, rollbackObservations);
+  writeCli(rollbackPayload.stagingPackageRoot, 1, rollbackObservations);
+  await runNpmUpdate(rollbackPayload);
+  const rolledBack = JSON.parse(fs.readFileSync(rollbackPayload.stateFile, 'utf8'));
   assert.strictEqual(rolledBack.phase, 'rolled-back');
   assert.strictEqual(rolledBack.version, '2.2.5');
   assert.strictEqual(rolledBack.attemptedVersion, '2.3.0');
-  assert.strictEqual(fs.readFileSync(installedVersionFile, 'utf8'), '2.2.5');
-  const npmCalls = fs.readFileSync(npmArgumentsFile, 'utf8').trim().split('\n').map(line => JSON.parse(line));
-  assert.strictEqual(npmCalls.length, 2);
-  npmCalls.forEach(args => {
-    assert.deepStrictEqual(args.slice(0, 4), ['install', '--global', '--prefix', path.join(rollbackRoot, 'npm-prefix')]);
-    assert.strictEqual(args.includes('--registry'), false);
-  });
-  const childObservations = fs.readFileSync(childObservationsFile, 'utf8').trim().split('\n').map(line => JSON.parse(line));
-  assert.strictEqual(childObservations.length, 4);
-  childObservations.forEach(observation => {
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(rollbackPayload.packageRoot, 'package.json'))).version, '2.2.5');
+  assert.strictEqual(fs.existsSync(rollbackPayload.stagingPrefix), false);
+  const observations = fs.readFileSync(rollbackObservations, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.deepStrictEqual(observations.map(item => item.version), ['2.3.0', '2.2.5']);
+  observations.forEach(observation => {
     assert.strictEqual(fs.realpathSync(observation.cwd), fs.realpathSync(rollbackRoot));
     assert.strictEqual(observation.runServer, undefined);
     assert.strictEqual(observation.runNativeHost, undefined);
   });
 
-  console.log('✓ npm update helper preserves the old server on install failure and rolls back failed restarts');
+  console.log('✓ npm update helper stages separately, applies on restart, and rolls back directory switches');
 }
 
 run().catch(error => {

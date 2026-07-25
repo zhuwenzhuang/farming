@@ -132,7 +132,7 @@ Settings 把 Interface、Language、Search Timeout、Installation Aware Update�
 
 ![Farming Code Settings](assets/14-code-settings.png)
 
-切换到 Farming CRT 时会尽量携带当前 Focused Agent，不会重启 Session。npm 安装可以原地检查和安装更新；更新卡片会显示当前的安装、重启或回滚阶段及已用时间，Bundle 下载还会显示基于实际字节数的百分比。源码 Checkout 通过 Git 更新，Standalone Artifact 仍然手工替换。
+切换到 Farming CRT 时会尽量携带当前 Focused Agent，不会重启 Session。更新采用类似 Zed 的两阶段流程：点击**准备**后，Bundle 会在当前服务继续运行时完成下载与校验，npm 版本则安装到独立 staging 目录。卡片随后稳定停在**更新已准备好**，只有用户再次点击**重启并应用**才会切换到准备好的版本并重启 Farming；npm 目录切换失败时会先恢复旧包再重新启动。卡片会显示准备、重启或回滚状态，并在准备完成时冻结已用时间；服务端提供总大小时，Bundle 下载还会显示基于实际字节数的百分比。源码 Checkout 通过 Git 更新，Standalone Artifact 仍然手工替换。
 
 ## 理解本地 Token 用量
 

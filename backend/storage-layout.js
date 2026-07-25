@@ -93,6 +93,10 @@ function updateLogFile(configDir) {
   return path.join(configDir, 'farming-update.log');
 }
 
+function updateStagingDir(configDir) {
+  return path.join(configDir, 'updates');
+}
+
 function farmingNetInstancesFile(configDir) {
   return path.join(configDir, 'instances.json');
 }
@@ -145,6 +149,7 @@ module.exports = {
   settingsFile,
   themeSettingsFile,
   updateLogFile,
+  updateStagingDir,
   updateStateFile,
   usageHistoryCacheFile,
 };

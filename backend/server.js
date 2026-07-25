@@ -831,16 +831,6 @@ app.get(routePath(BASE_PATH, '/api/update'), async (req, res) => {
 });
 
 app.post(routePath(BASE_PATH, '/api/update/install'), express.json(), async (req, res) => {
-  const blockers = blockingUpdateAgents();
-  const force = req.body && req.body.force === true;
-  if (blockers.length > 0 && !force) {
-    res.status(409).json({
-      error: 'Cannot upgrade while non-recoverable project agents are running',
-      blockingAgents: blockers,
-    });
-    return;
-  }
-
   try {
     const state = await updateService.startInstall({
       assetName: req.body && typeof req.body.assetName === 'string' ? req.body.assetName : '',
@@ -848,11 +838,30 @@ app.post(routePath(BASE_PATH, '/api/update/install'), express.json(), async (req
     res.status(202).json({
       update: {
         state,
-        blockingAgents: blockers,
+        blockingAgents: blockingUpdateAgents(),
       },
     });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Failed to start update' });
+  }
+});
+
+app.post(routePath(BASE_PATH, '/api/update/restart'), express.json(), async (req, res) => {
+  const blockers = blockingUpdateAgents();
+  const force = req.body && req.body.force === true;
+  if (blockers.length > 0 && !force) {
+    res.status(409).json({
+      error: 'Cannot restart for update while non-recoverable project agents are running',
+      blockingAgents: blockers,
+    });
+    return;
+  }
+
+  try {
+    const state = await updateService.applyPreparedUpdate();
+    res.status(202).json({ update: { state, blockingAgents: blockers } });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to restart for update' });
   }
 });
 

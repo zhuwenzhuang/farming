@@ -125,7 +125,8 @@ async function run() {
   const serverSource = fs.readFileSync(path.join(process.cwd(), 'backend/server.js'), 'utf8');
   assert(serverSource.includes("app.get(routePath(BASE_PATH, '/api/update')"));
   assert(serverSource.includes("app.post(routePath(BASE_PATH, '/api/update/install')"));
-  assert(serverSource.includes('Cannot upgrade while non-recoverable project agents are running'));
+  assert(serverSource.includes("app.post(routePath(BASE_PATH, '/api/update/restart')"));
+  assert(serverSource.includes('Cannot restart for update while non-recoverable project agents are running'));
   assert(serverSource.includes("const { isRestartBlockingAgent } = require('./agent-activity');"));
   assert(serverSource.includes('.filter(isRestartBlockingAgent)'));
 
@@ -541,9 +542,11 @@ async function run() {
   process.env.FARMING_PORT = '39401';
   process.env.PORT = '39401';
   let installState;
+  let applyState;
   try {
     installState = await service.startInstall();
-    await waitFor(() => spawned.length === 1, 1000, 'initial bundle helper spawn');
+    await waitFor(() => service.installState.phase === 'ready-to-restart', 1000, 'initial bundle preparation');
+    applyState = await service.applyPreparedUpdate();
   } finally {
     Object.entries(previousBundleEnvironment).forEach(([key, value]) => {
       if (value === undefined) delete process.env[key];
@@ -553,6 +556,7 @@ async function run() {
   assert.strictEqual(installState.phase, 'downloading');
   assert.strictEqual(installState.receivedBytes, 0);
   assert.strictEqual(installState.totalBytes, 1024);
+  assert.strictEqual(applyState.phase, 'restarting');
   assert.deepStrictEqual(
     {
       phase: observedDownloadProgress.phase,
@@ -577,7 +581,7 @@ async function run() {
   const bundlePayload = JSON.parse(spawned[0].options.env.FARMING_BUNDLE_UPDATE_PAYLOAD);
   assert(bundlePayload.installer.endsWith('/scripts/install-release.sh'));
   assert.strictEqual(bundlePayload.targetMethod, 'npm');
-  assert.strictEqual(service.installState.phase, 'installing');
+  assert.strictEqual(service.installState.phase, 'restarting');
   fs.rmSync(service.updateStateFile, { force: true });
 
   const plainBundleSpawned = [];
@@ -620,9 +624,23 @@ async function run() {
     },
   });
   await plainBundleService.startInstall();
-  await new Promise(resolve => setTimeout(resolve, 20));
+  await waitFor(() => plainBundleService.installState.phase === 'ready-to-restart', 1000, 'plain bundle preparation');
+  assert.strictEqual(plainBundleSpawned.length, 0);
+  const preparedPlainBundle = plainBundleService.currentInstallState();
+  plainBundleService.spawn = () => {
+    throw new Error('helper launch failed');
+  };
+  await assert.rejects(() => plainBundleService.applyPreparedUpdate(), /helper launch failed/);
+  assert.strictEqual(plainBundleService.currentInstallState().phase, 'ready-to-restart');
+  assert.match(plainBundleService.currentInstallState().error, /helper launch failed/);
+  plainBundleService.spawn = (command, args, options) => {
+    plainBundleSpawned.push({ command, args, options });
+    return { unref() {} };
+  };
+  assert.strictEqual(plainBundleService.currentInstallState().releaseDir, preparedPlainBundle.releaseDir);
+  await plainBundleService.applyPreparedUpdate();
   assert.strictEqual(plainBundleSpawned.length, 1);
-  assert.strictEqual(plainBundleService.installState.phase, 'installing');
+  assert.strictEqual(plainBundleService.installState.phase, 'restarting');
   fs.rmSync(plainBundleService.updateStateFile, { force: true });
 
   const failingUrls = [];
@@ -679,10 +697,13 @@ async function run() {
     assert.strictEqual(selectedStatus.selected.assetName, bundle101);
     assert.deepStrictEqual(selectedStatus.versions.map(version => version.assetName), [bundle102, bundle101]);
     await selectedService.startInstall({ assetName: bundle101 });
-    await waitFor(() => selectedSpawned.length === 1, 1000, 'selected bundle helper spawn');
+    await waitFor(() => selectedService.installState.phase === 'ready-to-restart', 1000, 'selected bundle preparation');
+    assert.strictEqual(selectedSpawned.length, 0);
     assert.strictEqual(selectedService.installState.version, '1.0.1');
     assert.strictEqual(selectedService.installState.assetName, bundle101);
     assert(selectedService.installState.releaseDir.endsWith('farming-1.0.1'));
+    await selectedService.applyPreparedUpdate();
+    assert.strictEqual(selectedSpawned.length, 1);
     fs.rmSync(selectedService.updateStateFile, { force: true });
     visibleFiles.splice(-2, 2);
 
@@ -703,7 +724,10 @@ async function run() {
     assert.strictEqual(firstStatus.latest.assetName, bundle101);
     assert.strictEqual(firstStatus.latest.source, baseUrl);
     await firstService.startInstall();
-    await waitFor(() => firstSpawned.length === 1, 1000, 'first HTTP bundle helper spawn');
+    await waitFor(() => firstService.installState.phase === 'ready-to-restart', 1000, 'first HTTP bundle preparation');
+    assert.strictEqual(firstSpawned.length, 0);
+    await firstService.applyPreparedUpdate();
+    assert.strictEqual(firstSpawned.length, 1);
     assert.strictEqual(firstSpawned[0].command, process.execPath);
     assert(firstSpawned[0].args[0].endsWith('/backend/bundle-update-helper.js'));
     assert.strictEqual(firstSpawned[0].options.env.FARMING_INSTALL_DIR, httpInstallRoot);
@@ -736,7 +760,10 @@ async function run() {
     assert.strictEqual(secondStatus.latest.version, '1.0.2');
     assert.strictEqual(secondStatus.latest.assetName, bundle102);
     await secondService.startInstall();
-    await waitFor(() => secondSpawned.length === 1, 1000, 'second HTTP bundle helper spawn');
+    await waitFor(() => secondService.installState.phase === 'ready-to-restart', 1000, 'second HTTP bundle preparation');
+    assert.strictEqual(secondSpawned.length, 0);
+    await secondService.applyPreparedUpdate();
+    assert.strictEqual(secondSpawned.length, 1);
     assert.strictEqual(secondSpawned[0].options.env.FARMING_CONFIG_DIR, httpConfigDir);
   });
 
@@ -813,19 +840,36 @@ async function run() {
   process.env.FARMING_NPM_PREFIX = '/opt/farming/npm';
   process.env.FARMING_NODE_LD = '/opt/farming/glibc/lib/ld-linux-x86-64.so.2';
   process.env.FARMING_NODE_LIBRARY_PATH = '/opt/farming/glibc/lib';
-  const npmInstallState = await npmService.startInstall({ assetName: '2.2.6' });
-  if (previousNodeBin === undefined) delete process.env.FARMING_NODE_BIN;
-  else process.env.FARMING_NODE_BIN = previousNodeBin;
-  if (previousNpmCommand === undefined) delete process.env.FARMING_NPM_COMMAND;
-  else process.env.FARMING_NPM_COMMAND = previousNpmCommand;
-  if (previousNpmPrefix === undefined) delete process.env.FARMING_NPM_PREFIX;
-  else process.env.FARMING_NPM_PREFIX = previousNpmPrefix;
-  if (previousNodeLd === undefined) delete process.env.FARMING_NODE_LD;
-  else process.env.FARMING_NODE_LD = previousNodeLd;
-  if (previousNodeLibraryPath === undefined) delete process.env.FARMING_NODE_LIBRARY_PATH;
-  else process.env.FARMING_NODE_LIBRARY_PATH = previousNodeLibraryPath;
+  let npmInstallState;
+  let npmApplyState;
+  try {
+    npmInstallState = await npmService.startInstall({ assetName: '2.2.6' });
+    npmService.persistInstallState({
+      ...npmInstallState,
+      phase: 'ready-to-restart',
+      preparedAt: new Date().toISOString(),
+    });
+    fs.mkdirSync(npmInstallState.stagingPackageRoot, { recursive: true });
+    fs.writeFileSync(path.join(npmInstallState.stagingPackageRoot, 'package.json'), JSON.stringify({
+      name: 'farming-code',
+      version: '2.2.6',
+    }));
+    npmApplyState = await npmService.applyPreparedUpdate();
+  } finally {
+    if (previousNodeBin === undefined) delete process.env.FARMING_NODE_BIN;
+    else process.env.FARMING_NODE_BIN = previousNodeBin;
+    if (previousNpmCommand === undefined) delete process.env.FARMING_NPM_COMMAND;
+    else process.env.FARMING_NPM_COMMAND = previousNpmCommand;
+    if (previousNpmPrefix === undefined) delete process.env.FARMING_NPM_PREFIX;
+    else process.env.FARMING_NPM_PREFIX = previousNpmPrefix;
+    if (previousNodeLd === undefined) delete process.env.FARMING_NODE_LD;
+    else process.env.FARMING_NODE_LD = previousNodeLd;
+    if (previousNodeLibraryPath === undefined) delete process.env.FARMING_NODE_LIBRARY_PATH;
+    else process.env.FARMING_NODE_LIBRARY_PATH = previousNodeLibraryPath;
+  }
   assert.strictEqual(npmInstallState.phase, 'installing');
-  assert.strictEqual(npmSpawned.length, 1);
+  assert.strictEqual(npmApplyState.phase, 'restarting');
+  assert.strictEqual(npmSpawned.length, 2);
   assert.strictEqual(npmSpawned[0].command, '/opt/farming/glibc/lib/ld-linux-x86-64.so.2');
   assert.deepStrictEqual(npmSpawned[0].args.slice(0, 3), [
     '--library-path',
@@ -837,13 +881,20 @@ async function run() {
   const npmUpdatePayload = JSON.parse(npmSpawned[0].options.env.FARMING_NPM_UPDATE_PAYLOAD);
   assert.strictEqual(npmUpdatePayload.targetVersion, '2.2.6');
   assert.strictEqual(npmUpdatePayload.previousVersion, '2.2.5');
+  assert.strictEqual(npmUpdatePayload.action, 'prepare');
   assert.strictEqual(npmUpdatePayload.configDir, npmConfigDir);
   assert.strictEqual(npmUpdatePayload.nodePath, '/opt/farming/runtime/bin/node');
   assert.strictEqual(npmUpdatePayload.npmCommand, '/opt/farming/runtime/bin/npm');
   assert.strictEqual(npmUpdatePayload.npmPrefix, npmPrefix);
   assert.strictEqual(npmUpdatePayload.packageRoot, npmRoot);
+  assert(npmUpdatePayload.stagingPrefix.startsWith(path.join(npmConfigDir, 'updates', 'npm-2.2.6.')));
+  assert.strictEqual(npmUpdatePayload.stagingPackageRoot, path.join(npmUpdatePayload.stagingPrefix, 'lib', 'node_modules', 'farming-code'));
   assert.strictEqual(npmUpdatePayload.npmFallbackRegistryUrl, 'https://registry.npmjs.org');
-  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(npmConfigDir, 'farming-update.json'), 'utf8')).phase, 'installing');
+  const npmApplyPayload = JSON.parse(npmSpawned[1].options.env.FARMING_NPM_UPDATE_PAYLOAD);
+  assert.strictEqual(npmApplyPayload.action, 'apply');
+  assert.strictEqual(fs.realpathSync(npmApplyPayload.stagingPrefix), fs.realpathSync(npmUpdatePayload.stagingPrefix));
+  assert.strictEqual(fs.realpathSync(npmApplyPayload.stagingPackageRoot), fs.realpathSync(npmUpdatePayload.stagingPackageRoot));
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(npmConfigDir, 'farming-update.json'), 'utf8')).phase, 'restarting');
   const sourceServiceWithNpmState = new FarmingUpdateService({
     rootDir: path.join(__dirname, '..', '..'),
     configDir: npmConfigDir,
@@ -932,8 +983,11 @@ async function run() {
     },
   });
   await macInstallService.startInstall();
-  await waitFor(() => macSpawned.length === 1, 1000, 'macOS bundle helper spawn');
-  assert.strictEqual(macInstallService.installState.phase, 'installing');
+  await waitFor(() => macInstallService.installState.phase === 'ready-to-restart', 1000, 'macOS bundle preparation');
+  assert.strictEqual(macSpawned.length, 0);
+  await macInstallService.applyPreparedUpdate();
+  assert.strictEqual(macInstallService.installState.phase, 'restarting');
+  assert.strictEqual(macSpawned.length, 1);
   assert.strictEqual(macSpawned[0].command, process.execPath);
   assert(macSpawned[0].args[0].endsWith('/backend/bundle-update-helper.js'));
 
