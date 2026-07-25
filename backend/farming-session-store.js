@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { legacyRuntimeMetadata } = require('./agent-runtime-binding');
+const { lifecycleJournal } = require('./agent-lifecycle-journal');
 const storageLayout = require('./storage-layout');
 
 const SESSION_ID_PREFIX = 'fsess';
@@ -77,15 +78,67 @@ class FarmingSessionStore {
   init({ legacyMainPageSessionKeys = [] } = {}) {
     fs.mkdirSync(this.sessionsDir, { recursive: true });
     this.index = this.readIndex();
+    this.reconcileProviderSessionIndex();
     if (!Array.isArray(this.index.mainPageSessionKeys) || this.index.mainPageSessionKeys.length === 0) {
-      const migrated = this.normalizeMainPageSessionKeys(legacyMainPageSessionKeys);
+      const migrated = this.filterRecoverableMainPageSessionKeys(legacyMainPageSessionKeys);
       if (migrated.length > 0) {
         this.setMainPageSessionKeys(migrated);
         return;
       }
     }
-    this.index.mainPageSessionKeys = this.normalizeMainPageSessionKeys(this.index.mainPageSessionKeys);
+    this.index.mainPageSessionKeys = this.filterRecoverableMainPageSessionKeys(
+      this.index.mainPageSessionKeys,
+    );
     this.writeIndex();
+  }
+
+  reconcileProviderSessionIndex() {
+    const index = this.ensureIndex();
+    const recordsByProviderKey = new Map();
+    let names = [];
+    try {
+      names = fs.readdirSync(this.sessionsDir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      const id = name.slice(0, -5);
+      if (!safeSessionFileName(id)) continue;
+      const record = this.readRecord(id);
+      const sessionKey = String(record?.providerSessionKey || '');
+      if (!record || record.kind !== 'agent' || !parseProviderSessionKey(sessionKey)) continue;
+      const records = recordsByProviderKey.get(sessionKey) || [];
+      records.push(record);
+      recordsByProviderKey.set(sessionKey, records);
+    }
+
+    for (const [sessionKey, records] of recordsByProviderKey) {
+      const indexedId = index.providerSessionRecords[sessionKey];
+      const indexedRecord = indexedId ? records.find(record => record.id === indexedId) : null;
+      if (records.length > 1) {
+        const ids = records.map(record => record.id).sort().join(', ');
+        throw new Error(`Conflicting Farming session records for ${sessionKey}: ${ids}`);
+      }
+      if (!indexedRecord) {
+        index.providerSessionRecords[sessionKey] = records[0].id;
+      }
+    }
+  }
+
+  filterRecoverableMainPageSessionKeys(keys) {
+    return this.normalizeMainPageSessionKeys(keys).filter(sessionKey => {
+      const record = this.getRecordForProviderSessionKey(sessionKey);
+      if (!record) return true;
+      if (record.archived === true) return false;
+      const entries = lifecycleJournal(record).entries;
+      const latest = entries.length > 0 ? entries[entries.length - 1] : null;
+      return !(
+        latest
+        && ['delete', 'archive'].includes(latest.type)
+        && latest.state === 'succeeded'
+      );
+    });
   }
 
   readIndex() {
@@ -188,6 +241,15 @@ class FarmingSessionStore {
       providerSessionTitle: typeof agent.providerSessionTitle === 'string' ? agent.providerSessionTitle : '',
       providerSessionWorkspace: typeof agent.providerSessionWorkspace === 'string' ? agent.providerSessionWorkspace : '',
       terminalInputReceived: agent.terminalInputReceived === true,
+      structuredRuntimeProcess: agent.structuredRuntimeProcess
+        && typeof agent.structuredRuntimeProcess === 'object'
+        ? JSON.parse(JSON.stringify(agent.structuredRuntimeProcess))
+        : null,
+      legacyAcpProcessExitAcknowledgedAt:
+        typeof agent.legacyAcpProcessExitAcknowledgedAt === 'number'
+          ? agent.legacyAcpProcessExitAcknowledgedAt
+          : null,
+      ...(agent.lifecycleJournal ? { lifecycleJournal: lifecycleJournal(agent) } : {}),
       ...legacyRuntimeMetadata(agent),
       engine: typeof agent.engineName === 'string' ? agent.engineName : '',
       category: typeof agent.category === 'string' ? agent.category : '',
@@ -226,9 +288,21 @@ class FarmingSessionStore {
     if (!parsed) return '';
     const index = this.ensureIndex();
     const existingId = index.providerSessionRecords[sessionKey];
+    const normalizedPreferredId = safeSessionFileName(preferredId) ? preferredId : '';
+    const preferredRecord = normalizedPreferredId ? this.readRecord(normalizedPreferredId) : null;
+    if (
+      !safeSessionFileName(existingId)
+      && preferredRecord?.providerSessionTemporary !== true
+      && preferredRecord?.providerSessionKey
+      && preferredRecord.providerSessionKey !== sessionKey
+    ) {
+      throw new Error(
+        `Farming session ${normalizedPreferredId} is already bound to ${preferredRecord.providerSessionKey}`,
+      );
+    }
     const id = safeSessionFileName(existingId)
       ? existingId
-      : (safeSessionFileName(preferredId) ? preferredId : createSessionId());
+      : (normalizedPreferredId || createSessionId());
     const existing = this.readRecord(id) || {};
     const record = {
       id,
@@ -248,6 +322,9 @@ class FarmingSessionStore {
     if (typeof record.customTitle === 'string' && record.customTitle) {
       record.title = record.customTitle;
     }
+    Object.entries(index.providerSessionRecords).forEach(([key, recordId]) => {
+      if (key !== sessionKey && recordId === id) delete index.providerSessionRecords[key];
+    });
     index.providerSessionRecords[sessionKey] = id;
     this.writeRecord(record);
     this.writeIndex();

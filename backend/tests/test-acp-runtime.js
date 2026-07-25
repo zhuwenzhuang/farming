@@ -1345,7 +1345,40 @@ async function run() {
     assert.strictEqual(runtime.getSession('agent-acp-new').state, 'error');
     assert.strictEqual(runtime.getSession('agent-acp-new').stopReason, 'cancel_error');
   } finally {
-    runtime.dispose();
+    await runtime.dispose();
+  }
+
+  if (process.platform !== 'win32') {
+    const descendantPidFile = path.join(os.tmpdir(), `farming-acp-descendant-${process.pid}-${Date.now()}.pid`);
+    const processTreeRuntime = new AcpRuntime({
+      resolveLaunch() {
+        return { command: process.execPath, args: [fixture], version: 'test' };
+      },
+    });
+    try {
+      await processTreeRuntime.prepareAgent({
+        agentId: 'agent-acp-process-tree',
+        provider: 'codex',
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          FARMING_TEST_ACP_DESCENDANT_PID_FILE: descendantPidFile,
+        },
+        approvalMode: 'full',
+      });
+      const descendantPid = Number(fs.readFileSync(descendantPidFile, 'utf8'));
+      assert(Number.isInteger(descendantPid) && descendantPid > 0);
+      await processTreeRuntime.dispose();
+      assert.strictEqual(processTreeRuntime.bindings.has('agent-acp-process-tree'), false);
+      assert.throws(
+        () => process.kill(descendantPid, 0),
+        error => error?.code === 'ESRCH',
+        'verified ACP cleanup must stop descendants in the adapter process group',
+      );
+    } finally {
+      await processTreeRuntime.dispose();
+      fs.rmSync(descendantPidFile, { force: true });
+    }
   }
 
   console.log('ACP runtime tests passed');

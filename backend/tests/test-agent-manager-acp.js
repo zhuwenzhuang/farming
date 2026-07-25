@@ -3,6 +3,14 @@ const path = require('path');
 const AgentManager = require('../agent-manager');
 const { AcpRuntime } = require('../acp-runtime');
 
+const TEST_PROCESS_IDENTITY = {
+  describeAcpProcessGroup: async pid => ({
+    pid,
+    processGroupId: pid,
+    startedAt: `test-process-${pid}`,
+  }),
+};
+
 function config(overrides = {}) {
   return {
     getWorkspace: () => process.cwd(),
@@ -23,6 +31,7 @@ function config(overrides = {}) {
 async function run() {
   const fixture = path.join(__dirname, 'fixtures', 'fake-acp-agent.mjs');
   const runtime = new AcpRuntime({
+    ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
   });
   const manager = new AgentManager(config(), { acpRuntime: runtime, skipExecutablePreflight: true });
@@ -133,6 +142,7 @@ async function run() {
   }
 
   const codexRuntime = new AcpRuntime({
+    ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
   });
   const codexManager = new AgentManager(config(), { acpRuntime: codexRuntime, skipExecutablePreflight: true });
@@ -213,6 +223,7 @@ async function run() {
   }
 
   const openCodeRuntime = new AcpRuntime({
+    ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
   });
   const openCodeManager = new AgentManager(config(), {
@@ -242,6 +253,7 @@ async function run() {
   }
 
   const providerRuntime = new AcpRuntime({
+    ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
   });
   const providerManager = new AgentManager(config(), {
@@ -291,6 +303,7 @@ async function run() {
   }
 
   const recoveryRuntime = new AcpRuntime({
+    ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
   });
   const recoverySessionKey = 'agent-session:codex:existing-session';
@@ -319,7 +332,10 @@ async function run() {
         status: 'running',
       },
     ],
-  }), { acpRuntime: recoveryRuntime });
+  }), {
+    acpRuntime: recoveryRuntime,
+    allowUnprovenLegacyAcpRecovery: true,
+  });
   try {
     await recoveryManager.recoverAcpSessions();
     const recoveredBinding = recoveryRuntime.bindings.get('agent-acp-recovered');
@@ -341,6 +357,7 @@ async function run() {
 
   let recoveredQoderExecutable = '';
   const qoderRecoveryRuntime = new AcpRuntime({
+    ...TEST_PROCESS_IDENTITY,
     resolveLaunch: (_provider, options) => {
       recoveredQoderExecutable = options.executable;
       return { command: process.execPath, args: [fixture], version: 'test' };
@@ -359,7 +376,10 @@ async function run() {
       cwd: process.cwd(),
       status: 'running',
     }],
-  }), { acpRuntime: qoderRecoveryRuntime });
+  }), {
+    acpRuntime: qoderRecoveryRuntime,
+    allowUnprovenLegacyAcpRecovery: true,
+  });
   try {
     await qoderRecoveryManager.recoverAcpSessions();
     assert.strictEqual(path.basename(recoveredQoderExecutable), 'qodercli');
@@ -382,6 +402,7 @@ async function run() {
   };
   const recoveryWrites = [];
   const stalePtyRuntime = new AcpRuntime({
+    ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),
   });
   const stalePtyManager = new AgentManager(config({
@@ -396,7 +417,10 @@ async function run() {
       });
       return authoritativeRecord.id;
     },
-  }), { acpRuntime: stalePtyRuntime });
+  }), {
+    acpRuntime: stalePtyRuntime,
+    allowUnprovenLegacyAcpRecovery: true,
+  });
   await stalePtyManager.engineBridge.dispose();
   const killedRecoveredSessions = [];
   stalePtyManager.engineBridge = {

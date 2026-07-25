@@ -292,6 +292,106 @@ function run() {
   assert.strictEqual(workRecord.providerHomeId, 'work');
   assert.strictEqual(workRecord.providerHomePath, '/homes/codex-work');
   assert.strictEqual(workRecord.providerSessionId, 'resolved-codex-session');
+  assert.throws(
+    () => store.ensureRecordForAgent({
+      id: 'agent-invalid-stable-rebind',
+      persistentSessionId: workRecordId,
+      providerSessionProvider: 'codex',
+      providerSessionId: 'different-stable-session',
+      providerSessionKey: 'agent-session:codex:home:work:different-stable-session',
+      providerSessionTemporary: false,
+    }),
+    /already bound/,
+    'one fsess must not be rebound from one stable provider identity to another',
+  );
+
+  const repairRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-session-store-repair-'));
+  const repairStore = new FarmingSessionStore(repairRoot, { normalizeMainPageSessionKeys });
+  repairStore.init();
+  const repairKey = 'agent-session:claude:repair-session';
+  const repairId = repairStore.ensureRecordForAgent({
+    id: 'agent-repair',
+    providerSessionProvider: 'claude',
+    providerSessionId: 'repair-session',
+    providerSessionKey: repairKey,
+    providerSessionTemporary: false,
+  });
+  const repairIndexFile = path.join(repairRoot, 'sessions', 'index.json');
+  const brokenIndex = readJson(repairIndexFile);
+  delete brokenIndex.providerSessionRecords[repairKey];
+  fs.writeFileSync(repairIndexFile, JSON.stringify(brokenIndex, null, 2));
+  const repairedStore = new FarmingSessionStore(repairRoot, { normalizeMainPageSessionKeys });
+  repairedStore.init();
+  assert.strictEqual(
+    repairedStore.getRecordForProviderSessionKey(repairKey).id,
+    repairId,
+    'startup must repair a record-written/index-missing crash cut',
+  );
+
+  repairedStore.rememberMainPageSessionKey(repairKey);
+  const tombstone = repairedStore.readRecord(repairId);
+  tombstone.archived = true;
+  tombstone.runtimeAgentId = '';
+  tombstone.lifecycleJournal = {
+    sequence: 1,
+    entries: [{
+      id: 'aop_1',
+      type: 'delete',
+      state: 'succeeded',
+      requestKey: 'delete',
+      request: {},
+      result: null,
+      startedAt: 1,
+      updatedAt: 2,
+      finishedAt: 2,
+      error: '',
+    }],
+  };
+  fs.writeFileSync(
+    path.join(repairRoot, 'sessions', `${repairId}.json`),
+    JSON.stringify(tombstone, null, 2),
+  );
+  const tombstoneRepairedStore = new FarmingSessionStore(
+    repairRoot,
+    { normalizeMainPageSessionKeys },
+  );
+  tombstoneRepairedStore.init({ legacyMainPageSessionKeys: [repairKey] });
+  assert.strictEqual(
+    tombstoneRepairedStore.getMainPageSessionKeys().includes(repairKey),
+    false,
+    'a committed Delete tombstone must remove stale main-page membership on restart',
+  );
+
+  const duplicateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-session-store-conflict-'));
+  const duplicateStore = new FarmingSessionStore(duplicateRoot, { normalizeMainPageSessionKeys });
+  duplicateStore.init();
+  const duplicateKey = 'agent-session:claude:duplicate-session';
+  const duplicateId = duplicateStore.ensureRecordForAgent({
+    id: 'agent-duplicate-a',
+    providerSessionProvider: 'claude',
+    providerSessionId: 'duplicate-session',
+    providerSessionKey: duplicateKey,
+    providerSessionTemporary: false,
+  });
+  const duplicateRecord = duplicateStore.readRecord(duplicateId);
+  fs.writeFileSync(
+    path.join(duplicateRoot, 'sessions', 'fsess_duplicate_conflict.json'),
+    JSON.stringify({
+      ...duplicateRecord,
+      id: 'fsess_duplicate_conflict',
+      runtimeAgentId: 'agent-duplicate-b',
+    }, null, 2),
+  );
+  assert.throws(
+    () => new FarmingSessionStore(
+      duplicateRoot,
+      { normalizeMainPageSessionKeys },
+    ).init(),
+    /Conflicting Farming session records/,
+    'duplicate canonical provider records must fail closed',
+  );
+  fs.rmSync(repairRoot, { recursive: true, force: true });
+  fs.rmSync(duplicateRoot, { recursive: true, force: true });
 
   console.log('test-farming-session-store passed');
 }

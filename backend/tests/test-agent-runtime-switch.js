@@ -63,21 +63,9 @@ const AgentManager = require('../agent-manager');
   };
 
   const result = await manager.restartAgentRuntimeMode('agent-old', 'json');
-  assert.strictEqual(killed, 'agent-old');
-  assert.strictEqual(started.command.includes('codex resume'), true);
-  assert.strictEqual(started.command.includes(sessionId), true);
-  assert.strictEqual(started.options.agentRuntimeMode, 'json');
-  assert.strictEqual(started.options.source.includes(sessionId), true);
-  assert.strictEqual(started.options.source.includes(`home:zwz:${sessionId}`), true);
-  assert.strictEqual(started.options.providerHomeId, 'zwz');
-  assert.strictEqual(started.options.providerHomePath, codexHome);
-  assert.strictEqual(started.options.preserveProviderSessionProfile, true);
-  assert.strictEqual(Object.hasOwn(started.options, 'codexModel'), false);
-  assert.strictEqual(Object.hasOwn(started.options, 'codexReasoningEffort'), false);
-  assert.strictEqual(Object.hasOwn(started.options, 'codexServiceTier'), false);
-  assert.deepStrictEqual(started.options.jsonCliEvents, [{ type: 'turn.started', turn_id: 'turn-old' }]);
-  assert.strictEqual(result.restartedAgentId, 'agent-new');
-  assert.strictEqual(result.agentRuntimeMode, 'json');
+  assert.strictEqual(result.error, 'Unsupported Agent runtime mode');
+  assert.strictEqual(killed, '');
+  assert.strictEqual(started, null);
 
   manager.agents.set('agent-acp-switch', {
     id: 'agent-acp-switch',
@@ -358,6 +346,49 @@ const AgentManager = require('../agent-manager');
   assert.strictEqual(rollbackResult.agentRuntimeMode, 'terminal');
   assert.match(rollbackResult.warning, /Original runtime restored/);
   assert.strictEqual(manager.agents.get('agent-restored').runtimeBinding.kind, 'terminal');
+
+  manager.agents.set('agent-uncertain-switch', {
+    id: 'agent-uncertain-switch',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: sessionId,
+    providerSessionTemporary: false,
+    providerHomeId: 'zwz',
+    providerHomePath: codexHome,
+    agentRuntimeMode: 'terminal',
+    terminalBusy: false,
+    status: 'running',
+    output: '',
+  });
+  manager.findRuntimeSwitchSession = async () => ({ provider: 'codex' });
+  let uncertainStarts = 0;
+  manager.startAgent = async (_command, _cwd, callback, options) => {
+    uncertainStarts += 1;
+    manager.agents.set('agent-uncertain-replacement', {
+      id: 'agent-uncertain-replacement',
+      ...options,
+      status: 'error',
+    });
+    callback('agent-uncertain-replacement', 'replacement cleanup is uncertain');
+    return null;
+  };
+  manager.killAgent = async agentId => {
+    if (agentId === 'agent-uncertain-replacement') {
+      return { agentId, error: 'cleanup proof unavailable' };
+    }
+    manager.agents.delete(agentId);
+    return { agentId, killed: true };
+  };
+  const uncertainSwitch = await manager.restartAgentRuntimeMode('agent-uncertain-switch', 'chat');
+  assert.strictEqual(uncertainStarts, 1, 'an uncertain replacement must block rollback start');
+  assert.strictEqual(uncertainSwitch.cleanupUncertain, true);
+  assert.strictEqual(uncertainSwitch.restartedAgentId, 'agent-uncertain-replacement');
+  assert.match(uncertainSwitch.error, /cleanup could not be verified/i);
+  assert.strictEqual(manager.agents.has('agent-uncertain-replacement'), true);
+
   await manager.dispose();
   fs.rmSync(codexHome, { recursive: true, force: true });
   console.log('agent runtime switch tests passed');

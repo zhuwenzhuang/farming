@@ -303,7 +303,9 @@ function listProviderAdapters() {
 function providerCapabilities(provider) {
   const adapter = getProviderAdapter(provider);
   return {
-    supportedRuntimes: adapter ? [...adapter.supportedRuntimes] : ['terminal'],
+    supportedRuntimes: adapter
+      ? adapter.supportedRuntimes.filter(runtime => runtime !== 'json')
+      : ['terminal'],
     runtimeSwitch: adapter?.capabilities?.runtimeSwitch === true,
     terminalProfile: adapter?.capabilities?.terminalProfile === true,
     goals: adapter?.capabilities?.goals === true,

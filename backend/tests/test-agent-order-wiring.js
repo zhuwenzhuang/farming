@@ -16,7 +16,7 @@ function run() {
   const styles = read('src/styles/main.css');
 
   assert(manager.includes('ensureAgentOrders(agentRecord, Array.from(this.agents.values()))'));
-  assert(manager.includes('agent.pinnedOrder = nextPinnedOrder(Array.from(this.agents.values()))'));
+  assert(manager.includes('staged.pinnedOrder = nextPinnedOrder(Array.from(this.agents.values()))'));
   assert(manager.includes('reorderProjectAgent(agentId'));
   assert(manager.includes('reorderPinnedAgent(agentId'));
   assert(manager.includes('reorderAgent(agentId'));

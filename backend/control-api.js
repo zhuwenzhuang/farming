@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const { runtimeKind } = require('./agent-runtime-binding');
 const { terminalInputReady } = require('./terminal-status');
 
@@ -17,6 +18,21 @@ function normalizeTail(value, fallback = 4000) {
   const tail = Number(value);
   if (!Number.isFinite(tail)) return fallback;
   return Math.max(0, Math.min(100000, Math.floor(tail)));
+}
+
+function stableJsonValue(value) {
+  if (Array.isArray(value)) return value.map(stableJsonValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.keys(value).sort().reduce((result, key) => {
+    result[key] = stableJsonValue(value[key]);
+    return result;
+  }, {});
+}
+
+function requestSignature(value) {
+  return crypto.createHash('sha256')
+    .update(JSON.stringify(stableJsonValue(value)))
+    .digest('hex');
 }
 
 function terminalReadinessOptions(agent) {
@@ -104,6 +120,7 @@ function waitForTerminalInputReadiness(agentManager, agentId, options = {}) {
 
 function createControlRouter(agentManager, options = {}) {
   const router = express.Router();
+  const createRequestAdmissions = new Map();
   const notifyUpdate = typeof options.notifyUpdate === 'function' ? options.notifyUpdate : () => {};
   const initialInputTimeoutMs = Number.isFinite(options.initialInputTimeoutMs)
     ? Math.max(1, options.initialInputTimeoutMs)
@@ -138,13 +155,33 @@ function createControlRouter(agentManager, options = {}) {
     const workspace = typeof body.workspace === 'string' ? body.workspace : null;
     const task = typeof body.task === 'string' ? body.task.trim() : '';
     const initialInput = typeof body.initialInput === 'string' ? body.initialInput : task;
+    const createRequestId = typeof body.requestId === 'string' && body.requestId.trim()
+      ? body.requestId
+      : req.get('Idempotency-Key') || '';
+    const controlRequestSignature = requestSignature(body);
 
     if (!command) {
       res.status(400).json({ error: 'command is required' });
       return;
     }
 
-    agentManager.startAgent(command, workspace, (agentId, error) => {
+    const pendingRequest = createRequestId
+      ? createRequestAdmissions.get(createRequestId)
+      : null;
+    if (pendingRequest) {
+      if (pendingRequest.signature !== controlRequestSignature) {
+        res.status(409).json({
+          error: `Create request ${createRequestId} is already in progress with different parameters`,
+        });
+        return;
+      }
+      void pendingRequest.promise.then(outcome => {
+        res.status(outcome.status).json(outcome.body);
+      });
+      return;
+    }
+
+    agentManager.startAgent(command, workspace, (agentId, error, metadata = {}) => {
       if (error) {
         res.status(400).json({ error });
         return;
@@ -155,11 +192,36 @@ function createControlRouter(agentManager, options = {}) {
         return;
       }
 
-      void (async () => {
+      if (metadata.deduplicated === true) {
+        const recorded = metadata.createResult?.controlApi;
+        if (recorded && Number.isInteger(recorded.status) && recorded.body) {
+          res.status(recorded.status).json(recorded.body);
+          return;
+        }
+        const admitted = createRequestId
+          ? createRequestAdmissions.get(createRequestId)
+          : null;
+        if (admitted) {
+          void admitted.promise.then(outcome => {
+            res.status(outcome.status).json(outcome.body);
+          });
+          return;
+        }
+        res.status(409).json({
+          error: 'Create succeeded, but the initial-input outcome is unknown; input was not replayed',
+          code: 'create-result-unknown',
+          agentId,
+        });
+        return;
+      }
+
+      const deliveryPromise = (async () => {
         if (!initialInput) {
           notifyUpdate();
-          res.status(201).json({ agentId, initialInputDelivered: false });
-          return;
+          return {
+            status: 201,
+            body: { agentId, initialInputDelivered: false },
+          };
         }
 
         const started = findAgent(agentManager.getState(), agentId);
@@ -170,8 +232,10 @@ function createControlRouter(agentManager, options = {}) {
         if (structuredRuntime) {
           await agentManager.sendComposerMessage(agentId, initialInput);
           notifyUpdate();
-          res.status(201).json({ agentId, initialInputDelivered: true, inputMode: 'structured' });
-          return;
+          return {
+            status: 201,
+            body: { agentId, initialInputDelivered: true, inputMode: 'structured' },
+          };
         }
 
         const readiness = await waitForTerminalInputReadiness(agentManager, agentId, {
@@ -204,21 +268,70 @@ function createControlRouter(agentManager, options = {}) {
           throw Object.assign(new Error(`Initial Terminal task was not delivered: ${reason}`), { code: reason });
         }
         notifyUpdate();
-        res.status(201).json({ agentId, initialInputDelivered: true, inputMode: 'terminal' });
-      })().catch((deliveryError) => {
+        return {
+          status: 201,
+          body: { agentId, initialInputDelivered: true, inputMode: 'terminal' },
+        };
+      })().catch(deliveryError => {
         const status = deliveryError?.code === 'initial-input-timeout' ? 504 : 409;
-        res.status(status).json({
-          error: deliveryError?.message || 'Initial input delivery failed',
-          code: deliveryError?.code || 'initial-input-failed',
-          agentId,
-          initialInputDelivered: false,
-        });
+        return {
+          status,
+          body: {
+            error: deliveryError?.message || 'Initial input delivery failed',
+            code: deliveryError?.code || 'initial-input-failed',
+            agentId,
+            initialInputDelivered: false,
+          },
+        };
+      });
+      const durableDeliveryPromise = deliveryPromise.then(outcome => {
+        if (!createRequestId) return outcome;
+        let persisted;
+        try {
+          persisted = agentManager.recordCreateRequestResult(
+            agentId,
+            createRequestId,
+            { controlApi: outcome },
+          );
+        } catch (error) {
+          persisted = { error: error?.message || 'Create result persistence failed' };
+        }
+        if (persisted?.error) {
+          return {
+            status: 409,
+            body: {
+              error: `${persisted.error}; Create outcome was not persisted and initial input was not replayed`,
+              code: 'create-result-not-durable',
+              agentId,
+              initialInputDelivered: outcome.body?.initialInputDelivered === true,
+              createResultDurable: false,
+            },
+          };
+        }
+        return outcome;
+      });
+      if (createRequestId) {
+        const admission = {
+          signature: controlRequestSignature,
+          promise: durableDeliveryPromise,
+        };
+        createRequestAdmissions.set(createRequestId, admission);
+        void durableDeliveryPromise.finally(() => {
+          if (createRequestAdmissions.get(createRequestId) === admission) {
+            createRequestAdmissions.delete(createRequestId);
+          }
+        }).catch(() => {});
+      }
+      void durableDeliveryPromise.then(outcome => {
+        res.status(outcome.status).json(outcome.body);
       });
     }, {
       wantsMain: false,
       parentAgentId: typeof body.parentAgentId === 'string' ? body.parentAgentId : '',
       task,
       source: 'control-cli',
+      createRequestId,
+      createInitialInputSignature: requestSignature(initialInput),
       agentRuntimeMode: ['json', 'acp', 'chat'].includes(body.agentRuntimeMode) ? body.agentRuntimeMode : 'terminal',
       acpHistoryMode: body.acpHistoryMode === 'resume' ? 'resume' : 'load',
       providerSessionTitle: typeof body.providerSessionTitle === 'string' ? body.providerSessionTitle : '',
@@ -306,15 +419,28 @@ function createControlRouter(agentManager, options = {}) {
 
   router.delete('/agents/:agentId', async (req, res) => {
     const agentId = req.params.agentId;
-    const state = agentManager.getState();
-    if (!findAgent(state, agentId)) {
-      res.status(404).json({ error: 'agent not found' });
+    let requested;
+    try {
+      requested = await agentManager.requestKillAgent(agentId);
+    } catch (error) {
+      res.status(503).json({
+        error: error?.message || 'Agent lifecycle recovery is unavailable',
+        retryable: true,
+      });
       return;
     }
-
-    await agentManager.killAgent(agentId);
+    const result = requested.result;
+    if (result?.error) {
+      res.status(409).json({ error: result.error });
+      return;
+    }
+    if (result?.accepted) {
+      void requested.completion.finally(() => notifyUpdate()).catch(() => {});
+      res.status(202).json(result);
+      return;
+    }
     notifyUpdate();
-    res.json({ success: true });
+    res.json({ success: true, agentId, ...result });
   });
 
   return router;

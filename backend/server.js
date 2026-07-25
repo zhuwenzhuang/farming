@@ -112,6 +112,20 @@ const agentManager = new AgentManager(configManager, {
   authDisabled: !authEnabled,
   cliBinDir: resolveCliBinDir(),
 });
+
+async function requireAgentRecoveryForHttp(res) {
+  try {
+    await agentManager.whenRecovered();
+    return true;
+  } catch (error) {
+    res.status(503).json({
+      error: error?.message || 'Agent lifecycle recovery is unavailable',
+      retryable: true,
+    });
+    return false;
+  }
+}
+
 const themeManager = new ThemeManager({ configDir: configManager.farmingDir });
 const workspaceFileService = new WorkspaceFileService();
 const workspaceRootRegistry = new WorkspaceRootRegistry(agentManager);
@@ -1313,6 +1327,7 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/codex-terminal-profile'), ex
 });
 
 app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (req, res) => {
+  if (!await requireAgentRecoveryForHttp(res)) return;
   const body = req.body || {};
   const updates = {};
   const providedPatchFields = [
@@ -1338,11 +1353,34 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
     });
     return;
   }
+  const ordinaryPatchGroups = [
+    providedPatchFields.includes('customTitle') ? 'customTitle' : '',
+    providedPatchFields.includes('task') ? 'task' : '',
+    providedPatchFields.some(field => [
+      'pinned',
+      'unread',
+      'archived',
+      'readAttentionSeq',
+      'readOutputEpoch',
+      'readOutputSeq',
+    ].includes(field)) ? 'flags' : '',
+  ].filter(Boolean);
+  if (ordinaryPatchGroups.length > 1) {
+    res.status(400).json({
+      error: 'Agent title, task, and flags must be updated in separate requests',
+    });
+    return;
+  }
+
+  await agentManager.whenAgentLifecycleIdle(req.params.agentId);
 
   if (typeof body.customTitle === 'string') {
     const result = agentManager.renameAgent(req.params.agentId, body.customTitle);
     if (result.error) {
-      res.status(404).json({ error: result.error });
+      const status = result.error === 'Agent not found'
+        ? 404
+        : (result.error.startsWith('Failed to ') ? 500 : 409);
+      res.status(status).json({ error: result.error });
       return;
     }
     updates.customTitle = result.customTitle;
@@ -1351,7 +1389,10 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
   if (typeof body.task === 'string') {
     const result = agentManager.setAgentTask(req.params.agentId, body.task);
     if (result.error) {
-      res.status(404).json({ error: result.error });
+      const status = result.error === 'Agent not found'
+        ? 404
+        : (result.error.startsWith('Failed to ') ? 500 : 409);
+      res.status(status).json({ error: result.error });
       return;
     }
     updates.task = result.task;
@@ -1394,7 +1435,9 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
   if (Object.keys(flagPatch).length > 0) {
     const result = agentManager.updateAgentFlags(req.params.agentId, flagPatch);
     if (result.error) {
-      const status = result.error === 'Agent not found' ? 404 : 400;
+      const status = result.error === 'Agent not found'
+        ? 404
+        : (result.error.startsWith('Failed to ') ? 500 : 409);
       res.status(status).json({ error: result.error });
       return;
     }
@@ -1440,13 +1483,17 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
   res.json({ agentId: req.params.agentId, ...updates });
 });
 
-app.post(routePath(BASE_PATH, '/api/agents/:agentId/reorder'), express.json(), (req, res) => {
+app.post(routePath(BASE_PATH, '/api/agents/:agentId/reorder'), express.json(), async (req, res) => {
+  if (!await requireAgentRecoveryForHttp(res)) return;
+  await agentManager.whenAgentLifecycleIdle(req.params.agentId);
   const result = agentManager.reorderAgent(req.params.agentId, {
     beforeAgentId: req.body?.beforeAgentId,
     afterAgentId: req.body?.afterAgentId,
   });
   if (result.error) {
-    const status = result.error === 'Agent not found' ? 404 : 400;
+    const status = result.error === 'Agent not found'
+      ? 404
+      : (result.error.startsWith('Failed to ') ? 500 : 409);
     res.status(status).json({ error: result.error });
     return;
   }
@@ -1455,6 +1502,7 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/reorder'), express.json(), (
 });
 
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork'), express.json(), async (req, res) => {
+  if (!await requireAgentRecoveryForHttp(res)) return;
   const mode = req.body && typeof req.body.mode === 'string' ? req.body.mode : 'same-worktree';
   const targetRuntime = req.body && typeof req.body.targetRuntime === 'string'
     ? req.body.targetRuntime
@@ -1615,6 +1663,7 @@ app.post(routePath(BASE_PATH, '/api/projects/create-worktree'), express.json(), 
 });
 
 app.post(routePath(BASE_PATH, '/api/projects/delete-worktree'), express.json(), async (req, res) => {
+  if (!await requireAgentRecoveryForHttp(res)) return;
   const body = req.body || {};
   const workspace = typeof body.workspace === 'string' ? body.workspace : '';
   const inspected = await agentManager.inspectForkWorktreeProject(workspace);
@@ -2293,7 +2342,11 @@ function restartMainAgent(ws, command) {
         agent.id === state.mainAgentId || agent.isMain === true
       ));
       if (currentMain) {
-        await agentManager.killAgent(currentMain.id);
+        const killed = await agentManager.killAgent(currentMain.id);
+        if (killed?.error) {
+          ws.send(JSON.stringify({ type: 'error', message: killed.error }));
+          return;
+        }
       }
 
       await agentManager.startAgent(normalizedCommand, null, (agentId, error) => {
@@ -2315,11 +2368,28 @@ function restartMainAgent(ws, command) {
   })();
 }
 
-async function killAgentFromMessage(ws, agentId) {
+async function killAgentFromMessage(ws, agentId, options = {}) {
   try {
-    const result = await agentManager.killAgent(agentId);
+    const requested = await agentManager.requestKillAgent(agentId, {
+      acknowledgeUnprovenAcpExit: options.acknowledgeUnprovenAcpExit === true,
+    });
+    const result = requested.result;
     if (result?.error) {
       ws.send(JSON.stringify({ type: 'error', message: result.error }));
+    } else if (result?.accepted) {
+      ws.send(JSON.stringify({ type: 'agent-delete-accepted', ...result }));
+      void requested.completion.then(completed => {
+        if (completed?.error && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'error', message: completed.error }));
+        }
+      }).catch(error => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: error instanceof Error ? error.message : 'Failed to stop Agent',
+          }));
+        }
+      }).finally(() => broadcastState());
     }
   } catch (error) {
     ws.send(JSON.stringify({
@@ -2467,6 +2537,7 @@ function handleMessage(ws, data) {
           task: typeof data.task === 'string' ? data.task : '',
           workflowTemplate: typeof data.workflowTemplate === 'string' ? data.workflowTemplate : '',
           customTitle: typeof data.customTitle === 'string' ? data.customTitle : '',
+          createRequestId: typeof data.requestId === 'string' ? data.requestId : '',
           codexApprovalMode: typeof data.codexApprovalMode === 'string' ? data.codexApprovalMode : undefined,
           agentRuntimeMode: ['json', 'acp', 'chat'].includes(data.agentRuntimeMode) ? data.agentRuntimeMode : 'terminal',
           acpHistoryMode: data.acpHistoryMode === 'resume' ? 'resume' : 'load',
@@ -2549,7 +2620,9 @@ function handleMessage(ws, data) {
       break;
       
     case 'kill-agent':
-      void killAgentFromMessage(ws, data.agentId);
+      void killAgentFromMessage(ws, data.agentId, {
+        acknowledgeUnprovenAcpExit: data.acknowledgeUnprovenAcpExit === true,
+      });
       break;
 
     case 'restart-main-agent':
@@ -2966,18 +3039,40 @@ async function shutdownServer(options = {}) {
     ? options.preserveTerminalHost === true
     : process.env.FARMING_NATIVE_PTY_HOST_PERSIST !== '0';
 
+  try {
+    await agentManager.dispose({ preserveTerminalHost });
+  } catch (error) {
+    const teardownFrozen = agentManager.disposing === true;
+    shutdownStarted = false;
+    console.error('Farming shutdown blocked because Agent runtime cleanup could not be verified:', error);
+    if (teardownFrozen) {
+      clearBroadcastTimers();
+      tokenAuth.cleanup();
+      await Promise.allSettled([
+        closeWebSocketServer(),
+        workspaceFileService.dispose(),
+        closeHttpServer(),
+      ]);
+    }
+    if (options.exit === true) process.exitCode = 1;
+    return {
+      error: error?.message || 'Agent runtime cleanup could not be verified',
+      ...(teardownFrozen ? { frozen: true } : {}),
+    };
+  }
+
   clearBroadcastTimers();
   tokenAuth.cleanup();
   await Promise.allSettled([
     closeWebSocketServer(),
     workspaceFileService.dispose(),
-    agentManager.dispose({ preserveTerminalHost }),
     closeHttpServer(),
   ]);
 
   if (options.exit === true) {
     process.exit(options.exitCode || 0);
   }
+  return { stopped: true };
 }
 
 agentManager.onSessionStream((stream) => {

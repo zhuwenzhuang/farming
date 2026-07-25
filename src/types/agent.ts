@@ -301,6 +301,7 @@ export interface Agent {
   readOutputSeq?: number | null
   archived?: boolean
   archivedAt?: number | null
+  requiresProcessExitAcknowledgement?: boolean
   canForkNewWorktree?: boolean
   startedAt?: number | null
   exitedAt?: number | null

@@ -124,7 +124,9 @@ async function run() {
     assert.notStrictEqual(captured.at(-1).args[0], 'resume');
     assert.strictEqual(identityRequests.length, 0, 'fresh Codex must not wait for one-shot ACP identity creation');
     assert.deepStrictEqual(
-      persistedSessionPatches.find(entry => entry.providerSessionId === codexAgent.providerSessionId)?.patch,
+      persistedSessionPatches
+        .filter(entry => entry.providerSessionId === codexAgent.providerSessionId)
+        .at(-1)?.patch,
       {
         visibleOnMainPage: true,
         archived: false,
@@ -494,10 +496,15 @@ async function run() {
       false,
       'failed Terminal launch must remove private options for the rolled-back provider identity',
     );
-    assert.strictEqual(
-      persistedSessionPatches.some(entry => entry.providerSessionId === rollbackSessionId),
-      false,
-      'failed Terminal launch must not leave a Farming session record',
+    assert.deepStrictEqual(
+      persistedSessionPatches
+        .filter(entry => entry.providerSessionId === rollbackSessionId)
+        .at(-1)?.patch,
+      {
+        visibleOnMainPage: false,
+        runtimeAgentId: '',
+      },
+      'failed Terminal launch must leave a terminal Create outcome without a live runtime binding',
     );
     engine.createSession = originalEngineCreateSession;
     engine.killSession = originalEngineKillSession;

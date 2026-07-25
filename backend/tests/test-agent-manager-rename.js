@@ -108,6 +108,52 @@ async function run() {
       'rename should persist the custom title before reporting success'
     );
     const originalEnsureAgentSessionRecord = manager.configManager.ensureAgentSessionRecord;
+    const failedWriteAttempts = [];
+    let failNextWrite = true;
+    manager.configManager.ensureAgentSessionRecord = (agent, patch = {}) => {
+      failedWriteAttempts.push({ ...agent, ...patch });
+      if (failNextWrite) {
+        failNextWrite = false;
+        throw new Error('session storage unavailable after record write');
+      }
+      return agent.persistentSessionId || `fsess_${agent.id}`;
+    };
+    const titleBeforeFailedRename = manager.agents.get(agentId).customTitle;
+    const failedRename = manager.renameAgent(agentId, 'Must not commit');
+    assert.match(failedRename.error, /Failed to rename Agent/);
+    assert.strictEqual(manager.agents.get(agentId).customTitle, titleBeforeFailedRename);
+    assert.strictEqual(failedWriteAttempts.at(-1).customTitle, titleBeforeFailedRename);
+    const taskBeforeFailedUpdate = manager.agents.get(agentId).task;
+    failNextWrite = true;
+    const failedTaskUpdate = manager.setAgentTask(agentId, 'Must not commit');
+    assert.match(failedTaskUpdate.error, /Failed to update Agent task/);
+    assert.strictEqual(manager.agents.get(agentId).task, taskBeforeFailedUpdate);
+    assert.strictEqual(failedWriteAttempts.at(-1).task, taskBeforeFailedUpdate);
+    const pinnedBeforeFailedUpdate = manager.agents.get(agentId).pinned;
+    failNextWrite = true;
+    const failedFlagUpdate = manager.updateAgentFlags(agentId, { pinned: !pinnedBeforeFailedUpdate });
+    assert.match(failedFlagUpdate.error, /Failed to update Agent/);
+    assert.strictEqual(manager.agents.get(agentId).pinned, pinnedBeforeFailedUpdate);
+    assert.strictEqual(failedWriteAttempts.at(-1).pinned, pinnedBeforeFailedUpdate);
+    const ordersBeforeFailedReorder = new Map(
+      [...manager.agents].map(([id, agent]) => [id, agent.projectOrder]),
+    );
+    failNextWrite = true;
+    const failedReorder = manager.reorderProjectAgent(agentId, {
+      beforeAgentId: '',
+      afterAgentId: restoredTitleAgentId,
+    });
+    assert.match(failedReorder.error, /Failed to reorder Agents/);
+    assert.deepStrictEqual(
+      new Map([...manager.agents].map(([id, agent]) => [id, agent.projectOrder])),
+      ordersBeforeFailedReorder,
+    );
+    assert.strictEqual(
+      failedWriteAttempts.at(-1).projectOrder,
+      ordersBeforeFailedReorder.get(failedWriteAttempts.at(-1).id),
+      'the failing reorder write must also be rolled back to its old order',
+    );
+    manager.configManager.ensureAgentSessionRecord = originalEnsureAgentSessionRecord;
     const originalGetAgentSessionRecord = manager.configManager.getAgentSessionRecordForProviderSessionKey;
     const reboundAgent = {
       id: 'agent-rebound-session',
@@ -124,7 +170,6 @@ async function run() {
       projectOrder: 2048,
     });
     manager.ensurePersistentAgentSession(reboundAgent);
-    manager.configManager.ensureAgentSessionRecord = originalEnsureAgentSessionRecord;
     manager.configManager.getAgentSessionRecordForProviderSessionKey = originalGetAgentSessionRecord;
     assert.strictEqual(
       reboundAgent.persistentSessionId,

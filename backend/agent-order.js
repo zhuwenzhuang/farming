@@ -83,14 +83,16 @@ function reorderedProjectAgentOrders(agents, agentId, beforeAgentId = '', afterA
   }
 
   const updates = new Map();
-  const orderAt = index => finiteOrder(fullOrder[index] && fullOrder[index].projectOrder) ?? 0;
+  const orderAt = index => {
+    const agent = fullOrder[index];
+    return agent ? (updates.get(agent.id) ?? finiteOrder(agent.projectOrder) ?? 0) : 0;
+  };
   let upper = fullInsertIndex > 0 ? orderAt(fullInsertIndex - 1) : null;
   let lower = fullInsertIndex < fullOrder.length ? orderAt(fullInsertIndex) : null;
   if (upper !== null && lower !== null && upper - lower <= 1) {
     fullOrder.forEach((agent, index) => {
       const order = (fullOrder.length - index) * AGENT_ORDER_STEP;
       if (projectOrder(agent) !== order) updates.set(agent.id, order);
-      agent.projectOrder = order;
     });
     upper = fullInsertIndex > 0 ? orderAt(fullInsertIndex - 1) : null;
     lower = fullInsertIndex < fullOrder.length ? orderAt(fullInsertIndex) : null;
@@ -127,14 +129,16 @@ function reorderedPinnedAgentOrders(agents, agentId, beforeAgentId = '', afterAg
   }
 
   const updates = new Map();
-  const orderAt = index => finiteOrder(pinned[index] && pinned[index].pinnedOrder) ?? 0;
+  const orderAt = index => {
+    const agent = pinned[index];
+    return agent ? (updates.get(agent.id) ?? finiteOrder(agent.pinnedOrder) ?? 0) : 0;
+  };
   let previous = insertIndex > 0 ? orderAt(insertIndex - 1) : null;
   let next = insertIndex < pinned.length ? orderAt(insertIndex) : null;
   if (previous !== null && next !== null && next - previous <= 1) {
     pinned.forEach((agent, index) => {
       const order = (index + 1) * AGENT_ORDER_STEP;
       if (pinnedOrder(agent) !== order) updates.set(agent.id, order);
-      agent.pinnedOrder = order;
     });
     previous = insertIndex > 0 ? orderAt(insertIndex - 1) : null;
     next = insertIndex < pinned.length ? orderAt(insertIndex) : null;

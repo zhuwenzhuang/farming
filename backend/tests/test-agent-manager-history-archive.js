@@ -1,5 +1,6 @@
 const assert = require('assert');
 const AgentManager = require('../agent-manager');
+const { activeLifecycleOperation } = require('../agent-lifecycle-journal');
 
 async function run() {
   const appended = [];
@@ -211,13 +212,15 @@ async function run() {
     assert.strictEqual(manager.taskHistory.length, historyBeforeRollback, 'failed Project admission should not create a completed run');
     assert.strictEqual(codexArchiveCalls.length, archiveCallsBeforeRollback, 'failed Project admission should not archive the provider conversation');
     assert(!settings.mainPageSessionKeys.includes('agent-session:codex:rollback-session'));
+    assert.strictEqual(persistedSessionPatches.at(-1).agentId, 'project-rollback');
     assert.deepStrictEqual(
-      persistedSessionPatches.at(-1),
       {
-        agentId: 'project-rollback',
-        patch: { visibleOnMainPage: false },
+        visibleOnMainPage: persistedSessionPatches.at(-1).patch.visibleOnMainPage,
+        archived: persistedSessionPatches.at(-1).patch.archived,
+        runtimeAgentId: persistedSessionPatches.at(-1).patch.runtimeAgentId,
       },
-      'verified rollback should hide the durable Farming session so restart cannot revive a failed admission',
+      { visibleOnMainPage: false, archived: true, runtimeAgentId: '' },
+      'verified rollback should tombstone the durable Farming session so restart cannot revive it',
     );
 
     manager.agents.set('shell-archive', {
@@ -311,9 +314,10 @@ async function run() {
     );
     assert.strictEqual(
       persistedSessionPatches.length,
-      persistedPatchesBeforeUnverifiableArchive,
-      'failed archive must not persist visibleOnMainPage=false',
+      persistedPatchesBeforeUnverifiableArchive + 2,
+      'failed archive must persist pending then blocked WAL states',
     );
+    assert.strictEqual(activeLifecycleOperation(manager.agents.get('unverifiable-archive')).state, 'blocked');
     assert.strictEqual(
       codexArchiveCalls.length,
       providerArchiveCallsBeforeUnverifiableArchive,
@@ -402,29 +406,24 @@ async function run() {
       providerSessionKey: 'agent-session:codex:archive-metadata-failure',
       task: 'archive metadata failure',
     });
-    const ensurePersistentAgentSession = manager.ensurePersistentAgentSession;
-    manager.ensurePersistentAgentSession = () => {
+    const removeMainPageProviderSessionsForAgents = manager.removeMainPageProviderSessionsForAgents;
+    manager.removeMainPageProviderSessionsForAgents = () => {
+      settings.mainPageSessionKeys = settings.mainPageSessionKeys
+        .filter(key => key !== 'agent-session:codex:archive-metadata-failure');
       throw new Error('session metadata disk unavailable');
     };
     const partialArchive = await manager.archiveAgent('archive-metadata-failure', {
       scheduleProviderArchive: false,
     });
-    assert.strictEqual(partialArchive.stopped, true);
-    assert.strictEqual(partialArchive.archived, false);
-    assert.strictEqual(partialArchive.retryable, true);
-    assert.strictEqual(partialArchive.membershipRestored, true);
-    assert.match(partialArchive.error, /archive metadata could not be saved/i);
-    assert.strictEqual(manager.agents.get('archive-metadata-failure').status, 'stopped');
-    assert(
-      settings.mainPageSessionKeys.includes('agent-session:codex:archive-metadata-failure'),
-      'partial archive must restore main-page membership so the stopped Agent remains recoverable',
-    );
-    manager.ensurePersistentAgentSession = ensurePersistentAgentSession;
-    const retriedArchive = await manager.archiveAgent('archive-metadata-failure', {
-      scheduleProviderArchive: false,
-    });
-    assert.strictEqual(retriedArchive.archived, true);
+    assert.strictEqual(partialArchive.archived, true);
+    assert.strictEqual(partialArchive.removed, true);
+    assert.match(partialArchive.warning, /membership cleanup failed/i);
     assert.strictEqual(manager.agents.has('archive-metadata-failure'), false);
+    assert(
+      !settings.mainPageSessionKeys.includes('agent-session:codex:archive-metadata-failure'),
+      'durable archive tombstone makes membership cleanup a retryable index repair',
+    );
+    manager.removeMainPageProviderSessionsForAgents = removeMainPageProviderSessionsForAgents;
 
     assert.strictEqual((await manager.archiveAgent('missing-agent')).error, 'Agent not found');
     assert.strictEqual((await manager.archiveAgent('main-1')).error, 'Main Agent cannot be archived');

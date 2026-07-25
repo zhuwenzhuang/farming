@@ -345,6 +345,89 @@ async function stopBindingProcessAndWait(binding) {
   throw new Error(`ACP identity adapter process tree ${binding.child?.pid || ''} did not exit`);
 }
 
+async function describeAcpProcessGroup(pid) {
+  const processId = Number(pid);
+  if (!Number.isSafeInteger(processId) || processId <= 0 || process.platform === 'win32') {
+    return null;
+  }
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync(
+      '/bin/ps',
+      ['-p', String(processId), '-o', 'pid=', '-o', 'pgid=', '-o', 'lstart='],
+      { encoding: 'utf8', timeout: 1_000, maxBuffer: 16_384 },
+    ));
+  } catch (error) {
+    if (error?.code === 1 || error?.code === 'ESRCH') return null;
+    throw error;
+  }
+  const match = String(stdout || '').trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
+  if (!match || Number(match[1]) !== processId) {
+    throw new Error(`Could not read ACP process identity for pid ${processId}`);
+  }
+  if (Number(match[2]) !== processId) {
+    throw new Error(`ACP process ${processId} did not become its own process-group leader`);
+  }
+  return {
+    pid: processId,
+    processGroupId: Number(match[2]),
+    startedAt: match[3].trim(),
+  };
+}
+
+async function stopPersistedAcpProcessGroup(identity) {
+  const expected = identity && typeof identity === 'object' ? identity : null;
+  if (
+    !expected
+    || !Number.isSafeInteger(Number(expected.pid))
+    || !Number.isSafeInteger(Number(expected.processGroupId))
+    || !String(expected.startedAt || '').trim()
+  ) {
+    return { stopped: false, missingProof: true };
+  }
+  const processGroupId = Number(expected.processGroupId);
+  const groupHasExited = () => {
+    try {
+      process.kill(-processGroupId, 0);
+      return false;
+    } catch (error) {
+      return error?.code === 'ESRCH';
+    }
+  };
+  const current = await describeAcpProcessGroup(Number(expected.pid));
+  if (!current && groupHasExited()) return { stopped: true, alreadyExited: true };
+  if (
+    current
+    && (
+      current.processGroupId !== processGroupId
+      || current.startedAt !== String(expected.startedAt)
+    )
+  ) {
+    return { stopped: false, identityMismatch: true };
+  }
+  const waitForExit = async timeoutMs => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() <= deadline) {
+      if (groupHasExited()) return true;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    return groupHasExited();
+  };
+  const signal = value => {
+    try {
+      process.kill(-processGroupId, value);
+    } catch (error) {
+      if (error?.code !== 'ESRCH') throw error;
+    }
+  };
+
+  signal('SIGTERM');
+  if (await waitForExit(IDENTITY_ADAPTER_TERMINATE_MS)) return { stopped: true };
+  signal('SIGKILL');
+  if (await waitForExit(IDENTITY_ADAPTER_KILL_MS)) return { stopped: true };
+  return { stopped: false, timedOut: true };
+}
+
 async function deleteProviderSessionIdentity(options = {}) {
   const provider = String(options.provider || '').trim().toLowerCase();
   const sessionId = String(options.sessionId || '').trim();
@@ -395,14 +478,21 @@ class AcpRuntime extends EventEmitter {
     this.historyReplayQuietMs = options.historyReplayQuietMs ?? DEFAULT_HISTORY_REPLAY_QUIET_MS;
     this.historyReplayMaxWaitMs = options.historyReplayMaxWaitMs ?? DEFAULT_HISTORY_REPLAY_MAX_WAIT_MS;
     this.deleteProviderSessionIdentity = options.deleteProviderSessionIdentity || deleteProviderSessionIdentity;
+    this.describeProcessGroup = options.describeAcpProcessGroup || describeAcpProcessGroup;
     this.checkpointStore = options.checkpointStore
       || (options.configDir ? new AcpCheckpointStore(options.configDir, options.checkpointOptions) : null);
     this.bindings = new Map();
+    this.disposing = false;
+    this.disposePromise = null;
+    this.disposed = false;
     this.clientFileSystem = options.clientFileSystem || new AcpClientFileSystem();
     this.clientTerminals = options.clientTerminals || new AcpClientTerminalManager({ spawn: options.terminalSpawn });
   }
 
   async prepareAgent(options = {}) {
+    if (this.disposing || this.disposed) {
+      throw new Error('ACP runtime is shutting down');
+    }
     const agentId = String(options.agentId || '');
     if (!agentId) throw new Error('ACP Agent id is required');
     if (this.bindings.has(agentId)) throw new Error('ACP Agent is already registered');
@@ -420,7 +510,7 @@ class AcpRuntime extends EventEmitter {
       launch,
       restartOptions: { ...options, agentId, provider },
       approvalMode: options.approvalMode || 'approve',
-      ownsProcessGroup: options.identityOnly === true && process.platform !== 'win32',
+      ownsProcessGroup: process.platform !== 'win32',
       child: null,
       connection: null,
       initializeResponse: null,
@@ -459,7 +549,19 @@ class AcpRuntime extends EventEmitter {
     this.emitRuntime(binding);
 
     try {
-      const child = this.spawn(launch.command, launch.args, {
+      const gatedLaunch = binding.ownsProcessGroup
+        ? {
+            command: '/bin/sh',
+            args: [
+              '-c',
+              'IFS= read -r farming_acp_start || exit 0; exec "$@"',
+              'farming-acp-start-gate',
+              launch.command,
+              ...launch.args,
+            ],
+          }
+        : launch;
+      const child = this.spawn(gatedLaunch.command, gatedLaunch.args, {
         cwd: binding.cwd,
         env: binding.env,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -476,6 +578,21 @@ class AcpRuntime extends EventEmitter {
           this.handleExit(binding, code === 0 ? null : new Error(detail));
         }
       });
+      if (binding.ownsProcessGroup && typeof options.onProcessStarted === 'function') {
+        const processIdentity = await this.describeProcessGroup(child.pid);
+        if (!processIdentity) {
+          throw new Error(`ACP process ${child.pid || ''} exited before its identity was persisted`);
+        }
+        await options.onProcessStarted(processIdentity);
+      }
+      if (binding.ownsProcessGroup) {
+        await new Promise((resolve, reject) => {
+          child.stdin.write('start\n', error => {
+            if (error) reject(error);
+            else resolve();
+          });
+        });
+      }
 
       const connection = this.createConnection
         ? await this.createConnection(this.clientHandlers(binding), child, binding)
@@ -821,6 +938,7 @@ class AcpRuntime extends EventEmitter {
   }
 
   requireOpenBinding(binding) {
+    if (this.disposing || this.disposed) throw new Error('ACP runtime is shutting down');
     this.requireCurrentBinding(binding);
     if (binding.exited) throw new Error('ACP Agent connection is closed');
     return binding;
@@ -2235,13 +2353,43 @@ class AcpRuntime extends EventEmitter {
     return true;
   }
 
-  async dispose() {
+  dispose() {
+    if (this.disposed) return Promise.resolve();
+    if (this.disposePromise) return this.disposePromise;
+
+    this.disposing = true;
+    const disposePromise = this.performDispose();
+    this.disposePromise = disposePromise;
+    void disposePromise.finally(() => {
+      if (this.disposePromise === disposePromise) this.disposePromise = null;
+      if (!this.disposed) this.disposing = false;
+    }).catch(() => {});
+    return disposePromise;
+  }
+
+  resumeAfterDisposeAbort() {
+    this.disposed = false;
+    this.disposing = false;
+  }
+
+  async performDispose() {
     for (const binding of this.bindings.values()) {
       if (binding.sessionState && !binding.promptActive) this.scheduleCheckpoint(binding, { exact: true });
     }
     if (this.checkpointStore) await this.checkpointStore.flush();
-    for (const agentId of [...this.bindings.keys()]) this.unregisterAgent(agentId);
+    const failures = [];
+    for (const agentId of [...this.bindings.keys()]) {
+      try {
+        await this.unregisterAgentAndWait(agentId);
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'One or more ACP Agent process trees did not exit');
+    }
     if (this.checkpointStore) await this.checkpointStore.dispose();
+    this.disposed = true;
   }
 }
 
@@ -2252,8 +2400,10 @@ module.exports = {
   acpErrorKind,
   autoPermissionResponse,
   codexAcpEnvironment,
+  describeAcpProcessGroup,
   promptContentForCapabilities,
   resolveAcpLaunch,
+  stopPersistedAcpProcessGroup,
   supportsCodexSteer,
   isCodexSteerUnavailableError,
   CODEX_STEER_METHOD,

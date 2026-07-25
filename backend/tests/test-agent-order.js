@@ -62,10 +62,12 @@ function run() {
   assert.strictEqual(moved.updates.get('c'), 2560);
 
   const adjacent = [agent('a', 3), agent('b', 2), agent('c', 1)];
+  const adjacentBefore = adjacent.map(item => ({ ...item }));
   const rebalanced = reorderedProjectAgentOrders(adjacent, 'c', 'a', 'b');
   assert.strictEqual(rebalanced.updates.get('c'), 1536);
   assert.strictEqual(rebalanced.updates.get('a'), 2048);
   assert.strictEqual(rebalanced.updates.get('b'), 1024);
+  assert.deepStrictEqual(adjacent, adjacentBefore, 'reorder planning must not mutate live Agent records');
 
   const pinnedGap = [
     agent('a', 4096),

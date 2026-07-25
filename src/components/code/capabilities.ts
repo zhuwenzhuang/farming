@@ -251,7 +251,13 @@ export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapa
       copyWorkingDirectory: Boolean(agent),
       forkSameWorktree: Boolean(agent),
       forkNewWorktree: agent?.canForkNewWorktree === true,
-      kill: Boolean(agent && agent.isMain),
+      kill: Boolean(
+        agent
+        && (
+          agent.isMain
+          || agent.requiresProcessExitAcknowledgement === true
+        )
+      ),
     },
   }
 }

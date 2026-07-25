@@ -900,10 +900,19 @@ function run() {
   );
   assert(
     serverSource.includes('async function killAgentFromMessage') &&
-      serverSource.includes('const result = await agentManager.killAgent(agentId)') &&
+      serverSource.includes('const requested = await agentManager.requestKillAgent(agentId, {') &&
+      serverSource.includes("type: 'agent-delete-accepted'") &&
+      serverSource.includes('void requested.completion.then(completed =>') &&
       serverSource.includes("case 'kill-agent':") &&
-      serverSource.includes('void killAgentFromMessage(ws, data.agentId)'),
-    'WebSocket kill should await the authoritative lifecycle result before broadcasting state'
+      serverSource.includes('void killAgentFromMessage(ws, data.agentId, {'),
+    'WebSocket Delete should acknowledge durable admission and broadcast again after asynchronous cleanup'
+  );
+  assert(
+    serverSource.includes('async function requireAgentRecoveryForHttp(res)') &&
+      serverSource.includes('await agentManager.whenRecovered()') &&
+      serverSource.includes('res.status(503).json({') &&
+      serverSource.includes('if (!await requireAgentRecoveryForHttp(res)) return;'),
+    'HTTP Agent mutation routes should surface startup recovery failure as a bounded retryable response'
   );
 
   const agentManagerSource = fs.readFileSync(path.join(__dirname, '../../backend/agent-manager.js'), 'utf8');

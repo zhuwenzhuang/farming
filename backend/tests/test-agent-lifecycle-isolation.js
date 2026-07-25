@@ -1,8 +1,9 @@
 const assert = require('assert');
+const EventEmitter = require('events');
 const AgentManager = require('../agent-manager');
 
-async function run() {
-  const manager = new AgentManager({
+function configManager() {
+  return {
     getWorkspace() {
       return process.cwd();
     },
@@ -21,7 +22,22 @@ async function run() {
     getDangerouslySkipAgentPermissionsByDefault() {
       return false;
     },
-  }, { skipExecutablePreflight: true });
+  };
+}
+
+class FakeStructuredRuntime extends EventEmitter {
+  constructor(agentIds = []) {
+    super();
+    this.bindings = new Map(agentIds.map(agentId => [agentId, { agentId }]));
+  }
+
+  unregisterAgent(agentId) {
+    this.bindings.delete(agentId);
+  }
+}
+
+async function run() {
+  const manager = new AgentManager(configManager(), { skipExecutablePreflight: true });
 
   try {
     manager.agents.set('agent-lifecycle', {
@@ -64,26 +80,55 @@ async function run() {
     await Promise.resolve();
 
     const duplicateRuntimeSwitch = manager.restartAgentRuntimeMode('agent-lifecycle', 'chat');
-    const conflictingPermissionRestart = await manager.restartAgentWithPermissionMode('agent-lifecycle', 'approve');
-    const conflictingArchive = await manager.archiveAgent('agent-lifecycle');
-    const conflictingKill = await manager.killAgent('agent-lifecycle');
-    const replacementKill = await manager.killAgent('agent-replacement');
+    let permissionRestartSettled = false;
+    const queuedPermissionRestart = manager.restartAgentWithPermissionMode('agent-lifecycle', 'approve')
+      .then(result => {
+        permissionRestartSettled = true;
+        return result;
+      });
+    await Promise.resolve();
+    assert.strictEqual(permissionRestartSettled, false, 'different lifecycle operations must wait');
+    const conflictingRename = manager.renameAgent('agent-lifecycle', 'renamed');
+    const conflictingTaskUpdate = manager.setAgentTask('agent-lifecycle', 'new task');
+    const conflictingFlagUpdate = manager.updateAgentFlags('agent-lifecycle', { pinned: true });
+    const conflictingReorder = manager.reorderAgent('agent-lifecycle');
+    manager.agents.get('agent-replacement').projectWorkspace = process.cwd();
+    manager.agents.get('agent-replacement').projectOrder = 2;
+    manager.agents.set('agent-reorder-neighbor', {
+      id: 'agent-reorder-neighbor',
+      command: 'codex',
+      cwd: process.cwd(),
+      projectWorkspace: process.cwd(),
+      projectOrder: 1,
+      pinned: false,
+      status: 'running',
+    });
+    manager.agents.set('agent-reorder-target', {
+      id: 'agent-reorder-target',
+      command: 'codex',
+      cwd: process.cwd(),
+      projectWorkspace: process.cwd(),
+      projectOrder: 0,
+      pinned: false,
+      status: 'running',
+    });
+    const conflictingNeighborReorder = manager.reorderAgent('agent-reorder-target', {
+      beforeAgentId: 'agent-replacement',
+      afterAgentId: 'agent-reorder-neighbor',
+    });
     assert.strictEqual(manager.agents.has('agent-lifecycle'), true);
-    manager.agents.delete('agent-lifecycle');
-    const missingOldIdKill = await manager.killAgent('agent-lifecycle');
-    const missingOldIdArchive = await manager.archiveAgent('agent-lifecycle');
 
-    assert.match(conflictingPermissionRestart.error, /lifecycle change already in progress/i);
-    assert.match(conflictingArchive.error, /lifecycle change already in progress/i);
-    assert.match(conflictingKill.error, /lifecycle change already in progress/i);
-    assert.match(replacementKill.error, /lifecycle change already in progress/i);
-    assert.match(missingOldIdKill.error, /lifecycle change already in progress/i);
-    assert.match(missingOldIdArchive.error, /lifecycle change already in progress/i);
+    assert.match(conflictingRename.error, /lifecycle change already in progress/i);
+    assert.match(conflictingTaskUpdate.error, /lifecycle change already in progress/i);
+    assert.match(conflictingFlagUpdate.error, /lifecycle change already in progress/i);
+    assert.match(conflictingReorder.error, /lifecycle change already in progress/i);
+    assert.match(conflictingNeighborReorder.error, /lifecycle change already in progress/i);
     assert.strictEqual(permissionRestartCalls, 0, 'conflicting lifecycle operation must not start');
-    assert.strictEqual(manager.agents.has('agent-lifecycle'), false);
 
     finishRuntimeSwitch({ restarted: true, restartedAgentId: 'agent-replacement', agentRuntimeMode: 'chat' });
     assert.deepStrictEqual(await runtimeSwitch, await duplicateRuntimeSwitch);
+    assert.deepStrictEqual(await queuedPermissionRestart, { restarted: true });
+    assert.strictEqual(permissionRestartCalls, 1);
     assert.strictEqual(manager.agentLifecycleOperations.has('agent-replacement'), false);
 
     let releaseCreateSession;
@@ -108,12 +153,33 @@ async function run() {
       runtimeAgentId: 'agent-pending-start',
     });
     await createSessionStarted;
-    const pendingStartKill = await manager.killAgent('agent-pending-start');
-    const pendingStartArchive = await manager.archiveAgent('agent-pending-start');
-    assert.match(pendingStartKill.error, /lifecycle change already in progress/i);
-    assert.match(pendingStartArchive.error, /lifecycle change already in progress/i);
+    let pendingStartKillSettled = false;
+    const pendingStartKill = manager.killAgent('agent-pending-start').then(result => {
+      pendingStartKillSettled = true;
+      return result;
+    });
+    await Promise.resolve();
+    assert.strictEqual(pendingStartKillSettled, false, 'Delete must wait for Create to reach a terminal state');
     releaseCreateSession();
     assert.strictEqual(await pendingStart, 'agent-pending-start');
+    assert.strictEqual((await pendingStartKill).killed, true);
+
+    let unsupportedJsonStartError = '';
+    const unsupportedJsonStart = await manager.startAgent(
+      'codex',
+      process.cwd(),
+      (_agentId, error) => {
+        unsupportedJsonStartError = error || '';
+      },
+      {
+        wantsMain: false,
+        agentRuntimeMode: 'json',
+        runtimeAgentId: 'agent-json-unsupported',
+      },
+    );
+    assert.strictEqual(unsupportedJsonStart, null);
+    assert.match(unsupportedJsonStartError, /legacy compatibility reader/i);
+    assert.strictEqual(manager.agents.has('agent-json-unsupported'), false);
 
     const ensurePersistentAgentSession = manager.ensurePersistentAgentSession;
     manager.ensurePersistentAgentSession = () => {
@@ -125,18 +191,22 @@ async function run() {
     }, {
       wantsMain: false,
       agentRuntimeMode: 'json',
+      allowLegacyJsonRuntime: true,
       runtimeAgentId: 'agent-json-start-failure',
     });
     assert.strictEqual(failedJsonStart, null);
     assert.match(jsonStartError, /session store unavailable/);
     assert.strictEqual(manager.jsonCliRuntime.bindings.has('agent-json-start-failure'), false);
     assert.strictEqual(manager.agents.has('agent-json-start-failure'), false);
+    manager.ensurePersistentAgentSession = ensurePersistentAgentSession;
 
     const originalAcpRuntime = manager.acpRuntime;
     let acpCleanupAttempts = 0;
     manager.acpRuntime = {
       async prepareAgent() {
-        return { sessionId: 'acp-start-failure-session', historyMode: 'new' };
+        const error = new Error('ACP startup failed after process admission');
+        error.runtimeCleanupAttempted = true;
+        throw error;
       },
       getSessionRequestOptions() {
         return { additionalDirectories: [], mcpServers: [] };
@@ -160,18 +230,271 @@ async function run() {
     assert.match(acpStartError, /retained for retry/i);
     assert.strictEqual(acpCleanupAttempts, 1);
     assert.strictEqual(manager.agents.get('agent-acp-start-uncertain').status, 'error');
+    manager.ensurePersistentAgentSession = ensurePersistentAgentSession;
     manager.acpRuntime.unregisterAgentAndWait = async () => true;
     const uncertainCleanupRetry = await manager.killAgent('agent-acp-start-uncertain');
     assert.strictEqual(uncertainCleanupRetry.killed, true);
     assert.strictEqual(manager.agents.has('agent-acp-start-uncertain'), false);
     manager.acpRuntime = originalAcpRuntime;
-    manager.ensurePersistentAgentSession = ensurePersistentAgentSession;
 
-    console.log('test-agent-lifecycle-isolation passed');
   } finally {
     clearInterval(manager.heartbeatInterval);
     await manager.dispose();
   }
+
+  let releaseDispose;
+  const disposeGate = new Promise(resolve => {
+    releaseDispose = resolve;
+  });
+  const blockingJsonRuntime = new FakeStructuredRuntime();
+  blockingJsonRuntime.dispose = async () => disposeGate;
+  const emptyAcpRuntime = new FakeStructuredRuntime();
+  emptyAcpRuntime.dispose = async () => {};
+  const admissionManager = new AgentManager(configManager(), {
+    skipExecutablePreflight: true,
+    jsonCliRuntime: blockingJsonRuntime,
+    acpRuntime: emptyAcpRuntime,
+  });
+  const disposing = admissionManager.dispose();
+  let rejectedStartError = '';
+  const rejectedStart = await admissionManager.startAgent('bash', process.cwd(), (_agentId, error) => {
+    rejectedStartError = error || '';
+  }, {
+    wantsMain: false,
+    runtimeAgentId: 'agent-start-during-dispose',
+  });
+  assert.strictEqual(rejectedStart, null);
+  assert.match(rejectedStartError, /shutting down/i);
+  releaseDispose();
+  await disposing;
+  assert.strictEqual(admissionManager.disposed, true);
+
+  const recoveryFenceJsonRuntime = new FakeStructuredRuntime();
+  let recoveryFenceRuntimeDisposed = false;
+  recoveryFenceJsonRuntime.dispose = async () => {
+    recoveryFenceRuntimeDisposed = true;
+  };
+  const recoveryFenceAcpRuntime = new FakeStructuredRuntime();
+  recoveryFenceAcpRuntime.dispose = async () => {};
+  const recoveryFenceManager = new AgentManager(configManager(), {
+    skipExecutablePreflight: true,
+    jsonCliRuntime: recoveryFenceJsonRuntime,
+    acpRuntime: recoveryFenceAcpRuntime,
+  });
+  let releaseRecovery;
+  recoveryFenceManager.recoveryPromise = new Promise(resolve => {
+    releaseRecovery = resolve;
+  });
+  const recoveryFencedDispose = recoveryFenceManager.dispose();
+  await Promise.resolve();
+  assert.strictEqual(
+    recoveryFenceRuntimeDisposed,
+    false,
+    'runtime disposal must wait for lifecycle recovery to finish',
+  );
+  releaseRecovery();
+  await recoveryFencedDispose;
+  assert.strictEqual(recoveryFenceRuntimeDisposed, true);
+
+  const successfulJsonRuntime = new FakeStructuredRuntime(['json-stopped']);
+  successfulJsonRuntime.dispose = async () => {
+    successfulJsonRuntime.bindings.delete('json-stopped');
+  };
+  const retryableAcpRuntime = new FakeStructuredRuntime(['acp-retry']);
+  let failAcpDispose = true;
+  retryableAcpRuntime.dispose = async () => {
+    if (failAcpDispose) throw new Error('ACP process tree still live');
+    retryableAcpRuntime.bindings.delete('acp-retry');
+  };
+  const partialManager = new AgentManager(configManager(), {
+    skipExecutablePreflight: true,
+    jsonCliRuntime: successfulJsonRuntime,
+    acpRuntime: retryableAcpRuntime,
+  });
+  partialManager.agents.set('json-stopped', {
+    id: 'json-stopped',
+    command: 'codex',
+    cwd: process.cwd(),
+    status: 'running',
+    runtimeBinding: { kind: 'json', state: 'idle' },
+  });
+  partialManager.agents.set('acp-retry', {
+    id: 'acp-retry',
+    command: 'claude',
+    cwd: process.cwd(),
+    status: 'running',
+    runtimeBinding: { kind: 'acp', state: 'idle' },
+  });
+
+  await assert.rejects(partialManager.dispose(), /cleanup could not be verified/i);
+  assert.strictEqual(partialManager.disposing, false);
+  assert.strictEqual(partialManager.disposed, false);
+  assert.strictEqual(partialManager.agents.has('json-stopped'), false);
+  assert.strictEqual(partialManager.agents.has('acp-retry'), true);
+  assert.strictEqual(partialManager.agents.get('acp-retry').status, 'error');
+  assert.strictEqual(partialManager.agents.get('acp-retry').engineStatus, 'cleanup-uncertain');
+  assert.strictEqual(retryableAcpRuntime.bindings.has('acp-retry'), true);
+
+  failAcpDispose = false;
+  await partialManager.dispose();
+  assert.strictEqual(partialManager.agents.has('acp-retry'), false);
+  assert.strictEqual(partialManager.disposed, true);
+
+  const killJsonRuntime = new FakeStructuredRuntime(['json-kill-retry']);
+  const killAcpRuntime = new FakeStructuredRuntime(['acp-kill-retry']);
+  killJsonRuntime.unregisterAgentAndWait = async () => {
+    throw new Error('JSON descendant still live');
+  };
+  killAcpRuntime.unregisterAgentAndWait = async () => {
+    throw new Error('ACP descendant still live');
+  };
+  const killTruthManager = new AgentManager(configManager(), {
+    skipExecutablePreflight: true,
+    jsonCliRuntime: killJsonRuntime,
+    acpRuntime: killAcpRuntime,
+  });
+  for (const [agentId, kind, command] of [
+    ['json-kill-retry', 'json', 'codex'],
+    ['acp-kill-retry', 'acp', 'claude'],
+  ]) {
+    killTruthManager.agents.set(agentId, {
+      id: agentId,
+      command,
+      cwd: process.cwd(),
+      status: 'running',
+      runtimeBinding: { kind, state: 'idle' },
+    });
+  }
+  for (const [agentId, kind] of [
+    ['json-kill-retry', 'json'],
+    ['acp-kill-retry', 'acp'],
+  ]) {
+    const result = await killTruthManager.killAgent(agentId);
+    assert.strictEqual(result.cleanupUncertain, true);
+    assert.strictEqual(result.retryable, true);
+    const retained = killTruthManager.agents.get(agentId);
+    assert.strictEqual(retained.status, 'error');
+    assert.strictEqual(retained.engineStatus, 'cleanup-uncertain');
+    assert.strictEqual(retained.runtimeBinding.kind, kind);
+    assert.strictEqual(retained.runtimeBinding.state, 'error');
+    assert.match(retained.runtimeBinding.error, /descendant still live/i);
+  }
+  killJsonRuntime.unregisterAgentAndWait = async agentId => {
+    killJsonRuntime.bindings.delete(agentId);
+    return true;
+  };
+  killAcpRuntime.unregisterAgentAndWait = async agentId => {
+    killAcpRuntime.bindings.delete(agentId);
+    return true;
+  };
+  assert.strictEqual((await killTruthManager.killAgent('json-kill-retry')).killed, true);
+  assert.strictEqual((await killTruthManager.killAgent('acp-kill-retry')).killed, true);
+  await killTruthManager.dispose();
+
+  const missingBindingRuntime = new FakeStructuredRuntime();
+  missingBindingRuntime.unregisterAgentAndWait = async () => false;
+  let persistedCleanupIdentity = null;
+  const missingBindingManager = new AgentManager(configManager(), {
+    skipExecutablePreflight: true,
+    acpRuntime: missingBindingRuntime,
+    stopPersistedAcpProcessGroup: async identity => {
+      persistedCleanupIdentity = identity;
+      return { stopped: true, alreadyExited: true };
+    },
+  });
+  const persistedProcessIdentity = {
+    kind: 'acp-process-group',
+    pid: 1234,
+    processGroupId: 1234,
+    startedAt: 'persisted-start',
+  };
+  missingBindingManager.agents.set('acp-missing-binding', {
+    id: 'acp-missing-binding',
+    command: 'claude',
+    cwd: process.cwd(),
+    status: 'error',
+    engineStatus: 'cleanup-uncertain',
+    structuredRuntimeProcess: persistedProcessIdentity,
+    runtimeBinding: { kind: 'acp', state: 'error' },
+  });
+  const missingBindingDelete = await missingBindingManager.killAgent(
+    'acp-missing-binding',
+    { persistDeleteOperation: false },
+  );
+  assert.strictEqual(missingBindingDelete.killed, true);
+  assert.deepStrictEqual(persistedCleanupIdentity, persistedProcessIdentity);
+  await missingBindingManager.dispose();
+
+  const recoveryFencedRuntime = new FakeStructuredRuntime(['agent-recovery-fenced-delete']);
+  let recoveryFencedCleanupCalls = 0;
+  recoveryFencedRuntime.unregisterAgentAndWait = async agentId => {
+    recoveryFencedCleanupCalls += 1;
+    recoveryFencedRuntime.bindings.delete(agentId);
+    return true;
+  };
+  const recoveryFencedManager = new AgentManager(configManager(), {
+    skipExecutablePreflight: true,
+    acpRuntime: recoveryFencedRuntime,
+  });
+  recoveryFencedManager.recoveryComplete = false;
+  let releaseRecoveryFence;
+  recoveryFencedManager.recoveryPromise = new Promise(resolve => {
+    releaseRecoveryFence = resolve;
+  });
+  recoveryFencedManager.agents.set('agent-recovery-fenced-delete', {
+    id: 'agent-recovery-fenced-delete',
+    command: 'claude',
+    cwd: process.cwd(),
+    status: 'running',
+    runtimeBinding: { kind: 'acp', state: 'idle' },
+  });
+  const recoveryFencedDelete = recoveryFencedManager.killAgent('agent-recovery-fenced-delete');
+  await Promise.resolve();
+  assert.strictEqual(
+    recoveryFencedCleanupCalls,
+    0,
+    'external Delete must wait for startup recovery to reach a terminal state',
+  );
+  releaseRecoveryFence();
+  assert.strictEqual((await recoveryFencedDelete).killed, true);
+  assert.strictEqual(recoveryFencedCleanupCalls, 1);
+  await recoveryFencedManager.dispose();
+
+  const engineFailureJsonRuntime = new FakeStructuredRuntime();
+  engineFailureJsonRuntime.dispose = async () => {};
+  const engineFailureAcpRuntime = new FakeStructuredRuntime();
+  engineFailureAcpRuntime.dispose = async () => {};
+  const engineFailureManager = new AgentManager(configManager(), {
+    skipExecutablePreflight: true,
+    jsonCliRuntime: engineFailureJsonRuntime,
+    acpRuntime: engineFailureAcpRuntime,
+  });
+  let providerDisposeCalls = 0;
+  engineFailureManager.providerSessionService.dispose = () => {
+    providerDisposeCalls += 1;
+  };
+  const disposeEngineBridge = engineFailureManager.engineBridge.dispose
+    .bind(engineFailureManager.engineBridge);
+  engineFailureManager.engineBridge.dispose = async () => {
+    throw new Error('Terminal engine teardown failed');
+  };
+  await assert.rejects(engineFailureManager.dispose(), /Terminal engine teardown failed/);
+  assert.strictEqual(engineFailureManager.disposing, true);
+  assert.strictEqual(engineFailureManager.disposed, false);
+  assert.strictEqual(providerDisposeCalls, 0);
+  let frozenStartError = '';
+  const frozenStart = await engineFailureManager.startAgent('bash', process.cwd(), (_agentId, error) => {
+    frozenStartError = error || '';
+  }, { wantsMain: false });
+  assert.strictEqual(frozenStart, null);
+  assert.match(frozenStartError, /shutting down/i);
+
+  engineFailureManager.engineBridge.dispose = disposeEngineBridge;
+  await engineFailureManager.dispose();
+  assert.strictEqual(engineFailureManager.disposed, true);
+  assert.strictEqual(providerDisposeCalls, 1);
+
+  console.log('test-agent-lifecycle-isolation passed');
 }
 
 run().catch(error => {

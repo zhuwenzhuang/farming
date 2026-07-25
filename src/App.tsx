@@ -628,11 +628,14 @@ export function App() {
     setAppNotice({ id: Date.now(), kind: 'error', message })
   }, [])
 
-  const handleKill = useCallback((agentId: string) => {
+  const handleKill = useCallback((
+    agentId: string,
+    options: { acknowledgeUnprovenAcpExit?: boolean } = {},
+  ) => {
     destroyTerminalSession(agentId).catch(error => {
       console.error('Failed to destroy killed terminal session:', error)
     })
-    ws.killAgent(agentId)
+    ws.killAgent(agentId, options)
     closeTerminal(agentId)
   }, [ws, closeTerminal])
 

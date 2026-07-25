@@ -1,5 +1,6 @@
 const EventEmitter = require('events');
 const { execFile } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -38,7 +39,11 @@ const {
 } = require('./provider-adapters');
 const { deriveTerminalStatus } = require('./terminal-status');
 const { JsonCliRuntime } = require('./json-cli-runtime');
-const { AcpRuntime, isCodexSteerUnavailableError } = require('./acp-runtime');
+const {
+  AcpRuntime,
+  isCodexSteerUnavailableError,
+  stopPersistedAcpProcessGroup,
+} = require('./acp-runtime');
 const { chatRuntimeForProvider, isChatMode } = require('./chat-runtime');
 const { acpToolChanges, acpToolDetail, acpToolReviewChanges, acpTranscriptToolEntry } = require('./acp-transcript');
 const {
@@ -62,6 +67,15 @@ const { inspectGitWorktree } = require('./git-worktree-info');
 const { deserializeTerminalState } = require('./terminal-state-serialization');
 const { compareNativePtyRuntimeEpochs } = require('./native-pty-controller-generation');
 const { canonicalWorkspacePath } = require('./workspace-root-registry');
+const {
+  TERMINAL_OPERATION_STATES,
+  activeLifecycleOperation,
+  beginLifecycleOperation,
+  latestLifecycleOperation,
+  lifecycleJournal,
+  setLifecycleOperationResult,
+  transitionLifecycleOperation,
+} = require('./agent-lifecycle-journal');
 
 const SESSION_OUTPUT_LIMIT = 10000;
 const AGENT_USAGE_RATE_WINDOW_MS = 5 * 60 * 1000;
@@ -92,7 +106,91 @@ const SHELL_PROMPT_ENV_KEYS = [
   'RPS1',
   'PROMPT_COMMAND',
 ];
+const CREATE_ROLLBACK_FIELDS = [
+  'runtimeAgentId',
+  'command',
+  'forkCommand',
+  'cwd',
+  'projectWorkspace',
+  'mainWorkspace',
+  'source',
+  'providerHomePath',
+  'providerSessionTemporary',
+  'providerSessionSource',
+  'providerSessionResolvedAt',
+  'providerSessionTitle',
+  'providerSessionWorkspace',
+  'terminalInputReceived',
+  'structuredRuntimeProcess',
+  'legacyAcpProcessExitAcknowledgedAt',
+  'acpAdditionalDirectories',
+  'acpMcpServers',
+  'agentRuntimeMode',
+  'acpState',
+  'acpError',
+  'acpStopReason',
+  'acpPendingPermission',
+  'acpPendingPermissions',
+  'acpPendingElicitation',
+  'acpPendingElicitations',
+  'acpActiveElicitations',
+  'acpSessionUpdatedAt',
+  'acpSessionRevision',
+  'jsonCliState',
+  'jsonCliError',
+  'jsonCliTranscriptUpdatedAt',
+  'engine',
+  'category',
+  'task',
+  'workflowTemplate',
+  'wantsMain',
+  'pinned',
+  'projectOrder',
+  'pinnedOrder',
+  'attentionSeq',
+  'readAttentionSeq',
+  'attentionUpdatedAt',
+  'readAttentionAt',
+  'attentionReason',
+  'attentionOutputEpoch',
+  'attentionOutputSeq',
+  'readOutputEpoch',
+  'readOutputSeq',
+  'archived',
+  'archivedAt',
+  'visibleOnMainPage',
+  'customTitle',
+  'title',
+  'startedAt',
+];
 const execFileAsync = promisify(execFile);
+
+function createRollbackState(record) {
+  if (!record || typeof record !== 'object') return null;
+  const state = {};
+  for (const field of CREATE_ROLLBACK_FIELDS) {
+    const value = Object.prototype.hasOwnProperty.call(record, field)
+      ? record[field]
+      : null;
+    state[field] = value === undefined ? null : JSON.parse(JSON.stringify(value));
+  }
+  state.runtimeAgentId = String(record.runtimeAgentId || '');
+  state.visibleOnMainPage = record.visibleOnMainPage === true;
+  state.archived = record.archived === true;
+  state.customTitle = typeof record.customTitle === 'string' ? record.customTitle : '';
+  return state;
+}
+
+function createFailurePatch(operation, fallbackRuntimeAgentId = '') {
+  const previousState = operation?.request?.previousState;
+  if (previousState && typeof previousState === 'object') {
+    return JSON.parse(JSON.stringify(previousState));
+  }
+  return {
+    visibleOnMainPage: Boolean(fallbackRuntimeAgentId),
+    runtimeAgentId: String(fallbackRuntimeAgentId || ''),
+  };
+}
 
 function withBoundedWait(promise, timeoutMs, label) {
   let timer;
@@ -414,6 +512,15 @@ function hasAgentOutputAfterAttentionBaseline(agent) {
 
 function shouldRestoreAgentFromMetadata(record, mainPageSessionKeys) {
   if (!record || record.archived === true) return false;
+  const latestOperation = latestLifecycleOperation(record);
+  if (latestOperation?.type === 'delete' && latestOperation.state === 'succeeded') return false;
+  if (
+    latestOperation?.type === 'create'
+    && latestOperation.state === 'succeeded'
+    && record.visibleOnMainPage === true
+  ) {
+    return true;
+  }
   if (record.wantsMain === true) return true;
   if (
     record.providerSessionTemporary === true
@@ -431,6 +538,43 @@ function shouldRestoreAgentFromMetadata(record, mainPageSessionKeys) {
   return record.visibleOnMainPage === true;
 }
 
+function lifecycleOperationBlocksRuntimeStart(record) {
+  const operation = activeLifecycleOperation(record);
+  return operation && ['create', 'delete', 'archive', 'runtime-switch'].includes(operation.type)
+    ? operation
+    : null;
+}
+
+function requiresLegacyAcpExitAcknowledgement(record) {
+  if (
+    runtimeKind(record) !== 'acp'
+    || record?.structuredRuntimeProcess
+    || record?.legacyAcpProcessExitAcknowledgedAt
+  ) {
+    return false;
+  }
+  if (record?.requiresProcessExitAcknowledgement === true) return true;
+  const operation = activeLifecycleOperation(record);
+  return Boolean(
+    operation
+    && ['delete', 'archive'].includes(operation.type)
+    && operation.request?.structuredProcessProofRequired === true,
+  );
+}
+
+function publicActiveLifecycleOperation(agent) {
+  const operation = activeLifecycleOperation(agent);
+  if (!operation) return null;
+  return {
+    id: operation.id,
+    type: operation.type,
+    state: operation.state,
+    error: operation.error || '',
+    startedAt: operation.startedAt || null,
+    updatedAt: operation.updatedAt || null,
+  };
+}
+
 function recoveredEngineSessionId(entry, metadata = {}) {
   return entry && (entry.sessionId || entry.agentId || metadata.agentId) || '';
 }
@@ -438,6 +582,33 @@ function recoveredEngineSessionId(entry, metadata = {}) {
 function agentDisplayName(command) {
   const program = agentProgramName(command).toLowerCase();
   return getProviderAdapter(providerForProgram(program))?.displayName || program;
+}
+
+function stableJsonValue(value) {
+  if (Array.isArray(value)) return value.map(stableJsonValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.keys(value).sort().reduce((result, key) => {
+    const child = value[key];
+    if (!['function', 'symbol', 'undefined'].includes(typeof child)) {
+      result[key] = stableJsonValue(child);
+    }
+    return result;
+  }, {});
+}
+
+function createOperationSignature(command, customWorkspace, options = {}) {
+  const semanticOptions = { ...options };
+  [
+    'createRequestId',
+    'lifecycleToken',
+    'skipRecoveryWait',
+    'startAdmissionToken',
+  ].forEach(field => delete semanticOptions[field]);
+  return crypto.createHash('sha256').update(JSON.stringify(stableJsonValue({
+    command: String(command || '').trim(),
+    workspace: String(customWorkspace || ''),
+    options: semanticOptions,
+  }))).digest('hex');
 }
 
 function titleComparisonKey(title) {
@@ -607,6 +778,9 @@ class AgentManager extends EventEmitter {
     this.codexTerminalStartOutput = new Map();
     this.agentWorktreeResolveGeneration = new Map();
     this.agentLifecycleOperations = new Map();
+    this.agentStartAdmissions = new Map();
+    this.createRequestAdmissions = new Map();
+    this.activeInputOperations = new Set();
     this.verifiedStoppedAgentIds = new Set();
     this.codexSessionUnarchiveInFlight = new Map();
     // Standard ACP session inputs may contain MCP credentials. Keep the live
@@ -635,7 +809,13 @@ class AgentManager extends EventEmitter {
       : deletePrecreatedProviderSession;
     this.archiveCodexSession = options.archiveCodexSession || archiveCodexSession;
     this.unarchiveCodexSession = options.unarchiveCodexSession || unarchiveCodexSession;
+    this.stopPersistedAcpProcessGroup = options.stopPersistedAcpProcessGroup
+      || stopPersistedAcpProcessGroup;
+    this.allowUnprovenLegacyAcpRecovery = options.allowUnprovenLegacyAcpRecovery === true;
     this.heartbeatInterval = null;
+    this.disposing = false;
+    this.disposeFrozen = false;
+    this.disposePromise = null;
     this.disposed = false;
     this.systemMonitor = new SystemMonitor();
     this.startTime = Date.now();
@@ -657,6 +837,8 @@ class AgentManager extends EventEmitter {
       },
     });
     this.recoveryPromise = Promise.resolve();
+    this.recoveryComplete = !(this.configManager && this.configManager.farmingDir);
+    this.recoveryError = null;
     this.taskHistory = (this.configManager && this.configManager.getTaskHistory)
       ? [...this.configManager.getTaskHistory()]
       : [];
@@ -666,9 +848,14 @@ class AgentManager extends EventEmitter {
     this.bindJsonCliRuntimeEvents();
     this.bindAcpRuntimeEvents();
     if (this.configManager && this.configManager.farmingDir) {
-      this.recoveryPromise = this.recoverEngineSessions().catch((error) => {
-        console.warn('Failed to recover engine sessions:', error && (error.message || error));
-      });
+      this.recoveryPromise = this.recoverEngineSessions()
+        .then(() => {
+          this.recoveryComplete = true;
+        })
+        .catch((error) => {
+          this.recoveryError = error;
+          console.warn('Failed to recover engine sessions:', error && (error.message || error));
+        });
     }
   }
 
@@ -1154,6 +1341,9 @@ class AgentManager extends EventEmitter {
     const persistedByRuntimeAgentId = new Map(persistedRecords
       .filter(record => record && record.runtimeAgentId)
       .map(record => [record.runtimeAgentId, record]));
+    const recoveredRuntimeAgentIds = new Set((recovered || [])
+      .map(entry => recoveredEngineSessionId(entry, entry?.metadata || {}))
+      .filter(Boolean));
     let changed = false;
 
     for (const entry of recovered || []) {
@@ -1162,7 +1352,13 @@ class AgentManager extends EventEmitter {
       const agentId = recoveredEngineSessionId(entry, engineMetadata);
       const persisted = persistedByRuntimeAgentId.get(agentId);
       const desiredMetadata = persisted || engineMetadata;
-      if (!shouldRestoreAgentFromMetadata(desiredMetadata, mainPageSessionKeys)) {
+      const persistedLifecycleOperation = activeLifecycleOperation(desiredMetadata);
+      const hasRecoverableLifecycleOperation = persistedLifecycleOperation
+        && ['create', 'delete', 'archive'].includes(persistedLifecycleOperation.type);
+      if (
+        !hasRecoverableLifecycleOperation
+        && !shouldRestoreAgentFromMetadata(desiredMetadata, mainPageSessionKeys)
+      ) {
         await this.killRecoveredEngineSession(entry, engineMetadata, agentId);
         continue;
       }
@@ -1205,6 +1401,7 @@ class AgentManager extends EventEmitter {
         customTitle: Object.prototype.hasOwnProperty.call(persisted, 'customTitle')
           ? persisted.customTitle
           : engineMetadata.customTitle,
+        lifecycleJournal: lifecycleJournal(persisted),
         ...legacyRuntimeMetadata(persisted),
         pinned: persisted.pinned === true,
         projectOrder: finiteOrder(persisted.projectOrder) ?? finiteOrder(engineMetadata.projectOrder),
@@ -1215,17 +1412,69 @@ class AgentManager extends EventEmitter {
       const agentRecord = this.recoveredAgentRecord(agentId, entry.engineName || metadata.engineName || 'native', metadata, state);
       ensureAgentOrders(agentRecord, Array.from(this.agents.values()));
       agentRecord.lastObservedTurnActive = this.isAgentAttentionTurnActive(agentRecord);
-      this.ensurePersistentAgentSession(agentRecord, {
-        visibleOnMainPage: true,
-        archived: false,
-      });
       this.agents.set(agentId, agentRecord);
+      const recoveredLifecycleOperation = activeLifecycleOperation(agentRecord);
+      if (
+        recoveredLifecycleOperation?.type === 'create'
+        && recoveredLifecycleOperation.state === 'pending'
+      ) {
+        try {
+          this.transitionPersistentAgentOperation(
+            agentRecord,
+            recoveredLifecycleOperation.id,
+            'succeeded',
+            '',
+            { visibleOnMainPage: true, archived: false },
+          );
+        } catch (error) {
+          this.markRecoveredAgentLifecycleBlocked(agentRecord, recoveredLifecycleOperation, error);
+        }
+      } else if (
+        recoveredLifecycleOperation?.type === 'delete'
+        || recoveredLifecycleOperation?.type === 'archive'
+      ) {
+        const result = recoveredLifecycleOperation.type === 'delete'
+          ? await this.killAgent(agentId, {
+              reason: 'delete-recovery',
+              skipRecoveryWait: true,
+            })
+          : await this.archiveAgent(agentId, {
+              reason: 'archive-recovery',
+              skipRecoveryWait: true,
+            });
+        if (result?.error) {
+          console.warn(
+            `Failed to resume Agent ${recoveredLifecycleOperation.type} ${agentId}: ${result.error}`,
+          );
+        }
+        changed = true;
+        continue;
+      } else if (recoveredLifecycleOperation) {
+        this.markRecoveredAgentLifecycleBlocked(agentRecord, recoveredLifecycleOperation);
+      } else {
+        this.ensurePersistentAgentSession(agentRecord, {
+          visibleOnMainPage: true,
+          archived: false,
+        });
+      }
+      const recoveredUpdate = this.reconcilePersistedAgentUpdate(agentRecord);
+      if (recoveredUpdate?.error) {
+        console.warn(`Failed to reconcile Agent update ${agentId}: ${recoveredUpdate.error}`);
+      }
       void this.refreshAgentWorktree(agentId);
       this.lastActivity.set(agentId, state.lastActivityAt || metadata.lastActivityAt || Date.now());
       if (agentRecord.wantsMain && !this.mainAgentId) {
         this.mainAgentId = agentId;
       }
+      this.rememberMainPageProviderSession(agentRecord);
       this.providerSessionService.activate(agentId);
+      changed = true;
+    }
+
+    if (this.reconcileMissingTerminalLifecycleOperations(
+      persistedRecords,
+      recoveredRuntimeAgentIds,
+    )) {
       changed = true;
     }
 
@@ -1241,6 +1490,83 @@ class AgentManager extends EventEmitter {
     }
 
     await this.recoverAcpSessions();
+    if (this.reconcileDetachedPersistedAgentUpdates()) {
+      this.emit('update');
+    }
+  }
+
+  markRecoveredAgentLifecycleBlocked(agent, operation, cause = null) {
+    const reason = cause
+      ? `Agent ${operation.type} operation ${operation.id} recovery could not be committed: ${cause.message || cause}`
+      : `Agent ${operation.type} operation ${operation.id} must be resolved before restart`;
+    agent.status = 'error';
+    agent.engineStatus = 'lifecycle-blocked';
+    const runtime = runtimeBindingOf(agent);
+    if (runtime && Object.prototype.hasOwnProperty.call(runtime, 'state')) {
+      runtime.state = 'error';
+      runtime.error = reason;
+    }
+  }
+
+  reconcileMissingTerminalLifecycleOperations(records, recoveredRuntimeAgentIds) {
+    let changed = false;
+    for (const record of Array.isArray(records) ? records : []) {
+      const agentId = String(record?.runtimeAgentId || '').trim();
+      const operation = activeLifecycleOperation(record);
+      if (
+        !agentId
+        || recoveredRuntimeAgentIds.has(agentId)
+        || runtimeKind(record) !== 'terminal'
+        || !operation
+        || !['create', 'delete', 'archive'].includes(operation.type)
+      ) {
+        continue;
+      }
+
+      const recoveredAgent = this.recoveredAgentRecord(
+        agentId,
+        record.engine || 'native',
+        { ...record, persistentSessionId: record.id || record.persistentSessionId || '' },
+        { status: 'exited' },
+      );
+      recoveredAgent.persistentSessionId = record.id || record.persistentSessionId || '';
+      try {
+        if (operation.type === 'create') {
+          this.transitionPersistentAgentOperation(
+            recoveredAgent,
+            operation.id,
+            'failed',
+            'Create runtime was not present in the authoritative native-host recovery set',
+            createFailurePatch(
+              operation,
+              operation.request?.previousRuntimeAgentId,
+            ),
+          );
+        } else {
+          this.transitionPersistentAgentOperation(
+            recoveredAgent,
+            operation.id,
+            'succeeded',
+            '',
+            {
+              visibleOnMainPage: false,
+              archived: true,
+              archivedAt: Date.now(),
+              runtimeAgentId: '',
+            },
+          );
+          this.removeMainPageProviderSessionsForAgents([recoveredAgent]);
+          if (operation.type === 'archive') this.scheduleCodexSessionArchive(recoveredAgent);
+        }
+        changed = true;
+      } catch (error) {
+        console.warn(
+          `Failed to reconcile missing Terminal Agent ${agentId} ${operation.type}:`,
+          error && (error.message || error),
+        );
+      }
+    }
+    return changed;
   }
 
   async restoreTerminalSessionsAfterRuntimeRotation(records, rotations) {
@@ -1486,11 +1812,17 @@ class AgentManager extends EventEmitter {
 
   async recoverAcpSessions() {
     if (!this.acpRuntime || !this.configManager || typeof this.configManager.listAgentSessionRecords !== 'function') return;
+    await this.reconcilePersistedAcpLifecycleOperations(
+      this.configManager.listAgentSessionRecords(),
+    );
     const mainPageOrder = new Map(this.getMainPageSessionKeys().map((key, index) => [key, index]));
     const mainPageSessionKeys = new Set(mainPageOrder.keys());
     const records = this.configManager.listAgentSessionRecords()
       .filter(record => (
-        shouldRestoreAgentFromMetadata(record, mainPageSessionKeys)
+        (
+          shouldRestoreAgentFromMetadata(record, mainPageSessionKeys)
+          || lifecycleOperationBlocksRuntimeStart(record)
+        )
         && runtimeKind(record) === 'acp'
       ))
       .sort((left, right) => {
@@ -1507,14 +1839,29 @@ class AgentManager extends EventEmitter {
       const agentId = String(record.runtimeAgentId || '').trim();
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
       const sessionId = String(record.providerSessionId || record.codexAppServerThreadId || '').trim();
-      if (!agentId || !sessionId || !providerSupportsRuntime(provider, 'acp')) continue;
+      const blockedOperation = lifecycleOperationBlocksRuntimeStart(record);
+      if (
+        !agentId
+        || !providerSupportsRuntime(provider, 'acp')
+        || (!sessionId && !blockedOperation)
+      ) {
+        continue;
+      }
       const agent = this.agents.get(agentId);
       if (!agent) {
         const recoveredAgent = this.recoveredAgentRecord(agentId, record.engine || 'native', record, { status: 'running' });
         ensureAgentOrders(recoveredAgent, Array.from(this.agents.values()));
         recoveredAgent.persistentSessionId = record.id || '';
         recoveredAgent.engineStarted = false;
-        runtimeBindingOf(recoveredAgent, 'acp').state = 'connecting';
+        if (blockedOperation) {
+          recoveredAgent.status = 'error';
+          recoveredAgent.engineStatus = 'lifecycle-blocked';
+          const runtime = runtimeBindingOf(recoveredAgent, 'acp');
+          runtime.state = 'error';
+          runtime.error = `Agent ${blockedOperation.type} operation ${blockedOperation.id} must be resolved before restart`;
+        } else {
+          runtimeBindingOf(recoveredAgent, 'acp').state = 'connecting';
+        }
         this.agents.set(agentId, recoveredAgent);
         void this.refreshAgentWorktree(agentId);
         this.lastActivity.set(agentId, Date.now());
@@ -1524,11 +1871,53 @@ class AgentManager extends EventEmitter {
 
     for (const record of records) {
       const agentId = String(record.runtimeAgentId || '').trim();
+      const agent = this.agents.get(agentId);
+      if (!agent) continue;
+      const recoveredUpdate = this.reconcilePersistedAgentUpdate(agent);
+      if (recoveredUpdate?.error) {
+        console.warn(`Failed to reconcile Agent update ${agentId}: ${recoveredUpdate.error}`);
+      }
+    }
+
+    for (const record of records) {
+      const agentId = String(record.runtimeAgentId || '').trim();
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
       const sessionId = String(record.providerSessionId || record.codexAppServerThreadId || '').trim();
       const agent = this.agents.get(agentId);
       if (!agent || !sessionId || !providerSupportsRuntime(provider, 'acp')) continue;
+      if (lifecycleOperationBlocksRuntimeStart(record)) continue;
       try {
+        if (
+          !record.structuredRuntimeProcess
+          && !this.allowUnprovenLegacyAcpRecovery
+          && !record.legacyAcpProcessExitAcknowledgedAt
+        ) {
+          const cleanupError = new Error(
+            'Legacy ACP process exit cannot be proven after restart; automatic recovery is blocked',
+          );
+          cleanupError.code = 'ACP_PROCESS_CLEANUP_UNCERTAIN';
+          throw cleanupError;
+        }
+        if (record.structuredRuntimeProcess) {
+          let cleanup;
+          try {
+            cleanup = await this.stopPersistedAcpProcessGroup(record.structuredRuntimeProcess);
+          } catch (cause) {
+            const cleanupError = new Error(
+              `Persisted ACP process exit proof failed: ${cause.message || cause}`,
+              { cause },
+            );
+            cleanupError.code = 'ACP_PROCESS_CLEANUP_UNCERTAIN';
+            throw cleanupError;
+          }
+          if (cleanup.stopped !== true) {
+            const cleanupError = new Error('Persisted ACP process identity could not be safely stopped');
+            cleanupError.code = 'ACP_PROCESS_CLEANUP_UNCERTAIN';
+            throw cleanupError;
+          }
+          agent.structuredRuntimeProcess = null;
+          this.ensurePersistentAgentSession(agent);
+        }
         const executableName = getProviderAdapter(provider).executable;
         const executable = resolveAgentExecutable(executableName) || executableName;
         const approvalMode = agent.launchPermissionMode || (
@@ -1553,6 +1942,13 @@ class AgentManager extends EventEmitter {
           serviceTier: 'config',
           additionalDirectories: Array.isArray(record.acpAdditionalDirectories) ? record.acpAdditionalDirectories : [],
           mcpServers: Array.isArray(record.acpMcpServers) ? record.acpMcpServers : [],
+          onProcessStarted: async processIdentity => {
+            agent.structuredRuntimeProcess = {
+              kind: 'acp-process-group',
+              ...processIdentity,
+            };
+            this.ensurePersistentAgentSession(agent);
+          },
         });
         agent.providerSessionId = prepared.sessionId;
         agent.providerSessionKey = mainPageAgentSessionKey(
@@ -1576,19 +1972,177 @@ class AgentManager extends EventEmitter {
         agent.status = 'running';
         agent.engineStatus = 'running';
         agent.engineStarted = false;
+        agent.requiresProcessExitAcknowledgement = false;
         this.ensurePersistentAgentSession(agent);
+        this.rememberMainPageProviderSession(agent);
       } catch (error) {
         const runtime = runtimeBindingOf(agent, 'acp');
         runtime.state = 'error';
         runtime.error = `ACP recovery failed: ${error && (error.message || error)}`;
-        agent.status = 'stopped';
-        agent.engineStatus = 'stopped';
+        const cleanupUncertain = error?.code === 'ACP_PROCESS_CLEANUP_UNCERTAIN';
+        agent.status = cleanupUncertain ? 'error' : 'stopped';
+        agent.engineStatus = cleanupUncertain ? 'cleanup-uncertain' : 'stopped';
+        agent.requiresProcessExitAcknowledgement = cleanupUncertain
+          && !record.structuredRuntimeProcess
+          && !record.legacyAcpProcessExitAcknowledgedAt;
         agent.engineStarted = false;
         agent.exitedAt = Date.now();
         this.ensurePersistentAgentSession(agent);
       }
     }
     this.emit('update');
+  }
+
+  async reconcilePersistedAcpLifecycleOperations(records) {
+    for (const record of Array.isArray(records) ? records : []) {
+      const operation = activeLifecycleOperation(record);
+      if (
+        runtimeKind(record) !== 'acp'
+        || !operation
+        || !['create', 'delete', 'archive'].includes(operation.type)
+      ) {
+        continue;
+      }
+
+      const processProofRequired = operation.request?.structuredProcessProofRequired === true
+        || Boolean(record.structuredRuntimeProcess);
+      if (processProofRequired && !record.legacyAcpProcessExitAcknowledgedAt) {
+        try {
+          const cleanup = await this.stopPersistedAcpProcessGroup(record.structuredRuntimeProcess);
+          if (
+            cleanup.stopped !== true
+            && !(
+              cleanup.missingProof === true
+              && operation.request?.structuredProcessStartGated === true
+            )
+          ) {
+            continue;
+          }
+        } catch (error) {
+          console.warn(
+            `Could not prove persisted ACP process exit for ${record.runtimeAgentId || operation.id}:`,
+            error && (error.message || error),
+          );
+          continue;
+        }
+      }
+
+      const agentId = String(
+        operation.type === 'create'
+          ? operation.request?.agentId || record.runtimeAgentId || ''
+          : record.runtimeAgentId || '',
+      ).trim();
+      if (!agentId) continue;
+      const staged = this.recoveredAgentRecord(
+        agentId,
+        record.engine || 'native',
+        { ...record, persistentSessionId: record.id || '' },
+        { status: 'exited' },
+      );
+      staged.persistentSessionId = record.id || '';
+      staged.structuredRuntimeProcess = null;
+      try {
+        if (operation.type === 'create') {
+          this.transitionPersistentAgentOperation(
+            staged,
+            operation.id,
+            'failed',
+            'Create ACP process was stopped during restart recovery',
+            createFailurePatch(operation, operation.request?.previousRuntimeAgentId),
+          );
+        } else {
+          this.transitionPersistentAgentOperation(
+            staged,
+            operation.id,
+            'succeeded',
+            '',
+            {
+              visibleOnMainPage: false,
+              archived: true,
+              archivedAt: Date.now(),
+              runtimeAgentId: '',
+              structuredRuntimeProcess: null,
+            },
+          );
+          this.removeMainPageProviderSessionsForAgents([staged]);
+          if (operation.type === 'archive') this.scheduleCodexSessionArchive(staged);
+        }
+      } catch (error) {
+        console.warn(
+          `Failed to reconcile ACP Agent ${agentId} ${operation.type}:`,
+          error && (error.message || error),
+        );
+      }
+    }
+  }
+
+  reconcileDetachedPersistedAgentUpdates() {
+    if (!this.configManager || typeof this.configManager.listAgentSessionRecords !== 'function') {
+      return false;
+    }
+    let changed = false;
+    for (const record of this.configManager.listAgentSessionRecords()) {
+      const operation = activeLifecycleOperation(record);
+      const agentId = String(record?.runtimeAgentId || '').trim();
+      if (
+        operation?.type !== 'update'
+        || !agentId
+        || this.agents.has(agentId)
+      ) {
+        continue;
+      }
+
+      const staged = this.recoveredAgentRecord(
+        agentId,
+        record.engine || 'native',
+        record,
+        { status: 'stopped' },
+      );
+      staged.persistentSessionId = record.id || '';
+      const request = operation.request || {};
+      if (Object.prototype.hasOwnProperty.call(request, 'customTitle')) {
+        staged.customTitle = String(request.customTitle || '').trim().slice(0, 80);
+      }
+      if (Object.prototype.hasOwnProperty.call(request, 'task')) {
+        staged.task = String(request.task || '').trim().slice(0, 240);
+      }
+      if (typeof request.pinned === 'boolean') {
+        staged.pinned = request.pinned;
+        if (!staged.pinned) staged.pinnedOrder = null;
+      }
+      if (request.archived === false) {
+        staged.archived = false;
+        staged.archivedAt = null;
+      }
+      if (typeof request.readAttentionSeq === 'number') {
+        staged.readAttentionSeq = Math.min(
+          finiteNonNegativeInteger(staged.attentionSeq),
+          Math.max(
+            finiteNonNegativeInteger(staged.readAttentionSeq),
+            finiteNonNegativeInteger(request.readAttentionSeq),
+          ),
+        );
+        staged.unread = agentAttentionUnread(staged);
+      }
+      if (
+        typeof request.readOutputEpoch === 'string'
+        && typeof request.readOutputSeq === 'number'
+      ) {
+        staged.readOutputEpoch = request.readOutputEpoch;
+        staged.readOutputSeq = finiteNonNegativeInteger(request.readOutputSeq);
+      }
+      transitionLifecycleOperation(staged, operation.id, 'succeeded');
+      try {
+        this.ensurePersistentAgentSession(staged);
+        changed = true;
+      } catch (error) {
+        console.warn(
+          `Failed to reconcile detached Agent update ${operation.id}:`,
+          error && (error.message || error),
+        );
+      }
+    }
+    return changed;
   }
 
   async killRecoveredEngineSession(entry, metadata, agentId) {
@@ -1603,6 +2157,12 @@ class AgentManager extends EventEmitter {
 
   async whenRecovered() {
     await this.recoveryPromise;
+    if (this.recoveryError) {
+      throw new Error(
+        `Agent lifecycle recovery failed: ${this.recoveryError.message || this.recoveryError}`,
+        { cause: this.recoveryError },
+      );
+    }
   }
 
   recoveredAgentRecord(agentId, engineName, metadata, state) {
@@ -1647,6 +2207,16 @@ class AgentManager extends EventEmitter {
       providerSessionTitle: metadata.providerSessionTitle || '',
       providerSessionWorkspace: metadata.providerSessionWorkspace || '',
       terminalInputReceived: metadata.terminalInputReceived === true,
+      structuredRuntimeProcess: metadata.structuredRuntimeProcess
+        && typeof metadata.structuredRuntimeProcess === 'object'
+        ? JSON.parse(JSON.stringify(metadata.structuredRuntimeProcess))
+        : null,
+      legacyAcpProcessExitAcknowledgedAt:
+        typeof metadata.legacyAcpProcessExitAcknowledgedAt === 'number'
+          ? metadata.legacyAcpProcessExitAcknowledgedAt
+          : null,
+      requiresProcessExitAcknowledgement:
+        requiresLegacyAcpExitAcknowledgement(metadata),
       // Legacy App Server records normalize to ACP at the runtime-binding
       // boundary. Codex thread ids are valid ACP session ids, so the existing
       // conversation remains recoverable without restarting App Server.
@@ -1657,6 +2227,7 @@ class AgentManager extends EventEmitter {
         ? metadata.restartedFromAgentIds.filter(id => typeof id === 'string' && id)
         : [],
       persistentSessionId: metadata.persistentSessionId || '',
+      lifecycleJournal: lifecycleJournal(metadata),
       customTitle: metadata.customTitle || '',
       terminalBusy: typeof state.terminalBusy === 'boolean' ? state.terminalBusy : null,
       shellCwd: state.shellCwd || metadata.cwd || '',
@@ -1751,6 +2322,7 @@ class AgentManager extends EventEmitter {
     if (!agent || !this.configManager || typeof this.configManager.ensureAgentSessionRecord !== 'function') {
       return '';
     }
+    this.assertPersistentAgentRuntimeOwner(agent);
     const previousPersistentSessionId = agent.persistentSessionId || '';
     const sessionOptions = agent.providerSessionKey
       ? this.acpSessionOptionsByKey.get(agent.providerSessionKey)
@@ -1798,12 +2370,220 @@ class AgentManager extends EventEmitter {
     return persistentSessionId;
   }
 
+  assertPersistentAgentRuntimeOwner(agent) {
+    if (
+      !agent?.providerSessionKey
+      || typeof this.configManager?.getAgentSessionRecordForProviderSessionKey !== 'function'
+    ) {
+      return;
+    }
+    const canonical = this.configManager.getAgentSessionRecordForProviderSessionKey(
+      agent.providerSessionKey,
+    );
+    const currentOwner = String(canonical?.runtimeAgentId || '').trim();
+    const requestedOwner = String(agent.id || '').trim();
+    if (!currentOwner || currentOwner === requestedOwner) return;
+
+    const ownerAgent = this.agents.get(currentOwner);
+    if (!ownerAgent && !this.recoveryComplete) {
+      throw new Error(
+        `Agent session ${agent.providerSessionKey} ownership cannot be changed before recovery completes`,
+      );
+    }
+    const ownerIsStopped = !ownerAgent
+      || this.verifiedStoppedAgentIds.has(currentOwner)
+      || ['dead', 'stopped'].includes(String(ownerAgent.status || ''))
+      || ownerAgent.engineStatus === 'exited';
+    if (ownerIsStopped) return;
+
+    throw new Error(
+      `Agent session ${agent.providerSessionKey} is owned by Runtime ${currentOwner}, not ${requestedOwner}`,
+    );
+  }
+
+  beginPersistentAgentOperation(agent, type, requestKey, request = {}) {
+    const previousJournal = agent.lifecycleJournal
+      ? JSON.parse(JSON.stringify(agent.lifecycleJournal))
+      : null;
+    const result = beginLifecycleOperation(agent, type, requestKey, request);
+    if (result.conflict) {
+      return {
+        error: `Agent operation ${result.conflict.id} (${result.conflict.type}) has not reached a terminal state`,
+        conflict: result.conflict,
+      };
+    }
+    if (result.joined && result.operation.state === 'blocked') {
+      transitionLifecycleOperation(agent, result.operation.id, 'pending');
+    }
+    try {
+      const persistentSessionId = this.ensurePersistentAgentSession(agent);
+      if (
+        typeof this.configManager?.ensureAgentSessionRecord === 'function'
+        && !persistentSessionId
+      ) {
+        throw new Error('Agent session store did not return a persistent id');
+      }
+    } catch (error) {
+      if (previousJournal) agent.lifecycleJournal = previousJournal;
+      else delete agent.lifecycleJournal;
+      return { error: `Failed to persist Agent ${type} intent: ${error.message || error}` };
+    }
+    return {
+      operation: activeLifecycleOperation(agent) || result.operation,
+      joined: result.joined,
+    };
+  }
+
+  transitionPersistentAgentOperation(agent, operationId, state, error = '', patch = {}) {
+    const previousJournal = agent.lifecycleJournal
+      ? JSON.parse(JSON.stringify(agent.lifecycleJournal))
+      : null;
+    const operation = transitionLifecycleOperation(agent, operationId, state, error);
+    if (!operation) throw new Error(`Agent operation ${operationId} was not found`);
+    try {
+      const persistentSessionId = this.ensurePersistentAgentSession(agent, patch);
+      if (
+        typeof this.configManager?.ensureAgentSessionRecord === 'function'
+        && !persistentSessionId
+      ) {
+        throw new Error('Agent session store did not return a persistent id');
+      }
+    } catch (persistError) {
+      if (previousJournal) agent.lifecycleJournal = previousJournal;
+      else delete agent.lifecycleJournal;
+      throw persistError;
+    }
+    return operation;
+  }
+
+  beginPersistentAgentUpdate(agent, requestKey, request) {
+    const latest = latestLifecycleOperation(agent);
+    if (
+      latest?.type === 'update'
+      && latest.state === 'succeeded'
+      && latest.requestKey === requestKey
+    ) {
+      return { operation: latest, deduplicated: true };
+    }
+    return this.beginPersistentAgentOperation(agent, 'update', requestKey, request);
+  }
+
+  reconcilePersistedAgentUpdate(agent) {
+    const operation = activeLifecycleOperation(agent);
+    if (operation?.type !== 'update') return null;
+    const request = operation.request || {};
+    if (Object.prototype.hasOwnProperty.call(request, 'customTitle')) {
+      return this.renameAgent(agent.id, request.customTitle);
+    }
+    if (Object.prototype.hasOwnProperty.call(request, 'task')) {
+      return this.setAgentTask(agent.id, request.task);
+    }
+    return this.updateAgentFlags(agent.id, request);
+  }
+
+  async replayPersistentCreateRequest(createRequestId, requestSignature = '') {
+    if (!this.configManager || typeof this.configManager.listAgentSessionRecords !== 'function') {
+      return null;
+    }
+    const requestKey = `create-request:${String(createRequestId || '').trim().slice(0, 160)}`;
+    if (requestKey === 'create-request:') return null;
+    const matches = this.configManager.listAgentSessionRecords()
+      .flatMap(record => {
+        const entries = lifecycleJournal(record).entries;
+        return entries.map((operation, index) => ({ record, entries, operation, index }));
+      })
+      .filter(item => item.operation.type === 'create' && item.operation.requestKey === requestKey)
+      .sort((left, right) => (
+        (Number(right.operation.updatedAt) || 0) - (Number(left.operation.updatedAt) || 0)
+      ));
+    const match = matches[0];
+    if (!match) return null;
+    if (
+      match.operation.request?.signature
+      && match.operation.request.signature !== requestSignature
+    ) {
+      return {
+        error: `Create request ${createRequestId} was already used for different Agent parameters`,
+      };
+    }
+
+    const agentId = String(
+      match.operation.request?.agentId
+      || match.record.runtimeAgentId
+      || '',
+    ).trim();
+    const inFlight = agentId ? this.agentLifecycleOperations.get(agentId) : null;
+    if (inFlight && !TERMINAL_OPERATION_STATES.has(match.operation.state)) {
+      await inFlight.promise.catch(() => {});
+      return this.replayPersistentCreateRequest(createRequestId, requestSignature);
+    }
+
+    const removedLater = match.entries.slice(match.index + 1).some(operation => (
+      ['delete', 'archive'].includes(operation.type)
+      && operation.state === 'succeeded'
+    ));
+    if (removedLater) {
+      return {
+        error: `Create request ${createRequestId} already completed, but its Agent was later removed`,
+      };
+    }
+    if (match.operation.state === 'succeeded') {
+      if (agentId && this.agents.has(agentId)) {
+        return {
+          agentId,
+          deduplicated: true,
+          createResult: match.operation.result,
+        };
+      }
+      return {
+        error: `Create request ${createRequestId} already succeeded, but its Runtime is not available`,
+      };
+    }
+    if (TERMINAL_OPERATION_STATES.has(match.operation.state)) {
+      return {
+        error: match.operation.error
+          || `Create request ${createRequestId} already finished with state ${match.operation.state}`,
+      };
+    }
+    return {
+      agentId,
+      error: match.operation.error
+        || `Create request ${createRequestId} is awaiting lifecycle recovery`,
+    };
+  }
+
+  recordCreateRequestResult(agentId, createRequestId, result) {
+    const agent = this.agents.get(agentId);
+    if (!agent) return { error: 'Agent not found' };
+    const requestKey = `create-request:${String(createRequestId || '').trim().slice(0, 160)}`;
+    const operation = lifecycleJournal(agent).entries.find(candidate => (
+      candidate.type === 'create'
+      && candidate.requestKey === requestKey
+      && candidate.state === 'succeeded'
+    ));
+    if (!operation) return { error: 'Create operation was not found' };
+    const staged = {
+      ...agent,
+      lifecycleJournal: lifecycleJournal(agent),
+    };
+    setLifecycleOperationResult(staged, operation.id, result);
+    try {
+      this.ensurePersistentAgentSession(staged);
+    } catch (error) {
+      return { error: `Failed to persist Create result: ${error.message || error}` };
+    }
+    agent.lifecycleJournal = staged.lifecycleJournal;
+    if (staged.persistentSessionId) agent.persistentSessionId = staged.persistentSessionId;
+    return { agentId, operationId: operation.id, result };
+  }
+
   rememberMainPageProviderSession(agent) {
     if (!agent || agent.wantsMain) return;
     if (!agent.providerSessionProvider || !agent.providerSessionId || agent.providerSessionTemporary === true) return;
     if (!this.configManager) {
       return;
     }
+    this.assertPersistentAgentRuntimeOwner(agent);
 
     const sessionKey = mainPageAgentSessionKey(agent.providerSessionProvider, agent.providerSessionId, agent.providerHomeId || '');
     if (!sessionKey) return;
@@ -2314,9 +3094,89 @@ class AgentManager extends EventEmitter {
     }, interval);
   }
 
-  async dispose(options = {}) {
-    if (this.disposed) return;
-    this.disposed = true;
+  dispose(options = {}) {
+    if (this.disposed) return Promise.resolve();
+    if (this.disposePromise) return this.disposePromise;
+
+    this.disposing = true;
+    const disposePromise = this.performDispose(options);
+    this.disposePromise = disposePromise;
+    void disposePromise.finally(() => {
+      if (this.disposePromise === disposePromise) this.disposePromise = null;
+      if (!this.disposed && !this.disposeFrozen) this.disposing = false;
+    }).catch(() => {});
+    return disposePromise;
+  }
+
+  async performDispose(options = {}) {
+    await this.recoveryPromise;
+    await this.drainAcceptedAgentOperations();
+
+    const jsonBindingIds = new Set(this.jsonCliRuntime?.bindings?.keys?.() || []);
+    const acpBindingIds = new Set(this.acpRuntime?.bindings?.keys?.() || []);
+    const runtimeCleanupFailures = [];
+    let jsonCleanupFailed = false;
+    let acpCleanupFailed = false;
+    if (this.jsonCliRuntime && typeof this.jsonCliRuntime.dispose === 'function') {
+      try {
+        await this.jsonCliRuntime.dispose();
+      } catch (error) {
+        jsonCleanupFailed = true;
+        runtimeCleanupFailures.push(error);
+      }
+    }
+    if (this.acpRuntime && typeof this.acpRuntime.dispose === 'function') {
+      try {
+        await this.acpRuntime.dispose();
+      } catch (error) {
+        acpCleanupFailed = true;
+        runtimeCleanupFailures.push(error);
+      }
+    }
+
+    let agentStateChanged = false;
+    const forgetStoppedStructuredAgents = (agentIds, runtime, kind) => {
+      for (const agentId of agentIds) {
+        if (runtime?.bindings?.has?.(agentId)) continue;
+        const agent = this.agents.get(agentId);
+        if (!agent || runtimeKind(agent) !== kind) continue;
+        this.forgetStoppedAgentRecord(agentId, { emitUpdate: false });
+        agentStateChanged = true;
+      }
+    };
+    forgetStoppedStructuredAgents(jsonBindingIds, this.jsonCliRuntime, 'json');
+    forgetStoppedStructuredAgents(acpBindingIds, this.acpRuntime, 'acp');
+    const markUncertainStructuredAgents = (agentIds, runtime, kind, failed) => {
+      if (!failed) return;
+      for (const agentId of agentIds) {
+        if (!runtime?.bindings?.has?.(agentId)) continue;
+        if (runtimeKind(this.agents.get(agentId)) !== kind) continue;
+        this.markStructuredAgentCleanupUncertain(
+          agentId,
+          kind,
+          `${kind.toUpperCase()} runtime cleanup could not prove process exit`,
+          { emitUpdate: false },
+        );
+        agentStateChanged = true;
+      }
+    };
+    markUncertainStructuredAgents(jsonBindingIds, this.jsonCliRuntime, 'json', jsonCleanupFailed);
+    markUncertainStructuredAgents(acpBindingIds, this.acpRuntime, 'acp', acpCleanupFailed);
+    if (agentStateChanged) this.emit('update');
+
+    if (runtimeCleanupFailures.length > 0) {
+      this.jsonCliRuntime?.resumeAfterDisposeAbort?.();
+      this.acpRuntime?.resumeAfterDisposeAbort?.();
+      throw new AggregateError(runtimeCleanupFailures, 'Agent runtime cleanup could not be verified');
+    }
+
+    this.disposeFrozen = true;
+    if (this.engineBridge && typeof this.engineBridge.dispose === 'function') {
+      await this.engineBridge.dispose({
+        preserveHost: options.preserveTerminalHost === true,
+      });
+    }
+
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
@@ -2324,6 +3184,8 @@ class AgentManager extends EventEmitter {
     this.providerSessionService.dispose();
     this.agentWorktreeResolveGeneration.clear();
     this.agentLifecycleOperations.clear();
+    this.agentStartAdmissions.clear();
+    this.activeInputOperations.clear();
     this.verifiedStoppedAgentIds.clear();
     this.permissionRestartSuppressedAgentIds.clear();
     this.pendingResizeByAgent.clear();
@@ -2333,14 +3195,22 @@ class AgentManager extends EventEmitter {
     this.codexTerminalStartQueues.clear();
     this.codexTerminalStartOutput.clear();
     this.acpSessionOptionsByKey.clear();
-    if (this.jsonCliRuntime) {
-      for (const agentId of this.agents.keys()) this.jsonCliRuntime.unregisterAgent(agentId);
-    }
-    if (this.acpRuntime && typeof this.acpRuntime.dispose === 'function') await this.acpRuntime.dispose();
-    if (this.engineBridge && typeof this.engineBridge.dispose === 'function') {
-      await this.engineBridge.dispose({
-        preserveHost: options.preserveTerminalHost === true,
-      });
+    this.disposed = true;
+  }
+
+  async drainAcceptedAgentOperations() {
+    while (true) {
+      const pending = new Set();
+      for (const entry of new Set(this.agentLifecycleOperations.values())) {
+        if (entry?.promise) pending.add(entry.promise);
+      }
+      for (const entry of this.agentStartAdmissions.values()) {
+        if (entry?.promise) pending.add(entry.promise);
+      }
+      for (const operation of this.activeInputOperations) pending.add(operation);
+      for (const operation of this.resizeDrains.values()) pending.add(operation);
+      if (pending.size === 0) return;
+      await Promise.allSettled([...pending]);
     }
   }
 
@@ -2472,9 +3342,123 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  async startAgent(command, customWorkspace, callback, options = {}) {
-    if (options.wantsMain !== false && options.skipRecoveryWait !== true) {
-      await this.whenRecovered();
+  startAgent(command, customWorkspace, callback, options = {}) {
+    const lifecycleEntry = options.lifecycleToken
+      ? [...new Set(this.agentLifecycleOperations.values())]
+          .find(entry => entry.token === options.lifecycleToken)
+      : null;
+    if (this.disposing && !lifecycleEntry) {
+      const error = 'Farming is shutting down; new Agents are not accepted';
+      if (callback) callback(null, error);
+      return Promise.resolve(null);
+    }
+
+    const createRequestId = typeof options.createRequestId === 'string'
+      ? options.createRequestId.trim().slice(0, 160)
+      : '';
+    const createRequestSignature = createOperationSignature(command, customWorkspace, options);
+    const existingCreateRequest = createRequestId
+      ? this.createRequestAdmissions.get(createRequestId)
+      : null;
+    if (existingCreateRequest) {
+      if (existingCreateRequest.signature !== createRequestSignature) {
+        const error = `Create request ${createRequestId} is already in progress with different Agent parameters`;
+        if (callback) callback(null, error);
+        return Promise.resolve(null);
+      }
+      return existingCreateRequest.promise.then(outcome => {
+        if (callback) {
+          callback(
+            outcome.agentId || null,
+            outcome.error || null,
+            {
+              ...(outcome.metadata || {}),
+              deduplicated: true,
+            },
+          );
+        }
+        return outcome.agentId || null;
+      });
+    }
+
+    let resolveAdmission;
+    const token = Symbol('agent-start-admission');
+    const promise = new Promise(resolve => {
+      resolveAdmission = resolve;
+    });
+    const admission = { token, promise };
+    this.agentStartAdmissions.set(token, admission);
+    let callbackOutcome = null;
+    const reportStart = (agentId, error, metadata = {}) => {
+      callbackOutcome = {
+        agentId: agentId || null,
+        error: error || null,
+        metadata,
+      };
+      if (callback) callback(agentId, error, metadata);
+    };
+    const startPromise = this.startAgentAdmitted(command, customWorkspace, reportStart, {
+      ...options,
+      startAdmissionToken: token,
+    });
+    const admittedPromise = Promise.resolve(startPromise).finally(() => {
+      if (this.agentStartAdmissions.get(token) === admission) {
+        this.agentStartAdmissions.delete(token);
+      }
+      resolveAdmission();
+    });
+    if (!createRequestId) return admittedPromise;
+
+    const outcomePromise = admittedPromise.then(agentId => (
+      callbackOutcome || {
+        agentId: agentId || null,
+        error: agentId ? null : 'Failed to start Agent',
+      }
+    ));
+    const requestAdmission = {
+      signature: createRequestSignature,
+      promise: outcomePromise,
+    };
+    this.createRequestAdmissions.set(createRequestId, requestAdmission);
+    void outcomePromise.finally(() => {
+      if (this.createRequestAdmissions.get(createRequestId) === requestAdmission) {
+        this.createRequestAdmissions.delete(createRequestId);
+      }
+    }).catch(() => {});
+    return outcomePromise.then(outcome => outcome.agentId || null);
+  }
+
+  async startAgentAdmitted(command, customWorkspace, callback, options = {}) {
+    const createRequestId = typeof options.createRequestId === 'string'
+      ? options.createRequestId.trim().slice(0, 160)
+      : '';
+    if (options.skipRecoveryWait !== true) {
+      try {
+        await this.whenRecovered();
+      } catch (error) {
+        if (callback) callback(null, error.message || String(error));
+        return null;
+      }
+    }
+    const createRequestSignature = createOperationSignature(command, customWorkspace, options);
+    if (createRequestId) {
+      const replay = await this.replayPersistentCreateRequest(
+        createRequestId,
+        createRequestSignature,
+      );
+      if (replay) {
+        if (callback) {
+          callback(
+            replay.agentId || null,
+            replay.error || null,
+            {
+              deduplicated: replay.deduplicated === true,
+              createResult: replay.createResult || null,
+            },
+          );
+        }
+        return replay.agentId || null;
+      }
     }
 
     const wantsMain = options.wantsMain === true || (options.wantsMain !== false && !this.mainAgentId);
@@ -2787,6 +3771,18 @@ class AgentManager extends EventEmitter {
     const requestedAgentRuntimeMode = ['json', 'acp', 'chat'].includes(options.agentRuntimeMode)
       ? options.agentRuntimeMode
       : 'terminal';
+    if (
+      requestedAgentRuntimeMode === 'json'
+      && options.allowLegacyJsonRuntime !== true
+    ) {
+      if (callback) {
+        callback(
+          null,
+          'JSON CLI Chat is a legacy compatibility reader and cannot create a new Agent. Use Chat (ACP) or Terminal.',
+        );
+      }
+      return null;
+    }
     // A fresh structured runtime does not need a provider CLI resume id yet:
     // ACP/JSON creates the provider session and writes the resulting id back
     // after connecting. Fresh Terminal sessions are handled separately below.
@@ -2837,14 +3833,23 @@ class AgentManager extends EventEmitter {
       providerSessionProvider: useAcp || useJsonCli ? structuredRuntimeProvider : (providerSessionPlan.provider || ''),
       providerHomeId: resolvedProviderHomeId,
       providerHomePath,
-      providerSessionId: providerSessionPlan.id || '',
-      providerSessionKey: mainPageAgentSessionKey(providerSessionPlan.provider, providerSessionPlan.id, providerHome ? providerHome.id : providerHomeId),
-      providerSessionTemporary: providerSessionPlan.temporary === true,
+      providerSessionId: acpGeneratedFreshSession ? '' : (providerSessionPlan.id || ''),
+      providerSessionKey: acpGeneratedFreshSession
+        ? ''
+        : mainPageAgentSessionKey(
+          providerSessionPlan.provider,
+          providerSessionPlan.id,
+          providerHome ? providerHome.id : providerHomeId,
+        ),
+      providerSessionTemporary: acpGeneratedFreshSession || providerSessionPlan.temporary === true,
       providerSessionSource: providerSessionPlan.source || '',
-      providerSessionResolvedAt: providerSessionPlan.temporary === true ? null : Date.now(),
+      providerSessionResolvedAt: acpGeneratedFreshSession || providerSessionPlan.temporary === true
+        ? null
+        : Date.now(),
       providerSessionTitle: typeof options.providerSessionTitle === 'string' ? options.providerSessionTitle.trim().slice(0, 160) : '',
       providerSessionWorkspace: '',
       terminalInputReceived: false,
+      structuredRuntimeProcess: null,
       runtimeBinding: useAcp
         ? runtimeBindingFor('acp', { state: 'connecting' })
         : (useJsonCli
@@ -2901,6 +3906,90 @@ class AgentManager extends EventEmitter {
       attentionSuppressUntil: 0
     };
 
+    let previousPersistentRuntimeAgentId = '';
+    let previousPersistentRecord = null;
+    if (
+      agentRecord.providerSessionKey
+      && typeof this.configManager?.getAgentSessionRecordForProviderSessionKey === 'function'
+    ) {
+      const existingRecord = this.configManager.getAgentSessionRecordForProviderSessionKey(
+        agentRecord.providerSessionKey,
+      );
+      if (existingRecord) {
+        previousPersistentRecord = existingRecord;
+        agentRecord.lifecycleJournal = lifecycleJournal(existingRecord);
+        previousPersistentRuntimeAgentId = String(existingRecord.runtimeAgentId || '').trim();
+      }
+    }
+
+    let finishStartLifecycle = () => {};
+    if (
+      options.lifecycleToken
+      && !this.adoptAgentLifecycleOperation(agentId, options.lifecycleToken)
+    ) {
+      if (callback) callback(null, 'Agent lifecycle operation is no longer active');
+      return null;
+    }
+    if (!options.lifecycleToken) {
+      finishStartLifecycle = this.beginAgentStartLifecycleOperation(agentId, options.startAdmissionToken);
+      if (!finishStartLifecycle) {
+        if (callback) callback(null, 'Agent lifecycle operation already in progress');
+        return null;
+      }
+    }
+
+    const createAdmission = this.beginPersistentAgentOperation(
+      agentRecord,
+      'create',
+      options.createRequestId
+        ? `create-request:${String(options.createRequestId).trim().slice(0, 160)}`
+        : `create:${agentId}`,
+      {
+        agentId,
+        previousRuntimeAgentId: (
+          typeof options.restoreRuntimeAgentIdOnFailure === 'string'
+          && options.restoreRuntimeAgentIdOnFailure
+        )
+          ? options.restoreRuntimeAgentIdOnFailure
+          : previousPersistentRuntimeAgentId,
+        previousState: createRollbackState(previousPersistentRecord),
+        signature: createOperationSignature(command, customWorkspace, options),
+        command: agentRecord.command,
+        cwd: agentRecord.cwd,
+        runtimeKind: runtimeKind(agentRecord),
+        structuredProcessProofRequired: useAcp,
+        structuredProcessStartGated: useAcp && process.platform !== 'win32',
+      },
+    );
+    if (createAdmission.error) {
+      finishStartLifecycle();
+      if (callback) callback(null, createAdmission.error);
+      return null;
+    }
+    const createOperationId = createAdmission.operation.id;
+    const rollbackCreatePatch = () => createFailurePatch(
+      createAdmission.operation,
+      options.restoreRuntimeAgentIdOnFailure,
+    );
+    const restoreCreateSessionOptions = () => {
+      const previousState = createAdmission.operation.request?.previousState;
+      const sessionKey = previousPersistentRecord?.providerSessionKey
+        || agentRecord.providerSessionKey;
+      if (!sessionKey) return;
+      if (
+        previousState
+        && Array.isArray(previousState.acpAdditionalDirectories)
+        && Array.isArray(previousState.acpMcpServers)
+      ) {
+        this.acpSessionOptionsByKey.set(sessionKey, {
+          additionalDirectories: [...previousState.acpAdditionalDirectories],
+          mcpServers: JSON.parse(JSON.stringify(previousState.acpMcpServers)),
+        });
+      } else {
+        this.acpSessionOptionsByKey.delete(sessionKey);
+      }
+    };
+
     let precreatedProviderSession = null;
     if (
       providerSessionPlan.precreate === true
@@ -2910,6 +3999,19 @@ class AgentManager extends EventEmitter {
       const adapter = getProviderAdapter(providerSessionPlan.provider);
       if (typeof adapter?.terminalResumeArgs !== 'function') {
         const message = `${providerSessionPlan.provider} cannot resume a pre-created Terminal session`;
+        try {
+          this.transitionPersistentAgentOperation(
+            agentRecord,
+            createOperationId,
+            'failed',
+            message,
+            rollbackCreatePatch(),
+          );
+          restoreCreateSessionOptions();
+        } catch (persistError) {
+          console.error('Failed to persist Create failure:', persistError);
+        }
+        finishStartLifecycle();
         if (callback) callback(null, message);
         return null;
       }
@@ -3018,6 +4120,23 @@ class AgentManager extends EventEmitter {
           message = `${baseMessage}; ${identityRetainedReason}`;
         }
         console.error('Failed to create provider session identity:', error);
+        try {
+          this.transitionPersistentAgentOperation(
+            agentRecord,
+            createOperationId,
+            identityRetainedReason || identityRollbackError ? 'blocked' : 'failed',
+            message,
+            identityRetainedReason || identityRollbackError
+              ? { visibleOnMainPage: true, archived: false }
+              : rollbackCreatePatch(),
+          );
+          if (!(identityRetainedReason || identityRollbackError)) {
+            restoreCreateSessionOptions();
+          }
+        } catch (persistError) {
+          message = `${message}; failed to persist Create failure: ${persistError.message || persistError}`;
+        }
+        finishStartLifecycle();
         if (callback) callback(null, message);
         return null;
       }
@@ -3030,21 +4149,6 @@ class AgentManager extends EventEmitter {
     ));
     console.log('Starting agent:', program, logArgs, 'workspace:', workspace, spawnProgram !== program ? `resolved: ${spawnProgram}` : '');
 
-    let finishStartLifecycle = () => {};
-    if (
-      options.lifecycleToken
-      && !this.adoptAgentLifecycleOperation(agentId, options.lifecycleToken)
-    ) {
-      if (callback) callback(null, 'Agent lifecycle operation is no longer active');
-      return null;
-    }
-    if (!options.lifecycleToken) {
-      finishStartLifecycle = this.beginAgentStartLifecycleOperation(agentId);
-      if (!finishStartLifecycle) {
-        if (callback) callback(null, 'Agent lifecycle operation already in progress');
-        return null;
-      }
-    }
     let structuredRuntimeRegistered = false;
 
     try {
@@ -3107,6 +4211,13 @@ class AgentManager extends EventEmitter {
           serviceTier: codexServiceTier,
           additionalDirectories,
           mcpServers,
+          onProcessStarted: async processIdentity => {
+            agentRecord.structuredRuntimeProcess = {
+              kind: 'acp-process-group',
+              ...processIdentity,
+            };
+            this.ensurePersistentAgentSession(agentRecord);
+          },
         });
         structuredRuntimeRegistered = true;
         agentRecord.providerSessionId = prepared.sessionId;
@@ -3163,13 +4274,19 @@ class AgentManager extends EventEmitter {
           await startTerminal();
         }
       }
-      agentRecord.persistentSessionId = this.ensurePersistentAgentSession(agentRecord, {
+      this.transitionPersistentAgentOperation(agentRecord, createOperationId, 'succeeded', '', {
         visibleOnMainPage: true,
         archived: false,
         ...(options.customTitleExplicit === true
           ? { customTitle: agentRecord.customTitle }
           : {}),
       });
+      if (
+        previousPersistentRuntimeAgentId
+        && previousPersistentRuntimeAgentId !== agentId
+      ) {
+        this.forgetStoppedAgentRecord(previousPersistentRuntimeAgentId, { emitUpdate: false });
+      }
 
       const agent = this.agents.get(agentId);
       if (agent && agent.status === 'pending') {
@@ -3245,20 +4362,6 @@ class AgentManager extends EventEmitter {
       } else if (precreatedProviderSession) {
         this.acpSessionOptionsByKey.delete(precreatedProviderSession.sessionKey);
       }
-      if (!runtimeCleanupError && options.restoreRuntimeAgentIdOnFailure && agentRecord.persistentSessionId) {
-        const failedAgentId = agentRecord.id;
-        try {
-          agentRecord.id = options.restoreRuntimeAgentIdOnFailure;
-          this.ensurePersistentAgentSession(agentRecord);
-        } catch (rollbackError) {
-          console.error(
-            'Failed to roll back persisted Agent runtime id after restart failure:',
-            rollbackError && (rollbackError.message || rollbackError)
-          );
-        } finally {
-          agentRecord.id = failedAgentId;
-        }
-      }
       const startupError = error && (error.message || String(error));
       const cleanupSuffix = rollbackError
         ? `; provider session rollback failed: ${rollbackError.message || rollbackError}`
@@ -3274,9 +4377,39 @@ class AgentManager extends EventEmitter {
           runtime.state = 'error';
           runtime.error = runtimeCleanupError.message || String(runtimeCleanupError);
         }
+        try {
+          this.transitionPersistentAgentOperation(
+            agentRecord,
+            createOperationId,
+            'blocked',
+            runtimeCleanupError.message || String(runtimeCleanupError),
+          );
+        } catch (persistError) {
+          runtimeCleanupError = new Error(
+            `${runtimeCleanupError.message || runtimeCleanupError}; failed to persist blocked Create: ${persistError.message || persistError}`,
+          );
+        }
         finishStartLifecycle();
         this.emit('update');
         if (callback) callback(agentId, `${startupError}${runtimeCleanupSuffix}${cleanupSuffix}`);
+        return null;
+      }
+      try {
+        this.transitionPersistentAgentOperation(
+          agentRecord,
+          createOperationId,
+          'failed',
+          startupError,
+          rollbackCreatePatch(),
+        );
+        restoreCreateSessionOptions();
+      } catch (persistError) {
+        agentRecord.status = 'error';
+        agentRecord.engineStatus = 'metadata-commit-uncertain';
+        const message = `${startupError}; failed to persist Create failure: ${persistError.message || persistError}`;
+        finishStartLifecycle();
+        this.emit('update');
+        if (callback) callback(agentId, message);
         return null;
       }
       this.agents.delete(agentId);
@@ -3299,13 +4432,31 @@ class AgentManager extends EventEmitter {
     }
   }
   
-  async enqueueInputOperation(agentId, operation) {
+  trackInputOperation(operation) {
+    this.activeInputOperations.add(operation);
+    void operation.finally(() => {
+      this.activeInputOperations.delete(operation);
+    }).catch(() => {});
+    return operation;
+  }
+
+  assertAgentOperationAdmission() {
+    if (this.disposing) {
+      throw new Error('Farming is shutting down; Agent operations are not accepted');
+    }
+  }
+
+  async enqueueInputOperation(agentId, operation, options = {}) {
+    if (this.disposing && options.admitted !== true) {
+      throw new Error('Farming is shutting down; Agent input is not accepted');
+    }
     const previous = this.inputQueues.get(agentId) || Promise.resolve();
     const next = previous
       .catch(() => {})
       .then(operation);
 
     this.inputQueues.set(agentId, next);
+    this.trackInputOperation(next);
     try {
       return await next;
     } finally {
@@ -3316,6 +4467,9 @@ class AgentManager extends EventEmitter {
   }
 
   async enqueueInputOperationUntilReleased(agentId, operation) {
+    if (this.disposing) {
+      throw new Error('Farming is shutting down; Agent input is not accepted');
+    }
     const previous = this.inputQueues.get(agentId) || Promise.resolve();
     let released = false;
     let resolveReleased;
@@ -3330,6 +4484,7 @@ class AgentManager extends EventEmitter {
 
     const ready = previous.catch(() => {});
     const completion = ready.then(() => operation(release));
+    this.trackInputOperation(completion);
     completion.catch(() => release());
     const boundary = ready.then(() => releasedPromise);
     this.inputQueues.set(agentId, boundary);
@@ -3347,11 +4502,21 @@ class AgentManager extends EventEmitter {
 
   async sendComposerMessage(agentId, message) {
     if (this.acpRuntime.canSteer?.(agentId)) {
-      try {
-        return await this.sendAcpSteerNow(agentId, message);
-      } catch (error) {
-        if (!isCodexSteerUnavailableError(error)) throw error;
+      if (this.disposing) {
+        throw new Error('Farming is shutting down; Agent input is not accepted');
       }
+      return this.trackInputOperation((async () => {
+        try {
+          return await this.sendAcpSteerNow(agentId, message);
+        } catch (error) {
+          if (!isCodexSteerUnavailableError(error)) throw error;
+        }
+        return this.enqueueInputOperation(
+          agentId,
+          () => this.sendComposerMessageNow(agentId, message),
+          { admitted: true },
+        );
+      })());
     }
     return this.enqueueInputOperation(agentId, () => this.sendComposerMessageNow(agentId, message));
   }
@@ -3537,26 +4702,31 @@ class AgentManager extends EventEmitter {
   }
 
   killAcpTerminal(agentId, terminalId) {
+    this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
     return this.acpRuntime.killTerminal(agentId, terminalId);
   }
 
   inputAcpTerminal(agentId, terminalId, input) {
+    this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
     return this.acpRuntime.inputTerminal(agentId, terminalId, input);
   }
 
   resizeAcpTerminal(agentId, terminalId, cols, rows) {
+    this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
     return this.acpRuntime.resizeTerminal(agentId, terminalId, cols, rows);
   }
 
   cancelAcpSubagent(agentId, sessionId) {
+    this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
     return this.acpRuntime.cancelSubagent(agentId, sessionId);
   }
 
   decideAcpPatch(agentId, toolCallId, requestedPath, decision) {
+    this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
     return this.acpRuntime.decidePatch(agentId, toolCallId, requestedPath, decision);
   }
@@ -3586,6 +4756,7 @@ class AgentManager extends EventEmitter {
   }
 
   respondToAcpPermission(agentId, requestId, optionId, cancelled = false) {
+    this.assertAgentOperationAdmission();
     const agent = this.agents.get(agentId);
     if (!agent) throw new Error('Agent not found');
     if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
@@ -3593,6 +4764,7 @@ class AgentManager extends EventEmitter {
   }
 
   respondToAcpElicitation(agentId, requestId, action, content) {
+    this.assertAgentOperationAdmission();
     const agent = this.agents.get(agentId);
     if (!agent) throw new Error('Agent not found');
     if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
@@ -3600,41 +4772,49 @@ class AgentManager extends EventEmitter {
   }
 
   authenticateAcpAgent(agentId, methodId) {
+    this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
     return this.acpRuntime.authenticate(agentId, methodId);
   }
 
   logoutAcpAgent(agentId) {
+    this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
     return this.acpRuntime.logout(agentId);
   }
 
   forkAcpSession(agentId, options = {}) {
+    this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
     return this.acpRuntime.forkSession(agentId, options);
   }
 
   deleteAcpSession(agentId, sessionId) {
+    this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
     return this.acpRuntime.deleteSession(agentId, sessionId);
   }
 
   closeAcpSession(agentId) {
+    this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
     return this.acpRuntime.closeSession(agentId);
   }
 
   setAcpSessionMode(agentId, modeId) {
+    this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
     return this.acpRuntime.setSessionMode(agentId, modeId);
   }
 
   setAcpSessionConfigOption(agentId, configId, value) {
+    this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
     return this.acpRuntime.setSessionConfigOption(agentId, configId, value);
   }
 
   setAcpSessionConfigOptions(agentId, changes) {
+    this.assertAgentOperationAdmission();
     this.getAcpSession(agentId);
     return this.acpRuntime.setSessionConfigOptions(agentId, changes);
   }
@@ -3687,6 +4867,7 @@ class AgentManager extends EventEmitter {
   }
 
   async interruptAgent(agentId, options = {}) {
+    this.assertAgentOperationAdmission();
     const agent = this.agents.get(agentId);
     if (!agent) return;
     try {
@@ -3735,6 +4916,7 @@ class AgentManager extends EventEmitter {
   }
 
   requestAgentSessionResize(agentId, cols, rows) {
+    if (this.disposing) return false;
     this.pendingResizeByAgent.set(agentId, { cols, rows });
     if (this.resizeDrains.has(agentId)) return true;
 
@@ -3821,83 +5003,108 @@ class AgentManager extends EventEmitter {
   }
 
   renameAgent(agentId, title) {
+    if (this.disposing) {
+      return { error: 'Farming is shutting down; Agent updates are not accepted' };
+    }
+    const lifecycleOperation = this.agentLifecycleOperations.get(agentId);
+    if (lifecycleOperation) {
+      return { error: `Agent lifecycle change already in progress: ${lifecycleOperation.label}` };
+    }
     const agent = this.agents.get(agentId);
     if (!agent) {
       return { error: 'Agent not found' };
     }
 
     const customTitle = String(title || '').trim().slice(0, 80);
+    const admission = this.beginPersistentAgentUpdate(
+      agent,
+      `rename:${customTitle}`,
+      { customTitle },
+    );
+    if (admission.error) return { error: `Failed to rename Agent: ${admission.error}` };
+    if (admission.deduplicated) {
+      return { agentId, customTitle, operationId: admission.operation.id, deduplicated: true };
+    }
+    const staged = {
+      ...agent,
+      customTitle,
+      lifecycleJournal: lifecycleJournal(agent),
+    };
+    transitionLifecycleOperation(staged, admission.operation.id, 'succeeded');
+    try {
+      this.ensurePersistentAgentSession(staged, { customTitle });
+    } catch (error) {
+      return {
+        error: `Failed to rename Agent: ${error.message || error}`,
+        operationId: admission.operation.id,
+        retryable: true,
+      };
+    }
     agent.customTitle = customTitle;
-    this.ensurePersistentAgentSession(agent, { customTitle });
+    agent.lifecycleJournal = staged.lifecycleJournal;
+    if (staged.persistentSessionId) agent.persistentSessionId = staged.persistentSessionId;
     this.updateEngineProviderSessionMetadata(agent);
     this.emit('update');
-    return { agentId, customTitle };
+    return { agentId, customTitle, operationId: admission.operation.id };
   }
 
   setAgentTask(agentId, task) {
+    if (this.disposing) {
+      return { error: 'Farming is shutting down; Agent updates are not accepted' };
+    }
+    const lifecycleOperation = this.agentLifecycleOperations.get(agentId);
+    if (lifecycleOperation) {
+      return { error: `Agent lifecycle change already in progress: ${lifecycleOperation.label}` };
+    }
     const agent = this.agents.get(agentId);
     if (!agent) {
       return { error: 'Agent not found' };
     }
 
     const nextTask = String(task || '').trim().slice(0, 240);
+    const admission = this.beginPersistentAgentUpdate(
+      agent,
+      `task:${nextTask}`,
+      { task: nextTask },
+    );
+    if (admission.error) return { error: `Failed to update Agent task: ${admission.error}` };
+    if (admission.deduplicated) {
+      return { agentId, task: nextTask, operationId: admission.operation.id, deduplicated: true };
+    }
+    const staged = {
+      ...agent,
+      task: nextTask,
+      lifecycleJournal: lifecycleJournal(agent),
+    };
+    transitionLifecycleOperation(staged, admission.operation.id, 'succeeded');
+    try {
+      this.ensurePersistentAgentSession(staged, { task: nextTask });
+    } catch (error) {
+      return {
+        error: `Failed to update Agent task: ${error.message || error}`,
+        operationId: admission.operation.id,
+        retryable: true,
+      };
+    }
     agent.task = nextTask;
+    agent.lifecycleJournal = staged.lifecycleJournal;
+    if (staged.persistentSessionId) agent.persistentSessionId = staged.persistentSessionId;
     this.emit('update');
-    return { agentId, task: nextTask };
+    return { agentId, task: nextTask, operationId: admission.operation.id };
   }
 
   updateAgentFlags(agentId, flags) {
+    if (this.disposing) {
+      return { error: 'Farming is shutting down; Agent updates are not accepted' };
+    }
+    const lifecycleOperation = this.agentLifecycleOperations.get(agentId);
+    if (lifecycleOperation) {
+      return { error: `Agent lifecycle change already in progress: ${lifecycleOperation.label}` };
+    }
     const agent = this.agents.get(agentId);
     if (!agent) {
       return { error: 'Agent not found' };
     }
-
-    const updates = {};
-    let structuralUpdateChanged = false;
-    let readUpdateChanged = false;
-    if (typeof flags.pinned === 'boolean') {
-      const wasPinned = agent.pinned === true;
-      agent.pinned = flags.pinned;
-      structuralUpdateChanged = structuralUpdateChanged || wasPinned !== agent.pinned;
-      updates.pinned = agent.pinned;
-      if (!wasPinned && agent.pinned) {
-        agent.pinnedOrder = nextPinnedOrder(Array.from(this.agents.values()));
-      }
-      updates.pinnedOrder = finiteOrder(agent.pinnedOrder);
-    }
-
-    if (
-      typeof flags.readOutputEpoch === 'string'
-      && typeof flags.readOutputSeq === 'number'
-      && Number.isFinite(flags.readOutputSeq)
-    ) {
-      const result = this.markAgentReadOutputCut(agentId, flags.readOutputEpoch, flags.readOutputSeq);
-      if (result.error) return result;
-      updates.readOutputEpoch = result.readOutputEpoch;
-      updates.readOutputSeq = result.readOutputSeq;
-      readUpdateChanged = readUpdateChanged || result.changed;
-    }
-
-    if (typeof flags.unread === 'boolean') {
-      const result = flags.unread
-        ? this.markAgentUnreadCursor(agentId)
-        : this.markAgentReadCursor(agentId, undefined, { emitUpdate: false });
-      if (result.error) return result;
-      updates.unread = result.unread;
-      updates.attentionSeq = result.attentionSeq;
-      updates.readAttentionSeq = result.readAttentionSeq;
-      readUpdateChanged = readUpdateChanged || result.changed === true;
-    }
-
-    if (typeof flags.readAttentionSeq === 'number' && Number.isFinite(flags.readAttentionSeq)) {
-      const result = this.markAgentReadCursor(agentId, flags.readAttentionSeq, { emitUpdate: false });
-      if (result.error) return result;
-      updates.unread = result.unread;
-      updates.attentionSeq = result.attentionSeq;
-      updates.readAttentionSeq = result.readAttentionSeq;
-      readUpdateChanged = readUpdateChanged || result.changed === true;
-    }
-
     if (flags.archived === true) {
       if (agent.id === this.mainAgentId) {
         return { error: 'Main Agent cannot be archived' };
@@ -3905,19 +5112,149 @@ class AgentManager extends EventEmitter {
       return { error: 'Use archiveAgent to archive live agents' };
     }
 
-    if (flags.archived === false) {
-      structuralUpdateChanged = structuralUpdateChanged || agent.archived === true || agent.archivedAt !== null;
-      agent.archived = false;
-      agent.archivedAt = null;
-      updates.archived = agent.archived;
-      updates.archivedAt = agent.archivedAt;
+    const persistedFlags = {};
+    [
+      'pinned',
+      'unread',
+      'archived',
+      'readAttentionSeq',
+      'readOutputEpoch',
+      'readOutputSeq',
+    ].forEach(field => {
+      if (Object.prototype.hasOwnProperty.call(flags, field)) persistedFlags[field] = flags[field];
+    });
+    const requestKey = `flags:${JSON.stringify(persistedFlags)}`;
+    const activeUpdate = activeLifecycleOperation(agent);
+    const needsLifecycleJournal = typeof persistedFlags.pinned === 'boolean'
+      || persistedFlags.archived === false
+      || (
+        activeUpdate?.type === 'update'
+        && activeUpdate.requestKey === requestKey
+      );
+    const admission = needsLifecycleJournal
+      ? this.beginPersistentAgentOperation(
+          agent,
+          'update',
+          requestKey,
+          persistedFlags,
+        )
+      : null;
+    if (admission?.error) return { error: `Failed to update Agent: ${admission.error}` };
+
+    const staged = {
+      ...agent,
+      lifecycleJournal: lifecycleJournal(agent),
+    };
+    const updates = {};
+    let structuralUpdateChanged = false;
+    let readUpdateChanged = false;
+    if (typeof flags.pinned === 'boolean') {
+      const wasPinned = staged.pinned === true;
+      staged.pinned = flags.pinned;
+      structuralUpdateChanged = structuralUpdateChanged || wasPinned !== staged.pinned;
+      updates.pinned = staged.pinned;
+      if (!wasPinned && staged.pinned) {
+        staged.pinnedOrder = nextPinnedOrder(Array.from(this.agents.values()));
+      }
+      updates.pinnedOrder = finiteOrder(staged.pinnedOrder);
     }
 
     if (
-      typeof flags.pinned === 'boolean'
-      || (typeof flags.readOutputEpoch === 'string' && typeof flags.readOutputSeq === 'number')
+      typeof flags.readOutputEpoch === 'string'
+      && typeof flags.readOutputSeq === 'number'
+      && Number.isFinite(flags.readOutputSeq)
     ) {
-      this.ensurePersistentAgentSession(agent);
+      const currentRuntimeEpoch = typeof staged.runtimeEpoch === 'string' ? staged.runtimeEpoch : '';
+      const currentOutputSeq = finiteNumberOrNull(staged.lastOutputSeq);
+      if (
+        currentRuntimeEpoch
+        && flags.readOutputEpoch === currentRuntimeEpoch
+        && currentOutputSeq !== null
+      ) {
+        const nextOutputSeq = Math.min(currentOutputSeq, Math.max(0, Math.floor(flags.readOutputSeq)));
+        const previousOutputSeq = staged.readOutputEpoch === currentRuntimeEpoch
+          ? finiteNumberOrNull(staged.readOutputSeq)
+          : null;
+        const readOutputSeq = previousOutputSeq === null
+          ? nextOutputSeq
+          : Math.max(previousOutputSeq, nextOutputSeq);
+        readUpdateChanged = readUpdateChanged
+          || staged.readOutputEpoch !== currentRuntimeEpoch
+          || previousOutputSeq !== readOutputSeq;
+        staged.readOutputEpoch = currentRuntimeEpoch;
+        staged.readOutputSeq = readOutputSeq;
+      }
+      updates.readOutputEpoch = typeof staged.readOutputEpoch === 'string' ? staged.readOutputEpoch : '';
+      updates.readOutputSeq = finiteNumberOrNull(staged.readOutputSeq);
+    }
+
+    if (typeof flags.unread === 'boolean') {
+      const previousReadSeq = finiteNonNegativeInteger(staged.readAttentionSeq);
+      const previousUnread = staged.unread === true;
+      if (flags.unread) {
+        if (finiteNonNegativeInteger(staged.attentionSeq) === 0) {
+          const now = Date.now();
+          staged.attentionSeq = 1;
+          staged.attentionUpdatedAt = now;
+          staged.attentionReason = 'manual-unread';
+          staged.attentionOutputEpoch = typeof staged.runtimeEpoch === 'string' ? staged.runtimeEpoch : '';
+          staged.attentionOutputSeq = Number.isFinite(staged.lastOutputSeq) ? staged.lastOutputSeq : null;
+          staged.attentionAutoReadNext = false;
+        }
+        staged.readAttentionSeq = Math.max(0, finiteNonNegativeInteger(staged.attentionSeq) - 1);
+      } else {
+        staged.readAttentionSeq = finiteNonNegativeInteger(staged.attentionSeq);
+      }
+      staged.readAttentionAt = Date.now();
+      staged.unread = agentAttentionUnread(staged);
+      readUpdateChanged = readUpdateChanged
+        || previousReadSeq !== staged.readAttentionSeq
+        || previousUnread !== staged.unread;
+      updates.unread = staged.unread;
+      updates.attentionSeq = finiteNonNegativeInteger(staged.attentionSeq);
+      updates.readAttentionSeq = finiteNonNegativeInteger(staged.readAttentionSeq);
+    }
+
+    if (typeof flags.readAttentionSeq === 'number' && Number.isFinite(flags.readAttentionSeq)) {
+      const previousReadSeq = finiteNonNegativeInteger(staged.readAttentionSeq);
+      const previousUnread = staged.unread === true;
+      const attentionSeq = finiteNonNegativeInteger(staged.attentionSeq);
+      staged.readAttentionSeq = Math.min(
+        attentionSeq,
+        Math.max(previousReadSeq, finiteNonNegativeInteger(flags.readAttentionSeq)),
+      );
+      staged.readAttentionAt = Date.now();
+      staged.unread = agentAttentionUnread(staged);
+      readUpdateChanged = readUpdateChanged
+        || previousReadSeq !== staged.readAttentionSeq
+        || previousUnread !== staged.unread;
+      updates.unread = staged.unread;
+      updates.attentionSeq = attentionSeq;
+      updates.readAttentionSeq = staged.readAttentionSeq;
+    }
+
+    if (flags.archived === false) {
+      structuralUpdateChanged = structuralUpdateChanged || staged.archived === true || staged.archivedAt !== null;
+      staged.archived = false;
+      staged.archivedAt = null;
+      updates.archived = staged.archived;
+      updates.archivedAt = staged.archivedAt;
+    }
+
+    if (admission) {
+      transitionLifecycleOperation(staged, admission.operation.id, 'succeeded');
+    }
+    try {
+      this.ensurePersistentAgentSession(staged);
+    } catch (error) {
+      return {
+        error: `Failed to update Agent: ${error.message || error}`,
+        ...(admission ? { operationId: admission.operation.id } : {}),
+        retryable: true,
+      };
+    }
+    Object.assign(agent, staged);
+    if (structuralUpdateChanged || readUpdateChanged) {
       this.updateEngineProviderSessionMetadata(agent);
     }
     if (structuralUpdateChanged) {
@@ -3937,6 +5274,7 @@ class AgentManager extends EventEmitter {
       ...updates,
       changed: structuralUpdateChanged || readUpdateChanged,
       requiresState: structuralUpdateChanged,
+      ...(admission ? { operationId: admission.operation.id } : {}),
     };
   }
 
@@ -3948,18 +5286,7 @@ class AgentManager extends EventEmitter {
       String(afterAgentId || ''),
     );
     if (result.error) return result;
-
-    const updates = [];
-    for (const [updatedAgentId, projectOrder] of result.updates) {
-      const agent = this.agents.get(updatedAgentId);
-      if (!agent) continue;
-      agent.projectOrder = projectOrder;
-      this.ensurePersistentAgentSession(agent);
-      this.updateEngineProviderSessionMetadata(agent);
-      updates.push({ agentId: updatedAgentId, projectOrder });
-    }
-    this.emit('update');
-    return { agentId, projectOrder: finiteOrder(this.agents.get(agentId)?.projectOrder), updates };
+    return this.commitAgentOrderUpdates(agentId, result.updates, 'projectOrder');
   }
 
   reorderPinnedAgent(agentId, { beforeAgentId = '', afterAgentId = '' } = {}) {
@@ -3970,21 +5297,70 @@ class AgentManager extends EventEmitter {
       String(afterAgentId || ''),
     );
     if (result.error) return result;
+    return this.commitAgentOrderUpdates(agentId, result.updates, 'pinnedOrder');
+  }
 
-    const updates = [];
-    for (const [updatedAgentId, pinnedOrder] of result.updates) {
-      const agent = this.agents.get(updatedAgentId);
-      if (!agent) continue;
-      agent.pinnedOrder = pinnedOrder;
-      this.ensurePersistentAgentSession(agent);
-      this.updateEngineProviderSessionMetadata(agent);
-      updates.push({ agentId: updatedAgentId, pinnedOrder });
+  commitAgentOrderUpdates(agentId, orderUpdates, field) {
+    const staged = [...orderUpdates].map(([updatedAgentId, order]) => ({
+      agent: this.agents.get(updatedAgentId),
+      order,
+    })).filter(item => item.agent);
+    const conflicting = staged.find(item => this.agentLifecycleOperations.has(item.agent.id));
+    if (conflicting) {
+      const lifecycleOperation = this.agentLifecycleOperations.get(conflicting.agent.id);
+      return { error: `Agent lifecycle change already in progress: ${lifecycleOperation.label}` };
     }
+
+    const attempted = [];
+    try {
+      for (const item of staged) {
+        item.stagedAgent = { ...item.agent, [field]: item.order };
+        attempted.push(item);
+        this.ensurePersistentAgentSession(item.stagedAgent);
+      }
+    } catch (error) {
+      let rollbackError = null;
+      for (const item of attempted.reverse()) {
+        try {
+          this.ensurePersistentAgentSession({
+            ...item.agent,
+            persistentSessionId: item.stagedAgent.persistentSessionId || item.agent.persistentSessionId,
+          });
+        } catch (restoreError) {
+          rollbackError = restoreError;
+        }
+      }
+      return {
+        error: `Failed to reorder Agents: ${error.message || error}${
+          rollbackError ? `; storage rollback failed: ${rollbackError.message || rollbackError}` : ''
+        }`,
+      };
+    }
+
+    const updates = staged.map(item => {
+      item.agent[field] = item.order;
+      if (item.stagedAgent.persistentSessionId) {
+        item.agent.persistentSessionId = item.stagedAgent.persistentSessionId;
+      }
+      this.updateEngineProviderSessionMetadata(item.agent);
+      return { agentId: item.agent.id, [field]: item.order };
+    });
     this.emit('update');
-    return { agentId, pinnedOrder: finiteOrder(this.agents.get(agentId)?.pinnedOrder), updates };
+    return {
+      agentId,
+      [field]: finiteOrder(this.agents.get(agentId)?.[field]),
+      updates,
+    };
   }
 
   reorderAgent(agentId, neighbors = {}) {
+    if (this.disposing) {
+      return { error: 'Farming is shutting down; Agent updates are not accepted' };
+    }
+    const lifecycleOperation = this.agentLifecycleOperations.get(agentId);
+    if (lifecycleOperation) {
+      return { error: `Agent lifecycle change already in progress: ${lifecycleOperation.label}` };
+    }
     const agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
     return agent.pinned === true
@@ -4002,10 +5378,22 @@ class AgentManager extends EventEmitter {
     const inFlight = this.agentLifecycleOperations.get(agentId);
     if (inFlight) {
       if (inFlight.key === key) return inFlight.promise;
-      if (inFlight.kind === kind && sameKindConflictError) {
+      if (sameKindConflictError && inFlight.kind === kind) {
         return Promise.resolve({ error: sameKindConflictError });
       }
-      return Promise.resolve({ error: `Agent lifecycle change already in progress: ${inFlight.label}` });
+      return inFlight.promise
+        .catch(() => {})
+        .then(() => this.runAgentLifecycleOperation(
+          agentId,
+          key,
+          kind,
+          label,
+          operation,
+          sameKindConflictError,
+        ));
+    }
+    if (this.disposing) {
+      return Promise.resolve({ error: 'Farming is shutting down; Agent lifecycle changes are not accepted' });
     }
 
     const token = Symbol(key);
@@ -4022,8 +5410,18 @@ class AgentManager extends EventEmitter {
     return promise;
   }
 
-  beginAgentStartLifecycleOperation(agentId) {
+  async whenAgentLifecycleIdle(agentId) {
+    await this.whenRecovered();
+    while (true) {
+      const inFlight = this.agentLifecycleOperations.get(agentId);
+      if (!inFlight) return;
+      await inFlight.promise.catch(() => {});
+    }
+  }
+
+  beginAgentStartLifecycleOperation(agentId, startAdmissionToken) {
     if (this.agentLifecycleOperations.has(agentId)) return null;
+    if (this.disposing && !this.agentStartAdmissions.has(startAdmissionToken)) return null;
     let resolveCompletion;
     const promise = new Promise(resolve => {
       resolveCompletion = resolve;
@@ -4086,7 +5484,7 @@ class AgentManager extends EventEmitter {
     const agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
     const provider = agent.providerSessionProvider || '';
-    const requestedMode = ['terminal', 'json', 'acp', 'chat'].includes(mode) ? mode : '';
+    const requestedMode = ['terminal', 'acp', 'chat'].includes(mode) ? mode : '';
     const nextMode = requestedMode === 'acp' && provider === 'codex' ? 'chat' : requestedMode;
     if (!nextMode) return { error: 'Unsupported Agent runtime mode' };
     const currentKind = runtimeKind(agent);
@@ -4204,6 +5602,7 @@ class AgentManager extends EventEmitter {
       ...restartOptions,
       agentRuntimeMode: originalMode,
       acpStartFresh: false,
+      ...(originalMode === 'json' ? { allowLegacyJsonRuntime: true } : {}),
     };
     const startReplacement = options => new Promise(resolve => {
       let settled = false;
@@ -4235,6 +5634,7 @@ class AgentManager extends EventEmitter {
       recordHistory: false,
       emitUpdate: false,
       lifecycleToken,
+      persistDeleteOperation: false,
     });
     if (killResult?.error) return killResult;
     const switched = await startReplacement(restartOptions);
@@ -4248,14 +5648,23 @@ class AgentManager extends EventEmitter {
         agentRuntimeMode: nextMode,
       };
     }
-      if (switched.restartedAgentId && this.agents.has(switched.restartedAgentId)) {
-        await this.killAgent(switched.restartedAgentId, {
+    if (switched.restartedAgentId && this.agents.has(switched.restartedAgentId)) {
+      const cleanup = await this.killAgent(switched.restartedAgentId, {
           reason: 'runtime-switch-start-failed',
           recordHistory: false,
           emitUpdate: false,
           lifecycleToken,
-        });
+      });
+      if (cleanup?.error) {
+        this.emit('update');
+        return {
+          agentId,
+          restartedAgentId: switched.restartedAgentId,
+          cleanupUncertain: true,
+          error: `${switched.error || 'Failed to switch Agent runtime'} Replacement cleanup could not be verified: ${cleanup.error}`,
+        };
       }
+    }
 
     const restored = await startReplacement(originalOptions);
     if (restored.restartedAgentId && !restored.error) {
@@ -4270,17 +5679,24 @@ class AgentManager extends EventEmitter {
         warning: `${switched.error || 'Failed to switch Agent runtime'} Original runtime restored.`,
       };
     }
+    let restoreCleanupError = '';
     if (restored.restartedAgentId && this.agents.has(restored.restartedAgentId)) {
-      await this.killAgent(restored.restartedAgentId, {
+      const cleanup = await this.killAgent(restored.restartedAgentId, {
         reason: 'runtime-switch-restore-failed',
         recordHistory: false,
         emitUpdate: false,
         lifecycleToken,
       });
+      restoreCleanupError = cleanup?.error || '';
     }
     this.emit('update');
     return {
-      error: `${switched.error || 'Failed to switch Agent runtime'} Restore also failed: ${restored.error || 'unknown error'}`,
+      ...(restoreCleanupError
+        ? { restartedAgentId: restored.restartedAgentId, cleanupUncertain: true }
+        : {}),
+      error: `${switched.error || 'Failed to switch Agent runtime'} Restore also failed: ${
+        restored.error || 'unknown error'
+      }${restoreCleanupError ? ` Cleanup could not be verified: ${restoreCleanupError}` : ''}`,
     };
   }
 
@@ -4395,6 +5811,7 @@ class AgentManager extends EventEmitter {
       recordHistory: false,
       emitUpdate: false,
       lifecycleToken,
+      persistDeleteOperation: false,
     });
     if (killResult?.error) return killResult;
 
@@ -4660,6 +6077,7 @@ class AgentManager extends EventEmitter {
   }
 
   async deleteForkWorktreeProject(workspace, options = {}) {
+    await this.whenRecovered();
     const inspected = await this.inspectForkWorktreeProject(workspace);
     if (inspected.error) return inspected;
     if (inspected.requiresForce && options.force !== true) {
@@ -4712,6 +6130,10 @@ class AgentManager extends EventEmitter {
   }
 
   async forkAgent(agentId, mode = 'same-worktree', options = {}) {
+    await this.whenRecovered();
+    if (this.disposing) {
+      return { error: 'Farming is shutting down; Agent lifecycle changes are not accepted' };
+    }
     const agent = this.agents.get(agentId);
     if (!agent) {
       return { error: 'Agent not found' };
@@ -4996,6 +6418,12 @@ class AgentManager extends EventEmitter {
   }
 
   archiveAgent(agentId, options = {}) {
+    if (options.skipRecoveryWait !== true && !this.recoveryComplete) {
+      return this.whenRecovered().then(() => this.archiveAgent(agentId, {
+        ...options,
+        skipRecoveryWait: true,
+      }));
+    }
     const inFlight = this.agentLifecycleOperations.get(agentId);
     if (inFlight) {
       return this.runAgentLifecycleOperation(
@@ -5026,6 +6454,12 @@ class AgentManager extends EventEmitter {
   async performArchiveAgent(agentId, options, lifecycleToken) {
     const agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
+    const admission = this.beginPersistentAgentOperation(agent, 'archive', 'archive', {
+      reason: options.reason || 'manual-archive',
+      structuredProcessProofRequired: runtimeKind(agent) === 'acp',
+    });
+    if (admission.error) return { agentId, error: admission.error };
+    const operationId = admission.operation.id;
     const killResult = await this.killAgent(agentId, {
       reason: options.reason || 'manual-archive',
       recordHistory: false,
@@ -5033,34 +6467,46 @@ class AgentManager extends EventEmitter {
       retainAgentRecord: true,
       emitUpdate: false,
       lifecycleToken,
+      persistDeleteOperation: false,
+      skipRecoveryWait: options.skipRecoveryWait === true,
     });
-    if (killResult?.error) return killResult;
-    const originalMainPageSessionKeys = this.getMainPageSessionKeys();
+    if (killResult?.error) {
+      try {
+        this.transitionPersistentAgentOperation(agent, operationId, 'blocked', killResult.error);
+      } catch (error) {
+        return {
+          ...killResult,
+          error: `${killResult.error}; failed to persist blocked Archive: ${error.message || error}`,
+        };
+      }
+      return { ...killResult, operationId };
+    }
     let removedMainPageSessionKeys = [];
     try {
-      removedMainPageSessionKeys = this.removeMainPageProviderSessionsForAgents([agent]);
-      this.ensurePersistentAgentSession(agent, { visibleOnMainPage: false });
+      this.transitionPersistentAgentOperation(agent, operationId, 'succeeded', '', {
+        visibleOnMainPage: false,
+        archived: true,
+        archivedAt: Date.now(),
+        runtimeAgentId: '',
+      });
     } catch (error) {
-      let rollbackError = null;
-      if (removedMainPageSessionKeys.length > 0) {
-        try {
-          this.setMainPageSessionKeys(originalMainPageSessionKeys);
-        } catch (restoreError) {
-          rollbackError = restoreError;
-        }
-      }
       this.emit('update');
       return {
         agentId,
-        error: `Agent stopped, but archive metadata could not be saved: ${error.message || error}${
-          rollbackError ? `; membership rollback failed: ${rollbackError.message || rollbackError}` : ''
-        }`,
+        error: `Agent stopped, but archive metadata could not be saved: ${error.message || error}`,
         stopped: true,
         archived: false,
         retryable: true,
+        operationId,
         removedMainPageSessionKeys,
-        membershipRestored: removedMainPageSessionKeys.length === 0 || !rollbackError,
       };
+    }
+    let metadataWarning = '';
+    try {
+      removedMainPageSessionKeys = this.removeMainPageProviderSessionsForAgents([agent]);
+    } catch (error) {
+      metadataWarning = `Agent archived, but main-page membership cleanup failed: ${error.message || error}`;
+      console.error(metadataWarning);
     }
 
     let historyWarning = '';
@@ -5083,8 +6529,13 @@ class AgentManager extends EventEmitter {
       agentId,
       archived: true,
       removed: true,
+      operationId,
       removedMainPageSessionKeys,
-      ...(historyWarning ? { warning: historyWarning } : {}),
+      ...(
+        metadataWarning || historyWarning
+          ? { warning: [metadataWarning, historyWarning].filter(Boolean).join('; ') }
+          : {}
+      ),
     };
   }
 
@@ -5117,7 +6568,88 @@ class AgentManager extends EventEmitter {
       });
   }
   
+  admitPersistentDelete(agent, options = {}) {
+    const activeOperation = activeLifecycleOperation(agent);
+    if (
+      activeOperation?.type === 'create'
+      && ['pending', 'blocked'].includes(activeOperation.state)
+    ) {
+      const previousJournal = lifecycleJournal(agent);
+      try {
+        transitionLifecycleOperation(
+          agent,
+          activeOperation.id,
+          'cancelled',
+          'Create was superseded by Delete',
+        );
+        const admittedDelete = beginLifecycleOperation(
+          agent,
+          'delete',
+          'delete',
+          {
+            reason: options.reason || 'manual-kill',
+            structuredProcessProofRequired: runtimeKind(agent) === 'acp',
+          },
+        );
+        const persistentSessionId = this.ensurePersistentAgentSession(agent);
+        if (
+          typeof this.configManager?.ensureAgentSessionRecord === 'function'
+          && !persistentSessionId
+        ) {
+          throw new Error('Agent session store did not return a persistent id');
+        }
+        return {
+          operationId: admittedDelete.operation.id,
+          completesBlockedCreate: false,
+        };
+      } catch (error) {
+        agent.lifecycleJournal = previousJournal;
+        return { error: `Failed to persist Create cleanup retry: ${error.message || error}` };
+      }
+    }
+    const admitted = this.beginPersistentAgentOperation(agent, 'delete', 'delete', {
+      reason: options.reason || 'manual-kill',
+      structuredProcessProofRequired: runtimeKind(agent) === 'acp',
+    });
+    if (admitted.error) return { error: admitted.error };
+    return {
+      operationId: admitted.operation.id,
+      completesBlockedCreate: false,
+    };
+  }
+
+  async requestKillAgent(agentId, options = {}) {
+    if (options.skipRecoveryWait !== true) await this.whenRecovered();
+    const existing = this.agentLifecycleOperations.get(agentId);
+    if (existing && existing.key !== 'kill') {
+      await existing.promise.catch(() => {});
+      return this.requestKillAgent(agentId, options);
+    }
+    const completion = this.killAgent(agentId, options);
+    const operation = activeLifecycleOperation(this.agents.get(agentId));
+    if (!operation || !['create', 'delete'].includes(operation.type)) {
+      const result = await completion;
+      return { result, completion: Promise.resolve(result) };
+    }
+    return {
+      result: {
+        agentId,
+        accepted: true,
+        operationId: operation.id,
+        operationType: operation.type,
+        operationState: operation.state,
+      },
+      completion,
+    };
+  }
+
   killAgent(agentId, options = {}) {
+    if (options.skipRecoveryWait !== true && !this.recoveryComplete) {
+      return this.whenRecovered().then(() => this.killAgent(agentId, {
+        ...options,
+        skipRecoveryWait: true,
+      }));
+    }
     const inFlight = this.agentLifecycleOperations.get(agentId);
     if (inFlight) {
       if (options.lifecycleToken && inFlight.token === options.lifecycleToken) {
@@ -5128,24 +6660,78 @@ class AgentManager extends EventEmitter {
         'kill',
         'kill',
         'kill',
-        lifecycleToken => this.performKillAgent(agentId, { ...options, lifecycleToken }),
+        lifecycleToken => {
+          const agent = this.agents.get(agentId);
+          if (!agent) return { agentId, killed: true, missing: true };
+          let queuedOptions = options;
+          if (options.persistDeleteOperation !== false && !options.persistentOperationId) {
+            const admitted = this.admitPersistentDelete(agent, options);
+            if (admitted.error) return { agentId, error: admitted.error };
+            queuedOptions = {
+              ...options,
+              persistentOperationId: admitted.operationId,
+              completesBlockedCreate: admitted.completesBlockedCreate,
+            };
+          }
+          return this.performKillAgent(agentId, { ...queuedOptions, lifecycleToken });
+        },
       );
     }
     const agent = this.agents.get(agentId);
     if (!agent) return Promise.resolve({ agentId, killed: true, missing: true });
+    let admittedOptions = options;
+    if (options.persistDeleteOperation !== false && !options.persistentOperationId) {
+      const admitted = this.admitPersistentDelete(agent, options);
+      if (admitted.error) return Promise.resolve({ agentId, error: admitted.error });
+      admittedOptions = {
+        ...options,
+        persistentOperationId: admitted.operationId,
+        completesBlockedCreate: admitted.completesBlockedCreate,
+      };
+    }
 
     return this.runAgentLifecycleOperation(
       agentId,
       'kill',
       'kill',
       'kill',
-      lifecycleToken => this.performKillAgent(agentId, { ...options, lifecycleToken }),
+      lifecycleToken => this.performKillAgent(agentId, { ...admittedOptions, lifecycleToken }),
     );
   }
 
   async performKillAgent(agentId, options = {}) {
     const agent = this.agents.get(agentId);
     if (!agent) return { agentId, killed: true, missing: true };
+
+    let persistentOperationId = options.persistentOperationId || '';
+    const completesBlockedCreate = options.completesBlockedCreate === true;
+    const cleanupFailure = (message, kind = '') => {
+      const error = String(message || 'Failed to stop Agent runtime');
+      if (kind === 'acp' || kind === 'json') {
+        return this.markStructuredAgentCleanupUncertain(
+          agentId,
+          kind,
+          error,
+          { operationId: persistentOperationId },
+        );
+      }
+      agent.status = 'error';
+      agent.engineStatus = 'cleanup-uncertain';
+      if (persistentOperationId) {
+        try {
+          this.transitionPersistentAgentOperation(agent, persistentOperationId, 'blocked', error);
+        } catch (persistError) {
+          return {
+            agentId,
+            error: `${error}; failed to persist blocked Agent operation: ${persistError.message || persistError}`,
+            cleanupUncertain: true,
+            retryable: true,
+          };
+        }
+      }
+      this.emit('update');
+      return { agentId, error, cleanupUncertain: true, retryable: true };
+    };
 
     const requireEngineExit = options.requireEngineExit !== false;
     const currentRuntimeKind = runtimeKind(agent);
@@ -5154,24 +6740,49 @@ class AgentManager extends EventEmitter {
       try {
       if (currentRuntimeKind === 'acp') {
         if (typeof this.acpRuntime?.unregisterAgentAndWait !== 'function') {
-          return { agentId, error: 'ACP runtime exit cannot be verified' };
+          return cleanupFailure('ACP runtime exit cannot be verified', 'acp');
         }
         const stopped = await this.acpRuntime.unregisterAgentAndWait(agentId);
         if (stopped !== true) {
-          return { agentId, error: 'ACP runtime binding is missing; process exit cannot be verified' };
+          if (!agent.structuredRuntimeProcess) {
+            if (
+              options.acknowledgeUnprovenAcpExit !== true
+              || agent.requiresProcessExitAcknowledgement !== true
+            ) {
+              return cleanupFailure('ACP runtime binding is missing; process exit cannot be verified', 'acp');
+            }
+            const previousAcknowledgedAt = agent.legacyAcpProcessExitAcknowledgedAt;
+            agent.legacyAcpProcessExitAcknowledgedAt = Date.now();
+            agent.requiresProcessExitAcknowledgement = false;
+            try {
+              this.ensurePersistentAgentSession(agent);
+            } catch (error) {
+              agent.legacyAcpProcessExitAcknowledgedAt = previousAcknowledgedAt;
+              agent.requiresProcessExitAcknowledgement = true;
+              throw error;
+            }
+          } else {
+            const cleanup = await this.stopPersistedAcpProcessGroup(agent.structuredRuntimeProcess);
+            if (cleanup.stopped !== true) {
+              return cleanupFailure(
+                'ACP runtime binding is missing and the persisted process identity could not be safely stopped',
+                'acp',
+              );
+            }
+          }
         }
       } else if (currentRuntimeKind === 'json') {
         if (typeof this.jsonCliRuntime?.unregisterAgentAndWait !== 'function') {
-          return { agentId, error: 'JSON runtime exit cannot be verified' };
+          return cleanupFailure('JSON runtime exit cannot be verified', 'json');
         }
         const stopped = await this.jsonCliRuntime.unregisterAgentAndWait(agentId);
         if (stopped !== true) {
-          return { agentId, error: 'JSON runtime binding is missing; process exit cannot be verified' };
+          return cleanupFailure('JSON runtime binding is missing; process exit cannot be verified', 'json');
         }
       } else {
         const engine = this.engineBridge.getEngine(agent.engineName);
         if (requireEngineExit && !engine) {
-          return { agentId, error: 'Agent runtime is unavailable; process exit cannot be verified' };
+          return cleanupFailure('Agent runtime is unavailable; process exit cannot be verified');
         }
         let killError = null;
         try {
@@ -5194,25 +6805,86 @@ class AgentManager extends EventEmitter {
                 lastState = null;
                 break;
               }
-              return { agentId, error: error.message || 'Failed to verify Agent process exit' };
+              return cleanupFailure(error.message || 'Failed to verify Agent process exit');
             }
             if (!isLiveEngineSessionState(lastState)) break;
             await new Promise(resolve => setTimeout(resolve, 50));
           }
           if (isLiveEngineSessionState(lastState)) {
-            return {
-              agentId,
-              error: killError?.message || 'Agent process did not exit within 3 seconds',
-            };
+            return cleanupFailure(killError?.message || 'Agent process did not exit within 3 seconds');
           }
         } else if (killError) {
-          return { agentId, error: killError.message || 'Failed to stop Agent runtime' };
+          return cleanupFailure(killError.message || 'Failed to stop Agent runtime');
         }
       }
       } catch (error) {
-        return { agentId, error: error.message || 'Failed to stop Agent runtime' };
+        if (currentRuntimeKind === 'acp' || currentRuntimeKind === 'json') {
+          return cleanupFailure(error.message || 'Failed to stop Agent runtime', currentRuntimeKind);
+        }
+        return cleanupFailure(error.message || 'Failed to stop Agent runtime');
       } finally {
         this.permissionRestartSuppressedAgentIds.delete(agentId);
+      }
+    }
+    if (currentRuntimeKind === 'acp' || currentRuntimeKind === 'json') {
+      agent.structuredRuntimeProcess = null;
+    }
+
+    if (completesBlockedCreate) {
+      try {
+        this.transitionPersistentAgentOperation(
+          agent,
+          persistentOperationId,
+          'failed',
+          'Create runtime was stopped by Delete recovery',
+        );
+      } catch (error) {
+        const message = `Agent stopped, but Create cleanup could not be committed: ${error.message || error}`;
+        this.verifiedStoppedAgentIds.add(agentId);
+        agent.status = 'stopped';
+        agent.engineStatus = 'exited';
+        this.emit('update');
+        return {
+          agentId,
+          error: message,
+          stopped: true,
+          retryable: true,
+          operationId: persistentOperationId,
+        };
+      }
+      const admittedDelete = this.beginPersistentAgentOperation(agent, 'delete', 'delete', {
+        reason: options.reason || 'manual-kill',
+        structuredProcessProofRequired: runtimeKind(agent) === 'acp',
+      });
+      if (admittedDelete.error) {
+        return { agentId, error: admittedDelete.error, stopped: true, retryable: true };
+      }
+      persistentOperationId = admittedDelete.operation.id;
+    }
+
+    if (persistentOperationId) {
+      try {
+        this.transitionPersistentAgentOperation(agent, persistentOperationId, 'succeeded', '', {
+          visibleOnMainPage: false,
+          archived: true,
+          archivedAt: Date.now(),
+          runtimeAgentId: '',
+        });
+        this.removeMainPageProviderSessionsForAgents([agent]);
+      } catch (error) {
+        const message = `Agent stopped, but Delete metadata could not be committed: ${error.message || error}`;
+        console.error(message);
+        this.verifiedStoppedAgentIds.add(agentId);
+        agent.status = 'stopped';
+        agent.engineStatus = 'exited';
+        this.emit('update');
+        return {
+          agentId,
+          error: message,
+          stopped: true,
+          retryable: true,
+          operationId: persistentOperationId,
+        };
       }
     }
 
@@ -5248,7 +6920,41 @@ class AgentManager extends EventEmitter {
     return {
       agentId,
       killed: true,
+      ...(persistentOperationId ? { operationId: persistentOperationId } : {}),
       ...(historyWarning ? { warning: historyWarning } : {}),
+    };
+  }
+
+  markStructuredAgentCleanupUncertain(agentId, kind, error, options = {}) {
+    const agent = this.agents.get(agentId);
+    const message = String(error || 'Agent runtime exit cannot be verified');
+    if (agent) {
+      agent.status = 'error';
+      agent.engineStatus = 'cleanup-uncertain';
+      const runtime = runtimeBindingOf(agent, kind);
+      if (runtime) {
+        runtime.state = 'error';
+        runtime.error = message;
+      }
+      if (options.operationId) {
+        try {
+          this.transitionPersistentAgentOperation(agent, options.operationId, 'blocked', message);
+        } catch (persistError) {
+          return {
+            agentId,
+            error: `${message}; failed to persist blocked Agent operation: ${persistError.message || persistError}`,
+            cleanupUncertain: true,
+            retryable: true,
+          };
+        }
+      }
+      if (options.emitUpdate !== false) this.emit('update');
+    }
+    return {
+      agentId,
+      error: message,
+      cleanupUncertain: true,
+      retryable: true,
     };
   }
 
@@ -5614,6 +7320,9 @@ class AgentManager extends EventEmitter {
         terminalInputReceived: agent.terminalInputReceived === true,
         runtimeBinding: publicRuntimeBinding(agent),
         runtimeObservation: deriveRuntimeObservation(agent),
+        lifecycleOperation: publicActiveLifecycleOperation(agent),
+        requiresProcessExitAcknowledgement:
+          agent.requiresProcessExitAcknowledgement === true,
         forkedFromProviderSessionId: agent.forkedFromProviderSessionId || '',
         restartedFromAgentId: agent.restartedFromAgentId || '',
         restartedFromAgentIds: Array.isArray(agent.restartedFromAgentIds) ? agent.restartedFromAgentIds : [],

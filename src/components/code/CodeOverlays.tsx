@@ -33,6 +33,7 @@ type RenameDialogState =
 interface KillDialogState {
   agentId: string
   title: string
+  acknowledgeUnprovenAcpExit: boolean
 }
 
 interface DeleteWorktreeDialogState {
@@ -432,10 +433,18 @@ export function CodeOverlays({
             onKeyDown={event => trapFocusInContainer(event, killDialogRef.current)}
           >
             <h2 id="code-kill-title">{copy.killAgentQuestion}</h2>
-            <p>{copy.stopAgentDescription(killDialog.title)}</p>
+            <p>
+              {killDialog.acknowledgeUnprovenAcpExit
+                ? copy.acknowledgeUnprovenAcpExitDescription(killDialog.title)
+                : copy.stopAgentDescription(killDialog.title)}
+            </p>
             <div className="code-rename-actions">
               <button type="button" ref={killCancelButtonRef} onClick={onCloseKillDialog} autoFocus>{copy.cancel}</button>
-              <button type="button" className="danger" onClick={onSubmitKillDialog}>{copy.killAgent}</button>
+              <button type="button" className="danger" onClick={onSubmitKillDialog}>
+                {killDialog.acknowledgeUnprovenAcpExit
+                  ? copy.acknowledgeUnprovenAcpExit
+                  : copy.killAgent}
+              </button>
             </div>
           </div>
         </div>

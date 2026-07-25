@@ -348,7 +348,10 @@ interface CodeWorkspaceProps {
   onDeleteForkWorktreeProject: (workspace: string, options?: { force?: boolean }) => Promise<DeleteForkWorktreeProjectResult>
   onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'bash' | 'zsh') => void
   onWorkspaceViewChange: (view: WorkspaceView) => void
-  onKill: (agentId: string) => void
+  onKill: (
+    agentId: string,
+    options?: { acknowledgeUnprovenAcpExit?: boolean },
+  ) => void
   onInterruptAgent: (agentId: string) => void
   sendComposerInput: (
     message: string,
@@ -663,7 +666,11 @@ export function CodeWorkspace({
   const [instanceName, setInstanceName] = useState('Farming')
   const [mobileShareUrl, setMobileShareUrl] = useState('')
   const [renameDialog, setRenameDialog] = useState<RenameDialogState | null>(null)
-  const [killDialog, setKillDialog] = useState<{ agentId: string; title: string } | null>(null)
+  const [killDialog, setKillDialog] = useState<{
+    agentId: string
+    title: string
+    acknowledgeUnprovenAcpExit: boolean
+  } | null>(null)
   const [deleteWorktreeDialog, setDeleteWorktreeDialog] = useState<{ projectId: string; workspace: string; sessionHandles: string[] } | null>(null)
   const [copyNotice, setCopyNotice] = useState<{ id: number; kind: 'success' | 'error'; message: string } | null>(null)
   const [fileRevealRequest, setFileRevealRequest] = useState<{ agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null>(null)
@@ -3528,7 +3535,12 @@ export function CodeWorkspace({
     if (!contextMenuAgent) return
     setAgentMenu(null)
     setOptionsMenu(null)
-    setKillDialog({ agentId: contextMenuAgent.id, title: agentTitle(contextMenuAgent) })
+    setKillDialog({
+      agentId: contextMenuAgent.id,
+      title: agentTitle(contextMenuAgent),
+      acknowledgeUnprovenAcpExit:
+        contextMenuAgent.requiresProcessExitAcknowledgement === true,
+    })
   }, [contextMenuAgent])
 
   const closeKillDialog = useCallback(() => {
@@ -3539,7 +3551,9 @@ export function CodeWorkspace({
 
   const submitKillDialog = useCallback(() => {
     if (!killDialog) return
-    onKill(killDialog.agentId)
+    onKill(killDialog.agentId, {
+      acknowledgeUnprovenAcpExit: killDialog.acknowledgeUnprovenAcpExit,
+    })
     setKillDialog(null)
   }, [killDialog, onKill])
 

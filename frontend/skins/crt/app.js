@@ -5363,6 +5363,7 @@ async function startCrtAgent(agent, workspaceToUse, asMainAgent) {
 
   ws.send(JSON.stringify({
     type: 'start-agent',
+    requestId: globalThis.crypto?.randomUUID?.(),
     command: agent.name,
     workspace: workspaceToUse,
     asMain: asMainAgent,

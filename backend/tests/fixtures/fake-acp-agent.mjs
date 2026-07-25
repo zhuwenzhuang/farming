@@ -1,4 +1,5 @@
 import { Readable, Writable } from 'node:stream';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -6,6 +7,14 @@ import {
   PROTOCOL_VERSION,
   ndJsonStream,
 } from '@agentclientprotocol/sdk';
+
+if (process.env.FARMING_TEST_ACP_DESCENDANT_PID_FILE) {
+  const descendant = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    stdio: 'ignore',
+  });
+  fs.writeFileSync(process.env.FARMING_TEST_ACP_DESCENDANT_PID_FILE, String(descendant.pid));
+  descendant.unref();
+}
 
 if (process.argv.includes('--fake-terminal-login')) {
   process.stdin.setEncoding('utf8');

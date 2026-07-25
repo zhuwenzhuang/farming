@@ -281,7 +281,7 @@ function run() {
     'OpenCode --continue must keep provider-owned continuation semantics',
   );
   assert.deepStrictEqual(providerCapabilities('codex'), {
-    supportedRuntimes: ['terminal', 'acp', 'json'],
+    supportedRuntimes: ['terminal', 'acp'],
     runtimeSwitch: true,
     terminalProfile: true,
     goals: false,

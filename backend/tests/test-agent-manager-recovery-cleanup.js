@@ -524,8 +524,10 @@ async function run() {
   const persistedRuntimeAgentIds = [];
   const rollbackManager = new AgentManager({
     ...configManager(),
-    ensureAgentSessionRecord(agent) {
-      persistedRuntimeAgentIds.push(agent.id);
+    ensureAgentSessionRecord(agent, patch = {}) {
+      persistedRuntimeAgentIds.push(
+        typeof patch.runtimeAgentId === 'string' ? patch.runtimeAgentId : agent.id,
+      );
       return agent.persistentSessionId || 'fsess_restart_rollback';
     },
   });
@@ -560,13 +562,17 @@ async function run() {
       }
     );
     assert.strictEqual(restartedAgentId, null);
-    assert.strictEqual(
-      persistedRuntimeAgentIds.length,
-      1,
-      'a replacement runtime must not be persisted before its engine session exists',
+    assert(
+      persistedRuntimeAgentIds.length >= 2,
+      'replacement recovery must persist Create intent before launch and then persist rollback',
     );
     assert.strictEqual(
-      persistedRuntimeAgentIds[0],
+      persistedRuntimeAgentIds[0] === 'agent-before-failed-restart',
+      false,
+      'the durable Create intent must identify the attempted replacement runtime',
+    );
+    assert.strictEqual(
+      persistedRuntimeAgentIds.at(-1),
       'agent-before-failed-restart',
       'a failed replacement launch must retain the previous runtime Agent id'
     );

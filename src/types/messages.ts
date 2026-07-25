@@ -9,6 +9,7 @@ export interface ProtocolClientHelloMessage {
 
 export interface StartAgentMessage {
   type: 'start-agent'
+  requestId?: string
   command: string
   workspace?: string
   projectWorkspace?: string
@@ -81,6 +82,7 @@ export type TerminalSessionClientMessage =
 export interface KillAgentMessage {
   type: 'kill-agent'
   agentId: string
+  acknowledgeUnprovenAcpExit?: boolean
 }
 
 export interface InterruptAgentMessage {

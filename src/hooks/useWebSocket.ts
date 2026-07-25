@@ -113,6 +113,7 @@ export function useWebSocket() {
   ) => {
     const msg: StartAgentMessage = {
       type: 'start-agent',
+      requestId: globalThis.crypto?.randomUUID?.(),
       command,
       workspace,
       asMain,
@@ -161,8 +162,17 @@ export function useWebSocket() {
     return sendMessage({ type: 'focus-agent', agentId })
   }, [sendMessage])
 
-  const killAgent = useCallback((agentId: string) => {
-    return sendMessage({ type: 'kill-agent', agentId })
+  const killAgent = useCallback((
+    agentId: string,
+    options: { acknowledgeUnprovenAcpExit?: boolean } = {},
+  ) => {
+    return sendMessage({
+      type: 'kill-agent',
+      agentId,
+      ...(options.acknowledgeUnprovenAcpExit === true
+        ? { acknowledgeUnprovenAcpExit: true }
+        : {}),
+    })
   }, [sendMessage])
 
   const interruptAgent = useCallback((agentId: string) => {

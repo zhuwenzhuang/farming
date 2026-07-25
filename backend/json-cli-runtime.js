@@ -81,9 +81,15 @@ class JsonCliRuntime extends EventEmitter {
     this.processKillTimeoutMs = options.processKillTimeoutMs ?? PROCESS_KILL_TIMEOUT_MS;
     this.ownsProcessGroups = options.ownsProcessGroups ?? process.platform !== 'win32';
     this.bindings = new Map();
+    this.disposing = false;
+    this.disposePromise = null;
+    this.disposed = false;
   }
 
   registerAgent(options) {
+    if (this.disposing || this.disposed) {
+      throw new Error('JSON CLI runtime is shutting down');
+    }
     const binding = {
       ...options,
       events: Array.isArray(options.initialEvents) ? [...options.initialEvents].slice(-MAX_EVENTS) : [],
@@ -121,6 +127,9 @@ class JsonCliRuntime extends EventEmitter {
   }
 
   async submitComposerMessage(agentId, message, patch = {}) {
+    if (this.disposing || this.disposed) {
+      throw new Error('JSON CLI runtime is shutting down');
+    }
     const binding = this.bindings.get(agentId);
     if (!binding) throw new Error('JSON CLI Agent is not registered');
     if (binding.child) throw new Error('Agent is already working');
@@ -217,6 +226,40 @@ class JsonCliRuntime extends EventEmitter {
       source: `${binding.provider}-cli-json`,
       turns: parser.transcript(),
     };
+  }
+
+  dispose() {
+    if (this.disposed) return Promise.resolve();
+    if (this.disposePromise) return this.disposePromise;
+
+    this.disposing = true;
+    const disposePromise = this.performDispose();
+    this.disposePromise = disposePromise;
+    void disposePromise.finally(() => {
+      if (this.disposePromise === disposePromise) this.disposePromise = null;
+      if (!this.disposed) this.disposing = false;
+    }).catch(() => {});
+    return disposePromise;
+  }
+
+  resumeAfterDisposeAbort() {
+    this.disposed = false;
+    this.disposing = false;
+  }
+
+  async performDispose() {
+    const failures = [];
+    for (const agentId of [...this.bindings.keys()]) {
+      try {
+        await this.unregisterAgentAndWait(agentId);
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'One or more JSON Agent process trees did not exit');
+    }
+    this.disposed = true;
   }
 
   emitRuntime(binding) {
