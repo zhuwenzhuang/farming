@@ -357,6 +357,7 @@ function run() {
     diffRequestId: undefined,
     diffOnly: undefined,
     transient: undefined,
+    exactExternal: undefined,
   });
   assert.deepStrictEqual(workspaceOpenFileRequestForTarget({
     view: 'diff',
@@ -367,14 +368,17 @@ function run() {
     diffRequestId: 9,
     diffOnly: true,
     transient: undefined,
+    exactExternal: undefined,
   });
   assert.deepStrictEqual(workspaceOpenFileRequestForTarget({
     transient: true,
+    exactExternal: true,
   }, { cursorRequestId: 7, diffRequestId: 9 }), {
     cursor: undefined,
     diffRequestId: undefined,
     diffOnly: undefined,
     transient: true,
+    exactExternal: true,
   });
   assert.deepStrictEqual(deletedWorkspaceDiffPlaceholderFile('src/deleted.ts', {
     view: 'diff',

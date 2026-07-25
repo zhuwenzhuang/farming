@@ -1428,7 +1428,7 @@ function run() {
 				      !editorSurfaceSource.includes('if (surface.showMarkdownSplit)') &&
 	      editorMonacoControllerSource.includes('readOnly,') &&
 	      editorMonacoControllerSource.includes('domReadOnly: readOnly') &&
-      editorPreviewPanelSource.includes('rawWorkspaceFileUrl(openFile.agentId, openFile.file.path, openFile.file.sha1)') &&
+      editorPreviewPanelSource.includes('rawWorkspaceFileUrl(openFile.agentId, openFile.file.path, openFile.file.sha1, { exactExternal: openFile.exactExternal })') &&
       editorMonacoSource.includes('monaco.languages.getLanguages()') &&
       editorMonacoSource.includes('languageForWorkspaceFile(filePath, content, getMonacoLanguageMetadata())') &&
       editorModelSource.includes('language.filenames?.some') &&
