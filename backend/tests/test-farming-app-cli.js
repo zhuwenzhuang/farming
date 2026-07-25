@@ -1,6 +1,7 @@
 const assert = require('assert');
-const { execFileSync } = require('child_process');
+const { execFileSync, fork, spawn } = require('child_process');
 const fs = require('fs');
+const net = require('net');
 const os = require('os');
 const path = require('path');
 const {
@@ -11,12 +12,16 @@ const {
   buildServerEnv,
   parseReviewArgs,
   parseServerArgs,
+  readServerProcessIdentity,
   resolveReviewTarget,
   reviewUrl,
   serverStartTimeoutMs,
   serverStartStabilityMs,
+  serverStopTimeoutMs,
   serverStateFile,
   splitControlArgs,
+  stopDaemon,
+  waitForDaemonStop,
 } = require('../farming-app-cli');
 const storageLayout = require('../storage-layout');
 const {
@@ -27,6 +32,26 @@ const {
   WorkspaceFileService,
   isPackagedRuntime,
 } = require('../workspace-file-service');
+
+function canBindPort(port) {
+  return new Promise(resolve => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => server.close(() => resolve(true)));
+    server.listen(port, '127.0.0.1');
+  });
+}
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const port = server.address().port;
+      server.close(error => error ? reject(error) : resolve(port));
+    });
+  });
+}
 
 async function runTests() {
   {
@@ -121,6 +146,212 @@ async function runTests() {
     assert.strictEqual(serverStartStabilityMs({}), 1_500);
     assert.strictEqual(serverStartStabilityMs({ FARMING_START_STABILITY_MS: '0' }), 0);
     assert.strictEqual(serverStartStabilityMs({ FARMING_SERVER_START_STABILITY_MS: '2500' }), 2_500);
+    assert.strictEqual(serverStopTimeoutMs({}), 30_000);
+    assert.strictEqual(serverStopTimeoutMs({ FARMING_STOP_TIMEOUT_MS: '12000' }), 12_000);
+    assert.strictEqual(serverStopTimeoutMs({ FARMING_SERVER_STOP_TIMEOUT_MS: '45000' }), 45_000);
+  }
+
+  {
+    let now = 0;
+    await assert.rejects(
+      waitForDaemonStop(1234, 6694, {
+        timeoutMs: 500,
+        isRunning: () => true,
+        canListenOnPort: async () => false,
+        now: () => now,
+        wait: async () => { now = 500; },
+      }),
+      /PID 1234 did not stop and release port 6694 within 500ms.*process still running.*port still in use/,
+    );
+  }
+
+  {
+    let now = 0;
+    await assert.rejects(
+      waitForDaemonStop(5678, 7788, {
+        timeoutMs: 500,
+        isRunning: () => false,
+        canListenOnPort: async () => false,
+        now: () => now,
+        wait: async () => { now = 500; },
+      }),
+      /PID 5678 did not stop and release port 7788 within 500ms.*process exited.*port still in use/,
+    );
+  }
+
+  {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-stop-daemon.'));
+    const fixture = path.join(__dirname, 'fixtures', 'farming-stop-server.js');
+    const child = fork(fixture, [], { detached: true, stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+    const childMessage = type => new Promise((resolve, reject) => {
+      const onMessage = message => {
+        if (message?.type !== type) return;
+        cleanup();
+        resolve(message);
+      };
+      const onExit = (code, signal) => {
+        cleanup();
+        reject(new Error(`stop fixture exited early (${signal || code})`));
+      };
+      const cleanup = () => {
+        child.off('message', onMessage);
+        child.off('exit', onExit);
+      };
+      child.on('message', onMessage);
+      child.on('exit', onExit);
+    });
+
+    try {
+      const listening = await childMessage('listening');
+      const processIdentity = await readServerProcessIdentity(child.pid);
+      assert(processIdentity, 'the detached stop fixture must expose a process identity');
+      fs.writeFileSync(storageLayout.serverPidFile(configDir), String(child.pid));
+      fs.writeFileSync(serverStateFile(configDir), JSON.stringify({
+        pid: child.pid,
+        port: listening.port,
+        configDir: fs.realpathSync.native(configDir),
+        processIdentity,
+      }));
+      const stopRequested = childMessage('stop-requested');
+      let stopSettled = false;
+      const stopping = stopDaemon(parseServerArgs(['stop', '--config-dir', configDir]))
+        .finally(() => { stopSettled = true; });
+      await stopRequested;
+      await new Promise(resolve => setImmediate(resolve));
+      assert.strictEqual(stopSettled, false, 'stop must wait while the old process still owns its listening port');
+      assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), true);
+      assert.strictEqual(fs.existsSync(serverStateFile(configDir)), true);
+
+      child.send({ type: 'release' });
+      assert.strictEqual(await stopping, 0);
+      assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), false);
+      assert.strictEqual(fs.existsSync(serverStateFile(configDir)), false);
+      assert.strictEqual(await canBindPort(listening.port), true, 'stop must return only after the old port can be rebound');
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-stale-stop-daemon.'));
+    const unrelated = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    try {
+      await new Promise((resolve, reject) => {
+        unrelated.once('spawn', resolve);
+        unrelated.once('error', reject);
+      });
+      const port = await freePort();
+      fs.writeFileSync(storageLayout.serverPidFile(configDir), String(unrelated.pid));
+      fs.writeFileSync(serverStateFile(configDir), JSON.stringify({
+        pid: unrelated.pid,
+        port,
+        configDir: fs.realpathSync.native(configDir),
+        processIdentity: {
+          pid: unrelated.pid,
+          processGroupId: unrelated.pid,
+          startedAt: 'stale-process-start-time',
+        },
+      }));
+
+      await assert.rejects(
+        stopDaemon(parseServerArgs(['stop', '--config-dir', configDir])),
+        /live process identity does not match the server control metadata/,
+      );
+      assert.doesNotThrow(() => process.kill(unrelated.pid, 0), 'stale metadata must not signal the unrelated live PID');
+      assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), true);
+      assert.strictEqual(fs.existsSync(serverStateFile(configDir)), true);
+
+      fs.writeFileSync(serverStateFile(configDir), JSON.stringify({
+        pid: unrelated.pid,
+        port,
+        configDir: fs.realpathSync.native(configDir),
+      }));
+      await assert.rejects(
+        stopDaemon(parseServerArgs(['stop', '--config-dir', configDir])),
+        /legacy server control metadata could not prove this process belongs to the config directory/,
+      );
+      assert.doesNotThrow(() => process.kill(unrelated.pid, 0), 'legacy metadata without identity must fail closed');
+      assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), true);
+      assert.strictEqual(fs.existsSync(serverStateFile(configDir)), true);
+    } finally {
+      try {
+        process.kill(unrelated.pid, 'SIGKILL');
+      } catch {
+        // The test process may already have exited after a failed assertion.
+      }
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-legacy-stop-daemon.'));
+    const fixture = path.join(__dirname, 'fixtures', 'farming-stop-server.js');
+    const port = await freePort();
+    const child = fork(fixture, [], {
+      detached: true,
+      env: {
+        ...process.env,
+        FARMING_RUN_SERVER: '1',
+        FARMING_CONFIG_DIR: configDir,
+        FARMING_BASE_PATH: '/farming',
+        FARMING_DISABLE_AUTH: '1',
+        FARMING_TEST_PORT: String(port),
+        PORT: String(port),
+      },
+      stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
+    });
+    const childMessage = type => new Promise((resolve, reject) => {
+      const onMessage = message => {
+        if (message?.type !== type) return;
+        cleanup();
+        resolve(message);
+      };
+      const onExit = (code, signal) => {
+        cleanup();
+        reject(new Error(`legacy stop fixture exited early (${signal || code})`));
+      };
+      const cleanup = () => {
+        child.off('message', onMessage);
+        child.off('exit', onExit);
+      };
+      child.on('message', onMessage);
+      child.on('exit', onExit);
+    });
+
+    try {
+      await childMessage('listening');
+      fs.writeFileSync(storageLayout.serverPidFile(configDir), String(child.pid));
+      fs.writeFileSync(serverStateFile(configDir), JSON.stringify({
+        pid: child.pid,
+        port,
+        basePath: '/farming',
+        configDir: fs.realpathSync.native(configDir),
+        updatedAt: '2026-07-01T00:00:00.000Z',
+      }));
+      const stopRequested = childMessage('stop-requested');
+      let stopSettled = false;
+      const stopping = stopDaemon(parseServerArgs(['stop', '--config-dir', configDir]))
+        .finally(() => { stopSettled = true; });
+      await stopRequested;
+      const migratedState = JSON.parse(fs.readFileSync(serverStateFile(configDir), 'utf8'));
+      assert.strictEqual(migratedState.pid, child.pid);
+      assert.strictEqual(migratedState.configDir, fs.realpathSync.native(configDir));
+      assert.strictEqual(migratedState.processIdentity.pid, child.pid);
+      assert.strictEqual(typeof migratedState.processIdentity.startedAt, 'string');
+      assert.strictEqual(stopSettled, false, 'legacy migration must still wait for process exit and port release');
+      child.send({ type: 'release' });
+      assert.strictEqual(await stopping, 0);
+      assert.strictEqual(fs.existsSync(storageLayout.serverPidFile(configDir)), false);
+      assert.strictEqual(fs.existsSync(serverStateFile(configDir)), false);
+      assert.strictEqual(await canBindPort(port), true);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
   }
 
   {
@@ -405,6 +636,7 @@ async function runTests() {
     assert(installReleaseSource.includes('FARMING_USE_GLIBC_RUNTIME'));
     assert(installReleaseSource.includes('vendor/glibc228-lib.tar.gz'));
     assert(installReleaseSource.includes('start|serve|daemon) start_server ;;'));
+    assert(!installReleaseSource.includes('"${STABLE_CLI_DIR}/farming" "${managed_args[@]}" || true'));
   }
 
   {

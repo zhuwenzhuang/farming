@@ -10,7 +10,7 @@ Files is a project-level section. It belongs beside concrete project agents, not
 
 Inside an expanded project, the sidebar order is the concrete agent row first, optional Open Editors second, and Files last. The Agent list has its own collapse control after its pagination controls; collapsing it keeps a compact restore row while leaving Files available, and an active search temporarily reveals the matching Agent rows. Open Editors is a separate section, not a child of Files. It appears only after the user has opened at least one file and is collapsed by default. Git History lives inside the expanded Files section beside working-copy Changes and defaults to collapsed.
 
-Files should feel close to a lightweight VS Code Explorer:
+Files uses a compact, scannable explorer layout:
 
 - stable directory rows;
 - clear chevrons;
@@ -46,7 +46,7 @@ Long trees may use a lightweight sticky ancestor overlay and subtle shadow to sh
 
 Git History is a project-scoped SCM graph inside Files for understanding committed history, not another global history page. It sits after working-copy Changes so uncommitted and committed Git state share one predictable place. The default view follows `git log --first-parent HEAD`: it shows the current branch as a simple linear history, keeps merge commits, and does not expand every commit from merged branches. Users can switch to All branches when they need the full local-branch, remote-branch, and tag graph. Each view loads 50 commits at a time, and more rows load only after an explicit request.
 
-The graph topology and SVG row geometry are adapted from the MIT-licensed VS Code SCM history implementation at pinned commit `0217c2f1a0defc7fdbfb4feba74e71e366de6822`; the exact source and license are recorded in `THIRD_PARTY_NOTICES.md`. Farming keeps that mature lane-transition algorithm and supplies only a small adapter from bounded `git log` data into the VS Code-style view model. It must not grow a second hand-written graph algorithm in parallel.
+The graph topology and SVG row geometry are adapted from the MIT-licensed VS Code SCM history implementation at pinned commit `0217c2f1a0defc7fdbfb4feba74e71e366de6822`; the exact source and license are recorded in `THIRD_PARTY_NOTICES.md`. Farming keeps that lane-transition algorithm and supplies only a small adapter from bounded `git log` data into the SCM-history view model. It must not grow a second hand-written graph algorithm in parallel.
 
 Clicking a commit expands its changed files in place. The row keeps the one-line subject compact; when a commit has a message body, the expanded area shows that body before the file summary. Merge commits expose a parent selector so the user can inspect the change against either parent. Root commits compare against Git's empty tree. The VS Code-derived output lanes continue through the expanded change area instead of being replaced by a decorative border. A compact Review action sits beside the changed-file count, while changed-file rows reuse the existing `/review?agentId=...&base=...&head=...` surface with an optional `path`; the history section does not implement another diff viewer.
 
@@ -144,7 +144,7 @@ The right pane is a lightweight editor surface:
 - breadcrumb as lightweight context on source, split-preview, and diff surfaces; pure rendered Markdown preview omits it;
 - dirty close confirmation.
 - a project-scoped Changes list for working-tree review;
-- VS Code-style line change inspection from the editor context menu;
+- line-change inspection from the editor context menu;
 - a full-file diff surface for review when a file has working-tree changes.
 
 The editor should not always show a permanent `Saved` state. Save controls should be visible only when useful: dirty, saving, error, external changed, or explicitly available in context.

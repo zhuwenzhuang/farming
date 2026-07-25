@@ -121,11 +121,8 @@ Microsoft, or the maintainers of the third-party projects listed above.
 
 ## Design References
 
-Farming's interface is influenced by modern coding workbenches and agent tools,
-including Codex, Visual Studio Code, and browser IDEs. This notice covers
-software and assets used by Farming; design inspiration alone does not imply
-that those projects are bundled with Farming.
-
-The CRT skin also studies the visual behavior of cool-retro-term. Farming's
-browser shaders are an independent implementation and do not copy or bundle
-cool-retro-term source code.
+Farming Code's interface design references Visual Studio Code and Codex.
+Farming's browser-based approach to terminal and coding-agent sessions also
+draws on the idea explored by
+[VibeTunnel](https://github.com/amantus-ai/vibetunnel). These design references
+are separate from the software and assets identified above.

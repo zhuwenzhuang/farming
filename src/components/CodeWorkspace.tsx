@@ -502,6 +502,26 @@ function uniqueTerminalFileSearchMatches(matches: WorkspaceFileSearchMatch[]) {
   return Array.from(uniqueByPath.values())
 }
 
+export type MainPageSessionKeyMutation = {
+  version: number
+  operation: 'add' | 'remove'
+  sessionKeys: string[]
+}
+
+export function applyPendingMainPageSessionKeyMutations(
+  baseline: Iterable<string>,
+  mutations: readonly MainPageSessionKeyMutation[],
+) {
+  const projected = new Set(baseline)
+  mutations.forEach(mutation => {
+    mutation.sessionKeys.forEach(sessionKey => {
+      if (mutation.operation === 'add') projected.add(sessionKey)
+      else projected.delete(sessionKey)
+    })
+  })
+  return Array.from(projected)
+}
+
 async function writeClipboardText(text: string) {
   try {
     if (navigator.clipboard?.writeText) {
@@ -719,6 +739,10 @@ export function CodeWorkspace({
   const pendingArchivedFocusAgentRef = useRef<string | null>(null)
   const pendingRestoredFocusAgentRef = useRef<string | null>(null)
   const mainPageSessionKeysMutationRef = useRef(0)
+  const mainPageSessionKeysAuthoritativeRef = useRef(normalizeMainPageSessionKeys(remoteMainPageSessionKeys))
+  const mainPageSessionKeysAuthoritativeRevisionRef = useRef(0)
+  const mainPageSessionKeysPendingMutationsRef = useRef<MainPageSessionKeyMutation[]>([])
+  const mainPageSessionKeysMutationTailRef = useRef<Promise<void>>(Promise.resolve())
   const trackedMainPageAgentKeysRef = useRef<Set<string>>(new Set())
   const resizingSidebarRef = useRef(false)
   const sidebarAutoCollapsedRef = useRef(sidebarCollapsed)
@@ -2162,42 +2186,97 @@ export function CodeWorkspace({
     }
   }, [])
 
-  const persistMainPageSessionKeys = useCallback((keys: string[]) => {
-    fetch(appPath('/api/settings'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mainPageSessionKeys: normalizeMainPageSessionKeys(keys) }),
-    }).catch(() => {})
-  }, [])
-
-  const updateMainPageSessionKeys = useCallback((updater: (previous: ReadonlySet<string>) => string[]) => {
+  const updateLocalMainPageSessionKeys = useCallback((updater: (previous: ReadonlySet<string>) => string[]) => {
     setMainPageSessionKeys(previous => {
       const normalized = normalizeMainPageSessionKeys(updater(previous))
       if (sameStringSet(previous, normalized)) return previous
-      mainPageSessionKeysMutationRef.current += 1
-      persistMainPageSessionKeys(normalized)
       return new Set(normalized)
     })
-  }, [persistMainPageSessionKeys])
+  }, [])
+
+  const reconcileMainPageSessionKeys = useCallback((authoritativeKeys?: string[]) => {
+    if (authoritativeKeys) {
+      mainPageSessionKeysAuthoritativeRef.current = normalizeMainPageSessionKeys(authoritativeKeys)
+    }
+    const projected = applyPendingMainPageSessionKeyMutations(
+      mainPageSessionKeysAuthoritativeRef.current,
+      mainPageSessionKeysPendingMutationsRef.current,
+    )
+    setMainPageSessionKeys(previous => sameStringSet(previous, projected) ? previous : new Set(projected))
+  }, [])
+
+  const mutateMainPageSessionKeys = useCallback((operation: 'add' | 'remove', sessionKeys: string[]) => {
+    const normalized = normalizeMainPageSessionKeys(sessionKeys)
+    if (normalized.length === 0) return
+    const mutationVersion = ++mainPageSessionKeysMutationRef.current
+    mainPageSessionKeysPendingMutationsRef.current.push({
+      version: mutationVersion,
+      operation,
+      sessionKeys: normalized,
+    })
+    const mutation = async () => {
+      const authoritativeRevisionAtStart = mainPageSessionKeysAuthoritativeRevisionRef.current
+      let authoritativeKeys: string[] | null = null
+      try {
+        const response = await fetch(appPath('/api/main-page-agent-sessions'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ operation, sessionKeys: normalized }),
+        })
+        const data = await response.json().catch(() => null) as { mainPageSessionKeys?: string[] } | null
+        if (!response.ok || !Array.isArray(data?.mainPageSessionKeys)) {
+          throw new Error(`Failed to update main-page sessions: ${response.status}`)
+        }
+        authoritativeKeys = data.mainPageSessionKeys
+      } catch {
+        try {
+          const response = await fetch(appPath('/api/settings'))
+          if (!response.ok) throw new Error(`Failed to reconcile main-page sessions: ${response.status}`)
+          const data = await response.json() as { settings?: { mainPageSessionKeys?: string[] } }
+          if (!Array.isArray(data.settings?.mainPageSessionKeys)) {
+            throw new Error('Failed to reconcile main-page sessions: invalid response')
+          }
+          authoritativeKeys = data.settings.mainPageSessionKeys
+        } catch {
+          // Fall back to the latest WebSocket baseline below.
+        }
+      } finally {
+        mainPageSessionKeysPendingMutationsRef.current = mainPageSessionKeysPendingMutationsRef.current
+          .filter(mutationEntry => mutationEntry.version !== mutationVersion)
+        const responseIsStillAuthoritative = authoritativeKeys !== null
+          && mainPageSessionKeysAuthoritativeRevisionRef.current === authoritativeRevisionAtStart
+        reconcileMainPageSessionKeys(
+          responseIsStillAuthoritative ? authoritativeKeys : undefined,
+        )
+      }
+    }
+    mainPageSessionKeysMutationTailRef.current = mainPageSessionKeysMutationTailRef.current
+      .catch(() => {})
+      .then(mutation)
+  }, [reconcileMainPageSessionKeys])
 
   useEffect(() => {
+    mainPageSessionKeysAuthoritativeRevisionRef.current += 1
     const normalized = normalizeMainPageSessionKeys(remoteMainPageSessionKeys)
-    setMainPageSessionKeys(previous => sameStringSet(previous, normalized) ? previous : new Set(normalized))
-  }, [remoteMainPageSessionKeys])
+    reconcileMainPageSessionKeys(normalized)
+  }, [reconcileMainPageSessionKeys, remoteMainPageSessionKeys])
 
   const addMainPageAgentSession = useCallback((provider: string, sessionId: string, providerHomeId = '') => {
     const sessionHandle = agentSessionId({ provider, id: sessionId, providerHomeId })
-    updateMainPageSessionKeys(previous => [...previous, sessionHandle])
-  }, [updateMainPageSessionKeys])
+    updateLocalMainPageSessionKeys(previous => [...previous, sessionHandle])
+    mutateMainPageSessionKeys('add', [sessionHandle])
+  }, [mutateMainPageSessionKeys, updateLocalMainPageSessionKeys])
 
   const removeMainPageAgentSession = useCallback((sessionHandle: string) => {
-    updateMainPageSessionKeys(previous => Array.from(previous).filter(key => key !== sessionHandle))
-  }, [updateMainPageSessionKeys])
+    updateLocalMainPageSessionKeys(previous => Array.from(previous).filter(key => key !== sessionHandle))
+    mutateMainPageSessionKeys('remove', [sessionHandle])
+  }, [mutateMainPageSessionKeys, updateLocalMainPageSessionKeys])
 
   const removeMainPageAgentSessions = useCallback((sessionHandles: string[]) => {
     const removeKeys = new Set(sessionHandles)
-    updateMainPageSessionKeys(previous => Array.from(previous).filter(key => !removeKeys.has(key)))
-  }, [updateMainPageSessionKeys])
+    updateLocalMainPageSessionKeys(previous => Array.from(previous).filter(key => !removeKeys.has(key)))
+    mutateMainPageSessionKeys('remove', sessionHandles)
+  }, [mutateMainPageSessionKeys, updateLocalMainPageSessionKeys])
 
   const syncRemovedMainPageSessionsFromAgentUpdate = useCallback((result: AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>) => {
     Promise.resolve(result)
@@ -2220,11 +2299,11 @@ export function CodeWorkspace({
       const trackingKey = `${agent.id}:${sessionHandle}`
       if (trackedMainPageAgentKeysRef.current.has(trackingKey)) return
       trackedMainPageAgentKeysRef.current.add(trackingKey)
-      updateMainPageSessionKeys(previous => [...previous, sessionHandle])
+      updateLocalMainPageSessionKeys(previous => [...previous, sessionHandle])
       discoveredSession = true
     })
     if (discoveredSession) refreshAgentSessions()
-  }, [activeAgents, refreshAgentSessions, updateMainPageSessionKeys])
+  }, [activeAgents, refreshAgentSessions, updateLocalMainPageSessionKeys])
 
   useEffect(() => {
     if (!pageVisible) return undefined

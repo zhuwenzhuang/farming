@@ -15,6 +15,18 @@ async function git(root, ...args) {
   return stdout.trim();
 }
 
+function barrier() {
+  let resolve;
+  const promise = new Promise(next => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
+function nextTurn() {
+  return new Promise(resolve => setImmediate(resolve));
+}
+
 async function run() {
   assert.deepStrictEqual(changedPathsFromNameStatus(['M', 'src/a.ts', 'R100', 'old.ts', 'new.ts', ''].join('\0')), [
     'src/a.ts',
@@ -185,6 +197,103 @@ async function run() {
     assert.strictEqual(unchanged.unchanged, true);
     assert.strictEqual(unchanged.head, second.head);
     assert.strictEqual(service.get(first.reviewId).revisions.length, 2);
+
+    const captureStableTree = service.captureStableTree.bind(service);
+    fs.writeFileSync(path.join(repository, 'a.txt'), 'a3\n');
+    const thirdTree = await captureStableTree(repository);
+    fs.writeFileSync(path.join(repository, 'a.txt'), 'a4\n');
+    const fourthTree = await captureStableTree(repository);
+    fs.writeFileSync(path.join(repository, 'a.txt'), 'a5\n');
+    const fifthTree = await captureStableTree(repository);
+    fs.writeFileSync(path.join(repository, 'a.txt'), 'a6\n');
+    const sixthTree = await captureStableTree(repository);
+
+    const firstCaptureEntered = barrier();
+    const releaseFirstCapture = barrier();
+    let captureCalls = 0;
+    service.captureStableTree = async () => {
+      captureCalls += 1;
+      if (captureCalls === 1) {
+        firstCaptureEntered.resolve();
+        await releaseFirstCapture.promise;
+        return thirdTree;
+      }
+      return fourthTree;
+    };
+    const thirdRefresh = service.refresh(first.reviewId);
+    await firstCaptureEntered.promise;
+    const fourthRefresh = service.refresh(first.reviewId);
+    await nextTurn();
+    assert.strictEqual(captureCalls, 1, 'a second refresh for the same review must wait before capture');
+    releaseFirstCapture.resolve();
+    const [third, fourth] = await Promise.all([thirdRefresh, fourthRefresh]);
+    assert.strictEqual(third.number, 3);
+    assert.strictEqual(third.head, thirdTree);
+    assert.strictEqual(fourth.number, 4);
+    assert.strictEqual(fourth.fixesBase, thirdTree);
+    assert.strictEqual(fourth.head, fourthTree);
+    assert.strictEqual(await git(repository, 'rev-parse', `refs/farming/reviews/${first.reviewId}/3`), thirdTree);
+    assert.strictEqual(await git(repository, 'rev-parse', `refs/farming/reviews/${first.reviewId}/4`), fourthTree);
+
+    const blockedReviewEntered = barrier();
+    const releaseBlockedReview = barrier();
+    const peerReviewEntered = barrier();
+    service.captureStableTree = async (_root, paths) => {
+      if (paths === undefined) {
+        blockedReviewEntered.resolve();
+        await releaseBlockedReview.promise;
+        return fifthTree;
+      }
+      peerReviewEntered.resolve();
+      return sixthTree;
+    };
+    const blockedReviewRefresh = service.refresh(first.reviewId);
+    await blockedReviewEntered.promise;
+    let peerStarted = false;
+    void peerReviewEntered.promise.then(() => {
+      peerStarted = true;
+    });
+    const peerReviewRefresh = service.refresh(selected.reviewId);
+    await nextTurn();
+    assert.strictEqual(peerStarted, true, 'different reviews must be able to capture in parallel');
+    releaseBlockedReview.resolve();
+    const [fifth, peer] = await Promise.all([blockedReviewRefresh, peerReviewRefresh]);
+    assert.strictEqual(fifth.number, 5);
+    assert.strictEqual(peer.number, 2);
+
+    const failedCaptureEntered = barrier();
+    const releaseFailedCapture = barrier();
+    captureCalls = 0;
+    service.captureStableTree = async () => {
+      captureCalls += 1;
+      if (captureCalls === 1) {
+        failedCaptureEntered.resolve();
+        await releaseFailedCapture.promise;
+        throw new Error('injected capture failure');
+      }
+      return sixthTree;
+    };
+    const failedRefresh = service.refresh(first.reviewId);
+    await failedCaptureEntered.promise;
+    const recoveredRefresh = service.refresh(first.reviewId);
+    await nextTurn();
+    assert.strictEqual(captureCalls, 1, 'a queued refresh must not overtake a failing refresh');
+    releaseFailedCapture.resolve();
+    await assert.rejects(failedRefresh, /injected capture failure/);
+    const recovered = await recoveredRefresh;
+    assert.strictEqual(recovered.number, 6);
+    assert.strictEqual(recovered.fixesBase, fifthTree);
+    assert.strictEqual(recovered.head, sixthTree);
+    assert.strictEqual(await git(repository, 'rev-parse', `refs/farming/reviews/${first.reviewId}/6`), sixthTree);
+    service.captureStableTree = captureStableTree;
+
+    for (const revision of service.get(first.reviewId).revisions) {
+      assert.strictEqual(
+        await git(repository, 'rev-parse', `refs/farming/reviews/${first.reviewId}/${revision.number}`),
+        revision.head,
+        `revision ${revision.number} metadata must match its Git ref`,
+      );
+    }
     assert.throws(() => service.assertRange(first.reviewId, repository, base, '0'.repeat(40)), /does not belong/);
 
     console.log('test-review-session-service passed');

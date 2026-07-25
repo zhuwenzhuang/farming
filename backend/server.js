@@ -18,7 +18,6 @@ const { listAvailableAgents, resolveCompatibleCodexExecutable } = require('./exe
 const { readClaudeSettingsSummary } = require('./claude-settings');
 const { listCodexModelOptions } = require('./codex-models');
 const { listCodexSessions } = require('./codex-session-history');
-const { unarchiveCodexSession } = require('./codex-session-archive');
 const {
   buildAgentSessionResumeCommand,
   findAgentSession,
@@ -32,6 +31,7 @@ const {
 const {
   findActiveAgentClaimingSession,
   mainPageAgentSessionKey,
+  mainPageAgentSessionFromKey,
   mainPageAgentSessionsToAutoResume,
   resumedAgentSource,
 } = require('./main-page-session');
@@ -984,6 +984,40 @@ app.patch(routePath(BASE_PATH, '/api/agent-sessions/:provider/:sessionId'), expr
   res.json({ sessionKey, pinned: req.body.pinned });
 });
 
+app.post(routePath(BASE_PATH, '/api/main-page-agent-sessions'), express.json(), (req, res) => {
+  const operation = req.body?.operation;
+  const requestedKeys = Array.isArray(req.body?.sessionKeys) ? req.body.sessionKeys : [];
+  const sessionKeys = [...new Set(requestedKeys.map(key => String(key || '').trim()).filter(Boolean))];
+  if (
+    !['add', 'remove'].includes(operation)
+    || sessionKeys.length === 0
+    || sessionKeys.length > 50
+    || sessionKeys.some(key => !mainPageAgentSessionFromKey(key))
+  ) {
+    res.status(400).json({ error: 'A valid main-page Agent session mutation is required' });
+    return;
+  }
+
+  if (operation === 'add') {
+    [...sessionKeys].reverse().forEach(sessionKey => {
+      const session = mainPageAgentSessionFromKey(sessionKey);
+      configManager.rememberMainPageSessionKey(sessionKey, {
+        provider: session.provider,
+        providerSessionId: session.sessionId,
+        providerSessionKey: sessionKey,
+        providerHomeId: session.providerHomeId || 'default',
+      });
+    });
+  } else {
+    configManager.removeMainPageSessionKeys(sessionKeys);
+  }
+
+  const mainPageSessionKeys = configManager.getMainPageSessionKeys();
+  agentSessionsCache.invalidate();
+  res.json({ success: true, mainPageSessionKeys });
+  scheduleBroadcastState();
+});
+
 app.get(routePath(BASE_PATH, '/api/themes'), (req, res) => {
   const currentTheme = configManager.getSettings().theme || 'terminal';
   res.json({
@@ -1689,42 +1723,22 @@ app.post(routePath(BASE_PATH, '/api/projects/delete-worktree'), express.json(), 
     return;
   }
 
-  const wasPinned = (configManager.getSettings().pinnedProjectWorkspaces || []).includes(inspected.workspace);
+  const result = await agentManager.deleteForkWorktreeProject(inspected.workspace, { force: body.force === true });
+  if (result.error) {
+    broadcastState();
+    const status = result.requiresForce ? 409 : 400;
+    res.status(status).json(result);
+    return;
+  }
+
   let membership;
   try {
     membership = configManager.removeProjectWorkspace(inspected.workspace);
   } catch (error) {
-    res.status(500).json({
-      ...inspected,
-      error: error.message || 'Project removal failed; the worktree was not deleted',
-    });
-    return;
-  }
-  const result = await agentManager.deleteForkWorktreeProject(inspected.workspace, { force: body.force === true });
-  if (result.error) {
-    let rollbackError = '';
-    try {
-      configManager.mountProjectWorkspace(inspected.workspace);
-      if (wasPinned) configManager.setProjectWorkspacePinned(inspected.workspace, true);
-    } catch (error) {
-      rollbackError = error.message || String(error);
-    }
-    broadcastState();
-    const status = result.requiresForce ? 409 : 400;
-    res.status(status).json({
-      ...result,
-      ...(rollbackError ? {
-        error: `${result.error}. Project restore failed: ${rollbackError}`,
-        rollbackError,
-      } : {}),
-    });
-    return;
-  }
-  if (result.cleanupError) {
     broadcastState();
     res.status(500).json({
       ...result,
-      error: `Worktree was deleted, but Agent cleanup failed: ${result.cleanupError}`,
+      error: `Worktree was deleted, but Project membership cleanup failed: ${error.message || error}`,
     });
     return;
   }
@@ -1867,30 +1881,36 @@ async function resumeAgentSessionById(provider, rawSessionId, options = {}) {
       providerHomeId,
       providerHomes: configuredProviderHomes(),
     });
+    if (
+      options.allowUnarchiveArchived === true
+      && normalizedProvider === 'codex'
+      && !requestedAsMain
+    ) {
+      const providerHomes = configuredProviderHomes();
+      const configuredHomePath = (providerHomes.codex || [])
+        .find(home => home.id === providerHomeId)?.path || '';
+      const unarchiveResult = await agentManager.ensureCodexSessionAvailable(sessionId, {
+        providerHomeId,
+        providerHomePath: session?.providerHomePath || configuredHomePath,
+        providerHomes,
+        cwd: session?.cwd || session?.workspace || '',
+      });
+      if (unarchiveResult?.error) return unarchiveResult;
+      session = await findAgentSession(normalizedProvider, sessionId, {
+        limit: 1000,
+        providerLimit: 1000,
+        scanLimit: 5000,
+        providerHomeId,
+        providerHomes,
+      }) || (session ? { ...session, archived: false } : session);
+    }
     if (session && session.archived && !shouldFork) {
-      if (options.allowUnarchiveArchived === true && normalizedProvider === 'codex' && !requestedAsMain) {
-        const unarchiveResult = await unarchiveCodexSession(sessionId, session);
-        if (unarchiveResult.error) {
-          return unarchiveResult;
-        }
-        session = await findAgentSession(normalizedProvider, sessionId, {
-          limit: 1000,
-          providerLimit: 1000,
-          scanLimit: 5000,
-          providerHomeId,
-          providerHomes: configuredProviderHomes(),
-        }) || {
-          ...session,
-          archived: false,
-        };
-      } else {
-        forgetMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);
-        return {
-          error: `${session.providerName || normalizedProvider} session is archived. Unarchive it before resuming.`,
-          status: 409,
-          archived: true,
-        };
-      }
+      forgetMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);
+      return {
+        error: `${session.providerName || normalizedProvider} session is archived. Unarchive it before resuming.`,
+        status: 409,
+        archived: true,
+      };
     }
     if (!shouldFork && !requestedAsMain) {
       const claimingAgent = findActiveAgentClaimingSession(agentManager.getState().agents, normalizedProvider, {
@@ -2214,6 +2234,7 @@ async function autoResumeMainPageAgentSessions() {
 
 app.post(routePath(BASE_PATH, '/api/settings'), express.json(), (req, res) => {
   const settingsPatch = { ...(req.body || {}) };
+  delete settingsPatch.mainPageSessionKeys;
   delete settingsPatch.projectWorkspaces;
   delete settingsPatch.pinnedProjectWorkspaces;
   configManager.updateSettings(settingsPatch);
@@ -2646,8 +2667,24 @@ function handleMessage(ws, data) {
 const { resolveInputTargetAgentId } = require('./input-routing');
 
 function sendWorkspaceFileWatchError(ws, error) {
+  if (ws.readyState !== WebSocket.OPEN) return;
   const message = error instanceof WorkspaceFileError ? error.message : 'failed to watch workspace files';
   ws.send(JSON.stringify({ type: 'error', message }));
+}
+
+function isCurrentWorkspaceFileWatch(ws, agentId, record) {
+  return Boolean(
+    !record.cancelled
+    && ws.workspaceFileUnsubscribes?.get(agentId) === record
+  );
+}
+
+function closeWorkspaceFileWatchRecord(record) {
+  record.cancelled = true;
+  if (!record.unsubscribe) return;
+  Promise.resolve(record.unsubscribe()).catch((error) => {
+    console.error('Failed to clear workspace file watch:', error);
+  });
 }
 
 function clearWorkspaceFileWatch(ws, agentId = null) {
@@ -2658,12 +2695,10 @@ function clearWorkspaceFileWatch(ws, agentId = null) {
     ? [[agentId, watches.get(agentId)]]
     : Array.from(watches.entries());
 
-  entries.forEach(([watchedAgentId, unsubscribe]) => {
-    if (!unsubscribe) return;
-    watches.delete(watchedAgentId);
-    Promise.resolve(unsubscribe()).catch((error) => {
-      console.error('Failed to clear workspace file watch:', error);
-    });
+  entries.forEach(([watchedAgentId, record]) => {
+    if (!record) return;
+    if (watches.get(watchedAgentId) === record) watches.delete(watchedAgentId);
+    closeWorkspaceFileWatchRecord(record);
   });
 
   if (watches.size === 0) {
@@ -2679,33 +2714,62 @@ async function watchWorkspaceFiles(ws, data) {
     if (!ws.workspaceFileUnsubscribes) {
       ws.workspaceFileUnsubscribes = new Map();
     }
-    if (ws.workspaceFileUnsubscribes.has(data.agentId)) {
-      ws.send(JSON.stringify({
-        type: 'workspace-file-watch',
-        agentId: data.agentId,
-        watching: true,
-      }));
+    const watches = ws.workspaceFileUnsubscribes;
+    const existing = watches.get(data.agentId);
+    if (existing) {
+      const watching = await existing.ready;
+      if (watching && isCurrentWorkspaceFileWatch(ws, data.agentId, existing) && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'workspace-file-watch',
+          agentId: data.agentId,
+          watching: true,
+        }));
+      }
       return;
     }
 
     const root = resolveWorkspaceRoot(agentManager, data.agentId);
-
-    const unsubscribe = await workspaceFileService.subscribe(root, (event) => {
-      if (ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({
-        type: 'workspace-file-event',
-        event: {
+    const record = {
+      cancelled: false,
+      unsubscribe: null,
+      ready: null,
+    };
+    record.ready = (async () => {
+      const unsubscribe = await workspaceFileService.subscribe(root, (event) => {
+        if (!isCurrentWorkspaceFileWatch(ws, data.agentId, record) || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({
+          type: 'workspace-file-event',
+          event: {
+            agentId: data.agentId,
+            ...event,
+          },
+        }));
+      });
+      record.unsubscribe = unsubscribe;
+      if (!isCurrentWorkspaceFileWatch(ws, data.agentId, record) || ws.readyState !== WebSocket.OPEN) {
+        closeWorkspaceFileWatchRecord(record);
+        return false;
+      }
+      return true;
+    })();
+    watches.set(data.agentId, record);
+    try {
+      const watching = await record.ready;
+      if (watching && isCurrentWorkspaceFileWatch(ws, data.agentId, record) && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'workspace-file-watch',
           agentId: data.agentId,
-          ...event,
-        },
-      }));
-    });
-    ws.workspaceFileUnsubscribes.set(data.agentId, unsubscribe);
-    ws.send(JSON.stringify({
-      type: 'workspace-file-watch',
-      agentId: data.agentId,
-      watching: true,
-    }));
+          watching: true,
+        }));
+      }
+    } catch (error) {
+      if (watches.get(data.agentId) === record) watches.delete(data.agentId);
+      closeWorkspaceFileWatchRecord(record);
+      if (watches.size === 0 && ws.workspaceFileUnsubscribes === watches) {
+        ws.workspaceFileUnsubscribes = null;
+      }
+      throw error;
+    }
   } catch (error) {
     sendWorkspaceFileWatchError(ws, error);
   }

@@ -309,6 +309,10 @@ export function AgentHomesSettingsPanel({
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
   const searchTimeoutSaveTimerRef = useRef<number | null>(null)
   const upgradeTargetVersionRef = useRef('')
+  const panelScopeRef = useRef({ open, generation: 0 })
+  const settingsLoadRequestRef = useRef(0)
+  const homesSaveRequestRef = useRef<number | null>(null)
+  const homesSaveSequenceRef = useRef(0)
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false)
   const [updateUrl, setUpdateUrl] = useState('')
   const [searchTimeoutSeconds, setSearchTimeoutSeconds] = useState(15)
@@ -327,28 +331,67 @@ export function AgentHomesSettingsPanel({
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [draft, setDraft] = useState<DraftState>(null)
+  if (panelScopeRef.current.open !== open) {
+    panelScopeRef.current = {
+      open,
+      generation: panelScopeRef.current.generation + 1,
+    }
+  }
 
   const loadSettings = useCallback(() => {
+    if (!panelScopeRef.current.open || homesSaveRequestRef.current) return
+    const generation = panelScopeRef.current.generation
+    const requestId = settingsLoadRequestRef.current + 1
+    settingsLoadRequestRef.current = requestId
     setLoading(true)
     setError('')
     fetch(appPath('/api/settings'))
       .then(response => response.json())
       .then((data: { settings?: GlobalSettings }) => {
+        if (
+          settingsLoadRequestRef.current !== requestId
+          || panelScopeRef.current.generation !== generation
+          || !panelScopeRef.current.open
+          || homesSaveRequestRef.current
+        ) return
         setHomes(normalizeHomes(data.settings?.agentHomes))
         setDangerouslySkipPermissions(data.settings?.dangerouslySkipAgentPermissionsByDefault === true)
         setUpdateUrl(String(data.settings?.updateUrl ?? ''))
         setSearchTimeoutSeconds(nearestSearchTimeoutSeconds(Number(data.settings?.searchTimeoutMs ?? 15000)))
       })
-      .catch(() => setError(copy.loadFailed))
-      .finally(() => setLoading(false))
+      .catch(() => {
+        if (
+          settingsLoadRequestRef.current === requestId
+          && panelScopeRef.current.generation === generation
+          && panelScopeRef.current.open
+          && !homesSaveRequestRef.current
+        ) setError(copy.loadFailed)
+      })
+      .finally(() => {
+        if (
+          settingsLoadRequestRef.current === requestId
+          && panelScopeRef.current.generation === generation
+          && panelScopeRef.current.open
+          && !homesSaveRequestRef.current
+        ) setLoading(false)
+      })
   }, [copy.loadFailed])
 
-  useEffect(() => () => {
-    if (searchTimeoutSaveTimerRef.current !== null) window.clearTimeout(searchTimeoutSaveTimerRef.current)
+  useEffect(() => {
+    panelScopeRef.current.open = open
+    return () => {
+      panelScopeRef.current = {
+        open: false,
+        generation: panelScopeRef.current.generation + 1,
+      }
+      settingsLoadRequestRef.current += 1
+      if (searchTimeoutSaveTimerRef.current !== null) window.clearTimeout(searchTimeoutSaveTimerRef.current)
+    }
   }, [])
 
   useEffect(() => {
     if (!open) return
+    if (!homesSaveRequestRef.current) setSaving(false)
     loadSettings()
     window.requestAnimationFrame(() => closeButtonRef.current?.focus({ preventScroll: true }))
   }, [loadSettings, open])
@@ -366,6 +409,13 @@ export function AgentHomesSettingsPanel({
   }, [onClose, open])
 
   const saveHomes = useCallback((nextHomes: AgentHomesSettings) => {
+    if (!panelScopeRef.current.open || homesSaveRequestRef.current) return
+    const generation = panelScopeRef.current.generation
+    const requestId = homesSaveSequenceRef.current + 1
+    homesSaveSequenceRef.current = requestId
+    homesSaveRequestRef.current = requestId
+    settingsLoadRequestRef.current += 1
+    setLoading(false)
     setSaving(true)
     setError('')
     setNotice('')
@@ -377,15 +427,32 @@ export function AgentHomesSettingsPanel({
       .then(async response => {
         const data = await response.json().catch(() => null) as { settings?: GlobalSettings; error?: string } | null
         if (!response.ok) throw new Error(data?.error || copy.saveFailed)
+        if (
+          homesSaveRequestRef.current !== requestId
+          || panelScopeRef.current.generation !== generation
+          || !panelScopeRef.current.open
+        ) return
         const normalized = normalizeHomes(data?.settings?.agentHomes ?? nextHomes)
         setHomes(normalized)
         setDraft(null)
         setNotice(copy.saved)
         window.dispatchEvent(new CustomEvent('farming-agent-homes-saved'))
       })
-      .catch(error => setError(error instanceof Error ? error.message : copy.saveFailed))
-      .finally(() => setSaving(false))
-  }, [copy.saveFailed, copy.saved])
+      .catch(error => {
+        if (
+          homesSaveRequestRef.current === requestId
+          && panelScopeRef.current.generation === generation
+          && panelScopeRef.current.open
+        ) setError(error instanceof Error ? error.message : copy.saveFailed)
+      })
+      .finally(() => {
+        if (homesSaveRequestRef.current !== requestId) return
+        homesSaveRequestRef.current = null
+        if (!panelScopeRef.current.open) return
+        setSaving(false)
+        if (panelScopeRef.current.generation !== generation) loadSettings()
+      })
+  }, [copy.saveFailed, copy.saved, loadSettings])
 
   const refreshUpdateStatus = useCallback((force = true, quiet = false) => {
     if (!quiet) {
@@ -847,7 +914,7 @@ export function AgentHomesSettingsPanel({
                         <strong>{providerDisplayName(provider)}{providerAvailable ? '' : ` · ${copy.unavailable}`}</strong>
                         {defaultHome && <span title={defaultHome.path}>{defaultHome.path} default</span>}
                       </div>
-                      <button type="button" className="code-agent-home-add" onClick={() => {
+                      <button type="button" className="code-agent-home-add" disabled={loading || saving} onClick={() => {
                         setError('')
                         setNotice('')
                         setDraft(nextHomeDraft(provider))
@@ -861,6 +928,7 @@ export function AgentHomesSettingsPanel({
                         <div className="code-agent-home-actions">
                           <button
                             type="button"
+                            disabled={loading || saving}
                             onClick={() => removeHome(provider, home.id)}
                             aria-label={copy.remove}
                             title={copy.remove}
@@ -916,7 +984,7 @@ export function AgentHomesSettingsPanel({
                         </label>
                         <div className="code-agent-home-form-actions">
                           <button type="button" onClick={() => setDraft(null)} aria-label={copy.cancel} title={copy.cancel}><CloseGlyph /></button>
-                          <button type="button" className="primary" disabled={saving} onClick={submitDraft} aria-label={copy.save} title={copy.save}><CheckGlyph /></button>
+                          <button type="button" className="primary" disabled={loading || saving} onClick={submitDraft} aria-label={copy.save} title={copy.save}><CheckGlyph /></button>
                         </div>
                       </div>
                     )}

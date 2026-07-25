@@ -256,6 +256,7 @@ export function InputDialog({
     fetch(appPath('/api/settings'))
       .then(r => r.json())
       .then((data: { settings?: { workspace?: string; lastMainWorkspace?: string; workspaceHistory?: string[]; defaultLaunchAgent?: string; agentHomes?: Record<string, Array<{ id: string; path: string }>> } }) => {
+        if (cancelled) return
         const settings = data.settings ?? {}
         const nextMainWorkspaceDefault = getMainWorkspaceDefault(settings)
         const history = buildWorkspaceHistory(null, settings.workspaceHistory ?? [])
@@ -269,6 +270,7 @@ export function InputDialog({
         setSettingsLoaded(true)
       })
       .catch(() => {
+        if (cancelled) return
         setWorkspaceHistory([])
         setMainWorkspaceDefault('~/.farming')
         if (mustStartMain && !workspaceTouchedRef.current) {

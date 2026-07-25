@@ -89,6 +89,7 @@ const crtStructuredPreviewTimers = new Map();
 let sessionRuntime = null;
 let structuredSessionPoller = null;
 let structuredSessionLoading = false;
+let structuredSessionGeneration = 0;
 let structuredSessionRenderedAt = '';
 let structuredSessionSnapshot = null;
 let structuredSessionControlsLoading = false;
@@ -107,6 +108,7 @@ let runtimeSwitchPending = false;
 let pendingRuntimeSwitchAgentId = '';
 let runtimeSwitchRequestSequence = 0;
 let crtTerminalReplication = null;
+const globalSettingsSaveRevisions = new Map();
 const terminalPreviewSnapshots = new Map();
 const crtBrandPulseTimers = new Map();
 const SESSION_LINK_LIMIT = 6;
@@ -849,8 +851,14 @@ function fallbackCopyText(text) {
   return copied;
 }
 
-async function pasteTerminalText(text) {
-  if (!text || !focusedAgentId) {
+function isCurrentCrtSession(agentId, sessionToken = null) {
+  if (!agentId || focusedAgentId !== agentId) return false;
+  const runtime = getSessionRuntime();
+  return sessionToken === null || !runtime || runtime.isCurrentSession(agentId, sessionToken);
+}
+
+async function pasteTerminalText(text, agentId = focusedAgentId, sessionToken = null) {
+  if (!text || !isCurrentCrtSession(agentId, sessionToken)) {
     return false;
   }
 
@@ -877,9 +885,13 @@ async function pasteFromClipboard() {
     return false;
   }
 
+  const agentId = focusedAgentId;
+  const runtime = getSessionRuntime();
+  const sessionToken = runtime ? runtime.getSessionToken() : null;
+  if (!agentId) return false;
   try {
     const text = await navigator.clipboard.readText();
-    return pasteTerminalText(text);
+    return pasteTerminalText(text, agentId, sessionToken);
   } catch (error) {
     console.warn('Clipboard API paste failed:', error);
     return false;
@@ -2813,23 +2825,35 @@ async function loadGlobalSettings() {
   }
 }
 
-async function saveGlobalSettings() {
+async function saveGlobalSettings(settingsPatch) {
+  const patch = settingsPatch && typeof settingsPatch === 'object'
+    ? { ...settingsPatch }
+    : {};
+  const keys = Object.keys(patch);
+  if (keys.length === 0) return;
+  const revisions = new Map(keys.map((key) => {
+    const revision = (globalSettingsSaveRevisions.get(key) || 0) + 1;
+    globalSettingsSaveRevisions.set(key, revision);
+    return [key, revision];
+  }));
   try {
-    syncWorkspaceSettings();
     const response = await fetch(farmingApiPath('/settings'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(globalSettings)
+      body: JSON.stringify(patch)
     });
 
     const data = await response.json();
     if (data.success) {
-      globalSettings = {
-        ...globalSettings,
-        ...(data.settings || {})
-      };
+      const savedSettings = data.settings || {};
+      keys.forEach((key) => {
+        if (globalSettingsSaveRevisions.get(key) !== revisions.get(key)) return;
+        globalSettings[key] = Object.prototype.hasOwnProperty.call(savedSettings, key)
+          ? savedSettings[key]
+          : patch[key];
+      });
       if (globalSettings.instanceName) {
         document.title = `${globalSettings.instanceName} · Farming CRT`;
       }
@@ -2941,7 +2965,7 @@ function scheduleCrtTerminalFontSizeSave() {
   if (crtTerminalFontSizeSaveTimer) clearTimeout(crtTerminalFontSizeSaveTimer);
   crtTerminalFontSizeSaveTimer = setTimeout(() => {
     crtTerminalFontSizeSaveTimer = null;
-    void saveGlobalSettings();
+    void saveGlobalSettings({ crtTerminalFontSize: globalSettings.crtTerminalFontSize });
   }, 150);
 }
 
@@ -2959,7 +2983,7 @@ function initDisplaySettings() {
         crtToggle.onchange = async () => {
           globalSettings.crtSkinEffectsEnabled = crtToggle.checked;
           applyCRTEffects(crtToggle.checked);
-          await saveGlobalSettings();
+          await saveGlobalSettings({ crtSkinEffectsEnabled: crtToggle.checked });
         };
       }
     } else {
@@ -2974,7 +2998,7 @@ function initDisplaySettings() {
     dynamicHeatToggle.onchange = async () => {
       globalSettings.crtDynamicHeatEnabled = dynamicHeatToggle.checked;
       renderState();
-      await saveGlobalSettings();
+      await saveGlobalSettings({ crtDynamicHeatEnabled: dynamicHeatToggle.checked });
     };
   }
 
@@ -2994,7 +3018,9 @@ function initSessionEngineSettings() {
   skipPermissionCheckToggle.checked = globalSettings.dangerouslySkipAgentPermissionsByDefault === true;
   skipPermissionCheckToggle.onchange = async () => {
     globalSettings.dangerouslySkipAgentPermissionsByDefault = skipPermissionCheckToggle.checked;
-    await saveGlobalSettings();
+    await saveGlobalSettings({
+      dangerouslySkipAgentPermissionsByDefault: skipPermissionCheckToggle.checked,
+    });
   };
 }
 
@@ -5358,7 +5384,11 @@ async function startCrtAgent(agent, workspaceToUse, asMainAgent) {
   }
   if (JSON.stringify(getWorkspaceHistory()) !== previousHistory) {
     refreshWorkspaceMemoryUI();
-    await saveGlobalSettings();
+    syncWorkspaceSettings();
+    await saveGlobalSettings({
+      workspace: globalSettings.workspace,
+      workspaceHistory: globalSettings.workspaceHistory,
+    });
   }
 
   ws.send(JSON.stringify({
@@ -6304,7 +6334,8 @@ function flushStructuredComposerFollowUp(agent) {
     structuredComposerPendingFollowUps.set(agent.id, queue);
     return;
   }
-  setTimeout(() => void refreshStructuredSession(agent.id, true), 160);
+  const generation = structuredSessionGeneration;
+  setTimeout(() => void refreshStructuredSession(agent.id, true, generation), 160);
 }
 
 function structuredContextUsage(session) {
@@ -6377,6 +6408,14 @@ function structuredConfigValueLabel(option) {
   const selected = structuredSelectOptions(option)
     .find((candidate) => candidate.value === option.currentValue);
   return selected && selected.name ? selected.name : String(option.currentValue || '');
+}
+
+function isCurrentStructuredSession(agentId, generation) {
+  return Boolean(
+    agentId
+    && agentId === focusedAgentId
+    && generation === structuredSessionGeneration
+  );
 }
 
 function resetStructuredSessionControls() {
@@ -6503,19 +6542,28 @@ function backStructuredComposerMenu() {
   closeStructuredComposerMenu();
 }
 
-async function patchStructuredAcpSession(patch) {
-  if (!focusedAgentId) return;
+async function patchStructuredAcpSession(agentId, generation, patch) {
+  if (!isCurrentStructuredSession(agentId, generation)) return;
   const openerId = structuredComposerMenuOpenerId;
-  const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(focusedAgentId)}/acp-session`), {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch)
-  });
-  const body = await response.json().catch(() => null);
+  let response;
+  let body;
+  try {
+    response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agentId)}/acp-session`), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch)
+    });
+    body = await response.json().catch(() => null);
+  } catch (error) {
+    if (!isCurrentStructuredSession(agentId, generation)) return;
+    throw error;
+  }
+  if (!isCurrentStructuredSession(agentId, generation)) return;
   if (!response.ok) throw new Error(body && body.error ? body.error : `Failed to update ACP session (${response.status})`);
   structuredComposerMenu = '';
   structuredComposerConfigId = '';
-  await refreshStructuredSessionControls(focusedAgentId, true);
+  await refreshStructuredSessionControls(agentId, true, generation);
+  if (!isCurrentStructuredSession(agentId, generation)) return;
   const opener = openerId ? document.getElementById(openerId) : null;
   if (opener && !opener.hidden && !opener.disabled) opener.focus();
 }
@@ -6543,6 +6591,8 @@ function renderStructuredComposerMenu() {
   const retainedFocus = captureStructuredComposerMenuFocus(menu);
   menu.replaceChildren();
   const session = structuredSessionSnapshot;
+  const agentId = focusedAgentId;
+  const generation = structuredSessionGeneration;
   if (!structuredComposerMenu || !session) {
     menu.hidden = true;
     return;
@@ -6584,7 +6634,7 @@ function renderStructuredComposerMenu() {
     const current = session.currentModeId || (session.modes && session.modes.currentModeId) || '';
     modes.forEach((mode) => {
       items.appendChild(structuredMenuButton(mode.name || mode.id, mode.description || '', mode.id === current, () => {
-        void patchStructuredAcpSession({ modeId: mode.id }).catch(showStructuredComposerError);
+        void patchStructuredAcpSession(agentId, generation, { modeId: mode.id }).catch(showStructuredComposerError);
       }, `mode:${mode.id}`));
     });
   } else if (!selectedConfig) {
@@ -6604,13 +6654,13 @@ function renderStructuredComposerMenu() {
   } else if (selectedConfig.type === 'boolean') {
     [false, true].forEach((value) => {
       items.appendChild(structuredMenuButton(value ? 'ON' : 'OFF', selectedConfig.description || '', selectedConfig.currentValue === value, () => {
-        void patchStructuredAcpSession({ configId: selectedConfig.id, value }).catch(showStructuredComposerError);
+        void patchStructuredAcpSession(agentId, generation, { configId: selectedConfig.id, value }).catch(showStructuredComposerError);
       }, `boolean:${value}`));
     });
   } else {
     structuredSelectOptions(selectedConfig).forEach((candidate) => {
       items.appendChild(structuredMenuButton(candidate.name || candidate.value, candidate.description || '', candidate.value === selectedConfig.currentValue, () => {
-        void patchStructuredAcpSession({ configId: selectedConfig.id, value: candidate.value }).catch(showStructuredComposerError);
+        void patchStructuredAcpSession(agentId, generation, { configId: selectedConfig.id, value: candidate.value }).catch(showStructuredComposerError);
       }, `option:${candidate.value}`));
     });
   }
@@ -6645,8 +6695,12 @@ function renderStructuredSessionControls() {
   renderStructuredComposerMenu();
 }
 
-async function refreshStructuredSessionControls(agentId = focusedAgentId, force = false) {
-  if (!agentId || structuredSessionControlsLoading) return;
+async function refreshStructuredSessionControls(
+  agentId = focusedAgentId,
+  force = false,
+  generation = structuredSessionGeneration
+) {
+  if (!isCurrentStructuredSession(agentId, generation) || structuredSessionControlsLoading) return;
   const agent = state && state.agents.find((candidate) => candidate.id === agentId);
   if (!agent || agent.runtimeBinding?.kind !== 'acp') {
     resetStructuredSessionControls();
@@ -6661,6 +6715,7 @@ async function refreshStructuredSessionControls(agentId = focusedAgentId, force 
   try {
     const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agentId)}/acp-session`));
     const body = await response.json().catch(() => null);
+    if (!isCurrentStructuredSession(agentId, generation)) return;
     if (!response.ok || !body || !body.session) {
       throw new Error(body && body.error ? body.error : `Failed to read ACP session (${response.status})`);
     }
@@ -6668,9 +6723,12 @@ async function refreshStructuredSessionControls(agentId = focusedAgentId, force 
     structuredSessionControlsRevision = revision || String(body.session.updatedAt || Date.now());
     renderStructuredSessionControls();
   } catch (error) {
+    if (!isCurrentStructuredSession(agentId, generation)) return;
     showStructuredComposerError(error);
   } finally {
-    structuredSessionControlsLoading = false;
+    if (isCurrentStructuredSession(agentId, generation)) {
+      structuredSessionControlsLoading = false;
+    }
   }
 }
 
@@ -6742,7 +6800,7 @@ function setStructuredComposerActive(active) {
   }
 }
 
-function updateStructuredComposerState(agent) {
+function updateStructuredComposerState(agent, { refreshControls = true } = {}) {
   const input = document.getElementById('crt-structured-input');
   const sendButton = document.getElementById('crt-structured-send');
   const statusNode = document.getElementById('crt-structured-composer-status');
@@ -6768,7 +6826,9 @@ function updateStructuredComposerState(agent) {
   statusNode.textContent = error || `${kind} ${String(runtimeStatus || 'idle').toUpperCase()}`;
   statusNode.classList.toggle('error', Boolean(error));
   renderStructuredPermissions(agent);
-  if (agent && agent.runtimeBinding?.kind === 'acp') void refreshStructuredSessionControls(agent.id);
+  if (refreshControls && agent && agent.runtimeBinding?.kind === 'acp') {
+    void refreshStructuredSessionControls(agent.id);
+  }
 }
 
 function structuredAttachmentId(file) {
@@ -6927,6 +6987,8 @@ function renderStructuredPermissions(agent) {
   if (!container) return;
   container.replaceChildren();
   if (!agent || agent.runtimeBinding?.kind !== 'acp') return;
+  const agentId = agent.id;
+  const generation = structuredSessionGeneration;
   const runtime = agent.runtimeBinding;
   const requests = Array.isArray(runtime.pendingPermissions) && runtime.pendingPermissions.length
     ? runtime.pendingPermissions
@@ -6945,27 +7007,47 @@ function renderStructuredPermissions(agent) {
       const button = document.createElement('button');
       button.type = 'button';
       button.textContent = `[${option.name}]`;
-      button.onclick = () => void respondToStructuredPermission(request.requestId, option.optionId, false);
+      button.onclick = () => void respondToStructuredPermission(
+        agentId,
+        generation,
+        request.requestId,
+        option.optionId,
+        false,
+      );
       actions.appendChild(button);
     });
     const decline = document.createElement('button');
     decline.type = 'button';
     decline.textContent = '[DECLINE]';
-    decline.onclick = () => void respondToStructuredPermission(request.requestId, undefined, true);
+    decline.onclick = () => void respondToStructuredPermission(
+      agentId,
+      generation,
+      request.requestId,
+      undefined,
+      true,
+    );
     actions.appendChild(decline);
     panel.append(title, description, actions);
     container.appendChild(panel);
   });
 }
 
-async function respondToStructuredPermission(requestId, optionId, cancelled) {
-  if (!focusedAgentId) return;
-  const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(focusedAgentId)}/acp-permission`), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ requestId, optionId, cancelled: cancelled === true })
-  });
-  const body = await response.json().catch(() => null);
+async function respondToStructuredPermission(agentId, generation, requestId, optionId, cancelled) {
+  if (!isCurrentStructuredSession(agentId, generation)) return;
+  let response;
+  let body;
+  try {
+    response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agentId)}/acp-permission`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestId, optionId, cancelled: cancelled === true })
+    });
+    body = await response.json().catch(() => null);
+  } catch (error) {
+    if (isCurrentStructuredSession(agentId, generation)) showStructuredComposerError(error);
+    return;
+  }
+  if (!isCurrentStructuredSession(agentId, generation)) return;
   if (!response.ok) {
     showStructuredComposerError(new Error(body && body.error ? body.error : `Permission response failed (${response.status})`));
   }
@@ -7205,13 +7287,13 @@ async function refreshCrtStructuredPreview(agent) {
   }
 }
 
-function renderStructuredTranscript(transcript, force = false) {
+function renderStructuredTranscript(transcript, force = false, agentId = focusedAgentId) {
   const container = document.getElementById('terminal-output');
-  if (!container) return;
+  if (!container || agentId !== focusedAgentId) return;
   const updatedAt = String(transcript && transcript.updatedAt || '');
   if (!force && updatedAt && updatedAt === structuredSessionRenderedAt) return;
   const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
-  if (!nearBottom && focusedAgentId) saveCrtStructuredReadingAnchor(focusedAgentId);
+  if (!nearBottom) saveCrtStructuredReadingAnchor(agentId);
   const turns = structuredTranscriptTurns(transcript);
 
   const markdownRenderer = typeof window !== 'undefined' ? window.FarmingCrtMarkdownRenderer : null;
@@ -7235,15 +7317,21 @@ function renderStructuredTranscript(transcript, force = false) {
     return;
   }
   structuredSessionRenderedAt = updatedAt;
-  if (!focusedAgentId || !restoreCrtStructuredReadingAnchor(focusedAgentId)) {
+  if (!restoreCrtStructuredReadingAnchor(agentId)) {
     if (force || nearBottom) container.scrollTop = container.scrollHeight;
   }
-  container.onscroll = () => saveCrtStructuredReadingAnchor(focusedAgentId);
+  container.onscroll = () => {
+    if (focusedAgentId === agentId) saveCrtStructuredReadingAnchor(agentId);
+  };
   requestAnimationFrame(updateStructuredTranscriptScrollState);
 }
 
-async function refreshStructuredSession(agentId = focusedAgentId, force = false) {
-  if (!agentId || structuredSessionLoading) return;
+async function refreshStructuredSession(
+  agentId = focusedAgentId,
+  force = false,
+  generation = structuredSessionGeneration
+) {
+  if (!isCurrentStructuredSession(agentId, generation) || structuredSessionLoading) return;
   const agent = state && state.agents.find((candidate) => candidate.id === agentId);
   if (!agent || !isStructuredRuntimeAgent(agent)) return;
   structuredSessionLoading = true;
@@ -7251,12 +7339,14 @@ async function refreshStructuredSession(agentId = focusedAgentId, force = false)
     const endpoint = structuredTranscriptEndpoint(agent);
     const response = await fetch(farmingApiPath(`/agents/${encodeURIComponent(agentId)}/${endpoint}?maxTurns=80`));
     const body = await response.json().catch(() => null);
+    if (!isCurrentStructuredSession(agentId, generation)) return;
     if (!response.ok || !body || !body.transcript) {
       throw new Error(body && body.error ? body.error : `Failed to read conversation (${response.status})`);
     }
-    renderStructuredTranscript(body.transcript, force);
+    renderStructuredTranscript(body.transcript, force, agentId);
     updateStructuredComposerState(agent);
   } catch (error) {
+    if (!isCurrentStructuredSession(agentId, generation)) return;
     const container = document.getElementById('terminal-output');
     if (container && !container.querySelector('.crt-structured-transcript')) {
       const message = document.createElement('div');
@@ -7266,23 +7356,28 @@ async function refreshStructuredSession(agentId = focusedAgentId, force = false)
     }
     updateStructuredComposerState(agent);
   } finally {
-    structuredSessionLoading = false;
+    if (isCurrentStructuredSession(agentId, generation)) {
+      structuredSessionLoading = false;
+    }
   }
 }
 
-function stopStructuredSessionPolling() {
+function stopStructuredSessionPolling(revokeOwnership = true) {
   if (structuredSessionPoller) {
     clearInterval(structuredSessionPoller);
     structuredSessionPoller = null;
   }
   structuredSessionLoading = false;
   structuredSessionRenderedAt = '';
+  if (revokeOwnership) structuredSessionGeneration += 1;
 }
 
-function startStructuredSessionPolling(agentId) {
-  stopStructuredSessionPolling();
+function startStructuredSessionPolling(agentId, generation) {
+  stopStructuredSessionPolling(false);
   structuredSessionPoller = setInterval(() => {
-    if (focusedAgentId === agentId) void refreshStructuredSession(agentId);
+    if (isCurrentStructuredSession(agentId, generation)) {
+      void refreshStructuredSession(agentId, false, generation);
+    }
   }, 1000);
 }
 
@@ -7453,9 +7548,11 @@ function setupStructuredSessionComposer() {
     const agent = state && state.agents.find((candidate) => candidate.id === focusedAgentId);
     const action = structuredComposerAction(agent, input.value);
     if (!agent || action === 'disabled') return;
+    const agentId = agent.id;
+    const generation = structuredSessionGeneration;
     if (action === 'interrupt') {
       structuredComposerRestoreFocusAfterInterrupt = true;
-      const interrupted = getSessionClient()?.interruptAgent(focusedAgentId);
+      const interrupted = getSessionClient()?.interruptAgent(agentId);
       if (!interrupted) {
         structuredComposerRestoreFocusAfterInterrupt = false;
         showStructuredComposerError(new Error('Connection unavailable'));
@@ -7469,7 +7566,7 @@ function setupStructuredSessionComposer() {
     if (!message && promptAttachments.length === 0) return;
     const statusNode = document.getElementById('crt-structured-composer-status');
     const completeSubmission = () => {
-      addStructuredComposerHistory(focusedAgentId, draft);
+      addStructuredComposerHistory(agentId, draft);
       input.value = '';
       structuredComposerAttachments = [];
       renderStructuredComposerAttachments();
@@ -7479,11 +7576,11 @@ function setupStructuredSessionComposer() {
         statusNode.classList.remove('error');
       }
       updateStructuredComposerState(agent);
-      setTimeout(() => void refreshStructuredSession(focusedAgentId, true), 160);
+      setTimeout(() => void refreshStructuredSession(agentId, true, generation), 160);
     };
     const sent = action === 'send' && structuredRuntimeStatus(agent) !== 'idle'
-      ? (queueStructuredComposerFollowUp(focusedAgentId, message, promptAttachments), true)
-      : getSessionClient()?.sendComposerMessage(focusedAgentId, message, promptAttachments);
+      ? (queueStructuredComposerFollowUp(agentId, message, promptAttachments), true)
+      : getSessionClient()?.sendComposerMessage(agentId, message, promptAttachments);
     if (!sent) {
       if (statusNode) {
         statusNode.textContent = 'Connection unavailable';
@@ -7499,14 +7596,17 @@ async function openStructuredSession(agent, sessionToken) {
   const runtime = getSessionRuntime();
   const container = document.getElementById('terminal-output');
   if (!container) return;
+  const generation = ++structuredSessionGeneration;
   container.classList.add('crt-structured-session');
   setStructuredComposerActive(true);
   setupStructuredSessionComposer();
-  updateStructuredComposerState(agent);
-  await refreshStructuredSessionControls(agent.id, true);
-  await refreshStructuredSession(agent.id, true);
+  updateStructuredComposerState(agent, { refreshControls: false });
+  await refreshStructuredSessionControls(agent.id, true, generation);
+  if (!isCurrentStructuredSession(agent.id, generation)) return;
+  await refreshStructuredSession(agent.id, true, generation);
+  if (!isCurrentStructuredSession(agent.id, generation)) return;
   if (runtime && !runtime.isCurrentSession(agent.id, sessionToken)) return;
-  startStructuredSessionPolling(agent.id);
+  startStructuredSessionPolling(agent.id, generation);
   const input = document.getElementById('crt-structured-input');
   if (input) {
     resizeStructuredComposerInput(input);

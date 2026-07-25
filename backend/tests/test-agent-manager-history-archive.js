@@ -179,6 +179,34 @@ async function run() {
       },
     }], 'manual Codex archive should asynchronously archive the provider session once');
     resolveCodexArchive({ archived: true });
+    await new Promise(resolve => setImmediate(resolve));
+
+    const providerMutationOrder = [];
+    let releaseQueuedArchive;
+    const queuedArchive = manager.enqueueCodexSessionMutation(
+      'ordered-session',
+      { providerHomeId: 'default' },
+      'archive',
+      async () => {
+        providerMutationOrder.push('archive-start');
+        await new Promise(resolve => { releaseQueuedArchive = resolve; });
+        providerMutationOrder.push('archive-end');
+      },
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    const queuedUnarchive = manager.enqueueCodexSessionMutation(
+      'ordered-session',
+      { providerHomeId: 'default' },
+      'unarchive',
+      async () => {
+        providerMutationOrder.push('unarchive');
+      },
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepStrictEqual(providerMutationOrder, ['archive-start']);
+    releaseQueuedArchive();
+    await Promise.all([queuedArchive, queuedUnarchive]);
+    assert.deepStrictEqual(providerMutationOrder, ['archive-start', 'archive-end', 'unarchive']);
 
     settings.mainPageSessionKeys = [
       'agent-session:codex:rollback-session',

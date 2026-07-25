@@ -178,6 +178,18 @@ class ReviewSessionService {
     this.reviewStateStore = reviewStateStore;
     this.resolveAgentRoot = options.resolveAgentRoot;
     this.resolveAcpReviewChanges = options.resolveAcpReviewChanges;
+    this.refreshQueues = new Map();
+  }
+
+  enqueueRefresh(reviewId, operation) {
+    const previous = this.refreshQueues.get(reviewId) || Promise.resolve();
+    const next = previous.catch(() => {}).then(operation);
+    this.refreshQueues.set(reviewId, next);
+    const cleanup = () => {
+      if (this.refreshQueues.get(reviewId) === next) this.refreshQueues.delete(reviewId);
+    };
+    next.then(cleanup, cleanup);
+    return next;
   }
 
   async git(root, args, options = {}) {
@@ -373,24 +385,26 @@ class ReviewSessionService {
 
   async refresh(reviewId) {
     if (!REVIEW_ID_PATTERN.test(reviewId)) throw new ReviewSessionError('review session id is invalid');
-    const current = this.sessionStore.get(reviewId);
-    if (!current) throw new ReviewSessionError('review session not found', 404);
-    const paths = await this.capturePaths(current.root, current);
-    const tree = await this.captureStableTree(current.root, paths);
-    const previous = current.revisions[current.revisions.length - 1];
-    if (previous.tree === tree) return { ...publicRevision(current, previous), changedPaths: [], unchanged: true };
-    const nextNumber = previous.number + 1;
-    const changedPaths = await this.changedPaths(current.root, previous.tree, tree);
-    await this.keepRevision(current.root, reviewId, nextNumber, tree);
-    const result = this.sessionStore.appendRevision(reviewId, tree);
-    const next = result.session.revisions[result.session.revisions.length - 1];
-    this.reviewStateStore?.inheritPatchset?.({
-      changedPaths,
-      nextPatchset: tree,
-      previousPatchset: previous.tree,
-      reviewId,
+    return this.enqueueRefresh(reviewId, async () => {
+      const current = this.sessionStore.get(reviewId);
+      if (!current) throw new ReviewSessionError('review session not found', 404);
+      const paths = await this.capturePaths(current.root, current);
+      const tree = await this.captureStableTree(current.root, paths);
+      const previous = current.revisions[current.revisions.length - 1];
+      if (previous.tree === tree) return { ...publicRevision(current, previous), changedPaths: [], unchanged: true };
+      const nextNumber = previous.number + 1;
+      const changedPaths = await this.changedPaths(current.root, previous.tree, tree);
+      await this.keepRevision(current.root, reviewId, nextNumber, tree);
+      const result = this.sessionStore.appendRevision(reviewId, tree);
+      const next = result.session.revisions[result.session.revisions.length - 1];
+      this.reviewStateStore?.inheritPatchset?.({
+        changedPaths,
+        nextPatchset: tree,
+        previousPatchset: previous.tree,
+        reviewId,
+      });
+      return { ...publicRevision(result.session, next), changedPaths, unchanged: false };
     });
-    return { ...publicRevision(result.session, next), changedPaths, unchanged: false };
   }
 
   get(reviewId) {

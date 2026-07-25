@@ -1136,6 +1136,9 @@ class WorkspaceFileService {
     this.mutationQueues = new Map();
     this.flushWorkspaceWrites = options.flushWorkspaceWrites !== false;
     this.watchers = new Map();
+    this.watcherSubscriptionGeneration = 0;
+    this.watcherLifecycleGeneration = 0;
+    this.disposed = false;
     this.watchOptions = options.watchOptions || {};
     this.watchDepth = Number.isFinite(options.watchDepth) ? Math.max(0, options.watchDepth) : DEFAULT_WATCH_DEPTH;
     this.commandRunner = options.commandRunner || new CommandRunner(options.commandRunnerOptions);
@@ -1167,6 +1170,13 @@ class WorkspaceFileService {
         this.mutationQueues.delete(root);
       }
     }
+  }
+
+  async waitForWorkspaceMutations(workspaceRoot) {
+    const root = await this.resolveRoot(workspaceRoot);
+    const pending = this.mutationQueues.get(root);
+    if (pending) await pending;
+    return root;
   }
 
   async execRipgrep(args, options = {}) {
@@ -1651,7 +1661,8 @@ class WorkspaceFileService {
   }
 
   async listTree(workspaceRoot, userPath = '', options = {}) {
-    const { root, target, relativePath, external: parentExternal = false } = await this.resolvePath(workspaceRoot, userPath, options);
+    const root = await this.waitForWorkspaceMutations(workspaceRoot);
+    const { target, relativePath, external: parentExternal = false } = await this.resolvePath(root, userPath, options);
     const stat = await fsp.stat(target);
     if (!stat.isDirectory()) {
       throw new WorkspaceFileError('path must be a directory', 400);
@@ -3133,12 +3144,17 @@ class WorkspaceFileService {
   }
 
   async subscribe(workspaceRoot, callback) {
+    if (this.disposed) return async () => {};
+    const lifecycleGeneration = this.watcherLifecycleGeneration;
     const root = await this.resolveRoot(workspaceRoot);
+    if (this.disposed || this.watcherLifecycleGeneration !== lifecycleGeneration) return async () => {};
     const watchRoot = path.resolve(workspaceRoot);
     let record = this.watchers.get(root);
 
     if (!record) {
       const subscribers = new Set();
+      const generation = this.watcherSubscriptionGeneration + 1;
+      this.watcherSubscriptionGeneration = generation;
 
       const emit = (eventType, absolutePath) => {
         const relative = relativeFromRoot(watchRoot, absolutePath);
@@ -3161,56 +3177,112 @@ class WorkspaceFileService {
         });
       };
 
-      const configuredIgnored = this.watchOptions.ignored;
-      const ignored = (candidatePath) => {
-        const relative = path.relative(watchRoot, candidatePath);
-        if (shouldHidePath(relative)) return true;
-        if (typeof configuredIgnored === 'function') return configuredIgnored(candidatePath);
-        if (configuredIgnored instanceof RegExp) return configuredIgnored.test(candidatePath);
-        if (Array.isArray(configuredIgnored)) {
-          return configuredIgnored.some(pattern => (
-            pattern instanceof RegExp ? pattern.test(candidatePath) : String(candidatePath).includes(String(pattern))
-          ));
-        }
-        return false;
+      record = {
+        watcher: null,
+        subscribers,
+        generation,
+        cancelled: false,
+        cancelInitialization: null,
+        closePromise: null,
+        ready: null,
       };
-      const chokidar = await loadChokidar();
-      const watcher = chokidar.watch(watchRoot, {
-        ignoreInitial: true,
-        depth: this.watchDepth,
-        ...this.watchOptions,
-        ignored,
-      });
-
-      ['add', 'change', 'unlink', 'addDir', 'unlinkDir'].forEach((eventType) => {
-        watcher.on(eventType, filePath => emit(eventType, filePath));
-      });
-      watcher.on('error', emitError);
-      const ready = new Promise(resolve => watcher.once('ready', resolve));
-
-      record = { watcher, subscribers, ready };
       this.watchers.set(root, record);
+      record.ready = (async () => {
+        const configuredIgnored = this.watchOptions.ignored;
+        const ignored = (candidatePath) => {
+          const relative = path.relative(watchRoot, candidatePath);
+          if (shouldHidePath(relative)) return true;
+          if (typeof configuredIgnored === 'function') return configuredIgnored(candidatePath);
+          if (configuredIgnored instanceof RegExp) return configuredIgnored.test(candidatePath);
+          if (Array.isArray(configuredIgnored)) {
+            return configuredIgnored.some(pattern => (
+              pattern instanceof RegExp ? pattern.test(candidatePath) : String(candidatePath).includes(String(pattern))
+            ));
+          }
+          return false;
+        };
+        const chokidar = await loadChokidar();
+        if (
+          record.cancelled
+          || this.watchers.get(root)?.generation !== generation
+        ) return false;
+        const watcher = chokidar.watch(watchRoot, {
+          ignoreInitial: true,
+          depth: this.watchDepth,
+          ...this.watchOptions,
+          ignored,
+        });
+        record.watcher = watcher;
+
+        ['add', 'change', 'unlink', 'addDir', 'unlinkDir'].forEach((eventType) => {
+          watcher.on(eventType, filePath => emit(eventType, filePath));
+        });
+        watcher.on('error', emitError);
+        const initialized = await new Promise(resolve => {
+          let settled = false;
+          const finish = value => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+          };
+          watcher.once('ready', () => finish(true));
+          record.cancelInitialization = () => finish(false);
+        });
+        record.cancelInitialization = null;
+        return initialized
+          && !record.cancelled
+          && this.watchers.get(root)?.generation === generation;
+      })();
     }
 
-    await record.ready;
     record.subscribers.add(callback);
-    return async () => {
+    let initialized = false;
+    try {
+      initialized = await record.ready;
+    } catch (error) {
       record.subscribers.delete(callback);
-      if (record.subscribers.size === 0) {
+      if (record.subscribers.size === 0 && this.watchers.get(root)?.generation === record.generation) {
         this.watchers.delete(root);
-        const closeResult = record.watcher.close();
-        if (closeResult && typeof closeResult.then === 'function') {
-          await closeResult;
-        }
+        await this.closeWorkspaceWatcherRecord(record);
+      }
+      throw error;
+    }
+    if (!initialized) {
+      record.subscribers.delete(callback);
+      return async () => {};
+    }
+    return async () => {
+      if (!record.subscribers.delete(callback)) return;
+      if (
+        record.subscribers.size === 0
+        && this.watchers.get(root)?.generation === record.generation
+      ) {
+        this.watchers.delete(root);
+        await this.closeWorkspaceWatcherRecord(record);
       }
     };
+  }
+
+  async closeWorkspaceWatcherRecord(record) {
+    if (record.closePromise) return record.closePromise;
+    record.cancelled = true;
+    record.cancelInitialization?.();
+    record.closePromise = (async () => {
+      await record.ready?.catch(() => false);
+      if (!record.watcher) return;
+      const closeResult = record.watcher.close();
+      if (closeResult && typeof closeResult.then === 'function') await closeResult;
+    })();
+    return record.closePromise;
   }
 
   async dispose() {
     const watchers = Array.from(this.watchers.values());
     this.watchers.clear();
+    this.disposed = true;
+    this.watcherLifecycleGeneration += 1;
     this.gitStatusCache.clear();
-    await Promise.all(watchers.map(record => record.watcher.close()));
+    await Promise.all(watchers.map(record => this.closeWorkspaceWatcherRecord(record)));
     if (this.ownsCommandRunner) {
       this.commandRunner.dispose();
     }

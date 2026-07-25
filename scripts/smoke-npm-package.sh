@@ -5,25 +5,68 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP_ROOT="$(mktemp -d /tmp/farming-npm-smoke.XXXXXX)"
 PREFIX="${TMP_ROOT}/prefix"
 CONFIG_DIR="${TMP_ROOT}/config"
+WORKSPACE_DIR="${TMP_ROOT}/workspace"
 PORT_VALUE="${FARMING_NPM_SMOKE_PORT:-6794}"
 NPM_CACHE="${TMP_ROOT}/npm-cache"
 NPM_REGISTRY="${FARMING_NPM_SMOKE_REGISTRY:-https://registry.npmjs.org/}"
 NPM_MAJOR="$(npm --version | cut -d. -f1)"
+SERVER_PID=""
+NATIVE_HOST_PID=""
+MAIN_BASH_PID=""
 
 if [ "${NPM_MAJOR}" -lt 12 ]; then
   echo "npm package release smoke requires npm 12 or newer, found $(npm --version)" >&2
   exit 1
 fi
 
+process_is_alive() {
+  local pid="$1"
+  [ -n "${pid}" ] && kill -0 "${pid}" >/dev/null 2>&1
+}
+
+wait_for_process_exit() {
+  local pid="$1"
+  local label="$2"
+  local attempts=0
+  while process_is_alive "${pid}"; do
+    if [ "${attempts}" -ge 200 ]; then
+      echo "npm package smoke leaked ${label} process ${pid}" >&2
+      ps -p "${pid}" -o pid=,ppid=,command= >&2 || true
+      return 1
+    fi
+    attempts=$((attempts + 1))
+    sleep 0.1
+  done
+}
+
+terminate_smoke_process() {
+  local pid="$1"
+  if ! process_is_alive "${pid}"; then
+    return
+  fi
+  kill -TERM "${pid}" >/dev/null 2>&1 || true
+  local attempts=0
+  while process_is_alive "${pid}" && [ "${attempts}" -lt 20 ]; do
+    attempts=$((attempts + 1))
+    sleep 0.1
+  done
+  if process_is_alive "${pid}"; then
+    kill -KILL "${pid}" >/dev/null 2>&1 || true
+  fi
+}
+
 cleanup() {
   if [ -x "${PREFIX}/bin/farming" ]; then
     "${PREFIX}/bin/farming" stop --config-dir "${CONFIG_DIR}" >/dev/null 2>&1 || true
   fi
+  terminate_smoke_process "${SERVER_PID}"
+  terminate_smoke_process "${NATIVE_HOST_PID}"
+  terminate_smoke_process "${MAIN_BASH_PID}"
   rm -rf "${TMP_ROOT}"
 }
 trap cleanup EXIT
 
-mkdir -p "${PREFIX}" "${CONFIG_DIR}"
+mkdir -p "${PREFIX}" "${CONFIG_DIR}" "${WORKSPACE_DIR}"
 cd "${PROJECT_ROOT}"
 NPM_CONFIG_CACHE="${NPM_CACHE}" NPM_CONFIG_REGISTRY="${NPM_REGISTRY}" \
   npm pack --pack-destination "${TMP_ROOT}" --silent >/dev/null
@@ -66,10 +109,15 @@ if (fs.realpathSync(launch.args.at(-1)) !== fs.realpathSync(vendorEntry)) {
 NODE
 node "${PROJECT_ROOT}/scripts/smoke-codex-acp-process.js" --package-root "${PACKAGE_ROOT}"
 "${PREFIX}/bin/farming" help >/dev/null
-FARMING_DISABLE_AUTH=1 "${PREFIX}/bin/farming" daemon \
+FARMING_DISABLE_AUTH=1 FARMING_NATIVE_PTY_HOST_PERSIST=0 "${PREFIX}/bin/farming" daemon \
   --port "${PORT_VALUE}" \
   --base-path /farming \
   --config-dir "${CONFIG_DIR}" >/dev/null
+SERVER_PID="$(tr -d '[:space:]' < "${CONFIG_DIR}/farming-server.pid")"
+if ! [[ "${SERVER_PID}" =~ ^[0-9]+$ ]] || ! process_is_alive "${SERVER_PID}"; then
+  echo "npm package smoke could not identify the running Farming server" >&2
+  exit 1
+fi
 curl --fail --silent --show-error "http://127.0.0.1:${PORT_VALUE}/farming/api/auth/status" | grep -q '"authRequired":false'
 
 node -e '
@@ -79,5 +127,76 @@ node -e '
   if (typeof pty.spawn !== "function") throw new Error("node-pty did not load from the npm package");
 ' "${PREFIX}"
 
+SPAWN_OUT="$("${PREFIX}/bin/farming" spawn \
+  --port "${PORT_VALUE}" \
+  --config-dir "${CONFIG_DIR}" \
+  --no-auth \
+  --workspace "${WORKSPACE_DIR}" \
+  -- /bin/bash)"
+MAIN_AGENT_ID="$(printf '%s\n' "${SPAWN_OUT}" | sed -n 's/^Started //p' | head -1)"
+if [ -z "${MAIN_AGENT_ID}" ]; then
+  echo "npm package smoke failed to start its Main bash: ${SPAWN_OUT}" >&2
+  exit 1
+fi
+
+RUNTIME_PIDS="$(node - "${PACKAGE_ROOT}" "${CONFIG_DIR}" <<'NODE'
+const { execFileSync } = require('child_process');
+const net = require('net');
+const path = require('path');
+
+const [packageRoot, configDir] = process.argv.slice(2);
+const { nativePtyHostSocketPath } = require(path.join(packageRoot, 'backend/native-pty-host-path'));
+const socketPath = nativePtyHostSocketPath(configDir);
+const socket = net.createConnection(socketPath);
+let buffer = '';
+const timeout = setTimeout(() => {
+  socket.destroy(new Error(`Timed out reading native PTY host identity from ${socketPath}`));
+}, 5000);
+
+socket.on('connect', () => {
+  socket.write(`${JSON.stringify({ id: 'npm-smoke-ping', method: 'ping', params: {} })}\n`);
+});
+socket.on('data', chunk => {
+  buffer += chunk.toString('utf8');
+  const newline = buffer.indexOf('\n');
+  if (newline < 0) return;
+  clearTimeout(timeout);
+  const message = JSON.parse(buffer.slice(0, newline));
+  const hostPid = Number(message && message.result && message.result.pid);
+  if (!Number.isInteger(hostPid) || hostPid <= 0) {
+    throw new Error(`Native PTY host returned an invalid PID: ${buffer.slice(0, newline)}`);
+  }
+  const rows = execFileSync('ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8' })
+    .split(/\r?\n/)
+    .map(line => line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/))
+    .filter(Boolean)
+    .map(match => ({ pid: Number(match[1]), ppid: Number(match[2]), command: match[3] }));
+  const bashChildren = rows.filter(row => (
+    row.ppid === hostPid && /(?:^|[\s/])bash(?:\s|$)/.test(row.command)
+  ));
+  if (bashChildren.length !== 1) {
+    throw new Error(
+      `Expected one Main bash child of native PTY host ${hostPid}, found ${bashChildren.length}: `
+      + JSON.stringify(rows.filter(row => row.ppid === hostPid)),
+    );
+  }
+  process.stdout.write(`${hostPid} ${bashChildren[0].pid}`);
+  socket.end();
+});
+socket.on('error', error => {
+  clearTimeout(timeout);
+  throw error;
+});
+NODE
+)"
+read -r NATIVE_HOST_PID MAIN_BASH_PID <<< "${RUNTIME_PIDS}"
+if ! [[ "${NATIVE_HOST_PID}" =~ ^[0-9]+$ ]] || ! [[ "${MAIN_BASH_PID}" =~ ^[0-9]+$ ]]; then
+  echo "npm package smoke could not identify its native PTY process tree: ${RUNTIME_PIDS}" >&2
+  exit 1
+fi
+
 "${PREFIX}/bin/farming" stop --config-dir "${CONFIG_DIR}" >/dev/null
-echo "✓ npm package installs globally without package mutation, verifies Codex ACP, starts Farming, and loads node-pty"
+wait_for_process_exit "${SERVER_PID}" "Farming server"
+wait_for_process_exit "${NATIVE_HOST_PID}" "native PTY host"
+wait_for_process_exit "${MAIN_BASH_PID}" "Main bash"
+echo "✓ npm package installs globally without package mutation, verifies Codex ACP, and stops its server/native PTY process tree"

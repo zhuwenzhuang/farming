@@ -94,6 +94,7 @@ const UNCERTAIN_TERMINAL_STOP_TIMEOUT_MS = 5_000;
 const TERMINAL_STOP_STATE_READ_TIMEOUT_MS = 1_000;
 const TERMINAL_STOP_POLL_MS = 50;
 const CODEX_TERMINAL_START_READY_TIMEOUT_MS = 30_000;
+const WORKTREE_DELETE_START_DRAIN_TIMEOUT_MS = 30_000;
 const CODEX_TERMINAL_START_READY_POLL_MS = 50;
 const CODEX_TERMINAL_START_OUTPUT_LIMIT = 64 * 1024;
 const SHELL_PROMPT_ENV_KEYS = [
@@ -786,9 +787,10 @@ class AgentManager extends EventEmitter {
     this.agentLifecycleOperations = new Map();
     this.agentStartAdmissions = new Map();
     this.createRequestAdmissions = new Map();
+    this.projectWorkspaceDeleteAdmissions = new Map();
     this.activeInputOperations = new Set();
     this.verifiedStoppedAgentIds = new Set();
-    this.codexSessionUnarchiveInFlight = new Map();
+    this.codexSessionMutationQueues = new Map();
     // Standard ACP session inputs may contain MCP credentials. Keep the live
     // copy outside browser-facing Agent records; crash recovery persists it
     // only through the private Farming session store.
@@ -3394,7 +3396,18 @@ class AgentManager extends EventEmitter {
     const promise = new Promise(resolve => {
       resolveAdmission = resolve;
     });
-    const admission = { token, promise };
+    const requestedProjectWorkspace = options.wantsMain === true
+      ? ''
+      : (typeof options.projectWorkspace === 'string' && options.projectWorkspace.trim()
+        ? options.projectWorkspace
+        : customWorkspace);
+    const admission = {
+      token,
+      promise,
+      workspaceKey: requestedProjectWorkspace
+        ? canonicalWorkspacePath(this.expandWorkspacePath(requestedProjectWorkspace))
+        : '',
+    };
     this.agentStartAdmissions.set(token, admission);
     let callbackOutcome = null;
     const reportStart = (agentId, error, metadata = {}) => {
@@ -3713,6 +3726,18 @@ class AgentManager extends EventEmitter {
           projectWorkspace = workspace;
         }
       }
+    }
+
+    const projectWorkspaceKey = canonicalWorkspacePath(projectWorkspace);
+    const startAdmission = this.agentStartAdmissions.get(options.startAdmissionToken);
+    if (startAdmission) startAdmission.workspaceKey = projectWorkspaceKey;
+    const deletingProjectWorkspace = projectWorkspaceKey
+      ? [...this.projectWorkspaceDeleteAdmissions.keys()]
+          .find(candidate => isSameOrDescendantPath(candidate, projectWorkspaceKey))
+      : '';
+    if (deletingProjectWorkspace) {
+      if (callback) callback(null, `Project worktree is being deleted: ${projectWorkspace}`);
+      return null;
     }
     
     if (!fs.existsSync(workspace)) {
@@ -6119,8 +6144,43 @@ class AgentManager extends EventEmitter {
     return removedKeys;
   }
 
-  async deleteForkWorktreeProject(workspace, options = {}) {
+  deleteForkWorktreeProject(workspace, options = {}) {
+    const workspaceKey = canonicalWorkspacePath(this.expandWorkspacePath(workspace));
+    if (!workspaceKey) return this.deleteForkWorktreeProjectAdmitted(workspace, options);
+    const inFlight = this.projectWorkspaceDeleteAdmissions.get(workspaceKey);
+    if (inFlight) return inFlight;
+
+    const operation = this.deleteForkWorktreeProjectAdmitted(workspace, options);
+    this.projectWorkspaceDeleteAdmissions.set(workspaceKey, operation);
+    void operation.finally(() => {
+      if (this.projectWorkspaceDeleteAdmissions.get(workspaceKey) === operation) {
+        this.projectWorkspaceDeleteAdmissions.delete(workspaceKey);
+      }
+    }).catch(() => {});
+    return operation;
+  }
+
+  async deleteForkWorktreeProjectAdmitted(workspace, options = {}) {
     await this.whenRecovered();
+    const workspaceKey = canonicalWorkspacePath(this.expandWorkspacePath(workspace));
+    const relatedStarts = workspaceKey
+      ? [...this.agentStartAdmissions.values()].filter(admission => (
+          !admission.workspaceKey
+          || isSameOrDescendantPath(workspaceKey, admission.workspaceKey)
+        ))
+      : [];
+    try {
+      await withBoundedWait(
+        Promise.allSettled(relatedStarts.map(admission => admission.promise)),
+        WORKTREE_DELETE_START_DRAIN_TIMEOUT_MS,
+        `Worktree ${workspaceKey} Agent start drain`,
+      );
+    } catch (error) {
+      return {
+        workspace: workspaceKey,
+        error: error.message || String(error),
+      };
+    }
     const inspected = await this.inspectForkWorktreeProject(workspace);
     if (inspected.error) return inspected;
     if (inspected.requiresForce && options.force !== true) {
@@ -6130,11 +6190,27 @@ class AgentManager extends EventEmitter {
       };
     }
 
+    const archivedAgentIds = [];
+    const removedMainPageSessionKeys = [];
     const projectAgents = this.agentsForProjectWorkspace(inspected.workspace);
+    for (const agent of projectAgents) {
+      const result = await this.archiveAgent(agent.id, { requireEngineExit: true });
+      if (result && !result.error) {
+        archivedAgentIds.push(agent.id);
+        removedMainPageSessionKeys.push(...(result.removedMainPageSessionKeys || []));
+      } else {
+        return {
+          ...inspected,
+          error: `Agent ${agent.id} could not be stopped before deleting the worktree: ${result?.error || 'Failed to archive Agent'}`,
+          archivedAgentIds,
+          removedMainPageSessionKeys: Array.from(new Set(removedMainPageSessionKeys)),
+        };
+      }
+    }
+
     const args = ['-C', inspected.workspace, 'worktree', 'remove'];
     if (options.force === true) args.push('--force');
     args.push(inspected.workspace);
-
     try {
       await execFileAsync('git', args, {
         timeout: 60000,
@@ -6145,30 +6221,17 @@ class AgentManager extends EventEmitter {
       return {
         ...inspected,
         error: message || 'Failed to delete git worktree',
+        archivedAgentIds,
+        removedMainPageSessionKeys: Array.from(new Set(removedMainPageSessionKeys)),
       };
     }
 
-    const archivedAgentIds = [];
-    const removedMainPageSessionKeys = [];
-    const cleanupErrors = [];
-    for (const agent of projectAgents) {
-      const result = await this.archiveAgent(agent.id, { requireEngineExit: true });
-      if (result && !result.error) {
-        archivedAgentIds.push(agent.id);
-        removedMainPageSessionKeys.push(...(result.removedMainPageSessionKeys || []));
-      } else {
-        cleanupErrors.push(`${agent.id}: ${result?.error || 'Failed to archive Agent'}`);
-      }
-    }
     return {
       workspace: inspected.workspace,
       deleted: true,
       forced: options.force === true,
       archivedAgentIds,
       removedMainPageSessionKeys: Array.from(new Set(removedMainPageSessionKeys)),
-      ...(cleanupErrors.length > 0 ? {
-        cleanupError: cleanupErrors.join('; '),
-      } : {}),
     };
   }
 
@@ -6493,53 +6556,80 @@ class AgentManager extends EventEmitter {
     return result;
   }
 
+  enqueueCodexSessionMutation(sessionId, options, type, operation, joinSameType = false) {
+    const providerHomeId = String(options?.providerHomeId || 'default').trim() || 'default';
+    const key = JSON.stringify([providerHomeId, sessionId]);
+    const current = this.codexSessionMutationQueues.get(key);
+    if (joinSameType && current?.type === type) return current.promise;
+
+    const previous = current?.promise || Promise.resolve();
+    const next = previous.catch(() => {}).then(operation);
+    const entry = { type, promise: next };
+    this.codexSessionMutationQueues.set(key, entry);
+    void next.finally(() => {
+      if (this.codexSessionMutationQueues.get(key) === entry) {
+        this.codexSessionMutationQueues.delete(key);
+      }
+    }).catch(() => {});
+    return next;
+  }
+
+  ensureCodexSessionAvailable(sessionId, options = {}) {
+    const providerHomeId = String(options.providerHomeId || 'default').trim() || 'default';
+    const providerHomePath = String(options.providerHomePath || '').trim();
+    return this.enqueueCodexSessionMutation(
+      sessionId,
+      { providerHomeId, providerHomePath },
+      'unarchive',
+      async () => {
+        let session;
+        try {
+          session = await findAgentSession('codex', sessionId, {
+            limit: 1000,
+            providerLimit: 1000,
+            scanLimit: 5000,
+            providerHomeId,
+            providerHomes: options.providerHomes || (providerHomePath
+              ? { codex: [{ id: providerHomeId, path: providerHomePath }] }
+              : undefined),
+          });
+        } catch (error) {
+          return {
+            error: `Failed to inspect Codex session before unarchiving: ${error && (error.message || error)}`,
+          };
+        }
+        if (!session || session.archived !== true) return null;
+
+        const result = await this.unarchiveCodexSession(sessionId, {
+          ...session,
+          cwd: options.cwd || session.cwd || session.workspace,
+          providerHomePath: session.providerHomePath || providerHomePath,
+        });
+        return result?.error ? { error: result.error } : null;
+      },
+      true,
+    );
+  }
+
   async ensureCodexSessionAvailableForFork(agent, resumedSession, sourceWorkspace) {
     const providerHomeId = agent.providerHomeId || resumedSession.providerHomeId || 'default';
     const providerHomePath = agent.providerHomePath || '';
     const sessionId = resumedSession.sessionId;
-    const unarchiveKey = `${providerHomePath || providerHomeId}:${sessionId}`;
-    const inFlight = this.codexSessionUnarchiveInFlight.get(unarchiveKey);
-    if (inFlight) return inFlight;
-
-    const unarchivePromise = (async () => {
-      let session;
-      try {
-        session = await findAgentSession('codex', sessionId, {
-          limit: 1000,
-          providerLimit: 1000,
-          scanLimit: 5000,
-          providerHomeId,
-          providerHomes: providerHomePath
-            ? { codex: [{ id: providerHomeId, path: providerHomePath }] }
-            : undefined,
-        });
-      } catch (error) {
-        return {
-          error: `Failed to inspect Codex session before forking: ${error && (error.message || error)}`,
-        };
-      }
-      if (!session || session.archived !== true) return null;
-
-      const result = await this.unarchiveCodexSession(sessionId, {
-        ...session,
-        // Fork is an action on the live Farming Agent. Its current workspace is
-        // authoritative even when the older provider history cwd no longer exists.
-        cwd: sourceWorkspace || session.cwd || session.workspace,
-        providerHomePath: session.providerHomePath || providerHomePath,
-      });
-      if (!result?.error) return null;
-      return {
-        error: `Codex session ${sessionId} is archived and could not be unarchived before forking: ${result.error}`,
-      };
-    })();
-    this.codexSessionUnarchiveInFlight.set(unarchiveKey, unarchivePromise);
-    try {
-      return await unarchivePromise;
-    } finally {
-      if (this.codexSessionUnarchiveInFlight.get(unarchiveKey) === unarchivePromise) {
-        this.codexSessionUnarchiveInFlight.delete(unarchiveKey);
-      }
-    }
+    const result = await this.ensureCodexSessionAvailable(sessionId, {
+      providerHomeId,
+      providerHomePath,
+      providerHomes: providerHomePath
+        ? { codex: [{ id: providerHomeId, path: providerHomePath }] }
+        : undefined,
+      // Fork is an action on the live Farming Agent. Its current workspace is
+      // authoritative even when the older provider history cwd no longer exists.
+      cwd: sourceWorkspace,
+    });
+    if (!result?.error) return null;
+    const detail = result.error.startsWith('Failed to inspect Codex session')
+      ? result.error.replace('before unarchiving', 'before forking')
+      : `Codex session ${sessionId} is archived and could not be unarchived before forking: ${result.error}`;
+    return { error: detail };
   }
 
   recordTaskHistory(agent, options = {}) {
@@ -6712,8 +6802,16 @@ class AgentManager extends EventEmitter {
       workspace: agent.projectWorkspace || '',
       providerHomePath: agent.providerHomePath || '',
     };
-    void Promise.resolve()
-      .then(() => this.archiveCodexSession(sessionId, session))
+    void this.enqueueCodexSessionMutation(
+      sessionId,
+      {
+        providerHomeId: agent.providerHomeId || 'default',
+        providerHomePath: agent.providerHomePath || '',
+      },
+      'archive',
+      () => this.archiveCodexSession(sessionId, session),
+      true,
+    )
       .then(result => {
         if (result?.error) {
           console.error(`Failed to archive Codex session ${sessionId}: ${result.error}`);

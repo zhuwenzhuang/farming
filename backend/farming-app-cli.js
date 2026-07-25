@@ -18,6 +18,8 @@ const DEFAULT_PORT = '6694';
 const DEFAULT_BASE_PATH = '/farming';
 const DEFAULT_SERVER_START_TIMEOUT_MS = 30_000;
 const DEFAULT_SERVER_START_STABILITY_MS = 1_500;
+const DEFAULT_SERVER_STOP_TIMEOUT_MS = 30_000;
+const SERVER_STOP_POLL_MS = 100;
 const SERVER_COMMANDS = new Set(['start', 'serve', 'daemon', 'stop', 'status', 'logs', 'url', 'help']);
 const CONTROL_COMMANDS = new Set(['skills', 'memory', 'report', 'list', 'spawn', 'output', 'send', 'kill']);
 const SERVER_BACKED_CONTROL_COMMANDS = new Set(['list', 'spawn', 'output', 'send', 'kill']);
@@ -460,15 +462,153 @@ function readServerState(configDir) {
   }
 }
 
-function writeServerState(configDir, env, pid) {
+function canonicalConfigDir(configDir) {
+  try {
+    return fs.realpathSync.native(configDir);
+  } catch {
+    return path.resolve(configDir);
+  }
+}
+
+async function readServerProcessIdentity(pid) {
+  const { describeAcpProcessGroup } = require('./acp-runtime');
+  return describeAcpProcessGroup(pid);
+}
+
+function writeServerState(configDir, env, pid, processIdentity) {
   const state = {
     pid,
     port: Number(env.PORT || DEFAULT_PORT),
     basePath: env.FARMING_BASE_PATH || DEFAULT_BASE_PATH,
-    configDir,
+    configDir: canonicalConfigDir(configDir),
+    processIdentity,
     updatedAt: new Date().toISOString(),
   };
   fs.writeFileSync(serverStateFile(configDir), `${JSON.stringify(state, null, 2)}\n`);
+}
+
+function processLooksLikeFarmingServer(pid) {
+  let environment = '';
+  try {
+    environment = fs.readFileSync(`/proc/${pid}/environ`, 'utf8').replace(/\0/g, ' ');
+  } catch {
+    try {
+      environment = execFileSync(
+        '/bin/ps',
+        ['eww', '-p', String(pid), '-o', 'command='],
+        { encoding: 'utf8', timeout: 1_000, maxBuffer: 1024 * 1024 },
+      );
+    } catch {
+      environment = '';
+    }
+  }
+  if (/(?:^|\s)FARMING_RUN_SERVER=1(?:\s|$)/.test(environment)) return true;
+  return /(?:^|\s)(?:\S+[/\\])?backend[/\\]server\.js(?:\s|$)/.test(environment);
+}
+
+function readLegacyServerSettings(configDir, state) {
+  const token = readTokenForEnv({ FARMING_CONFIG_DIR: configDir });
+  const requestPath = routePath(state.basePath || DEFAULT_BASE_PATH, '/api/settings');
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      host: '127.0.0.1',
+      port: Number(state.port),
+      path: requestPath,
+      method: 'GET',
+      timeout: 1_000,
+      headers: token ? { Cookie: `farming_token=${encodeURIComponent(token)}` } : {},
+    }, res => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => {
+        if (body.length <= 64 * 1024) body += chunk;
+      });
+      res.on('end', () => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`legacy Farming server identity probe returned HTTP ${res.statusCode || 0}`));
+          return;
+        }
+        try {
+          const payload = JSON.parse(body);
+          const workspace = canonicalConfigDir(payload?.settings?.workspace || '');
+          if (workspace !== canonicalConfigDir(configDir)) {
+            reject(new Error('legacy Farming server identity probe returned a different config directory'));
+            return;
+          }
+          resolve(payload.settings);
+        } catch (error) {
+          reject(new Error(`legacy Farming server identity probe was invalid: ${error.message || error}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('legacy Farming server identity probe timed out')));
+    req.end();
+  });
+}
+
+function matchingProcessIdentity(expected, current) {
+  return Boolean(
+    current
+    && current.pid === Number(expected?.pid)
+    && current.processGroupId === Number(expected?.processGroupId)
+    && current.startedAt === String(expected?.startedAt || '')
+  );
+}
+
+async function assertServerProcessIdentity(configDir, pid, state) {
+  const expected = state?.processIdentity;
+  if (
+    Number(state?.pid) !== pid
+    || canonicalConfigDir(state?.configDir || '') !== canonicalConfigDir(configDir)
+    || !expected
+    || Number(expected.pid) !== pid
+    || Number(expected.processGroupId) !== pid
+    || !String(expected.startedAt || '').trim()
+  ) {
+    throw new Error(
+      `Refusing to stop Farming PID ${pid}: server control metadata does not contain a matching process identity`,
+    );
+  }
+  const current = await readServerProcessIdentity(pid);
+  if (!matchingProcessIdentity(expected, current)) {
+    throw new Error(
+      `Refusing to stop Farming PID ${pid}: the live process identity does not match the server control metadata`,
+    );
+  }
+  return current;
+}
+
+async function migrateLegacyServerIdentity(configDir, pid, state) {
+  if (
+    Number(state?.pid) !== pid
+    || canonicalConfigDir(state?.configDir || '') !== canonicalConfigDir(configDir)
+    || !Number.isInteger(Number(state?.port))
+    || Number(state.port) <= 0
+    || Number(state.port) > 65535
+    || !processLooksLikeFarmingServer(pid)
+  ) {
+    throw new Error(
+      `Refusing to stop Farming PID ${pid}: legacy server control metadata could not prove this process belongs to the config directory`,
+    );
+  }
+  const firstIdentity = await readServerProcessIdentity(pid);
+  if (!firstIdentity) {
+    throw new Error(`Refusing to stop Farming PID ${pid}: the legacy server process identity could not be read`);
+  }
+  await readLegacyServerSettings(configDir, state);
+  const stableIdentity = await readServerProcessIdentity(pid);
+  if (!matchingProcessIdentity(firstIdentity, stableIdentity) || readPid(configDir) !== pid) {
+    throw new Error(`Refusing to stop Farming PID ${pid}: the legacy server process identity changed during verification`);
+  }
+  fs.writeFileSync(serverStateFile(configDir), `${JSON.stringify({
+    ...state,
+    pid,
+    configDir: canonicalConfigDir(configDir),
+    processIdentity: stableIdentity,
+    identityMigratedAt: new Date().toISOString(),
+  }, null, 2)}\n`);
+  return stableIdentity;
 }
 
 function readPid(configDir) {
@@ -521,6 +661,36 @@ function serverStartStabilityMs(env) {
   const parsed = Number(env.FARMING_START_STABILITY_MS || env.FARMING_SERVER_START_STABILITY_MS);
   if (Number.isFinite(parsed) && parsed >= 0) return Math.min(parsed, 60_000);
   return DEFAULT_SERVER_START_STABILITY_MS;
+}
+
+function serverStopTimeoutMs(env) {
+  const parsed = Number(env.FARMING_STOP_TIMEOUT_MS || env.FARMING_SERVER_STOP_TIMEOUT_MS);
+  if (Number.isFinite(parsed) && parsed > 0) return Math.min(parsed, 120_000);
+  return DEFAULT_SERVER_STOP_TIMEOUT_MS;
+}
+
+async function waitForDaemonStop(pid, port, options = {}) {
+  const timeoutMs = options.timeoutMs || DEFAULT_SERVER_STOP_TIMEOUT_MS;
+  const processRunning = options.isRunning || isRunning;
+  const portAvailable = options.canListenOnPort || canListenOnPort;
+  const now = options.now || Date.now;
+  const wait = options.wait || (durationMs => new Promise(resolve => setTimeout(resolve, durationMs)));
+  const startedAt = now();
+  let running = true;
+  let released = false;
+
+  while (true) {
+    running = processRunning(pid);
+    released = await portAvailable(port);
+    if (!running && released) return;
+    if (now() - startedAt >= timeoutMs) {
+      throw new Error(
+        `Farming server PID ${pid} did not stop and release port ${port} within ${timeoutMs}ms`
+        + ` (process ${running ? 'still running' : 'exited'}, port ${released ? 'released' : 'still in use'})`,
+      );
+    }
+    await wait(SERVER_STOP_POLL_MS);
+  }
 }
 
 function waitForProcessStability(pid, durationMs = DEFAULT_SERVER_START_STABILITY_MS) {
@@ -682,9 +852,20 @@ async function startDaemon(parsed) {
   fs.writeFileSync(pidFile(configDir), String(child.pid));
 
   try {
+    const processIdentity = await readServerProcessIdentity(child.pid);
+    if (!processIdentity) throw new Error('server process identity could not be verified after launch');
     await waitForServer(env, serverStartTimeoutMs(env), child.pid);
     await waitForProcessStability(child.pid, serverStartStabilityMs(env));
     await waitForServer(env, Math.min(serverStartTimeoutMs(env), 5_000), child.pid);
+    const stableIdentity = await readServerProcessIdentity(child.pid);
+    if (
+      !stableIdentity
+      || stableIdentity.processGroupId !== processIdentity.processGroupId
+      || stableIdentity.startedAt !== processIdentity.startedAt
+    ) {
+      throw new Error('server process identity changed during startup');
+    }
+    writeServerState(configDir, env, child.pid, stableIdentity);
   } catch (error) {
     cleanupFailedDaemonStart(configDir, child.pid);
     console.error(error.message);
@@ -694,7 +875,6 @@ async function startDaemon(parsed) {
   }
 
   console.log(`Farming started (PID ${child.pid})`);
-  writeServerState(configDir, env, child.pid);
   const logs = tailFile(logFile(configDir), 40);
   const urlLines = logs.split(/\r?\n/).filter(line => /Local:|Network:|Token:|Token style:|Token auth:/.test(line));
   if (urlLines.length > 0) {
@@ -705,7 +885,7 @@ async function startDaemon(parsed) {
   return 0;
 }
 
-function stopDaemon(parsed) {
+async function stopDaemon(parsed) {
   const env = buildServerEnv(parsed.env);
   const configDir = env.FARMING_CONFIG_DIR;
   const pid = readPid(configDir);
@@ -715,9 +895,21 @@ function stopDaemon(parsed) {
     console.log('Farming is not running.');
     return 0;
   }
-  process.kill(pid, 'SIGTERM');
-  fs.rmSync(pidFile(configDir), { force: true });
-  fs.rmSync(serverStateFile(configDir), { force: true });
+  const state = readServerState(configDir);
+  const port = Number(state.port || env.PORT || DEFAULT_PORT);
+  if (state.processIdentity) {
+    await assertServerProcessIdentity(configDir, pid, state);
+  } else {
+    await migrateLegacyServerIdentity(configDir, pid, state);
+  }
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch (error) {
+    if (error?.code !== 'ESRCH') throw error;
+  }
+  await waitForDaemonStop(pid, port, { timeoutMs: serverStopTimeoutMs(env) });
+  if (readPid(configDir) === pid) fs.rmSync(pidFile(configDir), { force: true });
+  if (Number(readServerState(configDir).pid) === pid) fs.rmSync(serverStateFile(configDir), { force: true });
   console.log(`Stopped Farming (PID ${pid})`);
   return 0;
 }
@@ -854,9 +1046,13 @@ module.exports = {
   resolveReviewTarget,
   reviewUrl,
   readServerState,
+  readServerProcessIdentity,
   serverStartTimeoutMs,
   serverStartStabilityMs,
+  serverStopTimeoutMs,
   splitControlArgs,
+  stopDaemon,
   run,
   serverStateFile,
+  waitForDaemonStop,
 };

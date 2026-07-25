@@ -54,7 +54,7 @@ Terminal 是由 xterm.js 渲染的原生 PTY Session。ANSI Output、全屏 TUI�
 
 Native PTY Host 与 Farming Server 是独立进程。浏览器可以重新连接到 Live Terminal，正常的 Farming Server 重启也可以恢复它们，而不会启动重复 Agent。
 
-Terminal 恢复采用与 VS Code 持久终端相同的 checkpoint / replay 原则。PTY Host 中的 headless xterm 持续把输出归约为权威终端状态。每次 Runtime 有独立 epoch 和单调递增的输出索引；断线重连或页面恢复时只安装一次带精确索引的序列化 checkpoint，随后只接收连续增量。发现消息缺口或 Runtime epoch 变化时会重新获取 checkpoint，不会继续展示一个无法证明来源的混合状态。
+Terminal 恢复使用 checkpoint / replay 协议。PTY Host 中的 headless xterm 持续把输出归约为权威终端状态。每次 Runtime 有独立 epoch 和单调递增的输出索引；断线重连或页面恢复时只安装一次带精确索引的序列化 checkpoint，随后只接收连续增量。发现消息缺口或 Runtime epoch 变化时会重新获取 checkpoint，不会继续展示一个无法证明来源的混合状态。
 
 关于 `/session-view`、多窗口控制、Flow Control 和恢复保证，请参阅 [Terminal 状态协议](terminal-state-protocol.zh_cn.md)。
 
@@ -132,7 +132,7 @@ Settings 把 Interface、Language、Search Timeout、Installation Aware Update�
 
 ![Farming Code Settings](assets/14-code-settings.png)
 
-切换到 Farming CRT 时会尽量携带当前 Focused Agent，不会重启 Session。更新采用类似 Zed 的两阶段流程：点击**准备**后，Bundle 会在当前服务继续运行时完成下载与校验，npm 版本则安装到独立 staging 目录。卡片随后稳定停在**更新已准备好**，只有用户再次点击**重启并应用**才会切换到准备好的版本并重启 Farming；npm 目录切换失败时会先恢复旧包再重新启动。卡片会显示准备、重启或回滚状态，并在准备完成时冻结已用时间；服务端提供总大小时，Bundle 下载还会显示基于实际字节数的百分比。源码 Checkout 通过 Git 更新，Standalone Artifact 仍然手工替换。
+切换到 Farming CRT 时会尽量携带当前 Focused Agent，不会重启 Session。更新分为两个明确步骤：点击**准备**后，Bundle 会在当前服务继续运行时完成下载与校验，npm 版本则安装到独立 staging 目录。卡片随后稳定停在**更新已准备好**，只有用户再次点击**重启并应用**才会切换到准备好的版本并重启 Farming；npm 目录切换失败时会先恢复旧包再重新启动。卡片会显示准备、重启或回滚状态，并在准备完成时冻结已用时间；服务端提供总大小时，Bundle 下载还会显示基于实际字节数的百分比。源码 Checkout 通过 Git 更新，Standalone Artifact 仍然手工替换。
 
 ## 理解本地 Token 用量
 
@@ -195,6 +195,7 @@ farming daemon
 - [Farming 2 产品总览](../README.zh_cn.md)
 - [移动端指南](mobile-guide.zh_cn.md)
 - [ACP 运行时](acp-runtime.zh_cn.md)
+- [Extension 模型](extension-model.zh_cn.md)
 - [Review 基础](review-foundation.zh_cn.md)
 - [增量正确性证明式 Review（产品方向）](incremental-review-proof.zh_cn.md)
 - [拟人化验收故事](farming-agent-human-story.zh_cn.md)

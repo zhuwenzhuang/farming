@@ -65,8 +65,11 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   const [loggingOut, setLoggingOut] = useState(false)
   const sessionRef = useRef<AcpSessionSnapshot | null>(null)
   const scopeRef = useRef({ agentId, active })
+  const refreshRequestRef = useRef(0)
   const mutationRef = useRef<{ agentId: string; id: string; sequence: number } | null>(null)
   const mutationSequenceRef = useRef(0)
+  const accountMutationRef = useRef<{ agentId: string; sequence: number } | null>(null)
+  const accountMutationSequenceRef = useRef(0)
 
   scopeRef.current = { agentId, active }
 
@@ -78,6 +81,8 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
     if (!agentId || !active) return
     const requestAgentId = agentId
     const requestMutationSequence = mutationSequenceRef.current
+    const requestId = refreshRequestRef.current + 1
+    refreshRequestRef.current = requestId
     try {
       const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-session?includeEntries=0`), { signal })
       const body = await response.json().catch(() => null) as { session?: AcpSessionSnapshot; error?: string } | null
@@ -85,6 +90,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
       if (
         scopeRef.current.agentId !== requestAgentId
         || !scopeRef.current.active
+        || refreshRequestRef.current !== requestId
         || mutationRef.current
         || mutationSequenceRef.current !== requestMutationSequence
       ) return
@@ -93,14 +99,29 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
       setError('')
     } catch (nextError) {
       if (nextError instanceof DOMException && nextError.name === 'AbortError') return
+      if (
+        scopeRef.current.agentId !== requestAgentId
+        || !scopeRef.current.active
+        || refreshRequestRef.current !== requestId
+        || mutationRef.current
+        || mutationSequenceRef.current !== requestMutationSequence
+      ) return
       setError(nextError instanceof Error ? nextError.message : 'Failed to read ACP session')
     }
   }, [active, agentId])
 
   useEffect(() => {
+    refreshRequestRef.current += 1
     mutationSequenceRef.current += 1
     mutationRef.current = null
+    accountMutationSequenceRef.current += 1
+    accountMutationRef.current = null
+    sessionRef.current = null
+    setSession(null)
+    setError('')
     setUpdatingId('')
+    setAuthenticatingId('')
+    setLoggingOut(false)
   }, [active, agentId])
 
   useEffect(() => {
@@ -169,7 +190,11 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
         sessionRef.current = rollbackSession
         setSession(rollbackSession)
       }
-      if (scopeRef.current.agentId === requestAgentId) {
+      if (
+        scopeRef.current.agentId === requestAgentId
+        && scopeRef.current.active
+        && mutationRef.current?.sequence === sequence
+      ) {
         setError(nextError instanceof Error ? nextError.message : 'Failed to update ACP session')
       }
       return false
@@ -198,46 +223,80 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   )
 
   const authenticate = useCallback(async (methodId: string) => {
-    if (!agentId || authenticatingId) return false
+    if (!agentId || !active || accountMutationRef.current) return false
+    const requestAgentId = agentId
+    const sequence = ++accountMutationSequenceRef.current
+    accountMutationRef.current = { agentId: requestAgentId, sequence }
     setAuthenticatingId(methodId)
     try {
-      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-session/authenticate`), {
+      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(requestAgentId)}/acp-session/authenticate`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ methodId }),
       })
       const body = await response.json().catch(() => null) as { error?: string } | null
       if (!response.ok) throw new Error(body?.error || `Failed to authenticate ACP Agent (${response.status})`)
+      if (
+        scopeRef.current.agentId !== requestAgentId
+        || !scopeRef.current.active
+        || accountMutationRef.current?.sequence !== sequence
+      ) return false
       setError('')
       await refresh()
-      return true
+      return scopeRef.current.agentId === requestAgentId
+        && scopeRef.current.active
+        && accountMutationRef.current?.sequence === sequence
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : 'Failed to authenticate ACP Agent')
+      if (
+        scopeRef.current.agentId === requestAgentId
+        && scopeRef.current.active
+        && accountMutationRef.current?.sequence === sequence
+      ) setError(nextError instanceof Error ? nextError.message : 'Failed to authenticate ACP Agent')
       return false
     } finally {
-      setAuthenticatingId('')
+      if (accountMutationRef.current?.sequence === sequence) {
+        accountMutationRef.current = null
+        setAuthenticatingId('')
+      }
     }
-  }, [agentId, authenticatingId, refresh])
+  }, [active, agentId, refresh])
 
   const logout = useCallback(async () => {
-    if (!agentId || loggingOut) return false
+    if (!agentId || !active || accountMutationRef.current) return false
+    const requestAgentId = agentId
+    const sequence = ++accountMutationSequenceRef.current
+    accountMutationRef.current = { agentId: requestAgentId, sequence }
     setLoggingOut(true)
     try {
-      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-session/logout`), {
+      const response = await fetch(appPath(`/api/agents/${encodeURIComponent(requestAgentId)}/acp-session/logout`), {
         method: 'POST',
       })
       const body = await response.json().catch(() => null) as { error?: string } | null
       if (!response.ok) throw new Error(body?.error || `Failed to log out ACP Agent (${response.status})`)
+      if (
+        scopeRef.current.agentId !== requestAgentId
+        || !scopeRef.current.active
+        || accountMutationRef.current?.sequence !== sequence
+      ) return false
       setError('')
       await refresh()
-      return true
+      return scopeRef.current.agentId === requestAgentId
+        && scopeRef.current.active
+        && accountMutationRef.current?.sequence === sequence
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : 'Failed to log out ACP Agent')
+      if (
+        scopeRef.current.agentId === requestAgentId
+        && scopeRef.current.active
+        && accountMutationRef.current?.sequence === sequence
+      ) setError(nextError instanceof Error ? nextError.message : 'Failed to log out ACP Agent')
       return false
     } finally {
-      setLoggingOut(false)
+      if (accountMutationRef.current?.sequence === sequence) {
+        accountMutationRef.current = null
+        setLoggingOut(false)
+      }
     }
-  }, [agentId, loggingOut, refresh])
+  }, [active, agentId, refresh])
 
   return { session, error, updatingId, authenticatingId, loggingOut, setMode, setConfigOption, setConfigOptions, authenticate, logout }
 }

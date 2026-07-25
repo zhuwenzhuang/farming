@@ -684,8 +684,15 @@ function run() {
       workspaceSource.includes('applySessionDisplayOverrides') &&
       workspaceSource.includes('normalizeMainPageSessionKeys') &&
       workspaceSource.includes('mainPageSessionKeys') &&
-      workspaceSource.includes('persistMainPageSessionKeys') &&
-      workspaceSource.includes('updateMainPageSessionKeys') &&
+      workspaceSource.includes("appPath('/api/main-page-agent-sessions')") &&
+      workspaceSource.includes('mutateMainPageSessionKeys') &&
+      workspaceSource.includes('updateLocalMainPageSessionKeys') &&
+      serverSource.includes("'/api/main-page-agent-sessions'") &&
+      serverSource.includes('rememberMainPageSessionKey(sessionKey') &&
+      serverSource.includes('removeMainPageSessionKeys(sessionKeys)') &&
+      serverSource.includes('delete settingsPatch.mainPageSessionKeys;') &&
+      workspaceSource.includes('mainPageSessionKeysPendingMutationsRef') &&
+      workspaceSource.includes('applyPendingMainPageSessionKeyMutations') &&
       !workspaceSource.includes('pendingMainPageLaunchForAgent') &&
       !workspaceSource.includes('resolvePendingMainPageLaunches') &&
       workspaceSource.includes('trackedMainPageAgentKeysRef') &&

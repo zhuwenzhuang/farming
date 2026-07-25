@@ -29,6 +29,7 @@ async function run() {
   process.env.FARMING_TEST_COMMAND_LOG = commandLog;
 
   const captured = [];
+  let blockedCreate = null;
   const manager = new AgentManager({
     getWorkspace() {
       return tmpRoot;
@@ -54,6 +55,12 @@ async function run() {
     engine: {
       async createSession(options) {
         captured.push(options);
+        const barrier = blockedCreate;
+        blockedCreate = null;
+        if (barrier) {
+          barrier.entered();
+          await barrier.release;
+        }
       },
     },
     spec: { category: 'coding' },
@@ -133,11 +140,41 @@ async function run() {
 
     const cleanWorktree = await manager.forkAgent(sourceId, 'new-worktree');
     assert.strictEqual(cleanWorktree.error, undefined);
-    const cleanDelete = await manager.deleteForkWorktreeProject(cleanWorktree.workspace);
+    let releaseBlockedStart;
+    const blockedStartEntered = new Promise(resolve => {
+      blockedCreate = {
+        entered: resolve,
+        release: new Promise(release => { releaseBlockedStart = release; }),
+      };
+    });
+    const admittedStart = startAgent(manager, 'bash', cleanWorktree.workspace, { wantsMain: false });
+    await blockedStartEntered;
+    let releaseUnrelatedStart;
+    const unrelatedStartEntered = new Promise(resolve => {
+      blockedCreate = {
+        entered: resolve,
+        release: new Promise(release => { releaseUnrelatedStart = release; }),
+      };
+    });
+    let unrelatedStartSettled = false;
+    const unrelatedStart = startAgent(manager, 'bash', repo, { wantsMain: false })
+      .finally(() => { unrelatedStartSettled = true; });
+    await unrelatedStartEntered;
+    const cleanDeletePromise = manager.deleteForkWorktreeProject(cleanWorktree.workspace);
+    const rejectedStart = await startAgent(manager, 'bash', cleanWorktree.workspace, { wantsMain: false })
+      .then(() => null, error => error);
+    assert.match(rejectedStart?.message || '', /worktree is being deleted/);
+    releaseBlockedStart();
+    const admittedAgentId = await admittedStart;
+    const cleanDelete = await cleanDeletePromise;
     assert.strictEqual(cleanDelete.error, undefined);
     assert.strictEqual(cleanDelete.deleted, true);
     assert.strictEqual(fs.existsSync(cleanWorktree.workspace), false, 'clean delete should remove the worktree directory');
     assert(!manager.getState().agents.some(agent => agent.id === cleanWorktree.agentId), 'clean delete should archive project agents');
+    assert(!manager.getState().agents.some(agent => agent.id === admittedAgentId), 'delete should drain and archive a start admitted before deletion');
+    assert.strictEqual(unrelatedStartSettled, false, 'delete should not wait for an unrelated workspace start');
+    releaseUnrelatedStart();
+    await unrelatedStart;
 
     fs.writeFileSync(path.join(newWorktree.workspace, 'scratch.txt'), 'dirty worktree\n');
     const dirtyDelete = await manager.deleteForkWorktreeProject(newWorktree.workspace);

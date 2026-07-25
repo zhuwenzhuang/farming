@@ -10,7 +10,7 @@ A user is supervising an agent in a concrete project. When the agent mentions a 
 
 Main Agent is for coordination and observation. It should not show a Files section. Files belongs to concrete project agents.
 
-The project sidebar should read like a compact VS Code Explorer. The concrete agent row is the first project section. When at least one file is open, an `Open Editors` section appears after the agent and before `Files`; it is collapsed by default and expands on click. `Open Editors` is absent when no file has been opened. `Files` remains the directory-tree section, with compact single-child folder paths such as `tmp/ata2/assets` shown on one row where possible.
+The project sidebar uses a compact, scannable file layout. The concrete agent row is the first project section. When at least one file is open, an `Open Editors` section appears after the agent and before `Files`; it is collapsed by default and expands on click. `Open Editors` is absent when no file has been opened. `Files` remains the directory-tree section, with compact single-child folder paths such as `tmp/ata2/assets` shown on one row where possible.
 
 ## Core Workflows
 
@@ -139,7 +139,7 @@ Expected:
 
 Expected:
 
-- A symbolic link keeps its target type: directory links expand and file links open in place, with a small link decoration like VS Code Explorer.
+- A symbolic link keeps its target type: directory links expand and file links open in place, with a small link decoration.
 - Links that resolve inside the project retain normal editing behavior.
 - Links to another workspace already allowed by Farming's global Files roots remain under their project alias and are read-only.
 - Broken links and links outside the allowed roots stay visible but cannot be opened.

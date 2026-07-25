@@ -20,16 +20,12 @@
 
 ### 核心价值
 
-解决当前 AI Agent 使用中的核心痛点：**多个 agent 的进度观察、介入和管理**。当前的 AI Agent panel 主要是 chat sessions，根本无法把握重点，无法分辨长期任务和短期临时任务，热点任务和冷任务。
-
-### 产品形式
-
-将"放置类游戏"和"模拟经营类游戏"的乐趣和 UI 移植到 AI Agent 使用的流程体验中。
+面向多个 Agent 同时运行时的进度观察、介入和管理，帮助用户区分长期与短期任务、热点与低活动任务。
 
 ### 产品构成
 
 - **内核**：一套 AI Agent 的使用方法论
-- **架构**：前后端分离，后端实现方法论，前端可横向扩展（类似游戏皮肤概念）
+- **架构**：前后端分离，后端提供共享能力，前端支持多个独立浏览器皮肤
 - **形态**：多平台（Android、iOS、macOS 等），前期通过 NodeJS+HTML5 快速出原型
 
 ---
@@ -174,6 +170,8 @@ Terminal Input 保持直接的 Raw PTY Stream：不要增加逐输入 ACK、去�
 浏览器可见的 Agent 状态有四个明确领域边界。`runtimeBinding` 是带标签的 Runtime 契约（`terminal`、`acp` 或 `json`）；旧的扁平 Runtime 字段只作为后端内部持久化兼容形态，不能重新泄漏给客户端或新增业务代码。持久化的实验性 Codex `app-server` binding 必须在此边界迁移为 ACP，绝不能重启 App Server 进程。`runtimeObservation` 是后端唯一维护的当前 Runtime 分类，UI 与 Restart/Deploy Guard 共同消费，前端不得再从 Terminal 文本重复推断。Provider 专属的可执行文件、Session 规划、Runtime 支持、Home 环境与规范化 Capability 必须进入 `ProviderAdapter`，通用 Lifecycle/UI 只能读取 Capability，不能维护 Provider 名单。Project Files 的 HTTP API 使用 `WorkspaceRoot.rootId`，旧 `agentId` 仅为读取兼容 Adapter。Code 与 CRT WebSocket 在处理消息前必须协商并校验共享版本化浏览器协议；Terminal Input 继续明确排除在命令 ACK/重放语义之外。
 
 Agent 的 Create、Update、Delete 与 Archive 使用私有 `agent_*` 元数据记录中的 Lifecycle Journal 作为 Write-ahead 元数据历史。必须先持久化操作意图，再执行外部副作用，并在最后持久化终态；冲突操作只能串行等待或加入同一操作，所有外部 Mutation 都要等待启动恢复结束。重启恢复负责消费未到终态的 Journal，不能启动重复 Runtime。ACP 进程只有在精确 Process Group Identity 已持久化后才能越过启动 Gate，清理时必须证明该 Identity 已退出。升级前没有进程 Identity 的旧记录默认 Fail-closed；UI 只能在明确警告 Farming 无法停止或验证未知进程后，接受 Operator 对“已在系统层确认退出”的显式确认。JSON CLI Chat 只保留只读的旧兼容路径：不能再声明为受支持 Runtime，也不能接受新的 JSON Agent Create 或切换目标。
+
+浏览器 HTTP 命令使用局部 Admission 与请求 Ownership，不建立共享事务框架：第一次异步边界之前捕获 Agent、Workspace Root、文件、Dialog 打开 generation 或 Session generation，只有同一个 Owner 才能提交 Loading、数据、焦点或错误。首页 Provider Session membership 只能通过原子 add/remove 命令修改；通用 Settings 写接口必须拒绝这一兼容投影，Settings 客户端只提交实际变化字段。后端长转换在对应资源 Owner 上串行：Review Refresh 按 Review ID，Codex Archive/Unarchive 按 Agent Home 与 Provider Session，Worktree 删除按 canonical Workspace。删除 Worktree 时只关闭目标 Workspace 的新启动、有界 Drain 该 Workspace 已接纳的启动、证明所有 Agent 已停止，最后才删除目录。Workspace Watcher 初始化和每条 WebSocket Watch 命令都使用 Single-flight Ownership；被取消、断连或替换的初始化即使已经创建 Watcher 或订阅，也必须先关闭，不能发布到 Map。
 
 Project Files 使用“文件系统权威 + 乐观工作副本”模型。浏览器草稿携带单调递增的 revision；一次进行中的保存只有在该 revision 仍是当前版本时才能把工作副本标记为 clean，否则只能更新磁盘基线，并把更新后的草稿继续保留为 dirty。Dirty 草稿经过短暂 debounce 后写入有界的浏览器本地备份，并在 page hide 时强制落盘；再次打开同一文件时恢复该草稿，如果磁盘已经是相同内容则直接清理为 clean。后端按规范化 workspace 串行执行修改，在队列内重新校验文件内容版本，以唯一名称独占创建临时文件，close 前尝试 `datasync`，写完后再原子 rename 到目标；相同期望内容的重复保存可重入。目录项携带由文件系统元数据派生的 version，rename、move、delete 可以要求该版本仍然匹配；新建文件使用 create-if-absent。浏览器 Create、Rename 和 Delete 在开始时捕获单调 generation，并在发起请求前同步占住它，因此连续 Enter 或点击不能重复提交同一次操作。取消、被新操作替代、Files 根身份变化或组件卸载只会撤销旧 generation 的 UI 所有权；迟到响应仍可刷新它的权威目录并传播已经证明的 move/delete 效果，但不得清理新 UI、展示旧错误、打开文件或抢焦点。Mutation 请求等待 15 秒后停止并把超时视为结果不确定；收敛必须使用新的有界权威读取，绝不能自动重放 mutation。重读权威父目录后，Create 只有在精确预期路径已经存在且类型与请求一致时才能收敛为成功；Delete 可以在源对象已不存在时收敛为成功；Rename 可以在源对象已不存在且预期的同类型目标已经存在时收敛为成功。这只证明文件系统当前已达到期望状态，不证明是哪一个进程完成了操作。Watcher 永远只作为失效提示，不能成为权威状态。上述保证只覆盖同一 Farming 服务进程发起的操作；其他 Farming 服务与任意外部写入者都是串行域外的普通独立文件系统客户端，必须依靠冲突检测和重新读取文件系统收敛，不能宣称跨进程事务、exactly-once 操作归因或断电持久性。`datasync` 只是 best-effort，父目录不会执行 sync。
 
@@ -603,7 +601,7 @@ CRT 皮肤效果开关存储在 `~/.farming/settings.json` 的 `crtSkinEffectsEn
 - CLI 应用默认自配置：首选端口 `6694`、base path `/farming`、配置目录 `~/.farming`；首次启动自动创建 `settings.json`、token 文件和必要运行目录，不要求用户先写 env 文件
 - CLI 应用默认使用 native pty host session engine；目标机需要能加载打包的 `node-pty` runtime。只有排查 native host 边界时才设置 `FARMING_SESSION_ENGINE=local` 使用进程内 node-pty engine。
 - CLI 应用启动时按目标环境自适应：未显式设置时自动计算 server Node heap，清理 packaged self-spawn 的 `PKG_EXECPATH`，并让 server 使用最终 `HOME` 推导默认 `~/.farming`
-- CLI 应用会把实际 daemon 端口写入 `~/.farming/farming-server.json`；用户终端不传端口执行 `farming list/spawn/output/send/kill` 时会自动读取该 state 文件找到当前实例
+- CLI 应用会把实际 daemon 端口写入 `~/.farming/farming-server.json`；用户终端不传端口执行 `farming list/spawn/output/send/kill` 时会自动读取该 state 文件找到当前实例。`farming stop` 只有在记录的 Server 进程已经退出且记录端口可以重新 bind 后才能删除匹配的控制元数据并返回成功；有界等待超时必须保留元数据并显式失败。走 Native PTY 路径的 Release Smoke 必须关闭 Host 持久化、显式终止精确的 Smoke Agent，并证明 Server、Host 与子 Shell 进程都已退出
 - CLI 应用同时保留 Main Agent 控制命令：用户终端可用 `farming start/status/stop/logs/url` 管理 server，agent 内仍可用 `farming list/spawn/output/send/kill/memory report`
 - CLI 应用发布产物不包含仓库 `backend/`、`src/`、测试或脚本源码；服务端逻辑进入平台二进制，浏览器侧只包含 Vite 构建后的 `dist/` 静态资源；Farming 自身运行依赖尽量自包含，但目标机仍需要可执行的 shell，Codex / Claude agent 仍依赖目标机已有对应 CLI
 - `scripts/package-cli-release.sh` 通过 `scripts/bundle-cli-runtime.js` 用 esbuild 将后端 runtime bundle/minify 为临时 `backend/farming-app-cli.pkg.js` 和 `backend/terminal-screen-worker-thread.pkg.js`，不生成 sourcemap；bundler 会把 Express 可选 view engine 动态 require 隔离为 runtime require，避免 pkg 误判；pkg 只接收这些临时 bundle 和静态 assets，脚本退出时必须清理临时 bundle

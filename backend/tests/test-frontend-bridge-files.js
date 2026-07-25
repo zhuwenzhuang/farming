@@ -58,7 +58,7 @@ function run() {
     crtApp.includes('getSessionClient()?.handleServerMessage(data)') &&
       crtApp.includes('getSessionClient()?.rejectPendingComposerMessages()') &&
       crtApp.includes('function structuredComposerPromptAttachments()') &&
-      crtApp.includes('sendComposerMessage(focusedAgentId, message, promptAttachments'),
+      crtApp.includes('sendComposerMessage(agentId, message, promptAttachments'),
     'CRT ACP submissions should preserve native image attachments and use the structured session bridge'
   );
   assert(

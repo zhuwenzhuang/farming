@@ -27,7 +27,7 @@ Project
 
 也就是说，文件能力不做独立全局页面，也不做三栏复杂 IDE 布局。Project 展开后先展示具体 agent 行；Agent 列表在分页操作之后提供独立的收起入口，收起后只保留一行紧凑恢复入口且不隐藏 Files，搜索期间则临时展示匹配的 Agent 行；如果用户打开过文件，再展示独立的 `Open Editors` section；最后是 `Files`。`Git History` 收在展开的 `Files` 内，位于 Working Copy `Changes` 之后，与文件树共享同一个 Git / 文件上下文。Main Agent 是调度入口，不单独挂载这些 Project 能力。
 
-这里的“轻量”指功能边界轻，不代表页面展示要像临时列表。Files 的视觉应模仿 VS Code Explorer 的可扫描密度：紧凑树、稳定图标槽、active 左侧条、dirty 状态点、编辑区 tab strip；颜色、圆角和留白则继续贴合现有 Code-style 工作台。
+这里的“轻量”指功能边界轻，不代表页面展示要像临时列表。Files 使用便于快速扫描的紧凑布局：紧凑树、稳定图标槽、active 左侧条、dirty 状态点、编辑区 tab strip；颜色、圆角和留白继续贴合现有 Code 工作台。
 
 ### Project 与 Git Worktree
 
@@ -67,7 +67,7 @@ Create、Rename 和 Delete 还有一个小型浏览器所有权状态机。打�
 
 图拓扑和 SVG 行几何直接改编自 MIT License 的 VS Code SCM History，固定来源 Commit 为 `0217c2f1a0defc7fdbfb4feba74e71e366de6822`，完整来源和 License 记录在 `THIRD_PARTY_NOTICES.md`。Farming 只负责把有边界的 `git log` 结果适配成 VS Code View Model，以及接入现有视觉和 Review；后续不能并行维护第二套手写图算法。
 
-目录树实现不应长期依赖手写递归列表。VS Code Explorer 的质感来自一整套 tree control 行为，而不只是文件 icon：可见行模型、展开/折叠状态、键盘焦点、选择态、虚拟滚动、懒加载、拖拽目标、重命名、git decoration、父目录上下文和 hover action 都需要统一处理。
+目录树实现不应长期依赖手写递归列表。完整的 tree control 不只是文件 icon，还需要统一处理可见行模型、展开/折叠状态、键盘焦点、选择态、虚拟滚动、懒加载、拖拽目标、重命名、git decoration、父目录上下文和 hover action。
 
 这里说的“文件目录树展示逻辑”，不是 icon mapping，而是 Explorer 自身的交互和渲染系统：
 
@@ -80,7 +80,7 @@ Create、Rename 和 Delete 还有一个小型浏览器所有权状态机。打�
 - 移动模型：后端保留同 workspace 内 move 能力；前端当前优先保证搜索、跳转、重命名和删除，不把拖拽移动作为必要能力
 - decoration 模型：git `M`/`U` 等文件状态、父目录状态点、外部变化提示统一挂在 row renderer 的 decoration slot；父目录名称保持低饱和提示色，具体 added/deleted/conflict 语义主要由状态点和叶子文件承担，避免整棵树被高警告色染重
 
-因此第一版的正确方向不是“继续手写一个更像 VS Code 的递归组件”，而是复用成熟 tree behavior engine，再把 Farming 的文件后端、显式刷新、git 状态和清爽视觉接上去。
+因此第一版复用成熟 tree behavior engine，再接入 Farming 的文件后端、显式刷新、git 状态和现有视觉。
 
 推荐把 `Files` section 拆成三层：
 
@@ -303,7 +303,7 @@ Files
 - Markdown 源文件可在同一 editor tab 内切换源码 / 渲染预览
 - 从 Markdown 文档点击 workspace 内部链接时，目标文档继承当前文档的来源 Agent，文档间跳转后仍保留返回 Agent 的入口
 - 图片 / PDF / 二进制只读 preview；大文本用只读 Monaco 展示文件开头内容
-- VS Code 风格 tab strip
+- 紧凑 tab strip
 - 轻量多文件 tabs：打开过的文件保留 tab，可切换、关闭，并保留各自 dirty / external changed 状态；从目录树鼠标单击打开的是 transient preview tab，再单击另一个干净文件会复用该 tab；搜索结果、`path:line`、键盘 Enter、diff/review 打开是正式 tab；编辑后 transient tab 固定为正式 tab；tab strip 支持键盘切换和关闭，active tab 应自动滚入可见区域；editor 区域支持 `Ctrl/Cmd+PageUp` / `Ctrl/Cmd+PageDown` 切换 tab、`Ctrl/Cmd+W` 关闭当前 tab
 - editor tab 使用成熟 tablist 语义：只有 active tab 进入正常 Tab 顺序，左右方向键切换；tab 通过 `aria-controls` 关联 Monaco `tabpanel`，避免视觉 tab strip 和 DOM 语义脱节
 - editor tab 的可访问名称需要包含 basename、完整相对路径和 dirty / external changed 状态；close 按钮也使用完整相对路径，避免同名文件 tab 难以区分

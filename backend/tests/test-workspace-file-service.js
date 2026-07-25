@@ -75,6 +75,69 @@ async function run() {
   const cacheWorkspace = path.join(tmpRoot, 'cache-repo');
 
   try {
+    const barrierWorkspace = path.join(tmpRoot, 'barrier-repo');
+    fs.mkdirSync(barrierWorkspace, { recursive: true });
+    const barrierService = new WorkspaceFileService({
+      commandRunner: { run: async () => ({ stdout: '', stderr: '' }) },
+    });
+    try {
+      let releaseMutation;
+      let markMutationStarted;
+      const mutationGate = new Promise(resolve => { releaseMutation = resolve; });
+      const mutationStarted = new Promise(resolve => { markMutationStarted = resolve; });
+      const mutation = barrierService.runWorkspaceMutation(barrierWorkspace, async root => {
+        markMutationStarted();
+        await mutationGate;
+        await fsp.writeFile(path.join(root, 'committed.txt'), 'committed\n');
+      });
+      await mutationStarted;
+
+      let resolvePathCalled = false;
+      const originalResolvePath = barrierService.resolvePath.bind(barrierService);
+      barrierService.resolvePath = async (...args) => {
+        resolvePathCalled = true;
+        return originalResolvePath(...args);
+      };
+      const authoritativeTree = barrierService.listTree(barrierWorkspace, '');
+      assert.strictEqual(resolvePathCalled, false);
+
+      releaseMutation();
+      await mutation;
+      const treeAfterMutation = await authoritativeTree;
+      assert.strictEqual(resolvePathCalled, true);
+      assert(treeAfterMutation.items.some(item => item.path === 'committed.txt'));
+    } finally {
+      await barrierService.dispose();
+    }
+
+    const watcherWorkspace = path.join(tmpRoot, 'watcher-repo');
+    fs.mkdirSync(watcherWorkspace, { recursive: true });
+    const watcherService = new WorkspaceFileService({
+      watchOptions: { usePolling: true, interval: 20 },
+    });
+    try {
+      const [unsubscribeFirst, unsubscribeSecond] = await Promise.all([
+        watcherService.subscribe(watcherWorkspace, () => {}),
+        watcherService.subscribe(watcherWorkspace, () => {}),
+      ]);
+      assert.strictEqual(watcherService.watchers.size, 1);
+      assert.strictEqual(Array.from(watcherService.watchers.values())[0].subscribers.size, 2);
+      await unsubscribeFirst();
+      assert.strictEqual(watcherService.watchers.size, 1);
+      assert.strictEqual(Array.from(watcherService.watchers.values())[0].subscribers.size, 1);
+      await unsubscribeSecond();
+      assert.strictEqual(watcherService.watchers.size, 0);
+    } finally {
+      await watcherService.dispose();
+    }
+
+    const disposedWatcherService = new WorkspaceFileService();
+    const cancelledSubscription = disposedWatcherService.subscribe(watcherWorkspace, () => {});
+    await disposedWatcherService.dispose();
+    const unsubscribeCancelled = await cancelledSubscription;
+    await unsubscribeCancelled();
+    assert.strictEqual(disposedWatcherService.watchers.size, 0);
+
     fs.mkdirSync(srcDir, { recursive: true });
     fs.mkdirSync(externalDirectory, { recursive: true });
     fs.writeFileSync(path.join(externalDirectory, 'external.md'), 'external reference\n');

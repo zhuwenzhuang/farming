@@ -7,6 +7,7 @@ function run() {
   const configPath = path.join(root, 'pkg.config.cjs');
   const packageScript = fs.readFileSync(path.join(root, 'scripts/package-cli-release.sh'), 'utf8');
   const appPackageScript = fs.readFileSync(path.join(root, 'scripts/package-release.sh'), 'utf8');
+  const npmSmokeScript = fs.readFileSync(path.join(root, 'scripts/smoke-npm-package.sh'), 'utf8');
   const packagedAcpBridge = fs.readFileSync(path.join(root, 'backend/acp/packaged-codex-acp.js'), 'utf8');
   const previousEntry = process.env.FARMING_PKG_ENTRY;
   const previousWorkerEntry = process.env.FARMING_PKG_WORKER_ENTRY;
@@ -64,6 +65,15 @@ function run() {
     packageScript.includes('--farming-usage-history-smoke')
       && packageScript.includes('Usage History worker + SQLite smoke'),
     'native CLI targets must run the packaged Usage worker through SQLite before release',
+  );
+  assert(
+    npmSmokeScript.includes('FARMING_NATIVE_PTY_HOST_PERSIST=0')
+      && npmSmokeScript.includes('-- /bin/bash')
+      && npmSmokeScript.includes("method: 'ping'")
+      && npmSmokeScript.includes('wait_for_process_exit "${SERVER_PID}" "Farming server"')
+      && npmSmokeScript.includes('wait_for_process_exit "${NATIVE_HOST_PID}" "native PTY host"')
+      && npmSmokeScript.includes('wait_for_process_exit "${MAIN_BASH_PID}" "Main bash"'),
+    'npm package smoke must opt out of persistent PTY hosting and prove its Server, host, and Main bash all exit',
   );
 
   console.log('✓ CLI packaging keeps executable source fallback and fails closed on missing code');

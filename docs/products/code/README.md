@@ -54,7 +54,7 @@ On desktop, both Chat and Terminal use the same edge-hover Composer collapse and
 
 The native PTY host is a separate process from the Farming server. Browsers can reconnect to live terminals, and a normal Farming server restart can recover them without launching duplicate Agents.
 
-Terminal recovery follows the same checkpoint-and-replay principle as a persistent VS Code terminal. A headless xterm in the PTY host continuously reduces output into the authoritative terminal state. Each runtime has an epoch and monotonic output index; a reconnect or page resume installs one serialized checkpoint at an exact index, then applies only contiguous later chunks. Missing chunks or a changed runtime epoch trigger another checkpoint instead of displaying an unprovable mixed state.
+Terminal recovery uses a checkpoint-and-replay protocol. A headless xterm in the PTY host continuously reduces output into the authoritative terminal state. Each runtime has an epoch and monotonic output index; a reconnect or page resume installs one serialized checkpoint at an exact index, then applies only contiguous later chunks. Missing chunks or a changed runtime epoch trigger another checkpoint instead of displaying an unprovable mixed state.
 
 See [Terminal State Protocol](terminal-state-protocol.md) for `/session-view`, multi-window control, flow control, and recovery guarantees.
 
@@ -132,7 +132,7 @@ Settings groups interface, language, search timeout, installation-aware updates,
 
 ![Farming Code Settings](assets/14-code-settings.png)
 
-Switching to Farming CRT carries the focused Agent when possible and does not restart the session. Updates follow a Zed-style two-step flow: **Prepare** downloads and validates a Bundle or installs an npm release into a separate staging directory while the current server keeps running. The card then remains in **Update ready** until the user clicks **Restart to update**; only that second action switches the prepared version and restarts Farming. npm directory-switch failures restore the previous package before restarting it. The card shows preparation, restart, or rollback state and freezes elapsed time when preparation completes. Bundle downloads additionally show byte-backed percentage progress when the server provides a total size. Source checkouts update through Git, and standalone artifacts remain manual.
+Switching to Farming CRT carries the focused Agent when possible and does not restart the session. Updates use two explicit steps: **Prepare** downloads and validates a Bundle or installs an npm release into a separate staging directory while the current server keeps running. The card then remains in **Update ready** until the user clicks **Restart to update**; only that second action switches the prepared version and restarts Farming. npm directory-switch failures restore the previous package before restarting it. The card shows preparation, restart, or rollback state and freezes elapsed time when preparation completes. Bundle downloads additionally show byte-backed percentage progress when the server provides a total size. Source checkouts update through Git, and standalone artifacts remain manual.
 
 ## Understand Local Token Usage
 
@@ -195,6 +195,7 @@ The browser controls real processes and workspace files on the Farming host. Use
 - [Farming 2 product overview](../README.md)
 - [Mobile guide](mobile-guide.md)
 - [ACP runtime](acp-runtime.md)
+- [Extension model](extension-model.md)
 - [Review foundation](review-foundation.md)
 - [Human-like acceptance story](farming-agent-human-story.md)
 - [Acceptance and dogfood plan](test/acceptance-dogfood-plan.md)

@@ -618,7 +618,9 @@ function run() {
 	      treeRowModelSource.includes('function hasWorkspaceFileTreeDescendant') &&
 	      fileOpenControllerSource.includes('const fileOpenRequestRef = useRef(0)') &&
 	      fileOpenControllerSource.includes('const requestId = fileOpenRequestRef.current + 1') &&
-	      fileOpenControllerSource.includes('if (fileOpenRequestRef.current !== requestId) return') &&
+	      fileOpenControllerSource.includes('fileOpenRequestRef.current !== requestId') &&
+	      fileOpenControllerSource.includes('fileOpenScopeRef.current.agentId !== requestAgentId') &&
+	      fileOpenControllerSource.includes('!fileOpenScopeRef.current.mounted') &&
 		      fileTreeControllerHookSource.includes('const renderFileTreeRow = useCallback') &&
 		      !fileSectionSource.includes('const renderFileTreeRow = useCallback') &&
 		      fileTreeViewSource.includes('renderRow={renderFileTreeRow}') &&
@@ -946,7 +948,7 @@ function run() {
       fileSectionHeaderSource.includes('placeholder={copy.searchOrPathLine}') &&
       fileOpenControllerSource.includes('const FILE_OPEN_PENDING_DELAY_MS = 220') &&
       fileOpenControllerSource.includes('openFilePendingPath') &&
-      fileOpenControllerSource.includes('scheduleOpenFilePending(requestId, filePath)') &&
+      fileOpenControllerSource.includes('scheduleOpenFilePending(requestId, requestAgentId, filePath)') &&
       fileOpenControllerSource.includes('clearOpenFilePending()') &&
       fileOpenControllerSource.includes('setOpenFilePendingPath(filePath)') &&
       fileSectionSource.includes('openFilePendingPath') &&
@@ -1438,7 +1440,8 @@ function run() {
       editorModelSource.includes('FALLBACK_LANGUAGE_ASSOCIATIONS') &&
 	      editorMonacoSource.includes('monaco.editor.setModelLanguage(model, languageId)') &&
 	      !editorMonacoControllerSource.includes('monaco.editor.setModelLanguage(model, languageId)') &&
-	      editorBlameControllerSource.includes('}, [disabled, openFile.agentId, openFile.file.path, openFile.file.sha1])') &&
+	      editorBlameControllerSource.includes('openFile.file.sha1, openFile.workspaceRoot') &&
+	      editorBlameControllerSource.includes('openFileKeyRef.current !== requestedFileKey') &&
       editorSource.includes('checkBlameCapability') &&
       editorBlameControllerSource.includes('fetchWorkspaceBlameCapability(openFile.agentId, openFile.file.path)') &&
       !editorSource.includes('function initialBlameCapability') &&
@@ -1691,7 +1694,9 @@ function run() {
       serverSource.includes('new Map()') &&
       serverSource.includes('clearWorkspaceFileWatch(ws, data.agentId)') &&
       serverSource.includes('resolveWorkspaceRoot(agentManager, data.agentId)') &&
-      serverSource.includes('ws.workspaceFileUnsubscribes.set(data.agentId, unsubscribe)'),
+      serverSource.includes('watches.set(data.agentId, record)') &&
+      serverSource.includes('isCurrentWorkspaceFileWatch(ws, data.agentId, record)') &&
+      serverSource.includes('closeWorkspaceFileWatchRecord(record)'),
     'server should keep workspace file watchers per stable Files id instead of one watcher per WebSocket'
   );
 

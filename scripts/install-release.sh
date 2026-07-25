@@ -251,7 +251,7 @@ stop_server() {
   if release_uses_managed_npm && [ -x "${STABLE_CLI_DIR}/farming" ]; then
     local managed_args=(stop)
     [ -n "${CONFIG_DIR_VALUE}" ] && managed_args+=(--config-dir "${CONFIG_DIR_VALUE}")
-    "${STABLE_CLI_DIR}/farming" "${managed_args[@]}" || true
+    "${STABLE_CLI_DIR}/farming" "${managed_args[@]}"
     return 0
   fi
   if [ ! -f "${PID_FILE}" ]; then

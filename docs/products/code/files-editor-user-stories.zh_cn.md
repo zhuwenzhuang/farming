@@ -10,7 +10,7 @@
 
 Main Agent 只负责调度和观察，不展示 Files。只有具体 Project agent 才挂载 Files。
 
-Project 侧栏的文件体验应接近紧凑版 VS Code Explorer。具体 agent 行是 Project 展开后的第一个 section；当至少打开过一个文件时，`Open Editors` 出现在 agent 与 `Files` 之间，默认折叠，点击后展开。没有打开文件时不渲染 `Open Editors`。`Files` 只负责目录树；单一路径目录链尽量合并成一行，例如 `tmp/ata2/assets`，避免每一级都额外缩进。
+Project 侧栏使用紧凑、便于扫描的文件布局。具体 agent 行是 Project 展开后的第一个 section；当至少打开过一个文件时，`Open Editors` 出现在 agent 与 `Files` 之间，默认折叠，点击后展开。没有打开文件时不渲染 `Open Editors`。`Files` 只负责目录树；单一路径目录链尽量合并成一行，例如 `tmp/ata2/assets`，避免每一级都额外缩进。
 
 ## 核心路径
 
@@ -144,7 +144,7 @@ Project 侧栏的文件体验应接近紧凑版 VS Code Explorer。具体 agent 
 
 期望：
 
-- 软链接保留目标类型：目录链接可原地展开，文件链接可原地打开，并像 VS Code Explorer 一样显示轻量链接标记。
+- 软链接保留目标类型：目录链接可原地展开，文件链接可原地打开，并显示轻量链接标记。
 - 指向项目内部的链接保持正常编辑能力。
 - 指向项目外部、但已进入 Farming 全局 Files 根路径白名单的链接，仍以项目内别名展示，内容只读。
 - 损坏链接或超出允许根路径的链接保留可见，但不能打开。

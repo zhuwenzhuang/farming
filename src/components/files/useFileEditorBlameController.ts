@@ -34,8 +34,10 @@ export function useFileEditorBlameController({
   disabled,
   onRevealLine,
 }: UseFileEditorBlameControllerOptions) {
+  const blameRequestRef = useRef(0)
   const blameCapabilityRequestRef = useRef(0)
   const openFileKeyRef = useRef(openFileKey(openFile))
+  const disabledRef = useRef(disabled)
   const [blameOpen, setBlameOpen] = useState(false)
   const [blameLoading, setBlameLoading] = useState(false)
   const [blame, setBlame] = useState<WorkspaceFileBlame | null>(null)
@@ -43,6 +45,7 @@ export function useFileEditorBlameController({
   const [blameCapability, setBlameCapability] = useState<BlameCapability>('unknown')
   const [blameDetail, setBlameDetail] = useState<BlameDetailState | null>(null)
   openFileKeyRef.current = openFileKey(openFile)
+  disabledRef.current = disabled
 
   const blameLabelWidths = useMemo(() => {
     const lines = blame?.lines ?? []
@@ -61,22 +64,39 @@ export function useFileEditorBlameController({
       setBlameCapability('unavailable')
       return null
     }
+    const requestedFileKey = openFileKey(openFile)
+    const requestId = blameRequestRef.current + 1
+    blameRequestRef.current = requestId
     setBlameLoading(true)
     setBlameError(null)
     try {
       const nextBlame = await fetchWorkspaceBlame(openFile.agentId, openFile.file.path)
+      if (
+        blameRequestRef.current !== requestId
+        || openFileKeyRef.current !== requestedFileKey
+        || disabledRef.current
+      ) return null
       setBlame(nextBlame)
       setBlameCapability(nextBlame.isGitRepo && nextBlame.lines.length > 0 ? 'available' : 'unavailable')
       return nextBlame
     } catch (error) {
+      if (
+        blameRequestRef.current !== requestId
+        || openFileKeyRef.current !== requestedFileKey
+        || disabledRef.current
+      ) return null
       setBlame(null)
       setBlameError(error instanceof Error ? error.message : 'Failed to load blame')
       setBlameCapability(isPermanentBlameFailure(error) ? 'unavailable' : 'unknown')
       return null
     } finally {
-      setBlameLoading(false)
+      if (
+        blameRequestRef.current === requestId
+        && openFileKeyRef.current === requestedFileKey
+        && !disabledRef.current
+      ) setBlameLoading(false)
     }
-  }, [disabled, openFile.agentId, openFile.file.path, openFile.file.sha1])
+  }, [disabled, openFile.agentId, openFile.file.path, openFile.file.sha1, openFile.workspaceRoot])
 
   const checkBlameCapability = useCallback(async (): Promise<BlameCapability | null> => {
     if (disabled) {
@@ -107,13 +127,19 @@ export function useFileEditorBlameController({
       return
     }
 
+    const requestedFileKey = openFileKey(openFile)
     const capability = blameCapability === 'unknown'
       ? await checkBlameCapability()
       : blameCapability
-    if (capability !== 'unavailable') {
+    if (
+      capability !== null
+      && capability !== 'unavailable'
+      && openFileKeyRef.current === requestedFileKey
+      && !disabledRef.current
+    ) {
       setBlameOpen(true)
     }
-  }, [blameCapability, blameOpen, checkBlameCapability, disabled])
+  }, [blameCapability, blameOpen, checkBlameCapability, disabled, openFile])
 
   const showBlameDetail = useCallback((line: FileEditorBlameLine) => {
     onRevealLine(line.lineNumber, { focusEditor: false })
@@ -122,6 +148,7 @@ export function useFileEditorBlameController({
 
   useEffect(() => {
     setBlame(null)
+    setBlameLoading(false)
     setBlameError(null)
     setBlameCapability(disabled ? 'unavailable' : 'unknown')
   }, [disabled, openFile.agentId, openFile.file])
