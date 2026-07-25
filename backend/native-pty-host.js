@@ -7,7 +7,10 @@ const os = require('os');
 const path = require('path');
 
 const TerminalScreenWorkerPool = require('./terminal-screen-worker-pool');
-const { nativePtyHostSocketPath } = require('./native-pty-host-path');
+const {
+  nativePtyHostPrivateSocketPath,
+  nativePtyHostSocketPath,
+} = require('./native-pty-host-path');
 const { terminalInputToPtyString } = require('./input-parts');
 const { normalizeInteractiveTerminalEnv } = require('./agent-env');
 const {
@@ -95,10 +98,7 @@ class NativePtyHost {
     this.exitOnShutdown = options.exitOnShutdown !== false;
     this.boundSocketPath = process.platform === 'win32'
       ? this.socketPath
-      : path.join(
-          path.dirname(this.socketPath),
-          `.fpty-${process.pid}-${crypto.createHash('sha256').update(this.socketPath).digest('hex').slice(0, 8)}-${crypto.randomBytes(4).toString('hex')}.sock`,
-        );
+      : nativePtyHostPrivateSocketPath(this.socketPath);
     this.boundSocketIdentity = null;
     this.sessions = new Map();
     this.clients = new Set();
@@ -347,6 +347,7 @@ class NativePtyHost {
         return {
           ok: true,
           pid: process.pid,
+          privateSocketPath: process.platform === 'win32' ? '' : this.boundSocketPath,
           runtimeIdentity: this.runtimeIdentity,
         };
       case 'registerController':

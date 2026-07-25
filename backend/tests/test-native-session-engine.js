@@ -611,6 +611,23 @@ async function run() {
       fs.unlinkSync(replacedSocketPath);
       await replacementHost.start();
 
+      fs.unlinkSync(replacedSocketPath);
+      const ambiguousClient = new NativePtyHostClient({
+        configDir: replacedSocketConfigDir,
+        socketPath: replacedSocketPath,
+        connectRetries: 1,
+      });
+      try {
+        await assert.rejects(
+          () => ambiguousClient.request('recoverSessions', {}, { startHost: false }),
+          error => error?.code === 'FARMING_NATIVE_HOST_AMBIGUOUS',
+          'missing public socket with multiple live private hosts must fail visibly',
+        );
+      } finally {
+        ambiguousClient.disconnect();
+      }
+      fs.linkSync(replacementHost.boundSocketPath, replacedSocketPath);
+
       await obsoleteHost.dispose();
 
       assert(
@@ -692,8 +709,18 @@ async function run() {
       return current && current.output.includes('persistent-host-alive') ? current : null;
     }, 'persistent native pty output');
 
+    const persistentPrivateSocketPath = persistentEngine.client.connectedHostInfo?.privateSocketPath;
+    assert(
+      persistentPrivateSocketPath && fs.existsSync(persistentPrivateSocketPath),
+      'persistent native host should advertise its private reconnect socket',
+    );
     persistentEngine.dispose();
     await waitFor(() => fs.existsSync(persistentSocketPath), 'persistent native pty socket after engine dispose');
+    fs.unlinkSync(persistentSocketPath);
+    assert(
+      fs.existsSync(persistentPrivateSocketPath),
+      'removing the public socket link must not remove the live private listener',
+    );
 
     const reconnectedPersistentEngine = new NativeSessionEngine({
       configDir: persistentConfigDir,
@@ -703,7 +730,11 @@ async function run() {
       const recovered = await reconnectedPersistentEngine.recoverSessions();
       assert(
         recovered.some(session => session.agentId === 'persistent-native-smoke'),
-        'persistent native host should keep sessions recoverable after server-side engine dispose'
+        'persistent native host should remain discoverable when its public socket link was removed'
+      );
+      assert(
+        fs.existsSync(persistentSocketPath),
+        'private socket discovery should restore the public config-bound socket link',
       );
       await reconnectedPersistentEngine.killSession('persistent-native-smoke');
     } finally {

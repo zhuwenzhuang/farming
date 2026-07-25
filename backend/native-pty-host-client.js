@@ -4,7 +4,10 @@ const crypto = require('crypto');
 const fs = require('fs');
 const net = require('net');
 const path = require('path');
-const { nativePtyHostSocketPath } = require('./native-pty-host-path');
+const {
+  nativePtyHostPrivateSocketNamePattern,
+  nativePtyHostSocketPath,
+} = require('./native-pty-host-path');
 const {
   nativePtyHostRuntimeIdentity,
   nativePtyHostRuntimeIdentityMatches,
@@ -17,6 +20,7 @@ const {
 const { isTemporaryProviderSessionId } = require('./provider-session-id');
 const storageLayout = require('./storage-layout');
 const { deserializeTerminalState } = require('./terminal-state-serialization');
+const { probeUnixSocket } = require('./terminal-runtime-cleanup');
 
 const DEFAULT_CONNECT_RETRIES = 300;
 const DEFAULT_CONNECT_RETRY_MS = 50;
@@ -184,6 +188,7 @@ class NativePtyHostClient extends EventEmitter {
     this.controllerIdentityReady = null;
     this.hostRotationTimeoutMs = options.hostRotationTimeoutMs || DEFAULT_HOST_ROTATION_TIMEOUT_MS;
     this.connectedHostInfo = null;
+    this.connectedSocketPath = '';
     this.runtimeRotationInfo = null;
     this.socket = null;
     this.socketGeneration = 0;
@@ -235,7 +240,55 @@ class NativePtyHostClient extends EventEmitter {
 
   canConnectWithoutStartingHost() {
     if (process.platform === 'win32') return true;
-    return fs.existsSync(this.socketPath);
+    return fs.existsSync(this.socketPath) || this.privateSocketCandidates().length > 0;
+  }
+
+  privateSocketCandidates() {
+    if (process.platform === 'win32') return [];
+    const directory = path.dirname(this.socketPath);
+    const pattern = nativePtyHostPrivateSocketNamePattern(this.socketPath);
+    try {
+      return fs.readdirSync(directory)
+        .filter(name => pattern.test(name))
+        .map(name => path.join(directory, name));
+    } catch (error) {
+      if (error?.code === 'ENOENT') return [];
+      throw error;
+    }
+  }
+
+  async resolveConnectSocketPath() {
+    if (process.platform === 'win32' || fs.existsSync(this.socketPath)) {
+      return this.socketPath;
+    }
+    const active = [];
+    for (const candidate of this.privateSocketCandidates()) {
+      const probe = await probeUnixSocket(candidate);
+      if (probe.active) active.push(candidate);
+    }
+    if (active.length > 1) {
+      const error = new Error('Multiple live native PTY hosts were found for this Farming config');
+      error.code = 'FARMING_NATIVE_HOST_AMBIGUOUS';
+      error.socketPaths = active;
+      throw error;
+    }
+    return active[0] || this.socketPath;
+  }
+
+  restorePublicSocketPath(connectedPath) {
+    if (
+      process.platform === 'win32'
+      || !connectedPath
+      || connectedPath === this.socketPath
+      || fs.existsSync(this.socketPath)
+    ) {
+      return;
+    }
+    try {
+      fs.linkSync(connectedPath, this.socketPath);
+    } catch (error) {
+      if (!error || error.code !== 'EEXIST') throw error;
+    }
   }
 
   spawnHost() {
@@ -288,9 +341,10 @@ class NativePtyHostClient extends EventEmitter {
     });
   }
 
-  connectOnce() {
+  async connectOnce() {
+    const connectedPath = await this.resolveConnectSocketPath();
     return new Promise((resolve, reject) => {
-      const socket = net.createConnection(this.socketPath);
+      const socket = net.createConnection(connectedPath);
       const onError = (error) => {
         socket.destroy();
         reject(error);
@@ -298,6 +352,8 @@ class NativePtyHostClient extends EventEmitter {
       socket.once('error', onError);
       socket.once('connect', () => {
         socket.off('error', onError);
+        this.restorePublicSocketPath(connectedPath);
+        this.connectedSocketPath = connectedPath;
         this.attachSocket(socket);
         resolve();
       });
@@ -373,6 +429,9 @@ class NativePtyHostClient extends EventEmitter {
         if (error && error.code === 'FARMING_NATIVE_HOST_RUNTIME_MISMATCH') {
           throw error;
         }
+        if (error && error.code === 'FARMING_NATIVE_HOST_AMBIGUOUS') {
+          throw error;
+        }
         if (this.hostStartError) {
           lastError = this.hostStartError;
         }
@@ -427,7 +486,7 @@ class NativePtyHostClient extends EventEmitter {
     return this.controllerIdentityReady;
   }
 
-  async waitForHostRelease() {
+  async waitForHostRelease(privateSocketPath = '') {
     const deadline = Date.now() + this.hostRotationTimeoutMs;
     if (process.platform === 'win32') {
       await delay(Math.min(250, this.hostRotationTimeoutMs));
@@ -437,7 +496,8 @@ class NativePtyHostClient extends EventEmitter {
       const childReleased = !this.hostChild ||
         this.hostChild.exitCode !== null ||
         this.hostChild.signalCode !== null;
-      if (!fs.existsSync(this.socketPath) && childReleased) return;
+      const privateReleased = !privateSocketPath || !fs.existsSync(privateSocketPath);
+      if (!fs.existsSync(this.socketPath) && privateReleased && childReleased) return;
       await delay(50);
     }
     const error = new Error('Timed out waiting for the previous native PTY host to stop');
@@ -622,7 +682,7 @@ class NativePtyHostClient extends EventEmitter {
     }
 
     try {
-      await this.waitForHostRelease();
+      await this.waitForHostRelease(hostInfo?.privateSocketPath || this.connectedSocketPath);
     } catch (error) {
       if (shutdownUncertain) {
         try {
@@ -674,6 +734,7 @@ class NativePtyHostClient extends EventEmitter {
     this.socket = null;
     this.buffer = '';
     this.connectedHostInfo = null;
+    this.connectedSocketPath = '';
     if (this.disposed) return;
     const error = new Error('Native pty host disconnected');
     error.code = 'ECONNRESET';
