@@ -1400,6 +1400,7 @@ function run() {
     item: fileNode,
     parentPath: 'src/components',
     name: 'App.test.tsx',
+    submitting: false,
   });
   assert.strictEqual(workspaceFileOperationSelectionEnd(createWorkspaceFileOperation('rename', fileNode)), 8);
   assert.strictEqual(

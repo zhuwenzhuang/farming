@@ -43,6 +43,7 @@ export function FileOperationDialog({
         className="code-file-operation-dialog"
         data-testid="code-file-operation-dialog"
         role="dialog"
+        aria-busy={fileOperation.submitting}
         aria-labelledby="code-file-operation-title"
         autoComplete="off"
         onMouseDown={event => event.stopPropagation()}
@@ -75,6 +76,7 @@ export function FileOperationDialog({
             inputMode="text"
             ref={inputRef}
             value={fileOperation.name}
+            disabled={fileOperation.submitting}
             autoComplete="off"
             aria-autocomplete="none"
             autoCapitalize="none"
@@ -105,7 +107,7 @@ export function FileOperationDialog({
           <button
             type="submit"
             className={fileOperation.kind === 'delete' ? 'danger' : 'primary'}
-            disabled={fileOperation.kind !== 'delete' && !fileOperation.name.trim()}
+            disabled={fileOperation.submitting || (fileOperation.kind !== 'delete' && !fileOperation.name.trim())}
           >
             {fileOperation.kind === 'delete' ? copy.delete : copy.save}
           </button>

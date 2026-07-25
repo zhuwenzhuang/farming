@@ -861,7 +861,7 @@ function run() {
 	      !fileSectionSource.includes('moveWorkspaceEntry') &&
 	      !fileSectionSource.includes('Promise.all(dragNodes.map') &&
 	      !fileSectionSource.includes('onMove={handleTreeMove}') &&
-		      fileOperationControllerSource.includes('onDeleteEntries(agentId, [deleted])') &&
+		      fileOperationControllerSource.includes('onDeleteEntries(ownedOperation.rootId, [deleted])') &&
 		      !fileSectionSource.includes('onDeleteEntries(agentId, [deleted])') &&
 	      fileTreeKeyboardHookSource.includes("event.key === 'ContextMenu'") &&
 	      fileTreeKeyboardHookSource.includes("event.key === 'F2'") &&
@@ -873,8 +873,8 @@ function run() {
 		      fileFocusHookSource.includes('const focusFileTreePath = useCallback') &&
 		      !fileSectionSource.includes('const focusFileTreeTarget = useCallback') &&
 		      !fileSectionSource.includes('const focusFileTreePath = useCallback') &&
-		      fileOperationControllerSource.includes('const targetItem = fileOperation?.item ?? null') &&
-		      fileOperationControllerSource.includes('focusFileTreePath(targetItem?.path ?? null)') &&
+		      fileOperationControllerSource.includes('const operation = fileOperationRef.current') &&
+		      fileOperationControllerSource.includes('focusFileTreePath(operation.operation.item?.path ?? null)') &&
 		      fileOperationControllerSource.includes('focusFileTreePath(created.entry.path)') &&
 	      fileOperationControllerSource.includes('focusFileTreePath(workspaceFileMoveFocusPath(move))') &&
 	      fileOperationControllerSource.includes('focusFileTreePath(workspaceFileDeleteFocusPath(deleted))') &&
@@ -1037,12 +1037,26 @@ function run() {
       openFilesHookSource.includes("window.addEventListener('pagehide', flushOnPageHide)") &&
       draftBackupsSource.includes('function restoreWorkspaceOpenFileDraft') &&
       draftBackupsSource.includes('const MAX_BACKUPS = 32') &&
-      fileOperationControllerSource.includes('fetchWorkspaceTree(agentId, parentPath)') &&
+      fileOperationControllerSource.includes('fetchWorkspaceTree(') &&
       fileOperationControllerSource.includes('reconcileWorkspaceFileDeleteFromDirectory') &&
       fileOperationModelSource.includes('function reconcileWorkspaceFileDeleteFromDirectory') &&
       fileOperationControllerSource.includes('reconcileWorkspaceFileRenameFromDirectory') &&
       fileOperationModelSource.includes('function reconcileWorkspaceFileRenameFromDirectory'),
     'Project Files should persist bounded dirty drafts and reconcile uncertain deletes from authoritative reads'
+  );
+
+  assert(
+    fileOperationControllerSource.includes('const WORKSPACE_FILE_OPERATION_TIMEOUT_MS = 15_000') &&
+      fileOperationControllerSource.includes('fileOperationGenerationRef') &&
+      fileOperationControllerSource.includes('ownedOperation.submitted') &&
+      fileOperationControllerSource.includes('isCurrentFileOperation(ownedOperation)') &&
+      fileOperationControllerSource.includes('withWorkspaceFileOperationTimeout(signal => createWorkspaceEntry') &&
+      fileOperationControllerSource.includes('withWorkspaceFileOperationTimeout(signal => renameWorkspaceEntry') &&
+      fileOperationControllerSource.includes('withWorkspaceFileOperationTimeout(signal => deleteWorkspaceEntry') &&
+      fileOperationDialogSource.includes('disabled={fileOperation.submitting') &&
+      fileTreeInlineOperationSource.includes('disabled={fileOperation.submitting') &&
+      apiSource.includes('signal: options.signal'),
+    'Project Files mutations should be single-submit, bounded, and generation-owned in the browser'
   );
 
   assert(

@@ -40,6 +40,7 @@ export function FileTreeInlineOperation({
     <form
       className="code-file-inline-operation"
       data-testid="code-file-inline-operation"
+      aria-busy={fileOperation.submitting}
       style={{ gridColumn: '3 / -1' }}
       autoComplete="off"
       onPointerDown={event => event.stopPropagation()}
@@ -59,6 +60,7 @@ export function FileTreeInlineOperation({
         inputMode="text"
         ref={inputRef}
         defaultValue={fileOperation.name}
+        disabled={fileOperation.submitting}
         aria-label={copy.renameEntry(item.name)}
         autoComplete="off"
         aria-autocomplete="none"

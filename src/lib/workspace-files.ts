@@ -302,11 +302,13 @@ export async function createWorkspaceEntry(
   rootId: string,
   parentPath: string,
   name: string,
-  entryType: 'file' | 'directory'
+  entryType: 'file' | 'directory',
+  options: { signal?: AbortSignal } = {},
 ) {
   const response = await fetch(appPath('/api/files/entry'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    signal: options.signal,
     body: JSON.stringify({
       rootId,
       parentPath,
@@ -317,10 +319,17 @@ export async function createWorkspaceEntry(
   return readJson<WorkspaceFileCreateResult>(response)
 }
 
-export async function renameWorkspaceEntry(rootId: string, filePath: string, name: string, expectedVersion?: string) {
+export async function renameWorkspaceEntry(
+  rootId: string,
+  filePath: string,
+  name: string,
+  expectedVersion?: string,
+  options: { signal?: AbortSignal } = {},
+) {
   const response = await fetch(appPath('/api/files/entry'), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
+    signal: options.signal,
     body: JSON.stringify({
       rootId,
       path: filePath,
@@ -332,11 +341,17 @@ export async function renameWorkspaceEntry(rootId: string, filePath: string, nam
   return body.move
 }
 
-export async function deleteWorkspaceEntry(rootId: string, filePath: string, expectedVersion?: string) {
+export async function deleteWorkspaceEntry(
+  rootId: string,
+  filePath: string,
+  expectedVersion?: string,
+  options: { signal?: AbortSignal } = {},
+) {
   const params = new URLSearchParams({ rootId, path: filePath })
   if (expectedVersion) params.set('expectedVersion', expectedVersion)
   const response = await fetch(appPath(`/api/files/entry?${params.toString()}`), {
     method: 'DELETE',
+    signal: options.signal,
   })
   const body = await readJson<{ deleted: WorkspaceFileDeleteResult }>(response)
   return body.deleted

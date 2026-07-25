@@ -18,6 +18,7 @@ export interface WorkspaceFileOperationState {
   item: WorkspaceFileTreeNode | null
   parentPath: string
   name: string
+  submitting: boolean
 }
 
 const FILE_CONTEXT_MENU_WIDTH = 220
@@ -51,6 +52,7 @@ export function createWorkspaceFileOperation(
     item,
     parentPath: workspaceFileOperationTargetDirectory(item),
     name: workspaceFileOperationInitialName(kind, item),
+    submitting: false,
   }
 }
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from 'react'
 import {
   createWorkspaceFileOperation,
   reconcileWorkspaceFileCreateFromDirectory,
@@ -27,6 +27,36 @@ import {
 } from '@/lib/workspace-files'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
 
+const WORKSPACE_FILE_OPERATION_TIMEOUT_MS = 15_000
+
+interface WorkspaceFileOperationOwnership {
+  generation: number
+  operation: WorkspaceFileOperationState
+  rootId: string
+  submitted: boolean
+}
+
+async function withWorkspaceFileOperationTimeout<T>(request: (signal: AbortSignal) => Promise<T>) {
+  const abortController = new AbortController()
+  let timedOut = false
+  const timeoutId = window.setTimeout(() => {
+    timedOut = true
+    abortController.abort()
+  }, WORKSPACE_FILE_OPERATION_TIMEOUT_MS)
+  try {
+    return await request(abortController.signal)
+  } catch (error) {
+    if (timedOut) {
+      const timeoutError = new Error('File operation timed out')
+      timeoutError.name = 'TimeoutError'
+      throw timeoutError
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
+
 interface UseWorkspaceFileOperationControllerOptions {
   agentId: string | null
   fileOperationActiveRef: MutableRefObject<boolean>
@@ -54,95 +84,160 @@ export function useWorkspaceFileOperationController({
 }: UseWorkspaceFileOperationControllerOptions) {
   const fileOperationInputRef = useRef<HTMLInputElement | null>(null)
   const fileOperationNameRef = useRef('')
+  const fileOperationGenerationRef = useRef(0)
+  const fileOperationRef = useRef<WorkspaceFileOperationOwnership | null>(null)
   const [fileOperation, setFileOperation] = useState<WorkspaceFileOperationState | null>(null)
 
   const clearFileOperation = useCallback(() => {
+    fileOperationRef.current = null
     fileOperationActiveRef.current = false
     setFileOperation(null)
   }, [])
 
+  const isCurrentFileOperation = useCallback((operation: WorkspaceFileOperationOwnership) => {
+    const current = fileOperationRef.current
+    return current?.generation === operation.generation && current.rootId === operation.rootId
+  }, [])
+
+  const clearFileOperationIfCurrent = useCallback((operation: WorkspaceFileOperationOwnership) => {
+    if (!isCurrentFileOperation(operation)) return false
+    fileOperationRef.current = null
+    fileOperationActiveRef.current = false
+    setFileOperation(current => fileOperationRef.current === null ? null : current)
+    return true
+  }, [isCurrentFileOperation])
+
+  const releaseFileOperationForRetry = useCallback((operation: WorkspaceFileOperationOwnership) => {
+    if (!isCurrentFileOperation(operation)) return false
+    const retryOperation: WorkspaceFileOperationOwnership = {
+      ...operation,
+      generation: fileOperationGenerationRef.current + 1,
+      operation: { ...operation.operation, submitting: false },
+      submitted: false,
+    }
+    fileOperationGenerationRef.current = retryOperation.generation
+    fileOperationRef.current = retryOperation
+    setFileOperation(current => fileOperationRef.current === retryOperation
+      ? retryOperation.operation
+      : current)
+    return true
+  }, [isCurrentFileOperation])
+
   const startFileOperation = useCallback((kind: WorkspaceFileOperationKind, item: WorkspaceFileTreeNode | null) => {
-    if (item?.readOnly && !(item.symbolicLink && (kind === 'rename' || kind === 'delete'))) return
+    if (!agentId || (item?.readOnly && !(item.symbolicLink && (kind === 'rename' || kind === 'delete')))) return
     const operation = createWorkspaceFileOperation(kind, item)
+    const generation = fileOperationGenerationRef.current + 1
+    fileOperationGenerationRef.current = generation
+    fileOperationRef.current = {
+      generation,
+      operation,
+      rootId: agentId,
+      submitted: false,
+    }
     fileOperationNameRef.current = operation.name
     fileOperationActiveRef.current = true
     setOpenFileError(null)
     setFileOperation(operation)
-  }, [setOpenFileError])
+  }, [agentId, setOpenFileError])
 
   const closeFileOperation = useCallback(() => {
-    const targetItem = fileOperation?.item ?? null
-    clearFileOperation()
-    focusFileTreePath(targetItem?.path ?? null)
-  }, [clearFileOperation, fileOperation?.item, focusFileTreePath])
+    const operation = fileOperationRef.current
+    if (!operation) return
+    if (clearFileOperationIfCurrent(operation)) {
+      focusFileTreePath(operation.operation.item?.path ?? null)
+    }
+  }, [clearFileOperationIfCurrent, focusFileTreePath])
 
   const rememberFileOperationName = useCallback((name: string) => {
     fileOperationNameRef.current = name
+    const operation = fileOperationRef.current
+    if (operation && !operation.submitted) {
+      operation.operation = { ...operation.operation, name }
+    }
   }, [])
 
   const updateFileOperationName = useCallback((name: string) => {
     fileOperationNameRef.current = name
+    const operation = fileOperationRef.current
+    if (operation && !operation.submitted) {
+      operation.operation = { ...operation.operation, name }
+    }
     setFileOperation(current => current
       ? { ...current, name }
       : current)
   }, [])
 
   const submitFileOperation = useCallback(async () => {
-    if (!agentId || !fileOperation) return
-    const operation = fileOperation.kind === 'delete'
-      ? fileOperation
-      : { ...fileOperation, name: fileOperationNameRef.current }
+    const ownedOperation = fileOperationRef.current
+    if (!agentId || !ownedOperation || ownedOperation.rootId !== agentId || ownedOperation.submitted) return
+    const operation = ownedOperation.operation.kind === 'delete'
+      ? ownedOperation.operation
+      : { ...ownedOperation.operation, name: fileOperationNameRef.current }
     const name = workspaceFileOperationSubmitName(operation)
     if (operation.kind !== 'delete' && !name) return
+    ownedOperation.operation = { ...operation, submitting: true }
+    ownedOperation.submitted = true
+    setFileOperation(current => isCurrentFileOperation(ownedOperation)
+      ? ownedOperation.operation
+      : current)
     setOpenFileError(null)
 
     try {
       if (operation.kind === 'new-file' || operation.kind === 'new-folder') {
-        const created = await createWorkspaceEntry(
-          agentId,
+        const created = await withWorkspaceFileOperationTimeout(signal => createWorkspaceEntry(
+          ownedOperation.rootId,
           operation.parentPath,
           name,
-          operation.kind === 'new-folder' ? 'directory' : 'file'
-        )
+          operation.kind === 'new-folder' ? 'directory' : 'file',
+          { signal },
+        ))
         refreshDirectories([operation.parentPath])
-        if (created.entry.type === 'directory') {
-          ensureDirectoryLoaded(created.entry.path)
-          focusFileTreePath(created.entry.path)
-        }
-        if (created.file) {
-          onOpenFile(agentId, created.file)
-        }
         onWorkspaceChange?.()
-        clearFileOperation()
+        if (isCurrentFileOperation(ownedOperation)) {
+          if (created.entry.type === 'directory') {
+            void ensureDirectoryLoaded(created.entry.path)
+            focusFileTreePath(created.entry.path)
+          }
+          if (created.file) {
+            onOpenFile(ownedOperation.rootId, created.file)
+          }
+          clearFileOperationIfCurrent(ownedOperation)
+        }
         return
       }
 
       if (operation.kind === 'rename' && operation.item) {
-        const move = await renameWorkspaceEntry(
-          agentId,
-          operation.item.path,
+        const item = operation.item
+        const move = await withWorkspaceFileOperationTimeout(signal => renameWorkspaceEntry(
+          ownedOperation.rootId,
+          item.path,
           name,
-          operation.item.version
-        )
+          item.version,
+          { signal },
+        ))
         refreshDirectories(workspaceFileMoveRefreshDirectories(move))
-        onMoveEntries(agentId, [move])
+        onMoveEntries(ownedOperation.rootId, [move])
         onWorkspaceChange?.()
-        clearFileOperation()
-        focusFileTreePath(workspaceFileMoveFocusPath(move))
+        if (clearFileOperationIfCurrent(ownedOperation)) {
+          focusFileTreePath(workspaceFileMoveFocusPath(move))
+        }
         return
       }
 
       if (operation.kind === 'delete' && operation.item) {
-        const deleted = await deleteWorkspaceEntry(
-          agentId,
-          operation.item.path,
-          operation.item.version
-        )
+        const item = operation.item
+        const deleted = await withWorkspaceFileOperationTimeout(signal => deleteWorkspaceEntry(
+          ownedOperation.rootId,
+          item.path,
+          item.version,
+          { signal },
+        ))
         refreshDirectories(workspaceFileDeleteRefreshDirectories(deleted))
-        onDeleteEntries(agentId, [deleted])
+        onDeleteEntries(ownedOperation.rootId, [deleted])
         onWorkspaceChange?.()
-        clearFileOperation()
-        focusFileTreePath(workspaceFileDeleteFocusPath(deleted))
+        if (clearFileOperationIfCurrent(ownedOperation)) {
+          focusFileTreePath(workspaceFileDeleteFocusPath(deleted))
+        }
       }
     } catch (error) {
       const reconcileDirectories = operation.kind === 'new-file' || operation.kind === 'new-folder'
@@ -156,23 +251,34 @@ export function useWorkspaceFileOperationController({
         (operation.kind === 'new-file' || operation.kind === 'new-folder')
       ) {
         try {
-          const tree = await fetchWorkspaceTree(agentId, operation.parentPath)
+          const tree = await withWorkspaceFileOperationTimeout(signal => fetchWorkspaceTree(
+            ownedOperation.rootId,
+            operation.parentPath,
+            { signal },
+          ))
           const createdEntry = reconcileWorkspaceFileCreateFromDirectory(operation, name, tree.items)
           if (createdEntry) {
             refreshDirectories([operation.parentPath])
             onWorkspaceChange?.()
-            clearFileOperation()
-            if (createdEntry.type === 'directory') {
+            if (createdEntry.type === 'directory' && isCurrentFileOperation(ownedOperation)) {
               void ensureDirectoryLoaded(createdEntry.path)
               focusFileTreePath(createdEntry.path)
-            } else {
+              clearFileOperationIfCurrent(ownedOperation)
+            } else if (createdEntry.type === 'file' && isCurrentFileOperation(ownedOperation)) {
               focusFileTreePath(createdEntry.path)
               try {
-                const createdFile = await fetchWorkspaceFile(agentId, createdEntry.path)
-                onOpenFile(agentId, createdFile)
+                const createdFile = await withWorkspaceFileOperationTimeout(signal => fetchWorkspaceFile(
+                  ownedOperation.rootId,
+                  createdEntry.path,
+                  { signal },
+                ))
+                if (isCurrentFileOperation(ownedOperation)) {
+                  onOpenFile(ownedOperation.rootId, createdFile)
+                }
               } catch {
                 // Creation is already proven; a later click can retry opening the file.
               }
+              clearFileOperationIfCurrent(ownedOperation)
             }
             return
           }
@@ -187,15 +293,20 @@ export function useWorkspaceFileOperationController({
       ) {
         try {
           const parentPath = reconcileDirectories[0] ?? ''
-          const tree = await fetchWorkspaceTree(agentId, parentPath)
+          const tree = await withWorkspaceFileOperationTimeout(signal => fetchWorkspaceTree(
+            ownedOperation.rootId,
+            parentPath,
+            { signal },
+          ))
           if (operation.kind === 'rename') {
             const move = reconcileWorkspaceFileRenameFromDirectory(operation, name, tree.items)
             if (move) {
               refreshDirectories(workspaceFileMoveRefreshDirectories(move))
-              onMoveEntries(agentId, [move])
+              onMoveEntries(ownedOperation.rootId, [move])
               onWorkspaceChange?.()
-              clearFileOperation()
-              focusFileTreePath(workspaceFileMoveFocusPath(move))
+              if (clearFileOperationIfCurrent(ownedOperation)) {
+                focusFileTreePath(workspaceFileMoveFocusPath(move))
+              }
               return
             }
           }
@@ -203,10 +314,11 @@ export function useWorkspaceFileOperationController({
             const deleted = reconcileWorkspaceFileDeleteFromDirectory(operation, tree.items)
             if (deleted) {
               refreshDirectories(workspaceFileDeleteRefreshDirectories(deleted))
-              onDeleteEntries(agentId, [deleted])
+              onDeleteEntries(ownedOperation.rootId, [deleted])
               onWorkspaceChange?.()
-              clearFileOperation()
-              focusFileTreePath(workspaceFileDeleteFocusPath(deleted))
+              if (clearFileOperationIfCurrent(ownedOperation)) {
+                focusFileTreePath(workspaceFileDeleteFocusPath(deleted))
+              }
               return
             }
           }
@@ -218,21 +330,36 @@ export function useWorkspaceFileOperationController({
         refreshDirectories(reconcileDirectories)
         onWorkspaceChange?.()
       }
-      setOpenFileError(error instanceof Error ? error.message : 'File operation failed')
+      if (releaseFileOperationForRetry(ownedOperation)) {
+        setOpenFileError(error instanceof Error ? error.message : 'File operation failed')
+      }
     }
   }, [
     agentId,
-    clearFileOperation,
+    clearFileOperationIfCurrent,
     ensureDirectoryLoaded,
-    fileOperation,
     focusFileTreePath,
+    isCurrentFileOperation,
     onDeleteEntries,
     onMoveEntries,
     onOpenFile,
     onWorkspaceChange,
     refreshDirectories,
+    releaseFileOperationForRetry,
     setOpenFileError,
   ])
+
+  useLayoutEffect(() => {
+    const operation = fileOperationRef.current
+    if (operation && operation.rootId !== agentId) {
+      clearFileOperation()
+    }
+  }, [agentId, clearFileOperation])
+
+  useLayoutEffect(() => () => {
+    fileOperationRef.current = null
+    fileOperationActiveRef.current = false
+  }, [])
 
   useEffect(() => {
     if (!fileOperation) return undefined
