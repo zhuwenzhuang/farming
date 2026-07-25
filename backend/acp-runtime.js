@@ -2229,6 +2229,10 @@ class AcpRuntime extends EventEmitter {
     };
   }
 
+  hasBinding(agentId) {
+    return this.bindings.has(agentId);
+  }
+
   requireBinding(agentId) {
     const binding = this.bindings.get(agentId);
     if (!binding) throw new Error('ACP Agent is not registered');

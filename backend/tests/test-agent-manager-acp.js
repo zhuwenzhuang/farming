@@ -302,6 +302,52 @@ async function run() {
     await providerManager.dispose();
   }
 
+  const blockedRecoverySessionKey = 'agent-session:codex:11111111-2222-4333-8444-555555555555';
+  const blockedRecoveryRuntime = new AcpRuntime();
+  const blockedRecoveryManager = new AgentManager(config({
+    getMainPageSessionKeys: () => [blockedRecoverySessionKey],
+    listAgentSessionRecords: () => [{
+      id: 'fsess-blocked-legacy-acp',
+      runtimeAgentId: 'agent-blocked-legacy-acp',
+      agentRuntimeMode: 'acp',
+      providerSessionProvider: 'codex',
+      providerSessionId: '11111111-2222-4333-8444-555555555555',
+      providerSessionKey: blockedRecoverySessionKey,
+      cwd: process.cwd(),
+      status: 'running',
+    }],
+  }), {
+    acpRuntime: blockedRecoveryRuntime,
+    skipExecutablePreflight: true,
+  });
+  try {
+    await blockedRecoveryManager.recoverAcpSessions();
+    const blockedAgent = blockedRecoveryManager.agents.get('agent-blocked-legacy-acp');
+    assert(blockedAgent, 'fail-closed legacy ACP recovery must keep the Agent visible');
+    assert.strictEqual(blockedRecoveryRuntime.hasBinding(blockedAgent.id), false);
+    assert.strictEqual(blockedAgent.runtimeBinding.state, 'error');
+    assert.match(blockedAgent.runtimeBinding.error, /Legacy ACP process exit cannot be proven/);
+    assert.strictEqual(blockedAgent.requiresProcessExitAcknowledgement, true);
+    assert.throws(
+      () => blockedRecoveryManager.getAcpSession(blockedAgent.id),
+      error => (
+        error?.code === 'ACP_RUNTIME_UNAVAILABLE'
+        && /Legacy ACP process exit cannot be proven/.test(error.message)
+      ),
+      'session reads must expose the authoritative recovery error instead of a missing binding detail',
+    );
+    await assert.rejects(
+      blockedRecoveryManager.sendComposerMessage(blockedAgent.id, 'must not reach a missing binding'),
+      error => (
+        error?.code === 'ACP_RUNTIME_UNAVAILABLE'
+        && /Legacy ACP process exit cannot be proven/.test(error.message)
+      ),
+      'composer input must fail with the authoritative recovery error',
+    );
+  } finally {
+    await blockedRecoveryManager.dispose();
+  }
+
   const recoveryRuntime = new AcpRuntime({
     ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: [fixture], version: 'test' }),

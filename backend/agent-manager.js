@@ -4633,6 +4633,7 @@ class AgentManager extends EventEmitter {
     }
 
     if (isAcpAgent(agent)) {
+      this.requireLiveAcpAgent(agentId);
       const result = await this.acpRuntime.prompt(agentId, prompt);
       const runtime = runtimeBindingOf(agent, 'acp');
       runtime.state = 'idle';
@@ -4646,9 +4647,7 @@ class AgentManager extends EventEmitter {
   }
 
   async sendAcpSteerNow(agentId, message) {
-    const agent = this.agents.get(agentId);
-    if (!agent) throw new Error('Agent not found');
-    if (!isAcpAgent(agent)) throw new Error('Agent is not using ACP Chat');
+    const agent = this.requireLiveAcpAgent(agentId);
     const prompt = normalizedComposerPrompt(message);
     const result = await this.acpRuntime.steer(agentId, prompt);
     this.ensurePersistentAgentSession(agent);
@@ -4663,16 +4662,12 @@ class AgentManager extends EventEmitter {
   }
 
   getAcpSession(agentId, options = {}) {
-    const agent = this.agents.get(agentId);
-    if (!agent) throw new Error('Agent not found');
-    if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
+    this.requireLiveAcpAgent(agentId);
     return this.acpRuntime.getSession(agentId, options);
   }
 
   getAcpTranscript(agentId, options = {}) {
-    const agent = this.agents.get(agentId);
-    if (!agent) throw new Error('Agent not found');
-    if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
+    this.requireLiveAcpAgent(agentId);
     const transcript = this.acpRuntime.getTranscriptSession(agentId, options);
     return {
       ...transcript,
@@ -4681,9 +4676,7 @@ class AgentManager extends EventEmitter {
   }
 
   getAcpToolDetail(agentId, toolCallId) {
-    const agent = this.agents.get(agentId);
-    if (!agent) throw new Error('Agent not found');
-    if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
+    this.requireLiveAcpAgent(agentId);
     const entry = this.acpRuntime.getToolEntry(agentId, toolCallId);
     if (!entry) throw new Error('ACP tool call not found');
     const subagentSessionId = String(entry?._meta?.subagent_session_info?.session_id || '');
@@ -4732,9 +4725,7 @@ class AgentManager extends EventEmitter {
   }
 
   getAcpReviewChanges(agentId, toolCallIds) {
-    const agent = this.agents.get(agentId);
-    if (!agent) throw new Error('Agent not found');
-    if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
+    this.requireLiveAcpAgent(agentId);
     if (!Array.isArray(toolCallIds) || toolCallIds.length === 0 || toolCallIds.length > 256) {
       throw new Error('ACP review tool calls are invalid');
     }
@@ -4749,26 +4740,38 @@ class AgentManager extends EventEmitter {
   }
 
   listAcpSessions(agentId, options = {}) {
-    const agent = this.agents.get(agentId);
-    if (!agent) throw new Error('Agent not found');
-    if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
+    this.requireLiveAcpAgent(agentId);
     return this.acpRuntime.listSessions(agentId, options);
   }
 
   respondToAcpPermission(agentId, requestId, optionId, cancelled = false) {
     this.assertAgentOperationAdmission();
-    const agent = this.agents.get(agentId);
-    if (!agent) throw new Error('Agent not found');
-    if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
+    this.requireLiveAcpAgent(agentId);
     return this.acpRuntime.respondPermission(agentId, requestId, optionId, cancelled);
   }
 
   respondToAcpElicitation(agentId, requestId, action, content) {
     this.assertAgentOperationAdmission();
+    this.requireLiveAcpAgent(agentId);
+    return this.acpRuntime.respondElicitation(agentId, requestId, action, content);
+  }
+
+  requireLiveAcpAgent(agentId) {
     const agent = this.agents.get(agentId);
     if (!agent) throw new Error('Agent not found');
     if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
-    return this.acpRuntime.respondElicitation(agentId, requestId, action, content);
+    if (typeof this.acpRuntime.hasBinding === 'function' && !this.acpRuntime.hasBinding(agentId)) {
+      const runtime = runtimeBindingOf(agent, 'acp');
+      const message = runtime?.error || (
+        runtime?.state === 'connecting'
+          ? 'ACP Agent is still connecting'
+          : 'ACP Agent runtime is unavailable'
+      );
+      const error = new Error(message);
+      error.code = 'ACP_RUNTIME_UNAVAILABLE';
+      throw error;
+    }
+    return agent;
   }
 
   authenticateAcpAgent(agentId, methodId) {
