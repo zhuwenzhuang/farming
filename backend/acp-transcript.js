@@ -3,6 +3,10 @@ const { createTwoFilesPatch, diffLines } = require('diff');
 const MAX_RENDERED_DIFF_CHARS = 64 * 1024;
 const MAX_INLINE_TOOL_DETAIL_CHARS = 4 * 1024;
 const MAX_EMBEDDED_RESOURCE_TEXT_CHARS = 4 * 1024;
+const MAX_COLLABORATION_AGENTS = 16;
+const MAX_COLLABORATION_ID_CHARS = 160;
+const MAX_COLLABORATION_PATH_CHARS = 512;
+const MAX_COLLABORATION_MESSAGE_CHARS = 160;
 
 function diffBlocks(content) {
   return (Array.isArray(content) ? content : [])
@@ -232,6 +236,66 @@ function generatedMediaTool(entry) {
     || String(output.savedPath || '').includes('/generated_images/');
 }
 
+function boundedCollaborationString(value, maxChars) {
+  return String(value || '').trim().slice(0, maxChars);
+}
+
+function boundedCollaborationIds(value) {
+  const seen = new Set();
+  return (Array.isArray(value) ? value : []).flatMap(item => {
+    const id = boundedCollaborationString(item, MAX_COLLABORATION_ID_CHARS);
+    if (!id || seen.has(id) || seen.size >= MAX_COLLABORATION_AGENTS) return [];
+    seen.add(id);
+    return [id];
+  });
+}
+
+function transcriptCodexToolMeta(entry) {
+  const codex = entry?._meta?.codex && typeof entry._meta.codex === 'object'
+    ? entry._meta.codex
+    : {};
+  const compact = {};
+  if (codex.collaboration && typeof codex.collaboration === 'object') {
+    const rawInput = entry?.rawInput && typeof entry.rawInput === 'object' && !Array.isArray(entry.rawInput)
+      ? entry.rawInput
+      : {};
+    const receiverThreadIds = boundedCollaborationIds(
+      codex.collaboration.receiverThreadIds || rawInput.receiverThreadIds
+    );
+    const rawStates = rawInput.agentsStates && typeof rawInput.agentsStates === 'object' && !Array.isArray(rawInput.agentsStates)
+      ? rawInput.agentsStates
+      : {};
+    const agentsStates = {};
+    const stateIds = boundedCollaborationIds([...receiverThreadIds, ...Object.keys(rawStates)]);
+    for (const threadId of stateIds) {
+      const state = rawStates[threadId] && typeof rawStates[threadId] === 'object'
+        ? rawStates[threadId]
+        : {};
+      agentsStates[threadId] = {
+        status: boundedCollaborationString(state.status, 32),
+        message: boundedCollaborationString(state.message, MAX_COLLABORATION_MESSAGE_CHARS),
+      };
+    }
+    compact.collaboration = {
+      tool: boundedCollaborationString(codex.collaboration.tool, 48),
+      senderThreadId: boundedCollaborationString(
+        codex.collaboration.senderThreadId || rawInput.senderThreadId,
+        MAX_COLLABORATION_ID_CHARS
+      ),
+      receiverThreadIds,
+      agentsStates,
+    };
+  }
+  if (codex.subagent && typeof codex.subagent === 'object') {
+    compact.subagent = {
+      threadId: boundedCollaborationString(codex.subagent.threadId, MAX_COLLABORATION_ID_CHARS),
+      path: boundedCollaborationString(codex.subagent.path, MAX_COLLABORATION_PATH_CHARS),
+      activity: boundedCollaborationString(codex.subagent.activity, 32),
+    };
+  }
+  return Object.keys(compact).length > 0 ? compact : null;
+}
+
 function acpTranscriptToolEntry(entry) {
   if (!entry || entry.type !== 'tool') return entry;
   const detail = detailForTool(entry);
@@ -254,6 +318,8 @@ function acpTranscriptToolEntry(entry) {
   if (entry?._meta?.farming_patch_decisions) {
     meta.farming_patch_decisions = JSON.parse(JSON.stringify(entry._meta.farming_patch_decisions));
   }
+  const codexMeta = transcriptCodexToolMeta(entry);
+  if (codexMeta) meta.codex = codexMeta;
   return {
     id: String(entry.id || ''),
     type: 'tool',

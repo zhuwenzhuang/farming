@@ -18,7 +18,7 @@ import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
-import { ArrowDownGlyph, CheckGlyph, ChevronRightGlyph, CloseGlyph, CopyGlyph, ForkGlyph } from '@/components/IconGlyphs'
+import { AgentGroupGlyph, ArrowDownGlyph, CheckGlyph, ChevronRightGlyph, CloseGlyph, CopyGlyph, ForkGlyph } from '@/components/IconGlyphs'
 import { MermaidBlock } from '@/components/files/FileEditorMarkdownPreview'
 import { appPath } from '@/lib/base-path'
 import { iconForFilePath } from '@/lib/file-icons'
@@ -35,6 +35,7 @@ import { loadAcpReviewPreview } from '@/lib/review/api'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from './copy'
 import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivityLabel, acpPlanProgress, type AcpActivityKind } from './acp/acp-activity-label'
+import { acpCollaborationEvents, type AcpCollaborationEvent } from './acp/acp-collaboration'
 import { AcpEmbeddedTerminal } from './acp/AcpEmbeddedTerminal'
 import {
   projectAcpTranscript,
@@ -1092,7 +1093,7 @@ function compactProcessEntries(entries: ProcessEntry[], turnStatus: AgentTranscr
   const eligible = turnStatus === 'inProgress'
     ? entries.flatMap(entry => (
         entry.kind === 'group'
-          ? entry.items.filter(item => !isProcessItemFailed(item))
+          ? entry.items.filter(item => !isProcessItemFailed(item) && !item.collaboration)
           : []
       ))
     : []
@@ -1356,6 +1357,40 @@ function AgentTranscriptSteerItem({ item }: { item: AgentTranscriptProcessItem }
         <AgentTranscriptUserFiles files={files} />
         <AgentTranscriptTerminals terminals={terminals} />
       </div>
+    </div>
+  )
+}
+
+function AgentTranscriptCollaborationTimeline({
+  events,
+  onOpen,
+}: {
+  events: AcpCollaborationEvent[]
+  onOpen: (processItemId: string) => void
+}) {
+  if (events.length === 0) return null
+  return (
+    <div className="code-agent-transcript-collaboration" data-testid="code-agent-transcript-collaboration">
+      {events.map(event => (
+        <button
+          type="button"
+          className="code-agent-transcript-collaboration-event"
+          data-testid="code-agent-transcript-collaboration-event"
+          data-process-item-id={event.processItemId}
+          key={event.id}
+          title={`Open ${event.name} collaboration details`}
+          onClick={clickEvent => {
+            clickEvent.stopPropagation()
+            onOpen(event.processItemId)
+          }}
+        >
+          <span className={`code-agent-transcript-collaboration-agent tone-${event.tone}`}>
+            <AgentGroupGlyph />
+            <span>{event.name}</span>
+          </span>
+          <span className={`code-agent-transcript-collaboration-action ${event.action}`}>{event.action}</span>
+        </button>
+      ))}
     </div>
   )
 }
@@ -1880,6 +1915,7 @@ function AgentTranscriptTurnView({
   onStopSubagent?: (sessionId: string) => Promise<void>
   onFork?: () => Promise<void> | void
 }) {
+  const turnRef = useRef<HTMLElement | null>(null)
   const [loadedProcessDetails, setLoadedProcessDetails] = useState<Record<string, AgentTranscriptProcessPresentation>>({})
   const loadingProcessDetailsRef = useRef<Set<string>>(new Set())
   const resolvedProcessItems = useMemo(() => turn.processItems.map(item => (
@@ -1924,6 +1960,10 @@ function AgentTranscriptTurnView({
     () => compactProcessEntries(processEntries, turn.status),
     [processEntries, turn.status],
   )
+  const collaborationEvents = useMemo(
+    () => acpCollaborationEvents(resolvedProcessItems),
+    [resolvedProcessItems],
+  )
   const latestLiveThoughtId = useMemo(() => {
     if (turn.status !== 'inProgress') return ''
     return [...resolvedProcessItems]
@@ -1943,6 +1983,7 @@ function AgentTranscriptTurnView({
   const shouldShowWaiting = turn.status === 'inProgress'
     && !answerMessage
     && compactProcess.items.length === 0
+    && collaborationEvents.length === 0
     && (
     Boolean(turn.userMessage) || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 || hasProcess
     )
@@ -2149,6 +2190,22 @@ function AgentTranscriptTurnView({
       return next
     })
   }, [latestLiveThoughtId, loadFullProcessDetail, openProcessItemIds, resolvedProcessItems])
+  const handleOpenCollaborationItem = useCallback((itemId: string) => {
+    if (!processOpen) onToggleProcess(turn.id)
+    manuallyToggledProcessItemIdsRef.current.add(itemId)
+    const item = resolvedProcessItems.find(candidate => candidate.id === itemId)
+    if (item?.detailTruncated || item?.terminalIds?.length || item?.subagentSessionId) {
+      void loadFullProcessDetail(item).catch(() => {})
+    }
+    setOpenProcessItemIds(current => new Set([...current, itemId]))
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      const target = Array.from(
+        turnRef.current?.querySelectorAll<HTMLElement>('[data-testid="code-agent-transcript-process-item"]') || [],
+      ).find(element => element.dataset.processItemId === itemId)
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      target?.querySelector<HTMLElement>('[data-testid="code-agent-transcript-process-item-toggle"]')?.focus({ preventScroll: true })
+    }))
+  }, [loadFullProcessDetail, onToggleProcess, processOpen, resolvedProcessItems, turn.id])
   const handleStopTerminal = useCallback(async (itemId: string, terminalId: string) => {
     if (!onStopTerminal) return
     await onStopTerminal(terminalId)
@@ -2236,7 +2293,7 @@ function AgentTranscriptTurnView({
   }), [copy, onOpenFile, workspaceRoot])
 
   return (
-    <article className={`code-agent-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''}`} data-turn-id={turn.id}>
+    <article ref={turnRef} className={`code-agent-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''}`} data-turn-id={turn.id}>
       {turn.userMessage || userImages.length > 0 || userAudios.length > 0 || userFiles.length > 0 ? (
         <div className="code-agent-transcript-user">
           {turn.userMessage ? <div>{plainTextBlock(turn.userMessage)}</div> : null}
@@ -2388,6 +2445,10 @@ function AgentTranscriptTurnView({
               })}
             </div>
           ) : null}
+          <AgentTranscriptCollaborationTimeline
+            events={collaborationEvents}
+            onOpen={handleOpenCollaborationItem}
+          />
         </div>
       ) : null}
 

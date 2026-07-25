@@ -141,6 +141,17 @@ export function ChatBubblesGlyph(props: IconGlyphProps) {
   )
 }
 
+export function AgentGroupGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...props}>
+      <circle cx="4.25" cy="4.25" r="1.75" />
+      <circle cx="11.75" cy="4.25" r="1.75" />
+      <circle cx="8" cy="11.75" r="1.75" />
+      <path d="M5.75 5.15 7.2 7.85M10.25 5.15 8.8 7.85M6 11.75H4.75A2.75 2.75 0 0 1 2 9V7.75M10 11.75h1.25A2.75 2.75 0 0 0 14 9V7.75" />
+    </svg>
+  )
+}
+
 export function ColorModeGlyph(props: IconGlyphProps) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>

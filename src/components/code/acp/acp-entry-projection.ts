@@ -74,6 +74,23 @@ export interface AgentTranscriptProcessItem {
   terminals?: AgentTranscriptTerminal[]
   subagentSessionId?: string
   subagentTranscript?: AgentTranscript
+  collaboration?: AgentTranscriptCollaboration
+}
+
+export interface AgentTranscriptCollaborationState {
+  status: string
+  message?: string
+}
+
+export interface AgentTranscriptCollaboration {
+  kind: 'tool' | 'activity'
+  tool?: string
+  senderThreadId?: string
+  receiverThreadIds?: string[]
+  agentsStates?: Record<string, AgentTranscriptCollaborationState>
+  threadId?: string
+  agentPath?: string
+  activity?: string
 }
 
 export interface AgentTranscriptTurn {
@@ -403,6 +420,41 @@ function errorTitle(kind: string) {
   return 'Agent error'
 }
 
+function codexCollaboration(entry: AcpRecord): AgentTranscriptCollaboration | undefined {
+  const codex = record(record(entry._meta).codex)
+  const collaboration = record(codex.collaboration)
+  if (Object.keys(collaboration).length > 0) {
+    const states = Object.entries(record(collaboration.agentsStates)).reduce<Record<string, AgentTranscriptCollaborationState>>(
+      (result, [threadId, value]) => {
+        const state = record(value)
+        result[threadId] = {
+          status: stringValue(state.status),
+          ...(stringValue(state.message) ? { message: stringValue(state.message) } : {}),
+        }
+        return result
+      },
+      {},
+    )
+    return {
+      kind: 'tool',
+      tool: stringValue(collaboration.tool),
+      senderThreadId: stringValue(collaboration.senderThreadId),
+      receiverThreadIds: list(collaboration.receiverThreadIds).map(stringValue).filter(Boolean),
+      agentsStates: states,
+    }
+  }
+  const subagent = record(codex.subagent)
+  if (Object.keys(subagent).length > 0) {
+    return {
+      kind: 'activity',
+      threadId: stringValue(subagent.threadId),
+      agentPath: stringValue(subagent.path),
+      activity: stringValue(subagent.activity),
+    }
+  }
+  return undefined
+}
+
 function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
   if (entry.type === 'error') {
     const kind = stringValue(entry.kind) || 'unknown'
@@ -414,6 +466,7 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
   }
   if (entry.type === 'tool') {
     const subagent = record(record(entry._meta).subagent_session_info)
+    const collaboration = codexCollaboration(entry)
     const terminalIds = list(entry.content).map(record)
       .filter(block => block.type === 'terminal' && block.terminalId)
       .map(block => stringValue(block.terminalId))
@@ -442,7 +495,7 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
     const subagentSessionId = stringValue(subagent.session_id)
     return {
       id: stringValue(entry.id),
-      type: subagentSessionId ? 'subagent' : patchSummary ? 'patch' : 'tool',
+      type: subagentSessionId ? 'subagent' : patchSummary ? 'patch' : collaboration ? 'collaboration' : 'tool',
       kind: stringValue(entry.kind) || 'other',
       title: stringValue(entry.title) || 'Tool',
       detail: [subagentSessionId ? `Session ${subagentSessionId}` : '', inline.detail].filter(Boolean).join('\n\n'),
@@ -450,6 +503,7 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
       status: stringValue(entry.status),
       ...(terminalIds.length > 0 ? { terminalIds } : {}),
       ...(subagentSessionId ? { subagentSessionId } : {}),
+      ...(collaboration ? { collaboration } : {}),
       ...(images.length > 0 ? { images } : {}),
       ...(audios.length > 0 ? { audios } : {}),
       ...(files.length > 0 ? { files } : {}),

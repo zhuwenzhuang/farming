@@ -122,6 +122,65 @@ test.describe('ACP human-like browser matrix', () => {
     expect(metrics.inlineCodeFontSize).toBeLessThan(14)
   })
 
+  test('shows Codex collaboration events and opens their exact Process evidence', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-codex-collaboration')
+    fs.mkdirSync(workspace, { recursive: true })
+
+    const agentId = await createAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    await sendAcpMessage(page, 'codex collaboration')
+
+    const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'Codex collaboration example complete.' })
+    await expect(turn).toBeVisible({ timeout: 15_000 })
+    const timeline = turn.getByTestId('code-agent-transcript-collaboration')
+    const events = timeline.getByTestId('code-agent-transcript-collaboration-event')
+    await expect(events).toHaveCount(4)
+    await expect(events.nth(0)).toContainText('Review refresh')
+    await expect(events.nth(0)).toContainText('updated')
+    await expect(events.nth(1)).toContainText('Browser guards')
+    await expect(events.nth(2)).toContainText('finished')
+    await expect(events.nth(3)).toContainText('Crt races')
+    await expect(events.nth(0).locator('svg')).toBeVisible()
+    await expect(turn.getByTestId('code-agent-transcript-process-summary')).toHaveAttribute('aria-expanded', 'false')
+
+    await page.evaluate(() => { document.body.dataset.appearance = 'light' })
+    const lightVisuals = await events.nth(0).evaluate(element => {
+      const pill = element.querySelector<HTMLElement>('.code-agent-transcript-collaboration-agent')
+      const icon = pill?.querySelector<SVGElement>('svg')
+      if (!pill || !icon) throw new Error('Collaboration visuals are incomplete')
+      return {
+        rowColor: getComputedStyle(element).color,
+        pillBackground: getComputedStyle(pill).backgroundColor,
+        pillBorder: getComputedStyle(pill).borderColor,
+        iconColor: getComputedStyle(icon).color,
+      }
+    })
+    await page.evaluate(() => { document.body.dataset.appearance = 'dark' })
+    const darkVisuals = await events.nth(0).evaluate(element => {
+      const pill = element.querySelector<HTMLElement>('.code-agent-transcript-collaboration-agent')
+      const icon = pill?.querySelector<SVGElement>('svg')
+      if (!pill || !icon) throw new Error('Collaboration visuals are incomplete')
+      return {
+        rowColor: getComputedStyle(element).color,
+        pillBackground: getComputedStyle(pill).backgroundColor,
+        pillBorder: getComputedStyle(pill).borderColor,
+        iconColor: getComputedStyle(icon).color,
+      }
+    })
+    expect(darkVisuals.rowColor).not.toBe(lightVisuals.rowColor)
+    expect(darkVisuals.pillBackground).not.toBe(lightVisuals.pillBackground)
+    expect(darkVisuals.pillBorder).not.toBe(lightVisuals.pillBorder)
+    expect(darkVisuals.iconColor).toBe(lightVisuals.iconColor)
+
+    await events.nth(2).click()
+    await expect(turn.getByTestId('code-agent-transcript-process-summary')).toHaveAttribute('aria-expanded', 'true')
+    const detail = turn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Wait for Browser guards' })
+    await expect(detail.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'true')
+    await expect(detail.getByTestId('code-agent-transcript-process-item-toggle')).toBeFocused()
+    await expect(detail).toContainText('Browser guard verification passed.')
+  })
+
   test('aligns every Chat turn to one shared content column', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-turn-alignment')
     fs.mkdirSync(workspace, { recursive: true })

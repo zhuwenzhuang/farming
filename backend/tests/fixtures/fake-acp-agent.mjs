@@ -1,5 +1,6 @@
 import { Readable, Writable } from 'node:stream';
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -27,8 +28,19 @@ if (process.argv.includes('--fake-terminal-login')) {
 }
 
 let client;
+function deterministicE2eSessionId(agentId) {
+  const hex = crypto.createHash('sha256').update(String(agentId || 'missing-agent-id')).digest('hex');
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    `7${hex.slice(13, 16)}`,
+    `8${hex.slice(17, 20)}`,
+    hex.slice(20, 32),
+  ].join('-');
+}
+
 const initialSessionId = process.env.FARMING_E2E_FAKE_EXECUTABLES === '1'
-  ? '019f0000-0000-7000-8000-000000000001'
+  ? deterministicE2eSessionId(process.env.FARMING_AGENT_ID)
   : 'acp-new-session';
 let sessionId = initialSessionId;
 let refreshedModelId = '';
@@ -372,6 +384,62 @@ class FakeAgent {
           sessionUpdate: 'agent_message_chunk',
           messageId: 'image-attachment-answer',
           content: { type: 'text', text: `Received ${imageCount} image.` },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
+    if (promptText.includes('codex collaboration')) {
+      const activity = async (id, threadId, agentPath) => client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: id,
+          title: `Interact with subagent ${agentPath}`,
+          kind: 'other',
+          status: 'completed',
+          rawInput: { agentThreadId: threadId, agentPath, activityKind: 'interacted' },
+          _meta: {
+            codex: {
+              subagent: { threadId, path: agentPath, activity: 'interacted' },
+            },
+          },
+        },
+      });
+      await activity('collab-review-updated', 'thread-review-refresh', 'Review refresh');
+      await activity('collab-browser-updated', 'thread-browser-guards', 'Browser guards');
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'collab-browser-finished',
+          title: 'Wait for Browser guards',
+          kind: 'other',
+          status: 'completed',
+          rawInput: {
+            senderThreadId: params.sessionId,
+            receiverThreadIds: ['thread-browser-guards'],
+            agentsStates: {
+              'thread-browser-guards': { status: 'completed', message: 'Browser guard verification passed.' },
+            },
+          },
+          _meta: {
+            codex: {
+              collaboration: {
+                tool: 'wait',
+                senderThreadId: params.sessionId,
+                receiverThreadIds: ['thread-browser-guards'],
+              },
+            },
+          },
+        },
+      });
+      await activity('collab-crt-updated', 'thread-crt-races', 'Crt races');
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'codex-collaboration-answer',
+          content: { type: 'text', text: 'Codex collaboration example complete.' },
         },
       });
       return { stopReason: 'end_turn' };

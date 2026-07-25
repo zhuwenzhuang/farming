@@ -1629,6 +1629,26 @@ body.code-mode[data-appearance='dark'] .code-agent-transcript-process {
   color: var(--code-dark-text-muted);
 }
 
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-event {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-event:hover,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-event:focus-visible {
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-agent {
+  border-color: var(--code-dark-border);
+  background: rgba(139, 148, 158, 0.1);
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.failed,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-collaboration-action.interrupted {
+  color: #ff7b72;
+}
+
 body.code-mode[data-appearance='dark'] .code-acp-progress-update {
   color: var(--code-dark-text);
 }
