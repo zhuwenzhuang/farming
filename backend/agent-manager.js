@@ -33,6 +33,7 @@ const {
   applyProviderHomeEnvironment,
   getProviderAdapter,
   isFreshAcpSessionSource,
+  providerAcpForkMode,
   providerCapabilities,
   providerForProgram,
   providerSupportsRuntime,
@@ -4211,6 +4212,38 @@ class AgentManager extends EventEmitter {
           serviceTier: codexServiceTier,
           additionalDirectories,
           mcpServers,
+          forkSourceSessionId: options.acpForkSourceSessionId || '',
+          forkSourceCheckpoint: options.acpForkSourceCheckpoint || null,
+          onForkSessionCreated: async sessionId => {
+            const exactSessionId = String(sessionId || '').trim();
+            if (!isSafeProviderSessionId(exactSessionId)) {
+              throw new Error('ACP fork startup returned an unsafe provider session id');
+            }
+            agentRecord.providerSessionId = exactSessionId;
+            agentRecord.providerSessionKey = mainPageAgentSessionKey(
+              structuredRuntimeProvider,
+              exactSessionId,
+              agentRecord.providerHomeId || 'default'
+            );
+            agentRecord.providerSessionTemporary = false;
+            agentRecord.providerSessionSource = 'acp-fork';
+            agentRecord.providerSessionResolvedAt = Date.now();
+            let normalizedSessionOptions = { additionalDirectories, mcpServers };
+            try {
+              normalizedSessionOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+            } catch {
+              // The live binding already validated the scope. Retain the caller
+              // copy only for custom runtimes that do not expose it.
+            }
+            this.acpSessionOptionsByKey.set(agentRecord.providerSessionKey, {
+              additionalDirectories: [...normalizedSessionOptions.additionalDirectories],
+              mcpServers: JSON.parse(JSON.stringify(normalizedSessionOptions.mcpServers)),
+            });
+            if (typeof options.onAcpForkSessionCreated === 'function') {
+              await options.onAcpForkSessionCreated(exactSessionId);
+            }
+            this.ensurePersistentAgentSession(agentRecord);
+          },
           onProcessStarted: async processIdentity => {
             agentRecord.structuredRuntimeProcess = {
               kind: 'acp-process-group',
@@ -4219,6 +4252,9 @@ class AgentManager extends EventEmitter {
             this.ensurePersistentAgentSession(agentRecord);
           },
         });
+        if (typeof options.onAcpSessionPrepared === 'function') {
+          await options.onAcpSessionPrepared(prepared);
+        }
         structuredRuntimeRegistered = true;
         agentRecord.providerSessionId = prepared.sessionId;
         agentRecord.providerSessionKey = mainPageAgentSessionKey(
@@ -6245,6 +6281,18 @@ class AgentManager extends EventEmitter {
       return { error: error.message || 'Failed to read ACP session options' };
     }
 
+    if (providerAcpForkMode(provider) === 'target-process') {
+      return this.performTargetProcessAcpConversationFork({
+        agent,
+        provider,
+        sourceSessionId,
+        workspace,
+        expectedRevision,
+        lifecycleToken,
+        acpSessionOptions,
+      });
+    }
+
     let forkedSessionId = '';
     try {
       const forked = await this.acpRuntime.forkSession(agentId, {
@@ -6338,6 +6386,106 @@ class AgentManager extends EventEmitter {
         void finish(null, startError?.message || 'Failed to start forked ACP Chat Agent');
       }
     });
+  }
+
+  async performTargetProcessAcpConversationFork(options) {
+    const {
+      agent,
+      provider,
+      sourceSessionId,
+      workspace,
+      expectedRevision,
+      lifecycleToken,
+      acpSessionOptions,
+    } = options;
+    const command = getProviderAdapter(provider)?.executable || provider;
+    let preparedSessionId = '';
+    let result;
+    try {
+      result = await this.acpRuntime.runWithForkReservation(
+        agent.id,
+        { expectedRevision, requireLoad: true },
+        sourceBinding => {
+          const forkSourceCheckpoint = sourceBinding.sessionState?.exportCheckpoint();
+          if (!forkSourceCheckpoint) {
+            throw new Error('ACP fork source transcript is unavailable');
+          }
+          return new Promise(resolve => {
+            let settled = false;
+            const finish = (forkedAgentId, error) => {
+              if (settled) return;
+              settled = true;
+              if (error || !forkedAgentId) {
+                resolve({
+                  error: error || 'Failed to start forked ACP Chat Agent',
+                  ...(forkedAgentId ? { retainedAgentId: forkedAgentId } : {}),
+                });
+                return;
+              }
+              const forkedAgent = this.agents.get(forkedAgentId);
+              const forkedSessionId = String(forkedAgent?.providerSessionId || preparedSessionId).trim();
+              resolve({
+                agentId: forkedAgentId,
+                workspace,
+                mode: 'same-worktree',
+                targetRuntime: 'chat',
+                providerSessionId: forkedSessionId,
+              });
+            };
+
+            try {
+              const started = this.startAgent(command, workspace, finish, {
+                wantsMain: false,
+                parentAgentId: agent.id,
+                task: agent.task ? `Fork: ${agent.task}` : `Fork of ${agent.command}`,
+                workflowTemplate: agent.workflowTemplate || '',
+                source: 'ui-fork-acp-chat',
+                providerHomeId: agent.providerHomeId || 'default',
+                providerHomePath: agent.providerHomePath || '',
+                providerSessionTitle: agent.providerSessionTitle || '',
+                projectWorkspace: workspace,
+                agentRuntimeMode: 'chat',
+                acpForkSourceSessionId: sourceSessionId,
+                acpForkSourceCheckpoint: forkSourceCheckpoint,
+                forkedFromProviderSessionId: sourceSessionId,
+                lifecycleToken,
+                ...acpSessionOptions,
+                onAcpForkSessionCreated: sessionId => {
+                  preparedSessionId = String(sessionId || '').trim();
+                },
+                onAcpSessionPrepared: prepared => {
+                  preparedSessionId = String(prepared?.sessionId || '').trim();
+                },
+                ...(provider === 'claude'
+                  ? { claudePermissionMode: agent.launchPermissionMode || undefined }
+                  : {}),
+              });
+              Promise.resolve(started).then(startedAgentId => {
+                if (!startedAgentId) void finish(null, 'Failed to start forked ACP Chat Agent');
+              }).catch(startError => {
+                void finish(null, startError?.message || 'Failed to start forked ACP Chat Agent');
+              });
+            } catch (startError) {
+              void finish(null, startError?.message || 'Failed to start forked ACP Chat Agent');
+            }
+          });
+        },
+      );
+    } catch (error) {
+      return { error: error.message || 'Failed to fork ACP conversation' };
+    }
+    if (
+      result?.error
+      && !result.retainedAgentId
+      && isSafeProviderSessionId(preparedSessionId)
+    ) {
+      try {
+        await this.acpRuntime.deleteSession(agent.id, preparedSessionId);
+      } catch (cleanupError) {
+        result.error = `${result.error}; forked session cleanup failed: ${cleanupError.message || cleanupError}`;
+      }
+    }
+    return result;
   }
 
   async ensureCodexSessionAvailableForFork(agent, resumedSession, sourceWorkspace) {

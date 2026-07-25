@@ -102,6 +102,7 @@
 - **E2E 命名**：`*.spec.ts`
 - **测试覆盖**：每个核心功能至少有一个测试用例
 - **Codex ACP patch 能力**：锁定版本的 patch 必须同时声明审阅过的 `_codex/session/steer` 扩展，以及由 Codex `thread/fork` 支撑的标准 `session/fork`；任一协商能力消失时发行 Smoke 必须失败
+- **ACP 子进程持有的 Fork**：当 provider 的 Fork Session 在子会话第一次 Prompt 前只存在于创建它的 adapter 进程时，必须让新的子 Agent 在自己的隔离 adapter 中加载经过 revision fence 的源 Session、执行 Fork、关闭该进程临时加载的源 Session，并继续承载精确的子 Session 身份。启动时还必须私下传递经过 fence 的精确源 reducer checkpoint，并在 Fork 成功后以返回的子 Session 身份安装它，避免 provider replay 延迟把用户点击时的 transcript revision 替换掉。第一次 Prompt 前若进程丢失，必须显式失败而不能静默重新 Fork；启动回滚也必须先证明子进程已经停止，才能删除精确 Fork 身份
 - **按状态转换派生测试**：不能只验证 happy path 的最终结果；应覆盖合法转换、危险的非法事件序列、安全性不变量，以及暂态的有界推进和恢复，并按风险纳入并发、乱序、重试、取消、断连和重启
 - **测试是证据而非全部证明**：测试、日志、代码检查和浏览器观察都只对声明的场景与 revision 提供证据，绿色测试套件不能单独替代安全性与活性推理
 - **视觉回归**：关键桌面/移动端展示状态应维护 Playwright 截图基线；只有 UI 展示确实变化时才运行 `npm run test:e2e:playwright:update`

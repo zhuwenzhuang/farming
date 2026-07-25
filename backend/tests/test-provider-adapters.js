@@ -3,6 +3,7 @@ const {
   getProviderAdapter,
   isFreshAcpSessionSource,
   listProviderAdapters,
+  providerAcpForkMode,
   providerCapabilities,
   providerForProgram,
   providerSupportsRuntime,
@@ -318,6 +319,8 @@ function run() {
   );
   assert.strictEqual(providerSupportsRuntime('opencode', 'json'), true);
   assert.strictEqual(providerSupportsRuntime('claude', 'json'), false);
+  assert.strictEqual(providerAcpForkMode('claude'), 'target-process');
+  assert.strictEqual(providerAcpForkMode('codex'), 'source-then-load');
   assert.strictEqual(isFreshAcpSessionSource('qoder', 'qoder-session-id'), true);
   assert.deepStrictEqual(
     getProviderAdapter('qoder').acp.launch({ executable: '/bin/qodercli' }),

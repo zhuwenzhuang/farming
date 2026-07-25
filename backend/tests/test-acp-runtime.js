@@ -471,6 +471,77 @@ async function run() {
     const prepared = await preparing;
     assert.strictEqual(prepared.sessionId, 'acp-new-session');
     assert.strictEqual(prepared.historyMode, 'new');
+    const spawnedAdapterCountBeforeMissingForkCheckpoint = spawnedAdapters.length;
+    await assert.rejects(
+      runtime.prepareAgent({
+        agentId: 'agent-acp-owned-fork-without-checkpoint',
+        provider: 'claude',
+        cwd: process.cwd(),
+        env: process.env,
+        approvalMode: 'full',
+        forkSourceSessionId: 'existing-session',
+      }),
+      /requires an exact source checkpoint/,
+      'an owned fork must fail closed when the fenced source transcript is unavailable',
+    );
+    assert.strictEqual(
+      spawnedAdapters.length,
+      spawnedAdapterCountBeforeMissingForkCheckpoint,
+      'an invalid owned fork must be rejected before spawning an adapter process',
+    );
+    const exactForkSource = new AcpSessionState({
+      provider: 'claude',
+      sessionId: 'existing-session',
+      cwd: process.cwd(),
+    });
+    exactForkSource.beginPrompt('exact fork source question');
+    exactForkSource.apply({
+      sessionId: 'existing-session',
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'exact-fork-answer',
+        content: { type: 'text', text: 'exact fork source answer' },
+      },
+    });
+    exactForkSource.completePrompt();
+    let announcedOwnedForkSessionId = '';
+    const ownedFork = await runtime.prepareAgent({
+      agentId: 'agent-acp-owned-fork',
+      provider: 'claude',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'full',
+      forkSourceSessionId: 'existing-session',
+      forkSourceCheckpoint: exactForkSource.exportCheckpoint(),
+      onForkSessionCreated: sessionId => {
+        announcedOwnedForkSessionId = sessionId;
+      },
+    });
+    assert.strictEqual(ownedFork.sessionId, 'acp-fork-session');
+    assert.strictEqual(announcedOwnedForkSessionId, 'acp-fork-session');
+    assert.strictEqual(ownedFork.historyMode, 'fork');
+    const ownedForkSession = runtime.getSession('agent-acp-owned-fork');
+    const ownedForkBinding = runtime.bindings.get('agent-acp-owned-fork');
+    assert.strictEqual(ownedForkSession.sessionId, 'acp-fork-session');
+    assert.strictEqual(ownedForkBinding.restartOptions.forkSourceSessionId, undefined);
+    assert.strictEqual(ownedForkBinding.restartOptions.forkSourceCheckpoint, undefined);
+    assert.strictEqual(ownedForkBinding.restartOptions.onForkSessionCreated, undefined);
+    assert(
+      ownedForkSession.entries.some(entry => (
+        entry.role === 'assistant'
+        && entry.content?.some(content => content.text === 'exact fork source answer')
+      )),
+      'an owned fork must expose the exact revision-fenced source transcript',
+    );
+    assert.strictEqual(
+      ownedForkSession.entries.some(entry => (
+        entry.content?.some(content => content.text === 'historical answer')
+      )),
+      false,
+      'provider replay lag must not replace the exact fork source transcript',
+    );
+    const ownedForkPrompt = await runtime.prompt('agent-acp-owned-fork', 'continue owned fork');
+    assert.strictEqual(ownedForkPrompt.sessionId, 'acp-fork-session');
     const bindingCountBeforeIdentity = runtime.bindings.size;
     const identity = await runtime.createSessionIdentity({
       provider: 'opencode',

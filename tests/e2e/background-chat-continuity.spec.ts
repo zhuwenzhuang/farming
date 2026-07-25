@@ -525,8 +525,8 @@ test('forks the latest ACP answer into a new Chat Agent in the same workspace', 
   )
   await expect(forkedPane).toBeVisible()
   await expect(forkedPane.getByTestId('code-agent-chat-view')).toBeVisible()
-  await expect(forkedPane.getByText('historical question', { exact: true })).toBeVisible()
-  await expect(forkedPane.getByText('historical answer', { exact: true })).toBeVisible()
+  await expect(forkedPane.getByText('phase-aware mermaid fork this conversation', { exact: true })).toBeVisible()
+  await expect(forkedPane.getByText('Phase-aware rich answer.', { exact: false })).toBeVisible()
 })
 
 test('keeps a human reader stationary while an ACP answer streams below', async ({ page, workspaceRoot }) => {

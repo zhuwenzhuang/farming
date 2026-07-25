@@ -233,7 +233,11 @@ const PROVIDER_ADAPTERS = Object.freeze([
     commands: ['claude'],
     supportedRuntimes: ['terminal', 'acp'],
     planSession: (rawArgs, launchArgs) => explicitSessionPlan('claude', rawArgs, launchArgs),
-    acp: { packageName: '@agentclientprotocol/claude-agent-acp', version: '0.59.0' },
+    acp: {
+      packageName: '@agentclientprotocol/claude-agent-acp',
+      version: '0.59.0',
+      forkMode: 'target-process',
+    },
     capabilities: { runtimeSwitch: true, terminalProfile: false, goals: false, sessionFork: true },
   },
   {
@@ -320,6 +324,10 @@ function providerSupportsRuntime(provider, runtime) {
   return getProviderAdapter(provider)?.supportedRuntimes.includes(runtime) === true;
 }
 
+function providerAcpForkMode(provider) {
+  return getProviderAdapter(provider)?.acp?.forkMode || 'source-then-load';
+}
+
 function applyProviderHomeEnvironment(env, provider, homePath) {
   const key = getProviderAdapter(provider)?.homeEnvKey;
   if (key && homePath) env[key] = homePath;
@@ -335,6 +343,7 @@ module.exports = {
   applyProviderHomeEnvironment,
   isFreshAcpSessionSource,
   listProviderAdapters,
+  providerAcpForkMode,
   providerCapabilities,
   providerForProgram,
   providerSupportsRuntime,

@@ -499,6 +499,42 @@ class AcpRuntime extends EventEmitter {
     const provider = String(options.provider || '').trim().toLowerCase();
     const launch = this.resolveLaunch(provider, options);
     const cwd = path.resolve(options.cwd || process.cwd());
+    const requestedSessionId = String(options.sessionId || '').trim();
+    const forkSourceSessionId = String(options.forkSourceSessionId || '').trim();
+    const forkSourceCheckpoint = options.forkSourceCheckpoint || null;
+    const revisionBase = Number.isFinite(Number(options.revisionBase))
+      ? Math.max(0, Math.floor(Number(options.revisionBase)))
+      : 0;
+    let forkSourceCheckpointState = null;
+    if (forkSourceSessionId) {
+      if (requestedSessionId) {
+        throw new Error('ACP fork startup cannot also load a target session');
+      }
+      if (!isSafeProviderSessionId(forkSourceSessionId)) {
+        throw new Error('ACP fork startup requires a safe exact source session id');
+      }
+      if (!forkSourceCheckpoint) {
+        throw new Error('ACP fork startup requires an exact source checkpoint');
+      }
+      const checkpointCwd = String(forkSourceCheckpoint.cwd || '').trim();
+      if (
+        String(forkSourceCheckpoint.provider || '') !== provider
+        || String(forkSourceCheckpoint.sessionId || '') !== forkSourceSessionId
+        || !checkpointCwd
+        || path.resolve(checkpointCwd) !== cwd
+      ) {
+        throw new Error('ACP fork source checkpoint does not match the requested source');
+      }
+      forkSourceCheckpointState = AcpSessionState.fromCheckpoint(forkSourceCheckpoint, {
+        provider,
+        sessionId: forkSourceSessionId,
+        cwd,
+        maxUpdates: this.maxUpdates,
+      });
+      if (!forkSourceCheckpointState) {
+        throw new Error('ACP fork source checkpoint is invalid');
+      }
+    }
     const sessionRequestOptions = acpSessionRequestOptions(options, cwd);
     const binding = {
       agentId,
@@ -622,14 +658,85 @@ class AcpRuntime extends EventEmitter {
       binding.supportsSteer = binding.provider === 'codex'
         && supportsCodexSteer(binding.initializeResponse.agentCapabilities);
 
-      const requestedSessionId = String(options.sessionId || '').trim();
-      const revisionBase = Number.isFinite(Number(options.revisionBase))
-        ? Math.max(0, Math.floor(Number(options.revisionBase)))
-        : 0;
       const sessionRequest = { sessionId: requestedSessionId, ...binding.sessionRequestOptions };
       let sessionResponse;
       let historyMode = 'new';
-      if (requestedSessionId) {
+      if (forkSourceSessionId) {
+        const capabilities = binding.initializeResponse.agentCapabilities || {};
+        if (!capabilities.loadSession || !capabilities.sessionCapabilities?.fork) {
+          throw new Error(`${provider} ACP Agent cannot create an owned fork`);
+        }
+        if (!capabilities.sessionCapabilities?.close) {
+          throw new Error(`${provider} ACP Agent cannot release the loaded fork source`);
+        }
+        binding.sessionId = forkSourceSessionId;
+        binding.sessionState = new AcpSessionState({
+          provider,
+          sessionId: forkSourceSessionId,
+          cwd: binding.cwd,
+          maxUpdates: this.maxUpdates,
+          revisionBase,
+        });
+        binding.historyReplayActive = true;
+        let loadedSource;
+        try {
+          loadedSource = await withTimeout(
+            connection.loadSession({ sessionId: forkSourceSessionId, ...binding.sessionRequestOptions }),
+            this.sessionSetupTimeoutMs,
+            'ACP fork source session/load',
+          );
+          this.requireOpenBinding(binding);
+          if (provider === 'qoder') await this.waitForHistoryReplay(binding);
+          this.requireOpenBinding(binding);
+        } finally {
+          binding.historyReplayActive = false;
+        }
+        binding.sessionState.finishHistoryReplay();
+        const forked = await withTimeout(
+          connection.unstable_forkSession({
+            sessionId: forkSourceSessionId,
+            ...binding.sessionRequestOptions,
+          }),
+          this.sessionSetupTimeoutMs,
+          'ACP owned session/fork',
+        );
+        const forkedSessionId = String(forked?.sessionId || '').trim();
+        if (
+          !isSafeProviderSessionId(forkedSessionId)
+          || forkedSessionId === forkSourceSessionId
+        ) {
+          throw new Error('ACP owned session/fork returned an invalid new session id');
+        }
+        if (typeof options.onForkSessionCreated === 'function') {
+          await options.onForkSessionCreated(forkedSessionId);
+        }
+        this.requireOpenBinding(binding);
+        await withTimeout(
+          connection.closeSession({ sessionId: forkSourceSessionId }),
+          this.requestTimeoutMs,
+          'ACP fork source session/close',
+        );
+        this.requireOpenBinding(binding);
+        const forkUpdates = binding.subagentStates.get(forkedSessionId);
+        binding.sessionId = forkedSessionId;
+        binding.sessionState = forkSourceCheckpointState;
+        binding.sessionState.setSessionId(forkedSessionId);
+        delete binding.restartOptions.forkSourceSessionId;
+        delete binding.restartOptions.forkSourceCheckpoint;
+        delete binding.restartOptions.onForkSessionCreated;
+        if (forkUpdates?.availableCommands?.length > 0) {
+          binding.sessionState.availableCommands = clone(forkUpdates.availableCommands);
+        }
+        binding.subagentStates.clear();
+        sessionResponse = {
+          ...loadedSource,
+          ...forked,
+          sessionId: forkedSessionId,
+          modes: forked?.modes || loadedSource?.modes,
+          configOptions: forked?.configOptions || loadedSource?.configOptions,
+        };
+        historyMode = 'fork';
+      } else if (requestedSessionId) {
         const capabilities = binding.initializeResponse.agentCapabilities || {};
         let opened = false;
         let restoredCheckpointState = null;
@@ -1720,20 +1827,7 @@ class AcpRuntime extends EventEmitter {
   }
 
   async forkSession(agentId, options = {}) {
-    const binding = this.requireBinding(agentId);
-    const mutation = this.beginSessionMutation(binding, 'fork');
-    try {
-      const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
-      if (!capabilities?.fork) throw new Error(`${binding.provider} ACP Agent does not support session/fork`);
-      if (options.requireLoad === true && !binding.initializeResponse?.agentCapabilities?.loadSession) {
-        throw new Error(`${binding.provider} ACP Agent cannot load a forked conversation`);
-      }
-      if (
-        Number.isFinite(options.expectedRevision)
-        && Number(binding.sessionState?.revision || 0) !== Math.floor(options.expectedRevision)
-      ) {
-        throw new Error('ACP conversation changed before it could be forked. Try again from the latest answer.');
-      }
+    return this.runWithForkReservation(agentId, options, async binding => {
       const sessionOptions = acpSessionRequestOptions({
         additionalDirectories: options.additionalDirectories ?? binding.sessionRequestOptions.additionalDirectories,
         mcpServers: options.mcpServers ?? binding.sessionRequestOptions.mcpServers,
@@ -1748,6 +1842,26 @@ class AcpRuntime extends EventEmitter {
         throw new Error('ACP session/fork returned an invalid new session id');
       }
       return { ...response, sessionId };
+    });
+  }
+
+  async runWithForkReservation(agentId, options = {}, operation) {
+    const binding = this.requireBinding(agentId);
+    const mutation = this.beginSessionMutation(binding, 'fork');
+    try {
+      const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
+      if (!capabilities?.fork) throw new Error(`${binding.provider} ACP Agent does not support session/fork`);
+      if (options.requireLoad === true && !binding.initializeResponse?.agentCapabilities?.loadSession) {
+        throw new Error(`${binding.provider} ACP Agent cannot load a forked conversation`);
+      }
+      if (
+        Number.isFinite(options.expectedRevision)
+        && Number(binding.sessionState?.revision || 0) !== Math.floor(options.expectedRevision)
+      ) {
+        throw new Error('ACP conversation changed before it could be forked. Try again from the latest answer.');
+      }
+      if (typeof operation !== 'function') throw new Error('ACP fork operation is required');
+      return await operation(binding);
     } finally {
       this.endSessionMutation(binding, mutation);
     }

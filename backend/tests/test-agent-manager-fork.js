@@ -317,6 +317,129 @@ async function run() {
     assert.notStrictEqual(captured.at(-1).args[1], claudeSessionId);
     assert.deepStrictEqual(captured.at(-1).args.slice(2), ['--resume', claudeSessionId, '--fork-session']);
 
+    const sourceClaudeAgent = manager.agents.get(resumedClaudeId);
+    sourceClaudeAgent.runtimeBinding = {
+      kind: 'acp',
+      state: 'idle',
+      error: '',
+      stopReason: '',
+      supportsSteer: false,
+      supportsFork: true,
+      pendingPermission: null,
+      pendingPermissions: [],
+      pendingElicitation: null,
+      pendingElicitations: [],
+      activeElicitations: [],
+      sessionUpdatedAt: '',
+      sessionRevision: 23,
+    };
+    const originalClaudeGetSessionRequestOptions = manager.acpRuntime.getSessionRequestOptions.bind(manager.acpRuntime);
+    const originalClaudeForkReservation = manager.acpRuntime.runWithForkReservation.bind(manager.acpRuntime);
+    const originalClaudePrepareAgent = manager.acpRuntime.prepareAgent.bind(manager.acpRuntime);
+    const originalClaudeDeleteSession = manager.acpRuntime.deleteSession.bind(manager.acpRuntime);
+    const ownedClaudeForkSessionId = '99999999-aaaa-4bbb-8ccc-dddddddddddd';
+    let ownedClaudeForkOptions = null;
+    let ownedClaudePrepareOptions = null;
+    const exactClaudeForkCheckpoint = {
+      version: 1,
+      provider: 'claude',
+      sessionId: claudeSessionId,
+      cwd: repo,
+      entries: [],
+      revision: 23,
+    };
+    manager.acpRuntime.getSessionRequestOptions = () => ({
+      additionalDirectories: [],
+      mcpServers: [],
+    });
+    manager.acpRuntime.runWithForkReservation = async (forkAgentId, options, operation) => {
+      assert.strictEqual(forkAgentId, resumedClaudeId);
+      ownedClaudeForkOptions = options;
+      return operation({
+        sessionState: {
+          exportCheckpoint: () => exactClaudeForkCheckpoint,
+        },
+      });
+    };
+    manager.acpRuntime.prepareAgent = async options => {
+      ownedClaudePrepareOptions = options;
+      await options.onForkSessionCreated(ownedClaudeForkSessionId);
+      return { sessionId: ownedClaudeForkSessionId, historyMode: 'fork' };
+    };
+    const ownedClaudeFork = await manager.forkAgent(resumedClaudeId, 'same-worktree', {
+      targetRuntime: 'chat',
+      expectedRevision: 23,
+    });
+    assert.strictEqual(ownedClaudeFork.error, undefined);
+    assert.strictEqual(ownedClaudeFork.providerSessionId, ownedClaudeForkSessionId);
+    assert.strictEqual(ownedClaudeForkOptions.expectedRevision, 23);
+    assert.strictEqual(ownedClaudeForkOptions.requireLoad, true);
+    assert.strictEqual(ownedClaudePrepareOptions.sessionId, '');
+    assert.strictEqual(ownedClaudePrepareOptions.forkSourceSessionId, claudeSessionId);
+    assert.strictEqual(ownedClaudePrepareOptions.forkSourceCheckpoint, exactClaudeForkCheckpoint);
+    const ownedClaudeForkAgent = manager.agents.get(ownedClaudeFork.agentId);
+    assert.strictEqual(ownedClaudeForkAgent.parentAgentId, resumedClaudeId);
+    assert.strictEqual(ownedClaudeForkAgent.providerSessionId, ownedClaudeForkSessionId);
+    assert.strictEqual(ownedClaudeForkAgent.providerSessionSource, 'acp-fork');
+    assert.strictEqual(ownedClaudeForkAgent.forkedFromProviderSessionId, claudeSessionId);
+    const agentCountBeforeFailedOwnedFork = manager.agents.size;
+    const failedOwnedClaudeForkSessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const failedOwnedForkEvents = [];
+    manager.acpRuntime.prepareAgent = async options => {
+      await options.onForkSessionCreated(failedOwnedClaudeForkSessionId);
+      const error = new Error('simulated owned fork startup failure');
+      Object.defineProperty(error, 'runtimeCleanupAttempted', { value: true });
+      Object.defineProperty(error, 'runtimeCleanupVerified', { value: true });
+      failedOwnedForkEvents.push('child-stopped');
+      throw error;
+    };
+    manager.acpRuntime.deleteSession = async (deleteAgentId, sessionId) => {
+      assert.strictEqual(deleteAgentId, resumedClaudeId);
+      assert.strictEqual(sessionId, failedOwnedClaudeForkSessionId);
+      failedOwnedForkEvents.push('provider-session-deleted');
+      return { deleted: true, sessionId };
+    };
+    const failedOwnedClaudeFork = await manager.forkAgent(resumedClaudeId, 'same-worktree', {
+      targetRuntime: 'chat',
+      expectedRevision: 23,
+    });
+    assert.match(failedOwnedClaudeFork.error, /simulated owned fork startup failure/);
+    assert.strictEqual(
+      manager.agents.size,
+      agentCountBeforeFailedOwnedFork,
+      'a failed owned fork must not leave an error child Agent record',
+    );
+    assert.deepStrictEqual(
+      failedOwnedForkEvents,
+      ['child-stopped', 'provider-session-deleted'],
+      'startup rollback must stop the child process before deleting the exact fork identity',
+    );
+    const retainedOwnedClaudeForkSessionId = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff';
+    manager.acpRuntime.prepareAgent = async options => {
+      await options.onForkSessionCreated(retainedOwnedClaudeForkSessionId);
+      const error = new Error('simulated unverified owned fork cleanup');
+      Object.defineProperty(error, 'runtimeCleanupAttempted', { value: true });
+      Object.defineProperty(error, 'runtimeCleanupVerified', { value: false });
+      throw error;
+    };
+    manager.acpRuntime.deleteSession = async () => {
+      throw new Error('an unverified child process must retain its exact provider session');
+    };
+    const retainedOwnedClaudeFork = await manager.forkAgent(resumedClaudeId, 'same-worktree', {
+      targetRuntime: 'chat',
+      expectedRevision: 23,
+    });
+    assert.match(retainedOwnedClaudeFork.error, /runtime cleanup could not be verified/);
+    assert(retainedOwnedClaudeFork.retainedAgentId);
+    const retainedOwnedClaudeForkAgent = manager.agents.get(retainedOwnedClaudeFork.retainedAgentId);
+    assert.strictEqual(retainedOwnedClaudeForkAgent.providerSessionId, retainedOwnedClaudeForkSessionId);
+    assert.strictEqual(retainedOwnedClaudeForkAgent.providerSessionSource, 'acp-fork');
+    manager.agents.delete(retainedOwnedClaudeFork.retainedAgentId);
+    manager.acpRuntime.getSessionRequestOptions = originalClaudeGetSessionRequestOptions;
+    manager.acpRuntime.runWithForkReservation = originalClaudeForkReservation;
+    manager.acpRuntime.prepareAgent = originalClaudePrepareAgent;
+    manager.acpRuntime.deleteSession = originalClaudeDeleteSession;
+
     manager.agentShellEnvProvider = () => ({ PATH: binDir });
     manager.agentShellEnvCache.clear();
     const previousFakeExecutables = process.env.FARMING_E2E_FAKE_EXECUTABLES;
