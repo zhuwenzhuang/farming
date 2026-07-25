@@ -130,6 +130,7 @@ const {
 } = require('../../src/lib/workspace-file-search.ts');
 const {
   createWorkspaceFileOperation,
+  reconcileWorkspaceFileCreateFromDirectory,
   reconcileWorkspaceFileDeleteFromDirectory,
   reconcileWorkspaceFileRenameFromDirectory,
   workspaceFileContextMenuPosition,
@@ -1445,6 +1446,32 @@ function run() {
   );
   assert.strictEqual(
     reconcileWorkspaceFileRenameFromDirectory(renameOperation, 'Renamed.tsx', [directory('src/components/Renamed.tsx')]),
+    null
+  );
+  const createFileOperation = {
+    ...createWorkspaceFileOperation('new-file', directory('src/components')),
+    name: 'Created.tsx',
+  };
+  const createdFileNode = workspaceFile('src/components/Created.tsx', { version: 'created-file-version' });
+  assert.strictEqual(
+    reconcileWorkspaceFileCreateFromDirectory(createFileOperation, 'Created.tsx', [createdFileNode]),
+    createdFileNode
+  );
+  assert.strictEqual(
+    reconcileWorkspaceFileCreateFromDirectory(createFileOperation, 'Created.tsx', [directory('src/components/Created.tsx')]),
+    null
+  );
+  const createFolderOperation = {
+    ...createWorkspaceFileOperation('new-folder', null),
+    name: 'created-directory',
+  };
+  const createdDirectoryNode = directory('created-directory', { version: 'created-directory-version' });
+  assert.strictEqual(
+    reconcileWorkspaceFileCreateFromDirectory(createFolderOperation, 'created-directory', [createdDirectoryNode]),
+    createdDirectoryNode
+  );
+  assert.strictEqual(
+    reconcileWorkspaceFileCreateFromDirectory(renameOperation, 'Renamed.tsx', [renamedNode]),
     null
   );
   assert.strictEqual(workspaceFileOperationTitle(createWorkspaceFileOperation('new-file', null), {

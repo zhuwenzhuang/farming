@@ -89,6 +89,20 @@ export function reconcileWorkspaceFileDeleteFromDirectory(
   }
 }
 
+export function reconcileWorkspaceFileCreateFromDirectory(
+  operation: WorkspaceFileOperationState,
+  submittedName: string,
+  items: readonly WorkspaceFileEntry[]
+): WorkspaceFileEntry | null {
+  if (operation.kind !== 'new-file' && operation.kind !== 'new-folder') return null
+  const targetPath = operation.parentPath
+    ? `${operation.parentPath}/${submittedName}`
+    : submittedName
+  const target = items.find(item => item.path === targetPath)
+  const expectedType = operation.kind === 'new-folder' ? 'directory' : 'file'
+  return target?.type === expectedType ? target : null
+}
+
 export function reconcileWorkspaceFileRenameFromDirectory(
   operation: WorkspaceFileOperationState,
   submittedName: string,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import {
   createWorkspaceFileOperation,
+  reconcileWorkspaceFileCreateFromDirectory,
   reconcileWorkspaceFileDeleteFromDirectory,
   reconcileWorkspaceFileRenameFromDirectory,
   workspaceFileOperationSubmitName,
@@ -16,6 +17,7 @@ import {
 import {
   createWorkspaceEntry,
   deleteWorkspaceEntry,
+  fetchWorkspaceFile,
   fetchWorkspaceTree,
   renameWorkspaceEntry,
   WorkspaceFileApiError,
@@ -149,6 +151,35 @@ export function useWorkspaceFileOperationController({
           ? [operation.item.path.includes('/') ? operation.item.path.slice(0, operation.item.path.lastIndexOf('/')) : '']
           : []
       const uncertainOutcome = !(error instanceof WorkspaceFileApiError) || error.status >= 500
+      if (
+        uncertainOutcome &&
+        (operation.kind === 'new-file' || operation.kind === 'new-folder')
+      ) {
+        try {
+          const tree = await fetchWorkspaceTree(agentId, operation.parentPath)
+          const createdEntry = reconcileWorkspaceFileCreateFromDirectory(operation, name, tree.items)
+          if (createdEntry) {
+            refreshDirectories([operation.parentPath])
+            onWorkspaceChange?.()
+            clearFileOperation()
+            if (createdEntry.type === 'directory') {
+              void ensureDirectoryLoaded(createdEntry.path)
+              focusFileTreePath(createdEntry.path)
+            } else {
+              focusFileTreePath(createdEntry.path)
+              try {
+                const createdFile = await fetchWorkspaceFile(agentId, createdEntry.path)
+                onOpenFile(agentId, createdFile)
+              } catch {
+                // Creation is already proven; a later click can retry opening the file.
+              }
+            }
+            return
+          }
+        } catch {
+          // Preserve the original operation error when authoritative rereading also fails.
+        }
+      }
       if (
         uncertainOutcome &&
         operation.item &&
