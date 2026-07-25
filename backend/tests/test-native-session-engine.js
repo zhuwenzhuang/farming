@@ -14,6 +14,7 @@ const {
   normalizeNativePtyHostRuntimeIdentity,
 } = require('../native-pty-host-identity');
 const { deserializeTerminalState } = require('../terminal-state-serialization');
+const { probeUnixSocket } = require('../terminal-runtime-cleanup');
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -593,6 +594,39 @@ async function run() {
       await closeServer(activeServer);
       await competingHost.dispose().catch(() => {});
       fs.rmSync(activeSocketConfigDir, { recursive: true, force: true });
+    }
+
+    const replacedSocketConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-native-replaced-socket-'));
+    const replacedSocketPath = nativePtyHostSocketPath(replacedSocketConfigDir);
+    const obsoleteHost = new NativePtyHost({
+      configDir: replacedSocketConfigDir,
+      socketPath: replacedSocketPath,
+    });
+    const replacementHost = new NativePtyHost({
+      configDir: replacedSocketConfigDir,
+      socketPath: replacedSocketPath,
+    });
+    try {
+      await obsoleteHost.start();
+      fs.unlinkSync(replacedSocketPath);
+      await replacementHost.start();
+
+      await obsoleteHost.dispose();
+
+      assert(
+        fs.existsSync(replacedSocketPath),
+        'an obsolete native pty host must not unlink its replacement socket during shutdown',
+      );
+      const replacementProbe = await probeUnixSocket(replacedSocketPath);
+      assert.strictEqual(
+        replacementProbe.active,
+        true,
+        'the replacement native pty host must remain reachable after the obsolete host exits',
+      );
+    } finally {
+      await obsoleteHost.dispose().catch(() => {});
+      await replacementHost.dispose().catch(() => {});
+      fs.rmSync(replacedSocketConfigDir, { recursive: true, force: true });
     }
   }
 

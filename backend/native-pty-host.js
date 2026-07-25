@@ -77,6 +77,15 @@ function sanitizeAgentEnv(env) {
   });
 }
 
+function socketIdentity(socketPath) {
+  const stat = fs.statSync(socketPath, { bigint: true });
+  return { dev: stat.dev, ino: stat.ino };
+}
+
+function sameSocketIdentity(left, right) {
+  return Boolean(left && right && left.dev === right.dev && left.ino === right.ino);
+}
+
 class NativePtyHost {
   constructor(options = {}) {
     this.configDir = options.configDir || process.env.FARMING_CONFIG_DIR || path.join(os.homedir(), '.farming');
@@ -84,6 +93,13 @@ class NativePtyHost {
     this.ownerPid = Number(options.ownerPid || process.env.FARMING_NATIVE_PTY_HOST_OWNER_PID || 0);
     this.runtimeIdentity = options.runtimeIdentity || HOST_RUNTIME_IDENTITY;
     this.exitOnShutdown = options.exitOnShutdown !== false;
+    this.boundSocketPath = process.platform === 'win32'
+      ? this.socketPath
+      : path.join(
+          path.dirname(this.socketPath),
+          `.fpty-${process.pid}-${crypto.createHash('sha256').update(this.socketPath).digest('hex').slice(0, 8)}-${crypto.randomBytes(4).toString('hex')}.sock`,
+        );
+    this.boundSocketIdentity = null;
     this.sessions = new Map();
     this.clients = new Set();
     this.ownerCheckTimer = null;
@@ -130,13 +146,22 @@ class NativePtyHost {
     this.server = net.createServer(socket => this.handleConnection(socket));
     await new Promise((resolve, reject) => {
       this.server.once('error', reject);
-      this.server.listen(this.socketPath, () => {
+      this.server.listen(this.boundSocketPath, () => {
         this.server.off('error', reject);
         resolve();
       });
     });
     if (process.platform !== 'win32') {
-      fs.chmodSync(this.socketPath, 0o600);
+      this.boundSocketIdentity = socketIdentity(this.boundSocketPath);
+      fs.chmodSync(this.boundSocketPath, 0o600);
+      try {
+        fs.linkSync(this.boundSocketPath, this.socketPath);
+      } catch (error) {
+        await new Promise(resolve => this.server.close(() => resolve()));
+        this.server = null;
+        this.boundSocketIdentity = null;
+        throw error;
+      }
     }
     console.error(`[${new Date().toISOString()}] Native PTY host listening on ${this.socketPath} ownerPid=${this.ownerPid || ''}`);
     this.startOwnerWatch();
@@ -170,6 +195,11 @@ class NativePtyHost {
     }
     try {
       fs.unlinkSync(this.socketPath);
+    } catch (error) {
+      if (!error || error.code !== 'ENOENT') throw error;
+    }
+    try {
+      fs.unlinkSync(this.boundSocketPath);
     } catch (error) {
       if (!error || error.code !== 'ENOENT') throw error;
     }
@@ -1476,16 +1506,22 @@ class NativePtyHost {
       }
     }
     await this.screenWorkerPool.dispose();
-    if (this.server) {
-      await new Promise(resolve => this.server.close(() => resolve()));
-      this.server = null;
-    }
-    if (process.platform !== 'win32') {
+    if (this.server && process.platform !== 'win32') {
       try {
-        fs.unlinkSync(this.socketPath);
+        const currentSocketIdentity = socketIdentity(this.socketPath);
+        if (sameSocketIdentity(currentSocketIdentity, this.boundSocketIdentity)) {
+          // Unlink while this listener is still active. A competing host cannot
+          // replace an active socket between the ownership check and unlink.
+          fs.unlinkSync(this.socketPath);
+        }
       } catch (error) {
         if (!error || error.code !== 'ENOENT') throw error;
       }
+      this.boundSocketIdentity = null;
+    }
+    if (this.server) {
+      await new Promise(resolve => this.server.close(() => resolve()));
+      this.server = null;
     }
   }
 }
