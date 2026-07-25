@@ -6,7 +6,7 @@ Farming 2 is an open-source, customizable browser workspace with two live interf
 
 Multiple Farming deployments can additionally be collected in [Farming Net](net/README.md), a separate token-protected directory. Enrolled targets accept target-bound, short-lived signed passes without joining runtimes or exposing their normal tokens to the portal.
 
-This document is the canonical public capability map and is updated in place as the product improves. Historical changes remain in [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases).
+This document is the canonical public capability map and is updated in place as the product changes. Historical changes remain in [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases).
 
 Install and start:
 
@@ -40,7 +40,7 @@ Farming CRT keeps active work in stable control-room bays. It exposes the same s
 
 ![Farming CRT dashboard](crt/assets/01-crt-dashboard.png)
 
-Use it when several Agents are running, when keyboard control is faster than a workspace layout, or when terminal output and operational signals are the main concern.
+Use it when several Agents are running, when you prefer direct keyboard navigation, or when terminal output and operational signals are the main concern.
 
 ## Capability Map
 
@@ -111,11 +111,11 @@ Shells and unknown commands do not become resumable provider sessions or provide
 
 ## Usage And Operational Awareness
 
-Farming Code keeps the default signal compact and opens a focused 52-week view when the operator wants exact daily totals, hourly Agent-type attribution, cache share, and peak-day context.
+Farming Code keeps the default signal compact and opens a 52-week detail view with exact daily totals, hourly Agent-type attribution, cache share, and peak-day context.
 
 ![Farming Code token usage](code/assets/15-code-usage-activity.png)
 
-CRT Billing presents the same local provider history as a full control-room surface:
+CRT Billing presents the same local provider history in its Days and Live views:
 
 - **Days**: a high-contrast 52-week daily activity calendar, exact selected-day totals with a prominent compact value at the right, a five-second current-day refresh whose digits catch up to new totals, a 24-cell local-hour coordinate strip aligned with a total/cache step trace, and provider shares.
 - **Live**: 60-minute token-rate oscilloscope, five-minute provider channels, quota windows, and reset timing.

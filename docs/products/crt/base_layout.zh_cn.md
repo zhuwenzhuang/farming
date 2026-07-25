@@ -155,7 +155,7 @@ Title bar 的文字和边框颜色跟随 `--agent-color`（由活跃度等级决
 
 ### 5.3 Session 终端弹窗顶栏
 
-点击地图卡片打开的全屏/模态终端（`SessionModal`）顶栏刻意比地图卡片 **更克制**（扁、淡）：弹窗是沉浸操作区，标题栏不应抢注意力。
+点击地图卡片打开的全屏/模态终端（`SessionModal`）使用扁平顶栏、柔和边框和无外壳发光的样式：
 
 | 项目 | 规则 |
 |------|------|
@@ -171,7 +171,7 @@ Title bar 的文字和边框颜色跟随 `--agent-color`（由活跃度等级决
 
 ### 5.4 New Agent / Settings 模态框
 
-`InputDialog`（快捷键 **N** / Start Main Agent）与 `Settings`（**S**）共用 **`.input-dialog`**、**`.settings-dialog`**、**`.dialog-header`**，视觉气质与 **§5.3 Session** 对齐——克制、细线、无对话框式厚重外发光。
+`InputDialog`（快捷键 **N** / Start Main Agent）与 `Settings`（**S**）共用 **`.input-dialog`**、**`.settings-dialog`**、**`.dialog-header`**，并采用 **§5.3 Session** 的细边框、扁平顶栏和无外壳发光样式。
 
 | 项目 | 规则 |
 |------|------|
@@ -190,7 +190,7 @@ Title bar 的文字和边框颜色跟随 `--agent-color`（由活跃度等级决
 
 在 CRT terminal 皮肤下，不同状态的 agent 有不同的视觉反馈。屏幕纹理由 `frontend/skins/crt/styles/effects.css` 提供：使用平面泛绿暗底与静态单色扫描线，不再压暗屏幕四周；低对比度的 300 像素扫描拖尾按参考效果约 6.8 秒循环，覆盖主页和打开的 session，且不绘制独立高亮线头。数字快捷键保留绿色荧光底和深色文字，不增加额外描边。
 
-Agent 卡片使用全部剩余正文高度，以统一可读字号显示 Bottom Aligned 的实时 Terminal Tail，或紧凑的结构化 Chat Trail。Chat Trail 从清洗后的 Transcript 中展示最近可见 User Prompt、Agent Response 与当前 Activity，不重建或重排 ACP Entry。内容过多时裁剪，禁止压缩文字。只有 Live Pending / Running Agent 占据 Dashboard 机位；Stopped、Dead 与 Archived Record 离开实时 Grid，可恢复历史仍保留在 History。Terminal Card 仅在后端终端状态为 Working 时闪烁，Chat 使用克制的 Activity Signal。卡片和打开后的 Session 使用与 Farming Code 相同的 Agent 标题优先级，并始终保持单行省略。
+Agent 卡片使用全部剩余正文高度，以统一可读字号显示 Bottom Aligned 的实时 Terminal Tail，或紧凑的结构化 Chat Trail。Chat Trail 从清洗后的 Transcript 中展示最近可见 User Prompt、Agent Response 与当前 Activity，不重建或重排 ACP Entry。内容过多时裁剪，禁止压缩文字。只有 Live Pending / Running Agent 占据 Dashboard 机位；Stopped、Dead 与 Archived Record 离开实时 Grid，可恢复历史仍保留在 History。Terminal Card 仅在后端终端状态为 Working 时闪烁，Chat 使用紧凑的 Activity Signal。卡片和打开后的 Session 使用与 Farming Code 相同的 Agent 标题优先级，并始终保持单行省略。
 
 ### 6.1 按活跃度分级
 

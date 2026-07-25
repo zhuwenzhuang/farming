@@ -155,7 +155,7 @@ Final change 共 23 个文件 · 4 个 Finding 已处理 · 2 项证明失效
 
 ## 未来工作
 
-当前不可变 review revision、final-change 与 fixes 比较、file-first Diff 加载、reviewed state 和 comments 是有价值的基础。长期产品仍需要：
+当前已具备不可变 review revision、final-change 与 fixes 比较、file-first Diff 加载、reviewed state 和 comments。长期产品仍需要：
 
 1. 把最小状态集合、权威状态所有者、转换表、安全性不变量和活性义务纳入 Review 的一等正确性模型。
 2. 跨多轮和多 Agent 保持稳定的 Review identity。

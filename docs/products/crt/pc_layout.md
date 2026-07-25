@@ -50,7 +50,7 @@ The Main Agent panel sits below the menu list and embeds a compact agent preview
 
 ## Dialogs
 
-New Agent and Settings dialogs opened from the sidebar should use restrained CRT styling: thin borders, compact headers, and small typography.
+New Agent and Settings dialogs opened from the sidebar use thin borders, compact headers, and small typography.
 
 ## Session Modal
 

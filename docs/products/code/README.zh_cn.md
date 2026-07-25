@@ -6,11 +6,11 @@ Farming Code 是 Farming 2 的默认界面：一个运行在开发机上的浏�
 
 ![Farming Code Workspace](assets/01-code-workspace.png)
 
-正常界面刻意保持安静：左侧是按项目组织的 Agent，中间是当前任务，相关文件状态就在附近，底部 Composer 继续同一个 Provider Session。
+默认布局左侧显示按项目组织的 Agent，中间显示当前任务，旁边保留相关文件状态，底部 Composer 继续同一个 Provider Session。
 
 同时管理多台 Farming 机器时，侧边栏会默认显示当前 Host 的 hostname，并把它用于浏览器页签标题。点击名称旁的铅笔图标可以设置一个易识别且会持久保存的实例名称；Farming Code 和 Farming CRT 会共用这个名称。
 
-跨界面的完整能力矩阵见 [Farming 2 产品总览](../README.zh_cn.md)。本文会随产品改进直接更新，始终描述当前体验，而不是某一个版本。
+跨界面的完整能力矩阵见 [Farming 2 产品总览](../README.zh_cn.md)。本文会随产品变化直接更新，始终描述当前体验，而不是某一个版本。
 
 ## 切换到 Farming CRT
 
@@ -110,7 +110,7 @@ Review 初版把已跟踪与未跟踪的工作区修改分开。它会捕获 Rev
 
 ## 找到实时工作，或恢复旧工作
 
-没有打开任何 Agent 时，主工作区会显示克制的开始引导，而不是一块没有入口的空白页。主操作用于继续 History 或新建 Agent；次级操作可以打开 Search、分享、专注模式，或收起侧栏。紧凑布局只保留两个主操作。
+没有打开任何 Agent 时，主工作区会提供 History、New Agent、Search、分享、专注模式和侧栏控制入口。紧凑布局只显示 History 和 New Agent。
 
 Search 会在当前 Live Work 中匹配项目名、Agent Title 和 Workspace Path。
 
@@ -150,7 +150,7 @@ Settings 把 Interface、Language、Search Timeout、Installation Aware Update�
 
 ![深色 Farming Code Workspace](assets/09-dark-workspace.png)
 
-桌面 Chrome 可以把 Farming 安装成独立应用窗口，不再显示浏览器标签栏、地址栏、扩展或其他浏览器控制。浏览器提供安装入口时，点击 Share 旁边的应用 / 全屏按钮并选择“安装 Farming 2”；同一个弹窗保留全屏作为临时方案。安装不可用时，Farming 会说明原因，不再展示让用户手动寻找 Chrome 菜单的步骤；从已安装的 Farming 应用窗口打开时，这个入口不再显示。以后从 Farming 2 应用图标启动时，会打开干净的 Base Path URL 并复用已经建立的鉴权 Cookie；启动 Token 不会被固化在安装后的启动地址中。
+桌面 Chrome 可以把 Farming 安装成独立应用窗口，不再显示浏览器标签栏、地址栏、扩展或其他浏览器控制。浏览器提供安装入口时，点击 Share 旁边的应用 / 全屏按钮并选择“安装 Farming 2”；同一个弹窗保留全屏作为临时方案。安装不可用时，Farming 会说明原因，不再展示让用户手动寻找 Chrome 菜单的步骤；从已安装的 Farming 应用窗口打开时，这个入口不再显示。以后从 Farming 2 应用图标启动时，会打开不含启动 Token 的 Base Path URL，并复用已经建立的鉴权 Cookie。
 
 手机端一次聚焦一个 Conversation、Terminal 或 File，并把项目导航移动到 Drawer。它适合检查进度、切换 Agent、阅读结果或发送短介入，而不是把多 Pane 桌面 IDE 硬塞进窄屏幕。
 

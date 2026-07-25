@@ -6,7 +6,7 @@ Farming 2 是一个开源、可自定义的浏览器工作台，提供两套实�
 
 如果有多套 Farming 部署，还可以用独立、带 Token 鉴权的 [Farming Net](net/README.zh_cn.md) 统一收录。完成登记的目标会接受绑定目标的短时签名通行证，同时不合并运行时，也不向门户暴露自己正常使用的 Token。
 
-本文是当前公开能力的标准总览，会随着产品改进直接更新。历史变化保留在 [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases) 中。
+本文是当前公开能力的标准总览，会随着产品变化直接更新。历史变化保留在 [GitHub Releases](https://github.com/zhuwenzhuang/farming/releases) 中。
 
 安装并启动：
 
@@ -40,7 +40,7 @@ Farming CRT 把进行中的工作放在稳定的控制室机位中。它通过�
 
 ![Farming CRT 控制台](crt/assets/01-crt-dashboard.png)
 
-当多个 Agent 同时运行、键盘控制比 Workspace 布局更快，或者终端输出和运行信号更重要时，适合使用 CRT。
+当多个 Agent 同时运行、需要直接键盘导航，或者终端输出和运行信号是主要关注点时，可以使用 CRT。
 
 ## 能力矩阵
 
@@ -111,11 +111,11 @@ Shell 和未知命令不会变成可 Resume 的 Provider Session 或 Provider Hi
 
 ## 用量与运行感知
 
-Farming Code 默认保持紧凑信号，需要精确每日总量、按小时 Agent 类型归属、Cache 占比和峰值日上下文时，再打开聚焦的 52 周视图。
+Farming Code 默认显示紧凑信号，并提供包含精确每日总量、按小时 Agent 类型归属、Cache 占比和峰值日上下文的 52 周详情视图。
 
 ![Farming Code Token 用量](code/assets/15-code-usage-activity.png)
 
-CRT Billing 把同一份本地 Provider 历史展示为完整控制室界面：
+CRT Billing 在 Days 和 Live 视图中展示同一份本地 Provider 历史：
 
 - **Days**：高对比度的 52 周每日 Activity Calendar、右侧醒目的 Selected Day 缩写 Total、每 5 秒刷新并以跳动数字追赶新总量的当天读数、与 Total/Cache 阶梯波形对齐的 24 格本地小时坐标带，以及 Provider Share。
 - **Live**：60 分钟 Token Rate 示波器、5 分钟 Provider Channel、Quota Window 和 Reset Time。

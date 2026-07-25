@@ -48,7 +48,7 @@
 
 ### 2.3 模态对话框（New Agent / Settings）
 
-- 自底部滑上的 sheet（`.dialog-overlay` + `.input-dialog` / `.settings-dialog`），顶栏与选项列表的克制规格与桌面同源，见 `base_layout.zh_cn.md` §5.4。
+- 自底部滑上的 Sheet（`.dialog-overlay` + `.input-dialog` / `.settings-dialog`），顶栏与选项列表采用桌面端相同的细边框、扁平顶栏和字号规则，见 `base_layout.zh_cn.md` §5.4。
 - **Workspace 路径输入**：保持 **`font-size: 16px`** 与足够 **`min-height`**，避免 iOS 聚焦缩放页面；与 ghostty 画布 **10px**、底部 Main 输入条 **16px** 策略一致。
 
 ---
