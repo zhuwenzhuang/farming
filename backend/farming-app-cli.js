@@ -45,14 +45,19 @@ function quoteShellArg(arg) {
 }
 
 function buildCleanEnvExecCommand(env, command, args = []) {
-  const parts = ['/usr/bin/env', '-i'];
+  const parts = ['/usr/bin/env', ...buildCleanEnvExecArgs(env, command, args)];
+  return parts.map(quoteShellArg).join(' ');
+}
+
+function buildCleanEnvExecArgs(env, command, args = []) {
+  const parts = ['-i'];
   Object.entries(env || {}).forEach(([key, value]) => {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) return;
     if (value === undefined || value === null) return;
     parts.push(`${key}=${String(value)}`);
   });
   parts.push(command, ...args);
-  return parts.map(quoteShellArg).join(' ');
+  return parts;
 }
 
 function readMemoryLimitBytes() {
@@ -427,7 +432,13 @@ async function runServerBackedControlCli(argv) {
 
 function childInvocation(env = process.env) {
   if (process.pkg) {
-    return { command: '/bin/sh', args: ['-c', buildCleanEnvExecCommand(env, process.execPath, ['--'])] };
+    // Spawn env directly so it execs the packaged binary in-place. A shell
+    // wrapper may keep its own PID while the listener belongs to a child,
+    // making daemon ownership impossible to prove on Linux.
+    return {
+      command: '/usr/bin/env',
+      args: buildCleanEnvExecArgs(env, process.execPath, ['--']),
+    };
   }
   const nodePath = env.FARMING_NODE_BIN || process.execPath;
   if (env.FARMING_NODE_LD && env.FARMING_NODE_LIBRARY_PATH) {
@@ -1150,6 +1161,7 @@ if (require.main === module) {
 module.exports = {
   SERVER_MODE_ARG,
   NATIVE_PTY_HOST_ARG,
+  buildCleanEnvExecArgs,
   buildCleanEnvExecCommand,
   childInvocation,
   cleanupFailedDaemonStart,

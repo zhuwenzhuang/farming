@@ -5,6 +5,7 @@ const net = require('net');
 const os = require('os');
 const path = require('path');
 const {
+  buildCleanEnvExecArgs,
   buildCleanEnvExecCommand,
   childInvocation,
   cleanupFailedDaemonStart,
@@ -503,6 +504,20 @@ async function runTests() {
   }
 
   {
+    const args = buildCleanEnvExecArgs({
+      PORT: '6694',
+      FARMING_CONFIG_DIR: "/tmp/farming's config",
+      'bad-key': 'skip',
+    }, '/tmp/farming bin/farming', ['--']);
+
+    assert.deepStrictEqual(args, [
+      '-i',
+      'PORT=6694',
+      "FARMING_CONFIG_DIR=/tmp/farming's config",
+      '/tmp/farming bin/farming',
+      '--',
+    ]);
+
     const command = buildCleanEnvExecCommand({
       PORT: '6694',
       FARMING_CONFIG_DIR: "/tmp/farming's config",
