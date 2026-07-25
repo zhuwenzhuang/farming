@@ -234,7 +234,8 @@ function validateElicitationContent(request, content) {
 function interactiveRuntimeState(binding, fallback = '') {
   if (binding.pendingPermissions.size > 0) return 'waiting-for-permission';
   if (binding.pendingElicitations.size > 0) return 'waiting-for-input';
-  if (binding.promptActive) return 'working';
+  if (binding.activeTurn?.phase === 'running') return 'working';
+  if (binding.activeTurn?.phase === 'cancelling') return 'interrupting';
   if (['connecting', 'idle', 'error'].includes(String(fallback || ''))) return fallback;
   return binding.sessionId ? 'idle' : 'connecting';
 }
@@ -567,9 +568,11 @@ class AcpRuntime extends EventEmitter {
       activeElicitations: new Map(),
       subagentStates: new Map(),
       interactionOrigins: new Map(),
-      promptActive: false,
+      // One binding owns at most one Turn. All Turn controls and its terminal
+      // commit are fenced by this object before they may mutate shared state.
+      activeTurn: null,
+      nextTurnId: 1,
       supportsSteer: false,
-      steerTail: null,
       historyReplayActive: false,
       sessionState: null,
       authTerminal: null,
@@ -578,8 +581,6 @@ class AcpRuntime extends EventEmitter {
       checkpointProof: null,
       sessionMutation: null,
       configMutationTail: null,
-      promptAdmission: null,
-      promptStarting: false,
       stderr: '',
       exited: false,
       updatedAt: new Date().toISOString(),
@@ -1060,14 +1061,78 @@ class AcpRuntime extends EventEmitter {
     return binding;
   }
 
+  isCurrentTurn(binding, turn) {
+    return this.isOpenBinding(binding) && binding.activeTurn === turn;
+  }
+
+  requireCurrentTurn(binding, turn, phases = null) {
+    this.requireOpenBinding(binding);
+    if (
+      binding.activeTurn !== turn
+      || (Array.isArray(phases) && !phases.includes(turn?.phase))
+    ) {
+      throw new Error('No active Codex turn to steer');
+    }
+    return turn;
+  }
+
+  beginTurn(binding) {
+    this.requireOpenBinding(binding);
+    if (binding.activeTurn) throw new Error(`ACP Agent is not ready (${binding.state})`);
+    let resolveCompletion;
+    const completion = new Promise(resolve => {
+      resolveCompletion = resolve;
+    });
+    const turn = {
+      id: binding.nextTurnId++,
+      phase: 'admitting',
+      previousState: binding.state,
+      providerSettled: false,
+      controlTail: Promise.resolve(),
+      cancelPromise: null,
+      completion,
+      resolveCompletion,
+    };
+    binding.activeTurn = turn;
+    return turn;
+  }
+
+  finishTurn(binding, turn, result) {
+    if (binding.activeTurn !== turn) return false;
+    binding.activeTurn = null;
+    turn.phase = 'completed';
+    turn.resolveCompletion(result);
+    return true;
+  }
+
+  cancelAdmittingTurn(binding, turn) {
+    if (binding.activeTurn !== turn || turn.phase !== 'admitting') return false;
+    binding.activeTurn = null;
+    turn.phase = 'cancelled';
+    binding.state = turn.previousState || 'idle';
+    turn.resolveCompletion({ status: 'cancelled-before-submission' });
+    this.emitRuntime(binding);
+    return true;
+  }
+
+  async enqueueTurnControl(turn, operation) {
+    const previous = turn.controlTail || Promise.resolve();
+    const pending = previous.catch(() => {}).then(operation);
+    turn.controlTail = pending;
+    try {
+      return await pending;
+    } finally {
+      if (turn.controlTail === pending) turn.controlTail = Promise.resolve();
+    }
+  }
+
   beginSessionMutation(binding, action) {
     this.requireOpenBinding(binding);
     if (
       binding.sessionMutation
       || binding.configMutationTail
       || binding.patchDecisionInFlight.size > 0
-      || binding.promptStarting
-      || binding.promptActive
+      || binding.activeTurn
       || !['idle', 'error'].includes(binding.state)
     ) {
       throw new Error(`ACP Agent is not ready for ${action} (${binding.state})`);
@@ -1086,8 +1151,7 @@ class AcpRuntime extends EventEmitter {
     if (
       binding.sessionMutation
       || binding.patchDecisionInFlight.size > 0
-      || binding.promptStarting
-      || binding.promptActive
+      || binding.activeTurn
       || !['idle', 'error'].includes(binding.state)
     ) {
       throw new Error(`ACP Agent is not ready for configuration changes (${binding.state})`);
@@ -1312,7 +1376,7 @@ class AcpRuntime extends EventEmitter {
             if (parentTool) binding.sessionState.touchEntry(parentTool);
           }
           binding.updatedAt = new Date().toISOString();
-          if (isPrimarySession && !binding.historyReplayActive && !binding.promptActive) {
+          if (isPrimarySession && !binding.historyReplayActive && !binding.activeTurn) {
             this.scheduleCheckpoint(binding, { exact: true });
           }
           // A loaded history can contain hundreds of ordered updates. Applying
@@ -1452,8 +1516,7 @@ class AcpRuntime extends EventEmitter {
     if (
       binding.exited
       || binding.sessionMutation
-      || binding.promptStarting
-      || binding.promptActive
+      || binding.activeTurn
       || !['idle', 'error'].includes(binding.state)
     ) {
       throw new Error(`ACP Agent is not ready (${binding.state})`);
@@ -1463,9 +1526,7 @@ class AcpRuntime extends EventEmitter {
       rawContent,
       binding.initializeResponse?.agentCapabilities || {},
     );
-    const admission = { previousState: binding.state };
-    binding.promptAdmission = admission;
-    binding.promptStarting = true;
+    const turn = this.beginTurn(binding);
     try {
       const configMutation = binding.configMutationTail;
       const patchDecisions = [...binding.patchDecisionInFlight.values()].map(item => item.promise);
@@ -1473,68 +1534,74 @@ class AcpRuntime extends EventEmitter {
         ...(configMutation ? [configMutation] : []),
         ...patchDecisions,
       ]);
-      this.requireOpenBinding(binding);
-      if (binding.promptAdmission !== admission) {
+      if (!this.isCurrentTurn(binding, turn) || turn.phase !== 'admitting') {
         throw new Error('ACP prompt was cancelled before submission');
       }
       await this.markCheckpointDirty(binding);
-      this.requireOpenBinding(binding);
-      if (binding.promptAdmission !== admission) {
+      if (!this.isCurrentTurn(binding, turn) || turn.phase !== 'admitting') {
         throw new Error('ACP prompt was cancelled before submission');
       }
     } catch (error) {
-      if (binding.promptAdmission === admission) {
-        binding.promptAdmission = null;
-        binding.promptStarting = false;
-        if (this.isCurrentBinding(binding)) binding.state = admission.previousState;
+      if (this.isCurrentTurn(binding, turn)) {
+        binding.state = turn.previousState;
+        this.finishTurn(binding, turn, { status: 'admission-failed' });
       }
       throw error;
     }
-    binding.promptAdmission = null;
-    binding.promptStarting = false;
     binding.sessionState.beginPrompt(content);
-    binding.promptActive = true;
+    turn.phase = 'running';
     binding.state = 'working';
     binding.error = '';
     binding.stopReason = '';
     this.emitRuntime(binding);
     this.emitSession(binding);
+    let response;
     try {
-      const response = await binding.connection.prompt({ sessionId: binding.sessionId, prompt: content });
-      this.requireOpenBinding(binding);
+      response = await binding.connection.prompt({ sessionId: binding.sessionId, prompt: content });
+      turn.providerSettled = true;
+    } catch (error) {
+      turn.providerSettled = true;
+      const runtimeError = new Error(acpErrorMessage(error), { cause: error });
+      if (!this.isCurrentTurn(binding, turn)) throw runtimeError;
+      await this.enqueueTurnControl(turn, async () => {
+        if (!this.isCurrentTurn(binding, turn)) return;
+        binding.stopReason = 'error';
+        // JSON-RPC implementations commonly move the actionable provider text
+        // into error.data.details. Classify the normalized message so the
+        // ordered transcript and runtime snapshot cannot disagree.
+        binding.sessionState.recordError(runtimeError.message, acpErrorKind(runtimeError));
+        binding.sessionState.completePrompt('error');
+        binding.state = 'error';
+        binding.error = runtimeError.message;
+        binding.updatedAt = new Date().toISOString();
+        this.finishTurn(binding, turn, { status: 'error', error: runtimeError });
+        this.scheduleCheckpoint(binding, { exact: true });
+        this.emitSession(binding);
+        this.emitRuntime(binding);
+      });
+      throw runtimeError;
+    }
+    return this.enqueueTurnControl(turn, async () => {
+      this.requireCurrentTurn(binding, turn);
       binding.stopReason = String(response?.stopReason || '');
       binding.sessionState.completePrompt(binding.stopReason);
-      binding.promptActive = false;
       binding.state = 'idle';
+      binding.error = '';
       binding.updatedAt = new Date().toISOString();
+      this.finishTurn(binding, turn, { status: 'completed', stopReason: binding.stopReason });
       this.scheduleCheckpoint(binding, { exact: true });
       this.emitSession(binding);
       this.emitRuntime(binding);
       return { sessionId: binding.sessionId, stopReason: binding.stopReason };
-    } catch (error) {
-      const runtimeError = new Error(acpErrorMessage(error), { cause: error });
-      if (!this.isCurrentBinding(binding) || binding.exited) throw runtimeError;
-      binding.stopReason = 'error';
-      // JSON-RPC implementations commonly move the actionable provider text
-      // into error.data.details. Classify the normalized message so the
-      // ordered transcript and runtime snapshot cannot disagree.
-      binding.sessionState.recordError(runtimeError.message, acpErrorKind(runtimeError));
-      binding.sessionState.completePrompt('error');
-      binding.promptActive = false;
-      binding.state = 'error';
-      binding.error = runtimeError.message;
-      this.scheduleCheckpoint(binding, { exact: true });
-      this.emitSession(binding);
-      this.emitRuntime(binding);
-      throw runtimeError;
-    }
+    });
   }
 
   canSteer(agentId) {
     const binding = this.bindings.get(agentId);
     return binding?.provider === 'codex'
       && binding.supportsSteer === true
-      && binding.promptActive === true
+      && binding.activeTurn?.phase === 'running'
+      && binding.activeTurn?.providerSettled !== true
       && Boolean(binding.sessionId)
       && Boolean(binding.connection);
   }
@@ -1549,12 +1616,15 @@ class AcpRuntime extends EventEmitter {
       rawContent,
       binding.initializeResponse?.agentCapabilities || {},
     );
+    const turn = binding.activeTurn;
+    this.requireCurrentTurn(binding, turn, ['running']);
     const clientMessageId = `farming-steer-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const operation = async () => {
-      this.requireOpenBinding(binding);
-      if (!binding.promptActive) throw new Error('No active Codex turn to steer');
+      this.requireCurrentTurn(binding, turn, ['running']);
+      if (turn.providerSettled) throw new Error('No active Codex turn to steer');
       await this.markCheckpointDirty(binding);
-      this.requireOpenBinding(binding);
+      this.requireCurrentTurn(binding, turn, ['running']);
+      if (turn.providerSettled) throw new Error('No active Codex turn to steer');
       const response = await withTimeout(
         binding.connection.request(CODEX_STEER_METHOD, {
           sessionId: binding.sessionId,
@@ -1564,21 +1634,14 @@ class AcpRuntime extends EventEmitter {
         this.requestTimeoutMs,
         'Codex ACP steer',
       );
-      this.requireOpenBinding(binding);
+      this.requireCurrentTurn(binding, turn, ['running']);
       return {
         sessionId: binding.sessionId,
         turnId: String(response?.turnId || ''),
         clientMessageId,
       };
     };
-    const previous = binding.steerTail || Promise.resolve();
-    const pending = previous.catch(() => {}).then(operation);
-    binding.steerTail = pending;
-    try {
-      return await pending;
-    } finally {
-      if (binding.steerTail === pending) binding.steerTail = null;
-    }
+    return this.enqueueTurnControl(turn, operation);
   }
 
   async cancel(agentId) {
@@ -1586,43 +1649,88 @@ class AcpRuntime extends EventEmitter {
     this.requireOpenBinding(binding);
     if (binding.state === 'closed') throw new Error('ACP session is closed');
     if (!binding.sessionId) return false;
-    if (binding.promptStarting) {
-      const admission = binding.promptAdmission;
-      binding.promptAdmission = null;
-      binding.promptStarting = false;
-      binding.state = admission?.previousState || 'idle';
+    const turn = binding.activeTurn;
+    if (turn?.phase === 'admitting') {
+      this.cancelAdmittingTurn(binding, turn);
       return true;
     }
-    binding.state = 'interrupting';
-    for (const resolve of binding.permissionResolvers.values()) {
-      resolve({ outcome: { outcome: 'cancelled' } });
+    if (!turn && (
+      binding.sessionMutation
+      || binding.configMutationTail
+      || binding.patchDecisionInFlight.size > 0
+    )) {
+      throw new Error(`ACP Agent is not ready for cancellation (${binding.state})`);
     }
-    for (const resolve of binding.elicitationResolvers.values()) resolve({ action: 'cancel' });
-    binding.permissionResolvers.clear();
-    binding.pendingPermissions.clear();
-    binding.elicitationResolvers.clear();
-    binding.pendingElicitations.clear();
-    binding.activeElicitations.clear();
-    binding.interactionOrigins.clear();
-    this.emitRuntime(binding);
-    try {
+    if (turn?.cancelPromise) return turn.cancelPromise;
+
+    const stateBeforeCancellation = binding.state;
+    let cancelAcknowledged = false;
+    const cancelOperation = async () => {
+      if (turn) {
+        this.requireCurrentTurn(binding, turn, ['running']);
+        if (turn.providerSettled) throw new Error('No active turn to cancel');
+        turn.phase = 'cancelling';
+      }
+      binding.state = 'interrupting';
+      for (const resolve of binding.permissionResolvers.values()) {
+        resolve({ outcome: { outcome: 'cancelled' } });
+      }
+      for (const resolve of binding.elicitationResolvers.values()) resolve({ action: 'cancel' });
+      binding.permissionResolvers.clear();
+      binding.pendingPermissions.clear();
+      binding.elicitationResolvers.clear();
+      binding.pendingElicitations.clear();
+      binding.activeElicitations.clear();
+      binding.interactionOrigins.clear();
+      this.emitRuntime(binding);
       await withTimeout(
         binding.connection.cancel({ sessionId: binding.sessionId }),
         this.cancelTimeoutMs,
         'ACP session/cancel'
       );
       this.requireOpenBinding(binding);
+      cancelAcknowledged = true;
       return true;
-    } catch (error) {
-      const runtimeError = new Error(acpErrorMessage(error), { cause: error });
-      if (!this.isOpenBinding(binding)) throw runtimeError;
-      binding.state = 'error';
-      binding.error = runtimeError.message;
-      binding.stopReason = 'cancel_error';
-      binding.updatedAt = new Date().toISOString();
-      this.emitSession(binding);
-      this.emitRuntime(binding);
-      throw runtimeError;
+    };
+    const cancellation = (async () => {
+      try {
+        if (turn) await this.enqueueTurnControl(turn, cancelOperation);
+        else await cancelOperation();
+        if (!turn) {
+          if (binding.state === 'interrupting') {
+            binding.state = ['idle', 'error'].includes(stateBeforeCancellation)
+              ? stateBeforeCancellation
+              : 'idle';
+          }
+          binding.updatedAt = new Date().toISOString();
+          this.emitRuntime(binding);
+          return true;
+        }
+        await withTimeout(turn.completion, this.cancelTimeoutMs, 'ACP turn cancellation');
+        return true;
+      } catch (error) {
+        const runtimeError = new Error(acpErrorMessage(error), { cause: error });
+        if (!this.isOpenBinding(binding)) throw runtimeError;
+        const markBlocked = () => {
+          if (turn && binding.activeTurn !== turn) return;
+          if (turn) turn.phase = 'blocked';
+          binding.state = 'error';
+          binding.error = runtimeError.message;
+          binding.stopReason = turn && cancelAcknowledged ? 'cancel_timeout' : 'cancel_error';
+          binding.updatedAt = new Date().toISOString();
+          this.emitSession(binding);
+          this.emitRuntime(binding);
+        };
+        if (turn) await this.enqueueTurnControl(turn, markBlocked);
+        else markBlocked();
+        throw runtimeError;
+      }
+    })();
+    if (turn) turn.cancelPromise = cancellation;
+    try {
+      return await cancellation;
+    } finally {
+      if (turn?.cancelPromise === cancellation) turn.cancelPromise = null;
     }
   }
 
@@ -1689,40 +1797,53 @@ class AcpRuntime extends EventEmitter {
     const binding = this.requireBinding(agentId);
     this.requireOpenBinding(binding);
     if (binding.state === 'closed') throw new Error('ACP session is closed');
+    const mutation = this.beginSessionMutation(binding, 'authentication');
     const method = binding.initializeResponse?.authMethods?.find(item => item.id === methodId);
-    if (!method) throw new Error('Unknown ACP authentication method');
-    if (method.type === 'terminal' || method?._meta?.['terminal-auth']) {
-      return this.startTerminalAuthentication(binding, method);
+    let terminalReservationTransferred = false;
+    try {
+      if (!method) throw new Error('Unknown ACP authentication method');
+      if (method.type === 'terminal' || method?._meta?.['terminal-auth']) {
+        const result = await this.startTerminalAuthentication(binding, method, mutation);
+        terminalReservationTransferred = true;
+        return result;
+      }
+      await withTimeout(
+        binding.connection.authenticate({ methodId }),
+        this.requestTimeoutMs,
+        'ACP authenticate'
+      );
+      this.requireOpenBinding(binding);
+      binding.error = '';
+      binding.stopReason = '';
+      binding.state = interactiveRuntimeState(binding, 'idle');
+      binding.updatedAt = new Date().toISOString();
+      this.emitRuntime(binding);
+      this.emitSession(binding);
+      return { authenticated: true, methodId };
+    } finally {
+      if (!terminalReservationTransferred) this.endSessionMutation(binding, mutation);
     }
-    await withTimeout(
-      binding.connection.authenticate({ methodId }),
-      this.requestTimeoutMs,
-      'ACP authenticate'
-    );
-    this.requireOpenBinding(binding);
-    binding.error = '';
-    binding.stopReason = '';
-    binding.state = interactiveRuntimeState(binding, 'idle');
-    binding.updatedAt = new Date().toISOString();
-    this.emitRuntime(binding);
-    this.emitSession(binding);
-    return { authenticated: true, methodId };
   }
 
   async logout(agentId) {
     const binding = this.requireBinding(agentId);
     this.requireOpenBinding(binding);
-    if (binding.initializeResponse?.agentCapabilities?.auth?.logout == null) {
-      throw new Error(`${binding.provider} ACP Agent does not support logout`);
+    const mutation = this.beginSessionMutation(binding, 'logout');
+    try {
+      if (binding.initializeResponse?.agentCapabilities?.auth?.logout == null) {
+        throw new Error(`${binding.provider} ACP Agent does not support logout`);
+      }
+      await withTimeout(binding.connection.logout({}), this.requestTimeoutMs, 'ACP logout');
+      this.requireOpenBinding(binding);
+      binding.error = '';
+      binding.stopReason = '';
+      binding.updatedAt = new Date().toISOString();
+      this.emitRuntime(binding);
+      this.emitSession(binding);
+      return { loggedOut: true };
+    } finally {
+      this.endSessionMutation(binding, mutation);
     }
-    await withTimeout(binding.connection.logout({}), this.requestTimeoutMs, 'ACP logout');
-    this.requireOpenBinding(binding);
-    binding.error = '';
-    binding.stopReason = '';
-    binding.updatedAt = new Date().toISOString();
-    this.emitRuntime(binding);
-    this.emitSession(binding);
-    return { loggedOut: true };
   }
 
   terminalAuthenticationLaunch(binding, method) {
@@ -1742,8 +1863,9 @@ class AcpRuntime extends EventEmitter {
     };
   }
 
-  async startTerminalAuthentication(binding, method) {
+  async startTerminalAuthentication(binding, method, mutation) {
     this.requireOpenBinding(binding);
+    if (binding.sessionMutation !== mutation) throw new Error('ACP authentication reservation is no longer active');
     if (binding.authTerminal?.state === 'running') throw new Error('ACP terminal authentication is already running');
     const launch = this.terminalAuthenticationLaunch(binding, method);
     const created = await this.clientTerminals.create(binding, {
@@ -1781,10 +1903,11 @@ class AcpRuntime extends EventEmitter {
       sessionId: binding.sessionId,
       terminalId: created.terminalId,
     })).then(async exit => {
-      if (!this.isOpenBinding(binding)) return;
+      if (!this.isOpenBinding(binding) || binding.sessionMutation !== mutation) return;
       if (exit.exitCode !== 0) {
         binding.authTerminal.state = 'failed';
         binding.authTerminal.error = `Sign-in command exited ${exit.exitCode ?? exit.signal ?? ''}`.trim();
+        this.endSessionMutation(binding, mutation);
         binding.updatedAt = new Date().toISOString();
         this.emitRuntime(binding);
         this.emitSession(binding);
@@ -1793,18 +1916,20 @@ class AcpRuntime extends EventEmitter {
       binding.authTerminal.state = 'completed';
       binding.updatedAt = new Date().toISOString();
       this.emitSession(binding);
-      await this.restartAgentConnection(binding.agentId).catch(error => {
+      await this.restartAgentConnection(binding.agentId, mutation).catch(error => {
         const current = this.bindings.get(binding.agentId);
         if (current !== binding || current.exited) return;
+        this.endSessionMutation(current, mutation);
         current.state = 'error';
         current.error = acpErrorMessage(error);
         current.updatedAt = new Date().toISOString();
         this.emitRuntime(current);
       });
     }).catch(error => {
-      if (!this.isOpenBinding(binding)) return;
+      if (!this.isOpenBinding(binding) || binding.sessionMutation !== mutation) return;
       binding.authTerminal.state = 'failed';
       binding.authTerminal.error = acpErrorMessage(error);
+      this.endSessionMutation(binding, mutation);
       binding.updatedAt = new Date().toISOString();
       this.emitRuntime(binding);
       this.emitSession(binding);
@@ -1812,9 +1937,15 @@ class AcpRuntime extends EventEmitter {
     return { authenticated: false, methodId: method.id, terminalId: created.terminalId };
   }
 
-  async restartAgentConnection(agentId) {
+  async restartAgentConnection(agentId, mutation = null) {
     const binding = this.requireBinding(agentId);
     this.requireOpenBinding(binding);
+    if (binding.activeTurn || (binding.sessionMutation && binding.sessionMutation !== mutation)) {
+      throw new Error(`ACP Agent is not ready for restart (${binding.state})`);
+    }
+    if (mutation && binding.sessionMutation !== mutation) {
+      throw new Error('ACP restart reservation is no longer active');
+    }
     const revisionBase = Number(binding.sessionState?.revision || 0);
     const options = {
       ...binding.restartOptions,
@@ -1827,7 +1958,7 @@ class AcpRuntime extends EventEmitter {
       ...(revisionBase > 0 ? { revisionBase } : {}),
       ...(binding.sessionId ? { historyMode: 'checkpoint' } : {}),
     };
-    if (binding.sessionState && !binding.promptActive) {
+    if (binding.sessionState && !binding.activeTurn) {
       await this.writeCheckpoint(binding, { exact: true });
     }
     this.requireOpenBinding(binding);
@@ -2209,8 +2340,7 @@ class AcpRuntime extends EventEmitter {
     if (
       binding.sessionMutation
       || binding.configMutationTail
-      || binding.promptStarting
-      || binding.promptActive
+      || binding.activeTurn
       || !['idle', 'error'].includes(binding.state)
     ) {
       throw new Error('Wait for the Agent to finish before deciding a patch');
@@ -2400,10 +2530,9 @@ class AcpRuntime extends EventEmitter {
   handleExit(binding, error) {
     if (!this.isCurrentBinding(binding) || binding.exited) return;
     binding.exited = true;
-    binding.promptAdmission = null;
-    binding.promptStarting = false;
-    const promptWasActive = binding.promptActive;
-    binding.promptActive = false;
+    const turn = binding.activeTurn;
+    const promptWasActive = Boolean(turn && turn.phase !== 'admitting');
+    binding.activeTurn = null;
     if (error) {
       binding.state = 'error';
       binding.error = acpErrorMessage(error);
@@ -2415,6 +2544,10 @@ class AcpRuntime extends EventEmitter {
     if (promptWasActive && binding.sessionState) {
       if (error) binding.sessionState.recordError(binding.error, acpErrorKind(error));
       binding.sessionState.completePrompt(binding.stopReason);
+    }
+    if (turn) {
+      turn.phase = 'completed';
+      turn.resolveCompletion({ status: 'connection-closed', error: error || null });
     }
     for (const resolve of binding.permissionResolvers.values()) {
       resolve({ outcome: { outcome: 'cancelled' } });
@@ -2434,11 +2567,15 @@ class AcpRuntime extends EventEmitter {
 
   detachAgentBinding(binding, options = {}) {
     if (!binding || this.bindings.get(binding.agentId) !== binding) return false;
-    if (binding.sessionState && !binding.promptActive) this.scheduleCheckpoint(binding, { exact: true });
+    if (binding.sessionState && !binding.activeTurn) this.scheduleCheckpoint(binding, { exact: true });
     if (options.retainForCleanup !== true) this.bindings.delete(binding.agentId);
     binding.exited = true;
-    binding.promptAdmission = null;
-    binding.promptStarting = false;
+    const turn = binding.activeTurn;
+    binding.activeTurn = null;
+    if (turn) {
+      turn.phase = 'completed';
+      turn.resolveCompletion({ status: 'binding-detached' });
+    }
     for (const resolve of binding.permissionResolvers.values()) resolve({ outcome: { outcome: 'cancelled' } });
     for (const resolve of binding.elicitationResolvers.values()) resolve({ action: 'cancel' });
     binding.permissionResolvers.clear();
@@ -2501,7 +2638,7 @@ class AcpRuntime extends EventEmitter {
 
   async performDispose() {
     for (const binding of this.bindings.values()) {
-      if (binding.sessionState && !binding.promptActive) this.scheduleCheckpoint(binding, { exact: true });
+      if (binding.sessionState && !binding.activeTurn) this.scheduleCheckpoint(binding, { exact: true });
     }
     if (this.checkpointStore) await this.checkpointStore.flush();
     const failures = [];

@@ -709,13 +709,33 @@ async function run() {
     });
     const activePrompt = runtime.prompt('agent-acp-close-during-prompt', 'mobile interrupt');
     for (let attempt = 0; attempt < 100; attempt += 1) {
-      if (runtime.bindings.get('agent-acp-close-during-prompt').promptActive) break;
+      if (runtime.bindings.get('agent-acp-close-during-prompt').activeTurn?.phase === 'running') break;
       await new Promise(resolve => setTimeout(resolve, 10));
     }
     await assert.rejects(
       runtime.closeSession('agent-acp-close-during-prompt'),
       /not ready/,
       'session close must not race an active prompt',
+    );
+    let promptRaceAuthenticationCalls = 0;
+    const closeDuringPromptAuthenticate = runtime.bindings
+      .get('agent-acp-close-during-prompt').connection.authenticate;
+    runtime.bindings.get('agent-acp-close-during-prompt').connection.authenticate = async request => {
+      promptRaceAuthenticationCalls += 1;
+      return closeDuringPromptAuthenticate.call(
+        runtime.bindings.get('agent-acp-close-during-prompt').connection,
+        request,
+      );
+    };
+    await assert.rejects(
+      runtime.authenticate('agent-acp-close-during-prompt', 'fake-login'),
+      /not ready/,
+      'authentication must not race an active prompt',
+    );
+    assert.strictEqual(
+      promptRaceAuthenticationCalls,
+      0,
+      'authentication must be rejected before any provider side effect',
     );
     await runtime.cancel('agent-acp-close-during-prompt');
     assert.strictEqual((await activePrompt).stopReason, 'cancelled');
@@ -744,8 +764,7 @@ async function run() {
     const configChange = runtime.setSessionConfigOption('agent-acp-config-isolation', 'toggle', true);
     const promptAfterConfig = runtime.prompt('agent-acp-config-isolation', 'prompt after config');
     await new Promise(resolve => setImmediate(resolve));
-    assert.strictEqual(configBinding.promptStarting, true);
-    assert.strictEqual(configBinding.promptActive, false);
+    assert.strictEqual(configBinding.activeTurn?.phase, 'admitting');
     assert.strictEqual(configBinding.sessionState.entries.length, 0);
     releaseConfig();
     await configChange;
@@ -845,8 +864,11 @@ async function run() {
     });
     const markCheckpointDirty = runtime.markCheckpointDirty.bind(runtime);
     let releasePromptAdmission;
+    let blockFirstPromptAdmission = true;
     runtime.markCheckpointDirty = async binding => {
       if (binding.agentId !== 'agent-acp-prompt-cancel') return markCheckpointDirty(binding);
+      if (!blockFirstPromptAdmission) return markCheckpointDirty(binding);
+      blockFirstPromptAdmission = false;
       await new Promise(resolve => {
         releasePromptAdmission = resolve;
       });
@@ -854,10 +876,140 @@ async function run() {
     const cancelledAdmission = runtime.prompt('agent-acp-prompt-cancel', 'cancel before provider submission');
     await new Promise(resolve => setImmediate(resolve));
     assert.strictEqual(await runtime.cancel('agent-acp-prompt-cancel'), true);
+    const replacementAfterAdmissionCancel = runtime.prompt(
+      'agent-acp-prompt-cancel',
+      'replacement after admission cancellation',
+    );
     releasePromptAdmission();
     await assert.rejects(cancelledAdmission, /cancelled before submission/);
-    assert.strictEqual(runtime.getSession('agent-acp-prompt-cancel').entries.length, 0);
+    assert.strictEqual((await replacementAfterAdmissionCancel).stopReason, 'end_turn');
+    assert.deepStrictEqual(
+      runtime.getSession('agent-acp-prompt-cancel').entries
+        .filter(entry => entry.role === 'user')
+        .map(entry => entry.content[0].text),
+      ['replacement after admission cancellation'],
+      'a cancelled admission must not clear or commit over the replacement Turn',
+    );
     runtime.markCheckpointDirty = markCheckpointDirty;
+
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-steer-completion-race',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'full',
+    });
+    const steerCompletionBinding = runtime.bindings.get('agent-acp-steer-completion-race');
+    let resolveSteerCompletionPrompt;
+    steerCompletionBinding.connection.prompt = () => new Promise(resolve => {
+      resolveSteerCompletionPrompt = resolve;
+    });
+    const steerCompletionPrompt = runtime.prompt('agent-acp-steer-completion-race', 'turn ending during steer admission');
+    while (steerCompletionBinding.activeTurn?.phase !== 'running') {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    let releaseSteerCheckpoint;
+    runtime.markCheckpointDirty = async binding => {
+      if (binding !== steerCompletionBinding) return markCheckpointDirty(binding);
+      await new Promise(resolve => {
+        releaseSteerCheckpoint = resolve;
+      });
+    };
+    let staleSteerRequests = 0;
+    steerCompletionBinding.connection.request = async () => {
+      staleSteerRequests += 1;
+      return { turnId: 'must-not-be-sent' };
+    };
+    const staleSteer = runtime.steer('agent-acp-steer-completion-race', 'too late');
+    await new Promise(resolve => setImmediate(resolve));
+    resolveSteerCompletionPrompt({ stopReason: 'end_turn' });
+    await new Promise(resolve => setImmediate(resolve));
+    releaseSteerCheckpoint();
+    await assert.rejects(staleSteer, /No active Codex turn to steer/);
+    assert.strictEqual(staleSteerRequests, 0, 'steer must revalidate the exact Turn after checkpoint IO');
+    assert.strictEqual((await steerCompletionPrompt).stopReason, 'end_turn');
+    runtime.markCheckpointDirty = markCheckpointDirty;
+
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-steer-cancel-order',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'full',
+    });
+    const steerCancelBinding = runtime.bindings.get('agent-acp-steer-cancel-order');
+    let resolveSteerCancelPrompt;
+    steerCancelBinding.connection.prompt = () => new Promise(resolve => {
+      resolveSteerCancelPrompt = resolve;
+    });
+    const steerCancelPrompt = runtime.prompt('agent-acp-steer-cancel-order', 'serialize steer then cancel');
+    while (steerCancelBinding.activeTurn?.phase !== 'running') {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    let releaseSteerRequest;
+    let steerRequestStarted;
+    const steerRequestReady = new Promise(resolve => {
+      steerRequestStarted = resolve;
+    });
+    steerCancelBinding.connection.request = () => new Promise(resolve => {
+      releaseSteerRequest = () => resolve({ turnId: 'ordered-turn' });
+      steerRequestStarted();
+    });
+    let orderedCancelRequests = 0;
+    steerCancelBinding.connection.cancel = async () => {
+      orderedCancelRequests += 1;
+      resolveSteerCancelPrompt({ stopReason: 'cancelled' });
+      return {};
+    };
+    const orderedSteer = runtime.steer('agent-acp-steer-cancel-order', 'first control');
+    await steerRequestReady;
+    const orderedCancels = [
+      runtime.cancel('agent-acp-steer-cancel-order'),
+      runtime.cancel('agent-acp-steer-cancel-order'),
+    ];
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(orderedCancelRequests, 0, 'cancel must wait for the admitted steer control operation');
+    releaseSteerRequest();
+    assert.strictEqual((await orderedSteer).turnId, 'ordered-turn');
+    assert.deepStrictEqual(await Promise.all(orderedCancels), [true, true]);
+    assert.strictEqual(orderedCancelRequests, 1, 'duplicate interrupts must join one provider cancellation');
+    assert.strictEqual((await steerCancelPrompt).stopReason, 'cancelled');
+
+    await runtime.prepareAgent({
+      agentId: 'agent-acp-cancel-terminal-proof',
+      provider: 'codex',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'full',
+    });
+    const cancelProofBinding = runtime.bindings.get('agent-acp-cancel-terminal-proof');
+    let resolveCancelProofPrompt;
+    cancelProofBinding.connection.prompt = () => new Promise(resolve => {
+      resolveCancelProofPrompt = resolve;
+    });
+    cancelProofBinding.connection.cancel = async () => ({});
+    const cancelProofPrompt = runtime.prompt('agent-acp-cancel-terminal-proof', 'provider delays terminal result');
+    while (cancelProofBinding.activeTurn?.phase !== 'running') {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    const originalCancelTimeoutMs = runtime.cancelTimeoutMs;
+    runtime.cancelTimeoutMs = 20;
+    await assert.rejects(
+      runtime.cancel('agent-acp-cancel-terminal-proof'),
+      /ACP turn cancellation timed out/,
+    );
+    assert.strictEqual(cancelProofBinding.activeTurn?.phase, 'blocked');
+    assert.strictEqual(runtime.getSession('agent-acp-cancel-terminal-proof').state, 'error');
+    assert.strictEqual(runtime.getSession('agent-acp-cancel-terminal-proof').stopReason, 'cancel_timeout');
+    await assert.rejects(
+      runtime.prompt('agent-acp-cancel-terminal-proof', 'must not pass unresolved cancellation'),
+      /not ready/,
+    );
+    resolveCancelProofPrompt({ stopReason: 'cancelled' });
+    assert.strictEqual((await cancelProofPrompt).stopReason, 'cancelled');
+    assert.strictEqual(cancelProofBinding.activeTurn, null);
+    assert.strictEqual(runtime.getSession('agent-acp-cancel-terminal-proof').state, 'idle');
+    runtime.cancelTimeoutMs = originalCancelTimeoutMs;
 
     await runtime.prepareAgent({
       agentId: 'agent-acp-binding-fence',
@@ -874,7 +1026,7 @@ async function run() {
     });
     const stalePrompt = runtime.prompt('agent-acp-binding-fence', 'old binding prompt');
     await new Promise(resolve => setImmediate(resolve));
-    assert.strictEqual(staleBinding.promptActive, true);
+    assert.strictEqual(staleBinding.activeTurn?.phase, 'running');
     runtime.unregisterAgent('agent-acp-binding-fence');
     await runtime.prepareAgent({
       agentId: 'agent-acp-binding-fence',
@@ -975,7 +1127,7 @@ async function run() {
     runtime.handleExit(exitingBinding, new Error('duplicate close notification'));
     const exitedSession = runtime.getSession('agent-acp-exit-during-prompt');
     assert.strictEqual(exitedSession.state, 'error');
-    assert.strictEqual(exitingBinding.promptActive, false);
+    assert.strictEqual(exitingBinding.activeTurn, null);
     assert.strictEqual(
       exitedSession.entries.filter(entry => entry.type === 'error').length,
       1,
@@ -1216,6 +1368,16 @@ async function run() {
     const revisionBeforeTerminalAuth = bindingBeforeTerminalAuth.sessionState.revision;
     const terminalAuthentication = await runtime.authenticate('agent-acp-client-services', 'fake-terminal-login');
     assert.strictEqual(terminalAuthentication.authenticated, false);
+    await assert.rejects(
+      runtime.prompt('agent-acp-client-services', 'must wait for terminal authentication'),
+      /not ready/,
+      'terminal authentication must retain its Agent reservation until restart completes',
+    );
+    await assert.rejects(
+      runtime.cancel('agent-acp-client-services'),
+      /not ready for cancellation/,
+      'interrupt must not overlap the terminal authentication reservation',
+    );
     let terminalAuthenticationSnapshot;
     for (let attempt = 0; attempt < 250; attempt += 1) {
       terminalAuthenticationSnapshot = runtime.getSession('agent-acp-client-services').authTerminal;
@@ -1438,7 +1600,7 @@ async function run() {
     assert.strictEqual(runtime.getSession('agent-acp-permission').pendingPermissions.length, 1);
     assert.strictEqual(await runtime.cancel('agent-acp-permission'), true);
     assert.strictEqual(runtime.getSession('agent-acp-permission').pendingPermissions.length, 0);
-    assert.strictEqual(runtime.getSession('agent-acp-permission').state, 'interrupting');
+    assert.strictEqual(runtime.getSession('agent-acp-permission').state, 'idle');
     assert.deepStrictEqual(await cancelledPermission, { outcome: { outcome: 'cancelled' } });
 
     const timeoutBinding = runtime.bindings.get('agent-acp-new');
