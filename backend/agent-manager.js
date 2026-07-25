@@ -6406,8 +6406,8 @@ class AgentManager extends EventEmitter {
         agent.id,
         { expectedRevision, requireLoad: true },
         sourceBinding => {
-          const forkSourceCheckpoint = sourceBinding.sessionState?.exportCheckpoint();
-          if (!forkSourceCheckpoint) {
+          const forkSourceCheckpoint = this.acpRuntime.bindingCheckpoint(sourceBinding).exportCheckpoint();
+          if (!forkSourceCheckpoint?.sessionState) {
             throw new Error('ACP fork source transcript is unavailable');
           }
           return new Promise(resolve => {
@@ -6482,7 +6482,8 @@ class AgentManager extends EventEmitter {
       try {
         await this.acpRuntime.deleteSession(agent.id, preparedSessionId);
       } catch (cleanupError) {
-        result.error = `${result.error}; forked session cleanup failed: ${cleanupError.message || cleanupError}`;
+        result.retainedProviderSessionId = preparedSessionId;
+        result.error = `${result.error}; forked session ${preparedSessionId} cleanup failed: ${cleanupError.message || cleanupError}`;
       }
     }
     return result;

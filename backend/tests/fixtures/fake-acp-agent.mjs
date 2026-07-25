@@ -185,6 +185,13 @@ class FakeAgent {
   }
 
   async unstable_forkSession() {
+    await client.sessionUpdate({
+      sessionId: 'acp-fork-session',
+      update: {
+        sessionUpdate: 'available_commands_update',
+        availableCommands: [],
+      },
+    });
     return { sessionId: 'acp-fork-session' };
   }
 

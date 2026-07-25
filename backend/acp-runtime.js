@@ -502,6 +502,9 @@ class AcpRuntime extends EventEmitter {
     const requestedSessionId = String(options.sessionId || '').trim();
     const forkSourceSessionId = String(options.forkSourceSessionId || '').trim();
     const forkSourceCheckpoint = options.forkSourceCheckpoint || null;
+    const forkSourceSessionCheckpoint = forkSourceCheckpoint?.version === 2
+      ? forkSourceCheckpoint.sessionState
+      : forkSourceCheckpoint;
     const revisionBase = Number.isFinite(Number(options.revisionBase))
       ? Math.max(0, Math.floor(Number(options.revisionBase)))
       : 0;
@@ -516,16 +519,16 @@ class AcpRuntime extends EventEmitter {
       if (!forkSourceCheckpoint) {
         throw new Error('ACP fork startup requires an exact source checkpoint');
       }
-      const checkpointCwd = String(forkSourceCheckpoint.cwd || '').trim();
+      const checkpointCwd = String(forkSourceSessionCheckpoint?.cwd || '').trim();
       if (
-        String(forkSourceCheckpoint.provider || '') !== provider
-        || String(forkSourceCheckpoint.sessionId || '') !== forkSourceSessionId
+        String(forkSourceSessionCheckpoint?.provider || '') !== provider
+        || String(forkSourceSessionCheckpoint?.sessionId || '') !== forkSourceSessionId
         || !checkpointCwd
         || path.resolve(checkpointCwd) !== cwd
       ) {
         throw new Error('ACP fork source checkpoint does not match the requested source');
       }
-      forkSourceCheckpointState = AcpSessionState.fromCheckpoint(forkSourceCheckpoint, {
+      forkSourceCheckpointState = AcpSessionState.fromCheckpoint(forkSourceSessionCheckpoint, {
         provider,
         sessionId: forkSourceSessionId,
         cwd,
@@ -718,16 +721,22 @@ class AcpRuntime extends EventEmitter {
         );
         this.requireOpenBinding(binding);
         const forkUpdates = binding.subagentStates.get(forkedSessionId);
+        const restoredForkSource = this.restoreBindingCheckpoint(binding, forkSourceCheckpoint, {
+          sessionId: forkedSessionId,
+        });
+        if (!restoredForkSource) {
+          throw new Error('ACP fork source checkpoint could not be restored');
+        }
         binding.sessionId = forkedSessionId;
-        binding.sessionState = forkSourceCheckpointState;
-        binding.sessionState.setSessionId(forkedSessionId);
+        binding.sessionState = restoredForkSource.sessionState;
+        binding.subagentStates = restoredForkSource.subagentStates;
+        binding.patchDecisions = restoredForkSource.patchDecisions;
         delete binding.restartOptions.forkSourceSessionId;
         delete binding.restartOptions.forkSourceCheckpoint;
         delete binding.restartOptions.onForkSessionCreated;
-        if (forkUpdates?.availableCommands?.length > 0) {
+        if (forkUpdates?.updates?.some(item => item?.update?.sessionUpdate === 'available_commands_update')) {
           binding.sessionState.availableCommands = clone(forkUpdates.availableCommands);
         }
-        binding.subagentStates.clear();
         sessionResponse = {
           ...loadedSource,
           ...forked,

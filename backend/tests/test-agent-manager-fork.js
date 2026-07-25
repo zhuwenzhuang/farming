@@ -359,6 +359,9 @@ async function run() {
         sessionState: {
           exportCheckpoint: () => exactClaudeForkCheckpoint,
         },
+        subagentStates: new Map(),
+        patchDecisions: new Map(),
+        checkpointProof: null,
       });
     };
     manager.acpRuntime.prepareAgent = async options => {
@@ -376,7 +379,8 @@ async function run() {
     assert.strictEqual(ownedClaudeForkOptions.requireLoad, true);
     assert.strictEqual(ownedClaudePrepareOptions.sessionId, '');
     assert.strictEqual(ownedClaudePrepareOptions.forkSourceSessionId, claudeSessionId);
-    assert.strictEqual(ownedClaudePrepareOptions.forkSourceCheckpoint, exactClaudeForkCheckpoint);
+    assert.strictEqual(ownedClaudePrepareOptions.forkSourceCheckpoint.version, 2);
+    assert.strictEqual(ownedClaudePrepareOptions.forkSourceCheckpoint.sessionState, exactClaudeForkCheckpoint);
     const ownedClaudeForkAgent = manager.agents.get(ownedClaudeFork.agentId);
     assert.strictEqual(ownedClaudeForkAgent.parentAgentId, resumedClaudeId);
     assert.strictEqual(ownedClaudeForkAgent.providerSessionId, ownedClaudeForkSessionId);
@@ -414,6 +418,27 @@ async function run() {
       ['child-stopped', 'provider-session-deleted'],
       'startup rollback must stop the child process before deleting the exact fork identity',
     );
+    const failedOwnedClaudeForkCleanupSessionId = 'cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa';
+    manager.acpRuntime.prepareAgent = async options => {
+      await options.onForkSessionCreated(failedOwnedClaudeForkCleanupSessionId);
+      const error = new Error('simulated owned fork cleanup failure');
+      Object.defineProperty(error, 'runtimeCleanupAttempted', { value: true });
+      Object.defineProperty(error, 'runtimeCleanupVerified', { value: true });
+      throw error;
+    };
+    manager.acpRuntime.deleteSession = async () => {
+      throw new Error('simulated provider session deletion failure');
+    };
+    const failedOwnedClaudeForkCleanup = await manager.forkAgent(resumedClaudeId, 'same-worktree', {
+      targetRuntime: 'chat',
+      expectedRevision: 23,
+    });
+    assert.strictEqual(
+      failedOwnedClaudeForkCleanup.retainedProviderSessionId,
+      failedOwnedClaudeForkCleanupSessionId,
+    );
+    assert.match(failedOwnedClaudeForkCleanup.error, new RegExp(failedOwnedClaudeForkCleanupSessionId));
+    assert.match(failedOwnedClaudeForkCleanup.error, /simulated provider session deletion failure/);
     const retainedOwnedClaudeForkSessionId = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff';
     manager.acpRuntime.prepareAgent = async options => {
       await options.onForkSessionCreated(retainedOwnedClaudeForkSessionId);

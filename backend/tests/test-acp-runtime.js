@@ -504,6 +504,31 @@ async function run() {
       },
     });
     exactForkSource.completePrompt();
+    exactForkSource.availableCommands = [{ name: 'source-only', description: 'Source command' }];
+    const exactForkSubagent = new AcpSessionState({
+      provider: 'claude',
+      sessionId: 'exact-fork-subagent',
+      cwd: process.cwd(),
+    });
+    exactForkSubagent.apply({
+      sessionId: 'exact-fork-subagent',
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'exact-fork-subagent-answer',
+        content: { type: 'text', text: 'exact fork subagent answer' },
+      },
+    });
+    const exactForkCheckpoint = {
+      version: 2,
+      complete: false,
+      sessionState: exactForkSource.exportCheckpoint(),
+      subagentStates: [{
+        sessionId: 'exact-fork-subagent',
+        state: exactForkSubagent.exportCheckpoint(),
+      }],
+      patchDecisions: [['exact-fork-tool\nREADME.md', 'kept']],
+      providerProof: { token: 'source-only-proof' },
+    };
     let announcedOwnedForkSessionId = '';
     const ownedFork = await runtime.prepareAgent({
       agentId: 'agent-acp-owned-fork',
@@ -512,7 +537,7 @@ async function run() {
       env: process.env,
       approvalMode: 'full',
       forkSourceSessionId: 'existing-session',
-      forkSourceCheckpoint: exactForkSource.exportCheckpoint(),
+      forkSourceCheckpoint: exactForkCheckpoint,
       onForkSessionCreated: sessionId => {
         announcedOwnedForkSessionId = sessionId;
       },
@@ -526,6 +551,16 @@ async function run() {
     assert.strictEqual(ownedForkBinding.restartOptions.forkSourceSessionId, undefined);
     assert.strictEqual(ownedForkBinding.restartOptions.forkSourceCheckpoint, undefined);
     assert.strictEqual(ownedForkBinding.restartOptions.onForkSessionCreated, undefined);
+    assert.strictEqual(ownedForkBinding.checkpointProof, null);
+    assert.strictEqual(ownedForkSession.availableCommands.length, 0);
+    assert.strictEqual(
+      runtime.getSubagentTranscriptSession('agent-acp-owned-fork', 'exact-fork-subagent').entries[0].content[0].text,
+      'exact fork subagent answer',
+    );
+    assert.strictEqual(
+      runtime.getPatchDecision('agent-acp-owned-fork', 'exact-fork-tool', 'README.md'),
+      'kept',
+    );
     assert(
       ownedForkSession.entries.some(entry => (
         entry.role === 'assistant'
