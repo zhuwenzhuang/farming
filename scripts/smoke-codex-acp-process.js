@@ -112,6 +112,9 @@ async function smokeCodexAcp(options) {
   if (steer?.method !== '_codex/session/steer' || steer?.version !== 1) {
     throw new Error(`Codex ACP initialize omitted the reviewed steer capability: ${JSON.stringify(steer)}`);
   }
+  if (response.result?.agentCapabilities?.sessionCapabilities?.fork == null) {
+    throw new Error('Codex ACP initialize omitted the reviewed session/fork capability');
+  }
   console.log(`✓ Codex ACP process initialized through ${launch.command} ${launch.args.join(' ')}`);
 }
 

@@ -46,7 +46,7 @@ const path = require('path');
 const [packageRoot, upstreamEntry, vendorEntry] = process.argv.slice(2);
 const sha256 = filePath => crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 const expectedUpstream = '7534a0ad3cc4c9affd0b2da5007fa53ea0f1d6fcd71b2c5ef202e2056a976a97';
-const expectedVendor = '39cbae01e336c2ca185d624358e03280d1f6fef6d73bbe42dd9eb77e2b1efb32';
+const expectedVendor = 'e36876cc2250737c719644e6c69ab054a3f8b58071fad45c44407013082942ff';
 if (sha256(upstreamEntry) !== expectedUpstream) {
   throw new Error('Packed install unexpectedly mutated the upstream codex-acp dependency');
 }

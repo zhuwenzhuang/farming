@@ -1,5 +1,5 @@
 diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-index fb338ee..28f5470 100755
+index fb338ee..dde4c00 100755
 --- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 +++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 @@ -23365,6 +23365,7 @@ function createAgentTextThoughtChunk(text, messageId, meta3) {
@@ -11,7 +11,25 @@ index fb338ee..28f5470 100755
 -  return request.method === "authentication/status" || request.method === "authentication/logout" || request.method === LEGACY_SET_SESSION_MODEL_METHOD || request.method === GOAL_CONTROL_METHOD;
 +  return request.method === "authentication/status" || request.method === "authentication/logout" || request.method === LEGACY_SET_SESSION_MODEL_METHOD || request.method === GOAL_CONTROL_METHOD || request.method === STEER_METHOD;
  }
-@@ -26316,6 +26317,14 @@ var CodexAcpClient = class {
+@@ -26065,6 +26066,17 @@ var CodexAcpClient = class {
+       additionalDirectories
+     };
+   }
++  async forkSession(request) {
++    const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
++    await this.refreshSkills(request.cwd, additionalDirectories);
++    const response = await this.codexClient.threadFork({
++      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? []),
++      cwd: request.cwd,
++      modelProvider: await this.getResumeModelProvider(),
++      threadId: request.sessionId
++    });
++    return { sessionId: response.thread.id };
++  }
+   async newSession(request) {
+     const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
+     await this.refreshSkills(request.cwd, additionalDirectories);
+@@ -26316,6 +26328,14 @@ var CodexAcpClient = class {
        serviceTier
      }, onTurnStarted);
    }
@@ -26,7 +44,15 @@ index fb338ee..28f5470 100755
    async setCollaborationMode(sessionId, mode, currentModelId) {
      await this.codexClient.threadSettingsUpdate({
        threadId: sessionId,
-@@ -28210,6 +28219,11 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28202,6 +28222,7 @@ var CodexAcpServer = class _CodexAcpServer {
+         sessionCapabilities: {
+           resume: {},
+           list: {},
++          fork: {},
+           close: {},
+           delete: {},
+           additionalDirectories: {}
+@@ -28210,6 +28231,11 @@ var CodexAcpServer = class _CodexAcpServer {
            acp: false,
            http: true,
            sse: false
@@ -38,7 +64,7 @@ index fb338ee..28f5470 100755
          }
        },
        authMethods: getCodexAuthMethods(_params.clientCapabilities)
-@@ -28248,6 +28262,31 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -28248,6 +28274,31 @@ var CodexAcpServer = class _CodexAcpServer {
          }
          return {};
        }
@@ -70,7 +96,30 @@ index fb338ee..28f5470 100755
      }
    }
    async checkAuthorization() {
-@@ -29805,6 +29844,9 @@ var CodexAppServerClient = class {
+@@ -28473,6 +28524,22 @@ You have been logged out. Please try again.`);
+       ...this.createSessionConfigOptionsResponse(this.getSessionState(sessionId))
+     };
+   }
++  async unstable_forkSession(params) {
++    logger.log("Forking session...", { sessionId: params.sessionId });
++    const sessionState = this.sessions.get(params.sessionId);
++    if (!sessionState) {
++      throw RequestError.invalidParams(void 0, `Unknown session: ${params.sessionId}`);
++    }
++    if (this.activePrompts.has(sessionState.sessionId)) {
++      throw RequestError.invalidRequest({ details: "Cannot fork an active Codex turn" });
++    }
++    const response = await this.runWithProcessCheck(() => this.codexAcpClient.forkSession(params));
++    logger.log("Session forked", {
++      sourceSessionId: params.sessionId,
++      sessionId: response.sessionId
++    });
++    return response;
++  }
+   async resumeSession(params) {
+     logger.log("Resuming session...", { sessionId: params.sessionId });
+     const [sessionId, modelState, modeState] = await this.getOrCreateSession(params);
+@@ -29805,6 +29872,9 @@ var CodexAppServerClient = class {
    async turnStart(params) {
      return await this.sendRequest({ method: "turn/start", params });
    }
@@ -80,7 +129,17 @@ index fb338ee..28f5470 100755
    async runTurn(params, onTurnStarted) {
      const capturedCompletions = [];
      const releaseCapture = this.captureTurnCompletions(params.threadId, (event) => {
-@@ -30595,6 +30637,11 @@ var goalControlParamsParser = external_exports.object({
+@@ -30032,6 +30102,9 @@ var CodexAppServerClient = class {
+   async threadResume(params) {
+     return await this.sendRequest({ method: "thread/resume", params });
+   }
++  async threadFork(params) {
++    return await this.sendRequest({ method: "thread/fork", params });
++  }
+   getThreadSettings(threadId) {
+     return this.threadSettings.get(threadId);
+   }
+@@ -30595,6 +30668,11 @@ var goalControlParamsParser = external_exports.object({
    sessionId: external_exports.string(),
    action: external_exports.enum(["pause", "clear"])
  }).passthrough();
@@ -92,10 +151,10 @@ index fb338ee..28f5470 100755
  if (process.argv.includes("--version")) {
    console.log(`${package_default.name} ${package_default.version}`);
    process.exit(0);
-@@ -30667,5 +30714,5 @@ function startAcpServer() {
+@@ -30667,5 +30745,5 @@ function startAcpServer() {
          codexAcpServer = null;
        }
      });
 -  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).connect(acpJsonStream);
-+  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(STEER_METHOD, steerParamsParser, (ctx) => getAgent().extMethod(STEER_METHOD, ctx.params)).connect(acpJsonStream);
++  }).onRequest(methods.agent.initialize, (ctx) => getAgent().initialize(ctx.params)).onRequest(methods.agent.session.new, (ctx) => getAgent().newSession(ctx.params)).onRequest(methods.agent.session.load, (ctx) => getAgent().loadSession(ctx.params)).onRequest(methods.agent.session.fork, (ctx) => getAgent().unstable_forkSession(ctx.params)).onRequest(methods.agent.session.list, (ctx) => getAgent().listSessions(ctx.params)).onRequest(methods.agent.session.delete, (ctx) => getAgent().deleteSession(ctx.params)).onRequest(methods.agent.session.resume, (ctx) => getAgent().resumeSession(ctx.params)).onRequest(methods.agent.session.close, (ctx) => getAgent().closeSession(ctx.params)).onRequest(methods.agent.session.setMode, (ctx) => getAgent().setSessionMode(ctx.params)).onRequest(methods.agent.session.setConfigOption, (ctx) => getAgent().setSessionConfigOption(ctx.params)).onRequest(methods.agent.authenticate, (ctx) => getAgent().authenticate(ctx.params)).onRequest(methods.agent.logout, (ctx) => getAgent().logout(ctx.params)).onRequest(methods.agent.providers.list, (ctx) => getAgent().listProviders(ctx.params)).onRequest(methods.agent.providers.set, (ctx) => getAgent().setProvider(ctx.params)).onRequest(methods.agent.providers.disable, (ctx) => getAgent().disableProvider(ctx.params)).onRequest(methods.agent.session.prompt, (ctx) => getAgent().prompt(ctx.params, ctx.signal)).onNotification(methods.agent.session.cancel, (ctx) => getAgent().cancel(ctx.params)).onRequest("authentication/status", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/status", ctx.params)).onRequest("authentication/logout", emptyExtensionParamsParser, (ctx) => getAgent().extMethod("authentication/logout", ctx.params)).onRequest(LEGACY_SET_SESSION_MODEL_METHOD, legacySetSessionModelParamsParser, (ctx) => getAgent().extMethod(LEGACY_SET_SESSION_MODEL_METHOD, ctx.params)).onRequest(GOAL_CONTROL_METHOD, goalControlParamsParser, (ctx) => getAgent().extMethod(GOAL_CONTROL_METHOD, ctx.params)).onRequest(STEER_METHOD, steerParamsParser, (ctx) => getAgent().extMethod(STEER_METHOD, ctx.params)).connect(acpJsonStream);
  }

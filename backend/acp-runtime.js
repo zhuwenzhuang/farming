@@ -35,7 +35,7 @@ const CODEX_SET_SESSION_MODEL_METHOD = 'session/set_model';
 const CODEX_STEER_METHOD = '_codex/session/steer';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '1.1.4';
-const CODEX_ACP_SHA256 = '39cbae01e336c2ca185d624358e03280d1f6fef6d73bbe42dd9eb77e2b1efb32';
+const CODEX_ACP_SHA256 = 'e36876cc2250737c719644e6c69ab054a3f8b58071fad45c44407013082942ff';
 const CODEX_ACP_VENDOR_ENTRY = path.join(
   __dirname,
   '..',

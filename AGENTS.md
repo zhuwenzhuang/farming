@@ -76,6 +76,7 @@ Do not maintain public conversation logs. Ordinary Q&A, temporary debugging, and
 - Simplify state machines before adding abstraction: merge behaviorally equivalent states, remove business-meaningless intermediate states, keep one source of truth, and reject illegal transitions at the boundary. After correctness is established, evaluate whether the design is easy to prove, cohesive, loosely coupled, hard to misuse through its API, and clear to operate through the UI.
 - Continuous test capacity is finite. Do not add a fallback product path unless it can be exercised continuously with the same acceptance bar as the primary path. An untested fallback is unsupported behavior, not resilience; prefer one explicit path with a visible bounded failure. Recovery and retry may stay inside that supported implementation, but must not select a second implementation. Diagnostic alternatives must be manually selected and remain outside the product support contract. If an alternate path becomes necessary, either make it the primary path or fund equivalent continuous coverage before shipping it.
 - Add or update tests in proportion to risk.
+- The pinned Codex ACP patch must advertise both the reviewed `_codex/session/steer` extension and standard `session/fork` backed by Codex `thread/fork`; release smoke must fail if either negotiated capability disappears.
 - Preserve visual style when fixing behavior unless the user explicitly asks for a visual change.
 - Do not add, remove, or rewrite visible product copy without a clear product reason.
 
