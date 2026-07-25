@@ -70,6 +70,7 @@ function run() {
     npmSmokeScript.includes('FARMING_NATIVE_PTY_HOST_PERSIST=0')
       && npmSmokeScript.includes('-- /bin/bash')
       && npmSmokeScript.includes("method: 'ping'")
+      && npmSmokeScript.includes("message.id !== 'npm-smoke-ping'")
       && npmSmokeScript.includes('wait_for_process_exit "${SERVER_PID}" "Farming server"')
       && npmSmokeScript.includes('wait_for_process_exit "${NATIVE_HOST_PID}" "native PTY host"')
       && npmSmokeScript.includes('wait_for_process_exit "${MAIN_BASH_PID}" "Main bash"'),

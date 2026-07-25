@@ -149,6 +149,7 @@ const { nativePtyHostSocketPath } = require(path.join(packageRoot, 'backend/nati
 const socketPath = nativePtyHostSocketPath(configDir);
 const socket = net.createConnection(socketPath);
 let buffer = '';
+let identityResolved = false;
 const timeout = setTimeout(() => {
   socket.destroy(new Error(`Timed out reading native PTY host identity from ${socketPath}`));
 }, 5000);
@@ -157,31 +158,41 @@ socket.on('connect', () => {
   socket.write(`${JSON.stringify({ id: 'npm-smoke-ping', method: 'ping', params: {} })}\n`);
 });
 socket.on('data', chunk => {
+  if (identityResolved) return;
   buffer += chunk.toString('utf8');
-  const newline = buffer.indexOf('\n');
-  if (newline < 0) return;
-  clearTimeout(timeout);
-  const message = JSON.parse(buffer.slice(0, newline));
-  const hostPid = Number(message && message.result && message.result.pid);
-  if (!Number.isInteger(hostPid) || hostPid <= 0) {
-    throw new Error(`Native PTY host returned an invalid PID: ${buffer.slice(0, newline)}`);
+  let newline = buffer.indexOf('\n');
+  while (newline >= 0) {
+    const line = buffer.slice(0, newline);
+    buffer = buffer.slice(newline + 1);
+    const message = JSON.parse(line);
+    if (message.id !== 'npm-smoke-ping') {
+      newline = buffer.indexOf('\n');
+      continue;
+    }
+    identityResolved = true;
+    clearTimeout(timeout);
+    const hostPid = Number(message.result && message.result.pid);
+    if (!Number.isInteger(hostPid) || hostPid <= 0) {
+      throw new Error(`Native PTY host returned an invalid PID: ${line}`);
+    }
+    const rows = execFileSync('ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8' })
+      .split(/\r?\n/)
+      .map(row => row.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/))
+      .filter(Boolean)
+      .map(match => ({ pid: Number(match[1]), ppid: Number(match[2]), command: match[3] }));
+    const bashChildren = rows.filter(row => (
+      row.ppid === hostPid && /(?:^|[\s/])bash(?:\s|$)/.test(row.command)
+    ));
+    if (bashChildren.length !== 1) {
+      throw new Error(
+        `Expected one Main bash child of native PTY host ${hostPid}, found ${bashChildren.length}: `
+        + JSON.stringify(rows.filter(row => row.ppid === hostPid)),
+      );
+    }
+    process.stdout.write(`${hostPid} ${bashChildren[0].pid}\n`);
+    socket.end();
+    return;
   }
-  const rows = execFileSync('ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8' })
-    .split(/\r?\n/)
-    .map(line => line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/))
-    .filter(Boolean)
-    .map(match => ({ pid: Number(match[1]), ppid: Number(match[2]), command: match[3] }));
-  const bashChildren = rows.filter(row => (
-    row.ppid === hostPid && /(?:^|[\s/])bash(?:\s|$)/.test(row.command)
-  ));
-  if (bashChildren.length !== 1) {
-    throw new Error(
-      `Expected one Main bash child of native PTY host ${hostPid}, found ${bashChildren.length}: `
-      + JSON.stringify(rows.filter(row => row.ppid === hostPid)),
-    );
-  }
-  process.stdout.write(`${hostPid} ${bashChildren[0].pid}`);
-  socket.end();
 });
 socket.on('error', error => {
   clearTimeout(timeout);
