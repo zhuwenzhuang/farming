@@ -172,6 +172,27 @@ async function cleanupAgents(page: Page) {
   }
 }
 
+async function clearMainPageSessionKeys(page: Page) {
+  try {
+    const response = await page.request.get('/farming/api/settings')
+    if (!response.ok()) return
+    const data = await response.json() as { settings?: { mainPageSessionKeys?: string[] } }
+    const sessionKeys = Array.isArray(data.settings?.mainPageSessionKeys)
+      ? data.settings.mainPageSessionKeys.filter(Boolean)
+      : []
+    for (let offset = 0; offset < sessionKeys.length; offset += 50) {
+      await page.request.post('/farming/api/main-page-agent-sessions', {
+        data: {
+          operation: 'remove',
+          sessionKeys: sessionKeys.slice(offset, offset + 50),
+        },
+      })
+    }
+  } catch {
+    // Best effort isolation; stale membership surfaces through normal UI assertions.
+  }
+}
+
 async function resetSettings(page: Page) {
   try {
     await page.request.post('/farming/api/settings', {
@@ -179,7 +200,6 @@ async function resetSettings(page: Page) {
         lastMainWorkspace: '~/.farming',
         workspaceHistory: [],
         projectWorkspaces: [],
-        mainPageSessionKeys: [],
         defaultLaunchAgent: 'codex',
         instanceName: 'farming-e2e-host',
         appearance: 'light',
@@ -205,6 +225,7 @@ async function resetSettings(page: Page) {
         },
       },
     })
+    await clearMainPageSessionKeys(page)
   } catch {
     // Best effort isolation; failures surface through normal UI assertions.
   }
