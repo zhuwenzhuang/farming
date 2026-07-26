@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  createReviewState,
-  DEFAULT_REVIEW_PREFERENCES,
   reviewFileListDisplayFiles,
   reviewFileListReviewableFiles,
   reviewFileListSections,
@@ -15,10 +13,14 @@ import {
   reviewMarkReviewedAndNavigateIntent,
   reviewStatusChangesForFiles,
   reviewUnreviewedFilePaths,
+} from '../src/lib/review/file-list'
+import {
+  createReviewState,
+  DEFAULT_REVIEW_PREFERENCES,
   transitionReviewState,
   type ReviewCatalog,
   type ReviewFile,
-} from '../src/lib/review-model'
+} from '../src/lib/review/state'
 
 function file(input: Omit<ReviewFile, 'diff'>): ReviewFile {
   return { ...input, diff: { hunks: [] } }

@@ -3,10 +3,8 @@ import test from 'node:test'
 import {
   completeReviewFileDiffLoad,
   failReviewFileDiffLoad,
-  type ReviewCatalog,
-  type ReviewEffect,
-  type ReviewFile,
-} from '../src/lib/review-model'
+} from '../src/lib/review/effects'
+import type { ReviewCatalog, ReviewEffect, ReviewFile } from '../src/lib/review/state'
 
 const effect: Extract<ReviewEffect, { type: 'load-file-diff' }> = {
   patchset: 'Patchset 2',

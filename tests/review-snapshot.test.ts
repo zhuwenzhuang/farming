@@ -3,8 +3,11 @@ import test from 'node:test'
 import {
   commentsForFile,
   createReviewState,
-  createReviewStateFromSnapshot,
   DEFAULT_REVIEW_PREFERENCES,
+  reviewStateForPatchset,
+} from '../src/lib/review/state'
+import {
+  createReviewStateFromSnapshot,
   normalizeReviewGitRevision,
   reviewCatalogFromSnapshot,
   reviewCatalogWithFile,
@@ -12,9 +15,6 @@ import {
   reviewFileMapFromFiles,
   reviewFilesWithUnmodifiedPaths,
   reviewPatchRangeLabel,
-  reviewSnapshotRequestFromLocation,
-  acpReviewCaptureRequestFromSearch,
-  reviewSnapshotRequestFromSearch,
   reviewSnapshotLabel,
   reviewSnapshotIdentity,
   reviewSnapshotFileRequestKey,
@@ -25,9 +25,13 @@ import {
   reviewSnapshotRequestSupportsFileDiff,
   reviewSnapshotRequestSupportsPatchText,
   reviewSnapshotStateKey,
-  reviewStateForPatchset,
   type ReviewDiffSnapshot,
-} from '../src/lib/review-model'
+} from '../src/lib/review/snapshot'
+import {
+  acpReviewCaptureRequestFromSearch,
+  reviewSnapshotRequestFromLocation,
+  reviewSnapshotRequestFromSearch,
+} from '../src/lib/review/route-target'
 
 const snapshot: ReviewDiffSnapshot = {
   basePatchset: 'HEAD~1',

@@ -31,7 +31,7 @@ API 不是 Gerrit `/changes/...` 路由的逐字节复刻。Farming 保留 Gerri
 | Gerrit 概念 | Gerrit API 形态 | Farming foundation |
 | --- | --- | --- |
 | 文件列表元数据 | `GET revision/files` 返回 path-keyed `FileInfo` map | `GET /api/reviews/working-copy` 和 `GET /api/reviews/git-range` 返回 `ReviewFile[]`，但强制 path 唯一，并用 `metadataOnly=1` 支持 file-list-first 加载 |
-| 单文件 inline diff | `GET revision/files/:path/diff` 返回 `DiffInfo` | `GET /api/reviews/{source}/files/:path/diff` 返回一个 loaded `ReviewFile`；真实 Gerrit `DiffInfo` 来源通过 `reviewFileFromGerritFileAndDiffInfo()` 适配 |
+| 单文件 inline diff | `GET revision/files/:path/diff` 返回 `DiffInfo` | `GET /api/reviews/{source}/files/:path/diff` 返回一个 loaded `ReviewFile`；provider-specific 结构化 diff adapter 不在当前产品边界内 |
 | 已 reviewed 文件列表 | `GET revision/files?reviewed` 返回 `string[]` | `GET /api/reviews/:reviewId/revisions/:patchset/files?reviewed` 返回 `string[]` |
 | 标记 reviewed | `PUT revision/files/:path/reviewed` | `PUT /api/reviews/:reviewId/revisions/:patchset/files/:path/reviewed` |
 | 取消 reviewed | `DELETE revision/files/:path/reviewed` | `DELETE /api/reviews/:reviewId/revisions/:patchset/files/:path/reviewed` |
@@ -81,13 +81,11 @@ Review workspace 使用单栏 Gerrit-style file-list-first 布局。按顺序排
 - 可选的 Gerrit `FileInfo` 文件身份 metadata，例如 `oldMode`、`newMode`、`oldSha` 和 `newSha`；
 - additions / deletions 统计；
 - 非行级 diff 的 binary metadata，例如 `binary`、`sizeDelta`、`size`；
-- 后端无法提供完整 inline diff 时的 `diffTooExpensive`、文件级 `truncated` 和 `diff.truncated`；`binary` 在 `ReviewFile` 上是 true-only 稀疏 flag，其它 boolean flag（例如 `diffTooExpensive` 和两个 truncated 字段）如果出现都必须是 boolean，Gerrit adapter 输入只有在外部值严格等于 `true` 时才会启用这些 flag；
+- 后端无法提供完整 inline diff 时的 `diffTooExpensive`、文件级 `truncated` 和 `diff.truncated`；`binary` 在 `ReviewFile` 上是 true-only 稀疏 flag，其它 boolean flag（例如 `diffTooExpensive` 和两个 truncated 字段）如果出现都必须是 boolean；
 - `diffLoaded` 表示 inline diff 是否已经加载：Gerrit `FileInfo` / file-list-only 条目为 `false`，拿到 inline rows 后为 `true`；
 - 可选的 `diff.diffHeader`，用于保留 rename、copy、mode、binary、new-file、deleted-file 等文件级 patch metadata；
-- 可选的 `diff.leftMeta` / `diff.rightMeta`，来自 Gerrit `DiffInfo.meta_a` / `meta_b`，保留左右两侧文件名、content type、行数、语言、web links 和 syntax tree metadata，供未来 binary rendering、代码高亮和左右侧标签使用；
+- 可选的 `diff.leftMeta` / `diff.rightMeta`，由结构化数据源提供，保留左右两侧文件名、content type、行数、语言、web links 和 syntax tree metadata，供未来 binary rendering、代码高亮和左右侧标签使用；
 - `diff.hunks`，其中 row 分为 `context`、`added`、`deleted`、成对的 `changed`，以及 Gerrit 风格的 skipped context。每个 hunk 除展示用 header 外，都必须携带 `oldStart`、`oldLines`、`newStart`、`newLines`，这样渲染和导航逻辑不需要反向解析 `@@ ... @@` 文本。
-- Gerrit 风格的结构化 diff 通过 `src/lib/review/diff-info.ts` 适配。这个适配层保留 `DiffInfo` 中的 `meta_a` / `meta_b`、`diff_header`、`ab`、`a`、`b`、`edit_a` / `edit_b` 行内修改范围、`intraline_status`、忽略空白后的 `common`、`due_to_rebase`、`move_details`，以及 skipped context，再投影到 Farming 的 hunk/row 模型。由于 `DiffInfo` 是外部输入，DiffInfo 值本身必须是 object；缺失或非数组的 `content` 会被归一化为空的 loaded diff，非对象 chunk 会被忽略，`common` 和 `due_to_rebase` 这类 Gerrit boolean flag 只有在严格等于 `true` 时才生效，`diff_header`、`intraline_status`、`meta_a`、`meta_b` 这类辅助 metadata 也只有通过形状校验后才会保留。纯新增文件必须使用统一 diff 的 old side 空范围 `oldStart: 0, oldLines: 0`；纯删除文件必须使用 new side 空范围 `newStart: 0, newLines: 0`。
-当 Gerrit 把 chunk 标成 `common: true` 时，adapter 应保留左右两侧文本并投影成 `whitespaceOnly` 行用于展示，但这类行不能计入 fallback additions/deletions。如果 Gerrit `FileInfo` 已经提供行数统计，则仍以 FileInfo 为权威。
 
 Working copy snapshot 来自 `/api/reviews/working-copy`。Commit range snapshot 来自 `/api/reviews/git-range?agentId=&base=&head=`。
 两个接口返回同一种文件模型，所以 UI 后续可以用同一个 diff surface 渲染不同来源。对应的原始 patch text 接口是 `/api/reviews/working-copy/patch` 和 `/api/reviews/git-range/patch`，并通过 `X-Farming-Review-Truncated` 暴露 file limit 或单文件 diff cap 是否导致了 partial patch。前端调用方应优先使用 `loadReviewDiffSnapshot(request)`、`reviewSnapshotUrl(request)`、结构化的 `loadReviewPatch(request)`，或用于浏览器下载链接的 `reviewPatchUrl(request)`，不要在 UI 里手动选择 endpoint URL。`loadReviewPatchText(request)` 只作为便利函数保留，适用于只需要原始文本、不判断完整性的场景。
@@ -189,8 +187,6 @@ Comment id 的作用域是所属 patchset。Client model 应按 `patchset + id` 
 - `src/lib/review/state.ts` 导出 `reviewPatchsetSummary(state, catalog)`，返回文件数、additions、deletions、reviewed 数和 unreviewed 数；
 - `src/lib/review/api.ts` 导出 `loadReviewDiffSnapshot(request)`、`reviewSnapshotUrl(request)`、`loadReviewFileDiff(request, path)`、`reviewFileDiffUrl(request, path)`、`loadReviewPatch(request)`、`reviewPatchUrl(request)`、`loadReviewPatchText(request)`、Gerrit-style `loadReviewedFiles()`、review comment helper 和单文件 reviewed 写入 helper；snapshot loader 会拒绝显式 source 与 endpoint 不一致的响应，review-state helper 会在 fetch 前拒绝非法 safe key，避免 review identity 在 working-copy 和 git-range surface 之间漂移；
 - `src/lib/review/route-target.ts` 将 `?agentId=...`、`?agentId=...&base=...&head=...` 这类 route query 转成 REST API helper 使用的同一个 `ReviewDiffSnapshotRequest` 模型，也会归一化 `limit`、`context`、`ignoreWhitespace`、`metadataOnly` 这类 request option。非法 option 会被省略；非法或不完整的 range 会返回显式错误，不能 fallback 成 working-copy review；
-- `src/lib/review/diff-info.ts` 将 Gerrit 的 `DiffInfo` / `DiffContent` 映射到 Farming diff rows 和左右侧 metadata，供未来 Gerrit-like 数据源和后端结构化 diff 共用；
-- 当同时有 Gerrit `FileInfo` 和 `DiffInfo` 时，优先使用 `reviewFileFromGerritFileAndDiffInfo()`：显式存在的文件列表统计和状态来自 `FileInfo`；缺失的统计/status 要回退到 `DiffInfo`，避免 FileInfo 默认值覆盖真实 `change_type` 或行数；inline diff 行始终来自 `DiffInfo`；
 - `src/lib/review/effects.ts` 负责 effect completion helper，例如 `completeReviewFileDiffLoad()` 和 `failReviewFileDiffLoad()`，保证调用方用一致方式收尾 lazy file-diff effect，并拒绝 review id 或 patchset/path 已经不属于当前 catalog 的 stale completion；
 - `src/lib/review/file-info.ts` 将 Gerrit-style `FileInfo` map 归一化为 `ReviewFile[]`，包括 `/COMMIT_MSG` 这类 special path；
 - `src/lib/review/file-list.ts` 派生 Gerrit 风格的文件行 label、按钮、toolbar actions、diff loading state、二进制/文件大小 metadata、文件列表 stats 和 mark-all UI changes；
@@ -200,11 +196,9 @@ Comment id 的作用域是所属 patchset。Client model 应按 `patchset + id` 
 - 展开文件行时必须显式渲染 diff status：loaded 行展示代码，`not-loaded` 行在 lazy request 期间展示 loading 或 error，`binary` 行展示 binary-file message，`too-expensive` 行说明 inline diff 不可用，不能静默渲染成空 diff；
 - 折叠的 common-line gap 对齐 Gerrit 的三段式上下文控件：每个 gap 独立保存展开状态；上方 action 只展开紧邻上一段可见代码的有限行，中间 action 展开整个 gap，下方 action 只展开紧邻下一段可见代码的有限行。展开一侧不能移动另一侧边界，剩余隐藏行数必须原位更新；
 - common-line 展开以 hunk 各自独立的 old/new range 为锚点，只通过单文件 context endpoint 请求用户选中的那段范围。不能用一侧推算另一侧，也不能通过增大全局 context 重新加载整份 diff。只有 range 请求成功后才提交 UI 展开状态，因此 gap 前发生新增时后续左右行不会错位，请求失败也不会抹掉当前控件；
-- `src/lib/review/preferences.ts` 将 Gerrit 的 `DiffPreferencesInfo` 映射为 Farming preferences，并显式处理 `context`、`ignore_whitespace` 和 `intraline_difference`；Farming 单独展开文件时始终标记为 reviewed，而展开全部仅改变展示状态；
 - `src/lib/review/snapshot.ts` 负责 source/range helper、稳定 request key、label，以及从 snapshot 到 review catalog/state 的转换；
 - metadata-only snapshot request key 有意忽略 `context` 和 `ignoreWhitespace`，因为 file-list metadata 与 diff 内容偏好无关；单文件 diff request key 和 patch-text request key 仍然包含这些偏好。Patch 下载应使用 `reviewSnapshotPatchRequestKey()`，不要复用 snapshot key，因为 patch text 会忽略 `metadataOnly` 但依赖 diff 展示偏好；
 - request key 和 API query serialization 对 diff-only options 共享同一个归一化边界：只有非负整数 `context` 和 Gerrit-compatible whitespace modes 才会真正进入 key 或 URL；
-- `reviewCatalogWithFile()` 可以在保持文件顺序和 file-list metadata 的前提下，把 inline diff rows hydrate 到 patchset catalog 中的单个文件，供未来 lazy-expand UI 加载 `DiffInfo` 风格内容，同时避免污染 `FileInfo` 风格统计；
-- `src/lib/review/diff-text.ts` 将 `ReviewFile[]` 序列化回 patch text，供 download 和后续多文件 diff 流程复用。它会优先保留源 `diffHeader`；没有源 header 时，fallback header 会包含模型里的 file mode 和 blob sha metadata，避免 mode-only 或类似二进制 metadata 的变化被抹平。
+- `reviewCatalogWithFile()` 可以在保持文件顺序和 file-list metadata 的前提下，把 inline diff rows hydrate 到 patchset catalog 中的单个文件，让 lazy-expand UI 加载结构化内容时无需重建整个 review state，也不会污染文件列表统计。
 
 这样可以避免同一行同时出现 `Reviewed` 和 `MARK REVIEWED` 这类互相冲突的 Gerrit 操作状态。

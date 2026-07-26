@@ -7,7 +7,7 @@ import {
   reviewFileFromGerritFileInfo,
   reviewFilesFromGerritFileInfoMap,
   reviewKindFromGerritStatus,
-} from '../src/lib/review-model'
+} from '../src/lib/review/file-info'
 
 test('normalizes Gerrit FileInfo defaults before building review files', () => {
   assert.deepEqual(normalizeGerritFileInfo({}, 'src/review.ts'), {
